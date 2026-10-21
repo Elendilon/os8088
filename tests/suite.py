@@ -2753,6 +2753,17 @@ SOAK = [
         "it. SOAK: one package, and 86Box's",
         needs=("86box", "gbroms", "nasm"),
         wants=("build/realboy.o88", "build/os8088.img")),
+    Row("gbreplay", "soak", py("tests/gbreplay.py"), 420.0,
+        "REALBOY's replays (docs/REALBOY-SPEC.md section 10.5) on 86Box's 286, "
+        "in the window and in full screen (the canvas, the recompiler, the "
+        "page flips): GBPAD.GB (tools/gbours.py, ours) folds the buttons and "
+        "the frame into a sum every VBlank; F6 records a scripted play from "
+        "slot 1, F6 writes GAME.RP1, F7 plays it and it must END IN STEP - the "
+        "machine at the play's end the one the recording ended on - and F7 "
+        "again with that sum changed under the play must end OUT OF STEP, or "
+        "the comparison could see nothing. SOAK: one package, and 86Box's",
+        needs=("86box", "nasm", "rgbds"),
+        wants=("build/realboy.o88", "build/os8088.img")),
     Row("gbbank", "soak", py("tests/gbbank.py"), 150.0,
         "REALBOY's bank cache (docs/REALBOY-SPEC.md section 10.3) on 86Box's "
         "286 with 4MB: GBBANK.GB (tools/gbours.py, ours), a 1MB MBC5 cartridge "

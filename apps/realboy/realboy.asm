@@ -91,7 +91,7 @@ rw_state        equ rw_win + 2      ; 0 no game, 1 running, 2 stopped
 rw_pause        equ rw_state + 1
 rw_resetq       equ rw_pause + 1    ; Reset asked; the worker does it
 rw_abon         equ rw_resetq + 1   ; the About card is up
-rw_shown        equ rw_abon + 1     ; rw_fbuf holds a frame
+rw_shown        equ rw_abon + 1     ; [rw_fseg] holds a frame
 rw_argpend      equ rw_shown + 1
 rw_argvol       equ rw_argpend + 1
 rw_last         equ rw_argvol + 1   ; word: the tick last counted
@@ -152,8 +152,9 @@ rw_achg         equ rw_acomp + 2    ; word: ...and changed
 rw_ams          equ rw_achg + 2     ; word: ms drawing this second
 rw_amax         equ rw_ams + 2      ; byte: the longest draw, ms
 rw_aowed        equ rw_amax + 1     ; byte: the most frames owed
-rw_aevt         equ rw_aowed + 1    ; byte: RLE_* this second
-rw_stspan       equ rw_aevt + 1     ; word: rw_logsec's ticks
+rw_aevt         equ rw_aowed + 1    ; word: RLE_* this second, RLE2_* its
+                                    ;   high byte
+rw_stspan       equ rw_aevt + 2     ; word: rw_logsec's ticks
 rw_llen         equ rw_stspan + 2   ; word: the log text's length
 rw_ldig         equ rw_llen + 2     ; word: where its name's digits are
 rw_lfile        equ rw_ldig + 2     ; 13: its name
@@ -216,7 +217,7 @@ rw_msg          equ rw_msgend + 2   ; 21: the note (rw_note)
 rw_logseg       equ rw_msg + 22     ; word: the log's records, RW_LOGN x
                                     ;   RW_LOGSZ, claimed while it is on
                                     ;   (rwlog.inc), or 0 (after a spare
-                                    ;   byte: rw_fbuf stays even)
+                                    ;   byte: the words after stay even)
 rw_lrec         equ rw_logseg + 2   ; RW_LOGSZ: the second's record, made
                                     ;   here and copied into the claim
 rw_lrec2        equ rw_lrec + RW_LOGSZ ; RW_LOGSZ: the write's, a record
@@ -297,9 +298,31 @@ rw_pgdebt       equ rw_fstxto + 2   ; word: frames run ahead of the clock, on
 rw_slotmin      equ rw_pgdebt + 2   ; byte: the bank plan's least slots
 rw_fsstr        equ rw_slotmin + 1  ; word: the speed line's VRAM stride, 40
                                     ;   or the canvas's 256 (rw_fstext)
-rw_fbuf         equ rw_fsstr + 2    ; 5,760: rb_render's frame (monochrome;
-                                    ;   even)
-RW_BSS          equ rw_fbuf + 5760 - rw_win   ; derived: a sum by hand drifted
+rw_rpmode       equ rw_fsstr + 2    ; byte: a replay recording or playing,
+                                    ;   RPM_* (rwreplay.inc)
+rw_rpatb        equ rw_rpmode + 1   ; byte: the last run ended a frame
+rw_rpseg        equ rw_rpatb + 1    ; word: the replay's claim...
+rw_rpcap        equ rw_rpseg + 2    ; word: ...its bytes
+rw_rplen        equ rw_rpcap + 2    ; word: the pairs' end in it
+rw_rppos        equ rw_rplen + 2    ; word: the next pair, playing
+rw_rpleft       equ rw_rppos + 2    ; byte: frames left of the pair's...
+rw_rpcur        equ rw_rpleft + 1   ; byte: ...buttons
+rw_rpfr         equ rw_rpcur + 1    ; dword: frames recorded or played
+rw_rpq          equ rw_rpfr + 4     ; byte: RPQ_*, the UI task's to do
+rw_rpres        equ rw_rpq + 1      ; byte: RPR_*, how it ended
+rw_rpslot       equ rw_rpres + 1    ; byte: the replay's slot, 0-8
+rw_rpstq        equ rw_rpslot + 1   ; byte: F6 again, at the next frame
+rw_rpname       equ rw_rpstq + 1    ; 13: NAME.RPn
+rw_fseg         equ rw_rpname + 13  ; word: rb_render's frame (monochrome;
+                                    ;   two shade planes, 40 bytes a line),
+                                    ;   5,760 bytes after RW_PBUF's in
+                                    ;   [rw_pseg]'s claim - the region had no
+                                    ;   room for them either
+rw_lbuf         equ rw_fseg + 2     ; 40: a line of it, for the Hercules and
+                                    ;   CGA writers (rwfsx.inc)
+rw_bssend       equ rw_lbuf + 40
+RW_BSS          equ rw_bssend - rw_win   ; derived: a sum by hand drifted
+RW_FBUF         equ 5760            ; rb_render's frame, at [rw_fseg]:0
 RW_PBUF         equ 11520           ; the frame as the screen takes it: the
                                     ;   dither's band (20 a line) or BLITP's
                                     ;   four planes (80), at [rw_pseg]:0
@@ -323,10 +346,12 @@ rw_entry:
     call op_load                    ;   reads through the kernel's
     pop es
     jc .refused                     ; no room for the core and view: it said
-    mov ax, (RW_PBUF + 1023) / 1024 ; the frame as the screen takes it
-    call OSAPI_MEM_CLAIM
+    mov ax, (RW_PBUF + RW_FBUF + 1023) / 1024 ; the frame as the screen
+    call OSAPI_MEM_CLAIM            ;   takes it, and rb_render's after it
     jc .noroom
     mov [rw_pseg], dx
+    add dx, RW_PBUF / 16
+    mov [rw_fseg], dx
     mov al, KSC_UP                  ; arm the key map (the first call only
     call OSAPI_KEY_DOWN             ;   arms it)
     OS88_ALTENTER_ARM               ; and Alt, for Alt+Enter
@@ -447,6 +472,7 @@ rw_onwake:
     mov byte [rw_lflq], 0
     call rw_logflush
 .nfl:
+    call rw_rpserve                 ; a replay written, or its end said
     cmp byte [rw_argpend], 0
     je .stopped
     mov byte [rw_argpend], 0
@@ -756,6 +782,7 @@ rw_mbcok:       dw 836Fh, 7E0Fh     ; 00-03 05 06 08 09 0F, 10-13 19-1E
 ; rw_start - rb_init: the view, the core, the ROM, its banks - and the
 ; recompiler over them when it has its cache (REALBOY-SPEC section 16)
 rw_start:
+    call rw_rpdrop                  ; (a replay's machine is gone)
     mov al, 2                       ; the view
     call op_seg
     push ax
@@ -1484,10 +1511,8 @@ rw_cfgkeys:
     je .r
     cmp al, 3Bh
     jb .n
-    cmp al, 3Fh                     ; (F1-F4, and F5 and F8: the states')
-    jbe .r
-    cmp al, 42h
-    je .r
+    cmp al, 42h                     ; (F1-F4; F5 and F8 the states', F6
+    jbe .r                          ;   and F7 the replays')
 .n:
     loop .k
     mov si, rw_cfg + RW_CFGKEY
@@ -2208,7 +2233,7 @@ rw_frame:
     pop cx                          ;   on, so the tick can pre-empt us
     call rw_pgtry
     cmp al, RBX_FRAME               ;   between two: no yield per budget,
-    je .done                        ;   which was nine task switches a frame
+    je .fr                          ;   which was nine task switches a frame
     cmp al, RBX_BADOP
     je .bad
     cmp byte [rw_pgpend], 0         ; (a run cut short for a flip is not
@@ -2216,6 +2241,9 @@ rw_frame:
     inc cx                          ;   it inside a frame, whatever happens)
 .lp:
     loop .run
+    jmp short .done
+.fr:
+    mov byte [rw_rpatb], 1          ; (a replay's buttons change here only)
 .done:
     call rw_gameacc
     cmp byte [rw_infsx], 0          ; (in the bracket there is no one else)
@@ -2594,6 +2622,12 @@ rw_keys:
     pop cx
     pop bx
 .set:
+    cmp byte [rw_rpmode], 0         ; a replay's: recorded, or played in
+    je .s2                          ;   the keys' place, between frames
+    call rw_rpkey                   ;   only (rwreplay.inc)
+    jnc .s2
+    ret
+.s2:
     push ds
     mov ds, [cs:rb_viewseg]
     mov al, [S_JOY]                 ; a button pressed since the last look
@@ -2891,11 +2925,14 @@ rw_blit:
 .white:
     jmp rw_fillwhite
 
-; rw_dither - rw_fbuf as one bit a pixel, 1 = lit: shade 0 all lit, 1 a
-; quarter dark, 2 half (a checkerboard), 3 all dark - a 2x2 ordered dither
+; rw_dither - [rw_fseg]'s frame as one bit a pixel, 1 = lit: shade 0 all
+; lit, 1 a quarter dark, 2 half (a checkerboard), 3 all dark - a 2x2 ordered
+; dither
 rw_dither:
     mov es, [rw_pseg]
-    mov si, rw_fbuf
+    push ds
+    mov ds, [rw_fseg]
+    xor si, si
     xor di, di
     xor dx, dx                      ; DL = the row's parity
 .row:
@@ -2936,18 +2973,19 @@ rw_dither:
     inc dl
     cmp dl, RW_CONT_H
     jb .row
+    pop ds
     ret
 
-; rw_dchg - DL = a line: ZF = 0 if the last rb_renderd changed it
+; rw_dchg - DL = a line: ZF = 0 if the last rb_renderd changed it. Any DS
 rw_dchg:
     push bx
     mov bl, dl
     xor bh, bh
-    cmp byte [rw_chg + bx], 0
+    cmp byte [cs:rw_chg + bx], 0
     pop bx
     ret
 
-; rw_render - rb_renderd into rw_fbuf, and its changed lines into rw_chg
+; rw_render - rb_renderd into [rw_fseg], and its changed lines into rw_chg
 ; (every line, without the damage memory). AX = how many.
 rw_render:
     push bx
@@ -2955,9 +2993,8 @@ rw_render:
     push dx
     push si
     push di
-    push ds
-    pop es
-    mov di, rw_fbuf
+    mov es, [rw_fseg]
+    xor di, di
     cmp byte [rb_panon], 0          ; (PAGES: the 42-byte lines, into the
     je .buf                         ;   screen's claim - rwfsx.inc)
     mov es, [rw_pseg]
@@ -2987,6 +3024,8 @@ rw_render:
     pop ax
     push ax
     add [rw_achg], ax               ; (the log's counts)
+    push ds                         ; (ES was the frame's)
+    pop es
     mov di, rw_chg
     mov cx, 144 / 2
     mov ax, [rb_dmgseg]
@@ -3083,13 +3122,15 @@ rw_blitd:
     mov byte [rw_pfmt], 0           ;   next draw is dithered, every line
     ret
 
-; rw_planes - the lines rb_renderd changed, from rw_fbuf's two shade planes
+; rw_planes - the lines rb_renderd changed, from [rw_fseg]'s two shade planes
 ; into [rw_pseg] as BLITP's four: NOT bit 1 three times, then NOT bit 0 - the
 ; desktop's 15, 7, 8 and 0 for shades 0-3 (rb_render4's layout)
 rw_planes:
     mov es, [rw_pseg]
+    push ds
+    mov ds, [rw_fseg]
     xor dx, dx                      ; DL = the line
-    mov si, rw_fbuf
+    xor si, si
     xor di, di
 .l:
     call rw_dchg
@@ -3121,6 +3162,7 @@ rw_planes:
     inc dl
     cmp dl, RW_CONT_H
     jb .l
+    pop ds
     ret
 
 ; rw_dmgclaim - on the UI task, once: rb_renderd's memory, when there is
@@ -3438,6 +3480,10 @@ rw_oncmd:
     je rw_stsave                    ; Save State, Load State (F5, F8)
     cmp al, 2
     je rw_stload
+    cmp al, 3
+    je rw_rprec                     ; Record Replay, Play Replay (F6, F7)
+    cmp al, 4
+    je rw_rpplay
     push si                         ; File > Close: the close box's work
     call rw_onclose                 ;   first - the battery's RAM, the
     pop si                          ;   profile, the log - since a close the
@@ -3447,8 +3493,13 @@ rw_oncmd:
 .machine:
     cmp al, 0
     jne .pause
+    cmp byte [rw_rpmode], 0         ; (a replay is one machine's from its
+    jne .rpb                        ;   start)
     mov byte [rw_resetq], 1         ; Reset: the worker's to do
     ret
+.rpb:
+    mov si, rw_s_rpbusy
+    jmp rw_note
 .pause:
     cmp al, 1
     je .p
@@ -3511,13 +3562,20 @@ rw_tpl:
     dw rw_ttl, rw_paint, rw_onkey, rw_abdismiss
 
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
-        OS88_MENU rw_m_file, rw_i_file, 4
+        OS88_MENU rw_m_file, rw_i_file, 6
         OS88_MENU rw_m_mach, rw_i_mach, 11
     OS88_MENUSET_END rw_menus
 
 rw_ttl:         db 'RealBoy', 0
 rw_m_file:      db 'File', 0
-rw_i_file:      dw rw_it_open, rw_it_sv0, rw_it_ld0, rw_it_close
+rw_i_file:      dw rw_it_open, rw_it_sv0, rw_it_ld0, rw_it_rec0, rw_it_ply0
+                dw rw_it_close
+rw_it_rec:      db 'Record Replay', 0
+rw_it_recs:     db 'Stop Recording', 0
+rw_it_rec0:     db MENU_DIS, 'Record Replay', 0
+rw_it_ply:      db 'Play Replay', 0
+rw_it_plys:     db 'Stop Replay', 0
+rw_it_ply0:     db MENU_DIS, 'Play Replay', 0
 rw_it_sv:       db 'Save State', 0
 rw_it_sv0:      db MENU_DIS, 'Save State', 0
 rw_it_ld:       db 'Load State', 0
@@ -3604,6 +3662,7 @@ rw_ab7:         db 'F1 = speed', 0
 %include "rwlog.inc"
 %include "rwbank.inc"
 %include "rwstate.inc"
+%include "rwreplay.inc"
 %include "rwfm.inc"
 %include "os88data.inc"
 

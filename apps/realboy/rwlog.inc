@@ -24,7 +24,7 @@ RW_LOGRKB       equ RW_LOGN * RW_LOGSZ / 1024 ; the records' claim, KB: taken
                                     ;   back once it is written, so a
                                     ;   session that never logs pays nothing
                                     ;   (it was 4KB of the package's bss)
-RW_LLMAX        equ 150             ; the text at the write, claimed for the
+RW_LLMAX        equ 176             ; the text at the write, claimed for the
 RW_LHMAX        equ 640             ;   lines it has: a line is at most ~146
                                     ;   characters (every event named) and
                                     ;   the head under 640. It was 24KB
@@ -45,7 +45,7 @@ RL_CHG          equ 10
 RL_MS           equ 12
 RL_MAX          equ 14
 RL_FLAGS        equ 15
-RL_EVT          equ 16              ; byte: what the user did in the second
+RL_EVT          equ 16              ; word: what the user did in the second
 RL_SMS          equ 18              ; word: ms comparing VRAM and OAM (scan)
 RL_CMS          equ 20              ; word: ms composing the lines
 RL_GMS          equ 22              ; word: ms running the Game Boy (rb_run)
@@ -61,6 +61,10 @@ RLE_FSOUT       equ 10h             ;   ...and out
 RLE_JITON       equ 20h             ;   the recompiler on
 RLE_JITOFF      equ 40h             ;   ...and off
 RLE_F1          equ 80h             ;   F1's line
+RLE2_RECON      equ 01h             ; RL_EVT's high byte (rw_logevt2): a
+RLE2_RECOFF     equ 02h             ;   replay recorded from here, to here,
+RLE2_PLAYON     equ 04h             ;   played from here and to here
+RLE2_PLAYOFF    equ 08h             ;   (rwreplay.inc)
 
 ; rw_clk - DX:AX = now, in 8253 counts of 838 ns. In a rate bracket the
 ; counter runs at the bracket's divisor and the hook counts its periods, so
@@ -276,8 +280,8 @@ rw_logsec:
     or al, 20h
 .i:
     mov [bx + RL_FLAGS], al
-    mov al, [rw_aevt]
-    mov [bx + RL_EVT], al
+    mov ax, [rw_aevt]
+    mov [bx + RL_EVT], ax
     call rw_logdelta                ; the counters' seconds
     mov [bx + RL_EVN], ax
     mov [bx + RL_BLK], cx
@@ -336,13 +340,18 @@ rw_logsec:
     mov [rw_ams], ax
     mov [rw_amax], al
     mov [rw_aowed], al
-    mov [rw_aevt], al
+    mov [rw_aevt], ax
     ret
 
 ; rw_logevt - AL = RLE_* bits: something the user did, into this second's
 ; record. Any context.
 rw_logevt:
     or [rw_aevt], al
+    ret
+
+; rw_logevt2 - AL = RLE2_* bits, likewise
+rw_logevt2:
+    or [rw_aevt + 1], al
     ret
 
 ; rw_logtoggle - Machine > Log, on the UI task: on from nothing, or off and
@@ -793,12 +802,12 @@ rw_lline:
     mov al, 'I'                     ; Machine > Interlace on
     stosb
 .e2:
-    mov dl, [bx + RL_EVT]           ; what the user did, by name
+    mov dx, [bx + RL_EVT]           ; what the user did, by name
     mov si, rw_s_levts
 .ev:
-    or dl, dl
+    or dx, dx
     jz .ee
-    shr dl, 1
+    shr dx, 1
     jnc .evn
     push si
     call rw_lstr
@@ -886,6 +895,10 @@ rw_s_levts:     db ' RESET', 0
                 db ' JIT+', 0, 0
                 db ' JIT-', 0, 0
                 db ' F1', 0, 0, 0, 0
+                db ' REC+', 0, 0
+                db ' REC-', 0, 0
+                db ' PLAY+', 0
+                db ' PLAY-', 0
 rw_s_logon:     db 'Log on: written at close', 0
 rw_s_logok:     db 'Log: ', 0, '           ', 0
 rw_s_logrm:     db 'No room for the log', 0 ; (a toast shows 24 characters)

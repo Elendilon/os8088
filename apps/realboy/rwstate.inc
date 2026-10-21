@@ -23,7 +23,8 @@
 ; =============================================================================
 
 ; rw_stkey - rw_klat's: AH = a typed key's scancode. 1-9 the slot, F5 save,
-; F8 load. On the UI task, in the window (W_ONKEY) and the bracket alike
+; F8 load, F6 and F7 the slot's replay. On the UI task, in the window
+; (W_ONKEY) and the bracket alike
 rw_stkey:
     cmp ah, 02h                     ; '1'
     jb .r
@@ -33,6 +34,10 @@ rw_stkey:
     je rw_stsave
     cmp ah, 42h                     ; F8
     je rw_stload
+    cmp ah, 40h                     ; F6, F7: the slot's replay recorded
+    je rw_rprec                     ;   and played (rwreplay.inc)
+    cmp ah, 41h
+    je rw_rpplay
 .r:
     ret
 .slot:
@@ -131,6 +136,15 @@ rw_strun:
 rw_stsave:
     call rw_stgrab
     jc .r
+    call rw_stwr
+    call rw_stsay
+    call rw_strun
+.r:
+    ret
+
+; rw_stwr - the machine still (rw_stgrab): the slot's file written. SI = what
+; to say (rw_stsay); CF = 1 it was not. Replay's start is one (rwreplay.inc)
+rw_stwr:
     push ds
     mov ds, [cs:rb_viewseg]
     call rb_ramsync                 ; the window back in its bank first
@@ -170,15 +184,12 @@ rw_stsave:
     call rw_fback                   ; (CF kept)
     jc .fail
     mov si, rw_s_stsaved
-    jmp short .say
+    ret                             ; (CF = 0)
 .nogo:
     call rw_fback
 .fail:
     mov si, rw_s_stnosave
-.say:
-    call rw_stsay
-    call rw_strun
-.r:
+    stc
     ret
 
 ; rw_stload - F8, File > Load State: the slot's file read back. Nothing of
@@ -186,8 +197,23 @@ rw_stsave:
 ; state of THIS game; past that, a read that fails resets the game rather
 ; than leave it half one machine and half another
 rw_stload:
+    cmp byte [rw_rpmode], 0         ; (a replay is one machine's from its
+    je .go                          ;   start: rwreplay.inc)
+    mov si, rw_s_rpbusy
+    jmp rw_note
+.go:
     call rw_stgrab
     jc .r
+    call rw_strd
+    call rw_stsay
+    call rw_strun
+.r:
+    ret
+
+; rw_strd - the machine still (rw_stgrab): the slot's file read back. SI =
+; what to say (rw_stsay); CF = 1 nothing was loaded - or it broke part way
+; and the game was reset. Replay's play is one (rwreplay.inc)
+rw_strd:
     push ds
     mov ds, [cs:rb_viewseg]
     call rb_stram
@@ -282,27 +308,27 @@ rw_stload:
     pop es
     call rw_fback
     mov si, rw_s_stloaded
-    jmp short .say
+    clc
+    ret
 .broken:
     pop es
     call rw_fback
     call rw_reset                   ; half loaded: the game from its start
     mov si, rw_s_stbroken
-    jmp short .say
+    stc
+    ret
 .notours:
     pop es
     call rw_fback
     mov si, rw_s_stother
-    jmp short .say
+    stc
+    ret
 .none:
     pop es
 .nogo:
     call rw_fback
     mov si, rw_s_stempty
-.say:
-    call rw_stsay
-    call rw_strun
-.r:
+    stc
     ret
 
 rw_s_stslot:    db 'Slot #', 0

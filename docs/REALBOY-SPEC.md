@@ -639,6 +639,72 @@ deliberately wrong replays exactly. The package's half on MartyPC writes
 `CLOCK0.SS3`, reads it back off the floppy at 34,816 bytes, and loads it in
 the window and in full screen.
 
+### 10.5 Replays
+
+**A replay is a save state and the buttons from there, a frame at a time**
+(`apps/realboy/rwreplay.inc`). F6 - File > Record Replay - saves the slot's
+state exactly as F5 does (`rw_stwr`, the save's body without its words) and
+keeps the joypad from then on; F6 again writes the buttons beside the game
+as `NAME.RP1` to `NAME.RP9`, the slot's digit. F7 - File > Play Replay -
+reads that file, loads the slot's state exactly as F8 does (`rw_strd`) and
+gives the game the file's buttons in the keyboard's place until they run
+out; F7 again stops it. Both work in the window and in full screen. It is
+for MEASURING: the field could not run one game the same way twice, and a
+log of a replay against a log of the same replay on another build is the
+first comparison that is about the build and not the play.
+
+**The buttons change only between two frames** while a replay records or
+plays. `rw_keys` writes `S_JOY` once before every `rw_frame`, but a run
+that ends short of a VBlank - the LCD off, a flip's short budget (15.4) -
+is followed by another `rw_keys` mid-frame, and how many there are depends
+on the machine's timing, not the game's. So `rw_frame` sets `[rw_rpatb]`
+when its run ended at RBX_FRAME, and with a replay on `rw_keys` writes
+`S_JOY` only then (`rw_rpkey`): frame *n* gets the same buttons in every
+play, on any machine, at any speed, whatever the recompiler did. It costs
+nothing a game could see - games read the pad in VBlank - and nothing at
+all without a replay.
+
+**The file is the buttons, RLE**: a byte of `S_JOY` and the frames it held
+for (1-255), after a 16-byte head - `RBRP`, the format (1), the `S_JOY` the
+recording began with (a press is the JOYPAD interrupt's, so the first
+frame's must find what the recording's found), the state's record summed
+(`rw_rpsum`), the frames as a dword, the machine summed at the end
+(`rw_rphash`) and the pairs' bytes. A play of a game is a few hundred
+bytes; the claim is 8KB, 4,088 changes of the buttons, and a recording that
+fills it ends and is written ("full, saved").
+
+**Two sums make it honest.**
+- **The state's**: a replay is of THAT state, so the 2KB record the slot's
+  file carries (10.4) is summed at the recording and again when the play
+  loads it. A slot saved over since is "Slot n was saved over", and the
+  play does not start - it would be the right buttons into the wrong game.
+- **The machine's at the end**: VRAM, WRAM, OAM and HRAM, summed when the
+  recording ends and when the play runs out. A play that comes out
+  anywhere else says "OUT OF STEP" instead of "ended" (`[rw_rpres]`). Not
+  the cartridge's RAM window, which a load may leave holding another bank
+  until the game touches it, nor the I/O registers, which the core brings
+  up to date when they are read rather than as time passes. It is what a
+  machine that is not deterministic would be caught by.
+
+**Both ends are between frames.** F6 grabs the machine as a save does
+(`rw_stgrab`): parked between frames, as a rule, and the recording ends
+there; if the last run did not end a frame, at the next that does
+(`[rw_rpstq]`). A play ends at the boundary its buttons run out at - the
+same one.
+
+**Who does what.** The worker records and plays (`rw_rpkey`, on
+`rw_keys`); the UI task claims, writes, frees and speaks (SPEC.md 20.6 rule
+7). The worker finishing one queues `[rw_rpq]` and wakes the window
+(`rw_onwake` calls `rw_rpserve`); in full screen `rw_keys` IS the UI task,
+which serves it at once. Reset, Load State and File > Open are refused
+while one runs ("A replay is running"): each is another machine.
+
+`tests/gbreplay.py` is the gate: GBPAD.GB (ours) folds the buttons and the
+frame into a sum at C000h every VBlank, and on 86Box's 286 - in the window,
+and in full screen with the canvas, the recompiler and the page flips - a
+scripted play is recorded, played back and must end in step, and played
+again with that sum changed under it and must end OUT OF STEP.
+
 ## 11. The raster log
 
 A write to LCDC, SCY, SCX, BGP, OBP0, OBP1, WY or WX during the visible lines
@@ -1209,7 +1275,7 @@ on a machine with no debugger.
   `[rw_logseg]` before it frees the claim, so a copy either lands whole
   or is not made. A claim the heap cannot give refuses the log with a
   toast.
-- **The text is claimed at the write for the lines there are**: 150
+- **The text is claimed at the write for the lines there are**: 176
   bytes a line and 640 for the head (`RW_LLMAX`, `RW_LHMAX`), so 30
   seconds is 5 KB and two minutes 19 KB; with no room for that, the latest
   half, and so on down to one line, and only then `Log: no room to
@@ -1244,7 +1310,11 @@ on a machine with no debugger.
   that does not is waiting.
 - **And what the user did in that second**, by name: RESET, PAUSE, GO
   (unpaused), FS+ and FS- (into and out of full screen), JIT+ and JIT-
-  (Machine > Recompiler), F1.
+  (Machine > Recompiler), F1, and REC+, REC-, PLAY+ and PLAY- - a replay
+  recorded and played (10.5), which is how two logs of one replay are
+  lined up second for second. The user's byte is a word now (`RL_EVT`,
+  the replays' bits its high byte, `rw_logevt2`), the record's spare byte
+  17 being where it grew, and a line's text 176 bytes (`RW_LLMAX`).
 - **The clock** is the 8253's counter 0 extended by the BIOS tick
   (`apps/os88pit.inc`, 838 ns a count). Inside a rate bracket the counter
   runs at the bracket's divisor, so there it is the hook's period count and
@@ -1280,7 +1350,8 @@ is 155 rows, and the window fits it whole.
 - **Refused, and said so on the screen**: Esc, Alt (Alt+Enter is full
   screen, and while Alt is held the joypad reads nothing), F1-F4 - the
   speed line and Machine > Interlace, Recompiler and Speed's next settings
-  - the save states' F5, F8 and 1-9 (10.4), and F12, the log written now
+  - the save states' F5, F8 and 1-9 (10.4), the replays' F6 and F7
+  (10.5), and F12, the log written now
   (section 14.1's Machine > Log), documented shortcuts every one. A REALBOY.CFG whose map holds one of
   them is read with the keys as they shipped (`rw_cfgkeys`). The wait
   goes on after a refusal. A key with no make code of its own is refused
@@ -1321,6 +1392,22 @@ planes) - which is a claim of its own now, `[rw_pseg]`, made in the entry
 proc beside the core and the view: the region is that much smaller as the
 claim is made, so the machine's free memory comes out the same. Image and
 bss are 54,142 of 65,024 with both features, 10,882 to spare.
+
+**And then the replays (10.5) met it, 1,527 bytes over**: the canvas and
+the recompiler's two segments had spent the 10,882. The same move again,
+for the other frame: rb_render's own, the 5,760 bytes of two shade planes,
+is `[rw_fseg]` now - the same claim as `[rw_pseg]`, 17KB, from its
+11,520th byte. Its readers take DS from it (`rw_dither`, `rw_planes`, and
+`rw_dchg` reads the changed lines through CS so either may call it); the
+Hercules and CGA writers read their own table beside the line, so each
+line is copied into `rw_lbuf` first, 40 bytes. 60,871 of 65,024 with
+replays, 4,153 to spare.
+
+**Moving it found a defect the full-screen pages had shipped with since
+15.4**: `rw_render` hands `rb_renderd` its output in ES and then copied the
+changed lines into `rw_chg` through ES too - which in full screen was
+`[rw_pseg]`, so every frame wrote 144 bytes into the heap ~57KB past a 12KB
+claim, wherever that landed. The copy takes ES from DS now, on both paths.
 
 **It shipped once taking the UI task with it**: `jmp OSAPI_WM_SHOW` as a
 tail call assembles - every `OSAPI_*` is a far address - and the cell's
