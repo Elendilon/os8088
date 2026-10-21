@@ -9253,3 +9253,26 @@ conventional memory, at e94a733d. Sources: 14.52.4's table, 14.41, 14.45,
 | the descriptor tables | the kernel | GDT/LDT/IDT | conventional (14.2 item 12) | |
 | the redirected-volume bounce | the kernel | 512 bytes a call | a buffer above 1MB reaching a RAM disk or a cable share (10.3 item 81) | |
 | the launch's brief conventional room | the loader | the image | the re-home reads low before it lifts (14.38.6) | deferred by the owner's decision |
+
+### 14.61 Field: after several DOS round trips the keyboard AND the mouse are dead (2026-10-21)
+
+The owner, on the Victory 286 at kern_mega 78e04d0d or near it: Test Drive III
+launched through the DOS box and came back to the desktop **about three
+times**; on the fourth return **the keyboard and the mouse were both
+dead**. The machine was NOT frozen - the DOS box's end-of-program toast came
+up and went away - and **NumLock did not change the keyboard's LEDs**. The
+owner's read: *"I doubt this is 'exactly the 4th try' - it's probably some
+state or race."*
+
+What the symptom says before anything is measured: both devices sit behind
+the 8042, and both dying together while IRQ0 and drawing run points at the
+CONTROLLER or at the PIC lines they share a path through, not at either
+device. The first suspect is a byte left in the 8042's output buffer with
+its interrupt edge missed - ISA IRQs are edge-triggered, so a byte that
+arrives while IRQ1/IRQ12 is masked, unhooked or mid-swap, and is never read
+from port 60h, keeps OBF set and the line high with no new edge, and the
+controller then sends nothing from EITHER port. That is a race by nature,
+which fits "about the fourth". Others to rule out: the 8042 command byte or
+port enables (AD/A7) left as the game set them; the master IMR's IRQ1 or the
+cascade bit; 14.57's re-knock, which the DOS return also runs. **OPEN, being
+investigated as 14.62.**
