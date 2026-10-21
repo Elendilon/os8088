@@ -14160,6 +14160,19 @@ SOAK = [
         "put back to one paragraph (BOUNCE.GIF FAULTs on frame 0). 260s is "
         "192 measured under Bochs plus the tree",
         needs=("bochs", "nasm")),
+    Row("megadosp", "soak", py("tests/megadosp.py"), 160.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.54: the windowed DOS box's PROMPT "
+        "on kern_mega with no #GP fixup per character printed - dos_hk_tty "
+        "entered con_write with `push cs / pop ds`, so every byte of a DIR, "
+        "an ECHO or a TYPE was one completed write through the box's code "
+        "selector (20,002 for a 20,000-byte TYPE; 5.55 s against 4.02 s on "
+        "86Box's mr286). MEGATRAP=1's census (a private tree) under Bochs, "
+        "B: holding kern_mega's DOS.O88 and an 800-byte file: the launch, "
+        "ECHO of 60 characters and DIR add no trap line, TYPE at most the "
+        "two .stale fixups its buffer's free costs a command, and none a "
+        "kern_mega FAULT. Red with the `push cs / pop ds` put back "
+        "(ECHO 62, DIR 87, TYPE 802). 160s is 157 measured, the tree reused",
+        needs=("bochs", "nasm")),
     Row("pxsmega", "soak", py("tests/pxsmega.py"), 200.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.50: PIXELSTEIN 3D PLAYED on kern_mega "
         "with no #GP fixup - megatrap0 counts a launch, and the game's cost "

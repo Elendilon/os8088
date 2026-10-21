@@ -8486,3 +8486,161 @@ PR this to upstream":
 Two that are fine as they are and recorded so nobody re-audits them: the
 re-home carve at launch (14.38.6, brief), and PiXEL's claims (not HIGHMEM,
 14.40 - the gate's one exemption).
+
+### 14.54 The DOS prompt's #GP fixups: measured, priced and taken out (2026-10-21)
+
+The owner's question: *"Does the dos prompt trap cause a performance issue?
+If so we might want to fix that before we PR."* **Yes - 28% of a long TYPE
+on the mr286 - and it is fixed**, on kern_mega's DOS.O88 alone, for 15 bytes.
+
+#### 14.54.1 What traps, counted (Bochs 2.7, 16MB, `make megatrap`)
+
+The box in its window, started through MEGARUN; each command typed at the
+prompt and the E9 census read until it went quiet for 10 s. Base 72fba2b3.
+
+| operation | #GP fixups | sites |
+|---|---:|---|
+| 20 s idle at the prompt | 0 | |
+| typing a 65-character command line (the editor's echo) | 0 | |
+| `ECHO` + 60 characters | **62** | `con_markc` 61, `con_write`'s CR 1 |
+| `ECHO` + 10 characters | **12** | the same |
+| `DIR \RUN` (two files) | **87** | `con_markc` 83, CR 4 |
+| `TYPE` of 800 bytes | **802** | `con_markc` 790, CR 10, and the two `.stale` below |
+| `TYPE` of 20,000 bytes | **20,002** | `con_markc` 19,750, CR 250, the two `.stale` |
+
+**Exactly one per byte printed**, plus the two `.stale` fixups a TYPE's
+buffer free costs once a COMMAND (`api_x.done`'s `pop es` and the core's
+`dsh_bufput` `pop es` at 282C:33B5, 14.52.3 - left, below). Every one of the
+per-byte traps comes from ONE entry: `dos_hk_tty` (DHK_TTY, the box's console
+hook) did `push cs / pop ds` before `call con_write`, so con_write's first
+store - `con_markc`'s `or [con_drb + bx], al`, or `.cr`'s `mov word
+[con_cx], 0` - went through the box's read-only CODE selector, and
+`mega_gpw` swapped DS for the data selector in the frame and ran it again.
+The swap lasts only to dos_hk_tty's `pop ds`, so the next byte pays again.
+
+**INT 21h AH=02h/09h/3Fh, INT 33h polls and "a windowed DOS program printing
+a lot" do not exist on kern_mega**: `dos_mem_fix` forces `DOS_MEM_WHOLE`
+(KERN-MEGA-DOS-PLAN 12.1 item 1), so every program runs under `kern_dos` in
+REAL mode, where there is no #GP to complete. The window runs the prompt and
+nothing else, and the prompt's built-ins reach the console through
+dos_tty -> DHK_TTY. The other `push cs` sites in `dos.asm` are under
+`%ifndef DOS_EXTCORE` (kern_dos's copy, real mode) or cold (`dos_snap`,
+`dos_pkt_*`, which the idle census showed at 0).
+
+#### 14.54.2 Priced, two ways
+
+**PREDICTED, 80286 clocks** (Intel's protected-mode table; `m` taken as 3,
+no wait states), the path a `con_markc` fixup takes with DS = the box's pool
+code selector and ES a GDT selector:
+
+| step | clocks |
+|---|---:|
+| the store's first attempt + #GP through the IDT's interrupt gate, same privilege (40+m) | 48 |
+| `mega_xs` stub: `push imm8`, `jmp near` | 13 |
+| `mega_fault`: `cli`, `pusha`, two `push sreg`, `mov ds` (17), the vector compare and `je` | 63 |
+| `mega_gpfix`'s error-code test | 17 |
+| `mega_gpw`'s head and `call mega_cs2ds` | 26 |
+| `mega_cs2ds` -> `mega_ldt2ds` (the pair's twin checked: `mov es` 17, `pop es` 20, eight compares) | 201 |
+| the prefix scan: `mov es,[ss:bp+26]` (19), seven compares | 84 |
+| DS: `mega_cs2dsw` -> `mega_cs2ds` -> `mega_ldt2ds` again, and the frame store | 241 |
+| ES: `mega_cs2dsw`, `mega_cs2ds` refuses a GDT selector | 82 |
+| `.fixed`, `jmp mega_gpfix.resume` | 14 |
+| resume: `pop es`/`pop ds` (20 each), `popa` (19), `add sp`, `iret` same privilege (31) | 95 |
+| **one fixup** | **~884** |
+
+The replacement `mov ds, [cs:dos_dsel]` costs what `push cs / pop ds` did
+(19 + the prefix against 3 + 20), so the saving is the whole ~884 clocks a
+byte: **55 us at 16 MHz, 74 us at 12 MHz, 110 us at 8 MHz**. 20,000 bytes is
+~1.1 s on the mr286's 16 MHz; a 40-byte DIR row ~2.2 ms.
+
+**MEASURED-ish, 86Box `286-mega`** (the mr286: MR BIOS 286, 16 MHz, 4MB;
+not cycle-accurate, so the ratio is the finding and not the microseconds).
+DOS.O88 and the text files on a 1.44MB B:, the box launched by
+double-click, each command timed in EMULATED ms (held machine, 50 ms steps)
+from the Return to the first frame of its finished console picture - the
+console paints once the verb has returned. Three rounds each, the same
+command sequence:
+
+| command | before (ms) | after (ms) | difference |
+|---|---|---|---:|
+| `TYPE` 20,000 bytes | 5,650 / 5,500 / 5,500 | 4,150 / 3,950 / 3,950 | **-1,533 ms, -28%** |
+| `TYPE` 800 bytes | 1,650 / 1,850 / 1,800 | 1,900 / 1,750 / 1,750 | in the noise (predicted -45 ms) |
+| `DIR` (three files) | 1,600 / 1,600 / 1,650 | 1,600 / 1,600 / 1,650 | in the noise (predicted -5 ms) |
+
+1,533 ms over 20,002 fixups is **77 us a fixup on 86Box**, ~1,230 of its
+clocks against the 884 predicted - its 286 is not Intel's table, and its
+memory and the prefetch refill after an exception are its own; the two
+agree on the order. What the byte costs ANYWAY is the marginal of the long
+TYPE over the short one: **197 us a byte before and 115 after**, so the
+fixup was **41% of every byte the prompt prints**; a short command is
+dominated by the floppy read and the one 25-row paint (~1.6-1.8 s either
+way here), which is why DIR on three files does not show it. **It is a
+user-visible cost on a long listing or a TYPE of any length**, and the
+86Box fault log agrees: a session of the old box logged more #GP than the
+patch's 100,000-line cap, the same session on the new box 112 (the BIOS's
+and `mega_svc_lo.r286`'s own).
+
+#### 14.54.3 The fix
+
+`dos_hk_tty`, under `%ifdef DOS_MEGA` only: **`mov ds, [cs:dos_dsel]`** in
+place of `push cs / pop ds`. `dos_dsel` is a word in the box's image,
+written THROUGH DS by `dos_hk_bind` (which runs once, before the first
+door, with DS the box's data selector) and read through CS, which is
+readable. A pool region keeps its selectors when it moves (`mx_compactf`,
+"a block MOVES WITH NO RELOCATION PROC"), so the word stays right on the
+case that ships; for the conventional fallback, whose segment IS its data
+selector and changes when it moves, `OS88_REGION_MOVABLE` names
+`dos_reloc`, which writes DX (where the region is now) into the word
+through DX itself. Nothing else in the box changed: the per-byte path is
+the only hot one the census found.
+
+- **Cost**: kern_mega's `dosp.bin` (part 0 of `kdos/DOS.O88`) **51,220 ->
+  51,235, +15 bytes** - `mov ds, [cs:x]` is 5 against 2 (+3), the word (+2),
+  `dos_reloc` (+9), the store in `dos_hk_bind` (+4), and the named
+  `OS88_REGION_MOVABLE` form is 3 shorter than the bare one (-3).
+  `kdos/DOS.O88` is 65,314 bytes either way (the part is padded to its
+  alignment). `CORE_MAX` is untouched: the hook is the HOST's, not the
+  core's.
+- **Identical, checked by md5 at one commit**: kern_big's `kdos/DOS.O88`,
+  `dosp.bin`, `doscore.bin`, `kerndos.bin` and the icon pipeline's
+  `dos.o88`; and on kern_mega `doscore.bin`, `kerndos.bin` and
+  `kerndosl.bin`, assembled with the old `dos.asm` and the new. No kernel
+  source changed, so no kernel byte on any build.
+
+**Measured after**: the Bochs census above re-run on the new DOS.O88 -
+ECHO 60 and 10 characters **0**, DIR **0**, TYPE 800 bytes **2**, TYPE
+20,000 bytes **2** (the `.stale` pair each, which does not grow with the
+file). The 86Box column above is the same build.
+
+#### 14.54.4 The menu save-under fix of 72fba2b3, verified
+
+Clear Skies (OS88_HIGHMEM, OS88UI_DROP) under Bochs on `make megatrap`'s
+kernel, started through MEGARUN: the Location drop-list opened and an entry
+picked four times, the Plane drop-list once - five closes.
+
+| SKIES.O88 built from | `api_x.done` (0060:04ED) stale-ES fixups |
+|---|---:|
+| 433bf4ed (72fba2b3's parent) | **5** - one a close |
+| 72fba2b3 | **0** |
+
+The only other trap lines in either boot are `mega_strcal`'s two at boot.
+
+#### 14.54.5 Left
+
+- **The `.stale` pair a TYPE or COPY** (14.52.3): ~1,800 clocks a COMMAND,
+  not a byte, so not a cost anybody can see. The host half could be taken
+  in `dos_hk_free` (ES off the claim before `OSAPI_MEM_FREE`) but the
+  core's own `pop es` in `dsh_bufput` would still reload the freed
+  selector, and the core has 37 bytes of kern_mega slack for everything
+  else. Left.
+- **The 286 reset path** (`mega_svc_lo.r286`'s deliberate #GPs, one a
+  reflected BIOS call) is what the 86Box log's other lines are, and is not
+  this item.
+
+**Rows**: `megadosp` (soak, new - Bochs, the census at the prompt: the
+launch, ECHO and DIR at 0, TYPE at most the `.stale` pair; red with the
+`push cs / pop ds` put back, `--pkg` with the base's DOS.O88 reading ECHO
+62, DIR 87, TYPE 802); `megatrap0`, `megarehome` (soak, Bochs: DOS.O88 still
+launches high); and on kern_big, where DOS.O88 is byte-identical, nothing
+can see it - `dosmouse`, `dosmem`, `dosram` and the other `dos*` rows run
+the same image they ran before.

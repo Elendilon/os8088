@@ -911,7 +911,11 @@ dos_entry:
                                     ; opens this box exactly nothing
 %endif
 
+%ifdef DOS_MEGA                     ; (kern_mega: the proc keeps dos_dsel,
+    OS88_REGION_MOVABLE dos_reloc   ; dos_hk_tty's DS, KERN-MEGA-PLAN 14.54)
+%else
     OS88_REGION_MOVABLE             ; **AND OUR REGION MAY MOVE** (SPEC.md
+%endif
                                     ; 96.35, 66.6.1), which is the half of the
                                     ; arena recovery that is ours. The sound
                                     ; driver sits ABOVE us on the heap, so the
@@ -5639,6 +5643,9 @@ dos_hk_bind:
     mov word [dos_hkv + DHK_TXT],  dos_hk_txt
     mov word [dos_hkv + DHK_CLAIM], dos_hk_claim
     mov word [dos_hkv + DHK_FREE],  dos_hk_free
+%ifdef DOS_MEGA
+    mov [dos_dsel], ds              ; ...and the DS dos_hk_tty loads (14.54)
+%endif
     pop ax
     ret
 
@@ -5677,9 +5684,18 @@ dos_hk_tty:
     cmp byte [cs:dos_inbr], 0
     jne .rom                        ; inside the bracket the ROM's teletype IS
     push ds                         ; the machine's own screen
-    push cs                         ; ...and the console arm needs OUR DS for
-    pop ds                          ; real, con_scr and every byte of the
-    call con_write                  ; library being DS-relative
+%ifdef DOS_MEGA
+    mov ds, [cs:dos_dsel]           ; ...and the console arm needs OUR DS for
+%else                               ; real, con_scr and every byte of the
+    push cs                         ; library being DS-relative. **kern_mega
+    pop ds                          ; LOADS IT, it does not copy CS**: there
+%endif                              ; CS is a read-only CODE selector, and
+                                    ; `push cs / pop ds` made con_write's
+                                    ; first store a #GP that mega_gpw
+                                    ; completed - ONE PER BYTE PRINTED, every
+                                    ; DIR row and TYPE of the prompt's
+                                    ; (KERN-MEGA-PLAN 14.54)
+    call con_write
                                     ; IT DRAWS NOTHING HERE: a verb that
                                     ; printed a directory would take the gfx
                                     ; lock per character. dos_con_run spends
@@ -5696,6 +5712,20 @@ dos_hk_tty:
 .rom:
     stc
     ret
+%ifdef DOS_MEGA
+; dos_dsel - OUR DATA SELECTOR, for dos_hk_tty's `mov ds, [cs:dos_dsel]`:
+; written through DS by dos_hk_bind (which runs with it) and again by
+; dos_reloc when a conventional region moves; read through CS, which is
+; readable. A pool region keeps its selectors when it moves (mx_compactf),
+; so only the conventional fallback ever rewrites it (KERN-MEGA-PLAN 14.54)
+dos_dsel    dw 0
+dos_reloc:                          ; BX = the base it WAS at, DX = where it
+    push ds                         ; is now - on kern_mega a conventional
+    mov ds, dx                      ; segment is its own DATA selector
+    mov [dos_dsel], dx
+    pop ds
+    ret
+%endif
 
 ; --- dos_hk_txt - DHK_TXT: the text screen the mouse cursor may draw on ------
 ; out: ES = the segment, BX = columns, DX = rows, CF=1 = there is none
