@@ -187801,6 +187801,32 @@ desktop paused, Esc a stop, N/P a skip. The bracket's body renders spans into
 os88spk's 4 KB ring until it is full and waits a frame; a skip or a song's end
 leaves the bracket and the UI loads the next song and enters it again.
 
+**The ring lives for one session** (KERN-MEGA-PLAN 14.59, the owner's call:
+*"only holding that speaker ring if it's actually in speaker mode ... and
+freed when not in use"*). It is claimed by `mrk_start` on the ISR's road
+alone - 5 KB, `(4,096 + 272 + 1,023) / 1,024`, a plain claim, so on
+kern_mega a selector above 1MB - and so never by the FM, the card, the
+wavetable, the MPU or a polled Covox (which plays out of the image, 105.8.7).
+A PAUSE keeps it, the queue being the resume; every other end frees it:
+`mrk_bracket` on any exit that is not a pause (Esc, the song's end, a skip, a
+refusal inside the bracket), `mro_close` on every road out of a paused one
+(Stop, Eject, Remove, Clear, Settings, the next song, the window's close),
+and `mrk_start` on a refusal after the claim. It was claimed at the first
+speaker play and held to the window's close - 5 KB pinned through a session
+of Sound Blaster. **Why the free needs no drain**: no ISR reads it once the
+bracket is left (`os88spk_stop` closes the door before `OSAPI_FSX_RUN`
+returns), every free is the UI task's with the gfx lock held, and the
+worker's one lock-free road to the ring - `mru_changed` asking `mr_elapsed` -
+no longer asks for a bracket output, whose clock moves only inside the
+bracket, where every other task is frozen (53.2), and which draws itself.
+The rest of its readers hold the lock; `mrk_queued` reads `[mrk_seg]` once
+and answers 0 for no ring, so ES is never loaded with 0 (#GP on kern_mega),
+and `mrk_rdone` takes what the ring held unplayed off the synth's count
+before the free, so a stopped play's clock still reads where the sound
+stopped. **A refused claim is a refused Play**: *"No memory to play - close a
+program and retry"*, nothing held, and the next Play asks again. +110 bytes
+of image with 105.8.4's grant fallback (14.59), no bss.
+
 #### 105.8.4 The Sound Blaster: an external ring, or a grant ring
 
 The worker keeps about half a second queued (`[mrb_lead]`: half the rate, at
@@ -187834,10 +187860,20 @@ kern_mega). **A refused claim is a refused Play**: nothing open, nothing
 held, and the status line says *"No memory for the card - close a program and
 retry"*; the next Play asks again. The price is one page-safe claim per song
 - a playlist claims between songs - and +70 bytes of image (51 of them the
-message), no bss. `midiracksbmem` is the gate: the ring in the claim map
-while it plays and gone at Stop, then a refusal forced with `tests/filler`
-and a play once the filler closes. On kern_mega the ring comes from the
-bottom of the arena (§34.5.3).
+message), no bss. On kern_mega the ring comes from the bottom of the arena
+(§34.5.3). **A refused claim is NOT a refused Play** (KERN-MEGA-PLAN 14.59):
+a fragmented heap that cannot give a page-safe 17 KB goes to the grant ring
+exactly as a DSP without auto-init does, and that one degrades by tier - 16,
+8, 4 KB of the driver's pool. Only when the grant is refused too is the Play
+refused, and the status line says *"No memory for the card - close a program
+and retry"*; nothing is open, nothing held, and the next Play asks again.
+The caps word has no bit for auto-init, so an SB 1.x still makes the claim,
+and reaches the grant ring whichever way it is answered. `midiracksbmem` is
+the gate: the ring in the claim map while it plays and gone at Stop; then
+`tests/filler` takes the heap under 17 KB and the Play is on the GRANT ring
+and consuming; then the filler's `T` takes the rest and the card's Play and
+the speaker's are refused in words; and with the filler closed both play
+again.
 
 **The staging half shares one 2 KB page with the speaker's** (`mrout.inc`):
 only one output is ever open, so the grant ring's half, the polled Covox's
@@ -188292,10 +188328,15 @@ on all sixteen channels and a resume's programs, and `--break` must fail) and
 `midirackwt` (the wavetable with the synthetic bank on `make mrwttest`'s
 disk: three voices at 6 kHz on the 8088, the card consuming at the rate with
 no underrun, and the pitch agreement and its negative control).
-`midiracksbmem` is the ring's lifetime (§105.8.4): held while a song plays,
-gone from the claim map at Stop, a Play refused with its message once
-`tests/filler` has taken the heap, and a Play that sounds once the filler
-closes - red with the ring kept at Stop.
+`midiracksbmem` is both rings' lifetimes (§105.8.4, §105.8.3): the card's
+held while a song plays and gone from the claim map at Stop; the speaker's
+held through a pause and gone at the Stop after it, gone at Esc inside the
+bracket, and not held at all while the card plays; with `tests/filler` under
+17 KB the card's Play on the GRANT ring and consuming; with the rest taken
+(the filler's `T`) both Plays refused with their messages and nothing held;
+and with the filler closed both play again. Red with the card's ring kept at
+Stop, with the grant fallback taken out (the Play refused), and with either
+of the speaker ring's two frees taken out.
 
 **`make xt-midirack`** is the period machine to hear it on: 86Box's 1986 XT
 at 4.77 MHz with 640 KB, an OTI-067 VGA, a Sound Blaster 2.0 (220h, IRQ 5,
