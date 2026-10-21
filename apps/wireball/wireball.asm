@@ -1,7 +1,7 @@
 ; WireBall (SPEC.md 109): one court, two computers, a null modem.
 ; The serial lifetime and UART rate callback are wholly inside FSX.
 %include "os88api.inc"
-    OS88_HEADER 'WIREBALL', wb_entry, 1
+    OS88_HEADER 'WIREBALL', wb_entry, 1, OS88_HIGH | OS88_HIGHMEM
     OS88_ICON16
     dw 0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff
     dw 0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff

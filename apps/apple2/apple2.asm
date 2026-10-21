@@ -45,6 +45,8 @@
 ; =============================================================================
 
 %define CC_PKG_NAME 'APPLE2'        ; <= 15 chars; the Disk window's label, and
+%define CC_STACK_CLASS OS88_HIGH | OS88_HIGHMEM    ; kern_mega may load it above 1MB (KERN-MEGA-PLAN
+                                    ; item 87); the class itself unsaid
                                     ; the stem of APPLE2.OVL (SPEC.md 73.14).
                                     ; THE SHORT PRODUCT NAME IS `Apple II+`
                                     ; and the long one `Apple II Plus

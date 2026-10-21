@@ -109,7 +109,7 @@
                                     ; canvas's own 10.1 arithmetic asks first
 %define CC_HAS_WORKER               ; void os88_worker(void *) - WEAVE-SPEC
 
-%define CC_STACK_CLASS OS88_STACK_192 ; ...AND HOW MUCH STACK IT WANTS
+%define CC_STACK_CLASS OS88_STACK_192 | OS88_HIGH | OS88_HIGHMEM ; ...AND HOW MUCH STACK IT WANTS
                                     ; (SPEC.md 8.7). Declared rather
                                     ; than defaulted:
                                     ; os88_worker() is a three-instruction trampoline into WEAVE.WSM,

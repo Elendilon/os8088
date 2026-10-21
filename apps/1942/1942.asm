@@ -1,6 +1,6 @@
 ; Native 1942 remake for os8088. SPEC 101; no NES CPU interpreter.
 %include "os88api.inc"
-OS88_HEADER '1942', n_entry, 1 | OS88_F_PARTS, OS88_STACK_256
+OS88_HEADER '1942', n_entry, 1 | OS88_F_PARTS, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
 OS88_ICON16
     dw 0x0180,0x0990,0x1db8,0x1db8,0x1db8,0x7ffe,0xffff,0x1ff8
     dw 0x1db8,0x1998,0x1998,0x1998,0x1998,0x1ff8,0x0990,0x0180
@@ -88,15 +88,36 @@ n_about:
     call os88ui_about
     jmp n_popall
 ; Shared SAVE/RESTORE for routines off the per-sprite and per-frame paths:
-; "call n_pushall" at entry, "jmp n_popall" for RESTORE+ret. Not re-entrant
-; across the two instructions that touch n_pushret, which nothing interrupts
-; into (this package has no ISR and no worker).
+; "call n_pushall" at entry, "jmp n_popall" for RESTORE+ret. The frame is
+; SAVE's to the word, built under the return address on the stack itself: it
+; used to park that address in a word written through CS, which kern_mega
+; completes with a fault on every call (KERN-MEGA-PLAN item 56). Flags kept.
 n_pushall:
-    pop word [cs:n_pushret]
-    SAVE
-    jmp [cs:n_pushret]
-n_popall:
-    RESTORE
+    ; STKBALANCE-NET: +8 - banks SAVE's eight words on the CALLER's stack; n_popall pops them
+    push bp                         ; [ret][bp]
+    mov bp,sp
+    xchg ax,[bp+2]                  ; [ax][bp], AX = the return address
+    xchg bx,[bp]                    ; [ax][bx], BX = the caller's BP
+    push cx
+    push dx
+    push si
+    push di
+    push bx                         ; ...BP, where SAVE puts it
+    push es
+    push ax
+    mov ax,[bp+2]
+    mov bx,[bp]
+    mov bp,[bp-10]
+    ret
+n_popall:                           ; RESTORE, spelled out so the stack
+    pop es                          ; walk sees n_pushall's eight words go
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 %include "front.inc"
 
@@ -288,7 +309,6 @@ n_msgresume: db 'P TO RESUME',0
     %assign NBSS NBSS + %2
 %endmacro
 VAR n_abon,1
-VAR n_pushret,2
 VAR n_frontstatic,1
 VAR n_frontready,2
 VAR n_frontband,2
@@ -347,6 +367,8 @@ VAR n_wavey,2
 ; state, zero bytes (an alias) in the original-art build that never uses it.
 VAR n_graphics,2
 VAR n_graphics2,2
+VAR n_graphicsc,2                  ; ...the two banks' CODE selectors
+VAR n_graphics2c,2
 VAR n_scene,2
 VAR n_bank,2
 VAR n_page,2
@@ -365,7 +387,6 @@ VAR n_cacheptr,2
 VAR n_compiled,1
 VAR n_blitptr,4
 VAR n_record,2
-VAR n_plane,2
 VAR n_vorigin,2
 VAR n_scroll,2
 VAR n_worldy,2*N_ROM

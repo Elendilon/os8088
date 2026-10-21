@@ -615,6 +615,15 @@ def have_pil():
     return True
 
 
+def have_bochs():
+    """Can THIS box run tools/os88bochs.py? Bochs with the legacy BIOS it
+    boots (the default BIOS's 32-bit init crashes there), and the X tools the
+    sweep drives it with: Xvfb, xdotool, xwd and ImageMagick's convert."""
+    return all(shutil.which(t) for t in ("bochs", "Xvfb", "xdotool", "xwd",
+                                         "convert")) and \
+        os.path.exists("/usr/share/bochs/BIOS-bochs-legacy")
+
+
 def have_unicorn():
     """Can THIS interpreter run 16-bit x86 under unicorn?
 

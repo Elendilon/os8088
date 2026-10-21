@@ -50,8 +50,10 @@ left. The white column is where the next reading will go. The taller the
 black, the busier the machine was.
 
 **RAM** is how much of the machine's memory is in use, out of all it has, in
-kilobytes (K). It counts everything: the system itself, the room set aside
-for programs, and every extra block a program has asked for. The bar under it
+kilobytes (K), or in megabytes (M) on a machine with memory above the first
+megabyte. It counts everything: the system itself, the room set aside for
+programs, every extra block a program has asked for, and the memory above
+the first megabyte when the machine has any. The bar under it
 shows the same figure. **HEAP** is the part of memory programs and the system
 ask for blocks from: how much of it is in use, out of its size.
 
@@ -59,15 +61,14 @@ The list has one line per running program:
 
 | Column | What it shows |
 |---|---|
-| NAME | The program. **IVT+Pad** is the first line: 2K at the very bottom of memory that belongs to the machine's BIOS, with a half-K beside it nothing can use. **System** is os8088 itself; built-in windows such as a Disk window are listed under it, indented |
+| NAME | The program. **IVT+BIOS** is the first line: 2K at the very bottom of memory that belongs to the machine's BIOS, with a half-K beside it nothing can use, and, on machines whose BIOS keeps its own area at the top of memory, that area too. **System** is os8088 itself, including what it holds above the first megabyte; built-in windows such as a Disk window are listed under it, indented |
 | ST | What it was doing at the last reading (see below) |
 | CPU | Its share of the processor's work over the last half second |
 | MEM | The memory it holds, in K: its own room plus any extra blocks it asked for |
 
 The CPU figures add up to 100% between them, counting System. Lines with
-dashes are free places for more programs. IVT+Pad, System and the heap add
-up to all of the machine's memory, and the MEM figures add up to RAM used.
-On a screen too short for every line, such as a CGA, IVT+Pad is counted
+dashes are free places for more programs. The MEM figures add up to RAM used.
+On a screen too short for every line, such as a CGA, IVT+BIOS is counted
 into System rather than pushing a program off the list.
 
 The ST column:
@@ -96,20 +97,34 @@ block a program asked for is a small framed box. White is free.
 The next line names the processor. On a machine with memory above the first
 megabyte, an **XMS** line and bar show how much of that is in use.
 
+On the protected-mode build of os8088 for the 286 and later, memory above the
+first megabyte is ordinary memory that programs run in. There **RAM** counts
+all of it, in megabytes; the line under the processor reads **HIGH**, how much
+of that memory is in use out of all of it; and a program running up there
+reads **HIGH** in **ADDR** and is not drawn on the bar, which is the first
+megabyte only. Its **MEM** and **HEAP** still count everything it holds.
+
 The list under it has four columns. **ADDR** is where the item starts in
 memory, as a hexadecimal number. **SIZE** is how big it is, and **HEAP** is the
 extra memory it has asked for on top.
 
-- **IVT+Pad** is the 2K at the very bottom: the area that belongs to the
-  machine's BIOS, and a half-K beside it that nothing can use.
+- **IVT+BIOS** is the 2K at the very bottom: the area that belongs to the
+  machine's BIOS, and a half-K beside it that nothing can use. A BIOS that
+  keeps an area of its own at the top of memory adds it here.
 - **System** is os8088, split into its program and data (**Code+data**), the
-  working space of the running programs (**Stacks**) and its copy of the
-  disk's file table (**FAT snap**).
+  working space of the running programs (**Stacks**), its copy of the
+  disk's file table (**FAT snap**) and, on a machine with memory above the
+  first megabyte, what it holds there (**Above 1MB**).
 - **Builtins** are the system's own windows, which have no memory of their own
   beyond the blocks they ask for.
 - **Packages** is the room for loaded programs, how much is used out of all
   of it, followed by one line per program. The small square in front of each
   program matches its pattern in the map.
+- **640K-1MB** is the part of the first megabyte that is not memory: the
+  **Video** window, each add-in card's **ROM** at the address it was found,
+  and the machine's own **BIOS**. **Unrep.** is the rest of that range,
+  which nothing on the machine describes. It is listed so you can see what is
+  there, and it is not counted in RAM.
 
 This page and the next are redrawn about every two seconds.
 

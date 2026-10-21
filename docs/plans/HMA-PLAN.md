@@ -114,7 +114,10 @@ AH=87h). The 286 machines in `vm/` are where it can be looked at.
   `.cold`. A program that calls int 15h AH=87h directly, or writes port 92h
   or the keyboard controller, is the case. Nothing in the box hooks that
   today; it is the same class of hazard as a DOS program writing to kernel
-  memory, and the box's own answer to it would be an int 15h hook there.
+  memory. **It cannot reach the resumed session**: the handoff sums `.cold`
+  and the tail's code, `kd_resume` sums them again, and a shut gate or a
+  written byte takes `int 19h`, where XMEM.DRV installs `.cold` afresh
+  (SPEC.md 96.49.9).
 * **Tier 1 on real iron** - section 2's last paragraph.
 * **Hibernate on an HMA machine** is wired by the pad byte: an image
   hibernated with `.cold` in the HMA resumes only onto a boot that put the

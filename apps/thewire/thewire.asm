@@ -97,7 +97,7 @@
 ; nothing used and a reader could believe. wr_pkgrun prints the NUMBER and
 ; cites SPEC.md 21.4, which is the list.
 
-    OS88_HEADER 'The Wire', wr_entry, OS88_F_ICON, OS88_STACK_192
+    OS88_HEADER 'The Wire', wr_entry, OS88_F_ICON, OS88_STACK_192 | OS88_HIGH | OS88_HIGHMEM
                                 ; **OS88_STACK_192, ARGUED THE WAY
                                 ; apps/wire/wire.asm ARGUES ITS CLASS**
                                 ; (SPEC.md 8.7): the worker's own deepest

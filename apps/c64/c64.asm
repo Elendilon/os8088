@@ -22,6 +22,8 @@
 ; =============================================================================
 
 %define CC_PKG_NAME 'C64'           ; <= 15 chars; the Disk window's label
+%define CC_STACK_CLASS OS88_HIGH | OS88_HIGHMEM    ; kern_mega may load it above 1MB (KERN-MEGA-PLAN
+                                    ; item 87); the class itself unsaid
 
 %define CC_HAS_ONKEY                ; void os88_onkey(int, int, void *) - the
                                     ; level keyboard's make half (C64-SPEC 7.2)

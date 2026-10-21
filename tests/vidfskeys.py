@@ -286,11 +286,14 @@ def main():
                             "-o", binf, apps + "video/video.asm"], check=True)
             part = []                   # a tree with the block decoder
             if os.path.exists(apps + "video/vblk.asm"):  # packs it as a PART
-                vb = os.path.join(tmp, "vblk.bin")
-                subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", apps,
-                                "-o", vb, apps + "video/vblk.asm"],
-                               check=True)
-                part = ["--part", vb]
+                src = open(apps + "video/vblk.asm").read()
+                for d in [[]] + ([["-DVB_PM"]] if "VB_PM" in src else []):
+                    vb = os.path.join(tmp, "vblk%d.bin" % len(part))
+                    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I",
+                                    apps] + d[:1] + ["-o", vb,
+                                                     apps + "video/vblk.asm"],
+                                   check=True)          # ...and part 1, its
+                    part += ["--part", vb]  # protected-mode assembly (98.3.23.2)
             subprocess.run([sys.executable, "tools/os88pkg.py", binf, "-o",
                             pkg] + part, check=True, capture_output=True)
             syms, _ = pkg_syms(apps + "video/video.asm", (apps,))

@@ -40,16 +40,29 @@ XG_LEN      equ 8192                ; one timed copy
 
 ; xg_gap - DX:AX = the linear base of an XMS block the caller OWNS, at least
 ; XG_NEED long, whose first XG_NEED bytes may be overwritten. The copies go
-; UP from DS:0 - 8 KB read there, nothing written - so DS is the
-; conventional end. out CF=0 AX = G in bytes (0: no placement is faster);
-; CF=1 AX = 0, a copy was refused. Every other register kept
+; UP from a SCRATCH claim of 8 KB at the DMA door - 8 KB read there, nothing
+; written - so the conventional end is conventional on every kernel: it was
+; DS:0, and under kern_mega a package's DS may be above 1MB, where both its
+; linear address and its speed are not the conventional end's
+; (KERN-MEGA-PLAN 14.14). out CF=0 AX = G in bytes (0: no placement is
+; faster); CF=1 AX = 0, a copy or the scratch was refused. Every other
+; register kept
 xg_gap:
     push bx
     push cx
     push dx
     push si
     push es
-    mov bx, ds                      ; C, DS:0's linear address - its low
+    push ax
+    push dx
+    mov ax, XG_LEN / 1024
+    xor cx, cx
+    call OSAPI_MEM_CLAIM_DMA_HI     ; DX = the scratch
+    mov es, dx
+    pop dx
+    pop ax
+    jc .fail
+    mov bx, es                      ; C, ES:0's linear address - its low
     mov cl, 4                       ; 14 bits are all the arithmetic needs,
     shl bx, cl                      ; everything being mod 16 KB
     sub bx, ax
@@ -58,8 +71,6 @@ xg_gap:
     adc dx, 0                       ; (mod 16 KB, it is -g: the same rows)
     mov [xg_s0], ax
     mov [xg_s0+2], dx
-    push ds
-    pop es
     mov word [xg_bt], 0xFFFF
     mov word [xg_best], 0
     mov si, xg_gaps
@@ -101,6 +112,13 @@ xg_gap:
     xor ax, ax
     stc
 .ret:
+    pushf
+    mov dx, es                      ; the scratch back (ES = 0 when it was
+    or dx, dx                       ; refused: OSAPI_MEM_CLAIM answers DX = 0)
+    jz .nf
+    call OSAPI_MEM_FREE
+.nf:
+    popf
     pop es
     pop si
     pop dx

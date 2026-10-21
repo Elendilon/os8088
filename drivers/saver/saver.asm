@@ -46,6 +46,10 @@
 ; 79.3), so the kernel's own glue does not have to.
 ; =============================================================================
 
+%define OS88_DRV_HIGHOK          ; kern_mega may run this image above 1MB
+                                ; (KERN-MEGA-PLAN item 82: no paragraph
+                                ; arithmetic on its own segment, no BIOS or
+                                ; DMA buffer in it)
 %include "os88drv.inc"
 
 SV_ABI_VER  equ 1               ; the private interface blank.inc was built

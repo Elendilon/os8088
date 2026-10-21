@@ -12,6 +12,10 @@
 ; tables through CS, and DS = the RECORD's segment while it walks a list - so
 ; it reaches nothing of the player's but through VBV_SET's callback.
 ;
+; TWO ASSEMBLIES of one source (98.3.23.2): row 0 keeps its state at CS, and
+; row 1 (-DVB_PM) writes nothing through CS, for a protected-mode kernel,
+; where the player far-calls it through its code alias. One contract.
+;
 ; EVERY VECTOR is a FAR call answered with `retf`:
 ;   in:  DS:SI = the list(s), ES = the surface, BP = the origin (added to
 ;        every address), AH = 1 to go ROUND THE TEXT BOX through the callback
@@ -41,7 +45,10 @@ VBV_SET     equ 0                   ; AX = the canvas's ROW STEP, BH = its
                                     ; BANKS (1, 2 or 4: row r of a block is
                                     ; r mod BH banks of 2000h on and r / BH
                                     ; steps down), BL = VBM_*, CX:DX = the
-                                    ; callback. Out AX = VB_PROBE. At the
+                                    ; callback, ES = THE PART'S OWN segment
+                                    ; (the DATA one: the VB_PM assembly
+                                    ; writes through it, 98.3.23.2). Out AX =
+                                    ; VB_PROBE. At the
                                     ; bracket's door, every time: the player
                                     ; may have moved since the last, and the
                                     ; codebook is forgotten. Keeps SI, DI,

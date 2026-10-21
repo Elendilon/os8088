@@ -181,7 +181,13 @@
     PTMENU PT_MENU_VIEW
 %endif
 
-    OS88_HEADER 'PAINT', pt_entry, 1
+    OS88_HEADER 'PAINT', pt_entry, 1, OS88_HIGH | OS88_HIGHMEM
+                                    ; ...and its CLAIMS may be above 1MB too
+                                    ; (KERN-MEGA-PLAN 14.13): a canvas, undo
+                                    ; image, staging or clipboard of 64KB or
+                                    ; less can be an LDT selector, which
+                                    ; pt_layout's flat arm, pt_orowset and
+                                    ; pt_mstep address without arithmetic
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; A painter's palette: the thumb notch bottom-left, four dabs of paint. The
@@ -1727,10 +1733,15 @@ pt_paras:
 ;
 ; The row tables are the whole of the addressing story. A canvas can be bigger
 ; than one 64KB segment - a 636x326 picture is 104KB - so a row is named by a
-; (segment, offset) pair instead of a 16-bit offset: rowseg[y] is the paragraph
-; it starts in, rowoff[y] the 0..15 bytes into that paragraph. The undo image
-; has the identical layout [pt_undelta] paragraphs away, so its row segment is
-; rowseg[y] + [pt_undelta] and there is no second table.
+; (segment, offset) pair instead of a 16-bit offset: rowseg[y] is the 128-byte
+; granule it starts in, rowoff[y] the 0..127 bytes into that granule. A canvas
+; that FITS one segment is laid out flat instead - rowseg[y] = [pt_base] and
+; rowoff[y] the whole offset - because its claim may be an LDT selector on
+; kern_mega (OS88_HIGHMEM), on which no segment arithmetic means anything. The
+; undo image has the identical layout [pt_undelta] paragraphs away, so its row
+; segment is rowseg[y] + [pt_undelta] and there is no second table: flat, that
+; sum is exactly [pt_unseg] whatever either claim is; granular, both claims are
+; over 64KB and so conventional on every kernel.
 ;
 ; **[pt_undelta] is pt_alloc_undo's to set, not this routine's.** It used to be
 ; stamped here as [pt_smaxp], from the era when one claim held the canvas and
@@ -1806,10 +1817,30 @@ pt_layout:
     mov di, dx
     xor bx, bx                      ; BX = y*2, the table index
     mov cx, [pt_ch]
+    ; --- A CANVAS THAT FITS ONE SEGMENT IS ADDRESSED FLAT (KERN-MEGA-PLAN
+    ; 14.13): every row is [pt_base] and its whole byte offset. That is the
+    ; only form legal on a claim that came back an LDT SELECTOR - an
+    ; OS88_HIGHMEM claim of 64KB or less on kern_mega, where `base + n` names
+    ; nothing - and it is decided by the LAYOUT, not by the claim, so the undo
+    ; image's `rowseg + [pt_undelta]` is exactly [pt_unseg] whichever kind
+    ; either claim is. A bigger canvas has a claim over 64KB, which is
+    ; conventional on every kernel, and keeps the granules. The same bytes
+    ; either way, so the band blits and every row walk are unchanged
+    cmp word [pt_cvparas], 0x1000
+    ja .row
+.flat:
+    mov [pt_rowoff+bx], si
+    mov ax, [pt_base]
+    mov [pt_rowseg+bx], ax
+    sub si, [pt_stride]
+    inc bx
+    inc bx
+    loop .flat
+    jmp pt_ld_6
 .row:
     mov ax, si
-    and ax, 15
-    mov [pt_rowoff+bx], ax          ; 0..15 bytes into its paragraph...
+    and ax, 127
+    mov [pt_rowoff+bx], ax          ; 0..127 bytes into its 128-byte GRANULE...
     mov ax, di
     mov dx, si
     push cx
@@ -1819,8 +1850,11 @@ pt_layout:
     shr dx, cl
     pop cx
     or ax, dx
-    add ax, [pt_base]
-    mov [pt_rowseg+bx], ax          ; ...whose segment is [pt_base] + off>>4
+    and al, 0xF8                    ; (the segment a multiple of 8 paragraphs:
+    add ax, [pt_base]               ; kern_mega's protected mode names memory in
+    mov [pt_rowseg+bx], ax          ; 128-byte steps, docs/plans/KERN-MEGA-PLAN.md
+                                    ; 3; real mode reaches the same byte either
+                                    ; way) ...whose segment is [pt_base] + off>>4
     sub si, [pt_stride]             ; one row up in the file is one row down
     sbb di, 0                       ; in the picture
     inc bx
@@ -3854,8 +3888,16 @@ pt_blit_1:
     sub bx, ax
     inc bx
     mov [pt_bwid], bx               ; width in pixels
-    mov ax, 65520                   ; rows that fit one segment, worst-case
-    xor dx, dx                      ; 15-byte row offset included
+    mov ax, 65536 - 128             ; rows that fit one segment, worst-case
+    xor dx, dx                      ; 127-byte row offset included: the
+                                    ; granules are 128 bytes since kern_mega's
+                                    ; grid, and 65520 let a band of a big
+                                    ; canvas's widest strides run up to 111
+                                    ; bytes past 64KB from an offset over 15.
+                                    ; A canvas that fits one segment is flat
+                                    ; (pt_layout) and its band's first row is
+                                    ; an exact offset, so this binds only the
+                                    ; granule layout
     div word [pt_stride]
     or ax, ax
     jnz .rmok
@@ -11567,15 +11609,21 @@ pt_setsize:
     ret
 
 ; -----------------------------------------------------------------------------
-; pt_mstep - move a paragraph-normalised (segment, offset) pair one row along
+; pt_mstep - move a granule-normalised (segment, offset) pair one row along
 ; in:  BX -> the pair, segment word first; CX = the stride to step by;
 ;      [pt_cvup] = 1 to walk UP the file, 0 to walk down
 ; out: the pair updated; AX and DX clobbered, everything else preserved
 ;
-; The offset is kept 0..15 and the paragraphs it carried go into the segment,
-; which is an `and 15` and an ARITHMETIC `sar 4` - arithmetic because a step
-; down borrows, and a logical shift would send the segment 4,095 paragraphs UP
-; the arena instead of one down.
+; The offset is kept 0..127 and the 128-byte GRANULES it carried go into the
+; segment, which is an `and 127` and an ARITHMETIC `sar 4` masked to eight
+; paragraphs - arithmetic because a step down borrows, and a logical shift
+; would send the segment 4,095 paragraphs UP the arena instead of one down;
+; eight because on kern_mega only a multiple of 8 paragraphs is a segment
+; (KERN-MEGA-PLAN 3.1). It was one paragraph, which faulted a resize there.
+;
+; A SELECTOR (bit 2, an OS88_HIGHMEM claim of 64KB or less) is never
+; normalised: its segment is not a number, so the offset IS the address, and
+; a claim that small keeps every row of either layout inside it.
 ; -----------------------------------------------------------------------------
 pt_mstep:
     push cx
@@ -11587,12 +11635,17 @@ pt_mstep:
 .up:                                ; - the highest address of all - and comes
     add ax, cx                      ; DOWN the file from there
 .norm:
+    mov [bx+2], ax
+    test byte [bx], 4
+    jnz .out                        ; a selector: flat, as above
     mov dx, ax
-    and ax, 15
+    and ax, 127
     mov [bx+2], ax
     mov cl, 4
     sar dx, cl
+    and dl, 0xF8
     add [bx], dx
+.out:
     pop cx
     ret
 
@@ -11796,6 +11849,16 @@ pt_cvmove:
     call pt_rowset                  ; ...and where it goes. THE ONLY TWO of
     mov [pt_mdseg], es              ; these in the whole move
     mov [pt_mdoff], di
+    mov ax, es                      ; ...and onto the GRANULES unless it is a
+    test al, 4                      ; selector: a canvas that fits a segment
+    jnz .row                        ; is laid out flat (pt_layout), and
+    mov ax, di                      ; pt_mstep's signed step wants an offset
+    and di, 127                     ; under 128 to start from
+    mov [pt_mdoff], di
+    mov cl, 4
+    shr ax, cl
+    and al, 0xF8
+    add [pt_mdseg], ax
 .row:
     call pt_cvrow
     dec bp
@@ -12535,20 +12598,22 @@ pt_orowset:
     mul word [pt_ostride]           ; DX:AX = its byte offset
     add ax, [pt_hdrsz]
     adc dx, 0
-    mov bx, ax
-    and bx, 15
-    mov di, bx                      ; DI = offset inside the paragraph
-    mov cx, dx
-    mov dx, ax
-    mov ax, cx
-    mov cl, 12
-    shl ax, cl
-    mov cl, 4
-    shr dx, cl
+    mov di, ax                      ; DI = the whole offset...
+    mov bx, [pt_osrc]               ; the old canvas claim, or the block being
+    test bl, 4                      ; relaid in place (pt_resize)
+    jnz .seg                        ; ...which a SELECTOR is addressed by: a
+                                    ; claim of 64KB or less, so DX is 0
+    and di, 127                     ; ...or the 0..127 bytes into its granule,
+    mov cl, 4                       ; whose segment is a multiple of EIGHT
+    shr ax, cl                      ; paragraphs (KERN-MEGA-PLAN 3.1: this was
+    mov cl, 12                      ; one, and a resize faulted on kern_mega)
+    shl dx, cl
     or ax, dx
-    add ax, [pt_osrc]               ; the old canvas claim, or the undo image
-    mov es, ax                      ; it was staged in (pt_resize)
-    mov [pt_orseg], ax
+    and al, 0xF8
+    add bx, ax
+.seg:
+    mov es, bx
+    mov [pt_orseg], bx
     pop dx
     pop cx
     pop ax
@@ -13761,8 +13826,12 @@ pt_stagefit:
     push dx
     mov ax, [pt_fsz]
     mov dx, [pt_fsz+2]
-    add ax, 1023                    ; -> whole KB, 32-bit
-    adc dx, 0
+    add ax, 1024                    ; -> whole KB, 32-bit, and ONE BYTE OVER:
+    adc dx, 0                       ; pt_gbits reads a word and a byte at its
+                                    ; cursor, which can be the file's last
+                                    ; byte, and a claim of 64KB or less is a
+                                    ; selector on kern_mega whose limit is the
+                                    ; claim - so a file of whole KB faulted
     mov cl, 10
     shr ax, cl
     mov cl, 6
@@ -13772,6 +13841,8 @@ pt_stagefit:
     jnz .kb
     inc ax                          ; an empty claim is not a claim
 .kb:
+    cmp ax, [pt_stgkb]              ; ...and only ever a SHRINK: a file that
+    jae .out                        ; filled the claim keeps it as it is
     mov dx, [pt_gseg]
     call OSAPI_MEM_REGROW
     jc .out
@@ -14022,8 +14093,23 @@ pt_bmp_pal:
     mov cx, ax
     mov si, 14
     add si, [pt_bhsz]               ; the table follows the info header
+    jc .out
     xor di, di
 .ent:
+    ; --- AND ENDS INSIDE THE FILE. biSize and biClrUsed are the header's
+    ; word and nothing checked the table against the bytes read: in real
+    ; mode an entry past them maps whatever memory follows, but a staging
+    ; claim of 64KB or less is an LDT selector on kern_mega (OS88_HIGHMEM)
+    ; whose limit is the claim, and that read is a #GP. The entries a file
+    ; does not hold keep the map they had
+    mov ax, si
+    add ax, 4                       ; this entry's end...
+    jc .out
+    cmp word [pt_fsz+2], 0
+    jne .in
+    cmp ax, [pt_fsz]
+    ja .out                         ; ...past the bytes read: stop
+.in:
     push cx                         ; CX is the entry counter AND half of
                                     ; pt_map16's argument (CH = green): load
                                     ; the colour only with the count stacked,
@@ -14039,6 +14125,7 @@ pt_bmp_pal:
     inc di
     dec cx
     jnz .ent
+.out:
     jmp pt_ld_6
 
 ; -----------------------------------------------------------------------------
@@ -14105,30 +14192,42 @@ pt_map16:
 ; -----------------------------------------------------------------------------
 ; pt_srowset - point ES:[pt_srow] at the staged file's byte DX:AX
 ; in:  DX:AX = a 32-bit offset into the staging buffer
-; out: ES = the segment, [pt_srow] = an offset of 0..15; clobbers ES and
-;      [pt_srow] only
+; out: ES = the segment, [pt_srow] = an offset of 0..127 (the whole offset
+;      when the staging claim is a selector); clobbers ES and [pt_srow] only
 ;
 ; dskw_norm's arithmetic (SPEC.md 18.4.1) inside an app, and the same reason:
 ; the paragraph part of the offset goes into the segment, so what is left is
 ; small enough that nothing added to it can carry. A row is at most
 ; [pt_cols] x 3 bytes wide and [pt_cols] is the canvas's width, so the
 ; per-column offsets pt_bmp_row builds on top of this cannot reach a segment
-; boundary from an offset under 16.
+; boundary from an offset under 128. EIGHT paragraphs and not one: on kern_mega
+; only a multiple of 8 paragraphs is a segment (KERN-MEGA-PLAN 3.1) - any
+; other is a #GP or, with bit 2 set, an LDT alias at another base - and
+; [pt_gseg] is a claim, so 512-aligned.
 ; -----------------------------------------------------------------------------
 pt_srowset:
     push ax
     push cx
     push dx
+    mov cx, [pt_gseg]               ; A SELECTOR (an OS88_HIGHMEM claim of
+    test cl, 4                      ; 64KB or less on kern_mega) is addressed
+    jz .seg                         ; flat: the claim, and the whole offset,
+    mov es, cx                      ; which DX is 0 for in a claim that small
+    mov [pt_srow], ax
+    jmp short .out
+.seg:
     mov cx, ax
-    and cx, 15                      ; the offset that survives...
+    and cx, 127                     ; the offset that survives...
     mov [pt_srow], cx
     mov cl, 4                       ; ...and the paragraphs that do not
     shr ax, cl
     mov cl, 12
     shl dx, cl                      ; the high word's paragraphs are its low
     or ax, dx                       ; four bits shifted up: 20 bits of
-    add ax, [pt_gseg]               ; address is 16 bits of paragraph
+    and al, 0xF8                    ; address is 16 bits of paragraph, in
+    add ax, [pt_gseg]               ; eights
     mov es, ax
+.out:
     pop dx
     pop cx
     pop ax
@@ -16844,7 +16943,7 @@ pt_gbuf equ pt_spbuf                ; the sub-block itself, 255 bytes. A
     PTWORD pt_urbase
 %endif
     PTBUF  pt_rowseg, PT_CH_MAX * 2 ; canvas row -> the paragraph it starts in
-    PTBUF  pt_rowoff, PT_CH_MAX * 2 ; ...and the 0..15 bytes into it. Together
+    PTBUF  pt_rowoff, PT_CH_MAX * 2 ; ...and the 0..127 bytes into it. Together
                                     ; they are the whole of the bottom-up
                                     ; story AND of spanning segments
     PTWORD pt_fseg                  ; the ROM 8x8 font, where the BIOS keeps it

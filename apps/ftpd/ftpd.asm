@@ -68,7 +68,7 @@
                                     ; drivers/ether/ether.asm includes, so the
                                     ; two ends cannot drift (SPEC.md 20.11)
 
-    OS88_HEADER 'FTPD', fd_entry, 1, OS88_STACK_384
+    OS88_HEADER 'FTPD', fd_entry, 1, OS88_STACK_384 | OS88_HIGH | OS88_HIGHMEM
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; MEASURED +150 after a whole

@@ -4,7 +4,9 @@
     python3 tests/xmla.py [--mode ok|trap|badbios|badcache]
 
 No emulator in this tree runs a 286's LOADALL: MartyPC is an 8088, QEMU and
-unicorn are 386-class, and 86Box has no automation. So this runs the code
+unicorn are 386-class, and 86Box - whose 286 does model LOADALL (0F 05) and
+which tools/os88box.py now drives headless (docs/86BOX.md) - has no row
+written against it yet. So this runs the code
 AS IT SHIPS - xm_bios, xm_lcopy, xm_lend, xm_lainit and xm_ltrip cut out of
 drivers/xmem/xmem.asm, with apps/os88la.inc as XMEM.DRV includes it - under
 unicorn, and stands in for the two things the CPU would do:

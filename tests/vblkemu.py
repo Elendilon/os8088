@@ -23,6 +23,15 @@ It also holds the part to the rest of its contract: VBV_SET answers
 VB_PROBE, a vector returns SI past its lists with CF = 0 and BP, DS and ES
 kept, and a lead it does not know is CF = 1.
 
+`--pm` runs the PROTECTED-MODE assembly (build/vblkpm.bin, part 1, SPEC.md
+98.3.23.2) the way kern_mega calls it: CS is a SECOND segment over the same
+bytes - a code alias - and VBV_SET's ES the part's own data segment. Every
+byte written through either is mirrored to the other, so the part reads
+back what it stored exactly as one memory under two selectors does; and a
+write that lands through the ALIAS is a write through CS, which on the
+machine is a #GP the kernel completes, so it FAILS the row. The same random
+blocks then must make the same pictures.
+
 A seconds-long row, and an exact one: what it cannot see is the player
 around the part - the fetch, the bracket, the dispatch - which is
 tests/vidv2.py's. Needs unicorn (`python3 -m pip install unicorn`); a host
@@ -48,6 +57,7 @@ except ImportError:                                  # pragma: no cover
     HAVE = False
 
 PART, DSEG, SSEG, STUB, CBSEG = 0x2000, 0x3000, 0x4000, 0x0050, 0x0060
+ALIAS = 0x2800                          # --pm: CS, the code alias
 VSEG = 0xA000
 VB_PROBE = 0x5642 ^ 0x2E19
 VBV_SET, VBV_LIN, VBV_PLN, VBV_ONE = 0, 1, 2, 3
@@ -95,17 +105,22 @@ class Vga:
 
 
 class Part:
-    def __init__(self, path):
+    def __init__(self, path, pm=False):
         self.code = open(path, "rb").read()   # (written back after each
                                               # call: VBV_SET patches it)
         assert self.code[:2] == b"VB", "not a block part"
+        assert len(self.code) <= (ALIAS - PART) * 16, "the alias overlaps"
         self.vec = struct.unpack_from("<4H", self.code, 4)
+        self.pm = pm
+        self.cswrites = set()                 # --pm: IPs that stored via CS
 
     def run(self, vga, vector, ax=0, bx=0, cx=0, dx=0, si=0, bp=0,
             data=b"", wm3_reads=False, cb=None):
         uc = Uc(UC_ARCH_X86, UC_MODE_16)
         uc.mem_map(0, 0x100000)
         uc.mem_write(PART * 16, self.code)
+        if self.pm:
+            uc.mem_write(ALIAS * 16, self.code)
         uc.mem_write(DSEG * 16, data)
         uc.mem_write(STUB * 16, b"\xF4")            # hlt: the return lands
         uc.mem_write(CBSEG * 16, b"\xCB")           # retf: the callback
@@ -120,13 +135,25 @@ class Part:
                      (X.UC_X86_REG_CX, cx), (X.UC_X86_REG_DX, dx),
                      (X.UC_X86_REG_SI, si), (X.UC_X86_REG_DI, 0x1234),
                      (X.UC_X86_REG_BP, bp), (X.UC_X86_REG_DS, DSEG),
-                     (X.UC_X86_REG_ES, VSEG), (X.UC_X86_REG_SS, SSEG),
-                     (X.UC_X86_REG_SP, sp), (X.UC_X86_REG_CS, PART),
+                     (X.UC_X86_REG_ES, PART if vector == VBV_SET else VSEG),
+                     (X.UC_X86_REG_SS, SSEG), (X.UC_X86_REG_SP, sp),
+                     (X.UC_X86_REG_CS, ALIAS if self.pm else PART),
                      (X.UC_X86_REG_IP, self.vec[vector])):
             uc.reg_write(r, v)
         pend = []
 
+        n = len(self.code)
+
         def on_write(u, access, addr, size, value, user):
+            if self.pm:                             # one memory, two names
+                for a, b in ((PART, ALIAS), (ALIAS, PART)):
+                    if a * 16 <= addr < a * 16 + n:
+                        if a == ALIAS:              # ...and this is CS's
+                            self.cswrites.add(u.reg_read(X.UC_X86_REG_IP))
+                        u.mem_write(addr - a * 16 + b * 16,
+                                    (value & ((1 << 8 * size) - 1)).to_bytes(
+                                        size, "little"))
+                        return
             if not VSEG * 16 <= addr < VSEG * 16 + 65536:
                 return
             for i in range(size):
@@ -151,8 +178,8 @@ class Part:
         uc.hook_add(UC_HOOK_INSN, lambda u, port, size, value, user:
                     vga.out(port, size, value), None, 1, 0,
                     X.UC_X86_INS_OUT)
-        uc.emu_start(PART * 16 + self.vec[vector], STUB * 16,
-                     count=20_000_000)
+        uc.emu_start((ALIAS if self.pm else PART) * 16 + self.vec[vector],
+                     STUB * 16, count=20_000_000)
         self.code = bytes(uc.mem_read(PART * 16, len(self.code)))
         regs = {n: uc.reg_read(getattr(X, "UC_X86_REG_" + n))
                 for n in ("AX", "SI", "DI", "BP", "DS", "ES", "FLAGS", "SP",
@@ -284,6 +311,10 @@ def one(part, rng, kind, path, org):
     if (r["BP"], r["DS"], r["ES"]) != (org, DSEG, VSEG):
         return "%s %s: BP/DS/ES came back %04x/%04x/%04x" % (
             kind, path, r["BP"], r["DS"], r["ES"])
+    if part.cswrites:
+        return "%s %s: wrote through CS at %s" % (
+            kind, path, ", ".join("%04x" % ip for ip in sorted(
+                part.cswrites)))
     for p in range(1 if planar == 0 else 4):
         if vga.pl[p] != want[p]:
             bad = next(i for i in range(65536) if vga.pl[p][i] != want[p][i])
@@ -336,6 +367,10 @@ def one_bit(part, rng, kind, path, org):
         if (r["BP"], r["DS"], r["ES"]) != (org, DSEG, VSEG):
             return "%s %s: BP/DS/ES came back %04x/%04x/%04x" % (
                 kind, path, r["BP"], r["DS"], r["ES"])
+        if part.cswrites:
+            return "%s %s: wrote through CS at %s" % (
+                kind, path, ", ".join("%04x" % ip for ip in sorted(
+                    part.cswrites)))
         if vga.pl[0] != want:
             bad = next(i for i in range(65536) if vga.pl[0][i] != want[i])
             return ("%s %s origin %d call %d: byte %04x is %02x, not %02x "
@@ -346,14 +381,18 @@ def one_bit(part, rng, kind, path, org):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--part", default=os.path.join(ROOT, "build", "vblk.bin"))
+    ap.add_argument("--part", help="the part (default build/vblk.bin, "
+                    "or build/vblkpm.bin with --pm)")
+    ap.add_argument("--pm", action="store_true", help="the protected-mode "
+                    "assembly, called through a code alias it may not write")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--rounds", type=int, default=12)
     a = ap.parse_args()
     if not HAVE:
         print("vblkemu: SKIP - no unicorn (python3 -m pip install unicorn)")
         return 0
-    part = Part(a.part)
+    part = Part(a.part or os.path.join(ROOT, "build", "vblkpm.bin" if a.pm
+                                       else "vblk.bin"), a.pm)
     rng = random.Random(a.seed)
     fails, n = [], 0
     for rnd in range(a.rounds):
@@ -401,13 +440,18 @@ def main():
     r = part.run(vga, VBV_PLN, ax=0x23, data=b"\x00")
     if not r["FLAGS"] & 1:
         fails.append("MODEX's lead 23h was not refused")
+    if part.cswrites:                   # (the refusals above write too)
+        fails.append("wrote through CS at %s" % ", ".join(
+            "%04x" % ip for ip in sorted(part.cswrites)))
     for f in fails:
         print("vblkemu: FAIL " + f)
     if fails:
         return 1
     print("vblkemu: ok - %d rounds of random blocks, every kind on every "
           "path, the picture os88vid's to the byte; two unknown leads "
-          "and two hostile one-bit records refused" % n)
+          "and two hostile one-bit records refused%s" % (
+              n, "; the protected-mode part, through a code alias it never "
+              "wrote" if a.pm else ""))
     return 0
 
 

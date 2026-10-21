@@ -664,9 +664,11 @@ op_claim:
     ; carve head slack. The hole SURVIVED a posted compaction, which is an
     ; open question and not this routine's - SPEC.md 20.12.10.8.1 has the
     ; three measurements and the repro.
-    call OSAPI_MEM_CLAIM_HI     ; out DX = the base segment
-    jc .no
-    mov [op_base], dx
+    xor cx, cx                  ; THE DMA DOOR WITH NO HEAD (KERN-MEGA-PLAN
+    call OSAPI_MEM_CLAIM_DMA_HI ; 14.12): the same top-down claim on every
+    jc .no                      ; kernel, and on kern_mega a CONVENTIONAL one
+    mov [op_base], dx           ; for an OS88_HIGHMEM package too - every part's
+                                ; segment below is arithmetic on this base
     add dx, [op_rpara]          ; ...and R paragraphs up is where op_read fills
     mov [op_rdseg], dx
     clc
@@ -1303,6 +1305,40 @@ op_seg:
     pop bx
     ret
 
+%ifdef OP_WANT_CSEG
+; -----------------------------------------------------------------------------
+; op_cseg - the selector to FAR CALL part AL's code through
+; in:  AL = the part index
+; out: AX = the selector, 0 = it is not there
+; clobbers: AX (the output), flags
+;
+; op_seg is the part's DATA segment, and stays the one to read it through. On
+; every real-mode kernel the two are the same word. Under kern_mega (CPU_F_PM)
+; a far call through the data segment is #GP and the kernel completes it with
+; mega_gpfix, a fault per transfer, so this hands back the claim's CODE alias
+; instead (os88api.inc OS88_CODESEL, docs/plans/KERN-MEGA-PLAN.md M4). A part's
+; segment is on the 512-byte grid because the carve is (SPEC.md 20.12.2), which
+; is what makes the alias exist. Ask at the moment the vector is BUILT, after
+; any fetch or move - like op_seg's, the answer is true of this instant.
+;
+; Opt-in - `%define OP_WANT_CSEG` before os88parts.inc - for OP_WANT_READ's
+; reason: what decides it is a CALL the package makes, which no row sees, and a
+; package that never far-calls a part assembles to the byte it did.
+; -----------------------------------------------------------------------------
+op_cseg:
+    call op_seg
+    or ax, ax
+    jz .out                     ; not there: 0, never the alias of 0
+    push bx
+    mov bx, ax
+    call OSAPI_CPU_INFO         ; AX only (SPEC.md 20.3's slot); any context
+    OS88_CODESEL bx, ah
+    mov ax, bx
+    pop bx
+.out:
+    ret
+%endif                          ; OP_WANT_CSEG
+
 %if OP_HAS_CARVE || OP_HAS_FETCH
 ; GATED (SPEC.md 20.12.9.4): op_say and the refusals below it - only the carve
 ; and op_fetch refuse, so a table whose every row is lazy AND OP_SELF (the
@@ -1578,8 +1614,9 @@ op_fetch:
     cmp ax, bx
     jb .nomem
     mov ax, bx
-    call OSAPI_MEM_CLAIM        ; out DX = the base segment
-    jc .nomem
+    xor cx, cx                  ; (op_claim's door: conventional on kern_mega
+    call OSAPI_MEM_CLAIM_DMA    ; whatever the header says, the fetch below
+    jc .nomem                   ; adding paragraphs to the base)
     push dx                     ; ...banked across everything below
 
     mov ax, [si+OP_R_OFF]       ; --- where the read starts, and its slack ---
@@ -1759,6 +1796,9 @@ op_fetch:
     shr ax, cl                  ; AX = the KB the session keeps
     call OSAPI_MEM_REGROW       ; DX = the claim, and a shrink keeps it there
     pop ax                      ; the base
+%ifdef OP_WANT_HIFETCH
+    call op_hilift              ; ...or a claim above 1MB (KERN-MEGA-PLAN 14.48)
+%endif
     or byte [si+OP_R_FLAG], OP_FETCHED  ; ...and the flag is what SAYS so
     mov [si+OP_R_ZKB], ax       ; THE ROW IS WHERE A FETCHED PART LIVES
     clc
@@ -1789,6 +1829,66 @@ op_fetch:
 .nomem:
     mov si, op_s_mem
     jmp op_say
+
+%ifdef OP_WANT_HIFETCH
+; -----------------------------------------------------------------------------
+; op_hilift - a fetched part out of conventional memory (KERN-MEGA-PLAN 14.48)
+; in:  AX = its claim (the DMA door's, so conventional on every kernel), SI ->
+;      its row
+; out: AX = where the part is now: an ordinary OSAPI_MEM_CLAIM it was copied
+;      into, when that claim is ABOVE 1MB - kern_mega, a package whose header
+;      says OS88_HIGHMEM and a pool with room - with the first one freed; AX
+;      unchanged everywhere else, which is every real-mode kernel
+; clobbers: CX, DX, DI, flags
+;
+; op_fetch reads and expands through the DMA door because both are paragraph
+; arithmetic on the claim (R up it, the slack down it); this moves the result
+; afterwards, so that arithmetic never meets a selector. It is a copy of the
+; part's own bytes and nothing else - `len`, the shrink's figure - and it costs
+; a moment of the part twice over, which is why it is opt-in:
+; `%define OP_WANT_HIFETCH` before os88parts.inc, and a package that does not
+; is byte-identical. Only a package that keeps its lazy parts for long, and
+; meets OS88_HIGHMEM's contract for them, should ask.
+; -----------------------------------------------------------------------------
+op_hilift:
+    push ax
+    call OSAPI_CPU_INFO         ; AX only
+    test ah, CPU_F_PM
+    pop ax
+    jz .out                     ; real mode: no claim is above 1MB
+    push ax
+    mov ax, [si+OP_R_LEN]
+    add ax, 1023
+    rcr ax, 1
+    mov cl, 9
+    shr ax, cl                  ; AX = the part's KB, the shrink's figure
+    call OSAPI_MEM_CLAIM        ; DX = a claim, and is it a SELECTOR?
+    pop ax
+    jc .out
+    test dl, 4                  ; an LDT selector: above 1MB (a conventional
+    jz .back                    ; claim is an identity segment, TI clear)
+    push si
+    push ds
+    push es
+    mov cx, [si+OP_R_LEN]       ; read BEFORE DS moves
+    mov es, dx
+    mov ds, ax
+    xor si, si
+    xor di, di
+    cld
+    shr cx, 1
+    rep movsw
+    adc cx, cx
+    rep movsb
+    pop es
+    pop ds
+    pop si
+    xchg ax, dx                 ; AX = the new claim, DX = the old one...
+.back:
+    call OSAPI_MEM_FREE         ; ...which goes back (or the conventional
+.out:                           ; second claim does, and AX stays)
+    ret
+%endif                              ; OP_WANT_HIFETCH
 
 ; -----------------------------------------------------------------------------
 ; op_drop - give part AL back (SPEC.md 20.12.4)

@@ -298,13 +298,19 @@ def shape(m, arm, seg):
         fail("the heap under the box is not one free run")
     K = 0x40                                    # a KB, in paragraphs
     if arm == "module":                         # hu+ho for the image and
-        ho = mod_kb // 2 * K                    # NEITHER hole alone: 3+3
-        hu, floor = mod_kb * K - ho, 2 * K      # for the 6KB image, 4 under
+        ho = min(mod_kb // 2, (over - end - 1) // K) * K   # NEITHER alone:
+        hu, floor = mod_kb * K - ho, 2 * K      # 3+3 for the 6KB image, 4 under
                                                 # and 3 over for the 7KB one
                                                 # kernel size pass 13 made it
                                                 # (the ceiling leaves 4KB over
                                                 # the box, a paragraph short
-                                                # of 4+wall); 2 for the list
+                                                # of 4+wall); 2 for the list.
+                                                # The OVER hole is capped by
+                                                # what the ceiling leaves: an
+                                                # 8KB image (7,169 bytes) is
+                                                # 5 under and 3 over, and the
+                                                # split still has neither
+                                                # hole hold it alone
     else:                                       # the extent list
         hu = ho = K                             # 1+1 for the list, the
         floor = mod_kb * K                      # image's own hole

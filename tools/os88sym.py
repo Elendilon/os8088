@@ -78,6 +78,13 @@ SECTION_SEG = {".text": "KERNEL_SEG", ".bss": "KERNEL_SEG",
                # .lowbss so a mono machine's heap can start under them
                # (SPEC.md 39.22)
                ".vgabuf": "VGABUF_SEG",
+               # kern_mega's own segment (docs/plans/KERN-MEGA-SEGMENTS-PLAN.md):
+               # its RUNG, which is where it is until mega_enter copies it
+               # above 1MB with `.cold` and where it stays on a machine with
+               # too little extended memory. After the switch it runs under
+               # MEGA_SEL_CODE at MEGA_HI_LIN, which no real-mode linear
+               # address names - the same caveat `.cold` carries there
+               ".mega": "MEGA_RAM",
                # ...and the on-demand modules (SPEC.md 2.8), which have NO
                # fixed segment and never will: each is split out of the image
                # into a file of its own and loaded into a HEAP CLAIM when its

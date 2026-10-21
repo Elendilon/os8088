@@ -73,7 +73,10 @@ REGION_RAW = re.compile(r"^\s*call\s+OSAPI_MEM_MOVABLE\b", re.M)
 # under CC_HAS_PARTS, for a part's claim - so "crt0 mentions the slot" is a
 # check that passes with the region declaration deleted. It was written that
 # loose first and the break-it-on-purpose run is what caught it.
-CRT0_REGION = re.compile(r"mov\s+dx,\s*cs\s*\n"
+# DX = DS and not CS: the same word on a real-mode kernel, and on kern_mega CS
+# is the region's code alias, which no claim is based at, so a declaration by
+# CS is refused there - silently (KERN-MEGA-PLAN 10.3 item 48).
+CRT0_REGION = re.compile(r"mov\s+dx,\s*ds\s*\n"
                          r"\s*mov\s+ax,\s*cc_regreloc\s*\n"
                          r"\s*call\s+OSAPI_MEM_MOVABLE\b")
 WORKER_RAW = re.compile(r"^\s*call\s+OSAPI_TASK_RESTARTABLE\b", re.M)
@@ -238,7 +241,7 @@ def main():
               "66.6.1). Removing the call there un-declares all of them at "
               "once, silently - which is why it is asserted here and not "
               "left to the seven packages to notice",
-          got="no `mov dx, cs` / `mov ax, cc_regreloc` / "
+          got="no `mov dx, ds` / `mov ax, cc_regreloc` / "
               "`call OSAPI_MEM_MOVABLE` in " + CRT0,
           want="crt0.asm declares the region movable")
 

@@ -282,7 +282,7 @@ dkx_geom:
     push di
     push es
     call dkx_drop ; discard the old geometry's clip hole
-    push cs                     ; ES:DI walks OUR geometry block in its own
+    PUSH_CSDATA                     ; ES:DI walks OUR geometry block in its own
     pop es                      ; order, so every word below is one stosw
     mov di, dock_sx1
     cld
@@ -295,7 +295,7 @@ dkx_geom:
 .have:
     mov [dock_side], al
     and ah, DOCK_F_AUTO
-    mov [cs:dock_auto], ah
+    CSDO mov [CSEG dock_auto], ah
     mov cx, [vid_pwm1]
     mov dx, [vid_phm1]          ; every strip ends on the primary's last row
     mov si, dkx_gbot            ; ...and the orientation's constants (below)
@@ -470,7 +470,7 @@ dkx_live_set:
     jne .hid
     inc ax
 .hid:
-    mov [cs:dock_hidden], al  ; exactly 0 or 1
+    CSDO mov [CSEG dock_hidden], al ; exactly 0 or 1
     or al, al
     jz .cross
     mov ax, [cs:dock_ffar]         ; the line: the outer edge
@@ -1317,7 +1317,7 @@ dkx_map:
     push di
     xor bx, bx
 .fill:                          ; identity, which is the whole answer when
-    mov [cs:dock_pos+bx], bl       ; every slot has a tile
+    CSDO mov [CSEG dock_pos+bx], bl ; every slot has a tile
     inc bx
     cmp bx, INST_MAX
     jb .fill
@@ -1328,7 +1328,7 @@ dkx_map:
     mov al, 0FFh                ; --- packed: nothing yet
     xor bx, bx
 .none:
-    mov [cs:dock_pos+bx], al
+    CSDO mov [CSEG dock_pos+bx], al
     inc bx
     cmp bx, INST_MAX
     jb .none
@@ -1382,7 +1382,7 @@ dkx_map:
     jz .wnext
     dec ah
 .put:
-    mov [cs:di], bl
+    CSDO mov [CSEG di], bl
     inc di
 .wnext:
     add si, I_RECSZ
@@ -1465,11 +1465,11 @@ dkx_pass:
     cmp byte [blk_sv], 0
     je .nosv
     call dkx_drop             ; the saver owes the repaint
-    jmp short .out
+    jmp .out
 .nosv:
 %endif
     push ds                     ; is the pointer on the strip's WHOLE rect?
-    push cs                     ; That block is OURS, so dkx_point reads it
+    PUSH_CSDATA                     ; That block is OURS, so dkx_point reads it
     pop ds                      ; through a DS it is handed
     mov bx, dock_sx1
     call dkx_point              ; CF = 1 off it
@@ -1480,8 +1480,8 @@ dkx_pass:
     mov ax, [ticks]
     cmp byte [cs:dock_timer_on], 0
     jne .elapsed
-    mov [cs:dock_timer_tick], ax
-    inc byte [cs:dock_timer_on]
+    CSDO mov [CSEG dock_timer_tick], ax
+    CSDO inc byte [CSEG dock_timer_on]
     jmp short .out
 .elapsed:
     sub ax, [cs:dock_timer_tick]
@@ -1510,7 +1510,7 @@ dkx_pass:
 .unlock:
     call KERNEL_SEG:cw_gfx_unlock
 .off:
-    mov byte [cs:dock_timer_on], 0
+    CSDO mov byte [CSEG dock_timer_on], 0
 .out:
     jmp dkx_ret_di
 
@@ -1519,7 +1519,7 @@ dkx_pass:
 dkx_drop:
     push ax
     xor ax, ax
-    mov [cs:dock_timer_on], al
+    CSDO mov [CSEG dock_timer_on], al
     cmp [dock_up], al
     je .ret
     mov [gfx_hole], ax

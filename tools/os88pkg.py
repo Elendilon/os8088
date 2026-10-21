@@ -188,7 +188,7 @@ def main() -> int:
         fail("header offset 12 is not the dispatcher `call bp / retf` - "
              "the OS88_HEADER macro emits it, so this image was built "
              "against an older os88api.inc")
-    if a[15] > STK_CLASS_MAX:
+    if a[15] & 0x3F > STK_CLASS_MAX:      # bits 7, 6: OS88_HIGH, OS88_HIGHMEM
         fail(f"header offset 15 is stack class {a[15]}, and the kernel "
              f"publishes {STK_CLASS_MAX + 1} of them (0..{STK_CLASS_MAX}, "
              "SPEC.md 8.7). The kernel answers an unknown index with the "

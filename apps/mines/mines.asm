@@ -29,7 +29,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'MINES', mn_entry, 1
+    OS88_HEADER 'MINES', mn_entry, 1, OS88_HIGH | OS88_HIGHMEM
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; A mine: black disc (rows 4..11) with 8 spokes (N/S/E/W 2px + 1px

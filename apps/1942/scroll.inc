@@ -87,12 +87,10 @@ n_scenecheck:
     jc .bad
     push ds
     push es
-    mov dx,[n_canvas]
-    add dx,N_WORLD/16
-    mov es,dx
-    pop ds
+    mov es,[n_canvas]              ; an OFFSET into the canvas, which may be a
+    pop ds                         ; kern_mega selector (OS88_HIGHMEM)
     xor si,si
-    xor di,di
+    mov di,N_WORLD
     rep movsb
     pop ds
     call op_drop
@@ -189,35 +187,35 @@ n_worldrow:
     add ax,[n_worldpage]
     mov bx,ax
     mov ds,[n_canvas]
-    xor ax,ax
+    pop es                         ; ES = our own DS, pushed above: it is the
+    push es                        ; scanline's segment and our variables'. Not
+    xor ax,ax                      ; CS, whose words kern_mega cannot write
     mov al,[N_ROUTE+bx]
     cmp al,2
     jne .map
-    cmp byte [cs:n_bossmade],0
+    cmp byte [es:n_bossmade],0
     je .map
-    cmp byte [cs:n_bosslive],0
+    cmp byte [es:n_bosslive],0
     jne .map
     mov al,1
 .map:
     mov bx,240
     mul bx
     add ax,N_MAPS
-    add ax,[cs:n_rowmap]
-    mov [cs:n_rowmap],ax
-    push cs
-    pop es
+    add ax,[es:n_rowmap]
+    mov [es:n_rowmap],ax
     mov di,n_scanline
     mov bp,16
-    cmp byte [cs:n_cga],0
+    cmp byte [es:n_cga],0
     jne .packed
 .meta:
-    mov si,[cs:n_rowmap]
+    mov si,[es:n_rowmap]
     xor bx,bx
     mov bl,[si]
-    inc word [cs:n_rowmap]
+    inc word [es:n_rowmap]
     shl bx,1
     shl bx,1
-    add bx,[cs:n_rowhalf]
+    add bx,[es:n_rowhalf]
     mov dx,[N_META+bx]
     call .tile
     mov dl,dh
@@ -226,16 +224,16 @@ n_worldrow:
     jnz .meta
     jmp .done
 .packed:
-    mov ax,[cs:n_logicalrow]
+    mov ax,[es:n_logicalrow]
     and ax,15
     mov bx,5
     mul bx
     mov dx,ax
 .cmeta:
-    mov si,[cs:n_rowmap]
+    mov si,[es:n_rowmap]
     xor ax,ax
     lodsb
-    mov [cs:n_rowmap],si
+    mov [es:n_rowmap],si
     mov bx,80
     push dx
     mul bx
@@ -257,7 +255,7 @@ n_worldrow:
     mov bl,dl
     mov cl,6
     shl bx,cl
-    add bx,[cs:n_rowtile]
+    add bx,[es:n_rowtile]
     lea si,[N_TILES+bx]
     movsw
     movsw

@@ -6,7 +6,7 @@
 ; from committed sources by tools/excitebike_assets.py; nothing is read from a
 ; ROM, at build time or at run time (SPEC.md 102, plan section 0).
 %include "os88api.inc"
-OS88_HEADER 'EXCITEBIKE', xb_entry, 1 | OS88_F_PARTS, OS88_STACK_256
+OS88_HEADER 'EXCITEBIKE', xb_entry, 1 | OS88_F_PARTS, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
 OS88_ICON16
     dw 0x01f0,0x01f0,0x03f0,0x03f0,0x03f0,0x07f8,0x07f8,0x7ffe
     dw 0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xfe7f,0xfc3f
@@ -311,6 +311,7 @@ VAR xb_cid,XB_CID_MAX
 ; the frame clock, governor and the scripted scroll test (game.inc)
 VAR xb_subs,2
 VAR xb_pitl,2
+VAR xb_self,2                   ; under CPU_F_PM: our DS, a writable data selector (video.inc xb_pmset)
 VAR xb_f0,2
 VAR xb_u0,2
 VAR xb_n,2
@@ -494,7 +495,6 @@ VAR xv_x,2
 VAR xv_x0,2
 VAR xv_c0,2
 VAR xv_edge,1
-VAR xv_msk,1
 VAR xv_xlast,2
 VAR xv_y,2
 VAR xv_nw,1
@@ -505,7 +505,6 @@ VAR xv_b0,2
 VAR xv_mm,1
 VAR xv_po,2
 VAR xv_ink,4
-VAR xv_lay,1
 VAR xv_hto,2
 VAR xv_nt,2
 VAR xv_nb,2
@@ -529,12 +528,7 @@ VAR xc_new,2
 VAR xc_k,2
 VAR xc_full,1
 VAR xc_xl,2
-VAR xc_x,2
 VAR xc_x2,2
-VAR xc_rw,2
-VAR xc_bank,2
-VAR xc_tb,2
-VAR xc_bb,2
 VAR xc_hall,1
 VAR xc_hany,1
 VAR xc_hflag,XB_HUDLEN

@@ -29,7 +29,7 @@
 %include "pxsvc.inc"                ; ...and the parts' UI services
 %include "pxanim.inc"               ; a GIF that plays (106.25)
 
-    OS88_HEADER 'PiXEL', px_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_GLYPH | OS88_F_PARTS
+    OS88_HEADER 'PiXEL', px_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_GLYPH | OS88_F_PARTS, OS88_HIGH
 
     OS88_ICON16
 %include "pxappico.inc"
@@ -52,6 +52,10 @@
     PXI_DOCGLYPH
     OS88_DOCGLYPH8_END
 
+%define OP_WANT_CSEG                ; op_cseg: a part is far-called through
+                                    ; its CODE selector (os88partsbody.inc),
+                                    ; never its data segment (KERN-MEGA-PLAN
+                                    ; 14.40)
 %include "os88parts.inc"
 
 ; --- the parts (SPEC.md 106.5) --------------------------------------------------
@@ -1910,14 +1914,16 @@ px_pcall:
     mov bl, [px_pvec]
     cmp bl, [es:PXP_NVEC]
     jae .badp
-    mov dx, cs                      ; rule 2: the package's segment, stamped
-    mov [es:PXP_PKG], dx            ; before EVERY call
+    call px_pstamp                  ; rule 2: PXP_PKG, PXP_PKGD and
+                                    ; PXP_SELF, stamped before EVERY call
     xor bh, bh
     shl bx, 1
     mov dx, [es:PXP_VEC + bx]
     mov [px_pfar], dx
-    mov [px_pfar + 2], es
-    pop es
+    mov al, [px_ppart]
+    call op_cseg                    ; the part's CODE selector: a far call
+    mov [px_pfar + 2], ax           ; through its data segment is a #GP a
+    pop es                          ; call on kern_mega
     inc word [px_pcalls]
     mov byte [px_pfail], 0          ; from here an answer is the PART's
     call far [px_pfar]              ; DS = ours, CS = the part
@@ -2011,18 +2017,20 @@ px_wcall:
     push si
     push es
     mov dl, bl
+    mov dh, al
     call op_seg
     or ax, ax
     jz .no
     mov es, ax
-    mov ax, cs
-    mov [es:PXP_PKG], ax            ; stamped before EVERY call (106.5)
+    call px_pstamp                  ; stamped before EVERY call (106.5)
     mov bl, dl
     xor bh, bh
     shl bx, 1
     mov ax, [es:PXP_VEC + bx]
     mov [px_wfar], ax
-    mov [px_wfar + 2], es
+    mov al, dh
+    call op_cseg                    ; (px_pcall's reason)
+    mov [px_wfar + 2], ax
     pop es
     call far [px_wfar]
     jmp short .out
@@ -2034,6 +2042,26 @@ px_wcall:
     pop si
     pop dx
     pop bx
+    ret
+
+; px_pstamp - ES = a part's data segment: its header's three segment words,
+; stamped before every call into it (pxpart.inc rules 2 and 6) - PXP_PKG
+; the package's CODE (a part far-calls the services through it), PXP_PKGD
+; its DATA, PXP_SELF the part's own data - and [px_dsel], the package's data
+; segment for the services a part calls back into (px_ks_*), which enter
+; with only CS. Every one is CS's own value on a real-mode kernel; on
+; kern_mega a code selector takes no store (KERN-MEGA-PLAN 14.40). Preserves
+; all
+px_pstamp:
+    push ax
+    mov ax, cs
+    mov [es:PXP_PKG], ax
+    mov ax, ds
+    mov [es:PXP_PKGD], ax
+    mov [px_dsel], ax
+    mov ax, es
+    mov [es:PXP_SELF], ax
+    pop ax
     ret
 
 ; px_fpart - AL = a PXF_*: AL = the decoder part that reads it, 0 none. A
@@ -4222,7 +4250,7 @@ px_fidx     equ px_cur + PXR_FIDX
     PXVAR px_chfrac, 2
     PXVAR px_chint, 2
     PXVAR px_crseg, 2
-    PXVAR px_ccnt, 2
+    PXVAR px_cend, 2
     PXVAR px_cdep, 1
     PXVAR px_useP, 1
     PXVAR px_rx0, 2
@@ -4318,6 +4346,8 @@ px_fidx     equ px_cur + PXR_FIDX
     PXVAR px_kheld, 1               ; the decoder part held, 0 none
     PXVAR px_pfail, 1               ; px_pcall's answer was its own
     PXVAR px_wfar, 4                ; px_wcall's far vector
+    PXVAR px_dsel, 2                ; our DATA segment, for the services a
+                                    ; part calls (px_pstamp)
     PXVAR px_dsc, 8                 ; the decoder scratch, paragraphs, at
                                     ; each scale; FFFFh not usable (106.19)
     PXVAR px_hcap, 2                ; the head claim's bytes, a cluster

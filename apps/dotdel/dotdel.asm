@@ -49,7 +49,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'DOTDEL', dd_entry, 1, OS88_STACK_256
+    OS88_HEADER 'DOTDEL', dd_entry, 1, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
                                 ; the worker's stack class (SPEC.md 8.7):
                                 ; dd_worker's own chain is 5 deep and its
                                 ; deepest leaf is dd_blit_actor, which pushes

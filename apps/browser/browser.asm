@@ -71,7 +71,7 @@ BR_SBIDLE   equ SB_IDLE
                                 ; includes, so the two ends of it
                                 ; cannot drift (SPEC.md 20.11)
 
-    OS88_HEADER 'BROWSER', br_entry, 3, OS88_STACK_384  ; bit0 = icon, bit1 = association
+    OS88_HEADER 'BROWSER', br_entry, 3, OS88_STACK_384 | OS88_HIGH | OS88_HIGHMEM   ; bit0 = icon, bit1 = association
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 148 on the layout path

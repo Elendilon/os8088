@@ -64,8 +64,10 @@ hd_pkg:
 ; arguments. Clobbers AX
 hd_xa_arm:
     mov byte [hd_xa_on], 0
-    call OSAPI_CPU_INFO         ; AL = the tier
-    cmp al, CPU_386
+    call OSAPI_CPU_INFO         ; AL = the tier, AH the flags
+    test ah, CPU_F_PM           ; KERN_MEGA in protected mode: no loaded
+    jnz .pm                     ; base exists there - hd_xa_a20 alone loads
+    cmp al, CPU_386             ; DS = FFFFh, a #GP (KERN-MEGA-PLAN 14.16)
     mov ax, 1
     jb .no
     mov al, 3
@@ -100,6 +102,8 @@ hd_xa_arm:
     pop cx
     clc                         ; (AX = 0)
     ret
+.pm:
+    mov al, 1                   ; (for good, as below a 386)
 .no:
     xor ah, ah
     stc

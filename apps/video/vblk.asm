@@ -28,12 +28,49 @@
 ; callback, whose clip machinery (vosd.inc's vc_put, vc_m3b) knows the box.
 ; Rare - only while the full screen's text is up - so it is the general form
 ; and not a fast one: VGA8's 16 pixels made into vb_px first, then handed out.
+;
+; TWO ASSEMBLIES (SPEC.md 98.3.23.2). Plain, this is part 0, and it keeps its
+; state in its own image THROUGH CS - free in real mode, where a code segment
+; is ordinary memory. With -DVB_PM it is part 1, the one a protected-mode
+; kernel (CPU_F_PM: kern_mega) fetches instead: there the player far-calls it
+; through its CODE alias, which is never writable, so every `mov [cs:x]` would
+; be a #GP the kernel completes - per block, per frame (KERN-MEGA-PLAN 14.16's
+; rule is no write through CS on a path a frame runs). That arm writes
+; NOTHING through CS:
+;   - a block's own path keeps its state in registers or on the stack - the
+;     walk's count pushed, EIGHT's c0 kept in CL, an EGA block's two colours
+;     in BP - so a block costs no segment load either;
+;   - VBV_SET writes through ES, which is the part's own data segment there
+;     (vblk.inc's contract), and keeps it in vb_ds;
+;   - every other store - a vector's head, and round the box, a byte at a
+;     time anyway - is VBW: DS borrowed from vb_ds for that one store.
+; The plain assembly is byte for byte the part it was: every VB_PM line is
+; inside an %ifdef, VBW and VBS spell `cs:` there.
 ; =============================================================================
     cpu 8086
     bits 16
     org 0
 
 %include "video/vblk.inc"
+
+; VBS - the segment vb_set writes through; VBSEG - VBW's; VBW insn - ONE
+; instruction that writes the part's own state through [VBSEG:...]
+%ifdef VB_PM
+  %define VBS es
+  %define VBSEG ds
+  %macro VBW 1+
+    push ds
+    mov ds, [cs:vb_ds]
+    %1
+    pop ds
+  %endmacro
+%else
+  %define VBS cs
+  %define VBSEG cs
+  %macro VBW 1+
+    %1
+  %endmacro
+%endif
 
     dw VB_SIGVAL                    ; +0
     db VB_ABIVER                    ; +2
@@ -67,11 +104,14 @@ VBD         equ 0x7F7F
 ; which the player's door is holding the rate hook's address in
 ; =============================================================================
 vb_set:
-    mov [cs:vb_str], ax
-    mov [cs:vb_mode], bl
-    mov [cs:vb_cb], dx
-    mov [cs:vb_cb + 2], cx
-    mov byte [cs:vb_cbok], 0        ; (no codebook yet in this bracket)
+%ifdef VB_PM
+    mov [es:vb_ds], es              ; (ES = our own data segment, vblk.inc)
+%endif
+    mov [VBS:vb_str], ax
+    mov [VBS:vb_mode], bl
+    mov [VBS:vb_cb], dx
+    mov [VBS:vb_cb + 2], cx
+    mov byte [VBS:vb_cbok], 0       ; (no codebook yet in this bracket)
     push si
     push di
     xor si, si                      ; THE FOUR ROWS' OFFSETS: row r is r mod
@@ -81,7 +121,7 @@ vb_set:
 .r:                                 ; CGA; r banks on a Hercules
     mov di, cx
     add di, dx
-    mov [cs:vb_roff + si], di
+    mov [VBS:vb_roff + si], di
     add dx, 0x2000
     inc bl
     cmp bl, bh
@@ -105,7 +145,7 @@ vb_set:
     xor bh, bh
     add ax, bx
     mov bx, [cs:si]
-    mov [cs:bx], ax
+    mov [VBS:bx], ax
     add si, 4
     loop .s
     pop di
@@ -118,25 +158,25 @@ vb_set:
 ; VBV_LIN - LIN320's three lists (FILL, TWO, EIGHT), AH = 1 round the box
 ; =============================================================================
 vb_lin:
-    mov [cs:vb_org], bp
-    mov byte [cs:vb_lin8], 1
-    mov word [cs:vb_w], 4           ; a block is four bytes of a row
+    VBW mov [VBSEG:vb_org], bp
+    VBW mov byte [VBSEG:vb_lin8], 1
+    VBW mov word [VBSEG:vb_w], 4    ; a block is four bytes of a row
     cld
     or ah, ah
     jnz .k
-    mov word [cs:vb_h], vb_lfill
+    VBW mov word [VBSEG:vb_h], vb_lfill
     call vb_walk
-    mov word [cs:vb_h], vb_ltwo
+    VBW mov word [VBSEG:vb_h], vb_ltwo
     call vb_walk
-    mov word [cs:vb_h], vb_leight
+    VBW mov word [VBSEG:vb_h], vb_leight
     call vb_walk
     jmp short vb_out
 .k:
-    mov word [cs:vb_h], vb_kfill
+    VBW mov word [VBSEG:vb_h], vb_kfill
     call vb_walk
-    mov word [cs:vb_h], vb_ktwo
+    VBW mov word [VBSEG:vb_h], vb_ktwo
     call vb_walk
-    mov word [cs:vb_h], vb_keight
+    VBW mov word [VBSEG:vb_h], vb_keight
     call vb_walk
 vb_out:
     mov bp, [cs:vb_org]
@@ -148,9 +188,9 @@ vb_out:
 ; CF = 1 on a lead this part does not know: the record is given up
 ; =============================================================================
 vb_pln:
-    mov [cs:vb_org], bp
-    mov byte [cs:vb_lin8], 0
-    mov word [cs:vb_w], 1           ; a block is one byte of a row (a plane
+    VBW mov [VBSEG:vb_org], bp
+    VBW mov byte [VBSEG:vb_lin8], 0
+    VBW mov word [VBSEG:vb_w], 1    ; a block is one byte of a row (a plane
     cld                             ; byte on MODEX, a byte column on VGA4)
     sub al, 0x20
     mov bl, al
@@ -179,12 +219,12 @@ vb_pln:
     jz .vt
     mov cx, vb_v2k                  ; ...or a byte at a time round the box
 .vt:
-    mov [cs:vb_vt], cx
+    VBW mov [VBSEG:vb_vt], cx
     mov ax, [cs:bx + vb_vh]
 .go:
-    mov [cs:vb_h], ax
+    VBW mov [VBSEG:vb_h], ax
     call vb_walk
-    jmp short vb_out
+    jmp vb_out                      ; (short on the plain assembly)
 .bad:
     mov bp, [cs:vb_org]
     stc
@@ -197,13 +237,18 @@ vb_pln:
 ; CX, DX and BP. Clobbers AX, BX, CX, DX, DI, BP
 ; =============================================================================
 vb_walk:
+    ; STKBALANCE-LOOP: VB_PM keeps a segment's count PUSHED across its walk, and this source walk reads both %ifdef arms as one - each arm alone is balanced
 .seg:
     lodsb
     xor ah, ah
     or al, al
     jz .end
     js .ab
+%ifdef VB_PM
+    push ax                         ; (the count on the stack: VB_PM)
+%else
     mov [cs:vb_n], ax               ; SKIP-CODED: the address, then a skip
+%endif
     lodsw                           ; before each block
     add ax, [cs:vb_org]
     xchg ax, di
@@ -213,20 +258,40 @@ vb_walk:
     add di, ax
     call [cs:vb_h]
     add di, [cs:vb_w]
+%ifdef VB_PM
+    pop ax
+    dec ax
+    push ax
+    jnz .sk
+    pop ax
+%else
     dec word [cs:vb_n]
     jnz .sk
+%endif
     jmp short .seg
 .ab:
     and al, 0x7F                    ; ABSOLUTE: an address each (80h, a
     jz .seg                         ; count of 0, no segment)
+%ifdef VB_PM
+    push ax
+%else
     mov [cs:vb_n], ax
+%endif
 .an:
     lodsw
     add ax, [cs:vb_org]
     xchg ax, di
     call [cs:vb_h]
+%ifdef VB_PM
+    pop ax
+    dec ax
+    push ax
+    jnz .an
+    pop ax
+%else
     dec word [cs:vb_n]
     jnz .an
+%endif
     jmp short .seg
 .end:
     ret
@@ -323,9 +388,15 @@ vb_leight:
     VB_LT8 0, 2
     mov bl, dl
     and bx, 0xC0
+%ifdef VB_PM
+    rol bl, 1                       ; (bits 7..6 to 2..1, as the shift by
+    rol bl, 1                       ; five below: CL stays c0, which VB_PM
+    rol bl, 1                       ; keeps nowhere else)
+%else
     mov cl, 5                       ; (CX is vb_pair's - and the shift's,
     shr bx, cl                      ; for one instruction: loaded again
     call vb_pairc                   ; below before it is read)
+%endif
     VB_LT8 1, 2
     call vb_pair                    ; LEFT-BOTTOM: rows 2, 3
     mov bl, dh
@@ -345,9 +416,15 @@ vb_leight:
     VB_LT8 2, 2
     mov bl, dh
     and bx, 0xC0
+%ifdef VB_PM
+    rol bl, 1
+    rol bl, 1
+    rol bl, 1
+%else
     mov cl, 5
     shr bx, cl
     call vb_pairc
+%endif
     VB_LT8 3, 2
     ret
 
@@ -356,6 +433,14 @@ vb_leight:
 ; place a shift needed CL between. Clobbers AX
 vb_pair:
     lodsw
+%ifdef VB_PM
+    mov cl, ah
+    mov ch, ah
+    xor al, ah
+    mov ah, al
+    xchg ax, bp
+    ret
+%else
     mov [cs:vb_c0], ah
     xor al, ah
     mov ah, al
@@ -364,6 +449,7 @@ vb_pairc:
     mov cl, [cs:vb_c0]
     mov ch, cl
     ret
+%endif
 
 ; =============================================================================
 ; MODEX: a block is one plane byte of four rows, pixel x in plane x - so a
@@ -521,11 +607,19 @@ vb_v2c:
     mov ax, ((1 << %1) << 8) | 2
     out dx, ax
     xor dx, dx
+%ifdef VB_PM
+    test bp, 0x10 << %1             ; (VB_PM: the two colours in BP)
+%else
     test byte [cs:vb_ab], 0x10 << %1
+%endif
     jz %%na
     mov dl, 0xFF
 %%na:
+%ifdef VB_PM
+    test bp, 1 << %1
+%else
     test byte [cs:vb_ab], 1 << %1
+%endif
     jz %%nb
     not dl
     mov dh, 0xFF
@@ -550,7 +644,11 @@ vb_v2c:
 
 ; vb_v2e - NO WRITE MODE 3 (an EGA): a plane at a time, in write mode 0
 vb_v2e:
+%ifdef VB_PM
+    mov bp, dx                      ; (a handler may spend BP)
+%else
     mov [cs:vb_ab], dl
+%endif
     VB_EP 0
     VB_EP 1
     VB_EP 2
@@ -560,11 +658,11 @@ vb_v2e:
 ; vb_v2k - ROUND THE BOX: each row's mask with a, its complement with b, a
 ; byte at a time through the callback (vc_m3b)
 vb_v2k:
-    mov [cs:vb_ab], dl
-    mov [cs:vb_mk], cx
-    mov [cs:vb_mk + 2], bx
-    mov [cs:vb_top], di
-    mov byte [cs:vb_i], 0
+    VBW mov [VBSEG:vb_ab], dl
+    VBW mov [VBSEG:vb_mk], cx
+    VBW mov [VBSEG:vb_mk + 2], bx
+    VBW mov [VBSEG:vb_top], di
+    VBW mov byte [VBSEG:vb_i], 0
 .r:
     mov bl, [cs:vb_i]
     xor bh, bh
@@ -585,7 +683,7 @@ vb_v2k:
     mov ah, [cs:vb_ab]
     and ah, 0x0F
     call far [cs:vb_cb]
-    inc byte [cs:vb_i]
+    VBW inc byte [VBSEG:vb_i]
     cmp byte [cs:vb_i], 4
     jb .r
     mov di, [cs:vb_top]
@@ -601,7 +699,7 @@ vb_kfill:
     mov ah, al
 %assign i 0
 %rep 8
-    mov [cs:vb_px + i], ax
+    VBW mov [VBSEG:vb_px + i], ax
 %assign i i + 2
 %endrep
     jmp short vb_emit
@@ -618,7 +716,7 @@ vb_ktwo:
     jnc .s
     mov al, cl
 .s:
-    mov [cs:vb_px + bx], al
+    VBW mov [VBSEG:vb_px + bx], al
     inc bx
     cmp bx, 16
     jb .i
@@ -628,13 +726,13 @@ vb_keight:
     lodsw
     xchg ax, dx                     ; DX = the mask
     lodsw                           ; the four pairs, c1 c0 each
-    mov [cs:vb_pr], ax
+    VBW mov [VBSEG:vb_pr], ax
     lodsw
-    mov [cs:vb_pr + 2], ax
+    VBW mov [VBSEG:vb_pr + 2], ax
     lodsw
-    mov [cs:vb_pr + 4], ax
+    VBW mov [VBSEG:vb_pr + 4], ax
     lodsw
-    mov [cs:vb_pr + 6], ax
+    VBW mov [VBSEG:vb_pr + 6], ax
     xor bx, bx
 .i:
     mov al, [cs:vb_q + bx]          ; the pixel's quadrant, x 2
@@ -645,15 +743,15 @@ vb_keight:
     jnc .s
     mov al, [cs:bp + vb_pr]
 .s:
-    mov [cs:vb_px + bx], al
+    VBW mov [VBSEG:vb_px + bx], al
     inc bx
     cmp bx, 16
     jb .i
 
 ; vb_emit - vb_px's sixteen, one callback each. Keeps DI
 vb_emit:
-    mov [cs:vb_top], di
-    mov byte [cs:vb_i], 0
+    VBW mov [VBSEG:vb_top], di
+    VBW mov byte [VBSEG:vb_i], 0
 .p:
     mov bl, [cs:vb_i]
     xor bh, bh
@@ -672,7 +770,7 @@ vb_emit:
     add di, cx
 .c:
     call far [cs:vb_cb]
-    inc byte [cs:vb_i]
+    VBW inc byte [VBSEG:vb_i]
     cmp byte [cs:vb_i], 16
     jb .p
     mov di, [cs:vb_top]
@@ -686,9 +784,9 @@ vb_emit:
 ; on a codebook past its 256, or a tile before any codebook this bracket
 ; =============================================================================
 vb_one:
-    mov [cs:vb_org], bp
-    mov word [cs:vb_w], 2           ; a block is two bytes of a row
-    mov [cs:vb_box], ah
+    VBW mov [VBSEG:vb_org], bp
+    VBW mov word [VBSEG:vb_w], 2    ; a block is two bytes of a row
+    VBW mov [VBSEG:vb_box], ah
     cld
     lodsw                           ; n
     or ax, ax
@@ -709,11 +807,15 @@ vb_one:
     shl cx, 1                       ; n x 4 words
     shl cx, 1
     push es
+%ifdef VB_PM
+    mov es, [cs:vb_ds]              ; (VB_PM: our data segment, not CS's)
+%else
     push cs
     pop es
+%endif
     rep movsw
     pop es
-    mov byte [cs:vb_cbok], 1
+    VBW mov byte [VBSEG:vb_cbok], 1
 .t:
     cmp byte [cs:vb_cbok], 0        ; NO CODEBOOK YET: only an empty list
     jne .w
@@ -724,7 +826,7 @@ vb_one:
     jne .k
     jmp vb_tiles
 .k:
-    mov word [cs:vb_h], vb_ktile
+    VBW mov word [VBSEG:vb_h], vb_ktile
     call vb_walk
     jmp vb_out
 .bad:
@@ -794,8 +896,8 @@ vb_tiles:
 ; hook's 48 bytes are this path's bound. Keeps DI
 vb_ktile:
     lodsb
-    mov [cs:vb_ksi], si
-    mov [cs:vb_top], di
+    VBW mov [VBSEG:vb_ksi], si
+    VBW mov [VBSEG:vb_top], di
     xor ah, ah
     shl ax, 1
     shl ax, 1
@@ -875,6 +977,9 @@ vb_sites:
 VB_NS       equ vb_ns
 
 ; --- the state (the part's own image: it is a claim, and writable) ----------
+%ifdef VB_PM
+vb_ds:      dw 0                    ; our own DATA segment (VBV_SET's ES)
+%endif
 vb_str:     dw 0                    ; the row step
 vb_roff:    dw 0, 0, 0, 0           ; ...and rows 0..3's offsets
 vb_cb:      dd 0                    ; the player's callback

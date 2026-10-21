@@ -2,7 +2,7 @@
 %include "os88api.inc"
 RL_ROWS equ 25
 RL_RUNS equ 3
-    OS88_HEADER 'REDLINE', rl_entry, OS88_F_ICON
+    OS88_HEADER 'REDLINE', rl_entry, OS88_F_ICON, OS88_HIGH | OS88_HIGHMEM
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; A tachometer: the dial's rim, three ticks, the RED LINE as a filled band on
@@ -1217,7 +1217,6 @@ rl_convkb: dw 0
 rl_extkb: dw 0
 rl_ramtotal: dq 0
 rl_ramkb: dd 0
-rl_mapentry: times 24 db 0
 rl_free: dw 0
 rl_largest: dw 0
 rl_xfree: dw 0

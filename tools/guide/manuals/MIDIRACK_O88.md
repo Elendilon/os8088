@@ -198,6 +198,8 @@ the Mountain King, Korobeiniki, the Can-can and Rondo alla Turca.
 
 - MIDIRack refuses a MIDI file of type 2, and a file timed in SMPTE frames,
   and says so on the status line.
+- When there is not enough memory to play, Play is refused and the status
+  line says so. Close a program and press Play again.
 - The wavetable bank is on MIDIRack's own disk only. Without it the
   wavetable row is greyed.
 - MIDI out and the wavetable are never picked by Automatic. Choose them in

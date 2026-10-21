@@ -29,7 +29,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'Bounce', bn_entry, 1, OS88_STACK_128
+    OS88_HEADER 'Bounce', bn_entry, 1, OS88_STACK_128 | OS88_HIGH | OS88_HIGHMEM
                                     ; flags bit 0: the icon below. The worker
                                     ; sleeps and draws two fills: the kind's
                                     ; task measured +10..24 over the floor on

@@ -136,7 +136,7 @@ TM_NVIEW    equ 1
 ;   ................
 ;   ................
 ;   ................
-    OS88_HEADER 'TaskMgr', tm_entry, 1, OS88_STACK_256
+    OS88_HEADER 'TaskMgr', tm_entry, 1, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
                                 ; THE WORKER'S STACK, declared rather than
                                 ; defaulted (SPEC.md 8.7). It said 192 on a
                                 ; static 56, and 56 WAS THE WRONG BRANCH:
@@ -204,9 +204,9 @@ TM_ROW_Y    equ 97              ; first process row
 TM_ROW_H    equ 11              ; row pitch, px
 TM_ROWS     equ INST_MAX + 1    ; "System" plus one row per instance slot -
                                 ; the per-row DATA (tm_rcyc, tm_pct)...
-TM_PROWS    equ TM_ROWS + 1     ; ...and the rows DRAWN, which have IVT+Pad
+TM_PROWS    equ TM_ROWS + 1     ; ...and the rows DRAWN, which have IVT+BIOS
                                 ; above System (SPEC.md 28.4.7)
-TM_LOWKB    equ 2               ; IVT+Pad: the 1.5K under KERNEL_SEG and the
+TM_LOWKB    equ 2               ; IVT+BIOS: the 1.5K under KERNEL_SEG and the
                                 ; half-KB the whole-KB heap and System leave
 TM_W        equ 232             ; the window's own width - the template's, and
                                 ; one column's. Two columns add TM_COLW.
@@ -757,7 +757,11 @@ tm_init:
     push cx
     push dx
     int 0x12                    ; AX = conventional memory, KB
-    mov [tm_totkb], ax
+    mov word [tm_lowkb], TM_LOWKB
+    call tm_ebda                ; ...and the BIOS's own KB above it, if the
+    add [tm_lowkb], bx          ; BIOS says where (SPEC.md 28.4.8): IVT+BIOS
+    add ax, bx                  ; carries it, and the total with it, so base
+    mov [tm_totkb], ax          ; memory adds up to what is installed
 
     ; --- is there a store above 1MB at all? ----------------------------------
     ; Asked ONCE, here, because everything below derives the frame from it and
@@ -772,6 +776,22 @@ tm_init:
     jne .xms                    ; bss, and this runs once, at launch - so only
     mov byte [tm_xoff], TMM_XSHIFT  ; the no-store answer is written
 .xms:
+%ifdef TMF_MEM
+    call OSAPI_CPU_INFO         ; UNDER PROTECTED MODE EXTENDED MEMORY IS RAM
+    test ah, CPU_F_PM           ; (KERN-MEGA-PLAN 13.6): not a store a copy
+    jz .nopm                    ; reaches but memory a package may run in -
+    mov byte [tm_pm], 1         ; so RAM's figures count it, a region placed
+.nopm:                          ; above 1MB reads HIGH, and the pool line is
+                                ; RAM's other half. Asked once: it cannot change
+    cmp word [tm_kb+SK_XMS], 0  ; ...and whatever the mode, memory above 1MB
+    je .nohi                    ; is the user's RAM and is accounted when the
+    xor cx, cx                  ; pool can say whose it is: OSAPI_XMEM_WALK
+    call OSAPI_XMEM_WALK        ; answers (CX = 0 asks only that) on kern_mega
+    jc .nohi                    ; in protected mode and on kern_big with a
+    mov byte [tm_hion], 1       ; store (SPEC.md 28.4.8)
+.nohi:
+    call tm_romscan             ; ...and what is in 640K-1MB (28.4.9)
+%endif
 
     call OSAPI_VIDEO            ; and the live geometry (SPEC.md 39.2): AX =
     mov [tm_vw], ax             ; width, CX = the dock strip's top row. Banked
@@ -1212,6 +1232,9 @@ tm_s_pre:   db 'SCH preempt', 0 ; read-only scheduler-mode field, chars 9..19
 tm_s_coop:  db 'SCH coop   ', 0 ; both exactly 11: the padding erases the
                                 ; longer word when the mode changes
 tm_s_ram:   db 'RAM ', 0
+%ifdef TMF_MEM
+tm_s_high:  db 'HIGH ', 0       ; the XMS line's label under CPU_F_PM
+%endif
 tm_s_heap:  db '  HEAP ', 0     ; + claimed/size KB (SPEC.md 50), on both
                                 ; pages. The two leading spaces are the RAM
                                 ; line's gap, and the memory view draws the
@@ -1231,20 +1254,15 @@ tm_s_hdr:   db 'NAME'
             times TM_CPUC - 3      db ' '
             db 'MEM', 0
 tm_s_sys:   db 'System', 0      ; row 1: the kernel's own share
-; Row 0, IVT+Pad (SPEC.md 28.4.7), one constant: no state, no CPU, 2K
+; Row 0, IVT+BIOS (SPEC.md 28.4.7, 28.4.8): no state, no CPU - up to the
+; MEM column, which tm_memcol_kb fills from [tm_lowkb]
 tm_s_lowrow:
-            db 'IVT+Pad'
-            times TM_NAMEF - 7     db ' '
+            db 'IVT+BIOS'
+            times TM_NAMEF - 8     db ' '
             times TM_STC + 1       db ' '
             db '  -'
             times TM_CPUC - 3      db ' '
-            db '  2K', 0
-%if $ - tm_s_lowrow != TM_ROWC + 1
-  %error "taskmgr: the IVT+Pad row is no longer exactly one row long"
-%endif
-%if TM_LOWKB != 2
-  %error "taskmgr: tm_s_lowrow and tm_s_low print TM_LOWKB as a literal"
-%endif
+            db 0
 ; The ST column, each WITH the separator the CPU column needs after it - the
 ; one place every state string is copied, so the space is data rather than a
 ; store after every copy (TM_STC + 1)
@@ -1319,16 +1337,17 @@ tm_s_sys0:  db 'System   0600', 0   ; the memory list's System row up to its
 ; table int 1Eh points at (DPT_AT, 0580). It is the SAME 1,536 bytes on every
 ; machine and every build: KERNEL_SEG is an SDK constant, not a ladder rung,
 ; so the whole row is one literal and draws for three string copies. The size
-; is printed as 2K, IVT+Pad, and SPEC.md 28.4.7 is why: claims are whole
+; is printed as 2K, IVT+BIOS, and SPEC.md 28.4.7 is why: claims are whole
 ; KB, so the heap is the whole KB SK_HEAP reports and the kernel is shown
 ; rounded DOWN, and the 1.5K plus the half-KB those two leave is always 2.
 ; '   2K' is tm_kcol's five columns, leading space included.
 %if KERNEL_SEG * 16 != 1536
   %error "taskmgr: the low-memory row is 1.5K plus a half-KB and KERNEL_SEG moved"
 %endif
-tm_s_low:   db 'IVT+Pad  0000    2K     -', 0   ; ...the whole row: a dash in
-                                ; HEAP after its own gap, as the buffer rows
-                                ; have - it is not a claim
+tm_s_low:   db 'IVT+BIOS 0000', 0   ; ...the row up to its SIZE: the KB and
+                                ; HEAP's dash are tm_kcol's, a dash after its
+                                ; own gap as the buffer rows have - it is not
+                                ; a claim
 
 ; The kernel's own buffers, one row each under System (SPEC.md 28). Every
 ; figure beside them is a compile-time constant (TM_K*_KB above), so drawing
@@ -1344,6 +1363,16 @@ tm_s_low:   db 'IVT+Pad  0000    2K     -', 0   ; ...the whole row: a dash in
 ; list gets back is the one TMM_ROWS is scarcest in.
 tm_s_bimg:  db '  Code+data', 0
 tm_s_bstk:  db '  Stacks', 0
+%ifdef TMF_MEM
+tm_s_uhdr:  db '640K-1MB', 0     ; the read-only map's heading (28.4.9)
+tm_s_uvid:  db '  Video', 0
+tm_s_urom:  db '  ROM', 0
+tm_s_ubios: db '  BIOS', 0
+tm_s_unrep: db '  Unrep.', 0
+%endif
+%ifdef TMF_MEM
+tm_s_bhi:   db '  Above 1MB', 0
+%endif
 tm_s_bfat:  db '  FAT snap', 0
 
 %endif
@@ -1474,6 +1503,7 @@ tm_ktab:
     dw MEM_K_SC,    'Shortcut'
     dw MEM_K_IMG,   'Disk img'
     dw MEM_P_DIRW,  'DirRead'
+    dw MEM_P_RAHB,  'RdLand', 0
     dw MEM_P_FLIST, 'FileClp'
     dw MEM_P_ICO,   'Icons', 0
     dw 0
@@ -2074,7 +2104,7 @@ tm_sample:
     ; are below KERNEL_SEG and so neither the kernel's nor the heap's. They
     ; were in no figure on this page, so RAM's free half came out a KB or two
     ; over the heap's free half on every machine. So the fixed half is TAKEN
-    ; rather than built: everything that is not the heap is IVT+Pad + System,
+    ; rather than built: everything that is not the heap is IVT+BIOS + System,
     ; and that is the total less the heap's size (SPEC.md 28.4.7)
     mov ax, [tm_totkb]          ; int 12h's total, less the claim heap: the
     sub ax, [tm_kb+SK_HEAP]     ; WHOLE kernel (SPEC.md 2) - image, scratch,
@@ -2091,6 +2121,14 @@ tm_sample:
                                 ; unclaimed heap is the only thing not
                                 ; counted here, and it is handed out on demand
     mov cx, [tm_totkb]          ; barw = usedK*TM_GW/totalK (all KB)
+%ifdef TMF_MEM
+    cmp byte [tm_hion], 0       ; RAM above 1MB: RAM is both halves, and the
+    je .convbar                 ; bar is drawn against the whole machine
+    call tm_hikb
+    add ax, [tm_hiused]
+    add cx, [tm_hitot]
+.convbar:
+%endif
     call tm_scale
     mov [tm_barw], ax
     jmp tm_pop_edsdcba
@@ -3133,6 +3171,11 @@ tm_cap_xms:
     mov bx, [tm_kb+SK_XMS]
     neg ax
     add ax, bx                  ; AX = KB in use: sized minus free
+    cmp byte [tm_pm], 0         ; protected mode: RAM above 1MB, the kernel's
+    je .xmsk                    ; tables and .cold under the pool counted in
+    mov ax, [tm_hiused]         ; both halves (tm_hikb)
+    mov bx, [tm_hitot]
+.xmsk:
     push ax                     ; --- the bar's width, worked out HERE, while
     mov cx, bx                  ; AX and BX still hold used and sized (BX
     call tm_scale               ; survives tm_scale; AX rides the stack). No
@@ -3145,6 +3188,10 @@ tm_cap_xms:
                                 ; what makes the absence legible - 'CPU 8086'
                                 ; IS the reason there is none (SPEC.md 60.2)
     mov si, tm_s_xms
+    cmp byte [tm_pm], 0
+    je .xmsl
+    mov si, tm_s_high           ; ...whose label says what it is now
+.xmsl:
     call tm_copy                ; BX = total, AX = used
     call tm_put5                ; FIVE digits, not tm_kpair's three: AH=88h
     mov byte [di], '/'          ; answers up to 65,535 KB and tm_put3 emits a
@@ -3326,6 +3373,13 @@ tm_map_ram:
     mov cl, 9                   ; 20.1.1), every other one a whole KB
     shr ax, cl
     mov di, [tm_ispt+di]        ; DI = base SEGMENT
+    cmp byte [tm_pm], 0         ; ...unless it is a SELECTOR, a region placed
+    je .rconv                   ; above 1MB: it has no address on this map,
+    test di, 4                  ; and its row says HIGH (tm_inst_row)
+    jz .rconv
+    pop si
+    jmp short .rnext
+.rconv:
     mov cl, 6
     shr di, cl                  ; -> base KB
     mov dx, di
@@ -3445,8 +3499,16 @@ tm_rows_mem:
     ; at 4K a pixel on a 640K machine it is not a band of its own anyway. A
     ; dash in HEAP, as the buffer rows have - it is not a claim.
     call tm_mrow_open
-    mov si, tm_s_low            ; one constant, HEAP column and all
-    call tm_copy
+    mov si, tm_s_low            ; 'IVT+BIOS 0000', then its KB - the BIOS's
+    call tm_copy                ; extended data area is in it (28.4.8) - and
+    mov byte [di], ' '          ; a dash in HEAP
+    inc di
+    mov ax, [tm_lowkb]
+    call tm_kcol
+    mov byte [di], ' '
+    inc di
+    xor ax, ax
+    call tm_kcol
     call tm_mrow_close
 
     ; --- row 1: the kernel's fixed reservation --------------------------------
@@ -3455,8 +3517,9 @@ tm_rows_mem:
     call tm_copy                ; at the bottom of low memory
     mov byte [di], ' '
     inc di
-    call tm_sysk                ; the kernel, whole KB rounded down: IVT+Pad
-    call tm_kcol                ; above has its tail (SPEC.md 28.4.7)
+    call tm_sysk                ; the kernel, whole KB rounded down: IVT+BIOS
+    call tm_hisysk              ; above has its tail (SPEC.md 28.4.7), and
+    call tm_kcol                ; what it holds above 1MB (28.4.8)
     mov byte [di], ' '          ; the HEAP column's own gap (tm_s_mhdr)
     inc di
     mov ax, [tm_kb+SK_KCLAIM]   ; ...and the kernel's own heap claims, KB
@@ -3486,7 +3549,7 @@ tm_rows_mem:
     ; arithmetic, because there is none: the rows have read the published
     ; block since the window left the kernel.
     call tm_sysk                ; ...and Code+data takes the half-KB System
-    xchg ax, cx                 ; gave IVT+Pad (SPEC.md 28.4.7), so the three
+    xchg ax, cx                 ; gave IVT+BIOS (SPEC.md 28.4.7), so the three
     add cx, [tm_kb+SK_IMG]      ; still sum to the System row
     sub cx, [tm_kb+SK_KERN]
     mov bx, tm_s_bimg           ; NO square: the image is drawn in the same
@@ -3501,6 +3564,15 @@ tm_rows_mem:
     mov cx, [tm_kb+SK_FAT]
     mov dx, tm_pat_buf
     call tm_buf_row
+%ifdef TMF_MEM
+    cmp byte [tm_hion], 0       ; RAM above 1MB: the system's share of it
+    je .nohi                    ; - its tables and .cold under the pool, and
+    mov bx, tm_s_bhi            ; the blocks the kernel and drivers own - so
+    mov cx, [tm_hisys]          ; the rows under System still sum to it
+    xor dx, dx                  ; (28.4.8). On a full slot table it is the
+    call tm_buf_row             ; last instance row that no longer fits
+.nohi:
+%endif
 
     ; --- the Builtins heading, then every live built-in -----------------------
     call tm_mrow_nolast         ; ...not on a column's foot, where the rows it
@@ -3554,6 +3626,44 @@ tm_rows_mem:
     cmp si, INST_MAX
     jb .pkg
 
+    ; --- 640K-1MB, read-only: what is there, not RAM (SPEC.md 28.4.9) --------
+    ; After the programs, so on a screen it does not fit it is these rows the
+    ; clip takes. None of it is in a total: the RAM pair is RAM
+    call tm_mrow_nolast
+    call tm_mrow_open
+    mov si, tm_s_uhdr
+    call tm_copy
+    call tm_mrow_close
+    mov si, tm_s_uvid
+    mov ax, 0xA000              ; the video window is the PC's, whatever card
+    mov cx, 128                 ; answers in it
+    call tm_uma_row
+    xor bx, bx
+    mov dx, 384 - 128 - 64      ; what nothing on the machine states, KB
+.rom:
+    cmp bl, [tm_umn]            ; the option ROMs tm_init found
+    jae .romd
+    push bx
+    shl bx, 1
+    shl bx, 1
+    mov ax, [tm_uma+bx]
+    mov cx, [tm_uma+bx+2]
+    pop bx
+    sub dx, cx
+    mov si, tm_s_urom
+    call tm_uma_row
+    inc bx
+    jmp short .rom
+.romd:
+    mov si, tm_s_unrep          ; ...the rest, called unreported rather than
+    xor ax, ax                  ; anything (KERN-MEGA-PLAN 14.1 answer 10):
+    mov cx, dx                  ; RAM a board shadows or remaps there is the
+    call tm_uma_row             ; board's business, and it says nothing
+    mov si, tm_s_ubios
+    mov ax, 0xF000
+    mov cx, 64
+    call tm_uma_row
+
     ; --- blank whatever rows the list did not reach ---------------------------
 .blank:
     cmp word [tm_mrow], TMM_ROWS
@@ -3600,7 +3710,17 @@ tm_inst_row:
     jz .noreg
 
     xchg ax, dx                 ; a package: segment as hex, size in KB
+    cmp byte [tm_pm], 0
+    je .hexseg
+    test al, 4                  ; protected mode and a selector: placed above
+    jz .hexseg                  ; 1MB, where a segment means nothing
+    mov word [di], 'HI'
+    mov word [di+2], 'GH'
+    add di, 4
+    jmp short .segd
+.hexseg:
     call tm_put4x
+.segd:
     mov byte [di], ' '
     inc di
     xchg ax, dx
@@ -3627,6 +3747,8 @@ tm_inst_row:
                                 ; the snapshot already carries it, the kernel
                                 ; applying the owner-word rule while it has
                                 ; the record open (SPEC.md 20.9, 50.5)
+    call tm_slotxkb             ; ...and, protected mode, the blocks it holds
+                                ; above 1MB: its memory is one figure
     call tm_kcol
     call tm_mrow_close
     pop di
@@ -3690,6 +3812,108 @@ tm_buf_row:
     pop si
     call tm_mrow_close
     jmp tm_pop_dsdcba
+
+; -----------------------------------------------------------------------------
+; tm_uma_row - one row of the 640K-1MB map (SPEC.md 28.4.9): the name padded
+;              to the ADDR column as the System row's is, the segment, the KB
+;              and a dash in HEAP - it is not a claim and not RAM
+; in:  SI = name, AX = segment, CX = KB
+; out: nothing
+; clobbers: nothing (flags only)
+; -----------------------------------------------------------------------------
+tm_uma_row:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call tm_mrow_open
+    call tm_copy
+    push cx
+    mov cx, tm_str + 9          ; tm_s_sys0's name field
+    sub cx, di
+    jle .addr
+.pad:
+    mov byte [di], ' '
+    inc di
+    loop .pad
+.addr:
+    pop cx
+    or ax, ax                   ; no address: a dash in ADDR's four
+    jnz .hex
+    mov word [di], '  '
+    mov word [di+2], ' -'
+    add di, 4
+    jmp short .sz
+.hex:
+    call tm_put4x
+.sz:
+    mov byte [di], ' '
+    inc di
+    xchg ax, cx
+    call tm_kcol
+    mov byte [di], ' '
+    inc di
+    xor ax, ax
+    call tm_kcol
+    call tm_mrow_close
+    jmp tm_pop_dsdcba
+
+; -----------------------------------------------------------------------------
+; tm_romscan - the option ROMs between C000 and EFFF (SPEC.md 28.4.9), into
+;              [tm_umn] records of {segment, KB} at tm_uma. A ROM is what
+;              says it is one: 55AAh at a 2K boundary and a length byte; the
+;              scan steps over its whole length. Read once, at tm_init - what
+;              is in ROM does not change while the machine runs
+; clobbers: nothing (flags only)
+; -----------------------------------------------------------------------------
+tm_romscan:
+    push ax
+    push bx
+    push cx
+    push dx
+    push es
+    mov dx, 0xC000
+    xor bx, bx
+.l:
+    cmp dx, 0xF000
+    jae .out
+    cmp bl, TM_UMAX
+    jae .out
+    mov es, dx
+    mov cx, 0x80                ; the next 2K by default
+    cmp word [es:0], 0xAA55
+    jne .n
+    mov al, [es:2]              ; length in 512-byte blocks
+    xor ah, ah
+    or ax, ax
+    jz .n
+    inc ax                      ; KB, rounded up
+    shr ax, 1
+    push bx
+    shl bx, 1
+    shl bx, 1
+    mov [tm_uma+bx], dx
+    mov [tm_uma+bx+2], ax
+    pop bx
+    inc bx
+    mov cl, 6                   ; KB -> paragraphs, then up to the next 2K
+    shl ax, cl
+    add ax, 0x7F
+    and ax, 0xFF80
+    xchg ax, cx
+.n:
+    add dx, cx
+    jmp short .l
+.out:
+    mov [tm_umn], bl
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 %endif
 
@@ -5853,14 +6077,40 @@ tm_txt_ram_y:
     call tm_copy
     mov ax, [tm_usedk]
     mov bx, [tm_totkb]
+%ifdef TMF_MEM
+    cmp byte [tm_hion], 0       ; RAM above 1MB: the whole machine, whose
+    je .ramk                    ; total is past three digits of KB, in MB to
+    add ax, [tm_hiused]         ; one place - the same eight characters
+    add bx, [tm_hitot]
+    call tm_mpair
+    jmp short .ramd
+.ramk:
+%endif
     call tm_kpair               ; 'nnn/nnnK' - one K, not two, because the
                                 ; memory view fits a second pair on this line
                                 ; and eight characters is what it costs
+%ifdef TMF_MEM
+.ramd:
+%endif
     mov si, tm_s_heap           ; ...whose two leading spaces are where the
     call tm_copy                ; memory view's claim swatch goes
     mov ax, [tm_kb+SK_CLAIM]    ; the claimed half EXCLUDES the purgeables,
     mov bx, [tm_kb+SK_HEAP]     ; because no row below shows one (28.4.1) -
+%ifdef TMF_MEM
+    cmp byte [tm_pm], 0         ; protected mode: the heap is RAM above 1MB
+    je .heapk                   ; too, less what the system holds there
+    add ax, [tm_hiused]         ; (SPEC.md 28.4.8) - what a package may be
+    add bx, [tm_hitot]          ; handed, so the pair reads as the RAM pair
+    sub ax, [tm_hisys]          ; does, in MB
+    sub bx, [tm_hisys]
+    call tm_mpair
+    jmp short .heapd
+.heapk:
+%endif
     call tm_kpair               ; and it is SK_CLAIM that does the excluding
+%ifdef TMF_MEM
+.heapd:
+%endif
                                 ; now, so the two pairs on this one line
                                 ; cannot disagree about what claimed MEANS:
                                 ; RAM's used half is SK_KERN + this word
@@ -6063,17 +6313,19 @@ tm_rows:
     ; decides whether any of it is worth drawing.
     mov di, tm_str
     mov bx, si                  ; BX = the LOGICAL row: a screen too short for
-    call tm_pshort              ; every row has no IVT+Pad row, and System
+    call tm_pshort              ; every row has no IVT+BIOS row, and System
     adc bx, 0                   ; carries its 2K instead (SPEC.md 28.4.7)
     cmp bx, 1
     ja .inst
     je .sys
 
-    ; row 0: IVT+Pad, one constant (SPEC.md 28.4.7)
+    ; row 0: IVT+BIOS - no state, no CPU, its KB (SPEC.md 28.4.7, 28.4.8)
     push si
     mov si, tm_s_lowrow
     call tm_copy
     pop si
+    mov ax, [tm_lowkb]
+    call tm_memcol_kb
     jmp .draw
 
 .sys:                           ; row 1: the kernel - task 0 minus everything
@@ -6094,9 +6346,10 @@ tm_rows:
                                 ; above carries its tail (SPEC.md 28.4.7), so
                                 ; the rows still sum to the RAM line's used
     call tm_pshort              ; ...and when there is no such row, System
-    jnc .nofold                 ; carries IVT+Pad itself
-    add ax, TM_LOWKB
+    jnc .nofold                 ; carries IVT+BIOS itself
+    add ax, [tm_lowkb]
 .nofold:
+    call tm_hisysk              ; + what it holds above 1MB (SPEC.md 28.4.8)
     add ax, [tm_kb+SK_KCLAIM]   ; + the kernel's OWN heap claims (SPEC.md
                                 ; 42.2): the save-under and the clipboard.
                                 ; A package's claim belongs to its own row.
@@ -6104,7 +6357,7 @@ tm_rows:
     jmp .draw
 
 .inst:
-    dec bx                      ; logical row - 2: IVT+Pad and System are
+    dec bx                      ; logical row - 2: IVT+BIOS and System are
     dec bx                      ; above the first instance
     mov bl, [tm_ord+bx]         ; BX = the instance this ROW shows, held to
     xor bh, bh                  ; the end; [tm_rowi] is the same thing for the
@@ -6154,7 +6407,8 @@ tm_rows:
     mov cl, 9
     shr ax, cl
     add ax, [tm_ikb+bx]         ; ...plus everything it holds off the claim
-                                ; heap (SPEC.md 50.5). The MEM column is what
+    call tm_slotxkb             ; heap (SPEC.md 50.5), and above 1MB (28.4.8).
+                                ; The MEM column is what
                                 ; this app COSTS, and a package that claimed a
     call tm_memcol_kb0          ; canvas costs far more than its region - the
     jmp .draw                   ; same sum the System row already shows
@@ -6186,7 +6440,7 @@ tm_rows:
 ; -----------------------------------------------------------------------------
 ; tm_pshort - can this screen NOT show every process row? (SPEC.md 28.4.7)
 ; out: CF = 1 when column 0 and the later columns hold fewer than TM_PROWS -
-;      a CGA, where the list fitted exactly before IVT+Pad joined it
+;      a CGA, where the list fitted exactly before IVT+BIOS joined it
 ; clobbers: nothing else
 ; -----------------------------------------------------------------------------
 tm_pshort:
@@ -6203,7 +6457,7 @@ tm_pshort:
 
 ; -----------------------------------------------------------------------------
 ; tm_sysk - the System row's kernel figure: whole KB, rounded DOWN (SPEC.md
-;           28.4.7). Everything not the heap, less IVT+Pad's constant 2K
+;           28.4.7). Everything not the heap, less IVT+BIOS's constant 2K
 ; in:  [tm_totkb], [tm_kb]
 ; out: AX = KB
 ; clobbers: nothing else
@@ -6211,7 +6465,45 @@ tm_pshort:
 tm_sysk:
     mov ax, [tm_totkb]
     sub ax, [tm_kb+SK_HEAP]
-    sub ax, TM_LOWKB
+    sub ax, [tm_lowkb]
+    ret
+
+; -----------------------------------------------------------------------------
+; tm_ebda - the BIOS's extended data area, KB (SPEC.md 28.4.8): BX = its size
+;           when it sits exactly at the top int 12h reports and says its own
+;           size in its first byte, else 0 - only what the BIOS states is
+;           counted (KERN-MEGA-PLAN 14.1 answer 10)
+; in:  AX = int 12h's KB
+; out: BX = KB
+; clobbers: nothing else
+; -----------------------------------------------------------------------------
+tm_ebda:
+    push cx
+    push es
+    xor bx, bx
+    cmp ax, 640                 ; the area is under 640K or there is none
+    jae .out
+    mov cx, 0x0040
+    mov es, cx
+    mov cx, [es:0x0E]           ; 40:0E, the area's segment...
+    push ax
+    push cx
+    mov cl, 6
+    shl ax, cl                  ; ...which must be int 12h's top: KB x 64
+    pop cx
+    cmp cx, ax
+    pop ax
+    jne .out
+    mov es, cx                  ; (a multiple of 64 paragraphs: on kern_mega's
+    mov bl, [es:0]              ; identity grid too) - its size, KB
+    mov cx, 640
+    sub cx, ax                  ; no bigger than the gap to 640K
+    cmp bx, cx
+    jbe .out
+    xor bx, bx
+.out:
+    pop es
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6357,6 +6649,157 @@ tm_copyn:
     pop cx
     pop ax
     ret
+
+%ifdef TMF_MEM
+; -----------------------------------------------------------------------------
+; tm_hikb - RAM above 1MB (KERN-MEGA-PLAN 13.6, SPEC.md 28.4.8), and whose
+; in:  [tm_kb] (tm_getkb)
+; out: [tm_hitot] = KB above 1MB in all: the pool and, under its base, the
+;      kernel's tables and its .cold; [tm_hiused] = KB of it in use; the
+;      pool's blocks in tm_xw ([tm_xwn] of them, for tm_slotxkb)
+; clobbers: nothing (flags only)
+; -----------------------------------------------------------------------------
+tm_hikb:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    call OSAPI_XMEM_CAPS        ; AX = free, DX:CX = the pool's linear base
+    sub dx, 0x10                ; ...less 1MB: the kernel's own, below it
+    mov bx, cx
+    mov cl, 10
+    shr bx, cl
+    mov cl, 6
+    shl dx, cl
+    or dx, bx                   ; DX = KB between 1MB and the pool
+    mov bx, [tm_kb+SK_XMS]
+    sub bx, ax
+    add bx, dx
+    mov [tm_hiused], bx
+    mov bx, [tm_kb+SK_XMS]
+    add bx, dx
+    mov [tm_hitot], bx
+    push ds
+    pop es
+    mov di, tm_xw
+    mov cx, TM_XWN
+    call OSAPI_XMEM_WALK
+    jnc .walked
+    xor ax, ax
+.walked:
+    mov [tm_xwn], ax
+    mov cx, ax                  ; the SYSTEM's share above 1MB: everything
+    mov di, tm_xw               ; under the pool's base (DX, the kernel's
+.sys:                           ; tables and .cold) and every block the
+    jcxz .sysd                  ; kernel or a driver owns - owner C0h and up
+    cmp byte [di+XMW_OWN], 0xC0 ; (SPEC.md 28.4.8): the top of RAM is RAM
+    jb .sysn                    ; here, so what holds it is billed for it
+    add dx, [di+XMW_KB]
+.sysn:
+    add di, XMW_SIZE
+    dec cx
+    jmp .sys
+.sysd:
+    mov [tm_hisys], dx
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; tm_slotxkb - AX += the KB slot BX/2 holds in the pool's blocks - the XMEM
+; cells' (owner = the slot) and its OS88_HIGHMEM claims (0A0h | the slot) -
+; protected mode only; its region is in SIZE already. Keeps everything else
+tm_slotxkb:
+    cmp byte [tm_hion], 0
+    je .ret
+    push cx
+    push dx
+    push si
+    mov dx, bx
+    shr dx, 1                   ; DL = the slot...
+    mov dh, dl
+    or dh, 0xA0                 ; ...DH = its claims' owner
+    mov si, tm_xw
+    mov cx, [tm_xwn]
+    jcxz .done
+.l:
+    cmp [si+XMW_OWN], dl
+    je .add
+    cmp [si+XMW_OWN], dh
+    jne .n
+.add:
+    add ax, [si+XMW_KB]
+.n:
+    add si, XMW_SIZE
+    loop .l
+.done:
+    pop si
+    pop dx
+    pop cx
+.ret:
+    ret
+
+; tm_mpair - 'u.u/t.tM' at DI, NUL-terminated: tm_kpair's eight characters
+; in MB, for protected mode's whole-machine figures. in AX = used KB, BX =
+; total KB. out: DI on the NUL. Clobbers nothing else
+tm_mpair:
+    push ax
+    call tm_mfig
+    mov byte [di], '/'
+    inc di
+    mov ax, bx
+    call tm_mfig
+    mov word [di], 'M'
+    inc di
+    pop ax
+    ret
+; tm_mfig - AX = KB -> three characters at DI: 'd.d' MB under 10MB, else
+; the whole MB right-aligned. Clobbers nothing else
+tm_mfig:
+    push ax
+    push cx
+    push dx
+    cmp ax, 10240
+    jae .whole
+    mov cx, 10
+    mul cx                      ; DX:AX = KB x 10
+    mov cx, 1024
+    div cx                      ; AX = tenths of a MB, 0..99
+    mov cl, 10
+    div cl                      ; AL = MB, AH = the tenth
+    add ax, '00'
+    mov [di], al
+    mov byte [di+1], '.'
+    mov [di+2], ah
+    add di, 3
+    jmp short .o
+.whole:
+    mov cl, 10
+    shr ax, cl
+    call tm_put3
+.o:
+    pop dx
+    pop cx
+    pop ax
+    ret
+; tm_hisysk - AX += [tm_hisys] in protected mode: what the system holds above
+; 1MB, billed to System (SPEC.md 28.4.8). Keeps everything else
+tm_hisysk:
+    cmp byte [tm_hion], 0
+    je .ret
+    add ax, [tm_hisys]
+.ret:
+    ret
+%else
+tm_slotxkb:                     ; the small build has no memory view
+tm_hisysk:
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; tm_kpair - 'nnn/nnnK' at DI, NUL-terminated
@@ -6728,5 +7171,26 @@ tm_dmg      equ tm_xoff + 2            ; tm_clear_owed filled, which is
                                        ; once per chunk and by nothing else
 
 tm_abon     equ tm_dmg + 8   ; byte: the About card is up (SPEC.md 20.5.1)
+tm_lowkb    equ tm_abon + 1  ; word: IVT+BIOS, KB - TM_LOWKB plus the BIOS's
+                                ; extended data area (tm_init, SPEC.md 28.4.8)
 
-TM_BSS_TOTAL equ tm_abon + 1 - os88_image_end
+%ifdef TMF_MEM
+TM_XWN      equ 32              ; OSAPI_XMEM_WALK's records: kern_mega's pool
+                                ; table is 24 (MX_NBLK), and more is harmless
+tm_pm       equ tm_lowkb + 2    ; byte: CPU_F_PM - extended memory is RAM
+tm_hion     equ tm_pm + 1       ; byte: RAM above 1MB is accounted - the pool
+                                ; walks (SPEC.md 28.4.8): tm_hikb runs
+tm_hiused   equ tm_hion + 1     ; KB above 1MB in use (tm_hikb)...
+tm_hitot    equ tm_hiused + 2   ; ...and in all
+tm_hisys    equ tm_hitot + 2    ; ...and of it the SYSTEM's: the kernel's
+                                ; tables and .cold under the pool, and the
+                                ; blocks the kernel and drivers own (28.4.8)
+tm_xwn      equ tm_hisys + 2    ; records in tm_xw
+tm_xw       equ tm_xwn + 2      ; the pool's blocks, TM_XWN x XMW_SIZE
+TM_UMAX     equ 8               ; option ROMs the 640K-1MB map lists
+tm_umn      equ tm_xw + TM_XWN * XMW_SIZE   ; byte: found (tm_romscan)
+tm_uma      equ tm_umn + 1      ; TM_UMAX x {dw segment, dw KB}
+TM_BSS_TOTAL equ tm_uma + TM_UMAX * 4 - os88_image_end
+%else
+TM_BSS_TOTAL equ tm_lowkb + 2 - os88_image_end
+%endif

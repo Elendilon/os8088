@@ -112,11 +112,23 @@ END = "<!-- kernsize:end -->"
 # baseline, and show the absolute pointer as a +384 regression in the shipped
 # kernel. variant_of therefore checks the NARROWEST name first, which is
 # what the sorted-by-specificity tuple below is for.
-VARIANTS = ("big", "small", "emu")
+# ...and kern_mega is a FOURTH that is reported and never blessed: the 286+
+# protected-mode kernel (docs/plans/KERN-MEGA-PLAN.md), built by `make mega`
+# with -DKERN_BIG -DKERN_MEGA -DKERN_KNOB into build/megak/. Its line carries
+# KERN_BIG too (it is kern_big's tree plus mega.inc), so -DKERN_MEGA is checked
+# FIRST for -DKERN_EMU's reason, and its -DKERN_KNOB is part of the variant
+# rather than a knob. It has no baseline and no KERN_BUDGET of its own - the
+# guards do not bind a KERN_KNOB build - so the report names the two numbers
+# that do mean something there: the 64KB segment, and what stays resident in
+# conventional memory once `.cold` and `.mega` are above 1MB
+# (KERN-MEGA-HANDOFF Track 6, KERN-MEGA-PLAN 14.45: this tool used to print
+# kern_big's sizes for `--build build/megak`, labelled as kern_big's)
+VARIANTS = ("big", "small", "emu", "mega")
 VARIANT_DEFS = {"-DKERN_BIG": "big", "-DKERN_SMALL": "small",
-                "-DKERN_EMU": "emu"}
+                "-DKERN_EMU": "emu", "-DKERN_MEGA": "mega"}
+MEGA_DEFS = ["-DKERN_BIG", "-DKERN_MEGA", "-DKERN_KNOB"]   # the Makefile's
 # most specific first: -DKERN_EMU implies -DKERN_BIG and must win over it
-VARIANT_ORDER = ("-DKERN_EMU", "-DKERN_SMALL", "-DKERN_BIG")
+VARIANT_ORDER = ("-DKERN_MEGA", "-DKERN_EMU", "-DKERN_SMALL", "-DKERN_BIG")
 
 
 def variant_of(nasm_args):
@@ -129,7 +141,18 @@ def variant_of(nasm_args):
 
 def knob_args(nasm_args):
     """The args that make this a KNOB build rather than a shipped variant."""
-    return [x for x in nasm_args if x not in VARIANT_DEFS]
+    mega = "-DKERN_MEGA" in nasm_args
+    return [x for x in nasm_args if x not in VARIANT_DEFS
+            and not (mega and x == "-DKERN_KNOB")]
+
+
+def is_mega_tree(build):
+    """Whether BUILD's kernel is kern_mega's: its map names mega_enter."""
+    try:
+        with open(os.path.join(build, "kernel.map"), errors="replace") as f:
+            return any(re.search(r"\bmega_enter\s*$", line) for line in f)
+    except OSError:
+        return False
 
 # The sections an author can actually move a byte into, in the order the
 # ladder lays them out.  The two overlay halves are here because they have to
@@ -278,6 +301,10 @@ THEMES = (
      (RESIDUAL, "memory.inc", "sched.inc", "events.inc", "mod.inc",
       "bootprof.inc", "stkdiag.inc")),
     ("the Control Panel", ("ctrl.inc",)),
+    # mega.inc is 0 in every variant but kern_mega's, where it is the whole of
+    # what that kernel adds (megados.inc, the DOS park, is %include'd from it
+    # and lands on its row). Listed so `--modules -DKERN_MEGA` places it
+    ("kern_mega: protected mode, the pool, the DOS park", ("mega.inc",)),
     ("the About box, the one built-in kind left in apps.inc", ("apps.inc",)),
 )
 
@@ -338,6 +365,11 @@ def measure(nasm_args=()):
     for pair in m.group(1).split():
         k, _, v = pair.partition("=")
         vals[k] = int(v)
+    m = re.search(r"\bksm: (.*?)(?: \[|$)", r.stderr, re.M)
+    if m:                               # kern_mega's own rung (kernel.asm)
+        for pair in m.group(1).split():
+            k, _, v = pair.partition("=")
+            vals[k] = int(v)
     return vals, None
 
 
@@ -526,6 +558,8 @@ def report(cur, base, variant="big", out=sys.stdout):
     """
     p = lambda s: print(s, file=out)
     tag = "kernsize[%s]:" % variant
+    if variant == "mega":
+        return report_mega(cur, p, tag)
 
     # `.get` on BOTH sides, for `rung_bytes`'s reason one level up: a section
     # a build does not declare is 0 bytes of it, which is the honest reading
@@ -714,6 +748,37 @@ def report(cur, base, variant="big", out=sys.stdout):
     else:
         p(f"{tag} unchanged")
     return crossed
+
+
+def report_mega(cur, p, tag):
+    """kern_mega's report: no baseline, no budget, no ROM - and two rungs that
+    leave conventional memory at the switch (KERN-MEGA-SEGMENTS-PLAN 3.3)."""
+    p(tag + " sections   " + "  ".join(
+        f"{s} {kb(cur.get(s, 0))}" for s in SECTIONS)
+      + f"  mega {kb(cur.get('mega', 0))} + its scratch {kb(cur.get('mscr', 0))}")
+    cells = []
+    for name, members, para in RUNGS + (("mega", ("mega", "mscr"), "megapara"),):
+        size = rung_bytes(cur, para)
+        cells.append(f"{name} {kb(size)} ({kb(size - rung_used(cur, members))} left)")
+    p(tag + " rungs      " + "   ".join(cells))
+    seg = cur["text"] + cur["bss"]
+    p(f"{tag} segment    .text+.bss {kb(seg)} of KERN_CODE_MAX"
+      f" {kb(cur['codemax'])} -> {kb(cur['codemax'] - seg)} left"
+      f"   (tools/os88megaseg.py: what kern_mega carries beyond kern_big)")
+    hi = rung_bytes(cur, "coldpara") + rung_bytes(cur, "megapara")
+    p(f"{tag} footprint  KERN_SIZE {kb(cur['ksize'])} at boot; resident"
+      f" {kb(cur['ksize'] - hi)} once `.cold` and `.mega` are above 1MB"
+      f" (their rungs, {kb(hi)}, go to the heap at the switch). No"
+      f" KERN_BUDGET binds kern_mega: it is a KERN_KNOB build")
+    ks = cur["kseg"]
+    rungs = sorted((cur[k], n) for k, n in (("colds", "COLD"), ("fats", "FAT"),
+                   ("lows", "LOW"), ("vgas", "VGABUF"), ("megas", "MEGA"))
+                   if k in cur)
+    p(f"{tag} ladder     KERNEL {ks:#06x}  "
+      + "  ".join(f"{n} {v:#06x}" for v, n in rungs)
+      + f"  HEAP {cur['kend']:#06x} at boot, {cur.get('colds', 0):#06x}"
+      f" after the switch (+ the VGABUF rung on VGA)")
+    return []
 
 
 def read_descriptions():
@@ -905,6 +970,13 @@ def main():
     if a.build:
         global BUILDDIR
         BUILDDIR = os.path.abspath(a.build)
+        # A kern_mega tree measured without kern_mega's defines is kern_big
+        # assembled against kern_mega's includes - a plausible report of the
+        # wrong kernel, which is what this used to print
+        if is_mega_tree(BUILDDIR) and "-DKERN_MEGA" not in nasm_args:
+            print(f"kernsize: {a.build} is a kern_mega tree - measuring it with"
+                  f" {' '.join(MEGA_DEFS)}", file=sys.stderr)
+            nasm_args = MEGA_DEFS + [x for x in nasm_args if x not in MEGA_DEFS]
     if a.ico:
         global ICODIR
         ICODIR = os.path.abspath(a.ico)
@@ -943,6 +1015,12 @@ def main():
         print(f"budget-check: {name} KERN_SIZE {kb(cur['ksize'])} of"
               f" KERN_BUDGET {kb(cur['budget'])} - {kb(-over)} spare")
         return 0
+
+    if a.bless and variant == "mega":
+        print("kernsize: kern_mega has no baseline to bless - it is"
+              " reported, and tools/os88megaseg.py's ratchet is its gate",
+              file=sys.stderr)
+        return 1
 
     if a.modules or a.bless:
         per, err = measure_modules(nasm_args)

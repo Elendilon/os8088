@@ -100,13 +100,29 @@
     %1
 %endmacro
 
-; VD_GATE next - a list's bit of the SUB2 list map: there, on into the
-; list at .seg; not, straight on to `next` (0: return). Its jump on is the
-; list's own END as well (.done): a list's 0 jumps BACK to it, a short `jz`
-; where the end was `jnz` over a near `jmp` - not taken a segment, so 12
-; cycles a segment less on an 8088, and five bytes a list
+; THE LIST MAP IS IN DX, AND THEN ON THE STACK (docs/plans/KERN-MEGA-PLAN.md
+; 14.16). It was a word at CS:vd_map shifted in place at every list's head -
+; and on kern_mega CS is a read-only code alias, so each of those shifts was
+; a #GP the kernel completed: eleven a frame, a third of a Live play's
+; traps. A gated chain's entry puts the map in DX instead (vd_native: FFFFh,
+; every list there). No POKE list touches DX, so the six poke lists' gates
+; are `shr dx, 1` - 2 bytes where the memory shift was 5, ~9 cycles on an
+; 8088 against ~23. A SPAN list counts its rounds in DX, so the first span
+; gate pushes the map (VD_SGATE1) and every later one pops, shifts and
+; pushes it (VD_SGATE), and the chain's end pops it (VD_MRET). Over the
+; ten gates an 8088 pays ~210 cycles a frame where the memory shifts and
+; their store cost ~260, and the map is two bytes of stack. The bit a list
+; takes is still bit k: the word's shifts reach lists 8 and 9 as the bytes'
+; did. vd_map itself stays, for vosd.inc's clip, which runs off the hot path
+; and keeps its own state at CS
+;
+; VD_GATE next - a POKE list's bit of the map: there, on into the list at
+; .seg; not, straight on to `next` (0: return). Its jump on is the list's
+; own END as well (.done): a list's 0 jumps BACK to it, a short `jz` where
+; the end was `jnz` over a near `jmp` - not taken a segment, so 12 cycles a
+; segment less on an 8088, and five bytes a list
 %macro VD_GATE 1
-    shr byte [cs:vd_map], 1         ; (a BYTE: lists 0..7 are its low one)
+    shr dx, 1                       ; (the map: no poke list touches DX)
     jc .seg
 .done:
 %ifidn %1, 0
@@ -116,19 +132,41 @@
 %endif
 %endmacro
 
-; VD_GATEN next[, byte] - VD_GATE for a list whose `next` is in a short
-; jump's reach (or 0, and .ret a `ret` in reach): not there is a `jnc` to
-; it, and there falls into .seg - 12 cycles less a present list, 3 an absent
-; one. The list's 0 is a `jz` to `next` itself, so no .done. The map is
-; shifted a BYTE at a time - a word's read-modify-write is 8 cycles more on
-; an 8088 - so lists 8 and 9 (the long spans) name its high byte
-%macro VD_GATEN 1-2 vd_map
-    shr byte [cs:%2], 1
+; VD_GATEN next - VD_GATE for a poke list whose `next` is in a short jump's
+; reach: not there is a `jnc` to it, and there falls into .seg - 12 cycles
+; less a present list, 3 an absent one. The list's 0 is a `jz` to `next`
+; itself, so no .done
+%macro VD_GATEN 1
+    shr dx, 1
+    jnc %1
+%endmacro
+
+; VD_SGATE1 next - the FIRST span list's gate: its bit, and the map onto the
+; stack, where every span list after it finds it. `next` in a short jump's
+; reach
+%macro VD_SGATE1 1
+    shr dx, 1
+    push dx                         ; (flags kept: the jnc tests the shr)
+    jnc %1
+%endmacro
+
+; VD_SGATE next - a later span list's gate: the map off the stack, its bit,
+; and back (0 for `next`: .ret, the chain's VD_MRET, in reach)
+%macro VD_SGATE 1
+    pop dx
+    shr dx, 1
+    push dx
 %ifidn %1, 0
     jnc .ret
 %else
-    jnc %1
-%endif
+    jnc short %1                    ; (SHORT: in reach by design, and a jump
+%endif                              ; nasm relaxed in an earlier pass stayed
+%endmacro                           ; long - vd_n_run's, KERN-MEGA-PLAN 14.41)
+
+; VD_MRET - a gated chain's return, the map off the stack
+%macro VD_MRET 0
+    pop dx
+    ret
 %endmacro
 
 ; VD_SHRU - CX / VD_U, VD_U a power of two
@@ -296,7 +334,7 @@
 %endmacro
 
 ..@vd_beg:                          ; (the decoder's first byte, for its end)
-    VD_PAR 0                        ; (vd_n_p1's .seg, 20 + 22 on)
+    VD_PAR 0                        ; (vd_n_p1's .seg, 13 + 19 on)
 ; vd_nmap - vd_native for a SUB2 sub-record (SPEC.md 98.1.3.2.4): DS:SI is
 ; its LIST MAP, a word whose bit k says list k is there, and then those
 ; lists alone. Each list's head shifts the map once - `shr` and a jump, ~35
@@ -304,11 +342,11 @@
 vd_nmap:
     cld
     lodsw
-    mov [cs:vd_map], ax
+    xchg ax, dx                     ; DX = the map (VD_GATE)
     jmp short vd_ngo1
 
 vd_native:
-    mov word [cs:vd_map], 0xFFFF    ; every list there (vd_nmap's map, full)
+    mov dx, 0xFFFF                  ; every list there (vd_nmap's map, full)
     cld
 vd_ngo1:
     xor ax, ax
@@ -318,15 +356,15 @@ vd_ngo1:
                                     ; ret: ten calls were ~250 cycles a frame.
                                     ; The entry falls into the first
     VD_NPOKE vd_n_p1, VD_ST1, 0, vd_n_p2, 1
-    VD_PAR 0
-    VD_NPOKE vd_n_p2, VD_ST2, 0, vd_n_p3, 1
-    VD_PAR 0
+    VD_PAR 1                        ; (a gate's head: 12 + 4 + 3, so .seg 19
+    VD_NPOKE vd_n_p2, VD_ST2, 0, vd_n_p3, 1     ; on, odd)
+    VD_PAR 1
     VD_NPOKE vd_n_p3, VD_ST3, 0, vd_n_p4, 1
-    VD_PAR 0
+    VD_PAR 1
     VD_NPOKE vd_n_p4, VD_ST4, 0, vd_n_p5, 1
-    VD_PAR 0
+    VD_PAR 1
     VD_NPOKE vd_n_p5, VD_ST5, 0, vd_n_p6, 1
-    VD_PAR 0
+    VD_PAR 1
     VD_NPOKE vd_n_p6, VD_ST6, 0, vd_n_slice, 1
 
 ; VD_NSPAN name, entry, c160, next - a Duff-entered list of spans, four to a
@@ -335,8 +373,10 @@ vd_ngo1:
 ; the next entry's `mov cl` relies on)
 %macro VD_NSPAN 2-5 0, 0, 0
 %1:
-%if %5
-    VD_GATEN %4                     ; (`next` is in reach: the body is short)
+%if %5 == 1
+    VD_SGATE1 %4                    ; (`next` is in reach: the body is short)
+%elif %5
+    VD_SGATE %4
 %endif
 .seg:
     VD_YCK                          ; (a span segment's head: 98.3.18.11)
@@ -412,14 +452,16 @@ vd_ngo1:
     xor ah, ah                      ; the invariant, back
 %endmacro
 
-    VD_PAR 1                        ; (a GATEN head is 7 bytes)
+    VD_PAR 1                        ; (the first span gate is 5 bytes)
     VD_NSPAN vd_n_slice, VD_SLICE, 0, vd_n_run, 1
-    VD_PAR 1
-    VD_NSPAN vd_n_run, VD_RUN, 0, vd_n_slicel, 1
+    VD_PAR 0                        ; (a later one 6)
+    VD_NSPAN vd_n_run, VD_RUN, 0, vd_n_slicel, 2
 
-; the long ones: a span of 256+ bytes, len16 - rare, so a plain loop
+; the long ones: a span of 256+ bytes, len16 - rare, so a plain loop. NO
+; PAD in front: vd_n_run's gate reaches this label with a short `jnc` at
+; exactly 127 bytes, and one byte more is a jump nasm silently makes long
 vd_n_slicel:
-    VD_GATEN vd_n_runl, vd_map + 1
+    VD_SGATE vd_n_runl
 .seg:
     lodsb
     or al, al
@@ -445,7 +487,7 @@ vd_n_slicel:
     jmp short .seg
 
 vd_n_runl:
-    VD_GATEN 0, vd_map + 1
+    VD_SGATE 0
 .seg:
     lodsb
     or al, al
@@ -472,7 +514,7 @@ vd_n_runl:
     jnz .e
     jmp short .seg
 .ret:
-    ret
+    VD_MRET
 
 ; =============================================================================
 ; WRITE MODE 3 (SPEC.md 98.1.3.2.4): a VGA4 sub-record led 10h + c is ONE
@@ -488,11 +530,11 @@ vd_n_runl:
 ; vd_wmap - DS:SI = the sub-record's list map and its lists, ES the screen,
 ; BP the origin: vd_nmap's contract. Clobbers AX, BX, CX, DX, DI
 ; =============================================================================
-    VD_PAR 0                        ; (vd_w_p1's .seg: 10 + 22 on)
+    VD_PAR 0                        ; (vd_w_p1's .seg: 7 + 19 on)
 vd_wmap:
     cld
     lodsw
-    mov [cs:vd_map], ax
+    xchg ax, dx                     ; DX = the map (VD_GATE)
     xor ax, ax
     xor cx, cx                      ; (on into vd_w_p1, which follows)
 
@@ -527,15 +569,15 @@ vd_wmap:
 ; is ~5% of a store that reads and writes the card - where a round of eight
 ; was 1,702 bytes of a package at 55.8 KB of its 60)
     VD_NPOKE vd_w_p1, VD_W1, 0, vd_w_p2, 1, 4
-    VD_PAR 1                        ; (its gate's jump on is SHORT: 21)
+    VD_PAR 0                        ; (its gate's jump on is SHORT: 18)
     VD_NPOKE vd_w_p2, VD_W2, 0, vd_w_p3, 1, 2
-    VD_PAR 1                        ; (gate 2's head: 19)
+    VD_PAR 0                        ; (gate 2's head: 16)
     VD_NPOKE vd_w_p3, VD_W3, 0, vd_w_p4, 2, 1     ; (a round of one is
-    VD_PAR 1                                      ; short enough that the
+    VD_PAR 0                                      ; short enough that the
     VD_NPOKE vd_w_p4, VD_W4, 0, vd_w_p5, 2, 1     ; next list is in a short
-    VD_PAR 1                                      ; jump's reach: gate 2)
+    VD_PAR 0                                      ; jump's reach: gate 2)
     VD_NPOKE vd_w_p5, VD_W5, 0, vd_w_p6, 2, 1
-    VD_PAR 1
+    VD_PAR 0
     VD_NPOKE vd_w_p6, VD_W6, 0, vd_w_slice, 2, 1
 
 ; a SLICE of masks: skip, len8, the masks, a read and a write each
@@ -567,8 +609,8 @@ vd_wmap:
 
     VD_PAR 1
     VD_NSPAN vd_w_slice, VD_WSLICE, 0, vd_w_run, 1
-    VD_PAR 1
-    VD_NSPAN vd_w_run, VD_WRUN, 0, vd_w_slicel, 1
+    VD_PAR 0
+    VD_NSPAN vd_w_run, VD_WRUN, 0, vd_w_slicel, 2
 
 ; vd_wfill - CX bytes of mask AL at ES:DI, write mode 3. Out: CX = 0, DI
 ; past them. A length of 0 is none
@@ -585,8 +627,9 @@ vd_wfill:
     loop .m
     ret
 
+    VD_PAR 0                        ; (a later span gate: .seg 6 on)
 vd_w_slicel:
-    VD_GATEN vd_w_runl, vd_map + 1
+    VD_SGATE vd_w_runl
 .seg:
     lodsb
     or al, al
@@ -615,7 +658,7 @@ vd_w_slicel:
     jmp short .seg
 
 vd_w_runl:
-    VD_GATEN 0, vd_map + 1
+    VD_SGATE 0
 .seg:
     lodsb
     or al, al
@@ -638,50 +681,73 @@ vd_w_runl:
     jnz .e
     jmp short .seg
 .ret:
-    ret
+    VD_MRET
 
 ; -----------------------------------------------------------------------------
 ; vd_walk - DS:SI = a SUB2 sub-record's list map and its lists: every byte
-; they write handed to [cs:vw_fn] in turn, DI = its address + BP and AL its
-; value, and SI past them. The slow, general form, for the two places a
-; colour sub-record is not stored by the GC - round the text box (vd_clip)
-; and into a RAM image (vp_decram) - which a play reaches only with text up
-; or through a shadow. [vw_fn] may clobber AX, BX, CX, DX and must keep SI,
-; DI and BP. Clobbers AX, BX, CX, DX, DI
+; they write handed to the routine BX names in turn, DI = its address + BP
+; and AL its value, and SI past them; CL = the sub-record's colour, which
+; the routine reads as [bp+VW_COL]. The slow, general form, for the two
+; places a colour sub-record is not stored by the GC - round the text box
+; (vd_clip) and into a RAM image (vp_decram) - which a play reaches only
+; with text up or through a shadow. The routine may clobber AX, BX, CX, DX
+; and must keep SI, DI and BP. Clobbers AX, BX, CX, DX, DI
+; ITS STATE IS A STACK FRAME (docs/plans/KERN-MEGA-PLAN.md 14.16): the map,
+; the list, whether a segment's addresses are absolute, the entries left, the
+; routine and the colour were bytes and words at CS, written per list,
+; segment and entry - a #GP each on kern_mega, where CS is read-only. BP
+; addresses the frame and the origin is its first word, [bp]: an SS operand
+; is what a CS one was, a displacement's EA where a direct address's was,
+; so an 8088 pays a cycle or two an access more, and 14 bytes of stack
 ; -----------------------------------------------------------------------------
+VW_MAP      equ -2                  ; the frame, from BP: [bp] the origin
+VW_LST      equ -4                  ; the list, 0..9
+VW_ABS      equ -6                  ; ...whether its addresses are absolute
+VW_N        equ -8                  ; ...the entries left in a segment
+VW_FN       equ -10                 ; ...the routine a byte is handed to
+VW_COL      equ -12                 ; ...and the colour it reads (a byte)
     VD_PAR 0                        ; (.ent, .bv and .rv even with it)
 vd_walk:
+    ; STKBALANCE-OK: a BP frame of five words, unwound by `mov sp, bp`
+    ; before the one `ret`
     cld
     lodsw
-    mov [cs:vd_map], ax
-    mov byte [cs:vw_lst], 0         ; the list, 0..9
+    push bp                         ; [bp] = the origin
+    mov bp, sp
+    push ax                         ; the map
+    xor ax, ax
+    push ax                         ; the list
+    push ax
+    push ax
+    push bx                         ; the routine
+    push cx                         ; the colour
 .list:
-    shr word [cs:vd_map], 1
+    shr word [bp+VW_MAP], 1
     jnc .next
 .seg:
     lodsb
     xor ah, ah
     or al, al
     jz .next
-    mov byte [cs:vw_abs], 0
+    mov byte [bp+VW_ABS], 0
     jns .sk                         ; (the `or`'s sign: a mov keeps flags)
     and al, 0x7F
     jz .seg                         ; (80h: no segment)
-    mov byte [cs:vw_abs], 1
+    mov byte [bp+VW_ABS], 1
     jmp short .cnt
 .sk:
     push ax
     lodsw
-    add ax, bp
+    add ax, [bp]
     mov di, ax
     pop ax
 .cnt:
-    mov [cs:vw_n], ax
+    mov [bp+VW_N], ax
 .ent:
-    cmp byte [cs:vw_abs], 0
+    cmp byte [bp+VW_ABS], 0
     je .skip
     lodsw
-    add ax, bp
+    add ax, [bp]
     mov di, ax
     jmp short .len
 .skip:
@@ -689,7 +755,7 @@ vd_walk:
     xor ah, ah
     add di, ax
 .len:
-    mov al, [cs:vw_lst]
+    mov al, [bp+VW_LST]
     xor ah, ah
     cmp al, 6
     jae .span
@@ -706,14 +772,14 @@ vd_walk:
     lodsw
 .l:
     mov cx, ax
-    test byte [cs:vw_lst], 1        ; a RUN: one value, CX times
+    test byte [bp+VW_LST], 1        ; a RUN: one value, CX times
     jz .bytes
     lodsb
     jcxz .done1
 .rv:
     push ax
     push cx
-    call [cs:vw_fn]
+    call [bp+VW_FN]
     pop cx
     pop ax
     inc di
@@ -724,18 +790,20 @@ vd_walk:
 .bv:
     lodsb
     push cx
-    call [cs:vw_fn]
+    call [bp+VW_FN]
     pop cx
     inc di
     loop .bv
 .done1:
-    dec word [cs:vw_n]
+    dec word [bp+VW_N]
     jnz .ent
     jmp .seg
 .next:
-    inc byte [cs:vw_lst]
-    cmp byte [cs:vw_lst], 10
+    inc byte [bp+VW_LST]
+    cmp byte [bp+VW_LST], 10
     jb .list
+    mov sp, bp
+    pop bp
     ret
 
 vd_map:       dw 0xFFFF             ; SUB2's list map, spent a bit a list
@@ -778,10 +846,6 @@ vd_ypatch:
     pop bx
     ret
 %endif
-vw_fn:        dw 0                  ; vd_walk's per-byte routine
-vw_n:         dw 0                  ; ...the entries left in a segment
-vw_lst:       db 0                  ; ...the list it is in
-vw_abs:       db 0                  ; ...and whether its addresses are absolute
 
 %ifdef VD_C160
 ; =============================================================================

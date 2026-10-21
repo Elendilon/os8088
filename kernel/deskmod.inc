@@ -194,8 +194,28 @@ dkd_verb:
     cmp al, 4                   ; --- LIB (SPEC.md 110.15): DX = the Sticky
     jne .no                     ; App library's paragraph, at the end of
     mov dx, cs                  ; this image - where its own org 0 is
-    add dx, (dkd_lib - modj_hdr) >> 4
-    clc
+%ifdef KERN_MEGA
+    test dl, 4                  ; kern_mega in protected mode: CS is this
+    jz .libseg                  ; image's LDT CODE alias, (S >> 2) | 4, and
+    cmp dx, MEGA_LDT_FREE0 * 8  ; (or, above 1MB, a pair's code half, whose
+    jae .libhi                  ; library gets a descriptor of its own)
+    add dx, (dkd_lib - modj_hdr) >> 6 ; a paragraph count added to it names
+    clc                         ; another descriptor - every Sticky App said
+    retf                        ; "No desk layer". The library is 512-aligned
+.libhi:                         ; (KERN-MEGA-PLAN 13.5: mega_dklibf)
+    push ax
+    push cx
+    mov ax, dx
+    mov cx, dkd_lib - modj_hdr
+    mov dx, dkd_lib_end - dkd_lib
+    call MEGA_SEL_CODE:mega_dklibf ; DX = the library's selector, CF = none
+    pop cx
+    pop ax
+    retf
+.libseg:                        ; here (below), so ITS alias is this one plus
+%endif                          ; offset / 64: a code selector the clients
+    add dx, (dkd_lib - modj_hdr) >> 4 ; far-call without a fault, and read
+    clc                         ; the magic through (it is readable)
     retf
 .no:
     stc
@@ -357,9 +377,14 @@ dkd_key:
 ; Sticky App built STIK_LIB far-calls it with its own DS. It costs the kernel
 ; nothing resident: LIB above is the only line that knows it is here
 ; -----------------------------------------------------------------------------
+%ifdef KERN_MEGA
+    times (512 - (($ - $$) % 512)) % 512 db 0 ; an LDT alias of its own (LIB)
+%else
     times (16 - (($ - $$) % 16)) % 16 db 0
+%endif
 dkd_lib:
     incbin "stiklib.bin"
+dkd_lib_end:
 
 section .text
 %endif
