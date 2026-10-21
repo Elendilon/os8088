@@ -2573,7 +2573,10 @@ SOAK = [
         "broken, which must part the two sides. And tools/gbprof/gbflags.py's "
         "generated sequences, the recompiler's dead flags (REALBOY-SPEC "
         "16.1.2): their sum with it must be the interpreter's, and its "
-        "control (RT_DEADBUG, a flag's read unseen) must make them differ. WHY QEMU: a correctness gate, and QEMU counts work "
+        "control (RT_DEADBUG, a flag's read unseen) must make them differ. And "
+        "tools/gbprof/gbpop.asm, POPs out of a ROM bank as Pokemon's VBlank "
+        "copy does (pop_slow, REALBOY-SPEC 5), interpreted and translated, "
+        "with POP BC's branch to it taken out as the control. WHY QEMU: a correctness gate, and QEMU counts work "
         "exactly - the cycle counts instr_timing checks are the core's own. "
         "SOAK: one package's core",
         needs=("qemu", "nasm")),
@@ -2735,8 +2738,8 @@ SOAK = [
         needs=("marty", "nasm", "rgbds"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("rbspeed286", "soak", py("tests/rbspeed286.py"), 1200.0,
-        "REALBOY's game speed on 86Box's 286 (docs/plans/REALBOY-PLAN.md wave "
-        "4): Super Mario Land and Kirby's Dream Land started and walked right, "
+        "REALBOY's game speed on 86Box's 286 with 2MB (docs/plans/REALBOY-PLAN.md "
+        "wave 4): Super Mario Land and Kirby's Dream Land started and walked right, "
         "in the window and full screen, the game's frames against 20 emulated "
         "seconds and the frames drawn off the package's F1 line. ASSERTS each "
         "runs (frames advance, >= 10% of real time) and REPORTS the speed - "
@@ -2754,6 +2757,17 @@ SOAK = [
         "kept coming, and not one read the wrong bank - with the fetch's copy "
         "taken out it reads 255 wrong. MartyPC is an 8088 with no extended "
         "memory, so 86Box's. SOAK: one package, and 86Box's",
+        needs=("86box", "nasm", "rgbds"),
+        wants=("build/realboy.o88", "build/os8088.img")),
+    Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 20.0,
+        "REALBOY's speaker asked for 131,072 Hz (docs/REALBOY-SPEC.md section "
+        "17) on 86Box's 286: GBTONE.GB ends with square channel 1 at x = 7FFh, "
+        "where 131,072 / (2048 - x) divides by 1. ASSERTS the core's frames keep "
+        "climbing after the note - without rw_sound's range check the divide "
+        "error restarts the div for ever and they stop at 151, which is how the "
+        "compatibility sweep's Alleyway hung the package on pause. A 286 because "
+        "an 8088's divide error returns past the div and hides it. SOAK: one "
+        "package, and 86Box's",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realboy.o88", "build/os8088.img")),
     Row("gbtrace", "soak", py("tests/gbtrace.py"), 130.0,

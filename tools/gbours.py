@@ -3,7 +3,8 @@
 sound gate), GBSAVE.GB (battery RAM and the MBC3 clock), GBDEMO.GB (the
 5150 demo), GBBANK.GB (the bank cache's gate), GBRMW.GB (the
 recompiler's read-modify-writes of (HL), in tests/gbcpu.py) and GBJOY.GB
-(the joypad interrupt, in tests/gbheader.py).
+(the joypad interrupt, in tests/gbheader.py) and GBPOP.GB (POPs out of a
+ROM bank, in tests/gbcpu.py).
 
     python3 tools/gbours.py [gbtone|gbsave|gbdemo|gbbank|gbrmw|gbjoy]
 
@@ -30,6 +31,7 @@ ROMS = {
     "gbflags": [],                          # (generated: tools/gbprof/gbflags.py)
     "gbjoy": [],                            # the joypad interrupt (gbheader.py)
     "gbfm": [],                             # all four channels (gbfm.py)
+    "gbpop": ["-m", "0x01"],                # POPs out of a ROM bank (gbcpu.py)
 }
 
 

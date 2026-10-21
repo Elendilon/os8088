@@ -165,8 +165,19 @@ back on, on the host's task stack, so the tick pre-empts the host between two
 budgets as it would any task: no yield is needed for that, and the package
 yields once a frame, for a UI task a click woke.
 
-**What it does not cover**: a game whose SP points into 4000-7FFF reads the
-view's rbsys half there, not ROMX, through its pops.
+**A POP with SP in 4000-7FFF reads the BANK**, not the view's rbsys half
+there: Pokemon's VBlank copy points SP at tiles in a ROM bank and POPs them,
+and the compatibility sweep's Red and Yellow drew their menus out of
+RealBoy's own state until it did. Each POP compares SP with C000h first and
+leaves for `pop_slow` below it, which reads 4000-7FFF through `S_ROMX` and
+the rest as the view - one compare and an untaken branch on the common path,
+the stack being in WRAM or HRAM. `pop_slow` hands the word back in DX, so
+each POP clears DL after it: the dispatch is `jmp dx`, and an `RB_TRACE`
+core, whose dispatch is a far vector, cannot see a DL left over
+(`tests/gbcpu.py`'s `pop from ROM`, `tools/gbprof/gbpop.asm`, red with POP
+BC's branch taken out). **What it still does not cover** is a RET or a PUSH
+there, which stay the view's: no game seen returns through a table in ROM,
+and a push into ROM writes nothing on the hardware.
 
 **The core answers the common registers itself** and leaves only for the
 rest (section 9). That rule exists because the trip out - the stack switch
@@ -463,13 +474,30 @@ cache could not be claimed and the game ran interpreted (its log has no J).
   (the core's `mbc_set` leaves through `S_MBCVEC` when the entry is 0), whose
   `rb_setbank` calls `rb_bmiss`.
 - **A fetch** (`rw_bfetch`) takes the slot whose bank the game switched to
-  least since the last fetch: `mbc_set` counts every switch in `RB_BUSE`
-  (6C00h, a word a bank), and a fetch halves every count after, so what was
-  used lately stays. `OSAPI_XMEM_COPY` is UI-task context, so the WORKER
-  posts the bank (`rw_bankreq`), wakes the window and sleeps a tick at a time
-  until the UI task has it in (`rw_onwake`, and `rw_fsenter`'s wait); full
-  screen runs the machine on the UI task, which fetches for itself. A
-  window closing while the worker waits ends it at `OSAPI_TASK_ALIVE`.
+  LONGEST AGO, by frame: every switch stamps `RB_BUSE` (6C00h, a word a
+  bank) with `S_FRAMES` - the core's `mbc_set`, the recompiler's bank
+  stores and `rb_setbank`, which MBC2's switches and MBC1's high bits come
+  through - and the victim is the slot of greatest age, the frame now less
+  the stamp, unsigned, so the counter's wrap costs nothing; of equal ages the
+  first. It replaced a count halved at every fetch, which the compatibility
+  sweep found two ways wrong: a bank just fetched starts at a count of 0 or
+  1, so two banks the game alternates between and neither of which the load
+  put in a slot take each other's slot at every switch (Pokemon Yellow), and
+  MBC2's switches were never counted at all (Final Fantasy Adventure, 1% of
+  real time). Replayed over sixteen games' bank switches from Peanut-GB
+  (4,000 frames of the profiler's input script, 8 slots) the stamp misses
+  31 times on Yellow where the count missed 1,467, 26 on Super Mario Land 2
+  where it missed 102 and 5,984 on Donkey Kong Land where it missed 10,180,
+  and matches true LRU elsewhere. `mbc_set` lives in page ECh's CB half
+  (`rbgen.CBTAILS`): a tail page is copied whole, and stamping does not fit
+  the main half. `OSAPI_XMEM_COPY` is UI-task context, so the WORKER posts
+  the bank (`rw_bankreq`), wakes the window and YIELDS until the UI task has
+  it in (`rw_onwake`, and `rw_fsenter`'s wait) - the wake makes the UI task
+  runnable at once, where the tick's sleep this replaced made every fetch a
+  whole tick and capped them at 18 a second (gbbank's cartridge, which
+  switches among all 64 banks, went from 18 to ~500). Full screen runs the
+  machine on the UI task, which fetches for itself. A window closing while
+  the worker waits ends it at `OSAPI_TASK_ALIVE`.
 - **What it costs is nearly nothing**, because a game's working set is small.
   gbprof's LRU column (`tools/gbprof.py`), two minutes of its platformer
   script: Kirby uses **6 banks of 16** in play and Looney Tunes **8 of 64**,
@@ -2026,7 +2054,13 @@ MOV (`rt_snd`).
     envelopes cross made the one speaker hop between melody and harmony
     note by note, which the first field run heard as "very odd".
   - It passes that pitch to `OSAPI_SND_TONE`, but only when the pitch has
-    changed. Volume 0, and a pitch outside 20 to 15,000 Hz, are silence.
+    changed. Volume 0, and a pitch outside 20 to 15,000 Hz, are silence -
+    and `2048 - x` under 9 is silence BEFORE the divide: x = 7FEh and 7FFh
+    divide by 2 and 1, whose quotients do not fit in 16 bits, and a divide
+    error on a 286 returns to the DIV and takes it again for ever. The
+    compatibility sweep's Alleyway sets x = 7FEh when it pauses and hung the
+    package so (`tests/gbhifreq.py`, on 86Box's 286: an 8088's divide error
+    returns past the DIV, which is why gbsound never saw it).
   - A refusal (another owner of the speaker) is asked again the next frame.
   - A paused or stopped machine turns the tone off (`rw_quiet`).
 - **The pitch is exact and the timing is the game's.** Notes follow the

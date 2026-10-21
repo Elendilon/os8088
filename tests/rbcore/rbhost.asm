@@ -43,15 +43,18 @@
 ;                   b_ilace 1, which MODE 13 has no other use for, into the
 ;                   machine that ran on, its translated code kept.
 ;
-; Memory: the boot sector at 0000:7C00, the stack below it, this harness at
-; 0800:0000, the core at 1000:0000, the view at 2000:0000, the ROM from
-; 3000:0000 (up to 368KB).
+; Memory: the boot sector moved from 0000:7C00 to 0000:6E00 and the stack
+; below it, this harness at 0700:0000 - over where the BIOS loaded the boot
+; sector, which is why it moves first: the harness had outgrown the 32KB
+; between 7C00's sector and the core - the core at 1000:0000, the view at
+; 2000:0000, the ROM from 3000:0000 (up to 368KB).
 ; =============================================================================
 
 cpu 8086
 bits 16
 
-HOST_SEG        equ 0x0800
+HOST_SEG        equ 0x0700
+BOOT_AT         equ 0x6E00                  ; where the boot sector runs
 CORE_SEG        equ 0x1000
 VIEW_SEG        equ 0x2000
 ROM_SEG         equ 0x3000
@@ -83,7 +86,7 @@ DMG_SEG         equ 0x01D0                  ;   and its damage memory
 STATE_SEG       equ 0x7000                  ; MODE 13's copy of a save state
 
 ; --- the boot sector ---------------------------------------------------------
-section boot start=0 vstart=0x7C00
+section boot start=0 vstart=BOOT_AT
 boot:
     jmp short boot_go
     nop
@@ -101,10 +104,17 @@ boot_go:
     cli
     xor ax,ax
     mov ss,ax
-    mov sp,0x7C00
+    mov sp,BOOT_AT
     mov ds,ax
-    sti
+    mov es,ax
     cld
+    mov si,0x7C00                       ; out from under the harness first:
+    mov di,BOOT_AT                      ;   nothing above here names a label
+    mov cx,256
+    rep movsw
+    jmp 0:.moved
+.moved:
+    sti
     mov [b_drive],dl
     mov word [b_lba],1
     mov ax,HOST_SEG

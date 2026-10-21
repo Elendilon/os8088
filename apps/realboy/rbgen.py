@@ -453,10 +453,16 @@ jmp far [ss:S_EVVEC]""")
         alu(s, aop, "byte [si]")
         s.a("inc si"); s.cyc(2); s.disp()
     elif op in (0xC1, 0xD1, 0xE1):                  # POP rr
-        s.a("pop " + {0xC1: "cx", 0xD1: "di", 0xE1: "bx"}[op]); s.cyc(3); s.disp()
+        r = {0xC1: "cx", 0xD1: "di", 0xE1: "bx"}[op]
+        s.a("cmp sp,0C000h\njb .s\npop %s\n.k:" % r)   # (pop_slow: SP in ROM)
+        s.cyc(3); s.disp()
+        s.t(".s:\nmov word [ss:S_RET],.r\njmp pop_slow\n.r:\nmov %s,dx\nxor dl,dl\njmp .k" % r)
     elif op == 0xF1:                                # POP AF
         s.a(f"""
+cmp sp,0C000h
+jb .s
 pop dx
+.k:
 mov al,dh
 mov [ss:S_TMP],bx
 mov bh,RB_F2AH>>8
@@ -465,6 +471,7 @@ mov ah,[ss:bx]
 mov bx,[ss:S_TMP]
 """)
         zdl(s); s.cyc(3); s.disp()
+        s.t(".s:\nmov word [ss:S_RET],.k\njmp pop_slow")
     elif op in (0xC5, 0xD5, 0xE5):                  # PUSH rr
         s.a("push " + {0xC5: "cx", 0xD5: "di", 0xE5: "bx"}[op]); s.cyc(4); s.disp()
     elif op == 0xF5:                                # PUSH AF
@@ -1830,31 +1837,6 @@ idle_no:
     mov [ss:S_IDLENO],si
     xor dl,dl
     jmp word [ss:S_RET]
-; mbc_wr's second half: DL = the bank number written.
-mbc_set:
-    mov [ss:S_BANK],dl
-    and dl,[ss:S_BMASK]
-    xor dh,dh                   ; ROMX = the bank table's (REALBOY-SPEC 10.3)
-    shl dx,1
-    xchg dx,bx                  ; (BX, the address written, borrowed)
-    inc word [ss:bx+RB_BUSE]
-    mov bx,[ss:bx+RB_BTAB]
-    xchg dx,bx
-    or dx,dx
-    jz mbc_set.miss             ; not in memory: rbsys fetches it
-    mov es,dx
-    mov dx,ds
-    cmp dx,[ss:S_ROMX]
-    mov dx,es
-    jne mbc_set.nx
-    mov ds,dx
-mbc_set.nx:
-    mov [ss:S_ROMX],dx
-    xor dl,dl
-    jmp word [ss:S_RET]
-mbc_set.miss:
-    mov [ss:S_RETFAR+2],cs
-    jmp far [ss:S_MBCVEC]
 """,
 }
 
@@ -2021,6 +2003,9 @@ def main():
         L.append("    times %d-($-$$) db 0CCh" % (op * 256 + 128))
         L.append("cb_%02X:" % op)
         L += gen_cb(op).text()
+        if op in CBTAILS:
+            assert op in TAILS                  # (the page is copied whole)
+            L += CBTAILS[op].strip("\n").split("\n")
     L.append("    times 65536-($-$$) db 0CCh")
     with open(out, "w") as f:
         f.write("\n".join(L) + "\n")
@@ -2065,14 +2050,73 @@ EXTRA += [("INC (HL) of RAM", rmw_lines(0x34, False), 1),
 EXTRA += [("CB %02X of RAM" % b, rmw_lines(b, True), 2) for b in RMW_CB]
 
 
+# --- tails after a TAIL page's CB handler: the translator copies a tail -----
+# --- page whole, so its CB half's room is as reachable as its main half's --
+CBTAILS = {
+    0x41: """
+; POP's slow path, SP below C000h (REALBOY-SPEC 5): DX = the word at SP and
+; SP moved on, resumed at [S_RET] - and DL is then NOT 0, which the dispatch
+; needs, so each caller clears it after taking the word. 4000-7FFF is the BANK's, through S_ROMX,
+; and not the view's: the view has rbsys's half there, and Pokemon's VBlank
+; copy points SP at tiles in a ROM bank and POPs them - the compatibility
+; sweep's Red and Yellow drew their menus out of RealBoy's own state. Only
+; POP: a RET or a PUSH there stays the view's, which no game seen does.
+pop_slow:
+    cmp sp,8000h
+    jae .v
+    cmp sp,4000h
+    jb .v
+    mov [ss:S_TMP],bx
+    mov bx,sp
+    mov es,[ss:S_ROMX]          ; (ES is every helper's to load)
+    mov dx,[es:bx]
+    add sp,2
+    mov bx,[ss:S_TMP]
+    jmp word [ss:S_RET]
+.v:
+    pop dx                      ; ROM0, VRAM, the RAM window: the view's
+    jmp word [ss:S_RET]
+""",
+    0xEC: """
+; mbc_wr's second half: DL = the bank number written.
+mbc_set:
+    mov [ss:S_BANK],dl
+    and dl,[ss:S_BMASK]
+    xor dh,dh                   ; ROMX = the bank table's (REALBOY-SPEC 10.3)
+    shl dx,1
+    xchg dx,bx                  ; (BX, the address written, borrowed)
+    mov [ss:S_BTMP],ax          ; the frame it was last switched to: the
+    mov ax,[ss:S_FRAMES]        ;   cache's eviction (REALBOY-SPEC 10.3);
+    mov [ss:bx+RB_BUSE],ax      ;   never a push - SP is the Game Boy's
+    mov ax,[ss:S_BTMP]
+    mov bx,[ss:bx+RB_BTAB]
+    xchg dx,bx
+    or dx,dx
+    jz mbc_set.miss             ; not in memory: rbsys fetches it
+    mov es,dx
+    mov dx,ds
+    cmp dx,[ss:S_ROMX]
+    mov dx,es
+    jne mbc_set.nx
+    mov ds,dx
+mbc_set.nx:
+    mov [ss:S_ROMX],dx
+    xor dl,dl
+    jmp word [ss:S_RET]
+mbc_set.miss:
+    mov [ss:S_RETFAR+2],cs
+    jmp far [ss:S_MBCVEC]
+""",
+}
+
 def bank_lines(mask, zero):
     """LD (nn),A to 2000-3FFF of a cartridge whose MBC the translator knows:
     the bank worked out and switched HERE, mbc_set's body inline (Kirby's
     Dream Land switches ~95 times a frame). The two rare cases - high bits
     set (S_BANKHI), a bank the cache has not got - give the interpreter the
     whole instruction, at IMM16 - 3: flags 16 make IMM16 the next PC, and
-    nothing here needs nn. (Run again there, the bank's count is counted
-    twice, which the cache's eviction does not mind.) SI is free in a
+    nothing here needs nn. (Run again there, the bank is stamped with the
+    frame twice, which changes nothing.) SI is free in a
     template: a guard that wants it sets it."""
     L = ["    cmp byte [ss:S_BANKHI],0", "    jne .i", "    mov dl,al"]
     if mask != 0xFF:
@@ -2084,7 +2128,8 @@ def bank_lines(mask, zero):
                 "    xor dh,dh",
                 "    shl dx,1",
                 "    mov si,dx",
-                "    inc word [ss:si+RB_BUSE]",
+                "    mov dx,[ss:S_FRAMES]",       # the frame it was last
+                "    mov [ss:si+RB_BUSE],dx",     #   switched to (10.3)
                 "    mov dx,[ss:si+RB_BTAB]",
                 "    or dx,dx",
                 "    jz .i",

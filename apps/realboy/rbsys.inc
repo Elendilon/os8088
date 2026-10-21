@@ -2070,7 +2070,9 @@ rb_setbank:
     push bx
     mov bx,ax                           ; ROMX: the bank table's (rb_init)
     shl bx,1
-    mov ax,[RB_BTAB+bx]
+    mov ax,[S_FRAMES]                   ; the frame it was last switched to,
+    mov [RB_BUSE+bx],ax                 ;   for the cache (MBC2 and MBC1's
+    mov ax,[RB_BTAB+bx]                 ;   high bits come only this way)
     or ax,ax
     jnz .in
     cmp word [cs:rb_bmiss],0            ; not in memory: the host fetches it

@@ -73,6 +73,11 @@ DECHL_NOP = "3500:8A3446FFE2"
 # whose sum must be the interpreter's. Its control does not see that an
 # instruction reads a flag (ADC's carry, RLA's, DAA's) before it writes it.
 FLAGS_ROM = "gbflags"
+# tools/gbprof/gbpop.asm: POPs out of a ROM bank, SP in 4000-7FFF, as
+# Pokemon's VBlank copy reads tiles (pop_slow, REALBOY-SPEC 5). Its control
+# takes POP BC's JB out (C104h), so BC pops from the view's rbsys half again.
+POP_ROM = "gbpop"
+POPBC_FAST = "C104:9090"
 
 
 def rom_path(name):
@@ -143,6 +148,19 @@ def main():
         bad += not ok
         ok, last = run("control", rom, 2000, rbimg.patch_core(core, [DECHL_NOP]), host)
         print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: DEC (HL) broken",
+                                 "passed - the gate cannot go red" if ok else "failed, as it must"))
+        bad += ok
+    if not a.k or a.k in "pop from ROM":
+        import gbours
+        rom = gbours.build(POP_ROM)
+        for jit in (False, True):
+            ok, last = run("pop", rom, 1500, core, host, jit=jit)
+            print("%-4s %-24s %s" % ("ok" if ok else "FAIL", "pop from ROM, %s"
+                                     % ("translated" if jit else "interpreted"), last))
+            bad += not ok
+        ok, last = run("control", rom, 1500, rbimg.patch_core(core, [POPBC_FAST]), host,
+                       jit=False)
+        print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: POP BC from the view",
                                  "passed - the gate cannot go red" if ok else "failed, as it must"))
         bad += ok
     if not a.k or a.k in "dead flags":

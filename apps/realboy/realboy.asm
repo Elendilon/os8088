@@ -538,21 +538,44 @@ rw_load:
     je .one
     call rw_bload
     jc .say
-    jmp short .loaded
+    jmp .loaded
 .one:
-    mov ax, [rw_romkb]
+    mov ax, [rw_romkb]              ; whole 16KB banks first: the probe answers
+    and ax, 0FFF0h                  ;   a KB over an exact size (SPEC.md
+    jnz .claim                      ;   20.14.6.3), and on a 1MB 286 Kirby's
+    mov ax, [rw_romkb]              ;   Dream Land fits by exactly that KB
+.claim:
+    push ax
     call OSAPI_MEM_CLAIM            ; DX = its segment
-    jc .room
+    pop ax
+    jnc .got
+    cmp word [rb_dmgseg], 0         ; no room: the damage memory, claimed
+    je .room                        ;   before the plan for the recompiler's
+    mov dx, [rb_dmgseg]             ;   sake, goes back - .loaded claims it
+    call OSAPI_MEM_FREE             ;   again if there is room after the ROM,
+    mov word [rb_dmgseg], 0         ;   and rb_renderd composes whole frames
+    jmp short .claim                ;   without it
+.got:
     mov [rw_romseg], dx
     mov es, dx
     xor bx, bx
-    mov ax, [rw_romkb]
+    push ax
     mov cx, 1024
     mul cx
     mov cx, ax                      ; DX:CX = the claim's capacity
     mov si, rw_name
     call OSAPI_FILE_READ            ; DX:AX = the bytes read
-    jc .rdfail
+    pop bx                          ; (BX = the KB claimed)
+    jnc .read
+    cmp ax, FERR_BIG                ; the exact banks were short - a packed
+    jne .rdfail                     ;   file expands in place - so the
+    cmp bx, [rw_romkb]              ;   probe's figure after all, once
+    jae .rdfail
+    mov dx, [rw_romseg]
+    call OSAPI_MEM_FREE
+    mov ax, [rw_romkb]
+    jmp short .claim
+.read:
     ; the ROM itself: whole 16KB banks, 2 to 16 of them
     test ax, 3FFFh
     jnz .notrom1
@@ -2238,6 +2261,8 @@ rw_sound:
     and ch, 7
     mov bx, 2048
     sub bx, cx                      ; BX = 2048 - x, 1..2048
+    cmp bx, 9                       ; 131,072 / 8 is past the range anyway,
+    jb .zero                        ;   and / 2 or / 1 overflows the divide
     mov dx, 2                       ; DX:AX = 131,072
     xor ax, ax
     div bx                          ; AX = hertz
