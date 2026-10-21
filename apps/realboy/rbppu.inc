@@ -337,6 +337,12 @@ rb_torus        db 0                    ; the host's, PAN-ALIGNED: 1 = the
                                         ;   the overlay lines composed, and
                                         ;   rb_tpage puts a page right
 rb_tseg         dw 0                    ; ...its state, RB_TSIZE bytes at 0
+rb_tss          db 144                  ; ...THE STRIP's first line in force,
+                                        ;   144 none (REALBOY-SPEC 15.5.1): the
+                                        ;   host's to show under the split
+rb_shook        dw 0                    ; ...and its near proc that lays the
+                                        ;   split's region out for a strip at
+                                        ;   AL (144 none), DS = CS, all kept
 rb_tilsv        db 0                    ; (rb_ilace, kept while the canvas has
                                         ;   it Off)
 
@@ -743,6 +749,36 @@ rb_renderd:
     inc word [cs:rb_tovi]
     jmp short .to
 .tod:
+    mov al,[cs:rb_tss]                  ; ...then the strip's lines, in order
+    cmp al,144
+    jae .tsd
+    mov [PPU_LY],al
+.ts1:
+    mov bl,[PPU_LY]
+    cmp bl,[PPU_LOGL]
+    jb .ts2
+    call ppu_log
+    mov bl,[PPU_LY]
+.ts2:
+    xor bh,bh
+    cmp byte [cs:rb_tsall],0
+    jne .ts3
+    cmp byte [es:RB_DLD+bx],0
+    je .ts4
+.ts3:
+    inc word [es:RB_DCOMP]
+    call [PPU_LINEV]
+    call [PPU_DPUTV]
+    jmp short .ts5
+.ts4:
+    test byte [PPU_REGS+0],20h
+    jz .ts5
+    call ppu_wstep
+.ts5:
+    inc byte [PPU_LY]
+    cmp byte [PPU_LY],144
+    jb .ts1
+.tsd:
     jmp .done
 .tall:
     mov word [cs:rb_tovn],0
@@ -756,6 +792,8 @@ rb_renderd:
 .tl1:
     mov bl,[PPU_LY]
     xor bh,bh
+    cmp bl,[cs:rb_tss]                  ; THE STRIP's: never an overlay,
+    jae .tsl                            ;   composed when it changed
     call ppu_tcls
     jnc .tsk
     or al,al
@@ -780,6 +818,24 @@ rb_renderd:
     test byte [PPU_REGS+0],20h          ; (the window's counter, as ppu_line)
     jz .tn
     call ppu_wstep
+    jmp short .tn
+.tsl:
+    mov byte [cs:rb_tcls+bx],0
+    mov byte [cs:rb_tstl+bx],1          ; (the canvas's, should it go off)
+    cmp byte [cs:rb_tsall],0
+    jne .tsc
+    cmp byte [es:RB_DFAST],0
+    je .tsj
+    cmp byte [es:RB_DLD+bx],0
+    je .tsk
+    jmp short .tsc
+.tsj:
+    call ppu_sldirty
+    jnc .tsk
+.tsc:
+    inc word [es:RB_DCOMP]
+    call [PPU_LINEV]
+    call [PPU_DPUTV]
 .tn:
     add word [cs:rb_tlsp],41
     inc byte [PPU_LY]
@@ -2360,6 +2416,9 @@ ppu_ptype:
 .sh:
     or al,al                            ; (pan 0: as ever is aligned)
     jz .s
+    mov dl,[PPU_LY]                     ; (THE STRIP: shown unpanned)
+    cmp dl,[cs:rb_tss]
+    jae .s
     inc bh
 .s:
     mov [PPU_SPAN],bx
@@ -2485,6 +2544,12 @@ rb_tinit:
     rep stosb
     mov word [cs:rb_tovn],0
     mov byte [cs:rb_tpan],0FFh
+    mov ax,9090h                        ; no strip, none held, none laid out
+    mov [cs:rb_tss],al                  ;   (144 = 90h)
+    mov [cs:rb_tsc],al
+    mov [cs:rb_tslay],al
+    mov byte [cs:rb_tsn],0
+    mov byte [cs:rb_tsall],0
     pop es
     pop di
     pop cx
@@ -2564,6 +2629,7 @@ ppu_tframe:
     rep stosw
 .r:
     pop es
+    call ppu_tstrip
     mov al,bl
     and al,7
     pop di
@@ -2571,6 +2637,133 @@ ppu_tframe:
     pop dx
     pop cx
     pop bx
+    ret
+
+; ppu_tstrip: THE STRIP (REALBOY-SPEC 15.5.1) - the window from WY to the
+; screen's bottom, full width and unbroken, is shown under the line compare
+; from the split's region, which the start address and the panning never
+; move: composed once at pan 0 and written when it changes, where on the
+; canvas it was an overlay every scrolled frame composed, put back and
+; written again. The frame's candidate is WY when the frame's end has the LCD,
+; the background and the window on, WX at most 7 and WY 8-143, and no write
+; to LCDC, WY or WX on a line from WY - 1 on (the raster log); else 144. A
+; strip goes OFF at once when the candidate leaves it, and ON only when one
+; has held RB_TSWAIT frames - every strip line then composed and written.
+; DS = view. Kept: all
+RB_TSWAIT       equ 4
+ppu_tstrip:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    mov bl,[PPU_REGS+0]                 ; BL LCDC, BH WY, DL WX: the frame's
+    mov bh,[PPU_REGS+6]                 ;   start, then its writes
+    mov dl,[PPU_REGS+7]
+    xor dh,dh                           ; DH = the last such write's line + 1
+    xor ch,ch
+    mov cl,[PPU_LOGN]
+    jcxz .k
+    mov si,RB_RLOG
+.l:
+    mov al,[si]
+    cmp al,144
+    jae .n
+    mov ah,[si+2]
+    cmp byte [si+1],40h
+    jne .wy
+    mov bl,ah
+    jmp short .w
+.wy:
+    cmp byte [si+1],4Ah
+    jne .wx
+    mov bh,ah
+    jmp short .w
+.wx:
+    cmp byte [si+1],4Bh
+    jne .n
+    mov dl,ah
+.w:
+    inc al
+    cmp al,dh
+    jb .n
+    mov dh,al
+.n:
+    add si,4
+    loop .l
+.k:
+    mov al,144
+    and bl,0A1h                         ; the LCD, the window, the background
+    cmp bl,0A1h
+    jne .c
+    cmp dl,7
+    ja .c
+    cmp bh,8
+    jb .c
+    cmp bh,143
+    ja .c
+    cmp dh,bh                           ; (written at WY - 1 or later: no)
+    jae .c
+    mov al,bh
+.c:
+    mov ah,[cs:rb_tss]
+    cmp ah,144
+    je .off
+    cmp al,ah                           ; in force: held, or OFF at once
+    je .x
+    mov byte [cs:rb_tss],144
+    mov byte [cs:rb_tsn],0
+    mov cl,ah                           ; its lines composed again at the
+    xor ch,ch                           ;   pan, the canvas's again
+    mov bl,ah
+    xor bh,bh
+    neg cx
+    add cx,144
+.st:
+    mov byte [cs:rb_tstl+bx],1
+    inc bx
+    loop .st
+    jmp short .x
+.off:
+    cmp al,144
+    je .z
+    cmp al,[cs:rb_tsc]
+    jne .z
+    inc byte [cs:rb_tsn]
+    cmp byte [cs:rb_tsn],RB_TSWAIT
+    jb .x
+    mov [cs:rb_tss],al                  ; ON: every line of it owed
+    mov byte [cs:rb_tsall],1
+    jmp short .x
+.z:
+    mov byte [cs:rb_tsn],1
+.x:
+    mov [cs:rb_tsc],al
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ppu_sldirty: ppu_ldirty for a strip line - its scroll is not its picture
+; (the window covers the whole line), so the line's record's SCY and SCX
+; stand in for the frame's while it is judged. DS = view, ES = damage.
+; Kept: all but the flags
+ppu_sldirty:
+    push ax
+    push di
+    mov al,[PPU_LY]
+    mov ah,10
+    mul ah
+    mov di,ax
+    push word [PPU_REGS+1]
+    mov ax,[es:di+RB_DLREG+1]
+    mov [PPU_REGS+1],ax
+    call ppu_ldirty
+    pop word [PPU_REGS+1]               ; (pop keeps the flags)
+    pop di
+    pop ax
     ret
 
 ; ppu_tcls: line BX (PPU_LY) on the canvas - CF = 0 CLEAN, which the canvas
@@ -3080,6 +3273,65 @@ rb_tpage:
     out dx,ax
     mov ax,21
     call .wrp
+    ; 4. THE STRIP's changed lines into the split's region (REALBOY-SPEC
+    ;    15.5.1), one region for every page: line L at row L - S, bytes 0-20
+    ;    of slot 0 - laid out by the host first when the strip changed
+    mov al,[cs:rb_tss]
+    cmp al,[cs:rb_tslay]
+    je .s4
+    mov [cs:rb_tslay],al
+    cmp word [cs:rb_shook],0
+    je .s4h
+    push ds
+    push cs
+    pop ds
+    call [cs:rb_shook]
+    pop ds
+.s4h:
+    mov byte [cs:rb_tsall],1
+.s4:
+    cmp al,144
+    jae .s4e
+    mov di,rb_twl
+    mov bl,al
+    xor bh,bh                           ; BX = the line
+    xor cx,cx                           ; CH = the row
+    push es
+    mov es,[cs:rb_dmgseg]
+.s4l:
+    cmp byte [cs:rb_tsall],0
+    jne .s4w
+    cmp byte [es:RB_DCHG+bx],0
+    je .s4n
+.s4w:
+    mov ax,bx                           ; from: the buffer's line
+    mov dl,42
+    mul dl
+    mov [cs:di],ax
+    mov [cs:di+2],cx                    ; to: its row, slot 0, byte 0
+    mov byte [cs:di+4],21
+    add di,5
+.s4n:
+    inc ch
+    inc bx
+    cmp bx,144
+    jb .s4l
+    pop es
+    mov byte [cs:rb_tsall],0
+    mov bp,di
+    cmp bp,rb_twl
+    je .s4e
+    mov es,[cs:rb_tcard]
+    mov dx,3C4h
+    mov ax,0102h
+    out dx,ax
+    xor ax,ax
+    call .wrp
+    mov ax,0202h
+    out dx,ax
+    mov ax,21
+    call .wrp
+.s4e:
     mov es,[cs:rb_tseg]
 .oe:
     mov di,[cs:rb_tpl]                  ; it holds this frame's overlays now
@@ -3611,6 +3863,10 @@ rb_tqn          db 0                    ; rb_trow's queue: how many,
 rb_tqc          times RB_TQMAX db 0     ;   each one's byte count,
 rb_tqd          times RB_TQMAX dw 0     ;   where it goes,
 rb_tqb          times RB_TQMAX * 42 db 0 ;  and its bytes (plane 1's at +21)
+rb_tsc          db 144                  ; the strip's candidate, last frame...
+rb_tsn          db 0                    ;   ...and the frames it has held
+rb_tsall        db 0                    ; every strip line owed to the region
+rb_tslay        db 144                  ; the strip the region is laid out for
 rb_tbuf         times 42 db 0           ; a row's 21 bytes a plane, or a
                                         ;   cell's 8
 %endif

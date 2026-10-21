@@ -313,7 +313,16 @@ rw_rpres        equ rw_rpq + 1      ; byte: RPR_*, how it ended
 rw_rpslot       equ rw_rpres + 1    ; byte: the replay's slot, 0-8
 rw_rpstq        equ rw_rpslot + 1   ; byte: F6 again, at the next frame
 rw_rpname       equ rw_rpstq + 1    ; 13: NAME.RPn
-rw_fseg         equ rw_rpname + 13  ; word: rb_render's frame (monochrome;
+rw_pgrate       equ rw_rpname + 13  ; word: PAGES: M-cycles the core ran in
+                                    ;   256 counts, measured (rw_pgbud)
+rw_pgbt0        equ rw_pgrate + 2   ; dword: ...a sized run's start...
+rw_pgbn         equ rw_pgbt0 + 4    ; word: ...and its budget, or 0
+rw_pgns         equ rw_pgbn + 2     ; byte: rw_pgtry not to spin
+rw_pgss         equ rw_pgns + 1     ; byte: the strip the waiting page was
+                                    ;   drawn with (rb_tss, 144 none)...
+rw_pglc         equ rw_pgss + 1     ; byte: ...and the one the line compare
+                                    ;   shows now
+rw_fseg         equ rw_pglc + 1  ; word: rb_render's frame (monochrome;
                                     ;   two shade planes, 40 bytes a line),
                                     ;   5,760 bytes after RW_PBUF's in
                                     ;   [rw_pseg]'s claim - the region had no
@@ -2194,21 +2203,19 @@ rw_frame:
     mov cx, 26                      ; with the LCD off no frame ever ends:
 .run:                               ;   a frame's worth of budgets is one
     push cx
-    mov ax, [rw_budget]
-    cmp byte [rw_pgpend], 0         ; (PAGES: a flip waiting is looked at
-    je .bp                          ;   between two runs - rw_pgtry - so the
-    call rw_pgbud                   ;   one that reaches its window ends
-.bp:                                ;   there)
-    push es                         ; the recompiler on: twice the budget -
-    mov es, [rb_viewseg]            ;   it is the IRQ latency, and recompiled
-    cmp byte [es:S_JITON], 0        ;   2000 M-cycles are ~2 ms on a 286, so
-    pop es                          ;   4000 are still inside a 1200-baud
-    je .b                           ;   mouse's 8 ms; half the runs, and of
-    shl ax, 1                       ;   rb_run's rb_sched and event exit
+    cmp byte [rw_pgpend], 0         ; (PAGES: a flip waiting - a run sized
+    je .bp                          ;   to END in its window, at the rate
+    call rw_pgbud                   ;   the core has been running, and the
+    jmp short .b                    ;   flip written between two: rw_pgtry)
+.bp:
+    call rw_budx                    ; (the recompiler's twice the budget)
 .b:
     call rb_run                     ; ...and each returns with interrupts
     pop cx                          ;   on, so the tick can pre-empt us
-    call rw_pgtry
+    call rw_pgrun                   ; (the run's rate, when it was sized)
+    mov byte [rw_pgns], 1           ; (a flip's window not spun to: the
+    call rw_pgtry                   ;   next run is sized to reach it)
+    mov byte [rw_pgns], 0
     cmp al, RBX_FRAME               ;   between two: no yield per budget,
     je .fr                          ;   which was nine task switches a frame
     cmp al, RBX_BADOP

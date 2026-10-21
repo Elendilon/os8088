@@ -38,7 +38,13 @@ RW_PGW0         equ 1000            ;   retrace (410): from line 312, under
                                     ;   the speed line (287 to 308, where
                                     ;   rw_pgtry's look would see a display),
                                     ;   to line 383 (the blanking at 400)
-RW_PGSPIN       equ 1800            ; ...spun for when it is that near
+RW_PGSPIN       equ 1800            ; ...spun for when it is that near and
+                                    ;   nothing else is to do
+RW_PGTGT        equ 2800            ; ...a sized run's END aimed this many
+                                    ;   counts before the retrace: 900 into
+                                    ;   the window, 1,800 to spare
+RW_PGRATE0      equ 107             ; ...the core's M-cycles in 256 counts
+                                    ;   until measured: ~500 a millisecond
 RW_PGRC         equ 60              ; ...and the retrace timed again after
                                     ;   that many flips
 RW_FSTXTP       equ 2               ; PAGES: the speed line's row in the
@@ -318,8 +324,10 @@ rw_pgtry:
     cmp byte [rw_pgrc], RW_PGRC     ; just past it, the retrace near: timed
     jb .x                           ;   again when it is due
     call rw_pgsync
-    jmp short .x
+    jmp .x
 .before:
+    cmp byte [rw_pgns], 0           ; (between two of rw_frame's runs: the
+    jne .x                          ;   next is sized to end in it instead)
     sub bx, RW_PGW1                 ; near the window: to it
     cmp bx, RW_PGSPIN
     ja .x
@@ -358,6 +366,11 @@ rw_pgtry:
     out dx, al
     mov al, [rw_pgpan]
     out dx, al
+    mov al, [rw_pgss]               ; THE STRIP: the line compare the page's
+    cmp al, [rw_pglc]               ;   (REALBOY-SPEC 15.5.1), 2 x S - 1
+    je .lc
+    call rw_pglcw
+.lc:
     mov al, [rw_pgnext]
     mov [rw_pgshow], al
     mov byte [rw_pgpend], 0
@@ -510,42 +523,131 @@ rw_pgsync:
     pop ax
     ret
 
-; rw_pgbud - AX = the core's budget while a flip waits: the counts to its
-; window as M-cycles (~500 a millisecond, twice that recompiled - rw_frame
-; doubles it), less a millisecond, at most [rw_budget]; RW_PGBUD when it is
-; near or the beam is not known
+; rw_budx - AX = a run's budget, [rw_budget] - twice it with the recompiler
+; on: it is the IRQ latency, and recompiled 2000 M-cycles are ~2 ms on a 286,
+; so 4000 are still inside a 1200-baud mouse's 8 ms; half the runs, and of
+; rb_run's rb_sched and event exit
+rw_budx:
+    mov ax, [rw_budget]
+    push es
+    mov es, [rb_viewseg]
+    cmp byte [es:S_JITON], 0
+    pop es
+    je .r
+    shl ax, 1
+.r:
+    ret
+
+; rw_pgbud - AX = the core's budget while a flip waits: sized to END in the
+; flip's window - RW_PGTGT counts before the retrace - at the rate the core
+; has been running ([rw_pgrate], M-cycles in 256 counts, measured on these
+; runs by rw_pgrun), at most rw_budx's. So the foreground never spins for
+; the beam: a run that ends early is followed by a shorter one, and one that
+; ends late shows its frame a refresh later and spent nothing. The beam not
+; known, RW_PGBUD. The run's start and budget kept for rw_pgrun
 rw_pgbud:
     push bx
     push cx
     push dx
+    mov word [rw_pgbn], 0
     call rw_pgph
     jc .near
     mov bx, [rw_pgper]
-    sub bx, RW_PGW1
-    sub bx, ax                      ; BX = counts to the window's start
-    jae .k
-    add bx, [rw_pgper]              ; (past it: the next one)
+    sub bx, ax                      ; BX = counts to the retrace
+    sub bx, RW_PGTGT                ; ...to the run's end
+    ja .k
+    add bx, [rw_pgper]              ; (past it: the next one's)
 .k:
-    cmp bx, 2400
-    jb .near
-    sub bx, 1200
-    mov ax, 27                      ; x 27 / 64: ~500 a 1,193 counts
-    mul bx
-    mov cl, 6
-    shr ax, cl
-    mov cl, 10
-    shl dx, cl
-    or ax, dx
-    cmp ax, [rw_budget]
-    jbe .r
-    mov ax, [rw_budget]
+    mov ax, [rw_pgrate]
+    or ax, ax
+    jnz .m
+    call rw_budx                    ; (not measured: the old rate, twice
+    mov cx, ax                      ;   recompiled)
+    mov ax, RW_PGRATE0
+    cmp cx, [rw_budget]
+    je .m
+    shl ax, 1
+.m:
+    mul bx                          ; DX:AX = M-cycles x 256
+    mov al, ah                      ; / 256
+    mov ah, dl
+    or dh, dh
+    jnz .cap
+    mov cx, ax
+    call rw_budx                    ; at most a run's own
+    cmp cx, ax
+    jae .bn
+    mov ax, cx
+    cmp ax, 32
+    jae .bn
+    mov ax, 32
+    jmp short .bn
+.cap:
+    call rw_budx
+.bn:
+    mov [rw_pgbn], ax
+    push ax
+    call rw_clk
+    mov [rw_pgbt0], ax
+    mov [rw_pgbt0 + 2], dx
+    pop ax
     jmp short .r
 .near:
+    call rw_budx
+    cmp ax, RW_PGBUD
+    jbe .r
     mov ax, RW_PGBUD
 .r:
     pop dx
     pop cx
     pop bx
+    ret
+
+; rw_pgrun - after rb_run, AL = how it ended: a run rw_pgbud sized that ran
+; its whole budget gives the core's rate, a quarter of the way at a time
+; ([rw_pgrate]). Kept: all
+rw_pgrun:
+    cmp word [rw_pgbn], 0
+    je .r
+    cmp al, RBX_BUDGET
+    jne .z
+    push ax
+    push bx
+    push cx
+    push dx
+    call rw_clk
+    sub ax, [rw_pgbt0]
+    sbb dx, [rw_pgbt0 + 2]
+    or dx, dx
+    jnz .x
+    cmp ax, 128                     ; (too short to time)
+    jb .x
+    mov bx, ax                      ; BX = the run's counts
+    mov ax, [rw_pgbn]
+    mov dl, ah                      ; DX:AX = its budget x 256
+    xor dh, dh
+    mov ah, al
+    xor al, al
+    cmp dx, bx                      ; (the quotient past 16 bits: no)
+    jae .x
+    div bx                          ; AX = M-cycles in 256 counts
+    mov bx, [rw_pgrate]
+    or bx, bx
+    jz .set
+    sub ax, bx
+    sar ax, 1
+    sar ax, 1
+    add ax, bx
+.set:
+    mov [rw_pgrate], ax
+.x:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.z:
+    mov word [rw_pgbn], 0
+.r:
     ret
 
 ; rw_fsmain - the bracket. DS = CS = ours, ES = KERNEL_SEG, SI = the window.
@@ -573,6 +675,7 @@ rw_fsmain:
 .pg:
     call rw_pgcrtc                  ; PAGES: the split, the timing, page 0
     mov word [rw_pgdebt], 0
+    mov word [rw_pgrate], 0         ; (the rate measured afresh)
     mov word [rw_fstxto], RW_FSTXTP * 256
     mov word [rw_fsstr], 256
     mov byte [rb_panon], 1
@@ -922,10 +1025,12 @@ rw_pgdraw:
     mov di, bx
     mov bl, dl
     mov al, [rb_panv]
+    mov ah, [rb_tss]                ; (the strip it was drawn with)
     pushf
     cli
     mov [rw_pgstart], di
     mov [rw_pgpan], al
+    mov [rw_pgss], ah
     mov [rw_pgnext], bl
     mov byte [rw_pgpend], 1
     popf
@@ -975,6 +1080,9 @@ rw_pgcrtc:
     add ax, RW_TOFF / 16
     mov [rb_tseg], ax
     call rb_tinit
+    mov word [rb_shook], rw_pgstrip ; (the strip's region, laid out by us)
+    mov byte [rw_pglc], 144
+    mov byte [rw_pgss], 144
     mov dx, 3D4h
     mov al, 11h                     ; CR0-CR7 unlocked
     out dx, al
@@ -1034,6 +1142,88 @@ rw_pgcrve:
 %if RW_TOFF < RB_PGMSK + 3 * 144 || RW_TOFF + RB_TSIZE > RW_PBUF || RW_TOFF % 16
 %error "the canvas's state must sit past the owed bytes, inside [rw_pseg]"
 %endif
+
+; rw_pglcw - AL = a strip's first line (144 none): the LINE COMPARE at
+; scanline 2 x AL - 1, where the split's region begins to show - the strip's
+; rows and the speed line under them (REALBOY-SPEC 15.5.1). Bit 8 is CR07's
+; bit 4, which CR11's lock leaves writable. Kept: all but AX
+rw_pglcw:
+    push dx
+    mov [rw_pglc], al
+    xor ah, ah
+    shl ax, 1
+    dec ax
+    mov dx, 3D4h
+    push ax
+    mov ah, al
+    mov al, 18h
+    out dx, ax
+    pop ax
+    mov al, 2Eh                     ; (rw_pgcrv's CR07, bit 4 the compare's)
+    test ah, 1
+    jz .b
+    or al, 10h
+.b:
+    mov ah, al
+    mov al, 07h
+    out dx, ax
+    pop dx
+    ret
+
+; rw_pgstrip - rb_tpage's hook (rb_shook), DS = CS = ours: the split's region
+; laid out for a strip at AL (144 none) - its rows clear, 0 to H - 1 (H =
+; 144 - AL), for rb_tpage to write; the speed line's ground (plane 2) on the
+; ten rows under them and its text moved there; every other row of slot 0
+; that a strip could have held, clear. Kept: all
+rw_pgstrip:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    mov bl, 144
+    sub bl, al                      ; BL = H
+    mov es, [rw_fsi + FSI_SEG]
+    mov dx, 3C4h
+    mov ax, 0F02h                   ; every plane, rows 0-153: clear
+    out dx, ax
+    xor di, di
+    mov cx, 154
+    xor ax, ax
+.c:
+    push cx
+    mov cx, 64 / 2
+    rep stosw
+    pop cx
+    add di, 256 - 64
+    loop .c
+    mov ax, 0402h                   ; ...plane 2 set on rows H to H + 9
+    out dx, ax
+    mov ah, bl
+    xor al, al
+    mov di, ax
+    mov cx, 10
+.g:
+    push cx
+    mov cx, 64 / 2
+    mov ax, 0FFFFh
+    rep stosw
+    pop cx
+    add di, 256 - 64
+    loop .g
+    mov bh, bl                      ; the speed line's text: row H + 2
+    add bh, RW_FSTXTP
+    xor bl, bl
+    mov [rw_fstxto], bx
+    mov byte [rw_ovlnew], 1         ; (drawn again there, a note or F1's)
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 
 ; rw_fstext - rw_ovltxt on the border under the picture, 16 cells wide
 rw_fstext:                          ; (SI = the line, rw_fsline's)
