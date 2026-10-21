@@ -288,6 +288,13 @@ KNOBS = [
     # assembly, or half the trace goes unassembled.
     ("dosrmark",    ["DOSRMARK=1"]),
     ("dosrmark-kd", ["DOSRMARK=1"], "kerndos.bin"),
+    # `PICLOSE=` (docs/plans/KERN-MEGA-PLAN.md 14.64) is kern_mega's alone -
+    # the reflection's real-mode window loses every pending 8259 edge - so
+    # both of its arms are assembled ON kern_mega: 1 with the tick's lost-edge
+    # watchdog (mega_kwd), 2 with it compiled out. tests/megapiclose.py is
+    # the gate that uses them; these rows also assemble KERN_MEGA itself
+    ("piclose",     ["KERN_MEGA=1", "PICLOSE=1"]),
+    ("piclose-nowd", ["KERN_MEGA=1", "PICLOSE=2"]),
     # The LOOK/measurement knobs, which nothing else builds at all. Each
     # switches a whole path in or out - and BAND is now the only thing that
     # assembles the COMPOSED title bar at all, because SPEC.md 5.9.6 sent it

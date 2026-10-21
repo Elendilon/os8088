@@ -16084,6 +16084,23 @@ caller in `kmain_o` and no outbound calls, moved into the blob on `kern_big`
 closing store `mov [wm_fs], ax` instead of a six-byte immediate. That reorder
 was the byte the blob was short. `kern_small` keeps `wm_init` in `.ovl`.
 
+#### 9.9.9 A byte whose EDGE was lost is re-delivered from the tick (kern_mega)
+
+The 8042 holds IRQ1 or IRQ12 HIGH while a byte waits in its one buffer and
+sends nothing more from either device, and both lines are edge-triggered, so
+a byte whose edge an 8259 initialisation erased kills the keyboard and this
+mouse together. On `kern_mega` a 286 resets the CPU for every BIOS call it
+reflects, and a BIOS that initialises the 8259 on that path erases whatever
+was pending - which is how moving the mouse during a DOS program's live resume
+killed both on the Victory 286 (docs/plans/KERN-MEGA-PLAN.md 14.63). So
+`mega_t08`, IRQ0's ROM half, ends with `mega_kwd`: a byte in the buffer whose
+line is unmasked (IRQ12 at the slave and the cascade, or IRQ1), with no
+request latched at the master (IRR) and nothing in service, on TWO CONSECUTIVE
+ticks, is re-delivered through its own gate - `int 21h`, which is `kbm_isr`,
+or `int 74h`, which is `mou_p2_isr` or whoever owns IRQ12 (dropped if that is
+the ROM). §96.45.2.5 has the rest; `kern_big` and `kern_small` do not carry
+it, neither resetting the CPU on a BIOS call.
+
 ### 9.10 Both mouse ISRs run on a stack of THEIR OWN, not the interrupted task's
 
 An ISR lands on whatever stack it interrupts, so the mouse's cost is paid by
@@ -168056,7 +168073,7 @@ keyboard and the PS/2 mouse both dead while IRQ0 and the drawing ran
 for the two devices and holds IRQ1 or IRQ12 HIGH while a byte waits in it, so
 a byte nobody reads - its line masked for good, or its edge erased by an 8259
 initialisation (ICW1 resets every line's edge sense) - keeps the controller
-from sending anything more from EITHER device. Four places, three rules:
+from sending anything more from EITHER device. Five places, four rules:
 
 * **The handoff quiets the device before it unhooks it** (`hbm_dosrun`, step
   6, both kernels). `mouse_unhook` masks IRQ12 and then sends `0xA7`, which
@@ -168082,6 +168099,24 @@ from sending anything more from EITHER device. Four places, three rules:
   both kernels): a byte in the buffer whose line has no request latched at the
   8259 (OCW3's IRR, after a few polls for the controller's own lag) is read
   and dropped; one whose request IS latched is left for its ISR. Up to four.
+* **...and on kern_mega, every tick after that** (`mega_kwd`, at the end of
+  `mega_t08`; docs/plans/KERN-MEGA-PLAN.md 14.64, §9.9.9). The four above run
+  at fixed moments, and a hand on the mouse keeps bytes coming after them:
+  the Victory 286 at 343124b2 still came home dead when the mouse MOVED
+  during the live resume, because each of the return's BIOS calls is a reset
+  whose BIOS can initialise the 8259 under a waiting byte. So the tick looks:
+  a byte in the buffer, its line UNMASKED (a poll always masks its own - every
+  polled sequence on this kernel was checked: `hbm_wake`, `hbm_dosrun`,
+  `mega_dwake`, and `mega_leds` inside IRQ1 at IF = 0), no request latched at
+  the master (OCW3's IRR; for an AUX byte the cascade's) and nothing in
+  service (its ISR), on two consecutive ticks - a request that IS latched is
+  delivered at the tick's own iret, so it cannot be there a tick later - and
+  it is RE-DELIVERED through the line's gate: `int 21h` (`kbm_isr`, always,
+  on this kernel) or `int 74h` (`mou_p2_isr`, or a package that owns IRQ12;
+  read and dropped when the vector is the ROM's). Nothing is lost, and a tick
+  that misjudges merely delivers a byte early. One `in` on an ordinary tick;
+  `.mega` +164 bytes and `.lowbss` +2, no byte of the 64KB segment. PICLOSE=1
+  (Makefile) loses edges on purpose and `tests/megapiclose.py` is the row.
 
 HIBER.DRV +139 bytes of code on both kernels, inside its padded image (7,169
 and 10,241 bytes, unchanged): none resident. kern_mega `.text` +22
