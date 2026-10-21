@@ -9576,3 +9576,160 @@ rows (`kdreturn*`, `kdkbd`, `hmadosret`, `p2hiber`, `mouresume`, `kdmouse`,
   now be left to the watchdog (nothing lost rather than one byte lost), but a
   drop at a fixed moment is the conservative half of the pair and was left as
   it was.
+
+### 14.65 The debug toasts out of the shipping build: `MEGADIAG=1` (2026-10-21)
+
+The owner, preparing an early-access release: *"The debug toasts that are all
+over mega need to go; keep a 'Entered Protected Mode' toast on startup, but
+none of the added disk status debug toasts, speaker toasts, etc."* Built: every
+field reading kern_mega put on the glass is behind one knob, **`MEGADIAG=1`**
+(`-DMEGA_DIAG`, stamp-tracked, in `$(KNOBS)`; `make megadiag` builds the
+disks into `build/megadiag/`; `t_buildmatrix` rows `megadiag` and
+`megadiag-hb`). Nothing was deleted outright: every reading below is how the
+Victory 286 was debugged off photographs (items 14-25, 14.34), so the field
+keeps a disk that has them.
+
+#### 14.65.1 The inventory
+
+Searched: `kernel/mega.inc`'s `mega_tell` and its eight `[mega_tellq]` bits,
+every `cw_toast_show`/`toast_say` inside `%ifdef KERN_MEGA` or in
+`mega.inc`/`megados.inc` (a nesting-aware scan of `kernel/`,
+`drivers/`, `kerndos/` and `apps/dos/`), every string with a hex placeholder,
+and the drivers. **The drivers have no kern_mega toast at all** - they are
+the one build shared by every kernel, and HDD.DRV's *"a fixed-disk transfer
+went to the BIOS (int 13h reflected)"* is `mega_mhd13`, an E9 line from the
+kernel. No speaker or Sound Blaster toast exists either: the "sound" lines
+were `RFL` and `Q`, which fire while a PicoMEM's Sound Blaster plays.
+
+| message on the glass | raised in | when | verdict |
+|---|---|---|---|
+| `protected, 286 reset` / `protected, 386 CR0` | `mega_enter`'s tail (`mega_mtoast`, 8 s) | once, at boot, entering protected mode | **KEEP** - the owner's startup toast, wording as it was |
+| `real mode: 8086-class CPU`, `... no 82KB for kern_mega's tables`, `... A20 will not open`, `... a task predates it` | `mega_gatef` (`.cold`) | at boot, when kern_mega declines protected mode and runs as kern_big | **KEEP** - the machine is not what the disk says, and this is the only place it is said |
+| `NAME vv at cccc:iiii` | `mega_fkdo` (14.42) | a package was closed because it faulted | **KEEP** - a program vanished; kern_big's equivalent is the stop screen |
+| ` kern_mega FAULT vv err eeee at cccc:iiii sp ssss - reboot ` | `mega_report` | a KERNEL fault: the machine stops | **KEEP** - the stop screen |
+| `Use this disk's DOS.O88` | `mega_pkgok` | kern_big's DOS.O88 started on kern_mega | **KEEP** - a refusal |
+| `DOS.O88 is kern_mega's` | `apps/dos/dosload.asm` (`DOS_MEGA`) | kern_mega's DOS.O88 on any other kernel | **KEEP** - a refusal |
+| `No room above 1MB`, `Could not save to disk`, `Hibernation: other mode` | `kernel/hiber.inc` (`KERN_MEGA`) | the DOS park's and hibernate's refusals (14.43) | **KEEP** - refusals |
+| `The machine was restarted while it ran.` | `apps/dos/dos.asm` (`DOS_MEGA`, W7) | a park recovered after a warm reset | **KEEP** - says why the program's work is gone |
+| `NMI ss xnn cccc:iiii` / `NMI ss W llllll nn` | `mega_nmi`, drawn by `mega_nmitell` | a latched parity or channel-check NMI (item 14) | **MEGADIAG** - see 14.65.5, the one to look at |
+| `RST 3E aa>bb 3F cc>dd` | `mega_r286` | the first 286 reset of a boot that moved the floppy's BDA bytes | **MEGADIAG** |
+| `FDC RESET R nn F nn` | `mega_fdrprobe` | the 765 found reset behind our back | **MEGADIAG** |
+| `RFL rrrr/s uuuu` | `mega_rfsec`, once a second from the tick | 20+ option-ROM IRQ reflections in a second - a PicoMEM SB playing - every 15 s | **MEGADIAG** ("speaker toasts") |
+| `Q cc ss oo bb vv rr` | `mega_rfsec`, after RFL | the PicoMEM's request queue, the same second | **MEGADIAG** |
+| `DOSP kkkkK o tttt b tttt` | `mega_dwake` (`megados.inc`) | every return from a DOS park | **MEGADIAG** |
+| `FD BIOS ss s0s1s2 Dmm` | `mega_fdjudge` | the first native floppy fallback of a boot | **MEGADIAG** ("disk status") |
+| `native floppy off: BIOS from now` | `mega_fdjudge` | eight fallbacks in a row switched the native path off | **MEGADIAG** - its E9 line stays |
+| `H ssss:oooo bbbbbbbb rrr` | `hbm_d1why` (`kernel/hiber.inc`) | the DOS handoff record read back wrong | **MEGADIAG** - the shipped kern_mega says kern_big's `Not our handoff record` instead, so the refusal stays and only its hex goes |
+
+E9 (`out 0xE9`) is invisible on real hardware and is NOT a toast, so every
+E9-only line stays on both arms: `kern_mega: protected mode`, `mega_mhd13`,
+`above 1MB`, `native floppy ...`, `floppy fell back ...`, `string restart`,
+`8042 edge lost`, `parked`/`unparked`/`resumed`, MEGATRAP's `T` lines. The
+copies of the menu-bar lines that `mega_nmitell.say` also wrote to E9 (with
+`[mega_rstn]`, the reset count) go with the lines. No row read them (a grep of
+`tests/` and `tools/` for every string and for `mega_tellq`, `mega_rf*`,
+`mega_pmq`, `mega_fd*`, `mega_nmi*`: nothing).
+
+#### 14.65.2 What moved under the knob
+
+Not only the drawing: the bookkeeping that feeds nothing else. `mega_tell`
+keeps bit 6 (the fault close) and nothing more, so `[mega_tellq]` has seven
+bits free on the shipped build (14.64's "no bit free" is MEGADIAG's now).
+Under `%ifdef MEGA_DIAG`: `mega_nmitell`, `mega_hexb` and the six line
+strings; `mega_rfsec`, `mega_pmpre`/`mega_pmpost` and `mega_pit`, with the
+tick's once-a-second divider and `mega_svc`'s PIT timing and PicoMEM sampling
+around an IRQ reflection; `mega_replay`'s replay count; `mega_r286`'s BDA
+comparison and `[mega_rstn]`, and the two `[mega_fdpre]` stores before a
+reset (`mega_svc_lo`'s and `mega_dosgo_lo`'s); `mega_fdrprobe`'s counter and its
+bit (the probe and its recalibrate are behaviour and stay); the NMI's CS:IP
+and DMA snapshot (the latch-clear and `MEGA_NMIMAX`'s shut-off are behaviour
+and stay); `mega_dtell`, `mega_dec4` and the DOSP string; the two floppy
+toasts and their strings; `hbm_d1why` and its three hex printers; and the
+42 `.bss` bytes only those read (every one of the `.bss` figure below). `kernel.asm` refuses `MEGA_DIAG`
+without `KERN_MEGA`, and the Makefile passes it only with `KERN_MEGA`, because
+`make megadiag`'s tree builds a kern_big beside its kern_mega as every
+`mega.img` tree does.
+
+#### 14.65.3 Bytes, measured
+
+kern_mega, this tree with and without the change, one commit (nasm maps):
+
+| section | before | after | |
+|---|---|---|---|
+| `.text` | 47,168 | 46,888 | **-280** |
+| `.mega` | 15,368 | 14,448 | **-920** |
+| `.bss` | 5,336 | 5,294 | **-42** |
+| `.cold`, `.lowbss`, `.ovl`, `.boot2`, `.vgabuf` | | | +0 |
+| HIBER.DRV (`.modh`) | | | **-109** of code, image still 10,241: it sits in `MODH_UNPAD`'s dead zone, so the claim is the same 11 KB |
+
+The 64KB segment's kern_mega overhead falls **4,345 -> 4,023** (-322, the
+`.text` and `.bss` above), and `tests/megaseg.txt` is lowered to it with the
+reason. The `MEGADIAG=1` kernel's sections are byte-for-byte the sizes of the
+kernel before this change (same `.text`, `.mega`, `.bss`, `.modh`), so the
+knob puts back exactly what was there.
+
+**kern_big and kern_small are BYTE-IDENTICAL**, measured: both built from an
+export of HEAD and of this tree (no `.git`, so both at build 0), md5
+`90cb1a0e...` (kern_big) and `41bb478e...` (kern_small) on both sides; and the
+in-tree `build/kernel.bin` is `46fbeb79...` before and after. Every hunk is in
+`mega.inc`/`megados.inc` (kern_mega only), inside `%ifdef MEGA_DIAG`, or
+`hiber.inc`'s `.b1`, whose non-MEGA_DIAG arm is the same two instructions it
+was.
+
+#### 14.65.4 Measured, on what
+
+- **Bochs**, the rows on this tree: `megadosp` PASS (0 / 0 / 0 / 2 traps,
+  as before), `megaflt` PASS (six closed; its shot shows the KEPT fault toast,
+  `FLTF 06 at 27D4:0096`), `megarehome` PASS, `megatrap0` PASS (13 packages,
+  4 trap lines, the calibration's), `megahiber` PASS, `megavidbig` PASS (2MB
+  bank and 16MB held). **`megakbtrip` FAILS 1 trip in 10, and so does the
+  base**: three runs here read 9 of 10 (trips 6, 10, 1), and two runs of an
+  export of 2222752e - the commit this is cut from, nothing of 14.65 in it -
+  read 9 of 10 as well (trips 1 and 3), every miss the same `KBTRIP key 4300`
+  (scan 43h, F9, where `k` was sent). It is not this change's: the key is
+  read by the DOS program while kern_mega is PARKED, and nothing 14.65 gates
+  runs between the handoff and the return. It is on the books for whoever
+  owns 14.61-14.64 (14.64 recorded 10 of 10; a6a3ab5a, the commit before the
+  base, changed the trip's mouse ACK wait).
+- **The DOS trip, both arms, on the glass** (Bochs, a scratch driver of
+  `megakbtrip`'s shape: boot, open B:, KBTRIP.COM, a key, home, then the bar
+  every 1.5 s): the shipped kern_mega shows `protected, 386 CR0` for its
+  eight seconds and then nothing but the menus and the clock, before and after
+  the trip; the `MEGADIAG=1` disk shows the same boot toast and then
+  **`DOSP 0076K o 0009 b 0002`** for ten seconds after the return. That is the
+  A/B: the knob puts the line back and the default has none.
+- **86Box `286-mega`** (MR BIOS 286, the 286 RESET path Bochs never takes):
+  boot watched every 2 s for 80 s - `protected, 286 reset` for its eight
+  seconds and then a bare bar; then B: opened (a floppy read on the native
+  path), MEDIA opened, and BEVERLY.MOD played on its SB16 for 40 s watched
+  every 2 s: **nothing on the bar but the menus and the clock**. The
+  `MEGADIAG=1` disk booted the same way also shows a bare bar - its readings
+  fire on events 86Box does not make (a PicoMEM's option-ROM IRQ, a BIOS that
+  moves the floppy's BDA bytes across a reset), which is why they were the
+  Victory's, and why the DOS trip is the A/B.
+
+#### 14.65.5 For the owner
+
+- **The KEEP list is above, and the one to veto is the NMI line.** A parity
+  or channel-check NMI is a hardware fault, and on kern_big the AT BIOS's own
+  handler reports it (and halts). kern_mega handles it - clears the latch,
+  shuts the sources off after eight - and the shipped build now says nothing.
+  It went with the knob because its text is a hex reading; if a machine with
+  bad RAM should be told, the cheap form is one fixed sentence on bit 0
+  (`mega_tell` already serialises it) for ~40 bytes of `.mega` and a string.
+- **The startup toast keeps its words**, `protected, 286 reset` / `protected,
+  386 CR0`: the way back it names is what a field photograph is for. Reworded
+  to the owner's *Entered protected mode* it is a string edit (TOAST_MAX is
+  24) if that is preferred.
+- **A field run that needs a reading gets `make megadiag`'s disk**
+  (`build/megadiag/mega.img`, or `mega120.img`; `megarun.o88` and `mbr.bin`
+  are built beside it so `tools/os88bochs.py --build build/megadiag` boots
+  it). The handoff document (A.4) and `docs/BOCHS.md` say so now.
+
+#### 14.65.6 Rows
+
+Covering: `megadosp`, `megaflt`, `megarehome`, `megatrap0`, `megahiber`,
+`megakbtrip`, `megavidbig`, `megapiclose`, `megap2hiber`; `buildmatrix`
+(`megadiag`, `megadiag-hb`) for the knob's arm. No row asserted on a removed
+notice, so none changed. `megakbtrip`'s 1-in-10 is the base's (14.65.4). kern_big
+and kern_small rows cannot see this change: their kernels are byte-identical.

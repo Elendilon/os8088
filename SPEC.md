@@ -165900,9 +165900,11 @@ the contract is:
   second kern_dos LOW instead, with A20 shut (96.40.9.2).
 * **An option ROM's IRQ line is left open** for kern_dos and primed once on
   the way home (the PicoMEM's multiplexer, SPEC.md 34.10.1).
-* **The menu bar says what the trip cost**: `DOSP kkkkK o tttt b tttt`, the
-  KB parked and the milliseconds out (copy and sum) and back (sum and
-  restore), decimal.
+* **A `MEGADIAG=1` build's menu bar says what the trip cost**: `DOSP kkkkK
+  o tttt b tttt`, the KB parked and the milliseconds out (copy and sum) and
+  back (sum and restore), decimal. The shipped kern_mega shows no line for a
+  trip (KERN-MEGA-PLAN 14.65); E9's `kern_mega: parked kkkK at ...` line,
+  on both, carries the KB and where.
 * **Two `DOS.O88`s** (12.1 item 4): `mega.img` carries one built with
   `-DDOS_MEGA` and `-DKD_MEGA` (`$(MEGADIR)/kdos/DOS.O88`); kern_big's stays
   byte-identical. The kern_mega build refuses on any kernel without

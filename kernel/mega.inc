@@ -663,10 +663,12 @@ mega_replay:
     push ax
     xor al, al
     xchg al, [mega_irqpend]
+%ifdef MEGA_DIAG
     or al, al
     jz .none
     inc byte [mega_pmq+5]           ; lines caught and replayed (mega_rfsec)
 .none:
+%endif
     test al, 1 << 2
     jz .n3
     int 0x22
@@ -811,12 +813,15 @@ mega_t08:
 .eoi:
     mov ax, MEGA_SEL_KDATA          ; (`.mega` is protected mode only, so the
     mov ds, ax                      ; kernel's data selector is a constant)
+%ifdef MEGA_DIAG
     dec byte [mega_rfdiv]           ; once a second: the IRQ reflections' rate
-                                    ; and cost, for the menu bar (mega_tell)
+                                    ; and cost, for the menu bar (mega_tell;
+                                    ; MEGADIAG=1 only, KERN-MEGA-PLAN 14.65)
     jnz .eoi2
     mov byte [mega_rfdiv], 18
     call mega_rfsec
 .eoi2:
+%endif
     mov al, 0x20
     out 0x20, al
 %ifndef NO_KBDWD
@@ -931,6 +936,7 @@ mega_kwd:
 mega_mkwd   db "kern_mega: 8042 edge lost, 64=", 0
 %endif
 
+%ifdef MEGA_DIAG                    ; the menu bar's RFL and Q lines (14.65)
 ; mega_rfsec - the second's IRQ reflections: twenty or more and nothing on the
 ; bar for fifteen seconds puts "RFL rrrr/s uuuu" up - the count and the
 ; average microseconds, in hex. A 286 leaves protected mode only by a reset,
@@ -1049,6 +1055,8 @@ mega_pit:
     in al, 0x40
     xchg al, ah
     ret
+
+%endif
 
 ; -----------------------------------------------------------------------------
 ; mega_k09 - the ROM's half of IRQ1: scancode set 1 (the 8042 translates) to
@@ -1490,7 +1498,8 @@ mega_eoi1:
 ;
 ; The AT BIOS's handler is the model. Port 61h says which line latched - bit 7
 ; a parity check, bit 6 an I/O channel check - and neither is a spurious NMI,
-; which it dismisses. A latched one it reports, and so do we: [mega_nmi61] and
+; which it dismisses. A latched one it reports, and so does a MEGADIAG=1
+; build (KERN-MEGA-PLAN 14.65; the shipped one says nothing): [mega_nmi61] and
 ; the count go to the menu bar from ui_task (mega_nmitell), where drawing is
 ; legal, since an NMI can land inside anything. The latch is cleared by
 ; pulsing the source's disable bit (61h bit 2 parity, bit 3 channel check),
@@ -1508,6 +1517,7 @@ mega_nmi:
     test al, 0xC0
     jz .out                         ; spurious: nothing latched
     mov [mega_nmi61], al
+%ifdef MEGA_DIAG
     push bp                         ; WHERE it landed, which a parity NMI
     mov bp, sp                      ; reaches a few cycles after the read
     mov ax, [bp+6]                  ; that tripped it: [bp+6] IP, [bp+8] CS
@@ -1528,9 +1538,10 @@ mega_nmi:
     mov al, [mega_fdn]
     mov [mega_nmisn], al
 .nofd:
+    or byte [mega_tellq], 1         ; ...and on the menu bar (MEGADIAG=1)
+%endif
     mov al, [mega_nmi61]
     inc byte [mega_nmin]
-    or byte [mega_tellq], 1
     and al, 0x0F                    ; the writable half, as it reads
     mov ah, al
     or al, 0x0C                     ; both sources off: clears both latches
@@ -1546,12 +1557,15 @@ mega_nmi:
 
 ; mega_tell - ui_task, with nothing held: what an interrupt or a reset path
 ; could only note, on the menu bar ([mega_tellq] bit 0 an NMI, bit 1 the
-; floppy's BDA bytes moved across a 286 reset; bit 7 is not a request)
+; floppy's BDA bytes moved across a 286 reset; bit 7 is not a request).
+; **Bit 6, a package closed for faulting, is the only one a shipped kern_mega
+; sets** - the rest are MEGADIAG=1's field readings (KERN-MEGA-PLAN 14.65)
 mega_tell:
     test byte [mega_tellq], 0x40    ; a package that faulted: closed first,
     jz .nofk                        ; and its toast goes over whatever is up
     call mega_fkdo                  ; (KERN-MEGA-PLAN 14.42)
 .nofk:
+%ifdef MEGA_DIAG
     cmp word [toast_on], 0          ; one line at a time: a toast up (or
     je .go                          ; wanted) keeps the rest queued
     ret
@@ -1636,8 +1650,10 @@ mega_tell:
     and byte [mega_tellq], 0xDF
     jmp mega_dtell
 .z:
+%endif
     ret
 
+%ifdef MEGA_DIAG
 ; mega_nmitell - the NMI on the menu bar, once per batch. "NMI 61h=XX x N"
 ; - the port says which line; N how many so far
 mega_nmitell:
@@ -1728,6 +1744,7 @@ mega_pms    db "Q cc ss oo bb vv rr", 0
 mega_rfdiv  db 18                   ; ticks to the next mega_rfsec
 mega_fdpre  dw 0                    ; 40:3E/3F before a 286 reset...
 mega_fdpost dw 0                    ; ...and the first different after one
+%endif ; MEGA_DIAG
 
 ; -----------------------------------------------------------------------------
 ; mega_fault - report and stop
@@ -2523,12 +2540,14 @@ mega_svc:
     mov ax, [ss:bp+20]
     mov [mega_rv], al
     mov [mega_irqr], ah             ; 1: an option ROM's IRQ (mega_irqrom)
+%ifdef MEGA_DIAG
     call mega_pit                   ; ...and when it started (mega_rfsec)
     mov [mega_rft0], ax
     cmp byte [mega_irqr], 0
     je .nopm
     call mega_pmpre                 ; a PicoMEM's: what it was asked to do
 .nopm:
+%endif
     push es
     mov ax, MEGA_BDA
     mov es, ax
@@ -2595,8 +2614,10 @@ cpu 286
     mov es, ax                      ; RAM, the A20 gate and every device keep
     mov word [es:0x67], mega_r286   ; their state; the CPU loses its registers,
     mov word [es:0x69], KERNEL_SEG  ; GDTR, IDTR and LDTR, which is why the way
-    mov ax, [es:0x3E]               ; back reloads all three. The floppy's
-    mov [mega_fdpre], ax            ; 40:3E/3F, for mega_r286 to compare
+%ifdef MEGA_DIAG                    ; back reloads all three. The floppy's
+    mov ax, [es:0x3E]               ; 40:3E/3F, for mega_r286 to compare
+    mov [mega_fdpre], ax            ; (MEGADIAG=1's RST line)
+%endif
     pop es
     mov al, 0x8F                    ; NMI off, CMOS index 0Fh
     out 0x70, al
@@ -2762,6 +2783,7 @@ mega_svc_back:
     iret
 .irqx:
     mov byte [mega_irqr], 0
+%ifdef MEGA_DIAG
     call mega_pmpost                ; ...and how its ROM says it ended
     call mega_pit                   ; the PIT counts DOWN: t0 - t1, modulo
     neg ax                          ; its 65536, is the time it took
@@ -2769,6 +2791,7 @@ mega_svc_back:
     add [mega_rfsum], ax
     adc word [mega_rfsum+2], 0
     inc word [mega_rfn]
+%endif
     call mega_replay                ; what the ROM raised, and what arrived
     jmp short .out                  ; on a kernel line meanwhile
 
@@ -2844,6 +2867,7 @@ mega_r286:
     mov ds, ax
     mov ss, [mega_rss]
     mov sp, [mega_rsp]
+%ifdef MEGA_DIAG
     inc word [mega_rstn]
     push es                         ; did the BIOS's way back from the reset
     mov ax, MEGA_BDA                ; touch the floppy - the calibrate bits,
@@ -2861,6 +2885,7 @@ mega_r286:
     mov [mega_fdpost], ax
     or byte [mega_tellq], 0x82      ; 2: say it; 80h: said for this boot
 .fdsame:
+%endif
     push es                         ; ...and the controller itself: reset on
     mov ax, MEGA_BDA                ; the way here, with nobody told?
     mov es, ax
@@ -5275,6 +5300,7 @@ mega_fdjudge:
     ret
 .strike:
     push ax
+%ifdef MEGA_DIAG                    ; (MEGADIAG=1's toast, KERN-MEGA-PLAN 14.65)
     cmp byte [mega_fdtold], 0       ; the FIRST fallback of a boot on the
     jne .told                       ; glass, which is all a field machine
     mov byte [mega_fdtold], 1       ; shows: one that alternates with
@@ -5311,6 +5337,7 @@ mega_fdjudge:
     pop cx
     pop ax
 .told:
+%endif
     inc byte [mega_fdfail]
     cmp byte [mega_fdfail], 8
     jb .out
@@ -5320,11 +5347,13 @@ mega_fdjudge:
     push es
     mov si, mega_mfdoff
     call mm_say
+%ifdef MEGA_DIAG
     push ds                         ; ...and on the GLASS, which is all a
     pop es                          ; field machine shows: toast_show only
     mov si, mega_tfdoff             ; stages it, the UI task draws it
     mov cx, 146
     call KERNEL_SEG:cw_toast_show
+%endif
     pop es
     pop cx
     pop si
@@ -5675,7 +5704,7 @@ mega_fdseek:
 ; controller answers that with 80h, "invalid command". So one SENSE tells.
 ; Seen: the rest are sensed, every drive is marked uncalibrated in 40:3E (the
 ; BIOS's own record, which it then also obeys) and its motor off in 40:3F,
-; and [mega_fdrst + CL] counts it for mega_tell.
+; and [mega_fdrst + CL] counts it for mega_tell (MEGADIAG=1, 14.65).
 ; in:  CL = 0 from mega_r286 (real mode), 1 from mega_fdgo; ES = the BDA
 ; out: CF = 1 it had been reset. Preserves everything else
 ; -----------------------------------------------------------------------------
@@ -5705,10 +5734,12 @@ mega_fdseek:
     jnz .more
     and byte [es:0x3E], 0x70        ; no drive calibrated, no IRQ pending
     and byte [es:0x3F], 0xF0        ; no motor running
-    xor ch, ch
+%ifdef MEGA_DIAG
+    xor ch, ch                      ; ...and the menu bar's FDC RESET line
     mov bx, cx
     inc byte [mega_fdrst+bx]
     or byte [mega_tellq], 4
+%endif
     pop dx
     pop cx
     pop bx
@@ -5884,9 +5915,11 @@ mega_fdms   db 0                    ; 40:90's byte for the drive
 mega_fdlin  dw 0, 0                 ; the buffer's 24-bit address
 mega_fdcnt  dw 0                    ; bytes - 1
 mega_fdres  times 7 db 0            ; ST0 ST1 ST2 C H R N
+%ifdef MEGA_DIAG                    ; MEGADIAG=1's two toasts (14.65)
 mega_tfdoff db "native floppy off: BIOS from now", 0
 mega_tfdfb  db "FD BIOS ss s0s1s2 Dmm", 0
 mega_fdtold db 0                    ; 1 = mega_tfdfb has been shown this boot
+%endif
 mega_fdstep db 0
 mega_fdsaid db 0
 mega_hdsaid db 0
@@ -9229,13 +9262,15 @@ section .text
 
 section .bss
 mega_nmi61  resb 1                  ; port 61h at the last latched NMI
+mega_fdbusy resb 1                  ; mega_fdgo is running
+mega_irqr   resb 1                  ; mega_svc is reflecting an IRQ
+mega_nmin   resb 1                  ; ...how many, saturating at the cap's use
+%ifdef MEGA_DIAG                    ; the menu bar's field readings (14.65)
 mega_nmics  resw 1                  ; ...and the CS:IP it interrupted
 mega_nmifd  resb 1                  ; 1: a native floppy transfer was in
 mega_nmiop  resb 1                  ; flight - its op, DMA address and
 mega_nmilin resb 3                  ; sector count
 mega_nmisn  resb 1
-mega_fdbusy resb 1                  ; mega_fdgo is running
-mega_irqr   resb 1                  ; mega_svc is reflecting an IRQ
 mega_rft0   resw 1                  ; PIT ch0 at an IRQ reflection's start
 mega_rfsum  resw 2                  ; ...this second's total counts
 mega_rfn    resw 1                  ; ...and how many
@@ -9253,7 +9288,7 @@ mega_nmiip  resw 1
 mega_rstn   resw 1                  ; 286 reflections (resets), for E9
 mega_fdrst  resb 2                  ; 765 resets found: at mega_r286, and
                                     ; at mega_fdgo (mega_fdrprobe)
-mega_nmin   resb 1                  ; ...how many, saturating at the cap's use
+%endif
 mega_tellq  resb 1                  ; lines ui_task owes the menu bar
                                     ; (mega_tell)
 section .lowbss

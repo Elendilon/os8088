@@ -222,6 +222,9 @@ make 1942disk redlinedisk             # 1942*.img, redline*.img
 make midirackdisk pixeldisk           # midirack*.img, pixel*.img
 make apple2rom && make apple2disk     # apple2*.img -- apple2rom fetches the
                                       # ROM once; `make clean` spares it
+make realdmgdisk                      # realdmg*.img -- the Game Boy; its demo
+                                      # cartridge is built with the pinned
+                                      # rgbds tools/gbclock.py fetches once
 make live                             # os8088-usb.img + os8088.iso -- the live
                                       # USB image and the live CD (SPEC.md 80).
                                       # Needs the fetch on the line above and

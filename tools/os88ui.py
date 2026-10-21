@@ -1701,6 +1701,10 @@ class UI:
             if not idx:
                 idx = [i for i, (t, _) in enumerate(items)
                        if t.upper().startswith(iw)]
+            if not idx:                 # an item a program marks: its first
+                idx = [i for i, (t, _) in enumerate(items)   # byte a space
+                       if t[:1] in " *"                      # or a *
+                       and t[1:].upper().startswith(iw)]
         if len(idx) != 1:
             raise UIError("no single item %r in the %s menu. It holds %r"
                           % (item, title, [t for t, _ in items]))

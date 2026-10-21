@@ -30,7 +30,28 @@
 # asked for `highmem` only when its own source claims. The gate's docstring
 # says why; its program part is a package of its own and is checked as one.
 
+# --- high --------------------------------------------------------------------
+
+high apps/realdmg/realdmg.asm     # FAR POINTERS STAMPED WITH ITS OWN CS: rdg_init
+    # (apps/realdmg/rdgsys.inc, "the far vectors the core jumps through")
+    # writes the region's CS into S_EVVEC, S_IORVEC, S_IOWVEC and S_MBCVEC in
+    # the view, and the core - a part, entered with interrupts off on the
+    # Game Boy's own stack - jumps through them as real-mode far pointers;
+    # rw_reloc (realdmg.asm) re-stamps them when the region moves. Retired
+    # when the core reaches the package through a selector kern_mega can
+    # patch, rather than a paragraph number. Not yet run on kern_mega.
+
 # --- highmem -----------------------------------------------------------------
+
+highmem apps/realdmg/realdmg.asm  # PARAGRAPH ARITHMETIC ON ITS CLAIMS, AND CODE
+    # WRITTEN THROUGH CS: cartridge RAM banks at S_RAMSEG + bank x 200h
+    # (rdg_rambank, rdgsys.inc), the bank cache's slots at rw_slotseg + slot
+    # x 400h (rwbank.inc), the recompiler's block table at its cache's
+    # segment + 1000h and its part past the table (rw_jitsegs, rw_jitget);
+    # and the recompiler patches the code it chains through CS (tr_lpatch's
+    # links, rdggen.py; [cs:rb_viewseg] in rdgjitp.asm), which a protected
+    # mode code segment refuses. Retired by addressing each claim at its own
+    # selector and the cache through a writable alias of it.
 
 highmem apps/pixel/pixel.asm     # PARAGRAPH ARITHMETIC ON EVERY CLAIM IT HOLDS
     # (KERN-MEGA-PLAN 14.40 item 4): the master is addressed as MSEG +

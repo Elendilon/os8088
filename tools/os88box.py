@@ -223,17 +223,18 @@ class Box(object):
         b = self.memr(self.ksym("mouse_x"), 4)
         return b[0] | b[1] << 8, b[2] | b[3] << 8
 
-    def to(self, x, y, tries=40):
+    def to(self, x, y, tries=40, buttons=0):
         """Move os8088's pointer to (x, y) by relative packets, reading its
         position back out of the kernel each round - 86Box's serial mouse is
-        relative and the OS may scale it, so the loop closes on the guest."""
+        relative and the OS may scale it, so the loop closes on the guest.
+        BUTTONS are held throughout: 1 drags down a pull-down menu."""
         for _ in range(tries):
             px, py = self.pointer()
             dx, dy = x - px, y - py
             if dx == 0 and dy == 0:
                 return px, py
             step = lambda v: max(-100, min(100, v))
-            self.mouse(step(dx), step(dy), 0)
+            self.mouse(step(dx), step(dy), buttons)
             self.pause(60)
         raise SystemExit("os88box: pointer stuck at %r on the way to %r" % (self.pointer(), (x, y)))
 

@@ -112,7 +112,9 @@ opened before.
 * **`OUT/e9.out`** - the kernel's own trace. A `kern_mega FAULT vector VV
   stack: ...` line is a fault with sixteen stack words and the registers;
   MEGARUN names every package before it starts one. The menu-bar diagnostics
-  (`NMI`, `FD BIOS`, `RST`, `FDC RESET`, `RFL`, `Q`) are echoed here too.
+  (`NMI`, `RST`, `FDC RESET`, `RFL`, `Q`, `DOSP`) are echoed here too - on a
+  `MEGADIAG=1` build (`make megadiag`), the only one that draws them since
+  KERN-MEGA-PLAN 14.65.
 * **`OUT/bochs.log`** - Bochs's own errors. A triple fault reads
   `exception(): 3rd (13) exception with no resolution, shutdown status is
   0ah, resetting`; one of those per reflection is NORMAL on the 286 path, which
@@ -198,7 +200,8 @@ MEGARUN's last start, for the loops a program runs on its own.
 **Count something per second without a debugger.** The kernel's `mega_rfsec`
 (once a second, from the tick) and `mega_tell` (from `ui_task`, the only
 place a toast may be staged) are the pattern. A new counter belongs there, not
-in an ISR that draws.
+in an ISR that draws - and inside `%ifdef MEGA_DIAG`, since a shipped
+kern_mega puts no field reading on the glass (KERN-MEGA-PLAN 14.65).
 
 ## Things that cost an hour each here
 
@@ -248,9 +251,11 @@ in an ISR that draws.
    first read (LBA 0, at the 9-sector fallback geometry) makes `mega_fd13`
    guess 250 kbps, which a real 765 refuses for a 1.44MB disk and the BIOS
    then reads through a reflection. Bochs reads it natively, so no run here
-   prints `FD BIOS` and that fallback is the field machine's to exercise
+   prints `FD BIOS` (a `MEGADIAG=1` toast; E9's `kern_mega: floppy fell back`
+   line on every build) and that fallback is the field machine's to exercise
    (KERN-MEGA-PLAN 10.3 item 29).
 
 The field machine is the owner's Packard Bell Victory 286 (docs/FIELD-MACHINES.md).
-Anything in the five blind spots ships with a menu-bar diagnostic and a line
-saying what a photograph of it should show.
+Anything in the five blind spots has a menu-bar diagnostic on the
+`MEGADIAG=1` build (`make megadiag`, KERN-MEGA-PLAN 14.65) and a line saying
+what a photograph of it should show; the shipped kern_mega draws none.
