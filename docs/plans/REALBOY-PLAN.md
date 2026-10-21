@@ -1167,6 +1167,91 @@ The plan, in order:
    its window in the split region (15.5, not built). The field Victory is
    the measurement that decides it.
 
+### Release memory - what a game holds, and two cuts (2026-10-21, NOT BUILT)
+
+MEASURED on 86Box's 286 by reading the kernel's claim table (`mem_tab`,
+`tools/heapmap.py`'s parser) with a game running, at commit `67ee9325`:
+Tetris, Wario Land 3 and Pokemon Gold off `make realboyhd`'s 4MB machine,
+Kirby's Dream Land on Static on `vm/286` at 2MB. The 8088 column is the same
+code with the CPU gate in `rw_jitclaim` taken, so it is derived rather than
+measured.
+
+| what | KB | 8088 | 286, Recompiler On | 286, Static |
+|---|---|---|---|---|
+| the package's region: image 60,236 + bss 1,642 | 61 | yes | yes | yes |
+| the core and the view, one carve (below) | 129 | yes | yes | yes |
+| the frame buffers, `[rw_pseg]` (11,520 + 5,760) | 17 | yes | yes | yes |
+| the damage memory, `RB_DMG_SIZE` (given back if the ROM wants it) | 15 | yes | yes | yes |
+| the recompiler's cache and block table (64 + 64, or 64 + 16 when tight) | 128 / 80 | - | yes | yes |
+| the profile, `RW_PRFKB` | 9 | - | Machine > Profile | always |
+| the cache's second segment (a profile of `RW_JIT2N` blocks, or Cache: 128K) | 64 | - | if wanted | if wanted |
+| **before the cartridge** | | **222** | **350** (302) | **359** to 423 |
+
+The cartridge comes on top: the ROM in one claim up to 256K when it fits
+with `RW_KEEPKB` beside it (Tetris 32K), or the bank cache's 16K slots with
+the rest in XMS (Wario Land 3 and Gold 8 slots, 128K; Kirby on Static 10,
+160K); its RAM at 8K a bank, +1K for an MBC3 clock (Gold 33K). Transient:
+a replay's 8K while it records or plays, the log's 4K records while it is
+on and ~23K of text for the moment it is written.
+
+**The region**, by source file (label addresses in `build/realboy.lst`):
+the recompiler 19.9K (15.6K of it `rbtmpl.bin`, the templates), the
+renderer 14.3K, the window and its menus 7.8K, rbsys 4.8K, full screen 3.2K,
+the log 2.3K, keys 1.7K, replays 1.5K, the parts loader 1.3K, the bank
+cache, save states and the FM chip ~0.8K each. The log is ~1% of what a game
+holds and claims nothing while it is off.
+
+**The core carve** is 64K of code, laid out so that dispatch is
+`mov dh,[si] / jmp dx` (REALBOY-SPEC 4): opcode X's handler at X x 256, CB X's
+at X x 256 + 128. Of its 512 half-slots' 65,536 bytes **17,241 are code**
+(main handlers 6,806, CB handlers 7,364, the shared tails 3,071) and
+**48,295 are the generator's 0CCh fill**: the layout is the dispatch, and a
+handler of 30 bytes still owns 128.
+
+**The view** is the Game Boy's address space at its own offsets
+(REALBOY-SPEC 3): 0000-3FFF ROM bank 0's copy, 8000-FFFF VRAM, the one
+cartridge RAM bank in use, WRAM, OAM, the registers and HRAM - and
+4000-7FFF, the window ROMX never needs because it is a segment of its own,
+is rbsys's: the state block, the flag tables, the raster log, the PPU's
+working tables and per-line sprite lists (4900-66FF), the translator's
+buffer, the bank table and its use stamps, the VRAM marks, and a save
+state's record and kept VRAM (7400-7FFF). ~600 bytes of it are unassigned
+(4826-48EF, 6510-651F, 6548-65FF, 7120-71FF).
+
+#### Cut 1: the templates out of the region
+
+`rbtmpl.bin` is 15,965 bytes of the package image on every machine, and an
+8088 never translates. Two ways, the second better:
+
+- **A lazy part** (SPEC.md 20.12), loaded by `rw_jitclaim` once it has a
+  cache: the 8088 gets ~16K of region back, the 286 is unchanged, and the
+  translator reads the templates through a segment rather than DS.
+- **Into the core's fill.** The 491 records are 14,022 bytes, the largest
+  94, and the core has 380 holes of 94 bytes or more and 48,295 bytes of
+  fill in all: a first-fit-decreasing pack places every record (checked
+  against `build/rbcore.bin` at `67ee9325`). `rbtmpl.py` already reads
+  `rbcore.bin`; it would write the records into the holes and the table's
+  offsets would name the CORE's segment. What stays in the region is the
+  544-word table and the three lists (~1.9K). **~14K back on every machine,
+  and no claim at all** - the core is loaded on every machine anyway. The
+  costs to check: the translator reads with a core-segment override; the
+  0CCh fill must not be something a test relies on (a stray jump into a hole
+  lands on `int3` today); and the core part compresses less (it is 7.6K on
+  the disk now, mostly because of the fill).
+
+#### Cut 2: Recompiler: Off gives the cache back
+
+`rw_jitclaim` runs at every load on a 286 whatever `[rw_jitmode]` says, so
+a user who chose Recompiler: Off (to save memory, or because a game runs
+better without it) still holds the 128K (or 80K) and the profile if one was
+read. The fix: `rw_jitclaim` and `rw_jit2claim` skip when the mode is Off,
+and the menu's cycle (On -> Static -> Off -> Auto) frees the segments on
+entering Off and claims them on leaving it, on the UI task where a claim is
+legal - a refusal then leaves the mode at Off with a toast rather than
+failing the game. Auto needs the cache (it measures both and picks), so only
+Off qualifies. What this buys is the 286 user's own choice: 80-128K, about a
+third of what a game holds before its cartridge.
+
 ### Wave 8 - the 5150 demo, disks and the Wire record
 
 **The writers and damage tracking are BUILT** (REALBOY-SPEC sections 13.2
