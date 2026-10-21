@@ -2637,7 +2637,7 @@ SOAK = [
         "it goes red at F1. SOAK: one package",
         needs=("marty", "nasm"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
-    Row("gbdamage", "soak", py("tests/gbdamage.py"), 64.0,
+    Row("gbdamage", "soak", py("tests/gbdamage.py"), 72.0,
         "RealBoy's damage renderer (docs/REALBOY-SPEC.md section 13.2) against "
         "its whole one: the bare harness's MODE 6 under QEMU composes every "
         "third frame both ways and counts the pictures that differ - gbclock's "
@@ -2647,7 +2647,11 @@ SOAK = [
         "frame as the package does and twice on a checked one: without the "
         "lines a call left being composed by the next it fails on 151-499. "
         "And each PAN-ALIGNED (section 15.4's pages, MODES 15-18): read back "
-        "through the pan, against rb_render. SOAK: one package",
+        "through the pan, against rb_render. And each on THE CANVAS (section "
+        "15.5, MODE 19): every frame drawn onto three pages of a real mode "
+        "0Dh, every third read back from VRAM through its start address and "
+        "pan - red on SML and Kirby with the restores taken out, and on "
+        "CLOCK25 and SML with the cells' marks taken out. SOAK: one package",
         needs=("qemu", "nasm", "rgbds")),
     Row("gbdemo", "soak", py("tests/gbdemo.py"), 30.0,
         "RealBoy's 5150 demo (docs/plans/REALBOY-PLAN.md section 6, wave 8's "

@@ -19,11 +19,11 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 GEOM = {360: (9, 2, 40), 720: (9, 2, 80), 1200: (15, 2, 80), 1440: (18, 2, 80)}
-PANMODES = ("renderp", "damage-p", "damage-pil", "damage-pis", "damage-pid")
+PANMODES = ("renderp", "damage-p", "damage-pil", "damage-pis", "damage-pid", "damage-t")
 MODES = {"test": 0, "bench": 1, "trace": 2, "play": 3, "idle": 4, "render": 5, "damage": 6,
          "renderd": 7, "damage-il": 8, "damage-is": 9, "damage-id": 10,
          "renderv": 12, "state": 13, "renderp": 14, "damage-p": 15, "damage-pil": 16,
-         "damage-pis": 17, "damage-pid": 18}
+         "damage-pis": 17, "damage-pid": 18, "damage-t": 19}
 
 
 def private(out_dir):

@@ -17,11 +17,18 @@ The ROMs:
   These scroll, use the window, move sprites, write the raster log and
   rewrite tiles.
 
-Each also PAN-ALIGNED (REALBOY-SPEC 15.4: MODES 15-18, the full screen's
-pages), in all four interlace modes: rb_renderd's 42-byte lines read back
-through the pan the card would show them with, against rb_render's. Leaving
-the status bar's lines unshifted fails SML on 400 frames of 500, and the
-sprites unmoved by the pan Kirby's on 288.
+Each also PAN-ALIGNED (REALBOY-SPEC 15.4: MODES 15-18), in all four
+interlace modes: rb_renderd's 42-byte lines read back through the pan the
+card would show them with, against rb_render's. Leaving the status bar's
+lines unshifted fails SML on 400 frames of 500, and the sprites unmoved by
+the pan Kirby's on 288.
+
+And each on THE CANVAS (REALBOY-SPEC 15.5: MODE 19, the full screen's
+pages): every frame drawn onto the next of three pages of a real mode 0Dh
+(rb_tpage), and every third read back from VRAM a row at a time from its
+start address, through its pan, against rb_render's. Taking the restores
+out fails SML on 149 frames of 200 and Kirby on 120; taking the cells'
+marks out fails CLOCK25 on 199 and SML on 150.
 
 It also reports how many lines were composed against 144 a call - what the
 renderer saved. QEMU counts work exactly; the time is another row's
@@ -59,10 +66,11 @@ def main():
     # two calls a checked frame, which together must be the whole picture
     for name, rom, mode in [(n, r, m) for n, r in roms
                             for m in ("damage", "damage-il", "damage-is", "damage-id",
-                                      "damage-p", "damage-pil", "damage-pis", "damage-pid")]:
+                                      "damage-p", "damage-pil", "damage-pis", "damage-pid",
+                                      "damage-t")]:
         name = name + {"damage": "", "damage-il": "/il", "damage-is": "/is",
                        "damage-id": "/id", "damage-p": "/p", "damage-pil": "/pil",
-                       "damage-pis": "/pis", "damage-pid": "/pid"}[mode]
+                       "damage-pis": "/pis", "damage-pid": "/pid", "damage-t": "/t"}[mode]
         img = os.path.join(out, "gbdamage-%s.img" % name.replace("/", "-"))
         rbimg.make_image(rom, img, mode=mode, frames=a.frames)
         text = rbqemu.run(img, [" END\n", "RBHOST BADOP"], 600, quiet=True)

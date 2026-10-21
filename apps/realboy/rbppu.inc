@@ -325,7 +325,20 @@ rb_panon        db 0                    ; the host's: 1 = PAN-ALIGNED - each
                                         ;   from pixel rb_panv on, which it
                                         ;   sets (REALBOY-SPEC 15.4)
 rb_panv         db 0
+rb_lhook        dw 0                    ; the host's near proc, PAN-ALIGNED:
+                                        ;   called every eighth line stored and
+                                        ;   every sixteenth written to a page,
+                                        ;   DS = CS, every register its to keep
+                                        ;   - a draw is longer than the border
+                                        ;   a page flips in (rw_pgtry), or 0
 rb_dvmm         db 0                    ; ...the plane the map mask holds
+rb_torus        db 0                    ; the host's, PAN-ALIGNED: 1 = the
+                                        ;   CANVAS (REALBOY-SPEC 15.5) - only
+                                        ;   the overlay lines composed, and
+                                        ;   rb_tpage puts a page right
+rb_tseg         dw 0                    ; ...its state, RB_TSIZE bytes at 0
+rb_tilsv        db 0                    ; (rb_ilace, kept while the canvas has
+                                        ;   it Off)
 
 rb_renderd:
     cmp word [cs:rb_dmgseg],0
@@ -344,6 +357,14 @@ rb_renderd:
     push es
     cld
     mov byte [cs:rb_dvmm],0FFh          ; (the host's mask: not known)
+%ifndef RB_NOPAN
+    mov al,[cs:rb_ilace]                ; THE CANVAS: no parity to defer - a
+    mov [cs:rb_tilsv],al                ;   frame composes its overlays only
+    cmp byte [cs:rb_torus],0            ;   (REALBOY-SPEC 15.5)
+    je .nt
+    mov byte [cs:rb_ilace],0
+.nt:
+%endif
     mov ds,[cs:rb_viewseg]
     mov ax,es
     mov es,[cs:rb_dmgseg]
@@ -413,7 +434,13 @@ rb_renderd:
 %ifndef RB_NOPAN
     cmp byte [cs:rb_panon],0
     je .np
+    cmp byte [cs:rb_torus],0
+    jne .tf
     call ppu_pan
+    jmp short .tp
+.tf:
+    call ppu_tframe                     ; THE CANVAS: line RB_TMID's state
+.tp:
     mov [PPU_PANM],al
     mov [cs:rb_panv],al
     mov byte [PPU_WN],11
@@ -428,6 +455,10 @@ rb_renderd:
     jnz .scroll
     mov byte [es:RB_DSAME],1
 .scroll:
+%ifndef RB_NOPAN
+    cmp byte [cs:rb_torus],0            ; THE CANVAS: a scroll moves the card,
+    jne .scan                           ;   not the lines (REALBOY-SPEC 15.5)
+%endif
     ; SCROLLED: SCY or SCX moved since the last call, as the frame began or
     ; in a raster write the last call's frame had not - every line under it
     ; changes, so the scan of VRAM would only say what is composed anyway.
@@ -533,6 +564,12 @@ rb_renderd:
 .ie:                                    ;   after it, made one above)
     mov byte [PPU_ILC],1
 .ic:
+%ifndef RB_NOPAN
+    cmp byte [cs:rb_torus],0            ; THE CANVAS: a loop of its own
+    je .ic2
+    jmp .tline
+.ic2:
+%endif
     cmp byte [es:RB_DFULL],0            ; WHOLE (a scroll, or the host's):
     je .line                            ;   every line is composed, so none
     cmp byte [PPU_ILC],0                ;   is judged - the registers kept
@@ -665,7 +702,99 @@ rb_renderd:
     inc byte [PPU_LY]
     cmp byte [PPU_LY],144
     jb .line
+%ifndef RB_NOPAN
+.tline:
+    ; THE CANVAS (REALBOY-SPEC 15.5): a clean line is not composed at all,
+    ; and an overlay whose buffer line is stale is composed whatever the
+    ; judges say (its registers kept for them); the frame's overlay lines
+    ; listed (ppu_tcls) for rb_tpage. The host's whole is every line stale.
+    ; FAST with no sprite moved: every line's verdict and bytes are the last
+    ; call's, so only the overlays are visited - in Kirby's Dream Land, whose
+    ; tiles change nearly every frame, that is most frames
+    cmp byte [es:RB_DFAST],0
+    je .tall
+    cmp byte [es:RB_DOCH],0
+    jne .tall
+    mov word [cs:rb_tovi],0
+.to:
+    mov bx,[cs:rb_tovi]
+    cmp bx,[cs:rb_tovn]
+    jae .tod
+    mov bl,[cs:rb_tovl+bx]
+    xor bh,bh
+    mov [PPU_LY],bl
+    cmp bl,[PPU_LOGL]
+    jb .to1
+    call ppu_log
+    mov bl,[PPU_LY]
+    xor bh,bh
+.to1:
+    cmp byte [es:RB_DLD+bx],0
+    je .tos
+    inc word [es:RB_DCOMP]
+    call [PPU_LINEV]
+    call [PPU_DPUTV]
+    jmp short .ton
+.tos:
+    test byte [PPU_REGS+0],20h
+    jz .ton
+    call ppu_wstep
+.ton:
+    inc word [cs:rb_tovi]
+    jmp short .to
+.tod:
+    jmp .done
+.tall:
+    mov word [cs:rb_tovn],0
+    mov byte [cs:rb_tli],0FFh           ; (the registers judged at line 0)
+    mov word [cs:rb_tlsp],PPU_LSPR
+.tl:
+    mov al,[PPU_LY]
+    cmp al,[PPU_LOGL]
+    jb .tl1
+    call ppu_log
+.tl1:
+    mov bl,[PPU_LY]
+    xor bh,bh
+    call ppu_tcls
+    jnc .tsk
+    or al,al
+    jnz .tst
+    cmp byte [es:RB_DFAST],0
+    je .tj
+    cmp byte [es:RB_DLD+bx],0
+    je .tsk
+    jmp short .tc
+.tj:
+    call ppu_ldirty
+    jnc .tsk
+    jmp short .tc
+.tst:
+    call ppu_ldirty
+.tc:
+    inc word [es:RB_DCOMP]
+    call [PPU_LINEV]
+    call [PPU_DPUTV]
+    jmp short .tn
+.tsk:
+    test byte [PPU_REGS+0],20h          ; (the window's counter, as ppu_line)
+    jz .tn
+    call ppu_wstep
+.tn:
+    add word [cs:rb_tlsp],41
+    inc byte [PPU_LY]
+    cmp byte [PPU_LY],144
+    jb .tl
+%endif
 .done:
+%ifndef RB_NOPAN
+    cmp byte [cs:rb_torus],0            ; THE CANVAS: the cells the scan
+    je .tdn                             ;   found changed, owed to the pages
+    call ppu_tmark
+    mov al,[cs:rb_tilsv]
+    mov [cs:rb_ilace],al
+.tdn:
+%endif
     ; every change seen: the bytes clear for the next call - only those a
     ; change set (the full first call cleared nothing and set nothing)
     xor ax,ax
@@ -1395,7 +1524,7 @@ ppu_dput:
 ; ppu_dputp: ppu_dput PAN-ALIGNED - 42 bytes a line, each plane's 21 (the
 ; pan's leftmost pixels and the last byte's tail never shown), the buffer at
 ; offset 0; no VGA: a changed line is OWED to each of the host's three pages
-; instead (RB_PGMSK, rb_pages)
+; instead (RB_PGMSK, rb_tpage)
 ppu_dputp:
     mov al,[PPU_LY]
     mov cl,42
@@ -1467,127 +1596,32 @@ ppu_dputp:
     pop es
     mov byte [es:RB_DCHG+bx],1
     inc word [es:RB_DCNT]
+    test bl,7                           ; every eighth line, the host's flip
+    jnz .r                              ;   looked at (rb_lhook)
+    jmp ppu_lhook
+.r:
     ret
 .same:
     pop es
     ret
 
-; rb_pages: a PAN-ALIGNED frame onto one of the host's three VGA PAGES. A
-; page keeps the last frame it was given, so each has its own lines owed: a
-; byte a line at RB_PGMSK + 144 x the page, in the buffer's segment, which
-; ppu_dputp sets for every page as it stores a changed line. The lines this
-; page owes are written - plane 0's 21 bytes and plane 1's, from the
-; buffer's 42 a line to the page's 40 - and no longer owed. DS = the buffer
-; (the frame at 0), ES = the card, DI = the page's offset, AL = the page,
-; 0-2. Kept: all
+; RB_PGMSK: the host's three pages' owed lines - a byte a line at RB_PGMSK +
+; 144 x the page, in the buffer's segment, which ppu_dputp sets for every
+; page as it stores a changed line and rb_tpage clears as it writes one
+; (THE CANVAS, REALBOY-SPEC 15.5)
 RB_PGMSK        equ 144 * 42
-rb_pages:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push es
-    cld
-    mov bp,di                           ; BP = the page
-    mov [cs:rb_pgcard],es
-    mov byte [cs:rb_pgpl],0FFh          ; (the plane the map mask holds)
-    mov ah,144
-    mul ah
-    add ax,RB_PGMSK
-    mov bx,ax                           ; BX = its owed bytes
+
+; ppu_lhook: [rb_lhook], the host's, with DS = CS and every register kept
+ppu_lhook:
+    cmp word [cs:rb_lhook],0
+    je .r
     push ds
-    pop es
-    mov di,bx
-    mov cx,144 / 2
-.s:
-    jcxz .done
-    xor ax,ax
-    repe scasw                          ; two lines a word
-    je .done
-    mov ax,[di-2]
-    mov word [di-2],0
-    push cx
-    push di
-    lea si,[di-2]
-    sub si,bx                           ; SI = the word's first line
-    or al,al
-    jz .s1
-    call .w
-.s1:
-    inc si
-    or ah,ah
-    jz .s2
-    call .w
-.s2:
-    pop di
-    pop cx
-    jmp short .s
-.done:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
+    push cs
+    pop ds
+    call [cs:rb_lhook]
+    pop ds
+.r:
     ret
-.w:                                     ; line SI from the buffer onto the
-    push ax                             ;   page, one OUT: the plane the map
-    push si                             ;   mask holds goes first
-    push es
-    mov es,[cs:rb_pgcard]
-    mov ax,si
-    mov cl,40
-    mul cl
-    mov di,ax
-    add di,bp
-    mov ax,si
-    mov cl,42
-    mul cl
-    mov si,ax
-    mov dx,3C4h
-    cmp byte [cs:rb_pgpl],1
-    je .h1
-    cmp byte [cs:rb_pgpl],0
-    je .h0
-    mov ax,0102h
-    out dx,ax
-.h0:
-    mov cx,10                           ; plane 0, then 1
-    rep movsw
-    movsb
-    sub di,21
-    mov ax,0202h
-    out dx,ax
-    mov cx,10
-    rep movsw
-    movsb
-    mov byte [cs:rb_pgpl],1
-    jmp short .wr
-.h1:
-    add si,21                           ; plane 1, then 0
-    mov cx,10
-    rep movsw
-    movsb
-    sub di,21
-    sub si,42
-    mov ax,0102h
-    out dx,ax
-    mov cx,10
-    rep movsw
-    movsb
-    mov byte [cs:rb_pgpl],0
-.wr:
-    pop es
-    pop si
-    pop ax
-    ret
-rb_pgcard       dw 0
-rb_pgpl         db 0
 %endif
 
 ; ppu_lscr: DOUBLED's history - the line's SCY:SCX into PPU_LSCR, and the
@@ -2377,6 +2411,1208 @@ ppu_pan:
 .r:
     and al,7
     ret
+
+; =============================================================================
+; THE CANVAS (REALBOY-SPEC 15.5): with rb_torus the host keeps the Game Boy's
+; whole 256x256 background in VRAM - a 256-byte row stride, so the 64KB wrap
+; is the background's own, and each page a 64-byte slot of every row, 32
+; tiles and then columns 0-19 again - and shows it by the start address and
+; the pel panning. rb_renderd composes only the OVERLAY lines, the ones the
+; canvas cannot show (sprites, the window, a scroll, palette or tile mode of
+; their own), into its 42-byte buffer as ever; rb_tpage puts a page right.
+; Its state is RB_TSIZE bytes at [rb_tseg]:0, which rb_tinit starts.
+;
+; NOTHING HERE VISITS A LINE IT HAS NO BUSINESS WITH: the frame keeps the
+; list of its overlay lines and each page the list it holds, and the cells
+; are looked for only in the columns in view. The first build walked all
+; 144 lines three times a frame and every column of a row with any cell
+; owed, and on the 286 that bookkeeping cost more than the composing it
+; saved (REALBOY-PLAN, the scroll round). AND NOTHING WRITES A BYTE THE
+; CANVAS ALREADY SHOWS: a line that is an overlay only for its sprites is
+; the background everywhere else, so only the bytes its sprites span are
+; written (ppu_tspan), and restored.
+; =============================================================================
+RB_TKEY         equ 0                   ; 3 x 144 words: per page and line, the
+                                        ;   canvas row:column of the overlay
+                                        ;   written there, FFFFh none...
+RB_TSPAN        equ 864                 ; 3 x 144 words: ...and which of its 21
+                                        ;   bytes, the first and the last
+RB_TDIRTY       equ 1728                ; 3 x 128: a bit a cell (row x 32 +
+                                        ;   column), owed to the page
+RB_TPL          equ 2112                ; 3 x 145: the lines the page holds an
+                                        ;   overlay on, a count and the lines
+RB_TPBGP        equ 2547                ; 3: the BGP each page's cells are in...
+RB_TPLCD        equ 2550                ; 3: ...and the LCDC (bits 3-4)
+RB_TSIZE        equ 2553
+RB_TMID         equ 72                  ; the line the canvas is the state of:
+                                        ;   a status bar is at a screen's top or
+                                        ;   its bottom, the playfield between
+
+; rb_tinit: THE CANVAS from nothing - every cell owed, no overlay held, no
+; page's palette known, every line stale. [rb_tseg] = the state's segment.
+; Kept: all
+rb_tinit:
+    push ax
+    push cx
+    push di
+    push es
+    cld
+    mov es,[cs:rb_tseg]
+    xor di,di
+    mov cx,RB_TPL / 2                   ; keys FFFFh, every cell owed
+    mov ax,0FFFFh
+    rep stosw
+    mov di,RB_TPL                       ; no line held
+    xor al,al
+    stosb
+    mov di,RB_TPL + 145
+    stosb
+    mov di,RB_TPL + 290
+    stosb
+    mov di,RB_TPBGP                     ; no palette, map or tiles known
+    mov cx,6
+    mov al,0FFh
+    rep stosb
+    push cs
+    pop es
+    mov di,rb_tcls                      ; no line an overlay, every one stale
+    mov cx,144
+    xor al,al
+    rep stosb
+    mov di,rb_tstl
+    mov cx,144
+    mov al,1
+    rep stosb
+    mov word [cs:rb_tovn],0
+    mov byte [cs:rb_tpan],0FFh
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; ppu_tframe: the frame's CANVAS - SCX, SCY, BGP and LCDC as line RB_TMID
+; sees them (the snapshot, and the raster log's writes on the lines up to
+; it) - into rb_tfr; every line stale when the pan moved, and with the
+; host's whole (RB_DFULL = 1: a cleared screen, a state loaded) every cell
+; owed too. AL = the pan. DS = view, ES = damage
+ppu_tframe:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bl,[PPU_REGS+2]                 ; BL SCX, BH SCY, DL BGP, DH LCDC
+    mov bh,[PPU_REGS+1]
+    mov dl,[PPU_REGS+3]
+    mov dh,[PPU_REGS+0]
+    xor ch,ch
+    mov cl,[PPU_LOGN]
+    jcxz .k
+    mov si,RB_RLOG
+.l:
+    cmp byte [si],RB_TMID
+    ja .n
+    mov al,[si+1]
+    mov ah,[si+2]
+    cmp al,43h
+    jne .y
+    mov bl,ah
+.y:
+    cmp al,42h
+    jne .b
+    mov bh,ah
+.b:
+    cmp al,47h
+    jne .c
+    mov dl,ah
+.c:
+    cmp al,40h
+    jne .n
+    mov dh,ah
+.n:
+    add si,4
+    loop .l
+.k:
+    mov [cs:rb_tfr],bh                  ; SCY, SCX: [PPU_REGS+1]'s order
+    mov [cs:rb_tfr+1],bl
+    mov [cs:rb_tfr+2],dx                ; BGP, LCDC
+    mov al,[es:RB_DFULL]
+    push es
+    cmp al,1
+    jne .p
+    mov es,[cs:rb_tseg]                 ; the host's whole: every cell owed
+    mov di,RB_TDIRTY
+    mov cx,384 / 2
+    mov ax,0FFFFh
+    rep stosw
+    jmp short .st
+.p:
+    mov al,bl
+    and al,7
+    cmp al,[cs:rb_tpan]
+    je .r
+.st:
+    mov al,bl
+    and al,7
+    mov [cs:rb_tpan],al
+    push cs                             ; every line composed again at it
+    pop es
+    mov di,rb_tstl
+    mov cx,144 / 2
+    mov ax,0101h
+    rep stosw
+.r:
+    pop es
+    mov al,bl
+    and al,7
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; ppu_tcls: line BX (PPU_LY) on the canvas - CF = 0 CLEAN, which the canvas
+; shows as it is: not composed, its buffer line left stale; CF = 1 an
+; OVERLAY, onto the frame's list with the bytes to write, AL = 1 when its
+; buffer line is stale. The registers' part of the verdict is judged again
+; only when the raster log moved (PPU_LOGI); per line it is the window and
+; the sprites, whose list [rb_tlsp] walks (the loop's). DS = view. Kept:
+; all but AX and SI
+ppu_tcls:
+    mov al,[PPU_LOGI]
+    cmp al,[cs:rb_tli]
+    je .rk
+    mov [cs:rb_tli],al
+    call .regs
+.rk:
+    cmp byte [cs:rb_trk],0              ; the LCD, the background, the map,
+    je .ov                              ;   tiles, scroll and palette
+    test byte [cs:rb_trk],2             ; the window on from a line on
+    jz .nw
+    mov al,[PPU_LY]
+    cmp al,[PPU_REGS+6]
+    jae .ov
+.nw:
+    test byte [cs:rb_trk],4             ; sprites on: none that may cover it
+    jz .cl
+    mov si,[cs:rb_tlsp]
+    cmp byte [si],0
+    je .cl
+    sub si,PPU_LSPR
+    call ppu_tspan                      ; only its sprites': the bytes they
+    jmp short .ovs                      ;   span
+.cl:
+    mov byte [cs:rb_tcls+bx],0
+    mov byte [cs:rb_tstl+bx],1
+    clc
+    ret
+.ov:
+    mov ax,1400h                        ; anything else: all 21 bytes
+.ovs:
+    mov [cs:rb_tsp0+bx],al
+    mov [cs:rb_tsp1+bx],ah
+    mov byte [cs:rb_tcls+bx],1
+    mov si,[cs:rb_tovn]
+    mov [cs:rb_tovl+si],bl
+    inc word [cs:rb_tovn]
+    xor al,al
+    xchg al,[cs:rb_tstl+bx]
+    stc
+    ret
+.regs:                                  ; rb_trk: 0 an overlay whatever the
+    mov byte [cs:rb_trk],0              ;   line, else 1, +2 the window from
+    mov al,[PPU_REGS+0]                 ;   WY on, +4 sprites on
+    mov ah,al
+    xor ah,[cs:rb_tfr+3]                ; the frame's map and tiles
+    test ah,18h
+    jnz .rr
+    mov ah,al
+    and ah,81h                          ; the LCD and the background on
+    cmp ah,81h
+    jne .rr
+    mov si,[PPU_REGS+1]                 ; the frame's scroll
+    cmp si,[cs:rb_tfr]
+    jne .rr
+    mov ah,[PPU_REGS+3]                 ; ...and palette
+    cmp ah,[cs:rb_tfr+2]
+    jne .rr
+    mov ah,1
+    test al,20h
+    jz .rw
+    cmp byte [PPU_REGS+7],166
+    ja .rw
+    or ah,2
+.rw:
+    test al,02h
+    jz .rs
+    or ah,4
+.rs:
+    mov [cs:rb_trk],ah
+.rr:
+    ret
+
+; ppu_tspan: the bytes of a pan-aligned line its sprites may cover - the
+; ones PPU_LSPR lists at SI - AL the first, AH the last (0-20). A sprite at
+; OAM X is at the buffer's pixel X - 8 + the pan. DS = view. Kept: all but
+; AX and SI
+ppu_tspan:
+    push bx
+    push cx
+    push dx
+    mov cl,[PPU_LSPR+si]
+    xor ch,ch
+    add si,PPU_LSPR + 1
+    mov dx,00FFh                        ; DH the largest X, DL the smallest
+.s:
+    mov bl,[si]
+    xor bh,bh
+    mov al,[0FE01h+bx]
+    cmp al,dl
+    jae .s1
+    mov dl,al
+.s1:
+    cmp al,dh
+    jbe .s2
+    mov dh,al
+.s2:
+    inc si
+    loop .s
+    mov bl,[PPU_PANM]
+    xor bh,bh
+    mov cl,3
+    mov al,dl                           ; the first: (X - 8 + pan) / 8
+    xor ah,ah
+    add ax,bx
+    sub ax,8
+    jns .f
+    xor ax,ax
+.f:
+    shr ax,cl
+    cmp ax,20
+    jbe .f1
+    mov al,20
+.f1:
+    mov ch,al
+    mov al,dh                           ; the last: (X - 1 + pan) / 8
+    xor ah,ah
+    add ax,bx
+    dec ax
+    jns .l
+    xor ax,ax
+.l:
+    shr ax,cl
+    cmp ax,20
+    jbe .l1
+    mov al,20
+.l1:
+    mov ah,al
+    mov al,ch
+    cmp ah,al                           ; (all off to the right: one byte)
+    jae .r
+    mov ah,al
+.r:
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; ppu_tmark: the cells this call's damage scan found changed, owed to every
+; page - a byte of the frame's map, or a tile it shows (the map searched
+; for its number; more than 16 tiles owe every cell). DS = view, ES = damage
+ppu_tmark:
+    mov dl,[cs:rb_tfr+3]                ; DL = the frame's LCDC
+    cmp byte [es:RB_DMCH],0
+    je .tiles
+    mov bx,RB_DMD                       ; the frame's map's change bytes
+    test dl,08h
+    jz .m0
+    add bx,1024
+.m0:
+    mov di,bx
+    mov cx,1024
+.m:
+    xor al,al
+    repe scasb
+    je .tiles
+    mov ax,di
+    sub ax,bx
+    dec ax                              ; AX = the cell
+    call ppu_tbit
+    jcxz .tiles
+    jmp short .m
+.tiles:
+    cmp byte [es:RB_DTCH],0
+    je .r
+    mov byte [cs:rb_tln],0
+    mov di,RB_DTD
+    mov cx,384
+.t:
+    xor al,al
+    repe scasb
+    je .scan
+    mov ax,di
+    sub ax,RB_DTD + 1                   ; AX = the tile, 0-383 from 8000h
+    test dl,10h                         ; as the frame's tile mode numbers it:
+    jz .s                               ;   8000h on, 0-255 as they are
+    cmp ax,256
+    jae .tn
+    jmp short .add
+.s:
+    cmp ax,128                          ;   8800h on, 128-255 as they are and
+    jb .tn                              ;   256-383 as 0-127
+    cmp ax,256
+    jb .add
+    sub ax,256
+.add:
+    mov bl,[cs:rb_tln]
+    cmp bl,16
+    jae .every
+    xor bh,bh
+    mov [cs:rb_tlst+bx],al
+    inc byte [cs:rb_tln]
+.tn:
+    jcxz .scan
+    jmp short .t
+.every:
+    push es                             ; (many: every cell)
+    mov es,[cs:rb_tseg]
+    mov di,RB_TDIRTY
+    mov cx,384 / 2
+    mov ax,0FFFFh
+    rep stosw
+    pop es
+    ret
+.scan:
+    mov cl,[cs:rb_tln]
+    xor ch,ch
+    jcxz .r
+    push es
+    push ds
+    pop es                              ; ES = the view, for its map
+    mov bx,9800h
+    test dl,08h
+    jz .sb
+    mov bx,9C00h
+.sb:
+    xor si,si
+.sn:
+    push cx
+    mov al,[cs:rb_tlst+si]
+    mov di,bx
+    mov cx,1024
+.f:
+    repne scasb
+    jne .fn
+    push ax
+    mov ax,di
+    sub ax,bx
+    dec ax
+    call ppu_tbit
+    pop ax
+    jcxz .fn
+    jmp short .f
+.fn:
+    pop cx
+    inc si
+    loop .sn
+    pop es
+.r:
+    ret
+
+; ppu_tbit: cell AX owed to every page. Kept: all but AL
+ppu_tbit:
+    push bx
+    push cx
+    push ds
+    mov ds,[cs:rb_tseg]
+    mov bx,ax
+    mov cl,3
+    shr bx,cl
+    mov cl,al
+    and cl,7
+    mov al,1
+    shl al,cl
+    or [RB_TDIRTY+bx],al
+    or [RB_TDIRTY+128+bx],al
+    or [RB_TDIRTY+256+bx],al
+    pop ds
+    pop cx
+    pop bx
+    ret
+
+; rb_tpage: the frame rb_renderd just composed (rb_torus) onto one of the
+; host's three CANVAS pages (REALBOY-SPEC 15.5) - the overlays it holds that
+; this frame does not keep restored, the cells in view it owes drawn, the
+; overlays it does not hold written. AL = the page (0-2), ES = the card.
+; Out BX = the start address that shows it (the pan is rb_panv). Kept: all
+; but BX
+rb_tpage:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    cld
+    mov [cs:rb_tcard],es
+    xor ah,ah
+    mov si,ax                           ; SI = the page
+    inc ax
+    mov cl,6
+    shl ax,cl
+    mov [cs:rb_tslot],al                ; its slot: 64, 128, 192
+    mov ax,si
+    mov cx,288
+    mul cx
+    mov [cs:rb_tkey],ax                 ; its keys (RB_TKEY is 0)
+    mov ax,si
+    mov cl,7
+    shl ax,cl
+    add ax,RB_TDIRTY
+    mov [cs:rb_tdirty],ax               ; its owed cells
+    mov ax,si
+    mov cl,145
+    mul cl
+    add ax,RB_TPL
+    mov [cs:rb_tpl],ax                  ; the lines it holds
+    mov ax,si
+    mov cl,144
+    mul cl
+    add ax,RB_PGMSK
+    mov [cs:rb_towed],ax                ; its owed lines, in the buffer's
+    push ds
+    mov ds,[cs:rb_dmgseg]
+    mov ax,[RB_DOUT+2]
+    pop ds
+    mov [cs:rb_tpseg],ax
+    mov al,[cs:rb_tfr+1]                ; the first column shown
+    mov cl,3
+    shr al,cl
+    mov [cs:rb_tc0],al
+    mov bx,9800h                        ; the frame's map
+    test byte [cs:rb_tfr+3],08h
+    jz .mp
+    mov bx,9C00h
+.mp:
+    mov [cs:rb_tmap],bx
+    mov ds,[cs:rb_tseg]
+    mov ax,[cs:rb_tfr+2]                ; cells in another palette, map or
+    cmp al,[RB_TPBGP+si]                ;   tile mode: every one owed
+    jne .all
+    mov ah,[RB_TPLCD+si]
+    xor ah,[cs:rb_tfr+3]
+    test ah,18h
+    jz .anf
+.all:
+    mov [RB_TPBGP+si],al
+    mov ah,[cs:rb_tfr+3]
+    mov [RB_TPLCD+si],ah
+    push es
+    push ds
+    pop es
+    mov di,[cs:rb_tdirty]
+    mov cx,128 / 2
+    mov ax,0FFFFh
+    rep stosw
+    pop es
+.anf:
+    mov al,[cs:rb_tfr+2]
+    call ppu_tanf
+    mov ds,[cs:rb_viewseg]
+    mov al,[cs:rb_tfr+3]                ; the tile addresses of its mode
+    and al,10h
+    cmp al,[PPU_TMODE]
+    je .tm
+    mov al,[cs:rb_tfr+3]
+    call ppu_taddr
+.tm:
+    mov es,[cs:rb_tseg]
+    ; 1. the overlays it holds that this frame does not keep where they
+    ;    are, back to the background - unless one of this frame's at the
+    ;    same row and column spans the same bytes, which is written over them
+    mov si,[cs:rb_tpl]
+    mov cl,[es:si]
+    xor ch,ch
+    jcxz .r1e
+    inc si
+.r1:
+    mov bl,[es:si]
+    xor bh,bh
+    mov bp,bx                           ; BP = the line
+    shl bx,1
+    add bx,[cs:rb_tkey]
+    mov dx,[es:bx]                      ; DX = its overlay's row:column,
+    cmp dx,0FFFFh
+    je .r1n
+    mov ax,[es:bx+RB_TSPAN]             ;   rb_tb0 its bytes
+    mov [cs:rb_tb0],ax
+    cmp byte [cs:rb_tcls+bp],0
+    je .r1r
+    mov ax,bp                           ; this frame's place
+    add al,[cs:rb_tfr]
+    mov ah,al
+    mov al,[cs:rb_tc0]
+    cmp ax,dx
+    je .r1n                             ; the same: phase 3's
+.r1r:
+    call .r1p                           ; (only what this frame's on its row
+.r1c:                                   ;   does not write over)
+    mov word [es:bx],0FFFFh
+.r1n:
+    inc si
+    loop .r1
+.r1e:
+    call rb_tflush
+    ; 2. the cells in view it owes: 19 tile rows, the 21 columns from c0
+    mov cl,[cs:rb_tc0]                  ; the window's 32 bits, column k at
+    xor ax,ax                           ;   bit k: 21 set from c0, round
+    mov dx,001Fh
+    mov ax,0FFFFh
+    xor ch,ch
+    jcxz .wd
+.wr:
+    shl ax,1
+    rcl dx,1
+    jnc .wr0
+    or al,1
+.wr0:
+    loop .wr
+.wd:
+    mov [cs:rb_twm],ax
+    mov [cs:rb_twm+2],dx
+    mov al,[cs:rb_tfr]
+    mov cl,3
+    shr al,cl
+    mov [cs:rb_tty],al
+    mov byte [cs:rb_tny],19
+.c2:
+    mov bl,[cs:rb_tty]
+    and bl,31
+    xor bh,bh
+    shl bx,1
+    shl bx,1
+    add bx,[cs:rb_tdirty]               ; BX = the tile row's 4 bytes
+    mov ax,[es:bx]
+    and ax,[cs:rb_twm]
+    mov dx,[es:bx+2]
+    and dx,[cs:rb_twm+2]
+    mov cx,ax
+    or cx,dx
+    jz .c2n
+    xor dh,dh                           ; DH = the byte, 0-3
+.c3:
+    mov dl,dh
+    xor ah,ah
+    push bx
+    add bl,dh                           ; (4-aligned: no carry)
+    mov al,[es:bx]
+    pop bx
+    push bx
+    mov bl,dh
+    xor bh,bh
+    and al,[cs:rb_twm+bx]
+    pop bx
+    or al,al
+    jz .c3n
+    mov cl,dh                           ; its columns 8 x byte on
+    shl cl,1
+    shl cl,1
+    shl cl,1
+.c4:
+    shr al,1
+    jnc .c4n
+    push ax
+    push bx
+    push dx
+    mov dl,cl
+    mov al,dh                           ; the bit, cleared
+    xor ah,ah
+    add bx,ax
+    mov al,cl
+    and al,7
+    xchg cl,al
+    mov ah,1
+    shl ah,cl
+    xchg cl,al
+    not ah
+    and [es:bx],ah
+    call rb_tcell                       ; DL = the column
+    pop dx
+    pop bx
+    pop ax
+.c4n:
+    inc cl
+    or al,al
+    jnz .c4
+.c3n:
+    inc dh
+    cmp dh,4
+    jb .c3
+.c2n:
+    inc byte [cs:rb_tty]
+    dec byte [cs:rb_tny]
+    jnz .c2
+    ; 3. the overlays it does not hold: a new place, or the line owed since
+    ;    - decided first (rb_twl: from, to and how many), then written a
+    ;    plane at a time, under one map mask each
+    mov ds,[cs:rb_tpseg]
+    mov si,rb_tovl
+    mov di,rb_twl
+    mov cx,[cs:rb_tovn]
+    jcxz .o3
+.o:
+    call .ol
+    inc si
+    loop .o
+.o3:
+    mov bp,di                           ; BP = the list's end
+    mov es,[cs:rb_tcard]
+    mov dx,3C4h
+    mov ax,0102h
+    out dx,ax
+    xor ax,ax
+    call .wrp
+    mov ax,0202h
+    out dx,ax
+    mov ax,21
+    call .wrp
+    mov es,[cs:rb_tseg]
+.oe:
+    mov di,[cs:rb_tpl]                  ; it holds this frame's overlays now
+    mov cx,[cs:rb_tovn]
+    mov al,cl
+    stosb
+    jcxz .oc
+    push ds
+    push cs
+    pop ds
+    mov si,rb_tovl
+    rep movsb
+    pop ds
+.oc:
+    mov bh,[cs:rb_tfr]                  ; where it is shown from
+    mov bl,[cs:rb_tslot]
+    add bl,[cs:rb_tc0]
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+.r1p:                                   ; phase 1's restore of DH:DL bytes
+    push ax                             ;   rb_tb0-rb_tb1: by place in the
+    push bx                             ;   slot, [a, b] - less what this
+    push cx                             ;   frame's overlay on the row writes,
+    push dx                             ;   [c, d], which leaves at most two
+    mov al,dl                           ;   pieces
+    add al,[cs:rb_tb0]                  ; AL = a
+    mov ah,dl
+    add ah,[cs:rb_tb1]                  ; AH = b
+    mov bl,dh
+    sub bl,[cs:rb_tfr]
+    cmp bl,144
+    jae .pw                             ; no line of this frame's there
+    xor bh,bh
+    cmp byte [cs:rb_tcls+bx],0
+    je .pw
+    mov cl,[cs:rb_tc0]
+    mov ch,cl
+    add cl,[cs:rb_tsp0+bx]              ; CL = c
+    add ch,[cs:rb_tsp1+bx]              ; CH = d
+    cmp cl,al                           ; the piece left of it: [a, c - 1]
+    jbe .pr
+    mov bl,cl
+    dec bl
+    cmp bl,ah
+    jbe .pl
+    mov bl,ah
+.pl:
+    push ax
+    mov ah,bl
+    call .pq
+    pop ax
+.pr:
+    cmp ch,ah                           ; ...and right of it: [d + 1, b]
+    jae .px
+    mov bl,ch
+    inc bl
+    cmp bl,al
+    jae .pr1
+    mov bl,al
+.pr1:
+    mov al,bl
+    call .pq
+    jmp short .px
+.pw:
+    call .pq                            ; the whole of it
+.px:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.pq:                                    ; [AL, AH] of row DH, by place
+    mov dl,0
+    mov [cs:rb_tb0],ax
+    jmp rb_trow
+.ol:                                    ; phase 3's line [cs:SI]: onto rb_twl
+    mov bl,[cs:si]
+    xor bh,bh
+    mov bp,bx
+    test bl,15                          ; (now and then, the host's flip
+    jnz .o1                             ;   looked at)
+    call ppu_lhook
+.o1:
+    mov ax,bp
+    add al,[cs:rb_tfr]
+    mov ah,al
+    mov al,[cs:rb_tc0]                  ; AX = its row:column,
+    mov dl,[cs:rb_tsp0+bp]              ;   DX its bytes
+    mov dh,[cs:rb_tsp1+bp]
+    shl bx,1
+    add bx,[cs:rb_tkey]
+    mov [cs:rb_tb0],dx
+    cmp ax,[es:bx]
+    jne .ow                             ; a new place: its bytes
+    push cx                             ; the same place: the old bytes and
+    mov cx,[es:bx+RB_TSPAN]             ;   the new (the line's own outside
+    cmp cl,dl                           ;   its sprites is the background)...
+    jae .u1
+    mov [cs:rb_tb0],cl
+.u1:
+    cmp ch,dh
+    jbe .u2
+    mov [cs:rb_tb1],ch
+.u2:
+    cmp cx,dx
+    pop cx
+    jne .ow
+    push bx                             ; ...when they moved or the line
+    mov bx,[cs:rb_towed]                ;   is owed
+    add bx,bp
+    cmp byte [bx],0
+    pop bx
+    je .on
+.ow:
+    mov [es:bx],ax
+    mov [es:bx+RB_TSPAN],dx
+    mov bx,[cs:rb_towed]                ; no longer owed
+    add bx,bp
+    mov byte [bx],0
+    add al,[cs:rb_tslot]                ; to: its row, slot, column, byte
+    add al,[cs:rb_tb0]
+    mov [cs:di+2],ax
+    mov ax,bp                           ; from: the buffer's line, byte
+    mov dl,42
+    mul dl
+    add al,[cs:rb_tb0]
+    adc ah,0
+    mov [cs:di],ax
+    mov al,[cs:rb_tb1]                  ; how many
+    sub al,[cs:rb_tb0]
+    inc ax
+    mov [cs:di+4],al
+    add di,5
+.on:
+    ret
+.wrp:                                   ; rb_twl's writes, AX into the line
+    mov bx,rb_twl                       ;   (0 plane 0's bytes, 21 plane 1's):
+.wl:                                    ;   DS = the buffer, ES = the card
+    cmp bx,bp
+    jae .we
+    mov si,[cs:bx]
+    add si,ax
+    mov di,[cs:bx+2]
+    mov cl,[cs:bx+4]
+    xor ch,ch
+    rep movsb
+    add bx,5
+    jmp short .wl
+.we:
+    ret
+
+; rb_trow: canvas row DH, the overlay at column DL's bytes rb_tb0 to rb_tb1,
+; back to the background on the page - QUEUED (rb_tq*), and written by
+; rb_tflush a plane at a time, as phase 3's are. DS = view. Kept: all
+rb_trow:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    cmp byte [cs:rb_tqn],RB_TQMAX       ; (a full queue written first)
+    jb .q
+    call rb_tflush
+.q:
+    mov bl,dh
+    and bl,0F8h
+    xor bh,bh
+    shl bx,1
+    shl bx,1
+    add bx,[cs:rb_tmap]
+    mov bp,bx                           ; BP = the map row
+    mov al,dh
+    and al,7
+    shl al,1
+    xor ah,ah
+    mov si,ax                           ; SI = the tile row's offset
+    mov al,[cs:rb_tqn]                  ; DI = its bytes in the queue
+    mov ah,42
+    mul ah
+    add ax,rb_tqb
+    mov di,ax
+    mov bl,[cs:rb_tqn]
+    xor bh,bh
+    mov al,dl                           ; to: the row, slot, column, byte
+    add al,[cs:rb_tslot]
+    add al,[cs:rb_tb0]
+    mov ah,dh
+    shl bx,1
+    mov [cs:rb_tqd+bx],ax
+    shr bx,1
+    mov cl,dl
+    add cl,[cs:rb_tb0]                  ; CL = its first column
+    mov ch,[cs:rb_tb1]
+    sub ch,[cs:rb_tb0]
+    inc ch                              ; CH = how many
+    mov [cs:rb_tqc+bx],ch
+    inc byte [cs:rb_tqn]
+.b:
+    mov bl,cl
+    and bl,31
+    xor bh,bh
+    add bx,bp
+    mov al,[bx]                         ; the cell's tile
+    cbw
+    shl ax,1
+    mov bx,ax
+    mov bx,[PPU_TADDRC+bx]
+    mov ax,[bx+si]                      ; its row's two bit planes
+    cmp byte [cs:rb_tid],0              ; (BGP the identity: as they are)
+    jne .id
+    call ppu_tshade
+.id:
+    mov [cs:di],al
+    mov [cs:di+21],ah
+    inc di
+    inc cl
+    dec ch
+    jnz .b
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; rb_tflush: rb_trow's queue onto the page, plane 0's bytes then plane 1's,
+; under one map mask each, and empty. Kept: all
+rb_tflush:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push ds
+    push es
+    cmp byte [cs:rb_tqn],0
+    je .r
+    mov es,[cs:rb_tcard]
+    push cs
+    pop ds
+    mov dx,3C4h
+    mov ax,0102h
+    out dx,ax
+    xor ax,ax
+    call .p
+    mov ax,0202h
+    out dx,ax
+    mov ax,21
+    call .p
+    mov byte [cs:rb_tqn],0
+.r:
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.p:                                     ; AX into each entry's bytes
+    xor bx,bx
+    lea si,[rb_tqb]
+    add si,ax
+.e:
+    shl bx,1
+    mov di,[rb_tqd+bx]
+    shr bx,1
+    mov cl,[rb_tqc+bx]
+    xor ch,ch
+    push si
+    rep movsb
+    pop si
+    add si,42
+    inc bx
+    cmp bl,[rb_tqn]
+    jb .e
+    ret
+
+; rb_tcell: the cell at tile row [rb_tty] AND 31, column DL AND 31 drawn on
+; the page - both copies of a column 0-19 - and an overlay kept on its rows
+; owed again (RB_PGMSK). DS = view, ES = the state. Kept: all
+rb_tcell:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov al,[cs:rb_tty]
+    and al,31
+    and dl,31
+    mov [cs:rb_ttx],dl
+    xor bh,bh
+    mov bl,al
+    mov cl,5
+    shl bx,cl
+    mov cl,dl
+    xor ch,ch
+    add bx,cx
+    add bx,[cs:rb_tmap]
+    push ax
+    mov al,[bx]                         ; the tile
+    cbw
+    shl ax,1
+    mov bx,ax
+    mov si,[PPU_TADDRC+bx]
+    mov di,rb_tbuf
+    mov cx,8
+.r:
+    lodsw
+    cmp byte [cs:rb_tid],0
+    jne .id
+    call ppu_tshade
+.id:
+    mov [cs:di],al
+    mov [cs:di+8],ah
+    inc di
+    loop .r
+    pop ax                              ; AL = the tile row
+    mov bh,al
+    shl bh,1
+    shl bh,1
+    shl bh,1
+    mov bl,[cs:rb_ttx]
+    add bl,[cs:rb_tslot]                ; BX = its top byte on the page
+    push ax
+    push ds
+    push es
+    mov es,[cs:rb_tcard]
+    push cs
+    pop ds
+    mov dx,3C4h
+    mov ax,0102h
+    out dx,ax
+    mov si,rb_tbuf
+    call .two
+    mov ax,0202h
+    out dx,ax
+    mov si,rb_tbuf + 8
+    call .two
+    pop es
+    pop ds
+    pop ax
+    shl al,1                            ; its rows: an overlay kept there is
+    shl al,1                            ;   owed again - OWED, not dropped, so
+    shl al,1                            ;   its old bytes and its new are
+    mov cx,8                            ;   written (a dropped key wrote only
+    push ds                             ;   the new, and left the old sprite)
+    mov ds,[cs:rb_tpseg]
+.k:
+    mov bl,al
+    sub bl,[cs:rb_tfr]
+    cmp bl,144
+    jae .kn
+    xor bh,bh
+    cmp byte [cs:rb_tcls+bx],0
+    je .kn
+    add bx,[cs:rb_towed]
+    mov byte [bx],1
+.kn:
+    inc al
+    loop .k
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.two:
+    call .put                           ; the column, and for 0-19 its copy
+    cmp byte [cs:rb_ttx],20
+    jae .tw
+    sub si,8
+    add bx,32
+    call .put
+    sub bx,32
+.tw:
+    ret
+.put:
+    mov di,bx
+    mov cx,8
+.p:
+    movsb
+    add di,255
+    loop .p
+    ret
+
+; ppu_tanf: rb_tanf from BGP = AL - per shade bit D A B C, a bit being D
+; xor (bit 0 and A) xor (bit 1 and B) xor (both and C) - and rb_tid set when
+; it is the identity (E4h), which ppu_tshade leaves alone. Kept: all
+ppu_tanf:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov byte [cs:rb_tid],1
+    cmp al,0E4h
+    je .r
+    mov byte [cs:rb_tid],0
+    mov bl,al
+    xor di,di                           ; the shade's bit 0, then bit 1
+.p:
+    mov cx,4                            ; colour c's bit, as a mask
+    mov bh,bl
+    xor si,si
+.c:
+    mov al,bh
+    and al,1
+    neg al
+    mov [cs:rb_tm+si],al
+    shr bh,1
+    shr bh,1
+    inc si
+    loop .c
+    mov al,[cs:rb_tm]                   ; D
+    mov [cs:rb_tanf+di],al
+    mov ah,al
+    xor ah,[cs:rb_tm+1]                 ; A
+    mov [cs:rb_tanf+di+1],ah
+    mov ah,al
+    xor ah,[cs:rb_tm+2]                 ; B
+    mov [cs:rb_tanf+di+2],ah
+    xor al,[cs:rb_tm+1]                 ; C
+    xor al,[cs:rb_tm+2]
+    xor al,[cs:rb_tm+3]
+    mov [cs:rb_tanf+di+3],al
+    shr bl,1
+    add di,4
+    cmp di,8
+    jb .p
+.r:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; ppu_tshade: AL, AH = a tile row's bit 0 and bit 1 bytes; out the shade's
+; bit 0 and bit 1 bytes through rb_tanf. Kept: all but AX
+ppu_tshade:
+    cmp byte [cs:rb_tid],0
+    jne .r
+    push bx
+    push cx
+    mov bx,ax                           ; BL bit 0, BH bit 1
+    and ah,al
+    mov cl,ah                           ; CL = both
+    mov al,bl
+    and al,[cs:rb_tanf+1]
+    mov ah,bh
+    and ah,[cs:rb_tanf+2]
+    xor al,ah
+    mov ah,cl
+    and ah,[cs:rb_tanf+3]
+    xor al,ah
+    xor al,[cs:rb_tanf]
+    mov ch,al                           ; CH = the shade's bit 0
+    mov al,bl
+    and al,[cs:rb_tanf+5]
+    mov ah,bh
+    and ah,[cs:rb_tanf+6]
+    xor al,ah
+    mov ah,cl
+    and ah,[cs:rb_tanf+7]
+    xor al,ah
+    xor al,[cs:rb_tanf+4]
+    mov ah,al
+    mov al,ch
+    pop cx
+    pop bx
+.r:
+    ret
+
+rb_tfr          db 0, 0, 0, 0           ; the frame's canvas: SCY, SCX, BGP,
+                                        ;   LCDC, as line RB_TMID sees them
+rb_tpan         db 0FFh                 ; the pan the buffer is composed at
+rb_tovn         dw 0                    ; the frame's overlay lines: how many
+rb_tovl         times 144 db 0          ;   ...and which
+rb_tcls         times 144 db 0          ; per line: an overlay (1) or clean
+rb_tstl         times 144 db 1          ; per line: the buffer's not current
+rb_tovi         dw 0                    ; (rb_renderd's: the overlay at hand)
+rb_tli          db 0                    ; ppu_tcls's: the log index its
+rb_trk          db 0                    ;   registers' verdict is for, and it
+rb_tlsp         dw 0                    ;   (the loop's: the line's PPU_LSPR)
+rb_tsp0         times 144 db 0          ; per overlay line: its first byte to
+rb_tsp1         times 144 db 0          ;   write and its last
+rb_tb0          db 0                    ; rb_trow's and rb_tpage's: the first
+rb_tb1          db 0                    ;   byte and the last (one word)
+rb_tn           db 0
+rb_tcard        dw 0                    ; rb_tpage's: the card,
+rb_tkey         dw 0                    ;   the page's keys, owed cells,
+rb_tdirty       dw 0                    ;   lines held and owed lines,
+rb_tpl          dw 0
+rb_towed        dw 0
+rb_tpseg        dw 0                    ;   the buffer,
+rb_tmap         dw 0                    ;   the frame's map,
+rb_twm          dw 0, 0                 ;   the columns in view, a bit each,
+rb_tslot        db 0                    ;   the page's slot,
+rb_tc0          db 0                    ;   the first column,
+rb_tid          db 0                    ;   BGP the identity,
+rb_tty          db 0                    ;   the cells' tile row,
+rb_tny          db 0                    ;   rows left
+rb_ttx          db 0                    ;   and column
+rb_tln          db 0                    ; ppu_tmark's tiles: how many...
+rb_tlst         times 16 db 0           ;   ...and their numbers
+rb_tanf         times 8 db 0            ; BGP's D A B C, the shade's bit 0, 1
+rb_tm           times 4 db 0
+rb_twl          times 144 * 5 db 0      ; rb_tpage's writes: from, to, how many
+RB_TQMAX        equ 24
+rb_tqn          db 0                    ; rb_trow's queue: how many,
+rb_tqc          times RB_TQMAX db 0     ;   each one's byte count,
+rb_tqd          times RB_TQMAX dw 0     ;   where it goes,
+rb_tqb          times RB_TQMAX * 42 db 0 ;  and its bytes (plane 1's at +21)
+rb_tbuf         times 42 db 0           ; a row's 21 bytes a plane, or a
+                                        ;   cell's 8
 %endif
 
 ; ppu_anf: one shade plane of the background into DI, through the ANF words

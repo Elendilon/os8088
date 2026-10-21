@@ -83,8 +83,8 @@ rw_plan:
     jbe .k2
     mov ax, RW_SLOTMAX
 .k2:
-    cmp ax, 4                       ; four, or every bank there is
-    jae .k3
+    cmp al, [rw_slotmin]            ; RW_SLOTWANT, or four (rw_load), or
+    jae .k3                         ;   every bank there is
     cmp ax, dx
     jb .nocache
 .k3:

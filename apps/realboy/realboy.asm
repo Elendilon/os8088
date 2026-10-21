@@ -58,6 +58,9 @@ RW_BEHIND       equ 30              ; frames a machine catches up at most:
 RW_OWEDMAX      equ RW_BEHIND * 256
 RW_ROMMAX_KB    equ 256             ; one claim's; more is the bank cache's
 RW_SLOTMAX      equ 40              ; ...slots at most (rwbank.inc)
+RW_SLOTWANT     equ 8               ; ...slots the plan asks for while the
+                                    ;   recompiler still has memory to give
+                                    ;   up (rw_load); 4 when it has none
 RW_PRFN         equ 2048            ; Static's profile: entries, 4 bytes each,
 RW_PRFTAIL      equ RW_PRFN * 4     ;   then the file's trailer: 'RBP1', the
 RW_PRFFILE      equ RW_PRFTAIL + 9  ;   header's 014Dh byte and 014Eh word,
@@ -280,12 +283,21 @@ rw_fspan        equ rw_fmbuf + 32   ; byte: VGA full screen in PAGES (rwfsx.inc)
 rw_pgshow       equ rw_fspan + 1    ; byte: the page the card shows...
 rw_pgnext       equ rw_pgshow + 1   ; byte: ...the one a flip waits to show
 rw_pgpend       equ rw_pgnext + 1   ; byte: ...as it does (rw_pgtry's)
-rw_pgseen       equ rw_pgpend + 1   ; byte: rw_pgtry last saw the display on,
-rw_pgton        equ rw_pgseen + 1   ; word: ...at this clock (rw_clk's low)
-rw_pgstart      equ rw_pgton + 2    ; word: the flip's start address...
+rw_pgok         equ rw_pgpend + 1   ; byte: rw_pgvs is the beam's (rw_pgsync)
+rw_pgrc         equ rw_pgok + 1     ; byte: flips since it was taken
+rw_pgvs         equ rw_pgrc + 1     ; dword: a vertical retrace's start, on
+                                    ;   rw_clk's clock...
+rw_pgper        equ rw_pgvs + 4     ; word: ...and the refresh's period, in
+                                    ;   its counts (rw_pgsync)
+rw_pgstart      equ rw_pgper + 2    ; word: the flip's start address...
 rw_pgpan        equ rw_pgstart + 2  ; byte: ...and pel panning
 rw_fstxto       equ rw_pgpan + 1    ; word: the speed line's VRAM offset
-rw_fbuf         equ rw_fstxto + 2 + 1 ; 5,760: rb_render's frame (monochrome;
+rw_pgdebt       equ rw_fstxto + 2   ; word: frames run ahead of the clock, on
+                                    ;   the display's word (rw_fsmain)
+rw_slotmin      equ rw_pgdebt + 2   ; byte: the bank plan's least slots
+rw_fsstr        equ rw_slotmin + 1  ; word: the speed line's VRAM stride, 40
+                                    ;   or the canvas's 256 (rw_fstext)
+rw_fbuf         equ rw_fsstr + 2    ; 5,760: rb_render's frame (monochrome;
                                     ;   even)
 RW_BSS          equ rw_fbuf + 5760 - rw_win   ; derived: a sum by hand drifted
 RW_PBUF         equ 11520           ; the frame as the screen takes it: the
@@ -430,6 +442,11 @@ rw_onwake:
     mov byte [rw_jitqn], 1
     mov byte [rw_jitq], 1
 .nf3:
+    cmp byte [rw_lflq], 0           ; F12 in the window: the log written
+    je .nfl                         ;   here, where a file may be
+    mov byte [rw_lflq], 0
+    call rw_logflush
+.nfl:
     cmp byte [rw_argpend], 0
     je .stopped
     mov byte [rw_argpend], 0
@@ -510,8 +527,15 @@ rw_load:
     call rw_dmgclaim                ; the damage memory and the recompiler's
     call rw_jitclaim                ;   cache FIRST: what the ROM's read
     call rw_jit2claim               ;   rebuilds of the disk caches lands in
-    call rw_plan                    ;   what is left, and took the 64KB on
-    jnc .planned                    ;   the second field run's Victory
+    mov byte [rw_slotmin], RW_SLOTWANT ;   what is left, and took the 64KB on
+    call rw_plan                    ;   the second field run's Victory - but
+    jnc .planned                    ;   a cartridge in the bank cache wants
+                                    ;   RW_SLOTWANT slots before the
+                                    ;   recompiler keeps its second segment
+                                    ;   or its big table: Kirby's Dream Land
+                                    ;   on 5 fetched ~95 banks a second off
+                                    ;   XMS on the Victory, at 15% (REALBOY-
+                                    ;   SPEC 10.3)
     cmp word [rw_jit2seg], 0        ; no room with the cache's second
     je .nojit2                      ;   segment: the ROM without it first
     mov dx, [rw_jit2seg]
@@ -520,10 +544,10 @@ rw_load:
     call rw_plan
     jnc .planned
 .nojit2:
-    cmp word [rw_jitseg], 0
-    je .say
+    cmp word [rw_jitseg], 0         ; (none to give up: four, and no more
+    je .nojit                       ;   asked for)
     cmp byte [rw_hmask], 7          ; ...then with the table at 16KB
-    je .nobig
+    je .min4
     mov dx, [rw_jitseg]
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
@@ -534,12 +558,17 @@ rw_load:
     mov [rw_jitseg], dx
     call rw_plan
     jnc .planned
+.min4:
+    mov byte [rw_slotmin], 4        ; (fewer slots before no recompiler)
+    call rw_plan
+    jnc .planned
 .nobig:
     mov dx, [rw_jitseg]             ; no room with it: the ROM without it
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
 .nojit:
     mov byte [rw_jitwant], 0
+    mov byte [rw_slotmin], 4
     call rw_plan
     jc .say
 .planned:
@@ -1449,8 +1478,8 @@ rw_cfgkeys:
     lodsb
     cmp al, 0Ah                     ; (Esc, and 1-9: the save states')
     jbe .r
-    cmp al, 58h
-    ja .r
+    cmp al, 58h                     ; (F12: the log's, rw_logflush)
+    jae .r
     cmp al, 38h
     je .r
     cmp al, 3Bh
@@ -2165,9 +2194,9 @@ rw_frame:
     push cx
     mov ax, [rw_budget]
     cmp byte [rw_pgpend], 0         ; (PAGES: a flip waiting is looked at
-    je .bp                          ;   between two runs - rw_pgtry - so they
-    mov ax, RW_PGBUD                ;   are short until it is written)
-.bp:
+    je .bp                          ;   between two runs - rw_pgtry - so the
+    call rw_pgbud                   ;   one that reaches its window ends
+.bp:                                ;   there)
     push es                         ; the recompiler on: twice the budget -
     mov es, [rb_viewseg]            ;   it is the IRQ latency, and recompiled
     cmp byte [es:S_JITON], 0        ;   2000 M-cycles are ~2 ms on a 286, so
@@ -2182,6 +2211,10 @@ rw_frame:
     je .done                        ;   which was nine task switches a frame
     cmp al, RBX_BADOP
     je .bad
+    cmp byte [rw_pgpend], 0         ; (a run cut short for a flip is not
+    je .lp                          ;   one of the frame's: rw_pgtry writes
+    inc cx                          ;   it inside a frame, whatever happens)
+.lp:
     loop .run
 .done:
     call rw_gameacc
@@ -2433,6 +2466,9 @@ rw_keys:
     xor al, al                      ; the typed presses, taken whoever's the
     xchg al, [rw_klatch]            ;   keyboard is
     mov [rw_ktyped], al
+    xor al, al                      ; ...and F1-F4's, likewise
+    xchg al, [rw_flatch]
+    mov [rw_ftyped], al
     cmp byte [rw_infsx], 0          ; the bracket's keyboard is ours
     jne .f1
     call OSAPI_WM_TOP
@@ -2447,7 +2483,8 @@ rw_keys:
     jc .set
     mov al, 3Bh                     ; F1, on its press
     mov bx, rw_f1was
-    call rw_kedge
+    mov cl, 1
+    call rw_fedge
     jnc .nof1
     xor byte [rw_ovl], 1
     mov byte [rw_ovlnew], 1
@@ -2459,7 +2496,8 @@ rw_keys:
     push dx
     mov al, 3Ch                     ; F2: Machine > Interlace's next, and
     mov bx, rw_f2was                ;   said (rw_note)
-    call rw_kedge
+    mov cl, 2
+    call rw_fedge
     jnc .nof2
     call rw_iltoggle
     mov si, [rw_i_mach + 10]        ; (what rw_mgrey made the item say)
@@ -2467,7 +2505,8 @@ rw_keys:
 .nof2:
     mov al, 3Dh                     ; F3: Machine > Recompiler's next - here,
     mov bx, rw_f3was                ;   between two core runs, in the window
-    call rw_kedge                   ;   and the bracket alike (the menu's
+    mov cl, 4
+    call rw_fedge                   ;   and the bracket alike (the menu's
     jnc .nof3                       ;   goes through the worker's rw_jitq)
     cmp word [rw_jitseg], 0
     je .nof3
@@ -2493,7 +2532,8 @@ rw_keys:
 .nof3:
     mov al, 3Eh                     ; F4: Machine > Speed's next, said, and
     mov bx, rw_f4was                ;   kept for the game by the UI task
-    call rw_kedge
+    mov cl, 8
+    call rw_fedge
     jnc .nof4
     call rw_spdnext
     mov si, [rw_i_mach + 16]
@@ -2502,6 +2542,17 @@ rw_keys:
     mov bx, [rw_win]
     call OSAPI_WM_WAKE
 .nof4:
+    mov al, 58h                     ; F12: the log written now (rw_logflush,
+    mov bx, rw_f12was               ;   the UI task's - after the bracket,
+    mov cl, 10h                     ;   where a toast can be read)
+    call rw_fedge
+    jnc .nof12
+    mov byte [rw_lflq], 1
+    cmp byte [rw_infsx], 0
+    jne .nof12
+    mov bx, [rw_win]
+    call OSAPI_WM_WAKE
+.nof12:
     pop dx
     mov si, rw_keymap
     mov dh, 1
@@ -2566,6 +2617,31 @@ rw_kedge:
     add al, 0FFh                    ; CF = 1: pressed now
     ret
 
+; rw_fedge - rw_kedge for F1-F4, CL = its bit in rw_ftyped: pressed now, or
+; TYPED since the last look and up at both - a tap that fell between two
+; looks, which a draw in full screen is long enough to hide. Held at either
+; look, the press is the edge's to say, so it is never said twice and a
+; held key's typematic repeat says nothing. Clobbers CH
+rw_fedge:
+    call OSAPI_KEY_DOWN
+    sbb al, al
+    mov ah, al                      ; AH = held now
+    xchg al, [bx]                   ; AL = held at the last look
+    mov ch, al
+    not al
+    and al, ah
+    jnz .yes
+    or ch, ah
+    jnz .no
+    test [cs:rw_ftyped], cl
+    jz .no
+.yes:
+    stc
+    ret
+.no:
+    clc
+    ret
+
 ; rw_note - SI = a line (a menu item's, its MENU_DIS mark skipped): said for
 ; a moment - a toast on the desktop, the speed line in the bracket, where a
 ; toast would wait for the desktop to come back (F2, F3)
@@ -2613,6 +2689,12 @@ rw_note:
 rw_jnext:   db 1, 3, 0, 2           ; the setting after Auto, On, Off, Static
 rw_keymap:  db KSC_RIGHT, KSC_LEFT, KSC_UP, KSC_DOWN, 2Dh, 2Ch, 39h, KSC_ENTER, 0
 rw_ktyped:  db 0                    ; (rw_keys: this look's rw_klatch)
+rw_flatch:  db 0                    ; F1-F4 and F12 TYPED since the last look
+                                    ;   (rw_klat)
+rw_f12was:  db 0                    ; F12 was held at the last look
+rw_lflq:    db 0                    ; F12: the log to be written by the UI
+                                    ;   task (rw_onwake, rw_fsenter's end)
+rw_ftyped:  db 0                    ; ...and this look's (rw_fedge)
 
 ; rw_socd - one opposite pair, BL its two bits: DL the buttons, AH those
 ; pressed since the last look, CL the preferred of each pair. Not both held:
@@ -2651,6 +2733,25 @@ rw_klat:
     call rw_stkey
     push ax
     push si
+    mov al, 10h                     ; F12 (an AT's 86h, a PC's 58h): bit 4
+    cmp ah, 86h
+    je .fl
+    cmp ah, 58h
+    je .fl
+    cmp ah, 3Bh                     ; F1-F4: latched for rw_fedge
+    jb .m
+    cmp ah, 3Eh
+    ja .m
+    push cx
+    mov cl, ah
+    sub cl, 3Bh
+    mov al, 1
+    shl al, cl
+    pop cx
+.fl:
+    or [rw_flatch], al
+    jmp short .r
+.m:
     mov si, rw_keymap
     mov al, 1
 .l:

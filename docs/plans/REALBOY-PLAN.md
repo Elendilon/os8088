@@ -1151,12 +1151,21 @@ The plan, in order:
    its periods and slowed the game to 77%), so the foreground writes it
    between core runs; and the line type has to be judged once a register
    changes rather than every line, or it eats the gain.
-4. **The torus canvas**: the whole 256x256 background in VRAM, three
-   pages, scrolled by the start address and panning; only the newly
-   exposed cells, the sprites and the status bar drawn. ESTIMATED Super
-   Mario Land 20.3 -> ~10-11.5 ms on the card, Kirby's Dream Land 42.8 ->
-   ~22-24. VGA only; animated tiles and raster effects fall back to the
-   copying writer.
+4. **The torus canvas** - BUILT (REALBOY-SPEC 15.5): the whole 256x256
+   background in VRAM, a page per 64-byte slot of a 256-byte row so the
+   64KB wrap is the background's own, shown by the start address and
+   panning; only the overlay lines composed (sprites, the window, a scroll
+   or palette of their own), written where their sprites are, restored
+   from the map. It was ESTIMATED at Super Mario Land 20.3 -> ~10-11.5 ms
+   and Kirby's Dream Land 42.8 -> ~22-24; MEASURED on `286-victory`
+   against wave 3 it is **-9% and +5%** (400 -> 364 ticks, 893 -> 939).
+   The estimate priced the composing it saves and not the bookkeeping it
+   adds: the first build visited every line three times a frame and wrote
+   every overlay whole, and cost more than wave 3 on both games. Kirby's
+   Dream Land composes half the lines and still loses, because ~55 of its
+   lines are overlays that change every frame; the next lever there is
+   its window in the split region (15.5, not built). The field Victory is
+   the measurement that decides it.
 
 ### Wave 8 - the 5150 demo, disks and the Wire record
 

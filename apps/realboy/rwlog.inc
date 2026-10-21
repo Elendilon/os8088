@@ -24,8 +24,13 @@ RW_LOGRKB       equ RW_LOGN * RW_LOGSZ / 1024 ; the records' claim, KB: taken
                                     ;   back once it is written, so a
                                     ;   session that never logs pays nothing
                                     ;   (it was 4KB of the package's bss)
-RW_LOGKB        equ 24              ; the text's claim at the write: 128 lines of
-                                    ;   at most ~150 characters and the head
+RW_LLMAX        equ 150             ; the text at the write, claimed for the
+RW_LHMAX        equ 640             ;   lines it has: a line is at most ~146
+                                    ;   characters (every event named) and
+                                    ;   the head under 640. It was 24KB
+                                    ;   whatever was recorded, and the bank
+                                    ;   cache leaves 24KB of heap free -
+                                    ;   less the records' own 4KB
 ; a record: the ticks since the log began (at its end), the ticks it spans,
 ; frames run, frames drawn, lines composed, lines changed, the drawing's
 ; milliseconds, the longest draw (ms, at most 255), flags: bits 0-4 the most
@@ -364,6 +369,29 @@ rw_logtoggle:
     call rw_mgrey
     jmp rw_logwrite
 
+; rw_logflush - F12, on the UI task: the records so far written (rw_logwrite,
+; which says how it went) and a new log begun in a fresh claim, so a field
+; run's log is not hostage to the close - where its toast dies with the
+; program. With the log off it says so
+rw_logflush:
+    cmp byte [rw_logon], 0
+    jne .on
+    mov si, rw_s_logoff
+    jmp rw_ltoast
+.on:
+    mov byte [rw_logon], 0
+    call rw_logwrite
+    mov ax, RW_LOGRKB
+    call OSAPI_MEM_CLAIM
+    jc .off
+    xor ax, ax
+    mov [rw_logn], ax
+    mov [rw_ltick], ax
+    mov [rw_logseg], dx
+    mov byte [rw_logon], 1
+.off:
+    jmp rw_mgrey
+
 ; rw_logwrite - the records as text beside REALBOY.O88, on the UI task,
 ; under the first name free of GAMEnn.LOG. Nothing recorded, nothing written.
 rw_logwrite:
@@ -379,22 +407,36 @@ rw_logwrite:
     ret
 .w:
     mov [rw_lring], ax
-    cmp word [rw_logn], 0
-    je .r
-    mov ax, RW_LOGKB
+    mov cx, [rw_logn]               ; CX = the lines: the latest RW_LOGN...
+    jcxz .none
+    cmp cx, RW_LOGN
+    jbe .claim
+    mov cx, RW_LOGN
+.claim:
+    push cx
+    mov ax, RW_LLMAX                ; ...their text's KB
+    mul cx
+    add ax, RW_LHMAX + 1023
+    adc dx, 0
+    mov bx, 1024
+    div bx
     call OSAPI_MEM_CLAIM            ; DX = the text's segment
-    jc .fail
+    pop cx
+    jnc .got
+    shr cx, 1                       ; ...and with no room, the latest half
+    jnz .claim
+    jmp .room
+.none:
+    ret
+.got:
     push dx
     mov es, dx
     xor di, di
+    push cx
     call rw_lhead
-    mov cx, [rw_logn]               ; the latest RW_LOGN, oldest first
-    xor bx, bx
-    cmp cx, RW_LOGN
-    jbe .n
-    mov bx, cx
-    sub bx, RW_LOGN
-    mov cx, RW_LOGN
+    pop cx
+    mov bx, [rw_logn]               ; oldest first
+    sub bx, cx
 .n:
     push cx
     push bx
@@ -440,7 +482,9 @@ rw_logwrite:
     call rw_fback                   ; (CF kept)
     pop dx
     pushf
+    push ax                         ; (AX = the FERR_*, refused)
     call OSAPI_MEM_FREE
+    pop ax
     popf
     jc .fail
     mov si, rw_s_logok              ; "Log: SUPER-00.LOG"
@@ -452,11 +496,38 @@ rw_logwrite:
     call rw_lstr
     stosb                           ; (the NUL)
     pop si
-    jmp rw_toast
+    jmp rw_ltoast
 .fail:
-    mov si, rw_s_logno
-    jmp rw_toast
+    call OSAPI_FERR_TEXT            ; "Log: " and the kernel's own words
+    push ds                         ;   for why (ES:SI, 19 of them reach
+    mov di, rw_lerr + 5             ;   the bar)
+    mov cx, 19
+.ft:
+    mov al, [es:si]
+    or al, al
+    jz .fe
+    mov [di], al
+    inc si
+    inc di
+    loop .ft
+.fe:
+    mov byte [di], 0
+    pop ds
+    mov si, rw_lerr
+    jmp rw_ltoast
+.room:
+    mov si, rw_s_logwr
+    jmp rw_ltoast
 .r:
+    ret
+
+; rw_ltoast - SI = a line of ours, said for ~8 s: the log is written when it
+; is turned off or the window closes, a moment nobody is watching the bar
+rw_ltoast:
+    push ds
+    pop es
+    mov cx, 146
+    call OSAPI_TOAST
     ret
 
 ; rw_lname - rw_lfile = the game's first six letters, two digits and .LOG,
@@ -817,5 +888,7 @@ rw_s_levts:     db ' RESET', 0
                 db ' F1', 0, 0, 0, 0
 rw_s_logon:     db 'Log on: written at close', 0
 rw_s_logok:     db 'Log: ', 0, '           ', 0
-rw_s_logno:     db 'REALBOY: log not written', 0
-rw_s_logrm:     db 'REALBOY: no room for the log', 0
+rw_s_logrm:     db 'No room for the log', 0 ; (a toast shows 24 characters)
+rw_s_logwr:     db 'Log: no room to write', 0
+rw_s_logoff:    db 'Log is off (Machine)', 0
+rw_lerr:        db 'Log: ', 0, '                  ', 0 ; ...and a refusal's

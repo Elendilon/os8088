@@ -115,6 +115,9 @@ def main():
     hsyms = labels(listing(os.path.join(ROOT, "tests/rbcore/rbhost.asm"), inc,
                            ["-DRB_PANMODES"] if a.vga and a.pages else []))
     hsyms = [(o, n) for o, n in hsyms if n not in ("boot", "boot_go", "load")]  # the boot section's
+    global HOST
+    if a.vga and a.pages:
+        HOST = 0x5000                   # (the pan host starts low: rbhost.asm)
     ck, hk = [o for o, _ in csyms], [o for o, _ in hsyms]
     hits, tot, pcs, jips, per, dumps = {}, 0, {}, [], {}, []
     hips = []

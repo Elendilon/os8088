@@ -458,8 +458,15 @@ cache could not be claimed and the game ran interpreted (its log has no J).
   Dream Land 5 slots where 9 fit, 50-80 fetches a second full screen and
   12-15% of real time in its window. Otherwise, when
   `OSAPI_XMEM_CAPS` has room for banks 1 on: the cache, with **K slots of
-  16KB**, as many as the heap affords after those, at least 4 and at most 40
-  or one a bank. Otherwise one claim without that room, as before, and then
+  16KB**, as many as the heap affords after those, at most 40 or one a
+  bank - and **at least 8 (`RW_SLOTWANT`) while the recompiler still has
+  memory to give up**: the second segment goes first, then the 64KB table
+  for the 16KB one, and only then are 4 taken, and 4 with no recompiler at
+  all. The fourth field run is why: on a 116K heap with SOUND.DRV mounted
+  the plan stopped at 5 slots with both kept, and Kirby's Dream Land
+  fetched ~95 banks a second over a 286's XMS at 15% of real time - in its
+  window as in full screen, with the recompiler on or off, so it read as
+  the interpreter running whatever the status line said. Otherwise one claim without that room, as before, and then
   over 256K is refused (`over 256K wants XMS`). The probe answers a KB over
   an exact size (SPEC.md 20.14.6.3), so the plan takes whole banks; bank 0's
   header must then say the same size, which a compressed file - read raw
@@ -1163,6 +1170,24 @@ on a machine with no debugger.
   `[rw_logseg]` before it frees the claim, so a copy either lands whole
   or is not made. A claim the heap cannot give refuses the log with a
   toast.
+- **The text is claimed at the write for the lines there are**: 150
+  bytes a line and 640 for the head (`RW_LLMAX`, `RW_LHMAX`), so 30
+  seconds is 5 KB and two minutes 19 KB; with no room for that, the latest
+  half, and so on down to one line, and only then `Log: no room to
+  write`. Every answer stays up ~8 s (`rw_ltoast`), and a refused write
+  says why in the kernel's words (`Log: ` and `OSAPI_FERR_TEXT`): two of
+  the refusals were longer than the 24 characters a toast shows, and all
+  of them came and went in ~3 s at a moment nobody watches the bar.
+- **F12 writes it NOW** (`rw_logflush`) and begins a new log in a fresh
+  claim, so a field run's log is not hostage to the close, where the
+  toast that says how the write went dies with the program. It is seen
+  HELD (`OSAPI_KEY_DOWN`, `rw_fedge`), because an AT BIOS's `int 16h`
+  function 00h drops F11 and F12; the write is the UI task's - in the
+  window it is woken (`[rw_lflq]`, `rw_onwake`), and in full screen it
+  waits for the bracket to end, where the toast can be read. It was 24 KB whatever was recorded, which a cartridge in the bank
+  cache could not have: the plan leaves 24 KB of heap (section 10.3), the
+  records take 4 KB of it, and the fourth field run's logs were refused
+  with a toast nobody saw, after the picture had gone.
 - **A record** (32 bytes, the latest 128 kept, about two minutes) holds
   the seconds since the log began, the game's speed and frames run, the
   frames drawn, the lines composed and the lines changed (section 13.2),
@@ -1216,8 +1241,8 @@ is 155 rows, and the window fits it whole.
 - **Refused, and said so on the screen**: Esc, Alt (Alt+Enter is full
   screen, and while Alt is held the joypad reads nothing), F1-F4 - the
   speed line and Machine > Interlace, Recompiler and Speed's next settings
-  - and the save states' F5, F8 and 1-9 (10.4), documented shortcuts every
-  one. RealBoy reserves no debug key. A REALBOY.CFG whose map holds one of
+  - the save states' F5, F8 and 1-9 (10.4), and F12, the log written now
+  (section 14.1's Machine > Log), documented shortcuts every one. A REALBOY.CFG whose map holds one of
   them is read with the keys as they shipped (`rw_cfgkeys`). The wait
   goes on after a refusal. A key with no make code of its own is refused
   too: SysRq, and the codes 54h-56h a shifted F-key gives. The keypad's
@@ -1473,11 +1498,22 @@ of 15.3's reasons: the jitter was drawing into the page being shown, and the
   before. The LINE COMPARE at scanline 287 shows VRAM 0 below them - the
   gap and the speed line (`RW_FSTXTP`, row 2 there) - with AR10's pixel
   panning mode, so that strip never pans. Plane 2 is set in it and clear in
-  the pages. The vertical retrace is 24 scanlines later than 15's (blank
-  384-419, sync 390-392), so the BOTTOM BORDER - the display's end at 308 to
-  the blanking - is ~2.4 ms. The total and the widths are 15's, so every
-  frequency is mode 0Dh's own; a real monitor sees the picture 24 lines
-  higher.
+  the pages. The FRAME is 527 scanlines where mode 0Dh's is 449 (blank
+  400-520, sync 410-412), at the same 31.47 kHz line rate: the REFRESH is
+  59.71 Hz, the Game Boy's own, with the sync polarity of a 480-line mode,
+  which is what a monitor expects at that rate. The BOTTOM BORDER - the
+  display's end at 308 to the blanking - is ~2.9 ms, and the picture sits
+  in the middle of the frame.
+- **Why the refresh is the Game Boy's.** At mode 0Dh's 70.09 Hz each frame
+  went up at whatever refresh followed it, so one in six stayed two
+  refreshes and two now and then landed in one: on the Victory a steady
+  picture with a MICROSTUTTER, and the flips' times on the twin read 14,
+  28 and 42 ms where the game's frame is 16.7. The single page had the same
+  60-in-70 and spread it over the tearing. At 59.71 Hz, and the next frame
+  run the moment the last is on the glass (`rw_pglock`: borrowed from the
+  clock, one at most, `[rw_pgdebt]` taken back by `rw_fsowed`; at 100%
+  Speed only), they read 16.1-17.7 ms, every frame shown once. The clock is
+  0.02% the faster, which is a frame run undrawn every ~74 s.
 - **The composer works PAN-ALIGNED** (`rb_panon`; `rb_renderd`'s
   `ppu_linep` and `ppu_dputp` through `PPU_LINEV`/`PPU_DPUTV`, so the
   ordinary composer carries none of it): the frame's pan is its last SCX AND
@@ -1490,38 +1526,162 @@ of 15.3's reasons: the jitter was drawing into the page being shown, and the
   the LCD or the background off - is composed as ever and shifted right by
   the pan after (`ppu_ptype`, `ppu_panr`); a line's kind is judged again
   only when a register was written or the window begins.
-- **A page owes lines** (`rb_pages`): `ppu_dputp` marks each changed line
-  owed to all three (`RB_PGMSK`, 3 x 144 bytes after the frame), and a
-  draw writes the lines its page owes - plane 0's 21 bytes and plane 1's,
-  one map-mask `OUT` a line - found with `repe scasw`. A scroll changes
-  every line, so each draw writes them all once, as the single page did; a
-  still change is written to each page as it comes round.
+- **A page owes lines**: `ppu_dputp` marks each changed line owed to all
+  three (`RB_PGMSK`, 3 x 144 bytes after the frame). Wave 3 had `rb_pages`
+  write a page's owed lines whole, 21 bytes a plane, and a scroll changed
+  every line; since 15.5 the page is THE CANVAS, and only the overlay
+  lines are composed and written, `RB_PGMSK` saying which of them a page
+  has not had since.
 - **The flip waits for nothing** (`rw_pgdraw`, `rw_pgtry`). The draw takes
   the page neither shown nor waiting to be, and posts its start address and
   pan. **The FOREGROUND writes them**, between two runs of the core
   (`rw_frame`) and while it waits: the core runs with interrupts off (5.2),
   for up to ~7 ms a run, so no hook can know where the beam is - a rate nine
   times the frame's was built for it and lost a quarter of its periods.
-  The display-enable bit is sampled 24 times, the PIT time each time it is
-  seen ON kept, and the flip written when it is found OFF within 2,000
-  counts (1.7 ms, `RW_PGWIN`) of that: the bottom border, where every card
-  takes both registers for the next frame - one that applies the panning
+  Where the beam is comes from the CLOCK and not the port (`rw_pgph`): a
+  vertical retrace's start timed once (`rw_pgsync`, port 3DAh bit 3) and the
+  refresh's period measured between two such timings a second or so apart
+  (19,981 counts on the twin against 19,982 by the CRTC's arithmetic), so a
+  look is a clock read. The flip is written from line 312 to line 383
+  (`RW_PGW1`, `RW_PGW0`, counts before the retrace at 410) - under the
+  speed line, which runs from the split at 287 to 308 with the display on -
+  after 16 reads of the display-enable bit agree it is the border, and
+  within 1.5 ms of it the foreground spins to it (`RW_PGSPIN`). A read
+  that disagrees times the retrace again; the clock is timed again
+  regardless every 60 flips, near a retrace and while no flip waits. That
+  replaced 48 reads of the port on EVERY look, which the fourth field run
+  priced: Super Mario Land full screen drew 20 frames a second where the
+  build before pages drew 25, with ~80 ms a second more of the Game Boy
+  and twice the core's events. The border is where every card takes both
+  registers for the next frame - one that applies the panning
   on every line (the Victory's PVGA1A, the field probe's finding:
   REALBOY-PLAN's scroll round), one that takes it at the frame's top (86Box)
-  or at the retrace's end (QEMU). While a flip waits the core runs in
-  budgets of 500 M-cycles (`RW_PGBUD`, ~1 ms recompiled), so it is looked at
-  often enough to land in its first border.
-- **What it costs**: the bare harness's MODE 14 (`rbbench.py --vga
-  --pages`) composes every frame onto the pages and flips at once, against
-  MODE 12's single page: Super Mario Land 403 -> 399 ticks, Kirby's Dream
-  Land 840 -> 820 (1,200 frames of play on `286-victory`). The shift
-  replaced is under-priced by 86Box, which does not charge a shift by its
-  count. It is the frame that never tears that this buys.
+  or at the retrace's end (QEMU). While a flip waits the core's run is
+  sized to end a millisecond short of the window (`rw_pgbud`, ~500 M-cycles
+  a millisecond, 250 when it is near, `RW_PGBUD`) and is not counted
+  against the frame's 26, and the composer
+  calls it too (`rb_lhook`: every eighth line `ppu_dputp` stores, and in
+  `rb_tpage` now and then), so it is looked at often enough to land in
+  its first border. From inside a draw it is `rw_pgtryd`, which writes the
+  flip only when the beam is already in the window and the port agrees -
+  never spinning to it and never timing the retrace again, so the draw
+  spends nothing waiting on the beam. **The second is not optional**: a draw is ~10 ms with
+  nothing else looking, and once one frame ran long - a jump, a key's work
+  - its border fell inside the next draw, and the one after's, until the
+  phase drifted back: the owner's field run held the picture 100-300 ms
+  each time a key was pressed, and the twin, tapping keys, went 20 frames
+  without a flip. Looked for during the draw, the same taps leave 5 frames
+  of 87 shown twice.
+- **What it cost**, as built in wave 3: the bare harness's MODE 14
+  (`rbbench.py --vga --pages`) composed every frame onto the pages and
+  flipped at once, against MODE 12's single page: Super Mario Land 403 ->
+  399 ticks, Kirby's Dream Land 840 -> 820 (1,200 frames of play on
+  `286-victory`). MODE 14 is the canvas now (15.5).
 - **The gate** is `gbdamage`'s pan-aligned legs (MODES 15-18, each
   interlace): 0 of 500 frames differ for both games, read back through the
   pan; the status bar left unshifted fails Super Mario Land on 400, the
   sprites not moved by the pan Kirby's Dream Land on 288. The flip itself
   is a look on the glass.
+
+### 15.5 The canvas: the background lives in VRAM
+
+**On VGA full screen the Game Boy's whole 256x256 background is kept in
+VRAM, once per page, and the card's start address and pel panning show
+the part the game scrolled to** (`rb_torus`, `rb_tpage`; REALBOY-PLAN's
+scroll round, item 4). A scrolled frame no longer composes 144 lines and
+writes them to a page: it composes only the lines the canvas cannot show,
+and writes the cells the game changed.
+
+- **The layout is the 64KB address wrap.** The CRTC's row stride is 256
+  bytes (CR13 = 80h), so canvas row *r* is VRAM row *r* and the 256 rows
+  fill a plane's 64KB: the display running off row 255 lands on row 0 by
+  itself, which is the Game Boy's own vertical wrap. Each 256-byte row
+  holds four 64-byte slots: slot 0 is the split region (the speed line,
+  which the line compare already shows from address 0), and page *k*'s
+  canvas is slot *k* + 1 - 32 bytes, the row's 32 tiles, then cols 0-19
+  again at 32-51, so the 21 bytes a line shows never run off the slot. A
+  page shows from `(SCY << 8) + 64 + 64k + (SCX >> 3)` with the pan
+  `SCX AND 7`. Planes 0 and 1 hold the SHADE, as every writer here does;
+  planes 2 and 3 are clear.
+- **The frame's canvas is the state at line 72** (`ppu_tframe`): SCX, SCY,
+  BGP and LCDC's map and tile bits, the snapshot with the raster log's
+  writes up to that line. The middle of the screen is the playfield in
+  every game measured - Super Mario Land's status bar is at its top, at a
+  scroll of its own; Kirby's Dream Land's is the window, at its bottom -
+  and its pan is the frame's (`PPU_PANM`).
+- **A line is CLEAN** (`ppu_tcls`) when the LCD and the background are on,
+  the window is not on it, no sprite may cover it (`PPU_LSPR`), and its
+  SCX, SCY, BGP and LCDC bits 3-4 are the frame's: the canvas shows it
+  already, so it is not composed at all. **Every other line is an
+  OVERLAY**: composed pan-aligned as section 15.4 composes it, into the
+  same 42-byte buffer, and written over the canvas at the row and column
+  it is shown from. A clean line leaves the buffer's line stale; it is
+  composed again the next time it is an overlay, and so is every line
+  when the pan moves. The registers' part of the verdict is judged again
+  only when the raster log moved (`PPU_LOGI`), and a frame whose
+  registers and OAM are the last call's visits only its overlays.
+- **A line that is an overlay only for its sprites is written only where
+  they are** (`ppu_tspan`): everywhere else it IS the background, so the
+  bytes from the leftmost sprite's to the rightmost's - two on average in
+  Kirby's Dream Land's 32 such lines a frame, three in Super Mario Land's
+  - are written, and later restored; anything else is all 21.
+- **A page keeps what it was given** (`RB_TKEY`, `RB_TSPAN`, `RB_TPL`):
+  per line, the canvas row and column of the overlay written there, which
+  of its bytes, and the list of lines it holds one on. Drawing a page
+  (`rb_tpage`) visits only that list and the frame's (`rb_tovl`):
+  1. an old overlay that is not this frame's at the same place is
+     RESTORED from the map - less what this frame's overlay on the same
+     row writes over, compared by place in the slot, so a column's step in
+     a scroll restores a byte or two and not 21 - into a queue
+     (`rb_trow`), written a plane at a time (`rb_tflush`);
+  2. the cells in view the page owes are drawn, found through a 32-bit
+     mask of the 21 columns in view, so a row whose owed cells are all out
+     of view costs a test; a cell drawn under an overlay that was kept
+     makes that line owed (`RB_PGMSK`) - OWED and not forgotten, so the
+     old bytes and the new are written, where a forgotten one wrote only
+     the new and left a sprite behind;
+  3. the overlays it does not hold - a new place, other bytes, or the line
+     owed since - are written: decided first (`rb_twl`), then plane 0's
+     and plane 1's under one map mask each. At the same place the old
+     bytes and the new are written together.
+- **A cell is owed** (`RB_TDIRTY`, a bit per cell per page) when the
+  damage scan finds its map byte changed in the frame's map, or a tile it
+  shows changed (`ppu_tmark`: the changed tiles' numbers, then the map
+  scanned for each, more than 16 owing every cell), or the page's BGP or
+  LCDC bits 3-4 are not the frame's, or the host composed everything
+  (RB_DFULL = 1, a cleared screen or a state loaded). Only the cells in
+  view are drawn; the rest stay owed until they scroll in.
+- **Interlace does not apply**: a frame composes only its overlays, so
+  there is no parity to defer (`rb_ilace` is taken as Off).
+- **The gate** is `gbdamage`'s canvas leg (MODE 19): every frame drawn
+  onto the next of three pages of a real mode 0Dh, and every third read
+  back from VRAM through its start address and pan, row by row with the
+  64KB wrap, against `rb_render`'s - 0 of 500 differ for CLOCK25, Super
+  Mario Land and Kirby's Dream Land. The restores taken out fail Super
+  Mario Land on 149 of 200 and Kirby on 120, the cells' marks taken out
+  CLOCK25 on 199 and Super Mario Land on 150. The harness's pan host
+  carries the canvas too, so it starts at 0500h and its three buffers sit
+  at 7000h (`tests/rbcore/rbhost.asm`).
+- **What it costs**, MODE 14 (`rbbench.py --vga --pages`, 1,200 frames of
+  play on `286-victory`) against wave 3's pages: Super Mario Land **400
+  -> 364 ticks** (-9%), Kirby's Dream Land **893 -> 939** (+5%). It
+  composes half the lines - Kirby's gate frames 31,118 -> 16,112 - and
+  the composing was never where Kirby's time went: about 55 of its 144
+  lines are overlays (its sprites, and the window's status bar, whose
+  place on the canvas moves with every scroll), its sprites change every
+  frame, and each page takes them in turn. Without the page work it runs
+  in 787. The first build cost more than wave 3 on both games - every
+  line visited three times a frame, every overlay written and restored
+  whole - and the lists, the spans and the partial restores are what
+  turned that round. 86Box prices a VGA byte at ~2-4 us here; the field
+  Victory's ~1 us (its fourth log) makes the bytes this saves worth less
+  and the bookkeeping the same, so the field is the measurement that
+  decides it.
+- **What would move Kirby's Dream Land**: a window that runs from WY to
+  the bottom unbroken could live in the split region, where the line
+  compare already shows it from address 0 unpanned - composed once, kept,
+  and never moved by a scroll (16 lines a scrolled frame composed,
+  restored and written today). Not built.
 
 ## 16. The recompiler
 

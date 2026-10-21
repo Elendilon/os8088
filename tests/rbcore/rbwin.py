@@ -50,7 +50,8 @@ LST = os.environ.get("RBWIN_LST", os.path.join(ROOT, "build", "realboy.lst"))   
 CORELST = os.path.join(ROOT, "build", "realboy", "rbcore.asm.lst")
 DRIVE_B = (592, 105)            # the B: icon on the VGA desktop
 MENU_FILE = (135, 9)            # RealBoy's File menu on the bar
-ITEM_CLOSE = (145, 44)          # ...its second item
+ITEM_CLOSE = (145, 76)          # ...its fourth item (Open, Save State,
+                                #   Load State, Close)
 MENU_MACHINE = (190, 9)         # RealBoy's Machine menu on the bar
 ITEM_RESET = (200, 28)          # ...its first item
 ITEM_FULLSCREEN = (200, 60)     # ...its third item

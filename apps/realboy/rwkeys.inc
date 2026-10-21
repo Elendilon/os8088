@@ -529,12 +529,12 @@ rw_konkey:
     jne .chk
     mov al, 58h
 .chk:
-    cmp al, 2                       ; Esc, and nothing past F12
-    jb .no
+    cmp al, 2                       ; Esc, and F12 and past it (F12 writes
+    jb .no                          ;   the log: rw_logflush)
     cmp al, 0Ah                     ; 1-9: the save states' slots
     jbe .no
     cmp al, 58h
-    ja .no
+    jae .no
     cmp al, 38h                     ; Alt: Alt+Enter's
     je .no
     cmp al, 54h                     ; (SysRq and a shifted F-key's codes)
