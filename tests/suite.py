@@ -1010,6 +1010,14 @@ FAST = [
         "by different people - the system-side size pass shrank RAMDISK.DRV "
         "and NET.DRV across a KB with no kernel edit, and every make stayed "
         "green with the page quoting 9K and 7K for drivers that claim 8 and 5"),
+    Row("installabi", "fast", py("tests/unit/t_install.py"), 0.2,
+        "SPEC.md 117: INSTALL.O88 in the ROOT of every kern_big system disk "
+        "and on no kern_small one; HD_ABI_VER the same in hddabi.inc and the "
+        "tool image the resident checks; the wizard's HDG_*/HDS_* the Install "
+        "window's HII_*/HIS_*; the kernel's DRVU_* the SDK's; and HDD.DRV "
+        "still on its 4KB rung, the door's forwarder having been paid for "
+        "inside it. Every one of these is a number in two files that fails "
+        "silently when they drift"),
     Row("pkgzrules", "fast", py("tests/unit/t_pkgzrules.py"), 1.0,
         "SPEC.md 20.13.5, 73.14.1: every .o88 and .OVL the release ships "
         "(LIVEARGS, the SHIPIMGS floppies and the capability gates) is made "
@@ -10060,6 +10068,17 @@ SOAK = [
         "table (instrest's apparatus). Opens the installer and writes "
         "nothing. Measured 132s for the three boots, serially.",
         needs=("marty",), serial=True, timeout=900),
+    Row("install", "soak", py("tests/install.py"), 400.0,
+        "SPEC.md 117: the INSTALL WIZARD drives the Control Panel's own "
+        "engine. On MartyPC's XT-IDE XT it launches A:\\INSTALL.O88, walks "
+        "every page by its own buttons (reading the page out of the "
+        "package's memory after each click), picks ERASE over DOS with the "
+        "Down key, installs both disks and checks the partition on the host; "
+        "closes and checks HDDTOOL.DRV was given back (DRVU_DONE); plants a "
+        "user file; boots C: and runs C:\\INSTALL.O88 again - UPGRADE, os8088 "
+        "found and picked, Erase greyed - and checks the file kept, the "
+        "kernel the floppy's and the MBR committed; then boots C: once more.",
+        needs=("marty", "mtools"), serial=True, timeout=2400),
     Row("instkeep", "soak", py("tests/instkeep.py"), 200.0,
         "SPEC.md 52.10.15: an install that KEEPS the volume's files. The "
         "fixture is MartyPC's DOS 3.3 partition with two holes punched and a "
