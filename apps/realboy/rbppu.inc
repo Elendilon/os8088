@@ -325,6 +325,12 @@ rb_panon        db 0                    ; the host's: 1 = PAN-ALIGNED - each
                                         ;   from pixel rb_panv on, which it
                                         ;   sets (REALBOY-SPEC 15.4)
 rb_panv         db 0
+rb_lhook        dw 0                    ; the host's near proc, PAN-ALIGNED:
+                                        ;   called every eighth line stored and
+                                        ;   every sixteenth written to a page,
+                                        ;   DS = CS, every register its to keep
+                                        ;   - a draw is longer than the border
+                                        ;   a page flips in (rw_pgtry), or 0
 rb_dvmm         db 0                    ; ...the plane the map mask holds
 
 rb_renderd:
@@ -1467,6 +1473,10 @@ ppu_dputp:
     pop es
     mov byte [es:RB_DCHG+bx],1
     inc word [es:RB_DCNT]
+    test bl,7                           ; every eighth line, the host's flip
+    jnz .r                              ;   looked at (rb_lhook)
+    jmp ppu_lhook
+.r:
     ret
 .same:
     pop es
@@ -1536,8 +1546,12 @@ rb_pages:
     pop ax
     ret
 .w:                                     ; line SI from the buffer onto the
-    push ax                             ;   page, one OUT: the plane the map
-    push si                             ;   mask holds goes first
+    test si,15                          ;   page, one OUT: the plane the map
+    jnz .w1                             ;   mask holds goes first (and every
+    call ppu_lhook                      ;   sixteenth, the host's flip)
+.w1:
+    push ax
+    push si
     push es
     mov es,[cs:rb_pgcard]
     mov ax,si
@@ -1588,6 +1602,18 @@ rb_pages:
     ret
 rb_pgcard       dw 0
 rb_pgpl         db 0
+
+; ppu_lhook: [rb_lhook], the host's, with DS = CS and every register kept
+ppu_lhook:
+    cmp word [cs:rb_lhook],0
+    je .r
+    push ds
+    push cs
+    pop ds
+    call [cs:rb_lhook]
+    pop ds
+.r:
+    ret
 %endif
 
 ; ppu_lscr: DOUBLED's history - the line's SCY:SCX into PPU_LSCR, and the

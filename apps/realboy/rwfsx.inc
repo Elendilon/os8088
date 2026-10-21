@@ -331,6 +331,7 @@ rw_fsmain:
     mov word [rw_pgdebt], 0
     mov word [rw_fstxto], RW_FSTXTP * 40
     mov byte [rb_panon], 1
+    mov word [rb_lhook], rw_pgtry   ; (looked for during a draw too)
     call rw_dmgfull
     jmp short .in
 .mono:
@@ -424,6 +425,7 @@ rw_fsmain:
     cmp byte [rb_panon], 0          ; PAGES: the window's frame is rw_fbuf,
     je .r                           ;   which the bracket left behind
     mov byte [rb_panon], 0
+    mov word [rb_lhook], 0
     mov byte [rw_pgpend], 0
     call rw_dmgfull
 .r:
