@@ -14073,16 +14073,17 @@ SOAK = [
         "the grid is four planes and repaints through gfx_blitp, so a window "
         "left where it opens does not reach this primitive at all.",
         needs=("marty", "nasm"), serial=True, timeout=900),
-    Row("megatrap0", "soak", py("tests/megatrap0.py"), 240.0,
+    Row("megatrap0", "soak", py("tests/megatrap0.py"), 300.0,
         "docs/plans/KERN-MEGA-PLAN.md 10.3 item 50: kern_mega COMPLETES a "
         "write through CS, a far transfer through a data segment and a "
         "segment-0 access rather than faulting on it, so a package doing one "
         "in a loop is slow and looks like it works. MEGATRAP=1's census "
-        "(a private tree) under Bochs, ten OS88_HIGH packages started through "
+        "(a private tree) under Bochs, thirteen OS88_HIGH packages (the three "
+        "Sticky Apps in a second boot, 14.46) started through "
         "MEGARUN and left running; any #GP charged to an image not in the "
         "row's ALLOW fails it, as does a refusal or a kern_mega FAULT. The "
         "failing case is any `push cs / pop ds` and a store in one of them - "
-        "MEGACSL (tests/megacsw) is one on purpose. 240s is 199 measured, "
+        "MEGACSL (tests/megacsw) is one on purpose. 300s is 277 measured, "
         "the tree's build included",
         needs=("bochs", "nasm")),
     Row("megarehome", "soak", py("tests/megarehome.py"), 120.0,
