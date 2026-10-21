@@ -5875,7 +5875,7 @@ $(shell mkdir -p $(BUILD); \
                                 touch $(VPSTAMP); })
 $(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
                     apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc \
-                    apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc $(VPSTAMP) | $(BUILD)
+                    apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc $(VPSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(VPDEF) -o $@ apps/video/video.asm
 	@echo "video:  $(call FILESIZE,$@) bytes"
 
@@ -5884,12 +5884,17 @@ $(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc
 $(BUILD)/vblk.bin: apps/video/vblk.asm apps/video/vblk.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/video/vblk.asm
 # ...and part 1, the same source assembled to write nothing through CS: the
-# one a protected-mode kernel fetches instead (SPEC.md 98.3.23.2)
+# one a protected-mode kernel fetches instead (SPEC.md 98.3.23.2). IT IS THE
+# kern_mega ARM'S PART ALONE (KERN-MEGA-PLAN 14.66): $(MEGAAPPDIR)/video.o88
+# carries it and the SHIPPED VIDEO.O88 does not - the shipped player refuses
+# on a protected-mode kernel, so 1,798 packed bytes of every apps disk were a
+# part no 8088 could ever fetch. Built here, where the rows that read it
+# (vblkemupm, vidv2) have always found it
 $(BUILD)/vblkpm.bin: apps/video/vblk.asm apps/video/vblk.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVB_PM -o $@ apps/video/vblk.asm
-VBLKPARTS = --part $(BUILD)/vblk.bin --part $(BUILD)/vblkpm.bin
+VBLKPARTS = --part $(BUILD)/vblk.bin
 
-$(BUILD)/video.o88: $(BUILD)/video.bin $(BUILD)/vblk.bin $(BUILD)/vblkpm.bin tools/os88pkg.py $(PKGZSTAMP)
+$(BUILD)/video.o88: $(BUILD)/video.bin $(BUILD)/vblk.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/video.bin -o $@ $(VBLKPARTS)
 
 # WIREFRAME (SPEC.md 78): a rotating solid drawn with nothing but
@@ -7190,7 +7195,7 @@ $(BUILD)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
                       apps/tracker/trkwin.inc apps/tracker/trklist.inc \
                       apps/tracker/trkspk.inc apps/os88spk.inc \
                       apps/os88spkfx.inc apps/os88spkfx_t.inc \
-                      apps/os88api.inc apps/os88alt.inc apps/os88ui.inc | $(BUILD)
+                      apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88mega.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/tracker/ -o $@ apps/tracker/tracker.asm
 	@echo "tracker: $(call FILESIZE,$@) bytes"
 
@@ -7212,7 +7217,7 @@ TRKVOL_SRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
 .PHONY: trkvol
 trkvol: $(BUILD)/trkvol360.img
 
-$(BUILD)/trkvol/trk%.bin: $(TRKVOL_SRC) | $(BUILD)
+$(BUILD)/trkvol/trk%.bin: $(TRKVOL_SRC) apps/os88mega.inc | $(BUILD)
 	@mkdir -p $(BUILD)/trkvol
 	$(NASM) -f bin -w+error -DTRK_VSH=$(if $(filter 33,$*),1,0) -I apps/ \
 	        -I apps/tracker/ -o $@ apps/tracker/tracker.asm
@@ -7273,7 +7278,7 @@ MIDIRACK_SRC := apps/midirack/midirack.asm apps/midirack/mrseq.inc \
                 apps/os88pit.inc apps/os88spk.inc apps/os88ui.inc \
                 apps/os88api.inc apps/os88data.inc apps/os88rseq.inc \
                 apps/os88parts.inc apps/os88partsbody.inc \
-                drivers/sound/sndpkg.inc
+                drivers/sound/sndpkg.inc apps/os88mega.inc
 $(BUILD)/midirack.bin: $(MIDIRACK_SRC) | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/midirack/ -I drivers/sound/ \
 	    -I drivers/ -o $@ apps/midirack/midirack.asm
@@ -11427,7 +11432,7 @@ TRKLOGSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
 
 trklog: $(BUILD)/trklog.img $(BUILD)/trklog360.img
 
-$(BUILD)/trklog.bin: $(TRKLOGSRC) apps/os88api.inc apps/os88alt.inc | $(BUILD)
+$(BUILD)/trklog.bin: $(TRKLOGSRC) apps/os88api.inc apps/os88alt.inc apps/os88mega.inc | $(BUILD)
 	$(NASM) -f bin -w+error -DTRKLOG -I apps/ -I apps/tracker/ -I tests/ \
 		-o $@ apps/tracker/tracker.asm
 	@echo "trklog: $(call FILESIZE,$@) bytes"
@@ -11468,7 +11473,7 @@ TRKSCRLSRC := apps/tracker/tracker.asm apps/tracker/trkplay.inc \
 
 trkscrl: $(BUILD)/trkscrl.img
 
-$(BUILD)/trkscrl.bin: $(TRKSCRLSRC) apps/os88api.inc apps/os88alt.inc | $(BUILD)
+$(BUILD)/trkscrl.bin: $(TRKSCRLSRC) apps/os88api.inc apps/os88alt.inc apps/os88mega.inc | $(BUILD)
 	$(NASM) -f bin -w+error -DTRKDBG -I apps/ -I apps/tracker/ -I tests/ \
 		-o $@ apps/tracker/tracker.asm
 	@echo "trkscrl: $(call FILESIZE,$@) bytes"
@@ -11525,7 +11530,7 @@ TRKRATED_nfpage := -DTTXQSTAT -DTTXFSANY -DTTXNOFAST -DTTXPAGE
 TRKRATED_nfnodraw := -DTTXQSTAT -DTTXFSANY -DTTXNOFAST -DTTXNODRAW
 TRKRATED_nfnoall := -DTTXQSTAT -DTTXFSANY -DTTXNOFAST -DTTXNOALL
 
-$(BUILD)/trklog-%.bin: $(TRKLOGSRC) apps/os88api.inc apps/os88alt.inc | $(BUILD)
+$(BUILD)/trklog-%.bin: $(TRKLOGSRC) apps/os88api.inc apps/os88alt.inc apps/os88mega.inc | $(BUILD)
 	$(NASM) -f bin -w+error -DTRKLOG $(TRKRATED_$*) \
 		-I apps/ -I apps/tracker/ -I tests/ -o $@ apps/tracker/tracker.asm
 	@echo "trklog-$*: $(call FILESIZE,$@) bytes"
@@ -12130,18 +12135,18 @@ videnchd: $(VIDENC_BASE) $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 \
 # `make 486-video` boots it in 86Box.
 VID486_CYLS ?= 250
 VID486CLIPS ?=
-$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc | $(BUILD)
+$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -o $@ apps/video/video.asm
-$(BUILD)/videodiag.o88: $(BUILD)/videodiag.bin $(BUILD)/vblk.bin $(BUILD)/vblkpm.bin tools/os88pkg.py $(PKGZSTAMP)
+$(BUILD)/videodiag.o88: $(BUILD)/videodiag.bin $(BUILD)/vblk.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/videodiag.bin -o $@ $(VBLKPARTS)
 # VIDEOR.O88: VIDEOD with the READ LOG (SPEC.md 98.3.22.2) - every chunk the
 # player reads, its file offset, length and sum, and where a damaged
 # super-packet was found, saved in the profile for tools/os88vfit.py --reads
 # to hold against the file. Its room is the layer's and the speaker's info
 # lines, which a card's play of a file with no layer does not draw
-$(BUILD)/videordlog.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc | $(BUILD)
+$(BUILD)/videordlog.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -DVP_RDLOG -o $@ apps/video/video.asm
-$(BUILD)/videordlog.o88: $(BUILD)/videordlog.bin $(BUILD)/vblk.bin $(BUILD)/vblkpm.bin tools/os88pkg.py $(PKGZSTAMP)
+$(BUILD)/videordlog.o88: $(BUILD)/videordlog.bin $(BUILD)/vblk.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/videordlog.bin -o $@ $(VBLKPARTS)
 .PHONY: vid486
 vid486: $(VIDENC_BASE) $(BUILD)/videodiag.o88 $(BUILD)/vidbench.o88 \
@@ -13384,6 +13389,86 @@ megadiag:
 .PHONY: megadiag
 
 MEGADIR := $(BUILD)/megak
+
+# --- THE kern_mega PACKAGE ARMS (docs/plans/KERN-MEGA-PLAN.md 14.66) --------
+# The owner's rule: "mega specific work that more than trivially increases the
+# disk size is gated to mega builds only". A package's kern_mega-only code -
+# the speaker library's protected-mode ISRs (apps/os88spk.inc), the Video
+# Player's in-place reads through selectors, its ring above 1MB and its block
+# decoder's protected-mode PART, what reads a claim that is a selector - is
+# assembled under -DPKG_MEGA and nowhere else (apps/os88mega.inc says how a
+# package does it, and how the shipped build stays correct on kern_mega
+# without it). These are the same sources built WITH it, into
+# $(MEGAAPPDIR), for kern_mega's own disks: build/megaapps.img (1.44MB) and
+# build/megaapps120.img (1.2MB) - the shipped apps disk with these builds
+# substituted, `make smallapps`'s shape (SPEC.md 27.16) - and the system
+# disks' copies (mega.img, mega120.img) through the same substitution.
+#
+# NOT A KNOB and not in $(KNOBS): no top-level make can carry -DPKG_MEGA into
+# build/, which is why tests/unit/t_megapkg.py can hold every shipped build
+# to "no kern_mega marker outside tests/megapkg.txt" and never meet one.
+# IN build/megak/apps/ AND NOT build/megak/: the kern_mega kernel's sub-make
+# builds build/megak/tracker.o88 for its icon pipeline (ICODIR), from the
+# plain recipe, and a mega arm of the same name there would be overwritten.
+MEGAAPPDIR := $(MEGADIR)/apps
+MEGAPKGS := $(MEGAAPPDIR)/video.o88 $(MEGAAPPDIR)/audio.o88 \
+            $(MEGAAPPDIR)/tracker.o88 $(MEGAAPPDIR)/midirack.o88 \
+            $(MEGAAPPDIR)/pixel.o88
+MEGABASE = $(patsubst $(MEGAAPPDIR)/%,$(BUILD)/%,$(MEGAPKGS))
+# ...and the substitution, ONE IDIOM for every list a kern_mega disk names
+# (SMALLSUB's): the mega arm of any package that has one, everything else as
+# it ships. A list that forgets it ships the PLAIN build to kern_mega, which
+# is correct and merely slower or refusing - t_megapkg.py walks the built
+# disks for exactly that, rather than trusting this line
+MEGASUB = $(patsubst $(BUILD)/%,$(MEGAAPPDIR)/%,$(filter $(MEGABASE),$(1))) \
+          $(filter-out $(MEGABASE),$(1))
+# ...the system disks' two lists through it (`make small`'s SMALLSYSAPPS):
+# none of SYSTEM/'s or the core set's packages has an arm today, so these
+# name exactly what $(SYSAPPSARGS) and $(COREAPPSARGS) do - and the day one
+# does, kern_mega's system disk takes it without anybody remembering
+MEGASYSAPPSARGS = $(addprefix SYSTEM:,$(call MEGASUB,$(SYSAPPS)))
+MEGACOREARGS = $(addprefix APPS:,$(call MEGASUB,$(CORE_TOOLS))) \
+               $(addprefix GAMES:,$(call MEGASUB,$(CORE_GAMES)))
+
+$(MEGAAPPDIR)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
+                         apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc \
+                         apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc apps/os88mega.inc $(VPSTAMP) | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(VPDEF) -DPKG_MEGA -o $@ apps/video/video.asm
+	@echo "video (PKG_MEGA): $(call FILESIZE,$@) bytes"
+$(MEGAAPPDIR)/video.o88: $(MEGAAPPDIR)/video.bin $(BUILD)/vblk.bin $(BUILD)/vblkpm.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(MEGAAPPDIR)/video.bin -o $@ --part $(BUILD)/vblk.bin --part $(BUILD)/vblkpm.bin
+
+$(MEGAAPPDIR)/audio.bin: apps/audio/audio.asm $(AUDIO_SRC) apps/os88mega.inc | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/audio/ -DPKG_MEGA -o $@ apps/audio/audio.asm
+	@echo "audio (PKG_MEGA): $(call FILESIZE,$@) bytes"
+$(MEGAAPPDIR)/audio.o88: $(MEGAAPPDIR)/audio.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(MEGAAPPDIR)/audio.bin -o $@
+
+$(MEGAAPPDIR)/tracker.bin: apps/tracker/tracker.asm apps/tracker/trkplay.inc \
+                           apps/tracker/trkui.inc apps/tracker/trktxt.inc \
+                           apps/tracker/trkwin.inc apps/tracker/trklist.inc \
+                           apps/tracker/trkspk.inc apps/os88spk.inc \
+                           apps/os88spkfx.inc apps/os88spkfx_t.inc \
+                           apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88mega.inc | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/tracker/ -DPKG_MEGA -o $@ apps/tracker/tracker.asm
+	@echo "tracker (PKG_MEGA): $(call FILESIZE,$@) bytes"
+$(MEGAAPPDIR)/tracker.o88: $(MEGAAPPDIR)/tracker.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(MEGAAPPDIR)/tracker.bin -o $@
+
+$(MEGAAPPDIR)/midirack.bin: $(MIDIRACK_SRC) | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/midirack/ -I drivers/sound/ \
+	    -I drivers/ -DPKG_MEGA -o $@ apps/midirack/midirack.asm
+	@echo "midirack (PKG_MEGA): $(call FILESIZE,$@) bytes"
+$(MEGAAPPDIR)/midirack.o88: $(MEGAAPPDIR)/midirack.bin $(BUILD)/mrfaces.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(MEGAAPPDIR)/midirack.bin -o $@ --part $(BUILD)/mrfaces.bin
+
+megapkgs: $(MEGAPKGS) $(patsubst $(MEGAAPPDIR)/%,$(BUILD)/%,$(MEGAPKGS))
+	@python3 tests/unit/t_megapkg.py --sizes
+.PHONY: megapkgs
 # WHAT THE SUB-MAKE BUILDS FROM. The two image rules below reach kern_mega's
 # kernel and its DOS.O88 only through a recursive make into $(MEGADIR), and
 # that make runs only when the IMAGE is out of date - so without these a
@@ -13397,9 +13482,10 @@ MEGASRC := $(KERNEL_SRC) $(KERNEL_INC) kerndos/kdos.asm $(KERNDOS_INC) \
 # in protected mode belongs in `.mega`; the figure is raised, with a reason,
 # only for code that has to run in real mode after the switch. It needs
 # kern_big's map as well as kern_mega's, hence the kernel.bin prerequisite
-mega: $(BUILD)/mega.img $(BUILD)/mega120.img $(BUILD)/kernel.bin tests/megaseg.txt tools/os88megaseg.py
+mega: $(BUILD)/mega.img $(BUILD)/mega120.img $(BUILD)/megaapps.img $(BUILD)/megaapps120.img \
+      $(BUILD)/kernel.bin tests/megaseg.txt tools/os88megaseg.py
 	@python3 tools/os88megaseg.py --big $(BUILD)/kernel.map --mega $(MEGADIR)/kernel.map --check tests/megaseg.txt
-	@echo "mega: $< - kern_mega on 1.44MB, and build/mega120.img on 1.2MB. Pair them with the SHIPPED build/apps.img / apps120.img."
+	@echo "mega: $< - kern_mega on 1.44MB, and build/mega120.img on 1.2MB. Pair them with build/megaapps.img / megaapps120.img, the apps disks with kern_mega's package arms (KERN-MEGA-PLAN 14.66)."
 
 # NO COLDHMA.SYS and no XMEM.DRV: the HMA and everything above it are
 # kern_mega's own (kernel/mega.inc), and xm_sniff never asks for either.
@@ -13410,13 +13496,13 @@ $(BUILD)/mega.img: KMODDIR := $(MEGADIR)
 # item 4): the same sources assembled with -DDOS_MEGA and kern_dos with
 # -DKD_MEGA, into $(MEGADIR)/kdos/, so the shipped $(SYSROOT) stays
 # byte-identical and a copy carried to the other kernel refuses in a sentence.
-$(BUILD)/mega.img: $(MEGADRIVERS) $(SYSAPPS) $(STIKAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
+$(BUILD)/mega.img: $(MEGADRIVERS) $(call MEGASUB,$(SYSAPPS)) $(STIKAPPS) $(call MEGASUB,$(COREAPPS)) $(SYSDOC) $(SYSLOGO) \
                    $(FACES) $(FACELIC) tools/os88disk.py $(MEGASRC)
 	@$(MAKE) BUILD=$(MEGADIR) KERN_MEGA=1 $(if $(NOKZIP),NOKZIP=1) $(MEGADIR)/boot.bin $(MEGADIR)/boothd.sys \
 		$(MEGADIR)/kdos/DOS.O88
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(MEGADIR)/boot.bin --kernel $(MEGADIR)/$(KERNNAME) \
-		$(MEGADRIVERS) $(SYSAPPSARGS) $(STIKARGS) APPS:$(MEGADIR)/kdos/DOS.O88 $(COREAPPSARGS) $(SYSDOC) \
+		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(STIKARGS) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER)
 
 # ...and the 1.2MB 5.25" HD twin (KERN-MEGA-PLAN 14.1 answer 19: kern_mega's
@@ -13429,13 +13515,13 @@ $(BUILD)/mega120.img: KMODDIR := $(MEGADIR)
 # $(MEGADIR), and two of them at once under -j race on one DOS.O88 (os88pkg
 # reading a file the other is still writing reads it as 0 bytes)
 $(BUILD)/mega120.img: | $(BUILD)/mega.img
-$(BUILD)/mega120.img: $(MEGADRIVERS) $(SYSAPPS) $(STIKAPPS) $(COREAPPS) $(SYSDOC) $(SYSLOGO) \
+$(BUILD)/mega120.img: $(MEGADRIVERS) $(call MEGASUB,$(SYSAPPS)) $(STIKAPPS) $(call MEGASUB,$(COREAPPS)) $(SYSDOC) $(SYSLOGO) \
                    $(FACES) $(FACELIC) tools/os88disk.py $(MEGASRC)
 	@$(MAKE) BUILD=$(MEGADIR) KERN_MEGA=1 $(if $(NOKZIP),NOKZIP=1) $(MEGADIR)/boot120.bin $(MEGADIR)/boothd.sys \
 		$(MEGADIR)/kdos/DOS.O88
 	python3 tools/os88disk.py -o $@ --size 1200 \
 		--boot $(MEGADIR)/boot120.bin --kernel $(MEGADIR)/$(KERNNAME) \
-		$(MEGADRIVERS) $(SYSAPPSARGS) $(STIKARGS) APPS:$(MEGADIR)/kdos/DOS.O88 $(COREAPPSARGS) $(SYSDOC) \
+		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(STIKARGS) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER)
 
 # ONE GEOMETRY, and that is a decision rather than an omission. 360KB exists
@@ -14680,7 +14766,9 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # version 2 decoder above 1MB), so the union asked for 722. WireFleet is the
 # one that already has a 720KB disk of its own (`make wirefleetdisk`), and its
 # rows boot that disk rather than this one - DrMarco's shape. Every other
-# geometry's apps disk and games360.img still carry it.
+# geometry's apps disk and games360.img still carry it. 14.66's package arms
+# took VIDEO.O88 back down by 3, and the disk is 669 of 713 without it: with
+# it, 716 - still three over.
 APPS720 := $(filter-out $(BUILD)/pixel.o88 $(BUILD)/wireflet.o88,$(APPS))
 APPSARGS720 := $(filter-out $(MIDISONGARGS) \
                  APPS:$(BUILD)/pixel.o88 GAMES:$(BUILD)/wireflet.o88 \
@@ -14724,6 +14812,26 @@ $(APPSIMG): $(APPS) $(LOGOVID) tools/os88disk.py
 
 $(APPSIMG120): $(APPS) $(LOGOVID) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1200 $(APPSARGS)
+
+# kern_mega's APPS DISKS (KERN-MEGA-PLAN 14.66): $(APPSARGS) with the
+# kern_mega arm of every package that has one ($(MEGAPKGS), MEGASUB) - in the
+# two geometries kern_mega ships in (14.1 answer 19), on demand through `make
+# mega` and never in `all`. Every other file is the shipped disk's own.
+MEGAAPPSARGS = $(addprefix APPS:,$(call MEGASUB,$(APPS_TOOLS))) \
+               $(addprefix GAMES:,$(call MEGASUB,$(APPS_GAMES))) \
+               $(addprefix MEDIA:,$(APPS_DATA)) $(LOGOVIDARG) \
+               $(MIDISONGARGS) \
+               $(addprefix SYSTEM:,$(call MEGASUB,$(APPSYS))) \
+               $(addprefix SYSTEM/DOS:,$(APPS_DOS) $(APPS_DOSCZ)) \
+               $(APPDATAFOLDER)
+MEGAAPPS = $(call MEGASUB,$(APPS))
+$(BUILD)/megaapps.img: $(MEGAPKGS) $(MEGAAPPS) $(LOGOVID) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(MEGAAPPSARGS)
+	@echo "megaapps: $@ - pair it with build/mega.img (\`make mega\`)"
+
+$(BUILD)/megaapps120.img: $(MEGAPKGS) $(MEGAAPPS) $(LOGOVID) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1200 $(MEGAAPPSARGS)
+	@echo "megaapps: $@ - pair it with build/mega120.img (\`make mega\`)"
 
 $(APPSIMG720): $(APPS720) $(LOGOVID) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 $(APPSARGS720)
@@ -17194,6 +17302,41 @@ PIXEL_PARTS := $(BUILD)/pxhelp.bin $(BUILD)/pxgif.bin $(BUILD)/pxpng.bin \
                $(BUILD)/pixart.bin
 $(BUILD)/pixel.o88: $(BUILD)/pixel.bin $(PIXEL_PARTS) tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/pixel.bin -o $@ $(addprefix --part ,$(PIXEL_PARTS))
+
+# PiXEL's kern_mega ARM (KERN-MEGA-PLAN 14.40, 14.66): the parts that store
+# into their own words, assembled -DPKG_MEGA so each store goes through ES =
+# PXP_SELF instead of CS (apps/pixel/pxpart.inc's PXSW, PXSWON, PXSSP) - 290
+# single stores and 70 runs, ~2.5KB of image. The resident (pixel.bin),
+# pxhelp, pxgif and pixart have no such store and are the shipped ones, so
+# the links in $(BUILD)/pxlink.inc are the same for both. Each depends on its
+# shipped twin, which carries the part's full prerequisite list
+$(MEGAAPPDIR)/pxjpeg.bin: $(BUILD)/pxjpeg.bin apps/pixel/pxjpeg.asm apps/pixel/pxpart.inc apps/pixel/pxhmore.inc $(PIXEL_PLANS) | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/pixel/ -I $(BUILD)/ -DPKG_MEGA -o $@ apps/pixel/pxjpeg.asm
+$(MEGAAPPDIR)/pxpng.bin: $(BUILD)/pxpng.bin apps/pixel/pxpng.asm apps/pixel/pxpart.inc $(PIXEL_PLANS) | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/pixel/ -I $(BUILD)/ -DPKG_MEGA -o $@ apps/pixel/pxpng.asm
+$(MEGAAPPDIR)/pxsimp.bin: $(BUILD)/pxsimp.bin apps/pixel/pxsimp.asm apps/pixel/pxpart.inc $(PIXEL_PLANS) | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/pixel/ -I $(BUILD)/ -DPKG_MEGA -o $@ apps/pixel/pxsimp.asm
+$(MEGAAPPDIR)/pxfull.bin: $(BUILD)/pxfull.bin apps/pixel/pxfull.asm apps/pixel/pxpart.inc apps/pixel/pxfs.inc apps/pixel/pxrec.inc apps/os88api.inc $(BUILD)/pxlink.inc | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/pixel/ -I $(BUILD)/ -DPKG_MEGA -o $@ apps/pixel/pxfull.asm
+$(MEGAAPPDIR)/pxedit.bin: $(BUILD)/pxedit.bin apps/pixel/pxedit.asm apps/pixel/pxpart.inc apps/pixel/pxed.inc apps/pixel/pxrec.inc apps/pixel/pxqtab.inc apps/pixel/pxgam.inc apps/pixel/pxsvc.inc apps/os88api.inc $(BUILD)/pxlink.inc | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/pixel/ -I $(BUILD)/ -DPKG_MEGA -o $@ apps/pixel/pxedit.asm
+$(MEGAAPPDIR)/pxwrite.bin: $(BUILD)/pxwrite.bin apps/pixel/pxwrite.asm apps/pixel/pxpart.inc apps/pixel/pxed.inc apps/pixel/pxrec.inc apps/pixel/pxsvc.inc apps/os88lzw.inc apps/os88api.inc $(BUILD)/pxlink.inc | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/pixel/ -I $(BUILD)/ -DPKG_MEGA -o $@ apps/pixel/pxwrite.asm
+$(MEGAAPPDIR)/pxextra.bin: $(BUILD)/pxextra.bin apps/pixel/pxextra.asm apps/pixel/pxpart.inc apps/pixel/pxhmore.inc apps/os88lzw.inc $(PIXEL_PLANS) | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/pixel/ -I $(BUILD)/ -DPKG_MEGA -o $@ apps/pixel/pxextra.asm
+PIXEL_MEGAPARTS := $(BUILD)/pxhelp.bin $(BUILD)/pxgif.bin $(MEGAAPPDIR)/pxpng.bin \
+                   $(MEGAAPPDIR)/pxjpeg.bin $(MEGAAPPDIR)/pxsimp.bin $(MEGAAPPDIR)/pxfull.bin \
+                   $(MEGAAPPDIR)/pxedit.bin $(MEGAAPPDIR)/pxwrite.bin $(MEGAAPPDIR)/pxextra.bin \
+                   $(BUILD)/pixart.bin
+$(MEGAAPPDIR)/pixel.o88: $(BUILD)/pixel.bin $(PIXEL_MEGAPARTS) tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/pixel.bin -o $@ $(addprefix --part ,$(PIXEL_MEGAPARTS))
 
 # THE GALLERY (SPEC.md 106.7). Committed, and pinned by tools/pixsamples.py
 # --check, which also compares these three lists with its own - so a picture

@@ -104,6 +104,15 @@ PXV_PLANS   equ 4                   ; a decoder's PLANS: [px_plan] for the
                                     ; PXE_NOTSUP
 PXV_N       equ 5
 
+; THE THREE BELOW ARE kern_mega's SPELLING ALONE (KERN-MEGA-PLAN 14.40,
+; 14.66). Under protected mode a part's CS is a read-only code alias, so a
+; store into its own words goes through ES = PXP_SELF, its data segment;
+; that is the PKG_MEGA arm, `make mega`'s PIXEL.O88. The SHIPPED build is
+; assembled without PKG_MEGA and each site is the store through CS it was -
+; 290 PXSW sites and 70 runs across the parts, ~2.5KB of the parts' image -
+; which on kern_mega is a fault the kernel completes (mega_gpw): right, and
+; slow, which is what the arm is for.
+;
 ; PXSW insn - ONE STORE into the part's own words, where no segment register
 ; holds them (rule 6): `PXSW mov [es:pz_y], ax`. ES is borrowed for the one
 ; instruction and given back, so the flags the store sets survive and nothing
@@ -112,32 +121,50 @@ PXV_N       equ 5
 ; operation's start, a header, a row's bookkeeping). The instruction may not
 ; name ES, SP or the stack (`pop` is written out by hand)
 %macro PXSW 1+
+%ifdef PKG_MEGA
     push es
     mov es, [cs:PXP_SELF]
     %1
     pop es
+%else
+  %define es cs                     ; THE SHIPPED BUILD (KERN-MEGA-PLAN 14.66):
+    %1                              ; the store through CS it was before
+  %undef es                         ; 14.40, `[es:` spelled `[cs:` - 7 bytes
+%endif                              ; and ~45 cycles less a site
 %endmacro
 
 ; PXSWON / PXSWOFF - PXSW's bracket around a RUN of stores into the part's
 ; own words, one ES load for all of them: every instruction between names
 ; its destination [es:...] and may not name ES, SP or the stack
 %macro PXSWON 0
+%ifdef PKG_MEGA
     push es
     mov es, [cs:PXP_SELF]
+%else
+  %define es cs                     ; (the shipped build: every [es:...] up to
+%endif                              ; PXSWOFF a store through CS, as PXSW's)
 %endmacro
 %macro PXSWOFF 0
+%ifdef PKG_MEGA
     pop es
+%else
+  %undef es
+%endif
 %endmacro
 
 ; PXSSP var - [var] := SP as it is here, in the part's own words (PXSW's,
 ; for the one store PXSW cannot make: its own push moves SP). Clobbers the
 ; flags
 %macro PXSSP 1
+%ifdef PKG_MEGA
     push es
     mov es, [cs:PXP_SELF]
     mov [es:%1], sp
     add word [es:%1], 2             ; (the SP before the push above)
     pop es
+%else
+    mov [cs:%1], sp                 ; (the shipped build's, as PXSW's)
+%endif
 %endmacro
 
 PXP_PROBE   equ 0x5850 ^ 0x1D06     ; PXV_INIT's answer, which no register a

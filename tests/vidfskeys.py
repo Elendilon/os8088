@@ -287,7 +287,10 @@ def main():
             part = []                   # a tree with the block decoder
             if os.path.exists(apps + "video/vblk.asm"):  # packs it as a PART
                 src = open(apps + "video/vblk.asm").read()
-                for d in [[]] + ([["-DVB_PM"]] if "VB_PM" in src else []):
+                vsrc = open(apps + "video/video.asm").read()
+                pm = "VB_PM" in src and "PKG_MEGA" not in vsrc  # (a tree
+                for d in [[]] + ([["-DVB_PM"]] if pm else []):  # since 14.66
+                    # ships part 1 on the kern_mega arm alone: one part here)
                     vb = os.path.join(tmp, "vblk%d.bin" % len(part))
                     subprocess.run(["nasm", "-f", "bin", "-w+error", "-I",
                                     apps] + d[:1] + ["-o", vb,

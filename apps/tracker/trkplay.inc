@@ -285,12 +285,14 @@ mp_load:
     mov ax, [mp_run_lo]
     mov dx, [mp_run_hi]
     mov bx, [mp_blobseg]
+%ifdef PKG_MEGA                 ; (a selector: the kern_mega arm's, 14.66)
     test bl, 4                  ; a selector: the claim, at the start itself
     jz .gran                    ; (mp_patseg)
     mov [di+MS_OFF], ax
     mov [di+MS_SEG], bx
     jmp short .placed
 .gran:
+%endif
     mov bx, ax
     and bx, 127
     mov [di+MS_OFF], bx
@@ -967,8 +969,10 @@ mp_cellp:
 ; out: ES = its segment, [mp_pbase] = row 0 channel 0's offset in it
 ; clobbers AX and CL
 mp_patseg:
+%ifdef PKG_MEGA                 ; (a selector: the kern_mega arm's, 14.66)
     test byte [mp_blobseg], 4
     jnz .flat
+%endif
     mov cl, 6
     shl ax, cl                  ; pattern * 64 paragraphs
     add ax, MP_PSEG
@@ -976,6 +980,7 @@ mp_patseg:
     mov es, ax
     mov word [mp_pbase], MP_POFF
     ret
+%ifdef PKG_MEGA
 .flat:
     mov cl, 10
     shl ax, cl                  ; pattern * 1024 bytes
@@ -983,6 +988,7 @@ mp_patseg:
     mov [mp_pbase], ax
     mov es, [mp_blobseg]
     ret
+%endif
 
 ; =============================================================================
 ; mp_cell2txt - in AL = row 0..63, AH = channel 0..3, DI = pattern number;

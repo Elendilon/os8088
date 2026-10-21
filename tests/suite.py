@@ -1490,6 +1490,21 @@ FAST = [
         "on cswrite's argument one tree over: it is a rule about how fifty "
         "packages are written, and the writer who breaks it has never booted "
         "kern_mega"),
+    Row("megapkg", "fast", py("tests/unit/t_megapkg.py"), 1.6,
+        "docs/plans/KERN-MEGA-PLAN.md 14.66, the owner's rule: 'mega specific "
+        "work that more than trivially increases the disk size is gated to "
+        "mega builds only.' kern_mega-only code is under %ifdef PKG_MEGA "
+        "(apps/os88mega.inc, SPEC.md 20.18) and `make mega` builds that arm "
+        "onto kern_mega's own disks. Every SHIPPED build's live source - its "
+        "recipe's defines, through every %include - may name a kern_mega "
+        "marker (CPU_F_PM and the selector cells) only as often as "
+        "tests/megapkg.txt allows each file, with a reason, one way; no "
+        "shipped .o88 may take a part assembled -DVB_PM/-DPKG_MEGA; a "
+        "package naming PKG_MEGA has an arm in $(MEGAPKGS); and a current "
+        "build/megaapps*.img carries the arms. Red on 2e77a97e six ways "
+        "(VIDEO's vblkpm part three times, VIDEO's live CPU_F_PM/XMEM_RUN/"
+        "CODESEL, os88spkfx.inc's and MIDIRack's PM copies). FAST: host-side "
+        "and 1.6s, and the writer who breaks it never builds kern_mega"),
     Row("btngesture", "soak", py("tests/btngesture.py"), 26,
         "SPEC.md 13.7/13.8 ON THE GLASS: a standard button goes DOWN while "
         "held, comes UP when the pointer slides off it, goes down again on the "
@@ -14690,7 +14705,7 @@ SOAK = [
         "330s is 301 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
-               "build/video.o88")),
+               "build/megak/apps/video.o88")),
     Row("megavidv2", "soak", py("tests/megavidv2.py"), 400.0,
         "SPEC.md 98.3.23.2: a VERSION 2 video played on kern_mega through "
         "the block decoder's PROTECTED-MODE part with NO #GP fixup. "
@@ -14705,8 +14720,8 @@ SOAK = [
         "fixups a play step, vb_walk's count and vb_set's patching, and "
         "its tails the same pictures. 400s is 339 measured",
         needs=("bochs",),
-        wants=("build/video.o88", "build/vblk.bin", "build/vblkpm.bin",
-               "build/video.bin")),
+        wants=("build/megak/apps/video.o88", "build/vblk.bin",
+               "build/vblkpm.bin", "build/megak/apps/video.bin")),
     Row("pxmega", "soak", py("tests/pxmega.py"), 260.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.40: PiXEL USED on kern_mega with no "
         "#GP fixup - megatrap0 counts what a launch costs, and a decoder's "

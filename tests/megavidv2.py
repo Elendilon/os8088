@@ -145,7 +145,8 @@ def pkg(out, src, part0):
     if not part0:
         shutil.copy(src, stage)
         return stage
-    b = open(os.path.join(ROOT, "build", "video.bin"), "rb").read()
+    b = open(os.path.join(ROOT, "build", "megak", "apps", "video.bin"),
+             "rb").read()           # (the kern_mega ARM, KERN-MEGA-PLAN 14.66)
     assert b.count(BGET) == 1, "vp_bget's CPU_F_PM test is not where it was"
     i = b.index(BGET) + len(BGET) - 1
     binf = os.path.join(out, "video0.bin")
@@ -250,7 +251,8 @@ def main():
     out = os.path.join(t.dir, "megavidv2" + ("-part0" if a.part0 else ""))
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
-    video = pkg(out, os.path.join(ROOT, "build", "video.o88"), a.part0)
+    video = pkg(out, os.path.join(ROOT, "build", "megak", "apps",
+                                  "video.o88"), a.part0)
     t0 = time.time()
     fails = []
     for lay in a.lay or ("lin320", "modex", "vga4"):

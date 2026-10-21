@@ -719,6 +719,17 @@ make emu      # THE THIRD KERNEL (§9.11.7): kern_emu, into build/emuk/, plus
               #   the one feature it was built for has been given nothing.
               #   Pair it with the SHIPPED build/apps.img: same API table, same
               #   offsets, so there is no emu apps disk and must not be
+make mega     # KERN_MEGA, the 286+ protected-mode kernel (docs/plans/
+              #   KERN-MEGA-PLAN.md), into build/megak/: build/mega.img and
+              #   mega120.img, its system disks - AND, since 14.66, its APPS
+              #   disks build/megaapps.img and megaapps120.img: the shipped
+              #   apps disk with every package's kern_mega ARM substituted
+              #   ($(MEGAPKGS): VIDEO, AUDIO, TRACKER, MIDIRACK, PIXEL), each
+              #   the same source built -DPKG_MEGA into build/megak/apps/.
+              #   Pair mega.img with megaapps.img, not with build/apps.img:
+              #   the shipped Video Player REFUSES under protected mode and
+              #   the shipped speaker library refuses its PCM tier there.
+              #   `make megapkgs` prints each arm against its shipped build
 make rom      # THE KERNEL IN ROM (SPEC.md 2.10, docs/plans/ROM-PLAN.md): an
 make socketrom#   IBM 5150's five spare sockets, U28-U32 at F4000-FDFFF, as
               #   ONE option ROM, written into build/rom/ as the 40KB window
@@ -1209,6 +1220,22 @@ user gives a different workflow. The worked example is
   docs/history/KERN-BUDGET-LEDGER.md, is 35 budget moves long and every one is
   a rung that filled: slack here has never gone unspent, so its expected cost
   is 100%.
+- **kern_mega-only package code is the ARM's, never the shipped build's**
+  (SPEC.md 20.18, docs/plans/KERN-MEGA-PLAN.md 14.66). The owner's rule:
+  *"mega specific work that more than trivially increases the disk size is
+  gated to mega builds only."* Code a package carries only because segments
+  may be SELECTORS - a second ISR family for protected mode, a decoder part
+  assembled to write nothing through CS, reads through a run of selectors,
+  a path for a claim that is an LDT selector - goes under `%ifdef PKG_MEGA`
+  (apps/os88mega.inc), and `make mega` builds that arm onto kern_mega's own
+  disks. The shipped build must still be CORRECT on kern_mega: run low and
+  plain, refuse the one tier, or refuse to start with `OS88_MEGA_REFUSE`,
+  and say which at the place. `tests/unit/t_megapkg.py` (fast) fails the
+  build when a shipped build assembles a kern_mega marker (`CPU_F_PM`, the
+  selector cells) beyond `tests/megapkg.txt`'s per-file allowance - which
+  turns one way - or takes a part assembled `-DVB_PM`/`-DPKG_MEGA`, or names
+  `PKG_MEGA` with no arm in `$(MEGAPKGS)`. A new arm is a `$(MEGAAPPDIR)`
+  rule and a `$(MEGAPKGS)` entry in the same diff.
 - **An ABI change is a written decision** (§20.2.0.1). `PKG_FMT` and
   `DRV_VER` are locked in `tools/abi.lock.json` to a fingerprint of
   `apps/os88api.inc` and `drivers/os88drv.inc`, and `make` fails when the SDK

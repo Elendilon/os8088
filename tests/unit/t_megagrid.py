@@ -125,10 +125,36 @@ def regridded(lines, i, span=16):
     return False
 
 
+def mega_arm(lines):
+    """`lines` with the SHIPPED arm of every PKG_MEGA conditional blanked
+    (docs/plans/KERN-MEGA-PLAN.md 14.66, apps/os88mega.inc): the `%ifndef
+    PKG_MEGA` body and the `%else` of an `%ifdef PKG_MEGA`. That arm is the
+    build kern_mega is NOT meant to run - its package refuses there, or keeps
+    its claims conventional, by its own word at the place - and it is the
+    real-mode spelling a conversion leaves behind, which this gate exempts as
+    t_cswrite.py exempts `%ifndef KERN_MEGA`. Line numbers are kept"""
+    out, stack = [], []         # per open %if: [is PKG_MEGA's, live now]
+    for ln in lines:
+        tok = ln.split()
+        d = tok[0].lower() if tok else ""
+        arg = tok[1] if len(tok) > 1 else ""
+        if d in ("%ifdef", "%ifndef", "%if", "%ifidn", "%ifnidn",
+                 "%ifnum", "%ifstr", "%ifmacro", "%ifctx", "%ifempty"):
+            pm = d in ("%ifdef", "%ifndef") and arg == "PKG_MEGA"
+            stack.append([pm, (d == "%ifdef") if pm else True])
+        elif d == "%else" and stack and stack[-1][0]:
+            stack[-1][1] = not stack[-1][1]
+        elif d == "%endif" and stack:
+            stack.pop()
+        dead = any(s[0] and not s[1] for s in stack)
+        out.append("" if dead else ln)
+    return out
+
+
 def scan(path):
     """[(line, kind)] for every off-the-grid segment build in one source."""
     with open(path, errors="replace") as f:
-        lines = [code(x) for x in f.read().split("\n")]
+        lines = mega_arm([code(x) for x in f.read().split("\n")])
     out = []
     rounding = set()
     for i, l in enumerate(lines):
