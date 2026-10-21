@@ -3106,8 +3106,10 @@ hbm_dosrun:
     mov al, 0xF5
     mov bp, mou_p2dw
     call hbm_kd
-    mov cx, 64                  ; bounded: a real device has one packet in
-.p2f5:                          ; flight, and Bochs's controller queues more
+    mov cx, 256                 ; bounded: a real device has one packet in
+.p2f5:                          ; flight; Bochs's mouse queues more, and 64
+                                ; let a long move's tail reach the program as a
+                                ; key (megakbtrip trip 1: `key 4300`)
     call hbm_p2rd
     cmp al, 0xFA
     loopne .p2f5

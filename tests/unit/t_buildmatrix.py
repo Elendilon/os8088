@@ -295,6 +295,10 @@ KNOBS = [
     # the gate that uses them; these rows also assemble KERN_MEGA itself
     ("piclose",     ["KERN_MEGA=1", "PICLOSE=1"]),
     ("piclose-nowd", ["KERN_MEGA=1", "PICLOSE=2"]),
+    # `MEGATRAP=1` is kern_mega's trap census (KERN-MEGA-PLAN 10.3, track 4;
+    # `make megatrap` builds its tree, megatrap0 is its row) - here so the
+    # arm keeps assembling.
+    ("megatrap",    ["KERN_MEGA=1", "MEGATRAP=1"]),
     # The LOOK/measurement knobs, which nothing else builds at all. Each
     # switches a whole path in or out - and BAND is now the only thing that
     # assembles the COMPOSED title bar at all, because SPEC.md 5.9.6 sent it
