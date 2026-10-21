@@ -77,3 +77,11 @@
 # register loaded with a code segment and only READ through
 0 1 apps/pixel/pxsave.inc  # px_ask: ES = KERNEL_SEG so os88ui_ask can READ the window's caption; nothing is stored through it
 0 1 apps/pixel/pxview.inc  # px_texpand: DS = CS back after the view claim's copy, for READS of [px_spread] and [px_tdepth]; no store through it
+
+# --- apps/pixelstein: PIXELSTEIN 3D (KERN-MEGA-PLAN 14.50) ------------------
+# px_compose stores its per-column memory through ES = our DS since 14.50, and
+# the column driver's sprite-post patch goes through part 1's data segment
+# (px_drvpm_post) wherever part 1's CS is a code selector. What is left runs
+# only where CS IS the data: a real-mode kernel, or an instrument build.
+3 0 apps/pixelstein/pxgen.inc  # px_drv_tpl's two patch stores (`mov byte [cs:bp]`), which px_gen_init lays only when [px_gencs] is part 1's data segment - every real-mode kernel; kern_mega gets px_drvpm_post over them - and PXPROBE's `inc word [cs:px_pr_lad]`, tests/pxsperf.py --probe's instrument build, which nothing ships
+0 2 apps/pixelstein/pxwin.inc  # px_lock_clip and px_w4_clip: ES = KERNEL_SEG to READ the window's W_FLAGS and hand OSAPI_WM_CLIP_SET the window; nothing is stored through it

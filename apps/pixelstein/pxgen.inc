@@ -258,8 +258,47 @@ px_drv_tpl:
 px_drv_end:
 PXG_DRVSZ   equ px_drv_end - px_drv_tpl
 PXG_DRV2    equ PXG_DRV + (px_drv_tpl.spr - px_drv_tpl)  ; the sprite pass's entry
-%if PXG_DRVSZ > PXG_DRVMAX
-%error "the column driver outgrew the room reserved for it in part 1"
+
+; -----------------------------------------------------------------------------
+; px_drvpm_post - THE DRIVER'S .post FOR A PART WHOSE CODE IS NOT ITS DATA
+;                 (KERN-MEGA-PLAN 14.50): kern_mega, where part 1's CS is a
+;                 code selector and px_drv_tpl's two stores through it are a
+;                 #GP the kernel completes, two a sprite post. This tail goes
+;                 over px_drv_tpl's .post in part 1 and makes the patch
+;                 through part 1's DATA segment, [cs:PXG_QDS] (px_hsegs keeps
+;                 it), in DS for the one store and back before the call: the
+;                 scaler wants DS = the destination and ES the set.
+;                 px_gen_init lays it only when [px_gencs] differs from part
+;                 1's data segment, which no real-mode kernel's does - so the
+;                 XT runs px_drv_tpl, byte for byte the one tests/pxsscale.py
+;                 holds to its template, and pays nothing. A TAIL and not a
+;                 second driver, for the bytes: it runs at px_drv_tpl.post's
+;                 offset, so its one jump is assembled for there
+; -----------------------------------------------------------------------------
+px_drvpm_post:
+    push ds
+    mov ds, [cs:PXG_QDS]
+    mov byte [ds:bp], 0xC3          ; the ret, through the data alias
+    pop ds
+    call word [cs:bx]
+    push ds
+    mov ds, [cs:PXG_QDS]
+    mov byte [ds:bp], 0x26          ; ...and the prefix back, FIRST
+    pop ds
+    db 0xEB, (px_drv_tpl.next - px_drv_tpl.post) - (px_drvpm_end - px_drvpm_post)
+                                    ; jmp short .next, from where it lands
+px_drvpm_end:
+PXG_DRVPMSZ equ px_drvpm_end - px_drvpm_post
+PXG_QDS     equ PXG_DRV + PXG_DRVMAX - 2    ; word: part 1's DATA segment, for
+                                    ; px_drvpm_tpl's patch (px_hsegs) - the
+                                    ; last word of the driver's own room, so
+                                    ; nothing after PXG_QTEX moves
+PXG_DRVPMAT equ PXG_DRV + (px_drv_tpl.post - px_drv_tpl)  ; where it goes
+%if PXG_DRVSZ > PXG_DRVMAX - 2 || (px_drv_tpl.post - px_drv_tpl) + PXG_DRVPMSZ > PXG_DRVMAX - 2
+%error "a column driver outgrew the room reserved for it in part 1"
+%endif
+%if px_drv_end - px_drv_tpl.post != 15
+%error "px_drv_tpl's .post is not the 15-byte tail px_drvpm_post replaces (and ends the driver)"
 %endif
 
 ; the 47 generated heights (tools/pxsgen.py's HEIGHTS): 2..80 by two, then
@@ -347,6 +386,14 @@ px_gen_init:
     mov si, px_drv_tpl
     mov cx, PXG_DRVSZ
     rep movsb
+    mov ax, es                      ; ...whose patch is through CS where CS
+    cmp ax, [px_gencs]              ; is our data, and through PXG_QDS where
+    je .rmdrv                       ; a code segment is not (kern_mega,
+    mov di, PXG_DRVPMAT             ; KERN-MEGA-PLAN 14.50)
+    mov si, px_drvpm_post
+    mov cl, PXG_DRVPMSZ             ; (CX = 0 after the rep)
+    rep movsb
+.rmdrv:
     mov word [px_drvp], PXG_DRV     ; (their segments are px_hsegs')
     mov word [px_drv2p], PXG_DRV2
     mov si, [px_hand + PXH_BT]      ; (the wall pass's ES, PXG_QTEX, too)

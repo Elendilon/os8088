@@ -555,7 +555,8 @@ px_hseg:
 ; bodies' data, part 1 or part 0), the segment half of px_qcur, px_qcurv and
 ; px_qcurh and, with part 1, of px_drvp and px_drv2p (their CODE,
 ; [px_gencs]), and part 1's own copy of the byte textures' segment at
-; PXG_QTEX. px_gen_init's and px_reloc's. Preserves every register but flags
+; PXG_QTEX and of its own data segment at PXG_QDS (KERN-MEGA-PLAN 14.50).
+; px_gen_init's and px_reloc's. Preserves every register but flags
 px_hsegs:
     push ax
     push es
@@ -569,6 +570,7 @@ px_hsegs:
     mov [px_drv2p + 2], ax
     mov ax, [px_hand + PXH_BT]
     mov [es:PXG_QTEX], ax
+    mov [es:PXG_QDS], es            ; part 1's data, px_drvpm_tpl's (14.50)
     jmp short .q
 .img:
     mov [px_bseg], ds               ; refused: the bodies are in the image,
@@ -604,6 +606,7 @@ px_hsegs:
 ;   px_drvp / px_drv2p                        ...and their CODE: part 1's, or
 ;                                             our CS when it was refused
 ;   [PXG_QTEX] INSIDE part 1                  the wall pass's ES, = PXH_BT
+;   [PXG_QDS] INSIDE part 1                   part 1's own data, = PXH_GEN
 ; and NOT: PXH_LEV, PXH_ART, PXH_SPR (claims of their OWN, slot-owned data
 ; claims the compactor never moves - the same rule tests/rehome's rp_cseg
 ; follows), px_shseg (a claim), px_dseg (the shadow or the framebuffer),
@@ -1207,6 +1210,9 @@ px_ab10:     db 'walks a frozen world at 9.9 fps.', 0  ; quoted a frozen
     ZBUF  px_lu1, PX_COLMAX * 2
     ZBUF  px_ll0, PX_COLMAX * 2
     ZBUF  px_ll1, PX_COLMAX * 2
+%if px_ll1 - px_ltop != 7 * PX_COLMAX * 2
+%error "px_force_all fills px_ltop..px_ll1 as ONE run: keep the eight together"
+%endif
 ; --- the cast's per-frame and per-column words --------------------------------
     ZBUF  px_xpq, 8
     ZBUF  px_ypq, 8
@@ -1329,6 +1335,9 @@ px_gent  equ px_bstage            ; a generated height's entry, by h - IN
     ZBYTE px_sprback                ; ...the class it was built for (0xFF none)
     ZBYTE px_r0
     ZBYTE px_r1
+%if px_r1 != px_r0 + 1
+%error "px_r0 and px_r1 are written as ONE word: keep them adjacent"
+%endif
     ZBYTE px_page
     ZBYTE px_wclip
     ZBUF  px_inkt, 64

@@ -170066,6 +170066,17 @@ five rows are arithmetic here, not a measurement.
   immediates of 97.2.1. `tests/pxsscale.py` diffs the part against
   `tools/pxsgen.py` between frames.
 
+  **Where part 1's code segment is not its data** — kern_mega, where it is
+  a code selector and a store through it a #GP the kernel completes —
+  `px_gen_init` lays `px_drvpm_post` over the driver's `.post`: the same
+  two patch stores through part 1's DATA segment, kept at `PXG_QDS` (the
+  last word of `PXG_DRVMAX`'s room, written by `px_hsegs`), with DS
+  borrowed for each store. No real-mode kernel's code segment differs from
+  its data, so the 8088 runs `px_drv_tpl` byte for byte. Likewise
+  `px_compose` STORES its per-column memory through ES = part 0's DS and
+  reads it through CS, ES swapping to part 1 only for a queued wall's four
+  `stosw` (docs/plans/KERN-MEGA-PLAN.md 14.50; `tests/pxsmega.py`).
+
   **As wave 2 built it** (`pxgen.inc`, `tools/pxsgen.py` the model): the
   heights are **2..80 by two and 86..116 by six, then 120 — 47 scalers a
   set** (the orchestrator's "2-row steps to H, 6-row steps above H"; the
@@ -172547,7 +172558,8 @@ by the delta >> 2, so adding the delta named another selector; on kern_big
 the two are the same words), a refused part staying 0: the handoff's `PXH_GEN` and `PXH_BT`, `px_bseg` and the segment
 halves of `px_qcur`/`px_qcurv`/`px_qcurh` (the bodies: part 1, or part 0
 itself when part 1 was refused), `px_drvp`'s and `px_drv2p`'s, and part
-1's own copy of the byte textures' segment at `PXG_QTEX`. Not `PXH_LEV`
+1's own copy of the byte textures' segment at `PXG_QTEX` and of its own
+data segment at `PXG_QDS` (KERN-MEGA-PLAN 14.50). Not `PXH_LEV`
 (a claim of its own since the level part went lazy, 97.9), `PXH_ART`,
 `PXH_SPR`, `px_shseg`, `px_dseg` or `PXG_QSPR`, which name claims the
 compactor never moves. The far-call return part 0 leaves on the worker's
