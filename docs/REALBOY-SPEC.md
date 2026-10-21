@@ -255,6 +255,14 @@ IF/IE write, which takes it at once. `EI / HALT` and
 `rapid_di_ei` and `di_timing` do not (section 12.3). A read of IF first runs every event already due
 (`rb_catchup`), so a game polling IF sees what the hardware would.
 
+**The joypad interrupt** (bit 4, 60h) is the host's: a button pressed since
+the package's last look (`rw_keys`, once a frame) sets IF bit 4 between two
+`rb_run`s, and the next one's event check takes it or ends a HALT. A game
+asleep in HALT with only it enabled - a title or pause screen waiting for a
+press - wakes once a press (`tests/gbheader.py`, `GBJOY.GB`). STOP is not
+modelled: it returns `RBX_STOP` and the package runs on, as if a button had
+been pressed at once.
+
 ## 8. The spin-wait rule
 
 **A skip does not spend the budget.** `rb_run`'s budget bounds how long the
@@ -328,6 +336,19 @@ at line 0), STAT and LYC writes (rescheduling `S_TSTAT`), OAM DMA (FF46,
 through the raster log (section 11). Every other register is stored.
 
 ## 10. Cartridges
+
+**The package reads the header before it runs anything** (`rw_hdrchk`, on
+both load paths, while what was claimed can still be given back), and
+refuses with a toast naming why:
+- **the header checksum** (014Dh, the boot ROM's own test: x = x - byte - 1
+  over 0134h-014Ch) wrong - "not a GB ROM", the file not a cartridge;
+- **0143h = C0h**, a game for the Game Boy Color alone - "needs GB Color".
+  A game for both (80h) runs as a Game Boy, and `.GBC` is a RealBoy
+  document beside `.GB`, the extension such games mostly carry;
+- **a type rbsys does not have** - "MBC xxh unknown". The ones it runs are
+  00-03, 05-06, 08-09, 0F-13 and 19-1E (`rw_mbcok`, a bit each); MMM01,
+  HuC1, HuC3, MBC6, MBC7, TAMA5 and the Pocket Camera used to fall through
+  to "none" below and run with their banks wrong, saying nothing.
 
 The header's byte 0147h picks the MBC: none, **MBC1**, **MBC2**, **MBC3**
 or **MBC5**. Bank 0 written to a bank register reads as 1 on MBC1, MBC2 and
@@ -1972,11 +1993,15 @@ flushed by `rt_init`, and the core not running:
 
 ## 17. Sound
 
-**The speaker plays the louder of the two square channels.** The wave and
-noise channels make no sound. rbsys keeps a record of the two square
-channels (`S_SQ1`, `S_SQ2`) from the writes that decide whether they sound,
-and the package turns that record into one tone. All other sound registers
-are plain memory.
+**With an FM chip all four channels play (17.1); without one the speaker
+plays the louder of the two square channels.** rbsys keeps a record of each
+channel (`S_SQ1`, `S_SQ2`, and `S_SQ3`, `S_SQ4` for the wave and the noise)
+from the writes that decide whether it sounds, and the package turns those
+records into sound. The other sound registers are plain memory, read where
+they lie: every write to FF01-FF26 reaches rbsys from the interpreter's
+`io_wr` (one compare: the core's slot had no room for a list), which stores
+those it does not follow, and a translated store to one of those is a single
+MOV (`rt_snd`).
 
 - **The writes rbsys takes**: NR12/NR22, NR14/NR24 and NR52. The core's
   `io_wr` sends each of them to `rb_iowrite`.
@@ -2013,6 +2038,55 @@ assembled by `tools/gbours.py` with the pinned rgbds) plays a trigger, a DAC
 switched off, and a length counter that runs out. The row captures
 MartyPC's speaker and asserts all three. With the length counter broken it
 fails, naming the counter.
+
+### 17.1 The FM chip
+
+**All four channels on an OPL2** (`apps/realboy/rwfm.inc`), when `SOUND.DRV`
+has one and the Control Panel sends tones to it (`OSAPI_SND_CAPS`' route,
+as 1942's): the squares on channels 0 and 1, the wave on 2, the noise on 3.
+
+- **The chip is claimed whole** (`SND_FM_CLAIM`, SPEC.md 34.12) on the UI
+  task when a game starts, and given back at the close (verb 3; the
+  teardown would too). It is written through `SNDV_OPLW`, which takes no
+  lock and touches no disk, so the worker writes it after each frame in the
+  window and the bracket does on the UI task.
+- **A frame writes only what changed**: a shadow of each channel's A0h,
+  B0h and two levels (`rw_fmsh`) keeps a held note at no writes at all, and
+  what did change goes in one call. A key off leaves the F-number alone.
+- **The patches hold their level** (EG type 1, attack and release at once),
+  and the Game Boy's own envelopes - rbsys's records - set the carrier's
+  attenuation frame by frame: v/15 as 20 log10(v/15) / 0.75 dB steps
+  (`rw_fmtl`), plus NR50's louder side the same way (`rw_fmmv`). NR51 routes
+  a channel to neither side: silent. NR52 off: all silent.
+- **A square is the modulator at TWICE the carrier**, no feedback: 1:2 FM
+  makes the odd harmonics alone, which are a 50% square's. Its duty is the
+  modulator's depth (`rw_fmduty`) - the thinner the pulse, the brighter.
+  Measured off MartyPC's OPL: square 1 alone peaks at 440 Hz with 1318 and
+  2198 beside it and nothing at 880, where the first patch (1:1 with
+  feedback) put 880 Hz LOUDER than 440.
+- **The wave is near a sine**, an octave under a square at the same x
+  (65,536 / (2048 - x) Hz), its volume NR32's code. **The noise is a
+  modulator at x15 and full feedback** - an OPL2 has no noise generator but
+  the rhythm section, which the driver keeps for itself with channel 8's
+  system beep - at a pitch from NR43's clock (524,288 / (r x 2^(s+1)) Hz,
+  r = 0 a half), the slowest and fastest held at what the chip can say.
+- **The F-number**: f = fnum x 49,716 / 2^(20 - block), so a square's is
+  2,764,482 / (2048 - x) at block 0, halved into range a block at a time;
+  past 5,958 Hz (2048 - x < 22) the chip cannot say it and the channel is
+  off.
+- **rbsys follows the wave and the noise as it does the squares**: the
+  noise's registers sit as a square's (NR42 its envelope, NR44 its trigger,
+  NR41 its length), so it is a square's record exactly; the wave's NR30 is
+  its DAC, NR34 its trigger and NR31 a 256-step length, and it has no
+  envelope. `S_SQ3`/`S_SQ4` are out of the full state block, at 48F0h, and
+  a save state carries them (`ST_SQX`).
+
+`tests/gbfm.py` is the gate, on MartyPC's XT with a Sound Blaster: GBFM.GB
+(`tools/gbprof/gbfm.asm`, ours) starts the four channels a frame apart and
+holds them, and the row checks each channel's F-number and key against the
+Game Boy's own formulas, `SOUND.DRV`'s `opl_b0` against those, the capture
+for sound, and square 1's spectrum as above. Without the claim it fails on
+all four channels.
 
 ## 18. The 5150 demo
 

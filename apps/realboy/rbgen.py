@@ -1726,20 +1726,12 @@ io_wr:
     or dl,0C0h
     jmp short .st
 .snd:
-    cmp bl,10h
-    jb .host
-    cmp bl,12h                  ; the square channels' volume and trigger
-    je .host                    ;   registers and NR52 are rbsys's: it
-    cmp bl,14h                  ;   keeps their envelopes and lengths for
-    je .host                    ;   the speaker (REALBOY-SPEC section 17)
-    cmp bl,17h
-    je .host
-    cmp bl,19h
-    je .host
-    cmp bl,26h
-    je .host
-    cmp bl,40h
-    jb .st
+    cmp bl,27h                  ; FF01-FF26, the sound registers with
+    jb .host                    ;   them: rbsys follows the four channels'
+    cmp bl,40h                  ;   triggers, envelopes and lengths and
+    jb .st                      ;   stores the rest (REALBOY-SPEC 17) - a
+                                ;   translated store to one it only
+                                ;   stores is a MOV (rbjit's rt_snd)
     cmp bl,4Ch
     jb .lcd
     cmp bl,0FFh
