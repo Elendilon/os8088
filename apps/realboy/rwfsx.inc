@@ -203,6 +203,10 @@ rw_fsenter:
     mov al, RLE_FSOUT
     call rw_logevt
     mov byte [rw_fsq], 0
+    cmp byte [rw_lflq], 0           ; F12 in the bracket: the log written
+    je .r                           ;   now that a toast can be read
+    mov byte [rw_lflq], 0
+    jmp rw_logflush
 .r:
     ret
 

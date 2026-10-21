@@ -369,6 +369,29 @@ rw_logtoggle:
     call rw_mgrey
     jmp rw_logwrite
 
+; rw_logflush - F12, on the UI task: the records so far written (rw_logwrite,
+; which says how it went) and a new log begun in a fresh claim, so a field
+; run's log is not hostage to the close - where its toast dies with the
+; program. With the log off it says so
+rw_logflush:
+    cmp byte [rw_logon], 0
+    jne .on
+    mov si, rw_s_logoff
+    jmp rw_ltoast
+.on:
+    mov byte [rw_logon], 0
+    call rw_logwrite
+    mov ax, RW_LOGRKB
+    call OSAPI_MEM_CLAIM
+    jc .off
+    xor ax, ax
+    mov [rw_logn], ax
+    mov [rw_ltick], ax
+    mov [rw_logseg], dx
+    mov byte [rw_logon], 1
+.off:
+    jmp rw_mgrey
+
 ; rw_logwrite - the records as text beside REALBOY.O88, on the UI task,
 ; under the first name free of GAMEnn.LOG. Nothing recorded, nothing written.
 rw_logwrite:
@@ -867,4 +890,5 @@ rw_s_logon:     db 'Log on: written at close', 0
 rw_s_logok:     db 'Log: ', 0, '           ', 0
 rw_s_logrm:     db 'No room for the log', 0 ; (a toast shows 24 characters)
 rw_s_logwr:     db 'Log: no room to write', 0
+rw_s_logoff:    db 'Log is off (Machine)', 0
 rw_lerr:        db 'Log: ', 0, '                  ', 0 ; ...and a refusal's

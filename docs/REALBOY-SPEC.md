@@ -1149,7 +1149,14 @@ on a machine with no debugger.
   write`. Every answer stays up ~8 s (`rw_ltoast`), and a refused write
   says why in the kernel's words (`Log: ` and `OSAPI_FERR_TEXT`): two of
   the refusals were longer than the 24 characters a toast shows, and all
-  of them came and went in ~3 s at a moment nobody watches the bar. It was 24 KB whatever was recorded, which a cartridge in the bank
+  of them came and went in ~3 s at a moment nobody watches the bar.
+- **F12 writes it NOW** (`rw_logflush`) and begins a new log in a fresh
+  claim, so a field run's log is not hostage to the close, where the
+  toast that says how the write went dies with the program. It is seen
+  HELD (`OSAPI_KEY_DOWN`, `rw_fedge`), because an AT BIOS's `int 16h`
+  function 00h drops F11 and F12; the write is the UI task's - in the
+  window it is woken (`[rw_lflq]`, `rw_onwake`), and in full screen it
+  waits for the bracket to end, where the toast can be read. It was 24 KB whatever was recorded, which a cartridge in the bank
   cache could not have: the plan leaves 24 KB of heap (section 10.3), the
   records take 4 KB of it, and the fourth field run's logs were refused
   with a toast nobody saw, after the picture had gone.
@@ -1206,8 +1213,8 @@ is 155 rows, and the window fits it whole.
 - **Refused, and said so on the screen**: Esc, Alt (Alt+Enter is full
   screen, and while Alt is held the joypad reads nothing), F1-F4 - the
   speed line and Machine > Interlace, Recompiler and Speed's next settings
-  - and the save states' F5, F8 and 1-9 (10.4), documented shortcuts every
-  one. RealBoy reserves no debug key. A REALBOY.CFG whose map holds one of
+  - the save states' F5, F8 and 1-9 (10.4), and F12, the log written now
+  (section 13.4's Machine > Log), documented shortcuts every one. A REALBOY.CFG whose map holds one of
   them is read with the keys as they shipped (`rw_cfgkeys`). The wait
   goes on after a refusal. A key with no make code of its own is refused
   too: SysRq, and the codes 54h-56h a shifted F-key gives. The keypad's

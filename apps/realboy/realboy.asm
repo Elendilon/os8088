@@ -441,6 +441,11 @@ rw_onwake:
     mov byte [rw_jitqn], 1
     mov byte [rw_jitq], 1
 .nf3:
+    cmp byte [rw_lflq], 0           ; F12 in the window: the log written
+    je .nfl                         ;   here, where a file may be
+    mov byte [rw_lflq], 0
+    call rw_logflush
+.nfl:
     cmp byte [rw_argpend], 0
     je .stopped
     mov byte [rw_argpend], 0
@@ -1449,8 +1454,8 @@ rw_cfgkeys:
     lodsb
     cmp al, 0Ah                     ; (Esc, and 1-9: the save states')
     jbe .r
-    cmp al, 58h
-    ja .r
+    cmp al, 58h                     ; (F12: the log's, rw_logflush)
+    jae .r
     cmp al, 38h
     je .r
     cmp al, 3Bh
@@ -2511,6 +2516,17 @@ rw_keys:
     mov bx, [rw_win]
     call OSAPI_WM_WAKE
 .nof4:
+    mov al, 58h                     ; F12: the log written now (rw_logflush,
+    mov bx, rw_f12was               ;   the UI task's - after the bracket,
+    mov cl, 10h                     ;   where a toast can be read)
+    call rw_fedge
+    jnc .nof12
+    mov byte [rw_lflq], 1
+    cmp byte [rw_infsx], 0
+    jne .nof12
+    mov bx, [rw_win]
+    call OSAPI_WM_WAKE
+.nof12:
     pop dx
     mov si, rw_keymap
     mov dh, 1
@@ -2647,7 +2663,11 @@ rw_note:
 rw_jnext:   db 1, 3, 0, 2           ; the setting after Auto, On, Off, Static
 rw_keymap:  db KSC_RIGHT, KSC_LEFT, KSC_UP, KSC_DOWN, 2Dh, 2Ch, 39h, KSC_ENTER, 0
 rw_ktyped:  db 0                    ; (rw_keys: this look's rw_klatch)
-rw_flatch:  db 0                    ; F1-F4 TYPED since the last look (rw_klat)
+rw_flatch:  db 0                    ; F1-F4 and F12 TYPED since the last look
+                                    ;   (rw_klat)
+rw_f12was:  db 0                    ; F12 was held at the last look
+rw_lflq:    db 0                    ; F12: the log to be written by the UI
+                                    ;   task (rw_onwake, rw_fsenter's end)
 rw_ftyped:  db 0                    ; ...and this look's (rw_fedge)
 
 ; rw_socd - one opposite pair, BL its two bits: DL the buttons, AH those
@@ -2687,6 +2707,11 @@ rw_klat:
     call rw_stkey
     push ax
     push si
+    mov al, 10h                     ; F12 (an AT's 86h, a PC's 58h): bit 4
+    cmp ah, 86h
+    je .fl
+    cmp ah, 58h
+    je .fl
     cmp ah, 3Bh                     ; F1-F4: latched for rw_fedge
     jb .m
     cmp ah, 3Eh
@@ -2696,8 +2721,9 @@ rw_klat:
     sub cl, 3Bh
     mov al, 1
     shl al, cl
-    or [rw_flatch], al
     pop cx
+.fl:
+    or [rw_flatch], al
     jmp short .r
 .m:
     mov si, rw_keymap
