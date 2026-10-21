@@ -8644,3 +8644,24 @@ launch, ECHO and DIR at 0, TYPE at most the `.stale` pair; red with the
 launches high); and on kern_big, where DOS.O88 is byte-identical, nothing
 can see it - `dosmouse`, `dosmem`, `dosram` and the other `dos*` rows run
 the same image they ran before.
+
+### 14.56 Field results on the owner's 286, kern_mega at 942137bc (2026-10-21)
+
+The owner's first run of this round's disks on the Victory 286 (BIOS-served
+hard disk, PS/2 mouse).
+
+- **Hibernate** takes several seconds, which the owner reads as probably fine
+  (14.46.5's ~22 file calls; not timed).
+- **After the resume the PS/2 mouse is DEAD.** NumLock still toggles its LED,
+  so IRQ1 is alive and the machine is not frozen - it is the pointer alone.
+  **OPEN, being investigated as 14.57.** The serial resume is `mouresume`'s
+  (MartyPC, kern_big); no row resumes a PS/2 mouse on kern_mega.
+- **T69 plays better but still stutters, and runs behind real time.** The
+  owner defers it: *"another round on video player, likely on its own, later,
+  for performance."* 14.36's clock fix is in and helped; what is left is
+  throughput on a BIOS-served disk (14.35's real-mode fallback question is
+  still open beside it).
+- **MECH2 (`apps/video/demo/vga/04-MECH2.V88`) plays until the first heavy
+  frames, many seconds in, then CORRUPTS THE SCREEN AND FREEZES THE WHOLE
+  MACHINE.** A defect rather than a speed question. **OPEN, being
+  investigated as 14.58.**
