@@ -1091,11 +1091,17 @@ ld_run_body_x:
 ; ld_hicx is the same with CX = the BYTES to move, for step 8a's re-homed
 ; program (SPEC.md 20.12.10.9): its region is the carve's KEEP, which is not
 ; [ld_need] - that word is the program's image + bss by then, and the keep is
-; the program plus every part it reads (Word's and Scribe's part 1 CODE)
+; the program plus every part it reads (Word's and Scribe's part 1 CODE).
+; ld_hisi is a keep OVER 64KB (KERN-MEGA-PLAN 14.48, PIXELSTEIN 3D's): CX =
+; its PARAGRAPHS and SI = the bytes the pair covers, the program's own image
+; + bss - the parts past them are reached through OSAPI_MEM_SUBSEG's
+; selectors. Clobbers SI as well
 ; -----------------------------------------------------------------------------
 ld_hi:
     mov cx, [ld_need]
 ld_hicx:
+    xor si, si                  ; SI = 0: CX is the bytes, one segment
+ld_hisi:
     cmp byte [ss:mega_pm], 0
     je .out
     test byte [es:LD_H_CLASS], 0x80     ; OS88_HIGH
@@ -1716,15 +1722,19 @@ ld_start:
     ; pair's DATA selector, so .call8's far call and step 9's I_SPTR follow
     cmp word [ld_rehsz], 0      ; the KEEP form only...
     jne .rhnohi
-    mov cx, [ld_rehkp]          ; ...and a keep of at most 4,095 paragraphs
+    mov cx, [ld_rehkp]          ; CX = the keep, in paragraphs
+    mov es, ax                  ; ES = the program, whose class byte is read
     cmp cx, 0x0FFF
-    ja .rhnohi
+    ja .rhbig                   ; ...over one segment: KERN-MEGA-PLAN 14.48
     shl cx, 1                   ; paragraphs -> bytes
     shl cx, 1
     shl cx, 1
     shl cx, 1
-    mov es, ax                  ; ES = the program, whose class byte is read
     call ld_hicx
+    jmp short .rhnohi
+.rhbig:                         ; ONE pool block of the whole keep, the pair
+    mov si, [ld_need]           ; over the program's own image + bss alone
+    call ld_hisi                ; (the parts past it are SUBSEG's)
 .rhnohi:
 %endif
     push ds

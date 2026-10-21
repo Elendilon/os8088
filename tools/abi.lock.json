@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "a4f12aad75d3751101d8de2e7b2c20ae53c96b6cb0473bbacbe7b8e1730f91c0",
+  "fingerprint": "c4c9349052a80730a953b367da9bffb1710b08bef6e4d121a1ef37f725c99ab9",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "2ef09ed67b1d9339b2c8e9c46a6015ec3f9810d215433f333baa244bffb85684",
+  "fingerprint": "f5c28e1dfc1cd6de49863d1ce9594cf3836b07ae04c40090564ac70ca74a0ca8",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -595,6 +595,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "merge: OSAPI_MEM_SUBSEG (14.44) and OSAPI_MEM_HUGE's BX=8000h half-window input (14.41), both additive",
+   "to": 11
+  },
+  {
+   "fingerprint": "f5c28e1dfc1cd6de49863d1ce9594cf3836b07ae04c40090564ac70ca74a0ca8",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "merge: OSAPI_MEM_SUBSEG's BL bit 1 window length (14.48) beside 14.41's HUGE BX=8000h, both additive",
+   "to": 10
+  },
+  {
+   "fingerprint": "c4c9349052a80730a953b367da9bffb1710b08bef6e4d121a1ef37f725c99ab9",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "merge: OSAPI_MEM_SUBSEG's BL bit 1 window length (14.48) beside 14.41's HUGE BX=8000h, both additive",
    "to": 11
   }
  ]

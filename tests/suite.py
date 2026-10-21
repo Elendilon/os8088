@@ -14086,16 +14086,20 @@ SOAK = [
         "the tree's build included",
         needs=("bochs", "nasm")),
     Row("megarehome", "soak", py("tests/megarehome.py"), 120.0,
-        "docs/plans/KERN-MEGA-PLAN.md 14.44, SPEC.md 20.12.10.9: a RE-HOMED "
-        "program whose own header says OS88_HIGH runs above 1MB on kern_mega. "
-        "Bochs at 16MB, MEGARUN starting kern_mega's DOS.O88, SCRIBE, CLEAR "
-        "SKIES and WORD by name; the debugger then reads the instance table, "
-        "the pool and the conventional heap: each I_SPTR an LDT selector over "
-        "a pool block owned 80h | slot, WORD's and SCRIBE's claims in the pool "
-        "(OS88_HIGHMEM), no 32KB conventional claim of theirs, and SKIES "
-        "holding an OSAPI_MEM_SUBSEG selector inside its block. The failing "
-        "case is WORD.O88 from before 14.44 (no OS88_HIGH): its I_SPTR comes "
-        "back a conventional segment. 120s is 93 measured",
+        "docs/plans/KERN-MEGA-PLAN.md 14.44, 14.48, SPEC.md 20.12.10.9: a "
+        "RE-HOMED program whose own header says OS88_HIGH runs above 1MB on "
+        "kern_mega. Bochs at 16MB, MEGARUN starting kern_mega's DOS.O88, "
+        "SCRIBE, CLEAR SKIES, WORD and PIXELSTEIN 3D by name; the debugger "
+        "then reads the instance table, the pool and the conventional heap: "
+        "each I_SPTR an LDT selector over a pool block owned 80h | slot, "
+        "WORD's, SCRIBE's and PIXELSTEIN's claims in the pool (OS88_HIGHMEM), "
+        "no 32KB conventional claim of theirs, SKIES holding an "
+        "OSAPI_MEM_SUBSEG selector inside its block, and PIXELSTEIN's keep "
+        "over 64KB ONE block whose pair covers its image + bss alone, with "
+        "the scratch part's code/data pair and the byte textures' selector "
+        "inside it, none past its end (14.48). The failing case is WORD.O88 "
+        "from before 14.44 (no OS88_HIGH), or PXSTEIN.O88 from before 14.48: "
+        "its I_SPTR comes back a conventional segment. 120s is 99 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
     Row("pxmega", "soak", py("tests/pxmega.py"), 260.0,

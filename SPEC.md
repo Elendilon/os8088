@@ -46111,11 +46111,20 @@ inside the keep - Word's and Scribe's part 1, which is CODE at `WD_P1ORG` /
 `SC_P1ORG` reached by near calls - is inside the pair's limit and needs
 nothing. The conventional keep goes back to the heap at once.
 
+**A keep OVER 4,095 paragraphs** (docs/plans/KERN-MEGA-PLAN.md 14.48,
+PIXELSTEIN 3D's 139KB) is ONE pool block too, owned `80h | slot`, the copy
+32KB a call (`ld_hisi`, `mega_imghuge`) - but its pair covers the PROGRAM'S
+OWN image + bss alone (`[ld_need]`, I_SIZE), not 64KB of the keep. A part
+past it is named by `OSAPI_MEM_SUBSEG` (§50.3.6), a selector based at the
+part's first byte and as long as the part, which the program asks for at
+its entry: so no descriptor over the block runs from one part into the next,
+and the compactor moves the block a part at a time rather than as one
+interrupts-off copy (14.48's `mx_pcut`). The teardown frees every descriptor
+inside the block, at any offset in it.
+
 Anything else runs low exactly as before, and none of it is a refusal: the
-bytes form, a keep over 4,095 paragraphs (a program with parts past its
-first 64KB needs a selector per part, docs/plans/KERN-MEGA-PLAN.md 14.38.4
-S4), no room above 1MB, no LDT entry, kern_big and kern_small (which never
-call `ld_hi`), and every kernel built before this. **The re-home cell's
+bytes form, no room above 1MB, no LDT entry, kern_big and kern_small (which
+never call `ld_hi`), and every kernel built before this. **The re-home cell's
 contract does not change** and no `PKG_FMT` moves: a program built before
 says nothing, and a program that says it on an older kernel runs low.
 
@@ -46130,9 +46139,11 @@ any instant the compactor runs, with no relocation proc and no restart**
 
 The programs that say it: WORD, SCRIBE, CLEAR SKIES (not its `CSDIAG=1`
 build, whose watchdog stamps its CS into vector 8) and kern_mega's own
-DOS.O88 (under `DOS_MEGA` only, so kern_big's is byte-identical). Pixelstein
-3D's keep is 141,312 bytes and waits for S4. The cost and the measurements
-are docs/plans/KERN-MEGA-PLAN.md 14.44.
+DOS.O88 (under `DOS_MEGA` only, so kern_big's is byte-identical), and
+PIXELSTEIN 3D, whose loader hands the program its two scratch parts as
+paragraph OFFSETS (`PXH_GEN`, `PXH_BT`, §97.9) for it to turn into segments
+itself. The cost and the measurements are docs/plans/KERN-MEGA-PLAN.md 14.44
+and 14.48.
 
 ### 20.13 COMPRESSION — flags bits 3 and 4, and one slot
 
@@ -92467,12 +92478,20 @@ faulted on exactly that, in `cs_xpand`, the first time it ran up there. So the
 kernel answers the sum (0x04BD, appended - additive, no `PKG_FMT`):
 
 - in: AX = a paragraph offset into the caller's own region, which it names
-  by its DS (the X cell's ES); BL bit 0 = it will far-call code there.
+  by its DS (the X cell's ES); BL bit 0 = it will far-call code there; BL
+  bit 1 = CX is the window's LENGTH in paragraphs (docs/plans/KERN-MEGA-PLAN.md
+  14.48), which ends it sooner - 0, or past the block's end, is the default.
 - out: CF = 0, DX = a DATA selector whose base is that paragraph and whose
   limit runs to the end of the region's pool block or 64KB, whichever is
-  first; with bit 0 its CODE twin is DX - 8. A descriptor already over that
-  base, of that type, is answered instead of a new one, so a program spends
-  one LDT entry (two for code) per distinct paragraph it asks for.
+  first - or the length asked for; with bit 0 its CODE twin is DX - 8. A
+  descriptor already over that base, of that type and limit, is answered
+  instead of a new one, so a program spends one LDT entry (two for code) per
+  distinct window it asks for - and asking for the CODE pair first makes its
+  data half the answer to the same window's data ask.
+- A selector as long as its PART, and no longer, is what lets the compactor
+  move a block over 64KB a part at a time (14.48): a descriptor is moved
+  with one piece, so one that runs into the next part ties the two pieces
+  into one interrupts-off copy.
 - CF = 1, **every register kept**: use your segment + AX. That is the whole
   cell on kern_big and kern_small (`mod_gone`), and on kern_mega in real
   mode, for a region in conventional memory, an offset at or past the
@@ -171741,7 +171760,13 @@ The loader hands the program what
 it cannot ask for itself, at the head of the program's bss, one package
 in two sources (csload's `CSH_*`): `PXH_MAGIC` 'PX', `PXH_LEV` the level
 part's segment, `PXH_GEN` the scratch part's segment or 0 when
-`op_optok` was refused, `PXH_COLD` 0 — reserved for the cold part below
+`op_optok` was refused (since docs/plans/KERN-MEGA-PLAN.md 14.48 the loader
+writes it and `PXH_BT` as paragraph OFFSETS past the program, and the
+program's `px_hconv` turns both into segments at its entry - through
+`OSAPI_MEM_SUBSEG` when the keep is above 1MB, §20.12.10.9, as its own
+segment plus the offset everywhere else, which is the word the loader used
+to write - and keeps `px_gencs`, the scratch part's CODE segment, for the
+far calls), `PXH_COLD` 0 — reserved for the cold part below
 — `PXH_NLEV`, `PXH_LEVLEN`, wave 2's **`PXH_ART`** (the masters, in a
 claim of their own, or 0) and **`PXH_BT`** (the byte-texture part or 0) and **`PXH_GENLEN`**
 (the scratch part's length in bytes, `PX_GENKB` × 1024 — the fence
@@ -172515,8 +172540,11 @@ standing frame, which carries two steps every time, moved 113.3 → 114.3.
 `tests/movable.txt` lines): `OS88_REGION_MOVABLE px_reloc` in the entry
 proc and `OS88_WORKER_RESTARTABLE px_worker_rs` after the spawn. The proc
 is not a `ret` — this is a re-homed program whose carve holds parts 1 and
-2 — and it moves every word naming our own region by the delta when it is
-not 0: the handoff's `PXH_GEN` and `PXH_BT`, `px_bseg` and the segment
+2 — and it RE-DERIVES every word naming our own region from the new
+segment and the loader's two offsets (docs/plans/KERN-MEGA-PLAN.md 14.48,
+10.3 items 47 and 50: on kern_mega a code word is an LDT alias, which moves
+by the delta >> 2, so adding the delta named another selector; on kern_big
+the two are the same words), a refused part staying 0: the handoff's `PXH_GEN` and `PXH_BT`, `px_bseg` and the segment
 halves of `px_qcur`/`px_qcurv`/`px_qcurh` (the bodies: part 1, or part 0
 itself when part 1 was refused), `px_drvp`'s and `px_drv2p`'s, and part
 1's own copy of the byte textures' segment at `PXG_QTEX`. Not `PXH_LEV`
