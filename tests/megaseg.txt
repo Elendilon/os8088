@@ -34,4 +34,7 @@
 #             8042 emptied right after an ICW1, in mega_r286 (a 286's reset
 #             landing, real mode) and mega_dropr (the drop into DOS, real
 #             mode). Both run where `.mega` cannot be reached
-4345
+# 2026-10-21: -322, KERN-MEGA-PLAN 14.65 - the menu bar's field readings
+#             (NMI, RST, FDC RESET, RFL, Q, DOSP) behind MEGADIAG=1: their
+#             strings and the counters' .bss were the kernel segment's
+4023
