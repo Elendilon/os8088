@@ -9425,3 +9425,23 @@ stray `2` on the seventh. Also covering: `megap2hiber`, `megahiber`,
   that drives a PS/2 mouse itself (int 15h C2xx) initialises it anyway; one
   that expected it reporting with nobody having said so would see nothing,
   which is what POST would have given it.
+
+### 14.63 Field: the mouse dies when it MOVES DURING THE LIVE RESUME (2026-10-21)
+
+The owner, on the Victory 286 at 343124b2 (14.62's fix): the mouse froze on
+the very first return - so 14.62 did not catch the return half - and after
+half a dozen more tries, **a solid repro: moving the mouse WHILE THE LIVE
+RESUME IS HAPPENING is what kills it on the desktop.** It is 14.62's
+finding (the pointer moving across the LAUNCH) in the other direction.
+
+The reading: the return re-enables the mouse's reporting (`hbm_wake`'s
+`0xF4`) and then makes more BIOS calls, and on a 286 every one is a CPU
+reset through the reflection - whose BIOS re-initialises the 8259 on that
+path (14.62's inference), erasing a pending edge. A packet byte that lands in
+that window is stranded in the 8042's one buffer and both devices go silent.
+14.62's one-shot drains (`hbm_kstrand`, `mega_kdrain`) run at fixed moments;
+a hand on the mouse keeps bytes coming after them, so a fixed-moment drain
+cannot win this. **Being built as 14.64**: a watchdog on the tick - a byte
+that has sat in the 8042 for two ticks with its line UNMASKED at the PIC has
+lost its edge, and reading it out frees the controller - which covers every
+lost edge on the 286's reset path, not only the resume's.
