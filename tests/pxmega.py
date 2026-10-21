@@ -60,13 +60,13 @@ def canvas(path):
 def main():
     keep = "--keep" in sys.argv
     t = os88build.tree("MEGATRAP=1", targets=(
-        "mega.img", "megarun.o88", "mbr.bin", "pixel.o88"))
+        "mega.img", "megarun.o88", "mbr.bin", "megak/apps/pixel.o88"))
     out = os.path.join(t.dir, "pxmega")
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     disk = os.path.join(out, "pics.img")
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"),
-                    "-o", disk, "--size", "1440", t.img("pixel.o88")] +
+                    "-o", disk, "--size", "1440", t.img("megak/apps/pixel.o88")] +
                    [os.path.join(ROOT, "apps", "pixel", "samples", s)
                     for s in SAMPLES], check=True, stdout=subprocess.DEVNULL)
     t0 = time.time()

@@ -9733,3 +9733,133 @@ Covering: `megadosp`, `megaflt`, `megarehome`, `megatrap0`, `megahiber`,
 (`megadiag`, `megadiag-hb`) for the knob's arm. No row asserted on a removed
 notice, so none changed. `megakbtrip`'s 1-in-10 is the base's (14.65.4). kern_big
 and kern_small rows cannot see this change: their kernels are byte-identical.
+
+### 14.66 kern_mega's package ARMS: what a shipped package may carry for it, and the gate (2026-10-21)
+
+The owner: *"Adding 5kb to all shipping video.o88s won't work; we can replace
+the video.o88 on the mega apps disk as needed, special app builds are ok.
+That is true of all mega changes and I thought we had a gate for it - mega
+specific work that more than trivially increases the disk size is gated to
+mega builds only. Can you do a survey and make sure that is right?"* **There
+was no such gate and no kern_mega apps disk** - `make mega` said "pair them
+with the SHIPPED build/apps.img" - and DOS.O88's `DOS_MEGA` was the one
+package with a kern_mega-only build. Both exist now; SPEC.md 20.18 is the
+contract.
+
+#### 14.66.1 The survey
+
+Every shipped `.o88`/`.drv` was built at 98266265 (protected-mode's branch
+point from elendilon), at 7feb6f7f (elendilon's version 2 player, the first
+parent of the 2e77a97e merge) and on this branch, and measured as file bytes
+/ unpacked image (`os88pkg`/`os88drv.image_unwrap`); the growth is
+attributed from `git log -p` on each package's sources: (a) kern_mega-
+specific, (b) a shared fix or feature, (c) trivial. "Before" is 2e77a97e's
+build against 98266265; "after" is this branch's SHIPPED build against it.
+
+| package | before | after | attribution |
+|---|---|---|---|
+| VIDEO.O88 | +6,486 file / +3,295 image (+3,110 / +1,789 against 7f), with part 1 `vblkpm.bin`: 5,023 bytes, 1,798 packed | **47,328 / 58,730: the file 7feb6f7f shipped, to the byte; the image 62 smaller**; part 0 `vblk.bin` md5 `d8097675ab7a284c94a47570dfd37af5`, 7f's | (a) part 1; `[vp_pm]`'s in-place reads through `OSAPI_XMEM_RUN`'s selectors; the ring above 1MB (14.41); `vp_pmbigq` (14.58); the 8-paragraph grid; `OSAPI_MEM_CODESEL`; the DMA-door claims; the speaker library's PM ISRs - **all moved to the arm**. (b) kept: 14.16's rewrites that write nothing through CS (`vd_walk`'s colour in its frame, `vdec.inc`'s list map in DX - by its own count ~50 cycles a frame FASTER on an 8088, and self-aligned by `VD_PAR`; `vp_lrget`, `vp_khdr`, `vp_rbnd`, `vp_bcb`), and five `call vp_mclaim` sites, 2 bytes smaller each |
+| AUDIO.O88 | +365 / +912 | +12 / +15 | (a) the speaker library's PM copies (os88spk.inc's second ISR family, os88spkfx.inc's level and emit copies, ~900 bytes) - moved. (c) the 15 left are the fail-safe: `os88spk_go` refusing under `CPU_F_PM` |
+| TRACKER.O88 | +506 / +994 | +22 / +18 | (a) the speaker library as Audio's, `trk_claimsel`, `mp_patseg`'s flat arm, the selector tests - moved. (b) the 128-byte granule addressing of samples and patterns, which any kern_mega run needs, low or high - kept |
+| MIDIRACK.O88 | +512 / +852 | +0 / +238 | (a) the speaker library, `mwt_voicep`/`mwt_pmset` (the wavetable loop's PM copy), the selector limit and flat placement - moved. (b) 14.55/14.59's ring claimed at Play and freed at every stop, its refusal sentences, and `mwt_place`'s offset-kept placement - kept |
+| PIXEL.O88 | +2,048 / +135 (parts +3,028 unpacked) | +1,536 / +135 (parts +357) | (a) 14.40's 290 `PXSW` stores and 70 `PXSWON` runs through ES = `PXP_SELF`, ~2.5KB of the parts' image: the macros spell `[cs:` in the shipped build now (a `%define es cs` inside them) and the arm rebuilds the seven parts that use them. (b) the parts' grid fixes and `PXP_SELF`/`PXP_PKGD` in the part header - kept. The file's +1,536 is three 512-byte part sectors |
+| TASKMGR.O88 | +747 / +823 | same | (b) SPEC.md 28.4.8's IVT+BIOS (EBDA) accounting, 28.4.9's 640K-1MB map, `OSAPI_XMEM_WALK`'s above-1MB rows (kern_big's store has them too). (c) `tm_pm`, ~80 bytes, kept on purpose: the copy on kern_mega's system disk reports kern_mega's memory truthfully (tests/megapkg.txt) |
+| SKIES.O88 | +522 / +522 | same | (c) the code grew 108 bytes (cs_xpand: `OSAPI_MEM_SUBSEG`'s ~25 and the granule-aligned sum every kernel takes); the 522 is a part crossing a sector |
+| HIBER.DRV (kern_big's module) | +423 / +838 | same | (b) every addition live on kern_big is a shared fix - `hbm_kstrand` (14.62's stranded 8042 byte; kern_big's DOS trip has it too) and `hbm_psum` (SPEC.md 87.4.1's sum over the programs) - checked by walking hiber.inc's live lines with `KERN_BIG` against 98266265's. Its kern_mega code is `%ifdef KERN_MEGA` already, and kern_mega's HIBER.DRV is a build of its own |
+| HDDTOOL.DRV | +309 / +512 | same | (b) the installer's refusal saying what it tried (10.3 items 27 and 54), a field diagnostic for every kernel's installer |
+| PAINT.O88 | +120 / +116 | same | (b) the BMP rows and the move on the 8-paragraph grid; (c) the flat arm for a selector canvas, tens of bytes |
+| 1942.O88 | +0 / +99 | same | (c) two `OSAPI_MEM_CODESEL` calls (DX itself in real mode) and the scroll's grid |
+| XMEM.DRV | +48 / +57 | same | (b) `xm_walk`, the pool walk the Task Manager's rows read on kern_big |
+| DOS.O88, SOUND, HDD, RAMDISK, DESK, TANK | +38, +35, +14, +18, +12, +27 file | same | (c) DOS has had its arm since KERN-MEGA-DOS-PLAN 12.1; the drivers' `OS88_DRV_HIGHOK` bit, `SBL_DSCS`, `rd_fold`'s selector test and HDD.DRV's `hd_xa_arm` refusal are tens of bytes each |
+| REALDMG.O88 (new, merged during this work) | - | - | no kern_mega code: no marker, no `PKG_MEGA`, and it exempts itself from both class bits (tests/megahigh.txt, 199124f1) |
+
+#### 14.66.2 The mechanism
+
+- **`PKG_MEGA`** (`apps/os88mega.inc`): a package assembles its
+  kern_mega-only code under `%ifdef PKG_MEGA`, which no shipped recipe
+  passes. `$(MEGAPKGS)` (Makefile, beside `MEGADIR`) is the list - VIDEO,
+  AUDIO, TRACKER, MIDIRACK, PIXEL - each built by a `$(MEGAAPPDIR)` rule into
+  `build/megak/apps/`. Not `build/megak/` itself: the kern_mega kernel's
+  sub-make builds `build/megak/tracker.o88` there for its icon pipeline,
+  from the plain recipe.
+- **The disks**: `build/megaapps.img` (1.44MB) and `build/megaapps120.img`
+  (1.2MB) are `$(APPSARGS)` with `MEGASUB` substituting every arm, and `make
+  mega` builds them. `mega.img`/`mega120.img` take the same substitution
+  over `SYSTEM/` and the core set (no arm there today, so the same bytes).
+  `make megapkgs` prints each arm against its shipped build.
+- **The fail-safe, per package**, because nothing stops somebody putting the
+  ordinary apps disk in a kern_mega machine:
+  - VIDEO refuses to START (`OS88_MEGA_REFUSE`: `Use the MEGA apps disk`):
+    its every borrow is LOADALL or a loaded base. Its shipped class byte
+    declares neither bit.
+  - AUDIO, TRACKER and MIDIRACK refuse the speaker PCM TIER (`os88spk_go`,
+    CF=1 under `CPU_F_PM`) and play another way. TRACKER's and MIDIRACK's
+    shipped class bytes drop `OS88_HIGHMEM` - what reads a selector claim is
+    the arm's - and keep `OS88_HIGH`; AUDIO keeps both (none of its own
+    code moved).
+  - PIXEL runs, its parts' stores through CS completed by `mega_gpw` -
+    right, and slow, which is the arm's reason.
+- **`VP_GRAN`/`VP_GOFF`** keep the Video Player's 20 granule sites one line
+  each; `VP_OWNB` is the CS store again in the shipped build; one spare byte
+  where `vp_m3c` was keeps `vp_ring` and `vp_rdseg` at 7f's parity, and
+  `tools/os88rdiff.py` against 7f reports nothing hot moved by an odd amount
+  outside the decoder's own self-aligned rewrite.
+
+#### 14.66.3 The gate
+
+`tests/unit/t_megapkg.py`, FAST (1.6s): every shipped build's live source -
+the shipped recipe's defines, through every `%include`, a macro's body where
+it is invoked - may name a kern_mega marker (`CPU_F_PM`,
+`OSAPI_MEM_CODESEL`, `OSAPI_MEM_SUBSEG`, `OSAPI_XMEM_RUN`, `OS88_CODESEL`)
+per file exactly as often as `tests/megapkg.txt` says, with a reason, the
+registry turning one way; no shipped `.o88` may take a part assembled with a
+kern_mega define; a build whose live graph names `PKG_MEGA` (or invokes a
+macro that does) has its arm, whose rule passes `-DPKG_MEGA`; and a current
+`build/megaapps*.img` carries the arms. **It is by NAME**, so the coming
+renumbering of kern_mega's cells after main's merge cannot move it. Red on
+2e77a97e six ways (VIDEO's, VIDEOD's and VIDEOR's vblkpm part; the live
+`CPU_F_PM` sites of video.asm, os88spkfx.inc and midirack.asm); red with one
+`%ifdef PKG_MEGA` pair taken from `os88spkfx_init`; red with AUDIO out of
+`$(MEGAPKGS)`. Blind to an arm's code that names no marker (os88spk.inc's
+second ISR family is only data-selector stores): `make megapkgs`' sizes are
+where that shows.
+
+Also changed: `t_megahigh.py` reads an armed package's class byte off the
+ARM and holds its shipped build to declaring no more; `t_megagrid.py` and
+`t_cswrite.py` exempt the `%ifndef PKG_MEGA` arm as they exempt `%ifndef
+KERN_MEGA`'s.
+
+#### 14.66.4 Measured, on what
+
+- **The arms are BYTE-IDENTICAL to 2e77a97e's shipped packages** -
+  video.bin, audio/tracker/midirack.o88, PiXEL's seven parts and pixel.o88 -
+  so every kern_mega row tests what it tested before, from a new path.
+- kern_big on MartyPC: `vidplay`, `vidv2`, `vidxip` ok; `vblkemu` and
+  `vblkemu --pm` (unicorn) ok.
+- kern_mega under Bochs 2.7: `megavidv2` with the arm, 0 traps on every leg
+  of all three layouts, the tails identical, 338s; `pxmega` with the arm, 0
+  traps on every sample, 189s; the SHIPPED `VIDEO.O88` swept on kern_mega:
+  `MEGARUN: no 04` - refused, no fault.
+- 360KB disks, from the file sizes at 1KB clusters: apps360 5 clusters freed
+  (VIDEO 50 -> 47, TRACKER 27 -> 26, AUDIO 10 -> 9), 334 of 354 in use;
+  media360 1 (MIDIRACK 31 -> 30); office360 none (PIXEL stays 110).
+- Kernels untouched: nothing under `kernel/` changed.
+
+#### 14.66.5 Rows, and for the owner
+
+Rows: `megapkg` (fast, new), `megahigh`, `megagrid`, `cswrite`, `pkgdeps`;
+kern_big `vidplay`, `vidv2*`, `vblkemu`, `vblkemupm`, `vidxip`, `vidbank`,
+`vidfskeys`, and the Tracker, Audio and MIDIRack speaker rows for the
+shipped side; kern_mega `megavidv2`, `megavidbig`, `pxmega` (these three
+take `build/megak/apps/` now), `megahigh`, `megatrap0`, `megarehome` for the
+arm.
+
+For the owner: (1) the shipped Video Player REFUSING on kern_mega is a
+choice - a shipped player that ran there would need the very PM paths this
+removes; (2) 14.16's decoder rewrites stayed shared, because reverting them
+means two copies of the hottest code in the player, and they are faster on
+an 8088 too; (3) what is left in PiXEL's parts (+357 unpacked) and Paint
+(+116) is the 8-paragraph grid, which any kern_mega run needs, low or high,
+and the Task Manager's `tm_pm` (~80 bytes) is kept so its system-disk copy
+tells the truth there - each is a line in tests/megapkg.txt that a later
+call can lower.

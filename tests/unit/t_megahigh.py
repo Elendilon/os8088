@@ -60,6 +60,17 @@ that, the defines are read off that recipe rather than restated, and the
 artefact cross-check for a recipe with a KERN_MEGA arm reads the kern_mega
 tree's image alone (kern_big's dosp.bin is byte 15 = 0 on purpose).
 
+A PACKAGE WITH A kern_mega ARM IS ASKED ABOUT THE ARM (KERN-MEGA-PLAN
+14.66, SPEC.md 20.18). Its code that only kern_mega runs is under `%ifdef
+PKG_MEGA`, `make mega` builds that arm ($(MEGAAPPDIR)/<stem>.bin, -DPKG_MEGA)
+onto kern_mega's own disks, and the SHIPPED build is free to declare less -
+its claims stay conventional, or it refuses under protected mode - because
+the shipped build is what an 8088 runs. So for a stem in $(MEGAPKGS) the
+class is read with the arm's defines, and the artefact cross-checked is
+build/megak/apps/<stem>.bin; the shipped build's own byte is held only to
+being no MORE than the arm's (a shipped build that says OS88_HIGHMEM when
+the arm does not is a fail-safe turned inside out).
+
 THE FAILING CASES (docs/WRITING-TESTS.md 1), all three tried when this was
 written: take OS88_HIGHMEM out of apps/hello/hello.asm and the row fails
 naming HELLO; put a `highmem` line in for a package that declares (CALC was
@@ -299,6 +310,28 @@ def artefacts(stem, mega):
     return [p for p in out if os.path.isfile(os.path.join(ROOT, p))]
 
 
+def mega_arms(mk):
+    """{stem: defines} of every kern_mega arm: a `$(MEGAAPPDIR)/<stem>.bin`
+    rule's nasm line, and only the stems $(MEGAPKGS) names"""
+    out = {}
+    cur = None
+    for ln in mk.split("\n"):
+        m = re.match(r"^\$\(MEGAAPPDIR\)/([A-Za-z0-9_-]+)\.bin\s*:", ln)
+        if m:
+            cur = m.group(1)
+            continue
+        if not ln.startswith("\t"):
+            cur = None
+            continue
+        if cur and "NASM" in ln:
+            bare = re.sub(r"\$\(if [^()]*(?:\([^()]*\)[^()]*)*\)", " ", ln)
+            out[cur] = set(re.findall(r"(?<!\S)-D(\w+)", bare))
+    m = re.search(r"^MEGAPKGS\s*:?=\s*(.*)$", mk, re.M)
+    listed = set(re.findall(r"\$\(MEGAAPPDIR\)/([a-z0-9_-]+)\.o88",
+                            m.group(1))) if m else set()
+    return {k: v for k, v in out.items() if k in listed}
+
+
 def registry():
     out, bad = {}, []
     with open(REGISTRY) as fh:
@@ -362,6 +395,7 @@ def main():
 
     mk = makefile()
     allr = recipes(mk)
+    armd = mega_arms(mk)
     for src, stem in SHIPPED_STEM.items():
         check(any(r[0] == stem for r in allr.get(src, [])),
               "megahigh: SHIPPED_STEM names %s.bin for %s and the Makefile "
@@ -392,7 +426,21 @@ def main():
         rs = allr.get(main_src, [])
         rec = shipped_recipe(main_src, rs)
         plain, mega = (rec[1], rec[2]) if rec else (set(), set())
-        byte, what, problem = class_of(main_src, plain | mega, vals)
+        arm = armd.get(rec[0]) if rec else None
+        if arm is not None:
+            sbyte, swhat, _ = class_of(main_src, plain, vals)
+            byte, what, problem = class_of(main_src, arm, vals)
+            if sbyte is not None and byte is not None:
+                check(sbyte & (hi | hm) & ~byte == 0,
+                      "megahigh: %s's SHIPPED build declares a bit its "
+                      "kern_mega arm does not" % main_src,
+                      why="the arm is what kern_mega is meant to run; a "
+                          "shipped build may declare LESS (its claims "
+                          "conventional where reading a selector claim is "
+                          "the arm's), never more (KERN-MEGA-PLAN 14.66)",
+                      got="shipped `%s`" % swhat, want="within `%s`" % what)
+        else:
+            byte, what, problem = class_of(main_src, plain | mega, vals)
         if problem:
             check(False, "megahigh: cannot read %s's class byte" % main_src,
                   why=problem, got=what, want="one decidable class")
@@ -404,7 +452,10 @@ def main():
         ask_mem = (not loader) or bool(OWN_CLAIM.search(own))
 
         if rec:
-            for art in artefacts(rec[0], mega):
+            arts = [os.path.join(MEGADIR, "apps", rec[0] + ".bin")] \
+                if arm is not None else artefacts(rec[0], mega)
+            arts = [a for a in arts if os.path.isfile(os.path.join(ROOT, a))]
+            for art in arts:
                 if os.path.getmtime(os.path.join(ROOT, art)) < \
                         os.path.getmtime(os.path.join(ROOT, main_src)):
                     continue            # stale: the next build decides

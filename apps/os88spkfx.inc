@@ -72,13 +72,15 @@ os88spkfx_init:
     push di
     push ds
     push es                         ; (ES: the family's segment, kept)
+%ifdef PKG_MEGA
     mov bx, ax                      ; PROTECTED MODE (kern_mega, SPEC.md
     call OSAPI_CPU_INFO             ; 34.11.1.1): the writing parts' second
     test ah, CPU_F_PM               ; copy, through our data selector, and
-    xchg ax, bx                     ; a span then traps not once
-    jz .rm
-    call os88spkfx_pmset
-.rm:
+    xchg ax, bx                     ; a span then traps not once - the
+    jz .rm                          ; kern_mega arm's alone (KERN-MEGA-PLAN
+    call os88spkfx_pmset            ; 14.66). Without it os88spk_go refuses
+.rm:                                ; under CPU_F_PM, so nothing emits there
+%endif
     cmp word [cs:os88spk_lptp], 0   ; ON A COVOX IT IS A LEVELLER AND NOTHING
     je .spk                         ; ELSE (SPEC.md 34.14): no pre-emphasis -
     xor ax, ax                      ; the tilt is for a cone that cannot move
@@ -579,6 +581,7 @@ os88spkfx_prev: db 0x80             ; the last sample emitted
 os88spkfx_xm:   db 0                ; 80h: rows stored at i ^ 80h (PRE_DIFF)
 os88spkfx_et:   dw 0                ; the mode's entry table...
 os88spkfx_etz:  dw 0                ; ...and its table for d = 0
+%ifdef PKG_MEGA                     ; (KERN-MEGA-PLAN 14.66: kern_mega's arm)
 os88spkfx_dsel: dw 0                ; protected mode: our DATA selector
 
 ; -----------------------------------------------------------------------------
@@ -621,3 +624,4 @@ os88spkfx_pmset:
     db 0                            ; (what follows the include moves by an
                                     ; EVEN count: its words keep their
                                     ; alignment on a 286's 16-bit bus)
+%endif                              ; PKG_MEGA

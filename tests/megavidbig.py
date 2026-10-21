@@ -110,7 +110,8 @@ def main():
             print("FAIL: the clip has no record past 32 KB (%d)" % r.rmax)
             return 1
         stage = os.path.join(tmp, "VIDEO.O88")
-        shutil.copy(a.pkg or os.path.join(BUILD, "video.o88"), stage)
+        shutil.copy(a.pkg or os.path.join(BUILD, "megak", "apps",  # the ARM
+                                          "video.o88"), stage)      # (14.66)
         disk = os.path.join(out, "big.img")
         subprocess.run([sys.executable, os.path.join(ROOT, "tools",
                                                      "os88disk.py"),

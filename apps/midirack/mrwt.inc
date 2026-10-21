@@ -241,7 +241,8 @@ mwt_load:
     mov ax, [es:MRK_DOFF+2]         ; paragraph step off kern_mega's grid of
     mov [mwt_doffh], ax             ; conventional descriptors, and nothing
     mov cx, 0xFFFF                  ; at all on a selector (mwt_place)
-    test byte [mwt_bseg], 4
+%ifdef PKG_MEGA                     ; (a SELECTOR is an OS88_HIGHMEM claim:
+    test byte [mwt_bseg], 4         ; the kern_mega arm's, 14.66)
     jz .lim
     mov ax, [mr_bankkb]             ; a selector (KERN-MEGA-PLAN 14.13): no
     cmp ax, 64                      ; voice may read past the claim - real
@@ -250,6 +251,7 @@ mwt_load:
     mov cl, 0                       ; 0xFFFF already
     shl ch, 1
     shl ch, 1
+%endif
 .lim:
     mov [mwt_lim], cx
     clc
@@ -442,8 +444,10 @@ mwt_place:
     add ax, [mwt_doff]
     adc dx, [mwt_doffh]             ; DX:AX = A
     mov cx, [mwt_bseg]
-    test cl, 4
+%ifdef PKG_MEGA
+    test cl, 4                      ; (a selector: the kern_mega arm's)
     jnz .flat
+%endif
     push ax
     mov cx, 7
 .g:
@@ -1222,6 +1226,7 @@ mwt_voice:
 ; and adds it from there - DS IS the mix claim in the loop - and mwt_pmset
 ; points .st here once, at entry, so kern_big runs mwt_voice unchanged
 ; -----------------------------------------------------------------------------
+%ifdef PKG_MEGA                     ; (the kern_mega arm's alone, 14.66)
 mwt_voicep:
     ; STKBALANCE-OK: never called - mwt_voice.st jumps here with its seven registers pushed, and .done/.ends pop them
     mov es, [mwt_xseg]              ; (ES is the sample's again in MWT_VSET)
@@ -1240,6 +1245,7 @@ mwt_pmset:
     mov word [mwt_voice.st+1], mwt_voicep - (mwt_voice.st + 3)
     mov byte [mwt_voice.st], 0xE9
     ret
+%endif                              ; PKG_MEGA
 
     MRW mwt_vend                    ; the voice the loop is on: its end...
     MRW mwt_vinc                    ; ...the most a step moves...

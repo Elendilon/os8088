@@ -47880,6 +47880,47 @@ disk back in the drive.
 1.2MB and 1.44MB apps disks and the everything disk (§19.10). The 360KB apps
 disk is at 352 of 354 clusters and this program is five.
 
+### 20.18 A package's kern_mega ARM — `PKG_MEGA` and `apps/os88mega.inc`
+
+**Code a package carries only for kern_mega is assembled under `%ifdef
+PKG_MEGA`, and no shipped build defines it** (docs/plans/KERN-MEGA-PLAN.md
+14.66). The owner's rule: *"mega specific work that more than trivially
+increases the disk size is gated to mega builds only."* kern_mega runs most
+packages unchanged — it completes a store through CS and a far call through a
+data segment (KERN-MEGA-PLAN 14.16) — so what a package adds for it is
+protected mode's FAST or CORRECT path: a second copy of an ISR that writes
+through a data selector (§34.11.1.1), the Video Player's in-place reads
+through a run of selectors and its block decoder's protected-mode part
+(§98.3.23.2), code that reads a claim that is an LDT selector.
+
+1. **The arm is a build, not a knob.** `make mega` assembles each armed
+   package again with `-DPKG_MEGA` into `build/megak/apps/` and writes
+   kern_mega's apps disks, `build/megaapps.img` (1.44MB) and
+   `build/megaapps120.img` (1.2MB): the shipped apps disk with those builds
+   substituted, `make smallapps`'s shape (§27.16). kern_mega's system disks
+   take the same substitution for what they carry. `$(MEGAPKGS)` is the list.
+   A mega arm calls the same API table at the same offsets as its shipped
+   build: it is one package built twice, not a second ABI.
+2. **The shipped build must still be CORRECT on kern_mega**, because nothing
+   stops a user putting the ordinary apps disk in a kern_mega machine. Each
+   armed package says how, at the place it does it: it runs LOW and plain
+   (no `OS88_HIGHMEM` in its shipped class byte when what reads a selector
+   claim is the arm's — Tracker, MIDIRack), it refuses one TIER
+   (`os88spk_go` answers CF=1 under `CPU_F_PM`, so the package plays another
+   way or not at all — Audio), or it refuses to START with
+   `OS88_MEGA_REFUSE` (`Use the MEGA apps disk`), for a package every path of
+   which assumes real mode — the Video Player, whose borrows are LOADALL and
+   a loaded base.
+3. **`tests/unit/t_megapkg.py` is the gate** (fast tier): every shipped
+   build's live source — the shipped recipe's defines, `PKG_MEGA` and
+   `KERN_MEGA` unset, through every `%include` the package names — may name a
+   kern_mega marker (`CPU_F_PM`, `OSAPI_MEM_CODESEL`, `OSAPI_MEM_SUBSEG`,
+   `OSAPI_XMEM_RUN`, `OS88_CODESEL`) no more times than `tests/megapkg.txt`
+   allows it, with a reason; no shipped package may carry a part assembled
+   for protected mode (`-DVB_PM`, `-DPKG_MEGA`); and every `$(MEGAPKGS)`
+   entry must be what kern_mega's apps disk carries. The registry turns one
+   way: an allowance above what the source uses FAILS.
+
 ## 21. loader.inc
 
 State (.bss, **zero at boot** — §2.5, and there is no `loader_init`: all
@@ -68301,6 +68342,13 @@ the package does the rest inside the same IF = 0 window. In short:
   whether the bracket is the CALLER's own (`fsx_mine`).
 
 ##### 34.11.1.1 kern_mega in protected mode: the door writes the GATE (AL = 2)
+
+**The second ISR family below is a package's kern_mega ARM (§20.18,
+KERN-MEGA-PLAN 14.66)**: `apps/os88spk.inc` and `apps/os88spkfx.inc` assemble
+the protected-mode copies only under `PKG_MEGA`, and a SHIPPED build's
+`os88spk_go` answers CF=1 under `CPU_F_PM` instead - its ISRs would store
+through CS a sample at a time - so the package plays another way or not at
+all. `make mega` builds the arms that carry them.
 
 In protected mode IRQ0 is IDT gate 20h, and the IVT's cell for it holds the
 BIOS's handler for a reflection, so a caller cannot point IRQ0 at its own ISR
@@ -183582,6 +183630,14 @@ the record's SI and the block's DI wait in the part, not on the stack,
 which the hook's 48 bytes bound.
 
 ##### 98.3.23.2 Under protected mode: the part's second assembly (2026-10-21)
+
+**Part 1 is the kern_mega ARM's alone (§20.18, KERN-MEGA-PLAN 14.66).**
+The SHIPPED `VIDEO.O88` - every apps disk - is built without `PKG_MEGA`: one
+part, part 0, byte for byte the part 7feb6f7f shipped, and an entry proc that
+REFUSES under `CPU_F_PM` (`Use the MEGA apps disk`), every borrow it would
+make being a LOADALL or a loaded base. `make mega`'s `build/megak/apps/
+VIDEO.O88` is the build this section describes, with both rows. What follows
+is that build.
 
 **On kern_mega the player fetches PART 1, not part 0** - the same
 `apps/video/vblk.asm` assembled with `-DVB_PM` (`build/vblkpm.bin`), row 1

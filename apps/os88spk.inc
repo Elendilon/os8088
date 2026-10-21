@@ -252,34 +252,49 @@ os88spk_go:
     mov [cs:os88spk_kr], ax         ; ...which ends a period: K and the
     popf                            ; chain are set by then, below
     mov dx, [cs:os88spk_n]
+%ifdef PKG_MEGA
     mov si, os88spk_isr             ; SI the real-mode copy, DI the protected-
     mov di, os88spk_isrp            ; mode one (34.11.1.1): both are patched
+%else
+    mov si, os88spk_isr             ; (the protected-mode copy is the kern_mega
+%endif                              ; arm's alone: KERN-MEGA-PLAN 14.66)
     mov ax, [cs:os88spk_lptp]
     or ax, ax
     jz .spk
     mov [cs:os88spk_isrd.port+1], ax ; A COVOX (SPEC.md 34.14): its port is
+%ifdef PKG_MEGA
     mov [cs:os88spk_isrdp.port+1], ax ; the ISR's own immediate
     mov si, os88spk_isrd
     mov di, os88spk_isrdp
+%else
+    mov si, os88spk_isrd            ; the ISR's own immediate
+%endif
     jmp short .one
 .spk:
     mov al, [cs:os88spk_pp]
     cmp al, 1
     je .one
     mov byte [cs:os88spk_isrm.j+1], os88spk_isrm.whole - (os88spk_isrm.j + 2)
+%ifdef PKG_MEGA
     mov byte [cs:os88spk_isrmp.j+1], os88spk_isrmp.whole - (os88spk_isrmp.j + 2)
+%endif
     mov al, [cs:os88spk_sil]        ; PULSES A SAMPLE (34.11.7): the first
     mov [cs:os88spk_isrm.hv+1], al  ; entry a whole one, and the half path
+%ifdef PKG_MEGA
     mov [cs:os88spk_isrmp.hv+1], al ; silence until it has a count
     mov si, os88spk_isrm
     mov di, os88spk_isrmp
+%else
+                                    ; silence until it has a count
+    mov si, os88spk_isrm
+%endif
 .one:
     mov bx, cs                      ; the ISR's segment, for the door
     push ax
     call OSAPI_CPU_INFO             ; protected mode: the door writes IRQ0's
     test ah, CPU_F_PM               ; GATE, and the copy that writes its state
-    pop ax                          ; through its data selector plays
-    jnz .pm
+    pop ax                          ; through its data selector plays - in the
+    jnz .pm                         ; kern_mega arm (PKG_MEGA); refused in this
     xor al, al
     pushf                           ; IF = 0 FROM THE DOOR until IRQ0 is the
     cli                             ; ISR's and channel 0 counts N (34.11.1)
@@ -316,6 +331,14 @@ os88spk_go:
     popf
     xor ax, ax
     jmp short .out
+%ifndef PKG_MEGA
+.pm:                                ; PROTECTED MODE WITHOUT THE kern_mega ARM
+    stc                             ; (KERN-MEGA-PLAN 14.66): refused, so the
+    jmp short .out                  ; package plays another way or not at all.
+                                    ; This copy's ISRs write their state through
+                                    ; CS, which kern_mega completes a fault a
+                                    ; SAMPLE - thousands a second
+%else
 .pm:
     mov [cs:os88spk_dsel], ds       ; the ISRs' DATA selector: ours
     mov si, di                      ; the protected-mode copy, whose GATE the
@@ -332,6 +355,7 @@ os88spk_go:
     jmp short .pit
 .pmno:
     pop cx
+%endif
 .no:
     popf
     stc
@@ -606,16 +630,20 @@ os88spk_acct%2:
 
 %endmacro
     OS88SPK_ISRS cs, , 0
-    OS88SPK_ISRS es, p, 1
+%ifdef PKG_MEGA
+    OS88SPK_ISRS es, p, 1           ; (kern_mega's arm alone, KERN-MEGA-PLAN 14.66)
+%endif
 
 os88spk_rp:     dw 0, 0             ; the next count, far
 os88spk_left:   dw 0                ; the grant's samples not yet played
 os88spk_g:      dw 0                ; the grant, as made
 os88spk_kr:     dw 0                ; the period's samples after the grant...
 os88spk_kn:     dw 0                ; ...and a period's (K, the door's)
+%ifdef PKG_MEGA
 os88spk_dsel:   dw 0                ; protected mode: our DATA selector, for
                                     ; the ISRs' state (os88spk_isrp and its
                                     ; family, 34.11.1.1)
+%endif
 os88spk_chain:  dw 0, 0             ; the kernel's IRQ0, far: what the vector
                                     ; held when os88spk_go took it
 os88spk_sil:    db 0                ; a dry grant's count: the table's middle

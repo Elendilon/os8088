@@ -104,7 +104,9 @@ def walk(path):
     KERN_MEGA`, or the `%else` of `%ifdef KERN_MEGA` - is left out: it is
     real mode's own spelling of something kern_mega does another way, which is
     exactly what a conversion leaves behind. tests/unit/t_seg0.py walks the
-    same way."""
+    same way. A PACKAGE's `%ifndef PKG_MEGA` arm is the same thing one
+    level out (KERN-MEGA-PLAN 14.66, apps/os88mega.inc): the SHIPPED build,
+    which kern_mega's own disks replace with the PKG_MEGA arm."""
     with open(path, errors="replace") as f:
         lines = [code(x) for x in f.read().split("\n")]
     out = []
@@ -114,7 +116,8 @@ def walk(path):
         m = IFDEF.match(l)
         if m and m.group(1).lower() in ("ifdef", "ifndef"):
             neg = m.group(1).lower() == "ifndef"
-            stack.append(["mega" if m.group(2) == "KERN_MEGA" else None, neg])
+            stack.append(["mega" if m.group(2) in ("KERN_MEGA", "PKG_MEGA")
+                          else None, neg])
             continue
         if IFANY.match(l) and not m:
             stack.append([None, False])

@@ -176,12 +176,10 @@ def build(tmp, sim, defs=()):
     vb = os.path.join(tmp, "vblk.bin")  # the block decoder is a PART
     subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
                     "-o", vb, "apps/video/vblk.asm"], check=True)
-    vbp = os.path.join(tmp, "vblkpm.bin")  # ...and part 1, its protected-
-    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",  # mode
-                    "-DVB_PM", "-o", vbp, "apps/video/vblk.asm"],  # assembly
-                   check=True)
+    # (part 1, its protected-mode assembly, is the kern_mega arm's alone -
+    # KERN-MEGA-PLAN 14.66 - and this is the shipped build: one part)
     subprocess.run([sys.executable, "tools/os88pkg.py", b, "-o", o,
-                    "--part", vb, "--part", vbp], check=True,
+                    "--part", vb], check=True,
                    capture_output=True)
     return o
 
