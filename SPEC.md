@@ -67601,7 +67601,11 @@ What differs from a grant ring (§34.5.2):
   segment, `[sbl_rseg]`); otherwise verb 0 answers 7, because there is no
   grant to copy from. The package claims it with `OSAPI_MEM_CLAIM_DMA_HI`,
   which makes it page-safe and an `MC_DMA` claim nothing will move - so
-  **nothing is pinned** and `sbl_unpin` has nothing to undo;
+  **nothing is pinned** and `sbl_unpin` has nothing to undo. **On kern_mega
+  the same call places it from the BOTTOM** (§50.3.2, KERN-MEGA-PLAN 14.55):
+  a claim with a head there is a ring held while it plays, and is claimed
+  low with the same page guarantee; kern_big and kern_small take it from
+  the top as before. A package changes nothing for it;
 - **verb 1 only RESUMES.** The total arrives through memory; an underrun
   still halts the card, and verb 1 is still what restarts it, with the same
   bound;
@@ -92571,6 +92575,21 @@ that disagrees with the pass in flight is a barrier to it. Choosing the door is
 still the caller's decision and this changes nothing about it — what it removes
 is the second, accidental half of that decision, which was that a top-down
 claim could never be compacted at all even when its holder could move it.
+
+**On kern_mega a claim at `OSAPI_MEM_CLAIM_DMA_HI` WITH A HEAD is taken from
+the bottom** (KERN-MEGA-PLAN 14.55, the owner's call). A head names a chip's
+64KB page, so it is a DMA ring, and every such ring in the tree is now held
+only while it plays - 1942's PCM rings, the Video Player's card ring,
+MIDIRack's (§105.8.4), `SOUND.DRV`'s own pool and double buffer - which is
+the shape KERN-MEGA-PLAN 14.51 lets stay in conventional memory: held only in
+use, claimed low, and gone or movable when idle, so the top of 640K stays one
+run. `mem_claim_dma_hi_x` clears the direction when CX is not 0 (four bytes of
+`.cold`); the scan, the page bump and the record are `OSAPI_MEM_CLAIM_DMA`'s,
+and the record carries no `MC_DMA_HI` bit, so a movable one (the pool)
+compacts downwards. **CX = 0 keeps the top**: the parts carve, the C overlay
+and the player's `vp_mclhi` claims ask the door for no page at all, and a
+carve or an overlay is a CS (§20.12.10.8). kern_big and kern_small are
+unchanged, byte for byte.
 
 
 #### 50.3.2.1 Two images the doors were opened for and did not reach
@@ -184998,7 +185017,10 @@ A page-safe 13KB DMA claim holds three prepared 4096-byte rings and their
 control words at offsets 0, 4112 and 8224. The bank, a part (101.6), is
 fetched only when the card can play it and the heap can hold it - asked first,
 so a busy heap is FM effects and not a toast inside the bracket: the bank's
-size against the heap's largest free run - copied to
+size against the heap's largest free run (it was compared against the TOTAL
+free, which `OSAPI_MEM_AVAIL` answers in BX over the size it held there, so
+any heap in two pieces refused - every time on kern_mega, where the ring is
+claimed bottom-up, KERN-MEGA-PLAN 14.55.3) - copied to
 offset zero, then expanded in place, last sample first. Each one-shot is
 padded with silence and played directly through SND_STREAM's external-ring
 interface. Starting an effect copies no samples. No mixer or refill worker
@@ -187790,8 +187812,32 @@ but it needs an auto-init DSP, and an SB 1.x answers verb 0 with 7. Then **the
 grant ring** every other player uses (§34.5.2): a 2,048-sample half made
 locally, staged with verb 6, published with verb 1. Pause is `SND_V_PAUSE` on
 the external ring; the grant ring pauses by not being fed. On MartyPC's 5150
-(DSP without auto-init) the grant ring plays 8 kHz with six voices and no
+(DSP 2.1, auto-init) the external ring plays 8 kHz with six voices and no
 underrun after the first.
+
+**The external ring is claimed at every Play and freed at every stop**
+(KERN-MEGA-PLAN 14.55, the owner's call): 17 KB, `(MRB_RL + 16 + 1023) / 1024`,
+page-safe. It was claimed at the first play and held to the window's close,
+which pinned 17 KB for a session that might play once. Now `mrb_close` gives
+it back - and `mro_close` is every road out of a play: Stop, a song's end and
+the next one's start, Eject, Remove, Clear, the window's close - as does
+`mrb_start` on any refusal and the moment the grant ring opens instead, since
+that one never reads it. **The order is the safety argument**: `mro_close`
+drains the worker first (`mro_drain`: `[mr_seqon]` cleared, `[mr_inpass]`
+waited out), verb 2 then stops the card, and only then is the ring freed, so
+no span is being made into it and no DMA is reading it. `mrb_span1` therefore
+needs no test; `mrb_tc` - which `mr_elapsed` reaches from the worker's draw,
+outside `[mr_inpass]` - reads `[mrb_seg]` once and answers 0, 0 for no ring,
+and `mrb_rfree` zeroes the word before the free, so a reader sees either no
+ring or freed conventional memory and never ES = 0 (a null selector, #GP, on
+kern_mega). **A refused claim is a refused Play**: nothing open, nothing
+held, and the status line says *"No memory for the card - close a program and
+retry"*; the next Play asks again. The price is one page-safe claim per song
+- a playlist claims between songs - and +70 bytes of image (51 of them the
+message), no bss. `midiracksbmem` is the gate: the ring in the claim map
+while it plays and gone at Stop, then a refusal forced with `tests/filler`
+and a play once the filler closes. On kern_mega the ring comes from the
+bottom of the arena (§34.5.3).
 
 **The staging half shares one 2 KB page with the speaker's** (`mrout.inc`):
 only one output is ever open, so the grant ring's half, the polled Covox's
@@ -188246,6 +188292,10 @@ on all sixteen channels and a resume's programs, and `--break` must fail) and
 `midirackwt` (the wavetable with the synthetic bank on `make mrwttest`'s
 disk: three voices at 6 kHz on the 8088, the card consuming at the rate with
 no underrun, and the pitch agreement and its negative control).
+`midiracksbmem` is the ring's lifetime (§105.8.4): held while a song plays,
+gone from the claim map at Stop, a Play refused with its message once
+`tests/filler` has taken the heap, and a Play that sounds once the filler
+closes - red with the ring kept at Stop.
 
 **`make xt-midirack`** is the period machine to hear it on: 86Box's 1986 XT
 at 4.77 MHz with 640 KB, an OTI-067 VGA, a Sound Blaster 2.0 (220h, IRQ 5,
