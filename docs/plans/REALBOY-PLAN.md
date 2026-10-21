@@ -1252,6 +1252,38 @@ failing the game. Auto needs the cache (it measures both and picks), so only
 Off qualifies. What this buys is the 286 user's own choice: 80-128K, about a
 third of what a game holds before its cartridge.
 
+#### What the core's fill can hold
+
+**All 48,295 bytes of it are free at run time**: nothing reads, writes,
+checksums or saves the 0CCh fill - the core is RAM, loaded from its parts at
+every launch, and the only writes into it (`rt_init`'s JDISPATCH patches) are
+in code. Two things touch it in passing and are harmless: `rt_init` copies
+the TAILS slots whole into the recompiler's cache, fill and all (data in
+those holes is copied and never run), and a stray jump into a hole lands on
+`int3` today and would land on data. **Its shape is what limits it**: the
+holes are one per half-slot (498 of them), every one ends where the next
+half-slot's code begins, so **no piece is longer than 127 bytes** and none
+joins another. 372 are 96-127 bytes, 59 are under 48. In pieces of a given
+size it holds 1,262 x 32 bytes, 852 x 40, 425 x 64, 372 x 96.
+
+So it suits things made of small records reached through a table, and
+nothing that must be one run. The claims, one by one:
+
+| claim | KB | fits? | why |
+|---|---|---|---|
+| the templates (Cut 1, in the region) | 14 | **yes** | 491 self-contained records of at most 94 bytes, already reached through a table |
+| the log's records | 4 | **yes** | 128 records of 32 bytes; a record's address from a 256-byte table, or found by walking |
+| a replay's pairs | 8 | possible | a stream: chunked at the holes, written a chunk a call |
+| the profile | 9 | with work | a hash table of 4-byte entries (`S_PRFMASK`), one run; buckets of 24 entries in 96-byte holes behind a 96-word index would change its probe, which the translator makes per block |
+| the damage memory | 15 | no | its 8K VRAM shadow is compared a run at a time (`repe cmpsw`), the hot path of every frame |
+| the frame buffers | 17 | no | handed to `OSAPI_GFX_BLIT1`/`BLITP` as bands; in pieces it is a blit a line, and a blit is priced by the call |
+| cartridge RAM, bank slots, the block table | - | no | 8K, 16K and 16-64K runs by what they are |
+| the recompiler's cache | 64 | not as a replacement | the cache already mirrors the core (the tails at their own offsets), so translated code COULD run in the core's holes with no claim at all - but 16.2 measured a 44K cache flushing every five seconds on Kirby's Dream Land and running no faster than the interpreter, and 48K in 127-byte pieces holds less than 44K in runs. As a FALLBACK where the 80K is refused (today: no recompiler) it is a smaller recompiler for nothing - and it competes with the templates for the same holes |
+
+Templates and the log records together take ~18K of the 48K and leave ~30K
+in the remainder of the holes. The two are the natural pair: both are
+records behind a table, and neither changes a hot path.
+
 ### Wave 8 - the 5150 demo, disks and the Wire record
 
 **The writers and damage tracking are BUILT** (REALBOY-SPEC sections 13.2
