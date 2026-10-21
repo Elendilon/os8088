@@ -819,10 +819,117 @@ mega_t08:
 .eoi2:
     mov al, 0x20
     out 0x20, al
+%ifndef NO_KBDWD
+    call mega_kwd                   ; ...and after the EOI, the 8042's lost
+%endif                              ; edge (KERN-MEGA-PLAN 14.64)
     pop ds
     pop dx
     pop ax
     iret
+
+%ifndef NO_KBDWD
+; -----------------------------------------------------------------------------
+; mega_kwd - THE 8042's LOST-EDGE WATCHDOG (KERN-MEGA-PLAN 14.64, SPEC.md
+; 96.45.2.5). The controller has ONE output buffer for the keyboard and the
+; PS/2 mouse and holds IRQ1 or IRQ12 HIGH while a byte waits in it, sending
+; nothing more from either; an ISA line is edge-triggered, so a byte whose
+; edge an 8259 initialisation erased is never delivered and both devices are
+; dead for the session. On a 286 every BIOS call kern_mega reflects is a CPU
+; reset, and a BIOS that re-initialises the 8259 on that path erases whatever
+; edge was pending - the Victory's does, and a hand on the mouse while the
+; live resume makes its calls is a byte at one of those instants. 14.62's
+; drains run at fixed moments; this runs on every tick.
+;
+; A byte is STRANDED when it is in the buffer, its line is UNMASKED at the
+; PIC (IRQ1; or IRQ12 at the slave AND the cascade at the master), the
+; master latches no request for it (IRR) and nothing is in service (ISR) -
+; on TWO CONSECUTIVE TICKS, because a byte the controller has only just put
+; there has OBF set before its pin is raised. A request that IS latched is
+; delivered the moment the tick's iret puts IF back, so it cannot still be
+; there a tick later. Every polled 8042 sequence on this kernel holds its
+; line MASKED (hbm_wake, hbm_dosrun, mega_dwake) or runs with IF = 0 inside
+; an ISR (mega_leds), so nothing a poll is waiting for is ever touched.
+;
+; The byte is RE-DELIVERED rather than dropped: `int` through the line's own
+; gate, which is what the lost edge would have done - IRQ1's is kbm_isr on
+; this kernel always (mega_ivt_sync leaves 20h/21h alone), IRQ12's is whoever
+; owns the vector, mou_p2_isr or a package. Their EOIs are no-ops here, the
+; tick's own having gone and nothing else being in service. An AUX byte whose
+; vector is the ROM's (its gate only EOIs, or reflects) is read and dropped.
+; So a key is not lost and a packet does not desync, and a tick that misjudges
+; a byte merely delivers it early: its ISR finds the buffer empty after.
+;
+; DS = KDATA, IF = 0, AX and DX free (mega_t08's). The common tick is one IN
+; -----------------------------------------------------------------------------
+mega_kwd:
+    in al, 0x64
+    test al, 1
+    jz .x                           ; nothing waiting: every ordinary tick
+    mov ah, al                      ; AH = the status, kept to the end
+    mov dl, 0x02                    ; DL = its line at the master: IRQ1...
+    test ah, 0x20
+    jz .kb
+    in al, 0xA1
+    test al, 0x10                   ; IRQ12 masked at the slave: a poll's
+    jnz .x
+    mov dl, 0x04                    ; ...or the cascade, for an AUX byte
+.kb:
+    in al, 0x21
+    test al, dl                     ; masked at the master: a poll's
+    jnz .x
+    mov al, 0x0A                    ; OCW3: the IRR
+    out 0x20, al
+    in al, 0x20
+    test al, dl                     ; a request latched: its ISR will take
+    jnz .x                          ; it at the iret
+    mov al, 0x0B                    ; OCW3: the ISR...
+    out 0x20, al
+    in al, 0x20
+    mov dh, al
+    mov al, 0x0A                    ; ...and the IRR selected again, as the
+    out 0x20, al                    ; 8259 is left everywhere else
+    or dh, dh
+    jnz .x                          ; something in service: not now
+    push es
+    mov dx, LOW_SEG
+    mov es, dx
+    mov dx, [ticks]                 ; [ticks] is the tick BEFORE this one
+    dec dx                          ; (sch_isr counts after the chain), so
+    cmp dx, [es:mega_kwdt]          ; the last sighting was the tick before
+    je .lost                        ; if it is one less
+    inc dx
+    mov [es:mega_kwdt], dx          ; a first sighting: remembered
+    pop es
+.x:
+    ret
+.lost:
+    pop es
+    push si
+    mov si, mega_mkwd               ; "kern_mega: 8042 edge lost, 64=ss"
+    call mm_puts
+    mov al, ah
+    call mm_hex2
+    mov al, 10
+    call mm_putc
+    pop si
+    test ah, 0x20
+    jnz .aux
+    int MEGA_PIC_BASE + 1           ; IRQ1's gate: kbm_isr
+    ret
+.aux:
+    push es
+    mov dx, MEGA_SEL_LOW0
+    mov es, dx
+    cmp word [es:0x74*4+2], 0xA000  ; IRQ12 the ROM's: no gate to deliver to
+    pop es
+    jae .drop
+    int 0x74                        ; IRQ12's gate (the slave stays at 70h)
+    ret
+.drop:
+    in al, 0x60
+    ret
+mega_mkwd   db "kern_mega: 8042 edge lost, 64=", 0
+%endif
 
 ; mega_rfsec - the second's IRQ reflections: twenty or more and nothing on the
 ; bar for fifteen seconds puts "RFL rrrr/s uuuu" up - the count and the
@@ -2510,6 +2617,51 @@ cpu 286
     mov [k_dsel], ax                ; THE MOUSE ISR RUNS HERE TOO (14.1 answer
                                     ; 18): every KDS in it loads this word,
                                     ; which is the real segment now
+%ifdef PIC_LOSE
+    ; PICLOSE=1 (Makefile, KERN-MEGA-PLAN 14.64): what the Victory 286's BIOS
+    ; is inferred to do on the reset path of every reflection - initialise
+    ; both 8259s, which erases every pending edge, and put the masks back as
+    ; they were, so mega_r286 sees nothing moved and no drain follows. Here on
+    ; BOTH ways down, so a 386 (Bochs) loses edges as the 286 does. The
+    ; reset path is long and runs with IF = 0, so a moving mouse has a byte
+    ; waiting when the BIOS gets there: that WINDOW is modelled too - up to
+    ; 65,536 polls for a byte in the 8042, then 8,192 more so its line has
+    ; risen (Bochs raises it on the controller's next timer, not with OBF)
+    xor cx, cx
+.plw:
+    in al, 0x64
+    test al, 1
+    jnz .plgot
+    loop .plw
+.plgot:
+    mov cx, 8192
+.plw2:
+    in al, 0x64
+    loop .plw2
+    in al, 0x21
+    mov ah, al
+    in al, 0xA1
+    xchg al, ah                     ; AL = the master's mask, AH = the slave's
+    push ax
+    mov al, 0x11                    ; ICW1: edge, cascade, ICW4
+    out 0x20, al
+    out 0xA0, al
+    mov al, MEGA_PIC_BASE           ; ICW2
+    out 0x21, al
+    mov al, 0x70
+    out 0xA1, al
+    mov al, 0x04                    ; ICW3: the slave on IRQ2...
+    out 0x21, al
+    mov al, 0x02                    ; ...and its cascade identity
+    out 0xA1, al
+    mov al, 0x01                    ; ICW4: 8086 mode
+    out 0x21, al
+    out 0xA1, al
+    pop ax
+    out 0x21, al
+    mov al, ah
+    out 0xA1, al
+%endif
     mov al, [mega_rv]               ; real mode: code is memory again
     mov [.intop+1], al
     mov byte [.stiop], 0xFB         ; sti: a service runs with IF on...
@@ -9093,6 +9245,10 @@ mega_fkq    resw MEGA_FKINST        ; per slot: a faulted instance's region,
                                     ; owed a close by ui_task (mega_fkdo)
 mega_fkmsg  resb MEGA_FKMSG         ; its toast
 mega_fkt    resw 1                  ; [ticks] when the last incident began
+%ifndef NO_KBDWD
+mega_kwdt   resw 1                  ; [ticks] at the last stranded 8042 byte
+%endif                              ; seen (mega_kwd): .lowbss, so not one
+                                    ; byte of the 64KB segment
 mega_fks    resw 1                  ; ...its instance's region
 mega_fkslot resb 1                  ; ...and slot + 1, 0 = none being closed
 mega_fkn    resb 1                  ; faults in it (0 = none ever)

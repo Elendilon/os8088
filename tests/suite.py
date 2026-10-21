@@ -14324,6 +14324,23 @@ SOAK = [
         "measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
+    Row("megapiclose", "soak", py("tests/megapiclose.py"), 450.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.63, 14.64, SPEC.md 96.45.2.5, "
+        "9.9.9: the mouse moved DURING the live resume from a DOS program "
+        "came home with the mouse AND the keyboard dead on the Victory 286 "
+        "- a byte stranded in the 8042's one buffer with its edge erased by "
+        "a BIOS that initialises the 8259 on a 286's reset path. No emulator "
+        "loses an edge, so the row builds two private trees with PICLOSE "
+        "(Makefile: both 8259s initialised on every reflection's way down, "
+        "after a window that waits for a byte). Bochs with an IntelliMouse, "
+        "KBTRIP round trips with the pointer moving from the key through "
+        "the whole return; each trip asserts the pointer moving and the next "
+        "command typed into the DOS window. RED, PICLOSE=2 (mega_kwd "
+        "compiled out): must die - it does on trip 1, pointer and keyboard "
+        "both. GREEN, PICLOSE=1: six trips clean, and E9's `8042 edge lost` "
+        "at least once (seven in the measured run). 450s is 383 measured "
+        "with both trees built",
+        needs=("bochs", "nasm"), timeout=1500),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
         "it interrupted. SeaBIOS serves int 13h and int 16h on a stack of its "

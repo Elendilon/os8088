@@ -9448,3 +9448,131 @@ cannot win this. **Being built as 14.64**: a watchdog on the tick - a byte
 that has sat in the 8042 for two ticks with its line UNMASKED at the PIC has
 lost its edge, and reading it out frees the controller - which covers every
 lost edge on the 286's reset path, not only the resume's.
+
+### 14.64 The tick's lost-edge watchdog, and a knob that loses edges (2026-10-21)
+
+14.63's repro - the mouse moved while the live resume runs, and the desktop
+comes home with the mouse AND the keyboard dead (the owner confirmed both:
+NumLock does not light, only a reset gets out) - is the shared-buffer
+signature: a byte left in the 8042 whose edge was erased. 14.62's drains run at
+fixed moments, and every BIOS call after them is, on a 286, a CPU reset whose
+BIOS can initialise the 8259 under a byte that is waiting. SPEC.md 96.45.2.5
+(its fifth place) and 9.9.9 are the contract.
+
+**Built: `mega_kwd`, at the end of `mega_t08`** (IRQ0's ROM half, after its
+EOI; `.mega`, kern_mega only). One `in al, 0x64` on an ordinary tick. When a
+byte IS waiting it is STRANDED if its line is unmasked (IRQ1 at the master; for
+an AUX byte IRQ12 at the slave and the cascade at the master), the master has
+no request latched for it (OCW3's IRR - bit 1, or bit 2 for the cascade, which
+is also where an edge lost at the MASTER alone shows while the slave still
+asserts), nothing is in service at the master (OCW3's ISR, then IRR selected
+again), and the same was true on the tick before (`[ticks]` banked in
+`.lowbss`). Two ticks, because the controller sets OBF before it raises its
+pin; and a request that IS latched is delivered the moment the tick's iret
+puts IF back, so it cannot still be there a tick later.
+
+**Re-delivered, not dropped.** The byte goes through its line's own gate, as
+the lost edge would have sent it: `int 21h` is `kbm_isr` on this kernel
+always (`mega_ivt_sync` rebuilds from 22h; IVT 09h holds the BIOS's half for
+reflections), and `int 74h` is whoever owns IRQ12 - `mou_p2_isr`, or a package
+that hooked it. Their EOIs are no-ops, the tick's own having gone and the ISR
+having read zero. An AUX byte whose IVT 74h vector is the ROM's (its gate only
+EOIs, or reflects) is read and dropped. So no key is lost and no packet
+desyncs, and a tick that misjudges a byte - one in the lag window on both
+ticks - only delivers it early: `mou_p2_isr` then finds the buffer empty when
+the late edge arrives. The keyboard's is the one case with a cost
+(`mega_k09` does not test OBF, so a late IRQ1 would read the stale data
+register again: a doubled scan code); on real hardware the lag is
+microseconds and the two-tick rule makes it a product of two such windows.
+Each re-delivery writes `kern_mega: 8042 edge lost, 64=ss` to E9.
+
+**What it must not touch, checked**: every polled 8042 sequence that runs in
+protected mode holds its own line MASKED - `hbm_wake`'s keyboard enable (IRQ1
+masked), its knock and `0xF4` (IRQ12 masked at the slave), `hbm_dosrun`'s
+`0xF5` (IRQ12 masked), `mega_dwake`'s `mega_d8042put` (every line masked) - or
+runs inside an ISR at IF = 0 where no tick can land (`mega_leds`,
+`mega_kack`, inside IRQ1). `mouse_init`'s probe and `mou_p2_init` are boot
+code, before protected mode, when `mega_t08` is not the chain. kern_dos owns
+the machine on the park arm and our tick is not installed there; a
+reflection runs the BIOS's own int 08h, not `mega_t08`. No package or driver
+in the tree reads port 60h (grep), and in protected mode IRQ1 is `kbm_isr`
+whatever a package writes into IVT 09h, so an fsx bracket that "owns the
+keyboard" owns it through the kernel's ISR anyway.
+
+**kern_big and kern_small do NOT get it**, by reasoning rather than
+measurement: neither resets the CPU on a BIOS call (kern_big's 286 path is real
+mode with LOADALL), so the only 8259 initialisations they meet are POST's and
+the DOS trip's, both at fixed moments that 14.62's `hbm_kstrand` already
+covers. If the owner's kern_big ever shows this face, the same code fits
+`sch_isr` behind `[cpu_tier]` (an XT's 64h is no 8042) - ESTIMATED at about
+100 resident `.text` bytes - and that is the decision to bring back.
+Both kernels are byte-identical: `kernel.bin` and `kernel.sys` compared at one
+commit with and without the change; every hunk is inside `%ifdef KERN_MEGA`
+or the knob.
+
+**Cost (measured, kern_mega, this commit with and without)**: `.mega` 15,204
+-> 15,368, **+164** (`mega_kwd` 130, its E9 string 31, the call 3); `.lowbss`
++2 (`mega_kwdt`); `.text` and `.bss` +0, so `tests/megaseg.txt` stays at
+4,345 and nothing moves in the 64KB segment. The scratch line after `.mega`
+in os88megaseg's report moved 1,490 -> 1,486, alignment.
+
+**The knob, `PICLOSE=1|2`** (Makefile, stamp-tracked, in `$(KNOBS)`;
+`t_buildmatrix` rows `piclose` and `piclose-nowd`, which also assemble
+`KERN_MEGA` itself for the first time there). In `mega_svc_lo`'s real-mode
+half, which both CPU paths reach (`.rm`: the 386's far jump and `mega_r286`),
+it waits up to 65,536 polls for a byte to be in the 8042 and 8,192 more for
+its line to rise (Bochs raises it on the controller's next timer, not with
+OBF), then sends ICW1-4 to BOTH 8259s at the protected-mode bases and puts the
+masks back - so `mega_r286` would see nothing moved and no `mega_kdrain`
+follows. `2` is the same with `mega_kwd` compiled out (`-DNO_KBDWD`). **The
+window is the half that matters**: the first build of the knob sent the ICWs
+the instant the reflection reached real mode, and six trips of the red leg
+all survived - a byte has to be WAITING at the initialisation, and on the
+Victory the reset path is long and at IF = 0, where the knob's first cut was
+a few instructions.
+
+**Measured on Bochs 2.7** (a 386, `type=imps2`), `tests/megapiclose.py`:
+
+| tree | trips | result |
+|---|---|---|
+| PICLOSE=2 (no watchdog) | 1 of 6 | **dead on trip 1**: the pointer did not move after the return, and the next command typed never reached the DOS window - both devices, as on the Victory (three runs, each dead on trip 1) |
+| PICLOSE=1 (watchdog) | 6 of 6 | every return clean; **5 and 7 bytes re-delivered** in two runs, the first run's five all `64=19` - a KEYBOARD byte (AUXB clear), plausibly the `k`'s break arriving across the return, and not a mouse byte (the second run's log was not kept) |
+| shipping (no knob) | 10 of 10 | `megakbtrip` green, **0** re-deliveries with the pointer moving across every launch: no false positive in 300 s of motion |
+
+Recovery is by construction the second tick after the strand: 55 to 110 ms.
+`megap2hiber` and `megahiber` (Bochs) green on the shipping tree. **86Box
+`286-mega`** (the MR BIOS 286, the real reset path, serial mouse): boots to
+the desktop, the pointer and the keyboard work (a click and two arrow keys
+in a Disk window), and `faults` shows only the reflections' own deliberate
+resets - so the watchdog's `int` from a 286's protected-mode tick is sound
+there. 86Box cannot show the defect (its ICW1 rebuilds IRR from levels), so
+the knob was not taken there.
+
+**Not reproduced: a BIOS-served disk.** The other place the knob would strand
+a byte is any reflection, and the watchdog covers them all; but Bochs's C: is
+HDD.DRV's native IDE rung, so opening it with the pointer moving makes no
+`int 13h` reflection at all (E9 says none) and the red tree survived it. A
+machine whose C: is BIOS-served (rung 0) is where that face would show.
+
+**Rows**: `megapiclose` (new, soak, Bochs, 450 s; 383 measured with both trees
+built), and covering: `megakbtrip`, `megap2hiber`, `megahiber`. The kern_big
+rows (`kdreturn*`, `kdkbd`, `hmadosret`, `p2hiber`, `mouresume`, `kdmouse`,
+`ps2mouse`) cannot see this change: their kernels are byte-identical.
+
+**For the owner**:
+
+- **The Victory is the confirmation.** If a return still comes home dead
+  with the pointer moving, the watchdog did not see the byte as stranded - a
+  photograph of the menu bar is no help (nothing draws a reading), so the
+  cheapest next instrument is the E9 line on a machine with a port E9 card,
+  or a `mega_tell` line (one more byte of `.bss`: `mega_tellq` has no bit
+  free).
+- **The serial mouse has the same class of failure and this does not cover
+  it.** A UART that holds IRQ4 high with a byte unread after an ICW1 is
+  dead the same way (the comment above `mega_svc`'s `.imrkeep` records it).
+  The 286-mega profile and the owner's pc5150 are serial; a serial arm would
+  be the same shape (LSR's data-ready, IRR bit 4 or 3) on the same tick.
+- **`mega_kdrain` and `hbm_kstrand` still DROP what they find.** They could
+  now be left to the watchdog (nothing lost rather than one byte lost), but a
+  drop at a fixed moment is the conservative half of the pair and was left as
+  it was.
