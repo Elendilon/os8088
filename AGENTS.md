@@ -251,6 +251,22 @@ make covl       #   covl is the OVERLAY gate (§73.14); cword is the
                 #   application — Word 1.1a again, in C, in two segments
                 #   (§73.12). `make clean` SPARES build/cc
                 #   (clean-cc removes it) — it is a pinned upstream instrument
+make lemmings     # LEMMINGS (§116): Lemmings (DMA Design / Psygnosis, 1991)
+make lemmingsdisk #   as a C package - all 120 levels with Lemmix's ORIG
+make xt-lemmings  #   mechanics, VGA mode 0Dh / CGA / Hercules, the original's
+make 386-lemmings #   preview and postview in a second foreign mode. The 26
+                  #   data files (and the spray's PARTICLES.DAT) are FETCHED
+                  #   (`tools/getlemmings.py`, pinned SHA-256) and NEVER
+                  #   committed: `make lemmings` needs no fetched data - the
+                  #   package reads its bands at run time and its host checks
+                  #   run against the committed synthetic fixture - while
+                  #   `make lemmingsdisk` needs the fetch and writes four
+                  #   geometries (the 360KB
+                  #   one two graphic sets and 53 levels, LEVELS.TXT saying
+                  #   which). `xt-lemmings` is the 640KB VGA XT with the
+                  #   360KB disk in B: and `386-lemmings` the 386DX with the
+                  #   1.44MB one - machines to LOOK at; the XT's frame rate
+                  #   is MartyPC's (`tests/lemplaymarty.py`, §116.7.4)
 make paccman      # PACCMAN (§91), the C toolchain's FOURTH application:
 make paccmandisk  #   Andre Weissflog's arcade-faithful pacman.c (MIT, pinned
 make xt-paccman   #   at 0f5ec5a) as a second Pac-Man beside §89's assembly
@@ -692,7 +708,7 @@ controller, so no XT profile can host one),
 `286-c64`, `386-c64`, `xt-apple2`, `286-apple2`, `386-apple2`,
 `xt-weave`, `386-weave`, `xt-weave-256`, `xt-pixelstein`, `xt-pixelstein-herc`,
 `xt-pixel`, `386-pixel`, `xt-isotron`, `xt-isotron-cga`, `xt-isotron-herc`,
-`xt-isotron-ega`;
+`xt-isotron-ega`, `xt-lemmings`, `386-lemmings`;
 plus `marty` (MartyPC). **`386-ps2` is the only machine here with a PS/2
 mouse** — every other config is `mouse_type = msserial`, which is why §9.9
 shipped and went untested on anything but QEMU for months; it is a Packard
@@ -737,7 +753,7 @@ section 4.3.1 made the wall slice a duty-cycle controller), and
 `xt-isotron`/`-cga`/`-herc`/`-ega` isoTron's (§108.15: copies of
 `xt-excitebike`, `xt-pixelstein`, `xt-pixelstein-herc` and `xt-ega` with
 `isotron360.img`; the EGA one is the only place its same-mode EGA bracket
-meets a real EGA) — the twenty-six that put a dedicated floppy in B: instead of the apps disk. `xt-weave` takes the **360KB** Weave
+meets a real EGA), and `xt-lemmings`/`386-lemmings` LEMMINGS' (§116.9: `vm/xt-weave` with `lemmings360.img`, `vm/386dx` with `lemmings.img`) — the twenty-eight that put a dedicated floppy in B: instead of the apps disk. `xt-weave` takes the **360KB** Weave
 disk rather than a 3.5" one — it fits in 209 of 354 clusters, the whole
 family on one floppy — so it is where that geometry of it is booted at all,
 and **`xt-weave-256` is the same 4.77MHz XT with 256KB** rather than 640,
@@ -812,9 +828,55 @@ claim, then (when asked) merge a stacked series in order — is
 `LESSONS.md` is what checking and merging the Weave waves (#124–#128)
 learned. Giving a package a **colour face on VGA/EGA** — the redraws measured
 and cut through caches first, then a layout on the card's grid, styled panes
-and picture-faced buttons, with the mono faces left as they were — is
-`.claude/skills/vga-face` (`/vga-face <package>`, **manual invocation only**),
-whose `LESSONS.md` is what MIDIRack's (SPEC.md §105.9.4, §105.9.5) learned.
+and buttons with their captions inside, in MIDIRack's bevelled look or the
+flat one `apps/os88flat.inc` gives (§20.5.3), with the mono faces left as
+they were — is `.claude/skills/vga-face` (`/vga-face <package>`, **manual
+invocation only**), whose `LESSONS.md` is what MIDIRack's (SPEC.md §105.9.4,
+§105.9.5) and WireFleet's (§114.10) learned.
+
+## Building an app or game in waves
+
+Use WireFleet's delivery workflow for new applications and games, unless the
+user gives a different workflow. The worked example is
+[docs/plans/WIREFLEET-PLAN.md](docs/plans/WIREFLEET-PLAN.md), with its companion
+[build diary](docs/HOW-WIREFLEET-WAS-BUILT.md).
+
+1. **Isolate the work.** Read `docs/UPSTREAM.md`, fetch the current base and
+   create a named feature branch in a separate git worktree. Leave the user's
+   existing checkout, local changes and running VMs alone.
+2. **Map the OS before designing.** Read `docs/INDEX.md`, the applicable
+   contracts and a shipped package that already solves the closest problem.
+   Reuse APIs, shared source and interaction conventions. Record a missing
+   facility or ownership boundary explicitly; do not copy a peer's mechanism
+   into a context where its guarantees no longer apply.
+3. **Write the contract and delivery stories first.** Pin interfaces, data
+   formats, rules, memory costs and adapter behavior in the appropriate SPEC
+   before implementation. Keep a checked story list in `docs/plans/`, with
+   concrete user-visible outcomes and verification for each wave. Distinguish
+   planned behavior from behavior that actually works.
+4. **Keep one review thread.** Open a draft PR for the foundation, then commit
+   and push each reviewable wave to that same branch and PR. Update its
+   description and checklist to reflect the current implementation and actual
+   evidence. Keep working through the authorized stories; a wave boundary is
+   not a reason to ask permission to continue. Do not merge without the user's
+   instruction.
+5. **Treat artwork as source.** When bitmap artwork benefits the product, use
+   image generation as requested or appropriate, retain the selected source
+   and exact prompt, and build runtime assets through a deterministic host
+   converter. Include explicit monochrome assets when the supported adapters
+   need them. No generation service belongs in `make` or on the guest.
+6. **Keep a "How It Was Built" diary as the work happens.** Store it with the
+   repository documentation, link it from the plan, and write for later reuse
+   on the website: user stories, decisions, constraints, discoveries, pictures
+   and measured results. Separate observations from intentions, and name what
+   was actually tested. Updating the diary does not authorize website
+   publication.
+7. **Verify each wave at the right level.** Use host builds/checks and a boot
+   to look during implementation; name the affected suite rows. Respect the
+   Testing section below: run the deduplicated soak union and `test-full`
+   after the final batch, not once per wave. Finish with the actual supported
+   adapters, sound/link configurations and resource cleanup checked, and report
+   hardware-only limitations honestly. Do not mark unfinished stories done.
 
 ## Hard rules (§1 — these break silently if violated)
 

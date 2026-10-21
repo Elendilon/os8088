@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "c496a5d5ecf6accbb339a9d343931b56e993b844dc9183195170739a057bec24",
+  "fingerprint": "470e0c6bea8a4da7b9317ed0cf627db339712236a424fdf86fac6be435b14f5a",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "7b4c1e0ef60c49ef0c6d96960eb6ba2cba2863c330add12789e79a3dd1221795",
+  "fingerprint": "df5d549daceacc518900ebf0163664e5b2fd224c384d27f9ec7c1a031e796d95",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -623,6 +623,104 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_MEM_HUGE BX=8000h: a claim with windows 32KB apart moves 64KB at a time with the package's rate hook held off (KERN-MEGA-PLAN 14.49); a comment, no cell or contract a built package relies on changed",
+   "to": 11
+  },
+  {
+   "fingerprint": "f708ee233b6fc3c4eaf2b090e93ed2389792b976c67370dc131369e53269e4b1",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "Append the compatible desktop serial lease API; existing cells and contracts keep their addresses.",
+   "to": 10
+  },
+  {
+   "fingerprint": "82706a356897db9db6749b088a50aeed65d75ea66f2870bf7317395f9a6111cc",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "Append the compatible desktop serial lease API; existing cells and contracts keep their addresses.",
+   "to": 11
+  },
+  {
+   "fingerprint": "d04b64876d68c9c065d4e69ac946a91b9225184368c6ff604e5f3790cddd2654",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_SERIAL Open takes the 8250 divisor in BH (0 keeps 9600); its only caller, WireFleet, is unreleased (merged after v1.0.20261019) and passes 48 for 2400",
+   "to": 10
+  },
+  {
+   "fingerprint": "0f8ceeb6c870a294a313109520589d935adc2695794bbf3b740a4d13a507e433",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_SERIAL Open takes the 8250 divisor in BH (0 keeps 9600); its only caller, WireFleet, is unreleased (merged after v1.0.20261019) and passes 48 for 2400",
+   "to": 11
+  },
+  {
+   "fingerprint": "a85d79f557b557b4aa32654395c53cb59f79b6bafbab12ac0df5a13068f78050",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_DRV_USE appended at 0x04A5 and HDD.DRV's HDV_TOOL/HDI_* constants added (SPEC.md 117.3, 117.4): nothing moved, nothing built before changes meaning",
+   "to": 10
+  },
+  {
+   "fingerprint": "e9150c9e38123295ea10ec2e00650786973e8754beb85ea1d784065d6b28f4d7",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_DRV_USE appended at 0x04A5 and HDD.DRV's HDV_TOOL/HDI_* constants added (SPEC.md 117.3, 117.4): nothing moved, nothing built before changes meaning",
+   "to": 11
+  },
+  {
+   "fingerprint": "b05204dfcd8dd8604ca4253a78891e672d5a004ea3920e8b69ad0b6c914106bc",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_DRV_USE gains DRVU_CALL; HDV_TOOL's verb moves to CL (SPEC.md 117.3/117.4) - both unreleased, nothing built before uses them",
+   "to": 10
+  },
+  {
+   "fingerprint": "9a6130ab1e0e7f394792f42734c2b52156cc898fc19bde696be0d619872c9224",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_DRV_USE gains DRVU_CALL; HDV_TOOL's verb moves to CL (SPEC.md 117.3/117.4) - both unreleased, nothing built before uses them",
+   "to": 11
+  },
+  {
+   "fingerprint": "5e34b492cfdba8334b3b0bbaf7d6bcfd3e7b3f32a3bde41f9b347266b8d6ca79",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "HDIV_BIOS named in the unreleased HDI_DEVS record (SPEC.md 117.4)",
+   "to": 10
+  },
+  {
+   "fingerprint": "effffe19fef5e5270bf174b2b4c06ccb2db18e81900995285e4d8a4a013db1db",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "HDIV_BIOS named in the unreleased HDI_DEVS record (SPEC.md 117.4)",
+   "to": 11
+  },
+  {
+   "fingerprint": "6f95bb35afbfabf08c5edbf31f84daaea91e933c2746f495e9228ba75f15126a",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "INSTALL's verbose log: HDI_GO/HDI_APPS take an HDIB_* block with a log proc (SPEC.md 117.4.1); unreleased, no bump",
+   "to": 10
+  },
+  {
+   "fingerprint": "a1a98cc8c4c660b29d64a5d32803096202d635fc2a890cd293b06ff9f44a1378",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "INSTALL's verbose log: HDI_GO/HDI_APPS take an HDIB_* block with a log proc (SPEC.md 117.4.1); unreleased, no bump",
+   "to": 11
+  },
+  {
+   "fingerprint": "df5d549daceacc518900ebf0163664e5b2fd224c384d27f9ec7c1a031e796d95",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "main -> elendilon merge (KERN-MEGA-PLAN 14.67): main's OSAPI_SERIAL (0x049F) and OSAPI_DRV_USE (0x04A5) keep their offsets; kern_mega's six cells, which had shipped in no release and in nothing main builds, move up past them in the same order - XMEM_SEL 0x04AB, MEM_CODESEL 0x04B1, XMEM_WALK 0x04B7, MEM_HUGE 0x04BD, XMEM_RUN 0x04C3, MEM_SUBSEG 0x04C9. Every package main or a release built still runs; only elendilon-built packages that call the six moved cells must be rebuilt, so neither number bumps",
+   "to": 10
+  },
+  {
+   "fingerprint": "470e0c6bea8a4da7b9317ed0cf627db339712236a424fdf86fac6be435b14f5a",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "main -> elendilon merge (KERN-MEGA-PLAN 14.67): main's OSAPI_SERIAL (0x049F) and OSAPI_DRV_USE (0x04A5) keep their offsets; kern_mega's six cells, which had shipped in no release and in nothing main builds, move up past them in the same order - XMEM_SEL 0x04AB, MEM_CODESEL 0x04B1, XMEM_WALK 0x04B7, MEM_HUGE 0x04BD, XMEM_RUN 0x04C3, MEM_SUBSEG 0x04C9. Every package main or a release built still runs; only elendilon-built packages that call the six moved cells must be rebuilt, so neither number bumps",
    "to": 11
   }
  ]

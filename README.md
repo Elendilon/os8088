@@ -63,6 +63,7 @@ make run-120  # the same, off the 1.2MB 5.25" HD pair. RUNAPPS120=<img>
 make xt       # boot the 360KB image on an emulated IBM PC/XT in 86Box
 make xt-640   # the same XT with a full 640KB of RAM
 make wireball-pair # two 86Box XTs linked over COM2 for WireBall (86Box 6.0+)
+make wirefleet-pair # two 86Box XTs linked over COM2 for WireFleet
 make xt-mfm   # ...and a 20MB MFM hard disk on IBM's Fixed Disk Adapter
 make xt-cga   # the same XT with a CGA card instead of VGA
 make xt-hercules  # ...and the same XT with a Hercules card
@@ -692,6 +693,26 @@ and says `Catalog not understood`.
 SPEC.md §92 is the format and the contract; `docs/WIRE-PLAN.md` is why it
 reads that way.
 
+### WireFleet — Two PCs. Two fleets. One winner.
+
+`WIREFLET.O88` is a two-player naval game over a null modem cable. Place or
+auto-place five ships, ready both fleets, and take alternate shots. Dots,
+crosses and sunk markers keep both grids readable in color or monochrome.
+Chat shares the connection. A lost cable pauses the match; reconnecting the
+same peers preserves ships, shots and an unanswered shot. Save each PC's own
+`.WFL` file before closing, then load both files and connect to resume.
+
+VGA has a color desktop window; CGA and Hercules have monochrome desktop
+art, and CGA adds four-color fullscreen with `F` or `Alt+Enter`. Finite cues
+follow the system's PC Speaker, AdLib or Sound Blaster route. `M` mutes.
+Choose the free port in **Link** after the serial mouse is detected:
+9600 baud, 8N1, no flow control.
+
+`make wirefleetdisk` builds all four standalone disk sizes;
+`make wirefleet-pair` opens two linked 86Box XTs. The
+[build diary](docs/HOW-WIREFLEET-WAS-BUILT.md) records the design, generated
+art, recovery protocol and acceptance results.
+
 ### WireChat — chat rooms on the wire
 
 `WIRECHAT.O88` is a chat client: four public rooms (lobby, hardware,
@@ -716,8 +737,20 @@ against a daily budget, slowing every client down as it fills, so the chat
 stays inside the Workers Free plan. A few nicks are owned. Joining as one
 makes WireChat ask for that nick's code, which the server checks.
 
+Type `@` and a nick to mention someone — `Tab` finishes the nick off the
+member list — and they hear about it in whichever room they are in: the
+server tells that one client (an `A` record, §113.2.4), which marks the room
+with `@` and chirps. Every message carries its date as well as its time, so
+the pane says where each day begins (`---- Tue Oct 20 ----`), in local time.
+
 The window follows the screen: three panes on VGA and Hercules, the side panes
-going as the window narrows, and a compact one-line message form on a CGA. The
+going as the window narrows, and a compact one-line message form on a CGA. On
+a VGA or EGA it is drawn in **colour** (§113.5.2) — red unread badges, nicks
+in their own colours, the view in blue, a yellow header on a message that
+names you, and two lamps in the status bar for the link and for activity —
+and on CGA and Hercules it is the mono window it always was. Every row is
+drawn through a cache of what is already on the glass (§113.5.1), so a message
+arriving draws a few rows rather than the panes. The
 nick (and its code, if it has one), the friends and the notification switch live in `WIRECHAT.CFG` beside
 the program. It is on every apps disk but the 360KB one, where it rides the
 network disk. SPEC.md §113 is the protocol and the contract.
@@ -726,7 +759,7 @@ network disk. SPEC.md §113 is the protocol and the contract.
 
 The OS itself is assembly and stays that way. But a **package** can be written
 in C, and several are — the Commodore 64 and the Weave family among them, plus
-the three described here. The first is `apps/cword` — a second reimplementation of **Microsoft Word
+the four described here. The first is `apps/cword` — a second reimplementation of **Microsoft Word
 1.1a**, in C this time, with the same nine-menu bar, ribbon, ruler and status
 line as `apps/word` and RTF as its file format. It has both of the product's
 views — Draft, which wraps to the window, and Page, which wraps to the sheet —
@@ -816,6 +849,29 @@ carries two OS ticks of game rather than one, so it runs at 24% of arcade
 speed where the assembly port runs at 23% while drawing twice as often. On
 CGA and Hercules it keeps nothing: the assembly port is at its 18.2 Hz
 deadline there and asleep.
+
+The fourth is `apps/lemmings` — **Lemmings** (DMA Design / Psygnosis, 1991),
+all 120 levels of the DOS original rebuilt from its own data files: the
+eighteen actions and eight skills transliterated from Eric Langedijk's
+[Lemmix](https://github.com/ericlangedijk/Lemmix) ORIG mechanics (bugs and
+glitches included, and held frame by frame against a second reading written
+from [lemmings_3ds](https://github.com/esoteric-programmer/lemmings_3ds)),
+the skill panel, minimap and status line, and the original's 640x350 preview
+and results screens in a second video mode inside the same exclusive bracket.
+VGA plays in mode 0Dh with the terrain scrolled by the CRTC and the panel held
+under a line compare; CGA and Hercules get a shadow backend. The 26 data
+files are **fetched and never committed** (`tools/getlemmings.py`, pinned by
+SHA-256) and `tools/os88lem.py` converts them on the host into band files the
+8088 reads without decoding a bit; `make lemmingsdisk` builds four
+geometries, the 360KB one carrying two graphic sets and 53 levels and a
+`LEVELS.TXT` saying which. It ships on the XT at what the XT measures: about
+four game frames a second on a quiet level and under one with sixty lemmings
+out, every clock in the game slowing with it so no level gets harder
+(SPEC.md §116.7.4). `make xt-lemmings` and `make 386-lemmings` boot it in
+86Box; `apps/lemmings/README.TXT` carries the full credits. **It is a
+developer's build and stays one** (`apps/RETIRED.txt`, kind `local`): the
+data is DMA Design's, so no release image, everything-set floppy or live
+medium redistributes it - build it from your own tree.
 
 The compiler is [SmallerC](https://github.com/alexfru/SmallerC) (2-clause
 BSD), pinned to one commit and **fetched rather than vendored** — it is not in

@@ -8685,6 +8685,16 @@ mega_imghuge:
 ; (MX_KDRV for a driver, KERN-MEGA-PLAN item 82, 14.37). AX = the conventional
 ; segment, CX = the bytes -> CF = 0 and AX = the pair's DATA selector; CF = 1
 ; nothing taken. Clobbers nothing else
+;
+; CX = FFFFh IS A WHOLE 64KB REGION, and it is not a rare case: ld_alloc
+; saturates I_SIZE to FFFFh for any package whose image + bss rounds past 63KB
+; (65024 bytes is 64KB of claim, and 64 << 10 is 0 in a word), and ld_hi hands
+; that word here. `inc cx` then made the block, the limit and the copy all
+; ZERO bytes, so WIREFLET (44,128 + 20,896) ran out of a 64KB pair holding none
+; of its image and faulted before its entry proc's first instruction
+; (KERN-MEGA-PLAN 14.67). So 0 after the round-up means 10000h: the block is
+; 64KB, the limit FFFFh, and the copy 65534 bytes, mega_lincopy's ceiling -
+; the last two are past image + bss <= FE00h and are nobody's
 mega_imghif:
     push bx
     push cx
@@ -8700,6 +8710,10 @@ mega_imghif:
     push cx
     mov ax, cx
     xor dx, dx
+    or ax, ax
+    jnz .sized
+    inc dx                          ; CX was FFFFh: DX:AX = 10000h (above)
+.sized:
     inc byte [sch_lock]             ; to the copy's end: the base is used
     call mx_alloc                   ; DX:AX = the block's base
     pop cx
@@ -8730,6 +8744,10 @@ mega_imghif:
     shr dx, 12
     mov [mega_xsrc], ax
     mov [mega_xsrc+2], dx
+    or cx, cx
+    jnz .copy
+    mov cx, 0xFFFE                  ; a 64KB region: mega_lincopy's ceiling
+.copy:
     call KERNEL_SEG:mega_lincopyf
     dec byte [sch_lock]
     pop ax

@@ -464,9 +464,9 @@
   "sources": [
    "apps/gorillas"
   ],
-  "stamped": "e4576a70",
-  "strings": "a42f0c9c00a04c78",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "eb3a53c1",
+  "strings": "32a3e259cd3ebe70",
+  "why": "#281 edited the page with the change (seventh setup question for aim guides, the learning computer opponent) and did not restamp; checked against apps/gorillas README and setup"
  },
  "GUIDE_TEX": {
   "sources": [],
@@ -478,17 +478,17 @@
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "d0d605c1",
-  "strings": "3b0c6f26290d2442",
-  "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
+  "stamped": "ddaef50f",
+  "strings": "caf4859056bcb91b",
+  "why": "The engine gained INSTALL's log hook (SPEC.md 117.4.1); the Control Panel's Install window and the pages' words are unchanged"
  },
  "HDD_DRV": {
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "d0d605c1",
-  "strings": "3b0c6f26290d2442",
-  "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
+  "stamped": "ddaef50f",
+  "strings": "caf4859056bcb91b",
+  "why": "The engine gained INSTALL's log hook (SPEC.md 117.4.1); the Control Panel's Install window and the pages' words are unchanged"
  },
  "HELV_F88": {
   "sources": [],
@@ -500,9 +500,9 @@
   "sources": [
    "kernel/hiber.inc"
   ],
-  "stamped": "af4ae8f5",
-  "strings": "a64a3def82c660ea",
-  "why": "14.46 changed how the image is written (chunked from 40h, CS writes through CSDO) and not what the user sees or does: unchanged"
+  "stamped": "2e77a97e",
+  "strings": "05d77599a5d758f7",
+  "why": "main -> elendilon merge: main's serial-lease disconnect before hibernate (already in the page) plus elendilon's 14.46 CSDO/chunked image writes, which change nothing a user sees or does: unchanged"
  },
  "HOUSE_PNG": {
   "sources": [],
@@ -515,6 +515,14 @@
   "stamped": "e4576a70",
   "strings": null,
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "INSTALL_O88": {
+  "sources": [
+   "apps/install"
+  ],
+  "stamped": "ddaef50f",
+  "strings": "1dc0fc6f30c645db",
+  "why": "Copying section describes the Installing page's log and its click-Next ending (SPEC.md 117.4.1)"
  },
  "INTRO_MID": {
   "sources": [],
@@ -553,6 +561,14 @@
   "stamped": "e4576a70",
   "strings": null,
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+ },
+ "LEMMINGS_O88": {
+  "sources": [
+   "apps/lemmings"
+  ],
+  "stamped": "b63b5892",
+  "strings": "2fd010e1297a645f",
+  "why": "first page: written from README.TXT and the launcher, play and results screens of the shipped build"
  },
  "LICENSE": {
   "sources": [],
@@ -870,6 +886,14 @@
   "strings": null,
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
  },
+ "SERIAL_DRV": {
+  "sources": [
+   "kernel/serial.inc"
+  ],
+  "stamped": "dc7a4142",
+  "strings": "075d3ddf5a3a826e",
+  "why": "Document desktop serial connection, mouse port refusal and lifetime"
+ },
  "SHEET_O88": {
   "sources": [
    "apps/sheet"
@@ -953,6 +977,14 @@
   "stamped": "d0d605c1",
   "strings": "c5eb21b124ad2c07",
   "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
+ },
+ "SYSCHECK_O88": {
+  "sources": [
+   "apps/syscheck"
+  ],
+  "stamped": "b4d46a82",
+  "strings": "6c7bfd7a870376d8",
+  "why": "Section renumber 116 to 118 in source comments only; the page already describes the drive chooser and cites no section"
  },
  "SYSTEM": {
   "sources": [],
@@ -1180,9 +1212,17 @@
   "sources": [
    "apps/wirechat"
   ],
-  "stamped": "a805ac61",
-  "strings": "455f0b5acdca7829",
-  "why": "first page: written from SPEC.md 113 and apps/wirechat (menus, field modes, keys, wheel, status bar words, WIRECHAT.CFG, net_find's card-then-link)"
+  "stamped": "99a078b7",
+  "strings": "46102694697221e1",
+  "why": "Wired default (LEDs, colour on a colour screen), Mono-Dark, header without the display words, Find highlights the input box: Themes, Searching and the window table rewritten"
+ },
+ "WIREFLET_O88": {
+  "sources": [
+   "apps/wirefleet"
+  ],
+  "stamped": "3f9bc879",
+  "strings": "4f7d7f10c65ff1a8",
+  "why": "missiles, impacts, music and the Music U item added to Connect and deploy and Display and sound (SPEC 114.11)"
  },
  "WORD": {
   "sources": [],

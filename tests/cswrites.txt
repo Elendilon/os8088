@@ -66,6 +66,7 @@
 
 # --- drivers: DS/ES = the driver's own image (no driver writes through CS) ---
 0 5 drivers/hdd/inst.inc  # ES = the installer's own buffer for int 13h; a driver-SDK answer for kern_mega is a drivers/os88drv.inc decision (tools/abi.lock.json)
+0 1 drivers/hdd/ipkg.inc  # hd_il_send: ES = KERNEL_SEG for INSTALL's log proc, the package callback convention. On kern_mega 0x0060 is the kernel's CODE selector, readable and not writable, and in_onlog reads through ES and stores nothing; HDDTOOL.DRV has no way to name MEGA_SEL_KDATA, which is inst.inc's os88drv.inc decision again (KERN-MEGA-PLAN 14.67)
 0 3 drivers/net/pktdrv.inc  # pk_recv: DS = the driver's own receive buffer, for a packet driver calling in
 0 1 drivers/net/lplink.inc  # ES = the driver's own buffer
 0 1 drivers/usbmouse/usbmouse.asm  # the CH375 poll points DS at its own image

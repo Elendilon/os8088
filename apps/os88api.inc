@@ -2005,7 +2005,7 @@ CPU_F_PM            equ 0x10     ; SEGMENTS ARE SELECTORS: kern_mega is in
 ; by an LDT selector the shift cannot convert, so code that cannot know where
 ; its claim is - or that takes a selector from somewhere else - asks
 ; OSAPI_MEM_CODESEL instead, which is right for both.
-%define OSAPI_MEM_CODESEL   KERNEL_SEG:0x04A5   ; DX = the segment (or
+%define OSAPI_MEM_CODESEL   KERNEL_SEG:0x04B1   ; DX = the segment (or
                                  ; selector) a claim of yours is named by; out
                                  ; CF=0 and AX = the selector to FAR CALL code
                                  ; in it: DX itself on a real-mode kernel, its
@@ -2040,7 +2040,7 @@ OS88_HUGE_INCR      equ 0x1000
 ; descriptor. Ask this cell instead, and on CF = 1 do the sum yourself -
 ; which is every kernel but kern_mega, and kern_mega whenever your region is
 ; in conventional memory, so the fallback is the code you had.
-%define OSAPI_MEM_SUBSEG    KERNEL_SEG:0x04BD   ; AX = a PARAGRAPH offset into
+%define OSAPI_MEM_SUBSEG    KERNEL_SEG:0x04C9   ; AX = a PARAGRAPH offset into
                                  ; your OWN region (from your DS, which must
                                  ; be your region's), BL bit 0 = you will FAR
                                  ; CALL code there, BL bit 1 = CX is the
@@ -2491,7 +2491,7 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; from extended. out CF=0 done; CF=1 and AX =
                                  ; 1 no store / 2 the range is not inside a
                                  ; block you own / 3 bad length. ES is restored.
-%define OSAPI_XMEM_WALK     KERNEL_SEG:0x04AB   ; ES:DI = room for CX records
+%define OSAPI_XMEM_WALK     KERNEL_SEG:0x04B7   ; ES:DI = room for CX records
                                  ; of XMW_SIZE bytes; out CF=0 and AX = the
                                  ; extended pool's blocks written, each
                                  ; XMW_OFF (KB from the pool's base, which
@@ -2505,7 +2505,7 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; (XMEM.DRV's table: a slot or FFh, SPEC.md
                                  ; 28.4.8); CF=1, AX = 1 with no pool
                                  ; (KERN-MEGA-PLAN 13.6)
-%define OSAPI_MEM_HUGE      KERNEL_SEG:0x04B1   ; A CLAIM OF ANY SIZE, walked
+%define OSAPI_MEM_HUGE      KERNEL_SEG:0x04BD   ; A CLAIM OF ANY SIZE, walked
                                  ; by a STEP (KERN-MEGA-PLAN 14.1 answers 6,
                                  ; 7): AX = KB (1..65535); out CF=0, DX = its
                                  ; first segment or selector and CX = the step
@@ -2548,7 +2548,7 @@ XMW_OFF     equ 0
 XMW_KB      equ 2
 XMW_OWN     equ 4
 XMW_SIZE    equ 6
-%define OSAPI_XMEM_SEL      KERNEL_SEG:0x049F   ; DX:AX = an address inside a
+%define OSAPI_XMEM_SEL      KERNEL_SEG:0x04AB   ; DX:AX = an address inside a
                                  ; block YOU own, CX = bytes (0 = 64KB); out
                                  ; CF=0 and AX = a DATA SELECTOR whose segment
                                  ; covers exactly that window - load it into
@@ -2563,7 +2563,7 @@ XMW_SIZE    equ 6
                                  ; os88ub.inc) or none free / 2 not inside a
                                  ; block you own. UI-task context, like the
                                  ; four above (KERN-MEGA-PLAN 12.2).
-%define OSAPI_XMEM_RUN      KERNEL_SEG:0x04B7   ; DX:AX = the TOKEN of a block
+%define OSAPI_XMEM_RUN      KERNEL_SEG:0x04C3   ; DX:AX = the TOKEN of a block
                                  ; YOU own (OSAPI_XMEM_ALLOC's answer, its
                                  ; base); out CF=0, DX = the first of a RUN of
                                  ; DATA SELECTORS and CX = the step between
@@ -3000,6 +3000,73 @@ HDV_DISARM   equ 2              ; ES:DI = 8 bytes: bit n set = sector n of the
                                 ; buffer is in XMS and NOT in the buffer. Copy
                                 ; up the rest: a sector the kernel's cache
                                 ; served, or a disk on rung 0, is clear
+HDV_TOOL     equ 3              ; THE INSTALLER (SPEC.md 117.4): CL = an HDI_*
+                                ; below, ES = yours, the rest per verb. CALL
+                                ; IT THROUGH OSAPI_DRV_USE's DRVU_CALL, never
+                                ; OSAPI_DRV_CALL: the install runs the
+                                ; machine's file walk, and through the plain
+                                ; door every name it writes resolves in YOUR
+                                ; folder instead (SPEC.md 51.2.3). It is
+                                ; HDDTOOL.DRV's own engine - the Control
+                                ; Panel's Install window's - read off the
+                                ; system volume on first use. CF=1 = the tool
+                                ; could not be reached (no system disk, no
+                                ; heap, another vintage) or the verb is not
+                                ; one it knows; CF=0 = it ran, answer in AL.
+                                ; Every register but AX preserved. UI task,
+                                ; from a callback: the install verbs copy
+                                ; whole floppies under the frozen interface
+HDI_DEVS     equ 0              ; ES:DI = 4 * HDIV_SIZE. out AL = devices
+HDI_SLOTS    equ 1              ; DL = a device, ES:DI = 4 * HDIS_SIZE. out
+                                ; AL = the slot the Install window would
+                                ; select, 0FFh none would do, 0FEh no such
+                                ; device or its geometry is unknown
+HDI_GO       equ 2              ; DL = device, DH = slot, CH = 1 erase / 0 keep
+                                ; the files; ES:DI = an HDIB_* block. out AL =
+                                ; an HDG_* and the engine's caption at HDIB_CAP.
+                                ; The Install window's two clicks in one
+HDI_APPS     equ 3              ; ES:DI = an HDIB_* block: the apps phase, once
+                                ; HDI_GO answered HDG_APPS. out as HDI_GO
+HDI_QUIT     equ 4              ; abandon a run waiting on its apps disk (its
+                                ; system part has committed and stays)
+HDI_CAPSZ    equ 48
+HDIB_CAP     equ 0              ; HDI_CAPSZ: the caption, out
+HDIB_LOG     equ 48             ; dw: a LOG PROC in the caller's segment, or 0
+                                ; (SPEC.md 117.4.1): called once per step,
+                                ; from inside the verb, as a package callback
+                                ; - DS = yours, ES = KERNEL_SEG, SI = the line
+                                ; at HDIB_LINE, gfx lock held. It may draw and
+                                ; clobber anything; it may NOT touch a file
+HDIB_LINE    equ 50             ; HDI_LINESZ: where each line is put
+HDI_LINESZ   equ 41             ; 40 characters and the NUL
+HDIB_SIZE    equ 91
+HDIV_KIND    equ 0              ; db: 1 = int 13h, 2 = the IDE task file
+HDIV_GEOM    equ 1              ; db: 1 = its geometry is known (installable)
+HDIV_UNIT    equ 2              ; db: the int 13h drive, or the IDE unit
+HDIV_BIOS    equ 3              ; db: the int 13h drive the ROM knows it as,
+                                ; IDE rows included (SPEC.md 52.1.1), or 0
+HDIV_SECS    equ 4              ; dd: cylinders x heads x sectors
+HDIV_SIZE    equ 8
+HDIS_STATE   equ 0              ; db: an HDS_* - may an install take it
+HDIS_VOL     equ 1              ; db: 1 = a FAT volume an install may KEEP
+HDIS_LET     equ 2              ; db: the letter it is mounted as, or 0
+HDIS_TYPE    equ 3              ; db: the partition table's type byte
+HDIS_SECS    equ 4              ; dd: its length (a free slot: what an install
+                                ; would make of it)
+HDIS_TEXT    equ 8              ; 26 bytes: the Install window's State column,
+                                ; NUL-ended ('C: FAT16', 'Unpartitioned', ...)
+HDIS_TEXTSZ  equ 26
+HDIS_SIZE    equ 34
+HDS_OK       equ 0              ; an install may take it
+HDS_SMALL    equ 1              ; under 2MB
+HDS_ALIEN    equ 2              ; somebody else's, or unreadable, or too big
+HDS_NONE     equ 3              ; free, and no room on the disk for it
+HDS_LIVE     equ 4              ; the volume this machine BOOTED from: keep
+                                ; only, never erase (SPEC.md 52.10.4.1)
+HDG_FAIL     equ 0              ; it stopped; the caption says where
+HDG_APPS     equ 2              ; the system part is on and the disk boots:
+                                ; insert the apps disk, then HDI_APPS
+HDG_DONE     equ 3              ; installed
                                 ; 3 was the serial monitor's and is RETIRED,
                                 ; not free: a class number is ABI, and a driver
                                 ; built against the old header would attach as
@@ -6273,6 +6340,51 @@ FSIF_BANKED equ 4
 %endmacro
 
 ; --- THE THEME (SPEC.md 76, 76.14.14) --------------------------------------
+; --- Desktop serial lease (SPEC.md 115), UI-task context -------------------
+%define OSAPI_SERIAL KERNEL_SEG:0x049F ; AL=0 Open (BL=COM1/2, SI=517-byte
+                                 ; pinned-region buffer, BH=the 8250 divisor
+                                 ; of 115200: 0 or 12 = 9600, 48 = 2400 -
+                                 ; SPEC.md 115.1), 1 Close, 2 Read
+                                 ; (AL byte, AH sticky LSR/overflow), 3 Write
+                                 ; (CL byte). AX/CF outputs, every other
+                                 ; register kept. Open may read SERIAL.DRV
+                                 ; from the system disk. CF=1 AX=1 busy,
+                                 ; 2 move mouse to settle, 3 mouse port,
+                                 ; 4 absent, 5 bad buffer/caller, 6 empty,
+                                 ; 7 TX full, 8 module unavailable.
+SER_BUFFER_SIZE equ 517
+
+%define OSAPI_DRV_USE KERNEL_SEG:0x04A5 ; THE DRIVERS PAGE'S TICK, AS A DOOR
+                                 ; (SPEC.md 117.3). AL = a DRVC_* class, AH =
+                                 ; DRVU_UP: load and attach that class's
+                                 ; driver with the Control Panel's own code,
+                                 ; reading it (and CTRL.DRV) off the system
+                                 ; disk - out CF=0 it is up (or was), CF=1 AX
+                                 ; = the DRVE_* its row banked: 1 no system
+                                 ; disk, 2 not on it, 3 not a driver, 4 no
+                                 ; memory, 5 no hardware, 6 busy, 7 attached
+                                 ; twice, 8 nothing to mount; AX = 0 no driver
+                                 ; layer (kern_small). It RECORDS NOTHING: no
+                                 ; SYSTEM.CFG answer is written for a user who
+                                 ; never answered the Drivers page. AH =
+                                 ; DRVU_DONE: you have finished with that
+                                 ; driver's page tools - it is sent
+                                 ; DSV_CPCLOSE (HDD.DRV gives HDDTOOL.DRV
+                                 ; back) unless a Control Panel is open.
+                                 ; AH = DRVU_CALL: OSAPI_DRV_CALL_AT (BH =
+                                 ; class, BL = its verb, ES = yours, CX DX SI
+                                 ; DI its arguments) ASKED AS THE MACHINE -
+                                 ; the driver's file names resolve where the
+                                 ; machine stands and not in your folder, as
+                                 ; when the kernel calls it (SPEC.md 51.2.3).
+                                 ; For a verb that runs the system's own
+                                 ; machinery on your behalf: HDD.DRV's
+                                 ; HDV_TOOL. Every register but AX kept. UI
+                                 ; task, from a callback; a worker may not
+DRVU_UP      equ 0
+DRVU_DONE    equ 1
+DRVU_CALL    equ 2
+
 %define OSAPI_THM_SET        KERNEL_SEG:0x046D   ; AL = THM_BRIGHT(0)/DARK(1)/
                                  ; COLOR(2)/WIN(3): adopts it as the system
                                  ; theme, repaints the desktop's chrome and
