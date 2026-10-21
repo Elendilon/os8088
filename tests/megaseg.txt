@@ -30,4 +30,8 @@
 #             entries) into LOW_SEG through SS, at 96 entries, and
 #             mega_lincopy's body into `.mega` (mx_lcopy) behind a four-byte
 #             near door and a six-byte far one
-4323
+# 2026-10-21: +22, KERN-MEGA-PLAN 14.62 - mega_kdrain and its two calls: the
+#             8042 emptied right after an ICW1, in mega_r286 (a 286's reset
+#             landing, real mode) and mega_dropr (the drop into DOS, real
+#             mode). Both run where `.mega` cannot be reached
+4345

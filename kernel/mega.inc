@@ -711,6 +711,28 @@ mega_pic_pm:
     out 0x21, al
     ret
 
+; mega_kdrain - the 8042's output buffer emptied, RIGHT AFTER an ICW1 (real
+; mode or protected; AL clobbered). ICW1 resets the edge sense of every line,
+; and the 8042 holds IRQ1/IRQ12 HIGH while a byte waits in its one buffer, so
+; a byte that was there makes no new edge: nobody reads it, and the controller
+; sends nothing more from the keyboard OR the mouse - both dead, IRQ0 and the
+; drawing alive (KERN-MEGA-PLAN 14.62). Read straight after the ICW1 such a
+; byte has no request behind it to go spurious, so dropping it is exact: one
+; key or one packet byte lost, where leaving it loses both devices for good.
+; A byte that comes after makes its edge and is delivered when its line opens
+mega_kdrain:
+    push cx
+    mov cx, 16
+.l:
+    in al, 0x64
+    test al, 1
+    jz .x
+    in al, 0x60
+    loop .l
+.x:
+    pop cx
+    ret
+
 ; mega_leds - the keyboard's lock lights from KB_FLAG (DS = the BDA): command
 ; EDh and the LED byte (bit 0 Scroll, 1 Num, 2 Caps = KB_FLAG bits 4-6), each
 ; ACK read here - unless the byte waiting is the PS/2 mouse's, which is left
@@ -2716,7 +2738,8 @@ mega_r286:
     mov al, [mega_imr2]             ; note on why the 8259 is otherwise left
     or al, bh                       ; alone)
     out 0xA1, al
-.picok:
+    call mega_kdrain                ; ...and what the two ICW1s stranded in
+.picok:                             ; the 8042 (KERN-MEGA-PLAN 14.62)
     cmp byte [mega_drop], 0         ; THE DOS PARK's way down (megados.inc):
     jne mega_dropr                  ; the same reset, a different landing
     jmp mega_svc_lo.rm

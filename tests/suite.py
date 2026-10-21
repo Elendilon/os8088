@@ -14308,6 +14308,22 @@ SOAK = [
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/mines.o88")),
+    Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 360.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.61, 14.62: the keyboard INSIDE a "
+        "DOS program and the keyboard and pointer after it, over ten round "
+        "trips on kern_mega's park arm with the pointer moving across every "
+        "launch. Bochs with an IntelliMouse; tests/dostrap/kbtrip.asm "
+        "(assembled by the row) reports port 64h at entry and whether one "
+        "key arrived, on E9. The handoff masked IRQ12 with the PS/2 mouse "
+        "still reporting, so a packet byte stranded in the 8042's one "
+        "buffer and no key reached the program (`entry 64=31`). Each trip "
+        "asserts the key, the return and the pointer moving; the next trip's "
+        "typed command is the desktop's keyboard. The failing case, "
+        "verified: the tree before 14.62 (--build on a copy), 3 of 6 trips "
+        "with no key and a stray `2` typed on the seventh. 360s is 300 "
+        "measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
         "it interrupted. SeaBIOS serves int 13h and int 16h on a stack of its "

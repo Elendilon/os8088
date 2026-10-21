@@ -168047,6 +168047,51 @@ out. QEMU's i8042 raises IRQ12 the moment a byte is queued, so the ISR takes
 every ACK there and the old block failed its knock at the first one. With the
 old HIBER.DRV the wheel came home 0 and the master `A8h` came home `00h`.
 
+##### 96.45.2.5 …and a byte left in the 8042 with nobody to take it silenced BOTH devices
+
+The Victory 286, kern_mega and then kern_big: a DOS program launched on the
+whole-machine arm got no keys at all, and some returns came home with the
+keyboard and the PS/2 mouse both dead while IRQ0 and the drawing ran
+(docs/plans/KERN-MEGA-PLAN.md 14.61, 14.62). The 8042 has ONE output buffer
+for the two devices and holds IRQ1 or IRQ12 HIGH while a byte waits in it, so
+a byte nobody reads - its line masked for good, or its edge erased by an 8259
+initialisation (ICW1 resets every line's edge sense) - keeps the controller
+from sending anything more from EITHER device. Four places, three rules:
+
+* **The handoff quiets the device before it unhooks it** (`hbm_dosrun`, step
+  6, both kernels). `mouse_unhook` masks IRQ12 and then sends `0xA7`, which
+  holds the device's clock and leaves it REPORTING; the handover then runs the
+  program with IRQ12 masked. A packet byte sent across the launch was stranded
+  there for the whole program. Bochs, the pointer moving over every launch:
+  `KBTRIP entry 64=31` (OBF, AUX) and no key, 6 trips of 12. Now, with a PS/2
+  pointer live: IRQ12 masked, `0xD4 0xF5` (reporting off, as POST leaves it),
+  its `0xFA` read behind any queued packet (64 bytes at most), then
+  `mouse_unhook`, then every AUX byte still in the buffer read and dropped
+  (a keyboard byte is left for `int 09h`). The wake's `0xF4` turns reporting
+  back on, so nothing on the return changes for it. 0 of 12 after.
+* **The wake collects the device's `0xFA` to its `0xF4`** with IRQ12 still
+  masked (`hbm_wake` `.nowz`). It was left for the ISR - and step 4's `int 10h`
+  follows at once, which on a 286 is a CPU reset whose BIOS can re-initialise
+  the 8259 (`mega_r286`).
+* **Straight after every ICW1 the buffer is emptied** on kern_mega
+  (`mega_kdrain`): in `mega_r286` when the BIOS re-initialised the 8259 on its
+  way back from a reset, and in `mega_dropr` after the drop's own. Read then, a
+  byte has no request behind it to go spurious, so dropping it is exact - one
+  key or one packet byte lost where leaving it loses both devices.
+* **The wake ends with nothing stranded** (`hbm_kstrand`, the end of step 3d,
+  both kernels): a byte in the buffer whose line has no request latched at the
+  8259 (OCW3's IRR, after a few polls for the controller's own lag) is read
+  and dropped; one whose request IS latched is left for its ISR. Up to four.
+
+HIBER.DRV +139 bytes of code on both kernels, inside its padded image (7,169
+and 10,241 bytes, unchanged): none resident. kern_mega `.text` +22
+(`mega_kdrain` and its two calls - real-mode code, so it cannot be `.mega`).
+kern_big's `kernel.bin` and `kernel.sys` are byte-identical; kern_small has no
+HIBER.DRV and every hunk is inside `KERN_BIG` or `KERN_MEGA`.
+`tests/megakbtrip.py` is the row: Bochs with an IntelliMouse, ten round trips
+of `tests/dostrap/kbtrip.asm` with the pointer moving across each launch, a key
+asserted INSIDE the program, the return, and the pointer moving after it.
+
 #### 96.45.3 The pointer STARTS in the middle, and ours started at the origin
 
 `AX=0` centres the pointer — every driver does it, and a program that resets
