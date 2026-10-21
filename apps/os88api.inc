@@ -3677,6 +3677,11 @@ OS88_HIGH          equ 0x80
 ; next load, and every register you pushed is one. A claim over 64KB,
 ; or one the pool cannot hold, is conventional exactly as before, so the
 ; package must still treat every claim as an opaque segment.
+; BOTH BITS ARE OPT-IN AND BOTH ARE OWED (KERN-MEGA-PLAN 14.51, 14.52): every
+; package under apps/ declares OS88_HIGH and OS88_HIGHMEM, or carries a line
+; in tests/megahigh.txt saying what in its code breaks above 1MB.
+; tests/unit/t_megahigh.py (the full tier) fails the build otherwise, and the
+; list only turns one way. A C package says both in CC_STACK_CLASS.
 OS88_HIGHMEM       equ 0x40
 
 ; THE FORMAT BYTE IS THE API TABLE'S (SPEC.md 20.2.0). Pass 4 moved 158 of

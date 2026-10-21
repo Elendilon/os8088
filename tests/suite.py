@@ -1793,6 +1793,22 @@ FULL = [
         "paid with `python3 tools/guidelock.py stamp KEY --why ...` after "
         "reading the page",
         needs=()),
+    Row("megahigh", "full", py("tests/unit/t_megahigh.py"), 2.0,
+        "KERN-MEGA-PLAN 14.51/14.52, at the owner's word: OS88_HIGH and "
+        "OS88_HIGHMEM stay OPT-IN, but every package under apps/ declares "
+        "both in its class byte or excepts itself in tests/megahigh.txt "
+        "with a reason - a thing in its code that breaks above 1MB, never "
+        "'nobody looked'. t_movable.py's shape and ratchet: a line for a "
+        "package that now declares fails as stale. Decided from the source "
+        "(OS88_HEADER's 4th argument through a model of %ifdef with the "
+        "shipped recipe's defines, or a C shim's CC_STACK_CLASS) and "
+        "cross-checked against every current built image's byte 15, so the "
+        "parse cannot drift from what the kernel reads. A re-home LOADER is "
+        "not asked for OS88_HIGH, and for OS88_HIGHMEM only when its own "
+        "source claims. Red, both tried: OS88_HIGHMEM taken out of HELLO, "
+        "and a stale line for a package that declares. FULL and not fast "
+        "because the owner asked for it there; host-side, 2s measured",
+        needs=()),
     Row("bootsmoke", "full", py("tests/bootsmoke.py"), 20.0,
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
