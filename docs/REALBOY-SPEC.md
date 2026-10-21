@@ -1687,7 +1687,9 @@ and writes the cells the game changed.
   they are** (`ppu_tspan`): everywhere else it IS the background, so the
   bytes from the leftmost sprite's to the rightmost's - two on average in
   Kirby's Dream Land's 32 such lines a frame, three in Super Mario Land's
-  - are written, and later restored; anything else is all 21.
+  - are written, and later restored; anything else is all 21. **Composing
+  it only there too was built, measured and refused** (REALBOY-SPEC
+  15.5.3).
 - **A page keeps what it was given** (`RB_TKEY`, `RB_TSPAN`, `RB_TPL`):
   per line, the canvas row and column of the overlay written there, which
   of its bytes, and the list of lines it holds one on. Drawing a page
@@ -1781,7 +1783,11 @@ only below a split, and takes a start address only at the retrace.
 - **What it bought**, on `286-victory` playing the same replay (10.5) of
   Kirby's Dream Land in full screen: **9.73 frames drawn a second against
   8.70-9.03** before, 217 draws to 194-205, the play in step; Super Mario
-  Land, which has no strip, is unchanged at 36.65. The gate's canvas leg
+  Land, which has no strip, is unchanged at 36.65. On the bare harness's
+  400 timed frames composed onto the pages (`rbbench.py --box 286-victory
+  --vga --pages`, deterministic where a replay is not): Kirby's Dream Land
+  **308 -> 288 ticks** (-6.5%), Super Mario Land 102 -> 103 (the frame's
+  candidate, judged from the raster log). The gate's canvas leg
   (MODE 19) reads a strip's lines back from the region: 0 of 500 differ for
   all three games, and the region written a row low fails Kirby's Dream
   Land on 358 of 500.
@@ -1801,6 +1807,26 @@ the next frame run ahead of the clock while a flip waits, up to two
 (`RW_PGAHEAD`) - **36.75 and 8.70 frames a second against 36.65-36.99 and
 8.70-9.03**, inside 86Box's run-to-run spread, so the second was taken out.
 The machine was not waiting; it was drawing.
+
+#### 15.5.3 A sprite line composed only where its sprites are: refused
+
+Written only where its sprites are (above), the line was still composed
+whole, and composing it in its span alone was the third of the field's
+three proposals. Built: the tile rows copied for those bytes only, BGP's
+planes taken over their words, the buffer compared and stored over them -
+and widened to every page's older overlay held at the same place
+(`ppu_tunion`), because rb_tpage writes the old bytes with the new from
+the buffer there and the old sprite's must be background by then; without
+that the gate's canvas leg failed Super Mario Land on 398 of 500 and
+Kirby's Dream Land on 362, and with it 0. **It was slower**, on the bare
+harness's 400 timed frames of play composed onto the pages
+(`rbbench.py --box 286-victory --vga --pages`): Super Mario Land 103 ->
+109 ticks, Kirby's Dream Land 288 -> 313, and still 108 and 309 with the
+buffer's valid bytes tracked so an unchanged line is not composed again.
+The whole line is an unrolled copy of 21 tile rows and two `repe cmpsw`,
+which are cheap per byte; the span's bookkeeping - three keys looked up
+per sprite line, a loop per byte, the span's set-up in the composer - costs
+more than the ~18 bytes it saves. Taken out.
 
 ## 16. The recompiler
 
