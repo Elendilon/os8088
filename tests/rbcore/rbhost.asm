@@ -51,7 +51,16 @@
 cpu 8086
 bits 16
 
-HOST_SEG        equ 0x0800
+%ifdef FRAME_SUM
+%define NO_MODE13
+%endif
+HOST_SEG        equ 0x0760                  ; (35,328 bytes under the core: the
+                                            ;   boot sector moves itself out of the
+                                            ;   way first, BOOT_SEG, and the stack
+                                            ;   is HOST_STK's, under the harness)
+BOOT_SEG        equ 0x2000                  ; the boot sector's copy, at 2000:7C00
+                                            ;   (the view, not loaded from disk)
+HOST_STK        equ 0x7600                  ; 0:7600 down, over FRAME_SEG's end
 CORE_SEG        equ 0x1000
 VIEW_SEG        equ 0x2000
 ROM_SEG         equ 0x3000
@@ -71,13 +80,14 @@ JF_MODE         equ 03h                     ; b_jit: 0 interpret, 1 translate,
 JF_SEG2         equ 04h                     ;   2 Static; a second segment; both
 JF_SQZ          equ 10h                     ;   squeezed to JIT2_LIM's 1KB;
 JF_SMALL        equ 08h                     ;   the block table at 16KB
-PRF_SEG         equ 0x0510                  ; Static's profile, 4KB (not MODES 5-9,
+PRF_SEG         equ 0x05A0                  ; Static's profile, 4KB (not MODES 5-9,
                                             ;   which compose into FRAME_SEG)
-FRAME_SEG       equ 0x0510                  ; rb_render's 5,760 bytes, above the
-                                            ;   damage memory's RB_DMG_SIZE (to 5014h:
+FRAME_SEG       equ 0x05A0                  ; rb_render's 5,760 bytes, above the
+                                            ;   damage memory's RB_DMG_SIZE (to 5896h:
                                             ;   INTERLACE writes its end) and under the
-                                            ;   boot stack: the harness (with the
-                                            ;   recompiler's templates) runs past A000h
+                                            ;   harness's stack (HOST_STK): the harness
+                                            ;   (with the recompiler's templates) runs
+                                            ;   past A000h
 FRAMED_SEG      equ 0x0060                  ; MODE 6: rb_renderd's buffer
 DMG_SEG         equ 0x01D0                  ;   and its damage memory
 STATE_SEG       equ 0x7000                  ; MODE 13's copy of a save state
@@ -99,12 +109,21 @@ b_joy       db 0                        ; patched: JOY_ flags (joy_script)
 b_ilace     db 0                        ; patched: rb_ilace, for MODE 12
 boot_go:
     cli
-    xor ax,ax
+    cld
+    xor ax,ax                           ; out of the harness's way: itself to
+    mov ds,ax                           ;   BOOT_SEG:7C00, and its stack with it
+    mov si,0x7C00
+    mov ax,BOOT_SEG
+    mov es,ax
     mov ss,ax
     mov sp,0x7C00
+    mov di,si
+    mov cx,256
+    rep movsw
     mov ds,ax
     sti
-    cld
+    jmp BOOT_SEG:boot_rel
+boot_rel:
     mov [b_drive],dl
     mov word [b_lba],1
     mov ax,HOST_SEG
@@ -199,6 +218,9 @@ h_joy       db 0                        ; JOY_ flags
 %include "rbdefs.inc"
 
 host_main:
+    xor ax,ax                           ; the stack under the harness, not
+    mov ss,ax                           ;   in it (the boot sector's was at
+    mov sp,HOST_STK                     ;   0:7C00, inside it now)
     mov ax,cs
     mov ds,ax
     mov es,ax
@@ -314,11 +336,13 @@ host_main:
     cmp byte [h_mode],3
     jb .nj
     call joy_script
-    cmp byte [h_mode],13                ; MODE 13: a save state
+%ifndef NO_MODE13                       ; (NO_MODE13: room for an experiment -
+    cmp byte [h_mode],13                ;   FRAME_SUM's - and no MODE 13)
     jne .n13
     call st_frame
     jmp short .nj
 .n13:
+%endif
     cmp byte [h_mode],5                 ; MODE 5: compose every frame too
     jne .n6
     push es
@@ -353,6 +377,9 @@ host_main:
     mov es,ax
     xor di,di
     call rb_renderd
+%ifdef FRAME_SUM
+    call fsum
+%endif
 %ifdef SCRL_STAT
     call scrl_stat
 %endif
@@ -387,6 +414,20 @@ host_main:
     call puts
     mov ax,[nframes]
     call dec16
+%ifdef FRAME_SUM
+    mov si,s_fsum
+    call puts
+    mov ax,[cs:fs_sum+2]
+    call hex16
+    mov ax,[cs:fs_sum]
+    call hex16
+    mov si,s_fsum
+    call puts
+    mov ax,[cs:fs_chg+2]
+    call hex16
+    mov ax,[cs:fs_chg]
+    call hex16
+%endif
     mov si,s_ticks
     call puts
     mov ax,[ticks]
@@ -528,6 +569,7 @@ host_main:
     loop .dd
 %endif
 .nd:
+%ifndef NO_MODE13
     cmp byte [h_mode],13
     jne .ns
     mov si,s_st
@@ -542,6 +584,7 @@ host_main:
     cmp byte [st_bad],0
     je .ns
     call puts
+%endif
 .ns:
     mov si,s_end
     call puts
@@ -706,6 +749,7 @@ dmg_dump    times 85 db 0
 ; Start at 150, 400 and 700, Right held, A for 14 frames of every 50, B for
 ; the last 29 of every 400. At frame 800 the counters start from zero, as
 ; gbprof's statistics do, so the two shares compare like for like.
+%ifndef NO_MODE13
 ; st_frame - MODE 13, after each frame: the state taken at h_frames - 200,
 ; and at h_frames the sum, then the state back and the frames again
 st_frame:
@@ -861,6 +905,7 @@ st_pass db 0
 st_bad  db 0
 st_suma dw 0
 st_sumb dw 0
+%endif
 
 joy_script:
     push ax
@@ -1062,6 +1107,42 @@ dec16:
 s_hello db "RealBoy core harness",10,0
 s_bad   db 10,"RBHOST BADOP ",0
 s_done  db 10,"RBHOST DONE frames ",0
+%ifdef FRAME_SUM
+s_fsum  db " fsum ",0
+fs_sum  dd 0
+fs_chg  dd 0
+; fsum - FRAME_SUM's: every composed frame's buffer and its changed lines
+; folded into two dwords, so two builds can be shown to compose the same
+fsum:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push ds
+    add [cs:fs_chg],ax
+    adc word [cs:fs_chg+2],0
+    mov ax,FRAMED_SEG
+    mov ds,ax
+    xor si,si
+    mov cx,2880
+    mov bx,[cs:fs_sum]
+    mov dx,[cs:fs_sum+2]
+.l:
+    lodsw                               ; (Fletcher's: a word's place counts)
+    add bx,ax
+    add dx,bx
+    loop .l
+    mov [cs:fs_sum],bx
+    mov [cs:fs_sum+2],dx
+    pop ds
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
 s_dmg   db " damage-bad ",0
 %ifdef SCRL_STAT
 s_scrl  db " scroll-frames ",0

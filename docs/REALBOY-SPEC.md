@@ -689,7 +689,7 @@ screen are the package's.
 call.** It composes only the lines whose inputs changed, and writes only the
 lines whose pixels then differ. The caller's buffer is ES:DI, and it holds
 the last frame. `[rb_dmgseg]` is `RB_DMG_SIZE` bytes of the host's memory
-(about 12.4KB); with it 0, `rb_renderd` is `rb_render` and every line has
+(about 14.9KB); with it 0, `rb_renderd` is `rb_render` and every line has
 changed. On return, `RB_DCHG` in that memory holds a byte for each line (1:
 it changed), and AX holds the count.
 
@@ -909,7 +909,8 @@ card 14.3%; Super Mario Land: the sprites 8%, the card 14.4%, no
 instruction over 1.6%):
 
 - **Kept**: `ppu_oam` builds the line lists again only when a sprite's Y
-  moved (`PPU_OAMY`, the 40 Ys it built from) - they hang on nothing else,
+  moved (`PPU_OAMY`, the 40 Ys it built from; since the scroll round, below,
+  it moves only the rows those sprites left and joined) - they hang on nothing else,
   and a scroll moves every X and no Y. 451 / 970 -> 449 / 965. **No row can
   see this one go wrong**: the A/B frames and dmg-acid2 compose one frame
   each, so the lists are always built once, and `gbdamage`'s reference
@@ -950,6 +951,58 @@ Only `rb_renderd` kept it, so `gbdamage`'s reference stayed independent.
   it is not X alone that churns - Super Mario Land's entries change in Y,
   tile or attributes nearly every frame - and the check, which has to run
   every frame, costs what the hits save.
+
+**The scroll round** (2026-10-21, the composer's half; the research behind
+it and the hardware half are REALBOY-PLAN's scroll round). A scrolled
+frame is composed whole, and the profile of one had no routine above a
+sixth and no instruction above 2% - so the cuts are many and small, each
+timed alone on `286-victory` (`rbbench --renderd`, 1,200 frames of play,
+Super Mario Land / Kirby's Dream Land ticks) and every one checked FRAME
+FOR FRAME against the composer before it: the bare harness sums every
+picture it composes (`FRAME_SUM` on its DONE line), and the kept set reads
+the same sums as before on both games and Dr. Mario in all four interlace
+modes over 3,000 frames. `gbdamage` cannot see a defect here, its
+reference sharing `ppu_line` and the sprites with what it checks.
+
+- **Kept**: `ppu_log` is called only from the line its next entry takes
+  effect on (`PPU_LOGL`), not from every line to find nothing due; the
+  Off-mode whole frame has its own loop (`RB_DCHG` one `rep stosw`, the
+  count added once); `ppu_dput` copies from the first word that differs,
+  where `repe cmpsw` left it. 410 / 859 -> 395 / 840.
+- **Kept**: seven lines of eight reuse the last line's 21 tile addresses
+  and take the next tile row, when no register was written since
+  (`PPU_RCH`, set by `ppu_log` and each frame's start). -> 390 / 834.
+- **Kept**: with BGP the identity the sprites draw straight into the
+  background's planes (`PPU_BL`/`PPU_BH`) instead of a copy of them - exact,
+  since a sprite changes only pixels it claims and a later one reads the
+  background only where nothing is claimed. -> 385 / 825.
+- **Kept**: the line lists are MOVED, not rebuilt (`ppu_oamv`): a sprite
+  whose Y moved leaves the rows it no longer covers and joins those it now
+  does, in OAM order; past `PPU_OAMFEW` = 8 movers a frame it rebuilds as
+  before. -> 381 / 817.
+- **Kept**: each map row's 21 tile addresses are kept from frame to frame
+  in the damage memory with the 21 map bytes they were built from
+  (`ppu_blist`, `RB_DLC`), and copied while those bytes and the tile mode
+  match. Kept by CONTENT rather than by the VRAM marks (378 / 807): it rests
+  on no write tracking, and survives a long scroll in which the scan never
+  runs. `RB_DMG_SIZE` 0x3314 -> 0x3B96, the package's claim 13KB -> 15KB.
+  -> 375 / 811.
+- **Kept**: the line lists are built 8 tall when every sprite is 8x8 for
+  the whole frame (`ppu_oamh`), 16 otherwise, and rebuilt when that
+  changes. -> 370 / 811. And the tile-mode check skipped while `PPU_RCH` is
+  clear. -> **368 / 808**: **-10.0% / -5.8%**, Super Mario Land composing
+  every frame at 100.6% of real time where it was 111.8%; `--vga` 444 / 935
+  -> 403 / 884. About 1KB of code.
+- **Refused**: a one-tile line signed per line and not composed when its
+  buffer already holds it. Super Mario Land gained 3-5 ticks and Kirby's
+  Dream Land lost 7-11 in four placements: ~20 of the ~56 sky lines
+  qualify, and the bookkeeping is every line's.
+- **Refused**: `ppu_fshift` touched at all - a table per phase, a string
+  shift and interleaved planes all cost more per byte than its 10
+  instructions a tile, which are this design's floor.
+- **The bare harness moved** to make room (it was 20 bytes from its core):
+  the boot sector is copied to 2000:7C00, the host loads at 0760h with its
+  own stack at 0:7600, the frame and profile buffers at 05A0h.
 
 
 ## 14. The package
