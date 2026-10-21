@@ -8954,6 +8954,9 @@ mouse is still dead, the next instrument is `MOUDIAG=1`'s panel after the
 resume. (b) Bochs's mouse is `type=ps2` in `tools/os88bochs.py`, so no other
 Bochs row exercises a wheel. `megap2hiber` sets `imps2` for itself only.
 
+**CONFIRMED ON THE IRON (2026-10-21):** the owner reports the PS/2 mouse
+works after a hibernate's resume on the Victory 286 with this fix.
+
 ### 14.58 MECH2's freeze: a BIGSP record read in place ran off its window (2026-10-21)
 
 14.56's field report: on the Victory 286, kern_mega at 942137bc, Mechwarrior
@@ -9187,3 +9190,66 @@ shared `.wk`, `mro_close`), `mrdraw` and `mrdrawvga` (`mru_changed`).
 **For the owner**: the speaker's message is the generic *"No memory to play
 - close a program and retry"*, because the ring is the Covox's too and
 *"for the speaker"* would be wrong there.
+
+### 14.60 The owner's calls after 14.57-14.59, and what kern_mega still puts low (2026-10-21)
+
+**The PS/2 mouse after a resume is fixed on the iron** (14.57, confirmed by
+the owner on the Victory 286).
+
+**MECH2 no longer freezes, and now STALLS** (14.58): with its BIGSP records
+copied through the conventional ring instead of read in place, the machine
+does not have the capacity to copy to the ring AND load the data - *"we're
+running at the edge of the hardware's capabilities, and the ring copy means
+this file won't play."* So reading a BIGSP file IN PLACE on kern_mega is a
+work item, and it **goes with the deferred Video Player round** (T69's
+throughput and timing, 14.56), not before it:
+
+- **The item: can kern_mega read in place at every superpacket size the
+  format supports?** Today a record of length L fits an `OSAPI_XMEM_RUN`
+  window (one every 32KB, each 64KB long) only when it starts at most
+  64KB - L into its 32KB, so a BIGSP record past ~32KB can run off the end -
+  which is the freeze 14.58 refused rather than fixed. The answer has to hold
+  for the LARGEST superpacket the encoder may write, not for MECH2's 58,879.
+- **The pattern to look at first is kern_big's**: on a 286 it reads BIGSP in
+  place through LOADALL, which loads a segment's descriptor cache with any
+  24-bit base - i.e. it re-aims ONE window at each record's start, so no
+  record ever crosses its end. kern_mega's equivalent is the same idea with a
+  real descriptor: re-aim one LDT data descriptor's base per record (a
+  descriptor write is a few stores; the selector is then reloaded). 14.58's
+  agent named the two shapes and their obstacles - a run of windows at a 2KB
+  step (~1,536 selectors for a 3MB bank, more than the LDT holds), or a
+  selector the player re-aims per record, which `OSAPI_XMEM_SEL` allows only
+  from the UI task and not from the rate hook - so the work is a kernel cell
+  the hook may call (or a re-aim done by the kernel inside `OSAPI_XMEM_RUN`'s
+  own record step) and its SDK contract.
+- **What to log while doing it**: the info card (`VPDIAG=1`, SPEC.md 98.3)
+  should say which read path a play took (in place / ring copy) and why, and
+  the largest record against the window it had - so a field run shows
+  whether in-place was refused and by how much.
+
+**Everything else the owner lists for a later round** - *"We'll fix all of
+these later; note anything we're still throwing low as usual, and we'll work
+on it in another round."* The register of what kern_mega STILL places in
+conventional memory, at e94a733d. Sources: 14.52.4's table, 14.41, 14.45,
+14.49, 14.55, 14.59.
+
+| what | who | size | why it is low today | note for the round |
+|---|---|---|---|---|
+| external DMA rings (bottom-up since 14.55) | 1942 PCM, Video Player card ring, MIDIRack's ring | 13KB / `VP_RL`+1KB / 17KB | the DMA door | **lead, unverified**: an AT's 8237 page registers are 8 bits, so 8-bit ISA DMA addresses 16MB, not 1MB - a ring above 1MB may be possible on every kern_mega machine if `SOUND.DRV` programs the page from a LINEAR address. Check the SB's channel, the page register (83h for channel 1) and what each driver computes before believing it |
+| `SOUND.DRV`'s own pool and double buffer | the driver | pool + double buffer | the DMA door, bottom-up with the rings (14.55; owner's question 1 unanswered) | same lead |
+| MIDIRack's speaker/Covox ring | MIDIRack | 5KB | an ISR reads it | bottom-up and freed at stop since 14.59 - could go high if the ISR may load a selector |
+| the parts carve at launch | Word, Scribe, Skies, DOS, PIXELSTEIN 3D | the keep | top-down, it becomes a CS | transient (14.38.6 D4) |
+| the eager ROM carve | Apple II, C64 | the ROM (C64 20KB + overlay) | top-down and pinned | fails tests 2 and 3 (14.53's table) |
+| the overlay-only carve | CWORD, RunCPM | the overlay | top-down by the CS rule | fails test 2 (14.53) |
+| the face cache | Word, Scribe, Font Viewer, CWORD | `TY_FACE_KB` a face | DMA door for 512-byte alignment | fails test 3 (14.53) |
+| the 32KB bounce | Video Player | 32KB | a ring above 1MB needs a conventional bounce for the disk | OK by the tests; goes away with in-place reading |
+| the keeper, shadow, poster, palettes, text save, layer | Video Player | per play | conventional by design (14.41); VGA8's palette and the text save top-down | the two top-down ones fail test 2 |
+| layered / BIGSP / EMS streams | Video Player | the ring | 14.41 left them conventional; BIGSP is the in-place item above | |
+| `os88xgap`'s scratch | Video Player | 8KB | DMA_HI | transient |
+| 1942's tile banks, Excitebike's sprites, Dr Marco/Excitebike art | the games | per bank / race / screen | parts fetched low | OK by the tests (held only in play) |
+| a story / module over 64KB | Frotz, Tracker, ModPlug | to 508KB / 116KB | a plain claim over 64KB is conventional | candidates for `OSAPI_MEM_HUGE` above 1MB (14.37) |
+| every claim | PiXEL | per picture | not `OS88_HIGHMEM` (paragraph arithmetic, 14.40) | the gate's one exemption (`tests/megahigh.txt`) |
+| `mx_tab`, the pool's table | the kernel | 768 bytes | `.lowbss`, beside `mem_tab` (14.49) | moving it high deferred by the owner (14.51) |
+| the descriptor tables | the kernel | GDT/LDT/IDT | conventional (14.2 item 12) | |
+| the redirected-volume bounce | the kernel | 512 bytes a call | a buffer above 1MB reaching a RAM disk or a cable share (10.3 item 81) | |
+| the launch's brief conventional room | the loader | the image | the re-home reads low before it lifts (14.38.6) | deferred by the owner's decision |
