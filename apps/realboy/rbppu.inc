@@ -12,12 +12,6 @@
 ;               leftmost pixel in bit 7) and then its bit 1. Shade 0 is the
 ;               lightest. Every register is preserved.
 ;
-;   rb_render4  the same frame as the four planes OSAPI_GFX_BLITP takes for
-;               the desktop's greys, into an 11,520-byte buffer: 80 bytes a
-;               line, NOT bit 1 three times (planes 0-2) then NOT bit 0
-;               (plane 3) - 15, 7, 8 and 0 for shades 0-3. Written as each
-;               line is finished, so a colour window needs no second pass.
-;
 ; The state each line is drawn with is the frame's own: rbsys's snapshot of
 ; the eight registers as the frame began (RB_SNAP) with the raster log
 ; (RB_RLOG) applied at the lines its writes took effect on, or - a frame with
@@ -103,7 +97,6 @@ PPU_TADDRC      equ 0x4D00          ;   at PPU_TADDRC + 2 x (n as signed)
 PPU_BLIST       equ 0x6600          ; 42 + 1: the 21 tile addresses a line
                                     ;   reads, and 1 when they are one tile,
 PPU_WLIST       equ 0x6680          ; 42 + 1: for the background and the window
-PPU_OUT         equ 0x4B58          ; byte: rb_render4's layout, not rb_render's
 PPU_BKEY        equ 0x4B5A          ; word: the map row PPU_BLIST holds (or 0)
 PPU_WKEY        equ 0x4B5C          ; word: ...PPU_WLIST
 PPU_OSRC        equ 0x4B5E          ; word: where ppu_line left the line's
@@ -114,18 +107,7 @@ PPU_LSPR        equ 0x4E00          ; 144 x 41: per line, the count and the
                                     ;   OAM indices of the sprites that MAY
                                     ;   cover it (16 tall), in OAM order
 
-rb_render4:
-    push ds
-    mov ds,[cs:rb_viewseg]
-    mov byte [PPU_OUT],1
-    pop ds
-    jmp short rb_render.go
 rb_render:
-    push ds
-    mov ds,[cs:rb_viewseg]
-    mov byte [PPU_OUT],0
-    pop ds
-.go:
     push ax
     push bx
     push cx
@@ -194,34 +176,12 @@ rb_render:
     call ppu_log
 .nolog:
     call ppu_line
-    cmp byte [PPU_OUT],0
-    jne .out4
     mov si,[PPU_OSRC]                   ; out: the 20 bytes of each plane
     mov cx,10
     rep movsw
     add si,0Ch                          ; bit 1 is at +20h
     mov cl,10
     rep movsw
-    jmp short .nextl
-.out4:
-    mov si,[PPU_OSRC]                   ; out: NOT bit 1 to planes 0-2...
-    add si,20h
-    mov cx,10
-.o4:
-    lodsw
-    not ax
-    mov [es:di+20],ax
-    mov [es:di+40],ax
-    stosw
-    loop .o4
-    add di,40                           ; ...and NOT bit 0 to plane 3
-    mov si,[PPU_OSRC]
-    mov cx,10
-.o3:
-    lodsw
-    not ax
-    stosw
-    loop .o3
 .nextl:
     inc byte [PPU_LY]
     cmp byte [PPU_LY],144

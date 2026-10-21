@@ -49,7 +49,19 @@ RB_VALL         equ 0x481A          ; byte: VRAM written past the marks (the
                                     ;   copy idiom, cpy_ff): compare it all
 S_HMASK         equ 0x481C          ; byte: the block table's mask, entries /
                                     ;   256 - 1: 31 for 64KB, 7 for 16KB (16.3)
-RB_FREE         equ 0x481E          ; the rest of the window is unassigned,
+S_BTMP          equ 0x481E          ; word: AX while mbc_set stamps a bank's
+                                    ;   frame (10.3) - the core never pushes,
+                                    ;   SP being the Game Boy's (a game that
+                                    ;   POPs data out of ROM had its bank 0
+                                    ;   copy written under it), and S_TMP is
+                                    ;   LD (nn),A's HL there
+S_STATLN        equ 0x4820          ; byte: the line whose mode 0 S_TSTAT is,
+                                    ;   or FFh - rb_statsch's, for rb_statev's
+                                    ;   step to the next line (section 6)...
+S_STATT         equ 0x4822          ; dword: ...trusted while S_TSTAT is still
+                                    ;   this: anything else that moves it (a
+                                    ;   state loaded, the LCD off) is a miss
+RB_FREE         equ 0x4826          ; the rest of the window is unassigned,
                                     ; but for rbppu.inc's 4900-66FF and:
 S_SQ3           equ 0x48F0          ; 8: the WAVE channel as the FM chip plays
                                     ;   it (REALBOY-SPEC 17.1) - S_SQ1's
@@ -72,8 +84,9 @@ RB_STREC        equ 0x7800          ; 2,048: a SAVE STATE's record, composed
                                     ;   begins, the file's other part
 JIT_BUF         equ 0x6700          ; 256: the Game Boy code being translated
 RB_BTAB         equ 0x6800          ; 512 words: a ROM bank's segment, or 0
-RB_BUSE         equ 0x6C00          ; 512 words: switches to it (the cache's
-                                    ;   eviction count, REALBOY-SPEC 10.3)
+RB_BUSE         equ 0x6C00          ; 512 words: the frame (S_FRAMES) it was
+                                    ;   last switched to, the cache's
+                                    ;   eviction (REALBOY-SPEC 10.3)
                                     ; (7000-711F: rbppu.inc's PPU_LSCR)
 JIT_HASH        equ 0x0000          ; 16,384, in a SEGMENT OF ITS OWN
                                     ;   (S_JITHSEG): the block table (tr_enter,

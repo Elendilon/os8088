@@ -1167,6 +1167,180 @@ The plan, in order:
    its window in the split region (15.5, not built). The field Victory is
    the measurement that decides it.
 
+### Release memory - what a game holds, and two cuts (2026-10-21, NOT BUILT)
+
+MEASURED on 86Box's 286 by reading the kernel's claim table (`mem_tab`,
+`tools/heapmap.py`'s parser) with a game running, at commit `67ee9325`:
+Tetris, Wario Land 3 and Pokemon Gold off `make realboyhd`'s 4MB machine,
+Kirby's Dream Land on Static on `vm/286` at 2MB. The 8088 column is the same
+code with the CPU gate in `rw_jitclaim` taken, so it is derived rather than
+measured.
+
+| what | KB | 8088 | 286, Recompiler On | 286, Static |
+|---|---|---|---|---|
+| the package's region: image 60,236 + bss 1,642 | 61 | yes | yes | yes |
+| the core and the view, one carve (below) | 129 | yes | yes | yes |
+| the frame buffers, `[rw_pseg]` (11,520 + 5,760) | 17 | yes | yes | yes |
+| the damage memory, `RB_DMG_SIZE` (given back if the ROM wants it) | 15 | yes | yes | yes |
+| the recompiler's cache and block table (64 + 64, or 64 + 16 when tight) | 128 / 80 | - | yes | yes |
+| the profile, `RW_PRFKB` | 9 | - | Machine > Profile | always |
+| the cache's second segment (a profile of `RW_JIT2N` blocks, or Cache: 128K) | 64 | - | if wanted | if wanted |
+| **before the cartridge** | | **222** | **350** (302) | **359** to 423 |
+
+The cartridge comes on top: the ROM in one claim up to 256K when it fits
+with `RW_KEEPKB` beside it (Tetris 32K), or the bank cache's 16K slots with
+the rest in XMS (Wario Land 3 and Gold 8 slots, 128K; Kirby on Static 10,
+160K); its RAM at 8K a bank, +1K for an MBC3 clock (Gold 33K). Transient:
+a replay's 8K while it records or plays, the log's 4K records while it is
+on and ~23K of text for the moment it is written.
+
+**The region**, by source file (label addresses in `build/realboy.lst`):
+the recompiler 19.9K (15.6K of it `rbtmpl.bin`, the templates), the
+renderer 14.3K, the window and its menus 7.8K, rbsys 4.8K, full screen 3.2K,
+the log 2.3K, keys 1.7K, replays 1.5K, the parts loader 1.3K, the bank
+cache, save states and the FM chip ~0.8K each. The log is ~1% of what a game
+holds and claims nothing while it is off.
+
+**The core carve** is 64K of code, laid out so that dispatch is
+`mov dh,[si] / jmp dx` (REALBOY-SPEC 4): opcode X's handler at X x 256, CB X's
+at X x 256 + 128. Of its 512 half-slots' 65,536 bytes **17,241 are code**
+(main handlers 6,806, CB handlers 7,364, the shared tails 3,071) and
+**48,295 are the generator's 0CCh fill**: the layout is the dispatch, and a
+handler of 30 bytes still owns 128.
+
+**The view** is the Game Boy's address space at its own offsets
+(REALBOY-SPEC 3): 0000-3FFF ROM bank 0's copy, 8000-FFFF VRAM, the one
+cartridge RAM bank in use, WRAM, OAM, the registers and HRAM - and
+4000-7FFF, the window ROMX never needs because it is a segment of its own,
+is rbsys's: the state block, the flag tables, the raster log, the PPU's
+working tables and per-line sprite lists (4900-66FF), the translator's
+buffer, the bank table and its use stamps, the VRAM marks, and a save
+state's record and kept VRAM (7400-7FFF). ~600 bytes of it are unassigned
+(4826-48EF, 6510-651F, 6548-65FF, 7120-71FF).
+
+#### Cut 1: the templates out of the region
+
+`rbtmpl.bin` is 15,965 bytes of the package image on every machine, and an
+8088 never translates. Two ways, the second better:
+
+- **A lazy part** (SPEC.md 20.12), loaded by `rw_jitclaim` once it has a
+  cache: the 8088 gets ~16K of region back, the 286 is unchanged, and the
+  translator reads the templates through a segment rather than DS.
+- **Into the core's fill.** The 491 records are 14,022 bytes, the largest
+  94, and the core has 380 holes of 94 bytes or more and 48,295 bytes of
+  fill in all: a first-fit-decreasing pack places every record (checked
+  against `build/rbcore.bin` at `67ee9325`). `rbtmpl.py` already reads
+  `rbcore.bin`; it would write the records into the holes and the table's
+  offsets would name the CORE's segment. What stays in the region is the
+  544-word table and the three lists (~1.9K). **~14K back on every machine,
+  and no claim at all** - the core is loaded on every machine anyway. The
+  costs to check: the translator reads with a core-segment override; the
+  0CCh fill must not be something a test relies on (a stray jump into a hole
+  lands on `int3` today); and the core part compresses less (it is 7.6K on
+  the disk now, mostly because of the fill).
+
+#### Cut 2: Recompiler: Off gives the cache back
+
+`rw_jitclaim` runs at every load on a 286 whatever `[rw_jitmode]` says, so
+a user who chose Recompiler: Off (to save memory, or because a game runs
+better without it) still holds the 128K (or 80K) and the profile if one was
+read. The fix: `rw_jitclaim` and `rw_jit2claim` skip when the mode is Off,
+and the menu's cycle (On -> Static -> Off -> Auto) frees the segments on
+entering Off and claims them on leaving it, on the UI task where a claim is
+legal - a refusal then leaves the mode at Off with a toast rather than
+failing the game. Auto needs the cache (it measures both and picks), so only
+Off qualifies. What this buys is the 286 user's own choice: 80-128K, about a
+third of what a game holds before its cartridge.
+
+#### What the core's fill can hold
+
+**All 48,295 bytes of it are free at run time**: nothing reads, writes,
+checksums or saves the 0CCh fill - the core is RAM, loaded from its parts at
+every launch, and the only writes into it (`rt_init`'s JDISPATCH patches) are
+in code. Two things touch it in passing and are harmless: `rt_init` copies
+the TAILS slots whole into the recompiler's cache, fill and all (data in
+those holes is copied and never run), and a stray jump into a hole lands on
+`int3` today and would land on data. **Its shape is what limits it**: the
+holes are one per half-slot (498 of them), every one ends where the next
+half-slot's code begins, so **no piece is longer than 127 bytes** and none
+joins another. 372 are 96-127 bytes, 59 are under 48. In pieces of a given
+size it holds 1,262 x 32 bytes, 852 x 40, 425 x 64, 372 x 96.
+
+So it suits things made of small records reached through a table, and
+nothing that must be one run. The claims, one by one:
+
+| claim | KB | fits? | why |
+|---|---|---|---|
+| the templates (Cut 1, in the region) | 14 | **yes** | 491 self-contained records of at most 94 bytes, already reached through a table |
+| the log's records | 4 | **yes** | 128 records of 32 bytes; a record's address from a 256-byte table, or found by walking |
+| a replay's pairs | 8 | possible | a stream: chunked at the holes, written a chunk a call |
+| the profile | 9 | with work | a hash table of 4-byte entries (`S_PRFMASK`), one run; buckets of 24 entries in 96-byte holes behind a 96-word index would change its probe, which the translator makes per block |
+| the damage memory | 15 | no | its 8K VRAM shadow is compared a run at a time (`repe cmpsw`), the hot path of every frame |
+| the frame buffers | 17 | no | handed to `OSAPI_GFX_BLIT1`/`BLITP` as bands; in pieces it is a blit a line, and a blit is priced by the call |
+| cartridge RAM, bank slots, the block table | - | no | 8K, 16K and 16-64K runs by what they are |
+| the recompiler's cache | 64 | not as a replacement | the cache already mirrors the core (the tails at their own offsets), so translated code COULD run in the core's holes with no claim at all - but 16.2 measured a 44K cache flushing every five seconds on Kirby's Dream Land and running no faster than the interpreter, and 48K in 127-byte pieces holds less than 44K in runs. As a FALLBACK where the 80K is refused (today: no recompiler) it is a smaller recompiler for nothing - and it competes with the templates for the same holes |
+
+Templates and the log records together take ~18K of the 48K and leave ~30K
+in the remainder of the holes. The two are the natural pair: both are
+records behind a table, and neither changes a hot path.
+
+#### A smaller core costs every interpreted instruction
+
+The 64K IS the dispatch: `mov dh,[si] / inc si / jmp dx` puts opcode X's
+handler at X x 256 because DH is the only free scaling there is. Smaller
+slots need the target scaled, on every interpreted instruction:
+
+| core | dispatch | handlers that spill (bytes) | saves | costs |
+|---|---|---|---|---|
+| 64K (today) | 3 instructions, ~16 clocks of a 286 instruction's ~30-80 | - | - | - |
+| ~35K: 64-byte slots, main and CB halves | + `shr dx,1` x 2 | 87 (2,526) | ~29K | +4 clocks on a 286, ~+16 on an 8088 (fetch-bound) of ~100-140: **~5-15%** of interpreted code, and a jump more for a spilt handler |
+| ~23K: 32-byte slots | + 3 shifts | 140 (6,242) | ~41K | ~+6 / +24 clocks, and the spills are the common handlers |
+| ~16K: a word table | `lodsb` / index / `jmp [cs:bx]` | - | ~48K | ~+20-30 clocks: the worst |
+
+(Counted from `build/rbcore.bin`'s half-slots; clocks from REALBOY-CORE-COST
+section 4's ~16-clock dispatch and the 8088's 47.78 clocks a busy M-cycle.)
+The cost lands on the interpreter, so on the 8088, which has nothing else -
+and on a 286 most instructions run translated and never dispatch, which is
+also where the holes are worth most (below). **Not worth it**: the holes
+give the memory back with no instruction slower.
+
+#### The holes as the recompiler's second tier
+
+The cache segments already MIRROR the core: they hold copies of the helper
+tails at their own offsets so that a template reaches every one by a near
+jump (16.2). **The core is the one segment that has those tails without a
+copy** - translated code in its holes reaches every helper exactly as code
+in a cache segment does. So the core can be a cache segment whose gap list
+is its holes:
+
+- **Capacity**: 16.2 puts a block at ~96 bytes, and 372 holes are 96-127
+  bytes - ~350-450 blocks, one or two a hole, against 600 in a 64K segment
+  (Kirby's Dream Land's first held 594; with a second, 666 translated and no
+  flush in 40 s, 16.2.1). Base + holes is ~1,000 blocks for **no claim**.
+- **Mechanics** are 16.2.1's, generalised from two segments to a list: the
+  core's own gap list (`rbtmpl.py` reads `rbcore.bin` and can write it), a
+  block that does not fit one hole moves on to the next (`rt_room`'s rule
+  today) - so the translator needs a cap at the largest hole, 127 bytes, by
+  ending a block early with an exit - and chaining between tiers is the far
+  jump the 13-byte exits already carry. A flush forgets all of them.
+- **Speed**: a 286 has no cache, so code in 127-byte pieces runs as fast as
+  code in a run; what fragmentation costs is CAPACITY (the rest of a hole a
+  block did not fill) and the far chain between tiers, which 16.2.1 measured
+  as neutral once the exits grew (6.96 against 7.09 ms on Kirby).
+- **Stacked**: the base 64K, then the holes, then Machine > Cache: 128K's
+  segment on top - three tiers, and the third is wanted by fewer games
+  because the second already holds Kirby's working set.
+- **It takes the holes from the templates.** That is the right trade: an
+  8088 needs no templates at all, so they go to a part loaded only with a
+  cache (Cut 1's first option - 16K back on the 8088, the same as today on a
+  286) and the holes go to code on the machine that runs code. The log's
+  records stay where they are: 4K, only while logging.
+
+Gates to write with it: `tests/rbstatic.py`'s squeezed second half
+generalised to three tiers, with its negative control; `rbbench.py --rom`
+on Kirby's Dream Land (flushes and ms a frame, base+holes against base and
+against two segments); and Super Mario Land, which must not move.
+
 ### Wave 8 - the 5150 demo, disks and the Wire record
 
 **The writers and damage tracking are BUILT** (REALBOY-SPEC sections 13.2

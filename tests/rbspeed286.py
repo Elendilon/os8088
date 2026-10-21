@@ -2,14 +2,20 @@
 """RealBoy's game speed on 86Box's 286, Super Mario Land and Kirby, in its
 window and full screen.
 
-    python3 tests/rbspeed286.py [--vm 286] [--secs 20] [--only sml|kirby]
+    python3 tests/rbspeed286.py [--vm 286] [--mem 2048] [--secs 20] [--only sml|kirby]
 
 docs/plans/REALBOY-PLAN.md wave 4's measurement. For each game and each of
 the two writers, tests/rbcore/rbwin.py boots vm/<VM> (the ami286 at 12.5 MHz
-by default), opens the game from a B: disk, starts it, holds Right and reads
+by default) with --mem KB of RAM, opens the game from a B: disk, starts it, holds Right and reads
 the game's frames against 20 emulated seconds - and the frames drawn a
 second off the package's own F1 line, which is what a field run reads off
 the glass on the owner's machines.
+
+The 2MB is not the VM's 1MB on purpose: there Kirby (256K) fitted as one
+claim only once the recompiler had given its room back, so the row timed an
+interpreted Kirby no field machine runs, and by under 1KB - the FM chip's
+code was enough to tip it into "no room for ROM". With 2MB it goes to the
+bank cache with the recompiler on, which is the owner's 4MB Victory's way.
 
 It ASSERTS that the game RUNS on both writers - frames advance, at least a
 tenth of real time - and REPORTS the speed; a speed is a measurement and
@@ -34,9 +40,10 @@ GAMES = {
 LINE = re.compile(r"= ([\d.]+) fps, ([\d.]+)% of real time; overlay: (?:\d+% (\d+) fps drawn|none)")
 
 
-def one(rom, press, fs, vm, secs):
+def one(rom, press, fs, vm, secs, mem):
     cmd = [sys.executable, os.path.join(ROOT, "tests", "rbcore", "rbwin.py"), rom,
-           "--vm", vm, "--press", press, "--hold", "0x14D", "--secs", str(secs)]
+           "--vm", vm, "--mem", str(mem), "--press", press, "--hold", "0x14D",
+           "--secs", str(secs)]
     if fs:
         cmd.append("--fs")
     out = subprocess.run(cmd, capture_output=True, text=True, timeout=1800).stdout
@@ -49,6 +56,7 @@ def one(rom, press, fs, vm, secs):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--vm", default="286")
+    ap.add_argument("--mem", type=int, default=2048)
     ap.add_argument("--secs", type=float, default=20)
     ap.add_argument("--only", choices=sorted(GAMES))
     a = ap.parse_args()
@@ -62,7 +70,7 @@ def main():
             continue
         for fs in (False, True):
             where = "full screen" if fs else "window"
-            r, err = one(os.path.join(d, f), press, fs, a.vm, a.secs)
+            r, err = one(os.path.join(d, f), press, fs, a.vm, a.secs, a.mem)
             if r is None:
                 fails.append("%s, %s: %s" % (name, where, err[0]))
                 continue

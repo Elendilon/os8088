@@ -15,13 +15,13 @@
 ; the field Victory's 179K heap gave Kirby 5 slots where 9 fit, and two
 ; fetches a frame.) rbsys's bank table names each bank
 ; that is in a slot; a switch to one that is not (rb_bmiss) fetches it over
-; the slot the game has switched to least since the last fetch.
+; the slot whose bank the game switched to longest ago, by frame.
 ;
 ; A game's working set is small: gbprof's LRU column has Kirby in play on 6
 ; banks of 16 and Looney Tunes on 8 of 64, a fetch a second or less with
 ; that many slots. OSAPI_XMEM_COPY is UI-task context, so a fetch the worker
 ; needs is the UI task's: the worker posts the bank (rw_bankreq), wakes the
-; window and sleeps until it is in. Full screen runs the machine on the UI
+; window and yields until it is in. Full screen runs the machine on the UI
 ; task, which fetches for itself.
 ; =============================================================================
 
@@ -282,8 +282,13 @@ rw_bfill:
 
 ; rw_bmiss - rbsys's rb_setbank: BX = a bank x 2 with no segment in the
 ; table, DS = the view. The UI task fetches it now; the worker asks the UI
-; task to and sleeps until the table has it - or, if the window is closing,
-; ends at OSAPI_TASK_ALIVE, which a closed window never returns from.
+; task to and yields until the table has it - or, if the window is closing,
+; ends at OSAPI_TASK_ALIVE, which a closed window never returns from. A
+; yield and not a tick's sleep: the wake makes the UI task runnable at once,
+; so a fetch is a switch there and back and the copy, where a sleep made every
+; one a whole tick - 18 a second at most, which a game moving among one bank
+; more than the slots hold spends all its time on (the sweep's Final Fantasy
+; Adventure, at 1% of real time).
 rw_bmiss:
     push ax
     cmp byte [cs:rw_infsx], 0       ; full screen: the machine is on the UI
@@ -298,8 +303,7 @@ rw_bmiss:
     call OSAPI_WM_WAKE
     pop bx
 .w:
-    mov ax, 1
-    call OSAPI_TASK_SLEEP
+    call OSAPI_TASK_YIELD
     cmp byte [cs:rw_closing], 0
     jne .gone
     cmp word [cs:rw_bankreq], 0
@@ -328,8 +332,16 @@ rw_bserve:
     ret
 
 ; rw_bfetch - UI task: bank BX/2 from the store into the slot whose bank the
-; game switched to least since the last fetch, and the bank table told. The
-; counts are halved after, so a bank switched to often lately stays.
+; game switched to longest ago, and the bank table told. RB_BUSE holds the
+; frame of each bank's last switch (the core's mbc_set, the recompiler's bank
+; stores and rb_setbank write it), so this is least-recently-used to the
+; frame: replayed over the bank switches of sixteen games (Peanut-GB, the
+; profiler's input script, 4,000 frames, 8 slots) it missed 31 times on
+; Pokemon Yellow where the old switch count halved at every fetch missed
+; 1,467, and 6 times on Final Fantasy Adventure, whose MBC2 switches the
+; count never saw (they come only through rb_setbank) and 231 without.
+; The age is the frame now less the stamp, unsigned, so the counter's wrap
+; costs nothing; of equal ages the first slot goes.
 rw_bfetch:
     push ax
     push cx
@@ -339,16 +351,17 @@ rw_bfetch:
     push bp
     push es
     mov es, [cs:rb_viewseg]
-    xor si, si                      ; the victim: the slot least switched to
-    xor bp, bp
-    mov dx, 0FFFFh
+    xor si, si                      ; the victim: the slot switched to
+    xor bp, bp                      ;   longest ago
+    xor dx, dx                      ; DX = the oldest age so far
     mov cx, [cs:rw_nslot]
 .v:
     mov di, [cs:rw_slotbank + si]
     shl di, 1
-    mov ax, [es:RB_BUSE + di]
+    mov ax, [es:S_FRAMES]
+    sub ax, [es:RB_BUSE + di]       ; AX = frames since
     cmp ax, dx
-    jae .nv
+    jbe .nv
     mov dx, ax
     mov bp, si
 .nv:
@@ -385,12 +398,6 @@ rw_bfetch:
     shr ax, 1
     mov [cs:rw_slotbank + bp], ax
     inc word [cs:rw_nmiss]
-    mov di, RB_BUSE
-    mov cx, 512
-.h:
-    shr word [es:di], 1
-    add di, 2
-    loop .h
 .r:
     pop es
     pop bp

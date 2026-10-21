@@ -13,8 +13,12 @@
 ;
 ;   rb_putc     near proc: AL = a byte the game sent on its link port.
 ;               May be a bare RET.
-;   rb_trbyte   near proc: AL = a byte of an RB_TRACE core's trace record.
-;               May be a bare RET; preserves every register.
+;   rb_trbyte   near proc, RB_TRHOST hosts only: AL = a byte of an RB_TRACE
+;               core's trace record; preserves every register. A host that
+;               defines RB_TRHOST (the harness) gets the trace's receiving
+;               half below - rb_trace_on, rb_trace, rb_trline; one that does
+;               not (REALBOY.O88, whose core is never an RB_TRACE build)
+;               assembles none of it.
 ;
 ; and calls, near, with CS the segment this file assembled into:
 ;
@@ -158,8 +162,10 @@ rb_init:
     mov [S_IOWVEC+2],ax
     mov word [S_MBCVEC],rb_mbc
     mov [S_MBCVEC+2],ax
+%ifdef RB_TRHOST
     mov word [S_TRACEVEC],rb_trace
     mov [S_TRACEVEC+2],ax
+%endif
     mov ax,[cs:rb_coreseg]
     mov [S_RETFAR+2],ax
     mov [S_DISP+2],ax
@@ -488,6 +494,7 @@ rb_mbc:
     pop ax
     jmp rb_ret
 
+%ifdef RB_TRHOST
 ; --- RB_TRACE builds: one line per instruction, then dispatch ---------------
 ; rb_trace_on - with an RB_TRACE core, trace the first instruction after
 ; every return to the core as well, so the trace has no gaps.
@@ -548,6 +555,7 @@ rb_trword:
     call rb_trbyte
     mov al,ah
     jmp rb_trbyte
+%endif
 
 ; =============================================================================
 ; Time. Every time is a dword of M-cycles since rb_init.
@@ -583,19 +591,30 @@ rb_force:
 
 ; rb_sched: TNEXT = the earliest pending event (never more than 0x7FFF
 ; M-cycles past now), BP = TNEXT - now. In: [S_NOW] = now.
-rb_sched:
+; RB_MIN T: DX:AX = min(DX:AX, [T]) - inline: rb_sched runs twice an event,
+; and an event is every line on a game with the HBlank interrupt on
+%macro RB_MIN 1
+    cmp dx,[%1+2]
+    jb %%keep
+    ja %%take
+    cmp ax,[%1]
+    jbe %%keep
+%%take:
+    mov ax,[%1]
+    mov dx,[%1+2]
+%%keep:
+%endmacro
+; RB_DUE T: CF = 0 if [T] <= [S_NOW], 1 if it is still to come - the
+; borrow of now - T (DX:AX = that difference)
+%macro RB_DUE 1
     mov ax,[S_NOW]
     mov dx,[S_NOW+2]
-    add ax,7FFFh
-    adc dx,0
-    mov si,S_TVBL
-    call .min
-    mov si,S_TSTAT
-    call .min
-    mov si,S_TTIMA
-    call .min
-    mov si,S_TSTOP
-    call .min
+    sub ax,[%1]
+    sbb dx,[%1+2]
+%endmacro
+
+rb_sched:
+    call rb_nextev
     mov [S_TNEXT],ax
     mov [S_TNEXT+2],dx
     sub ax,[S_NOW]
@@ -619,16 +638,19 @@ rb_sched:
     sub ax,[S_TFRAME]
     mov [S_TNF],ax
     ret
-.min:                                   ; DX:AX = min(DX:AX, [SI])
-    cmp dx,[si+2]
-    jb .keep
-    ja .take
-    cmp ax,[si]
-    jbe .keep
-.take:
-    mov ax,[si]
-    mov dx,[si+2]
-.keep:
+
+; rb_nextev: DX:AX = the earliest pending event, never more than 0x7FFF
+; M-cycles past [S_NOW] - rb_sched's question alone, for rb_events' skip,
+; which wants only where to go and not the core's TNEXT, BP or TNF
+rb_nextev:
+    mov ax,[S_NOW]
+    mov dx,[S_NOW+2]
+    add ax,7FFFh
+    adc dx,0
+    RB_MIN S_TVBL
+    RB_MIN S_TSTAT
+    RB_MIN S_TTIMA
+    RB_MIN S_TSTOP
     ret
 
 ; rb_lcdpos: the PPU's position at [S_NOW]. Out: AL = LY, DX = M-cycles into
@@ -686,44 +708,40 @@ rb_events:
     je .skh                             ;   not spent by it: TNEXT the next
     push word [S_TSTOP+2]               ;   event but the budget's, and the
     mov word [S_TSTOP+2],RB_FAR_HI      ;   budget moved on by the skip. ~3 of
-    call rb_sched                       ;   Super Mario Land's 4.4 budget
+    call rb_nextev                      ;   Super Mario Land's 4.4 budget
     pop word [S_TSTOP+2]                ;   exits a frame ended in one. (The
-    or bp,bp                            ;   LCD off keeps it: no VBlank would
-    jle .due                            ;   end the run; HALT lapses it below)
-    add [S_TSTOP],bp
+    sub ax,[S_NOW]                      ;   LCD off keeps it: no VBlank would
+    or ax,ax                            ;   end the run; HALT lapses it below.
+    jle .due                            ;   The test is the difference's sign)
+    add [S_TSTOP],ax
     adc word [S_TSTOP+2],0
     jmp short .skd
 .skh:
-    call rb_sched                       ; TNEXT = the next event, BP to it
-    or bp,bp
+    call rb_nextev                      ; DX:AX = the next event...
+    sub ax,[S_NOW]                      ; ...AX = how far: within 0x7FFF
+    or ax,ax                            ;   (its sign, not the operands')
     jle .due                            ; one is already due
 .skd:
-    add [S_SKIPPED],bp
-    adc word [S_SKIPPED+2],0
-    mov ax,[S_TNEXT]
-    mov dx,[S_TNEXT+2]
-    mov [S_NOW],ax
-    mov [S_NOW+2],dx
+    add [S_SKIPPED],ax                  ; (the core's TNEXT and BP are
+    adc word [S_SKIPPED+2],0            ;   rb_sched's, on the way out)
+    add [S_NOW],ax
+    adc word [S_NOW+2],0
 .due:
     ; every event whose time has come
-    mov si,S_TVBL
-    call .isdue
-    jnc .n1
+    RB_DUE S_TVBL
+    jc .n1
     call rb_vblank
 .n1:
-    mov si,S_TSTAT
-    call .isdue
-    jnc .n2
+    RB_DUE S_TSTAT
+    jc .n2
     call rb_statev
 .n2:
-    mov si,S_TTIMA
-    call .isdue
-    jnc .n3
+    RB_DUE S_TTIMA
+    jc .n3
     call rb_timaev
 .n3:
-    mov si,S_TSTOP
-    call .isdue
-    jnc .n4
+    RB_DUE S_TSTOP
+    jc .n4
     mov word [S_TSTOP+2],RB_FAR_HI
     cmp byte [S_HALT],0                 ; HALTED, the budget is not the
     je .bud                             ;   core's interrupts-off time - this
@@ -787,19 +805,12 @@ rb_events:
 .left:
     stc
     ret
-.isdue:                                 ; CF = 1 if [SI] <= now
-    mov ax,[S_NOW]
+.isdue:                                 ; CF = 1 if [SI] <= now: no borrow
+    mov ax,[S_NOW]                      ;   in now - [SI]
     mov dx,[S_NOW+2]
-    cmp dx,[si+2]
-    ja .yes
-    jb .no
-    cmp ax,[si]
-    jae .yes
-.no:
-    clc
-    ret
-.yes:
-    stc
+    sub ax,[si]
+    sbb dx,[si+2]
+    cmc
     ret
 
 ; rb_catchup: run every event already due at [S_NOW] that sets IF - from
@@ -863,6 +874,31 @@ rb_vblank:
 ; next check, M-cycles later, and a line's position by then is not the one
 ; the condition began at.
 rb_statev:
+    mov al,[0FF41h]                     ; MODE 0's alone (Pokemon Gold's, for
+    and al,68h                          ;   the whole game - 144 a frame): the
+    cmp al,08h                          ;   next is the line after's, 114 on,
+    jne .gen                            ;   with no position worked out and
+    mov ax,[S_TSTAT]                    ;   no walk, while rb_statsch's line
+    cmp ax,[S_STATT]                    ;   is still the one S_TSTAT is for.
+    jne .gen                            ;   Line 143's next is a frame on: the
+    mov ax,[S_TSTAT+2]                  ;   walk's
+    cmp ax,[S_STATT+2]
+    jne .gen
+    mov al,[S_STATLN]
+    cmp al,143
+    jae .gen
+    or byte [0FF0Fh],02h
+    inc byte [S_STATLN]
+    mov ax,[S_TSTAT]
+    mov dx,[S_TSTAT+2]
+    add ax,RB_LINE
+    adc dx,0
+    mov [S_TSTAT],ax
+    mov [S_TSTAT+2],dx
+    mov [S_STATT],ax
+    mov [S_STATT+2],dx
+    ret
+.gen:
     push word [S_NOW+2]
     push word [S_NOW]
     mov ax,[S_TSTAT]
@@ -1052,6 +1088,14 @@ rb_statsch:
     adc dx,0
     mov [S_TSTAT],ax
     mov [S_TSTAT+2],dx
+    mov [S_STATT],ax                    ; for rb_statev's next line: BL's
+    mov [S_STATT+2],dx                  ;   mode 0, or none (FFh)
+    mov al,0FFh
+    cmp si,RB_HBL
+    jne .ln
+    mov al,bl
+.ln:
+    mov [S_STATLN],al
 .r:
     ret
 .next:
@@ -1426,12 +1470,9 @@ rb_iowrite:
 .wl:
     mov [S_SQ3+SQ_LEN],al
     ret
-.ie:
-    mov [bx],al
-    mov byte [S_TAKEINT],1
-    jmp rb_force
 .if:
-    or al,0E0h
+    or al,0E0h                          ; (IF's top three read as 1s; the
+.ie:                                    ;   rest is IE's)
     mov [bx],al
     mov byte [S_TAKEINT],1
     jmp rb_force
@@ -2070,7 +2111,9 @@ rb_setbank:
     push bx
     mov bx,ax                           ; ROMX: the bank table's (rb_init)
     shl bx,1
-    mov ax,[RB_BTAB+bx]
+    mov ax,[S_FRAMES]                   ; the frame it was last switched to,
+    mov [RB_BUSE+bx],ax                 ;   for the cache (MBC2 and MBC1's
+    mov ax,[RB_BTAB+bx]                 ;   high bits come only this way)
     or ax,ax
     jnz .in
     cmp word [cs:rb_bmiss],0            ; not in memory: the host fetches it

@@ -7,9 +7,13 @@
 ; THE SCRIPT, counted in VBlanks:
 ;   frames   0-59   square channel 1 at 440 Hz (x = 1750), volume 15, held
 ;   frames  60-89   channel 1's DAC off (NR12 = 0): silence
-;   frames  90-     square channel 2 at 880 Hz (x = 1899) with LENGTH 64
+;   frames  90-149  square channel 2 at 880 Hz (x = 1899) with LENGTH 64
 ;                   (a quarter of a second at 256 Hz), which must stop by
-;                   itself - then silence for good
+;                   itself
+;   frames 150-     channel 1 at x = 7FFh, 131,072 Hz: silent, and a divide
+;                   by 1 for a speaker that works its pitch out naively (the
+;                   compatibility sweep's Alleyway hung REALBOY.O88 so) - the
+;                   frames from here on are counted at C000h
 ; So the speaker should sound 440 Hz for ~1 s, nothing for ~0.5 s, 880 Hz for
 ; 0.25 s, then nothing - which checks a trigger, a DAC switched off and a
 ; length counter running out.
@@ -76,8 +80,22 @@ Start:
     ldh [rNR23], a
     ld a, $C0 | HIGH(1899)                  ; trigger, length enabled
     ldh [rNR24], a
+    ld b, 60
+    call Frames
+    ld a, $F0                               ; channel 1 at x = 7FFh
+    ldh [rNR12], a
+    ld a, $FF
+    ldh [rNR13], a
+    ld a, $87
+    ldh [rNR14], a
+    xor a
+    ld [$C000], a
 .forever:
     halt
+    ld a, [$C000]                           ; frames since
+    inc a
+    jr z, .forever                          ; (held at 255)
+    ld [$C000], a
     jr .forever
 
 ; Frames - B VBlanks

@@ -479,6 +479,7 @@ Fill:
     ret
 
 ; Waits on the PPU - the recompiler's stat_ff, which takes whole passes off
+; (and cnt_cph's CP (HL) on LY, in fives)
 ; the clock - run from ROM, translated, and from a copy in WRAM, which is
 ; never translated: each waits after a delay that moves its phase, then
 ; counts passes to LY's next change, which places the exit to within a pass.
@@ -515,6 +516,13 @@ Waits:
     ld e, a
     call Sync
     call $C800 + WaitLY - WaitBlock
+    cp e
+    jr nz, .bad
+    call Sync
+    call WaitLYH
+    ld e, a
+    call Sync
+    call $C800 + WaitLYH - WaitBlock
     cp e
     jr nz, .bad
     ld a, [$C033]
@@ -604,6 +612,27 @@ WaitLY:
     cp d
     jr z, .c
     ld a, b
+    ret
+WaitLYH:                                    ; Donkey Kong Land's form: CP (HL)
+    push hl                                 ;   on LY, a 5-M-cycle pass
+    ld a, [$C033]                           ;   (cnt_cph)
+    ld c, a
+    inc c
+.d:
+    dec c
+    jr nz, .d
+    ld hl, $FF44
+    ld a, 2
+.w:
+    cp [hl]
+    jr nz, .w
+    ld b, 0                                 ; passes of 6 M-cycles to line
+.c:                                         ;   3 - fine enough to see an exit
+    inc b                                   ;   a cycle or two off, which the
+    cp [hl]                                 ;   8-M-cycle count above is not
+    jr z, .c                                ;   (no skip: HL is not RAM)
+    ld a, b
+    pop hl
     ret
 WaitEnd:
 

@@ -165,8 +165,19 @@ back on, on the host's task stack, so the tick pre-empts the host between two
 budgets as it would any task: no yield is needed for that, and the package
 yields once a frame, for a UI task a click woke.
 
-**What it does not cover**: a game whose SP points into 4000-7FFF reads the
-view's rbsys half there, not ROMX, through its pops.
+**A POP with SP in 4000-7FFF reads the BANK**, not the view's rbsys half
+there: Pokemon's VBlank copy points SP at tiles in a ROM bank and POPs them,
+and the compatibility sweep's Red and Yellow drew their menus out of
+RealBoy's own state until it did. Each POP compares SP with C000h first and
+leaves for `pop_slow` below it, which reads 4000-7FFF through `S_ROMX` and
+the rest as the view - one compare and an untaken branch on the common path,
+the stack being in WRAM or HRAM. `pop_slow` hands the word back in DX, so
+each POP clears DL after it: the dispatch is `jmp dx`, and an `RB_TRACE`
+core, whose dispatch is a far vector, cannot see a DL left over
+(`tests/gbcpu.py`'s `pop from ROM`, `tools/gbprof/gbpop.asm`, red with POP
+BC's branch taken out). **What it still does not cover** is a RET or a PUSH
+there, which stay the view's: no game seen returns through a table in ROM,
+and a push into ROM writes nothing on the hardware.
 
 **The core answers the common registers itself** and leaves only for the
 rest (section 9). That rule exists because the trip out - the stack switch
@@ -229,6 +240,45 @@ the I/O registers the DMG boot ROM leaves, with LCDC = 91h, STAT = 85h and
 BGP = FCh. The counter under DIV reads **ABCCh T-states** at 0100
 (`S_TDIV` = -(ABCCh / 4)), TAC F8h, DMA FFh, NR52 F1h. The LCD is on and line
 0 begins at time 0. FF4C-FF7F read FFh (section 9).
+
+### 6.3 An event every line: the HBlank interrupt
+
+**Pokemon Gold runs with STAT = 0Dh, the mode-0 interrupt on, for the whole
+game**: ~148 events a frame, one a visible line, where most games take two
+or three. Its handler does nothing while `hLCDCPointer` is zero, and its main
+loop HALTs until VBlank, so what a frame costs is almost entirely the trip
+out of the core and back - the per-event path, not the game. Three cuts, each
+measured on `GBHBLANK.GB` (`tools/gbprof/gbhblank.asm`: Gold's handler, its
+HALT loop and a raster effect every eighth frame; `tools/gbours.py gbhblank`)
+with `tests/rbcore/rbbench.py --box 286-victory --mhz 16 --rom`:
+
+| each cut on top of the ones above it | ms a frame |
+|---|---|
+| before | 39.45 |
+| a mode-0 STAT event schedules the next line's without a walk | 34.10 |
+| `rb_sched`'s minimum and `rb_events`' due tests inline, not called | 31.49 |
+| a due test is the borrow of `now - T`, not a compare and branch | 30.76 |
+| HALT's skip asks `rb_nextev` (the minimum alone), not `rb_sched` | 29.93 |
+
+**24% off the frame**, and Gold off the hard disk
+(`tests/rbcore/rbhd.py`) goes from ~32-36 frames in 1.5 s to ~45 on its
+title and menus.
+
+The first is **`S_STATLN` and `S_STATT`**: when `rb_statsch` schedules a
+mode-0 interrupt it records the line it is for and the time it scheduled.
+`rb_statev` then takes a fast path when STAT asks for mode 0 alone (bits
+3, 5 and 6 = 08h), `S_TSTAT` is still exactly the time recorded - so nothing
+else has moved it: a LCDC write, a STAT write, a state loaded - and the line
+is below 143: it raises IF bit 1 and moves both on one line, 114 M-cycles,
+with no `rb_lcdpos` division and no walk. Line 143's next is a frame on,
+past VBlank, and takes the walk.
+
+`rb_nextev` is `rb_sched`'s first half: the earliest event, capped 7FFFh
+past now. A HALT (or spin-wait) skip wanted only that, and was paying for
+`S_TFRAME`'s normalisation and `S_TNF` too - which `rb_events` computes again
+on its way out. What is left of a line is the trip itself: `rb_ev_entry`,
+the interrupt's push, `tr_ekey`'s lookup of the handler's block at 0048h, and
+`rb_resume` (`tests/rbcore/rbprof.py`).
 
 ## 7. Interrupts
 
@@ -470,13 +520,30 @@ cache could not be claimed and the game ran interpreted (its log has no J).
   (the core's `mbc_set` leaves through `S_MBCVEC` when the entry is 0), whose
   `rb_setbank` calls `rb_bmiss`.
 - **A fetch** (`rw_bfetch`) takes the slot whose bank the game switched to
-  least since the last fetch: `mbc_set` counts every switch in `RB_BUSE`
-  (6C00h, a word a bank), and a fetch halves every count after, so what was
-  used lately stays. `OSAPI_XMEM_COPY` is UI-task context, so the WORKER
-  posts the bank (`rw_bankreq`), wakes the window and sleeps a tick at a time
-  until the UI task has it in (`rw_onwake`, and `rw_fsenter`'s wait); full
-  screen runs the machine on the UI task, which fetches for itself. A
-  window closing while the worker waits ends it at `OSAPI_TASK_ALIVE`.
+  LONGEST AGO, by frame: every switch stamps `RB_BUSE` (6C00h, a word a
+  bank) with `S_FRAMES` - the core's `mbc_set`, the recompiler's bank
+  stores and `rb_setbank`, which MBC2's switches and MBC1's high bits come
+  through - and the victim is the slot of greatest age, the frame now less
+  the stamp, unsigned, so the counter's wrap costs nothing; of equal ages the
+  first. It replaced a count halved at every fetch, which the compatibility
+  sweep found two ways wrong: a bank just fetched starts at a count of 0 or
+  1, so two banks the game alternates between and neither of which the load
+  put in a slot take each other's slot at every switch (Pokemon Yellow), and
+  MBC2's switches were never counted at all (Final Fantasy Adventure, 1% of
+  real time). Replayed over sixteen games' bank switches from Peanut-GB
+  (4,000 frames of the profiler's input script, 8 slots) the stamp misses
+  31 times on Yellow where the count missed 1,467, 26 on Super Mario Land 2
+  where it missed 102 and 5,984 on Donkey Kong Land where it missed 10,180,
+  and matches true LRU elsewhere. `mbc_set` lives in page ECh's CB half
+  (`rbgen.CBTAILS`): a tail page is copied whole, and stamping does not fit
+  the main half. `OSAPI_XMEM_COPY` is UI-task context, so the WORKER posts
+  the bank (`rw_bankreq`), wakes the window and YIELDS until the UI task has
+  it in (`rw_onwake`, and `rw_fsenter`'s wait) - the wake makes the UI task
+  runnable at once, where the tick's sleep this replaced made every fetch a
+  whole tick and capped them at 18 a second (gbbank's cartridge, which
+  switches among all 64 banks, went from 18 to ~500). Full screen runs the
+  machine on the UI task, which fetches for itself. A window closing while
+  the worker waits ends it at `OSAPI_TASK_ALIVE`.
 - **What it costs is nearly nothing**, because a game's working set is small.
   gbprof's LRU column (`tools/gbprof.py`), two minutes of its platformer
   script: Kirby uses **6 banks of 16** in play and Looney Tunes **8 of 64**,
@@ -716,11 +783,10 @@ each a model this core chose not to carry:
 last `RBX_FRAME` into a host's 5,760-byte buffer: **144 lines of 40 bytes,
 the shade's bit 0 for pixels 0-159 (20 bytes, the leftmost pixel in bit 7)
 and then its bit 1**. Shade 0 is the lightest. Every register is preserved;
-its working memory is the view's 4900h-4B5Fh (and the tables up to 66FFh). `rb_render4` composes the same
-frame as **the four planes `OSAPI_GFX_BLITP` takes**, into 11,520 bytes: 80 a
-line, NOT bit 1 three times then NOT bit 0, which is the desktop's 15, 7, 8
-and 0 for shades 0-3. It writes each line as it finishes it, so a colour
-window has no second pass over the frame.
+its working memory is the view's 4900h-4B5Fh (and the tables up to 66FFh).
+(`rb_render4`, which composed the frame straight into `OSAPI_GFX_BLITP`'s
+four planes, went when the damage path's `rw_planes` replaced it: nothing
+called it.)
 
 - **The state** each line is drawn with is the frame's own: `RB_SNAP` with
   `RB_RLOG` applied at each entry's line when `S_SNAPTAG` is the frame just
@@ -1156,7 +1222,7 @@ reference sharing `ppu_line` and the sprites with what it checks.
   changed nothing draws nothing.
   - On a colour display, `OSAPI_GFX_BLITP` with the clip walk, of the four
     planes `rw_planes` makes from those lines (NOT bit 1 three times, then
-    NOT bit 0: `rb_render4`'s layout). Damage took Super Mario Land's window
+    NOT bit 0 - the desktop's 15, 7, 8 and 0 for shades 0-3). Damage took Super Mario Land's window
     on 86Box's 286 from 7 frames drawn a second to 28.
   - On a 1bpp display, or where BLITP refuses, `OSAPI_GFX_BLIT1` through a
     2x2 ordered dither: shade 0 lit, 1 a quarter dark, 2 a checkerboard, 3
@@ -2259,6 +2325,20 @@ otherwise:
   reads the change itself - A and F are its own. A margin of 0 is exact and
   8 over is not, on 128 phases each (`gbrmw.asm`'s Waits, below); 8 short
   is kept. Every other emulator surveyed (REALBOY-PLAN, wave 7) does this.
+  **`CP (HL) / JR NZ,-3` with HL on LY** (FF44h) is the same wait for line
+  A, and Donkey Kong Land's (the compatibility sweep found it going round
+  one at 12% of real time on a 286; skipped, 101% and the machine 69% idle).
+  It arrives as a countdown would - a taken `JR NZ,-3` - so the translator
+  sends it to `cnt_ff` with DX = 00BEh, which hands it to `cnt_cph`
+  (page 47h's CB half): HL is looked at when it runs, and `stat_ff` is
+  entered with DL = 45h. Its pass is 5 M-cycles, so `stat_t5` takes off
+  whole FIVES - another size moves the loop's phase. The interpreter's
+  `JR NZ,-3` reaches `cnt_ff` with DH = FFh, the displacement's sign, so it
+  never matches and `gbrmw.asm`'s WaitLYH run from WRAM is the reference
+  the translated copy is held to. That gate goes red for a skip 50 M-cycles
+  too far; it does NOT tell eights from fives, its counting loop being too
+  coarse for a phase of a cycle or two, so the rounding stands on the
+  argument above rather than on a row.
 
 The CPU alone on `286-victory` (`rbbench.py`): Super Mario Land 6.55 ms a
 frame without any, 6.32 with `add_ff`, 6.22 with `cpy_ff` and 6.13 with
@@ -2494,7 +2574,13 @@ MOV (`rt_snd`).
     envelopes cross made the one speaker hop between melody and harmony
     note by note, which the first field run heard as "very odd".
   - It passes that pitch to `OSAPI_SND_TONE`, but only when the pitch has
-    changed. Volume 0, and a pitch outside 20 to 15,000 Hz, are silence.
+    changed. Volume 0, and a pitch outside 20 to 15,000 Hz, are silence -
+    and `2048 - x` under 9 is silence BEFORE the divide: x = 7FEh and 7FFh
+    divide by 2 and 1, whose quotients do not fit in 16 bits, and a divide
+    error on a 286 returns to the DIV and takes it again for ever. The
+    compatibility sweep's Alleyway sets x = 7FEh when it pauses and hung the
+    package so (`tests/gbhifreq.py`, on 86Box's 286: an 8088's divide error
+    returns past the DIV, which is why gbsound never saw it).
   - A refusal (another owner of the speaker) is asked again the next frame.
   - A paused or stopped machine turns the tone off (`rw_quiet`).
 - **The pitch is exact and the timing is the game's.** Notes follow the
@@ -2595,6 +2681,36 @@ and the frames drawn a second.
   rgbds, which is fetched and built on first use. The everything set
   (`make allapps`) and the live media carry the same folder.
 - **No game ships.** A cartridge is the user's own.
+
+**`make realboyhd GBROMS=<dir>`** writes a HARD DISK, `build/REALBOY-HD.VHD`,
+and **`make 286-realboy`** boots it: the owner's mr286 (16 MHz, 4MB, VGA, an
+SB16 for 17.1's FM chip) with the disk on IDE and nothing in A:. It is where
+a cartridge over 1MB, which no floppy holds, can be opened at all - the
+compatibility sweep's Pokemon Gold, Dragon Warrior Monsters and Wario Land II
+DX are 2MB.
+- **The disk is the whole install** (the Makefile's `VIDDEMO_INSTALL`, the
+  system and apps disks' payload derived rather than listed), **RealBoy's
+  folder**, and **`GAMEBOY/`** with the cartridges in `<dir>` - `GAMES/` is
+  the apps disk's, and already there. `tools/gbromdir.py` names each from
+  the title in its header (`POKEMONG.GBC`) and writes `GAMEBOY/ROMS.TXT`
+  saying which file is which; the cartridges are only ever copied under
+  `build/`.
+- **The geometry is the AT drive table's type 3**, 615/6/17 (32MB): the MR
+  BIOS then wants only "type 3" on its Fixed-Disk page, where a user type
+  would have to be typed in. A fresh run has no CMOS, and
+  `tests/rbcore/rbhd.py`'s `setup` answers it - floppies 1.44M, type 3, F10 -
+  waiting for each screen rather than counting keys, the BIOS taking an early
+  key as nothing.
+- **`rbhd.py` opens a cartridge from the keyboard**: C:, the folder by its
+  row, then Down to the file's place (sorted as the directory sorts, with
+  `..` first) and Enter - and checks the title at 0134h in the running view
+  against the file's, so a wrong row cannot measure one game under another's
+  name.
+- **Measured there** (86Box, the profiler's Enter/X/Right script): Gold runs
+  at 30-39% of real time, its time in the event scheduler for per-line STAT
+  interrupts (`rb_events`, `rb_sched`, `rb_statev`, 40%), Dragon Warrior
+  Monsters 53-100%, Wario Land II DX 100% after its intro; Crystal is
+  refused for the Color alone.
 
 **The Wire record is PREPARED and NOT PUBLISHED.** It goes in os8088-web's
 `data/wire.json` when the owner says go, and that repository is outside this
