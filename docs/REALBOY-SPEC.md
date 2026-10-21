@@ -1142,6 +1142,14 @@ on a machine with no debugger.
   `[rw_logseg]` before it frees the claim, so a copy either lands whole
   or is not made. A claim the heap cannot give refuses the log with a
   toast.
+- **The text is claimed at the write for the lines there are**: 150
+  bytes a line and 640 for the head (`RW_LLMAX`, `RW_LHMAX`), so 30
+  seconds is 5 KB and two minutes 19 KB; with no room for that, the latest
+  half, and so on down to one line, and only then `no room to write the
+  log`. It was 24 KB whatever was recorded, which a cartridge in the bank
+  cache could not have: the plan leaves 24 KB of heap (section 10.3), the
+  records take 4 KB of it, and the fourth field run's logs were refused
+  with a toast nobody saw, after the picture had gone.
 - **A record** (32 bytes, the latest 128 kept, about two minutes) holds
   the seconds since the log began, the game's speed and frames run, the
   frames drawn, the lines composed and the lines changed (section 13.2),

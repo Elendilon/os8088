@@ -24,8 +24,13 @@ RW_LOGRKB       equ RW_LOGN * RW_LOGSZ / 1024 ; the records' claim, KB: taken
                                     ;   back once it is written, so a
                                     ;   session that never logs pays nothing
                                     ;   (it was 4KB of the package's bss)
-RW_LOGKB        equ 24              ; the text's claim at the write: 128 lines of
-                                    ;   at most ~150 characters and the head
+RW_LLMAX        equ 150             ; the text at the write, claimed for the
+RW_LHMAX        equ 640             ;   lines it has: a line is at most ~146
+                                    ;   characters (every event named) and
+                                    ;   the head under 640. It was 24KB
+                                    ;   whatever was recorded, and the bank
+                                    ;   cache leaves 24KB of heap free -
+                                    ;   less the records' own 4KB
 ; a record: the ticks since the log began (at its end), the ticks it spans,
 ; frames run, frames drawn, lines composed, lines changed, the drawing's
 ; milliseconds, the longest draw (ms, at most 255), flags: bits 0-4 the most
@@ -379,22 +384,36 @@ rw_logwrite:
     ret
 .w:
     mov [rw_lring], ax
-    cmp word [rw_logn], 0
-    je .r
-    mov ax, RW_LOGKB
+    mov cx, [rw_logn]               ; CX = the lines: the latest RW_LOGN...
+    jcxz .none
+    cmp cx, RW_LOGN
+    jbe .claim
+    mov cx, RW_LOGN
+.claim:
+    push cx
+    mov ax, RW_LLMAX                ; ...their text's KB
+    mul cx
+    add ax, RW_LHMAX + 1023
+    adc dx, 0
+    mov bx, 1024
+    div bx
     call OSAPI_MEM_CLAIM            ; DX = the text's segment
-    jc .fail
+    pop cx
+    jnc .got
+    shr cx, 1                       ; ...and with no room, the latest half
+    jnz .claim
+    jmp .room
+.none:
+    ret
+.got:
     push dx
     mov es, dx
     xor di, di
+    push cx
     call rw_lhead
-    mov cx, [rw_logn]               ; the latest RW_LOGN, oldest first
-    xor bx, bx
-    cmp cx, RW_LOGN
-    jbe .n
-    mov bx, cx
-    sub bx, RW_LOGN
-    mov cx, RW_LOGN
+    pop cx
+    mov bx, [rw_logn]               ; oldest first
+    sub bx, cx
 .n:
     push cx
     push bx
@@ -455,6 +474,9 @@ rw_logwrite:
     jmp rw_toast
 .fail:
     mov si, rw_s_logno
+    jmp rw_toast
+.room:
+    mov si, rw_s_logwr
     jmp rw_toast
 .r:
     ret
@@ -819,3 +841,4 @@ rw_s_logon:     db 'Log on: written at close', 0
 rw_s_logok:     db 'Log: ', 0, '           ', 0
 rw_s_logno:     db 'REALBOY: log not written', 0
 rw_s_logrm:     db 'REALBOY: no room for the log', 0
+rw_s_logwr:     db 'REALBOY: no room to write the log', 0
