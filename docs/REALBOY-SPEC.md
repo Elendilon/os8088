@@ -1214,7 +1214,7 @@ is 155 rows, and the window fits it whole.
   screen, and while Alt is held the joypad reads nothing), F1-F4 - the
   speed line and Machine > Interlace, Recompiler and Speed's next settings
   - the save states' F5, F8 and 1-9 (10.4), and F12, the log written now
-  (section 13.4's Machine > Log), documented shortcuts every one. A REALBOY.CFG whose map holds one of
+  (section 14.1's Machine > Log), documented shortcuts every one. A REALBOY.CFG whose map holds one of
   them is read with the keys as they shipped (`rw_cfgkeys`). The wait
   goes on after a refusal. A key with no make code of its own is refused
   too: SysRq, and the codes 54h-56h a shifted F-key gives. The keypad's
