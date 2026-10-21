@@ -164447,9 +164447,19 @@ invisible because the number they produced was plausible.
 `Disable the mouse` is the first option under **Shut down the OS**, and it is
 there because `mou_isr` redraws the arrow out of the interrupt on every packet
 — work a DOS program that never asks INT 33h anything is paying for and
-cannot see. Off, `kern_dos` hooks nothing and INT 33h answers §96.10's still
-pointer, which is exactly what `kd_mou_start` already does with a zero
-`KDL_MOUBASE`.
+cannot see. Off, `kern_dos` hooks nothing and **INT 33h is an `iret`** - a
+vector with no driver behind it, so a reset leaves AX = 0 and the program is
+told there is no mouse, which is the answer DOS gives with none loaded. It
+used to answer §96.10's still pointer (AX = FFFFh, two buttons, a position
+that never moves), and a program that believes a driver it is told about
+then waits on a mouse that cannot arrive. The same holds for every launch
+`kd_mou_start` sees a zero `KDL_MOUBASE` on - no serial mouse, or a PS/2 one
+this arm does not serve - and the vector is set in `kdentry.inc` right after
+`dos_hook_vectors`, by copying 23h's (the core's own `iret`, which the host
+cannot name) into 33h: six instructions of `kern_dos` and no core byte,
+`CORE_MAX` and `CORE_BSS_SIZE` both being full to the byte.
+`tests/kdmouse.py --nomouse` (`kdnomouse`) ticks the box and asserts AX = 0,
+and answers FFFF with the six instructions taken out.
 
 **The box cannot simply zero that word**, and that is why the bit exists:
 `KDL_MOUBASE` is the KERNEL's field, patched into the **staged** block by

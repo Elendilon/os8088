@@ -368,6 +368,15 @@ kd_entry:
 %endif
     call dos_build_psp
     call dos_hook_vectors
+    cmp word [kdm_base], 0      ; NO MOUSE TO SERVE - no serial port, a PS/2
+    jne .mou33                  ; one, or Disable the mouse ticked: 33h is an
+    xor ax, ax                  ; `iret`, a vector with no driver behind it,
+    mov es, ax                  ; so a reset answers AX = 0 and the program
+    mov ax, [es:0x23*4]         ; is told there is no mouse rather than shown
+    mov [es:0x33*4], ax         ; one that never moves (SPEC.md 96.36.8). The
+    mov ax, [es:0x23*4+2]       ; iret is the core's, which 23h has just been
+    mov [es:0x33*4+2], ax       ; handed and nothing here can name
+.mou33:
 %ifdef KD_HMA
     call kdh_tramp              ; every vector into the HMA, through a low
                                 ; trampoline that re-proves A20 (kdhma.inc)

@@ -5036,6 +5036,15 @@ SOAK = [
         "(docs/MARTYPC-DEBUG.md).",
         needs=("marty",), serial=True,
         wants=("build/kdos/DOS.O88", "build/kernel.sys", "build/hiber.drv")),
+    Row("kdnomouse", "soak", py("tests/kdmouse.py", "--nomouse"), 45.0,
+        "DISABLE THE MOUSE MEANS NO MOUSE (SPEC.md 96.36.8): kdmouse's "
+        "handoff with the box ticked, and INT 33h's reset must answer AX = 0 "
+        "- 33h an iret, the vector DOS leaves with no driver loaded - where a "
+        "still pointer claiming to be a mouse answers FFFF. VERIFIED TO FAIL "
+        "with kdentry.inc's .mou33 jump made unconditional: ax=FFFF. 28s "
+        "measured on MartyPC.",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/dosmou360.img")),
     Row("kdmouse", "soak", py("tests/kdmouse.py"), 120.0,
         "THE SAME QUESTION WITH NO KERNEL ON THE MACHINE (SPEC.md 96.45). "
         "`dosmouse` above is a TRANSLATION gate - the kernel owns the "
