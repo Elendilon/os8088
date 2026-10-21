@@ -1148,15 +1148,19 @@ rw_fsline:
     mov si, rw_ovltxt
     cmp byte [rw_ovl], 0
     jne .y
-    mov si, rw_s_none
-    cmp byte [rw_msgclr], 0
-    jne .y
+    mov si, rw_s_none               ; blank - when something is up
+    cmp byte [rw_msgclr], 0         ;   (F1 off left its line standing: the
+    jne .y                          ;   flag said only "a note came down")
     cmp al, al                      ; (ZF = 1: nothing to say)
 .r:
     ret
 .y:
     mov byte [rw_ovlnew], 0
-    mov byte [rw_msgclr], 0
+    mov byte [rw_msgclr], 0         ; [rw_msgclr]: the line has text on it
+    cmp si, rw_s_none
+    je .z
+    mov byte [rw_msgclr], 1
+.z:
     or si, si                       ; (ZF = 0)
     ret
 rw_s_none:  db 0

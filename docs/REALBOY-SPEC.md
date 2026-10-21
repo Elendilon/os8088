@@ -1145,8 +1145,11 @@ on a machine with no debugger.
 - **The text is claimed at the write for the lines there are**: 150
   bytes a line and 640 for the head (`RW_LLMAX`, `RW_LHMAX`), so 30
   seconds is 5 KB and two minutes 19 KB; with no room for that, the latest
-  half, and so on down to one line, and only then `no room to write the
-  log`. It was 24 KB whatever was recorded, which a cartridge in the bank
+  half, and so on down to one line, and only then `Log: no room to
+  write`. Every answer stays up ~8 s (`rw_ltoast`), and a refused write
+  says why in the kernel's words (`Log: ` and `OSAPI_FERR_TEXT`): two of
+  the refusals were longer than the 24 characters a toast shows, and all
+  of them came and went in ~3 s at a moment nobody watches the bar. It was 24 KB whatever was recorded, which a cartridge in the bank
   cache could not have: the plan leaves 24 KB of heap (section 10.3), the
   records take 4 KB of it, and the fourth field run's logs were refused
   with a toast nobody saw, after the picture had gone.

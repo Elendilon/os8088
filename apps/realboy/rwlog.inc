@@ -459,7 +459,9 @@ rw_logwrite:
     call rw_fback                   ; (CF kept)
     pop dx
     pushf
+    push ax                         ; (AX = the FERR_*, refused)
     call OSAPI_MEM_FREE
+    pop ax
     popf
     jc .fail
     mov si, rw_s_logok              ; "Log: SUPER-00.LOG"
@@ -471,14 +473,38 @@ rw_logwrite:
     call rw_lstr
     stosb                           ; (the NUL)
     pop si
-    jmp rw_toast
+    jmp rw_ltoast
 .fail:
-    mov si, rw_s_logno
-    jmp rw_toast
+    call OSAPI_FERR_TEXT            ; "Log: " and the kernel's own words
+    push ds                         ;   for why (ES:SI, 19 of them reach
+    mov di, rw_lerr + 5             ;   the bar)
+    mov cx, 19
+.ft:
+    mov al, [es:si]
+    or al, al
+    jz .fe
+    mov [di], al
+    inc si
+    inc di
+    loop .ft
+.fe:
+    mov byte [di], 0
+    pop ds
+    mov si, rw_lerr
+    jmp rw_ltoast
 .room:
     mov si, rw_s_logwr
-    jmp rw_toast
+    jmp rw_ltoast
 .r:
+    ret
+
+; rw_ltoast - SI = a line of ours, said for ~8 s: the log is written when it
+; is turned off or the window closes, a moment nobody is watching the bar
+rw_ltoast:
+    push ds
+    pop es
+    mov cx, 146
+    call OSAPI_TOAST
     ret
 
 ; rw_lname - rw_lfile = the game's first six letters, two digits and .LOG,
@@ -839,6 +865,6 @@ rw_s_levts:     db ' RESET', 0
                 db ' F1', 0, 0, 0, 0
 rw_s_logon:     db 'Log on: written at close', 0
 rw_s_logok:     db 'Log: ', 0, '           ', 0
-rw_s_logno:     db 'REALBOY: log not written', 0
-rw_s_logrm:     db 'REALBOY: no room for the log', 0
-rw_s_logwr:     db 'REALBOY: no room to write the log', 0
+rw_s_logrm:     db 'No room for the log', 0 ; (a toast shows 24 characters)
+rw_s_logwr:     db 'Log: no room to write', 0
+rw_lerr:        db 'Log: ', 0, '                  ', 0 ; ...and a refusal's

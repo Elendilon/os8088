@@ -2435,6 +2435,9 @@ rw_keys:
     xor al, al                      ; the typed presses, taken whoever's the
     xchg al, [rw_klatch]            ;   keyboard is
     mov [rw_ktyped], al
+    xor al, al                      ; ...and F1-F4's, likewise
+    xchg al, [rw_flatch]
+    mov [rw_ftyped], al
     cmp byte [rw_infsx], 0          ; the bracket's keyboard is ours
     jne .f1
     call OSAPI_WM_TOP
@@ -2449,7 +2452,8 @@ rw_keys:
     jc .set
     mov al, 3Bh                     ; F1, on its press
     mov bx, rw_f1was
-    call rw_kedge
+    mov cl, 1
+    call rw_fedge
     jnc .nof1
     xor byte [rw_ovl], 1
     mov byte [rw_ovlnew], 1
@@ -2461,7 +2465,8 @@ rw_keys:
     push dx
     mov al, 3Ch                     ; F2: Machine > Interlace's next, and
     mov bx, rw_f2was                ;   said (rw_note)
-    call rw_kedge
+    mov cl, 2
+    call rw_fedge
     jnc .nof2
     call rw_iltoggle
     mov si, [rw_i_mach + 10]        ; (what rw_mgrey made the item say)
@@ -2469,7 +2474,8 @@ rw_keys:
 .nof2:
     mov al, 3Dh                     ; F3: Machine > Recompiler's next - here,
     mov bx, rw_f3was                ;   between two core runs, in the window
-    call rw_kedge                   ;   and the bracket alike (the menu's
+    mov cl, 4
+    call rw_fedge                   ;   and the bracket alike (the menu's
     jnc .nof3                       ;   goes through the worker's rw_jitq)
     cmp word [rw_jitseg], 0
     je .nof3
@@ -2495,7 +2501,8 @@ rw_keys:
 .nof3:
     mov al, 3Eh                     ; F4: Machine > Speed's next, said, and
     mov bx, rw_f4was                ;   kept for the game by the UI task
-    call rw_kedge
+    mov cl, 8
+    call rw_fedge
     jnc .nof4
     call rw_spdnext
     mov si, [rw_i_mach + 16]
@@ -2568,6 +2575,31 @@ rw_kedge:
     add al, 0FFh                    ; CF = 1: pressed now
     ret
 
+; rw_fedge - rw_kedge for F1-F4, CL = its bit in rw_ftyped: pressed now, or
+; TYPED since the last look and up at both - a tap that fell between two
+; looks, which a draw in full screen is long enough to hide. Held at either
+; look, the press is the edge's to say, so it is never said twice and a
+; held key's typematic repeat says nothing. Clobbers CH
+rw_fedge:
+    call OSAPI_KEY_DOWN
+    sbb al, al
+    mov ah, al                      ; AH = held now
+    xchg al, [bx]                   ; AL = held at the last look
+    mov ch, al
+    not al
+    and al, ah
+    jnz .yes
+    or ch, ah
+    jnz .no
+    test [cs:rw_ftyped], cl
+    jz .no
+.yes:
+    stc
+    ret
+.no:
+    clc
+    ret
+
 ; rw_note - SI = a line (a menu item's, its MENU_DIS mark skipped): said for
 ; a moment - a toast on the desktop, the speed line in the bracket, where a
 ; toast would wait for the desktop to come back (F2, F3)
@@ -2615,6 +2647,8 @@ rw_note:
 rw_jnext:   db 1, 3, 0, 2           ; the setting after Auto, On, Off, Static
 rw_keymap:  db KSC_RIGHT, KSC_LEFT, KSC_UP, KSC_DOWN, 2Dh, 2Ch, 39h, KSC_ENTER, 0
 rw_ktyped:  db 0                    ; (rw_keys: this look's rw_klatch)
+rw_flatch:  db 0                    ; F1-F4 TYPED since the last look (rw_klat)
+rw_ftyped:  db 0                    ; ...and this look's (rw_fedge)
 
 ; rw_socd - one opposite pair, BL its two bits: DL the buttons, AH those
 ; pressed since the last look, CL the preferred of each pair. Not both held:
@@ -2653,6 +2687,19 @@ rw_klat:
     call rw_stkey
     push ax
     push si
+    cmp ah, 3Bh                     ; F1-F4: latched for rw_fedge
+    jb .m
+    cmp ah, 3Eh
+    ja .m
+    push cx
+    mov cl, ah
+    sub cl, 3Bh
+    mov al, 1
+    shl al, cl
+    or [rw_flatch], al
+    pop cx
+    jmp short .r
+.m:
     mov si, rw_keymap
     mov al, 1
 .l:
