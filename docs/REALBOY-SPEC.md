@@ -241,6 +241,45 @@ BGP = FCh. The counter under DIV reads **ABCCh T-states** at 0100
 (`S_TDIV` = -(ABCCh / 4)), TAC F8h, DMA FFh, NR52 F1h. The LCD is on and line
 0 begins at time 0. FF4C-FF7F read FFh (section 9).
 
+### 6.3 An event every line: the HBlank interrupt
+
+**Pokemon Gold runs with STAT = 0Dh, the mode-0 interrupt on, for the whole
+game**: ~148 events a frame, one a visible line, where most games take two
+or three. Its handler does nothing while `hLCDCPointer` is zero, and its main
+loop HALTs until VBlank, so what a frame costs is almost entirely the trip
+out of the core and back - the per-event path, not the game. Three cuts, each
+measured on `GBHBLANK.GB` (`tools/gbprof/gbhblank.asm`: Gold's handler, its
+HALT loop and a raster effect every eighth frame; `tools/gbours.py gbhblank`)
+with `tests/rbcore/rbbench.py --box 286-victory --mhz 16 --rom`:
+
+| each cut on top of the ones above it | ms a frame |
+|---|---|
+| before | 39.45 |
+| a mode-0 STAT event schedules the next line's without a walk | 34.10 |
+| `rb_sched`'s minimum and `rb_events`' due tests inline, not called | 31.49 |
+| a due test is the borrow of `now - T`, not a compare and branch | 30.76 |
+| HALT's skip asks `rb_nextev` (the minimum alone), not `rb_sched` | 29.93 |
+
+**24% off the frame**, and Gold off the hard disk
+(`tests/rbcore/rbhd.py`) goes from ~32-36 frames in 1.5 s to ~45 on its
+title and menus.
+
+The first is **`S_STATLN` and `S_STATT`**: when `rb_statsch` schedules a
+mode-0 interrupt it records the line it is for and the time it scheduled.
+`rb_statev` then takes a fast path when STAT asks for mode 0 alone (bits
+3, 5 and 6 = 08h), `S_TSTAT` is still exactly the time recorded - so nothing
+else has moved it: a LCDC write, a STAT write, a state loaded - and the line
+is below 143: it raises IF bit 1 and moves both on one line, 114 M-cycles,
+with no `rb_lcdpos` division and no walk. Line 143's next is a frame on,
+past VBlank, and takes the walk.
+
+`rb_nextev` is `rb_sched`'s first half: the earliest event, capped 7FFFh
+past now. A HALT (or spin-wait) skip wanted only that, and was paying for
+`S_TFRAME`'s normalisation and `S_TNF` too - which `rb_events` computes again
+on its way out. What is left of a line is the trip itself: `rb_ev_entry`,
+the interrupt's push, `tr_ekey`'s lookup of the handler's block at 0048h, and
+`rb_resume` (`tests/rbcore/rbprof.py`).
+
 ## 7. Interrupts
 
 An enabled, pending interrupt is taken at the next event entry: IME cleared,

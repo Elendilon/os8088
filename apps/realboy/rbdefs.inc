@@ -55,7 +55,13 @@ S_BTMP          equ 0x481E          ; word: AX while mbc_set stamps a bank's
                                     ;   POPs data out of ROM had its bank 0
                                     ;   copy written under it), and S_TMP is
                                     ;   LD (nn),A's HL there
-RB_FREE         equ 0x4820          ; the rest of the window is unassigned,
+S_STATLN        equ 0x4820          ; byte: the line whose mode 0 S_TSTAT is,
+                                    ;   or FFh - rb_statsch's, for rb_statev's
+                                    ;   step to the next line (section 6)...
+S_STATT         equ 0x4822          ; dword: ...trusted while S_TSTAT is still
+                                    ;   this: anything else that moves it (a
+                                    ;   state loaded, the LCD off) is a miss
+RB_FREE         equ 0x4826          ; the rest of the window is unassigned,
                                     ; but for rbppu.inc's 4900-66FF and:
 S_SQ3           equ 0x48F0          ; 8: the WAVE channel as the FM chip plays
                                     ;   it (REALBOY-SPEC 17.1) - S_SQ1's

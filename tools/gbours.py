@@ -3,10 +3,12 @@
 sound gate), GBSAVE.GB (battery RAM and the MBC3 clock), GBDEMO.GB (the
 5150 demo), GBBANK.GB (the bank cache's gate), GBRMW.GB (the
 recompiler's read-modify-writes of (HL), in tests/gbcpu.py) and GBJOY.GB
-(the joypad interrupt, in tests/gbheader.py) and GBPOP.GB (POPs out of a
-ROM bank, in tests/gbcpu.py).
+(the joypad interrupt, in tests/gbheader.py), GBPOP.GB (POPs out of a
+ROM bank, in tests/gbcpu.py) and GBHBLANK.GB (Pokemon Gold's frame - an
+HBlank interrupt every line - for tests/rbcore/rbbench.py --rom,
+docs/REALBOY-SPEC.md section 6.3).
 
-    python3 tools/gbours.py [gbtone|gbsave|gbdemo|gbbank|gbrmw|gbjoy]
+    python3 tools/gbours.py [gbtone|gbsave|gbdemo|gbbank|gbrmw|gbjoy|gbpop|gbhblank]
 
 tools/gbprof/gbtone.asm says what it plays (tests/gbsound.py listens to it),
 tools/gbprof/gbsave.asm what it counts (tests/gbsave.py reads it), and
@@ -32,6 +34,7 @@ ROMS = {
     "gbjoy": [],                            # the joypad interrupt (gbheader.py)
     "gbfm": [],                             # all four channels (gbfm.py)
     "gbpop": ["-m", "0x01"],                # POPs out of a ROM bank (gbcpu.py)
+    "gbhblank": [],                         # Gold's frame: 144 STAT interrupts
 }
 
 
