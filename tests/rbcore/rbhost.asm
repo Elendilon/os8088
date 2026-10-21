@@ -1650,6 +1650,7 @@ nbudget dw 0
 t0      dd 0
 ticks   dw 0
 
+%define RB_TRHOST                       ; (rbsys.inc: the trace's receiving half)
 %include "rbsys.inc"
 %include "rbppu.inc"
 %define RT_SQUEEZE                      ; (b_jit's JF_SQZ)

@@ -113,7 +113,7 @@ rw_drawt        equ rw_budget + 2   ; dword: when the next draw may start
                                     ;   (rw_clk's counts: rw_drawdue)
 rw_dlast        equ rw_drawt + 4    ; dword: how long the last draw took
 rw_pfmt         equ rw_dlast + 4    ; [rw_pseg] holds: 0 nothing, 1 the dither,
-                                    ;   4 BLITP's planes (rb_render4)
+                                    ;   4 BLITP's planes (rw_planes)
 rw_nobp         equ rw_pfmt + 1     ; BLITP refused us: dither until a paint
 rw_incore       equ rw_nobp + 1     ; the worker is in the machine (rwfsx.inc)
 rw_fsq          equ rw_incore + 1   ; full screen asked: the worker keeps out
@@ -450,10 +450,8 @@ rw_reloc:
     pop ax
     ret
 
-; rbsys asks its host for these: the link port's bytes go nowhere, and this
-; core is not a trace build
+; rbsys asks its host for this: the link port's bytes go nowhere
 rb_putc:
-rb_trbyte:
     ret
 
 ; =============================================================================
@@ -2646,20 +2644,9 @@ rw_keys:
     mov [S_JOY], dl
     pop ds
     ret
-; rw_kedge - AL = a key's scancode, BX = its was-held byte: CF = 1 on its
-; press (held now, not at the last look)
-rw_kedge:
-    call OSAPI_KEY_DOWN
-    sbb al, al
-    mov ah, al
-    xchg al, [bx]
-    not al
-    and al, ah
-    add al, 0FFh                    ; CF = 1: pressed now
-    ret
-
-; rw_fedge - rw_kedge for F1-F4, CL = its bit in rw_ftyped: pressed now, or
-; TYPED since the last look and up at both - a tap that fell between two
+; rw_fedge - AL = F1-F4's scancode, BX = its was-held byte, CL = its bit in
+; rw_ftyped: CF = 1 when it is pressed now (held now, not at the last look),
+; or TYPED since the last look and up at both - a tap that fell between two
 ; looks, which a draw in full screen is long enough to hide. Held at either
 ; look, the press is the edge's to say, so it is never said twice and a
 ; held key's typematic repeat says nothing. Clobbers CH
@@ -3131,7 +3118,7 @@ rw_blitd:
 
 ; rw_planes - the lines rb_renderd changed, from [rw_fseg]'s two shade planes
 ; into [rw_pseg] as BLITP's four: NOT bit 1 three times, then NOT bit 0 - the
-; desktop's 15, 7, 8 and 0 for shades 0-3 (rb_render4's layout)
+; desktop's 15, 7, 8 and 0 for shades 0-3
 rw_planes:
     mov es, [rw_pseg]
     push ds

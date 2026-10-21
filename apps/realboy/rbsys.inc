@@ -13,8 +13,12 @@
 ;
 ;   rb_putc     near proc: AL = a byte the game sent on its link port.
 ;               May be a bare RET.
-;   rb_trbyte   near proc: AL = a byte of an RB_TRACE core's trace record.
-;               May be a bare RET; preserves every register.
+;   rb_trbyte   near proc, RB_TRHOST hosts only: AL = a byte of an RB_TRACE
+;               core's trace record; preserves every register. A host that
+;               defines RB_TRHOST (the harness) gets the trace's receiving
+;               half below - rb_trace_on, rb_trace, rb_trline; one that does
+;               not (REALBOY.O88, whose core is never an RB_TRACE build)
+;               assembles none of it.
 ;
 ; and calls, near, with CS the segment this file assembled into:
 ;
@@ -158,8 +162,10 @@ rb_init:
     mov [S_IOWVEC+2],ax
     mov word [S_MBCVEC],rb_mbc
     mov [S_MBCVEC+2],ax
+%ifdef RB_TRHOST
     mov word [S_TRACEVEC],rb_trace
     mov [S_TRACEVEC+2],ax
+%endif
     mov ax,[cs:rb_coreseg]
     mov [S_RETFAR+2],ax
     mov [S_DISP+2],ax
@@ -488,6 +494,7 @@ rb_mbc:
     pop ax
     jmp rb_ret
 
+%ifdef RB_TRHOST
 ; --- RB_TRACE builds: one line per instruction, then dispatch ---------------
 ; rb_trace_on - with an RB_TRACE core, trace the first instruction after
 ; every return to the core as well, so the trace has no gaps.
@@ -548,6 +555,7 @@ rb_trword:
     call rb_trbyte
     mov al,ah
     jmp rb_trbyte
+%endif
 
 ; =============================================================================
 ; Time. Every time is a dword of M-cycles since rb_init.
