@@ -8645,6 +8645,192 @@ launches high); and on kern_big, where DOS.O88 is byte-identical, nothing
 can see it - `dosmouse`, `dosmem`, `dosram` and the other `dos*` rows run
 the same image they ran before.
 
+### 14.55 The external DMA rings: bottom-up on kern_mega, and MIDIRack's freed at every stop (2026-10-21)
+
+14.53's two owner decisions, built. SPEC.md 50.3.2, 34.5.3 and 105.8.4 are
+the contract; this is the record.
+
+#### 14.55.1 A ring is claimed bottom-up on kern_mega - in the kernel
+
+**The switch is in the kernel, inside `%ifdef KERN_MEGA`**, so no package
+changed for it and an old package benefits. `mem_claim_dma_hi_x` (the body
+behind `OSAPI_MEM_CLAIM_DMA_HI`, 0x03B2) clears the direction when CX - the
+page-safe HEAD - is not 0, and the claim then runs `OSAPI_MEM_CLAIM_DMA`'s
+own scan and page bump with the same guarantee: no 64KB physical page
+crossed by the head. The record carries no `MC_DMA_HI` bit, so a movable
+one compacts downwards.
+
+**Why the head and not the caller decides.** The cell's callers are two
+populations, and the head tells them apart exactly:
+
+| caller | CX | what it is | where it goes on kern_mega |
+|---|---|---|---|
+| 1942 `n_pcm_open` | 13 | three PCM rings the DSP reads | **bottom** |
+| Video Player `vp_aseg` | `VP_RL/1024+1` | the card's external ring | **bottom** |
+| MIDIRack `mrb_start` | 17 | the card's external ring | **bottom** |
+| `SOUND.DRV` `sbl_pool_get` / `sbl_dma_get` | the whole block | its staging pool (a ring plays in place out of it) and its double buffer | **bottom** |
+| the parts library's `op_carve` | 0 | code you far-call, and the region on a re-home | top (a CS, SPEC.md 20.12.10.8) |
+| `apps/cc/crt0.asm`'s overlay | 0 | a CS | top |
+| the Video Player's `vp_mclhi` | 0 | VGA8's palette, the text save | top |
+| `os88xgap.inc`'s scratch | 0 | 8KB for one measurement | top |
+
+A head is a chip's page, so every claim with one is a DMA buffer, and in
+this tree every one of them is held only while it plays (34.5.2's pool is
+claimed at the first grant and is movable whenever no direct stream plays
+out of it; the double buffer lives one stream). That is exactly 14.51's
+test. Nothing relies on a ring being top-down: HEAP-UNPIN-PLAN's
+`sbl_halt`/`sbl_go_on` re-arm a ring wherever it is, `mem_claim_1`'s `.hi`
+arm only matters to a top-down claim, and an MC_DMA ring a chip holds is
+pinned whichever end it sits at.
+
+**`SOUND.DRV`'s own two are in the set, and that is a decision to look
+back over**: the owner said *external* rings. Keying on the head catches the
+driver's pool and double buffer too; they pass 14.51's three tests and are
+the same kind of block, so they were left in. Excluding them needs a signal
+the cell does not have today (a flag in the call, so an SDK change).
+
+**Cost: 4 bytes of kern_mega `.cold`** (42,272 -> 42,276; `jcxz` + `xor
+di, di`), resident, no `.text` or `.bss`, `os88megaseg`'s overhead unchanged
+at 4,323. **kern_big and kern_small: 0** - built at one commit with and
+without the change, `kernel.bin` and `kernel.sys` of both kernels and every
+`.o88`/`.drv` but the two packages of 14.55.2-3 are md5-identical.
+
+#### 14.55.2 MIDIRack claims at Play, frees at every stop, and says so when refused
+
+On every kernel (it is package behaviour). `mrb_close` now gives the ring
+back after verb 2, and `mro_close` is every road out of a play - Stop, a
+song's end and the next one's start, Eject, Remove, Clear, the window's
+close - so all of them free it. `mrb_start` frees it on any refusal (it used
+to keep a ring a refused open had claimed) and the moment a grant ring opens
+instead, since that one never reads it. `mro_free`'s copy of the free is now
+`mrb_rfree`.
+
+- **The hazard 14.52 named is closed by order and by one test.** The order:
+  `mro_close` runs `mro_drain` first (`[mr_seqon]` cleared, `[mr_inpass]`
+  waited out - the worker sets `[mr_inpass]` BEFORE it reads `[mr_seqon]`,
+  so either it is seen and waited for or the pass sees no song), verb 2
+  then stops the DSP, and only then is the ring freed. So `mrb_span1`, the
+  only WRITER through `[mrb_seg]`, is unreachable after the free and carries
+  no test. The test: `mrb_tc` has a reader the drain does not cover -
+  `mr_elapsed` calls it from the worker's `mrw_draw`, which runs OUTSIDE
+  `[mr_inpass]`, on an `[mr_out]` it may have read before `mro_close`
+  cleared it. It reads `[mrb_seg]` once into a register and answers 0, 0
+  when it is 0, and `mrb_rfree` zeroes the word (`xchg`) BEFORE the free, so
+  that reader sees no ring or a freed conventional block (a wrong second on
+  the bar for one frame) and never ES = 0, which on kern_mega is a null
+  selector and #GP.
+- **A refusal is a refused Play**: nothing open, nothing held, `[mr_state]`
+  stopped and the status line *"No memory for the card - close a program
+  and retry"* (`mr_s_ringmem`, in `mr_s_notask`'s phrasing; it was the bare
+  `mr_s_nomem`). The next Play asks again.
+- **Cost**: `MIDIRACK.O88` image 37,588 -> **37,658 (+70: 51 the message,
+  19 code)**, bss 10,920 unchanged, the file 30,980 unchanged (packed
+  29,806 -> 29,837, the same sectors). Price at run time: a page-safe claim
+  per song, a playlist re-claiming between songs.
+
+#### 14.55.3 1942's PCM was refused by its own room check, on a heap in two pieces
+
+Found by this round's kern_mega run, and **a package fix on every kernel**,
+so it moves `1942.O88` on kern_big and kern_small too (2 bytes in place,
+same length). `n_pcm_open` asked `op_lazykb` for the bank's KB, `xchg`'d it
+into BX and called `OSAPI_MEM_AVAIL` - which answers **BX = the total free
+KB** - then compared AX (the largest run) against BX. So the check was
+*largest run >= total*, true only for a heap in one run. With the ring
+top-down it usually is (the ring sits in the ceiling stack); with the ring at
+the bottom on kern_mega, what lies under it - the purgeable FAT window, which
+both answers count as free, and a 1 KB hole - is a second run: 553 KB
+against 558, and PCM was refused every time: the ring freed and the game on
+FM effects. The need goes in BP now (`n_pushall` banks it). On kern_big it
+was the same latent refusal on any fragmented heap. Found with Bochs linear
+breakpoints at the cell and at the four `jc .bad` sites (1942's image at
+linear 140000h, `LDT[507h]`).
+
+#### 14.55.4 Measured, on what
+
+**kern_mega, Bochs 2.7, 16MB, SB16** (`--sb --cfg 1`), a 1.44MB B: of
+VIDEO.O88, a PCM8 clip (`testsrc2` 320x240 15 fps 12 s + 440 Hz, `--preset
+vga --profile floppy --audio pcm8`, 294,912 bytes), 1942.O88, MIDIRACK.O88
+and two songs. `mem_tab` read with the debugger (linear 100BFh on this
+build), five words a record:
+
+| | the ring's record during the play | after |
+|---|---|---|
+| Video Player, PCM8 on the card | `1240` 17KB, MC_DMA `0440` (bottom-up, head 17KB) - the player's top-down `vp_mclhi` claim beside it reads `9D40`, MC_DMA `8000` | freed |
+| MIDIRack, the DSP synth at 22,050 Hz | `1240` 17KB, MC_DMA `0440` | freed at Stop; BATTLE1's end advanced to INTRO and re-claimed |
+| 1942 in play, **base kern_mega** (A/B) | `9C80` 13KB, MC_DMA `8340` (top-down) | - |
+| 1942 in play, this build | `1240` 13KB, MC_DMA `0340` | freed at Esc (`n_exit`) |
+
+- **The sound is intact.** The clip's 440 Hz is continuous in `sb.wav` from
+  0.0 to 11.5 s, and the card's line reads **Drew 180/180, stalls 0, pauses
+  0, Late 89, 27 ticks of 218** - 14.41's Bochs row in proportion (300/300,
+  pauses 0, Late 147, 45 of 363), which is Bochs's SB16 and not this.
+  1942's twelve shots are PCM bursts in `sb.wav` (RMS ~96 idle, 650-1,134
+  in a burst) and its stream never fell back (the ring held throughout).
+  MIDIRack played two songs on the DSP. No `FAULT` in `e9.out`.
+- **kern_big, MartyPC `os8088_5150_herc_sb_720_gla`**: `midiracksb` PASS
+  (the EXTERNAL ring - this DSP is 2.1, so SPEC.md 105.8.4's "grant ring on
+  MartyPC" was stale and is corrected - 8,000 Hz, 73,728 samples in 9.23 s,
+  0 underruns, pitch 10/10, the transposed 0), `midirackwt` PASS, and the
+  new **`midiracksbmem`** PASS: the ring at 8BC0 in the claim map while it
+  plays and gone at Stop; `tests/filler` takes the heap to 16 KB reachable
+  (holes plus purgeable claims) and Play is refused with the message and
+  nothing held; the filler closed, the next Play opens the card and CONS
+  moves. **Red with the ring kept at Stop** (`mrb_close` ending in `ret`):
+  `FAIL sbmem: the ring is still held after Stop ([mrb_seg] 8BC0)`. 32.6 s
+  wall, declared 45.
+
+#### 14.55.5 Rows, what is left, and for the owner
+
+**Rows that cover it**: `midiracksbmem` (new, soak), `midiracksb`,
+`midiracksbrate`, `midirackwt`, `mrdraw` and `mrdrawvga` (the draw that
+reaches `mrb_tc`), `1942sound` (`n_pcm_open`, 905 s), and the fast tier
+(`movable`, `megahigh`). Nothing registered runs a kern_mega sound play;
+14.55.4's Bochs runs are by hand.
+
+**Not run**: 86Box `286-mega` (the placement is the same scan on the 286
+reset path, and nothing here touches `mega_r286`); a real SB on a 286.
+
+**For the owner**:
+1. `SOUND.DRV`'s pool and double buffer go bottom-up on kern_mega with the
+   rings (14.55.1). Keep, or narrow to package rings (an SDK flag)?
+2. MIDIRack on a DSP WITHOUT auto-init (SB 1.x) still claims the 17KB
+   external ring at each Play only to have verb 0 answer 7, then frees it
+   for the grant ring - so a fragmented heap now refuses a play the grant
+   ring could have made. A ~20-byte option: on a refused claim, try the
+   grant ring before refusing (it degrades by tier, 16 -> 8 -> 4 KB of the
+   driver's pool).
+3. MIDIRack's speaker/Covox ring (`mrk_seg`, 4 KB) still lives from the
+   first bracket play to the window's close - the same shape as the ring
+   this round freed, and not asked about.
+
+#### 14.55.6 1942's sampled effects on kern_big, after the refusal fix
+
+14.55.3 made `1942sound`'s `sb` leg run its PCM section for the first time
+on a tree with no cartridge: the row had `sampled = sb and rom_build()`, so
+with no ROM it expected no PCM and the refusal satisfied it. With the leg
+taking SPEC.md 101 at its word (DSP 2+ plays the bundled part on any build)
+it failed at `'PCM stopped FM music'` - and **that was the fixture, not
+1942**. `g.fixture()` runs `n_stageinit`, which starts music slot 4, and on a
+no-cartridge build slot 4 is `tools/1942data.py`'s placeholder jingle (440,
+660, 880 Hz, 24 ticks, no loop): read at the second sample it was over -
+`musicptr 0, musicfreq 0, musicwait 1`, `opl_b0` key bit clear with nothing
+to key. The first sample passed (musicfreq 440, wait 2) because the jingle
+was still sounding. The leg now restarts slot 14 before each sample - the
+generated gameplay score, the same on both builds, looping, first note a
+held 440 Hz - and asserts it is keyed on BEFORE the sample, so a quiet
+fixture reads as `fixture: no music held` and never as a PCM defect again.
+**Broken on purpose**: `n_effect`'s PCM branch zeroing `[n_musicptr]` turns
+the leg red at `PCM stopped FM music`. A second stale step sat behind the
+first: the missing-bank fallback poked `n_pcmfile`, the sidecar name that
+went when the bank became part N_P_SFX, so it is now the graphics leg's
+shape - the row's offset moved past the file's end, op_fetch refuses,
+`pcmseg` 0 and effect 18 goes to FM at 180 Hz (`tests/n1942.py`'s symbol
+list gains `N_P_SFX`). No package or kernel byte moved. MartyPC
+`os8088_xt_vga_sb`: `sb` leg PCM start 4.98 / 4.11 / 4.74 ms (under the
+15 ms bound), capture peaks Sound Blaster 30,975, AdLib 4,074. `soak -k
+1942sound -k 1942`: both ok, `1942sound` **751.5 s** in a lane beside `1942`
+(declared 905, corrected to the measurement), `1942` 265.5 s.
+
 ### 14.56 Field results on the owner's 286, kern_mega at 942137bc (2026-10-21)
 
 The owner's first run of this round's disks on the Victory 286 (BIOS-served
@@ -8654,6 +8840,9 @@ hard disk, PS/2 mouse).
   (14.46.5's ~22 file calls; not timed).
 - **After the resume the PS/2 mouse is DEAD.** NumLock still toggles its LED,
   so IRQ1 is alive and the machine is not frozen - it is the pointer alone.
+  **Confirmed by the owner a moment later: the system is FULLY alive - the
+  screen saver came on by itself after the resume** - so IRQ0, the scheduler,
+  `ui_task` and drawing all run; it is ONLY the mouse.
   **OPEN, being investigated as 14.57.** The serial resume is `mouresume`'s
   (MartyPC, kern_big); no row resumes a PS/2 mouse on kern_mega.
 - **T69 plays better but still stutters, and runs behind real time.** The
@@ -8665,6 +8854,105 @@ hard disk, PS/2 mouse).
   frames, many seconds in, then CORRUPTS THE SCREEN AND FREEZES THE WHOLE
   MACHINE.** A defect rather than a speed question. **FIXED in 14.58**: a
   BIGSP record read in place under protected mode ran off its 64 KB window.
+- **The owner on 14.55's three questions.** SB 1.x fallback: *"Low priority
+  but if you have the fix, sure"* - taken, 14.59. MIDIRack's speaker/Covox
+  ring: *"Should only be holding that speaker ring if it's actually in
+  speaker mode, to start with, but then sure have it freed when not in use"*
+  - taken, 14.59. `SOUND.DRV`'s own pool and double buffer going bottom-up on
+  kern_mega with the rings: not answered, so they stay as 14.55 built them
+  (they pass 14.51's three tests).
+
+### 14.57 The PS/2 mouse dead after a hibernate's resume: IRQ12 open through the re-knock (2026-10-21)
+
+14.56's field report: on the Victory 286, kern_mega at 942137bc, a hibernate
+resumed with the whole machine alive (the screen saver came on by itself
+later) and the PS/2 mouse doing nothing. **Both defects found are in
+`hbm_wake`'s step 3d, in HIBER.DRV, and are SHARED with kern_big.** Neither is
+kern_mega's. SPEC.md 96.45.2.4 is the contract.
+
+**1. The re-knock races its own ISR (the dead mouse).** SPEC.md 9.9.8's wake
+re-knock (`0xF5`, then `F3 200 / F3 100 / F3 80 / F2` through `0xD4`, then
+`0xF4`) reads every reply by POLLING 60h. Its comment says *"IRQ12 is still
+masked at the slave"*. That is true of the LIVE route only: `mou_p2_off`
+masked it before `kd_resume` sampled the mask. On the REBOOT route the
+restored mask has IRQ12 OPEN. kern_big's `hbm_handover` samples the FRESH
+boot's masks, whose PS/2 mouse is live, and kern_mega's `mega_hbwake` restores
+`mega_dimr2`, taken at `hbm_xplan` with the session's mouse live. Bochs reads
+slave `8Fh` at `.nowz`. IF has been on since step 1, so `mou_p2_isr` and the
+poll take turns at the replies. On a real 8042 the IRQ pin is raised by the
+controller's firmware a few of its own instructions after OBF, so either side
+can win any one byte. The sequence that kills the mouse is: the poll takes
+`0xF5`'s ACK, the ISR takes an `0xF3`'s, and the knock gives up with the
+DEVICE still waiting for its sample-rate argument. The trailing `0xF4` is then
+consumed as that argument. Reporting stays off (`0xF5` took), the keyboard is
+untouched, and nothing re-enables the device for the rest of the session. The
+mouse is dead. This needs a WHEEL mouse (`[mou_p2wz]` 3). The Victory's has
+not been confirmed as one, but almost every PS/2 mouse is. **What it is NOT**:
+the slave's or the cascade's mask, the IDT (run 0 brings the image's back, and
+IRQ12's gate is built from the image's IVT), or the 8042's command byte (the
+block writes it).
+
+The two emulators do not show the field symptom, and they differ from each
+other. Bochs puts the reply in the output buffer and raises IRQ12 only on its
+next timer tick, so the poll wins every byte and the knock succeeds: no symptom
+at all. QEMU raises IRQ12 as the byte is queued, so the ISR wins every byte and
+the knock fails at its first ACK, before any `0xF3`. The wheel comes home 0 on
+a device in four-byte mode. The phase decoder drops each zero Z byte for its
+missing bit 3, so the pointer still works. Only a machine whose 8042 lets both
+sides win sometimes, the field machine, gets the half-done knock.
+
+**The fix**: IRQ12 masked at the slave at the head of the PS/2 block
+(`pushf / cli / in 0xA1 / or MOU_P2SL / out / popf`, 9 bytes). It is
+`mou_p2_init`'s own rule (*"IRQ12 MASKED BEFORE ANYTHING IS ASKED"*), which
+the wake had copied everything of except this. The block's last step unmasks
+it, as before.
+
+**2. The serial unmask opened the whole MASTER 8259.** Step 3d unmasks
+`not [mou_line]` at 21h for the serial mouse and calls 0 a safe no-op. But a
+PS/2 mouse, and a pointing driver, settle with `MOU_P2LINE` = 0xFF, and
+`not 0xFF` = 0. Every resume on such a machine therefore came back with IRQ 3,
+4, 5 and 7 unmasked on lines the session had masked. Measured: Bochs on
+kern_mega `B8h` before, `00h` after. QEMU on kern_big `A8h`, `00h`. It does
+not kill the mouse (IRQ 3-7 are below the cascade's priority), but a
+PicoMEM's or an LPT's line opening behind the kernel's back is its own fault
+waiting to happen. **The fix**: `cmp cl, MOU_P2LINE / je` around the unmask
+(5 bytes, `%ifdef KERN_BIG`: kern_small has neither pointer).
+
+**Cost, measured at one commit (A/B trees `build/p2base`, `build/p2fix`)**:
+`hbm_wake` +14 bytes on kern_big and on kern_mega (`.nop2` 0x1091 -> 0x109F,
+0x18FB -> 0x1909), inside HIBER.DRV's padded image, which stays 7,169 bytes
+(kern_big) and 10,241 (kern_mega). The packed file grows 5,874 -> 5,889 and
+8,301 -> 8,312. **No resident byte on any kernel.** kern_big `kernel.bin` and
+`kernel.sys` are byte-identical. kern_small has no HIBER.DRV, and its
+`kernel.bin`/`kernel.sys` are byte-identical. kern_mega's `kernel.bin` differs
+in ONE byte at the same length: `mega_dstubup`'s `add ax, mpk_stub`, the park
+stub's offset inside the module, moved by the 14. `os88megaseg` overhead is
+unchanged at 4,323.
+
+**Measured on**: Bochs 2.7 (a 386, `type=imps2`) on kern_mega, booted off C:,
+for a hibernate, a power-off and Resume, with and without each half. QEMU 9.2.4
+on kern_big (`tools/setup-qemu9.sh`; 8.2 aborts in the resume stub, as
+hmahiber's note says) with the serial mouse removed, the same three ways. The
+Victory itself was not available. That the half-done knock is what it hit is
+the one reading that fits a mouse dead with the keyboard fine. It is inferred,
+and no emulator here can show it. A second field run after this is the
+confirmation.
+
+**Rows**: `megap2hiber` (new, soak, Bochs, 160 s) stops at a breakpoint at
+`.nowz` in the hibernated HIBER.DRV, at the base its E9 line printed, and asserts
+IRQ12 masked at the slave there. After the resume it asserts the master's IMR
+as it hibernated, `mou_p2wz` 3, and the pointer moving. Red with the mask out
+(slave `8Fh`) and with the guard out (master `00h`). `p2hiber` (new, soak,
+QEMU 9, 30 s) is kern_big's: the master's IMR, the wheel and the pointer. Red
+on the old HIBER.DRV (`00h`, wz 0). Also covering: `mouresume` and
+`hibernate`/`hibernatem`/`hibernatedrv` (kern_big's resume, serial, MartyPC),
+`hmahiber`, `megahiber`, and the `kdreturn*` family (the live route runs the
+same block).
+
+**Left for the owner**: (a) a field run of the Victory after this. If the
+mouse is still dead, the next instrument is `MOUDIAG=1`'s panel after the
+resume. (b) Bochs's mouse is `type=ps2` in `tools/os88bochs.py`, so no other
+Bochs row exercises a wheel. `megap2hiber` sets `imps2` for itself only.
 
 ### 14.58 MECH2's freeze: a BIGSP record read in place ran off its window (2026-10-21)
 

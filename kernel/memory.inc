@@ -740,7 +740,17 @@ mem_claim_dma_hi_x:
     push si
     push di
     mov di, MC_DMA_HI           ; ...and this one MEANS top-down, where the
-    jmp short mem_claim_dma_x.head  ; door below asks the tag
+%ifdef KERN_MEGA                ; door below asks the tag
+    jcxz .top                   ; ...EXCEPT A RING, on kern_mega (KERN-MEGA-
+    xor di, di                  ; PLAN 14.55, SPEC.md 34.5.3): a HEAD is a
+.top:                           ; chip's 64KB page, so a claim with one is a
+%endif                          ; DMA ring held only while it plays - and goes
+                                ; BOTTOM-UP, mem_claim_dma_x's own scan and
+                                ; page bump. CX = 0 asks no page of anything:
+                                ; the parts carve, the C overlay, a scratch -
+                                ; a block that is or may become a CS, so it
+                                ; stays at the top, SPEC.md 20.12.10.8
+    jmp short mem_claim_dma_x.head
 mem_claim_dma_x:
     push si
     push di

@@ -189,8 +189,8 @@ and does not ship.)
 
 | claim | verdict | note |
 |---|---|---|
-| **SB staging pool** (sized to the first grant, up to `SBL_POOLKB` 20KB — §34.6.3) | **MOVABLE, except while the card plays out of it** | §66.5.5. `sbl_reloc`, one word, because a grant is an *offset* and the staging copy is the v3 boundary; every copy into or out of it goes in `SBL_DCHUNK` chunks under `cli`, re-reading `[sbl_poolseg]` per chunk. Claimed through the DMA door now (`OSAPI_MEM_CLAIM_DMA_HI`, head = the whole pool) so a ring in it can be PLAYED IN PLACE (§34.5.2) — and for exactly that stream verb 0 PINS it (`OSAPI_MEM_MOVABLE` AX = 0), because a direct stream has no task and `[drv_wcnt]` is then 0 while the 8237 reads it; `sbl_unpin` declares it again once the channel is masked. `tests/trackmove.py` check 8 carries the assertion and nothing reaches it yet (its registered machine has no card) |
-| **SB DMA double-buffer** | **PINNED, and only held for one stream** | §34.5.2. `MC_DMA`, claimed top-down at the open of a stream that is NOT direct (a linear stream, a single-cycle DSP, a pool that is not page-safe, every record stream) and freed at its close by `sbl_unpin`, so it is never declared and never needs to be: `[drv_wcnt]` is non-zero for all of its life anyway. It was claimed at attach and MOVABLE while idle (§66.6.4, `sbl_ring_reloc`) — both are gone, because an idle card now holds nothing but its image, which `tests/sndmove.py` asserts |
+| **SB staging pool** (sized to the first grant, up to `SBL_POOLKB` 20KB — §34.6.3) | **MOVABLE, except while the card plays out of it** | §66.5.5. `sbl_reloc`, one word, because a grant is an *offset* and the staging copy is the v3 boundary; every copy into or out of it goes in `SBL_DCHUNK` chunks under `cli`, re-reading `[sbl_poolseg]` per chunk. Claimed through the DMA door now (`OSAPI_MEM_CLAIM_DMA_HI`, head = the whole pool; from the top, and from the BOTTOM on kern_mega, KERN-MEGA-PLAN 14.55) so a ring in it can be PLAYED IN PLACE (§34.5.2) — and for exactly that stream verb 0 PINS it (`OSAPI_MEM_MOVABLE` AX = 0), because a direct stream has no task and `[drv_wcnt]` is then 0 while the 8237 reads it; `sbl_unpin` declares it again once the channel is masked. `tests/trackmove.py` check 8 carries the assertion and nothing reaches it yet (its registered machine has no card) |
+| **SB DMA double-buffer** | **PINNED, and only held for one stream** | §34.5.2. `MC_DMA`, claimed top-down (bottom-up on kern_mega, KERN-MEGA-PLAN 14.55) at the open of a stream that is NOT direct (a linear stream, a single-cycle DSP, a pool that is not page-safe, every record stream) and freed at its close by `sbl_unpin`, so it is never declared and never needs to be: `[drv_wcnt]` is non-zero for all of its life anyway. It was claimed at attach and MOVABLE while idle (§66.6.4, `sbl_ring_reloc`) — both are gone, because an idle card now holds nothing but its image, which `tests/sndmove.py` asserts |
 | **HDD** install buffer (`hd_ibufsz` ladder) | **PINNED (rule)** | §66.5.10. An `OSAPI_FILE_READ`/`WRITE` target at all four uses, claimed for one install and freed at its end |
 | **HDD** per-partition listing (`HDD_LISTKB` 6KB) | **RETIRED — there is no claim** | §22.6. It was the only block in the tree with three holders and the worked example of §66.5.10.2's kernel-side walk; §25.9 took the icon bodies out of it and §22.6.2 raised the floor to the same cap, after which it funded a listing `.lowbss` already gave for free. A mounted partition now costs the driver a `hd_vols` row and **no heap at all** — 6KB back per partition, 24KB on a four-partition machine. `tests/hdnoclaim.py` is the gate, and it replaced `hdmove` |
 | **HDD** second image (`HDDTOOL.DRV`) | **PINNED (forever)** | base is CS (§52.11.7). Claimed top-down. **It carries the Control Panel page now** (§52.13), so it is claimed while the panel's Drives page is open and not only while the disk tool is — freed at `DSV_CPCLOSE` by `hd_tool_reap` either way |
@@ -234,9 +234,15 @@ the DMA door (`OSAPI_MEM_CLAIM_DMA`/`_HI`, the parts library's carve and
 lazy fetch included), a claim over 64KB, and PiXEL's. **KERN-MEGA-PLAN
 14.52.4 is the register of those**, one row a claim with the owner's three
 tests - held only during active use, claimed bottom-up, movable while idle
-- and its verdicts: the open ones are MIDIRack's external ring (fails all
-three), the external DMA rings' top-down door (SPEC.md 34.5.3), the Apple
-II's and C64's ROM carves, and `os88type.inc`'s face cache (undeclared).
+- and its verdicts: the open ones are the Apple II's and C64's ROM carves,
+and `os88type.inc`'s face cache (undeclared). Two were closed by
+KERN-MEGA-PLAN 14.55: **MIDIRack's external ring** (17KB, `mrb_seg`) is
+claimed at every Play and freed at every stop on every kernel (SPEC.md
+105.8.4), and **a DMA ring is claimed BOTTOM-UP on kern_mega** - any
+`OSAPI_MEM_CLAIM_DMA_HI` with a head, so 1942's PCM rings, the Video
+Player's card ring, MIDIRack's and `SOUND.DRV`'s pool and double buffer
+(SPEC.md 50.3.2, 34.5.3), which kern_big and kern_small still take from the
+top. All of them are held only while they play.
 Clear Skies' flight shadow, below, is one of the claims 14.52 moved: pinned
 by not declaring on kern_big, a pool selector on kern_mega.
 

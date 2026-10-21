@@ -411,6 +411,22 @@ FAST = [
         wants=("build/os8088.img", "build/coldhma.sys", "build/recorder.o88",
                "build/hdd.hma.bin", "build/net.hma.bin",
                "build/sound.hma.map", "build/hdd.hma.map")),
+    Row("p2hiber", "soak", py("tests/p2hiber.py"), 45.0,
+        "SPEC.md 96.45.2.4, docs/plans/KERN-MEGA-PLAN.md 14.57: kern_big's "
+        "PS/2 mouse after a hibernate's REBOOT-route resume. WHY QEMU: the "
+        "closed list, entry 4 (an 8042). hmahiber's machine with the serial "
+        "mouse taken out, so QEMU's PS/2 wheel mouse is the pointer; "
+        "Hibernate..., QEMU killed, a fresh QEMU resumes: the master 8259's "
+        "IMR must be the one it hibernated with (`not [mou_line]` was 0 for "
+        "MOU_P2LINE: A8h came home 00h), mou_p2wz still 3 (QEMU's i8042 "
+        "raises IRQ12 at once, so with IRQ12 open through the re-knock "
+        "mou_p2_isr took its first ACK and the wheel came home 0) and the "
+        "pointer moving. The failing case is the HIBER.DRV before 14.57 "
+        "(--img): 2 and 3 red, verified. NEEDS QEMU 9, as hmahiber. 45s is "
+        "30 measured",
+        needs=("qemu", "qemu9", "nasm"),
+        wants=("build/os8088.img", "build/apps.img", "build/mbr.bin",
+               "build/boothd.bin", "build/kernel.sys")),
     Row("hmadosret", "soak", py("tests/hmadosret.py"), 45.0,
         "SPEC.md 96.49.9: the DOS live resume with `.cold` and HDD.DRV in "
         "the HMA. WHY QEMU: the closed list, entry 1. hmadrv's machine, "
@@ -3098,7 +3114,7 @@ SOAK = [
         "1942 desktop splash: native color/contour pixels, XT paint timing, "
         "player selection, help, dragging, direct launch and resume on three adapters",
         needs=("marty", "nasm", "pil"), wants=("build/1942-360.img", "build/1942.SFX", "build/os8088-360.img")),
-    Row("1942sound", "soak", py("tests/n1942sound.py"), 905.0,
+    Row("1942sound", "soak", py("tests/n1942sound.py"), 751.5,
         "XT speaker, AdLib-only and Sound Blaster FM/PCM: overlapping music/effects, "
         "all cartridge cues, rests/loops, pause/mute/resume, route preference, "
         "claim refusal, DMA sample bytes/priority, missing-bank fallback, exit/error cleanup, WAV output and guest cycle costs",
@@ -3871,12 +3887,25 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
     Row("midiracksb", "soak", py("tests/midirack.py", "--arm", "sb"), 60.0,
-        "MIDIRack's synth on the Sound Blaster (SPEC.md 105.8.4): the grant "
-        "ring this DSP needs, no underrun after the first, the stream at its "
+        "MIDIRack's synth on the Sound Blaster (SPEC.md 105.8.4): the "
+        "external ring this DSP 2.1 plays in place (the grant ring on one "
+        "without auto-init), no underrun after the first, the stream at its "
         "rate by the guest's own clock, and the pitch agreement and its "
         "negative control",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
+    Row("midiracksbmem", "soak", py("tests/midirack.py", "--arm", "sbmem"),
+        45.0,
+        "MIDIRack's card ring lives only while it plays (SPEC.md 105.8.4, "
+        "KERN-MEGA-PLAN 14.55): the external ring in the claim map during a "
+        "play and gone from it at Stop; tests/filler then takes the heap "
+        "until no 17 KB claim can be funded and Play is REFUSED with the "
+        "status line's own message, nothing open and nothing held; the "
+        "filler closed, the next Play opens the card and it consumes. Red "
+        "with the ring kept at Stop",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/os8088-720.img", "build/midirack.o88",
+               "build/filler.o88")),
     Row("midiracksbrate", "soak", py("tests/midirack.py", "--arm", "sb",
                                      "--rate", "2"), 60.0,
         "MIDIRack's Settings rate reaching the card (SPEC.md 105.7.1, "
@@ -14260,6 +14289,22 @@ SOAK = [
         "way. The failing case is that one write put back: 32,513. 300s is "
         "266 measured, the tree's build included",
         needs=("bochs", "nasm")),
+    Row("megap2hiber", "soak", py("tests/megap2hiber.py"), 200.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.57, SPEC.md 96.45.2.4: the PS/2 "
+        "mouse after a hibernate's REBOOT-route resume on kern_mega. Bochs "
+        "with an IntelliMouse (type=imps2) boots off C:, hibernates, powers "
+        "off and resumes, stopped by a breakpoint at hbm_wake's .nowz: the "
+        "slave's IMR must have IRQ12 MASKED there (the re-knock polls 60h, "
+        "and an ACK mou_p2_isr takes mid-knock leaves the device waiting for "
+        "a rate argument the F4 is spent as - the Victory 286's dead mouse), "
+        "and after the resume the master's IMR must be the one it hibernated "
+        "with (`not [mou_line]` was 0 for MOU_P2LINE: B8h came home 00h), "
+        "mou_p2wz still 3 and the pointer moving. The failing cases, each "
+        "verified: the slave mask out (8Fh at .nowz) and the MOU_P2LINE "
+        "guard out (master 00h). 200s is 160 measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/mines.o88")),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
         "it interrupted. SeaBIOS serves int 13h and int 16h on a stack of its "

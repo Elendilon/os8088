@@ -16,8 +16,8 @@ on what came out of the machine:
         pitch class in each half second one the REFERENCE SEQUENCER
         (tools/os88midi.py) has sounding then
   sb    the SB profile, the DSP synth (--rate N: at the rate Settings would
-        choose, an index into mr_rates - the row takes 11,025 Hz): the stream open (a grant ring - this
-        DSP has no auto-init, SPEC.md 105.8.4), no underrun after the first,
+        choose, an index into mr_rates - the row takes 11,025 Hz): the stream open (the external ring
+        this DSP 2.1 plays in place, SPEC.md 105.8.4), no underrun after the first,
         the stream advancing at its rate, and the same pitch-class agreement
   spk   no card, the speaker in its bracket at 5.5 kHz: the ring kept at
         least half full (the synth keeps ahead of the pulses, SPEC.md
@@ -39,6 +39,14 @@ on what came out of the machine:
         frequency always the highest melodic note the reference has sounding
   end   the AdLib profile: INTRO looped (Loop on - the same song again, from
         its start), then Loop off and the song's end advances the playlist
+  sbmem the SB profile, THE RING'S LIFETIME (SPEC.md 105.8.4): the external
+        ring is held while a song plays and is GONE from the claim map at
+        Stop; then tests/filler takes the heap until no claim of the ring's
+        size can be funded, and Play is REFUSED - nothing open, nothing held,
+        the status line's own message - and with the filler closed the next
+        Play opens the card and it consumes. Its apps disk is its own
+        720KB one (mrwt720.img's shape): MIDIRack and tests/filler in APPS,
+        the two songs in MEDIA
 
 The pitch check is the oracle: the reference sequencer is the one
 tests/unit/t_midtab.py holds to the composer's own independent reader, so the
@@ -48,6 +56,7 @@ corrupts the song the reference reads (a transposition) and the arm must FAIL.
 import argparse
 import math
 import os
+import subprocess
 import sys
 import tempfile
 
@@ -79,6 +88,7 @@ ARMS = {
     "wt": ("os8088_5150_herc_sb_720_gla", "sound_blaster"),
     "covox": ("os8088_5150_herc_covox_720_gla", "covox"),
     "covoxpoll": ("os8088_5150_herc_covox_720_gla", "covox"),
+    "sbmem": ("os8088_5150_herc_sb_720_gla", None),
 }
 OUT_MIDI, MRO_MIDI = 5, 5
 OUT_WT, MRO_WT = 6, 6
@@ -181,6 +191,14 @@ def session(arm, cap, brk):
     # ...and the wavetable's, `make mrwttest`'s apps disk: the synthetic bank
     # beside the package
     apps = "build/mrwt720.img" if arm == "wt" else APPS
+    if arm == "sbmem":                  # ...and the filler beside it: the
+        apps = os.path.join(os.path.dirname(cap), "apps.img")   # mrwt shape
+        subprocess.run(["python3", "tools/os88disk.py", "-o", apps,
+                        "--size", "720", "APPS:build/midirack.o88",
+                        "APPS:build/filler.o88",
+                        "MEDIA/MIDI:" + SONG, "MEDIA/MIDI:" + INTRO,
+                        "--folder", "SYSTEM/APPDATA"], check=True,
+                       stdout=subprocess.DEVNULL)
     with os88ui.boot(img, apps=apps, machine=machine) as ui:
         ui.path("B:/APPS/MIDIRACK.O88")
         p = mrprobe.attach(ui)
@@ -201,7 +219,7 @@ def session(arm, cap, brk):
         if arm == "wt" and p.b("mr_hasbank") != 1:
             fail("wt: MIDIRack found no MIDIRACK.BNK beside it")
         p.put("mr_want", bytes([{"fm": OUT_OPL2, "sb": OUT_SB,
-                                 "wt": OUT_WT,
+                                 "sbmem": OUT_SB, "wt": OUT_WT,
                                  "covox": OUT_LPT,
                                  "covoxpoll": OUT_LPT}.get(arm, OUT_SPK)]))
         if arm == "covoxpoll":
@@ -212,11 +230,12 @@ def session(arm, cap, brk):
             p.put("mr_rate", bytes([RATE]))     # Settings' rate, by index
         ui.menu_pick("Play", "Play")
         want = {"fm": MRO_FM, "sb": MRO_SB, "spk": MRO_SPK, "tone": MRO_TONE,
-                "wt": MRO_WT, "covox": MRO_LPT, "covoxpoll": MRO_LPT}
+                "wt": MRO_WT, "covox": MRO_LPT, "covoxpoll": MRO_LPT,
+                "sbmem": MRO_SB}
         M.until(ui.m, lambda _: p.b("mr_out") == want[arm], "the output open",
                 poll=.1, limit=10)
         return {"fm": arm_fm, "sb": arm_sb, "spk": arm_spk,
-                "tone": arm_tone, "wt": arm_wt,
+                "tone": arm_tone, "wt": arm_wt, "sbmem": arm_sbmem,
                 "covox": arm_covox, "covoxpoll": arm_covoxpoll}[arm](ui, p)
 
 
@@ -276,6 +295,90 @@ def arm_sb(ui, p):
           "underrun(s)" % ("grant" if p.b("mrb_grant") else "external", rate,
                            played, secs, p.w("mrb_unders")), flush=True)
     return 9.0
+
+
+MR_ST_STOP = 0
+MRB_KB = 17                         # (MRB_RL + 16 + 1023) / 1024, mrout.inc
+
+
+def heap(m):
+    """(the claims as (base, paragraphs, owner), the KB a claim could reach):
+    every hole in the arena plus every PURGEABLE claim, since a refused claim
+    sheds those and asks again (SPEC.md 50.6.2). Under MRB_KB, no claim of the
+    ring's size can be funded however the kernel compacts or sheds."""
+    import os88geom as g
+    u = lambda b, i: b[i] | b[i + 1] << 8               # noqa: E731
+    base = u(m.read(m.sym("mem_base"), 2), 0)
+    top = u(m.read(m.sym("mem_top"), 2), 0)
+    raw = m.read(m.sym("mem_tab"), g.MEM_MAX * g.MC_SIZE)
+    rows = [(u(raw, i * g.MC_SIZE), u(raw, i * g.MC_SIZE + 2),
+             u(raw, i * g.MC_SIZE + 4)) for i in range(g.MEM_MAX)
+            if u(raw, i * g.MC_SIZE)]
+    held = sum(n for b, n, o in rows
+               if base <= b < top and not 0xFB <= o >> 8 <= 0xFE)
+    return rows, (top - base - held) // 64
+
+
+def arm_sbmem(ui, p):
+    """THE RING IS CLAIMED AT PLAY AND FREED AT STOP, AND A REFUSAL IS A
+    MESSAGE (SPEC.md 105.8.4, KERN-MEGA-PLAN 14.55)."""
+    m = ui.m
+    M.until(m, lambda _: p.b("mrb_open") == 1, "the card's stream", poll=.1,
+            limit=10)                   # ([mr_out] is set before the open)
+    seg = p.w("mrb_seg")
+    if p.b("mrb_open") != 1 or p.b("mrb_grant") or not seg:
+        fail("sbmem: want the EXTERNAL ring open (open %d grant %d seg %04X)"
+             % (p.b("mrb_open"), p.b("mrb_grant"), seg))
+    if not any(b == seg for b, _, _ in heap(m)[0]):
+        fail("sbmem: the ring at %04X is not in the claim map" % seg)
+    M.guest_sleep(m, 1.0)
+    ui.menu_pick("Play", "Stop")
+    M.until(m, lambda _: p.b("mr_state") == MR_ST_STOP, "the stop", poll=.1,
+            limit=10)
+    if p.w("mrb_seg") or any(b == seg for b, _, _ in heap(m)[0]):
+        fail("sbmem: the ring is still held after Stop ([mrb_seg] %04X)"
+             % p.w("mrb_seg"))
+    print("PASS sbmem: the ring at %04X held while it played, freed at Stop"
+          % seg, flush=True)
+    # THE HEAP TAKEN: each key is one more fill and an ask (tests/filler),
+    # until nothing of the ring's size could be funded at all
+    fl = ui.path("FILLER.O88")         # the acting Disk window, B:/APPS
+    for _ in range(8):
+        if heap(m)[1] < MRB_KB:
+            break
+        ui.raise_window(fl)
+        m.key("KeyA")
+        M.guest_sleep(m, 1.0)
+    reach = heap(m)[1]
+    if reach >= MRB_KB:
+        fail("sbmem: the filler left %d KB reachable - the refusal cannot be "
+             "forced on this machine" % reach)
+    ui.raise_window(ui.window("MIDIRack"))
+    ui.menu_pick("Play", "Play")
+    M.until(m, lambda _: p.w("mr_msg") == p.s["mr_s_ringmem"],
+            "the refusal's message", poll=.1, limit=10)
+    if (p.b("mr_out") or p.b("mr_state") != MR_ST_STOP or p.w("mrb_seg")
+            or p.b("mrb_open")):
+        fail("sbmem: refused, but out %d state %d seg %04X open %d"
+             % (p.b("mr_out"), p.b("mr_state"), p.w("mrb_seg"),
+                p.b("mrb_open")))
+    msg = bytes(m.read(p.addr("mr_s_ringmem"), 64)).split(b"\0")[0]
+    print("PASS sbmem: with %d KB reachable Play is refused: %r, nothing "
+          "open or held" % (reach, msg.decode()), flush=True)
+    # ...AND THE MEMORY BACK: the next Play works
+    ui.close(fl)
+    ui.raise_window(ui.window("MIDIRack"))
+    ui.menu_pick("Play", "Play")
+    M.until(m, lambda _: p.b("mr_out") == MRO_SB and p.b("mrb_open") == 1,
+            "the card open again", poll=.1, limit=10)
+    c0 = bytes(m.readseg(p.w("mrb_seg"), 16384 + 2, 2))
+    M.guest_sleep(m, 1.0)
+    c1 = bytes(m.readseg(p.w("mrb_seg"), 16384 + 2, 2))
+    if c0 == c1:
+        fail("sbmem: the card opened again but consumed nothing")
+    print("PASS sbmem: with the filler closed, the next Play opens the card "
+          "(ring at %04X) and it plays" % p.w("mrb_seg"), flush=True)
+    return 0.0
 
 
 def arm_wt(ui, p):
