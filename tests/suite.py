@@ -14144,6 +14144,35 @@ SOAK = [
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megahole.o88", "build/megaown.o88")),
+    Row("megaovl", "soak", py("tests/megaovl.py"), 260.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.46: on kern_mega a C package's "
+        "OVERLAY is moved by a compaction and then used. Under Bochs, "
+        "MEGALOWH holds a top-down claim at the heap's ceiling so CWORD's "
+        "eager overlay carve (part 0, apps/cc/crt0.asm's cc_ovcarve) lands "
+        "under it, gives it back, and MEGALOWB (OS88_HIGH) claims everything "
+        "OSAPI_MEM_AVAIL says a compaction would leave, which only sliding "
+        "the carve up into the hole can place. The carve must be at a higher "
+        "segment after; then CWORD takes typing and File > Save As, and "
+        "C:\\DOC.RTF must hold the line. The failing case is cc_ovinit "
+        "without its OSAPI_MEM_MOVABLE: the carve is pinned. 260s is 225 "
+        "measured",
+        needs=("bochs", "nasm", "cc"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megalowh.o88", "build/megalowb.o88",
+               "build/cword.o88")),
+    Row("megahiber", "soak", py("tests/megahiber.py"), 300.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.5, 14.46: a hibernate and resume "
+        "on kern_mega IN PROTECTED MODE, under MEGATRAP=1's census (a "
+        "private tree). Bochs boots off C:'s boot partition with the system "
+        "files beside it, MEGAHIB holds 64KB of XMS and Mines a window, the "
+        "System menu hibernates, a second boot resumes: `kern_mega: resumed` "
+        "and MEGAHIB's 64KB must read back. The hibernate itself may take at "
+        "most 2,048 #GP fixups - the conventional picture was one write from "
+        "segment 0, the NULL selector, and took 32,512 null0 fixups in "
+        "HDD.DRV's PIO loop; hbm_xwconv takes the first cluster alone that "
+        "way. The failing case is that one write put back: 32,513. 300s is "
+        "266 measured, the tree's build included",
+        needs=("bochs", "nasm")),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
         "it interrupted. SeaBIOS serves int 13h and int 16h on a stack of its "

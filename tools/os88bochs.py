@@ -74,6 +74,10 @@ GEOM = (615, 4, 17)             # a 20MB disk: C/H/S as the BIOS sees it
 # machine, which is where the heap fills and compactions run (the Victory 286
 # has 4)
 MEGS = int(os.environ.get("OS88_BOCHS_MEGS", "16"))
+# --ne2k's slirp, configured: $OS88_BOCHS_SLIRP names a Bochs slirp config
+# file (`hostfwd = tcp::2121-:21`, one rule a line, five at most), which is
+# how a HOST client reaches a server in the guest - FTPD (KERN-MEGA-PLAN 14.46)
+SLIRP = os.environ.get("OS88_BOCHS_SLIRP")
 BOCHSRC = """megs: {megs}
 romimage: file=/usr/share/bochs/BIOS-bochs-legacy
 vgaromimage: file=/usr/share/vgabios/vgabios.bin
@@ -261,7 +265,8 @@ class Box(object):
                     "dmatimer=600000\n" % os.path.join(out, "sb.wav"))
                 if sb else "") + (
                 "ne2k: ioaddr=0x300, irq=10, mac=52:54:00:12:34:56, "
-                "ethmod=slirp\n" if ne2k else ""))
+                "ethmod=slirp%s\n" % (", script=" + os.path.abspath(SLIRP)
+                                       if SLIRP else "") if ne2k else ""))
         for n in os.listdir(out):
             if n.endswith(".lock"):
                 os.remove(os.path.join(out, n))

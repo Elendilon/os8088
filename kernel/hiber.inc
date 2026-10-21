@@ -1137,8 +1137,8 @@ hbm_paint:
     push ax
     mov al, [hb_vol]            ; the letter, patched into both faces' lines
     add al, 'A'
-    mov [cs:hbm_s_r1 + HBM_R1_LTR], al
-    mov [cs:hbm_s_a2 + HBM_A2_LTR], al
+    CSDO mov [CSEG hbm_s_r1 + HBM_R1_LTR], al
+    CSDO mov [CSEG hbm_s_a2 + HBM_A2_LTR], al
     pop ax
     cmp al, HB_M_RESUME
     jne .lines
@@ -1690,17 +1690,17 @@ hbm_perform:
 ; -----------------------------------------------------------------------------
 hbm_wrimg:
     push ax
-    mov [cs:hbm_ptrfix + HBP_DOS], al   ; ...WHY this image exists, the one
+    CSDO mov [CSEG hbm_ptrfix + HBP_DOS], al   ; ...WHY this image exists, the one
                                 ; thing in the pointer about the occasion
                                 ; rather than the machine
-    mov byte [cs:hbm_dosheld], 1    ; ...both taken below, and given back by
+    CSDO mov byte [CSEG hbm_dosheld], 1    ; ...both taken below, and given back by
                                     ; neither arm
 %ifdef HMA_DRV
     mov word [cs:hbm_hseg], 0   ; no pool copy yet: .no frees only a real one
 %endif
     call hbm_vbn                    ; where the user stands, for a refusal
     mov si, hb_drvmask          ; 1. the hardware drivers go, and are noted:
-    mov byte [cs:hbm_spm], 0    ; THE HIBERNATE'S OWN SWEEP IS TODAY'S SKIP
+    CSDO mov byte [CSEG hbm_spm], 0    ; THE HIBERNATE'S OWN SWEEP IS TODAY'S SKIP
                                 ; LIST, whatever the last suspend asked for
                                 ; (SPEC.md 51.11.4): the mask is a slot
                                 ; argument, and a hibernate is not that slot
@@ -1750,23 +1750,13 @@ hbm_wrimg:
     test byte [cpu_feat], CPU_F_PM
     jz .rsz
     call hbm_xconv              ; ...in whole chunks, so the section appends,
-    push ax                     ; and with linear 0's selector stretched to
-    mov ax, 0xFFFF              ; 64KB while it is read: the null segment the
-    call hbm_xlow               ; write starts from is fixed up to it, and it
-    pop ax                      ; stops at 4FFh on purpose (mega.inc)
+    call hbm_xwconv             ; and a chunk a call (below)
+    jmp short .rwrote
 .rsz:
 %endif
     mov cx, ax
     call COLD_SEG:dwf_dskw_write
-%ifdef KERN_MEGA
-    pushf
-    test byte [cpu_feat], CPU_F_PM
-    jz .rlow
-    mov ax, 0x04FF
-    call hbm_xlow
-.rlow:
-    popf
-%endif
+.rwrote:
     jc .no
 %ifdef KERN_MEGA
     test byte [cpu_feat], CPU_F_PM
@@ -1776,8 +1766,8 @@ hbm_wrimg:
 .rptr:
 %endif
     call hbm_ptrfix_set         ; 6. the pointer, beside it: the fixed
-    mov word [cs:hbm_ptrfix + HBP_WAKE], hbm_wake   ; head's live fields, and
-    mov [cs:hbm_ptrfix + HBP_WAKE + 2], cs          ; the wake address. The
+    CSDO mov word [CSEG hbm_ptrfix + HBP_WAKE], hbm_wake   ; head's live fields, and
+    CSDO mov [CSEG hbm_ptrfix + HBP_WAKE + 2], cs          ; the wake address. The
     call hbm_nptr               ; file IS hbm_ptrfix - one object, written
     push cs                     ; from where it is described rather than
     pop es                      ; staged through a buffer (SPEC.md 87.3)
@@ -1831,7 +1821,7 @@ hbm_bye:
 %endif
 hbm_hibfail:                        ; hbm_hib's: the write did not happen
     push si                     ; hbm_wrimg's refusal
-    mov byte [cs:hbm_dosheld], 0
+    CSDO mov byte [CSEG hbm_dosheld], 0
     dec byte [sch_lock]
     call hbm_unlock              
     call hbm_reload             ; the drivers come back
@@ -2347,9 +2337,9 @@ hbm_dosbda:
 ;                  own 0 and nothing writes it
 hbm_ptrfix_set:
     mov ax, [mem_top]
-    mov [cs:hbm_ptrfix + HBP_MEMTOP], ax
+    CSDO mov [CSEG hbm_ptrfix + HBP_MEMTOP], ax
     mov al, [vid_kind]
-    mov [cs:hbm_ptrfix + HBP_VID], al
+    CSDO mov [CSEG hbm_ptrfix + HBP_VID], al
 %ifdef ROM_ADOPT
     ; ...and WHERE `.cold` RUNS, in the pad byte the head always compared as
     ; 0 (docs/plans/ROM-PLAN.md 3.4.5): the HIGH BYTE of [api_coldseg], which
@@ -2427,7 +2417,7 @@ hbm_res:
     ;    text mode - ui_cmd_reboot's order (SPEC.md 20.10, 31.8) - and 4. the
     ;    staging area: the stub, the transport words and the extents, which
     ;    is the half hbm_dosrun's handoff shares (hbm_down)
-    mov byte [cs:hbm_dosheld], 0    ; nothing of the lock is ours yet
+    CSDO mov byte [CSEG hbm_dosheld], 0    ; nothing of the lock is ours yet
     mov si, hbs_stub
     mov cx, hbs_stub_end - hbs_stub
     call hbm_down               ; ES = the text framebuffer, DI = HS_WAKE
@@ -3428,6 +3418,92 @@ hbm_xcap:
 ; mega_hbwake through the image's own tables. Nothing of it leaves protected
 ; mode, on either CPU.
 ; =============================================================================
+
+; hbm_xwconv - the conventional picture in protected mode: DX:AX bytes from
+; linear 0, a whole number of HBX_CHUNKs, into the image file - the same
+; bytes in the same file as one write from segment 0, which is what it was.
+; But segment 0 is the NULL selector, so every word HDD.DRV's PIO loop moved
+; out of the first 64KB was a mega_null0 fixup, two exceptions each: 32,512
+; lines of MEGATRAP's census a hibernate (KERN-MEGA-PLAN 14.46). The identity
+; map starts at segment 40h (GDT entry 8) and only the IVT's 1KB has no other
+; way in, so: chunk 0 is WRITTEN for its size from 40h (its first cluster
+; wrong, for a moment), every later chunk APPENDED from its own identity
+; segment n x 800h, and then chunk 0 is put right in place with two
+; write-ats - the first CLUSTER from segment 0 (an offset must be a cluster
+; multiple: 1,024 fixups at 2KB), the rest of the chunk from 40h. An append
+; needs a whole number of clusters already in the file, which is why chunk 0
+; is not simply split. out: CF. Clobbers AX, BX, CX, DX, SI, ES
+hbm_xwconv:
+    shl dx, 1                   ; CX = the chunks: (DX:AX) >> 15
+    rol ax, 1
+    and ax, 1
+    or ax, dx
+    push ax
+    call hbm_nimg               ; SI = the name (AX and DL spent)
+    mov ax, 0x40
+    mov es, ax
+    xor bx, bx
+    xor dx, dx
+    mov cx, HBX_CHUNK
+    call COLD_SEG:dwf_dskw_write    ; chunk 0's SIZE
+    pop cx
+    jc .out
+    mov ax, HBX_CHUNK / 16      ; chunk 1's segment
+.ap:
+    dec cx
+    jz .fix
+    push cx
+    push ax
+    mov es, ax
+    call hbm_nimg
+    xor bx, bx
+    mov cx, HBX_CHUNK
+    call COLD_SEG:dwf_dskw_append
+    pop ax
+    pop cx
+    jc .out
+    add ax, HBX_CHUNK / 16
+    jmp short .ap
+.fix:
+    mov al, [dsk_spc]           ; AX = the volume's cluster in bytes
+    xor ah, ah
+    mov cl, 9
+    shl ax, cl
+    push ax
+    dec ax                      ; linear 0's selector over that cluster: the
+    call hbm_xlow               ; fixup runs each instruction through LOW0,
+    call hbm_nimg               ; which stops at 4FFh on purpose (mega.inc)
+    xor bx, bx
+    mov es, bx                  ; the first cluster, from linear 0
+    pop cx
+    push cx
+    xor ax, ax
+    xor dx, dx                  ; at offset 0
+    call COLD_SEG:dwf_dskw_write_at
+    pushf
+    mov ax, 0x04FF              ; ...and back
+    call hbm_xlow
+    popf
+    pop ax                      ; AX = the cluster = the offset of the rest
+    jc .out
+    cmp ax, HBX_CHUNK
+    jae .ok                     ; a cluster as big as the chunk: all done
+    push ax
+    call hbm_nimg
+    pop ax
+    mov bx, ax
+    sub bx, 0x400               ; 40h:BX = linear AX
+    mov cx, HBX_CHUNK
+    sub cx, ax
+    mov dx, 0x40
+    mov es, dx
+    xor dx, dx                  ; DX:AX = the offset
+    call COLD_SEG:dwf_dskw_write_at
+    jc .out
+.ok:
+    clc
+.out:
+    ret
 
 ; hbm_xlow - MEGA_SEL_LOW0's limit = AX. Every register kept
 hbm_xlow:

@@ -32,7 +32,15 @@
 
 %include "os88api.inc"
 
-%ifdef MO_HOLE
+%ifdef MO_LOWHOLE
+ %define MO_HOLE
+%endif
+
+%ifdef MO_LOWHOLE
+    OS88_HEADER 'MEGALOWH', mo_entry, 0, OS88_STACK_192
+%elifdef MO_LOWBIG
+    OS88_HEADER 'MEGALOWB', mo_entry, 0, OS88_STACK_192 | OS88_HIGH
+%elifdef MO_HOLE
     OS88_HEADER 'MEGAHOLE', mo_entry, 0, OS88_STACK_192 | OS88_HIGH | OS88_HIGHMEM
 %else
     OS88_HEADER 'MEGAOWN', mo_entry, 0, OS88_STACK_192 | OS88_HIGH | OS88_HIGHMEM
@@ -59,8 +67,18 @@ mo_entry:
     xor cx, cx
 .h:
     mov ax, MO_KB
+%ifdef MO_LOWHOLE
+    call OSAPI_MEM_CLAIM_HI     ; conventional, TOP-DOWN: the ceiling
+    jc .held
+    mov si, cx                  ; one is enough: the hole is above the carve
+    shl si, 1
+    mov [mo_tab + si], dx
+    inc cx
+    jmp short .held
+%else
     call OSAPI_MEM_CLAIM
     jc .held
+%endif
     mov si, cx
     shl si, 1
     mov [mo_tab + si], dx
@@ -73,7 +91,13 @@ mo_entry:
     mov al, cl
     call mo_hex2
     call mo_nl
+%ifdef MO_LOWHOLE
+    mov ax, 455                 ; twenty-five seconds: CWORD has loaded
+%else
     mov ax, 182                 ; ten seconds
+%endif
+%elifdef MO_LOWBIG
+    mov ax, 728                 ; forty seconds
 %else
     mov word [mo_stamp], 0xA55A
     mov ax, 273                 ; fifteen seconds
@@ -95,7 +119,68 @@ mo_tick:                        ; under the gfx lock: post a wake
     pop bx
     ret
 
-%ifdef MO_HOLE
+%ifdef MO_LOWBIG
+; the claim of everything MEM_AVAIL says a compaction would leave, with every
+; claim on the machine printed before and after (OSAPI_CLAIM_SNAPSHOT):
+; 'MEGALOWB: c SSSS PPPP OOOO' - segment, paragraphs, owner
+mo_wake:
+    call mo_snap
+    call OSAPI_MEM_AVAIL
+    mov si, mo_s_avail
+    call mo_say
+    call mo_hex4
+    call mo_nl
+    call OSAPI_MEM_CLAIM
+    mov si, mo_s_no
+    jc .say
+    mov [mo_big], dx
+    mov si, mo_s_got
+    call mo_say
+    mov ax, dx
+    call mo_hex4
+    call mo_nl
+    call mo_snap
+    mov dx, [mo_big]
+    call OSAPI_MEM_FREE
+    mov si, mo_s_done
+.say:
+    call mo_say
+    call mo_nl
+    mov bx, [mo_win]
+    call OSAPI_WM_CLOSE
+    ret
+
+mo_snap:
+    push ds
+    pop es
+    mov di, mo_snbuf
+    call OSAPI_CLAIM_SNAPSHOT       ; AX = MEM_MAX
+    mov cx, ax
+    mov di, mo_snbuf
+.l:
+    cmp word [di+CLS_SEG], 0
+    je .n
+    mov si, mo_s_c
+    call mo_say
+    mov ax, [di+CLS_SEG]
+    call mo_hex4
+    mov al, ' '
+    out 0xE9, al
+    mov ax, [di+CLS_PARA]
+    call mo_hex4
+    mov al, ' '
+    out 0xE9, al
+    mov ax, [di+CLS_OWN]
+    call mo_hex4
+    call mo_nl
+.n:
+    add di, CLS_RECSZ
+    loop .l
+    mov si, mo_s_c
+    call mo_say
+    call mo_nl
+    ret
+%elifdef MO_HOLE
 mo_wake:
     mov si, mo_s_close
     call mo_say
@@ -398,13 +483,26 @@ mo_hex2:
     ret
 
 mo_tpl:
-%ifdef MO_HOLE
+%ifdef MO_LOWBIG
+    dw 400, 300, 200, 40
+%elifdef MO_HOLE
     dw 8, 300, 200, 40
 %else
     dw 230, 300, 200, 40
 %endif
     dw mo_ttl, mo_paint, 0, 0
-%ifdef MO_HOLE
+%ifdef MO_LOWBIG
+mo_ttl:     db 'MegaLowB', 0
+mo_s_c:     db 'MEGALOWB: c ', 0
+mo_s_avail: db 'MEGALOWB: avail ', 0
+mo_s_got:   db 'MEGALOWB: got ', 0
+mo_s_no:    db 'MEGALOWB: refused', 0
+mo_s_done:  db 'MEGALOWB: done', 0
+%elifdef MO_LOWHOLE
+mo_ttl:     db 'MegaLowH', 0
+mo_s_held:  db 'MEGALOWH: held ', 0
+mo_s_close: db 'MEGALOWH: closing', 0
+%elifdef MO_HOLE
 mo_ttl:     db 'MegaHole', 0
 mo_s_held:  db 'MEGAHOLE: held ', 0
 mo_s_close: db 'MEGAHOLE: closing', 0
@@ -418,7 +516,7 @@ mo_s_okt:   db ' ok', 0
 mo_s_not:   db ' no', 0
 %endif
 
-    OS88_BSS 2 + 1 + 2 + MO_MAX * 2 + 2 + 2 + 2 + MO_TMAX * 2 + MO_WN * XMW_SIZE
+    OS88_BSS 2 + 1 + 2 + MO_MAX * 2 + 2 + 2 + 2 + MO_TMAX * 2 + MO_WN * XMW_SIZE + CLAIM_SNAPSHOT_SIZE
     OS88_IMAGE_END
 
 mo_win      equ os88_image_end + 0
@@ -430,3 +528,4 @@ mo_big      equ mo_n + 2
 mo_nt       equ mo_big + 2
 mo_ttab     equ mo_nt + 2
 mo_wbuf     equ mo_ttab + MO_TMAX * 2
+mo_snbuf    equ mo_wbuf + MO_WN * XMW_SIZE
