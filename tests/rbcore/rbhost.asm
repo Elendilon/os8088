@@ -311,6 +311,14 @@ host_main:
     jne .dyn                            ;   profile at PRF_SEG, recorded by
     mov word [S_PRFSEG],PRF_SEG         ;   the first pass
     mov word [S_PRFMASK],1023
+    push es                             ; ...over 4KB cleared first: nothing
+    mov ax,PRF_SEG                      ;   else does, and at 05A0h the BIOS
+    mov es,ax                           ;   has left bytes there - rbstatic's
+    xor di,di                           ;   "empty profile" preloaded 2 blocks
+    mov cx,2048                         ;   out of them
+    xor ax,ax
+    rep stosw
+    pop es
 .dyn:
     call h_jitsegs                      ;   before there was one
     call rt_init
@@ -431,7 +439,9 @@ host_main:
     cmp byte [pass],0                   ;   start, preloaded and fixed, for a
     jne .end                            ;   second pass the same length
     inc byte [pass]
-    call h_static
+%ifndef RB_PANMODES                     ; (no Static in the pan modes' host:
+    call h_static                       ;   it is short of room, and
+%endif                                  ;   rt_preload is left out of it)
     jmp .run
 .end:
     push ds
@@ -1418,6 +1428,7 @@ h_jitsegs:
 ; recorded translated into it heaviest first, the table fixed, and the
 ; frames counted from 0 again. The profile is outside the view, which
 ; rb_init zeroes.
+%ifndef RB_PANMODES
 h_static:
     push ax
     push bx
@@ -1465,6 +1476,7 @@ h_static:
     pop bx
     pop ax
     ret
+%endif
 s_vram  db "RBVRAM",0
 nframes dw 0
 nbudget dw 0
@@ -1474,6 +1486,9 @@ ticks   dw 0
 %include "rbsys.inc"
 %include "rbppu.inc"
 %define RT_SQUEEZE                      ; (b_jit's JF_SQZ)
+%ifdef RB_PANMODES
+%define RT_NOPRELOAD                    ; (no Static in them: h_static's)
+%endif
 %include "rbjit.inc"
 
 ; the harness ends under the core, at 1000:0000 (a run past it overwrites

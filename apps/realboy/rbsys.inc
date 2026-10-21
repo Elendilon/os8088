@@ -1426,12 +1426,9 @@ rb_iowrite:
 .wl:
     mov [S_SQ3+SQ_LEN],al
     ret
-.ie:
-    mov [bx],al
-    mov byte [S_TAKEINT],1
-    jmp rb_force
 .if:
-    or al,0E0h
+    or al,0E0h                          ; (IF's top three read as 1s; the
+.ie:                                    ;   rest is IE's)
     mov [bx],al
     mov byte [S_TAKEINT],1
     jmp rb_force

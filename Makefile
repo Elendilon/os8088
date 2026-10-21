@@ -214,6 +214,7 @@ VMXTCOVOX := $(CURDIR)/vm/xt-covox
 VMXTWIRE := $(CURDIR)/vm/xt-wire
 VM286SND := $(CURDIR)/vm/286-sound
 VM286VID := $(CURDIR)/vm/286-video
+VM286RB := $(CURDIR)/vm/286-realboy
 VM386SND := $(CURDIR)/vm/386-sound
 # The top of the range: a 486DX2/66 and a Pentium 133, both with an SB16.
 VM486 := $(CURDIR)/vm/486
@@ -2154,7 +2155,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
-        286-sound 286-video 286-victory 386-sound 486 486-video pentium \
+        286-sound 286-video 286-realboy 286-victory 386-sound 486 486-video pentium \
         bench field combo combo144 combo720 stackprobe trklog trkscrl npbench clicktest marty \
         comscan lptlink calcref \
         fonts fontsheets fontlist \
@@ -11548,6 +11549,41 @@ $(BUILD)/VIDDEMO-%-ST11R.VHD: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 		--cyls 615 --heads 4 --spt 26 --out $@
 	rm -f $(BUILD)/viddemo/$*.img
 
+# THE REALBOY HARD DISK (docs/REALBOY-SPEC.md section 18), ON DEMAND: the
+# whole install, VIDDEMO_INSTALL's derived list, plus RealBoy's disk in a
+# REALBOY folder and the user's cartridges in GAMEBOY (GAMES is the apps
+# disk's, already in the install) - `make realboyhd
+# GBROMS=<dir>`, the way CPMSW= and BUNDLES= take yours. tools/gbromdir.py
+# names each from its header (8.3) and writes GAMEBOY/ROMS.TXT; no cartridge
+# is ever in the tree, and build/ is never committed. The geometry is the
+# AT drive table's TYPE 3 (615/6/17, 32 MB), which vm/286-realboy boots - so
+# its MR BIOS needs only "type 3" in setup, where 286-video's 250/15/17 wants
+# a user type typed in - and it is the place a 2MB cartridge, more than any
+# floppy holds, can be opened at all. Rebuilt every time: the ROM directory
+# is not a prerequisite make can see.
+REALBOYHD := $(BUILD)/REALBOY-HD.VHD
+GBROMS ?=
+.PHONY: realboyhd
+realboyhd: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
+	$(DRIVERS) $(SYSDOC) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSLOGO) \
+	$(FACES) $(FACELIC) $(LOGOVID) $$(APPS) $(REALBOYDISK) \
+	tools/gbromdir.py tools/os88hdd.py
+	rm -rf $(BUILD)/realboyhd
+	mkdir -p $(BUILD)/realboyhd/games
+	python3 tools/gbromdir.py "$(GBROMS)" $(BUILD)/realboyhd/games
+	python3 tools/os88disk.py -o $(BUILD)/realboyhd/hd.img --hdd \
+		--geometry 615/6/17 --mbr $(BUILD)/mbr.bin \
+		--boot $(BUILD)/boothd.bin --kernel $(KERNFILE) $(APPDATAFOLDER) \
+		$(VIDDEMO_INSTALL) \
+		REALBOY:$(BUILD)/realboy.o88 REALBOY:$(BUILD)/gbclock/GBDEMO.GB \
+		REALBOY:apps/realboy/README.TXT \
+		$$(for f in $(BUILD)/realboyhd/games/*; do [ -f "$$f" ] && echo "GAMEBOY:$$f"; done)
+	python3 tools/os88disk.py --verify-hdd $(BUILD)/realboyhd/hd.img
+	python3 tools/os88hdd.py --wrap $(BUILD)/realboyhd/hd.img \
+		--cyls 615 --heads 6 --spt 17 --out $(REALBOYHD)
+	rm -f $(BUILD)/realboyhd/hd.img
+	@ls -l $(REALBOYHD)
+
 # THE ENCODER FOR PEOPLE WITH NO os8088 TREE (SPEC.md 98.2.13): the window,
 # every tools/ module it imports or runs (tools/os88vbundle.py COMPUTES the
 # list, so it cannot go stale), VIDEO.O88 and a README, in one folder of one
@@ -15378,6 +15414,15 @@ xt-wire: $(BUILD)/ether360.img $(BUILD)/wiredata360.img
 	@test -f $(BUILD)/VIDENC-VGA-286.VHD || { echo "286-video: needs $(BUILD)/VIDENC-VGA-286.VHD - make videnchd VIDENC=<dir with vga/>"; exit 1; }
 	@$(UNPROTECT) $(VM286VID)/86box.cfg
 	$(BOX) -P $(VM286VID) -N
+
+# ...and that 286 with RealBoy's hard disk (docs/REALBOY-SPEC.md section 18):
+# the whole install, REALBOY/ and your cartridges in GAMEBOY/, booted off the
+# disk - `make realboyhd GBROMS=<dir>` builds it. The SB16 is the FM chip
+# RealBoy plays all four channels on (section 17.1)
+286-realboy:
+	@test -f $(REALBOYHD) || { echo "286-realboy: needs $(REALBOYHD) - make realboyhd GBROMS=<dir of .gb/.gbc>"; exit 1; }
+	@$(UNPROTECT) $(VM286RB)/86box.cfg
+	$(BOX) -P $(VM286RB) -N
 
 # The 486DX2/66 with `make vid486`'s measurement disk on IDE and its blank
 # results floppy in B: (SPEC.md 98.2.3.1)

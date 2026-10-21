@@ -646,7 +646,7 @@ whose SB16 carries one, each sending MIDI to 86Box's FluidSynth with the
 GeneralUser GS soundfont `make midibank` fetches, and each with `make
 midirackdisk`'s floppy - player, wavetable bank, songs - in B:), `xt-wire`,
 `286`, `286-525`,
-`286-sound`, `286-victory` (the owner's Packard Bell Victory 286 as near as 86Box comes - vm/286's board at 16 MHz, 4MB and a Paradise PVGA1A - whose RealBoy logs read like the Victory's own, REALBOY-SPEC section 14.1), the eight `286-525-*` application machines (`-z`, `-word`,
+`286-sound`, `286-victory` (the owner's Packard Bell Victory 286 as near as 86Box comes - vm/286's board at 16 MHz, 4MB and a Paradise PVGA1A - whose RealBoy logs read like the Victory's own, REALBOY-SPEC section 14.1), `286-realboy` (an mr286 with RealBoy's hard disk - the whole install and your cartridges, `make realboyhd GBROMS=<dir>`, REALBOY-SPEC section 19), the eight `286-525-*` application machines (`-z`, `-word`,
 `-cword`, `-runcpm`, `-c64`, `-weave`, `-loom`, `-all` — `vm/286-525` with a
 1.2MB app disk in B: instead of the apps floppy, and the only machines in the
 tree that read that geometry at all: a 1.2MB drive wants the AT's 500 kbps

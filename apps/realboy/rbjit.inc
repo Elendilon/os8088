@@ -345,6 +345,8 @@ rt_prfadd:
 .r0:
     ret
 
+%ifndef RT_NOPRELOAD                    ; (a host that never runs Static:
+                                        ;   the bare harness's pan modes)
 ; rt_preload - DS = the view, the cache just flushed (rt_init), the core not
 ; running: every profile entry translated as tr_miss would, heaviest first,
 ; its bank mapped in for it, until the cache is full; then the block table
@@ -472,6 +474,7 @@ rt_preone:
     pop word [S_BANK]
 .no:
     ret
+%endif
 
 ; rb_jit - tr_enter's miss, SS:SP the game's stack: translate the block at SI
 ; on the host's stack and go back into the core at tr_back
@@ -1774,7 +1777,8 @@ rt_jrt:
     add ax,dx
     mov [RT_T],ax
     cmp dx,0FFFDh                   ; -3, a JR NZ, after DEC A/B/C: a
-    jne .nocnt                      ;   countdown (cnt_ff, section 8.1)
+    jne .nocnt                      ;   countdown (cnt_ff, section 8.1) - or
+                                    ;   after CP (HL), a wait on LY there
     cmp byte [RT_OP],20h
     jne .nocnt
     mov bx,[RT_IX]
@@ -1786,7 +1790,10 @@ rt_jrt:
     cmp dl,05h
     je .cnt
     cmp dl,0Dh
-    jne .nocnt
+    je .cnt
+    cmp dl,0BEh                     ; CP (HL): cnt_ff sends DX = 00BEh, and
+    jne .nocnt                      ;   only that, to cnt_cph, which looks
+    xor dh,dh                       ;   at HL when it runs
 .cnt:
     mov bx,RBC_CNT_FF
 .ff:                                ; BX = the tail, DX what it is told

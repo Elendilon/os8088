@@ -1954,6 +1954,20 @@ otherwise:
   reads the change itself - A and F are its own. A margin of 0 is exact and
   8 over is not, on 128 phases each (`gbrmw.asm`'s Waits, below); 8 short
   is kept. Every other emulator surveyed (REALBOY-PLAN, wave 7) does this.
+  **`CP (HL) / JR NZ,-3` with HL on LY** (FF44h) is the same wait for line
+  A, and Donkey Kong Land's (the compatibility sweep found it going round
+  one at 12% of real time on a 286; skipped, 101% and the machine 69% idle).
+  It arrives as a countdown would - a taken `JR NZ,-3` - so the translator
+  sends it to `cnt_ff` with DX = 00BEh, which hands it to `cnt_cph`
+  (page 47h's CB half): HL is looked at when it runs, and `stat_ff` is
+  entered with DL = 45h. Its pass is 5 M-cycles, so `stat_t5` takes off
+  whole FIVES - another size moves the loop's phase. The interpreter's
+  `JR NZ,-3` reaches `cnt_ff` with DH = FFh, the displacement's sign, so it
+  never matches and `gbrmw.asm`'s WaitLYH run from WRAM is the reference
+  the translated copy is held to. That gate goes red for a skip 50 M-cycles
+  too far; it does NOT tell eights from fives, its counting loop being too
+  coarse for a phase of a cycle or two, so the rounding stands on the
+  argument above rather than on a row.
 
 The CPU alone on `286-victory` (`rbbench.py`): Super Mario Land 6.55 ms a
 frame without any, 6.32 with `add_ff`, 6.22 with `cpy_ff` and 6.13 with
@@ -2296,6 +2310,36 @@ and the frames drawn a second.
   rgbds, which is fetched and built on first use. The everything set
   (`make allapps`) and the live media carry the same folder.
 - **No game ships.** A cartridge is the user's own.
+
+**`make realboyhd GBROMS=<dir>`** writes a HARD DISK, `build/REALBOY-HD.VHD`,
+and **`make 286-realboy`** boots it: the owner's mr286 (16 MHz, 4MB, VGA, an
+SB16 for 17.1's FM chip) with the disk on IDE and nothing in A:. It is where
+a cartridge over 1MB, which no floppy holds, can be opened at all - the
+compatibility sweep's Pokemon Gold, Dragon Warrior Monsters and Wario Land II
+DX are 2MB.
+- **The disk is the whole install** (the Makefile's `VIDDEMO_INSTALL`, the
+  system and apps disks' payload derived rather than listed), **RealBoy's
+  folder**, and **`GAMEBOY/`** with the cartridges in `<dir>` - `GAMES/` is
+  the apps disk's, and already there. `tools/gbromdir.py` names each from
+  the title in its header (`POKEMONG.GBC`) and writes `GAMEBOY/ROMS.TXT`
+  saying which file is which; the cartridges are only ever copied under
+  `build/`.
+- **The geometry is the AT drive table's type 3**, 615/6/17 (32MB): the MR
+  BIOS then wants only "type 3" on its Fixed-Disk page, where a user type
+  would have to be typed in. A fresh run has no CMOS, and
+  `tests/rbcore/rbhd.py`'s `setup` answers it - floppies 1.44M, type 3, F10 -
+  waiting for each screen rather than counting keys, the BIOS taking an early
+  key as nothing.
+- **`rbhd.py` opens a cartridge from the keyboard**: C:, the folder by its
+  row, then Down to the file's place (sorted as the directory sorts, with
+  `..` first) and Enter - and checks the title at 0134h in the running view
+  against the file's, so a wrong row cannot measure one game under another's
+  name.
+- **Measured there** (86Box, the profiler's Enter/X/Right script): Gold runs
+  at 30-39% of real time, its time in the event scheduler for per-line STAT
+  interrupts (`rb_events`, `rb_sched`, `rb_statev`, 40%), Dragon Warrior
+  Monsters 53-100%, Wario Land II DX 100% after its intro; Crystal is
+  refused for the Color alone.
 
 **The Wire record is PREPARED and NOT PUBLISHED.** It goes in os8088-web's
 `data/wire.json` when the owner says go, and that repository is outside this

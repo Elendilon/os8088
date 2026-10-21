@@ -1295,8 +1295,10 @@ cpy_de:
 ; SPEC 16.6): LY and STAT are S_TNF - BP's, so the wait is known. A pass
 ; short of it, and never past the next event (BP stays 8 or more): the loop
 ; reads the change itself, and A and F are its own. SI = the head, DL = 3
-; (mode 0), 2 (mode 0 or 1) or 44h (line DH); the JR NZ about to be taken,
-; its 3 M-cycles not charged. Always on at [S_RET].
+; (mode 0), 2 (mode 0 or 1) or 44h (line DH) - or 45h, line DH waited on by
+; CP (HL) / JR NZ,-3 with HL on LY (cnt_cph), whose pass is 5 M-cycles and
+; is skipped in fives (stat_t5); the JR NZ about to be taken, its 3 M-cycles
+; not charged. Always on at [S_RET].
 stat_ff:
     cmp byte [ss:S_LCDON],0
     je stat_out
@@ -1313,8 +1315,8 @@ stat_ff:
     mov [ss:S_TMP4],ax
     mov dh,RB_LINE
     div dh                      ; AL = LY, AH = M-cycles into the line
-    cmp dl,44h
-    je stat_ly
+    cmp dl,44h                  ; (and 45h: cnt_cph's CP (HL) form)
+    jae stat_ly
     cmp al,144
     jae .vbl
     sub ah,RB_HBL               ; to mode 0, this line
@@ -1361,7 +1363,33 @@ stat_ly:
     mul dl
     sub al,dh
     sbb ah,0
+    cmp byte [ss:S_TMP6],45h
+    je stat_t5
     jmp stat_t
+; stat_t's for CP (HL) / JR NZ,-3: its pass is 5 M-cycles, so whole fives -
+; a skip of any other size moves the loop's phase, and the line would be
+; read a cycle or more off where the hardware reads it. A pass short, and BP
+; kept 5 or more, as stat_t does with eights.
+stat_t5:
+    sub ax,5
+    jbe stat_none
+    mov dx,bp
+    sub dx,5
+    jle stat_none
+    cmp ax,dx
+    jbe .m
+    mov ax,dx
+.m:
+    xor dx,dx
+    div word [cs:stat_five]     ; (the page is copied whole: CS's own)
+    mov dx,ax
+    shl ax,1
+    shl ax,1
+    add ax,dx
+    sub bp,ax
+    jmp stat_none
+stat_five:
+    dw 5
 """,
     0x47: """
 ; cnt_ff: a COUNTDOWN, DEC r / JR NZ,-3, run to its end in one step when the
@@ -1372,6 +1400,10 @@ stat_ly:
 ; with DEC's flags for 1 -> 0 (Z, N; H clear; C kept). A, B and C; anything
 ; else, or a budget that runs out inside the loop, goes on at [S_RET].
 cnt_ff:
+    cmp dx,00BEh                ; CP (HL): not a countdown, a wait on LY
+    jne .cnt                    ;   (cnt_cph) - the recompiler's alone: the
+    jmp cnt_cph                 ;   interpreter's DH is the JR's FFh
+.cnt:
     mov dh,al
     cmp dl,3Dh
     je .go
@@ -2075,6 +2107,22 @@ EXTRA += [("CB %02X of RAM" % b, rmw_lines(b, True), 2) for b in RMW_CB]
 # --- tails after a TAIL page's CB handler: the translator copies a tail -----
 # --- page whole, so its CB half's room is as reachable as its main half's --
 CBTAILS = {
+    0x47: """
+; cnt_ff's CP (HL) / JR NZ,-3: with HL on LY (FF44h) it waits for line A -
+; Donkey Kong Land's form, which the compatibility sweep found at 12% of
+; real time on a 286 going round it - and stat_ff skips it (DL = 45h, its
+; 5-M-cycle pass). Anything else in HL goes on at [S_RET]. Translated code
+; only (DX = 00BEh), as stat_ff's other waits are, so that gbrmw's WaitLYH
+; run from WRAM - interpreted - is the reference the ROM copy is held to.
+cnt_cph:
+    cmp bx,0FF44h
+    jne .no
+    mov dl,45h
+    mov dh,al
+    jmp stat_ff
+.no:
+    jmp word [ss:S_RET]
+""",
     0x41: """
 ; POP's slow path, SP below C000h (REALBOY-SPEC 5): DX = the word at SP and
 ; SP moved on, resumed at [S_RET] - and DL is then NOT 0, which the dispatch
