@@ -3871,12 +3871,25 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
     Row("midiracksb", "soak", py("tests/midirack.py", "--arm", "sb"), 60.0,
-        "MIDIRack's synth on the Sound Blaster (SPEC.md 105.8.4): the grant "
-        "ring this DSP needs, no underrun after the first, the stream at its "
+        "MIDIRack's synth on the Sound Blaster (SPEC.md 105.8.4): the "
+        "external ring this DSP 2.1 plays in place (the grant ring on one "
+        "without auto-init), no underrun after the first, the stream at its "
         "rate by the guest's own clock, and the pitch agreement and its "
         "negative control",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
+    Row("midiracksbmem", "soak", py("tests/midirack.py", "--arm", "sbmem"),
+        45.0,
+        "MIDIRack's card ring lives only while it plays (SPEC.md 105.8.4, "
+        "KERN-MEGA-PLAN 14.55): the external ring in the claim map during a "
+        "play and gone from it at Stop; tests/filler then takes the heap "
+        "until no 17 KB claim can be funded and Play is REFUSED with the "
+        "status line's own message, nothing open and nothing held; the "
+        "filler closed, the next Play opens the card and it consumes. Red "
+        "with the ring kept at Stop",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/os8088-720.img", "build/midirack.o88",
+               "build/filler.o88")),
     Row("midiracksbrate", "soak", py("tests/midirack.py", "--arm", "sb",
                                      "--rate", "2"), 60.0,
         "MIDIRack's Settings rate reaching the card (SPEC.md 105.7.1, "

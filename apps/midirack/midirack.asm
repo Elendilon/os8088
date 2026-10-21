@@ -407,6 +407,7 @@ mr_s_smpte:     db 'SMPTE-timed files are not played', 0
 mr_s_notrk:     db 'The file has no tracks', 0
 mr_s_big:       db 'Too large: MIDIRack takes files up to 63 KB', 0
 mr_s_nomem:     db 'Out of memory', 0
+mr_s_ringmem:   db 'No memory for the card - close a program and retry', 0
 mr_s_rderr:     db 'The file could not be read', 0
 mr_s_notask:    db 'No free task - close a program and retry', 0
 mr_s_nofm:      db 'No FM chip (load SOUND.DRV in the Control Panel)', 0

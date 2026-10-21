@@ -729,14 +729,27 @@ mrb_alloff:
     je mwt_alloff
     jmp mry_alloff
 
-; mrb_tc - AX = TOTAL, DX = CONS, of whichever ring
+; mrb_tc - AX = TOTAL, DX = CONS, of whichever ring - and 0, 0 when there is
+; NO ring. The external ring is freed at every stop (mrb_rfree), and this is
+; the one reader a task other than the UI's can reach then: mr_elapsed asks it
+; from the worker's mrw_draw, which runs OUTSIDE [mr_inpass] and so outside
+; mro_drain's guarantee, on any [mr_out] it read before mro_close cleared it.
+; The segment is read ONCE into a register and tested: a stale non-zero one is
+; a read of freed conventional memory (a wrong second on the bar, for a frame),
+; a zero one would be ES = 0 - the interrupt table on kern_big and a null
+; selector, #GP on the first read, on kern_mega
 mrb_tc:
     cmp byte [mrb_grant], 0
     jne .g
     push es
-    mov es, [mrb_seg]
+    mov ax, [mrb_seg]
+    mov dx, ax
+    or ax, ax
+    jz .none                        ; (AX = DX = 0: no lead, nothing played)
+    mov es, ax
     mov ax, [es:MRB_RL+SND_EXT_TOTAL]
     mov dx, [es:MRB_RL+SND_EXT_CONS]
+.none:
     pop es
     ret
 .g:
@@ -777,7 +790,12 @@ mrb_put1:
     ; (falls into mrb_span1)
 
 ; mrb_span1 - one span into the external ring at TOTAL; TOTAL moved LAST
-; (the block IRQ reads it)
+; (the block IRQ reads it). NO ZERO TEST, and none is needed: its callers are
+; mrb_start's pre-roll, straight after the claim, and the worker's mrw_sb,
+; which runs only inside [mr_inpass] with [mr_seqon] set - and mro_close
+; clears [mr_seqon] and waits out [mr_inpass] (mro_drain) BEFORE mrb_close
+; frees the ring, so no pass that writes here can be in flight or begin once
+; it is gone
 mrb_span1:
     push ax
     push cx
@@ -838,9 +856,18 @@ mrb_half1:
     ret
 
 ; -----------------------------------------------------------------------------
-; mrb_start - the synth onto the card: an external ring claimed (once,
-; page-safe and high, SPEC.md 34.5.3) and opened, or - refused for want of
-; auto-init - a grant ring. UI task. out: CF = 1, [mr_msg] says why
+; mrb_start - the synth onto the card: an external ring claimed (page-safe,
+; SPEC.md 34.5.3 - from the top, and on kern_mega from the bottom) and opened,
+; or - refused for want of auto-init - a grant ring. UI task. out: CF = 1,
+; [mr_msg] says why.
+;
+; THE RING IS CLAIMED AT EVERY PLAY AND FREED AT EVERY STOP (SPEC.md 105.8.4,
+; KERN-MEGA-PLAN 14.55): mrb_close gives it back, and so does every refusal
+; below and a grant ring, which never reads it. It was claimed at the first
+; play and held to the window's close - 17 KB pinned for a session that may
+; play once. The price is a page-safe claim per play, which a fragmented heap
+; can refuse: that is a play refused with mr_s_ringmem, and the next Play asks
+; again
 ; -----------------------------------------------------------------------------
 mrb_start:
     push ax
@@ -859,7 +886,7 @@ mrb_start:
     mov ax, (MRB_RL + 16 + 1023) / 1024
     mov cx, ax
     call OSAPI_MEM_CLAIM_DMA_HI
-    mov word [mr_msg], mr_s_nomem
+    mov word [mr_msg], mr_s_ringmem
     jc .no
     mov [mrb_seg], dx
 .have:
@@ -937,7 +964,9 @@ mrb_start:
     cmp al, 7                       ; no auto-init: the grant ring
     jne .refused
     call mrb_grantopen
-    jnc .opened
+    jc .refused
+    call mrb_rfree                  ; ...which never reads the external one
+    jmp short .opened
 .refused:
     mov word [mr_msg], mr_s_sberr
     jmp short .no
@@ -948,6 +977,7 @@ mrb_start:
     jmp short .out
 .no:
     mov byte [mr_seqon], 0
+    call mrb_rfree                  ; a refused play holds nothing
     stc
 .out:
     pop es
@@ -1034,8 +1064,11 @@ mrb_gfree:
     pop ax
     ret
 
-; mrb_close - the stream closed (verb 2: UI task), and a grant given back.
-; The external ring's claim is kept for the next play
+; mrb_close - the stream closed (verb 2: UI task), a grant given back, and
+; the external ring FREED (SPEC.md 105.8.4). The order is the argument: the
+; caller, mro_close, has already drained the worker (mro_drain), so nothing
+; is making spans; verb 2 then stops the card, so nothing is reading the ring;
+; only then is it given back
 mrb_close:
     push ax
     cmp byte [mrb_open], 0
@@ -1047,6 +1080,21 @@ mrb_close:
 .g:
     call mrb_gfree
     pop ax
+    ; (falls into mrb_rfree)
+
+; mrb_rfree - the external ring given back, if it is held. [mrb_seg] is
+; zeroed BEFORE the free, so a reader that tests it (mrb_tc) sees either no
+; ring or a block that is still conventional memory, never a segment that
+; names nothing. Every register kept
+mrb_rfree:
+    push dx
+    xor dx, dx
+    xchg dx, [mrb_seg]
+    or dx, dx
+    jz .out
+    call OSAPI_MEM_FREE
+.out:
+    pop dx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1183,13 +1231,8 @@ mr_lptinfo:
 
 ; mro_free - every claim the outputs hold, given back (the window's close)
 mro_free:
-    push dx
-    mov dx, [mrb_seg]
-    or dx, dx
-    jz .k
-    call OSAPI_MEM_FREE
-    mov word [mrb_seg], 0
-.k:
+    call mrb_rfree                  ; (mrb_close's already, unless a close
+    push dx                         ; came with no play - harmless either way)
     mov dx, [mrk_seg]
     or dx, dx
     jz .out

@@ -8645,6 +8645,164 @@ launches high); and on kern_big, where DOS.O88 is byte-identical, nothing
 can see it - `dosmouse`, `dosmem`, `dosram` and the other `dos*` rows run
 the same image they ran before.
 
+### 14.55 The external DMA rings: bottom-up on kern_mega, and MIDIRack's freed at every stop (2026-10-21)
+
+14.53's two owner decisions, built. SPEC.md 50.3.2, 34.5.3 and 105.8.4 are
+the contract; this is the record.
+
+#### 14.55.1 A ring is claimed bottom-up on kern_mega - in the kernel
+
+**The switch is in the kernel, inside `%ifdef KERN_MEGA`**, so no package
+changed for it and an old package benefits. `mem_claim_dma_hi_x` (the body
+behind `OSAPI_MEM_CLAIM_DMA_HI`, 0x03B2) clears the direction when CX - the
+page-safe HEAD - is not 0, and the claim then runs `OSAPI_MEM_CLAIM_DMA`'s
+own scan and page bump with the same guarantee: no 64KB physical page
+crossed by the head. The record carries no `MC_DMA_HI` bit, so a movable
+one compacts downwards.
+
+**Why the head and not the caller decides.** The cell's callers are two
+populations, and the head tells them apart exactly:
+
+| caller | CX | what it is | where it goes on kern_mega |
+|---|---|---|---|
+| 1942 `n_pcm_open` | 13 | three PCM rings the DSP reads | **bottom** |
+| Video Player `vp_aseg` | `VP_RL/1024+1` | the card's external ring | **bottom** |
+| MIDIRack `mrb_start` | 17 | the card's external ring | **bottom** |
+| `SOUND.DRV` `sbl_pool_get` / `sbl_dma_get` | the whole block | its staging pool (a ring plays in place out of it) and its double buffer | **bottom** |
+| the parts library's `op_carve` | 0 | code you far-call, and the region on a re-home | top (a CS, SPEC.md 20.12.10.8) |
+| `apps/cc/crt0.asm`'s overlay | 0 | a CS | top |
+| the Video Player's `vp_mclhi` | 0 | VGA8's palette, the text save | top |
+| `os88xgap.inc`'s scratch | 0 | 8KB for one measurement | top |
+
+A head is a chip's page, so every claim with one is a DMA buffer, and in
+this tree every one of them is held only while it plays (34.5.2's pool is
+claimed at the first grant and is movable whenever no direct stream plays
+out of it; the double buffer lives one stream). That is exactly 14.51's
+test. Nothing relies on a ring being top-down: HEAP-UNPIN-PLAN's
+`sbl_halt`/`sbl_go_on` re-arm a ring wherever it is, `mem_claim_1`'s `.hi`
+arm only matters to a top-down claim, and an MC_DMA ring a chip holds is
+pinned whichever end it sits at.
+
+**`SOUND.DRV`'s own two are in the set, and that is a decision to look
+back over**: the owner said *external* rings. Keying on the head catches the
+driver's pool and double buffer too; they pass 14.51's three tests and are
+the same kind of block, so they were left in. Excluding them needs a signal
+the cell does not have today (a flag in the call, so an SDK change).
+
+**Cost: 4 bytes of kern_mega `.cold`** (42,272 -> 42,276; `jcxz` + `xor
+di, di`), resident, no `.text` or `.bss`, `os88megaseg`'s overhead unchanged
+at 4,323. **kern_big and kern_small: 0** - built at one commit with and
+without the change, `kernel.bin` and `kernel.sys` of both kernels and every
+`.o88`/`.drv` but the two packages of 14.55.2-3 are md5-identical.
+
+#### 14.55.2 MIDIRack claims at Play, frees at every stop, and says so when refused
+
+On every kernel (it is package behaviour). `mrb_close` now gives the ring
+back after verb 2, and `mro_close` is every road out of a play - Stop, a
+song's end and the next one's start, Eject, Remove, Clear, the window's
+close - so all of them free it. `mrb_start` frees it on any refusal (it used
+to keep a ring a refused open had claimed) and the moment a grant ring opens
+instead, since that one never reads it. `mro_free`'s copy of the free is now
+`mrb_rfree`.
+
+- **The hazard 14.52 named is closed by order and by one test.** The order:
+  `mro_close` runs `mro_drain` first (`[mr_seqon]` cleared, `[mr_inpass]`
+  waited out - the worker sets `[mr_inpass]` BEFORE it reads `[mr_seqon]`,
+  so either it is seen and waited for or the pass sees no song), verb 2
+  then stops the DSP, and only then is the ring freed. So `mrb_span1`, the
+  only WRITER through `[mrb_seg]`, is unreachable after the free and carries
+  no test. The test: `mrb_tc` has a reader the drain does not cover -
+  `mr_elapsed` calls it from the worker's `mrw_draw`, which runs OUTSIDE
+  `[mr_inpass]`, on an `[mr_out]` it may have read before `mro_close`
+  cleared it. It reads `[mrb_seg]` once into a register and answers 0, 0
+  when it is 0, and `mrb_rfree` zeroes the word (`xchg`) BEFORE the free, so
+  that reader sees no ring or a freed conventional block (a wrong second on
+  the bar for one frame) and never ES = 0, which on kern_mega is a null
+  selector and #GP.
+- **A refusal is a refused Play**: nothing open, nothing held, `[mr_state]`
+  stopped and the status line *"No memory for the card - close a program
+  and retry"* (`mr_s_ringmem`, in `mr_s_notask`'s phrasing; it was the bare
+  `mr_s_nomem`). The next Play asks again.
+- **Cost**: `MIDIRACK.O88` image 37,588 -> **37,658 (+70: 51 the message,
+  19 code)**, bss 10,920 unchanged, the file 30,980 unchanged (packed
+  29,806 -> 29,837, the same sectors). Price at run time: a page-safe claim
+  per song, a playlist re-claiming between songs.
+
+#### 14.55.3 1942's PCM was refused by its own room check, on a heap in two pieces
+
+Found by this round's kern_mega run, and **a package fix on every kernel**,
+so it moves `1942.O88` on kern_big and kern_small too (2 bytes in place,
+same length). `n_pcm_open` asked `op_lazykb` for the bank's KB, `xchg`'d it
+into BX and called `OSAPI_MEM_AVAIL` - which answers **BX = the total free
+KB** - then compared AX (the largest run) against BX. So the check was
+*largest run >= total*, true only for a heap in one run. With the ring
+top-down it usually is (the ring sits in the ceiling stack); with the ring at
+the bottom on kern_mega, what lies under it - the purgeable FAT window, which
+both answers count as free, and a 1 KB hole - is a second run: 553 KB
+against 558, and PCM was refused every time: the ring freed and the game on
+FM effects. The need goes in BP now (`n_pushall` banks it). On kern_big it
+was the same latent refusal on any fragmented heap. Found with Bochs linear
+breakpoints at the cell and at the four `jc .bad` sites (1942's image at
+linear 140000h, `LDT[507h]`).
+
+#### 14.55.4 Measured, on what
+
+**kern_mega, Bochs 2.7, 16MB, SB16** (`--sb --cfg 1`), a 1.44MB B: of
+VIDEO.O88, a PCM8 clip (`testsrc2` 320x240 15 fps 12 s + 440 Hz, `--preset
+vga --profile floppy --audio pcm8`, 294,912 bytes), 1942.O88, MIDIRACK.O88
+and two songs. `mem_tab` read with the debugger (linear 100BFh on this
+build), five words a record:
+
+| | the ring's record during the play | after |
+|---|---|---|
+| Video Player, PCM8 on the card | `1240` 17KB, MC_DMA `0440` (bottom-up, head 17KB) - the player's top-down `vp_mclhi` claim beside it reads `9D40`, MC_DMA `8000` | freed |
+| MIDIRack, the DSP synth at 22,050 Hz | `1240` 17KB, MC_DMA `0440` | freed at Stop; BATTLE1's end advanced to INTRO and re-claimed |
+| 1942 in play, **base kern_mega** (A/B) | `9C80` 13KB, MC_DMA `8340` (top-down) | - |
+| 1942 in play, this build | `1240` 13KB, MC_DMA `0340` | freed at Esc (`n_exit`) |
+
+- **The sound is intact.** The clip's 440 Hz is continuous in `sb.wav` from
+  0.0 to 11.5 s, and the card's line reads **Drew 180/180, stalls 0, pauses
+  0, Late 89, 27 ticks of 218** - 14.41's Bochs row in proportion (300/300,
+  pauses 0, Late 147, 45 of 363), which is Bochs's SB16 and not this.
+  1942's twelve shots are PCM bursts in `sb.wav` (RMS ~96 idle, 650-1,134
+  in a burst) and its stream never fell back (the ring held throughout).
+  MIDIRack played two songs on the DSP. No `FAULT` in `e9.out`.
+- **kern_big, MartyPC `os8088_5150_herc_sb_720_gla`**: `midiracksb` PASS
+  (the EXTERNAL ring - this DSP is 2.1, so SPEC.md 105.8.4's "grant ring on
+  MartyPC" was stale and is corrected - 8,000 Hz, 73,728 samples in 9.23 s,
+  0 underruns, pitch 10/10, the transposed 0), `midirackwt` PASS, and the
+  new **`midiracksbmem`** PASS: the ring at 8BC0 in the claim map while it
+  plays and gone at Stop; `tests/filler` takes the heap to 16 KB reachable
+  (holes plus purgeable claims) and Play is refused with the message and
+  nothing held; the filler closed, the next Play opens the card and CONS
+  moves. **Red with the ring kept at Stop** (`mrb_close` ending in `ret`):
+  `FAIL sbmem: the ring is still held after Stop ([mrb_seg] 8BC0)`. 32.6 s
+  wall, declared 45.
+
+#### 14.55.5 Rows, what is left, and for the owner
+
+**Rows that cover it**: `midiracksbmem` (new, soak), `midiracksb`,
+`midiracksbrate`, `midirackwt`, `mrdraw` and `mrdrawvga` (the draw that
+reaches `mrb_tc`), `1942sound` (`n_pcm_open`, 905 s), and the fast tier
+(`movable`, `megahigh`). Nothing registered runs a kern_mega sound play;
+14.55.4's Bochs runs are by hand.
+
+**Not run**: 86Box `286-mega` (the placement is the same scan on the 286
+reset path, and nothing here touches `mega_r286`); a real SB on a 286.
+
+**For the owner**:
+1. `SOUND.DRV`'s pool and double buffer go bottom-up on kern_mega with the
+   rings (14.55.1). Keep, or narrow to package rings (an SDK flag)?
+2. MIDIRack on a DSP WITHOUT auto-init (SB 1.x) still claims the 17KB
+   external ring at each Play only to have verb 0 answer 7, then frees it
+   for the grant ring - so a fragmented heap now refuses a play the grant
+   ring could have made. A ~20-byte option: on a refused claim, try the
+   grant ring before refusing (it degrades by tier, 16 -> 8 -> 4 KB of the
+   driver's pool).
+3. MIDIRack's speaker/Covox ring (`mrk_seg`, 4 KB) still lives from the
+   first bracket play to the window's close - the same shape as the ring
+   this round freed, and not asked about.
+
 ### 14.56 Field results on the owner's 286, kern_mega at 942137bc (2026-10-21)
 
 The owner's first run of this round's disks on the Victory 286 (BIOS-served

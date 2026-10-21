@@ -1569,6 +1569,11 @@ OSAPI_STIK_MARK equ 'D'         ; +3 of a Sticky App row: a remembered WIDGET
 ; mem_can_move refuses an MC_DMA claim whatever you declare.
 %define OSAPI_MEM_CLAIM_HI  KERNEL_SEG:0x03AC   ; AX = KB; out CF, DX = segment
 %define OSAPI_MEM_CLAIM_DMA_HI KERNEL_SEG:0x03B2 ; ...and CX = the page-safe HEAD
+; ...ON KERN_MEGA A CLAIM HERE WITH A HEAD (CX not 0) COMES FROM THE BOTTOM
+; (SPEC.md 50.3.2, 34.5.3): a head is a chip's page, so it is a DMA ring held
+; while it plays, and a ring is claimed low there with the same page
+; guarantee. CX = 0 - no page asked, a carve or an overlay that is a CS - is
+; still top-down on every kernel. Nothing to change in a caller
 
 %define OSAPI_MEM_FREE      KERNEL_SEG:0x01AA   ; DX = the segment you were
                                  ; given; out CF=0 released, CF=1 not yours
