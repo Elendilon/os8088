@@ -447,8 +447,15 @@ cache could not be claimed and the game ran interpreted (its log has no J).
   Dream Land 5 slots where 9 fit, 50-80 fetches a second full screen and
   12-15% of real time in its window. Otherwise, when
   `OSAPI_XMEM_CAPS` has room for banks 1 on: the cache, with **K slots of
-  16KB**, as many as the heap affords after those, at least 4 and at most 40
-  or one a bank. Otherwise one claim without that room, as before, and then
+  16KB**, as many as the heap affords after those, at most 40 or one a
+  bank - and **at least 8 (`RW_SLOTWANT`) while the recompiler still has
+  memory to give up**: the second segment goes first, then the 64KB table
+  for the 16KB one, and only then are 4 taken, and 4 with no recompiler at
+  all. The fourth field run is why: on a 116K heap with SOUND.DRV mounted
+  the plan stopped at 5 slots with both kept, and Kirby's Dream Land
+  fetched ~95 banks a second over a 286's XMS at 15% of real time - in its
+  window as in full screen, with the recompiler on or off, so it read as
+  the interpreter running whatever the status line said. Otherwise one claim without that room, as before, and then
   over 256K is refused (`over 256K wants XMS`). The probe answers a KB over
   an exact size (SPEC.md 20.14.6.3), so the plan takes whole banks; bank 0's
   header must then say the same size, which a compressed file - read raw
@@ -1485,14 +1492,28 @@ of 15.3's reasons: the jitter was drawing into the page being shown, and the
   (`rw_frame`) and while it waits: the core runs with interrupts off (5.2),
   for up to ~7 ms a run, so no hook can know where the beam is - a rate nine
   times the frame's was built for it and lost a quarter of its periods.
-  The display-enable bit is sampled 48 times, the PIT time each time it is
-  seen ON kept, and the flip written when it is found OFF within 2,400
-  counts (2.0 ms, `RW_PGWIN`) of that: the bottom border, where every card
-  takes both registers for the next frame - one that applies the panning
+  Where the beam is comes from the CLOCK and not the port (`rw_pgph`): a
+  vertical retrace's start timed once (`rw_pgsync`, port 3DAh bit 3) and the
+  refresh's period measured between two such timings a second or so apart
+  (19,981 counts on the twin against 19,982 by the CRTC's arithmetic), so a
+  look is a clock read. The flip is written from line 312 to line 383
+  (`RW_PGW1`, `RW_PGW0`, counts before the retrace at 410) - under the
+  speed line, which runs from the split at 287 to 308 with the display on -
+  after 16 reads of the display-enable bit agree it is the border, and
+  within 1.5 ms of it the foreground spins to it (`RW_PGSPIN`). A read
+  that disagrees times the retrace again; the clock is timed again
+  regardless every 60 flips, near a retrace and while no flip waits. That
+  replaced 48 reads of the port on EVERY look, which the fourth field run
+  priced: Super Mario Land full screen drew 20 frames a second where the
+  build before pages drew 25, with ~80 ms a second more of the Game Boy
+  and twice the core's events. The border is where every card takes both
+  registers for the next frame - one that applies the panning
   on every line (the Victory's PVGA1A, the field probe's finding:
   REALBOY-PLAN's scroll round), one that takes it at the frame's top (86Box)
-  or at the retrace's end (QEMU). While a flip waits the core runs in
-  budgets of 500 M-cycles (`RW_PGBUD`, ~1 ms recompiled), and the composer
+  or at the retrace's end (QEMU). While a flip waits the core's run is
+  sized to end a millisecond short of the window (`rw_pgbud`, ~500 M-cycles
+  a millisecond, 250 when it is near, `RW_PGBUD`) and is not counted
+  against the frame's 26, and the composer
   calls it too (`rb_lhook`: every eighth line `ppu_dputp` stores, every
   sixteenth `rb_pages` writes), so it is looked at often enough to land in
   its first border. **The second is not optional**: a draw is ~10 ms with

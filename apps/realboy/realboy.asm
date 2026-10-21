@@ -58,6 +58,9 @@ RW_BEHIND       equ 30              ; frames a machine catches up at most:
 RW_OWEDMAX      equ RW_BEHIND * 256
 RW_ROMMAX_KB    equ 256             ; one claim's; more is the bank cache's
 RW_SLOTMAX      equ 40              ; ...slots at most (rwbank.inc)
+RW_SLOTWANT     equ 8               ; ...slots the plan asks for while the
+                                    ;   recompiler still has memory to give
+                                    ;   up (rw_load); 4 when it has none
 RW_PRFN         equ 2048            ; Static's profile: entries, 4 bytes each,
 RW_PRFTAIL      equ RW_PRFN * 4     ;   then the file's trailer: 'RBP1', the
 RW_PRFFILE      equ RW_PRFTAIL + 9  ;   header's 014Dh byte and 014Eh word,
@@ -280,14 +283,20 @@ rw_fspan        equ rw_fmbuf + 32   ; byte: VGA full screen in PAGES (rwfsx.inc)
 rw_pgshow       equ rw_fspan + 1    ; byte: the page the card shows...
 rw_pgnext       equ rw_pgshow + 1   ; byte: ...the one a flip waits to show
 rw_pgpend       equ rw_pgnext + 1   ; byte: ...as it does (rw_pgtry's)
-rw_pgseen       equ rw_pgpend + 1   ; byte: rw_pgtry last saw the display on,
-rw_pgton        equ rw_pgseen + 1   ; word: ...at this clock (rw_clk's low)
-rw_pgstart      equ rw_pgton + 2    ; word: the flip's start address...
+rw_pgok         equ rw_pgpend + 1   ; byte: rw_pgvs is the beam's (rw_pgsync)
+rw_pgrc         equ rw_pgok + 1     ; byte: flips since it was taken
+rw_pgvs         equ rw_pgrc + 1     ; dword: a vertical retrace's start, on
+                                    ;   rw_clk's clock...
+rw_pgper        equ rw_pgvs + 4     ; word: ...and the refresh's period, in
+                                    ;   its counts (rw_pgsync)
+rw_pgstart      equ rw_pgper + 2    ; word: the flip's start address...
 rw_pgpan        equ rw_pgstart + 2  ; byte: ...and pel panning
 rw_fstxto       equ rw_pgpan + 1    ; word: the speed line's VRAM offset
 rw_pgdebt       equ rw_fstxto + 2   ; word: frames run ahead of the clock, on
                                     ;   the display's word (rw_fsmain)
-rw_fbuf         equ rw_pgdebt + 2 + 1 ; 5,760: rb_render's frame (monochrome;
+rw_slotmin      equ rw_pgdebt + 2   ; byte: the bank plan's least slots (and
+                                    ;   a spare byte: rw_fbuf stays even)
+rw_fbuf         equ rw_slotmin + 2 + 1 ; 5,760: rb_render's frame (monochrome;
                                     ;   even)
 RW_BSS          equ rw_fbuf + 5760 - rw_win   ; derived: a sum by hand drifted
 RW_PBUF         equ 11520           ; the frame as the screen takes it: the
@@ -512,8 +521,15 @@ rw_load:
     call rw_dmgclaim                ; the damage memory and the recompiler's
     call rw_jitclaim                ;   cache FIRST: what the ROM's read
     call rw_jit2claim               ;   rebuilds of the disk caches lands in
-    call rw_plan                    ;   what is left, and took the 64KB on
-    jnc .planned                    ;   the second field run's Victory
+    mov byte [rw_slotmin], RW_SLOTWANT ;   what is left, and took the 64KB on
+    call rw_plan                    ;   the second field run's Victory - but
+    jnc .planned                    ;   a cartridge in the bank cache wants
+                                    ;   RW_SLOTWANT slots before the
+                                    ;   recompiler keeps its second segment
+                                    ;   or its big table: Kirby's Dream Land
+                                    ;   on 5 fetched ~95 banks a second off
+                                    ;   XMS on the Victory, at 15% (REALBOY-
+                                    ;   SPEC 10.3)
     cmp word [rw_jit2seg], 0        ; no room with the cache's second
     je .nojit2                      ;   segment: the ROM without it first
     mov dx, [rw_jit2seg]
@@ -522,10 +538,10 @@ rw_load:
     call rw_plan
     jnc .planned
 .nojit2:
-    cmp word [rw_jitseg], 0
-    je .say
+    cmp word [rw_jitseg], 0         ; (none to give up: four, and no more
+    je .nojit                       ;   asked for)
     cmp byte [rw_hmask], 7          ; ...then with the table at 16KB
-    je .nobig
+    je .min4
     mov dx, [rw_jitseg]
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
@@ -536,12 +552,17 @@ rw_load:
     mov [rw_jitseg], dx
     call rw_plan
     jnc .planned
+.min4:
+    mov byte [rw_slotmin], 4        ; (fewer slots before no recompiler)
+    call rw_plan
+    jnc .planned
 .nobig:
     mov dx, [rw_jitseg]             ; no room with it: the ROM without it
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
 .nojit:
     mov byte [rw_jitwant], 0
+    mov byte [rw_slotmin], 4
     call rw_plan
     jc .say
 .planned:
@@ -2144,9 +2165,9 @@ rw_frame:
     push cx
     mov ax, [rw_budget]
     cmp byte [rw_pgpend], 0         ; (PAGES: a flip waiting is looked at
-    je .bp                          ;   between two runs - rw_pgtry - so they
-    mov ax, RW_PGBUD                ;   are short until it is written)
-.bp:
+    je .bp                          ;   between two runs - rw_pgtry - so the
+    call rw_pgbud                   ;   one that reaches its window ends
+.bp:                                ;   there)
     push es                         ; the recompiler on: twice the budget -
     mov es, [rb_viewseg]            ;   it is the IRQ latency, and recompiled
     cmp byte [es:S_JITON], 0        ;   2000 M-cycles are ~2 ms on a 286, so
@@ -2161,6 +2182,10 @@ rw_frame:
     je .done                        ;   which was nine task switches a frame
     cmp al, RBX_BADOP
     je .bad
+    cmp byte [rw_pgpend], 0         ; (a run cut short for a flip is not
+    je .lp                          ;   one of the frame's: rw_pgtry writes
+    inc cx                          ;   it inside a frame, whatever happens)
+.lp:
     loop .run
 .done:
     call rw_gameacc

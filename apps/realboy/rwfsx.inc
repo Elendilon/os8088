@@ -28,11 +28,19 @@
 ; =============================================================================
 
 RW_FSDIV        equ 19977           ; 1,193,182 / 59.7275: a period a frame
-RW_PGBUD        equ 500             ; PAGES: the core's budget while a flip
-                                    ;   waits (x2 recompiled, ~1 ms on a 286)
-RW_PGWIN        equ 2400            ; ...and how soon after the display was
-                                    ;   last seen on its flip may be written,
-                                    ;   in 838 ns counts (rw_pgtry)
+RW_PGBUD        equ 250             ; PAGES: the core's budget when a flip's
+                                    ;   window is near (x2 recompiled)
+RW_PGPER        equ 19982           ; ...the refresh's period, 527 lines of
+                                    ;   31.78 us, in 838 ns counts, until it
+                                    ;   is measured (rw_pgsync)
+RW_PGW1         equ 3700            ; ...its window, in counts BEFORE the
+RW_PGW0         equ 1000            ;   retrace (410): from line 312, under
+                                    ;   the speed line (287 to 308, where
+                                    ;   rw_pgtry's look would see a display),
+                                    ;   to line 383 (the blanking at 400)
+RW_PGSPIN       equ 1800            ; ...spun for when it is that near
+RW_PGRC         equ 60              ; ...and the retrace timed again after
+                                    ;   that many flips
 RW_PG0          equ 0800h           ; PAGES: the three pages' VRAM, over the
 RW_PGSTEP       equ 1800h           ;   split's region at 0 (rw_pgcrtc)
 RW_FSTXTP       equ 2               ; PAGES: the speed line's row there
@@ -243,36 +251,76 @@ rw_fshook:
     add [rw_fsper], ax              ; (rw_clk's, for the log)
     ret
 
-; rw_pgtry - PAGES: a flip that waits is written when the display is found
-; OFF within RW_PGWIN of last being seen ON - the bottom border, which
-; rw_pgcrtc's timing makes longer than that, and where every card takes the
-; start address and the pel panning together for the next frame (REALBOY-SPEC
-; 15.4). It is the foreground's, between two runs of the core (rw_frame):
-; the core runs with interrupts off, so no hook could know where the beam is.
-; Off with no recent on - the top border, or a sample too late - is no flip.
-; Kept: all
+; rw_pgtry - PAGES: a flip that waits is written when the BEAM is in its
+; window - after the page's last line (the split at 287) and before the
+; blanking, where every card takes the start address and the pel panning
+; together for the next frame (REALBOY-SPEC 15.4). Where the beam is comes
+; from the CLOCK: a vertical retrace's start, timed once (rw_pgsync), and the
+; refresh's period, measured - so a look costs a clock read, not a port
+; read. It is the foreground's: between two runs of the core (rw_frame,
+; which ends the run that reaches the window - rw_pgbud), during a draw
+; (rb_lhook) and while it waits. The core runs with interrupts off, so no
+; hook could. The window near: spun to. Kept: all
 rw_pgtry:
     cmp byte [rw_pgpend], 0
-    je .r
+    jne .go
+    cmp byte [rw_pgrc], RW_PGRC     ; no flip waiting: the retrace timed
+    jb .r                           ;   again when it is due and near
     push ax
     push bx
     push cx
     push dx
-    mov dx, 3DAh                    ; the display on: a 0 in bit 0 within
-    mov cx, 48                      ;   a line's 60% of blanking, on the
-                                    ;   slowest bus a 286 has
-.s:
-    in al, dx
-    test al, 1
-    jz .on
-    loop .s
-    cmp byte [rw_pgseen], 0
-    je .lost
-    call rw_clk
-    sub ax, [rw_pgton]
-    cmp ax, RW_PGWIN
-    ja .lost
-    mov dx, 3D4h                    ; the flip
+    call rw_pgph
+    jc .x0
+    mov bx, [rw_pgper]
+    sub bx, ax
+    cmp bx, 2400
+    jae .x0
+    call rw_pgsync
+.x0:
+    jmp .x
+.go:
+    push ax
+    push bx
+    push cx
+    push dx
+    call rw_pgph                    ; AX = the phase, after a retrace
+    jc .cal
+    mov bx, [rw_pgper]
+    sub bx, ax                      ; BX = counts to the next one
+    cmp bx, RW_PGW1
+    ja .before
+    cmp bx, RW_PGW0
+    jae .look
+    cmp byte [rw_pgrc], RW_PGRC     ; just past it, the retrace near: timed
+    jb .x                           ;   again when it is due
+    call rw_pgsync
+    jmp short .x
+.before:
+    sub bx, RW_PGW1                 ; near the window: to it
+    cmp bx, RW_PGSPIN
+    ja .x
+.sp:
+    call rw_pgph
+    jc .cal
+    mov bx, [rw_pgper]
+    sub bx, ax
+    cmp bx, RW_PGW1
+    ja .sp
+.look:
+    mov dx, 3DAh                    ; the model checked on the port: the
+    mov cx, 16                      ;   border is no display all line long,
+.lk:                                ;   where a picture line shows it again
+    in al, dx                       ;   inside 16 reads (its blanking is ~6
+    test al, 1                      ;   us of 32)
+    loopnz .lk
+    jnz .flip
+    cmp byte [rw_pgrc], 0           ; it disagrees: the model timed again -
+    je .flip                        ;   unless it just was, and then the port
+    call rw_pgsync                  ;   is the one wrong
+    jmp short .x
+.flip:
+    mov dx, 3D4h
     mov bx, [rw_pgstart]
     mov al, 0Ch
     mov ah, bh
@@ -290,19 +338,155 @@ rw_pgtry:
     mov al, [rw_pgnext]
     mov [rw_pgshow], al
     mov byte [rw_pgpend], 0
-.lost:
-    mov byte [rw_pgseen], 0
+    cmp byte [rw_pgrc], 0FFh
+    je .x
+    inc byte [rw_pgrc]
     jmp short .x
-.on:
-    call rw_clk
-    mov [rw_pgton], ax
-    mov byte [rw_pgseen], 1
-.x:
+.cal:
+    call rw_pgsync                  ; no beam to go by: timed now (a
+    jc .flip                        ;   frame at most, once) - and none at
+.x:                                 ;   all, written anyway
     pop dx
     pop cx
     pop bx
     pop ax
 .r:
+    ret
+
+; rw_pgph - AX = rw_clk's counts since the last vertical retrace began, on
+; the beam's model; CF = 1: there is none. Clobbers DX
+rw_pgph:
+    cmp byte [rw_pgok], 0
+    je .no
+    call rw_clk
+    sub ax, [rw_pgvs]
+    sbb dx, [rw_pgvs + 2]
+    cmp dx, [rw_pgper]
+    jae .old
+    div word [rw_pgper]
+    mov ax, dx
+    clc
+    ret
+.old:
+    mov byte [rw_pgok], 0
+.no:
+    stc
+    ret
+
+; rw_pgsync - the beam's model: spun until a vertical retrace begins (port
+; 3DAh bit 3, two lines long), its time kept, and the refresh's period taken
+; from the one before, averaged; CF = 1 none seen in ~65,000 reads
+rw_pgsync:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx, 3DAh
+    mov cx, 0FFFFh
+.w0:
+    in al, dx                       ; out of one...
+    test al, 8
+    loopnz .w0
+    jnz .no
+    mov cx, 0FFFFh
+.w1:
+    in al, dx                       ; ...into the next
+    test al, 8
+    loopz .w1
+    jz .no
+    call rw_clk                     ; DX:AX = its start
+    cmp byte [rw_pgok], 0
+    je .first
+    push ax
+    push dx
+    sub ax, [rw_pgvs]               ; since the one before: n periods
+    sbb dx, [rw_pgvs + 2]
+    cmp dx, [rw_pgper]
+    jae .skip
+    mov bx, ax
+    mov cx, dx
+    div word [rw_pgper]             ; AX = whole periods, DX = the rest
+    mov bx, [rw_pgper]
+    shr bx, 1
+    cmp dx, bx
+    jb .n
+    inc ax                          ; (rounded)
+.n:
+    cmp ax, 1
+    jb .skip
+    cmp ax, 255
+    ja .skip
+    mov bx, ax                      ; the span / n...
+    pop dx
+    pop ax
+    push ax
+    push dx
+    sub ax, [rw_pgvs]
+    sbb dx, [rw_pgvs + 2]
+    div bx
+    cmp ax, RW_PGPER - 200          ; (a plausible one only)
+    jb .skip
+    cmp ax, RW_PGPER + 200
+    ja .skip
+    sub ax, [rw_pgper]              ; ...averaged, a quarter of the
+    sar ax, 1                       ;   difference at a time (three of the
+    sar ax, 1                       ;   old and one new is past 16 bits)
+    add [rw_pgper], ax
+.skip:
+    pop dx
+    pop ax
+.first:
+    mov [rw_pgvs], ax
+    mov [rw_pgvs + 2], dx
+    mov byte [rw_pgok], 1
+    mov byte [rw_pgrc], 0
+    clc
+    jmp short .r
+.no:
+    stc
+.r:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; rw_pgbud - AX = the core's budget while a flip waits: the counts to its
+; window as M-cycles (~500 a millisecond, twice that recompiled - rw_frame
+; doubles it), less a millisecond, at most [rw_budget]; RW_PGBUD when it is
+; near or the beam is not known
+rw_pgbud:
+    push bx
+    push cx
+    push dx
+    call rw_pgph
+    jc .near
+    mov bx, [rw_pgper]
+    sub bx, RW_PGW1
+    sub bx, ax                      ; BX = counts to the window's start
+    jae .k
+    add bx, [rw_pgper]              ; (past it: the next one)
+.k:
+    cmp bx, 2400
+    jb .near
+    sub bx, 1200
+    mov ax, 27                      ; x 27 / 64: ~500 a 1,193 counts
+    mul bx
+    mov cl, 6
+    shr ax, cl
+    mov cl, 10
+    shl dx, cl
+    or ax, dx
+    cmp ax, [rw_budget]
+    jbe .r
+    mov ax, [rw_budget]
+    jmp short .r
+.near:
+    mov ax, RW_PGBUD
+.r:
+    pop dx
+    pop cx
+    pop bx
     ret
 
 ; rw_fsmain - the bracket. DS = CS = ours, ES = KERNEL_SEG, SI = the window.
@@ -685,7 +869,6 @@ rw_pgdraw:
     mov [rw_pgstart], di
     mov [rw_pgpan], al
     mov [rw_pgnext], bl
-    mov byte [rw_pgseen], 0
     mov byte [rw_pgpend], 1
     popf
     jmp rw_pgtry
@@ -696,8 +879,8 @@ rw_pgdraw:
 ; frame of 527 scanlines where mode 0Dh's is 449: the line rate is its own,
 ; 31.47 kHz, and the REFRESH the Game Boy's, 59.71 Hz (rw_pglock), with the
 ; sync polarity a 480-line mode has at that rate. The display's end (308)
-; to the blanking (400) is ~2.9 ms of border, RW_PGWIN and rw_pgtry's own
-; time inside it; the picture sits in the middle of the frame.
+; to the blanking (400) is ~2.9 ms of border, rw_pgtry's window inside it
+; (RW_PGW1, RW_PGW0); the picture sits in the middle of the frame.
 ; Plane 2 is the border's and the speed line's ground at 0, clear in the
 ; pages; the page 0 shown, pan 0
 rw_pgcrtc:
@@ -764,7 +947,8 @@ rw_pgcrtc:
     out dx, al
     mov byte [rw_pgshow], 0
     mov byte [rw_pgpend], 0
-    mov byte [rw_pgseen], 0
+    mov byte [rw_pgok], 0           ; (the beam timed at the first flip)
+    mov word [rw_pgper], RW_PGPER
     ret
 rw_pgcrv:   db 0Ch, RW_PG0 >> 8     ; page 0
             db 0Dh, RW_PG0 & 0FFh
