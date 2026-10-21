@@ -970,6 +970,14 @@
   "strings": "c5eb21b124ad2c07",
   "why": "checked: only spec citations left user-visible strings (About text, read-me lines, usage); nothing the page says changed"
  },
+ "SYSCHECK_O88": {
+  "sources": [
+   "apps/syscheck"
+  ],
+  "stamped": "b4d46a82",
+  "strings": "6c7bfd7a870376d8",
+  "why": "Section renumber 116 to 118 in source comments only; the page already describes the drive chooser and cites no section"
+ },
  "SYSTEM": {
   "sources": [],
   "stamped": "e4576a70",
