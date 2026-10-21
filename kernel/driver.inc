@@ -4057,8 +4057,9 @@ drv_hiboot_f:
     add bx, DRVR_SIZE
     cmp bx, drv_tab + DRV_MAX * DRVR_SIZE
     jb .l
-    pop es
-    pop si
+    call mod_hiboot             ; ...and the boot's MODULES (KERN-MEGA-PLAN
+    pop es                      ; 14.47): here and not in kmain, whose five
+    pop si                      ; bytes would be the kernel segment's
     pop dx
     pop bx
     pop ax
