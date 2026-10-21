@@ -3522,7 +3522,7 @@ hbm_xplan:
     add di, MPK_CPYSZ           ; so KERNEL.SYS's bytes, as a boot makes them
     mov si, mx_tab
 .mx:
-    mov ax, [si+MX_KB]          ; every block the pool has given out, the
+    mov ax, [ss:si+MX_KB]          ; every block the pool has given out, the
     or ax, ax                   ; kernel's own among them (track 1's modules
     jz .next                    ; and caches: hbm_wake flushes the caches)
     mov dx, ax
@@ -3534,7 +3534,7 @@ hbm_xplan:
     mov [es:di+10], dx
     add [mega_hbxl], ax
     adc [mega_hbxl + 2], dx
-    mov ax, [si+MX_OFF]
+    mov ax, [ss:si+MX_OFF]
     mov dx, ax
     mov cl, 10
     shl ax, cl
@@ -3608,10 +3608,10 @@ hbm_xfit:
 .live:
     mov si, mx_tab
 .lv:
-    mov di, [si+MX_KB]
+    mov di, [ss:si+MX_KB]
     or di, di
     jz .lvn
-    mov dx, [si+MX_OFF]
+    mov dx, [ss:si+MX_OFF]
     add di, dx
     call .ov
     jc .again
@@ -3943,7 +3943,7 @@ hbm_xclaim:
     push di
     mov di, mx_tab
 .f:
-    cmp word [di+MX_KB], 0
+    cmp word [ss:di+MX_KB], 0
     je .t
     add di, MX_BLKSZ
     cmp di, mx_tab_end
@@ -3956,10 +3956,10 @@ hbm_xclaim:
     call hbm_xneed              ; AX = its KB
     pushf
     cli
-    mov [di+MX_OFF], bx
-    mov byte [di+MX_OWN], MX_KOWN
-    mov word [di+MX_SEL], 0
-    mov [di+MX_KB], ax          ; ...last: a non-zero size is the claim
+    mov [ss:di+MX_OFF], bx
+    mov byte [ss:di+MX_OWN], MX_KOWN
+    mov word [ss:di+MX_SEL], 0
+    mov [ss:di+MX_KB], ax          ; ...last: a non-zero size is the claim
     popf
     pop ax
     clc
@@ -3984,13 +3984,13 @@ hbm_xunclm:
     or ax, dx                   ; AX = its KB offset
     mov si, mx_tab
 .s:
-    cmp word [si+MX_KB], 0
+    cmp word [ss:si+MX_KB], 0
     je .n
-    cmp byte [si+MX_OWN], MX_KOWN
+    cmp byte [ss:si+MX_OWN], MX_KOWN
     jne .n
-    cmp [si+MX_OFF], ax
+    cmp [ss:si+MX_OFF], ax
     jne .n
-    mov word [si+MX_KB], 0
+    mov word [ss:si+MX_KB], 0
     ret
 .n:
     add si, MX_BLKSZ

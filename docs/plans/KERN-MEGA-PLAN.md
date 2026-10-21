@@ -7723,3 +7723,233 @@ The check pokes a dog 1.5 tiles ahead while the guest is paused, marks
   has not run this.
 - **`mega_strcal`'s two boot lines** are the kernel's calibration, which
   `megatrap0` allows as "(boot)". They are not Pixelstein's.
+
+### 14.49 The pool's open follow-ups: the split regrow, a bigger table, the 32KB windows moved in pieces, the copy's lock (2026-10-21)
+
+14.37 and 14.41 left four things open. All four are built here, on
+`protected-mode` at e45f701a (14.47, 14.48 and 14.50 merged in). Every
+kernel line is kern_mega's.
+
+**1. A regrow is refused only when the free KB are short.** 14.37's
+`[R][B...][free F]`, with `F >= new - old` but `F < new`, was refused,
+because no block of the new size could exist and the KB above R were
+taken. `mega_claimregrowf` now tries one more thing before it refuses:
+`.hpack` packs the pool DOWN (`mx_compactf`), then packs every movable
+block above the claim UP against the first pinned block above it
+(`mx_packupf`, new), then takes the KB above the claim (`.hroom`).
+
+- `mx_packupf` is the descending half of a compaction, which kern_big's
+  compactor has (SPEC.md 66.4.1). It walks the blocks above a floor in
+  DESCENDING order. A ceiling starts at the pool's top; a pinned block
+  lowers it to its own start; a movable block rises to end at it.
+- **`mx_cpmove` moves UP now, overlapping or not.** For a rise it takes the
+  pieces from the top down (`mx_pcutr`, the mirror of 14.48's `mx_pcut`),
+  and each piece's 32KB chunks from the top down, each copied from its end
+  (`mx_lcopyb`: `std` / `rep movsw`). So a copy still only overwrites bytes
+  of pieces already moved, or of the one it is, and 14.37's rule that an
+  ISR finds each piece whole holds for a rise too.
+- **A claim of 64KB or less** (`.one`) now grows in place when the KB above
+  it are free, before it is copied into a new block. When no block of the
+  new size can be had, it gets the same `.hpack` before it refuses.
+
+**2. `mx_tab` has 96 entries, and none of them is in the kernel segment.**
+It moved from `.text` into `.lowbss` in LOW_SEG, beside `mem_tab`, which is
+the project's standing place for kernel tables (docs/KERNEL-MEMORY.md,
+"Moving data out of the segment"). Every access reads it through `SS:`.
+There are 130 of them, in `mega.inc`, `hiber.inc` and `megados.inc`, each a
+one-byte prefix. `tools/os88ovlchk.py` already refuses a `.lowbss` reference
+that names neither SS nor ES. `mega_xminit` zeroes the table, because
+`.lowbss` is not zero at boot.
+
+- **Why LOW_SEG and not above 1MB.** SS is LOW_SEG everywhere the kernel
+  runs (SPEC.md 2.1). That covers the tasks, every private ISR stack,
+  `DOS.O88`'s calls (it switches back to the UI task's stack before it
+  calls the kernel) and the HIBER.DRV module. So the change is a prefix and
+  nothing else: no register to juggle, and no new selector. And the table
+  stays CONVENTIONAL memory, which the park's image, the hibernate's image,
+  the durability save and the resume stub already carry.
+- Above 1MB, the table would be the first piece of persistent kernel state
+  outside those mechanisms. The cheapest place there is the free 2KB
+  between the IDT's end (124800h) and `.cold` (125000h). It would need a
+  selector, about 28 routines rewritten to keep ES on it, run 0 of the
+  hibernate extended, a region added to the park's sum, and the 82KB
+  low-tables claim of 14.17 grown by a KB. That is the alternative the
+  owner can take, for 768 conventional bytes (decision 1).
+- **The size is measured.** Under Bochs (16MB, SB16, SOUND.DRV) Word,
+  Scribe, the Video Player, Paint, Sheet, Tracker, Note Pad, TexPad and the
+  Calculator, all open at once, took **35 entries**: 10 regions, 17 claims
+  (Sheet's six among them), 2 driver blocks and 7 kernel blocks. That was
+  read with MEGAHG's table phase on a 128-entry build: 93 more claims fit.
+  So 24 entries ran out on this session. A full INST_MAX of twelve
+  programs is about 60 by the same mix. 96 entries give 2.7 times the
+  measured session.
+- **The park's header is derived from the table.** `MPK_RMAX` and
+  `MPK_CMAX` grow with `MX_NBLK`, so their lists outgrew the fixed 0x700
+  bank. `MPK_SAVE`, `MPK_STACK` and `MPK_HDR` are now computed from the
+  lists. At 24 entries they come out at the old +700, +800 and +800. At 96
+  they are +940, +A40 and **+C00**, so a park block or a hibernate's extended
+  section is 1KB longer: `parked 0050K` where 14.45 read `004FK`. Running
+  out of entries is a clean refusal, as before: `mx_alloc` answers AL = 1.
+- `tests/megarehome.py` read the table at `0x600 + offset`, which is
+  `.text`'s address. It now reads LOW_SEG's base off the machine (SS's
+  descriptor, `sreg`). The constant beside it was stale (0EC0h against the
+  ladder's 0E60h), so its `mem_tab` read had been landing in the wrong
+  place without saying so. That constant is now only the fallback.
+
+**3. The 32KB-window claims move in 64KB pieces.** 14.48's `mx_pcut` cuts
+each piece where no LDT descriptor crosses the cut. In a claim with a window
+every 32KB, some window crosses every cut, so the whole claim had to move in
+one interrupts-off step. That was ~80 ms for the Video Player's 512KB ring
+on a 12 MHz 286.
+
+- **The invariant: between two pieces, nothing can READ a half-moved
+  window.** Two things make that true:
+  - no task runs, because `mx_alloc` holds `[sch_lock]` for the whole move;
+  - the only code of a package that runs from an interrupt is its
+    `FSXF_RATE` hook, and `mx_cpmove` holds it off. It raises `[sch_rbusy]`
+    from the first piece to the last. `sch_rhook` already skips while that
+    byte is up, and the skipped periods stay owed in `[sch_rpend]`, so the
+    next call is handed all of them.
+- With that, `mx_pcut` and `mx_pcutr` cut such a claim every 64KB anyway
+  (`MX_CPHOLD`, set by `mx_cpflags`). Each window is rebased with the piece
+  its base is in, and every window is whole again by the last piece.
+- **Where it still takes one step.** A package's sample ISR (SPEC.md 34.11)
+  cannot be held, so with `[spk_seg]` open the claim moves in one step, as
+  14.41 shipped it. So does a DRIVER's 32KB-window claim (owner 0C0h |
+  row), whose own ISRs may read it.
+- **What the hook sees: a delay and no tear.** A held hook is late by the
+  move, and it is paid the periods on its next call. The player's
+  `vp_hook` already treats a late call that way (`vp_gap`, `vp_owed`).
+  Everything else keeps its interrupts: the pointer, the keys, the tick and
+  the card's IRQ.
+- **When a ring can move mid-play at all.** A play runs inside an
+  `OSAPI_FSX_RUN` bracket, and a bracket freezes every task but its own, its
+  kept worker and `TF_SERVICE` workers (SPEC.md 53.2). So a compaction
+  during a play can only come from the player itself, or from a service
+  worker's claim. Neither happens on the ring-play path. "A forced
+  compaction mid-play" therefore cannot be arranged from another package.
+  MEGAW32 (below) is the stand-in: one bracket, with a rate hook reading the
+  odd windows of a 32KB-window claim while the bracket's own task compacts.
+
+**4. `mega_lincopy`'s scratch rule is asserted.** The body moved into
+`.mega` as `mx_lcopy` / `mx_lcopyb`. `.text` keeps a four-byte near door
+(`mega_lincopy`) and a six-byte far one (`mega_lincopyf`), so 30 bytes leave
+the segment.
+
+- Under `MEGATRAP=1`, `mx_lcchk` checks that the caller holds IF = 0 or
+  `[sch_lock]`. If not, it writes `L cccc:iiii wwww` on E9: the far
+  caller's CS:IP and the word above. The copy still goes ahead.
+- The same knob also logs every move as `M kkkk pp ff`: the block's KB, the
+  interrupts-off steps, and the flags (1 a rise, 2 the hook held).
+- **In every census run here, not one `L` line came up**: MEGAHG, MEGAW32,
+  and the nine-program session. So every caller in the tree keeps the rule.
+- It is not made structural. The two dwords `[mega_xsrc]` / `[mega_xdst]`
+  are written by the CALLER before the call, so a lock taken inside
+  `mx_lcopy` could not cover the race the rule is about.
+
+**Tests.** MEGAHG (`tests/megahg`) gains three phases. Each one was red on
+the kernel before this change: protected-mode at fff52479, under Bochs at
+4MB.
+
+- **U, the split regrow.** It takes R (100KB), then five claims of H above
+  it. It then claims every hole the pool has, exactly, off
+  `OSAPI_XMEM_WALK` (`hg_holes`), so the pool holds 0 free KB. It frees
+  the top two of the five, and regrows R by every free KB, reading back R,
+  the three remaining claims and every hole claim. Red on the old kernel:
+  `MEGAHG: no 52`, the regrow refused. Green here: `split regrow ok`.
+- **W, a 32KB-window claim moved.** It claims X (60KB) and W (512KB, BX =
+  8000h) above it, and fills W through its even windows. It then frees X
+  and claims every free KB, which moves W down, and reads all of W through
+  every window, odd ones included. It passes on both kernels, because it
+  checks correctness and not timing.
+- **T, the table filled.** It takes 1KB claims until the pool refuses, then
+  reads every one back and frees it. It needs at least 48. Red on the old
+  kernel: `table 0011 claims` and `no 70`. Green here: **`table 0059
+  claims, entries free 00`**, 89 with 7 entries held by the system.
+- `-DHG_UONLY` and `-DHG_TONLY` start the test at a phase, so a kernel the
+  split regrow fails on can still show the table.
+
+MEGAW32 (`tests/megaw32`, new; `make build/megaw32.o88`) is item 3's test,
+where the invariant bites:
+
+- In its own `FSXF_RATE` bracket at 582 Hz, its hook reads, at every call,
+  four words of EVERY window of a 512KB 32KB-window claim. That includes the
+  upper half of each odd window, which is exactly what a tear corrupts.
+- The bracket's task then frees the 60KB under the claim and claims every
+  free KB, so the claim moves.
+- The verdict needs **errors 0** and the hook to have run after the move.
+  The toast says `MEGAW32 ok gGGGG eEEEE`, where G is the longest gap in
+  periods.
+
+**Measured:**
+
+| run | machine | result |
+|---|---|---|
+| MEGAHG, every phase | Bochs, 4MB, SB16 | `MEGAHG: ok`; the census kernel's `M 0200 08 02` - the 512KB 32KB-window claim in **8 steps, the hook held**, where it was one |
+| MEGAHG | 86Box `286-mega` (MR BIOS 286, 16 MHz, 4MB, SB16), double-clicked off B: | `MEGAHG ok` on the menu bar; faults only the 286's reflection resets and the five `Segment can't write` at 2764h that 14.37 found predating it |
+| MEGAW32 | Bochs | ok, gap 1. Bochs's `rep movsw` speed-up (IPS ~2.5G) moves 512KB inside one period, so Bochs cannot show the hold |
+| MEGAW32 | 86Box `286-mega` | **`ok g000A e0000`**: the hook held for 10 periods (17 ms) across the move, no torn read |
+| MEGAW32, the hold taken out (a throwaway build without the `inc`/`dec` of `[sch_rbusy]`) | 86Box `286-mega` | **`no 05`**: the hook read torn odd windows between pieces. The break is real, and the hold is what closes it |
+| U and T on the kernel before | Bochs | `no 52`; `no 70`, 17 claims |
+| `tests/megarehome.py` | Bochs | passes: DOS, Scribe, Skies, Word and Pixelstein 3D regions and claims above 1MB, read through the moved table |
+| a DOS trip (KDHELLO -DKDHOLD), a menu Hibernate, Resume, a trip from the resumed session | Bochs, booted off C: (`--bootc --noa --csys`) | `parked 0050K at 14CC00`, `unparked`, exit 042; `resumed` with the DOS window back; a second trip, exit 042 |
+| the Video Player, in place, on 14.41's clip (`testsrc2` 320x240 15 fps 20 s, `--preset vga --profile floppy`, 429,568 bytes) | Bochs, 16MB | `XMS in place (PM)`, Drew 300/300, stalls 0, Late 0, 365 ticks of 364: 14.41's row to the frame |
+
+**Cost, measured** (`make mega`'s `kernsize[mega]` and `os88megaseg`, this
+tree against e45f701a built from an archive of it):
+
+| kern_mega | e45f701a | this | change |
+|---|---:|---:|---|
+| `.text` | 47,368 | 47,146 | **-222** (the table's 192, the copy's 30) |
+| `.bss` | 5,336 | 5,336 | 0 |
+| `.lowbss` | 6,487 | 7,255 | **+768** (96 entries x 8) |
+| `.cold` | 42,177 | 42,272 | +95 (`.hpack`, the `.one` grow in place, `SS:` prefixes) |
+| `.mega` | 14,692 | 15,146 | +454 (`mx_packupf`, `mx_pcutr`, the rise, `mx_cpflags`, `mx_lcopy`, prefixes) |
+| `.mega`'s scratch | 914 | 1,484 | +570 (the park's lists at 96 entries; boot-only, given back) |
+| segment overhead | 4,555 | 4,323 | **-232**, and `tests/megaseg.txt` lowered to 4,323 |
+| resident once above 1MB | 65,024 | 66,048 | +1,024 (the LOW rung twice, for 768 bytes) |
+
+- kern_big and kern_small are **unchanged**, read from the diff. Every
+  kernel hunk is inside `%ifdef KERN_MEGA`: `mega.inc` from its 63rd line,
+  `megados.inc` whole, and `hiber.inc`'s hunks all inside its kern_mega
+  block (lines 3412-4216). kern_big's `kernsize` sections are the same before
+  and after.
+- `abilock`: `PKG_FMT` 10 and `DRV_VER` 11, unchanged. The SDK's
+  `OSAPI_MEM_HUGE` note was clarified (how a 32KB-window claim moves).
+
+**Rows.** None of this is in `tests/suite.py`. MEGAHG and MEGAW32 are run
+by hand, like MEGACP and MEGAHI: `OS88_BOCHS_MEGS=4 python3
+tools/os88bochs.py sweep --sb --cfg 1 build/megahg.o88 build/megaw32.o88`,
+and add `--build build/megatrap` for the `M` and `L` lines. The rows that
+can see the change are `megarehome`, `megatrap0`, `megaflt` and `pxsmega`
+(Bochs, soak), the fast tier's `abilock`, `cswrite` and `megagrid`, and
+`make mega`'s `os88megaseg` and `os88ovlchk`.
+
+**Not done:**
+
+- **The durability option's trip** (14.43, *Save the session to disk*) was
+  not run. It shares `hbm_xplan` and the resume with the hibernate that was.
+- **The Video Player with a compaction mid-play** cannot be arranged (item
+  3), so MEGAW32 stands in for it.
+- **MX_KOWN blocks stay pinned**, as the brief asked. 14.47 has since put
+  the action modules in the pool as MX_KOWN, so whoever unpins them gets
+  `mx_packupf` for free: it moves whatever `mx_canmove` says moves.
+- **The Victory 286** has not run any of it.
+
+**Decisions for the owner to look back over:**
+
+1. **The table is 768 bytes of conventional memory.** Net of the 192 that
+   left `.text`, that is +546 bytes of conventional heap, and two LOW rungs
+   at this commit. 64 entries would cost 512 bytes and cross no rung, but
+   would be tight against twelve programs. Above 1MB, in the gap after the
+   IDT, it would cost no conventional byte, for the work item 2 lists.
+2. **A 32KB-window claim's piecewise move rests on holding the rate hook.**
+   The hook is late by the whole move (17 ms for 512KB on the mr286), where
+   it used to run on time behind an interrupts-off step of the same length.
+   Every other interrupt now runs through the move.
+3. **A small pool claim's grow now prefers the KB above it**, in place, over
+   a copy into a new block. Fewer copies; same contract.
+4. **The copy's lock is asserted, not enforced**: only `MEGATRAP=1` checks
+   it, at no shipped byte.
+5. **The park's header is 3KB where it was 2KB**: one more KB per park block
+   and per hibernate's extended section.

@@ -63,9 +63,28 @@ PROGS = (("dos.o88", os.path.join(BUILD, "megak", "kdos", "DOS.O88"), "DOS",
          ("pxstein.o88", os.path.join(BUILD, "pxstein.o88"), "Pixelstein 3D",
           True))
 I_RECSZ, INST_MAX = 32, 12
-MX_BLKSZ, MX_NBLK = 8, 24
+MX_BLKSZ, MX_NBLK = 8, 96        # kernel/mega.inc (KERN-MEGA-PLAN 14.49)
 MC_SIZE, MEM_MAX = 10, 32
-LOW_LIN = 0x0EC0 * 16           # LOW_SEG on kern_mega (kernsize's ladder)
+LOW_LIN = 0x0E60 * 16           # LOW_SEG on kern_mega (kernsize's ladder),
+                                # only if SS cannot be read off the machine
+
+
+def low_lin(out, e9):
+    """LOW_SEG's linear base, read off the running machine: SS is LOW_SEG
+    everywhere the kernel runs (SPEC.md 2.1), and its descriptor says where.
+    A constant here went stale once (0x0EC0 against the ladder's 0x0E60), so
+    mem_tab was read from the wrong place without a word."""
+    n = os.path.getsize(e9)
+    with contextlib.redirect_stdout(io.StringIO()):
+        os88bochs.dbg(out, ["sreg"])
+    with open(e9, "rb") as f:
+        f.seek(n)
+        text = f.read().decode("latin-1")
+    m = re.search(r"ss:0x[0-9a-f]+, dh=(0x[0-9a-f]+), dl=(0x[0-9a-f]+)", text)
+    if not m:
+        return LOW_LIN
+    dh, dl = int(m.group(1), 16), int(m.group(2), 16)
+    return (dl >> 16) | ((dh & 0xFF) << 16) | (dh & 0xFF000000)
 
 
 def sym(name):
@@ -136,9 +155,10 @@ def main():
             fails.append("MEGARUN never said done")
         os88bochs.shot(os.path.join(out, "desk.png"))
         inst = 0x600 + sym("inst_tab")
-        mx = 0x600 + sym("mx_tab")
-        mem = LOW_LIN + sym("mem_tab")
         e9 = box.e9
+        low = low_lin(out, e9)          # SS's base: LOW_SEG, off the machine
+        mx = low + sym("mx_tab")        # .lowbss since KERN-MEGA-PLAN 14.49
+        mem = low + sym("mem_tab")
         n = os.path.getsize(e9)
         cmds = ["xp /%dhx 0x%x" % (I_RECSZ * INST_MAX // 2, inst),
                 "xp /%dhx 0x%x" % (MX_BLKSZ * MX_NBLK // 2, mx),

@@ -80,8 +80,15 @@ hg_entry:
     call hg_hex4
     call hg_nl
     call hg_walk
+    mov word [hg_step], 8
 %ifdef HG_RONLY                     ; (-DHG_RONLY: the regrow phase alone,
     jmp .rphase                     ; for a kernel phase C already fails on)
+%endif
+%ifdef HG_UONLY                     ; (-DHG_UONLY / HG_TONLY: from 14.49's
+    jmp .uphase                     ; split regrow, or its table fill
+%endif                              ; alone, so a kernel the split regrow
+%ifdef HG_TONLY                     ; fails on still shows the table red)
+    jmp .tphase
 %endif
     ; --- F: fill ------------------------------------------------------------
     xor bp, bp                      ; BP = the claims, x2
@@ -289,6 +296,178 @@ hg_entry:
     mov cl, 0x40
     cmp ax, [hg_free0]
     jne .no
+.uphase:
+    ; --- U: THE SPLIT REGROW (KERN-MEGA-PLAN 14.49) - R, then five claims of
+    ; H above it, then every hole the pool has filled, so it holds NO free
+    ; KB; then the top two of the five freed. R's growth by every free KB is
+    ; then [R][B][B][B][...][free 2H]: no block of R's new size can exist,
+    ; and the KB above R are taken - only packing B up past R makes the room
+    call OSAPI_XMEM_CAPS
+    mov [hg_free0], ax
+    sub ax, 100
+    xor dx, dx
+    mov bx, 6
+    div bx
+    mov [hg_h], ax                  ; H = a sixth of what is left
+    mov ax, 100
+    xor bx, bx
+    call OSAPI_MEM_HUGE             ; R
+    mov cl, 0x50
+    jc .no
+    mov [hg_r], dx
+    mov word [hg_rkb], 100
+    mov bl, 0x52
+    call hg_fill
+    xor bp, bp
+.ub:
+    mov ax, [hg_h]
+    call hg_take                    ; B1..B5
+    mov cl, 0x50
+    jc .no
+    cmp bp, 5 * 2
+    jb .ub
+    call hg_holes                   ; ...and every hole there is
+    mov [hg_n], bp
+    call OSAPI_XMEM_CAPS
+    mov cl, 0x51
+    or ax, ax
+    jnz .no
+    mov dx, [hg_sel + 3 * 2]        ; B4 and B5 freed
+    call OSAPI_MEM_FREE
+    mov word [hg_sel + 3 * 2], 0
+    mov dx, [hg_sel + 4 * 2]
+    call OSAPI_MEM_FREE
+    mov word [hg_sel + 4 * 2], 0
+    call hg_walk
+    call OSAPI_XMEM_CAPS
+    add ax, 100                     ; R by every free KB
+    mov cl, 0x52
+    call hg_regrow
+    jc .no
+    call hg_chkall                  ; B1-B3 and the hole claims, where the
+    mov cl, 0x53                    ; pass put them
+    jc .no
+    call hg_walk
+    call hg_freeall
+    call OSAPI_XMEM_CAPS
+    mov cl, 0x54
+    cmp ax, [hg_free0]
+    jne .no
+    mov si, hg_s_split
+    call hg_say
+    call hg_nl
+    ; --- W: A WINDOW EVERY 32KB, MOVED (KERN-MEGA-PLAN 14.49) - X 60KB, then
+    ; W of 512KB with BX = 8000h above it, filled through its EVEN windows;
+    ; X freed and every free KB claimed, which moves W down by X piece by
+    ; piece; W read back through EVERY window, odd ones included
+.wphase:
+    mov ax, 60
+    xor bx, bx
+    call OSAPI_MEM_HUGE             ; X
+    mov cl, 0x80
+    jc .no
+    mov [hg_s], dx
+    mov ax, HG_WKB
+    mov bx, 0x8000
+    call OSAPI_MEM_HUGE             ; W
+    mov cl, 0x80
+    jc .no
+    mov [hg_x], dx
+    mov cl, 0x81
+    or bx, bx
+    jnz .no                         ; (not given: BX kept)
+    mov word [hg_step], 16          ; the even windows: a 64KB piece each
+    mov ax, HG_WKB
+    mov bl, 0x57
+    call hg_fill
+    mov word [hg_step], 8
+    call hg_chk32
+    mov cl, 0x82
+    jc .no
+    mov dx, [hg_s]
+    call OSAPI_MEM_FREE
+    mov word [hg_s], 0
+    call OSAPI_XMEM_CAPS
+    xor bx, bx
+    call OSAPI_MEM_HUGE             ; every free KB: W moves
+    mov cl, 0x83
+    jc .no
+    mov [hg_bsel], dx
+    mov dx, [hg_x]
+    mov ax, HG_WKB
+    mov bl, 0x57
+    call hg_chk32
+    mov cl, 0x84
+    jc .no
+    call hg_walk
+    call hg_freeall
+    mov si, hg_s_w32
+    call hg_say
+    call hg_nl
+    ; --- T: THE TABLE FILLED (KERN-MEGA-PLAN 14.49) - 1KB claims until the
+    ; pool's block table refuses: a clean refusal, at least HG_TMIN of them,
+    ; every one read back, and every KB back after
+.tphase:
+    xor bp, bp
+.tloop:
+    cmp bp, HG_TMAX * 2
+    jae .tend
+    mov ax, 1
+    xor bx, bx
+    call OSAPI_MEM_HUGE
+    jc .tend
+    test dl, 4
+    jnz .tsel
+    call OSAPI_MEM_FREE             ; conventional: the pool took no more
+    jmp short .tend
+.tsel:
+    mov bx, bp
+    mov [hg_tsel + bx], dx
+    mov ax, 1
+    shr bx, 1
+    or bl, 0x80                     ; the tag: 80h | the index
+    call hg_fill
+    add bp, 2
+    jmp short .tloop
+.tend:
+    mov [hg_tn], bp
+    call OSAPI_XMEM_CAPS            ; BL = the table's free entries
+    mov si, hg_s_tab
+    call hg_say
+    mov ax, bp
+    shr ax, 1
+    call hg_hex4
+    mov si, hg_s_tfree
+    call hg_say
+    mov al, bl
+    call hg_hex2
+    call hg_nl
+    mov cl, 0x70
+    cmp bp, HG_TMIN * 2
+    jb .tbad
+    xor si, si                      ; every one read back
+.tc:
+    cmp si, bp
+    jae .tfree
+    mov dx, [hg_tsel + si]
+    mov ax, 1
+    mov bx, si
+    shr bx, 1
+    or bl, 0x80
+    call hg_chk
+    mov cl, 0x71
+    jc .tbad
+    add si, 2
+    jmp short .tc
+.tbad:
+    call hg_tfree
+    jmp .no
+.tfree:
+    call hg_tfree
+    call OSAPI_XMEM_CAPS
+    mov cl, 0x72
+    cmp ax, [hg_free0]
+    jne .no
     mov si, hg_s_okall
     call hg_say
     call hg_nl
@@ -461,7 +640,7 @@ hg_fill:
     rep stosw
     pop ax
     inc bh
-    add dx, 8
+    add dx, [hg_step]
     or ax, ax
     jnz .p
     pop dx
@@ -502,7 +681,7 @@ hg_chk:
     pop ax
     jne .bad
     inc bh
-    add dx, 8
+    add dx, [hg_step]
     or ax, ax
     jnz .p
     clc
@@ -550,6 +729,134 @@ hg_chkall:
     pop dx
     pop bx
     pop ax
+    ret
+
+; hg_holes - every hole the pool has, claimed exactly (hg_take, at BP): the
+; blocks walked, and each gap between them and above the last taken in
+; ascending order - every lower gap already holds its claim, so first fit
+; puts each in its own. Clobbers AX BX CX DX SI DI
+hg_holes:
+    push es
+    push ds
+    pop es
+    mov di, hg_wbuf
+    mov cx, HG_WN
+    call OSAPI_XMEM_WALK
+    jc .o
+    mov [hg_wn], ax
+    call OSAPI_XMEM_CAPS            ; the pool's KB: free + every block's
+    mov dx, ax
+    mov si, hg_wbuf
+    mov cx, [hg_wn]
+.s:
+    jcxz .sd
+    add dx, [si+XMW_KB]
+    add si, XMW_SIZE
+    dec cx
+    jmp short .s
+.sd:
+    mov [hg_pool], dx
+    xor bx, bx                      ; BX = the KB up to which all is taken
+.next:
+    mov si, hg_wbuf                 ; the lowest block at or above it
+    mov cx, [hg_wn]
+    mov di, [hg_pool]               ; DI = its offset (none: the top)
+    xor dx, dx                      ; DX = its KB
+.f:
+    jcxz .fd
+    mov ax, [si+XMW_OFF]
+    cmp ax, bx
+    jb .fn
+    cmp ax, di
+    jae .fn
+    mov di, ax
+    mov dx, [si+XMW_KB]
+.fn:
+    add si, XMW_SIZE
+    dec cx
+    jmp short .f
+.fd:
+    mov ax, di
+    sub ax, bx                      ; AX = the gap
+    jz .adv
+    push bx
+    push dx
+    push di
+    xor bx, bx                      ; (not 8000h)
+    call hg_take
+    pop di
+    pop dx
+    pop bx
+.adv:
+    mov bx, di
+    add bx, dx
+    cmp di, [hg_pool]
+    jb .next
+.o:
+    pop es
+    ret
+
+; hg_chk32 - DX = an OSAPI_MEM_HUGE claim's first selector with a window
+; every 32KB (BX = 8000h), AX = its KB (a multiple of 32), BL = its tag as
+; hg_fill wrote it through the EVEN windows: CF = 1 the first 32KB of any
+; window k is not BL:(k / 2) - every byte read, every window, odd ones too
+hg_chk32:
+    push ax
+    push cx
+    push di
+    push es
+    push dx
+    mov cl, 5
+    shr ax, cl                      ; AX = the windows
+    mov bh, 0                       ; BH = k
+.w:
+    mov es, dx
+    push ax
+    mov al, bh
+    shr al, 1
+    mov ah, bl
+    mov cx, 0x4000                  ; 32KB of words
+    xor di, di
+    cld
+    repe scasw
+    pop ax
+    jne .bad
+    inc bh
+    add dx, 8
+    dec ax
+    jnz .w
+    clc
+    jmp short .o
+.bad:
+    mov [hg_bad], es
+    mov [hg_bad+2], di
+    mov ax, [es:di-2]
+    mov [hg_bad+4], ax
+    stc
+.o:
+    pop dx
+    pop es
+    pop di
+    pop cx
+    pop ax
+    ret
+
+; hg_tfree - phase T's claims back. Keeps all
+hg_tfree:
+    push bx
+    push dx
+    xor bx, bx
+.l:
+    cmp bx, [hg_tn]
+    jae .o
+    mov dx, [hg_tsel + bx]
+    call OSAPI_MEM_FREE
+    add bx, 2
+    jmp short .l
+.o:
+    mov word [hg_tn], 0
+    pop dx
+    pop bx
     ret
 
 ; hg_toast - [hg_tbuf] ('MEGAHG ' and the verdict) on the menu bar, ~100s
@@ -711,11 +1018,18 @@ hg_s_no:    db 'MEGAHG: no ', 0
 hg_s_blk:   db 'MEGAHG: blk ', 0
 hg_s_bad:   db 'MEGAHG: bad ', 0
 hg_s_drv:   db 'MEGAHG: drivers unloaded and reloaded', 0
+hg_s_split: db 'MEGAHG: split regrow ok', 0
+hg_s_w32:   db 'MEGAHG: 32KB windows moved ok', 0
+hg_s_tab:   db 'MEGAHG: table ', 0
+hg_s_tfree: db ' claims, entries free ', 0
 
 ; the bss: hg_sel's HG_MAX entries run straight on into the six below it,
 ; so hg_freeall frees R, S, X1-X3 and the big one with the fragments
-HG_WN       equ 32
-HG_BSS      equ HG_MAX * 2 * 2 + 6 * 2 + 12 + HG_WN * XMW_SIZE + 8 + 18
+HG_WN       equ 128
+HG_WKB      equ 512                 ; phase W's claim
+HG_TMAX     equ 160                 ; phase T: claims at most...
+HG_TMIN     equ 48                  ; ...and at least (24 entries gave ~4)
+HG_BSS      equ HG_MAX * 2 * 2 + 6 * 2 + 12 + HG_WN * XMW_SIZE + 8 + 18 + 8 + HG_TMAX * 2
     OS88_BSS HG_BSS
     OS88_IMAGE_END
 
@@ -736,3 +1050,8 @@ hg_susp     equ hg_bad + 6              ; 1: a suspend stands
 hg_dsus     equ hg_bad + 7              ; 1: one was taken
 hg_code     equ hg_bad + 8              ; the failure's code
 hg_tbuf     equ hg_bad + 9              ; the toast's line, 16 bytes
+hg_step     equ hg_tbuf + 16            ; hg_fill/hg_chk's selector step
+hg_tn       equ hg_step + 2             ; phase T's claims, x 2
+hg_wn       equ hg_tn + 2               ; hg_holes: the blocks walked
+hg_pool     equ hg_wn + 2               ; ...and the pool's KB
+hg_tsel     equ hg_pool + 2             ; phase T's selectors

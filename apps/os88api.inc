@@ -2533,8 +2533,12 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; in conventional memory, CX = 1000h, or a
                                  ; kernel that has no such run). Such a claim
                                  ; does not REGROW (CF=1, nothing changed),
-                                 ; and the kernel moves it in one step with
-                                 ; interrupts off
+                                 ; and the kernel moves it 64KB at a time
+                                 ; with your FSXF_RATE hook held off until
+                                 ; the last piece (KERN-MEGA-PLAN 14.49): no
+                                 ; code of yours runs while a window is half
+                                 ; moved, unless a sample ISR is open - then
+                                 ; in one step with interrupts off
 XMW_OFF     equ 0
 XMW_KB      equ 2
 XMW_OWN     equ 4

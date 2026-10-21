@@ -77475,7 +77475,7 @@ table's end and present on every kernel (docs/plans/KERN-MEGA-PLAN.md 12.2):
 | `OSAPI_MEM_CODESEL` **0x04A5** | DX = the segment (or selector) naming a claim of the caller's. Out CF=0, AX = the selector to **far call code** in it: DX itself on a real-mode kernel; under `CPU_F_PM` the claim's LDT code alias `(S >> 2) | 4` for a segment on the 512-byte grid below A000, a code selector as it is, and the code half of an allocator pair for its data half. CF=1 when there is none: DX = 0, or under `CPU_F_PM` a segment off the grid or a data-only selector (an `OSAPI_XMEM_SEL` window). Any context. `apps/os88api.inc`'s `OS88_CODESEL` is its inline fast path for a claim below 1MB |
 | `OSAPI_XMEM_WALK` **0x04AB** | ES:DI = room for CX records of `XMW_SIZE` (6) bytes. Out CF=0, AX = the extended pool's live blocks written, each `XMW_OFF` (KB from the pool's base, which `OSAPI_XMEM_CAPS` answers in DX:CX), `XMW_KB` and `XMW_OWN`: an instance slot for an `OSAPI_XMEM_ALLOC` block, 80h \| slot for a package's REGION placed above 1MB (`OS88_HIGH`, docs/plans/KERN-MEGA-PLAN.md 13.3 step 4), 0A0h \| slot for a CLAIM it took there (`OS88_HIGHMEM`, KERN-MEGA-PLAN item 81), FEh the kernel's own (the read-ahead store, module pairs), FFh a cell called outside any instance. On kern_big with a store the pool is `XMEM.DRV`'s and the cell walks its table (overlay ABI 2's `XMV_WALK`, §28.4.8): owner a slot or FFh. CF=1, AX = 1 with no pool - kern_small, kern_mega in real mode, a kern_big machine without the overlay. The Task Manager's "RAM is RAM" reads it (KERN-MEGA-PLAN 13.6). Any context |
 | `OSAPI_XMEM_RUN` **0x04B7** | DX:AX = the TOKEN of an `OSAPI_XMEM_ALLOC` block the caller owns (its base). Out CF=0, DX = the first of a **run of data selectors**, CX = the step between them (8): selector *k* is the 64KB window from 32KB x *k* into the block, the last ones cut at its end, so **any 32KB of the block lies wholly inside one window** - the one at (offset >> 15), at (offset & 7FFFh). What a reader of records of 32KB or less needs to read them in place from ANY context once made, where `OSAPI_XMEM_SEL`'s one window has to be re-aimed by the UI task per read and `OSAPI_MEM_HUGE`'s 64KB windows cut a record that straddles one in two. One view a block: a block with a run takes no `OSAPI_XMEM_SEL` and the reverse (AX = 2 either way). Freed with the block. CF=1, AX = 1 not available (every kernel but kern_mega in protected mode) or no run of free LDT entries, 2 not the base of a block the caller owns or it has a selector already. UI-task context. The Video Player's hold and bank (98.3.18.16) are its consumer; docs/plans/KERN-MEGA-PLAN.md 14.16 |
-| `OSAPI_MEM_HUGE` **0x04B1** | AX = KB (1..65535). Out CF=0: DX = the claim's first segment or selector and CX = the STEP to its next 64KB - a program walks by CX and never by a constant. CX = 1000h for a conventional claim on every kernel; CX = 8 on kern_mega in protected mode for an `OS88_HIGHMEM` package, whose claim is ONE pool block above 1MB under a run of consecutive LDT data selectors, a 64KB window each and the last ending at the claim's end (§50.3.5). CF=1 refused - above 1MB only when the pool's free KB are short, the compactor moving huge claims too (§50.3.5). Freed by `OSAPI_MEM_FREE` with that DX, and at the instance's teardown; `OSAPI_MEM_REGROW` takes the pool's to any size and answers its first selector NOW (KERN-MEGA-PLAN 14.37). Docs/plans/KERN-MEGA-PLAN.md 14.1 answers 6 and 7: an ADDITION, so `OSAPI_MEM_CLAIM` and `OS88_HUGE_INCR` mean what they always did. **BX = 8000h** asks for a window every 32KB instead, each 64KB long (`OSAPI_XMEM_RUN`'s shape on a claim that moves), answered BX = 0 when given and BX kept otherwise; such a claim does not regrow and moves in one step (§50.3.5, KERN-MEGA-PLAN 14.41). Any context |
+| `OSAPI_MEM_HUGE` **0x04B1** | AX = KB (1..65535). Out CF=0: DX = the claim's first segment or selector and CX = the STEP to its next 64KB - a program walks by CX and never by a constant. CX = 1000h for a conventional claim on every kernel; CX = 8 on kern_mega in protected mode for an `OS88_HIGHMEM` package, whose claim is ONE pool block above 1MB under a run of consecutive LDT data selectors, a 64KB window each and the last ending at the claim's end (§50.3.5). CF=1 refused - above 1MB only when the pool's free KB are short, the compactor moving huge claims too (§50.3.5). Freed by `OSAPI_MEM_FREE` with that DX, and at the instance's teardown; `OSAPI_MEM_REGROW` takes the pool's to any size and answers its first selector NOW (KERN-MEGA-PLAN 14.37). Docs/plans/KERN-MEGA-PLAN.md 14.1 answers 6 and 7: an ADDITION, so `OSAPI_MEM_CLAIM` and `OS88_HUGE_INCR` mean what they always did. **BX = 8000h** asks for a window every 32KB instead, each 64KB long (`OSAPI_XMEM_RUN`'s shape on a claim that moves), answered BX = 0 when given and BX kept otherwise; such a claim does not regrow, and moves a 64KB piece at a time with the package's rate hook held off (§50.3.5, KERN-MEGA-PLAN 14.41, 14.49). Any context |
 
 **Branch on `CPU_F_PM`, then on the slot.** A package that reads extended
 memory in place takes 41.13's or 41.15's route without the bit and this one
@@ -92438,8 +92438,12 @@ KB, not its largest run. The entry is marked `MX_FHUGE`, which is what
 - **Regrow takes a huge claim to ANY size and keeps it in the pool.** A
   shrink cuts the run's tail and frees the block's; a grow takes the KB
   above the block where they are free, else moves it into a fresh block of
-  the new size (after a compaction if one is needed), else takes the KB
-  above it after that compaction. The run is extended in place, or moved to
+  the new size (after a compaction if one is needed), else packs the pool
+  DOWN and then, above the claim, UP - every movable block between it and
+  the first pinned one above slid against that one - and takes the KB above
+  it (KERN-MEGA-PLAN 14.49). So a grow is refused only when the free KB
+  below the first pinned block above the claim are short. A pool claim of
+  64KB or less grows in place the same way before it is moved. The run is extended in place, or moved to
   a free run of the new length when the entries after it are taken - so DX
   is the claim's first selector NOW, the step stays 8, and the old first
   selector is no longer the claim's. A refusal changes nothing a program
@@ -92458,10 +92462,17 @@ KB, not its largest run. The entry is marked `MX_FHUGE`, which is what
 The cell answers BX = 0 when that is what it gave; BX comes back as it went
 for a conventional claim (CX = 1000h) and on every kernel that has no such
 run, so a program that asked tests BX before it walks by 32KB. The entry is
-`MX_FHUGE | MX_FH32`: `mx_unsel` frees (KB + 31) / 32 selectors, the regrow
-refuses it (CF = 1, nothing changed), and because its odd windows cross a
-64KB piece `mx_cpmove` moves it in ONE step with interrupts off, by its own
-rule. The Video Player's ring is its consumer (98.3.18.17).
+`MX_FHUGE | MX_FH32`: `mx_unsel` frees (KB + 31) / 32 selectors and the regrow
+refuses it (CF = 1, nothing changed). Its odd windows cross every 64KB cut,
+so no cut leaves every window whole; a PACKAGE's such claim still moves a
+64KB piece at a time with interrupts on between, because nothing can read
+it between pieces: no task runs under the compactor's `[sch_lock]`, and the
+package's `FSXF_RATE` hook - the only code of its that runs from an
+interrupt - is held off (`[sch_rbusy]`) from the first piece to the last,
+its periods owed and paid at the next call (KERN-MEGA-PLAN 14.49). With a
+sample ISR open (§34.11), and for a driver's claim, whose own ISRs may read
+it, the move is ONE step with interrupts off, as 14.41 shipped it. The Video
+Player's ring is its consumer (98.3.18.17).
 
 MEGAHI (tests/megahi) is the gate under Bochs at 4MB: 200KB in four pieces,
 `MEGAHI: huge 2844 step 0008 ok` - each piece written and read back, the
