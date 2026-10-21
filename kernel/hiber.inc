@@ -94,6 +94,15 @@ HBX_KB      equ HBX_CHUNK / 1024    ; of every cluster (<= 32KB, mount rule 8)
 %ifdef DOSR_MARK
   %include "hbmark.inc"       ; ...and the trace, which hbm_wake stamps 500
 %endif                        ; lines before hbstub.inc is included
+; HBM_HMACHK - a kernel whose `.cold` can be ADOPTED into the HMA (COLDHMA.SYS,
+; docs/plans/HMA-PLAN.md), so the DOS handoff sums what runs up there for the
+; live route (SPEC.md 96.49.9). kern_big alone: kern_small's `.cold` has no
+; HMA image and kern_mega's HMA is its own
+%ifdef KERN_BIG
+  %ifdef ROM_ADOPT
+    %define HBM_HMACHK 1
+  %endif
+%endif
 
 ; --- the DOS handoff's own fields (SPEC.md 96.40.1) -------------------------
 ; They sit ABOVE HS_SLAVE and BELOW HS_IVT, which the DOS stub never uses: it
@@ -162,6 +171,11 @@ KDL_STAGE   equ 104             ; dw WHERE THE KERNEL WILL LOOK on the way back
                                 ; byte is the DOS PROGRAM's (SPEC.md 96.49.6).
                                 ; 0 = a kernel too old to say, and `kd_resume`
                                 ; falls back to asking
+KDL_HOFF    equ 488             ; dw the HMA span the live resume re-sums -
+KDL_HWDS    equ 490             ; dw its words - and what this side read
+KDL_HSUM    equ 492             ; dd (SPEC.md 96.49.9). In the kern_mega
+                                ; tail's XMS bytes, which no kern_big build
+                                ; writes. MIRRORED in kerndos/kdlaunch.inc
 KDL_VROW    equ 6
 KDL_VMAX    equ 8
 KDL_MOULINE equ 27              ; db ...and its bit in the master 8259's mask.
@@ -2834,18 +2848,10 @@ hbm_dosrun:
     ; settled. They go
     ; into the RECORD's copy and not the stage's, for `KDLF_HIBER`'s own
     ; reason immediately below - step 5 copies the record over the stage.
-%ifdef HMA_DRV
-    cmp word [api_coldseg], HMA_SEG ; NOT WITH `.cold` IN THE HMA: nothing on
-    je .nowake                  ; the live route checks A20 or the HMA's bytes,
-%endif                          ; and a DOS program may close the one or write
-                                ; the other. KDL_WAKE + 2 stays the 0 DOS.O88
-                                ; posted, so kd_resume takes int 19h, where
-                                ; XMEM.DRV reinstalls `.cold` (SPEC.md 96.49)
+    ; WITH `.cold` IN THE HMA TOO (SPEC.md 96.49.9): step 5 sums what runs up
+    ; there, and kd_resume sums it again before it jumps.
     mov word [cs:bx+KDL_WAKE], hbm_wake ; ...exactly what hbm_wrimg put in
     mov [cs:bx+KDL_WAKE + 2], cs        ; the pointer, and from the same place
-%ifdef HMA_DRV
-.nowake:
-%endif
     mov [cs:bx+KDL_KSEG], ds    ; DS IS KERNEL_SEG in this module (SPEC.md 2.8)
     mov al, [hb_vol]
     mov [cs:bx+KDL_HBVOL], al
@@ -2978,6 +2984,43 @@ hbm_dosrun:
     mov word [es:KDS_TSEG], KDS_TMPSEG  ; where the PACKED stream lands: above
                                         ; the image it expands to, so the two
                                         ; never meet
+%ifdef HBM_HMACHK
+    ; --- ...AND WHAT RUNS ABOVE 1MB, for the live route (SPEC.md 96.49.9) ---
+    ; The image is conventional memory. The drivers in the HMA's pool come
+    ; back out of it (hbm_hsave's copy, hbm_wake's step 0b), but `.cold` and
+    ; the HMA image's own code are trusted to be where they were - and a DOS
+    ; program may have written there, or shut A20. So the span is summed HERE,
+    ; after hbm_down and the last thing that writes the tail's block table,
+    ; and kd_resume takes int 19h on a difference: XMEM.DRV then installs
+    ; `.cold` again, which is the route that never needed this. The span is
+    ; COLD_VSTART up to the tail's block table, which is the first byte above
+    ; it that changes; a door that will not say where that is (CF = 1) gets
+    ; `.cold` alone summed. A ROM's `.cold` is not in the HMA: KDL_HOFF is 0.
+    xor bx, bx                  ; KDL_HOFF 0: nothing above 1MB to check
+    cmp word [api_coldseg], HMA_SEG
+    jne .hmaput
+    mov al, ROMF_HTAB
+    call far [rom_mfp]          ; AX = the table's offset in FFFF
+    jnc .hmaend
+    mov ax, cold_end
+.hmaend:
+    sub ax, COLD_VSTART
+    shr ax, 1
+    mov [es:KDS_LB + KDL_HWDS], ax
+    xchg ax, cx                 ; CX = words
+    push ds
+    mov si, HMA_SEG
+    mov ds, si
+    mov si, COLD_VSTART
+    cld
+    HS_HMASUM                   ; BX = s1, DX = s2
+    pop ds
+    mov [es:KDS_LB + KDL_HSUM], bx
+    mov [es:KDS_LB + KDL_HSUM + 2], dx
+    mov bx, COLD_VSTART
+.hmaput:
+    mov [es:KDS_LB + KDL_HOFF], bx
+%endif
 
     ; --- 6. the VECTORS the ROM is about to need (SPEC.md 96.40.2) ----------
     ; `sched_unhook` is exactly this and cannot be called: it falls into

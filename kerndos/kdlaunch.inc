@@ -277,6 +277,23 @@ KDL_O88V    equ 510             ; db ...and its volume (the kernel's)
 KDL_MRSV    equ 511             ; db reserved for the park
 %assign KDL_MTAIL 484
 
+; --- AND kern_big's HMA, on the live resume (SPEC.md 96.49.9) ---------------
+; A kern_big whose `.cold` is in the HMA - and the drivers in the pool under
+; it - runs code above 1MB that the image does not carry, so the live route
+; must know that A20 is open and those bytes are still the kernel's before it
+; jumps. The kernel says which span it summed and what it read; `kd_resume`
+; sums the same words through FFFF and takes `int 19h` on a difference - a
+; shut gate included, since FFFF:x is then conventional memory.
+; THE SAME BYTES AS THE kern_mega TAIL's XMS ARENA ABOVE, because neither
+; build writes the other's: kern_mega has no HMA image (its HMA is its own),
+; and no kern_big build has an arena or a park. Written by the KERNEL into the
+; staged block; the box never writes them and its record is zeroed bss, so a
+; kernel that does not write them hands over KDL_HOFF = 0 - nothing to check.
+KDL_HOFF    equ 488             ; dw the first HMA offset (FFFF:x) summed,
+                                ;    0 = `.cold` is not in the HMA
+KDL_HWDS    equ 490             ; dw ...the words summed from there
+KDL_HSUM    equ 492             ; dd s1, s2 (kernel/hbstage.inc's HS_HMASUM)
+
 KDL_SIG     equ 0x314C444B      ; 'KDL1', little-endian
 KDL_VER_NOW equ 5               ; what this tree writes and checks. It is a
                                 ; CONSTANT and not a literal at three sites,

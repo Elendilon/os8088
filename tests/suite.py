@@ -411,6 +411,25 @@ FAST = [
         wants=("build/os8088.img", "build/coldhma.sys", "build/recorder.o88",
                "build/hdd.hma.bin", "build/net.hma.bin",
                "build/sound.hma.map", "build/hdd.hma.map")),
+    Row("hmadosret", "soak", py("tests/hmadosret.py"), 45.0,
+        "SPEC.md 96.49.9: the DOS live resume with `.cold` and HDD.DRV in "
+        "the HMA. WHY QEMU: the closed list, entry 1. hmadrv's machine, "
+        "booted from the floppy, so the image goes to HDD.DRV's own C:. The "
+        "route is read off 0040:00F0, kd_bda's mailbox, which only the "
+        "int 19h route writes. A, DOSHELLO.COM in the OS and then on the "
+        "whole machine ([dos_keepc] set through QEMU's GDB stub): back LIVE, "
+        "the mailbox untouched, `.cold` still FFFF and its bytes unchanged, "
+        "the box DST_RAN with 42, HDD.DRV's HMA row kept and C: listing "
+        "through it, no MEM_K_HIB left. B, DOSHMA.COM flips one word of "
+        "`.cold` under kern_dos: the negative control - kd_resume's sum "
+        "refuses, back by int 19h with the mailbox spent and 42 behind it, "
+        "and that word the build's again. Red on the kernel before (A1) and "
+        "with the compare taken out (B1, B2). SOAK: one subsystem, a 286 "
+        "feature. NEEDS QEMU 9: both routes run 87.5's stub",
+        needs=("qemu", "qemu9", "nasm"),
+        wants=("build/os8088.img", "build/coldhma.sys", "build/kdos/DOS.O88",
+               "build/recorder.o88", "build/DOSHELLO.COM",
+               "build/DOSHMA.COM")),
     Row("romtool", "fast", py("tools/os88rom.py", "--selfcheck"), 0.3,
         "docs/plans/ROM-PLAN.md 1.3: the ROM image builder re-derives its own "
         "invariants - 55 AA and a 32KB declaration (40KB would send the "

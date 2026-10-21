@@ -168470,16 +168470,11 @@ and resumes the long way instead of losing the session — so the fast path is
 an optimisation and never a new way to fail. That fallback is not theoretical:
 it is what ran, correctly, through two defects below.
 
-**A kernel whose `.cold` is in the HMA refuses the live resume** and takes
-`int 19h`. The wake's first touch of the HMA is `hbm_wake`'s step 0b (§87.6),
-the pool copied back up through `rom_mfp`, and nothing on the live route checks that
-A20 is still open or that FFFF:x still holds `.cold`: a DOS program that
-closes the gate (an IBM-AT-style `int 15h AH=87h`) or allocates extended
-memory from 1MB up leaves it executing garbage. So step 3b writes no
-`KDL_WAKE` when `[api_coldseg]` is `HMA_SEG`, the segment stays the 0
-DOS.O88 posted, and the boot that resumes reinstalls `.cold` before
-`hbm_ask`'s pad check. A ROM-adopted `.cold` (F4000) cannot be overwritten
-and keeps the live path.
+**A kernel whose `.cold` is in the HMA keeps the live resume** (§96.49.9):
+the handoff sums what runs above 1MB, and `kd_resume` sums it again before it
+jumps. A difference — a DOS program that wrote up there or shut A20 — is
+`int 19h`, where XMEM.DRV installs `.cold` afresh. A ROM-adopted `.cold`
+(F4000) cannot be overwritten and needs no check.
 
 **MEASURED: 996 bytes, and this one crosses the rung.** The image goes 35,476
 → 36,472, `KD_IMG_KB` 35 → 36, and the DOS program **585 KB → 584**. 392 bytes
@@ -168822,6 +168817,51 @@ a bump allocator's ceiling word is its last hand-out, so *the free room is
 below it*, and every reader of `[kd_top]` that means "spare memory" is off by
 the size of the last claim. §96.44.11 is the same word misread the other way
 round, one caller along.
+
+#### 96.49.9 `.cold` in the HMA, checked instead of refused
+
+For a while the live resume was switched off on a kern_big whose `.cold` is
+in the HMA (docs/plans/HMA-PLAN.md), and every DOS trip there came home by
+`int 19h`. The risk was real: `hbm_wake`'s step 0b far-calls the HMA image's
+tail and the whole cold path runs from FFFF, while the image is
+conventional memory only. A DOS program that shut A20 or wrote above 1MB
+would leave the restored kernel running garbage. No program of the 200-odd
+tried ever did, so the route is checked rather than refused. kern_mega's
+park (kernel/megados.inc) is the model.
+
+**What needs checking is less than the HMA.** The pool of drivers under
+`.cold` is already carried: `hbm_hsave` copies its table and every live block
+into the image, and step 0b copies them back whatever the program wrote. Only
+`.cold` and the HMA image's own code are trusted to be in place. That is the
+span from `COLD_VSTART` up to the tail's block table (`ROMF_HTAB`), which is
+the first byte above it that changes.
+
+1. **The kernel sums it at step 5 of `hbm_dosrun`**, after `hbm_down`.
+   Nothing that runs later writes there. It stages the span and the sum in
+   the launch block: `KDL_HOFF`, `KDL_HWDS` and `KDL_HSUM`, at 488..495.
+   Those bytes are the kern_mega tail's XMS fields, and neither build writes
+   the other's. `KDL_HOFF` = 0 means `.cold` is in RAM or in a ROM, and
+   nothing is checked.
+2. **`kd_resume` sums it again, first**, before any disk read. A difference
+   refuses, and §96.49's fallback takes `int 19h`.
+
+The sum is `HS_HMASUM` in kernel/hbstage.inc, one macro for both sides, and
+it covers **every word**. kern_mega's is sparse (one word in 64) because a
+park is up to 640KB. This span is under 40KB, about 20,000 words, some 50 ms
+on a 6 MHz AT against a return that reads hundreds of KB. A sparse sum would
+miss a program that wrote one word into `.cold`; this one does not.
+
+**There is no A20 code in kern_dos, and that is the design rather than a
+gap.** With the gate shut, FFFF:x reads 0000:x−16: kern_dos's own image and
+the program's arena. Those words do not sum to `.cold`'s, so a shut gate
+refuses exactly as an overwrite does. Opening the gate first would only
+rescue a program that shut A20 and left `.cold` alone. The program that shuts
+it is an `int 15h AH=87h` user, and with no XMS in the box it trusts the
+BIOS's `AH=88h` and writes from 1MB up, into the HMA itself. An opener is ~70
+bytes. kern_dos had 146 left in its 1KB rung, so it would have cost every DOS
+program a kilobyte. **MEASURED: kern_dos +64 bytes, 33,710 of 33,792**, and
+33,735 with the INT 33h `iret` that landed beside it (57 left). The kernel
+side is 68 bytes of HIBER.DRV, a module, and costs nothing resident.
 
 ### 96.50 The BIOS key buffer's guard, which the handoff took away
 

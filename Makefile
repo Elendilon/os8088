@@ -6393,6 +6393,13 @@ $(BUILD)/DOSGFX.COM: tests/doscom/hello.asm | $(BUILD)
 $(BUILD)/DOSPIT.COM: tests/doscom/hello.asm | $(BUILD)
 	$(NASM) -f bin -w+error -DPITFAST -o $@ tests/doscom/hello.asm
 
+# ...and having written one word of `.cold` in the HMA, under kern_dos only
+# (SPEC.md 96.49.9): tests/hmadosret.py's negative control, which the live
+# resume's sum has to refuse. 8000h is inside `.cold` at COLD_VSTART = 6000h,
+# and the row checks that against the kernel it boots.
+$(BUILD)/DOSHMA.COM: tests/doscom/hello.asm | $(BUILD)
+	$(NASM) -f bin -w+error -DHMAPOKE=0x8000 -o $@ tests/doscom/hello.asm
+
 # THE GATE DISK CARRIES THE PROGRAM AND NOT THE HANDLER, deliberately. DOS.O88
 # is on the SYSTEM disk in APPS/, so this is the arrangement a user actually
 # has - a floppy of DOS programs in B: - and it is the one that was BROKEN
