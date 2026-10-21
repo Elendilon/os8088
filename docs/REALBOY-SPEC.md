@@ -1445,11 +1445,22 @@ of 15.3's reasons: the jitter was drawing into the page being shown, and the
   before. The LINE COMPARE at scanline 287 shows VRAM 0 below them - the
   gap and the speed line (`RW_FSTXTP`, row 2 there) - with AR10's pixel
   panning mode, so that strip never pans. Plane 2 is set in it and clear in
-  the pages. The vertical retrace is 24 scanlines later than 15's (blank
-  384-419, sync 390-392), so the BOTTOM BORDER - the display's end at 308 to
-  the blanking - is ~2.4 ms. The total and the widths are 15's, so every
-  frequency is mode 0Dh's own; a real monitor sees the picture 24 lines
-  higher.
+  the pages. The FRAME is 527 scanlines where mode 0Dh's is 449 (blank
+  400-520, sync 410-412), at the same 31.47 kHz line rate: the REFRESH is
+  59.71 Hz, the Game Boy's own, with the sync polarity of a 480-line mode,
+  which is what a monitor expects at that rate. The BOTTOM BORDER - the
+  display's end at 308 to the blanking - is ~2.9 ms, and the picture sits
+  in the middle of the frame.
+- **Why the refresh is the Game Boy's.** At mode 0Dh's 70.09 Hz each frame
+  went up at whatever refresh followed it, so one in six stayed two
+  refreshes and two now and then landed in one: on the Victory a steady
+  picture with a MICROSTUTTER, and the flips' times on the twin read 14,
+  28 and 42 ms where the game's frame is 16.7. The single page had the same
+  60-in-70 and spread it over the tearing. At 59.71 Hz, and the next frame
+  run the moment the last is on the glass (`rw_pglock`: borrowed from the
+  clock, one at most, `[rw_pgdebt]` taken back by `rw_fsowed`; at 100%
+  Speed only), they read 16.1-17.7 ms, every frame shown once. The clock is
+  0.02% the faster, which is a frame run undrawn every ~74 s.
 - **The composer works PAN-ALIGNED** (`rb_panon`; `rb_renderd`'s
   `ppu_linep` and `ppu_dputp` through `PPU_LINEV`/`PPU_DPUTV`, so the
   ordinary composer carries none of it): the frame's pan is its last SCX AND
@@ -1474,9 +1485,9 @@ of 15.3's reasons: the jitter was drawing into the page being shown, and the
   (`rw_frame`) and while it waits: the core runs with interrupts off (5.2),
   for up to ~7 ms a run, so no hook can know where the beam is - a rate nine
   times the frame's was built for it and lost a quarter of its periods.
-  The display-enable bit is sampled 24 times, the PIT time each time it is
-  seen ON kept, and the flip written when it is found OFF within 2,000
-  counts (1.7 ms, `RW_PGWIN`) of that: the bottom border, where every card
+  The display-enable bit is sampled 48 times, the PIT time each time it is
+  seen ON kept, and the flip written when it is found OFF within 2,400
+  counts (2.0 ms, `RW_PGWIN`) of that: the bottom border, where every card
   takes both registers for the next frame - one that applies the panning
   on every line (the Victory's PVGA1A, the field probe's finding:
   REALBOY-PLAN's scroll round), one that takes it at the frame's top (86Box)

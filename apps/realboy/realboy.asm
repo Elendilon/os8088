@@ -285,7 +285,9 @@ rw_pgton        equ rw_pgseen + 1   ; word: ...at this clock (rw_clk's low)
 rw_pgstart      equ rw_pgton + 2    ; word: the flip's start address...
 rw_pgpan        equ rw_pgstart + 2  ; byte: ...and pel panning
 rw_fstxto       equ rw_pgpan + 1    ; word: the speed line's VRAM offset
-rw_fbuf         equ rw_fstxto + 2 + 1 ; 5,760: rb_render's frame (monochrome;
+rw_pgdebt       equ rw_fstxto + 2   ; word: frames run ahead of the clock, on
+                                    ;   the display's word (rw_fsmain)
+rw_fbuf         equ rw_pgdebt + 2 + 1 ; 5,760: rb_render's frame (monochrome;
                                     ;   even)
 RW_BSS          equ rw_fbuf + 5760 - rw_win   ; derived: a sum by hand drifted
 RW_PBUF         equ 11520           ; the frame as the screen takes it: the

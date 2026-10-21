@@ -30,7 +30,7 @@
 RW_FSDIV        equ 19977           ; 1,193,182 / 59.7275: a period a frame
 RW_PGBUD        equ 500             ; PAGES: the core's budget while a flip
                                     ;   waits (x2 recompiled, ~1 ms on a 286)
-RW_PGWIN        equ 2000            ; ...and how soon after the display was
+RW_PGWIN        equ 2400            ; ...and how soon after the display was
                                     ;   last seen on its flip may be written,
                                     ;   in 838 ns counts (rw_pgtry)
 RW_PG0          equ 0800h           ; PAGES: the three pages' VRAM, over the
@@ -259,7 +259,8 @@ rw_pgtry:
     push cx
     push dx
     mov dx, 3DAh                    ; the display on: a 0 in bit 0 within
-    mov cx, 24                      ;   a line's 60% of blanking
+    mov cx, 48                      ;   a line's 60% of blanking, on the
+                                    ;   slowest bus a 286 has
 .s:
     in al, dx
     test al, 1
@@ -327,6 +328,7 @@ rw_fsmain:
     jmp short .in
 .pg:
     call rw_pgcrtc                  ; PAGES: the split, the timing, page 0
+    mov word [rw_pgdebt], 0
     mov word [rw_fstxto], RW_FSTXTP * 40
     mov byte [rb_panon], 1
     call rw_dmgfull
@@ -362,6 +364,8 @@ rw_fsmain:
     jnz .run
     cmp byte [rw_undrawn], 0        ; caught up: what has not been drawn,
     jne .idle                       ;   rather than wait (the window's .idle)
+    call rw_pglock                  ; PAGES: the next frame on the display's
+    jnz .run                        ;   word (AX = 1)
     cmp byte [rw_pgpend], 0         ; (a flip waiting: the beam, not the
     je .wt                          ;   clock - it is a frame of 14 ms)
     call rw_pgtry
@@ -425,6 +429,32 @@ rw_fsmain:
 .r:
     ret
 
+; rw_pglock - PAGES, caught up and every frame drawn: the next frame runs
+; the moment the last one is on the glass, borrowed from the clock (at most
+; one: [rw_pgdebt], which rw_fsowed takes back). The card's refresh is the
+; Game Boy's (rw_pgcrtc: 59.71 Hz, the clock's 59.73), so each frame is
+; shown once, a refresh after the one before - where taking them on the
+; clock's word lands each at whatever refresh follows it, two of them in
+; one now and then, and the picture judders. The clock runs 0.02% faster,
+; which is a frame run undrawn every ~74 s. At 100% only (Machine > Speed).
+; ZF = 0 and AX = 1: run one
+rw_pglock:
+    cmp byte [rw_fspan], 0
+    je .no
+    cmp byte [rw_pgpend], 0         ; (the last one still waits for its
+    jne .no                         ;   refresh)
+    cmp word [rw_pgdebt], 0
+    jne .no
+    cmp byte [rw_speed], 0
+    jne .no
+    mov word [rw_pgdebt], 1
+    mov ax, 1
+    or ax, ax
+    ret
+.no:
+    xor ax, ax
+    ret
+
 ; rw_fsowed - AX = the frames owed since the last call, and none left owed
 rw_fsowed:
     cmp byte [rw_fsrate], 0
@@ -446,6 +476,17 @@ rw_fsowed:
     mov ah, dl
     pop dx
 .r:
+    cmp word [rw_pgdebt], 0         ; (PAGES: a frame rw_pglock ran early is
+    je .rr                          ;   not owed again)
+    cmp ax, [rw_pgdebt]
+    jae .all
+    sub [rw_pgdebt], ax
+    xor ax, ax
+    ret
+.all:
+    sub ax, [rw_pgdebt]
+    mov word [rw_pgdebt], 0
+.rr:
     ret
 .tick:
     push bx
@@ -649,11 +690,12 @@ rw_pgdraw:
 
 ; rw_pgcrtc - PAGES (REALBOY-SPEC 15.4): the picture's 144 doubled rows
 ; from a page, the speed line under them from VRAM 0 - the LINE COMPARE at
-; scanline 287, with AR10's pixel panning mode so it never pans - and the
-; vertical retrace 24 scanlines later than rw_fscrtc's, so the border
-; between the display's end (308) and the blanking (now 384) is ~2.4 ms,
-; RW_PGWIN and rw_pgtry's own time inside it. The total and the widths are
-; unchanged.
+; scanline 287, with AR10's pixel panning mode so it never pans - and a
+; frame of 527 scanlines where mode 0Dh's is 449: the line rate is its own,
+; 31.47 kHz, and the REFRESH the Game Boy's, 59.71 Hz (rw_pglock), with the
+; sync polarity a 480-line mode has at that rate. The display's end (308)
+; to the blanking (400) is ~2.9 ms of border, RW_PGWIN and rw_pgtry's own
+; time inside it; the picture sits in the middle of the frame.
 ; Plane 2 is the border's and the speed line's ground at 0, clear in the
 ; pages; the page 0 shown, pan 0
 rw_pgcrtc:
@@ -699,6 +741,11 @@ rw_pgcrtc:
     lodsw
     out dx, ax
     loop .c
+    mov dx, 3CCh                    ; the sync polarity: 480 lines' (both
+    in al, dx                       ;   negative), for a monitor to take the
+    or al, 0C0h                     ;   refresh as the 60 Hz one it is
+    mov dx, 3C2h
+    out dx, al
     mov dx, 3DAh                    ; AR10 bit 5: the pixel panning mode
     in al, dx
     mov dx, 3C0h
@@ -719,11 +766,13 @@ rw_pgcrtc:
     ret
 rw_pgcrv:   db 0Ch, RW_PG0 >> 8     ; page 0
             db 0Dh, RW_PG0 & 0FFh
-            db 18h, 1Fh             ; line compare 287 (bit 8 in CR07: set)
-            db 15h, 80h             ; start blank 384 (bit 8 in CR07: set)
-            db 16h, 0A3h            ; end blank 419
-            db 10h, 86h             ; start retrace 390 (bit 8 in CR07: set)
-            db 11h, 88h             ; end retrace 392, CR0-CR7 locked again
+            db 06h, 0Dh             ; vertical total 527 (525: bit 9 in CR07)
+            db 07h, 3Eh             ; the overflow: VT 9, LC, VBS, VRS, VDE 8
+            db 18h, 1Fh             ; line compare 287
+            db 15h, 90h             ; start blank 400
+            db 16h, 08h             ; end blank 520
+            db 10h, 9Ah             ; start retrace 410
+            db 11h, 8Ch             ; end retrace 412, CR0-CR7 locked again
 rw_pgcrve:
 
 ; rw_fstext - rw_ovltxt on the border under the picture, 16 cells wide
