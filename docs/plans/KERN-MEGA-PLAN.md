@@ -9298,3 +9298,16 @@ points at controller or PIC state both directions carry (an 8042 output
 buffer stuck full with its edge lost, the keyboard interface or scanning
 left off, IRQ1 masked or an in-service bit stuck) rather than at the
 desktop's own keyboard handler.
+
+**...and it is NOT kern_mega's, and probably not Test Drive III's.** The
+owner: it happens on **kern_big as well**, and it happened on the **very
+first entry to TD3 in a session** - one in which FTPD, the Control Panel and
+then **RealBoy** (the Game Boy emulator, branch `gameboy`, not merged here)
+had been used, RealBoy last, before TD3 was launched from a desktop shortcut
+to a DOS `.LNK` on the whole-machine arm. The keyboard did not work inside
+TD3. So the lead is a package that takes over the keyboard and leaves the
+8042, the keyboard or the PIC changed at exit, with the DOS handoff carrying
+that state into the DOS program instead of putting the controller into a
+known one. The owner supplied the exact `REALBOY.O88` and the ROM it ran;
+both are kept in the session scratchpad and, like TD3, never enter the
+repository.
