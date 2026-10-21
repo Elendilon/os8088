@@ -9310,4 +9310,7 @@ TD3. So the lead is a package that takes over the keyboard and leaves the
 that state into the DOS program instead of putting the controller into a
 known one. The owner supplied the exact `REALBOY.O88` and the ROM it ran;
 both are kept in the session scratchpad and, like TD3, never enter the
-repository.
+repository. **But RealBoy is not needed for it**: on kern_mega the owner saw the
+same failure with nothing else in the session - boot, launch TD3, return,
+repeat. So the kernel's own round trip produces it, intermittently, on both
+kernels; RealBoy is at most a second way in.
