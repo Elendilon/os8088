@@ -2053,7 +2053,7 @@ hbm_hfree:
 ; nothing for it. It is MODULE data, so the whole feature is resident-free.
 hbm_sweep:
     mov word [si], 0
-    mov byte [cs:hbm_swn], 0
+    CSDO mov byte [CSEG hbm_swn], 0
     xor cx, cx
 .row:
     mov al, cl
@@ -2107,7 +2107,7 @@ hbm_sweep:
     mov [es:di+DQ_C], cx
     mov byte [es:di+DQ_FLAGS], 1
     add di, DQ_SIZE
-    inc byte [cs:hbm_swn]
+    CSDO inc byte [CSEG hbm_swn]
 .noinfo:
     pop cx
 .unload:
@@ -2158,7 +2158,7 @@ hbm_reload_m:
 ; out: CX = records written (0 on a resume); CF = 0 - the sweep cannot refuse
 ; -----------------------------------------------------------------------------
 hbm_drvsusp:
-    mov [cs:hbm_spm], bl        ; THE SLOT'S OWN BL, still in the register the
+    CSDO mov [CSEG hbm_spm], bl        ; THE SLOT'S OWN BL, still in the register the
                                 ; caller put it in (SPEC.md 51.11.4) - banked
                                 ; HERE, in the module, on both verbs. Writing
                                 ; it on the resume too is what stops one
@@ -2502,7 +2502,7 @@ hbm_res:
 ; It does not come back. The machine it hands over has no kernel in it.
 ; -----------------------------------------------------------------------------
 hbm_dosrun:
-    mov byte [cs:hbm_dosheld], 0    ; module BSS is not zeroed: only hbm_wrimg
+    CSDO mov byte [CSEG hbm_dosheld], 0    ; module BSS is not zeroed: only hbm_wrimg
                                     ; below may say the locks are held
     ; --- 1. the record, where the poster left it (SPEC.md 96.40) -----------
     ; It is copied into the MODULE's own data and every read of it carries a
@@ -2577,9 +2577,9 @@ hbm_dosrun:
     ; on a driver banks nothing at all and every read of that disk over there
     ; is aimed with 9 sectors and 2 heads.
     mov ax, [dsk_bootspt]
-    mov [cs:hbm_dosrec + KDH_LB + KDL_HDSPT], ax
+    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_HDSPT], ax
     mov ax, [dsk_boothds]
-    mov [cs:hbm_dosrec + KDH_LB + KDL_HDHDS], ax
+    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_HDHDS], ax
     ; --- AND WHETHER A RUN MAY CROSS A HEAD (SPEC.md 96.44.14) ------------
     ; The LOADER settled that with a canary over its own transfer and nothing
     ; over there can ask it again - kern_dos has no stage 2 and no canary - so
@@ -2593,7 +2593,7 @@ hbm_dosrun:
     je .nocyl
     inc ax
 .nocyl:
-    mov [cs:hbm_dosrec + KDH_LB + KDL_CYLRUN], al
+    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_CYLRUN], al
     ; A ROW IS FOUR REGISTERS and every arm below only says which: AL the
     ; kind, AH the unit, DX:CX the partition base - stored by one tail. BX
     ; walks `dsk_vtab` and BP `dsk_vbase`, each at its own stride.
@@ -2642,9 +2642,9 @@ hbm_dosrun:
     jne .vkind                  ; a booted-from fixed disk's own stands: there
     push ax                     ; is ONE pair for the whole table, and the
     mov ax, [hb_spt]            ; volume the machine booted from is the one it
-    mov [cs:hbm_dosrec + KDH_LB + KDL_HDSPT], ax    ; is most about
+    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_HDSPT], ax    ; is most about
     mov ax, [hb_heads]
-    mov [cs:hbm_dosrec + KDH_LB + KDL_HDHDS], ax
+    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_HDHDS], ax
     pop ax
     jmp short .vkind
 .vbios:
@@ -2654,18 +2654,18 @@ hbm_dosrun:
 .vkind:
     mov al, DVK_BIOS
 .vput:
-    mov [cs:di], ax             ; kind, unit
-    mov [cs:di+2], cx           ; ...base
-    mov [cs:di+4], dx
+    CSDO mov [CSEG di], ax             ; kind, unit
+    CSDO mov [CSEG di+2], cx           ; ...base
+    CSDO mov [CSEG di+4], dx
     add bx, DV_SIZE
     add bp, 4
     add di, KDL_VROW
     inc si
     cmp si, KDL_VMAX
     jb .vrow
-    mov byte [cs:hbm_dosrec + KDH_LB + KDL_NVOL], KDL_VMAX
+    CSDO mov byte [CSEG hbm_dosrec + KDH_LB + KDL_NVOL], KDL_VMAX
     mov al, [dsk_bootvol]
-    mov [cs:hbm_dosrec + KDH_LB + KDL_BOOTV], al
+    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_BOOTV], al
 
     ; --- 2. stand where DOS.O88 is, and find it -----------------------------
     call hbm_vbn                        ; hbm_enter's first half: bank where
@@ -2696,12 +2696,13 @@ hbm_dosrun:
     call hbm_cb                 ; 18.4), not out of the global listing: one
     jc .b3                      ; far call where find-then-stage was two, and
 %ifdef KERN_MEGA
-    mov [cs:hbm_dosrec + KDH_LB + KDL_O88CL], bx    ; ...and WHERE DOS.O88 IS,
+    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_O88CL], bx    ; ...and WHERE DOS.O88 IS,
     mov al, [cs:hbm_dosrec + KDH_VOL]               ; for the HMA kern_dos to
-    mov [cs:hbm_dosrec + KDH_LB + KDL_O88V], al     ; read part 3 off it on a
+    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_O88V], al     ; read part 3 off it on a
                                         ; refused EXEPACK switch (96.40.9.1).
-                                        ; `cs:` through mega_gpw, as step 3c's
-                                        ; own writes are
+                                        ; CSDO, as step 3c's own writes are:
+                                        ; each was a mega_gpw fixup until
+                                        ; KERN-MEGA-PLAN 14.46
 %endif
     push bx                     ; BX is the entry's first cluster - NOT the
                                 ; FAT record's own 26 (SPEC.md 96.37.1 item 4).
@@ -3184,15 +3185,15 @@ hbm_extat:
     xor di, di
     mov word [hb_nx], 0
     mov si, ax                  ; SI = the cluster in hand
-    mov [cs:hbm_xskip], cx
-    mov [cs:hbm_xtake], bx
+    CSDO mov [CSEG hbm_xskip], cx
+    CSDO mov [CSEG hbm_xtake], bx
 .clus:
     mov al, [dsk_spc]
     xor ah, ah
     mov dx, ax                  ; DX = this cluster's sectors
     cmp [cs:hbm_xskip], dx
     jb .here                    ; the part starts inside this cluster
-    sub [cs:hbm_xskip], dx      ; ...or past it: step over, reading nothing
+    CSDO sub [CSEG hbm_xskip], dx      ; ...or past it: step over, reading nothing
     jmp .next                   ; (near: SPEC.md 18.7.5's high word took the
 .here:                          ; short one out of reach)
     mov ax, si
@@ -3203,7 +3204,7 @@ hbm_extat:
     mov bx, [dsk_c2hi]          ; ...in 32 bits: the volume-relative LBA's own
     adc bx, 0                   ; high word (SPEC.md 18.7.5)
     sub dx, [cs:hbm_xskip]      ; DX = sectors of this cluster we want
-    mov word [cs:hbm_xskip], 0
+    CSDO mov word [CSEG hbm_xskip], 0
     add ax, [hb_base]           ; DX:AX would be the absolute LBA, and the
     adc bx, [hb_base + 2]       ; high half is BX because DX is in use
     cmp dx, [cs:hbm_xtake]
@@ -3229,9 +3230,9 @@ hbm_extat:
 .grown:
     add ax, dx
     adc bx, 0
-    mov [cs:hbm_nextlo], ax
-    mov [cs:hbm_nexthi], bx
-    sub [cs:hbm_xtake], dx
+    CSDO mov [CSEG hbm_nextlo], ax
+    CSDO mov [CSEG hbm_nexthi], bx
+    CSDO sub [CSEG hbm_xtake], dx
     jz .done
 .next:
     mov ax, si
@@ -3400,7 +3401,7 @@ hbm_xcap:
 .cap:
     mov bx, HS_XSTRIDE          ; ...as bytes, for the walk's own stop test
     mul bx
-    mov [cs:hbm_xlim], ax
+    CSDO mov [CSEG hbm_xlim], ax
     add ax, 1023                ; ...and as whole KB, for the claim
     mov cl, 10
     shr ax, cl
@@ -4309,7 +4310,11 @@ hbm_wake:
     jz .clkdone                 ; 0xFFFFFFFF: the clock above is current
     push es
     xor bx, bx
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                ; (segment 0 is the NULL selector there)
+%else
     mov es, bx
+%endif
     mov bx, [es:0x046C]         ; the ROM's own tick, now
     mov cx, [es:0x046E]
     pop es

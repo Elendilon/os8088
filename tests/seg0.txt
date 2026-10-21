@@ -20,7 +20,7 @@
 4 kernel/kernel.asm  # kmain's boot timer, read at the first desktop frame - before mega_enter - and BOOT_MARK=1's three (a knob)
 3 kernel/mega.inc  # mega_a20t, the A20 probe mega_enter runs before it switches; and mega_capon/mega_capoff, which swap IVT entries inside an IRQ reflection's real-mode window
 1 kernel/hbstub.inc  # the hibernate resume stub, run with no kernel at all
-4 kernel/hiber.inc  # HIBER.DRV (.modh), real mode by design and replaced on kern_mega (KERN-MEGA-PLAN 2.6)
+3 kernel/hiber.inc  # HIBER.DRV (.modh), real mode by design and replaced on kern_mega (KERN-MEGA-PLAN 2.6) - -1 for hbm_wake's ROM tick, which kern_mega reads in protected mode at every return from a DOS trip (MEGA_SEG0, KERN-MEGA-PLAN 14.46)
 
 # --- sentinels: ES = 0 as "none", never read through ----------------------------
 1 kernel/stikmenu.inc  # stm_a_launch: ES = 0, no document, for ldf_ld_pkg_start

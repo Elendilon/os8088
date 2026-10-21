@@ -6793,6 +6793,15 @@ mega_ldt_free:
     mov word [es:di+4], 0
     mov word [es:di+6], 0
     popf
+    push bp                         ; THE CALLER'S ES MAY BE THIS SELECTOR -
+    mov bp, sp                      ; a claim freed with ES still on it, which
+    mov di, [bp+2]                  ; PiXEL's Blur and Sepia do: the pop below
+    xor di, ax                      ; then loaded a free entry, #GP that
+    and di, 0xFFFC                  ; mega_gpfix's .stale arm turned into the
+    jnz .kept                       ; NULL selector, a trap a free. It gets
+    mov [bp+2], di                  ; that NULL here instead (KERN-MEGA-PLAN
+.kept:                              ; 14.46)
+    pop bp
     clc
     jmp short .out
 .no:

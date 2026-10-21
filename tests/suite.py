@@ -14130,6 +14130,20 @@ SOAK = [
                "build/flta.o88", "build/fltb.o88", "build/fltc.o88",
                "build/fltd.o88", "build/flte.o88", "build/fltf.o88",
                "build/fltz.o88")),
+    Row("megaown", "soak", py("tests/megaown.py"), 100.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.15's open item, 14.46: on kern_mega "
+        "the extended pool's compaction moves a package's OWN region while "
+        "that package is the caller. Under Bochs at 2MB, MEGAHOLE holds "
+        "three 60KB pool claims and closes itself, leaving a hole under "
+        "MEGAOWN's region; MEGAOWN fills the pool, frees every other block "
+        "and claims 64KB from its own wake handler. Its region must be at a "
+        "lower offset after the claim, every block's stamps and its own bss "
+        "and code must read back, and a second callback must say the same. "
+        "The failing case is mx_compactf pinning a package region, which "
+        "leaves it where it was. 100s is 82 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megahole.o88", "build/megaown.o88")),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
         "it interrupted. SeaBIOS serves int 13h and int 16h on a stack of its "

@@ -12652,6 +12652,18 @@ $(BUILD)/megahib.bin: tests/megahib/megahib.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megahib/megahib.asm
 $(BUILD)/megahib.o88: $(BUILD)/megahib.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megahib.bin -o $@
+# MEGAOWN and MEGAHOLE (tests/megaown): a package's OWN region moved by the
+# pool's compaction while that package is the caller (KERN-MEGA-PLAN 14.15's
+# open item, 14.46) - MEGAHOLE holds pool below MEGAOWN and gives it back,
+# then MEGAOWN's 64KB claim compacts across the hole under its region
+$(BUILD)/megaown.bin: tests/megaown/megaown.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megaown/megaown.asm
+$(BUILD)/megaown.o88: $(BUILD)/megaown.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megaown.bin -o $@
+$(BUILD)/megahole.bin: tests/megaown/megaown.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -DMO_HOLE -o $@ tests/megaown/megaown.asm
+$(BUILD)/megahole.o88: $(BUILD)/megahole.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megahole.bin -o $@
 megarun: $(BUILD)/megarun.o88 $(BUILD)/megaxm.o88 $(BUILD)/megahib.o88 $(BUILD)/mega.img
 .PHONY: megarun
 
