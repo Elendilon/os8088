@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "c4c9349052a80730a953b367da9bffb1710b08bef6e4d121a1ef37f725c99ab9",
+  "fingerprint": "c496a5d5ecf6accbb339a9d343931b56e993b844dc9183195170739a057bec24",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "f5c28e1dfc1cd6de49863d1ce9594cf3836b07ae04c40090564ac70ca74a0ca8",
+  "fingerprint": "7b4c1e0ef60c49ef0c6d96960eb6ba2cba2863c330add12789e79a3dd1221795",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -609,6 +609,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "merge: OSAPI_MEM_SUBSEG's BL bit 1 window length (14.48) beside 14.41's HUGE BX=8000h, both additive",
+   "to": 11
+  },
+  {
+   "fingerprint": "7b4c1e0ef60c49ef0c6d96960eb6ba2cba2863c330add12789e79a3dd1221795",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_HUGE BX=8000h: a claim with windows 32KB apart moves 64KB at a time with the package's rate hook held off (KERN-MEGA-PLAN 14.49); a comment, no cell or contract a built package relies on changed",
+   "to": 10
+  },
+  {
+   "fingerprint": "c496a5d5ecf6accbb339a9d343931b56e993b844dc9183195170739a057bec24",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_HUGE BX=8000h: a claim with windows 32KB apart moves 64KB at a time with the package's rate hook held off (KERN-MEGA-PLAN 14.49); a comment, no cell or contract a built package relies on changed",
    "to": 11
   }
  ]

@@ -4506,8 +4506,10 @@ mega_hibnc:
 ; x k, cut at the claim's end - OSAPI_XMEM_RUN's shape on a claim that moves,
 ; so a reader of records of 32KB or less finds ANY of them whole in the window
 ; at (offset >> 15), at (offset & 7FFFh). MX_FH32 says so; mx_unsel frees
-; (KB + 31) / 32 selectors, the regrow refuses it, and a move is ONE step with
-; interrupts off (the odd windows cross a 64KB piece: mx_cpmove's own rule)
+; (KB + 31) / 32 selectors, the regrow refuses it, and a move takes 64KB
+; pieces with FSXF_RATE's hook held off throughout (the odd windows cross
+; every cut: mx_cpflags, KERN-MEGA-PLAN 14.49) - one step with interrupts
+; off only while the package has a sample ISR open
 ;
 ; The pieces are contiguous because the block is: a selector's base is the
 ; block's plus 64KB x its index, and its limit 64KB - 1 but the last's, which
@@ -4569,13 +4571,13 @@ mega_hugef:
     popf
     lea bp, [di+4]                  ; BP = the first selector (TI = 1)
     call mega_mxat                  ; DI = the block's entry
-    mov [di+MX_SEL], bp
-    or byte [di+MX_FL], MX_FHUGE
+    mov [ss:di+MX_SEL], bp
+    or byte [ss:di+MX_FL], MX_FHUGE
     mov dx, bp
     mov cx, 8
     cmp si, 0x8000
     jne .ok
-    or byte [di+MX_FL], MX_FH32
+    or byte [ss:di+MX_FL], MX_FH32
     mov bp, sp
     mov word [ss:bp+8], 0           ; the caller's BX: 0, the ask was met
 .ok:
@@ -4698,11 +4700,11 @@ mega_mxat:
     or ax, dx                       ; AX = the block's KB from the pool
     mov di, mx_tab
 .f:
-    cmp word [di+MX_KB], 0
+    cmp word [ss:di+MX_KB], 0
     je .fn
-    cmp [di+MX_OFF], ax
+    cmp [ss:di+MX_OFF], ax
     jne .fn
-    cmp [di+MX_OWN], bl
+    cmp [ss:di+MX_OWN], bl
     je .fs
 .fn:
     add di, MX_BLKSZ
@@ -4757,11 +4759,11 @@ mega_xmrunf:
     pop dx
     mov di, mx_tab
 .f:
-    cmp word [di+MX_KB], 0
+    cmp word [ss:di+MX_KB], 0
     je .fn
-    cmp [di+MX_OFF], ax
+    cmp [ss:di+MX_OFF], ax
     jne .fn
-    cmp [di+MX_OWN], bl
+    cmp [ss:di+MX_OWN], bl
     je .fs
 .fn:
     add di, MX_BLKSZ
@@ -4769,11 +4771,11 @@ mega_xmrunf:
     jb .f
     jmp .not
 .fs:
-    cmp word [di+MX_SEL], 0
+    cmp word [ss:di+MX_SEL], 0
     je .fs1
     jmp .not                        ; (a selector already: one view a block)
 .fs1:
-    mov bp, [di+MX_KB]              ; BP = KB
+    mov bp, [ss:di+MX_KB]              ; BP = KB
     mov cx, bp
     add cx, 31
     shr cx, 1
@@ -4832,7 +4834,7 @@ mega_xmrunf:
     pop di
     mov ax, dx
     or al, 1                        ; MX_SEL: the run, marked
-    mov [di+MX_SEL], ax
+    mov [ss:di+MX_SEL], ax
     mov cx, 8
     clc
     jmp short .out
@@ -4867,7 +4869,7 @@ mega_xmrunf:
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mx_runcntf:
     dec ax
-    mov cx, [si+MX_KB]
+    mov cx, [ss:si+MX_KB]
     add cx, 31
     shr cx, 1
     shr cx, 1
@@ -5828,29 +5830,11 @@ mega_mdesc:
     ret
 
 ; mega_lincopy - CX bytes (even, 2..65534) from linear [mega_xsrc] to linear
-; [mega_xdst], DS = KDATA. Clobbers AX BX CX DX SI DI; DS and ES preserved
+; [mega_xdst], DS = KDATA. Clobbers AX BX CX DX SI DI; DS and ES preserved.
+; The body is `.mega`'s (mx_lcopyf, KERN-MEGA-PLAN 14.49): these four bytes
+; are what `.text` keeps, for mega_coldup and HIBER.DRV's near callers
 mega_lincopy:
-    mov bx, MEGA_SEL_XA
-    mov ax, [mega_xsrc]
-    mov dx, [mega_xsrc+2]
-    call mega_xdesc
-    mov bx, MEGA_SEL_XB
-    mov ax, [mega_xdst]
-    mov dx, [mega_xdst+2]
-    call mega_xdesc
-    push ds
-    push es
-    mov ax, MEGA_SEL_XA
-    mov ds, ax
-    mov ax, MEGA_SEL_XB
-    mov es, ax
-    xor si, si
-    xor di, di
-    shr cx, 1
-    cld
-    rep movsw
-    pop es
-    pop ds
+    call MEGA_SEL_CODE:mx_lcopyf
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5932,15 +5916,32 @@ MX_FH32     equ 2                   ; ...with MX_FHUGE: a window every 32KB,
 MX_SEL      equ 6                  ; word: OSAPI_XMEM_SEL's selector over a
                                     ; window of this block, 0 = none - freed
                                     ; with the block (mx_free, mx_relall)
-MX_NBLK     equ XM_MAX_BLKS + 16    ; entries: XMEM.DRV's eight for packages
-                                    ; and room for the KERNEL's own blocks
-                                    ; (the read-ahead store and the module
-                                    ; pairs, MX_KOWN), which would otherwise
-                                    ; leave a package two
+MX_NBLK     equ 96                  ; entries (KERN-MEGA-PLAN 14.49): every
+                                    ; pool claim, region, driver image and
+                                    ; kernel block is one. Nine programs and
+                                    ; SOUND.DRV take 35 under Bochs (Word,
+                                    ; Scribe, the Video Player, Paint,
+                                    ; Sheet, Tracker, Note Pad, TexPad,
+                                    ; Calculator), where 24 ran out; a full
+                                    ; INST_MAX of twelve is ~60. 8 bytes of
+                                    ; LOW_SEG each, none of the segment
 
 ; mega_xminit - the pool behind the cells, from mega_enter
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_xminit:
+    push cx                         ; the table empty: .lowbss is not zeroed
+    push di                         ; at boot, and every entry with a KB of
+    push es                         ; 0 is a free one
+    push ss
+    pop es
+    mov di, mx_tab
+    mov cx, MX_NBLK * MX_BLKSZ / 2
+    xor ax, ax
+    cld
+    rep stosw
+    pop es
+    pop di
+    pop cx
     mov ax, [mega_extkb]
     sub ax, (MEGA_XPOOL - 0x100000) / 1024
     jbe .none
@@ -5964,8 +5965,8 @@ mx_caps:
     xor bl, bl
     mov si, mx_tab
 .scan:
-    sub ax, [si+MX_KB]
-    cmp word [si+MX_KB], 0
+    sub ax, [ss:si+MX_KB]
+    cmp word [ss:si+MX_KB], 0
     jne .next
     inc bl
 .next:
@@ -6001,7 +6002,7 @@ mx_alloc:
     add di, MX_BLKSZ
     cmp di, mx_tab_end
     jae .full
-    cmp word [di+MX_KB], 0
+    cmp word [ss:di+MX_KB], 0
     jne .fscan
     xor bp, bp                      ; the candidate, KB from the base
     cmp bl, MX_KOWN                 ; the kernel's OWN blocks come from the
@@ -6016,13 +6017,13 @@ mx_alloc:
     ja .norun
     mov si, mx_tab
 .scan:
-    mov ax, [si+MX_KB]
+    mov ax, [ss:si+MX_KB]
     or ax, ax
     jz .snext
-    add ax, [si+MX_OFF]
+    add ax, [ss:si+MX_OFF]
     cmp bp, ax
     jae .snext
-    cmp [si+MX_OFF], dx
+    cmp [ss:si+MX_OFF], dx
     jae .snext
     xchg bp, ax
     jmp short .restart
@@ -6033,11 +6034,11 @@ mx_alloc:
 .take:
     pushf
     cli
-    mov word [di+MX_SEL], 0
-    mov [di+MX_OFF], bp
-    mov [di+MX_KB], cx
+    mov word [ss:di+MX_SEL], 0
+    mov [ss:di+MX_OFF], bp
+    mov [ss:di+MX_KB], cx
     mov bh, 0
-    mov [di+MX_OWN], bx             ; ...and MX_FL clear
+    mov [ss:di+MX_OWN], bx             ; ...and MX_FL clear
     popf
     mov ax, bp
     mov dx, bp
@@ -6056,15 +6057,15 @@ mx_alloc:
     add dx, cx
     mov si, mx_tab
 .tscan:
-    mov ax, [si+MX_KB]
+    mov ax, [ss:si+MX_KB]
     or ax, ax
     jz .tnext
-    add ax, [si+MX_OFF]
+    add ax, [ss:si+MX_OFF]
     cmp bp, ax
     jae .tnext
-    cmp [si+MX_OFF], dx
+    cmp [ss:si+MX_OFF], dx
     jae .tnext
-    mov bp, [si+MX_OFF]
+    mov bp, [ss:si+MX_OFF]
     sub bp, cx
     jc .norun
     jmp short .trestart
@@ -6113,15 +6114,15 @@ mx_free:
     pushf
     cli
 .scan:
-    cmp word [si+MX_KB], 0
+    cmp word [ss:si+MX_KB], 0
     je .next
-    cmp [si+MX_OFF], ax
+    cmp [ss:si+MX_OFF], ax
     jne .next
-    cmp [si+MX_OWN], bl
+    cmp [ss:si+MX_OWN], bl
     jne .next
     call mx_unsel                   ; its OSAPI_XMEM_SEL selector goes too
-    mov word [si+MX_KB], 0
-    mov byte [si+MX_OWN], 0xFF
+    mov word [ss:si+MX_KB], 0
+    mov byte [ss:si+MX_OWN], 0xFF
     popf
     jmp short .out
 .next:
@@ -6144,11 +6145,11 @@ mx_relall:
     cli
     mov si, mx_tab
 .scan:
-    cmp [si+MX_OWN], al
+    cmp [ss:si+MX_OWN], al
     jne .next
     call mx_unsel
-    mov word [si+MX_KB], 0
-    mov byte [si+MX_OWN], 0xFF
+    mov word [ss:si+MX_KB], 0
+    mov byte [ss:si+MX_OWN], 0xFF
 .next:
     add si, MX_BLKSZ
     cmp si, mx_tab_end
@@ -6176,7 +6177,7 @@ mx_unsel:
     push ax
     push cx
     xor ax, ax
-    xchg ax, [si+MX_SEL]
+    xchg ax, [ss:si+MX_SEL]
     or ax, ax
     jz .none
     mov cx, 1
@@ -6185,11 +6186,11 @@ mx_unsel:
     call MEGA_SEL_CODE:mx_runcntf    ; segment binding on kern_mega
     jmp short .l
 .nrun:
-    test byte [si+MX_FL], MX_FHUGE  ; A RUN (OSAPI_MEM_HUGE, mega_hugef): a
+    test byte [ss:si+MX_FL], MX_FHUGE  ; A RUN (OSAPI_MEM_HUGE, mega_hugef): a
     jz .l                       ; selector per 64KB, consecutive - a
-    mov cx, [si+MX_KB]          ; package's or a driver's. Every other block
+    mov cx, [ss:si+MX_KB]          ; package's or a driver's. Every other block
                                 ; has the one selector it was given
-    test byte [si+MX_FL], MX_FH32   ; (or one per 32KB, KERN-MEGA-PLAN 14.41)
+    test byte [ss:si+MX_FL], MX_FH32   ; (or one per 32KB, KERN-MEGA-PLAN 14.41)
     jz .h64
     add cx, 31
     shr cx, 5
@@ -6207,8 +6208,8 @@ mx_unsel:
     ret
 ; ...and the FAR doors into .text for mega_hugef and mx_compactf (.cold)
 section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
-mega_lincopyf:
-    call mega_lincopy
+mega_lincopyf:                      ; (mega_lincopy's far door: the body is
+    call MEGA_SEL_CODE:mx_lcopyf    ; `.mega`'s, KERN-MEGA-PLAN 14.49)
     retf
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mx_allocf:
@@ -6277,14 +6278,14 @@ mega_xmsel:
     or ax, dx                       ; AX = the first KB past the window
     mov di, mx_tab
 .scan:
-    cmp word [di+MX_KB], 0
+    cmp word [ss:di+MX_KB], 0
     je .next
-    cmp [di+MX_OWN], bl
+    cmp [ss:di+MX_OWN], bl
     jne .next
-    mov dx, [di+MX_OFF]
+    mov dx, [ss:di+MX_OFF]
     cmp dx, si
     ja .next                        ; the block starts after the window...
-    add dx, [di+MX_KB]
+    add dx, [ss:di+MX_KB]
     cmp dx, ax
     jae .found                      ; ...or ends at or after its end: ours
 .next:
@@ -6299,7 +6300,7 @@ mega_xmsel:
     mov dx, [mxs_hi]                ; DX:AX = the descriptor's base
     mov cx, [mxs_len]
     dec cx                          ; ...and its limit (0 - 1 = 64KB)
-    mov si, [di+MX_SEL]
+    mov si, [ss:di+MX_SEL]
     or si, si
     jz .new
     test si, 1                      ; (an OSAPI_XMEM_RUN: it is not one
@@ -6324,7 +6325,7 @@ mega_xmsel:
     mov bl, 0x92                    ; (BL is spent: the scan is done)
     call mega_ldt_alloc             ; AX = the selector
     jc .noldt
-    mov [di+MX_SEL], ax
+    mov [ss:di+MX_SEL], ax
     jmp short .out
 .noldt:
     mov ax, 1                       ; no LDT entry free
@@ -6449,14 +6450,14 @@ mx_chk:
     jc .no
     mov si, mx_tab
 .scan:
-    cmp [si+MX_OWN], bl
+    cmp [ss:si+MX_OWN], bl
     jne .next
-    cmp word [si+MX_KB], 0
+    cmp word [ss:si+MX_KB], 0
     je .next
-    mov cx, [si+MX_OFF]
+    mov cx, [ss:si+MX_OFF]
     cmp cx, ax
     ja .next
-    add cx, [si+MX_KB]
+    add cx, [ss:si+MX_KB]
     cmp cx, di
     jae .out
 .next:
@@ -6918,14 +6919,14 @@ mega_xmwalk:
     cli
 .l:
     jcxz .done
-    cmp word [si+MX_KB], 0
+    cmp word [ss:si+MX_KB], 0
     je .n
     push ax
-    mov ax, [si+MX_OFF]
+    mov ax, [ss:si+MX_OFF]
     stosw
-    mov ax, [si+MX_KB]
+    mov ax, [ss:si+MX_KB]
     stosw
-    mov al, [si+MX_OWN]
+    mov al, [ss:si+MX_OWN]
     xor ah, ah
     stosw
     pop ax
@@ -7286,9 +7287,9 @@ mx_compactf:
     xor di, di                      ; DI = the next block, CX its offset
     mov cx, 0xFFFF
 .scan:
-    cmp word [si+MX_KB], 0
+    cmp word [ss:si+MX_KB], 0
     je .sn
-    mov ax, [si+MX_OFF]
+    mov ax, [ss:si+MX_OFF]
     cmp ax, bx
     jb .sn
     cmp ax, cx
@@ -7303,16 +7304,11 @@ mx_compactf:
     jz .done
     mov bx, cx                      ; the next visit is past this block
     inc bx
-    mov al, [di+MX_OWN]             ; OF ANY SIZE (14.37):
-    cmp al, MX_KDRV                 ; a driver's image,
+    call mx_canmove                 ; OF ANY SIZE (14.37)
     je .mov
-    cmp al, 0x80                    ; a package region (80h | slot), a
-    jb .pin                         ; program's claim (0A0h | slot) or a
-    cmp al, 0xE0                    ; driver's (0C0h | row)
-    jb .mov
 .pin:
     mov ax, cx
-    add ax, [di+MX_KB]
+    add ax, [ss:di+MX_KB]
     cmp ax, bp
     jbe .next
     mov bp, ax
@@ -7324,7 +7320,7 @@ mx_compactf:
     call mx_cpmove                  ; DI's block from CX to BP
     pop bx
 .stay:
-    add bp, [di+MX_KB]
+    add bp, [ss:di+MX_KB]
     jmp short .next
 .done:
     pop es                          ; reloaded: a moved block's selector in ES
@@ -7332,8 +7328,10 @@ mx_compactf:
     retf
 
 ; mx_cpmove - DI = an mx_tab entry, CX = where it is (KB from the pool base),
-; BP = where it goes: BELOW CX (the two may overlap) or clear of it on either
-; side. Its bytes are copied and every descriptor over them rebased, and
+; BP = where it goes, below or above it and overlapping it or not: a rise
+; takes the pieces and their chunks from the TOP down and copies each from its
+; end (KERN-MEGA-PLAN 14.49), so either way a copy only ever overwrites bytes
+; of pieces already moved, or of the one it is. Its bytes are copied and every descriptor over them rebased, and
 ; MX_OFF = BP after (KERN-MEGA-PLAN 14.15, 14.37). A PIECE AT A TIME, 64KB
 ; or less where it can be: each piece's copy and the rebase of every LDT
 ; descriptor whose base is in it are one step with interrupts off, and
@@ -7347,9 +7345,23 @@ mx_compactf:
 ; pieces as it must past 64KB when descriptors overlap - a block of 64KB or
 ; less is one step, as it always was. In 512-byte units, the parts' own
 ; grid (SPEC.md 20.12.2), so two parts sharing a KB still cut between them.
-; mega_slidef's GDT scratch is
+; THE ONE BLOCK WHOSE CUTS ARE ALL CROSSED is an MX_FH32 claim (the Video
+; Player's ring, 14.41), and a package's is cut every 64KB anyway, with its
+; windows half-moved between pieces and FSXF_RATE's hook - the only code that
+; could read them - held off until the last piece (mx_cpflags says why that is
+; all of it). mega_slidef's GDT scratch is
 ; rebased at the end: only a TASK loads it, and no other task runs under the
 ; [sch_lock] mx_alloc holds. Clobbers AX BX CX DX SI ES
+MX_CPRISE   equ 1                   ; mx_cpmove's [bp+4]: the block goes UP -
+                                    ; pieces and chunks from the top down,
+                                    ; each copied from its end (KERN-MEGA-PLAN
+                                    ; 14.49), so a destination above an
+                                    ; overlapping source reads nothing it has
+                                    ; written
+MX_CPHOLD   equ 2                   ; ...a package's MX_FH32 claim, whose odd
+                                    ; windows cross every cut: cut every 64KB
+                                    ; anyway, with FSXF_RATE's hook held off
+                                    ; for the whole move (mx_cpflags)
 mx_cpmove:
     push di                         ; [bp+16] the entry
     push bp                         ; [bp+14] where it goes
@@ -7364,23 +7376,57 @@ mx_cpmove:
     call mx_kblin
     push dx                         ; [bp+8] the old base, 24 bits
     push ax                         ; [bp+6]
-    push ax                         ; [bp+4] (spare)
-    mov ax, [di+MX_KB]
+    call mx_cpflags
+    push ax                         ; [bp+4] MX_CPRISE | MX_CPHOLD
+    mov ax, [ss:di+MX_KB]
     shl ax, 1
     push ax                         ; [bp+2] its size in 512-BYTE UNITS (a
                                     ; part of a re-homed carve starts on
                                     ; one, SPEC.md 20.12.2; 14.48)
     push ax                         ; [bp+0] this piece's units (mx_pcut's)
     mov bp, sp
+    test byte [bp+4], MX_CPHOLD
+    jz .h0
+    inc byte [sch_rbusy]            ; the hook HELD: sch_rhook skips while
+.h0:                                ; this is up, its periods owed in
+                                    ; [sch_rpend] for the call after
     xor bx, bx                      ; BX = the piece's first unit in the block
+    test byte [bp+4], MX_CPRISE
+    jz .piece
+    mov bx, [bp+2]                  ; (a rise: BX = the first piece's END)
 .piece:
+    test byte [bp+4], MX_CPRISE
+    jnz .rcut
     call mx_pcut                    ; [bp+0] = where no descriptor is cut
+    jmp short .cut
+.rcut:
+    call mx_pcutr                   ; ...the same, cut below its end
+    sub bx, [bp+0]                  ; BX = its first unit
+.cut:
+%ifdef MEGA_TRAPLOG
+    inc byte [bp+5]                 ; (MEGATRAP=1: the pieces, for the M line)
+%endif
     pushf
     cli
-    mov cx, [bp+0]                  ; CX = this piece's units
-    mov si, bx                      ; SI = the unit being copied, in the block
-.chunk:                             ; 32KB at a time, upward: a destination
-    mov ax, si                      ; below reads nothing it has written
+    mov cx, [bp+0]                  ; CX = this piece's units still to copy
+.chunk:                             ; 32KB at a time
+    mov ax, cx
+    cmp ax, 64
+    jbe .last
+    mov ax, 64                      ; AX = this chunk's units
+.last:
+    mov si, bx
+    test byte [bp+4], MX_CPRISE
+    jnz .rise
+    add si, [bp+0]                  ; upward from the piece's start: a
+    sub si, cx                      ; destination below reads nothing it
+    jmp short .at                   ; has written
+.rise:
+    add si, cx                      ; a rise: downward from its top
+    sub si, ax
+.at:                                ; SI = the chunk's first unit
+    push ax
+    mov ax, si
     mov dx, si
     shl ax, 9
     shr dx, 7                       ; DX:AX = its offset in the block
@@ -7392,25 +7438,24 @@ mx_cpmove:
     sbb dx, [bp+12]
     mov [mega_xdst], ax
     mov [mega_xdst+2], dx
-    mov ax, cx
-    cmp ax, 64
-    jbe .last
-    mov ax, 64
-.last:
+    pop ax
     push ax
     push cx
-    push si
     push bx
     push bp
     mov cx, ax
     shl cx, 9                       ; bytes (32KB at most: no 64KB wrap)
-    call KERNEL_SEG:mega_lincopyf
+    test byte [bp+4], MX_CPRISE
+    jnz .back
+    call mx_lcopy
+    jmp short .cd
+.back:
+    call mx_lcopyb
+.cd:
     pop bp
     pop bx
-    pop si
     pop cx
     pop ax
-    add si, ax
     sub cx, ax
     jnz .chunk
     mov ax, MEGA_SEL_LDTD           ; --- this piece's descriptors -------
@@ -7421,9 +7466,23 @@ mx_cpmove:
     add dx, [bp+0]                  ; (never past its end, mx_pcut's rule:
     call mx_desc                    ; the next block's descriptors start there)
     popf                            ; ...and an interrupt may come in
+    test byte [bp+4], MX_CPRISE
+    jnz .rnext
     add bx, [bp+0]
     cmp bx, [bp+2]
     jb .piece
+    jmp short .moved
+.rnext:
+    or bx, bx                       ; (a rise: the next piece ends where
+    jnz .piece                      ; this one began)
+.moved:
+%ifdef MEGA_TRAPLOG
+    call mx_cplog
+%endif
+    test byte [bp+4], MX_CPHOLD
+    jz .h1
+    dec byte [sch_rbusy]            ; every window whole again: the hook
+.h1:                                ; runs at the next period, owed them all
     mov ax, MEGA_SEL_WIN            ; --- mega_slidef's scratch, the GDT's --
     mov es, ax
     mov si, MEGA_SEL_SLD
@@ -7433,11 +7492,237 @@ mx_cpmove:
     call mx_desc
     mov ax, [bp+14]
     mov di, [bp+16]
-    mov [di+MX_OFF], ax             ; ...and the table says where it is now
+    mov [ss:di+MX_OFF], ax          ; ...and the table says where it is now
     add sp, 14
     pop bp
     pop di
     ret
+
+%ifdef MEGA_TRAPLOG
+; mx_cplog - MEGATRAP=1: one E9 line per move, 'M kkkk pp ff' - the block's
+; KB, the interrupts-off steps it took and mx_cpmove's flags (1 a rise, 2 the
+; hook held), KERN-MEGA-PLAN 14.49. Clobbers nothing
+mx_cplog:
+    push ax
+    mov al, 'M'
+    call mm_putc
+    mov al, ' '
+    call mm_putc
+    mov ax, [bp+2]
+    shr ax, 1
+    call mm_hex4
+    mov al, ' '
+    call mm_putc
+    mov al, [bp+5]
+    call mm_hex2
+    mov al, ' '
+    call mm_putc
+    mov al, [bp+4]
+    call mm_hex2
+    mov al, 10
+    call mm_putc
+    pop ax
+    ret
+%endif
+
+; mx_cpflags - for mx_cpmove: DI = the entry, CX = where it is, BP = where it
+; goes -> AX = MX_CPRISE when BP is above CX, | MX_CPHOLD for a package's
+; MX_FH32 claim (KERN-MEGA-PLAN 14.49). Its windows are 64KB every 32KB, so
+; every cut is crossed and mx_pcut alone would make the whole claim ONE
+; interrupts-off step - ~80 ms for the Video Player's 512KB ring on a 12 MHz
+; 286. No TASK runs during a move (mx_alloc's [sch_lock]), and the only code
+; that reads a package's claim from an ISR is the package's own FSXF_RATE
+; hook, which mx_cpmove holds off, and its sample ISR (SPEC.md 34.11), which
+; it cannot: with one open the claim moves in one step, as it did. A
+; driver's (0C0h | row) FH32 claim does too - its own ISRs could read it.
+; Clobbers nothing else
+mx_cpflags:
+    xor ax, ax
+    cmp bp, cx
+    jbe .h
+    mov al, MX_CPRISE
+.h:
+    test byte [ss:di+MX_FL], MX_FH32
+    jz .o
+    cmp byte [ss:di+MX_OWN], 0xA0
+    jb .o
+    cmp byte [ss:di+MX_OWN], 0xC0
+    jae .o
+    cmp word [spk_seg], 0
+    jne .o
+    or al, MX_CPHOLD
+.o:
+    ret
+
+; mx_lcopy / mx_lcopyb - mega_lincopy's body (KERN-MEGA-PLAN 14.49): CX bytes
+; (even, 2..65534) from linear [mega_xsrc] to linear [mega_xdst], DS = KDATA;
+; mx_lcopyb copies from the END down, for a destination ABOVE an overlapping
+; source. XA, XB and the two dwords are ONE pair for the machine, so the
+; caller holds [sch_lock] or IF = 0 from its first store to [mega_xsrc] until
+; this returns - MEGATRAP=1 checks it (mx_lcchk). Clobbers AX BX CX DX SI DI;
+; DS and ES kept
+mx_lcopyf:
+    call mx_lcopy
+    retf
+mx_lcopyb:
+    stc
+    jmp short mx_lcopy.go
+mx_lcopy:
+    clc
+.go:
+    push bp
+    sbb bp, bp                      ; BP = -1 from the end, 0 from the start
+%ifdef MEGA_TRAPLOG
+    call mx_lcchk
+%endif
+    mov bx, MEGA_SEL_XA
+    mov ax, [mega_xsrc]
+    mov dx, [mega_xsrc+2]
+    call KERNEL_SEG:mega_xdescf
+    mov bx, MEGA_SEL_XB
+    mov ax, [mega_xdst]
+    mov dx, [mega_xdst+2]
+    call KERNEL_SEG:mega_xdescf
+    push ds
+    push es
+    mov ax, MEGA_SEL_XA
+    mov ds, ax
+    mov ax, MEGA_SEL_XB
+    mov es, ax
+    shr cx, 1
+    xor si, si
+    or bp, bp
+    jz .f
+    mov si, cx                      ; the last word
+    dec si
+    shl si, 1
+    std
+.f:
+    mov di, si
+    rep movsw
+    cld
+    pop es
+    pop ds
+    pop bp
+    ret
+
+%ifdef MEGA_TRAPLOG
+; mx_lcchk - MEGATRAP=1: mega_lincopy's rule ASSERTED (KERN-MEGA-PLAN 14.49).
+; IF = 0 or [sch_lock] held, else one E9 line - 'L', then the words over
+; mx_lcopy's frame, for a far caller its CS:IP and the word above - and the
+; copy goes on. Clobbers nothing
+mx_lcchk:
+    pushf
+    push ax
+    push bp
+    mov bp, sp                      ; +4 FLAGS +6 mx_lcopy +8 its BP +10 ...
+    test byte [bp+5], 2             ; IF
+    jz .ok
+    cmp byte [sch_lock], 0
+    jne .ok
+    mov al, 'L'
+    call mm_putc
+    mov al, ' '
+    call mm_putc
+    mov ax, [bp+14]
+    call mm_hex4
+    mov al, ':'
+    call mm_putc
+    mov ax, [bp+12]
+    call mm_hex4
+    mov al, ' '
+    call mm_putc
+    mov ax, [bp+16]
+    call mm_hex4
+    mov al, 10
+    call mm_putc
+.ok:
+    pop bp
+    pop ax
+    popf
+    ret
+%endif
+
+; mx_canmove - DI = an mx_tab entry: ZF = 1 the compactor may move it, OF ANY
+; SIZE (14.37) - a driver's image (MX_KDRV), a package region (80h | slot), a
+; program's claim (0A0h | slot) or a driver's (0C0h | row). Clobbers AL
+mx_canmove:
+    mov al, [ss:di+MX_OWN]
+    cmp al, MX_KDRV
+    je .o
+    cmp al, 0x80
+    jb .no
+    cmp al, 0xE0
+    jae .no
+    cmp al, al
+    ret
+.no:
+    cmp al, MX_KDRV                 ; (not equal: ZF = 0)
+.o:
+    ret
+
+; mx_packupf - FAR (OSAPI_MEM_REGROW's last try, KERN-MEGA-PLAN 14.49): AX =
+; a floor, KB from the pool base. Every MOVABLE block at or above it slides
+; UP, packed against the pool's top or the pinned block above it - the
+; DESCENDING half of a compaction, which kern_big's has (SPEC.md 66.4.1) - so
+; the free KB between the floor and the first block above it are every free
+; KB up to the first pinned block. The blocks are taken in DESCENDING order
+; of where they are; a ceiling follows them, a pinned block lowers it to
+; itself, and a movable one rises to end at it (mx_cpmove's rise, which
+; copies from the top down). DS = KDATA, under [sch_lock]. Clobbers nothing
+mx_packupf:
+    pusha
+    push es
+    mov bx, ax                      ; BX = the floor
+    mov bp, [xm_kb]                 ; BP = the ceiling
+    mov dx, 0xFFFF                  ; DX = visit only blocks below this
+.next:
+    mov si, mx_tab
+    xor di, di                      ; DI = the next block, CX its offset
+.scan:
+    cmp word [ss:si+MX_KB], 0
+    je .sn
+    mov ax, [ss:si+MX_OFF]
+    cmp ax, bx
+    jb .sn
+    cmp ax, dx
+    jae .sn
+    or di, di
+    jz .tk
+    cmp ax, cx
+    jbe .sn
+.tk:
+    mov cx, ax
+    mov di, si
+.sn:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .scan
+    or di, di
+    jz .done
+    mov dx, cx                      ; the next visit is below this block
+    call mx_canmove
+    jne .ceil
+    mov ax, bp
+    sub ax, [ss:di+MX_KB]           ; AX = where it ends at the ceiling
+    cmp ax, cx
+    jbe .ceil                       ; (already there)
+    push bx
+    push dx
+    push bp
+    mov bp, ax
+    call mx_cpmove                  ; DI's block from CX up to BP
+    pop bp
+    pop dx
+    pop bx
+    mov cx, [ss:di+MX_OFF]
+.ceil:
+    mov bp, cx                      ; the ceiling is its start now
+    jmp short .next
+.done:
+    pop es                          ; reloaded: a moved block's selector in ES
+    popa                            ; reads the NEW base from here on
+    retf
 
 ; mx_desc - for mx_cpmove's frame at [bp]: every present descriptor at
 ; ES:SI, ES:SI+8, ... below ES:CX whose base lies between unit BX (included)
@@ -7506,6 +7791,8 @@ mx_pcut:
     lea dx, [bx+128]                ; DX = the cut: 64KB on
     cmp dx, [bp+2]
     jae .end                        ; the block's end is never crossed
+    test byte [bp+4], MX_CPHOLD     ; an FH32 claim's windows cross every
+    jnz .set                        ; cut, and nothing reads them (14.49)
     mov ax, MEGA_SEL_LDTD
     mov es, ax
 .dn:                                ; DOWN to a descriptor's start
@@ -7526,6 +7813,40 @@ mx_pcut:
 .set:
     sub dx, bx
     mov [bp+0], dx
+    ret
+
+; mx_pcutr - mx_pcut for a RISE (KERN-MEGA-PLAN 14.49), which mx_cpmove takes
+; from the top down: BX = a piece's END unit -> [bp+0] = its units, cut where
+; no LDT descriptor whose base is in the block runs across - the largest at
+; 64KB or under, failing that the least past it. Clobbers AX CX DX SI DI ES
+mx_pcutr:
+    mov dx, bx
+    sub dx, 128                     ; DX = the cut: 64KB below
+    jbe .zero                       ; (the block's start is never crossed)
+    test byte [bp+4], MX_CPHOLD
+    jnz .set
+    mov ax, MEGA_SEL_LDTD
+    mov es, ax
+.up:                                ; UP to a descriptor's end
+    call mx_xcut
+    jnc .set
+    mov dx, cx
+    cmp dx, bx
+    jb .up
+    mov dx, bx                      ; ...none within 64KB: DOWN to a start
+    sub dx, 128
+.dn:
+    call mx_xcut
+    jnc .set
+    mov dx, ax
+    or dx, dx
+    jnz .dn
+.zero:
+    xor dx, dx
+.set:
+    mov ax, bx
+    sub ax, dx
+    mov [bp+0], ax
     ret
 
 ; mx_xcut - for mx_pcut: CF = 1 when an LDT descriptor whose base is in the
@@ -7630,14 +7951,14 @@ mega_claimfreef:
     jc .no
     mov si, mx_tab
 .l:
-    cmp word [si+MX_KB], 0
+    cmp word [ss:si+MX_KB], 0
     je .n
-    cmp [si+MX_SEL], dx
+    cmp [ss:si+MX_SEL], dx
     jne .n
-    cmp [si+MX_OWN], bl
+    cmp [ss:si+MX_OWN], bl
     jne .n
     push dx
-    mov ax, [si+MX_OFF]             ; its base: the pool's plus KB x 1024
+    mov ax, [ss:si+MX_OFF]             ; its base: the pool's plus KB x 1024
     mov dx, ax
     shl ax, 10
     shr dx, 6
@@ -7665,11 +7986,11 @@ mega_claimfind:
     jc .o
     mov si, mx_tab
 .l:
-    cmp word [si+MX_KB], 0
+    cmp word [ss:si+MX_KB], 0
     je .n
-    cmp [si+MX_SEL], dx
+    cmp [ss:si+MX_SEL], dx
     jne .n
-    cmp [si+MX_OWN], bl
+    cmp [ss:si+MX_OWN], bl
     je .o                           ; (CF = 0: the compare was equal)
 .n:
     add si, MX_BLKSZ
@@ -7687,9 +8008,9 @@ mega_claimkbf:
     push si
     call mega_claimfind
     jc .o
-    test byte [si+MX_FL], MX_FHUGE  ; a run (14.37): the pool's refusal is
+    test byte [ss:si+MX_FL], MX_FHUGE  ; a run (14.37): the pool's refusal is
     jnz .h                          ; final - never moved to conventional
-    mov ax, [si+MX_KB]              ; memory, whose step is not 8
+    mov ax, [ss:si+MX_KB]              ; memory, whose step is not 8
     jmp short .o                    ; (CF = 0: the test)
 .h:
     stc
@@ -7701,7 +8022,7 @@ mega_claimkbf:
 ; mega_mxbase - SI = an mx_tab entry -> DX:AX = its block's linear base.
 ; Clobbers nothing else
 mega_mxbase:
-    mov ax, [si+MX_OFF]
+    mov ax, [ss:si+MX_OFF]
     mov dx, ax
     shl ax, 10
     shr dx, 6
@@ -7715,7 +8036,9 @@ mega_mxbase:
 ; block of the new size, holding the old one's bytes (as many as fit); CF = 1
 ; not done here - not the caller's claim, 0 or over 64KB, no room or no LDT
 ; entry - and nothing changed. A shrink or level is the block's length and the
-; descriptor's limit. A grow is a new block, a SCRATCH selector over it for
+; descriptor's limit. A grow takes the KB above the block where they are free
+; - at once, or once the pool is packed round it (.hpack, KERN-MEGA-PLAN
+; 14.49) if no block of the new size is to be had. Otherwise it is a new block, a SCRATCH selector over it for
 ; the copy, then the two blocks trade selectors - the old block goes back to
 ; mx_free with the scratch one, and the caller's is re-aimed at the new - so
 ; the caller's DS or ES, reloaded on the way out of the cell, names the new
@@ -7737,24 +8060,33 @@ mega_claimregrowf:
     call mega_claimfind             ; SI = the claim's entry, BL = its owner
     jc .no
     inc byte [sch_lock]             ; every base below is used before any
-    test byte [si+MX_FL], MX_FHUGE  ; other task can compact it away
+    test byte [ss:si+MX_FL], MX_FHUGE  ; other task can compact it away
     jz .one
     jmp .huge
 .one:
     cmp bp, 64
     ja .nol
-    cmp bp, [si+MX_KB]
+    cmp bp, [ss:si+MX_KB]
     ja .grow
-    mov [si+MX_KB], bp              ; shrink or level: in place
+    mov [ss:si+MX_KB], bp              ; shrink or level: in place
     call mega_mxbase
-    jmp short .aim
+    jmp .aim
 .grow:
+    call .hroom                     ; the KB above it free: grown in place
+    jnc .ogrow                      ; (KERN-MEGA-PLAN 14.49)
     mov ax, bp
     mov dx, ax
     shl ax, 10
     shr dx, 6                       ; DX:AX = the new size in bytes
     call MEGA_SEL_CODE:mx_allocf                   ; DX:AX = the new block's base
-    jc .nol
+    jnc .gnew
+    call .hpack                     ; no block that size: the pool packed
+    jc .nol                         ; round it, and in place
+.ogrow:
+    mov [ss:si+MX_KB], bp
+    call mega_mxbase
+    jmp .aim
+.gnew:
     push dx
     push ax
     mov cx, bp
@@ -7781,13 +8113,13 @@ mega_claimregrowf:
 .copy:
     push bx
     mov bx, ax                      ; BX = the scratch selector
-    mov cx, [si+MX_KB]              ; the old size: the smaller of the two
+    mov cx, [ss:si+MX_KB]              ; the old size: the smaller of the two
     shl cx, 9                       ; KB -> words
     push si
     push ds
     push es                         ; (ES must not hold the scratch selector
     mov es, bx                      ; when mx_free gives it back)
-    mov ds, [si+MX_SEL]             ; the claim as it stands
+    mov ds, [ss:si+MX_SEL]             ; the claim as it stands
     xor si, si
     xor di, di
     cld
@@ -7797,9 +8129,9 @@ mega_claimregrowf:
     pop si
     mov di, mx_tab                  ; the new block's entry: MX_SEL = scratch
 .fnew:
-    cmp word [di+MX_KB], 0
+    cmp word [ss:di+MX_KB], 0
     je .fnext
-    cmp [di+MX_SEL], bx
+    cmp [ss:di+MX_SEL], bx
     je .swap
 .fnext:
     add di, MX_BLKSZ
@@ -7808,9 +8140,9 @@ mega_claimregrowf:
 .swap:
     pushf
     cli
-    mov ax, [si+MX_SEL]
-    mov [di+MX_SEL], ax             ; the new block takes the caller's...
-    mov [si+MX_SEL], bx             ; ...and the old one the scratch
+    mov ax, [ss:si+MX_SEL]
+    mov [ss:di+MX_SEL], ax             ; the new block takes the caller's...
+    mov [ss:si+MX_SEL], bx             ; ...and the old one the scratch
     popf
     pop bx                          ; BL = the owner again
     call mega_mxbase
@@ -7838,19 +8170,20 @@ mega_claimregrowf:
 ; SI = its entry, BL = its owner, BP = the new KB, ES = anything. The bytes:
 ; a shrink or a level keeps them where they are; a grow takes the KB above
 ; the block if they are free, else moves it into a fresh block of the new
-; size (mx_cpmove: piece by piece, its run following it), else - mx_alloc
-; having packed the pool to refuse - the KB above it again, which that pass
-; may have freed. The selectors: the run is cut or extended where it is, or
+; size (mx_cpmove: piece by piece, its run following it), else the pool is
+; packed down and then, above the claim, UP (.hpack, KERN-MEGA-PLAN 14.49)
+; and the KB above it taken: so a grow is refused only when the pool's free
+; KB below the first pinned block above the claim are short. The selectors: the run is cut or extended where it is, or
 ; when the entries after it are taken, moved to a free run of the new length
 ; and the old one freed - DX is then a NEW first selector, the step still 8.
 ; A refusal (no KB, or no run of LDT entries) leaves MX_KB as it was, and
 ; the claim's bytes and run whole, wherever the pass left them
 .huge:
-    test byte [si+MX_FL], MX_FH32   ; (windows 32KB apart: not regrown, 14.41)
+    test byte [ss:si+MX_FL], MX_FH32   ; (windows 32KB apart: not regrown, 14.41)
     jz .h64
     jmp .nol
 .h64:
-    cmp bp, [si+MX_KB]
+    cmp bp, [ss:si+MX_KB]
     jbe .hsel                       ; a shrink or a level: in place
     call .hroom
     jnc .hsel                       ; the KB above it are free
@@ -7865,31 +8198,31 @@ mega_claimregrowf:
     push bx
     push bp
     push di
-    mov cx, [si+MX_OFF]             ; from
-    mov bp, [di+MX_OFF]             ; to: clear of it, either side
+    mov cx, [ss:si+MX_OFF]             ; from
+    mov bp, [ss:di+MX_OFF]             ; to: clear of it, either side
     mov di, si
     call MEGA_SEL_CODE:mx_cpmovef   ; the claim's bytes there, its run aimed
     pop di
     pop bp
     pop bx
     pop si
-    mov word [di+MX_KB], 0          ; ...and the fresh entry is the claim's
-    mov byte [di+MX_OWN], 0xFF      ; (it has no selector of its own)
+    mov word [ss:di+MX_KB], 0          ; ...and the fresh entry is the claim's
+    mov byte [ss:di+MX_OWN], 0xFF      ; (it has no selector of its own)
     jmp short .hsel
 .hagain:
-    call .hroom                     ; what mx_alloc's pass made of it
+    call .hpack                     ; the pool packed round it (14.49)
     jnc .hsel
 .hnol:
     jmp .nol
 .hsel:                              ; --- the selectors, for BP KB --------
     mov ax, MEGA_SEL_LDTD
     mov es, ax
-    mov cx, [si+MX_KB]
+    mov cx, [ss:si+MX_KB]
     call mega_hgcnt
     mov ax, cx                      ; AX = the run's length now
     mov cx, bp
     call mega_hgcnt                 ; CX = the length it needs
-    mov di, [si+MX_SEL]
+    mov di, [ss:si+MX_SEL]
     and di, 0xFFF8                  ; DI = its first entry
     cmp cx, ax
     jae .hlong
@@ -7898,7 +8231,7 @@ mega_claimregrowf:
     sub ax, cx
     xchg ax, cx                     ; CX = the entries to free
     shl ax, 3
-    add ax, [si+MX_SEL]             ; AX = the first of them
+    add ax, [ss:si+MX_SEL]             ; AX = the first of them
 .hcut:
     call MEGA_SEL_CODE:mega_ldt_freef
     add ax, 8
@@ -7925,7 +8258,7 @@ mega_claimregrowf:
     push cx                         ; ...and the old run goes
     push ax
     mov cx, ax
-    mov ax, [si+MX_SEL]
+    mov ax, [ss:si+MX_SEL]
 .hold:
     call MEGA_SEL_CODE:mega_ldt_freef
     add ax, 8
@@ -7933,7 +8266,7 @@ mega_claimregrowf:
     pop ax
     pop cx
     lea dx, [di+4]
-    mov [si+MX_SEL], dx
+    mov [ss:si+MX_SEL], dx
 .hlfill:
     call .hfill
     popf
@@ -7944,7 +8277,7 @@ mega_claimregrowf:
 .hset:
     call .hfill
 .hok:
-    mov dx, [si+MX_SEL]             ; --- the answer: the run's first -----
+    mov dx, [ss:si+MX_SEL]             ; --- the answer: the run's first -----
     mov bp, sp
     mov [bp+10], dx                 ; (the DX this proc pushed)
     dec byte [sch_lock]
@@ -7963,7 +8296,7 @@ mega_claimregrowf:
 ; .hfill - ES:DI = the run's first entry, CX = its length, BP = the KB: the
 ; claim is BP KB and the run's descriptors say so, over its block's base
 .hfill:
-    mov [si+MX_KB], bp
+    mov [ss:si+MX_KB], bp
     push bx
     mov bx, bp
     call mega_mxbase                ; DX:AX = the block's base
@@ -7971,6 +8304,20 @@ mega_claimregrowf:
     pop bx
     ret
 
+; .hpack - SI = the claim's entry, BP = the KB it wants: the pool packed DOWN
+; (mx_compactf), then every movable block above the claim packed UP against
+; the pinned one above it (mx_packupf), so that every free KB below that
+; block sits directly over the claim (KERN-MEGA-PLAN 14.49: [R][B..][free] is
+; refused no more when the free KB are enough) -> .hroom's CF. Clobbers
+; nothing else
+.hpack:
+    push ax
+    call MEGA_SEL_CODE:mx_compactf
+    mov ax, [ss:si+MX_OFF]
+    add ax, [ss:si+MX_KB]           ; the floor: the claim's end, where the
+    call MEGA_SEL_CODE:mx_packupf   ; compaction left it
+    pop ax
+                                    ; (on into .hroom)
 ; .hroom - SI = the claim's entry, BP = the KB it wants: CF = 0 the KB
 ; between its end and BP KB from its start are free and inside the pool,
 ; CF = 1 they are not. Clobbers nothing else
@@ -7979,23 +8326,23 @@ mega_claimregrowf:
     push cx
     push dx
     push di
-    mov dx, [si+MX_OFF]
+    mov dx, [ss:si+MX_OFF]
     add dx, bp                      ; DX = the end it wants
     jc .hrn
     cmp dx, [xm_kb]
     ja .hrn
-    mov ax, [si+MX_OFF]
-    add ax, [si+MX_KB]              ; AX = the end it has
+    mov ax, [ss:si+MX_OFF]
+    add ax, [ss:si+MX_KB]              ; AX = the end it has
     mov di, mx_tab
 .hr:
-    cmp word [di+MX_KB], 0
+    cmp word [ss:di+MX_KB], 0
     je .hrx
     cmp di, si
     je .hrx
-    cmp [di+MX_OFF], dx
+    cmp [ss:di+MX_OFF], dx
     jae .hrx                        ; starts at or past the end it wants
-    mov cx, [di+MX_OFF]
-    add cx, [di+MX_KB]
+    mov cx, [ss:di+MX_OFF]
+    add cx, [ss:di+MX_KB]
     cmp cx, ax
     ja .hrn                         ; ...or ends past the end it has: there
 .hrx:
@@ -8213,11 +8560,11 @@ mega_rgnblk:
     jc .pno
     mov si, mx_tab
 .f:
-    cmp word [si+MX_KB], 0
+    cmp word [ss:si+MX_KB], 0
     je .n
-    cmp [si+MX_OWN], bl
+    cmp [ss:si+MX_OWN], bl
     jne .n
-    cmp [si+MX_OFF], ax
+    cmp [ss:si+MX_OFF], ax
     je .y
 .n:
     add si, MX_BLKSZ
@@ -8248,7 +8595,7 @@ mega_rgnsubfree:
     jc .out
     mov cx, ax
     mov bx, dx                      ; BL:CX = the base
-    mov ax, [si+MX_KB]
+    mov ax, [ss:si+MX_KB]
     mov di, ax
     shl di, 10
     shr ax, 6
@@ -8324,7 +8671,7 @@ mega_subsegf:
     or bl, 0x80
     call mega_rgnblk                ; SI = its block, DX:AX = its base
     jc .no
-    mov cx, [si+MX_KB]
+    mov cx, [ss:si+MX_KB]
     shl cx, 6                       ; the block in paragraphs (under 1MB)
     sub cx, bp
     jbe .no                         ; at or past its end
@@ -8490,8 +8837,6 @@ mega_dklibfree:
 
 mega_dklib  dw 0                    ; DESK.DRV's library above 1MB, 0 = none
 
-mx_tab      times MX_NBLK * MX_BLKSZ db 0
-mx_tab_end  equ mx_tab + MX_NBLK * MX_BLKSZ
 mega_xsrc   dw 0, 0                 ; mega_lincopy's two linear ends
 mega_xdst   dw 0, 0
 mega_coldhi db 0                    ; 1: `.cold` runs above 1MB
@@ -8695,6 +9040,13 @@ mega_fkslot resb 1                  ; ...and slot + 1, 0 = none being closed
 mega_fkn    resb 1                  ; faults in it (0 = none ever)
 mega_fktm   resb 1                  ; 1 = its toast is owed
 mega_seg0   resw 1                  ; MEGA_SEG0's word for code outside .text
+mx_tab      resb MX_NBLK * MX_BLKSZ ; THE POOL'S BLOCK TABLE (KERN-MEGA-PLAN
+mx_tab_end  equ mx_tab + MX_NBLK * MX_BLKSZ ; 14.49): in LOW_SEG beside mem_tab,
+                                    ; read through SS (SPEC.md 2.1: SS is
+                                    ; LOW_SEG everywhere the kernel runs), so
+                                    ; its size costs no byte of the 64KB
+                                    ; kernel segment. Zeroed by mega_xminit:
+                                    ; .lowbss is not zero at boot
 mega_pm     resb 1                  ; 1 = protected mode, for .cold (KDATAR_C):
                                     ; .lowbss is zeroed, which is the right
                                     ; answer before mega_enter

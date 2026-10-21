@@ -61,7 +61,6 @@ MPK_C_KIDTR equ 0x3C8           ; 6 ...and IDTR, which it loads last
 MPK_C_WAKE  equ 0x3CE           ; dd where it jumps then: mega_dwake for a
                                 ;    park, mega_hbwake for a hibernate (W5)
 MPK_C_END   equ 0x3D2
-MPK_STACK   equ 0x800           ; the stub's stack top, under the image
 MPK_MAGIC   equ 0x400           ; +400 dd 'PARK'
 MPK_NREG    equ 0x404           ; +404 dw regions the sum covers
 MPK_NCPY    equ 0x406           ; +406 dw COPIES before the restore (W5)
@@ -82,15 +81,24 @@ MPK_RUNMAX  equ MEM_MAX + 1     ; ...and one per RUN IN USE past the first
 MPK_SLACK   equ 16              ; KB a runs park is claimed over the count,
                                 ; for what is claimed between the claim and
                                 ; the snapshot (a refusal there is the prefix)
-MPK_SAVE    equ 0x700           ; +700 ...banked here, as GDT line 0 (+700),
-MPK_SAVEL   equ 2               ; 1FF8h-1FFDh (+740) and IDT 20h-21h (+770):
-                                ; two lines, summed with the list (+400)
+MPK_SAVEL   equ 2               ; the banked table bytes' lines (MPK_SAVE)
 %if MPK_RMAX * 8 + (MPK_PCPY + MPK_RUNMAX) * MPK_CPYSZ >= MPK_CMAX * MPK_CPYSZ
 MPK_LIST    equ MPK_RMAX * 8 + (MPK_PCPY + MPK_RUNMAX) * MPK_CPYSZ ; the
 %else                           ; larger of the two lists: MPS_REG's bytes
 MPK_LIST    equ MPK_CMAX * MPK_CPYSZ
 %endif
-MPK_HDR     equ 0x800           ; +800 the image of linear 0 .. P
+                                ; THE REST OF THE HEADER IS DERIVED from the
+                                ; lists, which grow with mx_tab (MX_NBLK,
+                                ; KERN-MEGA-PLAN 14.49). At 24 entries it is
+                                ; the fixed layout it was: +700, +800, +800
+MPK_SAVE    equ (MPK_REG + MPK_LIST + 63) & ~63 ; ...banked here, on a line:
+                                ; GDT line 0 (+0), 1FF8h-1FFDh (+40) and IDT
+                                ; 20h-21h (+70) - two lines, summed with the
+                                ; list (from +400)
+MPK_STACK   equ MPK_SAVE + MPK_SAVEL * 64 + 0x80 ; the stub's stack top, 128
+                                ; bytes over the bank and under the image
+MPK_HDR     equ (MPK_STACK + 1023) & ~1023 ; the image of linear 0 .. P, on
+                                ; a KB (hbm_xneed counts the header in KB)
 MPK_ANCHOR1 equ 'PK'            ; W7: GDT entry 0 while a park stands - these
 MPK_ANCHOR2 equ 'RS'            ; two words, then the park's dd base
 MPK_RESETCODE equ (0x80 | 9) << 8 ; W7's exit code: KDC_FAIL with DER_RESET
@@ -672,14 +680,14 @@ mega_dosparkf:
 .nocold:
     mov si, mx_tab                  ; every block the pool has given out,
 .mx:                                ; less the park and the arena
-    mov ax, [si+MX_KB]
+    mov ax, [ss:si+MX_KB]
     or ax, ax
     jz .mxn
     mov bx, 16
     mul bx
     mov bx, ax
     mov cx, dx
-    mov ax, [si+MX_OFF]
+    mov ax, [ss:si+MX_OFF]
     mov dx, ax
     push cx
     mov cl, 10

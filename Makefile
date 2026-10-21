@@ -12640,11 +12640,20 @@ $(BUILD)/megacp.o88: $(BUILD)/megacp.bin tools/os88pkg.py
 # 64KB (KERN-MEGA-PLAN 14.37) - the pool fragmented by OSAPI_MEM_HUGE claims,
 # every free KB then asked for in ONE claim, and a run regrown to 300, 130,
 # 400KB and every free KB, every byte read back each time.
-# `tools/os88bochs.py sweep build/megahg.o88` with OS88_BOCHS_MEGS=4
+# `tools/os88bochs.py sweep build/megahg.o88` with OS88_BOCHS_MEGS=4. Since
+# KERN-MEGA-PLAN 14.49 also the split regrow (U), a claim with windows 32KB
+# apart moved (W) and the block table filled (T)
 $(BUILD)/megahg.bin: tests/megahg/megahg.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megahg/megahg.asm
 $(BUILD)/megahg.o88: $(BUILD)/megahg.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megahg.bin -o $@
+# MEGAW32 (tests/megaw32): a claim with a window every 32KB moved by the
+# compaction while an FSXF_RATE hook reads it through its odd windows
+# (KERN-MEGA-PLAN 14.49) - `tools/os88bochs.py sweep build/megaw32.o88`
+$(BUILD)/megaw32.bin: tests/megaw32/megaw32.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megaw32/megaw32.asm
+$(BUILD)/megaw32.o88: $(BUILD)/megaw32.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megaw32.bin -o $@
 # MEGAHIB (tests/megahib): MEGAXM's patterns HELD by a window across a
 # hibernate, and compared on a key - kern_mega's W5 witness
 # (docs/plans/KERN-MEGA-DOS-PLAN.md 8)
