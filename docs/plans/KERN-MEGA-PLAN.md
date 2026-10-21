@@ -6787,3 +6787,220 @@ segment`.
 - **The `[Segment can't write]` traps under 2764 on the 286 DOS trip**
   (above). Whether a low DOS.O88 takes them too is open, and a
   `megatrap0`-style count is the instrument.
+
+### 14.46 What had never been run on kern_mega, run - and what it found (2026-10-21)
+
+The paths 10.3 items 50, 63 and 85, 14.5, 14.14, 14.15, 14.16 and
+KERN-MEGA-SEGMENTS-PLAN 8.6 listed as built and never exercised, each run
+on the current kernel (14.37's movable huge claims, 14.39, 14.40, 14.42,
+14.43, 14.44) under Bochs with `make megatrap`'s census, and where the 286
+path matters on 86Box `286-mega`. Every count below is trap lines from
+`tools/megatraps.py`; "0" means none charged to the program, the boot's
+two `mega_strcal` calibration lines aside. A `kern_mega CLOSED` (14.42) was
+looked for in every run and none appeared.
+
+#### 14.46.1 The census
+
+| program, what was done | emulator | traps | result |
+|---|---|---|---|
+| Tank: title, F, drive and fire to GAME OVER, Esc | Bochs, SB16 | 0 | plays fullscreen, back to the desktop |
+| Clear Skies: Fly, the sim on the runway, Esc (as it is on `protected-mode` after 14.44) | Bochs | 0 | flies, back |
+| WireBall: L (practice), the paddle held up and down to 1:11, Esc | Bochs | 0 | plays; the rate hook runs |
+| PIXELSTEIN 3D: Space, walk and fire (as it is: another agent is re-homing it) | Bochs | **59,982 in ~20 s** | plays; see 14.46.4 |
+| 1942 past its title: Enter, fly and fire to GAME OVER, Alt+Enter both ways | Bochs | 4 | VGA Mode X fullscreen; the 4 are SOUND.DRV's (below). **Its CGA fullscreen is not reachable**: 1942 picks `FSXM_CGA320` only on a CGA display, and neither Bochs nor `286-mega` has one |
+| the DOS box: DOSHELLO.COM and DOSHELLO.EXE | Bochs | **315 a trip, then 0** | `exit code 042 (Arena: 621KB)` both; 14.46.2 |
+| Browser over `--ne2k`: a page from a host `http.server`, then its link | Bochs | 1 | both pages drawn |
+| FTPD over `--ne2k`, driven FROM THE HOST: LIST, RETR, STOR of 40KB, RETR of it back | Bochs, hostfwd | 0 | the 40KB came back byte for byte |
+| the Apple II: WELCOME.BAS opened, RUN through text, lo-res and the speaker | Bochs, SB16 | 1 | runs to `]` |
+| LOOM: PONG.WML opened, File > Pack Bundle | Bochs | 1 | `Packed PONG.WAB, 1008 bytes` - **byte-identical** to `build/PONG.WAB` from `tools/weavesim.py --pack` |
+| Paint: 448x280 -> 590x280 (82.6KB, across 64KB) -> 590x390 (115KB) -> 353x390 -> 353x359 (63.4KB, back under); 448x200 -> 448x390 -> 448x200; strokes drawn at each | Bochs | 0 | every picture kept |
+| DESKCAL, DESKCLOK, STIKNOTE | Bochs | **99 in 55 s, then 0** | 14.46.3 |
+| PiXEL: BALLOONS.PNG, Effects > Blur, Effects > Sepia | Bochs | **1 + 1, then 0** | the `FFD8:227C` line of 14.40; 14.46.3 |
+| RAMDISK.DRV: Store Xms, 1024K, Mount; A:\APPS copied onto it; PAINT.O88 launched off it | Bochs | 28 on the page, 1 for the copy and launch | `Mounted D: 1024K of 1024K`, 128KB copied, Paint ran from it; 14.46.4 |
+| the Video Player, the bank in place: 06-SNOW.V88 (8.1MB) off C: at 4MB, left ~8 minutes before Play | Bochs, SB16 | 0 (SOUND.DRV's 4 at the stream's start) | `XMS bank in place (PM), 2656 KB`, `Drew 301/301, stalls 0, pauses 90`, `Late 150, 68 ticks of 273`. The tick figures are Bochs's clock against the card's and are not judged here. The player's claims were left alone (another agent's) |
+
+Every `1` above is the same line: `0060:04ED`, `api_x.done`'s `pop es`,
+with a selector the program had just freed still in its ES. That is
+`mega_gpfix`'s `.stale` arm (decision 14) doing its job - the NULL selector
+loads instead, once a free - and it is left: the pop is in `.text`, in the
+stub every X cell returns through.
+
+SOUND.DRV's four are `sbl_hook` writing the IRQ vector through ES = 0
+(`mov ax, [es:si]` ... `mov [es:si+2], cs`), once a stream opens:
+`mega_null0` exists for exactly that driver idiom, and they are left.
+
+#### 14.46.2 Fixed: the DOS trip's and the hibernate's fixups (HIBER.DRV)
+
+**The DOS trip took ~315 `mega_gpw` fixups a trip**, every one in
+HIBER.DRV, which runs `hbm_dosrun` in protected mode on kern_mega:
+`hbm_extat` wrote its four counters through CS once a CLUSTER of DOS.O88's
+part chain (57 clusters here, 4 sites), step 3c's volume table once a ROW
+(16 rows, 3 sites), and a dozen one-offs (`hbm_sweep`, `hbm_drvsusp`,
+`hbm_xcap`, the launch block's fields). `tests/cswrites.txt` said the file
+was "real mode by design and replaced on kern_mega", which had stopped being
+true once the DOS trip's park put this path in protected mode. All 24 are
+`CSDO` now - the bare instruction on kern_big. `hbm_wake`'s read of the
+ROM's tick through segment 0 (two null fixups a return) is `MEGA_SEG0`.
+
+**Measured after** (Bochs, the same .COM and .EXE): **0** on DOS.O88 as
+14.44 ships it (high, `parked 0059K`) and **0** on a copy with the program
+part's `OS88_HIGH` cleared (low, `parked 008BK`).
+
+**The `#GP 2764:xxxx [Segment can't write]` lines 14.44's agent saw on
+86Box** were these - HIBER.DRV's image under its LDT alias, with ES = the
+DOS region - and not something 14.44's re-home introduced: the sites are the
+module's own code, which does not branch on where DOS.O88 is. The pre-fix
+LOW arm was not counted, so that half is argued; after the fix both arms are
+0 on Bochs, and on 86Box `286-mega` two DOS trips leave `faults` with
+nothing but the 286's reflection shutdowns (`mega_svc_lo.r286`,
+`mega_dosgo_lo.r286`).
+
+**`Disable the mouse` takes** (fdac077c), measured on 86Box `286-mega`,
+whose mouse is serial (Bochs's is PS/2, which gets a zero base and the still
+pointer either way, SPEC.md 96.45). DOSMOUSE.COM, the mouse moved 120x80
+before its first read: **unticked, `POS1 x=440 y=176`; ticked, `POS1 x=0
+y=0`** - kern_dos hooked no UART. **`INT 33h AX=0` answers `ax=FFFF bx=2` on
+both arms**, and that is SPEC.md 96.36.8's contract ("Off, `kern_dos` hooks
+nothing and INT 33h answers 96.10's still pointer"), not a defect. The brief
+expected 0 there; see 14.46.6.
+
+**The hibernate in protected mode** (14.5's sum, SEGMENTS 8.6's `.mega`):
+Bochs off C:'s boot partition (`--csys --bootc --noa`), MEGAHIB holding 64KB
+of XMS and a Mines board played, System menu > Hibernate, power off, boot,
+Resume: `kern_mega: resumed`, the board as it was, `MEGAHIB: ok` - the
+programs' sum held, so 14.5 is now run on kern_mega in protected mode. And
+**on 86Box `286-mega`** (the 286 RESET path; C: a 20MB IDE disk built as
+Bochs's is, booted with no A:): hibernated, a hard reset (86Box's clears
+RAM), Resume, the same board.
+
+**But the hibernate took 32,513 fixups**: `hbm_wrimg` wrote the whole
+conventional picture with ONE `dskw_write` from segment 0, and HDD.DRV's
+PIO loop moves it a word at a time, so every word of the first 64KB was a
+`mega_null0` - two exceptions each, of the order of a second on a 16 MHz 286
+by the handlers' length (not timed). **`hbm_xwconv`** writes it a chunk a
+call instead: chunk 0 for its size from segment 40h (the identity map starts
+at GDT entry 8), chunks 1.. appended from n x 800h, then chunk 0's first
+CLUSTER put right by a write-at from segment 0 (LOW0 stretched over just
+that) and the rest of it from 40h. The same file. **1,024 fixups at this
+C:'s 2KB cluster**, Bochs and 86Box alike. Two shapes failed on the way and
+are worth knowing: the IVT's 1KB written alone and the rest appended -
+`dskw_append` refuses a file that does not hold whole clusters (SPEC.md
+18.4.4), so the hibernate failed quietly and the screen saver came up - and
+the cluster's write-at without the stretch, a `kern_mega FAULT` in HDD.DRV
+at DI = 500h (KERN-MEGA-DOS-PLAN 10.3's W5 finding 1, again).
+
+The hibernate's own nine one-off CS writes (`hbm_wrimg`, `hbm_ptrfix_set`,
+the ask's paint) stay `mega_gpw`'s, one fixup each a hibernate: as CSDO they
+were 77 bytes that took the image over `MODH_UNPAD`'s KB edge and its claim
+from 10KB to 11KB while it is loaded.
+
+#### 14.46.3 Fixed: the Sticky Apps, the census logger, and PiXEL's free
+
+**The logger's fault** (14.39's finding). `mega_ldt2ds` took the entry after
+ANY allocator code selector as its data twin. DESK.DRV's library above 1MB
+has a LONE one (`mega_dklibf`), so `mega_tlog` loaded the free entry after
+it into ES and faulted at `FFD8:0D91` on every Sticky App's first callback.
+`mega_ldt2ds` now takes the twin only when it is one: a present writable
+data entry (0x92, the CPU's accessed bit aside) over the same base. The same
+routine is `mega_hifree`'s, which would have freed a neighbour's entry for a
+lone selector.
+
+**The trap itself**: `os88stik.inc`'s `stik_cb` far-called the package's
+trampoline at DS - one `xfer` fixup each callback, 99 in 55 s for the three
+(the tick and the cards). It asks `OSAPI_MEM_CODESEL` for DS now: DS itself
+on a real-mode kernel, the code alias or a pair's code half on kern_mega
+(SPEC.md 110.15 says so). `megatrap0` now starts the three in a second boot:
+**13 packages, the boot's 4 lines and nothing else, 222 s under Bochs, 277
+with the tree's build**. Without the `stik_cb` change the same boot charges
+the 99 to them.
+
+**The `FFD8:227C` line of 14.40** resolves, on the census build of the day,
+to `mega_ldt_free`'s closing `pop es`: a claim freed with ES still on it
+(PiXEL's Blur and Sepia each free one), so the pop loaded the entry the
+routine had just cleared and `.stale` gave it NULL. `mega_ldt_free` puts the
+NULL there itself when the caller's ES is the freed selector. Blur and
+Sepia: **0**.
+
+#### 14.46.4 Found and written down, not fixed
+
+- **PIXELSTEIN 3D's play: ~3,000 fixups a second.** `px_cast`'s `call far
+  [px_qcur]` through a data segment (6,912 in ~20 s), `px_compose`'s stores
+  through CS at nine sites (`px_cdi`, `px_ltop`, `px_lbot`, `px_lu`,
+  `px_cwrote`, `px_lh`, `px_lmat`, `px_lside`, `px_qp`, 5,604 each), and two
+  in an unnamed image at `22C4:011D`/`0125` (428 each). That is the
+  renderer's own inner loop; the re-home agent has Pixelstein, so it is
+  theirs.
+- **RAMDISK.DRV's Control Panel page: ~28 fixups a visit.** `rd_page_call`'s
+  `call far [cs:rd_pfar]` goes through the page image's DATA segment -
+  `rd_pfar`'s segment word IS `[rd_pseg]`, "storing the one sets the other"
+  - and RAMPAGE.DRV calls the driver's services back with DS = the CS it was
+  given (`push cs / pop dx` at RDT_INIT), so the services' stores are
+  `mega_gpw`'s. The shape of the fix: a far pointer of its own whose segment
+  is `OSAPI_MEM_CODESEL`'s answer at load, and the driver's DS handed to the
+  page beside its CS. Cold (the page only), so left.
+- **Paint**: once, asking H = 200 at W = 353 just after the canvas had come
+  back under 64KB gave 359. From 448 wide, 390 -> 200 gave 200. Not chased.
+
+#### 14.46.5 Verified new: a region and an overlay moved under their own program
+
+**14.15's open item** - a region moving while its own program is the
+caller. `tests/megaown`: MEGAHOLE (OS88_HIGH | OS88_HIGHMEM) holds three
+60KB pool claims and closes itself, leaving a hole under MEGAOWN's region;
+MEGAOWN fills the pool, frees every other block and claims 64KB from its own
+wake handler. At 2MB: **region KB 181 -> 120** across the claim; every
+stamp, its own bss and a word of its own code read back, and a callback two
+seconds later the same. At 16MB the pool never fills and nothing moves,
+which is why the row runs at 2MB. Row `megaown` (82 s); red with
+`mx_compactf` pinning 80h | slot (181 -> 181).
+
+**An overlay moved by a compaction**: CWORD's overlay is part 0, an EAGER
+carve claimed top-down in conventional memory (`OSAPI_MEM_CLAIM_DMA_HI`),
+so it is the conventional compactor and not the pool's that can move it.
+MEGALOWH holds a top-down claim at the heap's ceiling, CWORD's carve lands
+under it, MEGALOWH gives it back, and MEGALOWB (OS88_HIGH, so its own region
+is not a wall - the first run had it low and pinned beside the carve, and
+nothing moved) claims all of `OSAPI_MEM_AVAIL`: **the carve 8B40 -> 9A80**,
+and then CWORD took typing and File > Save As onto C:, and `C:\DOC.RTF`
+holds the line. Row `megaovl` (225 s); red with `cc_ovinit`'s
+`OSAPI_MEM_MOVABLE` taken out (8B40 -> 8B40). No carve can be above 1MB
+today - the parts standard claims code through the DMA door - so the
+selector arm of `cc_ovcarve` is not reachable.
+
+#### 14.46.6 Cost, rows, and for the owner
+
+**Bytes**, both arms built at one commit:
+
+| | |
+|---|---|
+| kern_big `kernel.bin`, HIBER.DRV | byte-identical (md5) |
+| kern_mega `.text`, `.bss`, `.cold`, `.lowbss` | unchanged; the segment overhead 5,935 as before |
+| kern_mega `.mega` | **+58** (`mega_ldt2ds`'s twin check, `mega_ldt_free`'s ES) |
+| kern_mega HIBER.DRV image (`.modh`) | **+301** (9,307 -> 9,608; the claim stays 10KB, 30 bytes inside the edge), 8,052 -> 8,213 bytes on the disk |
+| DESK.DRV (the library, every kernel) | **+12** (`stik_cb`) |
+
+**Rows** (all soak, all Bochs): `megatrap0` (now 13 packages, 300 s),
+`megaown` (new, 100 s), `megaovl` (new, 260 s, needs the C toolchain),
+`megahiber` (new, 300 s: the hibernate and resume, its census capped at
+2,048, red at 32,513 with the one write put back). The MartyPC rows that
+cover `stik_cb` on kern_big: `stiknote`, `deskclock`, `deskcaledit`,
+`deskcalcards`, `stikhiber`, `stikmove`. `tools/os88bochs.py` takes
+`$OS88_BOCHS_SLIRP` (docs/BOCHS.md), which is how a host client reached
+FTPD.
+
+**For the owner:**
+
+- **`Disable the mouse` gives a still pointer, not "no mouse".** `INT 33h
+  AX=0` answers FFFFh/2 with the box ticked, per SPEC.md 96.36.8. A program
+  that looks for a driver and adapts (no cursor, keyboard only) still finds
+  one. If the intent was that it find none, that is a change to 96.36.8 and
+  96.10, not a fix.
+- **The hibernate writes its picture in ~22 calls rather than one** on
+  kern_mega in protected mode, each append walking the chain to the file's
+  end (DISK-CPU-PLAN 6). On a hard disk that is a FAT walk a call against a
+  32KB write; it was not timed, and the field machine's BIOS-only C: is
+  where it would show.
+- **1942's CGA fullscreen and its cartridge build** remain unseen: no
+  emulator here gives kern_mega a CGA.
+- **The bank in place's `68 ticks of 273`** wants a look on a machine whose
+  clock is real: Bochs runs `clock: realtime` against an SB16 whose DMA
+  timer is its own.

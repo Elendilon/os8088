@@ -137991,12 +137991,21 @@ in the kernel's `mega_hbwk`); and whether a resume could place the whole
 file in one block above 1MB clear of every run — refused, `Hibernate failed`,
 when it could not.
 
-**Linear 0's selector is stretched for the write.** The write starts from
-segment 0, which protected mode turns into `MEGA_SEL_LOW0` one instruction at
-a time (`mega_null0`) wherever code touches the buffer — a native-IDE driver
-does, word by word — and LOW0 stops at 4FFh on purpose. `hbm_xlow` makes it
-64KB across the one `dskw_write` and puts it back after, so the image's GDT
-holds 4FFh.
+**The conventional picture is written a chunk a call, and only its first
+cluster through segment 0** (`hbm_xwconv`, KERN-MEGA-PLAN 14.46). Segment 0 is
+the NULL selector, which protected mode turns into `MEGA_SEL_LOW0` one
+instruction at a time (`mega_null0`) wherever code touches the buffer — a
+native-IDE driver does, word by word — so ONE write from segment 0, which is
+what this was, cost two exceptions a word for the first 64KB: 32,512 fixups a
+hibernate. The identity map starts at segment 40h, and only the IVT has no
+other way in, so chunk 0 is written for its size from 40h, every later chunk
+appended from its own identity segment (n × 800h), and then chunk 0 is put
+right with two write-ats: its first cluster from segment 0 — the fixups that
+are left, 1,024 at 2KB — and the rest of it from 40h. The same bytes in the
+same file; an append needs whole clusters in the file already, which is why
+chunk 0 is not simply split. LOW0 stops at 4FFh on purpose, so `hbm_xlow`
+stretches it over that one cluster's write-at and puts it back after, and
+the image's GDT holds 4FFh.
 
 **The resume** (`hbm_xres`) reads the WHOLE FILE, through the bounce and the
 kernel's own file layer, into a staging block in the pool placed first-fit
@@ -197461,7 +197470,11 @@ width the plate is cut from. It always runs `STIK_VARFACE`'s code - a fixed
 face is a variable one whose `[stik_fw]` the descriptor seeds - and every
 callback goes `push word [stik_d_x]` / `call stik_cb`, which far-calls the
 package's trampoline at the package's segment AS IT IS NOW (a region is
-movable, §66.6.1.1, so no segment is ever stored) and skips a 0. The
+movable, §66.6.1.1, so no segment is ever stored) and skips a 0. The segment
+is `OSAPI_MEM_CODESEL`'s answer for DS, asked at each callback: DS itself on
+every real-mode kernel, the code alias (or a pair's code half above 1MB) on
+kern_mega, where a far call through DS was one `mega_gpfix` fixup a callback
+(KERN-MEGA-PLAN 14.46). The
 kernel's callbacks are near procs in the package's segment (§20.2), so
 `stik_made` installs the package's thunks, read from the descriptor, and
 §20.8 rule 5 holds: the kernel calls package procs, and only thunks far-call.

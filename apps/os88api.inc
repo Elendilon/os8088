@@ -3860,6 +3860,7 @@ STKL_D_CLOSE    equ 56
 STKL_D_WAKE     equ 58
 STKL_XCP        equ 60           ; dd the package's trampoline: offset, and
                                  ; the segment the library writes from DS
+                                 ; (OSAPI_MEM_CODESEL's code selector for it)
 STKL_FW         equ 64           ; dw the face's width now (born the widest)
 STKL_DSYS       equ 66           ; 'SYSTEM', 0
 STKL_DAPP       equ 73           ; 'APPDATA', 0
