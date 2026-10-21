@@ -1072,9 +1072,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "2622ee65",
-  "strings": "3a72b4164e7def7a",
-  "why": "--ladder-at (By time) and --scene-join (Scene join): the page names both"
+  "stamped": "e4b13e8c",
+  "strings": "1b990c96f4c98207",
+  "why": "Blocks (version 2) described under Good to know: the option, what it trades, what plays it, what it is greyed against"
  },
  "TRACKER_O88": {
   "sources": [
@@ -1108,9 +1108,9 @@
   "sources": [
    "apps/video"
   ],
-  "stamped": "d511fdd4",
-  "strings": "52e0d90cf0b17d66",
-  "why": "a paused Live play: the card says Paused at m:ss, and the box shows the frame even when paused before the first pass"
+  "stamped": "e4b13e8c",
+  "strings": "0800180bb741e44c",
+  "why": "version 2 files: what an older player says, and Needs the block decoder"
  },
  "VMMOUSE_DRV": {
   "sources": [

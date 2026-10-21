@@ -590,6 +590,15 @@ CHOICE_HELP = {
                    "sees it (the default)",
         "bits": "When a frame is cut, count wrong bits plainly",
     },
+    "blocks": {
+        "off": "A version 1 file, which the player plays",
+        "on": "A version 2 file (98.1.10): a cut frame may also draw small "
+              "blocks - a dithered fill or two colours on 16 colours, "
+              "Video-1's three kinds on 256, a codebook tile on one bit - "
+              "for a better picture at the same disk, at more decode. "
+              "VIDEO.O88 plays them all (98.3.23); not with Live, "
+              "resident, bands, a tear or one bit's loop (98.1.10.1)",
+    },
     "vga4_order": {
         "dark": "Each scene's sixteen darkest first: the old picture shown "
                 "in the new colours at a cut keeps its lightness order",
@@ -877,7 +886,7 @@ def implied(preset=None, pixfmt=None, profile="5150-st225", live=None,
 # its story the day that default moved. What a preset, a format or a
 # profile implied is stored as the value it came to, and so is the
 # speaker style's three numbers. It is ~160 bytes (os88vid.OPTS_ZDICT).
-OPTS_VERSION = 46
+OPTS_VERSION = 47
 # what is the encode's plumbing rather than how the file was made
 OPTS_SKIP = ("src", "out", "help", "progress", "quiet", "preview_png",
              "profiles", "posters_only")
@@ -910,7 +919,8 @@ OPTS_FINGERPRINT = {1: "06108fff43ef1307", 2: "496cc97e70197133",
                     39: "7a7d4203d99fd27d", 40: "4fffe628a862c24e",
                     41: "9c78d785df0d94a4", 42: "6f2cb773837bd222",
                     43: "ec2917558c23907f", 44: "1baaf8c2dacb6f7b",
-                    45: "9f36a470662f10ba", 46: "bdf38e4e169941ba"}
+                    45: "9f36a470662f10ba", 46: "bdf38e4e169941ba",
+                    47: "5de4b2ffebe0a64f"}
 LAG_MS = "50-100"       # --lag's default (98.2.1.1.3), the owner's (2026-10-16):
                         # a RANGE, searched for each burst, where it was one
                         # number tuned by hand. Its top is the 100 ms that
@@ -1105,6 +1115,8 @@ MIGRATIONS = {
     # 46: --ladder-at and --scene-join (98.2.1.10, 98.1.3.2.3.3) - a file
     # made before them had one ladder for the clip and every scene's cut
     45: [("added", "ladder_at", ""), ("added", "scene_join", "")],
+    # 47: --blocks (98.1.10) - a file made before it is version 1
+    46: [("added", "blocks", "off")],
 }
 
 
@@ -4678,6 +4690,8 @@ class Encoder:
         # "fill" the same, those last instead of never; "tear" whole rows
         # in screen order from `tcur`, where the last cut frame stopped
         self.cut, self.tcur = "rank", 0
+        self.blocks = False             # VERSION 2's (98.1.10)
+        self.cb_due, self.cbook, self.cbt = False, None, None
         # HOW A PLANAR FRAME IS DRAWN (--bands, 98.2.1.2.2): 0, a sub-record
         # a Map Mask over the whole frame; N, the frame in N bands of rows,
         # every plane of a band before the next
@@ -4976,9 +4990,10 @@ class Encoder:
         diff = target != self.screen
         self.age = np.where(diff, self.age + 1, 0)
         ys, xs = np.nonzero(diff)
+        cbop = self.cb_make(target)     # (one bit's codebook, 98.1.10)
         if not len(ys):
             self.stats["exact"] += 1
-            return [], vid.record([], g, audio)
+            return cbop, vid.record(cbop, g, audio)
         self.tv[self.idx] = target
         sp = vid.spans((self.base[ys] + xs).tolist(), self.tsurf, g)
         if self.thr:                    # --aim size (98.2.1.4)
@@ -4987,7 +5002,8 @@ class Encoder:
                 self.stats["exact"] += 1
                 return [], vid.record([], g, audio)
         cyc_room = min(self.cpu.room(), self.ceil)
-        byte_room = max(0.0, self.disk.room() - self.disk_floor())
+        byte_room = max(0.0, self.disk.room() - self.disk_floor() -
+                        (len(cbop[0][1]) + 3 if cbop else 0))
         costs = span_costs(((bs, run) for a, bs, run in sp),
                            table=self.ct)
         tc, tb = totals(costs)
@@ -4995,7 +5011,9 @@ class Encoder:
         er = cyc_room - self.ct[0]
         eb = min(byte_room, self.rec_max - len(audio)) - REC_OVER
         best = None
+        blk, bops = None, list(cbop)
         for attempt in range(16 if self.live else 8):
+            bops = list(cbop)
             if tc <= er and tb <= eb:
                 chosen = sp
             else:
@@ -5007,18 +5025,43 @@ class Encoder:
                                        table=self.ct)
                     tc, tb = totals(costs)
                     order = self.rank(target, sp, costs, er, eb)
+                    if self.blocks:     # VERSION 2's blocks (98.1.10)
+                        blk = self.block_cands1(target, er, eb) \
+                            if self.pal is None else \
+                            self.block_cands8(target, er, eb)
+                        if blk is not None:
+                            order, sblk = self.block_merge8(
+                                order, sp, blk, 2 if self.pal is None else 4)
                 chosen, uc, ub = [], 0, 0
+                taken, dead = set(), set()
                 for i in order:
+                    if i < 0:           # a BLOCK: it and the spans under it
+                        j = ~i          # exclude each other
+                        bid = blk[6][j]
+                        if bid in taken or bid in dead:
+                            continue
+                        c, b = blk[3][j], blk[4][j]
+                        if uc + c > er or ub + b > eb:
+                            continue
+                        taken.add(bid)
+                        bops.append((blk[1][j], blk[2][j], blk[0][j]))
+                        uc += c
+                        ub += b
+                        continue
+                    if blk is not None and sblk.get(i, set()) & taken:
+                        continue
                     c, b = costs[i]
                     if uc + c > er or ub + b > eb:
                         if self.cut == "tear":
                             break       # (one tear line: 98.2.1.2.1)
                         continue
                     chosen.append(sp[i])
+                    if blk is not None:
+                        dead |= sblk.get(i, set())
                     uc += c
                     ub += b
                 chosen.sort()
-            rec = vid.record(chosen, g, audio, limit=None)
+            rec = vid.record(chosen + bops, g, audio, limit=None)
             # the model's estimate is per span; the record is measured, and
             # a frame over its ceiling tries again with the estimate scaled
             mc = self.cost(rec)
@@ -5028,11 +5071,11 @@ class Encoder:
                               cyc_room)
                 if f is None:
                     break
-                best = (chosen, rec)    # (--cut fill/tear: room to spare)
+                best = (chosen, rec, bops)  # (--cut fill/tear: room left)
                 er, eb = er * f, eb * f
                 continue
             if best is not None:
-                chosen, rec = best
+                chosen, rec, bops = best
                 break
             # (never below 0: an overdrawn room made the ratio negative,
             # and a negative estimate times it came back POSITIVE - a frame
@@ -5042,17 +5085,20 @@ class Encoder:
                       max(1, len(rec) - len(audio)))
         else:
             if best is not None:
-                chosen, rec = best
+                chosen, rec, bops = best
             elif self.live and order is not None:
                 chosen, rec = self.trim(sp, order, g, audio, cyc_room,
                                         byte_room)
+                bops = []
         if len(rec) > self.rec_max:     # NEVER A RECORD THE FILE CANNOT
-            chosen, rec = [], vid.record([], g, audio)  # HOLD (unfit)
+            chosen, rec = [], vid.record(cbop, g, audio)    # HOLD (unfit)
+            bops = list(cbop)
             self.stats["unfit"] += 1
         if chosen is not sp:
             self.torn(chosen, 0)
         for a, bs, run in chosen:
             self.surf[a:a + len(bs)] = bs
+        self.put_blocks(bops)           # (98.1.10)
         self.screen = self.sv[self.idx]
         if chosen is sp:
             self.stats["exact"] += 1
@@ -5060,7 +5106,9 @@ class Encoder:
             self.stats["cut"] += 1      # on: a span bridges bytes that
             self.stats["bytes_left"] += int(    # were already right
                 (target != self.screen).sum())
-        return chosen, rec
+        # (the blocks with the spans: the Writer builds the record again from
+        # what this returns, 98.1.10)
+        return (chosen + bops if bops else chosen), rec
 
     def trim(self, sp, order, g, audio, cyc_room, byte_room):
         """LIVE: the retries did not bring the frame under its room - a
@@ -5482,17 +5530,238 @@ class Encoder:
             xor = np.bitwise_xor(target, self.screen)
             bits = np.unpackbits(xor, axis=1).reshape(g.h, g.wb, 8).sum(2)
         self.wv[:] = 0
-        self.wv[self.idx] = bits * (1.0 + self.age / 8.0)
+        self._bytew = bits * (1.0 + self.age / 8.0)     # (the blocks weigh
+        self.wv[self.idx] = self._bytew                 # with it, 98.1.10)
         cs = np.concatenate(([0.0], np.cumsum(self.wv)))
         a, n, c, b = span_arrays(sp, costs)
-        return self.order((cs[a + n] - cs[a]) / per_budget(c, b, er, eb), a)
+        self._rankp = (cs[a + n] - cs[a]) / per_budget(c, b, er, eb)
+        return self.order(self._rankp, a)
+
+    # VERSION 2's BLOCKS on LIN320 (98.1.10): Microsoft Video-1's three, 4 x
+    # 4 pixels - FILL (one colour), TWO (a mask and two) and EIGHT (a pair a
+    # 2 x 2 quadrant) - each worth the share of its pixels' error it takes
+    # away as seen, its 2 x 2 cells against the target's
+    def near8(self):
+        """RGB -> the palette's nearest entry, by a 32^3 table"""
+        key = self.pal.tobytes()
+        if getattr(self, "_n8k", None) != key:
+            pal = self.pal.astype(np.float64)
+            q = (np.arange(32) * 8 + 4).astype(np.float64)
+            grid = np.stack(np.meshgrid(q, q, q, indexing="ij"), -1) \
+                .reshape(-1, 3)
+            t = np.empty(len(grid), np.int64)
+            for o in range(0, len(grid), 1024):
+                t[o:o + 1024] = ((grid[o:o + 1024, None] - pal[None]) ** 2) \
+                    .sum(-1).argmin(-1)
+            self._n8t, self._n8k = t, key
+        t = self._n8t
+        return lambda c: t[(np.clip(c, 0, 255).astype(np.int64) >> 3) @
+                           np.array([1024, 32, 1])]
+
+    def block_cands8(self, target, er, eb, wpx=None, mx=False):
+        """Video-1's candidates over a picture of PIXELS - LIN320's bytes,
+        or with `mx` Mode X's pixels, a block one plane byte of four rows -
+        weighed by `wpx`, the ranking's per-pixel weights"""
+        g = self.g
+        W = target.shape[1]
+        H, W4 = g.h // 4 * 4, W // 4 * 4
+        if not H or not W4:
+            return None
+        hb, wb = H // 4, W4 // 4
+        T = target[:H, :W4].reshape(hb, 4, wb, 4)
+        S = self.screen[:H, :W4].reshape(hb, 4, wb, 4)
+        by, bx = np.nonzero((T != S).any(axis=(1, 3)))
+        if not len(by):
+            return None
+        pal = self.pal.astype(np.float64)
+        near = self.near8()
+        Tb = T[by, :, bx, :].reshape(-1, 16)
+        Sb = S[by, :, bx, :].reshape(-1, 16)
+        tr = pal[Tb]
+
+        def cells(x):                   # (n, 16, 3) -> its 2 x 2 cells
+            return x.reshape(-1, 2, 2, 2, 2, 3).mean(axis=(2, 4))
+        tc = cells(tr)
+
+        def miss(ix):
+            return ((cells(pal[ix]) - tc) ** 2).sum(axis=(1, 2, 3))
+        e0 = np.maximum(miss(Sb), 1e-6)
+        Wt = (self._bytew if wpx is None else wpx)[:H, :W4].reshape(
+            hb, 4, wb, 4)[by, :, bx, :].sum(axis=(1, 2))
+
+        def split(px):                  # (n, k, 3): a mask and two colours
+            lum = px @ np.array([0.299, 0.587, 0.114])
+            hi = lum > lum.mean(axis=1)[:, None]
+            n1 = hi.sum(1)
+            n0 = px.shape[1] - n1
+            m1 = (px * hi[..., None]).sum(1) / np.maximum(n1, 1)[:, None]
+            m0 = (px * ~hi[..., None]).sum(1) / np.maximum(n0, 1)[:, None]
+            m1 = np.where((n1 == 0)[:, None], m0, m1)
+            m0 = np.where((n0 == 0)[:, None], m1, m0)
+            return hi, near(m1), near(m0)
+        fill = np.repeat(near(tr.mean(1))[:, None], 16, 1)
+        hi, c1, c0 = split(tr)
+        two = np.where(hi, c1[:, None], c0[:, None])
+        # the quadrants, in v8_block's order: left-top, right-top,
+        # left-bottom, right-bottom
+        qi = np.array([[0, 1, 4, 5], [2, 3, 6, 7], [8, 9, 12, 13],
+                       [10, 11, 14, 15]])
+        eight = np.empty_like(Tb)
+        ehi = np.zeros((len(Tb), 16), bool)
+        qc = []
+        for q in range(4):
+            h, a1, a0 = split(tr[:, qi[q]])
+            eight[:, qi[q]] = np.where(h, a1[:, None], a0[:, None])
+            ehi[:, qi[q]] = h
+            qc.append((a1, a0))
+        bitw = 1 << np.arange(16)
+        m2 = (hi * bitw).sum(1)
+        m8 = (ehi * bitw).sum(1)
+        addr = self.base[by * 4] + (bx if mx else bx * 4)
+        kinds, ads, pays, cs, bs, gs, ids = [], [], [], [], [], [], []
+        for kind, ix in ((("mfill", "mtwo", "meight") if mx else
+                          ("fill8", "two8", "eight8"))[0], fill), \
+                ((("mfill", "mtwo", "meight") if mx else
+                  ("fill8", "two8", "eight8"))[1], two), \
+                ((("mfill", "mtwo", "meight") if mx else
+                  ("fill8", "two8", "eight8"))[2], eight):
+            gain = Wt * np.clip(1.0 - miss(ix) / e0, 0.0, 1.0)
+            c = vid.blk_cost(kind, self.ct, self.csub, self.cwm3) + 20 + \
+                self.ct[1] / 4
+            b = 1.6 + vid.BLK_KIND[kind][0]
+            for i in np.nonzero(gain > 0)[0]:
+                if kind in ("fill8", "mfill"):
+                    pay = bytes([int(fill[i, 0])])
+                elif kind in ("two8", "mtwo"):
+                    pay = struct.pack("<HBB", int(m2[i]), int(c1[i]),
+                                      int(c0[i]))
+                else:
+                    pay = struct.pack("<H", int(m8[i])) + bytes(
+                        int(x) for q in range(4) for x in (qc[q][0][i],
+                                                           qc[q][1][i]))
+                kinds.append(kind)
+                ads.append(int(addr[i]))
+                pays.append(pay)
+                cs.append(c)
+                bs.append(b)
+                gs.append(gain[i])
+                ids.append(int(i))
+        if not kinds:
+            return None
+        cs, bs, gs = (np.array(x, np.float64) for x in (cs, bs, gs))
+        return (kinds, ads, pays, cs, bs, gs / per_budget(cs, bs, er, eb),
+                np.array(ids), addr)
+
+    def block_merge8(self, order, sp, blk, width=4):
+        """rank()'s order with the blocks merged in by priority (a block as
+        ~j) and each span's blocks under it"""
+        g = self.g
+        kinds, ads, pays, cs, bs, pr, ids, top = blk
+        offs = [g.base[r] - g.base[0] + x for r in range(4)
+                for x in range(width)]
+        at = np.full(65536 + 8, -1, np.int64)
+        for i, a in enumerate(top.tolist()):
+            for o in offs:
+                at[a + o] = i
+        sblk = {}
+        for i, (a, bs_, run) in enumerate(sp):
+            v = at[a:a + len(bs_)]
+            v = v[v >= 0]
+            if len(v):
+                sblk[i] = set(v.tolist())
+        out = [(float(self._rankp[i]), i) for i in order] + \
+            [(float(pr[j]), ~j) for j in range(len(kinds))]
+        out.sort(key=lambda x: -x[0])
+        return [i for p, i in out], sblk
 
     def put_ops(self, ops):
         """Another encoder's writes on this one's screen - the LAYER's
         (LayerEnc): the base's record, applied before its own"""
         for a, bs, run in ops:
-            self.surf[a:a + len(bs)] = bs
+            if not isinstance(run, str):
+                self.surf[a:a + len(bs)] = bs
+        self.put_blocks([o for o in ops if isinstance(o[2], str)])
         self.screen = self.sv[self.idx]
+
+    def put_blocks(self, bops):
+        """VERSION 2's blocks (98.1.10) on the surface: a codebook first,
+        then LIN320's blocks or one bit's tiles"""
+        g = self.g
+        for a, pay, kind in bops:
+            if kind == "cbook":
+                if self.cbook is None:
+                    self.cbook = bytearray(2048)
+                self.cbook[a * 8:a * 8 + len(pay)] = pay
+                self.cbt = None
+        for a, pay, kind in bops:
+            if kind == "cbook":
+                continue
+            rows = vid.blk_rows(g, a)
+            if kind == "tile":
+                e = self.cbook[pay[0] * 8:pay[0] * 8 + 8]
+                for r, ra in enumerate(rows):
+                    self.surf[ra:ra + 2] = e[2 * r:2 * r + 2]
+            else:
+                px = vid.v8_block(kind, pay)
+                for r, ra in enumerate(rows):
+                    self.surf[ra:ra + 4] = bytes(px[r * 4:r * 4 + 4])
+            self.stats["blocks"] = self.stats.get("blocks", 0) + 1
+
+    # ONE BIT's TILES (98.1.10): 16 x 4 pixels, two bytes of four rows, a
+    # byte naming one of a codebook's 256 - the codebook made whole at
+    # frame 0 and after every key from the target's own most frequent tiles
+    def tiles_of(self, pic):
+        """A one-bit picture's 16 x 4 tiles as uint64 codes: (hb, wb2)"""
+        g = self.g
+        H, W2 = g.h // 4 * 4, g.wb // 2 * 2
+        t = pic[:H, :W2].reshape(H // 4, 4, W2 // 2, 2).transpose(0, 2, 1, 3)
+        return np.ascontiguousarray(t).reshape(H // 4, W2 // 2, 8) \
+            .view(np.uint64)[..., 0]
+
+    def cb_make(self, target):
+        """[the codebook op] when one is due (98.1.10), else []"""
+        due, self.cb_due = self.cb_due, False
+        if not (self.blocks and self.pal is None and due):
+            return []
+        t = self.tiles_of(target).ravel()
+        u, c = np.unique(t, return_counts=True)
+        cb = u[np.argsort(-c, kind="stable")][:256]
+        cb = np.concatenate([cb, np.zeros(256 - len(cb), np.uint64)])
+        return [(0, cb.astype("<u8").tobytes(), "cbook")]
+
+    def block_cands1(self, target, er, eb):
+        if self.cbook is None:
+            return None
+        g = self.g
+        T, S = self.tiles_of(target), self.tiles_of(self.screen)
+        by, bx = np.nonzero(T != S)
+        if not len(by):
+            return None
+        if self.cbt is None:
+            self.cbt = np.frombuffer(bytes(self.cbook), "<u8").astype(
+                np.uint64)
+        pop = lambda x: np.unpackbits(x.view(np.uint8).reshape(
+            x.shape + (8,)), axis=-1).sum(-1)
+        Tt, St = T[by, bx], S[by, bx]
+        d = pop(Tt[:, None] ^ self.cbt[None])          # (n, 256)
+        best = d.argmin(1)
+        hd = d[np.arange(len(best)), best]
+        hd0 = np.maximum(pop(Tt ^ St), 1)
+        H, W2 = len(T) * 4, T.shape[1] * 2
+        Wt = self._bytew[:H, :W2].reshape(len(T), 4, T.shape[1], 2)[
+            by, :, bx, :].sum(axis=(1, 2))
+        gain = Wt * np.clip(1.0 - hd / hd0, 0.0, 1.0)
+        addr = self.base[by * 4] + bx * 2
+        keep = np.nonzero(gain > 0)[0]
+        if not len(keep):
+            return None
+        c = vid.blk_cost("tile", self.ct, self.csub, self.cwm3) + 20 + \
+            self.ct[1] / 4
+        cs = np.full(len(keep), c)
+        bs = np.full(len(keep), 2.6)
+        return (["tile"] * len(keep), [int(addr[i]) for i in keep],
+                [bytes([int(best[i])]) for i in keep], cs, bs,
+                gain[keep] / per_budget(cs, bs, er, eb), keep, addr)
 
     def clone_screen(self, b):
         """...and this encoder's screen made a COPY of `b`'s"""
@@ -5510,8 +5779,11 @@ class Encoder:
         way and gfx_blit1 took 32.1%"""
         g = self.g
         c = vid.cycles_of(rec, True, table=self.ct, sub=self.csub,
-                          sub2=g.sub2, wm3=self.cwm3) \
-            if g.bitplanes else vid.cycles_of(rec, table=self.ct)
+                          sub2=g.sub2, wm3=self.cwm3, bitplanes=True) \
+            if g.bitplanes else vid.cycles_of(
+                rec, table=self.ct, blocks=("onebit" if self.pal is None
+                                            else True)
+                if getattr(g, "v2", False) else False)
         if self.live:
             c += self.blitf * sum(vid.blit_cost(y1 - y0, x1 - x0, g.planes)
                                   for y0, y1, x0, x1 in vid.live_runs(rec, g))
@@ -5687,7 +5959,9 @@ class EncoderX(Flipped, Encoder):
         eb = min(byte_room, self.rec_max - len(audio)) - REC_OVER - \
             self.subover(7)
         best = None
+        blk, cblk = None, []
         for attempt in range(8):
+            cblk = []
             if tc <= er and tb <= eb:
                 chosen = cand
             else:
@@ -5699,17 +5973,42 @@ class EncoderX(Flipped, Encoder):
                         ((bs, run) for m, a, bs, run in cand), table=self.ct)
                     tc, tb = totals(costs)
                     order = self.rank(target, cand, costs, er, eb)
+                    if self.blocks:     # VERSION 2's blocks (98.1.10)
+                        blk = self.block_cands8(target, er, eb,
+                                                wpx=self._pxw, mx=True)
+                        if blk is not None:
+                            order, sblk = self.block_mergex(order, cand,
+                                                            blk)
                 chosen, uc, ub = [], 0, 0
+                taken, dead = set(), set()
                 for i in order:
+                    if i < 0:           # a BLOCK, and the spans under it
+                        j = ~i          # exclude each other
+                        bid = blk[6][j]
+                        if bid in taken or bid in dead:
+                            continue
+                        c, b = blk[3][j], blk[4][j]
+                        if uc + c > er or ub + b > eb:
+                            continue
+                        taken.add(bid)
+                        cblk.append(j)
+                        uc += c
+                        ub += b
+                        continue
+                    if blk is not None and sblk.get(i, set()) & taken:
+                        continue
                     c, b = costs[i]
                     if uc + c > er or ub + b > eb:
                         if self.cut == "tear":
                             break       # (one tear line: 98.2.1.2.1)
                         continue
                     chosen.append(cand[i])
+                    if blk is not None:
+                        dead |= sblk.get(i, set())
                     uc += c
                     ub += b
-            ops = self.banded(chosen, (0x0F, 0x03, 0x0C, 1, 2, 4, 8))
+            ops = self.banded(chosen, (0x0F, 0x03, 0x0C, 1, 2, 4, 8)) + \
+                self.block_opsx(blk, cblk)
             rec = vid.record(ops, g, audio, limit=None)
             # (self.cost and not the table: the price charge() will take,
             # the play's calibration and the XMS copies with it - asked of
@@ -5722,11 +6021,11 @@ class EncoderX(Flipped, Encoder):
                               cyc_room)
                 if f is None:
                     break
-                best = (chosen, ops, rec)   # (--cut fill/tear: room left)
-                er, eb = er * f, eb * f
+                best = (chosen, ops, rec, cblk)     # (--cut fill/tear: room
+                er, eb = er * f, eb * f             # left)
                 continue
             if best is not None:
-                chosen, ops, rec = best
+                chosen, ops, rec, cblk = best
                 break
             # (never below 0: an overdrawn room made the ratio negative,
             # and a negative estimate times it came back POSITIVE - a frame
@@ -5736,9 +6035,9 @@ class EncoderX(Flipped, Encoder):
                       max(1, len(rec) - len(audio)))
         else:
             if best is not None:
-                chosen, ops, rec = best
+                chosen, ops, rec, cblk = best
         if len(rec) > self.rec_max:     # NEVER A RECORD THE FILE CANNOT
-            chosen, ops = [], []        # HOLD (unfit): the frame draws
+            chosen, ops, cblk = [], [], []  # HOLD (unfit): the frame draws
             rec = vid.record([], g, audio)  # nothing, the next catch up
             self.stats["unfit"] += 1
         if chosen is cand:
@@ -5762,10 +6061,33 @@ class EncoderX(Flipped, Encoder):
             for p in range(4):                  # plane's rows are back to
                 sel = (mm >> p & 1).astype(bool)    # back)
                 self.screen[ys[sel], xs[sel] + p] = v[sel]
+        for j in cblk:                  # VERSION 2's blocks (98.1.10)
+            self.mx_block(blk[1][j], blk[2][j], blk[0][j])
+            self.stats["blocks"] = self.stats.get("blocks", 0) + 1
         if chosen is not cand:
             self.stats["bytes_left"] += int((target != self.screen).sum())
         g.put(self.surf, self.screen.tobytes())
         return ops, rec
+
+    def mx_block(self, a, pay, kind):
+        """A Mode X block on self.screen: its pixel x of a row is plane x"""
+        y0 = int(self.rowof[a])
+        x = (a - int(self.base[y0])) * 4
+        px = vid.v8_block(kind, pay)
+        for r in range(4):
+            self.screen[y0 + r, x:x + 4] = px[r * 4:r * 4 + 4]
+
+    def block_opsx(self, blk, cblk):
+        if not cblk:
+            return []
+        out = []
+        for lead, kind in ((vid.BLK_FILL8, "mfill"), (vid.BLK_TWO8, "mtwo"),
+                           (vid.BLK_EIGHT8, "meight")):
+            ents = sorted((blk[1][j], blk[2][j], False) for j in cblk
+                          if blk[0][j] == kind)
+            if ents:
+                out.append((lead, ents))
+        return out
 
     def rank(self, target, cand, costs, er, eb):
         g = self.g
@@ -5784,12 +6106,40 @@ class EncoderX(Flipped, Encoder):
         for p in range(4):
             wsum = np.where(m >> p & 1, wsum + (cs[p][a + n] - cs[p][a]),
                             wsum)
-        return self.order(wsum / per_budget(c, b, er, eb), a)
+        self._pxw = err                 # (the blocks weigh with it, and
+        self._rankp = wsum / per_budget(c, b, er, eb)   # merge by this)
+        return self.order(self._rankp, a)
+
+    def block_mergex(self, order, cand, blk):
+        """rank()'s order with Mode X's blocks merged in by priority (a
+        block as ~j) and each candidate's blocks under it: a block is one
+        plane byte on each of its four rows, every plane"""
+        g = self.g
+        kinds, ads, pays, cs, bs, pr, ids, top = blk
+        offs = [g.base[r] - g.base[0] for r in range(4)]
+        at = np.full(65536 + 8, -1, np.int64)
+        for i, a in enumerate(top.tolist()):
+            for o in offs:
+                at[a + o] = i
+        sblk = {}
+        for i, (m, a, bs_, run) in enumerate(cand):
+            v = at[a:a + len(bs_)]
+            v = v[v >= 0]
+            if len(v):
+                sblk[i] = set(v.tolist())
+        out = [(float(self._rankp[i]), i) for i in order] + \
+            [(float(pr[j]), ~j) for j in range(len(kinds))]
+        out.sort(key=lambda x: -x[0])
+        return [i for p, i in out], sblk
 
     def put_ops(self, ops):
         g = self.g
         for m, sub in ops:              # (mask, spans): a span's bytes are
-            for a, bs, run in sub:      # a pixel each on the mask's planes
+            if m >= vid.BLK_LEAD:       # a pixel each on the mask's planes
+                for a, pay, run in sub:     # - or VERSION 2's blocks
+                    self.mx_block(a, pay, vid.MODEX_LEADS[m])
+                continue
+            for a, bs, run in sub:
                 ad = a + np.arange(len(bs))
                 ys = self.rowof[ad]
                 xs = (ad - self.base[ys]) * 4
@@ -5806,7 +6156,8 @@ class EncoderX(Flipped, Encoder):
     def cost(self, rec):
         """A record's cycles: its sub-records' (98.1.3.1)"""
         return vid.cycles_of(rec, True, table=self.ct, sub=self.csub,
-                             sub2=self.g.sub2, wm3=self.cwm3)
+                             sub2=self.g.sub2, wm3=self.cwm3,
+                             bitplanes=False)
 
 
 class EncoderP(Flipped, Encoder):
@@ -5851,6 +6202,13 @@ class EncoderP(Flipped, Encoder):
     def store(self, m, a, bs):
         """One write onto self.pl: a plane group's bytes under Map Mask
         `m`, or (m >= 10h) write mode 3's masks in colour m - 10h"""
+        if m >= vid.BLK_LEAD:           # VERSION 2's block (98.1.10)
+            y0 = self.rowof[a]
+            x = a - self.base[y0]
+            for r, pv in enumerate(vid.vga4_block(m, bs)):
+                for p in range(4):
+                    self.pl[p, y0 + r, x] = pv[p]
+            return
         ad = a + np.arange(len(bs))
         ys = self.rowof[ad]
         xs = ad - self.base[ys]
@@ -5993,7 +6351,9 @@ class EncoderP(Flipped, Encoder):
             self.subover(15)
         masks = sorted({c[0] for c in cand}, key=lambda v: (v != 15, v))
         best = None
+        blk, cblk = None, []
         for attempt in range(8):
+            cblk = []
             if tc <= er and tb <= eb:
                 chosen = cand
             else:
@@ -6007,10 +6367,31 @@ class EncoderP(Flipped, Encoder):
                     members = {}
                     for i, u in enumerate(unit):
                         members.setdefault(u, []).append(i)
+                    if self.blocks:
+                        blk = self.block_cands(target, er, eb)
+                    if blk is not None:
+                        order, ublk = self.block_merge(order, cand, unit,
+                                                       members, blk)
                 chosen, uc, ub, done = [], 0, 0, set()
+                taken, dead = set(), set()
                 for i in order:         # A UNIT AT A TIME: a byte's planes
-                    u = unit[i]         # all, or none (byte_units)
+                    if i < 0:           # all, or none (byte_units) - or a
+                        j = ~i          # BLOCK (98.1.10), which excludes
+                        bid = blk[6][j]     # the units under it, and they it
+                        if bid in taken or bid in dead:
+                            continue
+                        c, b = blk[3][j], blk[4][j]
+                        if uc + c > er or ub + b > eb:
+                            continue
+                        taken.add(bid)
+                        cblk.append(j)
+                        uc += c
+                        ub += b
+                        continue
+                    u = unit[i]
                     if u in done:
+                        continue
+                    if blk is not None and ublk.get(u, set()) & taken:
                         continue
                     c = sum(costs[j][0] for j in members[u])
                     b = sum(costs[j][1] for j in members[u])
@@ -6019,10 +6400,12 @@ class EncoderP(Flipped, Encoder):
                             break       # (one tear line: 98.2.1.2.1)
                         continue
                     done.add(u)
+                    if blk is not None:
+                        dead |= ublk.get(u, set())
                     chosen += [cand[j] for j in members[u]]
                     uc += c
                     ub += b
-            ops = self.banded(chosen, masks)
+            ops = self.banded(chosen, masks) + self.block_ops(blk, cblk)
             rec = vid.record(ops, g, audio, limit=None)
             mc = self.cost(rec)
             if mc <= cyc_room and len(rec) - len(audio) <= byte_room and \
@@ -6031,11 +6414,11 @@ class EncoderP(Flipped, Encoder):
                               cyc_room)
                 if f is None:
                     break
-                best = (chosen, ops, rec)   # (--cut fill/tear: room left)
-                er, eb = er * f, eb * f
+                best = (chosen, ops, rec, cblk)     # (--cut fill/tear: room
+                er, eb = er * f, eb * f             # left)
                 continue
             if best is not None:
-                chosen, ops, rec = best
+                chosen, ops, rec, cblk = best
                 break
             # (never below 0: an overdrawn room made the ratio negative,
             # and a negative estimate times it came back POSITIVE - a frame
@@ -6045,9 +6428,9 @@ class EncoderP(Flipped, Encoder):
                       max(1, len(rec) - len(audio)))
         else:
             if best is not None:
-                chosen, ops, rec = best
+                chosen, ops, rec, cblk = best
         if len(rec) > self.rec_max:     # NEVER A RECORD THE FILE CANNOT
-            chosen, ops = [], []        # HOLD (unfit): the frame draws
+            chosen, ops, cblk = [], [], []  # HOLD (unfit): the frame draws
             rec = vid.record([], g, audio)  # nothing, the next catch up
             self.stats["unfit"] += 1
         self.stats["exact" if chosen is cand else "cut"] += 1
@@ -6055,6 +6438,10 @@ class EncoderP(Flipped, Encoder):
             self.torn(chosen, 1)
         for m, a, bs, run in chosen:
             self.store(m, a, bs)
+        for j in cblk:                  # (98.1.10: after every other kind)
+            self.store(vid.BLK_PFILL if blk[0][j] == "pfill" else
+                       vid.BLK_TWO, blk[1][j], blk[2][j])
+            self.stats["blocks"] = self.stats.get("blocks", 0) + 1
         self.screen = sum(np.unpackbits(self.pl[p], axis=1)[:, :g.w]
                           .astype(np.uint8) << p for p in range(4))
         if chosen is not cand:
@@ -6064,6 +6451,43 @@ class EncoderP(Flipped, Encoder):
                 self.surf[p * vid.PLANE + b:p * vid.PLANE + b + g.wb] = \
                     self.pl[p, y].tobytes()
         return ops, rec
+
+    def block_merge(self, order, cand, unit, members, blk):
+        """rank()'s order with the blocks merged in by priority - a block
+        as ~j, j its index - and each unit's blocks under it"""
+        g = self.g
+        kinds, ads, pays, cs, bs, pr, ids, top = blk
+        offs = [g.base[r] - g.base[0] for r in range(4)]
+        at = np.full(65536 * 1, -1, np.int64)
+        for i, a in enumerate(top.tolist()):
+            for o in offs:
+                at[a + o] = i
+        ublk = {}
+        for u, js in members.items():
+            hit = set()
+            for j in js:
+                a, n = cand[j][1], len(cand[j][2])
+                v = at[a:a + n]
+                hit.update(v[v >= 0].tolist())
+            if hit:
+                ublk[u] = hit
+        sp = self._rankp
+        out = [(float(sp[i]), 0, i) for i in order] + \
+            [(float(pr[j]), 1, ~j) for j in range(len(kinds))]
+        out.sort(key=lambda x: -x[0])   # (stable: today's order kept)
+        return [i for p, k, i in out], ublk
+
+    def block_ops(self, blk, cblk):
+        """The chosen blocks as sub-records (98.1.10), after every other"""
+        if not cblk:
+            return []
+        out = []
+        for lead, kind in ((vid.BLK_PFILL, "pfill"), (vid.BLK_TWO, "two")):
+            ents = sorted((blk[1][j], blk[2][j], False) for j in cblk
+                          if blk[0][j] == kind)
+            if ents:
+                out.append((lead, ents))
+        return out
 
     def pcosts(self, cand):
         """(cycles, bytes) of a frame's candidate writes: span_costs', and a
@@ -6082,11 +6506,22 @@ class EncoderP(Flipped, Encoder):
             out.append((c, b))
         return out
 
+    def errmap(self, target):
+        """rank()'s weight of each pixel: what writing its target now is
+        worth, aged - kept for the frame, which the blocks (98.1.10) weigh
+        with too"""
+        key = self.stats["frames"]
+        if getattr(self, "_errk", None) != key:
+            v = self.value(target) if self.look or self.vis else None
+            self._errm = (np.abs(self.pal[target] - self.pal[self.screen])
+                          .sum(2) / 32.0 if v is None else v) * \
+                (1.0 + self.age / 8.0)
+            self._errk = key
+        return self._errm
+
     def rank(self, target, cand, costs, er, eb):
         g = self.g
-        v = self.value(target) if self.look or self.vis else None
-        err = (np.abs(self.pal[target] - self.pal[self.screen]).sum(2)
-               / 32.0 if v is None else v) * (1.0 + self.age / 8.0)
+        err = self.errmap(target)
         byte = err.reshape(g.h, g.wb, 8).sum(2)
         wv = np.zeros(65537, dtype=np.float64)
         wv[(self.base[:, None] + np.arange(g.wb)).ravel()] = byte.ravel()
@@ -6096,7 +6531,119 @@ class EncoderP(Flipped, Encoder):
                           bin(x[0]).count("1") for x in cand), np.float64,
                          len(cand))
         wsum = (cs[a + n] - cs[a]) * pc / 4.0
-        return self.order(wsum / per_budget(c, b, er, eb), a)
+        self._rankp = wsum / per_budget(c, b, er, eb)  # (the blocks merge)
+        return self.order(self._rankp, a)
+
+    # VERSION 2's BLOCKS (98.1.10): 8 x 4 pixels, one byte column of four
+    # rows on all four planes, as a DITHERED FILL (two of the sixteen and a
+    # mix through the 4 x 4 Bayer cell, 2 bytes) or as TWO colours and a
+    # mask a row (5 bytes). A block is worth the share of its pixels' error
+    # it takes away AS SEEN - its 2 x 2 cells against the target's - so a
+    # pattern unlike the target's but of the same colours is worth nearly
+    # all of it, and what it leaves wrong ages and is fixed later, as a cut
+    # frame's remainder is
+    def mixes(self):
+        """(a, b, m) whose PFILL mix is nearest an RGB, by a 32^3 table, for
+        the palette in force"""
+        key = self.pal[:16].tobytes()
+        if getattr(self, "_mixk", None) != key:
+            pal = self.pal[:16].astype(np.float64)
+            A, B = np.triu_indices(16)
+            m = np.arange(17)
+            mix = ((pal[A][:, None] * m[None, :, None] +
+                    pal[B][:, None] * (16 - m)[None, :, None]) / 16) \
+                .reshape(-1, 3)
+            cand = np.stack([np.repeat(A, 17), np.repeat(B, 17),
+                             np.tile(m, len(A))], 1)
+            q = (np.arange(32) * 8 + 4).astype(np.float64)
+            grid = np.stack(np.meshgrid(q, q, q, indexing="ij"), -1) \
+                .reshape(-1, 3)
+            t = np.empty(len(grid), np.int64)
+            for o in range(0, len(grid), 2048):
+                t[o:o + 2048] = ((grid[o:o + 2048, None] - mix[None]) ** 2) \
+                    .sum(-1).argmin(-1)
+            self._mixt, self._mixc, self._mixk = t, cand, key
+        return self._mixt, self._mixc
+
+    def block_cands(self, target, er, eb):
+        """The frame's block candidates: (kinds, addresses, payloads,
+        cycles, bytes, priorities, block ids) - one of each kind for every
+        block whose target differs from the screen, worth anything"""
+        g = self.g
+        H = g.h // 4 * 4
+        none = None
+        if not H:
+            return none
+        hb, wb = H // 4, g.wb
+        T = target[:H, :wb * 8].reshape(hb, 4, wb, 8)
+        S = self.screen[:H, :wb * 8].reshape(hb, 4, wb, 8)
+        by, bx = np.nonzero((T != S).any(axis=(1, 3)))
+        if not len(by):
+            return none
+        pal = self.pal[:16].astype(np.float64)
+        Tb, Sb = T[by, :, bx, :], S[by, :, bx, :]
+        tr = pal[Tb]
+
+        def cells(x):                   # (n, 4, 8, 3) -> its 2 x 2 cells
+            return x.reshape(-1, 2, 2, 4, 2, 3).mean(axis=(2, 4))
+        tc = cells(tr)
+
+        def miss(ix):
+            return ((cells(pal[ix]) - tc) ** 2).sum(axis=(1, 2, 3))
+        e0 = np.maximum(miss(Sb), 1e-6)
+        W = self.errmap(target)[:H, :wb * 8].reshape(hb, 4, wb, 8)[
+            by, :, bx, :].sum(axis=(1, 2))
+        # the dithered fill: the mix nearest the block's mean colour
+        t, cand = self.mixes()
+        q = np.clip(tr.mean(axis=(1, 2)), 0, 255).astype(np.int64) >> 3
+        abm = cand[t[(q[:, 0] << 10) | (q[:, 1] << 5) | q[:, 2]]]
+        pm = np.array(vid.PFILL_MASKS, np.uint8)[abm[:, 2]]      # (n, 4)
+        bits = np.unpackbits(pm[:, :, None], axis=2).astype(bool)
+        pf = np.where(bits, abm[:, 0, None, None], abm[:, 1, None, None])
+        # two colours: the pixels split about the mean luminance, each
+        # side's mean colour to the nearest of the sixteen
+        lum = tr @ np.array([0.299, 0.587, 0.114])
+        hi = lum > lum.mean(axis=(1, 2))[:, None, None]
+        n1 = hi.sum(axis=(1, 2))
+        n0 = 32 - n1
+        m1 = (tr * hi[..., None]).sum(axis=(1, 2)) / np.maximum(n1, 1)[:, None]
+        m0 = (tr * ~hi[..., None]).sum(axis=(1, 2)) / np.maximum(n0, 1)[:, None]
+        m1 = np.where((n1 == 0)[:, None], m0, m1)
+        m0 = np.where((n0 == 0)[:, None], m1, m0)
+        near = lambda c: ((c[:, None] - pal[None]) ** 2).sum(-1).argmin(-1)
+        ca, cb = near(m1), near(m0)
+        tw = np.where(hi, ca[:, None, None], cb[:, None, None])
+        tmask = np.packbits(hi, axis=2)[:, :, 0]                   # (n, 4)
+        addr = self.base[by * 4] + bx
+        kinds, ads, pays, cs, bs, gs, ids = [], [], [], [], [], [], []
+        for kind, ix in (("pfill", pf), ("two", tw)):
+            gain = W * np.clip(1.0 - miss(ix) / e0, 0.0, 1.0)
+            # its entry and its share of a segment's head or an absolute
+            # entry's address, as the writer comes out: 0.6 byte and a
+            # skip-segment set-up's quarter a block, measured on Gas Gas
+            # Gas at 60 KB/s (3.87 bytes a block written against 3.0
+            # priced, and a frame then cut below its room)
+            c = vid.blk_cost(kind, self.ct, self.csub, self.cwm3) + 20 + \
+                self.ct[1] / 4
+            b = 1.6 + vid.BLK_KIND[kind][0]
+            for i in np.nonzero(gain > 0)[0]:
+                kinds.append(kind)
+                ads.append(int(addr[i]))
+                if kind == "pfill":
+                    pays.append(bytes([int(abm[i, 0]) << 4 | int(abm[i, 1]),
+                                       int(abm[i, 2])]))
+                else:
+                    pays.append(bytes([int(ca[i]) << 4 | int(cb[i])]) +
+                                tmask[i].tobytes())
+                cs.append(c)
+                bs.append(b)
+                gs.append(gain[i])
+                ids.append(int(i))
+        if not kinds:
+            return none
+        cs, bs, gs = (np.array(x, np.float64) for x in (cs, bs, gs))
+        return (kinds, ads, pays, cs, bs, gs / per_budget(cs, bs, er, eb),
+                np.array(ids), addr)
 
 
 # --------------------------------------------------------------------------
@@ -6307,6 +6854,11 @@ class PageAhead(object):
         h.look, h.future, h.metric = 0, [], False
         h.owe, h.dcurve, h.bank, h.alead, h.slead = None, None, 0, 0, 0
         h.dfloor, h.live = 0.0, False
+        # VERSION 2 (98.1.10): the hidden page draws NO blocks - every hidden
+        # record before a flip writes that flip's own values (98.2.1.8, the
+        # preload and the upgrades rest on it), and one bit's codebook is the
+        # shown page's encoder's alone
+        h.blocks, h.cb_due = False, False
         if hasattr(h, "fgrid"):
             h.fgrid = None
         self.h = h
@@ -7241,6 +7793,8 @@ class LayerEnc(object):
         e.q_frames, e.q_bad = [], []
         e.q_seen, e.q_stp = [], None
         e.cpu = Budget(0.0, 1e18)
+        e.blocks = False                    # (98.1.10: a layer sharpens, and
+        e.cb_due = False                    # one bit's codebook is the base's)
         e.dcurve = None
         e.owe = None
         e.bank, e.dslow = 0, 1.0
@@ -8584,11 +9138,12 @@ def key_bench(m, rec, wr):
     the work: the owner's 486 timed 6 ms against a yardstick of 2.26, and
     the layer it was made for went unread"""
     if getattr(wr, "mpage", False):     # (98.3.8.4: vp_decn, onto EVERY
-        flip, pg, own, hs = vid.mpage_parts(rec, wr.g, wr.pages)  # page,
+        flip, pg, own, hs = vid.mpage_parts(rec, wr.g, wr.pages,  # page,
+                                            key=True)
         return wr.pages * m.cost(own) + sum(    # and its chain)
             m.cost(h) for p_, h in hs)
     if wr.page:
-        flip, own, hrec = vid.page_parts(rec, wr.g)
+        flip, own, hrec = vid.page_parts(rec, wr.g, key=True)
         return 2 * m.cost(own) + (m.cost(hrec) if hrec else 0)
     return (2 if wr.flip else 1) * m.cost(rec)
 
@@ -9864,6 +10419,28 @@ def _encode(a, keep, tick, readers):
     elif fown:
         enc.nobring = True          # (on N pages: PageAheadF's, 98.2.1.8.5)
     enc.live = bool(a.live)
+    # VERSION 2's BLOCKS (98.1.10): candidates beside the changes, on the
+    # one page a plain stream has
+    enc.blocks = getattr(a, "blocks", "off") == "on"
+    if enc.blocks:
+        if not (vga4 or vga8 or (L in vid.ONEBIT_LAYOUTS and not (
+                cga4 or c160 or c512 or text))):
+            raise vid.V88Error("--blocks: vga4, vga8, and one bit on cga or "
+                               "herc (98.1.10)")
+        g.v2 = True
+        # WHAT BLOCKS ARE NOT MADE WITH (98.1.10.1): Live and a resident
+        # file decode into RAM, which the block decoder does not write; a
+        # tear's one cut line is screen order and blocks are ranked; bands
+        # would want a block list a band; one bit's seam would join to a
+        # codebook from the file's end
+        for cond, what in ((a.live, "--live"), (a.resident, "--resident"),
+                           (a.bands, "--bands"),
+                           (a.loop_from is not None and not (vga4 or vga8),
+                            "--loop-from on one bit"),
+                           (getattr(a, "cut", "rank") == "tear",
+                            "--cut tear")):
+            if cond:
+                raise vid.V88Error("--blocks with %s (98.1.10.1)" % what)
     # THE XMS COPIES THE PLAYER WILL MAKE (set_xplay): in place where the
     # player's in-place paths take the file, the copying FIFO where they
     # refuse it - the speaker's clock, Repeat or a loop, Live, RESIDENT and
@@ -9873,7 +10450,8 @@ def _encode(a, keep, tick, readers):
     xmode = prof.get("xplay")
     if xmode == "inplace" and (spk or a.repeat or a.loop_from is not None
                                or a.live or a.resident
-                               or a.pixfmt in ("c160", "text")):
+                               or a.pixfmt in ("c160", "text")
+                               or enc.blocks):  # (98.3.18.11: version 2)
         xmode = "copy"
     enc.set_xplay(xmode, prof)
     # WRITE MODE 3 (98.1.3.2.4) for a byte a refresh could catch half
@@ -10024,6 +10602,7 @@ def _encode(a, keep, tick, readers):
                     pages=npg if pa_on and getattr(a, "_paplan", None)
                     is not None else 2)
     wr.opts = optsblk                   # (98.1.1.4)
+    wr.v2 = enc.blocks                  # VERSION 2 (98.1.10)
     if a.resident or a.live or (getattr(a, "_paplan", None) is not None
                                 and a.repeat):
         # KEYS WHOLE (98.1.3.8): a resident file's are in its block, a Live
@@ -10257,6 +10836,9 @@ def _encode(a, keep, tick, readers):
         (--min-fps): its holds are the encoder's state (`vplan`), so the
         search's copies play them too"""
         e.future = fut
+        # ONE BIT's codebook (98.1.10): whole at frame 0 and after every key
+        e.cb_due = k == 0 or (k - 1 >= wr.key0 and
+                              (k - 1 - wr.key0) % wr.keyint == 0)
         npal = pal = cell = None
         if scene_pals and k in pev_at:  # A NEW SCENE (98.1.3.2.3): its
             pal = pev_at[k]             # colours from this frame, which the
@@ -12221,6 +12803,17 @@ def parser():
                          "its four pixels a store; off: the cut drawn as it "
                          "comes. The planar screens only: on a packed one a "
                          "flat cell saves little (default %s)" % COARSE_CELL)
+    ap.add_argument("--blocks", choices=("off", "on"), default="off",
+                    help="VERSION 2 (98.1.10): a cut frame may also draw "
+                         "BLOCKS - on vga4 a dithered fill (two colours "
+                         "and a mix, 2 bytes) or two colours and a mask "
+                         "for 8 x 4 pixels - each priced and ranked beside "
+                         "the frame's changes, the frames after sharpening "
+                         "what a block stood for; on one bit a tile out "
+                         "of a codebook the stream keeps. VIDEO.O88 plays "
+                         "it from 98.3.23 on. Not with --live, --resident, "
+                         "--bands, --cut tear or, on one bit, --loop-from "
+                         "(98.1.10.1; default off)")
     ap.add_argument("--vga4-order", choices=("dark", "planes"),
                     default="dark",
                     help="vga4 with its own sixteen: which slot each colour "

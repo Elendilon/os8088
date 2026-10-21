@@ -284,8 +284,15 @@ def main():
             pkg = os.path.join(tmp, "VIDEO.O88")
             subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", apps,
                             "-o", binf, apps + "video/video.asm"], check=True)
+            part = []                   # a tree with the block decoder
+            if os.path.exists(apps + "video/vblk.asm"):  # packs it as a PART
+                vb = os.path.join(tmp, "vblk.bin")
+                subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", apps,
+                                "-o", vb, apps + "video/vblk.asm"],
+                               check=True)
+                part = ["--part", vb]
             subprocess.run([sys.executable, "tools/os88pkg.py", binf, "-o",
-                            pkg], check=True, capture_output=True)
+                            pkg] + part, check=True, capture_output=True)
             syms, _ = pkg_syms(apps + "video/video.asm", (apps,))
         else:
             syms, _ = pkg_syms("apps/video/video.asm", ("apps/",))

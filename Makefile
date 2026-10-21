@@ -5649,12 +5649,18 @@ $(shell mkdir -p $(BUILD); \
                                       $(BUILD)/video.bin $(BUILD)/video.o88; \
                                 touch $(VPSTAMP); })
 $(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
-                    apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc $(VPSTAMP) | $(BUILD)
+                    apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc \
+                    apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc $(VPSTAMP) | $(BUILD)
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ $(VPDEF) -o $@ apps/video/video.asm
 	@echo "video:  $(call FILESIZE,$@) bytes"
 
-$(BUILD)/video.o88: $(BUILD)/video.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/video.bin -o $@
+# THE BLOCK DECODER (SPEC.md 98.3.23): a version 2 file's blocks, part 0 of
+# VIDEO.O88 - fetched in the entry proc on a colour screen and nowhere else
+$(BUILD)/vblk.bin: apps/video/vblk.asm apps/video/vblk.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ apps/video/vblk.asm
+
+$(BUILD)/video.o88: $(BUILD)/video.bin $(BUILD)/vblk.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/video.bin -o $@ --part $(BUILD)/vblk.bin
 
 # WIREFRAME (SPEC.md 78): a rotating solid drawn with nothing but
 # OSAPI_GFX_LINE, and a frame-rate readout, so 5.6.4.1's walk can be SEEN
@@ -11354,19 +11360,19 @@ videnchd: $(VIDENC_BASE) $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 \
 # `make 486-video` boots it in 86Box.
 VID486_CYLS ?= 250
 VID486CLIPS ?=
-$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc | $(BUILD)
+$(BUILD)/videodiag.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -o $@ apps/video/video.asm
-$(BUILD)/videodiag.o88: $(BUILD)/videodiag.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/videodiag.bin -o $@
+$(BUILD)/videodiag.o88: $(BUILD)/videodiag.bin $(BUILD)/vblk.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/videodiag.bin -o $@ --part $(BUILD)/vblk.bin
 # VIDEOR.O88: VIDEOD with the READ LOG (SPEC.md 98.3.22.2) - every chunk the
 # player reads, its file offset, length and sum, and where a damaged
 # super-packet was found, saved in the profile for tools/os88vfit.py --reads
 # to hold against the file. Its room is the layer's and the speaker's info
 # lines, which a card's play of a file with no layer does not draw
-$(BUILD)/videordlog.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc | $(BUILD)
+$(BUILD)/videordlog.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc apps/os88ui.inc apps/os88rseq.inc apps/os88la.inc apps/os88xgap.inc apps/os88parts.inc apps/os88partsbody.inc apps/video/vblk.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DVP_DIAG -DVP_RDLOG -o $@ apps/video/video.asm
-$(BUILD)/videordlog.o88: $(BUILD)/videordlog.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/videordlog.bin -o $@
+$(BUILD)/videordlog.o88: $(BUILD)/videordlog.bin $(BUILD)/vblk.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/videordlog.bin -o $@ --part $(BUILD)/vblk.bin
 .PHONY: vid486
 vid486: $(VIDENC_BASE) $(BUILD)/videodiag.o88 $(BUILD)/vidbench.o88 \
 	$(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 tools/os88hdd.py tools/os88vid.py \

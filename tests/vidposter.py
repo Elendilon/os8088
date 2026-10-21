@@ -171,8 +171,10 @@ def main():
                 P4, g64, 1, K | C, PAL), PAL), "halved", 2, 1),
             ("NONE", clip(tmp, "NONE.V88", P4, g64, None, PAL),
              "vga4_pack", 2, 1),
-            ("VGA8", clip(tmp, "VGA8.V88", P8, g8, thumbs(
-                P8, g8, 1, K | C, PAL8), PAL8, n=4), "key", 1, 1),
+            ("VGA8", clip(tmp, "VGA8.V88", P8, g8, thumbs(  # (three
+                P8, g8, 1, K | C, PAL8), PAL8, n=3), "key", 1, 1),  # frames:
+            # key 0 alone either way, and the floppy holds the package's
+            # block decoder part beside the rest, SPEC.md 98.3.23.1)
             ("CGA4V", clip(tmp, "CGA4V.V88", PC, gc, thumbs(
                 PC, gc, 1, K | C | M, cgapal=CGASEL), cgapal=CGASEL, n=4),
              "key", 1, 1),

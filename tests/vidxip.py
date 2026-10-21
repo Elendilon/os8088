@@ -173,8 +173,11 @@ def build(tmp, sim, defs=()):
                    + (["-DLA_SIM"] if sim else [])
                    + ["-D%s" % d for d in defs]
                    + ["-o", b, "apps/video/video.asm"], check=True)
-    subprocess.run([sys.executable, "tools/os88pkg.py", b, "-o", o],
-                   check=True, capture_output=True)
+    vb = os.path.join(tmp, "vblk.bin")  # the block decoder is a PART
+    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", "apps/",
+                    "-o", vb, "apps/video/vblk.asm"], check=True)
+    subprocess.run([sys.executable, "tools/os88pkg.py", b, "-o", o,
+                    "--part", vb], check=True, capture_output=True)
     return o
 
 

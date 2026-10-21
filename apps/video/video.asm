@@ -30,7 +30,12 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'Video Player', vp_entry, 0x23  ; icon, assoc, doc glyph
+    OS88_HEADER 'Video Player', vp_entry, 0x23 | OS88_F_PARTS  ; icon,
+                                    ; assoc, doc glyph - and the block
+                                    ; decoder, a part (SPEC.md 98.3.23)
+%define OP_NO_LAZYOK                ; (fetched at launch, never asked about)
+%include "os88parts.inc"
+%include "video/vblk.inc"
 
 ; --- the icon (SPEC.md 20.2): a play button --------------------------------
 ; A solid disc with a play triangle cut out of it, so it reads as one shape
@@ -335,6 +340,14 @@ KE_IDX      equ 15
 
 ; =============================================================================
 vp_entry:
+    push es
+    call op_load                    ; FIRST (os88parts.inc rule 1): our file's
+    pop es                          ; name, which the part is read out of
+    jnc .ld
+    ret                             ; (CF = 1: op_load has said why)
+    nop                             ; (never run: what follows keeps its
+.ld:                                ; parity, for the play's routines)
+    call vp_bget                    ; THE BLOCK DECODER on a colour screen
     call OSAPI_ARG_FILE             ; CF = 1: launched with no document
     jc .nodoc
     call vp_cpname                  ; ES:SI is the kernel's: copy it out now
@@ -1157,8 +1170,11 @@ vp_parse:
     cmp word [es:2], '8' + (0x1A << 8)
     jne vp_pbad
     mov word [vp_msg], vp_s_ver
-    cmp word [es:4], 1              ; version 1, and no flag this player
-    jne vp_pbad                        ; does not know (98.1.1.2)
+    mov ax, [es:4]                  ; version 1 or 2 (98.1.10), and no flag
+    dec ax                          ; this player does not know (98.1.1.2)
+    cmp ax, 1
+    ja vp_pbad
+    mov [vp_v2], al
     test word [es:V88_FLAGS], ~V88F_KNOWN & 0xFFFF
     jnz vp_pbad
     mov word [vp_msg], vp_s_bad
@@ -1577,6 +1593,12 @@ vp_parse:
     sub al, 1                       ; 1 flipped, 2 page-ahead
     mov [vp_flip], al
 .fl1:
+    cmp byte [vp_v2], 0             ; VERSION 2 (98.3.23): what it may be
+    je .fv1
+    call vp_v2chk
+    jc .b3b
+    nop                             ; (the play's routines' parity)
+.fv1:
     mov ax, [vp_h]                  ; ...and the rows the picture SHOWS,
     mov cl, [vp_rs]                 ; which is what the Preview is made at
     shl ax, cl
@@ -2120,6 +2142,7 @@ vp_canp1:
     jz .m3n                         ; an EGA has modes 0 to 2 and no 12h,
     inc cx                          ; and its colour sub-records are stored
 .m3n:                               ; a plane at a time (vp_m3pl)
+    and cl, [vp_m3gate]             ; (a gate's: an EGA's path on a VGA)
     mov [vp_m3ok], cl
     mov al, [vp_layout]
     mov ah, [vp_pixfmt]             ; (AH = the format: vp_try keeps it)
@@ -6765,7 +6788,8 @@ vp_xipq:
     or al, [vp_rep]                 ; (Repeat: its seam is the ring's)
     or al, [vp_resid]
     or al, [vp_shadow]
-    jnz .no
+    or al, [vp_v2]                  ; (version 2: the part has no yield
+    jnz .no                         ; sites, 98.3.23)
     cmp byte [vp_snd], VP_SPK       ; (the speaker's clock: 98.3.18.5)
     je .no
     mov al, [vp_noinp]              ; (a gate's: the copying hold, the A/B)
@@ -11496,6 +11520,9 @@ vp_smov:
     call vp_mmovz
     mov dx, [vo_s1seg]              ; (and the text's second save)
     call vp_mmovz
+    mov dx, [vp_bseg]               ; (and the block decoder, 98.3.23)
+    call vp_mmovz
+    nop                             ; (the play's routines' parity)
     pop dx
     ret
 
@@ -11544,7 +11571,7 @@ vp_smove:
     ret
 
 vp_smtab:     dw vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd
-              dw vp_pevseg, vp_p8seg, vo_s1seg, 0
+              dw vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg, 0
 
 ; -----------------------------------------------------------------------------
 ; vp_spos - DX = the ring (or, resident, the key's claim, or 0): the session
@@ -12061,7 +12088,8 @@ vp_lybench:
     mov [vp_bnt0], ax
     mov [vp_bnt0+2], dx
     mov word [vp_lyn], 0
-.l:
+    mov byte [vp_kdec], 1           ; (the bench is a key's lists alone: no
+.l:                                 ; version 2 blocks after them, 98.3.23)
     mov dx, [vp_bnseg]              ; THE BENCH (98.1.9.13), built at
     xor si, si                      ; vp_bnsel...
     cmp byte [vp_bnon], 0
@@ -12083,6 +12111,7 @@ vp_lybench:
     sub ax, [vp_lyt0]               ; for (98.1.9.4): a far call a decode
     cmp ax, 8                       ; was most of a small key's time
     jb .l
+    mov byte [vp_kdec], 0
     call vp_bnio                    ; (...and the screen's again)
     cmp ax, 11
     ja .slow                        ; (a decode near a second: too slow)
@@ -13036,7 +13065,9 @@ vp_srun:
     push ax                         ; THE BLOCKS STAY PUT FOR THE BRACKET: its
     xor ax, ax                      ; hook reads them at interrupt time
     call vp_rmov                    ; (98.1.7.4) - and so do the session's
-    call vp_smov                    ; (98.3.19.2)
+    call vp_smov                    ; (98.3.19.2) and the block decoder's
+    call vp_bset                    ; ...which is told where things are
+    nop                             ; (the play's routines' parity)
     pop ax
     call OSAPI_FSX_RUN
     pushf
@@ -17693,6 +17724,11 @@ vp_hpg2:
 ; keyframe: the stream after it takes either), else as vp_decrec. SI past
 ; its lists, as vp_decrec leaves it
 vp_decboth:
+    mov byte [vp_kdec], 1           ; A KEY's: no block lists (98.3.23)
+    call .k
+    mov byte [vp_kdec], 0
+    ret
+.k:
     cmp byte [vp_flip], 0
     je vp_decrec
     cmp byte [vp_npg], 0
@@ -18102,19 +18138,34 @@ vp_decrec:
     cmp byte [cs:vo_clip], 0        ; the full screen's text up: round it
     jne .clip                       ; (98.3.13.1)
     call vd_native                  ; the lists, onto the adapter
+    cmp byte [cs:vp_v2], 0          ; VERSION 2: LIN320's three block lists
+    jne .bl                         ; after RUNL (98.3.23)
     VP_DSEND
     pop ds
     ret
 .clip:
     mov byte [cs:vc_mask], 1
     call vd_clip
+    cmp byte [cs:vp_v2], 0
+    jne .bl
     VP_DSEND
     pop ds
     ret
+.bl:
+    call vp_blin1
+    VP_DSEND
+    pop ds
+    ret
+.blk:
+    call vp_bpl                     ; (CF = 1: a lead the part does not know,
+    jnc .mx                         ; and the record is given up)
+    jmp .mxd
 .mx:                                ; PLANAR (98.1.3.1): each sub-record's Map
     lodsb                           ; Mask, then its lists - four pixels a
-    or al, al                       ; store under 0Fh, a plane's under the
-    jz .mxd                         ; rest
+    cmp al, 0x20                    ; store under 0Fh, a plane's under the
+    jae .blk                        ; rest. VERSION 2's BLOCK LEADS first
+    or al, al                       ; (98.3.23), and ahead of the end's test,
+    jz .mxd                         ; which they would put out of its reach
     cmp al, 0x10                    ; SUB2's COLOUR LEAD (98.1.3.2.4): one
     jae .m3                         ; colour, in write mode 3
 .mxp:
@@ -18325,6 +18376,8 @@ vp_decram:
     lodsb
     or al, al
     jz .done
+    cmp al, 0x20                    ; (a BLOCK lead: no RAM image is ever
+    jae .done                       ; handed one, 98.3.23 - the record ends)
     cmp byte [cs:vp_planar], 2      ; VGA4's COLOUR LEAD (98.1.3.2.4): every
     jne .pm                         ; plane's byte at once, a byte at a time
     cmp byte [cs:vp_sub2], 0
@@ -21882,8 +21935,226 @@ vp_s_buf:     db 'Buffering ', 0    ; (here, past the libraries: eleven bytes
                                     ; in front of them put os88alt_edge, which
                                     ; a frame's pass calls, at an odd shift)
 
+; =============================================================================
+; VERSION 2 (SPEC.md 98.3.23): the block decoder is a PART, and this is what
+; reaches it. Here, past everything a frame runs through, so nothing a play
+; times moves for it
+; =============================================================================
+    OS88_PARTS_BEGIN 1
+      OS88_PART OP_SEG, OP_COMP | OP_LAZY   ; 0 the block decoder (vblk.asm)
+    OS88_PARTS_END
+
+; vp_bget - the entry proc's: the block decoder FETCHED - on every machine,
+; since every screen plays a one-bit file, natively or through the shadow -
+; checked to be ours, and MOVABLE from then on: vp_smove re-bases [vp_bseg]
+; with the session's claims, and vp_smov pins it for a bracket with them. A
+; fetch refused (op_fetch has said why) leaves [vp_bseg] 0, the player whole,
+; and a version 2 file refused at open. Preserves ES
+vp_bget:
+    push es
+    xor al, al
+    call op_fetch
+    jc .r
+    xor al, al
+    call op_seg
+    or ax, ax
+    jz .r
+    mov es, ax                      ; OURS, of this tree: the signature, the
+    cmp word [es:VB_SIG], VB_SIGVAL ; ABI and the vectors
+    jne .r
+    cmp byte [es:VB_ABI], VB_ABIVER
+    jne .r
+    cmp byte [es:VB_NVEC], VBV_N
+    jb .r
+    mov [vp_bseg], ax
+    xchg ax, dx
+    mov ax, vp_smove
+    call vp_mmov
+.r:
+    pop es
+    ret
+
+; vp_v2chk - vp_parse's, for a version 2 file (98.1.10, 98.3.23): CF = 1 and
+; [vp_msg] said when this player will not play it - a format with no blocks,
+; a one-bit file with a seam, RESIDENT or LIVE (98.1.10.1), or no block
+; decoder here. ES:0 the header, DI the rendition's slot, DL its pixel
+; format. Clobbers AX
+vp_v2chk:
+    mov word [vp_msg], vp_s_ver
+    cmp dl, PF_VGA4                 ; MONO1, CGACOMP, VGA8 and VGA4: the
+    ja .no                          ; formats with blocks (one bit's on CGA
+    cmp dl, PF_VGA8                 ; and HERC, which are its only layouts)
+    jae .c
+    test word [es:V88_FLAGS], V88F_LOOPREC
+    jnz .no                         ; (a one-bit seam's codebook, 98.1.10)
+.c:
+    test word [es:V88_FLAGS], V88F_RESIDENT | V88F_LIVE
+    jnz .no                         ; (into RAM, which the part does not
+    mov word [vp_msg], vp_s_nov2    ; write: 98.1.10.1)
+    cmp word [vp_bseg], 0
+    je .no
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; vp_bset - the bracket's door, a version 2 play's: the part's vectors as far
+; addresses, and the part told the canvas's row step, the card and where
+; vp_bcb is NOW - the package may have moved since the last bracket, and
+; neither moves inside one (vp_smov). Preserves all
+vp_bset:
+    cmp byte [vp_v2], 0
+    je .r
+    push ax
+    push bx
+    push cx
+    push dx
+    push es
+    mov ax, [vp_bseg]
+    mov es, ax
+    mov [vp_bfs + 2], ax
+    mov [vp_blin + 2], ax
+    mov [vp_bpln + 2], ax
+    mov [vp_b1v + 2], ax
+    mov ax, [es:VB_VEC + 2 * VBV_SET]
+    mov [vp_bfs], ax
+    mov ax, [es:VB_VEC + 2 * VBV_LIN]
+    mov [vp_blin], ax
+    mov ax, [es:VB_VEC + 2 * VBV_PLN]
+    mov [vp_bpln], ax
+    mov ax, [es:VB_VEC + 2 * VBV_ONE]
+    mov [vp_b1v], ax
+    mov bh, 1                       ; (one bank)
+    mov ax, [vp_lstr]               ; LIN80's rows, or a NARROW screen's
+    cmp byte [vp_layout], LAY_LIN80
+    je .s
+    mov bl, [vp_layout]             ; ...else the FILE's layout's own - its
+    call vp_lay6                    ; step and its banks, which are the
+    mov ax, [vp_laytab + bx + 2]    ; shadow's too (98.3.2)
+    mov bh, [vp_laytab + bx + 1]
+.s:
+    xor bl, bl
+    cmp byte [vp_planar], 2
+    jne .m
+    mov bl, VBM_VGA4
+    cmp byte [vp_m3ok], 0
+    jne .m
+    or bl, VBM_NOWM3
+.m:
+    mov cx, cs
+    mov dx, vp_bcb
+    call far [vp_bfs]
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
+    ret
+
+; vp_blin1 - vp_decrec's, a version 2 LINEAR record's blocks at DS:SI, after
+; its lists: LIN320's three block lists, or one bit's codebook and tiles -
+; onto the page being drawn at ES (round the box when it is up), or into the
+; SHADOW at its own 0 (98.3.2: a one-bit file on another screen). Not a
+; KEY's, which has none. Clobbers what the part does
+vp_blin1:
+    cmp byte [cs:vp_kdec], 0
+    jne .r
+    mov bp, [cs:vp_org]             ; (vd_native has spent BP)
+    add bp, [cs:vp_poff]
+    cmp byte [cs:vp_shadow], 0
+    je .o
+    xor bp, bp
+.o:
+    mov ah, [cs:vo_clip]
+    cmp byte [cs:vp_layout], LAY_LIN320
+    jne .one
+    call far [cs:vp_blin]
+.r:
+    ret
+.one:
+    call far [cs:vp_b1v]
+    ret
+
+; vp_bpl - vp_decrec's, AL = a planar block lead: its list at DS:SI. VGA4's
+; GC goes into write mode 3 for it on a VGA (vp_m3set - the record's end puts
+; it back) and stays in write mode 0 on an EGA; round the box the callback
+; sets what each byte needs. CF = 1 a lead the part does not know
+vp_bpl:
+    mov ah, [cs:vo_clip]
+    cmp byte [cs:vp_planar], 2
+    jne .go
+    or ah, ah
+    jnz .go
+    cmp byte [cs:vp_m3ok], 0
+    je .ega
+    push ax
+    mov al, 0x10
+    call vp_m3set
+    pop ax
+    jmp short .go
+.ega:
+    cmp byte [cs:vp_m3on], 0
+    je .go
+    call vp_m3off
+.go:
+    call far [cs:vp_bpln]
+    ret
+
+; vp_bcb - THE PART'S CALLBACK (vblk.inc): one byte round the text box (the
+; box's save takes it, 98.3.13.1). AL the byte, DI its address; AH the Map
+; Mask on MODEX, the colour of a VGA4 mask. Clobbers AX, BX, CX, DX and
+; pushes one word - the rate hook's 48 bytes are what this path is sized by
+vp_bcb:
+    push di
+    cmp byte [cs:vp_planar], 1
+    jb .lin
+    ja .v4
+    mov [cs:vc_mask], ah            ; MODEX: the byte's plane - on the card
+    mov bl, al                      ; and in the save
+    mov al, 2
+    mov dx, 0x3C4
+    out dx, ax
+    mov al, bl
+.lin:
+    mov [cs:vc_val], al
+    mov byte [cs:vc_fillf], 1
+    mov cx, 1
+    call vc_put
+    mov byte [cs:vc_fillf], 0
+    pop di
+    retf
+.v4:
+    mov bl, al                      ; VGA4: the mask, in the colour AH
+    mov al, ah
+    cmp byte [cs:vp_m3ok], 0
+    je .ega
+    call vp_m3set                   ; (write mode 3, Set/Reset the colour)
+    jmp short .m
+.ega:
+    and al, 0x0F
+    mov [cs:vp_m3c], al
+.m:
+    mov al, bl
+    call vc_m3b
+    pop di
+    retf
+
+vp_s_nov2:    db 'Needs the block decoder', 0
+vp_v2:        db 0                  ; the file is version 2 (98.1.10)
+vp_kdec:      db 0                  ; a KEY is being decoded (vp_decboth)
+vp_bseg:      dw 0                  ; the block decoder part, 0 not here
+vp_bfs:       dd 0                  ; ...its vectors, as far addresses at the
+vp_blin:      dd 0                  ; bracket's door (vp_bset)
+vp_bpln:      dd 0
+vp_b1v:       dd 0
+vp_m3gate:    db 1                  ; 0: no write mode 3 even on a VGA - a
+                                    ; gate's (tests/vidv2.py), the EGA's
+                                    ; plane-at-a-time arms on a machine here
+
 ; --- bss: zeroed by the loader, and no bytes of the file ----------------------
-vp_pal        equ os88_image_end    ; the SIXTEEN: a VGA4 file's own, or a
+vp_pal        equ os88_image_end + OP_BSS ; the SIXTEEN: a VGA4 file's own, or a
                                     ; scene's (VGA8's 256 are a claim's,
                                     ; [vp_p8seg]: vp_rdpal)
 vo_sav        equ vp_pal + 48       ; what the full screen's text covers on
@@ -21996,8 +22267,8 @@ vp_lsrem      equ vp_lsin + 2       ; and the bytes still to read or move
 vp_etseg      equ vp_lsrem + 4      ; vp_erate's segment (vp_open's)
 vp_dskend     equ vp_etseg + 2
 %if vp_dskend - vo_sav > VO_SAV + 256 ; (the scratch is the longer: the bss
-    OS88_BSS vp_dskend - vp_pal     ; is the palette and it, the save and
+    OS88_BSS OP_BSS + vp_dskend - vp_pal ; is the palette and it, the save and
 %else                               ; the page table inside it)
-    OS88_BSS 48 + VO_SAV + 256
+    OS88_BSS OP_BSS + 48 + VO_SAV + 256
 %endif
     OS88_IMAGE_END

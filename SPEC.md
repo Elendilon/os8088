@@ -175469,6 +175469,137 @@ or more takes (98.3.13.2): **-1,660 bytes of bss for +54 of image**, so
 55,955 (5,485) and `VPDIAG=1` 57,724 (3,716) - and every hook call with the
 text up is faster, every one with it down unchanged.
 
+#### 98.1.10 VERSION 2: BLOCK RECORDS (2026-10-20, the encoder and its tools only)
+
+**A version 2 file is a version 1 file whose stream records may also draw
+BLOCKS**: a few bytes that stand for a small square of the canvas, chosen
+by the encoder where a cut frame would otherwise leave pixels stale
+(docs/reports/VIDEO-CODECS-2026-10-20.md). **`VIDEO.O88` plays them all**
+(98.3.23) - the colour ones and, since the same day, one bit's codebook;
+every player made before it refuses a version other than 1 at open
+(`vp_parse`). The header, the keyframes and the
+super-packets are version 1's; the version word at 4 is 2. A KEY record
+never holds a block, so a seek's picture is drawn by version 1's grammar.
+
+**What version 2 refuses**: RESIDENT, LIVE, one bit's seam (LOOPREC) and
+the formats with no blocks - CGA4, TEXT, C160 and C512. A reader refuses a
+version 2 file with any of them; 98.1.10.1 is the whole table, with what
+is allowed and why.
+
+**Blocks start on a canvas row that is a multiple of 4** and are four rows
+tall; the rows past the last whole four have none. A block's ADDRESS is
+the surface address of its top-left byte; its rows are at that address
+plus `base[y0 + r] - base[y0]`, r = 0..3, which is the same for every
+block of a canvas because an origin keeps the bank phase (98.1.2). A
+**block list** is version 1's segment grammar with block entries:
+
+```
+block list = segment* 00
+segment    = count(1..127) address(16) entry  x count     skip-coded
+           | 80h+count(1..127)         aentry x count     absolute
+entry      = skip(8) payload        aentry = address(16) payload
+```
+
+`skip` is in BYTES from the end of the previous block's top row (its
+address plus its width in bytes), and from the segment's address for its
+first entry. A byte written by a block is written by nothing else in its
+record, and no block writes outside the canvas.
+
+**VGA4** (98.1.3.2): two sub-record leads, after every plane and write
+mode 3 sub-record, each followed by one block list (no list map, with or
+without SUB2). A block is one byte column of four rows, 8 x 4 pixels:
+
+| lead | block | payload |
+|---|---|---|
+| 20h | **PFILL**, a dithered fill | `ab(8)` - colour a in the high nibble, b in the low - and `m(8)`, 0..16 |
+| 21h | **TWO**, two colours | `ab(8)` and four mask bytes, rows 0..3: a set bit is colour a |
+
+PFILL's pixel x (0..7, the high bit leftmost) of row r is colour a where
+`BAYER4[r * 4 + x mod 4] < m` and b otherwise (`BAYER4` is the 4 x 4 cell
+98.4's mono picture uses): m = 0 is all b, 16 all a, and the levels between
+are the mixes the patterned dither (98.2.5) would draw for a flat area.
+Every plane of the block is written, so its 32 pixels are exactly that.
+
+**VGA8 on LIN320**: a version 2 record carries THREE more lists after
+RUNL, block lists of 4 x 4 pixels (four bytes of four rows), Microsoft
+Video-1's three kinds:
+
+| list | block | payload |
+|---|---|---|
+| 11, FILL | one colour | `c(8)` |
+| 12, TWO | two colours | `mask(16)` and `c1(8)` `c0(8)`: bit 4r + x set is c1 |
+| 13, EIGHT | a pair a 2 x 2 quadrant | `mask(16)` and four pairs `c1 c0`, the quadrants left-top, right-top, left-bottom, right-bottom |
+
+**VGA8 on MODEX** (98.1.3.1): three sub-record leads, 20h FILL, 21h TWO
+and 22h EIGHT, after every mask sub-record, each followed by one block
+list. A block is one plane byte of four rows: pixel x of a row is plane x,
+so a block is 4 x 4 pixels and its payloads are LIN320's.
+
+**One bit** (MONO1 and CGACOMP on CGA and HERC): a version 2 record is
+
+```
+record   = len(16) y0(16) y1(16) lists cbook tiles audio
+cbook    = n(16)   [first(8) entry x n]      n = 0: none; 1..256
+entry    = 8 bytes: rows 0..3, a row's left byte then its right
+tiles    = block list, a block 16 x 4 pixels: TWO bytes of four rows,
+           its payload one byte, the CODEBOOK index
+```
+
+The player keeps one codebook of 256 tiles; `cbook` replaces entries
+`first` .. `first + n - 1` before the record's tiles are decoded (the
+lists never read it). **Frame 0's record and every record after a key
+carry a whole codebook** (n = 256), so a play from the start and a play
+from any key find the codebook the stream assumes; a TILE before any
+codebook is refused, and so is a version 2 one-bit file with a loop
+(98.1.1.2), whose seam would join to a codebook from the file's end. The
+codebook and the tiles come AFTER the lists, as LIN320's block lists do,
+so a frame record has at least three bytes past its ten lists and a key
+at most one: a reader that is handed either can tell them apart there.
+
+**The encoder** (`os88venc.py --blocks`, 98.2.1) offers the kinds as
+candidates beside today's spans in a cut frame, each priced in bytes and
+in the profile's own cycles and ranked with them by error fixed a share of
+the scarcer budget; a frame that fits is exact, as in version 1, and the
+next frames sharpen what a block approximated. `os88vid verify` decodes a
+version 2 stream by this section's rules, and `cycles_of` prices it with
+the block costs the player MEASURED (98.3.23, `BLK_MEASURED`).
+
+#### 98.1.10.1 What blocks are made with, and what not (2026-10-20)
+
+**Every feature a .V88 has, against version 2.** The owner found the first
+of these by hand - Blocks and Page ahead together in the encoder's window,
+which built the command and the encoder then stopped on - so this is the
+whole table, and three parties hold to it: the reader (`os88vid`, which
+`verify` is), the encoder and its window (which greys Blocks against the
+`no` rows with the reason, so it never builds a command the encoder
+refuses), and the player (`vp_v2chk`).
+
+| with blocks | | how, or why not |
+|---|---|---|
+| a plain stream, full screen or in the window | yes | 98.3.23 |
+| one bit, CGA and Hercules (MONO1, CGACOMP) | yes | the codebook (98.3.23.1) |
+| a file made for another screen (the shadow) | yes | one bit: the tiles are decoded into the shadow at its own 0, in the file's layout - the colour layouts never play through one |
+| PAGE-AHEAD, two pages and N (Mode X, VGA4 on a screen of its own, a Hercules) | yes | the hidden page draws NO blocks: every hidden record before a flip writes that flip's own values, which the preload and the key upgrades rest on (98.2.1.8) - so the encoder's hidden page is a copy of its main one with blocks off, and on one bit the codebook stays the shown page's |
+| the page pool (KPOOL) | yes | a pool picture is a key's, and a key holds no block |
+| FLIPPED every frame, built ahead, against its own page (byte 37 2, 5, 6, 7) | yes | a block writes an absolute value, so the back page brought up by the last record again is the same as one brought up by the copy off the glass |
+| a seam (LOOPREC), colour | yes | the seam is spans alone (`seam_ops`); LIN320's carries its three empty block lists |
+| a seam, one bit | **no** | the record after the seam would decode against a codebook from the file's end, not frame L's |
+| a LAYER (98.1.9) | yes | its records carry no blocks - it sharpens, and one bit's codebook is the base's alone; LIN320's carry their empty lists. The bench (98.1.9.13) decodes a key's lists only (`vp_kdec`) |
+| keys in parts, sound ahead, a palette a scene, SUB2, desktop posters | yes | none touches a frame record's blocks |
+| the XMS bank | yes | a stream like any other |
+| in place from XMS (98.3.18.11) | played by copying | the part has no yield sites; the encoder budgets the copying play (`set_xplay`) |
+| RESIDENT | **no** | `vp_rbnd` checks a resident file's records whole before the play, and does not know a block |
+| LIVE | **no** | decoded into a RAM image on the desktop, which the part does not write |
+| `--bands` | **no** | a frame drawn band by band would want a block list a band |
+| `--cut tear` | **no** | a tear keeps whole rows in screen order; blocks are ranked by worth |
+| CGA4, TEXT, C160, C512 | **no** | no block kinds are defined for them |
+
+**A record that belongs to a KEY carries no block lists** - its own, and on
+a page-ahead file its hidden records too (`key_record` writes them with
+`v2=False`, `vp_decboth` decodes them with `vp_kdec` set). A page-ahead
+FRAME's hidden record is a frame record: on a linear layout it carries its
+block lists, empty.
+
 ### 98.2 The host tools — `tools/os88vid.py`
 
 | command | what it does |
@@ -182047,6 +182178,150 @@ bracket opens there with that card in mode 4 and plays to the end, dragged
 onto the CGA it plays as its own, and dragged back the walk finds the CGA
 again; and a one-bit CGA-layout clip, which the Hercules plays only through
 the shadow, plays on the CGA in mode 6 instead.
+
+#### 98.3.23 Version 2: the block decoder is a part (2026-10-20)
+
+**`VIDEO.O88` plays a version 2 file (98.1.10)**: VGA8 on LIN320 or Mode
+X, VGA4, and - since the owner asked for it *to be complete* - one bit's
+codebook on a CGA and a Hercules (98.3.23.1). 98.1.10.1 is what a version
+2 file may be made with, and the player refuses the rest in version 1's
+words, *made for a newer player*.
+
+**The decoder is a PART of the package** (§20.12), `apps/video/vblk.asm`,
+row 0 of `VIDEO.O88`'s table, `OP_SEG | OP_LAZY | OP_COMP`. It is one part
+for every kind rather than one per depth, because a second row is a second
+claim of the eight an owner may hold (§50), and every screen plays one
+bit's - natively, or through the shadow:
+- **Fetched in the entry proc**, right after `op_load`, on EVERY machine,
+  and kept for the session. Not at Play: a hook may not read a disk, and on
+  the 360KB set the video is usually on another floppy than the player.
+  (Until one bit was decoded it was fetched only where a display was a VGA
+  or an EGA, and cost a CGA or a Hercules nothing.)
+- **Refused fetch, version 1 plays.** A fetch that fails (memory, the disk)
+  leaves the player whole; a version 2 file is then refused at open with
+  *Needs the block decoder* (`vp_s_nov2`), and so is one opened on a
+  machine that never fetched it.
+- **Movable on the desktop, pinned for a bracket** (§66, the owner's rule
+  for every claim). The fetched part's segment is the row's `zkb` word, and
+  that word is in `vp_smtab`, so `vp_smove` re-bases it with the session's
+  claims, and `vp_smov` pins and unpins it with them: the bracket's hook
+  calls into the part at interrupt time, which no relocation can reach.
+
+**The part's contract** (`apps/video/vblk.inc`, shared by both sides, ABI
+2): a header (`VB_SIG` 'VB', the ABI byte, the vector count, the vectors)
+and `VBV_SET`, which the player calls at the bracket's door with the
+canvas's row step, its BANKS (row r of a block is r mod banks of 2000h on
+and r / banks steps down: r steps on the colour layouts, 0, 2000h, a step
+and both on a CGA, r banks on a Hercules), the mode (bit 0 *no write mode
+3*, bit 1 *VGA4*) and the far address of `vp_bcb`; it keeps every register
+but AX - the door holds the rate hook's address in DI, and the first
+one-bit build spent it and sent the hook into the middle of an
+instruction. Three vectors, each a far call with DS:SI the lists, ES the
+surface, BP the origin and AH = 1 to go round the box, SI past them on the
+way out and BP, DS and ES kept:
+- **`VBV_LIN`** - LIN320's three block lists, after RUNL.
+- **`VBV_PLN`** - AL = a planar lead of 20h or more, its one list.
+- **`VBV_ONE`** - one bit's codebook and its tile list, after the ten.
+
+**The player's dispatch** is where version 1's is: `vp_decrec` calls
+`vp_blin1` after `vd_native` (or `vd_clip`) on a version 2 LINEAR record -
+`VBV_LIN` on LIN320, `VBV_ONE` on one bit - with BP made again, `vd_native`
+having spent it: the origin and the page being drawn (`vp_poff`), or 0 in
+the shadow. The planar loop's lead test sends 20h and above to `VBV_PLN` -
+before the colour test, which would take 20h for a colour - and BP there is
+the page's already. For VGA4 the GC is put
+in write mode 3 first (`vp_m3set` on a VGA, which the record's end puts
+back with the rest) or left in write mode 0 (an EGA).
+
+**What a block writes is the screen, or one bit's shadow.** A version 2
+file is refused LIVE and RESIDENT, its keys hold no block, and colour is
+never played through the shadow (98.3.2), so a colour block is never
+decoded into a RAM image; `vp_decram` stops a record at a block lead rather
+than read it as a colour. A one-bit file on another screen is the one that
+IS: the shadow is the file's own layout at its own 0, so a tile written
+there is the tile the screen would have had. Two ways onto the screen:
+- **Straight on**, full screen or in the window's same-mode bracket: LIN320
+  by word stores, Mode X a plane at a time under the Map Mask, VGA4 by write
+  mode 3's two Set/Reset colours on a VGA and a plane at a time on an EGA.
+- **Round the text box** (98.3.13.1): the part hands every byte to
+  `vp_bcb`, a far entry in the player, which writes it through `vc_put`
+  (LIN320 and one bit, Mode X under the byte's plane) or `vc_m3b` (a VGA4
+  mask and its colour), so the box's save takes what lands under it.
+
+**On pages** (98.1.10.1): a block lands on the page being drawn because
+BP is that page's - page-ahead's hidden records and flips, a flipped
+file's back page, N pages and the pool - and nothing else in the part
+knows there are pages. What the format adds is that a hidden-page record
+and every record of a key draw none. The layer's bench (98.1.9.13) is a
+key's lists with nothing after them, so `vp_lybench` decodes it with
+`vp_kdec` set, as a key is; on LIN320 it would otherwise have read the
+ring past it as three block lists.
+
+**In-place decode is refused for version 2** (98.3.18.11): the part has no
+yield sites, and a block list read through a borrowed DS is the one place a
+long decode could hold the interrupts shut.
+
+**What it costs, measured** (docs/reports/VIDEO-BLOCKS-PLAYER-2026-10-20.md):
+- **The package**: image 57,126 -> 58,612 bytes (+1,486: the parts
+  standard's table and code 924, the new routines 446, the edits in place
+  116) and bss +102, the standard's own; one bit and the pages took it to
+  **58,632** (+20), 3,806 bytes short of `APP_MAX_SIZE`. `VIDEO.O88` grows
+  by the part, 1,485 bytes packed (2,316 unpacked) and with one bit
+  **1,760 (4,741: 2,048 of it the codebook, zeros, which pack to almost
+  nothing)** - so a session's claim for it is 4.7 KB, movable.
+- **A frame of version 1**: two compares, a planar lead's against 20h and
+  a LIN320 record's against `[vp_v2]`. Every routine a play runs is
+  `os88rdiff`-identical at an even shift but `vp_decrec`, `vp_decram` and
+  `vp_decboth`, which carry them.
+- **A block, on a 4.77 MHz 8088** (MartyPC's XT VGA, `tests/vidv2bench.py`):
+  LIN320's FILL 470 cycles, TWO 1,097, EIGHT 2,019; Mode X's 371, 799 and
+  1,465; VGA4's PFILL 844 and TWO 741; one bit's TILE **395** on the CGA
+  5150 (98.3.23.1). `tools/os88vid.py`'s `blk_cost`
+  charges those (`BLK_MEASURED`), where it charged estimates 1.1x to 3.4x
+  under them.
+- **The hook's stack**: the deepest block path, a LIN320 or Mode X block
+  round the box, is 40 bytes from `vp_hook` (`vp_bcb` pushes one word for
+  that reason); a play's deepest stays 46, the flipped one, which version 2
+  refuses.
+
+`[vp_m3gate]` (1) is ANDed into `[vp_m3ok]` where the display is asked: a
+gate writes 0 and a VGA then takes the EGA's plane-at-a-time arms, which
+no machine here could otherwise run.
+
+`tests/vblkemu.py` is the part on the host, under Unicorn against a model of
+the VGA's registers, every kind on every path, random and exact - one
+bit's on a CGA's two banks and a Hercules's four, the codebook replaced in
+part between calls, and its two refusals.
+`tests/vidv2.py` is the player: version 2 clips of every kind played on
+MartyPC's XT VGA, CGA and Hercules 5150s, held at chosen frames and
+compared with `tools/os88vid.py`'s decode, three frame steps round the
+text box, the part's claim movable on the desktop and pinned in the
+bracket; `--layout vga4` adds the window and the EGA's arm, `--screen
+herc` a CGA file through the shadow, `--enc` 98.1.10.1's table - files
+ENCODED with blocks and page-ahead, flipping, three pages and the pool, a
+seam, a layer and a Hercules's pages - and `--refuse` a one-bit seam
+refused on a CGA XT.
+
+##### 98.3.23.1 One bit: the codebook
+
+**The codebook is 256 tiles of eight bytes in the part's own image**
+(`vb_cbk`), so a tile is its index's four words read through CS and
+written at the four rows' offsets with no segment swapped - and the claim
+the part already is holds it, where a codebook of its own would have been
+one more claim to move and pin. `VBV_SET` forgets it at every bracket's
+door (`vb_cbok`): a play starts at frame 0 or at a key, and the record
+after either carries the whole codebook (98.1.10), so nothing it held
+before is ever read - and a TILE before any codebook this bracket gives the
+record up, as the reader refuses it.
+
+**A tile has its own walk** (`vb_tiles`): the list's grammar with the tile
+inlined, the count in CX and the origin in BP. Through the generic walk -
+an indirect call a block, its count in memory, its width added from
+memory - a tile measured **539 cycles on the CGA 5150 and 541 on the
+Hercules one**; its own walk is **395**, which is what `BLK_MEASURED`
+charges. Round the box it keeps the generic walk and a callback a byte:
+the record's SI and the block's DI wait in the part, not on the stack,
+which the hook's 48 bytes bound.
 
 ### 98.4 The window: the Preview (wave 6)
 
