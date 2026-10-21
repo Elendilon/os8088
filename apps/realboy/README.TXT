@@ -41,6 +41,9 @@ F4          Machine > Speed's next setting
 1 to 9      the save state slot
 F5          save the game's state in that slot
 F8          load it back
+F6          record a replay from that slot, and F6 again to stop
+F7          play the slot's replay, and F7 again to stop it
+F12         write the log now (Machine > Log)
 Alt+Enter   full screen, and back
 Esc         leave full screen
 
@@ -57,10 +60,26 @@ full screen - or File > Save State and Load State. A slot only loads into
 the game that saved it. The battery save (NAME.SAV) is separate, and is
 written when the window closes, as before.
 
+REPLAYS
+-------
+A replay is a save state and the buttons pressed from there, a frame at a
+time. F6 (File > Record Replay) saves the slot's state, as F5 does, and
+keeps the buttons until F6 again, then writes them beside the game as
+NAME.RP1 to NAME.RP9 - a few hundred bytes. F7 (File > Play Replay) loads
+the slot's state and plays the same buttons again; the keyboard does
+nothing to the game until it ends. It plays exactly as it was played, so
+the same game can be timed again and again - with the log on, against
+another build, on another machine. At its end it says "ended", or "OUT OF
+STEP" if the game came out anywhere else. A replay belongs to its slot's
+state: save over the slot, and the replay will not play. Reset, Load State
+and File > Open wait for a replay to end.
+
 MENUS
 -----
 File > Save State        save the game's state in the slot (F5)
 File > Load State        load it back (F8)
+File > Record Replay     record a replay from the slot (F6)
+File > Play Replay       play it back (F7)
 Machine > Reset          start the cartridge again
 Machine > Pause          stop the clock
 Machine > Full Screen    the game on the whole screen
@@ -101,7 +120,7 @@ Machine > Cache          64K or 128K for the recompiler's code. 128K
 Machine > Controls...    which key is which button: click a button on
                          the Game Boy drawn there, then press its key.
                          A key another button had changes places with
-                         it; Esc, Alt, F1 to F5, F8 and 1 to 9 are
+                         it; Esc, Alt, F1 to F8, F12 and 1 to 9 are
                          RealBoy's own.
                          Default puts them back. Kept for every game
 
@@ -110,7 +129,8 @@ window, under a new name each time: the game's first six letters and a
 number (SUPER-00.LOG, SUPER-01.LOG, ...). It names the game and the machine,
 then gives a line a second: the speed, the frames run and drawn, how long
 the drawing took, and anything you did (Reset, Pause, Full Screen, the
-Recompiler). It is what to send back after a test run.
+Recompiler, a replay recorded or played). It is what to send back after a
+test run - and F12 writes it at once, without closing anything.
 
 Full screen is VGA's 320x200 at 1x, a Hercules card's page at 2x2, or
 CGA's 320x200 in four colours.

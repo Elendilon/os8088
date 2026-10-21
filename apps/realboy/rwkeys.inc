@@ -542,12 +542,10 @@ rw_konkey:
     cmp al, 57h
     jb .no
 .fk:
-    cmp al, 3Bh                     ; F1-F4: RealBoy's own, and F5 and F8
-    jb .ok                          ;   the save states'
-    cmp al, 3Fh
+    cmp al, 3Bh                     ; F1-F4: RealBoy's own, F5 and F8 the
+    jb .ok                          ;   save states' and F6 and F7 the
+    cmp al, 42h                     ;   replays'
     jbe .no
-    cmp al, 42h
-    je .no
 .ok:
     xor bh, bh                      ; BX = the button
     mov si, rw_keymap               ; a button that has it takes this one's

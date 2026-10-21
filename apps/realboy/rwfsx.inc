@@ -81,6 +81,23 @@ rw_mgrey:
 .st:
     mov [rw_i_file + 2], si
     mov [rw_i_file + 4], dx
+    mov si, rw_it_rec0              ; Record and Play Replay: a game, and
+    mov dx, rw_it_ply0              ;   the other not running
+    cmp byte [rw_state], 1
+    jne .rp
+    cmp byte [rw_rpmode], RPM_PLAY
+    je .rpp
+    mov si, rw_it_recs
+    cmp byte [rw_rpmode], RPM_REC
+    je .rp
+    mov si, rw_it_rec
+    mov dx, rw_it_ply
+    jmp short .rp
+.rpp:
+    mov dx, rw_it_plys
+.rp:
+    mov [rw_i_file + 6], si
+    mov [rw_i_file + 8], dx
     mov si, rw_it_fs0
     cmp byte [rw_state], 1
     jne .set
@@ -652,7 +669,7 @@ rw_fsmain:
 .out:
     pop word [rw_budget]
     mov byte [rw_infsx], 0
-    cmp byte [rb_panon], 0          ; PAGES: the window's frame is rw_fbuf,
+    cmp byte [rb_panon], 0          ; PAGES: the window's frame, [rw_fseg],
     je .r                           ;   which the bracket left behind
     mov byte [rb_panon], 0
     mov byte [rb_torus], 0
@@ -1166,8 +1183,19 @@ rw_fsdrawd:
     mov al, dl
     mov ah, 40
     mul ah
-    mov si, rw_fbuf
-    add si, ax                      ; SI = the line's two planes
+    push es                         ; the line's two planes into rw_lbuf:
+    push ds                         ;   the writers read our table (rw_htab)
+    pop es                          ;   beside it
+    mov si, ax
+    mov di, rw_lbuf
+    mov ax, [rw_fseg]
+    push ds
+    mov ds, ax
+    mov cx, 20
+    rep movsw
+    pop ds
+    pop es
+    mov si, rw_lbuf                 ; SI = the line's two planes
     xor dh, dh
     cmp byte [rw_fskind], RW_FSHERC
     jne .cga
