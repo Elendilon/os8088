@@ -8803,6 +8803,34 @@ reset path, and nothing here touches `mega_r286`); a real SB on a 286.
    first bracket play to the window's close - the same shape as the ring
    this round freed, and not asked about.
 
+#### 14.55.6 1942's sampled effects on kern_big, after the refusal fix
+
+14.55.3 made `1942sound`'s `sb` leg run its PCM section for the first time
+on a tree with no cartridge: the row had `sampled = sb and rom_build()`, so
+with no ROM it expected no PCM and the refusal satisfied it. With the leg
+taking SPEC.md 101 at its word (DSP 2+ plays the bundled part on any build)
+it failed at `'PCM stopped FM music'` - and **that was the fixture, not
+1942**. `g.fixture()` runs `n_stageinit`, which starts music slot 4, and on a
+no-cartridge build slot 4 is `tools/1942data.py`'s placeholder jingle (440,
+660, 880 Hz, 24 ticks, no loop): read at the second sample it was over -
+`musicptr 0, musicfreq 0, musicwait 1`, `opl_b0` key bit clear with nothing
+to key. The first sample passed (musicfreq 440, wait 2) because the jingle
+was still sounding. The leg now restarts slot 14 before each sample - the
+generated gameplay score, the same on both builds, looping, first note a
+held 440 Hz - and asserts it is keyed on BEFORE the sample, so a quiet
+fixture reads as `fixture: no music held` and never as a PCM defect again.
+**Broken on purpose**: `n_effect`'s PCM branch zeroing `[n_musicptr]` turns
+the leg red at `PCM stopped FM music`. A second stale step sat behind the
+first: the missing-bank fallback poked `n_pcmfile`, the sidecar name that
+went when the bank became part N_P_SFX, so it is now the graphics leg's
+shape - the row's offset moved past the file's end, op_fetch refuses,
+`pcmseg` 0 and effect 18 goes to FM at 180 Hz (`tests/n1942.py`'s symbol
+list gains `N_P_SFX`). No package or kernel byte moved. MartyPC
+`os8088_xt_vga_sb`: `sb` leg PCM start 4.98 / 4.11 / 4.74 ms (under the
+15 ms bound), capture peaks Sound Blaster 30,975, AdLib 4,074. `soak -k
+1942sound -k 1942`: both ok, `1942sound` **751.5 s** in a lane beside `1942`
+(declared 905, corrected to the measurement), `1942` 265.5 s.
+
 ### 14.56 Field results on the owner's 286, kern_mega at 942137bc (2026-10-21)
 
 The owner's first run of this round's disks on the Victory 286 (BIOS-served
