@@ -722,12 +722,16 @@ it changed), and AX holds the count.
   itself): when SCY or SCX moved since the last call - as the frame began,
   or in a raster write the last call's frame had not - every line under it
   changes anyway, so the VRAM scan would only find what is composed
-  regardless. The shadows are copied instead of compared and every line is
-  composed, and `ppu_dput` still writes only those that differ. While it
-  scrolls the shadows are not even taken (`RB_DSTALE`): the first still
-  frame after it takes them, and is COMPARED like any other - a stale
-  shadow can only make a call compose more, never less, so what it finds
-  changed is a line too many and never one too few. It was composed whole
+  regardless. Every line is composed, and `ppu_dput` still writes only
+  those that differ. The shadows are KEPT CURRENT by the marks' scan
+  (13.2.2: what the game wrote, about a block a frame) with OAM's taken
+  whole (`RB_DSCR`: a scroll moves every X, and the 1,280 line marks a
+  frame its entries made were read by nothing), so the first still frame
+  after a scroll compares one frame's writes (the scroll round, 13.3). Until
+  then the shadows were not even taken while it scrolled, and the first
+  still frame compared everything the scroll had streamed in - a stale
+  shadow can only make a call compose more, never less, so what it found
+  changed was a line too many and never one too few. It was composed whole
   until the rolling-background round (13.3), which made a game whose
   camera moves every other frame pay a whole frame for every still one:
   Kirby's Dream Land in play 50.67 -> 48.75 ms a frame on `286-victory`,
@@ -816,8 +820,10 @@ The direct `LD (nn),A` the translator chooses (16.6) starts at A000h for
 the same reason, and the read-modify-write templates (`rmw_lines`) fall to
 the interpreter for VRAM as they do for the cartridge.
 
-**`ppu_dscan` then compares only the marked blocks** - `repe scasw` over
-the marks, two blocks a word - against the same shadows, with the same
+**`ppu_dscan` then compares only the marked blocks** - the block PAIRS
+`vr_new` listed as it marked them for the first time (`RB_VLIST`, 64 in
+the view at 4610h; in play about one a frame), or, when the list ran out,
+`repe scasw` over the marks, two blocks a word - against the same shadows, with the same
 change bytes as the whole compare set, so nothing after it changes. The
 copy idiom (`cpy_ff`, 16.6) moves bytes with `REP MOVSB` and marks none:
 when either of its ranges starts in VRAM it sets `RB_VALL` and the next
@@ -1003,6 +1009,15 @@ reference sharing `ppu_line` and the sprites with what it checks.
 - **The bare harness moved** to make room (it was 20 bytes from its core):
   the boot sector is copied to 2000:7C00, the host loads at 0760h with its
   own stack at 0:7600, the frame and profile buffers at 05A0h.
+- **Kept** (the scan's half): the shadows kept current while it scrolls,
+  OAM's taken whole there (13.2), and `ppu_dlines` one clipped `rep stosb`
+  where it tested 16 rows. 369 / 810 -> 370 / 765: Kirby's Dream Land
+  **-5.6%**, its still frames comparing one frame's writes where they
+  compared a whole scroll's. Then the marked blocks LISTED by the core as
+  it marks them (`vr_new`, 13.2.2), so the scan visits what was written
+  rather than sweeping 512 bytes - every frame now runs it. -> **367 /
+  762**. The list's tail takes a slot of the core, which the recompiler's
+  cache gives up (256 bytes).
 
 
 ## 14. The package

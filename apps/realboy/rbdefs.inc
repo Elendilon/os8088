@@ -32,6 +32,10 @@ RB_F2AH         equ 0x4100          ; 256: Game Boy F -> AH image
 RB_AH2F         equ 0x4200          ; 256: AH image -> Game Boy F
 RB_RLOG         equ 0x4300          ; the register log, RB_RLOG_MAX x 4 bytes
 RB_RLOG_MAX     equ 192
+RB_VLN          equ 0x4600          ; word: entries on RB_VLIST (vr_new)
+RB_VLIST        equ 0x4610          ; RB_VLMAX: VRAM block PAIRS marked for
+RB_VLMAX        equ 64              ;   the first time since the damage scan
+                                    ;   (REALBOY-SPEC 13.2.2); full, it sweeps
 RB_SERBUF       equ 0x4700          ; 256: bytes the game sent on its link port
 RB_SNAP         equ 0x4800          ; 16: LCDC..WX as the frame began (4.4)
 S_JITSEGA       equ 0x4810          ; word: the cache's first segment, and

@@ -264,8 +264,9 @@ RB_DFAST        equ 0x3133              ; byte: no register changed anywhere
 RB_DLLOG        equ 0x3134              ; byte: the last call's frame's log
                                         ;   entries (FFh: more than RB_DLOGMAX)
 RB_DSAME        equ 0x3135              ; byte: ppu_logsame's answer, 1 = same
-RB_DSTALE       equ 0x3136              ; byte: a scroll left the shadows as
-                                        ;   they were (rb_renderd, .scroll)
+RB_DSTALE       equ 0x3136              ; byte: the last call scrolled
+                                        ;   (rb_renderd, .full)
+RB_DSCR         equ 0x3137              ; byte: ppu_dscan is a scroll's
 RB_DREG0        equ 0x3138              ; 8: the last call's registers
 RB_DMROW        equ 0x3140              ; 64: a map row changed (2 x 32)
 RB_DCOMP        equ 0x3180              ; word: lines composed (the host's to
@@ -328,6 +329,7 @@ rb_renderd:
     mov [es:RB_DOUT],di
     mov [es:RB_DOUT+2],ax
     mov word [es:RB_DCNT],0
+    mov byte [es:RB_DSCR],0             ; (the claim is not zeroed)
     cmp byte [cs:rb_ilace],0
     je .par
     xor byte [es:RB_DPAR],1             ; the other parity's turn - or with
@@ -416,10 +418,12 @@ rb_renderd:
 .full:
     cmp byte [es:RB_DFULL],0            ; (the host's: as it asked)
     jne .scan
-    mov byte [es:RB_DFULL],2            ; (2: the buffer is still the screen,
-    mov byte [es:RB_DSTALE],1           ;   so ppu_dput compares as ever) -
-    mov word [es:RB_DTCH],0             ;   and the shadows are not even
-    jmp short .scanned                  ;   taken while it scrolls
+    mov byte [es:RB_DSCR],1             ; the shadows kept current by the
+    call ppu_dscan                      ;   marks' scan - what the game wrote,
+    mov byte [es:RB_DSCR],0             ;   ~a block a frame - so the still
+    mov byte [es:RB_DFULL],2            ;   frame after compares one frame's
+    mov byte [es:RB_DSTALE],1           ;   (2: the buffer is still the screen,
+    jmp short .scanned                  ;   so ppu_dput compares as ever)
 .scan:
     mov al,0                            ; the first still frame after one is
     xchg al,[es:RB_DSTALE]              ;   COMPARED, not composed whole: the
@@ -729,6 +733,7 @@ ppu_dscan:
     xor ax,ax
     rep stosw
     mov [RB_VALL],al
+    mov [RB_VLN],ax                     ; (and vr_new's list)
     pop es
     ret
 .marks:
@@ -738,6 +743,32 @@ ppu_dscan:
     cmp byte [RB_VALL],0
     jne .all
     mov dx,es                           ; DX = the damage memory
+    mov cx,[RB_VLN]                     ; the pairs vr_new listed as it
+    mov word [RB_VLN],0                 ;   marked them - in play about one
+    cmp cx,RB_VLMAX                     ;   a frame - unless the list ran
+    jae .sweep                          ;   out: then all 512 marks
+    jcxz .vd
+    mov si,RB_VLIST
+.vl:
+    lodsb                               ; a pair of blocks
+    xor ah,ah
+    mov bx,ax
+    shl bx,1                            ; its first block, and its marks
+    cmp word [RB_VMARK+bx],0
+    je .vn                              ; (listed twice: done already)
+    mov word [RB_VMARK+bx],0
+    push cx
+    push si
+    call .blk
+    inc bx
+    call .blk
+    pop si
+    pop cx
+.vn:
+    loop .vl
+.vd:
+    jmp .oam
+.sweep:
     push ds
     pop es
     mov di,RB_VMARK
@@ -849,6 +880,15 @@ ppu_dscan:
     or cx,cx
     jnz .m
 .oam:
+    cmp byte [es:RB_DSCR],0             ; a scroll's: every line is composed,
+    je .oam1                            ;   so no line is marked - OAM's
+    mov si,0FE00h                       ;   shadow taken whole (a scroll
+    mov di,RB_DOAM                      ;   moves every X: 1,280 marks a
+    mov cx,80                           ;   frame nothing would read)
+    rep movsw
+    mov byte [es:RB_DOCH],1
+    ret
+.oam1:
     mov si,0FE00h                       ; a sprite that moved or changed:
     mov di,RB_DOAM                      ;   the lines it left and the lines
     mov dx,40                           ;   it covers now
@@ -972,23 +1012,29 @@ ppu_dfast:
     ret
 
 ; ppu_dlines: AL = a sprite's Y - its rows Y-16 .. Y-1 marked in RB_DLD
-ppu_dlines:
+ppu_dlines:                             ; (one clipped fill)
     push ax
-    push bx
     push cx
-    sub al,16
-    mov cx,16
+    push di
+    xor ah,ah
+    mov cx,ax                           ; CX = Y, the end (exclusive)
+    sub al,16                           ; AX = Y - 16, the first
+    jae .lo
+    xor al,al                           ; (Y < 16: from row 0)
+.lo:
+    cmp cx,144
+    jbe .h
+    mov cx,144
+.h:
+    sub cx,ax
+    jle .r                              ; (Y >= 160: none on the screen)
+    mov di,ax
+    add di,RB_DLD
+    mov al,1
+    rep stosb
 .r:
-    cmp al,144
-    jae .n
-    mov bl,al
-    xor bh,bh
-    mov byte [es:RB_DLD+bx],1
-.n:
-    inc al
-    loop .r
+    pop di
     pop cx
-    pop bx
     pop ax
     ret
 
