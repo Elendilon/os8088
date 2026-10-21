@@ -222,6 +222,24 @@ first-fit claim lands is a property of the session, not of the code: the same
 6KB first-fits *above* the view cache on a desktop that has been used
 (§66.5.6.2), which is why the listing was made movable after all.
 
+## kern_mega is a third axis: which claims stay BELOW 1MB
+
+On kern_mega a package whose class byte says `OS88_HIGHMEM` gets its plain
+claims of 64KB or less as selectors ABOVE 1MB (docs/plans/KERN-MEGA-PLAN.md
+13.6, item 81), so most of the rows above never touch the conventional heap
+there. Every package declares the bit or is registered in
+`tests/megahigh.txt` with a reason (KERN-MEGA-PLAN 14.52, `t_megahigh.py`,
+the full tier); one is, PiXEL. What still lands in conventional memory is
+the DMA door (`OSAPI_MEM_CLAIM_DMA`/`_HI`, the parts library's carve and
+lazy fetch included), a claim over 64KB, and PiXEL's. **KERN-MEGA-PLAN
+14.52.4 is the register of those**, one row a claim with the owner's three
+tests - held only during active use, claimed bottom-up, movable while idle
+- and its verdicts: the open ones are MIDIRack's external ring (fails all
+three), the external DMA rings' top-down door (SPEC.md 34.5.3), the Apple
+II's and C64's ROM carves, and `os88type.inc`'s face cache (undeclared).
+Clear Skies' flight shadow, below, is one of the claims 14.52 moved: pinned
+by not declaring on kern_big, a pool selector on kern_mega.
+
 ## Regions — the block a package RUNS in (§66.6.1, §66.6.2)
 
 A region is a claim like any other and the same two columns decide it, but the

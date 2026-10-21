@@ -64,8 +64,11 @@
 %ifdef CSDIAG                   ; the watchdog stamps our CS into vector 8
     OS88_HEADER 'SKIES', cs_entry, 1, OS88_STACK_DEFAULT
 %else                           ; ...so only the shipped build may run above
-    OS88_HEADER 'SKIES', cs_entry, 1, OS88_STACK_DEFAULT | OS88_HIGH
-%endif                          ; 1MB (KERN-MEGA-PLAN 14.44)
+    OS88_HEADER 'SKIES', cs_entry, 1, OS88_STACK_DEFAULT | OS88_HIGH | OS88_HIGHMEM
+%endif                          ; 1MB (KERN-MEGA-PLAN 14.44), and its claims
+                                ; too (14.52): the world read buffer and the
+                                ; flight shadow are only ever loaded into DS
+                                ; or ES and read by offset
                                 ; no worker: the whole flight is the bracket
                                 ; on task 0, and the attract window is still
 

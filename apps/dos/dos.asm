@@ -85,8 +85,13 @@
     ; is its loader), so on kern_mega its keep - this image and its bss, the
     ; INT 21h core copied in at CORE_ORG - goes above 1MB before it runs
     ; (SPEC.md 20.12.10.9, KERN-MEGA-PLAN 14.44). kern_big's DOS.O88 is
-    ; built without DOS_MEGA and stays byte-identical
-    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS, OS88_HIGH
+    ; built without DOS_MEGA and stays byte-identical. OS88_HIGHMEM too
+    ; (KERN-MEGA-PLAN 14.52): on kern_mega every launch is the whole
+    ; machine (dos_mem_fix), so dos_run's arena claim is never reached, and
+    ; what the bit moves above 1MB - the packet driver's buffers, the
+    ; prompt's DIR and COPY buffers, os88ui's save-under - is only ever
+    ; loaded into ES or handed to a kernel slot
+    OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS, OS88_HIGH | OS88_HIGHMEM
  %else
     OS88_HEADER 'DOS', dos_entry, 3 | OS88_F_GLYPH | OS88_F_PARTS
  %endif

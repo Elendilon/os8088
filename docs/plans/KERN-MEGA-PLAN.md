@@ -8204,3 +8204,236 @@ here as decisions, so the next round does not ask them again.
   (bottom-up), and it is **movable while not in active use**, so idle ones
   compact to the bottom and leave the top of 640K as one free run. Each such
   claim is to be noted. 14.52 audits them.
+
+### 14.52 The OS88_HIGH / OS88_HIGHMEM gate, and the claims that stay conventional (2026-10-21)
+
+14.51's two answers, built. Part A is the gate the owner asked for; part B
+is the audit of what still lands in conventional memory on kern_mega.
+
+#### 14.52.1 The gate: `tests/unit/t_megahigh.py`, the full tier
+
+**Every package under `apps/` declares both `OS88_HIGH` and `OS88_HIGHMEM`
+in its class byte (+15), or carries a line in `tests/megahigh.txt` per bit
+it does not declare, with a reason.** It is `t_movable.py`'s shape and
+shares its discovery (a file under `apps/` that emits a header: 67, 60
+assembly and 7 C). Two checks, `high` and `highmem`, each needing its own
+line. The list turns ONE WAY: a line for a package that declares is a
+failure. Registered as the `megahigh` row in the FULL tier, at the owner's
+word; host-side, 1.8 s measured.
+
+- **Decided from the source, cross-checked against the artefact.** The
+  verdict is OS88_HEADER's fourth argument (or a C shim's `%define
+  CC_STACK_CLASS`, which `apps/cc/crt0.asm` writes at +15), evaluated
+  against `apps/os88api.inc`'s own equs through a small model of nasm's
+  `%ifdef`/`%ifndef`/`%else`/`%endif`, with the defines the SHIPPED recipe
+  passes read off the Makefile. Then every current built image is checked
+  against it: a `.bin` whose byte 15 disagrees fails the row. The source
+  carries the verdict because the C packages are not built by `make`, and a
+  gate that skipped what is unbuilt would report on less than the tree; the
+  images keep the parse honest (39 were cross-checked on this tree). The
+  class byte is in the clear prefix `os88pkg.py` never compresses, so the
+  `.bin` and the `.o88` agree on it and nothing is decompressed.
+- **Re-homed programs** are checked in the PROGRAM part's header: each
+  program part (`word.asm`, `scribe.asm`, `skies.asm`, `dos.asm`,
+  `pxgame.asm`) emits its own OS88_HEADER and is a package to the row. A
+  **loader** (its own source invokes `OS88_REHOME`) is not asked for
+  `OS88_HIGH` - it is freed inside the re-home - and is asked for
+  `OS88_HIGHMEM` only when its own source makes a plain claim, which is
+  PIXELSTEIN's loader's 60KB sprite set (14.48 S7). The other four
+  loaders' claims are all the parts library's DMA door, which the bit does
+  not reach. That is a fact about the code, so it lives in the code and not
+  in the registry.
+- **DOS is the one header that depends on the build**: kern_mega's DOS.O88
+  is `kdos/DOS.O88`, part 0 `dosp.bin`, built `-DDOSKPART -DDOS_EXTCORE`
+  and `-DDOS_MEGA` under KERN_MEGA (`dos.bin` is the icon pipeline's and
+  ships nowhere). `SHIPPED_STEM` names that stem, the row asserts the
+  `kdos/DOS.O88` recipe, and a recipe with a KERN_MEGA arm is
+  cross-checked against `build/megak/` alone.
+- **Broken on purpose, all three red**: OS88_HIGHMEM taken out of HELLO
+  (`does not declare OS88_HIGHMEM`); a `highmem` line for CALC (`exempt
+  ... and no longer needs to be`); byte 15 of a copy of `paccman.bin`
+  cleared under `$OS88_TREE` (`built image disagrees with its source`).
+
+#### 14.52.2 What declares now, and the one line left
+
+At the base: OS88_HIGH 62 of 67 (the five missing are the five loaders),
+OS88_HIGHMEM 38. **After: OS88_HIGHMEM 62 of 67** - the four loaders the
+row does not ask aside, every package but PiXEL.
+
+- **OS88_HIGHMEM opted in: 23 assembly, 1 C** - Arkanoid, Bounce,
+  Calculator, Cyclone, Desk Calendar, FPTEST, Gorillas, Hello, Mines,
+  Missile, Pac-Man, Piano, RLAPPLY, Solitaire, TameGram, the Task Manager,
+  Timer, WIRE, WireBall, Dr Marco, Font Viewer, Clear Skies, kern_mega's
+  DOS.O88 (under `DOS_MEGA` only), and PaccMan.
+  - **For twenty-one of them (PaccMan included) the bit is provably INERT.** Bit 6 is read in one
+    place, `mega_ownerof`, whose callers are the claim, claim-hi, huge,
+    free and claim-find paths, and these packages call none of those cells.
+    Their only claims are the parts library's DMA door (Dr Marco's front
+    art, PaccMan's overlay), which the bit does not reach, or os88ui's
+    save-unders, which are assembled only under `OS88UI_DROP` /
+    `OS88UI_MENU` - and none of the twenty-one defines either.
+  - **Font Viewer** - `os88type.inc`'s prestyled table (`ty_psseg`, a plain
+    claim, loaded into ES only) moves; its face cache is the DMA door and
+    stays. `os88type.inc` was walked against the contract for Word and
+    Scribe in 14.44.3.
+  - **Clear Skies** - the world read buffer (`cs_wgseg`: a READ_AT target,
+    then DS for `cs_xpand`'s source, read by offset), the flight shadow
+    (`cs_shseg`, 16KB, 8KB in C160, none on Mode X: DS/ES only) and
+    os88ui's drop/menu save-unders move. `cs_xpand`'s one sum is on its
+    OWN segment, which SUBSEG already covers (14.44 S3).
+  - **DOS** - on kern_mega every launch is the whole machine
+    (`dos_mem_fix` forces `DOS_MEM_WHOLE`), so `dos_run`'s arena claim is
+    never reached. What the bit moves - the packet driver's 3KB
+    (`dos_pkt_bufs`, claimed and zeroed before the handoff and unused on
+    this kernel), the core's host-heap hook (`dos_hk_claim`: the prompt's
+    DIR sort, `DSH_SKB` 7KB, and its COPY buffer) and os88ui's drop
+    save-under - is only ever loaded into ES or handed to a kernel slot.
+    kern_big's `dosp.bin` is built without `DOS_MEGA` and is unchanged.
+- **The one line: PiXEL `highmem`** - paragraph arithmetic on every claim
+  it holds (14.40 item 4). Retired by 14.12's flat arm at every site.
+- **What was checked and turned out not to be a reason**: the first draft
+  of DOS's line named the arena (`OSAPI_MEM_CLAIM_HI` after the user's
+  cap, which may be 64KB, so a pool selector under the bit, walked as an
+  MCB chain). It would break - but kern_mega's program part never reaches
+  that claim.
+
+#### 14.52.3 Measured, on what
+
+`protected-mode` 04896793 plus this branch. `make megatrap`'s census tree
+(`MEGATRAP=1`, a private `build/trees/` tree), Bochs 2.7, 16MB.
+
+- **A MEGARUN sweep of the 22 assembly opt-ins but DOS** (three boots, 20 s linger
+  each): every one started (`RLAPPLY` answers `no 04` by design: it has no
+  window and ends through the abort path), **no FAULT, no CLOSED, 0 trap
+  lines charged to any of them** (the six in the logs are the three boots'
+  `mega_strcal` calibration).
+- **PaccMan** (the C toolchain's build, byte 15 = C3h): 30 s of attract
+  mode, 0 traps.
+- **Clear Skies**: the Location drop-down opened, LONDON-LCY picked (a
+  world read into the buffer), Fly, throttle, London on the horizon, Esc,
+  back: **1 trap**, `0060:04ED` - `api_x.done`'s `pop es` with the
+  drop-list's freed save-under still in ES, 14.46.1's `.stale` line, once
+  a free (14.52.5 item 2).
+- **Font Viewer**: four faces stepped through and text typed, 0 traps.
+- **DOS, an A/B in one boot**: a DOS.O88 whose program part says
+  `OS88_HIGH` alone (`DOSOLD.O88`, its part 0 assembled from 04896793),
+  then the new one; at each prompt `CD \RUN`, `DIR`, `COPY KDHELLO.COM
+  X.COM`, `DIR`, `KDHELLO` (the park and back):
+
+  | step | HIGH alone | HIGH + HIGHMEM |
+  |---|---:|---:|
+  | `CD \RUN` | 0 | 0 |
+  | `DIR` (4 / 5 files) | 133 | 156 |
+  | `COPY` | 18 | 20 |
+  | `DIR` (5 / 6 files) | 156 | 179 |
+  | `KDHELLO`, exit 042 | 0 | 0 |
+
+  The only difference the bit makes is **two `.stale` fixups a COPY**: the
+  core frees its copy buffer (a pool selector now) while ES holds it, so
+  `api_x.done`'s `pop es` and `dsh_bufput`'s own (`282C:33B5`) each load
+  NULL instead. The rest is the same ~23 a listed row in both builds -
+  14.52.5 item 1. The sorted DIR and the copied file came out right.
+- **kern_big and kern_small**: no kernel byte. The class byte is read
+  there by `inst_pkg_spawn` alone, masked `and bx, 0x3F`; `ld_hisi`'s
+  `test 0x80` and `mega_ownerof`'s `0x40` are kern_mega's. Twenty opted-in
+  assembly images were compared with their build at the base: **the only
+  differing byte is +15**, same length. (`fptest` and `pacman` are
+  on-demand builds and were not compared; PaccMan's change is the same one
+  define.)
+
+#### 14.52.4 Part B: the claims that stay in conventional memory
+
+The owner's three tests: held **only during active use**, claimed **low**
+(bottom-up), **movable while not in use**. What reaches conventional memory
+on kern_mega is narrow: the DMA door (`OSAPI_MEM_CLAIM_DMA`/`_HI`, the parts
+library's carve and fetch included), a plain claim over 64KB, and every
+claim of a package without `OS88_HIGHMEM` (PiXEL alone now). Read off the
+code at this commit; sizes are the `equ`s.
+
+| package | claim | size | held | low? | movable idle? | verdict |
+|---|---|---|---|---|---|---|
+| DOS, Clear Skies, Font Viewer | the claims 14.52.2 names | 3-16KB | a command / a flight / a style | - | - | **fixed**: above 1MB now |
+| Word, Scribe, Clear Skies, DOS, PIXELSTEIN 3D | the parts carve at launch (`op_carve`, DMA_HI) | the keep | `op_load` to the re-home's KEEP lift | no (top-down: it becomes a CS) | n/a | **OK** - transient; 14.38.6 D4 |
+| PIXELSTEIN 3D | LEV and ART (`op_fetch`, then `op_hilift`) | 10KB, 37KB | one copy's length | yes | n/a | **OK** - lifted above 1MB (14.48) |
+| Apple II, C64 | the eager carve holding the ROM (and C64's overlay) | the ROM; C64's 20KB + its overlay | the session | **no** (`op_carve` is top-down) | **no** (`os88_part_seg(0)` banked; SPEC.md 73.14.2.1) | **open** - fails 2 and 3 |
+| CWORD, RunCPM | the eager carve that is only the overlay | the overlay | the session | **no** (top-down, a CS) | yes (`cc_ovreloc`, 73.14.2.1) | **open on test 2**, by SPEC.md 20.12.10.8's CS rule |
+| Apple II, LOOM, WEAVE | the lazy overlay part (`op_fetch`) | the overlay | first call to the session's end | yes | yes (`cc_ovreloc`) | **OK** |
+| Dr Marco | the front screen's art (`op_fetch`) | per class | the front screens | yes | yes (`dm_artreloc`) | **OK** |
+| 1942 | the tile banks (`op_fetch`, `n_readbank`) | per bank | the fullscreen game; the latch bank dropped at once | yes | no | **OK** - held only in play |
+| Excitebike | sprites (`xb_spr_load`, DMA: the poses are far-called) | 44 / 28 / 17KB | a race (`xb_spr_free`) | yes | no | **OK** - held only in play |
+| Excitebike | the front splash (`xb_partget`) | per class | the front screens | yes | yes (`xb_artreloc`) | **OK** |
+| 1942 | the PCM rings (`n_pcm_open`, DMA_HI) | 13KB | the fullscreen game (`n_audio_open` to `n_exit`) | **no** | no (MC_DMA, the card reads it) | **open on test 2**: SPEC.md 34.5.3 puts an external ring at `OSAPI_MEM_CLAIM_DMA_HI` |
+| Video Player | the card ring (`vp_aseg`, DMA_HI) | `VP_RL` + 1KB | a play with sound | **no** | n/a (the card reads it) | **open on test 2**, the same rule |
+| Video Player | the 32KB bounce (`vp_dbnc`, `vp_mclaim`) | 32KB | a play whose ring is above 1MB | yes | no | **OK** |
+| Video Player | keeper, shadow, poster, palettes, text save, layer (`vp_mclaim` / `vp_mclhi`) | per play / file | a play or an open file | mostly; VGA8's palette and the text save from the top | yes (`vp_smove`, HEAP-CLAIMS) | **OK**, the two top-down ones aside |
+| Video Player | `os88xgap`'s scratch (DMA_HI) | 8KB | one measurement | no | n/a | **OK** - transient |
+| MIDIRack | the card's external ring (`mrb_seg`, DMA_HI) | 17KB | **the first synth play to the WINDOW'S CLOSE** (`mro_free`) | **no** | **no** | **open - fails all three** |
+| Word, Scribe, Font Viewer, CWORD | `os88type.inc`'s face cache (DMA, for 512-byte alignment) | `TY_FACE_KB` a face | while the face is open | yes | **no** (undeclared) | **open on test 3** |
+| Frotz | a story over 64KB | to 508KB | the session | yes | yes (`zf_reloc`) | **OK** |
+| Tracker, ModPlug | a module of 63KB and more (14.13's 65KB re-claim included) | to 116KB | the session | yes | yes (`trk_reloc`, `mpp_reloc`) | **OK** |
+| PiXEL | every claim: master, work, view, the pump's DMA buffer, the decoder parts | per picture | a picture open | yes | the master and view yes (`pxview`/`pxmaster` declare) | **OK** on tests 2-3; conventional by 14.52.2's one line |
+
+**Nothing was fixed in part B beyond the three moved high**, and the reason
+is the same for each open row: none is both small and local and verifiable
+in this round.
+
+- **MIDIRack's ring** is the one that fails all three. The shape is to
+  free it in `mrb_close` (`mrb_start` already re-claims when `[mrb_seg]` is
+  0) - but `mrb_tc` loads ES from `[mrb_seg]` with no zero test, so a feed
+  landing after the close would read and write through segment 0. That
+  ordering (`mro_drain` runs before `mrb_close`) has to be proved on the
+  `midirack*` rows, with a card, before it ships.
+- **The external rings' top-down door** (1942, the Video Player, MIDIRack)
+  is SPEC.md 34.5.3's contract, not an oversight. `OSAPI_MEM_CLAIM_DMA` with
+  the same head is page-safe from the bottom too, so which door is a
+  decision (below).
+- **The face cache** needs a relocation proc in `os88type.inc` re-pointing
+  the face table's segment words (the 512-byte alignment survives a move:
+  every claim base is a multiple of 32 paragraphs, guard 6b). It is shared
+  by four packages, so it is four packages' rows.
+- **The ROM carves** (Apple II, C64) are the parts library's `op_carve`,
+  top-down by SPEC.md 20.12.10.8 because a carve may hold code. An
+  asset-only carve could come from the bottom and declare a proc that
+  re-banks `os88_part_seg(0)`, or be lifted above 1MB the way `op_hilift`
+  lifts PIXELSTEIN's parts. Either is a parts-library change.
+
+#### 14.52.5 Left, and for the owner
+
+1. **The DOS prompt takes a `mega_gpw` fixup per CHARACTER it prints**,
+   with or without this round (the A/B: ~23 a DIR row). The sites are
+   `con_markc`'s `or [con_drb + bx], al` and `con_write`'s `mov word
+   [con_cx], 0`, reached with DS = the box's CODE selector. 14.46.1 counted
+   the DOS trip (0), not the prompt. A census item, not this one's: find
+   the path into `con_putc` that sets DS from CS.
+2. **The `.stale` fixup once a free** (`api_x.done`'s `pop es`) now reaches
+   Clear Skies' drop-lists and DOS's COPY. `os88ui_mnback` and
+   `os88ui_drback` free the bank with ES still holding it; a `push ds /
+   pop es` in front of each `OSAPI_MEM_FREE` (2 bytes a site) would end it
+   for every `OS88UI_DROP`/`OS88UI_MENU` package (DOS, PiXEL, Redline,
+   Skies, Word). Left: it touches five packages' images for one trap a
+   close.
+3. **Not run here**: Clear Skies' shadow above 1MB, which only a 1bpp
+   adapter takes (Mode X uses none) and neither Bochs nor `286-mega` has;
+   and the 286 reset path for any opt-in (Bochs is a 386).
+4. **Owner questions.**
+   - **The external DMA rings**: keep SPEC.md 34.5.3's top-down door, or
+     move them to `OSAPI_MEM_CLAIM_DMA` with the same head so they are
+     claimed low? A ring is MC_DMA and pinned while the card reads it
+     either way, so the question is only where it sits.
+   - **MIDIRack's ring**: free it at each stop, so it is held only while
+     playing, at the price of a page-safe claim per play that a fragmented
+     heap can refuse mid-session?
+
+#### 14.52.6 Cost
+
+| what | bytes |
+|---|---:|
+| kern_big, kern_small, kern_mega | **0** - no kernel source changed |
+| every opted-in package's image and file | **0** - one header byte's value |
+| `apps/os88api.inc` | a comment: OS88_HIGHMEM's note names the gate (`abilock`: *nothing changed*) |
+
+**Rows that cover it**: `megahigh` (full, the gate); `movable` (fast, whose
+discovery it shares); `megatrap0` (soak, Bochs: HELLO, CALC, MINES,
+FONTVIEW, SOLITAIR, PIANO, BOUNCE, DESKCAL and TIMER are OS88_HIGHMEM now);
+`megarehome` (soak, Bochs: DOS and SKIES are OS88_HIGHMEM now, and its
+comment says why neither is asked to hold a pool claim at rest).

@@ -54,7 +54,10 @@ import os88bochs  # noqa: E402
 
 BUILD = os.path.join(ROOT, "build")
 MAP = os.path.join(BUILD, "megak", "kernel.map")
-# (file on C:, the name its instance record carries, says OS88_HIGHMEM)
+# (file on C:, the name its instance record carries, holds a pool claim at
+# rest). DOS and SKIES say OS88_HIGHMEM too since KERN-MEGA-PLAN 14.52, but
+# neither holds a claim while it sits at its window - DOS claims at a launch,
+# SKIES for a world read and a flight - so the check is not asked of them
 PROGS = (("dos.o88", os.path.join(BUILD, "megak", "kdos", "DOS.O88"), "DOS",
           False),
          ("scribe.o88", os.path.join(BUILD, "scribe.o88"), "SCRIBE", True),

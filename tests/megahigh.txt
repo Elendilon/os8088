@@ -1,0 +1,45 @@
+# tests/megahigh.txt - the OS88_HIGH / OS88_HIGHMEM exemption registry
+# (docs/plans/KERN-MEGA-PLAN.md 14.51, 14.52)
+#
+# On kern_mega two bits of a package's class byte (+15) are the opt-in to
+# extended memory (apps/os88api.inc): OS88_HIGH, the region may be loaded
+# above 1MB, and OS88_HIGHMEM, its claims of 64KB or less may be too. The
+# owner's rule: "opt in is fine but only with a full tier gate. They need to
+# except themselves if they want to not opt in, and they need a damn good
+# reason to do so."
+#
+# ONE LINE PER EXEMPTION: <kind> <package>  # <reason>
+#
+#   high     the package does not declare OS88_HIGH
+#   highmem  it does not declare OS88_HIGHMEM
+#
+# A reason may run on over indented `#` lines below it. tests/unit/t_megahigh.py
+# (full tier) is the gate, and the list turns ONE WAY: a line for a package
+# that now declares is a FAILURE.
+#
+# THE BAR. A reason names a concrete thing in the code that breaks above 1MB -
+# paragraph arithmetic on its own CS/DS or on a claim's segment, a far pointer
+# kept for real mode, an IRQ vector stamped with its own CS, DMA or a BIOS
+# call on a claim, a claim over 64KB stepped by segment arithmetic - with the
+# place it is and what would retire the line. "Nobody looked" is not one: if
+# you looked and found nothing, the answer is the declaration, after running
+# the package on kern_mega (docs/BOCHS.md).
+#
+# NOT HERE, BY CONSTRUCTION: a parts LOADER (its source invokes OS88_REHOME -
+# csload, wdload, scload, dosload, pxstein) is never asked for `high`, and is
+# asked for `highmem` only when its own source claims. The gate's docstring
+# says why; its program part is a package of its own and is checked as one.
+
+# --- highmem -----------------------------------------------------------------
+
+highmem apps/pixel/pixel.asm     # PARAGRAPH ARITHMETIC ON EVERY CLAIM IT HOLDS
+    # (KERN-MEGA-PLAN 14.40 item 4): the master is addressed as MSEG +
+    # (offset >> 7 << 3) at nine sites, the work claim is cut into
+    # sub-buffers by paragraph offsets (PX_WGRID, px_wo_*) handed to the parts
+    # as PXK_RSEG/PXK_DSEG, the PNG scanlines sit at PXK_DSEG + PZ_WPARA, the
+    # JPEG progressive store at the scratch + JV_SBASE, the histogram tail past
+    # the master and the animation's backup inside its claim. Right on the
+    # identity map, meaningless on an LDT selector over exactly the KB asked.
+    # Retired by 14.12's "flat arm" at every site (seg = claim, offset = the
+    # absolute address when `test dl, 4`) - a rewrite of PiXEL's addressing.
+    # OS88_HIGH it already says.
