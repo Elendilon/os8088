@@ -210,43 +210,14 @@ rw_fspick:
     stc
     ret
 
-; rw_fscopy - the glyphs for 32-127 into rw_font, blanks where the table
-; stops. DX:SI = the table, AL = its first code, AH = its last.
+; rw_fscopy - the kernel's glyph table kept for the bracket's text, which
+; reads it where it is (a far pointer, not a 768-byte copy: memory is not a
+; drawing slot). DX:SI = the table, AL = its first code. Our lines are
+; ASCII, which every table the kernel answers holds.
 rw_fscopy:
-    push ds
-    push ds
-    pop es
-    mov di, rw_font
-    mov bl, 32
-    mov ds, dx
-.c:
-    cmp bl, al
-    jb .blank
-    cmp bl, ah
-    ja .blank
-    push si
-    mov cl, bl
-    sub cl, al
-    xor ch, ch
-    shl cx, 1
-    shl cx, 1
-    shl cx, 1
-    add si, cx                      ; SI = this code's 8 rows
-    mov cx, 8
-    rep movsb
-    pop si
-    jmp short .next
-.blank:
-    push ax
-    xor al, al
-    mov cx, 8
-    rep stosb
-    pop ax
-.next:
-    inc bl
-    cmp bl, 128
-    jb .c
-    pop ds
+    mov [rw_fontp], si
+    mov [rw_fontp + 2], dx
+    mov [rw_font0], al
     ret
 
 ; rw_fshook - every rate period: a frame owed. AX = periods since the last.
@@ -540,19 +511,22 @@ rw_fstext:                          ; (SI = the line, rw_fsline's)
 .g:
     push si
     push cx
-    sub al, 32
+    sub al, [rw_font0]
     xor ah, ah
     shl ax, 1
     shl ax, 1
     shl ax, 1
-    mov si, rw_font
+    mov si, [rw_fontp]
     add si, ax
     mov cx, 8
     push di
+    push ds
+    mov ds, [rw_fontp + 2]          ; (the kernel's table, where it is)
 .row:
     movsb
     add di, 40 - 1
     loop .row
+    pop ds
     pop di
     inc di
     pop cx
@@ -844,17 +818,20 @@ rw_fstext1:                         ; (SI = the line, rw_fsline's)
     dec si
 .g:
     inc si
-    sub al, 32
+    sub al, [rw_font0]
     xor ah, ah
     shl ax, 1
     shl ax, 1
     shl ax, 1
     push si
-    mov si, rw_font
+    mov si, [rw_fontp]
     add si, ax                      ; SI = its eight rows
     xor cx, cx                      ; CX = the row
 .r:
+    push ds
+    mov ds, [cs:rw_fontp + 2]       ; (the kernel's table, where it is)
     lodsb
+    pop ds
     push cx
     push bx
     cmp byte [rw_fskind], RW_FSHERC

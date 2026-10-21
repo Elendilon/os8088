@@ -2621,6 +2621,19 @@ SOAK = [
         "package",
         needs=("marty", "nasm"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
+    Row("gbkeys", "soak", py("tests/gbkeys.py"), 66.0,
+        "REALBOY's Machine > Controls... (docs/REALBOY-SPEC.md section 14.2) "
+        "on VGA and on a CGA, driven by its own layout: a click on A lights "
+        "the box and the next key typed (Q) is A's, read out of rw_keymap; "
+        "F1 is refused and the wait goes on, Esc stops it; B takes A's key "
+        "and the two change places; the GAME reads the new map out of S_JOY "
+        "(Q held is B, Z is A, X nothing); REALBOY.CFG version 3 keeps it, "
+        "read off the floppy as the guest left it (os88flush); Default puts "
+        "the shipped map back; and on the CGA the window is whole above the "
+        "dock. Measured 66s. BROKEN ON PURPOSE (the reserved check taken out) "
+        "it goes red at F1. SOAK: one package",
+        needs=("marty", "nasm"),
+        wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("gbdamage", "soak", py("tests/gbdamage.py"), 32.0,
         "RealBoy's damage renderer (docs/REALBOY-SPEC.md section 13.2) against "
         "its whole one: the bare harness's MODE 6 under QEMU composes every "
