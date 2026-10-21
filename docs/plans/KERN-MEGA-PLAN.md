@@ -8437,3 +8437,52 @@ discovery it shares); `megatrap0` (soak, Bochs: HELLO, CALC, MINES,
 FONTVIEW, SOLITAIR, PIANO, BOUNCE, DESKCAL and TIMER are OS88_HIGHMEM now);
 `megarehome` (soak, Bochs: DOS and SKIES are OS88_HIGHMEM now, and its
 comment says why neither is asked to hold a pool claim at rest).
+
+### 14.53 After 14.52: the owner's calls, the menu save-under, and the claim issues left for after the upstream PR (2026-10-21)
+
+**The owner's answers to 14.52's two questions.**
+
+1. **External DMA rings claimed bottom-up - on kern_mega only.** A ring
+   (`OSAPI_MEM_CLAIM_DMA_HI`, SPEC.md 34.5.3) is claimed top-down on every
+   kernel today; on kern_mega it moves to the bottom-up claim with the same
+   64KB-page safety. kern_big and kern_small keep SPEC.md 34.5.3 as written.
+   14.55 builds it.
+2. **MIDIRack frees its external ring at every stop, and handles a refusal**
+   at the next play: a fragmented heap that cannot give a page-safe 17KB is
+   a play that says so, not a crash. `mrb_tc`'s unguarded ES load is the
+   hazard 14.52 named, and the fix has to close it. 14.55 builds it.
+
+**The menu and drop-list save-under, fixed (owner: "sounds easy so lets do
+it").** `os88ui_drback` and `os88ui_mnback` freed the banked pixels while ES
+still held the claim, so the free's own API return reloaded a freed selector
+- one `api_x.done` stale-ES fixup per close in every package that carries
+`OS88UI_DROP`/`OS88UI_MENU` (DOS, PiXEL, Redline, Skies, Word). The two
+restores now `pop es` BEFORE the free, at no byte cost, and the two refusal
+paths (a bank that straddles two displays, freed unrestored) load ES from DS
+first, two bytes each. Every package that carries the controls is rebuilt by
+it; on kern_big and kern_small the bytes move and the behaviour does not.
+
+**The DOS prompt's trap** - one write fixup per character the windowed box
+prints, because the core and the box enter with `push cs / pop ds` and on
+kern_mega CS is a read-only code selector - is measured, and fixed if it
+costs anything a user can notice, by 14.54. The owner wants it settled
+before the upstream PR.
+
+**THE CLAIM ISSUES LEFT FOR AFTER THE UPSTREAM PR.** The owner's rule (14.51)
+is that a claim may stay in conventional memory when it exists only during
+active use, is claimed bottom-up, and is movable while idle. These fail it
+and are NOT fixed now - "we will get to them, but likely not before we first
+PR this to upstream":
+
+| package | claim | what fails | fix shape (14.52.4) |
+|---|---|---|---|
+| Apple II, C64 | the ROM carve (C64 20KB) | top-down and pinned for the program's life | claim bottom-up; a relocation proc for the one segment word each holds |
+| CWORD, RunCPM | the overlay carve | top-down by the rule that a block holding code goes high (SPEC.md 50.3.2.1) | bottom-up with `cc_ovbind` as its proc, which HEAP-UNPIN-PLAN names as already being one |
+| Word, Scribe, Font Viewer, CWORD | `os88type.inc`'s face cache | never declared movable | declare it; the cache is rebuilt on a miss, so it may also be purgeable |
+| 1942, Video Player | the external DMA ring | top-down by SPEC.md 34.5.3 | **taken by 14.55 on kern_mega**; kern_big/kern_small stay as specified |
+| MIDIRack | the 17KB external ring | all three tests | **taken by 14.55** (freed at stop, a refusal handled) |
+| the DOS prompt | (not a claim) one #GP fixup per character | performance | **taken by 14.54** |
+
+Two that are fine as they are and recorded so nobody re-audits them: the
+re-home carve at launch (14.38.6, brief), and PiXEL's claims (not HIGHMEM,
+14.40 - the gate's one exemption).

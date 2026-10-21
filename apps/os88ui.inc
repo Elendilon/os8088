@@ -4868,7 +4868,9 @@ os88ui_drbank:
     call os88ui_drrect          ; the rect again: the sizing spent it
     call OSAPI_GFX_SAVE
     jnc .out                    ; refused (it straddles two displays): half a
-    call os88ui_drfree          ; bank put back is worse than none
+    push ds                     ; bank put back is worse than none - and ES
+    pop es                      ; off the claim first (os88ui_drback, 14.53)
+    call os88ui_drfree
     jmp short .out
 .none:
     pop bx
@@ -4914,10 +4916,14 @@ os88ui_drback:
     xor si, si
     call os88ui_drrect
     call OSAPI_GFX_REST
+    pop es                      ; ES is the CALLER'S again BEFORE the free: on
+                                ; kern_mega the claim is a selector, and the
+                                ; free's own return reloading a freed one is a
+                                ; #GP fixup per close (KERN-MEGA-PLAN 14.53)
     pushf                       ; ...and its answer is the caller's. The claim
     call os88ui_drfree          ; goes back either way: a bank whose pixels
     popf                        ; could not be written is a bank that never
-    pop es                      ; will be, and POP does not touch the flags
+                                ; will be, and POP does not touch the flags
     pop si
     pop dx
     pop cx
@@ -6097,7 +6103,9 @@ os88ui_mnbank:
     mov dx, [ds:bp+OS88UI_MN_BRECT+6]
     call OSAPI_GFX_SAVE             ; CF=1 = the rect straddles two displays,
     jnc .out                        ; and half a bank put back is worse than
-    mov dx, [ds:bp+OS88UI_MN_SEG]              ; none: hand it straight back
+    push ds                                    ; none: hand it straight back,
+    pop es                                     ; with ES off it first (14.53)
+    mov dx, [ds:bp+OS88UI_MN_SEG]
     mov ax, [ds:bp+OS88UI_MN_KB]
     call OSAPI_MEM_FREE
 .no:
@@ -6148,11 +6156,13 @@ os88ui_mnback:
     call OSAPI_GFX_REST             ; the same rect the save took, off the
                                     ; banked copy of it and not off MN_MRECT,
                                     ; which the caller's repaint may consume
+    pop es                          ; the caller's ES before the free, for
+                                    ; os88ui_drback's reason (14.53)
     mov dx, [ds:bp+OS88UI_MN_SEG]
     mov ax, [ds:bp+OS88UI_MN_KB]
     call OSAPI_MEM_FREE             ; before the picked item runs (SPEC.md
     mov word [ds:bp+OS88UI_MN_SEG], 0          ; 12.4): whatever it claims gets a heap
-    pop es                          ; this menu has already left
+                                    ; this menu has already left
     pop si
     pop dx
     pop cx
