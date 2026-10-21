@@ -319,9 +319,9 @@
   "sources": [
    "apps/dos"
   ],
-  "stamped": "be02614c",
-  "strings": "158320fe3073b7b2",
-  "why": "the protected-mode build's Load DOS in the HMA box described on the Setup page, with the switch DOS makes by itself for a program that unpacks itself"
+  "stamped": "af4ae8f5",
+  "strings": "28df7ede37a080f4",
+  "why": "kern_mega's Memory page: the park arm and the Save the session to disk box (14.43) described; the mouse box's kern_mega greying is below the page's detail"
  },
  "DOTDEL_O88": {
   "sources": [
@@ -500,9 +500,9 @@
   "sources": [
    "kernel/hiber.inc"
   ],
-  "stamped": "5729d8b6",
-  "strings": "373100a7119e62c3",
-  "why": "both hibernates described: the HMA driver pool's resume requirement and 'Not enough memory' (SPEC.md 87.4 step 3b), and kern_mega's extended section, its No room greying and the No room above 1MB refusal (SPEC.md 87.9)"
+  "stamped": "af4ae8f5",
+  "strings": "a64a3def82c660ea",
+  "why": "14.46 changed how the image is written (chunked from 40h, CS writes through CSDO) and not what the user sees or does: unchanged"
  },
  "HOUSE_PNG": {
   "sources": [],

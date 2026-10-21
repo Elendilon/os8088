@@ -177,7 +177,12 @@ The two choices below it say where the program runs:
   first megabyte, which gives the program about 36K more. A few older
   programs that unpack themselves as they load cannot run that way. DOS
   spots most of them and puts itself below the program instead; clear the
-  box for one it misses.
+  box for one it misses. That build parks os8088 in the memory above the
+  first megabyte rather than unloading it (**Parks the OS above 1MB**), so
+  the desktop comes back with no disk at all. **Save the session to disk**,
+  clear unless you tick it, also writes the session to the hard disk before
+  the program starts, so it comes back even after the program hangs the
+  machine or the power goes off. It is greyed on a machine with no hard disk.
 
 The options under the choice that is not picked are greyed. Clicking one of
 them picks its choice.
