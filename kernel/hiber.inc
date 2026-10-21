@@ -4640,7 +4640,20 @@ hbm_wake:
     ; IRQ4 makes a different question from the port's own row. It is 0 on a
     ; machine that never settled, and `not 0` is 0xFF, so the `and` below is
     ; then a no-op and needs no branch to be safe.
+    ;
+    ; **BUT IT IS 0xFF ON EVERY MACHINE WHOSE POINTER IS ON NO SERIAL LINE**
+    ; (KERN-MEGA-PLAN 14.57): MOU_P2LINE, which a PS/2 mouse and a pointing
+    ; driver both settle with, is 0xFF precisely so that 9.5.2.1's guard masks
+    ; both serial lines - and `not 0xFF` is 0, so this `and` UNMASKED THE
+    ; WHOLE MASTER 8259 after every resume on such a machine: IRQ 3, 4, 5 and
+    ; 7 open on lines the session had masked (read in Bochs: B8h before the
+    ; hibernate, 00h after it). A PS/2 or driver-fed pointer has no line here
+    ; to give back, so it skips the block.
     mov cl, [mou_line]
+%ifdef KERN_BIG
+    cmp cl, MOU_P2LINE
+    je .noline
+%endif
     not cl
     pushf
     cli
@@ -4648,6 +4661,9 @@ hbm_wake:
     and al, cl
     out 0x21, al
     popf
+%ifdef KERN_BIG
+.noline:
+%endif
 %ifdef KERN_BIG
     ; --- ...AND THE OTHER SOCKET, WHICH IS THE SAME DEFECT WITH THREE
     ; TEARDOWNS INSTEAD OF ONE (SPEC.md 96.45.2.2). Step 6's `mouse_unhook`
@@ -4720,6 +4736,32 @@ hbm_wake:
     popf
     cmp byte [mou_p2], 0
     je .nop2
+    ; **IRQ12 MASKED AT THE SLAVE FOR THE WHOLE RE-ARM** (KERN-MEGA-PLAN
+    ; 14.57). Everything below reads the device's replies off 60h by POLLING
+    ; and says so - *"IRQ12 is still masked at the slave"* - which is true of
+    ; the live route (mou_p2_off masked it before kd_resume sampled the mask)
+    ; and FALSE of the reboot route: hbm_handover samples the FRESH boot's
+    ; mask, whose PS/2 mouse is live, and kern_mega's mega_hbwake puts back
+    ; the image's, whose mouse was live too. So with IF on since step 1,
+    ; `mou_p2_isr` RACED the poll for every ACK of the wheel's knock. On a real
+    ; 8042 the IRQ pin follows OBF by a few of the controller's own
+    ; instructions, so either side can win any one byte: the poll takes F5's
+    ; ACK, the ISR takes F3's, the knock gives up with the DEVICE still
+    ; waiting for its sample-rate argument - and the F4 below is spent as
+    ; that argument. Reporting stays off: the PS/2 mouse is dead after the
+    ; resume and the keyboard is fine (the Victory 286 on kern_mega, 14.56).
+    ; QEMU raises IRQ12 with OBF, so its ISR wins every byte: the knock fails
+    ; at its first ACK and the wheel is lost (wz 0 on a device in four-byte
+    ; mode) rather than the pointer; Bochs raises it a timer tick later, so
+    ; its poll wins every byte and nothing shows at all. The unmask at the foot of the block is the one that was always
+    ; meant, and mou_p2_init's own probe holds the same mask for the same
+    ; reason (its "IRQ12 MASKED BEFORE ANYTHING IS ASKED")
+    pushf
+    cli
+    in  al, 0xA1
+    or  al, MOU_P2SL
+    out 0xA1, al
+    popf
     mov al, 0xA8                ; the auxiliary interface back on - 0xA7 undone
     mov bp, mou_p2cw
     call hbm_kd                

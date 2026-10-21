@@ -16065,7 +16065,8 @@ hibernate brings the device back from POST in three-byte mode, and a DOS
 program's mouse driver may have reset it. A decoder still counting to four on
 a three-byte stream is a pointer gone mad, not one that has lost its wheel. So
 `hbm_wake` sends the same seven bytes and reads every reply itself (the
-keyboard is still off and IRQ12 still masked there), using its own bounded
+keyboard is still off, and IRQ12 masked at the slave by the block itself -
+on the reboot route the restored mask has it OPEN, §96.45.2.4), using its own bounded
 `hbm_p2rd` and its own copy of the table, the kernel's having gone with the
 overlay. The device is not silent there, as it is after the boot's reset:
 its 0xF4 (or a DOS driver's) is still in force. So `0xF5` goes first, its
@@ -167867,7 +167868,9 @@ in**, which is os8088's side, and not over there.
 to IRQ4 makes "which line" a different question from "which base", and
 `[mou_line]` is the bit the winning packets actually arrived on. It is 0 on a
 machine that never settled, and `not 0` is `0xFF`, so the `and` is a no-op
-there and needs no branch to be safe.
+there and needs no branch to be safe. **But it is `0xFF` (`MOU_P2LINE`) on a
+PS/2 or driver-fed pointer, and `not 0xFF` is 0**, which unmasked the whole
+master. That case takes a branch now (§96.45.2.4).
 
 With both halves the same resume reads:
 
@@ -167928,7 +167931,9 @@ is an 8088 and an XT has an 8255 PPI rather than an 8042 with an aux port, which
 is entry 4 on docs/TESTING.md's QEMU list. Until a QEMU row drives the same
 resume, this half rests on being the exact inverse of `mou_p2_off` and on
 `mou_p2_init` still arming a PS/2 mouse correctly after the change — which is
-measured, and is not the same claim.
+measured, and is not the same claim. The REBOOT route's PS/2 resume is now
+driven on kern_mega under Bochs (`tests/megap2hiber.py`, §96.45.2.4), and that
+is the route where this block was found racing its own ISR.
 
 ##### 96.45.2.3 …and the KEYBOARD is the 8042's other half, and nothing put it back
 
@@ -167978,6 +167983,50 @@ QEMU asserts (`qemu_mutex_lock_iothread_impl`) taking IRQ6 on a stack in VGA
 memory while Bochs panics fetching an instruction from `0xB8000`. A real card
 does neither. So the AT half rests on the field machine, and on the XT half
 (step 5) passing `kdreturn` and `mouresume`.
+
+##### 96.45.2.4 …and on the REBOOT route IRQ12 was OPEN through the re-knock
+
+A kern_mega hibernate on the Victory 286 resumed with everything alive but the
+PS/2 mouse (docs/plans/KERN-MEGA-PLAN.md 14.56, 14.57). Two defects in this
+same block, both shared with kern_big's resume.
+
+**The re-knock was written for the live route's mask.** §9.9.8's wake knock
+reads every reply by POLLING 60h, on the stated ground that IRQ12 is still
+masked at the slave. On the live route it is: `mou_p2_off` masked it before
+`kd_resume` sampled the mask. On the reboot route - a power-off hibernate and
+Resume - it is NOT: `hbm_handover` samples the FRESH boot's masks, and that
+boot's PS/2 mouse is live, so the stub restores IRQ12 open (kern_mega's
+`mega_hbwake` restores the image's, whose mouse was live too). With IF on since
+step 1, `mou_p2_isr` and the poll race for every ACK. On a real 8042 the IRQ pin
+follows OBF by a few of the controller's own instructions, so either side can
+win any one byte. When the ISR takes the ACK to an `0xF3` (set sample rate),
+the knock gives up with the device still waiting for the rate ARGUMENT. The
+trailing `0xF4` is then spent as that argument, reporting stays off, and the
+mouse is dead after the resume while the keyboard is fine. Bochs raises IRQ12
+only after a poll has seen OBF, so the poll wins every byte there and the race
+never shows. **The block masks IRQ12 at the slave first**, as `mou_p2_init`'s
+probe does for the same reason, and its last step unmasks it as it always did.
+
+**The serial unmask above opened the whole master 8259 on a PS/2 machine.**
+§96.45.2.1 unmasks `not [mou_line]` and calls 0 a safe no-op. But a PS/2 mouse
+and a pointing driver both settle with `MOU_P2LINE`, which is `0xFF`, and
+`not 0xFF` is 0. So every resume on such a machine came back with IRQ 3, 4, 5
+and 7 unmasked on lines the session had masked (Bochs: `B8h` before the
+hibernate, `00h` after it). `MOU_P2LINE` now skips the unmask, on KERN_BIG
+builds (kern_small has neither pointer).
+
+Both changes are HIBER.DRV code: **+14 bytes of `hbm_wake`, inside the module's
+padded image (7,169 bytes on kern_big and 10,241 on kern_mega, unchanged), and
+no resident byte.** `kernel.bin` and `kernel.sys` are byte-identical on
+kern_big and kern_small. On kern_mega one immediate in `.mega` moves, the park
+stub's offset inside the module, and nothing grows. `tests/megap2hiber.py` is
+the row: Bochs with an IntelliMouse, a hibernate and Resume on kern_mega, a
+breakpoint at `.nowz` reading the slave's IMR, and the master's IMR, the wheel
+and a moving pointer after the resume. Taking either change out turns it red.
+`tests/p2hiber.py` is kern_big's, under QEMU 9 with the serial mouse taken
+out. QEMU's i8042 raises IRQ12 the moment a byte is queued, so the ISR takes
+every ACK there and the old block failed its knock at the first one. With the
+old HIBER.DRV the wheel came home 0 and the master `A8h` came home `00h`.
 
 #### 96.45.3 The pointer STARTS in the middle, and ours started at the origin
 
