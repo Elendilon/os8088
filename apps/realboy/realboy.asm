@@ -294,9 +294,10 @@ rw_pgpan        equ rw_pgstart + 2  ; byte: ...and pel panning
 rw_fstxto       equ rw_pgpan + 1    ; word: the speed line's VRAM offset
 rw_pgdebt       equ rw_fstxto + 2   ; word: frames run ahead of the clock, on
                                     ;   the display's word (rw_fsmain)
-rw_slotmin      equ rw_pgdebt + 2   ; byte: the bank plan's least slots (and
-                                    ;   a spare byte: rw_fbuf stays even)
-rw_fbuf         equ rw_slotmin + 2 + 1 ; 5,760: rb_render's frame (monochrome;
+rw_slotmin      equ rw_pgdebt + 2   ; byte: the bank plan's least slots
+rw_fsstr        equ rw_slotmin + 1  ; word: the speed line's VRAM stride, 40
+                                    ;   or the canvas's 256 (rw_fstext)
+rw_fbuf         equ rw_fsstr + 2    ; 5,760: rb_render's frame (monochrome;
                                     ;   even)
 RW_BSS          equ rw_fbuf + 5760 - rw_win   ; derived: a sum by hand drifted
 RW_PBUF         equ 11520           ; the frame as the screen takes it: the

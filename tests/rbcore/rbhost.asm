@@ -31,13 +31,18 @@
 ;   MODE 12         as MODE 7, timed, onto VGA mode 0Dh: rb_renderd's
 ;   (renderv)       changed lines to VRAM as it decides them (rb_dvga), as
 ;                   the package's full screen does.
-;   MODE 14         as MODE 12, PAN-ALIGNED (rb_panon, REALBOY-SPEC 15.4):
-;   (renderp)       each frame onto the next of three VRAM pages (rb_pages)
+;   MODE 14         as MODE 12 on THE CANVAS (rb_torus, REALBOY-SPEC 15.5):
+;   (renderp)       each frame onto the next of three canvas pages (rb_tpage)
 ;                   and flipped to it - start address and pel panning written
 ;                   at once, as the timing does not matter here.
 ;   MODES 15-18     as MODE 6 PAN-ALIGNED, Interlace Off, On, Scrolling and
 ;   (damage-p...)   Doubled: rb_renderd's 42-byte lines read back through the
 ;                   pan against rb_render's.
+;   MODE 19         as MODE 15 on THE CANVAS (rb_torus, REALBOY-SPEC 15.5):
+;   (damage-t)      every frame onto the next of three canvas pages of a real
+;                   mode 0Dh (rb_tpage), and every third read back from VRAM
+;                   through its start address and pan - a row a 256 bytes,
+;                   with the 64KB wrap - against rb_render's.
 ;   MODE 13 (state) as MODE 3, with a SAVE STATE taken 200 frames before the
 ;                   end (rbsys's rb_stcompose and the view's 8000-FFFF, copied
 ;                   to STATE_SEG) and put back at the end (rb_stcheck,
@@ -66,13 +71,41 @@ bits 16
 %else                                       ;   PAN-ALIGNED composer in, and no
 %define RB_NOPAN                            ;   MODE 13, for the room
 %endif
+%ifndef RB_PANMODES
 HOST_SEG        equ 0x0760                  ; (35,328 bytes under the core: the
                                             ;   boot sector moves itself out of the
                                             ;   way first, BOOT_SEG, and the stack
                                             ;   is HOST_STK's, under the harness)
+HOST_STK        equ 0x7600                  ; 0:7600 down, over FRAME_SEG's end
+PRF_SEG         equ 0x05A0                  ; Static's profile, 4KB (not MODES 5-9,
+                                            ;   which compose into FRAME_SEG)
+FRAME_SEG       equ 0x05C0                  ; rb_render's 5,760 bytes, above the
+                                            ;   damage memory's RB_DMG_SIZE (to 5B96h:
+                                            ;   INTERLACE writes its end) and under the
+                                            ;   harness's stack (HOST_STK): the harness
+                                            ;   (with the recompiler's templates) runs
+                                            ;   past A000h
+FRAMED_SEG      equ 0x0060                  ; MODE 6: rb_renderd's buffer (PAN-
+DMG_SEG         equ 0x0200                  ;   ALIGNED: 6,048 and the pages' 3 x
+                                            ;   144 bytes) and its damage memory, to
+                                            ;   5B96h
+%else
+; THE PAN-ALIGNED HOST (MODES 14-19) carries THE CANVAS as well, which does not
+; fit under the core with the three buffers there too: they go up into 7000h,
+; which a pan host's ROM never reaches (320KB at most, CACHE2's) and which it
+; uses for no second cache segment and no MODE 13, and the harness starts low
+HOST_SEG        equ 0x0500                  ; (45,056 bytes under the core)
+HOST_STK        equ 0x5000                  ; 0:5000 down, over the damage memory's
+                                            ;   end (to 4196h)
+DMG_SEG         equ 0x0060                  ; the damage memory, to 4196h
+FRAMED_SEG      equ 0x70A0                  ; rb_renderd's 42-byte lines and the
+                                            ;   pages' owed bytes (6,480 of 6,656),
+                                            ;   past TOR_SEG's RB_TSIZE
+FRAME_SEG       equ 0x7240                  ; rb_render's 5,760
+PRF_SEG         equ 0x73C0                  ; Static's profile, 4KB
+%endif
 BOOT_SEG        equ 0x2000                  ; the boot sector's copy, at 2000:7C00
                                             ;   (the view, not loaded from disk)
-HOST_STK        equ 0x7600                  ; 0:7600 down, over FRAME_SEG's end
 CORE_SEG        equ 0x1000
 VIEW_SEG        equ 0x2000
 ROM_SEG         equ 0x3000
@@ -92,19 +125,9 @@ JF_MODE         equ 03h                     ; b_jit: 0 interpret, 1 translate,
 JF_SEG2         equ 04h                     ;   2 Static; a second segment; both
 JF_SQZ          equ 10h                     ;   squeezed to JIT2_LIM's 1KB;
 JF_SMALL        equ 08h                     ;   the block table at 16KB
-PRF_SEG         equ 0x05A0                  ; Static's profile, 4KB (not MODES 5-9,
-                                            ;   which compose into FRAME_SEG)
-FRAME_SEG       equ 0x05C0                  ; rb_render's 5,760 bytes, above the
-                                            ;   damage memory's RB_DMG_SIZE (to 5B96h:
-                                            ;   INTERLACE writes its end) and under the
-                                            ;   harness's stack (HOST_STK): the harness
-                                            ;   (with the recompiler's templates) runs
-                                            ;   past A000h
-FRAMED_SEG      equ 0x0060                  ; MODE 6: rb_renderd's buffer (PAN-
-DMG_SEG         equ 0x0200                  ;   ALIGNED: 6,048 and the pages' 3 x
-                                            ;   144 bytes, rb_pages) and its damage
-                                            ;   memory, to 5B96h
 STATE_SEG       equ 0x7000                  ; MODE 13's copy of a save state
+TOR_SEG         equ 0x7000                  ; MODES 14, 19: the canvas's state
+                                            ;   (rb_tseg, under FRAMED_SEG)
 
 ; --- the boot sector ---------------------------------------------------------
 section boot start=0 vstart=0x7C00
@@ -243,8 +266,15 @@ host_main:
     jne .m15                            ;   three pages
     mov byte [h_hw],2
     mov byte [rb_panon],1
+    mov byte [rb_torus],1
     mov byte [h_mode],7
 .m15:
+    cmp byte [h_mode],19                ; MODE 19: MODE 15 on THE CANVAS
+    jne .m15b
+    mov byte [h_tor],1
+    mov byte [rb_torus],1
+    mov byte [h_mode],15
+.m15b:
     cmp byte [h_mode],15                ; MODES 15-18: MODE 6 PAN-ALIGNED,
     jb .m12                             ;   Interlace Off to Doubled
     mov al,[h_mode]
@@ -270,6 +300,12 @@ host_main:
 .mode:
     mov ax,0x0003                       ; a clean text screen
     int 0x10
+%ifdef RB_PANMODES
+    cmp byte [rb_torus],0               ; THE CANVAS (MODES 14, 19): mode 0Dh
+    je .nto                             ;   and its state, after that
+    call tor_init
+.nto:
+%endif
     ; COM1, 115200 8N1, polled
     mov dx,0x3FB
     mov al,0x80
@@ -399,10 +435,10 @@ host_main:
     mov byte [es:RB_DFULL],1
     cmp byte [cs:h_hw],0
     je .d7
+    cmp byte [cs:h_hw],2                ; (MODE 14: tor_init set it)
+    je .d7
     mov ax,0x000D
     int 0x10
-    cmp byte [cs:h_hw],2
-    je .d7
     mov word [cs:rb_dvga],0xA000        ; (each changed line to VGA, ppu_dvga)
 .d7:
     mov ax,FRAMED_SEG
@@ -703,6 +739,17 @@ dmg_check:
     div cx
     or dx,dx
     jz .chk
+%ifdef RB_PANMODES
+    cmp byte [cs:h_tor],0               ; THE CANVAS: every frame onto the next
+    je .ntf                             ;   page, as the package does
+    mov ax,FRAMED_SEG
+    mov es,ax
+    xor di,di
+    call rb_renderd
+    call tor_page
+    jmp .r
+.ntf:
+%endif
     cmp byte [cs:rb_ilace],0            ; INTERLACE: every frame composed, as
     je .r                               ;   the package does, so what one call
     mov ax,FRAMED_SEG                   ;   leaves is carried into the next
@@ -716,6 +763,12 @@ dmg_check:
     xor di,di
     call rb_renderd                     ; AX = the lines it changed
     add [cs:dmg_lines],ax
+%ifdef RB_PANMODES
+    cmp byte [cs:h_tor],0
+    je .ntp
+    call tor_page
+.ntp:
+%endif
     cmp byte [cs:rb_ilace],0            ; INTERLACE: a second call, which
     je .whole                           ;   must compose what the first left
     call rb_renderd                     ;   to the other parity
@@ -738,7 +791,13 @@ dmg_check:
 %ifdef RB_PANMODES
     jmp short .bad
 .pan:
+    cmp byte [cs:h_tor],0
+    je .pc
+    call tor_cmp
+    jmp short .pe
+.pc:
     call pan_cmp
+.pe:
     je .r
 .bad:
 %endif
@@ -817,36 +876,16 @@ pan_cmp:
     or sp,sp                            ; (ZF = 0)
     ret
 
-; pg_flip - MODE 14: the frame just composed onto the next of three pages,
-; and the card's start address and panning set to it
+; pg_flip - MODE 14: the frame just composed onto the next of three canvas
+; pages (tor_page), and the card's start address and panning set to it
 pg_flip:
     push ax
     push bx
-    push cx
     push dx
-    push di
-    push ds
-    push es
-    mov bl,[cs:pg_cur]
-    inc bx
-    cmp bl,3
-    jb .c
-    xor bl,bl
-.c:
-    mov [cs:pg_cur],bl
-    xor bh,bh
-    mov cl,bl
-    shl bx,1
-    mov di,[cs:pg_base+bx]              ; DI = the page
-    mov al,cl                           ; AL = the page
-    mov dx,FRAMED_SEG
-    mov ds,dx
-    mov dx,0A000h
-    mov es,dx
-    call rb_pages
+    call tor_page
     mov dx,3D4h                         ; the start address, then the pan
     mov al,0Ch
-    mov bx,di
+    mov bx,[cs:tor_start]
     mov ah,bh
     out dx,ax
     mov al,0Dh
@@ -859,16 +898,137 @@ pg_flip:
     out dx,al
     mov al,[cs:rb_panv]
     out dx,al
-    pop es
-    pop ds
-    pop di
     pop dx
-    pop cx
     pop bx
     pop ax
     ret
 pg_cur      db 0
-pg_base     dw 0800h, 2000h, 3800h
+
+; tor_init - MODE 19: mode 0Dh, its row stride 256 (the canvas is read back
+; by address, so the CRTC's view of it is not the check's), no line owed to
+; any page and the canvas's state from nothing, as the package's rw_pgcrtc
+tor_init:
+    push ax
+    push cx
+    push dx
+    push di
+    push es
+    mov ax,000Dh
+    int 10h
+    mov dx,3D4h                         ; (the row stride: 256)
+    mov ax,8013h
+    out dx,ax
+    mov ax,FRAMED_SEG
+    mov es,ax
+    mov di,RB_PGMSK
+    mov cx,3 * 144 / 2
+    xor ax,ax
+    cld
+    rep stosw
+    mov ax,TOR_SEG
+    mov [cs:rb_tseg],ax
+    call rb_tinit
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; tor_page - MODE 19: the frame just composed onto the next of three canvas
+; pages; its start address kept for tor_cmp. Kept: all
+tor_page:
+    push ax
+    push bx
+    push es
+    mov al,[cs:pg_cur]
+    inc ax
+    cmp al,3
+    jb .c
+    xor al,al
+.c:
+    mov [cs:pg_cur],al
+    mov bx,0A000h
+    mov es,bx
+    call rb_tpage
+    mov [cs:tor_start],bx
+    pop es
+    pop bx
+    pop ax
+    ret
+
+; tor_cmp - MODE 19: the page tor_page last wrote, read back from VRAM a row
+; at a time from its start address (256 a row, wrapping at 64KB) through
+; the pan, against rb_render's at ES:0. ZF = 1: the same
+tor_cmp:
+    push bx
+    push cx
+    push dx
+    push bp
+    push ds
+    mov ax,0A000h
+    mov ds,ax
+    mov dx,3CEh
+    mov ax,0005h                        ; read mode 0
+    out dx,ax
+    mov cl,[cs:rb_panv]
+    xor di,di
+    mov bx,[cs:tor_start]
+    mov ch,144
+.l:
+    mov ax,0004h                        ; plane 0's 20 bytes, then plane 1's
+    out dx,ax
+    mov si,bx
+    call .c20
+    mov al,0
+    jne .no
+    mov ax,0104h
+    out dx,ax
+    mov si,bx
+    call .c20
+    mov al,50
+    jne .no
+    add bx,256
+    dec ch
+    jnz .l
+    xor ax,ax
+    jmp short .ok
+.no:
+    mov dl,al                           ; SI = line x 100 + plane x 50 + byte,
+    mov al,144                          ;   for the DONE line
+    sub al,ch
+    mov ah,100
+    mul ah
+    add al,dl
+    adc ah,0
+    mov dx,20
+    sub dx,bp
+    add ax,dx
+    mov si,ax
+    or sp,sp                            ; (ZF = 0)
+.ok:
+    pop ds
+    pop bp
+    pop dx
+    pop cx
+    pop bx
+    ret
+.c20:
+    mov bp,20
+.k:
+    mov ah,[si]
+    mov al,[si+1]
+    shl ax,cl
+    cmp ah,[es:di]
+    jne .x
+    inc si
+    inc di
+    dec bp
+    jnz .k
+.x:
+    ret
+h_tor       db 0
+tor_start   dw 0
 %endif
 
 dmg_bad     dw 0
@@ -1478,5 +1638,10 @@ ticks   dw 0
 
 ; the harness ends under the core, at 1000:0000 (a run past it overwrites
 ; the core it loaded and hangs with nothing said)
+%ifdef RB_PANMODES
+%if TOR_SEG * 16 + RB_TSIZE > FRAMED_SEG * 16
+%error "the canvas's state runs into FRAMED_SEG"
+%endif
+%endif
 host_end:
     times -((host_end - $$) > CORE_SEG * 16 - HOST_SEG * 16) db 0

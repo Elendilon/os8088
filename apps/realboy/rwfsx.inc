@@ -41,9 +41,11 @@ RW_PGW0         equ 1000            ;   retrace (410): from line 312, under
 RW_PGSPIN       equ 1800            ; ...spun for when it is that near
 RW_PGRC         equ 60              ; ...and the retrace timed again after
                                     ;   that many flips
-RW_PG0          equ 0800h           ; PAGES: the three pages' VRAM, over the
-RW_PGSTEP       equ 1800h           ;   split's region at 0 (rw_pgcrtc)
-RW_FSTXTP       equ 2               ; PAGES: the speed line's row there
+RW_FSTXTP       equ 2               ; PAGES: the speed line's row in the
+                                    ;   split's region (slot 0, rw_pgcrtc)
+RW_TOFF         equ 6528            ; PAGES: the canvas's state in [rw_pseg]
+                                    ;   (rb_tseg), past the 42-byte lines and
+                                    ;   the pages' owed bytes
 RW_FSSKIP       equ 4               ; frames run undrawn at most, behind
 RW_FSX          equ 0               ; the picture's byte column and first row:
 RW_FSY          equ 0               ;   the top left of the CRTC's window
@@ -545,6 +547,7 @@ rw_fsmain:
     call rw_fsdac
     call rw_fscrtc
     mov word [rw_fstxto], RW_FSTXT * 40 + RW_FSX
+    mov word [rw_fsstr], 40
     cmp byte [rw_fspan], 0
     jne .pg
     call rw_fsframe
@@ -553,8 +556,10 @@ rw_fsmain:
 .pg:
     call rw_pgcrtc                  ; PAGES: the split, the timing, page 0
     mov word [rw_pgdebt], 0
-    mov word [rw_fstxto], RW_FSTXTP * 40
+    mov word [rw_fstxto], RW_FSTXTP * 256
+    mov word [rw_fsstr], 256
     mov byte [rb_panon], 1
+    mov byte [rb_torus], 1          ; THE CANVAS (REALBOY-SPEC 15.5)
     mov word [rb_lhook], rw_pgtryd  ; (looked for during a draw too, and
                                     ;   never waited for there)
     call rw_dmgfull
@@ -650,6 +655,7 @@ rw_fsmain:
     cmp byte [rb_panon], 0          ; PAGES: the window's frame is rw_fbuf,
     je .r                           ;   which the bracket left behind
     mov byte [rb_panon], 0
+    mov byte [rb_torus], 0
     mov word [rb_lhook], 0
     mov byte [rw_pgpend], 0
     call rw_dmgfull
@@ -865,10 +871,11 @@ rw_fsdraw:
 %error "ppu_dvga writes line n at 40 n: the picture's corner must be VRAM 0"
 %endif
 
-; rw_pgdraw - PAGES: the frame composed PAN-ALIGNED into [rw_pseg] (rb_panon,
-; 42 bytes a line), the lines the page owes written onto the page neither
-; shown nor waiting to be (rb_pages), and its flip posted for the hook. The
-; card is never drawn on where it shows, and nothing waits for the beam
+; rw_pgdraw - PAGES: the frame's overlay lines composed PAN-ALIGNED into
+; [rw_pseg] (rb_panon, rb_torus: 42 bytes a line), the canvas of the page
+; neither shown nor waiting to be put right (rb_tpage, REALBOY-SPEC 15.5),
+; and its flip posted. The card is never drawn on where it shows, and
+; nothing waits for the beam
 rw_pgdraw:
     pushf
     cli
@@ -891,19 +898,12 @@ rw_pgdraw:
 .got:
     push bx
     call rw_render
-    pop bx
-    mov al, RW_PGSTEP >> 8
-    mul bl
-    mov ah, al
-    xor al, al
-    add ax, RW_PG0
-    mov di, ax                      ; DI = the page
-    mov al, bl
-    push ds
+    pop dx                          ; DL = the page
+    mov al, dl
     mov es, [rw_fsi + FSI_SEG]
-    mov ds, [rw_pseg]
-    call rb_pages
-    pop ds
+    call rb_tpage                   ; BX = where it shows from
+    mov di, bx
+    mov bl, dl
     mov al, [rb_panv]
     pushf
     cli
@@ -914,38 +914,50 @@ rw_pgdraw:
     popf
     jmp rw_pgtry
 
-; rw_pgcrtc - PAGES (REALBOY-SPEC 15.4): the picture's 144 doubled rows
-; from a page, the speed line under them from VRAM 0 - the LINE COMPARE at
-; scanline 287, with AR10's pixel panning mode so it never pans - and a
-; frame of 527 scanlines where mode 0Dh's is 449: the line rate is its own,
-; 31.47 kHz, and the REFRESH the Game Boy's, 59.71 Hz (rw_pglock), with the
-; sync polarity a 480-line mode has at that rate. The display's end (308)
-; to the blanking (400) is ~2.9 ms of border, rw_pgtry's window inside it
-; (RW_PGW1, RW_PGW0); the picture sits in the middle of the frame.
-; Plane 2 is the border's and the speed line's ground at 0, clear in the
-; pages; the page 0 shown, pan 0
+; rw_pgcrtc - PAGES (REALBOY-SPEC 15.4, 15.5): THE CANVAS - a row stride of
+; 256 bytes (CR13), so 256 rows are a plane's 64KB and its wrap the Game
+; Boy's background's; slot 0 of each row the split's region, the speed line
+; under the picture (the LINE COMPARE at scanline 287, with AR10's pixel
+; panning mode so it never pans), and slots 1-3 the three pages' canvases.
+; A frame of 527 scanlines where mode 0Dh's is 449: the line rate is its
+; own, 31.47 kHz, and the REFRESH the Game Boy's, 59.71 Hz (rw_pglock),
+; with the sync polarity a 480-line mode has at that rate. The display's end
+; (308) to the blanking (400) is ~2.9 ms of border, rw_pgtry's window
+; inside it (RW_PGW1, RW_PGW0); the picture sits in the middle of the frame.
+; Plane 2 is the border's and the speed line's ground in the split's region,
+; clear on the canvases. The canvas's state from nothing (rb_tseg): every
+; cell owed, every line stale; page 0 shown, pan 0
 rw_pgcrtc:
     mov es, [rw_fsi + FSI_SEG]
     mov dx, 3C4h
-    mov ax, 0F02h                   ; every plane cleared...
+    mov ax, 0F02h                   ; every plane cleared, the whole 64KB
     out dx, ax
     xor di, di
-    mov cx, (RW_PG0 + 3 * RW_PGSTEP) / 2
+    mov cx, 8000h
     xor ax, ax
     rep stosw
     mov ax, 0402h                   ; ...and plane 2 set in the split's
-    out dx, ax                      ;   region
+    out dx, ax                      ;   region: slot 0 of rows 0-9
     xor di, di
-    mov cx, RW_PG0 / 2
+    mov bx, 10
+.sp:
+    mov cx, 64 / 2
     mov ax, 0FFFFh
     rep stosw
-    push ds                         ; no line owed to any page: the first
-    mov es, [rw_pseg]               ;   frame is every line's (rw_dmgfull)
+    add di, 256 - 64
+    dec bx
+    jnz .sp
+    push ds                         ; no line owed to any page
+    mov es, [rw_pseg]
     mov di, RB_PGMSK
     mov cx, 3 * 144 / 2
     xor ax, ax
     rep stosw
     pop ds
+    mov ax, [rw_pseg]               ; the canvas's state, from nothing
+    add ax, RW_TOFF / 16
+    mov [rb_tseg], ax
+    call rb_tinit
     mov dx, 3D4h
     mov al, 11h                     ; CR0-CR7 unlocked
     out dx, al
@@ -991,8 +1003,9 @@ rw_pgcrtc:
     mov byte [rw_pgok], 0           ; (the beam timed at the first flip)
     mov word [rw_pgper], RW_PGPER
     ret
-rw_pgcrv:   db 0Ch, RW_PG0 >> 8     ; page 0
-            db 0Dh, RW_PG0 & 0FFh
+rw_pgcrv:   db 0Ch, 00h             ; page 0's slot, row 0
+            db 0Dh, 40h
+            db 13h, 80h             ; the row stride: 256 bytes
             db 06h, 0Dh             ; vertical total 527 (525: bit 9 in CR07)
             db 07h, 3Eh             ; the overflow: VT 9, LC, VBS, VRS, VDE 8
             db 18h, 1Fh             ; line compare 287
@@ -1001,9 +1014,15 @@ rw_pgcrv:   db 0Ch, RW_PG0 >> 8     ; page 0
             db 10h, 9Ah             ; start retrace 410
             db 11h, 8Ch             ; end retrace 412, CR0-CR7 locked again
 rw_pgcrve:
+%if RW_TOFF < RB_PGMSK + 3 * 144 || RW_TOFF + RB_TSIZE > RW_PBUF || RW_TOFF % 16
+%error "the canvas's state must sit past the owed bytes, inside [rw_pseg]"
+%endif
 
 ; rw_fstext - rw_ovltxt on the border under the picture, 16 cells wide
 rw_fstext:                          ; (SI = the line, rw_fsline's)
+    push bp
+    mov bp, [rw_fsstr]              ; BP = a glyph row to the next
+    dec bp
     mov es, [rw_fsi + FSI_SEG]      ; (its own: the writer before it no
     mov dx, 3C4h                    ;   longer leaves ES on the card)
     mov ax, 0302h                   ; planes 0 and 1: the glyph's set bits
@@ -1032,7 +1051,7 @@ rw_fstext:                          ; (SI = the line, rw_fsline's)
     mov ds, [rw_fontp + 2]          ; (the kernel's table, where it is)
 .row:
     movsb
-    add di, 40 - 1
+    add di, bp
     loop .row
     pop ds
     pop di
@@ -1040,6 +1059,7 @@ rw_fstext:                          ; (SI = the line, rw_fsline's)
     pop cx
     pop si
     loop .c
+    pop bp
     ret
 
 ; DAC 0-7, six bits a gun: the shades (0 lightest), the border, -, -, text
