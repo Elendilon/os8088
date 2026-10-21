@@ -1087,8 +1087,15 @@ ld_run_body_x:
 ;         LDT entry: it simply stays low, which is not a refusal
 ; in:  ES = [ld_base] = the region. out: ES = [ld_base], moved or not
 ; clobbers: AX, BX, CX, DX, DI, flags
+;
+; ld_hicx is the same with CX = the BYTES to move, for step 8a's re-homed
+; program (SPEC.md 20.12.10.9): its region is the carve's KEEP, which is not
+; [ld_need] - that word is the program's image + bss by then, and the keep is
+; the program plus every part it reads (Word's and Scribe's part 1 CODE)
 ; -----------------------------------------------------------------------------
 ld_hi:
+    mov cx, [ld_need]
+ld_hicx:
     cmp byte [ss:mega_pm], 0
     je .out
     test byte [es:LD_H_CLASS], 0x80     ; OS88_HIGH
@@ -1098,7 +1105,6 @@ ld_hi:
                                 ; itself. BX = the slot
     mov dl, bl
     mov ax, [ld_base]
-    mov cx, [ld_need]
     call MEGA_SEL_CODE:mega_pkghif ; AX = the pair's data selector
     jc .out
     push ax
@@ -1698,6 +1704,29 @@ ld_start:
                                 ; aborts. tests/rehome.py caught it
     mov [ld_base], ax           ; ...AND [ld_fp+2] IS THIS WORD, so step 8's
                                 ; `call far [es:ld_fp]` now reaches the part
+%ifdef KERN_MEGA
+    ; --- 8b. RE-HOME HIGH (SPEC.md 20.12.10.9, KERN-MEGA-PLAN 14.38/14.44):
+    ; a program whose OWN header says OS88_HIGH leaves conventional memory
+    ; here, exactly as an OS88_HIGH package does at step 7 - its region is
+    ; the carve's KEEP, so only the KEEP form (AX = 0 at the cell) qualifies,
+    ; and only a keep of one segment: a pair's limit is 64KB, and what is
+    ; past it would need a selector of its own (14.38.4 S4). Anything else,
+    ; or no room above 1MB, and it runs low as before - not a refusal.
+    ; ld_hicx tests protected mode and the bit; [ld_base] comes back as the
+    ; pair's DATA selector, so .call8's far call and step 9's I_SPTR follow
+    cmp word [ld_rehsz], 0      ; the KEEP form only...
+    jne .rhnohi
+    mov cx, [ld_rehkp]          ; ...and a keep of at most 4,095 paragraphs
+    cmp cx, 0x0FFF
+    ja .rhnohi
+    shl cx, 1                   ; paragraphs -> bytes
+    shl cx, 1
+    shl cx, 1
+    shl cx, 1
+    mov es, ax                  ; ES = the program, whose class byte is read
+    call ld_hicx
+.rhnohi:
+%endif
     push ds
     pop es                      ; ES = KERNEL_SEG for that far call: the entry
     jmp .call8                  ; proc's contract does not promise it back

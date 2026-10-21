@@ -46081,6 +46081,59 @@ so a padding that shrank cannot make it pass on a carve the old bound allowed.
 The same file under the old loader is refused at launch (`ld_status` 4, the
 package refusing itself), which is the negative control.
 
+##### 20.12.10.9 A re-homed program may run ABOVE 1MB, and says so in its OWN header
+
+On kern_mega in protected mode a package whose header says `OS88_HIGH`
+(§20.2's class byte, bit 7) is loaded into a code/data pair above 1MB before
+it runs (docs/plans/KERN-MEGA-PLAN.md 13.3 step 4). A RE-HOMED program used
+to stay in conventional memory whatever it said, because the bit was read at
+step 7 and step 7 is the LOADER's: a loader is freed one instruction after it
+re-homes, so its own placement buys nothing, and the program part's header
+was never asked. The owner's case is exactly that program - Word left open
+beside a video player, sitting at the top of 640KB, which nothing could move
+and nothing could reach past.
+
+**Step 8a asks the PROGRAM PART'S header now** (`kernel/loader.inc`, step
+8b in the source). After the carve is re-owned, trimmed and the loader freed,
+when
+
+- the CPU is in protected mode,
+- the program's own header says `OS88_HIGH`,
+- the loader used the KEEP form (`AX = 0` at `OSAPI_PKG_REHOME`, §20.12.10.5),
+- and the keep is at most 4,095 paragraphs (65,520 bytes),
+
+the keep moves into a pair exactly as an `OS88_HIGH` package's region does
+(`ld_hicx`, `ld_hi`'s body with the size in CX): one pool block owned
+`80h | slot`, the code selector over its base and the data selector 8 above
+it, `[ld_base]` the data selector, so step 8's far call and step 9's `I_SPTR`
+follow with nothing else changed. Everything a re-homed program reads that is
+inside the keep - Word's and Scribe's part 1, which is CODE at `WD_P1ORG` /
+`SC_P1ORG` reached by near calls - is inside the pair's limit and needs
+nothing. The conventional keep goes back to the heap at once.
+
+Anything else runs low exactly as before, and none of it is a refusal: the
+bytes form, a keep over 4,095 paragraphs (a program with parts past its
+first 64KB needs a selector per part, docs/plans/KERN-MEGA-PLAN.md 14.38.4
+S4), no room above 1MB, no LDT entry, kern_big and kern_small (which never
+call `ld_hi`), and every kernel built before this. **The re-home cell's
+contract does not change** and no `PKG_FMT` moves: a program built before
+says nothing, and a program that says it on an older kernel runs low.
+
+What the program promises by saying it is `OS88_HIGH`'s promise
+(`apps/os88api.inc`): no arithmetic on its own CS or DS, no IRQ vector
+stamped with its own CS, no linear address of its own handed to a device.
+"My segment + N" is the one sum such a program may still need, and
+`OSAPI_MEM_SUBSEG` (§50.3.6) answers it. In the pool the region **moves at
+any instant the compactor runs, with no relocation proc and no restart**
+(KERN-MEGA-PLAN 14.15): its selectors stay and only their bases change, so
+`OS88_REGION_MOVABLE` and `OS88_WORKER_RESTARTABLE` stop mattering, harmlessly.
+
+The programs that say it: WORD, SCRIBE, CLEAR SKIES (not its `CSDIAG=1`
+build, whose watchdog stamps its CS into vector 8) and kern_mega's own
+DOS.O88 (under `DOS_MEGA` only, so kern_big's is byte-identical). Pixelstein
+3D's keep is 141,312 bytes and waits for S4. The cost and the measurements
+are docs/plans/KERN-MEGA-PLAN.md 14.44.
+
 ### 20.13 COMPRESSION — flags bits 3 and 4, and one slot
 
 **A file may be compressed and the kernel expands it on the way in.**
@@ -92391,6 +92444,33 @@ MEGAHI (tests/megahi) is the gate under Bochs at 4MB: 200KB in four pieces,
 claim freed and taken again on the same first selector, which it cannot be
 if the run's later entries were left taken. MEGAHG (tests/megahg) is the
 moving and regrowing half's, under Bochs and on 86Box's 286-mega.
+
+### 50.3.6 `OSAPI_MEM_SUBSEG` — "my segment + N", for a program above 1MB
+
+A program in conventional memory names any paragraph of its own region by
+adding to its segment. Above 1MB its DS is an LDT selector (§20.12.10.9), a
+selector names a BASE, and the sum names some other descriptor - Clear Skies
+faulted on exactly that, in `cs_xpand`, the first time it ran up there. So the
+kernel answers the sum (0x04BD, appended - additive, no `PKG_FMT`):
+
+- in: AX = a paragraph offset into the caller's own region, which it names
+  by its DS (the X cell's ES); BL bit 0 = it will far-call code there.
+- out: CF = 0, DX = a DATA selector whose base is that paragraph and whose
+  limit runs to the end of the region's pool block or 64KB, whichever is
+  first; with bit 0 its CODE twin is DX - 8. A descriptor already over that
+  base, of that type, is answered instead of a new one, so a program spends
+  one LDT entry (two for code) per distinct paragraph it asks for.
+- CF = 1, **every register kept**: use your segment + AX. That is the whole
+  cell on kern_big and kern_small (`mod_gone`), and on kern_mega in real
+  mode, for a region in conventional memory, an offset at or past the
+  region's end, or no LDT entry free - so a caller's fallback is the code it
+  already had, and it is right wherever the region really is.
+
+The selectors live and die with the region: `mega_pkghifree` frees every LDT
+descriptor whose base is inside the block (`mega_rgnsubfree`) besides the
+pair itself, and `mx_cpmove` already rebases every descriptor inside a block
+it moves, so a compaction moves them too. Any context. The cost is
+docs/plans/KERN-MEGA-PLAN.md 14.44.
 
 ### 50.3.2 …and the top-down doors a driver never had
 
@@ -165845,6 +165925,57 @@ Test Drive III to its Main Select Screen and `exit code 000` at **585 KB**
 (Bochs) and **586 KB** (86Box). Ticked again, the same session: `XUNP.EXE`
 048 at 621 KB and Test Drive III 000 at 622 KB on 86Box. Every trip came
 home to the desktop.
+
+#### 96.40.9.3 ...and `Save the session to disk`: the park made durable
+
+**The owner's answer 2** (docs/plans/KERN-MEGA-DOS-PLAN.md 12.1): the park
+lives in RAM, so a DOS program that hangs the machine, a power cycle or a
+reset the ROM answers by clearing memory loses the session. kern_mega's
+Memory page carries a third box under *Parks the OS above 1MB*, **unticked by
+default**: *Save the session to disk*. Ticked, the handoff writes
+`HIBERNAT.IMG` - kern_big's arm-3 image, through 87.9's protected-mode writer
+(`hbm_wrimg` with `HBP_DOS` = 1) - and then parks as 96.40.9 says. Saved in a
+shortcut as byte 12's `LNK_BX_SAVE` (bit 4, set = ticked) and handed to the
+kernel as `KDLF_SAVE` (bit 6 of `KDL_FLAGS`); kern_dos never reads it.
+
+* **Greyed where no fixed disk exists** - `dos_hasfixed`, which is `hb_pick`'s
+  own test one segment out (47 rule 5) - and the kernel asks `hb_pick` again,
+  so a tick a shortcut carries to a machine with no fixed disk simply parks.
+  Any fixed volume `hb_pick` names will do: the image is read back by the
+  kernel's own file layer (87.9), so a BIOS-only C: and HDD.DRV's native IDE
+  both serve.
+* **The image is written BEFORE the park is claimed**, because the claim takes
+  the XMS arena - everything the pool has left - and the image carries every
+  pool block in use; an arena in the picture is a section no resume could
+  place. So the order is: the sweep, the lock and the image (`hbm_wrimg`),
+  then `mega_dosclaimf`, then the programs' sum and the snapshot. A write that
+  fails refuses the launch with *Could not save to disk* and gives back the
+  drivers, the lock and the extent list; a park refused after the write
+  deletes the image (`hbm_forget`) and refuses with *No room above 1MB*.
+* **It comes back three ways, newest first.** A warm reset whose ROM keeps RAM
+  still recovers the PARK (96.40.9's W7), which is faster and is the later
+  of the two pictures. A reset that clears memory, a power cycle, or a park
+  the stub's sum refuses boots to `hb_probe`, which finds the pointer: an
+  `HBP_DOS` image resumes with no question (`hbm_ask`), and with no exit code
+  in the BDA (kern_dos goes home by the park and writes no mailbox) kern_mega's
+  `hbm_dosbda` stages W7's `MPK_RESETCODE`, so the box says *"The machine was
+  restarted while it ran."*
+* **No image outlives a trip that came home**: `hbm_wake` step 5 deletes both
+  files on every wake (`hbm_forget`), and the park's way home and W7's both
+  enter it - so a normal return, a W7 recovery and a disk resume all leave
+  nothing for the next boot to resume.
+
+**What it costs**: `HIBER.DRV` (on-demand, nothing resident) and the box;
+no kernel `.text`, `.bss`, `.cold` or `.mega` byte, and kern_big byte-identical
+(KERN-MEGA-PLAN 14.43 has the figures). **Measured** on 86Box's MR BIOS 286
+(16 MHz, kern_mega booted off its own partition on a type-2 C:, every write a
+reflected `int 13h` and a 286 reset): an 800 KB image (640 KB and a 160 KB
+section), **2.69 s** from Run to the program's last line against **0.57 s**
+parked alone. On both it and Bochs (a 386, the CR0 route): power off during
+the program and on again, and the session comes back from the disk, and a
+normal trip leaves no image behind. On 86Box also: its hard reset (which
+clears RAM) comes back from the disk, Ctrl-Alt-Del from the park (W7), and
+64 bytes of the park overwritten from the stub's refusal and then the disk.
 
 ### 96.41 The return — the machine goes all the way round
 

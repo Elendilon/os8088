@@ -2029,6 +2029,27 @@ CPU_F_PM            equ 0x10     ; SEGMENTS ARE SELECTORS: kern_mega is in
 ; OSAPI_MEM_CLAIM makes, and a program that wants more walks by CX.
 OS88_HUGE_INCR      equ 0x1000
 ;
+; OSAPI_MEM_SUBSEG - "my segment + N" for a program that may run ABOVE 1MB.
+; An OS88_HIGH program's DS is a selector there (KERN-MEGA-PLAN 13.3, 14.44),
+; and a selector names a BASE: adding paragraphs to it names some other
+; descriptor. Ask this cell instead, and on CF = 1 do the sum yourself -
+; which is every kernel but kern_mega, and kern_mega whenever your region is
+; in conventional memory, so the fallback is the code you had.
+%define OSAPI_MEM_SUBSEG    KERNEL_SEG:0x04BD   ; AX = a PARAGRAPH offset into
+                                 ; your OWN region (from your DS, which must
+                                 ; be your region's), BL bit 0 = you will FAR
+                                 ; CALL code there. out CF=0 and DX = a DATA
+                                 ; selector whose base is that paragraph and
+                                 ; whose limit runs to your region's end or
+                                 ; 64KB, whichever is first - its CODE twin at
+                                 ; DX - 8 when bit 0 asked. The same paragraph
+                                 ; asked again answers the same selector, so
+                                 ; you use one LDT entry (two for code) per
+                                 ; distinct paragraph; all are freed with your
+                                 ; region and MOVE with it (the selector does
+                                 ; not change). CF=1 and EVERY register kept:
+                                 ; use your segment + AX. Any context.
+;
 ; --- volumes (SPEC.md 18.7/51.8) --------------------------------------------
 ; A DRVC_DISK DRIVER's slots, not an application's: the four that CHANGE
 ; something are fenced on the caller being the driver whose disk services are
@@ -3596,12 +3617,18 @@ OS88_STACK_384     equ 4        ; the largest, asked for on purpose: a deep
 ; it only of a package that does NO arithmetic on its own CS or DS (`mov ax,
 ; ds / add ax, n`, OS88_CODESEL of its own DS, a far pointer it builds out of
 ; its own segment and stores for real mode), stamps no IRQ vector with its
-; own CS, and re-homes into no part (OSAPI_PKG_REHOME). Its file I/O may go
-; to any volume: a buffer up there reaches a redirected one - a RAM disk, a
-; cable share - 512 bytes a call through a bounce in conventional memory
-; (KERN-MEGA-PLAN 10.3 item 81). Every other kernel ignores the bit: a
-; kernel built before it reads an unknown class and gives the largest stack,
-; and nothing worse.
+; own CS. Its file I/O may go to any volume: a buffer up there reaches a
+; redirected one - a RAM disk, a cable share - 512 bytes a call through a
+; bounce in conventional memory (KERN-MEGA-PLAN 10.3 item 81). Every other
+; kernel ignores the bit: a kernel built before it reads an unknown class and
+; gives the largest stack, and nothing worse.
+; A RE-HOMED PROGRAM (OSAPI_PKG_REHOME, SPEC.md 20.12.10.9) says it in its
+; OWN header - the program part's - and not in its loader's: the loader is
+; freed the moment it re-homes, so its placement buys nothing. On kern_mega
+; the program's KEEP (the KEEP form, at most 65,520 bytes: the program and
+; every part it reads) then moves above 1MB as one pair before the program
+; runs; a larger keep, or the bytes form, runs low as before. Ask
+; OSAPI_MEM_SUBSEG for a selector at any paragraph inside it.
 OS88_HIGH          equ 0x80
 ; OS88_HIGHMEM - OR it into the class byte as well (`OS88_STACK_192 |
 ; OS88_HIGH | OS88_HIGHMEM`) to say that this package's CLAIMS may be above

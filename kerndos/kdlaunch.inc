@@ -374,6 +374,12 @@ KDLF_LOWDOS equ 0x20            ; bit 5: kern_mega's LOW kern_dos (SPEC.md
                                 ; loader stub expands it there and not in the
                                 ; HMA. kern_dos itself never reads the bit -
                                 ; which image it is, it was assembled as
+KDLF_SAVE   equ 0x40            ; bit 6: kern_mega's `Save the session to
+                                ; disk first` (SPEC.md 96.40.9.3): HIBER.DRV
+                                ; writes HIBERNAT.IMG before the park, so a
+                                ; machine reset or switched off during the
+                                ; program comes back from the disk. The
+                                ; KERNEL's to act on; kern_dos never reads it
 KDLF_EXE    equ 2               ; bit 1: the box already knows it is an .EXE.
                                 ; A HINT and not an instruction - kern_dos
                                 ; still asks `dos_is_exe`, which reads the
