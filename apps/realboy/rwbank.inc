@@ -150,6 +150,11 @@ rw_bload:
     shl ax, cl
     cmp ax, [rw_romkb]
     jne .bad
+    push es
+    mov es, dx
+    call rw_hdrchk                  ; (SI = why not)
+    pop es
+    jc .why
     mov word [rw_bnum], 1
 .b:
     mov ax, [rw_bnum]               ; bank n: slot n-1, or the last slot
@@ -204,10 +209,13 @@ rw_bload:
     ret
 .xbad:
 .bad:
+    mov si, rw_s_notrom
+.why:
+    push si
     mov ax, [rw_xbase]
     mov dx, [rw_xbase + 2]
     call OSAPI_XMEM_FREE
-    mov si, rw_s_notrom
+    pop si
     jmp short .free
 .noxms:
     mov si, rw_s_room

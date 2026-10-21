@@ -2687,6 +2687,18 @@ SOAK = [
         "SOAK: one package",
         needs=("marty", "nasm", "rgbds"),
         wants=("build/realboy.o88", "build/os8088-720.img")),
+    Row("gbheader", "soak", py("tests/gbheader.py"), 45.0,
+        "REALBOY.O88 reading a cartridge's header before it runs it "
+        "(docs/REALBOY-SPEC.md section 10), on MartyPC's VGA XT: CLOCK0.GB "
+        "copies with the checksum wrong, the Color-only flag and an MBC7 are "
+        "each refused with their own toast (the MBC7 used to run with no MBC "
+        "at all), a .GBC copy opens by its extension and runs, and GBJOY.GB "
+        "(tools/gbprof/gbjoy.asm, ours), asleep in HALT with only the joypad "
+        "interrupt enabled, wakes once a press of B (section 7). Without "
+        "rw_hdrchk nothing is refused; without IF bit 4 it never wakes. "
+        "SOAK: one package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realboy.o88", "build/os8088-720.img")),
     Row("gbstate", "soak", py("tests/gbstate.py"), 40.0,
         "REALBOY.O88's save states (docs/REALBOY-SPEC.md section 10.4). The "
         "bare harness's MODE 13 under QEMU takes a state 200 frames before the "

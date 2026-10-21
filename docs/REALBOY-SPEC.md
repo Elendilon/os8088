@@ -255,6 +255,14 @@ IF/IE write, which takes it at once. `EI / HALT` and
 `rapid_di_ei` and `di_timing` do not (section 12.3). A read of IF first runs every event already due
 (`rb_catchup`), so a game polling IF sees what the hardware would.
 
+**The joypad interrupt** (bit 4, 60h) is the host's: a button pressed since
+the package's last look (`rw_keys`, once a frame) sets IF bit 4 between two
+`rb_run`s, and the next one's event check takes it or ends a HALT. A game
+asleep in HALT with only it enabled - a title or pause screen waiting for a
+press - wakes once a press (`tests/gbheader.py`, `GBJOY.GB`). STOP is not
+modelled: it returns `RBX_STOP` and the package runs on, as if a button had
+been pressed at once.
+
 ## 8. The spin-wait rule
 
 **A skip does not spend the budget.** `rb_run`'s budget bounds how long the
@@ -328,6 +336,19 @@ at line 0), STAT and LYC writes (rescheduling `S_TSTAT`), OAM DMA (FF46,
 through the raster log (section 11). Every other register is stored.
 
 ## 10. Cartridges
+
+**The package reads the header before it runs anything** (`rw_hdrchk`, on
+both load paths, while what was claimed can still be given back), and
+refuses with a toast naming why:
+- **the header checksum** (014Dh, the boot ROM's own test: x = x - byte - 1
+  over 0134h-014Ch) wrong - "not a GB ROM", the file not a cartridge;
+- **0143h = C0h**, a game for the Game Boy Color alone - "needs GB Color".
+  A game for both (80h) runs as a Game Boy, and `.GBC` is a RealBoy
+  document beside `.GB`, the extension such games mostly carry;
+- **a type rbsys does not have** - "MBC xxh unknown". The ones it runs are
+  00-03, 05-06, 08-09, 0F-13 and 19-1E (`rw_mbcok`, a bit each); MMM01,
+  HuC1, HuC3, MBC6, MBC7, TAMA5 and the Pocket Camera used to fall through
+  to "none" below and run with their banks wrong, saying nothing.
 
 The header's byte 0147h picks the MBC: none, **MBC1**, **MBC2**, **MBC3**
 or **MBC5**. Bank 0 written to a bank register reads as 1 on MBC1, MBC2 and

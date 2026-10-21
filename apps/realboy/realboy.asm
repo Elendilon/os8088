@@ -34,8 +34,10 @@
 
 ; --- the extension this program opens ---------------------------------------
     OS88_ASSOC16
-    db 1
+    db 2
     OS88_ASSOC_EXT 'GB'
+    OS88_ASSOC_EXT 'GBC'                ; (a game for both: rw_hdrchk refuses
+                                        ;   one that is the Color's alone)
     OS88_ASSOC16_END
 
 %include "os88parts.inc"
@@ -559,6 +561,11 @@ rw_load:
     cmp ax, RW_ROMMAX_KB / 16
     ja .notrom1
     mov [rw_banks], ax
+    push es
+    mov es, [rw_romseg]
+    call rw_hdrchk                  ; SI = why not
+    pop es
+    jc .refuse1
 .loaded:
     call rw_jitclaim
     call rw_dmgclaim
@@ -571,6 +578,12 @@ rw_load:
     call rw_hire
     call rw_repaint
     ret
+.refuse1:
+    push si
+    mov dx, [rw_romseg]
+    call OSAPI_MEM_FREE
+    pop si
+    jmp short .say
 .notrom1:
     mov dx, [rw_romseg]             ; the claim back
     call OSAPI_MEM_FREE
@@ -588,6 +601,90 @@ rw_load:
 .say:
     pop bx                          ; (the window, banked)
     jmp rw_toast
+
+; rw_hdrchk - ES = the cartridge's bank 0: CF = 1 and SI = why, for a file
+; that is not a Game Boy ROM (its header checksum, 014Dh, the boot ROM's own
+; test), a game for the Game Boy Color alone (0143h = C0h), or a cartridge
+; whose MBC rbsys does not have - which would run with its banks wrong and
+; say nothing (REALBOY-SPEC section 10)
+rw_hdrchk:
+    push ax
+    push bx
+    push cx
+    mov si, 0134h                   ; x = x - byte - 1, 0134h-014Ch
+    xor ah, ah
+    mov cx, 014Dh - 0134h
+.ck:
+    mov al, [es:si]
+    sub ah, al
+    dec ah
+    inc si
+    loop .ck
+    cmp ah, [es:014Dh]
+    mov si, rw_s_notrom
+    jne .no
+    cmp byte [es:0143h], 0C0h
+    mov si, rw_s_cgb
+    je .no
+    mov bl, [es:0147h]              ; the types rbsys runs (rbsys rb_init):
+    cmp bl, 20h                     ;   a bit each in rw_mbcok
+    jae .mbc
+    mov cl, bl
+    and cl, 0Fh
+    mov ax, 1
+    shl ax, cl
+    mov si, rw_mbcok
+    test bl, 10h
+    jz .lo
+    inc si
+    inc si
+.lo:
+    test ax, [si]
+    jnz .ok
+.mbc:
+    push di                         ; 'REALBOY: MBC xxh unknown'
+    push es
+    push ds
+    pop es
+    mov si, rw_s_mbc
+    mov di, rw_stmsg
+    mov cx, rw_s_mbcx - rw_s_mbc
+    rep movsb
+    mov al, bl
+    mov cl, 4
+    shr al, cl
+    call .hex
+    mov al, bl
+    call .hex
+    mov si, rw_s_mbcx
+.t:
+    lodsb
+    stosb
+    or al, al
+    jnz .t
+    pop es
+    pop di
+    mov si, rw_stmsg
+.no:
+    stc
+    jmp short .r
+.ok:
+    clc
+.r:
+    pop cx
+    pop bx
+    pop ax
+    ret
+.hex:
+    and al, 0Fh
+    add al, '0'
+    cmp al, '9'
+    jbe .h
+    add al, 'A' - '9' - 1
+.h:
+    stosb
+    ret
+rw_mbcok:       dw 836Fh, 7E0Fh     ; 00-03 05 06 08 09 0F, 10-13 19-1E
 
 ; rw_start - rb_init: the view, the core, the ROM, its banks - and the
 ; recompiler over them when it has its cache (REALBOY-SPEC section 16)
@@ -2396,6 +2493,12 @@ rw_keys:
 .set:
     push ds
     mov ds, [cs:rb_viewseg]
+    mov al, [S_JOY]                 ; a button pressed since the last look
+    not al                          ;   is the JOYPAD interrupt's (IF bit 4),
+    and al, dl                      ;   which wakes a game waiting in HALT
+    jz .nj                          ;   for a press (REALBOY-SPEC section 7)
+    or byte [0FF0Fh], 10h
+.nj:
     mov [S_JOY], dl
     pop ds
     ret
@@ -3314,6 +3417,9 @@ rw_s_stop2:     db 'an invalid opcode', 0
 rw_s_one:       db 'REALBOY: one game each', 0
 rw_s_big:       db 'REALBOY: over 256K wants XMS', 0
 rw_s_notrom:    db 'REALBOY: not a GB ROM', 0
+rw_s_cgb:       db 'REALBOY: needs GB Color', 0
+rw_s_mbc:       db 'REALBOY: MBC '
+rw_s_mbcx:      db 'h unknown', 0
 rw_s_room:      db 'REALBOY: no room for ROM', 0
 rw_s_read:      db 'REALBOY: read failed', 0
 rw_s_noram:     db 'REALBOY: no room for RAM', 0

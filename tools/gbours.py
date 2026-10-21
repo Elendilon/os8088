@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Build RealBoy's own Game Boy ROMs into build/gbclock/: GBTONE.GB (the
 sound gate), GBSAVE.GB (battery RAM and the MBC3 clock), GBDEMO.GB (the
-5150 demo), GBBANK.GB (the bank cache's gate) and GBRMW.GB (the
-recompiler's read-modify-writes of (HL), in tests/gbcpu.py).
+5150 demo), GBBANK.GB (the bank cache's gate), GBRMW.GB (the
+recompiler's read-modify-writes of (HL), in tests/gbcpu.py) and GBJOY.GB
+(the joypad interrupt, in tests/gbheader.py).
 
-    python3 tools/gbours.py [gbtone|gbsave|gbdemo|gbbank|gbrmw]
+    python3 tools/gbours.py [gbtone|gbsave|gbdemo|gbbank|gbrmw|gbjoy]
 
 tools/gbprof/gbtone.asm says what it plays (tests/gbsound.py listens to it),
 tools/gbprof/gbsave.asm what it counts (tests/gbsave.py reads it), and
@@ -27,6 +28,7 @@ ROMS = {
     "gbbank": ["-m", "0x19"],               # MBC5, 1MB: every bank there
     "gbrmw": [],
     "gbflags": [],                          # (generated: tools/gbprof/gbflags.py)
+    "gbjoy": [],                            # the joypad interrupt (gbheader.py)
 }
 
 
