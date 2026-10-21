@@ -8654,6 +8654,9 @@ hard disk, PS/2 mouse).
   (14.46.5's ~22 file calls; not timed).
 - **After the resume the PS/2 mouse is DEAD.** NumLock still toggles its LED,
   so IRQ1 is alive and the machine is not frozen - it is the pointer alone.
+  **Confirmed by the owner a moment later: the system is FULLY alive - the
+  screen saver came on by itself after the resume** - so IRQ0, the scheduler,
+  `ui_task` and drawing all run; it is ONLY the mouse.
   **OPEN, being investigated as 14.57.** The serial resume is `mouresume`'s
   (MartyPC, kern_big); no row resumes a PS/2 mouse on kern_mega.
 - **T69 plays better but still stutters, and runs behind real time.** The
