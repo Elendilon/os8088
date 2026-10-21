@@ -5485,6 +5485,19 @@ $(BUILD)/xmtest.img: $(BUILD)/xmtest.o88 tools/os88disk.py
 # (bench360, drvcall360, heapfrag360, editmove360, ...); this was the one that
 # did not, because it was written for the QEMU line above and inherited a
 # MartyPC caller later.
+# VGAPROBE (tests/vgaprobe/vgaprobe.asm): a FIELD instrument for RealBoy's
+# scrolling research - when a real VGA latches the start address and the pel
+# panning, whether its CRTC wraps at 64KB, and the frame's timing. On demand:
+# `make vgaprobe` gives build/vgaprobe.o88 and a 1.44MB floppy with it.
+.PHONY: vgaprobe
+vgaprobe: $(BUILD)/vgaprobe.img
+$(BUILD)/vgaprobe.bin: tests/vgaprobe/vgaprobe.asm apps/os88api.inc apps/os88pit.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/vgaprobe/vgaprobe.asm
+$(BUILD)/vgaprobe.o88: $(BUILD)/vgaprobe.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/vgaprobe.bin -o $@
+$(BUILD)/vgaprobe.img: $(BUILD)/vgaprobe.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/vgaprobe.o88
+
 $(BUILD)/fsxtest.bin: tests/fsxtest/fsxtest.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/fsxtest/fsxtest.asm
 	@echo "fsxtest: $(call FILESIZE,$@) bytes"
