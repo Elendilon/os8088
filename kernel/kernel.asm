@@ -236,6 +236,16 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
   %define KERN_BIG
  %endif
 %endif
+; MEGA_DIAG (MEGADIAG=1) is kern_mega's FIELD READINGS on the menu bar - the
+; NMI, the 286 reset's floppy bytes, the 765 resets, the IRQ reflections' rate,
+; the PicoMEM's queue, the DOS trip's times, the native floppy's fallbacks and
+; the handoff record's hex (KERN-MEGA-PLAN 14.65). A shipped kern_mega shows
+; none of them; it names kern_mega's data, so it means nothing without it.
+%ifdef MEGA_DIAG
+ %ifndef KERN_MEGA
+%error "MEGA_DIAG (MEGADIAG=1) is kern_mega's alone - build it with KERN_MEGA=1"
+ %endif
+%endif
 
 ; KDS / KES - "DS (ES) = the kernel's data", from code running in .text.
 ; In real mode that is `push cs / pop ds`, and on every build but kern_mega it

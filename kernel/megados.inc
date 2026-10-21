@@ -237,8 +237,11 @@ mega_hbs    dw 0, 0                 ; a run's source and what is left of it,
 mega_hbr    dw 0, 0                 ; the bounce's linear base and its fill
 mega_hbbl   dw 0, 0                 ; (hiber.inc's hbm_xwrite, hbm_xres)
 mega_hbf    dw 0
+%ifdef MEGA_DIAG
 mega_dstr   db "DOSP 0000K o 0000 b 0000", 0    ; the trip, on the menu bar:
-                                    ; KB parked, ms out, ms back (decimal)
+                                    ; KB parked, ms out, ms back (decimal;
+                                    ; MEGADIAG=1, KERN-MEGA-PLAN 14.65)
+%endif
 mega_s_kbdos db "Use this disk's DOS.O88", 0 ; mega_pkgok's refusal
 
 ; -----------------------------------------------------------------------------
@@ -1232,8 +1235,10 @@ cpu 286
     pop es
     mov word [es:0x67], mega_r286
     mov word [es:0x69], KERNEL_SEG
+%ifdef MEGA_DIAG
     mov ax, [es:0x3E]
     mov [mega_fdpre], ax
+%endif
     mov al, 0x8F
     out 0x70, al
     mov al, 0x0A
@@ -1469,7 +1474,9 @@ mega_dwake:
     not word [mega_ivtsh]           ; ...and the gates, whatever the shadow says
     call KERNEL_SEG:mega_ivt_syncf
     call mega_dprime                ; W6: the option ROMs' lines, primed
+%ifdef MEGA_DIAG
     or byte [mega_tellq], 0x20      ; the trip, on the menu bar
+%endif
     mov si, mega_m_unpark
     call mm_puts
     mov byte [mega_dwoke], 1
@@ -1767,6 +1774,7 @@ mega_dkobf:                         ; a byte from the CONTROLLER or the
     pop cx
     ret
 
+%ifdef MEGA_DIAG
 ; mega_dtell - mega_tell's line for the trip: "DOSP kkkkK o tttt b tttt"
 mega_dtell:
     pusha
@@ -1797,6 +1805,7 @@ mega_dec4:                          ; AX -> four decimal digits at ES:DI
     dec di
     loop .d
     ret
+%endif
 
 ; =============================================================================
 ; .cold: the loader's check. THE PARK STUB IS kernel/megapark.inc, in
