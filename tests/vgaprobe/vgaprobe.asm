@@ -38,6 +38,13 @@
 ; AR10's pixel panning mode set, so it neither moves nor pans; it shows
 ; VRAM 0.
 ;
+; S cycles the status's split: the line compare with AR10's pixel panning
+; mode (as first shipped), the split without it, and no split at all, the
+; status then drawn into both pages (page A's 4 pixels right). The first
+; field run (the Victory's PVGA1A, 2026-10-21) found mode 0 STILL only from
+; the split's line to vsync: the panning is reloaded at the split, so the
+; other two modes are what RealBoy's own screen - which has no split - is.
+;
 ; Keys in the bracket: Left/Right the phase one scanline, Up/Down ten,
 ; PgUp/PgDn a hundred, Home to 0; Space toggling on/off (off holds page A);
 ; W the wrap test (W again leaves it); R RealBoy's vertical timing; T
@@ -259,10 +266,21 @@ vp_key:
     jne .r
     jmp vp_measure
 .r:
+    cmp al, 's'
+    je .sp
     cmp al, 'r'
     jne .wr
     xor byte [vp_rb], 1
     call vp_timing
+    call vp_split
+    jmp vp_measure
+.sp:
+    inc byte [vp_spl]               ; S: split + PPM, split, no split
+    cmp byte [vp_spl], 3
+    jb .sp1
+    mov byte [vp_spl], 0
+.sp1:
+    call vp_pages                   ; (the pages' status rows clean again)
     call vp_split
     jmp vp_measure
 .wr:
@@ -430,8 +448,11 @@ vp_unlock:
     out dx, al
     ret
 
-; vp_split - the line compare 32 scanlines above the display's end, and
-; AR10's pixel panning mode, so the status below neither scrolls nor pans
+; vp_split - [vp_spl] 0: the line compare 32 scanlines above the display's
+; end, and AR10's pixel panning mode, so the status below neither scrolls
+; nor pans; 1: the split without the panning mode; 2: no split at all (the
+; status then rides in the pages, vp_status). The first field run found the
+; Paradise reloading the panning AT THE SPLIT in mode 0
 vp_split:
     call vp_unlock
     mov bx, 399 - 32
@@ -439,6 +460,10 @@ vp_split:
     je .s
     mov bx, 307 - 32
 .s:
+    cmp byte [vp_spl], 2
+    jb .s2
+    mov bx, 3FFh                    ; (never: no split)
+.s2:
     mov dx, 3D4h
     mov al, 18h
     mov ah, bl
@@ -471,7 +496,11 @@ vp_split:
     out dx, al
     inc dx
     in al, dx
+    and al, 0DFh
+    cmp byte [vp_spl], 0
+    jne .pm
     or al, 20h
+.pm:
     dec dx
     out dx, al
     mov dx, 3D4h                    ; CR0-CR7 locked again
@@ -616,13 +645,83 @@ vp_status:
     mov si, vp_s_rb1
 .rb:
     call vp_strcpy
+    mov bl, [vp_spl]
+    xor bh, bh
+    shl bx, 1
+    mov si, [vp_s_spl + bx]
+    call vp_strcpy
     mov byte [di], 0
+    cmp byte [vp_spl], 2
+    je .pg
     xor di, di
     mov si, vp_s_st1
     call vp_text
     mov di, 320
     mov si, vp_s_st2
     jmp vp_text
+.pg:                                ; no split: in both pages' bottom rows,
+    mov di, VP_PAGEB + 184 * 40     ;   page A's 4 pixels right, so the two
+    mov si, vp_s_st1                ;   pairs show it in one place
+    call vp_text
+    mov di, VP_PAGEB + 192 * 40
+    mov si, vp_s_st2
+    call vp_text
+    mov di, VP_PAGEA + 184 * 40
+    mov si, vp_s_st1
+    call vp_text4
+    mov di, VP_PAGEA + 192 * 40
+    mov si, vp_s_st2
+    jmp vp_text4
+
+; vp_text4 - vp_text 4 pixels to the right, ORed into eight rows it clears
+vp_text4:
+    mov es, [vp_seg]
+    push di
+    mov cx, 8 * 40 / 2
+    xor ax, ax
+    rep stosw
+    pop di
+    mov cx, 40
+.c:
+    lodsb
+    or al, al
+    jnz .g
+    dec si
+    mov al, ' '
+.g:
+    push cx
+    push si
+    push ds
+    sub al, [vp_font0]
+    xor ah, ah
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    mov si, [vp_fontp]
+    add si, ax
+    mov ds, [vp_fontp + 2]
+    mov cx, 8
+.r:
+    lodsb
+    mov ah, al
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    shr al, 1
+    or [es:di], al
+    shl ah, 1
+    shl ah, 1
+    shl ah, 1
+    shl ah, 1
+    or [es:di + 1], ah
+    add di, 40
+    loop .r
+    pop ds
+    sub di, 320 - 1
+    pop si
+    pop cx
+    loop .c
+    ret
 
 ; vp_text - SI = a line, DI = its VRAM offset: forty cells, padded
 vp_text:
@@ -713,7 +812,7 @@ vp_ttl:     db 'VGA Probe', 0
 vp_legend:  dw vp_l1, vp_l2, vp_l3, vp_l4, vp_l5, vp_l6, vp_s_res, 0
 vp_l1:      db 'Enter: run it (VGA, full screen). Inside:', 0
 vp_l2:      db 'Left/Right phase 1 line, Up/Down 10, PgUp/Dn 100', 0
-vp_l3:      db 'Space toggle, W wrap, R RealBoy timing, T time', 0
+vp_l3:      db 'Space toggle, S split, W wrap, R RB timing, T time', 0
 vp_l4:      db 'Still = both latched in one frame; shimmer =', 0
 vp_l5:      db 'a frame apart; shimmer below a row = per line', 0
 vp_l6:      db 'Last numbers (P F VS VA in us, L lines):', 0
@@ -728,6 +827,11 @@ vp_s_off:   db 'held (A)', 0
 vp_s_wrap:  db 'WRAP: stripes,text,checks=wraps', 0
 vp_s_rb0:   db ' stock', 0
 vp_s_rb1:   db ' RealBoy', 0
+vp_s_spl:   dw vp_s_sp0, vp_s_sp1, vp_s_sp2
+vp_s_sp0:   db ' split+PPM', 0
+vp_s_sp1:   db ' split', 0
+vp_s_sp2:   db ' no split', 0
+vp_spl:     db 0
 vp_regs:    db 10h, 11h, 12h, 15h, 16h
 vp_rbv:     db 6Eh, 00h, 33h, 68h, 8Bh   ; rwfsx.inc's rw_fscrv
 vp_phase:   dw 0
