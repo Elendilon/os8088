@@ -184,6 +184,9 @@ KDLF_LOWDOS equ 0x20            ; ...and bit 5, the box's and read by THIS
                                 ; module's stub: kern_dos is part 3, the LOW
                                 ; image, expanded at 0060:0000 rather than in
                                 ; the HMA (SPEC.md 96.40.9.2)
+KDLF_SAVE   equ 0x40            ; ...and bit 6, the box's and read by
+                                ; hbm_dosrun: HIBERNAT.IMG before the park
+                                ; (SPEC.md 96.40.9.3). MIRRORED
 KD_LSEG     equ 0x0060          ; ...where that image goes, with KD_ORG 0
 KDL_O88CL   equ 508             ; dw DOS.O88's first cluster and...
 KDL_O88V    equ 510             ; db ...its volume, for the HMA image to read
@@ -2311,7 +2314,15 @@ hbm_ask:
 hbm_dosbda:
     xor ax, ax
     mov [hb_dosakb], ax
+%ifdef KERN_MEGA
+    mov ax, MPK_RESETCODE       ; kern_mega: a DOS image with no code in the
+                                ; BDA is 14.43's, from a machine RESET during
+                                ; the program (kern_dos goes home by the park
+                                ; and writes no mailbox) - W7's code, so the
+                                ; box says so rather than nothing at all
+%else
     dec ax
+%endif
     mov [hb_doscode], ax        ; KDH_NOCODE, asserted at hb_probe_x
     mov ax, KDB_SEG
     mov es, ax
@@ -2753,6 +2764,37 @@ hbm_dosrun:
     ; nothing torn down.
     test byte [cpu_feat], CPU_F_PM
     jz .kbimg
+    ; --- ...AND, WHEN THE BOX ASKS, THE IMAGE AS WELL (KERN-MEGA-PLAN 14.43,
+    ; KERN-MEGA-DOS-PLAN 12.1 answer 2): `Save the session to disk first`.
+    ; The park lives in RAM, so a program that hangs the machine, or a power
+    ; cycle, loses it; HIBERNAT.IMG does not. It is kern_big's arm-3 image
+    ; (hbm_wrimg, AL = 1), written through W5's protected-mode writer, and it
+    ; comes back three ways: a warm reset still recovers the PARK first (W7,
+    ; faster and the newer of the two), a cold one finds the pointer and
+    ; resumes the image with no question (hbm_ask's HBP_DOS arm), and a
+    ; normal return spends it at hbm_wake's step 5 - `hbm_forget` there
+    ; already deletes both files on every wake, the park's included, so no
+    ; stale image survives a trip that came home.
+    ;
+    ; BEFORE THE CLAIM, because the claim takes the XMS arena - everything
+    ; the pool has left - and the image carries every pool block in use: the
+    ; arena in the picture is a section the size of the pool, which no resume
+    ; could place beside itself. So a claim refused AFTER the write is an
+    ; unwind (.b9), where the park alone refuses with nothing torn down.
+    ; hb_pick's answer is the predicate the box greys on (dos_hasfixed); a
+    ; tick carried by a shortcut onto a machine with no fixed disk parks.
+    test word [cs:hbm_dosrec + KDH_LB + KDL_FLAGS], KDLF_SAVE
+    jz .nosave
+    call COLD_SEG:hb_pick_x
+    jc .nosave
+    mov [hb_vol], al
+    mov al, 1                   ; HBP_DOS = 1: no question at the resume
+    call hbm_wrimg              ; the sweep, the lock, [sch_lock], the image
+    jc .b8
+    call MEGA_SEL_CODE:mega_dosclaimf
+    jc .b9
+    jmp short .held
+.nosave:
     call MEGA_SEL_CODE:mega_dosclaimf
     jc .b7
     CSDO mov byte [CSEG hbm_dosheld], 1
@@ -2764,6 +2806,7 @@ hbm_dosrun:
     call hbm_sweep
     call hbm_lock
     inc byte [sch_lock]
+.held:
     call hbm_psum               ; THE PROGRAMS' SUM, as hbm_wrimg's step 5
     CSDO mov [CSEG hbm_psv], ax ; takes it for an image: hbm_wake 3a checks
     CSDO mov [CSEG hbm_psv + 2], dx ; it on this way home too, and without
@@ -3019,6 +3062,29 @@ hbm_dosrun:
     mov si, hbm_s_d6
 %ifdef KERN_MEGA
     jmp short .badv
+.b9:                            ; the image is written and the park refused:
+    call hbm_forget             ; nothing goes to DOS, so neither file stays
+    mov si, hbm_s_d7
+    jmp short .b8s
+.b8:                            ; the image could not be written
+    mov si, hbm_s_d8
+.b8s:                           ; ...and hbm_wrimg's lock, [sch_lock] and
+    push si                     ; detached drivers are given back, as
+    xor dx, dx                  ; hbm_hibfail gives them - less its mode
+    xchg dx, [hb_xseg]          ; byte, since no Hibernate window asked
+    or dx, dx                   ; (hbf_dropck keeps the module while it is
+    jz .b8x                     ; not GONE)
+    mov bx, MEM_K_HIB
+    mov bp, mem_free_x
+    call hbm_cb
+.b8x:
+    CSDO mov byte [CSEG hbm_dosheld], 0
+    dec byte [sch_lock]
+    call hbm_unlock
+    call hbm_reload
+    call hbm_vbk
+    pop si
+    jmp short .bad
 .b7:
     mov si, hbm_s_d7
 .badv:                          ; the extent list, if it was claimed, and the
@@ -5107,6 +5173,7 @@ hbm_s_d5:       db 'No room for the extents', 0
 hbm_s_d6:       db 'kern_dos too scattered', 0
 %ifdef KERN_MEGA
 hbm_s_d7:       db 'No room above 1MB', 0
+hbm_s_d8:       db 'Could not save to disk', 0   ; 14.43's image
 hbm_s_mode:     db 'Hibernation: other mode', 0
 %endif
 

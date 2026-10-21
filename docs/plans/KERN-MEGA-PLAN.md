@@ -6477,3 +6477,115 @@ behind. Both are answered by a CATCH pushed around those two calls.
   refused, so the launch aborts, which is the point. A window's W_ASKCLOSE
   reads it as "refuse the close", which is harmless because the forced
   close never asks.
+
+### 14.43 The DOS box's durability option: save the session to disk before the park (2026-10-21)
+
+**The owner's ask**: *"Dos option to flush the session as well as move out
+of its way"* - KERN-MEGA-DOS-PLAN 12.1 answer 2, *"also save the session to
+the hard disk before running DOS, shown only where a BIOS fixed disk exists.
+It rides on W5."* The park lives in RAM, so a DOS program that hangs the
+machine, a power cycle, or a reset whose ROM clears memory loses the whole
+desktop session. SPEC.md 96.40.9.3 is the contract.
+
+**Step 1, the sizing, and why it was SMALL.** Every piece existed:
+`hbm_wrimg` is kern_big's arm-3 image writer and already runs in protected
+mode (W5, 87.9: the conventional picture through the stretched LOW0 selector,
+the extended section, the pointer); `hbm_ask` already resumes an `HBP_DOS`
+image with no question; and **`hbm_wake` step 5 already deletes both files on
+every wake** - the park's way home and W7's both enter it - so "invalidate the
+image after a session that came back" needed no code at all. What the feature
+needed was ORDER: the park's claim (`mega_dosclaimf`) takes the XMS arena,
+everything the pool has left, and the image carries every pool block in use,
+so the image has to be written before the claim or it holds a section the
+size of the pool that no resume could place. Nothing in `kernel/mega.inc`,
+`kernel/loader.inc` or `apps/pixel` was touched.
+
+**Built**:
+
+- `kernel/hiber.inc` (`HIBER.DRV`, kern_mega's): in `hbm_dosrun`'s park
+  branch, when the launch block has `KDLF_SAVE` and `hb_pick` names a fixed
+  volume, `hbm_wrimg` (AL = 1) does the sweep, the lock and the image, and
+  then the claim, the sum and the snapshot follow as before. Two unwinds: a
+  write that fails refuses with *Could not save to disk* (drivers, lock,
+  `[sch_lock]` and the extent list given back - `hbm_hibfail`'s body less its
+  mode byte, which would have pinned the module); a claim refused after the
+  write deletes the image and refuses *No room above 1MB*. And
+  `hbm_dosbda`, on kern_mega, stages W7's `MPK_RESETCODE` where the BDA holds
+  no code - kern_dos goes home by the park and never writes the mailbox - so a
+  disk resume says *"The machine was restarted while it ran."*
+- `apps/dos/dos.asm` (kern_mega's `DOS.O88` only, `%ifdef DOS_MEGA`): the box
+  *Save the session to disk* under *Parks the OS above 1MB*, **unticked by
+  default**, greyed by `dos_msav_di` -> `dos_hasfixed` (hb_pick's own test)
+  and refused a press while grey; `KDLF_SAVE` (bit 6) in the launch block;
+  byte 12's `LNK_BX_SAVE` (bit 4) in a shortcut. kern_mega's page has no
+  radio, so its HDD/Network/Limit rows move down 5 pixels to make the row and
+  the block still ends at 115, inside CGA's 118 (SPEC.md 96.36.2).
+- `kerndos/kdlaunch.inc` / `kernel/hiber.inc`: `KDLF_SAVE equ 0x40`, mirrored.
+
+**Cost, measured at build 254 against `2be83d0c` built the same way**:
+
+| | before | after | |
+|---|---|---|---|
+| kern_mega `.text`/`.bss`/`.cold`/`.mega` | | | **+0** (one `.mega` constant moves: the park stub's offset in HIBER.DRV's image, `mega_dstubup`) |
+| `HIBER.DRV` image (`.modh`) / its bss (`.modhb`) | 9,217 / 602 | 9,307 / 602 | **+90** / +0 - an on-demand module, so none resident |
+| `HIBER.DRV` file | 7,980 | 8,053 | +73 |
+| kern_mega's `dosp.bin` | 51,088 | 51,214 | +126 |
+| kern_mega's `DOS.O88` file | 64,777 | 64,777 | +0 (512-aligned parts) |
+| kern_big / kern_small | | | **all 215 artefacts byte-identical** (every `.bin`, `.o88`, `.drv`, `.sys`, `.img` under `build/` outside `megak/`) |
+| disk, while the program runs | | | **800 KB** of C: (640 KB and a 160 KB section on this desktop), deleted on the way home |
+
+**Measured on 86Box `286-mega`** (MR BIOS 286, 16 MHz, 4MB) with a 20MB
+type-2 IDE C: built by `os88disk.py --hdd` with `megak/boothd.bin`,
+`kernel.sys` and the system floppy's root files, booted off C: and no A: -
+so the volume is the kernel's own boot partition and every write a reflected
+`int 13h` and a 286 reset, the Victory's BIOS-only C: case. KDHELLO
+(`-DKDHOLD`) from the box with the option ticked:
+
+| | result |
+|---|---|
+| Run to the program's last line | **2.69 s** ticked against **0.57 s** parked alone (emulated; 86Box is not cycle-accurate and its disk was `ramdisk` speed, so the iron figure is the Victory's to take) |
+| power off during the program, power on | the session back from the disk in ~6 s from POST, *The machine was restarted while it ran.*, the files gone |
+| 86Box hard reset (it clears RAM: the W7 anchor read 0 after it) | the same, from the disk |
+| Ctrl-Alt-Del (RAM kept, anchor read `PKRS` + 140000h) | W7 recovers the PARK (the `DOSP` trip line on the bar), the files gone |
+| 64 bytes of the park overwritten from the socket, then a key | the stub's *KDHELLO.COM wrote over the parked session*, a key, a fresh boot - **and the session back from the disk** |
+| normal return | `exit code 042 (Arena: 622KB)`, the files gone, and a power cycle after it boots an ordinary desktop |
+| unticked | no `HIBERNAT.*` on C:, the trip as before |
+| floppy-only machine (`mega.img` in A:, no C:) | the box greyed, a press on it does nothing |
+
+**On Bochs** (a 386, the CR0 route; `os88bochs.py boot --bootc --noa --csys`,
+DOS.O88 and KDHELLO put on C:): ticked, the 800 KB image and its pointer on
+C: while KDHELLO waited; Bochs stopped and booted with `--c keep`: E9 `kern_mega:
+resumed`, the DOS window back with the restart line; a second trip from the
+resumed session: `parked 0086K`, `unparked`, exit 042, the files gone.
+
+**Rows that cover it**: none registered drives this box on kern_mega yet; the
+nearest are the DOS-trip and hibernate rows (`soak -k 'kdos*' 'hibern*'`),
+which run kern_big's `DOS.O88` and HIBER.DRV - byte-identical - and so cannot
+see it. A row would be `tests/` + 86Box, which docs/86BOX.md says no row does
+yet; the recipe above (C: off `megak/boothd.bin`, CMOS type 2, power cycle
+with the run's `hdd1.img` kept) is what one would script.
+
+**For the owner to look back over**:
+
+- **The default is OFF** - the park alone is the fast path, and the owner's
+  answer offered durability "if the time it costs is worth offering". A
+  shortcut carries the tick.
+- **A failed write REFUSES the launch** rather than parking without the image
+  (kern_big's arm 3 carries on without one): the user asked for the guarantee,
+  and the sentence says what to untick. The one predictable failure is a pool
+  too small for a resume to stage the image (`hbm_xplan`, a 1MB AT), which
+  the box does NOT grey - it cannot read `[xm_kb]` - so a 1MB AT with a C:
+  sees the box live and is refused at Run. Greying it needs a slot or a
+  reading of `OSAPI_XM_CAPS`'s total, not built.
+- **The greyed box has no reason caption** - the page has no free row; the
+  mouse box beside it is greyed the same way. *(And that mouse box is greyed
+  on EVERY kern_mega launch: `dos_mck_di` ties it to `DOS_MEM_WHOLE`, which
+  kern_mega's radio-less page never selects - so `Disable the mouse` cannot be
+  ticked on kern_mega at all. Found here, not fixed: it is the box's
+  arm logic, not this option.)*
+- **A park refused by its sum now has a second chance** when the option was
+  on: the stub's restart boots into the disk image. The stub's sentence still
+  says only that the session was overwritten.
+- **The 86Box MR BIOS stops at *"Parallel Port Configuration Change"*** after
+  Ctrl-Alt-Del and after the stub's 8042 reset (a key, then setup's F10): the
+  emulated BIOS's, seen on every warm boot here, not this change's.
