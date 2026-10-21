@@ -61,7 +61,7 @@
 0 4 kernel/desksc.inc  # the boot half's scan (.boot2), in real mode before mega_enter; CTRL.DRV's half is PUSH_CSDATA/CSDO now
 
 # --- .mod*: an on-demand module writing its own image -----------------------
-17 10 kernel/hiber.inc  # HIBER.DRV (.modh); real mode by design and replaced on kern_mega (KERN-MEGA-PLAN 2.6) - -35 for the paths kern_mega DOES run in protected mode, now CSDO (KERN-MEGA-PLAN 14.46): the DOS trip's (hbm_dosrun step 3c, hbm_extat, hbm_sweep, hbm_drvsusp, hbm_xcap: ~310 mega_gpw fixups a trip) and the hibernate's (hbm_wrimg, hbm_ptrfix_set, the ask's paint, hbm_res) - +2 for DOS.O88's cluster/volume, staged for the HMA EXEPACK switch (SPEC.md 96.40.9.1) - +5 for the HMA driver pool's hbm_hseg and HBP_PAD (SPEC.md 87.4 step 3b), all inside %ifdef HMA_DRV, which kernel.asm never defines on kern_mega
+28 10 kernel/hiber.inc  # HIBER.DRV (.modh); real mode by design and replaced on kern_mega (KERN-MEGA-PLAN 2.6) - -24 for the DOS trip's own path, which kern_mega DOES run in protected mode (hbm_dosrun step 3c, hbm_extat, hbm_sweep, hbm_drvsusp, hbm_xcap: ~310 mega_gpw fixups a trip, now CSDO, KERN-MEGA-PLAN 14.46). The hibernate's own nine (hbm_wrimg, hbm_ptrfix_set, the ask's paint) stay: one fixup each a hibernate, against the 77 bytes CSDO would add - which took the image's claim over a KB (MODH_UNPAD's dead zone, 10KB -> 11KB while it is loaded)
 0 1 kernel/megados.inc  # mega_dropr, kern_mega's DOS park: REAL MODE, between leaving protected mode and the loader stub, with no kernel left to run
 
 # --- drivers: DS/ES = the driver's own image (no driver writes through CS) ---

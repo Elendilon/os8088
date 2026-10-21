@@ -1137,8 +1137,8 @@ hbm_paint:
     push ax
     mov al, [hb_vol]            ; the letter, patched into both faces' lines
     add al, 'A'
-    CSDO mov [CSEG hbm_s_r1 + HBM_R1_LTR], al
-    CSDO mov [CSEG hbm_s_a2 + HBM_A2_LTR], al
+    mov [cs:hbm_s_r1 + HBM_R1_LTR], al
+    mov [cs:hbm_s_a2 + HBM_A2_LTR], al
     pop ax
     cmp al, HB_M_RESUME
     jne .lines
@@ -1690,17 +1690,17 @@ hbm_perform:
 ; -----------------------------------------------------------------------------
 hbm_wrimg:
     push ax
-    CSDO mov [CSEG hbm_ptrfix + HBP_DOS], al   ; ...WHY this image exists, the one
+    mov [cs:hbm_ptrfix + HBP_DOS], al   ; ...WHY this image exists, the one
                                 ; thing in the pointer about the occasion
                                 ; rather than the machine
-    CSDO mov byte [CSEG hbm_dosheld], 1    ; ...both taken below, and given back by
+    mov byte [cs:hbm_dosheld], 1    ; ...both taken below, and given back by
                                     ; neither arm
 %ifdef HMA_DRV
     mov word [cs:hbm_hseg], 0   ; no pool copy yet: .no frees only a real one
 %endif
     call hbm_vbn                    ; where the user stands, for a refusal
     mov si, hb_drvmask          ; 1. the hardware drivers go, and are noted:
-    CSDO mov byte [CSEG hbm_spm], 0    ; THE HIBERNATE'S OWN SWEEP IS TODAY'S SKIP
+    mov byte [cs:hbm_spm], 0    ; THE HIBERNATE'S OWN SWEEP IS TODAY'S SKIP
                                 ; LIST, whatever the last suspend asked for
                                 ; (SPEC.md 51.11.4): the mask is a slot
                                 ; argument, and a hibernate is not that slot
@@ -1766,8 +1766,8 @@ hbm_wrimg:
 .rptr:
 %endif
     call hbm_ptrfix_set         ; 6. the pointer, beside it: the fixed
-    CSDO mov word [CSEG hbm_ptrfix + HBP_WAKE], hbm_wake   ; head's live fields, and
-    CSDO mov [CSEG hbm_ptrfix + HBP_WAKE + 2], cs          ; the wake address. The
+    mov word [cs:hbm_ptrfix + HBP_WAKE], hbm_wake   ; head's live fields, and
+    mov [cs:hbm_ptrfix + HBP_WAKE + 2], cs          ; the wake address. The
     call hbm_nptr               ; file IS hbm_ptrfix - one object, written
     push cs                     ; from where it is described rather than
     pop es                      ; staged through a buffer (SPEC.md 87.3)
@@ -1821,7 +1821,7 @@ hbm_bye:
 %endif
 hbm_hibfail:                        ; hbm_hib's: the write did not happen
     push si                     ; hbm_wrimg's refusal
-    CSDO mov byte [CSEG hbm_dosheld], 0
+    mov byte [cs:hbm_dosheld], 0
     dec byte [sch_lock]
     call hbm_unlock              
     call hbm_reload             ; the drivers come back
@@ -2337,9 +2337,9 @@ hbm_dosbda:
 ;                  own 0 and nothing writes it
 hbm_ptrfix_set:
     mov ax, [mem_top]
-    CSDO mov [CSEG hbm_ptrfix + HBP_MEMTOP], ax
+    mov [cs:hbm_ptrfix + HBP_MEMTOP], ax
     mov al, [vid_kind]
-    CSDO mov [CSEG hbm_ptrfix + HBP_VID], al
+    mov [cs:hbm_ptrfix + HBP_VID], al
 %ifdef ROM_ADOPT
     ; ...and WHERE `.cold` RUNS, in the pad byte the head always compared as
     ; 0 (docs/plans/ROM-PLAN.md 3.4.5): the HIGH BYTE of [api_coldseg], which
@@ -2417,7 +2417,7 @@ hbm_res:
     ;    text mode - ui_cmd_reboot's order (SPEC.md 20.10, 31.8) - and 4. the
     ;    staging area: the stub, the transport words and the extents, which
     ;    is the half hbm_dosrun's handoff shares (hbm_down)
-    CSDO mov byte [CSEG hbm_dosheld], 0    ; nothing of the lock is ours yet
+    mov byte [cs:hbm_dosheld], 0    ; nothing of the lock is ours yet
     mov si, hbs_stub
     mov cx, hbs_stub_end - hbs_stub
     call hbm_down               ; ES = the text framebuffer, DI = HS_WAKE

@@ -43,7 +43,7 @@ starts if that display is not up:
 | mouse | PS/2, captured with ctrl + middle button (`toggle=ctrl+mbutton`) |
 | E9 | `port_e9_hack`: every byte the kernel writes to port E9h lands in `OUT/e9.out` |
 | sound | `--sb`: an SB16 at 220h, IRQ 5, DMA 1, its output written to `OUT/sb.wav` |
-| network | `--ne2k`: an NE2000 at 300h, IRQ 10, on Bochs's own slirp (the host is 10.0.2.2) |
+| network | `--ne2k`: an NE2000 at 300h, IRQ 10, on Bochs's own slirp (the host is 10.0.2.2). `$OS88_BOCHS_SLIRP` names a slirp config for it - a first line `# slirp config`, then up to five `hostfwd = tcp::2121-:21` lines - which is how a HOST client reaches a server in the guest: FTPD's control port and four of its passive ports, with `curl --ftp-skip-pasv-ip` (KERN-MEGA-PLAN 14.46) |
 | clock | realtime |
 
 ## Commands
