@@ -183901,7 +183901,17 @@ kernel builds them. docs/plans/KERN-MEGA-PLAN.md 14.16 is the record.
   with the hold or the bank (`vp_xrunmk`, `[vp_xrun]`), one data selector
   every 32 KB of the block, each a 64 KB window - so a super-packet or a
   record (32 KB at most where in place is taken: BIGSP is refused, 98.1.4.1)
-  from any offset lies wholly in the window of (offset >> 15). `vp_xmk`
+  from any offset lies wholly in the window of (offset >> 15). **The BIGSP
+  refusal is `vp_pmbigq`**, asked by `vp_xipq` and `vp_xbipq` under
+  `CPU_F_PM` alone (2026-10-21, KERN-MEGA-PLAN 14.58): this sentence said
+  so from the start and nothing did it, so a BIGSP file's 38-63 KB records
+  were read in place, ran off their window's end, and wrapped to its start
+  - a fullscreen play drawn from the wrong bytes and then a #GP inside the
+  bracket, which is the owner's Mechwarrior 2 freezing a 286 at its first
+  record past 32 KB. Such a session copies, through the conventional ring
+  a BIGSP file keeps anyway (98.3.18.17); real mode's handle is a
+  paragraph's and holds 64 KB less 15 from any start, so it is not asked
+  there. `vp_xmk`
   answers that selector and offset & 7FFFh instead of a handle, and every
   `VP_DSDX` site is then the plain `mov ds, dx` it is for a ring pointer:
   **no borrow, interrupts left as they are, no yield** - a selector survives

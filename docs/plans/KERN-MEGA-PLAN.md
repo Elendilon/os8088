@@ -8663,5 +8663,109 @@ hard disk, PS/2 mouse).
   still open beside it).
 - **MECH2 (`apps/video/demo/vga/04-MECH2.V88`) plays until the first heavy
   frames, many seconds in, then CORRUPTS THE SCREEN AND FREEZES THE WHOLE
-  MACHINE.** A defect rather than a speed question. **OPEN, being
-  investigated as 14.58.**
+  MACHINE.** A defect rather than a speed question. **FIXED in 14.58**: a
+  BIGSP record read in place under protected mode ran off its 64 KB window.
+
+### 14.58 MECH2's freeze: a BIGSP record read in place ran off its window (2026-10-21)
+
+14.56's field report: on the Victory 286, kern_mega at 942137bc, Mechwarrior
+2 (`apps/video/demo/vga/04-MECH2.V88`) plays until its first heavy frames,
+then corrupts the screen and freezes the machine. **It is the Video
+Player's, kern_mega's protected-mode arm of it, and it is fixed in the
+player.** No kernel byte changed.
+
+**The cause.** MECH2 is a BIGSP file (SPEC.md 98.1.4.1): super-packets up to
+127 sectors, records up to 58,879 bytes. Its first record past 32 KB is
+frame 170, 11.3 s in; everything before is under 32 KB. Under protected mode
+a held file and an XMS bank are read IN PLACE through `OSAPI_XMEM_RUN`'s
+windows (14.16, SPEC.md 98.3.18.16): one data selector every 32 KB of the
+block, each 64 KB long, the record at window (offset >> 15), offset & 7FFFh.
+That holds any 32 KB from any start, and a record of length L only when it
+starts no more than 64 KB - L into its 32 KB. A 58 KB record mostly does
+not. The decoder ran off the window's end: `lodsb` wrapped SI to 0 and read
+the window's START, the frame was drawn from the wrong bytes, and the first
+`rep movsw` with SI = FFFFh, or with DI driven past the screen, was a #GP
+inside the fullscreen bracket. In real mode none of this can happen: the
+handle `vp_xmk` makes is a paragraph's, so SI < 16 and 64 KB less 15 follow
+any start. **SPEC.md 98.3.18.16 already said "BIGSP is refused" where in
+place is taken. Nothing did it**: `vp_xipq` and `vp_xbipq` had no test, and
+14.41's high ring (`vp_rhiq`) was the one place that refused BIGSP, for the
+same reason.
+
+**Reproduced, under Bochs** (16-bit protected mode's segment limit checks
+are the 286's), kern_mega of this tree:
+
+| run | arm | result |
+|---|---|---|
+| MECH2 on C:, booted OFF C: with a throwaway `HDD.DRV` that skips rung 1, so every C: read is a reflected `int 13h` as on the field (`a fixed-disk transfer went to the BIOS`), 4MB, SB16 | bank in place (PM), 2,656KB | `kern_mega FAULT vector 0D` **10 s after Space**: CS:IP 2834:99A8, `vd_native`'s span `rep movsw`, DS 28D4 (an LDT run selector), **SI FFFFh** |
+| tests/vidplay.py's `--big` lin80 clip (38,691-byte records), 16MB | held, in place | `#GP` at 282C:9A68, the same `rep movsw` one list on, ES A000 **DI FFFFh**, CX 3FC0h: a span of garbage length. The screen: noise to the edges and the fault text over the top line |
+| the same clip, 2MB | bank in place | the same fault, with and without an SB16 |
+| **kern_big**, the same Bochs machine, A: = `os8088.img` with the same BIOS-only `HDD.DRV`, MECH2 on C:, the shipped player | `XMS bank in place (386), 3008 KB` | **Drew 1147/1147, stalls 0**, no fault |
+
+So kern_big plays it and kern_mega does not, on the same machine and disk
+path, and the difference is the window. (Late and the tick count are Bochs's
+SB16 clock: kern_big and the fixed kern_mega both read `Late 573` and ~175
+ticks for the whole play, 14.41's observation again.)
+
+**The fix: `vp_pmbigq`**, asked at the head of the protected-mode tests in
+`vp_xipq` and `vp_xbipq`. Under `[vp_pm]` with `[vp_msl]` = 2 (a BIGSP
+file), CF = 1 and the session COPIES: the hold's copy down, or the copying
+bank, both through the conventional ring that a BIGSP file keeps anyway.
+Real mode returns CF = 0 at once and decides exactly what it did.
+
+| run (fixed) | arm | result |
+|---|---|---|
+| MECH2, the BIOS-served C: as above, 4MB, SB16 | `Banked in XMS, 2656 KB` | **Drew 1147/1147, stalls 0**, no fault; the same Late 573 as kern_big's |
+| the `--big` clip, 16MB | `Held whole in XMS` | 150/150, stalls 0, Late 0, 91 ticks of 91 |
+| the `--big` clip, 2MB, SB16 | `Banked in XMS, 608 KB` | 150/150, stalls 0 |
+| the `--big` clip, 2MB, speaker | `XMS bank idle: the speaker` | 150/150, Late 0 (the copying bank's speaker refusal, 98.3.18.5, streams it off the floppy) |
+
+**Not reproduced on 86Box.** `286-video` with a kern_mega C: built by
+`os88hdd.py` sat in a VGA BIOS loop at boot with the copied `hd` run's CMOS
+(SS 0E60, mega_on 0, DX 0378h), and booting A: on the same profile did the
+same; it was not taken apart, because the defect is a segment-limit
+property and Bochs's check is the 286's. The mr286 has not played MECH2 on
+either player.
+
+**What it costs a play.** A BIGSP session on kern_mega copies where it read
+in place: the bank's copy DOWN per chunk comes back (one `rep movsw` of
+32KB each, ~5 ms on a 12 MHz 286 by 14.41's figure, eight a second at
+MECH2's 252 KB/s, so ~4% of the machine), and a held file's drain. kern_big
+on the same 286 still reads in place, by LOADALL. Whether that is a stutter
+on the Victory is the owner's reading to take.
+
+**Cost.** `video.bin` 58,973 -> **58,997 (+24)**, `VPDIAG=1` 60,537 ->
+60,561 (+24), `NOLIVESND=1` 58,740 -> 58,764 (+24); bss unchanged; the
+shipped `VIDEO.O88` 45,043 -> 45,065 bytes on disk. `vp_pmbigq` is 14 bytes,
+the two calls 5 each. `tools/os88rdiff.py --hot-file
+apps/video/rdiffhot.txt`, all three arms: **every hot routine identical, at
+an even shift** (only `vp_xipend` and `vp_xbipq`, per-session, moved odd).
+**Kernels: no source changed**, so kern_big, kern_small and kern_mega are
+byte-identical to protected-mode's.
+
+**The row: `megavidbig`** (soak, Bochs, 330 s declared, 301 measured).
+`tests/vidplay.py`'s `--big` clip beside VIDEO.O88 on a 1.44MB B:, played
+with Space at 2MB (the bank, Play at once) and 16MB (held whole, after
+110 s for the hold to fill): neither may log a kern_mega FAULT. **Red with
+the player before this** (`--pkg`): both legs fault at the `rep movsw`.
+Green with it.
+
+**Rows that cover it**: `megavidbig`; the kern_big video rows see a change
+of no decision (real mode returns at once) and an image +24 - `vidplay
+vidplayvga vidxip vidxipbank vidbank vidplayshd vidrepeat` are the ones that
+run the two changed routines. The orchestrator's soak union should take
+`megavidbig vidplay vidxip vidxipbank vidbank`.
+
+**For the owner to look back over:**
+
+1. **The fix copies; it does not read a BIGSP record in place.** Reading in
+   place needs a window that starts within 64 KB less the record of the
+   record: a run with a 2 KB step (63.5 KB of span, 1,536 selectors for a
+   3MB bank - more LDT than kern_mega has), or a selector the player
+   re-aims per record, which `OSAPI_XMEM_SEL` does only from the UI task
+   and not under the hook (14.16 decision 1). Either is a kernel and SDK
+   change; the copy is ~4% of a 286 at this clip's rate. If MECH2 stutters
+   on the Victory where kern_big plays it clean, that is the next step.
+2. **The contract was right and the code was not**: SPEC.md 98.3.18.16 has
+   said "BIGSP is refused" since 14.16. Any other sentence of that shape in
+   the in-place sections is worth a grep for the test it promises.

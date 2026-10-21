@@ -14147,6 +14147,20 @@ SOAK = [
         "its I_SPTR comes back a conventional segment. 120s is 99 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
+    Row("megavidbig", "soak", py("tests/megavidbig.py"), 330.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.58: a BIGSP video (records past 32 "
+        "KB, SPEC.md 98.1.4.1) played from XMS on kern_mega without a fault "
+        "- the owner's Mechwarrior 2 froze the Victory 286 at its first "
+        "record past 32 KB, read in place through OSAPI_XMEM_RUN's windows "
+        "(one every 32 KB, 64 KB long), which a 38-63 KB record runs off. "
+        "Bochs, tests/vidplay.py's --big lin80 clip beside VIDEO.O88 on B:, "
+        "played with Space at 2MB (the XMS BANK) and at 16MB (the HOLD, "
+        "whole): neither may log a kern_mega FAULT. Red with VIDEO.O88 from "
+        "before 14.58 (--pkg): #GP at vd_native's rep movsw in both legs. "
+        "330s is 301 measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/video.o88")),
     Row("pxmega", "soak", py("tests/pxmega.py"), 260.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.40: PiXEL USED on kern_mega with no "
         "#GP fixup - megatrap0 counts what a launch costs, and a decoder's "
