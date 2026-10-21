@@ -986,6 +986,13 @@ tor_cmp:
     mov bx,[cs:tor_start]
     mov ch,144
 .l:
+    mov al,144                          ; THE STRIP's lines (REALBOY-SPEC
+    sub al,ch                           ;   15.5.1): from the split's region,
+    cmp al,[cs:rb_tss]                  ;   row 0 on, unpanned
+    jne .l0
+    xor bx,bx
+    xor cl,cl
+.l0:
     mov ax,0004h                        ; plane 0's 20 bytes, then plane 1's
     out dx,ax
     mov si,bx

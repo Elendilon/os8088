@@ -42,11 +42,23 @@ CACHE2 = 0x70000                        # ...and CACHE2_SEG
 
 def labels(lst, section=None):
     """(offset, name) of every global label in a nasm listing - a label line
-    carries no address, so it takes the next one that emits a byte."""
+    carries no address, so it takes the next one that emits a byte. A label
+    a MACRO makes (`%1:` in its body, `PPU_LINE ppu_linep, 1, ...` the call)
+    is named by the call's first argument: without it every such routine's
+    samples went to the label before it - ppu_linep's to ppu_pal, the
+    sprites' to ppu_wplace."""
     out, pending = [], []
+    call = None
     for line in open(lst, errors="replace"):
         m = re.match(r"\s*\d+\s+([0-9A-F]{8})\s", line)
+        mc = re.match(r"\s*\d+\s+(?:<\d+>\s+)?([A-Z][A-Z0-9_]+)\s+([A-Za-z_][A-Za-z0-9_]*)\b", line)
+        if mc and not m:
+            call = mc.group(2)
         lab = re.search(r"^\s*\d+\s+(?:[0-9A-F]{8}\s+\S+\s+)?(?:<\d+>\s+)?([A-Za-z_][A-Za-z0-9_]*):", line)
+        if not lab and call and re.search(r"^\s*\d+\s+(?:<\d+>\s+)?%1:", line):
+            pending.append(call)
+            call = None
+            continue
         if lab and not m:
             pending.append(lab.group(1))
             continue

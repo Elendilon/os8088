@@ -1683,9 +1683,13 @@ of 15.3's reasons: the jitter was drawing into the page being shown, and the
   on every line (the Victory's PVGA1A, the field probe's finding:
   REALBOY-PLAN's scroll round), one that takes it at the frame's top (86Box)
   or at the retrace's end (QEMU). While a flip waits the core's run is
-  sized to end a millisecond short of the window (`rw_pgbud`, ~500 M-cycles
-  a millisecond, 250 when it is near, `RW_PGBUD`) and is not counted
-  against the frame's 26, and the composer
+  sized to END in the window, 2,800 counts before the retrace
+  (`RW_PGTGT`), at the rate the core has been running - its M-cycles in
+  256 counts, measured on those same runs (`rw_pgrun`, `[rw_pgrate]`) -
+  and between two of them the window is never spun to (`[rw_pgns]`): a run
+  that ends early is followed by a shorter one, and one that ends late
+  shows its frame a refresh later having spent nothing. Such a run is not
+  counted against the frame's 26, and the composer
   calls it too (`rb_lhook`: every eighth line `ppu_dputp` stores, and in
   `rb_tpage` now and then), so it is looked at often enough to land in
   its first border. From inside a draw it is `rw_pgtryd`, which writes the
@@ -1803,11 +1807,67 @@ and writes the cells the game changed.
   Victory's ~1 us (its fourth log) makes the bytes this saves worth less
   and the bookkeeping the same, so the field is the measurement that
   decides it.
-- **What would move Kirby's Dream Land**: a window that runs from WY to
-  the bottom unbroken could live in the split region, where the line
-  compare already shows it from address 0 unpanned - composed once, kept,
-  and never moved by a scroll (16 lines a scrolled frame composed,
-  restored and written today). Not built.
+- **What would move Kirby's Dream Land** was its status bar, the window
+  from WY to the bottom: 16 lines a scrolled frame composed, put back and
+  written again where the canvas had moved them. It is section 15.5.1.
+
+#### 15.5.1 The strip: a window at the bottom, under the split
+
+**A window that runs from WY to the screen's bottom, full width and
+unbroken, is shown from the split's region** - the line compare moved up
+to its first line, where the display starts again from address 0, unpanned
+(AR10's pixel panning mode), whatever the start address and the pel
+panning do above it (`rb_tss`; `ppu_tstrip`, `rb_tpage`'s phase 4,
+`rw_pgstrip`, `rw_pglcw`). It is a plain framebuffer there: its lines are
+composed at pan 0, written when they change and never moved, where on the
+canvas they were overlays every scrolled frame composed, put back and
+written. **It is found from the registers, for any game**: the frame's
+candidate is WY when the frame ends with the LCD, the background and the
+window on, WX at most 7 and WY 8-143, and nothing wrote LCDC, WY or WX on
+a line from WY - 1 on (the raster log); else none. That is the status bar
+at the bottom the period's games made with the window - Kirby's Dream
+Land's. A bar at the TOP cannot have it: the card restarts at address 0
+only below a split, and takes a start address only at the retrace.
+
+- **On and off.** A strip goes OFF the frame its candidate leaves it - its
+  lines are the canvas's overlays again, stale so they are composed at the
+  pan - and ON only when one has held 4 frames (`RB_TSWAIT`), every line
+  of it then composed and written (`[rb_tsall]`). A strip line is never an
+  overlay, its scroll is not its picture (`ppu_sldirty` judges it with its
+  record's SCY and SCX), and it is not shifted by the pan (`ppu_ptype`).
+- **One region for three pages.** The page records the strip it was drawn
+  with (`[rw_pgss]`) and the flip writes the line compare, scanline
+  2S - 1, with the start address (`rw_pglcw`; bit 8 is CR07's bit 4, which
+  CR11's lock leaves writable). The region's rows are written when the page
+  is drawn, so a changed digit shows up to two frames before the playfield
+  it belongs to - a status bar's numbers - and a strip turning on or off
+  shows the region's new layout under the old page for as long. The region
+  is laid out by the host (`rb_shook`): the strip's rows 0 to H - 1 (H =
+  144 - S) clear for rb_tpage, the speed line's ground and text on the ten
+  rows under them (`[rw_fstxto]` moves with it).
+- **What it bought**, on `286-victory` playing the same replay (10.5) of
+  Kirby's Dream Land in full screen: **9.73 frames drawn a second against
+  8.70-9.03** before, 217 draws to 194-205, the play in step; Super Mario
+  Land, which has no strip, is unchanged at 36.65. The gate's canvas leg
+  (MODE 19) reads a strip's lines back from the region: 0 of 500 differ for
+  all three games, and the region written a row low fails Kirby's Dream
+  Land on 358 of 500.
+
+#### 15.5.2 Running ahead of the beam: measured, and not built
+
+The flip's wait was the field's suspect: the fourth log had the Game Boy
+~40 ms a second dearer than the build before pages, and the obvious answer
+was to run the core during the 1.5 ms the foreground spun for the beam, or
+further ahead. Measured on `286-victory` playing a replay, with the time
+split by instrument: **Kirby's Dream Land spun 0.1% of the machine and Super
+Mario Land 3%**, and the profiler (`rbwin.profile`) puts ~60% of Super Mario
+Land's machine in drawing and ~33% in the game, where Kirby's Dream Land's
+is ~71% the core and the recompiler. Both builds were tried: the runs sized
+to the window by a measured rate (15.4, kept, for the spin it removes) and
+the next frame run ahead of the clock while a flip waits, up to two
+(`RW_PGAHEAD`) - **36.75 and 8.70 frames a second against 36.65-36.99 and
+8.70-9.03**, inside 86Box's run-to-run spread, so the second was taken out.
+The machine was not waiting; it was drawing.
 
 ## 16. The recompiler
 
