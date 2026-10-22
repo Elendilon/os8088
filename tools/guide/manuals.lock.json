@@ -848,9 +848,9 @@
   "sources": [
    "apps/realdmg"
   ],
-  "stamped": "39c7a569",
-  "strings": "2d1c1c0aa89dcd91",
-  "why": "Screen menu (Interlace moved from Machine; Two Shades F10, Scroll by 8 F11, kept per game); F1-F12 reserved; Screen menu shot added to the capture list"
+  "stamped": "5bf99cd1",
+  "strings": "e42e6324ba1e2d73",
+  "why": "the recompiler on every CPU (53c8af2): the 286+ items and the 8088's Interpreter-only text gone, the CPU shot's caption with them; merged with the Screen menu"
  },
  "REDLINE_O88": {
   "sources": [

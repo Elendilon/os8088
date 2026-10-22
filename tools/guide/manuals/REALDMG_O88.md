@@ -162,11 +162,11 @@ of a Game Boy's speed. The time the game does not use goes to the picture,
 so a game too slow for its machine is smoother a little slower. RealDMG
 remembers the Speed for each game.
 
-**The recompiler.** On a 286 or later, RealDMG can translate the game's
-program into the PC's own instructions, which runs it much faster. The CPU
-menu has three ways to run a game, and `F3` steps through them:
+**The recompiler.** RealDMG can translate the game's program into the PC's
+own instructions, which runs it about twice as fast, on an 8088 as on a 286.
+The CPU menu has three ways to run a game, and `F3` steps through them:
 
-- **Recompiler** translates the game as it runs. It is the setting a 286
+- **Recompiler** translates the game as it runs. It is the setting RealDMG
   starts with. A game may slow for a moment while new parts of it are
   translated.
 - **Static Recompiler** translates the game before it runs, and never again,
@@ -174,12 +174,8 @@ menu has three ways to run a game, and `F3` steps through them:
   `NAME.RDP` beside it. To make one, play the game first with **Recompiler**
   chosen and **CPU > Profile for Static** turned on. Choosing Static turns
   Profile for Static on and reads the profile.
-- **Interpreter** does no translating. It is the only way on an 8088, and on
-  a 286 it gives the recompiler's memory back to the system.
-
-On an 8088 the recompiler's items read **Recompiler (286+)**, **Static
-(286+)**, **Profile (286+)** and **Cache (286+)** and are greyed, and `F3`
-does nothing.
+- **Interpreter** does no translating, and gives the recompiler's memory
+  back to the system.
 
 **CPU > Cache: 128K** gives the recompiler 64K more room for the code it
 translates, which helps a big game that otherwise slows while its code is
@@ -290,12 +286,12 @@ the same as the item.
 
 ## The CPU menu
 
-![The CPU menu on an 8088, where only the Interpreter can be chosen.](shot:realdmg-cpu){right}
+![The CPU menu.](shot:realdmg-cpu){right}
 
 | Item | Key | What it does |
 |---|---|---|
-| Recompiler | `F3` | Translate the game as it runs. Needs a 286 or later |
-| Static Recompiler | `F3` | Translate the game before it runs, from its profile. Needs a 286 or later |
+| Recompiler | `F3` | Translate the game as it runs |
+| Static Recompiler | `F3` | Translate the game before it runs, from its profile |
 | Interpreter | `F3` | Run the game without translating |
 | Profile for Static | | Keep what the Recompiler translated as `NAME.RDP`, for the Static Recompiler. Off as RealDMG comes |
 | Cache: 128K | | Give the recompiler 64K more room |
@@ -360,8 +356,8 @@ that is not write-protected and has some room.
   to keep it in.
 - **REALDMG: no room for ROM** or **no room for RAM** means the system does
   not have the memory free. Close other programs, or choose CPU >
-  Interpreter on a 286 to give the recompiler's memory back, and load the
-  game again.
+  Interpreter to give the recompiler's memory back, and load the game
+  again.
 - If a game stops on an instruction a Game Boy does not have, the window
   says **The game stopped: an invalid opcode**. Machine > Reset starts it
   again.
