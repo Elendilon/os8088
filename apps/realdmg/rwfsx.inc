@@ -87,7 +87,17 @@ rw_mgrey:
     shl bx, 1
     mov si, [rw_ilit + bx]
     inc si
-    mov [rw_i_mach + 2 * RW_MIL], si
+    mov [rw_i_scr + 2 * RW_SIL], si ; SCREEN: Interlace says what it is,
+%ifdef RDG_LOSSY                    ;   Two Shades and Scroll by 8 marked
+    mov al, [rdg_lossy]
+    and al, RDG_LBW
+    mov si, rw_it_bw
+    call rw_mark
+    mov al, [rdg_lossy]
+    and al, RDG_LCOARSE
+    mov si, rw_it_co
+    call rw_mark
+%endif
     ; CPU: the three modes marked by the one chosen - the recompiler's two
     ; greyed on an 8088, Interpreter its mode - and Profile for Static and
     ; the cache likewise; the speed chosen marked

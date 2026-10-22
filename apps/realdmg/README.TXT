@@ -35,14 +35,13 @@ Z           B
 Enter       Start
 Space       Select
 F1          the speed line (Machine > Show Stats)
-F2          Machine > Interlace's next setting
+F2          Screen > Interlace's next setting
 F3          the next of CPU > Recompiler, Static Recompiler and
             Interpreter
 F4          CPU > Speed's next setting
 F9          Machine > Sound's next setting
-F10         two shades, on or off: black and white only, for speed
-F11         scroll by 8, on or off: the picture moves in 8-pixel
-            steps, for speed (both are on trial: not kept)
+F10         Screen > Two Shades, on or off
+F11         Screen > Scroll by 8, on or off
 1 to 9      the save state slot
 F5          save the game's state in that slot
 F8          load it back
@@ -94,13 +93,6 @@ Machine > Sound          On, At 100% only, or Off (F9). A slowed game
                          plays its tune slower too; At 100% only is
                          silent below full speed
 Machine > Show Stats     the speed line (F1)
-Machine > Interlace      Off, On, Scrolling or Doubled (F2): less to draw
-                         when the picture moves. On draws half the
-                         lines each time; Scrolling only while it
-                         scrolls; Doubled while it scrolls draws the
-                         even lines and repeats each one below it,
-                         without the comb Scrolling leaves on a
-                         moving edge (the status bar stays whole)
 Machine > Log            a record a second, to a file (F12 writes it now)
 Machine > Controls...    which key is which button: click a button on
                          the Game Boy drawn there, then press its key.
@@ -108,6 +100,21 @@ Machine > Controls...    which key is which button: click a button on
                          it; Esc, Alt, F1 to F12 and 1 to 9 are
                          RealDMG's own.
                          Default puts them back. Kept for every game
+
+Screen > Interlace       Off, On, Scrolling or Doubled (F2): less to draw
+                         when the picture moves. On draws half the
+                         lines each time; Scrolling only while it
+                         scrolls; Doubled while it scrolls draws the
+                         even lines and repeats each one below it,
+                         without the comb Scrolling leaves on a
+                         moving edge (the status bar stays whole)
+Screen > Two Shades      black and white only (F10): the light greys
+                         white and the dark ones black, for ~10% more
+                         speed. Kept for each game
+Screen > Scroll by 8     the picture moves in steps of 8 pixels (F11),
+                         for ~25% more speed while it scrolls. Some
+                         games are harder to play this way. Kept for
+                         each game
 
 CPU > Recompiler         translates the game as it runs (a 286 or
                          later; F3 steps through the three)

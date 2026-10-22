@@ -1167,45 +1167,56 @@ reference sharing `ppu_line` and the sprites with what it checks.
   cache gives up (256 bytes).
 
 
-### 13.4 The lossy picture: F10 and F11, on trial
+### 13.4 The lossy picture: Two Shades and Scroll by 8
 
-**Two things the picture may leave out, for speed, each turned on and off
-by a key and kept by nothing** (no menu item and no REALDMG.CFG field: the
-owner tries them first). `rdg_lossy` in `rdgppu.inc` holds them, `RDG_LBW`
-and `RDG_LCOARSE`; the code is assembled under `RDG_LOSSY`, which the
-package defines and the bare harness only with `LOSSY_BW` or
-`LOSSY_COARSE` (docs/reports/REALDMG-LOSSY-2026-10-22.md). Either key says
-its new state (`rw_lossyt`) and the next draw is whole.
+**Two things the picture may leave out, for speed: Screen > Two Shades
+(F10) and Screen > Scroll by 8 (F11)**, each kept for the game in
+REALDMG.CFG with its Speed and Sound (15.2). `rdg_lossy` in `rdgppu.inc`
+holds them, `RDG_LBW` and `RDG_LCOARSE`; the code is assembled under
+`RDG_LOSSY`, which the package defines and the bare harness only with
+`LOSSY_BW` or `LOSSY_COARSE` (docs/reports/REALDMG-LOSSY-2026-10-22.md).
+Either says its new state (`rw_lossyt`) and the next draw is whole.
 
-- **F10, TWO SHADES**: shade bit 1 alone - shades 0 and 1 white, 2 and 3
-  black. On a line whose BGP is the identity the background fetches and
-  shifts its tile rows' high plane alone (`ppu_fshifth`, `ppu_fcopybh`,
-  chosen by `ppu_pal` through `rdg_fshp` and `rdg_fcbp` with `rdg_bwl`, so
-  no line tests a flag); another BGP composes as ever and skips the low
-  plane's palette pass. `ppu_dput` compares bit 1 alone and writes it as
-  both planes - VGA's full screen in one pass with the map mask at 3
+- **Off costs nothing - not a test.** Every place the two change is a
+  `..@lk_*` site in the composer holding its ORIGINAL instruction, and
+  `rdg_lpatch` writes a CALL or JMP of the same length over it (NOPs
+  after) into a stub at the end of `rdgppu.inc` when one is turned on, and
+  the original back - kept at its first call - when it is turned off; the
+  stub does the instruction it replaced. `rdg_lhooks` is the twelve. So
+  with both off the composer runs its own bytes, and the module after it
+  and `rdg_init`'s call to `rdg_lpatch` are padded to 16 so nothing after
+  them moves within its paragraph: on `286-victory`, 4,800 frames of Super
+  Mario Land read 1,172 ticks as shipped and 1,171 with the code in.
+  Testing a flag a line at a time had cost +3.2%, and through two pointers
+  +1.5%.
+- **Patching is the code's own**, so it runs where no task is inside the
+  composer: `rdg_init`, a game's load (`rw_spdgame`, before the worker is
+  hired), F10 and F11 in `rw_keys` between frames, and the worker's loop
+  for Screen's items, which the UI task only posts (`rw_lossq`) while a
+  game runs.
+- **TWO SHADES**: shade bit 1 alone - shades 0 and 1 white, 2 and 3 black.
+  On a line whose BGP is the identity the background fetches and shifts its
+  tile rows' high plane alone (`ppu_fshifth`, `ppu_fcopybh`); another BGP
+  composes as ever. `ppu_dput` compares bit 1 alone and writes it as both
+  planes - VGA's full screen in one pass with the map mask at 3
   (`ppu_dvgabw`), keeping only plane 1 in the buffer: `rdg_bwst` then makes
   the next draw that reads the buffer (the window's, the 1bpp writers')
   whole. `rdg_render` writes bit 1 as both.
-- **F11, SCROLL BY 8**: SCX is snapped to a multiple of 8 and the rest
-  added to every sprite's X (`ppu_sprites`, `rdg_csd`), so the picture
-  stays together and the camera moves in 8-pixel steps. A raster write's
-  SCX is logged snapped with the rest in the log entry's fourth byte
-  (`rdg_rlog`), which `ppu_logsame` then does not compare - a status
-  bar's split stays the same log every frame - and `ppu_log` takes it at
-  the entry's line. When the frame's set of fine scrolls changes
-  (`rdg_csig`) every sprite has moved: OAM's shadow is made to differ in X
-  so the scan marks their lines. SCY is not snapped. The camera stepping
-  turns seven scrolled frames in eight into still frames, and every
-  background line takes `ppu_fcopyb`.
-- **What they buy**, drawing every frame on `286-victory` (`rdgbench --vga`):
-  Super Mario Land 18.40 ms a frame as shipped, 16.61 with two shades,
-  13.87 scrolling by 8, 13.18 both; Kirby's Dream Land 38.86, 35.38, 30.30,
-  29.02.
-- **What they cost off**: the package assembles them always, and with both
-  off a frame reads 18.67 / 39.36 ms (+1.5% / +1.3%) - the pointer calls,
-  `ppu_dput`'s test and `ppu_sprites`' per sprite. Taking them out of
-  that path is the work if they are kept.
+- **SCROLL BY 8**: SCX is snapped to a multiple of 8 and the rest added to
+  every sprite's X (`rdg_csd`), so the picture stays together and the
+  camera moves in 8-pixel steps. A raster write's SCX is logged snapped,
+  the rest in the log entry's fourth byte (`rdg_rlog`), which
+  `ppu_logsame` then does not compare - a status bar's split stays the
+  same log every frame - and `ppu_log` takes it at the entry's line. When
+  the frame's set of fine scrolls changes (`rdg_csig`) every sprite has
+  moved: OAM's shadow is made to differ in X so the scan marks their
+  lines. SCY is not snapped. Seven scrolled frames in eight become still
+  frames, and every background line takes `ppu_fcopyb`. Some games are
+  harder to play: the owner's verdict, and why it is a choice.
+- **What they buy**, drawing every frame on `286-victory` (`rdgbench
+  --vga`): Super Mario Land 18.40 ms a frame, 16.57 with Two Shades, 13.82
+  with Scroll by 8, 13.23 both; Kirby's Dream Land 38.86, 35.20, 30.16,
+  29.11.
 
 ## 14. The package
 
@@ -1469,10 +1480,12 @@ file off the floppy as the guest left it, and Default.
 
 ### 14.3 The menus
 
-Three on the bar, none over 11 items - a pull-down taller than that runs
+Four on the bar, none over 11 items - a pull-down taller than that runs
 off CGA's 200 lines, and the kernel does not clamp one (`menu_pull`):
 - **Machine:** Load Game..., Reset, Pause, Full Screen (Alt+Enter) | Sound
-  (F9), Show Stats (F1), Interlace (F2), Log (F12) | Controls...
+  (F9), Show Stats (F1), Log (F12) | Controls...
+- **Screen:** Interlace (F2) | Two Shades (F10), Scroll by 8 (F11) - what
+  the picture may leave out for speed (13.2, 13.4).
 - **CPU:** Recompiler, Static Recompiler, Interpreter (F3 steps through
   them, 16.7) | Profile for Static, Cache: 128K | Speed 100%, 90%, 75%, 50%
   (F4 steps through them).
@@ -1500,7 +1513,7 @@ chosen and a space on the others, written by `rw_mgrey` (`rw_mark`,
 Interlace - names its value instead. A separator is a greyed line of
 dashes, which the kernel's keyboard walk steps over. `rw_note` says an item
 without its mark or key (a toast, or the speed line in full screen): F2,
-F3, F4 and F9 say what they changed to.
+F3, F4, F9, F10 and F11 say what they changed to.
 
 ### 14.3.1 The window says it is slow
 
@@ -1655,7 +1668,8 @@ Speed's next, in the window and full screen alike, and says it
 - **Both are the game's**, remembered in REALDMG.CFG version 2: a count at
   +4 and, from +8, `RW_CFGGN` (32) entries of four bytes, the latest first
   - the header's 014Dh byte and 014Eh word (as a profile's name takes
-  them), then Speed in bits 0-2 and Sound in 3-4 (`rw_cfgrec`). A game
+  them), then Speed in bits 0-2, Sound in 3-4 and Screen's Two Shades and Scroll by
+  8 in 5 and 6 (`rw_cfgrec`; a RealDMG from before them masks them off). A game
   opened (`rw_spdgame`) takes its entry; one with none keeps what was
   chosen before it, kept for it at its first change. The menu writes the
   file at once; F4's change is the UI task's to write (`[rw_spdq]`,

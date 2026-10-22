@@ -210,6 +210,28 @@ the harness's new placement alone reads 402): `ppu_pal` now chooses the
 background's routines through two pointers, and VGA's writer has a twin
 `ppu_dput` calls, which took it to +1.5%.
 
+### 5.1 Kept, on the Screen menu, and off for nothing
+
+The owner kept both (Scroll by 8 "makes some games hard to play, but it's
+a user selectable option"): Screen > Two Shades and Scroll by 8, beside
+Interlace, remembered per game in REALDMG.CFG - and the off path "needs to
+be as fast as before". It is now the composer's own bytes: each of twelve
+sites holds its original instruction and `rdg_lpatch` writes a same-length
+CALL or JMP into a stub only while one is on (REALDMG-SPEC 13.4). Drawing
+every frame on `286-victory`:
+
+| ms a frame | Super Mario Land | Kirby's Dream Land |
+|---|---|---|
+| as shipped | 18.40 | 38.86 |
+| the code in, both off | 18.45 (403 ticks; 1,171 against 1,172 over 4,800 frames) | 38.86 |
+| Two Shades | 16.57 (-9.9%) | 35.20 (-9.4%) |
+| Scroll by 8 | 13.82 (-24.9%) | 30.16 (-22.4%) |
+| both | 13.23 (-28.1%) | 29.11 (-25.1%) |
+
+The one tick at 1,200 frames is the tick's phase: the larger harness loads
+1.5KB more before the timed span, and over four times the frames the two
+read a tick apart the other way.
+
 ## 6. Re-taking it
 
 ```

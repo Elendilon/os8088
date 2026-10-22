@@ -54,6 +54,12 @@ rdg_bmiss        dw 0
 ; rdg_init - AX = view, BX = core, CX = ROM image, DX = 16KB banks in it
 ; =============================================================================
 rdg_init:
+%ifdef RDG_LOSSY
+    call rdg_lpatch                      ; (the lossy picture's hooks as
+    jmp short .lp                       ;   rdg_lossy says, REALDMG-SPEC 13.4:
+    times 11 db 0                       ;   16 bytes, so every routine after
+.lp:                                    ;   it is on the 16 it had)
+%endif
     push ax
     push bx
     push cx
@@ -1654,20 +1660,9 @@ rdg_rlog:
     shl ax,1
     shl ax,1
     mov si,ax
-%ifdef RDG_LOSSY
-    mov byte [RDG_RLOG+si+3],0           ; THE CAMERA IN STEPS OF 8 (rdg_lossy,
-    test byte [cs:rdg_lossy],RDG_LCOARSE ;   REALDMG-SPEC 13.4): SCX logged
-    jz .cv                              ;   snapped, the rest in the entry's
-    cmp ch,43h                          ;   spare byte for the sprites
-    jne .cv
-    mov al,cl
-    and al,7
-    mov [RDG_RLOG+si+3],al
-    and cl,0F8h
-.cv:
-%endif
     mov [RDG_RLOG+si],dl                 ; line
     mov [RDG_RLOG+si+1],ch               ; register
+..@lk_rlog:
     mov [RDG_RLOG+si+2],cl               ; value
 .done:
     pop si
