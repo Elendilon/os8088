@@ -1467,13 +1467,13 @@ menu_bput:
 ; -----------------------------------------------------------------------------
 menu_clkcells:
     mov ax, [vid_wm8]
-    sub ax, [vid_clk_hx]
 %ifdef OS88_SNDCARD
     test word [drv_svc+DSV_CAPS], SND_CAP_MIXER
     jz .plain
-    sub ax, 24
+    mov ax, [menu_mixx]         ; the speaker ends the field (SPEC.md 34.15)
 .plain:
 %endif
+    sub ax, [vid_clk_hx]
     mov cl, 3
     shr ax, cl
     cmp ax, MENU_CLKC - 1
@@ -1598,7 +1598,7 @@ menu_draw_clock:
                                 ; DH <= the field's 25 cells, so `cbw` is a zero
                                 ; extension; AX is reloaded on both paths below
     mov dx, MENU_TEXT_Y
-    mov cx, [menu_clkx]
+    mov cx, [vid_clk_hx]
     mov si, menu_clkbuf
     or di, di
     jnz .strip
@@ -1661,7 +1661,7 @@ menu_draw_clock:
     mov ax, di                  ; --- and the clock the strip did not reach
     mov cl, 3
     shl ax, cl
-    add ax, [menu_clkx]
+    add ax, [vid_clk_hx]
     mov cx, ax
     mov si, menu_clkbuf
     add si, di
@@ -2894,8 +2894,12 @@ menu_abstr: resb MENU_ABPFX_LEN + MENU_MAXCH + 1
 section .text
 
 %ifdef OS88_SNDCARD
-; Independent fourth segment inside the clock's old field. The driver owns
-; the picture. No idle port reads or icon blits; capability/overwrite only.
+; The speaker is the RIGHT end of the clock's field, and the clock is
+; right-aligned against it (SPEC.md 34.15). The menus' boundary stays where
+; it is with no speaker, so the gap a toast tries first is unchanged; it
+; moves left only by the cells a clock line, or a toast that missed the gap,
+; needs past the 22 left of the speaker. The driver owns the picture: no idle
+; port reads or icon blits, only a capability, geometry or need change.
 menu_sound:
     push ax
     push bx
@@ -2907,39 +2911,55 @@ menu_sound:
     push es
     mov ax, [vid_pw]
     sub ax, 8 + MENU_CLK_W + 6
-    and ax, 0FFF8h             ; original clock field, from live geometry
-    mov [menu_clkx], ax
+    and ax, 0FFF8h             ; the clock's field with no speaker
     mov dx, [drv_svc+DSV_CAPS]
     and dx, SND_CAP_MIXER
     jz .origin
-    sub ax, 24                 ; reserve the icon LEFT of the full clock field
+    add ax, MENU_CLK_W - 16    ; the speaker: the field's last 24 pixels.
+    mov [menu_mixx], ax         ; Through AX and back, one byte under BX's
+    sub ax, MENU_CLK_W - 16    ; imm16 form, and an EVEN routine (t_hotpar)
+    call clk_fmt                ; CX = the clock's glyphs, 18..24
+    cmp byte [toast_on], 0
+    je .need
+    cmp word [toast_scn], 0     ; ...or a toast that missed the gap, which
+    jne .need                   ; gets the whole field it had before: its
+    mov cl, TOAST_MAX + 1       ; widest strip, and CH is already 0
+.need:
+    sub cx, (MENU_CLK_W - 16) / 8
+    jbe .origin
+.wide:
+    sub ax, 8                   ; one cell of the menus' per glyph past 22
+    loop .wide
 .origin:
     cmp ax, [vid_clk_hx]
     jne .changed
     cmp dx, [menu_mixcap]
     je .out
 .changed:
-    mov [vid_clk_hx], ax
+    xchg ax, [vid_clk_hx]
+    mov cx, [vid_pw]            ; forget the cells from the OLD edge on: a
+    call menu_inval             ; segment growing back takes cells the clock
+                                ; drew and its record never saw
+    or dx, dx
+    jnz .store
     cmp word [menu_mixcap], SND_CAP_MIXER
     jne .store
-    call thm_bg                 ; erase the old picture before menus reuse it
-    mov ax, [menu_mixx]
+    call thm_bg                 ; the speaker went: erase its whole picture,
+    mov ax, [menu_mixx]         ; the clock repaints only its text band
     mov cx, ax
     add cx, 23
     mov bx, 2
-    push dx
     mov dx, 17
     call gfx_fill
-    pop dx
+    xor dx, dx
 .store:
     mov [menu_mixcap], dx
-    mov word [menu_ckck], 0
+    mov word [menu_ckck], 0     ; the field moved or narrowed: repaint it
     call menu_relayout          ; bounded at the new right-hand hit band
     call menu_bar_text          ; compose only the changed menu cells
-    test word [menu_mixcap], SND_CAP_MIXER
+    or dx, dx                   ; ...both preserve DX, the new capability
     jz .out
-    mov cx, [vid_clk_hx]
-    mov [menu_mixx], cx
+    mov cx, [menu_mixx]
     mov bx, DRVC_SOUND*256 + SNDV_MIXICON ; SNDV_MIXICON (SPEC.md 34.15)
     push ds
     pop es
@@ -2956,8 +2976,5 @@ menu_sound:
     ret
 menu_mixcap: dw 0FFFFh
 menu_mixx:   dw 0
-menu_clkx:   dw 0
-%else
-menu_clkx equ vid_clk_hx
 %endif
 section .text

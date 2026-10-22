@@ -46,7 +46,7 @@ class Session:
         self.seg=ui._word('drv_fseg')
         origin=os88sym.equates()['DRV_HMA_ORG'] if self.seg>=0xF000 else 0
         self.d=Pkg(self.m,self.seg+origin//16,os88drvsym.symbols('sound.bin'))
-        self.hx=ui._word('vid_clk_hx')
+        self.hx=ui._word('menu_mixx')     # the speaker: the clock's right end
 
     def wait(self,cond,why):
         if self.qemu:
@@ -124,9 +124,12 @@ class Session:
 def session(ui,adapter):
     s=Session(ui,adapter);d=s.d
     check(s.seg and d.rb('mix_kind')>0,'readable mixer publishes the speaker')
-    check(ui._word('menu_clkx')==s.hx+24,'speaker reserves exactly three clock cells')
-    check((ui._word('vid_pw')-8-ui._word('menu_clkx'))//8>=25,
-          'speaker preserves the full clock and maximum toast field')
+    pw=ui._word('vid_pw')
+    check(s.hx==pw-32,'speaker sits right of the clock, at the bar margin')
+    check(ui._word('vid_clk_hx')==(pw-206)&0xFFF8,
+          'speaker leaves the menus segment as it is without one')
+    check((s.hx-ui._word('vid_clk_hx'))//8>=22,
+          'the default clock keeps its whole line left of the speaker')
     check(not s.owned(),'idle mixer holds no scratch claim')
     s.mo.to(80,150);s.pace(.3);s.icon()
     x=s.open()
@@ -210,7 +213,8 @@ def absent():
         s.close();check(not s.owned(),'optional-package absence leaves no claim')
     with os88ui.boot('build/os8088-360.img',machine='os8088_5150_cga_gla',verbose=False) as ui:
         check(ui._word('menu_mixcap')==0,'no mixer leaves the speaker absent')
-        check(ui._word('menu_clkx')==ui._word('vid_clk_hx'),'no mixer restores full clock width')
+        check(ui._word('vid_clk_hx')==(ui._word('vid_pw')-206)&0xFFF8,
+              'no mixer keeps the full clock field')
 
 
 def background(ui):
