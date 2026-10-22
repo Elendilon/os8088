@@ -127,7 +127,7 @@ hf_fetch:
     mov word [hf_left+2], 0
     call hf_body
     jc .free
-    call hf_close
+    call hf_done
     mov es, [hf_tseg]
     call hf_valid
     mov ax, HFE_INDEX
@@ -810,7 +810,7 @@ hf_read:
     mov byte [hf_prog], 1       ; the bar is ours to step (SPEC.md 12.8.1)
     call hf_body
     jc .io
-    call hf_close
+    call hf_done
     mov ax, [hf_fsize]
     mov dx, [hf_fsize+2]
     clc
@@ -924,8 +924,14 @@ hf_readat:
     mov byte [hf_prog], 0       ; the copy engine steps its own bar
     call hf_body
     jc .io
-    call hf_abort               ; a 200's tail is not wanted, and a 206 has
-    mov ax, [hf_rn]             ; none left: either way the handle goes now
+    cmp word [hf_status], 206   ; a 206 was read whole and may be kept; a
+    jne .tail                   ; 200's unread tail means the handle goes
+    call hf_done
+    jmp short .kept
+.tail:
+    call hf_abort
+.kept:
+    mov ax, [hf_rn]
 .eof0:
     xor dx, dx
     clc

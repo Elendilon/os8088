@@ -121679,6 +121679,24 @@ already sitting through a floppy read, and it spins the pump for `DHCP_WAIT`
 (110 ticks) and gives up — rather than making every later call carry a "not
 configured yet" state nothing would poll.
 
+#### 72.5.1 One name, remembered
+
+**`NETV_OPEN` resolved a name on every connection**, so a program that
+reconnects to one host - the HTTP drive's GET per file (§120), The Wire's
+per picture (§92) - paid a whole DNS exchange before every handshake.
+`dns_cached` keeps **one** entry, the last name answered and its address,
+filled by `dns_in` and asked by `NETV_OPEN` after `ip_parse` and before the
+socket waits on the resolver. `dhcp_start` empties it, so a new lease - and
+the page's Renew - re-resolves everything; a name whose address moves inside
+one lease is the case it does not cover.
+
+**Cost: no kernel byte.** `ETHER.DRV` 16,986 -> 17,120 bytes of image (+134,
+of which 68 are the entry), 11,226 -> 11,280 on the floppy, its claim's
+17 KB unmoved. `inet`/`tcp`/`dns.inc` are shared with the DOS end of the
+cable, so `OS88NET.COM` carries it too. `tests/httpmount.py --name` is the
+gate (soak `httpmountname`): QEMU's slirp pointed at a stub resolver, and
+the resolver asked **once** for six connections - six without the cache.
+
 ### 72.6 The page says which half is missing
 
 `drivers/ether/etherui.inc`, and it is the **fifth** driver row — which is why
@@ -204800,6 +204818,32 @@ composed in the same buffer before it is sent. The socket verbs are reached
 through `apps/os88sock.inc`'s `net_find`, the card first, so nothing in the
 driver knows which transport answered.
 
+#### 120.2.1 The connection is KEPT between GETs
+
+A launch is two GETs back to back (the loader's 512-byte header peek, then
+the image) and so is a read of a packed file (the sniff, then the read),
+and each was a handshake and a close. So the request says
+`Connection: keep-alive` - on **HTTP/1.0**, which forbids a chunked reply
+this driver does not decode - and a reply read **whole** leaves its socket
+open (`[hf_live]`) when the server agreed: `Connection: keep-alive`, or an
+HTTP/1.1 status line without `Connection: close`, and a `Content-Length`
+either way. The next GET reuses it when it is still `NSK_UP` with nothing
+unread on it, and otherwise drops it and opens a fresh one, which is all a
+server's idle close costs. One dying under the request before a byte of
+the reply - the race with that idle close - is retried once on a fresh
+connection; the request is still in `hf_rbuf`, nothing having been received.
+
+A 200 answering a read-at has an unread tail and is never kept; Mount,
+Unmount and detach drop a kept connection, so a re-pointed drive never
+sends its next GET to the old server. **What it holds is one of
+`ETHER.DRV`'s socket slots while the drive is idle**, until the server
+closes it (`os88httpdrv.py serve` does after 15 seconds).
+
+Cost: `HTTPFS.DRV` +225 bytes of image. Measured on the gate: a launch and
+a copy each one connection for their two GETs, and the whole run 10
+requests over 6 connections against a server that closes an idle one after
+3 seconds; sending `Connection: close` instead turns both checks red.
+
 ### 120.3 The index — `OS88.IDX`
 
 HTTP has no directory listing, so the server carries one, at the prefix:
@@ -204903,7 +204947,7 @@ Measured at one build number against the tree before it:
 | | `kern_big` | `kern_small` |
 |---|---|---|
 | resident | **81 bytes**: `.text` +43 - `drv_tab`'s row (16), its two strings (22), `drv_fptr10`'s pair (4), `drv_svcix`'s byte (1) - and `.bss` +38, `drv_owner`'s word and the class's 36-byte service-table copy. `DRVC_CD`'s shape (§119.5), five bytes of longer name over it. No rung crossed (the image rung 409 -> 316 left). `.boot2` +1, `drv_cfgbit`'s byte, is not resident | 0 - byte-identical |
-| `HTTPFS.DRV` | **7,702 bytes of image, an 8 KB claim while attached; 5,442 on the floppy**, LZ4. The 1 KB reader is most of its bss | none |
+| `HTTPFS.DRV` | **7,927 bytes of image, an 8 KB claim while attached; 5,640 on the floppy**, LZ4 - 7,702 / 5,442 before §120.2.1. The 1 KB reader is most of its bss | none |
 | while mounted | the index's claim: `ceil((16 + 18 x records) / 1024)` KB - **2 KB for a system disk's 70 records**, 16 KB at `HF_MAXREC` | none |
 
 **On every `kern_big` system disk, the 360 KB one included**: §24.3.1.6
@@ -204942,9 +204986,10 @@ unpacked text. Taking the 200 arm's offset skip out turns leg 6 red at byte
 
 ### 120.8 Not done
 
-- **Keep-alive, and a resolved address kept**: each GET is a lookup, a
-  handshake, the request and a close, and on the XT the round trips and not
-  the bytes are the cost (`docs/plans/HTTP-MOUNT-PLAN.md` section 6).
+- **A head cache for small files**: the loader's peek and the sniff each
+  precede a whole read with a small one, a second GET that a cached first
+  kilobyte would spare for files under a kilobyte. Refused for now: with the
+  connection kept (§120.2.1) that GET is one round trip, not a handshake.
 - **One drive per driver.**
 - **A 360 KB system disk with room for it.**
 - **An upgrade path that mounts a release by itself** - the door is built

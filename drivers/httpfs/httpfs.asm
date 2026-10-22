@@ -150,6 +150,7 @@ hf_detach:
 ;           index goes, so the next open fetches the new address's
 ; -----------------------------------------------------------------------------
 hf_vadd:
+    call hf_abort               ; a KEPT connection is to the OLD address
     call hf_drop_idx
     mov byte [hf_failed], 0
     cmp byte [hf_vol], 0xFF
@@ -177,6 +178,7 @@ hf_vadd:
 
 ; --- hf_unmount - the volume and the index back. keeps every register ------
 hf_unmount:
+    call hf_abort               ; ...and holds a socket slot of ETHER.DRV's
     push ax
     call hf_drop_idx
     mov al, 0xFF
@@ -353,6 +355,10 @@ hf_pfx:     times HF_PFXMAX db 0
 hf_path:    times HF_PATHMAX db 0
 hf_lbuf:    times HF_LINEMAX db 0
 hf_sock:    db 0                ; the socket handle, 0 = none
+hf_live:    db 0                ; 1 = it is KEPT, idle, for the next GET
+hf_kept:    db 0                ; 1 = this GET rides a kept connection
+hf_keep:    db 0                ; 1 = this reply's server agreed to keep it
+hf_reqn:    dw 0                ; the request's length, for a resend
 hf_tbase:   dw 0                ; the idle bound's start tick
 hf_rpos:    dw 0                ; the reader: next byte...
 hf_rlen:    dw 0                ; ...and bytes staged

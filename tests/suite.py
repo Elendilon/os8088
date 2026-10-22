@@ -2439,6 +2439,15 @@ SOAK = [
         "child, a lower-case name), and the test server's Range: answered 206 "
         "and, with --no-range, ignored with a 200",
         needs=()),
+    Row("httpmountname", "soak", py("tests/httpmount.py", "--name"), 110.0,
+        "SPEC.md 72.5.1 and 120: the httpmount legs with the address BY NAME "
+        "(http://localhost:8095/fix/), QEMU's slirp pointed at a stub resolver "
+        "through a private /etc/resolv.conf: ETHER.DRV's name cache holds the "
+        "name after the open, and the resolver is asked ONCE for six "
+        "connections. Red (six lookups) with dns_cached's answer ignored",
+        needs=("qemu", "nasm"), serial=True, timeout=600,
+        wants=("build/httpmount.img", "build/httpfs.bin", "build/ether.bin",
+               "build/mines.o88")),
     Row("httpmount", "soak", py("tests/httpmount.py"), 105.0,
         "SPEC.md 120: HTTPFS.DRV on QEMU's NE2000, against tools/"
         "os88httpdrv.py's own server serving a fixture tree on the host. The "

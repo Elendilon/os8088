@@ -55,7 +55,9 @@ eth_v_open:
     lea si, [bx+SKO_HOST]
     lea di, [bx+SKO_RIP]
     call ip_parse               ; a dotted quad connects at once; a NAME waits
-    jnc .go                     ; for dns_timer to pick it up
+    jnc .go                     ; for dns_timer to pick it up...
+    call dns_cached             ; ...unless it is the name asked last time
+    jnc .go                     ; (SPEC.md 72.5.1): then RIP is filled
     or  byte [bx+SKO_FL], SKF_RES
     call OSAPI_GET_TICKS
     add ax, TCP_CONNTMO

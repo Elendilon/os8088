@@ -35,6 +35,12 @@ desktop before the first paint, LAZY: nothing is fetched until it is opened.
      read's own sniff (SPEC.md 20.14.6.1) - why the host tool serves a
      release's bytes unexpanded (SPEC.md 120.7).
 
+`--name` runs the same legs with the address http://localhost:8095/fix/,
+which QEMU's slirp resolves through the host to 127.0.0.1 - this server. N:
+ETHER.DRV's name cache holds `localhost` after the open, and its DNS
+transaction id (random per query) has not moved by the end, across every
+later connection (SPEC.md 72.5.1).
+
 Break on purpose: drop hf_readat's `.part` start check and leg 5 still
 passes, which is why leg 6 exists - drop the `[hf_skip]` load in its 200 arm
 and leg 6 reads the file's FIRST bytes for every chunk.
@@ -66,6 +72,11 @@ import xmcheck                                                # noqa: E402
 HF_ROW = 8                      # drv_tab's HTTPFS.DRV row on kern_big
 DRVR_SIZE, DRVR_ERR = 16, 14
 PORT = 8095
+# --name: the address is http://localhost:8095/fix/. QEMU's slirp resolves it
+# through the host to 127.0.0.1, and a guest connection there leaves by the
+# gateway and reaches the host's own loopback - this server. It is the one
+# way a row here can make ETHER.DRV look a NAME up (SPEC.md 72.5.1).
+BYNAME = "--name" in sys.argv[1:]
 BIGLEN = 100001
 
 # A 'CZ' file (SPEC.md 20.14), SERVED AS IT IS STORED: no directory entry on a
@@ -123,16 +134,60 @@ class Log(object):
         with self.lock:
             self.lines.append(s)
 
+    def ports(self, since=0):
+        """The client ports of the GETs from `since` on: one per CONNECTION."""
+        with self.lock:
+            return [int(m.group(1)) for m in
+                    (re.search(r'"GET .* port (\d+)$', s) for s in self.lines)
+                    if m][since:]
+
     def gets(self):
         with self.lock:
             return [m.group(1) for m in
                     (re.search(r'"GET (\S+) HTTP', s) for s in self.lines) if m]
 
 
+def dns_stub(log):
+    """A resolver for --name: every A question answered 127.0.0.1, each one
+    LOGGED, so a lookup the cache should have spared is counted rather than
+    inferred. UDP on the host's 127.0.0.1:53 - QEMU's slirp is pointed at it
+    through a private /etc/resolv.conf (QH, BYNAME), because the container's
+    own nameservers are not reachable and nothing here may edit the real one."""
+    import socket
+    sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sk.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sk.bind(("127.0.0.1", 53))
+
+    def run():
+        while True:
+            try:
+                q, addr = sk.recvfrom(512)
+            except OSError:
+                return
+            if len(q) < 12:
+                continue
+            i, labels = 12, []
+            while i < len(q) and q[i]:
+                labels.append(q[i + 1:i + 1 + q[i]].decode("latin-1"))
+                i += 1 + q[i]
+            qend = i + 5
+            log.add("DNS %s" % ".".join(labels))
+            ans = (q[:2] + b"\x81\x80" + q[4:6] + b"\x00\x01\x00\x00\x00\x00"
+                   + q[12:qend] + b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c"
+                   + b"\x00\x04" + bytes([127, 0, 0, 1]))
+            sk.sendto(ans, addr)
+    threading.Thread(target=run, daemon=True).start()
+    return sk
+
+
 def server(root, log):
     class H(os88httpdrv.Handler):
+        timeout = 3             # idle connections closed between legs, so
+                                # the drive's reopen path runs too
+
         def log_message(self, fmt, *a):
-            log.add((fmt % a) + " [%s]" % self.headers.get("Range", ""))
+            log.add((fmt % a) + " [%s] port %d" % (self.headers.get("Range", ""),
+                                                    self.client_address[1]))
     h = lambda *a, **k: H(*a, directory=root, **k)            # noqa: E731
     httpd = os88httpdrv.Server(("127.0.0.1", PORT), h)
     httpd.ranges = True
@@ -150,8 +205,14 @@ class QH(object):
         self.pidn = None
         atexit.register(self.close)
         os88qemu.own(self.pid, self.sock)
+        pre = []
+        if BYNAME:
+            rc = os.path.join(tmp, "resolv.conf")
+            open(rc, "w").write("nameserver 127.0.0.1\n")
+            pre = ["unshare", "-m", "sh", "-c",
+                   'mount --bind "$0" /etc/resolv.conf && exec "$@"', rc]
         subprocess.run(
-            ["qemu-system-i386", "-machine", "pc,vmport=off", "-m", "4",
+            pre + ["qemu-system-i386", "-machine", "pc,vmport=off", "-m", "4",
              "-drive", "file=%s,format=raw,if=floppy" % sysimg,
              "-drive", "file=%s,format=raw,if=floppy,index=1" % bimg,
              "-netdev", "user,id=n0",
@@ -290,9 +351,18 @@ def main():
         os88httpdrv.check(fix)
         recs = os88httpdrv.index_parse(idx)
         httpd = server(web, log)
+        dns = dns_stub(log) if BYNAME else None
 
         sysimg = os.path.join(tmp, "sys.img")
         shutil.copy(os88build.at("build/httpmount.img"), sysimg)
+        if BYNAME:                      # the same disk, the address by NAME
+            cfg = os.path.join(tmp, "HTTPDRV.CFG")
+            u = b"http://localhost:%d/fix/" % PORT
+            open(cfg, "wb").write(b"HD" + bytes([1, 1]) + u + bytes(96 - len(u)))
+            subprocess.run([sys.executable, "tools/os88fat.py", "del", sysimg,
+                            "HTTPDRV.CFG"], check=True, capture_output=True)
+            subprocess.run([sys.executable, "tools/os88fat.py", "add", sysimg,
+                            cfg, "HTTPDRV.CFG"], check=True, capture_output=True)
         bimg = os.path.join(tmp, "b.img")
         subprocess.run([sys.executable, "tools/os88disk.py", "-o", bimg,
                         "--size", "1440"], check=True, capture_output=True)
@@ -332,6 +402,15 @@ def main():
         if gets != ["/fix/OS88.IDX"]:
             bad.append("2. opening the drive asked %r, not the index alone" % gets)
         compare(bad, "2.", ui, w, recs, "")
+        if BYNAME:
+            esyms = os88drvsym.symbols("ether.bin")
+            erow = q.read(S("drv_tab") + 2 * DRVR_SIZE, DRVR_SIZE)
+            ebase = geom.drv_base(struct.unpack_from("<H", erow, geom.DRVR_SEG)[0])
+            id0 = q.read(ebase + esyms["dns_id"], 2)
+            cnm = q.read(ebase + esyms["dns_cnm"], 16).split(b"\0")[0]
+            print("   N. the name looked up once: cache %r" % cnm)
+            if cnm != b"localhost":
+                bad.append("N. ETHER.DRV's name cache holds %r, not localhost" % cnm)
 
         # --- 3: down two, up two, and no request --------------------------
         n0 = len(log.gets())
@@ -358,8 +437,12 @@ def main():
         opened = os88qemu.acted(
             q, lambda: any(o.i not in before and o.visible
                            for o in ui.windows()), secs=60, what="Minesweeper")
-        print("   4. MINES.O88 launches off the drive: %s, with %r"
-              % (opened, log.gets()[n0:]))
+        ports = log.ports(n0)
+        print("   4. MINES.O88 launches off the drive: %s, with %r over %d "
+              "connection(s)" % (opened, log.gets()[n0:], len(set(ports))))
+        if len(ports) > 1 and len(set(ports)) != 1:
+            bad.append("4. the launch's %d requests took %d connections - the "
+                       "kept one was not reused" % (len(ports), len(set(ports))))
         if not opened:
             bad.append("4. MINES.O88 off the drive did not open")
         raise_vol(q, ui, vol)
@@ -370,8 +453,12 @@ def main():
         # --- 5 and 6: BIG.BIN with Range:, BIG2.BIN without ---------------
         n0 = len(log.gets())
         e5 = copy_to_b(q, ui, S, vol, "BIG.BIN", bad, "5.")
-        print("   5. BIG.BIN pasted (fcp_err %d) in %d request(s)"
-              % (e5, len(log.gets()) - n0))
+        ports = log.ports(n0)
+        print("   5. BIG.BIN pasted (fcp_err %d) in %d request(s) over %d "
+              "connection(s)" % (e5, len(ports), len(set(ports))))
+        if len(ports) > 1 and len(set(ports)) != 1:
+            bad.append("5. the copy's %d requests took %d connections"
+                       % (len(ports), len(set(ports))))
         httpd.ranges = False
         n0 = len(log.gets())
         e6 = copy_to_b(q, ui, S, vol, "BIG2.BIN", bad, "6.")
@@ -430,6 +517,19 @@ def main():
                        "%d unpacked - the sniff did not run on this volume (%s)"
                        % (nl, len(PLAIN), "the packed size" if nl == len(PACKED)
                           else "neither size"))
+        if BYNAME:
+            id1 = q.read(ebase + esyms["dns_id"], 2)
+            print("   N. DNS transaction id after the open %s, at the end %s - "
+                  "%s" % (id0.hex(), id1.hex(), "NO further lookup" if id0 == id1
+                          else "LOOKED UP AGAIN"))
+            if id0 != id1:
+                bad.append("N. a later connection looked localhost up again: "
+                           "the name cache did not answer")
+            asked = [l for l in log.lines if l.startswith("DNS ")]
+            print("   N. the resolver was asked %d time(s): %r" % (len(asked), asked))
+            if len(asked) != 1:
+                bad.append("N. %d lookups for one name - the cache should leave "
+                           "exactly one" % len(asked))
         q.hmp("quit")
         q.close()
         q = None
@@ -448,6 +548,11 @@ def main():
                            % (leg, name, len(got), first))
             else:
                 print("   %s %s on B: is the server's %d bytes" % (leg, name, BIGLEN))
+        allp = log.ports()
+        runs = sum(1 for k in range(len(allp)) if k == 0 or allp[k] != allp[k - 1])
+        print("   the whole run: %d requests over %d connections (the server "
+              "closes an idle one after 3 s, so each leg after the first "
+              "reopens)" % (len(allp), runs))
         hashed = [g for g in log.gets() if "A#B" in g]
         if hashed:
             bad.append("2. a path went out unescaped: %r" % hashed)

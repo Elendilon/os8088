@@ -350,6 +350,17 @@ In order, once the drive itself works on the XT:
 3. ~~10 KB free on the 360 KB system disk, so the driver ships there too.~~
    **DONE** by SPEC.md 24.3.1.6 on `elendilon`; the driver ships there.
 
+**Found in the field, for the installer work (owner, 2026-10-22):** the
+installer recognises a mounted HTTP drive as a system disk and then fails
+on `KERNEL.SYS` at once. Not investigated yet.
+
+**Section 6 item 2's remedies, as built:** resolve-once is ETHER.DRV's
+one-entry name cache (SPEC.md 72.5.1) and keep-alive is HTTPFS.DRV's
+(SPEC.md 120.2.1), both with no kernel byte. Full-capacity read-at answers
+were looked at and NOT built: the kernel already asks a copy in 65,024-byte
+chunks, and the small reads are a 512-byte peek and an 8-byte sniff each
+followed by the whole file, which a kept connection makes one round trip.
+
 ## 9. What this is not
 
 Not an upgrade mechanism: it is the transport one would read from. An

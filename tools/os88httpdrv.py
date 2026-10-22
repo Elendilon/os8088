@@ -308,11 +308,16 @@ def check(out):
 
 # --- serve ---------------------------------------------------------------------
 class Handler(http.server.SimpleHTTPRequestHandler):
-    """Static files with Range, HTTP/1.0, one log line a request."""
-    protocol_version = "HTTP/1.0"
+    """Static files with Range, one log line a request - and the connection
+    KEPT when the client asks (HTTPFS.DRV does, SPEC.md 120.2.1): http.server
+    honours `Connection: keep-alive` only at protocol HTTP/1.1, and closes an
+    idle one after `timeout` seconds, as a real server does."""
+    protocol_version = "HTTP/1.1"
+    timeout = 15
 
     def log_message(self, fmt, *a):
-        sys.stderr.write("os88httpdrv: %s %s\n" % (self.client_address[0], fmt % a))
+        sys.stderr.write("os88httpdrv: %s:%d %s\n" % (self.client_address[0],
+                         self.client_address[1], fmt % a))
 
     def do_GET(self):
         path = self.translate_path(self.path)

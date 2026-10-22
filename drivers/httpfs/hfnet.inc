@@ -258,6 +258,7 @@ hf_drop:
     push ax
     push cx
     pushf
+    mov byte [hf_live], 0
     mov al, 0
     xchg al, [hf_sock]
     or al, al
@@ -612,11 +613,39 @@ hf_get:
     mov cx, di
     sub cx, hf_rbuf
     pop es
-    push cx
+    mov [hf_reqn], cx
+    ; --- A KEPT CONNECTION, if the last GET left one (SPEC.md 120.2.1) ------
+    ; Up, and with nothing unread on it: a byte waiting there now would be
+    ; read as the start of THIS reply. Anything else is dropped and a fresh
+    ; one opened, which is all a server's idle close costs.
+    mov byte [hf_kept], 0
+    cmp byte [hf_live], 0
+    je .fresh
+    mov byte [hf_live], 0
+    push bx
+    mov al, [hf_sock]
+    mov bl, NETV_STATUS
+    call hf_nc
+    pop bx
+    jc .stale
+    cmp ah, NSK_UP
+    jne .stale
+    jcxz .reuse
+.stale:
+    call hf_abort
+    jmp short .fresh
+.reuse:
+    mov byte [hf_kept], 1
+    jmp short .send
+.fresh:
     call hf_open
-    pop cx
     jc .out
+.send:
+    xor ax, ax
+    mov [hf_rlen], ax
+    mov [hf_rpos], ax
     mov si, hf_rbuf
+    mov cx, [hf_reqn]
     call hf_send
     jc .drop
     call hf_line                ; the status line: HTTP/1.x NNN ...
@@ -625,6 +654,12 @@ hf_get:
     jne .shape
     cmp word [hf_lbuf+2], 'TP'
     jne .shape
+    mov al, [hf_lbuf+7]         ; HTTP/1.1 keeps the connection unless it
+    sub al, '1'                 ; says close; HTTP/1.0 only if it says
+    cmp al, 1                   ; keep-alive (below)
+    sbb al, al
+    and al, 1
+    mov [hf_keep], al
     mov si, hf_lbuf + 9
     call hf_atol
     jc .shape
@@ -643,6 +678,19 @@ hf_get:
     mov byte [hf_hasl], 1
     jmp short .h
 .cr:
+    mov si, hf_s_conn
+    call hf_hdris
+    jne .cr2
+    mov al, [si]
+    and al, 0xDF                ; K(eep-alive) or C(lose), either case
+    cmp al, 'K'
+    mov al, 1
+    je .kset
+    dec ax
+.kset:
+    mov [hf_keep], al
+    jmp short .h
+.cr2:
     mov si, hf_s_crng
     call hf_hdris
     jne .h
@@ -653,6 +701,10 @@ hf_get:
     mov byte [hf_hascr], 1
     jmp short .h
 .hdone:
+    cmp byte [hf_hasl], 0
+    jne .lenok
+    mov byte [hf_keep], 0       ; no length: the body ends at the close
+.lenok:
     mov ax, [hf_status]
     cmp ax, 200
     je .ok
@@ -664,11 +716,34 @@ hf_get:
     mov ax, HFE_CONNECT         ; not an HTTP answer at all
 .drop:
     call hf_abort
+    cmp byte [hf_kept], 0       ; a KEPT connection that died before a byte
+    je .fail                    ; of the reply - the server's idle close -
+    cmp word [hf_rlen], 0       ; is tried once more on a fresh one; the
+    jne .fail                   ; request is still in hf_rbuf, since nothing
+    mov byte [hf_kept], 0       ; was received over it
+    jmp .fresh
+.fail:
     stc
     jmp short .out
 .ok:
     clc
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; hf_done - a reply read WHOLE: its connection is kept for the next GET when
+;           the server agreed to keep it and nothing past the body arrived,
+;           and closed otherwise. keeps every register
+; -----------------------------------------------------------------------------
+hf_done:
+    cmp byte [hf_keep], 0
+    je hf_close
+    push ax
+    mov ax, [hf_rpos]
+    cmp ax, [hf_rlen]
+    pop ax
+    jne hf_close
+    mov byte [hf_live], 1
     ret
 
 ; --- hf_urlch - AL into the request, %XX unless it is safe in a path --------
@@ -797,6 +872,7 @@ hf_s_get:   db 'GET ', 0
 hf_s_host:  db ' HTTP/1.0', 13, 10, 'Host: ', 0
 hf_s_ua:    db 13, 10, 'User-Agent: os8088 HttpDrive 1.0', 13, 10, 0
 hf_s_rng:   db 'Range: bytes=', 0
-hf_s_end:   db 'Connection: close', 13, 10, 13, 10, 0
+hf_s_end:   db 'Connection: keep-alive', 13, 10, 13, 10, 0
+hf_s_conn:  db 'CONNECTION:', 0
 hf_s_clen:  db 'CONTENT-LENGTH:', 0
 hf_s_crng:  db 'CONTENT-RANGE: BYTES ', 0
