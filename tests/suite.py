@@ -7786,7 +7786,7 @@ SOAK = [
     # timeout is ~2x that: enough that container jitter cannot kill a healthy
     # run, small enough that a genuinely hung emulator is still caught in
     # minutes rather than tens of them.
-    Row("dispcalc", "soak", py("tests/dispcalc.py"), 250.0,
+    Row("dispcalc", "soak", py("tests/dispcalc.py"), 180.0,
         "Does the Calculator add up, fold cleanly and redraw nothing spare?",
         needs=("marty",), serial=True, timeout=900),
     Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 90.0,
