@@ -15686,13 +15686,14 @@ SOAK = [
         "every sample lands badly - and CELLS below is deliberately NOT "
         "retried, being the half that would hide a real regression",
         needs=("marty",), serial=True),
-    Row("tmowner", "soak", py("tests/tmowner.py"), 300.0,
+    Row("tmowner", "soak", py("tests/tmowner.py"), 45.0,
         "SPEC.md 28.4.10: a raise cache is listed under PURGEABLE, the "
         "kernel window's and a package's alike - it is in nobody's total, so "
         "it is in no owner's group (it was the window's package, 28.4.5, "
-        "until the memory and heap pages merged). Reads the rows "
-        "the page COMPOSES rather than the pixels, which is the only way to "
-        "say which group a row is in",
+        "until the memory and heap pages merged). Reads the page's own "
+        "classification (tm_claims and tm_cgid, one paint's, the guest "
+        "paused), which is what the list draws its groups from - 41 s, where "
+        "reassembling the drawn rows off font_run was ~450",
         needs=("marty",), serial=True),
     Row("tmground", "soak", py("tests/tmground.py"), 60.0,
         "SPEC.md 28.10: the Task Manager paints its own ground, so a repaint"
