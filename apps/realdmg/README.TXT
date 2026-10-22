@@ -10,7 +10,7 @@ games: no game ships with it, and the only ROM on this disk is our own demo.
 ON THIS DISK
 ------------
 REALDMG.O88 the program. The Game Boy's CPU core is inside it, and so is
-            the recompiler that a 286 or later uses.
+            its recompiler.
 GBDEMO.GB   RealDMG's demo, written for an IBM PC 5150: a bouncing ball,
             a clock and a blip on every landing. It is ours, and it runs
             on a real Game Boy too.
@@ -106,14 +106,14 @@ Machine > Controls...    which key is which button: click a button on
                          RealDMG's own.
                          Default puts them back. Kept for every game
 
-CPU > Recompiler         translates the game as it runs (a 286 or
-                         later; F3 steps through the three)
+CPU > Recompiler         translates the game as it runs (the
+                         default; F3 steps through the three)
 CPU > Static Recompiler  translates it before it runs, then never
                          again, so play never slows for it. It uses
                          NAME.RDP beside the game: play with the
                          Recompiler and Profile for Static on first
-CPU > Interpreter        no translating: the only way on an 8088, and
-                         it gives the recompiler's memory back
+CPU > Interpreter        no translating, and it gives the
+                         recompiler's memory back
 CPU > Profile for Static on, the Recompiler keeps what it translated
                          as NAME.RDP beside the game, for Static. Off
                          by default
@@ -160,7 +160,9 @@ the save was put away.
 WHAT TO EXPECT
 --------------
 On a 286 at 12MHz most games run near full speed, faster with the
-recompiler. On a 4.77MHz 8088 a busy game runs slowly. GBDEMO.GB runs at
+recompiler. On a 4.77MHz 8088 a busy game runs slowly, though the
+recompiler runs the game's code about twice as fast as interpreting it
+there too. GBDEMO.GB runs at
 full speed there, drawing about four frames a second, because the demo was
 written to need very little.
 
