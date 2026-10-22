@@ -53,6 +53,11 @@ reading the guest state the page is drawn from instead of pumping the screen).
    is a blind sleep the waitlog does not even log** (paintrz had ~80 guest s
    of them a row); after an input it is `ui_done`, and where the old wait
    was proving the work happened, assert the state moved instead.
+5. **A wait whose PASS is a timeout is the most expensive line in a row.**
+   `until(..., required=False)` / a fixed `cycles` window for "X must NOT
+   happen" pays its whole budget (often 30-180 guest s) on every green run.
+   End it at `ui_done` (the work X would be part of is finished) plus a
+   short guest tail, and break the subject once to see X caught in it.
 
 5. **Log, don't stop, for a timing trace.** A `bp_trace` whose hits only feed
    cycle arithmetic takes `log=True`; data the body must write while the
@@ -125,3 +130,4 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | dispcold | 79 s / 131 guest s | 41 s / 73 guest s | 4 | **fails-open at base**: the carpet was clamped to COLD_LEN where the witnesses are COLD_SEG offsets from COLD_VSTART, so LO > HI and ZERO breakpoints were armed - fixed (2,816 now) with an assert. The click watch ends on 1 guest s of `ui_idle` instead of 5 of a free lock |
 | deskbench | 89 s / 44 host s waited | 95 s (noise) / 36 | 4 | a MEASUREMENT row: only setup settles before guest reads -> `ui_done`, a double boot settle dropped; the flicker windows and the settles before them are the measurement and stay. Re-declared 180 -> 120 |
 | paintblank | 196 s (heavy load), ~180 guest s incl. unlogged windows | 45 s / 60 guest s | 4 | four flat 30-guest-s breakpoint windows -> ui_done + 3 s tail (measured: identical stop counts at ui_done, 0.5-0.7 s, and at 30 s); advance(250/90) -> ui_done |
+| paintsu | 137 s (heavy load) incl. an unlogged 180 guest s timeout | 33 s / 55 guest s | 4, 5 | the uncover's "no canvas blit" `until(limit=60)` -> ui_done + 3 s tail; red with `wm_su_segs` zeroed before the close |

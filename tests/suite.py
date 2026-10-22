@@ -14513,7 +14513,7 @@ SOAK = [
         "covers pt_rect, which is the pencil's dab and builds a left mask, a"
         "right mask and a byte count the packed path gets from one shift",
         needs=("marty",), serial=True),
-    Row("paintsu", "soak", py("tests/paintsu.py"), 120.0,
+    Row("paintsu", "soak", py("tests/paintsu.py"), 50.0,
         "SPEC.md 11.96.11: on a 1bpp adapter Paint banks its WHOLE content"
         "rather than the tool column, because there the cache is ~9KB and the"
         "canvas it saves redrawing is 399 ms. Asserts the size asked for, that"
