@@ -1662,12 +1662,15 @@ runs into the core it loads, which the experiment did, silently.
 
 ## 16. The recompiler
 
-On a 286 RealDMG translates the Game Boy's ROM code into 8086 code, a block
-at a time, and runs that instead of interpreting it (`apps/realdmg/rdgjit.inc`,
+On every CPU RealDMG translates the Game Boy's ROM code into 8086 code, a
+block at a time, and runs that instead of interpreting it (`apps/realdmg/rdgjit.inc`,
 `rdgtmpl.py`; `tests/rdgcore/rdghost.asm`'s `b_jit` and the package's CPU >
 Recompiler turn it off). What it saves is the interpreter's fixed cost: the
-three-instruction dispatch, which flushes a 286's prefetch queue every time,
-and the operand fetches through SI.
+three-instruction dispatch, which flushes the prefetch queue every time,
+and the operand fetches through SI. It was built for the 286 and ran only
+there until 16.10 measured it on an 8088, where it pays more than on the
+286: every template is assembled `cpu 8086`, and the bytes the translator
+writes by hand are 8086 opcodes.
 
 ### 16.1 Templates
 
@@ -1892,7 +1895,7 @@ code the first has no room for, before anything is flushed:
   past it, the package asks for it then, from what the heap has left.
   Without the memory there is one segment.
 - **CPU > Cache: 128K** asks for it for every game, whatever its
-  profile says (greyed on an 8088). It is a SETTING, kept in
+  profile says. It is a SETTING, kept in
   `SYSTEM\APPDATA\REALDMG.CFG` (`'RB'`, the version, bit 0 of the fourth
   byte; version 2 goes on with each game's Speed and Sound, section 15.2,
   and version 3 with Machine > Controls' keys, section 14.2)
@@ -1955,8 +1958,7 @@ translated into its fill runs exactly as code in a cache segment does.
 - **The interpreter is untouched**: nothing is written into a half-slot's
   code, and nothing reads the fill. A flush leaves the old code in the holes
   - unreachable, as it is in a cache segment.
-- **An 8088 never uses it** (no recompiler), and **the host may turn it
-  off**: `[S_JITNOC]` = 1, the bare harness's `JF_NOCORE` and
+- **The host may turn it off**: `[S_JITNOC]` = 1, the bare harness's `JF_NOCORE` and
   `rdgbench.py --nocore`, which is the A/B.
 - **Static** preloads through the same `rt_room`, so its preload fills the
   tiers in the same order and stops at the last (16.8).
@@ -2087,7 +2089,7 @@ copy loop: an HRAM block is at most 16 bytes and is entered through a GUARD
 (`rt_guard`) that compares its bytes with HRAM as it is now, and a block
 whose bytes changed is forgotten (`tr_stale`) and its code interpreted.
 `gbrmw` rewrites a routine there once it has been translated. **With no
-recompiler** - an 8088, no memory for the cache, or CPU > Interpreter
+recompiler** - no memory for the cache, or CPU > Interpreter
 - `rt_dispatch` writes the plain dispatch over the first five bytes of all
 45 `JDISPATCH` sites (rdgtmpl.py lists them), so the interpreter is the one
 there was before the recompiler, and writes them back when it is turned on. Translated code does not keep DS;
@@ -2238,9 +2240,8 @@ taken from the wrong byte; a wait skipped one pass too far).
 
 **CPU has three modes**: **Recompiler** (the default), **Static
 Recompiler** (16.8) and **Interpreter**; F3 steps through them in that
-order. On an 8088 the first two are greyed with "(286+)" and Interpreter is
-the mode; on a 286 they are settings before a game is loaded too, which its
-load then takes up.
+order, on every CPU (16.10). They are settings before a game is loaded
+too, which its load then takes up.
 
 There was a fourth, **Auto**, that timed the recompiler against the
 interpreter when its cache thrashed and kept the cheaper, and it is gone.
@@ -2299,7 +2300,7 @@ entries of 4 bytes in the segment `S_PRFSEG` (0: none):
   there before the game copies them in.
 - **Over sessions:** the profile accumulates across every session of the
   game played with the Recompiler and **CPU > Profile for Static** on.
-- **CPU > Profile for Static** (On or Off; greyed on an 8088, and settable before
+- **CPU > Profile for Static** (On or Off, and settable before
   a game, whose load then claims it). Off claims
   nothing and writes no file. What it saves is the 9 KB claim and the 8 KB
   write at the close; the cycles are nothing to speak of, since recording
@@ -2430,10 +2431,10 @@ part 3 of `REALDMG.O88` (`apps/realdmg/rdgjitp.asm`, assembled at org 0),
 compressed, `OP_LAZY | OP_SELF`, and `rw_jitget` reads it into the TAIL of
 the recompiler's own claim - past the cache and its block table - when it
 claims them. So:
-- **An 8088 never holds it.** The image went from 52.7K to 33.2K, and the
-  region a game holds with it (SPEC.md 20.12). An 8088 never claims a cache
-  and never reads the part.
-- **A 286 holds it only with a cache.** CPU > Interpreter frees the claim
+- **Only a machine with a cache holds it.** The image went from 52.7K to
+  33.2K, and the region a game holds with it (SPEC.md 20.12); with no room
+  for a cache the part is never read.
+- **It is held only with a cache.** CPU > Interpreter frees the claim
   and the part with it (16.7); choosing a recompiler again claims and reads
   both. It is one `OSAPI_FILE_READ_AT` of the packed stream at the part's
   own sector, R up the claim, and `OSAPI_DECOMP` down onto its base - the
@@ -2459,8 +2460,8 @@ claims them. So:
   `rdg_jit` leaves through the part's own copy of `rdg_ret`, and `RDG_TOHOST`
   reads the view from the part's own word, which `rt_init`'s door sets.
 - **What stays in the image** is `rw_jdoff`: the interpreter's 46
-  JDISPATCH sites made plain DISPATCH (16.4), which an 8088 needs without
-  the part - `rdgtmpl.py` writes the list into `rdgcore.inc` again as
+  JDISPATCH sites made plain DISPATCH (16.4), which the interpreter needs
+  without the part - `rdgtmpl.py` writes the list into `rdgcore.inc` again as
   `RDGC_JDTAB` for it.
 - **The bare harness** (`tests/rdgcore/rdghost.asm`) still includes
   `rdgjit.inc` inline, so every gate on the translator runs the same source.
@@ -2471,6 +2472,46 @@ claims them. So:
   175 blocks into a fixed table, as before the move. A volume whose clusters
   are larger than a sector on `kern_small` refuses the read (`READ_AT`'s
   unit), and the game then runs on the interpreter, as with no memory.
+
+### 16.10 On an 8088, MEASURED
+
+The package gated the recompiler to a 286 or later on a prediction - *"an
+8088's bus makes bytes the cost"* - that no one had measured. MartyPC's
+4.77 MHz 8088 (`os8088_xt_vga`) running the bare harness, which never
+asked the CPU, says the opposite. The CPU alone, no picture, guest CYCLES
+between the harness's two reads of the BIOS clock (2026-10-22):
+
+| gbclock, 300 frames | interpreter | recompiler |
+|---|---|---|
+| CLOCK0 (0.7% busy) | 8,532,302 | 9,309,444 |
+| CLOCK25 (25.7%) | 75,650,032 | 38,127,156 |
+| CLOCK50 (50.7%) | 142,732,742 | 66,554,556 |
+| **a busy M-cycle** | **50.96 clocks** | **21.74 (2.34x)** |
+
+| in play, frames 800-2,000 | interpreter | recompiler |
+|---|---|---|
+| libbet (32K, pinobatch/libbet `1232e71d`) | 41.81 s, 48% of real time | 25.32 s, 79% (**1.65x**) |
+| `GBDEMO.GB` | 3.55 s | 3.09 s (1.15x) |
+
+Both arms of every pair take the same events and skip the same M-cycles.
+The 8088 gains MORE than the 286 does (26.2 -> 13.95 there, 1.88x): what
+translation removes - the dispatch's queue flush and the operand bytes
+read through SI - is exactly what an 8088 pays most for, and an immediate
+costs it no more than the data read it replaces. So the gate is gone: the
+recompiler is the default on every CPU, CPU > Recompiler, Static, Profile
+and Cache: 128K are offered on an 8088 as on a 286, and the "(286+)" items
+are deleted. A 64KB cartridge holds ~387-435KB with the recompiler's
+claim, which a 640KB machine has; one that has not falls to the
+interpreter as any machine with no room does. The budgets (14) stand:
+1,400 M-cycles recompiled are ~6.4 ms at 21.7 clocks, inside a mouse
+byte's 8.3 ms. What it costs an 8088 is the part's read at a game's launch
+(16.9): `GBTONE.GB` off a 720KB floppy starts its sound 1.5-1.9 s later than
+it did interpreted (`tests/gbsound.py`).
+
+**`rdgbench.py --marty`'s ticks are wrong on an 8088**: a budget runs long
+enough with interrupts off to swallow IRQ0s, so CLOCK0 reads 19 ticks over
+1.79 guest seconds and CLOCK25 and CLOCK50 157 and 160. The figures above
+are cycles, not ticks; the 286's runs are short enough to lose few.
 
 ## 17. Sound
 

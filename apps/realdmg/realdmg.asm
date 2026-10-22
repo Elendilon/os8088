@@ -226,8 +226,7 @@ rw_cfg          equ rw_jit2seg + 2  ; RW_CFGN: REALDMG.CFG as it is read
 rw_cfgip        equ rw_cfg + RW_CFGN ; byte: os88data.inc's stamp for it
 rw_big          equ rw_cfgip + 1    ; byte: Machine > Cache: 128K (the
                                     ;   setting, kept in REALDMG.CFG)
-rw_286          equ rw_big + 1      ; byte: a 286 or later: a recompiler
-rw_seg2q        equ rw_286 + 1      ; byte: the cache's segments changed:
+rw_seg2q        equ rw_big + 1      ; byte: the cache's segments changed:
                                     ;   the worker's to start it again
 rw_f3q          equ rw_seg2q + 1    ; byte: the mode F3 asked for in the
                                     ;   window, when it wants the UI task
@@ -314,11 +313,6 @@ RW_PBUF         equ 11520           ; the frame as the screen takes it: the
 ; =============================================================================
 rw_entry:
     mov byte [rw_jitmode], 1        ; Recompiler: On (REALDMG-SPEC 16.7)
-    call OSAPI_CPU_INFO
-    cmp al, CPU_8086
-    je .c86
-    mov byte [rw_286], 1
-.c86:
     call rw_cfgload
     call rw_spdset                  ; (Speed: 100% until a game says)
     call OSAPI_FILE_HERE            ; where the program is: the log's folder
@@ -922,18 +916,15 @@ rw_jitoff:
     ret
 
 ; rw_jitclaim - on the UI task, once: a 64KB cache and the 16KB of its block
-; table after it (REALDMG-SPEC 16.3), on a 286 or later. The
-; recompiler's code is bigger than the interpreter's, and an 8088's bus makes
-; bytes the cost; and without the memory it is simply not used.
+; table after it (REALDMG-SPEC 16.3), on every CPU - an 8088 runs a busy
+; M-cycle in 21.7 clocks translated against 51 interpreted (REALDMG-SPEC
+; 16.10); without the memory it is simply not used.
 rw_jitclaim:
     cmp byte [rw_jitmode], 2        ; (CPU > Interpreter: none - the ROM
     je rw_jitget.r                  ;   has the room, REALDMG-SPEC 16.7)
 rw_jitget:                          ; (CF = 1: none, a game running too)
     cmp word [rw_jitseg], 0
     jne .r
-    call OSAPI_CPU_INFO
-    cmp al, CPU_8086
-    je .r
     call rw_jpkb                    ; AX = the recompiler's own KB, its part
     push ax                         ;   read into the claim's tail (16.9)
     add ax, 64 + JIT_HASHN * 8 / 1024 ; the cache and its block table: 64KB
@@ -1656,8 +1647,6 @@ rw_cfgsave:
 ; the heap has left, and the worker starts the recompiler again over both;
 ; without the room - or going back to 64K - it is the next game's.
 rw_bigtoggle:
-    cmp byte [rw_286], 0
-    je .r
     xor byte [rw_big], 1
     call rw_cfgsave
     call rw_mgrey
@@ -1684,9 +1673,7 @@ rw_bigtoggle:
 ; keeps its 9KB and writes no file at the close. Static reads the profile,
 ; so it stays on while Static is the setting. Before a game it is the
 ; setting the load takes.
-rw_prftoggle:
-    cmp byte [rw_286], 0            ; (before a game too: its load claims
-    je .r                           ;   it)
+rw_prftoggle:                       ; (before a game too: its load claims it)
     cmp byte [rw_prfon], 0
     jne .off
     mov byte [rw_prfon], 1
@@ -2729,8 +2716,6 @@ rw_keys:
     mov cl, 4
     call rw_fedge                   ;   and the bracket alike (the menu's
     jnc .nof3                       ;   goes through the worker's rw_jitq)
-    cmp byte [rw_286], 0
-    je .nof3
     mov bl, [rw_jitmode]
     xor bh, bh
     mov al, [rw_jnext + bx]         ; AL = the next mode. Static, or the
@@ -3835,8 +3820,6 @@ rw_oncmd:
     sub al, RW_CSPD                 ; a speed: as F4 would step to it
     jmp rw_spdpick
 .mode:                              ; a mode: rw_jitto's
-    cmp byte [rw_286], 0
-    je .r
     mov bl, al
     xor bh, bh
     mov al, [rw_jmenu + bx]
@@ -3970,12 +3953,8 @@ rw_it_sep:      db MENU_DIS, '----------------------', 0
     RW_MI rw_it_jon, 'Recompiler', 'F3'
     RW_MI rw_it_jst, 'Static Recompiler', 'F3'
     RW_MI rw_it_joff, 'Interpreter', 'F3'
-    RW_MI rw_it_jon8, 'Recompiler (286+)', ''
-    RW_MI rw_it_jst8, 'Static (286+)', ''
     RW_MI rw_it_prf, 'Profile for Static', ''
-    RW_MI rw_it_prf8, 'Profile (286+)', ''
     RW_MI rw_it_big, 'Cache: 128K', ''
-    RW_MI rw_it_big8, 'Cache (286+)', ''
     RW_MI rw_it_spd0, 'Speed: 100%', 'F4'
     RW_MI rw_it_spd1, 'Speed: 90%', 'F4'
     RW_MI rw_it_spd2, 'Speed: 75%', 'F4'
