@@ -849,6 +849,11 @@ class Marty:
         mark = self._go if since is None else since
         c0 = int(self.status().get("cycles", 0))
         stuck = None
+        # The first look is usually answered BEFORE the batch that reaches the
+        # stop has run (the server reads commands first), so a flat `poll`
+        # charged every short run - a guest routine called from the harness -
+        # 20 ms. Start at 1 ms and double up to `poll`.
+        nap = min(poll, 0.001)
         while True:
             st = self.status()
             if self._newer(st, mark):
@@ -877,7 +882,8 @@ class Marty:
                                    st.get("cs", 0), st.get("ip", 0), mark))
             else:
                 stuck = None
-            time.sleep(poll)
+            time.sleep(nap)
+            nap = min(nap * 2, poll)
 
     # --- input, through the REAL devices -------------------------------------
     #
