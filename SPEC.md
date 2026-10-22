@@ -100773,6 +100773,39 @@ It is the same finding as §19.2.4.3's, one layer along: a walk the layer
 already owns, written out again at the call site because the call site was
 written first.
 
+### 54.2.2 A slot is spent on a program that DECLARES, and on nothing else
+
+**§54.2's "no shipped set reaches 16/32" was true of the programs that
+declare and false of the table**, because one door spent slots on everything.
+`asc_take_x` - the harvest's arm for a package whose body is already in the
+icon store (§54.7.4), which after an `ASSOC.DAT` absorb is nearly every
+package a listing shows - asked `assoc_app_get`, which CREATES. So every
+package in every folder browsed took a slot for the rest of the session:
+MINES, TANK, CALC, CHART and INSTALL, none of which claims an extension.
+`assoc_app_get`'s own header already said seeding *"must never spend a slot
+on a program the user has not met"*, and `assoc_note_app`, the miss arm of
+the same harvest, creates only when the header's declaration bit is set.
+The two arms of one harvest disagreed.
+
+Reported off the owner's 286: an installed C: with `REALDMG.O88` in
+`C:\GAMES` and a folder of `.GB` cartridges, the cartridges drawn without
+RealDMG's document icon and every double-click toasting `Load failed`.
+Reproduced on that disk image in QEMU: the 1.44MB system floppy in A: and
+`office360` in B:, both opened, fill all sixteen slots - INSTALL, CALC and
+CHART among them - so REALDMG, met afterwards, gets none, `.GB` is never
+merged, and §54.4.3's search finds every volume's cache naming a program it
+cannot give a slot to. The verdict is `LD_EBAD`.
+
+`asc_take_x` asks `assoc_app_of` now, which only finds. A declaring package
+already has its slot by the time a hit reaches it: `asc_merge_ext` made it
+when the cache was absorbed, or `assoc_note_app` did on the miss that first
+read its header. The same disk and the same two floppies then use 15 of the
+16 slots, the cartridges draw RealDMG's page and DRMAR.GB opens. It also
+makes §54.7.6.4's step 5 proof - *"a package that declares always takes a
+slot"* - the only way a slot is taken, so a flush stops reading the headers
+of plain packages that merely held one. **0 bytes**: the two calls are the
+same size.
+
 ### 54.3 The icon: a page frame with the program's glyph inset
 
 The document page is a 16×16 dog-eared page — the second icon in this kernel
@@ -101288,6 +101321,47 @@ costs a look and never opens a wrong file. The change is **41 bytes of
 `APPS\VIDEO.O88` deleted from under its `ASSOC.DAT`, and apps720 in B:. A
 double-click on `A:\MEDIA\OS8088.V88` now opens a Video Player. On the kernel
 before this it toasts `Needs VIDEO.O88`.
+
+### 54.4.2.4 …and a program that is GONE is replaced by one that declares the same extension
+
+**`ASSOC.DAT` can list several packages declaring one extension, and the
+kernel keeps ONE owner.** `asc_merge_ext` takes the rows in order and the
+last one wins. So with `A.O88` and `B.O88` both declaring `.XYZ`, the RAM
+table names one of them - and when that one is deleted, every rung of
+§54.4.2 looks for `<THAT>.O88` and nothing else. The other package can
+stand in the document's own folder and the double-click still toasts
+`Needs A.O88`. That is the owner's report: *"other disks get searched, but
+the disk it was on does not"*. The disk WAS searched, but only for the
+deleted program.
+
+**So the first miss of a run is not the verdict.** `assoc_run_x`'s
+`.nofile` runs a **full** flush (`ASCF_FULL`, §54.7.6.4) of the volume the
+missing program was last seen on, or of the document's own volume when the
+program was never seen. A full flush reads every package's header, root and
+one level down, so the rebuilt file names whoever declares the extension
+NOW. It then sets `[asc_vol]` to 0xFF. A flush that finds the bytes
+unchanged leaves the stamp alone ("the same bytes write nothing"), and the
+re-absorb is the point. It clears `ASSOC_STICKY` on the document's
+extension row, because a runtime claim whose program is gone protects
+nothing. Then it repeats §54.4.3's sweep (`assoc_tryext`). Whatever slot
+that answers goes back through `.known`, so the program it names is located
+by the same rungs.
+
+**Once a run.** Bit 7 of `[assoc_dead]` marks it. Volumes are 0..5 in that
+byte, and `.located` clears it per run. A second miss toasts `Needs` as
+before. Its `assoc_fnb` is rebuilt by the locate that missed, so a refused
+flush - which stages `ASSOC.DAT`'s own name in that buffer - cannot leak
+into the toast. A flush that fails (a write-protected floppy, a module that
+will not load) still falls through to the sweep, which re-reads whichever
+file is there.
+
+It costs nothing until a program is missing, and then it costs one full
+flush: a header read per package on that volume. That is milliseconds on a
+hard disk and seconds on a floppy, on a path that used to end in a refusal.
+**+66 bytes of `.cold`**, resident, no rung crossed (§54.2.2 is +0). Even on purpose: `dsk_xfer` and its hot neighbours follow it in `.cold`, and `t_hotpar` pins their parity. Verified
+in QEMU on the owner's 286 image with `C:\T\FVA.O88`, `C:\T\FVB.O88` and
+`C:\T\X.F88`: FVB took `.F88`, was deleted, and `X.F88` toasted
+`Needs FVB.O88`. It opens the Font Viewer out of FVA.O88 now.
 
 ### 54.4.3 An extension nothing here claims is LOOKED FOR, not refused
 
