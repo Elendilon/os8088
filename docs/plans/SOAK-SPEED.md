@@ -70,6 +70,12 @@ reading the guest state the page is drawn from instead of pumping the screen).
    its follow-ups are its own, and it only sleeps when none is left.
    Keep N as the upper bound for a UI that never idles (Task Manager).
 
+8. **A poll is a host floor per wait.** `until(..., poll=0.3)` costs >= 0.3
+   host s even when the guest is there in 0.05 - a row with 60 holds paid
+   ~20 s for it. 0.05 (os88ui's own POLL) is a ~1 ms read; never coarser.
+   Likewise a breakpoint whose only job is "did X run at all" is disarmed at
+   its first hit, not stopped at per row/frame.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
@@ -164,3 +170,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | vidv2bench | declared 240 s | 18 s / 32 guest s, unchanged | - | already lean (boot 21 guest s + an 8088-exact breakpoint span per frame); secs re-declared only. Its -mx/-4/-1 siblings share the script and are likely the same - measure before re-declaring |
 | dispcalc | 173 s / 444 guest s (load ~13, harness changes already in) | 141 s / 375 guest s | 4 | a key is `ui_done(cap=<the old pace>)` instead of a fixed 0.68 guest s; `typed`'s quiesce follows a `ui_done` at guest=0.25. The rest is ~290 keystrokes' real redraws and nine full-repaint diffs |
 | deskcal* (8 rows) | 1bpp 176, cards 199, grid 64, edit 295, remind 116, perf 166, snooze 86, task 44 s (3 parallel, load 9-13) | 70, 90, 33, 127, 99, 132, 90, 32 s (load 7-9); guest waited 742 -> 706 | 4 | `quick=True`; Cal.press/type and post-key paces (4.5 guest s each) -> `ui.still`/`ui_done`; grid's 13.5-guest-s refusal windows -> `ui_done` (an accepted PageUp is always landed when it returns: 3/3 checked). Negative 'nothing written' windows and measurement sleeps kept. Rows need `mtools` (installed) |
+| vidpage8n | 127 s / waits 96 guest, 81 host | 80 s / 84 guest, 42 host | 2, 8 | `quick=True` boot; polls 0.3 -> 0.05 (60 holds); PAGENK reuses the main clip's bytes instead of regenerating. Same script: all 22 vidpage.py rows green (3 lanes, loaded); only 8n's secs re-declared |
+| vidpal / vidplayvga / vidpreview / vidpagetext4 | 142 / 86 / 105 / 51 s (waits 117 / 77 / 82 / 51 guest) | 79 / 39 / 60 / 33 s (99 / 58 / 75 / 35 guest) | 2, 8 | same two; vidpal's 640x480 per-hold glass compare vectorised with numpy (same count and box, checked against the loop on noisy frames; loop kept as fallback). Loaded-box walls, base and new run back to back |
+| vidposter, vidpage | 162 s / 124 guest; 71 s / 72 guest | 184 s / 115 guest; 90 s / 72 guest | 2, 8 | no real gain: 11 package launches at ~4.3 guest s each + poster loads are the guest's disk work; wall is load noise. Floor is guest-bound |
+| skieshaze | 110 s / waits 41 guest | 53 s / 29 guest | 2, 8 | `cs_hzfill` breakpoint disarmed after its first hit (it only proves the fill runs; it stopped once per split row of 77 frames). `--clobber-ends` still FAILS (69 frames, worst 13 bytes). Secs 187 -> 70 |
+| skies (+ every skies*.py) | skies 66 s / 37 guest | 49 s / 25 guest | 2 | `quick=True` on the 29 os88ui.boot scripts; `skies.open_game` (6 launch-based scripts) is `ui.up` + `ui.path` instead of four dispcp settles, launched `boot=False`. Whole skie family run green after; secs left as declared |
