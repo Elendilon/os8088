@@ -352,7 +352,15 @@ In order, once the drive itself works on the XT:
 
 **Found in the field, for the installer work (owner, 2026-10-22):** the
 installer recognises a mounted HTTP drive as a system disk and then fails
-on `KERNEL.SYS` at once. Not investigated yet.
+on `KERNEL.SYS` at once. **FIXED (SPEC.md 62.9.17.1)**: a redirected
+volume's FIND reported every attribute as 0, and the exporter wrote 0 too, so
+the installer took `KERNEL.SYS` for a plain file and created it with
+`OSAPI_FILE_WRITE` over the hidden + system one a kept volume holds - which
+the kernel refuses (an INSTBENCH build named step 9, the first write). The
+index now carries the disk's read-only, hidden and system bits, `HTTPFS.DRV`
+stages them at the entry's +24, and the kernel reports +24 where it reported
+0 - 2 bytes of `.cold`. `tests/httpinstall.py` is the gate, and `--noattr`
+is its broken arm.
 
 **Section 6 item 2's remedies, as built:** resolve-once is ETHER.DRV's
 one-entry name cache (SPEC.md 72.5.1) and keep-alive is HTTPFS.DRV's

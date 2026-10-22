@@ -7,7 +7,8 @@
 ; here is one of index_parse's.
 ;
 ;   header, 16 bytes   'OS88IDX', 0 / dw records / dw 0 / dd serial
-;   record, 18 bytes   db[11] the FAT name / db attr (10h = a folder) /
+;   record, 18 bytes   db[11] the FAT name / db attr (10h = a folder; the
+;                      disk's own read-only, hidden and system bits too) /
 ;                      dw parent / dd size, or for a folder (first, count)
 ;
 ; Record 0 is the root; every folder's children are a contiguous run, so a
@@ -381,6 +382,9 @@ hf_stage:
     pop ax
     mov [hf_ent+18], ax         ; @18: the handle
     call hf_rec
+    mov al, [es:bx+HR_ATTR]     ; @24: the attribute, which FIND reports at
+    mov [hf_ent+24], al         ; +13 (SPEC.md 62.9.17.1) - hidden + system
+                                ; is how the installer knows KERNEL.SYS
     mov si, bx
     mov di, hf_ent
     call hf_pretty              ; @0: the name
@@ -609,6 +613,9 @@ hf_list:
     jcxz .out
 .e:
     call hf_stage
+    test byte [hf_ent+24], 0x06 ; hidden or system: a FAT listing leaves it
+    jnz .skip                   ; out (dsk_synth), so the drive does too -
+                                ; FSV_ENUM still answers it (SPEC.md 120.4)
     mov si, hf_ent              ; ES:SI - the X stub makes ES our DS
     push ax
     push cx
@@ -616,6 +623,7 @@ hf_list:
     pop cx
     pop ax
     jc .out                     ; the listing is full
+.skip:
     inc ax
     loop .e
 .out:

@@ -2448,6 +2448,19 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=600,
         wants=("build/httpmount.img", "build/httpfs.bin", "build/ether.bin",
                "build/mines.o88")),
+    Row("httpinstall", "soak", py("tests/httpinstall.py"), 35.0,
+        "SPEC.md 62.9.17.1 and 120.3: an Install whose SOURCE is the HTTP "
+        "drive, onto an IDE disk that already holds a hidden + system "
+        "KERNEL.SYS (keeping files) - the field's upgrade. The 360KB system "
+        "disk is served with its attributes in OS88.IDX plus a marker only "
+        "the served tree has; the MBR commits, the marker arrives, and every "
+        "root file is on C: with its bytes, KERNEL.SYS and the drivers hidden "
+        "+ system. Red with --noattr (the index without them): the install "
+        "stops on KERNEL.SYS and nothing commits",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
+        wants=("build/httpmount.img", "build/os8088-360.img",
+               "build/httpfs.bin", "build/mbr.bin", "build/boothd.bin",
+               "build/kernel.sys", "build/readme.txt")),
     Row("httpmount", "soak", py("tests/httpmount.py"), 105.0,
         "SPEC.md 120: HTTPFS.DRV on QEMU's NE2000, against tools/"
         "os88httpdrv.py's own server serving a fixture tree on the host. The "
@@ -2456,8 +2469,9 @@ SOAK = [
         "off it; BIG.BIN (100,001 bytes) copies to B: byte-identical with "
         "Range:, and BIG2.BIN with the server IGNORING Range:; a paste onto "
         "the drive ends FERR_WPROT; a 'CZ' file served as stored opens in "
-        "Note Pad unpacked (the read's own sniff, SPEC.md 20.14.6.1). Red with the 200 arm's offset skip taken "
-        "out (leg 6)",
+        "Note Pad unpacked (the read's own sniff, SPEC.md 20.14.6.1); a hidden + "
+        "system file is left out of the listing as on a FAT disk (62.9.17.1). "
+        "Red with the 200 arm's offset skip taken out (leg 6)",
         needs=("qemu", "nasm"), serial=True, timeout=600,
         wants=("build/httpmount.img", "build/httpfs.bin", "build/mines.o88")),
     Row("cdromsim", "soak", py("tests/cdrom.py", "--sim"), 30.0,

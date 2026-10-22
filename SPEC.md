@@ -40711,7 +40711,7 @@ at a stride of 24. `kernel/dskwin.inc` carries the `%error` for each.
 | 16  | 2    | type: 1 = loadable package, 2 = subdirectory, 3 = the parent link (§19.5), else 0 (rules below) |
 | 18  | 2    | first cluster = raw FstClusLO (word @26), copied verbatim even when type=0 (harmless; the loader only reads it behind type==1, and `dsk_chdir` only behind type==2). FstClusHI (@20) is FAT32-only per spec — ignored |
 | 20  | 4    | size in bytes = raw size dword @28, verbatim (lo word @20, hi @22 — drawn whole by `fm_ultoa`, or in K/M by `fm_szfig_x` per §22.7.1); forced to 0 for type 2 |
-| 24  | 8    | zero — and **not stored in a staged listing**: `DSK_DE_STRIDE` stops at 24, `dsk_ent` is still 32 wide, and no consumer in the tree reads these eight bytes |
+| 24  | 8    | zero — except that a `DRVC_FILE` driver's `FSV_ENUM` may put a FAT attribute byte at **+24**, which FIND reports (§62.9.17.1) — and **not stored in a staged listing**: `DSK_DE_STRIDE` stops at 24, `dsk_ent` is still 32 wide, and no consumer in the tree reads these eight bytes |
 
 **The type word** (binding — defense in depth with §21 step 1), tested in
 this order:
@@ -107596,6 +107596,37 @@ Per call it is one `drv_fs_call` in place of a directory re-read, and on a
 redirected volume it is strictly the cheaper of the two: §19.7.1's stateless
 re-seek costs the FAT arm a sector walk per entry, where the driver walks its
 own rows in RAM.
+
+##### 62.9.17.1 The attribute, at +24 of the staged entry
+
+The arm above staged attribute **0** for every redirected entry, on the
+reading that a driver's species bits live in its own rows and never cross the
+ABI. That stopped being true of the first driver whose source is a real
+system disk: `HTTPFS.DRV` (§120) serves a copy of one, and §52.10's installer
+asks FIND whether a file is hidden + system and copies it through the `_SYS`
+verbs when it is (§52.10.12). With 0 it took `KERNEL.SYS` for a plain file,
+created it with `OSAPI_FILE_WRITE` over the hidden + system one a kept
+volume already holds, and was refused — the field report was *"recognises
+the drive as a system disk, then immediately fails on KERNEL.SYS"*.
+
+So **byte +24 of the entry a driver stages for `FSV_ENUM` is a FAT-style
+attribute byte, 0 = none**, and `dsk_find_x`'s redirected arm reports it at
+the FIND record's `+13` exactly as the sector arm reports the directory
+entry's. §19.1 declares bytes 24..31 zero and no consumer reads them, and
+every driver in the tree stages a zeroed 32 bytes (`rd_stage`, `cd_ezero`,
+the cable server's `srv_blank`), so every one of them, and every copy of one
+already on a disk, answers 0 as before; nothing moved and no `DRV_VER` or
+`PKG_FMT` changed. A staged LISTING stops at `DSK_DE_STRIDE` = 24, so the
+byte is never stored there and costs no RAM.
+
+The FIND fence is unchanged: it is the sector arm's (`DL`), and the
+redirected arm has never applied it, so what a package sees on a redirected
+volume is the driver's own business — `HTTPFS.DRV` leaves hidden and system
+entries out of its `FSV_LIST` as a FAT listing does, and answers them through
+`FSV_ENUM` for the copier and the installer.
+
+**What it costs**: `xor cl, cl` became `mov cl, [dsk_ent+24]`, **+2 bytes of
+`.cold`**, resident, on both kernels that assemble `OS88_REDIR`.
 
 #### 62.9.18 A package with PARTS on a redirected volume
 
@@ -204850,10 +204881,17 @@ HTTP has no directory listing, so the server carries one, at the prefix:
 
 ```
 header, 16 bytes   'OS88IDX', 0 / dw records / dw 0 / dd serial
-record, 18 bytes   db[11] the FAT name, space padded / db attr (10h a folder)
-                   / dw parent / dd size - or for a folder, dw first child,
-                   dw child count
+record, 18 bytes   db[11] the FAT name, space padded / db attr (10h a folder,
+                   and the disk's own 01h/02h/04h) / dw parent / dd size - or
+                   for a folder, dw first child, dw child count
 ```
+
+**The attribute carries the disk's read-only, hidden and system bits**, which
+`tools/os88httpdrv.py` copies out of the image it exports (and, re-exporting
+a folder that already has an index, out of that). FIND reports them
+(§62.9.17.1), and that is not decoration: §52.10's installer copies a hidden
++ system file through the `_SYS` verbs, and `KERNEL.SYS` served as a plain
+file is refused on a kept volume, where a hidden + system one already stands.
 
 **Record 0 is the root, and every folder's children are a contiguous run.**
 A listing is therefore a slice, an ordinal is an index into it - `FSV_ENUM`'s
@@ -204885,9 +204923,9 @@ one on purpose.
 | verb | answer |
 |---|---|
 | `FSV_CHDIR` | from the index; **the root's fetches it** when none is held, because it is what every mount asks first |
-| `FSV_LIST` | the current folder's run, through `OSAPI_FS_ENT` |
+| `FSV_LIST` | the current folder's run, through `OSAPI_FS_ENT` - less its hidden and system entries, which a FAT listing leaves out too |
 | `FSV_STAT` | the current folder's run, by FAT name: the handle, the size, `BL` = 10h a folder / 0 |
-| `FSV_ENUM` | the *n*th of a named folder's run |
+| `FSV_ENUM` | the *n*th of a named folder's run, hidden and system ones included, with the record's attribute at the entry's +24 (§62.9.17.1) |
 | `FSV_READ` | **one GET**; `FERR_BIG` past the capacity, before the request. The body must be the index's size to the byte - a tree replaced under a mounted index fails rather than handing over another file |
 | `FSV_READAT` | **one GET with `Range:`**. A 206 must say it starts at the offset asked and carry the length asked. A 200 has IGNORED the range: the body is the whole file, so the offset is drained and the handle dropped after the bytes wanted - correct on any server, slow only on one that will not range |
 | `FSV_DFREE` | 0 bytes free, granule 512 |

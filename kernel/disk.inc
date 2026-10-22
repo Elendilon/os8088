@@ -7597,12 +7597,15 @@ dsk_find_x:
     ; ...AND FSV_ENUM's ANSWER ARRIVES HERE (SPEC.md 62.9.17), with dsk_ent
     ; already staged by the driver. There is no raw entry behind it, so the
     ; two fields the sector arm reads out of one come from the staged form
-    ; instead: the size is dsk_ent's own dword, and the attribute is 0 -
-    ; which is what a redirected volume's entries are, the species bits
-    ; living in the driver's row and never on this side of the ABI.
+    ; instead: the size is dsk_ent's own dword, and the attribute is +24,
+    ; the first of the eight bytes SPEC.md 19.1 declares zero (62.9.17.1).
+    ; Every driver stages a zeroed 32 bytes, so one with no species bits
+    ; answers 0 as before - and one that has them (HTTPFS.DRV, whose index
+    ; carries the disk's own) lets the installer see that KERNEL.SYS is a
+    ; SYSTEM file, which it copies through the _SYS verbs (52.10.12)
     mov ax, [dsk_ent+20]
     mov dx, [dsk_ent+22]
-    xor cl, cl
+    mov cl, [dsk_ent+24]
 .staged:
     push ax
     push dx

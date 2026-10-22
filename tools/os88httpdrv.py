@@ -54,6 +54,7 @@ IDX_HDR = 16
 IDX_REC = 18
 HF_MAXREC = 896                 # HTTPFS.DRV's: one 16 KB claim (SPEC.md 120.3)
 A_DIR = 0x10
+A_KEEP = 0x07                   # read-only, hidden, system: what FIND reports
 # The characters a name may carry: FAT's own set less lower case, which is
 # what the kernel's listing sanitizer passes (SPEC.md 19.1). HTTPFS.DRV
 # refuses an index with anything else in a name.
@@ -111,8 +112,11 @@ def pretty(r11):
 
 
 # --- the index ---------------------------------------------------------------
-def index_build(tree, serial=0):
-    """tree: {name: bytes | dict} -> the OS88.IDX bytes.
+def index_build(tree, serial=0, attrs=None):
+    """tree: {name: bytes | dict} -> the OS88.IDX bytes. attrs: {'APPS/X.O88':
+    the FAT attribute's read-only, hidden and system bits}, which the drive
+    hands FIND (SPEC.md 62.9.17.1) - the installer copies a hidden + system
+    file through the _SYS verbs, and KERNEL.SYS with no bits is refused.
 
     Breadth first, each folder's children CONTIGUOUS and sorted by name, so a
     folder's listing is a slice (first, count) and every parent sits below its
@@ -141,13 +145,14 @@ def index_build(tree, serial=0):
             if r is None:
                 fail("%s%s is not an 8.3 name the drive can list" % (where, n))
             child = node[n]
+            a = (attrs or {}).get((where + n)[1:], 0) & A_KEEP
             if isinstance(child, dict):
                 queue.append((len(recs), child, where + n + "/"))
-                recs.append([r, A_DIR, idx, 0, 0])
+                recs.append([r, A_DIR | a, idx, 0, 0])
             else:
                 if len(child) > 0xFFFFFFFF:
                     fail("%s%s is over 4GB" % (where, n))
-                recs.append([r, 0, idx, len(child) & 0xFFFF, len(child) >> 16])
+                recs.append([r, a, idx, len(child) & 0xFFFF, len(child) >> 16])
     if len(recs) > HF_MAXREC:
         fail("%d records, and HTTPFS.DRV holds %d (one 16 KB claim)" % (len(recs), HF_MAXREC))
     out = bytearray(IDX_MAGIC + struct.pack("<HHI", len(recs), 0, serial))
@@ -208,6 +213,18 @@ def index_paths(recs):
 
 
 # --- sources -------------------------------------------------------------------
+def attrs_from_idx(path):
+    """A folder that already carries an OS88.IDX (an export, uploaded) keeps
+    the attributes it was exported with: a host file system has nowhere else
+    to hold FAT's hidden and system bits."""
+    try:
+        recs = index_parse(open(os.path.join(path, IDX_NAME), "rb").read())
+    except (OSError, ValueError):
+        return {}
+    return {p: recs[i][1] & A_KEEP for i, p in index_paths(recs).items()
+            if i and recs[i][1] & A_KEEP}
+
+
 def tree_from_dir(path):
     t = {}
     for n in sorted(os.listdir(path)):
@@ -221,8 +238,9 @@ def tree_from_dir(path):
     return t
 
 
-def tree_from_img(path):
-    """A FAT12 floppy image, whole: every folder walked."""
+def tree_from_img(path, attrs=None):
+    """A FAT12 floppy image, whole: every folder walked. attrs, when given,
+    collects each entry's read-only, hidden and system bits by path."""
     from os88fat import Fat12
     v = Fat12(path)
     csz = v.spc * v.bps
@@ -233,7 +251,7 @@ def tree_from_img(path):
         return b"".join(bytes(v.img[v.cluster_off(c):v.cluster_off(c) + csz])
                         for c in v.chain(first))[:size]
 
-    def walk(raw):
+    def walk(raw, where=""):
         t = {}
         for o in range(0, len(raw), 32):
             e = raw[o:o + 32]
@@ -243,10 +261,12 @@ def tree_from_img(path):
                 continue                        # deleted, label, . and ..
             name = Fat12.pretty(e[:11])
             first = struct.unpack_from("<H", e, 26)[0]
+            if attrs is not None and e[11] & A_KEEP:
+                attrs[where + name] = e[11] & A_KEEP
             if e[11] & A_DIR:
                 d = b"".join(bytes(v.img[v.cluster_off(c):v.cluster_off(c) + csz])
                              for c in v.chain(first)) if first else b""
-                t[name] = walk(d)
+                t[name] = walk(d, where + name + "/")
             else:
                 t[name] = body(first, struct.unpack_from("<I", e, 28)[0])
         return t
@@ -255,9 +275,11 @@ def tree_from_img(path):
 
 
 def load(src):
+    """-> (tree, attrs)"""
     if os.path.isdir(src):
-        return tree_from_dir(src)
-    return tree_from_img(src)
+        return tree_from_dir(src), attrs_from_idx(src)
+    attrs = {}
+    return tree_from_img(src, attrs), attrs
 
 
 def write_tree(tree, out):
@@ -272,9 +294,9 @@ def write_tree(tree, out):
 
 
 def export(src, out):
-    tree = load(src)
+    tree, attrs = load(src)
     serial = 0
-    idx = index_build(tree, serial)
+    idx = index_build(tree, serial, attrs)
     os.makedirs(out, exist_ok=True)
     write_tree(tree, out)
     with open(os.path.join(out, IDX_NAME), "wb") as f:
@@ -398,6 +420,11 @@ def selfcheck():
     assert sorted(p for p in paths.values() if p) == sorted([
         "APPS", "DEEP", "EMPTY", "README.TXT", "APPS/A.O88", "APPS/B.TXT",
         "DEEP/ONE", "DEEP/ONE/TWO", "DEEP/ONE/TWO/F.BIN"]), paths
+    # the attributes ride the index, and only the three FIND reports
+    ia = index_parse(index_build(tree, 0, {"README.TXT": 0x27, "APPS/B.TXT": 6}))
+    got = {p: ia[i][1] for i, p in index_paths(ia).items() if i}
+    assert got["README.TXT"] == 0x07 and got["APPS/B.TXT"] == 6, got
+    assert got["APPS"] == A_DIR and got["APPS/A.O88"] == 0, got
     # every refusal the driver makes is one this reader makes
     bad = bytearray(idx)
     bad[0] = ord("X")
@@ -433,6 +460,10 @@ def selfcheck():
         write_tree(tree, d)
         open(os.path.join(d, IDX_NAME), "wb").write(idx)
         check(d)
+        open(os.path.join(d, IDX_NAME), "wb").write(
+            index_build(tree, 0, {"APPS/B.TXT": 6}))
+        assert attrs_from_idx(d) == {"APPS/B.TXT": 6}   # an upload re-exported
+        open(os.path.join(d, IDX_NAME), "wb").write(idx)
         for ranges in (True, False):
             box = {}
             ev = threading.Event()

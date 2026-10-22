@@ -116,7 +116,11 @@ def fixture():
         "DOCS": {"NOTE.TXT": b"one\r\n", "DEEP": {"DEEPER.TXT": b"two\r\n"}},
         "EMPTY": {},
         "PACKED.TXT": PACKED,
+        "HIDDEN.SYS": b"hidden and system: listed by no Disk window\r\n",
     }
+
+
+ATTRS = {"HIDDEN.SYS": 0x06}    # SPEC.md 62.9.17.1: the root lists without it
 
 
 class Stop(Exception):
@@ -276,6 +280,8 @@ def want_names(recs, folder):
     out = []
     for i in range(first, first + count):
         name, attr = recs[i][0], recs[i][1]
+        if attr & 0x06:
+            continue                    # hidden or system: FSV_LIST skips it
         pn = os88httpdrv.pretty(name)
         t = 2 if attr & 0x10 else (1 if pn.endswith(".O88") else 0)
         out.append((pn, t))
@@ -346,7 +352,7 @@ def main():
         fix = os.path.join(web, "fix")
         os.makedirs(fix)
         os88httpdrv.write_tree(tree, fix)
-        idx = os88httpdrv.index_build(tree)
+        idx = os88httpdrv.index_build(tree, 0, ATTRS)
         open(os.path.join(fix, os88httpdrv.IDX_NAME), "wb").write(idx)
         os88httpdrv.check(fix)
         recs = os88httpdrv.index_parse(idx)
