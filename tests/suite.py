@@ -2459,7 +2459,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/os8088-360.img", "build/apps360.img",
                "build/timer.bin")),
-    Row("dragui", "soak", py("tests/dragui.py"), 60.0,
+    Row("dragui", "soak", py("tests/dragui.py"), 15.0,
         "SPEC.md 11.96.12.0: every control a package laid out answers where "
         "its window IS after a drag, which replays the window and paints "
         "nothing - so the package re-places from the live origin at the "
