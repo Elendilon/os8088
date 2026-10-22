@@ -9905,7 +9905,11 @@ against the baseline on both kernels.
    `games360.img` still carry it - DrMarco's shape. An owner call. 14.66's
    arms, merged after, took VIDEO.O88 down 3 clusters; the disk is 669 of
    713 without WireFleet and would be 716 with it, so the call stands -
-   put to the owner with the disk's listing, their pick pending.
+   put to the owner with the disk's listing. **The owner's pick (2026-10-22):
+   WireFleet goes back and `OS8088.V88` comes off** - 101 clusters of data
+   the 720KB SYSTEM disk already carries in its own `MEDIA/`, so the pair
+   loses nothing. 615 of 713. A third primary 720KB disk, for what the 720KB
+   pair leaves off, is the owner's next call.
 2. **SERIAL.DRV wrote its own image through CS thirteen times** (`.mods`,
    `srl_open` and `srl_close`), which faults in protected mode on a real 286.
    All thirteen are `CSDO` now: byte-identical off kern_mega, +7 bytes each

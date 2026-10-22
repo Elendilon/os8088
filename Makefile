@@ -14769,9 +14769,14 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # geometry's apps disk and games360.img still carry it. 14.66's package arms
 # took VIDEO.O88 back down by 3, and the disk is 669 of 713 without it: with
 # it, 716 - still three over.
-APPS720 := $(filter-out $(BUILD)/pixel.o88 $(BUILD)/wireflet.o88,$(APPS))
-APPSARGS720 := $(filter-out $(MIDISONGARGS) \
-                 APPS:$(BUILD)/pixel.o88 GAMES:$(BUILD)/wireflet.o88 \
+# ...SO WIREFLEET IS BACK AND THE DEMO VIDEO IS OFF (the owner's decision of
+# 2026-10-22, KERN-MEGA-PLAN 14.67): OS8088.V88 is 101 clusters, data rather
+# than software, and the Video Player plays any .V88 the user brings. It is
+# meant for a third primary 720KB disk, content not yet decided, which is to
+# carry what the 720KB system and apps disks leave off.
+APPS720 := $(filter-out $(BUILD)/pixel.o88,$(APPS))
+APPSARGS720 := $(filter-out $(MIDISONGARGS) $(LOGOVIDARG) \
+                 APPS:$(BUILD)/pixel.o88 \
                  $(addprefix GAMES:,$(DM_SHIP)),$(APPSARGS))
 APPSARGS720 := $(filter-out $(APPDATAFOLDER),$(APPSARGS720)) \
                $(MIDISONGARGS720) $(APPDATAFOLDER)
@@ -14833,7 +14838,7 @@ $(BUILD)/megaapps120.img: $(MEGAPKGS) $(MEGAAPPS) $(LOGOVID) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1200 $(MEGAAPPSARGS)
 	@echo "megaapps: $@ - pair it with build/mega120.img (\`make mega\`)"
 
-$(APPSIMG720): $(APPS720) $(LOGOVID) tools/os88disk.py
+$(APPSIMG720): $(APPS720) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 $(APPSARGS720)
 
 $(APPSIMG360): $(APPS360) tools/os88disk.py
