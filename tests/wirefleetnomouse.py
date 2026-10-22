@@ -13,7 +13,8 @@ verdict back to "nobody has spoken" - [mou_seen], [mou_hpst], [mou_ident],
 every later gesture with the keypad and Space, the way the field machine has
 to. The real mouse is never moved again.
 
-What it asserts, in 115.1.1's order:
+What it asserts, after a first leg with the BIOS COM slots swapped (a
+Compaq's order, 115.1) - and then in 115.1.1's order:
   1. an AUTOMATIC search with no evidence is refused 2 and says how to name
      the port (rule 5) - the lease stays closed;
   2. Link > Connect COM2 is the user naming it, and is TAKEN (rule 2). This is
@@ -55,6 +56,21 @@ def main():
 
         wait(lambda: val('linkopen') == 1 and val('curport') == 2,
              'automatic search leased COM2 with the mouse settled')
+
+        # 0. The Compaq Portable III's BIOS lists its COM bases in SETUP's
+        #    order: swap the two BIOS slots and Connect COM2 (2F8, the free
+        #    port here) must still be taken - it was refused "no UART".
+        m.pause()
+        bda = m.read(0x400, 4)
+        m.write(0x400, struct.pack('<HH', 0x2f8, 0x3f8))
+        m.run()
+        ui.menu_pick('Link', 'Connect COM2')
+        wait(lambda: val('linkopen') == 1 and val('curport') == 2,
+             'Connect COM2 taken with the BIOS listing 2F8 in slot 0')
+        assert val('message', 2) == sy['wf_searching'], hex(val('message', 2))
+        m.pause()
+        m.write(0x400, bda)
+        m.run()
 
         # The machine with no serial mouse. Paused, so no pass sees half of it.
         m.pause()

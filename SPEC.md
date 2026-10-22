@@ -207965,7 +207965,8 @@ First to 11 wins, without a win-by-two requirement.
 
 ### 109.1 Port lifetime
 
-Serial play borrows the BIOS-advertised standard COM1/COM2 UARTs only inside
+Serial play borrows the BIOS-advertised standard COM1/COM2 UARTs (3F8h and
+2F8h, listed in any of the four BIOS COM slots, §115.1) only inside
 the exclusive bracket, where all other tasks are frozen. It saves each UART's
 LCR, IER, divisor and MCR, masks IRQ3/IRQ4 (the mouse ISR scans both UARTs),
 and polls at 2400 baud, 8N1, without hardware flow control. Presence is tested
@@ -213151,7 +213152,9 @@ Open, ignored for the other verbs. Every operation is bound to the calling
 instance. A winning serial mouse's port is never eligible. Until the mouse
 contest is settled, Open decides per port (§115.1.1) and otherwise refuses
 with a distinct error; the caller tells the user to name the port or move
-the mouse. Nonstandard or unadvertised bases are refused.
+the mouse. Nonstandard or unadvertised bases are refused: COM1 is 3F8h and
+COM2 is 2F8h whichever BIOS COM slot (0040:0000-0006) lists them, because a
+Compaq lists them in its SETUP's order rather than IBM's.
 
 | AL | verb | arguments and result |
 |---|---|---|

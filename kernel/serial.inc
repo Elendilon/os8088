@@ -248,12 +248,21 @@ srl_open:
     mov ax, [bx+mou_bases]
     or ax, ax
     jz .absent
-    push es
-    mov bp, 0x40
-    mov es, bp
-    cmp ax, [es:bx]
+    push es                     ; ADVERTISED, in ANY of the four BIOS COM
+    mov bp, 0x40                ; slots: a Compaq lists them in its SETUP's
+    mov es, bp                  ; order, not IBM's 3F8-then-2F8 (115.1)
+    xor bp, bp
+.bda:
+    cmp ax, [es:bp]
+    je .listed
+    inc bp
+    inc bp
+    cmp bp, 8
+    jb .bda
     pop es
-    jne .absent
+    jmp .absent
+.listed:
+    pop es
     cmp byte [mou_hpst], 2
     jne .unsettled
     cmp bl, [mou_port]
