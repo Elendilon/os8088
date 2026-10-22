@@ -805,6 +805,24 @@ kind = "folder"
 summary = "The Apple II Plus program, its README, its licence and a BASIC program to load."
 short = "Apple II Plus and extras"
 
+["REALDMG.O88"]
+title = "RealDMG"
+kind = "program"
+summary = "A Game Boy in a window or on the whole screen: play your own .GB cartridges, with battery saves, save states and replays."
+short = "Game Boy emulator"
+
+["REALDMG/"]
+title = "RealDMG"
+kind = "folder"
+summary = "The RealDMG Game Boy program, its README and the project's own demo cartridge."
+short = "RealDMG and its demo"
+
+["GBDEMO.GB"]
+title = "RealDMG demo"
+kind = "document"
+summary = "The project's own Game Boy cartridge: a bouncing ball, a clock and a blip on every landing. Double-click it to run it in RealDMG."
+short = "Demo Game Boy cartridge"
+
 ["C64.O88"]
 title = "Commodore 64"
 kind = "program"

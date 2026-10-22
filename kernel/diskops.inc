@@ -2456,7 +2456,7 @@ clo_issrc:
     mov cx, 256
     cld
     repe cmpsw
-    mov ax, KERNEL_SEG
+    KDATAR_M ax
     mov ds, ax                  ; DS back before the flags are read: `mov`
     jne .no                     ; leaves them alone, and this is the one
     clc                         ; every byte the same: it IS the source disk
@@ -2884,20 +2884,23 @@ clo_free:
 ; The claim, MEM_K_IMG, is NOT [clo_seg]: a mount outlives this image, which
 ; fm_img_open drops the moment this verb returns. Its layout is SPEC.md
 ; 18.101.1's - the first eight bytes and the runs are what dsk_xfer reads -
-; plus the file's NAME, its FOLDER and three bytes at the END that only this
-; file reads - which is what lets an unmount start from the VOLUME (Disk >
-; Unmount Image) as well as from the file (a second double-click).
-IMG_KB       equ 1
-IMG_M_NAME   equ IMG_KB*1024 - 19  ; 13 bytes: the file's 8.3 name on its host
-IMG_M_DIR    equ IMG_KB*1024 - 6   ; dw: the folder that holds it (0 = root)
-IMG_M_CLUS   equ IMG_KB*1024 - 4   ; dw: the file's first cluster on its host
-IMG_M_ATTR   equ IMG_KB*1024 - 2   ; db: its attribute byte before the mount
-IMG_M_RES    equ IMG_KB*1024 - 1   ; db: ...and its byte 12 before the mount
+; plus the file's NAME, its FOLDER and its first CLUSTER at the END (IMG_M_*,
+; disk.inc, because dskw_imgro reads the cluster too) - which is what lets an
+; unmount start from the VOLUME (Disk > Unmount Image) as well as from the
+; file (a second double-click).
+;
+; NOTHING ABOUT A MOUNT IS WRITTEN TO THE FILE (SPEC.md 18.101.3). Its entry
+; is read-only while it is a drive only in the copy the FAT layer stages to
+; refuse a write (dskw_imgro), so a machine switched off or restarted under
+; a mount leaves the file as it found it, and a mount or unmount on a
+; write-protected host writes nothing.
 IMG_TABMAX   equ IMG_M_NAME - 2    ; the sentinel's word must fit below these
-IMG_MARK     equ 0xC1              ; byte 12 of a mounted file's entry: the
-                                   ; reserved byte DOS ignores. Bits 3 and 4
-                                   ; are NT's lower-case flags and are clear,
-                                   ; so no other system reads the name wrongly
+IMG_MARK     equ 0xC1              ; byte 12 of a file an EARLIER kernel
+                                   ; mounted: read-only plus this was its
+                                   ; on-disk mark, and a machine that stopped
+                                   ; under the mount left both. A mount now
+                                   ; takes that pair for the stale marker it
+                                   ; is - writable - and clears it
 IMG_LBLMAX   equ 5                 ; IMG_DVSEG's rule (disk.inc)
 DSKW_RDO_M   equ 1                 ; = diskw.inc's DSKW_RDO
 DE_ATTR      equ 11                ; a raw entry's attribute byte...
@@ -2937,11 +2940,9 @@ clo_mntdlg:
 ;      way out, which is where the caller sends the window
 ; clobbers: clo_mount's
 ;
-; The claim names the file (IMG_M_NAME, IMG_M_DIR), so the host goes current,
-; the entry is staged by NAME and checked by CLUSTER, and the rest is the
-; double-click's own eject. A file that is no longer where the mount found it
-; still unmounts: the row and the claim go, and only the attribute is left as
-; it was - which the next mount reads as the stale marker it then is.
+; The claim names the file's folder (IMG_M_DIR), so the host goes current -
+; where the caller sends the window - and the rest is the double-click's own
+; eject. The file itself is not touched: nothing was written to it
 ; -----------------------------------------------------------------------------
 clo_unmntw:
     mov di, [fm_vp]
@@ -2953,9 +2954,9 @@ clo_unmnt:
                                 ; DESK_SVZ, which is DVOL_MAX, and FS_DRV is a
                                 ; volume; the range test here was a third)             ; BX = its row, ZF = 1 if it is an image's
     jne .not
-    mov [cs:clo_mvol], al
+    CSDO mov [CSEG clo_mvol], al
     mov ax, [bx+IMG_DVSEG]
-    mov [cs:clo_mseg], ax
+    CSDO mov [CSEG clo_mseg], ax
     push ds
     pop es                      ; ES = the kernel's DS...
     mov si, IMG_M_NAME
@@ -2965,29 +2966,20 @@ clo_unmnt:
     mov ds, ax                  ; ...and DS = the claim, for one move
     rep movsb
     pop ds
-    call clo_mhost              ; the host current, the entry staged, ES =
-    jc .gone                    ; the claim, BX = the file's first cluster
-    cmp bx, [es:IMG_M_CLUS]     ; ...and it is still THE file the mount found
-    je clo_umount.st
-.gone:
-    jmp clo_umount.drop
+    call clo_mhost              ; the host current (CF unread: a file that
+    jmp short clo_umount.drop   ; is gone or moved still unmounts)
 .not:
     jmp clo_mount.out
 
 ; -----------------------------------------------------------------------------
-; clo_umount - the eject: ES = the claim, AL = its volume, the host current
-; and the file's entry staged by the stat clo_mount just made. Jumped to, and
-; ABOVE clo_mount so that its `jnc` reaches it short; it leaves through
-; clo_mount's own exit
+; clo_umount - the eject: ES = the claim, AL = its volume, the host current.
+; Jumped to, and ABOVE clo_mount so that its `jnc` reaches it short; it leaves
+; through clo_mount's own exit
 ; -----------------------------------------------------------------------------
 clo_umount:
-    mov [cs:clo_mvol], al
-    mov [cs:clo_mseg], es
-.st:                            ; (clo_unmnt's: both cells already stored)
-    mov ax, [es:IMG_M_ATTR]     ; the attribute and byte 12 as they were
-    mov [dskw_raw+DE_ATTR], ax  ; (adjacent in both: asserted below)
-    call clo_mstore
-.drop:                          ; (clo_unmnt's, for a file no longer there)
+    CSDO mov [CSEG clo_mvol], al
+    CSDO mov [CSEG clo_mseg], es
+.drop:                          ; (clo_unmnt's: both cells already stored)
     call clo_mdrop
     mov si, clo_s_mun           ; 'TEST.IMG unmounted': the name, the tail,
     call clo_msname             ; and the toast - clo_msay2's last step, which
@@ -3005,8 +2997,8 @@ clo_umount:
 ; KERNEL SIZE PASS 12 took the working cells out. The folder is [dsk_cwd],
 ; which dsk_goto (or the dialog, for CLV_MNTDLG) left current and nothing
 ; between that and the claim moves; the sector count rides SI into clo_mruns
-; and the row; and the attribute, byte 12 and the read-only flag go STRAIGHT
-; into the claim, which is claimed before they are decided rather than after.
+; and the row; and the read-only flag goes STRAIGHT into the claim, which is
+; claimed before it is decided rather than after.
 ; What is left in this image's own cells is the claim and the volume, which
 ; the unmount half needs and nothing else can name. The error tail sits in
 ; the MIDDLE, between the checks and the build, so that every refusal on
@@ -3095,17 +3087,15 @@ clo_mount:
     pop si                      ; SI = the sectors, from here to the row
     jc .nomem
     mov es, dx
-    mov [cs:clo_mseg], dx
+    CSDO mov [CSEG clo_mseg], dx
     xchg ax, di                 ; AL = the attribute, AH = byte 12
     mov cx, ax                  ; CX = IMG_FLG: the attribute's read-only
     and cx, IMGF_RO             ; bit IS IMGF_RO (asserted below), so the
     jz .rw                      ; USER's read-only is honoured as it stands
-    cmp ah, IMG_MARK            ; ...unless it is read-only AND ours: a mount
-    jne .rw                     ; the machine stopped under. Writable, and
-    and ax, 0x00FF & ~DSKW_RDO_M    ; byte 12 and the bit both cleared, which
-    dec cx                      ; is what the next unmount restores
+    cmp ah, IMG_MARK            ; ...unless it is read-only AND an earlier
+    jne .rw                     ; kernel's mark: writable, and cleared once
+    dec cx                      ; the mount is proved (below)
 .rw:
-    xchg ax, dx                 ; DX = the word the unmount puts back
     push si
     mov si, disk_drive          ; the HOST's transport, in dsk_img_swap's
     xor di, di                  ; order - volume, spt, heads, five adjacent
@@ -3113,17 +3103,14 @@ clo_mount:
     mov cx, 5                   ; flag after them: IMG_FLG is 5
     rep movsb
     stosb
-    mov si, clo_fnbuf           ; the name, its folder, its first cluster and
-    mov di, IMG_M_NAME          ; the attribute word, which are ADJACENT at
-    mov cl, 13                  ; the claim's top in that order (asserted
-    rep movsb                   ; below): kept for the unmount that starts
-    mov ax, [dsk_cwd]           ; from the volume - and for clo_mhost, which
-    stosw                       ; goes back to them
+    mov si, clo_fnbuf           ; the name, its folder and its first
+    mov di, IMG_M_NAME          ; cluster, which are ADJACENT at the claim's
+    mov cl, 13                  ; top in that order (asserted below): kept
+    rep movsb                   ; for the unmount that starts from the
+    mov ax, [dsk_cwd]           ; volume, for clo_mhost, which goes back to
+    stosw                       ; them, and - the cluster - for dskw_imgro
     xchg ax, bx
-    stosw
-    xchg ax, dx
-    stosw
-    xchg ax, dx                 ; AX = the first cluster
+    stosw                       ; AX = the first cluster
     pop si
     call clo_mruns              ; CF = 1 too fragmented, or a broken chain
     jc .badrun
@@ -3135,7 +3122,7 @@ clo_mount:
     xor dx, dx                  ; found by IMG_DVSEG and never by DV_UNIT
     CLO_KCALL dsk_vol_add       ; AL = the volume, CF = no row free
     jc .full
-    mov [cs:clo_mvol], al
+    CSDO mov [CSEG clo_mvol], al
     call clo_mrowal             ; BX = its row (ZF unread: it is ours)
     mov [bx+IMG_DVSEG], es      ; ...and now dsk_xfer can serve it
     lea di, [bx+DV_LBL]         ; the desktop label: the name up to its dot,
@@ -3154,13 +3141,15 @@ clo_mount:
     xor bx, bx
     call COLD_SEG:dskf_dsk_goto ; AL = the volume, BX = its root
     jc .notfat
-    ; --- mark the file, on its host, now the mount is known good -----------
-    call clo_mhost              ; the host current again, the entry staged,
-    jc .marked                  ; ES = the claim. A failure here only leaves
-    test byte [es:IMG_FLG], IMGF_RO     ; it unmarked
-    jnz .marked                 ; the user's read-only is mark enough
-    or byte [dskw_raw+DE_ATTR], DSKW_RDO_M
-    mov byte [dskw_raw+DE_RES], IMG_MARK
+    ; --- the host current again, and an EARLIER kernel's mark cleared -----
+    call clo_mhost              ; the entry staged, ES = the claim. Nothing is
+    jc .marked                  ; written to the file unless it carries the
+    cmp byte [dskw_raw+DE_RES], IMG_MARK    ; read-only + IMG_MARK pair a
+    jne .marked                 ; machine that stopped under an old mount
+    test byte [dskw_raw+DE_ATTR], DSKW_RDO_M    ; left (SPEC.md 18.101.3) -
+    jz .marked                  ; and then once, for good. A failure only
+    and byte [dskw_raw+DE_ATTR], ~DSKW_RDO_M & 0xFF ; leaves it marked
+    mov byte [dskw_raw+DE_RES], 0
     call clo_mstore
 .marked:
     mov si, clo_s_mis
@@ -3176,6 +3165,11 @@ clo_mount:
 ; in:  BX = its first cluster, the host current
 ; out: CF = 0, AL = the image's volume, ES = its claim; CF = 1 it is not
 ; clobbers: AX, SI, flags - DX:CX, the size, is the caller's next question
+;
+; The host and the first cluster are the identity, as they are to dskw_imgro:
+; a floppy swapped under the mount holding a file at the same cluster is
+; taken for it, and the double-click is an eject rather than a second mount
+; of the same drive - the next one mounts it
 ; -----------------------------------------------------------------------------
 clo_mfind:
     push bx
@@ -3193,14 +3187,8 @@ clo_mfind:
     cmp ah, [es:0]
     jne .next
     cmp si, [es:IMG_M_CLUS]
-    jne .next
-    cmp byte [dskw_raw+DE_RES], IMG_MARK    ; ...and the ENTRY says so: a
-    je .out                     ; different disk in the same floppy drive
-                                ; could hold a file at the same cluster. CF =
-                                ; 0, the `cmp` having been EQUAL
-    test byte [es:IMG_FLG], IMGF_RO     ; the user's read-only is never
-    jz .next                    ; marked, so it is matched on the rest - and
-.out:                           ; `test` leaves CF = 0
+    jne .next                   ; CF = 0 out of an EQUAL compare
+.out:
     pop bx
     ret
 
@@ -3330,7 +3318,7 @@ clo_msname:
 
 ; clo_mtoast - one of this image's strings, SI, as a toast
 clo_mtoast:
-    push cs
+    PUSH_CSDATA
     pop es
 .es:
     xor cx, cx
@@ -3346,11 +3334,11 @@ clo_s_mhost: db 'Cannot mount from here', 0
 ; this image's own working cells (a module may write to itself, SPEC.md 2.8)
 clo_mseg:    dw 0               ; the claim
 clo_mvol:    db 0               ; ...and the volume it is
-%if IMG_M_RES - IMG_M_ATTR != 1 || DE_RES - DE_ATTR != 1
-  %error "clo_mount moves the attribute and byte 12 as ONE WORD, both ways"
+%if DE_RES - DE_ATTR != 1
+  %error "clo_mount reads the attribute and byte 12 as ONE WORD"
 %endif
-%if IMG_M_NAME + 13 != IMG_M_DIR || IMG_M_DIR + 2 != IMG_M_CLUS || IMG_M_CLUS + 2 != IMG_M_ATTR
-  %error "clo_mount stores the name, folder, cluster and attribute word as ONE ascending run"
+%if IMG_M_NAME + 13 != IMG_M_DIR || IMG_M_DIR + 2 != IMG_M_CLUS || IMG_M_CLUS + 2 != IMG_KB*1024
+  %error "clo_mount stores the name, folder and cluster as ONE ascending run to the claim's top"
 %endif
 %if IMG_FLG != 5
   %error "clo_mount lays IMG_FLG straight after the five transport bytes"

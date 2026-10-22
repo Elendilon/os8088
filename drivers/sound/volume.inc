@@ -61,8 +61,13 @@ volume_popup:
     push bp
     push es
     mov ax, es
-    cmp ax, KERNEL_SEG          ; this private UI is only entered by the bar
-    jne .out
+    cmp ax, KERNEL_SEG          ; this private UI is only entered by the bar:
+    ja .out                     ; ES is the kernel's - KERNEL_SEG, or under
+                                ; kern_mega's protected mode its data alias
+                                ; MEGA_SEL_KDATA (10h), which `jne` refused,
+                                ; so the speaker opened nothing there. A
+                                ; package's ES is its own segment or a pool
+                                ; selector, never at or below 60h
     cmp byte [mix_kind], 0
     je .out
     cmp byte [volume_live], 0

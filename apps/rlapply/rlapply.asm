@@ -27,7 +27,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'RLAPPLY', ra_entry, OS88_F_ICON
+    OS88_HEADER 'RLAPPLY', ra_entry, OS88_F_ICON, OS88_HIGH | OS88_HIGHMEM
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; A chip seen from above - its notch, four pins a side - with a check mark on

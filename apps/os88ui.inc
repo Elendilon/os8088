@@ -445,9 +445,10 @@ OS88UI_OWN equ 128              ; THE PACKAGE PAINTS THIS ONE (SPEC.md 13.8.10).
 ; the drawn control and the clickable control are ONE description, which is
 ; SPEC.md 22's fm_hit discipline arriving at the control it was written about.
 OS88UI_BT_RECTS  equ 0          ; near ptr: 4-word INCLUSIVE screen rects,
-                                ; filled by YOUR painter from OSAPI_WM_CONTENT
-                                ; every pass, because a window MOVES and does
-                                ; not call its paint proc when it does
+                                ; filled by YOUR painter from OSAPI_WM_CONTENT.
+                                ; A window MOVES and does not call its paint
+                                ; proc when it does - and the library moves
+                                ; the rects with it (SPEC.md 20.5.1.3.5)
 OS88UI_BT_LABELS equ 2          ; near ptr: an array of near ptrs to NUL labels
 OS88UI_BT_FLAGS  equ 4          ; near ptr: an array of flag WORDS, or 0 for
                                 ; none at all - which is the common case, so
@@ -475,7 +476,17 @@ OS88UI_BT_NEXT   equ 14         ; THE LIBRARY'S: the next record of this
                                 ; number of windows. A LIST and not a table
                                 ; because Sheet has five dialogs and a table
                                 ; would have a limit to get wrong
-OS88UI_BT_SIZE   equ 16
+OS88UI_BT_OX     equ 16         ; THE LIBRARY'S, all four (SPEC.md
+OS88UI_BT_OY     equ 18         ; 20.5.1.3.5): the content origin the rects
+OS88UI_BT_FX     equ 20         ; were last seen at, and the first rect's
+OS88UI_BT_FY     equ 22         ; x1,y1 then - so a window DRAGGED since, which
+                                ; is replayed and never painted (SPEC.md
+                                ; 11.96.12.0), has its rects moved with it
+                                ; before they are drawn or hit-tested. Only a
+                                ; record os88ui_btninit names a window for is
+                                ; ever rebased; the kernel's own record stops
+                                ; at OS88UI_BT_OX
+OS88UI_BT_SIZE   equ 24
 
 ; OS88UI_BTNREC declares a group's record and lives in apps/os88api.inc, not
 ; here: a macro is PREPROCESSOR-time and must be defined before it is used,
@@ -540,6 +551,17 @@ OS88UI_BT_SIZE   equ 16
  %endif
  %define OS88UI_NOBTNINIT       ; the gesture's two halves, both out (below)
 %endif
+; --- OS88UI_REBASE: the rects follow a DRAGGED window (SPEC.md 20.5.1.3.5) ---
+; Wherever os88ui_btninit is, because that is what names the record's window:
+; every package with buttons, minus OS88UI_NOBTNINIT (and so OS88UI_NOGEST),
+; and never the kernel, whose dialogs place their own rects at every pass.
+%ifndef OS88UI_KERNEL
+ %ifndef OS88UI_NOBTN
+  %ifndef OS88UI_NOBTNINIT
+   %define OS88UI_REBASE
+  %endif
+ %endif
+%endif
 ; --- OS88UI_NOBTNINIT - the gesture's SETUP half out, its PRESS half kept ----
 ; (apps size pass 2b, SPEC.md 20.5.1.3.4). The gesture is two halves and
 ; OS88UI_NOGEST takes out both: the SETUP half - os88ui_btninit, the library's
@@ -584,6 +606,9 @@ OS88UI_BT_SIZE   equ 16
 ; adjustment and no separate "is anything armed" flag to keep in step.
 ; -----------------------------------------------------------------------------
 os88ui_btn:
+%ifdef OS88UI_REBASE
+    call os88ui_brebase         ; the rects where the window IS (20.5.1.3.5)
+%endif
     push ax
     push bx
     push cx
@@ -1387,10 +1412,11 @@ OS88UI_GW     equ 12            ; both are 12 x 12
 ;                       they were 2.6 ms of a picked radio on the field
 ;                       machine, past glyphcost's budget (the bitmap + 2 ms).
 ;
-; The points are staged in os88ui_gpts, in THIS routine's own section: CS is
-; the image the code is in (a package, a driver, or CTRL.DRV's `.modu`, which
-; may write to its own image), so the stores are CS-relative and DS = CS for
-; the call - the cell reads the records at ES:SI with ES = the caller's DS.
+; The points are staged ON THE STACK and DS = SS for the call - the cell reads
+; the records at ES:SI with ES = the caller's DS. SS is writable on every
+; kernel and for every includer (a package, a driver, CTRL.DRV's `.modu`);
+; the image the code is in was, until kern_mega made CS a read-only alias
+; and every store through it a trap, eight a glyph.
 os88ui_gring:
     push ax
     push bx
@@ -1418,30 +1444,33 @@ os88ui_gring:
     UI_FILL                     ; right
     dec ax                      ; AX = x+10
     dec bx                      ; BX = y+1
-    mov [cs:os88ui_gpts+4], ax  ; top right
-    mov [cs:os88ui_gpts+12], ax ; bottom right
-    mov [cs:os88ui_gpts+2], bx  ; top left's y
-    mov [cs:os88ui_gpts+6], bx  ; top right's y
+    add bx, OS88UI_GW-3         ; BX = y+10. The four corners, pushed LAST
+    push bx                     ; FIRST so they lie at SS:SP in order -
+    push ax                     ; bottom right (x+10, y+10)
+    push bx
     sub ax, OS88UI_GW-3         ; AX = x+1
-    mov [cs:os88ui_gpts], ax    ; top left
-    mov [cs:os88ui_gpts+8], ax  ; bottom left
-    add bx, OS88UI_GW-3         ; BX = y+10
-    mov [cs:os88ui_gpts+10], bx
-    mov [cs:os88ui_gpts+14], bx
+    push ax                     ; bottom left (x+1, y+10)
+    sub bx, OS88UI_GW-3         ; BX = y+1
+    push bx
+    add ax, OS88UI_GW-3
+    push ax                     ; top right (x+10, y+1)
+    push bx
+    sub ax, OS88UI_GW-3
+    push ax                     ; top left (x+1, y+1)
+    mov si, sp
     push ds
-    push cs
-    pop ds                      ; ES:SI on the far side = CS:os88ui_gpts
-    mov si, os88ui_gpts
-    mov cx, 4
-    UI_POINTS                   ; the four corners, one arrival
-    pop ds
+    push ss
+    pop ds                      ; ES:SI on the far side = SS:SP - THE STACK,
+    mov cx, 4                   ; not this image: CS is a read-only alias
+    UI_POINTS                   ; under kern_mega, where a store through it
+    pop ds                      ; is a trap (KERN-MEGA-PLAN 14.18)
+    add sp, 16
     pop si
     pop dx
     pop cx
     pop bx
     pop ax
     ret
-os88ui_gpts: times 8 dw 0       ; four points, x then y
 
 ; os88ui_gdot - the 6x6 rounded dot, centred: 1 + 2 + 6 + 2 + 1 is the box's 12
 os88ui_gdot:
@@ -1889,6 +1918,81 @@ os88ui_btnclick:
 
 os88ui_btlist: dw 0             ; the head of this package's record list -
                                 ; DATA, inline, for os88ui_armw's reason
+
+; -----------------------------------------------------------------------------
+; os88ui_brebase - a record's rects, MOVED WITH ITS WINDOW (SPEC.md 20.5.1.3.5)
+; in:  BX = the record; out: nothing; every register preserved, flags not
+;
+; **A DRAGGED WINDOW IS NOT PAINTED** (SPEC.md 11.96.12.0): the drag cache
+; replays its pixels at the new place, so rects a package laid out in its
+; W_PAINT go on naming where the window WAS - and a press on a button lands
+; on nothing, or on another button's old place, until something repaints.
+; Thirteen packages shipped exactly that, and INSTALL's Next was the one
+; reported. The rule was always "lay the rects out at every press", and it
+; cannot be followed here: os88ui_btnclick IS the window's W_ONCLICK and tests
+; the rects before any package code runs.
+;
+; So the library notices instead. Every draw and every hit test of a record
+; banks the window's content origin and the first rect's corner. The next one
+; finds either the SAME corner - nobody has laid the rects out since, so they
+; are exactly where they were and the window's move since the bank is what
+; they owe: every live rect is shifted by it - or a DIFFERENT corner, which
+; is a package that re-laid them out from the origin it has now (Redline,
+; Tracker, the Video Player, PiXEL, INSTALL all do, at the press): those are
+; current, and are banked as they stand. A window that has not moved shifts
+; by nothing. No package changes and no new obligation is created.
+;
+; A record with no window yet (btninit not called) is left alone.
+; -----------------------------------------------------------------------------
+os88ui_brebase:
+    push ax
+    push cx
+    push dx
+    push si
+    mov si, [bx+OS88UI_BT_WIN]
+    or si, si
+    jz .out                     ; no window: nothing to ask, nothing to move
+    push bx
+    mov bx, si
+    call OSAPI_WM_CONTENT       ; AX = content left, DX = top, NOW
+    pop bx
+    mov si, [bx+OS88UI_BT_RECTS]
+    mov cx, [si]
+    cmp cx, [bx+OS88UI_BT_FX]
+    jne .bank                   ; laid out since the bank: current already
+    mov cx, [si+2]
+    cmp cx, [bx+OS88UI_BT_FY]
+    jne .bank
+    push ax
+    push dx
+    sub ax, [bx+OS88UI_BT_OX]   ; AX/DX = how far the window has moved
+    sub dx, [bx+OS88UI_BT_OY]   ; since the rects were last right
+    mov cx, [bx+OS88UI_BT_N]
+    jcxz .moved
+.shift:
+    add [si], ax
+    add [si+2], dx
+    add [si+4], ax
+    add [si+6], dx
+    add si, 8
+    loop .shift
+.moved:
+    pop dx
+    pop ax
+    mov si, [bx+OS88UI_BT_RECTS]
+.bank:
+    mov [bx+OS88UI_BT_OX], ax
+    mov [bx+OS88UI_BT_OY], dx
+    mov cx, [si]
+    mov [bx+OS88UI_BT_FX], cx
+    mov cx, [si+2]
+    mov [bx+OS88UI_BT_FY], cx
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
 %endif                          ; OS88UI_KERNEL
 %endif                          ; OS88UI_NOBTNINIT
 
@@ -1920,6 +2024,9 @@ os88ui_btnpress:
 ;      and nothing else, so it is one entry rather than three copies of the
 ;      record's unpacking.
 os88ui_bfrec:
+%ifdef OS88UI_REBASE
+    call os88ui_brebase         ; the press, the drag and the release all
+%endif                          ; test here: the rects where the window IS
     push bx
     push si
     mov si, [bx+OS88UI_BT_N]
@@ -4870,7 +4977,9 @@ os88ui_drbank:
     call os88ui_drrect          ; the rect again: the sizing spent it
     call OSAPI_GFX_SAVE
     jnc .out                    ; refused (it straddles two displays): half a
-    call os88ui_drfree          ; bank put back is worse than none
+    push ds                     ; bank put back is worse than none - and ES
+    pop es                      ; off the claim first (os88ui_drback, 14.53)
+    call os88ui_drfree
     jmp short .out
 .none:
     pop bx
@@ -4916,10 +5025,14 @@ os88ui_drback:
     xor si, si
     call os88ui_drrect
     call OSAPI_GFX_REST
+    pop es                      ; ES is the CALLER'S again BEFORE the free: on
+                                ; kern_mega the claim is a selector, and the
+                                ; free's own return reloading a freed one is a
+                                ; #GP fixup per close (KERN-MEGA-PLAN 14.53)
     pushf                       ; ...and its answer is the caller's. The claim
     call os88ui_drfree          ; goes back either way: a bank whose pixels
     popf                        ; could not be written is a bank that never
-    pop es                      ; will be, and POP does not touch the flags
+                                ; will be, and POP does not touch the flags
     pop si
     pop dx
     pop cx
@@ -6102,7 +6215,9 @@ os88ui_mnbank:
     mov dx, [ds:bp+OS88UI_MN_BRECT+6]
     call OSAPI_GFX_SAVE             ; CF=1 = the rect straddles two displays,
     jnc .out                        ; and half a bank put back is worse than
-    mov dx, [ds:bp+OS88UI_MN_SEG]              ; none: hand it straight back
+    push ds                                    ; none: hand it straight back,
+    pop es                                     ; with ES off it first (14.53)
+    mov dx, [ds:bp+OS88UI_MN_SEG]
     mov ax, [ds:bp+OS88UI_MN_KB]
     call OSAPI_MEM_FREE
 .no:
@@ -6153,11 +6268,13 @@ os88ui_mnback:
     call OSAPI_GFX_REST             ; the same rect the save took, off the
                                     ; banked copy of it and not off MN_MRECT,
                                     ; which the caller's repaint may consume
+    pop es                          ; the caller's ES before the free, for
+                                    ; os88ui_drback's reason (14.53)
     mov dx, [ds:bp+OS88UI_MN_SEG]
     mov ax, [ds:bp+OS88UI_MN_KB]
     call OSAPI_MEM_FREE             ; before the picked item runs (SPEC.md
     mov word [ds:bp+OS88UI_MN_SEG], 0          ; 12.4): whatever it claims gets a heap
-    pop es                          ; this menu has already left
+                                    ; this menu has already left
     pop si
     pop dx
     pop cx
@@ -6384,7 +6501,8 @@ section .bss
 os88ui_krect: resw 4
 os88ui_krlbl: resw 1            ; ...and the one control's staging beside it
 os88ui_krflg: resw 1            ; (SPEC.md 20.5.1.3). The kernel cannot use
-os88ui_krec:  resw OS88UI_BT_SIZE / 2
+os88ui_krec:  resw OS88UI_BT_OX / 2  ; up to the rebase bank, which is a
+                                ; package's (OS88UI_REBASE, 20.5.1.3.5)
                                 ; OS88UI_BTNREC - that macro is in
                                 ; apps/os88api.inc, which the kernel does not
                                 ; include - so this record is .bss and

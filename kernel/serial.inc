@@ -225,7 +225,7 @@ srl_open:
     jnz .div
     mov bh, 12
 .div:
-    mov [cs:srl_div], bh
+    CSDO mov [CSEG srl_div], bh
     cmp byte [di+I_STATE], 0
     je srl_body.bad
     mov ax, es
@@ -256,16 +256,16 @@ srl_open:
     cmp ax, [es:bx]
     pop es
     jne .absent
-    mov [cs:srl_base], ax
-    mov [cs:srl_seg], es
-    mov [cs:srl_buf], si
-    mov [cs:srl_owner], dh
+    CSDO mov [CSEG srl_base], ax
+    CSDO mov [CSEG srl_seg], es
+    CSDO mov [CSEG srl_buf], si
+    CSDO mov [CSEG srl_owner], dh
     mov [ser_row], bx
     mov dl, [bx+mou_masks]
-    mov [cs:srl_mask], dl
+    CSDO mov [CSEG srl_mask], dl
     in al, 0x21
     and al, dl
-    mov [cs:srl_pic], al
+    CSDO mov [CSEG srl_pic], al
     in al, 0x21
     not dl
     and al, dl
@@ -278,12 +278,12 @@ srl_open:
     mov dx, [cs:srl_base]
     add dx, 3
     in al, dx
-    mov [cs:srl_lcr], al
+    CSDO mov [CSEG srl_lcr], al
     and al, 0x7f
     out dx, al
     sub dx, 2
     in al, dx
-    mov [cs:srl_ier], al
+    CSDO mov [CSEG srl_ier], al
     xor al, al
     out dx, al
     add dx, 2
@@ -291,12 +291,12 @@ srl_open:
     out dx, al
     sub dx, 3
     in al, dx
-    mov [cs:srl_dll], al
+    CSDO mov [CSEG srl_dll], al
     mov al, [cs:srl_div]       ; 115200/divisor: 12 = 9600, 48 = 2400
     out dx, al
     inc dx
     in al, dx
-    mov [cs:srl_dlm], al
+    CSDO mov [CSEG srl_dlm], al
     xor al, al
     out dx, al
     add dx, 2
@@ -304,7 +304,7 @@ srl_open:
     out dx, al
     inc dx
     in al, dx
-    mov [cs:srl_mcr], al
+    CSDO mov [CSEG srl_mcr], al
     and al, 0xe7
     or al, 0x0b                ; DTR/RTS/OUT2, no loopback
     out dx, al
@@ -365,7 +365,7 @@ srl_close:
     and al, ah
     or al, [cs:srl_pic]
     out 0x21, al
-    mov word [cs:srl_base], 0
+    CSDO mov word [CSEG srl_base], 0
     xor ax, ax
     ret
 

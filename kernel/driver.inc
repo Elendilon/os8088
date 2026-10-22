@@ -511,6 +511,9 @@ DSV_GEOM    equ DSV_BLK         ; == DSV_BLK: the transport facts are that
                                 ; driver has been detached and speaks CHS
 DSV_SIZE    equ 36              ; ...and it must stay EVEN: drv_publish copies
                                 ; the table DSV_SIZE/2 WORDS at a time
+%if DSV_SIZE > 0x3F
+  %error "driver: DRV_H_DSV's length is 6 bits - bits 7 and 6 are OS88_DRV_HIGHOK and OS88_DRV_HICLAIM - and drv_publish masks it with 3Fh"
+%endif
 DSV_TAB0    equ 28              ; ...and the length every driver that carries 0
                                 ; at DRV_H_DSV has: the table stood at 28 until
                                 ; the four cells above landed, and HDD.DRV's
@@ -2143,8 +2146,10 @@ drv_call:
                                 ; the kernel executing zeros because of it
 .stray:
 %ifdef KERN_BIG
+ %ifndef KERN_MEGA              ; (kern_mega has no xm_row: its pool is its own)
     cmp bx, xm_row              ; **...AND drv_tab IS NOT THE WHOLE LIST OF
     je .row                     ; LEGITIMATE ROWS** (SPEC.md 41.12.5). xm_row
+ %endif
     cmp bx, ss_row              ; ...and ss_row is the SECOND (SPEC.md 79.2),
     je .row                     ; which is why this is a list and not a pair of
 %endif                          ; compares somebody has to remember to widen.
@@ -2272,7 +2277,11 @@ drv_svc_call_x:
     pop es                      ; ES = KERNEL_SEG: what the driver reads the
     mov ds, [es:drv_fseg]       ; things it was handed through
     call wm_nest_pushd          ; SPEC.md 66.6.3
+%ifdef KERN_MEGA
+    MEGA_PCALL [es:drv_fptr], [es:drv_fseg] ; the CODE alias (kernel/mega.inc)
+%else
     call far [es:drv_fptr]
+%endif
     pop es
     pop ds                      ; ...and DS names the kernel again, which is
     call wm_nest_pop            ; the segment the pop reads
@@ -2327,7 +2336,11 @@ drv_blk_call_x:
     pop es
     mov ds, [es:drv_blkseg]
     call wm_nest_pushd          ; SPEC.md 66.6.3
+%ifdef KERN_MEGA
+    MEGA_PCALL [es:drv_blkfp], [es:drv_blkseg] ; the CODE alias (mega.inc)
+%else
     call far [es:drv_blkfp]
+%endif
     pop es
     pop ds                      ; ...and DS names the kernel again, which is
     jmp wm_nest_pop             ; the segment the pop reads
@@ -2389,7 +2402,177 @@ drv_svc_none:
 ; ARGUMENT to the verbs that move bytes, and DX:BX rather than ES:BX is only
 ; the BUFFER's half of that rule (SPEC.md 51.8).
 ; -----------------------------------------------------------------------------
+%ifdef KERN_MEGA
+; -----------------------------------------------------------------------------
+; drv_fs_hi - drv_fs_call for a transfer verb whose buffer DX:BX is a POOL
+; selector (kern_mega, KERN-MEGA-PLAN 13.6): the bytes go 512 at a time
+; through LOW_SEG's dsk_secbuf, where a redirector's paragraph arithmetic is
+; right. The verbs are reduced to the two chunkable ones: READ and READAT
+; become READATs from the offset (0 for READ), WRITE becomes one WRITE of the
+; first piece - so an empty file is still made - and APPENDs of the rest,
+; APPEND becomes APPENDs. A driver missing the verb it reduces to refuses, as
+; it would have for that verb. out: as the verb's own - CF and AX, and DX:AX
+; the bytes for the two reads. The file layer is the UI task's (SPEC.md 20.6
+; rule 7), so the state is one copy in .bss
+; -----------------------------------------------------------------------------
+drv_fs_hi:
+    push bx
+    push cx
+    push si
+    push di
+    push bp
+    mov [dfh_verb], bp
+    mov [dfh_sel], dx
+    mov [dfh_buf], bx
+    mov [dfh_h], ax
+    mov [dfh_name], si
+    xor ax, ax
+    mov [dfh_done], ax
+    mov [dfh_done+2], ax
+    mov [dfh_off], ax           ; READ: from 0
+    mov [dfh_off+2], ax
+    mov byte [dfh_first], 1
+    cmp bp, FSV_APPEND
+    jb .r32                     ; READ / WRITE: DI:CX bytes
+    cmp bp, FSV_READAT
+    jne .r16
+    mov [dfh_off], si           ; READAT's offset is DI:SI...
+    mov [dfh_off+2], di
+.r16:
+    xor di, di                  ; ...and APPEND / READAT count CX bytes
+.r32:
+    mov [dfh_rem], cx
+    mov [dfh_rem+2], di
+.loop:
+    mov cx, 512
+    cmp word [dfh_rem+2], 0
+    jne .n
+    cmp [dfh_rem], cx
+    jae .n
+    mov cx, [dfh_rem]
+.n:
+    or cx, cx
+    jnz .go
+    cmp word [dfh_verb], FSV_WRITE
+    jne .done                   ; nothing left - except a WRITE's first call,
+    cmp byte [dfh_first], 0     ; which makes the file even when it is empty
+    je .done
+.go:
+    mov [dfh_n], cx
+    mov bp, [dfh_verb]
+    cmp bp, FSV_WRITE
+    je .out
+    cmp bp, FSV_APPEND
+    jne .in
+.out:                           ; a write: the piece into the scratch first
+    push ds
+    push es
+    mov si, [dfh_buf]
+    push ss
+    pop es
+    mov di, dsk_secbuf
+    mov ds, [dfh_sel]
+    cld
+    rep movsb
+    pop es
+    pop ds
+    mov cx, [dfh_n]
+    mov si, [dfh_name]
+    xor di, di                  ; (WRITE's DI:CX)
+    cmp byte [dfh_first], 0
+    jne .call                   ; WRITE's first piece is a WRITE...
+    mov bp, FSV_APPEND          ; ...and every later one an APPEND
+    jmp short .call
+.in:
+    mov bp, FSV_READAT
+    mov ax, [dfh_h]
+    mov si, [dfh_off]
+    mov di, [dfh_off+2]
+.call:
+    mov dx, ss
+    mov bx, dsk_secbuf
+    call drv_fs_call            ; (a LOW buffer: no recursion past this)
+    jc .fail
+    mov byte [dfh_first], 0
+    mov cx, [dfh_n]
+    cmp word [dfh_verb], FSV_WRITE
+    je .adv
+    cmp word [dfh_verb], FSV_APPEND
+    je .adv
+    mov cx, ax                  ; a read: what it delivered (512 at most)
+    jcxz .done
+    push ds
+    push es
+    mov di, [dfh_buf]
+    mov es, [dfh_sel]
+    push ss
+    pop ds
+    mov si, dsk_secbuf
+    cld
+    rep movsb
+    pop es
+    pop ds
+    mov cx, ax
+.adv:
+    add [dfh_buf], cx
+    add [dfh_off], cx
+    adc word [dfh_off+2], 0
+    add [dfh_done], cx
+    adc word [dfh_done+2], 0
+    sub [dfh_rem], cx
+    sbb word [dfh_rem+2], 0
+    cmp cx, [dfh_n]
+    jae .loop                   ; a short read is the file's end
+.done:
+    mov ax, [dfh_done]          ; the reads' DX:AX, and a write's own DX
+    mov dx, [dfh_done+2]        ; is what it was
+    cmp word [dfh_verb], FSV_WRITE
+    je .wdone
+    cmp word [dfh_verb], FSV_APPEND
+    jne .ok
+.wdone:
+    xor ax, ax
+    mov dx, [dfh_sel]
+.ok:
+    clc
+    jmp short .ret
+.fail:
+    mov dx, [dfh_sel]
+.ret:
+    pop bp
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
+section .bss
+dfh_verb    resw 1
+dfh_sel     resw 1
+dfh_buf     resw 1
+dfh_h       resw 1
+dfh_name    resw 1
+dfh_n       resw 1
+dfh_off     resw 2
+dfh_rem     resw 2
+dfh_done    resw 2
+dfh_first   resb 1
+section .cold
+%endif
+
 drv_fs_call:
+%ifdef KERN_MEGA
+    cmp bp, FSV_READ            ; kern_mega: a TRANSFER verb (6 to 12: READ,
+    jb .lowbuf                  ; WRITE, APPEND, READAT) whose buffer is a
+    cmp bp, FSV_READAT          ; POOL selector - an OS88_HIGH package's own
+    ja .lowbuf                  ; segment, an OS88_HIGHMEM claim, an
+    test dl, 4                  ; OSAPI_XMEM_SEL window - is above 1MB, and
+    jz .lowbuf                  ; a redirector does PARAGRAPH arithmetic on
+    cmp dx, MEGA_LDT_FREE0 * 8  ; DX (RAMDISK.DRV, NET.DRV). drv_fs_hi moves
+    jb .lowbuf                  ; it 512 bytes a call through dsk_secbuf
+    jmp drv_fs_hi
+.lowbuf:
+%endif
     call drv_fs_has             ; the MOUNTED volume's driver, resolved per
     jc drv_svc_none             ; call (drv_fs_seg, SPEC.md 62.9.19), and this
                                 ; verb in its table - asked FIRST since 62.9.19,
@@ -3198,6 +3381,9 @@ drv_load_at:
                                 ; construction is gone, so a header claiming
                                 ; more bss than the claim holds is turned away
                                 ; here rather than writing past it
+%ifdef KERN_MEGA
+    call drv_hi                 ; ...and ABOVE 1MB if it says it may (item 82):
+%endif                          ; nothing of it has run, so nothing names it
 
 %ifdef KERN_BIG
     cmp byte [bx+DRVR_CLASS], DRVC_OVL
@@ -3679,7 +3865,10 @@ section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):
 %else
     mov cl, [es:DRV_H_DSV]      ; ...then AS FAR AS THE DRIVER'S TABLE REACHES
 %endif
-    or cl, cl                   ; (SPEC.md 51.2), which is DRV_H_FSV's test one
+    and cl, 0x3F                ; (bits 7 and 6 are OS88_DRV_HIGHOK and
+                                ; OS88_DRV_HICLAIM, not a length; the AND sets
+                                ; ZF, so it is the zero test too)
+                                ; (SPEC.md 51.2), which is DRV_H_FSV's test one
     jnz .len                    ; level up: the header says how long a table it
     mov cl, DSV_TAB0            ; was built with; 0 is a driver written before
 .len:                           ; the byte existed and means DSV_TAB0. EXACTLY
@@ -3835,6 +4024,16 @@ drv_release:
     mov dx, [bx+DRVR_SEG]
     or dx, dx
     jz .out
+%ifdef KERN_MEGA
+    push bx                     ; ITS CLAIMS ABOVE 1MB (OS88_DRV_HICLAIM,
+    mov bx, dx                  ; item 83), owned 0C0h | row in the pool's
+    call drv_row_ix_of          ; table and not in mem_tab, go back with it
+    jc .nohc
+    or al, 0xC0
+    call KERNEL_SEG:mx_relallf
+.nohc:
+    pop bx
+%endif
     mov al, [bx+DRVR_CLASS]     ; disarm DISPATCH before a byte is freed:
     call drv_cls_idx            ; snd_tick far-calls through drv_fseg inside
     jc .novol                   ; IRQ0, and a tick landing between the free
@@ -3905,6 +4104,17 @@ drv_release:
                                 ; (HMA-PLAN 5): its buffers, and its image if
                                 ; that is where it ran - CF = 0 then, which
                                 ; leaves no claim to free
+%ifdef KERN_MEGA
+    test dl, 4                  ; an image ABOVE 1MB (drv_hi): its pool block
+    jz .lowimg                  ; and its selector pair go back, there being
+    cmp dx, MEGA_LDT_FREE0 * 8  ; no claim
+    jb .lowimg
+    xchg ax, dx
+    call MEGA_SEL_CODE:mega_drvhifree
+    xchg ax, dx
+    jmp short .hma
+.lowimg:
+%endif
     mov bx, MEM_K_DRV
     call mem_free_x
 .hma:
@@ -3915,6 +4125,134 @@ drv_release:
     pop bx
     pop ax
     ret
+
+%ifdef KERN_MEGA
+; -----------------------------------------------------------------------------
+; drv_hi - a just-loaded driver ABOVE 1MB (kern_mega, KERN-MEGA-PLAN item 82)
+; in:  BX = the row, ES = its image: checked, bss zeroed, nothing of it run
+; out: nothing; ES = the image wherever it now is. Either the row names a
+;      selector pair over a copy in the extended pool and the claim is gone,
+;      or nothing changed. Only in protected mode, and only for an image whose
+;      header says OS88_DRV_HIGHOK (bit 7 of DRV_H_DSV)
+; -----------------------------------------------------------------------------
+drv_hi:
+    cmp byte [mega_on], 0
+    je .out
+    test byte [es:DRV_H_DSV], 0x80
+    jz .out
+    call drv_hi_move
+.out:
+    ret
+
+; drv_hi_move - BX = a row whose image (at ES, a conventional claim) may move
+; now -> copied into a pool block owned MX_KDRV under a code/data pair, every
+; word that named it re-pointed at the DATA half by mem_region_reloc - the
+; compactor's own walk, so drv_tab, the class fast paths, ss_row, the claim
+; owners and the IRQ vectors (and through them the IDT) all follow - and the
+; claim freed. Or, with no room or no entry, nothing changed. ES = the image
+; after. Clobbers nothing else
+drv_hi_move:
+    push ax
+    push cx
+    push dx
+    mov al, [es:DRV_H_BSSP]
+    xor ah, ah
+    mov cl, 4
+    shl ax, cl
+    add ax, [es:DRV_H_IMG]
+    xchg ax, cx                 ; CX = image + bss, the bytes it runs in
+    mov ax, es
+    push bx
+    mov bl, MX_KDRV             ; (moved by the compactor, 14.37)
+    call MEGA_SEL_CODE:mega_imghif ; AX = the pair's DATA selector
+    pop bx
+    jc .out
+    push bx
+    push bp
+    mov dx, ax
+    mov bx, es                  ; every holder: the old segment -> the pair
+    mov bp, mem_region_reloc
+    call KERNEL_SEG:cw_mem_disp
+    pop bp
+    mov dx, bx                  ; ...and the claim it was read into, which
+    mov bx, MEM_K_DRV           ; nothing names now
+    call mem_free_x
+    pop bx
+    mov word [bx+DRVR_KB], 0    ; no heap held
+    mov es, [bx+DRVR_SEG]
+    call MEGA_SEL_CODE:mega_drvsayf
+.out:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; drv_hiboot_f - FAR, once, right after mega_enter: the drivers SYSTEM.CFG
+; loaded in real mode, above 1MB now that there is a pool (item 82). Each
+; loaded row whose image is a conventional claim saying OS88_DRV_HIGHOK, and
+; which the compactor's own predicate would let move (mem_can_move: no frame
+; in it, no service task running), is moved with interrupts off for the copy
+; and the re-pointing, so neither its ISR nor a tick sees half of it.
+; Clobbers nothing
+; -----------------------------------------------------------------------------
+; drv_row_ixf - drv_row_ix_of for a FAR caller (mega.inc's claim arm)
+drv_row_ixf:
+    call drv_row_ix_of
+    retf
+
+drv_hiboot_f:
+    cmp byte [mega_on], 0
+    je .ret
+    push ax
+    push bx
+    push dx
+    push si
+    push es
+    mov bx, drv_tab
+.l:
+    mov dx, [bx+DRVR_SEG]
+    or dx, dx
+    jz .n
+    test dl, 4
+    jnz .n                      ; already above 1MB
+    cmp word [bx+DRVR_KB], 0
+    je .n                       ; not a heap claim
+    mov es, dx
+    test byte [es:DRV_H_DSV], 0x80
+    jz .n
+    push bx
+    mov bx, MEM_K_DRV
+    call mem_find_own           ; SI = the image's record
+    pop bx
+    jc .n
+    call mem_can_move
+    jc .n
+    pushf
+    cli
+    call drv_hi_move
+    popf
+.n:
+    mov dx, [bx+DRVR_SEG]       ; ...AND ITS CLAIMS (OS88_DRV_HICLAIM, item
+    or dx, dx                   ; 83), which attach made in real mode: each
+    jz .n2                      ; movable, non-DMA one of 64KB or less is
+    mov es, dx                  ; copied into the pool and its holder told
+    test byte [es:DRV_H_DSV], 0x40
+    jz .n2
+    call mem_hiclaims
+.n2:
+    add bx, DRVR_SIZE
+    cmp bx, drv_tab + DRV_MAX * DRVR_SIZE
+    jb .l
+    call mod_hiboot             ; ...and the boot's MODULES (KERN-MEGA-PLAN
+    pop es                      ; 14.47): here and not in kmain, whose five
+    pop si                      ; bytes would be the kernel segment's
+    pop dx
+    pop bx
+    pop ax
+.ret:
+    retf
+%endif
 
 ; -----------------------------------------------------------------------------
 ; drv_task - a driver's worker task, spawned and ended (SPEC.md 51.7)
@@ -4116,7 +4454,11 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     cmp al, 0x1A
     jne %%out
     xor ax, ax                  ; DS = 0: the BIOS's records at 0:487h..489h
+%ifdef KERN_MEGA
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
+%else
     mov ds, ax                  ; need no prefix, and nothing below reads the
+%endif
     pushf                       ; kernel's own (kernel size pass 12)
     cli
     and byte [0x487], 0xFD      ; EGA info: not a monochrome monitor
@@ -4540,7 +4882,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     push si                     ; and its size high word coming back (18.4.1)
     push di
     push es
-    push cs
+    PUSH_CSDATA
     pop es                      ; the file buffer is the IMAGE's (51.5.3) and
     mov bx, %1 %+ _buf          ; the read takes ES:BX, which is what makes
     mov cx, CFG_FBUF            ; that free rather than awkward
@@ -4613,7 +4955,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     push si
     push di
     push es
-    push cs
+    PUSH_CSDATA
     pop es
     cld
     mov si, %1 %+ _sig
@@ -4710,7 +5052,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
     call %1 %+ _ser             ; small and a partial one is a bug waiting for
                                 ; the next format change. CX = its length
 
-    push cs
+    PUSH_CSDATA
     pop es                      ; the buffer is the image's, and this is where
     mov bx, %1 %+ _buf          ; dskw_write_sys reads it from
 %ifdef OS88_SHORTCUTS
@@ -5180,12 +5522,14 @@ drv_boot_x:
     call COLD_SEG:drvf_drv_mounted
     jc .nodisk
 %ifdef KERN_BIG
+ %ifndef KERN_MEGA              ; (kern_mega: the store is mega_xminit's)
     BLOBCALL xm_boot_x          ; THE STORE ABOVE 1MB FIRST, before any driver
                                 ; (SPEC.md 41.12): it is what puts `.cold` in
                                 ; the HMA, and a driver loaded after it may go
                                 ; up there too (docs/plans/HMA-PLAN.md 5). It
                                 ; needs the mount just made and nothing else;
                                 ; every register is kept
+ %endif
 %endif
     call ovl_cfg_load       ; CF = 1: no file, so every default stands -
     jc .load                    ; and every default is now "not wanted", so
@@ -5757,7 +6101,7 @@ cpc_fdtest:
     jne .no                     ; it answered by falling back: no crossing
     mov es, dx                  ; ES:0 = the track buffer
     mov cx, [disk_spt]
-    mov byte [cs:cp_fdn], 2
+    CSDO mov byte [CSEG cp_fdn], 2
 .trk:
     call COLD_SEG:dskf_disk_read    ; LBA AX, one track, track-bounded
     jc .done
@@ -5779,12 +6123,12 @@ cpc_fdtest:
     jne .no
     add ax, cx                  ; the next track's LBA
     add di, bp                  ; ...and the cylinder run's next half
-    dec byte [cs:cp_fdn]
+    CSDO dec byte [CSEG cp_fdn]
     jnz .trk
     jmp short .done
 .no:
     mov byte [drv_cfg+CFG_FDR], 0   ; Auto - and cpc_fdbs then writes byte 509
-    mov byte [cs:cp_fdno], 1        ; as 0, which is what Auto means there
+    CSDO mov byte [CSEG cp_fdno], 1 ; as 0, which is what Auto means there
 .done:
     dec byte [dsk_rah_busy]
     mov dx, si
@@ -5976,15 +6320,15 @@ drv_pkg_call_x:
                                 ; writes word [di+2], 0, both the segment half
                                 ; and nothing else (see drv_fptr's declaration)
     push es                     ; SPEC.md 66.6.3, AND THE ONE SITE WHERE ES IS
-    push cs                     ; NOT ALREADY THE KERNEL'S: this cell is an X
-    pop es                      ; stub, so ES is the CALLING PACKAGE's and the
+    KES                         ; NOT ALREADY THE KERNEL'S: this cell is an X
+                                ; stub, so ES is the CALLING PACKAGE's and the
     call COLD_SEG:wm_nest_pushd_x   ; driver reads its buffer through it - the
     pop es                      ; push is ES-relative, so it is borrowed for
                                 ; three instructions and handed straight back.
                                 ; .text, so the far entry (SPEC.md 2.6.1)
     call KERNEL_SEG:drv_pkg_disp
-    push cs                     ; DS IS THE DRIVER'S at the return and the pop
-    pop ds                      ; below restores the caller's, so borrowing it
+    KDS                         ; DS IS THE DRIVER'S at the return and the pop
+                                ; below restores the caller's, so borrowing it
     call COLD_SEG:wm_nest_pop_x ; costs nothing; the pair writes no flag, which
                                 ; is what keeps the driver's CF the answer
 .done:
@@ -6049,6 +6393,9 @@ drv_pkg_disp:
 drv_hmadisp: dw DRV_HMA_ORG + PKG_DISP
 %else
     push ds                     ; the TARGET segment: DS is the driver's
+ %ifdef KERN_MEGA
+    MEGA_CSELTOP                ; ...as its CODE alias (kernel/mega.inc)
+ %endif
     push word [cs:drv_fptr]     ; ...and PKG_DISP, which nothing writes
     retf
 %endif

@@ -4,7 +4,11 @@
 ; apps/os88mixui.inc with the quick-volume popup.
 %include "os88api.inc"
 %include "sndpkg.inc"
-    OS88_HEADER 'Mixer', mx_entry, 1
+    OS88_HEADER 'Mixer', mx_entry, 1, OS88_HIGH | OS88_HIGHMEM ; kern_mega
+                                   ; may run it above 1MB, claims and all: no
+                                   ; arithmetic on its own CS or DS, no claim,
+                                   ; and every port is SOUND.DRV's
+                                   ; (KERN-MEGA-PLAN 14.52)
     OS88_ICON16                    ; three staggered mechanical faders
     times 16 dw 0FFFFh
     dw 0000h,1084h,1084h,1084h,7C84h,4484h,7C84h,1084h

@@ -380,28 +380,38 @@ MOU_PSTK    equ 128             ; 2.4x the 54 the chain measures on the deepest
                                 ; is against a future cur_move rather than
                                 ; against an unknown
 
+mou_lowss   dw LOW_SEG          ; `mov ss` takes memory and no register
 %macro MOUPRIV_ENTER 0
-    mov [cs:mou_psave], sp      ; taken BEFORE the push below, so LEAVE's
-    push ax                     ; restore lands on the un-pushed SP either way
-    mov ax, ss
-    cmp ax, LOW_SEG             ; **ONLY ON A TASK STACK.** SS is LOW_SEG for
-    pop ax                      ; every os8088 context (SPEC.md 1/2.1) - but
-    jne %%noswap                ; not inside a ROM service that switched
-    mov sp, mou_pstack + MOU_PSTK   ; stacks, and the kernel calls two with
-%%noswap:                       ; IF=1: int 13h (which SPEC.md 7.4 makes the
-%endmacro                       ; DESIGNED case for this ISR) and int 16h on
-                                ; every ui_task pass. SeaBIOS serves both on an
-                                ; internal stack in a segment of its own, so a
-                                ; swap of SP alone there ran this whole body
-                                ; at SS:mou_pstack in the ROM's segment -
-                                ; whatever happened to be there. The IBM ROMs
-                                ; do not hop, so the target machine was never
-                                ; affected; the swap simply stays off where it
-                                ; would be wrong, and that gate runs on the
-                                ; interrupted stack as it did before 9.10.
-                                ; Seven bytes and ~20 clocks a gate
+ %ifdef KERN_MEGA                ; kern_mega: code is read-only, so through the
+    push ds                     ; data alias - and the SP banked is the one
+    mov ds, [cs:k_dsel]         ; from BEFORE this push, which is what LEAVE
+    mov [mou_psave], sp         ; must restore. `add` writes FLAGS, and at an
+    add word [mou_psave], 2     ; ISR's first instructions nobody's FLAGS are
+    mov [mou_pss], ss           ; live: the interrupted code's are on the stack
+    pop ds
+ %else
+    mov [cs:mou_psave], sp      ; the interrupted SS:SP, banked with no
+    mov [cs:mou_pss], ss        ; register (SPEC.md 9.10.1)...
+ %endif
+    mov ss, [cs:mou_lowss]      ; ...and SS:SP become LOW_SEG:mou_pstack,
+    mov sp, mou_pstack + MOU_PSTK   ; whatever SS was. It is LOW_SEG for every
+%endmacro                       ; os8088 context (SPEC.md 1/2.1) - but not
+                                ; inside a ROM service that switched stacks,
+                                ; and the kernel calls two with IF=1: int 13h
+                                ; (which SPEC.md 7.4 makes the DESIGNED case
+                                ; for this ISR) and int 16h on every ui_task
+                                ; pass. SeaBIOS (QEMU, Bochs) serves both on an
+                                ; internal stack in a segment of its own. The
+                                ; body reaches .lowbss through SS - gfx_rowbase's
+                                ; vid_rowtab, evq_push's queue - so a body left
+                                ; on that stack read and wrote the ROM's
+                                ; segment. SS is set rather than tested, which
+                                ; is one byte more at each entry and no compare
+                                ; (KERN-MEGA-PLAN 14.39). The IBM ROMs do not
+                                ; hop, so the target machine was never affected
 %macro MOUPRIV_LEAVE 0
-    mov sp, [cs:mou_psave]
+    mov ss, [cs:mou_pss]        ; IF = 0, and `mov ss` holds off even an NMI
+    mov sp, [cs:mou_psave]      ; for the next instruction
 %endmacro
 %else
 %macro MOUPRIV_ENTER 0
@@ -1392,7 +1402,11 @@ mouse_unhook:
     call mou_pall
 
     xor ax, ax
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector
+%else
     mov es, ax
+%endif
     xor bx, bx
 .port:
     cmp word [bx+mou_bases], 0
@@ -1526,7 +1540,11 @@ osapi_mouse:
 .row:
     mov si, [di+mou_ivecs]
     xor ax, ax
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector
+%else
     mov es, ax
+%endif
     mov cx, cs
     cmp [es:si+2], cx               ; still ours? ONE compare, which is what
     je .done                        ; every pass but a theft pays
@@ -2092,7 +2110,11 @@ mou_p2_init:
 mou_p2knock:
     mov si, MOU_P2KNK_DS        ; THE TABLE THROUGH DS, which is KERNEL_SEG:
 .knock:                         ; this body runs at CS = FAT_SEG, and lodsb
+%ifdef KERN_MEGA
+    cs lodsb                    ; (kern_mega: its overlay is past DS's 64K,
+%else                           ; so the table is read through CS instead)
     lodsb                       ; with the overlay's own offset read the
+%endif
     call mou_p2dev              ; kernel's bytes there instead - garbage
     jc .out                     ; commands, the knock failing safe to three
     cmp si, MOU_P2KNK_DS + mou_p2knk_n  ; bytes, found by tests/wheelps2.py.
@@ -2106,7 +2128,11 @@ mou_p2knock:
 
 mou_p2knk   db 0xF3, 200, 0xF3, 100, 0xF3, 80, 0xF2
 mou_p2knk_n equ $ - mou_p2knk
+%ifdef KERN_MEGA
+MOU_P2KNK_DS equ mou_p2knk      ; (read through CS: see .knock)
+%else
 MOU_P2KNK_DS equ mou_p2knk + (FAT_SEG - KERNEL_SEG) * 16 ; the same bytes, as
+%endif
                                 ; KERNEL_SEG names them: the overlay lands on
                                 ; FAT_SEG (SPEC.md 2.5.3), inside DS's 64K
                                 ; (asserted beside the `.ovl` guard in
@@ -2181,8 +2207,7 @@ mou_p2_isr:
     push bp
     push ds
     push es
-    push cs
-    pop ds
+    KDS
     cld
 %ifdef MOU_DIAG
     inc word [mou_p2irq]        ; COUNTED BEFORE THE TESTS BELOW: "the line
@@ -2202,6 +2227,11 @@ mou_p2_isr:
     jmp mou_eoi                 ; owes both controllers an EOI - mou_eoi is the
                                 ; master's and the serial ISR's own epilogue,
                                 ; so the frame above is pushed in its order
+%ifndef NO_MOUPRIV
+ %ifndef KERN_MEGA              ; (kern_mega's entry is the size it was)
+    nop                         ; PARITY PAD, never executed (KERN-MEGA-PLAN
+ %endif                         ; 14.39): MOUPRIV_ENTER grew a byte above
+%endif
 
 ; -----------------------------------------------------------------------------
 ; mou_p2_byte - one byte from the auxiliary device
@@ -2453,7 +2483,11 @@ kbm_pass:
 kbm_shf:
     push ds
     xor ax, ax                  ; segment 0, LINEAR offset: 0040:0017 is
+%ifdef KERN_MEGA
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
+%else
     mov ds, ax                  ; 0000:0417 (a byte shorter than mov ax, 40h).
+%endif
     mov al, [0x417]             ; NOT 0x17 with segment 0: that reads the
     pop ds                      ; middle of the vector table
     ret
@@ -2768,8 +2802,7 @@ KBM_5SCAN   equ 0x4C            ; the keypad's centre key, make code
 kbm_isr:
     push ax
     push ds
-    push cs
-    pop ds
+    KDS
 %ifdef KBD_DIAG
     call kbg_pre                ; KBDDIAG=1 (SPEC.md 9.8.1): the 8042's status
 %endif                          ; and the BIOS buffer, before anything reads
@@ -2849,8 +2882,8 @@ kbm_isr:
 %ifdef KBD_DIAG
     pushf                       ; KBDDIAG=1 (SPEC.md 9.8.1): CALL the ROM rather
     call far [cs:kbm_old9]      ; than jump to it, so what it did can be read
-    push cs                     ; when it returns. Its iret restores OUR flags,
-    pop ds                      ; IF = 0, and the ROM preserves every register
+    KDS                         ; when it returns. Its iret restores OUR flags,
+                                ; IF = 0, and the ROM preserves every register
     call kbg_post
     pop ds
     pop ax
@@ -3077,7 +3110,11 @@ kbd_ovflow:
     push bx
     push es
     xor ax, ax                  ; segment 0, LINEAR offsets: 0040:001A is
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                  ; segment 0 is the NULL selector
+%else
     mov es, ax                  ; 0000:041A (size pass 9, a byte shorter). The
+%endif
     mov ax, [es:0x41A]          ; head - where the reader is - and the
     mov bx, [es:0x41C]          ; tail - where the BIOS is about to write -
                                 ; are still 0040-relative VALUES (1Eh..3Dh)
@@ -3401,15 +3438,30 @@ kbd_ovb     db 0                ; ...and one the ISR has asked for and no pass
 ; could starve the real mouse out of ever being found (SPEC.md 9.5).
 ; -----------------------------------------------------------------------------
 mou_isr:                        ; IRQ4, and...
+%ifdef KERN_MEGA
+    push ds                     ; kern_mega: through the data alias
+    mov ds, [cs:k_dsel]
+    mov byte [mou_lfired], MOU_L4
+    pop ds
+%else
     mov byte [cs:mou_lfired], MOU_L4 ; ...the ONE thing the two entries
+%endif
     jmp short mou_isr_body      ; disagree about: which LINE fired. Not which
 mou_isr3:                       ; PORT has the byte - that is scanned for
+%ifdef KERN_MEGA
+    push ds                     ; kern_mega: through the data alias
+    mov ds, [cs:k_dsel]
+    mov byte [mou_lfired], MOU_L3
+    pop ds
+%else
     mov byte [cs:mou_lfired], MOU_L3 ; below - but nothing else can tell
+%endif
                                 ; mou_lockon that. STAMPED FIRST, through CS
                                 ; and with no register, so the private-stack
                                 ; switch below is ONE copy for both doors
 mou_isr_body:
     MOUPRIV_ENTER               ; docs/plans/completed/STACK-SLOTS-PLAN.md 4.2:
+.priv:
     push bx                     ; onto a private stack, before anything is
     push ax                     ; pushed
     push cx
@@ -3419,8 +3471,7 @@ mou_isr_body:
     push bp
     push ds
     push es
-    push cs
-    pop ds
+    KDS
     cld
 
     ; --- whoever is holding a byte, take it ---------------------------------
@@ -3470,6 +3521,11 @@ mou_isr_body:
     cmp bx, MOU_PEND
     jb .scan
     jmp mou_eoi
+%ifndef NO_MOUPRIV
+ %ifndef KERN_MEGA
+    nop                         ; PARITY PAD, never executed (14.39, as above)
+ %endif
+%endif
 
 ; -----------------------------------------------------------------------------
 ; mou_byte - one received byte, from port BX
@@ -4002,6 +4058,9 @@ mou_eoi:
     pop bx
     MOUPRIV_LEAVE               ; ...and back to the task's, whose only cost
     iret                        ; was the CPU's own six bytes
+%ifndef NO_MOUPRIV
+    nop                         ; PARITY PAD, never executed (14.39: LEAVE
+%endif                          ; grew five)
 
 %ifdef GFXAUDIT
 ; cur_logput - one ring entry: the tag, the refcount, and where the pixels are
@@ -6135,6 +6194,7 @@ mou_pstack  resb MOU_PSTK       ; the mouse ISR's own stack (MOUPRIV_ENTER).
 section .bss
 mou_psave   resw 1              ; the task's SP across it, reached through CS at
                                 ; entry because DS is not ours yet
+mou_pss     resw 1              ; ...and its SS (SPEC.md 9.10.1)
 %endif
 %ifdef KERN_BIG
 mou_whl     resw 1              ; the WHEEL, notches owed, signed, positive

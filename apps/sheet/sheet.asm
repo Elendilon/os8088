@@ -77,7 +77,7 @@
 %define SH_SBIDLE 9
 %endif
 
-    OS88_HEADER 'SHEET', sh_entry, 3   ; bit 0 = icon, bit 1 = the
+    OS88_HEADER 'SHEET', sh_entry, 3, OS88_HIGH | OS88_HIGHMEM   ; bit 0 = icon, bit 1 = the
                                         ; association block below
 
 ; --- embedded 16x16 icon: a blank page with a 3x3 grid on it -------------------
@@ -20861,7 +20861,7 @@ sh_s_dif_eod:  db '-1,0', 13, 10, 'EOD', 13, 10, 0
 ; bss (loader-zeroed, SPEC.md 21 step 5) - small now: the grid itself lives
 ; in claimed heap segments, not here.
 ; =============================================================================
-    OS88_BSS 3942
+    OS88_BSS 3982
     OS88_IMAGE_END
 
 sh_selcol     equ os88_image_end + 0

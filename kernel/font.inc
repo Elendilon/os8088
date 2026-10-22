@@ -585,8 +585,8 @@ font_char:
     je .vram                    ; path there (SPEC.md 39.5). Without a VGA in
 %endif                          ; the build there is nothing to ask: the call
     call font_char_bb           ; below is the only cell writer, and `.done`
-    push cs                     ; still owns the frame this pushed - with DS
-    pop ds                      ; the kernel's again: font_char_bb leaves it
+    KDS                         ; still owns the frame this pushed - with DS
+                                ; the kernel's again: font_char_bb leaves it
 %ifdef GFX_VGA                  ; on the framebuffer. With no VGA in the build
     jmp .done                   ; `.done` is the NEXT instruction, and nasm
 .vram:                          ; spends two bytes on `jmp short $+2`
@@ -660,8 +660,7 @@ font_char:
     out dx, ax                  ; GC1 enable Set/Reset = 0 (default, SPEC 1.7)
     mov ax, 0xFF08
     out dx, ax                  ; GC8 Bit Mask = FF (default)
-    push cs                     ; ...and DS the kernel's, for `.done`
-    pop ds
+    KDS                         ; ...and DS the kernel's, for `.done`
 %endif                          ; ...end of font_char's VGA cell writer
 .done:
     GFXDLEAVEI
@@ -1504,8 +1503,8 @@ font_run_x:
     inc bp
     cmp bp, 8
     jb .rmrow
-    push cs                     ; DS the kernel's again (and not through
-    pop ds                      ; .rmout: one jump, not two)
+    KDS                         ; DS the kernel's again (and not through
+                                ; .rmout: one jump, not two)
     jmp .out
 .rmp:                           ; ...and the same rows with no tail at all
     mov si, font_rn_tab
@@ -1520,8 +1519,7 @@ font_run_x:
     cmp bp, 8
     jb .rmp
 .rmout:
-    push cs                     ; DS the kernel's again
-    pop ds
+    KDS                         ; DS the kernel's again
     jmp .out
 
 %ifdef KERN_BIG
@@ -1550,6 +1548,31 @@ font_run_x:
 ; CX carries the SHIFT in CL and the previous composed byte in CH, so there is
 ; no register left for a cell counter - the walk ends on SI reaching the glyph
 ; table's end instead. That is why [font_rn_send] exists.
+; WHERE THE UNALIGNED RUN KEEPS ITS STATE. DS is the glyphs' segment and ES the
+; framebuffer's for the whole walk, so the stores below go through CS - which
+; kern_mega cannot do, code being read-only in protected mode (KERN-MEGA-PLAN
+; 2.4). There the three live in .lowbss and go through SS instead, and the 16
+; edge bytes are copied into font_rn_le/font_rn_re once the walk is done, for
+; fnt_rn_edge to read through DS as it always has. It ASSUMES SS = LOW_SEG,
+; which is the SDK's rule for EVERY kernel call (apps/os88api.inc's
+; environment note) and not this routine's alone: gfx_rowbase's row table and
+; the claim map are reached through SS on every kernel. Every caller keeps
+; it (KERN-MEGA-PLAN 14.39): no shipped package calls the kernel on a stack
+; of its own - the DOS box switches SS only around a DOS program and back
+; before it calls in, and on kern_mega the box is the whole-machine handoff
+; anyway - and the mouse ISR, the one kernel path that ran on a ROM's stack
+; (SeaBIOS's int 13h), sets SS itself now (SPEC.md 9.10.1).
+%ifdef KERN_MEGA
+ %define FRN_SEG ss
+ %define FRN_SEND font_rn_sendm
+ %define FRN_LE font_rn_lem
+ %define FRN_RE (font_rn_lem + 8)
+%else
+ %define FRN_SEG cs
+ %define FRN_SEND font_rn_send
+ %define FRN_LE font_rn_le
+ %define FRN_RE font_rn_re
+%endif
 %macro FONT_RN_UPX 0
     cs lodsw                    ; AX = this cell's glyph base (CS:SI, the table)
     add ax, bp                  ; ...+ the row this pass is on
@@ -1566,7 +1589,7 @@ font_run_x:
     mov ax, [cs:font_rn_n]      ; where the cell walk ends (see above)
     shl ax, 1
     add ax, font_rn_tab
-    mov [cs:font_rn_send], ax
+    mov [FRN_SEG:FRN_SEND], ax
     mov cl, [cs:font_rn_k7]
     push di                     ; the run's first byte, for the column passes
 .rmurow:
@@ -1574,7 +1597,7 @@ font_run_x:
     xor ch, ch                  ; no cell before the first: its bits fall off
     push di                     ; the top of the shift and are masked away
     FONT_RN_UPX                 ; ...so this is the LEFT edge byte
-    mov [cs:bp + font_rn_le], al ; **THE `cs:` IS LOAD-BEARING.** SS != DS, so
+    mov [FRN_SEG:bp + FRN_LE], al ; **THE `cs:` IS LOAD-BEARING.** SS != DS, so
                                 ; a [bp+disp] operand addresses SS by default
                                 ; (SPEC.md 1 rule 2) and font_rn_le is .bss,
                                 ; i.e. KERNEL_SEG - which is CS here, DS being
@@ -1590,18 +1613,18 @@ font_run_x:
                                 ; BP is the row index, 0..7 against `resb 8`,
                                 ; bounded six lines from here
     inc di                      ; it is written by the column pass, not here
-    cmp si, [cs:font_rn_send]
+    cmp si, [FRN_SEG:FRN_SEND]
     jae .rmuend                 ; a one-cell run: no interior at all
 .rmumid:
     FONT_RN_UPX
     stosb                       ; the interior: bytes the run owns whole
-    cmp si, [cs:font_rn_send]
+    cmp si, [FRN_SEG:FRN_SEND]
     jb .rmumid
 .rmuend:
     mov ah, ch                  ; the RIGHT edge: the last cell's tail, with
     xor al, al                  ; nothing after it
     shr ax, cl
-    mov [cs:bp + font_rn_re], al ; ...and the same override, for the same
+    mov [FRN_SEG:bp + FRN_RE], al ; ...and the same override, for the same
                                 ; reason - see the left edge above
     pop di
     FONT_RN_ROWEND
@@ -1610,8 +1633,18 @@ font_run_x:
     jb .rmurow
 
     ; --- the two edge columns, each with its mask set ONCE ------------------
-    push cs                     ; DS the kernel's again: the columns read the
-    pop ds                      ; edge bytes out of .bss
+    KDS                         ; DS the kernel's again: the columns read the
+                                ; edge bytes out of .bss
+%ifdef KERN_MEGA
+    push bx                     ; kern_mega: the edges were built in .lowbss
+    mov bx, 15                  ; (FRN_SEG, above) - into the .bss pair
+.megacp:                        ; fnt_rn_edge reads. AL is free: the next
+    mov al, [ss:font_rn_lem + bx] ; thing below loads it
+    mov [font_rn_le + bx], al
+    dec bx
+    jns .megacp
+    pop bx
+%endif
     pop di                      ; back to the run's first byte
     mov al, 0xFF
     shr al, cl                  ; AL = the LEFT byte's mask: our (8-k) low bits
@@ -2053,8 +2086,7 @@ font_run_cell:
 .nw:
     dec bh
     jnz .row
-    push cs                     ; DS the kernel's again
-    pop ds
+    KDS                         ; DS the kernel's again
 .out:
     pop es
     pop di
@@ -2251,6 +2283,12 @@ font_rn_pl:     resb 1          ; SPEC.md 6.1.10: 1 = the masks came from the
 font_rn_k7:     resb 1          ; SPEC.md 6.1.11: the pen's phase, x & 7. 0 is
                                 ; the aligned path and every other value is the
                                 ; shift the row pass runs at
+%ifdef KERN_MEGA
+section .lowbss
+font_rn_sendm:  resw 1          ; kern_mega's font_rn_send and edge rows,
+font_rn_lem:    resb 16         ; reached through SS (FRN_SEG, above)
+section .bss
+%endif
 font_rn_send:   resw 1          ; ...and where the cell walk stops, because CX
                                 ; is carrying the shift and the previous byte
                                 ; and has nothing left to count with

@@ -35,7 +35,15 @@
 %include "os88api.inc"
 %include "sndpkg.inc"
 
-    OS88_HEADER 'MIDIRack', mr_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_PARTS, OS88_STACK_384
+%include "os88mega.inc"
+%ifdef PKG_MEGA
+    OS88_HEADER 'MIDIRack', mr_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_PARTS, OS88_STACK_384 | OS88_HIGH | OS88_HIGHMEM
+%else                               ; THE SHIPPED BUILD'S CLAIMS STAY LOW
+    OS88_HEADER 'MIDIRack', mr_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_PARTS, OS88_STACK_384 | OS88_HIGH
+%endif                              ; (KERN-MEGA-PLAN 14.66): what reads a
+                                    ; bank through a SELECTOR is the kern_mega
+                                    ; arm's, so on kern_mega this build's
+                                    ; claims are conventional - and right
 
 ; --- embedded 16x16 icon (SPEC.md 20.2): a rack unit with a keyboard --------
     OS88_ICON16
@@ -196,6 +204,11 @@ MR_FILEMAX  equ 63                  ; KB: the largest file taken whole
     MRB mr_first_paint
     MRB mr_card                     ; the card up: 0 / MR_CARD_*
     MRB mr_arg_pending
+%ifdef MR_SPKDIAG
+    MRW mrk_dfx                     ; MR_SPKDIAG: OSAPI_FSX_RUN's FLAGS and AX
+    MRW mrk_dfa
+    MRW mrk_dspk                    ; ...and OSAPI_FSX_SPK's refusal code
+%endif
     MRBUF mr_arg_name, 16
     MRW mr_arg_dir
     MRB mr_arg_vol
@@ -237,6 +250,12 @@ mr_entry:
     pop es                          ; one row is lazy: a name copy, CF = 0
     call OSAPI_CPU_INFO
     mov [mr_cpu], al
+%ifdef PKG_MEGA
+    test ah, CPU_F_PM               ; kern_mega: the wavetable's loop takes
+    jz .rm                          ; its step from DS, not a patch through
+    call mwt_pmset                  ; CS (105.8.6) - the kern_mega arm's alone
+.rm:                                ; (KERN-MEGA-PLAN 14.66); the shipped
+%endif                              ; build's patch is a trap there, and right
     call OSAPI_SND_CAPS             ; AX = caps
     test ax, SND_CAP_PCM_BG
     jz .nosb
@@ -398,6 +417,8 @@ mr_s_smpte:     db 'SMPTE-timed files are not played', 0
 mr_s_notrk:     db 'The file has no tracks', 0
 mr_s_big:       db 'Too large: MIDIRack takes files up to 63 KB', 0
 mr_s_nomem:     db 'Out of memory', 0
+mr_s_ringmem:   db 'No memory for the card - close a program and retry', 0
+mr_s_spkmem:    db 'No memory to play - close a program and retry', 0
 mr_s_rderr:     db 'The file could not be read', 0
 mr_s_notask:    db 'No free task - close a program and retry', 0
 mr_s_nofm:      db 'No FM chip (load SOUND.DRV in the Control Panel)', 0
@@ -405,6 +426,12 @@ mr_s_fmbusy:    db 'The FM chip is in use by another program', 0
 mr_s_nosb:      db 'No Sound Blaster DSP for the synth', 0
 mr_s_sberr:     db 'The Sound Blaster refused the stream', 0
 mr_s_spkbusy:   db 'The PC speaker is busy', 0
+%ifdef MR_SPKDIAG
+mr_s_spkdiag:   db 'Speaker refused: run fl=', 0
+mr_s_spkd2:     db ' ax=', 0
+mr_s_spkd3:     db ' spk=', 0
+mr_spkdbuf:     times 48 db 0
+%endif
 mr_s_spkpaused: db 'Paused - Space plays on the speaker', 0
 mr_s_spkplay:   db 'PC speaker - click or Space to pause', 0
 mr_s_spkslow:   db 'The speaker cannot play at this rate here', 0

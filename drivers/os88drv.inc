@@ -368,6 +368,9 @@ DSV_GEOM     equ DSV_BLK        ; == DSV_BLK: SUB-FUNCTION 2 of it (AL = 2),
                                 ;       ROM's int 13h does not reach (52.1's
                                 ;       rung 1). 0 = never, which is CF = 1
 DSV_SIZE     equ 36
+%if DSV_SIZE > 0x3F
+  %error "os88drv: the +15 byte's DSV length is 6 bits - bits 7 and 6 are OS88_DRV_HIGHOK and OS88_DRV_HICLAIM"
+%endif
 
 ; --- DSV_FS: the file redirector's verbs (SPEC.md 62.9) ----------------------
 ; A DRVC_FILE volume has NO SECTORS - no BPB, no FAT, no directory to walk -
@@ -668,6 +671,32 @@ DRV_VER equ 11
                             ; copy is never shipped: tools/os88rom.py diffs
                             ; the pair into the table COLDHMA.SYS relocates
                             ; the loaded image by (docs/plans/HMA-PLAN.md 5)
+; OS88_DRV_HIGHOK - %define it BEFORE OS88_DRIVER / OS88_OVERLAY to say that
+; this image may be placed ABOVE 1MB on kern_mega in protected mode
+; (KERN-MEGA-PLAN item 82): it is copied into an extended-memory block and run
+; through a code/data selector pair, CS the code half and DS the data half
+; (CS + 8). Say it only of a driver that does no PARAGRAPH arithmetic on its
+; own CS or DS (derive DS from CS by the pair rule, as SOUND.DRV's SBL_DSCS
+; does), never hands its own segment to a BIOS call or a DMA engine, and has
+; no code a ROM runs in real mode. Its claims stay conventional. It is bit 7
+; of +15, which every kernel masks or clamps to its own table length, so the
+; bit is invisible to a kernel that does not place drivers high.
+; OS88_DRV_HICLAIM - %define it as well to say that the driver's own claims
+; of 64KB or less (OSAPI_MEM_CLAIM / _CLAIM_HI, never the DMA cells) may be
+; pool SELECTORS above 1MB, as a package's are under OS88_HIGHMEM: no
+; paragraph arithmetic on one, no BIOS call or DMA engine handed one, and a
+; relocation proc on any it declares movable, because the kernel MOVES those
+; up after protected mode is entered (KERN-MEGA-PLAN item 83). Bit 6 of +15.
+%ifdef OS88_DRV_HIGHOK
+ %ifdef OS88_DRV_HICLAIM
+OS88_DRV_HIBIT equ 0xC0
+ %else
+OS88_DRV_HIBIT equ 0x80
+ %endif
+%else
+OS88_DRV_HIBIT equ 0
+%endif
+
 %macro OS88_DRIVER 3-4 DSV_SIZE
     %xdefine OS88_DSV_LEN (%4)
     cpu 8086
@@ -693,7 +722,7 @@ DRV_VER equ 11
     db 0FFh, 0D5h           ; +12 THE DISPATCHER: `call bp`...
     db 0CBh                 ; +14 ...`retf`. The kernel far-calls this fixed
                             ;     offset with BP = the proc it wants.
-    db OS88_DSV_LEN         ; +15 THE DSV_* TABLE LENGTH THIS DRIVER WAS BUILT
+    db OS88_DSV_LEN | OS88_DRV_HIBIT ; +15 THE DSV_* TABLE LENGTH THIS DRIVER WAS BUILT
                             ;     WITH (SPEC.md 51.2) - the FSV word's rule one
                             ;     level up. drv_publish copies only this many
                             ;     bytes and publishes 0 for the cells past it,
@@ -744,7 +773,7 @@ DRV_VER equ 11
     dw %2                   ; +10 the private ABI version its owner checks
     db 0FFh, 0D5h           ; +12 the dispatcher: `call bp`...
     db 0CBh                 ; +14 ...`retf`
-    db 0
+    db OS88_DRV_HIBIT       ; +15 bit 7: OS88_DRV_HIGHOK, as a driver's
     %strlen %%len %1
     %if %%len > 15
         %error "OS88_OVERLAY: name must be at most 15 characters"

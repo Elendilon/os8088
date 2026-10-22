@@ -422,6 +422,15 @@ unsigned os88_part_seg(int i)
     if (i != 0) { printf("HARNESS: os88_part_seg(%d): the package has one part\n", i); exit(1); }
     return 0x3000;
 }
+unsigned os88_file_read_seg(const char *name, unsigned seg, unsigned cap);
+/* the seg:off form (KERN-MEGA-PLAN 14.12): the package names the claim and an
+ * offset into it, so a selector base works on kern_mega; modelled here as the
+ * paragraph form it is on every other kernel */
+unsigned os88_file_read_segoff(const char *name, unsigned seg, unsigned off, unsigned cap)
+{
+    if (off & 15) { printf("HARNESS: os88_file_read_segoff at offset %04x: not a paragraph\n", off); exit(1); }
+    return os88_file_read_seg(name, seg + (off >> 4), cap);
+}
 static const char hello_bytes[40] = "\016\011\021\011\001\315\005\000\311Hello from the Z80 - 40 bytes.$";
 unsigned os88_file_read_seg(const char *name, unsigned seg, unsigned cap)
 {

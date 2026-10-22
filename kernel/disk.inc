@@ -344,6 +344,15 @@ IMG_DVSEG    equ DV_LBL + 6      ; ...and the claim's SEGMENT lives in the
 %if IMG_DVSEG + 2 > DV_BUNIT
   %error "IMG_DVSEG must stay inside DV_LBL, clear of DV_BUNIT (SPEC.md 18.101)"
 %endif
+; ...and its TOP, which DISKOPS.DRV writes at the mount: the file's name and
+; folder (the unmount that starts from the volume, 18.101.5) and its first
+; cluster on the host - which dskw_imgro reads as well, because the cluster is
+; what makes the file READ-ONLY while it is a drive (18.101.3). Nothing about
+; the mount is written to the file's own entry any more
+IMG_KB       equ 1
+IMG_M_NAME   equ IMG_KB*1024 - 17  ; 13 bytes: the file's 8.3 name on its host
+IMG_M_DIR    equ IMG_KB*1024 - 4   ; dw: the folder that holds it (0 = root)
+IMG_M_CLUS   equ IMG_KB*1024 - 2   ; dw: the file's first cluster on its host
 %endif
 %if DVK_DRV != 1 || DVK_FILE != 2 || DVK_BIOS != 0
   %error "dsk_vol_del and dsk_vol_drop_drv_x test the two DRIVER kinds as one range, DVK_DRV..DVK_FILE = 1..2, below which BIOS (0) wraps"
@@ -865,7 +874,7 @@ section .text                   ; ...but NOT this one. dsk_dbg_raw is a FAR
 dsk_dbg_raw:
     push ds
     push si
-    mov si, KERNEL_SEG
+    KDATAR si
     mov ds, si
     inc byte [sch_lock]         ; pause task switching, exactly as dsk_xfer
     mov ah, 0x02                ; does - the tick still runs, the motor needs
@@ -1548,7 +1557,17 @@ dsk_xfer:
                                 ; for its whole run, because a DVK_DRV volume
                                 ; leaves this routine before the int 13h loop
                                 ; below ever runs
+%ifdef KERN_MEGA
+    test dl, 4                  ; THE BUFFER IS AN LDT SELECTOR: the driver's
+    jz .drvlo                   ; own int 13h rung would be refused 09h by
+    call .drvhi                 ; mega_svc's fence, so it gets dsk_secbuf, a
+    jmp short .drvret           ; sector a call (KERN-MEGA-PLAN 13.3 step 4)
+.drvlo:
+%endif
     call drv_blk_call_x
+%ifdef KERN_MEGA
+.drvret:
+%endif
     CURXFER_OFF                 ; ...and CF is the driver's answer, which `mov`
     jnc .success                ; leaves alone
     mov [dsk_ioerr], al         ; the driver reports int 13h's status byte,
@@ -1574,9 +1593,19 @@ dsk_xfer:
     les bx, [dsk_bnc_bx]        ; the caller's ES:BX back
     xor si, si
     xchg si, [dsk_bnc_si]       ; the count back, and the flag down
+%ifdef KERN_MEGA
+    mov ax, [dsk_bnc_n]         ; ...by the run the bounce moved
+    sub si, ax
+    mov ah, al
+    xor al, al
+    shl ax, 1                   ; x 512
+    add bx, ax
+    jmp .sector
+%else
     add bx, 512                 ; DI was advanced by the bounced pass, and the
     dec si                      ; notch counted it: only the caller's own
     jmp .sector                 ; cursor and count are left to move
+%endif
 
 .sector:
     test si, si
@@ -1588,6 +1617,10 @@ dsk_xfer:
     ; fill, which re-enters this routine to do the reading.
     cmp word [dsk_rah_seg], 0
     je .nocache
+%ifdef KERN_MEGA
+    cmp word [dsk_bnc_si], 0    ; ...and never inside a RUN bounce (item 85):
+    jne .nocache                ; its run can split at a track, and a fill
+%endif                          ; would land in the very landing it is using
 %ifdef OS88_BIGVOL
     cmp word [dsk_rah_busy], 0  ; ...and never a sector past the first 32MB,
                                 ; which the cache's 16-bit keys cannot name:
@@ -1777,10 +1810,39 @@ dsk_xfer:
     ; is free: no caller of a transfer on a buffer of its own holds a live
     ; sector there across it.
 .bounce:
+%ifdef KERN_MEGA
+    mov bp, ax                  ; the run the track allows (dsk_runcap banks AX)
+%endif
     pop ax                      ; the head pushed for DH: .sector recomputes it
     mov [dsk_bnc_bx], bx        ; the caller's ES:BX, as a far pointer
     mov [dsk_bnc_es], es        ; (offset first: .bcp's lds, .unbounce's les)
     mov [dsk_bnc_si], si        ; >= 1 here, so non-zero IS "bouncing"
+%ifdef KERN_MEGA
+    mov word [dsk_bnc_n], 1     ; A BUFFER ABOVE 1MB (an LDT selector: a
+    mov cx, es                  ; package placed high, its claims, a kernel
+    test cl, 4                  ; cache - KERN-MEGA-PLAN item 85) bounces a
+    jz .b1                      ; RUN, through the read-ahead's landing - nine
+    mov cx, [dsk_rah_bnc]       ; page-safe sectors, scratch between fills -
+    jcxz .b1                    ; where a sector at a time through dsk_secbuf
+    cmp bp, si                  ; cost a call, and on a floppy a revolution,
+    jbe .bn1                    ; per 512 bytes
+    mov bp, si
+.bn1:
+    cmp bp, DSK_RAH_SECS
+    jbe .bn2
+    mov bp, DSK_RAH_SECS
+.bn2:
+    cmp bp, 1
+    jbe .b1                     ; ONE sector: dsk_secbuf, which .bcp keys on
+    mov [dsk_bnc_n], bp
+    mov al, 0x03
+    call .bcp                   ; a write's run into the landing
+    mov es, [dsk_rah_bnc]
+    xor bx, bx
+    mov si, bp                  ; this run, then .success
+    jmp .nocache
+.b1:
+%endif
     mov al, 0x03
     call .bcp                   ; a write's sector into the scratch
     push ss
@@ -1861,7 +1923,16 @@ dsk_xfer:
                                 ; there is parked on IRQ6 waiting for DMA
                                 ; (SPEC.md 15.3.8), so what the ISR spends is a
                                 ; gap the machine was going to spend idle
+%ifdef KERN_MEGA
+    mov byte [mega_fdx], 1      ; kern_mega: this is a transfer the native
+%endif                          ; floppy path may take (mega_fd13)
+%ifdef KD_HMA
+    call kdh_dptsync            ; kern_dos in the HMA: the BIOS reads int 1Eh's
+%endif                          ; LOW copy, so the EOT above has to reach it
     int 0x13
+%ifdef KERN_MEGA
+    mov byte [mega_fdx], 0      ; (`mov` leaves CF alone)
+%endif
     CURXFER_OFF                  ; `mov` leaves the flags alone, so int 13h's CF
     jnc .ok                     ; still reaches this branch
     mov [dsk_ioerr], ah         ; keep the status for diskw.inc's mapping
@@ -1988,15 +2059,107 @@ dsk_xfer:
     add bx, ax                  ; ...advances the destination
     jmp .sector
 
+%ifdef KERN_MEGA
+.drvhi:                         ; DX:BX the caller's buffer, CX sectors, DI:SI
+    jcxz .dhok                  ; the LBA, AX and BP the block call's - and
+.dhl:                           ; the driver keeps nothing but CF and AL
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    cmp al, 1
+    jne .dhgo
+    mov al, 0x03
+    call .dhcp                  ; a write's sector into the scratch
+    mov al, 1
+.dhgo:
+    mov dx, ss
+    mov bx, dsk_secbuf
+    mov cx, 1
+    call drv_blk_call_x
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    jc .dhbad
+    pop ax
+    cmp al, 1
+    je .dhnext
+    push ax
+    mov al, 0x02
+    call .dhcp                  ; a read's sector out to the caller
+    pop ax
+.dhnext:
+    add bx, 512
+    add si, 1
+    adc di, 0
+    loop .dhl
+.dhok:
+    clc
+    ret
+.dhbad:
+    pop bx                      ; the banked AX, dropped: AL is the status
+    stc
+    ret
+.dhcp:                          ; AL = 03h caller -> scratch, 02h back; the
+    push ds                     ; caller's sector at DX:BX. Keeps everything
+    push es
+    push si
+    push di
+    push cx
+    push ss
+    pop es
+    mov di, dsk_secbuf
+    mov ds, dx
+    mov si, bx
+    cmp al, 0x02
+    jne .dhcgo
+    push ds
+    push es
+    pop ds
+    pop es
+    xchg si, di
+.dhcgo:
+    mov cx, 256
+    cld
+    rep movsw
+    pop cx
+    pop di
+    pop si
+    pop es
+    pop ds
+    ret
+%endif
+
 .bcp:                           ; AL = the op that copies at this end
     cmp [dsk_op], al
     jne .bret
     push ds
     push si
     push di
+%ifdef KERN_MEGA
+    mov cx, [dsk_bnc_n]         ; a RUN through the landing (item 85)...
+    cmp cx, 1
+    je .bsec
+    mov es, [dsk_rah_bnc]
+    xor di, di
+    mov ch, cl
+    xor cl, cl                  ; x 256 words
+    jmp short .bsrc
+.bsec:
+    mov cx, 256                 ; ...or the one sector through dsk_secbuf
+%endif
     push ss
     pop es
     mov di, dsk_secbuf          ; ES:DI = the scratch...
+%ifdef KERN_MEGA
+.bsrc:
+%endif
     lds si, [dsk_bnc_bx]        ; ...DS:SI = the caller's sector (no kernel
     cmp al, 0x02                ; variable is read until the pop)
     jne .bgo
@@ -2006,7 +2169,9 @@ dsk_xfer:
     pop es
     xchg si, di
 .bgo:
+%ifndef KERN_MEGA
     mov cx, 256
+%endif
     cld
     rep movsw
     pop di
@@ -2172,6 +2337,13 @@ dsk_runcap:
     cmp ax, DRV_HMA_SEG         ; A BUFFER IN THE HMA IS NEVER A DMA TARGET
     jae .hma                    ; (docs/plans/HMA-PLAN.md 5) - below
 %endif
+%ifdef KERN_MEGA
+    test al, 4                  ; AN LDT SELECTOR IS NOT A SEGMENT: a window
+    jnz .hma                    ; above 1MB (OSAPI_XMEM_SEL, a package placed
+%endif                          ; high) or a code alias - the page math below
+                                ; means nothing on it, and the ROM's int 13h
+                                ; cannot reach the first kind at all. 0 bounces
+                                ; it a sector at a time through dsk_secbuf
     mov cl, 4                   ; the carry out of this is the page number,
     shl ax, cl                  ; which is exactly what we do not want
     add ax, bx
@@ -2201,6 +2373,12 @@ dsk_runcap:
     pop ax
     ret
 %ifdef HMA_DRV
+ %define DSK_RCHMA
+%endif
+%ifdef KERN_MEGA
+ %define DSK_RCHMA
+%endif
+%ifdef DSK_RCHMA
 .hma:                           ; ...the IBM AT's diskette code keeps four
     xor bp, bp                  ; page bits, so a transfer there lands under
     jmp short .out              ; 1MB. 0 bounces it through dsk_secbuf, a
@@ -3012,6 +3190,11 @@ dsk_vol_add:
     mov [bx+DV_CLASS], al       ; matched the caller's segment against a
                                 ; publication slot and left the class here
     mov ah, DVK_DRV             ; ...AND THE KIND FOLLOWS THE CLASS. A
+    cmp al, DRVC_CD             ; (the range is CLOSED: DRVC_IMG is 0x41, a
+    ja .kindpub                 ; mounted image has SECTORS, and an open
+                                ; `jae` made every one a sectorless DVK_FILE
+                                ; row whose proof-mount said 'Not a disk
+                                ; image' - SPEC.md 18.101)
     cmp al, DRVC_FILE2          ; (every file class - SPEC.md 62.9.19, and
     jae .kindfile               ; DRVC_CD past it, 119.1)
     cmp al, DRVC_FILE           ; DRVC_FILE driver answers questions about
@@ -3135,19 +3318,38 @@ dsk_img_orphan:
     push es
     mov bx, dsk_vtab + 3*DV_SIZE
 .orph:
-    cmp byte [bx+DV_KIND], DVK_DRV  ; a FREE row keeps its old class AND its
-    jne .onext                  ; IMG_DVSEG, which then names a freed claim
-    cmp byte [bx+DV_CLASS], DRVC_IMG
-    jne .onext
-    mov es, [bx+IMG_DVSEG]
-    cmp [es:0], al
-    jne .onext
-    mov byte [es:0], 0xFF
-.onext:
-    add bx, DV_SIZE
-    cmp bx, dsk_vtab + DVOL_MAX*DV_SIZE
-    jb .orph
+    call dsk_img_next
+    jc .done
+    mov byte [es:0], 0xFF       ; ...which no longer names AL, so the next
+    jmp short .orph             ; scan starts past it with nothing to add
+.done:
     pop es
+    ret
+
+; -----------------------------------------------------------------------------
+; dsk_img_next - the next MOUNTED IMAGE whose host is volume AL, from row BX
+; in:  AL = the host's volume index, BX = a row of dsk_vtab to start at
+; out: CF = 0, ES = its claim and BX = the row AFTER it (so a walk calls
+;      again without stepping); CF = 1 none at or past BX
+; clobbers: BX, ES, flags
+;
+; The walk dsk_img_orphan and dskw_imgro share (SPEC.md 18.101.1, 18.101.3).
+; A FREE row keeps its old class AND its IMG_DVSEG, which then names a freed
+; claim, so the kind is asked first
+; -----------------------------------------------------------------------------
+dsk_img_next:
+    cmp bx, dsk_vtab + DVOL_MAX*DV_SIZE
+    cmc                         ; CF = 1 past the table: none
+    jc .out
+    add bx, DV_SIZE
+    cmp byte [bx+DV_KIND-DV_SIZE], DVK_DRV
+    jne dsk_img_next
+    cmp byte [bx+DV_CLASS-DV_SIZE], DRVC_IMG
+    jne dsk_img_next
+    mov es, [bx+IMG_DVSEG-DV_SIZE]
+    cmp [es:0], al
+    jne dsk_img_next            ; CF = 0 out of an EQUAL compare
+.out:
     ret
 %endif
 
@@ -3228,6 +3430,29 @@ osapi_vol_fence:
     mov bx, es
     or bx, bx
     jz .no
+%ifdef KERN_MEGA                ; THE CALLER'S DS MAY BE ITS CODE ALIAS on
+    test bl, 4                  ; kern_mega, (S >> 2) | 4, and the published
+    jz .data                    ; segment is the DATA one: HDDTOOL.DRV calls
+    cmp bx, MEGA_LDT_FREE0 * 8  ; (a driver ABOVE 1MB, item 82: a pair's
+    jb .alias                   ; DATA half is published as it is, and its
+    push ax                     ; CODE half's data is + 8)
+    mov ax, bx
+    call MEGA_SEL_CODE:mega_cs2dsf
+    jc .pdata
+    xchg ax, bx
+.pdata:
+    pop ax
+    jmp short .data
+.alias:
+    and bl, 0xF8                ; the resident with DS = the `push cs` its
+    shl bx, 1                   ; HDT_INIT was handed, and a DS write converts
+    shl bx, 1                   ; it only when one faults (mega_gpw). A call
+.data:                          ; with no write before it - HSV_UNMOUNT's -
+%endif                          ; was refused here, silently: the volume kept
+                                ; its row, its icon and its letter, so the
+                                ; next mount of the same partition came up as
+                                ; D: (KERN-MEGA-PLAN 10.3 item 26). The alias
+                                ; IS the image, so it is mega_cs2ds's rule
     mov al, 1                   ; WALK the classes rather than naming one. It
 .cls:                           ; tested [drv_fseg2] alone - the DISK class -
     call drv_cls_fp_x             ; which is a fence that only one kind of
@@ -5331,6 +5556,10 @@ dsk_fatw_want:
     jne .out                    ; every mount (SPEC.md 18.8.3)
     call dsk_fatw_pinned        ; the kernel's own window is free? Take it -
     jc .pin                     ; it is already paid for, so there is no gate
+%ifdef KERN_MEGA
+    cmp byte [ss:mega_pm], 0    ; kern_mega in protected mode: the claim is a
+    jne .claim                  ; pool block (mem_hitag, item 86), so the
+%endif                          ; conventional heap's figure is not the gate
     push bx                     ; mem_avail_lvl ANSWERS in BX, so the slot
     mov al, MEM_PG_MED          ; goes on the stack rather than being read
     call mem_avail_lvl_x          ; twice. ...AT OUR OWN RANK (SPEC.md 50.6.4),
@@ -5345,6 +5574,9 @@ dsk_fatw_want:
                                 ; made the window more timid than its own rank
                                 ; entitles it to be. AX = largest run KB, BX =
                                 ; TOTAL free KB, and pop leaves the cmp's flags
+%ifdef KERN_MEGA
+.claim:
+%endif
     mov al, [disk_drive]
     call dsk_fatw_claim         ; a refusal is a normal path (SPEC.md 50) and
     cmp word [bx+DVOL_MAX*2], 0 ; falls through to the pin below. BX survives:
@@ -6197,6 +6429,18 @@ dsk_rah_cap:  db DSK_RAH_AUTO    ; A CEILING SOMEBODY ELSE SET (SPEC.md
                                  ; the command has to survive the mounts that
                                  ; happen while the commander is away, or the
                                  ; next mount hands the cache straight back
+%ifdef KERN_MEGA
+dsk_rah_bnc:  dw 0               ; kern_mega, the store ABOVE 1MB (KERN-MEGA-
+                                 ; PLAN 13.3): the low LANDING every fill
+                                 ; reads into and copies up from, a page-safe
+                                 ; MEM_P_RAHB claim - purgeable, so a shed
+                                 ; zeroes this word and the fills stop until
+                                 ; the next mount re-takes it
+dsk_rah_hi:   db 0               ; 1: [dsk_rah_seg] is an LDT DATA SELECTOR
+                                 ; above 1MB (mega_hiclaim), only ever
+                                 ; loaded, never added to. 0: a conventional
+                                 ; segment, as on every other kernel
+%endif
 section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
                                 ; segment of its own. DS is still KERNEL_SEG,
                                 ; so the DATA stays in .text at every toggle
@@ -6343,6 +6587,13 @@ dsk_rah_fill:
 .gate:
     cmp bx, ax
     jae .nofill                 ; no surplus: there is nothing to cache
+%ifdef KERN_MEGA
+    cmp byte [dsk_rah_hi], 0
+    je .land
+    cmp word [dsk_rah_bnc], 0   ; the store is above 1MB and its landing was
+    je .nofill                  ; shed: serve what it holds, fill nothing
+.land:
+%endif
 
     ; --- spend a slot: round robin, a chunk having no better claim than its
     ;     neighbours. [dsk_rah_next] is a SLOT INDEX, so the wrap is a compare
@@ -6362,6 +6613,10 @@ dsk_rah_fill:
 .picked:                        ; width, because dsk_rah_flush clears all
     mov [dsk_rah_next], bx      ; DSK_RAH_RUNS records and the ones above the
                                 ; live width then stay RAH_N = 0
+%ifdef KERN_MEGA
+    cmp byte [dsk_rah_hi], 0    ; a store above 1MB is never a transfer's
+    jne .slotok                 ; target - the landing is - so no slot of it
+%endif                          ; can straddle anything that matters
     push ax                     ; **A SLOT ACROSS A 64KB PAGE IS NOT FILLED**
     mov cx, 288                 ; (SPEC.md 18.95.7.1). The claim has no page
     mul cx                      ; head, so a boundary can fall inside ONE slot,
@@ -6373,6 +6628,9 @@ dsk_rah_fill:
                                 ; The claim is under 64KB, so at most one slot
                                 ; straddles, and the width is at least
                                 ; DSK_RAH_MIN = 2, so the next one does not
+%ifdef KERN_MEGA
+.slotok:
+%endif
     mov cx, 9
     mul cx                      ; AX = slot * RAH_REC, RAH_REC being 9...
     mov bx, ax
@@ -6386,11 +6644,41 @@ dsk_rah_fill:
     mov [si+RAH_LBA], di
     mov cx, dx
     mov es, [dsk_rah_seg]
+%ifdef KERN_MEGA
+    push bx                     ; the slot's run of the store, for the copy
+    cmp byte [dsk_rah_hi], 0
+    je .direct
+    mov es, [dsk_rah_bnc]       ; ...and the read lands BELOW 1MB, where a
+    xor bx, bx                  ; reflected int 13h can put it
+.direct:
+%endif
     mov ax, di
     inc byte [dsk_rah_busy]     ; ...so this read is not itself cached
     call disk_read_x
     dec byte [dsk_rah_busy]     ; (dec leaves CF alone)
+%ifdef KERN_MEGA
+    pop di                      ; DI = the slot's run: the LBA is in the
+                                ; record already and the epilogue restores DI
     jc .out
+    cmp byte [dsk_rah_hi], 0
+    je .stamp
+    push si                     ; ...then UP: landing:0 -> store:slot, one
+    xor si, si                  ; rep movsw of the chunk (~1 ms on a 286
+    mov ax, dx                  ; against the ~400 ms call it saves)
+    xchg ah, al                 ; sectors x 256...
+    shl ax, 1                   ; ...x 2 = bytes
+    xchg ax, cx
+    mov dx, [dsk_rah_bnc]
+    mov ax, [dsk_rah_seg]
+    call dsk_copy_seg_x
+    mov dx, cx                  ; DX = the length in sectors again: CX held
+    shr dx, 1                   ; bytes, and the copy kept it
+    xchg dl, dh
+    pop si
+.stamp:
+%else
+    jc .out
+%endif
     mov [si+RAH_N], dx          ; DX still holds the length: only now is the
     mov al, [disk_drive]        ; slot allowed to claim it has anything
     mov [si+RAH_VOL], al
@@ -6557,12 +6845,30 @@ dsk_rah_redo:
     mov dx, [dsk_rah_seg]
     or dx, dx
     jz .out                     ; nothing held: already what was asked for
+%ifdef KERN_MEGA
+    cmp byte [dsk_rah_hi], 0
+    je .conv
+    xchg ax, dx                 ; the store above 1MB: its block and its
+    call MEGA_SEL_CODE:mega_hifreef ; selector, and then the landing below,
+    mov byte [dsk_rah_hi], 0    ; if a shed has not had it already
+    mov bx, MEM_P_RAHB
+    xor dx, dx
+    xchg dx, [dsk_rah_bnc]
+    or dx, dx
+    jz .gone
+    call mem_free_x
+    jmp short .gone
+.conv:
+%endif
     mov bx, MEM_P_DIRW
     call mem_free_x             ; the record IS the allocator (SPEC.md 50.3),
     jc .out                     ; so this is one word - and it refuses while a
                                 ; relocation proc is standing on the table
                                 ; (66.3 rule 3), which is a real answer and not
                                 ; a formality
+%ifdef KERN_MEGA
+.gone:
+%endif
     xor ax, ax
     mov [dsk_rah_seg], ax
     mov [dsk_rah_runs], ax      ; no claim, so no width either - and this pair
@@ -6591,8 +6897,24 @@ dsk_rah_want:
 %ifdef DIRW_ONE
     jmp short .out              ; DIRW1=1: never claim, so every read is
 %endif                          ; exactly the sectors asked for (SPEC.md 18.95)
+%ifdef KERN_MEGA
+    cmp byte [dsk_rah_hi], 0    ; the store above 1MB is held: only its
+    je .lo                      ; landing can have been shed, and a mount is
+    cmp word [dsk_rah_bnc], 0   ; where it comes back (dsk_rah_want's note)
+    jne .out
+    call dsk_rah_land
+    jmp short .out
+.lo:
+%endif
     cmp word [dsk_rah_seg], 0
     jne .out                    ; already held
+%ifdef KERN_MEGA
+    cmp byte [ss:mega_pm], 0    ; protected mode: ABOVE 1MB first, and the
+    je .conv                    ; conventional claim below only if that is
+    call dsk_rah_wanthi         ; refused (KERN-MEGA-PLAN 13.3 step 2)
+    jnc .out
+.conv:
+%endif
     mov al, MEM_PG_HIGH         ; ...at OUR OWN rank (SPEC.md 50.6.4), so a
     call mem_avail_lvl_x          ; cheaper cache counts as free and a dearer one
                                 ; does not. This window is the most expensive
@@ -6711,6 +7033,127 @@ dsk_rah_want:
     pop ax
     popf
     ret
+
+%ifdef KERN_MEGA
+; -----------------------------------------------------------------------------
+; dsk_rah_wanthi - kern_mega in protected mode: the read-ahead STORE above 1MB
+; (KERN-MEGA-PLAN 13.3 step 2), behind an LDT data selector of its own
+; (mega_hiclaim), and one chunk's LANDING below it, which every fill reads
+; into: a reflected int 13h reaches only a real-mode ES:BX, and on the Victory
+; every C: transfer is one (plan 13.2). The landing is 5KB of conventional
+; heap against the up-to-32KB store, page-safe so a fill is one transfer.
+;
+; The width is the ceiling, DSK_RAH_RUNS, under [dsk_rah_cap]: the free-run
+; and arena-share bounds of the conventional solve are about CONVENTIONAL
+; memory, which this does not spend.
+; out: CF = 0 held; CF = 1 nothing taken. Clobbers AX, BX, CX, DX
+; -----------------------------------------------------------------------------
+dsk_rah_wanthi:
+    mov al, DSK_RAH_RUNS
+    cmp al, [dsk_rah_cap]
+    jbe .w
+    mov al, [dsk_rah_cap]
+.w:
+    cmp al, DSK_RAH_MIN
+    jb .no                      ; commanded below the floor: nothing, here
+    xor ah, ah                  ; or below (the solve there asks the same)
+    mov bx, ax                  ; BX = the width
+    mov cx, DSK_RAH_SECS * 512
+    mul cx                      ; AX = the store's bytes (<= 32,256: DX = 0)
+    xchg ax, cx
+    call MEGA_SEL_CODE:mega_hiclaimf ; AX = its selector
+    jc .no
+    call dsk_rah_land
+    jnc .got
+    call MEGA_SEL_CODE:mega_hifreef ; no landing: the store goes back
+.no:
+    stc
+    ret
+.got:
+    mov byte [dsk_rah_hi], 1
+    mov [dsk_rah_runs], bx
+    mov [dsk_rah_seg], ax       ; the gate, last: every reader tests it
+    call dsk_rah_flush
+    and word [dsk_rah_next], 0  ; (CF = 0)
+    ret
+
+; dsk_rah_land - claim the landing into [dsk_rah_bnc]: CF = 0 held, CF = 1
+; refused. Purgeable at the store's own rank, and page-safe so a fill is one
+; transfer (a page-safe claim is pinned, which a shed makes harmless).
+; Clobbers nothing else
+dsk_rah_land:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, (DSK_RAH_SECS * 512 + 1023) / 1024
+    mov cx, ax                  ; ...all of it inside one 64KB page
+    mov bx, MEM_P_RAHB
+    call mem_claim_dma_x
+    jc .out
+    mov [dsk_rah_bnc], dx
+.out:
+    jmp kretc_dx
+
+; dsk_fatw_lowf - FAR, from mega_enter (KERN-MEGA-PLAN 10.3 item 38): the
+; FAT windows the boot's mounts CLAIMED were placed before `.cold`'s rung and
+; the read-ahead's 32K came free under them, so each stands on a hole - 72K
+; under C:'s, measured, with the largest run 481K of 553K. A window that is a
+; claim, clean, and not the live one is given back (dsk_fatw_drop), and its
+; volume's next mount takes it again first-fit FROM THE FLOOR, where it walls
+; nothing. The live window and anything dirty are left exactly as they are.
+; Every register preserved
+dsk_fatw_lowf:
+    push ax
+    push bx
+    cmp word [dsk_fatd0], 0xFFFF
+    jne .out                    ; a FAT sector is dirty: touch nothing
+    xor al, al
+.vol:
+    push ax
+    mov bl, al
+    call dsk_fatw_slot
+    jc .next
+    mov bx, [bx+DVOL_MAX*2]     ; the window's claim, 0 = none
+    or bx, bx
+    jz .next
+    cmp bx, FAT_SEG             ; the pin is not a claim
+    je .next
+    cmp bx, [dsk_fatseg]        ; ...and the live window stays live
+    je .next
+    call dsk_fatw_drop          ; AL = the volume
+.next:
+    pop ax
+    inc al
+    cmp al, DVOL_MAX
+    jb .vol
+.out:
+    pop bx
+    pop ax
+    retf
+
+; dsk_rah_dropf - FAR, from the DOS park's claim (mega_dosclaimf): the store
+; and its landing given back and NOT re-solved, so a park sized from what the
+; pool can hold gets the store's KB too - on a 1MB AT the difference between
+; a park and a refusal (KERN-MEGA-DOS-PLAN 10.2). dsk_rah_redo with the
+; ceiling held at 0 for the one call: its drop is the whole of what is
+; wanted, and the solve it falls into then refuses at the floor. The next
+; mount after the return takes the store again. Every register preserved
+dsk_rah_dropf:
+    push ax
+    xor al, al
+    xchg al, [dsk_rah_cap]
+    call dsk_rah_redo
+    mov [dsk_rah_cap], al       ; the ceiling as it was: nothing COMMANDED
+    pop ax
+    retf
+
+; dsk_rah_redof - dsk_rah_redo for a FAR caller: mega_enter, whose switch
+; makes the store's home above 1MB reachable for the first time
+dsk_rah_redof:
+    call dsk_rah_redo
+    retf
+%endif
 
 ; -----------------------------------------------------------------------------
 ; osapi_dsk_cache - COMMAND the read-ahead cache's width (SPEC.md 18.95.8)
@@ -8061,6 +8504,12 @@ dsk_copy_seg_x:
     push di
     push ds
     push es
+%ifdef KERN_MEGA
+    cmp ax, KERNEL_SEG          ; kern_mega: KERNEL_SEG (0060h) is the kernel's
+    jne .mdst                   ; CODE selector in protected mode, read-only,
+    KDATAR_C ax                 ; so a copy INTO the kernel takes its data
+.mdst:                          ; alias. Callers name the kernel segment as
+%endif                          ; KERNEL_SEG or CS and every one is right here
     mov es, ax
     mov ds, dx                  ; last: no kernel variable is legible below
     shr cx, 1
@@ -9362,6 +9811,12 @@ dsk_fdd_park_x:
     ; and the park with it: POST resets the FDC itself. The test is the card's
     ; counting register at 2A3h, which a machine without one fails on its
     ; second read having written nothing (dsk_fdd_pmemu's ramp, SPEC.md 18.97.6)
+%ifdef KERN_MEGA
+    cmp byte [ss:mega_pm], 0    ; protected mode: EVERY machine is warm-reset
+    je .rmode                   ; once the heads are parked - the int 19h at
+    jmp short .parked           ; dsk_rb_go is mega_svc's 8042 reset there.
+.rmode:                         ; The PicoMEM's own `jmp FFFF:0` is a SELECTOR
+%endif                          ; in protected mode: the Victory hung on it
     pushf
     cli                         ; the ramp is stateful: nobody between reads
     DSK_PMEM_WARM .park         ; IF = 0 from the cli to the reset vector, and
@@ -9370,7 +9825,8 @@ dsk_fdd_park_x:
                                 ; jump to a literal address; kernel size pass
                                 ; 11, -5)
 .park:
-    popf
+    popf                        ; (the pushf above's: kern_mega's protected
+.parked:                        ; arm, which made none, comes in below it)
     mov cl, [fdd_dbg_eqp]       ; drives int 11h claimed (0..4), banked by
                                 ; desk_init before anything contested it (§57.5)
 .unit:
@@ -9383,7 +9839,7 @@ dsk_fdd_park_x:
                                 ; FDC whatever this leaves behind (§18.100)
     jmp short .unit             ; the ORDER units are parked in does not matter
 dsk_rb_go:                      ; the last instruction of the GUI, in .cold
-    int 0x19
+    int 0x19                    ; (kern_mega: mega_svc makes it a warm reset)
     jmp $
 %endif                           ; KD_BUILD
 %endif                           ; NO_FDDPARK
@@ -10187,6 +10643,10 @@ dsk_run:      resw 1            ; sectors in the int 13h call being issued
                                 ; nothing can be inside it twice
 dsk_ioerr:    resb 1            ; status (AH) of the last FAILED transfer;
                                 ; 03h = write-protected media (SPEC.md 18.4)
+%ifdef KERN_MEGA
+dsk_bnc_n:    resw 1            ; sectors the bounce is moving: 1 through
+                                ; dsk_secbuf, or a run through the landing
+%endif
 dsk_bnc_si:   resw 1            ; non-zero = .sector is moving ONE sector
                                 ; through dsk_secbuf for a caller buffer that
                                 ; straddles a 64KB page (SPEC.md 18.91.4), and

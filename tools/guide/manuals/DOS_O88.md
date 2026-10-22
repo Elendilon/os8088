@@ -169,9 +169,22 @@ The two choices below it say where the program runs:
   and puts it back, windows and all, when the program ends. On a machine
   without one there is nothing to come back to, so DOS asks first: **Open
   windows are lost. Proceed?** Choose **Proceed** only after saving your
-  work; the machine restarts when the program ends. **Disable the mouse**
+  work; the machine restarts when the program ends. With a disk image
+  mounted, it refuses with `Unmount the image first`, because a DOS program
+  could change the image's file while os8088 is not watching. **Disable the mouse**
   turns the mouse off for the program, which saves a little time on a slow
-  machine when the program does not use it.
+  machine when the program does not use it. On the protected-mode build for
+  the 286 and later, **Load DOS in the HMA** is ticked unless you clear it:
+  the part of DOS that stays behind goes into the memory just above the
+  first megabyte, which gives the program about 36K more. A few older
+  programs that unpack themselves as they load cannot run that way. DOS
+  spots most of them and puts itself below the program instead; clear the
+  box for one it misses. That build parks os8088 in the memory above the
+  first megabyte rather than unloading it (**Parks the OS above 1MB**), so
+  the desktop comes back with no disk at all. **Save the session to disk**,
+  clear unless you tick it, also writes the session to the hard disk before
+  the program starts, so it comes back even after the program hangs the
+  machine or the power goes off. It is greyed on a machine with no hard disk.
 
 The options under the choice that is not picked are greyed. Clicking one of
 them picks its choice.

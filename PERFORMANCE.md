@@ -1484,9 +1484,10 @@ In rough order of cost, and you do not always need all of it.
    before/after pair of its report is a diff.
 5. **Run it on period hardware** if the change is about *time* rather than
    *work* — `make xt` (4.77 MHz 8088), `make 286`, `make 386sx`, `make 386`
-   for the middle of the range. 86Box is not installed in the web container;
-   those targets do not run there, and that is a real limit on what a web
-   session can conclude.
+   for the middle of the range. Those targets launch the 86Box app; in a web
+   container `python3 tools/os88box.py build` makes 86Box and
+   `tools/os88box.py` runs the same profiles headless (docs/86BOX.md) - but
+   86Box is not cycle-accurate, so a time off it is 86Box's model's.
 6. **Watch it with your eyes** if the change is about flash or redraw. That
    judgement is made on hardware and by a person. Nothing above substitutes.
 7. **A size pass that must leave the hot path alone: diff it per ROUTINE.**

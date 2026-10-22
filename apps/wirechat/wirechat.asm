@@ -31,7 +31,13 @@
                                     ; header, as The Wire includes it - EQUs
                                     ; only, so it may sit above the header
 
-    OS88_HEADER 'WireChat', wc_entry, OS88_F_ICON, OS88_STACK_256
+    OS88_HEADER 'WireChat', wc_entry, OS88_F_ICON, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
+                                ; **OS88_HIGH | OS88_HIGHMEM** (KERN-MEGA-PLAN
+                                ; 13.3, 13.6): no arithmetic on our own CS or
+                                ; DS, no claim at all, no vector, no re-home -
+                                ; every socket buffer is in our own segment
+                                ; and the driver reaches it through ES, as it
+                                ; does Telnet's and The Wire's
                                 ; **OS88_STACK_256**, argued as The Wire
                                 ; argues its 192 (thewire.asm): ETHER.DRV's
                                 ; verbs are ~126 bytes on OUR stack and the

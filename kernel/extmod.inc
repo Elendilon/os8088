@@ -612,8 +612,8 @@ ui_drag_size:
     push word [bx+W_Y]          ; because the snap below can move a window
     push word [bx+W_X]          ; that kept its size
     call wm_disp_now            ; **THE DISPLAY IS DECIDED ONCE, HERE** (SPEC.md
-    mov [cs:wm_lf_disp], al     ; 39.16.4.2). Armed before the first question is
-    mov [cs:wm_lf_win], bx      ; asked and spent at .fin, so the resize this
+    CSDO mov [CSEG wm_lf_disp], al ; 39.16.4.2). Armed before the first question is
+    CSDO mov [CSEG wm_lf_win], bx ; asked and spent at .fin, so the resize this
                                 ; routine applies cannot change the answer under
                                 ; the steps that follow it
     call ext_kind_of            ; the kind it stands on now (wm_kind_now's own
@@ -694,7 +694,7 @@ ui_drag_size:
                                 ; it for, not the one its new frame sits on
 .fin:
     xor ax, ax                  ; ...and 0 is no window, wm_wins starting well
-    mov [cs:wm_lf_win], ax      ; above it
+    CSDO mov [CSEG wm_lf_win], ax ; above it
     push es                     ; ZF = 1 exactly when all four words are what
     push ss                     ; they were: the four on the stack (X lowest,
     pop es                      ; the record's own order) against the record
@@ -1526,7 +1526,7 @@ ext_refuse:                     ; a knob-compiled-out cut: CF = 1, the drop
 exk_go:                         ; ovlchk: builds its own far frame
     push ax                     ; STKBALANCE-OK: a far frame built by hand, its
     push ax                     ; four slots spent by the RETF below and by the
-    push ds                     ; target's own return through cw_kretf. The
+    PUSH_KCODE                  ; target's own return through cw_kretf. The
     push ax                     ; segment slot is PUSHED: DS is KERNEL_SEG
     push bp                     ; throughout the image
     mov bp, sp                  ; [bp+2] offset, [bp+4] segment, [bp+6] the

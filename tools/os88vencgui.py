@@ -243,6 +243,30 @@ def _tearing(c):
                PF_WORDS[c["pixfmt"]]))
 
 
+def _blocks(c):
+    """VERSION 2's BLOCKS (98.1.10): 16 and 256 colours, and one bit on a
+    CGA or a Hercules - and not beside what a version 2 file refuses
+    (98.1.10.1), so the window never builds a command the encoder stops on"""
+    if c["pixfmt"] not in ("vga4", "vga8", "mono", "cgacomp"):
+        return "Blocks are 16 colours', 256 colours' and one bit's."
+    if c["pixfmt"] in ("mono", "cgacomp") and \
+            c["layout"] not in ("cga", "herc"):
+        return "One bit's blocks are a CGA's or a Hercules's."
+    if c.get("live") or c.get("resident"):
+        return ("Blocks are drawn on the screen, and a %s file is decoded "
+                "into memory first." % ("Live" if c["live"] else "resident"))
+    if c.get("bands"):
+        return "Bands draw a frame band by band, and blocks are not cut " \
+            "into bands."
+    if c.get("cut") == "tear":
+        return "A tear keeps whole rows in screen order, and blocks are " \
+            "ranked by worth, not by place."
+    if c.get("loop_from") and c["pixfmt"] in ("mono", "cgacomp"):
+        return "One bit's codebook cannot run on round a loop: its seam " \
+            "would join a codebook from the file's end."
+    return None
+
+
 def _desk(c):
     """DESKTOP POSTERS (98.1.3.11): the Preview's size is any file's but a
     Live one's, which plays in its window at its own size"""
@@ -400,6 +424,11 @@ GROUPS = [
      ("vga4_order", "vga4_wm3"), _for(("vga4",), PF_WORDS["vga4"])),
     ("Trade-offs", "Scenes: fewer bytes at a cut",
      ("scene_hold",), _for(("vga4",), PF_WORDS["vga4"])),
+    # (VERSION 2's blocks, 98.1.10: a smaller file for the same look, in a
+    # file only VIDEO.O88 from 98.3.23 on plays - so it is asked for by
+    # name, never implied)
+    ("Trade-offs", "Blocks: a version 2 file (a smaller file, same look)",
+     ("blocks",), _blocks),
     # (a Hercules has a second page too, so page-ahead is not VGA's alone:
     # under the VGA group it was greyed on the one screen that needs it
     # asked for by name - the options audit, 2026-10-14. Bands are the
@@ -453,7 +482,9 @@ FIELD_WHEN = {
     else "This keeps a cell's hue, and the text is mono: it has none.",
     "bands": lambda c: ("Bands are a stream's drawn full screen, and a Live "
                         "file draws a pass a tick on the desktop."
-                        if c["live"] else None) if c["layout"] == "modex" or
+                        if c["live"] else "Blocks are on, and are not cut "
+                        "into bands." if c.get("blocks") else None)
+    if c["layout"] == "modex" or
     c["pixfmt"] == "vga4" else "Bands are for a picture drawn a plane at a "
     "time - Mode X, or 16 colours - and %s is one plane." % (
         "mode 13h" if c["pixfmt"] == "vga8" else "a Hercules"),
@@ -1055,6 +1086,9 @@ def form_context(values):
                 page_ahead=g("page_ahead") or "auto",
                 step_down=g("step_down") or "on",
                 ladder=g("ladder"), fps=g("fps") or imp.get("fps", ""),
+                # (VERSION 2's: what Blocks greys, and is greyed by)
+                blocks=g("blocks") == "on",
+                bands=g("bands") not in ("", "0"), cut=g("cut") or "rank",
                 coarse_cut=g("coarse_cut") or "auto")
 
 

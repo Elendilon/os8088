@@ -664,14 +664,44 @@ sbl_go_on:
 ; stream underrun-paused and stop expecting IRQs; the refill task resumes
 ; with sbl_go_on once data reappears (SPEC.md 34.5, the underrun contract).
 ; =============================================================================
+; SBL_DSCS reg16, reg8low - DS = this image's DATA segment, derived from CS
+; at the moment of the interrupt. On every real-mode kernel that is CS itself
+; (`push cs / pop ds`'s value: a heap claim is 512-aligned, so bit 2 is clear,
+; and an image COLDHMA placed in the HMA - F400h and up, PARAGRAPH-granular, so
+; bit 2 is anything - is caught first by the F000h test); on kern_mega CS is
+; the image's read-only LDT code alias (S >> 2) | 4 and the data segment is
+; (CS & ~7) << 2 (mega_cs2ds's rule for an image below A000h) - or, for an
+; image placed ABOVE 1MB (OS88_DRV_HIGHOK, KERN-MEGA-PLAN item 82), CS is an
+; allocator pair's code half and the data half is CS + 8. DERIVED
+; and never banked: the compactor may move a hooked, idle image and rewrite the
+; IRQ vectors to follow it (SPEC.md 66.6.3.1) without telling the driver, so a
+; segment banked at the hook would send the next block's ISR into freed memory
+; (KERN-MEGA-PLAN 10.3 item 57's correction). Clobbers reg16 and flags
+%macro SBL_DSCS 2
+    mov %1, cs
+    cmp %1, 0xF000              ; the HMA (SPEC.md 2.10.8): a paragraph, never
+    jae %%rm                    ; a selector - kern_mega's stop below 4000h
+    test %2, 4
+    jz %%rm
+    cmp %1, 0x2800              ; MEGA_LDT_FREE0 * 8: an image ABOVE 1MB
+    jb %%alias                  ; (KERN-MEGA-PLAN item 82) runs in an
+    add %1, 8                   ; allocator PAIR, whose data half is the code
+    jmp short %%rm              ; half + 8
+%%alias:
+    and %2, 0xF8
+    shl %1, 1
+    shl %1, 1
+%%rm:
+    mov ds, %1
+%endmacro
+
 sbl_isr:
     push ax
     push bx
     push dx
     push ds
     push es
-    push cs
-    pop ds                      ; DS = OUR segment: an ISR that lives in a
+    SBL_DSCS ax, al             ; DS = OUR segment: an ISR that lives in a
     cld                         ; driver has to point DS at itself, and every
                                 ; byte it touches below is ours (SPEC.md 51.2)
 
@@ -830,8 +860,7 @@ sbl_stub_c:
     push dx
     push ds
     mov ah, al                  ; AH = candidate index (AL becomes scratch)
-    push cs
-    pop ds                      ; DS = ours, like sbl_isr's
+    SBL_DSCS dx, dl             ; DS = ours, like sbl_isr's
     or ah, ah                   ; candidate 0 (IRQ 7) first proves it is not
     jnz .accept                 ; the 8259's spurious-IRQ-7 artifact:
     mov al, 0x0B                ; OCW3 - the next 0x20 read returns the

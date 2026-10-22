@@ -3,8 +3,8 @@
 Task Manager shows what the machine is doing right now: how busy the
 processor is, how much memory is in use, and which programs are running,
 with each one's share of the processor and of the memory. A second page
-draws a map of memory, and a third lists every block of memory that has been
-handed out and who holds it.
+draws a map of memory and lists every block of memory that has been handed
+out, grouped under whoever holds it.
 
 Task Manager only watches. It cannot stop or close a program; close a program
 from its own window as usual.
@@ -30,9 +30,10 @@ It always opens on the first page.
 
 ## Changing page
 
-Click anywhere inside the window to go to the next page. The three pages come
-round in turn: the processor and program list, the memory map, and the list
-of memory blocks, then back to the first. The figures keep being measured
+Click anywhere inside the window to go to the next page. The two pages take
+turns: the processor and program list, then the memory page, then back to
+the first. On the memory page a click on the list, its header or its scroll
+bar works the list instead (see below). The figures keep being measured
 while you look at another page, so the graph has no gap when you come back.
 
 ## The first page: the processor and the programs
@@ -50,8 +51,10 @@ left. The white column is where the next reading will go. The taller the
 black, the busier the machine was.
 
 **RAM** is how much of the machine's memory is in use, out of all it has, in
-kilobytes (K). It counts everything: the system itself, the room set aside
-for programs, and every extra block a program has asked for. The bar under it
+kilobytes (K), or in megabytes (M) on a machine with memory above the first
+megabyte. It counts everything: the system itself, the room set aside for
+programs, every extra block a program has asked for, and the memory above
+the first megabyte when the machine has any. The bar under it
 shows the same figure. **HEAP** is the part of memory programs and the system
 ask for blocks from: how much of it is in use, out of its size.
 
@@ -59,15 +62,14 @@ The list has one line per running program:
 
 | Column | What it shows |
 |---|---|
-| NAME | The program. **IVT+Pad** is the first line: 2K at the very bottom of memory that belongs to the machine's BIOS, with a half-K beside it nothing can use. **System** is os8088 itself; built-in windows such as a Disk window are listed under it, indented |
+| NAME | The program. **IVT+BIOS** is the first line: 2K at the very bottom of memory that belongs to the machine's BIOS, with a half-K beside it nothing can use, and, on machines whose BIOS keeps its own area at the top of memory, that area too. **System** is os8088 itself, including what it holds above the first megabyte; built-in windows such as a Disk window are listed under it, indented |
 | ST | What it was doing at the last reading (see below) |
 | CPU | Its share of the processor's work over the last half second |
 | MEM | The memory it holds, in K: its own room plus any extra blocks it asked for |
 
 The CPU figures add up to 100% between them, counting System. Lines with
-dashes are free places for more programs. IVT+Pad, System and the heap add
-up to all of the machine's memory, and the MEM figures add up to RAM used.
-On a screen too short for every line, such as a CGA, IVT+Pad is counted
+dashes are free places for more programs. The MEM figures add up to RAM used.
+On a screen too short for every line, such as a CGA, IVT+BIOS is counted
 into System rather than pushing a program off the list.
 
 The ST column:
@@ -96,46 +98,48 @@ block a program asked for is a small framed box. White is free.
 The next line names the processor. On a machine with memory above the first
 megabyte, an **XMS** line and bar show how much of that is in use.
 
-The list under it has four columns. **ADDR** is where the item starts in
-memory, as a hexadecimal number. **SIZE** is how big it is, and **HEAP** is the
-extra memory it has asked for on top.
+On the protected-mode build of os8088 for the 286 and later, memory above the
+first megabyte is ordinary memory that programs run in. There **RAM** counts
+all of it, in megabytes; the line under the processor reads **HIGH**, how much
+of that memory is in use out of all of it; and a program running up there
+reads **HIGH** in **ADDR** and is not drawn on the bar, which is the first
+megabyte only. Its **MEM** and **HEAP** still count everything it holds.
 
-- **IVT+Pad** is the 2K at the very bottom: the area that belongs to the
-  machine's BIOS, and a half-K beside it that nothing can use.
-- **System** is os8088, split into its program and data (**Code+data**), the
-  working space of the running programs (**Stacks**) and its copy of the
-  disk's file table (**FAT snap**).
-- **Builtins** are the system's own windows, which have no memory of their own
-  beyond the blocks they ask for.
-- **Packages** is the room for loaded programs, how much is used out of all
-  of it, followed by one line per program. The small square in front of each
-  program matches its pattern in the map.
+Under that, **AVAIL** is how much memory a new request could get, and
+**MAX RUN** the biggest single block it could get in one piece. When a
+program says it is out of memory although AVAIL looks large, MAX RUN is the
+figure to look at: the free memory is there, but in pieces.
 
-This page and the next are redrawn about every two seconds.
+The list under it has one line per owner, with its total. Click an owner's
+line to open it into its blocks, and click it again to close it. **ADDR** is
+where an item starts in memory, as a hexadecimal number, and **SIZE** is how
+big it is. The small square in front of a program matches its pattern in the
+map.
 
-## The third page: memory blocks
+The header above the list has two switches, drawn in reverse:
 
-![The memory blocks page.](shot:taskmgr-heap){full}
+- **PROGRAMS** or **SYSTEM**, at its left end, changes the view. **PROGRAMS**
+  lists each program on its own line and the system as one line. **SYSTEM**
+  opens the system out at the top and puts the programs together under one
+  **Programs** line.
+- **+ALL** at its right end opens every line, and **-ALL** closes them again.
 
-This page lists every block of memory that has been handed out, grouped
-under the program that holds it, with the system's own first.
+What you will see under the system:
 
-The three lines at the top sum it up:
+- **IVT+BIOS** is the 2K at the very bottom: the area that belongs to the
+  machine's BIOS, and a half-K beside it that nothing can use. A BIOS that
+  keeps an area of its own at the top of memory adds it here.
+- **Code+data** is os8088's program and data, **Stacks** the working space
+  of the running programs, and **FAT snap** its copy of the disk's file
+  table. On a machine with memory above the first megabyte, what it holds
+  there is **Above 1MB**.
+- **Kernel**, a line for each driver (such as **SOUND.DRV**) and a line for
+  each of the system's own windows (a Disk window is named by its folder)
+  open into the blocks each one asked for.
 
-| Figure | Means |
-|---|---|
-| HEAP | The size of the area blocks come from |
-| AVAIL | How much a new request could get, counting caches the system would give up |
-| HELD | Memory held by blocks that stay until their owner lets them go, and how many blocks |
-| PURGE | Memory held by caches the system can drop when room is needed, and how many |
-| MAX RUN | The biggest single block a program could get in one piece |
-| FRAG | The rest of AVAIL, outside that biggest piece |
-
-When a program says it is out of memory although AVAIL looks large, MAX RUN
-is the figure to look at: the free memory is there, but in pieces.
-
-Each block shows its **TYPE**, its address (**ADDR**) and its **SIZE**. Some
-of the types you will see:
+**Purgeable** gathers the caches the system can drop when room is needed,
+whoever they were made for. An open block shows its **TYPE** and its
+**TIER**. Some of the types you will see:
 
 | TYPE | What it is |
 |---|---|
@@ -152,7 +156,14 @@ blocks stay. The others are caches the system can drop, starting with
 **TRIV** (cheap to rebuild), then **LOW**, **MED** and last **HIGH** (slow to
 rebuild, so it is kept longest).
 
-When the list is longer than the window, use its scroll bar.
+**640K-1MB**, after the list, is the part of the first megabyte that is not
+memory: the **Video** window, each add-in card's **ROM** at the address it
+was found, and the machine's own **BIOS**. **Unrep.** is the rest of that
+range, which nothing on the machine describes. It is listed so you can see
+what is there, and it is not counted in RAM.
+
+When the list is longer than the window, use its scroll bar. The page is
+redrawn about every two seconds.
 
 ## The TaskMgr menu
 

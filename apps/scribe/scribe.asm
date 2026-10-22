@@ -97,7 +97,11 @@ SC_SBIDLE   equ SB_IDLE
 ;   association - which it does NOT declare.
 ; =============================================================================
 
-    OS88_HEADER 'SCRIBE', sc_entry, 1  ; bit 0 icon. NOT bit 1: see below
+    OS88_HEADER 'SCRIBE', sc_entry, 1, OS88_HIGH | OS88_HIGHMEM
+                                ; bit 0 icon. NOT bit 1: see below.
+                                ; OS88_HIGH and OS88_HIGHMEM: the keep
+                                ; and the claims may be above 1MB on
+                                ; kern_mega (KERN-MEGA-PLAN 14.44)
 
 %include "scicon.inc"           ; the icon, shared with the loader that
                                 ; launches us (SPEC.md 95.8.8)
@@ -20228,7 +20232,7 @@ section .text
 ; is not defined yet. DOS_BTREC_SZ in apps/dos/dos.asm is the same
 ; mirror for the same reason; the %if below the include is what stops
 ; either copy drifting.
-SC_BTREC_SZ equ 16
+SC_BTREC_SZ equ 24
 
 %macro SCVAR 2                      ; name, size in bytes
     %1 equ os88_image_end + SCB

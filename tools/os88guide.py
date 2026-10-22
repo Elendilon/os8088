@@ -96,6 +96,7 @@ BLURB = {
     "Commodore 64": "A Commodore 64 in a window.",
     "Apple II Plus": "An Apple II Plus in a window, with Applesoft BASIC.",
     "PaccMan": "Arcade-accurate Pac-Man. Best on a 386.",
+    "RealDMG": "A Game Boy in a window. Bring your own cartridges.",
     "1942": "Air combat after the arcade game. Needs VGA or CGA.",
     "REDLINE": "A benchmark that scores your PC against a 4.77 MHz IBM PC.",
     "MIDIRack": "A MIDI music player with ten songs.",

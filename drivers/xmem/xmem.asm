@@ -102,7 +102,7 @@
 
 %include "os88drv.inc"
 
-XM_ABI_VER  equ 1               ; the private kernel<->overlay ABI (SPEC.md
+XM_ABI_VER  equ 2               ; the private kernel<->overlay ABI (SPEC.md
                                 ; 52.11's +10 word). The kernel passes what it
                                 ; expects in AH at DRVV_ATTACH and we refuse a
                                 ; mismatch, so a KERNEL.SYS and an XMEM.DRV of
@@ -120,7 +120,8 @@ XMV_ALLOC   equ 2               ; in DX:AX = bytes, BL = owner; out CF,
 XMV_FREE    equ 4               ; in DX:AX = base, BL = owner; out CF
 XMV_COPY    equ 6               ; in ES:SI = an XMC_ block in KERNEL_SEG
 XMV_RELINST equ 8               ; in AL = an instance slot being torn down
-XMV_SIZE    equ 10
+XMV_WALK    equ 10              ; in DX:DI = room for CX records; out AX
+XMV_SIZE    equ 12
 
 ; --- the kernel's copy parameter block, read through ES (SPEC.md 41.12.2) ----
 ; ES is KERNEL_SEG inside every call the kernel makes here, and the two ends
@@ -354,6 +355,57 @@ xm_svc:
     dw xm_copy                  ; XMV_COPY
     dw xm_relall                ; XMV_RELINST: AL = the slot, everything else
                                 ; preserved, which is xm_relall's own contract
+    dw xm_walk                  ; XMV_WALK (ABI 2)
+
+; -----------------------------------------------------------------------------
+; xm_walk - the pool's live blocks, for the Task Manager (XMV_WALK, behind
+;           slot 0x04BF; SPEC.md 28.4.8)
+;
+; in:       DX:DI = room for CX records of 6 bytes
+; out:      CF = 0, AX = records written, each {dw XB_OFF, dw XB_KB, db
+;           XB_OWN, db 0} - OSAPI_XMEM_WALK's XMW_ record, which is this
+;           table's entry less its padding. Read with IF = 0, so no record is
+;           torn by an allocation on another task
+; clobbers: nothing else (flags)
+; -----------------------------------------------------------------------------
+xm_walk:
+    push cx
+    push si
+    push di
+    push es
+    mov es, dx
+    xor ax, ax
+    mov si, xm_tab
+    pushf
+    cli
+    cld
+.l:
+    jcxz .done
+    cmp word [si+XB_KB], 0
+    je .n
+    push ax
+    mov ax, [si+XB_OFF]
+    stosw
+    mov ax, [si+XB_KB]
+    stosw
+    mov al, [si+XB_OWN]
+    xor ah, ah
+    stosw
+    pop ax
+    inc ax
+    dec cx
+.n:
+    add si, XM_BLKSZ
+    cmp si, xm_tab_end
+    jb .l
+.done:
+    popf
+    pop es
+    pop di
+    pop si
+    pop cx
+    clc
+    ret
 
 
 ; -----------------------------------------------------------------------------

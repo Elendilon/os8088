@@ -705,11 +705,14 @@ static void rc_run_program(void)
     rc_mode = RC_M_RUN;
 }
 
-/* the first 512-aligned Z80-claim offset at or above 0200h: 0200h plus the
- * bytes from the claim's physical base up to the next 512 boundary */
+/* the first 512-aligned Z80-claim offset at or above 0200h. It was computed
+ * from the claim's physical base, (rc_zseg << 4) & 0x1FF - which is always 0,
+ * a claim being whole KB from a 512-aligned heap (os88.h's _seg note) and a
+ * pool block on kern_mega whole KB too - and which on kern_mega is
+ * arithmetic on a SELECTOR (KERN-MEGA-PLAN 14.12). So it is the constant */
 static unsigned rc_zoff512(void)
 {
-    return 0x200 + ((0x200 - ((rc_zseg << 4) & 0x1FF)) & 0x1FF);
+    return 0x200;
 }
 
 /* rc_ax_load - AUTOEXEC.TXT, ONCE, at launch, from the launch folder (main.c
@@ -732,7 +735,7 @@ static unsigned rc_zoff512(void)
 static void rc_ax_load(void)
 {
     unsigned n, off = rc_zoff512(), blen = 0;
-    n = os88_file_read_seg("AUTOEXEC.TXT", rc_zseg + (off >> 4), RC_CCPADDR - off);
+    n = os88_file_read_segoff("AUTOEXEC.TXT", rc_zseg, off, RC_CCPADDR - off);
     while (blen < n && blen < 125 && rc_rd(off + blen) > 31)
         blen++;
     if (blen) {                              /* main.c: the poke, cut at the
@@ -755,7 +758,7 @@ static int ovl_load_go(void)                 /* module code: 0 = the module
     n = 0;
     big = 0;
     if (rc_fs_cd(0, 0) == 0) {               /* A\0 first: the CP/M disk */
-        n = os88_file_read_seg(rc_ldname, rc_zseg + (off >> 4), RC_TPA_TOP - off);
+        n = os88_file_read_segoff(rc_ldname, rc_zseg, off, RC_TPA_TOP - off);
         big = (n == 0 && os88_ferr() == OS88_FERR_BIG);
     }
     if (n == 0 && !big) {                    /* then the launch folder - but a
@@ -764,7 +767,7 @@ static int ovl_load_go(void)                 /* module code: 0 = the module
                                               * again: the fallback's NOENT
                                               * would hide the true fact */
         rc_fs_home();
-        n = os88_file_read_seg(rc_ldname, rc_zseg + (off >> 4), RC_TPA_TOP - off);
+        n = os88_file_read_segoff(rc_ldname, rc_zseg, off, RC_TPA_TOP - off);
         big = (n == 0 && os88_ferr() == OS88_FERR_BIG);
     }
     if (n == 0) {

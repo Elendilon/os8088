@@ -30,7 +30,7 @@
 %include "os88api.inc"
 %include "buildnum.inc"             ; BUILD_NUM (SPEC.md 14.2), from $(BUILD)
 
-    OS88_HEADER 'System Check', sc_entry, 1
+    OS88_HEADER 'System Check', sc_entry, 1, OS88_HIGH | OS88_HIGHMEM
     OS88_ICON16                     ; a disk with a tick on it
     ; --- mask ---
     dw 0xFFFE, 0xFFFF, 0xFFFF, 0xFFFF

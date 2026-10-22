@@ -972,7 +972,8 @@ vo_draw:
 ; the write's mask names, the rest onto the screen. It is used only while
 ; the box is on the glass and the screen is the reference (not through the
 ; shadow, not flipping), so a play with no text pays one compare a record.
-; DS is the record's; everything here is CS-relative
+; DS is the record's; the box's tables are read CS-relative, and what a walk
+; WRITES is a frame on the stack (vd_clip's VC_*, KERN-MEGA-PLAN 14.16)
 ; =============================================================================
 ; vc_setup - the box just drawn on page 0: its ranges and the page table,
 ; and [vo_clip] on. Nothing through the shadow or when flipping. Clobbers all
@@ -1004,9 +1005,12 @@ vc_setup:
     mov [vc_pls], ax
     xor si, si                      ; SI = the row, x 2
     mov dx, vo_sav                  ; DX = its row of the save, [vc_sseg]
-    mov bx, cs                      ; its segment (page 1's is the claim's,
+    mov bx, ds                      ; its segment (page 1's is the claim's,
     mov ax, [vp_foff]               ; vo_io's - the save on the page shown,
-    cmp ax, [vo_sl0]                ; 98.3.8.4, 98.3.13.2)
+    cmp ax, [vo_sl0]                ; 98.3.8.4, 98.3.13.2). DS, not CS: the
+                                    ; box's bytes are STORED through it, and
+                                    ; under CPU_F_PM CS is our read-only code
+                                    ; alias - a #GP a byte (98.3.23.2)
     je .sv
     xor dx, dx
     mov bx, [vo_s1seg]
@@ -1068,10 +1072,21 @@ vc_setup:
 .ret:
     ret
 
+; vd_clip's frame, from BP ([bp] the origin): what was CS-relative state
+VC_MAP      equ -2                  ; SUB2's list map, a bit a list
+VC_NB       equ -4                  ; the next range's start
+VC_RI       equ -6                  ; the range at or after a store, x 2
+VC_N        equ -8                  ; vc_sav: the piece
+VC_LST      equ -9                  ; the span list walked, 6..9
+VC_SK       equ -10                 ; skip-coded: [VC_NB] holds
+VC_FILLF    equ -11                 ; a run, of
+VC_VAL      equ -12                 ; ...this value
+VC_FRAME    equ 12
+
 ; VC_POKE n - the list of n-byte changes, round the box: BX the next range's
 ; start less n-1, so the compare is the whole test while the addresses rise
 %macro VC_POKE 1
-    shr word [cs:vd_map], 1         ; SUB2's list map (98.1.3.2.4): the
+    shr word [bp+VC_MAP], 1         ; SUB2's list map (98.1.3.2.4): the
     jnc .z%1                        ; next list is in a short jump's reach
 .s%1:
     lodsb
@@ -1081,7 +1096,7 @@ vc_setup:
     js .a%1
     mov dx, ax                      ; SKIP-CODED: the count, the address,
     lodsw                           ; then a skip before each change
-    add ax, bp
+    add ax, [bp]                    ; (the origin: the frame's first word)
     mov di, ax
 %if %1 == 1
     xor cx, cx                      ; (n - 1)
@@ -1116,7 +1131,7 @@ vc_setup:
     mov dx, ax
 .b%1:
     lodsw
-    add ax, bp
+    add ax, [bp]                    ; (the origin: the frame's first word)
     mov di, ax
     mov cx, %1
     call vc_put
@@ -1128,25 +1143,33 @@ vc_setup:
 
 ; vd_clip - vd_native's contract (vdec.inc): DS:SI the ten lists, ES the
 ; screen, BP the origin; [vc_mask] the planes the stores reach. SI past
-; them. Clobbers AX, BX, CX, DX, DI, flags
+; them. Clobbers AX, BX, CX, DX, DI, flags; BP kept.
+; ITS STATE IS A STACK FRAME (docs/plans/KERN-MEGA-PLAN.md 14.16), as
+; vd_walk's is: the map, the span list, a segment's kind, a run's value, the
+; next range and the range a lookup found were bytes and words at CS,
+; written per list, segment, entry and lookup - each a #GP on kern_mega,
+; whose CS is read-only. BP addresses the frame, the origin its first word
 vd_clip:
-    mov word [cs:vd_map], 0xFFFF    ; every list there
+    mov ax, 0xFFFF                  ; every list there
     jmp short vd_clgo
 vd_clipm:                           ; ...or a SUB2 sub-record's: its list map
     lodsw                           ; first (98.1.3.2.4)
-    mov [cs:vd_map], ax
 vd_clgo:
+    push bp                         ; [bp] = the origin
+    mov bp, sp
+    sub sp, VC_FRAME
+    mov [bp+VC_MAP], ax
     cld
-    mov byte [cs:vc_fillf], 0
+    mov byte [bp+VC_FILLF], 0
     VC_POKE 1
     VC_POKE 2
     VC_POKE 3
     VC_POKE 4
     VC_POKE 5
     VC_POKE 6
-    mov byte [cs:vc_lst], 6         ; the spans: SLICE, RUN, SLICEL, RUNL
+    mov byte [bp+VC_LST], 6         ; the spans: SLICE, RUN, SLICEL, RUNL
 .sg:
-    shr word [cs:vd_map], 1
+    shr word [bp+VC_MAP], 1
     jnc .sn
 .sl:
     lodsb
@@ -1156,12 +1179,12 @@ vd_clgo:
     js .sa
     mov dx, ax
     lodsw
-    add ax, bp
+    add ax, [bp]                    ; (the origin: the frame's first word)
     mov di, ax
     xor cx, cx                      ; the next range's start, while the
     call vc_bound                   ; addresses rise
-    mov [cs:vc_nb], bx
-    mov byte [cs:vc_sk], 1
+    mov [bp+VC_NB], bx
+    mov byte [bp+VC_SK], 1
 .se:
     lodsb
     xor ah, ah
@@ -1174,19 +1197,21 @@ vd_clgo:
     and al, 0x7F
     jz .sl                          ; (80h, a count of 0: no segment)
     mov dx, ax
-    mov byte [cs:vc_sk], 0
+    mov byte [bp+VC_SK], 0
 .sb:
     lodsw
-    add ax, bp
+    add ax, [bp]                    ; (the origin: the frame's first word)
     mov di, ax
     call vc_one
     dec dx
     jnz .sb
     jmp short .sl
 .sn:
-    inc byte [cs:vc_lst]
-    cmp byte [cs:vc_lst], 10
+    inc byte [bp+VC_LST]
+    cmp byte [bp+VC_LST], 10
     jb .sg
+    mov sp, bp
+    pop bp
     ret
 
 ; vc_m3b - vd_walk's routine for a COLOUR sub-record round the box (SPEC.md
@@ -1196,7 +1221,7 @@ vd_clgo:
 ; that plane's and cleared where not - which is what the card would have
 ; done to it. Clobbers AX, BX, CX, DX
 vc_m3b:
-    call vc_find
+    call vc_findx                   ; (BX alone: BP is vd_walk's frame here)
     cmp bx, [cs:vo_rows2]
     jae .scr
     mov dx, di                      ; in the box: its byte of the save
@@ -1206,7 +1231,8 @@ vc_m3b:
     mov bx, dx
     push es
     les dx, [cs:vc_pls]             ; DX a plane of the save, ES its segment
-    mov ah, [cs:vp_m3c]             ; (vc_sseg, the word after: 98.3.13.2)
+    mov ah, [bp+VW_COL]             ; (vc_sseg, the word after: 98.3.13.2;
+                                    ; the colour: vd_walk's frame)
     mov cl, [cs:vo_pl]
     xor ch, ch
 .p:
@@ -1237,7 +1263,7 @@ vc_m3b:
 ; vc_one - list [vc_lst]'s span at DI, its length and bytes (or a run's
 ; value) off DS:SI, stored round the box. Clobbers AX, BX, CX
 vc_one:
-    mov al, [cs:vc_lst]
+    mov al, [bp+VC_LST]
     cmp al, 7
     jb .slice
     je .run
@@ -1262,35 +1288,35 @@ vc_one:
     xor ch, ch
     mov al, ah
 .fill:
-    mov byte [cs:vc_fillf], 1
-    mov [cs:vc_val], al
+    mov byte [bp+VC_FILLF], 1
+    mov [bp+VC_VAL], al
     call vc_st
-    mov byte [cs:vc_fillf], 0
+    mov byte [bp+VC_FILLF], 0
     ret
 
 ; vc_st - vc_put, but in a skip-coded segment [vc_nb] is the next range's
 ; start and a span short of it is stored with no lookup. Clobbers AX, BX, CX
 vc_st:
-    cmp byte [cs:vc_sk], 0
+    cmp byte [bp+VC_SK], 0
     je vc_put
     jcxz .r
     mov ax, di
     add ax, cx
-    cmp ax, [cs:vc_nb]
+    cmp ax, [bp+VC_NB]
     ja .hit
-    cmp byte [cs:vc_fillf], 0
+    cmp byte [bp+VC_FILLF], 0
     jne .f
     rep movsb
 .r:
     ret
 .f:
-    mov al, [cs:vc_val]
+    mov al, [bp+VC_VAL]
     rep stosb
     ret
 .hit:
     call vc_span                    ; (CX = 0 after it)
     call vc_bnext
-    mov [cs:vc_nb], bx
+    mov [bp+VC_NB], bx
     ret
 
 ; vc_put - CX bytes at DI (DS:SI's, or [vc_val] when [vc_fillf]) round the
@@ -1306,13 +1332,13 @@ vc_put:
     jbe .all
     jmp short vc_span
 .all:
-    cmp byte [cs:vc_fillf], 0
+    cmp byte [bp+VC_FILLF], 0
     jne .f
     rep movsb
 .r:
     ret
 .f:
-    mov al, [cs:vc_val]
+    mov al, [bp+VC_VAL]
     rep stosb
     ret
 
@@ -1323,7 +1349,7 @@ vc_span:
     push dx
 .lp:
     jcxz .out
-    mov bx, [cs:vc_ri]
+    mov bx, [bp+VC_RI]
     call vc_adv                     ; (past any it has left behind)
     cmp bx, [cs:vo_rows2]
     jae .all
@@ -1347,22 +1373,31 @@ vc_span:
     pop dx
     ret
 
-; vc_find - BX and [vc_ri] = the first range ending past DI, x 2 (VO_ROWS x
-; 2: none). vc_adv is the same from range BX on. Preserves the rest
+; vc_find - BX and [bp+VC_RI] = the first range ending past DI, x 2
+; (VO_ROWS x 2: none). vc_adv is the same from range BX on; vc_findx and
+; vc_advx answer BX alone, for a caller with no clip frame. Preserves the
+; rest
 vc_find:
+    call vc_findx
+    mov [bp+VC_RI], bx
+    ret
+vc_adv:
+    call vc_advx
+    mov [bp+VC_RI], bx
+    ret
+vc_findx:
     mov bx, di
     mov bl, bh
     xor bh, bh
     mov bl, [cs:vc_pg+bx]
-vc_adv:
+vc_advx:
     cmp bx, [cs:vo_rows2]
     jae .x
     cmp [cs:vc_re+bx], di
     ja .x
     add bx, 2
-    jmp short vc_adv
+    jmp short vc_advx
 .x:
-    mov [cs:vc_ri], bx
     ret
 
 ; vc_bound - CX = n-1: BX = the next range's start at or after DI, less CX
@@ -1372,7 +1407,7 @@ vc_bound:
     call vc_find
     jmp short vc_bx
 vc_bnext:
-    mov bx, [cs:vc_ri]
+    mov bx, [bp+VC_RI]
     call vc_adv
 vc_bx:
     cmp bx, [cs:vo_rows2]
@@ -1397,14 +1432,14 @@ vc_scr:
     sub cx, ax
     push cx
     mov cx, ax
-    cmp byte [cs:vc_fillf], 0
+    cmp byte [bp+VC_FILLF], 0
     jne .f
     rep movsb
     pop cx
     ret
 .f:
     push ax
-    mov al, [cs:vc_val]
+    mov al, [bp+VC_VAL]
     rep stosb
     pop ax
     pop cx
@@ -1419,7 +1454,7 @@ vc_sav:
     mov ax, cx
 .n:
     sub cx, ax
-    mov [cs:vc_n], ax
+    mov [bp+VC_N], ax
     push cx
     push es
     push bx
@@ -1434,13 +1469,13 @@ vc_sav:
     push di
     push si
     mov di, bx
-    mov cx, [cs:vc_n]
-    cmp byte [cs:vc_fillf], 0
+    mov cx, [bp+VC_N]
+    cmp byte [bp+VC_FILLF], 0
     jne .f
     rep movsb
     jmp short .d
 .f:
-    mov al, [cs:vc_val]
+    mov al, [bp+VC_VAL]
     rep stosb
 .d:
     pop si
@@ -1451,9 +1486,9 @@ vc_sav:
     jnz .pl
     pop bx
     pop es
-    cmp byte [cs:vc_fillf], 0
+    cmp byte [bp+VC_FILLF], 0
     jne .x
-    add si, [cs:vc_n]
+    add si, [bp+VC_N]
 .x:
     pop cx
     ret
@@ -1583,15 +1618,12 @@ vc_sseg:      dw 0                  ; save's segment - ours, or [vo_s1seg]
 vc_rs:        times VO_ROWS dw 0    ; ...its rows' ranges, in address order:
 vc_re:        times VO_ROWS dw 0    ; first byte, past the last, and the
 vc_rv:        times VO_ROWS dw 0    ; save's row
-vc_ri:        dw 0                  ; ...the range at or after a store, x 2
-vc_nb:        dw 0                  ; ...the next range's start
-vc_n:         dw 0                  ; vc_sav: the piece
 vb_n1:        dw 0                  ; vo_bparts: a shadow row's three parts
 vb_n2:        dw 0
 vb_n3:        dw 0
 vo_bpc:       db 0
 vo_cmax:      db 0                  ; the characters the canvas holds
-vc_lst:       db 0                  ; vd_clip: the span list walked (here,
+              db 0                  ; (vd_clip's span list was here: a byte
                                     ; so what follows keeps its parity)...
 vc_mask:      db 1                  ; ...and the planes a store reaches -
                                     ; which vc_sav reads with vo_pl, a word
@@ -1605,7 +1637,4 @@ vo_dn:        db 0                  ; ...as drawn, for the put-back
 vo_text:      times VO_MAXC + 1 db 0
 vo_bits:      times VO_MAXC + 2 db 0
 vo_nbuf:      times 7 db 0
-vc_sk:        db 0                  ; ...skip-coded: [vc_nb] holds
-vc_fillf:     db 0                  ; ...a run, of
-vc_val:       db 0
     times vo_mode - ..@vo_dbeg db 0

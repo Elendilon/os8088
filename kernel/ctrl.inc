@@ -4022,27 +4022,27 @@ cp_vid_vxlabel:
     mov cx, 16
 .put:
     call .dec                   ; W
-    mov byte [cs:di], 'x'
+    CSDO mov byte [CSEG di], 'x'
     inc di
     mov ax, bx
     call .dec                   ; H
-    mov byte [cs:di], 'x'
+    CSDO mov byte [CSEG di], 'x'
     inc di
     mov ax, cx
     call .dec                   ; B
     jmp short .end
 .auto:
-    mov word [cs:di], 'au'
-    mov word [cs:di+2], 'to'
+    CSDO mov word [CSEG di], 'au'
+    CSDO mov word [CSEG di+2], 'to'
     add di, 4
 .end:                           ; ...padded with spaces to the LONGEST label,
     cmp di, cp_vvesa_buf + 16   ; so a shorter one erases the longer one it
     jae .nul                    ; replaces on the row (the run draws its
-    mov byte [cs:di], ' '       ; ground under a space; it draws nothing
+    CSDO mov byte [CSEG di], ' ' ; ground under a space; it draws nothing
     inc di                      ; past its NUL)
     jmp short .end
 .nul:
-    mov byte [cs:di], 0
+    CSDO mov byte [CSEG di], 0
     pop di
     ret
 ; .dec - AX in decimal at CS:DI, no leading zeros; DI past it
@@ -4062,7 +4062,7 @@ cp_vid_vxlabel:
 .e:
     pop ax
     add al, '0'
-    mov [cs:di], al
+    CSDO mov [CSEG di], al
     inc di
     loop .e
     pop dx
@@ -5276,10 +5276,10 @@ cp_flush_x:
 %ifdef OS88_DRIVERS
     cmp byte [cs:cp_fdno], 0    ; the save turned Cylinder back to Auto
     je .verdict                 ; (SPEC.md 31.14): ONE line on the bar, so
-    mov byte [cs:cp_fdno], 0    ; it is chosen before the toast and not
+    CSDO mov byte [CSEG cp_fdno], 0 ; it is chosen before the toast and not
     cmp byte [cp_dsave], 0      ; drawn over 'Settings Saved' after it
     jne .fdback
-    push cs
+    PUSH_CSDATA
     pop es                      ; the line is this image's: a toast copies it
     mov si, [cs:cp_fdnop]       ; a POINTER to image data, read `cs:` - the
                                 ; core has no cp_stage (that is .modu's), and
@@ -5298,7 +5298,7 @@ cp_flush_x:
     pop es                      ; mount (disk.inc) - every other line is
     cmp bl, 1                   ; this image's own, out through ES = CS. The
     je .tell                    ; save's verdicts were a resident word table
-    push cs                     ; and three resident lines for a message only
+    PUSH_CSDATA                     ; and three resident lines for a message only
     pop es                      ; this image ever says (kernel size pass 9)
     mov bh, 0                   ; 0 or 2: the verdict IS the table's offset -
     mov si, [cs:bx+cp_dsvt]     ; a POINTER to image data, read `cs:` (SPEC.md
@@ -5348,7 +5348,7 @@ cp_flush_cfg:
 ; -----------------------------------------------------------------------------
 sc_m_say:
     push es
-    push cs
+    PUSH_CSDATA                 ; the IMAGE's data segment (kern_mega)
     jmp short cp_toast1
 cp_toast:
     push es

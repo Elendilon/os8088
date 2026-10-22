@@ -335,9 +335,9 @@
   "sources": [
    "apps/dos"
   ],
-  "stamped": "9deeee7d",
-  "strings": "7e5f0adda8303591",
-  "why": "CD walks a whole path (CD \\SYSTEM\\DOS) and a failed CD stays put; a missing program says Bad command or file name with or without a tail; HELP's last line says only NUL is a redirect target"
+  "stamped": "af4ae8f5",
+  "strings": "28df7ede37a080f4",
+  "why": "kern_mega's Memory page: the park arm and the Save the session to disk box (14.43) described; the mouse box's kern_mega greying is below the page's detail"
  },
  "DOTDEL_O88": {
   "sources": [
@@ -476,6 +476,14 @@
   "strings": null,
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
  },
+ "GBDEMO_GB": {
+  "sources": [
+   "tools/gbprof/gbdemo.asm"
+  ],
+  "stamped": "206eb5be",
+  "strings": "3a06a69ef09259e4",
+  "why": "new file page for the demo cartridge"
+ },
  "GORILLAS_O88": {
   "sources": [
    "apps/gorillas"
@@ -516,9 +524,9 @@
   "sources": [
    "kernel/hiber.inc"
   ],
-  "stamped": "dc7a4142",
-  "strings": "22e67d0f6c954f23",
-  "why": "Document disconnecting a desktop serial lease before hibernate"
+  "stamped": "f596e80c",
+  "strings": "b73fd87b7d70d417",
+  "why": "PR #299 review: kern_mega's 'Disk clusters too small' refusal and main's 'Hibernate (VESA)' greying added; the arm-3 'Unmount the image first' refusal is on DOS.O88's page, where the choice is; the 62-run cap reads 'Hibernate failed', already on the page"
  },
  "HOUSE_PNG": {
   "sources": [],
@@ -634,9 +642,9 @@
   "sources": [
    "apps/midirack"
   ],
-  "stamped": "d511fdd4",
-  "strings": "2d8a5451be064e81",
-  "why": "Settings' radios are the shared round ring now (SPEC.md 13.17.1); greyed rows' labels grey on VGA"
+  "stamped": "a6a3ab5a",
+  "strings": "d1bd34a96a4616f4",
+  "why": "the refused Play when the card's or the speaker's ring cannot be claimed (KERN-MEGA-PLAN 14.55, 14.59) described; the grant-ring fallback is below the page's detail"
  },
  "MINES_O88": {
   "sources": [
@@ -835,6 +843,14 @@
   "stamped": "9deeee7d",
   "strings": null,
   "why": "PaccMan's disk carries a README.TXT now; listed with the other program read-mes"
+ },
+ "REALDMG_O88": {
+  "sources": [
+   "apps/realdmg"
+  ],
+  "stamped": "206eb5be",
+  "strings": "08e5749fb6393b85",
+  "why": "new manual, checked against realdmg.asm's menus, keys and strings"
  },
  "REDLINE_O88": {
   "sources": [
@@ -1050,9 +1066,9 @@
   "sources": [
    "apps/taskmgr"
   ],
-  "stamped": "8a6a203d",
-  "strings": "1473638a0dbc623b",
-  "why": "the IVT+Pad row (02aae095): described on both pages, folded into System on a short screen"
+  "stamped": "f596e80c",
+  "strings": "3227cc1b27be84bd",
+  "why": "the memory page and the heap page are one page now (SPEC.md 28.4.10): two pages, collapsible owner groups, the PROGRAMS/SYSTEM and +ALL/-ALL switches, AVAIL/MAX RUN; the third page and its heap shot removed; checked against taskmgr.asm's strings and SPEC.md 28.4.10"
  },
  "TELNET_O88": {
   "sources": [
@@ -1130,9 +1146,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "2622ee65",
-  "strings": "3a72b4164e7def7a",
-  "why": "--ladder-at (By time) and --scene-join (Scene join): the page names both"
+  "stamped": "e4b13e8c",
+  "strings": "1b990c96f4c98207",
+  "why": "Blocks (version 2) described under Good to know: the option, what it trades, what plays it, what it is greyed against"
  },
  "TRACKER_O88": {
   "sources": [
@@ -1176,9 +1192,9 @@
   "sources": [
    "apps/video"
   ],
-  "stamped": "d511fdd4",
-  "strings": "52e0d90cf0b17d66",
-  "why": "a paused Live play: the card says Paused at m:ss, and the box shows the frame even when paused before the first pass"
+  "stamped": "7feb6f7f",
+  "strings": "e12854274eb7881d",
+  "why": "merge of protected-mode into elendilon: both sides' strings (version 2's Needs the block decoder, the XMS-in-place-under-protected-mode card lines) checked against the page; the block decoder's second assembly for protected mode adds no string and is below the page's level; unchanged"
  },
  "VMMOUSE_DRV": {
   "sources": [

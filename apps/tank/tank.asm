@@ -61,7 +61,10 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'TANK', tk_entry, 1, OS88_STACK_256
+    OS88_HEADER 'TANK', tk_entry, 1, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
+                                ; HIGHMEM: the one claim (tk_r_setup) is
+                                ; never stepped into once it is a selector -
+                                ; the template is then a claim of its own
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 82 for tk_worker
@@ -251,6 +254,12 @@ TK_DEVOFS equ 2 * TK_SHSEG      ; ...and the blit's device-row table in the
 %if TK_DEVOFS + TK_SHROWS * 2 > TK_SHKB * 1024
   %error "the device-row table does not fit the claim's tail"
 %endif
+TK_TMKB   equ (TK_SHSEG + 1023) / 1024  ; ...and the template as a claim OF ITS
+                                ; OWN, when the claim came back a SELECTOR
+                                ; (kern_mega, OS88_HIGHMEM - tkraster.inc's
+                                ; tk_r_setup): no segment arithmetic is valid
+                                ; on one, so "the claim's second half" is not
+                                ; a segment that can be named
 %endif
 
 
@@ -783,7 +792,9 @@ tk_tpl:
 %ifdef APP_SMALL
     ZBYTE tk_shkb                   ; the ladder rung the claim came off
 %endif
-    ZWORD tk_tmseg                  ; the template: the claim's second half
+    ZWORD tk_tmseg                  ; the template: the claim's second half,
+                                    ; or a claim of its own when that one is a
+                                    ; selector (kern_mega, tk_r_setup)
     ZBYTE tk_tmpl                   ; ...and whether this backend has one
     ZWORD tk_tmsave                 ; tk_spcur, while an item draws
     ZBYTE tk_inrange                ; ENEMY IN RANGE, this frame

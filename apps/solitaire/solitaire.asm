@@ -83,7 +83,7 @@
 %define SOLF_ABOUT
 %endif
 
-    OS88_HEADER 'SOLITAIRE', sol_entry, 1
+    OS88_HEADER 'SOLITAIRE', sol_entry, 1, OS88_HIGH | OS88_HIGHMEM
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; Two cards, the back one up and to the left, the front one carrying a spade.

@@ -14,6 +14,12 @@ What exists is the instrument that produced every number below
 cannot compute (VIDDISK's `X`, `tests/vidbench/viddisk.asm`). Section 9 is
 the build, in waves, for whoever takes it.
 
+**Open, for the next Video Player round (2026-10-21):** a BIGSP file read IN
+PLACE on kern_mega - every superpacket size the format allows, not only
+MECH2's - which kern_big does through LOADALL and kern_mega refuses since
+KERN-MEGA-PLAN 14.58 (MECH2 now stalls on the ring copy instead of
+freezing). The item and the pattern to start from are KERN-MEGA-PLAN 14.60.
+
 **The answer in four lines:**
 
 1. **The player cannot use XMS for these clips today.** SPEC.md 98.3.18's

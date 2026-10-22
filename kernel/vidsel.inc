@@ -451,7 +451,11 @@ VSW_AVAIL vid
     mov bl, 0x30                ; 11b = monochrome at B000
 .go:
     xor ax, ax                  ; the BIOS data area, by segment 0 and the
+%ifdef KERN_MEGA
+    MEGA_SEG0 ds                  ; segment 0 is the NULL selector
+%else
     mov ds, ax                  ; LINEAR offset 0x410 = 0040:0010 (a byte
+%endif
     mov al, [0x0410]            ; shorter than mov ax, 40h - size pass 9)
     and al, 0xCF
     or al, bl
@@ -1566,7 +1570,7 @@ vid_ctx_ptr:
 ; boundary assembles and runs wrong, and both callers are here.
 ; -----------------------------------------------------------------------------
 vid_ctx_pre:
-    mov cx, KERNEL_SEG          ; both ends are ours; the caller's ES is not
+    KDATAR cx                   ; both ends are ours; the caller's ES is not
     mov ds, cx
     mov es, cx
     call vid_ctx_ptr            ; DI = the record. It reads no memory, so

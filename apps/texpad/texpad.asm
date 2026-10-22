@@ -33,7 +33,7 @@ TP_SBRATE286 equ SB_RATE286
 TP_SBIDLE   equ SB_IDLE
 %endif
 
-    OS88_HEADER 'TEXPAD', tp_entry, 3
+    OS88_HEADER 'TEXPAD', tp_entry, 3, OS88_HIGH | OS88_HIGHMEM
 
     OS88_ICON16
     ; mask: portrait page

@@ -1895,9 +1895,14 @@ hd_inst_sys:
     jmp short .out              ; the commit AFTER hd_ivol_back)
 .novbr:                         ; ...nor on this one: a system disk too old
     mov word [hd_imsg], hd_s_inovbr ; to carry its own boot sector, which is
-    jmp short .failed               ; installed by booting it (52.10.16)
-.nosys:                         ; NOTHING HAS BEEN ERASED on this path, which
-    mov word [hd_imsg], hd_s_inosys ; is the only reason it is worth having
+                                    ; installed by booting it (52.10.16)
+.nosys:                         ; NOTHING HAS BEEN ERASED on either path, which
+                                ; is the only reason they are worth having -
+                                ; and hd_isrc_ck has already said which
+                                ; volumes it asked and what each answered.
+    call hd_iremount            ; BUT THE DESTINATION WAS UNMOUNTED for them,
+                                ; and leaving it so is a desktop with no C:
+                                ; after an install that "did nothing"
 .failed:
     call hd_ivol_back
     call hd_ibuf_put
@@ -2858,7 +2863,8 @@ hd_istat:
     mov [hd_iwant], si
     xor cx, cx
 .next:
-    call hd_ifind_cx            ; CX = the ordinal -> hd_ifind
+    mov [hd_istn], cx           ; ...how far it got, for hd_isrc_ck_one's
+    call hd_ifind_cx            ; refusal. CX = the ordinal -> hd_ifind
     jc .no
     push si
     push di
@@ -3018,6 +3024,14 @@ hd_iwrite_chunk:
 hd_isrc_ck:
     push ax
     push si
+    push di
+    mov di, hd_isdiag           ; THE REFUSAL SAYS WHAT WAS TRIED (KERN-MEGA-
+    mov si, hd_s_insys          ; PLAN 10.3 item 27): a field machine has no
+    call hd_scat                ; debugger, and "no system disk" about a
+    mov [hd_isdp], di           ; floppy that is in the drive is a sentence
+    mov [hd_isdp0], di          ; (...and where a first 'k' starts it over)
+                                ; with every cause left open. hd_isrc_ck_one
+                                ; appends one entry per volume it asks
     mov al, [hd_idev]           ; NEVER THE DESTINATION (SPEC.md 52.10.15): a
     call hd_dev_row             ; kept install may go to the volume the
     call hd_part_load           ; machine booted from, which carries a
@@ -3047,6 +3061,8 @@ hd_isrc_ck:
     jb .next
     pop bx
 .no:
+    mov word [hd_imsg], hd_isdiag   ; hd_isd_add terminated it
+    pop di
     pop si
     pop ax
     stc
@@ -3054,24 +3070,169 @@ hd_isrc_ck:
 .found:
     pop bx
 .ok:
+    pop di
     pop si
     pop ax
     clc
     ret
 
 ; hd_isrc_ck_one - KERNEL.SYS in [hd_isrcdrv]'s root? (module internal)
-; The root, always, and hd_isrc rather than hd_isrc_here: the level stack
-; belongs to the tree walk and nothing has set it yet, but saying so costs
-; nothing and this must not follow it if it ever does.
+; out: CF = 0 yes; CF = 1 no, and one entry appended to the refusal
+;      (hd_isd_add). Every register preserved
+;
+; The root, always, and hd_isrc's own goto rather than hd_isrc_here: the level
+; stack belongs to the tree walk and nothing has set it yet, but saying so
+; costs nothing and this must not follow it if it ever does. The goto is
+; written out rather than called because hd_isrc gives back AX, and the
+; FERR_* in it is half of what the refusal reports.
 hd_isrc_ck_one:
-    push si
-    call hd_isrc                ; the ROOT of the source volume
-    jc .out
+    call os88_ent
+    mov bl, [hd_isrcdrv]
+    xor dx, dx                  ; its ROOT, QUIETLY (SPEC.md 19.2.2)
+    call OSAPI_FILE_GOTO_Q      ; CF = 1 and AX = FERR_*: could not stand there
+    mov cx, ax
+    mov al, 'g'
+    jc .tell
     mov si, hd_s_kernel
     call hd_istat               ; CF = 1 = not there, and it is not our disk
+    jnc .out
+    xor ax, ax                  ; THE FIRST 'k' STARTS THE LINE OVER: a
+    xchg ax, [hd_isdp0]         ; volume that mounted and failed the compare
+    or ax, ax                   ; is the one worth its four fields
+    jz .knext                   ; (hd_isd_rec), and the 'g' entries before
+    mov [hd_isdp], ax           ; it - drives with nothing in them - cost
+.knext:                         ; them on the owner's 286 (KERN-MEGA-PLAN
+                                ; 14.30). Later ones append as before
+    mov cx, [hd_istn]           ; ...after walking this many root entries
+    mov al, 'k'
+    call hd_isd_add
+    call hd_isd_rec             ; ...and what the walk compared (KERN-MEGA-
+    jmp short .no               ; PLAN 10.3 item 54)
+.tell:
+    call hd_isd_add
+.no:
+    stc
 .out:
-    pop si
+    jmp os88_r_bp
+
+; -----------------------------------------------------------------------------
+; hd_isd_rec - after a 'k' entry, what the name compare was GIVEN (module
+;              internal; KERN-MEGA-PLAN 10.3 item 54)
+; in:  the volume's root current, [hd_iwant] = the name hd_istat sought
+; out: ' RRRRRR CCC DDDD WWW' after the entry at [hd_isdp], or nothing when
+;      the line has no room for it. Every register preserved
+;
+; A walk that counted every root entry and matched none says the directory
+; was read and the COMPARE never agreed, so this shows its two operands. The
+; record buffer is filled with '#' first and ordinal 0 fetched again:
+;   R  6 bytes, fetched exactly as the walk fetches (ES = CS, which on
+;      kern_mega is the LDT code alias, so the kernel's copy faults into
+;      mega_gpw and is restarted with ES made data), as DS reads them
+;   C  3 bytes, that same buffer as CS reads it
+;   D  4 bytes, ordinal 0 fetched again with ES = DS: no fault anywhere
+;   W  3 bytes of the wanted name, as DS reads it
+; '#' is a byte nothing wrote and '?' any byte that is not printable. On
+; every kernel a healthy machine reads 'KERNEL KER KERN KER' for a system disk
+; (and never gets here); R wrong and D right is the fault path's, R and C
+; disagreeing is a CS whose base is not DS's, and R, D and W right together
+; is the compare itself.
+; -----------------------------------------------------------------------------
+hd_isd_rec:
+    call os88_ent
+    push es
+    cmp word [hd_isdp], hd_isdiag + HIW_CELLS - 20
+    ja .out                     ; 20 = the four fields and their spaces
+    call hd_isd_hash
+    xor cx, cx
+    call hd_ifind_cx            ; ordinal 0, the walk's own way
+    push ds
+    pop es
+    mov si, hd_ifind
+    mov cx, 6
+    call hd_isd_put             ; R
+    mov ax, [cs:hd_ifind]       ; C: read through CS, staged where R's walk
+    mov [hd_ifind+20], ax       ; does not look (the record's size word,
+    mov al, [cs:hd_ifind+2]     ; which the next fetch rewrites anyway)
+    mov [hd_ifind+22], al
+    mov si, hd_ifind+20
+    mov cx, 3
+    call hd_isd_put
+    call hd_isd_hash
+    push ds
+    pop es
+    mov di, hd_ifind
+    xor cx, cx
+    call OSAPI_FILE_FIND        ; ordinal 0 again, into DS's own view
+    mov si, hd_ifind
+    mov cx, 4
+    call hd_isd_put             ; D
+    mov si, [hd_iwant]
+    mov cx, 3
+    call hd_isd_put             ; W
+.out:
+    jmp os88_r_es
+
+; hd_isd_hash - hd_ifind's first 8 bytes to '#', through DS. Clobbers CX, DI
+hd_isd_hash:
+    mov di, hd_ifind
+    mov cx, 8
+.h:
+    mov byte [di], '#'
+    inc di
+    loop .h
     ret
+
+; hd_isd_put - ' ' and CX bytes of ES:SI at [hd_isdp], non-printables as '?',
+; NUL-terminated, and [hd_isdp] moved past them. Clobbers AX, CX, SI, DI
+hd_isd_put:
+    mov di, [hd_isdp]
+    mov byte [di], ' '
+    inc di
+.c:
+    mov al, [es:si]
+    inc si
+    cmp al, ' '
+    jb .q
+    cmp al, '~'
+    jbe .p
+.q:
+    mov al, '?'
+.p:
+    mov [di], al
+    inc di
+    loop .c
+    mov byte [di], 0
+    mov [hd_isdp], di
+    ret
+
+; -----------------------------------------------------------------------------
+; hd_isd_add - one asked volume onto the refusal (module internal)
+; in:  AL = 'g' (the goto refused it: CX = the FERR_*, and 1 is every way a
+;      mount fails - no disk, a read error, not a FAT disk) or 'k' (it
+;      mounted and its root has no KERNEL.SYS: CX = the entries walked, 0 =
+;      nothing readable there); [hd_isrcdrv] = the volume
+; out: ' A:g2' or ' A:k14' at [hd_isdp], NUL-terminated; every register
+;      preserved. An entry that would pass HIW_CELLS is dropped: the ones
+;      before it are the order the search took, which is the useful part
+; -----------------------------------------------------------------------------
+hd_isd_add:
+    call os88_ent
+    mov di, [hd_isdp]
+    cmp di, hd_isdiag + HIW_CELLS - 7
+    ja .out                     ; ' X:c' and three digits at most
+    mov byte [di], ' '
+    mov ah, [hd_isrcdrv]
+    add ah, 'A'                 ; the letter IS the index (SPEC.md 26.1)
+    mov [di+1], ah
+    mov byte [di+2], ':'
+    mov [di+3], al
+    add di, 4
+    mov ax, cx
+    call hd_utoa
+    mov byte [di], 0
+    mov [hd_isdp], di
+.out:
+    jmp os88_r_bp
 
 ; -----------------------------------------------------------------------------
 ; hd_ivbr_get - the SOURCE's hard-disk boot sector into hd_vbrtpl (SPEC.md
@@ -3344,6 +3505,7 @@ hd_inst_fmt:
 hd_iunmount_dst:
     push ax
     push cx
+    mov word [hd_idropm], 0xFF00    ; nothing dropped, the user on none of it
     xor cl, cl                  ; EVERY slot, because one partition of this
 .slot:                          ; drive being mounted is enough - it need not
     mov al, cl                  ; be the one being installed to
@@ -3351,11 +3513,15 @@ hd_iunmount_dst:
     call hd_tw_unmount_slot     ; -> [hd_tdrop], [hd_tdropv]
     cmp byte [hd_tdrop], 0
     je .next
+    mov al, 1                   ; ...and REMEMBERED, so a refusal before the
+    shl al, cl                  ; erase can put it back (hd_iremount)
+    or [hd_idropm], al
     mov al, [hd_tdropv]
     cmp al, 0xFF
     je .next
     cmp al, [hd_ivdrv]
     jne .src
+    mov [hd_ivdrop], cl         ; (the slot the user was standing on)
     mov byte [hd_ivdrv], 0      ; nowhere to go back to: the system disk
     mov word [hd_ivcwd], 0
 .src:
@@ -3369,6 +3535,43 @@ hd_iunmount_dst:
     pop cx
     pop ax
     ret
+
+; -----------------------------------------------------------------------------
+; hd_iremount - mount again what hd_iunmount_dst dropped (module internal)
+; in:  [hd_idropm] = the slots it dropped, [hd_ivdrop] = the one the user was
+;      standing on (0FFh = none)
+; out: nothing; every register preserved
+;
+; For a refusal BEFORE the erase - no system disk, no boot sector - which
+; changed nothing on the disk and must change nothing on the desktop either.
+; Without it the drive stayed unmounted until the next boot. The user goes
+; back to the ROOT of the volume they were on: the folder went with the
+; unmount, and the root of the same disk is nearer to it than A: is.
+; -----------------------------------------------------------------------------
+hd_iremount:
+    call os88_ent
+    xor cl, cl
+.slot:
+    mov al, 1
+    shl al, cl
+    test [hd_idropm], al
+    jz .next
+    mov [hd_pslot], cl
+    mov al, [hd_idev]
+    call hd_mount_one           ; -> [hd_mvol], 0FFh = it would not
+    cmp cl, [hd_ivdrop]
+    jne .next
+    mov al, [hd_mvol]
+    cmp al, 0xFF
+    je .next
+    mov [hd_ivdrv], al
+    mov word [hd_ivcwd], 0
+.next:
+    inc cl
+    cmp cl, 4
+    jb .slot
+    mov byte [hd_idropm], 0
+    jmp os88_r_bp
 
 ; -----------------------------------------------------------------------------
 ; hd_inst_mount - mount what we just made, and remember its volume (internal)
@@ -4312,7 +4515,7 @@ hd_s_phid:    db 'Hidden FAT', 0    ; a FAT type with the hide bit (10h) set
     HIMSG hd_s_ibad, 'That partition cannot be used'
     HIMSG hd_s_inomem, 'Not enough memory to copy'
     HIMSG hd_s_inomb, 'Cannot read the partition table'
-    HIMSG hd_s_inosys, 'No system disk found - nothing done'
+    HIMSG hd_s_insys, 'No system disk:'   ; + hd_isd_add's entries
     HIMSG hd_s_inovbr, 'Older disk: boot from it to install it'
     HIMSG hd_s_ifmt, 'Could not format that partition'
     HIMSG hd_s_imnt, 'Formatted, but it would not mount'
@@ -4414,6 +4617,13 @@ hd_kchunk:    dw 0xFFFF         ; hd_kfat_get's cached 3-sector chunk
 hd_iname:     times 14 db 0
 hd_iname2:    times 14 db 0
 hd_iwant:     dw 0
+hd_istn:      dw 0              ; the ordinal hd_istat's walk last asked for
+hd_isdp:      dw 0              ; hd_isd_add's cursor into...
+hd_isdp0:     dw 0              ; (the line's start, until a 'k' spends it)
+hd_isdiag:    times HIW_CELLS + 1 db 0  ; ...the no-system-disk refusal
+hd_idropm:    db 0              ; the slots hd_iunmount_dst dropped (a mask)
+hd_ivdrop:    db 0xFF           ; ...and the one the user was on (ADJACENT:
+                                ; one word store resets both)
 hd_isize:     dd 0
 hd_isys:      db 0
 hd_ioff:      dd 0

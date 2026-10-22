@@ -30,7 +30,44 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'Video Player', vp_entry, 0x23  ; icon, assoc, doc glyph
+%ifdef PKG_MEGA
+    OS88_HEADER 'Video Player', vp_entry, 0x23 | OS88_F_PARTS, OS88_HIGH | OS88_HIGHMEM
+                                    ; icon, assoc, doc glyph - and the block
+                                    ; decoder, a part (SPEC.md 98.3.23); may
+                                    ; run above 1MB (KERN-MEGA-PLAN 14.14), and
+                                    ; so may the ring (14.41)
+%else
+    OS88_HEADER 'Video Player', vp_entry, 0x23 | OS88_F_PARTS  ; icon,
+                                    ; assoc, doc glyph - and the block
+                                    ; decoder, a part (SPEC.md 98.3.23)
+%endif
+%define OP_NO_LAZYOK                ; (fetched at launch, never asked about)
+%include "os88parts.inc"
+%include "video/vblk.inc"
+%include "os88mega.inc"
+
+; THE kern_mega ARM (KERN-MEGA-PLAN 14.66, apps/os88mega.inc). Everything this
+; player does only because segments may be SELECTORS - in-place reads through
+; a run of them, the ring above 1MB, the block decoder's protected-mode part,
+; the 8-paragraph grid - is assembled under PKG_MEGA alone, and `make mega`
+; builds that arm for kern_mega's own disks. The SHIPPED build is the player
+; elendilon shipped at 7feb6f7f, part 0 byte for byte, plus the rewrites that
+; write nothing through CS (14.16, the same code on every kernel); on a
+; protected-mode kernel it REFUSES at its entry (OS88_MEGA_REFUSE), every
+; borrow it would make being a LOADALL or a loaded base that real mode alone
+; has. VP_GRAN and VP_GOFF are the grid: a segment named by an offset into a
+; claim is kept on kern_mega's 8-paragraph identity grid (a 128-byte granule)
+; in the arm, and on the plain paragraph elsewhere, as it always was
+%ifdef PKG_MEGA
+VP_GOFF     equ 127                 ; an offset's part below its granule
+%macro VP_GRAN 1                    ; ...and the paragraph count cut to whole
+    and %1, 0xF8                    ; granules, 8 paragraphs each
+%endmacro
+%else
+VP_GOFF     equ 15
+%macro VP_GRAN 1
+%endmacro
+%endif
 
 ; --- the icon (SPEC.md 20.2): a play button --------------------------------
 ; A solid disc with a play triangle cut out of it, so it reads as one shape
@@ -335,6 +372,20 @@ KE_IDX      equ 15
 
 ; =============================================================================
 vp_entry:
+%ifdef PKG_MEGA
+    mov [vp_self], ds               ; (VP_OWNB's: what DS is, as a selector
+                                    ; under CPU_F_PM - KERN-MEGA-PLAN 14.16)
+%else
+    OS88_MEGA_REFUSE                ; (protected mode: the arm's, 14.66)
+%endif
+    push es
+    call op_load                    ; FIRST (os88parts.inc rule 1): our file's
+    pop es                          ; name, which the part is read out of
+    jnc .ld
+    ret                             ; (CF = 1: op_load has said why)
+    nop                             ; (never run: what follows keeps its
+.ld:                                ; parity, for the play's routines)
+    call vp_bget                    ; THE BLOCK DECODER on a colour screen
     call OSAPI_ARG_FILE             ; CF = 1: launched with no document
     jc .nodoc
     call vp_cpname                  ; ES:SI is the kernel's: copy it out now
@@ -345,6 +396,13 @@ vp_entry:
     OS88_ALTENTER_ARM               ; the key-state map, for Alt+Enter
     call OSAPI_CPU_INFO             ; a 286 loads keys as the thumb is
     mov [vp_tier], al               ; dragged (98.4.2)
+%ifdef PKG_MEGA
+    test ah, CPU_F_PM               ; kern_mega: neither LOADALL nor a loaded
+    jz .rmode                       ; base exists in protected mode - the
+    mov byte [vp_pm], 1             ; hold and the bank are read in place
+.rmode:                             ; through SELECTORS (98.3.18.16)
+%else
+%endif
     call vp_layfit                  ; THE WINDOW'S SIZE is the layout's, for a
                                     ; 640 x 200 video until one is open (the
                                     ; image's vp_wb, vp_pwb, vp_h and vp_ph)
@@ -380,7 +438,11 @@ vp_entry:
     call OSAPI_WM_KEEPH             ; height hangs over the dock rather than
                                     ; be cut - CGA's band is too short for the
                                     ; picture, the bar and the buttons (98.4.1)
+%ifdef PKG_MEGA
+    OS88_REGION_MOVABLE vp_reloc    ; SPEC.md 66.6.1.1. A play pins it anyway:
+%else
     OS88_REGION_MOVABLE vp_noreloc  ; SPEC.md 66.6.1.1. A play pins it anyway:
+%endif
                                     ; the bracket's own frame is on the stack
     push bx                         ; THE BUTTONS' GESTURE (SPEC.md 20.5.1.3):
     mov ax, bx                      ; press inverts, release fires, a slide
@@ -1157,8 +1219,11 @@ vp_parse:
     cmp word [es:2], '8' + (0x1A << 8)
     jne vp_pbad
     mov word [vp_msg], vp_s_ver
-    cmp word [es:4], 1              ; version 1, and no flag this player
-    jne vp_pbad                        ; does not know (98.1.1.2)
+    mov ax, [es:4]                  ; version 1 or 2 (98.1.10), and no flag
+    dec ax                          ; this player does not know (98.1.1.2)
+    cmp ax, 1
+    ja vp_pbad
+    mov [vp_v2], al
     test word [es:V88_FLAGS], ~V88F_KNOWN & 0xFFFF
     jnz vp_pbad
     mov word [vp_msg], vp_s_bad
@@ -1468,6 +1533,14 @@ vp_parse:
     add ax, 15
     mov cl, 4
     shr ax, cl
+%ifdef PKG_MEGA
+    cmp byte [vp_pm], 0             ; KERN_MEGA's grid (CPU_F_PM): a plane is
+    je .pl2s                        ; a segment, and a segment that is not a
+    add ax, 7                       ; multiple of 8 paragraphs is not a
+    and al, 0xF8                    ; selector - vp_zero's `mov es` faulted
+.pl2s:                              ; at plane 1 (KERN-MEGA-PLAN 14.16)
+%else
+%endif
     mov [vp_plsp], ax
 .pl3:
     mov [vp_planar], bl
@@ -1577,6 +1650,12 @@ vp_parse:
     sub al, 1                       ; 1 flipped, 2 page-ahead
     mov [vp_flip], al
 .fl1:
+    cmp byte [vp_v2], 0             ; VERSION 2 (98.3.23): what it may be
+    je .fv1
+    call vp_v2chk
+    jc .b3b
+    nop                             ; (the play's routines' parity)
+.fv1:
     mov ax, [vp_h]                  ; ...and the rows the picture SHOWS,
     mov cl, [vp_rs]                 ; which is what the Preview is made at
     shl ax, cl
@@ -2120,6 +2199,7 @@ vp_canp1:
     jz .m3n                         ; an EGA has modes 0 to 2 and no 12h,
     inc cx                          ; and its colour sub-records are stored
 .m3n:                               ; a plane at a time (vp_m3pl)
+    and cl, [vp_m3gate]             ; (a gate's: an EGA's path on a VGA)
     mov [vp_m3ok], cl
     mov al, [vp_layout]
     mov ah, [vp_pixfmt]             ; (AH = the format: vp_try keeps it)
@@ -2628,11 +2708,20 @@ vp_thpic:
     mov cx, [vp_the+4]
     call vp_rdat
     jc .fail
+%ifdef PKG_MEGA
+    mov ax, si                      ; (as a segment of its own, moved on in
+    and ax, 0xFF80                  ; whole 128-byte steps: kern_mega has an
+    mov cl, 4                       ; identity selector for a segment only on
+    shr ax, cl                      ; the 8-paragraph grid, and an off-grid
+    add ax, [vp_rdseg]              ; one is #GP at the mov ds - the field's
+    and si, 127                     ; FAULT 0D err 1820, KERN-MEGA-PLAN 14.19)
+%else
     mov ax, si                      ; (as a segment of its own)
     mov cl, 4
     shr ax, cl
     add ax, [vp_rdseg]
     and si, 15
+%endif
     mov cx, [vp_the+4]
     mov es, [vp_thseg]
     xor di, di
@@ -3205,8 +3294,9 @@ vp_kpic:
     mov ax, si
     mov cl, 4
     shr ax, cl
+    VP_GRAN al                      ; (whole granules, 8 paragraphs each)
     add dx, ax
-    and si, 15
+    and si, VP_GOFF                 ; a 128-byte GRANULE: DX on kern_mega's grid
     call vp_khdr                    ; (98.1.3.8: another part after it?)
     jc .free
     add si, 6                       ; past len, y0, y1
@@ -3248,31 +3338,33 @@ vp_kfirst:
 ; the next read's length, and [vp_kfo] moved past it to where that read
 ; starts. Else [vp_kmore] 0. CF=1 a part whose length is not its read's, or
 ; is less than a header and a list's (a hostile file: a part of 0 moved the
-; walk on by nothing, and re-read itself forever). Preserves all
+; walk on by nothing, and re-read itself forever). DS = ours, the read
+; through ES (KERN-MEGA-PLAN 14.16: its state was written through CS).
+; Preserves all
 vp_khdr:
     push ax
     push bx
-    push ds
-    mov byte [cs:vp_kmore], 0
-    mov ds, dx
-    test byte [si+3], 0x80
+    push es
+    mov byte [vp_kmore], 0
+    mov es, dx
+    test byte [es:si+3], 0x80
     jz .r
-    mov ax, [si]                    ; this part's length: its READ's, and
-    cmp ax, [cs:vp_kpn]             ; REC_HDR + 3 at least, as os88vid.py's
+    mov ax, [es:si]                 ; this part's length: its READ's, and
+    cmp ax, [vp_kpn]                ; REC_HDR + 3 at least, as os88vid.py's
     jne .bad                        ; reader asks (98.1.3.8)
     cmp ax, 9
     jb .bad
-    and byte [si+3], 0x7F
+    and byte [es:si+3], 0x7F
     mov bx, si
     add bx, ax
-    mov bx, [bx-2]                  ; ...and the next read's, its last word
-    mov [cs:vp_knext], bx
-    add [cs:vp_kfo], ax
-    adc word [cs:vp_kfo+2], 0
-    mov byte [cs:vp_kmore], 1
+    mov bx, [es:bx-2]               ; ...and the next read's, its last word
+    mov [vp_knext], bx
+    add [vp_kfo], ax
+    adc word [vp_kfo+2], 0
+    mov byte [vp_kmore], 1
     clc
 .r:
-    pop ds
+    pop es
     pop bx
     pop ax
     ret
@@ -5034,6 +5126,11 @@ vp_rdat:
     mov cl, 4                       ; ...into the buffer past this call's
     shr di, cl
     mov cx, es
+%ifdef PKG_MEGA
+    test cx, 4                      ; (AN LDT SELECTOR: one 64 KB window,
+    jnz .bad                        ; one call - KERN-MEGA-PLAN 14.41)
+%else
+%endif
     add cx, di
     mov es, cx
     jmp short .l
@@ -5152,6 +5249,10 @@ vp_xopen:
     jc .out
     mov [vp_xbase], ax
     mov [vp_xbase+2], dx
+%ifdef PKG_MEGA
+    call vp_xrunmk                  ; (protected mode: its selectors)
+%else
+%endif
 %ifdef VP_XSPTEST
     call vp_xspeed                  ; (a TEST BUILD: tests/vidxspeed.py reads
 %endif                              ; [vp_xr10] - only EMS asks otherwise)
@@ -5223,6 +5324,10 @@ vp_balloc:
 .bgot:
     mov [vp_xbase], ax
     mov [vp_xbase+2], dx
+%ifdef PKG_MEGA
+    call vp_xrunmk                  ; (protected mode: its selectors)
+%else
+%endif
     call vp_xgm                     ; THE GAP, while the bank is empty
     mov ax, cx
     mov cl, 5
@@ -5795,6 +5900,32 @@ vp_lysplit:
 .r:
     ret
 
+%ifdef PKG_MEGA
+; vp_xrunmk - the block just taken at [vp_xbase]: IN PROTECTED MODE its run
+; of selectors, one every 32 KB, into [vp_xrun] (OSAPI_XMEM_RUN, 98.3.18.16)
+; - 0 everywhere else, or where the kernel had no run to give, and the
+; session then copies as before. Every register kept
+vp_xrunmk:
+    mov word [vp_xrun], 0
+    cmp byte [vp_pm], 0
+    je .r
+    push ax
+    push cx
+    push dx
+    mov ax, [vp_xbase]
+    mov dx, [vp_xbase+2]
+    call OSAPI_XMEM_RUN             ; DX = the first, CX = 8
+    jc .n
+    mov [vp_xrun], dx
+.n:
+    pop dx
+    pop cx
+    pop ax
+.r:
+    ret
+
+%else
+%endif
 ; vp_xfree - the hold, if there is one
 vp_xfree:
     call vp_lyxfree
@@ -5803,6 +5934,10 @@ vp_xfree:
     push ax
     push dx
     mov byte [vp_xon], 0
+%ifdef PKG_MEGA
+    mov word [vp_xrun], 0           ; (the run goes with the block)
+%else
+%endif
     mov byte [vp_xbank], 0
     cmp byte [vp_xems], 0
     jne .e
@@ -6141,11 +6276,11 @@ vp_xstep:
     push es
     mov ax, VP_CHUNK / 1024
     call vp_xgpad                   ; (+ THE GAP's slack, BX)
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jnc .got
     sub ax, bx                      ; ...or without it
     xor bx, bx
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jc .later                       ; no room now: the next tick asks again
 .got:
     mov [vp_xsclm], dx
@@ -6316,10 +6451,16 @@ vp_epref:
     je .no                          ; the pool, whatever it costs
     call vp_xspeed                  ; AX = an XMS KB copied, RAM tenths
     jc .no                          ; (not timed: the pool, as before)
+%ifdef PKG_MEGA
+    cmp byte [vp_xchk], 2           ; in place: ONE copy a banked byte; two
+    jne .one                        ; where in place is known to fail (a 286
+                                    ; whose LOADALL did, or protected mode)
+%else
     cmp byte [vp_tier], CPU_386     ; in place: ONE copy a banked byte
     jae .one
     cmp byte [vp_xchk], 2           ; (a 286 whose LOADALL failed: two)
     jne .one
+%endif
     shl ax, 1
 .one:
     mov bx, [vp_er10]
@@ -6397,8 +6538,13 @@ vp_xspeed:
     cmp ax, 2
     jb .l
     push cx
+%ifdef PKG_MEGA
+    mov ax, ss                      ; (conventional on every kernel: DS may be
+    call vp_erate                   ; above 1MB) BX = RAM's 1 KB passes, two ticks
+%else
     mov ax, ds
     call vp_erate                   ; BX = RAM's 1 KB passes, two ticks
+%endif
     pop cx
     mov ax, 10
     mul bx                          ; DX:AX = RAM's x 10...
@@ -6451,7 +6597,11 @@ vp_espeed:
     call vp_ems                     ; DX = the frame
     jc .out
     push dx
+%ifdef PKG_MEGA
+    mov ax, ss                      ; RAM: conventional, as above
+%else
     mov ax, ds
+%endif
     call vp_erate
     pop ax
     push bx                         ; RAM's passes
@@ -6736,6 +6886,21 @@ VP_XYB      equ 2048                ; record bytes between yields: ~5 ms on
     mov ds, dx
 %%d:
 %endmacro
+; VP_OWNB dest, src - a BYTE of ours written while DS is a record's: through
+; ES = [cs:vp_self], ES kept (docs/plans/KERN-MEGA-PLAN.md 14.16). It was
+; `mov [cs:dest], src`, and on kern_mega CS is a read-only code alias, so the
+; store was a #GP the kernel completed. For a store once a sub-record or less:
+; ~45 cycles more than the CS store on an 8088, where a trap is thousands
+%macro VP_OWNB 2
+%ifdef PKG_MEGA
+    push es
+    mov es, [cs:vp_self]
+    mov byte [es:%1], %2
+    pop es
+%else
+    mov byte [cs:%1], %2            ; (the shipped build: real mode's store)
+%endif
+%endmacro
 ; VP_DSEND - before the `pop ds` that ends a VP_DSDX: a borrow's cells back
 ; and its flags. CLOBBERS FLAGS on either path
 %macro VP_DSEND 0
@@ -6764,10 +6929,28 @@ vp_xipq:
                                     ; into the ring, which nothing fills here)
     or al, [vp_rep]                 ; (Repeat: its seam is the ring's)
     or al, [vp_resid]
-    or al, [vp_shadow]
+%ifdef PKG_MEGA
     jnz .no
+    cmp byte [vp_pm], 0             ; PROTECTED MODE (98.3.18.16): none of
+    jne .pmq                        ; the three below - each is a BORROW's
+    cmp byte [vp_shadow], 0         ; (interrupts off through the decode, and
+    jne .no                         ; the shadow's decoders cannot yield, nor
+    cmp byte [vp_v2], 0             ; can version 2's part, 98.3.23)
+    jne .no
+    nop                             ; (the play's routines' parity)
+%else
+    or al, [vp_shadow]
+    or al, [vp_v2]                  ; (version 2: the part has no yield
+    jnz .no                         ; sites, 98.3.23)
+%endif
     cmp byte [vp_snd], VP_SPK       ; (the speaker's clock: 98.3.18.5)
     je .no
+%ifdef PKG_MEGA
+.pmq:
+    call vp_pmbigq                  ; (protected mode: not for BIGSP)
+    jc .no
+%else
+%endif
     mov al, [vp_noinp]              ; (a gate's: the copying hold, the A/B)
 %ifndef LA_SIM
     cmp byte [vp_tier], CPU_8086    ; a 286 by LOADALL, a 386 by a loaded
@@ -6782,12 +6965,40 @@ vp_xipq:
     mov word [vp_kr], VP_KBIG
     mov al, 1
     mov [vp_xip], al
+%ifdef PKG_MEGA
+    cmp byte [vp_pm], 0             ; PROTECTED MODE: a selector survives
+    jne .pmok                       ; every interrupt, so nothing yields -
+    call vd_ypatch                  ; the yield sites live only for a borrow
+.pmok:                              ; (98.3.18.16)
+%else
     call vd_ypatch                  ; the yield sites live
+%endif
     clc
     ret
 .no:
     stc
     ret
+%endif
+%ifdef PKG_MEGA
+
+; vp_pmbigq - CF=1: a BIGSP file under protected mode, which neither in-place
+; arm can read (98.3.18.16). Its windows start every 32 KB and run 64 KB, so
+; a record is whole in one only when it starts no further into its 32 KB than
+; 64 KB less its length - which a 38-63 KB BIGSP record mostly does not: it
+; ran off the window's end, SI wrapped to the window's start, and the decoder
+; drew the wrong bytes until a store ran off the screen (a #GP inside the
+; bracket, the screen trashed: KERN-MEGA-PLAN 14.58). Such a session copies
+; (the hold's, or the bank's, through the conventional ring, which BIGSP keeps
+; anyway - vp_rhiq). Real mode's handle is a paragraph's, so it holds 64 KB
+; less 15 from any start: CF=0 there. Preserves all but flags
+vp_pmbigq:
+    cmp byte [vp_pm], 0
+    je .ok                          ; (CF=0)
+    cmp word [vp_msl], 2            ; BIGSP's mirror is two slots: CF=0
+    cmc                             ; for 1, CF=1 for 2
+.ok:
+    ret
+%else
 %endif
 
 ; vp_xipend - a session's end: the sites jumps over themselves again
@@ -6829,12 +7040,32 @@ vp_xbipq:
     or al, [vp_xems]                ; (an XMS bank: EMS has its own, above)
     or al, [vp_livem]
     or al, [vp_rep]                 ; (Repeat: its seam is the ring's)
+%ifdef PKG_MEGA
+%else
     or al, [vp_shadow]              ; (its decoders have no yield sites)
+    or al, [vp_v2]                  ; (nor has version 2's part, 98.3.23)
+%endif
     jnz .no
     cmp byte [vp_xbank], 0
     je .no
+%ifdef PKG_MEGA
+    cmp byte [vp_pm], 0             ; PROTECTED MODE (98.3.18.16): no borrow,
+    jne .pmq                        ; and a copy up is a rep movsw with
+    cmp byte [vp_shadow], 0         ; interrupts on - so none of these:
+    jne .no                         ; (its decoders have no yield sites)
+    cmp byte [vp_v2], 0             ; (nor has version 2's part, 98.3.23)
+    jne .no
+    nop                             ; (the play's routines' parity)
+%else
+%endif
     cmp byte [vp_snd], VP_SPK       ; (the speaker's clock: 98.3.18.5)
     je .no
+%ifdef PKG_MEGA
+.pmq:
+    call vp_pmbigq                  ; (protected mode: not for BIGSP)
+    jc .no
+%else
+%endif
     mov ax, [vp_msl]                ; (the ring's least, the mirror's slot
     shl ax, 1                       ; past it: 3, and BIGSP's 5 - three
     inc ax                          ; slots a super-packet reads before it
@@ -6863,8 +7094,17 @@ vp_xbipq:
     mov [vp_xbank], al              ; (the FIFO's slots are the ring's now)
     mov byte [vp_einp], 2
     call vp_bflush                  ; (AX kept)
+%ifdef PKG_MEGA
+    cmp byte [vp_pm], 0             ; (protected mode: no borrow to yield
+    jne .pmok                       ; from, 98.3.18.16)
+%else
+%endif
     inc ax
     call vd_ypatch                  ; the yield sites live
+%ifdef PKG_MEGA
+.pmok:
+%else
+%endif
     clc
     ret
 .no:
@@ -6909,9 +7149,15 @@ vp_xbread:
     mov [vp_htg + 2], dx
     mov cx, VP_CHUNK
 .h0:
+%ifdef PKG_MEGA
+    call vp_bnc                     ; (the ring's first slot, or its own
+    call vp_harm                    ; above 1MB: 14.41; 98.3.18.15)
+    call vp_bnc                     ; DX:BX = the bounce (placed at THE GAP
+%else
     mov dx, [vp_ring]
     call vp_harm                    ; (98.3.18.15)
     mov dx, [vp_ring]               ; DX:BX = the bounce (placed at THE GAP
+%endif
     xor bx, bx                      ; from the bank, 98.3.18.12)
     mov cx, VP_CHUNK
     push ds
@@ -6929,7 +7175,14 @@ vp_xbread:
     pop di                          ; slot again just below)
     jc .nolog
     push es
+%ifdef PKG_MEGA
+    push dx
+    call vp_bnc
+    mov es, dx
+    pop dx
+%else
     mov es, [vp_ring]
+%endif
     call vp_prlog                   ; (98.3.22.2: the bounce, as it landed)
     pop es
     clc
@@ -6999,7 +7252,14 @@ vp_xbup:
     adc dx, [vp_xbase + 2]
     inc cx
     and cl, 0xFE
+%ifdef PKG_MEGA
+    push dx
+    call vp_bnc                     ; (the bounce: 14.41)
+    mov es, dx
+    pop dx
+%else
     mov es, [vp_ring]
+%endif
     call vp_xupm                    ; UP, less what HDD.DRV put there
     pop es
     pop di
@@ -7008,6 +7268,11 @@ vp_xbup:
     pop cx
     pop ax
     ret
+%ifdef PKG_MEGA
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+%else
+%endif
 
 ; =============================================================================
 ; THE FILL STRAIGHT INTO XMS (SPEC.md 98.3.18.15, 52.1.4; docs/plans/
@@ -7201,6 +7466,14 @@ vp_xupm:
 ; 2 no): LOADALL probed with INT 6 hooked, then the hold's first 16 bytes
 ; read in place against OSAPI_XMEM_COPY's. CF = 1 not. Clobbers AX
 vp_xok:
+%ifdef PKG_MEGA
+    cmp byte [vp_pm], 0             ; PROTECTED MODE (98.3.18.16): the block
+    je .rm                          ; this session plays from must have its
+    cmp word [vp_xrun], 0           ; run of selectors (vp_xrunmk), or there
+    je .bad                         ; is no window to read it through
+.rm:
+%else
+%endif
     cmp byte [vp_xchk], 1
     jne .chk
     ret                             ; (CF = 0: the compare was equal)
@@ -7209,6 +7482,11 @@ vp_xok:
     jne .bad
     mov byte [vp_xchk], 2
 %ifndef LA_SIM
+%ifdef PKG_MEGA
+    cmp byte [vp_pm], 0             ; (protected mode: no LOADALL to probe -
+    jne .noprobe                    ; the compare is the run's whole check)
+%else
+%endif
     cmp byte [vp_tier], CPU_386     ; a 386 loads a base (98.3.18.14): the
     jae .noprobe                    ; compare below is its whole check
     mov byte [la_csacc], 0x93
@@ -7219,7 +7497,7 @@ vp_xok:
 %else
     push dx
     mov ax, 64
-    call OSAPI_MEM_CLAIM            ; the shadow a simulated borrow fills
+    call vp_mclaim                  ; the shadow a simulated borrow fills
     mov [vp_simseg], dx
     pop dx
     jc .bad
@@ -7247,11 +7525,10 @@ vp_xok:
     push ds
     VP_DSDX                         ; ...and in place
     repe cmpsw
-    lahf
-    mov [cs:vp_xzf], ah
-    VP_DSEND
+    lahf                            ; (AH kept by VP_DSEND: no write through
+    VP_DSEND                        ; CS for it, KERN-MEGA-PLAN 14.16)
     pop ds
-    test byte [vp_xzf], 0x40        ; ZF: every word the same
+    test ah, 0x40                   ; ZF: every word the same
     jz .bad2
     dec byte [vp_xchk]              ; 2 -> 1 (CF = 0 since the test)
     jmp short .pop
@@ -7284,8 +7561,19 @@ vp_xaddr:
     add ax, [vp_xbase]              ; ...and so in the hold
     adc dx, [vp_xbase + 2]
 ; vp_xmk - DX:AX = a linear address -> DX = a handle naming its paragraph,
-; SI = its offset in it. Clobbers AX, BX
+; SI = its offset in it. Clobbers AX, BX.
+; IN PROTECTED MODE (98.3.18.16) DX is a real SELECTOR: the address is an
+; offset into the block from [vp_xbase], and its window is the run's
+; (offset >> 15)th - OSAPI_XMEM_RUN's, one every 32 KB, 64 KB long - at
+; (offset & 7FFFh), so the 32 KB a record or a super-packet can span past
+; it is all in the window. Below VP_XSEL, so VP_DSDX is a plain `mov ds`
+; and VP_DSEND nothing: no borrow, no interrupts off, no yield
 vp_xmk:
+%ifdef PKG_MEGA
+    cmp byte [cs:vp_pm], 0
+    jne .pm
+%else
+%endif
     mov si, ax
     and si, 15
     and ax, 0xFFF0
@@ -7301,6 +7589,21 @@ vp_xmk:
     shr bx, 1
     shr bx, 1
     lea dx, [bx - 0x10]              ; = VP_XSEL + BX, mod 64 KB
+%ifdef PKG_MEGA
+    ret
+.pm:
+    sub ax, [cs:vp_xbase]
+    sbb dx, [cs:vp_xbase + 2]       ; DX:AX = the offset in the block
+    mov si, ax
+    and si, 0x7FFF
+    shl ax, 1
+    rcl dx, 1                       ; DX = offset >> 15, the window
+    shl dx, 1
+    shl dx, 1
+    shl dx, 1                       ; ...x 8, a selector's step
+    add dx, [cs:vp_xrun]
+%else
+%endif
     ret
 
 ; vp_xbeg - VP_DSDX's borrow: DX = a handle, IF = 0 and the caller's flags
@@ -7545,7 +7848,11 @@ vp_xfillt:
     push bx                         ; the chunk's slot
     push word [vp_cur+FSEQ_OFF+2]   ; where it starts in the file
     push word [vp_cur+FSEQ_OFF]
+%ifdef PKG_MEGA
+    call vp_bnc                     ; DX:BX = the scratch (14.41: the bounce)
+%else
     mov dx, [vp_ring]               ; DX:BX = the scratch
+%endif
     xor bx, bx
     mov cx, VP_CHUNK
     push ds
@@ -7573,6 +7880,11 @@ vp_xfillt:
     pop ax
 .got:
     jmp ..@vp_fillgot
+%ifdef PKG_MEGA
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+%else
+%endif
 
 %ifndef LA_SIM
 %include "os88la.inc"               ; the borrow (SPEC.md 41.13)
@@ -7705,6 +8017,14 @@ vp_bksay:
     mov si, [vp_bknames + bx]
     cmp bl, 2 * 7                   ; in place (7, 8) on a 386: its own
     jb .nm                          ; words (98.3.18.14)
+%ifdef PKG_MEGA
+    cmp byte [vp_pm], 0             ; ...and in protected mode its own again
+    je .n386                        ; (98.3.18.16)
+    mov si, [vp_bknames + bx + 8]
+    jmp short .nm
+.n386:
+%else
+%endif
     cmp byte [vp_tier], CPU_386
     jb .nm
     mov si, [vp_bknames + bx + 4]
@@ -7828,9 +8148,10 @@ vp_eaddr:
     mov si, bx
     mov cl, 4
     shr bx, cl
+    VP_GRAN bl                      ; (whole granules, 8 paragraphs each)
     mov dx, [vp_eseg]
     add dx, bx
-    and si, 15
+    and si, VP_GOFF                 ; a 128-byte GRANULE: DX on kern_mega's grid
     ret
 .q:                                 ; AX = a page (wrapped here), DX = its
     cmp ax, bx                      ; quarter's register
@@ -8295,6 +8616,12 @@ vp_bseek:
 ; [vp_ring] at its use, the claim being movable between brackets (98.3.19.2).
 ; Every other register kept
 vp_bbnc:
+%ifdef PKG_MEGA
+    mov dx, [vp_dbnc]               ; (beside a ring above 1MB, KERN-MEGA-
+    cmp byte [vp_rhi], 0            ; PLAN 14.41)
+    jne .r
+%else
+%endif
     push ax
     push cx
     mov ax, [vp_k]
@@ -8305,7 +8632,16 @@ vp_bbnc:
     mov dx, ax
     pop cx
     pop ax
+%ifdef PKG_MEGA
+.r:
+%else
+%endif
     ret
+%ifdef PKG_MEGA
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+%else
+%endif
 
 ; vp_bpre - THE PREFILL (SPEC.md 98.3.18.3): before a session's first frame,
 ; the bank filled to what the file asks - [vp_hxp] KB, the bytes its encode
@@ -9520,16 +9856,18 @@ vp_bandall:
     pop ax
     ret
 
-; vp_lrget - DS:SI = a live record's blit runs, the lists just decoded: each
+; vp_lrget - ES:SI = a live record's blit runs, the lists just decoded: each
 ; into the pass's, checked against the canvas - one that is not, or more
-; than the pass holds, and the band is blitted whole instead. DS is the
-; record's. Clobbers AX, BX, CX, DX, DI
+; than the pass holds, and the band is blitted whole instead. DS is OURS:
+; the record is read through ES (docs/plans/KERN-MEGA-PLAN.md 14.16), where
+; it was DS with the runs written through CS - five #GPs a call on kern_mega,
+; whose CS is read-only. Clobbers AX, BX, CX, DX, DI, ES
 vp_lrget:
-    cmp byte [cs:vp_lfull], 0       ; (whole already: nothing to gather)
+    cmp byte [vp_lfull], 0          ; (whole already: nothing to gather)
     jne .ret
-    cmp word [cs:vp_h], 255         ; (a run's rows are bytes)
+    cmp word [vp_h], 255            ; (a run's rows are bytes)
     ja .full
-    lodsb
+    es lodsb
     cmp al, 32
     ja .full
     mov cl, al
@@ -9538,9 +9876,9 @@ vp_lrget:
     jnz .r
     ret
 .r:
-    lodsw                           ; AL = the first row, AH = the rows
+    es lodsw                        ; AL = the first row, AH = the rows
     mov dx, ax
-    lodsw                           ; AL = the first byte, AH = the bytes
+    es lodsw                        ; AL = the first byte, AH = the bytes
     or dh, dh
     jz .full
     or ah, ah
@@ -9548,51 +9886,51 @@ vp_lrget:
     mov bl, dl                      ; past its last row, and byte
     add bl, dh
     jc .full
-    cmp bl, [cs:vp_h]
+    cmp bl, [vp_h]
     ja .full
     mov bh, al
     add bh, ah
     jc .full
-    cmp bh, [cs:vp_wb]
+    cmp bh, [vp_wb]
     ja .full
     ; DL..BL rows, AL..BH bytes: onto a gathered run whose rows it meets
     push cx
     xor di, di
-    mov cl, [cs:vx_n]
+    mov cl, [vx_n]
     xor ch, ch
     jcxz .add
 .m:
-    cmp dl, [cs:vx_run+di+1]        ; rows [DL, BL) meet [y0, y1)?
+    cmp dl, [vx_run+di+1]           ; rows [DL, BL) meet [y0, y1)?
     jae .nm
-    cmp bl, [cs:vx_run+di]
+    cmp bl, [vx_run+di]
     jbe .nm
-    cmp dl, [cs:vx_run+di]          ; the union
+    cmp dl, [vx_run+di]             ; the union
     jae .m1
-    mov [cs:vx_run+di], dl
+    mov [vx_run+di], dl
 .m1:
-    cmp bl, [cs:vx_run+di+1]
+    cmp bl, [vx_run+di+1]
     jbe .m2
-    mov [cs:vx_run+di+1], bl
+    mov [vx_run+di+1], bl
 .m2:
-    cmp al, [cs:vx_run+di+2]
+    cmp al, [vx_run+di+2]
     jae .m3
-    mov [cs:vx_run+di+2], al
+    mov [vx_run+di+2], al
 .m3:
-    cmp bh, [cs:vx_run+di+3]
+    cmp bh, [vx_run+di+3]
     jbe .nx
-    mov [cs:vx_run+di+3], bh
+    mov [vx_run+di+3], bh
     jmp short .nx
 .nm:
     add di, 4
     loop .m
 .add:
-    cmp byte [cs:vx_n], VX_MAX
+    cmp byte [vx_n], VX_MAX
     jae .fullp
-    mov [cs:vx_run+di], dl
-    mov [cs:vx_run+di+1], bl
-    mov [cs:vx_run+di+2], al
-    mov [cs:vx_run+di+3], bh
-    inc byte [cs:vx_n]
+    mov [vx_run+di], dl
+    mov [vx_run+di+1], bl
+    mov [vx_run+di+2], al
+    mov [vx_run+di+3], bh
+    inc byte [vx_n]
 .nx:
     pop cx
     dec cx
@@ -9603,7 +9941,7 @@ vp_lrget:
 .fullp:
     pop cx
 .full:
-    mov byte [cs:vp_lfull], 1
+    mov byte [vp_lfull], 1
     ret
 
 ; vp_lruns - the pass's runs into the box: rows [y0, y1) at the bytes
@@ -9822,8 +10160,9 @@ vp_ldblk:
     mov ax, si                      ; ...as a segment of its own: SI and 60
     mov cl, 4                       ; KB can pass the claim's first 64 KB
     shr ax, cl                      ; when a cluster is 32 KB (98.1.7.5)
+    VP_GRAN al                      ; (whole granules, 8 paragraphs each)
     add [vp_rdseg], ax
-    and si, 15
+    and si, VP_GOFF                 ; a 128-byte GRANULE: the segment on the grid
     mov cl, [bx+BK_PACK]
     dec cl
     mov al, cl                      ; AL = OSAPI_LZ_*
@@ -10070,12 +10409,13 @@ vp_rwalk:
     mov ax, [vp_bk+BK_UNPACKED]
     mov bp, [vp_bk+BK_UNPACKED+2]
     mov di, ax
-    and di, 15
+    and di, VP_GOFF                 ; the end as a GRANULE and its offset, the
     mov cl, 4
     shr ax, cl
     mov cl, 12
     shl bp, cl
     or ax, bp
+    VP_GRAN al                      ; walk's own normal form (kern_mega's grid)
     add ax, dx
     mov bp, ax                      ; BP = the end's paragraph, DI its offset
     mov cx, [vp_frames]
@@ -10127,10 +10467,11 @@ vp_rwalk:
     add si, ax                      ; step over it, normalised
     jc .bad
     mov ax, si
-    and si, 15
+    and si, VP_GOFF                 ; a 128-byte GRANULE, as the end's below
     push cx
     mov cl, 4
     shr ax, cl
+    VP_GRAN al                      ; (whole granules, 8 paragraphs each)
     pop cx
     add dx, ax
     cmp dx, bp                      ; ...and still inside the block
@@ -10200,7 +10541,10 @@ vp_cbound:
 ; once, so that a resident play's keeper can be the canvas (98.1.7.3) and
 ; not the 64 KB a list's 16-bit reach needs. A poke segment's bytes and its
 ; writes' end follow from its count, so its entries are checked by nothing
-; but the one sum; a span's are its own lengths. CF=1 not. Preserves all
+; but the one sum; a span's are its own lengths. CF=1 not. Preserves all.
+; THE LIST MAP IS DX and the bound is read from CS where it is compared
+; (docs/plans/KERN-MEGA-PLAN.md 14.16): the map was a word at CS shifted per
+; list, a #GP each on kern_mega - six a record, at a resident load
 vp_rbnd:
     push ax
     push bx
@@ -10217,7 +10561,6 @@ vp_rbnd:
     cmp bp, 0xFF00                  ; (so no step below can wrap SI)
     ja .bad
     add si, 6
-    mov dx, [cs:vp_cbnd]            ; DX = the bound
     cld
     cmp byte [cs:vp_planar], 0
     je .one
@@ -10242,7 +10585,7 @@ vp_rbnd:
     jc .bad
     jmp short .sub
 .one:
-    mov word [cs:vd_map], 0xFFFF
+    mov dx, 0xFFFF                  ; DX = the map: every list
     call .lists
     jnc .out
 .bad:
@@ -10257,8 +10600,8 @@ vp_rbnd:
     pop bx
     pop ax
     ret
-.lmap:                              ; a SUB2 sub-record's LIST MAP into
-    mov word [cs:vd_map], 0xFFFF    ; [vd_map]: not 0 and naming no list past
+.lmap:                              ; a SUB2 sub-record's LIST MAP into DX:
+    mov dx, 0xFFFF                  ; not 0 and naming no list past
     cmp byte [cs:vp_sub2], 0        ; the tenth (98.1.3.2.4). Any other
     je .lmr                         ; file's, all ten. CF=1 not
     mov ax, si
@@ -10270,14 +10613,14 @@ vp_rbnd:
     jz .lmn
     test ax, 0xFC00
     jnz .lmn
-    mov [cs:vd_map], ax
+    xchg ax, dx
 .lmr:
     clc
     ret
 .lmn:
     stc
     ret
-.lists:                             ; the lists at SI that [vd_map] names.
+.lists:                             ; the lists at SI that DX's map names.
     mov bx, 1                       ; CF=1 not. The six poke lists: BX-byte
 .pl:                                ; changes
     call .gp
@@ -10285,30 +10628,30 @@ vp_rbnd:
     inc bx
     cmp bx, 6
     jbe .pl
-    shr word [cs:vd_map], 1
+    shr dx, 1
     jnc .gs
     call .slice
     jc .lr
 .gs:
-    shr word [cs:vd_map], 1
+    shr dx, 1
     jnc .gr
     call .run
     jc .lr
 .gr:
     mov bx, 1                       ; SLICEL: a word's length, and the bytes
-    shr word [cs:vd_map], 1
+    shr dx, 1
     jnc .gl
     call .long
     jc .lr
 .gl:
     xor bx, bx                      ; RUNL: a word's length, and one value
-    shr word [cs:vd_map], 1
+    shr dx, 1
     jnc .lr                         ; (CF=0)
     call .long
 .lr:
     ret
 .gp:                                ; one poke list, if the map names it
-    shr word [cs:vd_map], 1         ; (CF=0 if not)
+    shr dx, 1                       ; (CF=0 if not)
     jc .poke
     ret
 .poke:                              ; one list of BX-byte changes
@@ -10341,7 +10684,7 @@ vp_rbnd:
     jc .n1
     add si, bx
     loop .pe
-    cmp di, dx
+    cmp di, [cs:vp_cbnd]
     jbe .poke
 .n1:                                ; (.no and .r again, where the lists
     stc                             ; above and below reach them with a
@@ -10359,7 +10702,7 @@ vp_rbnd:
     jc .n1
     cmp ax, bp
     ja .n1
-    mov di, dx
+    mov di, [cs:vp_cbnd]
     sub di, bx                      ; DI = the highest start a change may have
     jc .n1
 .pa:
@@ -10383,7 +10726,7 @@ vp_rbnd:
     cmp si, bp
     ja .n1
     loop .sle
-    cmp di, dx
+    cmp di, [cs:vp_cbnd]
     jbe .slice
     jmp .no
 .run:                               ; RUN: a skip, len8, the value
@@ -10400,7 +10743,7 @@ vp_rbnd:
     cmp si, bp
     ja .no
     loop .rue
-    cmp di, dx
+    cmp di, [cs:vp_cbnd]
     jbe .run
     jmp .no
 .long:                              ; SLICEL (BX 1) or RUNL (BX 0): a skip,
@@ -10423,7 +10766,7 @@ vp_rbnd:
     cmp si, bp
     ja .no
     loop .le
-    cmp di, dx
+    cmp di, [cs:vp_cbnd]
     jbe .long
     jmp .no
 .hd:                                ; a span list's segment head: CF=1 not
@@ -10468,10 +10811,11 @@ vp_rcur:
     pop ds
     add si, ax
     mov ax, si
-    and si, 15
+    and si, VP_GOFF                 ; a 128-byte GRANULE: DX on kern_mega's grid
     push cx
     mov cl, 4
     shr ax, cl
+    VP_GRAN al                      ; (whole granules, 8 paragraphs each)
     pop cx
     add dx, ax
     loop .l
@@ -10543,12 +10887,13 @@ vp_rnext:
     add ax, cx
     push cx
     mov cx, ax
-    and ax, 15
+    and ax, VP_GOFF                 ; a 128-byte GRANULE: VC_PC on kern_mega's grid
     mov [di+VC_PO], ax
     shr cx, 1
     shr cx, 1
     shr cx, 1
     shr cx, 1
+    VP_GRAN cl                      ; (whole granules, 8 paragraphs each)
     add cx, dx
     mov [di+VC_PC], cx
     pop cx
@@ -10565,12 +10910,13 @@ vp_rnext:
 vp_raud:
     mul word [vp_abytes]            ; DX:AX = the byte offset
     mov si, ax
-    and si, 15
+    and si, VP_GOFF                 ; a 128-byte GRANULE: DX on kern_mega's grid
     mov cl, 4
     shr ax, cl
     mov cl, 12
     shl dx, cl
     or ax, dx
+    VP_GRAN al                      ; (whole granules, 8 paragraphs each)
     add ax, [vp_rablk]
     mov dx, ax
     ret
@@ -10849,6 +11195,16 @@ vp_sstart:
     mov [vp_msnd], dl
 %endif
     mov cx, [vp_kmax]
+%ifdef PKG_MEGA
+    call vp_rhiq                    ; THE RING ABOVE 1MB (14.41): sized from
+    jc .kconv                       ; the POOL's free KB, which nothing
+    call vp_rhkb                    ; claimed after it takes from
+    cmp byte [vp_livem], 0
+    jne .klive
+    jmp short .kbig
+.kconv:
+%else
+%endif
     cmp byte [vp_livem], 0
     jne .klive
     call vp_kres                    ; ...less what is claimed after it
@@ -10905,6 +11261,21 @@ vp_sstart:
     mov byte [vp_rshort], 1
 .rok:
     call vp_bshort                  ; ...and a BANK short of the file's ask
+%ifdef PKG_MEGA
+    mov ax, cx
+    add ax, [vp_msl]
+    call vp_rhtry                   ; ABOVE 1MB (14.41): no bounce slot, no
+    jc .rcv                         ; gap's slack, no layer's mirror
+    mov [vp_rclm], dx
+    mov byte [vp_lymx], 0
+    jmp .ring
+.rcv:
+    call vp_rhfit                   ; (refused there: K as conventional
+    jnc .rcv1                       ; memory has it, 14.41)
+    jmp .memf
+.rcv1:
+%else
+%endif
     mov ax, cx
     add ax, [vp_msl]
     call vp_xmsbk                   ; (+ the bank's bounce, vp_bbnc)
@@ -11027,6 +11398,11 @@ vp_sstart:
     pop cx
     pop bx
     ret
+%ifdef PKG_MEGA
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+%else
+%endif
 
 ; vp_kres - AX = the largest free run, KB -> AX = what the ring may take of
 ; it (SPEC.md 98.3): less the SOUND's ring where the file has sound and this
@@ -11404,6 +11780,11 @@ vp_pcrow:
 ; vp_kroom - DX = the keeper, just claimed: CF=0 the ring can still reach
 ; the header's slots beside it, and the mirror. Preserves all
 vp_kroom:
+%ifdef PKG_MEGA
+    call vp_rhiq                    ; (a ring above 1MB takes nothing here,
+    jnc .r                          ; KERN-MEGA-PLAN 14.41)
+%else
+%endif
     push ax
     push bx
     push cx
@@ -11418,7 +11799,16 @@ vp_kroom:
     pop cx
     pop bx
     pop ax
+%ifdef PKG_MEGA
+.r:
+%else
+%endif
     ret
+%ifdef PKG_MEGA
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+%else
+%endif
 
 ; vp_cptry - the keeper and the ring will not both fit: CF=0 a compaction
 ; is POSTED that will make room for both if our own region moves too
@@ -11496,6 +11886,9 @@ vp_smov:
     call vp_mmovz
     mov dx, [vo_s1seg]              ; (and the text's second save)
     call vp_mmovz
+    mov dx, [vp_bseg]               ; (and the block decoder, 98.3.23)
+    call vp_mmovz
+    nop                             ; (the play's routines' parity)
     pop dx
     ret
 
@@ -11544,7 +11937,7 @@ vp_smove:
     ret
 
 vp_smtab:     dw vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd
-              dw vp_pevseg, vp_p8seg, vo_s1seg, 0
+              dw vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg, 0
 
 ; -----------------------------------------------------------------------------
 ; vp_spos - DX = the ring (or, resident, the key's claim, or 0): the session
@@ -11617,6 +12010,16 @@ vp_spos:
     push word [vp_rdseg]
     mov ax, [vp_kbkb]               ; (whole KB: a paragraph count)
     mov cl, 6
+%ifdef PKG_MEGA
+    cmp byte [vp_rhi], 0            ; THE RING ABOVE 1MB (14.41): the first
+    je .kap                         ; window past the key's read, 8 a 32 KB
+    add ax, 31
+    mov cl, 5
+    shr ax, cl
+    mov cl, 3
+.kap:
+%else
+%endif
     shl ax, cl
     mov [vp_lpar], ax
     add [vp_rdseg], ax
@@ -12061,18 +12464,34 @@ vp_lybench:
     mov [vp_bnt0], ax
     mov [vp_bnt0+2], dx
     mov word [vp_lyn], 0
-.l:
+    mov byte [vp_kdec], 1           ; (the bench is a key's lists alone: no
+.l:                                 ; version 2 blocks after them, 98.3.23)
     mov dx, [vp_bnseg]              ; THE BENCH (98.1.9.13), built at
     xor si, si                      ; vp_bnsel...
     cmp byte [vp_bnon], 0
     jne .ld
     mov si, [vp_krec]               ; ...or the key's record, where it was
     mov dx, [vp_ring]               ; read (inline, not vp_rptr: this loop
+%ifdef PKG_MEGA
+    test dl, 4                      ; is the timed one) - or, an LDT
+    jnz .lk                         ; selector, window 0 as it is (14.41)
+    mov ax, si
+%else
     mov ax, si                      ; is the timed one)
+%endif
     mov cl, 4
     shr ax, cl
+%ifdef PKG_MEGA
+    and al, 0xF8                    ; (whole granules, 8 paragraphs each)
+%else
+%endif
     add dx, ax
+%ifdef PKG_MEGA
+    and si, 127                     ; a 128-byte GRANULE: DX on kern_mega's grid
+.lk:
+%else
     and si, 15
+%endif
     call vp_decboth
     jmp short .lt
 .ld:
@@ -12083,6 +12502,7 @@ vp_lybench:
     sub ax, [vp_lyt0]               ; for (98.1.9.4): a far call a decode
     cmp ax, 8                       ; was most of a small key's time
     jb .l
+    mov byte [vp_kdec], 0
     call vp_bnio                    ; (...and the screen's again)
     cmp ax, 11
     ja .slow                        ; (a decode near a second: too slow)
@@ -12193,6 +12613,11 @@ vp_lybench:
     cmp byte [vp_lyon], 0           ; (a layer to turn off, or none)
     jne .no
     ret
+%ifdef PKG_MEGA
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+%else
+%endif
 
 ; vp_bnsel - the session's bench, at vp_lybench's start (98.1.9.13): with
 ; the file's bench words and a play decoded NATIVELY in a layout with an
@@ -12225,6 +12650,11 @@ vp_bnsel:
     xor ax, ax
     mov [vp_bnpof], ax
     mov [vp_bnclp], al
+%ifdef PKG_MEGA
+    cmp byte [vp_rhi], 0            ; (THE RING ABOVE 1MB: a window of its
+    jne .bh                         ; own, KERN-MEGA-PLAN 14.41)
+%else
+%endif
     mov ax, [vp_kbkb]               ; WHERE: past the key's read and a lead,
     mov cl, 6                       ; inside the ring and its mirror - which
     shl ax, cl                      ; the fill has not reached yet
@@ -12232,6 +12662,14 @@ vp_bnsel:
     add bx, 15
     mov cl, 4
     shr bx, cl
+%ifdef PKG_MEGA
+    cmp byte [vp_pm], 0             ; KERN_MEGA's grid (CPU_F_PM): the record
+    je .gp                          ; is a segment, and a lead that is not a
+    add bx, 7                       ; multiple of 8 paragraphs put it off the
+    and bl, 0xF8                    ; grid - vp_bngen's `mov es` faulted at
+.gp:                                ; Play (KERN-MEGA-PLAN 14.29)
+%else
+%endif
     add ax, bx
     add ax, [vp_ring]
     mov [vp_bnseg], ax
@@ -12243,6 +12681,10 @@ vp_bnsel:
     add bx, [vp_ring]
     cmp ax, bx
     ja .r                           ; (no room: the key's, as before)
+%ifdef PKG_MEGA
+.gen:
+%else
+%endif
     call vp_bngen
     mov byte [vp_bnon], 1
     mov si, vp_bnl                  ; ...or the bench's: the three in a row
@@ -12255,6 +12697,25 @@ vp_bnsel:
     rep movsw
 .r:
     ret
+%ifdef PKG_MEGA
+.bh:                                ; ABOVE 1MB: the window past the key's
+    mov ax, [vp_kbkb]               ; read's last and the one a lead apart
+    add ax, 31                      ; takes (vp_spos), a record of VP_BNMAX
+    mov cl, 5                       ; from its start - inside the claim, or
+    shr ax, cl                      ; the key's as before
+    inc ax
+    mov bx, [vp_k]
+    add bx, [vp_msl]
+    cmp ax, bx
+    jae .r
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, [vp_ring]
+    mov [vp_bnseg], ax
+    jmp short .gen
+%else
+%endif
 
 ; vp_bnio - the bench's surface swapped in, or back (98.1.9.13): the origin
 ; its gap, page 0 and no text box to round. Every register kept
@@ -12913,8 +13374,9 @@ vp_lydec:
     mov ax, si
     mov cl, 4
     shr ax, cl
+    VP_GRAN al                      ; (whole granules, 8 paragraphs each)
     add dx, ax
-    and si, 15
+    and si, VP_GOFF                 ; a 128-byte GRANULE: DX on kern_mega's grid
     call vp_decrec
     pop cx
     inc word [vp_lygot]
@@ -12952,6 +13414,12 @@ vp_sfree:
     push dx
     mov dx, [vp_rclm]               ; (the claim: [vp_ring] may start in it)
     call .f
+%ifdef PKG_MEGA
+    mov dx, [vp_dbnc]               ; (THE RING ABOVE 1MB: its bounce, and
+    call .f                         ; vp_addr's head back, KERN-MEGA-PLAN
+    call vp_rhoff                   ; 14.41)
+%else
+%endif
     mov dx, [vp_keep]
     call .f
     mov dx, [vp_aseg]
@@ -12987,6 +13455,262 @@ vp_sfree:
     call vp_mfree
 .n:
     ret
+%ifdef PKG_MEGA
+
+; =============================================================================
+; THE RING ABOVE 1MB (KERN-MEGA-PLAN 14.41). Under CPU_F_PM a stream's ring
+; is a pool claim: OSAPI_MEM_HUGE with BX = 8000h, a window every 32 KB and
+; each 64 KB long, so slot k is the window [vp_ring] + 8k and ANY super-packet
+; of 32 KB or less starting in it lies wholly inside it - the shape the
+; layout already has, a slot and what runs on into the next one or the
+; mirror. Everything a slot's segment was, [vp_ring] + 2,048k paragraphs, it
+; is [vp_ring] + 8k here; a key's read, at the ring's start and 64 KB at most,
+; is window 0 with its offset as it landed. What stays conventional is one
+; 32 KB BOUNCE ([vp_dbnc]) a disk read lands in, so a fill's int 13h calls are
+; the runs they always were rather than the kernel's sector runs into a
+; buffer above 1MB, and is copied up with a rep movsw (~5 ms a chunk on a
+; 12 MHz 286). Real-mode kernels never set [vp_rhi]: their arithmetic is the
+; instructions it was, and vp_addr's head is patched for a session only here.
+; Not taken - the ring conventional exactly as before - for BIGSP's 64 KB
+; super-packets (no window 32 KB apart holds one), a LAYER to place (its carve
+; and bounce sit at KB offsets the windows cannot name), EMS, a RESIDENT
+; play, or a pool without the room.
+; =============================================================================
+
+; vp_rhiq - CF=0: this session's ring may be the claim above 1MB (above).
+; Preserves all but flags
+vp_rhiq:
+    cmp byte [vp_pm], 0
+    je .no
+    cmp word [vp_msl], 1            ; (BIGSP)
+    jne .no
+    cmp byte [vp_xems], 0
+    jne .no
+    cmp byte [vp_resid], 0
+    jne .no
+    push ax
+    push cx
+    call vp_lywant                  ; CX = a layer's slots, 0 none
+    or cx, cx
+    stc
+    jnz .o
+    call vp_rhkb                    ; ...and room in the pool for the
+    mov cl, 5                       ; header's slots and the mirror
+    shr ax, cl
+    mov cx, ax
+    call vp_kwant
+    add ax, [vp_msl]
+    cmp cx, ax                      ; CF = short
+.o:
+    pop cx
+    pop ax
+    ret
+.no:
+    stc
+    ret
+
+; vp_rhkb - AX = the pool's free KB (OSAPI_XMEM_CAPS). Every other register
+; kept
+vp_rhkb:
+    push bx
+    push cx
+    push dx
+    call vp_xcaps
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; vp_rhtry - AX = the ring's slots and its mirror: CF=0 DX = the ring, a
+; claim above 1MB with its windows 32 KB apart, [vp_rhi] 1, [vp_dbnc] its
+; bounce and vp_addr patched; CF=1 not (vp_rhiq, or a claim refused), and
+; nothing held. Every other register kept
+vp_rhtry:
+    call vp_rhiq
+    jc .r
+    push ax
+    push bx
+    push cx
+    mov cl, 5
+    shl ax, cl                      ; (slots) x 32 KB
+    mov cx, ax
+    mov ax, VP_CHUNK / 1024         ; THE BOUNCE, conventional, first
+    call vp_mclaim
+    jc .no
+    mov [vp_dbnc], dx
+    mov ax, cx
+    mov bx, 0x8000                  ; a window every 32 KB
+    call OSAPI_MEM_HUGE             ; DX = the first, CX = 8
+    jc .nob
+    or bx, bx                       ; BX = 0: what was asked (else a claim
+    jz .got                         ; in conventional memory, or windows
+    call vp_mfree                   ; 64 KB apart: let go of it)
+.nob:
+    mov dx, [vp_dbnc]
+    call vp_mfree
+    mov word [vp_dbnc], 0
+.no:
+    pop cx
+    pop bx
+    pop ax
+    stc
+.r:
+    ret
+.got:
+    mov al, 1
+    mov [vp_rhi], al
+    call vp_rhpat
+    pop cx
+    pop bx
+    pop ax
+    clc
+    ret
+
+; vp_rhfit - CX = K, sized from the POOL, and the ring above 1MB refused
+; after all: CX cut to the slots conventional memory holds as vp_sstart's
+; own sizing would have it, and [vp_k] with it (and [vp_kr], the ring's own
+; where no bank or hold is read in place). CF=1 not even the least ring.
+; Nothing under a real-mode kernel, which sized from conventional memory
+; already. Every other register kept
+vp_rhfit:
+    cmp byte [vp_pm], 0
+    je .ok
+    push ax
+    push bx
+    push dx
+    call vp_mavail
+    call vp_kres
+    mov dx, cx
+    mov cl, 5
+    shr ax, cl                      ; ...in 32 KB slots
+    mov cx, dx
+    sub ax, [vp_msl]                ; less the mirror
+    jb .no
+    cmp ax, cx
+    jae .k
+    mov cx, ax
+.k:
+    mov ax, [vp_msl]
+    inc ax
+    cmp cx, ax
+    jb .no
+    mov [vp_k], cx
+    mov al, [vp_einp]
+    or al, [vp_xip]
+    jnz .o
+    mov [vp_kr], cx
+.o:
+    pop dx
+    pop bx
+    pop ax
+.ok:
+    clc
+    ret
+.no:
+    pop dx
+    pop bx
+    pop ax
+    stc
+    ret
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+
+; vp_rhoff - the session's end: vp_addr's head back, and no ring above 1MB.
+; Every register kept
+vp_rhoff:
+    cmp byte [vp_rhi], 0
+    je .r
+    push ax
+    xor ax, ax
+    mov [vp_rhi], al
+    mov [vp_dbnc], ax
+    call vp_rhpat
+    pop ax
+.r:
+    ret
+
+; vp_rhpat - AL = 1: vp_addr's head a jump to vp_paddr; AL = 0: its own
+; three bytes back. Through DS, our data alias, as vd_ypatch writes - so a
+; real-mode play runs vp_addr's own instructions, untouched, and pays nothing
+; for this. Every register kept
+vp_rhpat:
+    push ax
+    push bx
+    mov bx, vp_addr
+    or al, al
+    jz .back
+    cmp byte [bx], 0xE9             ; (patched already)
+    je .r
+    mov ax, [bx]
+    mov [vp_apsv], ax
+    mov al, [bx+2]
+    mov [vp_apsv+2], al
+    mov byte [bx], 0xE9             ; jmp near vp_paddr
+    mov word [bx+1], vp_paddr - (vp_addr + 3)
+    jmp short .r
+.back:
+    cmp byte [bx], 0xE9
+    jne .r
+    mov ax, [vp_apsv]
+    mov [bx], ax
+    mov al, [vp_apsv+2]
+    mov [bx+2], al
+.r:
+    pop bx
+    pop ax
+    ret
+
+; vp_paddr - vp_addr for the ring above 1MB: AX = a chunk, BX = an offset in
+; it -> DX = its slot's window, SI = the offset as it is (a super-packet of
+; 32 KB or less from there is inside the window). Clobbers AX, BX, CX
+vp_paddr:
+    cmp byte [vp_einp], 0
+    jne vp_eaddr
+    cmp byte [vp_xip], 0
+    jne vp_xaddr
+    call vp_slot
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1                       ; x 8: the slot's window
+    add ax, [vp_ring]
+    mov dx, ax
+    mov si, bx
+    ret
+
+; vp_bnc - DX = the bounce a fill reads into: the ring's first slot, or the
+; conventional one beside the ring above 1MB. Every other register kept
+vp_bnc:
+    mov dx, [vp_ring]
+    cmp byte [vp_rhi], 0
+    je .r
+    mov dx, [vp_dbnc]
+.r:
+    ret
+
+; vp_rhcp - AX = the bytes a read put in the bounce: copied up to ES:0, the
+; slot above 1MB. Every register kept
+vp_rhcp:
+    push cx
+    push si
+    push di
+    push ds
+    mov cx, ax
+    inc cx
+    shr cx, 1
+    mov ds, [vp_dbnc]
+    xor si, si
+    xor di, di
+    cld
+    rep movsw
+    pop ds
+    pop di
+    pop si
+    pop cx
+    ret
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+%else
+%endif
 
 ; -----------------------------------------------------------------------------
 ; vp_srun - brackets on the session until it stops or goes back to the
@@ -13036,7 +13760,9 @@ vp_srun:
     push ax                         ; THE BLOCKS STAY PUT FOR THE BRACKET: its
     xor ax, ax                      ; hook reads them at interrupt time
     call vp_rmov                    ; (98.1.7.4) - and so do the session's
-    call vp_smov                    ; (98.3.19.2)
+    call vp_smov                    ; (98.3.19.2) and the block decoder's
+    call vp_bset                    ; ...which is told where things are
+    nop                             ; (the play's routines' parity)
     pop ax
     call OSAPI_FSX_RUN
     pushf
@@ -13655,12 +14381,16 @@ vp_main:
     call vp_paldac                  ; (its scene's sixteen, onto the black)
 .kp:
     mov si, [vp_krec]
+%ifdef PKG_MEGA
+    call vp_rptr                    ; (a ring above 1MB too: 14.41)
+%else
     mov dx, [vp_ring]
     mov ax, si
     mov cl, 4
     shr ax, cl
     add dx, ax
     and si, 15
+%endif
     call vp_khdr                    ; (98.1.3.8: another part after it?)
     jc .kpbad
     push dx
@@ -14513,7 +15243,7 @@ vp_skdue:
     jc .back
     mov [vp_skk], ax
     mov ax, [vp_kekb]               ; its entry - and ON, the first key past
-    call OSAPI_MEM_CLAIM            ; the frame on the glass
+    call vp_mclaim                  ; the frame on the glass
     jc .back
     mov [vp_rdseg], dx
     mov ax, [vp_skk]
@@ -14571,6 +15301,11 @@ vp_skdue:
 .no:
     clc
     ret
+%ifdef PKG_MEGA
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+%else
+%endif
 
 ; vp_fseek - AX = a key whose entry is in hand ([vp_ke]): the session moved
 ; there, in the bracket - the card closed (the resume opens it at the key),
@@ -15867,12 +16602,24 @@ vp_lstage:
     mov [vp_alst], cx
     push ds
     push es
+%ifdef PKG_MEGA
+    xor ax, ax                      ; (the ring above 1MB: its window, the
+    cmp byte [vp_rhi], 0            ; offset as it is - and [vp_lpar] in
+    jne .h                          ; windows, 14.41)
+%else
+%endif
     mov ax, si
     shr ax, 1
     shr ax, 1
     shr ax, 1
     shr ax, 1
+%ifdef PKG_MEGA
+    and al, 0xF8                    ; (whole granules, 8 paragraphs each)
+    and si, 127                     ; a 128-byte GRANULE: DS on kern_mega's grid
+.h:
+%else
     and si, 15
+%endif
     mov di, VP_RL
     sub di, cx
     mov es, [vp_aseg]
@@ -15885,6 +16632,11 @@ vp_lstage:
     pop ds
 .r:
     ret
+%ifdef PKG_MEGA
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+%else
+%endif
 
 vp_fill:
     cmp byte [vp_resid], 0          ; RESIDENT: nothing to read (98.1.7)
@@ -15913,8 +16665,17 @@ vp_fill:
     jc vp_xfill1                    ; (98.1.9.7): then it is READ too, timed
     jmp vp_xfillt                   ; and thrown away (98.3.18.14)
 .cv:
+%ifdef PKG_MEGA
+    cmp byte [vp_rhi], 0            ; (the ring above 1MB: its window, 14.41)
+    jne .cvh
+%else
+%endif
     mov cl, 11
     shl bx, cl
+%ifdef PKG_MEGA
+.cvr:
+%else
+%endif
     add bx, [vp_ring]
     mov dx, bx                      ; DX:BX = the slot, ES:DI = the cursor
     xor bx, bx
@@ -15926,6 +16687,13 @@ vp_fill:
     push dx                         ; (the slot, and where in the file it
     push word [vp_cur+FSEQ_OFF+2]   ; starts: vp_xput's)
     push word [vp_cur+FSEQ_OFF]
+%ifdef PKG_MEGA
+    cmp byte [vp_rhi], 0            ; (the ring above 1MB: into the bounce,
+    je .dsl                         ; whole runs, then up - 14.41)
+    mov dx, [vp_dbnc]
+.dsl:
+%else
+%endif
     mov cx, VP_CHUNK
     push ds
     pop es
@@ -15943,6 +16711,13 @@ vp_fill:
     stc
     ret
 .dsk:
+%ifdef PKG_MEGA
+    cmp byte [vp_rhi], 0
+    je .dsc
+    call vp_rhcp                    ; the bounce up into the slot
+.dsc:
+%else
+%endif
 %ifdef VP_RDLOG
     call vp_prlog                   ; THE READ LOG (98.3.22.2): DI:BX where
 %endif                              ; in the file, AX the bytes, ES:0 them
@@ -15968,11 +16743,20 @@ vp_fill:
     jcxz .pub                       ; super-packet starting in slot K-1 runs
     push ds                         ; on into contiguous memory - as much of
     mov dx, cx                      ; it as that super-packet runs on into
+%ifdef PKG_MEGA
+    cmp byte [vp_rhi], 0            ; (the ring above 1MB: windows, 14.41)
+    jne .mh
+%else
+%endif
     mov cl, 11
     shl ax, cl
     add ax, [vp_ring]               ; the slot...
     mov bx, [vp_k]
     shl bx, cl
+%ifdef PKG_MEGA
+.mc:
+%else
+%endif
     add bx, ax                      ; ...and its mirror, K slots on
     mov es, bx
     mov ds, ax
@@ -15992,6 +16776,24 @@ vp_fill:
 .full:                              ; first would call the last chunk missing
     clc
     ret
+%ifdef PKG_MEGA
+.cvh:                               ; THE RING ABOVE 1MB (KERN-MEGA-PLAN
+    shl bx, 1                       ; 14.41): slot k is the window 8k on
+    shl bx, 1
+    shl bx, 1
+    jmp .cvr
+.mh:
+    shl ax, 1
+    shl ax, 1
+    shl ax, 1
+    add ax, [vp_ring]               ; the slot's window...
+    mov bx, [vp_k]
+    shl bx, 1
+    shl bx, 1
+    shl bx, 1
+    jmp short .mc                   ; ...and its mirror's, K windows on
+%else
+%endif
 .eof:                               ; THE FILE'S END, REPEATING (98.3.9): the
     cmp byte [vp_rep], 0            ; next lap's start is read on behind it -
     je .none                        ; once the video has taken the last seam
@@ -16117,6 +16919,13 @@ vp_warm:
     mov ax, [vp_lc]                 ; the read goes to the chunk's slot, and
     call vp_slot                    ; on into the next or the mirror: two
     mov cl, 11                      ; slots from any are contiguous
+%ifdef PKG_MEGA
+    cmp byte [vp_rhi], 0            ; (above 1MB: the slot's window, 64 KB
+    je .wsl                         ; long - KERN-MEGA-PLAN 14.41)
+    mov cl, 3
+.wsl:
+%else
+%endif
     shl ax, cl
     add ax, [vp_ring]
     mov [vp_rdseg], ax
@@ -16221,6 +17030,11 @@ vp_warm:
     mov byte [vp_end], 1
     stc
     ret
+%ifdef PKG_MEGA
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+%else
+%endif
 
 ; vp_rsay - a play whose ring is short of the stream's (98.1.1) says so in
 ; the full screen, once: a burst the encoder banked for may pause it.
@@ -16891,7 +17705,7 @@ vp_prbeg:
     add ax, VP_PRH + 8 * VP_RLMAX + VP_DIL + 1023
     mov cl, 10
     shr ax, cl
-    call OSAPI_MEM_CLAIM
+    call vp_mclaim
     jc .out
     mov [vp_prseg], dx
     mov es, dx
@@ -17487,12 +18301,31 @@ vp_kref1:
 ; Clobbers AX, CL
 vp_rptr:
     mov dx, [vp_ring]
+%ifdef PKG_MEGA
+    test dl, 4                      ; AN LDT SELECTOR, the ring above 1MB
+    jnz .r                          ; (14.41): window 0, the offset as it is
+%else
+%endif
     mov ax, si
     mov cl, 4
     shr ax, cl
+%ifdef PKG_MEGA
+    and al, 0xF8                    ; (whole granules, 8 paragraphs each)
+%else
+%endif
     add dx, ax
+%ifdef PKG_MEGA
+    and si, 127                     ; a 128-byte GRANULE: DX on kern_mega's grid
+.r:
+%else
     and si, 15
+%endif
     ret
+%ifdef PKG_MEGA
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
+%else
+%endif
 
 ; vp_kpool - THE PAGE POOL (98.1.3.8.1, 98.3.8.6), after a key: each page it
 ; named black and then its picture, read in parts as a key is and checked as
@@ -17693,6 +18526,11 @@ vp_hpg2:
 ; keyframe: the stream after it takes either), else as vp_decrec. SI past
 ; its lists, as vp_decrec leaves it
 vp_decboth:
+    mov byte [vp_kdec], 1           ; A KEY's: no block lists (98.3.23)
+    call .k
+    mov byte [vp_kdec], 0
+    ret
+.k:
     cmp byte [vp_flip], 0
     je vp_decrec
     cmp byte [vp_npg], 0
@@ -18069,24 +18907,27 @@ vp_decrec:
     je .go2
     add si, 6
     push ds
+    push dx                         ; (the record's segment, for vp_lrget)
     VP_DSDX
     call vd_native
-    call vp_lrget
+.runs:
     VP_DSEND
-    pop ds
-    ret
+    pop es                          ; ES = the record, DS = ours: its blit
+    pop ds                          ; runs (a Live play is never in place,
+    jmp vp_lrget                    ; so DX was a segment)
 .shp:
     add si, 6
     push ds
+    push dx
     VP_DSDX
     call vp_decram                  ; (SI past the sub-records' 0)
     cmp byte [cs:vp_lrun], 0
     je .shq
     cmp byte [cs:vp_fruns], 0
-    je .shq
-    call vp_lrget
+    jne .runs
 .shq:
     VP_DSEND
+    pop dx
     pop ds
     ret
 .native:
@@ -18095,26 +18936,47 @@ vp_decrec:
     add bp, [vp_poff]               ; the page being drawn (98.3.8), or 0
 .go2:
     add si, 6
+    cmp byte [vp_planar], 0         ; (asked while DS is ours, so nothing
+    jne .mx0                        ; below writes through CS: KERN-MEGA-PLAN
+    cmp byte [vo_clip], 0           ; 14.16) the full screen's text up:
+    jne .clip                       ; round it (98.3.13.1)
     push ds
     VP_DSDX
-    cmp byte [cs:vp_planar], 0
-    jne .mx
-    cmp byte [cs:vo_clip], 0        ; the full screen's text up: round it
-    jne .clip                       ; (98.3.13.1)
     call vd_native                  ; the lists, onto the adapter
+    cmp byte [cs:vp_v2], 0          ; VERSION 2: LIN320's three block lists
+    jne .bl                         ; after RUNL (98.3.23)
     VP_DSEND
     pop ds
     ret
 .clip:
-    mov byte [cs:vc_mask], 1
+    mov byte [vc_mask], 1
+    push ds
+    VP_DSDX
     call vd_clip
+    cmp byte [cs:vp_v2], 0
+    jne .bl
     VP_DSEND
     pop ds
     ret
+.bl:
+    call vp_blin1
+    VP_DSEND
+    pop ds
+    ret
+.blk:
+    call vp_bpl                     ; (CF = 1: a lead the part does not know,
+    jnc .mx                         ; and the record is given up)
+    jmp .mxd
+    nop                             ; (never run: what follows keeps its
+.mx0:                               ; parity, for the play's routines)
+    push ds
+    VP_DSDX
 .mx:                                ; PLANAR (98.1.3.1): each sub-record's Map
     lodsb                           ; Mask, then its lists - four pixels a
-    or al, al                       ; store under 0Fh, a plane's under the
-    jz .mxd                         ; rest
+    cmp al, 0x20                    ; store under 0Fh, a plane's under the
+    jae .blk                        ; rest. VERSION 2's BLOCK LEADS first
+    or al, al                       ; (98.3.23), and ahead of the end's test,
+    jz .mxd                         ; which they would put out of its reach
     cmp al, 0x10                    ; SUB2's COLOUR LEAD (98.1.3.2.4): one
     jae .m3                         ; colour, in write mode 3
 .mxp:
@@ -18123,7 +18985,6 @@ vp_decrec:
     call vp_m3off                   ; back for it all the same)
 .mxq:
     mov ah, al
-    mov [cs:vc_mask], al
     mov al, 2
     mov dx, 0x3C4
     out dx, ax
@@ -18134,6 +18995,7 @@ vp_decrec:
     pop bp
     jmp short .mx
 .mxc:
+    VP_OWNB vc_mask, ah             ; (the planes, for the box's save alone)
     call vp_clist
     pop bp
     jmp short .mx
@@ -18143,18 +19005,18 @@ vp_decrec:
     cmp byte [cs:vp_m3ok], 0        ; NO WRITE MODE 3 (an EGA): each byte
     jne .m3w                        ; read, changed and written a plane at
     and al, 0x0F                    ; a time - round the box too, vc_m3b
-    mov [cs:vp_m3c], al             ; asking the same
+    mov cl, al                      ; asking the same (CL: vd_walk's colour)
     push bp
-    mov word [cs:vw_fn], vp_m3pl
+    mov bx, vp_m3pl
     cmp byte [cs:vo_clip], 0
     je .m3e
-    mov word [cs:vw_fn], vc_m3b
+    mov bx, vc_m3b
 .m3e:
     call vd_walk
     pop bp
     jmp .mx
 .m3w:
-    call vp_m3set
+    call vp_m3set                   ; (AH = the colour)
     push bp
     cmp byte [cs:vo_clip], 0
     jne .m3c
@@ -18162,8 +19024,9 @@ vp_decrec:
     pop bp
     jmp .mx
 .m3c:
-    mov word [cs:vw_fn], vc_m3b     ; round the box (98.3.13.1): a byte at a
-    call vd_walk                    ; time, the box's into the save
+    mov cl, ah                      ; round the box (98.3.13.1): a byte at a
+    mov bx, vc_m3b                  ; time, the box's into the save
+    call vd_walk
     pop bp
     jmp .mx
 .mxd:
@@ -18206,15 +19069,14 @@ vp_clist:
 ; record's first; and Set/Reset c, every time. The resting state is put back
 ; by vp_m3off at the record's end (vga12.inc's: mode 0, Set/Reset 0, Color
 ; Don't Care 0Fh), so nothing outside a record's decode ever sees it. DS any.
-; Clobbers AX, DX
+; Out AH = the colour, c. Clobbers AX, DX
 vp_m3set:
     and al, 0x0F
-    mov [cs:vp_m3c], al
     mov ah, al
     mov dx, 0x3CE
     cmp byte [cs:vp_m3on], 0
     jne .c
-    mov byte [cs:vp_m3on], 1
+    VP_OWNB vp_m3on, 1
     push ax
     mov dx, 0x3C4
     mov ax, 0x0F02                  ; every plane
@@ -18236,7 +19098,7 @@ vp_m3set:
 vp_m3off:
     push ax
     push dx
-    mov byte [cs:vp_m3on], 0
+    VP_OWNB vp_m3on, 0
     mov dx, 0x3CE
     mov ax, 0x0005                  ; read mode 0, write mode 0
     out dx, ax
@@ -18253,10 +19115,10 @@ vp_m3off:
 ; AL's bits set where [vp_m3c] has that plane's and cleared where not, and
 ; written back to that plane alone (Map Mask) - what write mode 3 does in
 ; one store, in four. The GC as vga12.inc leaves it (write mode 0, Set/Reset
-; off). Clobbers AX, BX, CX, DX
+; off). The colour is vd_walk's frame's (VW_COL). Clobbers AX, BX, CX, DX
 vp_m3pl:
     mov bl, al
-    mov bh, [cs:vp_m3c]
+    mov bh, [bp+VW_COL]
     mov cx, 0x0100                  ; CL = the plane, CH = its bit
 .p:
     mov dx, 0x3C4
@@ -18287,11 +19149,12 @@ vp_m3pl:
 ; vp_m3ram - vd_walk's routine for a colour sub-record into a RAM image (ES
 ; plane 0, four planes [vp_plsp] paragraphs apart): byte DI of each plane
 ; has the mask AL's bits set where [vp_m3c] has that plane's, cleared where
-; not - what write mode 3 does to the card. Clobbers AX, CX, DX
+; not - what write mode 3 does to the card. The colour is vd_walk's
+; frame's (VW_COL). Clobbers AX, CX, DX
 vp_m3ram:
     push es
     mov dx, es
-    mov ah, [cs:vp_m3c]
+    mov ah, [bp+VW_COL]
     mov cx, 4
 .p:
     mov es, dx
@@ -18325,6 +19188,8 @@ vp_decram:
     lodsb
     or al, al
     jz .done
+    cmp al, 0x20                    ; (a BLOCK lead: no RAM image is ever
+    jae .done                       ; handed one, 98.3.23 - the record ends)
     cmp byte [cs:vp_planar], 2      ; VGA4's COLOUR LEAD (98.1.3.2.4): every
     jne .pm                         ; plane's byte at once, a byte at a time
     cmp byte [cs:vp_sub2], 0
@@ -18332,11 +19197,11 @@ vp_decram:
     cmp al, 0x10
     jb .pm
     and al, 0x0F
-    mov [cs:vp_m3c], al
-    mov word [cs:vw_fn], vp_m3ram
+    mov cl, al                      ; (vd_walk's colour, and its routine)
     mov es, bx
     xor bp, bp
     push bx
+    mov bx, vp_m3ram
     call vd_walk
     pop bx
     jmp short .sub
@@ -18584,9 +19449,10 @@ vp_addr:
     mov si, bx
     mov cl, 4
     shr bx, cl
+    VP_GRAN bl                      ; (whole granules, 8 paragraphs each)
     add ax, bx
     mov dx, ax
-    and si, 15
+    and si, VP_GOFF                 ; a 128-byte GRANULE: DX on kern_mega's grid
     ret
 
 ; vp_spend - AX = a super-packet's chunk, BX = its offset there (a whole
@@ -19113,8 +19979,19 @@ vp_layB:
 vp_laynorm:
     mov word [vp_lslk], VP_BSLACK
     mov word [vp_lgap], VP_BGAP
+%ifdef PKG_MEGA
+    ret
+
+; vp_reloc - the region's relocation proc (SPEC.md 66.6.1.1): nothing points
+; inside us but vp_self, which is OUR segment - and DS is that here
+; (KERN-MEGA-PLAN 14.16)
+vp_reloc:
+    mov [vp_self], ds
+    ret
+%else
 vp_noreloc:                         ; (a bare ret: the region's relocation
     ret                             ; proc - nothing points inside us)
+%endif
 
 vp_laycomp:
     push ax
@@ -20870,9 +21747,18 @@ vp_rdfree:                          ; the record buffer [vp_rdseg] back, DX it
 vp_mfree:                           ; OSAPI_MEM_FREE
     call OSAPI_MEM_FREE
     ret
+%ifdef PKG_MEGA
+vp_mclaim:                          ; OSAPI_MEM_CLAIM, IN CONVENTIONAL MEMORY:
+    push cx                         ; the DMA door with no head IS the plain
+    xor cx, cx                      ; claim (os88api.inc), and OS88_HIGHMEM
+    call OSAPI_MEM_CLAIM_DMA        ; does not reach it - every claim but the
+    pop cx                          ; ring's is paragraph arithmetic somewhere
+    ret                             ; (KERN-MEGA-PLAN 14.41)
+%else
 vp_mclaim:                          ; OSAPI_MEM_CLAIM
     call OSAPI_MEM_CLAIM
     ret
+%endif
 vp_ticks:                           ; OSAPI_GET_TICKS
     call OSAPI_GET_TICKS
     ret
@@ -20889,8 +21775,16 @@ vp_clipw:                           ; OSAPI_WM_CLIP_SET, BX = the window...
 vp_clips:                           ; ...or BX as it is
     call OSAPI_WM_CLIP_SET
     ret
+%ifdef PKG_MEGA
+vp_mclhi:                           ; OSAPI_MEM_CLAIM_HI, in conventional
+    push cx                         ; memory as vp_mclaim's
+    xor cx, cx
+    call OSAPI_MEM_CLAIM_DMA_HI
+    pop cx
+%else
 vp_mclhi:                           ; OSAPI_MEM_CLAIM_HI
     call OSAPI_MEM_CLAIM_HI
+%endif
     ret
 vp_mmov:                            ; OSAPI_MEM_MOVABLE
     call OSAPI_MEM_MOVABLE
@@ -21064,7 +21958,29 @@ vp_v4n:       db 0
 vp_planar:    db 0                      ; 1 Mode X's planes, 2 VGA4's bits
 vp_sub2:      db 0                      ; ...with list maps and colour leads
 vp_m3on:      db 0                      ; the GC is in write mode 3 (98.1.3.2.4)
-vp_m3c:       db 0                      ; ...and the colour sub-record's colour
+                                        ; (the colour is vd_walk's VW_COL)
+%ifdef PKG_MEGA                         ; (the kern_mega arm's, 14.66)
+vp_pm:        db 0                      ; CPU_F_PM, banked at entry: segments
+                                        ; are selectors (KERN-MEGA-PLAN 14.16)
+vp_rhi:       db 0                      ; THE RING ABOVE 1MB this session: a
+                                        ; run of windows 32 KB apart, slot k
+                                        ; at [vp_ring] + 8k (KERN-MEGA-PLAN
+                                        ; 14.41), and vp_addr patched to
+                                        ; vp_paddr
+vp_dbnc:      dw 0                      ; ...and the conventional bounce its
+                                        ; disk reads land in, whole runs
+vp_apsv:      db 0, 0, 0                ; ...and vp_addr's own head, kept
+vp_xrun:      dw 0                      ; the hold's or bank's RUN of selectors
+                                        ; (OSAPI_XMEM_RUN, protected mode), 0
+                                        ; none (98.3.18.16)
+vp_self:      dw 0                      ; OUR DATA segment or selector, for a
+                                        ; write while DS is a record's
+                                        ; (VP_OWNB, KERN-MEGA-PLAN 14.16)
+%else
+              db 0                      ; (where vp_m3c was: the words below
+                                        ; keep the parity they had at 7feb6f7f,
+                                        ; vp_ring and vp_rdseg among them)
+%endif
 vp_m3ok:      db 0                      ; this card HAS write mode 3 (a VGA)
 vp_plsp:      dw 0                      ; ...and a RAM image's spacing, paras
 vp_kseg:      dw 0                      ; vp_kmove: the keeper's plane
@@ -21088,6 +22004,10 @@ vp_s_none:    db 'Open a .V88 to play it', 0
 vp_s_ready:   db 'Space plays and pauses; Esc stops', 0
 vp_bknames:   dw vp_s_bk0, vp_s_bk1, vp_s_bk2, vp_s_bk3, vp_s_bk4, vp_s_bk5
               dw vp_s_bk6, vp_s_bk7, vp_s_bk8, vp_s_bk9, vp_s_bk10
+%ifdef PKG_MEGA
+              dw vp_s_bk11, vp_s_bk12
+%else
+%endif
 vp_s_bk0:     db 'No bank: the disk alone', 0
 vp_s_bk1:     db 'Banked in XMS, ', 0
 vp_s_bk2:     db 'Banked in EMS, ', 0
@@ -21099,6 +22019,11 @@ vp_s_bk7:     db 'XMS in place (LOADALL)', 0
 vp_s_bk8:     db 'XMS bank in place (LOADALL), ', 0
 vp_s_bk9:     db 'XMS in place (386)', 0
 vp_s_bk10:    db 'XMS bank in place (386), ', 0
+%ifdef PKG_MEGA
+vp_s_bk11:    db 'XMS in place (PM)', 0
+vp_s_bk12:    db 'XMS bank in place (PM), ', 0
+%else
+%endif
 vp_s_lydrew:  db 'Layer drew ', 0
 vp_s_lyoff:   db 'Layer off: key ', 0
 vp_s_lyofb:   db 'Layer off: bench ', 0
@@ -21882,8 +22807,290 @@ vp_s_buf:     db 'Buffering ', 0    ; (here, past the libraries: eleven bytes
                                     ; in front of them put os88alt_edge, which
                                     ; a frame's pass calls, at an odd shift)
 
+; =============================================================================
+; VERSION 2 (SPEC.md 98.3.23): the block decoder is a PART, and this is what
+; reaches it. Here, past everything a frame runs through, so nothing a play
+; times moves for it
+; =============================================================================
+%ifdef PKG_MEGA
+    OS88_PARTS_BEGIN 2
+%else
+    OS88_PARTS_BEGIN 1
+%endif
+      OS88_PART OP_SEG, OP_COMP | OP_LAZY   ; 0 the block decoder (vblk.asm)
+%ifdef PKG_MEGA
+      OS88_PART OP_SEG, OP_COMP | OP_LAZY   ; 1 ...its protected-mode assembly
+    OS88_PARTS_END                          ;   (VB_PM, 98.3.23.2)
+%else
+    OS88_PARTS_END
+%endif
+
+; vp_bget - the entry proc's: the block decoder FETCHED - on every machine,
+; since every screen plays a one-bit file, natively or through the shadow -
+; checked to be ours, and MOVABLE from then on: vp_smove re-bases [vp_bseg]
+; with the session's claims, and vp_smov pins it for a bracket with them. A
+; fetch refused (op_fetch has said why) leaves [vp_bseg] 0, the player whole,
+; and a version 2 file refused at open. Preserves ES
+vp_bget:
+    push es
+%ifdef PKG_MEGA
+    call OSAPI_CPU_INFO             ; WHICH ASSEMBLY (98.3.23.2): part 1, the
+    test ah, CPU_F_PM               ; one that writes nothing through CS, on a
+    mov al, 0                       ; protected-mode kernel; part 0, the one
+    jz .k                           ; that keeps its state at CS, everywhere
+    inc ax                          ; else. The other is never read
+.k:
+    push ax
+%else
+    xor al, al
+%endif
+    call op_fetch
+%ifdef PKG_MEGA
+    pop ax
+%else
+%endif
+    jc .r
+%ifdef PKG_MEGA
+%else
+    xor al, al
+%endif
+    call op_seg
+    or ax, ax
+    jz .r
+    mov es, ax                      ; OURS, of this tree: the signature, the
+    cmp word [es:VB_SIG], VB_SIGVAL ; ABI and the vectors
+    jne .r
+    cmp byte [es:VB_ABI], VB_ABIVER
+    jne .r
+    cmp byte [es:VB_NVEC], VBV_N
+    jb .r
+    mov [vp_bseg], ax
+    xchg ax, dx
+    mov ax, vp_smove
+    call vp_mmov
+.r:
+    pop es
+    ret
+
+; vp_v2chk - vp_parse's, for a version 2 file (98.1.10, 98.3.23): CF = 1 and
+; [vp_msg] said when this player will not play it - a format with no blocks,
+; a one-bit file with a seam, RESIDENT or LIVE (98.1.10.1), or no block
+; decoder here. ES:0 the header, DI the rendition's slot, DL its pixel
+; format. Clobbers AX
+vp_v2chk:
+    mov word [vp_msg], vp_s_ver
+    cmp dl, PF_VGA4                 ; MONO1, CGACOMP, VGA8 and VGA4: the
+    ja .no                          ; formats with blocks (one bit's on CGA
+    cmp dl, PF_VGA8                 ; and HERC, which are its only layouts)
+    jae .c
+    test word [es:V88_FLAGS], V88F_LOOPREC
+    jnz .no                         ; (a one-bit seam's codebook, 98.1.10)
+.c:
+    test word [es:V88_FLAGS], V88F_RESIDENT | V88F_LIVE
+    jnz .no                         ; (into RAM, which the part does not
+    mov word [vp_msg], vp_s_nov2    ; write: 98.1.10.1)
+    cmp word [vp_bseg], 0
+    je .no
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; vp_bset - the bracket's door, a version 2 play's: the part's vectors as far
+; addresses, and the part told the canvas's row step, the card and where
+; vp_bcb is NOW - the package may have moved since the last bracket, and
+; neither moves inside one (vp_smov). Preserves all
+vp_bset:
+    cmp byte [vp_v2], 0
+    je .r
+    push ax
+    push bx
+    push cx
+    push dx
+    push es
+    mov ax, [vp_bseg]
+%ifdef PKG_MEGA
+    mov es, ax                      ; (ES = the part's own segment at VBV_SET:
+    cmp byte [vp_pm], 0             ; the protected-mode part writes through
+    je .cs                          ; it, vblk.inc)
+    xchg ax, dx                     ; UNDER CPU_F_PM a far call goes through
+    call OSAPI_MEM_CODESEL          ; the part's CODE alias: through its data
+    jnc .cs                         ; segment it is a #GP the kernel completes
+    xchg ax, dx                     ; (KERN-MEGA-PLAN 14.48), a fault a call -
+.cs:                                ; and CF = 1 (no alias) leaves it that way
+%else
+    mov es, ax
+%endif
+    mov [vp_bfs + 2], ax
+    mov [vp_blin + 2], ax
+    mov [vp_bpln + 2], ax
+    mov [vp_b1v + 2], ax
+    mov ax, [es:VB_VEC + 2 * VBV_SET]
+    mov [vp_bfs], ax
+    mov ax, [es:VB_VEC + 2 * VBV_LIN]
+    mov [vp_blin], ax
+    mov ax, [es:VB_VEC + 2 * VBV_PLN]
+    mov [vp_bpln], ax
+    mov ax, [es:VB_VEC + 2 * VBV_ONE]
+    mov [vp_b1v], ax
+    mov bh, 1                       ; (one bank)
+    mov ax, [vp_lstr]               ; LIN80's rows, or a NARROW screen's
+    cmp byte [vp_layout], LAY_LIN80
+    je .s
+    mov bl, [vp_layout]             ; ...else the FILE's layout's own - its
+    call vp_lay6                    ; step and its banks, which are the
+    mov ax, [vp_laytab + bx + 2]    ; shadow's too (98.3.2)
+    mov bh, [vp_laytab + bx + 1]
+.s:
+    xor bl, bl
+    cmp byte [vp_planar], 2
+    jne .m
+    mov bl, VBM_VGA4
+    cmp byte [vp_m3ok], 0
+    jne .m
+    or bl, VBM_NOWM3
+.m:
+    cmp byte [vp_sfirst], 0         ; (a session's first bracket: the part
+    je .c                           ; forgets its codebook, 98.3.23.1)
+    or bl, VBM_NEWS
+.c:
+    mov cx, cs
+    mov dx, vp_bcb
+    call far [vp_bfs]
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.r:
+    ret
+
+; vp_blin1 - vp_decrec's, a version 2 LINEAR record's blocks at DS:SI, after
+; its lists: LIN320's three block lists, or one bit's codebook and tiles -
+; onto the page being drawn at ES (round the box when it is up), or into the
+; SHADOW at its own 0 (98.3.2: a one-bit file on another screen). Not a
+; KEY's, which has none. Clobbers what the part does
+vp_blin1:
+    cmp byte [cs:vp_kdec], 0
+    jne .r
+    mov bp, [cs:vp_org]             ; (vd_native has spent BP)
+    add bp, [cs:vp_poff]
+    cmp byte [cs:vp_shadow], 0
+    je .o
+    xor bp, bp
+.o:
+    mov ah, [cs:vo_clip]
+    cmp byte [cs:vp_layout], LAY_LIN320
+    jne .one
+    call far [cs:vp_blin]
+.r:
+    ret
+.one:
+    call far [cs:vp_b1v]
+    ret
+
+; vp_bpl - vp_decrec's, AL = a planar block lead: its list at DS:SI. VGA4's
+; GC goes into write mode 3 for it on a VGA (vp_m3set - the record's end puts
+; it back) and stays in write mode 0 on an EGA; round the box the callback
+; sets what each byte needs. CF = 1 a lead the part does not know
+vp_bpl:
+    mov ah, [cs:vo_clip]
+    cmp byte [cs:vp_planar], 2
+    jne .go
+    or ah, ah
+    jnz .go
+    cmp byte [cs:vp_m3ok], 0
+    je .ega
+    push ax
+    mov al, 0x10
+    call vp_m3set
+    pop ax
+    jmp short .go
+.ega:
+    cmp byte [cs:vp_m3on], 0
+    je .go
+    call vp_m3off
+.go:
+    call far [cs:vp_bpln]
+    ret
+
+; vp_bcb - THE PART'S CALLBACK (vblk.inc): one byte round the text box (the
+; box's save takes it, 98.3.13.1). AL the byte, DI its address; AH the Map
+; Mask on MODEX, the colour of a VGA4 mask. Clobbers AX, BX, CX, DX; keeps
+; DI. It writes NOTHING of ours: vd_clip's state is a stack frame since
+; KERN-MEGA-PLAN 14.16 (vosd.inc), and on kern_mega a store through CS is a
+; #GP, so the one byte is placed here, frameless, as vc_m3b places its mask:
+; into the save's planes when a range of the box holds DI, else onto the
+; screen. The rate hook's 48 bytes are what this path is sized by
+vp_bcb:
+    cmp byte [cs:vp_planar], 1
+    ja .v4
+    mov dl, 1                       ; LIN320 and one bit: the save's one plane
+    jb .lin
+    mov bl, al                      ; MODEX: the byte's plane - on the card
+    mov al, 2                       ; and in the save
+    mov dx, 0x3C4
+    out dx, ax
+    mov dl, ah
+    mov al, bl
+.lin:
+    call vc_findx                   ; (BX alone: there is no clip frame here)
+    cmp bx, [cs:vo_rows2]
+    jae .scr
+    mov cx, di                      ; in the box: its byte of the save
+    sub cx, [cs:vc_rs+bx]           ; (short of the range: the screen's - the
+    jb .scr                         ; subtraction is the compare)
+    add cx, [cs:vc_rv+bx]
+    mov bx, cx
+    push es
+    les cx, [cs:vc_pls]             ; CX a plane of the save, ES its segment
+    mov dh, [cs:vo_pl]
+.p:
+    shr dl, 1                       ; every plane DL names, as vc_sav does
+    jnc .np
+    mov [es:bx], al
+.np:
+    add bx, cx
+    dec dh
+    jnz .p
+    pop es
+    retf
+.scr:
+    mov [es:di], al
+    retf
+.v4:
+    push bp                         ; VGA4: the mask AL in the colour AH, by
+    mov bl, al                      ; vc_m3b, whose colour is vd_walk's frame's
+    mov al, ah                      ; [bp+VW_COL]: a frame of ONE word, BP
+    and al, 0x0F                    ; put where that byte is it (vc_m3b and
+    push ax                         ; vp_m3pl read that and nothing else)
+    mov bp, sp
+    sub bp, VW_COL
+    cmp byte [cs:vp_m3ok], 0
+    je .m
+    call vp_m3set                   ; (write mode 3, Set/Reset the colour)
+.m:
+    mov al, bl
+    call vc_m3b
+    pop ax
+    pop bp
+    retf
+
+vp_s_nov2:    db 'Needs the block decoder', 0
+vp_v2:        db 0                  ; the file is version 2 (98.1.10)
+vp_kdec:      db 0                  ; a KEY is being decoded (vp_decboth)
+vp_bseg:      dw 0                  ; the block decoder part, 0 not here
+vp_bfs:       dd 0                  ; ...its vectors, as far addresses at the
+vp_blin:      dd 0                  ; bracket's door (vp_bset)
+vp_bpln:      dd 0
+vp_b1v:       dd 0
+vp_m3gate:    db 1                  ; 0: no write mode 3 even on a VGA - a
+                                    ; gate's (tests/vidv2.py), the EGA's
+                                    ; plane-at-a-time arms on a machine here
+
 ; --- bss: zeroed by the loader, and no bytes of the file ----------------------
-vp_pal        equ os88_image_end    ; the SIXTEEN: a VGA4 file's own, or a
+vp_pal        equ os88_image_end + OP_BSS ; the SIXTEEN: a VGA4 file's own, or a
                                     ; scene's (VGA8's 256 are a claim's,
                                     ; [vp_p8seg]: vp_rdpal)
 vo_sav        equ vp_pal + 48       ; what the full screen's text covers on
@@ -21996,8 +23203,8 @@ vp_lsrem      equ vp_lsin + 2       ; and the bytes still to read or move
 vp_etseg      equ vp_lsrem + 4      ; vp_erate's segment (vp_open's)
 vp_dskend     equ vp_etseg + 2
 %if vp_dskend - vo_sav > VO_SAV + 256 ; (the scratch is the longer: the bss
-    OS88_BSS vp_dskend - vp_pal     ; is the palette and it, the save and
+    OS88_BSS OP_BSS + vp_dskend - vp_pal ; is the palette and it, the save and
 %else                               ; the page table inside it)
-    OS88_BSS 48 + VO_SAV + 256
+    OS88_BSS OP_BSS + 48 + VO_SAV + 256
 %endif
     OS88_IMAGE_END

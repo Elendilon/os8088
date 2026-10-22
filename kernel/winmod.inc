@@ -253,7 +253,7 @@ wn_title:
     je .pens
     mov ax, [thm_ibgc]          ; unfocused title pair, also from that preset
 .pens:
-    mov [cs:wn_pair], ax
+    CSDO mov [CSEG wn_pair], ax
 
     ; --- the ground: the bar's 16 interior rows, edge to edge ---------------
     mov [gfx_color], al
@@ -288,14 +288,14 @@ wn_title:
     mov al, [es:si]             ; terminate early
     or al, al
     jz .cpend
-    mov [cs:di], al
+    CSDO mov [CSEG di], al
     inc si
     inc di
     loop .cp
 .cpend:
-    mov byte [cs:di], 0
+    CSDO mov byte [CSEG di], 0
     pop di
-    push cs
+    PUSH_CSDATA
     pop es
     mov si, wn_cap
     mov cx, [di+W_X]
@@ -344,7 +344,7 @@ wn_title:
 ; -----------------------------------------------------------------------------
 wn_buttons:
     push es
-    push cs
+    PUSH_CSDATA
     pop es
     push word [gfx_b1ink]       ; THE PEN, banked and put back: a package's
                                 ; W_PAINT runs later in this same lock hold
@@ -459,10 +459,10 @@ wn_blit:
     loop .sh
 .put:
     pop cx
-    mov [cs:di], ah
-    mov [cs:di+1], al
+    CSDO mov [CSEG di], ah
+    CSDO mov [CSEG di+1], al
     mov ax, bp
-    mov [cs:di+2], ah           ; (RCR filled BP from bit 15 down)
+    CSDO mov [CSEG di+2], ah     ; (RCR filled BP from bit 15 down)
     inc si
     inc si
     add di, 3
@@ -611,7 +611,7 @@ wn_grip:  ; STKBALANCE-OK: wm_grow_paint's TAIL - entered by thv's jmp far with 
     mov ah, CDGRAY
     mov [gfx_b1ink], ax
     WNK wm_grow_rect            ; AX, BX = its top-left (CX, DX spent)
-    push cs
+    PUSH_CSDATA
     pop es
     mov si, wnb_grip
     mov cx, 13
@@ -681,8 +681,8 @@ wn_stick:
 .stick:
     WNK cur_unlazy              ; the arrow: any deferred hide spent, then
     WNK cursor_show             ; drawn at the pointer, which the ISR will not
-    mov [cs:wn_lastx], cx       ; move while we hold the lock
-    mov [cs:wn_lasty], dx
+    CSDO mov [CSEG wn_lastx], cx ; move while we hold the lock
+    CSDO mov [CSEG wn_lasty], dx
 
     ; --- UP: wait for the next click ------------------------------------------
 .wait:
@@ -801,8 +801,8 @@ wn_track:
     cmp dx, [cs:wn_lasty]
     je .out
 .moved:
-    mov [cs:wn_lastx], cx
-    mov [cs:wn_lasty], dx
+    CSDO mov [CSEG wn_lastx], cx
+    CSDO mov [CSEG wn_lasty], dx
     WNK cursor_hide
     WNK menu_hover              ; AX = the item under it, 0xFFFF none
     call wn_sel
@@ -877,7 +877,7 @@ wn_step:
 wnk_go:                         ; ovlchk: builds its own far frame
     push ax                     ; STKBALANCE-OK: a far frame built by hand, its
     push ax                     ; four slots spent by the RETF below and by the
-    push ds                     ; target's own return through cw_kretf. The
+    PUSH_KCODE                  ; target's own return through cw_kretf. The
     push ax                     ; segment slot is PUSHED: DS is KERNEL_SEG
     push bp                     ; throughout the image
     mov bp, sp

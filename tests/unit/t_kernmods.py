@@ -65,7 +65,11 @@ import kernsize                                           # noqa: E402
 # prints them, exactly as `--modules -DKERN_SMALL` prints kern_small's.
 KNOB_ONLY = ("band.inc", "bootprof.inc", "moudiag.inc", "stkdiag.inc",
              "vmmouse.inc",
-             "kbddiag.inc")     # KBDDIAG=1 (SPEC.md 9.8.1)
+             "kbddiag.inc",     # KBDDIAG=1 (SPEC.md 9.8.1)
+             "mega.inc")        # vmmouse.inc's shape: all of it inside
+                                # %ifdef KERN_MEGA, so its bytes are on the
+                                # mega variant's row (`--build build/megak
+                                # --modules`, KERN-MEGA-PLAN 14.45)
 
 # ...and a second reason for a zero row, which is NOT a knob: a file whose
 # whole contribution is an on-demand module IMAGE (SPEC.md 2.8).  Those

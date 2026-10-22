@@ -807,13 +807,14 @@ discovered later in a number that moved for no visible reason.
 
 The ordinary case, as distinct from a field run, is CLAUDE.md's "Working in
 this fork" — the fork owner's standing preference, not a property of the
-project. The part that is this register's: **the 360 KB set is SIX disks**
+project. The part that is this register's: **the 360 KB set is SEVEN disks**
 — `build/os8088-360.img`, `build/apps360.img`, `build/media360.img` and the
-three category disks `office360.img`, `network360.img` and `games360.img`
-(§24.6) — the geometry because it is what the register's machines read.
+four category disks `office360.img`, `network360.img`, `games360.img` and
+`emu360.img` (§24.6) — the geometry because it is what the register's machines read.
 `apps360.img` does **not** carry `BEVERLY.MOD`: lz4 made the two-disk split
 unnecessary for a while and §88.6.4 un-collapsed it when CLEAR SKIES took the
 clusters back, so the module is on the media disk alone again and the swap is
-real. The owner's standing rule is all six, and the set is exactly what
-`ls build/*360*.img` prints. "Send" means attach the files: a path into a
+real. The owner's standing rule is all seven, and the set is the 360KB images in
+the Makefile's `$(SHIPIMGS)` - not `ls build/*360*.img`, which also catches
+the on-demand disks a soak leaves lying in `build/`. "Send" means attach the files: a path into a
 session's `build/` is in a container the owner cannot reach.

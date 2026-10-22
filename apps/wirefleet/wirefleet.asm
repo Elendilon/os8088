@@ -1,6 +1,6 @@
 ; WireFleet — Two PCs. Two fleets. One winner. SPEC.md 114.
 %include "os88api.inc"
-    OS88_HEADER 'WireFleet', wf_entry, OS88_F_ICON | OS88_F_PARTS
+    OS88_HEADER 'WireFleet', wf_entry, OS88_F_ICON | OS88_F_PARTS, OS88_HIGH | OS88_HIGHMEM
 %include "os88parts.inc"
     OS88_ICON16
     dw 0,0,0x0180,0x03c0,0x03c0,0x07e0,0x1ff8,0x7ffe

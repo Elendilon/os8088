@@ -23,9 +23,9 @@
 ; Addressing a blob that exceeds 64KB (BEVERLY.MOD is 116,085 bytes) on an
 ; 8086: nothing ever offsets more than 64KB from one base. The header is
 ; within blobseg's first 1084 bytes; pattern p lives at segment
-; blobseg + 67 + 64*p, offset 12 (1084 + 1024*p = ((67 + 64*p) << 4) + 12);
-; each sample gets a normalized base seg = blobseg + (start >> 4),
-; off = start & 15, with its play length capped at MP_MAXSMP bytes so
+; blobseg + 64 + 64*p, offset 60 (1084 + 1024*p = ((64 + 64*p) << 4) + 60);
+; each sample gets a normalized base seg = blobseg + 8 * (start >> 7),
+; off = start & 127, with its play length capped at MP_MAXSMP bytes so
 ; off + position (+ one mix step) can never wrap a 16-bit offset.
 ;
 ; Timing (research-ft2-reference): tick rate = BPM*2/5 Hz, speed = ticks
@@ -37,6 +37,12 @@
 ; conversion pass: out = 128 + (sum >> 2).
 ; =============================================================================
 
+MP_PSEG    equ 64               ; pattern 0, paragraphs into the blob, and the
+MP_POFF    equ 60               ; offset in that segment: whole 128-byte
+                                ; GRANULES, so every segment derived from the
+                                ; blob is an identity selector on kern_mega
+                                ; (KERN-MEGA-PLAN 10.1 item 18; 67 and 12 were
+                                ; the paragraph split of the same 1084)
 MP_MAXSMP  equ 60000            ; per-sample play-length cap, bytes: keeps
                                 ; off + pos + step*chunk < 65536 in the mixer
                                 ; even at a 4000 Hz mix rate (step int <= 7)
@@ -278,16 +284,28 @@ mp_load:
     ; normalized base from the running 32-bit start
     mov ax, [mp_run_lo]
     mov dx, [mp_run_hi]
+    mov bx, [mp_blobseg]
+%ifdef PKG_MEGA                 ; (a selector: the kern_mega arm's, 14.66)
+    test bl, 4                  ; a selector: the claim, at the start itself
+    jz .gran                    ; (mp_patseg)
+    mov [di+MS_OFF], ax
+    mov [di+MS_SEG], bx
+    jmp short .placed
+.gran:
+%endif
     mov bx, ax
-    and bx, 15
+    and bx, 127
     mov [di+MS_OFF], bx
-    mov cx, 4
+    mov cx, 7
 .sh4:
     shr dx, 1
     rcr ax, 1
-    loop .sh4                   ; AX = start >> 4 (hi bits beyond 20 only on
-    add ax, [mp_blobseg]        ; hostile files whose samples are unplayable)
+    loop .sh4                   ; AX = start >> 7, GRANULES (hi bits beyond 20
+    mov cl, 3                   ; only on hostile files whose samples are
+    shl ax, cl                  ; unplayable) - 8 paragraphs each
+    add ax, [mp_blobseg]
     mov [di+MS_SEG], ax
+.placed:
     ; available = bytes remaining in the file from the start, capped 0xFFFF
     mov ax, [mp_bloblen_lo]
     mov dx, [mp_bloblen_hi]
@@ -619,11 +637,7 @@ mp_timeat:
     jb .pok
     xor ax, ax
 .pok:
-    mov cl, 6
-    shl ax, cl
-    add ax, 67
-    add ax, [mp_blobseg]
-    mov es, ax
+    call mp_patseg
     pop bx
     mov al, bh
     mov bh, 0FFh                ; no break seen in this pattern yet
@@ -632,7 +646,7 @@ mp_timeat:
     xor ah, ah
     mov cl, 4
     shl ax, cl
-    add ax, 12
+    add ax, [mp_pbase]
     mov di, ax                  ; ES:DI = the row's first cell
     mov ch, 4
 .cell:
@@ -928,12 +942,10 @@ mp_cellptr:
 
 ; mp_cellp - the address arithmetic, unchecked (both callers have checked)
 mp_cellp:
-    mov bx, di
-    mov cl, 6
-    shl bx, cl                  ; pattern * 64 paragraphs
-    add bx, 67
-    add bx, [mp_blobseg]
-    mov es, bx
+    push ax
+    mov ax, di
+    call mp_patseg
+    pop ax
     mov bl, al
     xor bh, bh
     mov cl, 4
@@ -944,8 +956,39 @@ mp_cellp:
     shl bx, 1
     shl bx, 1                   ; ch * 4
     add si, bx
-    add si, 12
+    add si, [mp_pbase]
     ret
+
+; mp_patseg - pattern AX's segment, and the offset of its first cell
+; (KERN-MEGA-PLAN 14.13). A blob that is conventional - every machine but
+; kern_mega, and kern_mega's blobs over 64KB - is whole 128-byte granules
+; from the claim (MP_PSEG / MP_POFF); a blob that came back a SELECTOR (bit 2,
+; the LDT) is 62KB or less (trk_claimsel) and is the claim itself, the cell at
+; its absolute 1084 + 1024p.
+; in:  AX = a pattern number already checked against [mp_npat]
+; out: ES = its segment, [mp_pbase] = row 0 channel 0's offset in it
+; clobbers AX and CL
+mp_patseg:
+%ifdef PKG_MEGA                 ; (a selector: the kern_mega arm's, 14.66)
+    test byte [mp_blobseg], 4
+    jnz .flat
+%endif
+    mov cl, 6
+    shl ax, cl                  ; pattern * 64 paragraphs
+    add ax, MP_PSEG
+    add ax, [mp_blobseg]
+    mov es, ax
+    mov word [mp_pbase], MP_POFF
+    ret
+%ifdef PKG_MEGA
+.flat:
+    mov cl, 10
+    shl ax, cl                  ; pattern * 1024 bytes
+    add ax, MP_PSEG * 16 + MP_POFF
+    mov [mp_pbase], ax
+    mov es, [mp_blobseg]
+    ret
+%endif
 
 ; =============================================================================
 ; mp_cell2txt - in AL = row 0..63, AH = channel 0..3, DI = pattern number;
@@ -1656,11 +1699,7 @@ mp_readrow:
     xor ax, ax                  ; The count is a word, so this compare is one
 .pok:                           ; too - a byte compare against P = 256 reads
                                 ; as 0 and forces EVERY pattern to 0
-    mov cl, 6
-    shl ax, cl
-    add ax, 67
-    add ax, [mp_blobseg]
-    mov es, ax
+    call mp_patseg
     mov word [mp_crec], mp_chans
     mov byte [mp_curc], 0
 .ch:
@@ -1676,7 +1715,7 @@ mp_readrow:
     shl ax, 1
     shl ax, 1
     add si, ax
-    add si, 12
+    add si, [mp_pbase]
     ; decode into mp_wper / mp_wsmp / MP_EFF / MP_PARM
     mov al, [es:si]             ; b0
     mov ah, [es:si+1]
@@ -2494,6 +2533,7 @@ mpe_song:   db 'Bad song data', 0
     TRKW mp_outp                    ; mp_gen output cursor
     TRKW mp_chunk                   ; current mix chunk, samples
     TRKW mp_crec                    ; current channel record
+    TRKW mp_pbase                   ; mp_patseg: the pattern's first cell
     TRKW mp_climit                  ; mixer scratch: position limit
     TRKW mp_cloopl                  ;   loop length
     TRKW mp_cstepi                  ;   step int

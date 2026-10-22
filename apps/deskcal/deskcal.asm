@@ -32,7 +32,7 @@
 %endif                          ; the header: OS88_STIKCARD_END lays its block
 %include "os88api.inc"
 
-    OS88_HEADER 'Desk Calendar', dc_entry, OS88_F_ICON | OS88_F_DESK | OS88_F_STIK
+    OS88_HEADER 'Desk Calendar', dc_entry, OS88_F_ICON | OS88_F_DESK | OS88_F_STIK, OS88_HIGH | OS88_HIGHMEM
 
 ; A calendar page: a solid header band over a grid of days. It is also the
 ; Sticky App row's picture (STIK_ICON below), so a row the boot could not launch

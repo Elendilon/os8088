@@ -551,8 +551,8 @@ menu_relayout:
                                 ; and the entry value is the frame's to put
                                 ; back at kret_di (kernel size pass 10: 2)
     mov ax, es
-    mov cx, cs
-    cmp ax, cx
+    KSEGR cx                    ; the kernel's DATA segment: wm_strseg's ES
+    cmp ax, cx                  ; for a kernel window (kern_mega's alias)
     jne .pkgset
     xor ax, ax
 .pkgset:
@@ -579,8 +579,7 @@ menu_relayout:
     mov si, menu_loc_name
 .kseg:                          ; ...the ONE place the three kernel-data
     mov word [menu_seg], 0      ; names set the segment (kernel size pass 9:
-    push cs                     ; it was written out three times)
-    pop es
+    KES                         ; it was written out three times)
 .have_name:
     mov [menu_namep], si
 
@@ -720,8 +719,8 @@ menu_ab_cell:
 
     push di                     ; --- 'About ' + the name, into menu_abstr ---
     mov di, menu_abstr
-    push cs
-    pop es                      ; the prefix is ours...
+    KES
+                                ; the prefix is ours...
     mov si, menu_s_abpfx
     call menu_ab_cat
     call menu_es                ; ...the name is the owner's (SPEC.md 12.2)
@@ -748,8 +747,8 @@ menu_ab_cell:
     add bx, bx                  ; ...to a word offset
     mov word [menu_abitems + bx], menu_s_appclose
 
-    push cs                     ; --- the cell, over the label's own rect ---
-    pop es                      ; the copy is kernel data now, so measure it
+    KES                         ; --- the cell, over the label's own rect ---
+                                ; the copy is kernel data now, so measure it
     mov si, menu_abstr + MENU_ABPFX_LEN
     call font_width_x           ; AX = the label's pixel width
     mov [ss:di + MB_TITLE], si
@@ -815,7 +814,7 @@ menu_es:
 .seg:                           ; ...menu_des joins here with its own word
     or ax, ax
     jnz .set
-    mov ax, cs                  ; 0 = the kernel's own (.text: CS is it)
+    KSEGR ax                    ; 0 = the kernel's own (.text: CS is it)
 .set:
     mov es, ax
     pop ax
@@ -1253,8 +1252,8 @@ menu_bent:
     add ax, MENU_TITLE_PAD / 2  ; the cell's pen x (SPEC.md 12.2: no MB_TX)
     call menu_bpad              ; spaces up to this cell's pen
     pop ax
-    push cs
-    pop es                      ; this cell's own segment (SPEC.md 12.2)
+    KES
+                                ; this cell's own segment (SPEC.md 12.2)
     or cx, cx
     jz .seg
     mov es, cx
@@ -2535,8 +2534,8 @@ menu_trunc:
     push ds                     ; no: copy the prefix into our own buffer.
     push es                     ; The source is ES:SI (the owner's) and the
     pop ds                      ; destination kernel .bss, so the copy runs
-    push cs                     ; with the segments SWAPPED for one `rep
-    pop es                      ; movsb` - no override on it, for the same
+    KES                         ; with the segments SWAPPED for one `rep
+                                ; movsb` - no override on it, for the same
     mov di, menu_tbuf           ; reason - and ES is left KERNEL_SEG, which
     mov cl, MENU_MAXCH          ; is the answer anyway. CX ran out to 0 above
     rep movsb
@@ -2697,6 +2696,9 @@ menu_s_hibervx  db MENU_DIS, 'Hibernate (VESA)', 0   ; ...and a fourth: the
                                 ; must be; HIBER.DRV's hb_ok chooses it
 %endif
                                 ; greyed ones say WHY NOT (SPEC.md 47 rule 3)
+%ifdef KERN_MEGA
+menu_s_hibernr  db MENU_DIS, 'Hibernate (No room)', 0 ; protected mode: the pool
+%endif                          ; cannot hold the picture (hb_ok_x)
 menu_s_msep     db MENU_DIS, '-----------------', 0
                                 ; the rule above Hibernate: seventeen dashes,
                                 ; the width of 'Hibernate (No HD)', so it

@@ -1509,15 +1509,25 @@ cd_bytes:
     pop bx
     ret
 
-; cd_bnorm - [cd_bseg]:[cd_boff] with the offset under 16. clobbers: nothing
+; cd_bnorm - [cd_bseg]:[cd_boff] with the offset under 128. clobbers: nothing
+;
+; IN WHOLE 128-BYTE GRANULES, so the segment moves in steps of 8 paragraphs:
+; under kern_mega's protected mode (CPU_F_PM) only a segment on that grid is
+; an identity selector for the memory it names, and anything else faults or
+; silently addresses some other memory (KERN-MEGA-PLAN 3.1, 14.19). The
+; kernel's own dskw_norm does the same there, and its drv_fs_hi bounces a
+; buffer above 1MB through dsk_secbuf, so a selector with no paragraphs never
+; reaches this - the folded offset plus a CD_RUN read still cannot carry
+; -----------------------------------------------------------------------------
 cd_bnorm:
     push ax
     push cx
     mov ax, [cd_boff]
     mov cl, 4
     shr ax, cl
+    and al, 0xF8                ; whole granules only
     add [cd_bseg], ax
-    and word [cd_boff], 15
+    and word [cd_boff], 127
     pop cx
     pop ax
     ret

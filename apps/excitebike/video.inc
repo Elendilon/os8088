@@ -34,10 +34,30 @@ xb_launch:
 .out: ret
 
 ; -----------------------------------------------------------------------------
+; xb_pmset - under CPU_F_PM (kern_mega), where CS is a read-only code alias: bank
+; DS, the package's writable data selector, for the one routine that must reach
+; our data from under a foreign DS (game.inc xb_clk_samplef), and write that
+; routine's jump to its .pm arm THROUGH DS.  Every bracket, since a region can
+; move between visits; the jump is the same bytes each time.  A real-mode kernel
+; returns at the test.  DS = our segment.  Preserves all but the flags.
+; -----------------------------------------------------------------------------
+xb_pmset:
+    push ax
+    call OSAPI_CPU_INFO
+    test ah, CPU_F_PM
+    jz .out
+    mov [xb_self], ds
+    mov word [xb_clk_samplef], 0ebh | ((xb_clk_samplef.pm - (xb_clk_samplef + 2)) << 8)
+.out:
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; xb_fullscreen - the bracket proc.  DS = CS = our segment, ES = KERNEL_SEG.
 ; -----------------------------------------------------------------------------
 xb_fullscreen:
     cld
+    call xb_pmset                   ; (kern_mega: no write through CS in a frame)
     OS88_ALTENTER_SEED
     ; Let the chord that got us here release before a BIOS video mode call can
     ; mask its break.  The wait is the bracket's, never the scheduler's.
@@ -454,7 +474,13 @@ xb_partget:
     add ax, 63
     mov cl, 6
     shr ax, cl                      ; KB: R + the read
-    call OSAPI_MEM_CLAIM            ; DX = the base
+    xor cx, cx                      ; THE DMA DOOR WITH NO HEAD: the plain claim
+    call OSAPI_MEM_CLAIM_DMA        ; on every kernel, and CONVENTIONAL on
+                                    ; kern_mega for this OS88_HIGHMEM package -
+                                    ; [op_rdseg] and the stream's segment below
+                                    ; are paragraphs added to this base, which a
+                                    ; selector above 1MB cannot take (op_fetch's
+                                    ; door, os88partsbody.inc). DX = the base
     pop ax
     jc .nomem
     add ax, dx

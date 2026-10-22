@@ -29,7 +29,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'FPTEST', fpt_entry
+    OS88_HEADER 'FPTEST', fpt_entry, 0, OS88_HIGH | OS88_HIGHMEM
 
 FPT_W      equ 300
 FPT_H      equ 440

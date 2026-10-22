@@ -35,7 +35,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'Install', in_entry, 1
+    OS88_HEADER 'Install', in_entry, 1, OS88_HIGH | OS88_HIGHMEM
     OS88_ICON16                     ; an arrow onto a hard disk
     ; --- mask ---
     dw 0x03C0, 0x03C0, 0x03C0, 0x03C0
@@ -146,9 +146,35 @@ in_entry:
     mov dx, in_onclick              ; a press that was not a button's: the
     call os88ui_btninit             ; radio rows, or the About card
     xchg ax, bx
+    mov ax, in_press                ; ...and OURS goes in front of the
+    call OSAPI_WM_ONCLICK           ; library's: see in_press
     clc
 in_ret:
     ret
+
+; -----------------------------------------------------------------------------
+; in_press - W_ONCLICK: the rects again, from the LIVE content box, and then
+; the library's press (os88ui_btnclick, which chains to in_onclick).
+; in:  CX/DX = the point (SCREEN), SI = the window; gfx lock held
+;
+; **A DRAGGED WINDOW IS NOT REPAINTED** (SPEC.md 11.96.12.0): the drag cache
+; replays its pixels at the new place and W_PAINT never runs, so the rects
+; in_layout wrote at the last paint still name where the window WAS. Reported
+; as "Finished - click Next, and Next does nothing" - the window had been
+; moved since the page was drawn, and minimizing and restoring it was the
+; repaint that put the rects back. The library now moves a record's rects
+; with a dragged window by itself (SPEC.md 20.5.1.3.5), so for the BUTTONS
+; this is belt and braces; it stays for the RADIO rows, whose rect
+; (in_rad's OS88UI_RD_RECT) is ours and which the library cannot see.
+; -----------------------------------------------------------------------------
+in_press:
+    push cx
+    push dx
+    mov bx, si
+    call in_layout                  ; clobbers AX, CX, DX, DI
+    pop dx
+    pop cx
+    jmp os88ui_btnclick
 
 ; =============================================================================
 ; DRAWING
@@ -238,7 +264,8 @@ in_run:
 
 ; -----------------------------------------------------------------------------
 ; in_layout - the buttons' and the radio group's SCREEN rects, from the content
-; origin, every pass (a window moves)
+; origin, every paint AND every press (in_press: a dragged window is replayed,
+; not painted)
 ; in:  BX = the window. out: nothing; clobbers AX, CX, DX, DI
 ; -----------------------------------------------------------------------------
 in_layout:

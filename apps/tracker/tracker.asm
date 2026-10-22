@@ -33,7 +33,14 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'TRACKER', trk_entry, 3, OS88_STACK_256
+%include "os88mega.inc"
+%ifdef PKG_MEGA
+    OS88_HEADER 'TRACKER', trk_entry, 3, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
+%else                               ; THE SHIPPED BUILD'S CLAIMS STAY LOW
+    OS88_HEADER 'TRACKER', trk_entry, 3, OS88_STACK_256 | OS88_HIGH
+%endif                              ; (KERN-MEGA-PLAN 14.66): a module claim
+                                    ; that is a SELECTOR is the kern_mega
+                                    ; arm's to read (trk_claimsel, mp_patseg)
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 118 since the windowed
@@ -791,12 +798,43 @@ trk_trim:
     cmp ax, [trk_capk]
     jae .out                        ; the file filled it: nothing to give back
     mov dx, [trk_modseg]
+%ifdef PKG_MEGA
+    test dl, 4                      ; a selector keeps its 64KB: every offset
+    jnz .out                        ; the mixer can form is inside it
+%endif
     call OSAPI_MEM_REGROW
     jc .out                         ; refused: keep the oversized claim, which
     mov [trk_modseg], dx            ; costs heap and breaks nothing
     mov [trk_capk], ax
 .out:
     ret
+
+; trk_claimsel - the module claim at DX came back a SELECTOR (KERN-MEGA-PLAN
+; 14.13: kern_mega, a claim of 64KB or less, bit 2 the LDT). Its limit is the
+; claim, where a segment reads garbage past its end, and the mixer's bounds
+; assume a position limit of 64,015 or less (mp_mixch). So a module of 62KB
+; or less is given a whole 64KB selector and addressed flat (mp_patseg), and
+; one of 63 or 64KB is claimed at 65KB, which is conventional by the contract
+; and takes the granules. A conventional claim is left as it is.
+; in:  DX = the claim, [trk_capk] its KB; out: CF=0 DX = the claim to use,
+;      [trk_capk] its KB; CF=1 the second claim was refused (nothing held)
+%ifdef PKG_MEGA                     ; (the kern_mega arm's: KERN-MEGA-PLAN 14.66)
+trk_claimsel:
+    test dl, 4
+    jz .ok
+    call OSAPI_MEM_FREE
+    mov ax, 64
+    cmp word [trk_capk], 62
+    jbe .re
+    inc ax
+.re:
+    mov [trk_capk], ax
+    call OSAPI_MEM_CLAIM
+    ret
+.ok:
+    clc
+    ret
+%endif
 
 ; trk_tokb - DX:AX bytes -> AX = KB, rounded UP; ZF from the answer. DX:AX
 ; must be under ~64MB (DX <= 1022), which both callers guarantee. Clobbers CL
@@ -1090,6 +1128,10 @@ trk_fdone:
     mov [trk_capk], ax
     call OSAPI_MEM_CLAIM            ; AX = KB -> DX = base segment, CF=1
     jc .nomem                       ; refused (the answer moves register too)
+%ifdef PKG_MEGA
+    call trk_claimsel
+    jc .nomem
+%endif
     mov [trk_modseg], dx
 
     call trk_ring_probe             ; RESERVE the ring before the floppy turns

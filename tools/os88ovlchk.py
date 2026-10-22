@@ -78,7 +78,10 @@ MODS = ('.modc', '.modu', '.modf', '.modl', '.modh', '.modp', '.modd',
 # which is how `.modl` shipped once with the near-call check blind to it - the
 # clone module's every `call COLD_SEG:` was correct, and would not have been
 # reported had one been near.
-FAR = ('.boot2', '.blob', '.ovl', '.cold') + MODS  # sections with a vstart
+FAR = ('.boot2', '.blob', '.ovl', '.cold', '.mega') + MODS  # sections with a vstart
+# `.mega` is kern_mega's own segment (docs/plans/KERN-MEGA-SEGMENTS-PLAN.md):
+# protected-mode code under MEGA_SEL_CODE, vstart 0 like `.text`, so a near
+# call between the two assembles and lands in the other one's bytes.
 # `.blob` IS NOT A NASM SECTION. It is this scanner's name for the boot
 # overlay's blob half - every `section .boot2` block OUTSIDE the loader and the
 # splash (LOADER below). SPEC.md 2.9.14 put those bodies in `.boot2` with the
@@ -167,7 +170,10 @@ OVLCALL = re.compile(r'\b(?:OVLCALL|OVBCALL)\s+(\w+)')
 # is exactly as live for it as for the plain form. On kern_small the body
 # is in the blob and outlives the mount, so the rule is merely stricter
 # there than it needs to be, which is the safe direction.
-CSMEM = re.compile(r'\[[^]]*\bcs\s*:')
+# `[CSEG x]` is the same thing spelled for kern_mega (kernel/kernel.asm's
+# CSDO): `cs:` on every other build, and under CSDO on kern_mega the image's
+# own data segment - the image's data either way
+CSMEM = re.compile(r'\[[^]]*(?:\bcs\s*:|\bCSEG\b)')
 RESERVE = re.compile(r'^\s*([A-Za-z_]\w*)\s*:?\s*(?:res[bwdqt])\b')
 WORD = re.compile(r'\b\w+\b')
 # A label a MACRO PASTES TOGETHER - `%1 %+ _pack:` in driver.inc's CFG_DATA,
@@ -498,6 +504,46 @@ def main():
         sys.exit("os88ovlchk: %d call(s) cross a segment boundary near" % len(bad))
     print("os88ovlchk: no near call crosses a segment boundary")
 
+    # --- ...and a FAR transfer names the segment its target lives in ---------
+    # `call KERNEL_SEG:x` with x in `.mega` assembles exactly as well as the
+    # near crossing above, and lands at x's offset in the wrong segment. It
+    # stayed unasked while every far target was `.cold` or `.text` and their
+    # segment names were spelled at the site; moving kern_mega's code out of
+    # `.text` (KERN-MEGA-SEGMENTS-PLAN 3.6) retargets dozens of far calls at
+    # once, and one missed is a jump into the kernel's own bytes at a
+    # `.mega` offset. Only the three names with one fixed section are judged.
+    FARSEG = {'KERNEL_SEG': '.text', 'COLD_SEG': '.cold',
+              'MEGA_SEL_CODE': '.mega'}
+    fbad = []
+    for f in files:
+        inmacro = False
+        for sect, n, line in sections(f):
+            if MACRO_B.match(line):
+                inmacro = True
+                continue
+            if ENDMACRO_B.match(line):
+                inmacro = False
+                continue
+            if inmacro:
+                continue
+            for mm in CALL.finditer(line):
+                seg, tgt = mm.group(1), mm.group(2)
+                if seg not in FARSEG:
+                    continue
+                tsect = where.get(tgt)
+                if tsect is None:
+                    continue
+                b = tsect if tsect in FAR else '.text'
+                if b != FARSEG[seg]:
+                    fbad.append((f, n, '%s:%s is in %s' % (seg, tgt, b)))
+    for f, n, why in fbad:
+        print("%s:%d: far transfer to the wrong segment: %s" % (f, n, why),
+              file=sys.stderr)
+    if fbad:
+        sys.exit("os88ovlchk: %d far transfer(s) name a segment their target "
+                 "is not in" % len(fbad))
+    print("os88ovlchk: every far transfer names its target's segment")
+
     # --- and the OTHER half of SPEC.md 2.6: nothing may assume CS ------------
     # Rule 1 puts cold code's DATA in .text, so cold code has no data of its
     # own to reach - which makes "CS is mentioned in .cold" a clean invariant
@@ -550,6 +596,30 @@ def main():
         sys.exit("os88ovlchk: %d CS assumption(s) in .cold - SPEC.md 2.6 "
                  "rule 2 (name the segment)" % len(cs_bad))
     print("os88ovlchk: no .cold code assumes CS")
+
+    # --- `.mega` may READ through CS and nothing else (KERN-MEGA-SEGMENTS-PLAN)
+    # It runs only in protected mode, where its CS is MEGA_SEL_CODE: a code
+    # selector, readable and never writable. So `[cs:x]` READS its own tables
+    # and strings, which is how they ride with the code, while `push cs` or
+    # `mov ax, cs` meaning "the kernel" is `.cold`'s bug again, and a store
+    # through CS is a #GP that mega_gpw would complete - correctly, and once
+    # per instruction, slowly.
+    MCS = re.compile(r'\b(?:push\s+cs\b|mov\s+\w+\s*,\s*cs\b'
+                     r'|(?:mov|add|sub|or|and|xor|inc|dec|adc|sbb|not|neg'
+                     r'|xchg|shl|shr|rol|ror)\s+(?:(?:byte|word|dword)\s+)?'
+                     r'\[\s*cs\s*:)', re.I)
+    m_bad = []
+    for f in kfiles:
+        for sect, n, line in sections(f):
+            if sect == '.mega' and MCS.search(line):
+                m_bad.append((f, n, line.strip()[:60]))
+    for f, n, src in m_bad:
+        print("%s:%d: .mega names CS as more than a read: %s" % (f, n, src),
+              file=sys.stderr)
+    if m_bad:
+        sys.exit("os88ovlchk: %d .mega line(s) use CS for more than a read"
+                 % len(m_bad))
+    print("os88ovlchk: .mega reads through CS and does nothing else with it")
 
     # --- rule 2b: `.boot2` code may not STORE CS ------------------------------
     # `.boot2` rides inside the boot blob and is GIVEN BACK TO THE HEAP at
@@ -873,6 +943,73 @@ def main():
         sys.exit("os88ovlchk: %d data directive(s) in .cold - SPEC.md 2.6 "
                  "rule 1 (data stays in .text)" % len(d_bad))
     print("os88ovlchk: no data in .cold")
+
+    # --- ...and `.mega`'s data is READ-ONLY and read through CS --------------
+    # The CS rule above lets `.mega` carry its own tables and strings; this is
+    # the other half. DS is the kernel's data selector in `.mega` exactly as in
+    # `.cold`, so a label defined there and named WITHOUT a CS override is read
+    # at the right offset in the wrong segment. Every reference to a `.mega`
+    # data label must be in `.mega` and either inside `[cs:...]` or an offset
+    # loaded into a register for a CS-reading routine (`mov si, msg`).
+    mdata = {}
+    for f in kfiles:
+        pend = None
+        for sect, n, line in sections(f):
+            if sect != '.mega':
+                pend = None
+                continue
+            m = re.match(r'^([A-Za-z_]\w*)(:?)\s*(.*)$', line)
+            if m and m.group(1).lower() not in ('times',) and \
+                    not re.match(r'^(?:d[bwdq]|res[bwdq]|equ)\b', m.group(1), re.I):
+                rest = m.group(3).strip()
+                if re.match(r'^(?:d[bwdq]|times)\b', rest, re.I):
+                    mdata[m.group(1)] = (f, n)
+                    pend = None
+                elif not rest and m.group(2):
+                    pend = (m.group(1), f, n)
+                else:
+                    pend = None
+                continue
+            if pend and line.strip():
+                if DATA.match(line):
+                    mdata[pend[0]] = (pend[1], pend[2])
+                pend = None
+    md_bad = []
+    if mdata:
+        names = re.compile(r'\b(' + '|'.join(map(re.escape, mdata)) + r')\b')
+        for f in kfiles:
+            for sect, n, line in sections(f):
+                for mm in names.finditer(line):
+                    if re.match(r'^\s*' + re.escape(mm.group(1)) + r'\b', line):
+                        continue                # the definition
+                    if re.match(r'^\s*%', line):
+                        continue                # assembly-time arithmetic
+                    ok = sect == '.mega' and (
+                        re.search(r'\[\s*cs\s*:[^\]]*\b' + re.escape(mm.group(1)) + r'\b', line, re.I)
+                        or re.match(r'^\s*mov\s+\w+\s*,\s*' + re.escape(mm.group(1)) + r'\b', line, re.I))
+                    if not ok:
+                        md_bad.append((f, n, mm.group(1), line.strip()[:60]))
+    # ...and the mirror: a `[cs:x]` in `.mega` reads `.mega`'s bytes at x's
+    # offset, so x must BE `.mega`'s. `mov ds, [cs:k_dsel]` is the idiom this
+    # catches - right in `.text`, where CS is the kernel's, and a read of
+    # whatever `.mega` holds at that offset once the routine moves.
+    for f in kfiles:
+        for sect, n, line in sections(f):
+            if sect != '.mega':
+                continue
+            for mm in re.finditer(r'\[\s*cs\s*:\s*([A-Za-z_]\w*)', line, re.I):
+                lab = mm.group(1)
+                if where.get(lab) != '.mega' and lab not in mdata:
+                    md_bad.append((f, n, lab, line.strip()[:60]))
+    for f, n, lab, src in md_bad:
+        print("%s:%d: .mega reads `%s` through CS, but it is not .mega's: %s"
+              % (f, n, lab, src) if lab not in mdata else
+              "%s:%d: .mega data `%s` read without CS: %s" % (f, n, lab, src),
+              file=sys.stderr)
+    if md_bad:
+        sys.exit("os88ovlchk: %d reference(s) to .mega data not through CS"
+                 % len(md_bad))
+    print("os88ovlchk: .mega data is read through CS (%d labels)" % len(mdata))
 
     # --- and a module's data is its HEADER, at its head, and nothing else ---
     # A module (SPEC.md 2.8) runs with CS = a heap claim and DS = KERNEL_SEG,

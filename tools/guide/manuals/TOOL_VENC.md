@@ -257,6 +257,13 @@ a slower one.
   whole.
 - PC speaker sound takes most of an 8088, so the speaker presets use a
   smaller picture and a lower frame rate.
+- **Blocks** (on the **Trade-offs** tab, or `--blocks on`) lets a frame
+  that does not fit draw small squares, each standing for a few pixels'
+  worth of change, and the frames after sharpen them. The file is smaller
+  for the same look, or looks better at the same size, and asks a little
+  more of the player's time. Only the Video Player from this release on
+  plays it. It is not for Live or resident files, bands, a tear, or a
+  looped one-bit file; the group is greyed for those and says why.
 - `--aim quality` makes trial encodes and takes longer.
 - The encoder uses all your processor's cores unless you set fewer on the
   **Basic** tab (**This computer**) or with `--jobs`.

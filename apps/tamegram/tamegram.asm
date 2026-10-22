@@ -101,7 +101,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'TAMEGRAM', tg_entry, 1, OS88_STACK_256
+    OS88_HEADER 'TAMEGRAM', tg_entry, 1, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
                                 ; THE WORKER'S STACK, declared rather than
                                 ; defaulted (SPEC.md 8.7). Static chain 20
                                 ; (tools/stkdepth.py; 82 before the size pass),

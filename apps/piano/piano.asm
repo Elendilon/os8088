@@ -38,7 +38,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'PIANO', pn_entry, 1
+    OS88_HEADER 'PIANO', pn_entry, 1, OS88_HIGH | OS88_HIGHMEM
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; A piano octave: outer frame, 4 white keys with separators, 3 black keys.

@@ -919,12 +919,13 @@ px_crow:
     add ax, [px_cbint]
     adc dx, 0                       ; DX:AX = the first sample's offset
     mov si, ax
-    and si, 15
+    and si, 127                    ; normalised to 8 paragraphs (PX_WGRID)
     mov cl, 4
     shr ax, cl
     mov cl, 12
     shl dx, cl
     or ax, dx
+    and al, 0xF8                    ; a segment kern_mega can load
     add ax, [px_cur + PXR_MSEG]
     mov [px_crseg], ax
     pop ax                          ; BH = the row's tables: (y & 7) x 8
@@ -936,8 +937,18 @@ px_crow:
     mov dx, [px_cbfrac]
     mov bp, [px_chfrac]
     mov cx, [px_chint]
-    mov ax, [px_cgrp]
-    mov [px_ccnt], ax
+    mov ax, [px_cgrp]               ; the DDA loops stop at DI's END, read
+    cmp byte [px_cdep], 1           ; through CS: a counter decremented
+    je .e1                          ; there was a write through a code
+    shl ax, 1                       ; segment a group - a #GP fixup each on
+    shl ax, 1                       ; kern_mega - and the compare is the
+    cmp byte [px_cdep], 16          ; cheaper instruction on an 8088 too.
+    jne .e1                         ; Four bytes a group at 4bpp, one at 1,
+    shl ax, 1                       ; sixteen at 16bpp (a word a pixel,
+    shl ax, 1                       ; SPEC.md 106.27)
+.e1:
+    add ax, di
+    mov [px_cend], ax
     push ds
     cmp word [px_chfrac], 0         ; ONE master pixel a screen pixel: no
     jne .dda                        ; DDA at all (a picture at 100%)
@@ -1021,8 +1032,8 @@ px_crow:
     inc bh
 %endrep
     sub bh, 8
-    dec word [cs:px_ccnt]
-    jnz .g4
+    cmp di, [cs:px_cend]
+    jne .g4
     pop ds
     ret
 .one:
@@ -1038,8 +1049,8 @@ px_crow:
     sub bh, 8
     mov al, ah
     stosb
-    dec word [cs:px_ccnt]
-    jnz .one
+    cmp di, [cs:px_cend]
+    jne .one
     pop ds
     ret
 .d:                                 ; 16bpp through the DDA: the step in
@@ -1055,8 +1066,8 @@ px_crow:
     mov ax, [es:PX_VORGB + bx]
     stosw
 %endrep
-    dec word [cs:px_ccnt]
-    jnz .d8
+    cmp di, [cs:px_cend]
+    jne .d8
     pop ds
     ret
 

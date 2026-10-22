@@ -82,9 +82,14 @@ for name in BIG:
               "recipe")
 SMALL = sorted(n for n in os.listdir(BUILD)
                if n.startswith("small") and n.endswith(".img"))
-check(bool(SMALL), "kern_small's system disks are built",
-      why="`make` builds build/small*.img; without them the half of this row "
-          "that keeps the wizard off kern_small would pass on nothing")
+# A plain `make` does NOT build build/small*.img (`make small` and test-full's
+# $(BUILD)/small360.img do), so a fresh tree has none - and this row is in the
+# fast tier, which `all` runs. Refusing there failed every first `make` of a
+# clean checkout; the half is skipped with a note instead, t_livefull's PART B
+# shape, and it runs wherever a kern_small disk has been built.
+if not SMALL:
+    print("t_install: no build/small*.img - the kern_small half is skipped "
+          "(`make small` builds them)")
 for name in SMALL:
     if True:
         check("INSTALL.O88" not in root_names(os.path.join(BUILD, name)),

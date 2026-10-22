@@ -89,7 +89,7 @@ cycle counter, so its waits there are host-clock loops.
 |---|---|---|
 | **MartyPC** | **the default** — any 8088 machine, any of the three adapters, any question of the form *what is the machine doing* | cycle-accurate CPU, a real BIOS ROM, modelled CGA/Hercules/VGA, and a debugger that perturbs nothing |
 | **QEMU** | the seven-item list above, and nothing else | it counts work exactly and cannot time it; SeaBIOS, no CGA, no Hercules |
-| **86Box** | a machine that is **not an 8088**, real sound cards on a period bus, a second opinion on the video probe — **and only where a person is watching**: no debugger and no automation socket | period-correct whole machines, the widest hardware library |
+| **86Box** | a machine that is **not an 8088** — the 286 reset path, an AT BIOS, an SB16 or NE1000 on a period bus — and a second opinion on the video probe. **Scriptable now**: `tools/os88box.py` drives the automation build headless (docs/86BOX.md) — screen, text, memory, keys, mouse, a fault log and a GDB stub. The macOS app the `make xt`-style targets launch is still for looking | period-correct whole machines, the widest hardware library; not cycle-accurate |
 | **the 5150** | anything with a **disk TIMING** in it, and the three defects no emulator shows | docs/FIELD-MACHINES.md |
 
 QEMU is the emulator furthest from the target — host speed, a CPU that is not
@@ -144,13 +144,15 @@ was exact, reproducible to 1.5% over three runs, and about the wrong machine.
 Counts, sector traffic, call shapes and `int 13h` batching off MartyPC's hard
 disk are exact as ever, and that is what `tests/hibernate.py` and the other
 hard-disk rows assert. **Milliseconds are not — and 86Box is where they go
-instead**, which is the one place this table's *"only where a person is
-watching"* row earns its keep rather than merely existing. 86Box models
+instead**, which is the one place this table's 86Box row earns its keep
+rather than merely existing. 86Box models
 period controllers, and its **ST-225 has been checked against a real ST-225
 spinning in the field 5150** on exactly this operation: ~2 s emulated against
 ~2 s on iron, plus a third reading off `8088VGA` with a WD controller that
 agrees (docs/reports/KERN-DOS-BUDGET-2026-09-13.md §3.2). So a hard-disk
-timing is asked of 86Box with somebody watching, or of the field machine —
+timing is asked of 86Box — with somebody watching, or through
+`tools/os88box.py`, whose `ms` is 86Box's own emulated clock and so can be
+read across an operation (docs/86BOX.md) — or of the field machine, and
 never of MartyPC, which has no answer to give.
 
 ### Which ROM did it actually load? Fingerprint it, never infer it
@@ -1542,8 +1544,12 @@ is where a kernel symbol lives.
 ## What 86Box is genuinely for
 
 **A machine that is not an 8088**, a period bus under a card rather than a
-modelled one, and a second opinion on the video probe — with a person
-watching, because it has no debugger and no automation socket. CLAUDE.md
+modelled one, and a second opinion on the video probe. **In a container it is
+`tools/os88box.py`** (docs/86BOX.md): upstream 86Box's automation socket,
+built here with this tree's fault-log patch, run headless off the same `vm/`
+profiles - so a session CAN start one and read the result, which every
+document here denied until 2026-10-19. The `make <machine>` targets below
+launch the macOS app at `$(BOX)` and are still for a person watching. CLAUDE.md
 carries the target list, one per `vm/` directory (`make xt`, `xt-640`,
 `pc5150`, `xt-cga`, `xt-hercules`, `xt-ega`, `xt-multimon`, `xt-mfm`, `286`,
 `286-525`, `386sx`, `386`, `386-ps2`, `486`, `pentium`, and the application
@@ -1568,7 +1574,10 @@ code runs on them verbatim, so they answer whether constants sized against a
 the tracker's ring refill, Arkanoid's pacing — which neither MartyPC nor
 QEMU can.
 
-It is not installed in the web container and needs BIOS ROMs.
+`python3 tools/os88box.py build` puts it and its ROM set in a container
+(`build/86box/`, about three minutes); `vm/286-mega` is the owner's mr286
+with `mega.img` in A:, the profile the kern_mega boot loop was found on
+(KERN-MEGA-PLAN item 88).
 
 Three traps before blaming the OS: it silently clamps `mem_size` to the
 machine's maximum; a `wp://` prefix on an `fdd_0N_fn` path mounts that floppy

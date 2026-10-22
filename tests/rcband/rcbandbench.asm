@@ -178,7 +178,7 @@ rb_onkey:
     call bl_paint
     jmp short .out
 .run:
-    call rb_run
+    call rdg_run
     call rb_repaint
 .out:
     pop di
@@ -197,7 +197,7 @@ rb_onclick:
     push si
     push di
     mov [rb_win], si
-    call rb_run
+    call rdg_run
     call rb_repaint
     pop di
     pop si
@@ -472,9 +472,9 @@ rb_ident:
     ret
 
 ; -----------------------------------------------------------------------------
-; rb_run - every row, in order, into the report
+; rdg_run - every row, in order, into the report
 ; -----------------------------------------------------------------------------
-rb_run:
+rdg_run:
     push ax
     push bx
     push cx

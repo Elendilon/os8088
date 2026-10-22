@@ -119,6 +119,9 @@ n_loadgfx:
     call n_readbank
     jc .out
     mov [n_graphics],es
+    mov dx,es                      ; ...and the selector to FAR CALL its
+    call OSAPI_MEM_CODESEL         ; compiled sprites through: the segment
+    mov [n_graphicsc],ax           ; itself on every real-mode kernel
     mov al,N_P_VX
     cmp byte [n_cga],0
     je .extra
@@ -127,6 +130,9 @@ n_loadgfx:
     call n_readbank
     jc .out
     mov [n_graphics2],es
+    mov dx,es
+    call OSAPI_MEM_CODESEL
+    mov [n_graphics2c],ax
 .out:
     ret
 ; Would the heap hold what the bracket is about to fetch? DL = FSX_CAPS's
@@ -430,9 +436,9 @@ n_sprite:
     jne .cached
     mov es,[n_fsi+FSI_SEG]
     mov ds,[n_spriteseg]
-    mov word [cs:n_plane],0
-.plane:
-    mov bx,[cs:n_plane]
+    xor bp,bp                      ; the plane. BP and, below, BX hold what
+.plane:                            ; were two words stored through CS - nine
+    mov bx,bp                      ; kern_mega faults a sprite - in registers
     add bx,[cs:n_phase]
     mov di,[cs:n_origin]
     add di,[cs:n_drawbase]
@@ -447,25 +453,25 @@ n_sprite:
     mov al,2
     mov dx,3c4h
     out dx,ax
-    mov [cs:n_vorigin],di
-    mov bx,[cs:n_plane]
+    mov bx,bp
     shl bx,1
     add bx,[cs:n_record]
     mov si,[bx+2]
+    mov bx,di                      ; this plane's origin
 .run:
     lodsw
     cmp ax,0ffffh
     je .nextplane
     mov di,ax
-    add di,[cs:n_vorigin]
+    add di,bx
     xor cx,cx
     lodsb
     mov cl,al
     rep movsb
     jmp .run
 .nextplane:
-    inc word [cs:n_plane]
-    cmp word [cs:n_plane],4
+    inc bp
+    cmp bp,4
     jb .plane
     jmp .out
 .cached:
@@ -546,7 +552,11 @@ n_sprite:
     jmp .crun
 .compiled:
     mov [n_blitptr],si
-    mov ax,[n_spriteseg]
+    mov ax,[n_graphicsc]           ; the bank's CODE selector (n_loadgfx): a
+    cmp word [n_spriteid],N_SPRITE_SPLIT*2 ; far call through its data segment
+    jb .codesel                    ; is a kern_mega fault per sprite
+    mov ax,[n_graphics2c]
+.codesel:
     mov [n_blitptr+2],ax
     mov di,[n_vorigin]
     call far [n_blitptr]
@@ -933,10 +943,10 @@ n_present:
 .bank:
     dec bp
     jnz .row
-    push cs
-    pop ds
     pop bx
     pop bp
+    pop ds                         ; our DS, banked at .ready - not CS, which
+    push ds                        ; on kern_mega is the read-only code alias
     add bx,6
     sub bp,6
     jmp .rect

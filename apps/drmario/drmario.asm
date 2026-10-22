@@ -1,6 +1,6 @@
 ; Native XT DrMarco. Contracts and deliberate adaptations: SPEC.md 100.
 %include "os88api.inc"
-OS88_HEADER 'DRMARCO', dm_entry, 1 | OS88_F_PARTS, OS88_STACK_256
+OS88_HEADER 'DRMARCO', dm_entry, 1 | OS88_F_PARTS, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
 OS88_ICON16
     dw 0,0x03c0,0x07e0,0x0e70,0x1c38,0x381c,0x7038,0xe070
     dw 0xc0e0,0xc1c0,0x6380,0x7700,0x3e00,0x1c00,0,0

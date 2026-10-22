@@ -250,5 +250,10 @@ screen` or `Colour text: needs CGA, EGA or VGA`.
   slow disk keep up.
 - A copy that was cut short or damaged says `This .V88 is damaged`, or
   stops part way with `Stopped: a damaged frame`.
+- A video made with **Blocks** in the encoder is a smaller file for the
+  same picture. Older copies of the player say `A newer .V88 than this
+  player` and do not play it. If the player started without the memory to
+  load the part that draws the blocks, it says `Needs the block decoder`:
+  close something and start the player again.
 - A video longer than 65,535 frames cannot be played.
 - On the whole screen the mouse does nothing; use the keys.

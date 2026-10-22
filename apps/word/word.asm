@@ -62,7 +62,12 @@ WD_SBRATE286 equ SB_RATE286
 WD_SBIDLE   equ SB_IDLE
 %endif
 
-    OS88_HEADER 'WORD', wd_entry, 3, OS88_STACK_256    ; bit 0 icon, bit 1 the DOC
+    OS88_HEADER 'WORD', wd_entry, 3, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
+                                ; bit 0 icon, bit 1 the DOC. OS88_HIGH:
+                                ; this program's keep - it and part 1 -
+                                ; may run above 1MB on kern_mega, and
+                                ; OS88_HIGHMEM: so may its claims
+                                ; (KERN-MEGA-PLAN 14.44)
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 126 for wd_worker
@@ -21447,7 +21452,7 @@ section .text
 ; is not defined yet. DOS_BTREC_SZ in apps/dos/dos.asm is the same
 ; mirror for the same reason; the %if below the include is what stops
 ; either copy drifting.
-WD_BTREC_SZ equ 16
+WD_BTREC_SZ equ 24
 
 %macro WDVAR 2                      ; name, size in bytes
     %1 equ os88_image_end + WDB

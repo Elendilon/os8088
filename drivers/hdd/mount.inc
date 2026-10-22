@@ -498,6 +498,11 @@ hd_raw:
     mov ax, es
     cmp ah, 0xF0                ; OUR OWN BUFFER, IN THE HMA (SPEC.md 2.10.8):
     jae .bounce                 ; hd_mbr is in this image, and hd_bios_run
+    test al, 4                  ; ...or ABOVE 1MB (kern_mega's selector pair,
+    jz .go                      ; KERN-MEGA-PLAN item 82: 2800h and up), where
+    cmp ax, 0x2800              ; a reflected int 13h is refused 09h
+    jae .bounce
+.go:
     call hd_xfer                ; refuses it there. Every other caller's
     pop ax                      ; buffer is in the heap
     ret

@@ -401,6 +401,12 @@ cc_entry:
     push di
     push es
     cld                             ; DF is ours to guarantee, not to inherit
+%ifdef CC_HAS_OVL
+    call OSAPI_CPU_INFO             ; AH = the feature bits, banked BEFORE
+    mov [cc_cpuf], ah               ; anything binds: cc_ovinit below is the
+                                    ; first cc_ovbind on the eager arm, and a
+                                    ; relocation proc may not call the kernel
+%endif
 %ifdef CC_HAS_PARTS
     call op_load                    ; ...FIRST, and before any C runs: SI is
     jc .partsno                     ; still the kernel's name pointer and the
@@ -429,7 +435,11 @@ cc_entry:
     push ax                         ; --- AND OUR REGION IS MOVABLE (SPEC.md
     push bx                         ; 66.6.1) ---
     push dx                         ; DX is the instance index on entry
-    mov dx, cs
+    mov dx, ds                      ; the region's DATA segment: CS's twin on
+                                    ; a real-mode kernel and its read-only
+                                    ; code alias on kern_mega, where the
+                                    ; kernel would find no claim based at it
+                                    ; and refuse - silently, see below
     mov ax, cc_regreloc
     call OSAPI_MEM_MOVABLE          ; a refusal is not worth reporting: it can
     pop dx                          ; only mean the region is not ours, which
@@ -1178,7 +1188,11 @@ cc_ovneed:
     mov cl, 10                      ; not divide a section-relative label, and
     shr ax, cl                      ; a build that fails on arithmetic is a
     mov di, ax                      ; worse trade than four instructions
-    call OSAPI_MEM_CLAIM_HI         ; AX = KB; out DX = the segment. FROM THE
+    xor cx, cx                      ; the DMA door with no head: conventional
+    call OSAPI_MEM_CLAIM_DMA_HI     ; on kern_mega for an OS88_HIGHMEM package
+                                    ; too, OS88_CODESEL shifting this segment
+                                    ; (KERN-MEGA-PLAN 14.12).
+                                    ; AX = KB; out DX = the segment. FROM THE
                                     ; TOP (SPEC.md 50.3.2), because this
                                     ; block's base IS A CS and that is the
                                     ; rule's own first clause. It was the low
@@ -1286,7 +1300,7 @@ cc_ovneed:
 ;
 ;   [IP][CS][args]   --pop--pop-->   [args]   --call-->   [ret][args]
 ;
-; The segment is not stashed because it is [cc_ovseg] by construction - there
+; The segment is not stashed because it is [cc_ovcs] by construction - there
 ; is one module - so only the offset needs somewhere to live across the call.
 ;
 ; THE STASH IS A GLOBAL LIFO, AND THAT IS SAFE FOR EXACTLY ONE REASON: overlay
@@ -1301,7 +1315,7 @@ cc_ovneed:
 ; -----------------------------------------------------------------------------
 cc_ovthunk:
     pop ax                          ; the module's return offset...
-    pop dx                          ; ...and its segment, which is [cc_ovseg]:
+    pop dx                          ; ...and its segment, which is [cc_ovcs]:
                                     ; discarded rather than stashed
     mov si, [cc_ovrsp]              ; AX, DX and SI are all dead here - the ABI
     mov [cc_ovrst+si], ax           ; has no callee-saved register, so nothing
@@ -1311,9 +1325,9 @@ cc_ovthunk:
     mov si, [cc_ovrsp]
     sub si, 2
     mov [cc_ovrsp], si
-    push word [cc_ovseg]            ; AX is the answer and nothing above
-    push word [cc_ovrst+si]         ; touches it
-    retf
+    push word [cc_ovcs]             ; AX is the answer and nothing above
+    push word [cc_ovrst+si]         ; touches it. [cc_ovcs], not [cc_ovseg]:
+    retf                            ; see cc_ovbind
 
 ; -----------------------------------------------------------------------------
 ; cc_ovbind - stamp the segments into both vector tables. Preserves all.
@@ -1340,7 +1354,7 @@ cc_ovthunk:
 ;
 ;   - the `call far` into cc_ovthunk below, for every resident routine the
 ;     module names. That thunk DISCARDS the pushed CS (`pop dx ... discarded
-;     rather than stashed`) and re-reads [cc_ovseg] to build the `retf`, at
+;     rather than stashed`) and re-reads [cc_ovcs] to build the `retf`, at
 ;     every level of the nest, so a move inside the resident routine is
 ;     invisible to the return;
 ;   - the module calling ANOTHER MODULE FUNCTION. tools/cc8086.py emits that
@@ -1372,6 +1386,16 @@ cc_ovbind:                          ; the thunk's retf in step - there is no
     push ax
     push bx
     mov ax, [cc_ovseg]
+    ; THE MODULE IS CODE, SO IT IS FAR-CALLED THROUGH A CODE SELECTOR. On every
+    ; real-mode kernel that is [cc_ovseg] itself; under kern_mega (CPU_F_PM)
+    ; it is the claim's LDT alias, and the data segment would be #GP on every
+    ; transfer - completed by the kernel's mega_gpfix, so it worked, at a fault
+    ; per call each way (docs/plans/KERN-MEGA-PLAN.md 2.4, M4). [cc_ovseg]
+    ; stays the DATA segment, which is what op_seg, op_drop, the stamp check
+    ; and OSAPI_MEM_FREE all want; [cc_ovcs] is the one the vectors and the
+    ; thunk's retf take, and every store to [cc_ovseg] is followed by this.
+    OS88_CODESEL ax, byte [cc_cpuf]
+    mov [cc_ovcs], ax
     mov bx, cc_ovm_first
 .m:
     cmp bx, cc_ovm_end
@@ -1631,6 +1655,9 @@ cc_ovhome:  resw 1                  ; the folder the package was launched
                                     ; from: where a lazy fetch stands to read
                                     ; the package's own file (its drive is
 %endif                              ; cc_ovhvol, last, being a byte)
+cc_ovcs:    resw 1                  ; [cc_ovseg] as a CODE selector, which is
+                                    ; the same word off kern_mega (cc_ovbind)
+cc_cpuf:    resb 1                  ; OSAPI_CPU_INFO's AH, banked by cc_entry
 cc_ovrsp:   resw 1                  ; and the return stash cc_ovthunk keeps -
 cc_ovrst:   resw CC_OVDEPTH         ; see it for why a global LIFO is safe
 %ifdef CC_OVL_LAZY

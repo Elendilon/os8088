@@ -85,7 +85,7 @@
 %define CALF_ABOUT
 %endif
 
-    OS88_HEADER 'CALCULATOR', cal_entry, 1
+    OS88_HEADER 'CALCULATOR', cal_entry, 1, OS88_HIGH | OS88_HIGHMEM
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; A pocket calculator: a body outlined at x 2..13, a display well across its

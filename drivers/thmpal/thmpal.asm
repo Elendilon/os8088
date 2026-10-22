@@ -34,6 +34,10 @@
 ; own contract, SPEC.md 79.3).
 ; =============================================================================
 
+%define OS88_DRV_HIGHOK          ; kern_mega may run this image above 1MB
+                                ; (KERN-MEGA-PLAN item 82: no paragraph
+                                ; arithmetic on its own segment, no BIOS or
+                                ; DMA buffer in it)
 %include "os88drv.inc"
 
 THMV_ABI_VER  equ 4              ; MIRRORED in kernel/vga12.inc's thmv_* - the
@@ -752,7 +756,7 @@ tv_btns:
 ; in: AX = its left edge (screen), SI = the label, CL = its control id
 tv_btlbl: dw 0
 tv_btflg: dw 0
-tv_btrec: dw 0, tv_btlbl, tv_btflg, 1, 0, 0, 0, 0
+tv_btrec: dw 0, tv_btlbl, tv_btflg, 1, 0, 0, 0, 0, 0, 0, 0, 0
 
 tv_btn1:
     push ax

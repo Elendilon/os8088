@@ -76,7 +76,7 @@ ZF_SBRATE286 equ SB_RATE286
 ZF_SBIDLE   equ SB_IDLE
 %endif
 
-    OS88_HEADER 'FROTZ', zf_entry, 3, OS88_STACK_384    ; bit0 = icon, bit1 = association block
+    OS88_HEADER 'FROTZ', zf_entry, 3, OS88_STACK_384 | OS88_HIGH | OS88_HIGHMEM     ; bit0 = icon, bit1 = association block
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 240: 22 levels down to

@@ -107,7 +107,7 @@
 %define NPF_ABOUT
 %endif
 
-    OS88_HEADER 'NOTEPAD', np_entry, 1, OS88_STACK_192
+    OS88_HEADER 'NOTEPAD', np_entry, 1, OS88_STACK_192 | OS88_HIGH | OS88_HIGHMEM
                                 ; THE WORKER'S STACK, declared
                                 ; rather than defaulted (SPEC.md 8.7):
                                 ; static 74 for np_worker

@@ -2036,7 +2036,9 @@ inst_pkg_spawn:
     push bx                     ; ...and ITS OWN HEADER says how much stack it
     mov es, bx                  ; wants (SPEC.md 8.7). Byte +15, which padded
     mov bl, [es:LD_H_CLASS]     ; the dispatcher and is 0 on every package
-    xor bh, bh                  ; built before this - and 0 is "no opinion",
+    and bx, 0x3F                ; (bits 7 and 6 are OS88_HIGH and OS88_HIGHMEM
+                                ; and not the class; BH goes with them)
+                                ; built before this - and 0 is "no opinion",
                                 ; which gets the largest class, so nothing has
                                 ; to be rebuilt to keep working. ES IS NOT PUT
                                 ; BACK: the one door in is OSAPI's X cell,
@@ -2062,6 +2064,11 @@ inst_pkg_spawn:
     pop cx
     pop bx
     ret
+    nop                         ; PARITY PAD, never executed: the class mask
+                                ; above is one byte longer than the bit-7
+                                ; shift it replaced, and ui_task and the hot
+                                ; routines after it keep the parity t_hotpar
+                                ; measured them at
 
 ; -----------------------------------------------------------------------------
 ; inst_pkg_alive - the worker's liveness check, and its only way to die

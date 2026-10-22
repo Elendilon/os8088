@@ -615,6 +615,15 @@ def have_pil():
     return True
 
 
+def have_bochs():
+    """Can THIS box run tools/os88bochs.py? Bochs with the legacy BIOS it
+    boots (the default BIOS's 32-bit init crashes there), and the X tools the
+    sweep drives it with: Xvfb, xdotool, xwd and ImageMagick's convert."""
+    return all(shutil.which(t) for t in ("bochs", "Xvfb", "xdotool", "xwd",
+                                         "convert")) and \
+        os.path.exists("/usr/share/bochs/BIOS-bochs-legacy")
+
+
 def have_unicorn():
     """Can THIS interpreter run 16-bit x86 under unicorn?
 
@@ -664,6 +673,46 @@ def have_xdc():
     d = os.environ.get("OS88_XDC_SAMPLES")
     return bool(d) and all(os.path.isfile(os.path.join(d, n))
                            for n in XDC_STREAMS)
+
+
+GB_ROMS = ("SML.GB", "KIRBY.GB")
+
+
+def have_gbroms():
+    """Does $OS88_GB_ROMS name a directory holding Super Mario Land and
+    Kirby's Dream Land as SML.GB and KIRBY.GB?
+
+    `rdgspeed286` times RealDMG on them (docs/plans/REALDMG-PLAN.md wave 4).
+    They are the owner's cartridges and can never be in this tree, so a box
+    without them SKIPS the row, by the runner, naming the fix - `vidbench`'s
+    shape (have_xdc above).
+    """
+    d = os.environ.get("OS88_GB_ROMS")
+    return bool(d) and all(os.path.isfile(os.path.join(d, n)) for n in GB_ROMS)
+
+
+def have_rgbds():
+    """Is rgbds built at tools/gbclock.py's pinned commit (`python3
+    tools/gbclock.py --rgbds`)? The Game Boy ROMs RealDMG's rows run are ours
+    and assembled with it; building it needs the network and bison."""
+    d = os.path.join(ROOT, "build", "rgbds")
+    if not all(os.access(os.path.join(d, t), os.X_OK)
+               for t in ("rgbasm", "rgblink", "rgbfix")):
+        return False
+    try:
+        import gbclock
+    except ImportError:
+        return False
+    head = subprocess.run(["git", "-C", d, "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    return head == gbclock.RGBDS_REV
+
+
+def have_86box():
+    """Is the automation-enabled 86Box built (`python3 tools/os88box.py
+    build`, docs/86BOX.md)? The binary, not its directory."""
+    b = os.environ.get("OS88_86BOX", os.path.join(ROOT, "build", "86box", "86Box"))
+    return os.access(b, os.X_OK)
 
 
 def nasm3():

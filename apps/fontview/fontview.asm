@@ -9,7 +9,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'FONT VIEWER', fv_entry, 3
+    OS88_HEADER 'FONT VIEWER', fv_entry, 3, OS88_HIGH | OS88_HIGHMEM
 
 ; A page carrying one large A: a font document rather than a generic app.
     OS88_ICON16

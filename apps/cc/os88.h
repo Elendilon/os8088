@@ -116,7 +116,13 @@
  *     sound app in assembly (apps/tracker is the reference).
  *   OSAPI_XMEM_*                          every argument and answer is a
  *     32-bit linear base, and there is no 32-bit type here (rule 4). The one
- *     part of the API that C genuinely cannot hold.
+ *     part of the API that C genuinely cannot hold - OSAPI_XMEM_SEL included,
+ *     whose input is the same base.
+ *   OSAPI_MEM_CODESEL                     the selector to FAR CALL code in a
+ *     claim (KERN-MEGA-PLAN 12.2). C cannot far-call through a selector it
+ *     holds, and the one C path that far-calls into a claim - the overlay
+ *     (SPEC.md 73.14) - is crt0's, which converts with OS88_CODESEL. Listed
+ *     rather than wrapped; a thunk is a dozen lines if a C caller appears.
  *   OSAPI_GFX_LSTEP / LSTEPV              RETIRED - a stock kernel carries the
  *     cells and no body and answers CF=1 (SPEC.md 5.12.6). The resumable walk
  *     is apps/os88gfx.inc's `GFXE_WALK` now, which is NASM and so out of C's
@@ -1034,7 +1040,9 @@ int os88_snd_tone(int hz, int ticks, int prio);  /* hz 0 = off, ticks 0 = until
  * A _seg base MUST BE 512-BYTE ALIGNED (SPEC.md 2.1.1: every disk-visible
  * base is): a claim's own base is (the kernel's guard 6b - KB-granular
  * blocks from a 512-aligned heap), and so is any offset into it that is a
- * multiple of 0x200 (seg + 0x20, + 0x40, ...) - but seg + 0x10 is NOT, and
+ * multiple of 0x200 (seg + 0x20, + 0x40, ...; on kern_mega an OS88_HIGHMEM
+ * package's claim is a selector and takes no arithmetic at all - use the
+ * _segoff forms below) - but seg + 0x10 is NOT, and
  * int 13h answers a run that then straddles a 64KB physical page with
  * error 09h on real hardware, which QEMU never shows. Read to an aligned
  * offset and move the bytes yourself if they must sit elsewhere (SPEC.md
@@ -1045,6 +1053,14 @@ unsigned os88_file_read(const char *name, void *buf, unsigned cap);
 unsigned os88_file_read_seg(const char *name, unsigned seg, unsigned cap);
 int os88_file_write(const char *name, const void *buf, unsigned count);
 int os88_file_write_seg(const char *name, unsigned seg, unsigned count);
+/* ...and at an OFFSET into the claim, a multiple of 512 like the base. THE
+ * WAY to name part of a claim: `seg + 0x20` is arithmetic on the segment,
+ * and on kern_mega a claim of an OS88_HIGHMEM package is a SELECTOR, which
+ * arithmetic breaks - claim + offset does not (KERN-MEGA-PLAN 14.12) */
+unsigned os88_file_read_segoff(const char *name, unsigned seg, unsigned off,
+                               unsigned cap);
+int os88_file_write_segoff(const char *name, unsigned seg, unsigned off,
+                           unsigned count);
 int os88_file_append(const char *name, const void *buf, unsigned count);
 
 /* os88_file_read_at - ONE CHUNK of a file, by byte offset (18.4.4), and the
@@ -1201,6 +1217,13 @@ unsigned os88_mem_regrow(unsigned seg, int kb);  /* 0 = refused and the old
                                                   * claim is untouched;
                                                   * otherwise the base NOW,
                                                   * which may have MOVED */
+/* os88_mem_huge - a claim of ANY size (SPEC.md 50.3.5): 0 = refused, else its
+ * first segment or selector; os88_mem_huge_step() is what to add to it for
+ * each 64KB - 0x1000 for a conventional claim, 8 for a run of selectors above
+ * 1MB on kern_mega. base + k * step is the one segment arithmetic a claim
+ * allows; 0x1000 is only the conventional step */
+unsigned os88_mem_huge(int kb);
+unsigned os88_mem_huge_step(void);
 unsigned os88_mem_largest_kb(void);
 unsigned os88_mem_total_kb(void);
 

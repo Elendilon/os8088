@@ -1159,9 +1159,10 @@ because a Z-machine story is resident. `xt-word` and `386-word` are the Word
 machines and take the **document floppy** `make worddisk` builds; `xt-word`
 uses a 720KB 3.5" DD drive, `386-word` two 1.44MB drives.
 
-None of them can be scripted — 86Box has no automation socket, so
-these are all interactive, and `make test` over QMP remains the only way to
-drive the system from a script.
+These targets launch the 86Box app and are interactive. The same `vm/`
+profiles CAN be scripted on Linux, headless, through upstream 86Box's
+automation socket: `python3 tools/os88box.py build`, then
+`python3 tools/os88box.py launch 286 --hold` (docs/86BOX.md).
 
 ## Scripted testing
 

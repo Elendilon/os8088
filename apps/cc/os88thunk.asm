@@ -124,6 +124,9 @@
 %ifdef CC_U__os88_itoa
   %define CC_U__os88_utoa           ; os88_itoa is a sign and a call to it
 %endif
+%ifdef CC_U__os88_mem_huge_step
+  %define CC_U__os88_mem_huge       ; one body for the pair
+%endif
 %ifdef CC_U__os88_file_copy
   %define CC_U__os88_fcp            ; both names are one body (SPEC.md 22.24)
 %endif
@@ -1539,6 +1542,32 @@ _os88_file_read_seg:
     ret
 %endif
 
+; unsigned os88_file_read_segoff(const char *name, unsigned seg, unsigned off,
+;                               unsigned cap)
+; os88_file_read_seg with BX = off: a part of a claim, named by its OFFSET
+; rather than by a segment computed from it - which on kern_mega is the only
+; way, a claim there being a selector that arithmetic breaks
+; (KERN-MEGA-PLAN 14.12). The same alignment rule: off a multiple of 512
+CC_GATE _os88_file_read_segoff
+%ifdef CC_U__os88_file_read_segoff
+_os88_file_read_segoff:
+    push bp
+    mov bp, sp
+    mov si, [bp+4]
+    mov ax, [bp+6]
+    mov es, ax
+    mov bx, [bp+8]
+    mov cx, [bp+10]
+    mov dx, 0
+    call OSAPI_FILE_READ
+    sbb cx, cx                      ; -1 refused, 0 delivered
+    and cx, ax                      ; CX = the FERR_*, or 0
+    mov [cc_ferr], cx
+    sub ax, cx                      ; AX = the count, or 0 - os88_ferr() says why
+    pop bp
+    ret
+%endif
+
 ; unsigned os88_file_read_at(const char *name, void *buf, unsigned cap,
 ;                            unsigned off_lo, unsigned off_hi)
 ; SI = name, ES:BX = the buffer, CX = its capacity in BYTES, DX:AX = the byte
@@ -1626,6 +1655,28 @@ _os88_file_write_seg:
     mov es, ax                      ; ES = the claim's segment
     mov bx, 0
     mov cx, [bp+8]
+    mov dx, 0
+    call OSAPI_FILE_WRITE
+    sbb cx, cx                      ; -1 refused, 0 done
+    and ax, cx                      ; AX = the FERR_*, or 0
+    mov [cc_ferr], ax
+    xchg ax, cx                     ; the answer: 0, or -1 (see os88_ferr())
+    pop bp
+    ret
+%endif
+
+; int os88_file_write_segoff(const char *name, unsigned seg, unsigned off,
+;                            unsigned count) - os88_file_write_seg from BX = off
+CC_GATE _os88_file_write_segoff
+%ifdef CC_U__os88_file_write_segoff
+_os88_file_write_segoff:
+    push bp
+    mov bp, sp
+    mov si, [bp+4]
+    mov ax, [bp+6]
+    mov es, ax
+    mov bx, [bp+8]
+    mov cx, [bp+10]
     mov dx, 0
     call OSAPI_FILE_WRITE
     sbb cx, cx                      ; -1 refused, 0 done
@@ -2021,6 +2072,27 @@ _os88_mem_claim:
     not ax
     and ax, dx                      ; ...-> 0 = refused, and nothing was
                                     ; claimed; or the segment
+    ret
+%endif
+
+; unsigned os88_mem_huge(int kb) - OSAPI_MEM_HUGE (SPEC.md 50.3.5): a claim of
+; any size, 0 = refused, else its first segment or selector; and
+; unsigned os88_mem_huge_step(void) - what to ADD to it per 64KB: 0x1000 for a
+; conventional claim, 8 for a run of selectors above 1MB on kern_mega. The one
+; piece of segment arithmetic a claim allows is base + k * step
+CC_GATE _os88_mem_huge
+%ifdef CC_U__os88_mem_huge
+_os88_mem_huge:
+    mov bx, sp                      ; no frame: one argument
+    mov ax, [ss:bx+2]
+    call OSAPI_MEM_HUGE
+    mov [cc_hstep], cx              ; (mov leaves CF)
+    sbb ax, ax
+    not ax
+    and ax, dx
+    ret
+_os88_mem_huge_step:
+    mov ax, [cc_hstep]
     ret
 %endif
 
@@ -2544,6 +2616,12 @@ cc_nul: db 0
 %ifdef CC_U__os88_file_write_seg
   %assign cc__ferr 1
 %endif
+%ifdef CC_U__os88_file_read_segoff
+  %assign cc__ferr 1
+%endif
+%ifdef CC_U__os88_file_write_segoff
+  %assign cc__ferr 1
+%endif
 %ifdef CC_U__os88_file_append
   %assign cc__ferr 1
 %endif
@@ -2572,6 +2650,9 @@ cc_ferr:    resw 1                  ; the FERR_* of the last file call, read
 %ifdef CC_U__os88_assoc_set
 cc_assoc:   resb 11                 ; os88_assoc_set()'s space-padded block:
 %endif                              ; 3 extension bytes then 8 stem bytes
+%ifdef CC_U__os88_mem_huge
+cc_hstep:   resw 1                  ; os88_mem_huge()'s step, for _step()
+%endif
 section .text
 %endif
 

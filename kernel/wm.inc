@@ -355,8 +355,7 @@ WMIN_H     equ 64               ; (SPEC.md 11.1; mirrored in apps/os88api.inc)
 ; the OWNER's segment. One place decides which that is.
 ; -----------------------------------------------------------------------------
 wm_strseg:
-    push cs
-    pop es
+    KES
     cmp word [di+W_SEG], 0
     je .out
     mov es, [di+W_SEG]
@@ -419,8 +418,8 @@ wm_pkgcall:
 %endif
     push ds
     push es
-    push cs
-    pop es                      ; ES = KERNEL_SEG: the record lives here and
+    KES
+                                ; ES = KERNEL_SEG: the record lives here and
                                 ; the callback may read it
 %ifdef SNAPAUDIT
     mov [snap_cur], si          ; SPEC.md 11.94.2: everything drawn from here
@@ -442,14 +441,28 @@ wm_pkgcall:
     cmp word [es:si+W_SEG], 0   ; (the cmp sets the flags the branch reads, so
     je .near                    ; the `and` above cannot reach it)
     mov ds, [es:si+W_SEG]       ; DS = the package's own segment...
+%ifdef KERN_MEGA
+    call COLD_SEG:mega_pcin_x   ; ...and the bracket below, plus kern_mega's
+%else                           ; CATCH for a fault in it (KERN-MEGA-PLAN 14.42)
     call COLD_SEG:wm_nest_pushd_x   ; ...WHICH A FRAME IS ABOUT TO REFER TO
+%endif
                                 ; (SPEC.md 66.6.1), and the push reads it from
                                 ; DS, so the segment costs no register here at
                                 ; all - AX and BX are the CALLBACK's
+%ifdef KERN_MEGA
+    MEGA_PCALL [es:si+W_DISP], [es:si+W_SEG]               ; ...and off to its dispatcher: W_SEG is DATA,
+..@mega_pcret_w:                   ; (a fault in the callback is UNWOUND to here,
+                                ; CF = 1: KERN-MEGA-PLAN 14.42, mega_fkill)
+%else                           ; the call wants its code alias (mega.inc)
     call far [es:si+W_DISP]     ; ...and off to its dispatcher
-    push cs                     ; DS IS THE PACKAGE'S at the return, and `.out`
-    pop ds                      ; below restores the caller's, so borrowing it
+%endif
+    KDS                         ; DS IS THE PACKAGE'S at the return, and `.out`
+                                ; below restores the caller's, so borrowing it
+%ifdef KERN_MEGA
+    call COLD_SEG:mega_pcout_x  ; (the catch comes off with the bracket)
+%else
     call COLD_SEG:wm_nest_pop_x ; for two instructions costs nothing. ES is no
+%endif
                                 ; safer - a callback may clobber it (SPEC.md
                                 ; 13). A CALLBACK ANSWERS IN THE FLAGS (an
                                 ; entry proc's CF, W_ONSIZE's), so the pop
@@ -1382,7 +1395,12 @@ wm_create:
 %endif                              ; dispatcher's fixed offset, and the
     mov ax, cs                      ; segment the caller called us in. Ours
     cmp si, ax                      ; means a KERNEL window, which is what
+%ifdef KERN_MEGA
+    je .kwin                        ; (kern_mega: the kernel's DS is its DATA
+    cmp si, MEGA_SEL_KDATA          ; alias, not CS - mega.inc)
+%endif
     jne .pkgseg                     ; W_SEG = 0 says (SPEC.md 20.1)
+.kwin:
     xor si, si
 .pkgseg:
 %ifdef HMA_DRV
@@ -9846,6 +9864,11 @@ wm_su_drop_all:
     pop bx
     popf
     ret
+%ifdef KERN_MEGA
+wm_su_drop_allf:                ; ...for a FAR caller: mem_hicaches_f, which
+    call wm_su_drop_all         ; drops the boot's caches so the next raise
+    retf                        ; re-takes each above 1MB (KERN-MEGA-PLAN 84)
+%endif
 %ifdef KERN_SMALL
 section .text
 %endif

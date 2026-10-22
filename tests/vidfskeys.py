@@ -284,8 +284,21 @@ def main():
             pkg = os.path.join(tmp, "VIDEO.O88")
             subprocess.run(["nasm", "-f", "bin", "-w+error", "-I", apps,
                             "-o", binf, apps + "video/video.asm"], check=True)
+            part = []                   # a tree with the block decoder
+            if os.path.exists(apps + "video/vblk.asm"):  # packs it as a PART
+                src = open(apps + "video/vblk.asm").read()
+                vsrc = open(apps + "video/video.asm").read()
+                pm = "VB_PM" in src and "PKG_MEGA" not in vsrc  # (a tree
+                for d in [[]] + ([["-DVB_PM"]] if pm else []):  # since 14.66
+                    # ships part 1 on the kern_mega arm alone: one part here)
+                    vb = os.path.join(tmp, "vblk%d.bin" % len(part))
+                    subprocess.run(["nasm", "-f", "bin", "-w+error", "-I",
+                                    apps] + d[:1] + ["-o", vb,
+                                                     apps + "video/vblk.asm"],
+                                   check=True)          # ...and part 1, its
+                    part += ["--part", vb]  # protected-mode assembly (98.3.23.2)
             subprocess.run([sys.executable, "tools/os88pkg.py", binf, "-o",
-                            pkg], check=True, capture_output=True)
+                            pkg] + part, check=True, capture_output=True)
             syms, _ = pkg_syms(apps + "video/video.asm", (apps,))
         else:
             syms, _ = pkg_syms("apps/video/video.asm", ("apps/",))

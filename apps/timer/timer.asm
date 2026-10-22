@@ -50,7 +50,7 @@
 
 %include "os88api.inc"
 
-    OS88_HEADER 'Timer', tm_entry, 1, OS88_STACK_256
+    OS88_HEADER 'Timer', tm_entry, 1, OS88_STACK_256 | OS88_HIGH | OS88_HIGHMEM
                                     ; flags bit 0: the icon below. The stack
                                     ; class is the kern_small worker's alone -
                                     ; it draws TEXT through font_run's per-cell
