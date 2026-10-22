@@ -15012,11 +15012,72 @@ $(GAMESIMG360): $(GAMES360) tools/os88disk.py
 EMU_PKGS := $(RDG_SHIP)
 EMU_DATA := $(RDG_DEMO)
 EMU360 := $(EMU_PKGS) $(EMU_DATA)
-EMUARGS360 := $(EMU_PKGS) $(addprefix MEDIA:,$(EMU_DATA)) \
-              $(MEDIAFOLDER) $(APPDATAFOLDER)
+EMUARGS360 := $(EMU_PKGS) $(addprefix MEDIA:,$(EMU_DATA))
+EMUOPTS360 :=
 
-$(EMUIMG360): $(EMU360) tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 360 $(EMUARGS360)
+# ...AND THE OTHER THREE, ON REQUEST (the owner's of 2026-10-22): `make
+# emufull`, or EMUFULL=1 on any make, puts C64, APPLE2 and RUNCPM on the same
+# disk. They are C packages (SPEC.md 73) and APPLE2's ROM is fetched, so a
+# plain `make` must not need them: it builds the RealDMG disk above and says
+# so. A release or anyone who wants the full disk asks for it. Their stamp
+# makes the switch rebuild the image, so a plain `make` after an `emufull`
+# goes back to the plain disk rather than keeping one it did not ask for.
+#
+#   * ONE COPYING FOR BOTH. APPLE2's is C64's GPL-2 text BYTE FOR BYTE with
+#     the MIT notices of the two emulators APPLE2 is also derived from after
+#     it, so it is the licence of both packages; the recipe CHECKS the prefix
+#     rather than assuming it, and refuses the disk if the two ever drift. A
+#     header says which programs it covers and where their source is (the
+#     READMEs do not ship). LZ4-packed: 21,533 bytes to EMUCOPYKB's figure.
+#   * RUNCPM's drive A is a SMALL SET, not the master disk: the CP/M 2.2
+#     tools (PIP, STAT, ED, SUBMIT/XSUB, DDT, ASM, LOAD, DUMP), Microsoft's
+#     MBASIC and the TE editor, beside RunCPM's own MIT LICENSE. They are
+#     PLAIN - RunCPM reads a file into its record model itself and SPEC.md
+#     20.14.3's transparent read is not that read - and A/0 is built with
+#     RUNCPMSLOTS directory slots, the runcpm disks' reason: the kernel does
+#     not grow a directory, and a CP/M save needs a free one.
+#   * WELCOME.BAS rides MEDIA/, where APPLE2's File dialog opens; ASSOC.DAT
+#     gives a double-click on it to APPLE2.
+#   * FROTZ is NOT here: its stories are fetched from the IF Archive and
+#     none is committed.
+EMUCPM := PIP.COM STAT.COM ED.COM SUBMIT.COM XSUB.COM DDT.COM ASM.COM \
+          LOAD.COM DUMP.COM MBASIC.COM TE.COM
+EMUSTAMP := $(BUILD)/.emu360-$(if $(EMUFULL),full,plain)
+$(shell mkdir -p $(BUILD); \
+        [ -f $(EMUSTAMP) ] || { rm -f $(BUILD)/.emu360-* $(EMUIMG360); \
+                                touch $(EMUSTAMP); })
+ifneq ($(EMUFULL),)
+EMUX_PKGS := $(BUILD)/c64.o88 $(BUILD)/apple2.o88 $(BUILD)/runcpm.o88
+EMU360 += $(EMUX_PKGS) $(BUILD)/emu/COPYING $(BUILD)/WELCOME.BAS \
+          $(BUILD)/runcpm-src.stamp
+EMUARGS360 += $(EMUX_PKGS) $(BUILD)/emu/COPYING $(RUNCPMDIR)/LICENSE \
+              MEDIA:$(BUILD)/WELCOME.BAS \
+              $(addprefix A/0:$(RUNCPMDIR)/A/0/,$(EMUCPM))
+EMUOPTS360 := --deep-folders --dir-slots A/0=$(RUNCPMSLOTS)
+endif
+
+.PHONY: emufull
+emufull:
+	$(MAKE) EMUFULL=1 $(EMUIMG360)
+
+$(BUILD)/emu/COPYING: apps/apple2/COPYING apps/c64/COPYING tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
+	@mkdir -p $(BUILD)/emu
+	@cmp -s -n $$(wc -c < apps/c64/COPYING) apps/c64/COPYING apps/apple2/COPYING || \
+	    { echo "emu360: apps/apple2/COPYING no longer begins with apps/c64/COPYING - one licence file cannot stand for both"; exit 1; }
+	@{ printf '%s\n' \
+	    'C64.O88 and APPLE2.O88 on this disk are derived from VICE, Copyright (C)' \
+	    '1996-2025 the VICE team, and are distributed under the GNU General Public' \
+	    'License, version 2 or later, which follows. Their source is apps/c64/ and' \
+	    'apps/apple2/ in the os8088 source tree. The ROM images inside them are' \
+	    "Commodore's and Apple's, and are not GPL. RUNCPM.O88 is MIT: see LICENSE." \
+	    '' '                     ----------------------------------' '' ; \
+	   cat apps/apple2/COPYING; } > $@.plain
+	$(if $(PKGZ),python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $@.plain && rm -f $@.plain,mv $@.plain $@)
+
+$(EMUIMG360): $(EMU360) $(EMUSTAMP) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(EMUOPTS360) $(EMUARGS360) \
+		$(MEDIAFOLDER) $(APPDATAFOLDER)
+	$(if $(EMUFULL),,@echo "emu360: RealDMG only - C64, APPLE2 and RunCPM join it on request: make emufull")
 
 # =============================================================================
 # A COMPRESSED 360KB SET (ON DEMAND): `make zset ZFMT=lz4` / `ZFMT=lzb`

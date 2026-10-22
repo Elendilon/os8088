@@ -54274,9 +54274,35 @@ a happy result — the disk this replaces was at 354 of 354.
 RealDMG (docs/REALDMG-SPEC.md) is at the root and its own demo cartridge,
 `GBDEMO.GB`, is in `MEDIA/` where its File dialog opens - LZ4-packed, 32,768
 bytes to 1,110, which RealDMG's single `OSAPI_FILE_READ` of a cartridge
-expands (§20.14.3). The other emulators, C64, APPLE2 and RunCPM, are C
-packages whose ROMs and disks are fetched, so `all` cannot build them and
-they ride their own on-demand disks; this one carries what `all` can. RealDMG
+expands (§20.14.3).
+
+**The other three join it ON REQUEST**: `make emufull` (or `EMUFULL=1` on
+any make) builds the same image with C64, APPLE2 and RunCPM at the root,
+**257 of 354**. They are C packages (§73) and APPLE2's ROM is fetched, so a
+plain `make` must not need them; it builds the RealDMG disk and prints a
+line saying how to get the rest, and a stamp makes either switch rebuild the
+image, so a plain `make` after `emufull` goes back to the plain disk. What
+the full disk adds:
+
+| | at the root | elsewhere |
+|---|---|---|
+| C64 (VICE x64) | `C64.O88` | - |
+| APPLE2 (Apple II Plus) | `APPLE2.O88` | `MEDIA/WELCOME.BAS` |
+| RunCPM (CP/M 2.2) | `RUNCPM.O88`, `LICENSE` (MIT) | `A/0/`: PIP, STAT, ED, SUBMIT, XSUB, DDT, ASM, LOAD, DUMP, MBASIC, TE |
+| both GPL packages | `COPYING` | - |
+
+**One `COPYING` stands for both GPL packages.** APPLE2's licence file is
+C64's GPL-2 text byte for byte with the MIT notices of the two emulators it
+is also derived from after it, so it is the licence of both; the recipe
+CHECKS that prefix and refuses the disk if the two files ever drift. A
+header names the programs it covers, where their source is and that the ROMs
+inside them are not GPL - the READMEs that said so do not ship here. It is
+LZ4-packed, 21,957 bytes to 10,653. **RunCPM's drive A is a small set** and
+not the master disk, PLAIN because RunCPM reads a file into its own record
+model rather than through the transparent read, with `RUNCPMSLOTS` directory
+slots so a CP/M save has one to land in (the kernel does not grow a
+directory, §18.5). **Frotz is not on it**: its stories are fetched from the
+IF Archive and none is committed. RealDMG
 is NOT on `games360`, which takes `$(APPS_GAMES)` whole: the apps disks put it
 in `GAMES/` by a variable of its own, `$(RDG_SHIP)`, beside
 `$(APPS_GAMES)`.
