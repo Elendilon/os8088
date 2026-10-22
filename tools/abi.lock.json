@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "c2ead659ae85e851a951ef31cbe8fe1f192959982b63c4f982f6a8778c795a9d",
+  "fingerprint": "d61bc84d3e971d93b9e1918fb4e2327edb3308965aa0c9ddc6fbca227b875526",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "ca3ea31741e1947d2f979a4cd99a93d94d4ce23982bb2c11933c55be9016ab37",
+  "fingerprint": "0a616e270b7b369224d4e4936702fcc4e5ecdaf2ce22703a02ad2c87e0c041dc",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -784,6 +784,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "main -> elendilon merge (2026-10-22): main's SND_CAP_MIXER, DRVC_CD = 9, DQ_MAXREC 8 -> 9 and FSCAP_ICON/DRV_ICONV join elendilon's SDK. All are additions already recorded on main as non-breaking; no cell moved, so neither number bumps",
+   "to": 11
+  },
+  {
+   "fingerprint": "0a616e270b7b369224d4e4936702fcc4e5ecdaf2ce22703a02ad2c87e0c041dc",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_XMEM_WALK: XMW_CLS (a driver's block's class, the byte that was always 0) and BX = XMW_FIXED asking kern_mega for the fixed areas under the pool (XMW_HMA..XMW_PAD) - additive, every caller built before still runs (KERN-MEGA-PLAN 14.70.2)",
+   "to": 10
+  },
+  {
+   "fingerprint": "d61bc84d3e971d93b9e1918fb4e2327edb3308965aa0c9ddc6fbca227b875526",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_XMEM_WALK: XMW_CLS (a driver's block's class, the byte that was always 0) and BX = XMW_FIXED asking kern_mega for the fixed areas under the pool (XMW_HMA..XMW_PAD) - additive, every caller built before still runs (KERN-MEGA-PLAN 14.70.2)",
    "to": 11
   }
  ]
