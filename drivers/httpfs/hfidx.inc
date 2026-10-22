@@ -716,6 +716,10 @@ hf_ioerr:
 ; a different file.
 ; -----------------------------------------------------------------------------
 hf_read:
+%ifdef HFDIAG
+    mov byte [hf_dgk], 'R'
+    call hf_dgin
+%endif
     push bx
     push cx
     push si
@@ -755,6 +759,10 @@ hf_read:
 ;              past the end
 ; -----------------------------------------------------------------------------
 hf_readat:
+%ifdef HFDIAG
+    mov byte [hf_dgk], 'A'
+    call hf_dgin
+%endif
     push bx
     push cx
     push si
@@ -788,6 +796,9 @@ hf_readat:
 hf_rdgo:
     call hf_xfer
 hf_rdout:
+%ifdef HFDIAG
+    call hf_dgout
+%endif
     pop es
     pop di
     pop si

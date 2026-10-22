@@ -128,9 +128,11 @@ hp_paint:
     mov si, hp_s_addr
     mov bx, HP_AY
     call hp_lab
+%ifndef HFDIAG
     mov si, hp_s_hint
     mov bx, HP_HINTY
     call hp_lab
+%endif
     call hp_state
     call hp_field
     call hp_btns
@@ -444,9 +446,127 @@ hp_status:
     mov ax, [hp_hst]
     call hp_utoa
 .l2:
+%ifdef HFDIAG
+    call hp_diag                ; ...in line 2's place: its HFE_* is in each
+%else                           ; record
     mov bx, HP_S2Y
     call hp_padrun
+%endif
     jmp os88_r_es
+
+%ifdef HFDIAG
+; --- hp_diag - HFDIAG=1: the resident's read log, two lines a read, oldest
+;     first, under the status lines. ES = DS. clobbers what hp_status may
+hp_diag:
+    push bp
+    mov di, hp_dlog
+    mov bl, HFV_DIAG
+    call hp_door                ; CX = reads logged
+    sub cx, 2                   ; the LAST TWO, oldest first: what the pane
+    mov bx, HP_S2Y - 4          ; has room for under line 1
+    mov bp, 2
+.rec:
+    mov ax, cx
+    and ax, 3
+    inc cx
+    push cx
+    mov cl, 24
+    mul cl
+    add ax, hp_dlog
+    mov si, ax
+    mov di, hp_sbuf
+    cmp byte [si], 0
+    je .blank
+    lodsb                       ; kind
+    stosb
+    lodsb                       ; flags
+    push ax
+    lodsw                       ; handle
+    call hp_hex4
+    call hp_sp
+    lodsw                       ; offset
+    call hp_hex4
+    call hp_sp
+    lodsw                       ; count
+    call hp_hex4
+    call hp_sp
+    pop ax
+    call hp_hex2
+    call hp_sp
+    push si
+    add si, 12                  ; +20: the four bytes delivered
+    lodsb
+    call hp_hex2
+    lodsb
+    call hp_hex2
+    lodsb
+    call hp_hex2
+    lodsb
+    call hp_hex2
+    call hp_padrun              ; (which takes SI: the record is on the stack)
+    pop si
+    add bx, 9
+    mov di, hp_sbuf
+    lodsw                       ; status
+    call hp_hex4
+    call hp_sp
+    lodsw                       ; Content-Length
+    call hp_hex4
+    call hp_sp
+    lodsw                       ; Content-Range start
+    call hp_hex4
+    call hp_sp
+    lodsw                       ; result
+    call hp_hex4
+    call hp_sp
+    lodsw                       ; HFE_*
+    call hp_hex2
+    call hp_sp
+    lodsw                       ; staged
+    call hp_hex4
+    jmp short .last
+.blank:
+    call hp_padrun
+    add bx, 9
+    mov di, hp_sbuf
+.last:
+    call hp_padrun
+    add bx, 9
+    pop cx
+    dec bp
+    jnz .rec
+    pop bp
+    ret
+
+hp_sp:
+    mov al, ' '
+    stosb
+    ret
+hp_hex4:
+    push ax
+    mov al, ah
+    call hp_hex2
+    pop ax
+hp_hex2:
+    push ax
+    push cx
+    mov cl, 4
+    shr al, cl
+    call .nib
+    pop cx
+    pop ax
+.nib:
+    push ax
+    and al, 15
+    add al, '0'
+    cmp al, '9'
+    jbe .put
+    add al, 7
+.put:
+    stosb
+    pop ax
+    ret
+%endif
 
 ; --- hp_utoa - AX in decimal at ES:DI ---------------------------------------
 hp_utoa:
@@ -569,5 +689,8 @@ hp_bflg:    dw 0, 0             ; ...and their flags
 hp_lnb:     times OS88LINE_SZ db 0
 hp_sbuf:    times HP_COLS + 1 db 0
 hp_url:     times HF_URLMAX db 0
+%ifdef HFDIAG
+hp_dlog:    times 96 db 0
+%endif
 
     OS88_DRV_END

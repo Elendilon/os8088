@@ -38,7 +38,12 @@ HFV_URL      equ 5              ; ES:DI = HF_URLMAX bytes -> the address the
 HFV_SAVE     equ 6              ; HTTPDRV.CFG written NOW, from the address
                                 ;    and whether a drive is up: CF as the
                                 ;    write's. The page sends it at its close
+%ifdef HFDIAG
+HFV_DIAG     equ 7              ; HFDIAG=1 builds only: the read log (hfdiag.inc)
+HFV_MAX      equ 7
+%else
 HFV_MAX      equ 6
+%endif
 
 HF_URLMAX    equ 96             ; an address, NUL included
 

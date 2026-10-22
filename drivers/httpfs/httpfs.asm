@@ -209,6 +209,9 @@ hf_pkg:
     jmp [bx+hf_ptab]
 hf_ptab:    dw hf_pident, hf_pstate, hf_pmount, hf_punmnt, hf_pfetch
             dw hf_purl, hf_cfg_save
+%ifdef HFDIAG
+            dw hf_pdiag
+%endif
 %if ($ - hf_ptab) / 2 != HFV_MAX + 1
   %error "httpfs: hf_ptab is indexed by the HFV_* numbers"
 %endif
@@ -294,6 +297,9 @@ hf_pno:
 
 %include "hfnet.inc"
 %include "hfidx.inc"
+%ifdef HFDIAG
+%include "hfdiag.inc"
+%endif
 
 %ifdef HFTRACE
 ; A ring of (verb, AX in, AX out, flags out): 64 records of 8 bytes at
