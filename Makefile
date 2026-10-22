@@ -1725,7 +1725,7 @@ OS88PKGB := python3 tools/os88pkg.py $(if $(PKGZ),--compress-if=$(PKGZBFMT))
 # stamp's name carries a checksum of it, so adding a name rebuilds the set.
 # TAKING ONE OFF does not rebuild that package (its rule no longer names the
 # stamp): `rm build/<pkg>.o88` once, by hand.
-LZBPKGS := artful audio browser calc chart gorillas telnet thewire cyclone dotdel missile sheet solitair \
+LZBPKGS := artful audio browser calc chart gorillas telnet thewire wirechat cyclone dotdel missile sheet solitair \
            tamegram tank texpad wireball smallapp/calc smallapp/tank
 PKGZBSTAMP := $(BUILD)/.pkgzb$(if $(PKGZ),-$(PKGZ)-$(PKGZBFMT))-$(shell printf '%s' '$(LZBPKGS)' | cksum | cut -d' ' -f1)
 
@@ -3861,13 +3861,11 @@ $(BUILD)/fontview.bin: apps/fontview/fontview.asm apps/os88api.inc \
 $(BUILD)/fontview.o88: $(BUILD)/fontview.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/fontview.bin -o $@
 
-# Mixer is optional on the roomy system disks and installed/live media.
-# The quick slider is in SOUND.DRV; the 360KB image needs no MIXER.O88.
-# CDRACK.O88 (SPEC.md 119.6) rides here for the same reasons and one more:
-# it is CDROM.DRV's face, so it lives in SYSTEM\ beside the driver it needs,
-# and the 360KB disk is the XT's, whose 8-bit bus CDROM.DRV refuses (119.2).
-# The 720KB APPS disk had two clusters to spare and no room for it besides.
-SYSOPTIONAL := $(if $(KERN_SMALL),,$(BUILD)/mixer.o88 $(BUILD)/cdrack.o88)
+# Mixer ships on the apps disks; the quick slider lives in SOUND.DRV.
+# CDRACK.O88 (SPEC.md 119.6) stays on the roomy system disks and live media,
+# beside CDROM.DRV. The 360KB disk targets the XT's 8-bit bus, which the
+# driver refuses (119.2), and the 720KB apps disk has no room for CDRack.
+SYSOPTIONAL := $(if $(KERN_SMALL),,$(BUILD)/cdrack.o88)
 SYSOPTIONALARGS := $(addprefix SYSTEM:,$(SYSOPTIONAL))
 .PHONY: mixer
 mixer: $(BUILD)/mixer.o88
@@ -4630,6 +4628,10 @@ $(BUILD)/os88net.com: drivers/net/os88sfx.asm $(BUILD)/os88net.lz \
 	$(NASM) -f bin -w+error -I $(BUILD)/ -o $@ $<
 	@echo "os88net.com: $(call FILESIZE,$@) bytes packed - self-extracting, runs on DOS"
 
+# A package-list edit must repack even when its files predate the image.
+$(IMG) $(IMG120) $(IMG720) $(IMG360) \
+$(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360): Makefile
+
 $(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSOPTIONAL) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
@@ -5372,20 +5374,28 @@ mrwttest: $(BUILD)/mrwt720.img
 	@echo "          Run it with: python3 tests/midirack.py --arm wt"
 
 # Hardware volume's integration fixtures: same shipped driver and kernel,
-# SOUND wanted at boot, with/without the optional SYSTEM/MIXER.O88.
+# SOUND wanted at boot; Mixer launches separately from the apps fixture.
 .PHONY: mixertest
-mixertest: $(BUILD)/mixer360.img $(BUILD)/mixernone360.img
+mixertest: $(BUILD)/mixer360.img $(BUILD)/mixplay.img
+$(BUILD)/mixervcfg/SYSTEM.CFG: kernel/driver.inc Makefile | $(BUILD)
+	@mkdir -p $(dir $@)
+	python3 -c "import struct; open('$@','wb').write(b'O88CFG\0\0'+struct.pack('<H',3)+b'DW'+bytes([1,2])+struct.pack('<H',(1 << 9) | 1)+b'\0\0')"
+$(BUILD)/mixervesa.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) \
+        $(COREAPPS360) $(SYSDOC) $(BUILD)/mixervcfg/SYSTEM.CFG tools/os88disk.py Makefile
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS360) $(SYSDOC) \
+		$(BUILD)/mixervcfg/SYSTEM.CFG --folder SYSTEM/APPDATA
 $(BUILD)/mixercfg/SYSTEM.CFG: | $(BUILD)
 	@mkdir -p $(dir $@)
 	python3 -c "import struct; open('$@','wb').write(b'O88CFG\0\0'+struct.pack('<H',3)+b'DW'+bytes([1,2])+struct.pack('<H',1)+b'\0\0')"
-$(BUILD)/mixer360.img $(BUILD)/mixernone360.img: $(BUILD)/boot360.bin $(KERNFILE) \
-        $(DRIVERS) $(SYSAPPS) $(COREAPPS360) $(SYSOPTIONAL) $(SYSDOC) \
-        $(BUILD)/mixercfg/SYSTEM.CFG tools/os88disk.py
+$(BUILD)/mixer360.img: $(BUILD)/boot360.bin $(KERNFILE) \
+        $(DRIVERS) $(SYSAPPS) $(COREAPPS360) $(SYSDOC) \
+        $(BUILD)/mixercfg/SYSTEM.CFG tools/os88disk.py Makefile
 	python3 tools/os88disk.py -o $@ --size 360 --spc 1 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
 		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS360) $(SYSDOC) \
 		$(BUILD)/mixercfg/SYSTEM.CFG \
-		$(if $(filter $(BUILD)/mixer360.img,$@),$(SYSOPTIONALARGS)) \
 		--folder SYSTEM/APPDATA
 
 .PHONY: miditest
@@ -5992,15 +6002,16 @@ $(BUILD)/sbtest.o88: $(BUILD)/sbtest.bin tools/os88pkg.py
 $(BUILD)/sbtest.img: $(BUILD)/sbtest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/sbtest.o88
 
-# The same fixture with 4.8 seconds staged: QMP and floppy discovery must
+# The same fixture with 4.8 seconds staged: QMP and floppy activity must
 # leave audio still playing when the volume popup opens. Default SBTEST
 # remains byte-identical; this arm is only the mixer's background-service leg.
 $(BUILD)/mixplay.bin: tests/sbtest/sbtest.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -DSBTEST_RATE=4000 -DSBTEST_CHUNKS=24 -o $@ $<
 $(BUILD)/mixplay.o88: $(BUILD)/mixplay.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $< -o $@
-$(BUILD)/mixplay.img: $(BUILD)/mixplay.o88 tools/os88disk.py
-	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/mixplay.o88
+$(BUILD)/mixplay.img: $(BUILD)/mixplay.o88 $(BUILD)/mixer.o88 tools/os88disk.py Makefile
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/mixplay.o88 \
+		$(BUILD)/mixer.o88
 
 # Minesweeper, the first loadable program: a flat binary with the .o88
 # package header. ONE assembly per package since SPEC.md 20.1 - a package
@@ -6407,8 +6418,9 @@ $(BUILD)/wirechat.bin: apps/wirechat/wirechat.asm apps/wirechat/wcnet.inc \
 	$(NASM) -f bin -w+error $(STKLST) -I apps/ -I apps/wirechat/ -I drivers/net/ -I $(BUILD)/ -o $@ apps/wirechat/wirechat.asm
 	@echo "wirechat: $(call FILESIZE,$@) bytes"
 
-$(BUILD)/wirechat.o88: $(BUILD)/wirechat.bin tools/os88pkg.py $(PKGZSTAMP)
-	$(OS88PKG) $(BUILD)/wirechat.bin -o $@
+# Its three saved clusters keep Mixer on the 720KB apps disk (SPEC.md 20.13.5).
+$(BUILD)/wirechat.o88: $(BUILD)/wirechat.bin tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
+	$(OS88PKGB) $(BUILD)/wirechat.bin -o $@
 
 # THE WIRE (SPEC.md 92) - Telnet's include set for Telnet's reason: netpkg.inc
 # is the DRIVER's own ABI header and both ends include it, so the two cannot
@@ -12360,8 +12372,8 @@ VIDDEMO_IDE := vga
 VIDDEMO_IMGS := $(foreach a,$(VIDDEMO_ADAPTERS),$(BUILD)/VIDDEMO-$(shell echo $(a) | tr a-z A-Z)-$(if $(filter $(a),$(VIDDEMO_IDE)),IDE,ST11R).VHD)
 # (= and $$(APPS) below, not :=: the apps disk's lists are defined further
 # down this file, and an immediate expansion here took them as EMPTY)
-VIDDEMO_INSTALL = $(DRIVERS) $(SYSDOC) \
-	$(sort $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSLOGOARG) \
+VIDDEMO_INSTALL = $(DRIVERS) $(SYSOPTIONAL) $(SYSDOC) \
+	$(sort $(SYSAPPSARGS) $(SYSOPTIONALARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSLOGOARG) \
 	       $(FACESARG) $(SYSVIDARGS) \
 	       $(filter-out --folder SYSTEM/APPDATA,$(APPSARGS)))
 .PHONY: viddemo
@@ -12379,7 +12391,7 @@ $(BUILD)/viddemo/%/00-VIDS.TXT: apps/video/demo/%/00-VIDS.TXT tools/checkreadme.
 
 .SECONDEXPANSION:
 $(BUILD)/VIDDEMO-%-ST11R.VHD: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
-	$(DRIVERS) $(SYSDOC) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSLOGO) \
+	$(DRIVERS) $(SYSDOC) $(SYSAPPS) $(SYSOPTIONAL) $(SYSROOT) $(COREAPPS) $(SYSLOGO) \
 	$(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 $$(APPS) \
 	$$(BUILD)/viddemo/$$(shell echo $$* | tr A-Z a-z)/00-VIDS.TXT \
 	$$(wildcard apps/video/demo/$$(shell echo $$* | tr A-Z a-z)/*.V88) \
@@ -12395,7 +12407,7 @@ $(BUILD)/VIDDEMO-%-ST11R.VHD: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 	rm -f $(BUILD)/viddemo/$*.img
 
 $(BUILD)/VIDDEMO-%-IDE.VHD: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
-	$(DRIVERS) $(SYSDOC) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSLOGO) \
+	$(DRIVERS) $(SYSDOC) $(SYSAPPS) $(SYSOPTIONAL) $(SYSROOT) $(COREAPPS) $(SYSLOGO) \
 	$(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 $$(APPS) \
 	$$(BUILD)/viddemo/$$(shell echo $$* | tr A-Z a-z)/00-VIDS.TXT \
 	$$(wildcard apps/video/demo/$$(shell echo $$* | tr A-Z a-z)/*.V88) \
@@ -12837,8 +12849,9 @@ budget-check: $(BUILD)/kernel.bin small emu
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/thewire.o88 $(BUILD)/wirechat.o88 \
              $(BUILD)/tracker.o88 \
-             $(BUILD)/audio.o88 $(BUILD)/sheet.o88 $(BUILD)/video.o88 \
+             $(BUILD)/audio.o88 $(BUILD)/mixer.o88 $(BUILD)/sheet.o88 $(BUILD)/video.o88 \
              $(BUILD)/midirack.o88 $(BUILD)/pixel.o88 $(BUILD)/rlapply.o88
+# Mixer requires SOUND.DRV, which kern_small does not load (SPEC.md 34.15).
 # RLAPPLY (SPEC.md 103.6.5) is an omission by SCOPE rather than size: chipset
 # tuning is for AT-class boards (103.6), and the machine kern_small exists for
 # is the 128KB XT, whose bus is the CPU's own and has nothing to set. The
@@ -13970,7 +13983,7 @@ $(BUILD)/lptlink144.img: $(BUILD)/llboot144.bin $(BUILD)/lptlink.bin \
 # filter naming something no list contains reads like a decision and is a
 # no-op.
 APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
-              $(BUILD)/chart.o88 $(BUILD)/fractal.o88 \
+              $(BUILD)/chart.o88 $(BUILD)/fractal.o88 $(BUILD)/mixer.o88 \
               $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \

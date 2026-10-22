@@ -391,7 +391,7 @@ DQ_A        equ 2               ; dw: the CLASS's own three words - for
 DQ_B        equ 4               ; dw: DRVC_SOUND, the DSP base port, then
 DQ_C        equ 6               ; dw: (IRQ | DMA<<8), then the DSP version
 DQ_SIZE     equ 8
-DQ_MAXREC   equ 9               ; the most records one call can write. It is
+DQ_MAXREC   equ 10              ; the most records one call can write. It is
 %if DRV_MAX > DQ_MAXREC         ; MIRRORED in apps/os88api.inc, so a caller can
 %error "DRV_MAX exceeds DQ_MAXREC - widen it here AND in apps/os88api.inc"
 %endif                          ; size a buffer without mirroring DRV_MAX - and
@@ -1477,7 +1477,7 @@ DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
                                 ; RD_MAXKB is 16,384 - a column showing that
                                 ; would be arithmetic rather than advice
 
-DRVM_IMG_SND equ 12              ; ceil(build/sound.drv   / 1024) - t_drvmem
+DRVM_IMG_SND equ 11             ; ceil(build/sound.drv   / 1024) - t_drvmem
 DRVM_IMG_HDD equ 4              ; ceil(build/hdd.drv     / 1024)   checks
 DRVM_IMG_ETH equ 17             ; ceil(build/ether.drv   / 1024)   every one
 DRVM_IMG_RAM equ 6              ; ceil(build/ramdisk.drv / 1024)   of these

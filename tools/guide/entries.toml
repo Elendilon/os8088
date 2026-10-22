@@ -192,7 +192,7 @@ needs = "CDROM.DRV and an IDE CD-ROM drive"
 ["MIXER.O88"]
 title = "Mixer"
 kind = "program"
-summary = "Adjusts a Sound Blaster's source levels, stereo balance and supported tone controls. Opens from the speaker beside the clock when installed in SYSTEM."
+summary = "Adjusts a Sound Blaster's source levels, stereo balance and supported tone controls. Open it from the apps disk's APPS folder."
 short = "Sound-card levels and balance"
 needs = "SOUND.DRV and a compatible hardware mixer"
 
