@@ -395,9 +395,16 @@ def main():
               "SHIPPED build (%s), %d allowed" % (f, len(s), stem, allow),
               why="kern_mega-only code goes under %ifdef PKG_MEGA "
                   "(apps/os88mega.inc, SPEC.md 20.18), so an 8088's disk "
-                  "carries none of it - or, when it is the fail-safe or "
-                  "trivially small, a line in tests/megapkg.txt with the "
-                  "reason. `--list` prints the sites",
+                  "carries none of it - the owner's rule is that kern_mega "
+                  "work that more than trivially grows a shipped disk is "
+                  "built for kern_mega alone. `make mega` assembles the arm "
+                  "(-DPKG_MEGA) onto kern_mega's own disks; the SHIPPED "
+                  "build must still be correct there - run low and plain, "
+                  "refuse the one tier, or refuse to start with "
+                  "OS88_MEGA_REFUSE, and say which at the place. When the "
+                  "site is that fail-safe or trivially small, a line in "
+                  "tests/megapkg.txt with the reason instead. `--list` "
+                  "prints the sites",
               got="; ".join("%d: %s" % x for x in s[:4]),
               want="at most %d" % allow)
     for f, (allow, reason) in sorted(reg.items()):
@@ -459,7 +466,9 @@ def main():
         check(stem in megapkgs,
               "megapkg: %s names PKG_MEGA and has no kern_mega arm" % stem,
               why="its kern_mega code is then assembled into NO build at all: "
-                  "add $(MEGAAPPDIR)/%s.o88 to $(MEGAPKGS) with its rule"
+                  "a new arm is a $(MEGAAPPDIR)/%s.o88 rule assembling the "
+                  "package -DPKG_MEGA and a $(MEGAPKGS) entry, in the same "
+                  "diff (SPEC.md 20.18, KERN-MEGA-PLAN 14.66)"
                   % stem,
               got="PKG_MEGA in " + ", ".join(files), want="an arm")
     for p in megapkgs:
