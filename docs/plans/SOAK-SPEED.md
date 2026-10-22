@@ -93,6 +93,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **`os88marty.until`'s default poll is adaptive** (20 ms doubling to 250 ms,
   was a flat 1 s host): every `until` without `poll=` stops paying up to a
   second after its condition is already true. Explicit `poll=` unchanged.
+- **`Marty.wait_stop` polls from 1 ms, doubling to `poll`** (was a flat
+  20 ms): every `run(); wait_stop()` - a harness-called guest routine
+  (`call_guest`, n1942's `Game.call`) - stops paying 20 ms each.
 - `OS88_MARTY_BIN=<path>` runs another emulator build in an instance (for
   trying a `debug_server.rs` change before staging it; name it
   `martypc_headless` so the instance registry recognises it).
