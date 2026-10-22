@@ -111,7 +111,7 @@ Screen > Interlace       Off, On, Scrolling or Doubled (F2): less to draw
 Screen > Two Shades      black and white only (F10): the light greys
                          white and the dark ones black, for ~10% more
                          speed. Kept for each game
-Screen > Scroll          Smooth, By 8, By 4 or By 2 (F11): the picture
+Screen > Scroll          Smooth, By 2, By 4 or By 8 (F11): the picture
                          moves in steps of that many pixels, for more
                          speed while it scrolls (By 8 ~25%). Some
                          games are harder to play this way. Kept for

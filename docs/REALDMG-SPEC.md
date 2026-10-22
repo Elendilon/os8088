@@ -1170,10 +1170,10 @@ reference sharing `ppu_line` and the sprites with what it checks.
 ### 13.4 The lossy picture: Two Shades and Scroll by 8, 4 or 2
 
 **Two things the picture may leave out, for speed: Screen > Two Shades
-(F10) and Screen > Scroll (F11), which steps Smooth, By 8, By 4, By 2**, each kept for the game in
+(F10) and Screen > Scroll (F11), which steps Smooth, By 2, By 4, By 8**, each kept for the game in
 REALDMG.CFG with its Speed and Sound (15.2). `rdg_lossy` in `rdgppu.inc`
 holds them, `RDG_LBW` and `RDG_LCOARSE` - the latter a two-bit LEVEL,
-`RDG_LCO8`, `RDG_LCO4`, `RDG_LCO2`, which F11 advances and wraps to off; the
+`RDG_LCO8`, `RDG_LCO4`, `RDG_LCO2`, which F11 steps 2, 4, 8 and wraps to off; the
 code is assembled under `RDG_LOSSY`, which the package defines and the bare
 harness only with `LOSSY_BW`, `LOSSY_COARSE`, `LOSSY_COARSE4` or
 `LOSSY_COARSE2` (docs/reports/REALDMG-LOSSY-2026-10-22.md).

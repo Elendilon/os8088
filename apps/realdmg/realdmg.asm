@@ -2788,7 +2788,7 @@ rw_keys:
 .nof9:
 %ifdef RDG_LOSSY
     mov al, 44h                     ; F10: TWO SHADES on or off, F11: THE
-    mov bx, rw_f10was               ;   CAMERA IN STEPS OF 8, 4, 2 (rdg_lossy,
+    mov bx, rw_f10was               ;   CAMERA IN STEPS OF 2, 4, 8 (rdg_lossy,
     mov cl, 40h                     ;   REALDMG-SPEC 13.4) - said, and the
     call rw_fedge                   ;   next draw whole. No menu item, and
     jnc .nof10                      ;   not kept: they are to be tried
@@ -2875,7 +2875,7 @@ rw_keys:
     ret
 %ifdef RDG_LOSSY
 ; rw_lossyt - AL = RDG_LBW to turn Two Shades over, RDG_LCOARSE to take
-; Scroll's next step (Off, 8, 4, 2 - F11, Screen's items): the composer
+; Scroll's next step (Off, 2, 4, 8 - F11, Screen's items): the composer
 ; patched (rdg_lpatch - so this runs where no task is inside it: rw_keys,
 ; the worker's loop, a game not running), said, kept for the game, and the
 ; next draw whole. Clobbers BX, SI, DX
@@ -2892,10 +2892,10 @@ rw_lossyt:
     call rw_mgrey
     jmp short .say
 .co:
-    mov ah, [rdg_lossy]             ; the level's next, wrapping to Off
-    mov dl, ah
+    mov ah, [rdg_lossy]             ; the level's next - DOWN, the levels
+    mov dl, ah                      ;   being 8, 4, 2 - wrapping to Off
     and dl, ~RDG_LCOARSE
-    add ah, RDG_LCO8
+    sub ah, RDG_LCO8
     and ah, RDG_LCOARSE
     or ah, dl
     mov [rdg_lossy], ah

@@ -234,7 +234,7 @@ read a tick apart the other way.
 
 ## 5.2 Scroll by 4 and by 2
 
-The owner asked for gentler steps, F11 cycling Off, 8, 4, 2. The step is a
+The owner asked for gentler steps, F11 cycling Off, 2, 4, 8. The step is a
 mask (`rdg_cmask`) the snap reads instead of a constant `0F8h`, set when the
 level is patched; By 8 re-measured on the new code reads the same ticks as
 before (302 and 659). Bare harness, `286-victory`, ms a frame:

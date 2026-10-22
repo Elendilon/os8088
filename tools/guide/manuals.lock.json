@@ -848,9 +848,9 @@
   "sources": [
    "apps/realdmg"
   ],
-  "stamped": "884c86fa",
-  "strings": "90a44d30d13acd0b",
-  "why": "Screen > Scroll steps Smooth/8/4/2 on F11; manual's Scroll paragraph and key table updated"
+  "stamped": "10248be6",
+  "strings": "18551f6e3106339d",
+  "why": "Scroll's F11 order is Smooth, 2, 4, 8"
  },
  "REDLINE_O88": {
   "sources": [

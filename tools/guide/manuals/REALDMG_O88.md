@@ -149,8 +149,8 @@ settings. They give RealDMG less to draw when the picture moves.
 black and white only: the light greys turn white and the dark ones black.
 There is less to draw, about a tenth.
 
-**Scroll.** **Screen > Scroll**, or `F11`, steps through Smooth, By 8,
-By 4 and By 2. Anything but Smooth moves the picture in steps of that many
+**Scroll.** **Screen > Scroll**, or `F11`, steps through Smooth, By 2,
+By 4 and By 8. Anything but Smooth moves the picture in steps of that many
 pixels instead of one at a time. Everything on the screen moves together, so
 the game still lines up, but a smooth scroll becomes a jump every few frames.
 By 8 saves the most while a game scrolls, about a quarter of the drawing, and

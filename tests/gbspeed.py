@@ -20,7 +20,7 @@ core's frame counter against guest seconds:
      header's checksums.
 
 And Screen's two, kept beside it (REALDMG-SPEC 13.4): Screen > Two Shades
-and Scroll picked twice on the running game (Smooth -> By 8 -> By 4) - posted
+and Scroll picked twice on the running game (Smooth -> By 2 -> By 4) - posted
 by the UI task, turned over by the worker between frames - read back as
 rdg_lossy 5, and 5 again when the game is opened anew: bit 7 of the record
 kept as well as bits 5 and 6.
@@ -111,7 +111,7 @@ def main():
         ui.menu_pick("Screen", "Two Shades")
         ui.menu_pick("Screen", "Scroll: Smooth")
         M.guest_sleep(m, 2)                 # (the worker's, between frames)
-        ui.menu_pick("Screen", "Scroll: By 8")
+        ui.menu_pick("Screen", "Scroll: By 2")
         M.guest_sleep(m, 2)
         lo = lossy(m, viewoff)
         print("gbspeed: Screen's Two Shades and Scroll by 4: rdg_lossy %s" % lo)

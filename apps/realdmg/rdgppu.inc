@@ -2694,7 +2694,7 @@ rdg_lstart:
 RDG_LBW          equ 01h                 ; rdg_lossy: TWO SHADES - shade bit 1
 RDG_LCOARSE      equ 06h                 ;   alone; the CAMERA IN STEPS - a
 RDG_LCO8         equ 02h                 ;   level, not a bit: of 8, of 4 or
-RDG_LCO4         equ 04h                 ;   of 2 (F11 cycles Off, 8, 4, 2)
+RDG_LCO4         equ 04h                 ;   of 2 (F11 cycles Off, 2, 4, 8)
 RDG_LCO2         equ 06h
 %ifdef LOSSY_BW
 %define RDG_L0_BW RDG_LBW
