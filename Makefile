@@ -3265,6 +3265,15 @@ DRIVERS += $(BUILD)/ems.drv
 # SYSTEM.CFG bit 8, not wanted by default (attach selects a device on every IDE
 # channel it probes). kern_big's alone, and refused below a 286 at attach
 DRIVERS += $(BUILD)/cdrom.drv
+# ...and SPEC.md 120's HTTPFS.DRV, a read-only drive over HTTP: a drv_tab row
+# with SYSTEM.CFG bit 9, not wanted by default. kern_big's alone. It probes
+# nothing and opens no socket until a drive is opened, so a disk that carries
+# it costs a machine that never ticks it one directory slot and nothing read.
+# NOT ON THE 360KB SYSTEM DISK YET: that disk's free room is under the owner's
+# 10KB rule already, and making room is its own piece of work
+# (docs/plans/HTTP-MOUNT-PLAN.md section 5) - $(DRIVERS360) is the list it takes
+DRIVERS += $(BUILD)/httpfs.drv
+DRIVERS360 = $(filter-out $(BUILD)/httpfs.drv,$(DRIVERS))
 # ...and SPEC.md 9.11's absolute pointer is NOT HERE, which is the one entry
 # in this list that is an absence. Its code is 386 instructions and the target
 # machine is an 8088, so it is the one file in the tree that MUST NOT BE
@@ -3891,13 +3900,16 @@ $(BUILD)/rlapply.o88: $(BUILD)/rlapply.bin tools/os88pkg.py $(PKGZSTAMP)
 # STIKAPPS\ - the kernel, $(DRIVERS) (modules, BOOTHD.SYS and COLDHMA.SYS
 # among them), $(SYSAPPS), $(STIKAPPS) - sized and summed AS STORED, from the
 # disk's own inputs, since the image depends on SYSCHECK.O88 (SPEC.md 118.2.1).
-# t_sysman holds it to every built system disk.
-$(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) \
+# t_sysman holds it to every built system disk. $(DRIVERS360) and not
+# $(DRIVERS): ONE manifest judges all four geometries, so it names what every
+# one of them carries - and HTTPFS.DRV is not on the 360KB disk (SPEC.md
+# 120.6). A machine that has it is not broken for having it.
+$(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS360) $(SYSAPPS) $(STIKAPPS) \
                            apps/syscheck/retired.txt tools/os88sysman.py \
                            tools/os88drv.py tools/os88mod.py tools/os88lz.py | $(BUILD)
 	python3 tools/os88sysman.py --kernel $(KERNFILE) \
 	        --retired apps/syscheck/retired.txt -o $@ \
-	        $(DRIVERS) $(SYSAPPSARGS) $(STIKARGS)
+	        $(DRIVERS360) $(SYSAPPSARGS) $(STIKARGS)
 
 $(BUILD)/syscheck.bin: apps/syscheck/syscheck.asm apps/syscheck/scan.inc \
                        apps/syscheck/ui.inc apps/syscheck/out.inc \
@@ -4459,6 +4471,18 @@ $(BUILD)/cdrom.bin: $(CDROM_SRC) drivers/os88drv.inc apps/os88api.inc | $(BUILD)
 
 $(BUILD)/cdrom.drv: $(BUILD)/cdrom.bin tools/os88drv.py $(PKGZSTAMP)
 	$(OS88DRV) $(BUILD)/cdrom.bin -o $@
+
+# HTTPFS.DRV - SPEC.md 120: a read-only volume served over HTTP, through the
+# socket verbs ETHER.DRV and the cable answer (drivers/net/netpkg.inc).
+HTTPFS_SRC := drivers/httpfs/httpfs.asm drivers/httpfs/hfpkg.inc \
+              drivers/httpfs/hfnet.inc drivers/httpfs/hfidx.inc \
+              drivers/httpfs/hfpage.inc drivers/net/netpkg.inc \
+              apps/os88sock.inc apps/os88ui.inc apps/os88line.inc
+$(BUILD)/httpfs.bin: $(HTTPFS_SRC) drivers/os88drv.inc apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I drivers/httpfs/ -I drivers/net/ -I drivers/ -I apps/ -o $@ $<
+
+$(BUILD)/httpfs.drv: $(BUILD)/httpfs.bin tools/os88drv.py $(PKGZSTAMP)
+	$(OS88DRV) $(BUILD)/httpfs.bin -o $@
 
 # ...and the GATE'S build of it, never shipped (usbmouse's CH375SIM shape):
 # -DCDSIM_AUDIO gives QEMU's one-track data disc three audio tracks, so
@@ -5267,6 +5291,53 @@ miditest: $(BUILD)/midisys720.img $(APPSIMG720)
 	@echo "miditest: build/midisys720.img - SOUND.DRV already wanted, for the"
 	@echo "          MPU-only machine. Run it with: python3 tests/midirack.py --arm mpu"
 
+# HTTPMOUNTTEST: the HTTP drive's gate disk (SPEC.md 120.7), ethertest's
+# shape at 1.44MB. Its SYSTEM.CFG wants ETHER.DRV (bit 4) and HTTPFS.DRV
+# (bit 9), and HTTPDRV.CFG at the root names the HOST's own server through
+# QEMU's slirp gateway with bit 0 set - so the drive is on the desktop, lazy,
+# before the first paint, and tests/httpmount.py serves the tree it built.
+# Port 8095: tests/ethernet.py has 8090 and the Wire 8092, and a bound port
+# is a gate reading the OTHER one's answers. A directory of its own for
+# build/wirecfg's reason: os88disk.py names a file from its BASENAME.
+$(BUILD)/httpcfg/SYSTEM.CFG: | $(BUILD)
+	@mkdir -p $(BUILD)/httpcfg
+	python3 -c "import sys; sys.stdout.buffer.write(b'O88CFG\0\0' + \
+	  (3).to_bytes(2,'little') + b'DW' + bytes([1,2]) + \
+	  ((1 << 4) | (1 << 9)).to_bytes(2,'little') + b'\0\0')" > $@
+
+$(BUILD)/httpcfg/HTTPDRV.CFG: | $(BUILD)
+	@mkdir -p $(BUILD)/httpcfg
+	python3 -c "import sys; u = b'http://10.0.2.2:8095/fix/'; \
+	  sys.stdout.buffer.write(b'HD' + bytes([1, 1]) + u + bytes(96 - len(u)))" > $@
+
+$(BUILD)/httpmount.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/httpcfg/SYSTEM.CFG $(BUILD)/httpcfg/HTTPDRV.CFG tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		$(BUILD)/httpcfg/SYSTEM.CFG $(BUILD)/httpcfg/HTTPDRV.CFG \
+		--folder SYSTEM/APPDATA
+
+# HTTPDRV360: the shipped 360KB system disk WITH HTTPFS.DRV - a disk to TRY
+# the drive on an XT, never shipped: $(DRIVERS360) leaves the driver off the
+# real one for the owner's 10KB-free rule (SPEC.md 120.6). The shipped disk's
+# own recipe with $(DRIVERS) - and through os88disk.py and NOT os88fat.py's
+# `add`, which writes no 'CZ' hint into the entry (SPEC.md 20.14.1), so the
+# packed driver would be read as it is stored and refused at load.
+$(BUILD)/httpdrv360.img: $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
+
+.PHONY: httpdrv360
+httpdrv360: $(BUILD)/httpdrv360.img
+
+.PHONY: httpmounttest
+httpmounttest: $(BUILD)/httpmount.img $(BUILD)/mines.o88
+	@echo "httpmounttest: build/httpmount.img - ETHER.DRV and HTTPFS.DRV wanted,"
+	@echo "               HTTPDRV.CFG naming 10.0.2.2:8095/fix/."
+	@echo "               Run it with: python3 tests/httpmount.py"
+
 .PHONY: ethertest
 ethertest: $(BUILD)/ether360.img
 	@echo "ethertest: build/ether360.img - the Ethernet driver already wanted."
@@ -5480,10 +5551,10 @@ $(BUILD)/ftpapps.img: $(FTPDFILES) tools/os88disk.py
 # is what fails if this flag is lost, and autostart360.img below takes it too
 # because it is this disk plus four files.
 SYS360SPC := --spc 1
-$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
+$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS360) $(SYSAPPS) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # AUTOSTARTTEST - the LINKS and AUTOSTART gate's disk (SPEC.md 26.10): the

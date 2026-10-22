@@ -60,6 +60,7 @@ SOURCES = [
     "drivers/ether/tcp.inc",
     "drivers/net/netpkg.inc",
     "drivers/ramdisk/rdabi.inc",
+    "drivers/httpfs/hfidx.inc",
 ]
 
 # row -> (the DRVM_ constant, the DRVM_IMG_ term, the built image). The ORDER
@@ -82,6 +83,8 @@ ROWS = [
     ("EMS", "DRVM_EMS", "DRVM_IMG_EMS", "ems.drv"),
     # SPEC.md 119's CDROM.DRV: DRVC_CD, after EMS on both big builds
     ("CD-ROM", "DRVM_CD", "DRVM_IMG_CD", "cdrom.drv"),
+    # SPEC.md 120's HTTPFS.DRV: DRVC_HTTP, after the CD-ROM on both big builds
+    ("HTTP Drive", "DRVM_HTTP", "DRVM_IMG_HTTP", "httpfs.drv"),
 ]
 
 EQU = re.compile(r"^\s*([A-Z][A-Z0-9_]*)\s+equ\s+(.+?)\s*(?:;.*)?$", re.M)
@@ -262,6 +265,9 @@ def main():
         # ...nor does CDROM.DRV (SPEC.md 119): its sector buffer, TOC and
         # handle cache are its bss, inside the image's claim
         "DRVM_CD": s["DRVM_IMG_CD"],
+        # HTTPFS.DRV (SPEC.md 120): its image, and the index it holds while
+        # a drive is mounted - the largest HF_MAXREC allows, one claim
+        "DRVM_HTTP": s["DRVM_IMG_HTTP"] + s["HF_IDXKB"],
     }
     for title, total, _img, _drv in ROWS:
         eq(s.get(total), want[total],

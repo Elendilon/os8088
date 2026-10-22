@@ -550,6 +550,7 @@ The tree's own worked examples. When a convention is unclear, the shortest packa
 | 117 | INSTALL — the setup wizard (`apps/install/`) |
 | 118 | SYSCHECK — System Check, the installed system's health (`apps/syscheck/`) |
 | 119 | CDROM.DRV — CD-ROM data and audio (`drivers/cdrom/`, `apps/cdrack/`) |
+| 120 | HTTPFS.DRV — a read-only drive over HTTP (`drivers/httpfs/`) |
 
 ## docs/
 

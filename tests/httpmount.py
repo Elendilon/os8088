@@ -1,0 +1,434 @@
+#!/usr/bin/env python3
+"""httpmount - SPEC.md 120.7: HTTPFS.DRV mounts a web server as a drive.
+
+    make httpmounttest && python3 tests/httpmount.py
+
+QEMU BY NAME: the drive's sockets are ETHER.DRV's and MartyPC has no NIC of
+any kind (docs/TESTING.md's list, item 5). QEMU's `ne2k_isa` on `-netdev
+user` reaches the host at 10.0.2.2, and the host side is tools/os88httpdrv.py's
+own server, run in this process on a fixture tree this test builds - so every
+assertion is about bytes the test chose, and every request the machine made
+is in the server's log.
+
+build/httpmount.img wants ETHER.DRV and HTTPFS.DRV and carries HTTPDRV.CFG
+naming http://10.0.2.2:8095/fix/ with bit 0 set, so the drive is on the
+desktop before the first paint, LAZY: nothing is fetched until it is opened.
+
+  1. The row is loaded, a volume registered, and the server has seen NO
+     request yet (SPEC.md 120.5: the boot fetches nothing).
+  2. The drive's zone opens it: ONE request, for OS88.IDX, and the root
+     lists what os88httpdrv.index_parse lists - names, folders, packages,
+     and `A#B.TXT`, whose `#` must go on the wire as %23.
+  3. DOCS, DOCS\\DEEP and `..` twice come back with NO further request: a
+     listing is answered out of the index (SPEC.md 120.3).
+  4. MINES.O88 launches off the drive (FSV_READ, one GET, and the loader's
+     parts path).
+  5. BIG.BIN - 100,001 bytes, over 64 KB and odd - copied to B: with Edit >
+     Copy and Edit > Paste is the reference's bytes (FSV_READAT with Range:).
+  6. ...and BIG2.BIN, the same with the server IGNORING Range: (a 200 for
+     every read-at: the offset drained, SPEC.md 120.4) - the same bytes.
+  7. A write is refused: Edit > Paste of BIG.BIN onto the HTTP drive asks
+     to replace the one there, and the yes ends in FERR_WPROT - the delete
+     and the write are refused by the driver, in FAT's words.
+
+Break on purpose: drop hf_readat's `.part` start check and leg 5 still
+passes, which is why leg 6 exists - drop the `[hf_skip]` load in its 200 arm
+and leg 6 reads the file's FIRST bytes for every chunk.
+"""
+import atexit
+import os
+import re
+import shutil
+import signal
+import struct
+import subprocess
+import sys
+import tempfile
+import threading
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path[:0] = [os.path.join(ROOT, "tests"), os.path.join(ROOT, "tools")]
+os.chdir(ROOT)
+import os88build                                              # noqa: E402
+import os88drvsym                                             # noqa: E402
+import os88fat                                                # noqa: E402
+import os88geom as geom                                       # noqa: E402
+import os88httpdrv                                            # noqa: E402
+import os88qemu                                               # noqa: E402
+import os88ui                                                 # noqa: E402
+import rdxms                                                  # noqa: E402
+import xmcheck                                                # noqa: E402
+
+HF_ROW = 8                      # drv_tab's HTTPFS.DRV row on kern_big
+DRVR_SIZE, DRVR_ERR = 16, 14
+PORT = 8095
+BIGLEN = 100001
+
+
+def pattern(n, seed):
+    out = bytearray(n)
+    x = seed
+    for i in range(n):
+        x = (x * 1103515245 + 12345) & 0x7FFFFFFF
+        out[i] = (x >> 16) & 0xFF
+    return bytes(out)
+
+
+def fixture():
+    return {
+        "README.TXT": b"An os8088 drive, over HTTP.\r\n",
+        "A#B.TXT": b"a name with a hash in it\r\n",
+        "BIG.BIN": pattern(BIGLEN, 1),
+        "BIG2.BIN": pattern(BIGLEN, 2),
+        "APPS": {"MINES.O88": open(os88build.at("build/mines.o88"), "rb").read()},
+        "DOCS": {"NOTE.TXT": b"one\r\n", "DEEP": {"DEEPER.TXT": b"two\r\n"}},
+        "EMPTY": {},
+    }
+
+
+class Stop(Exception):
+    """A leg that makes the rest meaningless has already said why."""
+
+
+class Log(object):
+    """Every request the server answered, by path."""
+
+    def __init__(self):
+        self.lines = []
+        self.lock = threading.Lock()
+
+    def add(self, s):
+        with self.lock:
+            self.lines.append(s)
+
+    def gets(self):
+        with self.lock:
+            return [m.group(1) for m in
+                    (re.search(r'"GET (\S+) HTTP', s) for s in self.lines) if m]
+
+
+def server(root, log):
+    class H(os88httpdrv.Handler):
+        def log_message(self, fmt, *a):
+            log.add((fmt % a) + " [%s]" % self.headers.get("Range", ""))
+    h = lambda *a, **k: H(*a, directory=root, **k)            # noqa: E731
+    httpd = os88httpdrv.Server(("127.0.0.1", PORT), h)
+    httpd.ranges = True
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd
+
+
+class QH(object):
+    """A private QEMU: the gate disk in A:, a blank scratch floppy in B:, and
+    an NE2000 on slirp."""
+
+    def __init__(self, tmp, sysimg, bimg):
+        self.sock = os.path.join(tmp, "qmp.sock")
+        self.pid = os.path.join(tmp, "qemu.pid")
+        self.pidn = None
+        atexit.register(self.close)
+        os88qemu.own(self.pid, self.sock)
+        subprocess.run(
+            ["qemu-system-i386", "-machine", "pc,vmport=off", "-m", "4",
+             "-drive", "file=%s,format=raw,if=floppy" % sysimg,
+             "-drive", "file=%s,format=raw,if=floppy,index=1" % bimg,
+             "-netdev", "user,id=n0",
+             "-device", "ne2k_isa,netdev=n0,iobase=0x300,irq=3",
+             "-boot", "a", "-chardev", "msmouse,id=m0",
+             "-serial", "chardev:m0", "-display", "none",
+             "-qmp", "unix:%s,server,nowait" % self.sock,
+             "-daemonize", "-pidfile", self.pid], check=True)
+        self.pidn = int(open(self.pid).read().strip())
+
+    def close(self):
+        if self.pidn:
+            try:
+                os.kill(self.pidn, signal.SIGTERM)
+                os88qemu.gone(self.pidn)
+            except OSError:
+                pass
+            self.pidn = None
+
+    def hmp(self, *cmds):
+        return xmcheck.qmp(self.sock, *cmds)
+
+    def read(self, linear, n):
+        return bytes(xmcheck.read_bytes(self.sock, linear, n))
+
+    def readseg(self, seg, off, n):
+        return self.read((seg << 4) + off, n)
+
+    def mouse(self, *args):
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools",
+                                                     "mouse.py"), self.sock]
+                       + [str(a) for a in args], check=True,
+                       capture_output=True, cwd=ROOT)
+
+    def done(self, cap=2.0):
+        os88qemu.ui_done(self, xmcheck.sym, cap=cap)
+
+    def click(self, x, y, cap=2.0):
+        self.mouse("click", x, y)
+        self.done(cap)
+
+    def need(self, cond, what, secs=30):
+        if not os88qemu.acted(self, cond, secs=secs, what=what, poll=0.1):
+            raise RuntimeError("timed out waiting for %s" % what)
+
+
+def front_on(ui, drv):
+    f = ui.front()
+    if f is None or not f.visible:
+        return None
+    fs = ui.fs_of(f)
+    return f if fs is not None and fs[0] == drv and fs[2] == 1 else None
+
+
+def want_names(recs, folder):
+    """What the index lists for `folder` ('' or 'DOCS/DEEP'), by the reference
+    reader: (name, type) with type 2 a folder, 1 a package, 0 a file."""
+    paths = os88httpdrv.index_paths(recs)
+    idx = next(i for i, p in paths.items() if p == folder)
+    _n, _a, _p, first, count = recs[idx]
+    out = []
+    for i in range(first, first + count):
+        name, attr = recs[i][0], recs[i][1]
+        pn = os88httpdrv.pretty(name)
+        t = 2 if attr & 0x10 else (1 if pn.endswith(".O88") else 0)
+        out.append((pn, t))
+    return sorted(out)
+
+
+def got_names(ui, w):
+    return sorted((n, t) for n, t in ui.listing(w) if n != "..")
+
+
+def compare(bad, tag, ui, w, recs, folder):
+    want, got = want_names(recs, folder), got_names(ui, w)
+    print("   %s %s lists %d entries%s" % (
+        tag, folder or "the root", len(got),
+        "" if got == want else " - NOT the index's %d" % len(want)))
+    if got != want:
+        bad.append("%s %s: guest %r, index %r" % (tag, folder or "root", got, want))
+
+
+def open_row(q, ui, w, name, drv, what):
+    i, _ = ui.entry(name, w)
+    xmcheck.dblclick(q.sock, *ui.row_xy(w, i - ui.scroll(w)))
+    q.need(lambda: front_on(ui, drv) is not None and
+           (what is None or what(front_on(ui, drv))), "%s to open" % name)
+    q.done()
+    return front_on(ui, drv)
+
+
+def raise_vol(q, ui, vol):
+    for o in ui.windows():
+        fs = ui.fs_of(o)
+        if o.visible and fs is not None and fs[0] == vol:
+            q.click(o.x + 30, o.y + 4)
+            return
+
+
+def copy_to_b(q, ui, S, vol, name, bad, tag):
+    if not front_on(ui, vol):
+        raise_vol(q, ui, vol)
+        q.need(lambda: front_on(ui, vol) is not None, "the drive in front")
+    w = front_on(ui, vol)
+    i, _ = ui.entry(name, w)
+    q.click(*ui.row_xy(w, i - ui.scroll(w)))
+    rdxms.menu_pick(q, ui, "Edit", "Copy")
+    bx, by = geom.drive_pt(q, "B", S)
+    xmcheck.dblclick(q.sock, bx, by)
+    q.need(lambda: front_on(ui, 1) is not None, "B:'s window", 30)
+    q.done()
+    rdxms.menu_pick(q, ui, "Edit", "Paste")
+    q.need(lambda: q.read(S("fcp_busy"), 1)[0] == 0, "the paste of " + name, 600)
+    q.done(4.0)
+    return q.read(S("fcp_err"), 1)[0]
+
+
+def main():
+    bad = []
+    try:
+        syms = os88drvsym.symbols("httpfs.bin")
+    except os88drvsym.Mismatch as e:
+        sys.exit("httpmount: %s" % e)
+    tmp = tempfile.mkdtemp(dir=os.path.join(ROOT, "build"))
+    q = httpd = None
+    base = 0
+    log = Log()
+    try:
+        tree = fixture()
+        web = os.path.join(tmp, "web")
+        fix = os.path.join(web, "fix")
+        os.makedirs(fix)
+        os88httpdrv.write_tree(tree, fix)
+        idx = os88httpdrv.index_build(tree)
+        open(os.path.join(fix, os88httpdrv.IDX_NAME), "wb").write(idx)
+        os88httpdrv.check(fix)
+        recs = os88httpdrv.index_parse(idx)
+        httpd = server(web, log)
+
+        sysimg = os.path.join(tmp, "sys.img")
+        shutil.copy(os88build.at("build/httpmount.img"), sysimg)
+        bimg = os.path.join(tmp, "b.img")
+        subprocess.run([sys.executable, "tools/os88disk.py", "-o", bimg,
+                        "--size", "1440"], check=True, capture_output=True)
+        q = QH(tmp, sysimg, bimg)
+        os88qemu.acted(q, lambda: os.path.exists(q.sock), secs=30,
+                       what="the QMP socket")
+        xmcheck.wait_desktop(q.sock, "httpmount")
+        S = xmcheck.sym
+
+        # --- 1: loaded, a volume, and not one request --------------------
+        row = q.read(S("drv_tab") + HF_ROW * DRVR_SIZE, DRVR_SIZE)
+        seg, err = struct.unpack_from("<H", row, geom.DRVR_SEG)[0], row[DRVR_ERR]
+        if not seg:
+            bad.append("1. HTTPFS.DRV is not loaded (DRVR_ERR %d)" % err)
+            raise Stop()
+        base = geom.drv_base(seg)
+        vol = q.read(base + syms["hf_vol"], 1)[0]
+        url = q.read(base + syms["hf_url"], 96).split(b"\0")[0]
+        print("   1. HTTPFS.DRV at %04Xh: volume %d, address %r, %d request(s)"
+              % (seg, vol, url.decode("latin-1"), len(log.gets())))
+        if vol == 0xFF:
+            bad.append("1. HTTPDRV.CFG's address was not mounted at READY")
+            raise Stop()
+        if log.gets():
+            bad.append("1. the boot fetched %r - the mount is meant to be lazy"
+                       % log.gets())
+
+        # --- 2: open it: one request, and the root ------------------------
+        ui = os88ui.UI(q, mouse=object(), sym=S, verbose=False)
+        x, y = geom.drive_pt(q, chr(ord("A") + vol), S)
+        xmcheck.dblclick(q.sock, x, y)
+        q.need(lambda: front_on(ui, vol) is not None, "the drive's window", 90)
+        q.done()
+        w = front_on(ui, vol)
+        gets = log.gets()
+        print("   2. opened with %r" % gets)
+        if gets != ["/fix/OS88.IDX"]:
+            bad.append("2. opening the drive asked %r, not the index alone" % gets)
+        compare(bad, "2.", ui, w, recs, "")
+
+        # --- 3: down two, up two, and no request --------------------------
+        n0 = len(log.gets())
+        w = open_row(q, ui, w, "DOCS", vol, None)
+        compare(bad, "3.", ui, w, recs, "DOCS")
+        w = open_row(q, ui, w, "DEEP", vol, None)
+        compare(bad, "3.", ui, w, recs, "DOCS/DEEP")
+        w = open_row(q, ui, w, "..", vol,
+                     lambda f: any(n == "DEEP" for n, _ in ui.listing(f)))
+        w = open_row(q, ui, w, "..", vol,
+                     lambda f: any(n == "DOCS" for n, _ in ui.listing(f)))
+        compare(bad, "3. (..)", ui, w, recs, "")
+        extra = log.gets()[n0:]
+        print("   3. walking the folders asked %d request(s)" % len(extra))
+        if extra:
+            bad.append("3. a listing went to the wire: %r" % extra)
+
+        # --- 4: a package off the drive -----------------------------------
+        w = open_row(q, ui, w, "APPS", vol, None)
+        before = set(o.i for o in ui.windows())
+        n0 = len(log.gets())
+        i, _ = ui.entry("MINES.O88", w)
+        xmcheck.dblclick(q.sock, *ui.row_xy(w, i - ui.scroll(w)))
+        opened = os88qemu.acted(
+            q, lambda: any(o.i not in before and o.visible
+                           for o in ui.windows()), secs=60, what="Minesweeper")
+        print("   4. MINES.O88 launches off the drive: %s, with %r"
+              % (opened, log.gets()[n0:]))
+        if not opened:
+            bad.append("4. MINES.O88 off the drive did not open")
+        raise_vol(q, ui, vol)
+        q.need(lambda: front_on(ui, vol) is not None, "the drive in front")
+        w = open_row(q, ui, front_on(ui, vol), "..", vol,
+                     lambda f: any(n == "APPS" for n, _ in ui.listing(f)))
+
+        # --- 5 and 6: BIG.BIN with Range:, BIG2.BIN without ---------------
+        n0 = len(log.gets())
+        e5 = copy_to_b(q, ui, S, vol, "BIG.BIN", bad, "5.")
+        print("   5. BIG.BIN pasted (fcp_err %d) in %d request(s)"
+              % (e5, len(log.gets()) - n0))
+        httpd.ranges = False
+        n0 = len(log.gets())
+        e6 = copy_to_b(q, ui, S, vol, "BIG2.BIN", bad, "6.")
+        print("   6. BIG2.BIN pasted with Range: IGNORED (fcp_err %d) in %d "
+              "request(s)" % (e6, len(log.gets()) - n0))
+        httpd.ranges = True
+
+        # --- 7: a paste ONTO the drive is refused -------------------------
+        w = front_on(ui, 1)
+        if w:
+            i, _ = ui.entry("BIG.BIN", w)
+            q.click(*ui.row_xy(w, i - ui.scroll(w)))
+            rdxms.menu_pick(q, ui, "Edit", "Copy")
+        raise_vol(q, ui, vol)
+        q.need(lambda: front_on(ui, vol) is not None, "the drive in front")
+        rdxms.menu_pick(q, ui, "Edit", "Paste")
+        os88qemu.pace(q, 4)
+        subprocess.run([sys.executable, "tools/shot.py", q.sock,
+                        os.path.join(ROOT, "build", "httpmount-wprot.png")],
+                       capture_output=True)
+        q.hmp("sendkey ret")            # "Replace BIG.BIN?" - yes: the
+                                        # write must reach the driver
+        q.need(lambda: q.read(S("fcp_busy"), 1)[0] == 0, "the refused paste", 60)
+        q.done(3.0)
+        busy = q.read(S("fcp_busy"), 1)[0]
+        e7 = q.read(S("fcp_err"), 1)[0]
+        if e7 != 9:                     # FERR_WPROT
+            bad.append("7. the paste onto the drive ended fcp_err %d, not "
+                       "FERR_WPROT (9)" % e7)
+        listed = [n for n, _t in ui.listing(front_on(ui, vol))] \
+            if front_on(ui, vol) else None
+        print("   7. a paste onto the drive: busy %d, fcp_err %d, the drive "
+              "lists BIG.BIN: %s" % (busy, e7, listed and "BIG.BIN" in listed))
+        q.hmp("quit")
+        q.close()
+        q = None
+        b = os88fat.Fat12(bimg)
+        for leg, name, seed in (("5.", "BIG.BIN", 1), ("6.", "BIG2.BIN", 2)):
+            try:
+                got = b.read(name)
+            except Exception as ex:             # noqa: BLE001
+                bad.append("%s %s is not on B: (%s)" % (leg, name, ex))
+                continue
+            want = pattern(BIGLEN, seed)
+            if got != want:
+                first = next((k for k in range(min(len(got), len(want)))
+                              if got[k] != want[k]), min(len(got), len(want)))
+                bad.append("%s %s on B: is %d bytes, first wrong at %d"
+                           % (leg, name, len(got), first))
+            else:
+                print("   %s %s on B: is the server's %d bytes" % (leg, name, BIGLEN))
+        hashed = [g for g in log.gets() if "A#B" in g]
+        if hashed:
+            bad.append("2. a path went out unescaped: %r" % hashed)
+    except Stop:
+        pass
+    except Exception as e:                      # noqa: BLE001
+        bad.append("the gate died: %s" % e)
+        try:
+            d = {k: q.read(base + syms[k], 2) for k in
+                 ("hf_err", "hf_status", "hf_failed", "hf_sock", "hf_iseg",
+                  "hf_nrec", "hf_port")}
+            print("   diag: %s; requests %r; host %r pfx %r" % (
+                {k: struct.unpack("<H", v)[0] for k, v in d.items()},
+                log.lines, q.read(base + syms["hf_host"], 32).split(b"\0")[0],
+                q.read(base + syms["hf_pfx"], 32).split(b"\0")[0]))
+        except Exception as e2:                 # noqa: BLE001
+            print("   diag failed: %s" % e2)
+    finally:
+        if q is not None:
+            q.close()
+        if httpd is not None:
+            httpd.shutdown()
+        shutil.rmtree(tmp, ignore_errors=True)
+        for b in bad:
+            print("   FAIL: %s" % b)
+        print("httpmount: %s" % ("FAIL" if bad else "ok"))
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

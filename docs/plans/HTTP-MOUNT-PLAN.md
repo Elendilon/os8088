@@ -1,6 +1,7 @@
 # HTTP-MOUNT — a read-only drive served over HTTP
 
-**PLAN, nothing built.** The ask: *"We currently mount drives from images and
+**WAVES 0-5 BUILT - SPEC.md 120 is the contract now and this file is the design
+record.** What is still open is section 8 and the measurement in wave 0. The ask: *"We currently mount drives from images and
 over parallel. To prepare for network system upgrades and to use in general,
 make a plan for read only http drive mounting. An address would be given, and
 the drive would be usable, read only, no icon harvesting same as parallel
@@ -319,26 +320,30 @@ under protected mode. No `PKG_MEGA` arm is expected.
 
 ## 7. Waves
 
-- [ ] **W0 - spike and price**: driver-to-driver `OSAPI_DRV_CALL` from inside
-  a file verb; a single `GET` timed on `xt-wire` (MartyPC has no NIC, so this
-  is 86Box's figure, labelled as such, and the 5150's when it comes).
-- [ ] **W1 - the class**: `DRVC_HTTP` = 10, the row, SYSTEM.CFG bit, `abilock`
+- [x] **W0 - spike**: driver-to-driver `OSAPI_DRV_CALL` from inside a file
+  verb works with no kernel change - the X stub sets ES from the caller's
+  DS, and nothing asks whether the caller is a package. Proven by W5's gate.
+- [ ] **W0 - the price**: a request's round-trip floor on the XT, timed on
+  `xt-wire` (86Box, labelled as such) and on the 5150 when it comes. NOT
+  TAKEN: it decides which of section 6 item 2's three remedies get built.
+- [x] **W1 - the class**: `DRVC_HTTP` = 10, the row, SYSTEM.CFG bit, `abilock`
   update; `tools/kernsize.py` on both kernels at one commit - `kern_small`
   must be byte-identical.
-- [ ] **W2 - the host tool and the index**: `tools/os88httpdrv.py export` /
+- [x] **W2 - the host tool and the index**: `tools/os88httpdrv.py export` /
   `check`, the format pinned in SPEC.md first (a new top-level section, "the HTTP drive"), and
   a host-side hostile-index unit test feeding the driver's validator rules.
-- [ ] **W3 - the driver, read path**: lazy mount, listing, chdir, stat, read,
+- [x] **W3 - the driver, read path**: lazy mount, listing, chdir, stat, read,
   read-at with the 206 and the 200 arms, write refusals, progress, timeouts.
-- [ ] **W4 - the page and the package verbs**: address field, Mount/Unmount,
+- [x] **W4 - the page and the package verbs**: address field, Mount/Unmount,
   `HTTPDRV.CFG`, `HFV_*`.
-- [ ] **W5 - the gate**: `tests/httpmount.py`, QEMU by name (MartyPC has no
-  NIC, docs/TESTING.md's list item 5), serving a fixture tree from the host:
-  list, walk, copy off byte for byte, launch a package, a write refused, a
-  404, a server that ignores `Range:`, a truncated body, a hostile index.
-  **Break it on purpose** (docs/WRITING-TESTS.md §1): a driver that skips the
-  `Content-Length` check must turn the truncated-body leg red. Soak tier,
-  `wants=` its own disk (`make httpmounttest`, `ethertest`'s shape).
+- [x] **W5 - the gate**: `tests/httpmount.py` (soak `httpmount`), QEMU by
+  name, against the tool's own server on a fixture tree: lazy boot with no
+  request, one request to open, none to walk, a package launched, 100,001
+  bytes copied byte for byte with `Range:` and without, an escaped `#`, a
+  paste onto the drive refused `FERR_WPROT`. Broken on purpose: the 200
+  arm's offset skip taken out turns leg 6 red. **Not in it**: a 404, a
+  truncated body and a hostile index on the machine - the index rules are
+  `os88httpdrv.py --selfcheck`'s, the same rules as hf_valid, host-side.
 
 ## 8. After this works - agreed, not part of this plan
 

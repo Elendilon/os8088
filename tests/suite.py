@@ -2429,6 +2429,24 @@ SOAK = [
         "to B: is byte-identical on the host",
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/cdromtest.img", "build/cdfix.iso", "build/cdrom.bin")),
+    Row("httpdrvtool", "soak", py("tools/os88httpdrv.py", "--selfcheck"), 2.0,
+        "SPEC.md 120.3/120.7: the HTTP drive's host tool - OS88.IDX written and "
+        "read back, every rule HTTPFS.DRV's hf_valid applies broken on purpose "
+        "and refused (magic, length, count, a parent that is not below its "
+        "child, a lower-case name), and the test server's Range: answered 206 "
+        "and, with --no-range, ignored with a 200",
+        needs=()),
+    Row("httpmount", "soak", py("tests/httpmount.py"), 105.0,
+        "SPEC.md 120: HTTPFS.DRV on QEMU's NE2000, against tools/"
+        "os88httpdrv.py's own server serving a fixture tree on the host. The "
+        "drive is on the desktop at boot with NO request made; opening it is "
+        "one GET (OS88.IDX) and walking folders is none; MINES.O88 launches "
+        "off it; BIG.BIN (100,001 bytes) copies to B: byte-identical with "
+        "Range:, and BIG2.BIN with the server IGNORING Range:; a paste onto "
+        "the drive ends FERR_WPROT. Red with the 200 arm's offset skip taken "
+        "out (leg 6)",
+        needs=("qemu", "nasm"), serial=True, timeout=600,
+        wants=("build/httpmount.img", "build/httpfs.bin", "build/mines.o88")),
     Row("cdromsim", "soak", py("tests/cdrom.py", "--sim"), 30.0,
         "SPEC.md 119.3.5/119.6 on QEMU, whose drive holds no audio: the "
         "gate's CDROM.DRV (-DCDSIM_AUDIO) gives the one-track disc three "
