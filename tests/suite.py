@@ -3930,7 +3930,7 @@ SOAK = [
         "oracle of excitebikevideo/excitebikevideocga/excitebikeg1, so it is "
         "held before they are believed. No emulator",
         needs=("nasm",)),
-    Row("excitebikevideo", "soak", py("tests/excitebike_video.py", "--adapter", "vga"), 170.0,
+    Row("excitebikevideo", "soak", py("tests/excitebike_video.py", "--adapter", "vga"), 160.0,
         "EXCITEBIKE wave 2, VGA 0Dh on MartyPC (SPEC.md 102.1, 102.6): the "
         "scroll engine against tools/exbsim.py, the reference renderer written "
         "from the SOURCE text with none of the guest's tricks. Twenty random "
@@ -3949,7 +3949,7 @@ SOAK = [
         "Pixel-exact against "
         "the card's own rendering, the line compare and the palette included",
         needs=("marty", "nasm"), wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikevideocga", "soak", py("tests/excitebike_video.py", "--adapter", "cga"), 150.0,
+    Row("excitebikevideocga", "soak", py("tests/excitebike_video.py", "--adapter", "cga"), 130.0,
         "EXCITEBIKE wave 2, CGA 320x200x4 on MartyPC: the same gate as "
         "excitebikevideo through the 8,192-byte ring - twenty random positions, "
         "the erase negative control, the first course and the 1,637-column "
@@ -4008,7 +4008,7 @@ SOAK = [
         "wants the machine to itself",
         needs=("marty", "nasm"), alone=True, timeout=900,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeflow", "soak", py("tests/excitebike_flow.py", "--flow"), 120.0,
+    Row("excitebikeflow", "soak", py("tests/excitebike_flow.py", "--flow"), 210.0,
         "EXCITEBIKE wave 4, the game around the race (SPEC.md 102.4, 102.6) on VGA and CGA, "
         "driven with the keys a player uses: the title (idle frames counted, B = best times, NO demo at "
         "500 idle frames and the demo at 560: Selection B with the AI driving the rider, a key ends "
@@ -4023,7 +4023,7 @@ SOAK = [
         "the test chooses). Measured 113 s for the two adapters",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikecustom", "soak", py("tests/excitebike_flow.py", "--custom", "--adapter", "vga"), 70.0,
+    Row("excitebikecustom", "soak", py("tests/excitebike_flow.py", "--custom", "--adapter", "vga"), 100.0,
         "EXCITEBIKE optional EXBTRACK.DAT (SPEC.md 102.4): a scratch disk carries a designed course "
         "(a lap of plain columns, a ramp with its script trigger, a hurdle; par 32.10) and it is course 6: "
         "the column array is 43 + 2 laps of the stream, the finish ranks against its par and a custom "
@@ -4059,7 +4059,7 @@ SOAK = [
         "RATE, so it wants the machine to itself",
         needs=("marty", "nasm"), alone=True, timeout=1200,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikevideoherc", "soak", py("tests/excitebike_video.py", "--adapter", "herc"), 245.0,
+    Row("excitebikevideoherc", "soak", py("tests/excitebike_video.py", "--adapter", "herc"), 130.0,
         "EXCITEBIKE wave 6, the HERCULES on MartyPC's 5150 with the card (SPEC.md 102.7): the whole pixel gate "
         "of excitebikevideocga through the Hercules's four 2000h banks and 90-byte rows, compared pair for "
         "pair (a game pixel is two card pixels; a tile's mid grey alternates 10/01) with the reference "
@@ -4071,18 +4071,18 @@ SOAK = [
         "(the framebuffer, not the memory) is then 347 lines instead of 199, which is what proves the field "
         "is 50 rows and nothing else is lit",
         needs=("marty", "nasm"), wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeflowherc", "soak", py("tests/excitebike_flow.py", "--flow", "--adapter", "herc"), 60.0,
+    Row("excitebikeflowherc", "soak", py("tests/excitebike_flow.py", "--flow", "--adapter", "herc"), 90.0,
         "EXCITEBIKE wave 6, excitebikeflow on the Hercules: the title, the menus (the 40-cell text grid two "
         "cells in from the left of the 45-cell row), the countdown, pause, lap flash, finish, rank at every "
         "boundary, the campaign and the second pass, Alt+Enter/Esc leaving with the claim map as it was",
         needs=("marty", "nasm"), timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikecustomherc", "soak", py("tests/excitebike_flow.py", "--custom", "--adapter", "herc"), 55.0,
+    Row("excitebikecustomherc", "soak", py("tests/excitebike_flow.py", "--custom", "--adapter", "herc"), 60.0,
         "EXCITEBIKE wave 6, excitebikecustom on the Hercules (the scratch disks' package carries "
         "EXBH.GFX as a part, SPEC.md 102.10)",
         needs=("marty", "nasm"), timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeaiherc", "soak", py("tests/excitebike_flow.py", "--ai", "--collide", "--adapter", "herc"), 90.0,
+    Row("excitebikeaiherc", "soak", py("tests/excitebike_flow.py", "--ai", "--collide", "--adapter", "herc"), 70.0,
         "EXCITEBIKE wave 6, excitebikeai on the Hercules: the collision rule by the guest's own xa_pair and "
         "5,000 steps of Selection B with two opponents",
         needs=("marty", "nasm"), timeout=1500,
@@ -4179,7 +4179,7 @@ SOAK = [
         "the small 17KB sprite claim, taken when the big one is refused, was reported as a failed load "
         "because a `cmp`'s borrow was read as an error",
         needs=("marty", "nasm"), wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikesmallclaim", "soak", py("tests/excitebike_video.py", "--adapter", "cga", "--smallclaim", "--quick"), 110.0,
+    Row("excitebikesmallclaim", "soak", py("tests/excitebike_video.py", "--adapter", "cga", "--smallclaim", "--quick"), 90.0,
         "EXCITEBIKE wave 7 (SPEC.md 102.8.3): the CGA sprite loader's FIRST claim (28KB) is refused - the "
         "harness stops the guest right after that call and sets CF - so the 17KB fallback runs for real: 28 "
         "poses loaded, none compiled (xs_ctab all zero), xb_error 0, and the whole quick CGA pixel gate "

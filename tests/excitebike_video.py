@@ -185,8 +185,10 @@ class Game:
         m.run()
         M.until(m, lambda _: self.b("xb_tpause") == 1, "%d frames rendered" % frames,
                 guest=limit)
-        M.guest_sleep(m, .12)
+        # 0.12 guest seconds for the card, run by the SERVER and ending paused (`advance`):
+        # exact, where a polled guest_sleep and a pause after it overran by the poll
         m.pause()
+        m.advance(cycles=int(.12 * M.GUEST_HZ))
 
     def jump(self, col):
         self.put("xb_tcol", col, 2)
@@ -396,10 +398,8 @@ def run(tag, quick, small=False):
     disk = at("build/excitebike360.img")
     with os88ui.boot(system, apps=disk, machine=MACHINE[tag]) as ui:
         m = ui.m
-        ui.open_drive("B")
-        ui.settle()
+        ui.open_drive("B")                  # (both verbs confirm: no settle needed)
         ui.open("EXCBIKE.O88")
-        ui.settle()
         g = Game(ui, tag, sym, ref)
         g.cids = ref.course_cids(0)
         M.until(m, lambda _: g.w("xb_reveal") >= g.w("xb_frontheight") > 0,

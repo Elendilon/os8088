@@ -131,6 +131,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | excitebikelapherc / selfbherc / perfherc | 109 / 57 / 41 s | 40 / 54 / 16 s | 3, 7 | as above |
 | excitebikeaudio / fm / cap | declared 300 / 300 / 150 | 56 / 40 / 42 s | - | `call_guest`-heavy; the fast stopped round trip and wait_stop's poll alone |
 | excitebikeref | declared 170 | 376 s / 528 guest s | - | not reducible: 29,465 steps at the game's own 60 Hz step clock ARE the measurement; re-declared at what it costs |
+| excitebikevideo / cga / herc / smallclaim | declared 170 / 150 / 245 / 110; herc 309 s measured | 129 / 102 / 103 / 65 s | 1 | `Game.go`'s 336 tpause waits on the adaptive `until` (was 145 host s of 1 s polls), and its 0.12 s card window a server `advance` instead of a polled guest_sleep + pause |
+| excitebikeai / flow / custom (+herc) | declared 180 / 120 / 70 (90 / 60 / 55) | 140 / 171 / 80 (57 / 66 / 49) s | 2 | settles after `open_drive`/`open` (both confirm) dropped or made `ui_done`; flow re-declared UP at what it costs |
 | isotronload | 219 s / 199 guest s | 168 s / 139 guest s | 3 | launch and rate legs on one boot a machine (6 -> 3); a settle after `open_drive` (which confirms the listing) dropped. The rest is the 2 s rate windows and the launch itself |
 | paintbig | 72 s / 103 guest s | 38 s / 59 guest s | 4 | eight settle+quiesce(1.0) pairs -> ui_done+quiesce(0.3); the 20 guest s left is the boot |
 | paintpack | ~180 s, 2 boots (blitpair + paintbig) | 49 s / 67 guest s | 3, 4 | `paintbig --pair` runs blitpair's `check_canvas` (factored out, one copy) on paintbig's own boot; red with one file pixel flipped |
