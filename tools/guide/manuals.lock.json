@@ -1066,9 +1066,9 @@
   "sources": [
    "apps/taskmgr"
   ],
-  "stamped": "be02614c",
-  "strings": "5b05e2f1cab91663",
-  "why": "the memory map's IVT+BIOS, Above 1MB and 640K-1MB rows (Video, ROM, BIOS, Unrep.) are already on the page; checked against taskmgr.asm"
+  "stamped": "5b1feb3f",
+  "strings": "41fa08640852a6a6",
+  "why": "rewrote the memory pages as the one memory page (tree of groups, +DETAIL, +ALL, AVAIL/MAX RUN incl. above 1MB, named drivers and modules); dropped the third page's shot; 12K to open"
  },
  "TELNET_O88": {
   "sources": [

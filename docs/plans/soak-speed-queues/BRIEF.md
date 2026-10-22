@@ -1,0 +1,83 @@
+# Soak-speed agent brief (read fully before starting)
+
+You are one of SIX agents working IN PARALLEL in ONE shared checkout:
+/home/user/os8088, branch `soak-speed` (cut from origin/elendilon). Read
+CLAUDE.md's Testing section and docs/WRITING-TESTS.md §1 once. The goal: make
+each soak-tier emulator row MUCH cheaper (the precedent: tests/tmowner.py,
+commit b787057, ~450 s -> 41 s, by reading the guest state the page is drawn
+from instead of pumping/settling the screen) WITHOUT making it less able to
+fail. Owner's words: "Every time we optimize an individual test, it can often
+drop 60-90% of its time ... focus, in depth, on each test."
+
+## Your queue
+Your rows are in the queue file named in your prompt (family, row, declared
+secs, script). Work top-down (largest first; when you open a family, do its
+siblings while the context is hot - they usually share a library). Mark each
+line you finish by prefixing it `DONE ` / `SKIP <reason> ` in that file so a
+successor can pick up. Declared secs are often wrong in both directions -
+measure.
+
+## Per row
+1. Read the row in tests/suite.py and its script (targeted reads, not dumps).
+2. Measure BEFORE: `MAKELEVEL=1 OS88_WAITLOG=<scratch file> python3 tools/os88test.py soak -k <row>`.
+   The waitlog names every wait with its call site and guest cost - that is
+   the work list. If the row FAILS at base: record it (ledger, "fails at
+   base: <why>"), fix only if it is plainly a test bug, else skip.
+3. Find where the time goes and cut it. Typical wins: settle -> quiesce on the
+   bytes about to be read / an os88ui verb that confirms; one boot instead of
+   several (MartyPC snapshot()/restore(), or sharing a boot across legs);
+   fixed sleeps -> conditions; pumping font_run/breakpoints -> reading the
+   final guest structure; fewer screenshots; guest-time waits sized to what
+   the guest needs. Read docs/plans/SOAK-PARALLEL.md §11 for prior findings.
+4. Re-measure AFTER. It must pass, and the assertions must be no weaker:
+   never delete an assertion, never shorten a window that IS the measurement
+   (rate/flicker rows), never add time.sleep. If you changed HOW something is
+   read or asserted, break the subject on purpose (poke the byte, invert the
+   expectation, a knob tree) and watch the row go red, then restore.
+5. Re-declare the row's `secs` in tests/suite.py at ~1.25x measured (10/30/60s
+   steps), and keep `timeout` sane.
+6. Docs: re-read docs/plans/SOAK-SPEED.md BEFORE each row (others add
+   techniques as they go - use them). Add a ledger row (row | before | after |
+   technique numbers | one-line note; quote guest seconds as well as wall).
+   Add/extend a numbered Technique ONLY when it generalises, in 1-3 lines -
+   keep the doc succinct; edit an existing technique rather than adding a
+   near-duplicate. Use Edit with a small unique anchor; if the Edit fails,
+   re-read and retry (others edit the same file).
+7. Commit just your files: `git commit -m "..." -- <paths>` (end the message
+   with the two attribution lines below). On index.lock contention, wait a
+   few seconds and retry. Do NOT push; do not commit build/.
+
+## Shared-tree rules (break these and you break five other agents)
+- NEVER run `make` or anything that writes build/. Everything is prebuilt,
+  including every `wants=` artefact. If you need a knob or private build,
+  use tools/os88build.py (build/trees/<knob>-<hash>/).
+- Never kill or reap MartyPC instances you did not start (no kill_all, no
+  pkill martypc). os88marty.launch() isolates instances already.
+- Never run the whole soak tier; only `-k <row>` scoped runs.
+- Box: 4 cores, six agents => wall clock is noisy and slower. Never wait for
+  load to drop. Compare guest seconds / cycles; wall as secondary.
+- Harness (tools/os88marty.py, os88ui.py, os88mouse.py, os88mouserel.py,
+  tests/dispcp.py and other shared libs): missing GENERIC features SHOULD be
+  added, and existing routines MAY be made faster where still reliable. Others
+  are running rows on these files right now, so: re-read the file just before
+  editing; keep it importable at every moment (no half-edits); keep defaults
+  backward-compatible unless the change is provably safe for all callers;
+  validate with a couple of rows that use the routine (e.g. tests/uilayer.py,
+  tests/martyconc.py, and your own row); commit promptly; add a one-line entry
+  to SOAK-SPEED.md's "Harness changes" section so others can use it.
+- Rows needing hardware/emulators absent here (86box, bochs, ...) - skip.
+
+## Token economy
+Targeted reads (grep -n, sed -n ranges), tail command output, don't paste
+large logs. Don't re-read files you have in context.
+
+## Finishing
+Work through your queue. When your remaining rows are all under ~60 s
+declared, or your context is getting heavy, stop at a row boundary (all work
+committed, queue file marked) and reply with a SHORT report: table of rows
+(before -> after, guest s), techniques added, harness changes, rows skipped and
+why, and anything the coordinator must know (e.g. product bugs found).
+
+Commit trailer lines:
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_0128wd3x4TL6TkrT5R6Y6y6u

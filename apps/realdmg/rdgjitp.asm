@@ -2,8 +2,7 @@
 ; rdgjitp.asm - RealDMG's recompiler as a PART of REALDMG.O88 (REALDMG-SPEC
 ; 16.9): rdgjit.inc's code and its templates, assembled on their own at org 0
 ; and read by the package into the tail of the recompiler's own claim
-; (rw_jitpart) - so an 8088, which never translates, never holds them, and a
-; 286 holds them only while it has a cache.
+; (rw_jitpart) - so a machine holds them only while it has a cache.
 ;
 ; The package far-calls the four entries below, DS = the view. Inside, CS is
 ; this part's segment, which is all rdgjit.inc's `[cs:rt_tab + ...]` needs.

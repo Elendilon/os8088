@@ -2067,6 +2067,23 @@ OS88_HUGE_INCR      equ 0x1000
                                  ; region and MOVE with it (the selector does
                                  ; not change). CF=1 and EVERY register kept:
                                  ; use your segment + AX. Any context.
+
+; OSAPI_IMG_NAME - WHICH driver or module an image is (KERN-MEGA-PLAN 14.70.3).
+; A class names a driver only when it has one, and a module's header names
+; nothing, so the Task Manager could list a `DrvImg` or a `ModImg` and not say
+; whose. The names are the kernel's own tables'.
+%define OSAPI_IMG_NAME      KERNEL_SEG:0x04CF   ; AX = the segment an image is
+                                 ; loaded at - the base of a MEM_K_DRV or
+                                 ; MEM_K_MOD claim - with BX = 0; or BX = 1
+                                 ; and AX = a block's XMW_OFF in the pool above
+                                 ; 1MB (OSAPI_XMEM_WALK), where kern_mega puts
+                                 ; both. ES:DI = 13 bytes. out CF=0, the 8.3
+                                 ; file name at ES:DI, NUL-terminated, AL = 0
+                                 ; a driver / 1 a module; CF=1 none of the
+                                 ; kernel's is there (a driver a module loaded
+                                 ; on a record of its own, such as THMPAL.DRV,
+                                 ; and every image on kern_small, which
+                                 ; refuses). Every other register kept
 ;
 ; --- volumes (SPEC.md 18.7/51.8) --------------------------------------------
 ; A DRVC_DISK DRIVER's slots, not an application's: the four that CHANGE
@@ -6375,7 +6392,9 @@ FSIF_BANKED equ 4
 
 ; --- THE THEME (SPEC.md 76, 76.14.14) --------------------------------------
 ; --- Desktop serial lease (SPEC.md 115), UI-task context -------------------
-%define OSAPI_SERIAL KERNEL_SEG:0x049F ; AL=0 Open (BL=COM1/2, SI=517-byte
+%define OSAPI_SERIAL KERNEL_SEG:0x049F ; AL=0 Open (BL=COM1/2, +80h when
+                                 ; the USER named the port: taken before the
+                                 ; mouse settles, 115.1.1; SI=517-byte
                                  ; pinned-region buffer, BH=the 8250 divisor
                                  ; of 115200: 0 or 12 = 9600, 48 = 2400 -
                                  ; SPEC.md 115.1), 1 Close, 2 Read

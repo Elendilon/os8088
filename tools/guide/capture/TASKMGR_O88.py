@@ -51,7 +51,3 @@ def capture(ui, shot):
     _content_click(ui)
     os88marty.guest_sleep(m, 3.0)
     shot("taskmgr-memory", window=TITLE, pad=8, settle=False)
-
-    _content_click(ui)
-    os88marty.guest_sleep(m, 3.0)
-    shot("taskmgr-heap", window=TITLE, pad=8, settle=False)

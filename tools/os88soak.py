@@ -886,7 +886,7 @@ def _frozen_targets(a):
         imgs = ("os8088.img", "os8088-120.img", "os8088-720.img",
                 "os8088-360.img", "apps.img", "apps120.img", "apps720.img",
                 "apps360.img", "media360.img", "office360.img",
-                "network360.img", "games360.img", "emu360.img")
+                "network360.img", "games360.img", "emu360.img", "util360.img")
     shipped = imgs + ("wire.o88",)
     return shipped + tuple(a[len("build/"):] for a in arts
                            if a.startswith("build/"))

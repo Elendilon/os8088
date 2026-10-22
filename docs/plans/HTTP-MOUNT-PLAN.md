@@ -255,17 +255,11 @@ under protected mode. No `PKG_MEGA` arm is expected.
 
 ## 5. Where the files go
 
-- **System disks**: `HTTPFS.DRV` in `SYSTEM\` on 720 KB, 1.2 MB and 1.44 MB,
-  `kern_big` only (`$(DRIVERS)`; `kern_small`'s list never holds it). **The
-  360 KB system disk is a PRIME target** (the owner, 2026-10-22), and the
-  owner's rule for it is **10 KB free**, which it does not have today (11
-  free 512-byte clusters, section 10 below, before this driver's five). Making that room is
-  separate work for another session and does not block this plan; until it
-  lands the driver ships on the larger system disks. Every 360 KB machine is
-  an XT, where the
-  drive works (ETHER.DRV and the cable both run on an 8088) but an XT with a
-  card is the rare case. Options are on it, or `network360.img` carries it
-  for a machine to copy into `SYSTEM\` - see the measured headroom in section 10.
+- **System disks**: `HTTPFS.DRV` on every `kern_big` system disk, the
+  360 KB one included (`$(DRIVERS)`; `kern_small`'s list never holds it).
+  The 360 KB disk was a prime target under the owner's 10 KB-free rule and
+  had 11 free clusters when this was written; SPEC.md 24.3.1.6 (on
+  `elendilon`) took three files an 8088 cannot use off it to make the room.
 - **Live media and the everything set**: yes, on the system volume.
 - **The server**: `tools/os88httpdrv.py export <src> <out>` writes the 8.3
   tree and `OS88.IDX` (`<src>` a directory, or a built `.img` read with
@@ -353,7 +347,8 @@ In order, once the drive itself works on the XT:
    tree and `OS88.IDX` beside its images (`tools/os88httpdrv.py export`).
 2. **An installer upgrade path** that mounts the release's address itself
    through `HFV_MOUNT`, so the user never has to find or type one.
-3. **10 KB free on the 360 KB system disk**, so the driver ships there too.
+3. ~~10 KB free on the 360 KB system disk, so the driver ships there too.~~
+   **DONE** by SPEC.md 24.3.1.6 on `elendilon`; the driver ships there.
 
 ## 9. What this is not
 

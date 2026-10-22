@@ -10,7 +10,8 @@ missing with no error anywhere:
   * SYSTEM/APPDATA (SPEC.md 19.9), which is EMPTY - so nothing that counted
     bytes could have noticed - and whose absence reads as "preferences do not
     stick on a hard-disk machine" in every application at once;
-  * SYSTEM/DOS/OS88NET.COM (SPEC.md 62), which is not.
+  * SYSTEM/DOS/OS88NET.COM (SPEC.md 62), which is not - and which the 360KB
+    pair this row installs from no longer carries (SPEC.md 24.3.1.7).
 
 A third is the deepest of them: SYSTEM/APPDATA/NOTES/WELCOME.TXT (SPEC.md
 110.13), the Sticky Note's welcome note, three folder levels down with real
@@ -71,9 +72,12 @@ FOOTER = 512                        # the VHD footer, past the data area
 
 # What must be on the installed volume, as PATHS - the point of the exercise
 # is the ones with two components in them.
-WANT_DIRS = ["SYSTEM", "APPS", "GAMES", "SYSTEM/APPDATA", "SYSTEM/DOS",
+# SYSTEM/DOS is not among them any more: OS88NET.COM left apps360.img for
+# util360.img (SPEC.md 24.3.1.7), and the 360KB pair is what this installs
+# from. SYSTEM/APPDATA/NOTES is the deeper case and still is one.
+WANT_DIRS = ["SYSTEM", "APPS", "GAMES", "SYSTEM/APPDATA",
              "SYSTEM/APPDATA/NOTES"]
-WANT_FILES = ["KERNEL.SYS", "SYSTEM/DOS/OS88NET.COM", "SYSTEM/TASKMGR.O88",
+WANT_FILES = ["KERNEL.SYS", "SYSTEM/TASKMGR.O88",
               "SYSTEM/APPDATA/NOTES/WELCOME.TXT"]
 
 # ...and these must arrive BYTE FOR BYTE, hint and all. Any compressed file on

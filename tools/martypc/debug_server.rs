@@ -483,15 +483,24 @@ impl DebugServer {
         let batch = ((machine.get_cpu_mhz() * 1_000_000.0) / BATCH_DIVISOR) as u32;
         log::info!("Debug server: {} cycles per batch", batch);
 
+        // When paused, a client stepping through commands (a stopped
+        // breakpoint's reads, a register set, a resume) sends the next one
+        // within microseconds of the last reply; sleeping 2ms each time made
+        // every command on a stopped machine cost ~2.3ms. So spin finely for a
+        // short while after the last command and only then fall back to 2ms.
+        let mut last_cmd = Instant::now();
         while !self.quit {
             self.poll_socket();
             while let Some(line) = self.pending.pop_front() {
                 let reply = self.dispatch(machine, &mut exec, &line);
                 self.send(&reply);
+                last_cmd = Instant::now();
             }
 
+            log_pass(machine, &mut exec);   // a resume that stepped onto one
             if matches!(exec.get_state(), ExecutionState::Running) {
                 machine.run(batch, &mut exec);
+                log_pass(machine, &mut exec);
                 note_state(&exec);       // the stop sequence number, above
                 // Drain after every batch, not on a timer: the channels are
                 // bounded and a device that outruns the reader drops samples,
@@ -501,8 +510,14 @@ impl DebugServer {
                 }
             }
             else {
-                // Paused: do not spin a core waiting for a command.
-                std::thread::sleep(Duration::from_millis(2));
+                // Paused: do not spin a core waiting for a command - except
+                // just after one, when the next is almost certainly coming.
+                if last_cmd.elapsed() < Duration::from_millis(20) {
+                    std::thread::sleep(Duration::from_micros(50));
+                }
+                else {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
             }
         }
         for w in self.wavs.iter_mut() {
@@ -747,6 +762,7 @@ impl DebugServer {
                 if matches!(exec.get_state(),
                             ExecutionState::BreakpointHit | ExecutionState::StepOverHit) {
                     machine.run(1, exec);
+                    log_pass(machine, exec);
                 }
                 else {
                     exec.set_state(ExecutionState::Running);
@@ -768,6 +784,7 @@ impl DebugServer {
                 status(machine, exec)
             }
             "bp" => breakpoints(machine, &req),
+            "bplog" => bplog_read(&req),
             "screen" => screen(machine, &req),
             "video" => video(machine, &req),
             "cards" => cards(machine),
@@ -896,6 +913,72 @@ fn note_state(exec: &ExecutionControl) -> u64 {
 /// alone looks like a machine that never moved.
 fn note_resumed() {
     WAS_RUNNING.store(true, Ordering::Relaxed);
+}
+
+// --- LOGGING BREAKPOINTS: a hit recorded and resumed with no round trip -----
+//
+// A `bp` item with `"log": true` is an exec breakpoint the SERVER resumes
+// itself: the stop is noted as (flat address, cycles) in BPLOG and the machine
+// steps on inside the same batch, so the client sees no stop at all - no
+// `status`, no `run`, no poll latency. That is the whole of a timing trace
+// (os88marty.bp_trace(..., log=...)): every stop a pumped trace takes costs
+// two round trips plus the pump's poll, which made a frame-rate row run at
+// half the guest's free speed with seven breakpoints a frame. `bplog` reads
+// and empties the record. A log hit is NOT a stop: `stops` does not move, so
+// wait_stop/advance and a pump running beside it see only the real ones.
+struct BpLog {
+    addrs:   Vec<u32>,
+    hits:    Vec<(u32, u64)>,
+    cap:     usize,
+    total:   u64,
+    dropped: u64,
+}
+
+static BPLOG: Mutex<BpLog> = Mutex::new(BpLog {
+    addrs: Vec::new(), hits: Vec::new(), cap: 1 << 20, total: 0, dropped: 0,
+});
+
+/// After any `machine.run`: while the machine is sitting on a LOGGING
+/// breakpoint, record it and step past it. Bounded, so two log addresses one
+/// instruction apart cannot hold the loop.
+fn log_pass(machine: &mut Machine, exec: &mut ExecutionControl) {
+    for _ in 0..64 {
+        if !matches!(exec.get_state(), ExecutionState::BreakpointHit) {
+            return;
+        }
+        let cs = machine.cpu().get_register16(Register16::CS);
+        let ip = machine.cpu_mut().get_ip();
+        let flat = (((cs as u32) << 4).wrapping_add(ip as u32)) & 0xFFFFF;
+        {
+            let mut lg = BPLOG.lock().unwrap();
+            if !lg.addrs.contains(&flat) {
+                return;
+            }
+            lg.total += 1;
+            if lg.hits.len() < lg.cap {
+                let c = machine.cpu_cycles();
+                lg.hits.push((flat, c));
+            }
+            else {
+                lg.dropped += 1;
+            }
+        }
+        // exactly the "run" command's resume: BreakpointHit -> Run through
+        // machine.run(), which owns the CPU's breakpoint flag
+        exec.set_op(ExecutionOperation::Run);
+        machine.run(1, exec);
+    }
+}
+
+fn bplog_read(req: &Value) -> Value {
+    let keep = req.get("keep").and_then(Value::as_bool).unwrap_or(false);
+    let mut lg = BPLOG.lock().unwrap();
+    let hits: Vec<Value> = lg.hits.iter().map(|(a, c)| json!([a, c])).collect();
+    if !keep {
+        lg.hits.clear();
+    }
+    json!({"ok": true, "hits": hits, "total": lg.total, "dropped": lg.dropped,
+           "addrs": lg.addrs.len()})
 }
 
 fn state_name(s: ExecutionState) -> &'static str {
@@ -1203,11 +1286,19 @@ fn breakpoints(machine: &mut Machine, req: &Value) -> Value {
         None => return err("need list (an array; empty clears)"),
     };
     let mut bps: Vec<BreakPointType> = Vec::new();
+    let mut logs: Vec<u32> = Vec::new();
     for item in list {
         let kind = item.get("type").and_then(Value::as_str).unwrap_or("exec");
         let addr = item.get("addr").and_then(Value::as_u64).unwrap_or(0) as u32;
         let seg = item.get("seg").and_then(Value::as_u64).unwrap_or(0) as u16;
         let off = item.get("off").and_then(Value::as_u64).unwrap_or(0) as u16;
+        if item.get("log").and_then(Value::as_bool).unwrap_or(false) {
+            match kind {
+                "exec" => logs.push(addr & 0xFFFFF),
+                "execseg" => logs.push((((seg as u32) << 4) + off as u32) & 0xFFFFF),
+                _ => return err("a logging breakpoint must be exec or execseg"),
+            }
+        }
         // The segmented forms are FOLDED TO FLAT here rather than passed
         // through, because BreakPointType::Execute(seg, off) and
         // BreakPointType::MemAccess(seg, off) are declared in
@@ -1239,6 +1330,14 @@ fn breakpoints(machine: &mut Machine, req: &Value) -> Value {
     // a reason nobody remembers asking for.
     let n = bps.len();
     machine.set_breakpoints(bps);
+    // the logging set is replaced with it, and its record started afresh
+    {
+        let mut lg = BPLOG.lock().unwrap();
+        lg.addrs = logs;
+        lg.hits.clear();
+        lg.total = 0;
+        lg.dropped = 0;
+    }
     json!({"ok": true, "count": n})
 }
 
@@ -1578,6 +1677,7 @@ fn flicker(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> V
         exec.set_state(ExecutionState::Running);
         loop {
             machine.run(batch, exec);
+            log_pass(machine, exec);
             let f = card_frames(machine, idx).unwrap_or(f0);
             if f != f0 {
                 break;
@@ -1746,6 +1846,7 @@ fn pace(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> Valu
         exec.set_state(ExecutionState::Running);
         loop {
             machine.run(batch, exec);
+            log_pass(machine, exec);
             let f = card_frames(machine, idx).unwrap_or(f0);
             if f != f0 {
                 break;
@@ -1986,6 +2087,7 @@ fn advance(machine: &mut Machine, exec: &mut ExecutionControl, req: &Value) -> V
     exec.set_state(ExecutionState::Running);
     loop {
         machine.run(batch, exec);
+        log_pass(machine, exec);
         if matches!(exec.get_state(), ExecutionState::BreakpointHit) {
             break;
         }

@@ -42778,9 +42778,10 @@ them at the same tail (KERN-MEGA-PLAN 14.67): `OSAPI_XMEM_SEL` (§41.16) at
 `0x04AB` and `OSAPI_MEM_CODESEL` at `0x04B1`, a 108th and a 109th rare cell,
 `OSAPI_XMEM_WALK` (§28.4.8) at `0x04B7` and `OSAPI_MEM_HUGE` at `0x04BD`, a
 110th and a 111th, `OSAPI_XMEM_RUN` at `0x04C3` a 112th and
-`OSAPI_MEM_SUBSEG` at `0x04C9` a 113th - **1,215 bytes**, which is what
-`kernel.asm`'s length guard asserts from the counts. `osapi_table_end` is
-`0x04CF`.
+`OSAPI_MEM_SUBSEG` at `0x04C9` a 113th - 1,215 bytes - and
+`OSAPI_IMG_NAME` (§28.4.12) at `0x04CF` a 114th, **1,221 bytes**, which is
+what `kernel.asm`'s length guard asserts from the counts. `osapi_table_end`
+is `0x04D5`.
 Those counts are the tree it landed on, not a contract; `t_api_abi` prints
 the span it walked.
 
@@ -53965,6 +53966,67 @@ gave - until the office disk is the one in B:.
 `tests/unit/t_fonts.py` holds both halves: the faces on the three larger
 system images and on `office360.img`, and none at all on `os8088-360.img`.
 
+#### 24.3.1.6 What an 8088 cannot use leaves the 360KB system disk
+
+**`CDROM.DRV`, `COLDHMA.SYS` and `XMEM.DRV` come off `os8088-360.img`**, by
+the owner's decision, so the disk can keep 10KB free and still take a 5KB
+driver. None of the three can do anything on an 8088. `CDROM.DRV` refuses to
+attach below a 286 because its data port is 16 bits wide (§119.2).
+`COLDHMA.SYS` is the HMA image (§2.10.7) and `XMEM.DRV` the RAM above 1MB
+(§41.12), and only a 286 or later has either. The 360KB disk is the XT's disk.
+A 286 booting from a 360KB drive can exist, but it is an odd machine, and every
+AT-class profile here boots the 1.2MB or 3.5" disks, which keep all three.
+
+`SYS360OMITDRV` in the Makefile is the list and `DRIVERS360` the filtered
+`$(DRIVERS)` the 360KB system disk is built from. The kernel already copes with
+any of the three being absent; kern_mega's disks have shipped without
+`COLDHMA.SYS` and `XMEM.DRV` all along. **An install made from this disk does
+not carry them either**, because the installer copies the system disk it is on
+(§117.6). §118.2.3 is why System Check does not report that install as broken.
+
+| | 512-byte clusters |
+|---|---|
+| `os8088-360.img` before | 696 of 706, 10 free |
+| the three off (11 + 7 + 4) | 674 of 706, **32 free** (measured) |
+
+#### 24.3.1.7 System Check and the DOS tools move to the utilities disk
+
+**`build/util360.img` is a fifth category disk (§24.6)**, by the owner's
+decision of 2026-10-22, for programs a 360KB machine runs to look *at* itself
+rather than to get work done:
+
+- **At the root:** `SYSCHECK.O88` (§118), `REDLINE.O88` (§103) and a copy of
+  `TASKMGR.O88` (§28).
+- **In `SYSTEM/DOS/`:** `OS88NET.COM` (§62) and `OS88CZ.COM` (§20.17.4). They
+  go there for the reason network360 puts its `.COM` there: at the root, a
+  double-click would run a DOS tool on the machine it is not for.
+
+Three moves made it, and all three apply at 360KB only:
+
+- **`SYSCHECK.O88` leaves `os8088-360.img`.** `$(SYSTOOLSARGS)` is no longer
+  in that disk's recipe. A hard disk installed from the 360KB pair therefore
+  carries no `C:\SYSTEM\SYSCHECK.O88`. The user runs it off util360 instead,
+  and it offers the hard disk by default (§118.13). It is still on the 720KB,
+  1.44MB and 1.2MB system disks and on the live media.
+- **`OS88NET.COM` leaves `apps360.img`.** network360 keeps its copy, beside the
+  programs that use the link.
+- **`REDLINE.O88` reaches a shipped 360KB disk for the first time.** Until now
+  its only 360KB copy was the on-demand `redline360.img`.
+
+`OS88CZ.COM` had never fitted on apps360 (§20.17.4) and is new at this
+geometry.
+
+| | clusters |
+|---|---|
+| `os8088-360.img`, after §24.3.1.6 | 674 of 706 (512 B), 32 free |
+| `SYSCHECK.O88` off | **649 of 706, 57 free** (measured) |
+| `apps360.img` | 337 → **325 of 354, 29 free** (measured) |
+| `util360.img` | **72 of 354, 282 free** (measured) |
+
+`tests/unit/t_sysman.py` holds both halves: System Check absent from
+`os8088-360.img` and present at util360's root. `tests/instdeep.py`, which
+installs from the 360KB pair, no longer expects `SYSTEM/DOS/`.
+
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 
 `build/media360.img` is a data floppy carrying `MEDIA/BEVERLY.MOD` and
@@ -54387,9 +54449,9 @@ user can *choose* one without swapping floppies.
 
 ### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
 
-`build/office360.img`, `build/network360.img`, `build/games360.img` and
-`build/emu360.img` are four data floppies built by `all` beside the system,
-apps and media disks.
+`build/office360.img`, `build/network360.img`, `build/games360.img`,
+`build/emu360.img` and `build/util360.img` are five data floppies built by
+`all` beside the system, apps and media disks.
 Each carries **one category of application at the root of the volume**, the
 documents those applications open in `MEDIA/`, and a pre-made
 `SYSTEM/APPDATA/`.
@@ -54417,6 +54479,7 @@ everything on it and gain nothing from three.
 | `network360` | Browser, FTPD, Telnet, The Wire (+ `SYSTEM/DOS/OS88NET.COM`) | `BROWSER.HTM` |
 | `games360` | every package in the apps disk's `GAMES/` | — |
 | `emu360` | RealDMG | `GBDEMO.GB` |
+| `util360` | System Check, Redline, Task Manager (+ `SYSTEM/DOS/OS88NET.COM`, `OS88CZ.COM`) (§24.3.1.7) | — |
 
 **The packages are at the ROOT, with no `APPS/` over them.** The apps disk
 sorts a mixed bag into folders because it *is* a mixed bag; a category disk
@@ -62957,7 +63020,7 @@ fixes the one defect the scan had, and the photograph stays UNEXPLAINED until
 it is retaken on this build: the open question is what the Victory's ROM
 headers say, which `tm_uma` holds and a field run can read.
 
-### 28.4.10 One memory page: groups that open, two views, and a header that switches them
+### 28.4.10 One memory page: one tree of groups that open, and DETAIL
 
 docs/plans/KERN-MEGA-PLAN.md 14.70.2. The memory page and the heap page
 listed the SAME claims twice - once summed per owner, once per claim - so a
@@ -62971,35 +63034,73 @@ and bar - and one line replaces the heap page's two captions:
 
 - `AVAIL nnnK  MAX RUN nnnK` (`TMC_AVL`, `TMM_AVL_Y`): free heap and the
   largest single run, one `OSAPI_MEM_AVAIL`, which was the heap page's
-  fragmentation reading (its `FREE`/`MAX`) and keeps its argument.
-- the header (`TMC_HDR`, `TMM_HDR_Y`): `PROGRAMS` or `SYSTEM`, then `ADDR`
-  and `SIZE`, then `+ALL` or `-ALL` - the two ends lettered INVERTED, which on
-  a page with no other chrome is what says they are switches.
+  fragmentation reading (its `FREE`/`MAX`) and keeps its argument. **On
+  kern_mega in protected mode the pool above 1MB is in both figures**
+  (KERN-MEGA-PLAN 14.70.3): an `OS88_HIGHMEM` package's region and claims go
+  there, so AVAIL adds `OSAPI_XMEM_CAPS`'s free KB, and MAX RUN is the larger
+  of the heap's run and the pool's largest run AFTER `mx_alloc`'s compaction
+  - `mx_compactf`'s own walk replayed over `OSAPI_XMEM_WALK`'s records
+  (`tm_himax`: movable owners 80h-DFh and FDh slide down, every other block
+  pins, the fixed areas' records are skipped). In KB to 9,999, otherwise both
+  in MB to two places with one gap fewer, `AVAIL 15.26M MAX RUN 14.70M` -
+  the caption's 27 cells exactly.
+- the header (`TMC_HDR`, `TMM_HDR_Y`): `+DETAIL` or `-DETAIL`, then `ADDR`
+  and `SIZE`, then `+ALL` or `-ALL` - both switches lettered INVERTED, which
+  on a page with no other chrome is what says they are switches, and each
+  sign saying what a click will do (KERN-MEGA-PLAN 14.70.3).
 
 **The groups**, classified once per paint (`tm_classify`): every claim
 record and every pool block above 1MB gets a group id, a bit of the dword
 `[tm_exp]` that says whether that group is open. Ids 0..11 are the instance
-slots, then System, Programs (the SYSTEM view's one row for every package),
-Purgeable, Kernel, and one per driver class (`TMG_DRV` + `DRVC_*`). A
+slots, then System, Programs (unused since 14.70.3, kept so the ids after it
+do not move), Purgeable, Kernel, and one per driver class (`TMG_DRV` + `DRVC_*`). A
 purgeable record (§50.6, tags FBh..FEh) is in **Purgeable**, whoever caused
 it: it is in no owner's total by §28.4.1's rule, so filing it under one -
 §28.4.5's raise cache under the window's package - made a group's rows add to
 more than its heading. A driver's image and its claims are the driver's
 group, named by its class (`SOUND.DRV`, `HDD.DRV`, `ETHER.DRV`), off the
 image header's class byte in conventional memory and off `XMW_CLS` above 1MB
-(§28.4.11); a driver kern_mega moved above 1MB names its claims by its data
+(§28.4.11) - a class has one driver, so the class is the driver. A
+CLASS-LESS image (`DRVC_OVL`: XMEM, the saver, THMPAL, HDDTOOL, RAMPAGE) is
+a group of its own (`tm_ogid`, on the class ids no class uses: `TMG_DRV` and
+`TMG_DRV + TMD_NCLS` up, seven), named by `OSAPI_IMG_NAME` (§28.4.12) -
+`XMEM.DRV` - or, for one a module loaded on a record of its own, its header's
+name at +16; a class-less driver's CLAIM above 1MB, whose record says no
+more than its class, is the first such group. A MODULE's image has no group
+to be named by, so its row's TYPE is its file's stem - `CTRL`, `DISKOPS` -
+in place of `ModImg`, and above 1MB in place of `Kernel`; a driver kern_mega moved above 1MB names its claims by its data
 SELECTOR, which `verr` admits before the header is read. A group with
 nothing in it is not drawn, so `Kernel` appears only where the kernel claims
 something.
 
-**Two views, switched at the header's left end** (`[tm_mview]`):
+**One tree** (KERN-MEGA-PLAN 14.70.3; it was two views, PROGRAMS and SYSTEM,
+switched at the header's left end, until each showed what the other hid):
 
-| | PROGRAMS (`[tm_mview]` = 0) | SYSTEM (1) |
+| row | at | opens into |
 |---|---|---|
-| System | ONE row, its total and the gray square, opening into the itemised rows below | itemised at the top level |
-| a package | one group each, its square, opening into its claims and its blocks above 1MB | one `Programs` row, opening into a row per package |
-| Purgeable | a group, `tm_pat_clm`'s square, opening into the caches with their tiers | the same |
-| 640K-1MB | §28.4.9's rows, after the list | the same |
+| `System`, its total and the gray square | column 0 | its items, and one group per owner ONE LEVEL IN - `Kernel`, each driver, each built-in - each opening into its claims at the claim indent |
+| `Programs` and the programs' total | column 0, a HEADING: no marker, never a column's last row, not a click target | - |
+| each package, its square | column 0, under the heading | its claims and its blocks above 1MB |
+| a blank row | **with DETAIL on only**: what DETAIL adds is set off from the programs | - |
+| `Purgeable`, `tm_pat_clm`'s square | column 0, **with DETAIL on only** | the caches with their tiers |
+| 640K-1MB | §28.4.9's rows, **with DETAIL on only** | - |
+
+A nested owner's row is the group row one column in: its marker at column 1
+and its name a column shorter (`tm_grp1`), so a claim under it sits at the
+same `TMH_IND` as any claim and TYPE keeps all eight columns. The programs
+are a heading and not a group because a second level of opening there would
+take columns from their names, and the total is the one figure the SYSTEM
+view had that the tree would otherwise not.
+
+**DETAIL is for whoever is debugging, and the default view adds up.** With
+every group closed and DETAIL off, the SIZE column - System, and each program
+- sums to Ram's used half, and that plus AVAIL is Ram's total: every figure
+is *what is in use that the user cannot have*. Purgeable is in none of them -
+not in Ram's used half (§28.4.1), and counted AS available by AVAIL - so as a
+row it added up to nothing on the screen, which is why it went behind DETAIL
+with the 640K-1MB rows, which are not RAM at all. Measured on kern_big VGA
+with the Calculator open: `RAM 120/640K`, `System 102K` + `Programs 18K`,
+`AVAIL 520K`; DETAIL adds `Purgeable 116K`.
 
 System's items (`tm_sysitems`): `IVT+BIOS` at 0000 (§28.4.8), `Code+data`
 (the kernel's span, no address), `Stacks` and `FAT snap`; above 1MB on
@@ -63011,8 +63112,9 @@ one per built-in (a Disk window, named by its folder - `APPS`), each opening int
 rows still sum: System's figure is the sum of exactly these.
 
 **`+ALL` opens every group and `-ALL` closes them** - the switch says what a
-click will do, and reads `-ALL` once everything is open by any route. A
-view change starts the other view's list from its top. Both switches,
+click will do, and reads `-ALL` once everything is open by any route.
+DETAIL keeps the list's place, `tm_hclamp` pulling it back when the list got
+shorter. Both switches,
 every group row and the scroll bar are hit in `tm_lclick` and `tm_hscroll`
 before `tm_click` cycles the page, and a click that lands on neither turns
 the page as it always did (§28).
@@ -63045,7 +63147,7 @@ kern_mega's half is §28.4.11.
 
 ### 28.4.11 `OSAPI_XMEM_WALK` names the fixed areas and the drivers, on kern_mega
 
-The rows of §28.4.10's SYSTEM view above 1MB need two facts the walk did not
+The rows of §28.4.10's System group above 1MB need two facts the walk did not
 give: what the span between 1MB and the pool's base IS, and which driver a
 `FDh`/`0C0h | row` block belongs to. Both are added to the same cell,
 additively (§20.2.0.1: no `PKG_FMT` bump, `tools/abi.lock.json` refreshed):
@@ -63066,6 +63168,37 @@ The Task Manager asks with BX = `XMW_FIXED` and keeps `[tm_hifix]`, so a
 kernel that answers no markers still reads as one `Above 1MB` row. Cost:
 kern_mega `.mega` 14,460 → 14,609 (+149 bytes), `.text` +0; kern_big and
 kern_small byte-identical (the build number aside).
+
+
+### 28.4.12 `OSAPI_IMG_NAME`: which driver or module an image is
+
+KERN-MEGA-PLAN 14.70.3. A `DrvImg` row said nothing about WHICH driver once
+two class-less drivers shared a heading, and every module was a `ModImg` -
+on kern_mega every module is above 1MB too, under `Kernel`. The names are
+the kernel's (`drv_tab`'s `DRVR_FILE`, `ss_row`'s and `xm_row`'s, `mod_tab`'s
+`MODR_FILE`) and no cell reached them. `0x04CF`, a rare `RCSLOT` cell,
+appended (§20.2.0.1: no `PKG_FMT` bump, `tools/abi.lock.json` refreshed):
+
+- in: AX = the segment an image is loaded at - the base of a `MEM_K_DRV` or
+  `MEM_K_MOD` claim - with BX = 0; or BX = 1 and AX = a block's `XMW_OFF` in
+  the pool above 1MB, where kern_mega puts both. ES:DI = 13 bytes.
+- out: CF = 0, the 8.3 file name at ES:DI, NUL-terminated, AL = 0 a driver /
+  1 a module; CF = 1 nothing of the kernel's is there, AX kept. Every other
+  register kept.
+
+kern_big's body is `.cold`, walking the rows by segment; kern_mega's BX = 1
+arm is `mega_imgnf` in `.mega`, `mega_xmcls`'s match - the row's selector,
+its LDT base, `mx_rel` - over every row that names an image. kern_small
+refuses (`mod_gone`), shipping no memory view to ask. A driver a module
+loads on a record of its own (THMPAL by the Control Panel's Theme page,
+HDDTOOL) is in no kernel table and answers CF = 1; its header's own name at
++16 is the caller's fallback, and the Task Manager takes it.
+
+**What it cost**: kern_big **+94 bytes** resident (`.cold` +88 for the body,
+`.text` +6 for the cell, `tools/os88rdiff.py` against the commit before),
+no rung crossed; kern_small the cell's 6; kern_mega the same plus
+`mega_imgnf` above 1MB. `taskmgr.o88`'s image 9,595 -> 9,866 bytes, which
+is the DETAIL sign and blank row too.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 
@@ -100748,6 +100881,39 @@ It is the same finding as §19.2.4.3's, one layer along: a walk the layer
 already owns, written out again at the call site because the call site was
 written first.
 
+### 54.2.2 A slot is spent on a program that DECLARES, and on nothing else
+
+**§54.2's "no shipped set reaches 16/32" was true of the programs that
+declare and false of the table**, because one door spent slots on everything.
+`asc_take_x` - the harvest's arm for a package whose body is already in the
+icon store (§54.7.4), which after an `ASSOC.DAT` absorb is nearly every
+package a listing shows - asked `assoc_app_get`, which CREATES. So every
+package in every folder browsed took a slot for the rest of the session:
+MINES, TANK, CALC, CHART and INSTALL, none of which claims an extension.
+`assoc_app_get`'s own header already said seeding *"must never spend a slot
+on a program the user has not met"*, and `assoc_note_app`, the miss arm of
+the same harvest, creates only when the header's declaration bit is set.
+The two arms of one harvest disagreed.
+
+Reported off the owner's 286: an installed C: with `REALDMG.O88` in
+`C:\GAMES` and a folder of `.GB` cartridges, the cartridges drawn without
+RealDMG's document icon and every double-click toasting `Load failed`.
+Reproduced on that disk image in QEMU: the 1.44MB system floppy in A: and
+`office360` in B:, both opened, fill all sixteen slots - INSTALL, CALC and
+CHART among them - so REALDMG, met afterwards, gets none, `.GB` is never
+merged, and §54.4.3's search finds every volume's cache naming a program it
+cannot give a slot to. The verdict is `LD_EBAD`.
+
+`asc_take_x` asks `assoc_app_of` now, which only finds. A declaring package
+already has its slot by the time a hit reaches it: `asc_merge_ext` made it
+when the cache was absorbed, or `assoc_note_app` did on the miss that first
+read its header. The same disk and the same two floppies then use 15 of the
+16 slots, the cartridges draw RealDMG's page and DRMAR.GB opens. It also
+makes §54.7.6.4's step 5 proof - *"a package that declares always takes a
+slot"* - the only way a slot is taken, so a flush stops reading the headers
+of plain packages that merely held one. **0 bytes**: the two calls are the
+same size.
+
 ### 54.3 The icon: a page frame with the program's glyph inset
 
 The document page is a 16×16 dog-eared page — the second icon in this kernel
@@ -101263,6 +101429,47 @@ costs a look and never opens a wrong file. The change is **41 bytes of
 `APPS\VIDEO.O88` deleted from under its `ASSOC.DAT`, and apps720 in B:. A
 double-click on `A:\MEDIA\OS8088.V88` now opens a Video Player. On the kernel
 before this it toasts `Needs VIDEO.O88`.
+
+### 54.4.2.4 …and a program that is GONE is replaced by one that declares the same extension
+
+**`ASSOC.DAT` can list several packages declaring one extension, and the
+kernel keeps ONE owner.** `asc_merge_ext` takes the rows in order and the
+last one wins. So with `A.O88` and `B.O88` both declaring `.XYZ`, the RAM
+table names one of them - and when that one is deleted, every rung of
+§54.4.2 looks for `<THAT>.O88` and nothing else. The other package can
+stand in the document's own folder and the double-click still toasts
+`Needs A.O88`. That is the owner's report: *"other disks get searched, but
+the disk it was on does not"*. The disk WAS searched, but only for the
+deleted program.
+
+**So the first miss of a run is not the verdict.** `assoc_run_x`'s
+`.nofile` runs a **full** flush (`ASCF_FULL`, §54.7.6.4) of the volume the
+missing program was last seen on, or of the document's own volume when the
+program was never seen. A full flush reads every package's header, root and
+one level down, so the rebuilt file names whoever declares the extension
+NOW. It then sets `[asc_vol]` to 0xFF. A flush that finds the bytes
+unchanged leaves the stamp alone ("the same bytes write nothing"), and the
+re-absorb is the point. It clears `ASSOC_STICKY` on the document's
+extension row, because a runtime claim whose program is gone protects
+nothing. Then it repeats §54.4.3's sweep (`assoc_tryext`). Whatever slot
+that answers goes back through `.known`, so the program it names is located
+by the same rungs.
+
+**Once a run.** Bit 7 of `[assoc_dead]` marks it. Volumes are 0..5 in that
+byte, and `.located` clears it per run. A second miss toasts `Needs` as
+before. Its `assoc_fnb` is rebuilt by the locate that missed, so a refused
+flush - which stages `ASSOC.DAT`'s own name in that buffer - cannot leak
+into the toast. A flush that fails (a write-protected floppy, a module that
+will not load) still falls through to the sweep, which re-reads whichever
+file is there.
+
+It costs nothing until a program is missing, and then it costs one full
+flush: a header read per package on that volume. That is milliseconds on a
+hard disk and seconds on a floppy, on a path that used to end in a refusal.
+**+66 bytes of `.cold`**, resident, no rung crossed (§54.2.2 is +0). Even on purpose: `dsk_xfer` and its hot neighbours follow it in `.cold`, and `t_hotpar` pins their parity. Verified
+in QEMU on the owner's 286 image with `C:\T\FVA.O88`, `C:\T\FVB.O88` and
+`C:\T\X.F88`: FVB took `.F88`, was deleted, and `X.F88` toasted
+`Needs FVB.O88`. It opens the Font Viewer out of FVA.O88 now.
 
 ### 54.4.3 An extension nothing here claims is LOOKED FOR, not refused
 
@@ -200488,8 +200695,9 @@ close. It may opt back into movement after the lease is released.
 all registers except AX and CF. AL is the verb; BL is COM1=1 or COM2=2 for
 Open, ignored for the other verbs. Every operation is bound to the calling
 instance. A winning serial mouse's port is never eligible. Until the mouse
-contest is settled, Open refuses with a distinct error; the caller tells the
-user to move the mouse. Nonstandard or unadvertised bases are refused.
+contest is settled, Open decides per port (§115.1.1) and otherwise refuses
+with a distinct error; the caller tells the user to name the port or move
+the mouse. Nonstandard or unadvertised bases are refused.
 
 | AL | verb | arguments and result |
 |---|---|---|
@@ -200502,6 +200710,29 @@ Open by the instance that already holds the lease MOVES it (§114.9): the
 held port is restored and released exactly as Close would, the module stays
 loaded and the named port is opened. A refusal of the new port leaves the
 lease closed, as a failed Open always does. Any other holder is refused busy.
+
+#### 115.1.1 Before the mouse contest settles
+
+A machine with no serial mouse — the keyboard mouse (§9.6) driving the
+pointer — never settles the contest, because no packet ever arrives, so a
+blanket refusal would refuse every port for the whole session. While it is
+unsettled, Open takes a port, in this order:
+
+1. **Refused 3** if that port answered the reset edge like a mouse
+   (`[mou_ident]`, §9.4.1). Nothing below overrides it.
+2. **Taken** if BL bit 7 is set (BL = 81h or 82h): the USER named this port,
+   which is the statement "this is not the mouse". An application sets it
+   only for a port the user chose, never in an automatic search.
+3. **Taken** if a mouse identified on the OTHER port.
+4. **Taken** if the port's MSR shows DSR or DCD asserted: something drives
+   those lines — a modem, or a null modem whose far end holds DTR, which an
+   os8088 peer does on every port it probes. A serial mouse drives neither.
+5. Otherwise **refused 2**.
+
+The lease isolates its row from the mouse code (§115.2), so taking a port
+that later proves to hold an idle mouse costs that mouse its port only until
+Close; the contest resumes there afterwards. All of it is in `SERIAL.DRV`:
+no resident byte. A settled contest ignores bit 7.
 
 Refusals are AX=1 busy/wrong owner, 2 mouse not settled, 3 mouse port,
 4 absent/unsupported port, 5 invalid caller/buffer, 8 module unavailable.
@@ -203771,6 +204002,21 @@ show it to a package (§19.7.1) - is asked for by name. **A name stays in
 the list for ever**: a machine can be upgraded from any release, and a
 leftover is a leftover however old.
 
+#### 118.2.3 Optional files
+
+Not every system disk carries every file the release ships. The 360KB one
+leaves off what an 8088 cannot use (§24.3.1.6), and an install copies only the
+disk it was made from. So a manifest entry can be **optional**:
+`tools/os88sysman.py --optional PATH` ORs `SCF_OPT` (0x80) into its folder
+byte. The Makefile passes `$(SYS360OMITDRV)`, and the tool refuses an
+`--optional` that names no input. When an optional file is **absent**, that is
+not a finding: `sc_man_missing` moves on to the next entry. When it is
+**present**, it is judged exactly like any other file, so a stale `XMEM.DRV`
+left by an earlier install is still reported. `sc_manpath` masks the bit before
+it resolves the folder. `tests/unit/t_sysman.py` excuses an optional file only
+on `os8088-360.img`, so the three larger system disks must still carry it byte
+for byte.
+
 ### 118.3 The scan
 
 **It runs in slices on the UI task**, in `OSAPI_WM_ONWAKE` (§74.1), because
@@ -203899,9 +204145,11 @@ driver or kernel is to install again (§52.10.15), which those findings say.
 
 `SYSTOOLS`, its own list threaded the way `STIKAPPS` is, and not
 `SYSAPPS`: the Makefile's comment above `STIKAPPS` keeps new system-disk
-packages out of the 35 recipes `SYSAPPSARGS` reaches. So `SYSTEM\` on the four kern_big system
-disks and on the live media, which is where an install takes it from
-(§52.10.4 step 3). Not the apps disks, `kern_small`'s or `kern_emu`'s
+packages out of the 35 recipes `SYSAPPSARGS` reaches. So `SYSTEM\` on the
+720KB, 1.44MB and 1.2MB kern_big system disks and on the live media, which is
+where an install takes it from (§52.10.4 step 3). **At 360KB it is the root of
+`util360.img` instead** (§24.3.1.7), so an install from the 360KB pair does not
+carry it. Not the apps disks, `kern_small`'s or `kern_emu`'s
 (§118.9). It is opened like any program, from `C:\SYSTEM` in the Disk window.
 
 ### 118.11 The tests
@@ -204658,13 +204906,10 @@ Measured at one build number against the tree before it:
 | `HTTPFS.DRV` | **7,702 bytes of image, an 8 KB claim while attached; 5,442 on the floppy**, LZ4. The 1 KB reader is most of its bss | none |
 | while mounted | the index's claim: `ceil((16 + 18 x records) / 1024)` KB - **2 KB for a system disk's 70 records**, 16 KB at `HF_MAXREC` | none |
 
-**Not on the 360 KB system disk** (`$(DRIVERS360)` in the Makefile): that
-disk's free room is already under the owner's 10 KB rule, and making room
-is its own work. The 720 KB, 1.2 MB and 1.44 MB system disks carry it, and
-System Check's one manifest (§118.2.1) names `$(DRIVERS360)` so a 360 KB
-disk is not called broken for lacking it. `make httpdrv360` builds a 360 KB
-system disk WITH it - every one of its 706 clusters used - to try the drive
-on an XT; it is not shipped.
+**On every `kern_big` system disk, the 360 KB one included**: §24.3.1.6
+took CDROM.DRV, COLDHMA.SYS and XMEM.DRV - three files an 8088 cannot use -
+off that disk to make the room, and System Check's manifest names the
+driver on all four geometries.
 
 ### 120.7 The host side, and the gate
 

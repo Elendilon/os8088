@@ -162,7 +162,8 @@ def main(argv):
     print("    cs_diag_isr %04x  cs_dtick %04x  cs_doff %04x"
           % (sym["cs_diag_isr"], sym["cs_dtick"], sym["cs_doff"]))
 
-    with os88ui.boot(a.image, apps=a.apps, machine=a.machine) as ui:
+    with os88ui.boot(a.image, apps=a.apps, machine=a.machine,
+                     quick=True) as ui:
         m = ui.m
         ui.path("B:/GAMES/SKIES.O88")
         slot, seg = dispapps.pkg_seg(m, 0)

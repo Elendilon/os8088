@@ -170,7 +170,7 @@ rt_resume:
 ; translated code (JDISPATCH as built); AL = 0: they DISPATCH, as the
 ; interpreter did before there was a recompiler - each site's first five
 ; bytes, cmp si,8000h / jae, become mov dh,[si] / inc si / jmp dx, so a
-; machine that never translates (an 8088) pays nothing for one. DS = view.
+; machine that is not translating pays nothing for one. DS = view.
 rt_dispatch:
     push ax
     push bx
