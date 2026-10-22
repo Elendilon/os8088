@@ -14507,7 +14507,7 @@ SOAK = [
         "thing that can see sw_blit_row's tables read through the wrong"
         "segment (5.4.1.3 moved them to .lowbss)",
         needs=("marty",), serial=True),
-    Row("paintdraw", "soak", py("tests/paintdraw.py"), 70.0,
+    Row("paintdraw", "soak", py("tests/paintdraw.py"), 60.0,
         "SPEC.md 42.13: does DRAWING on the planar canvas touch only what it"
         "drew? paintplan covers the routines that write a whole row; this one"
         "covers pt_rect, which is the pencil's dab and builds a left mask, a"
@@ -14519,7 +14519,7 @@ SOAK = [
         "canvas it saves redrawing is 399 ms. Asserts the size asked for, that"
         "no canvas blit crosses an uncover, and that what came back is right",
         needs=("marty",), serial=True),
-    Row("paintfill", "soak", py("tests/paintfill.py"), 80.0,
+    Row("paintfill", "soak", py("tests/paintfill.py"), 60.0,
         "SPEC.md 42.13.2: does the FLOOD FILL find the same edges the picture"
         "has? pt_fpix gathers one bit per plane, so a plane addressed wrongly"
         "does not corrupt anything - it makes the fill see a picture that is"

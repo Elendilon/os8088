@@ -142,3 +142,5 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | paintdirty | 131 s (load 18) / ~73 guest s incl. 37 unlogged in advance() | 30 s / 36 guest s | 4 | five advance(250/400)+settle -> ui_done; every read is [pt_dirty] or the window list |
 | paintcull | 154 s (load 18) / ~38 + 17 unlogged guest s | 40 s / 41 guest s | 4 | advances -> ui_done; the restore's bp_trace now STAYS IN THE BLOCK to ui_done (it exited at the dblclick's return - a pt_topacked after that was unwatched). Red on the NOPLANE tree |
 | deskclock / deskclockherc | 182 s + 85 s / 261 guest s waited | 105 s + 46 s / 146 | 4 | `quick=True`; a fixed 0.8-14 guest s sleep per key and click -> `ui.still()` (every assertion after one detects a CHANGE, so an early read goes red); the reset's `ready` -> `up` (a ticking clock made its settle 45 guest s) |
+| paintfill | 60 guest s | 50 s (load 16) / 57 guest s | 4 | already lean (boot 20 + load 8 + the fill); idle()'s quiesce+lock-until -> ui_done |
+| paintdraw | 45 guest s | 51 s (load 16), unchanged | - | lean: boot + load + its own timed stroke; secs re-declared only |
