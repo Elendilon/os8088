@@ -79,6 +79,11 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - `OS88_MARTY_BIN=<path>` runs another emulator build in an instance (for
   trying a `debug_server.rs` change before staging it; name it
   `martypc_headless` so the instance registry recognises it).
+- **`os88ui.boot(..., quick=True)`**: launched paused, run, and `ui.up()`
+  ([spl_live] = 0) is the whole boot gate - no picture settle at all, neither
+  launch's nor `ready`'s. VGA XT 360KB: up at ~15 guest s vs launch's settle
+  ~20-30. Only when the first act is an os88ui verb or a guest read. Opt-in;
+  validated on the 22 vidpage.py rows.
 
 ## Ledger
 
