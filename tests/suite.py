@@ -14530,7 +14530,7 @@ SOAK = [
         "it back at a DIFFERENT bit phase (SPEC.md 42.13.3), which is what"
         "makes both shifts and both edge masks run. Nothing else resizes",
         needs=("marty",), serial=True),
-    Row("paintback", "soak", py("tests/paintback.py"), 180.0,
+    Row("paintback", "soak", py("tests/paintback.py"), 120.0,
         "SPEC.md 11.96.11.4 and 42.13.1.3: a window dragged clear onto the"
         "other card and home again - the PICTURE first, because the stale BX"
         "this caught had the kernel writing zeros into its own .text and the"

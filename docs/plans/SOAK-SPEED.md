@@ -35,7 +35,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
    opening the package is ~20-30 host s on MartyPC under load; legs that each
    begin "booted, app open, idle" share one if each leaves that state behind
    (and the next ASSERTS it found it). Several files for several legs go on
-   one disk, a window closed between them.
+   one disk, a window closed between them. When the legs diverge right
+   after boot (different panel settings), boot once, `m.snapshot()`, run leg
+   1, then `m.restore(id, port)` for leg 2 (tests/paintback.py's `run`).
 4. **`ui_done` before `settle`, and `ui_done` alone when the next read is
    memory.** `settle`'s short window (~0.6 guest s) only opens if the UI task
    is idle at its FIRST sample; a settle begun mid-repaint pays a full
@@ -75,3 +77,4 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | isotronload | 219 s / 199 guest s | 168 s / 139 guest s | 3 | launch and rate legs on one boot a machine (6 -> 3); a settle after `open_drive` (which confirms the listing) dropped. The rest is the 2 s rate windows and the launch itself |
 | paintbig | 72 s / 103 guest s | 38 s / 59 guest s | 4 | eight settle+quiesce(1.0) pairs -> ui_done+quiesce(0.3); the 20 guest s left is the boot |
 | paintpack | ~180 s, 2 boots (blitpair + paintbig) | 49 s / 67 guest s | 3, 4 | `paintbig --pair` runs blitpair's `check_canvas` (factored out, one copy) on paintbig's own boot; red with one file pixel flipped |
+| paintback | 142 s / 129 guest s | 110 guest s (wall unmeasurable at load 14) | 3 | two legs, two boots -> one boot + snapshot/restore; the rest is two picture loads and the panel |
