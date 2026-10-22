@@ -19,6 +19,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
   guest cost, which is the work list.
 - Before and after on the same box state; a failing row's time is
   time-to-failure and is not a "before".
+- **Prefix `MAKELEVEL=1`** in a shared checkout: a row with `wants=` makes
+  `os88test.py` run a plain `make` in `build/` first (and it fails on a
+  half-edited doc); `MAKELEVEL` makes it only check the artefacts exist.
 
 ## Techniques (numbered; cite by number in the ledger)
 
