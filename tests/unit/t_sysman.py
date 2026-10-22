@@ -87,12 +87,16 @@ def main():
             if name:
                 where[k] = folder(fat, name)
         for kind, f, name, size, sm in rows:
+            opt = f & os88sysman.SCF_OPT
+            f &= ~os88sysman.SCF_OPT
             first = where.get(f)
             if f and first is None:
                 check(False, "%s carries %s\\" % (img, FOLDERS[f]))
                 continue
             hit = [e for e in entries(fat, first)
                    if Fat12.pretty(e[:11]) == name and not e[11] & 0x18]
+            if not hit and opt and img == "os8088-360.img":
+                continue                # SPEC.md 118.2.3: not on this one
             if not hit:
                 check(False, "%s carries %s" % (img, name),
                       "the manifest names it, so System Check would call a "

@@ -79,6 +79,7 @@ SCK_PKG     equ 5
 SCF_ROOT    equ 0
 SCF_SYSTEM  equ 1
 SCF_STIK    equ 2
+SCF_OPT     equ 0x80            ; OR'd in: not on every system disk (118.2.3)
 
 DRV_VER     equ 11                  ; drivers/os88drv.inc - the ABI lock binds
 MOD_VER     equ 5                   ; kernel/mod.inc       it to PKG_FMT's era

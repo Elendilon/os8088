@@ -53920,6 +53920,29 @@ gave - until the office disk is the one in B:.
 `tests/unit/t_fonts.py` holds both halves: the faces on the three larger
 system images and on `office360.img`, and none at all on `os8088-360.img`.
 
+#### 24.3.1.6 What an 8088 cannot use leaves the 360KB system disk
+
+**`CDROM.DRV`, `COLDHMA.SYS` and `XMEM.DRV` come off `os8088-360.img`**, by
+the owner's decision, so the disk can keep 10KB free and still take a 5KB
+driver. None of the three can do anything on an 8088. `CDROM.DRV` refuses to
+attach below a 286 because its data port is 16 bits wide (§119.2).
+`COLDHMA.SYS` is the HMA image (§2.10.7) and `XMEM.DRV` the RAM above 1MB
+(§41.12), and only a 286 or later has either. The 360KB disk is the XT's disk.
+A 286 booting from a 360KB drive can exist, but it is an odd machine, and every
+AT-class profile here boots the 1.2MB or 3.5" disks, which keep all three.
+
+`SYS360OMITDRV` in the Makefile is the list and `DRIVERS360` the filtered
+`$(DRIVERS)` the 360KB system disk is built from. The kernel already copes with
+any of the three being absent; kern_mega's disks have shipped without
+`COLDHMA.SYS` and `XMEM.DRV` all along. **An install made from this disk does
+not carry them either**, because the installer copies the system disk it is on
+(§117.6). §118.2.3 is why System Check does not report that install as broken.
+
+| | 512-byte clusters |
+|---|---|
+| `os8088-360.img` before | 696 of 706, 10 free |
+| the three off (11 + 7 + 4) | 674 of 706, **32 free** (measured) |
+
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 
 `build/media360.img` is a data floppy carrying `MEDIA/BEVERLY.MOD` and
@@ -203869,6 +203892,21 @@ by the walk; a driver - hidden and system, so `OSAPI_FILE_FIND` will not
 show it to a package (§19.7.1) - is asked for by name. **A name stays in
 the list for ever**: a machine can be upgraded from any release, and a
 leftover is a leftover however old.
+
+#### 118.2.3 Optional files
+
+Not every system disk carries every file the release ships. The 360KB one
+leaves off what an 8088 cannot use (§24.3.1.6), and an install copies only the
+disk it was made from. So a manifest entry can be **optional**:
+`tools/os88sysman.py --optional PATH` ORs `SCF_OPT` (0x80) into its folder
+byte. The Makefile passes `$(SYS360OMITDRV)`, and the tool refuses an
+`--optional` that names no input. When an optional file is **absent**, that is
+not a finding: `sc_man_missing` moves on to the next entry. When it is
+**present**, it is judged exactly like any other file, so a stale `XMEM.DRV`
+left by an earlier install is still reported. `sc_manpath` masks the bit before
+it resolves the folder. `tests/unit/t_sysman.py` excuses an optional file only
+on `os8088-360.img`, so the three larger system disks must still carry it byte
+for byte.
 
 ### 118.3 The scan
 

@@ -3833,6 +3833,16 @@ SYS360OMIT := $(BUILD)/browser.o88 $(BUILD)/telnet.o88 $(BUILD)/mines.o88 \
 CORE_TOOLS360 := $(filter-out $(SYS360OMIT),$(CORE_TOOLS))
 CORE_GAMES360 := $(filter-out $(SYS360OMIT),$(CORE_GAMES))
 COREAPPS360 := $(CORE_TOOLS360) $(CORE_GAMES360)
+# **AND THE THREE FILES AN 8088 CANNOT USE** (SPEC.md 24.3.1.6): CDROM.DRV
+# refuses below a 286 (a 16-bit data port on an 8-bit bus, 119.2),
+# COLDHMA.SYS and XMEM.DRV are the HMA and the RAM above 1MB, which only a
+# 286 has. 22 of the 706 512-byte clusters, taken off so the disk keeps 10KB
+# free with a 5KB driver still to come. A 286 booting from a 360KB drive is
+# possible and odd; the 720KB, 1.44MB and 1.2MB system disks keep all three.
+# System Check's manifest marks them OPTIONAL (118.2.3), so a hard disk
+# installed from this disk is not reported as missing them.
+SYS360OMITDRV := $(BUILD)/cdrom.drv $(HMAIMG) $(BUILD)/xmem.drv
+DRIVERS360 := $(filter-out $(SYS360OMITDRV),$(DRIVERS))
 COREAPPSARGS360 := $(addprefix APPS:,$(CORE_TOOLS360)) \
                    $(addprefix GAMES:,$(CORE_GAMES360))
 # NO FACES at 360KB (SPEC.md 24.3.1.5): office360.img carries SYSTEM/FONTS
@@ -3887,6 +3897,7 @@ $(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) \
                            tools/os88drv.py tools/os88mod.py tools/os88lz.py | $(BUILD)
 	python3 tools/os88sysman.py --kernel $(KERNFILE) \
 	        --retired apps/syscheck/retired.txt -o $@ \
+	        $(addprefix --optional ,$(SYS360OMITDRV)) \
 	        $(DRIVERS) $(SYSAPPSARGS) $(STIKARGS)
 
 $(BUILD)/syscheck.bin: apps/syscheck/syscheck.asm apps/syscheck/scan.inc \
@@ -5470,10 +5481,10 @@ $(BUILD)/ftpapps.img: $(FTPDFILES) tools/os88disk.py
 # is what fails if this flag is lost, and autostart360.img below takes it too
 # because it is this disk plus four files.
 SYS360SPC := --spc 1
-$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
+$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS360) $(SYSAPPS) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # AUTOSTARTTEST - the LINKS and AUTOSTART gate's disk (SPEC.md 26.10): the
