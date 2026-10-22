@@ -1290,9 +1290,9 @@ tm_s_xms:   db 'XMS ', 0        ; + used/size KB above 1MB (SPEC.md 41)
 ; TMH_SWC characters, so the three are one 25-character line.
 TMH_SWC     equ 8               ; the view switch's width
 TMH_XSWC    equ 4               ; ...and +ALL's
-tm_s_vdet:  db 'DETAIL  '       ; Purgeable and 640K-1MB shown or not: lettered
-                                ; white on black while they are, like a
-                                ; pressed key (KERN-MEGA-PLAN 14.70.3)
+tm_s_vdet:  db '+DETAIL '       ; Purgeable and 640K-1MB listed or not - the
+            db '-DETAIL '       ; sign says what a click will do, as +ALL's
+                                ; does (KERN-MEGA-PLAN 14.70.3)
 tm_s_hmid:  db '   ADDR SIZE ', 0
 tm_s_xall:  db '+ALL', '-ALL'   ; open every group / close every group
 %if TMH_SWC + (tm_s_xall - tm_s_hmid - 1) + TMH_XSWC != TM_NCHUNK * TM_CHUNK
@@ -3402,25 +3402,13 @@ tm_mhdr:
     add dx, [tm_cy]             ; DX = its y
     mov bx, [tm_cols]
 .col:
-    mov si, tm_s_vdet           ; --- DETAIL: inverted while it is on
-    mov ax, TMH_SWC
+    mov si, tm_s_vdet           ; --- +DETAIL, or -DETAIL while it is on
     cmp byte [tm_detail], 0
-    jne .v
-    push cx
-    mov di, tm_str
-    mov cx, ax
-    call tm_copyn
-    mov byte [di], 0
-    pop cx
-    push si
-    mov si, tm_str
-    mov ax, (CWHITE << 8) | CBLACK
-    call OSAPI_FONT_RUN
-    pop si
-    jmp short .vd
+    je .v
+    add si, TMH_SWC
 .v:
+    mov ax, TMH_SWC
     call tm_hrun                ; white on black
-.vd:
     push cx
     add cx, TMH_SWC * 8         ; --- the column captions between them
     mov si, tm_s_hmid
@@ -4048,6 +4036,20 @@ tm_htype:
     jmp short .put
 .kern:                          ; (each range's name is loaded BEFORE its
                                 ; test, so a hit goes straight to .put)
+    cmp ax, MEM_K_MOD           ; a module's image: its file's name, 'CTRL',
+    jne .kn                     ; rather than 'ModImg' (KERN-MEGA-PLAN
+    push ax                     ; 14.70.3) - a module has no group to be
+    push bx                     ; named by, so the TYPE column is where
+    xchg ax, bx                 ; it says which
+    xor bx, bx
+    call tm_imgnm
+    pop bx
+    pop ax
+    jc .kn
+    mov si, tm_nbuf
+    call tm_stem
+    jmp short .out
+.kn:
     mov si, tm_s_twsav
     mov dx, ax                  ; the raise-cache RANGE first: one per window
     sub dx, MEM_P_WSAVE         ; slot (SPEC.md 11.96.3), so it is not in the
@@ -4299,6 +4301,7 @@ tm_classify:
     push dx
     push si
     push di
+    mov byte [tm_onum], 0       ; the class-less images, found again (tm_ogid)
     push es
     push ds
     pop es
@@ -4441,20 +4444,76 @@ tm_cgidof:
     pop bx
     ret
 
-; tm_drvgid - BX = a driver image's segment or selector -> AL = its group,
-; TMG_DRV + its DRVC_* class when its header says it is a driver, TMG_DRV
-; (the 'Drivers' group) for an overlay or anything else. Keeps the rest
+; tm_drvgid - BX = a driver image's segment or selector -> AL = its group:
+; TMG_DRV + its DRVC_* class when its header names one - a class has ONE
+; driver, so the class is the driver - and otherwise a group of its own image
+; (tm_ogid): XMEM.DRV, the saver and every other DRVC_OVL image would share
+; one 'Drivers' heading and be told apart by nothing (KERN-MEGA-PLAN
+; 14.70.3). Clobbers AH; keeps the rest
 tm_drvgid:
     push es
     mov es, bx
-    mov al, TMG_DRV
     cmp word [es:0], 0x384F     ; 'O8', the driver header's magic
-    jne .o
-    cmp byte [es:3], TMD_NCLS   ; DRV_H_CLASS
-    jae .o
-    add al, [es:3]
+    jne .own
+    mov al, [es:3]              ; DRV_H_CLASS
+    dec al
+    cmp al, TMD_NCLS - 1
+    jae .own                    ; 0, or DRVC_OVL and anything past the table
+    add al, TMG_DRV + 1
+    jmp short .o
+.own:
+    mov ah, 0
+    call tm_ogid
 .o:
     pop es
+    ret
+
+; tm_ogid - BX = a CLASS-LESS driver image's key - its segment, or AH = 1 its
+; block's XMW_OFF above 1MB - -> AL = its group, the next free one the first
+; time this paint sees it. Ids are the class groups no class uses: TMG_DRV
+; (DRVC 0) and TMG_DRV + TMD_NCLS up, TM_NOVL in all; past that they share the
+; last. Rebuilt per paint in walk order, so an open group follows its image
+; for as long as the drivers loaded do not change. Clobbers AH
+tm_ogid:
+    push cx
+    push si
+    push di
+    mov si, tm_okey
+    mov di, tm_ohi
+    mov cl, [tm_onum]
+    xor ch, ch
+    jcxz .new
+.l:
+    cmp [si], bx
+    jne .n
+    cmp [di], ah
+    je .hit
+.n:
+    inc si
+    inc si
+    inc di
+    loop .l
+.new:
+    cmp byte [tm_onum], TM_NOVL
+    jae .hit                    ; full: DI is one past the last, clamped below
+    mov [si], bx
+    mov [di], ah
+    inc byte [tm_onum]
+.hit:
+    xchg ax, di
+    sub ax, tm_ohi              ; AL = the index
+    or al, al
+    jz .g0
+    cmp al, TM_NOVL
+    jb .gi
+    mov al, TM_NOVL - 1
+.gi:
+    add al, TMD_NCLS - 1
+.g0:
+    add al, TMG_DRV
+    pop di
+    pop si
+    pop cx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -4499,12 +4558,22 @@ tm_xgidof:
     mov al, TMG_KERN
     jmp short .o
 .drv:
+    mov bl, al                  ; (the owner)
     mov al, [si+XMW_CLS]
-    cmp al, TMD_NCLS
-    jb .dc
-    xor al, al
-.dc:
-    add al, TMG_DRV
+    dec al
+    cmp al, TMD_NCLS - 1
+    jae .own                    ; class-less: a group per image (tm_drvgid)
+    add al, TMG_DRV + 1
+    jmp short .o
+.own:
+    mov al, TMG_DRV             ; a class-less driver's CLAIM: its row is not
+    cmp bl, TMX_DRVIMG          ; its image's address, so the first group
+    jne .o
+    push ax
+    mov bx, [si+XMW_OFF]        ; ...and its IMAGE, keyed by where it is
+    mov ah, 1
+    call tm_ogid
+    pop bx                      ; (the pushed AX: its AL is spent)
 .o:
     pop bx
     ret
@@ -4589,6 +4658,8 @@ tm_rows_mem:
     ; to Ram's total without it; and 640K-1MB is not RAM at all
     cmp byte [tm_detail], 0
     je .end
+    call tm_mrow_open           ; ...set off from the programs by a blank row
+    call tm_mrow_close
     ; --- Purgeable: nobody's, and reclaimable -------------------------------
     mov ax, [tm_gkb + 2*TMG_PURGE]
     or ax, ax                   ; only when there is something to take back:
@@ -4893,14 +4964,62 @@ tm_owner:
 .o:
     jmp tm_pop_dcba
 
-; tm_drvnam - SI = the name of driver group BL (TMG_DRV + class), in tm_nbuf:
-; the file's, 'SOUND.DRV', or 'Drivers' for class 0. Keeps the rest
+; tm_drvnam - SI = the name of driver group BL, in tm_nbuf: a class's file,
+; 'SOUND.DRV', or a class-less image's (tm_ogid) as the kernel names it,
+; 'XMEM.DRV' (OSAPI_IMG_NAME) - or, for one a module loaded on a record of
+; its own (THMPAL, HDDTOOL), its header's name at +16 - and 'Drivers' when
+; nothing names it. Keeps the rest
 tm_drvnam:
     push ax
+    push bx
     push cx
     push di
     mov al, bl
     sub al, TMG_DRV
+    jz .img                     ; a class-less image's group (tm_ogid)
+    cmp al, TMD_NCLS
+    jb .cls
+    sub al, TMD_NCLS - 1
+.img:                           ; AL = the image's index
+    cmp al, [tm_onum]
+    jae .drvs
+    xor ah, ah
+    mov di, ax
+    mov bl, [tm_ohi+di]         ; BX = 0 a segment, 1 a pool offset...
+    xor bh, bh
+    shl di, 1
+    mov ax, [tm_okey+di]        ; ...AX = the key
+    call tm_imgnm
+    jnc .named
+    or bx, bx
+    jnz .drvs                   ; above 1MB and unnamed: no header to read
+    push es
+    mov es, ax
+    cmp word [es:0], 0x384F     ; 'O8': a driver header, whose name is at +16
+    jne .hno
+    mov di, tm_nbuf
+    mov cx, 12                  ; what a nested group's name has room for
+    mov si, 16
+.h:
+    mov al, [es:si]
+    inc si
+    or al, al
+    jz .hz
+    mov [di], al                ; not stosb: ES is the image
+    inc di
+    loop .h
+.hz:
+    mov byte [di], 0
+    pop es
+.named:
+    mov si, tm_nbuf
+    jmp short .out
+.hno:
+    pop es
+.drvs:
+    mov bl, TMG_DRV             ; 'Drivers', with no '.DRV' after it
+    xor al, al
+.cls:
     mov ah, 8
     mul ah
     add ax, tm_dnames
@@ -4922,9 +5041,47 @@ tm_drvnam:
 .z:
     mov byte [di], 0
     mov si, tm_nbuf
+.out:
     pop di
     pop cx
+    pop bx
     pop ax
+    ret
+
+; tm_imgnm - AX = an image's segment (BX = 0) or pool block's XMW_OFF (BX =
+; 1) -> CF = 0, its file name in tm_nbuf and AL = 0 a driver / 1 a module;
+; CF = 1 the kernel names nothing there, AX kept (OSAPI_IMG_NAME,
+; KERN-MEGA-PLAN 14.70.3). Keeps the rest
+tm_imgnm:
+    push di
+    push es
+    TM_ES_DATA
+    mov di, tm_nbuf
+    call OSAPI_IMG_NAME
+    pop es
+    pop di
+    ret
+
+; tm_stem - the TYPE column from a file name at SI: up to its '.', padded to
+; TMH_TYPEC - 'DISKOPS', 'STIKMENU'. DI advanced by TMH_TYPEC. Clobbers AL,
+; CX, SI
+tm_stem:
+    mov cx, TMH_TYPEC
+.s:
+    mov al, [si]
+    inc si
+    or al, al
+    jz .p
+    cmp al, '.'
+    je .p
+    mov [di], al
+    inc di
+    loop .s
+    ret
+.p:
+    mov byte [di], ' '
+    inc di
+    loop .p
     ret
 
 ; -----------------------------------------------------------------------------
@@ -5173,6 +5330,22 @@ tm_xrow:
     inc di
     mov al, [si+XMW_OWN]
     push si
+    cmp al, TMX_KERN            ; the kernel's: on kern_mega every MODULE is
+    jne .nk                     ; one of these, named by its file (14.70.3)
+    push bx
+    mov ax, [si+XMW_OFF]
+    mov bx, 1
+    call tm_imgnm
+    pop bx
+    jc .kk
+    or al, al
+    jz .kk                      ; (a driver is FDh, never this)
+    mov si, tm_nbuf
+    call tm_stem
+    jmp short .tt
+.kk:
+    mov al, TMX_KERN
+.nk:
     mov si, tm_s_tdimg
     cmp al, TMX_DRVIMG
     je .t
@@ -5194,6 +5367,7 @@ tm_xrow:
 .t:
     mov cx, TMH_TYPEC
     call tm_copyn
+.tt:
     pop si
     mov word [di], ' H'
     mov word [di+2], 'IG'
@@ -7603,7 +7777,12 @@ tm_rgid     equ tm_gkb + TMG_N * 2  ; TM_SHOWN bytes: the group each SCREEN
 tm_rsq      equ tm_rgid + TM_SHOWN  ; TM_SHOWN words: the square each SCREEN
                                 ; row last wore (tm_mrow_close)
 tm_nbuf     equ tm_rsq + TM_SHOWN * 2   ; a driver group's name: 'USBMOUSE.DRV'
-TM_BSS_TOTAL equ tm_nbuf + 13 - os88_image_end
+TM_NOVL     equ 1 + 16 - TMD_NCLS   ; class-less images with a group each:
+                                ; TMG_DRV and the class ids past the table
+tm_onum     equ tm_nbuf + 13    ; byte: how many tm_ogid found this paint
+tm_ohi      equ tm_onum + 1     ; TM_NOVL bytes: 1 = the key is a pool offset
+tm_okey     equ tm_ohi + TM_NOVL    ; TM_NOVL words: each image's key
+TM_BSS_TOTAL equ tm_okey + TM_NOVL * 2 - os88_image_end
 %else
 TM_BSS_TOTAL equ tm_lowkb + 2 - os88_image_end
 %endif

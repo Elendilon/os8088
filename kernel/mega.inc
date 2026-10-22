@@ -9362,6 +9362,63 @@ mega_ivt_syncm:
 mega_xmwalkf:
     call mega_xmwalk
     retf
+; mega_imgnf - FAR (osapi_img_name's BX = 1 arm, KERN-MEGA-PLAN 14.70.3): AX =
+; a pool block's KB offset -> CF = 0, SI = the segment word of the drv_tab,
+; ss_row or mod_tab row whose image is based there, AL = 0 a driver / 1 a
+; module; CF = 1 none. mega_xmcls's match - the row's selector, its LDT base,
+; mx_rel - over every row that names an image. DS = KDATA. Keeps the rest
+mega_imgnf:
+    push bx
+    push cx
+    push dx
+    mov bx, ax                      ; BX = the offset wanted
+    mov si, drv_tab + DRVR_SEG
+.d:
+    call .is
+    je .drv
+    add si, DRVR_SIZE
+    cmp si, drv_tab + DRVR_SEG + DRV_MAX * DRVR_SIZE
+    jb .d
+    mov si, ss_row + DRVR_SEG
+    call .is
+    je .drv
+    mov si, mod_tab + MODR_SEG
+.m:
+    call .is
+    je .mod
+    add si, MODR_SIZE
+    cmp si, mod_tab_end
+    jb .m
+    mov ax, bx
+    stc
+    jmp short .out
+.drv:
+    mov al, 0
+    jmp short .ok
+.mod:
+    mov al, 1
+.ok:
+    clc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    retf
+; .is - ZF = 1 the selector at [SI] names an image based at BX KB from the
+; pool's base. Clobbers AX, CL, DX
+.is:
+    mov ax, [si]
+    test al, 4                      ; an LDT selector: an image above 1MB
+    jz .isno
+    call mega_selbase               ; DX:AX = its base (CL spent)
+    jc .isno
+    call mx_rel                     ; AX = KB from the pool's base
+    jc .isno
+    cmp ax, bx
+    ret
+.isno:
+    or si, si                       ; (SI is never 0: ZF = 0)
+    ret
 mega_codeself:
     call mega_codesel
     retf

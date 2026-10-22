@@ -42732,9 +42732,10 @@ them at the same tail (KERN-MEGA-PLAN 14.67): `OSAPI_XMEM_SEL` (§41.16) at
 `0x04AB` and `OSAPI_MEM_CODESEL` at `0x04B1`, a 108th and a 109th rare cell,
 `OSAPI_XMEM_WALK` (§28.4.8) at `0x04B7` and `OSAPI_MEM_HUGE` at `0x04BD`, a
 110th and a 111th, `OSAPI_XMEM_RUN` at `0x04C3` a 112th and
-`OSAPI_MEM_SUBSEG` at `0x04C9` a 113th - **1,215 bytes**, which is what
-`kernel.asm`'s length guard asserts from the counts. `osapi_table_end` is
-`0x04CF`.
+`OSAPI_MEM_SUBSEG` at `0x04C9` a 113th - 1,215 bytes - and
+`OSAPI_IMG_NAME` (§28.4.12) at `0x04CF` a 114th, **1,221 bytes**, which is
+what `kernel.asm`'s length guard asserts from the counts. `osapi_table_end`
+is `0x04D5`.
 Those counts are the tree it landed on, not a contract; `t_api_abi` prints
 the span it walked.
 
@@ -62935,10 +62936,10 @@ and bar - and one line replaces the heap page's two captions:
   pins, the fixed areas' records are skipped). In KB to 9,999, otherwise both
   in MB to two places with one gap fewer, `AVAIL 15.26M MAX RUN 14.70M` -
   the caption's 27 cells exactly.
-- the header (`TMC_HDR`, `TMM_HDR_Y`): `DETAIL`, then `ADDR` and `SIZE`,
-  then `+ALL` or `-ALL`. `+ALL` is always lettered INVERTED, which on a page
-  with no other chrome is what says it is a switch; `DETAIL` is inverted
-  while it is ON, like a key held down (KERN-MEGA-PLAN 14.70.3).
+- the header (`TMC_HDR`, `TMM_HDR_Y`): `+DETAIL` or `-DETAIL`, then `ADDR`
+  and `SIZE`, then `+ALL` or `-ALL` - both switches lettered INVERTED, which
+  on a page with no other chrome is what says they are switches, and each
+  sign saying what a click will do (KERN-MEGA-PLAN 14.70.3).
 
 **The groups**, classified once per paint (`tm_classify`): every claim
 record and every pool block above 1MB gets a group id, a bit of the dword
@@ -62951,7 +62952,15 @@ it: it is in no owner's total by §28.4.1's rule, so filing it under one -
 more than its heading. A driver's image and its claims are the driver's
 group, named by its class (`SOUND.DRV`, `HDD.DRV`, `ETHER.DRV`), off the
 image header's class byte in conventional memory and off `XMW_CLS` above 1MB
-(§28.4.11); a driver kern_mega moved above 1MB names its claims by its data
+(§28.4.11) - a class has one driver, so the class is the driver. A
+CLASS-LESS image (`DRVC_OVL`: XMEM, the saver, THMPAL, HDDTOOL, RAMPAGE) is
+a group of its own (`tm_ogid`, on the class ids no class uses: `TMG_DRV` and
+`TMG_DRV + TMD_NCLS` up, seven), named by `OSAPI_IMG_NAME` (§28.4.12) -
+`XMEM.DRV` - or, for one a module loaded on a record of its own, its header's
+name at +16; a class-less driver's CLAIM above 1MB, whose record says no
+more than its class, is the first such group. A MODULE's image has no group
+to be named by, so its row's TYPE is its file's stem - `CTRL`, `DISKOPS` -
+in place of `ModImg`, and above 1MB in place of `Kernel`; a driver kern_mega moved above 1MB names its claims by its data
 SELECTOR, which `verr` admits before the header is read. A group with
 nothing in it is not drawn, so `Kernel` appears only where the kernel claims
 something.
@@ -62964,6 +62973,7 @@ switched at the header's left end, until each showed what the other hid):
 | `System`, its total and the gray square | column 0 | its items, and one group per owner ONE LEVEL IN - `Kernel`, each driver, each built-in - each opening into its claims at the claim indent |
 | `Programs` and the programs' total | column 0, a HEADING: no marker, never a column's last row, not a click target | - |
 | each package, its square | column 0, under the heading | its claims and its blocks above 1MB |
+| a blank row | **with DETAIL on only**: what DETAIL adds is set off from the programs | - |
 | `Purgeable`, `tm_pat_clm`'s square | column 0, **with DETAIL on only** | the caches with their tiers |
 | 640K-1MB | §28.4.9's rows, **with DETAIL on only** | - |
 
@@ -63050,6 +63060,37 @@ The Task Manager asks with BX = `XMW_FIXED` and keeps `[tm_hifix]`, so a
 kernel that answers no markers still reads as one `Above 1MB` row. Cost:
 kern_mega `.mega` 14,460 → 14,609 (+149 bytes), `.text` +0; kern_big and
 kern_small byte-identical (the build number aside).
+
+
+### 28.4.12 `OSAPI_IMG_NAME`: which driver or module an image is
+
+KERN-MEGA-PLAN 14.70.3. A `DrvImg` row said nothing about WHICH driver once
+two class-less drivers shared a heading, and every module was a `ModImg` -
+on kern_mega every module is above 1MB too, under `Kernel`. The names are
+the kernel's (`drv_tab`'s `DRVR_FILE`, `ss_row`'s and `xm_row`'s, `mod_tab`'s
+`MODR_FILE`) and no cell reached them. `0x04CF`, a rare `RCSLOT` cell,
+appended (§20.2.0.1: no `PKG_FMT` bump, `tools/abi.lock.json` refreshed):
+
+- in: AX = the segment an image is loaded at - the base of a `MEM_K_DRV` or
+  `MEM_K_MOD` claim - with BX = 0; or BX = 1 and AX = a block's `XMW_OFF` in
+  the pool above 1MB, where kern_mega puts both. ES:DI = 13 bytes.
+- out: CF = 0, the 8.3 file name at ES:DI, NUL-terminated, AL = 0 a driver /
+  1 a module; CF = 1 nothing of the kernel's is there, AX kept. Every other
+  register kept.
+
+kern_big's body is `.cold`, walking the rows by segment; kern_mega's BX = 1
+arm is `mega_imgnf` in `.mega`, `mega_xmcls`'s match - the row's selector,
+its LDT base, `mx_rel` - over every row that names an image. kern_small
+refuses (`mod_gone`), shipping no memory view to ask. A driver a module
+loads on a record of its own (THMPAL by the Control Panel's Theme page,
+HDDTOOL) is in no kernel table and answers CF = 1; its header's own name at
++16 is the caller's fallback, and the Task Manager takes it.
+
+**What it cost**: kern_big **+94 bytes** resident (`.cold` +88 for the body,
+`.text` +6 for the cell, `tools/os88rdiff.py` against the commit before),
+no rung crossed; kern_small the cell's 6; kern_mega the same plus
+`mega_imgnf` above 1MB. `taskmgr.o88`'s image 9,595 -> 9,866 bytes, which
+is the DETAIL sign and blank row too.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 

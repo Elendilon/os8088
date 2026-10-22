@@ -61,7 +61,7 @@ GROUPS = [
      ["FILE_", "VOL_", "FS_", "ASSOC", "ARG_FILE", "BATCH_", "DECOMP",
       "DSK_", "FERR_"]),
     ("Memory", ["2", "41", "50", "66"],
-     ["MEM_", "XMEM_", "CLAIM_SNAPSHOT", "SYS_KB"]),
+     ["MEM_", "XMEM_", "CLAIM_SNAPSHOT", "SYS_KB", "IMG_NAME"]),
     ("Tasks, timing and the clock", ["7", "8", "37"],
      ["TASK_", "GET_TICKS", "BOOT_TICKS", "CLK_"]),
     ("Sound", ["34", "35"],

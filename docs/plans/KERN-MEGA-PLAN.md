@@ -10374,13 +10374,16 @@ The merged page landed (`b6c4a1ed`, `2cd6ddc7`). Open:
   AVAIL is Ram's total, which Purgeable - in none of those figures - never
   added to (SPEC.md 28.4.10). `taskmgr.o88` 9,639 -> **9,595** bytes.
   `tests/tmowner.py` presses DETAIL now as well as `+ALL`.
-- [ ] **Name each driver and module image** (owner's review): a `DrvImg`
-  row says nothing about WHICH driver when class-less drivers (XMEM, SAVER,
-  THMPAL, HDDTOOL, RAMPAGE) share one `Drivers` group, and every module is a
-  `ModImg` under `Kernel` - on kern_mega every module is above 1MB too. The
-  names are the kernel's (`drv_tab`'s `DRVR_FILE`, `mod_tab`'s `MODR_FILE`)
-  and no cell reaches them. Proposed: one cell, image segment (or, on
-  kern_mega, a pool block's offset) -> its 8.3 name.
+- [x] **Name each driver and module image** (owner's review): a `DrvImg`
+  row said nothing about WHICH driver when class-less drivers (XMEM, SAVER,
+  THMPAL, HDDTOOL, RAMPAGE) shared one `Drivers` group, and every module was
+  a `ModImg` under `Kernel` - on kern_mega every module is above 1MB too.
+  **BUILT** as `OSAPI_IMG_NAME` at `0x04CF` (SPEC.md 28.4.12): kern_big
+  **+94 bytes** resident against the 70-90 estimated. A class-less image is
+  a group of its own named by it (`XMEM.DRV` under QEMU), a module's TYPE is
+  its file's stem (`CTRL` under MartyPC, and `CTRL HIGH 15K` under Bochs on
+  kern_mega). The header switch reads `+DETAIL` / `-DETAIL`, and a blank row
+  sets what DETAIL adds off from the programs.
 - [ ] **Dump to file is built and NOT merged**: branch `taskmgr-merge-dump`
   (`c276423c`), List > Save to file writing both views with every group open
   to `APPDATA\MEMDUMP.TXT`, verified on MartyPC. **+380 bytes of image**
