@@ -3441,7 +3441,7 @@ def bp_trace(m, *targets, **kw):
 # Wait for a machine that is BUSY WITHOUT DRAWING: anything holding the gfx
 # lock for its whole run. `settle` cannot see that work at all - it watches
 # pixels, and there are none - so ask about the thing being waited for.
-def until(m, cond, what="that condition", poll=1.0, limit=600.0, guest=None):
+def until(m, cond, what="that condition", poll=None, limit=600.0, guest=None):
     """Run until CONDITION IS TRUE, and answer how long that took.
 
     The twin of `settle`, for the case it silently gets wrong. An operation
@@ -3475,6 +3475,14 @@ def until(m, cond, what="that condition", poll=1.0, limit=600.0, guest=None):
     # reported in GUEST_STALL seconds instead of at the end of it.
     prog = _Progress(m, what, guest if guest is not None
                      else limit * GUEST_BUDGET_RATIO)
+    # THE DEFAULT POLL IS ADAPTIVE: 20 ms, doubling to 250 ms. It was a flat
+    # host second, which is up to a second of latency on EVERY wait - and a
+    # row that waits a few hundred times (a chunked trace, a key per field)
+    # spent minutes of it after the condition was already true. A look is a
+    # guest read or two, answered between the emulator's batches, so looking
+    # four times a second costs the guest nothing measurable. An explicit
+    # `poll` keeps the old fixed interval.
+    nap = poll if poll is not None else 0.02
     while True:
         if cond(m):
             prog.done("until")
@@ -3508,7 +3516,9 @@ def until(m, cond, what="that condition", poll=1.0, limit=600.0, guest=None):
                 "never called?"
                 % (prog.spent(), what, st["state"], st["cs"], st["ip"]))
         prog.check()
-        time.sleep(poll)
+        time.sleep(nap)
+        if poll is None:
+            nap = min(nap * 2, 0.25)
 
 
 def faces(folder="SYSTEM/FONTS"):
