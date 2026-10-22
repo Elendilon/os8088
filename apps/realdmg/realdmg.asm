@@ -2733,7 +2733,7 @@ rw_keys:
     call rw_stats
 .nof1:
     push dx
-    mov al, 3Ch                     ; F2: Machine > Interlace's next, and
+    mov al, 3Ch                     ; F2: Screen > Interlace's next, and
     mov bx, rw_f2was                ;   said (rw_note)
     mov cl, 2
     call rw_fedge
@@ -3741,7 +3741,7 @@ rw_cfgrec:
 .r0:
     ret
 
-; rw_iltoggle - Machine > Interlace (REALDMG-SPEC 13.2), Off -> On ->
+; rw_iltoggle - Screen > Interlace (REALDMG-SPEC 13.2), Off -> On ->
 ; Scrolling: a draw composes the lines of one parity, the next the other's,
 ; for twice the pictures a second at a price in looks - always, or only
 ; while the picture scrolls; off, every line again. Either way the next draw

@@ -890,7 +890,7 @@ it changed), and AX holds the count.
   compared it was never FAST: standing still on the Victory's 86Box twin,
   judging 144 lines was 5 ms a draw and the picture 23 frames a second; it
   is 41 now, the judging 0.15 ms.
-- **INTERLACE** (`[rdg_ilace]`, Machine > Interlace: Off, On, Scrolling,
+- **INTERLACE** (`[rdg_ilace]`, Screen > Interlace: Off, On, Scrolling,
   Doubled;
   off by default): a call composes the changed lines of one parity and
   leaves the other's pending (`RDG_DPEND`, a byte a line) for the next call,
@@ -1249,7 +1249,7 @@ Either says its new state (`rw_lossyt`) and the next draw is whole.
   half of the machine is for a game with frames to run, and the third
   field run's Super Mario Land interlaced slept ~190 ms a second at 20
   pictures. F1 puts the game's speed and the frames drawn a second over the
-  picture. F2 is Machine > Interlace's next setting and F3 CPU >
+  picture. F2 is Screen > Interlace's next setting and F3 CPU >
   Recompiler's, each on its press and in the window and full screen alike
   (`rw_keys`, between two core runs - where the recompiler may change); the
   setting it changed to is said (`rw_note`): a toast on the desktop, and in
@@ -1356,7 +1356,7 @@ on a machine with no debugger.
   frames drawn, the lines composed and the lines changed (section 13.2),
   the milliseconds spent drawing and the longest draw, the most frames
   owed (at most 31), and W or F (window or full screen) with J when the
-  recompiler ran and I when Machine > Interlace was on.
+  recompiler ran and I when Screen > Interlace was on.
 - **Where a second went**, which the third field run asked for: of the
   drawing's milliseconds, those comparing VRAM and OAM (**scan**,
   `ppu_dscan`, timed through `rdg_dhook`) and those composing lines
@@ -1407,7 +1407,7 @@ is 155 rows, and the window fits it whole.
   nothing changed; with nothing waiting, Esc puts the window away.
 - **Refused, and said so on the screen**: Esc, Alt (Alt+Enter is full
   screen, and while Alt is held the joypad reads nothing), F1-F4 - the
-  speed line and Machine > Interlace, Recompiler and Speed's next settings
+  speed line and Screen > Interlace, Recompiler and Speed's next settings
   - the save states' F5, F8 and 1-9 (10.4), the replays' F6 and F7
   (10.5), and F12, the log written now
   (section 14.1's Machine > Log), documented shortcuts every one. A REALDMG.CFG whose map holds one of

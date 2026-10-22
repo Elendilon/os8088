@@ -848,9 +848,9 @@
   "sources": [
    "apps/realdmg"
   ],
-  "stamped": "206eb5be",
-  "strings": "08e5749fb6393b85",
-  "why": "new manual, checked against realdmg.asm's menus, keys and strings"
+  "stamped": "39c7a569",
+  "strings": "2d1c1c0aa89dcd91",
+  "why": "Screen menu (Interlace moved from Machine; Two Shades F10, Scroll by 8 F11, kept per game); F1-F12 reserved; Screen menu shot added to the capture list"
  },
  "REDLINE_O88": {
   "sources": [

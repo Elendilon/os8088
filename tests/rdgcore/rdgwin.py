@@ -267,7 +267,7 @@ def main():
     ap.add_argument("--mem", type=int, help="the machine's RAM in KB, for the VM's own")
     ap.add_argument("--nojit", action="store_true", help="CPU > Interpreter first")
     ap.add_argument("--ilace", type=int, nargs="?", const=1, default=0,
-                    help="Machine > Interlace N times first: 1 On, 2 Scrolling")
+                    help="Screen > Interlace N times first: 1 On, 2 Scrolling")
     ap.add_argument("--log", default="", help="Machine > Log over the span, written here")
     ap.add_argument("--static", type=float, default=None, metavar="SECS",
                     help="the recompiler's Static (REALDMG-SPEC 16.8), timed on the SAME span a "

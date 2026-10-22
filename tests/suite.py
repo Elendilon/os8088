@@ -2840,7 +2840,7 @@ SOAK = [
         "VGA's mode 0Dh, the Hercules page at 2x2 and CGA's 320x200 in four "
         "colours, each against the SAME reference, frames advancing in there, "
         "and Esc back to a desktop whose window shows the picture again. "
-        "On VGA the window is checked again under Machine > Interlace: On "
+        "On VGA the window is checked again under Screen > Interlace: On "
         "and Scrolling. "
         "NEGATIVE CONTROL: the reference mirrored must not match. SOAK: one "
         "package",
