@@ -10344,3 +10344,31 @@ copied onto a small disk still runs, which it does today). **BUILT on branch
 2,385** (+450) - heap while the window is open, nothing resident. The
 `APP_SMALL` build is **byte-identical** (`build/smallapp/taskmgr.bin`, image
 3,808, bss 1,325).
+
+#### 14.70.3 Left for the second round (2026-10-22)
+
+The merged page landed (`b6c4a1ed`, `2cd6ddc7`). Open:
+
+- [ ] **AVAIL / MAX RUN on kern_mega count the conventional heap only**
+  (`AVAIL 573K` under `Ram 0.37/15.62M`). Designed, not built, in
+  `taskmgr.asm` alone: keep `OSAPI_XMEM_CAPS`'s free KB as `[tm_hifree]`;
+  compute `[tm_himax]`, the largest run one claim gets after `mx_alloc`'s
+  compaction, by `mx_compactf`'s own walk over `tm_xw` (movable owners
+  80h-DFh and FDh per `mx_canmove`, pinned FEh/FFh/slots, the F0h-F4h
+  markers skipped); under `[tm_pm]` AVAIL = `[tm_avl] + [tm_hifree]` and MAX
+  RUN the larger run, in KB to 9,999 and otherwise BOTH in MB to two places
+  (`AVAIL 15.04M MAX RUN 14.98M`, 27 cells). MAX RUN quotes what an
+  `OS88_HIGHMEM` package can get - every package declares it or is in
+  `tests/megahigh.txt`. ~80-120 bytes, estimated.
+- [ ] **Dump to file is built and NOT merged**: branch `taskmgr-merge-dump`
+  (`c276423c`), List > Save to file writing both views with every group open
+  to `APPDATA\MEMDUMP.TXT`, verified on MartyPC. **+380 bytes of image**
+  against the 150-200 estimate - the owner's call. It conflicts with the
+  AVAIL fix at the bss tail.
+- [ ] **The Victory photograph's 640K-1MB rows** (400K of 384K) did not
+  reproduce: 86Box `286-victory` and Bochs both sum to 384, and the code
+  computes `Unrep.` from the same ROM figures it prints. One real defect was
+  fixed on the way (`tm_romscan` trusted a length byte reaching past F000).
+  Retake it on this build.
+- [ ] Purgeable on kern_mega (14.70.1): until then the kernel's caches above
+  1MB show under `Kernel`, not `Purgeable`.
