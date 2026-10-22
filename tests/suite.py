@@ -2459,6 +2459,18 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/os8088-360.img", "build/apps360.img",
                "build/timer.bin")),
+    Row("dragui", "soak", py("tests/dragui.py"), 60.0,
+        "SPEC.md 11.96.12.2: every control a package laid out answers where "
+        "its window IS after a drag. The drag cache replays the window, so "
+        "the kernel runs the package's W_PAINT after it with every primitive "
+        "disarmed and the package re-lays itself out. Clear Skies, which "
+        "reaches none of the button library's fixes: dragged twice, its "
+        "plane drop-down and Fly button rects must follow the window, the "
+        "drop-down must open and close and Fly must arm at the place each is "
+        "DRAWN. Red on the tree before (the rect still reads the old place)",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/apps360.img",
+               "build/skies.o88")),
     Row("timerrace", "soak", py("tests/timerrace.py"), 30.0,
         "SPEC.md 13.9.2: ui_timer_pass asks again, UNDER the gfx lock, "
         "whether the window it is about to call still exists - gfx_lock can "
