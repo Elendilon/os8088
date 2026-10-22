@@ -91,7 +91,7 @@ key back as RealDMG came. Press `Esc` when nothing is waiting, or click the
 close box, to put the window away.
 
 Some keys belong to RealDMG itself and cannot be given to a button: `Esc`,
-`Alt`, `F1` to `F9`, `F12` and the number keys `1` to `9`. Press one and the
+`Alt`, `F1` to `F12` and the number keys `1` to `9`. Press one and the
 screen says **That key is RealDMG's own: press another**.
 
 The keys you choose are kept for every game, and stay chosen the next time
@@ -133,9 +133,9 @@ RealDMG's short messages, such as a new Speed setting.
 
 ## Making a game faster
 
-Three settings trade looks or speed for smoothness.
+Five settings trade looks or speed for smoothness.
 
-**Interlace.** **Machine > Interlace**, or `F2`, steps through four
+**Interlace.** **Screen > Interlace**, or `F2`, steps through four
 settings. They give RealDMG less to draw when the picture moves.
 
 | Setting | What it does |
@@ -144,6 +144,18 @@ settings. They give RealDMG less to draw when the picture moves.
 | On | Half the lines are drawn each time, taking turns |
 | Scrolling | Like On, but only while the picture scrolls |
 | Doubled | While the picture scrolls, the even lines are drawn and each one is repeated below it. A moving edge stays clean, without the comb that Scrolling leaves. The status bar at the bottom of a game stays whole |
+
+**Two Shades.** **Screen > Two Shades**, or `F10`, draws the picture in
+black and white only: the light greys turn white and the dark ones black.
+There is less to draw, about a tenth.
+
+**Scroll by 8.** **Screen > Scroll by 8**, or `F11`, moves the picture in
+steps of 8 pixels instead of one at a time. Everything on the screen moves
+together, so the game still lines up, but a smooth scroll becomes a jump
+every few frames. While a game scrolls there is much less to draw, about a
+quarter. Some games are harder to play this way.
+
+RealDMG remembers Two Shades and Scroll by 8 for each game.
 
 **Speed.** **CPU > Speed**, or `F4`, holds the game at 100%, 90%, 75% or 50%
 of a Game Boy's speed. The time the game does not use goes to the picture,
@@ -263,9 +275,18 @@ the same as the item.
 | Full Screen | `Alt+Enter` | Play on the whole screen |
 | Sound: On | `F9` | Step through On, At 100% only and Off |
 | Show Stats | `F1` | Show or hide the speed line |
-| Interlace: Off | `F2` | Step through Off, On, Scrolling and Doubled |
 | Log | `F12` | Keep a log of the game, or stop and write it |
 | Controls... | | Choose the key for each button |
+
+## The Screen menu
+
+![The Screen menu.](shot:realdmg-screen){right}
+
+| Item | Key | What it does |
+|---|---|---|
+| Interlace: Off | `F2` | Step through Off, On, Scrolling and Doubled |
+| Two Shades | `F10` | Draw in black and white only, for speed. Kept for each game |
+| Scroll by 8 | `F11` | Move the picture in steps of 8 pixels, for speed. Kept for each game |
 
 ## The CPU menu
 

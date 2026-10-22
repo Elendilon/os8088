@@ -51,15 +51,18 @@ CORELST = os.path.join(ROOT, "build", "realdmg", "rdgcore.asm.lst")
 DRIVE_B = (592, 105)            # the B: icon on the VGA desktop
 CLOSE_BOX = (170, 68)           # the RealDMG window's close box, where it opens
 MENU_MACHINE = (140, 9)         # RealDMG's Machine menu on the bar (REALDMG-
-MENU_CPU = (203, 9)             #   SPEC 14.3), its CPU menu, and an item's
-ROW = lambda i: 28 + 16 * i     #   centre, item i (from 0)
+MENU_SCREEN = (215, 9)          #   SPEC 14.3), its Screen and CPU menus, and
+MENU_CPU = (267, 9)             #   an item's centre, item i (from 0)
+ROW = lambda i: 28 + 16 * i
 ITEM_RESET = (150, ROW(1))      # Machine's...
 ITEM_FULLSCREEN = (150, ROW(3))
-ITEM_ILACE = (150, ROW(7))
-ITEM_LOG = (150, ROW(8))
-CPU_STATIC = (213, ROW(1))      # CPU's...
-CPU_INTERP = (213, ROW(2))
-CPU_PROFILE = (213, ROW(4))
+ITEM_LOG = (150, ROW(7))
+ITEM_ILACE = (230, ROW(0))      # Screen's...
+ITEM_BW = (230, ROW(2))
+ITEM_COARSE = (230, ROW(3))
+CPU_STATIC = (277, ROW(1))      # CPU's...
+CPU_INTERP = (277, ROW(2))
+CPU_PROFILE = (277, ROW(4))
 FIRST_ICON = (160, 127)         # the first file in a fresh B: window (list view)
 
 
@@ -264,7 +267,7 @@ def main():
     ap.add_argument("--mem", type=int, help="the machine's RAM in KB, for the VM's own")
     ap.add_argument("--nojit", action="store_true", help="CPU > Interpreter first")
     ap.add_argument("--ilace", type=int, nargs="?", const=1, default=0,
-                    help="Machine > Interlace N times first: 1 On, 2 Scrolling")
+                    help="Screen > Interlace N times first: 1 On, 2 Scrolling")
     ap.add_argument("--log", default="", help="Machine > Log over the span, written here")
     ap.add_argument("--static", type=float, default=None, metavar="SECS",
                     help="the recompiler's Static (REALDMG-SPEC 16.8), timed on the SAME span a "
@@ -388,7 +391,7 @@ def measure(b, o):
             b.cmd("step 3000")
             press(b, o)
         for _ in range(o.ilace):
-            machine_item(b, ITEM_ILACE)
+            machine_item(b, ITEM_ILACE, MENU_SCREEN)
         if o.log:
             machine_item(b, ITEM_LOG)          # Log: Off -> on
         if o.fs:

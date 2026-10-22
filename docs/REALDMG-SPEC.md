@@ -502,7 +502,13 @@ cache could not be claimed and the game ran interpreted (its log has no J).
   bank - and **at least 8 (`RW_SLOTWANT`) while the recompiler still has
   memory to give up**: the second segment goes first, then the 64KB table
   for the 16KB one, and only then are 4 taken, and 4 with no recompiler at
-  all. The fourth field run is why: on a 116K heap with SOUND.DRV mounted
+  all. **The 16KB table is a claim made anew WITH the recompiler's part,
+  read again into its tail** (`rw_jpart`): it was re-claimed at 64 + 16KB,
+  leaving the part past the claim's end and its four pointers on the old
+  place, and the slots were then claimed over it - a 1MB cartridge hung
+  on its first frame or ran the stack over whenever the heap fell where
+  the 64KB table missed (`tests/gbbank.py` on a package 1.2KB larger: 12
+  slots, 0 banks fetched; fixed, 10 slots and 0 wrong). The fourth field run is why: on a 116K heap with SOUND.DRV mounted
   the plan stopped at 5 slots with both kept, and Kirby's Dream Land
   fetched ~95 banks a second over a 286's XMS at 15% of real time - in its
   window as in full screen, with the recompiler on or off, so it read as
@@ -884,7 +890,7 @@ it changed), and AX holds the count.
   compared it was never FAST: standing still on the Victory's 86Box twin,
   judging 144 lines was 5 ms a draw and the picture 23 frames a second; it
   is 41 now, the judging 0.15 ms.
-- **INTERLACE** (`[rdg_ilace]`, Machine > Interlace: Off, On, Scrolling,
+- **INTERLACE** (`[rdg_ilace]`, Screen > Interlace: Off, On, Scrolling,
   Doubled;
   off by default): a call composes the changed lines of one parity and
   leaves the other's pending (`RDG_DPEND`, a byte a line) for the next call,
@@ -1161,6 +1167,57 @@ reference sharing `ppu_line` and the sprites with what it checks.
   cache gives up (256 bytes).
 
 
+### 13.4 The lossy picture: Two Shades and Scroll by 8
+
+**Two things the picture may leave out, for speed: Screen > Two Shades
+(F10) and Screen > Scroll by 8 (F11)**, each kept for the game in
+REALDMG.CFG with its Speed and Sound (15.2). `rdg_lossy` in `rdgppu.inc`
+holds them, `RDG_LBW` and `RDG_LCOARSE`; the code is assembled under
+`RDG_LOSSY`, which the package defines and the bare harness only with
+`LOSSY_BW` or `LOSSY_COARSE` (docs/reports/REALDMG-LOSSY-2026-10-22.md).
+Either says its new state (`rw_lossyt`) and the next draw is whole.
+
+- **Off costs nothing - not a test.** Every place the two change is a
+  `..@lk_*` site in the composer holding its ORIGINAL instruction, and
+  `rdg_lpatch` writes a CALL or JMP of the same length over it (NOPs
+  after) into a stub at the end of `rdgppu.inc` when one is turned on, and
+  the original back - kept at its first call - when it is turned off; the
+  stub does the instruction it replaced. `rdg_lhooks` is the twelve. So
+  with both off the composer runs its own bytes, and the module after it
+  and `rdg_init`'s call to `rdg_lpatch` are padded to 16 so nothing after
+  them moves within its paragraph: on `286-victory`, 4,800 frames of Super
+  Mario Land read 1,172 ticks as shipped and 1,171 with the code in.
+  Testing a flag a line at a time had cost +3.2%, and through two pointers
+  +1.5%.
+- **Patching is the code's own**, so it runs where no task is inside the
+  composer: `rdg_init`, a game's load (`rw_spdgame`, before the worker is
+  hired), F10 and F11 in `rw_keys` between frames, and the worker's loop
+  for Screen's items, which the UI task only posts (`rw_lossq`) while a
+  game runs.
+- **TWO SHADES**: shade bit 1 alone - shades 0 and 1 white, 2 and 3 black.
+  On a line whose BGP is the identity the background fetches and shifts its
+  tile rows' high plane alone (`ppu_fshifth`, `ppu_fcopybh`); another BGP
+  composes as ever. `ppu_dput` compares bit 1 alone and writes it as both
+  planes - VGA's full screen in one pass with the map mask at 3
+  (`ppu_dvgabw`), keeping only plane 1 in the buffer: `rdg_bwst` then makes
+  the next draw that reads the buffer (the window's, the 1bpp writers')
+  whole. `rdg_render` writes bit 1 as both.
+- **SCROLL BY 8**: SCX is snapped to a multiple of 8 and the rest added to
+  every sprite's X (`rdg_csd`), so the picture stays together and the
+  camera moves in 8-pixel steps. A raster write's SCX is logged snapped,
+  the rest in the log entry's fourth byte (`rdg_rlog`), which
+  `ppu_logsame` then does not compare - a status bar's split stays the
+  same log every frame - and `ppu_log` takes it at the entry's line. When
+  the frame's set of fine scrolls changes (`rdg_csig`) every sprite has
+  moved: OAM's shadow is made to differ in X so the scan marks their
+  lines. SCY is not snapped. Seven scrolled frames in eight become still
+  frames, and every background line takes `ppu_fcopyb`. Some games are
+  harder to play: the owner's verdict, and why it is a choice.
+- **What they buy**, drawing every frame on `286-victory` (`rdgbench
+  --vga`): Super Mario Land 18.40 ms a frame, 16.57 with Two Shades, 13.82
+  with Scroll by 8, 13.23 both; Kirby's Dream Land 38.86, 35.20, 30.16,
+  29.11.
+
 ## 14. The package
 
 `REALDMG.O88` (`apps/realdmg/realdmg.asm`, `OS88_STACK_384`) is a window of
@@ -1192,7 +1249,7 @@ reference sharing `ppu_line` and the sprites with what it checks.
   half of the machine is for a game with frames to run, and the third
   field run's Super Mario Land interlaced slept ~190 ms a second at 20
   pictures. F1 puts the game's speed and the frames drawn a second over the
-  picture. F2 is Machine > Interlace's next setting and F3 CPU >
+  picture. F2 is Screen > Interlace's next setting and F3 CPU >
   Recompiler's, each on its press and in the window and full screen alike
   (`rw_keys`, between two core runs - where the recompiler may change); the
   setting it changed to is said (`rw_note`): a toast on the desktop, and in
@@ -1299,7 +1356,7 @@ on a machine with no debugger.
   frames drawn, the lines composed and the lines changed (section 13.2),
   the milliseconds spent drawing and the longest draw, the most frames
   owed (at most 31), and W or F (window or full screen) with J when the
-  recompiler ran and I when Machine > Interlace was on.
+  recompiler ran and I when Screen > Interlace was on.
 - **Where a second went**, which the third field run asked for: of the
   drawing's milliseconds, those comparing VRAM and OAM (**scan**,
   `ppu_dscan`, timed through `rdg_dhook`) and those composing lines
@@ -1350,7 +1407,7 @@ is 155 rows, and the window fits it whole.
   nothing changed; with nothing waiting, Esc puts the window away.
 - **Refused, and said so on the screen**: Esc, Alt (Alt+Enter is full
   screen, and while Alt is held the joypad reads nothing), F1-F4 - the
-  speed line and Machine > Interlace, Recompiler and Speed's next settings
+  speed line and Screen > Interlace, Recompiler and Speed's next settings
   - the save states' F5, F8 and 1-9 (10.4), the replays' F6 and F7
   (10.5), and F12, the log written now
   (section 14.1's Machine > Log), documented shortcuts every one. A REALDMG.CFG whose map holds one of
@@ -1423,10 +1480,12 @@ file off the floppy as the guest left it, and Default.
 
 ### 14.3 The menus
 
-Three on the bar, none over 11 items - a pull-down taller than that runs
+Four on the bar, none over 11 items - a pull-down taller than that runs
 off CGA's 200 lines, and the kernel does not clamp one (`menu_pull`):
 - **Machine:** Load Game..., Reset, Pause, Full Screen (Alt+Enter) | Sound
-  (F9), Show Stats (F1), Interlace (F2), Log (F12) | Controls...
+  (F9), Show Stats (F1), Log (F12) | Controls...
+- **Screen:** Interlace (F2) | Two Shades (F10), Scroll by 8 (F11) - what
+  the picture may leave out for speed (13.2, 13.4).
 - **CPU:** Recompiler, Static Recompiler, Interpreter (F3 steps through
   them, 16.7) | Profile for Static, Cache: 128K | Speed 100%, 90%, 75%, 50%
   (F4 steps through them).
@@ -1454,7 +1513,7 @@ chosen and a space on the others, written by `rw_mgrey` (`rw_mark`,
 Interlace - names its value instead. A separator is a greyed line of
 dashes, which the kernel's keyboard walk steps over. `rw_note` says an item
 without its mark or key (a toast, or the speed line in full screen): F2,
-F3, F4 and F9 say what they changed to.
+F3, F4, F9, F10 and F11 say what they changed to.
 
 ### 14.3.1 The window says it is slow
 
@@ -1609,7 +1668,8 @@ Speed's next, in the window and full screen alike, and says it
 - **Both are the game's**, remembered in REALDMG.CFG version 2: a count at
   +4 and, from +8, `RW_CFGGN` (32) entries of four bytes, the latest first
   - the header's 014Dh byte and 014Eh word (as a profile's name takes
-  them), then Speed in bits 0-2 and Sound in 3-4 (`rw_cfgrec`). A game
+  them), then Speed in bits 0-2, Sound in 3-4 and Screen's Two Shades and Scroll by
+  8 in 5 and 6 (`rw_cfgrec`; a RealDMG from before them masks them off). A game
   opened (`rw_spdgame`) takes its entry; one with none keeps what was
   chosen before it, kept for it at its first change. The menu writes the
   file at once; F4's change is the UI task's to write (`[rw_spdq]`,
