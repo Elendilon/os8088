@@ -10089,3 +10089,40 @@ off-grid ES. `drv_fs_call`'s comment (*"where a redirector's paragraph
 arithmetic is right"*) holds for `dsk_secbuf` only, which is 512-aligned.
 Not run here; tests/unit/t_megagrid.py scopes to `apps/` and could take
 `drivers/` too.
+
+### 14.69 Open after the main merge, for the next round (2026-10-22)
+
+Three items 14.68 found and did not take, written down as work rather than
+left in its prose. The owner asked for each to be carried here.
+
+- [ ] **RAMDISK.DRV and NET.DRV fold paragraphs into a segment.**
+  `rd_fold` (drivers/ramdisk/) and `net_norm` (drivers/net/) fold a
+  conventional buffer's offset into its segment by paragraphs - the shape
+  14.68's item 1 was in `CDROM.DRV`, which faulted the machine on its first
+  read. On kern_mega the kernel hands a redirector the `dskw_norm`'d buffer
+  at offset 0..127, so any offset from 16 up builds an off-grid ES: `#GP`
+  with RPL bits, or SILENTLY an LDT alias of other memory (3.1, 14.19).
+  `drv_fs_call`'s *"where a redirector's paragraph arithmetic is right"*
+  holds for `dsk_secbuf` alone. Neither driver has been run on kern_mega.
+  The fix is 14.68's: walk the offset, or fold in whole 128-byte granules
+  (`dskw_norm`'s kern_mega arm). `tests/unit/t_megagrid.py` scans `apps/`
+  only; taking `drivers/` too is what keeps the next one out.
+- [ ] **`CDROM.DRV` above 1MB.** It runs on kern_mega now but loads LOW -
+  9 KB of conventional memory - because nobody has run it high. To take it
+  there: declare `OS88_DRV_HIGHOK` (drivers/os88drv.inc, item 82); check its
+  sector buffer and packet, which live in its own image and reach
+  `cd_packet` as DS - a pool selector above 1MB, which the offset-only walk
+  should already tolerate; check that nothing hands its own segment to the
+  BIOS or a DMA engine (it does PIO, `rep insw`); then extend `megacdrom` to
+  assert the driver's image base is above 1MB while CDRack plays and copies.
+  `OS88_DRV_HICLAIM` is not wanted: it makes no claims.
+- [ ] **Autostarted packages run low.** `\AUTOSTRT`'s walk (`as_boot`,
+  SPEC.md 26.10) runs before `mega_enter`, so every autostarted package
+  starts in real mode, in conventional memory, whatever `OS88_HIGH` says -
+  `megacdtest`'s autostarted CDRack sits at `9640h` while the same package
+  relaunched by hand runs at base 140000h. It reads like the class bit being
+  ignored. The fix is an ORDERING one: walk `\AUTOSTRT` after the switch on
+  kern_mega (a re-homed package already moves up after it, 14.15), or post
+  the walk to `ui_task` the way a re-home is serviced. Whichever is taken,
+  check that a link which launches a real-mode-only package still works, and
+  that the boot's own driver mounts are not reordered under it.
