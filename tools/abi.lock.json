@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "10eab70ec54ce110db76095386ebb40dae38186e3e922c5346ccf606b7754f4e",
+  "fingerprint": "9d24ec5aa18e94bd50f45acae9e82429d2b164ab7eab87c29a43b642f7dafbd3",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "a2b8ec07d794943c8a95be5722f4e4ea163db1ab459bfbee6823fa9a4ab49810",
+  "fingerprint": "a119fd3f55ae66e63e8e56f7088881f81164e192c31662b0f6a58cf0fe24c752",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -812,6 +812,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "merge: XMEM_WALK's fixed-area markers and XMW_CLS (Task Manager 14.70.2) with elendilon's os88ui button changes; additive, no bump",
+   "to": 11
+  },
+  {
+   "fingerprint": "a119fd3f55ae66e63e8e56f7088881f81164e192c31662b0f6a58cf0fe24c752",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_IMG_NAME appended at 0x04CF: an image segment or pool offset -> its driver's or module's 8.3 name (KERN-MEGA-PLAN 14.70.3). A cell added at the end; every package built before still runs",
+   "to": 10
+  },
+  {
+   "fingerprint": "9d24ec5aa18e94bd50f45acae9e82429d2b164ab7eab87c29a43b642f7dafbd3",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_IMG_NAME appended at 0x04CF: an image segment or pool offset -> its driver's or module's 8.3 name (KERN-MEGA-PLAN 14.70.3). A cell added at the end; every package built before still runs",
    "to": 11
   }
  ]

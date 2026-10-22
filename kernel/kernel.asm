@@ -3684,7 +3684,15 @@ apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
                                   ;          your segment + AX: every kernel
                                   ;          but kern_mega, and kern_mega for
                                   ;          a region below 1MB
-osapi_table_end:                  ; 0x04CF today (0x04C9 before OSAPI_MEM_SUBSEG,
+    OSAPI_RCSLOT osapi_img_name   ; 0x04CF - AX = a driver's or module's image
+                                  ;          segment (BX = 0), or a pool
+                                  ;          block's KB offset above 1MB (BX =
+                                  ;          1, kern_mega) -> CF=0 and its 8.3
+                                  ;          file name at ES:DI, AL = 0 a
+                                  ;          driver / 1 a module (KERN-MEGA-
+                                  ;          PLAN 14.70.3). kern_small refuses
+osapi_table_end:                  ; 0x04D5 today (0x04CF before OSAPI_IMG_NAME,
+                                  ; 0x04C9 before OSAPI_MEM_SUBSEG,
                                   ; 0x04C3 before OSAPI_XMEM_RUN,
                                   ; 0x04BD before OSAPI_MEM_HUGE,
                                   ; 0x04B7 before OSAPI_XMEM_WALK,
@@ -3720,8 +3728,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 113*6 + 6*3 + 6 + 12*5 + 4*6 + 8
-%error "os8088 API jump table must be exactly 0x04BF bytes: 43 SLOT (8), 11 XCELL (7), 113 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
+%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 114*6 + 6*3 + 6 + 12*5 + 4*6 + 8
+%error "os8088 API jump table must be exactly 0x04C5 bytes: 43 SLOT (8), 11 XCELL (7), 114 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
 %endif
 
 %ifdef KERN_MEGA
@@ -5457,6 +5465,96 @@ osapi_mem_subseg:               ; (api_rxc's far body: DS = KDATA)
 section .text
 %else
 osapi_mem_subseg equ mod_gone   ; `stc / retf`: CF = 1, every register kept
+%endif
+
+; ---- osapi_img_name - API slot 0x04CF (KERN-MEGA-PLAN 14.70.3) -------------
+; in:  AX = the segment a driver's or module's image is loaded at - what the
+;      claim table gives as the base of a MEM_K_DRV or MEM_K_MOD claim - with
+;      BX = 0; or, BX = 1, a block's XMW_OFF in the pool above 1MB
+;      (OSAPI_XMEM_WALK), where kern_mega puts both. ES:DI = 13 bytes
+; out: CF = 0, the image's 8.3 file name at ES:DI, NUL-terminated, and AL = 0
+;      a driver / 1 a module; CF = 1 no driver or module of the kernel's is
+;      there (AX kept). Every other register kept
+; WHICH IMAGE IS WHICH, for the Task Manager: a class-less driver (XMEM, the
+; saver) shares its class with every other, and a module's header carries no
+; name at all - the names are drv_tab's DRVR_FILE and mod_tab's MODR_FILE, and
+; nothing reached them. A driver another module loaded on its own record
+; (THMPAL, HDDTOOL) is in neither table and answers CF = 1; its header's own
+; name at +16 is the caller's fallback. kern_small refuses (mod_gone): it
+; ships no memory view to ask
+%ifdef KERN_BIG
+section .cold
+osapi_img_name:                 ; (api_rsc's far body: DS = KDATA)
+    push cx
+    push si
+    or bx, bx
+    jnz .hi
+    or ax, ax                   ; a row not loaded holds segment 0
+    jz .no
+    mov si, drv_tab + DRVR_SEG
+    mov cx, DRV_MAX
+.d:
+    cmp [si], ax
+    je .drv
+    add si, DRVR_SIZE
+    loop .d
+    mov si, ss_row + DRVR_SEG   ; ...the saver's record, not in drv_tab
+    cmp [si], ax
+    je .drv
+%ifndef KERN_MEGA
+    mov si, xm_row + DRVR_SEG   ; ...and XMEM.DRV's
+    cmp [si], ax
+    je .drv
+%endif
+    mov si, mod_tab + MODR_SEG
+.m:
+    cmp [si], ax
+    je .mod
+    add si, MODR_SIZE
+    cmp si, mod_tab_end
+    jb .m
+.no:
+    stc
+    jmp short .out
+.hi:
+%ifdef KERN_MEGA
+    cmp byte [mega_on], 0
+    je .no
+    push ax
+    call MEGA_SEL_CODE:mega_imgnf   ; SI = the row's segment word, AL = 0/1
+    jc .hino
+    pop cx                      ; (the caller's AX, spent)
+    cmp al, 0
+    je .drv
+    jmp short .mod
+.hino:
+    pop ax
+%endif
+    jmp short .no
+.drv:
+    mov si, [si+DRVR_FILE-DRVR_SEG]
+    mov al, 0
+    jmp short .copy
+.mod:
+    mov si, [si+MODR_FILE-MODR_SEG]
+    mov al, 1
+.copy:
+    push di
+.c:
+    mov cl, [si]
+    mov [es:di], cl
+    inc si
+    inc di
+    or cl, cl
+    jnz .c
+    pop di                      ; (or: CF = 0)
+.out:
+    pop si
+    pop cx
+    retf
+section .text
+%else
+osapi_img_name equ mod_gone     ; `stc / retf`: CF = 1, every register kept
 %endif
 
 ; ---- osapi_xmem_walk - API slot 0x04B7 (KERN-MEGA-PLAN 13.6) ---------------
