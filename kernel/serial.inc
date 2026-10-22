@@ -260,7 +260,9 @@ srl_open:
     cmp bp, 8
     jb .bda
     pop es
-    jmp .absent
+    mov ax, 9                   ; a UART the BIOS does not list (115.1)
+    stc
+    ret
 .listed:
     pop es
     cmp byte [mou_hpst], 2

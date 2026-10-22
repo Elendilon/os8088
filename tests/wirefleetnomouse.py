@@ -68,6 +68,14 @@ def main():
         wait(lambda: val('linkopen') == 1 and val('curport') == 2,
              'Connect COM2 taken with the BIOS listing 2F8 in slot 0')
         assert val('message', 2) == sy['wf_searching'], hex(val('message', 2))
+        # ...and with NO slot listing 2F8 the refusal says the BIOS is why
+        # (9), not that there is no UART (4), and the lease stays closed.
+        m.pause()
+        m.write(0x400, struct.pack('<HH', 0x3f8, 0))
+        m.run()
+        ui.menu_pick('Link', 'Connect COM2')
+        wait(lambda: val('message', 2) == sy['wf_nobios'], 'an unlisted 2F8 refused')
+        assert val('linkopen') == 0
         m.pause()
         m.write(0x400, bda)
         m.run()

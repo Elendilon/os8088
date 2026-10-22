@@ -213192,7 +213192,10 @@ Close; the contest resumes there afterwards. All of it is in `SERIAL.DRV`:
 no resident byte. A settled contest ignores bit 7.
 
 Refusals are AX=1 busy/wrong owner, 2 mouse not settled, 3 mouse port,
-4 absent/unsupported port, 5 invalid caller/buffer, 8 module unavailable.
+4 absent/unsupported port (BL not 1 or 2, or the boot probe found no UART
+there, §9.5), 5 invalid caller/buffer, 8 module unavailable, and 9 the
+UART is there but no BIOS COM slot lists its base. 4 and 9 are told apart
+because a user can fix 9 in the machine's SETUP and cannot fix 4 at all.
 The buffer is 0 RX head, 1 RX tail, 2 sticky error bits, 3 TX head, 4 TX tail,
 5..260 RX bytes, 261..516 TX bytes. Each 256-byte ring holds at most 255
 bytes. Original LSR error bits 1–4 are sticky at byte 2; bit 7 is RX overflow.

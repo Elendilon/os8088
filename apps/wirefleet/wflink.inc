@@ -151,7 +151,7 @@ wf_lease:
 
 ; AX=lease error -> the line that says what to do about it.
 wf_leaseerror:
-    cmp ax, 8
+    cmp ax, 9
     jbe .known
     mov ax, 5
 .known:
@@ -219,12 +219,14 @@ wf_autolink:
     mov [wf_cands], al
     ret
 
-; AX=refusal during a search. 3/4: this port is not a candidate. 1/2:
+; AX=refusal during a search. 3/4/9: this port is not a candidate. 1/2:
 ; wait and retry. Anything else ends the search with its line.
 wf_refusal:
     cmp ax, 3                   ; the mouse's or no UART: a candidate fewer,
     je .drop                    ; which a search expects - said only when
     cmp ax, 4                   ; none is left (.drop's end)
+    je .drop
+    cmp ax, 9                   ; a UART the BIOS does not list (115.1)
     je .drop
     push ax
     call wf_leaseerror
@@ -1197,12 +1199,13 @@ wf_crc:
     loop .byte
     ret
 
-wf_linkerrors: dw wf_searching,wf_linkbusy,wf_movemouse,wf_mouseport,wf_noport,wf_badbuffer,wf_searching,wf_searching,wf_needsserial
+wf_linkerrors: dw wf_searching,wf_linkbusy,wf_movemouse,wf_mouseport,wf_noport,wf_badbuffer,wf_searching,wf_searching,wf_needsserial,wf_nobios
 wf_searching: db 'Looking for your opponent on the null-modem cable...',0
 wf_linkbusy: db 'Another program is using the serial port. Trying again...',0
 wf_movemouse: db 'Which port is the cable? Link > Connect COM1/COM2, or move the mouse.',0
 wf_mouseport: db 'That COM port is the mouse. Connect using the other port.',0
-wf_noport: db 'No supported BIOS-advertised UART on that port.',0
+wf_noport: db 'The OS found no UART on that port when it started.',0
+wf_nobios: db 'That port is not in the BIOS list: enable it in SETUP.',0
 wf_badbuffer: db 'Serial lease refused this application buffer.',0
 wf_needsserial: db 'Linking needs SERIAL.DRV: insert the system disk, Link > Automatic.',0
 wf_nofreeport: db 'No free serial port for the cable. Link menu: choose a port.',0

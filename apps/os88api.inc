@@ -6458,7 +6458,9 @@ FSIF_BANKED equ 4
                                  ; from the system disk. CF=1 AX=1 busy,
                                  ; 2 move mouse to settle, 3 mouse port,
                                  ; 4 absent, 5 bad buffer/caller, 6 empty,
-                                 ; 7 TX full, 8 module unavailable.
+                                 ; 7 TX full, 8 module unavailable, 9 a
+                                 ; UART no BIOS COM slot lists (4 is "the
+                                 ; boot probe found none there").
 SER_BUFFER_SIZE equ 517
 
 %define OSAPI_DRV_USE KERNEL_SEG:0x04A5 ; THE DRIVERS PAGE'S TICK, AS A DOOR
