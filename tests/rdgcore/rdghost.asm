@@ -54,6 +54,9 @@ bits 16
 %ifdef FRAME_SUM
 %define NO_MODE13
 %endif
+%ifdef LOSSY_COARSE                     ; (its 192-byte table needs the room)
+%define NO_MODE13
+%endif
 HOST_SEG        equ 0x0760                  ; (35,328 bytes under the core: the
                                             ;   boot sector moves itself out of the
                                             ;   way first, BOOT_SEG, and the stack

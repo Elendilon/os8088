@@ -1654,6 +1654,16 @@ rdg_rlog:
     shl ax,1
     shl ax,1
     mov si,ax
+%ifdef LOSSY_COARSE
+    mov byte [RDG_RLOG+si+3],0           ; (LOSSY: SCX to 8 pixels, the rest
+    cmp ch,43h                          ;   kept for the sprites, in the
+    jne .cv                             ;   entry's spare byte)
+    mov al,cl
+    and al,7
+    mov [RDG_RLOG+si+3],al
+    and cl,0F8h
+.cv:
+%endif
     mov [RDG_RLOG+si],dl                 ; line
     mov [RDG_RLOG+si+1],ch               ; register
     mov [RDG_RLOG+si+2],cl               ; value

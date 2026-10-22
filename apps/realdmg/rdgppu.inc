@@ -265,6 +265,11 @@ rdg_dvga         dw 0                    ; the host's: a changed line goes to VG
                                         ;   0 and 1 of this segment at 40 a
                                         ;   line (ppu_dvga), or 0
 rdg_dvmm         db 0                    ; ...the plane the map mask holds
+%ifdef LOSSY_COARSE
+rdg_csd          db 0                    ; (LOSSY: the fine scroll left to the
+rdg_csig         db 0                    ;   sprites, the frame's set of them,
+rdg_cstb         times RDG_RLOG_MAX db 0 ;   and each log entry's)
+%endif
 
 rdg_renderd:
     cmp word [cs:rdg_dmgseg],0
@@ -343,6 +348,49 @@ rdg_renderd:
     mov ax,[0FF4Ah]
     mov [PPU_REGS+6],ax
 .st2:
+%ifdef LOSSY_COARSE
+    mov al,[PPU_REGS+2]                 ; (LOSSY: the camera in steps of 8 -
+    mov ah,al                           ;   the background's SCX snapped, the
+    and al,0F8h                         ;   rest added to every sprite's X)
+    mov [PPU_REGS+2],al
+    and ah,7
+    mov [cs:rdg_csd],ah
+    mov dl,ah                           ; DL = the frame's fine scrolls
+    xor ch,ch
+    mov cl,[PPU_LOGN]
+    cmp cl,RDG_RLOG_MAX
+    jbe .csm
+    mov cl,RDG_RLOG_MAX
+.csm:
+    jcxz .csn
+    mov si,RDG_RLOG
+    xor bx,bx
+.csl:
+    mov al,[si+3]                       ; out of the log, so that it compares
+    mov [cs:rdg_cstb+bx],al             ;   the same while the snapped scroll
+    mov byte [si+3],0                   ;   stands
+    cmp byte [si+1],43h
+    jne .csx
+    shl dl,1
+    shl dl,1
+    shl dl,1
+    xor dl,al
+.csx:
+    add si,4
+    inc bx
+    loop .csl
+.csn:
+    cmp dl,[cs:rdg_csig]
+    je .csk
+    mov [cs:rdg_csig],dl                ; they moved: every sprite has, so
+    mov di,RDG_DOAM+1                   ;   OAM's shadow is made to differ
+    mov cx,40                           ;   in X and the scan marks its lines
+.csi:
+    xor byte [es:di],80h
+    add di,4
+    loop .csi
+.csk:
+%endif
     call ppu_pal
     mov byte [es:RDG_DFAST],0
     call ppu_logsame                    ; ZF = 1: the same log (and kept)
@@ -355,6 +403,9 @@ rdg_renderd:
     ; changes, so the scan of VRAM would only say what is composed anyway.
     ; Composed whole instead (RDG_DFULL: the shadows copied, not compared),
     ; which a scrolling Super Mario Land paid ~5 ms a frame of a 286 for
+%ifdef LOSSY_NOBG
+    jmp .scan                           ; (LOSSY: a scroll moves nothing drawn)
+%endif
     mov ax,[PPU_REGS+1]
     cmp ax,[es:RDG_DREG0+1]
     jne .full
@@ -403,6 +454,9 @@ rdg_renderd:
     je .nohk
     call [cs:rdg_dhook]
 .nohk:
+%ifdef LOSSY_NOSPR
+    jmp .oamk
+%endif
     cmp byte [es:RDG_DFULL],0            ; the sprites' line lists: kept while
     jne .oam                            ;   OAM is and their height, as
     cmp byte [es:RDG_DOCH],0             ;   nothing else moves them
@@ -840,6 +894,9 @@ ppu_dscan:
     or cx,cx
     jnz .m
 .oam:
+%ifdef LOSSY_NOSPR
+    ret                                 ; (LOSSY: OAM never looked at)
+%endif
     cmp byte [es:RDG_DSCR],0             ; a scroll's: every line is composed,
     je .oam1                            ;   so no line is marked - OAM's
     mov si,0FE00h                       ;   shadow taken whole (a scroll
@@ -1266,6 +1323,20 @@ ppu_dput:
     les di,[es:RDG_DOUT]                 ;   the screen shows (2, a scroll's,
     je .all                             ;   is: compared as ever)
     add di,ax                           ; ES:DI = the line in the buffer
+%ifdef LOSSY_BW
+    add si,20h                          ; (LOSSY: bit 1 alone)
+    add di,20
+    mov cx,10
+    repe cmpsw
+    je .same
+    dec si
+    dec si
+    dec di
+    dec di
+    inc cx
+    rep movsw
+    jmp short .vga
+%endif
     mov cx,10
     repe cmpsw
     jne .d0
@@ -1293,6 +1364,13 @@ ppu_dput:
     jmp short .vga
 .all:
     add di,ax
+%ifdef LOSSY_BW
+    add si,20h
+    add di,20
+    mov cx,10
+    rep movsw
+    jmp short .vga
+%endif
     mov cx,10
     rep movsw
     add si,0Ch
@@ -1334,6 +1412,19 @@ ppu_dvga:
     mov es,[cs:rdg_dvga]
     mov dx,3C4h
     mov si,[PPU_OSRC]
+%ifdef LOSSY_BW
+    add si,20h                          ; (LOSSY: plane 1 alone, the palette
+    cmp byte [cs:rdg_dvmm],1            ;   to make plane 0 not matter)
+    je .b1
+    mov ax,0202h
+    out dx,ax
+    mov byte [cs:rdg_dvmm],1
+.b1:
+    mov cx,10
+    rep movsw
+    pop dx
+    ret
+%endif
     cmp byte [cs:rdg_dvmm],1
     je .one
     cmp byte [cs:rdg_dvmm],0
@@ -1702,6 +1793,15 @@ ppu_log:
     ja .r
     mov bl,[RDG_RLOG+si+1]               ; the register, 40-4B
     mov al,[RDG_RLOG+si+2]
+%ifdef LOSSY_COARSE
+    cmp bl,43h
+    jne .nc
+    shr si,1
+    shr si,1
+    mov ah,[cs:rdg_cstb+si]             ; (LOSSY: its fine scroll, the
+    mov [cs:rdg_csd],ah                 ;   sprites' from this line on)
+.nc:
+%endif
     inc byte [PPU_LOGI]
     xor bh,bh
     sub bl,40h
@@ -1819,8 +1919,10 @@ ppu_line:
     rep stosw
     jmp .done
 .on:
+%ifndef LOSSY_NOBG
     test al,01h
     jnz .bg
+%endif
     xor ax,ax                           ; BG and window off: colour 0, and
     mov di,PPU_BL                       ;   every sprite above it
     mov cx,12
@@ -1830,6 +1932,9 @@ ppu_line:
     rep stosw
     jmp .pal
 .bg:
+%ifdef LOSSY_NOWIN
+    and al,0DFh                         ; (LOSSY: no window)
+%endif
     cmp byte [PPU_RCH],0                ; (no register written since the
     je .tm                              ;   last background's setup: the tile
     mov ah,al                           ;   mode it saw)
@@ -1923,6 +2028,9 @@ ppu_line:
 .win:
     ; the window, over the background from X = WX - 7 on
     mov al,[PPU_REGS+0]
+%ifdef LOSSY_NOWIN
+    and al,0DFh
+%endif
     test al,20h
     jz .pal
     mov ah,[PPU_LY]
@@ -1958,6 +2066,9 @@ ppu_line:
     cmp byte [PPU_REGS+3],0E4h
     jne .anf
     mov word [PPU_OSRC],PPU_BL
+%ifdef LOSSY_NOSPR
+    jmp .done
+%endif
     test byte [PPU_REGS+0],02h
     jz .done
     mov al,[PPU_LY]
@@ -1970,13 +2081,18 @@ ppu_line:
     jmp short .done
 .anf:
     mov word [PPU_OSRC],PPU_OL
+%ifndef LOSSY_BW
     mov bp,PPU_ANF
     mov di,PPU_OL
     call ppu_anf
+%endif
     mov bp,PPU_ANF+8
     mov di,PPU_OH
     call ppu_anf
 .spr:
+%ifdef LOSSY_NOSPR
+    jmp .done
+%endif
     test byte [PPU_REGS+0],02h
     jz .done
     call ppu_sprites
@@ -2189,6 +2305,7 @@ ppu_list:
 ; a 286 pays for every byte of code it fetches, so the loop's own are gone.
 ; PPU_FSHIFT op, half: ppu_fshift's body - each byte the previous tile row
 ; and this one as BH:BL, shifted by CL (op), its half the result
+%ifndef LOSSY_BW
 %macro PPU_FSHIFT 2
 %assign ppu_k 0
 %rep 10
@@ -2216,6 +2333,27 @@ ppu_list:
 %endrep
     ret
 %endmacro
+%else                                   ; (LOSSY: shade bit 1 alone - a tile
+%macro PPU_FSHIFT 2                     ;   row's high plane, the other left)
+%assign ppu_k 0
+%rep 10
+    mov bx,[si+2*ppu_k+2]
+    mov dh,[bx+di+1]
+    mov bh,ah
+    mov bl,dh
+    %1 bx,cl
+    mov [PPU_BH+ppu_k],%2
+    mov bx,[si+2*ppu_k+4]
+    mov ah,[bx+di+1]
+    mov bh,dh
+    mov bl,ah
+    %1 bx,cl
+    mov [PPU_BH+ppu_k+1],%2
+%assign ppu_k ppu_k+2
+%endrep
+    ret
+%endmacro
+%endif
 ppu_fshift:
     mov al,dl
     xor ah,ah
@@ -2241,8 +2379,12 @@ ppu_fshift:
 %assign ppu_k 0
 %rep 21
     mov bx,[si+2*ppu_k]
+%ifdef LOSSY_BW
+    mov ah,[bx+di+1]
+%else
     mov ax,[bx+di]
     mov [%1+ppu_k],al
+%endif
     mov [%1+20h+ppu_k],ah
 %assign ppu_k ppu_k+1
 %endrep
@@ -2427,6 +2569,12 @@ ppu_sprites:
     mov ch,[PPU_REV+bx]
 .nx:
     mov al,[si+1]
+%ifdef LOSSY_COARSE
+    add al,[cs:rdg_csd]                 ; (LOSSY: where the snapped camera
+    jnc .cx                             ;   puts it)
+    mov al,0FFh
+.cx:
+%endif
     mov [di],al                         ; X
     mov [di+1],cl
     mov [di+2],ch
@@ -2473,11 +2621,15 @@ ppu_sprites:
     add si,4
     loop .is
 .draw:
+%ifdef LOSSY_OPAQUE
+    jmp short .dc
+%endif
     ; the claimed mask starts empty
     xor ax,ax
     mov di,PPU_CL
     mov cx,12
     rep stosw
+.dc:
     mov si,PPU_SPR
     cmp word [PPU_OSRC],PPU_BL          ; (over the background's own planes)
     je .db
@@ -2536,9 +2688,13 @@ ppu_sprites:
     and dl,[ds:bp+5]
     xor ah,dl                           ; AH = shade bit 1
     mov di,ax                           ; DI = the shades
+%ifdef LOSSY_OPAQUE
+    mov ax,00FFh                        ; (LOSSY: every pixel of the box)
+%else
     mov al,[si+1]
     or al,[si+2]                        ; opaque: colour not 0
     xor ah,ah
+%endif
     ror ax,cl                           ; AL = byte B's part, AH = B+1's
     mov dx,ax                           ; DL, DH = opaque, both halves
     mov ax,di
@@ -2551,6 +2707,9 @@ ppu_sprites:
     mov bp,ax                           ; BP = shade bit 1, both halves
     cmp bx,19                           ; both bytes on the line (0-18, all
     jae .edge                           ;   but the edges): one word each
+%ifdef LOSSY_OPAQUE
+    jmp short .w                        ; (LOSSY: nothing claimed - the last
+%endif                                  ;   drawn wins - and no priority bit)
     test byte [si+3],80h
     jnz .wb
     mov ax,[PPU_CL+bx]                  ; over the background: a pixel another
