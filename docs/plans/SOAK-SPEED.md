@@ -115,6 +115,10 @@ reading the guest state the page is drawn from instead of pumping the screen).
   moves 5.3 -> 1.2 guest s. Every row that moves the pointer. Validated on
   uilayer, martyconc, dispdrag, dispthm, dispprefer.
 
+- **`os88marty.kernel_up(m)`**: os88ui's `up` gate for a bare
+  `launch(boot=False)` + `m.run()` caller - desk_rows/menu_nbar live,
+  [spl_live] = 0, then `ui_done`; no picture settle. dispseam's four boots.
+
 ## Ledger
 
 | row | before | after | techniques | notes |
@@ -144,3 +148,4 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | deskclock / deskclockherc | 182 s + 85 s / 261 guest s waited | 105 s + 46 s / 146 | 4 | `quick=True`; a fixed 0.8-14 guest s sleep per key and click -> `ui.still()` (every assertion after one detects a CHANGE, so an early read goes red); the reset's `ready` -> `up` (a ticking clock made its settle 45 guest s) |
 | paintfill | 60 guest s | 50 s (load 16) / 57 guest s | 4 | already lean (boot 20 + load 8 + the fill); idle()'s quiesce+lock-until -> ui_done |
 | paintdraw | 45 guest s | 51 s (load 16), unchanged | - | lean: boot + load + its own timed stroke; secs re-declared only |
+| dispseam | 430 s (incl. knob build) / 366 guest s | 204-298 s (load 14) / 146 guest s | 4 | four boots (2 machines x fixed/NOSEAMCUT) gated by `kernel_up`; every wait after is `ui_done` - the bars are read from VRAM (`m.vram`), not the glass. The NOSEAMCUT leg is its own red: still loses 18 px |

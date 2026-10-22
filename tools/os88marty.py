@@ -2305,6 +2305,23 @@ def no_saver(m):
         m.write(mins, b"\0")
 
 
+def kernel_up(m, guest=120.0, what="the kernel to reach the desktop"):
+    """A BOOT GATE ON STATE, for a `launch(boot=False)` + `m.run()` caller
+    whose next act is a click or a guest read - os88ui.UI.up's test without
+    the UI object: `desk_rows` and `menu_nbar` written and `[spl_live]` = 0
+    (kmain_o's last act), then `ui_done` so the first paint is finished in the
+    framebuffer too. No picture settle: ~15 guest s where `settle(gate=
+    desktop_up)` pays the boot plus a still-screen proof. Keep the settle when
+    the next read is the rendered glass."""
+    a = (m.sym("desk_rows"), m.sym("menu_nbar"), m.sym("spl_live"))
+
+    def up(_):
+        w = m.read(a[0], 2), m.read(a[1], 2)
+        return any(w[0]) and any(w[1]) and not m.read(a[2], 1)[0]
+    until(m, up, what, poll=0.05, guest=guest)
+    return ui_done(m, what)
+
+
 def _syms():
     import os88sym
     return os88sym

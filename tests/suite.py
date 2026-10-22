@@ -9095,7 +9095,7 @@ SOAK = [
         "the arena's ceiling, the pointer at it, the ROM's bytes in it, and "
         "the same desktop pixel for pixel",
         needs=("marty",)),
-    Row("dispseam", "soak", py("tests/dispseam.py"), 300.0,
+    Row("dispseam", "soak", py("tests/dispseam.py"), 240.0,
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
         "and puts the default kernel back, both seam orientations",
