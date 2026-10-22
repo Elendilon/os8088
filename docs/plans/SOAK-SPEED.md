@@ -49,7 +49,10 @@ reading the guest state the page is drawn from instead of pumping the screen).
    `settle` the dispcp verbs take (dispprefer).
    Before an `fbuf` read keep the settle (glass lags framebuffer); before a
    `quiesce`/`m.read` the settle can go and the quiesce's `guest=` can drop
-   to ~0.3. Typically halves a drive-and-read row.
+   to ~0.3. Typically halves a drive-and-read row. **`m.advance(frames=N)`
+   is a blind sleep the waitlog does not even log** (paintrz had ~80 guest s
+   of them a row); after an input it is `ui_done`, and where the old wait
+   was proving the work happened, assert the state moved instead.
 
 5. **Log, don't stop, for a timing trace.** A `bp_trace` whose hits only feed
    cycle arithmetic takes `log=True`; data the body must write while the
@@ -118,3 +121,4 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | paintmove | 50 s / 85 guest s | (unchanged) | - | already lean: 35 guest s boot + heapfrag's own work; secs 150 -> 60 |
 | paint1blit | 126 guest s, 3 boots | 53 s / 67 guest s | 3, 4 | one disk with both fixtures, one boot + snapshot, an arm per restore; blind `advance(400/300)` -> ui_done; settles -> ui_done (every read is memory). Red with the refuse flags swapped (and proves a restore does not carry the previous arm's poke) |
 | desksc | 122 s / 72 host s waited | 106 s / 56 | 4 | boot and both reboots unsettled (`up` + `no_saver`: every read after is guest state); four pre-`fbuf` settles -> `ui.still()`. The rest is three boots and CTRL.DRV loads |
+| paintrz, paintrz-1bpp | 282 / 186 s (heavy load) | 54 / 44 s (load ~10) | 4 | five `advance(900)` after Enter/grow -> ui_done (+ a new SETUP check that the size really changed); settles -> ui_done |

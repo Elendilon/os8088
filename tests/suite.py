@@ -11446,7 +11446,7 @@ SOAK = [
         "pt_szapply resizes the window and pt_track re-fits the width back up"
         "before anything else can look",
         needs=("marty", "nasm"), serial=True),
-    Row("paintrz", "soak", py("tests/paintrz.py"), 120.0,
+    Row("paintrz", "soak", py("tests/paintrz.py"), 60.0,
         "SPEC.md 42.19.1: does a resize still have the PICTURE afterwards?"
         "pt_resize used to carry it through the undo image, where every walk"
         "order is safe because the source is a buffer of its own; it moves the"
@@ -11591,7 +11591,7 @@ SOAK = [
         "pt_chmax clamps that machine's fresh canvas to the picture's height",
         needs=("marty",), serial=True),
     Row("paintrz-1bpp", "soak",
-        py("tests/paintrz.py", "--machine", "os8088_5150_herc_gla"), 120.0,
+        py("tests/paintrz.py", "--machine", "os8088_5150_herc_gla"), 60.0,
         "...and the ONE-BIT canvas, which is a different move: one run of"
         "bits a row instead of four plane-runs whose three inner boundaries"
         "all shift with the width (SPEC.md 42.23, 42.13.2). IT WAS"
