@@ -3841,6 +3841,20 @@ $(BUILD)/fontview.bin: apps/fontview/fontview.asm apps/os88api.inc \
 $(BUILD)/fontview.o88: $(BUILD)/fontview.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/fontview.bin -o $@
 
+# Mixer is optional on the roomy system disks and installed/live media.
+# The quick slider is in SOUND.DRV; the 360KB image needs no MIXER.O88.
+SYSOPTIONAL := $(if $(KERN_SMALL),,$(BUILD)/mixer.o88)
+SYSOPTIONALARGS := $(addprefix SYSTEM:,$(SYSOPTIONAL))
+.PHONY: mixer
+mixer: $(BUILD)/mixer.o88
+$(BUILD)/mixer.bin: apps/mixer/mixer.asm apps/os88mixui.inc apps/os88gfx.inc \
+                    apps/os88dec.inc apps/os88ui.inc apps/os88api.inc \
+                    drivers/sound/sndpkg.inc | $(BUILD)
+	$(NASM) -f bin -w+error \
+		-I apps/ -I drivers/sound/ -o $@ apps/mixer/mixer.asm
+$(BUILD)/mixer.o88: $(BUILD)/mixer.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/mixer.bin -o $@
+
 # ...AND A STAMP FILE, for exactly VIDSTAMP's and DSSTAMP's reason. NOPICOMEM,
 # PM_BASE and PM_SB_PORT change the command line and no source, so without
 # this `make NOPICOMEM=1` after a plain build saw an up-to-date sound.bin and
@@ -3850,7 +3864,8 @@ $(BUILD)/fontview.o88: $(BUILD)/fontview.bin tools/os88pkg.py $(PKGZSTAMP)
 SNDSTAMP := $(BUILD)/.sound-$(if $(NOPICOMEM),nopm,pm)$(if $(PM_BASE),-b$(PM_BASE))$(if $(PM_SB_PORT),-s$(PM_SB_PORT))
 
 $(BUILD)/sound.bin: drivers/sound/sound.asm drivers/sound/sb.inc drivers/sound/mpu.inc drivers/sound/covox.inc \
-                    drivers/sound/picomem.inc drivers/sound/sndpkg.inc \
+                    drivers/sound/picomem.inc drivers/sound/sndpkg.inc drivers/sound/mixer.inc \
+                    drivers/sound/volume.inc apps/os88mixui.inc apps/os88gfx.inc apps/os88dec.inc \
                     drivers/os88drv.inc apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error $(SNDDEF) -I drivers/sound/ -I drivers/ -I apps/ \
 		-o $@ drivers/sound/sound.asm
@@ -4171,15 +4186,17 @@ $(BUILD)/boothd.bin: boot/boothd.asm kernel/kernel.asm $(KERNFILE) | $(BUILD)
 # just loaded by it and copies it into the HMA, so the shipped .DRV stays the
 # org-0 file it always was and a machine with no HMA reads nothing new. The
 # .hma.bin copies ship nowhere; they exist for the diff.
-DRV_HMA_ORG := 0xE000
+DRV_HMA_ORG := 0xC000
 HMADRV := sound hdd net
+$(addprefix $(BUILD)/,$(addsuffix .hma.bin,$(HMADRV))): Makefile
 $(BUILD)/coldhma.sys: $(KERNFILE) boot/osrom.asm tools/os88rom.py tools/os88romfix.py \
                       $(foreach d,$(HMADRV),$(BUILD)/$(d).bin $(BUILD)/$(d).hma.bin $(BUILD)/$(d).drv)
 	python3 tools/os88rom.py hma --build $(BUILD) --out $(BUILD) "--defines=$(VIDDEF)" \
 		"--drivers=$(HMADRV)" --drv-org=$(DRV_HMA_ORG)
 
 $(BUILD)/sound.hma.bin: drivers/sound/sound.asm drivers/sound/sb.inc drivers/sound/mpu.inc drivers/sound/covox.inc \
-                        drivers/sound/picomem.inc drivers/sound/sndpkg.inc \
+                        drivers/sound/picomem.inc drivers/sound/sndpkg.inc drivers/sound/mixer.inc \
+                    drivers/sound/volume.inc apps/os88mixui.inc apps/os88gfx.inc apps/os88dec.inc \
                         drivers/os88drv.inc apps/os88api.inc $(BUILD)/sound.bin
 	$(NASM) -f bin -w+error $(SNDDEF) -DDRV_ORG=$(DRV_HMA_ORG) -I drivers/sound/ \
 		--before "[map symbols $(BUILD)/sound.hma.map]" \
@@ -4556,10 +4573,10 @@ $(BUILD)/os88net.com: drivers/net/os88sfx.asm $(BUILD)/os88net.lz \
 	$(NASM) -f bin -w+error -I $(BUILD)/ -o $@ $<
 	@echo "os88net.com: $(call FILESIZE,$@) bytes packed - self-extracting, runs on DOS"
 
-$(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
+$(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSOPTIONAL) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSOPTIONALARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(SYSVIDARGS) $(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # The 720KB 3.5" DD disk (SPEC.md 19). It is the geometry the machines
@@ -4571,10 +4588,10 @@ $(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSTOO
 #
 # Same boot sector as the 360KB disk (see boot360.bin above): 9 spt, 2 heads,
 # 80 cylinders instead of 40, and the boot sector never counts cylinders.
-$(IMG720): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
+$(IMG720): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSOPTIONAL) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSOPTIONALARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(SYSVIDARGS) $(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # The 1.2MB 5.25" HD disk (SPEC.md 19). The geometry of the machine the 720KB
@@ -4598,10 +4615,10 @@ $(IMG720): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(
 # Its OWN boot sector, unlike the pair above it: 15 spt is a different track
 # shape, and boot/boot.asm's whole knowledge of a disk is SPT and HEADS. See
 # build/boot120.bin's rule for why that is three sectors and not four.
-$(IMG120): $(BUILD)/boot120.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
+$(IMG120): $(BUILD)/boot120.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSOPTIONAL) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1200 \
 		--boot $(BUILD)/boot120.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSOPTIONALARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
 		$(SYSVIDARGS) $(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # ETHERTEST - the system disk with a SYSTEM.CFG that already asks for the
@@ -5034,6 +5051,23 @@ $(BUILD)/mrwt720.img: $(BUILD)/midirack.o88 $(BUILD)/mrsynth/MIDIRACK.BNK $(MIDI
 mrwttest: $(BUILD)/mrwt720.img
 	@echo "mrwttest: build/mrwt720.img - MIDIRack and the synthetic bank."
 	@echo "          Run it with: python3 tests/midirack.py --arm wt"
+
+# Hardware volume's integration fixtures: same shipped driver and kernel,
+# SOUND wanted at boot, with/without the optional SYSTEM/MIXER.O88.
+.PHONY: mixertest
+mixertest: $(BUILD)/mixer360.img $(BUILD)/mixernone360.img
+$(BUILD)/mixercfg/SYSTEM.CFG: | $(BUILD)
+	@mkdir -p $(dir $@)
+	python3 -c "import struct; open('$@','wb').write(b'O88CFG\0\0'+struct.pack('<H',3)+b'DW'+bytes([1,2])+struct.pack('<H',1)+b'\0\0')"
+$(BUILD)/mixer360.img $(BUILD)/mixernone360.img: $(BUILD)/boot360.bin $(KERNFILE) \
+        $(DRIVERS) $(SYSAPPS) $(COREAPPS360) $(SYSOPTIONAL) $(SYSDOC) \
+        $(BUILD)/mixercfg/SYSTEM.CFG tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 --spc 1 \
+		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(COREAPPSARGS360) $(SYSDOC) \
+		$(BUILD)/mixercfg/SYSTEM.CFG \
+		$(if $(filter $(BUILD)/mixer360.img,$@),$(SYSOPTIONALARGS)) \
+		--folder SYSTEM/APPDATA
 
 .PHONY: miditest
 miditest: $(BUILD)/midisys720.img $(APPSIMG720)
@@ -5638,6 +5672,16 @@ $(BUILD)/sbtest.o88: $(BUILD)/sbtest.bin tools/os88pkg.py
 
 $(BUILD)/sbtest.img: $(BUILD)/sbtest.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/sbtest.o88
+
+# The same fixture with 4.8 seconds staged: QMP and floppy discovery must
+# leave audio still playing when the volume popup opens. Default SBTEST
+# remains byte-identical; this arm is only the mixer's background-service leg.
+$(BUILD)/mixplay.bin: tests/sbtest/sbtest.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -DSBTEST_RATE=4000 -DSBTEST_CHUNKS=24 -o $@ $<
+$(BUILD)/mixplay.o88: $(BUILD)/mixplay.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $< -o $@
+$(BUILD)/mixplay.img: $(BUILD)/mixplay.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 $(BUILD)/mixplay.o88
 
 # Minesweeper, the first loadable program: a flat binary with the .o88
 # package header. ONE assembly per package since SPEC.md 20.1 - a package
@@ -14672,7 +14716,7 @@ LIVESYSARGS := $(addprefix SYSTEM:,$(filter-out $(APPSYS),$(SYSAPPS))) \
 # (SPEC.md 19.10.1). Here, for that reason and the four packages', and
 # tests/unit/t_livefull.py now holds the live volume to every file the 1.44MB
 # apps disk ships, folder and all, so the next one cannot drop out this way.
-LIVEPKGDEPS := $(BUILD)/recorder.o88 $(BUILD)/hello.o88 \
+LIVEPKGDEPS := $(SYSOPTIONAL) $(BUILD)/recorder.o88 $(BUILD)/hello.o88 \
                $(SCRIBEDISK) $(MEDIA_EXTRA) $(MIDISONGS)
 LIVEPKGARGS := $(addprefix APPS:,$(BUILD)/recorder.o88 $(BUILD)/hello.o88) \
                $(addprefix SCRIBE:,$(SCRIBEDISK)) \
@@ -14717,7 +14761,7 @@ $(BUILD)/zcat/live/CATALOG.TXT: tools/getstories.py
 # in front of the same rest (SPEC.md 80.7): $(LIVEARGS) is still what it was,
 # byte for byte, and build/livepayload.txt still prints it.
 LIVEREST := $(SYSDOC) $(SYSLOGOARG) $(LOGOVIDARG) $(FACESARG) $(ALLAPPSARGS) \
-            $(LIVESYSARGS) $(LIVEPKGARGS) $(LIVESTORYARGS) $(SYSROOTARG) \
+            $(LIVESYSARGS) $(SYSOPTIONALARGS) $(LIVEPKGARGS) $(LIVESTORYARGS) $(SYSROOTARG) \
             $(SYSINST)
 LIVEARGS := $(DRIVERS) $(LIVEREST)
 

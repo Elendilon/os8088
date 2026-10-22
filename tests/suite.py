@@ -381,9 +381,9 @@ FAST = [
         "the tail's block table holds exactly their images, each is its "
         "org-DRV_HMA_ORG assembly where nothing writes, HDD.DRV mounts C: "
         "from up there and it lists HELLO.TXT, and RECORDER's demo plays on "
-        "the card out of an 8KB double buffer in the pool (page 10h) to "
-        "PLAY DONE, the block given back; the Control Panel's Hard Disk "
-        "page loads HDDTOOL.DRV, which calls back into HDD.DRV at E00Ch "
+        "the card out of an 8KB double buffer in the pool, or the heap "
+        "when the pool is full, to PLAY DONE; the Control Panel's Hard Disk "
+        "page loads HDDTOOL.DRV, which calls back through its HMA origin "
         "and syncs its device table, and Install copies the whole system "
         "onto C: from there. B, -m 1: the same drivers in the heap, C: "
         "still mounted and the page synced - the negative control. SOAK: one "
@@ -14599,6 +14599,29 @@ SOAK = [
         "name for tests/ethernet.py's reason: MartyPC has no NIC, so this "
         "package's receive path cannot be reached on it at all",
         needs=("qemu",), serial=True, builds=True),
+    Row("mixercga", "soak", py("tests/mixer.py", "--adapter", "cga"), 100.0,
+        "SPEC.md 34.15: CGA volume gestures, exact save-under restore and cleanup, "
+        "optional package discovery/absence and absent hardware, native Mixer and About",
+        needs=("marty", "nasm"), timeout=900,
+        wants=("build/mixer360.img", "build/mixernone360.img")),
+    Row("mixerherc", "soak", py("tests/mixer.py", "--adapter", "herc"), 65.0,
+        "SPEC.md 34.15: the same volume/Mixer UI and resource checks on Hercules",
+        needs=("marty", "nasm"), timeout=600, wants=("build/mixer360.img",)),
+    Row("mixervga", "soak", py("tests/mixer.py", "--adapter", "vga"), 65.0,
+        "SPEC.md 34.15: the same volume/Mixer UI on VGA, including its four-plane save-under",
+        needs=("marty", "nasm"), timeout=600, wants=("build/mixer360.img",)),
+    Row("mixersb16", "soak", py("tests/mixer.py", "--adapter", "sb16"), 40.0,
+        "SPEC.md 34.15: QEMU SB16/CT1745 actual hardware readback, stereo balance, "
+        "tone controls, background playback while the popup remains open and "
+        "the complete popup/package session; MartyPC has only a raw mixer bank",
+        needs=("qemu", "nasm"), timeout=600,
+        wants=("build/mixer360.img", "build/mixplay.img")),
+    Row("mixerhost", "soak", py("tests/mixermodel.py"), 2.0,
+        "SPEC.md 34.15: the shipped mixer assembly against independent Creative "
+        "register maps, all percentages and asymmetric stereo, refusals before "
+        "writes, absent/stuck bus, IF and SS != DS, detach restoration and a "
+        "deliberately wrong register that must fail",
+        needs=("nasm", "unicorn")),
     Row("picomem", "soak", py("tests/picomem.py"), 35.0,
         "SPEC.md 34.10.1, 72.2: the driver code a PicoMEM talks to, AS IT "
         "SHIPS, under unicorn against a model of the card written from its "
