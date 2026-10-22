@@ -11013,7 +11013,7 @@ SOAK = [
         "`make small` builds its disk.",
         needs=("marty",), timeout=300,
         wants=("build/small360.img",)),
-    Row("deskclock", "soak", py("tests/deskclock.py"), 150.0,
+    Row("deskclock", "soak", py("tests/deskclock.py"), 130.0,
         "SPEC.md 110.14: the Desk Clock on a VGA XT off the shipped 360KB "
         "system disk - a desk window, Medium Classic, whose dial's corners "
         "are the desktop's dither with its phase (the ground sampled off the "
