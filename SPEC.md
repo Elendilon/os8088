@@ -3766,16 +3766,18 @@ The design record is docs/plans/HMA-PLAN.md 5.
 
 - **`.cold` is at the TOP of the HMA, the pool under it.** Nothing above 1MB
   is reachable at offset 0 - FFFF:x is linear 0xFFFF0 + x - so a block at HMA
-  offset *b* is addressed C:`DRV_HMA_ORG` (0xE000) with C = FFFF -
-  (0xE000 - *b*)/16. Under `.cold` every such C is F200-F7FF; above it every
-  C would be FBxx-FFxx, which is the heap's owner TAGS (§50), and a claim an
-  HMA driver made would read as purgeable. So kern_big's `.cold` starts at
+  offset *b* is addressed C:`DRV_HMA_ORG` (0xC000) with C = FFFF -
+  (0xC000 - *b*)/16. Under `.cold` every such C is F400-F9FF, below
+  the heap's FBxx-FFxx owner TAGS (§50). The origin was E000 before the
+  volume popup (§34.15) grew SOUND.DRV beyond its 8KB address window. So kern_big's `.cold` starts at
   `HMA_COLD_AT` (kernel.asm) in RAM, in ROM and in the HMA alike, and
-  kern_small's stays at 0x10. A block is at most 8KB (0xE000-0xFFFF).
+  kern_small's stays at 0x10. A driver image is at most 16KB
+  (0xC000-0xFFFF); OSAPI_MEM_HMA buffers retain their 8KB limit. The pool
+  stays the same size; a claim that does not fit falls back to the heap.
 - **A driver is RELOCATED, not re-read.** The build assembles each driver in
   the Makefile's `HMADRV` twice, at org 0 and at org `DRV_HMA_ORG`, and
   `tools/os88rom.py hma` diffs the pair: every byte that moves is a high byte
-  gaining 0xE0, which it proves by relocating the loaded image and comparing
+  gaining `DRV_HMA_ORG >> 8`, which it proves by relocating the loaded image and comparing
   it with nasm's copy. The tables ride COLDHMA.SYS keyed by a hash of the
   org-0 image. The shipped `.DRV` is the org-0 file it always was.
 - **`drv_hma_try`** is the last step of `drv_load`, after `drv_check` and
@@ -55355,6 +55357,37 @@ were left in it) and the cold rung (**two** were left), so `KERN_SIZE` went
 neither rung moved at any point. Per §1's banner, the rungs are whoever was
 standing there — the bytes are the cost.
 
+#### 26.4.2 A driver's volume may wear its own picture (`FSCAP_ICON`)
+
+**A volume is drawn as its medium** - a diskette, a 5.25" diskette or a hard
+disk - and every driver-backed volume took the hard disk, which was right for
+`HDD.DRV`'s partitions and wrong for a CD-ROM (§119): a drive whose disc comes
+out and goes in again read as one that never ejects. The kernel does not
+grow a fourth picture for it. A CD-ROM is on few machines, and §26.7 already
+established that **a driver's desktop picture is the driver's**: a glyph in
+the kernel is RAM on every machine that can never draw it.
+
+So a FILE-class driver (§62.9) may set **`FSCAP_ICON` = 2** in `DSV_CAPS`,
+beside `FSCAP_LOCAL`. `desk_pic`, before it consults the medium, asks
+`desk_drvico`: a `DVK_FILE` row, its class's copied `DSV_CAPS` with the bit
+set - and then the driver's door, `DSV_PKGCALL` with **BL = `DRV_ICONV`
+(41h)** and CX/DX the picture's top-left, exactly as `.svcico` asks The
+Wire's driver for its zone (§26.7). The driver draws with `OSAPI_ICON_DRAW`
+(16 x 16 records, so a 32-wide picture is quadrants - §26.7.1's shape), 32
+rows on VGA/EGA/Hercules and 14 on the CGA (`OSAPI_VIDEO` says which), keeps
+every register and answers CF = 0. **CF = 1, a class no driver publishes, or
+the bit clear, and the kernel draws its own icon**, so a driver that goes
+away leaves a hard disk rather than nothing. The draw lands in the cell's
+band while the cell composes (§26.9.9), so the selection inverts the
+driver's picture like any other and nothing is written twice.
+
+The verb is 41h, clear of every door's own verbs and of `WZV_PAINT` (40h),
+because `NET.DRV` is a file class with a door and a zone of its own.
+
+**What it costs**: `desk_drvico` and its call, `.cold` only (no picture, no
+`.text`); `kern_small` has no driver and no change. `CDROM.DRV` is the first
+driver to set it (`drivers/cdrom/cdico.inc`, §119.3).
+
 ### 26.5 The caption sits a gap below the icon
 
 `DESK_ZGAP` rows of desktop between the bottom of the icon's cell and the top
@@ -56530,7 +56563,12 @@ bytes); it is the primitive's now, for every caller, at 88.
   and the ink is the ground's complement either way. It goes down at the
   rect's own x, whatever its byte phase, so the pen is centred exactly
   again: the first build had rounded it onto the byte grid, moving most
-  captions up to 4 px.
+  captions up to 4 px. **Centred under the PICTURE, not in the cell**
+  (`desk_caprect`): `DESKPIC` moved the column up to 4 px off the cell's
+  middle, and a caption centred on the cell sat that far beside its icon -
+  `CD-ROM` 3 px left of its disc (§119). The pen moves by what the column
+  moved and is then held inside the cell, which is all a refill erases, so
+  a full-width shortcut caption stays where it was. `.cold` +32.
 - **The ground** is four clipped `thm_desk` fills either side of the column
   and of the caption (`desk_g2`), each drawing pixels nothing else in the
   cell does.
@@ -69350,6 +69388,93 @@ covoxpoll` (the polled play: IRQ0 at `os88spk_ptick`, 6,520 Hz by the
 GUEST'S CYCLES - the BIOS tick is owed while it plays, and the row checks it
 does not move - then a pause that must pay the ticks to within a tick a
 second, a resume, and the pitch-class agreement on the DAC's capture).
+
+### 34.15 Hardware mixer and menu-bar volume
+
+Delivery record: `docs/plans/MIXER-PLAN.md`. The implementation is delivered
+in waves; that checklist records which behavior has been verified.
+
+`SND_CAP_MIXER` = 0200h means SOUND.DRV found a readable hardware mixer.
+It is independent of the selected tone/PCM tier: selecting the PC speaker
+or AdLib does not remove a physically present mixer's controls. No software
+attenuation is claimed for the PC speaker, Covox or an AdLib alone.
+SOUND.DRV owns all mixer index/data-port accesses. Each index/data transaction
+is protected by pushf/cli/popf; a stereo read/write is one such transaction.
+Detection saves, tests two distinct volume values, reads the defined bits and
+restores the original register. It never resets the mixer or writes IRQ,
+DMA, recording-route, stereo/filter or output-enable registers.
+
+The package ABI extends `drivers/sound/sndpkg.inc`, through the existing
+`OSAPI_DRV_CALL`, BH = DRVC_SOUND. No API cell or driver-table layout moves.
+
+| verb | input | output |
+|---|---|---|
+| `SNDV_MIXINFO` (7) | none | CF=0, AL=1 CT1335 / 2 CT1345 / 3 CT1745; CX = channel bitmap; CF=1 AX=SNDE_NOMIX (7) |
+| `SNDV_MIXGET` (8) | AL = channel | CF=0, CL/CH = left/right percentage 0..100; DL bit 0 = stereo, bit 1 = tone control; DH = native maximum (3/7/15/31); mono repeats left; CF=1 AX=SNDE_MIXARG (8) for unsupported channel |
+| `SNDV_MIXSET` (9) | AL = channel; CL/CH = left/right 0..100 | CF=0 written; invalid values or channel refuse before any write, CF=1 AX=SNDE_MIXARG; unavailable mixer answers SNDE_NOMIX |
+| `SNDV_MIXICON` (10) | CX = left x, gfx lock held | opaque 24x16 speaker image at (CX,2), CF=0; kernel callers only |
+| `SNDV_MIXPOP` (11) | CX = icon left x; ES:DI = kernel-private far bridge record; UI task, no lock held | tracks volume popup, restores pixels and frees scratch on every exit; CF=0, no package launched while gfx lock held |
+
+Channel numbers: 0 Master, 1 PCM, 2 FM/MIDI, 3 CD, 4 Line, 5 Mic,
+6 PC Speaker input, 7 Bass, 8 Treble. INFO's bitmap is authoritative.
+CT1335 offers 0..3 (mono); CT1345 offers 0..5 (Mic mono); CT1745 offers
+all nine (Mic and PC Speaker input mono). Tone controls use 0..100 as the
+chip's full cut/boost range; their neutral point is the hardware's center.
+Percentages round to the nearest supported hardware step; GET reads the
+actual quantized setting. Detach restores all exposed registers saved when
+the mixer attached. Unsupported/absent chips cause no mixer UI.
+
+The speaker expands the right-hand segment leftward by 24 pixels, on the
+primary display only. `[vid_clk_hx]` moves left by 24 while it is present;
+the speaker occupies its first three cells, and `menu_clkx` is the unchanged
+clock text origin. The clock and the maximum-width toast retain their entire
+field. Capability/geometry changes relayout the application menus at the new
+boundary; their existing prefix/index rule is unchanged. SOUND.DRV rounds to 12KB of image plus state on the heap;
+`DRVM_IMG_SND` is 12. The popup claims only its adapter-sized save-under while open: up to
+10KB on VGA/EGA and 3KB on the mono adapters.
+Its hit range is tested before
+the Date/Time cell, without changing application menu indices. The icon is
+cached independently, invalidated when the bar is overwritten or capabilities
+change, and is omitted entirely on kern_small. A progress widget armed before
+that boundary moves retains its origin for the operation. If its old span
+overlaps the new speaker segment, `fpg_finish` invalidates the icon before
+the final bar repaint, restoring both its text-band and outer rows.
+
+The popup is SOUND.DRV code, available with the loaded driver. Its private
+bridge is supplied by the kernel each call: AL=0 finish file activity, restore the pointer, spend lazy hide/show,
+1 hide, 2 poll (AL=buttons, CX/DX=x/y, move visible cursor), 3 drain queued
+modal edges. The driver stores no kernel offsets or build-dependent names. It anchors
+below the bar, clamps to live display geometry, and owns a temporary
+save-under claim. Allocation/save failure leaves the desktop untouched and
+reports a refusal. It supports click-open, press-drag-release, dragging beyond
+the track with clamping, click-away dismissal, Escape, arrows, Home/End and
+Enter. The master control scales the stereo pair together, retaining their
+ratio (a silent pair restarts centered). An engraved scale, black recessed
+track, outlined ridged thumb and opaque text work on all three adapters.
+Only the changing control band is redrawn during a drag; idle polls draw
+nothing and yield so background sound continues.
+
+On each opening, quietly discover a regular `MIXER.O88` in `SYSTEM\` on
+the boot volume, saving/restoring the current drive and folder on every path.
+Show `Open Mixer...` only when found, with an inverted full-width hover row. Revalidate at launch; perform it after
+restoring the save-under and releasing the graphics lock, through
+`OSAPI_PKG_START`. Failure reports a toast. No package-existence flag is
+persisted and there is no dependency from basic volume to this file.
+
+`MIXER.O88` is an optional native package with an About handler. It queries
+the live driver, offers only supported channels, and adjusts per-channel
+level and stereo balance (mono channels have no balance control). Bass and
+Treble use independent Left/Right tone sliders and label 53% as flat (native
+step 8 of 15), rather than applying a volume-balance ratio to tone values. It handles
+an unavailable/unloaded driver visibly. Its sliders share source with the
+popup, including the monochrome face. It ships in SYSTEM on 720KB, 1.2MB and 1.44MB system floppies and live hard-disk
+media and is available through `make mixer`; it does not join the 360KB
+system disk. Existing hard-disk installation copies remain ordinary file
+copies: a user may add MIXER.O88 to an installed SYSTEM folder.
+
+Hardware reference: Creative, *Sound Blaster Series Hardware Programming
+Guide*, chapter 4 (CT1335/CT1345/CT1745), available at
+https://www.phatcode.net/res/243/files/sbhwpg.pdf .
 
 ## 35. Recorder — the sound layer's recording client
 
@@ -134553,6 +134678,36 @@ the file's colour sites, the literal when it is not defined — so every
 package that does not set it is byte-identical. A disabled field (`LN_DIS`)
 still leaves its frame in the caller's pen.
 
+### 83.6 `OS88LINE_RUN` — a field in the package's face
+
+A package that letters its own content in a face of its own (WireChat's,
+§113.5.3) would otherwise have one line on its window in the kernel's 8×8 —
+the one the user is typing in. So `os88line.inc` takes a substitute for its
+runs: `%define OS88LINE_RUN <routine>` before the include names a near routine
+with `OSAPI_FONT_RUN`'s contract (CX = x, DX = the top of the 8×8 cell, SI = a
+NUL string, AL = ink, AH = ground, every register preserved), and the field's
+three runs — the whole text, the one character a key typed, the character a
+caret is taken off — call it instead.
+
+A face's cell need not be font_run's eight rows, and that is the half that is
+not a rename. A character rubbed out and a caret taken off past the end are
+**blanked**, a fill of the cell, and an eight-row blank under a ten-row face
+leaves a deleted `g`'s descender on the glass. So `OS88LINE_RUNUP` (rows the
+cell starts ABOVE DX) and `OS88LINE_RUNH` (its rows) size both blanks, and
+default to 0 and 8. The caret stays font_run's eight rows from DX: the cell
+covers them, so the run that takes it off still erases it. The pen, the
+column count and every hit test are untouched — a cell is still eight pixels
+wide, and the routine is asked for nothing else.
+
+**It is not asked to grey.** A disabled field (`LN_DIS`) letters in the
+caller's pen and font_run stipples it (§47); a routine that composes a band
+is greying-blind for §5.4.2's reason. A carrier that disables its field and
+wants the stipple keeps font_run. WireChat never disables its field.
+
+It is `OS88LINE_PENS`' shape (§83.5): each site a macro that is the call it
+replaced when nothing is defined, so every other package assembles
+byte-identical.
+
 ## 84. Software floating point (`apps/os88fp.inc`)
 
 An IEEE-754 double, in software, for a machine with no FPU. It is what stage
@@ -198905,7 +199060,8 @@ window's timer (`OSAPI_WM_TIMER`, 18 ticks), which also drives auto-away
 ### 113.5 The window
 
 Resizable. `OS88_PREFER` 608×400 VGA, 688×296 Hercules, 608×150 CGA;
-`OSAPI_WM_MINSIZE` 320×147. Content-relative, 8×8 cells at a 10px pitch,
+`OSAPI_WM_MINSIZE` 320×147. Content-relative, 8×10 cells of its own face
+(§113.5.3), one a row,
 `WF_SNAP` so every column is a multiple of 8 (§11.94). **A BBS terminal**:
 the whole content is the theme's ground (§113.5.2), ruled in its accent, and
 the window is `OSAPI_WM_OWNBG` (§11.90.1) — it paints every pixel itself, so
@@ -198939,7 +199095,7 @@ a dark theme never flashes the kernel's white first:
 |---|---|---|
 | header | the top band (two on a window 200 rows tall or more), its rule under it | band 1: `WireChat` bold and nothing after it (the display it is on and `01 / BBS TERMINAL` were here, and said nothing a user acts on); at the right end our status glyph, the status word and the nick, which together are the STATUS button. Band 2 (tall windows only): the machine's date and time (`OSAPI_CLK_GET`), right-aligned, redrawn when the minute turns |
 | tabs | one band under the header's rule, its own rule under it | a tab a room: `#name`, the view's in the highlight; an unread count is a badge after the name, `@` ahead of it for a mention (§113.2.4). The rooms menu still lists them |
-| center | the rest, left of the right pane | the title band (`#room` bold and the topic dim, or `@nick` and `Private conversation`) with the SEARCH box at its right end; a rule; the message pane, whose last cell on every band is its scroll bar; the notice line |
+| center | the rest, left of the right pane | the title band (`#room` bold and the topic dim, or `@nick` and `Private conversation`) with the SEARCH box at its right end; a rule; the message pane, its scroll bar down its right edge; the notice line |
 | right pane | the right 160px, from the tabs' rule to the input row's | three sections, each a title band underlined in the accent with its count and its glyph: ONLINE (the sessions in the view's room — everyone, in a conversation), FRIENDS (every friend, a status glyph for one on the roster and a hollow one for one who is not), DIRECT (the private conversations, each with its unread badge, or `No direct messages`). A section that runs out of room stops |
 | input row | between the rule above it and the status bar | one box: the mode's prompt (`>` in message mode, else `Nick:`, `Find:`, `Friend:`, `Code:`), a rule, the field, and SEND as a solid block at its right end. An empty field in message mode shows `Message #lobby` (or `Message @nick`) dim |
 | status bar | the bottom band, its rule over it | the F-key legend `F1 Help | F2 Rooms | F3 Friends` (each item a press target too); then the LINK LAMP and the ACTIVITY LAMP, the link's state and `N in #room`; `Notifications: On/Off` at the right end. The legend's items are dropped from the right when the link's words need the room |
@@ -198964,12 +199120,28 @@ selects the message below it, and `Find:` steps over it. A selected message's
 first line is in the highlight; one that names us (§113.6.5), in the mention
 pair.
 
-**The scroll bar is a column of CELLS**, the last of every pane band: `^` on
-the top band and `v` on the bottom one, a solid THUMB, a thin TRACK, and
-blank when everything fits. Each is a GLYPH of the band (§113.5.1), so a
-move of the pane redraws the cells the thumb and the arrows moved through,
-an icon each. A press on an arrow is a line, on the track above or below the
-thumb a page.
+**There is air between two messages**, whoever sent them: a message's last
+line is a band and `[wc_gap]` rows of the pane's ground under it, so two
+messages from one nick read as two and a message's wrapped lines stay
+together. The gap is about three square pixels' worth on every display — one
+row on a CGA (2.4:1), two on Hercules and EGA, three on a VGA — taken from
+the display's height at each full paint (`wc_face`). A line in the highlight
+or the mention pair keeps it in the ground: the gap is between messages, not
+part of one. So the pane's bands are not a grid: `wc_play` lays them out from
+the top line each pass, a band only whole and its gap with it, and the last
+line of the history is where `wc_maxtop` counts back from. The row under the
+pointer is found in that layout too, and a press in a gap is its message's.
+
+**The scroll bar is a column of CELLS** on a grid of its own, `WC_LH` rows
+apart from the pane's top whatever the bands do: `^` in the top cell and `v`
+in the bottom one, a solid THUMB, a thin TRACK, and blank when everything
+fits. The thumb is as tall as the lines a page at the end shows are a share
+of all of them, and as far down as the top is of the way to the end. Each
+cell is a GLYPH drawn only when it is not the one on the glass (`wc_psbc`,
+`wc_sbg`), so a move of the pane redraws the cells the thumb and the arrows
+moved through, an icon each; the bands stop a cell short of it, and the
+pane's scroll moves the text alone. A press on an arrow is a line, on the
+track above or below the thumb a page.
 
 The status glyphs are 8×8: a filled square Online, a clock Away, a barred
 square Busy, a hollow square for a friend or a private partner not on the
@@ -198982,19 +199154,18 @@ brought something, and nothing otherwise. The section titles carry a pair of
 people (ONLINE, FRIENDS) and an envelope (DIRECT); the search box a lens.
 **In Wired every status glyph and both lamps are LEDs** (§113.5.2).
 
-**Drawing.** Every row is a BAND: one opaque `OSAPI_FONT_RUN` per colour span
-padded with spaces to its region's width, and the two rows of air above and
-below the glyphs filled in its ground — or the lower one in the band's
-UNDERLINE colour, which is how a section title carries its rule — so nothing
-is filled and then lettered (PERFORMANCE.md rule 2). Bold is §6.6.2 case 6,
-an overstrike: the run, then the same cells transparent at x+1
-(`tests/textsites.txt`). Each region has its own painter and a DIRTY bit
+**Drawing.** Every row is a BAND: one composed run of the window's face
+(§113.5.3) per colour pair, padded with spaces to its region's width, ten
+rows deep — the air above and below the glyphs is the cell's own — and put
+down by one `OSAPI_GFX_BLIT1`, its bold composed into it; a band with an
+UNDERLINE (a section title's rule) has its last row drawn in that colour
+instead. Nothing is filled and then lettered (PERFORMANCE.md rule 2). Each region has its own painter and a DIRTY bit
 (`WCD_*`); a state change sets bits and `wc_flush` calls only those painters
 — and a painter draws only the bands that changed (§113.5.1). A full paint
 fills the content in the theme's ground once and draws every band over it:
 the same two passes the kernel's white fill and the bands made before, in
-the theme's colour. A move of the pane's top by fewer lines than it is tall
-moves what is on the glass by `OSAPI_GFX_SCROLL` and letters only the rows
+the theme's colour. A move of the pane's top that leaves some of what the
+glass shows on it moves that by `OSAPI_GFX_SCROLL` and letters only the rows
 it uncovered; a refused scroll (a covered pane) and a popup over the pane
 draw the rows through their slots instead.
 
@@ -199063,9 +199234,17 @@ any more. So does a popup going down and the About card, which repaint.
 The pane's slots MOVE: `[wc_dtop]` is the top line the glass shows, and a
 paint whose top is a few lines from it scrolls the glass and shifts the slots
 by the same bands (`wc_pshift`), so the rows that moved find themselves
-already drawn — the scroll column with them, which is why its cells are
-glyphs: a glyph's picture is outside the meta's identity, so a shifted slot
-whose thumb cell is now track redraws that one cell and not the band.
+already drawn. Because a message's gap makes the bands uneven (§113.5),
+WHERE a band is is part of what the glass holds: `wc_gby` is the layout as
+drawn — each band's top and its end — and moves with the scroll, by the
+same bands and the same rows (`wc_gshift`), keeping only the bands still
+whole inside the rows that moved. A band whose place and height are not the
+glass's is owed, drawn whole and its gap filled with it; one that is draws
+through its slot as above. The scroll moves only `[wc_gused]` rows — the
+ones that are not ground — and what the glass had past the last band is
+filled once, so the pane never shows half a band that no longer fits. The
+scroll column is not in any band (§113.5): its cells are glyphs on a grid of
+their own, each drawn only when its picture changed.
 
 **The slots are only sound if drawing through them arrives at the picture a
 paint from nothing does**, and `tests/wcdraw.py` asserts exactly that: after
@@ -199154,6 +199333,84 @@ its ground and its frame are the package's three bytes, the theme's text,
 ground and ground — the frame drawn in the ground is the field's own frame
 put out of sight, because the input row's box around it and its prompt is
 the frame the eye reads.
+
+#### 113.5.3 The face — WireChat's own type
+
+The window is lettered in a face the package carries, not in the machine's
+8×8 (§6). The 8×8 is the ROM's (§6.2): two-pixel stems everywhere, a
+one-row descender — `g`, `j`, `p`, `q` and `y` squashed onto the line — and
+on a VGA it reads heavy. Bold was §6.6.2 case 6, the run struck again a pixel
+right, which on two-pixel stems closes the counters: `ONLINE` and `FRIENDS`
+in the right pane were blobs. A chat window is a screen of other people's
+sentences, so the face is where its legibility is.
+
+**The cell is 8 × 10, and 10 is `WC_LH`** — the row pitch the window was
+already drawn at, an 8-row glyph with a row of air above and below. So the
+layout does not move a pixel: every band, hit test, slot, scroll and popup is
+where it was, and a cell is still eight pixels wide on the byte grid. Inside
+it a letter five pixels wide with **one-pixel stems**: row 0 air, the capitals
+on rows 1..7, the underscore on row 8, the descenders on rows 8..9, columns
+1..5 the letter and column 6 where bold lands.
+
+**The art** is `apps/wirechat/wcface.t88`, in §6.4's `.t88` form so the
+tree's tools read it, drawn from the X11 `misc-fixed` **6×10** — a terminal
+face that has been read on screens for forty years, and **public domain** (its
+own `COPYRIGHT` property: *"Public domain terminal emulator font. Share and
+enjoy."*), so nothing has to travel with it. The art header records its URL
+and SHA-256, and from then on **the art is the source** (§6.4.1). It is not in
+`faces/`: `FACESRC` is a wildcard of that directory and every face in it ships
+in `SYSTEM/FONTS/` for the type library, where this one is the package's.
+`tools/os88face.py --bitmap` writes the regular style's 950 bytes — 95
+glyphs × 10 rows — and `wctxt.inc` `incbin`s them; the build asserts the
+length, so a face drawn at another height fails the assembly.
+
+**One pixel is a choice, and the CGA caveat is answered rather than missed.**
+§6.2 and §6.4.1 find a one-pixel stem reads thin on a 640×200 CGA, whose pixel
+is 2.4:1 tall, and `os88face.py` warns about it — which is why the build runs
+it `--quiet` here. Two-pixel stems were tried, by emboldening the art: at a
+five-pixel letter the counters of `m`, `w`, `e` and `@` close, which is §6.4.1's
+"dead end" again. Fitting an outline face (JetBrains Mono, IBM Plex Mono) to
+an 8 × 10 cell with `tools/os88ttf.py` was tried too: the hinter at 10 ppem
+cut the bowls and stems the cell has no room for. On a CGA the one-pixel face
+is lighter than the ROM's and still a sharper word than an overstruck one.
+
+**The drawing** (`wcband.inc`'s `wc_fput`). A run is composed cell by cell
+into `wc_fband` — a cell is one byte of each of its ten rows, at the band's
+fixed stride (`WC_FSTR`), so the compose shifts nothing and its ten rows are
+ten moves at constant displacements — and put down by **one**
+`OSAPI_GFX_BLIT1` in the run's two colours (§5.4.2.2's pen). The cell is the
+band, so the ground, the two rows of air and the glyphs are one pass, as
+font_run's run was (PERFORMANCE.md rules 1 and 2), and **bold is composed**:
+the row ORed with itself a pixel right, in the cell, so it never spills into
+the next one and a slot's partial run (§113.5.1) cuts through bold anywhere.
+What a band cost before — an air pair a ground, a run a span, an overstrike —
+is now **a run per colour pair**: `wc_bspans` joins adjacent spans of one ink
+and ground, so Wired's message line, a time, a nick and a text all black on
+white, is one blit where it was three runs and three fills. A band with an
+UNDERLINE (a section title's rule) blits nine rows and draws the tenth as one
+line in its colour. §6.6.2 case 6 has no WireChat site any more
+(`tests/textsites.txt`).
+
+**The polarity.** A set bit is the blit's ink, and on a display of one bit
+the pen is not read: a set bit is *lit* (§5.4.2.2). So the set bits are
+whichever of the run's two colours a one-bit display lights — the glyph on a
+dark ground, the GROUND on a light one (Wired is black on white), the compose
+complementing every row for it — and the pen is turned round to match, so a
+colour display draws the same picture either way and a window across two
+displays needs no second answer. A run whose ink and ground round alike is not
+one any theme draws on one bit (§113.5.2).
+
+**The rest of the window's text** comes through `wc_frun`, font_run's contract
+in this face (its cell from the row above DX): Send's caption — whose fills
+above and below now stop at the cell — `Search...`, and the input field,
+through §83.6's `OS88LINE_RUN`. What stays the machine's 8×8 is the
+machine's: the title bar, the menus, the About and alert cards.
+
+**What it costs.** 950 bytes of face and the compose in the image, 960 of
+band and 14 of state in the bss (§113.10). The compose is RAM work — ten
+moves a cell, an `or` and a shift more for bold — against the framebuffer
+work it replaces, and the calls go down: `tests/wcdraw.py` counts
+`OSAPI_GFX_BLIT1` as a drawing call, under the same ceilings (§113.12).
 
 ### 113.6 What the user does
 
@@ -199307,7 +199564,15 @@ and 13,844 when owned nicks were added. Wired (black on white, the default; the 
 Monochrome renamed Mono-Dark), its colour row, LEDs and emoticon colours, the
 Find highlight, and the header's display words gone took it to **20,363 /
 31,385 — 51,748** and 17,981 packed: the four LED pictures are 128 bytes, the
-display words' bss went. The themes cost the image little: the
+display words' bss went. The window's own face (§113.5.3) took it to
+**21,545 / 32,359 — 53,904** and 18,841 packed: +1,182 of image, of which
+950 is the face and the rest its compose and `wc_frun`, less the air pairs
+and the overstrike they replaced; +974 of bss, the 960-byte band
+(`WC_FSTR` × `WC_FROWS`) and its state. The air between messages (§113.5)
+took it to **22,165 / 32,593 — 54,758** and 19,390 packed: +620 of image,
+the layout, the glass's table and its shift, the gap and tail fills and the
+scroll column's own painter; +234 of bss, the two layout tables of 45 words
+and the scroll column's 44 glyphs. The themes cost the image little: the
 LED pictures and the bevel went, the four theme rows, the glyph table, the
 three button painters, the F keys and §113.5.1's ink-only run came, +301
 bytes in all. The bss grew by
@@ -199323,10 +199588,11 @@ largest first:
 | `wc_msgs` | 8,960 | 40 messages of 224 (`WC_MREC`, +222 the UTC day): the server's history is 30 (§113.2.3) and ten more is what arrives while they are read |
 | `wc_resp` | 6,146 | one reply body, `WC_RESPMAX` + the parser's NUL — the server's own ceiling |
 | `wc_rxb` | 1,024 | one `NETV_RECV`, `NET_SKMAX` |
+| `wc_fband` | 960 | a run of the face composed (§113.5.3): `WC_FSTR` = `WC_SBUFN` = 96 cells, the longest composition, × 10 rows |
 | `wc_ros` | 800 | the roster: 50 sessions, the server's limit (§113.7), at 16 |
 | `wc_reqb` | 640 | a request: line, headers, a 200-character body |
 | `wc_cfgb` | 514 | `WIRECHAT.CFG` read or written whole |
-| the rest | ~2,182 | the field and its draft, the rooms, the conversations, the friends, the geometry, the theme's pens and menu items, the client's state |
+| the rest | ~2,430 | the field and its draft, the rooms, the conversations, the friends, the geometry, the theme's pens and menu items, the client's state |
 
 The worker's stack is `OS88_STACK_256` (§113.4): ETHER.DRV's verbs are ~126
 bytes of it and the interrupt floor 64, and the deepest chain of this file's
@@ -199344,7 +199610,7 @@ own is `wc_nstep` → `wc_take` → `wc_hdrline` → `wc_dec32`.
 | row | tier | what |
 |---|---|---|
 | `wirechat` | soak | QEMU + ETHER.DRV against `tests/wirechat.py`'s fixture: join, a history, a held poll answered by a second session's message, a `say` round trip, a `422` shown, a flag, a room change, a private message, a `401` rejoined, a `428` answered with the code - and §113.2.4: `x=1` on every request, a message stored with its date, a mention in the view marked, an `A` from another room marking it, Tab completing an `@nick` |
-| `wcdraw` | soak | §113.5.1 on MartyPC's Hercules 5150: each gesture's drawing calls under its ceiling, and the incremental picture identical to a repaint's |
+| `wcdraw` | soak | §113.5.1 on MartyPC's Hercules 5150: each gesture's drawing calls under its ceiling — `OSAPI_GFX_BLIT1` counted among them since §113.5.3, which is every run of text — and the incremental picture identical to a repaint's |
 | `wcdrawcga` | soak | the same on its CGA: the short layout, in Wired (the default) |
 | `wcdrawvga` | soak | the same on the VGA XT: the Blue theme, picked from the Theme menu (§113.5.2) |
 | `wcdrawwired` | soak | the same on the VGA XT in Wired (§113.5.2): the LEDs as `OSAPI_GFX_BLITP`s and the emoticons as spans |
@@ -203305,3 +203571,512 @@ manifest describes the release, not the drive (§118.1.1), so a hard disk
 installed from this release compares clean whether or not the machine booted
 from it; the progress heading says which it is (`Checking C: - hard disk,
 the boot volume`).
+
+## 119. CDROM.DRV — CD-ROM data and audio (`drivers/cdrom/`, `apps/cdrack/`)
+
+**An ATAPI CD-ROM drive as a loadable driver: the disc's ISO 9660 file
+system as a read-only drive on the desktop, and its audio tracks played
+through the drive's own audio output, under CDRack (§119.6).** This section is
+the contract for the delivery waves in `docs/plans/CDROM-PLAN.md`; an
+unchecked story there is not yet shipped behaviour. The build diary is
+`docs/HOW-CDROM-WAS-BUILT.md`.
+
+**It is a file redirector, not a block device.** A CD's sectors are 2,048
+bytes and its file system is ISO 9660, so a `DRVC_DISK` volume (§51.8) would
+need the kernel to learn a second file system - resident bytes on every
+machine, CD or none. §62.9's redirector already moved "what is a file" into
+the driver: the kernel asks `FSV_*` questions and never reads a sector of
+the volume. So `CDROM.DRV` answers `FSV_*` from ISO 9660, and the Disk
+window, the desktop zone, the sort, `..`, the loader, the Standard File
+dialog, associations and the copy engine work on a CD unchanged.
+
+**Audio needs no CPU at all.** A CD-ROM drive plays a Red Book track itself
+and sends it as analog audio out of its front headphone jack and its rear
+cable to the sound card's CD input. The driver sends the drive `PLAY AUDIO
+MSF` and asks `READ SUB-CHANNEL` where it is; nothing is streamed, decoded or
+mixed on this machine, so the only cost of a playing CD is a status poll.
+
+### 119.1 What the kernel carries
+
+- **A class, `DRVC_CD` = 9** (`apps/os88api.inc`), appended after
+  `DRVC_FILE2` because a class number is ABI. It is a **file class** - its
+  volumes are `DVK_FILE` - with a publication slot and a copy of its service
+  table (`drv_svcix`), like `DRVC_FILE` and `DRVC_FILE2`, so the CD, the RAM
+  disk and the parallel link can all be attached at once (§51.2.1).
+  `dsk_vol_add` derives `DVK_FILE` for `DRVC_FILE` and for every class from
+  `DRVC_FILE2` up, so the kind test costs no byte.
+- **A row, `CDROM.DRV`, "CD-ROM"**, on `kern_big` and `kern_emu` (row 7 and
+  row 8), SYSTEM.CFG **bit 8**, **not wanted by default** (§51.3): attach
+  writes the IDE task file of every channel it probes.
+- **The DOS box keeps it** (`hbm_sweep`'s skip list, §51.11): it is a volume
+  a DOS program may be reading, and it holds no IRQ or DMA channel a
+  program could want back.
+- `kern_small` has no driver layer (§51.0) and so no CD-ROM.
+
+### 119.2 The drive
+
+**ATAPI on the IDE task file, polled PIO, on a 286 or better.** Attach
+refuses `DRVE_HW` below `CPU_286` for §52.1's reason: a 16-bit data port on
+an 8-bit bus loses every high byte. An XT-IDE adapter's latched high byte is
+not supported in this version (§119.8).
+
+**The probe, in this order**: the primary (1F0h, control 3F6h) and secondary
+(170h, 376h) channels, master then slave; then, only if neither held a
+CD-ROM, the tertiary (1E8h, 3EEh) and quaternary (168h, 36Eh). A channel
+whose status reads 0FFh is a floating bus and is passed with no write. A
+device is selected and sent `IDENTIFY PACKET DEVICE` (A1h): an ATA disk
+aborts it, an absent device never raises DRQ inside `CD_PROBE_T` ticks, and
+an ATAPI device answers 256 words, of which word 0 must say ATAPI (bits
+15-14 = 10b) and a CD-ROM (bits 12-8 = 5). Bits 1-0 give the packet length:
+12 bytes, or 16. Words 27-46 are the model string, kept for `CDV_DRIVE`.
+**The first CD-ROM found is the drive**; a second is not used (§119.8).
+
+**The transport** (`cd_packet`): wait for BSY and DRQ clear, select the
+device, write the byte-count limit (8000h) and `PACKET` (A0h), wait for DRQ,
+write the packet, then move each DRQ block the drive offers - its length is
+the byte-count register - until DRQ falls, with `rep insw` into a
+normalised `ES:DI` (§52.1.2's instruction, legal here for §52.1's reason).
+Every wait is bounded by the BIOS tick count, not a loop count: a CD's seek
+is up to a second and its spin-up several, and a count tuned on one CPU is a
+different time on the next. `CD_CMD_T` = 20 s for a command, after which the
+answer is `CDE_IO`. **The driver never writes the device control register**,
+so `nIEN` stays as the BIOS left it and a hard disk sharing the channel keeps
+its IRQ 14; the drive's own interrupt is acknowledged by the status read
+every poll ends with.
+
+A command answered with ERR is followed by `REQUEST SENSE` (03h): sense key
+6 (UNIT ATTENTION) means the medium changed or the drive was reset, bumps
+the **media generation** (§119.3.4) and sends the command again, up to
+`CD_UA_N` = 4 times - a drive just powered on reports the reset and then the
+medium, one per command, before it answers anything (86Box's did, and a
+single retry left the first command of the session refused); key 2
+with ASC 04h (becoming ready) waits and retries inside `CD_CMD_T`; key 2
+with ASC 3Ah is `CDE_NODISC`.
+
+### 119.3 The data volume
+
+**Registered at `DRVV_READY`, disc or none**, as one volume labelled
+`CD-ROM`: the drive is a drive whether or not a disc is in it, exactly as
+an empty floppy drive is. **Its desktop zone is a disc**, not the hard disk
+every other driver volume wears: the driver sets `FSCAP_ICON` and draws the
+picture itself (`drivers/cdrom/cdico.inc`, §26.4.2), 32 rows and the CGA's
+14. Detach drops it (§51.8). Every `FSV_*` verb runs
+on the UI task and starts with a **media check** - `TEST UNIT READY` - and
+re-reads the disc's tables only when the generation has moved.
+
+#### 119.3.1 What a disc is read as
+
+1. **`READ TOC`** (43h, format 0, LBA addresses): the tracks, their start
+   LBAs and their control nibbles (bit 2 set = data), and the lead-out.
+2. **The LAST data track** holds the volume, and its primary volume
+   descriptor is at that track's start + 16. Single-session discs start at
+   0, so this is LBA 16; a CD-Extra disc's data session is its last track.
+   Descriptors are read from there until type 1 (`\1CD001\1`) or the
+   terminator (255), at most 16. The logical block must be 2,048.
+3. **The type-L path table** is walked once for the lowest directory extent
+   on the disc, `cd_dbase` (§119.3.3). A table past `CD_PTMAX` sectors (32,
+   64 KB) is not walked and the root's extent is the base instead.
+4. **A disc with no data track** - an audio CD - has no volume descriptor and
+   is not read for one.
+
+A data track that fails any of these leaves the disc **readable as audio
+only**: the root lists its audio tracks (§119.3.5) and nothing else.
+
+#### 119.3.2 Names
+
+ISO 9660 names are made 8.3 by the driver, the same way every time, so a
+listing and a later `FSV_STAT` agree: the `;version` is dropped, a trailing
+`.` is dropped, letters are upper-cased, and a name that is then a legal
+8.3 name is used as it is. Any other name - longer than 8.3, or carrying a
+character FAT does not allow - becomes **the first six legal characters, a
+`~`, and one character of a hash of the whole ISO name** (`0`-`9`, `A`-`Z`:
+the byte sum modulo 36), plus the first three legal characters of the last
+extension. `tools/os88cdiso.py`'s `mangle` is the reference, to the byte.
+Two names that mangle alike list twice and resolve to the first; Level 1
+discs - most of the period - never mangle. Rock Ridge and Joliet are not
+read (§119.8).
+
+Hidden (flag bit 0) and associated (bit 2) records are not listed. A
+directory is type 2, a name ending `.O88` is type 1 (a package), anything
+else type 0. A multi-extent file (flag bit 7) lists as its first extent.
+
+#### 119.3.3 Handles
+
+A §62.9 handle is a word, and a CD's sectors number to ~330,000. **A
+handle names a directory RECORD by where it is**: `(LBA - cd_dbase) x 64 +
+(offset >> 5)`. A record is at least 34 bytes and starts on an even offset,
+so no two records in one sector share `offset >> 5`; a record never crosses
+a sector; and the lowest directory sector's offset 0 is a `.` record, never
+listed - so 0 stays the root. The handle is therefore **stable for as long
+as the disc is in the drive**, which is what §62.9.7 asks of `FSV_ENUM`'s
+ordinals and what the loader asks of a listing's handle. Handles stop at
+`CD_HMAX` = FF7Fh, so directories spanning more than 1,022 sectors (2 MB of
+directory records, ~50,000 names) above `cd_dbase` are listed only as far
+as they encode (§119.8). FF80h + *n* is audio track *n*'s file (§119.3.5).
+
+A handle is resolved by reading its sector and walking to the record whose
+`offset >> 5` it names; a sector that has no record there refuses. The last
+four resolutions are cached (`cd_hcache`), so a copy's chain of
+`FSV_READAT`s resolves once.
+
+`FSV_CHDIR` answers the parent's handle from the folder's own `..` record
+and the grandparent's directory: the record in the grandparent whose extent
+is the parent's. The root's parent is 0.
+
+#### 119.3.4 The verbs
+
+| verb | answer |
+|---|---|
+| `FSV_LIST` | the current folder's records, then (root only) the audio tracks |
+| `FSV_CHDIR` | as above; a handle from before a media change refuses |
+| `FSV_STAT` | the handle, the size, `BL` = 10h for a folder and 0 for a file - not FAT's read-only bit, which a copy would carry to the destination |
+| `FSV_READ` | the whole file, refused `FERR_BIG` past the capacity |
+| `FSV_READAT` | any byte range; 0 bytes at or past the end |
+| `FSV_ENUM` | the *n*th of `FSV_LIST`'s entries of a named folder |
+| `FSV_DFREE` | 0 bytes free, granule 2,048 |
+| `FSV_WRITE` `APPEND` `DELETE` `RENAME` `MKDIR` `RMDIR` | `FERR_WPROT` |
+| `FSV_COPY` `FSV_RMTREE` | not published (0): the kernel's fallbacks |
+
+**Reads move whole sectors straight into the caller's buffer** - up to
+`CD_RUN` = 16 sectors (32 KB) a `READ (10)` - and only a partial first or
+last sector goes through the driver's one 2 KB sector buffer, which is
+tagged with its LBA so the next chunk's head is not read twice. Progress is
+reported with `OSAPI_FS_PROG` after every command.
+
+**The media generation** is a byte bumped on every UNIT ATTENTION and every
+TOC that differs from the last one read. A change discards the tables, the
+handle cache and the sector buffer; the next verb re-reads the disc. **Every
+verb that names a handle or the current folder then refuses** (`FERR_NOENT`)
+until a `FSV_CHDIR` to the root - the one folder no disc change can falsify -
+so a window left open on the old disc fails its next step rather than
+reading the wrong record of the new one; re-opening the drive mounts the
+new disc's root and clears it. An empty drive does the same without moving
+the generation, so a drive that keeps answering "no disc" does not look like
+a disc changing on every poll.
+
+`DSV_CAPS` is 0: a CD's reads are a seek and a turn, not a memcpy, so the
+mount takes §62.9.2.1's cache-only icon pass.
+
+#### 119.3.5 Audio tracks are files
+
+The root of a disc with audio tracks lists **`TRACKnn.CDA`** for each, 44
+bytes long - Windows' layout, so a file copied off is recognisable
+anywhere:
+
+```
++0  'RIFF'  dd 36  'CDDA'  'fmt '  dd 24
++20 dw 1            ; version
++22 dw track        ; 1..99
++24 dd disc id      ; the lead-out LBA, xor the track count << 24
++28 dd start LBA    ; +32 dd length in sectors
++36 db F, S, M, 0   ; the start, MSF (+150)   +40 db F, S, M, 0 ; the length
+```
+
+Double-clicking one opens CDRack (`.CDA` is its association, §54.6) on that
+track.
+
+### 119.4 The package door (`OSAPI_DRV_CALL`, BH = `DRVC_CD`)
+
+`drivers/cdrom/cdpkg.inc` is the ABI, included by the driver and CDRack
+both (§20.11). **UI task only, every verb**: each one talks to the
+drive and waits on it. Answers are in AX, CX, DX and SI; CF = 1 with AX =
+`CDE_NODISC` 1, `CDE_NOTREADY` 2, `CDE_IO` 3, `CDE_ARG` 4, `CDE_NOAUDIO` 5
+(the drive refused an audio command).
+
+| BL | verb | in | out |
+|---|---|---|---|
+| 0 | `CDV_IDENT` | | AX = `'CD'` (`CD_SIG`), CX = `CD_ABI` |
+| 1 | `CDV_DRIVE` | ES:DI = 41 bytes, or DI = 0 | the model string (NUL-ended); AX = base port, CL = unit (0 master, 1 slave), DL = the volume index |
+| 2 | `CDV_DISC` | | media check and TOC: AL = first track, AH = last, CX = the disc's length in seconds, DL = `CDK_AUDIO` 1 \| `CDK_DATA` 2, DH = the media generation |
+| 3 | `CDV_TRACK` | AL = a track | DX:AX = its start LBA, CX = its length in seconds, SI = its control nibble (bit 2 = data) |
+| 4 | `CDV_PLAY` | AL = first track, AH = last (0 = the disc's last audio track), CX = seconds into the first | `PLAY AUDIO MSF` from there to the end of the last; a data track in the range ends it early |
+| 5 | `CDV_PAUSE` | | `PAUSE/RESUME`, pause |
+| 6 | `CDV_RESUME` | | ...resume |
+| 7 | `CDV_STOP` | | `STOP PLAY/SCAN` (4Eh), or a pause on a drive that refuses it |
+| 8 | `CDV_STATUS` | | `READ SUB-CHANNEL` (42h, current position): AL = `CDS_IDLE` 0 / `PLAYING` 1 / `PAUSED` 2 / `DONE` 3 / `ERROR` 4, AH = the track, CX = seconds into it, DX = seconds into the disc, SI = the media generation |
+| 9 | `CDV_EJECT` | AL = 0 open, 1 close | `START STOP UNIT` with LoEj, after `PREVENT ALLOW MEDIUM REMOVAL` allows it |
+| 10 | `CDV_VOLUME` | AL = 0 get / 1 set, CL/CH = left/right 0..255 | mode page 0Eh's port 0 and 1 volumes, through `MODE SENSE (10)`/`MODE SELECT (10)`; CL/CH = what the drive holds |
+
+**Detach does not stop a disc that is playing.** The drive plays on its own,
+and unticking the driver - or the DOS box suspending drivers - is not a
+request for silence. CDRack stops it when the user does.
+
+### 119.5 What it costs
+
+Measured by `tools/kernsize.py`, the kernel built at the commit before
+against this one:
+
+| | `kern_big` | `kern_small` |
+|---|---|---|
+| `.text` | **+38**: the row (16), its two strings (17), `drv_fptr9`'s pair (4), `drv_svcix`'s byte (1) | 0 |
+| `.bss` | **+38**: `DRVC_CD`'s owner word and its service-table copy | 0 |
+| `.ovl` | **+1**: `drv_cfgbit`'s byte (not resident) | 0 |
+| the footprint | **no rung crossed** - the image rung's slack 121 -> 45, `KERN_SIZE` 97,792 unmoved | no rung |
+| the system disk | `CDROM.DRV`, 8,335 bytes of image (3 KB of it zero state), **4,774 on the floppy** packed, and a **9 KB** claim when loaded | none |
+
+`dsk_vol_add`'s kind test became `jae` where it was `je`, the same two bytes,
+and `drv_memk` is CTRL.DRV's. 76 resident bytes on every `kern_big` machine,
+CD-ROM or none.
+
+### 119.6 CDRack (`apps/cdrack/`, `CDRACK.O88`)
+
+**The audio player is CDRack: an 80s rack CD player's face over §119.4's
+door.** It has a seven-segment LCD with the track grid, picture buttons for
+the transport, a volume slider, four toggles (repeat, shuffle, program,
+remaining time) and the disc's track list. The design is the owner's three
+mockups, kept in `docs/cdrack/design/` - the colour player, the same player in
+black and white, and the compact mini player for small monochrome screens.
+
+| file | what it holds |
+|---|---|
+| `cdrack.asm` | the entry, the door, the play order, the commands, the menus and the callbacks |
+| `crdraw.inc` | the drawing primitives: roles and themes, the composing band (§119.6.3) |
+| `crface.inc` | the three layouts, the static parts, every cached field, the button painter (§119.6.2, §119.6.4) |
+| `build/cdart.inc` | the pictures and both fonts, made on the host by `tools/os88cdart.py` |
+
+#### 119.6.1 The door and the poll
+
+Everything goes through §119.4's door. The package owns no port and keeps no
+copy of the audio. It polls `CDV_STATUS` every `CR_POLL` = 9 ticks with the
+window's one-shot timer (§13.9). A media generation that moved re-reads the
+TOC, and the TOC is CACHED at that read: every track's length and whether it
+is audio, so the list, the grid and the play order never ask the drive
+again. `CDV_DRIVE`'s volume index names the drive in the status bar (`Drive
+D:`). Opened from a `TRACKnn.CDA` it plays that track (§119.3.5). Closing it
+does not stop the disc.
+
+**A drive that plays no audio (`CPS_NOAUD`, QEMU's) still SHOWS the disc**:
+the grid and the list carry its tracks and a track can be chosen, but every
+transport button is grey, because `cr_bok` asks for `CPS_AUDIO` and the face
+asks only that the disc has audio tracks.
+
+#### 119.6.2 Three layouts, two themes
+
+| layout | content | where | what is on it |
+|---|---|---|---|
+| FULL | 608 x 352 | a VGA's 480 lines | the logo strip, the deck (tray and LCD), the transport, the track list, a status bar |
+| MID | 608 x 232 | EGA's 350 and Hercules' 348 | FULL with no track list; the status bar moves up under the transport |
+| COMPACT | 440 x 84 | the CGA's 200 | the mini player: the LCD, a progress bar, eight picture buttons, the volume, Repeat and Expand |
+| COMPACT, rows doubled | 440 x 168 | Options > Compact Player on a taller screen | the same with the 13-row pictures and the doubled digit sets |
+
+**The layout is decided at every full paint from the content box the window
+was given** (`cr_setup`, `OSAPI_WM_GEOM`): the largest of FULL and MID that
+fits, unless the user asked for the compact player, and compact otherwise -
+so a window the kernel re-fits after an adapter change (§39.11.2) lays itself
+out again with no `OSAPI_WM_ONRESIZE` handler. The SIZE comes from an
+`OSAPI_WM_PREFER` table (§11.100.1) that `cr_prefset` writes at entry and
+again on every change of mind: FULL on the VGA row (MID when the primary's
+desktop band is EGA's), MID on Hercules, COMPACT on the CGA - or the doubled
+compact player on both tall rows once asked for. Options > Compact Player /
+Full Player and the compact player's Expand button resize the window with
+`OSAPI_WM_RESIZE`; both are grey where the big player cannot fit (the CGA).
+
+**The theme is a ROLE table** (§119.6.3). It is colour by default where the
+primary display has more than one bit - EGA and VGA - and black and white
+everywhere else. Options > Theme switches it and repaints. On a window whose
+display is one bit the item is grey and the face is black and white whatever
+was chosen, so the choice survives a drag back to a colour display.
+
+| | colour | black and white |
+|---|---|---|
+| the ground, the panels | dark grey, black panels ruled in light grey | white, white panels ruled in black |
+| the LCD | black glass, light cyan segments, cyan labels and rules; the selected grid cell light cyan, a programmed track yellow | black glass, white segments; the selected cell white |
+| a button | dark grey face, light grey rule, white picture; pressed or latched cyan with a light cyan rule; greyed with a light grey picture | white face, black rule, black picture; pressed or latched inverted; greyed with half its ink (a checkerboard) |
+| the slot, the slider, the trough | dark grey; the slider's done part cyan | a 50% dither; the slider's done part ribbed |
+| the track list | black rows, the selection cyan | white rows, the selection black |
+
+#### 119.6.3 Drawing: roles, one band, one blit
+
+Every primitive is handed a ROLE (`R_*`, 36 of them), never a colour, and
+looks it up in the current theme's table: a colour 0..15, or 80h + a pattern
+for the black and white face's dithered surfaces (`OSAPI_GFX_FILL_PAT`,
+which writes only 0 and 15). Coordinates are content-relative and the origin
+is re-read at the top of every pass, because a window that moves does not
+paint (§11.96.12) - the button rects are made absolute there too.
+
+**A picture, a caption or an LCD field is composed into ONE band and put
+down in ONE `OSAPI_GFX_BLIT1` under a pen** (§5.4.2, §5.4.2.2). The band is
+the size of the FIELD and its clear bits are the paper, so a shorter value
+erases a longer one in the same call and no pixel is written twice (§6.1's
+rule, for pictures). A whole button - picture and caption - is one band and
+its rule one `GFX_FRAME`: two calls, pressed, latched or greyed.
+
+- **One bit is lit-is-white and the pen is not read**, so black ink on white
+  paper is the band turned over before the blit.
+- **A greyed button** is the band's ink ANDed with a checkerboard in black and
+  white (§47 rule 1, the 1bpp way) and the `R_BTNDIS` ink in colour.
+- **An x off the byte grid is §5.4.2.8's head**: the band starts at the byte
+  column holding x and its first `x & 7` pixels are not drawn. The band
+  carries one slack byte a row, and `cr_bout` shifts it right by `x & 7`
+  first. Without the shift every label at an odd x lost its first letter,
+  which was the first thing the face showed.
+- **`OSAPI_WM_OWNBG`** (§11.90.1): the paint lays the ground itself, so a dark
+  face never flashes white before it.
+
+**The art is made, not drawn** (`tools/os88cdart.py`, from definitions in that
+file; no image is read and no service is asked, and the same run writes the
+same bytes). It holds five seven-segment digit sets (`dl` 22 x 30 for
+FULL/MID, `cb` 21 x 16 and `cs` 13 x 12 for the CGA's compact LCD, `cb2` 22 x
+32 and `cs2` 13 x 24 for the doubled one, each with its colon and `' '` and
+`'-'`), a 5 x 7 SMALL CAPS face for every panel label, the logo, the transport
+icons at 13 rows and at the CGA's 7, the speaker, the check box, the expand
+arrow, the play mark and the disc mark - 92 pictures, 5,261 bytes. The large
+sets are `mitre` segments tucked inside the corners; the small ones are
+`block` segments, full-height verticals with the horizontals between, because
+at 16 rows a mitred vertical had no straight part left. The `make` rule runs
+`--selfcheck` before it writes `build/cdart.inc`: every digit distinct, `8`
+the union of the rest, and a `1`'s rows inked but for its three strokes'.
+That last check is the one that would have caught the collapsed set. The
+include also carries each set's sizes (`CDART_*_W/H/CW`), so the package's
+field arithmetic is the art's.
+
+#### 119.6.4 Draw what changed: the element keys
+
+**The static parts** - panels, rules, labels, the logo - are drawn by the
+layout's `L_DECO` at a full paint and never again. **Everything that
+changes is an ELEMENT** (`L_ELEMS`, a list of `(proc, parameter)`): a proc
+that works out a sixteen-bit KEY - the whole of what it would draw - and draws
+only when the key differs from the one its slot in `cr_keys` remembers
+(PERFORMANCE.md rule 1). FULL has 32 elements: the track number, the time
+and its label, the twelve grid cells, the LCD's state line, `STEREO 44.1 KHZ`,
+the progress row's two times and its bar, the volume's text and slider, the
+tray's label, the list's heading count, its six rows and its scroll bar, and
+the status bar's sentence. The progress bar redraws only the strip between
+the old length and the new.
+
+**The paint forgets every key and runs the same elements**, so the incremental
+draw and the full paint are one code path and cannot disagree. **A field the
+clip cut is forgotten too**: every primitive asks `OSAPI_WM_CLIP_TEST` about
+what it drew, and a field that was cut stores `FFFFh` instead of its key, so
+the next pass draws it again. The buttons keep their flags as drawn
+(`cr_bflags`) the same way.
+
+**The buttons are os88ui's record with CDRack's painter** (§13.8.10,
+`OS88UI_BOWN`): thirteen of them - previous, rewind, play, pause, stop, fast
+forward, next, eject, the four toggles and Expand - with the gesture, the
+hit-test and the fire still the library's. A button a layout does not have
+is PARKED at 7FF0h, off every screen. Play is LATCHED while the disc plays and
+Pause while it is paused (§20.5.1.4). A toggle shows its state with its box
+(`CRF_ON`, flag bit 8, which the library never reads) and keeps its face, as
+the mockups do. **One predicate greys a button, its menu item and its key**:
+`cr_bok` (§47 rule 2).
+
+#### 119.6.5 The play order
+
+With SHUFFLE and PROGRAM both off, a play runs to the end of the disc on the
+drive's own, and the selection follows the track `CDV_STATUS` reports. With
+either on, a play is ONE track (`CDV_PLAY` with AH = AL), and the poll that
+reads `CDS_DONE` on a play of ours chooses the next one:
+
+- **PROGRAM**: clicking a track in the grid or the list with Program on puts it
+  into the program, or takes it out; a programmed track's number is yellow
+  in the grid and starred in the list. While anything is programmed, the play
+  order, Previous, Next and Play's start are the programmed tracks in track
+  order. With nothing programmed, Program on changes nothing.
+- **SHUFFLE**: a random eligible track not yet played (one LCG step, seeded
+  from the tick count at entry), remembered in a played set that Play and the
+  toggle empty. Previous restarts the track: a shuffle has no "before".
+- **REPEAT**: the end of the order wraps to its start - and so does a shuffle
+  that has played everything - instead of stopping on the first track.
+
+Previous restarts the track once it is more than `CR_BACK` = 3 seconds in.
+Rewind and Fast Forward move `CR_SKIP` = 10 seconds within the track. A click
+on the progress bar seeks. Clicking a track with Program off plays it. The
+volume is `CDV_VOLUME`, both channels, 0..100% on the face: the slider (held
+and dragged, told to the drive on the release), the wheel away from the list,
+and `+`/`-`. A drive that refuses the verb greys the slider.
+
+#### 119.6.6 Menus and keys
+
+**Disc**: Eject, Close Tray. **Playback**: Play/Pause, Stop, Previous Track,
+Next Track, Rewind, Fast Forward, greyed by the buttons' predicate.
+**Options**: Repeat, Shuffle, Program, Time, Compact/Full Player, Theme. **An
+app menu has no check mark** (§12.2), so each toggle NAMES its state
+(`Repeat: On`, `Time: Remaining`, `Theme: Black and White`) by pointing its
+slot at one of two strings. About is the application menu's own (§12.2's
+`OSAPI_ABOUT_SET`, the standard card), and there is no Help menu. The
+mockups drew one, and SHEET's and CHART's did the same before docs/INDEX.md
+existed to say not to.
+
+| key | does | key | does |
+|---|---|---|---|
+| Space | play / pause | S | stop |
+| Left, Up | previous | Right, Down | next |
+| `,` | rewind 10 s | `.` | fast forward 10 s |
+| `+` `-` | volume | E | eject |
+| R | repeat | H | shuffle |
+| P | program | T | time |
+| C | compact / full player | | |
+
+The wheel scrolls the full player's list `WHEEL_STEPS` rows a notch, and is
+the volume on the other two.
+
+#### 119.6.7 Where it lives, and what it costs
+
+**It lives in `SYSTEM\` beside the driver, as `SYSOPTIONAL` with the Mixer
+(§34.15)**: on the 720 KB, 1.2 MB and 1.44 MB system floppies and the live
+media, not on the 360 KB one - the XT's, whose 8-bit bus CDROM.DRV refuses
+(§119.2) - and not on an apps floppy, the 720 KB one having two clusters
+spare. `kern_small` builds carry no `SYSOPTIONAL` at all.
+
+| | |
+|---|---|
+| the image | 16,528 bytes, 5,261 of them the art |
+| on the floppy | 11,535 bytes, lz4-packed (§20.13.5) |
+| its bss | 1,708 bytes, 1 KB of it the composing band |
+| the kernel | no byte: everything is the package's |
+
+**A `.CDA` reached by a LINK or by `OSAPI_PKG_START`** finds the player only
+once something has listed `SYSTEM\`: that door does not sweep `ASSOC.DAT`
+the way a double-click does (docs/plans/ASSOC-FIND-PLAN.md §1, open on main).
+A double-click on `TRACKnn.CDA` in a Disk window always finds it.
+
+### 119.7 The gate
+
+`make cdromtest` builds a 1.44 MB system disk whose SYSTEM.CFG wants
+`CDROM.DRV` (bit 8) and a fixture ISO, `build/cdfix.iso`, written by
+`tools/os88cdiso.py`: nested folders, a long name that mangles, a file over
+64 KB, a package, and a file whose name is a legal 8.3 already.
+`tests/cdrom.py` boots it on QEMU with the ISO as the secondary master
+(`if=ide,index=2,media=cdrom`) - QEMU because it is the emulator here with
+a 286-class CPU and an ATAPI drive - and checks that the drive is found, its
+volume lists what `os88cdiso.py --list` lists, a folder two levels down
+lists, `..` comes back, a package launches off the CD, and a copy of the
+big file to the RAM disk is byte-identical to the host's. With the drive
+empty the volume refuses to mount and the machine carries on.
+
+**Audio cannot be played under QEMU**, whose ATAPI drive has no audio
+commands and holds one data track. So the gate builds the driver a second
+time, `-DCDSIM_AUDIO` (`build/cdromsim.img`, never shipped - the CH375
+model's shape, §9.12.6): `cd_simtoc` gives the one-track disc three audio
+tracks after it, 40, 30 and 20 seconds. `tests/cdrom.py --sim` (row
+`cdromsim`) checks the root lists `TRACK02.CDA`..`TRACK04.CDA`, and that a
+double-click on `TRACK02.CDA` opens CDRack through the association,
+which reads the file's 44 bytes - compared byte for byte with §119.3.5's
+layout - stands on track 2, and on QEMU's refusal says the drive plays no
+audio.
+
+**The play is `vm/386-cdrom`'s** (`make 386-cdrom`): a 386 under 86Box with
+the CD-ROM on the secondary master holding `build/cdaudio.cue` (`make
+cdaudioimg`, three generated tones of 40, 30 and 20 seconds) and
+`build/cdaudiotest.img`, whose `\AUTOSTRT` opens `A:\SYSTEM` and then
+`D:\TRACK02.CDA` (the folder first, for the link door's reason in §119.6).
+86Box cannot be driven from this host, so the machine is for LOOKING:
+captured through the boot, the player counted track 2 from 00:10 to 00:29,
+rolled into track 3 and stopped at the end of the disc
+(docs/HOW-CDROM-WAS-BUILT.md has the frames).
+
+### 119.8 Not done
+
+- **An XT.** An XT-IDE's latched high byte (rev 1: data high at base + 8)
+  and the CF-lite variants' swapped address lines are another transport,
+  and CD-ROMs on 8-bit buses were SCSI or proprietary in the period.
+- **A second drive.** `FSV_*` verbs carry no volume, so one driver serves one
+  volume; the first CD-ROM the probe finds is it.
+- **Proprietary interfaces**: Mitsumi, Sony CDU-31A/33A, Panasonic/MKE on a
+  Sound Blaster - each its own command set.
+- **Rock Ridge and Joliet** long names; **multi-extent** files past the
+  first extent; **directories beyond `CD_HMAX`** (§119.3.3).
+- **Digital audio extraction** (`READ CD`, BEh) - playing a track through a
+  Sound Blaster rather than the drive's own output.
+- **Booting from a CD** stays §80.2's El Torito hard-disk emulation.

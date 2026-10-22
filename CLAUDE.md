@@ -44,7 +44,7 @@ first of them fires in the first minute of a session.
 |---|---|
 | **[SPEC.md](SPEC.md)** — the binding contract | touching any interface. Every symbol name, register contract, constant and layout is pinned there. **Update it *before* the change, not after.** A bare `§` anywhere in this repo means SPEC.md; §4 is the module-ownership table |
 | **[PERFORMANCE.md](PERFORMANCE.md)** | anything that draws, lays out or loops — but the load-bearing ~200 lines are condensed below, and over half the file is a field-measurement log. Open it for the reasons listed at the end of that section, not by default |
-| **[docs/plans/completed/TEXT-PLAN.md](docs/plans/completed/TEXT-PLAN.md)** | touching how TEXT reaches the screen. **Reach for `font_run`, not `font_str`** — the transparent pair is the double-draw flash. **STAGE 4 IS DONE**: the sweep took the registry 189 → 37 sites and every line carries a REASON rather than a queue position; it stands at 57 sites in 21 files today because Sheet, Chart and fptest joined it at a merge, WireChat's bold strike joined it (SPEC.md 113.5), the os88ui size pass took `apps/os88ui.inc` off it, the first apps size pass took two of fptest's and its sixth set one of Solitaire's (the win plaque and the About card became one routine) (`tests/textsites.txt` is the truth, and the `backlog:` lines there are the only queue). docs/plans/completed/TEXT-PLAN.md §4.4 says why the four original backlog lines are not conversions — so a NEW transparent call site is a claim to argue rather than a queue to join |
+| **[docs/plans/completed/TEXT-PLAN.md](docs/plans/completed/TEXT-PLAN.md)** | touching how TEXT reaches the screen. **Reach for `font_run`, not `font_str`** — the transparent pair is the double-draw flash. **STAGE 4 IS DONE**: the sweep took the registry 189 → 37 sites and every line carries a REASON rather than a queue position; it stands at 56 sites in 20 files today because Sheet, Chart and fptest joined it at a merge, WireChat's bold strike joined it (SPEC.md 113.5) and left again when WireChat got a face of its own (113.5.1), the os88ui size pass took `apps/os88ui.inc` off it, the first apps size pass took two of fptest's and its sixth set one of Solitaire's (the win plaque and the About card became one routine) (`tests/textsites.txt` is the truth, and the `backlog:` lines there are the only queue). docs/plans/completed/TEXT-PLAN.md §4.4 says why the four original backlog lines are not conversions — so a NEW transparent call site is a claim to argue rather than a queue to join |
 | **[docs/plans/completed/GFX-REWORK-PLAN.md](docs/plans/completed/GFX-REWORK-PLAN.md)** | touching the graphics layer's SHAPE rather than one routine. **COMPLETED to the extent it is going to be taken** - and its own header said *"DESIGN NOT STARTED"* long after §3's boxes said otherwise, which is the failure the file's §6 is about one level up. **Phase 1 is BUILT and its premise was mostly WRONG**: of four supposed per-call invariants only the row base was one, and tabulating it plus inlining the deferred hide took `gfx_fill`'s floor 2,650 -> 2,405 and the fifteen-call title bar 40.8 -> **40.0 ms** (SPEC.md 39.3.1, 39.3.2). **Phase 2 is BUILT and was a SIZE change, not a speed one** - the shim it removes is 67 cycles and not the far-call-plus-near-call this document priced it at, so 340 bytes and **the far call is still there** (SPEC.md 2.6.1, PERFORMANCE.md Set 90). **Phase 3 is NOT TAKEN**: §4's segment proposal is UN-COSTED and PINNED, a costing having lived there three days before being withdrawn with the set behind it (Set 95). Read Sets 91 and 92 with it - they are the two that reversed the file's own conclusion - and Set 88 first, which is a redesign that was obviously correct and measured FOUR TIMES SLOWER than the fifteen calls it replaced. `gfx_hline` spends 3,235 cycles on six pixels and 4,112 on 312, and that width-blindness is what the rework was for |
 | **[docs/plans/completed/HANDOFF-FONTCHAR-SEAM.md](docs/plans/completed/HANDOFF-FONTCHAR-SEAM.md)** | a straddled window losing a CHARACTER of unaligned text. **BUILT - SPEC.md 39.14.11 is the contract and this file is now the DIAGNOSIS behind it**, kept because that was the hard half. `font_char` took the display holding the cell's TOP-LEFT and then `cmp cx, [vid_cwm8] / ja .done` dropped the whole cell, so the one cell the seam crossed was never drawn; the seam is the primary's own width and so a multiple of 8, which is exactly why an ALIGNED run lost nothing and an unaligned one lost EXACTLY ONE. It is 39.14.6's concession one level down, and what makes it cheap is that the multiple-of-8 seam puts the cut where the renderers already split - so the GLYPH is masked into two scratch cells and neither renderer gains an instruction. **Two of its claims were wrong and are corrected in place**: MartyPC hosts this perfectly well (`os8088_5150_both_gla`, and `_mono` for the seam at 720), and no new column mask was needed. Not to be confused with `tests/disptitle.py`'s bug, which is 5.4.2.4's polarity in the same window |
 | **[docs/plans/MONO-RECLAIM-PLAN.md](docs/plans/MONO-RECLAIM-PLAN.md)** | asking what the VGA code costs a machine with no VGA. **STILL OPEN, and it is the REUSE half that is open - the RECLAIM half is built.** Its two questions have different answers and that split is the whole file. **kern_small stops supporting VGA at all** and that is BUILT: `.text` 44,503 -> **42,698**, `KERN_SIZE` **-2,048**, four 512-byte rungs straight off the heap floor - with `KERN_SMALL_BUDGET` deliberately NOT lowered with it, so the figure is defended by 8,704 bytes instead of 6,656. **`sw_col` is built** (SPEC.md 39.25). **The row table is REFUSED** - built, measured at exactly the predicted +512, and reverted. **The character a straddle loses was a DEFECT and is built** (SPEC.md 39.14.11, its own record now) - `font_char`'s `ja .done` dropped the one cell the seam crossed ENTIRELY, which is why only unaligned text lost one and why no glyph cache would have fixed it. **What is OUTSTANDING is that the mono-only RAM has no customer**: kern_small is on a DIET rather than a budget, so bytes returned to it stay returned (SPEC.md 39.27.4) and nothing may be spent there at all; kern_big already carries every row of both 1bpp adapters. That leaves ONE candidate with one consumer - the specialised 1bpp inner loops out of kern_big's in-place hole - and it is the only row in the file with **no existing code to lift**, so it must be written before it can be measured. **`GFX_FILL_GRAY` is the wrong 1bpp target** and PERFORMANCE.md Set 102 names the right ones: `sw_blit_row.abyte` was **27.7% of the whole machine in Paint** - a 4bpp canvas's number; on kern_big the one-bit canvas left that path when SPEC.md 5.4.2.5 gave `gfx_blit1` any width (Set 116), and on kern_small it is the path by decision - and `sw_col.row` 10.0% in WIREFRAME. And **the Hercules reading has never been taken** - it is the adapter with most to gain |
@@ -585,6 +585,15 @@ make ethertest  # THE ETHERNET GATE'S DISK (§72.9): a SYSTEM.CFG that already
                 #   all, and tests/ethernet.py asserts behaviour and never
                 #   speed because the machine under it is not an 8088
 make browsertest # ...and the browser's page disk, for tests/br*.py
+make cdromtest  # THE CD-ROM GATE (§119.7): a 1.44MB system disk whose
+                #   SYSTEM.CFG wants CDROM.DRV (bit 8), and build/cdfix.iso,
+                #   written by tools/os88cdiso.py - which is also the
+                #   REFERENCE for the driver's 8.3 names and handles (its
+                #   `list`). `make cdromtest && python3 tests/cdrom.py`.
+                #   QEMU by name: the one emulator here with a 286-class CPU
+                #   AND an ATAPI drive; CD audio it cannot play (§119.7), so
+                #   `--sim` uses build/cdromsim.img (-DCDSIM_AUDIO, fake audio
+                #   tracks) and `make 386-cdrom` is 86Box's audio CD to LOOK at
 make small    # kern_small and its system disks, into build/smallk/ (the
 make smallapps#   128KB floor machine, docs/history/KERN-SPLIT-PLAN.md). `smallapps` is
               #   the APPS half of it: the same floppies with the SMALL BUILD
@@ -1040,7 +1049,13 @@ and buttons with their captions inside, in MIDIRack's bevelled look or the
 flat one `apps/os88flat.inc` gives (§20.5.3), with the mono faces left as
 they were — is `.claude/skills/vga-face` (`/vga-face <package>`, **manual
 invocation only**), whose `LESSONS.md` is what MIDIRack's (SPEC.md §105.9.4,
-§105.9.5) and WireFleet's (§114.10) learned.
+§105.9.5) and WireFleet's (§114.10) learned. Building an app whose UI is a
+styled piece of **hardware from the user's mockups** — host-generated art and
+fonts, a colour and a black-and-white theme as role tables, every field one
+band and one blit, cached element keys, and full / mid / compact layouts so
+every adapter gets a face — is `.claude/skills/retro-face`
+(`/retro-face <app> [mockups]`), whose `LESSONS.md` is what CDRack (SPEC.md
+§119.6) learned.
 
 ## Building an app or game in waves
 
@@ -1136,7 +1151,7 @@ user gives a different workflow. The worked example is
   one pass. Transparent text is a **closed list of six cases** (§6.6.2) and
   `tests/textsites.txt` is the ratchet: a new call site fails the build until it
   is registered with a reason, and the count can only go down. **The sweep is
-  finished** (§6.6.5): the registry stands at 57 sites in 21 files, every one
+  finished** (§6.6.5): the registry stands at 56 sites in 20 files, every one
   with a reason, so a new transparent call is now an argument to win rather
   than a queue to join.
 - **Three adapters, one binary (§39).** `SCREEN_W`/`SCREEN_H`/`ROW_BYTES` are

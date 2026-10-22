@@ -439,6 +439,15 @@ make ethertest  # THE ETHERNET GATE'S DISK (§72.9): a SYSTEM.CFG that already
                 #   all, and tests/ethernet.py asserts behaviour and never
                 #   speed because the machine under it is not an 8088
 make browsertest # ...and the browser's page disk, for tests/br*.py
+make cdromtest  # THE CD-ROM GATE (§119.7): a 1.44MB system disk whose
+                #   SYSTEM.CFG wants CDROM.DRV (bit 8), and build/cdfix.iso,
+                #   written by tools/os88cdiso.py - which is also the
+                #   REFERENCE for the driver's 8.3 names and handles (its
+                #   `list`). `make cdromtest && python3 tests/cdrom.py`.
+                #   QEMU by name: the one emulator here with a 286-class CPU
+                #   AND an ATAPI drive; CD audio it cannot play (§119.7), so
+                #   `--sim` uses build/cdromsim.img (-DCDSIM_AUDIO, fake audio
+                #   tracks) and `make 386-cdrom` is 86Box's audio CD to LOOK at
 make small    # kern_small and its system disks, into build/smallk/ (the
 make smallapps#   128KB floor machine, docs/history/KERN-SPLIT-PLAN.md). `smallapps` is
               #   the APPS half of it: the same floppies with the SMALL BUILD
@@ -844,7 +853,13 @@ and buttons with their captions inside, in MIDIRack's bevelled look or the
 flat one `apps/os88flat.inc` gives (§20.5.3), with the mono faces left as
 they were — is `.claude/skills/vga-face` (`/vga-face <package>`, **manual
 invocation only**), whose `LESSONS.md` is what MIDIRack's (SPEC.md §105.9.4,
-§105.9.5) and WireFleet's (§114.10) learned.
+§105.9.5) and WireFleet's (§114.10) learned. Building an app whose UI is a
+styled piece of **hardware from the user's mockups** — host-generated art and
+fonts, a colour and a black-and-white theme as role tables, every field one
+band and one blit, cached element keys, and full / mid / compact layouts so
+every adapter gets a face — is `.claude/skills/retro-face`
+(`/retro-face <app> [mockups]`), whose `LESSONS.md` is what CDRack (SPEC.md
+§119.6) learned.
 
 ## Building an app or game in waves
 
@@ -915,7 +930,7 @@ user gives a different workflow. The worked example is
   one pass. Transparent text is a **closed list of six cases** (§6.6.2) and
   `tests/textsites.txt` is the ratchet: a new call site fails the build until it
   is registered with a reason, and the count can only go down. **The sweep is
-  finished** (§6.6.5): the registry stands at 57 sites in 21 files, every one
+  finished** (§6.6.5): the registry stands at 56 sites in 20 files, every one
   with a reason, so a new transparent call is now an argument to win rather
   than a queue to join.
 - **Three adapters, one binary (§39).** `SCREEN_W`/`SCREEN_H`/`ROW_BYTES` are

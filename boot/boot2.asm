@@ -336,10 +336,11 @@ boot2_entry:
     call read_run               ; AX = sectors it moved
     add [b2_lba], ax
     sub [b2_left], ax
-    mov cl, 5
-    shl ax, cl
+    pushf                       ; the loop test, banked past the shift as
+    mov cl, 5                   ; .load_next banks it: three bytes under a
+    shl ax, cl                  ; `cmp word [b2_left], 0`
     add [b2_dest], ax
-    cmp word [b2_left], 0
+    popf
     jne .head_next
     add word [b2_dest], KZ_RPARA    ; ...and the packed tail lands R up, which
                                     ; os88kz.py rounds to a SECTOR: read_run's
@@ -765,12 +766,12 @@ read_run:
     div word [b2_spt]
     inc dx
     mov cl, dl                  ; CL = sector (1-based)
-    xor dx, dx
-    mov bl, [b2_heads]
-    xor bh, bh
-    div bx
+    div byte [b2_heads]         ; a BYTE divide: the track over the heads is
+                                ; the cylinder, under 256 on any floppy, so
+                                ; AL cannot overflow - six bytes under the
+                                ; word divide and its two clears
     mov ch, al                  ; CH = cylinder (low 8 bits; never over 255)
-    mov dh, dl                  ; DH = head
+    mov dh, ah                  ; DH = head
     xor bx, bx                  ; ES:BX - the offset is always zero
     mov dl, [b2_drive]
     mov ax, [b2_runsz]          ; AL = the run...
