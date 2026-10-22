@@ -53943,6 +53943,44 @@ not carry them either**, because the installer copies the system disk it is on
 | `os8088-360.img` before | 696 of 706, 10 free |
 | the three off (11 + 7 + 4) | 674 of 706, **32 free** (measured) |
 
+#### 24.3.1.7 System Check and the DOS tools move to the utilities disk
+
+**`build/util360.img` is a fifth category disk (§24.6)**, by the owner's
+decision of 2026-10-22, for programs a 360KB machine runs to look *at* itself
+rather than to get work done:
+
+- **At the root:** `SYSCHECK.O88` (§118), `REDLINE.O88` (§103) and a copy of
+  `TASKMGR.O88` (§28).
+- **In `SYSTEM/DOS/`:** `OS88NET.COM` (§62) and `OS88CZ.COM` (§20.17.4). They
+  go there for the reason network360 puts its `.COM` there: at the root, a
+  double-click would run a DOS tool on the machine it is not for.
+
+Three moves made it, and all three apply at 360KB only:
+
+- **`SYSCHECK.O88` leaves `os8088-360.img`.** `$(SYSTOOLSARGS)` is no longer
+  in that disk's recipe. A hard disk installed from the 360KB pair therefore
+  carries no `C:\SYSTEM\SYSCHECK.O88`. The user runs it off util360 instead,
+  and it offers the hard disk by default (§118.13). It is still on the 720KB,
+  1.44MB and 1.2MB system disks and on the live media.
+- **`OS88NET.COM` leaves `apps360.img`.** network360 keeps its copy, beside the
+  programs that use the link.
+- **`REDLINE.O88` reaches a shipped 360KB disk for the first time.** Until now
+  its only 360KB copy was the on-demand `redline360.img`.
+
+`OS88CZ.COM` had never fitted on apps360 (§20.17.4) and is new at this
+geometry.
+
+| | clusters |
+|---|---|
+| `os8088-360.img`, after §24.3.1.6 | 674 of 706 (512 B), 32 free |
+| `SYSCHECK.O88` off | **649 of 706, 57 free** (measured) |
+| `apps360.img` | 337 → **325 of 354, 29 free** (measured) |
+| `util360.img` | **72 of 354, 282 free** (measured) |
+
+`tests/unit/t_sysman.py` holds both halves: System Check absent from
+`os8088-360.img` and present at util360's root. `tests/instdeep.py`, which
+installs from the 360KB pair, no longer expects `SYSTEM/DOS/`.
+
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 
 `build/media360.img` is a data floppy carrying `MEDIA/BEVERLY.MOD` and
@@ -54365,9 +54403,9 @@ user can *choose* one without swapping floppies.
 
 ### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
 
-`build/office360.img`, `build/network360.img`, `build/games360.img` and
-`build/emu360.img` are four data floppies built by `all` beside the system,
-apps and media disks.
+`build/office360.img`, `build/network360.img`, `build/games360.img`,
+`build/emu360.img` and `build/util360.img` are five data floppies built by
+`all` beside the system, apps and media disks.
 Each carries **one category of application at the root of the volume**, the
 documents those applications open in `MEDIA/`, and a pre-made
 `SYSTEM/APPDATA/`.
@@ -54395,6 +54433,7 @@ everything on it and gain nothing from three.
 | `network360` | Browser, FTPD, Telnet, The Wire (+ `SYSTEM/DOS/OS88NET.COM`) | `BROWSER.HTM` |
 | `games360` | every package in the apps disk's `GAMES/` | — |
 | `emu360` | RealDMG | `GBDEMO.GB` |
+| `util360` | System Check, Redline, Task Manager (+ `SYSTEM/DOS/OS88NET.COM`, `OS88CZ.COM`) (§24.3.1.7) | — |
 
 **The packages are at the ROOT, with no `APPS/` over them.** The apps disk
 sorts a mixed bag into folders because it *is* a mixed bag; a category disk
@@ -204036,9 +204075,11 @@ driver or kernel is to install again (§52.10.15), which those findings say.
 
 `SYSTOOLS`, its own list threaded the way `STIKAPPS` is, and not
 `SYSAPPS`: the Makefile's comment above `STIKAPPS` keeps new system-disk
-packages out of the 35 recipes `SYSAPPSARGS` reaches. So `SYSTEM\` on the four kern_big system
-disks and on the live media, which is where an install takes it from
-(§52.10.4 step 3). Not the apps disks, `kern_small`'s or `kern_emu`'s
+packages out of the 35 recipes `SYSAPPSARGS` reaches. So `SYSTEM\` on the
+720KB, 1.44MB and 1.2MB kern_big system disks and on the live media, which is
+where an install takes it from (§52.10.4 step 3). **At 360KB it is the root of
+`util360.img` instead** (§24.3.1.7), so an install from the 360KB pair does not
+carry it. Not the apps disks, `kern_small`'s or `kern_emu`'s
 (§118.9). It is opened like any program, from `C:\SYSTEM` in the Disk window.
 
 ### 118.11 The tests

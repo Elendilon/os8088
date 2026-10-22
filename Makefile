@@ -95,6 +95,7 @@ OFFICEIMG360  := $(BUILD)/office360.img
 NETWORKIMG360 := $(BUILD)/network360.img
 GAMESIMG360   := $(BUILD)/games360.img
 EMUIMG360     := $(BUILD)/emu360.img
+UTILIMG360    := $(BUILD)/util360.img
 
 # ...and all thirteen in one list, because it appeared in FOUR places (`all`
 # and the three tiers) and each of those had to be edited by hand the first
@@ -104,7 +105,7 @@ EMUIMG360     := $(BUILD)/emu360.img
 SHIPIMGS := $(IMG) $(IMG120) $(IMG720) $(IMG360) \
             $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
             $(MEDIAIMG360) $(OFFICEIMG360) $(NETWORKIMG360) $(GAMESIMG360) \
-            $(EMUIMG360)
+            $(EMUIMG360) $(UTILIMG360)
 
 BOX   := /Applications/86Box.app/Contents/MacOS/86Box
 
@@ -3386,6 +3387,10 @@ STIKARGS := $(addprefix STIKAPPS:,$(STIKAPPS))
 # (the browser's live image filters it back out, LIVENOTOOLS below).
 SYSTOOLS := $(BUILD)/syscheck.o88
 SYSTOOLSARGS := $(addprefix SYSTEM:,$(SYSTOOLS))
+# ...EXCEPT THE 360KB SYSTEM DISK (SPEC.md 24.3.1.7, the owner's of
+# 2026-10-22): there it rides util360.img, and an install from the 360KB pair
+# carries no C:\SYSTEM\SYSCHECK.O88 - it is run off util360 instead, and it
+# offers the hard disk by default (118.13).
 
 # ...and STICKY NOTE'S NOTES (SPEC.md 110.13.1): a note is a plain .TXT in
 # SYSTEM\APPDATA\NOTES on the boot volume, and the folder SHIPS, pre-sized -
@@ -5481,10 +5486,10 @@ $(BUILD)/ftpapps.img: $(FTPDFILES) tools/os88disk.py
 # is what fails if this flag is lost, and autostart360.img below takes it too
 # because it is this disk plus four files.
 SYS360SPC := --spc 1
-$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS360) $(SYSAPPS) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
+$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS360) $(SYSAPPS) $(STIKAPPS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS360) $(SYSAPPSARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(STIKARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # AUTOSTARTTEST - the LINKS and AUTOSTART gate's disk (SPEC.md 26.10): the
@@ -14989,7 +14994,7 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS) \
 APPS_TOOLS_360 := $(filter-out $(BUILD)/sheet.o88 $(BUILD)/chart.o88 \
                     $(BUILD)/midirack.o88 $(BUILD)/pixel.o88 \
                     $(BUILD)/wirechat.o88,$(APPS_TOOLS))
-APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES_360) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
+APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES_360) $(APPS_DATA_360) $(APPS_SYS)
 
 # ...and the same list with the folder each package lands in. os88disk.py
 # reads a "DIR:" prefix per package, so the grouping lives here rather than
@@ -15070,11 +15075,13 @@ APPSARGS720 := $(filter-out $(APPDATAFOLDER),$(APPSARGS720)) \
 # AND IT IS PACKED NOW (SPEC.md 62.12): 11,653 bytes and 12 clusters, which is
 # what took this disk off THREE free clusters and put it on ten.
 # Being on this disk is the whole reason a user has it to hand.
+# ...AND IT IS OFF IT AGAIN (SPEC.md 24.3.1.7, the owner's of 2026-10-22):
+# at 360KB the DOS tools ride util360.img, both of them, and network360.img
+# keeps its own copy beside the programs that use the link.
 APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS_360)) \
                $(addprefix GAMES:,$(APPS_GAMES_360)) \
                $(addprefix MEDIA:,$(APPS_DATA_360)) \
                $(APPSYSARGS) \
-               $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
                $(MEDIAFOLDER) $(APPDATAFOLDER)
 
 # ...and the media disk's own arguments. MEDIA/ and not the root, so the file
@@ -15249,6 +15256,27 @@ $(NETWORKIMG360): $(NETWORK360) tools/os88disk.py
 
 $(GAMESIMG360): $(GAMES360) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(GAMESARGS360)
+
+# --- util360 -----------------------------------------------------------------
+# THE UTILITIES' DISK (SPEC.md 24.3.1.7 and 24.6, the owner's of 2026-10-22):
+# what a 360KB machine runs to look AT itself rather than to do its work.
+# SYSTEM CHECK left the 360KB system disk for it, REDLINE (SPEC.md 103) had
+# no shipped 360KB disk at all - only its on-demand redline360.img - and the
+# TASK MANAGER is a copy, as the apps disk carries one. All three at the root,
+# 24.6's rule. The two DOS tools - OS88NET.COM (the cable link's DOS end,
+# SPEC.md 62) and OS88CZ.COM (the split set's, 20.17.4) - go in SYSTEM/DOS/,
+# network360's convention and for its reason: a .COM at the root invites a
+# double-click on a machine it is not for. OS88NET.COM left apps360.img for
+# this disk; OS88CZ.COM had never fitted that one.
+UTIL_PKGS := $(BUILD)/syscheck.o88 $(BUILD)/redline.o88 $(BUILD)/taskmgr.o88
+UTIL_DOS := $(APPS_DOS) $(APPS_DOSCZ)
+UTIL360 := $(UTIL_PKGS) $(UTIL_DOS)
+UTILARGS360 := $(UTIL_PKGS) \
+               $(addprefix SYSTEM/DOS:,$(UTIL_DOS)) \
+               $(MEDIAFOLDER) $(APPDATAFOLDER)
+
+$(UTILIMG360): $(UTIL360) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(UTILARGS360)
 
 # --- emu360 ------------------------------------------------------------------
 # THE EMULATORS' DISK (SPEC.md 24.6, the owner's of 2026-10-22). RealDMG at

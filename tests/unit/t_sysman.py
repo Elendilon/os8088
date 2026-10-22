@@ -108,10 +108,20 @@ def main():
                   "os88disk must copy a file as it is given (SPEC.md 118.2.1)",
                   got=(len(data), os88sysman.sums(data)), want=(size, sm))
         sysf = where.get(1)
-        check(sysf is not None and any(
-              Fat12.pretty(e[:11]) == "SYSCHECK.O88"
-              for e in entries(fat, sysf)),
-              "%s carries SYSTEM\\SYSCHECK.O88 (SPEC.md 118.10)" % img)
+        has = sysf is not None and any(
+            Fat12.pretty(e[:11]) == "SYSCHECK.O88"
+            for e in entries(fat, sysf))
+        if img == "os8088-360.img":     # SPEC.md 24.3.1.7: util360.img's
+            check(not has, "%s does not carry SYSTEM\\SYSCHECK.O88 "
+                  "(SPEC.md 24.3.1.7)" % img)
+            continue
+        check(has, "%s carries SYSTEM\\SYSCHECK.O88 (SPEC.md 118.10)" % img)
+    util = os.path.join(BUILD, "util360.img")
+    if check(os.path.exists(util), "util360.img is built", "`make` builds it"):
+        fat = Fat12(util)
+        check(any(Fat12.pretty(e[:11]) == "SYSCHECK.O88"
+                  for e in entries(fat, None)),
+              "util360.img carries SYSCHECK.O88 at its root (SPEC.md 24.3.1.7)")
     done("t_sysman: %d files against %d system disks" % (len(rows), len(IMAGES)))
 
 
