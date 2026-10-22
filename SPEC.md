@@ -204672,22 +204672,27 @@ on an XT; it is not shipped.
 folder or a FAT12 floppy image; `check OUT` validates one; `serve SRC` is a
 server for testing that honours `Range:` (`--no-range` to refuse it, as
 `python3 -m http.server` does) and logs one line a request, exporting a
-`.img` first. **Data files are stored expanded**: a `'CZ'` file's
-compression is known to the kernel from a hint in its FAT directory entry
-(§20.14.1), and a redirected volume has no directory entries, so the drive
-hands a file over exactly as it is. A package describes its own compression
-(§20.13) and is copied as it is.
+`.img` first. **Files are served exactly as stored**, compressed ones
+included: a `'CZ'` file needs no directory hint, because the read sniffs its
+own header when there is none (§20.14.6) and a redirected volume's read takes
+that same flow (§20.14.6.1), the driver loader too (§20.14.6.4). Fewer bytes
+cross the wire, and a release served this way is its own bytes - what System
+Check's manifest holds a system disk to (§118.2.1). As on the RAM disk,
+`OSAPI_FILE_FIND` reports such a file's PACKED size (§20.14.6.2.1, from
+`FSV_STAT`), and §20.14.6.3's retry is the answer for a caller that sized off
+it.
 
 `tests/httpmount.py` (`make httpmounttest`, soak row `httpmount`) boots
 QEMU - MartyPC has no NIC - with `ETHER.DRV` and `HTTPFS.DRV` wanted and
 `HTTPDRV.CFG` naming the host's own server, which is `os88httpdrv.py`'s,
 run in the test on a fixture tree it built, so every request the machine
-makes is in a log the test reads. Seven legs: the drive is up at boot with
+makes is in a log the test reads. Eight legs: the drive is up at boot with
 **no request made**; opening it is **one** (`OS88.IDX`) and walking two
 folders down and back is **none**; a package launches off it; 100,001 bytes
 copy to B: byte-identical with `Range:`, and again with the server ignoring
 it; a path with `#` goes out escaped; a paste onto the drive ends
-`FERR_WPROT`. Taking the 200 arm's offset skip out turns leg 6 red at byte
+`FERR_WPROT`; and a `'CZ'` file served as stored opens in Note Pad as its
+unpacked text. Taking the 200 arm's offset skip out turns leg 6 red at byte
 65,024 - the first byte of the second chunk.
 
 ### 120.8 Not done

@@ -30,6 +30,10 @@ desktop before the first paint, LAZY: nothing is fetched until it is opened.
   7. A write is refused: Edit > Paste of BIG.BIN onto the HTTP drive asks
      to replace the one there, and the yes ends in FERR_WPROT - the delete
      and the write are refused by the driver, in FAT's words.
+  8. PACKED.TXT, a 'CZ' file served as it is stored, opens in Note Pad as
+     its UNPACKED text: no hint exists on a redirected volume, so this is the
+     read's own sniff (SPEC.md 20.14.6.1) - why the host tool serves a
+     release's bytes unexpanded (SPEC.md 120.7).
 
 Break on purpose: drop hf_readat's `.part` start check and leg 5 still
 passes, which is why leg 6 exists - drop the `[hf_skip]` load in its 200 arm
@@ -64,6 +68,23 @@ DRVR_SIZE, DRVR_ERR = 16, 14
 PORT = 8095
 BIGLEN = 100001
 
+# A 'CZ' file (SPEC.md 20.14), SERVED AS IT IS STORED: no directory entry on a
+# redirected volume carries a hint, so Note Pad gets the right text only if
+# the read sniffs the file's own header (20.14.6.1). LF-only, so np_load's
+# CRLF fold leaves it alone and np_len is its length exactly.
+PLAIN = b"".join(b"line %04d of a packed note, served over HTTP\n" % i
+                 for i in range(120))
+
+
+def _pack():
+    import os88lz
+    out, ok = os88lz.cz_wrap(PLAIN)
+    assert ok and out[:2] == b"CZ", "the fixture did not compress"
+    return out
+
+
+PACKED = _pack()
+
 
 def pattern(n, seed):
     out = bytearray(n)
@@ -83,6 +104,7 @@ def fixture():
         "APPS": {"MINES.O88": open(os88build.at("build/mines.o88"), "rb").read()},
         "DOCS": {"NOTE.TXT": b"one\r\n", "DEEP": {"DEEPER.TXT": b"two\r\n"}},
         "EMPTY": {},
+        "PACKED.TXT": PACKED,
     }
 
 
@@ -383,6 +405,31 @@ def main():
             if front_on(ui, vol) else None
         print("   7. a paste onto the drive: busy %d, fcp_err %d, the drive "
               "lists BIG.BIN: %s" % (busy, e7, listed and "BIG.BIN" in listed))
+        # --- 8: a PACKED file, opened, arrives unpacked -----------------
+        from trackmove import pkg_syms
+        P = pkg_syms("apps/notepad/notepad.asm", incs=("apps/",))
+        raise_vol(q, ui, vol)
+        q.need(lambda: front_on(ui, vol) is not None, "the drive in front")
+        w = front_on(ui, vol)
+        before = set(o.i for o in ui.windows())
+        i, _ = ui.entry("PACKED.TXT", w)
+        xmcheck.dblclick(q.sock, *ui.row_xy(w, i - ui.scroll(w)))
+        q.need(lambda: any(o.i not in before and o.visible
+                           for o in ui.windows()), "Note Pad", 60)
+        nw = next(o for o in ui.windows() if o.i not in before and o.visible)
+        rec = q.read(S("wm_wins") + nw.i * geom.WIN_SIZE, geom.WIN_SIZE)
+        pseg = struct.unpack_from("<H", rec, geom.W_SEG)[0]
+        q.need(lambda: struct.unpack("<H", q.readseg(pseg, P["np_len"], 2))[0],
+               "Note Pad to hold the file", 30)
+        q.done(2.0)
+        nl = struct.unpack("<H", q.readseg(pseg, P["np_len"], 2))[0]
+        print("   8. PACKED.TXT (%d bytes on the server, %d unpacked) opens in "
+              "Note Pad as %d bytes" % (len(PACKED), len(PLAIN), nl))
+        if nl != len(PLAIN):
+            bad.append("8. a packed file read %d bytes into Note Pad, not its "
+                       "%d unpacked - the sniff did not run on this volume (%s)"
+                       % (nl, len(PLAIN), "the packed size" if nl == len(PACKED)
+                          else "neither size"))
         q.hmp("quit")
         q.close()
         q = None

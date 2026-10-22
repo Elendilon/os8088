@@ -23,12 +23,13 @@ nothing in particular; this one honours ranges, logs every request on one line
 built floppy image directly: `serve build/os8088-720.img` exports it into a
 temporary folder first.
 
-FILES ARE STORED EXPANDED. A data file on an os8088 floppy may be a `'CZ'` file
-(SPEC.md 20.14) whose compression the kernel learns from a hint in its FAT
-directory entry - and a redirected volume has no directory entries, so the
-drive hands such a file over exactly as it is. `export` therefore expands every
-`'CZ'` file it copies. A package (`.O88`) describes its own compression in its
-own header (SPEC.md 20.13) and is copied as it is.
+FILES ARE SERVED EXACTLY AS STORED, compressed ones included. A `'CZ'` file
+(SPEC.md 20.14) needs no directory hint to be read right: the read SNIFFS its
+own header when there is none (SPEC.md 20.14.6), and a redirected volume -
+this drive's - takes that same flow (20.14.6.1), as the driver loader does
+(20.14.6.4). So nothing is expanded on the way out, which is fewer bytes on
+the wire, and a release served this way is the release's own bytes - the
+sizes and sums System Check holds a system disk to (SPEC.md 118.2.1).
 """
 import argparse
 import http.server
@@ -231,17 +232,6 @@ def tree_from_img(path):
     return walk(bytes(v.img[v.root_off:v.root_off + v.nroot * 32]))
 
 
-def expand(tree):
-    """Every 'CZ' file in the tree, expanded (see the module header)."""
-    import os88lz
-    for n, b in tree.items():
-        if isinstance(b, dict):
-            expand(b)
-        elif len(b) >= 8 and b[:2] == b"CZ" and b[3] == 0 and b[2] in (0, 1):
-            size = int.from_bytes(b[4:8], "little")
-            tree[n] = bytes(os88lz.decompress(b[8:], b[2], size))
-
-
 def load(src):
     if os.path.isdir(src):
         return tree_from_dir(src)
@@ -261,7 +251,6 @@ def write_tree(tree, out):
 
 def export(src, out):
     tree = load(src)
-    expand(tree)
     serial = 0
     idx = index_build(tree, serial)
     os.makedirs(out, exist_ok=True)

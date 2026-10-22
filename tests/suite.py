@@ -2443,7 +2443,8 @@ SOAK = [
         "one GET (OS88.IDX) and walking folders is none; MINES.O88 launches "
         "off it; BIG.BIN (100,001 bytes) copies to B: byte-identical with "
         "Range:, and BIG2.BIN with the server IGNORING Range:; a paste onto "
-        "the drive ends FERR_WPROT. Red with the 200 arm's offset skip taken "
+        "the drive ends FERR_WPROT; a 'CZ' file served as stored opens in "
+        "Note Pad unpacked (the read's own sniff, SPEC.md 20.14.6.1). Red with the 200 arm's offset skip taken "
         "out (leg 6)",
         needs=("qemu", "nasm"), serial=True, timeout=600,
         wants=("build/httpmount.img", "build/httpfs.bin", "build/mines.o88")),
