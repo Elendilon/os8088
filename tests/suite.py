@@ -3421,7 +3421,7 @@ SOAK = [
         "m.advance(cycles=) windows, and its one host deadline (the saver "
         "starting) is an until() on guest time.",
         needs=("marty",), serial=True),
-    Row("deskbench", "soak", py("tests/deskbench.py"), 180.0,
+    Row("deskbench", "soak", py("tests/deskbench.py"), 120.0,
         "THE STANDARD BUSY DESKTOP, priced: what a full-screen redraw, a "
         "window move and a raise cost with four windows open (PERFORMANCE.md "
         "Part 3). A measurement, not a gate - it asserts its own SCENE and "
