@@ -6389,7 +6389,9 @@ FSIF_BANKED equ 4
 
 ; --- THE THEME (SPEC.md 76, 76.14.14) --------------------------------------
 ; --- Desktop serial lease (SPEC.md 115), UI-task context -------------------
-%define OSAPI_SERIAL KERNEL_SEG:0x049F ; AL=0 Open (BL=COM1/2, SI=517-byte
+%define OSAPI_SERIAL KERNEL_SEG:0x049F ; AL=0 Open (BL=COM1/2, +80h when
+                                 ; the USER named the port: taken before the
+                                 ; mouse settles, 115.1.1; SI=517-byte
                                  ; pinned-region buffer, BH=the 8250 divisor
                                  ; of 115200: 0 or 12 = 9600, 48 = 2400 -
                                  ; SPEC.md 115.1), 1 Close, 2 Read

@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "9d24ec5aa18e94bd50f45acae9e82429d2b164ab7eab87c29a43b642f7dafbd3",
+  "fingerprint": "360080b9e6aeaef1a283eb0f62cd59a6134263f33c5c7a4b621b286226b34d23",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "a119fd3f55ae66e63e8e56f7088881f81164e192c31662b0f6a58cf0fe24c752",
+  "fingerprint": "1766f9b3bfffad49c00caa2094427bdfb15b0d34093bef922a082c8eab345fad",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -826,6 +826,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_IMG_NAME appended at 0x04CF: an image segment or pool offset -> its driver's or module's 8.3 name (KERN-MEGA-PLAN 14.70.3). A cell added at the end; every package built before still runs",
+   "to": 11
+  },
+  {
+   "fingerprint": "1766f9b3bfffad49c00caa2094427bdfb15b0d34093bef922a082c8eab345fad",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_SERIAL Open: BL bit 7 = the user named the port, taken before the mouse contest settles (SPEC.md 115.1.1); old callers unchanged",
+   "to": 10
+  },
+  {
+   "fingerprint": "360080b9e6aeaef1a283eb0f62cd59a6134263f33c5c7a4b621b286226b34d23",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_SERIAL Open: BL bit 7 = the user named the port, taken before the mouse contest settles (SPEC.md 115.1.1); old callers unchanged",
    "to": 11
   }
  ]

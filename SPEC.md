@@ -200587,8 +200587,9 @@ close. It may opt back into movement after the lease is released.
 all registers except AX and CF. AL is the verb; BL is COM1=1 or COM2=2 for
 Open, ignored for the other verbs. Every operation is bound to the calling
 instance. A winning serial mouse's port is never eligible. Until the mouse
-contest is settled, Open refuses with a distinct error; the caller tells the
-user to move the mouse. Nonstandard or unadvertised bases are refused.
+contest is settled, Open decides per port (§115.1.1) and otherwise refuses
+with a distinct error; the caller tells the user to name the port or move
+the mouse. Nonstandard or unadvertised bases are refused.
 
 | AL | verb | arguments and result |
 |---|---|---|
@@ -200601,6 +200602,29 @@ Open by the instance that already holds the lease MOVES it (§114.9): the
 held port is restored and released exactly as Close would, the module stays
 loaded and the named port is opened. A refusal of the new port leaves the
 lease closed, as a failed Open always does. Any other holder is refused busy.
+
+#### 115.1.1 Before the mouse contest settles
+
+A machine with no serial mouse — the keyboard mouse (§9.6) driving the
+pointer — never settles the contest, because no packet ever arrives, so a
+blanket refusal would refuse every port for the whole session. While it is
+unsettled, Open takes a port, in this order:
+
+1. **Refused 3** if that port answered the reset edge like a mouse
+   (`[mou_ident]`, §9.4.1). Nothing below overrides it.
+2. **Taken** if BL bit 7 is set (BL = 81h or 82h): the USER named this port,
+   which is the statement "this is not the mouse". An application sets it
+   only for a port the user chose, never in an automatic search.
+3. **Taken** if a mouse identified on the OTHER port.
+4. **Taken** if the port's MSR shows DSR or DCD asserted: something drives
+   those lines — a modem, or a null modem whose far end holds DTR, which an
+   os8088 peer does on every port it probes. A serial mouse drives neither.
+5. Otherwise **refused 2**.
+
+The lease isolates its row from the mouse code (§115.2), so taking a port
+that later proves to hold an idle mouse costs that mouse its port only until
+Close; the contest resumes there afterwards. All of it is in `SERIAL.DRV`:
+no resident byte. A settled contest ignores bit 7.
 
 Refusals are AX=1 busy/wrong owner, 2 mouse not settled, 3 mouse port,
 4 absent/unsupported port, 5 invalid caller/buffer, 8 module unavailable.

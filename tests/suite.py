@@ -2058,6 +2058,9 @@ SOAK = [
     Row("wirefleetsystem", "soak", py("tests/wirefleetsystem.py"), 120.0,
         "WireFleet on 8088s: original 8250 lease and forced cleanup, CGA color fullscreen and return, saved-record validation, finite speaker/AdLib/SB cues (SPEC.md 114/115)",
         needs=("marty", "nasm", "pil"), wants=("build/wireflet360.img", "build/wireflet720.img", "build/os8088-360.img", "build/os8088-720.img"), timeout=300),
+    Row("wirefleetnomouse", "soak", py("tests/wirefleetnomouse.py"), 90.0,
+        "WireFleet's link before the mouse contest settles (SPEC.md 115.1.1): no evidence refused with the name-the-port line, Link > Connect COM2 taken, an identified mouse port refused even when named, and the search finding COM2 beside it - driven on the keyboard mouse",
+        needs=("marty", "nasm"), wants=("build/wireflet360.img", "build/os8088-360.img"), timeout=300),
     Row("wirefleetart", "soak", py("tests/wirefleet.py", "--art"), 8.0,
         "WireFleet generated tiles: reproducibility, palette/bounds, distinct color/mono shot shapes (SPEC.md 114); "
         "the 16 effect stamps in three forms, the song and the Sound Blaster clips (114.11)",

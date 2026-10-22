@@ -236,6 +236,8 @@ srl_open:
     jc srl_body.bad
     cmp ax, [di+I_SIZE]
     ja srl_body.bad
+    mov ch, bl                  ; bit 7: the USER named this port (115.1.1)
+    and bl, 0x7f
     cmp bl, 1
     jb .absent
     cmp bl, 2
@@ -243,10 +245,6 @@ srl_open:
     dec bl
     xor bh, bh
     shl bx, 1
-    cmp byte [mou_hpst], 2
-    jne .unsettled
-    cmp bl, [mou_port]
-    je .mouse
     mov ax, [bx+mou_bases]
     or ax, ax
     jz .absent
@@ -256,6 +254,11 @@ srl_open:
     cmp ax, [es:bx]
     pop es
     jne .absent
+    cmp byte [mou_hpst], 2
+    jne .unsettled
+    cmp bl, [mou_port]
+    je .mouse
+.take:
     CSDO mov [CSEG srl_base], ax
     CSDO mov [CSEG srl_seg], es
     CSDO mov [CSEG srl_buf], si
@@ -321,7 +324,23 @@ srl_open:
     out dx, al
     xor ax, ax
     ret
-.unsettled:
+.unsettled:                     ; no mouse has spoken yet (115.1.1): this
+    cmp byte [bx+mou_ident], 0  ; port answered the reset edge LIKE one, so
+    jne .mouse                  ; it is one, whoever says otherwise
+    test ch, 0x80               ; the user said "not the mouse": the machine
+    jnz .take                   ; may have no serial mouse at all
+    mov cl, [mou_ident]         ; a mouse identified on the OTHER port
+    or cl, [mou_ident+2]
+    jnz .take
+    push dx                     ; DSR or DCD driven: a modem, or a null
+    mov dx, ax                  ; modem whose far end holds DTR. A serial
+    add dx, 6                   ; mouse drives neither line
+    in al, dx
+    sub dx, 6
+    xchg ax, dx                 ; AX = the base again, DL = the MSR
+    test dl, 0xa0
+    pop dx
+    jnz .take
     mov ax, 2
     stc
     ret
