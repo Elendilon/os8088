@@ -471,7 +471,13 @@ te_paint:
 ; arrays are the caller's, so a dynamic caption needs no special case).
 te_btlbl:  dw te_s_conn
 te_btflg:  dw OS88UI_FILL
-    OS88UI_BTNREC te_btrec, te_btn, te_btlbl, te_btflg, 1
+    OS88UI_BTNREC te_btrec, te_btn, te_btlbl, te_btflg, 1, te_layout
+                                    ; ...and te_layout is its PLACE proc
+                                    ; (SPEC.md 20.5.1.3.5): a dragged window
+                                    ; is replayed and never painted, and
+                                    ; te_layout lays te_btn out from the live
+                                    ; content box, draws nothing and keeps
+                                    ; every register - the contract exactly
 
 ; --- te_button - Connect, or Close while a session is up ---------------------
 te_button:

@@ -2451,11 +2451,11 @@ SOAK = [
     Row("btnmove", "soak", py("tests/btnmove.py"), 20.0,
         "SPEC.md 20.5.1.3.5: a standard button answers where its window IS "
         "after a drag. A drag replays the window and never paints it "
-        "(11.96.12.0), and the Timer lays its rects out in W_PAINT and "
-        "nowhere else - so it is dragged twice, pressing Stop and then Start "
-        "at the place each is now DRAWN, and [tm_run] must follow both. Red "
-        "with the library's rebase out (the rect still reads the window's "
-        "old place and the press lands on nothing)",
+        "(11.96.12.0), so the record's OS88UI_BT_PLACE proc (the Timer's "
+        "tm_place) lays the rects out from the live origin before every hit "
+        "test - dragged twice, Stop and then Start pressed at the place each "
+        "is now DRAWN, and [tm_run] must follow both. Red with the place "
+        "proc out (the press lands on the window's old place)",
         needs=("marty",), serial=True,
         wants=("build/os8088-360.img", "build/apps360.img",
                "build/timer.bin")),

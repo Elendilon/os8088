@@ -524,7 +524,7 @@ sc_s_quit:  db 'Quit', 0
 sc_btlbl:   dw sc_s_scan, sc_s_det, sc_s_save, sc_s_clean, sc_s_quit
 sc_btw:     dw 56, 72, 104, 104, 48 ; each button's width, left to right
 SC_BTROW    equ 56 + 72 + 104 + 104 + 48 + 4 * 8
-    OS88UI_BTNREC sc_btrec, sc_rects, sc_btlbl, sc_bflags, SC_NB
+    OS88UI_BTNREC sc_btrec, sc_rects, sc_btlbl, sc_bflags, SC_NB, sc_place
 
 sc_ablines:
     dw sc_ab1, sc_ab2, sc_ab3, 0

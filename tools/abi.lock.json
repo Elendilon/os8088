@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "360080b9e6aeaef1a283eb0f62cd59a6134263f33c5c7a4b621b286226b34d23",
+  "fingerprint": "a5fb5455a73e10b9f0489ab5221c9acac470f72e70ead5f8471210b0bd3ee55e",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "1766f9b3bfffad49c00caa2094427bdfb15b0d34093bef922a082c8eab345fad",
+  "fingerprint": "6bcf4e0ba4b9c048b73b69383a201191a6d094e8c17ce45b2ccb0183979b08ce",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -840,6 +840,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_SERIAL Open: BL bit 7 = the user named the port, taken before the mouse contest settles (SPEC.md 115.1.1); old callers unchanged",
+   "to": 11
+  },
+  {
+   "fingerprint": "6bcf4e0ba4b9c048b73b69383a201191a6d094e8c17ce45b2ccb0183979b08ce",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "os88ui button record: OS88UI_BT_OX..FY (the drag rebase bank) replaced by OS88UI_BT_PLACE, the package's own layout proc run before every hit test; the record is each package's own and only its own copy of the library reads it, so nothing built before stops running",
+   "to": 10
+  },
+  {
+   "fingerprint": "a5fb5455a73e10b9f0489ab5221c9acac470f72e70ead5f8471210b0bd3ee55e",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "os88ui button record: OS88UI_BT_OX..FY (the drag rebase bank) replaced by OS88UI_BT_PLACE, the package's own layout proc run before every hit test; the record is each package's own and only its own copy of the library reads it, so nothing built before stops running",
    "to": 11
   }
  ]

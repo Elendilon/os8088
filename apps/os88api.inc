@@ -90,11 +90,11 @@ KERNEL_SEG   equ 0x0060     ; where the kernel is, and what ES holds on entry.
 ;      earlier pass. A rect in bss is valid until the next thing that can move
 ;      the window, which is any moment your code is not running.
 ;
-; **A STANDARD BUTTON'S RECTS ARE THE ONE EXCEPTION, and the library makes
-; it one**: os88ui_btninit's record banks where its rects were last right and
-; moves them with the window before every draw and hit test (§20.5.1.3.5).
-; Every other rect - a radio group, a list, a scroll bar, a text field - is
-; still yours to re-place.
+; **A STANDARD BUTTON'S PRESS IS THE LIBRARY'S**, so it cannot follow rule
+; 1 by itself: give the record an OS88UI_BT_PLACE proc that lays its rects
+; out from OSAPI_WM_CONTENT, and the library runs it before every press,
+; drag and release it tests (§20.5.1.3.5). Every other rect - a radio group,
+; a drop-down, a list, a scroll bar, a text field - you re-place yourself.
 ;
 ; **ASSUME IT ALWAYS HAPPENS.** §11.96.13 snaps a drop's x onto a multiple of
 ; 8 before the cache is taken - it exists because the byte-phase refusal below
@@ -4593,7 +4593,7 @@ OS88__AFIT  equ OS88__AF%[OS88__AN]
 ; its top and os88ui.inc near its bottom. The OS88UI_BT_* offsets are `equ`s
 ; and forward-resolve, which is why they can stay with the control.
 ; -----------------------------------------------------------------------------
-%macro OS88UI_BTNREC 5
+%macro OS88UI_BTNREC 5-6 0
 %1:
     dw %2                       ; OS88UI_BT_RECTS
     dw %3                       ; OS88UI_BT_LABELS
@@ -4609,8 +4609,8 @@ OS88__AFIT  equ OS88__AF%[OS88__AN]
                                 ; 20.5.1.3.4)
     dw 0                        ; OS88UI_BT_ONCLK, your click proc - btninit
     dw 0                        ; OS88UI_BT_NEXT, THE LIBRARY'S list link
-    dw 0, 0, 0, 0               ; OS88UI_BT_OX/OY/FX/FY, THE LIBRARY'S: where
-                                ; the rects were last right (SPEC.md
+    dw %6                       ; OS88UI_BT_PLACE, your layout proc or 0:
+                                ; run before every hit test (SPEC.md
                                 ; 20.5.1.3.5)
 %endmacro
 

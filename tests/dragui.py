@@ -7,8 +7,9 @@ SPEC.md 11.96.12.0. A window dragged by its title is replayed from the drag
 cache and its W_PAINT is not called, so a rect a package laid out in its paint
 names where the window WAS. Rule 1 there is the cure and it is the PACKAGE's:
 compute every coordinate from the window's content origin every time you
-hit-test or draw. 20.5.1.3.5 does it for the standard button record; every
-other control is the package's own.
+hit-test or draw. For a standard button the library runs the package's
+layout proc before it tests (20.5.1.3.5); every other control is the
+package's own.
 
 Clear Skies is the subject because it is the report (*"dragging Clear Skies
 makes it so I can't click any of its buttons or dropdowns"*) and because the

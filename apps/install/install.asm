@@ -162,10 +162,13 @@ in_ret:
 ; in_layout wrote at the last paint still name where the window WAS. Reported
 ; as "Finished - click Next, and Next does nothing" - the window had been
 ; moved since the page was drawn, and minimizing and restoring it was the
-; repaint that put the rects back. The library now moves a record's rects
-; with a dragged window by itself (SPEC.md 20.5.1.3.5), so for the BUTTONS
-; this is belt and braces; it stays for the RADIO rows, whose rect
-; (in_rad's OS88UI_RD_RECT) is ours and which the library cannot see.
+; repaint that put the rects back. The library does NOT move a record's
+; rects by itself: it calls a record's OS88UI_BT_PLACE proc before each hit
+; test (SPEC.md 20.5.1.3.5), and in_btrec has none because this proc already
+; IS that - in_layout writes in_rects as well as the RADIO rows' rect
+; (in_rad's OS88UI_RD_RECT, which is ours and which the library cannot see),
+; and it runs the instant before os88ui_btnclick tests either. The drag and
+; the release need nothing more: a window cannot move while a press is held.
 ; -----------------------------------------------------------------------------
 in_press:
     push cx

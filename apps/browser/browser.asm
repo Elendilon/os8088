@@ -1601,6 +1601,9 @@ br_onwheel:
     push dx
     mov dx, WHEEL_STEPS
     imul dx                         ; AX = lines, signed (DX = its sign)
+    call br_measure                 ; the live box: a dragged window is
+                                    ; replayed, not painted (SPEC.md
+                                    ; 11.96.12.0), and br_flush draws from it
     call br_advance                 ; [br_top] moved and clamped...
     call br_flush                   ; ...and the glass made to agree, once
     pop dx
@@ -1941,6 +1944,12 @@ br_onkey:
     call br_abdismiss               ; ...the card first: any key takes it down
     jc .out                         ; and is swallowed, so a reader cannot type
                                     ; into a bar they cannot see
+    call br_measure                 ; THE LIVE CONTENT BOX before anything is
+                                    ; drawn: a window dragged by its title is
+                                    ; replayed and never painted (SPEC.md
+                                    ; 11.96.12.0), so the bar's rect and the
+                                    ; strip's from the last pass name where
+                                    ; it WAS. Every register kept
     push si                         ; ...THE LOCATION BAR FIRST, and only when
     mov si, br_loc                  ; it has focus - os88line_key refuses every
     call os88line_key               ; key on an unfocused field, which is what
@@ -2498,7 +2507,16 @@ br_toolbar:
 ; pass by br_btn1, from the very predicate that decides the refusal.
 br_btlbl: dw br_s_back, br_s_fwd, br_s_rel
 br_btflg: dw OS88UI_FILL, OS88UI_FILL, OS88UI_FILL
-    OS88UI_BTNREC br_btrec, br_r1, br_btlbl, br_btflg, 3
+    OS88UI_BTNREC br_btrec, br_r1, br_btlbl, br_btflg, 3, br_measure
+                                    ; ...and br_measure is its PLACE proc
+                                    ; (SPEC.md 20.5.1.3.5): a window dragged
+                                    ; by its title is replayed and never
+                                    ; painted, so br_r1..br_r3 are laid out
+                                    ; again from the live content box before
+                                    ; each hit test. It draws nothing - a
+                                    ; width change relays the LINE TABLE and
+                                    ; clamps the view, both data - and keeps
+                                    ; every register but the flags
 
 br_btn1:
     push bx

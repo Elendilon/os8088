@@ -838,6 +838,13 @@ wc_onkey:
     call wc_popdown
     jmp wc_repaint
 .npop:
+    call wc_geom                        ; THE LIVE ORIGIN FIRST: the field and
+                                        ; Send are drawn below from wc_ln and
+                                        ; wc_brects, and a window dragged by
+                                        ; its title is replayed and never
+                                        ; painted (SPEC.md 11.96.12.0), so the
+                                        ; rects of the last pass name where it
+                                        ; WAS. wc_geom keeps every register
     cmp al, 9                           ; Tab: an @nick, or the next room
     je .tab
     mov byte [wc_cpl], 0                ; any other key ends a completion run

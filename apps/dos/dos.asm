@@ -891,6 +891,11 @@ dos_entry:
     push dx
     mov ax, bx                      ; **AND THE BUTTONS' GESTURE** (SPEC.md
     mov bx, dos_btrec               ; 20.5.1.3): btninit installs all THREE
+    mov word [bx+OS88UI_BT_PLACE], dos_bplace   ; (a HBSS record, so its
+                                    ; place proc is stored by hand: the
+                                    ; library lays the page out from where
+                                    ; the window IS before every hit test,
+                                    ; SPEC.md 20.5.1.3.5)
     mov si, dos_onup                ; slots - the press, the release and the
     mov di, dos_ondrag              ; tracking edge - and none of them is a
     mov dx, dos_click               ; template word except the press, which
@@ -9089,13 +9094,7 @@ dos_ondrag:
     push dx
     push si
     push di
-    mov bx, si
-    push cx
-    push dx
-    call dos_place
-    pop dx
-    pop cx
-    mov bx, dos_btrec
+    mov bx, dos_btrec               ; (dos_bplace lays the page out first)
     call os88ui_btndrag             ; redraws only if the answer CHANGED
     pop di
     pop si
@@ -9128,14 +9127,9 @@ dos_onup:
     push dx
     push si
     push di
-    mov bx, si
-    push cx
-    push dx
-    call dos_place                  ; the window can have moved (13.7)
-    pop dx
-    pop cx
-    mov bx, dos_btrec
-    call os88ui_btnup               ; AX = what FIRED, 0 = cancelled
+    mov bx, dos_btrec               ; the window can have moved (13.7):
+    call os88ui_btnup               ; dos_bplace lays the page out from where
+                                    ; it is NOW. AX = what FIRED, 0 = cancelled
     or ax, ax
     jz .out
     mov bx, si                      ; **BX BACK TO THE WINDOW BEFORE ANYTHING
@@ -9576,6 +9570,19 @@ dos_place:
     pop cx
     pop bx
     pop ax
+    ret
+
+; dos_bplace - OS88UI_BT_PLACE (SPEC.md 20.5.1.3.5): BX = the record, SI = the
+; window; every register preserved. dos_place with the window where it wants
+; it, and nothing else: a window dragged by its title is REPLAYED and not
+; painted, so the press, the drag and the release each get the page laid out
+; from where the window IS - which is also what aims the record at the page's
+; own pair (dos_bar_rects / dos_furn_rects) before the library reads it
+dos_bplace:
+    push bx
+    mov bx, si
+    call dos_place
+    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -12814,7 +12821,7 @@ DOS_CBASE   equ os88_image_end
     HBSS DOS_B_TVOL,  1          ; dos_path_take's scratch: the parsed volume
     HBSS DOS_B_TNAME, 13         ; and name, held apart until the walk has
                                  ; agreed, so a typo cannot half-commit
-DOS_BTREC_SZ equ 24              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
+DOS_BTREC_SZ equ 18              ; **A MIRROR OF os88ui.inc's OS88UI_BT_SIZE**,
                                  ; and it has to be one: this block is laid
                                  ; out thousands of lines before os88ui.inc is
                                  ; included, so the real constant is not

@@ -7147,6 +7147,7 @@ sh_fdlg_open:
     push dx
     mov ax, bx
     mov bx, sh_fdlg_btrec
+    mov word [bx+OS88UI_BT_PLACE], sh_fdlg_place ; its rects, live (20.5.1.3.5)
     mov si, sh_fdlg_onup
     mov di, sh_fdlg_ondrag
     mov dx, sh_fdlg_onclick           ; our own click work; the library takes
@@ -7183,6 +7184,8 @@ sh_fdlg_paint:
     call OSAPI_WM_CONTENT              ; -> ax=content x, dx=content y
     mov [sh_fdlg_ox], ax
     mov [sh_fdlg_oy], dx
+    mov di, sh_fdlg_bgeo               ; OK and Cancel, from the same origin
+    call sh_dlg_brects                 ; the library's press reads (20.5.1.3.5)
     mov bl, [sh_fdlg_kind]
     xor bh, bh
     shl bx, 1
@@ -7229,30 +7232,6 @@ sh_fdlg_paint:
     mov [sh_fdlg_rowidx], ax
     jmp .rowloop
 .rowsdone:
-    mov ax, [sh_fdlg_ox]
-    add ax, 8
-    mov [sh_fdlg_rect], ax
-    mov ax, [sh_fdlg_oy]
-    add ax, SH_FDLG_BTY1
-    mov [sh_fdlg_rect+2], ax
-    mov ax, [sh_fdlg_ox]
-    add ax, 62
-    mov [sh_fdlg_rect+4], ax
-    mov ax, [sh_fdlg_oy]
-    add ax, SH_FDLG_BTY2
-    mov [sh_fdlg_rect+6], ax
-    mov ax, [sh_fdlg_ox]               ; ...and Cancel into rect ONE, beside it
-    add ax, 96
-    mov [sh_fdlg_rect+8], ax
-    mov ax, [sh_fdlg_oy]
-    add ax, SH_FDLG_BTY1
-    mov [sh_fdlg_rect+10], ax
-    mov ax, [sh_fdlg_ox]
-    add ax, 150
-    mov [sh_fdlg_rect+12], ax
-    mov ax, [sh_fdlg_oy]
-    add ax, SH_FDLG_BTY2
-    mov [sh_fdlg_rect+14], ax
     mov word [sh_fdlg_btrec+OS88UI_BT_RECTS], sh_fdlg_rect
     mov word [sh_fdlg_btrec+OS88UI_BT_LABELS], sh_dlg_blfd
     mov word [sh_fdlg_btrec+OS88UI_BT_FLAGS], sh_dlg_bflags
@@ -7272,9 +7251,86 @@ sh_fdlg_paint:
     ret
 
 ; -----------------------------------------------------------------------------
-; sh_fdlg_onclick - in: CX=x, DX=y (screen-absolute, same convention as
-; sh_onclick), SI=the dialog window
+; sh_dlg_brects - a dialog's OK and Cancel rects from its content origin
+; in:  AX = content left, DX = content top, DI = the dialog's descriptor
+;      (dw the rect array, then four x,y offset pairs: OK's corners, Cancel's)
+; out: the rects written; draws nothing, keeps every register
+;
+; ONE description per dialog of where its buttons are: the painter lays them
+; out through it before it draws, and the record's OS88UI_BT_PLACE proc
+; before the library's press, drag and release hit-test them - a window
+; dragged by its title is REPLAYED and never painted (SPEC.md 11.96.12.0), so
+; rects laid out in W_PAINT alone name where it WAS (20.5.1.3.5).
 ; -----------------------------------------------------------------------------
+sh_dlg_brects:
+    push bx
+    push cx
+    push si
+    push di
+    mov si, [di]                       ; SI = the rect array
+    mov cx, 4                          ; four corners, two buttons
+.r:
+    mov bx, [di+2]
+    add bx, ax
+    mov [si], bx                       ; x
+    mov bx, [di+4]
+    add bx, dx
+    mov [si+2], bx                     ; y
+    add si, 4
+    add di, 4
+    loop .r
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; sh_dlg_place - OS88UI_BT_PLACE's body for a dialog with no geo routine of
+; its own: SI = the window, DI = its descriptor; keeps every register
+sh_dlg_place:
+    push ax
+    push bx
+    push dx
+    mov bx, si
+    call OSAPI_WM_CONTENT              ; AX = content left, DX = top, NOW
+    call sh_dlg_brects
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; The three PLACE procs (in: BX = the record, SI = the window; keep all).
+; Sheet's other two dialogs place through sh_idlg_geo / sh_ndlg_geo, which
+; lay out their field and their buttons together.
+sh_fdlg_place:
+    push di
+    mov di, sh_fdlg_bgeo
+    jmp short sh_dlg_place_di
+sh_bdlg_place:
+    push di
+    mov di, sh_bdlg_bgeo
+    jmp short sh_dlg_place_di
+sh_ldlg_place:
+    push di
+    mov di, sh_ldlg_bgeo
+sh_dlg_place_di:
+    call sh_dlg_place
+    pop di
+    ret
+
+; Each dialog's descriptor for sh_dlg_brects: OK's two corners, Cancel's two,
+; as offsets from the content origin (inclusive)
+sh_fdlg_bgeo: dw sh_fdlg_rect, 8, SH_FDLG_BTY1, 62, SH_FDLG_BTY2
+              dw 96, SH_FDLG_BTY1, 150, SH_FDLG_BTY2  ; Cancel beside OK
+sh_bdlg_bgeo: dw sh_bdlg_rect, SH_BDLG_GX2 + 10, 20, SH_BDLG_W - 10, 40
+              dw SH_BDLG_GX2 + 10, 50, SH_BDLG_W - 10, 70  ; Cancel below it
+sh_ldlg_bgeo: dw sh_ldlg_rect, SH_LDLG_BTX1, SH_LDLG_OKY1, SH_LDLG_BTX2, SH_LDLG_OKY2
+              dw SH_LDLG_BTX1, SH_LDLG_CAY1, SH_LDLG_BTX2, SH_LDLG_CAY2
+sh_idlg_bgeo: dw sh_idlg_rect, SH_IDLG_BTX1, SH_IDLG_OKY1, SH_IDLG_BTX2, SH_IDLG_OKY2
+              dw SH_IDLG_BTX1, SH_IDLG_CAY1, SH_IDLG_BTX2, SH_IDLG_CAY2
+sh_ndlg_bgeo: dw sh_ndlg_rect, SH_NDLG_BTX1, SH_NDLG_OKY1, SH_NDLG_BTX2, SH_NDLG_OKY2
+              dw SH_NDLG_BTX1, SH_NDLG_CAY1, SH_NDLG_BTX2, SH_NDLG_CAY2
+
 ; --- the dialogs' button groups (SPEC.md 20.5.1.3) ---------------------------
 ; OK is index 1 and Cancel index 2 in every one of the five, so the FLAGS are
 ; shared outright: OK carries the default ring and Cancel carries nothing.
@@ -7284,6 +7340,9 @@ sh_dlg_blfd:   dw sh_s_fd_ok,   sh_s_fd_cancel
 sh_dlg_blidlg: dw sh_s_idlg_ok, sh_s_idlg_can
 sh_dlg_blndlg: dw sh_s_ndlg_ok, sh_s_ndlg_can
 
+; -----------------------------------------------------------------------------
+; sh_fdlg_onclick - in: CX=x, DX=y (screen-absolute, same convention as
+; sh_onclick), SI=the dialog window
 ; -----------------------------------------------------------------------------
 sh_fdlg_onclick:
     push ax
@@ -7893,6 +7952,7 @@ sh_bdlg_open:
     push dx
     mov ax, bx
     mov bx, sh_bdlg_btrec
+    mov word [bx+OS88UI_BT_PLACE], sh_bdlg_place ; its rects, live (20.5.1.3.5)
     mov si, sh_bdlg_onup
     mov di, sh_bdlg_ondrag
     mov dx, sh_bdlg_onclick           ; our own click work; the library takes
@@ -7923,6 +7983,8 @@ sh_bdlg_paint:
     call OSAPI_WM_CONTENT
     mov [sh_bdlg_ox], ax
     mov [sh_bdlg_oy], dx
+    mov di, sh_bdlg_bgeo               ; OK and Cancel, from the same origin
+    call sh_dlg_brects                 ; the library's press reads (20.5.1.3.5)
     mov al, CBLACK
     call OSAPI_SET_COLOR
     mov ax, [sh_bdlg_ox]
@@ -7993,28 +8055,6 @@ sh_bdlg_paint:
     mov [sh_bdlg_ri], ax
     jmp .rowloop
 .rowsdone:
-    mov ax, [sh_bdlg_ox]
-    add ax, SH_BDLG_GX2 + 10
-    mov [sh_bdlg_rect], ax
-    mov ax, [sh_bdlg_oy]
-    add ax, 20
-    mov [sh_bdlg_rect+2], ax
-    mov ax, [sh_bdlg_ox]
-    add ax, SH_BDLG_W - 10
-    mov [sh_bdlg_rect+4], ax
-    mov ax, [sh_bdlg_oy]
-    add ax, 40
-    mov [sh_bdlg_rect+6], ax
-    mov ax, [sh_bdlg_rect]             ; Cancel: OK's x, two new y's
-    mov [sh_bdlg_rect+8], ax
-    mov ax, [sh_bdlg_rect+4]
-    mov [sh_bdlg_rect+12], ax
-    mov ax, [sh_bdlg_oy]
-    add ax, 50
-    mov [sh_bdlg_rect+10], ax
-    mov ax, [sh_bdlg_oy]
-    add ax, 70
-    mov [sh_bdlg_rect+14], ax
     mov word [sh_bdlg_btrec+OS88UI_BT_RECTS], sh_bdlg_rect
     mov word [sh_bdlg_btrec+OS88UI_BT_LABELS], sh_dlg_blfd
     mov word [sh_bdlg_btrec+OS88UI_BT_FLAGS], sh_dlg_bflags
@@ -8410,6 +8450,7 @@ sh_idlg_open:
     push dx
     mov ax, bx
     mov bx, sh_idlg_btrec
+    mov word [bx+OS88UI_BT_PLACE], sh_idlg_geo ; its rects, live (20.5.1.3.5)
     mov si, sh_idlg_onup
     mov di, sh_idlg_ondrag
     mov dx, sh_idlg_onclick           ; our own click work; the library takes
@@ -8457,28 +8498,6 @@ sh_idlg_paint:
     mov si, sh_idlg_line               ; sh_idlg_geo laid its rect out above
     call os88line_draw
 
-    mov ax, [sh_idlg_ox]               ; OK
-    add ax, SH_IDLG_BTX1
-    mov [sh_idlg_rect], ax
-    mov ax, [sh_idlg_oy]
-    add ax, SH_IDLG_OKY1
-    mov [sh_idlg_rect+2], ax
-    mov ax, [sh_idlg_ox]
-    add ax, SH_IDLG_BTX2
-    mov [sh_idlg_rect+4], ax
-    mov ax, [sh_idlg_oy]
-    add ax, SH_IDLG_OKY2
-    mov [sh_idlg_rect+6], ax
-    mov ax, [sh_idlg_rect]             ; Cancel: OK's x, two new y's
-    mov [sh_idlg_rect+8], ax
-    mov ax, [sh_idlg_rect+4]
-    mov [sh_idlg_rect+12], ax
-    mov ax, [sh_idlg_oy]
-    add ax, SH_IDLG_CAY1
-    mov [sh_idlg_rect+10], ax
-    mov ax, [sh_idlg_oy]
-    add ax, SH_IDLG_CAY2
-    mov [sh_idlg_rect+14], ax
     mov word [sh_idlg_btrec+OS88UI_BT_RECTS], sh_idlg_rect
     mov word [sh_idlg_btrec+OS88UI_BT_LABELS], sh_dlg_blidlg
     mov word [sh_idlg_btrec+OS88UI_BT_FLAGS], sh_dlg_bflags
@@ -8507,18 +8526,22 @@ sh_idlg_paint:
 ; into the field after a drag missed it. So the rect is laid out again from
 ; OSAPI_WM_CONTENT by every caller that hit-tests or draws it - the paint, the
 ; click and a key - and never trusted from a paint (11.96.12.0 rule 1). The
-; buttons need nothing here: os88ui_btninit's record is rebased by the
-; library itself (20.5.1.3.5).
+; buttons' rects are laid out here too, and this is the record's
+; OS88UI_BT_PLACE proc, so the library's press, drag and release test them
+; where the window IS (20.5.1.3.5).
 ; -----------------------------------------------------------------------------
 sh_idlg_geo:
     push ax
     push bx
     push dx
     push si
+    push di
     mov bx, [sh_idlg_win]
     call OSAPI_WM_CONTENT
     mov [sh_idlg_ox], ax
     mov [sh_idlg_oy], dx
+    mov di, sh_idlg_bgeo                ; OK and Cancel too
+    call sh_dlg_brects
     mov si, sh_idlg_line
     mov bx, ax
     add ax, SH_IDLG_FX1
@@ -8530,6 +8553,7 @@ sh_idlg_geo:
     mov [si + LN_Y1], ax
     add dx, SH_IDLG_FY2
     mov [si + LN_Y2], dx
+    pop di
     pop si
     pop dx
     pop bx
@@ -9240,6 +9264,7 @@ sh_ldlg_open:
     push dx
     mov ax, bx
     mov bx, sh_ldlg_btrec
+    mov word [bx+OS88UI_BT_PLACE], sh_ldlg_place ; its rects, live (20.5.1.3.5)
     mov si, sh_ldlg_onup
     mov di, sh_ldlg_ondrag
     mov dx, sh_ldlg_onclick           ; our own click work; the library takes
@@ -9305,6 +9330,8 @@ sh_ldlg_paint:
     call OSAPI_WM_CONTENT
     mov [sh_ldlg_ox], ax
     mov [sh_ldlg_oy], dx
+    mov di, sh_ldlg_bgeo               ; OK and Cancel, from the same origin
+    call sh_dlg_brects                 ; the library's press reads (20.5.1.3.5)
 
     mov al, CWHITE
     call OSAPI_SET_COLOR
@@ -9406,28 +9433,6 @@ sh_ldlg_paint:
     mov bx, sh_ldsb
     call os88ui_sbar
 .buttons:
-    mov ax, [sh_ldlg_ox]
-    add ax, SH_LDLG_BTX1
-    mov [sh_ldlg_rect+0], ax
-    mov ax, [sh_ldlg_oy]
-    add ax, SH_LDLG_OKY1
-    mov [sh_ldlg_rect+2], ax
-    mov ax, [sh_ldlg_ox]
-    add ax, SH_LDLG_BTX2
-    mov [sh_ldlg_rect+4], ax
-    mov ax, [sh_ldlg_oy]
-    add ax, SH_LDLG_OKY2
-    mov [sh_ldlg_rect+6], ax
-    mov ax, [sh_ldlg_rect]             ; Cancel: OK's x, two new y's
-    mov [sh_ldlg_rect+8], ax
-    mov ax, [sh_ldlg_rect+4]
-    mov [sh_ldlg_rect+12], ax
-    mov ax, [sh_ldlg_oy]
-    add ax, SH_LDLG_CAY1
-    mov [sh_ldlg_rect+10], ax
-    mov ax, [sh_ldlg_oy]
-    add ax, SH_LDLG_CAY2
-    mov [sh_ldlg_rect+14], ax
     mov word [sh_ldlg_btrec+OS88UI_BT_RECTS], sh_ldlg_rect
     mov word [sh_ldlg_btrec+OS88UI_BT_LABELS], sh_dlg_blfd
     mov word [sh_ldlg_btrec+OS88UI_BT_FLAGS], sh_dlg_bflags
@@ -9890,6 +9895,7 @@ sh_ndlg_open:
     push dx
     mov ax, bx
     mov bx, sh_ndlg_btrec
+    mov word [bx+OS88UI_BT_PLACE], sh_ndlg_geo ; its rects, live (20.5.1.3.5)
     mov si, sh_ndlg_onup
     mov di, sh_ndlg_ondrag
     mov dx, sh_ndlg_onclick           ; our own click work; the library takes
@@ -9988,28 +9994,6 @@ sh_ndlg_paint:
     mov si, sh_notebox                  ; sh_ndlg_geo laid its rect out above
     call os88text_draw
 
-    mov ax, [sh_ndlg_ox]                ; OK - os88ui_btn takes BX = a POINTER
-    add ax, SH_NDLG_BTX1                ; to the rect, not the rect in
-    mov [sh_ndlg_rect], ax              ; AX/BX/CX/DX
-    mov ax, [sh_ndlg_oy]
-    add ax, SH_NDLG_OKY1
-    mov [sh_ndlg_rect+2], ax
-    mov ax, [sh_ndlg_ox]
-    add ax, SH_NDLG_BTX2
-    mov [sh_ndlg_rect+4], ax
-    mov ax, [sh_ndlg_oy]
-    add ax, SH_NDLG_OKY2
-    mov [sh_ndlg_rect+6], ax
-    mov ax, [sh_ndlg_rect]             ; Cancel: OK's x, two new y's
-    mov [sh_ndlg_rect+8], ax
-    mov ax, [sh_ndlg_rect+4]
-    mov [sh_ndlg_rect+12], ax
-    mov ax, [sh_ndlg_oy]
-    add ax, SH_NDLG_CAY1
-    mov [sh_ndlg_rect+10], ax
-    mov ax, [sh_ndlg_oy]
-    add ax, SH_NDLG_CAY2
-    mov [sh_ndlg_rect+14], ax
     mov word [sh_ndlg_btrec+OS88UI_BT_RECTS], sh_ndlg_rect
     mov word [sh_ndlg_btrec+OS88UI_BT_LABELS], sh_dlg_blndlg
     mov word [sh_ndlg_btrec+OS88UI_BT_FLAGS], sh_dlg_bflags
@@ -10033,17 +10017,21 @@ sh_ndlg_paint:
 ; sh_ndlg_geo - the content origin and the field's rect from where the window
 ; IS NOW. Preserves all. sh_idlg_geo's reason (SPEC.md 11.96.12.0): a dragged
 ; window is replayed and not painted, so the paint, the click and a key each
-; lay the rect out again rather than trust the last paint's.
+; lay the rect out again rather than trust the last paint's - and the buttons'
+; rects with it, this being the record's OS88UI_BT_PLACE proc (20.5.1.3.5).
 ; -----------------------------------------------------------------------------
 sh_ndlg_geo:
     push ax
     push bx
     push dx
     push si
+    push di
     mov bx, [sh_ndlg_win]
     call OSAPI_WM_CONTENT
     mov [sh_ndlg_ox], ax
     mov [sh_ndlg_oy], dx
+    mov di, sh_ndlg_bgeo                ; OK and Cancel too
+    call sh_dlg_brects
     mov si, sh_notebox
     mov bx, ax
     add ax, SH_NDLG_BX1
@@ -10055,6 +10043,7 @@ sh_ndlg_geo:
     mov [si + TX_Y1], ax
     add dx, SH_NDLG_BY2
     mov [si + TX_Y2], dx
+    pop di
     pop si
     pop dx
     pop bx
@@ -20902,7 +20891,7 @@ sh_s_dif_eod:  db '-1,0', 13, 10, 'EOD', 13, 10, 0
 ; bss (loader-zeroed, SPEC.md 21 step 5) - small now: the grid itself lives
 ; in claimed heap segments, not here.
 ; =============================================================================
-    OS88_BSS 3982
+    OS88_BSS 3952
     OS88_IMAGE_END
 
 sh_selcol     equ os88_image_end + 0

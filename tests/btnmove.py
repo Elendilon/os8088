@@ -7,8 +7,9 @@ SPEC.md 20.5.1.3.5. A window dragged by its title is replayed from the drag
 cache and never painted (SPEC.md 11.96.12.0), so a package that lays its
 button rects out in W_PAINT - most of them - went on hit-testing the window's
 OLD place, and os88ui_btnclick tests those rects before any package code
-runs. The library now banks where each record's rects were last right and
-moves them with the window.
+runs. The record now names the package's own layout proc (OS88UI_BT_PLACE),
+which the library runs before every hit test, so the rects come from the
+window's origin at the moment they are tested.
 
 The Timer is the subject because it is the plainest case there is: its rects
 are written in its paint and NOWHERE else, and its tick redraws only the
@@ -25,7 +26,7 @@ The package has no symbol map in the build, so this assembles
 apps/timer/timer.asm into a scratch directory with one, and refuses to go on
 unless the result is byte for byte the build's own timer.bin.
 
-Red with the fix out (OS88UI_REBASE undefined): "Stop did not fire".
+Red with the record's place proc out (tm_place): "Stop did not fire".
 """
 import os
 import re
