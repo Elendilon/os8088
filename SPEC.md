@@ -22935,6 +22935,10 @@ author reads:
    pass. A cached rect is valid until the next thing that can move the window,
    which is any moment your code is not running.
 
+**For a standard button the library does rule 1 for you** (§20.5.1.3.5): it
+notices a record whose rects were laid out before the move and moves them.
+Every other hit test a package keeps is still its own.
+
 **Assume it always happens.** §11.96.13 snaps a drop's x onto a multiple of 8
 *before* the cache is taken — it exists because the byte-phase refusal below
 otherwise turned away seven drags in eight — so in ordinary use the replay is
@@ -26951,6 +26955,11 @@ dismissed by the menu command that then saved or loaded (Note Pad's Save,
 The Wire's Load and Add to Disk, RealDMG's settings and states). Some of
 those moves are under `FPG_WARM` and would show nothing anyway; every one of
 the rest now shows the bar with no change to the package.
+
+**What it cost**: kern_big `.text` +36; kern_small +38, of which one is a
+parity pad - the fix alone is +37 there, which left `ui_task` and every
+routine after `fprog.inc` at an odd shift (`t_hotpar`), so a never-executed
+byte after `fpg_finish`'s tail jump puts them back.
 
 ### 12.9 The bar is three segments, and each answers for itself
 
@@ -43733,14 +43742,18 @@ the library. `docs/plans/BUTTON-GESTURE-PLAN.md` is the design record.
 
 | | |
 |---|---|
-| `OS88UI_BT_RECTS` 0 | near ptr to an array of 4-word **inclusive screen** rects, filled by your painter from `OSAPI_WM_CONTENT` every pass, because a window moves |
+| `OS88UI_BT_RECTS` 0 | near ptr to an array of 4-word **inclusive screen** rects, filled by your painter from `OSAPI_WM_CONTENT`. A window that MOVES is not repainted, and the library moves the rects with it (§20.5.1.3.5) |
 | `OS88UI_BT_LABELS` 2 | near ptr to an array of near ptrs to NUL labels |
 | `OS88UI_BT_FLAGS` 4 | near ptr to an array of flag **words** (`OS88UI_DIS`, `OS88UI_DEF`, `OS88UI_INK`, `OS88UI_LATCH`), or 0 for none |
 | `OS88UI_BT_N` 6 | how many are **live this pass** — a paged window points one record at either page's buttons |
 | `OS88UI_BT_WIN` 8 | the window, written by `os88ui_btninit` |
 | `OS88UI_BT_DOWN` 10 | **the library's**: index plus one of the control a press is live on, 0 for none. Read it; never write it |
+| `OS88UI_BT_ONCLK` 12 | your own `W_ONCLICK` proc, chained when a press was not a button's (§20.5.1.3.3) |
+| `OS88UI_BT_NEXT` 14 | **the library's**: the next record on the package's list (§20.5.1.3.3) |
+| `OS88UI_BT_OX`..`FY` 16..22 | **the library's**: the content origin the rects were last right at, and the first rect's corner then (§20.5.1.3.5) |
 
-`OS88UI_BT_SIZE` is 12. The record is the caller's data and there may be one
+`OS88UI_BT_SIZE` is 24 (the kernel's own record, `os88ui_krec`, stops at
+`OS88UI_BT_OX`: it is never rebased). The record is the caller's data and there may be one
 per button GROUP rather than one per window, which is the shape the tree has:
 Sheet's ten buttons are five dialog pairs.
 
@@ -43861,6 +43874,63 @@ buttons drawn over A, or B's click proc run with B's window gone. The walk
 writes 0 to the stale record's window word (no window is at 0), so the record
 being adopted is the first match again. Records behind it are found after it
 and cannot shadow it.
+
+##### 20.5.1.3.5 The rects follow a DRAGGED window — the library notices
+
+**A window dragged by its title is replayed, not painted** (§11.96.12.0), so
+rects a package laid out in its `W_PAINT` go on naming where the window WAS.
+§11.96.12.0's rule for that is *"compute every coordinate from the content
+box every time you hit-test"* — and §20.5.1.3.3 made it impossible to follow
+for a button: `os88ui_btnclick` IS the window's `W_ONCLICK` and tests the
+rects before any package code runs. A package could only comply by putting a
+`W_ONCLICK` of its own in front of the library's, and five did (Redline,
+Tracker's two windows, the Video Player, PiXEL). Thirteen did not, and every
+one of them answered a press on a moved window at the button's OLD place:
+the Timer, Sheet's five dialogs, ArtfulType's splash, System Check, the DOS
+box, MIDIRack, Audio, The Wire, the Browser, Telnet, WireChat, WireFleet and
+WireBall's front screen - some until a repaint, some for one press, and about
+ten of them able to FIRE a button whose old place the press happened to land
+on. Reported off INSTALL (§117.2): *"Finished - click Next", and Next did
+nothing until the window was minimized and restored.*
+
+**So the library notices, and no package changes.** `os88ui_brebase` runs at
+every `os88ui_btn` and at `os88ui_bfrec` - the press, the drag and the release
+all hit-test there - and banks two things in the record: the window's content
+origin (`OSAPI_WM_CONTENT`) and the first rect's corner. The next call finds
+one of two things:
+
+- **The same corner.** Nobody has laid the rects out since the bank, so they
+  are exactly where they were when they were last right, and what they owe is
+  the window's move since then: every live rect (`OS88UI_BT_N` of them) is
+  shifted by it. A window that has not moved shifts by nothing.
+- **A different corner.** The package has laid them out again from the origin
+  it has now - in its paint, or in a `W_ONCLICK` of its own - so they are
+  current and are banked as they stand. That is why the five packages that
+  already re-placed at the press are untouched by this.
+
+A record with no window (before `os88ui_btninit`) is left alone. The bank is
+the record's last four words, the record grows from 16 to 24 bytes, and
+`OS88UI_BTNREC` declares them zeroed - a corner at (0, 0) is no button's, so a
+fresh record banks on its first draw. It is compiled wherever
+`os88ui_btninit` is (`OS88UI_REBASE`: a package, not `OS88UI_NOBTN`, not
+`OS88UI_NOBTNINIT`), so the kernel and the `OS88UI_NOGEST` packages carry none
+of it, and it moves a package's own rect array in place, which is also what
+corrects the package's own later draws from that array.
+
+**What it does not reach**: hit tests that are not the record's - a radio
+group's `OS88UI_RD_RECT`, a scroll bar, a list's rows, a text field - which
+are each package's own and still owe §11.96.12.0's rule. INSTALL keeps its
+`in_press` for its radio rows for that reason.
+
+**What it cost**: no kernel byte. Each package image that installs the
+gesture carries the routine and its two calls - **+98 bytes**, which with its
+record's 8 is the +106 seen across Artful, Audio, the Browser, CDRack,
+INSTALL, MIDIRack, PiXEL, System Check, Telnet, The Wire, the Timer, the
+Video Player, WireBall, WireChat and WireFleet (Tracker, two records, +114;
+Sheet and the DOS box, whose records are bss, +98). A package that only draws
+a button grows by its record's 8. `tests/btnmove.py` is the gate: the Timer
+dragged twice, Stop and then Start pressed at the place each is drawn - red
+with the rebase out.
 
 ##### 20.5.1.3.4 `OS88UI_NOGEST` — the install side, opted out of
 
@@ -203088,12 +203158,11 @@ adapter is the checkerboard §47 expects to be looked at there.
   (§11.96.12.0) — so with the rects laid out only when the page was drawn,
   a move after *Finished - click Next* left Next answering at the window's
   OLD place, and nothing put it back until a minimize and restore repainted
-  it. `in_press` is the wizard's own `W_ONCLICK`, set over the library's: it
-  runs `in_layout` from the live content box and then hands the press on.
-  The release and a drag read the same rects, and a window cannot move
-  between a press in its content and that press's release, so the one call
-  covers all three. +20 bytes of image; `tests/install.py` drags the window
-  before that Next.
+  it. The BUTTONS are the library's to move now (§20.5.1.3.5); `in_press`,
+  the wizard's own `W_ONCLICK` in front of the library's, stays for the
+  RADIO rows, whose rect is the wizard's: it runs `in_layout` from the live
+  content box and then hands the press on. `tests/install.py` drags the
+  window before that Next.
 
 ### 117.3 `OSAPI_DRV_USE` (cell `0x04A5`) — the Drivers page's tick, as a door
 

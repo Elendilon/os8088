@@ -2445,6 +2445,17 @@ SOAK = [
         "mounts nothing (FERR_NODISK), and A: still opens after it",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/cdromtest.img", "build/apps.img", "build/cdrom.bin")),
+    Row("btnmove", "soak", py("tests/btnmove.py"), 20.0,
+        "SPEC.md 20.5.1.3.5: a standard button answers where its window IS "
+        "after a drag. A drag replays the window and never paints it "
+        "(11.96.12.0), and the Timer lays its rects out in W_PAINT and "
+        "nowhere else - so it is dragged twice, pressing Stop and then Start "
+        "at the place each is now DRAWN, and [tm_run] must follow both. Red "
+        "with the library's rebase out (the rect still reads the window's "
+        "old place and the press lands on nothing)",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/apps360.img",
+               "build/timer.bin")),
     Row("timerrace", "soak", py("tests/timerrace.py"), 30.0,
         "SPEC.md 13.9.2: ui_timer_pass asks again, UNDER the gfx lock, "
         "whether the window it is about to call still exists - gfx_lock can "
