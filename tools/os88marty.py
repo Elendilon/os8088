@@ -3069,7 +3069,7 @@ class BpTrace:
     """The record a `bp_trace` block collects. See `bp_trace` below."""
 
     def __init__(self, m, targets, regs=False, poll=0.005, cap=20000,
-                 on_hit=None):
+                 on_hit=None, log=None):
         self.m, self.regs_wanted, self.poll, self.cap = m, regs, poll, cap
         # WHAT THE HAND-ROLLED PUMPS ACTUALLY DID, and the reason a count and
         # a register set are not enough to replace them. tests/paintanchor.py
@@ -3108,11 +3108,27 @@ class BpTrace:
         # Both are ordinary commands through the atomic `cmd()`, and both take
         # effect on the resume this callback is about to return into.
         self.on_hit = on_hit
-        self.hits = []          # the kept records, at most `cap` of them
+        self._hits = []         # the kept STOP records, at most `cap` of them
+        self._logs = []         # ...and the LOGGED ones (see `log` below)
         self.n = 0              # ...and how many there REALLY were
         self.error = None       # what the pump died of, re-raised at exit
         self._by_addr = {}
         self._bps = []
+        # LOGGED TARGETS ARE NOT STOPS. `log=True` (every exec target) or
+        # `log=[some of them]` arms those as the debug server's logging
+        # breakpoints: it notes (address, cycles) and resumes the guest
+        # itself, so the hit costs no round trip and no pump poll. A pumped
+        # stop is two round trips plus the poll, which is what made a
+        # frame-rate trace with seven marks a frame run at half the guest's
+        # free speed. A logged hit has no registers and no `on_hit` - those
+        # need the guest STOPPED - and its record carries "log": True. On a
+        # server too old to log, the same targets are ordinary stops and the
+        # trace is what it always was, only slower.
+        logset = set()
+        if log and log is not True:
+            for t in log:
+                logset.add((m.sym(t) if isinstance(t, str) else int(t)) & 0xFFFFF)
+        self._logaddrs = set()
         for t in targets:
             if isinstance(t, dict):             # a raw breakpoint dict
                 self._bps.append(t)
@@ -3120,7 +3136,14 @@ class BpTrace:
             addr = m.sym(t) if isinstance(t, str) else int(t)
             self._by_addr.setdefault(addr & 0xFFFFF, t if isinstance(t, str)
                                      else "%05X" % addr)
-            self._bps.append({"type": "exec", "addr": addr})
+            if log is True or (addr & 0xFFFFF) in logset:
+                self._logaddrs.add(addr & 0xFFFFF)
+                self._bps.append({"type": "exec", "addr": addr, "log": True})
+            else:
+                self._bps.append({"type": "exec", "addr": addr})
+        self._logging = bool(self._logaddrs)
+        self._dropped = 0
+        self._fetched = 0.0
         self._mark0 = None      # the mark __enter__'s resume found
         self._stop = threading.Event()
         self._thread = None
@@ -3152,6 +3175,8 @@ class BpTrace:
                 # is a new stop by the first test and is not this pump's to
                 # resume: resuming it would cut the body's own `advance` short
                 # from another thread.
+                if self._logging and time.time() - self._fetched > 0.05:
+                    self._fetch()               # keep the server's record short
                 if not self.m._newer(st, mark):
                     self._stop.wait(self.poll)
                     continue
@@ -3185,18 +3210,49 @@ class BpTrace:
             rec["hit"] = self.on_hit(self.m, rec)
         with self._lock:
             self.n += 1
-            if len(self.hits) < self.cap:
-                self.hits.append(rec)
+            if len(self._hits) + len(self._logs) < self.cap:
+                self._hits.append(rec)
+
+    def _fetch(self):
+        """Collect what the server LOGGED since the last call (one round trip)."""
+        if not self._logging:
+            return
+        r = self.m.cmd(cmd="bplog")
+        with self._lock:
+            self._fetched = time.time()
+            for a, c in r.get("hits", ()):
+                self.n += 1
+                if len(self._hits) + len(self._logs) < self.cap:
+                    self._logs.append({"name": self._by_addr.get(a, "?%05X" % a),
+                                       "addr": a, "cycles": int(c), "log": True})
+            self._dropped = int(r.get("dropped", 0))
+
+    def _sync(self):
+        """Bring a logging trace up to date before it is asked anything -
+        from the body, mid-block, as `until`'s conditions do."""
+        if self._logging and self._thread is not None and not self._stop.is_set():
+            self._fetch()
+
+    @property
+    def hits(self):
+        """Every kept record, in the order the guest reached them."""
+        self._sync()
+        if not self._logs:
+            return self._hits
+        with self._lock:
+            return sorted(self._hits + self._logs, key=lambda h: h["cycles"])
 
     # --- what a caller asks it -----------------------------------------------
 
     @property
     def overflowed(self):
         """Did the trace stop KEEPING hits? `n` is still the true count."""
-        return self.n > len(self.hits)
+        self._sync()
+        return (self.n + self._dropped) > len(self._hits) + len(self._logs)
 
     def count(self, name=None):
         """How many stops, in total or at one symbol."""
+        self._sync()
         if name is None:
             return self.n
         return sum(1 for h in self.hits if h["name"] == name)
@@ -3291,6 +3347,11 @@ class BpTrace:
 
     def __enter__(self):
         self.m.breakpoints(self._bps)
+        if self._logging:
+            try:
+                self.m.cmd(cmd="bplog")         # an old server: no such verb,
+            except MartyError:                  # and the "log" key was ignored,
+                self._logging = False           # so they are ordinary stops
         # `until()` raises on a guest that is not running, and it is RIGHT to:
         # a stopped machine can never make a condition true, and saying so in
         # two seconds beats timing out in sixty. Under a pump the same reading
@@ -3316,6 +3377,8 @@ class BpTrace:
             self._thread.join(timeout=10.0)
         self.m._pumping = max(0, self.m._pumping - 1)
         try:
+            if self._logging and self.error is None:
+                self._fetch()                   # BEFORE the clear, which empties it
             self.m.breakpoints([])
             self.m.run()
         except MartyError:
@@ -3741,8 +3804,10 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
         _clone(src, dst)                             # a directory per INSTANCE
         mounts += ["--mount", "fd:%d:media/floppies/run%d.img" % (i, i)]
 
-    cmd = ["./martypc_headless", "--machine-config-name", machine] + mounts \
-        + list(extra)
+    # OS88_MARTY_BIN runs another build of the emulator in this instance's
+    # directory - how a debug_server.rs change is tried before it is staged.
+    cmd = [os.environ.get("OS88_MARTY_BIN") or "./martypc_headless",
+           "--machine-config-name", machine] + mounts + list(extra)
     env = dict(os.environ, MARTYPC_DEBUG_ADDR=want,
                MARTYPC_DEBUG_PORTFILE=portfile)
     log = open(logpath, "wb")
