@@ -10723,7 +10723,7 @@ SOAK = [
         "it shows and the window is not touched at all - deskclip is that "
         "half's gate.",
         needs=("marty",), timeout=600),
-    Row("deskclip", "soak", py("tests/deskclip.py"), 350.0,
+    Row("deskclip", "soak", py("tests/deskclip.py"), 150.0,
         "SPEC.md 11.91.6: on kern_big a desktop cell is drawn only where the "
         "damage pass reveals it - into wm_dmg_gray's own region, the damage "
         "minus every window's frame and shadow L, its pictures gfx_blit1 "

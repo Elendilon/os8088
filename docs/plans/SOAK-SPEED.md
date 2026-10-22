@@ -38,6 +38,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
    one disk, a window closed between them. When the legs diverge right
    after boot (different panel settings), boot once, `m.snapshot()`, run leg
    1, then `m.restore(id, port)` for leg 2 (tests/paintback.py's `run`).
+   `os88marty.Forks(m)` packages that (free port, run, quit on exit):
+   `with Forks(ui.m) as fk: with fk.restore() as r: leg(os88ui.UI(r))`.
 4. **`ui_done` before `settle`, and `ui_done` alone when the next read is
    memory.** `settle`'s short window (~0.6 guest s) only opens if the UI task
    is idle at its FIRST sample; a settle begun mid-repaint pays a full
@@ -50,6 +52,12 @@ reading the guest state the page is drawn from instead of pumping the screen).
    cycle arithmetic takes `log=True`; data the body must write while the
    guest runs (a script ring) is fed from the `until` condition instead of an
    `on_hit`, with an assert that the guest never read past it.
+
+6. **End a collection window on `os88marty.ui_idle`, not a fixed quiet.**
+   A trace that waits N guest s after the last pass for follow-ups can stop
+   once ui_task has slept ~0.5 guest s (9 ticks) with every pass closed:
+   its follow-ups are its own, and it only sleeps when none is left.
+   Keep N as the upper bound for a UI that never idles (Task Manager).
 
 ## Harness changes made in this pass
 
@@ -65,6 +73,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **Stopped-machine round trip 2.3 ms -> 0.15 ms** (same binary): a paused
   server no longer sleeps 2 ms between back-to-back commands, so `call_guest`
   loops, `on_hit` reads and register pokes are ~15x cheaper. Automatic.
+- **`os88marty.Forks(m)`**: one boot, N legs from a fork snapshot (pauses `m`,
+  `restore()` = a running Marty on a free port, quit on `with` exit; holders
+  die with `m`). deskclip 6 boots -> 2; restore is 0.1 s.
 - `OS88_MARTY_BIN=<path>` runs another emulator build in an instance (for
   trying a `debug_server.rs` change before staging it; name it
   `martypc_headless` so the instance registry recognises it).
@@ -78,3 +89,4 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | paintbig | 72 s / 103 guest s | 38 s / 59 guest s | 4 | eight settle+quiesce(1.0) pairs -> ui_done+quiesce(0.3); the 20 guest s left is the boot |
 | paintpack | ~180 s, 2 boots (blitpair + paintbig) | 49 s / 67 guest s | 3, 4 | `paintbig --pair` runs blitpair's `check_canvas` (factored out, one copy) on paintbig's own boot; red with one file pixel flipped |
 | paintback | 142 s / 129 guest s | 110 guest s (wall unmeasurable at load 14) | 3 | two legs, two boots -> one boot + snapshot/restore; the rest is two picture loads and the panel |
+| deskclip | 198 s / 148 guest s waited | 80-115 s (load 12-17) / 78 guest s | 3, 4, 6 | 6 boots -> 2 (Forks); settles before reads -> `dc.still` (ui_done + 3 frames); armed's 13.5-guest-s quiet ends on ui_idle (27 -> 2.4 host s). verify red with 4 VRAM rows poked (64 px) |

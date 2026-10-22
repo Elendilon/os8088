@@ -3629,6 +3629,94 @@ def _sweep_sidecars(d):
                 pass
 
 
+class Forks(object):
+    """ONE BOOT, SEVERAL LEGS: a fork snapshot of `m`, restored per leg.
+
+        with os88marty.Forks(ui.m) as fk:          # m PAUSED and frozen here
+            for leg in legs:
+                with fk.restore() as r:            # a fresh copy, running
+                    run_leg(os88ui.UI(r))
+
+    A row that boots the same machine N times to start N legs from the same
+    desktop pays N boots (15-25 guest seconds each, plus a launch); this pays
+    one, and each leg starts from the SAME bytes rather than a similar boot
+    (docs/plans/completed/SNAPSHOT-PLAN.md B: cycles and memory hash
+    identical across restores). The original is paused for the snapshot's
+    life and is the registry - keep it open; its holders exit with it.
+
+    `restore()` answers a Marty on a free port, already running; leaving its
+    `with` (or `drop`) quits that process. Disk images are SHARED, not
+    rolled back, so a leg that writes a floppy changes what the next one
+    mounts - use it for legs that only read the disks.
+    """
+
+    def __init__(self, m):
+        self.m = m
+        m.pause()
+        self.id = m.snapshot()["id"]
+        self.live = []
+
+    def restore(self, tries=3):
+        last = None
+        for _ in range(tries):
+            s = socket.socket()
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+            s.close()
+            try:
+                r = self.m.restore(self.id, port)
+            except MartyError as e:     # the port was taken in between
+                last = e
+                continue
+            self.live.append(r)
+            r.run()
+            return _Leg(self, r)
+        raise last
+
+    def drop(self, r):
+        r = getattr(r, "_r", r)
+        if r in self.live:
+            self.live.remove(r)
+        pid = r.pid
+        try:
+            r.quit()
+        except Exception:
+            pass
+        r.close()
+        if pid:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+
+    def close(self):
+        for r in list(self.live):
+            self.drop(r)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *e):
+        self.close()
+
+
+class _Leg(object):
+    """`Forks.restore()`'s answer: the restored Marty, usable directly
+    (attribute access passes through) or as a `with` that drops it."""
+
+    def __init__(self, fk, r):
+        self._fk, self._r = fk, r
+
+    def __getattr__(self, name):
+        return getattr(self._r, name)
+
+    def __enter__(self):
+        return self._r
+
+    def __exit__(self, *e):
+        self._fk.drop(self._r)
+
+
 def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
            run_dir=None, boot=True, timeout=DEFAULT_TIMEOUT, extra=(),
            card=None, label=None, detach=False, rom=None):
