@@ -31,6 +31,11 @@ reading the guest state the page is drawn from instead of pumping the screen).
    (SOAK-PARALLEL §11.6).
 2. **Drive with `tools/os88ui.py`.** Verbs confirm by reading guest state, so
    the check replaces the wait (~0.35x of settle-and-hope).
+3. **One boot for the legs that start from the same state.** A boot plus
+   opening the package is ~20-30 host s on MartyPC under load; legs that each
+   begin "booted, app open, idle" share one if each leaves that state behind
+   (and the next ASSERTS it found it). Several files for several legs go on
+   one disk, a window closed between them.
 
 ## Harness changes made in this pass
 
@@ -41,3 +46,4 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| isotronload | 219 s / 199 guest s | 168 s / 139 guest s | 3 | launch and rate legs on one boot a machine (6 -> 3); a settle after `open_drive` (which confirms the listing) dropped. The rest is the 2 s rate windows and the launch itself |

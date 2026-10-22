@@ -3830,7 +3830,7 @@ SOAK = [
         "Measured ~32 s (wave 5)",
         needs=("marty", "nasm"),
         wants=("build/isotron360.img", "build/os8088-360.img")),
-    Row("isotronload", "soak", py("tests/isotronload.py"), 600.0,
+    Row("isotronload", "soak", py("tests/isotronload.py"), 210.0,
         "isoTron's LAUNCH TO PLAY and its RATE on the XT (PERFORMANCE.md Set "
         "159), MartyPC's cycle counter on the 5150 CGA, 5150 Hercules and "
         "XT-VGA. The launch: the double-clicked ISOTRON.O88 walked by "
@@ -3844,7 +3844,9 @@ SOAK = [
         "price, and the share of the machine the game's frames hold. Asserts "
         "the title and the round come up and every rate is within 3% of the "
         "model; the figures are the record. `--profile win|fs` is the "
-        "sampling instrument the audit used, not a row",
+        "sampling instrument the audit used, not a row. One boot a machine for "
+        "both legs (the rate after the launch's round): 168 s, 139 guest s, "
+        "where three boots more were 219 s (SOAK-SPEED)",
         needs=("marty", "nasm"),
         wants=("build/isotron360.img", "build/os8088-360.img")),
     Row("isotronperf", "soak", py("tests/isotron.py", "--perf", "all"), 900.0,
