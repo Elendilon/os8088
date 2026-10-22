@@ -3566,7 +3566,7 @@ SOAK = [
         "REDLINE shipped CPU probes under QEMU BIOS: opcode gates, CPUID vendor "
         "overrides for Cyrix/Transmeta, E820 and TSC. These are emulated vendors, "
         "not physical hardware identification (SPEC.md 103.2)", needs=("nasm", "qemu")),
-    Row("redlinecga", "soak", py("tests/redline.py", "--machine", "os8088_redline_pc_gla"), 240.0,
+    Row("redlinecga", "soak", py("tests/redline.py", "--machine", "os8088_redline_pc_gla"), 180.0,
         "REDLINE cga: CPU identity, 25 averaged timings, repeated probe, large-denominator "
         "arithmetic, report save, Summary/Detailed/Compare, release/cancel buttons "
         "and Quit (SPEC.md 103)",

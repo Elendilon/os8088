@@ -124,6 +124,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **`os88marty.kernel_up(m)`**: os88ui's `up` gate for a bare
   `launch(boot=False)` + `m.run()` caller - desk_rows/menu_nbar live,
   [spl_live] = 0, then `ui_done`; no picture settle. dispseam's four boots.
+- `tools/redline_profile.py` `wait()`: 5-frame steps for the first guest second, then 30 (same guest bound). The benchmark runs are minutes of guest time and each 5-frame step was a round trip plus the predicate's reads. redline* rows; validated on redlinecga/herc/v20native (pass) and redlinevga (fails identically with the old wait).
 
 ## Ledger
 
@@ -175,3 +176,4 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | vidposter, vidpage | 162 s / 124 guest; 71 s / 72 guest | 184 s / 115 guest; 90 s / 72 guest | 2, 8 | no real gain: 11 package launches at ~4.3 guest s each + poster loads are the guest's disk work; wall is load noise. Floor is guest-bound |
 | skieshaze | 110 s / waits 41 guest | 53 s / 29 guest | 2, 8 | `cs_hzfill` breakpoint disarmed after its first hit (it only proves the fill runs; it stopped once per split row of 77 frames). `--clobber-ends` still FAILS (69 frames, worst 13 bytes). Secs 187 -> 70 |
 | skies (+ every skies*.py) | skies 66 s / 37 guest | 49 s / 25 guest | 2 | `quick=True` on the 29 os88ui.boot scripts; `skies.open_game` (6 launch-based scripts) is `ui.up` + `ui.path` instead of four dispcp settles, launched `boot=False`. Whole skie family run green after; secs left as declared |
+| redline (cga, herc, v20native) | cga 172 s | cga 148 s; herc 222, v20 233 (loaded) | - | the guest benchmark runs (two full runs, the rerun is a tested behaviour) ARE the row; only the poll step shrank. **redlinevga FAILS at base**: `ru_buttons+10 == 2` (held press, redline.py:312), identically with the old wait |
