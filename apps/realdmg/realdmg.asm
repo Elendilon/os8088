@@ -20,6 +20,8 @@
 ; its speed and the picture takes what is left (REALDMG-SPEC section 15.2).
 ; =============================================================================
 
+%define RDG_LOSSY                       ; F10, F11: the lossy picture's toggles
+                                        ;   (rdgppu.inc, REALDMG-SPEC 13.4)
 %include "os88api.inc"
 %include "sndpkg.inc"                   ; SOUND.DRV's FM verbs (rwfm.inc)
 
@@ -2783,6 +2785,22 @@ rw_keys:
     mov bx, [rw_win]
     call OSAPI_WM_WAKE
 .nof9:
+    mov al, 44h                     ; F10: TWO SHADES on or off, F11: THE
+    mov bx, rw_f10was               ;   CAMERA IN STEPS OF 8 (rdg_lossy,
+    mov cl, 40h                     ;   REALDMG-SPEC 13.4) - said, and the
+    call rw_fedge                   ;   next draw whole. No menu item, and
+    jnc .nof10                      ;   not kept: they are to be tried
+    mov al, RDG_LBW
+    call rw_lossyt
+.nof10:
+    mov al, 57h
+    mov bx, rw_f11was
+    mov cl, 80h
+    call rw_fedge
+    jnc .nof11
+    mov al, RDG_LCOARSE
+    call rw_lossyt
+.nof11:
     mov al, 58h                     ; F12: the log written now (rw_logflush,
     mov bx, rw_f12was               ;   the UI task's - after the bracket,
     mov cl, 10h                     ;   where a toast can be read)
@@ -2852,6 +2870,24 @@ rw_keys:
     mov [S_JOY], dl
     pop ds
     ret
+; rw_lossyt - AL = an rdg_lossy bit: turned over, said, and the next draw
+; composed whole (F10, F11)
+rw_lossyt:
+    xor [rdg_lossy], al
+    mov si, rw_s_bw
+    mov dx, rw_s_bw2 - rw_s_bw
+    cmp al, RDG_LBW
+    je .s
+    mov si, rw_s_co
+    mov dx, rw_s_co2 - rw_s_co
+.s:
+    test [rdg_lossy], al
+    jnz .on
+    add si, dx                      ; (its "Off", after its "On")
+.on:
+    call rw_note
+    jmp rw_dmgfull
+
 ; rw_fedge - AL = F1-F4's scancode, BX = its was-held byte, CL = its bit in
 ; rw_ftyped: CF = 1 when it is pressed now (held now, not at the last look),
 ; or TYPED since the last look and up at both - a tap that fell between two
@@ -3007,12 +3043,18 @@ rw_flatch:  db 0                    ; F1-F4, F12 and F9 TYPED since the last loo
                                     ;   (rw_klat)
 rw_f12was:  db 0                    ; F12 was held at the last look
 rw_f9was:   db 0                    ; ...and F9
+rw_f10was:  db 0                    ; ...and F10, F11
+rw_f11was:  db 0
+rw_s_bw:    db 'Two shades: On', 0  ; (rw_lossyt's: each "On", then its
+rw_s_bw2:   db 'Two shades: Off', 0 ;   "Off")
+rw_s_co:    db 'Scroll by 8: On', 0
+rw_s_co2:   db 'Scroll by 8: Off', 0
 rw_lflq:    db 0                    ; F12: the log to be written by the UI
                                     ;   task (rw_onwake, rw_fsenter's end)
 rw_ftyped:  db 0                    ; ...and this look's (rw_fedge)
 rw_flook:   dw 0                    ; rw_keys's looks, counted...
-rw_fwhen:   dw 0, 0, 0, 0, 0, 0     ; ...and the last that saw F1, F2, F3,
-                                    ;   F4, F12 and F9 held
+rw_fwhen:   dw 0, 0, 0, 0, 0, 0, 0, 0 ; ...and the last that saw F1, F2,
+                                    ;   F3, F4, F12, F9, F10 and F11 held
 
 ; rw_socd - one opposite pair, BL its two bits: DL the buttons, AH those
 ; pressed since the last look, CL the preferred of each pair. Not both held:
@@ -3058,6 +3100,14 @@ rw_klat:
     je .fl
     mov al, 20h                     ; F9: bit 5
     cmp ah, 43h
+    je .fl
+    mov al, 40h                     ; F10: bit 6
+    cmp ah, 44h
+    je .fl
+    mov al, 80h                     ; F11 (an AT's 85h, a PC's 57h): bit 7
+    cmp ah, 85h
+    je .fl
+    cmp ah, 57h
     je .fl
     cmp ah, 3Bh                     ; F1-F4: latched for rw_fedge
     jb .m

@@ -1161,6 +1161,46 @@ reference sharing `ppu_line` and the sprites with what it checks.
   cache gives up (256 bytes).
 
 
+### 13.4 The lossy picture: F10 and F11, on trial
+
+**Two things the picture may leave out, for speed, each turned on and off
+by a key and kept by nothing** (no menu item and no REALDMG.CFG field: the
+owner tries them first). `rdg_lossy` in `rdgppu.inc` holds them, `RDG_LBW`
+and `RDG_LCOARSE`; the code is assembled under `RDG_LOSSY`, which the
+package defines and the bare harness only with `LOSSY_BW` or
+`LOSSY_COARSE` (docs/reports/REALDMG-LOSSY-2026-10-22.md). Either key says
+its new state (`rw_lossyt`) and the next draw is whole.
+
+- **F10, TWO SHADES**: shade bit 1 alone - shades 0 and 1 white, 2 and 3
+  black. On a line whose BGP is the identity the background fetches and
+  shifts its tile rows' high plane alone (`ppu_fshifth`, `ppu_fcopybh`,
+  chosen by `ppu_pal` through `rdg_fshp` and `rdg_fcbp` with `rdg_bwl`, so
+  no line tests a flag); another BGP composes as ever and skips the low
+  plane's palette pass. `ppu_dput` compares bit 1 alone and writes it as
+  both planes - VGA's full screen in one pass with the map mask at 3
+  (`ppu_dvgabw`), keeping only plane 1 in the buffer: `rdg_bwst` then makes
+  the next draw that reads the buffer (the window's, the 1bpp writers')
+  whole. `rdg_render` writes bit 1 as both.
+- **F11, SCROLL BY 8**: SCX is snapped to a multiple of 8 and the rest
+  added to every sprite's X (`ppu_sprites`, `rdg_csd`), so the picture
+  stays together and the camera moves in 8-pixel steps. A raster write's
+  SCX is logged snapped with the rest in the log entry's fourth byte
+  (`rdg_rlog`), which `ppu_logsame` then does not compare - a status
+  bar's split stays the same log every frame - and `ppu_log` takes it at
+  the entry's line. When the frame's set of fine scrolls changes
+  (`rdg_csig`) every sprite has moved: OAM's shadow is made to differ in X
+  so the scan marks their lines. SCY is not snapped. The camera stepping
+  turns seven scrolled frames in eight into still frames, and every
+  background line takes `ppu_fcopyb`.
+- **What they buy**, drawing every frame on `286-victory` (`rdgbench --vga`):
+  Super Mario Land 18.40 ms a frame as shipped, 16.61 with two shades,
+  13.87 scrolling by 8, 13.18 both; Kirby's Dream Land 38.86, 35.38, 30.30,
+  29.02.
+- **What they cost off**: the package assembles them always, and with both
+  off a frame reads 18.67 / 39.36 ms (+1.5% / +1.3%) - the pointer calls,
+  `ppu_dput`'s test and `ppu_sprites`' per sprite. Taking them out of
+  that path is the work if they are kept.
+
 ## 14. The package
 
 `REALDMG.O88` (`apps/realdmg/realdmg.asm`, `OS88_STACK_384`) is a window of

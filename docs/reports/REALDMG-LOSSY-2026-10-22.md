@@ -186,7 +186,31 @@ not lossy: why a third of a heavy stretch runs interpreted.
 - **A coarse SCY** would need the sprites' line lists moved by the rest as
   well; none of the three games scrolled vertically here.
 
-## 5. Re-taking it
+## 5. Built as F10 and F11 (the same day)
+
+The owner took two of them to try: two shades and the 8-pixel camera, on
+F10 and F11 in the package, not kept and with no menu item (REALDMG-SPEC
+13.4). As run-time toggles they read, on the same bench:
+
+| ms a frame | Super Mario Land | Kirby's Dream Land |
+|---|---|---|
+| as shipped | 18.40 | 38.86 |
+| the toggles assembled, both off | 18.67 (+1.5%) | 39.36 (+1.3%) |
+| F10 two shades | 16.61 (-9.7%) | 35.38 (-9.0%) |
+| F11 scroll by 8 | 13.87 (-24.6%) | 30.30 (-22.0%) |
+| both | 13.18 (-28.4%) | 29.02 (-25.3%) |
+
+Two lessons on the way. A first run-time two shades read only -5%: it
+shifted one way only (`shl` by up to 7, where the composer turns 5-7 into
+`shr` by 3-1 - a 286 shifts in 5 + CL clocks), and it copied bit 1 over
+bit 0 every line so that every writer saw a consistent buffer; both out,
+the buffer's bit 0 is kept only for a writer that reads it. And testing
+the flags a LINE at a time cost +3.2% with both off (402 -> 415 ticks;
+the harness's new placement alone reads 402): `ppu_pal` now chooses the
+background's routines through two pointers, and VGA's writer has a twin
+`ppu_dput` calls, which took it to +1.5%.
+
+## 6. Re-taking it
 
 ```
 python3 tools/gblossy.py GAME.GB [--flap] [--shots PREFIX F1 F2 ...]

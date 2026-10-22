@@ -162,9 +162,20 @@ rdg_render:
 .nolog:
     call ppu_line
     mov si,[PPU_OSRC]                   ; out: the 20 bytes of each plane
+%ifdef RDG_LOSSY
+    test byte [cs:rdg_lossy],RDG_LBW    ; (two shades: bit 1 as both)
+    jz .two
+    add si,20h
+    mov cx,10
+    rep movsw
+    sub si,20
+    jmp short .one
+.two:
+%endif
     mov cx,10
     rep movsw
     add si,0Ch                          ; bit 1 is at +20h
+.one:
     mov cl,10
     rep movsw
 .nextl:
@@ -265,10 +276,28 @@ rdg_dvga         dw 0                    ; the host's: a changed line goes to VG
                                         ;   0 and 1 of this segment at 40 a
                                         ;   line (ppu_dvga), or 0
 rdg_dvmm         db 0                    ; ...the plane the map mask holds
+RDG_LBW          equ 01h                 ; rdg_lossy: TWO SHADES - shade bit 1
+RDG_LCOARSE      equ 02h                 ;   alone; the CAMERA IN STEPS OF 8
+%ifdef LOSSY_BW
+%define RDG_L0_BW RDG_LBW
+%else
+%define RDG_L0_BW 0
+%endif
 %ifdef LOSSY_COARSE
-rdg_csd          db 0                    ; (LOSSY: the fine scroll left to the
-rdg_csig         db 0                    ;   sprites, the frame's set of them,
-rdg_cstb         times RDG_RLOG_MAX db 0 ;   and each log entry's)
+%define RDG_L0_CO RDG_LCOARSE
+%else
+%define RDG_L0_CO 0
+%endif
+%ifdef RDG_LOSSY
+rdg_lossy        db RDG_L0_BW | RDG_L0_CO ; the host's: what the picture may
+                                        ;   leave out (F10, F11; the bare
+                                        ;   harness's LOSSY_BW, LOSSY_COARSE)
+rdg_bwl          db 0                    ; ...two shades on THIS line (BGP E4h)
+rdg_bwst         db 0                    ; ...the buffer's bit 0 left stale
+rdg_fshp         dw ppu_fshift           ; ...ppu_fshift or ppu_fshifth, and
+rdg_fcbp         dw ppu_fcopyb           ;   ppu_fcopyb or ppu_fcopybh (ppu_pal)
+rdg_csd          db 0                    ; the fine scroll left to the sprites,
+rdg_csig         db 0                    ;   and the frame's set of them
 %endif
 
 rdg_renderd:
@@ -295,6 +324,15 @@ rdg_renderd:
     mov [es:RDG_DOUT+2],ax
     mov word [es:RDG_DCNT],0
     mov byte [es:RDG_DSCR],0             ; (the claim is not zeroed)
+%ifdef RDG_LOSSY
+    cmp word [cs:rdg_dvga],0            ; TWO SHADES left the buffer's bit 0
+    jne .bwk                            ;   stale under VGA's own writer: a
+    cmp byte [cs:rdg_bwst],0            ;   draw that reads it is whole
+    je .bwk
+    mov byte [cs:rdg_bwst],0
+    mov byte [es:RDG_DFULL],1
+.bwk:
+%endif
     cmp byte [cs:rdg_ilace],0
     je .par
     xor byte [es:RDG_DPAR],1             ; the other parity's turn - or with
@@ -348,11 +386,13 @@ rdg_renderd:
     mov ax,[0FF4Ah]
     mov [PPU_REGS+6],ax
 .st2:
-%ifdef LOSSY_COARSE
-    mov al,[PPU_REGS+2]                 ; (LOSSY: the camera in steps of 8 -
-    mov ah,al                           ;   the background's SCX snapped, the
-    and al,0F8h                         ;   rest added to every sprite's X)
-    mov [PPU_REGS+2],al
+%ifdef RDG_LOSSY
+    test byte [cs:rdg_lossy],RDG_LCOARSE ; THE CAMERA IN STEPS OF 8: SCX
+    jz .csk                             ;   snapped, the rest added to every
+    mov al,[PPU_REGS+2]                 ;   sprite's X (ppu_sprites) - a raster
+    mov ah,al                           ;   write's in its log entry's fourth
+    and al,0F8h                         ;   byte (rdg_rlog), which
+    mov [PPU_REGS+2],al                 ;   ppu_logsame does not compare
     and ah,7
     mov [cs:rdg_csd],ah
     mov dl,ah                           ; DL = the frame's fine scrolls
@@ -364,20 +404,15 @@ rdg_renderd:
 .csm:
     jcxz .csn
     mov si,RDG_RLOG
-    xor bx,bx
 .csl:
-    mov al,[si+3]                       ; out of the log, so that it compares
-    mov [cs:rdg_cstb+bx],al             ;   the same while the snapped scroll
-    mov byte [si+3],0                   ;   stands
     cmp byte [si+1],43h
     jne .csx
     shl dl,1
     shl dl,1
     shl dl,1
-    xor dl,al
+    xor dl,[si+3]
 .csx:
     add si,4
-    inc bx
     loop .csl
 .csn:
     cmp dl,[cs:rdg_csig]
@@ -697,9 +732,30 @@ ppu_logsame:
     push cx
     mov si,RDG_RLOG
     mov di,RDG_DLOG
+%ifdef RDG_LOSSY
+    test byte [cs:rdg_lossy],RDG_LCOARSE
+    jnz .cm
+%endif
     repe cmpsw
     pop cx
     je .r
+%ifdef RDG_LOSSY
+    jmp short .keep
+.cm:
+    shr cx,1                            ; (the camera in steps: an entry's
+.cl:                                    ;   first three bytes, its fourth the
+    cmpsw                               ;   fine scroll that moves every frame)
+    jne .cn
+    cmpsb
+    jne .cn
+    inc si
+    inc di
+    loop .cl
+    cmp al,al                           ; (all the same: ZF = 1)
+.cn:
+    pop cx
+    je .r
+%endif
 .keep:
     mov si,RDG_RLOG                      ; another log: kept for the next call
     mov di,RDG_DLOG
@@ -1323,19 +1379,36 @@ ppu_dput:
     les di,[es:RDG_DOUT]                 ;   the screen shows (2, a scroll's,
     je .all                             ;   is: compared as ever)
     add di,ax                           ; ES:DI = the line in the buffer
-%ifdef LOSSY_BW
-    add si,20h                          ; (LOSSY: bit 1 alone)
+%ifdef RDG_LOSSY
+    test byte [cs:rdg_lossy],RDG_LBW    ; TWO SHADES: bit 1 compared alone
+    jz .two                             ;   - the line's bit 0 is never made -
+    push si                             ;   and written as both planes
+    push di
+    add si,20h
     add di,20
     mov cx,10
     repe cmpsw
+    pop di
+    pop si
     je .same
-    dec si
-    dec si
-    dec di
-    dec di
-    inc cx
+.bwc:
+    add si,20h
+    cmp word [cs:rdg_dvga],0            ; VGA's own writer: plane 1 kept
+    je .bw2                             ;   alone, the buffer's bit 0 stale -
+    mov byte [cs:rdg_bwst],1            ;   the next draw that reads it
+    add di,20                           ;   composes whole (rdg_renderd)
+    mov cx,10
     rep movsw
-    jmp short .vga
+    call ppu_dvgabw
+    jmp short .mk
+.bw2:
+    mov cx,10                           ; (a writer that reads both: bit 1
+    rep movsw                           ;   as both)
+    sub si,20
+    mov cl,10
+    rep movsw
+    jmp short .mk
+.two:
 %endif
     mov cx,10
     repe cmpsw
@@ -1364,12 +1437,9 @@ ppu_dput:
     jmp short .vga
 .all:
     add di,ax
-%ifdef LOSSY_BW
-    add si,20h
-    add di,20
-    mov cx,10
-    rep movsw
-    jmp short .vga
+%ifdef RDG_LOSSY
+    test byte [cs:rdg_lossy],RDG_LBW
+    jnz .bwc
 %endif
     mov cx,10
     rep movsw
@@ -1402,6 +1472,28 @@ ppu_lscr:
     pop bx
     ret
 
+%ifdef RDG_LOSSY
+; ppu_dvgabw: ppu_dvga for TWO SHADES - bit 1 to planes 0 and 1 at once
+; (map mask 3), ppu_dput's to call
+ppu_dvgabw:
+    push dx
+    mov di,ax
+    mov es,[cs:rdg_dvga]
+    mov dx,3C4h
+    mov si,[PPU_OSRC]
+    add si,20h
+    cmp byte [cs:rdg_dvmm],3
+    je .b1
+    mov ax,0302h
+    out dx,ax
+    mov byte [cs:rdg_dvmm],3
+.b1:
+    mov cx,10
+    rep movsw
+    pop dx
+    ret
+%endif
+
 ; ppu_dvga: the line just composed to VGA (rdg_dvga), shade bit 0 to plane 0
 ; and bit 1 to plane 1, the plane the map mask holds first so a line turns
 ; it once - written where it is decided, not by a second pass over the
@@ -1412,19 +1504,6 @@ ppu_dvga:
     mov es,[cs:rdg_dvga]
     mov dx,3C4h
     mov si,[PPU_OSRC]
-%ifdef LOSSY_BW
-    add si,20h                          ; (LOSSY: plane 1 alone, the palette
-    cmp byte [cs:rdg_dvmm],1            ;   to make plane 0 not matter)
-    je .b1
-    mov ax,0202h
-    out dx,ax
-    mov byte [cs:rdg_dvmm],1
-.b1:
-    mov cx,10
-    rep movsw
-    pop dx
-    ret
-%endif
     cmp byte [cs:rdg_dvmm],1
     je .one
     cmp byte [cs:rdg_dvmm],0
@@ -1793,13 +1872,13 @@ ppu_log:
     ja .r
     mov bl,[RDG_RLOG+si+1]               ; the register, 40-4B
     mov al,[RDG_RLOG+si+2]
-%ifdef LOSSY_COARSE
+%ifdef RDG_LOSSY
+    test byte [cs:rdg_lossy],RDG_LCOARSE
+    jz .nc
     cmp bl,43h
     jne .nc
-    shr si,1
-    shr si,1
-    mov ah,[cs:rdg_cstb+si]             ; (LOSSY: its fine scroll, the
-    mov [cs:rdg_csd],ah                 ;   sprites' from this line on)
+    mov ah,[RDG_RLOG+si+3]              ; (the camera in steps: its fine
+    mov [cs:rdg_csd],ah                 ;   scroll, the sprites' from here on)
 .nc:
 %endif
     inc byte [PPU_LOGI]
@@ -1830,6 +1909,22 @@ ppu_log:
 ppu_pal:
     push si
     push di
+%ifdef RDG_LOSSY
+    mov si,ppu_fshift                   ; TWO SHADES with BGP the identity:
+    mov di,ppu_fcopyb                   ;   the background's high plane alone
+    xor al,al                           ;   (another BGP's shade bit 1 needs
+    test byte [cs:rdg_lossy],RDG_LBW    ;   both of a pixel's colour bits) -
+    jz .bw                              ;   set here, where BGP is, and not
+    cmp byte [PPU_REGS+3],0E4h          ;   tested a line at a time
+    jne .bw
+    inc ax
+    mov si,ppu_fshifth
+    mov di,ppu_fcopybh
+.bw:
+    mov [cs:rdg_bwl],al
+    mov [cs:rdg_fshp],si
+    mov [cs:rdg_fcbp],di
+%endif
     mov si,PPU_REGS+3
     mov di,PPU_PALM
     mov dx,3
@@ -2000,7 +2095,11 @@ ppu_line:
     je .uni                             ;   by the fine scroll, 20 times (44%
     or cl,cl                            ;   of Super Mario Land's lines under
     jz .b0                              ;   its status bar are a sky)
+%ifdef RDG_LOSSY
+    call [cs:rdg_fshp]
+%else
     call ppu_fshift
+%endif
     jmp short .win
 .uni:
     mov bx,[si]
@@ -2024,7 +2123,11 @@ ppu_line:
     rep stosw
     jmp short .win
 .b0:
+%ifdef RDG_LOSSY
+    call [cs:rdg_fcbp]
+%else
     call ppu_fcopyb
+%endif
 .win:
     ; the window, over the background from X = WX - 7 on
     mov al,[PPU_REGS+0]
@@ -2081,11 +2184,14 @@ ppu_line:
     jmp short .done
 .anf:
     mov word [PPU_OSRC],PPU_OL
-%ifndef LOSSY_BW
+%ifdef RDG_LOSSY
+    test byte [cs:rdg_lossy],RDG_LBW    ; (two shades: bit 1 alone is
+    jnz .anh                            ;   written, ppu_dput)
+%endif
     mov bp,PPU_ANF
     mov di,PPU_OL
     call ppu_anf
-%endif
+.anh:
     mov bp,PPU_ANF+8
     mov di,PPU_OH
     call ppu_anf
@@ -2305,7 +2411,6 @@ ppu_list:
 ; a 286 pays for every byte of code it fetches, so the loop's own are gone.
 ; PPU_FSHIFT op, half: ppu_fshift's body - each byte the previous tile row
 ; and this one as BH:BL, shifted by CL (op), its half the result
-%ifndef LOSSY_BW
 %macro PPU_FSHIFT 2
 %assign ppu_k 0
 %rep 10
@@ -2333,8 +2438,10 @@ ppu_list:
 %endrep
     ret
 %endmacro
-%else                                   ; (LOSSY: shade bit 1 alone - a tile
-%macro PPU_FSHIFT 2                     ;   row's high plane, the other left)
+%ifdef RDG_LOSSY
+; PPU_FSHIFTH: the same for TWO SHADES (rdg_bwl) - the tile rows' high
+; plane alone into PPU_BH, PPU_BL left as it was (ppu_line's end copies)
+%macro PPU_FSHIFTH 2
 %assign ppu_k 0
 %rep 10
     mov bx,[si+2*ppu_k+2]
@@ -2368,10 +2475,26 @@ ppu_fshift:
     neg cl
     add cl,8
     PPU_FSHIFT shr, bl
+%ifdef RDG_LOSSY
+ppu_fshifth:
+    mov al,dl
+    xor ah,ah
+    shl ax,1
+    mov di,ax
+    mov bx,[si]
+    mov ax,[bx+di]
+    cmp cl,4                            ; (both ways, as ppu_fshift: one way
+    ja .right                           ;   alone cost Super Mario Land 7%)
+    PPU_FSHIFTH shl, bh
+.right:
+    neg cl
+    add cl,8
+    PPU_FSHIFTH shr, bl
+%endif
 
 ; ppu_fcopyb / ppu_fcopyw: no fine scroll - 21 tile rows as they are, into
 ; PPU_BL/PPU_BH or PPU_WL/PPU_WH (the window shifts its own left)
-%macro PPU_FCOPY 1
+%macro PPU_FCOPY 2
     mov al,dl
     xor ah,ah
     shl ax,1
@@ -2379,21 +2502,34 @@ ppu_fshift:
 %assign ppu_k 0
 %rep 21
     mov bx,[si+2*ppu_k]
-%ifdef LOSSY_BW
-    mov ah,[bx+di+1]
-%else
     mov ax,[bx+di]
     mov [%1+ppu_k],al
-%endif
     mov [%1+20h+ppu_k],ah
 %assign ppu_k ppu_k+1
 %endrep
     ret
+%if %2
+%ifdef RDG_LOSSY
+ppu_fcopybh:                            ; (two shades: the high plane alone)
+    mov al,dl
+    xor ah,ah
+    shl ax,1
+    mov di,ax
+%assign ppu_k 0
+%rep 21
+    mov bx,[si+2*ppu_k]
+    mov al,[bx+di+1]
+    mov [%1+20h+ppu_k],al
+%assign ppu_k ppu_k+1
+%endrep
+    ret
+%endif
+%endif
 %endmacro
 ppu_fcopyb:
-    PPU_FCOPY PPU_BL
-ppu_fcopyw:
-    PPU_FCOPY PPU_WL
+    PPU_FCOPY PPU_BL, 1
+ppu_fcopyw:                             ; (the window's: both planes always)
+    PPU_FCOPY PPU_WL, 0
 
 ; ppu_shl: the 21 bytes at SI, as one bit string, CL bits left (CL < 8);
 ; the first 20 are the result. Kept: CL.
@@ -2569,9 +2705,11 @@ ppu_sprites:
     mov ch,[PPU_REV+bx]
 .nx:
     mov al,[si+1]
-%ifdef LOSSY_COARSE
-    add al,[cs:rdg_csd]                 ; (LOSSY: where the snapped camera
-    jnc .cx                             ;   puts it)
+%ifdef RDG_LOSSY
+    test byte [cs:rdg_lossy],RDG_LCOARSE
+    jz .cx
+    add al,[cs:rdg_csd]                 ; (the camera in steps: where it
+    jnc .cx                             ;   puts the sprite)
     mov al,0FFh
 .cx:
 %endif

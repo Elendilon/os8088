@@ -40,6 +40,9 @@ F3          the next of CPU > Recompiler, Static Recompiler and
             Interpreter
 F4          CPU > Speed's next setting
 F9          Machine > Sound's next setting
+F10         two shades, on or off: black and white only, for speed
+F11         scroll by 8, on or off: the picture moves in 8-pixel
+            steps, for speed (both are on trial: not kept)
 1 to 9      the save state slot
 F5          save the game's state in that slot
 F8          load it back
@@ -102,7 +105,7 @@ Machine > Log            a record a second, to a file (F12 writes it now)
 Machine > Controls...    which key is which button: click a button on
                          the Game Boy drawn there, then press its key.
                          A key another button had changes places with
-                         it; Esc, Alt, F1 to F9, F12 and 1 to 9 are
+                         it; Esc, Alt, F1 to F12 and 1 to 9 are
                          RealDMG's own.
                          Default puts them back. Kept for every game
 

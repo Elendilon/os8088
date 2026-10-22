@@ -54,16 +54,28 @@ bits 16
 %ifdef FRAME_SUM
 %define NO_MODE13
 %endif
-%ifdef LOSSY_COARSE                     ; (its 192-byte table needs the room)
-%define NO_MODE13
+%ifdef LOSSY_BW                          ; THE LOSSY PICTURE (REALDMG-SPEC 13.4,
+%define RDG_HLOSSY                      ;   docs/reports/REALDMG-LOSSY-2026-10-22.md):
+%endif                                  ;   its F10/F11 code is ~1.5KB the
+%ifdef LOSSY_COARSE                     ;   harness has no room for, so a lossy
+%define RDG_HLOSSY                      ;   harness sits 1.5KB lower, its stack
 %endif
+%ifdef RDG_LOSSY                        ;   (RDG_LOSSY alone: the code, both off)
+%define RDG_HLOSSY
+%endif                                  ;   over FRAME_SEG and PRF_SEG - MODES
+%ifdef RDG_HLOSSY                       ;   1, 3, 4, 7 and 12 only, no MODE 13
+%define NO_MODE13
+HOST_SEG        equ 0x0700
+HOST_STK        equ 0x7000
+%else
 HOST_SEG        equ 0x0760                  ; (35,328 bytes under the core: the
                                             ;   boot sector moves itself out of the
                                             ;   way first, BOOT_SEG, and the stack
                                             ;   is HOST_STK's, under the harness)
+HOST_STK        equ 0x7600                  ; 0:7600 down, over FRAME_SEG's end
+%endif
 BOOT_SEG        equ 0x2000                  ; the boot sector's copy, at 2000:7C00
                                             ;   (the view, not loaded from disk)
-HOST_STK        equ 0x7600                  ; 0:7600 down, over FRAME_SEG's end
 CORE_SEG        equ 0x1000
 VIEW_SEG        equ 0x2000
 ROM_SEG         equ 0x3000

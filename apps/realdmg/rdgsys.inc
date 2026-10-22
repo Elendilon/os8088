@@ -1654,10 +1654,12 @@ rdg_rlog:
     shl ax,1
     shl ax,1
     mov si,ax
-%ifdef LOSSY_COARSE
-    mov byte [RDG_RLOG+si+3],0           ; (LOSSY: SCX to 8 pixels, the rest
-    cmp ch,43h                          ;   kept for the sprites, in the
-    jne .cv                             ;   entry's spare byte)
+%ifdef RDG_LOSSY
+    mov byte [RDG_RLOG+si+3],0           ; THE CAMERA IN STEPS OF 8 (rdg_lossy,
+    test byte [cs:rdg_lossy],RDG_LCOARSE ;   REALDMG-SPEC 13.4): SCX logged
+    jz .cv                              ;   snapped, the rest in the entry's
+    cmp ch,43h                          ;   spare byte for the sprites
+    jne .cv
     mov al,cl
     and al,7
     mov [RDG_RLOG+si+3],al
