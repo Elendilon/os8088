@@ -9239,8 +9239,12 @@ mega_t86    db "real mode: 8086-class CPU", 0
 mega_tmem   db "real mode: no 82KB for kern_mega's tables", 0
 mega_ta20   db "real mode: A20 will not open", 0
 mega_ttask  db "real mode: a task predates it", 0
+%ifdef MEGA_DIAG                    ; the field build names the way BACK
 mega_mtoast db "protected, 286 reset", 0
 mega_mtoast3 db "protected, 386 CR0", 0
+%else                               ; ...a shipped one only that it got in,
+mega_mtoast db "Entered protected mode", 0 ; which is true on any CPU
+%endif
 
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 ; mega_pmtail - the rest of the switch, once `.mega` is where MEGA_SEL_CODE
@@ -9303,10 +9307,12 @@ mega_pmtail:
     push ds                         ; with no debug port: the menu bar says it
     pop es                          ; for a few seconds (toast_show only
     mov si, mega_mtoast             ; stages; the UI task's first idle pass
+%ifdef MEGA_DIAG
     cmp byte [cpu_tier], CPU_386    ; ...naming the way BACK it will use,
     jb .t286                        ; which is the thing a field run is for
     mov si, mega_mtoast3
 .t286:
+%endif
     mov cx, 146                     ; draws it), for eight seconds: long enough
                                     ; to photograph
     call KERNEL_SEG:cw_toast_show

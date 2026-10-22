@@ -9662,7 +9662,7 @@ were `RFL` and `Q`, which fire while a PicoMEM's Sound Blaster plays.
 
 | message on the glass | raised in | when | verdict |
 |---|---|---|---|
-| `protected, 286 reset` / `protected, 386 CR0` | `mega_enter`'s tail (`mega_mtoast`, 8 s) | once, at boot, entering protected mode | **KEEP** - the owner's startup toast, wording as it was |
+| `Entered protected mode` | `mega_enter`'s tail (`mega_mtoast`, 8 s) | once, at boot, entering protected mode | **KEEP** - the owner's startup toast. It named the route back (`protected, 286 reset` / `protected, 386 CR0`) until the owner asked for wording true on any CPU; **MEGADIAG** keeps the route |
 | `real mode: 8086-class CPU`, `... no 82KB for kern_mega's tables`, `... A20 will not open`, `... a task predates it` | `mega_gatef` (`.cold`) | at boot, when kern_mega declines protected mode and runs as kern_big | **KEEP** - the machine is not what the disk says, and this is the only place it is said |
 | `NAME vv at cccc:iiii` | `mega_fkdo` (14.42) | a package was closed because it faulted | **KEEP** - a program vanished; kern_big's equivalent is the stop screen |
 | ` kern_mega FAULT vv err eeee at cccc:iiii sp ssss - reboot ` | `mega_report` | a KERNEL fault: the machine stops | **KEEP** - the stop screen |
