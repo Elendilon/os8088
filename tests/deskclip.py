@@ -136,7 +136,7 @@ def leg(ui, machine, sc):
 # ONE BOOT PER MACHINE: each scenario starts from a fork snapshot of the same
 # settled desktop (os88marty.Forks), not from a boot of its own
 for machine in sorted({mc for mc, _ in RUNS}, key=[mc for mc, _ in RUNS].index):
-    with os88ui.boot(IMAGE, apps=APPS, machine=machine, settle=False) as ui0, \
+    with os88ui.boot(IMAGE, apps=APPS, machine=machine, quick=True) as ui0, \
             os88marty.Forks(ui0.m) as fk:
         for sc in [s for mc, s in RUNS if mc == machine]:
             with fk.restore() as r:

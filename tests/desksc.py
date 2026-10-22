@@ -218,7 +218,7 @@ def main():
                                                        trailer(before)[0]))
 
     with os88ui.boot(sysimg, apps=appimg, machine=machine,
-                     settle=False) as ui:
+                     quick=True) as ui:
         m = ui.m
         ncell = ui._byte("desk_ncell")
         lky = ui._word("desk_lky")

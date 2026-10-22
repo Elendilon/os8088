@@ -151,7 +151,7 @@ def run(machine):
     print(machine)
     with os88ui.boot(os.path.join(BDIR, "os8088-360.img"),
                      apps=os.path.join(ROOT, "build", "apps360.img"),
-                     machine=machine, settle=False) as ui:
+                     machine=machine, quick=True) as ui:
         m = ui.m
         fails = []
 
