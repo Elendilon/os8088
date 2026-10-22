@@ -397,3 +397,24 @@ The fast tier failed at this base on `volsig` (`network360.img` and
 `os8088-720.img` both signing `0xD401`). It was a 1-in-840 birthday draw
 re-rolled by every commit, and is fixed on this branch by SPEC.md 18.8.2.2:
 every shipped disk now signs in a slot of its own.
+
+**Size round 1 (2026-10-22), SPEC.md 120.5 and 120.6.** The Control Panel
+page is its own image, `HTTPPAGE.DRV`, `RAMPAGE.DRV`'s shape, reaching the
+drive through the package door (two new verbs, `HFV_URL` and `HFV_SAVE`):
+
+| | image | file | 360 KB clusters (512 B) | RAM |
+|---|---|---|---|---|
+| before, one image | 7,941 | 5,653 | 12 | 8 KB while attached |
+| `HTTPFS.DRV` | 5,573 | 3,680 | 8 | 6 KB while attached |
+| `HTTPPAGE.DRV` | 2,357 | 2,030 | 4 | 3 KB while the page shows |
+
+The page is under the 2 KB line. Under 1.5 KB is not reachable while it
+carries the shared field and button, which are 1,074 of its 2,357 bytes.
+The resident's cuts kept behaviour: `FSV_READ` is `FSV_READAT`'s GET for the
+whole file (`hf_xfer`), the keep decision reads `Connection: keep-alive`
+alone (the request is 1.0, RFC 7230 6.3), the index name rule is
+printable-ASCII (the kernel sanitizer's own range), and smaller parsers and
+helpers. **7 clusters wants 96 more bytes off the resident file**, and what
+is left at that size is a CHECK and not fat: the 206 `Content-Range` start
+(~70), the User-Agent header (~25), or the index's tree-consistency checks
+(~40) - the owner's call.

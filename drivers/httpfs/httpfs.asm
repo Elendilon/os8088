@@ -9,7 +9,9 @@
 ;   hfpkg.inc   the package door's ABI - an installer mounts an address itself
 ;   hfnet.inc   the address, and one HTTP GET over the socket verbs
 ;   hfidx.inc   the index, and the volume's verbs
-;   hfpage.inc  the Control Panel page and HTTPDRV.CFG
+;   hfpage.inc  HTTPDRV.CFG, and the thunks to the page, HTTPPAGE.DRV
+;               (httppage.asm) - read in by the first paint, freed at the
+;               panel's close
 ;
 ; IT OWNS NO HARDWARE AND OPENS NO SOCKET UNTIL ASKED. The sockets are
 ; ETHER.DRV's - or the parallel cable's, NET.DRV answering the same verbs
@@ -41,11 +43,14 @@ hf_svc:
     dw 0                        ; DSV_STREAM
     dw 0                        ; DSV_TICK
     dw 0                        ; DSV_RELINST
-    dw hf_name                  ; DSV_NAME
+    dw 0                        ; DSV_NAME    - read by nothing (driver.inc,
+                                ;               drv_publish): the page letters
+                                ;               its own heading
     dw 0                        ; DSV_TONE
     dw 0                        ; DSV_TIERS
     dw 0                        ; DSV_BLK     - NO SECTORS
-    dw hf_cpname                ; DSV_CPNAME  - the page (hfpage.inc)
+    dw hf_cpname                ; DSV_CPNAME  - the page: HTTPPAGE.DRV's,
+                                ;               and these cells its thunks
     dw hf_cp_paint              ; DSV_CPPAINT
     dw hf_cp_click              ; DSV_CPCLICK
     dw hf_cp_close              ; DSV_CPCLOSE - HTTPDRV.CFG is written here
@@ -87,7 +92,6 @@ hf_fsv_end:
   %error "httpfs: the FSV_* table is not FSV_SIZE bytes - a swallowed row?"
 %endif
 
-hf_name:    db 'HTTP Drive', 0  ; DSV_NAME, and the page's heading
 hf_cpname:  db 'Web Drive', 0   ; ...and its Control Panel list name: nine
                                 ; glyphs is all the list holds before its
                                 ; divider (ctrl.inc, beside cp_items)
@@ -139,6 +143,7 @@ hf_ready:
 
 ; DRVV_DETACH - cannot fail (SPEC.md 51.6 rule 1)
 hf_detach:
+    call hp_drop                ; the page's image, if the panel left it
     call hf_abort
     call hf_unmount
     clc
@@ -153,6 +158,7 @@ hf_vadd:
     call hf_abort               ; a KEPT connection is to the OLD address
     call hf_drop_idx
     mov byte [hf_failed], 0
+    mov word [hf_err], 0        ; ...and the OLD address's last failure
     cmp byte [hf_vol], 0xFF
     jne .have
     push cx
@@ -195,15 +201,25 @@ hf_unmount:
 ; THE PACKAGE DOOR (hfpkg.inc). BL = the verb; ES = the CALLER's segment
 ; =============================================================================
 hf_pkg:
-    cmp bl, HFV_IDENT
-    jne .n1
+    mov ax, HFE_ARG
+    cmp bl, HFV_MAX
+    ja hf_pno
+    mov bh, 0                   ; BX is spent: no verb takes it in
+    shl bx, 1
+    jmp [bx+hf_ptab]
+hf_ptab:    dw hf_pident, hf_pstate, hf_pmount, hf_punmnt, hf_pfetch
+            dw hf_purl, hf_cfg_save
+%if ($ - hf_ptab) / 2 != HFV_MAX + 1
+  %error "httpfs: hf_ptab is indexed by the HFV_* numbers"
+%endif
+
+hf_pident:
     mov ax, HF_SIG
     mov cx, HF_ABI
     clc
     ret
-.n1:
-    cmp bl, HFV_STATE
-    jne .n2
+
+hf_pstate:
     mov al, [hf_vol]
     mov ah, HFS_IDLE
     cmp al, 0xFF
@@ -221,9 +237,8 @@ hf_pkg:
     mov si, [hf_err]
     clc
     ret
-.n2:
-    cmp bl, HFV_MOUNT
-    jne .n3
+
+hf_pmount:
     push cx
     push si
     push di
@@ -232,39 +247,48 @@ hf_pkg:
 .cp:
     mov al, [es:si]
     mov [di], al
-    or al, al
-    jz .cpd
     inc si
     inc di
-    loop .cp
+    or al, al
+    loopnz .cp
     mov byte [di], 0
-.cpd:
-    mov byte [hf_lsync], 0      ; the page's field re-reads it
     pop di
     pop si
     pop cx
     call hf_parse
-    jc .no
+    jc hf_pno
     call hf_vadd
-    jc .no
+    jc hf_pno
     mov al, [hf_vol]
     ret
-.n3:
-    cmp bl, HFV_UNMOUNT
-    jne .n4
+
+hf_punmnt:
     call hf_unmount
     clc
     ret
-.n4:
-    cmp bl, HFV_FETCH
-    jne .bad
+
+hf_pfetch:
     call hf_fetch
-    jc .no
+    jc hf_pno
     mov cx, [hf_nrec]
     ret
-.bad:
-    mov ax, HFE_ARG
-.no:
+
+hf_purl:                        ; ES:DI = HF_URLMAX bytes of the caller's
+    push cx
+    push si
+    push di
+    mov si, hf_url
+    mov cx, HF_URLMAX
+    cld
+    rep movsb
+    pop di
+    pop si
+    pop cx
+    clc
+    ret
+
+hf_pno:
+    mov [hf_err], ax            ; ...kept, so HFV_STATE says it again
     stc
     ret
 
@@ -321,22 +345,9 @@ hft_slot:                       ; BX = [hft_n] mod 64, times 8
     shl bx, 1
     ret
 %endif
-; The shared includes: os88ui.inc's button and os88line.inc's field. A driver
-; has no header or icon block at a fixed offset, so they need not come last
-; (ether.asm's note).
-%define OS88UI_ARM              ; os88ui_arm/fire/armed - the page drives its
-%define OS88UI_NOGEST           ; own gesture, etherui.inc's shape
-%define OS88UI_NOBFIND
-%define OS88UI_NOGLYPH          ; no check box, no radio
-%include "os88ui.inc"
-%define OS88LINE_NOEDIT
-%define OS88LINE_NOSET
-%include "os88line.inc"
 %define OS88SOCK_STATE          ; ...and net_find asks NETV_STATE: ZF=1 = no
 %include "os88sock.inc"         ; link. net_find, net_cls - the card first
 %include "hfpage.inc"
-    OS88_ENT
-    OS88_RET_LADDER bp
 
 ; =============================================================================
 ; STATE
@@ -369,7 +380,7 @@ hf_crlo:    dw 0, 0             ; its Content-Range start...
 hf_hascr:   db 0                ; ...if it sent one
 hf_rng:     db 0                ; 1 = the request carries Range:
 hf_rlo:     dw 0, 0             ; ...from here...
-hf_rn:      dw 0                ; ...this many bytes
+hf_rn:      dw 0, 0             ; ...this many bytes
 hf_left:    dw 0, 0             ; hf_body: bytes still to deliver...
 hf_skip:    dw 0, 0             ; ...after skipping these...
 hf_bseg:    dw 0                ; ...to here
@@ -387,18 +398,9 @@ hf_fsize:   dw 0, 0             ; the file a read is about
 hf_chain:   times HF_DEPTH dw 0 ; hf_mkpath's walk
 hf_ent:     times 32 db 0       ; the staged SPEC.md 19.1 entry
 hf_want:    times 11 db 0       ; FSV_STAT's name, in FAT form
-; --- the page (hfpage.inc) ---------------------------------------------------
-hf_px:      dw 0
-hf_py:      dw 0
-hf_down:    db 0                ; the button drawn pressed, 0 = neither
-hf_dirty:   db 0                ; 1 = HTTPDRV.CFG is owed at CPCLOSE
-hf_lsync:   db 0                ; 1 = the field's length matches [hf_url]
+; --- HTTPDRV.CFG's goto (hfpage.inc) ----------------------------------------
 hf_bdrv:    db 0                ; where we stood before HTTPDRV.CFG...
 hf_bclus:   dw 0                ; ...and we go back there
-hf_brect:   times 16 db 0       ; the two buttons' screen rects
-hf_bflg:    dw 0, 0             ; ...and their flags
-hf_lnb:     times OS88LINE_SZ db 0
-hf_sbuf:    times HP_COLS + 1 db 0
 %ifdef HFTRACE
 hft_ax:     dw 0
 hft_v:      db 0

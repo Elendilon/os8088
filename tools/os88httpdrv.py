@@ -55,10 +55,12 @@ IDX_REC = 18
 HF_MAXREC = 896                 # HTTPFS.DRV's: one 16 KB claim (SPEC.md 120.3)
 A_DIR = 0x10
 A_KEEP = 0x07                   # read-only, hidden, system: what FIND reports
-# The characters a name may carry: FAT's own set less lower case, which is
-# what the kernel's listing sanitizer passes (SPEC.md 19.1). HTTPFS.DRV
-# refuses an index with anything else in a name.
+# The characters an EXPORT names a file with: FAT's own short-name set less
+# lower case. What HTTPFS.DRV ACCEPTS in an index is wider - any printable
+# byte, ' '..'~', the range the kernel's listing sanitizer passes (SPEC.md
+# 19.1, 120.3) - and NAME_PRINT is that rule, which index_parse applies.
 NAME_OK = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$%'-_@~`!(){}^#&")
+NAME_PRINT = set(range(0x20, 0x7F))
 
 
 def fail(msg):
@@ -198,7 +200,7 @@ def index_parse(blob):
         pr = recs[parent]
         if not pr[1] & A_DIR or not pr[3] <= i < pr[3] + pr[4]:
             raise ValueError("record %d is not inside its parent's run" % i)
-        if name[0] == 0x20 or any(c not in NAME_OK and c != 0x20 for c in name):
+        if name[0] == 0x20 or any(c not in NAME_PRINT for c in name):
             raise ValueError("record %d's name %r has a character the drive refuses" % (i, name))
     return recs
 
@@ -368,6 +370,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if code == 206:
             self.send_header("Content-Range", "bytes %d-%d/%d" % (lo, hi, size))
         self.send_header("Accept-Ranges", "bytes")
+        if not self.close_connection:   # a 1.0 client's connection is kept
+            # only when the reply SAYS so (RFC 7230 6.3), and HTTPFS.DRV asks
+            # in 1.0 and reads nothing else (SPEC.md 120.2.1). http.server
+            # keeps it on the request's word and does not answer in kind
+            self.send_header("Connection", "keep-alive")
         self.end_headers()
         with open(path, "rb") as f:
             f.seek(lo)
@@ -443,12 +450,12 @@ def selfcheck():
         raise AssertionError("a bad parent was accepted")
     except ValueError:
         pass
-    # a lowercase name
+    # a name with a byte the font has no glyph for
     b3 = bytearray(idx)
-    b3[IDX_HDR + 1 * IDX_REC] = ord("a")
+    b3[IDX_HDR + 1 * IDX_REC] = 0x80
     try:
         index_parse(bytes(b3))
-        raise AssertionError("a lowercase name was accepted")
+        raise AssertionError("a name past '~' was accepted")
     except ValueError:
         pass
     assert raw11("toolongname.txt") is None and raw11("A.B.C") is None

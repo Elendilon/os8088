@@ -2,8 +2,9 @@
 ; hfnet.inc - the address, and ONE HTTP GET over the socket verbs (SPEC.md
 ; 120.2)
 ;
-; The Wire's profile (SPEC.md 92.4) plus `Range:`: HTTP/1.0, Connection:
-; close, no chunked decoding, no redirects, one connection a request. The
+; The Wire's profile (SPEC.md 92.4) plus `Range:` and a KEPT connection
+; (120.2.1): HTTP/1.0 with `Connection: keep-alive`, no chunked decoding, no
+; redirects. The
 ; socket verbs are netpkg.inc's, behind OSAPI_DRV_CALL to whichever class
 ; apps/os88sock.inc's net_find answers - the card first, then the cable - so
 ; the drive runs over either with no line here knowing which.
@@ -22,7 +23,7 @@
 
 HF_IDLE      equ 182            ; ticks: ten seconds with nothing arriving
 HF_RBUF      equ 1024           ; = NET_SKMAX: the most one NETV_RECV moves
-HF_URLMAX    equ 96             ; the address, NUL included
+; HF_URLMAX is hfpkg.inc's: the page image sizes its field by it
 HF_PFXMAX    equ 96             ; the path prefix, NUL included
 HF_PATHMAX   equ 224            ; a record's path below the prefix: HF_DEPTH
                                 ; names of 13, '/' included
@@ -87,35 +88,22 @@ hf_parse:
     mov word [hf_port], 80
     cmp al, ':'
     jne .path
-    xor bx, bx                  ; the port, decimal, 1..65535
-    mov cx, 6
-.p:
+    push dx                     ; the port, decimal, 1..65535: hf_atol's,
+    call hf_atol                ; and a number past 16 bits or none at all is
+    jc .pbad                    ; refused with whatever else follows it
+    or dx, dx
+.pbad:
+    pop dx                      ; (pop keeps the flags)
+    jnz .bad
+    jc .bad
+    or ax, ax
+    jz .bad
+    mov [hf_port], ax
     lodsb
     cmp al, '/'
-    je .pend
+    je .path
     or al, al
-    jz .pend
-    sub al, '0'
-    cmp al, 9
-    ja .bad
-    push ax                     ; BX = BX x 10 + the digit
-    push dx
-    mov ax, 10
-    mul bx
-    or dx, dx
-    pop dx
-    pop bx                      ; BL = the digit
     jnz .bad
-    xor bh, bh
-    add ax, bx
-    jc .bad
-    xchg ax, bx
-    loop .p
-    jmp short .bad
-.pend:
-    or bx, bx
-    jz .bad
-    mov [hf_port], bx
 .path:
     mov di, hf_pfx              ; '/' and then whatever followed it
     mov byte [di], '/'
@@ -153,11 +141,15 @@ hf_parse:
     ret
 
 ; -----------------------------------------------------------------------------
-; hf_nc - a socket verb. BL = the verb; AX/CX/SI/DI its arguments
+; hf_ncs / hf_nc - a socket verb. AH = the verb (no verb takes AH in);
+;     hf_ncs puts OUR handle in AL, hf_nc takes AL/CX/SI/DI as they are
 ; out: the verb's AX, CX and flags. Every other register preserved.
 ; -----------------------------------------------------------------------------
+hf_ncs:
+    mov al, [hf_sock]
 hf_nc:
     push bx
+    mov bl, ah
     push dx
     push si
     push di
@@ -171,21 +163,20 @@ hf_nc:
     pop bx
     ret
 
-; --- hf_tstart / hf_tcheck - the idle bound. tcheck: CF=1 = it has run out ---
+; --- hf_tstart / hf_tcheck - the idle bound. Both spend AX; tcheck answers
+;     CF=1 and AX = HFE_TIMEOUT once it has run out, so a wait loop's failure
+;     is already in the register it is reported in
 hf_tstart:
-    push ax
     call OSAPI_GET_TICKS
     mov [hf_tbase], ax
-    pop ax
     ret
 
 hf_tcheck:
-    push ax
     call OSAPI_GET_TICKS
     sub ax, [hf_tbase]
     cmp ax, HF_IDLE             ; CF=1 while under the bound...
+    mov ax, HFE_TIMEOUT
     cmc                         ; ...so it is inverted: CF=1 = out of time
-    pop ax
     ret
 
 ; -----------------------------------------------------------------------------
@@ -201,24 +192,19 @@ hf_open:
 .o:
     mov si, hf_host
     mov cx, [hf_port]
-    push bx
-    mov bl, NETV_OPEN
+    mov ah, NETV_OPEN
     call hf_nc
-    pop bx
     jnc .opened
     cmp ax, NETE_BUSY
     jne .noconn                 ; FULL, REFUSED, NOLINK... - not ours to wait
     call hf_tcheck
     jnc .o
-    jmp short .tmo
+    jmp short .fail
 .opened:
     mov [hf_sock], al
 .w:
-    push bx
-    mov al, [hf_sock]
-    mov bl, NETV_STATUS
-    call hf_nc
-    pop bx
+    mov ah, NETV_STATUS
+    call hf_ncs
     jc .wbusy
     cmp ah, NSK_UP
     je .up
@@ -229,8 +215,6 @@ hf_open:
 .wbusy:
     call hf_tcheck
     jnc .w
-.tmo:
-    mov ax, HFE_TIMEOUT
     jmp short .fail
 .up:
     clc
@@ -248,14 +232,13 @@ hf_open:
 
 ; --- hf_close / hf_abort - give the handle back (both keep every register) --
 hf_close:
-    push bx
-    mov bl, NETV_CLOSE
+    push ax
+    mov ah, NETV_CLOSE
     jmp short hf_drop
 hf_abort:                       ; DROP IT NOW: a transfer abandoned midway
-    push bx                     ; must not sit in TIME-WAIT holding a slot
-    mov bl, NETV_ABORT
+    push ax                     ; must not sit in TIME-WAIT holding a slot
+    mov ah, NETV_ABORT
 hf_drop:
-    push ax
     push cx
     pushf
     mov byte [hf_live], 0
@@ -268,7 +251,6 @@ hf_drop:
     popf
     pop cx
     pop ax
-    pop bx
     ret
 
 ; -----------------------------------------------------------------------------
@@ -280,11 +262,8 @@ hf_send:
 .s:
     jcxz .done
     push cx
-    push bx
-    mov al, [hf_sock]
-    mov bl, NETV_SEND
-    call hf_nc                  ; CX = how many it took
-    pop bx
+    mov ah, NETV_SEND
+    call hf_ncs                 ; CX = how many it took
     jc .ref                     ; (CX is still pushed)
     mov ax, cx
     pop cx
@@ -301,7 +280,6 @@ hf_send:
 .busy:
     call hf_tcheck
     jnc .s
-    mov ax, HFE_TIMEOUT
     ret
 .broke:
     mov ax, HFE_CONNECT
@@ -321,16 +299,14 @@ hf_send:
 ; nothing readable, which is what NETV_STATUS is asked when RECV has nothing.
 ; -----------------------------------------------------------------------------
 hf_fill:
-    push bx
     push cx
     push di
     call hf_tstart
 .r:
-    mov al, [hf_sock]
     mov di, hf_rbuf
     mov cx, HF_RBUF
-    mov bl, NETV_RECV
-    call hf_nc
+    mov ah, NETV_RECV
+    call hf_ncs
     jc .why
     jcxz .st
     mov [hf_rlen], cx
@@ -339,12 +315,10 @@ hf_fill:
     jmp short .out
 .why:
     cmp ax, NETE_BUSY
-    je .wait
-    jmp short .broke
+    jne .broke
 .st:
-    mov al, [hf_sock]
-    mov bl, NETV_STATUS
-    call hf_nc
+    mov ah, NETV_STATUS
+    call hf_ncs
     jc .wait
     cmp ah, NSK_UP
     je .wait
@@ -356,7 +330,6 @@ hf_fill:
 .wait:
     call hf_tcheck
     jnc .r
-    mov ax, HFE_TIMEOUT
     jmp short .out
 .end:
     mov ax, HFE_SHORT
@@ -368,7 +341,6 @@ hf_fill:
 .out:
     pop di
     pop cx
-    pop bx
     ret
 
 ; --- hf_getc - AL = the next byte. CF=1 and AX = an HFE_* at the end ---------
@@ -452,12 +424,18 @@ hf_hdris:
     ret
 
 ; -----------------------------------------------------------------------------
-; hf_atol - SI = decimal digits -> DX:AX, SI past them. CF=1 = no digit, or
-;           more than 32 bits. clobbers: BX, CX
+; hf_atol - SI = decimal digits -> DX:AX, SI past them. CF=1 = no digit.
+;           clobbers: BX, CX
+;
+; NO OVERFLOW TEST, and none is owed: every number read here is checked
+; against something that bounds it - a status against 200/206, a length
+; against the index's own size, a range's start against the offset asked
+; for - so a hostile value past 32 bits is a mismatch like any other
 ; -----------------------------------------------------------------------------
 hf_atol:
+    push bp
     xor ax, ax
-    xor dx, dx
+    cwd
     mov cx, si
 .d:
     mov bl, [si]
@@ -465,39 +443,26 @@ hf_atol:
     cmp bl, 9
     ja .end
     inc si
-    push bx                     ; the digit
-    push ax                     ; the low word
-    mov ax, dx
-    mov bx, 10
-    mul bx                      ; DX:AX = high x 10
-    or dx, dx
-    jnz .ovf2
-    mov dx, ax
-    pop ax
-    push dx                     ; high x 10
-    mul bx                      ; DX:AX = low x 10
-    pop bx
-    add dx, bx
-    jc .ovf1
-    pop bx
-    xor bh, bh
+    shl ax, 1                   ; DX:AX x 2...
+    rcl dx, 1
+    push dx
+    push ax
+    shl ax, 1                   ; ...x 8...
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1
+    pop bp                      ; ...plus the x 2 is x 10
+    add ax, bp
+    pop bp
+    adc dx, bp
+    mov bh, 0                   ; ...plus the digit
     add ax, bx
     adc dx, 0
-    jnc .d
-    ret                         ; CF=1: past 32 bits
-.ovf2:
-    pop ax
-.ovf1:
-    pop bx
-    stc
-    ret
+    jmp short .d
 .end:
-    cmp si, cx
-    je .none
-    clc
-    ret
-.none:
-    stc
+    pop bp
+    cmp cx, si                  ; CF = 1 when a digit was read...
+    cmc                         ; ...so CF = 1 now when none was
     ret
 
 ; -----------------------------------------------------------------------------
@@ -542,7 +507,8 @@ hf_scpy:
 
 ; -----------------------------------------------------------------------------
 ; hf_get - request [hf_path] below the prefix, and read the status and headers
-; in:  [hf_rlo]/[hf_rn] = the range wanted when [hf_rng] is 1 (start, count)
+; in:  SI = the path below the prefix ([hf_path], or the index's own name);
+;      [hf_rlo]/[hf_rn] = the range wanted when [hf_rng] is 1 (start, count)
 ; out: CF=0: [hf_status], [hf_clen]/[hf_hasl], [hf_crlo]/[hf_hascr] read and
 ;      the reader at the body; the status is 200 or 206.
 ;      CF=1 and AX = an HFE_*; the connection is gone
@@ -556,18 +522,17 @@ hf_get:
     mov [hf_status], ax
     mov [hf_hasl], al
     mov [hf_hascr], al
-    mov [hf_rlen], ax
-    mov [hf_rpos], ax
     mov di, hf_rbuf             ; GET <prefix><path> HTTP/1.0 - COMPOSED IN
                                 ; THE RECEIVE BUFFER, which is idle until the
                                 ; request has gone: the prefix, a path whose
                                 ; every byte is escaped and the host come to
                                 ; under 900 bytes of its 1,024
+    push si                     ; the path, for after 'GET ' and the prefix
     mov si, hf_s_get
     call hf_scpy
     mov si, hf_pfx
     call hf_scpy
-    mov si, hf_path
+    pop si
 .pc:
     lodsb                       ; the path, ESCAPED: an 8.3 name may carry
     or al, al                   ; '#', '%' or '&', which a URL may not
@@ -601,7 +566,7 @@ hf_get:
     mov ax, [hf_rlo]
     mov dx, [hf_rlo+2]
     add ax, [hf_rn]
-    adc dx, 0
+    adc dx, [hf_rn+2]
     sub ax, 1
     sbb dx, 0
     call hf_ultoa
@@ -622,11 +587,8 @@ hf_get:
     cmp byte [hf_live], 0
     je .fresh
     mov byte [hf_live], 0
-    push bx
-    mov al, [hf_sock]
-    mov bl, NETV_STATUS
-    call hf_nc
-    pop bx
+    mov ah, NETV_STATUS
+    call hf_ncs
     jc .stale
     cmp ah, NSK_UP
     jne .stale
@@ -650,16 +612,12 @@ hf_get:
     jc .drop
     call hf_line                ; the status line: HTTP/1.x NNN ...
     jc .drop
-    cmp word [hf_lbuf], 'HT'
+    cmp word [hf_lbuf], 'HT'    ; 'HTTP/1.x NNN'
     jne .shape
-    cmp word [hf_lbuf+2], 'TP'
-    jne .shape
-    mov al, [hf_lbuf+7]         ; HTTP/1.1 keeps the connection unless it
-    sub al, '1'                 ; says close; HTTP/1.0 only if it says
-    cmp al, 1                   ; keep-alive (below)
-    sbb al, al
-    and al, 1
-    mov [hf_keep], al
+    mov byte [hf_keep], 0       ; WE asked in HTTP/1.0, so a server may keep
+                                ; the connection only by SAYING keep-alive
+                                ; (RFC 7230 6.3) - whatever version it answers
+                                ; in. The header below is the whole decision
     mov si, hf_lbuf + 9
     call hf_atol
     jc .shape
@@ -684,11 +642,8 @@ hf_get:
     mov al, [si]
     and al, 0xDF                ; K(eep-alive) or C(lose), either case
     cmp al, 'K'
-    mov al, 1
-    je .kset
-    dec ax
-.kset:
-    mov [hf_keep], al
+    jne .h
+    mov byte [hf_keep], 1
     jmp short .h
 .cr2:
     mov si, hf_s_crng
@@ -746,15 +701,12 @@ hf_done:
     mov byte [hf_live], 1
     ret
 
-; --- hf_urlch - AL into the request, %XX unless it is safe in a path --------
+; --- hf_urlch - AL into the request: A-Z, 0-9, '/' and '.' as they are and
+;     everything else %XX, which every server reads as that byte
 hf_urlch:
     cmp al, '/'
     je .put
     cmp al, '.'
-    je .put
-    cmp al, '-'
-    je .put
-    cmp al, '_'
     je .put
     cmp al, '0'
     jb .esc
@@ -793,6 +745,7 @@ hf_urlch:
 ; clobbers: AX, CX
 ; -----------------------------------------------------------------------------
 hf_body:
+    push bx
     push si
     push di
     push es
@@ -809,29 +762,15 @@ hf_body:
     jc .out
     jmp short .loop
 .have:
-    mov ax, [hf_skip]           ; a skip first, in runs of what is staged
-    or ax, [hf_skip+2]
+    mov bx, hf_skip             ; a skip first, in runs of what is staged...
+    mov ax, [bx]
+    or ax, [bx+2]
     jz .take
-    cmp word [hf_skip+2], 0
-    jne .sk
-    cmp cx, [hf_skip]
-    jbe .sk
-    mov cx, [hf_skip]
-.sk:
-    add [hf_rpos], cx
-    sub [hf_skip], cx
-    sbb word [hf_skip+2], 0
+    call hf_run
     jmp short .loop
 .take:
-    cmp word [hf_left+2], 0
-    jne .n
-    cmp cx, [hf_left]
-    jbe .n
-    mov cx, [hf_left]
-.n:
-    add [hf_rpos], cx
-    sub [hf_left], cx
-    sbb word [hf_left+2], 0
+    mov bx, hf_left             ; ...then the body itself
+    call hf_run
     add si, hf_rbuf
     mov es, [hf_bseg]
     mov di, [hf_boff]
@@ -843,13 +782,28 @@ hf_body:
     cmp byte [hf_prog], 0
     je .loop
     call OSAPI_FS_PROG          ; AX = since the last report; keeps everything
-    jmp .loop
+    jmp short .loop
 .done:
     clc
 .out:
     pop es
     pop di
     pop si
+    pop bx
+    ret
+
+; hf_run - CX = what is staged -> CX = the run: no more than the 32-bit count
+; at [BX], which it is taken off, and the reader moved past it
+hf_run:
+    cmp word [bx+2], 0
+    jne .n
+    cmp cx, [bx]
+    jbe .n
+    mov cx, [bx]
+.n:
+    add [hf_rpos], cx
+    sub [bx], cx
+    sbb word [bx+2], 0
     ret
 
 ; hf_bnorm - [hf_bseg]:[hf_boff] with the offset under 128, in whole 128-byte
@@ -870,7 +824,7 @@ hf_bnorm:
 
 hf_s_get:   db 'GET ', 0
 hf_s_host:  db ' HTTP/1.0', 13, 10, 'Host: ', 0
-hf_s_ua:    db 13, 10, 'User-Agent: os8088 HttpDrive 1.0', 13, 10, 0
+hf_s_ua:    db 13, 10, 'User-Agent: os8088', 13, 10, 0
 hf_s_rng:   db 'Range: bytes=', 0
 hf_s_end:   db 'Connection: keep-alive', 13, 10, 13, 10, 0
 hf_s_conn:  db 'CONNECTION:', 0

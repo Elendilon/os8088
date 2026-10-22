@@ -204823,17 +204823,17 @@ sector at a time (its section 2).
 ```
 GET /<prefix><path> HTTP/1.0
 Host: <host>[:<port>]
-User-Agent: os8088 HttpDrive 1.0
-[Range: bytes=<from>-<to>]          FSV_READAT only
-Connection: close
+User-Agent: os8088
+[Range: bytes=<from>-<to>]          FSV_READ and FSV_READAT
+Connection: keep-alive
 ```
 
-§92.4's profile and its rules: one connection a request, closed by the
-server; no chunked decoding, no redirects, no keep-alive; a status other
-than 200 or 206 is a failure that names its number. `https://` is refused by
-name, as the browser refuses it (§71.2) - a TLS source goes through the host
-proxy. A path byte other than a letter, a digit, `/`, `.`, `-` or `_` is sent
-`%XX`, because an 8.3 name may carry `#`, `%` or `&`.
+§92.4's profile and its rules, but for the kept connection (§120.2.1): no
+chunked decoding, no redirects; a status other than 200 or 206 is a failure
+that names its number. `https://` is refused by name, as the browser refuses
+it (§71.2) - a TLS source goes through the host proxy. A path byte other than
+an upper-case letter, a digit, `/` or `.` is sent `%XX`, because an 8.3 name
+may carry `#`, `%` or `&` - and every server reads `%XX` as the byte.
 
 **The waiting is the driver's** - every socket verb is non-blocking
 (`drivers/net/netpkg.inc`) - and every wait is bounded by the system tick:
@@ -204856,15 +204856,17 @@ the image) and so is a read of a packed file (the sniff, then the read),
 and each was a handshake and a close. So the request says
 `Connection: keep-alive` - on **HTTP/1.0**, which forbids a chunked reply
 this driver does not decode - and a reply read **whole** leaves its socket
-open (`[hf_live]`) when the server agreed: `Connection: keep-alive`, or an
-HTTP/1.1 status line without `Connection: close`, and a `Content-Length`
-either way. The next GET reuses it when it is still `NSK_UP` with nothing
+open (`[hf_live]`) when the server agreed - **`Connection: keep-alive` in
+the reply, and that alone**: the request is HTTP/1.0, and a 1.0 client's
+connection persists only when the reply says so, whatever version it answers
+in (RFC 7230 6.3) - and sent a `Content-Length`. The next GET reuses it when it is still `NSK_UP` with nothing
 unread on it, and otherwise drops it and opens a fresh one, which is all a
 server's idle close costs. One dying under the request before a byte of
 the reply - the race with that idle close - is retried once on a fresh
 connection; the request is still in `hf_rbuf`, nothing having been received.
 
-A 200 answering a read-at has an unread tail and is never kept; Mount,
+A 200 answering a read has an unread tail and is kept only when the read
+took it to the file's end; Mount,
 Unmount and detach drop a kept connection, so a re-pointed drive never
 sends its next GET to the old server. **What it holds is one of
 `ETHER.DRV`'s socket slots while the drive is idle**, until the server
@@ -204910,7 +204912,11 @@ any of: the magic; a reserved word that is not 0; a count outside
 that is not a folder with parent 0; a folder run that starts at the root or
 runs past the table; a run member that does not name its folder; a parent
 that is not below its child or is a file; a name whose first byte is a space
-or that carries a byte outside `A-Z`, `0-9` and ``$%'-_@~`!(){}^#&``. Each
+or that carries a byte outside `' '`..`'~'`, the range the kernel's listing
+sanitizer passes (§19.1) and so the glyphs the font has - wider than the FAT
+set an export names files with, and as safe: a name the kernel cannot match
+is a file that is not found, and a name past `'~'` is one the font cannot
+draw. Each
 check bounds a later walk: a parent below its child is what ends a path
 walk, a run inside the table is what keeps a listing inside the claim.
 
@@ -204926,8 +204932,8 @@ one on purpose.
 | `FSV_LIST` | the current folder's run, through `OSAPI_FS_ENT` - less its hidden and system entries, which a FAT listing leaves out too |
 | `FSV_STAT` | the current folder's run, by FAT name: the handle, the size, `BL` = 10h a folder / 0 |
 | `FSV_ENUM` | the *n*th of a named folder's run, hidden and system ones included, with the record's attribute at the entry's +24 (§62.9.17.1) |
-| `FSV_READ` | **one GET**; `FERR_BIG` past the capacity, before the request. The body must be the index's size to the byte - a tree replaced under a mounted index fails rather than handing over another file |
-| `FSV_READAT` | **one GET with `Range:`**. A 206 must say it starts at the offset asked and carry the length asked. A 200 has IGNORED the range: the body is the whole file, so the offset is drained and the handle dropped after the bytes wanted - correct on any server, slow only on one that will not range |
+| `FSV_READ` | `FERR_BIG` past the capacity, before any request; then `FSV_READAT`'s GET for the whole file. The body must be the index's size to the byte - a tree replaced under a mounted index fails rather than handing over another file |
+| `FSV_READAT` | **one GET with `Range:`** (`hf_xfer`, which `FSV_READ` shares). A 206 must say it starts at the offset asked and carry the length asked. A 200 has IGNORED the range: the body is the whole file, its length the index's, so the offset is drained and the handle dropped after the bytes wanted unless they reached the file's end - correct on any server, slow only on one that will not range |
 | `FSV_DFREE` | 0 bytes free, granule 512 |
 | `FSV_WRITE` `APPEND` `DELETE` `RENAME` `MKDIR` `RMDIR` | `FERR_WPROT` |
 | `FSV_COPY` `FSV_RMTREE` | not published (0): the kernel's fallbacks |
@@ -204951,6 +204957,11 @@ drive picture.
 | 2 | `HFV_MOUNT` | ES:SI = a NUL address | AL = the volume. **Lazy**: nothing is fetched. A drive already mounted is re-pointed and its index dropped |
 | 3 | `HFV_UNMOUNT` | | the volume and the index go back |
 | 4 | `HFV_FETCH` | | the index fetched now: CX = records; CF = 1 and AX = an `HFE_*` |
+| 5 | `HFV_URL` | ES:DI = 96 bytes | the address the drive is pointed at, NUL-terminated |
+| 6 | `HFV_SAVE` | | `HTTPDRV.CFG` written now, from the address and whether a drive is up (§120.5): CF as the write's |
+
+`BX` is spent by every verb. A refusal's `HFE_*` is kept, so `HFV_STATE`
+reports it again until the next Mount.
 
 ### 120.5 The page and `HTTPDRV.CFG`
 
@@ -204963,6 +204974,18 @@ drive picture.
  <the last failure, in words>
 ```
 
+**The page is its own image, `HTTPPAGE.DRV`** - `RAMPAGE.DRV`'s shape
+(§62.9.9): read off the boot volume's root into a claim from the top by the
+first `DSV_CPPAINT`, and freed at `DSV_CPCLOSE`, so a drive that is up costs
+nothing for a page nobody is looking at. What stays resident is the list
+name, six one-line thunks (the verb in AL, every other register the
+kernel's), the loader they share, one refusal line drawn when the image will
+not come in, and `HTTPDRV.CFG`. The page reaches the drive **through the
+package door** (§120.4), `OSAPI_DRV_CALL` with BH = `DRVC_HTTP` exactly as
+an installer does, so the only ABI between the two images is the verb and the
+overlay header's `HFP_ABI` (`hfpkg.inc`). Its claim is cut from the image by
+the Makefile (`-DHFPAGE_KB`), RAMPAGE_KB's rule.
+
 The list name is `Web Drive`, nine glyphs being what the list holds. One
 field (`apps/os88line.inc`), so it always has the caret; **Enter is Mount**.
 **Mount fetches now** - a user who has just typed an address wants to know
@@ -204972,8 +204995,8 @@ Buttons fire on the release (§13.8.4). Each status line is padded to the
 pane, so a shorter line leaves no tail (§31.9.3).
 
 **Nothing reaches a disk on a click** (§31.8): Mount and Unmount mark the
-settings dirty and `DSV_CPCLOSE` writes `HTTPDRV.CFG` at the boot volume's
-root - `ETHER.CFG`'s shape (§72.7.1): `'HD'`, version 1, a flags byte (bit 0
+page dirty and its close sends `HFV_SAVE`, which writes `HTTPDRV.CFG` at the
+boot volume's root - `ETHER.CFG`'s shape (§72.7.1): `'HD'`, version 1, a flags byte (bit 0
 = mounted), then the 96-byte address. At `DRVV_READY` a file with bit 0 set
 adds the volume **lazily**, so a dead server or a missing card costs the
 boot no time at all.
@@ -204985,7 +205008,8 @@ Measured at one build number against the tree before it:
 | | `kern_big` | `kern_small` |
 |---|---|---|
 | resident | **81 bytes**: `.text` +43 - `drv_tab`'s row (16), its two strings (22), `drv_fptr10`'s pair (4), `drv_svcix`'s byte (1) - and `.bss` +38, `drv_owner`'s word and the class's 36-byte service-table copy. `DRVC_CD`'s shape (§119.5), five bytes of longer name over it. No rung crossed (the image rung 409 -> 316 left). `.boot2` +1, `drv_cfgbit`'s byte, is not resident | 0 - byte-identical |
-| `HTTPFS.DRV` | **7,927 bytes of image, an 8 KB claim while attached; 5,640 on the floppy**, LZ4 - 7,702 / 5,442 before §120.2.1. The 1 KB reader is most of its bss | none |
+| `HTTPFS.DRV` | **5,573 bytes of image, a 6 KB claim while attached; 3,680 on the floppy**, LZ4 - 7,927 / 5,653 with the page in it. The 1 KB reader is most of its bss | none |
+| `HTTPPAGE.DRV` | **2,357 bytes of image, a 3 KB claim while the panel shows the page; 2,030 on the floppy** - four 512-byte clusters, and under 2 KB as split. Half of it is the shared field (`os88line.inc`, 775) and button (`os88ui.inc`, 299) | none |
 | while mounted | the index's claim: `ceil((16 + 18 x records) / 1024)` KB - **2 KB for a system disk's 70 records**, 16 KB at `HF_MAXREC` | none |
 
 **On every `kern_big` system disk, the 360 KB one included**: §24.3.1.6
@@ -205029,6 +205053,5 @@ unpacked text. Taking the 200 arm's offset skip out turns leg 6 red at byte
   kilobyte would spare for files under a kilobyte. Refused for now: with the
   connection kept (§120.2.1) that GET is one round trip, not a handshake.
 - **One drive per driver.**
-- **A 360 KB system disk with room for it.**
 - **An upgrade path that mounts a release by itself** - the door is built
   for it.

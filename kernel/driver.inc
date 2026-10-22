@@ -1454,7 +1454,7 @@ DRVM_IMG_VMM equ 1              ; ceil(build/vmmouse.drv / 1024)
 DRVM_IMG_USBM equ 2             ; ceil(build/usbmouse.drv / 1024)
 DRVM_IMG_EMS equ 1              ; ceil(build/ems.drv / 1024)
 DRVM_IMG_CD  equ 9              ; ceil(build/cdrom.drv / 1024)
-DRVM_IMG_HTTP equ 8             ; ceil(build/httpfs.drv / 1024)
+DRVM_IMG_HTTP equ 6             ; ceil(build/httpfs.drv / 1024)
 
 DRVM_SND     equ DRVM_IMG_SND + 16        ; SBL_PLAYKB: what it holds PLAYING -
                                 ; a 16KB ring the card reads in place, and no

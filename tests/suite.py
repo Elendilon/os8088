@@ -2436,7 +2436,7 @@ SOAK = [
         "SPEC.md 120.3/120.7: the HTTP drive's host tool - OS88.IDX written and "
         "read back, every rule HTTPFS.DRV's hf_valid applies broken on purpose "
         "and refused (magic, length, count, a parent that is not below its "
-        "child, a lower-case name), and the test server's Range: answered 206 "
+        "child, a name byte past the font), and the test server's Range: answered 206 "
         "and, with --no-range, ignored with a 200",
         needs=()),
     Row("httpmountname", "soak", py("tests/httpmount.py", "--name"), 110.0,

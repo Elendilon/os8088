@@ -75,13 +75,7 @@ hf_fetch:
     call hf_drop_idx
     call hf_parse
     jc .fail
-    push ds
-    pop es
-    mov si, hf_s_idx
-    mov di, hf_path
-    mov cx, hf_s_idxl
-    cld
-    rep movsb
+    mov si, hf_s_idx            ; the path is the index's own name
     mov byte [hf_rng], 0
     call hf_get
     jc .fail
@@ -103,10 +97,10 @@ hf_fetch:
     xor dx, dx
     mov bx, HF_REC
     div bx
-    or dx, dx
-    mov dx, HFE_INDEX
-    jnz .dropdx
     mov [hf_nwant], ax
+    mov ax, HFE_INDEX
+    or dx, dx
+    jnz .drop
     mov ax, cx                  ; the claim, in KB
     add ax, 1023
     mov cl, 10
@@ -136,14 +130,11 @@ hf_fetch:
     mov ax, [hf_tseg]
     mov [hf_iseg], ax
     mov ax, [hf_nwant]
-    mov [hf_nrec], ax
-    mov word [hf_cwd], 0
+    mov [hf_nrec], ax           ; ([hf_cwd] is the root: hf_drop_idx said so)
     mov byte [hf_failed], 0
     mov word [hf_err], 0
     clc
     jmp short .out
-.dropdx:
-    mov ax, dx
 .drop:
     call hf_abort
     jmp short .fail
@@ -165,7 +156,6 @@ hf_fetch:
     ret
 
 hf_s_idx:   db 'OS88.IDX', 0
-hf_s_idxl   equ $ - hf_s_idx
 hf_s_magic: db 'OS88IDX', 0
 
 ; -----------------------------------------------------------------------------
@@ -243,10 +233,11 @@ hf_valid:
     mov cx, 11
     mov si, bx
 .nm:
-    mov dl, [es:si]
-    inc si
-    call hf_chok
-    jc .badnm
+    mov dl, [es:si]             ; PRINTABLE, and nothing more: ' '..'~', the
+    inc si                      ; range the kernel's own listing sanitizer
+    sub dl, ' '                 ; passes (SPEC.md 19.1) - what reaches the
+    cmp dl, '~' - ' '           ; font renderer is a glyph it has. The first
+    ja .badnm                   ; byte's space was refused above
     loop .nm
     pop cx
 .next:
@@ -265,43 +256,6 @@ hf_valid:
 .bad:
     stc
     ret
-
-; --- hf_chok - DL = a name byte -> CF=1 = not one the drive lists. Keeps AX ---
-hf_chok:
-    push ax
-    call .t
-    pop ax
-    ret
-.t:
-    cmp dl, ' '
-    je .ok
-    cmp dl, '0'
-    jb .sym
-    cmp dl, '9'
-    jbe .ok
-    cmp dl, 'A'
-    jb .sym
-    cmp dl, 'Z'
-    jbe .ok
-.sym:
-    push si
-    mov si, hf_s_sym
-.s:
-    lodsb
-    or al, al
-    jz .no
-    cmp al, dl
-    jne .s
-    pop si
-.ok:
-    clc
-    ret
-.no:
-    pop si
-    stc
-    ret
-
-hf_s_sym:   db "$%'-_@~`!(){}^#&", 0    ; os88httpdrv.py's NAME_OK, less A-Z/0-9
 
 ; -----------------------------------------------------------------------------
 ; hf_need - the index, fetched if it is not held
@@ -323,39 +277,48 @@ hf_need:
     stc
     ret
 
+; --- hf_cwdrun - the current folder's run: CF=0, ES = the index, AX = its
+;     first record, CX = how many; CF=1 and AX = a FERR_*. clobbers: BX
+hf_cwdrun:
+    call hf_need
+    jc hf_isret
+    mov ax, [hf_cwd]
+    call hf_isdir
+    jc hf_isret
+    mov cx, [es:bx+HR_B]
+    mov ax, [es:bx+HR_A]
+    ret                         ; CF = 0 from hf_isdir
+
 ; --- hf_isdir - AX = a handle -> CF=0 a folder in the index (0 is the root) --
 ;     in: ES = the index. out: BX = its record. CF=1 and AX = FERR_NOENT
 hf_isdir:
-    cmp ax, [hf_nrec]
-    jae .no
-    call hf_rec
-    test byte [es:bx+HR_ATTR], 0x10
-    jz .no
-    clc
-    ret
-.no:
+    call hf_isrec
+    jc hf_isret
+    jnz hf_isret                ; a folder: CF = 0 from the test
+hf_noent:
     mov ax, FERR_NOENT
     stc
+hf_isret:
     ret
 
 ; --- hf_isfile - the same, for a file, and 0 is never one ------------------
 hf_isfile:
     or ax, ax
-    jz .no
-    cmp ax, [hf_nrec]
-    jae .no
-    call hf_rec
-    test byte [es:bx+HR_ATTR], 0x10
-    jnz .prot
-    clc
-    ret
-.prot:
+    jz hf_noent
+    call hf_isrec
+    jc hf_isret
+    jz hf_isret                 ; a file: CF = 0 from the test
     mov ax, FERR_PROT           ; a folder is not a file to read
     stc
     ret
-.no:
-    mov ax, FERR_NOENT
-    stc
+
+; --- hf_isrec - AX in the index: CF=1, AX = FERR_NOENT if not; else BX = its
+;     record, CF = 0 and ZF = 0 for a folder
+hf_isrec:
+    cmp ax, [hf_nrec]
+    jae hf_noent
+    call hf_rec
+    test byte [es:bx+HR_ATTR], 0x10
     ret
 
 ; -----------------------------------------------------------------------------
@@ -419,32 +382,24 @@ hf_stage:
 ; -----------------------------------------------------------------------------
 hf_pretty:
     push si
-    mov cx, 8
+    mov cx, 11                  ; ONE pass over the eleven: spaces dropped (a
+.c:                             ; FAT name has them only as padding, and
+    cmp cl, 3                   ; hf_valid refuses a leading one), a '.' put
+    jne .b                      ; in front of the extension, and taken off
+    mov byte [di], '.'          ; again when no extension followed it
+    inc di
 .b:
     mov al, [es:si]
+    inc si
     cmp al, ' '
-    je .bend
+    je .n
     mov [di], al
     inc di
-    inc si
-    loop .b
-.bend:
-    pop si
-    push si
-    add si, 8
-    cmp byte [es:si], ' '
-    je .end
-    mov byte [di], '.'
-    inc di
-    mov cx, 3
-.e:
-    mov al, [es:si]
-    cmp al, ' '
-    je .end
-    mov [di], al
-    inc di
-    inc si
-    loop .e
+.n:
+    loop .c
+    cmp byte [di-1], '.'
+    jne .end
+    dec di
 .end:
     mov byte [di], 0
     pop si
@@ -497,59 +452,44 @@ hf_mkpath:
 ; -----------------------------------------------------------------------------
 ; hf_name11 - the NUL 8.3 name at ES:SI (KERNEL_SEG) -> hf_want, eleven
 ;             bytes, upper case, space padded. clobbers: AX, CX, DI
+;
+; ONE LOOP: CX is where the part being filled ENDS, so a base past eight or an
+; extension past three is read to its end and kept to its length
 ; -----------------------------------------------------------------------------
 hf_name11:
     push si
-    push es
-    push es
-    push ds
-    pop es
     mov di, hf_want
-    mov al, ' '
     mov cx, 11
-    cld
-    rep stosb
-    pop es
+.sp:
+    mov byte [di], ' '
+    inc di
+    loop .sp
     mov di, hf_want
-    mov cx, 8
+    lea cx, [di+8]
 .b:
     mov al, [es:si]
     inc si
     or al, al
     jz .out
     cmp al, '.'
-    je .ext
-    jcxz .b                     ; a base past 8 is no name we hold
-    call .up
-    mov [di], al
-    inc di
-    dec cx
-    jmp short .b
-.ext:
+    jne .ch
     mov di, hf_want + 8
-    mov cx, 3
-.e:
-    mov al, [es:si]
-    inc si
-    or al, al
-    jz .out
-    jcxz .e
-    call .up
+    lea cx, [di+3]
+    jmp short .b
+.ch:
+    cmp di, cx
+    jae .b                      ; a part past its length is no name we hold
+    cmp al, 'a'
+    jb .put
+    cmp al, 'z'
+    ja .put
+    sub al, 0x20
+.put:
     mov [di], al
     inc di
-    dec cx
-    jmp short .e
+    jmp short .b
 .out:
-    pop es
     pop si
-    ret
-.up:
-    cmp al, 'a'
-    jb .r
-    cmp al, 'z'
-    ja .r
-    sub al, 0x20
-.r:
     ret
 
 ; =============================================================================
@@ -603,13 +543,8 @@ hf_list:
     push cx
     push si
     push es
-    call hf_need
+    call hf_cwdrun
     jc .out
-    mov ax, [hf_cwd]
-    call hf_isdir
-    jc .out
-    mov cx, [es:bx+HR_B]
-    mov ax, [es:bx+HR_A]
     jcxz .out
 .e:
     call hf_stage
@@ -688,13 +623,8 @@ hf_stat:
     push di
     push es
     call hf_name11              ; (ES = KERNEL_SEG still)
-    call hf_need
+    call hf_cwdrun
     jc .out
-    mov ax, [hf_cwd]
-    call hf_isdir
-    jc .out
-    mov cx, [es:bx+HR_B]
-    mov ax, [es:bx+HR_A]
     jcxz .noent
 .e:
     push cx
@@ -779,10 +709,11 @@ hf_ioerr:
 ; FSV_READ - AX = a handle, DX:BX = the buffer, DI:CX = its capacity
 ; out: CF=0 and DX:AX = the bytes read; CF=1 and AX = a FERR_*
 ;
-; ONE GET, and the capacity checked HERE before it: the loader reaches this
-; cell without the kernel's own check (SPEC.md 62.9.18). The body must be the
-; index's size to the byte - a tree replaced under a mounted index fails here
-; rather than handing over a different file.
+; The capacity checked HERE before any request: the loader reaches this cell
+; without the kernel's own check (SPEC.md 62.9.18). Then it is FSV_READAT's
+; one GET for the whole file, and so the body must be the index's size to the
+; byte - a tree replaced under a mounted index fails rather than handing over
+; a different file.
 ; -----------------------------------------------------------------------------
 hf_read:
     push bx
@@ -800,71 +731,28 @@ hf_read:
     cmp ax, cx
     ja .big
 .fits:
-    mov byte [hf_rng], 0
-    call hf_get
-    jc .io
-    mov ax, HFE_SHORT
-    cmp word [hf_status], 200
-    jne .io
-    call hf_lenis
-    jc .io
-    mov ax, [hf_fsize]
-    mov [hf_left], ax
-    mov ax, [hf_fsize+2]
-    mov [hf_left+2], ax
     xor ax, ax
-    mov [hf_skip], ax
-    mov [hf_skip+2], ax
-    mov byte [hf_prog], 1       ; the bar is ours to step (SPEC.md 12.8.1)
-    call hf_body
-    jc .io
-    call hf_done
+    mov [hf_rlo], ax
+    mov [hf_rlo+2], ax
     mov ax, [hf_fsize]
+    mov [hf_rn], ax
     mov dx, [hf_fsize+2]
-    clc
-    jmp short .out
+    mov [hf_rn+2], dx
+    or ax, dx
+    jz hf_rdout                 ; nothing to fetch: DX:AX = 0, CF = 0
+    mov al, 1                   ; the bar is ours to step (SPEC.md 12.8.1)
+    jmp short hf_rdgo
 .big:
     mov ax, FERR_BIG
     xor dx, dx
     stc
-    jmp short .out
-.io:
-    call hf_ioerr
 .out:
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop bx
-    ret
-
-; --- hf_lenis - a Content-Length, if sent, must be [hf_fsize]. CF=1, AX ----
-hf_lenis:
-    cmp byte [hf_hasl], 0
-    je .ok
-    mov ax, [hf_clen]
-    cmp ax, [hf_fsize]
-    jne .no
-    mov ax, [hf_clen+2]
-    cmp ax, [hf_fsize+2]
-    jne .no
-.ok:
-    clc
-    ret
-.no:
-    mov ax, HFE_SHORT
-    stc
-    ret
+    jmp short hf_rdout
 
 ; -----------------------------------------------------------------------------
 ; FSV_READAT - AX = a handle, DX:BX = the buffer, CX = its capacity, DI:SI =
 ;              the offset. out: CF=0 and DX:AX = the bytes delivered, 0 at or
 ;              past the end
-;
-; A `Range:` GET for exactly what is wanted. A server that answers 200 has
-; ignored it: the body is the whole file, so the offset is DRAINED and the
-; connection dropped after the bytes wanted - correct on any server, and slow
-; only on one that will not range.
 ; -----------------------------------------------------------------------------
 hf_readat:
     push bx
@@ -873,27 +761,55 @@ hf_readat:
     push di
     push es
     call hf_open_file
-    jc .out
+    jc hf_rdout
     mov [hf_rlo], si
     mov [hf_rlo+2], di
     mov ax, [hf_fsize]          ; what is left past the offset, 32 bits
     mov dx, [hf_fsize+2]
     sub ax, si
     sbb dx, di
-    jc .eof
+    jnc .left
+    xor ax, ax                  ; past the end: 0, which is answered below
+    cwd
+.left:
     or dx, dx
     jnz .clamp
-    or ax, ax
-    jz .eof
     cmp ax, cx
     jbe .take
 .clamp:
     mov ax, cx
 .take:
-    or ax, ax
-    jz .eof
+    xor dx, dx
     mov [hf_rn], ax
+    mov [hf_rn+2], dx
+    or ax, ax
+    jz hf_rdout                 ; DX:AX = 0 and CF = 0: at or past the end
+    xor al, al                  ; the copy engine steps its own bar
+hf_rdgo:
+    call hf_xfer
+hf_rdout:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+; -----------------------------------------------------------------------------
+; hf_xfer - THE GET both reads make: `Range:` for exactly [hf_rn] bytes from
+;           [hf_rlo] into [hf_bseg]:[hf_boff] ([hf_fsize] = the whole file's)
+; in:  AL = [hf_prog]'s value. out: CF=0 and DX:AX = [hf_rn]; CF=1, AX =
+;      FERR_IO, DX = 0, the reason in [hf_err]. clobbers: BX, CX, SI, DI
+;
+; A 206 must say it starts at the offset asked and carry the length asked. A
+; server that answers 200 has IGNORED the range: the body is the whole file -
+; its length checked against the index's - so the offset is DRAINED, and the
+; connection is kept only if the read took the body to its end. Correct on any
+; server, and slow only on one that will not range.
+; -----------------------------------------------------------------------------
+hf_xfer:
+    mov [hf_prog], al
     mov byte [hf_rng], 1
+    mov si, hf_path
     call hf_get
     jc .io
     xor ax, ax
@@ -920,39 +836,56 @@ hf_readat:
     jne .io
     cmp byte [hf_hasl], 0
     je .body
-    cmp word [hf_clen+2], 0
-    jne .io
     mov dx, [hf_clen]
     cmp dx, [hf_rn]
+    jne .io
+    mov dx, [hf_clen+2]
+    cmp dx, [hf_rn+2]
     jne .io
 .body:
     mov ax, [hf_rn]
     mov [hf_left], ax
-    mov word [hf_left+2], 0
-    mov byte [hf_prog], 0       ; the copy engine steps its own bar
+    mov ax, [hf_rn+2]
+    mov [hf_left+2], ax
     call hf_body
     jc .io
-    cmp word [hf_status], 206   ; a 206 was read whole and may be kept; a
-    jne .tail                   ; 200's unread tail means the handle goes
+    cmp word [hf_status], 206   ; a 206 was read whole and may be kept...
+    je .done
+    mov ax, [hf_rlo]            ; ...and a 200 only when the offset and the
+    mov dx, [hf_rlo+2]          ; count reach the end of the file: its
+    add ax, [hf_rn]             ; unread tail means the handle goes
+    adc dx, [hf_rn+2]
+    cmp ax, [hf_fsize]
+    jne .tail
+    cmp dx, [hf_fsize+2]
+    jne .tail
+.done:
     call hf_done
-    jmp short .kept
+    jmp short .ok
 .tail:
     call hf_abort
-.kept:
+.ok:
     mov ax, [hf_rn]
-.eof0:
-    xor dx, dx
+    mov dx, [hf_rn+2]
     clc
-    jmp short .out
-.eof:
-    xor ax, ax
-    jmp short .eof0
+    ret
 .io:
-    call hf_ioerr
-.out:
-    pop es
-    pop di
-    pop si
-    pop cx
-    pop bx
+    jmp hf_ioerr
+
+; --- hf_lenis - a Content-Length, if sent, must be [hf_fsize]. CF=1, AX ----
+hf_lenis:
+    cmp byte [hf_hasl], 0
+    je .ok
+    mov ax, [hf_clen]
+    cmp ax, [hf_fsize]
+    jne .no
+    mov ax, [hf_clen+2]
+    cmp ax, [hf_fsize+2]
+    jne .no
+.ok:
+    clc
+    ret
+.no:
+    mov ax, HFE_SHORT
+    stc
     ret

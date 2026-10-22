@@ -3273,6 +3273,8 @@ DRIVERS += $(BUILD)/cdrom.drv
 # ON EVERY kern_big SYSTEM DISK, the 360KB one included: SPEC.md 24.3.1.6
 # made that disk's room for it.
 DRIVERS += $(BUILD)/httpfs.drv
+# ...and its Control Panel page, which it reads in itself (SPEC.md 120.5)
+DRIVERS += $(BUILD)/httppage.drv
 # ...and SPEC.md 9.11's absolute pointer is NOT HERE, which is the one entry
 # in this list that is an absence. Its code is 386 instructions and the target
 # machine is an 8088, so it is the one file in the tree that MUST NOT BE
@@ -4485,12 +4487,28 @@ $(BUILD)/cdrom.drv: $(BUILD)/cdrom.bin tools/os88drv.py $(PKGZSTAMP)
 
 # HTTPFS.DRV - SPEC.md 120: a read-only volume served over HTTP, through the
 # socket verbs ETHER.DRV and the cable answer (drivers/net/netpkg.inc).
+# Its Control Panel page is HTTPPAGE.DRV, RAMPAGE.DRV's shape (SPEC.md 120.5):
+# built FIRST, because -DHFPAGE_KB is the claim HTTPFS.DRV makes for it, off
+# the IMAGE - a ceiling, the transparent read expanding the 'CZ' file into it.
 HTTPFS_SRC := drivers/httpfs/httpfs.asm drivers/httpfs/hfpkg.inc \
               drivers/httpfs/hfnet.inc drivers/httpfs/hfidx.inc \
               drivers/httpfs/hfpage.inc drivers/net/netpkg.inc \
-              apps/os88sock.inc apps/os88ui.inc apps/os88line.inc
-$(BUILD)/httpfs.bin: $(HTTPFS_SRC) drivers/os88drv.inc apps/os88api.inc | $(BUILD)
+              apps/os88sock.inc
+$(BUILD)/httppage.bin: drivers/httpfs/httppage.asm drivers/httpfs/hfpkg.inc \
+                       drivers/net/netpkg.inc drivers/os88drv.inc \
+                       apps/os88api.inc apps/os88ui.inc apps/os88line.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I drivers/httpfs/ -I drivers/net/ -I drivers/ -I apps/ -o $@ $<
+	@echo "httppage: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/httppage.drv: $(BUILD)/httppage.bin tools/os88drv.py $(PKGZSTAMP)
+	$(OS88DRV) $(BUILD)/httppage.bin -o $@
+
+$(BUILD)/httpfs.bin: $(HTTPFS_SRC) drivers/os88drv.inc apps/os88api.inc \
+                     $(BUILD)/httppage.bin | $(BUILD)
+	$(NASM) -f bin -w+error -I drivers/httpfs/ -I drivers/net/ -I drivers/ -I apps/ \
+	        -DHFPAGE_KB=$$(( ( $(call FILESIZE,$(BUILD)/httppage.bin) + 1023 ) / 1024 )) \
+	        -o $@ $<
+	@echo "httpfs: $(call FILESIZE,$@) bytes"
 
 $(BUILD)/httpfs.drv: $(BUILD)/httpfs.bin tools/os88drv.py $(PKGZSTAMP)
 	$(OS88DRV) $(BUILD)/httpfs.bin -o $@

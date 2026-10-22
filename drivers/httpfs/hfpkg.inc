@@ -32,7 +32,28 @@ HFV_FETCH    equ 4              ; fetch the index NOW -> CF=0, CX = records;
                                 ;    CF=1, AX = an HFE_*. So a caller learns
                                 ;    whether the server answers before it
                                 ;    shows anything
-HFV_MAX      equ 4
+HFV_URL      equ 5              ; ES:DI = HF_URLMAX bytes -> the address the
+                                ;    drive is pointed at (or the one the
+                                ;    settings file named), NUL-terminated
+HFV_SAVE     equ 6              ; HTTPDRV.CFG written NOW, from the address
+                                ;    and whether a drive is up: CF as the
+                                ;    write's. The page sends it at its close
+HFV_MAX      equ 6
+
+HF_URLMAX    equ 96             ; an address, NUL included
+
+; --- HTTPPAGE.DRV, the page's own image (SPEC.md 120.5) ----------------------
+; Not a door: the verbs the resident's six Control Panel thunks send the page
+; image, in AL, every other register exactly as the kernel handed them over.
+HFP_ABI      equ 1              ; the overlay header's +10; a page built
+                                ;    against another table is refused
+HPT_PAINT    equ 0
+HPT_CLICK    equ 1
+HPT_UP       equ 2
+HPT_DRAG     equ 3
+HPT_KEY      equ 4
+HPT_CLOSE    equ 5
+HPT_MAX      equ 5
 
 HF_SIG       equ 'HF'
 HF_ABI       equ 1
