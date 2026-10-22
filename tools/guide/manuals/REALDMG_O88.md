@@ -149,13 +149,14 @@ settings. They give RealDMG less to draw when the picture moves.
 black and white only: the light greys turn white and the dark ones black.
 There is less to draw, about a tenth.
 
-**Scroll by 8.** **Screen > Scroll by 8**, or `F11`, moves the picture in
-steps of 8 pixels instead of one at a time. Everything on the screen moves
-together, so the game still lines up, but a smooth scroll becomes a jump
-every few frames. While a game scrolls there is much less to draw, about a
-quarter. Some games are harder to play this way.
+**Scroll.** **Screen > Scroll**, or `F11`, steps through Smooth, By 8,
+By 4 and By 2. Anything but Smooth moves the picture in steps of that many
+pixels instead of one at a time. Everything on the screen moves together, so
+the game still lines up, but a smooth scroll becomes a jump every few frames.
+By 8 saves the most while a game scrolls, about a quarter of the drawing, and
+is the hardest to play; By 4 and By 2 are gentler and save less.
 
-RealDMG remembers Two Shades and Scroll by 8 for each game.
+RealDMG remembers Two Shades and Scroll for each game.
 
 **Speed.** **CPU > Speed**, or `F4`, holds the game at 100%, 90%, 75% or 50%
 of a Game Boy's speed. The time the game does not use goes to the picture,
@@ -282,7 +283,7 @@ the same as the item.
 |---|---|---|
 | Interlace: Off | `F2` | Step through Off, On, Scrolling and Doubled |
 | Two Shades | `F10` | Draw in black and white only, for speed. Kept for each game |
-| Scroll by 8 | `F11` | Move the picture in steps of 8 pixels, for speed. Kept for each game |
+| Scroll | `F11` | Smooth, or move the picture in steps of 8, 4 or 2 pixels, for speed. Kept for each game |
 
 ## The CPU menu
 

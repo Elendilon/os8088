@@ -88,15 +88,16 @@ rw_mgrey:
     mov si, [rw_ilit + bx]
     inc si
     mov [rw_i_scr + 2 * RW_SIL], si ; SCREEN: Interlace says what it is,
-%ifdef RDG_LOSSY                    ;   Two Shades and Scroll by 8 marked
+%ifdef RDG_LOSSY                    ;   Two Shades marked, Scroll
     mov al, [rdg_lossy]
     and al, RDG_LBW
     mov si, rw_it_bw
     call rw_mark
-    mov al, [rdg_lossy]
-    and al, RDG_LCOARSE
-    mov si, rw_it_co
-    call rw_mark
+    mov bl, [rdg_lossy]             ;   says its step
+    and bx, RDG_LCOARSE             ;   (the level, x 2 = the word)
+    mov si, [rw_coit + bx]
+    inc si
+    mov [rw_i_scr + 2 * RW_SCO], si
 %endif
     ; CPU: the three modes marked by the one chosen, Profile for Static
     ; and the cache likewise; the speed chosen marked

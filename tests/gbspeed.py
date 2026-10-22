@@ -20,9 +20,10 @@ core's frame counter against guest seconds:
      header's checksums.
 
 And Screen's two, kept beside it (REALDMG-SPEC 13.4): Screen > Two Shades
-and Scroll by 8 picked on the running game - posted by the UI task, turned
-over by the worker between frames - read back as rdg_lossy 3, and 3 again
-when the game is opened anew.
+and Scroll picked twice on the running game (Smooth -> By 8 -> By 4) - posted
+by the UI task, turned over by the worker between frames - read back as
+rdg_lossy 5, and 5 again when the game is opened anew: bit 7 of the record
+kept as well as bits 5 and 6.
 
 Without the clock's scaling (rw_pertick back to RW_PERTICK) step 2 reads
 100%; without rw_spdgame step 3 does, and Screen's two read 0.
@@ -108,12 +109,14 @@ def main():
         if not 0.73 <= r <= 0.77:
             fails.append("at 75%% it ran at %.1f%%" % (r * 100))
         ui.menu_pick("Screen", "Two Shades")
-        ui.menu_pick("Screen", "Scroll by 8")
+        ui.menu_pick("Screen", "Scroll: Smooth")
         M.guest_sleep(m, 2)                 # (the worker's, between frames)
+        ui.menu_pick("Screen", "Scroll: By 8")
+        M.guest_sleep(m, 2)
         lo = lossy(m, viewoff)
-        print("gbspeed: Screen's Two Shades and Scroll by 8: rdg_lossy %s" % lo)
-        if lo != 3:
-            fails.append("Screen's two picked read rdg_lossy %s, not 3" % lo)
+        print("gbspeed: Screen's Two Shades and Scroll by 4: rdg_lossy %s" % lo)
+        if lo != 5:
+            fails.append("Screen's two picked read rdg_lossy %s, not 5" % lo)
         M.guest_sleep(m, 2)                 # (REALDMG.CFG, the UI task's)
         ui.close(w)
         M.guest_sleep(m, 3)
@@ -130,7 +133,7 @@ def main():
                              % (r * 100))
             lo = lossy(m, viewoff)
             print("gbspeed: opened again: rdg_lossy %s" % lo)
-            if lo != 3:
+            if lo != 5:
                 fails.append("opened again rdg_lossy read %s - Screen's two were not kept" % lo)
     for f in fails:
         print("FAIL gbspeed: " + f)

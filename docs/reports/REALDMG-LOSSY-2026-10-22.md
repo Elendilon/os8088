@@ -232,6 +232,27 @@ The one tick at 1,200 frames is the tick's phase: the larger harness loads
 1.5KB more before the timed span, and over four times the frames the two
 read a tick apart the other way.
 
+## 5.2 Scroll by 4 and by 2
+
+The owner asked for gentler steps, F11 cycling Off, 8, 4, 2. The step is a
+mask (`rdg_cmask`) the snap reads instead of a constant `0F8h`, set when the
+level is patched; By 8 re-measured on the new code reads the same ticks as
+before (302 and 659). Bare harness, `286-victory`, ms a frame:
+
+| | Super Mario Land | | Kirby's Dream Land | |
+|---|---|---|---|---|
+| Smooth | 18.40 | | 38.86 | |
+| By 8 (`LOSSY_COARSE`) | 13.82 | -24.9% | 30.16 | -22.4% |
+| By 4 (`+LOSSY_COARSE4`) | 14.83 | -19.4% | 32.13 | -17.3% |
+| By 2 (`+LOSSY_COARSE2`) | 16.02 | -12.9% | 34.74 | -10.6% |
+
+By 4 keeps four fifths of By 8's saving at half its jump; By 2 a half. They
+earn less than 7 in 8 / 3 in 4 / 1 in 2 still frames would suggest because a
+snapped SCX of 4 or 2 is not a whole byte - the shift stays on the frames
+that do move - and a scroll faster than a pixel a frame moves at every step
+below 8. (The lossy harness needs `LOSSY_COARSE` beside the other two to sit
+low enough: `RDG_DEFS=LOSSY_COARSE,LOSSY_COARSE4`.)
+
 ## 6. Re-taking it
 
 ```

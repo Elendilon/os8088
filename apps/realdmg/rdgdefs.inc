@@ -305,3 +305,9 @@ RDGF_C           equ 0x01
 %ifdef LOSSY_COARSE
 %define RDG_LOSSY
 %endif
+%ifdef LOSSY_COARSE4
+%define RDG_LOSSY
+%endif
+%ifdef LOSSY_COARSE2
+%define RDG_LOSSY
+%endif

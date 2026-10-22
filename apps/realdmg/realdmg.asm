@@ -2788,7 +2788,7 @@ rw_keys:
 .nof9:
 %ifdef RDG_LOSSY
     mov al, 44h                     ; F10: TWO SHADES on or off, F11: THE
-    mov bx, rw_f10was               ;   CAMERA IN STEPS OF 8 (rdg_lossy,
+    mov bx, rw_f10was               ;   CAMERA IN STEPS OF 8, 4, 2 (rdg_lossy,
     mov cl, 40h                     ;   REALDMG-SPEC 13.4) - said, and the
     call rw_fedge                   ;   next draw whole. No menu item, and
     jnc .nof10                      ;   not kept: they are to be tried
@@ -2874,35 +2874,45 @@ rw_keys:
     pop ds
     ret
 %ifdef RDG_LOSSY
-; rw_lossyt - AL = rdg_lossy bits to turn over (F10, F11, Screen's items):
-; the composer patched (rdg_lpatch - so this runs where no task is inside it:
-; rw_keys, the worker's loop, a game not running), said, kept for the game,
-; and the next draw whole. Clobbers BX, SI, DX
+; rw_lossyt - AL = RDG_LBW to turn Two Shades over, RDG_LCOARSE to take
+; Scroll's next step (Off, 8, 4, 2 - F11, Screen's items): the composer
+; patched (rdg_lpatch - so this runs where no task is inside it: rw_keys,
+; the worker's loop, a game not running), said, kept for the game, and the
+; next draw whole. Clobbers BX, SI, DX
 rw_lossyt:
+    test al, RDG_LBW
+    jz .co
     xor [rdg_lossy], al
     call rdg_lpatch
     mov si, rw_s_bw
-    mov dx, rw_s_bw2 - rw_s_bw
-    test al, RDG_LBW
-    jnz .s
-    mov si, rw_s_co
-    mov dx, rw_s_co2 - rw_s_co
-    mov al, RDG_LCOARSE
-.s:
     test [rdg_lossy], al
     jnz .on
-    add si, dx                      ; (its "Off", after its "On")
+    mov si, rw_s_bw2                ; (its "Off")
 .on:
+    call rw_mgrey
+    jmp short .say
+.co:
+    mov ah, [rdg_lossy]             ; the level's next, wrapping to Off
+    mov dl, ah
+    and dl, ~RDG_LCOARSE
+    add ah, RDG_LCO8
+    and ah, RDG_LCOARSE
+    or ah, dl
+    mov [rdg_lossy], ah
+    call rdg_lpatch
+    call rw_mgrey
+    mov si, [rw_i_scr + 2 * RW_SCO] ; (what rw_mgrey made the item say)
+.say:
     call rw_note
     call rw_dmgfull
     call rw_cfgrec                  ; kept for the game, REALDMG.CFG the UI
-    call rw_mgrey                   ;   task's to write (as F4's and F9's)
+                                    ;   task's to write (as F4's and F9's)
     mov byte [rw_spdq], 1
     mov bx, [rw_win]
     call OSAPI_WM_WAKE
     ret
 
-; rw_losspost - Screen > Two Shades or Scroll by 8, on the UI task: AL the
+; rw_losspost - Screen > Two Shades or Scroll, on the UI task: AL the
 ; bit, for the worker to turn over between frames (rw_lossq) - or now, with
 ; no game running and so no draw to be inside
 rw_losspost:
@@ -3074,8 +3084,6 @@ rw_f11was:  db 0
 rw_lossq:   db 0                    ; Screen's toggles for the worker
 rw_s_bw:    db 'Two shades: On', 0  ; (rw_lossyt's: each "On", then its
 rw_s_bw2:   db 'Two shades: Off', 0 ;   "Off")
-rw_s_co:    db 'Scroll by 8: On', 0
-rw_s_co2:   db 'Scroll by 8: Off', 0
 rw_lflq:    db 0                    ; F12: the log to be written by the UI
                                     ;   task (rw_onwake, rw_fsenter's end)
 rw_ftyped:  db 0                    ; ...and this look's (rw_fedge)
@@ -3621,7 +3629,7 @@ rw_spdgame:
     jc .r
 %ifdef RDG_LOSSY
     mov al, [si + 3]                ; bits 5 and 6: Two Shades and Scroll by
-    mov cl, 5                       ;   8 (rdg_lossy) - patched here, before
+    mov cl, 5                       ;   8/4/2, bits 6-7 (rdg_lossy) - patched here, before
     shr al, cl                      ;   the worker is hired
     and al, RDG_LBW | RDG_LCOARSE
     mov [rdg_lossy], al
@@ -3712,7 +3720,7 @@ rw_cfgrec:
     shl al, cl
     or al, [rw_speed]
 %ifdef RDG_LOSSY
-    mov ah, [rdg_lossy]             ; (bits 5 and 6: Screen's two)
+    mov ah, [rdg_lossy]             ; (bits 5-7: Screen's two)
     mov cl, 5
     shl ah, cl
     or al, ah
@@ -4038,7 +4046,7 @@ RW_MCTL         equ 9
 rw_m_scr:       db 'Screen', 0      ; SCREEN: what the picture may leave out
 rw_i_scr:       dw rw_it_il0 + 1    ;   for speed (REALDMG-SPEC 13.2, 13.4)
 %ifdef RDG_LOSSY
-                dw rw_it_sep, rw_it_bw + 1, rw_it_co + 1
+                dw rw_it_sep, rw_it_bw + 1, rw_it_co0 + 1
 RW_SCRN         equ 4
 %else
 RW_SCRN         equ 1
@@ -4080,7 +4088,10 @@ rw_it_sep:      db MENU_DIS, '----------------------', 0
     RW_MI rw_it_il3, 'Interlace: Doubled', 'F2'
     RW_MI rw_it_log, 'Log', 'F12'
     RW_MI rw_it_bw, 'Two Shades', 'F10'
-    RW_MI rw_it_co, 'Scroll by 8', 'F11'
+    RW_MI rw_it_co0, 'Scroll: Smooth', 'F11'
+    RW_MI rw_it_co1, 'Scroll: By 8', 'F11'
+    RW_MI rw_it_co2, 'Scroll: By 4', 'F11'
+    RW_MI rw_it_co3, 'Scroll: By 2', 'F11'
     RW_MI rw_it_ctl, 'Controls...', ''
     RW_MI rw_it_jon, 'Recompiler', 'F3'
     RW_MI rw_it_jst, 'Static Recompiler', 'F3'
@@ -4110,6 +4121,9 @@ rw_s_cfg:       db 'REALDMG.CFG', 0
 rw_spdit:       dw rw_it_spd0, rw_it_spd1, rw_it_spd2, rw_it_spd3
 rw_sndit:       dw rw_it_snd0, rw_it_snd1, rw_it_snd2
 rw_ilit:        dw rw_it_il0, rw_it_il1, rw_it_il2, rw_it_il3
+%ifdef RDG_LOSSY
+rw_coit:        dw rw_it_co0, rw_it_co1, rw_it_co2, rw_it_co3
+%endif
 rw_jit:         dw rw_it_jon, rw_it_joff, rw_it_jst  ; (by rw_jitmode - 1)
 rw_jmenu:       db 1, 3, 2          ; CPU's items 0-2: the mode each chooses
 rw_spdtab:      dw 256, 230, 192, 128   ; Speed, 256ths of the Game Boy's

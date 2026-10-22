@@ -41,7 +41,7 @@ F3          the next of CPU > Recompiler, Static Recompiler and
 F4          CPU > Speed's next setting
 F9          Machine > Sound's next setting
 F10         Screen > Two Shades, on or off
-F11         Screen > Scroll by 8, on or off
+F11         Screen > Scroll's next step
 1 to 9      the save state slot
 F5          save the game's state in that slot
 F8          load it back
@@ -111,8 +111,9 @@ Screen > Interlace       Off, On, Scrolling or Doubled (F2): less to draw
 Screen > Two Shades      black and white only (F10): the light greys
                          white and the dark ones black, for ~10% more
                          speed. Kept for each game
-Screen > Scroll by 8     the picture moves in steps of 8 pixels (F11),
-                         for ~25% more speed while it scrolls. Some
+Screen > Scroll          Smooth, By 8, By 4 or By 2 (F11): the picture
+                         moves in steps of that many pixels, for more
+                         speed while it scrolls (By 8 ~25%). Some
                          games are harder to play this way. Kept for
                          each game
 

@@ -1167,14 +1167,16 @@ reference sharing `ppu_line` and the sprites with what it checks.
   cache gives up (256 bytes).
 
 
-### 13.4 The lossy picture: Two Shades and Scroll by 8
+### 13.4 The lossy picture: Two Shades and Scroll by 8, 4 or 2
 
 **Two things the picture may leave out, for speed: Screen > Two Shades
-(F10) and Screen > Scroll by 8 (F11)**, each kept for the game in
+(F10) and Screen > Scroll (F11), which steps Smooth, By 8, By 4, By 2**, each kept for the game in
 REALDMG.CFG with its Speed and Sound (15.2). `rdg_lossy` in `rdgppu.inc`
-holds them, `RDG_LBW` and `RDG_LCOARSE`; the code is assembled under
-`RDG_LOSSY`, which the package defines and the bare harness only with
-`LOSSY_BW` or `LOSSY_COARSE` (docs/reports/REALDMG-LOSSY-2026-10-22.md).
+holds them, `RDG_LBW` and `RDG_LCOARSE` - the latter a two-bit LEVEL,
+`RDG_LCO8`, `RDG_LCO4`, `RDG_LCO2`, which F11 advances and wraps to off; the
+code is assembled under `RDG_LOSSY`, which the package defines and the bare
+harness only with `LOSSY_BW`, `LOSSY_COARSE`, `LOSSY_COARSE4` or
+`LOSSY_COARSE2` (docs/reports/REALDMG-LOSSY-2026-10-22.md).
 Either says its new state (`rw_lossyt`) and the next draw is whole.
 
 - **Off costs nothing - not a test.** Every place the two change is a
@@ -1202,21 +1204,26 @@ Either says its new state (`rw_lossyt`) and the next draw is whole.
   (`ppu_dvgabw`), keeping only plane 1 in the buffer: `rdg_bwst` then makes
   the next draw that reads the buffer (the window's, the 1bpp writers')
   whole. `rdg_render` writes bit 1 as both.
-- **SCROLL BY 8**: SCX is snapped to a multiple of 8 and the rest added to
-  every sprite's X (`rdg_csd`), so the picture stays together and the
-  camera moves in 8-pixel steps. A raster write's SCX is logged snapped,
+- **SCROLL BY 8, 4 OR 2**: SCX is snapped to a multiple of the step
+  (`and` with `rdg_cmask`, F8h, FCh or FEh, which `rdg_lpatch` sets from
+  the level) and the rest (`rdg_cfine`'s bits) added to every sprite's X
+  (`rdg_csd`), so the picture stays together and the camera moves in steps
+  of 8, 4 or 2. A raster write's SCX is logged snapped,
   the rest in the log entry's fourth byte (`rdg_rlog`), which
   `ppu_logsame` then does not compare - a status bar's split stays the
   same log every frame - and `ppu_log` takes it at the entry's line. When
   the frame's set of fine scrolls changes (`rdg_csig`) every sprite has
   moved: OAM's shadow is made to differ in X so the scan marks their
-  lines. SCY is not snapped. Seven scrolled frames in eight become still
-  frames, and every background line takes `ppu_fcopyb`. Some games are
+  lines. SCY is not snapped. At 8, seven scrolled frames in eight become
+  still frames and every background line takes `ppu_fcopyb`; at 4 and 2,
+  three in four and one in two, a scroll of a pixel a frame - and the
+  shift stays, the snapped SCX not being a whole byte. Some games are
   harder to play: the owner's verdict, and why it is a choice.
 - **What they buy**, drawing every frame on `286-victory` (`rdgbench
   --vga`): Super Mario Land 18.40 ms a frame, 16.57 with Two Shades, 13.82
   with Scroll by 8, 13.23 both; Kirby's Dream Land 38.86, 35.20, 30.16,
-  29.11.
+  29.11. Scroll by 4 and by 2: Super Mario Land 14.83 and 16.02, Kirby's
+  Dream Land 32.13 and 34.74 (-19% and -13%, -17% and -11%).
 
 ## 14. The package
 
@@ -1484,7 +1491,7 @@ Four on the bar, none over 11 items - a pull-down taller than that runs
 off CGA's 200 lines, and the kernel does not clamp one (`menu_pull`):
 - **Machine:** Load Game..., Reset, Pause, Full Screen (Alt+Enter) | Sound
   (F9), Show Stats (F1), Log (F12) | Controls...
-- **Screen:** Interlace (F2) | Two Shades (F10), Scroll by 8 (F11) - what
+- **Screen:** Interlace (F2) | Two Shades (F10), Scroll (F11) - what
   the picture may leave out for speed (13.2, 13.4).
 - **CPU:** Recompiler, Static Recompiler, Interpreter (F3 steps through
   them, 16.7) | Profile for Static, Cache: 128K | Speed 100%, 90%, 75%, 50%
@@ -1668,8 +1675,8 @@ Speed's next, in the window and full screen alike, and says it
 - **Both are the game's**, remembered in REALDMG.CFG version 2: a count at
   +4 and, from +8, `RW_CFGGN` (32) entries of four bytes, the latest first
   - the header's 014Dh byte and 014Eh word (as a profile's name takes
-  them), then Speed in bits 0-2, Sound in 3-4 and Screen's Two Shades and Scroll by
-  8 in 5 and 6 (`rw_cfgrec`; a RealDMG from before them masks them off). A game
+  them), then Speed in bits 0-2, Sound in 3-4 and Screen's Two Shades in 5 and
+  Scroll's level in 6-7, bit 6 alone being By 8 as it always was (`rw_cfgrec`; a RealDMG from before them masks them off). A game
   opened (`rw_spdgame`) takes its entry; one with none keeps what was
   chosen before it, kept for it at its first change. The menu writes the
   file at once; F4's change is the UI task's to write (`[rw_spdq]`,

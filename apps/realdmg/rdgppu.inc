@@ -2692,14 +2692,21 @@ PPU_SPRITE ppu_spriteb, ppu_putb, PPU_BL, PPU_BH
 ; =============================================================================
 rdg_lstart:
 RDG_LBW          equ 01h                 ; rdg_lossy: TWO SHADES - shade bit 1
-RDG_LCOARSE      equ 02h                 ;   alone; the CAMERA IN STEPS OF 8
+RDG_LCOARSE      equ 06h                 ;   alone; the CAMERA IN STEPS - a
+RDG_LCO8         equ 02h                 ;   level, not a bit: of 8, of 4 or
+RDG_LCO4         equ 04h                 ;   of 2 (F11 cycles Off, 8, 4, 2)
+RDG_LCO2         equ 06h
 %ifdef LOSSY_BW
 %define RDG_L0_BW RDG_LBW
 %else
 %define RDG_L0_BW 0
 %endif
-%ifdef LOSSY_COARSE
-%define RDG_L0_CO RDG_LCOARSE
+%ifdef LOSSY_COARSE2
+%define RDG_L0_CO RDG_LCO2
+%elifdef LOSSY_COARSE4
+%define RDG_L0_CO RDG_LCO4
+%elifdef LOSSY_COARSE
+%define RDG_L0_CO RDG_LCO8
 %else
 %define RDG_L0_CO 0
 %endif
@@ -2709,6 +2716,9 @@ rdg_lpdone       db 0                    ; rdg_lhooks' originals are kept
 rdg_csd          db 0                    ; SCROLL BY 8: the fine scroll the
 rdg_csig         db 0                    ;   sprites are moved by, and the
                                         ;   frame's set of them
+rdg_cmask        db 0F8h                 ; the step's: SCX AND this snaps it,
+rdg_cfine        db 7                    ;   AND this is what the sprites
+                                        ;   take (rdg_lpatch, from the level)
 rdg_bwst         db 0                    ; TWO SHADES left the buffer's bit 0
                                         ;   stale under VGA's own writer
 
@@ -2743,6 +2753,20 @@ rdg_lpatch:
     push cx
     push si
     push di
+    mov al,[cs:rdg_lossy]               ; the step: 8 for level 1 (and off),
+    and al,RDG_LCOARSE                  ;   4 for 2, 2 for 3
+    shr al,1
+    mov cl,al
+    mov al,0F8h
+    cmp cl,2
+    jb .m
+    mov al,0FCh
+    je .m
+    mov al,0FEh
+.m:
+    mov [cs:rdg_cmask],al
+    not al
+    mov [cs:rdg_cfine],al
     mov si,rdg_lhooks
 .e:
     mov di,[cs:si]                      ; DI = the site, CX its length
@@ -2936,9 +2960,10 @@ ppu_fcopybh:
 %endrep
     ret
 
-; --- SCROLL BY 8 -------------------------------------------------------------
-; SCX snapped to a multiple of 8 and the rest added to every sprite's X, so
-; the picture stays together and the camera moves in steps of 8. A raster
+; --- SCROLL BY 8, 4 OR 2 -----------------------------------------------------
+; SCX snapped to a multiple of the step (rdg_cmask) and the rest added to
+; every sprite's X, so the picture stays together and the camera moves in
+; steps of 8, 4 or 2. A raster
 ; write's SCX is logged snapped, the rest in its entry's fourth byte, which
 ; ppu_logsame then does not compare: a status bar's split stays the same
 ; log every frame
@@ -2949,10 +2974,10 @@ rdg_lk_rlog:                            ; rdg_rlog's store of the value
     jne .s
     push ax
     mov al,cl
-    and al,7
+    and al,[cs:rdg_cfine]
     mov [RDG_RLOG+si+3],al
     pop ax
-    and cl,0F8h
+    and cl,[cs:rdg_cmask]
 .s:
     mov [RDG_RLOG+si+2],cl
     ret
@@ -2961,9 +2986,9 @@ rdg_lk_rpal:                            ; rdg_render's frame: SCX snapped,
     push ax                             ;   the rest the sprites'
     mov al,[PPU_REGS+2]
     mov ah,al
-    and al,0F8h
+    and al,[cs:rdg_cmask]
     mov [PPU_REGS+2],al
-    and ah,7
+    and ah,[cs:rdg_cfine]
     mov [cs:rdg_csd],ah
     pop ax
     jmp ppu_pal
@@ -2976,9 +3001,9 @@ rdg_lk_dpal:                            ; rdg_renderd's frame: the same, and
     push di
     mov al,[PPU_REGS+2]
     mov ah,al
-    and al,0F8h
+    and al,[cs:rdg_cmask]
     mov [PPU_REGS+2],al
-    and ah,7
+    and ah,[cs:rdg_cfine]
     mov [cs:rdg_csd],ah
     mov dl,ah                           ; DL = the frame's fine scrolls
     xor ch,ch

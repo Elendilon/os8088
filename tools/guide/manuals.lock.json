@@ -848,9 +848,9 @@
   "sources": [
    "apps/realdmg"
   ],
-  "stamped": "5bf99cd1",
-  "strings": "e42e6324ba1e2d73",
-  "why": "the recompiler on every CPU (53c8af2): the 286+ items and the 8088's Interpreter-only text gone, the CPU shot's caption with them; merged with the Screen menu"
+  "stamped": "884c86fa",
+  "strings": "90a44d30d13acd0b",
+  "why": "Screen > Scroll steps Smooth/8/4/2 on F11; manual's Scroll paragraph and key table updated"
  },
  "REDLINE_O88": {
   "sources": [
