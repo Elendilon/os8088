@@ -90,6 +90,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **`UI.still()`** (os88ui): `ui_done` + 3 guest frames - the cheap settle
   before an `fbuf`/`vram` read after an input the UI handles (no 2-host-s
   floor). Not for a worker drawing on its own clock. desk* rows.
+- **`os88marty.until`'s default poll is adaptive** (20 ms doubling to 250 ms,
+  was a flat 1 s host): every `until` without `poll=` stops paying up to a
+  second after its condition is already true. Explicit `poll=` unchanged.
 - `OS88_MARTY_BIN=<path>` runs another emulator build in an instance (for
   trying a `debug_server.rs` change before staging it; name it
   `martypc_headless` so the instance registry recognises it).
