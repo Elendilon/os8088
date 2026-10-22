@@ -1084,9 +1084,10 @@ fpg_finish:
                                 ; segment is back to full length and nothing
                                 ; is clamped away
 %ifdef OS88_SNDCARD
-    ; Sound can publish its mixer during this very boot transfer, moving
-    ; vid_clk_hx left. The armed widget's old span then covers the icon;
-    ; menu text cannot erase it beyond its new bound. Redraw the picture too.
+    ; The speaker's field can widen during this very transfer (a long clock
+    ; line or a toast it must hold), moving vid_clk_hx left. The armed
+    ; widget's old span then covers clock cells menu text cannot erase
+    ; beyond its new bound: force the clock and the picture again.
     cmp cx, [vid_clk_hx]
     jb .soundok
     mov word [menu_mixcap], 0FFFFh

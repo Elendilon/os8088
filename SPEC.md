@@ -69740,12 +69740,22 @@ Percentages round to the nearest supported hardware step; GET reads the
 actual quantized setting. Detach restores all exposed registers saved when
 the mixer attached. Unsupported/absent chips cause no mixer UI.
 
-The speaker expands the right-hand segment leftward by 24 pixels, on the
-primary display only. `[vid_clk_hx]` moves left by 24 while it is present;
-the speaker occupies its first three cells, and `menu_clkx` is the unchanged
-clock text origin. The clock and the maximum-width toast retain their entire
-field. Capability/geometry changes relayout the application menus at the new
-boundary; their existing prefix/index rule is unchanged. SOUND.DRV rounds to 12KB of image plus state on the heap;
+The speaker is the RIGHT end of the clock's field, on the primary display
+only: `[menu_mixx]` = the field's end less 24, the last three cells before
+the bar's margin, and the clock is right-aligned against it rather than
+against the margin, so it moves left by 24 while the speaker is up and
+draws exactly where it did when it is not. `[vid_clk_hx]`, and with it the
+menus segment and the gap a toast tries first (59.9), stays where it is
+with no speaker: 22 cells are left of the speaker, and every clock form
+fits them but the 12-hour line with seconds (23-24 glyphs). The boundary
+moves left only by the cells past 22 the live clock line needs, or by all
+three while a toast that missed the gap holds the field (`TOAST_MAX` + 1
+cells, the field it always had). A move relayouts the application menus at
+the new boundary - their existing prefix/index rule is unchanged - and
+forgets the drawn record from the old boundary on, so a segment growing
+back repaints cells the clock had drawn. It was the LEFT end of a field
+three cells wider until the speaker landed in the middle of the bar on the
+default clock and every toast lost the gap to it. SOUND.DRV rounds to 12KB of image plus state on the heap;
 `DRVM_IMG_SND` is 12. The popup claims only its adapter-sized save-under while open: up to
 10KB on VGA/EGA and 3KB on the mono adapters.
 Its hit range is tested before
@@ -69753,8 +69763,8 @@ the Date/Time cell, without changing application menu indices. The icon is
 cached independently, invalidated when the bar is overwritten or capabilities
 change, and is omitted entirely on kern_small. A progress widget armed before
 that boundary moves retains its origin for the operation. If its old span
-overlaps the new speaker segment, `fpg_finish` invalidates the icon before
-the final bar repaint, restoring both its text-band and outer rows.
+reaches the new boundary, `fpg_finish` invalidates the icon before the final
+bar repaint, which repaints the clock's field and the picture both.
 
 The popup is SOUND.DRV code, available with the loaded driver. Its private
 bridge is supplied by the kernel each call: AL=0 finish file activity, restore the pointer, spend lazy hide/show,
