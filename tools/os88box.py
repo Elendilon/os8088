@@ -40,6 +40,8 @@ launch options:
                 config's. Every image is COPIED into the run directory, so a
                 guest write never reaches build/; --inplace mounts them as
                 they are
+    --cd IMG    the first CD-ROM drive's disc (.iso or .cue), in place of the
+                config's - resolved in place, never copied
     --mem KB    mem_size
     --set SECTION.KEY=VALUE
                 any other config line (repeatable)
@@ -362,7 +364,7 @@ def free_port():
 
 def launch(vm, name=None, a=None, b=None, c=None, d=None, mem=None, sets=(),
            hold=False, window=False, fresh=False, clear_cmos=False, inplace=False,
-           gdb_wait=False, kmap=None):
+           gdb_wait=False, kmap=None, cd=None):
     if not os.path.isfile(BIN):
         raise SystemExit("os88box: no 86Box at %s - run `python3 tools/os88box.py build` "
                          "(or set OS88_86BOX)" % BIN)
@@ -389,6 +391,24 @@ def launch(vm, name=None, a=None, b=None, c=None, d=None, mem=None, sets=(),
               "fdd_%02d_fn" % n, None, inplace)
     mount(order, secs, srcdir, run, "hdd1", "Hard disks", "hdd_01_fn", c, inplace)
     mount(order, secs, srcdir, run, "hdd2", "Hard disks", "hdd_02_fn", d, inplace)
+    # The CD-ROM's image is resolved and NOT copied: a disc is read-only, and a
+    # .cue names its .bin relative to itself. Left relative, 86Box resolves it
+    # against the RUN directory, finds nothing and drops the drive's image
+    # (and its type and speed) without a word - which is how `386-cdrom`'s
+    # disc went missing here
+    for n in range(1, 5):
+        key = "cdrom_%02d_image_path" % n
+        path = (cd if n == 1 else None) or cfg_get(secs, "Floppy and CD-ROM drives", key)
+        if not path:
+            continue
+        if not (cd and n == 1):
+            path = os.path.normpath(os.path.join(srcdir, path))
+        if not os.path.isfile(path):
+            print("os88box: %s: %s does not exist here - drive left empty" % (key, path),
+                  file=sys.stderr)
+            cfg_set(order, secs, "Floppy and CD-ROM drives", key, None)
+            continue
+        cfg_set(order, secs, "Floppy and CD-ROM drives", key, os.path.abspath(path))
     for k in ("confirm_exit", "confirm_reset", "confirm_save"):
         cfg_set(order, secs, "General", k, "0")
     # No GL in a container, and an offscreen platform has no GL context.
@@ -549,7 +569,7 @@ def main(argv):
         import argparse
         ap = argparse.ArgumentParser(prog="os88box.py launch")
         ap.add_argument("vm")
-        for o in ("--name", "--a", "--b", "--c", "--d", "--map"):
+        for o in ("--name", "--a", "--b", "--c", "--d", "--map", "--cd"):
             ap.add_argument(o)
         ap.add_argument("--mem", type=int)
         ap.add_argument("--set", action="append", default=[])
@@ -557,7 +577,8 @@ def main(argv):
             ap.add_argument(o, action="store_true")
         o = ap.parse_args(argv[1:])
         box = launch(o.vm, o.name, o.a, o.b, o.c, o.d, o.mem, o.set, o.hold, o.window,
-                     o.fresh, o.clear_cmos, o.inplace, o.gdb_wait, o.map)
+                     o.fresh, o.clear_cmos, o.inplace, o.gdb_wait, o.map,
+                     os.path.abspath(o.cd) if o.cd else None)
         print("os88box: %s running, %s, gdb on 127.0.0.1:%d" % (box.name, box.run, state(box.name)["gdb"]))
         print(json.dumps(box.cmd("info")))
         return 0

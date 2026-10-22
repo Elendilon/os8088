@@ -9970,3 +9970,122 @@ main's packages on this tree - all 13 green (`os88soak.py -k`, three lanes;
 (:110-:117) is per PROCESS, so two sessions' runners hand out the same
 display and refuse each other). Gorillas' seven rows and RealDMG's were not
 re-run: neither package's source is changed by the merge.
+
+### 14.68 main's CD-ROM on kern_mega: CDROM.DRV, CDRack and the Mixer, above 1MB (2026-10-22)
+
+The merge at 1bdec716 brought upstream's CD-ROM (SPEC.md 119: `CDROM.DRV`
+and CDRack) and the Mixer (34.15: `MIXER.O88` and SOUND.DRV's menu-bar
+volume), none of it written for protected mode. The owner: *"Kern mega is
+going to run on systems that might actually have a cd drive. And verify they
+work high and set them. Make machines to test as needed."*
+
+**What was broken, and how badly.** Measured on 86Box's mr286 with the
+pre-fix drivers (`tests/megacdrom.py --cdrom` / `--sound`):
+
+1. **The CD-ROM was a kern_mega FAULT.** `cd_packet` folded DI's paragraphs
+   into ES after every DRQ block (`es += di >> 4`, `and di, 15`). Off the
+   8-paragraph grid that is no selector (3.1, 14.19): the first data phase
+   in protected mode loaded ES = 9CF4h, `#GP 9CF4 at 26B4:02F5` - `[loadseg():
+   Bigger than LDT limit]` - and `kern_mega FAULT 0D ... reboot`. Under
+   Bochs the same fold happened to land on a GDT index and did not fault,
+   which is the silent half of 14.19's description: it read into whatever
+   that descriptor named. `cd_bnorm` (cdiso.inc) did the same to the FSV
+   read's destination.
+2. **Every wait trapped.** `cd_tmo_set`/`cd_tmo_up` read the BIOS tick
+   through `xor ax,ax / mov es,ax / [es:046Ch]` - segment 0, the NULL
+   selector, on every poll of every command. mega_null0 COMPLETES that
+   (a #GP and a #DB each, and `mega_ivt_sync`), so it ran and looked like it
+   worked; the fault log shows the train (`26B4:00E5`, `26B4:0100`).
+   tests/seg0.txt carried it as an M1 gap.
+3. **The menu bar's quick volume opened nothing.** `volume_popup` accepts
+   only the kernel (`cmp ax, KERNEL_SEG / jne .out` on ES), and on kern_mega
+   `ui_task` hands it ES = its DS, the data alias `MEGA_SEL_KDATA` = 10h.
+4. **Neither package was on kern_mega's system disks**: the merge put
+   `$(SYSOPTIONAL)` on kern_big's disk recipes only.
+
+**The fixes, zero kernel bytes on every build.**
+
+- The tick is **`OSAPI_GET_TICKS`** - an inline cell, `mov ax,[cs:ticks]`,
+  every register but AX and the flags kept - and not 0:046C. Ten bytes a
+  site became five, and no segment register is touched. 0040:006C would
+  also have been right (mega_t08 advances the BDA's tick in protected mode)
+  but costs a byte a site; `[ticks]` is the same clock on every kernel.
+- `cd_packet` **walks the offset only**. Every caller already keeps
+  offset + capacity <= 65,536 - `cd_bytes` hands it a destination folded to
+  under 128 bytes and asks for at most `CD_RUN` x 2,048 = 32 KB, and the
+  rest read into the driver's own image - so the fold was doing nothing a
+  real-mode caller needed either. Deleted.
+- `cd_bnorm` folds in **whole 128-byte granules** (`and al, 0F8h`, `and
+  [cd_boff], 127`), `dskw_norm`'s kern_mega arm. A buffer above 1MB never
+  reaches a redirector (`drv_fs_call` bounces a pool selector through
+  `dsk_secbuf`, `drv_fs_hi`), so a granule fold of an identity segment is
+  the whole case.
+- `volume_popup` takes ES **at or below 60h** (`ja` for `jne`): 10h and
+  0060h, never a package's segment or a pool selector. Zero bytes.
+- CDRack and the Mixer declare **`OS88_HIGH | OS88_HIGHMEM`**: read for
+  arithmetic on their own segments (none - CDRack's bss is `os88_image_end +
+  n` offsets, the Mixer's `mx_*` cells), claims (neither makes one, so
+  HIGHMEM is INERT for both, 14.52.2's twenty-one), CS writes, IVT, BIOS
+  calls and DMA (none: every port is the driver's). `t_megahigh` passes,
+  74 packages, both bits on 67.
+- `$(MEGASYSOPTARGS)` puts both on `build/mega.img` and `build/mega120.img`
+  in `SYSTEM\`, beside the drivers they need.
+- tests/seg0.txt loses `drivers/cdrom/atapi.inc`'s line.
+
+**CDROM.DRV is NOT declared `OS88_DRV_HIGHOK`**: its sector buffer and
+packet are in its own image and handed to `cd_packet` as DS, which above
+1MB is a pool selector - fine for the offset walk, but nobody ran it there,
+and the driver is 9 KB of conventional memory the owner can weigh. It is the
+obvious next step and the row below is how to take it.
+
+**Bytes.** kern_big, kern_small, kern_emu, kern_mega: **0** - no kernel
+source changed. CDROM.DRV: image 9,059 -> **9,033** (-26), file 5,404 ->
+5,381. SOUND.DRV, CDRACK.O88, MIXER.O88: 0 (one opcode byte; the class
+byte). kern_mega's system disks: +14,458 bytes, 858 -> 887 clusters (of
+2,847 and 2,371).
+
+**Measured, on what.** Every step on BOTH emulators and three CPUs:
+
+| machine | what ran | result |
+|---|---|---|
+| Bochs 2.7, 16MB, `build/megacdsim.img` + `build/cdfix.iso`, SB16 | CDRack from `A:\SYSTEM` and from `D:\TRACK03.CDA` (the file read through `drv_fs_hi`'s bounce into the granule fold); its buttons, list and toggles; the D: listing; `BIG.BIN` (100,001 bytes, partial sectors both ends) copied D: -> B: | CDRack **LDT 2844h, base 140000h**; BIG.BIN byte-identical to `os88cdiso.pattern()`; MINES.O88 launched off the CD; the quick volume opened and **Open Mixer...** started the Mixer at **base 140800h**, its CD channel's level and balance set; no `kern_mega FAULT` |
+| 86Box mr286, 16 MHz 286, 4MB, SB16, `vm/286-mega-cdrom` | CDRack relaunched in protected mode; Play, Next, Pause, Resume, the volume slider (CDV_VOLUME, the MODE SELECT out-block); the quick volume, Open Mixer..., the CD channel | CDRack **282Ch, base 140000h**, the disc PLAYING and counting; Mixer **2844h, base 144800h**, `mx_mask` 01FFh; the fault log: the two reflections' own resets and **nothing else** |
+| 86Box micronics386, 25 MHz 386DX, 2MB, `vm/386-mega-cdrom` | the same | CDRack 282Ch, Mixer 2844h, playing; no exception outside the BIOS |
+
+The autostarted CDRack is LOW (`9640h`): `\AUTOSTRT`'s walk (`as_boot`)
+runs before `mega_enter`, so every autostarted package is real mode and
+conventional on kern_mega. Not a CDRack property - written down because it
+reads like `OS88_HIGH` being ignored.
+
+**The machines.** `vm/286-mega-cdrom` is `vm/286-mega`'s mr286 with
+`ide_isa_2ch`, an ATAPI CD-ROM on 1:0 holding `build/cdaudio.cue`, and
+`build/megacdtest.img` / `build/megaapps.img` in A: and B:.
+`vm/386-mega-cdrom` is `vm/386-cdrom` with the same two disks. `make
+megacdtest` builds `build/megacdtest.img` (kern_mega's system disk, a
+SYSTEM.CFG wanting SOUND.DRV and CDROM.DRV, and `cdaudiotest.img`'s two
+autostart links) and `build/megacdsim.img` (the same with the
+`-DCDSIM_AUDIO` driver, for Bochs). Two harness fixes came with them:
+**`tools/os88box.py` resolves a CD-ROM's image path** against the profile
+(it rewrote only floppies and hard disks, so 86Box looked for
+`../../build/cdaudio.cue` in the run directory and silently dropped the
+drive - `386-cdrom`'s disc never reached a container run) and takes `--cd`;
+**`tools/os88bochs.py` takes `--cd ISO`** (ata1-master, 170h) and **`--a
+IMG`**. The MR BIOS wants its floppies set once from a fresh CMOS (docs/86BOX.md);
+the micronics386's IBM-style setup takes up/down between fields and
+PgUp/PgDn within one, `Set Diskette Unit 0` and `1` to 3.5".
+
+**Row.** `megacdrom` (soak, 86Box, 34 s measured): a fresh CMOS set up by
+the row, the boot, CDRack relaunched above 1MB and playing (`cr_play`,
+`cr_secs` read through its pool base), the quick volume's Mixer above 1MB
+reading the card, and no exception charged to a loaded image. Red with the
+pre-fix CDROM.DRV (nine image exceptions, the machine stopped) and with the
+pre-fix SOUND.DRV (no Mixer).
+
+**Found and not fixed.** RAMDISK.DRV's `rd_fold` and NET.DRV's `net_norm`
+fold a CONVENTIONAL buffer's offset into its segment by paragraphs, the
+shape item 1 was - and on kern_mega the kernel hands a redirector the
+`dskw_norm`'d buffer, offset 0..127, so any offset from 16 up builds an
+off-grid ES. `drv_fs_call`'s comment (*"where a redirector's paragraph
+arithmetic is right"*) holds for `dsk_secbuf` only, which is 512-aligned.
+Not run here; tests/unit/t_megagrid.py scopes to `apps/` and could take
+`drivers/` too.

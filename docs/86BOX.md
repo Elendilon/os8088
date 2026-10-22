@@ -96,7 +96,13 @@ container needs: image paths resolved against the profile's own directory
 (a Windows path that does not exist here becomes an empty drive, said so on
 stderr), `image_history` dropped, the software renderer, the confirmation
 dialogs off. `--a`/`--b`/`--c`/`--d` replace the images, `--mem` the RAM and
-`--set 'Section.key=value'` anything else.
+`--set 'Section.key=value'` anything else. A CD-ROM's disc
+(`cdrom_01_image_path`, a `.cue` or an `.iso`) is resolved against the
+profile and NOT copied - a `.cue` names its `.bin` relative to itself - and
+`--cd` replaces it; left relative, 86Box looked for it in the run directory
+and dropped the drive without a word (KERN-MEGA-PLAN 14.68).
+`vm/286-mega-cdrom` and `vm/386-mega-cdrom` are kern_mega with a CD-ROM and
+`tests/megacdrom.py` is the row that drives the first.
 
 ### `to` and `pointer`: why the pointer is closed-loop
 

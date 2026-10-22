@@ -67,6 +67,8 @@ python3 tools/os88bochs.py stop                  # end every Bochs on the box
 | `--bootc` | boot from C: instead of A: |
 | `--noa` | no disk in A: |
 | `--b IMG`, `--btype` | B:'s image and drive type |
+| `--a IMG` | A:'s image in place of the tree's `mega.img` - a kern_mega system disk with something changed, such as `make megacdtest`'s |
+| `--cd ISO` | an ATAPI CD-ROM, the secondary master at 170h, holding an ISO 9660 image (CDROM.DRV, SPEC.md 119). **Data only**: Bochs 2.7 answers PLAY AUDIO and a SubQ READ SUB-CHANNEL "not implemented", so `build/megacdsim.img`'s `-DCDSIM_AUDIO` driver is what gives CDRack a TOC here, and 86Box's `vm/286-mega-cdrom` is where a disc plays (KERN-MEGA-PLAN 14.68). `--cfg 0x101` wants SOUND.DRV and CDROM.DRV |
 
 `boot` returns once Bochs is up and leaves it running; the machine outlives the
 command. The desktop takes about **80 seconds**. Wait for it by condition, not

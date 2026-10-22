@@ -14714,6 +14714,23 @@ SOAK = [
         "MEGACSL (tests/megacsw) is one on purpose. 300s is 277 measured, "
         "the tree's build included",
         needs=("bochs", "nasm")),
+    Row("megacdrom", "soak", py("tests/megacdrom.py"), 35.0,
+        "SPEC.md 119 and 34.15 under docs/plans/KERN-MEGA-PLAN.md 14.68: "
+        "CDROM.DRV, CDRack and the Mixer on kern_mega, on 86Box's 286 "
+        "(vm/286-mega-cdrom: the mr286 with an IDE CD-ROM holding "
+        "build/cdaudio.cue). CDRack started in protected mode lands above "
+        "1MB and plays - its own cr_play PLAYING and cr_secs advancing - "
+        "and the menu bar's speaker opens the quick volume, whose Open "
+        "Mixer... starts MIXER.O88 above 1MB reading the card; the fault "
+        "log charges no exception to a loaded image. Red with CDROM.DRV "
+        "from before 14.68 (--cdrom): its 0:046C tick traps on every poll "
+        "and its paragraph fold of ES:DI is #GP 9CF4, a kern_mega FAULT; "
+        "red with that SOUND.DRV (--sound): the speaker opens nothing. "
+        "86Box by name: Bochs plays no CD audio and MartyPC is an 8088. "
+        "35s is 34 measured",
+        needs=("86box",),
+        wants=("build/megacdtest.img", "build/cdaudio.cue",
+               "build/cdrack.bin", "build/mixer.bin", "build/cdrom.bin")),
     Row("megarehome", "soak", py("tests/megarehome.py"), 120.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.44, 14.48, SPEC.md 20.12.10.9: a "
         "RE-HOMED program whose own header says OS88_HIGH runs above 1MB on "

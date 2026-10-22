@@ -29,7 +29,14 @@
                 for a package that is started out of RUN/
     --cfg BITS  write a SYSTEM.CFG onto A: wanting the drivers in BITS - one
                 bit per driver by kernel/driver.inc's drv_cfgbit, sound being
-                bit 0 (the Makefile's system.cfg rules are the same bytes)
+                bit 0 (the Makefile's system.cfg rules are the same bytes);
+                CDROM.DRV is bit 8, so `--cfg 0x101` is sound and the CD
+    --a IMG     A:'s image in place of the tree's mega.img - a kern_mega
+                system disk with something changed (`make megacdtest`)
+    --cd ISO    an ISO 9660 image in an ATAPI CD-ROM, the secondary master
+                at 170h. DATA ONLY: Bochs 2.7 answers PLAY AUDIO and a SubQ
+                READ SUB-CHANNEL "not implemented", so CDRack there shows the
+                drive's refusal - 86Box's `286-mega-cdrom` plays the disc
 
 WHY BOCHS. QEMU's TCG checks no segment on a data access and lets code write
 through CS, so on QEMU kern_mega runs code that faults on a real 286 - every
@@ -87,7 +94,7 @@ floppya: 1_44={a}, status={astat}
 floppyb: type={btype}, {bmedia}={b}, status=inserted
 ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
 ata0-master: type=disk, path={c}, mode=flat, cylinders={cy}, heads={hd}, spt={sp}
-boot: {boot}
+{cd}boot: {boot}
 port_e9_hack: enabled=1
 mouse: enabled=1, type=ps2, toggle=ctrl+mbutton
 clock: sync=realtime, time0=local
@@ -214,7 +221,7 @@ class Box(object):
 
     def __init__(self, out, pkgs, sb=False, cfg=None, bimg=None, ne2k=False,
                  btype="1_2", cmode="run", bootc=False, noa=False,
-                 build=None, csys=False, put=()):
+                 build=None, csys=False, put=(), cd=None, aimg=None):
         if running():
             sys.exit("os88bochs: a Bochs is already running (pids %s) - every "
                      "click would land on whichever window is on top. "
@@ -225,7 +232,7 @@ class Box(object):
         self.e9 = os.path.join(out, "e9.out")
         a, b = os.path.join(out, "a.img"), os.path.join(out, "b.img")
         c = os.path.join(out, "c.img")
-        shutil.copy(os.path.join(bld, "mega.img"), a)
+        shutil.copy(aimg or os.path.join(bld, "mega.img"), a)
         shutil.copy(bimg or os.path.join(ROOT, "build", "apps120.img"), b)
         if cfg is not None:
             f = os.path.join(out, "SYSTEM.CFG")
@@ -276,6 +283,9 @@ class Box(object):
                                      1228800: "1_2", 1474560: "1_44"}
                 [os.path.getsize(b)],
                 log=os.path.join(out, "bochs.log"),
+                cd=("ata1: enabled=1, ioaddr1=0x170, ioaddr2=0x370, irq=15\n"
+                    "ata1-master: type=cdrom, path=%s, status=inserted\n" %
+                    os.path.abspath(cd)) if cd else "",
                 sb=("sound: waveoutdrv=file, waveout=%s\n"
                     "sb16: enabled=1, midimode=0, wavemode=1, "
                     "dmatimer=600000\n" % os.path.join(out, "sb.wav"))
@@ -366,7 +376,7 @@ class Box(object):
 
 
 def sweep(pkgs, batch, out, quiet_secs=60, sb=False, cfg=None, build=None,
-          cap_secs=900, linger=0, put=()):
+          cap_secs=900, linger=0, put=(), cd=None):
     os.makedirs(out, exist_ok=True)
     left = list(pkgs)
     report = []
@@ -376,7 +386,7 @@ def sweep(pkgs, batch, out, quiet_secs=60, sb=False, cfg=None, build=None,
         todo, left = left[:batch], left[batch:]
         d = os.path.join(out, "boot%02d" % boot)
         os.makedirs(d, exist_ok=True)
-        box = Box(d, todo, sb, cfg, build=build, put=put)
+        box = Box(d, todo, sb, cfg, build=build, put=put, cd=cd)
         try:
             if not box.wait_for("kern_mega:", 240):
                 report.append(("(boot)", "no kern_mega line in 240s"))
@@ -492,6 +502,11 @@ def main():
                     "of build/apps120.img")
     ap.add_argument("--put", action="append", default=[],
                     help="FOLDER:path - one more file on C:")
+    ap.add_argument("--a", dest="aimg", help="a 1.44MB system disk for A: "
+                    "in place of the tree's mega.img (`make megacdtest`)")
+    ap.add_argument("--cd", help="an ISO 9660 image in an ATAPI CD-ROM, the "
+                    "secondary master at 170h (CDROM.DRV, SPEC.md 119): "
+                    "data only - Bochs 2.7 implements no audio command")
     a = ap.parse_args()
     a.out = os.path.abspath(a.out)
     a.pkgs = [os.path.abspath(p) for p in a.pkgs]
@@ -501,12 +516,13 @@ def main():
         stop()
     elif a.cmd == "sweep":
         sweep(a.pkgs, a.batch, a.out, sb=a.sb, cfg=a.cfg, build=a.build,
-              linger=a.linger, put=a.put)
+              linger=a.linger, put=a.put, cd=a.cd)
     else:
         os.makedirs(a.out, exist_ok=True)
         box = Box(a.out, a.pkgs, a.sb, a.cfg,
                   os.path.abspath(a.bimg) if a.bimg else None, a.ne2k,
-                  a.btype, a.cmode, a.bootc, a.noa, a.build, a.csys, a.put)
+                  a.btype, a.cmode, a.bootc, a.noa, a.build, a.csys, a.put,
+                  a.cd, os.path.abspath(a.aimg) if a.aimg else None)
         box.wait_for("kern_mega:", 240)
         print("running: DISPLAY=%s, E9 in %s" % (DISPLAY, box.e9))
 
