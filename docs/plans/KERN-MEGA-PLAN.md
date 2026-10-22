@@ -10126,3 +10126,117 @@ left in its prose. The owner asked for each to be carried here.
   the walk to `ui_task` the way a re-home is serviced. Whichever is taken,
   check that a link which launches a real-mode-only package still works, and
   that the boot's own driver mounts are not reordered under it.
+
+### 14.70 RAM actually used, and the Task Manager that shows it (2026-10-22)
+
+The owner's screenshot of the Victory 286's Task Manager (4MB, WireChat and
+the Task Manager open) read `RAM 0.4/4.0M`, `HEAP 0.0/3.5M`, a second
+`HIGH 421/3456K` bar, and a System row of 439K of which `Above 1MB` was 374K.
+It reconciles to the KB: the Victory's chipset REMAPS the 384K behind
+640K-1MB to the top, so its BIOS states 3,456K above 1MB where an 86Box
+machine with the same 4MB states 3,072K and the 384K is simply lost; System
+is 57K code and data + 3K stacks + 5K FAT snapshot + 374K; HEAP's size is
+4,096 - 3 - 439 = 3,654K, shown truncated as 3.5M. The owner's verdict is that
+the figures are right and the PICTURE is wrong, and that the 374K is mostly
+not memory the kernel needs. Two threads, recorded separately.
+
+#### 14.70.1 RAM actually used - for a later round
+
+What `Above 1MB` holds on that kernel: the HMA (64K), the GDT (64K), the LDT
+and IDT (18K), `.cold` and `.mega` (about 58K), about 50K of padding up to
+the pool's 64KB-aligned base (`MEGA_XPOOL`, 0x140000), and about 118K of
+pool blocks owned C0h and up.
+
+- [ ] **Purgeable is not implemented on kern_mega.** Item 84 moved the
+  kernel's caches into the pool (the window save-unders, up to 63K each, the
+  menu save-under, the icon store, the file list, the clipboard) and item 86
+  the FAT windows, and its own words are *"A pool block has no `mem_tab`
+  record, so it is never shed, moved or counted."* On kern_big those claims
+  carry a purge tier: the Task Manager leaves them out of System (SPEC.md
+  28.4.1) and `mem_claim` sheds them before it refuses. On kern_mega
+  neither happens - they are billed to System and NEVER dropped, so a
+  package's claim can fail with caches standing that kern_big would have
+  shed. The owner's read of the 118K (ETHER.DRV's ~34K with WireChat
+  online, HDD 4K, SOUND 8K, the rest caches) is this. The shape: a purge
+  flag in `MX_FL` (the byte has room), set by `mem_hitag`'s placements;
+  `mx_alloc` sheds flagged kernel blocks before it refuses; the Task Manager
+  excludes them from System as it does on kern_big.
+- [ ] **The GDT is a 1:1 table sized for every possible segment, and almost
+  none of it is used.** Selector = segment value, so the GDT's size is set
+  by the HIGHEST segment anything loads (the scratch selectors at FFD0-FFF8,
+  the ROM font at F000), not by how many are used. **Measured** under Bochs,
+  kern_mega at this tree with SOUND and HDD up and Calculator, Mines, Note
+  Pad, Paint, Sheet, WireChat, the Task Manager and Tracker all started: of
+  8,192 entries, **106 have the Accessed bit set - 848 bytes of a 65,536-byte
+  table** (the kernel writes 0x92/0x9A, so the CPU's A bit is a true record
+  of a load). Of those 106: 23 in conventional memory, 1 at A000, **78 in
+  C000-EFFF, every one of them the Task Manager's own ROM scan** (`tm_romscan`
+  steps 2K and loads ES at each), and 4 kernel selectors at FFD0-FFF8. The
+  owner's suspicion of "4-8K max" holds with room to spare. Dropping the 1:1
+  design means a selector is ALLOCATED for a segment a package or the kernel
+  names, the way the LDT's dynamic entries already are - the size of that
+  change is the work to cost: every place that turns a segment value into a
+  selector by identity (and `mega_oddsegf`'s window, which already handles a
+  segment that is not a multiple of 8 dynamically, is the model).
+- [ ] **The LDT can start small and grow.** 2,048 entries (16K): 1,280 are
+  a STATIC code alias for every 512 bytes of conventional memory (index =
+  segment / 32, which is how a CS with bit 2 set names its image), the rest
+  dynamic; **31 accessed** in the same run. Regrowable by claiming a bigger
+  block and reloading LDTR; the static aliases go dynamic the same way the
+  GDT's identity entries would. The owner: *"LDT regrowable: seems good."*
+- [x] **The IDT stays 2K.** Every vector can be reflected to the BIOS or to
+  a DOS program. *"IDT is fine."*
+- [ ] **The HMA is RAM.** It has to be free at 1MB only while DOS uses it,
+  so it is pool like any other until then, and the trip into DOS saves what
+  is in it and the return restores it to the same linear addresses (a pool
+  block is named by its linear base, 13.4) - what the park already does for
+  conventional memory. The owner prefers this to parking droppable caches
+  there, which would cost a program 64K, and on a 1MB machine that matters.
+- [ ] **The padding.** About 50K between `.mega`'s end (~0x133600) and
+  `MEGA_XPOOL`, there only because the pool's arithmetic wants a base whose
+  low word is 0. Pack the fixed area and start the pool on a finer
+  boundary, or put a fixed structure in the gap.
+- [ ] **"DOS box" is the wrong name and keeps coming back.** DOSBox is an
+  open-source emulator; os8088's DOS is a clean implementation of DOS, not an
+  emulator, and is unrelated to it. A round to purge the word from code
+  comments, strings and documents.
+
+#### 14.70.2 The Task Manager - this round, both kernels
+
+The owner's design, on kern_big and kern_mega alike (the small build has no
+memory page and is unchanged; check afterwards that the BIG Task Manager
+copied onto a small disk still runs, which it does today):
+
+- **One bar on kern_mega.** RAM is RAM, so the second bar and the `HIGH`
+  line belong to kern_big's separate XMS store only. `HEAP 0.0 of 3.5M`
+  beside a 400-odd K bar of almost the same thing was the confusing part.
+- **The summary line is `R` and not `RAM`**, which frees the two characters
+  that let every figure on it carry a SECOND decimal in MB - `0.47/4.00M`.
+  No mixing K and M on the line: *"mixing and matching k and m is too
+  confusing."*
+- **One page for RAM and heap, with collapsible groups.** Each owner -
+  System, each program, each driver, the purgeable caches - is one row with
+  its total; a click expands it into its claims. An **Expand all** button
+  shows every claim at once. The heap page's scrolling (SPEC.md 28.4.4)
+  carries the length. Purgeable claims are their own group, shown as
+  reclaimable and not as System. The owner: *"I love the expandable claims
+  idea."*
+- **Two inner views with a toggle: Programs and System.** Programs bills
+  each package with System as one row; System itemises the kernel below 640K
+  and above 1MB - the HMA (`HMA (DOS)`), the tables, the kernel's code, the
+  padding, the kernel's caches and **each driver by name** (*"which driver
+  holds what is very useful"*). The HMA and padding rows go away when
+  14.70.1 makes them RAM. The kernel names its fixed areas through
+  `OSAPI_XMEM_WALK`, as marker records the Task Manager already knows how to
+  read.
+- **640K-1MB rows that add up.** The screenshot's read 128 + 32 + 32 + 144 +
+  64 = 400K of a 384K window: `Unrep.` read 144K where the code computes 128.
+  Not found by reading `tm_romscan` and the row loop; to reproduce on
+  `vm/286-victory` (the Paradise PVGA1A's ROM at C000).
+- **Maybe: dump to file**, only if it is cheap in bytes. ESTIMATED, not
+  built: the rows are composed into `tm_str` and painted by `tm_mrow_close`,
+  so a dump is a switch there that appends the row to a buffer instead of
+  painting, a pass over every group expanded and unclipped, one
+  `OSAPI_FILE_WRITE` of a fixed name into `SYSTEM/APPDATA/`, and a menu
+  item: about 150-200 bytes of image, plus the buffer (claimed for the
+  dump, not bss).
