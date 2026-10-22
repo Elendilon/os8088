@@ -112,3 +112,5 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | vidscreeno | 232 s | 124 s / 82 guest s | 3 | the same script, `--own` |
 | deskwhole | 215 s declared | 117 s (load 14) / 101 guest s waited | 4, 6 | dc's armed/verify gains; four settles -> `dc.still`; boot unsettled. The rest is the seven-window setup |
 | dispprefer | 270 s / 461 guest s (load 11) | 208 s / 235 guest s (load 11) | 4 + both harness changes above | all waits memory reads -> `ui_done` as dispcp's `settle`; the switch confirmed on `[vid_kind]` (Set Primary's press was the one unconfirmed click). The rest is 12 VGA/CGA/Herc repaints and panel opens - guest work |
+| paintmove | 50 s / 85 guest s | (unchanged) | - | already lean: 35 guest s boot + heapfrag's own work; secs 150 -> 60 |
+| paint1blit | 126 guest s, 3 boots | 53 s / 67 guest s | 3, 4 | one disk with both fixtures, one boot + snapshot, an arm per restore; blind `advance(400/300)` -> ui_done; settles -> ui_done (every read is memory). Red with the refuse flags swapped (and proves a restore does not carry the previous arm's poke) |
