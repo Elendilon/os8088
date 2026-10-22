@@ -849,6 +849,11 @@ class Marty:
         mark = self._go if since is None else since
         c0 = int(self.status().get("cycles", 0))
         stuck = None
+        # The first look is usually answered BEFORE the batch that reaches the
+        # stop has run (the server reads commands first), so a flat `poll`
+        # charged every short run - a guest routine called from the harness -
+        # 20 ms. Start at 1 ms and double up to `poll`.
+        nap = min(poll, 0.001)
         while True:
             st = self.status()
             if self._newer(st, mark):
@@ -877,7 +882,8 @@ class Marty:
                                    st.get("cs", 0), st.get("ip", 0), mark))
             else:
                 stuck = None
-            time.sleep(poll)
+            time.sleep(nap)
+            nap = min(nap * 2, poll)
 
     # --- input, through the REAL devices -------------------------------------
     #
@@ -2299,6 +2305,23 @@ def no_saver(m):
         m.write(mins, b"\0")
 
 
+def kernel_up(m, guest=120.0, what="the kernel to reach the desktop"):
+    """A BOOT GATE ON STATE, for a `launch(boot=False)` + `m.run()` caller
+    whose next act is a click or a guest read - os88ui.UI.up's test without
+    the UI object: `desk_rows` and `menu_nbar` written and `[spl_live]` = 0
+    (kmain_o's last act), then `ui_done` so the first paint is finished in the
+    framebuffer too. No picture settle: ~15 guest s where `settle(gate=
+    desktop_up)` pays the boot plus a still-screen proof. Keep the settle when
+    the next read is the rendered glass."""
+    a = (m.sym("desk_rows"), m.sym("menu_nbar"), m.sym("spl_live"))
+
+    def up(_):
+        w = m.read(a[0], 2), m.read(a[1], 2)
+        return any(w[0]) and any(w[1]) and not m.read(a[2], 1)[0]
+    until(m, up, what, poll=0.05, guest=guest)
+    return ui_done(m, what)
+
+
 def _syms():
     import os88sym
     return os88sym
@@ -2920,8 +2943,28 @@ def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
         fast = mark is not None
         if fast:
             pace(m, SETTLE_UI_QUIET / (GUEST_PACE or 4.5))
-        else:
+        elif not SETTLE_UI or GUEST_PACE <= 0:
             pace(m, quiet)
+        else:
+            # THE LONG WINDOW ENDS WHEN THE UI TASK GOES IDLE. A settle called
+            # straight after a click almost always takes its first sample
+            # with the handler still running, and then sat out the whole
+            # `quiet` (4.5 guest seconds) even when the repaint was done in
+            # one. So the window is spent in short slices and cut the moment
+            # `_ui_mark` says the UI is idle - and a cut window PROVES
+            # NOTHING: the next capture is a fresh `last` (run = 0), so the
+            # stillness that ends the settle is always the short-window proof
+            # an idle start would have had. A UI that never idles (an
+            # animating worker, NOUIBLOCK) spends the full window as before.
+            # dispprefer: 5.4 guest seconds a settle after an adapter switch.
+            want = quiet * GUEST_PACE
+            c0 = prog._cycles()
+            while (prog._cycles() - c0) / GUEST_HZ < want:
+                if pace(m, SETTLE_UI_QUIET / GUEST_PACE) < SETTLE_UI_QUIET / 2:
+                    break                   # the guest stopped: pace's rule
+                if _ui_mark(m) is not None:
+                    last, run = None, 0
+                    break
 
 
 # HOW MANY TIMES DID ONE GESTURE REACH A ROUTINE? Two tests wrote this loop by
@@ -3069,7 +3112,7 @@ class BpTrace:
     """The record a `bp_trace` block collects. See `bp_trace` below."""
 
     def __init__(self, m, targets, regs=False, poll=0.005, cap=20000,
-                 on_hit=None):
+                 on_hit=None, log=None):
         self.m, self.regs_wanted, self.poll, self.cap = m, regs, poll, cap
         # WHAT THE HAND-ROLLED PUMPS ACTUALLY DID, and the reason a count and
         # a register set are not enough to replace them. tests/paintanchor.py
@@ -3108,11 +3151,27 @@ class BpTrace:
         # Both are ordinary commands through the atomic `cmd()`, and both take
         # effect on the resume this callback is about to return into.
         self.on_hit = on_hit
-        self.hits = []          # the kept records, at most `cap` of them
+        self._hits = []         # the kept STOP records, at most `cap` of them
+        self._logs = []         # ...and the LOGGED ones (see `log` below)
         self.n = 0              # ...and how many there REALLY were
         self.error = None       # what the pump died of, re-raised at exit
         self._by_addr = {}
         self._bps = []
+        # LOGGED TARGETS ARE NOT STOPS. `log=True` (every exec target) or
+        # `log=[some of them]` arms those as the debug server's logging
+        # breakpoints: it notes (address, cycles) and resumes the guest
+        # itself, so the hit costs no round trip and no pump poll. A pumped
+        # stop is two round trips plus the poll, which is what made a
+        # frame-rate trace with seven marks a frame run at half the guest's
+        # free speed. A logged hit has no registers and no `on_hit` - those
+        # need the guest STOPPED - and its record carries "log": True. On a
+        # server too old to log, the same targets are ordinary stops and the
+        # trace is what it always was, only slower.
+        logset = set()
+        if log and log is not True:
+            for t in log:
+                logset.add((m.sym(t) if isinstance(t, str) else int(t)) & 0xFFFFF)
+        self._logaddrs = set()
         for t in targets:
             if isinstance(t, dict):             # a raw breakpoint dict
                 self._bps.append(t)
@@ -3120,7 +3179,14 @@ class BpTrace:
             addr = m.sym(t) if isinstance(t, str) else int(t)
             self._by_addr.setdefault(addr & 0xFFFFF, t if isinstance(t, str)
                                      else "%05X" % addr)
-            self._bps.append({"type": "exec", "addr": addr})
+            if log is True or (addr & 0xFFFFF) in logset:
+                self._logaddrs.add(addr & 0xFFFFF)
+                self._bps.append({"type": "exec", "addr": addr, "log": True})
+            else:
+                self._bps.append({"type": "exec", "addr": addr})
+        self._logging = bool(self._logaddrs)
+        self._dropped = 0
+        self._fetched = 0.0
         self._mark0 = None      # the mark __enter__'s resume found
         self._stop = threading.Event()
         self._thread = None
@@ -3152,6 +3218,8 @@ class BpTrace:
                 # is a new stop by the first test and is not this pump's to
                 # resume: resuming it would cut the body's own `advance` short
                 # from another thread.
+                if self._logging and time.time() - self._fetched > 0.05:
+                    self._fetch()               # keep the server's record short
                 if not self.m._newer(st, mark):
                     self._stop.wait(self.poll)
                     continue
@@ -3185,18 +3253,49 @@ class BpTrace:
             rec["hit"] = self.on_hit(self.m, rec)
         with self._lock:
             self.n += 1
-            if len(self.hits) < self.cap:
-                self.hits.append(rec)
+            if len(self._hits) + len(self._logs) < self.cap:
+                self._hits.append(rec)
+
+    def _fetch(self):
+        """Collect what the server LOGGED since the last call (one round trip)."""
+        if not self._logging:
+            return
+        r = self.m.cmd(cmd="bplog")
+        with self._lock:
+            self._fetched = time.time()
+            for a, c in r.get("hits", ()):
+                self.n += 1
+                if len(self._hits) + len(self._logs) < self.cap:
+                    self._logs.append({"name": self._by_addr.get(a, "?%05X" % a),
+                                       "addr": a, "cycles": int(c), "log": True})
+            self._dropped = int(r.get("dropped", 0))
+
+    def _sync(self):
+        """Bring a logging trace up to date before it is asked anything -
+        from the body, mid-block, as `until`'s conditions do."""
+        if self._logging and self._thread is not None and not self._stop.is_set():
+            self._fetch()
+
+    @property
+    def hits(self):
+        """Every kept record, in the order the guest reached them."""
+        self._sync()
+        if not self._logs:
+            return self._hits
+        with self._lock:
+            return sorted(self._hits + self._logs, key=lambda h: h["cycles"])
 
     # --- what a caller asks it -----------------------------------------------
 
     @property
     def overflowed(self):
         """Did the trace stop KEEPING hits? `n` is still the true count."""
-        return self.n > len(self.hits)
+        self._sync()
+        return (self.n + self._dropped) > len(self._hits) + len(self._logs)
 
     def count(self, name=None):
         """How many stops, in total or at one symbol."""
+        self._sync()
         if name is None:
             return self.n
         return sum(1 for h in self.hits if h["name"] == name)
@@ -3291,6 +3390,11 @@ class BpTrace:
 
     def __enter__(self):
         self.m.breakpoints(self._bps)
+        if self._logging:
+            try:
+                self.m.cmd(cmd="bplog")         # an old server: no such verb,
+            except MartyError:                  # and the "log" key was ignored,
+                self._logging = False           # so they are ordinary stops
         # `until()` raises on a guest that is not running, and it is RIGHT to:
         # a stopped machine can never make a condition true, and saying so in
         # two seconds beats timing out in sixty. Under a pump the same reading
@@ -3316,6 +3420,8 @@ class BpTrace:
             self._thread.join(timeout=10.0)
         self.m._pumping = max(0, self.m._pumping - 1)
         try:
+            if self._logging and self.error is None:
+                self._fetch()                   # BEFORE the clear, which empties it
             self.m.breakpoints([])
             self.m.run()
         except MartyError:
@@ -3358,7 +3464,7 @@ def bp_trace(m, *targets, **kw):
 # Wait for a machine that is BUSY WITHOUT DRAWING: anything holding the gfx
 # lock for its whole run. `settle` cannot see that work at all - it watches
 # pixels, and there are none - so ask about the thing being waited for.
-def until(m, cond, what="that condition", poll=1.0, limit=600.0, guest=None):
+def until(m, cond, what="that condition", poll=None, limit=600.0, guest=None):
     """Run until CONDITION IS TRUE, and answer how long that took.
 
     The twin of `settle`, for the case it silently gets wrong. An operation
@@ -3392,6 +3498,14 @@ def until(m, cond, what="that condition", poll=1.0, limit=600.0, guest=None):
     # reported in GUEST_STALL seconds instead of at the end of it.
     prog = _Progress(m, what, guest if guest is not None
                      else limit * GUEST_BUDGET_RATIO)
+    # THE DEFAULT POLL IS ADAPTIVE: 20 ms, doubling to 250 ms. It was a flat
+    # host second, which is up to a second of latency on EVERY wait - and a
+    # row that waits a few hundred times (a chunked trace, a key per field)
+    # spent minutes of it after the condition was already true. A look is a
+    # guest read or two, answered between the emulator's batches, so looking
+    # four times a second costs the guest nothing measurable. An explicit
+    # `poll` keeps the old fixed interval.
+    nap = poll if poll is not None else 0.02
     while True:
         if cond(m):
             prog.done("until")
@@ -3425,7 +3539,9 @@ def until(m, cond, what="that condition", poll=1.0, limit=600.0, guest=None):
                 "never called?"
                 % (prog.spent(), what, st["state"], st["cs"], st["ip"]))
         prog.check()
-        time.sleep(poll)
+        time.sleep(nap)
+        if poll is None:
+            nap = min(nap * 2, 0.25)
 
 
 def faces(folder="SYSTEM/FONTS"):
@@ -3564,6 +3680,94 @@ def _sweep_sidecars(d):
                 os.remove(os.path.join(d, n))
             except OSError:
                 pass
+
+
+class Forks(object):
+    """ONE BOOT, SEVERAL LEGS: a fork snapshot of `m`, restored per leg.
+
+        with os88marty.Forks(ui.m) as fk:          # m PAUSED and frozen here
+            for leg in legs:
+                with fk.restore() as r:            # a fresh copy, running
+                    run_leg(os88ui.UI(r))
+
+    A row that boots the same machine N times to start N legs from the same
+    desktop pays N boots (15-25 guest seconds each, plus a launch); this pays
+    one, and each leg starts from the SAME bytes rather than a similar boot
+    (docs/plans/completed/SNAPSHOT-PLAN.md B: cycles and memory hash
+    identical across restores). The original is paused for the snapshot's
+    life and is the registry - keep it open; its holders exit with it.
+
+    `restore()` answers a Marty on a free port, already running; leaving its
+    `with` (or `drop`) quits that process. Disk images are SHARED, not
+    rolled back, so a leg that writes a floppy changes what the next one
+    mounts - use it for legs that only read the disks.
+    """
+
+    def __init__(self, m):
+        self.m = m
+        m.pause()
+        self.id = m.snapshot()["id"]
+        self.live = []
+
+    def restore(self, tries=3):
+        last = None
+        for _ in range(tries):
+            s = socket.socket()
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+            s.close()
+            try:
+                r = self.m.restore(self.id, port)
+            except MartyError as e:     # the port was taken in between
+                last = e
+                continue
+            self.live.append(r)
+            r.run()
+            return _Leg(self, r)
+        raise last
+
+    def drop(self, r):
+        r = getattr(r, "_r", r)
+        if r in self.live:
+            self.live.remove(r)
+        pid = r.pid
+        try:
+            r.quit()
+        except Exception:
+            pass
+        r.close()
+        if pid:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+
+    def close(self):
+        for r in list(self.live):
+            self.drop(r)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *e):
+        self.close()
+
+
+class _Leg(object):
+    """`Forks.restore()`'s answer: the restored Marty, usable directly
+    (attribute access passes through) or as a `with` that drops it."""
+
+    def __init__(self, fk, r):
+        self._fk, self._r = fk, r
+
+    def __getattr__(self, name):
+        return getattr(self._r, name)
+
+    def __enter__(self):
+        return self._r
+
+    def __exit__(self, *e):
+        self._fk.drop(self._r)
 
 
 def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
@@ -3741,8 +3945,10 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
         _clone(src, dst)                             # a directory per INSTANCE
         mounts += ["--mount", "fd:%d:media/floppies/run%d.img" % (i, i)]
 
-    cmd = ["./martypc_headless", "--machine-config-name", machine] + mounts \
-        + list(extra)
+    # OS88_MARTY_BIN runs another build of the emulator in this instance's
+    # directory - how a debug_server.rs change is tried before it is staged.
+    cmd = [os.environ.get("OS88_MARTY_BIN") or "./martypc_headless",
+           "--machine-config-name", machine] + mounts + list(extra)
     env = dict(os.environ, MARTYPC_DEBUG_ADDR=want,
                MARTYPC_DEBUG_PORTFILE=portfile)
     log = open(logpath, "wb")

@@ -3424,7 +3424,7 @@ SOAK = [
         "m.advance(cycles=) windows, and its one host deadline (the saver "
         "starting) is an until() on guest time.",
         needs=("marty",), serial=True),
-    Row("deskbench", "soak", py("tests/deskbench.py"), 180.0,
+    Row("deskbench", "soak", py("tests/deskbench.py"), 120.0,
         "THE STANDARD BUSY DESKTOP, priced: what a full-screen redraw, a "
         "window move and a raise cost with four windows open (PERFORMANCE.md "
         "Part 3). A measurement, not a gate - it asserts its own SCENE and "
@@ -3569,7 +3569,7 @@ SOAK = [
         "REDLINE shipped CPU probes under QEMU BIOS: opcode gates, CPUID vendor "
         "overrides for Cyrix/Transmeta, E820 and TSC. These are emulated vendors, "
         "not physical hardware identification (SPEC.md 103.2)", needs=("nasm", "qemu")),
-    Row("redlinecga", "soak", py("tests/redline.py", "--machine", "os8088_redline_pc_gla"), 240.0,
+    Row("redlinecga", "soak", py("tests/redline.py", "--machine", "os8088_redline_pc_gla"), 180.0,
         "REDLINE cga: CPU identity, 25 averaged timings, repeated probe, large-denominator "
         "arithmetic, report save, Summary/Detailed/Compare, release/cancel buttons "
         "and Quit (SPEC.md 103)",
@@ -3686,7 +3686,7 @@ SOAK = [
         "overlays cut together",
         needs=("marty", "nasm"),
         wants=("build/isotron360.img", "build/os8088-360.img")),
-    Row("isotronega", "soak", py("tests/isotron.py", "--win", "ega"), 110.0,
+    Row("isotronega", "soak", py("tests/isotron.py", "--win", "ega"), 240.0,
         "isoTron on an EGA desktop (SPEC.md 39.24, 108.11, 108.12), BOTH halves: "
         "a private VIDEO=ega kernel tree (tools/os88build.py) on MartyPC's "
         "XT-VGA - the 640 x 350 x 16 geometry, as excitebike_front's ega arm "
@@ -3833,7 +3833,7 @@ SOAK = [
         "Measured ~32 s (wave 5)",
         needs=("marty", "nasm"),
         wants=("build/isotron360.img", "build/os8088-360.img")),
-    Row("isotronload", "soak", py("tests/isotronload.py"), 600.0,
+    Row("isotronload", "soak", py("tests/isotronload.py"), 210.0,
         "isoTron's LAUNCH TO PLAY and its RATE on the XT (PERFORMANCE.md Set "
         "159), MartyPC's cycle counter on the 5150 CGA, 5150 Hercules and "
         "XT-VGA. The launch: the double-clicked ISOTRON.O88 walked by "
@@ -3847,10 +3847,12 @@ SOAK = [
         "price, and the share of the machine the game's frames hold. Asserts "
         "the title and the round come up and every rate is within 3% of the "
         "model; the figures are the record. `--profile win|fs` is the "
-        "sampling instrument the audit used, not a row",
+        "sampling instrument the audit used, not a row. One boot a machine for "
+        "both legs (the rate after the launch's round): 168 s, 139 guest s, "
+        "where three boots more were 219 s (SOAK-SPEED)",
         needs=("marty", "nasm"),
         wants=("build/isotron360.img", "build/os8088-360.img")),
-    Row("isotronperf", "soak", py("tests/isotron.py", "--perf", "all"), 900.0,
+    Row("isotronperf", "soak", py("tests/isotron.py", "--perf", "all"), 540.0,
         "isoTron's windowed price on the XT (SPEC.md 108.10.3, 108.11.7; "
         "ISOTRON-PLAN section 16), MartyPC's cycle counter on the 5150 CGA, "
         "5150 Hercules and XT-VGA: a computer HEAD-STEP whole - its RNG byte, "
@@ -3900,7 +3902,10 @@ SOAK = [
         "is no adapter's), its own pins under VGA's ceilings. Measured ~700 s "
         "for the four machines in a soak lane (wave 3 fix); 574 s with the "
         "sweep's four boots, alone in a lane (wave 4); 641 s (wave 6), plus "
-        "EGA's windowed boot",
+        "EGA's windowed boot. Since SOAK-SPEED the three legs SHARE one boot a "
+        "machine (each leaves the windowed title, the next asserts it): 534 s "
+        "and 409 guest s on a loaded box, where twelve boots were 947 s and "
+        "634",
         needs=("marty", "nasm"), serial=True,
         wants=("build/isotron360.img", "build/os8088-360.img")),
     Row("isotronsmall", "soak", py("tests/isotronsmall.py"), 40.0,
@@ -3928,7 +3933,7 @@ SOAK = [
         "oracle of excitebikevideo/excitebikevideocga/excitebikeg1, so it is "
         "held before they are believed. No emulator",
         needs=("nasm",)),
-    Row("excitebikevideo", "soak", py("tests/excitebike_video.py", "--adapter", "vga"), 170.0,
+    Row("excitebikevideo", "soak", py("tests/excitebike_video.py", "--adapter", "vga"), 160.0,
         "EXCITEBIKE wave 2, VGA 0Dh on MartyPC (SPEC.md 102.1, 102.6): the "
         "scroll engine against tools/exbsim.py, the reference renderer written "
         "from the SOURCE text with none of the guest's tricks. Twenty random "
@@ -3947,7 +3952,7 @@ SOAK = [
         "Pixel-exact against "
         "the card's own rendering, the line compare and the palette included",
         needs=("marty", "nasm"), wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikevideocga", "soak", py("tests/excitebike_video.py", "--adapter", "cga"), 150.0,
+    Row("excitebikevideocga", "soak", py("tests/excitebike_video.py", "--adapter", "cga"), 130.0,
         "EXCITEBIKE wave 2, CGA 320x200x4 on MartyPC: the same gate as "
         "excitebikevideo through the 8,192-byte ring - twenty random positions, "
         "the erase negative control, the first course and the 1,637-column "
@@ -3966,7 +3971,7 @@ SOAK = [
         "to `make test`, so it cannot share the tree",
         needs=("qemu", "nasm"), serial=True, builds=True, timeout=300,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeperf", "soak", py("tests/excitebike_perf.py", "--scroll", "--governor"), 90.0,
+    Row("excitebikeperf", "soak", py("tests/excitebike_perf.py", "--scroll", "--governor"), 80.0,
         "EXCITEBIKE wave 2 frame rate on MartyPC's 4.77 MHz XT (SPEC.md 102.6, "
         "PERFORMANCE.md Set 148): a scripted 3.4 px/step scroll under one bike, "
         "the cycle counter between successive frame marks and per component "
@@ -3978,7 +3983,7 @@ SOAK = [
         "it wants the machine to itself",
         needs=("marty", "nasm"), alone=True, timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeref", "soak", py("tests/excitebike_ref.py"), 170.0,
+    Row("excitebikeref", "soak", py("tests/excitebike_ref.py"), 480.0,
         "EXCITEBIKE wave 3, the rider simulation on MartyPC (SPEC.md 102.3, 102.6): "
         "sim.inc against tools/exbsim.py STEP FOR STEP - the harness feeds the "
         "guest a script (xb_tmode) and reads back 16 bytes of state after every "
@@ -3996,7 +4001,7 @@ SOAK = [
         "wall-heavy: 2.6 minutes, all of it guest steps",
         needs=("marty", "nasm"), timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikelap", "soak", py("tests/excitebike_perf.py", "--lap"), 150.0,
+    Row("excitebikelap", "soak", py("tests/excitebike_perf.py", "--lap"), 110.0,
         "EXCITEBIKE wave 3 frame rate over a WHOLE COURSE (SPEC.md 102.6, PERFORMANCE.md "
         "Set 149): Selection A at turbo, the reference rider feeding the "
         "steps (both laps, the lap change, ramps, hurdles, crashes, the finish), "
@@ -4006,7 +4011,7 @@ SOAK = [
         "wants the machine to itself",
         needs=("marty", "nasm"), alone=True, timeout=900,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeflow", "soak", py("tests/excitebike_flow.py", "--flow"), 120.0,
+    Row("excitebikeflow", "soak", py("tests/excitebike_flow.py", "--flow"), 210.0,
         "EXCITEBIKE wave 4, the game around the race (SPEC.md 102.4, 102.6) on VGA and CGA, "
         "driven with the keys a player uses: the title (idle frames counted, B = best times, NO demo at "
         "500 idle frames and the demo at 560: Selection B with the AI driving the rider, a key ends "
@@ -4021,7 +4026,7 @@ SOAK = [
         "the test chooses). Measured 113 s for the two adapters",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikecustom", "soak", py("tests/excitebike_flow.py", "--custom", "--adapter", "vga"), 70.0,
+    Row("excitebikecustom", "soak", py("tests/excitebike_flow.py", "--custom", "--adapter", "vga"), 100.0,
         "EXCITEBIKE optional EXBTRACK.DAT (SPEC.md 102.4): a scratch disk carries a designed course "
         "(a lap of plain columns, a ramp with its script trigger, a hurdle; par 32.10) and it is course 6: "
         "the column array is 43 + 2 laps of the stream, the finish ranks against its par and a custom "
@@ -4042,7 +4047,7 @@ SOAK = [
         "lands at the screen's edge, nobody standing still - and at least one respawn happens",
         needs=("marty", "nasm"), timeout=1500,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeselfb", "soak", py("tests/excitebike_perf.py", "--selfb"), 120.0,
+    Row("excitebikeselfb", "soak", py("tests/excitebike_perf.py", "--selfb"), 90.0,
         "EXCITEBIKE wave 4 Selection B frame rate (SPEC.md 102.6, PERFORMANCE.md Set 150, plan gate "
         "G4): the rider (driven by the game's own AI, the attract demo's brain: closed loop) and the "
         "opponents over a whole first course with rendering on - three on the VGA, two on the CGA (the "
@@ -4057,7 +4062,7 @@ SOAK = [
         "RATE, so it wants the machine to itself",
         needs=("marty", "nasm"), alone=True, timeout=1200,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikevideoherc", "soak", py("tests/excitebike_video.py", "--adapter", "herc"), 245.0,
+    Row("excitebikevideoherc", "soak", py("tests/excitebike_video.py", "--adapter", "herc"), 130.0,
         "EXCITEBIKE wave 6, the HERCULES on MartyPC's 5150 with the card (SPEC.md 102.7): the whole pixel gate "
         "of excitebikevideocga through the Hercules's four 2000h banks and 90-byte rows, compared pair for "
         "pair (a game pixel is two card pixels; a tile's mid grey alternates 10/01) with the reference "
@@ -4069,37 +4074,37 @@ SOAK = [
         "(the framebuffer, not the memory) is then 347 lines instead of 199, which is what proves the field "
         "is 50 rows and nothing else is lit",
         needs=("marty", "nasm"), wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeflowherc", "soak", py("tests/excitebike_flow.py", "--flow", "--adapter", "herc"), 60.0,
+    Row("excitebikeflowherc", "soak", py("tests/excitebike_flow.py", "--flow", "--adapter", "herc"), 90.0,
         "EXCITEBIKE wave 6, excitebikeflow on the Hercules: the title, the menus (the 40-cell text grid two "
         "cells in from the left of the 45-cell row), the countdown, pause, lap flash, finish, rank at every "
         "boundary, the campaign and the second pass, Alt+Enter/Esc leaving with the claim map as it was",
         needs=("marty", "nasm"), timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikecustomherc", "soak", py("tests/excitebike_flow.py", "--custom", "--adapter", "herc"), 55.0,
+    Row("excitebikecustomherc", "soak", py("tests/excitebike_flow.py", "--custom", "--adapter", "herc"), 60.0,
         "EXCITEBIKE wave 6, excitebikecustom on the Hercules (the scratch disks' package carries "
         "EXBH.GFX as a part, SPEC.md 102.10)",
         needs=("marty", "nasm"), timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeaiherc", "soak", py("tests/excitebike_flow.py", "--ai", "--collide", "--adapter", "herc"), 90.0,
+    Row("excitebikeaiherc", "soak", py("tests/excitebike_flow.py", "--ai", "--collide", "--adapter", "herc"), 70.0,
         "EXCITEBIKE wave 6, excitebikeai on the Hercules: the collision rule by the guest's own xa_pair and "
         "5,000 steps of Selection B with two opponents",
         needs=("marty", "nasm"), timeout=1500,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeperfherc", "soak", py("tests/excitebike_perf.py", "--herc", "--scroll", "--governor"), 40.0,
+    Row("excitebikeperfherc", "soak", py("tests/excitebike_perf.py", "--herc", "--scroll", "--governor"), 20.0,
         "EXCITEBIKE wave 6 (PERFORMANCE.md Set 148, wave 6 block) on the Hercules: the scripted scroll - "
         "mean period <= 174,763 (measured 94,895 = 50.3 Hz: one CRT frame of 94.7k), sprite draw + erase "
         "<= 15,000 a frame (13.4k; a rewrite 24.1k, fenced at 26,000) - and the governor test. A RATE, so "
         "it wants the machine to itself",
         needs=("marty", "nasm"), alone=True, timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikelapherc", "soak", py("tests/excitebike_perf.py", "--herc", "--lap"), 120.0,
+    Row("excitebikelapherc", "soak", py("tests/excitebike_perf.py", "--herc", "--lap"), 50.0,
         "EXCITEBIKE wave 6 ACCEPTANCE (plan gate G6, PERFORMANCE.md Set 152): Selection A at turbo over a "
         "whole course on the Hercules, the reference rider feeding the steps, sound on. Hard gates: mean "
         "period <= 262,144 clk (18.2 Hz; measured 94,871 = 50.3 Hz), p99 <= 349,525, the simulation <= 4,500 "
         "a step, the rider reaches the finish. A RATE, so it wants the machine to itself",
         needs=("marty", "nasm"), alone=True, timeout=900,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeselfbherc", "soak", py("tests/excitebike_perf.py", "--herc", "--selfb"), 50.0,
+    Row("excitebikeselfbherc", "soak", py("tests/excitebike_perf.py", "--herc", "--selfb"), 70.0,
         "EXCITEBIKE wave 6 Selection B on the Hercules (PERFORMANCE.md Set 152): the rider and TWO "
         "opponents, all driven by the game's own AI, over a whole course. Hard gates: mean <= 263,000 clk "
         "(measured 220,829 = 21.6 Hz; a frame is a whole number of 94.7k CRT frames, so it was 275,279 before "
@@ -4108,7 +4113,7 @@ SOAK = [
         "to itself",
         needs=("marty", "nasm"), alone=True, timeout=1200,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeaudio", "soak", py("tests/excitebike_audio.py", "--speaker"), 300.0,
+    Row("excitebikeaudio", "soak", py("tests/excitebike_audio.py", "--speaker"), 70.0,
         "EXCITEBIKE wave 5, the sound on the machine every XT is (SPEC.md 102.5): MartyPC, VGA, no card. "
         "The guest is stopped at one of its own routines and asked what it does by calling them: every "
         "song's three voices at random step sizes against the score (loops wrap, `once` songs fall "
@@ -4123,7 +4128,7 @@ SOAK = [
         "frozen effect left a tone sounding). ~150 s because each guest call is one emulator round trip",
         needs=("marty", "nasm"), timeout=1200,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeaudiofm", "soak", py("tests/excitebike_audio.py", "--fm"), 300.0,
+    Row("excitebikeaudiofm", "soak", py("tests/excitebike_audio.py", "--fm"), 50.0,
         "EXCITEBIKE wave 5, the FM path (SPEC.md 102.5) on MartyPC's Sound Blaster XT: four channels "
         "claimed at the top of the bracket, the title song keys 0-2, throttle keys the engine's two "
         "channels, a pause keys them off, M releases all four and claims them again, a crash keys "
@@ -4132,7 +4137,7 @@ SOAK = [
         "Reads the sound driver's own opl_own / opl_b0",
         needs=("marty", "nasm"), timeout=1200,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeaudiocap", "soak", py("tests/excitebike_audio.py", "--capture"), 150.0,
+    Row("excitebikeaudiocap", "soak", py("tests/excitebike_audio.py", "--capture"), 60.0,
         "EXCITEBIKE wave 5, what reaches the SPEAKER: MartyPC's capture (MARTYPC_WAV, the vidspk "
         "precedent) read with tools/sndcheck.py's loader and a square-wave period reader. The engine "
         "held at four speeds by the guest's own routines is heard at the table's Hz an octave up "
@@ -4177,7 +4182,7 @@ SOAK = [
         "the small 17KB sprite claim, taken when the big one is refused, was reported as a failed load "
         "because a `cmp`'s borrow was read as an error",
         needs=("marty", "nasm"), wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikesmallclaim", "soak", py("tests/excitebike_video.py", "--adapter", "cga", "--smallclaim", "--quick"), 110.0,
+    Row("excitebikesmallclaim", "soak", py("tests/excitebike_video.py", "--adapter", "cga", "--smallclaim", "--quick"), 90.0,
         "EXCITEBIKE wave 7 (SPEC.md 102.8.3): the CGA sprite loader's FIRST claim (28KB) is refused - the "
         "harness stops the guest right after that call and sets CF - so the 17KB fallback runs for real: 28 "
         "poses loaded, none compiled (xs_ctab all zero), xb_error 0, and the whole quick CGA pixel gate "
@@ -4185,7 +4190,7 @@ SOAK = [
         "identical to the reference renderer on the interpreted draw. The fallback had never run: it was "
         "reported as a failed load because a cmp's borrow was read as an error",
         needs=("marty", "nasm"), wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeaudiolap", "soak", py("tests/excitebike_perf.py", "--lap", "--audio-ab"), 400.0,
+    Row("excitebikeaudiolap", "soak", py("tests/excitebike_perf.py", "--lap", "--audio-ab"), 160.0,
         "EXCITEBIKE wave 5 sound cost (PERFORMANCE.md Set 151): the wave-3 lap, sound muted and then "
         "on, on both adapters. The wave-3 hard gates hold with the sound on; the sound - which runs "
         "AFTER the governor has measured the frame's work, before the idle wait - is read off "
@@ -7784,7 +7789,7 @@ SOAK = [
     # timeout is ~2x that: enough that container jitter cannot kill a healthy
     # run, small enough that a genuinely hung emulator is still caught in
     # minutes rather than tens of them.
-    Row("dispcalc", "soak", py("tests/dispcalc.py"), 250.0,
+    Row("dispcalc", "soak", py("tests/dispcalc.py"), 180.0,
         "Does the Calculator add up, fold cleanly and redraw nothing spare?",
         needs=("marty",), serial=True, timeout=900),
     Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 90.0,
@@ -7821,7 +7826,7 @@ SOAK = [
         "points at",
         needs=("marty",), serial=True, timeout=900,
         wants=("build/small360.img",)),
-    Row("dispcold", "soak", py("tests/dispcold.py"), 300.0,
+    Row("dispcold", "soak", py("tests/dispcold.py"), 60.0,
         "WHO DRAWS INTO .cold? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
     Row("dispcorner", "soak", py("tests/dispcorner.py"), 120.0,
@@ -7840,11 +7845,13 @@ SOAK = [
         "rect?",
         needs=("marty",), serial=True),
     # 546 s measured - the longest of the three, 16 adapter switches at four
-    # settles each. See the note above `dispcalc`.
-    Row("dispprefer", "soak", py("tests/dispprefer.py"), 560.0,
+    # settles each. See the note above `dispcalc`. 208-218 s since the
+    # soak-speed pass (docs/plans/SOAK-SPEED.md: 461 -> 235 guest seconds),
+    # measured on a box at load 11.
+    Row("dispprefer", "soak", py("tests/dispprefer.py"), 270.0,
         "Does a package's PER-ADAPTER preference and floor survive a drag"
         "across the seam, and does a USER outrank it? (SPEC.md 11.100)",
-        needs=("marty",), serial=True, timeout=1200),
+        needs=("marty",), serial=True, timeout=700),
     Row("disptitle", "soak", py("tests/disptitle.py"), 80.0,
         "Does a title bar STRADDLING the seam have one polarity? (SPEC.md"
         "5.4.2.4) - it builds `make BAND=1` itself, the composer being a knob"
@@ -8543,7 +8550,7 @@ SOAK = [
         " pixels, and the two POI towers' crown faces went on and off a frame"
         " at a time on the machine",
         needs=("marty",), serial=True),
-    Row("skieshaze", "soak", py("tests/skieshaze.py"), 187.0,
+    Row("skieshaze", "soak", py("tests/skieshaze.py"), 70.0,
         "SPEC.md 88.4.1.1: the HAZE, a fill box of its own (88.4.1.1.1) -"
         " four parallel lines where the plain pass has one, laid in a pass of"
         " their own. What can"
@@ -8762,7 +8769,7 @@ SOAK = [
         "denominator lived in CX, which `loop` decrements, so a wide nib drew"
         "a zig-zag that grew with the hand's speed",
         needs=("marty",), serial=True),
-    Row("paintblank", "soak", py("tests/paintblank.py"), 120.0,
+    Row("paintblank", "soak", py("tests/paintblank.py"), 60.0,
         "SPEC.md 42.15: a full-canvas repaint is 980 ms through the pair"
         "decoder and one gfx_fill when every pixel is the same colour, which"
         "is the picture Paint draws most. Counts the DECODER, not the clock,"
@@ -9094,7 +9101,7 @@ SOAK = [
         "the arena's ceiling, the pointer at it, the ROM's bytes in it, and "
         "the same desktop pixel for pixel",
         needs=("marty",)),
-    Row("dispseam", "soak", py("tests/dispseam.py"), 300.0,
+    Row("dispseam", "soak", py("tests/dispseam.py"), 240.0,
         "Does the one cell a display SEAM crosses still reach the glass?"
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
         "and puts the default kernel back, both seam orientations",
@@ -10691,7 +10698,7 @@ SOAK = [
         "SPIN COUNT. This compares three readings computed three ways: the "
         "kernel's sch_cycles, the page's tm_load, and the page's tm_pct.",
         needs=("marty",), serial=True, timeout=900),
-    Row("desksc", "soak", py("tests/desksc.py"), 200.0,
+    Row("desksc", "soak", py("tests/desksc.py"), 130.0,
         "SPEC.md 26.8: DESKTOP SHORTCUTS, every route on one boot. A drag out "
         "of a Disk window makes one (whole path, header-name caption, the "
         "badge, the nearest free cell, the drag's Cut DISARMED); SYSTEM.CFG "
@@ -10724,7 +10731,7 @@ SOAK = [
         "it shows and the window is not touched at all - deskclip is that "
         "half's gate.",
         needs=("marty",), timeout=600),
-    Row("deskclip", "soak", py("tests/deskclip.py"), 350.0,
+    Row("deskclip", "soak", py("tests/deskclip.py"), 150.0,
         "SPEC.md 11.91.6: on kern_big a desktop cell is drawn only where the "
         "damage pass reveals it - into wm_dmg_gray's own region, the damage "
         "minus every window's frame and shadow L, its pictures gfx_blit1 "
@@ -10761,7 +10768,7 @@ SOAK = [
         "instead - and red is any pixel that differs from the whole repaint; "
         "deskwhole is .whole's own gate now.",
         needs=("marty",), timeout=600),
-    Row("deskwhole", "soak", py("tests/deskwhole.py"), 215.0,
+    Row("deskwhole", "soak", py("tests/deskwhole.py"), 150.0,
         "SPEC.md 11.91.6/26.9.9: wm_dmg_gray's `.whole`, the one fallback "
         "left once the Ls and the zones stopped overflowing the region, "
         "reached ON PURPOSE: six windows cascaded down the screen so the "
@@ -10937,7 +10944,7 @@ SOAK = [
         "seven guest seconds later.",
         needs=("marty", "mtools"), timeout=900,
         wants=("build/os8088-360.img",)),
-    Row("deskcaledit", "soak", py("tests/deskcaledit.py"), 76.0,
+    Row("deskcaledit", "soak", py("tests/deskcaledit.py"), 160.0,
         "SPEC.md 110.3: the Desk Calendar WIDGET's APPOINTMENTS, read back "
         "off the guest's own disk by tools/os88stik.py, selected the v2 way "
         "(the two-line agenda paged by its `+N more` pager). A DAMAGED "
@@ -10959,7 +10966,7 @@ SOAK = [
         "with `Calendar is full (48)`.",
         needs=("marty", "mtools"), timeout=900,
         wants=("build/os8088-360.img",)),
-    Row("deskcaltask", "soak", py("tests/deskcaltask.py"), 85.0,
+    Row("deskcaltask", "soak", py("tests/deskcaltask.py"), 40.0,
         "SPEC.md 110.3: the Desk Calendar's TASKS on a Hercules 5150 - v2's "
         "MID layout by the screen's height, a readable 1bpp framebuffer. "
         "Three typed tasks are three in the state file; the box is 9 x 9 at "
@@ -11012,7 +11019,7 @@ SOAK = [
         "`make small` builds its disk.",
         needs=("marty",), timeout=300,
         wants=("build/small360.img",)),
-    Row("deskclock", "soak", py("tests/deskclock.py"), 150.0,
+    Row("deskclock", "soak", py("tests/deskclock.py"), 130.0,
         "SPEC.md 110.14: the Desk Clock on a VGA XT off the shipped 360KB "
         "system disk - a desk window, Medium Classic, whose dial's corners "
         "are the desktop's dither with its phase (the ground sampled off the "
@@ -11042,7 +11049,7 @@ SOAK = [
         "is asserted every leg - and stepping past either end of the range "
         "is refused while the other direction still moves.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
-    Row("deskcalremind", "soak", py("tests/deskcalremind.py"), 72.0,
+    Row("deskcalremind", "soak", py("tests/deskcalremind.py"), 120.0,
         "SPEC.md 110.3 (v2): the Desk Calendar's REMINDERS RING ON CARD 3 - "
         "no alert - on MartyPC's VGA XT with the clock SET through the live "
         "clk_* fields. A launch at 09:28 sums up ONE missed reminder in one "
@@ -11202,7 +11209,7 @@ SOAK = [
         "opened again by hand it is where it was dragged, its data FIRED.",
         needs=("marty",), timeout=900,
         wants=("build/small360.img",)),
-    Row("deskcalperf", "soak", py("tests/deskcalperf.py"), 63.0,
+    Row("deskcalperf", "soak", py("tests/deskcalperf.py"), 160.0,
         "SPEC.md 110.6 / PERFORMANCE.md Part 5: what the Desk Calendar's "
         "gestures COST in primitive calls - a breakpoint on every drawing "
         "cell of the API table, a call counted only when its far return "
@@ -11223,7 +11230,7 @@ SOAK = [
         "counters: a boot with no row makes no disk call after its paint.",
         needs=("marty", "mtools"), timeout=1200,
         wants=("build/os8088-360.img",)),
-    Row("deskcal1bpp", "soak", py("tests/deskcal1bpp.py"), 45.0,
+    Row("deskcal1bpp", "soak", py("tests/deskcal1bpp.py"), 90.0,
         "SPEC.md 110.3, 39.4, 47: the Desk Calendar WIDGET on BOTH 1bpp "
         "adapters, asserted on the framebuffer's own bits (MartyPC's 5150 "
         "with a CGA, and with a Hercules card): COMPACT 178x146 and MID "
@@ -11251,7 +11258,7 @@ SOAK = [
         "inverse.",
         needs=("marty", "mtools"), timeout=1500,
         wants=("build/os8088-360.img",)),
-    Row("deskcalsnooze", "soak", py("tests/deskcalsnooze.py"), 60.0,
+    Row("deskcalsnooze", "soak", py("tests/deskcalsnooze.py"), 110.0,
         "SPEC.md 110.3 (v2): SNOOZE and DISMISS on MartyPC's VGA XT, the "
         "clock set through clk_*. A v1-shaped file (zeros at payload +4/+6) "
         "loads with nothing due or snoozed and its v1 FIRED read as "
@@ -11445,7 +11452,7 @@ SOAK = [
         "pt_szapply resizes the window and pt_track re-fits the width back up"
         "before anything else can look",
         needs=("marty", "nasm"), serial=True),
-    Row("paintrz", "soak", py("tests/paintrz.py"), 120.0,
+    Row("paintrz", "soak", py("tests/paintrz.py"), 60.0,
         "SPEC.md 42.19.1: does a resize still have the PICTURE afterwards?"
         "pt_resize used to carry it through the undo image, where every walk"
         "order is safe because the source is a buffer of its own; it moves the"
@@ -11486,7 +11493,7 @@ SOAK = [
         "suite and quietly cost the VGA fifteen of its colours",
         needs=("marty",), serial=True),
     Row("paintpal", "soak",
-        py("tests/paintpal.py"), 90.0,
+        py("tests/paintpal.py"), 40.0,
         "Does SPEC.md 42.26.1's COMPOSED palette draw what the fill, the "
         "frame and the sprite pass drew? One boot draws it both ways - the "
         "second with stc/ret poked over the gfx_blit1 thunk, which is the "
@@ -11528,7 +11535,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/small360.img",)),
     Row("paint1blit", "soak",
-        py("tests/paint1blit.py"), 90.0,
+        py("tests/paint1blit.py"), 60.0,
         "SPEC.md 42.23.4: the TWO paths a one-bit canvas reaches the screen"
         "by, compared. kern_big has gfx_blit1 and blits the band straight in;"
         "a REFUSED gfx_blit1 sends Paint to expand each row for"
@@ -11590,7 +11597,7 @@ SOAK = [
         "pt_chmax clamps that machine's fresh canvas to the picture's height",
         needs=("marty",), serial=True),
     Row("paintrz-1bpp", "soak",
-        py("tests/paintrz.py", "--machine", "os8088_5150_herc_gla"), 120.0,
+        py("tests/paintrz.py", "--machine", "os8088_5150_herc_gla"), 60.0,
         "...and the ONE-BIT canvas, which is a different move: one run of"
         "bits a row instead of four plane-runs whose three inner boundaries"
         "all shift with the width (SPEC.md 42.23, 42.13.2). IT WAS"
@@ -11620,7 +11627,7 @@ SOAK = [
         "trivially, and the alert must be on the glass at the end, or a dialog"
         "that failed to open reads as one that opened quietly",
         needs=("marty",), serial=True),
-    Row("paintdirty", "soak", py("tests/paintdirty.py"), 70.0,
+    Row("paintdirty", "soak", py("tests/paintdirty.py"), 40.0,
         "SPEC.md 42.16: does Paint ask before it throws a picture away? A"
         "FLAG and not Note Pad's checksum, so the places that set and clear it"
         "are the whole feature - opened 0, MAXIMIZED AND RESTORED 0 (a resize"
@@ -11628,7 +11635,7 @@ SOAK = [
         "blank picture nobody drew on), one stroke 1, and the close box"
         "refuses and puts an alert up",
         needs=("marty",), serial=True),
-    Row("paintcull", "soak", py("tests/paintcull.py"), 70.0,
+    Row("paintcull", "soak", py("tests/paintcull.py"), 50.0,
         "SPEC.md 5.4.3.3: does 11.3.3's CULL cost Paint its four planes? An"
         "armed clip region is one of gfx_blitp's refusals and pt_topacked"
         "reads any refusal as a fact about the MACHINE, so one ordinary"
@@ -12364,7 +12371,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidplayvga", "soak", py("tests/vidplay.py", "--layout", "lin80"),
-        50.0,
+        40.0,
         "SPEC.md 98.3: vidplay's two plays with a LIN80 (mode 12h) clip on "
         "the XT VGA, frame-exact at every hold: mode 12h is planar, but a "
         "MONO1 byte goes to all four planes, so plane 0 - what a read of "
@@ -12396,7 +12403,7 @@ SOAK = [
         "the burst OFF - 3D8h is not a VGA's - and plays the same bytes",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidpreview", "soak", py("tests/vidpreview.py"), 72.0,
+    Row("vidpreview", "soak", py("tests/vidpreview.py"), 60.0,
         "SPEC.md 98.4, 98.3.4, 98.3.5: VIDEO.O88's window is a PREVIEW. "
         "vidplay's clip opened by double-clicking: the box holds the "
         "header's poster keyframe halved 2x2 with the ordered dither - the "
@@ -13443,7 +13450,7 @@ SOAK = [
         "(vb_v2c's b in a's colour) it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2bench", "soak", py("tests/vidv2bench.py"), 240.0,
+    Row("vidv2bench", "soak", py("tests/vidv2bench.py"), 30.0,
         "SPEC.md 98.3.23: AN INSTRUMENT - what a block costs a 4.77 MHz "
         "8088, LIN320. A clip of one kind a block frame, at 40 and 280 "
         "blocks, played full screen on MartyPC's VGA XT with breakpoints "
@@ -13472,7 +13479,7 @@ SOAK = [
         "at 40 and 200 tiles, the codebook's two whole copies untimed",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidpal", "soak", py("tests/vidpal.py"), 110.0,
+    Row("vidpal", "soak", py("tests/vidpal.py"), 80.0,
         "SPEC.md 98.1.3.2.3: A PALETTE A SCENE - a 16-colour file whose "
         "table gives each scene's first frame and sixteen, on MartyPC's VGA "
         "XT. A clip made here, three scenes off the keyframes: from the "
@@ -13689,7 +13696,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidpage8n", "soak", py("tests/vidpage.py", "--pages", "8",
-                                "--screen", "320x200n"), 180.0,
+                                "--screen", "320x200n"), 120.0,
         "SPEC.md 98.1.3.2.5, 98.3.8.4: sixteen colours on a NARROW 320 x 200 "
         "- rows 40 bytes apart, 0Dh's own, so a page is 8,000 bytes and a "
         "plane holds EIGHT: seven scene changes three frames apart, seven "
@@ -13725,7 +13732,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidpagetext4", "soak", py("tests/vidpagetext.py", "--pages", "4"),
-        45.0,
+        40.0,
         "SPEC.md 98.3.8.4: the full screen's text on FOUR pages - the "
         "text's two saves follow the page shown (vo_pgsave), its box put "
         "back where a save leaves. A toast kept up across vidpage4v's "
@@ -13765,7 +13772,7 @@ SOAK = [
         "sub-records decoded past both pages",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidscreen", "soak", py("tests/vidscreen.py"), 160.0,
+    Row("vidscreen", "soak", py("tests/vidscreen.py"), 150.0,
         "SPEC.md 98.1.3.2.1, 98.3.8.2: sixteen colours on a SCREEN OF ITS "
         "OWN - 320 x 200, 320 x 240, 640 x 350 and 640 x 400 - flipped, in "
         "the file's own palette, on MartyPC's VGA XT: the screen, its page "
@@ -13790,7 +13797,7 @@ SOAK = [
         "a halving's turn or second pass taken out - those arms FAIL",
         needs=("marty", "nasm", "numpy"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidscreeno", "soak", py("tests/vidscreen.py", "--own"), 160.0,
+    Row("vidscreeno", "soak", py("tests/vidscreen.py", "--own"), 150.0,
         "SPEC.md 98.1.3.10, 98.3.8.7: vidscreen's clips AGAINST THEIR OWN "
         "PAGE on the four flipped screens (byte 37 7): drawn on the back "
         "page as it stands, the record after a key bringing its page up off "
@@ -14506,32 +14513,32 @@ SOAK = [
         "thing that can see sw_blit_row's tables read through the wrong"
         "segment (5.4.1.3 moved them to .lowbss)",
         needs=("marty",), serial=True),
-    Row("paintdraw", "soak", py("tests/paintdraw.py"), 70.0,
+    Row("paintdraw", "soak", py("tests/paintdraw.py"), 60.0,
         "SPEC.md 42.13: does DRAWING on the planar canvas touch only what it"
         "drew? paintplan covers the routines that write a whole row; this one"
         "covers pt_rect, which is the pencil's dab and builds a left mask, a"
         "right mask and a byte count the packed path gets from one shift",
         needs=("marty",), serial=True),
-    Row("paintsu", "soak", py("tests/paintsu.py"), 120.0,
+    Row("paintsu", "soak", py("tests/paintsu.py"), 50.0,
         "SPEC.md 11.96.11: on a 1bpp adapter Paint banks its WHOLE content"
         "rather than the tool column, because there the cache is ~9KB and the"
         "canvas it saves redrawing is 399 ms. Asserts the size asked for, that"
         "no canvas blit crosses an uncover, and that what came back is right",
         needs=("marty",), serial=True),
-    Row("paintfill", "soak", py("tests/paintfill.py"), 80.0,
+    Row("paintfill", "soak", py("tests/paintfill.py"), 60.0,
         "SPEC.md 42.13.2: does the FLOOD FILL find the same edges the picture"
         "has? pt_fpix gathers one bit per plane, so a plane addressed wrongly"
         "does not corrupt anything - it makes the fill see a picture that is"
         "not there. The oracle is a flood fill on the host over the same file",
         needs=("marty",), serial=True),
-    Row("paintbig", "soak", py("tests/paintbig.py"), 150.0,
+    Row("paintbig", "soak", py("tests/paintbig.py"), 50.0,
         "SPEC.md 42.13.2: GROW the canvas, which is the only thing that"
         "changes [pt_bpr] - the one number the two storage formats do not"
         "share - then copy a block past the clipboard's 4KB floor and paste"
         "it back at a DIFFERENT bit phase (SPEC.md 42.13.3), which is what"
         "makes both shifts and both edge masks run. Nothing else resizes",
         needs=("marty",), serial=True),
-    Row("paintback", "soak", py("tests/paintback.py"), 180.0,
+    Row("paintback", "soak", py("tests/paintback.py"), 120.0,
         "SPEC.md 11.96.11.4 and 42.13.1.3: a window dragged clear onto the"
         "other card and home again - the PICTURE first, because the stale BX"
         "this caught had the kernel writing zeros into its own .text and the"
@@ -14556,7 +14563,7 @@ SOAK = [
         "of it, since this row takes no timing and ibm5150_82_v4 is not in"
         "this tree.",
         needs=("marty",), serial=True),
-    Row("paintpack", "soak", py("tests/paintpack.py"), 210.0,
+    Row("paintpack", "soak", py("tests/paintpack.py"), 60.0,
         "SPEC.md 42.13.1: the REFUSAL path. Builds the NOPLANE kernel, where"
         "every gfx_blitp says no in six bytes, so Paint's pt_topacked runs"
         "for real and the nibbles it produced are compared against the file,"
@@ -14981,7 +14988,7 @@ SOAK = [
         "to nibbles (SPEC.md 42.13.1), which is what puts the block through "
         "gfx_blit4 at all, and a W_X written by hand would skip it.",
         needs=("marty", "nasm"), serial=True, timeout=1800),
-    Row("paintmove", "soak", py("tests/paintmove.py"), 150.0,
+    Row("paintmove", "soak", py("tests/paintmove.py"), 60.0,
         "Compact the heap out from under a LIVE Paint canvas (SPEC.md"
         "66.2/42).",
         needs=("marty",), serial=True,
@@ -15386,7 +15393,7 @@ SOAK = [
         "who, and Tab completing @ret to @RetroAmy off the roster. QEMU by "
         "name: MartyPC has no network card (SPEC.md 72.9).",
         needs=("qemu",), serial=True, builds=True),
-    Row("wcdraw", "soak", py("tests/wcdraw.py"), 200.0,
+    Row("wcdraw", "soak", py("tests/wcdraw.py"), 40.0,
         "WireChat's redraw, priced in drawing calls (SPEC.md 113.5.1): every "
         "far call the PACKAGE makes into a drawing cell of the API table, "
         "per gesture - a message arriving, a member going Away, a key, a "
@@ -15397,13 +15404,13 @@ SOAK = [
         "Hercules",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-360.img", "build/network360.img")),
-    Row("wcdrawcga", "soak", py("tests/wcdraw.py", "--cga"), 200.0,
+    Row("wcdrawcga", "soak", py("tests/wcdraw.py", "--cga"), 40.0,
         "wcdraw on the 5150's CGA: the short layout (a one-band header, a "
         "few pane bands) in Wired, the default and one of the two "
         "themes one bit can draw (SPEC.md 113.5, 113.5.2)",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-360.img", "build/network360.img")),
-    Row("wcdrawvga", "soak", py("tests/wcdraw.py", "--vga"), 200.0,
+    Row("wcdrawvga", "soak", py("tests/wcdraw.py", "--vga"), 60.0,
         "wcdraw on the VGA XT in the Blue theme, picked from the Theme "
         "menu (SPEC.md 113.5.2): the same "
         "ceilings and the same incremental-equals-repaint identity, with "
@@ -15412,7 +15419,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-360.img", "build/network360.img")),
     Row("wcdrawwired", "soak", py("tests/wcdraw.py", "--vga", "--theme", "0"),
-        200.0,
+        60.0,
         "wcdraw on the VGA XT in Wired, the default (SPEC.md 113.5.2): its "
         "LEDs one OSAPI_GFX_BLITP each and the emoticons spans of their own "
         "colour, under the same ceilings and the same incremental-equals-"

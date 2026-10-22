@@ -240,11 +240,10 @@ def boot(tag, apps=None):
 
 
 def open_flow(ui, tag, sym, ref, art):
-    ui.open_drive("B")
-    ui.settle()
+    ui.open_drive("B")                      # (confirms the listing; the claims are read
+    M.ui_done(ui.m)                         # once the UI task is idle - no screen settle)
     c0 = F.claims(ui.m)
-    ui.open("EXCBIKE.O88")
-    ui.settle()
+    ui.open("EXCBIKE.O88")                  # (confirms the window; the reveal wait follows)
     fl = Flow(ui, tag, sym, ref, art)
     M.until(ui.m, lambda _: fl.w("xb_reveal") >= fl.w("xb_frontheight") > 0,
             "the splash reveal finishes", guest=30)
@@ -785,10 +784,8 @@ def ai_arm(tag, steps=AI_STEPS, course=3, flag=1):
     def off(name):
         return sym[name] - sym["xm_state"]
     with boot(tag) as ui:
-        ui.open_drive("B")
-        ui.settle()
+        ui.open_drive("B")                  # (both verbs confirm; the reveal wait follows)
         ui.open("EXCBIKE.O88")
-        ui.settle()
         g = V.Game(ui, tag, sym, ref)
         M.until(ui.m, lambda _: g.w("xb_reveal") >= g.w("xb_frontheight") > 0, "the reveal", guest=30)
         ui.settle()
@@ -982,10 +979,8 @@ def collide_arm(tag):
     def off(n):
         return sym[n] - sym["xm_state"]
     with boot(tag) as ui:
-        ui.open_drive("B")
-        ui.settle()
+        ui.open_drive("B")                  # (both verbs confirm; the reveal wait follows)
         ui.open("EXCBIKE.O88")
-        ui.settle()
         g = V.Game(ui, tag, sym, ref)
         M.until(ui.m, lambda _: g.w("xb_reveal") >= g.w("xb_frontheight") > 0, "the reveal", guest=30)
         ui.settle()

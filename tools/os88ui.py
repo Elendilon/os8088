@@ -122,6 +122,8 @@ class _Booted(object):
     def __enter__(self):
         m = self._cm.__enter__()
         try:
+            if self._kw.get("quick"):   # (launched PAUSED: `up` is the gate)
+                m.run()
             ui = UI(m, card=self._kw.get("card"),
                     verbose=self._kw.get("verbose", True))
             limit = self._kw.get("limit", 180.0)
@@ -148,7 +150,7 @@ class _Booted(object):
 
 def boot(image, apps=None, machine="os8088_5150_cga", card=None,
          saver=False, why_ibm=None, verbose=True, limit=180.0, settle=True,
-         **kw):
+         quick=False, **kw):
     """Launch, boot to a settled desktop, turn the saver off, hand back a UI.
 
     THE THREE LINES 175 SCRIPTS OPEN WITH, and the two things most of them
@@ -173,14 +175,23 @@ def boot(image, apps=None, machine="os8088_5150_cga", card=None,
         step is confirmed off guest state - every os88ui verb is - does not
         need the screen to stop moving first, and the settle was the one
         long input-free wait such a row had.
+      * `quick=True` goes further and skips `launch`'s OWN boot settle too
+        (it implies `settle=False`): the machine is launched paused, run, and
+        `up` - the kernel's desktop STATE, [spl_live] = 0 - is the whole
+        gate. Measured on the VGA XT, 360KB: `up` at 15 guest seconds against
+        launch's picture settle at ~30. Only for a row whose first act is an
+        os88ui verb or a guest read, never a framebuffer compare.
 
     Everything else is `os88marty.launch`'s, passed straight through.
     """
+    if quick:
+        settle = False
+        kw.setdefault("boot", False)
     cm = os88marty.launch(image, apps=apps,
                           machine=os88marty.machine(machine, why_ibm),
                           card=card, **kw)
     return _Booted(cm, card=card, saver=saver, verbose=verbose, limit=limit,
-                   settle=settle)
+                   settle=settle, quick=quick and not kw.get("boot"))
 
 
 # =============================================================================
@@ -258,6 +269,22 @@ class UI:
         """
         kw.setdefault("card", self.card)
         return os88marty.settle(self.m, **kw)
+
+    def still(self, frames=0.05):
+        """The UI has FINISHED DRAWING and the card has shown it - the cheap
+        `settle` for a read that follows an input this machine is handling.
+
+        `os88marty.ui_done` (ui_task asleep, nothing queued, the lock free,
+        for a tick: every repaint is inside a pass, under the lock), then
+        `frames` guest seconds - three frames by default - because `fbuf` is
+        the RENDERED glass and lags the framebuffer by up to one. No 2-host-
+        second floor. NOT for a worker that draws on its own clock (a game, a
+        Task Manager graph): ui_done cannot see that, `settle` can.
+        """
+        os88marty.ui_done(self.m, "the desktop to finish drawing")
+        if frames:
+            os88marty.guest_sleep(self.m, frames)
+        return self
 
     # --- the desktop --------------------------------------------------------
     def up(self, limit=180.0):
