@@ -42,8 +42,11 @@ reading the guest state the page is drawn from instead of pumping the screen).
    `with Forks(ui.m) as fk: with fk.restore() as r: leg(os88ui.UI(r))`.
 4. **`ui_done` before `settle`, and `ui_done` alone when the next read is
    memory.** `settle`'s short window (~0.6 guest s) only opens if the UI task
-   is idle at its FIRST sample; a settle begun mid-repaint pays a full
-   `quiet` (~4.5 guest s) per sample. `ui_done` waits that out exactly.
+   is idle at its FIRST sample; a settle begun mid-repaint paid a full
+   `quiet` (~4.5 guest s) - now cut when the UI idles (harness changes), but
+   `ui_done` is still ~0.3 guest s cheaper and exact. A test whose every
+   assertion is memory can pass `lambda m, **k: os88marty.ui_done(m)` as the
+   `settle` the dispcp verbs take (dispprefer).
    Before an `fbuf` read keep the settle (glass lags framebuffer); before a
    `quiesce`/`m.read` the settle can go and the quiesce's `guest=` can drop
    to ~0.3. Typically halves a drive-and-read row.
@@ -85,6 +88,16 @@ reading the guest state the page is drawn from instead of pumping the screen).
   ~20-30. Only when the first act is an os88ui verb or a guest read. Opt-in;
   validated on the 22 vidpage.py rows.
 
+- **`settle`'s long window ends when the UI idles** (`os88marty.settle`):
+  spent in 0.2-guest-s slices and cut on `_ui_mark`; a cut window counts for
+  nothing (fresh `last`), so the stillness proof is the short-window one an
+  idle start gets. dispprefer 287 -> 185 guest s waited with no test change.
+  A UI that never idles pays the full window as before.
+- **`os88mouse.GAP` 0.12 -> 0.012** (a `pace()` argument: 0.54 -> 0.054
+  guest s a packet, the UART needs 0.025; `to` proves arrival anyway). Six
+  moves 5.3 -> 1.2 guest s. Every row that moves the pointer. Validated on
+  uilayer, martyconc, dispdrag, dispthm, dispprefer.
+
 ## Ledger
 
 | row | before | after | techniques | notes |
@@ -98,3 +111,4 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | vidscreen | 208 s / 155 guest s | 120 s / 83 guest s | 3 | five screens' clips on one disk, one boot, the player closed between; per-pixel glass compare as numpy arrays (checked equal to the loop; red with the palette shifted) |
 | vidscreeno | 232 s | 124 s / 82 guest s | 3 | the same script, `--own` |
 | deskwhole | 215 s declared | 117 s (load 14) / 101 guest s waited | 4, 6 | dc's armed/verify gains; four settles -> `dc.still`; boot unsettled. The rest is the seven-window setup |
+| dispprefer | 270 s / 461 guest s (load 11) | 208 s / 235 guest s (load 11) | 4 + both harness changes above | all waits memory reads -> `ui_done` as dispcp's `settle`; the switch confirmed on `[vid_kind]` (Set Primary's press was the one unconfirmed click). The rest is 12 VGA/CGA/Herc repaints and panel opens - guest work |

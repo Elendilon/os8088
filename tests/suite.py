@@ -7839,11 +7839,13 @@ SOAK = [
         "rect?",
         needs=("marty",), serial=True),
     # 546 s measured - the longest of the three, 16 adapter switches at four
-    # settles each. See the note above `dispcalc`.
-    Row("dispprefer", "soak", py("tests/dispprefer.py"), 560.0,
+    # settles each. See the note above `dispcalc`. 208-218 s since the
+    # soak-speed pass (docs/plans/SOAK-SPEED.md: 461 -> 235 guest seconds),
+    # measured on a box at load 11.
+    Row("dispprefer", "soak", py("tests/dispprefer.py"), 270.0,
         "Does a package's PER-ADAPTER preference and floor survive a drag"
         "across the seam, and does a USER outrank it? (SPEC.md 11.100)",
-        needs=("marty",), serial=True, timeout=1200),
+        needs=("marty",), serial=True, timeout=700),
     Row("disptitle", "soak", py("tests/disptitle.py"), 80.0,
         "Does a title bar STRADDLING the seam have one polarity? (SPEC.md"
         "5.4.2.4) - it builds `make BAND=1` itself, the composer being a knob"

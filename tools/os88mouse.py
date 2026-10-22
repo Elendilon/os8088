@@ -88,7 +88,14 @@ TAG_MOUSE = 0x4F4D              # 'MO'
 STEP = 100
 # 1200 baud, 3 bytes: ~25 ms of guest time. Below this the server blocks and
 # the client times out, which reads exactly like a hung emulator.
-GAP = 0.12
+#
+# IT IS A pace() ARGUMENT, so it is IDLE-BOX HOST SECONDS and costs GAP x
+# GUEST_PACE of the guest's time: 0.12 was 0.54 guest seconds a packet, twenty
+# times the 25 ms the UART needs, and `to` then proves arrival with `_landed`
+# anyway. 0.012 is 54 ms - two packet times. Measured on an idle CGA desktop,
+# six moves cost 5.32 guest seconds at 0.12 and 1.15 here, every one arriving
+# exactly (docs/plans/SOAK-SPEED.md, harness changes).
+GAP = 0.012
 # WHAT ONE PACKET IS ALLOWED, in GUEST seconds. `to` used to sleep a fixed
 # 0.25 HOST seconds after each one - about 0.9 guest seconds on an idle box
 # here and 0.25 on a full one, so the same click bought the machine four times

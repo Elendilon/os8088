@@ -2920,8 +2920,28 @@ def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
         fast = mark is not None
         if fast:
             pace(m, SETTLE_UI_QUIET / (GUEST_PACE or 4.5))
-        else:
+        elif not SETTLE_UI or GUEST_PACE <= 0:
             pace(m, quiet)
+        else:
+            # THE LONG WINDOW ENDS WHEN THE UI TASK GOES IDLE. A settle called
+            # straight after a click almost always takes its first sample
+            # with the handler still running, and then sat out the whole
+            # `quiet` (4.5 guest seconds) even when the repaint was done in
+            # one. So the window is spent in short slices and cut the moment
+            # `_ui_mark` says the UI is idle - and a cut window PROVES
+            # NOTHING: the next capture is a fresh `last` (run = 0), so the
+            # stillness that ends the settle is always the short-window proof
+            # an idle start would have had. A UI that never idles (an
+            # animating worker, NOUIBLOCK) spends the full window as before.
+            # dispprefer: 5.4 guest seconds a settle after an adapter switch.
+            want = quiet * GUEST_PACE
+            c0 = prog._cycles()
+            while (prog._cycles() - c0) / GUEST_HZ < want:
+                if pace(m, SETTLE_UI_QUIET / GUEST_PACE) < SETTLE_UI_QUIET / 2:
+                    break                   # the guest stopped: pace's rule
+                if _ui_mark(m) is not None:
+                    last, run = None, 0
+                    break
 
 
 # HOW MANY TIMES DID ONE GESTURE REACH A ROUTINE? Two tests wrote this loop by
