@@ -8763,7 +8763,7 @@ SOAK = [
         "denominator lived in CX, which `loop` decrements, so a wide nib drew"
         "a zig-zag that grew with the hand's speed",
         needs=("marty",), serial=True),
-    Row("paintblank", "soak", py("tests/paintblank.py"), 120.0,
+    Row("paintblank", "soak", py("tests/paintblank.py"), 60.0,
         "SPEC.md 42.15: a full-canvas repaint is 980 ms through the pair"
         "decoder and one gfx_fill when every pixel is the same colour, which"
         "is the picture Paint draws most. Counts the DECODER, not the clock,"
