@@ -177,3 +177,11 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | skieshaze | 110 s / waits 41 guest | 53 s / 29 guest | 2, 8 | `cs_hzfill` breakpoint disarmed after its first hit (it only proves the fill runs; it stopped once per split row of 77 frames). `--clobber-ends` still FAILS (69 frames, worst 13 bytes). Secs 187 -> 70 |
 | skies (+ every skies*.py) | skies 66 s / 37 guest | 49 s / 25 guest | 2 | `quick=True` on the 29 os88ui.boot scripts; `skies.open_game` (6 launch-based scripts) is `ui.up` + `ui.path` instead of four dispcp settles, launched `boot=False`. Whole skie family run green after; secs left as declared |
 | redline (cga, herc, v20native) | cga 172 s | cga 148 s; herc 222, v20 233 (loaded) | - | the guest benchmark runs (two full runs, the rerun is a tested behaviour) ARE the row; only the poll step shrank. **redlinevga FAILS at base**: `ru_buttons+10 == 2` (held press, redline.py:312), identically with the old wait |
+
+## Resuming
+
+The six work queues and the agent brief that drove the first session are in
+`docs/plans/soak-speed-queues/`: each row is prefixed `DONE`, `SKIP <why>` or
+nothing (open). Rows marked `DONE(script changed, row not re-run)` carry a
+shared script edit and need one run to confirm. Run every row as
+`MAKELEVEL=1 python3 tools/os88test.py soak -k <row>` in a shared checkout.
