@@ -10760,7 +10760,7 @@ SOAK = [
         "instead - and red is any pixel that differs from the whole repaint; "
         "deskwhole is .whole's own gate now.",
         needs=("marty",), timeout=600),
-    Row("deskwhole", "soak", py("tests/deskwhole.py"), 215.0,
+    Row("deskwhole", "soak", py("tests/deskwhole.py"), 150.0,
         "SPEC.md 11.91.6/26.9.9: wm_dmg_gray's `.whole`, the one fallback "
         "left once the Ls and the zones stopped overflowing the region, "
         "reached ON PURPOSE: six windows cascaded down the screen so the "

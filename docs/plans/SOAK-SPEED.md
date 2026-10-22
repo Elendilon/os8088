@@ -92,3 +92,4 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | deskclip | 198 s / 148 guest s waited | 80-115 s (load 12-17) / 78 guest s | 3, 4, 6 | 6 boots -> 2 (Forks); settles before reads -> `dc.still` (ui_done + 3 frames); armed's 13.5-guest-s quiet ends on ui_idle (27 -> 2.4 host s). verify red with 4 VRAM rows poked (64 px) |
 | vidscreen | 208 s / 155 guest s | 120 s / 83 guest s | 3 | five screens' clips on one disk, one boot, the player closed between; per-pixel glass compare as numpy arrays (checked equal to the loop; red with the palette shifted) |
 | vidscreeno | 232 s | 124 s / 82 guest s | 3 | the same script, `--own` |
+| deskwhole | 215 s declared | 117 s (load 14) / 101 guest s waited | 4, 6 | dc's armed/verify gains; four settles -> `dc.still`; boot unsettled. The rest is the seven-window setup |
