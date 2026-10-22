@@ -3,18 +3,19 @@
 
     python3 tests/dragui.py [--machine os8088_5150_cga_gla]
 
-SPEC.md 11.96.12.2. A window dragged by its title is replayed from the drag
-cache (11.96.12) and its W_PAINT was never called - so every rect a package
-laid out in its paint went on naming where the window WAS. 20.5.1.3.5 fixed
-the standard button record and nothing else. The kernel now runs the
-package's paint after the replay with every primitive disarmed, so the
-package re-lays itself out and nothing is drawn.
+SPEC.md 11.96.12.0. A window dragged by its title is replayed from the drag
+cache and its W_PAINT is not called, so a rect a package laid out in its paint
+names where the window WAS. Rule 1 there is the cure and it is the PACKAGE's:
+compute every coordinate from the window's content origin every time you
+hit-test or draw. 20.5.1.3.5 does it for the standard button record; every
+other control is the package's own.
 
 Clear Skies is the subject because it is the report (*"dragging Clear Skies
-makes it so I can't click any of its buttons or dropdowns"*) and because it
-reaches NONE of the library's fixes: its Fly button is one rect it stages by
-hand, and its two drop-downs are os88ui_drop records whose OS88UI_DR_RECT is
-written in cs_paint and nowhere else. Two drags, each followed by:
+makes it so I can't click any of its buttons or dropdowns"*) and because the
+button library reaches none of it: its Fly button is a bare os88ui_bhit rect
+and its two drop-downs are os88ui_drop records whose OS88UI_DR_RECT cs_paint
+lays out. cs_regeo now re-places them from the live origin at the top of
+every handler. Two drags, each followed by:
 
 1. the plane drop-down's and the Fly button's rects read back at the window's
    NEW place - the same offset from the frame they had before the drag;
@@ -24,14 +25,9 @@ written in cs_paint and nowhere else. Two drags, each followed by:
    fly in - the release is taken OFF the button, a cancel, so the row never
    leaves the desktop.
 
-And the drag must still be a REPLAY: the window's content after the drop is
-the content before it, pixel for pixel, at the new place - a relayout paint
-that drew would be visible here as soon as any of it differed, and the
-drag cache's whole point is that nothing is drawn twice.
-
-Red with the relayout out (`make NODRAGCACHE=1` is the reference build
-where it never arises): "the plane drop-down's rect still reads the window's
-OLD place".
+The rects are read after the PRESS, which is when the package re-places
+them: nothing paints in between, so a rect that is right there was put right
+by the handler. Red without cs_regeo: "the plane drop-down did not open".
 """
 import argparse
 import os
@@ -105,27 +101,30 @@ def main():
             ui.still()
             print("  leg %s: dragged %d,%d -> %d,%d"
                   % (leg, x0, y0, w.x, w.y))
-            # 1. the rects followed the window
-            for name, (off, rx1, ry1, rx2, ry2) in rel.items():
-                got = rect(off)
-                exp = (w.x + rx1, w.y + ry1, w.x + rx2, w.y + ry2)
-                if got != exp:
-                    fail("leg %s: the %s's rect reads %r, want %r - %s"
-                         % (leg, name, got, exp,
-                            "the window's OLD place (SPEC.md 11.96.12.2)"
-                            if got == (x0 + rx1, y0 + ry1, x0 + rx2, y0 + ry2)
-                            else "somewhere else again"))
-            # 2. the drop-down opens and closes at the place it is drawn
-            x1, y1, x2, y2 = rect(drplane)
-            cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+            # 1. the drop-down opens at the place it is DRAWN - computed off
+            # the window's new frame, never read off the package's rect
+            _, rx1, ry1, rx2, ry2 = rel["plane drop-down"]
+            cx = w.x + (rx1 + rx2) // 2
+            cy = w.y + (ry1 + ry2) // 2
             ui.mo.click(cx, cy)
             try:
                 M.until(m, lambda _: byte(drplane + DR_OPEN) != 0,
                         "the plane list to open", limit=20.0)
             except Exception as e:
                 fail("leg %s: a press on the plane drop-down at %d,%d did "
-                     "not open it: %s" % (leg, cx, cy, e))
+                     "not open it; its rect reads %r: %s"
+                     % (leg, cx, cy, rect(drplane), e))
             ui.still()
+            # 2. ...and after that press every rect is where the window is
+            for name, (off, rx1, ry1, rx2, ry2) in rel.items():
+                got = rect(off)
+                exp = (w.x + rx1, w.y + ry1, w.x + rx2, w.y + ry2)
+                if got != exp:
+                    fail("leg %s: the %s's rect reads %r, want %r - %s"
+                         % (leg, name, got, exp,
+                            "the window's OLD place (SPEC.md 11.96.12.0)"
+                            if got == (x0 + rx1, y0 + ry1, x0 + rx2, y0 + ry2)
+                            else "somewhere else again"))
             ui.mo._sep()
             ui.mo.click(cx, cy)
             M.until(m, lambda _: byte(drplane + DR_OPEN) == 0,

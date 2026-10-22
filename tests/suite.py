@@ -2460,14 +2460,12 @@ SOAK = [
         wants=("build/os8088-360.img", "build/apps360.img",
                "build/timer.bin")),
     Row("dragui", "soak", py("tests/dragui.py"), 60.0,
-        "SPEC.md 11.96.12.2: every control a package laid out answers where "
-        "its window IS after a drag. The drag cache replays the window, so "
-        "the kernel runs the package's W_PAINT after it with every primitive "
-        "disarmed and the package re-lays itself out. Clear Skies, which "
-        "reaches none of the button library's fixes: dragged twice, its "
-        "plane drop-down and Fly button rects must follow the window, the "
-        "drop-down must open and close and Fly must arm at the place each is "
-        "DRAWN. Red on the tree before (the rect still reads the old place)",
+        "SPEC.md 11.96.12.0: every control a package laid out answers where "
+        "its window IS after a drag, which replays the window and paints "
+        "nothing - so the package re-places from the live origin at the "
+        "press. Clear Skies, which the button library reaches none of: "
+        "dragged twice, its plane drop-down must open and close and Fly must "
+        "arm at the place each is DRAWN. Red without cs_regeo",
         needs=("marty",), serial=True,
         wants=("build/os8088-360.img", "build/apps360.img",
                "build/skies.o88")),
