@@ -502,7 +502,13 @@ cache could not be claimed and the game ran interpreted (its log has no J).
   bank - and **at least 8 (`RW_SLOTWANT`) while the recompiler still has
   memory to give up**: the second segment goes first, then the 64KB table
   for the 16KB one, and only then are 4 taken, and 4 with no recompiler at
-  all. The fourth field run is why: on a 116K heap with SOUND.DRV mounted
+  all. **The 16KB table is a claim made anew WITH the recompiler's part,
+  read again into its tail** (`rw_jpart`): it was re-claimed at 64 + 16KB,
+  leaving the part past the claim's end and its four pointers on the old
+  place, and the slots were then claimed over it - a 1MB cartridge hung
+  on its first frame or ran the stack over whenever the heap fell where
+  the 64KB table missed (`tests/gbbank.py` on a package 1.2KB larger: 12
+  slots, 0 banks fetched; fixed, 10 slots and 0 wrong). The fourth field run is why: on a 116K heap with SOUND.DRV mounted
   the plan stopped at 5 slots with both kept, and Kirby's Dream Land
   fetched ~95 banks a second over a 286's XMS at 15% of real time - in its
   window as in full screen, with the recompiler on or off, so it read as

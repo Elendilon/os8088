@@ -564,10 +564,18 @@ rw_load:
     mov dx, [rw_jitseg]
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
-    mov ax, 64 + 16
-    mov byte [rw_hmask], 7
-    call OSAPI_MEM_CLAIM
-    jc .nojit
+    call rw_jpkb                    ; the claim WITH the recompiler's part,
+    add ax, 64 + 16                 ;   read again into its new tail: the
+    mov byte [rw_hmask], 7          ;   64 + 16 this was left the part past
+    call OSAPI_MEM_CLAIM            ;   the claim's end and its pointers at
+    jc .nojit                       ;   the old place, and the slots were
+    mov bx, 1000h + 400h            ;   claimed over it - a 1MB cartridge
+    add bx, dx                      ;   hung on its first frame, or ran the
+    call rw_jpart                   ;   stack over (rw_jitget's fallback)
+    jnc .jp16
+    call OSAPI_MEM_FREE
+    jmp short .nojit
+.jp16:
     mov [rw_jitseg], dx
     call rw_plan
     jnc .planned
@@ -2785,6 +2793,7 @@ rw_keys:
     mov bx, [rw_win]
     call OSAPI_WM_WAKE
 .nof9:
+%ifdef RDG_LOSSY
     mov al, 44h                     ; F10: TWO SHADES on or off, F11: THE
     mov bx, rw_f10was               ;   CAMERA IN STEPS OF 8 (rdg_lossy,
     mov cl, 40h                     ;   REALDMG-SPEC 13.4) - said, and the
@@ -2801,6 +2810,7 @@ rw_keys:
     mov al, RDG_LCOARSE
     call rw_lossyt
 .nof11:
+%endif
     mov al, 58h                     ; F12: the log written now (rw_logflush,
     mov bx, rw_f12was               ;   the UI task's - after the bracket,
     mov cl, 10h                     ;   where a toast can be read)
@@ -2870,6 +2880,7 @@ rw_keys:
     mov [S_JOY], dl
     pop ds
     ret
+%ifdef RDG_LOSSY
 ; rw_lossyt - AL = an rdg_lossy bit: turned over, said, and the next draw
 ; composed whole (F10, F11)
 rw_lossyt:
@@ -2888,6 +2899,7 @@ rw_lossyt:
     call rw_note
     jmp rw_dmgfull
 
+%endif
 ; rw_fedge - AL = F1-F4's scancode, BX = its was-held byte, CL = its bit in
 ; rw_ftyped: CF = 1 when it is pressed now (held now, not at the last look),
 ; or TYPED since the last look and up at both - a tap that fell between two
