@@ -10349,9 +10349,13 @@ copied onto a small disk still runs, which it does today). **BUILT on branch
 
 The merged page landed (`b6c4a1ed`, `2cd6ddc7`). Open:
 
-- [ ] **AVAIL / MAX RUN on kern_mega count the conventional heap only**
-  (`AVAIL 573K` under `Ram 0.37/15.62M`). Designed, not built, in
-  `taskmgr.asm` alone: keep `OSAPI_XMEM_CAPS`'s free KB as `[tm_hifree]`;
+- [x] **AVAIL / MAX RUN on kern_mega count the conventional heap only**
+  (`AVAIL 573K` under `Ram 0.37/15.62M`). **BUILT** (SPEC.md 28.4.10): Bochs
+  reads `AVAIL 15.26M MAX RUN 14.70M` under `Ram 0.36/15.62M`, the pool
+  holding the kernel's 32K, HDD.DRV, the Task Manager's region and a 5K
+  cache. **+221 bytes of image** against the 80-120 estimated, no bss and no
+  kernel byte; the KB arm and the MB arm are each a whole composition. It
+  was designed as, in `taskmgr.asm` alone: keep `OSAPI_XMEM_CAPS`'s free KB as `[tm_hifree]`;
   compute `[tm_himax]`, the largest run one claim gets after `mx_alloc`'s
   compaction, by `mx_compactf`'s own walk over `tm_xw` (movable owners
   80h-DFh and FDh per `mx_canmove`, pinned FEh/FFh/slots, the F0h-F4h

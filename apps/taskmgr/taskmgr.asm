@@ -607,6 +607,11 @@ TMH_RW      equ TMH_SB_X1 - 1   ; ...and a list row's own right edge, which is
 %if (6+3+1) + (2+8+3+1) > TM_STRMAX - 1
   %error "taskmgr: the AVAIL / MAX RUN line no longer fits tm_str"
 %endif
+; ...and kern_mega's, in MB with one gap fewer: 'AVAIL dd.ddM MAX RUN dd.ddM'
+; is 6 + 6 + 9 + 6 = 27, every cell of the caption (KERN-MEGA-PLAN 14.70.3)
+%if 6 + 6 + 9 + 6 > TM_STRMAX - 1 || 6 + 6 + 9 + 6 > TM_LCELLS
+  %error "taskmgr: kern_mega's AVAIL / MAX RUN line no longer fits"
+%endif
 
 ; The CPU/scheduler caption is chunked too, and it borrows the row machinery
 ; whole by being a row that no list draws: it is a 20-character line whose
@@ -3205,17 +3210,149 @@ tm_cap_avl:
     mov si, tm_s_avl
     call tm_copy
     mov ax, [tm_avl]
+    mov bx, [tm_maxrun]
+    cmp byte [tm_pm], 0         ; kern_mega in protected mode: the pool above
+    je .conv                    ; 1MB is RAM a claim can GET as well - an
+    cmp byte [tm_hion], 0       ; OS88_HIGHMEM package's own region and data
+    jne .hi                     ; go there (KERN-MEGA-PLAN 14.70.3)
+.conv:
     call tm_kfig
     mov si, tm_s_hmax
     call tm_copy
-    mov ax, [tm_maxrun]
+    xchg ax, bx
     call tm_kfig
+    jmp short .term
+.hi:
+    call OSAPI_XMEM_CAPS        ; AX = the pool's free KB (BX CX DX spent)
+    add ax, [tm_avl]            ; AVAIL = the heap's and the pool's together
+    push ax
+    call tm_himax               ; MAX RUN = the larger of the pool's run after
+    cmp ax, [tm_maxrun]         ; mx_alloc's compaction and the heap's own
+    jae .hrun
+    mov ax, [tm_maxrun]
+.hrun:
+    xchg ax, bx                 ; BX = MAX RUN...
+    pop ax                      ; ...AX = AVAIL
+    mov si, tm_s_hmax
+    cmp ax, 9999
+    ja .hmb
+    mov cx, 4                   ; KB to 9,999: four digits apiece
+    call dec_fld
+    mov byte [di], 'K'
+    inc di
+    call tm_copy
+    xchg ax, bx
+    call dec_fld
+    mov byte [di], 'K'
+    inc di
+    jmp short .term
+.hmb:                           ; ...and BOTH in MB to two places past it,
+    call tm_mfig2               ; the line's 27 cells taking one gap less:
+    mov byte [di], 'M'          ; 'AVAIL 15.04M MAX RUN 14.98M'
+    inc di
+    inc si
+    call tm_copy
+    xchg ax, bx
+    call tm_mfig2
+    mov byte [di], 'M'
+    inc di
+.term:
     mov byte [di], 0
     mov bx, tm_elck + 2*TMC_AVL
     mov ax, TMM_AVL_Y
     sub ax, [tm_xoff]           ; it rises with the rows when there is no bar
     call tm_capline
     jmp tm_pop_dsdcba
+
+; -----------------------------------------------------------------------------
+; tm_himax - AX = the largest run ONE claim above 1MB can get: the pool as
+; mx_alloc leaves it after mx_compactf, worked out from the walk in tm_xw
+; (tm_hikb, kern_mega in protected mode). The kernel's own walk, replayed: the
+; blocks in ascending order of where they are, a cursor following them, a
+; MOVABLE one (mx_canmove: 80h-DFh, a program's or driver's, and FDh, a
+; driver's image) sliding down to it and a PINNED one raising it past itself -
+; so every free run left is under a pinned block or above the last block. The
+; fixed areas' records (XMW_HMA..XMW_PAD, under the pool's base) are skipped.
+; in:  tm_xw/[tm_xwn], [tm_kb+SK_XMS] = the pool's KB
+; out: AX = KB
+; clobbers: nothing else (flags)
+; -----------------------------------------------------------------------------
+tm_himax:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    xor bp, bp                  ; BP = the cursor, KB from the pool's base
+    xor bx, bx                  ; BX = the least offset still to visit
+    xor dx, dx                  ; DX = the largest run so far
+.next:
+    mov si, tm_xw
+    mov cx, [tm_xwn]
+    xor di, di                  ; DI = the next block, AX its offset
+    mov ax, 0xFFFF
+.scan:
+    jcxz .got
+    cmp byte [si+XMW_OWN], XMW_HMA
+    jb .cand
+    cmp byte [si+XMW_OWN], XMW_PAD
+    jbe .sn                     ; a fixed area: not in the pool
+.cand:
+    cmp [si+XMW_OFF], bx
+    jb .sn
+    cmp [si+XMW_OFF], ax
+    jae .sn
+    mov ax, [si+XMW_OFF]
+    mov di, si
+.sn:
+    add si, XMW_SIZE
+    dec cx
+    jmp short .scan
+.got:
+    or di, di
+    jz .end
+    mov bx, ax                  ; the next visit is past this block
+    inc bx
+    mov cl, [di+XMW_OWN]
+    cmp cl, TMX_DRVIMG
+    je .mov
+    cmp cl, 0x80
+    jb .pin
+    cmp cl, 0xE0
+    jb .mov
+.pin:
+    mov cx, ax
+    sub cx, bp
+    jbe .pe                     ; (it starts at or under the cursor)
+    cmp cx, dx
+    jbe .pe
+    mov dx, cx                  ; the free run the compactor leaves under it
+.pe:
+    add ax, [di+XMW_KB]
+    cmp ax, bp
+    jbe .next
+    mov bp, ax
+    jmp short .next
+.mov:
+    add bp, [di+XMW_KB]
+    jmp short .next
+.end:
+    mov ax, [tm_kb+SK_XMS]      ; ...and the run above the last block
+    sub ax, bp
+    jc .best
+    cmp ax, dx
+    jae .out
+.best:
+    mov ax, dx
+.out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
 
 ; -----------------------------------------------------------------------------
 ; tm_mhdr - the list's column header, once per column, with its two SWITCHES

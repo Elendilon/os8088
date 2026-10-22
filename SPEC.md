@@ -62925,7 +62925,16 @@ and bar - and one line replaces the heap page's two captions:
 
 - `AVAIL nnnK  MAX RUN nnnK` (`TMC_AVL`, `TMM_AVL_Y`): free heap and the
   largest single run, one `OSAPI_MEM_AVAIL`, which was the heap page's
-  fragmentation reading (its `FREE`/`MAX`) and keeps its argument.
+  fragmentation reading (its `FREE`/`MAX`) and keeps its argument. **On
+  kern_mega in protected mode the pool above 1MB is in both figures**
+  (KERN-MEGA-PLAN 14.70.3): an `OS88_HIGHMEM` package's region and claims go
+  there, so AVAIL adds `OSAPI_XMEM_CAPS`'s free KB, and MAX RUN is the larger
+  of the heap's run and the pool's largest run AFTER `mx_alloc`'s compaction
+  - `mx_compactf`'s own walk replayed over `OSAPI_XMEM_WALK`'s records
+  (`tm_himax`: movable owners 80h-DFh and FDh slide down, every other block
+  pins, the fixed areas' records are skipped). In KB to 9,999, otherwise both
+  in MB to two places with one gap fewer, `AVAIL 15.26M MAX RUN 14.70M` -
+  the caption's 27 cells exactly.
 - the header (`TMC_HDR`, `TMM_HDR_Y`): `PROGRAMS` or `SYSTEM`, then `ADDR`
   and `SIZE`, then `+ALL` or `-ALL` - the two ends lettered INVERTED, which on
   a page with no other chrome is what says they are switches.
