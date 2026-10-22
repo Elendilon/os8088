@@ -13764,7 +13764,7 @@ SOAK = [
         "sub-records decoded past both pages",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidscreen", "soak", py("tests/vidscreen.py"), 160.0,
+    Row("vidscreen", "soak", py("tests/vidscreen.py"), 150.0,
         "SPEC.md 98.1.3.2.1, 98.3.8.2: sixteen colours on a SCREEN OF ITS "
         "OWN - 320 x 200, 320 x 240, 640 x 350 and 640 x 400 - flipped, in "
         "the file's own palette, on MartyPC's VGA XT: the screen, its page "
@@ -13789,7 +13789,7 @@ SOAK = [
         "a halving's turn or second pass taken out - those arms FAIL",
         needs=("marty", "nasm", "numpy"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidscreeno", "soak", py("tests/vidscreen.py", "--own"), 160.0,
+    Row("vidscreeno", "soak", py("tests/vidscreen.py", "--own"), 150.0,
         "SPEC.md 98.1.3.10, 98.3.8.7: vidscreen's clips AGAINST THEIR OWN "
         "PAGE on the four flipped screens (byte 37 7): drawn on the back "
         "page as it stands, the record after a key bringing its page up off "
@@ -14980,7 +14980,7 @@ SOAK = [
         "to nibbles (SPEC.md 42.13.1), which is what puts the block through "
         "gfx_blit4 at all, and a W_X written by hand would skip it.",
         needs=("marty", "nasm"), serial=True, timeout=1800),
-    Row("paintmove", "soak", py("tests/paintmove.py"), 150.0,
+    Row("paintmove", "soak", py("tests/paintmove.py"), 60.0,
         "Compact the heap out from under a LIVE Paint canvas (SPEC.md"
         "66.2/42).",
         needs=("marty",), serial=True,
