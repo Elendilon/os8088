@@ -2844,6 +2844,19 @@ SOAK = [
         "package",
         needs=("marty", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088-720.img")),
+    Row("gbship", "soak", py("tests/gbship.py"), 15.0,
+        "RealDMG's SHIPPED cartridge (SPEC.md 24.6, docs/REALDMG-SPEC.md "
+        "section 19): apps/realdmg/GBDEMO.GB is committed so `make` needs no "
+        "rgbds, so it is rebuilt by tools/gbours.py and compared byte for "
+        "byte; the LZ4-packed MEDIA/GBDEMO.GB on emu360, apps and apps120 "
+        "must unwrap to it; and the shipped 360KB pair boots on MartyPC's "
+        "5150, the packed cartridge is double-clicked and RealDMG's own "
+        "frame counter must run. With rw_load forced onto the bank cache's "
+        "raw read the package never starts and the row is red. SOAK: one "
+        "package",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-360.img",
+               "build/emu360.img", "build/apps.img", "build/apps120.img")),
     Row("gblog", "soak", py("tests/gblog.py"), 20.0,
         "REALDMG.O88's log to file (docs/REALDMG-SPEC.md section 14.1): "
         "GBDEMO.GB on MartyPC's 5150 Hercules, two logs - one by the menu, "

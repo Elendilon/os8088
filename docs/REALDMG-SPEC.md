@@ -2601,9 +2601,20 @@ and the frames drawn a second.
 - **The REALDMG folder holds three files**: `REALDMG.O88`, `GBDEMO.GB` and
   `README.TXT`. That is 64 of a 360KB disk's 354 clusters, so there is room
   for the user's own games.
-- **It is on demand**, because `GBDEMO.GB` is assembled with the pinned
-  rgbds, which is fetched and built on first use. The everything set
-  (`make allapps`) and the live media carry the same folder.
+- **It is on demand**, as every package's own disk is. `GBDEMO.GB` is
+  assembled with the pinned rgbds, which is fetched and built on first use,
+  so the disks take a COMMITTED copy, `apps/realdmg/GBDEMO.GB`: the build is
+  deterministic, and `soak -k 'gbship'` rebuilds it and compares.
+- **The shipped disks carry it too, without the README** (the owner's
+  decision of 2026-10-22): `GAMES/REALDMG.O88` and `MEDIA/GBDEMO.GB` on the
+  1.44MB and 1.2MB apps disks, kern_mega's two apps disks, the everything set
+  (`make allapps`) and the live media, and `REALDMG.O88` at the root of
+  SPEC.md 24.6's `emu360.img` with the cartridge in its `MEDIA/`. There the
+  cartridge is LZ4-packed, 32,768 bytes to 1,110: a ROM of up to 256KB is
+  read in ONE `OSAPI_FILE_READ` into a single claim (section 10), which is the
+  transparent read's condition (SPEC.md 20.14.3), and only a cartridge in the
+  XMS bank cache (section 10.3, over 256K) is read raw. The 720KB apps disk
+  does not carry it: it has 98 clusters free and is being re-curated.
 - **No game ships.** A cartridge is the user's own.
 
 **`make realdmghd GBROMS=<dir>`** writes a HARD DISK, `build/REALDMG-HD.VHD`,

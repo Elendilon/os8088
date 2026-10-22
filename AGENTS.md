@@ -1261,13 +1261,13 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Twelve images, not nine.** The system and apps disks in four geometries
-each, plus FOUR more that exist at 360KB alone. `build/media360.img` —
+**Thirteen images, not nine.** The system and apps disks in four geometries
+each, plus FIVE more that exist at 360KB alone. `build/media360.img` —
 `BEVERLY.MOD` is data rather than software and was 114 of a 360KB disk's 354
 clusters before packages were compressed, so at that geometry it rides a disk
 of its own (§24.4). **It is not on `apps360.img` as well any more, and cannot
 be**: lz4-packed it is 42 clusters and that disk had no room for it.
-**And `office360.img`, `network360.img` and `games360.img` (§24.6)**, which
+**And `office360.img`, `network360.img`, `games360.img` and `emu360.img` (§24.6)**, which
 are the same pressure met with a shape that SCALES: 354 clusters is the
 geometry that runs out first and this project keeps making applications, so
 the answer is a disk per SUBJECT — one category of program at the ROOT of the

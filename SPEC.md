@@ -54191,8 +54191,9 @@ user can *choose* one without swapping floppies.
 
 ### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
 
-`build/office360.img`, `build/network360.img` and `build/games360.img` are
-three data floppies built by `all` beside the system, apps and media disks.
+`build/office360.img`, `build/network360.img`, `build/games360.img` and
+`build/emu360.img` are four data floppies built by `all` beside the system,
+apps and media disks.
 Each carries **one category of application at the root of the volume**, the
 documents those applications open in `MEDIA/`, and a pre-made
 `SYSTEM/APPDATA/`.
@@ -54219,6 +54220,7 @@ everything on it and gain nothing from three.
 | `office360` | ArtfulType, Calculator, Chart, Font Viewer, Paint, Sheet, TeXPad, Word | `PAPER.TEX`, `GUIDE.TEX`, `SALES.SLK`, `WRITING.MD`, `WELCOME.DOC`, `SAMPLE.BMP` |
 | `network360` | Browser, FTPD, Telnet, The Wire (+ `SYSTEM/DOS/OS88NET.COM`) | `BROWSER.HTM` |
 | `games360` | every package in the apps disk's `GAMES/` | — |
+| `emu360` | RealDMG | `GBDEMO.GB` |
 
 **The packages are at the ROOT, with no `APPS/` over them.** The apps disk
 sorts a mixed bag into folders because it *is* a mixed bag; a category disk
@@ -54267,6 +54269,17 @@ disk has an empty one.
 Measured with `python3 tools/os88disk.py --verify`, of 354 clusters:
 **office 168, network 69, games 108**. The headroom is the point rather than
 a happy result — the disk this replaces was at 354 of 354.
+
+**`emu360` is the emulators' disk** (the owner's of 2026-10-22): **52 of 354**.
+RealDMG (docs/REALDMG-SPEC.md) is at the root and its own demo cartridge,
+`GBDEMO.GB`, is in `MEDIA/` where its File dialog opens - LZ4-packed, 32,768
+bytes to 1,110, which RealDMG's single `OSAPI_FILE_READ` of a cartridge
+expands (§20.14.3). The other emulators, C64, APPLE2 and RunCPM, are C
+packages whose ROMs and disks are fetched, so `all` cannot build them and
+they ride their own on-demand disks; this one carries what `all` can. RealDMG
+is NOT on `games360`, which takes `$(APPS_GAMES)` whole: the apps disks put it
+in `GAMES/` by a variable of its own, `$(RDG_SHIP)`, beside
+`$(APPS_GAMES)`.
 
 #### 24.6.1 What stays on the apps disk is a decision remade every time
 
@@ -54392,9 +54405,9 @@ untouched.
 
 #### 24.6.4 Delivery
 
-The 360KB set is **six disks** now — system, apps, media, office, network and
-games — and docs/FIELD-MACHINES.md's standing rule for the `Elendilon/os8088`
-fork sends all six.
+The 360KB set is **seven disks** now — system, apps, media, office, network,
+games and emu — and docs/FIELD-MACHINES.md's standing rule for the
+`Elendilon/os8088` fork sends all seven.
 
 ## 25. icons.inc — icon format, draw routine, built-in library
 

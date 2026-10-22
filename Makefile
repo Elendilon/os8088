@@ -94,15 +94,17 @@ MEDIAIMG360 := $(BUILD)/media360.img
 OFFICEIMG360  := $(BUILD)/office360.img
 NETWORKIMG360 := $(BUILD)/network360.img
 GAMESIMG360   := $(BUILD)/games360.img
+EMUIMG360     := $(BUILD)/emu360.img
 
-# ...and all twelve in one list, because it appeared in FOUR places (`all`
+# ...and all thirteen in one list, because it appeared in FOUR places (`all`
 # and the three tiers) and each of those had to be edited by hand the first
 # time a disk was added. A shipped image that is in `all` and in none of the
 # tiers is one no gate ever reads, which is the failure this prevents rather
 # than tidies: t_image and t_diskverify walk what `make` built.
 SHIPIMGS := $(IMG) $(IMG120) $(IMG720) $(IMG360) \
             $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
-            $(MEDIAIMG360) $(OFFICEIMG360) $(NETWORKIMG360) $(GAMESIMG360)
+            $(MEDIAIMG360) $(OFFICEIMG360) $(NETWORKIMG360) $(GAMESIMG360) \
+            $(EMUIMG360)
 
 BOX   := /Applications/86Box.app/Contents/MacOS/86Box
 
@@ -5786,16 +5788,20 @@ $(BUILD)/realdmg.o88: $(BUILD)/realdmg.bin $(BUILD)/rdgcore0.bin $(BUILD)/rdgcor
 # THE REALDMG DISK (docs/REALDMG-SPEC.md section 18, docs/plans/REALDMG-PLAN.md
 # wave 8), ON DEMAND: REALDMG.O88, its README and GBDEMO.GB - the demo written
 # for the 5150, OURS, assembled by tools/gbours.py with tools/gbclock.py's
-# pinned rgbds (fetched and built on first use, which is why this is not in
-# `all`). No game ships: a cartridge is the user's. FOUR GEOMETRIES, each
-# --verify'd, in one REALDMG folder.
+# pinned rgbds (fetched and built on first use). The disks take the COMMITTED
+# copy, apps/realdmg/GBDEMO.GB (RDG_DEMO's note, below), so none of them needs
+# rgbds; the rows that build a ROM still build their own here, and `gbship`
+# is what says the two agree. No game ships: a cartridge is the user's. FOUR
+# GEOMETRIES, each --verify'd, in one REALDMG folder. The apps disks and
+# emu360.img carry REALDMG.O88 and the cartridge too, without the README
+# (SPEC.md 24.6).
 $(BUILD)/gbclock/GBDEMO.GB: tools/gbprof/gbdemo.asm tools/gbours.py tools/gbclock.py
 	python3 tools/gbours.py gbdemo
 
-REALDMGDISK := $(BUILD)/realdmg.o88 $(BUILD)/gbclock/GBDEMO.GB \
+REALDMGDISK := $(BUILD)/realdmg.o88 apps/realdmg/GBDEMO.GB \
                apps/realdmg/README.TXT tools/os88disk.py
 REALDMGIMG = python3 tools/os88disk.py -o $(1) --size $(2) --folder SYSTEM/APPDATA \
-	     REALDMG:$(BUILD)/realdmg.o88 REALDMG:$(BUILD)/gbclock/GBDEMO.GB \
+	     REALDMG:$(BUILD)/realdmg.o88 REALDMG:apps/realdmg/GBDEMO.GB \
 	     REALDMG:apps/realdmg/README.TXT
 realdmgdisk: $(BUILD)/realdmg.img $(BUILD)/realdmg720.img \
              $(BUILD)/realdmg120.img $(BUILD)/realdmg360.img
@@ -12332,7 +12338,7 @@ realdmghd: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 		--geometry 615/6/17 --mbr $(BUILD)/mbr.bin \
 		--boot $(BUILD)/boothd.bin --kernel $(KERNFILE) $(APPDATAFOLDER) \
 		$(VIDDEMO_INSTALL) \
-		REALDMG:$(BUILD)/realdmg.o88 REALDMG:$(BUILD)/gbclock/GBDEMO.GB \
+		REALDMG:$(BUILD)/realdmg.o88 REALDMG:apps/realdmg/GBDEMO.GB \
 		REALDMG:apps/realdmg/README.TXT \
 		$$(for f in $(BUILD)/realdmghd/games/*; do [ -f "$$f" ] && echo "GAMEBOY:$$f"; done)
 	python3 tools/os88disk.py --verify-hdd $(BUILD)/realdmghd/hd.img
@@ -14403,6 +14409,15 @@ OFFICE_DATA := apps/texpad/PAPER.TEX apps/texpad/GUIDE.TEX \
                $(BUILD)/WELCOME.DOC $(BUILD)/SAMPLE.BMP \
                apps/pixel/samples/LAKE.JPG
 NETWORK_DATA := apps/browser/browser.htm
+# REALDMG'S CARTRIDGE (SPEC.md 24.6, docs/REALDMG-SPEC.md 18): GBDEMO.GB,
+# the 5150 demo written for this machine and OURS. It is COMMITTED, the way
+# DrMarco's native art is ($(DM_NATIVE)): tools/gbours.py builds it with a
+# pinned rgbds that is fetched from GitHub and compiled, which a plain `make`
+# must never need, and the build is deterministic, so the committed copy IS
+# the build. `soak -k 'gbship'` rebuilds it and compares, and boots the
+# shipped disk to play the packed one.
+RDG_SHIP := $(BUILD)/realdmg.o88
+RDG_DEMO := apps/realdmg/GBDEMO.GB
 
 # ...UNLESS THE DISK IS COMPRESSED, and this is the single most visible thing
 # compression buys this project (docs/plans/O88-COMPRESSION-PLAN.md 13.4). BEVERLY.MOD
@@ -14459,6 +14474,12 @@ OFFICE_DATA  := $(ZDATA)/PAPER.TEX $(ZDATA)/GUIDE.TEX $(ZDATA)/SALES.SLK \
 # already, cz_wrap would refuse it as unshrinkable, and PiXEL reads it in
 # chunks, which SPEC.md 20.14.3 makes the reason a file must not be wrapped
 NETWORK_DATA := $(ZDATA)/BROWSER.HTM
+# ...and the cartridge: 32,768 bytes to 1,110, being mostly the ROM's 0xFF
+# padding. RealDMG reads a cartridge of up to 256KB in ONE OSAPI_FILE_READ
+# into one claim, which is the transparent read's condition (SPEC.md
+# 20.14.3); only a cartridge in the XMS bank cache is read raw, a bank at a
+# time, and that is a bigger one than this.
+RDG_DEMO := $(ZDATA)/GBDEMO.GB
 endif
 
 # pmsys720.img (above) also carries what the 286's PicoMEM 1.x is tested WITH,
@@ -14522,6 +14543,10 @@ $(ZDATA)/GUIDE.TEX: apps/texpad/GUIDE.TEX tools/os88lz.py $(PKGZSTAMP) | $(BUILD
 	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
 
 $(ZDATA)/BROWSER.HTM: apps/browser/browser.htm tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
+	@mkdir -p $(ZDATA)
+	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
+
+$(ZDATA)/GBDEMO.GB: apps/realdmg/GBDEMO.GB tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
 	@mkdir -p $(ZDATA)
 	python3 tools/os88lz.py --wrap $@ --fmt $(PKGZ) $<
 
@@ -14628,7 +14653,7 @@ os88cz: $(BUILD)/os88cz.com
 .PHONY: os88cz
 
 APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS) \
-        $(APPS_DOSCZ) $(MIDISONGS)
+        $(APPS_DOSCZ) $(MIDISONGS) $(RDG_SHIP) $(RDG_DEMO)
 # ...and the 360KB disk's list, which is that one less what the media disk
 # carries. Kept as its own variable rather than reusing $(APPS): a rule whose
 # prerequisites name a file that is not on the disk it builds is a dependency
@@ -14736,8 +14761,8 @@ APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES_360) $(APPS_DATA_360) $(APPS_SYS) $(AP
 # collected, so os88disk.py answered "unrecognized arguments: SYSTEM/DOS:..."
 # for the packages that followed it.
 APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
-            $(addprefix GAMES:,$(APPS_GAMES)) \
-            $(addprefix MEDIA:,$(APPS_DATA)) $(LOGOVIDARG) \
+            $(addprefix GAMES:,$(APPS_GAMES) $(RDG_SHIP)) \
+            $(addprefix MEDIA:,$(APPS_DATA) $(RDG_DEMO)) $(LOGOVIDARG) \
             $(MIDISONGARGS) \
             $(APPSYSARGS) \
             $(addprefix SYSTEM/DOS:,$(APPS_DOS) $(APPS_DOSCZ)) \
@@ -14774,9 +14799,10 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # than software, and the Video Player plays any .V88 the user brings. It is
 # meant for a third primary 720KB disk, content not yet decided, which is to
 # carry what the 720KB system and apps disks leave off.
-APPS720 := $(filter-out $(BUILD)/pixel.o88,$(APPS))
+APPS720 := $(filter-out $(BUILD)/pixel.o88 $(RDG_SHIP) $(RDG_DEMO),$(APPS))
 APPSARGS720 := $(filter-out $(MIDISONGARGS) $(LOGOVIDARG) \
                  APPS:$(BUILD)/pixel.o88 \
+                 GAMES:$(RDG_SHIP) MEDIA:$(RDG_DEMO) \
                  $(addprefix GAMES:,$(DM_SHIP)),$(APPSARGS))
 APPSARGS720 := $(filter-out $(APPDATAFOLDER),$(APPSARGS720)) \
                $(MIDISONGARGS720) $(APPDATAFOLDER)
@@ -14823,8 +14849,8 @@ $(APPSIMG120): $(APPS) $(LOGOVID) tools/os88disk.py
 # two geometries kern_mega ships in (14.1 answer 19), on demand through `make
 # mega` and never in `all`. Every other file is the shipped disk's own.
 MEGAAPPSARGS = $(addprefix APPS:,$(call MEGASUB,$(APPS_TOOLS))) \
-               $(addprefix GAMES:,$(call MEGASUB,$(APPS_GAMES))) \
-               $(addprefix MEDIA:,$(APPS_DATA)) $(LOGOVIDARG) \
+               $(addprefix GAMES:,$(call MEGASUB,$(APPS_GAMES) $(RDG_SHIP))) \
+               $(addprefix MEDIA:,$(APPS_DATA) $(RDG_DEMO)) $(LOGOVIDARG) \
                $(MIDISONGARGS) \
                $(addprefix SYSTEM:,$(call MEGASUB,$(APPSYS))) \
                $(addprefix SYSTEM/DOS:,$(APPS_DOS) $(APPS_DOSCZ)) \
@@ -14976,6 +15002,21 @@ $(NETWORKIMG360): $(NETWORK360) tools/os88disk.py
 
 $(GAMESIMG360): $(GAMES360) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(GAMESARGS360)
+
+# --- emu360 ------------------------------------------------------------------
+# THE EMULATORS' DISK (SPEC.md 24.6, the owner's of 2026-10-22). RealDMG at
+# the root and its demo cartridge, GBDEMO.GB, packed in MEDIA/ - where its
+# File dialog opens. The other emulators (C64, APPLE2, RUNCPM) are C
+# packages whose ROMs and disks are fetched, so `all` cannot build them and
+# they ride their own on-demand disks; this one carries what `all` can.
+EMU_PKGS := $(RDG_SHIP)
+EMU_DATA := $(RDG_DEMO)
+EMU360 := $(EMU_PKGS) $(EMU_DATA)
+EMUARGS360 := $(EMU_PKGS) $(addprefix MEDIA:,$(EMU_DATA)) \
+              $(MEDIAFOLDER) $(APPDATAFOLDER)
+
+$(EMUIMG360): $(EMU360) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(EMUARGS360)
 
 # =============================================================================
 # A COMPRESSED 360KB SET (ON DEMAND): `make zset ZFMT=lz4` / `ZFMT=lzb`
@@ -15154,8 +15195,7 @@ ALLAPPSFILES := $(BUILD)/redline.o88 $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUIL
                 $(BUILD)/apple2.o88 \
                 $(BUILD)/WELCOME.BAS \
                 apps/apple2/README.TXT apps/apple2/COPYING \
-                $(BUILD)/realdmg.o88 $(BUILD)/gbclock/GBDEMO.GB \
-                apps/realdmg/README.TXT \
+                $(RDG_SHIP) $(RDG_DEMO) \
                 $(WEAVEDISK) $(WEAVELOOM) $(LOOMSRCS) \
                 $(RUNCPMDISK)
 # These images use the RunCPM master disk, but not the separate CP/M
@@ -15171,8 +15211,8 @@ ALLAPPS := $(ALLAPPSFILES) $(BUILD)/runcpm-src.stamp tools/getruncpm.py
 ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
                                  $(BUILD)/frotz.o88 \
                                  $(BUILD)/MIDIRACK.BNK) \
-               $(addprefix GAMES:,$(APPS_GAMES) $(N1942LIVE)) \
-               $(addprefix MEDIA:,$(APPS_DATA)) \
+               $(addprefix GAMES:,$(APPS_GAMES) $(RDG_SHIP) $(N1942LIVE)) \
+               $(addprefix MEDIA:,$(APPS_DATA) $(RDG_DEMO)) \
                $(addprefix WORD:,$(BUILD)/word.o88 $(BUILD)/WELCOME.DOC) \
                $(addprefix CWORD:,$(CWORDDISK)) \
                $(addprefix PACCMAN:,$(PACCMANDISK)) \
@@ -15183,9 +15223,6 @@ ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_
                                    $(BUILD)/WELCOME.BAS \
                                    apps/apple2/README.TXT \
                                    apps/apple2/COPYING) \
-               $(addprefix REALDMG:,$(BUILD)/realdmg.o88 \
-                                    $(BUILD)/gbclock/GBDEMO.GB \
-                                    apps/realdmg/README.TXT) \
                $(addprefix WEAVE:,$(WEAVEDISK)) \
                $(addprefix LOOM:,$(WEAVELOOM) $(LOOMSRCS)) \
                $(APPSYSARGS) \
