@@ -17,8 +17,9 @@ under an owner made that owner's rows add to more than its heading.
   PACKAGE  cover the Calculator and its cache must be listed under Purgeable
            too, not under the CALCULATOR
 
-The groups open on a click and start closed, so the page is opened with
-`+ALL` once - the expansion is the package's state and survives the page
+The groups open on a click and start closed, and Purgeable is listed only
+with DETAIL on (KERN-MEGA-PLAN 14.70.3), so the page is opened with `+ALL`
+and DETAIL once - the expansion is the package's state and survives the page
 cycling that the capture below retries with.
 
 READ OFF THE COMPOSED ROWS, not the pixels. The page letters each row in
@@ -120,8 +121,10 @@ class Rows(dispcells.Pump):
 
 
 def group_in(allframes, addr):
-    """The group a claim row sits under: rows are indented, a group's row is
-    not - it starts with its '+' or '-' (TMH_IND). Searched across every repaint captured, because which one
+    """The group a claim row sits under: rows are indented, a TOP-LEVEL group's
+    row is not - it starts with its '+' or '-' (TMH_IND). Purgeable is one, so
+    a nested owner's row inside System (one space in) reads as a member here
+    and does not matter to the question. Searched across every repaint captured, because which one
     is the full list depends on where the pump happened to start - and a
     PARTIAL repaint is refused outright, since its first row can be a
     fragment with no indent, which reads as a heading and files everything
@@ -214,6 +217,11 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
         return (tmw("tm_cx") + TM_PEN + 22 * 8 + 4,
                 tmw("tm_cy") + TMM_HDR_Y - tmw("tm_xoff") + 4)
 
+    def detail():
+        """The header's `DETAIL`, at its left end."""
+        return (tmw("tm_cx") + TM_PEN + 4,
+                tmw("tm_cy") + TMM_HDR_Y - tmw("tm_xoff") + 4)
+
     def to_heap(cap, want):
         """...onto the memory page, capturing until the answer is READABLE.
 
@@ -232,6 +240,10 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
             if not all_open():          # once: +ALL, at the header's right
                 cap.click(*plus_all())  # end, and the next cycle round is
                 cap.pump(1200, 4)       # a full repaint with every group open
+                continue
+            if not tmw("tm_detail", 1):  # ...and DETAIL, at its left: Purgeable
+                cap.click(*detail())    # is listed only with it on
+                cap.pump(1200, 4)       # (KERN-MEGA-PLAN 14.70.3)
                 continue
             if not want:                # nothing was banked, so there is no
                 return len(cap.rows) > 40   # row to wait for and the leg

@@ -62911,7 +62911,7 @@ fixes the one defect the scan had, and the photograph stays UNEXPLAINED until
 it is retaken on this build: the open question is what the Victory's ROM
 headers say, which `tm_uma` holds and a field run can read.
 
-### 28.4.10 One memory page: groups that open, two views, and a header that switches them
+### 28.4.10 One memory page: one tree of groups that open, and DETAIL
 
 docs/plans/KERN-MEGA-PLAN.md 14.70.2. The memory page and the heap page
 listed the SAME claims twice - once summed per owner, once per claim - so a
@@ -62935,15 +62935,16 @@ and bar - and one line replaces the heap page's two captions:
   pins, the fixed areas' records are skipped). In KB to 9,999, otherwise both
   in MB to two places with one gap fewer, `AVAIL 15.26M MAX RUN 14.70M` -
   the caption's 27 cells exactly.
-- the header (`TMC_HDR`, `TMM_HDR_Y`): `PROGRAMS` or `SYSTEM`, then `ADDR`
-  and `SIZE`, then `+ALL` or `-ALL` - the two ends lettered INVERTED, which on
-  a page with no other chrome is what says they are switches.
+- the header (`TMC_HDR`, `TMM_HDR_Y`): `DETAIL`, then `ADDR` and `SIZE`,
+  then `+ALL` or `-ALL`. `+ALL` is always lettered INVERTED, which on a page
+  with no other chrome is what says it is a switch; `DETAIL` is inverted
+  while it is ON, like a key held down (KERN-MEGA-PLAN 14.70.3).
 
 **The groups**, classified once per paint (`tm_classify`): every claim
 record and every pool block above 1MB gets a group id, a bit of the dword
 `[tm_exp]` that says whether that group is open. Ids 0..11 are the instance
-slots, then System, Programs (the SYSTEM view's one row for every package),
-Purgeable, Kernel, and one per driver class (`TMG_DRV` + `DRVC_*`). A
+slots, then System, Programs (unused since 14.70.3, kept so the ids after it
+do not move), Purgeable, Kernel, and one per driver class (`TMG_DRV` + `DRVC_*`). A
 purgeable record (§50.6, tags FBh..FEh) is in **Purgeable**, whoever caused
 it: it is in no owner's total by §28.4.1's rule, so filing it under one -
 §28.4.5's raise cache under the window's package - made a group's rows add to
@@ -62955,14 +62956,33 @@ SELECTOR, which `verr` admits before the header is read. A group with
 nothing in it is not drawn, so `Kernel` appears only where the kernel claims
 something.
 
-**Two views, switched at the header's left end** (`[tm_mview]`):
+**One tree** (KERN-MEGA-PLAN 14.70.3; it was two views, PROGRAMS and SYSTEM,
+switched at the header's left end, until each showed what the other hid):
 
-| | PROGRAMS (`[tm_mview]` = 0) | SYSTEM (1) |
+| row | at | opens into |
 |---|---|---|
-| System | ONE row, its total and the gray square, opening into the itemised rows below | itemised at the top level |
-| a package | one group each, its square, opening into its claims and its blocks above 1MB | one `Programs` row, opening into a row per package |
-| Purgeable | a group, `tm_pat_clm`'s square, opening into the caches with their tiers | the same |
-| 640K-1MB | §28.4.9's rows, after the list | the same |
+| `System`, its total and the gray square | column 0 | its items, and one group per owner ONE LEVEL IN - `Kernel`, each driver, each built-in - each opening into its claims at the claim indent |
+| `Programs` and the programs' total | column 0, a HEADING: no marker, never a column's last row, not a click target | - |
+| each package, its square | column 0, under the heading | its claims and its blocks above 1MB |
+| `Purgeable`, `tm_pat_clm`'s square | column 0, **with DETAIL on only** | the caches with their tiers |
+| 640K-1MB | §28.4.9's rows, **with DETAIL on only** | - |
+
+A nested owner's row is the group row one column in: its marker at column 1
+and its name a column shorter (`tm_grp1`), so a claim under it sits at the
+same `TMH_IND` as any claim and TYPE keeps all eight columns. The programs
+are a heading and not a group because a second level of opening there would
+take columns from their names, and the total is the one figure the SYSTEM
+view had that the tree would otherwise not.
+
+**DETAIL is for whoever is debugging, and the default view adds up.** With
+every group closed and DETAIL off, the SIZE column - System, and each program
+- sums to Ram's used half, and that plus AVAIL is Ram's total: every figure
+is *what is in use that the user cannot have*. Purgeable is in none of them -
+not in Ram's used half (§28.4.1), and counted AS available by AVAIL - so as a
+row it added up to nothing on the screen, which is why it went behind DETAIL
+with the 640K-1MB rows, which are not RAM at all. Measured on kern_big VGA
+with the Calculator open: `RAM 120/640K`, `System 102K` + `Programs 18K`,
+`AVAIL 520K`; DETAIL adds `Purgeable 116K`.
 
 System's items (`tm_sysitems`): `IVT+BIOS` at 0000 (§28.4.8), `Code+data`
 (the kernel's span, no address), `Stacks` and `FAT snap`; above 1MB on
@@ -62974,8 +62994,9 @@ one per built-in (a Disk window, named by its folder - `APPS`), each opening int
 rows still sum: System's figure is the sum of exactly these.
 
 **`+ALL` opens every group and `-ALL` closes them** - the switch says what a
-click will do, and reads `-ALL` once everything is open by any route. A
-view change starts the other view's list from its top. Both switches,
+click will do, and reads `-ALL` once everything is open by any route.
+DETAIL keeps the list's place, `tm_hclamp` pulling it back when the list got
+shorter. Both switches,
 every group row and the scroll bar are hit in `tm_lclick` and `tm_hscroll`
 before `tm_click` cycles the page, and a click that lands on neither turns
 the page as it always did (§28).
@@ -63008,7 +63029,7 @@ kern_mega's half is §28.4.11.
 
 ### 28.4.11 `OSAPI_XMEM_WALK` names the fixed areas and the drivers, on kern_mega
 
-The rows of §28.4.10's SYSTEM view above 1MB need two facts the walk did not
+The rows of §28.4.10's System group above 1MB need two facts the walk did not
 give: what the span between 1MB and the pool's base IS, and which driver a
 `FDh`/`0C0h | row` block belongs to. Both are added to the same cell,
 additively (§20.2.0.1: no `PKG_FMT` bump, `tools/abi.lock.json` refreshed):

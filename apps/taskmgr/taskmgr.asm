@@ -6,10 +6,11 @@
 ; the PIT cycle accounting (SPEC.md 8.1). A content click toggles a second,
 ; memory page (SPEC.md 28.4): the RAM readout, a conventional-memory map, and
 ; ONE list of collapsible groups - an owner a row, each with its total, a
-; click opening it into the claims it holds - in two views, PROGRAMS (every
-; package billed, System one row) and SYSTEM (the kernel itemised, the
-; programs one row). It was two pages, a memory view and a heap page, until
-; KERN-MEGA-PLAN 14.70.2 merged them.
+; click opening it into the claims it holds: System (and inside it the kernel,
+; each driver and each built-in), then every program under a Programs total,
+; and with DETAIL on the purgeable caches and 640K-1MB. It was two pages, a
+; memory view and a heap page, until KERN-MEGA-PLAN 14.70.2 merged them, and
+; two views of one list until 14.70.3 made it one tree.
 ;
 ; **This was a built-in, and the reason it stopped being one is memory.** It
 ; is a VIEWER, not a manager - nothing here can kill a task - so six kilobytes
@@ -259,7 +260,7 @@ TMM_AVL_Y   equ 55              ; 'AVAIL nnnK  MAX RUN nnnK' - what a claim
                                 ; (SPEC.md 28.4.1): the heap page's captions
                                 ; folded to the one line the merged page has
                                 ; room for (KERN-MEGA-PLAN 14.70.2)
-TMM_HDR_Y   equ 66              ; the list's header: 'PROGRAMS   ADDR SIZE +ALL'
+TMM_HDR_Y   equ 66              ; the list's header: 'DETAIL     ADDR SIZE +ALL'
 
 ; --- ...and what all of that becomes on a machine with NO store above 1MB ----
 ; A bar whose scale is zero is not a reading, it is an empty rectangle: on the
@@ -321,7 +322,7 @@ TMC_AVL     equ TMC_I           ; the list's AVAIL / MAX RUN line (SPEC.md
 %assign TMC_I TMC_I+1           ; 28.4.1) - the heap page's three captions,
                                 ; one line now (KERN-MEGA-PLAN 14.70.2)
 TMC_HDR     equ TMC_I           ; ...the column header, whose two ends are
-%assign TMC_I TMC_I+1           ; the PROGRAMS/SYSTEM and +ALL/-ALL switches
+%assign TMC_I TMC_I+1           ; the DETAIL and +ALL/-ALL switches
                                 ; and so change when they are clicked
 TMC_HSB     equ TMC_I           ; ...and its scroll bar (SPEC.md 28.4.4),
 %assign TMC_I TMC_I+1           ; keyed on the whole seven-word block so that
@@ -1289,8 +1290,9 @@ tm_s_xms:   db 'XMS ', 0        ; + used/size KB above 1MB (SPEC.md 41)
 ; TMH_SWC characters, so the three are one 25-character line.
 TMH_SWC     equ 8               ; the view switch's width
 TMH_XSWC    equ 4               ; ...and +ALL's
-tm_s_vprog: db 'PROGRAMS'       ; the view each one SHOWS - a click on it is
-tm_s_vsys:  db 'SYSTEM  '       ; the other one
+tm_s_vdet:  db 'DETAIL  '       ; Purgeable and 640K-1MB shown or not: lettered
+                                ; white on black while they are, like a
+                                ; pressed key (KERN-MEGA-PLAN 14.70.3)
 tm_s_hmid:  db '   ADDR SIZE ', 0
 tm_s_xall:  db '+ALL', '-ALL'   ; open every group / close every group
 %if TMH_SWC + (tm_s_xall - tm_s_hmid - 1) + TMH_XSWC != TM_NCHUNK * TM_CHUNK
@@ -1314,7 +1316,8 @@ tm_s_hmax:  db '  MAX RUN ', 0  ; the largest single RUN of AVAIL - the
 
 ; GROUP names: an owner and its total. A program's is its I_NAME, a driver's
 ; its file's (tm_drvnam), and the rest are these.
-tm_s_gprog: db 'Programs', 0    ; the SYSTEM view's one row for every package
+tm_s_gprog: db 'Programs', 0    ; the heading over every package, with their
+                                ; total
 tm_s_gkern: db 'Kernel', 0      ; the kernel's own claims, and above 1MB its
                                 ; own pool blocks - its caches on kern_mega
 tm_s_gpurg: db 'Purgeable', 0   ; every cache the next claim may take back:
@@ -3356,14 +3359,14 @@ tm_himax:
 
 ; -----------------------------------------------------------------------------
 ; tm_mhdr - the list's column header, once per column, with its two SWITCHES
-; in:  [tm_mview], [tm_exp] (and the geometry tm_view_begin set)
+; in:  [tm_detail], [tm_exp] (and the geometry tm_view_begin set)
 ; out: nothing
 ; clobbers: nothing (flags only)
 ;
-; 'PROGRAMS   ADDR SIZE +ALL' as THREE opaque runs (SPEC.md 6.1), the two ends
-; white on black so they read as something to press: the view this list is
-; showing, a click on which shows the other, and +ALL or -ALL, which opens
-; every group or - once every one is open - closes them all
+; 'DETAIL     ADDR SIZE +ALL' as THREE opaque runs (SPEC.md 6.1): DETAIL,
+; white on black while it is ON - Purgeable and the 640K-1MB rows listed
+; (KERN-MEGA-PLAN 14.70.3) - and +ALL or -ALL, always white on black, which
+; opens every group or - once every one is open - closes them all
 ; (KERN-MEGA-PLAN 14.70.2). Nothing is drawn twice: the runs are side by
 ; side, not one over another.
 ;
@@ -3379,7 +3382,7 @@ tm_mhdr:
     push si
     push di
     call tm_allopen             ; AH = 1 every group is open
-    mov al, [tm_mview]
+    mov al, [tm_detail]
     inc ah                      ; (tm_elchk maps a zero key anyway)
     mov bx, tm_elck + 2*TMC_HDR
     mov dx, TMM_HDR_Y
@@ -3399,13 +3402,25 @@ tm_mhdr:
     add dx, [tm_cy]             ; DX = its y
     mov bx, [tm_cols]
 .col:
-    mov si, tm_s_vprog          ; --- the view switch: the view it SHOWS
-    cmp byte [tm_mview], 0
-    je .v
-    mov si, tm_s_vsys
-.v:
+    mov si, tm_s_vdet           ; --- DETAIL: inverted while it is on
     mov ax, TMH_SWC
+    cmp byte [tm_detail], 0
+    jne .v
+    push cx
+    mov di, tm_str
+    mov cx, ax
+    call tm_copyn
+    mov byte [di], 0
+    pop cx
+    push si
+    mov si, tm_str
+    mov ax, (CWHITE << 8) | CBLACK
+    call OSAPI_FONT_RUN
+    pop si
+    jmp short .vd
+.v:
     call tm_hrun                ; white on black
+.vd:
     push cx
     add cx, TMH_SWC * 8         ; --- the column captions between them
     mov si, tm_s_hmid
@@ -3516,9 +3531,8 @@ tm_lclick:
     mov [tm_exp+2], ax
     jmp short .redraw
 .view:
-    xor byte [tm_mview], 1
-    mov word [tm_htop], 0       ; the other view's list, from its top
-    jmp short .redraw
+    xor byte [tm_detail], 1     ; DETAIL: the list keeps its place, and
+    jmp short .redraw           ; tm_hclamp pulls it back if it got shorter
 .rows:                          ; --- a row: which one ON THE SCREEN?
     sub dx, ax                  ; DX = y below the first row (AX is it: the
     mov ax, dx                  ; header is one TM_ROW_H above it)
@@ -4246,8 +4260,9 @@ tm_hbar:
 ; THE GROUP IDS are bits of [tm_exp], the open/closed state, and bytes in
 ; [tm_cgid] / [tm_xgid] / [tm_rgid]:
 ;   0..INST_MAX-1   an instance: a program's group, or a built-in's
-;   TMG_SYS         System, as ONE row (the PROGRAMS view)
-;   TMG_PROG        the programs, as ONE row (the SYSTEM view)
+;   TMG_SYS         System
+;   TMG_PROG        the programs as ONE group - the SYSTEM view's, gone
+;                   since 14.70.3 and kept so the ids after it do not move
 ;   TMG_PURGE       every purgeable claim, whoever caused it
 ;   TMG_KERN        the kernel's own claims and blocks
 ;   TMG_DRV + c     a driver, by its DRVC_* class c (tm_dnames)
@@ -4497,10 +4512,11 @@ tm_xgidof:
 ; -----------------------------------------------------------------------------
 ; tm_rows_mem - the memory page's list (SPEC.md 28.4)
 ;
-; PROGRAMS view: System as one group, then each package, then Purgeable.
-; SYSTEM view: System's parts itemised - the fixed spans, Kernel, each driver
-; and each built-in - then the programs as one group, then Purgeable. Both
-; end with the 640K-1MB rows, which are not RAM and in no total (28.4.9).
+; ONE TREE (KERN-MEGA-PLAN 14.70.3): System, which opens into its parts and
+; into Kernel, each driver and each built-in as groups one level in; then a
+; Programs heading with their total, and each program as a group; then, with
+; DETAIL on, Purgeable and the 640K-1MB rows, which are in no total (28.4.9).
+; Collapsed, the SIZE column and AVAIL add up to Ram's total.
 ;
 ; THE SCROLL is the heap page's, unchanged (SPEC.md 28.4.4): [tm_hskip] rows
 ; above the view are composed and dropped by tm_mrow_close, so [tm_mrow] counts
@@ -4525,20 +4541,29 @@ tm_rows_mem:
     mov [tm_mrow], ax           ; first row that is actually on screen
     mov [tm_hpad], ax
 
-    cmp byte [tm_mview], 0
-    jne .sysv
-
-    ; --- PROGRAMS: System as one row, each package, Purgeable -----------------
+    ; --- System, which opens into its parts and its owners ---------------------
     mov bl, TMG_SYS
     mov si, tm_s_sys
     call tm_systot              ; AX = everything System holds
     mov dx, tm_pat_gray         ; ...and its band on the map is the gray one
     call tm_grp
     jc .progs
-    mov dx, 0x0002              ; open: its parts, as ITEMS under it
-    call tm_sysitems
+    mov dl, 1                   ; open: its parts as ITEMS, and Kernel, each
+    call tm_sysitems            ; driver and each built-in as GROUPS of their
+                                ; own one level in, which open into claims
+
+    ; --- Programs: a HEADING with their total, then each one as a group ------
+    ; Not a group itself: the total is the one figure the SYSTEM view had and
+    ; this list would otherwise not, and a second level of opening here would
+    ; only take columns from the program names (KERN-MEGA-PLAN 14.70.3)
 .progs:
+    call tm_progtot
+    mov si, tm_s_gprog
+    mov cx, 0FFFFh
     xor bx, bx
+    xor dl, dl
+    call tm_mrow_nolast         ; a heading is never a column's last row
+    call tm_item
 .pk:
     call tm_ispkg
     jc .pkn
@@ -4557,43 +4582,14 @@ tm_rows_mem:
     inc bx
     cmp bx, INST_MAX
     jb .pk
-    jmp short .purge
 
-    ; --- SYSTEM: System's parts, then the programs as one row ----------------
-.sysv:
-    mov dx, 0x0101              ; at the top level, its owners as GROUPS
-    call tm_sysitems
-    mov bl, TMG_PROG
-    mov si, tm_s_gprog
-    call tm_progtot
-    xor dx, dx
-    call tm_grp
-    jc .purge
-    xor bx, bx                  ; open: each package's total, as an ITEM
-.pi:
-    call tm_ispkg
-    jc .pin
-    call tm_iname
-    push bx
-    shl bx, 1
-    mov ax, [tm_gkb+bx]
-    shl bx, 1
-    shl bx, 1
-    lea dx, [bx+tm_pats]
-    pop bx
-    mov cx, 0FFFFh              ; no address: a program may be in pieces
-    push bx
-    mov bx, dx                  ; its square
-    mov dl, 2
-    call tm_item
-    pop bx
-.pin:
-    inc bx
-    cmp bx, INST_MAX
-    jb .pi
-
-    ; --- Purgeable, in both: nobody's, and reclaimable ------------------------
-.purge:
+    ; --- DETAIL: what is not anybody's RAM, for whoever is debugging ---------
+    ; Purgeable is in no total on this page - not Ram's, not AVAIL's (which
+    ; counts it as available) - so the collapsed SIZE column and AVAIL add up
+    ; to Ram's total without it; and 640K-1MB is not RAM at all
+    cmp byte [tm_detail], 0
+    je .end
+    ; --- Purgeable: nobody's, and reclaimable -------------------------------
     mov ax, [tm_gkb + 2*TMG_PURGE]
     or ax, ax                   ; only when there is something to take back:
     jz .uma                     ; an empty group opens onto nothing
@@ -4649,6 +4645,7 @@ tm_rows_mem:
     mov ax, 64
     call tm_item
 
+.end:
     mov ax, [tm_htop]           ; how deep the TABLE is: the rows that were
     sub ax, [tm_hskip]          ; drawn, plus the ones dropped above them -
     add ax, [tm_mrow]           ; which is [tm_htop] less whatever the walk
@@ -4760,10 +4757,8 @@ tm_progtot:
 ; tm_sysitems - System's parts, in order: IVT+BIOS, Code+data, Stacks, FAT
 ;               snap, the fixed spans above 1MB, Kernel, each driver, each
 ;               built-in
-; in:  DL = the indent (1 at the top level, 2 inside System's group), DH = 1
-;      when each OWNER is a group that opens into its claims (the SYSTEM
-;      view), 0 when it is an item showing its total (inside System's group in
-;      the PROGRAMS view)
+; in:  DL = the parts' indent, 1: they and the owners' groups are one level
+;      inside System's (KERN-MEGA-PLAN 14.70.3)
 ; out: nothing (all registers preserved)
 ;
 ; The parts below 640K are the kernel's own ladder (SPEC.md 20.9) and between
@@ -4791,11 +4786,7 @@ tm_sysitems:
     xchg ax, cx                 ; separator and an address would leave eight
     mov si, tm_s_bimg           ; inside System's group
     mov cx, 0FFFFh
-    or dh, dh                   ; its square is the kernel's gray - but not
-    jz .img                     ; inside System's group, whose own row wears
-    mov bx, tm_pat_gray         ; it already
-.img:
-    call tm_item
+    call tm_item                ; (no square: System's own row wears the gray)
     mov bx, tm_pat_buf          ; the stacks and the FAT window: the part of
     mov cx, 0FFFFh              ; the kernel that is scratch, banded on the
     mov si, tm_s_bstk           ; map in its own texture
@@ -4883,9 +4874,8 @@ tm_sysitems:
     jb .bl
     jmp tm_pop_dsdcba
 
-; tm_owner - one of System's owners: a GROUP that opens into its claims
-; (DH = 1) or an ITEM with its total (DH = 0). in: BL = its group, SI = its
-; name, DL = the indent. Keeps everything
+; tm_owner - one of System's owners, a GROUP one level in that opens into its
+; claims. in: BL = its group, SI = its name. Keeps everything
 tm_owner:
     push ax
     push bx
@@ -4896,17 +4886,10 @@ tm_owner:
     shl bx, 1
     mov ax, [tm_gkb+bx]
     pop bx
-    or dh, dh
-    jz .item
     xor dx, dx                  ; no square: no band on the map is an owner's
-    call tm_grp
+    call tm_grp1
     jc .o
     call tm_mbrs
-    jmp short .o
-.item:
-    mov cx, 0FFFFh
-    xor bx, bx
-    call tm_item
 .o:
     jmp tm_pop_dcba
 
@@ -4956,13 +4939,24 @@ tm_drvnam:
 ; column a group leaves empty (TMH_SQC), and keys the row to a band on the
 ; map the way the memory view's squares did.
 ; -----------------------------------------------------------------------------
-tm_grp:
-    push ax
+tm_grp1:                        ; ...one level in: an owner inside System
     push cx
+    mov ch, 1
+    jmp short tm_grp.go
+tm_grp:
+    push cx
+    mov ch, 0
+.go:
+    push ax
     push di
     call tm_mrow_nolast
     call tm_mrow_open
     mov [tm_cgrp], bl
+    or ch, ch
+    jz .ni
+    mov byte [di], ' '
+    inc di
+.ni:
     mov byte [di], '+'
     call tm_isopen
     jc .mk
@@ -4970,7 +4964,9 @@ tm_grp:
 .mk:
     pushf
     inc di
-    mov cx, TMH_GNAMEC
+    mov cl, TMH_GNAMEC
+    sub cl, ch                  ; the name gives the indent its column
+    xor ch, ch
     call tm_copyn               ; space-padded to the SIZE column
     call tm_kcol
     or dx, dx
@@ -4981,8 +4977,8 @@ tm_grp:
     call tm_mrow_close
     popf
     pop di
-    pop cx
     pop ax
+    pop cx
     ret
 
 ; tm_isopen - CF = 0 when group BL is open, CF = 1 closed. Keeps the rest
@@ -5023,10 +5019,12 @@ tm_item:
     push cx
     mov cl, dl
     xor ch, ch
+    jcxz .indd                  ; indent 0: the Programs heading
 .ind:
     mov byte [di], ' '
     inc di
     loop .ind
+.indd:
     pop cx
     push cx
     mov dx, TMH_SIZEC
@@ -7587,9 +7585,10 @@ tm_uma      equ tm_umn + 1      ; TM_UMAX x {dw segment, dw KB}
 
 ; --- THE LIST'S GROUPS (KERN-MEGA-PLAN 14.70.2, SPEC.md 28.4) ----------------
 tm_hifix    equ tm_uma + TM_UMAX * 4    ; KB between 1MB and the pool's base
-tm_mview    equ tm_hifix + 2    ; byte: 0 PROGRAMS, 1 SYSTEM. Survives a page
-                                ; switch, as the scroll position does
-tm_exp      equ tm_mview + 1    ; dword: bit g set = group g is OPEN. Zero -
+tm_detail   equ tm_hifix + 2    ; byte: 1 = DETAIL, Purgeable and 640K-1MB
+                                ; listed. Survives a page switch, as the
+                                ; scroll position does
+tm_exp      equ tm_detail + 1    ; dword: bit g set = group g is OPEN. Zero -
                                 ; every group closed - is what a launch
                                 ; shows: one row per owner
 tm_cgrp     equ tm_exp + 4      ; byte: the group of the row being composed,

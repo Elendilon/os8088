@@ -10364,6 +10364,23 @@ The merged page landed (`b6c4a1ed`, `2cd6ddc7`). Open:
   (`AVAIL 15.04M MAX RUN 14.98M`, 27 cells). MAX RUN quotes what an
   `OS88_HIGHMEM` package can get - every package declares it or is in
   `tests/megahigh.txt`. ~80-120 bytes, estimated.
+- [x] **One tree, and DETAIL** (owner's review, 2026-10-22): the PROGRAMS /
+  SYSTEM switch is gone. `System` opens into its items and into `Kernel`, each
+  driver and each built-in as groups one level in, each opening into its
+  claims; then a `Programs` heading with their total (not a group - a second
+  level there would take columns from the names) and each program as a group.
+  The header's left switch is `DETAIL` and puts `Purgeable` and 640K-1MB in
+  the list: collapsed, the SIZE column sums to Ram's used half and that plus
+  AVAIL is Ram's total, which Purgeable - in none of those figures - never
+  added to (SPEC.md 28.4.10). `taskmgr.o88` 9,639 -> **9,595** bytes.
+  `tests/tmowner.py` presses DETAIL now as well as `+ALL`.
+- [ ] **Name each driver and module image** (owner's review): a `DrvImg`
+  row says nothing about WHICH driver when class-less drivers (XMEM, SAVER,
+  THMPAL, HDDTOOL, RAMPAGE) share one `Drivers` group, and every module is a
+  `ModImg` under `Kernel` - on kern_mega every module is above 1MB too. The
+  names are the kernel's (`drv_tab`'s `DRVR_FILE`, `mod_tab`'s `MODR_FILE`)
+  and no cell reaches them. Proposed: one cell, image segment (or, on
+  kern_mega, a pool block's offset) -> its 8.3 name.
 - [ ] **Dump to file is built and NOT merged**: branch `taskmgr-merge-dump`
   (`c276423c`), List > Save to file writing both views with every group open
   to `APPDATA\MEMDUMP.TXT`, verified on MartyPC. **+380 bytes of image**
