@@ -11621,7 +11621,7 @@ SOAK = [
         "trivially, and the alert must be on the glass at the end, or a dialog"
         "that failed to open reads as one that opened quietly",
         needs=("marty",), serial=True),
-    Row("paintdirty", "soak", py("tests/paintdirty.py"), 70.0,
+    Row("paintdirty", "soak", py("tests/paintdirty.py"), 40.0,
         "SPEC.md 42.16: does Paint ask before it throws a picture away? A"
         "FLAG and not Note Pad's checksum, so the places that set and clear it"
         "are the whole feature - opened 0, MAXIMIZED AND RESTORED 0 (a resize"

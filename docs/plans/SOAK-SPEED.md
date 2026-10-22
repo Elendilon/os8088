@@ -136,3 +136,4 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | paintsu | 137 s (heavy load) incl. an unlogged 180 guest s timeout | 33 s / 55 guest s | 4, 5 | the uncover's "no canvas blit" `until(limit=60)` -> ui_done + 3 s tail; red with `wm_su_segs` zeroed before the close |
 | wcdraw (x4) | 26 / 29 / 45 / 42 s | same | - | declared 200 s each; already cheap, re-declared only. **wcdrawwired FAILS at base** (identity: 17 px differ at (593,13)-(597,18) of the content, twice in a row); wcdrawcga failed once in three |
 | paintpal | 105 s (heavy load) / 61 guest s | 28 s / 55 guest s | 4 | the zoom pair's settles -> ui_done, settle only before the capture; the rest is the boot (17 guest s) |
+| paintdirty | 131 s (load 18) / ~73 guest s incl. 37 unlogged in advance() | 30 s / 36 guest s | 4 | five advance(250/400)+settle -> ui_done; every read is [pt_dirty] or the window list |
