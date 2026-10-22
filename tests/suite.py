@@ -7820,7 +7820,7 @@ SOAK = [
         "points at",
         needs=("marty",), serial=True, timeout=900,
         wants=("build/small360.img",)),
-    Row("dispcold", "soak", py("tests/dispcold.py"), 300.0,
+    Row("dispcold", "soak", py("tests/dispcold.py"), 60.0,
         "WHO DRAWS INTO .cold? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
     Row("dispcorner", "soak", py("tests/dispcorner.py"), 120.0,
