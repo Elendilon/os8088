@@ -37,4 +37,9 @@
 # 2026-10-21: -322, KERN-MEGA-PLAN 14.65 - the menu bar's field readings
 #             (NMI, RST, FDC RESET, RFL, Q, DOSP) behind MEGADIAG=1: their
 #             strings and the counters' .bss were the kernel segment's
-4023
+# 2026-10-22: +6, the main merge's menu-bar volume (SPEC.md 34.15) -
+#             ui_volume_service, SOUND.DRV's bridge into the UI task, loads
+#             DS and ES with KDS/KES rather than push cs/pop: it runs in
+#             protected mode, where CS is readable code, so each load reads
+#             [cs:k_dsel] - five bytes against two, byte-identical on kern_big
+4029
