@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "d61bc84d3e971d93b9e1918fb4e2327edb3308965aa0c9ddc6fbca227b875526",
+  "fingerprint": "10eab70ec54ce110db76095386ebb40dae38186e3e922c5346ccf606b7754f4e",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "0a616e270b7b369224d4e4936702fcc4e5ecdaf2ce22703a02ad2c87e0c041dc",
+  "fingerprint": "a2b8ec07d794943c8a95be5722f4e4ea163db1ab459bfbee6823fa9a4ab49810",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -787,17 +787,31 @@
    "to": 11
   },
   {
-   "fingerprint": "0a616e270b7b369224d4e4936702fcc4e5ecdaf2ce22703a02ad2c87e0c041dc",
+   "fingerprint": "0c7a43a453ff994f12e5e369fd539879ad44c305a707515bb5200ac38e13bbc0",
    "from": 10,
    "guard": "PKG_FMT",
-   "reason": "OSAPI_XMEM_WALK: XMW_CLS (a driver's block's class, the byte that was always 0) and BX = XMW_FIXED asking kern_mega for the fixed areas under the pool (XMW_HMA..XMW_PAD) - additive, every caller built before still runs (KERN-MEGA-PLAN 14.70.2)",
+   "reason": "OS88UI_BTNREC grows four library-owned words (OS88UI_BT_OX/OY/FX/FY, SPEC.md 20.5.1.3.5). The record lives in each package's own image and only that package's copy of os88ui.inc reads it - the kernel never does - so every package built before still runs: no PKG_FMT bump",
    "to": 10
   },
   {
-   "fingerprint": "d61bc84d3e971d93b9e1918fb4e2327edb3308965aa0c9ddc6fbca227b875526",
+   "fingerprint": "6c2587b92d5f8024b94059c0122ef13eba3af431991a89ed31c8723d4493f2d0",
    "from": 11,
    "guard": "DRV_VER",
-   "reason": "OSAPI_XMEM_WALK: XMW_CLS (a driver's block's class, the byte that was always 0) and BX = XMW_FIXED asking kern_mega for the fixed areas under the pool (XMW_HMA..XMW_PAD) - additive, every caller built before still runs (KERN-MEGA-PLAN 14.70.2)",
+   "reason": "OS88UI_BTNREC grows four library-owned words (OS88UI_BT_OX/OY/FX/FY, SPEC.md 20.5.1.3.5). The record lives in each package's own image and only that package's copy of os88ui.inc reads it - the kernel never does - so every package built before still runs: no PKG_FMT bump",
+   "to": 11
+  },
+  {
+   "fingerprint": "a2b8ec07d794943c8a95be5722f4e4ea163db1ab459bfbee6823fa9a4ab49810",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "merge: XMEM_WALK's fixed-area markers and XMW_CLS (Task Manager 14.70.2) with elendilon's os88ui button changes; additive, no bump",
+   "to": 10
+  },
+  {
+   "fingerprint": "10eab70ec54ce110db76095386ebb40dae38186e3e922c5346ccf606b7754f4e",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "merge: XMEM_WALK's fixed-area markers and XMW_CLS (Task Manager 14.70.2) with elendilon's os88ui button changes; additive, no bump",
    "to": 11
   }
  ]

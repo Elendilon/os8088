@@ -90,6 +90,12 @@ KERNEL_SEG   equ 0x0060     ; where the kernel is, and what ES holds on entry.
 ;      earlier pass. A rect in bss is valid until the next thing that can move
 ;      the window, which is any moment your code is not running.
 ;
+; **A STANDARD BUTTON'S RECTS ARE THE ONE EXCEPTION, and the library makes
+; it one**: os88ui_btninit's record banks where its rects were last right and
+; moves them with the window before every draw and hit test (§20.5.1.3.5).
+; Every other rect - a radio group, a list, a scroll bar, a text field - is
+; still yours to re-place.
+;
 ; **ASSUME IT ALWAYS HAPPENS.** §11.96.13 snaps a drop's x onto a multiple of
 ; 8 before the cache is taken - it exists because the byte-phase refusal below
 ; otherwise turned away seven drags in eight - so in ordinary use the replay
@@ -4586,6 +4592,9 @@ OS88__AFIT  equ OS88__AF%[OS88__AN]
                                 ; 20.5.1.3.4)
     dw 0                        ; OS88UI_BT_ONCLK, your click proc - btninit
     dw 0                        ; OS88UI_BT_NEXT, THE LIBRARY'S list link
+    dw 0, 0, 0, 0               ; OS88UI_BT_OX/OY/FX/FY, THE LIBRARY'S: where
+                                ; the rects were last right (SPEC.md
+                                ; 20.5.1.3.5)
 %endmacro
 
 %macro OS88_BSS 1
