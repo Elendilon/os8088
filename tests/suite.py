@@ -10941,7 +10941,7 @@ SOAK = [
         "seven guest seconds later.",
         needs=("marty", "mtools"), timeout=900,
         wants=("build/os8088-360.img",)),
-    Row("deskcaledit", "soak", py("tests/deskcaledit.py"), 76.0,
+    Row("deskcaledit", "soak", py("tests/deskcaledit.py"), 160.0,
         "SPEC.md 110.3: the Desk Calendar WIDGET's APPOINTMENTS, read back "
         "off the guest's own disk by tools/os88stik.py, selected the v2 way "
         "(the two-line agenda paged by its `+N more` pager). A DAMAGED "
@@ -10963,7 +10963,7 @@ SOAK = [
         "with `Calendar is full (48)`.",
         needs=("marty", "mtools"), timeout=900,
         wants=("build/os8088-360.img",)),
-    Row("deskcaltask", "soak", py("tests/deskcaltask.py"), 85.0,
+    Row("deskcaltask", "soak", py("tests/deskcaltask.py"), 40.0,
         "SPEC.md 110.3: the Desk Calendar's TASKS on a Hercules 5150 - v2's "
         "MID layout by the screen's height, a readable 1bpp framebuffer. "
         "Three typed tasks are three in the state file; the box is 9 x 9 at "
@@ -11046,7 +11046,7 @@ SOAK = [
         "is asserted every leg - and stepping past either end of the range "
         "is refused while the other direction still moves.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
-    Row("deskcalremind", "soak", py("tests/deskcalremind.py"), 72.0,
+    Row("deskcalremind", "soak", py("tests/deskcalremind.py"), 120.0,
         "SPEC.md 110.3 (v2): the Desk Calendar's REMINDERS RING ON CARD 3 - "
         "no alert - on MartyPC's VGA XT with the clock SET through the live "
         "clk_* fields. A launch at 09:28 sums up ONE missed reminder in one "
@@ -11206,7 +11206,7 @@ SOAK = [
         "opened again by hand it is where it was dragged, its data FIRED.",
         needs=("marty",), timeout=900,
         wants=("build/small360.img",)),
-    Row("deskcalperf", "soak", py("tests/deskcalperf.py"), 63.0,
+    Row("deskcalperf", "soak", py("tests/deskcalperf.py"), 160.0,
         "SPEC.md 110.6 / PERFORMANCE.md Part 5: what the Desk Calendar's "
         "gestures COST in primitive calls - a breakpoint on every drawing "
         "cell of the API table, a call counted only when its far return "
@@ -11227,7 +11227,7 @@ SOAK = [
         "counters: a boot with no row makes no disk call after its paint.",
         needs=("marty", "mtools"), timeout=1200,
         wants=("build/os8088-360.img",)),
-    Row("deskcal1bpp", "soak", py("tests/deskcal1bpp.py"), 45.0,
+    Row("deskcal1bpp", "soak", py("tests/deskcal1bpp.py"), 90.0,
         "SPEC.md 110.3, 39.4, 47: the Desk Calendar WIDGET on BOTH 1bpp "
         "adapters, asserted on the framebuffer's own bits (MartyPC's 5150 "
         "with a CGA, and with a Hercules card): COMPACT 178x146 and MID "
@@ -11255,7 +11255,7 @@ SOAK = [
         "inverse.",
         needs=("marty", "mtools"), timeout=1500,
         wants=("build/os8088-360.img",)),
-    Row("deskcalsnooze", "soak", py("tests/deskcalsnooze.py"), 60.0,
+    Row("deskcalsnooze", "soak", py("tests/deskcalsnooze.py"), 110.0,
         "SPEC.md 110.3 (v2): SNOOZE and DISMISS on MartyPC's VGA XT, the "
         "clock set through clk_*. A v1-shaped file (zeros at payload +4/+6) "
         "loads with nothing due or snoozed and its v1 FIRED read as "
