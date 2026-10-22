@@ -9884,7 +9884,8 @@ the number before the merge. **`PKG_FMT` is not bumped**: nothing main or a
 release ever built calls a moved cell, so all of it still runs; what breaks is
 a package built from `elendilon` BEFORE this merge that calls one of the six -
 test disks in development, which are rebuilt. `tools/abilock.py` recorded it
-without a bump. That is the call the owner may want to overrule. The Wire's
+without a bump, and **the owner confirmed it** (2026-10-22: *"No format bump
+is fine. We're not released yet."*). The Wire's
 `WIRE_TABLE_END` stays 0x04A5: it fences the released level, and the six are
 past it, so a Wire record whose package calls one is refused at `--verify`,
 which is the fence doing its job. **kern_big's bytes**: built at one commit
@@ -9903,7 +9904,8 @@ against the baseline on both kernels.
    wirefleetdisk`), its rows boot that disk, and every other apps disk and
    `games360.img` still carry it - DrMarco's shape. An owner call. 14.66's
    arms, merged after, took VIDEO.O88 down 3 clusters; the disk is 669 of
-   713 without WireFleet and would be 716 with it, so the call stands.
+   713 without WireFleet and would be 716 with it, so the call stands -
+   put to the owner with the disk's listing, their pick pending.
 2. **SERIAL.DRV wrote its own image through CS thirteen times** (`.mods`,
    `srl_open` and `srl_close`), which faults in protected mode on a real 286.
    All thirteen are `CSDO` now: byte-identical off kern_mega, +7 bytes each
