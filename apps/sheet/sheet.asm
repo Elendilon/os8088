@@ -8439,10 +8439,9 @@ sh_idlg_paint:
     push dx
     push si
     push di
-    mov bx, si
-    call OSAPI_WM_CONTENT
-    mov [sh_idlg_ox], ax
-    mov [sh_idlg_oy], dx
+    mov [sh_idlg_win], si              ; this paint's window (a paint can
+                                       ; come before WM_CREATE returns)
+    call sh_idlg_geo                   ; the origin and the field's rect, NOW
     mov al, CBLACK
     call OSAPI_SET_COLOR
     mov bl, [sh_idlg_kind]             ; the prompt for this kind
@@ -8455,19 +8454,7 @@ sh_idlg_paint:
     add dx, 8
     call OSAPI_FONT_STR_XPARENT
 
-    mov si, sh_idlg_line               ; the field's rect from the LIVE origin
-    mov ax, [sh_idlg_ox]               ; every paint - the window moves
-    add ax, SH_IDLG_FX1
-    mov [si + LN_X1], ax
-    mov ax, [sh_idlg_ox]
-    add ax, SH_IDLG_FX2
-    mov [si + LN_X2], ax
-    mov ax, [sh_idlg_oy]
-    add ax, SH_IDLG_FY1
-    mov [si + LN_Y1], ax
-    mov ax, [sh_idlg_oy]
-    add ax, SH_IDLG_FY2
-    mov [si + LN_Y2], ax
+    mov si, sh_idlg_line               ; sh_idlg_geo laid its rect out above
     call os88line_draw
 
     mov ax, [sh_idlg_ox]               ; OK
@@ -8512,6 +8499,44 @@ sh_idlg_paint:
     ret
 
 ; -----------------------------------------------------------------------------
+; sh_idlg_geo - the content origin and the field's rect from where the window
+; IS NOW. Preserves all.
+;
+; A window dragged by its title is REPLAYED, not painted (SPEC.md 11.96.12.0),
+; so a rect banked at the last paint names where the window WAS and a click
+; into the field after a drag missed it. So the rect is laid out again from
+; OSAPI_WM_CONTENT by every caller that hit-tests or draws it - the paint, the
+; click and a key - and never trusted from a paint (11.96.12.0 rule 1). The
+; buttons need nothing here: os88ui_btninit's record is rebased by the
+; library itself (20.5.1.3.5).
+; -----------------------------------------------------------------------------
+sh_idlg_geo:
+    push ax
+    push bx
+    push dx
+    push si
+    mov bx, [sh_idlg_win]
+    call OSAPI_WM_CONTENT
+    mov [sh_idlg_ox], ax
+    mov [sh_idlg_oy], dx
+    mov si, sh_idlg_line
+    mov bx, ax
+    add ax, SH_IDLG_FX1
+    mov [si + LN_X1], ax
+    add bx, SH_IDLG_FX2
+    mov [si + LN_X2], bx
+    mov ax, dx
+    add ax, SH_IDLG_FY1
+    mov [si + LN_Y1], ax
+    add dx, SH_IDLG_FY2
+    mov [si + LN_Y2], dx
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; sh_idlg_onkey - Enter is OK and Escape is Cancel, which is what a one-field
 ; dialog should do; os88line_key deliberately does NOT consume Enter (its own
 ; header says so) precisely so the caller can use it for this.
@@ -8523,6 +8548,7 @@ sh_idlg_onkey:
     je .cancel
     cmp al, 0x0D
     je .accept
+    call sh_idlg_geo                   ; the field where the window IS
     mov si, sh_idlg_line
     call os88line_key
     jc .out
@@ -8550,8 +8576,9 @@ sh_idlg_onclick:
     push dx
     push si
     push di
-    mov si, sh_idlg_line               ; the field's rect is already
-    call os88line_click                ; screen-absolute from the last paint
+    call sh_idlg_geo                   ; the field's rect where the window IS
+    mov si, sh_idlg_line               ; (a drag replays, it does not paint)
+    call os88line_click
     jnc .redraw
                                         ; six content-relative compares this
                                         ; replaces were a second description of
@@ -9930,12 +9957,10 @@ sh_ndlg_paint:
     push dx
     push si
     push di
-    mov bx, si
-    call OSAPI_WM_CONTENT               ; ax,dx = the content origin
-    mov [sh_ndlg_ox], ax
-    mov [sh_ndlg_oy], dx
-
-    mov cx, ax                          ; the 'Cell:' label and the reference
+    mov [sh_ndlg_win], si              ; this paint's window (a paint can
+                                        ; come before WM_CREATE returns)
+    call sh_ndlg_geo                    ; the origin and the field's rect, NOW
+    mov cx, [sh_ndlg_ox]                ; the 'Cell:' label and the reference
     add cx, SH_NDLG_BX1
     mov dx, [sh_ndlg_oy]
     add dx, 6
@@ -9960,19 +9985,7 @@ sh_ndlg_paint:
     mov si, sh_tbuf
     call OSAPI_FONT_STR_XPARENT
 
-    mov si, sh_notebox                  ; the field's rect is refreshed from
-    mov ax, [sh_ndlg_ox]                ; the LIVE content origin every paint,
-    add ax, SH_NDLG_BX1                 ; because the window moves - the same
-    mov [si + TX_X1], ax                ; painter/hit-tester drift the scroll
-    mov ax, [sh_ndlg_ox]                ; bars already had to solve
-    add ax, SH_NDLG_BX2
-    mov [si + TX_X2], ax
-    mov ax, [sh_ndlg_oy]
-    add ax, SH_NDLG_BY1
-    mov [si + TX_Y1], ax
-    mov ax, [sh_ndlg_oy]
-    add ax, SH_NDLG_BY2
-    mov [si + TX_Y2], ax
+    mov si, sh_notebox                  ; sh_ndlg_geo laid its rect out above
     call os88text_draw
 
     mov ax, [sh_ndlg_ox]                ; OK - os88ui_btn takes BX = a POINTER
@@ -10017,6 +10030,38 @@ sh_ndlg_paint:
     ret
 
 ; -----------------------------------------------------------------------------
+; sh_ndlg_geo - the content origin and the field's rect from where the window
+; IS NOW. Preserves all. sh_idlg_geo's reason (SPEC.md 11.96.12.0): a dragged
+; window is replayed and not painted, so the paint, the click and a key each
+; lay the rect out again rather than trust the last paint's.
+; -----------------------------------------------------------------------------
+sh_ndlg_geo:
+    push ax
+    push bx
+    push dx
+    push si
+    mov bx, [sh_ndlg_win]
+    call OSAPI_WM_CONTENT
+    mov [sh_ndlg_ox], ax
+    mov [sh_ndlg_oy], dx
+    mov si, sh_notebox
+    mov bx, ax
+    add ax, SH_NDLG_BX1
+    mov [si + TX_X1], ax
+    add bx, SH_NDLG_BX2
+    mov [si + TX_X2], bx
+    mov ax, dx
+    add ax, SH_NDLG_BY1
+    mov [si + TX_Y1], ax
+    add dx, SH_NDLG_BY2
+    mov [si + TX_Y2], dx
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
 ; sh_ndlg_onkey - AL = ascii, AH = scan code. The field gets first refusal;
 ; Escape is the only key this dialog claims for itself.
 ; -----------------------------------------------------------------------------
@@ -10025,19 +10070,14 @@ sh_ndlg_onkey:
     push si
     cmp al, 27
     je .cancel
-    mov si, sh_notebox
+    call sh_ndlg_geo                    ; the box where the window IS: a drag
+    mov si, sh_notebox                  ; replays it and never paints
     call os88text_key
     jc .out                             ; the field did not want it
     call os88text_draw                  ; the BOX, not the whole dialog: the
     jmp .out                            ; labels and both buttons did not
                                         ; change, and os88ui_btn's own erase
-                                        ; would flash them on every keystroke.
-                                        ; The block's rect is refreshed by
-                                        ; every real paint and the window
-                                        ; cannot move mid-callback (the gfx
-                                        ; lock is held) - the same trust the
-                                        ; onclick hit-test below already
-                                        ; places in it
+                                        ; would flash them on every keystroke
 .cancel:
     call sh_ndlg_close
 .out:
@@ -10055,9 +10095,10 @@ sh_ndlg_onclick:
     push dx
     push si
     push di
-    mov si, sh_notebox                  ; the field first: its own rect is
-    call os88text_click                 ; already screen-absolute from the
-    jnc .redraw                         ; last paint, so no conversion here
+    call sh_ndlg_geo                    ; the field first, its rect laid out
+    mov si, sh_notebox                  ; where the window IS (a drag replays
+    call os88text_click                 ; it and never paints)
+    jnc .redraw
                                         ; six content-relative compares this
                                         ; replaces were a second description of
                                         ; the painter's geometry, and they

@@ -342,6 +342,40 @@ sc_layout:
     ret
 
 ; -----------------------------------------------------------------------------
+; sc_regeo - lay out again when the window is no longer where sc_geo was laid
+;            out: a title-bar drag REPLAYS the window and never calls W_PAINT
+;            (SPEC.md 11.96.12.0), so every rect banked at paint is stale until
+;            this runs. Every handler that hit-tests or draws calls it first.
+; in:  nothing ([sc_win]); out: nothing; keeps every register
+; -----------------------------------------------------------------------------
+sc_regeo:
+    cmp byte [sc_laid], 0
+    je .ret                         ; no paint yet: nothing laid out to move
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov bx, [sc_win]
+    call OSAPI_WM_CONTENT           ; AX = left, DX = top, as it is NOW
+    cmp ax, [sc_geo+SCG_CX]
+    jne .lay
+    cmp dx, [sc_geo+SCG_CY]
+    je .out
+.lay:
+    call sc_layout                  ; draws nothing; keeps BX
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.ret:
+    ret
+
+; -----------------------------------------------------------------------------
 ; sc_drawall - everything, once (W_PAINT: the content is white, the clip armed)
 ; in:  BX = window ptr; out: nothing; clobbers AX, BX, CX, DX, SI, DI
 ; -----------------------------------------------------------------------------

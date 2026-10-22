@@ -168,6 +168,7 @@ sc_onwake:
     je .more                        ; still inside the tick we started in
 .draw:
     call OSAPI_GFX_LOCK
+    call sc_regeo                   ; dragged since the paint? (11.96.12.0)
     mov bx, [sc_win]
     call sc_drawowed                ; arms the clip; draws only the owed
     call OSAPI_GFX_UNLOCK
@@ -255,6 +256,7 @@ sc_repaint:
 ; in:  AX = the key (AH scan code, AL character), SI = window, lock held
 ; -----------------------------------------------------------------------------
 sc_onkey:
+    call sc_regeo                   ; the rects where the window IS (sc_regeo)
     cmp byte [sc_btrec+OS88UI_BT_N], 0
     jne .live
     jmp sc_abdown                   ; any key takes the About card down
@@ -351,6 +353,7 @@ sc_ondrag:
 
 ; sc_onup - W_ONMOUSEUP: a button fires on the release
 sc_onup:
+    call sc_regeo                   ; the rects where the window IS (sc_regeo)
     call sc_owe
     mov bx, sc_btrec
     call os88ui_btnup               ; AX = index + 1, 0 = cancelled
@@ -439,6 +442,7 @@ sc_act_details:
 ; out: CF = 1 the press was ours
 ; -----------------------------------------------------------------------------
 sc_onclick:
+    call sc_regeo                   ; the rects where the window IS (sc_regeo)
     call sc_owe
     cmp byte [sc_btrec+OS88UI_BT_N], 0
     jne .live

@@ -1880,6 +1880,59 @@ sc_ctcalc:
     ret
 
 ; -----------------------------------------------------------------------------
+; sc_rebase - move every SCREEN rect Scribe banked to where the window IS NOW
+; in:  AX/DX = the live content origin, [sc_cl]/[sc_ct] = the one the rects
+;      were laid out against (sc_bounds, before it banks the new one);
+;      preserves all registers
+;
+; A window dragged by its title is REPLAYED, not painted (SPEC.md 11.96.12.0),
+; so the About card and its OK, a dialog's corner, an open menu's or combo's
+; panel and its anchor all named where the window WAS - a press on any of
+; them answered nothing, or the wrong thing, until something repainted.
+; Every one of them was laid out against the origin sc_bounds banked, and
+; sc_bounds is the first thing every handler runs, so the live origin less
+; that one is exactly what each owes - the same delta skies' cs_regeo takes.
+; Closed ones shift too and harmlessly: each is rewritten whole when it next
+; opens or paints.
+; -----------------------------------------------------------------------------
+sc_rebase:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    sub ax, [sc_cl]
+    sub dx, [sc_ct]
+    mov cx, ax
+    or cx, dx
+    jz .out                         ; not moved: nothing owed
+    mov si, sc_rbrects
+    mov cx, SC_RBN
+.r:
+    mov di, [si]                    ; a 4-word inclusive rect: x1 y1 x2 y2
+    add [di], ax
+    add [di+2], dx
+    add [di+4], ax
+    add [di+6], dx
+    inc si
+    inc si
+    loop .r
+    add [sc_dlgx], ax               ; the open dialog's corner...
+    add [sc_dlgy], dx
+    add [sc_max], ax                ; ...and where a combo's dropdown hangs
+    add [sc_may], dx
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+sc_rbrects:
+    dw sc_mrx1, sc_mabox, sc_abrect, sc_abok, sc_dlrect
+SC_RBN equ ($ - sc_rbrects) / 2
+
+; -----------------------------------------------------------------------------
 ; sc_bounds - the content rectangle and the text origin, from the live record
 ; in:  SI = window ptr, ES = KERNEL_SEG (as every callback is entered)
 ; out: [sc_tx] = the wrap column and left margin, [sc_ty] = the first text
@@ -1897,6 +1950,7 @@ sc_bounds:
     push dx
     mov bx, si
     call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    call sc_rebase                  ; the rects banked at the OLD one follow
     mov [sc_cl], ax                 ; the content box, banked for every chrome
     mov [sc_ct], dx                 ; painter and hit test (SPEC.md 68.2) -
                                     ; read here once, exactly like sc_tx/sc_ty
@@ -16523,6 +16577,7 @@ sc_mkey:
     push di
     cmp word [sc_dlg], 0            ; the dialog is modal (SPEC.md 68.3):
     je .nodlg                       ; Enter fires OK, Esc cancels, a letter
+    call sc_bounds                  ; (where the window IS: sc_rebase)
     call sc_dgkey                   ; toggles its box, and nothing leaks
     jmp .cons
 .nodlg:
@@ -16536,6 +16591,7 @@ sc_mkey:
     je .abx
     jmp .cons                       ; everything else bounces off the modal
 .abx:
+    call sc_bounds                  ; the card's rect where the window IS
     call sc_abclose
     jmp .cons
 .noab:
@@ -16564,6 +16620,7 @@ sc_mkey:
     call sc_mopenm                  ; opened sticky, no highlight yet
     jmp .cons
 .open:
+    call sc_bounds                  ; the panel's rect where the window IS
     cmp al, 27
     je .close
     cmp al, 13

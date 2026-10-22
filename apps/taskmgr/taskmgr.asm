@@ -2912,6 +2912,7 @@ tm_click:
 %ifdef TMF_HEAP
     cmp byte [tm_view], 0       ; the memory page's SCROLL BAR gets the point
     je .cycle                   ; first (SPEC.md 28.4.4), and answers CF = 1
+    call tm_regeo               ; (where the window IS: tm_regeo)
     call tm_hscroll             ; for anything that is not in it...
     jnc .out
     call tm_lclick              ; ...then its LIST: the two header switches
@@ -3008,6 +3009,38 @@ tm_hscroll:
 .no:
     stc
 .out:
+    jmp tm_pop_dcba
+
+; -----------------------------------------------------------------------------
+; tm_regeo - move what the last paint laid out to where the window IS NOW
+; in:  SI = window ptr; out: nothing; keeps every register (flags aside)
+;
+; A title-bar drag REPLAYS the window at its new place and never calls
+; W_PAINT (SPEC.md 11.96.12.0), so [tm_cx]/[tm_cy], [tm_ylim] and the scroll
+; bar's rect in [tm_hsb] are where the window WAS until the next refresh - up
+; to a second later - and a press straight after a drop missed the bar and the
+; list. They are shifted by the origin's delta, which is exactly what the
+; paint would have laid out (every one is a constant off the origin), and the
+; next refresh lays them out afresh anyway.
+; -----------------------------------------------------------------------------
+tm_regeo:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bx, si
+    call OSAPI_WM_CONTENT       ; AX = content left, DX = content top, NOW
+    mov cx, ax
+    xchg cx, [tm_cx]            ; CX = where the paint had it
+    sub ax, cx                  ; AX = how far it moved across
+    add [tm_hsb], ax
+    add [tm_hsb+4], ax
+    mov cx, dx
+    xchg cx, [tm_cy]
+    sub dx, cx                  ; DX = ...and down
+    add [tm_hsb+2], dx
+    add [tm_hsb+6], dx
+    add [tm_ylim], dx
     jmp tm_pop_dcba
 
 ; -----------------------------------------------------------------------------
