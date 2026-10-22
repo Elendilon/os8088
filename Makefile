@@ -106,6 +106,16 @@ SHIPIMGS := $(IMG) $(IMG120) $(IMG720) $(IMG360) \
             $(MEDIAIMG360) $(OFFICEIMG360) $(NETWORKIMG360) $(GAMESIMG360) \
             $(EMUIMG360)
 
+# ...and each of them SIGNS IN A SLOT OF ITS OWN (SPEC.md 18.8.2.2): os88disk.py
+# reads this list (tools/os88ship.py) and steers every member's boot-sector
+# signature into its sorted place, so no two shipped disks can look like one
+# disk to dsk_bpb_sig. The slot is the image's place in the LIST, so the list
+# is a prerequisite: this stamp is named for it and every member depends on it,
+# and an image added or removed rebuilds the set rather than leaving a stale
+# one in a slot that now belongs to somebody else.
+SHIPSTAMP := $(BUILD)/.ship-$(shell printf '%s' '$(notdir $(SHIPIMGS))' | cksum | cut -d' ' -f1)
+$(SHIPIMGS): $(SHIPSTAMP) tools/os88ship.py
+
 BOX   := /Applications/86Box.app/Contents/MacOS/86Box
 
 # RESET= clears a machine's non-volatile state on the way in, and it reaches
@@ -6165,6 +6175,10 @@ $(SBSTAMP): | $(BUILD)
 
 $(PKGZSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.pkgz $(BUILD)/.pkgz-lz4 $(BUILD)/.pkgz-lzb
+	@touch $@
+
+$(SHIPSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.ship-*
 	@touch $@
 
 $(PKGZBSTAMP): | $(BUILD)

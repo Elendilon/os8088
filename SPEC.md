@@ -34824,6 +34824,52 @@ must each carry their own serial, every other byte being what it was. With
 `DSK_VOLID` emptied and `hd_bpb_fill`'s two stores taken out, all four go red
 on exactly those checks.
 
+#### 18.8.2.2 …and every SHIPPED disk signs in a slot of its own
+
+A serial derived from content makes two different disks sign differently
+**with probability 65,535 in 65,536**, not with certainty: `dsk_bpb_sig` is
+16 bits and each image's serial is an independent draw, so the shipped set is
+a birthday problem. Thirteen images share a signature in about **one tree in
+840** (measured over 20,000 random serials: 0.10%, against 0.12% computed),
+and *every commit is a new tree*, because the build number is in every image
+(§14.2). So `t_volsig` failed at random: it went red on `elendilon` at
+1b9bc77 with `network360.img` and `os8088-720.img` both signing `0xD401`, and
+the next commit would most likely have cleared it while fixing nothing.
+
+**So the shipped set is distinct by construction.** `os88disk.py` reads
+`$(SHIPIMGS)` (`tools/os88ship.py`, the one reader the Makefile has) and
+gives each member its 1-based place in the SORTED list as a slot; the image's
+signature is then steered so that its **low six bits are the slot** and its
+upper ten bits are what the content-derived serial gave. Two shipped images
+cannot meet in the low bits, so they cannot sign alike.
+
+**The steering is solved, not searched.** Each step of the sum is
+`x -> rotl(x + w, 1)`, a bijection of `x`, so with every other word fixed the
+signature is a bijection of any one word. `steer_sig` runs forward to word 20
+and backward from the target to word 21, and the word between follows.
+Word 20 is bytes 40..41 - the serial's middle two bytes - so the serial's
+outer bytes stay the content's digest, the boot code (from 62) and the BPB are
+untouched, and identical content still signs alike (`t_volsig`'s second half).
+
+What it does NOT cover, and why that is acceptable:
+
+- **An image outside `$(SHIPIMGS)`** - an on-demand disk (`c64360.img`,
+  `weave360.img`), a `kern_small` or knob tree's copy of a shipped name in
+  another directory, a test's scratch image - keeps its plain derived serial,
+  or takes the shipped name's slot. Against the shipped set it collides at
+  most as often as before. A `kern_small` system disk and its `kern_big`
+  namesake share a slot, so that one pair meets in 1 tree in 1,024 rather
+  than 65,536; nothing ships both.
+- **A disk made elsewhere** is §18.8.2.1's residual and unchanged.
+- **`$(SHIPIMGS)` past 63 images** fails the build naming `SIG_SLOT_BITS`.
+
+**A slot is a place in the list**, so the list is a prerequisite: the
+Makefile's `$(SHIPSTAMP)` is named for the list's checksum and every member
+depends on it, and adding or removing an image rebuilds the set rather than
+leaving a stale image in a slot that now belongs to another. The kernel is
+untouched: **0 resident bytes on every build**, and no disk's layout, files or
+boot code move - only four bytes of each shipped image's serial.
+
 ### 18.8.3 …and the kernel's own window is one of them, PINNED
 
 `FAT_SEG` was a **fallback**: 4,608 bytes reserved on every machine, used by
