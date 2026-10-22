@@ -53920,6 +53920,67 @@ gave - until the office disk is the one in B:.
 `tests/unit/t_fonts.py` holds both halves: the faces on the three larger
 system images and on `office360.img`, and none at all on `os8088-360.img`.
 
+#### 24.3.1.6 What an 8088 cannot use leaves the 360KB system disk
+
+**`CDROM.DRV`, `COLDHMA.SYS` and `XMEM.DRV` come off `os8088-360.img`**, by
+the owner's decision, so the disk can keep 10KB free and still take a 5KB
+driver. None of the three can do anything on an 8088. `CDROM.DRV` refuses to
+attach below a 286 because its data port is 16 bits wide (§119.2).
+`COLDHMA.SYS` is the HMA image (§2.10.7) and `XMEM.DRV` the RAM above 1MB
+(§41.12), and only a 286 or later has either. The 360KB disk is the XT's disk.
+A 286 booting from a 360KB drive can exist, but it is an odd machine, and every
+AT-class profile here boots the 1.2MB or 3.5" disks, which keep all three.
+
+`SYS360OMITDRV` in the Makefile is the list and `DRIVERS360` the filtered
+`$(DRIVERS)` the 360KB system disk is built from. The kernel already copes with
+any of the three being absent; kern_mega's disks have shipped without
+`COLDHMA.SYS` and `XMEM.DRV` all along. **An install made from this disk does
+not carry them either**, because the installer copies the system disk it is on
+(§117.6). §118.2.3 is why System Check does not report that install as broken.
+
+| | 512-byte clusters |
+|---|---|
+| `os8088-360.img` before | 696 of 706, 10 free |
+| the three off (11 + 7 + 4) | 674 of 706, **32 free** (measured) |
+
+#### 24.3.1.7 System Check and the DOS tools move to the utilities disk
+
+**`build/util360.img` is a fifth category disk (§24.6)**, by the owner's
+decision of 2026-10-22, for programs a 360KB machine runs to look *at* itself
+rather than to get work done:
+
+- **At the root:** `SYSCHECK.O88` (§118), `REDLINE.O88` (§103) and a copy of
+  `TASKMGR.O88` (§28).
+- **In `SYSTEM/DOS/`:** `OS88NET.COM` (§62) and `OS88CZ.COM` (§20.17.4). They
+  go there for the reason network360 puts its `.COM` there: at the root, a
+  double-click would run a DOS tool on the machine it is not for.
+
+Three moves made it, and all three apply at 360KB only:
+
+- **`SYSCHECK.O88` leaves `os8088-360.img`.** `$(SYSTOOLSARGS)` is no longer
+  in that disk's recipe. A hard disk installed from the 360KB pair therefore
+  carries no `C:\SYSTEM\SYSCHECK.O88`. The user runs it off util360 instead,
+  and it offers the hard disk by default (§118.13). It is still on the 720KB,
+  1.44MB and 1.2MB system disks and on the live media.
+- **`OS88NET.COM` leaves `apps360.img`.** network360 keeps its copy, beside the
+  programs that use the link.
+- **`REDLINE.O88` reaches a shipped 360KB disk for the first time.** Until now
+  its only 360KB copy was the on-demand `redline360.img`.
+
+`OS88CZ.COM` had never fitted on apps360 (§20.17.4) and is new at this
+geometry.
+
+| | clusters |
+|---|---|
+| `os8088-360.img`, after §24.3.1.6 | 674 of 706 (512 B), 32 free |
+| `SYSCHECK.O88` off | **649 of 706, 57 free** (measured) |
+| `apps360.img` | 337 → **325 of 354, 29 free** (measured) |
+| `util360.img` | **72 of 354, 282 free** (measured) |
+
+`tests/unit/t_sysman.py` holds both halves: System Check absent from
+`os8088-360.img` and present at util360's root. `tests/instdeep.py`, which
+installs from the 360KB pair, no longer expects `SYSTEM/DOS/`.
+
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 
 `build/media360.img` is a data floppy carrying `MEDIA/BEVERLY.MOD` and
@@ -54342,9 +54403,9 @@ user can *choose* one without swapping floppies.
 
 ### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
 
-`build/office360.img`, `build/network360.img`, `build/games360.img` and
-`build/emu360.img` are four data floppies built by `all` beside the system,
-apps and media disks.
+`build/office360.img`, `build/network360.img`, `build/games360.img`,
+`build/emu360.img` and `build/util360.img` are five data floppies built by
+`all` beside the system, apps and media disks.
 Each carries **one category of application at the root of the volume**, the
 documents those applications open in `MEDIA/`, and a pre-made
 `SYSTEM/APPDATA/`.
@@ -54372,6 +54433,7 @@ everything on it and gain nothing from three.
 | `network360` | Browser, FTPD, Telnet, The Wire (+ `SYSTEM/DOS/OS88NET.COM`) | `BROWSER.HTM` |
 | `games360` | every package in the apps disk's `GAMES/` | — |
 | `emu360` | RealDMG | `GBDEMO.GB` |
+| `util360` | System Check, Redline, Task Manager (+ `SYSTEM/DOS/OS88NET.COM`, `OS88CZ.COM`) (§24.3.1.7) | — |
 
 **The packages are at the ROOT, with no `APPS/` over them.** The apps disk
 sorts a mixed bag into folders because it *is* a mixed bag; a category disk
@@ -203894,6 +203956,21 @@ show it to a package (§19.7.1) - is asked for by name. **A name stays in
 the list for ever**: a machine can be upgraded from any release, and a
 leftover is a leftover however old.
 
+#### 118.2.3 Optional files
+
+Not every system disk carries every file the release ships. The 360KB one
+leaves off what an 8088 cannot use (§24.3.1.6), and an install copies only the
+disk it was made from. So a manifest entry can be **optional**:
+`tools/os88sysman.py --optional PATH` ORs `SCF_OPT` (0x80) into its folder
+byte. The Makefile passes `$(SYS360OMITDRV)`, and the tool refuses an
+`--optional` that names no input. When an optional file is **absent**, that is
+not a finding: `sc_man_missing` moves on to the next entry. When it is
+**present**, it is judged exactly like any other file, so a stale `XMEM.DRV`
+left by an earlier install is still reported. `sc_manpath` masks the bit before
+it resolves the folder. `tests/unit/t_sysman.py` excuses an optional file only
+on `os8088-360.img`, so the three larger system disks must still carry it byte
+for byte.
+
 ### 118.3 The scan
 
 **It runs in slices on the UI task**, in `OSAPI_WM_ONWAKE` (§74.1), because
@@ -204022,9 +204099,11 @@ driver or kernel is to install again (§52.10.15), which those findings say.
 
 `SYSTOOLS`, its own list threaded the way `STIKAPPS` is, and not
 `SYSAPPS`: the Makefile's comment above `STIKAPPS` keeps new system-disk
-packages out of the 35 recipes `SYSAPPSARGS` reaches. So `SYSTEM\` on the four kern_big system
-disks and on the live media, which is where an install takes it from
-(§52.10.4 step 3). Not the apps disks, `kern_small`'s or `kern_emu`'s
+packages out of the 35 recipes `SYSAPPSARGS` reaches. So `SYSTEM\` on the
+720KB, 1.44MB and 1.2MB kern_big system disks and on the live media, which is
+where an install takes it from (§52.10.4 step 3). **At 360KB it is the root of
+`util360.img` instead** (§24.3.1.7), so an install from the 360KB pair does not
+carry it. Not the apps disks, `kern_small`'s or `kern_emu`'s
 (§118.9). It is opened like any program, from `C:\SYSTEM` in the Disk window.
 
 ### 118.11 The tests

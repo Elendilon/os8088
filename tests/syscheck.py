@@ -53,7 +53,8 @@ def manifest():
     and this file runs nothing that builds. (kind, folder, NAME)."""
     import os88sysman
     inc = os.path.join(BUILD, "syscheck_man.inc")
-    return [(k, f, n) for k, f, n, _size, _sum in os88sysman.read_inc(inc)]
+    return [(k, f & ~os88sysman.SCF_OPT, n)
+            for k, f, n, _size, _sum in os88sysman.read_inc(inc)]
 
 
 def b(name):
@@ -124,9 +125,11 @@ def build_fixture(out):
         cmd += ["--raw", r.split(":", 1)[1]]  # the positional places it
     cmd += args + raw
     subprocess.run(cmd, check=True)
-    # ...and the two deletions, after os88disk wrote ASSOC.DAT and the
-    # manifest's driver list
-    for victim in ("::/EMS.DRV", "::/APPS/NOTEPAD.O88"):
+    # ...and the three deletions, after os88disk wrote ASSOC.DAT and the
+    # manifest's driver list. CDROM.DRV is an OPTIONAL manifest file (SPEC.md
+    # 118.2.3) - the 360KB system disk leaves it off - so its absence must add
+    # NOTHING to the report's exact totals below.
+    for victim in ("::/EMS.DRV", "::/CDROM.DRV", "::/APPS/NOTEPAD.O88"):
         subprocess.run(["mattrib", "-i", mtools_img(out), "-r", "-s", "-h",
                         victim], check=True)
         subprocess.run(["mdel", "-i", mtools_img(out), victim], check=True)
@@ -221,6 +224,9 @@ def drive(img, keep):
     if not re.search(r"checked (19|20)\d\d-\d\d-\d\d \d\d:\d\d", text):
         fails.append("the report's date is not YYYY-MM-DD hh:mm (a DEC_SEP "
                      "comma in the year was the first build's)")
+    if "CDROM.DRV" in text:
+        fails.append("an absent OPTIONAL file (CDROM.DRV) is reported "
+                     "(SPEC.md 118.2.3)")
     for sev, path, word in EXPECT:
         hit = [ln for ln in lines if ln.startswith(sev) and
                (" %s " % path) in ln and word in ln]
