@@ -124,6 +124,13 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| excitebikeaudiolap | 450 s / 356 guest s | 126 s / 268 guest s | 3, 7 | the lap traced with logging breakpoints (80 -> 20 host s a lap), the script ring fed from `until`; mute/on laps from one boot (snapshot at the splash); a tightened gate goes red |
+| excitebikelap | 237 s / 165 guest s | 88 s / 158 guest s | 7 | as audiolap, one lap an adapter |
+| excitebikeperf | 89 s / 134 guest s | 59 s / 85 guest s | 3, 7 | scroll and governor on one boot an adapter (4 -> 2); the scroll trace logged |
+| excitebikeselfb | 132 s / 152 guest s | 73 s / 142 guest s | - | stop-per-frame `on_hit` reads (must stop: the state block swaps); the gain is the fast stopped round trip |
+| excitebikelapherc / selfbherc / perfherc | 109 / 57 / 41 s | 40 / 54 / 16 s | 3, 7 | as above |
+| excitebikeaudio / fm / cap | declared 300 / 300 / 150 | 56 / 40 / 42 s | - | `call_guest`-heavy; the fast stopped round trip and wait_stop's poll alone |
+| excitebikeref | declared 170 | 376 s / 528 guest s | - | not reducible: 29,465 steps at the game's own 60 Hz step clock ARE the measurement; re-declared at what it costs |
 | isotronload | 219 s / 199 guest s | 168 s / 139 guest s | 3 | launch and rate legs on one boot a machine (6 -> 3); a settle after `open_drive` (which confirms the listing) dropped. The rest is the 2 s rate windows and the launch itself |
 | paintbig | 72 s / 103 guest s | 38 s / 59 guest s | 4 | eight settle+quiesce(1.0) pairs -> ui_done+quiesce(0.3); the 20 guest s left is the boot |
 | paintpack | ~180 s, 2 boots (blitpair + paintbig) | 49 s / 67 guest s | 3, 4 | `paintbig --pair` runs blitpair's `check_canvas` (factored out, one copy) on paintbig's own boot; red with one file pixel flipped |

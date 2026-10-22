@@ -3968,7 +3968,7 @@ SOAK = [
         "to `make test`, so it cannot share the tree",
         needs=("qemu", "nasm"), serial=True, builds=True, timeout=300,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeperf", "soak", py("tests/excitebike_perf.py", "--scroll", "--governor"), 90.0,
+    Row("excitebikeperf", "soak", py("tests/excitebike_perf.py", "--scroll", "--governor"), 80.0,
         "EXCITEBIKE wave 2 frame rate on MartyPC's 4.77 MHz XT (SPEC.md 102.6, "
         "PERFORMANCE.md Set 148): a scripted 3.4 px/step scroll under one bike, "
         "the cycle counter between successive frame marks and per component "
@@ -3980,7 +3980,7 @@ SOAK = [
         "it wants the machine to itself",
         needs=("marty", "nasm"), alone=True, timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeref", "soak", py("tests/excitebike_ref.py"), 170.0,
+    Row("excitebikeref", "soak", py("tests/excitebike_ref.py"), 480.0,
         "EXCITEBIKE wave 3, the rider simulation on MartyPC (SPEC.md 102.3, 102.6): "
         "sim.inc against tools/exbsim.py STEP FOR STEP - the harness feeds the "
         "guest a script (xb_tmode) and reads back 16 bytes of state after every "
@@ -3998,7 +3998,7 @@ SOAK = [
         "wall-heavy: 2.6 minutes, all of it guest steps",
         needs=("marty", "nasm"), timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikelap", "soak", py("tests/excitebike_perf.py", "--lap"), 150.0,
+    Row("excitebikelap", "soak", py("tests/excitebike_perf.py", "--lap"), 110.0,
         "EXCITEBIKE wave 3 frame rate over a WHOLE COURSE (SPEC.md 102.6, PERFORMANCE.md "
         "Set 149): Selection A at turbo, the reference rider feeding the "
         "steps (both laps, the lap change, ramps, hurdles, crashes, the finish), "
@@ -4044,7 +4044,7 @@ SOAK = [
         "lands at the screen's edge, nobody standing still - and at least one respawn happens",
         needs=("marty", "nasm"), timeout=1500,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeselfb", "soak", py("tests/excitebike_perf.py", "--selfb"), 120.0,
+    Row("excitebikeselfb", "soak", py("tests/excitebike_perf.py", "--selfb"), 90.0,
         "EXCITEBIKE wave 4 Selection B frame rate (SPEC.md 102.6, PERFORMANCE.md Set 150, plan gate "
         "G4): the rider (driven by the game's own AI, the attract demo's brain: closed loop) and the "
         "opponents over a whole first course with rendering on - three on the VGA, two on the CGA (the "
@@ -4087,21 +4087,21 @@ SOAK = [
         "5,000 steps of Selection B with two opponents",
         needs=("marty", "nasm"), timeout=1500,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeperfherc", "soak", py("tests/excitebike_perf.py", "--herc", "--scroll", "--governor"), 40.0,
+    Row("excitebikeperfherc", "soak", py("tests/excitebike_perf.py", "--herc", "--scroll", "--governor"), 20.0,
         "EXCITEBIKE wave 6 (PERFORMANCE.md Set 148, wave 6 block) on the Hercules: the scripted scroll - "
         "mean period <= 174,763 (measured 94,895 = 50.3 Hz: one CRT frame of 94.7k), sprite draw + erase "
         "<= 15,000 a frame (13.4k; a rewrite 24.1k, fenced at 26,000) - and the governor test. A RATE, so "
         "it wants the machine to itself",
         needs=("marty", "nasm"), alone=True, timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikelapherc", "soak", py("tests/excitebike_perf.py", "--herc", "--lap"), 120.0,
+    Row("excitebikelapherc", "soak", py("tests/excitebike_perf.py", "--herc", "--lap"), 50.0,
         "EXCITEBIKE wave 6 ACCEPTANCE (plan gate G6, PERFORMANCE.md Set 152): Selection A at turbo over a "
         "whole course on the Hercules, the reference rider feeding the steps, sound on. Hard gates: mean "
         "period <= 262,144 clk (18.2 Hz; measured 94,871 = 50.3 Hz), p99 <= 349,525, the simulation <= 4,500 "
         "a step, the rider reaches the finish. A RATE, so it wants the machine to itself",
         needs=("marty", "nasm"), alone=True, timeout=900,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeselfbherc", "soak", py("tests/excitebike_perf.py", "--herc", "--selfb"), 50.0,
+    Row("excitebikeselfbherc", "soak", py("tests/excitebike_perf.py", "--herc", "--selfb"), 70.0,
         "EXCITEBIKE wave 6 Selection B on the Hercules (PERFORMANCE.md Set 152): the rider and TWO "
         "opponents, all driven by the game's own AI, over a whole course. Hard gates: mean <= 263,000 clk "
         "(measured 220,829 = 21.6 Hz; a frame is a whole number of 94.7k CRT frames, so it was 275,279 before "
@@ -4110,7 +4110,7 @@ SOAK = [
         "to itself",
         needs=("marty", "nasm"), alone=True, timeout=1200,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeaudio", "soak", py("tests/excitebike_audio.py", "--speaker"), 300.0,
+    Row("excitebikeaudio", "soak", py("tests/excitebike_audio.py", "--speaker"), 70.0,
         "EXCITEBIKE wave 5, the sound on the machine every XT is (SPEC.md 102.5): MartyPC, VGA, no card. "
         "The guest is stopped at one of its own routines and asked what it does by calling them: every "
         "song's three voices at random step sizes against the score (loops wrap, `once` songs fall "
@@ -4125,7 +4125,7 @@ SOAK = [
         "frozen effect left a tone sounding). ~150 s because each guest call is one emulator round trip",
         needs=("marty", "nasm"), timeout=1200,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeaudiofm", "soak", py("tests/excitebike_audio.py", "--fm"), 300.0,
+    Row("excitebikeaudiofm", "soak", py("tests/excitebike_audio.py", "--fm"), 50.0,
         "EXCITEBIKE wave 5, the FM path (SPEC.md 102.5) on MartyPC's Sound Blaster XT: four channels "
         "claimed at the top of the bracket, the title song keys 0-2, throttle keys the engine's two "
         "channels, a pause keys them off, M releases all four and claims them again, a crash keys "
@@ -4134,7 +4134,7 @@ SOAK = [
         "Reads the sound driver's own opl_own / opl_b0",
         needs=("marty", "nasm"), timeout=1200,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeaudiocap", "soak", py("tests/excitebike_audio.py", "--capture"), 150.0,
+    Row("excitebikeaudiocap", "soak", py("tests/excitebike_audio.py", "--capture"), 60.0,
         "EXCITEBIKE wave 5, what reaches the SPEAKER: MartyPC's capture (MARTYPC_WAV, the vidspk "
         "precedent) read with tools/sndcheck.py's loader and a square-wave period reader. The engine "
         "held at four speeds by the guest's own routines is heard at the table's Hz an octave up "
@@ -4187,7 +4187,7 @@ SOAK = [
         "identical to the reference renderer on the interpreted draw. The fallback had never run: it was "
         "reported as a failed load because a cmp's borrow was read as an error",
         needs=("marty", "nasm"), wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeaudiolap", "soak", py("tests/excitebike_perf.py", "--lap", "--audio-ab"), 400.0,
+    Row("excitebikeaudiolap", "soak", py("tests/excitebike_perf.py", "--lap", "--audio-ab"), 160.0,
         "EXCITEBIKE wave 5 sound cost (PERFORMANCE.md Set 151): the wave-3 lap, sound muted and then "
         "on, on both adapters. The wave-3 hard gates hold with the sound on; the sound - which runs "
         "AFTER the governor has measured the frame's work, before the idle wait - is read off "
