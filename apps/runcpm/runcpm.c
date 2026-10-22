@@ -1141,6 +1141,8 @@ void os88_onkey(int ascii, int scan, void *win)
 void os88_onclick(int x, int y, void *win)
 {
     if (rc_abt) {                           /* modal: OK, or nowhere */
+        rc_about_reorg(win);                /* after a drag (SPEC.md
+                                             * 11.96.12.0) */
         if (rc_about_hit_ok(x, y))
             rc_about_close(win);
         return;

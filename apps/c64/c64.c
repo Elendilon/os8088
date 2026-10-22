@@ -623,6 +623,8 @@ static void c64_fullscreen_toggle(void *win)
      * the kernel is about to do draws them. */
     if (c64_abt) {
         c64_abt = 0;
+        c64_abt_reorg(win);                 /* after a drag (SPEC.md
+                                             * 11.96.12.0) */
         c64_blank_rect(win, c64_abt_x, c64_abt_y,
                        c64_abt_x + c64_abt_w - 1,
                        c64_abt_y + c64_abt_h - 1);
@@ -692,6 +694,9 @@ void os88_paint(void *win)
      * end would leave the uncovered part of it undrawn under WF_OWNBG. */
     c64_hold_r0 = 1;
     c64_hold_r1 = 0;
+    if (c64_abt)
+        c64_abt_reorg(win);                 /* a drag since it was placed
+                                             * moved it (SPEC.md 11.96.12.0) */
     if (c64_abt)                            /* c64_geom ran above */
         if (c64_abt_x <= c64_gsx)
             if (c64_abt_x + c64_abt_w >= c64_gsx + C64_COLS * c64_scw) {
@@ -891,6 +896,9 @@ void os88_onclick(int x, int y, void *win)
          * close with the same bracket and the same sh_inval fallback for
          * "nothing of us shows". */
         c64_abt = 0;
+        c64_abt_reorg(win);                 /* the panel is where the window
+                                             * IS: a drag replays it and does
+                                             * not paint (SPEC.md 11.96.12.0) */
         if (os88_wm_clip_set(win) == 0) {
             c64_blank_rect(win, c64_abt_x, c64_abt_y,
                            c64_abt_x + c64_abt_w - 1,
