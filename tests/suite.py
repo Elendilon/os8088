@@ -14523,7 +14523,7 @@ SOAK = [
         "does not corrupt anything - it makes the fill see a picture that is"
         "not there. The oracle is a flood fill on the host over the same file",
         needs=("marty",), serial=True),
-    Row("paintbig", "soak", py("tests/paintbig.py"), 150.0,
+    Row("paintbig", "soak", py("tests/paintbig.py"), 50.0,
         "SPEC.md 42.13.2: GROW the canvas, which is the only thing that"
         "changes [pt_bpr] - the one number the two storage formats do not"
         "share - then copy a block past the clipboard's 4KB floor and paste"
@@ -14555,7 +14555,7 @@ SOAK = [
         "of it, since this row takes no timing and ibm5150_82_v4 is not in"
         "this tree.",
         needs=("marty",), serial=True),
-    Row("paintpack", "soak", py("tests/paintpack.py"), 210.0,
+    Row("paintpack", "soak", py("tests/paintpack.py"), 60.0,
         "SPEC.md 42.13.1: the REFUSAL path. Builds the NOPLANE kernel, where"
         "every gfx_blitp says no in six bytes, so Paint's pt_topacked runs"
         "for real and the nibbles it produced are compared against the file,"

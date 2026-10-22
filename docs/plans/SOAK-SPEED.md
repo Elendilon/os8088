@@ -36,6 +36,13 @@ reading the guest state the page is drawn from instead of pumping the screen).
    begin "booted, app open, idle" share one if each leaves that state behind
    (and the next ASSERTS it found it). Several files for several legs go on
    one disk, a window closed between them.
+4. **`ui_done` before `settle`, and `ui_done` alone when the next read is
+   memory.** `settle`'s short window (~0.6 guest s) only opens if the UI task
+   is idle at its FIRST sample; a settle begun mid-repaint pays a full
+   `quiet` (~4.5 guest s) per sample. `ui_done` waits that out exactly.
+   Before an `fbuf` read keep the settle (glass lags framebuffer); before a
+   `quiesce`/`m.read` the settle can go and the quiesce's `guest=` can drop
+   to ~0.3. Typically halves a drive-and-read row.
 
 ## Harness changes made in this pass
 
@@ -47,3 +54,5 @@ reading the guest state the page is drawn from instead of pumping the screen).
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
 | isotronload | 219 s / 199 guest s | 168 s / 139 guest s | 3 | launch and rate legs on one boot a machine (6 -> 3); a settle after `open_drive` (which confirms the listing) dropped. The rest is the 2 s rate windows and the launch itself |
+| paintbig | 72 s / 103 guest s | 38 s / 59 guest s | 4 | eight settle+quiesce(1.0) pairs -> ui_done+quiesce(0.3); the 20 guest s left is the boot |
+| paintpack | ~180 s, 2 boots (blitpair + paintbig) | 49 s / 67 guest s | 3, 4 | `paintbig --pair` runs blitpair's `check_canvas` (factored out, one copy) on paintbig's own boot; red with one file pixel flipped |
