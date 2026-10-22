@@ -11529,7 +11529,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/small360.img",)),
     Row("paint1blit", "soak",
-        py("tests/paint1blit.py"), 90.0,
+        py("tests/paint1blit.py"), 60.0,
         "SPEC.md 42.23.4: the TWO paths a one-bit canvas reaches the screen"
         "by, compared. kern_big has gfx_blit1 and blits the band straight in;"
         "a REFUSED gfx_blit1 sends Paint to expand each row for"
