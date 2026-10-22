@@ -20,7 +20,7 @@ gets (§62.9.2.1). The socket surface is ETHER.DRV's, reached through
 | kernel, `kern_small` / `kern_dos` | **0** - no driver layer (§62.9.19) | - |
 | **`HTTPFS.DRV`** (new driver) | **~3.5-4.5 KB image + ~1.3 KB bss, ESTIMATED**; a 5-6 KB claim while attached; **~2.5 KB on the floppy** packed (CDROM.DRV's 57% ratio) | only while ticked |
 | the **index** claim | 18 bytes a record + a 16-byte header: a system disk's tree ~1.5 KB, the whole live payload (420 files) ~7.6 KB | only while mounted, movable |
-| ETHER.DRV | **0** for the plan as written; ~120 bytes (ESTIMATE) if the optional `NETV_RESOLVE` is built (§6) | only while ticked |
+| ETHER.DRV | **0** for the plan as written; ~120 bytes (ESTIMATE) if the optional `NETV_RESOLVE` is built (section 6 below) | only while ticked |
 | host | `tools/os88httpdrv.py` - writes the published tree and its index; no guest byte | - |
 
 Every byte figure for the driver is an ESTIMATE against named comparables;
@@ -82,7 +82,7 @@ the server. Against it, and every item is decisive alone:
    rules out - so it needs a further kernel flag to turn it off.
 3. **Every read needs `Range:`**, and the commonest throwaway server
    (`python3 -m http.server`) ignores it. The redirector needs it only for
-   `FSV_READAT` and has a correct fallback when it is ignored (§4.3).
+   `FSV_READAT` and has a correct fallback when it is ignored (section 4.3).
 4. **It is a request per sector RUN.** A mount is the BPB, the FAT and the
    root directory - three or more requests before a single row is drawn - and
    a package load is one per run of its chain. The redirector's listing is
@@ -126,7 +126,7 @@ the listing; the copy engine's `FSV_READAT` stream when `FSV_COPY` is 0.
 **Hibernate and the DOS box.** Class 10, like 8 and 9, is past what a byte
 mask can name, so `hbm_sweep` never asks it to leave. That is right here for
 a better reason than CD-ROM's: the drive is STATELESS on the wire - no socket
-outlives a verb (§4.1) - so it survives a hibernate untouched, and while
+outlives a verb (section 4.1) - so it survives a hibernate untouched, and while
 ETHER.DRV is suspended its verbs answer `FERR_IO` and the next one after the
 card returns simply works.
 
@@ -215,7 +215,7 @@ would say so.
 
 | verb | answer |
 |---|---|
-| `FSV_LIST` | the current folder's slice, through `OSAPI_FS_ENT`. **The first call fetches the index** (§1's laziness) |
+| `FSV_LIST` | the current folder's slice, through `OSAPI_FS_ENT`. **The first call fetches the index** (section 1's laziness) |
 | `FSV_CHDIR` | AX = a folder's handle, or 0; DX = its parent's handle |
 | `FSV_STAT` | a name in the current folder: the handle, the size, BL = the attr byte |
 | `FSV_READ` | one `GET`, into the caller's buffer; `FERR_BIG` past the capacity, before the request |
@@ -256,11 +256,15 @@ under protected mode. No `PKG_MEGA` arm is expected.
 
 - **System disks**: `HTTPFS.DRV` in `SYSTEM\` on 720 KB, 1.2 MB and 1.44 MB,
   `kern_big` only (`$(DRIVERS)`; `kern_small`'s list never holds it). **The
-  360 KB system disk is the owner's decision**: ~2.5 KB packed is five of
-  its **11 free 512-byte clusters** (§9), and every 360 KB machine is an XT, where the
+  360 KB system disk is a PRIME target** (the owner, 2026-10-22), and the
+  owner's rule for it is **10 KB free**, which it does not have today (11
+  free 512-byte clusters, section 10 below, before this driver's five). Making that room is
+  separate work for another session and does not block this plan; until it
+  lands the driver ships on the larger system disks. Every 360 KB machine is
+  an XT, where the
   drive works (ETHER.DRV and the cable both run on an 8088) but an XT with a
   card is the rare case. Options are on it, or `network360.img` carries it
-  for a machine to copy into `SYSTEM\` - see the measured headroom in §9.
+  for a machine to copy into `SYSTEM\` - see the measured headroom in section 10.
 - **Live media and the everything set**: yes, on the system volume.
 - **The server**: `tools/os88httpdrv.py export <src> <out>` writes the 8.3
   tree and `OS88.IDX` (`<src>` a directory, or a built `.img` read with
@@ -277,16 +281,32 @@ under protected mode. No `PKG_MEGA` arm is expected.
    call - harmless, possibly even right - and nothing else names "the caller".
    This is wave 0, a spike, before anything else is built: a ten-line test
    driver that opens a socket from inside an `FSV_LIST`.
-2. **The cost of a request on the XT.** TCP is stop-and-wait (§72.4) and the
-   name is resolved inside every `NETV_OPEN` (`netpkg.inc`), so each `GET`
-   is a lookup, a handshake, the request and a close before its first body
-   byte. Bulk throughput is known - 7 to 30 KB/s (FTP-PERF) - and the
-   per-request floor is NOT: wave 0 measures it on `make xt-wire` and asks the
-   5150 for a field number. If the floor is large, two remedies in order:
-   build ETHER.DRV's reserved `NETV_RESOLVE` (~120 bytes of ETHER.DRV,
-   resident in nobody's kernel) and open by dotted quad after the first
-   lookup; then HTTP/1.1 keep-alive, which costs the parser `Content-Length`
-   discipline it already has plus a socket held between verbs.
+2. **ROUND TRIPS, not throughput, are the speed risk** (the owner's
+   reading, 2026-10-22). Bulk is not the problem: FTPD moves **~40 KB/s on
+   the XT over ETHER.DRV, disk writes included**, and the cable is ~2.5 KB/s.
+   What a drive does that FTP does not is make MANY SMALL requests, and each
+   one pays, before its first body byte: a name lookup (resolution is inside
+   every `NETV_OPEN`, `netpkg.inc`), the TCP handshake, the request, and the
+   close, each a stop-and-wait exchange (§72.4) through the 8088's stack. So
+   the design already counts in requests rather than bytes - listing and
+   `FSV_STAT` are ZERO requests off the index, a whole-file read is ONE - and
+   the requests that remain are what to cut, in this order:
+   - **Resolve once.** Build ETHER.DRV's reserved `NETV_RESOLVE` (~120 bytes
+     of ETHER.DRV, ESTIMATE) and open by dotted quad after the mount's first
+     lookup; `Host:` still carries the name. Removes one exchange per request.
+   - **Keep the connection.** HTTP/1.1 keep-alive with `Content-Length`
+     framing, which the header reader requires anyway: one handshake per
+     burst of reads (a package's parts, a copy's chunks) instead of per read.
+     It holds a socket between verbs, so it needs an idle close and the
+     socket-table limit (§72.4.2) respected.
+   - **Bigger `FSV_READAT` answers.** A read-at caller asking 512 bytes at a
+     time would make a request per sector; serve each `Range:` for the
+     caller's whole capacity and keep the tail in the staging buffer.
+   Wave 0 measures the per-request floor on `make xt-wire` - requests per
+   second for a 1-byte file, against bytes per second for a large one - so
+   which of the three are built is decided by that number. The cable will be
+   round-trip bound much sooner, and that is accepted: it is the slow
+   transport for every purpose.
 3. **The freeze.** Mitigated by the timeouts, not removed: a network read is
    a gfx-lock hold like a disk read (docs/plans/completed/UI-FREEZE-PLAN.md).
    SPEC.md 7.4's pointer tracking is an `int 13h` bracket and does not reach
@@ -295,7 +315,7 @@ under protected mode. No `PKG_MEGA` arm is expected.
 4. **More than one drive.** One volume per driver in v1, as CD-ROM. Two
    addresses at once is one more volume handle and a second index claim, and
    no kernel byte.
-5. **The 360 KB system disk** (§5).
+5. **The 360 KB system disk** (section 5).
 
 ## 7. Waves
 
@@ -320,7 +340,17 @@ under protected mode. No `PKG_MEGA` arm is expected.
   `Content-Length` check must turn the truncated-body leg red. Soak tier,
   `wants=` its own disk (`make httpmounttest`, `ethertest`'s shape).
 
-## 8. What this is not
+## 8. After this works - agreed, not part of this plan
+
+In order, once the drive itself works on the XT:
+
+1. **Release publishing**: the release skill exports each release's system
+   tree and `OS88.IDX` beside its images (`tools/os88httpdrv.py export`).
+2. **An installer upgrade path** that mounts the release's address itself
+   through `HFV_MOUNT`, so the user never has to find or type one.
+3. **10 KB free on the 360 KB system disk**, so the driver ships there too.
+
+## 9. What this is not
 
 Not an upgrade mechanism: it is the transport one would read from. An
 upgrader on top of it decides what to copy, verifies it, and survives being
@@ -328,7 +358,7 @@ interrupted mid-copy onto the system disk - none of which a read-only drive
 can or should know. Not writable, not TLS, and not a cache: nothing fetched
 is kept beyond the verb that fetched it except the index.
 
-## 9. Measured on this tree
+## 10. Measured on this tree
 
 Read off `origin/elendilon` at 1b9bc77 (this plan's base), `make -j4`,
 2026-10-22. Re-take every row at landing; these say what the plan was costed
@@ -345,6 +375,6 @@ against, not what the feature costs.
 | `network360.img` | 354 clusters of 1,024, 268 free |
 
 The fast tier failed at this base on `volsig` (`network360.img` and
-`os8088-720.img` sign as one volume, SPEC.md 18.8.2) - present before this
-plan, which changes no shipped byte, and a defect to fix on its own whatever
-is decided here.
+`os8088-720.img` both signing `0xD401`). It was a 1-in-840 birthday draw
+re-rolled by every commit, and is fixed on this branch by SPEC.md 18.8.2.2:
+every shipped disk now signs in a slot of its own.
