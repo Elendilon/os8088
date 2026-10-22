@@ -1496,6 +1496,58 @@ Where it can and cannot help:
   Scroll by 8 can ride that option's patch table and cost nothing
   elsewhere. Which one is the measurement's answer.
 
+#### Scrolling - what a line cache can and cannot reach
+
+Scrolling is where the frames die, so it was asked whether the cache can
+help there without bookkeeping eating it. The answer splits by direction.
+
+- **A smooth horizontal scroll: NO, and nothing cached can help.** Every
+  line's pixels move sideways by a non-multiple of 8, so every byte of
+  `PPU_BL`/`PPU_BH` is new: the work left on that line is the shift
+  (`ppu_fshift`/`ppu_fcopyb`), and the shift IS the floor. The tile lookups a
+  cache would save are already cached per map row (`ppu_blist`, `RDG_DLC`) and
+  reused seven lines in eight (`PPU_BNEXT`). A cache keyed any way at all
+  hands back bytes in the wrong bit position, and re-shifting them costs what
+  composing them did. This is the case the four whole-background caches were
+  built against, and it is why they came out even.
+- **A vertical scroll: YES, if the cache is keyed by BACKGROUND row and not
+  screen line.** Picture line L at SCY shows background row (SCY+L) & 255,
+  and at SCX unchanged that row's 160 pixels are exactly the bytes composed
+  last frame for screen line L-dy. So key the entry by the background row:
+  the store keeps `(SCY+L)&255` and SCX beside the bytes, and the restore asks
+  "is row (SCY+L)&255 cached at this SCX?" A vertical scroll then reuses
+  every line but the dy new ones. The costs: the cache becomes 256 rows x 40
+  bytes = **10,240 bytes plus a valid byte and an SCX byte a row (~10.7KB)
+  against 5.76KB**; a VRAM write to a map row or a tile invalidates every
+  cached row that row touches (the write marks already say which, so it is a
+  bounded walk, not a scan); and the window and sprites are never in the
+  entry (the store is taken before `.pal`, as above, and a line the window
+  covers is not cached at all). Storing becomes "every composed
+  window-free line", not only lines with sprites, which is the bookkeeping
+  to watch: a store is a 40-byte copy, ~4% of a line's composition.
+- **A Scroll-by-8 step: YES, cheaply.** With Scroll by 8 on, the eighth
+  frame's step moves the picture by a whole byte, so the cached bytes for
+  line L are the new line's bytes at a byte offset: one `rep movsw` of 19
+  words plus the one new byte column composed from its tile. That is the
+  rolling background revived in the one case it is free - no shift, and the
+  write marks make the "did a tile change" scan cheap - and it turns the
+  only frame in eight that still pays a full composition into a copy.
+  It rides Scroll by 8's patch table, so it costs nothing with the option
+  off.
+- **And a gentler F11 is a separate, nearly free option**: Scroll by 2 or
+  by 4 is the same code with a different snap mask (`and al,0F8h` in the snap stubs becomes
+  `0FEh`/`0FCh`), giving a smoother picture for games Scroll by 8 makes hard
+  to play, at half or a quarter of its saving. It is a menu choice, not a
+  cache, and is worth offering whatever the cache comes to.
+
+So the plan builds the STILL cache first, as designed above, and step 1
+below also counts what decides the rest: **frames with a vertical scroll
+(SCY changed, SCX not) and their dy, and Scroll-by-8 step frames**. If
+vertical scrolls are a real share of Kirby's or another game's frames, the
+key becomes the background row and the cache 10.7KB; if not, it stays the
+5.76KB screen-line cache, and the byte-step copy is built only behind Scroll
+by 8.
+
 #### The measurement, BEFORE any of it is built
 
 Every earlier cache was built and then measured. This one is bounded
@@ -1506,6 +1558,9 @@ first, and each step can stop it:
    on them (the stores). Super Mario Land, Kirby's Dream Land, both
    interlace-off and with `LOSSY_COARSE`. Free to take, and it says
    whether the case exists at the size the sprites-off bound suggests.
+   Also counted: frames whose SCY moved with SCX unchanged (and by how
+   many lines), and Scroll-by-8 step frames - the two scrolling cases
+   above, which decide the cache's key and size.
 2. **The upper bound**: a harness-only build that SKIPS a sprite-only
    line's background composition and leaves whatever `PPU_BL`/`PPU_BH`
    held - a wrong picture, the right cost: the gain with no copy, no
