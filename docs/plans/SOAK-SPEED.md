@@ -44,9 +44,28 @@ reading the guest state the page is drawn from instead of pumping the screen).
    `quiesce`/`m.read` the settle can go and the quiesce's `guest=` can drop
    to ~0.3. Typically halves a drive-and-read row.
 
+5. **Log, don't stop, for a timing trace.** A `bp_trace` whose hits only feed
+   cycle arithmetic takes `log=True`; data the body must write while the
+   guest runs (a script ring) is fed from the `until` condition instead of an
+   `on_hit`, with an assert that the guest never read past it.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
+
+- **Logging breakpoints** (`tools/martypc/debug_server.rs`, deployed in
+  `build/martypc/run`): `os88marty.bp_trace(m, ..., log=True)` (or
+  `log=[names]` for a subset) has the SERVER note (address, cycles) and resume,
+  so a timing trace has no stops - a pumped stop is 2 round trips + the 5 ms
+  poll. Cycle-identical to a pumped trace from one snapshot (1,013 records);
+  no registers/`on_hit` on a logged hit. excitebike lap: 80 -> 20 host s for
+  45 guest s. Falls back to stops on an old server. See technique 5.
+- **Stopped-machine round trip 2.3 ms -> 0.15 ms** (same binary): a paused
+  server no longer sleeps 2 ms between back-to-back commands, so `call_guest`
+  loops, `on_hit` reads and register pokes are ~15x cheaper. Automatic.
+- `OS88_MARTY_BIN=<path>` runs another emulator build in an instance (for
+  trying a `debug_server.rs` change before staging it; name it
+  `martypc_headless` so the instance registry recognises it).
 
 ## Ledger
 
