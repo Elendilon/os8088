@@ -880,6 +880,14 @@ whoever extends this:
     Panel after the switch, whose attach does its IVT work then. A related
     gap with no fault: a compaction that moves a driver image patches IVT
     vectors (mem_rr_walk) and not the IDT gates built from them.
+    *(2026-10-22: all three are resolved later. 10.3 item 17's `mega_null0`
+    and `mega_ivt_sync` (kernel/mega.inc:3704, :3791) complete a driver's
+    `ES = 0` hook and copy it into the IDT, so the Sound Blaster plays on
+    kern_mega - four completed traps a stream, 14.46.1, and BEVERLY.MOD on
+    86Box's 286, 14.65.4; HDD.DRV's XMS ring refuses under protected mode
+    (`hd_xa_arm`, drivers/hdd/hdxms.inc, tests/megapkg.txt); and a driver
+    move re-syncs the IDT (kernel/memory.inc:2770). tests/seg0.txt's
+    `drivers/sound/sb.inc` comment still carries the old "M1 gap" wording.)*
 
 12. **The Victory reached it: protected mode, `protected, 286 reset`, the
     mouse live - THE 286's WAY BACK WORKS ON IRON** (2026-10-17, the fourth
@@ -1778,6 +1786,15 @@ this repeats none of it beyond naming whose file each piece is in.
       compare there is its first real test. mega.img at `321e43c6` was
       sent for that.
 
+    *(2026-10-22: closed below - region movability is item 64,
+    `OSAPI_FSX_SPK`'s refusal item 65, `[mega_xmnat]` item 66, the FAT
+    window's wall items 67 and 86, the `OS88_CODESEL` question item 72
+    (`OSAPI_MEM_CODESEL`), the speaker includes 14.7 and 14.16.1, and
+    `os88ui_gring`'s CS stores 14.18. Still as written: `OS88_HUGE_INCR`
+    has no consumer, and WEAVE's canvas core and LOOM's preview still take
+    two completed traps a verb (`mov [cs:wsm_cds], ds`,
+    apps/weave/wcanvas.asm:89).)*
+
 **Track 1, continued.**
 
 52. **Modules run above 1MB** (13.3 step 2's second half; 13.5 is the
@@ -2142,6 +2159,18 @@ not slow but WRONG.
       two "channel 1 RACING" checks and its `khx` leg, whose `kslice.inc`
       ends inside an `%if`.
     * **The Victory has not run item 62's images yet.**
+
+    *(2026-10-22: most of this list is closed further down. The trampoline's
+    `8C /3` and `8C /1` (kernel/mega.inc:3562) and the alias guard
+    `mega_cs2dsw` (:3626) are 14.39; the Video Player plays on kern_mega
+    since 14.16; the eight-paragraph rule's ratchet is
+    `tests/unit/t_megagrid.py` (apps/ only - 14.69's drivers are outside
+    it); PiXEL's writes through CS are 14.40; and most of the uncensused
+    programs were run in 14.46.1 (the games, the DOS box, Browser, FTPD,
+    the Apple II, LOOM), 14.46.5 (CWORD) and 14.52.3 (PaccMan). Left of it:
+    Lemmings has never run on kern_mega (tests/megahigh.txt), no census
+    here records RunCPM running a CP/M program or the C64 past its prompt,
+    and nothing here re-reads `pxbenchvga` or `picomem`.)*
 
 **Track 1, closing item 51's kernel follow-ups.**
 
@@ -2947,6 +2976,15 @@ shows what the sweep really costs in a shared file.
    be driven like `os88marty`.
 5. **Whether a kern_mega machine still wants the 360KB system disk.** A 286
    has a 1.2MB or 1.44MB drive. The geometry set could shrink to two.
+
+*(2026-10-22: none of these is open any more. 2 - no minimum beyond
+fitting (14.1 answer 16): under 192KB of extended memory the tables take
+82KB of conventional memory, `mega_tlowf` (kernel/mega.inc:7464, 14.17).
+3 - the pointer moves through a reflected call without a bimodal ISR set
+(14.9). 4 - superseded: Bochs (docs/BOCHS.md) and 86Box with its automation
+socket (docs/86BOX.md) are the 286/386 benches. 5 - it shrank to two:
+`make mega` builds `mega.img` (1.44MB) and `mega120.img` (14.11), and no
+720KB or 360KB kern_mega disk.)*
 
 ---
 
@@ -3798,6 +3836,10 @@ segment has 2 bytes left in it (65,534 of 65,536).
    64KB, so the next resident kern_mega feature needs a size pass first or
    goes in `.cold`, as both of this round's did.
 
+*(2026-10-22: 1 is resolved by 14.39 item 3 - the mouse ISR loads its own
+SS (SPEC.md 9.10.1) - and 3 by 14.33, kern_mega's own `.mega` segment. 2
+stands as written.)*
+
 ### 14.10 A size pass on kern_mega's segment (2026-10-19)
 
 Items 4 to 7 left kern_mega's `.text` + `.bss` 2 bytes short of the one 64KB
@@ -4105,8 +4147,10 @@ merged here. Their records follow, with Paint's in full.
 **Not yet seen on the glass:**
 
 - Paint's canvas resize across 64KB. kern_big's `paintmove` and
-  `paintshrink` cover its real-mode arm.
-- 1942's CGA fullscreen and its cartridge build.
+  `paintshrink` cover its real-mode arm. *(2026-10-22: seen - 14.46.1,
+  under Bochs.)*
+- 1942's CGA fullscreen and its cartridge build. *(2026-10-22: still
+  unseen, 14.46.6: no emulator here gives kern_mega a CGA.)*
 
 #### Paint
 
@@ -4222,7 +4266,8 @@ byte-identical.
 - A region moving while its OWN program is the caller is covered by the
   argument above (the cell's `retf` reloads CS), but MEGACP's region sat
   below everything it claimed and did not move. A test that starts a
-  second high package first would put it in the path.
+  second high package first would put it in the path. *(2026-10-22:
+  resolved - 14.46.5 runs it, `tests/megaown`, row `megaown`.)*
 - Nothing yet gives a program the LINEAR address of an `OS88_HIGHMEM`
   claim. If a cell ever does, that claim must be pinned the way
   `OSAPI_XMEM_ALLOC`'s are.
@@ -4862,6 +4907,8 @@ build: DOSHELLO.COM `ended, exit code 042 (Arena: 622KB)`, the desktop back.
 this machine (`TD3.EXE ended, exit code 255 (Arena: 622KB)`) - the round trip
 is now fine, the program is what refuses. That is a kern_dos compatibility
 question and is investigated on its own (docs/DOS-DEBUGGING.md).
+*(2026-10-22: resolved - 14.23 found EXEPACK under the HMA, 14.24-14.26
+fixed it, and both arms make the round trip on the owner's 286.)*
 
 ### 14.23 Field: Test Drive III exits 255 at once - EXEPACK under the HMA (2026-10-19)
 
@@ -5194,6 +5241,12 @@ refused by the BIOS until a power cycle. OPEN: which disk was in A:, whether
 the same install works from that disk on kern_big (BIOS only), and whether
 the native path leaves the 765 or the BDA in a state the BIOS's own retry
 cannot recover from. No emulator here reproduces a native failure.
+*(2026-10-22: the install half is resolved - 14.32 fixed the KERNEL.SYS
+copy and 14.34/14.35 confirmed installs from an image and from a real
+1.44MB disk on the Victory, with the fallback judged only after the BIOS
+(`mega_fdjudge`, kernel/mega.inc:5296). The empty-drive freeze is still
+OPEN: 14.35 found it is state left by earlier use and the owner deferred
+it.)*
 
 **T69 plays to the end** (14.29 confirmed) at 1.79x its length - `Late 681,
 2079 ticks of 1163` - with `RFL 003D/s 0CDC` on the bar: 61 IRQ reflections
@@ -6799,7 +6852,9 @@ with the run's `hdd1.img` kept) is what one would script.
   mouse box beside it is greyed the same way. *(And that mouse box is greyed
   on EVERY kern_mega launch: `dos_mck_di` ties it to `DOS_MEM_WHOLE`, which
   kern_mega's radio-less page never selects - so `Disable the mouse` cannot be
-  ticked on kern_mega at all. Found here, not fixed: it is the box's
+  ticked on kern_mega at all. *(2026-10-22: since fixed - fdac077c,
+  measured in 14.46.2; `dos_mck_di`'s `%ifdef DOS_MEGA` arm, apps/dos/dos.asm:7146,
+  leaves the box live.)* Found here, not fixed: it is the box's
   arm logic, not this option.)*
 - **A park refused by its sum now has a second chance** when the option was
   on: the stub's restart boots into the disk image. The stub's sentence still
@@ -6998,13 +7053,14 @@ segment`.
 - **Still untested: a region moving while its OWN program is the caller**
   (14.15, 14.38.3). The compaction above ran from MEGACP's claim, not from
   Word's. It needs a pool fragmented under the program so that one of its
-  own claims cannot fit.
+  own claims cannot fit. *(2026-10-22: resolved - 14.46.5, row `megaown`.)*
 - **The SUBSEG cell number.** 0x04BD was free on `protected-mode` at
   78436d50. A branch merged later that also appends a cell must take the
   next one.
 - **The `[Segment can't write]` traps under 2764 on the 286 DOS trip**
   (above). Whether a low DOS.O88 takes them too is open, and a
-  `megatrap0`-style count is the instrument.
+  `megatrap0`-style count is the instrument. *(2026-10-22: resolved -
+  14.46.2: they were HIBER.DRV's own stores, `CSDO` now, 0 on both arms.)*
 
 ### 14.45 The KERN-MEGA-SEGMENTS-PLAN leftovers: the park's buffers, the refusals, W4, the readings (2026-10-21)
 
@@ -7325,7 +7381,9 @@ FTPD.
   AX=0` answers FFFFh/2 with the box ticked, per SPEC.md 96.36.8. A program
   that looks for a driver and adapts (no cursor, keyboard only) still finds
   one. If the intent was that it find none, that is a change to 96.36.8 and
-  96.10, not a fix.
+  96.10, not a fix. *(2026-10-22: the owner chose "no mouse" (14.51) and it
+  is built: `kern_dos` points 33h at an `iret` when it has no mouse to
+  serve, kerndos/kdentry.inc:371, row `kdnomouse`.)*
 - **The hibernate writes its picture in ~22 calls rather than one** on
   kern_mega in protected mode, each append walking the chain to the file's
   end (DISK-CPU-PLAN 6). On a hard disk that is a FAT walk a call against a
@@ -8843,7 +8901,8 @@ hard disk, PS/2 mouse).
   **Confirmed by the owner a moment later: the system is FULLY alive - the
   screen saver came on by itself after the resume** - so IRQ0, the scheduler,
   `ui_task` and drawing all run; it is ONLY the mouse.
-  **OPEN, being investigated as 14.57.** The serial resume is `mouresume`'s
+  **OPEN, being investigated as 14.57.** *(2026-10-22: FIXED by 14.57 and
+  confirmed on the Victory, 14.60.)* The serial resume is `mouresume`'s
   (MartyPC, kern_big); no row resumes a PS/2 mouse on kern_mega.
 - **T69 plays better but still stutters, and runs behind real time.** The
   owner defers it: *"another round on video player, likely on its own, later,
