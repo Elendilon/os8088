@@ -3683,7 +3683,7 @@ SOAK = [
         "overlays cut together",
         needs=("marty", "nasm"),
         wants=("build/isotron360.img", "build/os8088-360.img")),
-    Row("isotronega", "soak", py("tests/isotron.py", "--win", "ega"), 110.0,
+    Row("isotronega", "soak", py("tests/isotron.py", "--win", "ega"), 240.0,
         "isoTron on an EGA desktop (SPEC.md 39.24, 108.11, 108.12), BOTH halves: "
         "a private VIDEO=ega kernel tree (tools/os88build.py) on MartyPC's "
         "XT-VGA - the 640 x 350 x 16 geometry, as excitebike_front's ega arm "
@@ -3849,7 +3849,7 @@ SOAK = [
         "where three boots more were 219 s (SOAK-SPEED)",
         needs=("marty", "nasm"),
         wants=("build/isotron360.img", "build/os8088-360.img")),
-    Row("isotronperf", "soak", py("tests/isotron.py", "--perf", "all"), 900.0,
+    Row("isotronperf", "soak", py("tests/isotron.py", "--perf", "all"), 540.0,
         "isoTron's windowed price on the XT (SPEC.md 108.10.3, 108.11.7; "
         "ISOTRON-PLAN section 16), MartyPC's cycle counter on the 5150 CGA, "
         "5150 Hercules and XT-VGA: a computer HEAD-STEP whole - its RNG byte, "
@@ -3899,7 +3899,10 @@ SOAK = [
         "is no adapter's), its own pins under VGA's ceilings. Measured ~700 s "
         "for the four machines in a soak lane (wave 3 fix); 574 s with the "
         "sweep's four boots, alone in a lane (wave 4); 641 s (wave 6), plus "
-        "EGA's windowed boot",
+        "EGA's windowed boot. Since SOAK-SPEED the three legs SHARE one boot a "
+        "machine (each leaves the windowed title, the next asserts it): 534 s "
+        "and 409 guest s on a loaded box, where twelve boots were 947 s and "
+        "634",
         needs=("marty", "nasm"), serial=True,
         wants=("build/isotron360.img", "build/os8088-360.img")),
     Row("isotronsmall", "soak", py("tests/isotronsmall.py"), 40.0,

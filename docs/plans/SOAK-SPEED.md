@@ -149,3 +149,5 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | paintfill | 60 guest s | 50 s (load 16) / 57 guest s | 4 | already lean (boot 20 + load 8 + the fill); idle()'s quiesce+lock-until -> ui_done |
 | paintdraw | 45 guest s | 51 s (load 16), unchanged | - | lean: boot + load + its own timed stroke; secs re-declared only |
 | dispseam | 430 s (incl. knob build) / 366 guest s | 204-298 s (load 14) / 146 guest s | 4 | four boots (2 machines x fixed/NOSEAMCUT) gated by `kernel_up`; every wait after is `ui_done` - the bars are read from VRAM (`m.vram`), not the glass. The NOSEAMCUT leg is its own red: still loses 18 px |
+| isotronperf | 947 s / 634 guest s | 534 s / 409 guest s | 3 | the windowed, full-screen and sweep legs share one boot a machine (12 boots -> 4); the rest is whole traced rounds, which ARE the measurement. A faster bp_trace pump poll (5 -> 0.5 ms) was tried and bought nothing: a stop costs ~1 ms of round trips either way |
+| isotronega | 281 s | 225 s | 3 | its windowed and full-screen halves on one boot (both loaded-box walls; declared 110 was an idle figure) |

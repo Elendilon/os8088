@@ -507,18 +507,52 @@ def boot_for(tag):
         system = tree.img("os8088-360.img")
     return system, L.fresh_disk(os88build.at("build/isotron360.img")), MACHINES[tag]
 
+class _Session:
+    """One booted machine with isoTron open at its title, windowed: what
+    every perf leg starts from. `--perf` hands the SAME one to its three legs
+    (each leaves the game at the title, windowed - the sweep, last, need
+    not), so a machine is booted and the package opened once instead of
+    three times; a leg called alone boots its own."""
 
-def win_leg(tag, rounds=4):
+    def __init__(self, tag, shared=None):
+        self.tag, self.shared, self.cm = tag, shared, None
+
+    def __enter__(self):
+        if self.shared is not None:
+            ui, g = self.shared
+            assert not g.b("it_fsm"), "the shared machine is still in the bracket"
+            if g.b("it_state") != L.ST_TITLE:   # (a leg may leave a round on)
+                to_title(g)
+            assert g.b("it_state") == L.ST_TITLE
+            presented(ui, g)
+            return ui, g
+        system, apps, machine = boot_for(self.tag)
+        self.cm = os88ui.boot(system, apps=apps, machine=machine)
+        ui = self.cm.__enter__()
+        try:
+            g = L.open_game(ui)
+            M.until(ui.m, lambda _: g.b("it_spawned") == 1, "the worker to start",
+                    poll=0.2, guest=20)
+            presented(ui, g)
+        except BaseException:
+            self.cm.__exit__(*sys.exc_info())
+            raise
+        return ui, g
+
+    def __exit__(self, *exc):
+        if self.cm is not None:
+            return self.cm.__exit__(*exc)
+        return False
+
+
+
+def win_leg(tag, rounds=4, shared=None):
     """isotronwin / isotronega: the title and a seeded game's rounds, each
     on the glass equal to the model's windowed presenter of the model's own
     canvas - which is the guest's canvas too, held byte for byte."""
-    system, apps, machine = boot_for(tag)
     seed, tier = S.STORED[0][0], S.STORED[0][1]
-    with os88ui.boot(system, apps=apps, machine=machine) as ui:
-        g = L.open_game(ui)
+    with _Session(tag, shared) as (ui, g):
         m = ui.m
-        M.until(m, lambda _: g.b("it_spawned") == 1, "the worker to start", poll=0.2, guest=20)
-        presented(ui, g)
         geo = g.geom()
         print("  %s: content %dx%d at (%d,%d); picture at (%d,%d), %d bytes x %d rows, %s"
               % (tag, geo["cw"], geo["ch"], geo["cx"], geo["cy"], geo["ox"], geo["oy"],
@@ -800,18 +834,14 @@ def stats(xs):
                 max=xs[-1])
 
 
-def perf_leg(tag, out, heads=True):
+def perf_leg(tag, out, heads=True, shared=None):
     """isotronperf's windowed part. `heads` = False leaves out the head-step
     rounds - the canvas's own price, which is no adapter's (2,417 / 2,612 on
     all three) - for EGA, whose windowed lines are its WAKES and its round
     start: the colour window at 640 x 350 (SPEC.md 108.15.2, modelled)."""
-    system, apps, machine = boot_for(tag)
     res = {}
-    with os88ui.boot(system, apps=apps, machine=machine) as ui:
-        g = L.open_game(ui)
+    with _Session(tag, shared) as (ui, g):
         m = ui.m
-        M.until(m, lambda _: g.b("it_spawned") == 1, "the worker to start", poll=0.2, guest=20)
-        presented(ui, g)
         B = g.base
         HS0, HS1 = B + g.code["it_hs0"], B + g.code["it_hs1"]
         AI1 = B + g.code["it_ai1"]
@@ -1318,20 +1348,17 @@ def fs_glass(g, tag, canvas, what, name=None, look="isotron", hi=False, want=Non
     return n
 
 
-def fs_leg(tag, rounds=3):
+def fs_leg(tag, rounds=3, shared=None):
     """isotronfs (and isotronega's full-screen half): F at the title, the
     title's canvas on the glass, then a seeded game's rounds - after each the
     canvas the model's and the glass the model's full-screen presenter of it;
     then C (high intensity on a CGA, Classic on a 16-colour surface) and back;
     then Esc in a round ends the game and stays full screen, and Esc at the
     title leaves."""
-    system, apps, machine = boot_for(tag)
     seed, tier = S.STORED[0][0], S.STORED[0][1]
-    with os88ui.boot(system, apps=apps, machine=FS_MACHINES[tag]) as ui:
-        g = L.open_game(ui)
+    assert FS_MACHINES[tag] == MACHINES[tag]        # (_Session boots MACHINES')
+    with _Session(tag, shared) as (ui, g):
         m = ui.m
-        M.until(m, lambda _: g.b("it_spawned") == 1, "the worker to start", poll=0.2, guest=20)
-        presented(ui, g)
         fs_enter(ui, g, "F")
         print("  %s: full screen, surface %d, %d whole present(s)"
               % (tag, g.b("it_fsk"), g.w("it_fsn")), flush=True)
@@ -1805,7 +1832,7 @@ def fs_tile(lab, rects, ovs):
     return len(cover)
 
 
-def fs_perf_leg(tag, out):
+def fs_perf_leg(tag, out, shared=None):
     """The head-step WITH its span hook - RNG, decision, move, canvas and the
     column written into video memory - over EVERY computer head-step of the
     same whole rounds as the windowed line (PERF_ROUNDS), in the bracket; the
@@ -1820,14 +1847,10 @@ def fs_perf_leg(tag, out):
     XT-VGA - the instruction count and gfx_blitp's path are the EGA's, only
     the card's wait states differ) has no span hook to time: its lines are
     the presents, the way back, and a Lunatic h4 frame with the governor."""
-    system, apps, machine = boot_for(tag)
     res = {}
     ms = lambda c: 1000.0 * c / M.GUEST_HZ       # noqa: E731
-    with os88ui.boot(system, apps=apps, machine=machine) as ui:
-        g = L.open_game(ui)
+    with _Session(tag, shared) as (ui, g):
         m = ui.m
-        M.until(m, lambda _: g.b("it_spawned") == 1, "the worker to start", poll=0.2, guest=20)
-        presented(ui, g)
         B = g.base
         HS0, HS1 = B + g.code["it_hs0"], B + g.code["it_hs1"]
         AI1 = B + g.code["it_ai1"]
@@ -2422,7 +2445,7 @@ SWEEP_TARGET = 1600.0               # "~1.5 s" where the surface keeps up (the
                                     # schedule's last item is due at tick 25)
 
 
-def sweep_leg(tag, out=None):
+def sweep_leg(tag, out=None, shared=None):
     """isotronperf's sweep part (SPEC.md 108.13.4): MartyPC's cycle counter
     from it_sw0 (the round's start, its arena built) to it_sw1 (the outline
     out) for four sweeps windowed - the title to h1, a raise 3 -> 4, a reset
@@ -2432,14 +2455,10 @@ def sweep_leg(tag, out=None):
     hold from the trigger to the sweep's end, and every CRASH -> WAIT wake's
     (the arena's build is the worker's, outside the lock), is held under
     HOLD_CEIL."""
-    system, apps, machine = boot_for(tag)
     ms = lambda c: 1000.0 * c / M.GUEST_HZ                      # noqa: E731
     res, bad = {}, []
-    with os88ui.boot(system, apps=apps, machine=machine) as ui:
-        g = L.open_game(ui)
+    with _Session(tag, shared) as (ui, g):
         m = ui.m
-        M.until(m, lambda _: g.b("it_spawned") == 1, "the worker to start", poll=0.2, guest=20)
-        presented(ui, g)
         B = g.base
         W0, W1 = B + g.code["it_wake0"], B + g.code["it_wake1"]
         S0, S1 = B + g.code["it_sw0"], B + g.code["it_sw1"]
@@ -2564,9 +2583,10 @@ def main():
         return bound_leg()
     if a.win:
         for tag in (("cga", "herc", "vga") if a.win == "all" else a.win.split(",")):
-            win_leg(tag)
-            if tag == "ega":            # isotronega is BOTH halves (SPEC.md 108.12)
-                fs_leg("ega")
+            with _Session(tag) as sh:   # isotronega's two halves share a boot
+                win_leg(tag, shared=sh)
+                if tag == "ega":        # isotronega is BOTH halves (SPEC.md 108.12)
+                    fs_leg("ega", shared=sh)
         print("isotronwin: ok (%s)" % a.win)
         return 0
     if a.fs:
@@ -2585,13 +2605,18 @@ def main():
         return 0
     if a.perf:
         for tag in (("cga", "herc", "vga", "ega") if a.perf == "all" else a.perf.split(",")):
-            if not a.sweep:
-                if not a.fsonly:    # EGA: its wakes and round start, no head-steps
-                    perf_leg(tag, a.json and a.json.replace(".json", "-%s.json" % tag),
-                             heads=(tag != "ega"))
-                fs_perf_leg(tag, a.json and a.json.replace(".json", "-fs-%s.json" % tag))
-            if not a.fsonly:                    # wave 4: the sweep, both modes
-                sweep_leg(tag, a.json and a.json.replace(".json", "-sweep-%s.json" % tag))
+            # ONE boot a machine for the three legs (_Session): each leaves the
+            # game at the windowed title, and the next asserts it found it so
+            with _Session(tag) as sh:
+                if not a.sweep:
+                    if not a.fsonly:    # EGA: its wakes and round start, no head-steps
+                        perf_leg(tag, a.json and a.json.replace(".json", "-%s.json" % tag),
+                                 heads=(tag != "ega"), shared=sh)
+                    fs_perf_leg(tag, a.json and a.json.replace(".json", "-fs-%s.json" % tag),
+                                shared=sh)
+                if not a.fsonly:                    # wave 4: the sweep, both modes
+                    sweep_leg(tag, a.json and a.json.replace(".json", "-sweep-%s.json" % tag),
+                              shared=sh)
         print("isotronperf: ok (%s)" % a.perf)
         return 0
     ap.print_help()
