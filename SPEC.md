@@ -69415,6 +69415,13 @@ The package ABI extends `drivers/sound/sndpkg.inc`, through the existing
 | `SNDV_MIXICON` (10) | CX = left x, gfx lock held | opaque 24x16 speaker image at (CX,2), CF=0; kernel callers only |
 | `SNDV_MIXPOP` (11) | CX = icon left x; ES:DI = kernel-private far bridge record; UI task, no lock held | tracks volume popup, restores pixels and frees scratch on every exit; CF=0, no package launched while gfx lock held |
 
+`SNDV_MIXPOP` is the kernel's alone and the driver tells it apart by ES: the
+kernel's data segment - `KERNEL_SEG`, or on kern_mega in protected mode its
+data alias `MEGA_SEL_KDATA` (10h) - so the test is ES at or below 60h, where
+no package's segment or pool selector can be. It was ES = `KERNEL_SEG`
+exactly, and on kern_mega the speaker opened nothing
+(docs/plans/KERN-MEGA-PLAN.md 14.68).
+
 Channel numbers: 0 Master, 1 PCM, 2 FM/MIDI, 3 CD, 4 Line, 5 Mic,
 6 PC Speaker input, 7 Bass, 8 Treble. INFO's bitmap is authoritative.
 CT1335 offers 0..3 (mono); CT1345 offers 0..5 (Mic mono); CT1745 offers
@@ -203634,11 +203641,16 @@ an ATAPI device answers 256 words, of which word 0 must say ATAPI (bits
 **The transport** (`cd_packet`): wait for BSY and DRQ clear, select the
 device, write the byte-count limit (8000h) and `PACKET` (A0h), wait for DRQ,
 write the packet, then move each DRQ block the drive offers - its length is
-the byte-count register - until DRQ falls, with `rep insw` into a
-normalised `ES:DI` (§52.1.2's instruction, legal here for §52.1's reason).
-Every wait is bounded by the BIOS tick count, not a loop count: a CD's seek
-is up to a second and its spin-up several, and a count tuned on one CPU is a
-different time on the next. `CD_CMD_T` = 20 s for a command, after which the
+the byte-count register - until DRQ falls, with `rep insw` into `ES:DI`
+(§52.1.2's instruction, legal here for §52.1's reason). **Only the offset
+walks**: the buffer may not wrap its segment (offset + capacity <= 65,536),
+which every caller keeps, and DI is never folded into ES - under kern_mega's
+protected mode a segment off the 8-paragraph grid is no selector at all
+(docs/plans/KERN-MEGA-PLAN.md 3.1, 14.68). Every wait is bounded by the
+system tick (`OSAPI_GET_TICKS`), not a loop count: a CD's seek is up to a
+second and its spin-up several, and a count tuned on one CPU is a different
+time on the next. It is the kernel's tick and not the BIOS's 0:046C, segment
+0 being kern_mega's NULL selector. `CD_CMD_T` = 20 s for a command, after which the
 answer is `CDE_IO`. **The driver never writes the device control register**,
 so `nIEN` stays as the BIOS left it and a hard disk sharing the channel keeps
 its IRQ 14; the drive's own interrupt is acknowledged by the status read
@@ -203741,7 +203753,11 @@ is the parent's. The root's parent is 0.
 `CD_RUN` = 16 sectors (32 KB) a `READ (10)` - and only a partial first or
 last sector goes through the driver's one 2 KB sector buffer, which is
 tagged with its LBA so the next chunk's head is not read twice. Progress is
-reported with `OSAPI_FS_PROG` after every command.
+reported with `OSAPI_FS_PROG` after every command. The destination is folded
+after every piece in whole **128-byte granules** (offset 0..127), the
+kernel's own `dskw_norm` on kern_mega, so the segment stays an identity
+selector there; a buffer above 1MB never reaches the driver, the kernel
+bouncing it through `dsk_secbuf` (`drv_fs_hi`).
 
 **The media generation** is a byte bumped on every UNIT ATTENTION and every
 TOC that differs from the last one read. A change discards the tables, the
@@ -204017,7 +204033,12 @@ the volume on the other two.
 (§34.15)**: on the 720 KB, 1.2 MB and 1.44 MB system floppies and the live
 media, not on the 360 KB one - the XT's, whose 8-bit bus CDROM.DRV refuses
 (§119.2) - and not on an apps floppy, the 720 KB one having two clusters
-spare. `kern_small` builds carry no `SYSOPTIONAL` at all.
+spare. `kern_small` builds carry no `SYSOPTIONAL` at all; kern_mega's two
+system disks (`build/mega.img`, `build/mega120.img`) carry both, kern_mega
+being the kernel that runs on machines with a CD-ROM drive in them. Its
+class byte says `OS88_HIGH | OS88_HIGHMEM` (it makes no claim and does no
+arithmetic on its own segment), so kern_mega runs it above 1MB - except
+when `\AUTOSTRT` opens it, the walk running before `mega_enter`.
 
 | | |
 |---|---|
@@ -204065,6 +204086,19 @@ cdaudioimg`, three generated tones of 40, 30 and 20 seconds) and
 captured through the boot, the player counted track 2 from 00:10 to 00:29,
 rolled into track 3 and stopped at the end of the disc
 (docs/HOW-CDROM-WAS-BUILT.md has the frames).
+
+**On kern_mega the gate is `megacdrom`** (`make megacdtest && python3
+tests/megacdrom.py`, docs/plans/KERN-MEGA-PLAN.md 14.68): `vm/286-mega-cdrom`,
+the owner's mr286 under 86Box with the CD-ROM on the secondary master holding
+`build/cdaudio.cue`, driven through `tools/os88box.py` - a real 286, so every
+reflection is the CPU reset an AT takes, and the fault log sees the
+exceptions kern_mega completes rather than reports. CDRack started in
+protected mode runs above 1MB and plays (its own status read off the pool
+block); the menu bar's quick volume opens and starts the Mixer above 1MB; no
+exception is charged to a loaded image. `vm/386-mega-cdrom` is the same disk
+on 86Box's 386. `build/megacdsim.img` is the disk with the `-DCDSIM_AUDIO`
+driver for Bochs (`tools/os88bochs.py boot --a build/megacdsim.img --cd
+build/cdfix.iso --sb`), which holds an ISO and implements no audio command.
 
 ### 119.8 Not done
 

@@ -34,7 +34,6 @@
 # --- drivers: a driver-SDK question for kern_mega (KERN-MEGA-PLAN 10.1) -------------
 2 drivers/sound/sb.inc  # sbl_unhook and sbl_f_irqdisc. IRQ DISCOVERY IS DEFERRED TO THE FIRST STREAM, so on kern_mega it runs in protected mode: it faults here, and the vector it hooks is the IVT's, which the IDT never reads. Digital audio through a Sound Blaster is an M1 gap until drivers have a way to hook an IRQ
 1 drivers/sound/picomem.inc  # pm_init's IVT check, at attach - the boot's real mode, unless the driver is loaded later from the Control Panel
-2 drivers/cdrom/atapi.inc  # cd_tmo_set's and its poll's BIOS tick reads through 0:046C, the ATAPI timeout - on every command, so on kern_mega it runs in protected mode and faults here: CDROM.DRV is an M1 gap until drivers have a way to read the BDA (main's CD-ROM, SPEC.md 119, merged into elendilon)
 2 drivers/usbmouse/usbmouse.asm  # attach and detach hooking int 33h's vector
 1 drivers/hdd/hdxms.inc  # hd_xa_a20, HDD.DRV's XMS ring: its own A20 probe through 0000 and FFFF
 3 drivers/xmem/xmem.asm  # XMEM.DRV, which kern_mega does not ship (its A20 and HMA work is mega_enter's)

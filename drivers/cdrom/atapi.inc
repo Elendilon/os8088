@@ -2,7 +2,7 @@
 ; os8088 - CDROM.DRV / atapi.inc - the drive (SPEC.md 119.2)
 ;
 ; ATAPI on the IDE task file: polled PIO, `rep insw` on a 286 or better, and
-; every wait bounded by the BIOS tick rather than by a loop count - a CD's
+; every wait bounded by the system tick rather than by a loop count - a CD's
 ; seek is up to a second and its spin-up several, and a count tuned on one CPU
 ; is a different time on the next.
 ;
@@ -52,35 +52,33 @@ CD_TMO       equ 0x80           ; cd_packet's AL for a timeout - no sense key
 ; clobbers: nothing
 ;
 ; TWO bounds, either of which ends the wait. The TICK bound is the real one:
-; it counts CHANGES of the BIOS tick's low word, so midnight's reset to 0 is
-; one more change and not a wrap of 65,000 ticks. The POLL bound is the net
+; it counts CHANGES of the system tick (OSAPI_GET_TICKS, the kernel's [ticks]),
+; so a wrap is one more change and not 65,000 ticks. The POLL bound is the net
 ; under it for a machine whose tick is not running (IF = 0 on a path that
 ; should not have it): 256 x 65,536 status reads, tens of seconds of ISA, so
 ; it never decides anything on a machine that is working.
+;
+; THE KERNEL'S TICK AND NOT THE BIOS'S 0:046C. Segment 0 is the NULL selector
+; under kern_mega's protected mode (CPU_F_PM), so `mov es, 0` and the first
+; read through it is #GP(0) - on every command, since this bound is taken on
+; every one. The slot reads the same clock on every kernel and is one far call
+; with no segment register touched (KERN-MEGA-PLAN 10.1 item 11).
 ; -----------------------------------------------------------------------------
 cd_tmo_set:
     push ax
-    push es
     mov [cd_tleft], ax
-    xor ax, ax
-    mov es, ax
-    mov ax, [es:0x046C]
+    call OSAPI_GET_TICKS
     mov [cd_tlast], ax
     mov word [cd_ilo], 0xFFFF   ; 256 x 65,536 polls: the high byte is
     mov byte [cd_ihi], 0xFF     ; spent when the low word borrows, and the
                                 ; bound is the borrow out of it
-    pop es
     pop ax
     ret
 
 ; cd_tmo_up - has the bound run out? out: CF = 1 yes. clobbers: nothing
 cd_tmo_up:
     push ax
-    push es
-    xor ax, ax
-    mov es, ax
-    mov ax, [es:0x046C]
-    pop es
+    call OSAPI_GET_TICKS
     cmp ax, [cd_tlast]
     je .same
     mov [cd_tlast], ax
@@ -308,6 +306,15 @@ cd_ident:
 ;
 ; A DRQ block longer than the buffer has room for is drained into nothing:
 ; the drive decides how much it sends, and stopping early would hang it.
+;
+; THE BUFFER MUST NOT WRAP ITS SEGMENT: [cd_xoff] + [cd_xmax] <= 65,536, and
+; ES:DI walks the offset only. It used to fold DI's paragraphs into ES after
+; every DRQ block, and under kern_mega's protected mode (CPU_F_PM) a segment
+; off the 8-paragraph grid is no selector at all - #GP with RPL bits, and with
+; bit 2 alone SILENTLY an LDT alias of some other memory (KERN-MEGA-PLAN
+; 14.19). Every caller already keeps the rule: cd_bytes hands over a
+; destination cd_bnorm has folded to under 128 bytes and asks for at most
+; CD_RUN x 2,048 = 32 KB, and the rest read into our own image.
 ; -----------------------------------------------------------------------------
 cd_packet:
     push bx
@@ -395,18 +402,10 @@ cd_packet:
     db 0xF3, 0x6D               ; REP INSW: a 286 or better (SPEC.md 119.2)
 .drain:
     pop cx
-    jcxz .norm
+    jcxz .phase                 ; (DI is NOT folded into ES: see above)
 .dr:
     in ax, dx
     loop .dr
-.norm:                          ; ES:DI normalised after every block, so a
-    mov ax, di                  ; transfer may run past 64 KB of buffer
-    mov cl, 4
-    shr ax, cl
-    mov cx, es
-    add cx, ax
-    mov es, cx
-    and di, 15
     jmp short .phase
 .outblk:                        ; data out (MODE SELECT): from ES:DI,
     push ds                     ; one short block, never normalised

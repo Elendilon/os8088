@@ -36,8 +36,13 @@
 %include "os88api.inc"
 %include "cdpkg.inc"
 
-    OS88_HEADER 'CDRack', cr_entry, 3       ; flags: bit 0 the icon, bit 1
-                                            ; the association block
+    OS88_HEADER 'CDRack', cr_entry, 3, OS88_HIGH | OS88_HIGHMEM
+                                    ; flags: bit 0 the icon, bit 1 the
+                                    ; association block. The class: kern_mega
+                                    ; may run it above 1MB, claims and all -
+                                    ; no arithmetic on its own CS or DS, no
+                                    ; claim at all, and every port is
+                                    ; CDROM.DRV's (KERN-MEGA-PLAN 14.52)
     OS88_ICON16                     ; a disc: the hole, and a glint
     ; --- mask ---
     dw 0x07E0, 0x1FF8, 0x3FFC, 0x7FFE, 0x7FFE, 0xFFFF, 0xFFFF, 0xFFFF
