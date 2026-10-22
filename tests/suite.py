@@ -8547,7 +8547,7 @@ SOAK = [
         " pixels, and the two POI towers' crown faces went on and off a frame"
         " at a time on the machine",
         needs=("marty",), serial=True),
-    Row("skieshaze", "soak", py("tests/skieshaze.py"), 187.0,
+    Row("skieshaze", "soak", py("tests/skieshaze.py"), 70.0,
         "SPEC.md 88.4.1.1: the HAZE, a fill box of its own (88.4.1.1.1) -"
         " four parallel lines where the plain pass has one, laid in a pass of"
         " their own. What can"
@@ -12368,7 +12368,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidplayvga", "soak", py("tests/vidplay.py", "--layout", "lin80"),
-        50.0,
+        40.0,
         "SPEC.md 98.3: vidplay's two plays with a LIN80 (mode 12h) clip on "
         "the XT VGA, frame-exact at every hold: mode 12h is planar, but a "
         "MONO1 byte goes to all four planes, so plane 0 - what a read of "
@@ -12400,7 +12400,7 @@ SOAK = [
         "the burst OFF - 3D8h is not a VGA's - and plays the same bytes",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidpreview", "soak", py("tests/vidpreview.py"), 72.0,
+    Row("vidpreview", "soak", py("tests/vidpreview.py"), 60.0,
         "SPEC.md 98.4, 98.3.4, 98.3.5: VIDEO.O88's window is a PREVIEW. "
         "vidplay's clip opened by double-clicking: the box holds the "
         "header's poster keyframe halved 2x2 with the ordered dither - the "
@@ -13447,7 +13447,7 @@ SOAK = [
         "(vb_v2c's b in a's colour) it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2bench", "soak", py("tests/vidv2bench.py"), 240.0,
+    Row("vidv2bench", "soak", py("tests/vidv2bench.py"), 30.0,
         "SPEC.md 98.3.23: AN INSTRUMENT - what a block costs a 4.77 MHz "
         "8088, LIN320. A clip of one kind a block frame, at 40 and 280 "
         "blocks, played full screen on MartyPC's VGA XT with breakpoints "
@@ -13476,7 +13476,7 @@ SOAK = [
         "at 40 and 200 tiles, the codebook's two whole copies untimed",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidpal", "soak", py("tests/vidpal.py"), 110.0,
+    Row("vidpal", "soak", py("tests/vidpal.py"), 80.0,
         "SPEC.md 98.1.3.2.3: A PALETTE A SCENE - a 16-colour file whose "
         "table gives each scene's first frame and sixteen, on MartyPC's VGA "
         "XT. A clip made here, three scenes off the keyframes: from the "
@@ -13693,7 +13693,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidpage8n", "soak", py("tests/vidpage.py", "--pages", "8",
-                                "--screen", "320x200n"), 180.0,
+                                "--screen", "320x200n"), 120.0,
         "SPEC.md 98.1.3.2.5, 98.3.8.4: sixteen colours on a NARROW 320 x 200 "
         "- rows 40 bytes apart, 0Dh's own, so a page is 8,000 bytes and a "
         "plane holds EIGHT: seven scene changes three frames apart, seven "
@@ -13729,7 +13729,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidpagetext4", "soak", py("tests/vidpagetext.py", "--pages", "4"),
-        45.0,
+        40.0,
         "SPEC.md 98.3.8.4: the full screen's text on FOUR pages - the "
         "text's two saves follow the page shown (vo_pgsave), its box put "
         "back where a save leaves. A toast kept up across vidpage4v's "
