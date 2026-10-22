@@ -270,6 +270,22 @@ class UI:
         kw.setdefault("card", self.card)
         return os88marty.settle(self.m, **kw)
 
+    def still(self, frames=0.05):
+        """The UI has FINISHED DRAWING and the card has shown it - the cheap
+        `settle` for a read that follows an input this machine is handling.
+
+        `os88marty.ui_done` (ui_task asleep, nothing queued, the lock free,
+        for a tick: every repaint is inside a pass, under the lock), then
+        `frames` guest seconds - three frames by default - because `fbuf` is
+        the RENDERED glass and lags the framebuffer by up to one. No 2-host-
+        second floor. NOT for a worker that draws on its own clock (a game, a
+        Task Manager graph): ui_done cannot see that, `settle` can.
+        """
+        os88marty.ui_done(self.m, "the desktop to finish drawing")
+        if frames:
+            os88marty.guest_sleep(self.m, frames)
+        return self
+
     # --- the desktop --------------------------------------------------------
     def up(self, limit=180.0):
         """Wait until the kernel's DESKTOP STATE exists - the first half of

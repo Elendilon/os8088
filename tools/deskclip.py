@@ -105,8 +105,7 @@ def still(ui):
     it - three frames, for VGA's `fbuf`, which is the RENDERED glass and lags
     the framebuffer by up to one. What `settle` was standing in for before a
     guest read or a pixel grab, at a fraction of its 2-host-second floor."""
-    os88marty.ui_done(ui.m, "the desktop to finish drawing")
-    os88marty.guest_sleep(ui.m, 0.05)
+    ui.still()
 
 
 def isect(a, b):

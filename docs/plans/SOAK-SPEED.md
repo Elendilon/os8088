@@ -79,6 +79,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **`os88marty.Forks(m)`**: one boot, N legs from a fork snapshot (pauses `m`,
   `restore()` = a running Marty on a free port, quit on `with` exit; holders
   die with `m`). deskclip 6 boots -> 2; restore is 0.1 s.
+- **`UI.still()`** (os88ui): `ui_done` + 3 guest frames - the cheap settle
+  before an `fbuf`/`vram` read after an input the UI handles (no 2-host-s
+  floor). Not for a worker drawing on its own clock. desk* rows.
 - `OS88_MARTY_BIN=<path>` runs another emulator build in an instance (for
   trying a `debug_server.rs` change before staging it; name it
   `martypc_headless` so the instance registry recognises it).
@@ -114,3 +117,4 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | dispprefer | 270 s / 461 guest s (load 11) | 208 s / 235 guest s (load 11) | 4 + both harness changes above | all waits memory reads -> `ui_done` as dispcp's `settle`; the switch confirmed on `[vid_kind]` (Set Primary's press was the one unconfirmed click). The rest is 12 VGA/CGA/Herc repaints and panel opens - guest work |
 | paintmove | 50 s / 85 guest s | (unchanged) | - | already lean: 35 guest s boot + heapfrag's own work; secs 150 -> 60 |
 | paint1blit | 126 guest s, 3 boots | 53 s / 67 guest s | 3, 4 | one disk with both fixtures, one boot + snapshot, an arm per restore; blind `advance(400/300)` -> ui_done; settles -> ui_done (every read is memory). Red with the refuse flags swapped (and proves a restore does not carry the previous arm's poke) |
+| desksc | 122 s / 72 host s waited | 106 s / 56 | 4 | boot and both reboots unsettled (`up` + `no_saver`: every read after is guest state); four pre-`fbuf` settles -> `ui.still()`. The rest is three boots and CTRL.DRV loads |

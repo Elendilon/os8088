@@ -10692,7 +10692,7 @@ SOAK = [
         "SPIN COUNT. This compares three readings computed three ways: the "
         "kernel's sch_cycles, the page's tm_load, and the page's tm_pct.",
         needs=("marty",), serial=True, timeout=900),
-    Row("desksc", "soak", py("tests/desksc.py"), 200.0,
+    Row("desksc", "soak", py("tests/desksc.py"), 130.0,
         "SPEC.md 26.8: DESKTOP SHORTCUTS, every route on one boot. A drag out "
         "of a Disk window makes one (whole path, header-name caption, the "
         "badge, the nearest free cell, the drag's Cut DISARMED); SYSTEM.CFG "
