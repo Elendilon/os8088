@@ -11629,7 +11629,7 @@ SOAK = [
         "blank picture nobody drew on), one stroke 1, and the close box"
         "refuses and puts an alert up",
         needs=("marty",), serial=True),
-    Row("paintcull", "soak", py("tests/paintcull.py"), 70.0,
+    Row("paintcull", "soak", py("tests/paintcull.py"), 50.0,
         "SPEC.md 5.4.3.3: does 11.3.3's CULL cost Paint its four planes? An"
         "armed clip region is one of gfx_blitp's refusals and pt_topacked"
         "reads any refusal as a fact about the MACHINE, so one ordinary"
