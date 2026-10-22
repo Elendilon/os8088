@@ -11308,8 +11308,9 @@ SOAK = [
         "rather than a gap because tm_hsplit counts every live record into "
         "HELD, so the ring was in the caption's total and in no column under "
         "it - which is why this row asserts the ARITHMETIC (every live record "
-        "is on a row, counted off [tm_hrows] with the headings and pads taken "
-        "out) and only then the label. A row that looked for the word DrvBuf "
+        "is in a group of the list, read off the page's own [tm_cgid] since "
+        "the heap page merged into the memory page, SPEC.md 28.4.10, and the "
+        "driver's claims in the SOUND.DRV group) and only then the label. A row that looked for the word DrvBuf "
         "alone would go green on a page that still lost the 8KB. Measured "
         "red at 3 claim rows for 4 live records with the two arms reverted, "
         "and the probe it prints on a miss found DrvImg on screen while the "
@@ -11318,7 +11319,9 @@ SOAK = [
         needs=("marty",), serial=True, timeout=900,
         wants=("build/sndmove360.img",)),
     Row("heapscrl", "soak", py("tests/heapscrl.py"), 120.0,
-        "SPEC.md 28.4.4: the Task Manager's heap page scrolls, its bar "
+        "SPEC.md 28.4.4: the Task Manager's memory page (the heap page's "
+        "list, merged into it with every group opened by +ALL, 28.4.10) "
+        "scrolls, its bar "
         "survives six refreshes of the list beside it (tm_rowr), and a scroll "
         "down and back leaves the rows byte-identical - which is what says "
         "SPEC.md 28.2's per-chunk cache is indexed by the SCREEN row and not "
@@ -15669,8 +15672,10 @@ SOAK = [
         "retried, being the half that would hide a real regression",
         needs=("marty",), serial=True),
     Row("tmowner", "soak", py("tests/tmowner.py"), 300.0,
-        "SPEC.md 28.4.5: a raise cache is listed under the PACKAGE that owns "
-        "the window, and a kernel window's stays under System. Reads the rows "
+        "SPEC.md 28.4.10: a raise cache is listed under PURGEABLE, the "
+        "kernel window's and a package's alike - it is in nobody's total, so "
+        "it is in no owner's group (it was the window's package, 28.4.5, "
+        "until the memory and heap pages merged). Reads the rows "
         "the page COMPOSES rather than the pixels, which is the only way to "
         "say which group a row is in",
         needs=("marty",), serial=True),
