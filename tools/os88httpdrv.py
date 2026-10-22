@@ -6,6 +6,9 @@
     python3 tools/os88httpdrv.py serve  SRC [--port 8088] [--bind 0.0.0.0]
     python3 tools/os88httpdrv.py --selfcheck         # no emulator, no network
 
+IT RUNS OFF THE TREE: copy this file, and os88fat.py beside it when the
+source is a .img, to the PC that will serve - Python 3 and nothing else.
+
 HTTP HAS NO DIRECTORY LISTING, so a server that is to look like a drive carries
 one file the drive reads first: `OS88.IDX`, the whole tree's names, sizes and
 folders in 18-byte records (SPEC.md 120.3). Everything else is a plain static
@@ -63,7 +66,16 @@ def fail(msg):
 
 
 def listing_cap():
-    """DSK_NENT, read out of the kernel the way os88disk.py reads it."""
+    """DSK_NENT for kern_big, read out of the kernel the way os88disk.py reads
+    it - and 64 when the kernel's source is not beside this file.
+
+    kern_big's and not kern_small's: the HTTP drive is a driver, and only
+    kern_big has a driver layer (SPEC.md 120.1). The fallback matters
+    because this tool is meant to be COPIED OFF the tree onto whatever PC
+    serves the files, where there is no kernel/ to read - and falling back
+    to kern_small's 32 refused the stock 360KB system disk's 35-entry root,
+    which the drive lists perfectly well.
+    """
     try:
         with open(os.path.join(HERE, "..", "kernel", "dskwin.inc")) as f:
             m = re.findall(r"^DSK_NENT\s+equ\s+(\d+)", f.read(), re.M)
@@ -71,7 +83,11 @@ def listing_cap():
             return int(m[0])
     except OSError:
         pass
-    return 32
+    return 64
+
+
+def warn(msg):
+    print("os88httpdrv: warning: " + msg, file=sys.stderr)
 
 
 def raw11(name):
@@ -111,7 +127,13 @@ def index_build(tree, serial=0):
         names = sorted(node)
         limit = cap if idx == 0 else cap - 1  # a subfolder lists `..` too
         if len(names) > limit:
-            fail("%s holds %d entries and the kernel lists %d" % (where, len(names), limit))
+            # A WARNING AND NOT A REFUSAL: the drive's listing stops cleanly
+            # at the kernel's cap (OSAPI_FS_ENT answers "full"), so the rest
+            # of the tree is still served and every file is still reachable
+            # by name - which is the case for a whole release, where the
+            # folder that overflows may not be the one anybody browses
+            warn("%s holds %d entries and a Disk window lists the first %d"
+                 % (where, len(names), limit))
         first = len(recs)
         recs[idx][3], recs[idx][4] = first if names else 0, len(names)
         for n in names:
