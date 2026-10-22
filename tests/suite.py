@@ -11487,7 +11487,7 @@ SOAK = [
         "suite and quietly cost the VGA fifteen of its colours",
         needs=("marty",), serial=True),
     Row("paintpal", "soak",
-        py("tests/paintpal.py"), 90.0,
+        py("tests/paintpal.py"), 40.0,
         "Does SPEC.md 42.26.1's COMPOSED palette draw what the fill, the "
         "frame and the sprite pass drew? One boot draws it both ways - the "
         "second with stc/ret poked over the gfx_blit1 thunk, which is the "
