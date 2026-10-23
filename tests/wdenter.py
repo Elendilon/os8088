@@ -178,6 +178,7 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine,
         if rb("wd_hdirty") == 0:               # [wd_drows] stops moving under
             break                              # the captures
         m.advance(cycles=2_000_000)
+    m.run()                                    # advance ends PAUSED
 
     tx, ty = rw("wd_tx"), rw("wd_ty")
     cl, sbr, bot = rw("wd_cl"), rw("wd_sbr"), rw("wd_bot")
@@ -218,15 +219,23 @@ with M.launch("build/os8088-360.img", apps=DISK, machine=a.machine,
         reads it the same in both arms of an A/B, which is exactly how a real
         difference disappears.
         """
+        ok = False
         for _ in range(400):
             if rb("wd_hdirty") == 0:
-                return True
+                ok = True
+                break
             m.advance(cycles=2_000_000)
-        return False
+        # `advance` ENDS PAUSED, and its reply is the mark a later wait_stop
+        # measures from - so a caller that arms a breakpoint and waits after
+        # this would wait on a machine nobody resumes. Whether the loop
+        # advanced at all depends on how far the counter got while the host
+        # was polling, which is why this only bit with four rows at once.
+        m.run()
+        return ok
 
     def enter_cost(key="Enter"):
         """One keystroke's whole wd_onkey, in cycles, on a QUIET machine."""
-        settle_height()
+        settle_height()                     # leaves the guest running
         m.bp_exec(P("wd_onkey")); m.key(key)
         if not m.wait_stop(30):
             m.bp_exec(); m.run(); return None
