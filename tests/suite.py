@@ -12257,7 +12257,7 @@ SOAK = [
         wants=("build/viddisk.o88", "build/viddisk360.img",
                "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/hdd.drv")),
-    Row("czseq", "soak", py("tests/czseq.py"), 150.0,
+    Row("czseq", "soak", py("tests/czseq.py"), 90.0,
         "SPEC.md 18.8.5 on the split-set join (22.23.5): a 640KB set on B: "
         "joined by Uncompress To... onto A:, every block a hop, every int "
         "13h filed by drive, direction and region. The result must be the "
@@ -12277,7 +12277,7 @@ SOAK = [
         "join says `Uncompressed` over a file with a hole in it",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088.img",)),
-    Row("czseqnone", "soak", py("tests/czseq.py", "--fatwnone"), 330.0,
+    Row("czseqnone", "soak", py("tests/czseq.py", "--fatwnone"), 100.0,
         "SPEC.md 18.8.5 on a FATWNONE=1 kernel (a private tree): no heap "
         "windows, so A: and B: take the pin from each other at every hop, "
         "and the held volume's dirt must be FLUSHED at the park. The join "

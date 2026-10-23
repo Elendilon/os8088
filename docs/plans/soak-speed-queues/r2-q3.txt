@@ -100,9 +100,9 @@ DONE pxss	pxsshots	145	tests/pxsshots.py
 DONE pxss	pxsstate	70	tests/pxsstate.py
 DONE pxss	pxsscale	26	tests/pxsscale.py
 DONE pxed	pxedit	600	tests/pxedit.py
-czse	czseqnone	330	tests/czseq.py
-czse	czseq	150	tests/czseq.py
-czse	czseqlose	40	tests/czseq.py
+DONE czse	czseqnone	330	tests/czseq.py
+DONE czse	czseq	150	tests/czseq.py
+DONE czse	czseqlose	40	tests/czseq.py
 vidf	vidfskeysvga4m3	55	tests/vidfskeys.py
 vidf	vidfskeysvga4pl	55	tests/vidfskeys.py
 vidf	vidfskeysvga4	45	tests/vidfskeys.py
