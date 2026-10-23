@@ -104,7 +104,7 @@ asso	assocwake	30	tests/assocwake.py
 asso	assocvol	21	tests/assocvol.py
 asso	assocfind	18	tests/assocfind.py
 asso	assocstale	15	tests/assocstale.py
-dosd	dosdirsw	260	tests/dosdirsw.py
+DONE dosd	dosdirsw	260	tests/dosdirsw.py
 dosd	dosdrv	40	tests/dosdrv.py
 dosd	dosdir	35	tests/dosdir.py
 dosd	dosdev	25	tests/dosdev.py

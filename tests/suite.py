@@ -7253,7 +7253,7 @@ SOAK = [
         "to type the bare name of, and every package on an apps disk is a "
         "`.O88`.",
         needs=("marty",), serial=True, wants=("build/doscom360.img",)),
-    Row("dosdirsw", "soak", py("tests/dosdirsw.py"), 260.0,
+    Row("dosdirsw", "soak", py("tests/dosdirsw.py"), 30.0,
         "DIR's SWITCHES, AND THE PAUSE THAT MAY NOT BLOCK (SPEC.md 96.33.9). "
         "dsh_c_dir took a path and nothing else, so every switch was read as "
         "part of the file name; reported from the field as \"dir doesn't have "
