@@ -10,14 +10,10 @@ vgad	vgadirty	80	tests/vgadirty.py	qemu,nasm
 mine	minesrc	80	tests/minesrc.py	qemu,nasm
 vidc	vidclose	75	tests/vidclose.py	qemu,nasm
 dosx	dosxlat	75	tests/dosxlat.py	qemu
-vidb	vidbankwin	75	tests/vidbank.py	qemu,nasm
-vidb	vidbankspk	75	tests/vidbank.py	qemu,nasm
-vidl	vidlayerpal	75	tests/vidlayer.py	ffmpeg
 colo	colorpresets	72	tests/colorpresets_qemu.py	qemu,nasm,pil
 wire	wireball	65	tests/wireball.py	qemu,nasm,pil
 pxsw	pxswin-qemu	65	tests/pxswin.py	qemu
 hmad	hmadrv	62	tests/hmadrv.py	qemu,nasm
-vidb	vidbankspkbank	60	tests/vidbank.py	qemu,nasm
 vidl	vidlysplit	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
 vidl	vidlysplitbase	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
 vidl	vidlysplituntimed	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
