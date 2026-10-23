@@ -249,6 +249,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | tmselfsu | 84 s alone (declared 300) | 94 s (noise) | - | boot on state only (20 guest s); the rest is dispcells' stop-per-call breakpoints on font_run_x/gfx_fill (host round trips; the measurement) and the Task Manager's own interval ticks. Re-declared |
 | hdboot | 131 s (3 lanes) / 36 guest s waited | 37 s / 35 | 4 | the install machine's double boot settle (launch's + one more) -> `kernel_up`; the C: boot was already a frame-stepped state watch |
 | deskflash / deskzoom | 103 / 109 s (3 lanes) | 45 / 93 s (load 8) | 4, 10 | quick boots; settles -> `ui.still()`, the one before `dc.verify` dropped (verify stills itself); deskflash's per-pixel Python `flashes` over 30-70 glass frames -> numpy (`OS88_FLASHCHECK=1` asserts it equal to the loop: equal on all 16 checks). deskzoom's rest is `dc.verify`'s whole-repaint compares |
+| 1942sound / 1942 / 1942front | declared 752 / 216 / 180; measured 158 / 131 / 102 s (load 10), 304 guest s waited | 139 / 124 / 91 s (load 6), 223 guest s | 4 + quick boot | quick boots; splash settles -> `ui_done` / `UI.still` before the exact-pixel logo compares; `Game.call` restores only the registers a call changed. What is left is ~7,300 `call_guest`s at ~25 round trips each (park + 13 setregs + bp + run + regs + restore). **Pipelining them does NOT work on today's server** - queued lines after the first are not answered until more input arrives (tried, hung); a server-side drain of `pending` would make a 25-trip call ~3 |
 
 ## Resuming
 

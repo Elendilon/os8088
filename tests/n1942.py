@@ -226,9 +226,9 @@ class Game:
         assert m.wait_stop(30)=='breakpoint',k+' did not return'
         result=m.regs()
         m.write((saved['ss']<<4)+sp,old)
-        for r,v in saved.items():
-            if r in REGS:m.setreg(r,v)
-        return result
+        for r,v in saved.items():       # (only what the call changed:
+            if r in REGS and result.get(r)!=v:m.setreg(r,v)   # a round
+        return result                   # trip a register)
     def fixture(self):
         self.put('stage',1)
         self.call('n_stageinit')
@@ -752,7 +752,7 @@ def combat_bench(g,tag):
 
 def run(tag,off,code):
     machine={'vga':'os8088_xt_vga','cga':'os8088_5150_cga_gla'}[tag]
-    with os88ui.boot('build/os8088-360.img',apps='build/1942-360.img',machine=machine) as ui:
+    with os88ui.boot('build/os8088-360.img',apps='build/1942-360.img',machine=machine,quick=True) as ui:
         m=ui.m;ui.open_drive('B');ui.open('1942.O88');g=Game(ui,off,code)
         desktop_mode=m.video()['mode']
         m.bp_exec(g.base+code['n_readbank']);m.key('Enter');m.run()

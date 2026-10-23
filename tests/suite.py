@@ -3491,16 +3491,16 @@ SOAK = [
         "it. In soak and not fast for docs/WRITING-TESTS.md 2.1's reason: it "
         "is about one package",
         needs=("nasm",)),
-    Row("1942front", "soak", py("tests/n1942front.py"), 180.0,
+    Row("1942front", "soak", py("tests/n1942front.py"), 120.0,
         "1942 desktop splash: native color/contour pixels, XT paint timing, "
         "player selection, help, dragging, direct launch and resume on three adapters",
         needs=("marty", "nasm", "pil"), wants=("build/1942-360.img", "build/1942.SFX", "build/os8088-360.img")),
-    Row("1942sound", "soak", py("tests/n1942sound.py"), 751.5,
+    Row("1942sound", "soak", py("tests/n1942sound.py"), 180.0,
         "XT speaker, AdLib-only and Sound Blaster FM/PCM: overlapping music/effects, "
         "all cartridge cues, rests/loops, pause/mute/resume, route preference, "
         "claim refusal, DMA sample bytes/priority, missing-bank fallback, exit/error cleanup, WAV output and guest cycle costs",
         needs=("marty", "nasm"), wants=("build/1942-360.img", "build/1942.SFX", "build/os8088-360.img")),
-    Row("1942", "soak", py("tests/n1942.py"), 216.1,
+    Row("1942", "soak", py("tests/n1942.py"), 160.0,
         "Native VGA/CGA graphics, pre-I/O loading, scrolling/ring wrap, aircraft "
         "variety, formations, POWs, results, two-player turns, sound controls, combat, "
         "XT frame rate, missing/damaged banks and desktop restore; "

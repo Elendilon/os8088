@@ -68,9 +68,9 @@ DONE vidv	vidv2shd	30	tests/vidv2.py
 DONE vidv	vidv2	25	tests/vidv2.py
 DONE vidv	vidv2mx	25	tests/vidv2.py
 DONE vidv	vidv2no	20	tests/vidv2.py
-n	1942sound	751.5	tests/n1942sound.py
-n	1942	216.1	tests/n1942.py
-n	1942front	180	tests/n1942front.py
+DONE n	1942sound	751.5	tests/n1942sound.py
+DONE n	1942	216.1	tests/n1942.py
+DONE n	1942front	180	tests/n1942front.py
 VERIFY vidp	vidpagetextf	95	tests/vidpagetext.py
 VERIFY vidp	vidplaybigvga	85	tests/vidplay.py
 VERIFY vidp	vidpallayer	80	tests/vidpal.py
