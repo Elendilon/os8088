@@ -202,6 +202,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | weavesession | 28 s / 91 | 24 s / 66 | 2, 4 | six settles -> `ui_done` (the VM drains in WM_ONWAKE slices on the UI task; FORM has no canvas) |
 | weavegrid / weavegfx | 31 / 37 s; 93 / 112 guest | 24 / 27 s; 60 / 71 | 2, 3, 4 | grid: settles and `_park`'s -> `ui_done`; gfx: four boots -> two (Forks) |
 | weavesmoke / weaveone / weavegame / weavelat | 71 / 15 / 11 / - s | 33 / 16 / 10 / 13 s | 2 | the shared `_open_bundle` + quick boot only; one/game/lat were already lean - re-declared |
+| viddisk family (10 rows) | viddiskfd 253 s / 750 guest; wseq 106 / 381 | 192 / 750; all ten green | 8 | bench rows: W and R ARE the measurement (575 + 104 guest s of 750). Boots launched paused with `up` + `ui_done` as the gate (an HDD boot publishes B:'s zone after [spl_live] falls - `up` alone found none); polls 2.0/1.0 -> 0.25. ~4 guest s a boot, nothing more to take |
 
 ## Resuming
 

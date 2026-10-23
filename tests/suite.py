@@ -12233,7 +12233,7 @@ SOAK = [
                "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/hdd.drv")),
     Row("wseqdeleted", "soak", py("tests/viddisk.py", "--floppy",
-                                   "--wmode", "deleted"), 39.0,
+                                   "--wmode", "deleted"), 30.0,
         "SPEC.md 18.4.9: HELD, and at chunk 64 the stream is DELETED and "
         "VKSIDE.TXT written - which takes the freed directory slot. The "
         "delete's gate must commit the hold first: W then stops on its next "
@@ -12284,7 +12284,7 @@ SOAK = [
         "regardless: `Disk error` at the first hop, 19 guest seconds in",
         needs=("marty", "nasm"), serial=True, timeout=900),
     Row("wseqioerr", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
-                                 "held", "--ioerr", "100"), 75.0,
+                                 "held", "--ioerr", "100"), 50.0,
         "SPEC.md 18.4.9: a HELD stream on a DYING disk - every write into "
         "the data area fails from chunk 100 on, the per-sector retries "
         "included. The failed call loses itself and nothing else: "
@@ -12297,7 +12297,7 @@ SOAK = [
                "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/hdd.drv")),
     Row("wseqfull", "soak", py("tests/viddisk.py", "--floppy", "--wmode",
-                                "full"), 65.0,
+                                "full"), 50.0,
         "SPEC.md 18.4.9: a HELD stream into a VHD with 4 MB free and no room "
         "check, so one call fails FERR_FULL at chunk 128. It keeps the 128 "
         "chunks before it and the VHD checks clean. A full disk has walked "

@@ -9,16 +9,16 @@ DONE weav	weaveone	60	tests/weaveone.py
 DONE weav	weavegame	50	tests/weavegame.py
 DONE weav	weavelat	40	tests/weavelat.py
 pxfs	pxfsx	1500	tests/pxfsx.py
-vidd	viddiskfd	195	tests/viddisk.py
-vidd	wseq	182	tests/viddisk.py
-vidd	wseqheld	177	tests/viddisk.py
-vidd	wseqinter	168	tests/viddisk.py
-vidd	wsequnclosed	116	tests/viddisk.py
-vidd	wseqioerr	75	tests/viddisk.py
-vidd	wseqfull	65	tests/viddisk.py
-vidd	wseqcut	57	tests/viddisk.py
-vidd	viddisk	52	tests/viddisk.py
-vidd	wseqdeleted	39	tests/viddisk.py
+DONE vidd	viddiskfd	195	tests/viddisk.py
+DONE vidd	wseq	182	tests/viddisk.py
+DONE vidd	wseqheld	177	tests/viddisk.py
+DONE vidd	wseqinter	168	tests/viddisk.py
+DONE vidd	wsequnclosed	116	tests/viddisk.py
+DONE vidd	wseqioerr	75	tests/viddisk.py
+DONE vidd	wseqfull	65	tests/viddisk.py
+DONE vidd	wseqcut	57	tests/viddisk.py
+DONE vidd	viddisk	52	tests/viddisk.py
+DONE vidd	wseqdeleted	39	tests/viddisk.py
 desk	deskflash	85	tests/deskflash.py
 desk	deskhover	80	tests/desklayer.py
 desk	deskdrag	75	tests/desklayer.py
