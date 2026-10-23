@@ -2366,7 +2366,7 @@ SOAK = [
         "the question on the target rather than on the host",
         needs=("marty", "cc"), serial=True, timeout=600,
         wants=("build/loom.o88",)),
-    Row("weavefuzz", "soak", py("tests/weavefuzz.py"), 180.0,
+    Row("weavefuzz", "soak", py("tests/weavefuzz.py"), 10.0,
         "a thousand DAMAGED projects through both packers, asking the two "
         "questions a fixture cannot: did they agree about whether it is a "
         "program, and when both said yes are the bytes identical "

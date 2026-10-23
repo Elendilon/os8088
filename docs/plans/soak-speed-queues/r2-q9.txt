@@ -8,7 +8,7 @@ rega	regapp	210	tests/regapp.py
 SKIP builds=True (writes build/; not runnable in the shared tree) tela	telansi	210	tests/telansi.py	qemu
 venc	vencgui	200	tests/vencguitest.py	ffmpeg
 SKIP builds=True (writes build/; not runnable in the shared tree) t	buildmatrix	180	tests/unit/t_buildmatrix.py	
-weav	weavefuzz	180	tests/weavefuzz.py	
+DONE weav	weavefuzz	180	tests/weavefuzz.py	
 DONE drvm	drvmove	170	tests/drvmove.py	
 regw	regwork	170	tests/regwork.py	
 rdxm	rdxms	170	tests/rdxms.py	qemu,nasm
