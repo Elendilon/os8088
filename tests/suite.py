@@ -12451,7 +12451,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidsndpause", "soak", py("tests/vidsound.py", "--secs", "20",
-                                  "--pause"), 64.0,
+                                  "--pause"), 80.0,
         "SPEC.md 98.3.4, 34.5.4: vidsound's play, paused with Space for 2 "
         "guest s a third in - not one frame drawn and not one byte of sound "
         "consumed while it is (SOUND.DRV verb 10 halts the card rather than "
@@ -13057,7 +13057,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidsndloop", "soak", py("tests/vidsound.py", "--secs", "8",
-                                 "--loop", "90"), 60.0,
+                                 "--loop", "90"), 50.0,
         "SPEC.md 98.3.9, 98.3.1: a REPEATING play with the card the clock - "
         "two laps past the first through a seam back to frame 90, then R "
         "ends the lap under way. The capture must be the first lap's sound "
@@ -13107,7 +13107,7 @@ SOAK = [
         wants=("build/video.o88",)),
     Row("vidsndresad", "soak", py("tests/vidsound.py", "--secs", "2",
                                   "--resident", "--loop", "30",
-                                  "--audio", "adpcm4"), 80.0,
+                                  "--audio", "adpcm4"), 70.0,
         "SPEC.md 98.1.7.2: a RESIDENT clip with ADPCM4 sound, two laps "
         "through its seam with the card the clock - the file's lap join "
         "exact (verify: the stream ends in the state before frame L's "
@@ -13120,7 +13120,7 @@ SOAK = [
                "build/hiber.drv", "build/ctrl.drv")),
     Row("vidsndresks", "soak", py("tests/vidsound.py", "--secs", "3",
                                   "--resident", "--seek", "1",
-                                  "--audio", "adpcm4"), 90.0,
+                                  "--audio", "adpcm4"), 70.0,
         "SPEC.md 98.1.7.2: a RESIDENT ADPCM4 clip played from its keyframe "
         "1 - the key record's REFERENCE sample starts the card in the "
         "continuous stream's state, and the capture is the stream's own "
@@ -13131,7 +13131,7 @@ SOAK = [
                "build/hiber.drv", "build/ctrl.drv")),
     Row("vidlivesnd55", "soak", py("tests/vidsound.py", "--secs", "3",
                                    "--live", "--audio", "adpcm4",
-                                   "--rate", "5512"), 45.0,
+                                   "--rate", "5512"), 70.0,
         "SPEC.md 98.1.7.2: a LIVE clip with ADPCM4 sound at 5,512 Hz - a "
         "quarter of PCM8's bytes at half the rate - fed by the worker with "
         "the card the clock, the capture the stream's decode whole",
@@ -13140,7 +13140,7 @@ SOAK = [
                "build/boothd.bin", "build/mbr.bin", "build/hdd.drv",
                "build/hiber.drv", "build/ctrl.drv")),
     Row("vidsndres", "soak", py("tests/vidsound.py", "--secs", "2",
-                                "--resident", "--loop", "30"), 45.0,
+                                "--resident", "--loop", "30"), 40.0,
         "SPEC.md 98.1.7, 98.3.9: a RESIDENT clip with its sound one audio "
         "block, two laps past the first with the card the clock: the "
         "capture the first lap's sound then frame 30's on, twice, byte for "
@@ -13278,7 +13278,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidlivesnd", "soak", py("tests/vidsound.py", "--secs", "3",
-                                 "--live"), 30.0,
+                                 "--live"), 40.0,
         "SPEC.md 98.3.10.1: LIVE WITH SOUND on the Hercules 5150 with a "
         "Sound Blaster - a resident Live clip with PCM8 played on the "
         "desktop by the worker, the card the clock: every frame, the "
@@ -13290,7 +13290,7 @@ SOAK = [
                "build/boothd.bin", "build/mbr.bin", "build/hdd.drv",
                "build/hiber.drv", "build/ctrl.drv")),
     Row("vidlivesndp", "soak", py("tests/vidsound.py", "--secs", "5",
-                                  "--live", "--pause"), 30.0,
+                                  "--live", "--pause"), 40.0,
         "SPEC.md 98.3.10.1: vidlivesnd with Space held a third of the way "
         "in - not a frame drawn and not a byte played while paused",
         needs=("marty", "nasm"), serial=True,
@@ -13306,7 +13306,7 @@ SOAK = [
                "build/boothd.bin", "build/mbr.bin", "build/hdd.drv",
                "build/hiber.drv", "build/ctrl.drv")),
     Row("vidlivesnds", "soak", py("tests/vidsound.py", "--secs", "5",
-                                  "--live", "--swap"), 30.0,
+                                  "--live", "--swap"), 50.0,
         "SPEC.md 98.3.10.1: vidlivesnd with F a third of the way in and F "
         "back - Live to the full screen and back, playing, the card paused "
         "and resumed at each, the capture still whole",
@@ -13828,7 +13828,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidsndfs", "soak", py("tests/vidsound.py", "--secs", "20",
-                               "--fs"), 64.0,
+                               "--fs"), 70.0,
         "SPEC.md 98.3.6: vidsound's clip taken full screen with F - PAUSED "
         "on frame 0 with the card NOT yet opened - then played with Space: "
         "every frame, no pause, on the card's clock, and the capture holding "
@@ -13840,7 +13840,7 @@ SOAK = [
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidahead", "soak", py("tests/vidsound.py", "--secs", "20",
-                               "--ahead", "4"), 42.0,
+                               "--ahead", "4"), 60.0,
         "SPEC.md 98.1.8, 98.3.1: SOUND AHEAD - vidsound's clip with its "
         "sound carried 4 frames ahead of its picture, played from the "
         "stream's start: the start's lead read into the ring, staged in the "
@@ -13853,7 +13853,7 @@ SOAK = [
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidaheadseek", "soak", py("tests/vidsound.py", "--secs", "20",
-                                   "--seek", "3", "--ahead", "4"), 42.0,
+                                   "--seek", "3", "--ahead", "4"), 50.0,
         "SPEC.md 98.1.8, 98.3.5: the same clip from its fourth keyframe - "
         "the key's lead is in the leads' table apart (98.1.8.1), read into "
         "the ring past the key's, and the capture holds the sound from "
@@ -13864,7 +13864,7 @@ SOAK = [
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidaheadseekin", "soak", py("tests/vidsound.py", "--secs", "20",
                                      "--seek", "3", "--ahead", "4",
-                                     "--inline-leads"), 42.0,
+                                     "--inline-leads"), 30.0,
         "SPEC.md 98.1.8.1: vidaheadseek's seek on a clip whose keys' leads "
         "are INLINE, their entries' tails, as every file before the leads "
         "went apart kept them - such a file must still seek with its sound",
@@ -13873,7 +13873,7 @@ SOAK = [
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidaheadfs", "soak", py("tests/vidsound.py", "--secs", "20",
-                                 "--fs", "--ahead", "4"), 44.0,
+                                 "--fs", "--ahead", "4"), 40.0,
         "SPEC.md 98.1.8, 98.3.6: in with F, PAUSED on the first frame and "
         "the card not opened - the staged lead waits in the sound ring's "
         "tail until Space opens it, and the capture is still whole",
@@ -13882,7 +13882,7 @@ SOAK = [
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidaheadloop", "soak", py("tests/vidsound.py", "--secs", "20",
-                                   "--loop", "30", "--ahead", "4"), 52.0,
+                                   "--loop", "30", "--ahead", "4"), 60.0,
         "SPEC.md 98.1.8, 98.3.9: REPEAT through a seam, sound ahead - the "
         "last A records carry the lap's first frames and the seam frame "
         "L+A's, so two laps past the first are the first lap's sound and "
@@ -13893,7 +13893,7 @@ SOAK = [
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidaheadad", "soak", py("tests/vidsound.py", "--secs", "20",
                                  "--seek", "2", "--audio", "adpcm4",
-                                 "--ahead", "4"), 48.0,
+                                 "--ahead", "4"), 50.0,
         "SPEC.md 98.1.8, 98.1.1.1: ADPCM4 sound ahead, from a keyframe - "
         "the key's reference byte is the record's last, BEFORE its lead, "
         "and the capture equals the continuous stream's decode from k+1",
@@ -13909,7 +13909,7 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv")),
     Row("vidsndseek", "soak", py("tests/vidsound.py", "--secs", "20",
-                                 "--seek", "3"), 60.0,
+                                 "--seek", "3"), 40.0,
         "SPEC.md 98.3.5: vidsound's clip played from its fourth keyframe - "
         "the play starts at frame k+1 and the capture holds the sound from "
         "that frame's on, the picture on the card's clock from the first "
@@ -13919,7 +13919,7 @@ SOAK = [
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidsndseekad", "soak", py("tests/vidsound.py", "--secs", "20",
-                                   "--seek", "3", "--audio", "adpcm4"), 70.0,
+                                   "--seek", "3", "--audio", "adpcm4"), 60.0,
         "SPEC.md 98.1.1.1, 98.3.5: the same seek with ADPCM4 sound. The card "
         "restarts its decoder there, so the encoder steers the scale to 0 at "
         "every keyframe's frame k+1 and the keyframe carries the sample the "
@@ -14186,7 +14186,7 @@ SOAK = [
         "the desktop's layout at the window's origin",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidsound", "soak", py("tests/vidsound.py"), 135.0,
+    Row("vidsound", "soak", py("tests/vidsound.py"), 40.0,
         "SPEC.md 98.3.1/34.5.3: VIDEO.O88 WITH SOUND, the card the clock. A "
         "60 s 30 fps clip with 22,050 Hz PCM8 the row makes, streamed off a "
         "fixed disk on the Hercules 5150 with a Sound Blaster, the card's "
@@ -14202,7 +14202,7 @@ SOAK = [
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidsoundad", "soak", py("tests/vidsound.py", "--secs", "10",
-                                 "--audio", "adpcm4"), 45.0,
+                                 "--audio", "adpcm4"), 60.0,
         "SPEC.md 98.1.1.1/34.5.3: vidsound's play with the sound as ADPCM4, "
         "the card decoding it (DSP 7Dh) - MartyPC's since "
         "tools/martypc/patches/06, with the tables tools/os88vid.py encodes "
@@ -14215,7 +14215,7 @@ SOAK = [
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidsndad55", "soak", py("tests/vidsound.py", "--secs", "20",
                                  "--audio", "adpcm4", "--rate", "5512"),
-        60.0,
+        50.0,
         "SPEC.md 98.3.1/34.5.3: vidsound's play STREAMED with 5,512 Hz "
         "ADPCM4, whose 2,048-byte block was 0.74 s of sound and made the "
         "reader keep 20 frames ahead of the picture - the owner's 5150 "
@@ -14228,7 +14228,7 @@ SOAK = [
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidsndmute", "soak", py("tests/vidsound.py", "--secs", "10",
-                                 "--button"), 45.0,
+                                 "--button"), 30.0,
         "SPEC.md 98.3.17: THE MUTE BUTTON - clicked on the desktop it "
         "mutes and stands down, and unmutes; in a window play it turns the "
         "card off at once and the play goes on silent at its rate, and "
@@ -14239,7 +14239,7 @@ SOAK = [
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidsndad4", "soak", py("tests/vidsound.py", "--secs", "10",
-                                "--audio", "adpcm4", "--dsp4"), 45.0,
+                                "--audio", "adpcm4", "--dsp4"), 40.0,
         "SPEC.md 34.5.3.1, 98.3.17: an ADPCM4 file on a card made to "
         "answer DSP 4.xx and publish SND_CAP_ADPCM4Q opens MUTED (why 1), "
         "and plays every frame with no sound run and none captured",
@@ -14249,7 +14249,7 @@ SOAK = [
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidsndad4on", "soak", py("tests/vidsound.py", "--secs", "10",
                                   "--audio", "adpcm4", "--dsp4",
-                                  "--unmute"), 45.0,
+                                  "--unmute"), 50.0,
         "SPEC.md 34.5.3.1, 98.3.17: the same, unmuted with M - the open "
         "FORCED past the driver's DSP 4.xx refusal, and the capture holds "
         "the stream decoded, whole and in order. Red without the FORCE",
@@ -14259,7 +14259,7 @@ SOAK = [
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidsndad4soft", "soak", py("tests/vidsound.py", "--secs", "20",
                                     "--audio", "adpcm4", "--dsp4", "--soft",
-                                    "--rate", "5512"), 57.0,
+                                    "--rate", "5512"), 40.0,
         "SPEC.md 98.3.17.1: an ADPCM4 file on a card answering DSP 4.xx, on "
         "a machine answering CPU_286 - NOT muted, the PLAYER decodes it into "
         "a PCM8 stream (vp_sadp), the card's block PCM8's, and the capture "
@@ -14273,7 +14273,7 @@ SOAK = [
                "build/ctrl.drv", "build/sound.drv")),
     Row("vidsndad4sseek", "soak", py("tests/vidsound.py", "--secs", "20",
                                      "--audio", "adpcm4", "--dsp4", "--soft",
-                                     "--rate", "5512", "--seek", "3"), 57.0,
+                                     "--rate", "5512", "--seek", "3"), 30.0,
         "SPEC.md 98.3.17.1: the same, played from the fourth keyframe - the "
         "player's decoder started where the card's would be, the key's "
         "reference byte and a scale of 0, so the capture equals the "

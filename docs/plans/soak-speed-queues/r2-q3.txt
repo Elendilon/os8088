@@ -1,30 +1,30 @@
 # ROUND 2. family  row  declared_secs  script. VERIFY = shared script edited in round 1, row never re-run: run it once first.
-vids	vidsound	135	tests/vidsound.py
+DONE vids	vidsound	135	tests/vidsound.py
 vids	vidspkcovox	90	tests/vidspk.py
 vids	vidspkcovoxc	90	tests/vidspk.py
-vids	vidsndresks	90	tests/vidsound.py
-vids	vidsndresad	80	tests/vidsound.py
-vids	vidsndseekad	70	tests/vidsound.py
-vids	vidsndpause	64	tests/vidsound.py
-vids	vidsndfs	64	tests/vidsound.py
+DONE vids	vidsndresks	90	tests/vidsound.py
+DONE vids	vidsndresad	80	tests/vidsound.py
+DONE vids	vidsndseekad	70	tests/vidsound.py
+DONE vids	vidsndpause	64	tests/vidsound.py
+DONE vids	vidsndfs	64	tests/vidsound.py
 vids	vidspkunmute	60	tests/vidspk.py
-vids	vidsndloop	60	tests/vidsound.py
-vids	vidsndseek	60	tests/vidsound.py
-vids	vidsndad55	60	tests/vidsound.py
-vids	vidsndad4soft	57	tests/vidsound.py
-vids	vidsndad4sseek	57	tests/vidsound.py
-vids	vidaheadloop	52	tests/vidsound.py
-vids	vidaheadad	48	tests/vidsound.py
-vids	vidlivesnd55	45	tests/vidsound.py
-vids	vidsndres	45	tests/vidsound.py
-vids	vidsoundad	45	tests/vidsound.py
-vids	vidsndmute	45	tests/vidsound.py
-vids	vidsndad4	45	tests/vidsound.py
-vids	vidsndad4on	45	tests/vidsound.py
-vids	vidaheadfs	44	tests/vidsound.py
-vids	vidahead	42	tests/vidsound.py
-vids	vidaheadseek	42	tests/vidsound.py
-vids	vidaheadseekin	42	tests/vidsound.py
+DONE vids	vidsndloop	60	tests/vidsound.py
+DONE vids	vidsndseek	60	tests/vidsound.py
+DONE vids	vidsndad55	60	tests/vidsound.py
+DONE vids	vidsndad4soft	57	tests/vidsound.py
+DONE vids	vidsndad4sseek	57	tests/vidsound.py
+DONE vids	vidaheadloop	52	tests/vidsound.py
+DONE vids	vidaheadad	48	tests/vidsound.py
+DONE vids	vidlivesnd55	45	tests/vidsound.py
+DONE vids	vidsndres	45	tests/vidsound.py
+DONE vids	vidsoundad	45	tests/vidsound.py
+DONE vids	vidsndmute	45	tests/vidsound.py
+DONE vids	vidsndad4	45	tests/vidsound.py
+DONE vids	vidsndad4on	45	tests/vidsound.py
+DONE vids	vidaheadfs	44	tests/vidsound.py
+DONE vids	vidahead	42	tests/vidsound.py
+DONE vids	vidaheadseek	42	tests/vidsound.py
+DONE vids	vidaheadseekin	42	tests/vidsound.py
 vids	vidspkfson	40	tests/vidspk.py
 vids	vidaheadspk	38	tests/vidspk.py
 vids	vidsnd	37	tests/vidsnd.py
@@ -35,10 +35,10 @@ vids	vidspk22	30	tests/vidspk.py
 vids	vidspkcounts	30	tests/vidspk.py
 vids	vidspkfull	30	tests/vidspk.py
 vids	vidspkoff	30	tests/vidspk.py
-vids	vidlivesnd	30	tests/vidsound.py
-vids	vidlivesndp	30	tests/vidsound.py
-vids	vidlivesndl	30	tests/vidsound.py
-vids	vidlivesnds	30	tests/vidsound.py
+DONE vids	vidlivesnd	30	tests/vidsound.py
+DONE vids	vidlivesndp	30	tests/vidsound.py
+DONE vids	vidlivesndl	30	tests/vidsound.py
+DONE vids	vidlivesnds	30	tests/vidsound.py
 vids	vidspkroute	28	tests/vidspk.py
 vids	vidspksilent	24	tests/vidspk.py
 vids	vidspkfast	24	tests/vidspk.py

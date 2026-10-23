@@ -5989,6 +5989,7 @@ def _adpcm4_viterbi(pcm, start, zeros, chunk=2048, end=None):
     nibs = np.zeros(n, np.uint8)
     states = np.zeros(n, np.int32)
     win = [0, []]                   # the window's first sample, backpointers
+    lim = chunk                     # ...and the window size the next commit
 
     def trace(t, S, all_agree):
         w0, bp = win
@@ -6020,12 +6021,19 @@ def _adpcm4_viterbi(pcm, start, zeros, chunk=2048, end=None):
         best[dead] = INF            # renormalised, and the dead stay dead
         cost[:1024] = best.reshape(1024)
         win[1].append(j.reshape(1024).astype(np.uint8))
-        if len(win[1]) >= chunk:
+        if len(win[1]) >= lim:
             live = np.nonzero(cost[:1024] < INF)[0]
             path = trace(t + 1, live, True)
             if path is not None:    # decided before `path`: drop it
                 win[1] = win[1][path - win[0]:]
                 win[0] = path
+                lim = chunk
+            else:                   # NOT YET: try again a chunk later, not
+                lim = len(win[1]) + chunk   # at every sample - noise can
+                # keep its survivors apart for thousands of samples, and a
+                # failed walk is the whole window. The commits are the same
+                # path either way (whatever is decided is on every
+                # survivor's), so only the memory and the time differ
     if end is not None:
         if cost[end] >= INF:
             raise V88Error("ADPCM4: no path ends in state %d (sample %d, "
