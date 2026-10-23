@@ -7636,7 +7636,7 @@ SOAK = [
         "launch and a close on top of the suite, and the row was 36.9s before.",
         needs=("marty",), serial=True,
         wants=("build/heapfrag360.img",)),
-    Row("xmcheck", "soak", py("tests/xmcheck.py"), 50.0,
+    Row("xmcheck", "soak", py("tests/xmcheck.py"), 10.0,
         "The extended-memory TEARDOWN gate (SPEC.md 41.5, 29.4). QEMU and "
         "not MartyPC, and the row said `marty` for a year: the machine has "
         "to HAVE memory above 1MB and the target machine never can (SPEC.md "
