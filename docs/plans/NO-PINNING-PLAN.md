@@ -415,6 +415,15 @@ end; PIXELSTEIN's shadow movable (6.5 is what blocks the rest); WireFleet the
 first adopter of the parts standard's `OP_ONMOVE` opt-in (SPEC.md 20.12.12);
 Excitebike audited, all bucket C. Rows `pkgmove-wireflet`, `pkgmove-1942`,
 `pkgmove-isotron`, and `tank` and `pxsmove` extended.
+C5 Weave/Loom (`1c406a9f`, WEAVE-SPEC 1.2.6): every long-lived claim of
+both moves, through one `os88_onmove` each that rewrites every copy of a base;
+part 0 is pinned once WEAVE's worker is hired (it parks inside it). It found
+and fixed a live defect: WEAVE's region was already movable and its first
+move left `wvm_ourds` stale, so natives ran against the old segment (new
+opt-in `CC_ONMOVE_REGION`). On the 256KB XT the second WEAVE's region now
+fits, so the refusal moved from the loader to the runtime's own window
+(`weaveone` accepts either). Rows `weavemove`, `loommove`. It also found
+LOOM leaking Preview's 112KB on a Pack from the pane, fixed in `056841dd`.
 
 **In flight in agent worktrees (branches off `no-pinning`, NOT merged):**
 - C4: LEMMINGS' claims movable (range-translating `os88_onmove`)
