@@ -53,6 +53,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
    is a blind sleep the waitlog does not even log** (paintrz had ~80 guest s
    of them a row); after an input it is `ui_done`, and where the old wait
    was proving the work happened, assert the state moved instead.
+   Work a package posts as `OSAPI_WM_WAKE` slices (Weave's VM) is UI-task
+   work, so `ui_done` covers it; a WORKER's drawing (a canvas game) is not.
 5. **A wait whose PASS is a timeout is the most expensive line in a row.**
    `until(..., required=False)` / a fixed `cycles` window for "X must NOT
    happen" pays its whole budget (often 30-180 guest s) on every green run.
@@ -126,6 +128,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
   [spl_live] = 0, then `ui_done`; no picture settle. dispseam's four boots.
 - **`ui_done(m, lock=False)` / `ui_idle(m, lock=False)`** (os88marty): the UI pass is over without asking the gfx lock - for a GAME whose worker holds it nearly always (Missile: a `ui_done` after a drag ran 110 guest s). The framebuffer is then not promised; settle before a capture. dispmcfs.
 - `tools/redline_profile.py` `wait()`: 5-frame steps for the first guest second, then 30 (same guest bound). The benchmark runs are minutes of guest time and each 5-frame step was a round trip plus the predicate's reads. redline* rows; validated on redlinecga/herc/v20native (pass) and redlinevga (fails identically with the old wait).
+- **`tests/weavesmoke.py`'s `_open_bundle` on os88ui verbs, and `booted()`** (a quick boot): the whole Weave family's navigation (weaveprev/session/grid/gfx/one/game/lat). Validated on all eight rows.
 
 ## Ledger
 
@@ -182,6 +185,10 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | skies (+ every skies*.py) | skies 66 s / 37 guest | 49 s / 25 guest | 2 | `quick=True` on the 29 os88ui.boot scripts; `skies.open_game` (6 launch-based scripts) is `ui.up` + `ui.path` instead of four dispcp settles, launched `boot=False`. Whole skie family run green after; secs left as declared |
 | redline (cga, herc, v20native) | cga 172 s | cga 148 s; herc 222, v20 233 (loaded) | - | the guest benchmark runs (two full runs, the rerun is a tested behaviour) ARE the row; only the poll step shrank. **redlinevga FAILS at base**: `ru_buttons+10 == 2` (held press, redline.py:312), identically with the old wait |
 | weavepack | 67 s / 250 guest s waited (declared 1,500) | 51 s / 160 | 2, 4 | os88ui verbs (`open` confirms LOOM's window, `close` its record) and `ui_done` after ^P - Pack runs whole on the UI task - instead of three settles; quick boot. The rest is eleven LOOM launches and their packs |
+| weaveprev | 79 s / 283 guest s waited | 53 s / 190 | 2, 3, 4 | six boots -> two (Forks a project); the Preview's two settles -> `ui_done` (compile + module read are UI-task); every read is `m.vram`. The rest is three LOOM launches and Previews a machine |
+| weavesession | 28 s / 91 | 24 s / 66 | 2, 4 | six settles -> `ui_done` (the VM drains in WM_ONWAKE slices on the UI task; FORM has no canvas) |
+| weavegrid / weavegfx | 31 / 37 s; 93 / 112 guest | 24 / 27 s; 60 / 71 | 2, 3, 4 | grid: settles and `_park`'s -> `ui_done`; gfx: four boots -> two (Forks) |
+| weavesmoke / weaveone / weavegame / weavelat | 71 / 15 / 11 / - s | 33 / 16 / 10 / 13 s | 2 | the shared `_open_bundle` + quick boot only; one/game/lat were already lean - re-declared |
 
 ## Resuming
 
