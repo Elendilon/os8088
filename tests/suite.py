@@ -16608,7 +16608,10 @@ SOAK = [
     Row("dmgcull", "soak", py("tests/dmgcull.py"), 50.0,
         "SPEC.md 11.3.3: a marked window does not paint where something above "
         "it is about to - 452 cells under the mover became 26. Counts CELLS "
-        "and not calls, because a culled cell is still a call.",
+        "and not calls, because a culled cell is still a call. The memory "
+        "page is put in +ALL and +DETAIL first: since 28.4.10 it opens three "
+        "rows long, all under the mover, and DREW read 0 for a cull doing "
+        "its job.",
         needs=("marty",), serial=True),
     Row("tmdmg", "soak", py("tests/tmdmg.py"), 40.0,
         "SPEC.md 28.10.2: a partial repaint of the Task Manager draws only "
