@@ -107,6 +107,16 @@ SHIPIMGS := $(IMG) $(IMG120) $(IMG720) $(IMG360) \
             $(MEDIAIMG360) $(OFFICEIMG360) $(NETWORKIMG360) $(GAMESIMG360) \
             $(EMUIMG360) $(UTILIMG360)
 
+# ...and each of them SIGNS IN A SLOT OF ITS OWN (SPEC.md 18.8.2.2): os88disk.py
+# reads this list (tools/os88ship.py) and steers every member's boot-sector
+# signature into its sorted place, so no two shipped disks can look like one
+# disk to dsk_bpb_sig. The slot is the image's place in the LIST, so the list
+# is a prerequisite: this stamp is named for it and every member depends on it,
+# and an image added or removed rebuilds the set rather than leaving a stale
+# one in a slot that now belongs to somebody else.
+SHIPSTAMP := $(BUILD)/.ship-$(shell printf '%s' '$(notdir $(SHIPIMGS))' | cksum | cut -d' ' -f1)
+$(SHIPIMGS): $(SHIPSTAMP) tools/os88ship.py
+
 BOX   := /Applications/86Box.app/Contents/MacOS/86Box
 
 # RESET= clears a machine's non-volatile state on the way in, and it reaches
@@ -3256,6 +3266,15 @@ DRIVERS += $(BUILD)/ems.drv
 # SYSTEM.CFG bit 8, not wanted by default (attach selects a device on every IDE
 # channel it probes). kern_big's alone, and refused below a 286 at attach
 DRIVERS += $(BUILD)/cdrom.drv
+# ...and SPEC.md 120's HTTPFS.DRV, a read-only drive over HTTP: a drv_tab row
+# with SYSTEM.CFG bit 9, not wanted by default. kern_big's alone. It probes
+# nothing and opens no socket until a drive is opened, so a disk that carries
+# it costs a machine that never ticks it one directory slot and nothing read.
+# ON EVERY kern_big SYSTEM DISK, the 360KB one included: SPEC.md 24.3.1.6
+# made that disk's room for it.
+DRIVERS += $(BUILD)/httpfs.drv
+# ...and its Control Panel page, which it reads in itself (SPEC.md 120.5)
+DRIVERS += $(BUILD)/httppage.drv
 # ...and SPEC.md 9.11's absolute pointer is NOT HERE, which is the one entry
 # in this list that is an absence. Its code is 386 instructions and the target
 # machine is an 8088, so it is the one file in the tree that MUST NOT BE
@@ -4466,6 +4485,34 @@ $(BUILD)/cdrom.bin: $(CDROM_SRC) drivers/os88drv.inc apps/os88api.inc | $(BUILD)
 $(BUILD)/cdrom.drv: $(BUILD)/cdrom.bin tools/os88drv.py $(PKGZSTAMP)
 	$(OS88DRV) $(BUILD)/cdrom.bin -o $@
 
+# HTTPFS.DRV - SPEC.md 120: a read-only volume served over HTTP, through the
+# socket verbs ETHER.DRV and the cable answer (drivers/net/netpkg.inc).
+# Its Control Panel page is HTTPPAGE.DRV, RAMPAGE.DRV's shape (SPEC.md 120.5):
+# built FIRST, because -DHFPAGE_KB is the claim HTTPFS.DRV makes for it, off
+# the IMAGE - a ceiling, the transparent read expanding the 'CZ' file into it.
+HTTPFS_SRC := drivers/httpfs/httpfs.asm drivers/httpfs/hfpkg.inc \
+              drivers/httpfs/hfnet.inc drivers/httpfs/hfidx.inc \
+              drivers/httpfs/hfpage.inc drivers/net/netpkg.inc \
+              apps/os88sock.inc
+$(BUILD)/httppage.bin: drivers/httpfs/httppage.asm drivers/httpfs/hfpkg.inc \
+                       drivers/net/netpkg.inc drivers/os88drv.inc \
+                       apps/os88api.inc apps/os88ui.inc apps/os88line.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I drivers/httpfs/ -I drivers/net/ -I drivers/ -I apps/ -o $@ $<
+	@echo "httppage: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/httppage.drv: $(BUILD)/httppage.bin tools/os88drv.py $(PKGZSTAMP)
+	$(OS88DRV) $(BUILD)/httppage.bin -o $@
+
+$(BUILD)/httpfs.bin: $(HTTPFS_SRC) drivers/os88drv.inc apps/os88api.inc \
+                     $(BUILD)/httppage.bin | $(BUILD)
+	$(NASM) -f bin -w+error -I drivers/httpfs/ -I drivers/net/ -I drivers/ -I apps/ \
+	        -DHFPAGE_KB=$$(( ( $(call FILESIZE,$(BUILD)/httppage.bin) + 1023 ) / 1024 )) \
+	        -o $@ $<
+	@echo "httpfs: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/httpfs.drv: $(BUILD)/httpfs.bin tools/os88drv.py $(PKGZSTAMP)
+	$(OS88DRV) $(BUILD)/httpfs.bin -o $@
+
 # ...and the GATE'S build of it, never shipped (usbmouse's CH375SIM shape):
 # -DCDSIM_AUDIO gives QEMU's one-track data disc three audio tracks, so
 # tests/cdrom.py can drive TRACKnn.CDA and CDRack there (SPEC.md 119.7)
@@ -5272,6 +5319,38 @@ $(BUILD)/mixer360.img $(BUILD)/mixernone360.img: $(BUILD)/boot360.bin $(KERNFILE
 miditest: $(BUILD)/midisys720.img $(APPSIMG720)
 	@echo "miditest: build/midisys720.img - SOUND.DRV already wanted, for the"
 	@echo "          MPU-only machine. Run it with: python3 tests/midirack.py --arm mpu"
+
+# HTTPMOUNTTEST: the HTTP drive's gate disk (SPEC.md 120.7), ethertest's
+# shape at 1.44MB. Its SYSTEM.CFG wants ETHER.DRV (bit 4) and HTTPFS.DRV
+# (bit 9), and HTTPDRV.CFG at the root names the HOST's own server through
+# QEMU's slirp gateway with bit 0 set - so the drive is on the desktop, lazy,
+# before the first paint, and tests/httpmount.py serves the tree it built.
+# Port 8095: tests/ethernet.py has 8090 and the Wire 8092, and a bound port
+# is a gate reading the OTHER one's answers. A directory of its own for
+# build/wirecfg's reason: os88disk.py names a file from its BASENAME.
+$(BUILD)/httpcfg/SYSTEM.CFG: | $(BUILD)
+	@mkdir -p $(BUILD)/httpcfg
+	python3 -c "import sys; sys.stdout.buffer.write(b'O88CFG\0\0' + \
+	  (3).to_bytes(2,'little') + b'DW' + bytes([1,2]) + \
+	  ((1 << 4) | (1 << 9)).to_bytes(2,'little') + b'\0\0')" > $@
+
+$(BUILD)/httpcfg/HTTPDRV.CFG: | $(BUILD)
+	@mkdir -p $(BUILD)/httpcfg
+	python3 -c "import sys; u = b'http://10.0.2.2:8095/fix/'; \
+	  sys.stdout.buffer.write(b'HD' + bytes([1, 1]) + u + bytes(96 - len(u)))" > $@
+
+$(BUILD)/httpmount.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/httpcfg/SYSTEM.CFG $(BUILD)/httpcfg/HTTPDRV.CFG tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		$(BUILD)/httpcfg/SYSTEM.CFG $(BUILD)/httpcfg/HTTPDRV.CFG \
+		--folder SYSTEM/APPDATA
+
+.PHONY: httpmounttest
+httpmounttest: $(BUILD)/httpmount.img $(BUILD)/mines.o88
+	@echo "httpmounttest: build/httpmount.img - ETHER.DRV and HTTPFS.DRV wanted,"
+	@echo "               HTTPDRV.CFG naming 10.0.2.2:8095/fix/."
+	@echo "               Run it with: python3 tests/httpmount.py"
 
 .PHONY: ethertest
 ethertest: $(BUILD)/ether360.img
@@ -6181,6 +6260,10 @@ $(SBSTAMP): | $(BUILD)
 
 $(PKGZSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.pkgz $(BUILD)/.pkgz-lz4 $(BUILD)/.pkgz-lzb
+	@touch $@
+
+$(SHIPSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.ship-*
 	@touch $@
 
 $(PKGZBSTAMP): | $(BUILD)

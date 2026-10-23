@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "a5fb5455a73e10b9f0489ab5221c9acac470f72e70ead5f8471210b0bd3ee55e",
+  "fingerprint": "09a7e1b51d3ed04cdcbb96ba377514f538d9f53112df683ad5500e08ed155583",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "6bcf4e0ba4b9c048b73b69383a201191a6d094e8c17ce45b2ccb0183979b08ce",
+  "fingerprint": "02235e92df0657eb1ad4c9c6703b2d6c8a753a743e9d8a21343c20d82cbcd1e1",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -854,6 +854,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "os88ui button record: OS88UI_BT_OX..FY (the drag rebase bank) replaced by OS88UI_BT_PLACE, the package's own layout proc run before every hit test; the record is each package's own and only its own copy of the library reads it, so nothing built before stops running",
+   "to": 11
+  },
+  {
+   "fingerprint": "02235e92df0657eb1ad4c9c6703b2d6c8a753a743e9d8a21343c20d82cbcd1e1",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "merge network-mount into elendilon: DRVC_HTTP = 10 appended, DQ_MAXREC 9 -> 10 for kern_emu's tenth row (SPEC.md 120.1), over elendilon's OS88UI_BT_PLACE record change - both additions, nothing built before moves",
+   "to": 10
+  },
+  {
+   "fingerprint": "09a7e1b51d3ed04cdcbb96ba377514f538d9f53112df683ad5500e08ed155583",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "merge network-mount into elendilon: DRVC_HTTP = 10 appended, DQ_MAXREC 9 -> 10 for kern_emu's tenth row (SPEC.md 120.1), over elendilon's OS88UI_BT_PLACE record change - both additions, nothing built before moves",
    "to": 11
   }
  ]

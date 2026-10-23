@@ -2432,6 +2432,48 @@ SOAK = [
         "to B: is byte-identical on the host",
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/cdromtest.img", "build/cdfix.iso", "build/cdrom.bin")),
+    Row("httpdrvtool", "soak", py("tools/os88httpdrv.py", "--selfcheck"), 2.0,
+        "SPEC.md 120.3/120.7: the HTTP drive's host tool - OS88.IDX written and "
+        "read back, every rule HTTPFS.DRV's hf_valid applies broken on purpose "
+        "and refused (magic, length, count, a parent that is not below its "
+        "child, a name byte past the font), and the test server's Range: answered 206 "
+        "and, with --no-range, ignored with a 200",
+        needs=()),
+    Row("httpmountname", "soak", py("tests/httpmount.py", "--name"), 110.0,
+        "SPEC.md 72.5.1 and 120: the httpmount legs with the address BY NAME "
+        "(http://localhost:8095/fix/), QEMU's slirp pointed at a stub resolver "
+        "through a private /etc/resolv.conf: ETHER.DRV's name cache holds the "
+        "name after the open, and the resolver is asked ONCE for six "
+        "connections. Red (six lookups) with dns_cached's answer ignored",
+        needs=("qemu", "nasm"), serial=True, timeout=600,
+        wants=("build/httpmount.img", "build/httpfs.bin", "build/ether.bin",
+               "build/mines.o88")),
+    Row("httpinstall", "soak", py("tests/httpinstall.py"), 35.0,
+        "SPEC.md 62.9.17.1 and 120.3: an Install whose SOURCE is the HTTP "
+        "drive, onto an IDE disk that already holds a hidden + system "
+        "KERNEL.SYS (keeping files) - the field's upgrade. The 360KB system "
+        "disk is served with its attributes in OS88.IDX plus a marker only "
+        "the served tree has; the MBR commits, the marker arrives, and every "
+        "root file is on C: with its bytes, KERNEL.SYS and the drivers hidden "
+        "+ system. Red with --noattr (the index without them): the install "
+        "stops on KERNEL.SYS and nothing commits",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
+        wants=("build/httpmount.img", "build/os8088-360.img",
+               "build/httpfs.bin", "build/mbr.bin", "build/boothd.bin",
+               "build/kernel.sys", "build/readme.txt")),
+    Row("httpmount", "soak", py("tests/httpmount.py"), 105.0,
+        "SPEC.md 120: HTTPFS.DRV on QEMU's NE2000, against tools/"
+        "os88httpdrv.py's own server serving a fixture tree on the host. The "
+        "drive is on the desktop at boot with NO request made; opening it is "
+        "one GET (OS88.IDX) and walking folders is none; MINES.O88 launches "
+        "off it; BIG.BIN (100,001 bytes) copies to B: byte-identical with "
+        "Range:, and BIG2.BIN with the server IGNORING Range:; a paste onto "
+        "the drive ends FERR_WPROT; a 'CZ' file served as stored opens in "
+        "Note Pad unpacked (the read's own sniff, SPEC.md 20.14.6.1); a hidden + "
+        "system file is left out of the listing as on a FAT disk (62.9.17.1). "
+        "Red with the 200 arm's offset skip taken out (leg 6)",
+        needs=("qemu", "nasm"), serial=True, timeout=600,
+        wants=("build/httpmount.img", "build/httpfs.bin", "build/mines.o88")),
     Row("cdromsim", "soak", py("tests/cdrom.py", "--sim"), 30.0,
         "SPEC.md 119.3.5/119.6 on QEMU, whose drive holds no audio: the "
         "gate's CDROM.DRV (-DCDSIM_AUDIO) gives the one-track disc three "

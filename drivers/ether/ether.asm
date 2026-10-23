@@ -175,6 +175,22 @@ eth_attach:
     jc  .none                   ; them (SPEC.md 72.13). A card with no buffers
     call ne_init                ; cannot serve a socket, so this is the one
     mov byte [eth_up], 1        ; memory failure that refuses the attach.
+    push dx                     ; THE FIRST EPHEMERAL PORT, from the clock
+    call OSAPI_CLK_GET          ; (SPEC.md 72.5.2): every boot used to start
+    mov cl, ah                  ; at 49153, and a NAT that outlives the guest
+    mov al, 60                  ; - 86Box's and QEMU's slirp, a home router -
+    mul bl                      ; still holds the connections the LAST boot
+    add al, cl                  ; left open on those ports, so the first
+    adc ah, 0                   ; connects after a reboot hit them and time
+    mov cl, 3                   ; out. Seconds into the hour, spread, plus the
+    shl ax, cl                  ; ticks since boot, into 49152..57343
+    xchg ax, dx
+    call OSAPI_GET_TICKS
+    add ax, dx
+    and ah, 0x1F
+    add ax, 49152
+    mov [eth_lport], ax
+    pop dx
                                 ; NO ADDRESS IS CLEARED HERE: eth_ip..eth_dns
                                 ; are zero because the image was loaded a
                                 ; moment ago, and an attach is the first verb

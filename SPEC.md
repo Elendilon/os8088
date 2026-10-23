@@ -34826,6 +34826,52 @@ must each carry their own serial, every other byte being what it was. With
 `DSK_VOLID` emptied and `hd_bpb_fill`'s two stores taken out, all four go red
 on exactly those checks.
 
+#### 18.8.2.2 …and every SHIPPED disk signs in a slot of its own
+
+A serial derived from content makes two different disks sign differently
+**with probability 65,535 in 65,536**, not with certainty: `dsk_bpb_sig` is
+16 bits and each image's serial is an independent draw, so the shipped set is
+a birthday problem. Thirteen images share a signature in about **one tree in
+840** (measured over 20,000 random serials: 0.10%, against 0.12% computed),
+and *every commit is a new tree*, because the build number is in every image
+(§14.2). So `t_volsig` failed at random: it went red on `elendilon` at
+1b9bc77 with `network360.img` and `os8088-720.img` both signing `0xD401`, and
+the next commit would most likely have cleared it while fixing nothing.
+
+**So the shipped set is distinct by construction.** `os88disk.py` reads
+`$(SHIPIMGS)` (`tools/os88ship.py`, the one reader the Makefile has) and
+gives each member its 1-based place in the SORTED list as a slot; the image's
+signature is then steered so that its **low six bits are the slot** and its
+upper ten bits are what the content-derived serial gave. Two shipped images
+cannot meet in the low bits, so they cannot sign alike.
+
+**The steering is solved, not searched.** Each step of the sum is
+`x -> rotl(x + w, 1)`, a bijection of `x`, so with every other word fixed the
+signature is a bijection of any one word. `steer_sig` runs forward to word 20
+and backward from the target to word 21, and the word between follows.
+Word 20 is bytes 40..41 - the serial's middle two bytes - so the serial's
+outer bytes stay the content's digest, the boot code (from 62) and the BPB are
+untouched, and identical content still signs alike (`t_volsig`'s second half).
+
+What it does NOT cover, and why that is acceptable:
+
+- **An image outside `$(SHIPIMGS)`** - an on-demand disk (`c64360.img`,
+  `weave360.img`), a `kern_small` or knob tree's copy of a shipped name in
+  another directory, a test's scratch image - keeps its plain derived serial,
+  or takes the shipped name's slot. Against the shipped set it collides at
+  most as often as before. A `kern_small` system disk and its `kern_big`
+  namesake share a slot, so that one pair meets in 1 tree in 1,024 rather
+  than 65,536; nothing ships both.
+- **A disk made elsewhere** is §18.8.2.1's residual and unchanged.
+- **`$(SHIPIMGS)` past 63 images** fails the build naming `SIG_SLOT_BITS`.
+
+**A slot is a place in the list**, so the list is a prerequisite: the
+Makefile's `$(SHIPSTAMP)` is named for the list's checksum and every member
+depends on it, and adding or removing an image rebuilds the set rather than
+leaving a stale image in a slot that now belongs to another. The kernel is
+untouched: **0 resident bytes on every build**, and no disk's layout, files or
+boot code move - only four bytes of each shipped image's serial.
+
 ### 18.8.3 …and the kernel's own window is one of them, PINNED
 
 `FAT_SEG` was a **fallback**: 4,608 bytes reserved on every machine, used by
@@ -40667,7 +40713,7 @@ at a stride of 24. `kernel/dskwin.inc` carries the `%error` for each.
 | 16  | 2    | type: 1 = loadable package, 2 = subdirectory, 3 = the parent link (§19.5), else 0 (rules below) |
 | 18  | 2    | first cluster = raw FstClusLO (word @26), copied verbatim even when type=0 (harmless; the loader only reads it behind type==1, and `dsk_chdir` only behind type==2). FstClusHI (@20) is FAT32-only per spec — ignored |
 | 20  | 4    | size in bytes = raw size dword @28, verbatim (lo word @20, hi @22 — drawn whole by `fm_ultoa`, or in K/M by `fm_szfig_x` per §22.7.1); forced to 0 for type 2 |
-| 24  | 8    | zero — and **not stored in a staged listing**: `DSK_DE_STRIDE` stops at 24, `dsk_ent` is still 32 wide, and no consumer in the tree reads these eight bytes |
+| 24  | 8    | zero — except that a `DRVC_FILE` driver's `FSV_ENUM` may put a FAT attribute byte at **+24**, which FIND reports (§62.9.17.1) — and **not stored in a staged listing**: `DSK_DE_STRIDE` stops at 24, `dsk_ent` is still 32 wide, and no consumer in the tree reads these eight bytes |
 
 **The type word** (binding — defense in depth with §21 step 1), tested in
 this order:
@@ -107549,6 +107595,37 @@ redirected volume it is strictly the cheaper of the two: §19.7.1's stateless
 re-seek costs the FAT arm a sector walk per entry, where the driver walks its
 own rows in RAM.
 
+##### 62.9.17.1 The attribute, at +24 of the staged entry
+
+The arm above staged attribute **0** for every redirected entry, on the
+reading that a driver's species bits live in its own rows and never cross the
+ABI. That stopped being true of the first driver whose source is a real
+system disk: `HTTPFS.DRV` (§120) serves a copy of one, and §52.10's installer
+asks FIND whether a file is hidden + system and copies it through the `_SYS`
+verbs when it is (§52.10.12). With 0 it took `KERNEL.SYS` for a plain file,
+created it with `OSAPI_FILE_WRITE` over the hidden + system one a kept
+volume already holds, and was refused — the field report was *"recognises
+the drive as a system disk, then immediately fails on KERNEL.SYS"*.
+
+So **byte +24 of the entry a driver stages for `FSV_ENUM` is a FAT-style
+attribute byte, 0 = none**, and `dsk_find_x`'s redirected arm reports it at
+the FIND record's `+13` exactly as the sector arm reports the directory
+entry's. §19.1 declares bytes 24..31 zero and no consumer reads them, and
+every driver in the tree stages a zeroed 32 bytes (`rd_stage`, `cd_ezero`,
+the cable server's `srv_blank`), so every one of them, and every copy of one
+already on a disk, answers 0 as before; nothing moved and no `DRV_VER` or
+`PKG_FMT` changed. A staged LISTING stops at `DSK_DE_STRIDE` = 24, so the
+byte is never stored there and costs no RAM.
+
+The FIND fence is unchanged: it is the sector arm's (`DL`), and the
+redirected arm has never applied it, so what a package sees on a redirected
+volume is the driver's own business — `HTTPFS.DRV` leaves hidden and system
+entries out of its `FSV_LIST` as a FAT listing does, and answers them through
+`FSV_ENUM` for the copier and the installer.
+
+**What it costs**: `xor cl, cl` became `mov cl, [dsk_ent+24]`, **+2 bytes of
+`.cold`**, resident, on both kernels that assemble `OS88_REDIR`.
+
 #### 62.9.18 A package with PARTS on a redirected volume
 
 **`dsk_read_chain_x`'s `DVK_FILE` arm asks `FSV_READ` and the operation it is
@@ -121630,6 +121707,40 @@ getting an address is not a socket verb. It happens once, where the machine is
 already sitting through a floppy read, and it spins the pump for `DHCP_WAIT`
 (110 ticks) and gives up — rather than making every later call carry a "not
 configured yet" state nothing would poll.
+
+#### 72.5.1 One name, remembered
+
+**`NETV_OPEN` resolved a name on every connection**, so a program that
+reconnects to one host - the HTTP drive's GET per file (§120), The Wire's
+per picture (§92) - paid a whole DNS exchange before every handshake.
+`dns_cached` keeps **one** entry, the last name answered and its address,
+filled by `dns_in` and asked by `NETV_OPEN` after `ip_parse` and before the
+socket waits on the resolver. `dhcp_start` empties it, so a new lease - and
+the page's Renew - re-resolves everything; a name whose address moves inside
+one lease is the case it does not cover.
+
+**Cost: no kernel byte.** `ETHER.DRV` 16,986 -> 17,120 bytes of image (+134,
+of which 68 are the entry), 11,226 -> 11,280 on the floppy, its claim's
+17 KB unmoved. `inet`/`tcp`/`dns.inc` are shared with the DOS end of the
+cable, so `OS88NET.COM` carries it too. `tests/httpmount.py --name` is the
+gate (soak `httpmountname`): QEMU's slirp pointed at a stub resolver, and
+the resolver asked **once** for six connections - six without the cache.
+
+#### 72.5.2 The first ephemeral port is the clock's
+
+Every boot used to start the walk at 49153, so the first connections of a
+session reused the PORTS of the session before it - and a NAT that outlives
+the guest (86Box's and QEMU's slirp, a home router) still holds whatever that
+session left open, most of all a connection kept alive for its next request
+(SPEC.md 120.2.1). A SYN that lands on one of those is never answered, the
+open runs out its time, and the connect after it, one port along, works: the
+field saw an HTTP drive time out after every reboot and succeed on the retry.
+`eth_attach` starts the walk at `49152 + ((minute * 60 + second) * 8 + ticks)
+mod 8192` instead - two boots minutes apart start thousands of ports apart,
+and on a machine whose clock has never been set the ticks since boot still
+move it. Reproduced on 86Box (mr286, NE1000, slirp): a warm reboot with a
+connection kept open, then the drive's first fetch never reached the server
+until a later retry. 34 bytes of `ETHER.DRV`.
 
 ### 72.6 The page says which half is missing
 
@@ -204692,3 +204803,293 @@ build/cdfix.iso --sb`), which holds an ISO and implements no audio command.
 - **Digital audio extraction** (`READ CD`, BEh) - playing a track through a
   Sound Blaster rather than the drive's own output.
 - **Booting from a CD** stays §80.2's El Torito hard-disk emulation.
+
+## 120. HTTPFS.DRV — a read-only drive over HTTP (`drivers/httpfs/`)
+
+**An address is given and a drive appears**: `http://host[:port]/prefix/`,
+typed on the driver's Control Panel page or handed over by a package, puts a
+drive on the desktop whose folders and files are a web server's. It is
+read-only, it harvests no icons, and it works over either transport the
+socket verbs have - an Ethernet card (`ETHER.DRV`, §72) or the parallel
+cable (`NET.DRV`, §62.11). It is the transport a network system upgrade will
+read from, and a drive in its own right. `docs/plans/HTTP-MOUNT-PLAN.md` is
+the design record, including why it is a REDIRECTOR and not an image read a
+sector at a time (its section 2).
+
+### 120.1 What the kernel carries
+
+- **A class, `DRVC_HTTP` = 10** (`apps/os88api.inc`), appended after
+  `DRVC_CD`. It is a **file class** - its volume is `DVK_FILE` - with a
+  publication slot and a copy of its service table (`drv_svcix`), so it can
+  be attached beside the cable, the RAM disk and the CD-ROM. It is its own
+  class and not `DRVC_FILE`'s because the cable is one of the two transports
+  it runs over, and a class is one publication slot (§51.2.1).
+  `dsk_vol_add`'s kind test closes its range at `DRVC_HTTP`.
+- **A row, `HTTPFS.DRV`, "HTTP Drive"**, on `kern_big` and `kern_emu` (row 8
+  and row 9), SYSTEM.CFG **bit 9**, **not wanted by default** (§51.3).
+- **The DOS box takes it** like any driver not on `hbm_sweep`'s skip list:
+  it holds no state on the wire between two verbs, so it is unloaded and
+  re-attached around a DOS program for free, and its drive comes back lazy.
+- `kern_small` has no driver layer (§51.0) and so no HTTP drive.
+
+### 120.2 One GET, on the Wire's profile
+
+```
+GET /<prefix><path> HTTP/1.0
+Host: <host>[:<port>]
+[Range: bytes=<from>-<to>]          FSV_READ and FSV_READAT
+Connection: keep-alive
+```
+
+No `User-Agent:` - HTTP/1.0 asks for none, and its 20 bytes were what stood
+between the driver and seven 360 KB clusters (size round 2). §92.4's profile
+and its rules, but for the kept connection (§120.2.1): no
+chunked decoding, no redirects; a status other than 200 or 206 is a failure
+that names its number. `https://` is refused by name, as the browser refuses
+it (§71.2) - a TLS source goes through the host proxy. A path byte other than
+an upper-case letter, a digit, `/` or `.` is sent `%XX`, because an 8.3 name
+may carry `#`, `%` or `&` - and every server reads `%XX` as the byte.
+
+**The waiting is the driver's** - every socket verb is non-blocking
+(`drivers/net/netpkg.inc`) - and every wait is bounded by the system tick:
+`HF_IDLE` = 182 ticks, ten seconds, with nothing arriving is a timeout. A
+file verb runs on the UI task with the gfx lock held, so that bound IS the
+longest a dead server freezes the machine, exactly as a dead floppy would.
+
+The reply is read through one kilobyte of staging (`hf_rbuf`, `NET_SKMAX`):
+header lines a byte at a time, the body in runs copied to the caller's
+buffer, which is folded in whole 128-byte granules after every run
+(§119.3.4's rule, for kern_mega's identity selectors). The request is
+composed in the same buffer before it is sent. The socket verbs are reached
+through `apps/os88sock.inc`'s `net_find`, the card first, so nothing in the
+driver knows which transport answered.
+
+#### 120.2.1 The connection is KEPT between GETs
+
+A launch is two GETs back to back (the loader's 512-byte header peek, then
+the image) and so is a read of a packed file (the sniff, then the read),
+and each was a handshake and a close. So the request says
+`Connection: keep-alive` - on **HTTP/1.0**, which forbids a chunked reply
+this driver does not decode - and a reply read **whole** leaves its socket
+open (`[hf_live]`) when the server agreed - **`keep-alive` in the reply's
+`Connection:`, and that alone**, anywhere in its list (Apache with HTTP/2
+enabled says `Upgrade, Keep-Alive`, and the driver reads any `K` in the
+value as it: `close` has none): the request is HTTP/1.0, and a 1.0 client's
+connection persists only when the reply says so, whatever version it answers
+in (RFC 7230 6.3) - and sent a `Content-Length`. The next GET reuses it when it is still `NSK_UP` with nothing
+unread on it, and otherwise drops it and opens a fresh one, which is all a
+server's idle close costs. One dying under the request before a byte of
+the reply - the race with that idle close - is retried once on a fresh
+connection; the request is still in `hf_rbuf`, nothing having been received.
+
+A 200 answering a read has an unread tail and is kept only when the read
+took it to the file's end; Mount,
+Unmount and detach drop a kept connection, so a re-pointed drive never
+sends its next GET to the old server. **What it holds is one of
+`ETHER.DRV`'s socket slots while the drive is idle**, until the server
+closes it (`os88httpdrv.py serve` does after 15 seconds).
+
+**A connection that is not kept is ABORTED, never closed** - even after a
+reply read whole. A close we start holds its slot through FIN-WAIT for a
+round trip, and there are four. Found in the field against Apache, whose
+`Upgrade, Keep-Alive` the first parser read as no: every GET ended in our
+close, and the sniff's or the header peek's OPEN, the next GET, was refused
+while the read after it connected - so a packed file opened as its raw
+`CZ` bytes and every package off the drive said `Load failed`. The HFDIAG
+build (`-DHFDIAG`, `drivers/httpfs/hfdiag.inc`) is the instrument that
+showed it: the last two reads drawn on the page, what each asked, what the
+reply said and what landed.
+
+Cost: `HTTPFS.DRV` +225 bytes of image. Measured on the gate: a launch and
+a copy each one connection for their two GETs, and the whole run 10
+requests over 6 connections against a server that closes an idle one after
+3 seconds; sending `Connection: close` instead turns both checks red.
+
+### 120.3 The index — `OS88.IDX`
+
+HTTP has no directory listing, so the server carries one, at the prefix:
+
+```
+header, 16 bytes   'OS88IDX', 0 / dw records / dw 0 / dd serial
+record, 18 bytes   db[11] the FAT name, space padded / db attr (10h a folder,
+                   and the disk's own 01h/02h/04h) / dw parent / dd size - or
+                   for a folder, dw first child, dw child count
+```
+
+**The attribute carries the disk's read-only, hidden and system bits**, which
+`tools/os88httpdrv.py` copies out of the image it exports (and, re-exporting
+a folder that already has an index, out of that). FIND reports them
+(§62.9.17.1), and that is not decoration: §52.10's installer copies a hidden
++ system file through the `_SYS` verbs, and `KERNEL.SYS` served as a plain
+file is refused on a kept volume, where a hidden + system one already stands.
+
+**Record 0 is the root, and every folder's children are a contiguous run.**
+A listing is therefore a slice, an ordinal is an index into it - `FSV_ENUM`'s
+stable ordinal (§62.9.1) by construction - and **the handle is the record's
+index**, the root's 0 being what "no handle" means to the kernel already.
+
+It is fetched **once**, into a top-down heap claim of its own
+(`OSAPI_MEM_CLAIM_HI`, owned by the driver, so `drv_release` sweeps it), and
+**every listing, `FSV_CHDIR` and `FSV_STAT` is answered from RAM with no
+request at all.** `HF_MAXREC` = 896 records is one 16 KB claim; a system
+disk's tree is about 70.
+
+**Everything in it is hostile**, and `hf_valid` refuses the whole index on
+any of: the magic; a reserved word that is not 0; a count outside
+1..`HF_MAXREC` or a length that is not exactly `16 + 18 x count`; a root
+that is not a folder with parent 0; a folder run that starts at the root or
+runs past the table; a run member that does not name its folder; a parent
+that is not below its child or is a file; a name whose first byte is a space
+or that carries a byte outside `' '`..`'~'`, the range the kernel's listing
+sanitizer passes (§19.1) and so the glyphs the font has - wider than the FAT
+set an export names files with, and as safe: a name the kernel cannot match
+is a file that is not found, and a name past `'~'` is one the font cannot
+draw. Each
+check bounds a later walk: a parent below its child is what ends a path
+walk, a run inside the table is what keeps a listing inside the claim.
+
+`tools/os88httpdrv.py` is the **reference** - `index_build` writes the
+format, `index_parse` applies every rule above, and `--selfcheck` breaks each
+one on purpose.
+
+### 120.4 The verbs, and the package door
+
+| verb | answer |
+|---|---|
+| `FSV_CHDIR` | from the index; **the root's fetches it** when none is held, because it is what every mount asks first |
+| `FSV_LIST` | the current folder's run, through `OSAPI_FS_ENT` - less its hidden and system entries, which a FAT listing leaves out too |
+| `FSV_STAT` | the current folder's run, by FAT name: the handle, the size, `BL` = 10h a folder / 0 |
+| `FSV_ENUM` | the *n*th of a named folder's run, hidden and system ones included, with the record's attribute at the entry's +24 (§62.9.17.1) |
+| `FSV_READ` | `FERR_BIG` past the capacity, before any request; then `FSV_READAT`'s GET for the whole file. The body must be the index's size to the byte - a tree replaced under a mounted index fails rather than handing over another file |
+| `FSV_READAT` | **one GET with `Range:`** (`hf_xfer`, which `FSV_READ` shares). A 206 must carry the length asked; where it starts is taken on trust (the owner's call at size round 2: a server that honours `Range:` at all honours its start, and the hosts this is for are Apache). A 200 has IGNORED the range: the body is the whole file, its length the index's, so the offset is drained and the handle dropped after the bytes wanted unless they reached the file's end - correct on any server, slow only on one that will not range |
+| `FSV_DFREE` | 0 bytes free, granule 512 |
+| `FSV_WRITE` `APPEND` `DELETE` `RENAME` `MKDIR` `RMDIR` | `FERR_WPROT` |
+| `FSV_COPY` `FSV_RMTREE` | not published (0): the kernel's fallbacks |
+
+A failure on the wire is `FERR_IO` to the kernel and the HFE_* reason is kept
+for the page. `OSAPI_FS_PROG` is stepped after every run of `FSV_READ`, so a
+package launched off the drive moves the progress bar.
+
+**`DSV_CAPS` is 0**: not `FSCAP_LOCAL`, a read being a round trip, so the
+mount takes §62.9.2.1's **cache-only icon pass** - no icon harvest, as the
+cable's drive has none - and not `FSCAP_ICON`, so the zone wears the kernel's
+drive picture.
+
+**The package door** is `drivers/httpfs/hfpkg.inc` (`OSAPI_DRV_CALL`, BH =
+`DRVC_HTTP`), UI task only:
+
+| BL | verb | in | out |
+|---|---|---|---|
+| 0 | `HFV_IDENT` | | AX = `'HF'`, CX = `HF_ABI` |
+| 1 | `HFV_STATE` | | AL = the volume (FFh none), AH = `HFS_IDLE`/`LAZY`/`READY`/`FAILED`, CX = records, DX = the last HTTP status, SI = the last `HFE_*` |
+| 2 | `HFV_MOUNT` | ES:SI = a NUL address | AL = the volume. **Lazy**: nothing is fetched. A drive already mounted is re-pointed and its index dropped |
+| 3 | `HFV_UNMOUNT` | | the volume and the index go back |
+| 4 | `HFV_FETCH` | | the index fetched now: CX = records; CF = 1 and AX = an `HFE_*` |
+| 5 | `HFV_URL` | ES:DI = 96 bytes | the address the drive is pointed at, NUL-terminated |
+| 6 | `HFV_SAVE` | | `HTTPDRV.CFG` written now, from the address and whether a drive is up (§120.5): CF as the write's |
+
+`BX` is spent by every verb. A refusal's `HFE_*` is kept, so `HFV_STATE`
+reports it again until the next Mount.
+
+### 120.5 The page and `HTTPDRV.CFG`
+
+```
+ HTTP Drive
+ Address
+ [http://10.0.0.2:8088/_________]
+ [ Mount ]  [Unmount]
+ Drive E:  70 entries
+ <the last failure, in words>
+```
+
+**The page is its own image, `HTTPPAGE.DRV`** - `RAMPAGE.DRV`'s shape
+(§62.9.9): read off the boot volume's root into a claim from the top by the
+first `DSV_CPPAINT`, and freed at `DSV_CPCLOSE`, so a drive that is up costs
+nothing for a page nobody is looking at. What stays resident is the list
+name, six one-line thunks (the verb in AL, every other register the
+kernel's), the loader they share, one refusal line drawn when the image will
+not come in, and `HTTPDRV.CFG`. The page reaches the drive **through the
+package door** (§120.4), `OSAPI_DRV_CALL` with BH = `DRVC_HTTP` exactly as
+an installer does, so the only ABI between the two images is the verb and the
+overlay header's `HFP_ABI` (`hfpkg.inc`). Its claim is cut from the image by
+the Makefile (`-DHFPAGE_KB`), RAMPAGE_KB's rule.
+
+The list name is `Web Drive`, nine glyphs being what the list holds. One
+field (`apps/os88line.inc`), so it always has the caret; **Enter is Mount**.
+**Mount fetches now** - a user who has just typed an address wants to know
+at once whether the server answers - where a drive mounted at boot fetches
+when it is first opened. **Unmount** greys with no drive (§47 rule 3).
+Buttons fire on the release (§13.8.4). Each status line is padded to the
+pane, so a shorter line leaves no tail (§31.9.3).
+
+**Nothing reaches a disk on a click** (§31.8): Mount and Unmount mark the
+page dirty and its close sends `HFV_SAVE`, which writes `HTTPDRV.CFG` at the
+boot volume's root - `ETHER.CFG`'s shape (§72.7.1): `'HD'`, version 1, a flags byte (bit 0
+= mounted), then the 96-byte address. At `DRVV_READY` a file with bit 0 set
+adds the volume **lazily**, so a dead server or a missing card costs the
+boot no time at all.
+
+**The claim is ZEROED before the image is read into it.** The page's state
+is the zero run `os88drv.py` strips off the FILE, which the kernel's
+`drv_bss` puts back for a driver it loads - and nothing puts back for an
+image a driver reads for itself. On an emulator's first boot the heap is
+zero anyway, which is why it shipped; after a warm reboot on a real machine
+the page found its `hp_have` already set, drew the `55h`s left behind as the
+address, and kept a line editor whose length was garbage - a field that was
+blank or `UUUU` and took no keys. (`rampage.asm`'s `rp_bss` answers the same
+thing from the page's side.)
+
+### 120.6 What it costs
+
+Measured at one build number against the tree before it:
+
+| | `kern_big` | `kern_small` |
+|---|---|---|
+| resident | **81 bytes**: `.text` +43 - `drv_tab`'s row (16), its two strings (22), `drv_fptr10`'s pair (4), `drv_svcix`'s byte (1) - and `.bss` +38, `drv_owner`'s word and the class's 36-byte service-table copy. `DRVC_CD`'s shape (§119.5), five bytes of longer name over it. No rung crossed (the image rung 409 -> 316 left). `.boot2` +1, `drv_cfgbit`'s byte, is not resident | 0 - byte-identical |
+| `HTTPFS.DRV` | **5,460 bytes of image, a 6 KB claim while attached; 3,575 on the floppy** (7 clusters at 360 KB), LZ4 - 7,927 / 5,653 with the page in it. The 1 KB reader is most of its bss | none |
+| `HTTPPAGE.DRV` | **2,357 bytes of image, a 3 KB claim while the panel shows the page; 2,030 on the floppy** - four 512-byte clusters, and under 2 KB as split. Half of it is the shared field (`os88line.inc`, 775) and button (`os88ui.inc`, 299) | none |
+| while mounted | the index's claim: `ceil((16 + 18 x records) / 1024)` KB - **2 KB for a system disk's 70 records**, 16 KB at `HF_MAXREC` | none |
+
+**On every `kern_big` system disk, the 360 KB one included**: §24.3.1.6
+took CDROM.DRV, COLDHMA.SYS and XMEM.DRV - three files an 8088 cannot use -
+off that disk to make the room, and System Check's manifest names the
+driver on all four geometries.
+
+### 120.7 The host side, and the gate
+
+`tools/os88httpdrv.py export SRC OUT` writes a tree and its index from a
+folder or a FAT12 floppy image; `check OUT` validates one; `serve SRC` is a
+server for testing that honours `Range:` (`--no-range` to refuse it, as
+`python3 -m http.server` does) and logs one line a request, exporting a
+`.img` first. **Files are served exactly as stored**, compressed ones
+included: a `'CZ'` file needs no directory hint, because the read sniffs its
+own header when there is none (§20.14.6) and a redirected volume's read takes
+that same flow (§20.14.6.1), the driver loader too (§20.14.6.4). Fewer bytes
+cross the wire, and a release served this way is its own bytes - what System
+Check's manifest holds a system disk to (§118.2.1). As on the RAM disk,
+`OSAPI_FILE_FIND` reports such a file's PACKED size (§20.14.6.2.1, from
+`FSV_STAT`), and §20.14.6.3's retry is the answer for a caller that sized off
+it.
+
+`tests/httpmount.py` (`make httpmounttest`, soak row `httpmount`) boots
+QEMU - MartyPC has no NIC - with `ETHER.DRV` and `HTTPFS.DRV` wanted and
+`HTTPDRV.CFG` naming the host's own server, which is `os88httpdrv.py`'s,
+run in the test on a fixture tree it built, so every request the machine
+makes is in a log the test reads. Eight legs: the drive is up at boot with
+**no request made**; opening it is **one** (`OS88.IDX`) and walking two
+folders down and back is **none**; a package launches off it; 100,001 bytes
+copy to B: byte-identical with `Range:`, and again with the server ignoring
+it; a path with `#` goes out escaped; a paste onto the drive ends
+`FERR_WPROT`; and a `'CZ'` file served as stored opens in Note Pad as its
+unpacked text. Taking the 200 arm's offset skip out turns leg 6 red at byte
+65,024 - the first byte of the second chunk.
+
+### 120.8 Not done
+
+- **A head cache for small files**: the loader's peek and the sniff each
+  precede a whole read with a small one, a second GET that a cached first
+  kilobyte would spare for files under a kilobyte. Refused for now: with the
+  connection kept (§120.2.1) that GET is one round trip, not a handshake.
+- **One drive per driver.**
+- **An upgrade path that mounts a release by itself** - the door is built
+  for it.
