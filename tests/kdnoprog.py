@@ -125,11 +125,14 @@ def main():
     a = ap.parse_args()
     fixture()
 
-    m = M.launch(None, machine=a.machine,
+    m = M.launch(None, machine=a.machine, boot=False,
                  extra=["--mount", "hd:0:" + os.path.abspath(at(VHD))])
     try:
+        m.run()
         ui = os88ui.UI(m)
-        ui.ready(limit=240)
+        ui.up(limit=240)                # the boot gate on STATE: the first
+        M.no_saver(m)                   # act is a verb that confirms
+        M.ui_done(m, "the desktop's first pass")
         mo = os88mouse.Mouse(marty=m)
         if not ui.path("C:/DOS.O88"):
             fail("double-clicking DOS.O88 on the fixed disk opened no window")

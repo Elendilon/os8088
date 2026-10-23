@@ -332,7 +332,7 @@ def wait_text(m, want, secs, what):
             return True
         return False
     try:                        # `secs` is budgeted on the GUEST's clock
-        M.until(m, seen, "%s: %r" % (what, want), poll=0.25, limit=secs)
+        M.until(m, seen, "%s: %r" % (what, want), poll=0.05, limit=secs)
         return got[-1]
     except M.MartyError:
         pass
@@ -380,10 +380,14 @@ def wait_desktop(m, ui, secs=300, stamp=None):
         except Exception:
             return False
     try:                        # `secs` is budgeted on the GUEST's clock
-        M.until(m, graphics, "a graphics desktop", poll=0.2, limit=secs)
+        M.until(m, graphics, "a graphics desktop", poll=0.05, limit=secs)
         if stamp is not None:
             stamp.append(m.status()["cycles"])
-        return ui.ready(limit=secs)
+        # the restored desktop's STATE, not its picture: every read after
+        # this is guest memory (titles, the box, the claims, the clock)
+        ui.up(limit=secs)
+        M.ui_done(m)
+        return ui
     except Exception:           # ...as the host loop swallowed them
         pass
     # EVERY non-blank row, NUMBERED. A failure here is always "the machine
@@ -447,10 +451,15 @@ def main():
     if "--machine" in sys.argv:
         machine = sys.argv[sys.argv.index("--machine") + 1]
     m = M.launch(boot, apps=FLOPPY, machine=machine,
-                 extra=["--mount", "hd:0:" + VHD])
+                 extra=["--mount", "hd:0:" + VHD], boot=False)
     try:
+        # a gate on STATE (SOAK-SPEED technique 4): the first act is a guest
+        # read or an os88ui verb, so no picture settle is owed
+        m.run()
         ui = os88ui.UI(m)
-        ui.ready(limit=240)
+        ui.up(limit=240)
+        M.no_saver(m)
+        M.ui_done(m)
         print("kdreturn: booted off %s"
               % ("a 360KB floppy, with the fixed disk on a DRIVER"
                  if from_floppy else "the fixed disk"))
@@ -492,8 +501,7 @@ def main():
             fail("double-clicking %s on the floppy opened no window" % prog)
         rs = wait_text(m, "READY", 150, "the windowed run")
         win_kb = topmem(rs)
-        m.type_text("x")
-        M.settle(m)
+        M.text_taken(m, "x")        # (was type_text + settle: next is memory)
         print("kdreturn: windowed, %d KB above the PSP" % win_kb)
 
         dm = dosmap.package()
@@ -512,7 +520,8 @@ def main():
         m.write((pseg << 4) + dm["dos_keepc"], bytes([1, 0]))
         if compact:
             m.bp_exec("hbf_perform")
-        mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
+        # settle=0: what follows waits on the handoff's own state
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"), settle=0)
         if compact:
             # --- THE BOX MOVES UNDER THE HANDOFF (SPEC.md 96.40.8) -----------
             if not m.wait_stop(60.0):

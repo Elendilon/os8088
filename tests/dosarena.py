@@ -75,7 +75,7 @@ def fail(msg):
 
 def measure(machine):
     """(SOUND.DRV's segment at the desktop, the arena the program got) in KB."""
-    with os88ui.boot(SYS, apps=SND, machine=machine) as ui:
+    with os88ui.boot(SYS, apps=SND, machine=machine, quick=True) as ui:
         m = ui.m
         snd = struct.unpack("<H", m.read(m.sym("drv_tab")
                                          + os88geom.DRVR_SEG, 2))[0]

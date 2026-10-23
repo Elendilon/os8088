@@ -167,8 +167,9 @@ def main():
     ap.add_argument("--apps", default="build/games360.img")
     a = ap.parse_args()
     os.chdir(ROOT)
-    with os88marty.launch(a.image, apps=a.apps, machine=a.machine) as m:
-        g = pxslib.open_game(m)
+    with os88marty.launch(a.image, apps=a.apps, machine=a.machine,
+                          boot=False) as m:
+        g = pxslib.open_game(m)         # runs it, gates on kernel_up
         g.sim(False)
         g.god(True)
         g.scene("a")

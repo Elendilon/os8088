@@ -369,6 +369,10 @@ pub struct DebugServer {
     /// name sends the reader looking for a process rather than for a session.
     client_peer: Option<String>,
     pending:  VecDeque<String>,
+    /// A line read up to WouldBlock and not yet ended: `read_line` has
+    /// already consumed those bytes, so they are kept for the next poll
+    /// rather than dropped (a command split across TCP segments).
+    partial:  String,
     quit:     bool,
     #[cfg(unix)]
     snaps:    Vec<Snap>,
@@ -446,6 +450,7 @@ impl DebugServer {
             client: None,
             client_peer: None,
             pending: VecDeque::new(),
+            partial: String::new(),
             quit: false,
             #[cfg(unix)]
             snaps: Vec::new(),
@@ -535,6 +540,7 @@ impl DebugServer {
         self.client = None;
         self.client_peer = None;
         self.pending.clear();
+        self.partial.clear();
         for w in self.wavs.iter_mut() {
             w.disable();
         }
@@ -550,6 +556,13 @@ impl DebugServer {
                 Ok((stream, peer)) => {
                     log::info!("Debug client connected from {}", peer);
                     let _ = stream.set_nonblocking(true);
+                    // NO NAGLE. Replies are small writes, and a client that
+                    // PIPELINES (several requests in one write) gets them
+                    // back-to-back: with Nagle on, every reply after the
+                    // first waits for an ACK the client's delayed-ACK holds
+                    // for ~40 ms, so a batch cost more than its round trips.
+                    let _ = stream.set_nodelay(true);
+                    self.partial.clear();
                     self.client_peer = Some(peer.to_string());
                     self.client = Some(BufReader::new(stream));
                 }
@@ -620,9 +633,9 @@ impl DebugServer {
 
         let mut drop_client = false;
         if let Some(reader) = self.client.as_mut() {
-            let mut line = String::new();
+            let line = &mut self.partial;
             loop {
-                match reader.read_line(&mut line) {
+                match reader.read_line(line) {
                     Ok(0) => {
                         // EOF. A disconnect leaves the machine exactly as it
                         // is - running or paused - so a client may come and
@@ -650,6 +663,7 @@ impl DebugServer {
         if drop_client {
             self.client = None;
             self.client_peer = None;
+            self.partial.clear();
         }
     }
 
@@ -717,6 +731,10 @@ impl DebugServer {
             "ping" => json!({
                 "ok": true,
                 "pong": true,
+                // A client may PIPELINE: several requests in one write are
+                // all answered (in order) with no Nagle stall between the
+                // replies, and a request split across reads is kept whole.
+                "pipeline": true,
                 "pid": std::process::id(),
                 "port": self.listener.as_ref()
                             .and_then(|l| l.local_addr().ok())
@@ -790,6 +808,7 @@ impl DebugServer {
             "cards" => cards(machine),
             "park" => park(machine, &req),
             "fbuf" => fbuf(machine, &req),
+            "planes" => planes(machine, &req),
             "flicker" => flicker(machine, exec, &req),
             "pace" => pace(machine, exec, &req),
             "advance" => advance(machine, exec, &req),
@@ -1608,6 +1627,51 @@ fn fbuf(machine: &mut Machine, req: &Value) -> Value {
             "data": hex_encode(&data),
         }),
         Err(e) => err(&e),
+    }
+}
+
+/// The card's BIT PLANES, read straight out of its VRAM: `{"cmd":"planes",
+/// "offset":o, "len":n, "planes":[0,1,2,3], "card":c}` answers one hex string
+/// per plane asked, each `len` bytes from plane offset `offset`.
+///
+/// A memory `read` of A0000 is the card's side-effect-free peek, which serves
+/// plane 0 whatever Read Map Select says, so the only other route to planes
+/// 1-3 is a guest copy loop per plane - 153,600 bytes of REP MOVSW for a mode
+/// 12h screen, ~70% of a VGA pixel-reading row's wall time. This costs the
+/// guest nothing: no cycle, no register, no latch. The offset is the PLANE
+/// offset (mode 12h and Mode X: the A000 offset; chain-4 and odd/even modes
+/// interleave, which is the caller's arithmetic). VGA and EGA only - the 1bpp
+/// cards answer a dummy plane, so they are refused rather than read.
+fn planes(machine: &mut Machine, req: &Value) -> Value {
+    let idx = match card_idx(machine, req) {
+        Ok(i) => i,
+        Err(e) => return err(&e),
+    };
+    let off = req.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let want: Vec<usize> = match req.get("planes") {
+        None | Some(Value::Null) => vec![0, 1, 2, 3],
+        Some(Value::Array(a)) => a.iter().filter_map(Value::as_u64).map(|v| v as usize).collect(),
+        Some(_) => return err("planes must be a list of plane numbers"),
+    };
+    if want.is_empty() || want.iter().any(|&p| p > 3) {
+        return err("planes must name planes 0..3");
+    }
+    let r = with_card(machine, idx, |card| {
+        // By name: the EGA and VGA variants are feature-gated in the enum.
+        let t = format!("{:?}", card.video_type()).to_lowercase();
+        if t != "vga" && t != "ega" {
+            return Err(format!("card {} is {}: only VGA and EGA have planes", idx, t));
+        }
+        let plen = card.plane_slice(0).len();
+        let len = req.get("len").and_then(Value::as_u64).map(|v| v as usize).unwrap_or(plen - off.min(plen));
+        if len == 0 || off + len > plen {
+            return Err(format!("offset {} + len {} past the {}-byte plane", off, len, plen));
+        }
+        Ok(want.iter().map(|&p| hex_encode(&card.plane_slice(p)[off..off + len])).collect::<Vec<String>>())
+    });
+    match r {
+        Ok(Ok(data)) => json!({"ok": true, "card": idx, "offset": off, "planes": want, "data": data}),
+        Ok(Err(e)) | Err(e) => err(&e),
     }
 }
 

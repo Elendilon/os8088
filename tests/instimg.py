@@ -117,7 +117,8 @@ def install(m):
     mo, ix, iy = ID.open_installer(m)
     bx = ix + ID.HIW_B0X + ID.HIW_BW0 // 2
     by = iy + ID.HIW_BY + ID.HIW_BH // 2
-    mo.click(bx, by, settle=3.0)                # Install: arms
+    mo.click(bx, by, settle=0)                  # Install: arms
+    M.ui_done(m, "the Install button arming")
     mo.click(bx, by, settle=0)                  # Install: goes
     disk = ID.vhd(m)
     base = open(disk, "rb").read(446)
@@ -147,8 +148,8 @@ def main():
     # 2. an ordinary install, from the floppies, keeping the partition's
     #    files - which keeps the two images
     with M.launch(SYS_FLOPPY, apps=APPS_FLOPPY, machine=ID.MACHINE,
-                  run_dir=run_dir) as m:
-        M.settle(m)
+                  run_dir=run_dir, boot=False) as m:
+        m.run(); M.kernel_up(m)       # a state gate: every act is a click
         mo, ix, iy = ID.open_installer(m)
         ID.run_install(m, mo, ix, iy)
     tree = ID.partition(vhd).tree()

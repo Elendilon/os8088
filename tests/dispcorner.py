@@ -600,7 +600,7 @@ def main():
     with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
                           machine=a.machine, boot=False) as m:
         cards = {c["idx"]: c for c in m.cards()}
-        m.run(); os88marty.settle(m, gate=os88marty.desktop_up)
+        m.run(); os88marty.kernel_up(m)   # the first act is a click
         mo = os88mouse.Mouse(marty=m)
         pri = [i for i, c in cards.items()
                if c["type"] == dispcp.KIND_CARD[m.read(S("vid_kind"), 1)[0]]][0]

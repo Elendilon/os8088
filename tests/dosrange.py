@@ -67,7 +67,7 @@ def pos(m, label):
 
 def run(machine):
     print("dosrange: --- %s ---" % machine)
-    with os88ui.boot(SYS, apps=DISK, machine=machine) as ui:
+    with os88ui.boot(SYS, apps=DISK, machine=machine, quick=True) as ui:
         m = ui.m
         if not ui.path("B:/MOURANGE.COM"):
             fail("double-clicking MOURANGE.COM opened no window")

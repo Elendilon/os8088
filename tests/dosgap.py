@@ -64,7 +64,7 @@ def main():
         if not os.path.exists(p):
             fail("%s is missing - `make kdostest` builds the gate disks" % p)
 
-    with os88ui.boot(SYS, apps=FLOPPY, machine=a.machine) as ui:
+    with os88ui.boot(SYS, apps=FLOPPY, machine=a.machine, quick=True) as ui:
         m = ui.m
         # An association open of a .COM RUNS it (SPEC.md 54), which is the
         # shortest route to a DOS program and the one a user takes.
@@ -77,7 +77,7 @@ def main():
             rows[:] = [r.rstrip() for r in (mm.screen() or []) if r.strip()]
             return any("WRGAP PASS" in r or "WRGAP FAIL" in r for r in rows)
         try:
-            os88marty.until(m, done, "WRGAP's verdict", poll=0.5, limit=240.0)
+            os88marty.until(m, done, "WRGAP's verdict", poll=0.05, limit=240.0)
         except os88marty.MartyError:
             fail("WRGAP.COM never reported; the last screen was %r"
                  % rows[:12])

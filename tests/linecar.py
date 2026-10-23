@@ -117,7 +117,7 @@ def main():
     if not os.path.exists(SYS):
         fail("%s is missing - `make` builds it" % SYS)
 
-    with os88ui.boot(SYS, apps=SYS, machine="os8088_5150_herc_gla") as ui:
+    with os88ui.boot(SYS, apps=SYS, machine="os8088_5150_herc_gla", quick=True) as ui:
         m = ui.m
         if not ui.path(BOX):
             fail("could not launch the DOS box")

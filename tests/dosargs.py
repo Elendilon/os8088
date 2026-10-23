@@ -218,7 +218,8 @@ def main():
         if not os.path.exists(p):
             fail("%s is missing - `make doscom` builds the gate disks" % p)
 
-    with os88ui.boot(SYS, apps=ARGS, machine="os8088_5150_herc_gla") as ui:
+    with os88ui.boot(SYS, apps=ARGS, machine="os8088_5150_herc_gla",
+                     quick=True) as ui:
         m = ui.m
 
         # --- 1: no arguments -------------------------------------------------

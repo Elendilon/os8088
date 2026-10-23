@@ -93,7 +93,7 @@ def main():
         if not os.path.exists(os.path.join(ROOT, os88build.at(p))):
             fail("%s is missing - `make build/dosregs360.img` builds it" % p)
 
-    with os88ui.boot(SYS, apps=GATE) as ui:
+    with os88ui.boot(SYS, apps=GATE, quick=True) as ui:
         m = ui.m
         if not ui.path("B:/REGS.COM"):
             fail("double-clicking REGS.COM opened no window")
@@ -103,7 +103,7 @@ def main():
             seen["rows"] = m.screen() or []
             return any("REGS READY" in r for r in seen["rows"])
         try:                            # a GUEST-time budget
-            os88marty.until(m, ready, "REGS.COM to finish", poll=0.3,
+            os88marty.until(m, ready, "REGS.COM to finish", poll=0.05,
                             limit=180.0)
         except os88marty.MartyError:
             fail("the program never finished; the last text screen was %r"

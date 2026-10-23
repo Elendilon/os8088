@@ -231,3 +231,59 @@ def recipe(goal, contains):
             "os88fixture: `make -n %s` printed %d recipe line(s) containing "
             "%r, wanted exactly one:\n%s" % (g, len(lines), contains, out))
     return lines[0], g
+
+
+# --- a HOST fixture made once per INPUT, not once per row ---------------------
+#
+# A row that makes its input on the host - an ffmpeg source run through
+# tools/os88venc.py, a page of generated frames - remakes the same bytes on
+# every run, and its siblings remake them again: vidlysplit's clip is 32 of a
+# 50 s row, five rows the same clip. `cached` makes the file once per KEY and
+# copies it out after that. The key is everything the bytes depend on: the
+# caller's own parameters (a command line, a seed) AND the bytes of every
+# source file that makes them, so an edited encoder is a miss and never a
+# stale clip. A miss is only slow. OS88_FIXCACHE=0 turns it off (the A/B).
+
+ENCODER = ("tools/os88venc.py", "tools/os88vid.py", "tools/os88cgacomp.py",
+           "tools/os88spkfx.py", "tools/os88txtfont.py")
+CACHE = os.path.join(ROOT, "build", "fixcache")
+
+
+def _tool_version(name):
+    try:
+        r = subprocess.run([name, "-version"], capture_output=True, text=True,
+                           timeout=30)
+        return (r.stdout or "").splitlines()[:1]
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def cached(dest, key, produce, sources=ENCODER, tools=()):
+    """Put the fixture for `key` at `dest`: copied out of the cache, or made
+    by `produce(dest)` and then cached. `sources` are repo-relative files the
+    bytes depend on (the encoder by default), `tools` host programs whose
+    `-version` line joins the key (ffmpeg). Answers `dest`."""
+    import hashlib
+    import shutil
+    import tempfile
+    h = hashlib.sha256(repr((key, sys.version_info[:2])).encode())
+    for t in tools:
+        h.update(repr(_tool_version(t)).encode())
+    for s in sources:
+        p = os.path.join(ROOT, s)
+        h.update(s.encode() + b"\0")
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                h.update(f.read())
+    hit = os.path.join(CACHE, h.hexdigest()[:32])
+    if os.environ.get("OS88_FIXCACHE", "1") != "0" and os.path.exists(hit):
+        shutil.copyfile(hit, dest)
+        return dest
+    produce(dest)
+    if os.environ.get("OS88_FIXCACHE", "1") != "0":
+        os.makedirs(CACHE, exist_ok=True)
+        fd, t = tempfile.mkstemp(dir=CACHE)     # (atomic: rows run in
+        os.close(fd)                            # parallel lanes)
+        shutil.copyfile(dest, t)
+        os.replace(t, hit)
+    return dest

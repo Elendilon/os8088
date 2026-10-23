@@ -166,11 +166,11 @@ def session(disk, pics, work, machine=None):
         S = ui._S
         ui.path("B:/PICS/" + pics[0])
         M.until(m, lambda _: instance(m, S, image), "PiXEL's instance",
-                poll=0.3, limit=120)
+                poll=0.05, limit=120)
         seg = instance(m, S, image)
         px = Guest(m, seg)
         M.until(m, lambda _: px.W("px_ndone") and px.idle(), "the first open",
-                poll=0.3, limit=1800)
+                poll=0.05, limit=1800)
         ui.settle()
         ui.mo.to(2, 2)                  # the pointer off the canvas
         ui.settle()
@@ -281,7 +281,7 @@ class Guest:
                    {"type": "mem", "addr": self.a("px_ndone")}], stop,
                   lambda: "end" in got, trigger)
         c0 = c0[0]
-        M.until(m, lambda _: self.idle(), "the open to settle", poll=0.3,
+        M.until(m, lambda _: self.idle(), "the open to settle", poll=0.05,
                 limit=600)
         M.ui_done(m, "the open")
         end = got["end"]
@@ -444,7 +444,7 @@ def inflate_bench(m, px, name, outbytes):
         m.write(px.a("px_cur"), name.encode().ljust(13, b"\0"))
         m.ctrl("KeyR")
     px.pump(base_bps, stop, lambda: st["t1"] is not None, trigger)
-    M.until(m, lambda _: px.idle(), "the open to settle", poll=0.3, limit=600)
+    M.until(m, lambda _: px.idle(), "the open to settle", poll=0.05, limit=600)
     M.ui_done(m, "the open")
     tot = st["t1"] - st["t0"]
     infl = tot - st["ext"] - st["next"] - st["ui"]
@@ -549,7 +549,7 @@ def stage_bench(m, px, name, routines):
         m.write(px.a("px_cur"), name.encode().ljust(13, b"\0"))
         m.ctrl("KeyR")
     px.pump(base_bps, stop, lambda: st["t1"] is not None, trigger)
-    M.until(m, lambda _: px.idle(), "the open to settle", poll=0.3, limit=900)
+    M.until(m, lambda _: px.idle(), "the open to settle", poll=0.05, limit=900)
     M.ui_done(m, "the open")
     return st["t1"] - st["t0"], st["tot"], st["n"]
 

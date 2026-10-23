@@ -173,7 +173,7 @@ def main():
             sys.exit("dispfsxherc: %s is not a mono-primary + CGA machine "
                      "(%s)" % (a.machine, [c["type"] for c in cards]))
         m.run()
-        settle(m, gate=os88marty.desktop_up)
+        os88marty.kernel_up(m)
         mo = os88mouse.Mouse(marty=m)
 
         dispcp.open_panel(m, mo, S, settle)

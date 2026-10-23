@@ -135,7 +135,9 @@ def main():
         if not os.path.exists(p):
             fail("%s is missing - `make` and `make doscom` build them" % p)
 
-    with os88ui.boot(SYS, apps=APPS) as ui:
+    with os88ui.boot(SYS, apps=APPS,
+                     quick=True) as ui:
+        ui.still(0)     # booted on STATE; the first paint done (SOAK-SPEED 4)
         m = ui.m
         win = ui.path(BOX)
         if not win:

@@ -41,10 +41,10 @@ from wirefleet import artifact
 def main():
     sy = dispapps._map('wirefleet')
     with os88ui.boot(artifact('os8088-360.img'), apps=artifact('wireflet360.img'),
-                     machine='os8088_5150_cga_gla') as ui:
+                     machine='os8088_5150_cga_gla', quick=True) as ui:
         m = ui.m
         w = ui.path('B:/WIREFLET.O88')
-        ui.settle()
+        M.ui_passed(m)
 
         def val(name, n=1):
             seg = dispapps.pkg_seg(m, 0)[1]
@@ -89,7 +89,10 @@ def main():
             assert ui._byte('menu_sel') == k, ('menu_sel', ui._byte('menu_sel'), k)
             m.key('Space')
             wait(lambda: not ui._byte('menu_dropd'), 'the Link menu to close')
-            ui.settle()
+            # the pick's pass over; every read after it is memory. (A
+            # settle here could run 360 guest s: the link's search message
+            # keeps the picture moving)
+            M.ui_passed(m)
 
         # 1. Link > Automatic closes the lease and searches again - and with
         #    no evidence on either port it must be refused and say so.

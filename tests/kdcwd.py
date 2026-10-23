@@ -189,7 +189,7 @@ def rah_check(m, dm):
 
 
 def main():
-    with os88ui.boot(SYS, apps=APPS, machine=MACH) as ui:
+    with os88ui.boot(SYS, apps=APPS, machine=MACH, quick=True) as ui:
         m = ui.m
         ui.path(PROG)                # the association RUNS it, windowed
         dm = dosmap.package()

@@ -153,13 +153,14 @@ def main():
         xmcheck.wait_desktop(q.sock, "vidspkat")
         S = xmcheck.sym
         ui = os88ui.UI(q, mouse=object(), sym=S, verbose=False)
+        mo = os88qemu.Mouse(q, S, q.hmp, after=0)   # SOAK-SPEED 15
 
         def wait(cond, what, secs):
             if not os88qemu.acted(q, cond, secs=secs, what=what, poll=0.05):
                 raise SystemExit("vidspkat: timed out waiting for %s" % what)
 
         x, y = geom.drive_pt(q, "B", S)
-        xmcheck.dblclick(q.sock, x, y)
+        mo.dblclick(x, y)
         box = {}
 
         def diskwin():
@@ -169,11 +170,11 @@ def main():
                     return True
             return False
         wait(diskwin, "drive B's window", 30)
-        os88qemu.pace(q, 1)
+        os88qemu.ui_done(q, S, cap=1.0)     # (was pace(1): the listing)
         w = box["w"]
         i, _ = ui.entry("CLIP.V88", w)
         before = set(o.i for o in ui.windows())
-        xmcheck.dblclick(q.sock, *ui.row_xy(w, i - ui.scroll(w)))
+        mo.dblclick(*ui.row_xy(w, i - ui.scroll(w)))
 
         def player():
             for o in ui.windows():

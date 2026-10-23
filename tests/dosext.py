@@ -73,7 +73,8 @@ def main():
             fail("%s is missing - `make %s` builds the gate disk"
                  % (p, os.path.basename(p).split(".")[0]))
 
-    with os88ui.boot(SYS, apps=ARGS, machine="os8088_5150_herc_gla") as ui:
+    with os88ui.boot(SYS, apps=ARGS, machine="os8088_5150_herc_gla",
+                     quick=True) as ui:
         m = ui.m
         if not ui.path(BOX):
             fail("could not launch the DOS box")

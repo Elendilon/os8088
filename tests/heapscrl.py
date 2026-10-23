@@ -366,7 +366,10 @@ def main(argv):
     a = ap.parse_args(argv)
     os.chdir(ROOT)
 
-    with os88marty.launch(a.image, apps=a.apps, machine=a.machine) as m:
+    with os88marty.launch(a.image, apps=a.apps, machine=a.machine, boot=False) as m:
+        m.run()
+        os88marty.kernel_up(m)          # the boot gate on STATE
+        os88marty.no_saver(m)
         mo = os88mouse.Mouse(marty=m)
 
         # THE SCREEN NEVER STOPS ON THIS PAGE, so os88marty.settle cannot be

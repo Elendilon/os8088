@@ -85,8 +85,21 @@ def gone(pid, wait=1.0, most=10.0):
             os.kill(pid, 0)
         except OSError:
             return True
-        time.sleep(0.05)
+        # A ZOMBIE HAS EXITED: its files (the image's write lock) are closed,
+        # and a daemonised QEMU's parent is PID 1, which here reaps ~1 s
+        # later - measured 12 ms to exit, 1.0 s to vanish, every launch
+        if _zombie(pid):
+            return True
+        time.sleep(0.01)
     return False
+
+
+def _zombie(pid):
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            return f.read().rsplit(")", 1)[1].split()[0] == "Z"
+    except (OSError, IndexError):
+        return False
 
 
 def own(pidfile=PIDFILE, sock=SOCK):
@@ -298,3 +311,256 @@ def quiesce(m, read, secs=1.0, stable=2, limit=60.0, what=None, poll=0.1):
         else:
             time.sleep(poll)
     return last
+
+
+# --- a CLOSED-LOOP mouse (docs/plans/SOAK-SPEED.md, harness changes) ---------
+#
+# tools/mouse.py cannot know where the pointer is, so it PINS against the
+# bottom-right clamp and walks back, a host `sleep 0.06` after every packet,
+# then holds each button edge 0.2 guest s: ~1.7 s a click, which was 88 of
+# rdxms's 111 host seconds. A row that can resolve kernel symbols can do what
+# tools/os88mouse.py does on MartyPC instead - read `mouse_x`/`mouse_y`/
+# `mouse_btn` (kernel/mouse.inc, published by the ISR), send the exact delta,
+# and wait for the word to MOVE rather than for a clock. The packet still goes
+# through QEMU's msmouse, the UART and mou_isr: nothing is poked.
+
+PKT_SECS = 0.5          # guest seconds a packet may take to land (it is ~25 ms
+                        # at 1200 baud; the slack is a guest busy repainting)
+STEP = 60               # msmouse truncates bigger deltas (tools/mouse.py)
+
+
+class MouseError(RuntimeError):
+    """The pointer did not get where it was sent, or a button edge was lost."""
+
+
+def mouse_where(m, sym):
+    """(x, y, buttons) as the kernel last published them."""
+    a = getattr(m, "_mouse_at", None)
+    if a is None:
+        a = sym("mouse_x")
+        if sym("mouse_y") != a + 2 or sym("mouse_btn") != a + 4:
+            raise MouseError("mouse_x/mouse_y/mouse_btn are not contiguous "
+                             "any more - mouse_where reads them as one block")
+        m._mouse_at = a
+    b = m.read(a, 5)
+    return b[0] | (b[1] << 8), b[2] | (b[3] << 8), b[4]
+
+
+def _changed(m, sym, was, what):
+    c = Clock(m)
+    lim = to_ticks(PKT_SECS)
+    while True:
+        if mouse_where(m, sym) != was:
+            return True
+        if c.step() >= lim or c.stalled():
+            return False
+        time.sleep(0.003)
+
+
+def mouse_to(m, sym, hmp, x, y, btn=0):
+    """Drive to (x, y) and PROVE it, carrying button level `btn` (an HMP
+    move carries the current buttons). `hmp(*cmds)` sends human-monitor
+    commands (xmcheck.qmp bound to the socket). Raises MouseError when the
+    pointer stops short - a target off the kernel's clamp, or packets lost
+    for longer than a busy guest explains."""
+    cx, cy, _ = mouse_where(m, sym)
+    tries = (max(abs(x - cx), abs(y - cy)) + STEP - 1) // STEP * 2 + 6
+    for _ in range(tries):
+        cx, cy, b = mouse_where(m, sym)
+        dx, dy = x - cx, y - cy
+        if not dx and not dy:
+            return
+        hmp("mouse_move %d %d" % (max(-STEP, min(STEP, dx)),
+                                  max(-STEP, min(STEP, dy))))
+        _changed(m, sym, (cx, cy, b), "the pointer to move")
+    cx, cy, _ = mouse_where(m, sym)
+    if (cx, cy) != (x, y):
+        raise MouseError("could not reach (%d,%d): stuck at (%d,%d)"
+                         % (x, y, cx, cy))
+
+
+def mouse_button(m, sym, hmp, mask):
+    """Set the buttons to `mask` (HMP's: 1 left, 2 right) and wait until the
+    kernel has decoded that level - mouse_btn's bit 0 left, bit 1 right."""
+    want = (1 if mask & 1 else 0) | (2 if mask & 2 else 0)
+    for _ in range(3):
+        hmp("mouse_button %d" % mask)
+        c = Clock(m)
+        lim = to_ticks(PKT_SECS)
+        while c.step() < lim and not c.stalled():
+            if mouse_where(m, sym)[2] & 3 == want:
+                return
+            time.sleep(0.003)
+        if mouse_where(m, sym)[2] & 3 == want:
+            return
+    raise MouseError("the button level %d was never decoded (mouse_btn = %02x)"
+                     % (want, mouse_where(m, sym)[2]))
+
+
+def mouse_click(m, sym, hmp, x, y, mask=1):
+    """to (x, y), press, release - each edge confirmed. No pause after: the
+    caller's wait (ui_done, acted) is on the state the click is FOR."""
+    mouse_to(m, sym, hmp, x, y)
+    if mouse_where(m, sym)[2] & 3:
+        mouse_button(m, sym, hmp, 0)
+    mouse_button(m, sym, hmp, mask)
+    mouse_button(m, sym, hmp, 0)
+
+
+class Private(object):
+    """A PRIVATE QEMU - what `make test TESTIMG=a TESTAPPS=b [TESTHD=hd]
+    [ETHER=1]` launched, with its own socket, pidfile and COPIES of the
+    floppies in `work`, so a row runs no `make` in the shared tree and never
+    kills another row's emulator through build/qemu.pid. `ether` adds the
+    NE2000 at 300h/IRQ3 on slirp, WITHOUT `make test`'s host forwards (a
+    fixed host port is a collision between two rows). `.sock` is the QMP
+    socket; `.close()` (also at exit) ends it by the pid it wrote."""
+
+    def __init__(self, work, a, b, hd=None, ether=False, extra=()):
+        import atexit
+        import shutil
+        import subprocess
+        self.sock = os.path.join(work, "qmp.sock")
+        pidf = os.path.join(work, "qemu.pid")
+        self.a = os.path.join(work, "a.img")
+        self.b = os.path.join(work, "b.img")
+        shutil.copy(a, self.a)
+        shutil.copy(b, self.b)
+        cmd = ["qemu-system-i386", "-machine", "pc,vmport=off",
+               "-drive", "file=%s,format=raw,if=floppy" % self.a,
+               "-boot", "c" if hd else "a",
+               "-chardev", "msmouse,id=m0", "-serial", "chardev:m0",
+               "-drive", "file=%s,format=raw,if=floppy,index=1" % self.b]
+        if hd:
+            cmd += ["-drive", "file=%s,format=raw,if=ide,index=0,media=disk"
+                    % hd]
+        if ether:
+            cmd += ["-netdev", "user,id=n0",
+                    "-device", "ne2k_isa,netdev=n0,iobase=0x300,irq=3"]
+        cmd += ["-display", "none", "-qmp", "unix:%s,server,nowait"
+                % self.sock, "-daemonize", "-pidfile", pidf] + list(extra)
+        subprocess.run(cmd, check=True)
+        self.pid = int(open(pidf).read().strip())
+        atexit.register(self.close)
+        for _ in range(150):
+            if os.path.exists(self.sock):
+                break
+            time.sleep(0.2)             # the socket appearing is a HOST event
+
+    def close(self):
+        if self.pid:
+            try:
+                os.kill(self.pid, signal.SIGTERM)
+                gone(self.pid)
+            except OSError:
+                pass
+            self.pid = None
+
+
+class Mouse(object):
+    """tools/mouse.py's verbs as an OBJECT, closed-loop (mouse_to): `click`,
+    `dblclick`, `run("to"|"down"|"up"|"click", ...)` - the shape
+    tests/ethernet.py's Mouse and the dispcp verbs take. `after` is the
+    guest pause that followed each gesture there, now a CEILING: ui_done
+    ends it as soon as the UI is finished with the gesture."""
+
+    def __init__(self, m, sym, hmp, after=0.4):
+        self.m, self.sym, self.hmp, self.after = m, sym, hmp, after
+
+    def _wait(self):
+        if self.after:
+            ui_done(self.m, self.sym, cap=self.after)
+
+    def run(self, verb, *xy):
+        xy = tuple(int(v) for v in xy)
+        if verb == "click":
+            mouse_click(self.m, self.sym, self.hmp, *xy)
+            return
+        if xy:
+            mouse_to(self.m, self.sym, self.hmp, *xy)
+        if verb in ("down", "up"):
+            mouse_button(self.m, self.sym, self.hmp, 1 if verb == "down" else 0)
+        elif verb != "to":
+            raise ValueError("Mouse.run: %r" % verb)
+
+    def to(self, x, y):
+        mouse_to(self.m, self.sym, self.hmp, x, y)
+
+    def click(self, x, y):
+        mouse_click(self.m, self.sym, self.hmp, x, y)
+        self._wait()
+
+    def dblclick(self, x, y):
+        """Both presses down ONE QMP connection, as xmcheck.dblclick: the
+        detectors' 9-tick window is shorter than two confirmed clicks."""
+        mouse_to(self.m, self.sym, self.hmp, x, y)
+        self.hmp("mouse_button 1", "sleep 0.08", "mouse_button 0",
+                 "sleep 0.12", "mouse_button 1", "sleep 0.08",
+                 "mouse_button 0")
+        self._wait()
+
+
+def mouse_dblclick(m, sym, hmp, x, y):
+    """to (x, y), then two clicks, every edge confirmed off mouse_btn - four
+    packets, well inside the kernel's 9-tick double-click window (SPEC.md
+    22), where xmcheck.dblclick paced them with host sleeps after a
+    tools/mouse.py walk (~1.7 s)."""
+    mouse_to(m, sym, hmp, x, y)
+    if mouse_where(m, sym)[2] & 3:
+        mouse_button(m, sym, hmp, 0)
+    for _ in range(2):
+        mouse_button(m, sym, hmp, 1)
+        mouse_button(m, sym, hmp, 0)
+
+
+def launch_test(tmp, sysimg="build/os8088.img", apps="build/apps.img",
+                extra=(), card=True, copy=True):
+    """`make test`'s machine WITHOUT `make`, in a directory of its own.
+
+    `make test` is a launcher, but its parse rewrites build/buildnum.inc and
+    its prerequisites are the shared images - so in a checkout whose build/
+    is behind its sources (every commit moves the build number) it REBUILDS
+    the kernel and the disks under every other row before it boots. This is
+    the same command line (Makefile `test:` with the default MOUSE and
+    DEVCARD - the OPL2 at 388h, `card=False` is NOCARD=1) against COPIES of
+    the two images in `tmp` (the guest writes SYSTEM.CFG; `copy=False` boots
+    the files given, for a row that reads its own scratch back), and its own
+    socket and pidfile, so two of these can run at once. Paths resolve
+    through os88build.at. Answers (sock, pidfile); torn down at exit (own)."""
+    import shutil
+    import subprocess
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import os88build
+    imgs = []
+    for name, src in (("sys.img", sysimg), ("apps.img", apps)):
+        src = os88build.at(src) if not os.path.isabs(src) else src
+        if copy:
+            dst = os.path.join(tmp, name)
+            shutil.copyfile(src, dst)
+            src = dst
+        imgs.append(os.path.abspath(src))
+    sock = os.path.join(tmp, "qmp.sock")
+    pid = os.path.join(tmp, "qemu.pid")
+    cmd = ["qemu-system-i386", "-machine", "pc,vmport=off",
+           "-drive", "file=%s,format=raw,if=floppy" % imgs[0], "-boot", "a",
+           "-chardev", "msmouse,id=m0", "-serial", "chardev:m0",
+           "-drive", "file=%s,format=raw,if=floppy,index=1" % imgs[1],
+           "-display", "none", "-qmp", "unix:%s,server,nowait" % sock,
+           "-daemonize", "-pidfile", pid]
+    if card:
+        cmd += ["-audiodev", "none,id=devsnd", "-device",
+                "adlib,audiodev=devsnd"]
+    own(pid, sock)
+    subprocess.run(cmd + list(extra), cwd=ROOT, check=True)
+    # ...and BY THE PID IT WROTE as well (vidxms.Q's lesson): a caller that
+    # deletes `tmp` on its way out takes the pidfile own() would read
+    atexit.register(_killpid, int(open(pid).read().strip()))
+    return sock, pid
+
+
+def _killpid(pid):
+    try:
+        os.kill(pid, signal.SIGTERM)
+        gone(pid)
+    except OSError:
+        pass

@@ -84,7 +84,7 @@ def verdict(m, limit=240.0):
         rows[:] = [r.rstrip() for r in (m.screen() or []) if r.strip()]
         return any("MREDRAW" in r for r in rows)
     try:                                # `limit` is GUEST time
-        os88marty.until(m, reported, "MREDRAW's report", poll=0.5, limit=limit)
+        os88marty.until(m, reported, "MREDRAW's report", poll=0.05, limit=limit)
     except os88marty.MartyError:
         fail("MREDRAW.COM never reported; the last screen was %r" % rows[:12])
 
@@ -138,7 +138,7 @@ def judge(said, got, where):
 
 def arm_window():
     """ARM 1: in the window, on the fsx bracket's own surface."""
-    with os88ui.boot(SYS, apps=RED, machine=MACH) as ui:
+    with os88ui.boot(SYS, apps=RED, machine=MACH, quick=True) as ui:
         if not ui.path("B:/MREDRAW.COM"):
             fail("double-clicking B:/MREDRAW.COM opened no window")
         said, got = verdict(ui.m)
@@ -153,7 +153,7 @@ def arm_whole():
     `AH=08h` waiting for a key, so arm 1 leaves a program RUNNING in the box
     and the Memory page cannot be re-armed underneath one.
     """
-    with os88ui.boot(SYS, apps=RED, machine=MACH) as ui:
+    with os88ui.boot(SYS, apps=RED, machine=MACH, quick=True) as ui:
         try:
             kdhand.launch_whole(ui, "MREDRAW.COM")
         except RuntimeError as e:

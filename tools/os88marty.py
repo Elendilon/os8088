@@ -169,6 +169,10 @@ GUEST_BUDGET_RATIO = float(os.environ.get("OS88_GUEST_RATIO", "3.0"))
 # 4.5 is the idle measurement, not a margin; OS88_GUEST_PACE=0 puts the host
 # sleeps back, for an A/B and nothing else.
 GUEST_PACE = float(os.environ.get("OS88_GUEST_PACE", "4.5"))
+# wait_stop's longest nap between polls. Doubling straight to `poll` (20 ms)
+# overshot a stop by up to the last nap - a harness-driven guest routine of a
+# few ms (a breakpoint-bracketed handler, a readback stub) paid ~2x its run.
+WAIT_STOP_NAP = float(os.environ.get("OS88_WAIT_STOP_NAP", "0.004"))
 
 # SETTLE'S SHORT WINDOW. `settle` proves stillness over `stable` intervals of
 # `quiet`, and at GUEST_PACE that is nine guest seconds of a still screen
@@ -260,6 +264,8 @@ class Marty:
         self._proc = None
         self._rec = None
         self._pumping = 0   # bp_trace blocks in flight
+        self._planes_verb = None  # the server has `planes`: unknown yet
+        self._pipeline = None     # ...and answers a pipelined burst (batch)
         self._greet(timeout)
 
     def _greet(self, timeout):
@@ -368,6 +374,56 @@ class Marty:
         if not r.get("ok", False):
             raise MartyError(r.get("err", "refused"))
         return r
+
+    def batch(self, cmds):
+        """Several requests as ONE round trip: `cmds` is a list of `cmd()`
+        keyword dicts, sent in one write; the replies come back in order.
+
+        A server that says `pipeline` in its `ping` answers a pipelined burst
+        with no stall, so a stopped-machine sequence (park, a dozen
+        `setreg`s, `bp`, `run`) costs one round trip instead of fifteen. An
+        older server is asked one request at a time - correct and as slow as
+        before (pipelining to it works, but Nagle holds every reply after the
+        first for ~40 ms). Every request is answered before anything is
+        raised; the first refusal raises MartyError naming its index. A
+        `run` in the batch records the resume mark exactly as `run()` does,
+        so a `wait_stop` after the batch is right.
+        """
+        cmds = [dict(c) for c in cmds]
+        if not cmds:
+            return []
+        if self._pipeline is None:
+            try:
+                self._pipeline = bool(self.cmd(cmd="ping").get("pipeline"))
+            except MartyError:
+                self._pipeline = False
+        if not self._pipeline:
+            out = [self._raw_cmd(c) for c in cmds]
+        else:
+            data = b"".join((json.dumps(c) + "\n").encode() for c in cmds)
+            try:
+                with self._lock:
+                    self.f.write(data)
+                    self.f.flush()
+                    lines = [self.f.readline() for _ in cmds]
+            except OSError as e:
+                raise MartyError(self._gone(type(e).__name__ + ": " + str(e))) from None
+            if not all(lines):
+                raise MartyError(self._gone("it closed the connection"))
+            out = [json.loads(l) for l in lines]
+        for i, (c, r) in enumerate(zip(cmds, out)):
+            if not r.get("ok", False):
+                raise MartyError("batch[%d] %s: %s" % (i, c.get("cmd"),
+                                                       r.get("err", "refused")))
+            if c.get("cmd") == "run":
+                self._go = self._mark(r, resumed=True)
+        return out
+
+    def _raw_cmd(self, c):
+        try:
+            return self.cmd(**c)
+        except MartyError as e:
+            return {"ok": False, "err": str(e)}
 
     def _gone(self, how):
         """One sentence for "the emulator is not there any more".
@@ -543,6 +599,89 @@ class Marty:
         """
         r = self.cmd(cmd="fbuf", aperture=aperture, card=card)
         return r["w"], r["h"], bytes.fromhex(r["data"])
+
+    def planes(self, offset=0, length=38400, planes=(0, 1, 2, 3), card=None,
+               stub=None, use_stub=False):
+        """The VGA/EGA card's BIT PLANES as a list of bytes, one per plane in
+        `planes`, each `length` bytes from PLANE offset `offset` (mode 12h and
+        Mode X: the A000 offset). The default is a whole mode 12h screen.
+
+        A `read` of A0000 is the card's side-effect-free peek and serves
+        plane 0 whatever Read Map Select says, so planes 1-3 are not in guest
+        memory at all. The debug server's `planes` verb reads the card's VRAM
+        directly: no guest cycle, register or latch is touched, and it is
+        exact while the machine RUNS as well as stopped. An OLDER server has
+        no such verb; then `stub=(seg, code_off, scratch_off, scratch_size)`
+        names 9 bytes of code room and an EVEN-sized scratch buffer in one
+        guest segment, and the planes come through a REP MOVSW per chunk with
+        Read Map Select stepped - the machine must be PAUSED (and the caller
+        is expected to hold whatever lock keeps the screen still), and every
+        register, both buffers and the GC registers are put back (its exec
+        breakpoint REPLACES any armed set). Without a `stub` an old server
+        raises. `use_stub=True` takes the stub path on any server (a row
+        whose sequence turns out to depend on the guest time the copy spends;
+        see tests/gorillasmenu.py)."""
+        planes = list(planes)
+        if self._planes_verb is not False and not use_stub:
+            try:
+                r = self.cmd(cmd="planes", offset=offset, len=length,
+                             planes=planes, card=card)
+                self._planes_verb = True
+                return [bytes.fromhex(d) for d in r["data"]]
+            except MartyError as e:
+                if "unknown cmd" not in str(e):
+                    raise
+                self._planes_verb = False
+        if stub is None:
+            raise MartyError("this MartyPC has no `planes` verb (rebuild it: "
+                             "make marty) and no guest stub was given")
+        return self._planes_stub(offset, length, planes, stub)
+
+    def _planes_stub(self, offset, length, planes, stub):
+        seg, code, scratch, size = stub
+        size &= ~1
+        base = seg << 4
+        saved = self.regs()
+        old_code = self.read(base + code, 9)
+        old_scr = self.read(base + scratch, size)
+        # cli; mov ax,A000h; mov ds,ax; rep movsw; nop (the stop)
+        self.write(base + code, bytes.fromhex("fab800a08ed8f3a590"))
+        index = self.inb(0x3ce)
+        self.outb(0x3ce, 5)
+        mode = self.inb(0x3cf)
+        self.outb(0x3cf, mode & ~8)             # read mode 0
+        self.outb(0x3ce, 4)
+        selected = self.inb(0x3cf)
+        out = []
+        try:
+            for plane in planes:
+                self.outb(0x3cf, plane)
+                got = []
+                for at in range(0, length, size):
+                    n = min(size, length - at)
+                    self.cmd(cmd="park", cs=seg, ip=code)
+                    for reg, value in (("es", seg), ("si", offset + at),
+                                       ("di", scratch), ("cx", (n + 1) // 2),
+                                       ("flags", saved["flags"] & ~0x600)):
+                        self.setreg(reg, value)
+                    self.bp_exec(base + code + 8)
+                    self.run()
+                    if self.wait_stop(30) != "breakpoint":
+                        raise MartyError("the VGA plane copy stub hung")
+                    got.append(self.read(base + scratch, n))
+                out.append(b"".join(got))
+        finally:
+            self.outb(0x3cf, selected)
+            self.outb(0x3ce, 5)
+            self.outb(0x3cf, mode)
+            self.outb(0x3ce, index)
+            self.write(base + code, old_code)
+            self.write(base + scratch, old_scr)
+            self.cmd(cmd="park", cs=saved["cs"], ip=saved["ip"])
+            for reg in ("ax", "bx", "cx", "dx", "si", "di", "bp", "sp",
+                        "ss", "ds", "es", "flags"):
+                self.setreg(reg, saved[reg])
+        return out
 
     def vram(self, kind=None):
         """The 1bpp framebuffer as (width, height, rows-of-bits).
@@ -883,7 +1022,7 @@ class Marty:
             else:
                 stuck = None
             time.sleep(nap)
-            nap = min(nap * 2, poll)
+            nap = min(nap * 2, poll, WAIT_STOP_NAP)
 
     # --- input, through the REAL devices -------------------------------------
     #
@@ -2314,10 +2453,18 @@ def kernel_up(m, guest=120.0, what="the kernel to reach the desktop"):
     desktop_up)` pays the boot plus a still-screen proof. Keep the settle when
     the next read is the rendered glass."""
     a = (m.sym("desk_rows"), m.sym("menu_nbar"), m.sym("spl_live"))
+    seen = [None]
 
-    def up(_):
+    def up(_):              # (and [ticks] MOVING across it: os88ui.UI.up)
         w = m.read(a[0], 2), m.read(a[1], 2)
-        return any(w[0]) and any(w[1]) and not m.read(a[2], 1)[0]
+        if not (any(w[0]) and any(w[1]) and not m.read(a[2], 1)[0]):
+            seen[0] = None
+            return False
+        t = _ktick(m)
+        if seen[0] is None:
+            seen[0] = t
+            return False
+        return t != seen[0]
     until(m, up, what, poll=0.05, guest=guest)
     return ui_done(m, what)
 
@@ -2654,8 +2801,12 @@ def _ui_same(a, b):
             and a[1] != b[1])
 
 
-def ui_idle(m):
+def ui_idle(m, lock=True):
     """True when the UI TASK HAS FINISHED WITH EVERYTHING IT WAS GIVEN.
+
+    `lock=False` skips the gfx lock: for a package whose WORKER draws all the
+    time (a game), where the lock is almost never free but ui_task's own
+    pass - the drag, the click - is finished all the same.
 
     Five bytes, and each one names a thing that could still be pending:
 
@@ -2683,14 +2834,15 @@ def ui_idle(m):
                                m.sym("gfx_lock_flag"))
     if m.read(a[0], 1)[0] != UI_ASLEEP:
         return False
-    if m.read(a[1], 1)[0] or m.read(a[2], 1)[0] or m.read(a[3], 1)[0]:
+    if (m.read(a[1], 1)[0] or m.read(a[2], 1)[0]
+            or (lock and m.read(a[3], 1)[0])):
         return False
     kb = m.read(BIOS_KBUF, 4)
     return kb[0:2] == kb[2:4]
 
 
 def ui_done(m, what="the UI to finish with that input", hold=0.06,
-            limit=60.0, cap=None):
+            limit=60.0, cap=None, lock=True):
     """Run until `ui_idle` is true and STAYS true for `hold` guest seconds with
     no disk read in between, and answer the guest seconds that took.
 
@@ -2718,7 +2870,12 @@ def ui_done(m, what="the UI to finish with that input", hold=0.06,
     early whenever the machine says it can - so no caller ever waits longer
     than it did, and a game whose worker keeps the lock busy gets exactly the
     old pause.
+
+    `lock=False` (ui_idle's) is for a worker that draws ALL the time: the
+    pass is over without the lock ever being seen free, and the framebuffer
+    is then NOT promised finished - settle before a capture.
     """
+    idle = (lambda mm: ui_idle(mm, False)) if not lock else ui_idle
     prog = _Progress(m, what, limit * GUEST_BUDGET_RATIO)
     while True:
         # THE CLOCK IS READ HERE, EVERY PASS. `spent()` is only as fresh as the
@@ -2732,7 +2889,7 @@ def ui_done(m, what="the UI to finish with that input", hold=0.06,
         prog.check()
         if cap is not None and prog.spent() >= cap:
             return prog.spent()
-        while not ui_idle(m):
+        while not idle(m):
             if cap is not None and prog.spent() >= cap:
                 return prog.spent()
             st = m.status()
@@ -2751,17 +2908,137 @@ def ui_done(m, what="the UI to finish with that input", hold=0.06,
         # that it is THIS kernel's bytes being read (see `_ui_mark`).
         while ((prog._cycles() - c0) / GUEST_HZ < hold
                or _ktick(m) == k0):
-            if not ui_idle(m):
+            if not idle(m):
                 held = False
                 break
             if cap is not None and prog.spent() >= cap:
                 return prog.spent()
             prog.check()
             time.sleep(0.005)
-        if held and ui_idle(m) and m.disk().get("reads") == r0:
+        if held and idle(m) and m.disk().get("reads") == r0:
             prog.done("ui_done")
             return prog.spent()
 
+
+def _ui_asleep(m):
+    """ui_task asleep at `.idle` with no event queued and no wake pending -
+    `ui_idle` WITHOUT the gfx lock and the key ring."""
+    a = getattr(m, "_ui_idle_syms", None)
+    if a is None:
+        a = m._ui_idle_syms = (m.sym("sch_tasks") + UI_T_STATE,
+                               m.sym("evq_count"), m.sym("sch_uiwake"),
+                               m.sym("gfx_lock_flag"))
+    return (m.read(a[0], 1)[0] == UI_ASLEEP and not m.read(a[1], 1)[0]
+            and not m.read(a[2], 1)[0])
+
+
+def ui_passed(m, cap=0.5, what="ui_task to finish its pass"):
+    """Run until ui_task has finished the pass it is in (`_ui_asleep`), at most
+    `cap` guest seconds, and answer the guest seconds spent. `ui_done` for a
+    package that draws on every tick, whose lock is never idle for a whole
+    tick: the pass that handled an input is over, which is what a following
+    breakpoint-armed input or a state read needs."""
+    prog = _Progress(m, what, 60.0 * GUEST_BUDGET_RATIO)
+    while not _ui_asleep(m):
+        prog.check()
+        if prog.spent() >= cap:
+            return prog.spent()
+        time.sleep(0.002)
+    prog.done("ui_passed")
+    return prog.spent()
+
+
+def key_taken(m, name, ui=True, cap=0.675, tail=0.0,
+              what="the guest to take that key"):
+    """Press `name` (`Marty.key`) and return once the guest has TAKEN it, in
+    guest seconds - the replacement for `m.key(name); pace(m, .15)`.
+
+    Taken is three facts read off the machine: the BIOS key ring's TAIL moved
+    (the keyboard ISR stored the key - MartyPC's keyboard model delivers a
+    press some milliseconds after the request), its HEAD caught up (whoever
+    reads keys has read it), and, with `ui`, ui_task is asleep with nothing
+    queued and no wake pending - the pass that dispatched the key is over.
+    The gfx lock is NOT asked, unlike `ui_done`, so a package whose worker
+    or tick draws all the time still ends here as soon as its key handler
+    has run. `ui=False` is for a consumer that is not ui_task (a fullscreen
+    bracket's own loop); `tail` guest seconds are then run after the read so
+    the loop gets to act on what it read.
+
+    BOUNDED: after `cap` guest seconds it returns quietly, so a key that never
+    reaches the ring (a modifier, a key the kernel's own ISR swallows) costs
+    exactly the old pace and never more."""
+    t0 = m.read(BIOS_KBUF + 2, 2)
+    m.key(name)
+    prog = _Progress(m, what, 60.0 * GUEST_BUDGET_RATIO)
+    stage = 0
+    while True:
+        prog.check()
+        if prog.spent() >= cap:
+            return prog.spent()
+        kb = m.read(BIOS_KBUF, 4)
+        if stage == 0 and kb[2:4] != t0:
+            stage = 1
+        if stage == 1 and kb[0:2] == kb[2:4]:
+            if not ui:
+                break
+            stage = 2
+        if stage == 2 and _ui_asleep(m):
+            break
+        time.sleep(0.002)
+    if tail > 0:
+        c0 = prog._cycles()
+        while (prog._cycles() - c0) / GUEST_HZ < tail:
+            prog.check()
+            time.sleep(0.002)
+    prog.done("key_taken")
+    return prog.spent()
+
+
+def text_taken(m, text, ui=True, cap=0.675, what="the guest to take that text"):
+    """`m.type_text(text)` and return once the guest has TAKEN every key, in
+    guest seconds - `key_taken` for a string, the replacement for
+    `m.type_text(t); settle(m)` when what follows is a guest read or a click.
+
+    Typed with the machine PAUSED, so MartyPC's keyboard model queues the
+    whole string and none of it is stored before the count starts; then the
+    BIOS ring's tail is followed (modulo the ring, 0040:0080/0082) until it
+    has moved one entry per character (`type_text` stores one per character:
+    a shift is a modifier, not an entry), its head has caught up and, with
+    `ui`, `ui_done` - the passes that handled them are over. BOUNDED like
+    `key_taken`: `cap` guest seconds a character, then it returns quietly, so
+    a key the consumer never reads costs the old pace and never more."""
+    def w(a):
+        b = m.read(a, 2)
+        return b[0] | (b[1] << 8)
+    lo, hi = w(0x480), w(0x482)
+    size = (hi - lo) if hi > lo else 32
+    was = m.status().get("state") == "running"
+    m.pause()
+    last = w(BIOS_KBUF + 2)
+    m.type_text(text)
+    m.run()
+    n = len(text)
+    prog = _Progress(m, what, 60.0 * GUEST_BUDGET_RATIO)
+    adv = 0
+    while True:
+        prog.check()
+        if prog.spent() >= cap * max(n, 1):
+            return prog.spent()
+        kb = m.read(BIOS_KBUF, 4)
+        t = kb[2] | (kb[3] << 8)
+        if t != last:
+            adv += ((t - last) % size) // 2
+            last = t
+        if adv >= n and kb[0:2] == kb[2:4]:
+            break
+        time.sleep(0.002)
+    if ui:
+        ui_done(m, what)
+    else:
+        prog.done("text_taken")
+    if not was:
+        m.pause()
+    return prog.spent()
 
 def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
            guest=None):

@@ -138,7 +138,9 @@ def leg(defines, label, image=None, apps=None):
     S = (lambda n: os88sym.linear(n, defines))
     say("\n=== %s ===" % label)
     with os88marty.launch(image or IMAGE, apps=apps or APPS,
-                          machine=MACHINE) as m:
+                          machine=MACHINE, boot=False) as m:
+        m.run()
+        os88marty.kernel_up(m)          # every act after is a read or a click
         mo = os88mouse.Mouse(marty=m)
         os88marty.no_saver(m)
 
@@ -151,10 +153,10 @@ def leg(defines, label, image=None, apps=None):
         # opened inside it, both read through dsk_* and int 13h. A host-driven
         # SEEK would be a shorter route to the same cylinder and would prove
         # less - the claim is about what a SESSION leaves behind.
-        dispcp.open_drive(m, mo, S, os88marty.settle, "B")
+        dispcp.open_drive(m, mo, S, lambda m, card=None, gate=None: os88marty.ui_done(m), "B")
         win = dispcp.win_list(m, S)[-1]
         wx, wy, _, _ = dispcp.win_rect(m, S, win)
-        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "APPS")
+        dispcp.open_named(m, mo, S, lambda m, card=None, gate=None: os88marty.ui_done(m), wx, wy, "APPS")
         m.pause()
         dirty = show("after a Disk window read B:", st3(m))
 

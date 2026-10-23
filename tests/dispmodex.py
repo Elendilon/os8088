@@ -210,7 +210,7 @@ def main():
         cards = {c["idx"]: c for c in m.cards()}
         pri = [i for i, c in cards.items() if c["type"] == "vga"][0]
         sec = [i for i, c in cards.items() if c["type"] == "mda"][0]
-        m.run(); os88marty.settle(m, gate=os88marty.desktop_up)
+        m.run(); os88marty.kernel_up(m)   # the first act is a click
         mo = os88mouse.Mouse(marty=m)
         dispcp.open_panel(m, mo, S, os88marty.settle)
         dispcp.set_mode(m, mo, S, os88marty.settle, "right")

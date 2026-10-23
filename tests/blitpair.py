@@ -291,22 +291,24 @@ def main():
     with os88marty.launch(a.image, apps=a.apps, machine=a.machine,
                           boot=False) as m:
         m.run()
-        os88marty.settle(m, gate=os88marty.desktop_up)
-        mo = os88mouse.Mouse(marty=m)
-        dispcp.open_drive(m, mo, S, os88marty.settle, "B")
+        os88marty.kernel_up(m)          # the boot gate on STATE: every act
+        mo = os88mouse.Mouse(marty=m)   # below is a guest read or a click
+
+        def uset(mm, **k):              # dispcp's settle: each verb confirms
+            return os88marty.ui_done(mm)    # off guest reads (technique 4)
+        dispcp.open_drive(m, mo, S, uset, "B")
         disk = dispcp.win_list(m, S)[-1]
         bx, by = dispcp.win_rect(m, S, disk)[:2]
-        dispcp.open_named(m, mo, S, os88marty.settle, bx, by, "MEDIA")
-        os88marty.settle(m)
+        dispcp.open_named(m, mo, S, uset, bx, by, "MEDIA")
         bx, by = dispcp.win_rect(m, S, disk)[:2]
         rx, ry = dispcp.row_xy(bx, by,
-                               dispcp.scroll_to(m, mo, S, os88marty.settle,
+                               dispcp.scroll_to(m, mo, S, uset,
                                                 bx, by,
                                                 dispcp.row_of(m, S,
                                                               os.path.basename(
                                                                   a.gif))))
         mo.to(rx, ry)
-        os88marty.settle(m)
+        os88marty.ui_done(m)
 
         # The geometry is ASKED rather than computed: the canvas x depends on
         # the window template and the adapter, and a rect this test guessed

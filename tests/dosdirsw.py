@@ -102,7 +102,13 @@ class Box(object):
 
     def type(self, s):
         self.m.type_text(s)
-        os88marty.settle(self.m)
+        # WHAT IS READ NEXT IS con_scr, guest memory - so the wait is on those
+        # bytes (and on the drive: a command mid-read can sit still on the
+        # screen), not on the glass
+        os88marty.quiesce(self.m, lambda: (self.rows(), self.w("con_vtop"),
+                                           self.w("con_vrows"),
+                                           self.m.disk().get("reads")),
+                          guest=0.5, stable=3, what="the DOS box's screen")
 
     def run(self, cmd):
         self.type(cmd + "\n")

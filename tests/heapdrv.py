@@ -270,7 +270,8 @@ def main():
     with M.launch("build/os8088-360.img", apps=DISK,
                   machine=a.machine, boot=False) as m:
         m.run()
-        M.settle(m, gate=M.desktop_up)
+        M.kernel_up(m)          # the boot gate on STATE
+        M.no_saver(m)
         M.no_saver(m)
         mo = Mouse(marty=m)
 

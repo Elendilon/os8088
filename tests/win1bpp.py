@@ -58,7 +58,10 @@ fails = []
 def open_under(folder, pkg):
     """Boot, walk B: -> `folder` -> `pkg`, and hand back the window records."""
     with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
-                          machine=MACHINE) as m:
+                          machine=MACHINE, boot=False) as m:
+        m.run()
+        os88marty.kernel_up(m)          # the boot gate on STATE
+        os88marty.no_saver(m)
         mo = os88mouse.Mouse(marty=m)
         dispcp.open_drive(m, mo, S, os88marty.settle, "B")
         for name in (folder, pkg):

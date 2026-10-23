@@ -122,7 +122,9 @@ def click_mode(m, mo, which):
 
 
 def boot(image):
-    m = os88marty.launch(image, machine=MACHINE)
+    m = os88marty.launch(image, machine=MACHINE, boot=False)
+    m.run()                             # the boot gate on STATE: the first
+    os88marty.kernel_up(m)              # act is a panel verb that confirms
     os88marty.no_saver(m)
     return m
 

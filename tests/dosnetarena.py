@@ -127,23 +127,21 @@ def main():
         if not os.path.exists(os88build.at(p)):
             fail("%s is missing - run `make ethertest && make dospkt`" % p)
 
-    if os.path.exists("build/qemu.pid"):
-        try:
-            pid = int(open("build/qemu.pid").read().strip())
-            os.kill(pid, 15)
-            os88qemu.gone(pid)
-        except (OSError, ValueError):
-            pass
-    for f in ("build/qmp.sock", "build/qemu.pid"):
-        if os.path.exists(f):
-            os.remove(f)
-    os88qemu.own()
-    r = subprocess.run(["make", "test", "ETHER=1", "TESTIMG=" + SYS,
-                        "TESTAPPS=" + PKT], capture_output=True, text=True)
-    if r.returncode:
-        fail("make test failed:\n" + r.stdout + r.stderr)
-
-    m, mouse = eth.Qemu(), eth.Mouse()
+    # A PRIVATE QEMU (os88qemu.Private): what `make test ETHER=1 TESTIMG=
+    # TESTAPPS=` launched, without the `make` in the shared tree or the kill
+    # of whatever build/qemu.pid named; the mouse is closed-loop
+    # (docs/plans/SOAK-SPEED.md technique 15).
+    import tempfile
+    import xmcheck
+    import atexit
+    import shutil
+    work = tempfile.mkdtemp(prefix="dpk-")      # short: a QMP socket path
+    atexit.register(shutil.rmtree, work, True)  # (runs after q's close)
+    q = os88qemu.Private(work, os88build.at(SYS), os88build.at(PKT),
+                         ether=True)
+    eth.SOCK = q.sock
+    m = eth.Qemu(q.sock)
+    mouse = os88qemu.Mouse(m, eth.S, lambda *c: xmcheck.qmp(q.sock, *c))
     fails = FAILS
     try:
         # --- the card has to be THERE, or this row asserts nothing ---------

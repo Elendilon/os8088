@@ -64,7 +64,7 @@ def main():
         if not os.path.exists(p):
             fail("%s is missing - `make kdostest` builds the gate disks" % p)
 
-    with os88ui.boot(SYS, apps=FLOPPY, machine=a.machine) as ui:
+    with os88ui.boot(SYS, apps=FLOPPY, machine=a.machine, quick=True) as ui:
         m = ui.m
         if not ui.path(PROG):
             fail("double-clicking %s opened no window" % PROG)
@@ -81,7 +81,7 @@ def main():
             return any(r.startswith("B handler in") and "ok" in r
                        for r in rows)
         try:
-            os88marty.until(m, handler_in, "step B's handler", poll=0.5,
+            os88marty.until(m, handler_in, "step B's handler", poll=0.05,
                             limit=120.0)
         except os88marty.MartyError:
             fail("the probe never got its handler in; the last screen was %r"
@@ -116,7 +116,7 @@ def main():
             rows[:] = [r.rstrip() for r in (mm.screen() or []) if r.strip()]
             return any("MOUEVT PASS" in r or "MOUEVT FAIL" in r for r in rows)
         try:
-            os88marty.until(m, done, "MOUEVT's verdict", poll=0.5, limit=180.0)
+            os88marty.until(m, done, "MOUEVT's verdict", poll=0.05, limit=180.0)
         except os88marty.MartyError:
             fail("MOUEVT.COM never reported; the last screen was %r"
                  % rows[:12])

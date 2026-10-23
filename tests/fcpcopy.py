@@ -66,6 +66,8 @@ import os88fat
 from os88geom import FERR_FULL                           # noqa: E402
 
 S = os88sym.linear
+# Nothing here reads the glass: the wait after an input is ui_done.
+_done = lambda m, card=None, gate=None: os88marty.ui_done(m)
 MACHINE = sys.argv[1] if len(sys.argv) > 1 else "os8088_5150_herc_gla_144"
 # The images, overridable so this row can be pointed at a SECOND kernel.
 # kern_small carries Cut/Copy/Paste as an on-demand module (SPEC.md 22.3,
@@ -141,21 +143,23 @@ def pick_edit(m, mo, item):
     the budget is a stuck copy and says so.
     """
     x = edit_cell(m)
-    mo.menu(x, BAR_Y, x + 20, ITEM0_Y + item * ITEM_H)
-    os88marty.settle(m)
+    mo.menu(x, BAR_Y, x + 20, ITEM0_Y + item * ITEM_H, settle=0)
+    # ui_done, NOT settle: a paste runs inside the menu body, so ui_task is
+    # not asleep until it is over - the until below then only CONFIRMS it
+    os88marty.ui_done(m, "the Edit item", limit=300.0)
     if item == I_PASTE:
         os88marty.until(m, lambda mm: mm.read(S("fcp_busy"), 1)[0] == 0,
                         "the paste to finish ([fcp_busy] = 0)",
-                        guest=300.0, poll=0.5)
-        os88marty.settle(m)     # ...and the listing it reloads on the way out
+                        guest=300.0, poll=0.05)
+        os88marty.ui_done(m)    # ...and the listing it reloads on the way out
 
 
 def select(m, mo, wx, wy, name):
     """One CLICK on a row - the SELECTION Cut/Copy act on, not an open."""
-    row = dispcp.scroll_to(m, mo, S, os88marty.settle, wx, wy,
+    row = dispcp.scroll_to(m, mo, S, _done, wx, wy,
                            dispcp.row_of(m, S, name))
     mo.click(*dispcp.row_xy(wx, wy, row))
-    os88marty.settle(m)
+    os88marty.ui_done(m)
     say("selected %s at row %d" % (name, row))
 
 
@@ -213,7 +217,7 @@ def host_tree(path, folders):
 
 def goto_root(m, mo, wx, wy):
     while ".." in [n for n, _ in dispcp.listing(m, S)]:
-        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "..")
+        dispcp.open_named(m, mo, S, _done, wx, wy, "..")
 
 
 def main():
@@ -234,15 +238,18 @@ def main():
     # NO SCRATCH COPY: launch() clones SRC_APPS into this instance's private
     # run directory, and the paste writes that clone - never the shipped
     # image, and never a file another copy of this row is cloning at the time
-    with os88marty.launch(SYS_IMG, apps=SRC_APPS, machine=MACHINE) as m:
+    with os88marty.launch(SYS_IMG, apps=SRC_APPS, machine=MACHINE,
+                          boot=False) as m:
+        m.run()
+        os88marty.kernel_up(m)          # the first act is a click
         mo = os88mouse.Mouse(marty=m)
-        dispcp.open_drive(m, mo, S, os88marty.settle, "B")
+        dispcp.open_drive(m, mo, S, _done, "B")
         wx, wy = dispcp.win_rect(m, S, dispcp.win_list(m, S)[-1])[:2]
         goto_root(m, mo, wx, wy)
         say("B:\\ = %r" % names(m))
 
         # --- 1. a PLAIN FILE: MEDIA/ -> the root ---------------------------
-        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "MEDIA")
+        dispcp.open_named(m, mo, S, _done, wx, wy, "MEDIA")
         inner = names(m)
         say("B:\\MEDIA = %r" % inner)
         f = inner[0]
@@ -268,7 +275,7 @@ def main():
         # --- 2. a FOLDER: MEDIA/ -> B:\SYSTEM ------------------------------
         select(m, mo, wx, wy, "MEDIA")
         pick_edit(m, mo, I_COPY)
-        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "SYSTEM")
+        dispcp.open_named(m, mo, S, _done, wx, wy, "SYSTEM")
         pick_edit(m, mo, I_PASTE)
         e = err(m)
         say("Paste of MEDIA/ into B:\\SYSTEM -> [fcp_err]=%d" % e)
@@ -282,7 +289,7 @@ def main():
             fails.append("MEDIA/ is not in B:\\SYSTEM after the paste - %r"
                          % names(m))
         else:
-            dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "MEDIA")
+            dispcp.open_named(m, mo, S, _done, wx, wy, "MEDIA")
             got = names(m)
             say("B:\\SYSTEM\\MEDIA = %r (the source held %r)" % (got, inner))
             if sorted(got) != sorted(inner):

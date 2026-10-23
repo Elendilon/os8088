@@ -70,7 +70,7 @@ def main():
         if not os.path.exists(p):
             fail("%s is missing - `make doscom` builds the gate disks" % p)
 
-    with os88ui.boot(SYS, apps=IRQ, machine=MACHINE) as ui:
+    with os88ui.boot(SYS, apps=IRQ, machine=MACHINE, quick=True) as ui:
         m = ui.m
         row0 = m.sym("drv_tab")
 

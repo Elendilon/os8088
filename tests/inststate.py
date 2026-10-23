@@ -87,12 +87,12 @@ def one(name):
     try:
         stage(run_dir, layout)
         with M.launch("build/os8088-360.img", apps="build/apps360.img",
-                      machine=ID.MACHINE, run_dir=run_dir) as m:
-            M.settle(m)
+                      machine=ID.MACHINE, run_dir=run_dir, boot=False) as m:
+            m.run(); M.kernel_up(m)   # a state gate; the rows are read from VRAM
             tab = IR.glyph_table(m)
             mo, ix, iy = ID.open_installer(m)
             IR.park(mo)
-            M.settle(m)
+            M.ui_done(m, "the installer's slot list")
             rows = IR.screen(m)[2]
             bad = []
             for i, want in enumerate(expect):

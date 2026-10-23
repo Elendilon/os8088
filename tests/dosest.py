@@ -75,7 +75,7 @@ def main():
         if not os.path.exists(p):
             fail("%s is missing - run `make` first" % p)
 
-    with os88ui.boot(SYS, apps=APPS, machine=a.machine) as ui:
+    with os88ui.boot(SYS, apps=APPS, machine=a.machine, quick=True) as ui:
         m = ui.m
         mo = os88mouse.Mouse(marty=m)
         snd = struct.unpack("<H", m.read(m.sym("drv_tab")

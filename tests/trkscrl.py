@@ -37,8 +37,10 @@ bench build (`-DTRKDBG`, tests/trkscrl.inc) carries j/k/n/v/b/c, which move
 the STOPPED view by +-2, +-3, +-4 in a single frame, and G, which repaints the
 grid with the view held still.
 """
+import atexit
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -187,38 +189,21 @@ def say(*a):
 
 
 def boot():
-    """`make test` with the bench disk in B: - the minesrc.py idiom."""
-    if os.path.exists("build/qemu.pid"):
-        try:
-            pid = int(open("build/qemu.pid").read().strip())
-            os.kill(pid, 15)
-            os88qemu.gone(pid)
-        except (OSError, ValueError):
-            pass
-    for f in ("build/qmp.sock", "build/qemu.pid"):
-        if os.path.exists(f):
-            os.remove(f)
-    # `make test` DAEMONISES the emulator, so it outlives this script
-    # unless somebody kills it - and the somebody is us (os88qemu).
-    os88qemu.own()
-    # THROUGH os88fixture.make: `make test` is a LAUNCHER, and the only thing
-    # it leaves under build/ is the buildnum stamp the parse rewrites - this
-    # puts that back. Its prerequisites ($(TESTIMG) $(TESTAPPS)) are declared
-    # as this row's `wants=`, so the runner has them current and nothing is
-    # built here either.
-    r = os88fixture.make("test", "TESTAPPS=" + DISK)
-    if r.returncode:
-        raise SystemExit("trkscrl: make test failed:\n" + r.stdout + r.stderr)
+    """`make test TESTAPPS=build/trkscrl.img`'s machine WITHOUT make
+    (os88qemu.launch_test): its own socket and copies of both floppies, so
+    no `make` runs in the shared build/ and no other row's QEMU is killed
+    through build/qemu.pid. Answers the QMP socket."""
+    tmp = tempfile.mkdtemp(dir=os.path.join(ROOT, "build"))
+    atexit.register(shutil.rmtree, tmp, True)   # (after the kill: LIFO)
+    sock, _ = os88qemu.launch_test(tmp, apps=DISK)
+    return sock
 
 
 def main():
     global SOCK
-    SOCK = sys.argv[1] if len(sys.argv) > 1 else "build/qmp.sock"
     os.chdir(ROOT)
-    r = subprocess.run(["make", "trkscrl"], capture_output=True, text=True)
-    if r.returncode:
-        raise SystemExit("trkscrl: make trkscrl failed:\n" + r.stdout + r.stderr)
-    boot()
+    os88fixture.need(DISK)          # (was `make trkscrl` in the shared tree)
+    SOCK = boot()
 
     q = Qmp(SOCK)
     # EVERY WAIT BELOW IS ON THE GUEST'S CLOCK (tests/os88qemu.py), and on the
@@ -231,27 +216,24 @@ def main():
             return dispcp.drive_ordinal(q, os88sym.linear, "B") is not None
         except Exception:                                   # noqa: BLE001
             return False
-    if not os88qemu.acted(q, zone, secs=90, what="drive B's zone", poll=0.4):
+    if not os88qemu.acted(q, zone, secs=90, what="drive B's zone", poll=0.05):
         raise SystemExit("trkscrl: drive B: never got a desktop zone - the "
                          "guest did not reach a desktop")
-    os88qemu.pace(q, 1)
+    os88qemu.ui_done(q, os88sym.linear, cap=1.0)     # (was pace(1))
     q.screen()                      # ...which is also how SCREEN is learned
     say("trkscrl: a %dx%d desktop, then B: -> BEVERLY.MOD" % tuple(SCREEN))
-    q.goto(*DISKB)
-    # the spacing INSIDE the double-click stays host time: it is well inside
-    # the 9-tick window either way, and tick rounding would eat into it
-    q.hmp("mouse_button 1"); time.sleep(0.1); q.hmp("mouse_button 0")
-    time.sleep(0.2)
-    q.hmp("mouse_button 1"); time.sleep(0.1); q.hmp("mouse_button 0")
+    # closed-loop on mouse_x/mouse_btn, every edge confirmed (SOAK-SPEED
+    # 15) - well inside the 9-tick double-click window
+    os88qemu.mouse_dblclick(q, os88sym.linear, q.hmp, *DISKB)
     if os88qemu.acted(q, lambda: bool(dispcp.win_list(q, os88sym.linear,
                                                       check=False)),
-                      secs=20, what="the Disk B window", poll=0.3):
-        os88qemu.pace(q, 1)         # ...and its rows painted
+                      secs=20, what="the Disk B window", poll=0.05):
+        os88qemu.ui_done(q, os88sym.linear, cap=1.0)    # ...its rows painted
     # SELECT, then Enter. A double-click here is the flakiest thing in this
     # file - the window has just been drawn and the second press can land
     # while it still is - and Enter opens the selection just as well.
-    q.click(*MODROW)
-    os88qemu.pace(q, 1)
+    os88qemu.mouse_click(q, os88sym.linear, q.hmp, *MODROW)
+    os88qemu.ui_done(q, os88sym.linear, cap=1.0)
     q.key("ret")
 
     seg = None
@@ -262,7 +244,7 @@ def main():
         return bool(seg)
     # 12s of settling and ten 2s re-scans was the old budget: 52 guest s
     os88qemu.acted(q, resident, secs=52, what="TRKSCRL.O88 resident",
-                   poll=1.0)
+                   poll=0.3)
     if not seg:
         raise SystemExit("trkscrl: the player never became resident.")
     P, _ = os88rate.symbols(("TRKDBG",))
@@ -277,7 +259,7 @@ def main():
     # answer, and the open's tail (trk_play, the completion repaint) is its
     # state going still - tests/trkrate.py's pair. This was a blind 4s
     os88qemu.acted(q, lambda: peek("mp_loaded", 1) == 1, secs=30,
-                   what="[mp_loaded]", poll=0.25)
+                   what="[mp_loaded]", poll=0.05)
     os88qemu.quiesce(q, lambda: tuple(
         q.read(base + P["@" + n], 2) for n in
         ("mp_loaded", "mp_playing", "mp_mixrate", "mp_xt", "trk_fs")),
@@ -285,7 +267,7 @@ def main():
 
     q.key("f")                          # into the graphics fullscreen
     if os88qemu.acted(q, lambda: peek("trk_fs", 1) == 1, secs=10,
-                      what="[trk_fs]", poll=0.25):
+                      what="[trk_fs]", poll=0.05):
         os88qemu.pace(q, 1)             # ...and its first frame
     if peek("trk_fs", 1) != 1:
         raise SystemExit("trkscrl: F did not enter the bracket.")
@@ -297,7 +279,7 @@ def main():
             break                       # machine has a card at all
         q.key("spc")
         os88qemu.acted(q, lambda: peek("mp_playing", 1) == 0, secs=2,
-                       what="playback stopped", poll=0.2)
+                       what="playback stopped", poll=0.05)
     if peek("mp_playing", 1) != 0:
         raise SystemExit("trkscrl: could not stop playback; the view would "
                          "move between the two screenshots.")

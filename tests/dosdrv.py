@@ -71,7 +71,7 @@ def main():
         fail("the two floppies must each carry a name the other has not: "
              "A: has %r, B: has %r" % (sorted(a_only)[:4], sorted(b_only)[:4]))
 
-    with os88ui.boot(SYS, apps=GATE) as ui:
+    with os88ui.boot(SYS, apps=GATE, quick=True) as ui:
         m = ui.m
         if not ui.path("B:/DRVNAME.COM"):
             fail("double-clicking DRVNAME.COM opened no window")
@@ -82,7 +82,7 @@ def main():
             rows[:] = mm.screen() or []
             return any("DRVNAME READY" in r for r in rows)
         try:
-            os88marty.until(m, ready, "DRVNAME READY", poll=0.3, limit=180.0)
+            os88marty.until(m, ready, "DRVNAME READY", poll=0.05, limit=180.0)
         except os88marty.MartyError:
             fail("the program never finished; the last text screen was %r"
                  % ([r.rstrip() for r in rows if r.strip()][:14],))

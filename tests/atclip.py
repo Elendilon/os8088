@@ -134,7 +134,7 @@ def main():
     syms = pkg_syms()
 
     with os88ui.boot(tree.img("os8088-360.img"), apps=tree.img("apps360.img"),
-                     machine=CARDS[a.card]) as ui:
+                     machine=CARDS[a.card], quick=True) as ui:
         m = ui.m
         w = ui.path("B:/APPS/ARTFUL.O88")
         seg = u16(m.read(os88geom.winptr(m, w.i, ui.sym) + os88geom.W_SEG, 2))

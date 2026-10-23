@@ -16,7 +16,9 @@ import tempfile
 import time
 
 
-def run(img, until, timeout, quiet=False):
+def run(img, until, timeout, quiet=False, final=(), poll=0.05):
+    """`final`: markers that END the output (e.g. " END\n", the DONE line's
+    last word), so a match on one needs no 0.3 s trailing read."""
     fd, log = tempfile.mkstemp(prefix="rdgq-", suffix=".log")
     os.close(fd)
     p = subprocess.Popen(["qemu-system-i386", "-drive", "file=%s,format=raw,if=floppy" % img,
@@ -26,11 +28,13 @@ def run(img, until, timeout, quiet=False):
     try:
         while time.time() - t0 < timeout:
             text = open(log, "rb").read().decode("latin-1")
+            if any(u in text for u in final):
+                break
             if any(u in text for u in until):
                 time.sleep(0.3)
                 text = open(log, "rb").read().decode("latin-1")
                 break
-            time.sleep(0.2)
+            time.sleep(poll)
     finally:
         p.kill()
         p.wait()

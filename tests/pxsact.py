@@ -149,7 +149,7 @@ def ticks(g, n, limit=120.0):
     """Let the guest run n BIOS ticks."""
     t0 = g.ticks()
     os88marty.until(g.m, lambda mm: (g.ticks() - t0) & 0xFFFFFF >= n,
-                    "%d ticks" % n, poll=0.1, limit=limit)
+                    "%d ticks" % n, poll=0.02, limit=limit)
 
 
 def watch(g, n, key, want, step=6, actor=0):

@@ -174,8 +174,8 @@ def main():
     # NO PRISTINE DANCE. Every instance gets its own clone of the staged
     # tree's VHD (os88marty.launch), so the disk this erases is this run's.
     with M.launch("build/os8088-360.img", apps="build/apps360.img",
-                  machine=ID.MACHINE) as m:
-        M.settle(m)
+                  machine=ID.MACHINE, boot=False) as m:
+        m.run(); M.kernel_up(m)       # a state gate; captions are read from VRAM
         tab = glyph_table(m)
         mo, ix, iy = ID.open_installer(m)
 
@@ -184,7 +184,7 @@ def main():
         no_third_button(rows, ix, iy)
 
         ID.run_install(m, mo, ix, iy)
-        M.settle(m)
+        M.ui_done(m, "the installer's last stage")
 
         rows = caption(m, mo, ix, iy, tab, "Restart", "done")
         no_third_button(rows, ix, iy)

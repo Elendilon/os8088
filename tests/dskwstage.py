@@ -450,7 +450,10 @@ def run(img, apps, machine, want_bug, verbose):
     bad = []
     src_pat = pattern(FSIZE)
     with os88marty.launch(img, apps=apps, machine=machine,
-                          label="dskwstage") as m:
+                          label="dskwstage", boot=False) as m:
+        m.run()
+        os88marty.kernel_up(m)      # the state gate; the drive is waited for
+                                    # below, on the drive
         # **TAKE THE MACHINE OVER AT A DEFINED POINT, not wherever `pause`
         # lands.** Everything below runs kernel routines on a synthetic
         # context, so the state they inherit is whatever the guest was in the

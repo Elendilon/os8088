@@ -193,7 +193,7 @@ def main():
     a = ap.parse_args()
     os.chdir(ROOT)
     lv = pxslevel.parse(os.path.join(pxslevel.DEFAULT_DIR, "e1m1.txt"))
-    with os88marty.launch(a.image, apps=a.apps, machine=a.machine) as m:
+    with os88marty.launch(a.image, apps=a.apps, machine=a.machine, boot=False) as m:
         g = pxslib.open_game(m)
         print("   PXSTEIN.O88: window %d, part 0 at %04x, handoff %s"
               % (g.win, g.seg, g.handoff()))
