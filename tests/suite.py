@@ -14597,7 +14597,7 @@ SOAK = [
         "paint and its square moves inside the content. Everything is read "
         "out of each package's own bss through its map.",
         needs=("marty",), serial=True, timeout=600),
-    Row("syscheck", "soak", py("tests/syscheck.py"), 120.0,
+    Row("syscheck", "soak", py("tests/syscheck.py"), 20.0,
         "SPEC.md 118: SYSTEM CHECK on an upgraded install. A hard-disk image "
         "of the system disk's own files is planted with one of every "
         "breakage 118.1 names - a package of format 8, one that is not a "

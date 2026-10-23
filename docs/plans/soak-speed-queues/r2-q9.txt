@@ -30,42 +30,42 @@ vidx	vidxipbank	120	tests/vidxip.py	qemu,nasm
 vidx	vidxiphdhold	120	tests/vidxip.py	qemu,nasm
 vidx	vidxipxspeed	120	tests/vidxip.py	qemu,nasm
 vidx	vidxipbankwrap	120	tests/vidxip.py	qemu,nasm
-sysc	syscheck	120	tests/syscheck.py	qemu,mtools
+DONE sysc	syscheck	120	tests/syscheck.py	qemu,mtools
 SKIP builds=True (writes build/; not runnable in the shared tree) wire	wirechat	120	tests/wirechat.py	qemu
 vidb	vidbankgap	115	tests/vidbank.py	qemu,nasm
 SKIP builds=True (writes build/; not runnable in the shared tree) thew	thewire	110	tests/thewire.py	qemu
 vidx	vidxipbanksnd	110	tests/vidxip.py	qemu,nasm
 wire	wirefleetlink	100	tests/wirefleetlink.py	qemu,nasm,pil
-lemm	lemmings	100	tests/lemmings.py	qemu,cc
-vidl	vidlysplitinplace	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlysplitinplacebase	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlyorder	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
-vidl	vidlyorderbank	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
-netc	netcoexist	90	tests/netcoexist.py	qemu
+MOVED->r2-q13 lemm	lemmings	100	tests/lemmings.py	qemu,cc
+MOVED->r2-q13 vidl	vidlysplitinplace	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
+MOVED->r2-q13 vidl	vidlysplitinplacebase	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
+MOVED->r2-q13 vidl	vidlyorder	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
+MOVED->r2-q13 vidl	vidlyorderbank	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
+MOVED->r2-q13 netc	netcoexist	90	tests/netcoexist.py	qemu
 SKIP builds=True (writes build/; not runnable in the shared tree) ethc	ethcfg	90	tests/ethcfg.py	qemu
-rltu	rltune	81	tests/rltune.py	nasm,qemu
-vgad	vgadirty	80	tests/vgadirty.py	qemu,nasm
-mine	minesrc	80	tests/minesrc.py	qemu,nasm
-vidc	vidclose	75	tests/vidclose.py	qemu,nasm
-dosx	dosxlat	75	tests/dosxlat.py	qemu
+MOVED->r2-q13 rltu	rltune	81	tests/rltune.py	nasm,qemu
+MOVED->r2-q13 vgad	vgadirty	80	tests/vgadirty.py	qemu,nasm
+MOVED->r2-q13 mine	minesrc	80	tests/minesrc.py	qemu,nasm
+MOVED->r2-q13 vidc	vidclose	75	tests/vidclose.py	qemu,nasm
+MOVED->r2-q13 dosx	dosxlat	75	tests/dosxlat.py	qemu
 vidb	vidbankwin	75	tests/vidbank.py	qemu,nasm
 vidb	vidbankspk	75	tests/vidbank.py	qemu,nasm
 vidl	vidlayerpal	75	tests/vidlayer.py	ffmpeg
-colo	colorpresets	72	tests/colorpresets_qemu.py	qemu,nasm,pil
-wire	wireball	65	tests/wireball.py	qemu,nasm,pil
-pxsw	pxswin-qemu	65	tests/pxswin.py	qemu
-hmad	hmadrv	62	tests/hmadrv.py	qemu,nasm
+MOVED->r2-q13 colo	colorpresets	72	tests/colorpresets_qemu.py	qemu,nasm,pil
+MOVED->r2-q13 wire	wireball	65	tests/wireball.py	qemu,nasm,pil
+MOVED->r2-q13 pxsw	pxswin-qemu	65	tests/pxswin.py	qemu
+MOVED->r2-q13 hmad	hmadrv	62	tests/hmadrv.py	qemu,nasm
 vidb	vidbankspkbank	60	tests/vidbank.py	qemu,nasm
-vidl	vidlysplit	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlysplitbase	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlysplituntimed	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlybank	60	tests/vidlybank.py	qemu,nasm,ffmpeg
-vidl	vidlybankcopy	60	tests/vidlybank.py	qemu,nasm,ffmpeg
-vidl	vidlybanknone	60	tests/vidlybank.py	qemu,nasm,ffmpeg
-vidx	vidxmslive	60	tests/vidxms.py	qemu,nasm
-vidx	vidxmsliverep	60	tests/vidxms.py	qemu,nasm
-gifd	gifdrag	56	tests/gifdrag.py	
-whee	wheelps2	56	tests/wheelps2.py	qemu,nasm
+MOVED->r2-q13 vidl	vidlysplit	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+MOVED->r2-q13 vidl	vidlysplitbase	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+MOVED->r2-q13 vidl	vidlysplituntimed	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+MOVED->r2-q13 vidl	vidlybank	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+MOVED->r2-q13 vidl	vidlybankcopy	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+MOVED->r2-q13 vidl	vidlybanknone	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+MOVED->r2-q13 vidx	vidxmslive	60	tests/vidxms.py	qemu,nasm
+MOVED->r2-q13 vidx	vidxmsliverep	60	tests/vidxms.py	qemu,nasm
+MOVED->r2-q13 gifd	gifdrag	56	tests/gifdrag.py	
+MOVED->r2-q13 whee	wheelps2	56	tests/wheelps2.py	qemu,nasm
 MOVED->r2-q11 os	lzfmt-all	55	tools/os88lz.py	
 MOVED->r2-q11 kdmi	kdmix	55	tests/kdmix.py	
 MOVED->r2-q11 gbcp	gbcpu	50	tests/gbcpu.py	qemu,nasm
