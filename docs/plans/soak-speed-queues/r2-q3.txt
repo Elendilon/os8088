@@ -116,8 +116,8 @@ DONE vidf	vidfskeysvga8	35	tests/vidfskeys.py
 DONE vidf	vidfskeys	30	tests/vidfskeys.py
 DONE vidf	vidfskeyscga4	30	tests/vidfskeys.py
 DONE vidf	vidfskeysc512	25	tests/vidfskeys.py
-pxdr	pxdraw	200	tests/pxdraw.py
-pxdr	pxdrawvga	200	tests/pxdraw.py
+DONE pxdr	pxdraw	200	tests/pxdraw.py
+DONE pxdr	pxdrawvga	200	tests/pxdraw.py
 dotd	dotdel	150	tests/dotdel.py
 dotd	dotdelpen	90	tests/dotdelpen.py
 dotd	dotdelwin	75	tests/dotdelwin.py

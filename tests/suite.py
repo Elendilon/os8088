@@ -10128,7 +10128,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/pixel.o88",
                "build/os8088-360.img")),
-    Row("pxdraw", "soak", py("tests/pxdraw.py"), 200.0,
+    Row("pxdraw", "soak", py("tests/pxdraw.py"), 90.0,
         "PiXEL's redraw priced in drawing calls (SPEC.md 106.15), on the "
         "Hercules face: every far call into a drawing cell of the API table "
         "that RETURNS INTO PIXEL (the planar blit's own clip walk re-enters "
@@ -10145,7 +10145,7 @@ SOAK = [
         wants=("build/pixel.o88",
                "build/os8088-360.img")),
     Row("pxdrawvga", "soak", py("tests/pxdraw.py", "--machine",
-                                "os8088_xt_vga"), 200.0,
+                                "os8088_xt_vga"), 120.0,
         "pxdraw on the VGA XT, the COLOUR face (SPEC.md 106.16): the "
         "toolbar's and tools' faces one planar blit each, the panes, the "
         "same ceilings and the same incremental-equals-repaint identity, "

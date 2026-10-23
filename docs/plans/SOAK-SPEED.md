@@ -314,6 +314,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | pxedit | declared 600 | 225 s / 558 guest s waited (load 5), unchanged | - | guest-bound: the Effects ops ARE the work (Blur 38 guest s on the 8088) and every wait already ends on its condition; re-declared only |
 | czseqnone / czseq / czseqlose | 114 / 79 / 25 s (load 4), 118 guest s waited | 80 / 65 / 28 s (load 8), 88 guest | 4 + quick boot | quick boots (floppy and XT-IDE); settles before guest reads -> `ui_done`; polls 0.05. czseqnone's wall includes a ~40 s FATWNONE private-tree rebuild whenever the commit count moved (the build number), <1 s otherwise; czseq's rest is its per-`int 13h` breakpoint trace, the measurement |
 | vidfskeys (13 rows) | 28-102 s (load 11), 1,114 guest s waited | 33-78 s (load 9), 1,096 guest | 8 + quick boot | quick boot, polls 0.2 -> 0.05. The rest is the VGA floppy boot (~14 guest s to `up`) and the plays' own holds and seeks, which ARE the subject |
+| pxdraw / pxdrawvga | declared 200 / 200; 62 / 85 s (load 3), 343 guest s waited | 73 / 96 s (load 6), 339 guest | 4, 8 | quick boot, settles -> still, polls 0.05 - little to take: the decode, the traced gestures (their 0.3 s tails are the measurement) and the 6 s free-memory look are the work. Re-declared |
 
 ## Resuming
 
