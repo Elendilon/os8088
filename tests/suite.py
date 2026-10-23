@@ -4937,7 +4937,7 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidbankspkfast", "soak", py("tests/vidbank.py", "--arm",
-                                     "spkfast"), 40.0,
+                                     "spkfast"), 20.0,
         "SPEC.md 98.3.18.9: the same file with a yardstick far slower than "
         "this machine - the bench passes it twice over and the SPEAKER "
         "stays, the bank idle under it as 98.3.18.5 has it",
@@ -15529,7 +15529,7 @@ SOAK = [
         "find is a row nobody runs.",
         needs=("qemu",), serial=True, builds=True,
         wants=("build/brtest360.img",)),
-    Row("netcoexist", "soak", py("tests/netcoexist.py"), 90.0,
+    Row("netcoexist", "soak", py("tests/netcoexist.py"), 20.0,
         "SPEC.md 72.9.1 and 34.13.1: a network card and an MPU-401 in one "
         "machine. The field lost its network the moment an MPU was added: "
         "ETHER.DRV's sweep read 320h's 'PROM' through the MPU's data port at "

@@ -85,8 +85,21 @@ def gone(pid, wait=1.0, most=10.0):
             os.kill(pid, 0)
         except OSError:
             return True
-        time.sleep(0.05)
+        # A ZOMBIE HAS EXITED: its files (the image's write lock) are closed,
+        # and a daemonised QEMU's parent is PID 1, which here reaps ~1 s
+        # later - measured 12 ms to exit, 1.0 s to vanish, every launch
+        if _zombie(pid):
+            return True
+        time.sleep(0.01)
     return False
+
+
+def _zombie(pid):
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            return f.read().rsplit(")", 1)[1].split()[0] == "Z"
+    except (OSError, IndexError):
+        return False
 
 
 def own(pidfile=PIDFILE, sock=SOCK):
