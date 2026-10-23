@@ -10226,7 +10226,7 @@ SOAK = [
         "full for the save, which leaves the old file and no temporary",
         needs=("marty", "nasm"), serial=True,
         wants=("build/pixel.o88", "build/os8088.img")),
-    Row("pxbench", "soak", py("tests/pxbench.py"), 700.0,
+    Row("pxbench", "soak", py("tests/pxbench.py"), 250.0,
         "SPEC.md 106.17 on the 5150 with a CGA: the TIME, in guest cycles from "
         "breakpoints, of opening MOUNTAIN.BMP (24-bit: the cube's ordered "
         "dither), CITY.PCX (8-bit RLE) and a 640x480 8-bit BMP made by the "
@@ -10240,7 +10240,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/pixel.o88", "build/os8088-360.img")),
     Row("pxbenchvga", "soak", py("tests/pxbench.py", "--machine",
-                                 "os8088_xt_vga"), 760.0,
+                                 "os8088_xt_vga"), 350.0,
         "pxbench on the XT with a VGA (SPEC.md 106.17): the same figures where "
         "a PAL picture's 256 mixing plans are searched before its first row "
         "and the composer turns lanes into four planes for BLITP",

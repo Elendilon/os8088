@@ -34,8 +34,8 @@ DONE disp	dispfsxcga	35	tests/dispfsxcga.py
 DONE disp	dispmine	30	tests/dispmine.py
 DONE disp	dispstrad	30	tests/dispstrad.py
 DONE disp	dispsaver	20	tests/dispsaver.py
-pxbe	pxbenchvga	760	tests/pxbench.py
-pxbe	pxbench	700	tests/pxbench.py
+DONE pxbe	pxbenchvga	760	tests/pxbench.py
+DONE pxbe	pxbench	700	tests/pxbench.py
 DONE isot	isotrontoggle	180	tests/isotron.py
 DONE isot	isotronfs	150	tests/isotron.py
 DONE isot	isotrontwodisp	90	tests/isotron.py
