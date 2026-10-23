@@ -355,6 +355,40 @@ always one of those two cases, so the case K6a would help is the smaller set.
 **Deferred to a later research pass.** Raise caches stay purgeable and stay
 DROPPED by the compactor. The ratchet (4) records them as "shed, by design".
 
+### 6.6 P2's audit: CLEAN-WITH-WORK (2026-10-23)
+
+The audit read every park site in `apps/frotz/`. Only the `OSAPI_TASK_ALIVE`
+calls can park Frotz (it does not declare PARKSAFE, SPEC.md 66.5.9.1), and
+there are eight of them: the burst loop's own, @read, @read_char, @save,
+@restore, @restart, @verify's chunk loop and the [MORE] wait.
+
+**Re-dispatching the current Z instruction is LOSSY and is not the design.**
+Its operand decode pops the Z stack for variable-0 operands, five handlers
+spill `[zf_pcoff]` to the store/branch byte before they park, and
+re-executing repeats what is already on the glass (@read's echo, a posted
+Save dialog, text printed before [MORE]).
+
+**What works is RESUMING THE WAIT**, from state that is already in bss. One
+byte, `[zx_rsm]`, names the handler (set before its spill/unlock, cleared
+after the re-lock), and `zx_restart` either enters `zx_worker` (0) or jumps
+to that handler's post-wait tail through a second entry into
+`zi_readline`/`zi_readchar`/`zi_request`'s `.wait`. No Z instruction is
+re-executed except @verify, which is pure. @restart gains the `zx_spill` the
+others have (3 bytes).
+
+**[MORE] withdraws the declaration** (`OSAPI_TASK_RESTARTABLE AX=0`) for the
+length of its wait, because the text decoder's state is on the stack there
+and replaying it duplicates output. The region stays pinned while the prompt
+is up. That is a missed move, not a loss. A `mem_avail` plan taken mid-burst
+can therefore read HIGH if Frotz reaches a page boundary before it parks. It
+is the K9 shape (a compaction achieves less, once), and rare.
+
+Estimated **200-250 bytes of FROTZ.O88, zero kernel bytes, zero per
+instruction**, which the owner's rule allows. It is built after A3 merges,
+since A3 also edits `zio.inc` and `zwin.inc`. Its gate is one leg per park
+site (described in the audit), with red runs for a declaration pointed at
+plain `zx_worker` and for the [MORE] withdrawal removed.
+
 ### 6.5 PIXELSTEIN's re-homed claims need the fence widened (a kernel-byte decision)
 
 A4 made PIXELSTEIN's shadow movable (`px_shmv`), but its levels (10 KB), art
