@@ -82,7 +82,13 @@ wf_connect:
     mov al, [wf_wantport]
     or al, 0x80                 ; the user NAMED it: not the mouse (115.1.1)
     call wf_lease
-    jc .failed
+    jnc .ok
+    cmp ax, 4                   ; a SERIAL.DRV older than 115.1.1 reads the
+    jne .failed                 ; flag as a port number and says "absent":
+    mov al, [wf_wantport]       ; ask again as it understands, so this
+    call wf_lease               ; package on an older system disk does what
+    jc .failed                  ; the WireFleet before it did
+.ok:
     mov word [wf_message], wf_searching
     jmp wf_update
 .failed:
@@ -1202,7 +1208,7 @@ wf_crc:
 wf_linkerrors: dw wf_searching,wf_linkbusy,wf_movemouse,wf_mouseport,wf_noport,wf_badbuffer,wf_searching,wf_searching,wf_needsserial,wf_nobios
 wf_searching: db 'Looking for your opponent on the null-modem cable...',0
 wf_linkbusy: db 'Another program is using the serial port. Trying again...',0
-wf_movemouse: db 'Which port is the cable? Link > Connect COM1/COM2, or move the mouse.',0
+wf_movemouse: db 'Choose Link > Connect COM1/COM2, or move the mouse.',0
 wf_mouseport: db 'That COM port is the mouse. Connect using the other port.',0
 wf_noport: db 'The OS found no UART on that port when it started.',0
 wf_nobios: db 'That port is not in the BIOS list: enable it in SETUP.',0
