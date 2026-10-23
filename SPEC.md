@@ -69883,10 +69883,16 @@ default clock and every toast lost the gap to it. SOUND.DRV rounds to 12KB of im
 Its hit range is tested before
 the Date/Time cell, without changing application menu indices. The icon is
 cached independently, invalidated when the bar is overwritten or capabilities
-change, and is omitted entirely on kern_small. A progress widget armed before
-that boundary moves retains its origin for the operation. If its old span
-reaches the new boundary, `fpg_finish` invalidates the icon before the final
-bar repaint, which repaints the clock's field and the picture both.
+change, and is omitted entirely on kern_small. **A progress widget (§12.8)
+armed when the boundary moves FOLLOWS it**: `fpg_move` puts its origin at the
+new `[vid_clk_hx] - FPG_W`, erases the part of the old span the new one does
+not cover (the rows above and below the text band, and the cells forgotten so
+the menus or the clock re-letter the band) and paints the widget at its new
+origin. It used to keep its origin for the operation, and the commonest move
+is exactly the one that collided: a toast that misses the gap - which the
+armed widget makes far likelier, its cells coming off the menus segment -
+widens the field by three cells to the left, so the strip was lettered
+straight under the widget's old span and the widget's next step drew over it.
 
 The popup is SOUND.DRV code, available with the loaded driver. Its private
 bridge is supplied by the kernel each call: AL=0 finish file activity, restore the pointer, spend lazy hide/show,

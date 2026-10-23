@@ -2940,6 +2940,7 @@ menu_sound:
     mov cx, [vid_pw]            ; forget the cells from the OLD edge on: a
     call menu_inval             ; segment growing back takes cells the clock
                                 ; drew and its record never saw
+    call fpg_move               ; an armed widget follows the edge (34.15)
     or dx, dx
     jnz .store
     cmp word [menu_mixcap], SND_CAP_MIXER
