@@ -19,10 +19,10 @@ DONE vidd	wseqfull	65	tests/viddisk.py
 DONE vidd	wseqcut	57	tests/viddisk.py
 DONE vidd	viddisk	52	tests/viddisk.py
 DONE vidd	wseqdeleted	39	tests/viddisk.py
-desk	deskflash	85	tests/deskflash.py
+DONE desk	deskflash	85	tests/deskflash.py
 desk	deskhover	80	tests/desklayer.py
 desk	deskdrag	75	tests/desklayer.py
-desk	deskzoom	72	tests/deskzoom.py
+DONE desk	deskzoom	72	tests/deskzoom.py
 desk	deskground	60	tests/desklayer.py
 desk	deskkeys	45	tests/desklayer.py
 desk	deskclose	45	tests/desklayer.py

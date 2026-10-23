@@ -247,6 +247,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | curdisk | 170 s (3 lanes) / 107 guest s of boot settles | 38 s | 4 | four boots gated on `kernel_up`; setup's dispcp settles -> `ui_done`; `watch()` (the measurement) untouched, same move counts |
 | tmselfsu | 84 s alone (declared 300) | 94 s (noise) | - | boot on state only (20 guest s); the rest is dispcells' stop-per-call breakpoints on font_run_x/gfx_fill (host round trips; the measurement) and the Task Manager's own interval ticks. Re-declared |
 | hdboot | 131 s (3 lanes) / 36 guest s waited | 37 s / 35 | 4 | the install machine's double boot settle (launch's + one more) -> `kernel_up`; the C: boot was already a frame-stepped state watch |
+| deskflash / deskzoom | 103 / 109 s (3 lanes) | 45 / 93 s (load 8) | 4, 10 | quick boots; settles -> `ui.still()`, the one before `dc.verify` dropped (verify stills itself); deskflash's per-pixel Python `flashes` over 30-70 glass frames -> numpy (`OS88_FLASHCHECK=1` asserts it equal to the loop: equal on all 16 checks). deskzoom's rest is `dc.verify`'s whole-repaint compares |
 
 ## Resuming
 

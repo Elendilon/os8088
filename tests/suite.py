@@ -10755,7 +10755,7 @@ SOAK = [
         "measured on the first build's per-zone region) and without the "
         "nothing-uncovered stores (the window redrawn, a title promoted).",
         needs=("marty",), serial=True, timeout=900),
-    Row("deskflash", "soak", py("tests/deskflash.py"), 85.0,
+    Row("deskflash", "soak", py("tests/deskflash.py"), 60.0,
         "SPEC.md 26.9.9: a desktop cell is drawn ONCE, and only where it "
         "shows. On VGA and CGA, frame by frame: an in-place cell repaint "
         "(plain and selected) changes and flashes nothing; a Disk window "
@@ -10769,7 +10769,7 @@ SOAK = [
         "about one run in six was sw_col's two-store edge byte caught by the "
         "beam (SPEC.md 39.25.1), not a flake: 2 of 16 before, 0 of 16 after.",
         needs=("marty",), timeout=600),
-    Row("deskzoom", "soak", py("tests/deskzoom.py"), 72.0,
+    Row("deskzoom", "soak", py("tests/deskzoom.py"), 100.0,
         "SPEC.md 11.91.6: two gestures that used to overflow wm_dmg_gray's "
         "region in its Ls and zones and take `.whole`, on Hercules and VGA, "
         "each against a whole repaint: a zoomed Disk window's RESTORE (the "
