@@ -7803,13 +7803,13 @@ SOAK = [
     Row("dispcalc", "soak", py("tests/dispcalc.py"), 180.0,
         "Does the Calculator add up, fold cleanly and redraw nothing spare?",
         needs=("marty",), serial=True, timeout=900),
-    Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 90.0,
+    Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 45.0,
         "Does the Calculator re-fold cleanly when its box moves under it?",
         needs=("marty",), serial=True),
     Row("dispcheck", "soak", py("tests/dispcheck.py"), 60.0,
         "Did os8088 bring the SECOND card up, can it DRAW on it, and does the",
         needs=("marty",), serial=True),
-    Row("dispclose", "soak", py("tests/dispclose.py"), 90.0,
+    Row("dispclose", "soak", py("tests/dispclose.py"), 20.0,
         "SPEC.md 75: closing ASKS - W_ONCLOSE, the deferred OSAPI_WM_CLOSE, "
         "and os88ui_ask's alert, driven through every branch and finished by "
         "reading the saved file off the floppy with os88flush",
@@ -7822,7 +7822,7 @@ SOAK = [
         # with check=False and patch one stride by hand, which was enough
         # until anything else read the window table.
         ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk"]
-        + py("tests/dispclose.py", "--small"), 100.0,
+        + py("tests/dispclose.py", "--small"), 30.0,
         "...and the same suite on kern_small, which since SPEC.md 75.3.2 has "
         "the identical behaviour rather than a fallback. **IT DECLARED THE ARM "
         "AND NOT THE ARTEFACT**, which is the failure docs/WRITING-TESTS.md 4 "
@@ -8966,7 +8966,7 @@ SOAK = [
         "broken so the canary FAILS (it must stay off), witnessed by the same "
         "patch on the Auto disk reading boot_cylrun 0",
         needs=("marty", "qemu"), serial=True, builds=True),
-    Row("dispreboot", "soak", py("tests/dispreboot.py"), 100.0,
+    Row("dispreboot", "soak", py("tests/dispreboot.py"), 60.0,
         "WHO WRITES ui_rebootq? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
     Row("dispsave", "soak", py("tests/dispsave.py"), 60.0,

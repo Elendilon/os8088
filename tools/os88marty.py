@@ -2314,10 +2314,18 @@ def kernel_up(m, guest=120.0, what="the kernel to reach the desktop"):
     desktop_up)` pays the boot plus a still-screen proof. Keep the settle when
     the next read is the rendered glass."""
     a = (m.sym("desk_rows"), m.sym("menu_nbar"), m.sym("spl_live"))
+    seen = [None]
 
-    def up(_):
+    def up(_):              # (and [ticks] MOVING across it: os88ui.UI.up)
         w = m.read(a[0], 2), m.read(a[1], 2)
-        return any(w[0]) and any(w[1]) and not m.read(a[2], 1)[0]
+        if not (any(w[0]) and any(w[1]) and not m.read(a[2], 1)[0]):
+            seen[0] = None
+            return False
+        t = _ktick(m)
+        if seen[0] is None:
+            seen[0] = t
+            return False
+        return t != seen[0]
     until(m, up, what, poll=0.05, guest=guest)
     return ui_done(m, what)
 

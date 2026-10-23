@@ -135,6 +135,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| dispclose / dispclose-small / dispcalcx / dispreboot | 33 / - / 49 / 74 s (load); 66 / - / 68 / 45 guest s | 20 / 12 / 35 / 41 s; 42 / 46 / 44 / 33 guest s | 4, 5 | nothing reads the glass (`m.vram` is guest memory): every settle -> `ui_done`, `kernel_up` boots; dispreboot's post-release watch tail 5 -> 1.5 guest s (it already ends only on `ui_idle`). Re-declared 90/100/90/100 -> 20/30/45/60 |
 | dispfreeze | 87 s (loaded) / 50 guest s | 18.5 s / 39 guest s | 4, 5 | `alive()`'s pass-counting window (a mem breakpoint STOPPING on every ui_task pass, 2-4 guest s fixed) ends at 3 passes + a moved tick - only a frozen/reset machine pays the window; clicks' settles -> `ui_done`; `kernel_up` boot |
 | dispcorner / dispmodex | 166 / 159 s (heavily loaded) / 65 / 69 guest s | 43 / 33 s / 63 / 68 guest s | - | `kernel_up` boot only; the rest is pixel-capture settles (the measurement) and Missile's own quiesces. Re-declared 120 -> 60 / 45 |
 | dispapps | 232 s (loaded) / 168 guest s | 33 s / 58 guest s | 4 | three games draw all the time, so settle (98 guest s over two adapter switches) -> `ui_done(lock=False)`; the switched facts are `quiesce`d where read (an early read is RED: before==after fails); `kernel_up` boot. secs 120 -> 45 |

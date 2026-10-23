@@ -7,10 +7,10 @@ DONE disp	dispapps	120	tests/dispapps.py
 DONE disp	dispcorner	120	tests/dispcorner.py
 DONE disp	dispfreeze	120	tests/dispfreeze.py
 DONE disp	dispmodex	120	tests/dispmodex.py
-disp	dispclose-small	100	tests/dispclose.py
-disp	dispreboot	100	tests/dispreboot.py
-disp	dispcalcx	90	tests/dispcalcx.py
-disp	dispclose	90	tests/dispclose.py
+DONE disp	dispclose-small	100	tests/dispclose.py
+DONE disp	dispreboot	100	tests/dispreboot.py
+DONE disp	dispcalcx	90	tests/dispcalcx.py
+DONE disp	dispclose	90	tests/dispclose.py
 disp	disptitle	80	tests/disptitle.py
 disp	dispblit	60	tests/dispblit.py
 disp	dispbrow	60	tests/dispbrow.py
