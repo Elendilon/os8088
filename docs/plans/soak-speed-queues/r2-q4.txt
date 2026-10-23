@@ -15,13 +15,13 @@ DONE inst	inststate	135	tests/inststate.py
 DONE inst	instdeep	120	tests/instdeep.py
 DONE inst	instrest	120	tests/instrest.py
 DONE inst	instassoc	85	tests/instassoc.py
-dosc	doscable	600	tests/doscable.py
-dosc	dosconcga	150	tests/dosconcga.py
-dosc	doscon	100	tests/doscon.py
-dosc	doscom	30	tests/doscom.py
-pxsa	pxsave	600	tests/pxsave.py
-pxsa	pxsauto	65	tests/pxsauto.py
-pxsa	pxsact	65	tests/pxsact.py
+DONE dosc	doscable	600	tests/doscable.py
+DONE dosc	dosconcga	150	tests/dosconcga.py
+DONE dosc	doscon	100	tests/doscon.py
+DONE dosc	doscom	30	tests/doscom.py
+DONE pxsa	pxsave	600	tests/pxsave.py
+DONE pxsa	pxsauto	65	tests/pxsauto.py
+DONE pxsa	pxsact	65	tests/pxsact.py
 wire	wirefleetsystem	120	tests/wirefleetsystem.py
 wire	wireballvideo	100	tests/wireball.py
 wire	wirefleetnomouse	90	tests/wirefleetnomouse.py

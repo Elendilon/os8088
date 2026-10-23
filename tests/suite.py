@@ -7018,7 +7018,7 @@ SOAK = [
         "for doscable's reason.",
         needs=("marty",), serial=True,
         wants=("build/socktest360.img",)),
-    Row("doscable", "soak", py("tests/doscable.py"), 600.0,
+    Row("doscable", "soak", py("tests/doscable.py"), 180.0,
         "A DOS PACKET-DRIVER CLIENT OVER THE PARALLEL CABLE (SPEC.md 96.26) - "
         "the arm that is about the WIRE, where `dosxlat` is about the "
         "endpoint. There the translation is FORCED over a card because that "
@@ -7198,7 +7198,7 @@ SOAK = [
         "because typing goes through `settle` and the motor has always "
         "stopped by the second one, so `burst <= n` was 1 <= 1 for ever",
         needs=("marty",), wants=("build/doscom360.img",)),
-    Row("doscon", "soak", py("tests/doscon.py"), 100.0,
+    Row("doscon", "soak", py("tests/doscon.py"), 40.0,
         "THE DOS BOX'S CONSOLE, AND THE PROMPT IN IT (SPEC.md 96.33). The band "
         "below the top bar carried three lines of status text and now carries "
         "an 80x25 screen - apps/os88con.inc, which is Telnet's terminal made "
@@ -7282,7 +7282,7 @@ SOAK = [
         "root holds 21 entries and DIR shows FIVE, sixteen being hidden or "
         "system, which DOS does not list and neither do we. **AND STEP 5 IS 96.33.13**: `CD BIN` then a bare name must resolve to B:\\BIN\\NAME.COM, not to the volume root. `CD` moves [dos_curdir] and dos_path_take's no-separator arm left [dos_dir] - the LAUNCH folder - so from the second directory onward every bare name looked in the first one, and the failure arrives as a read error about a file DIR has just listed.",
         needs=("marty",), serial=True, wants=("build/dirsw360.img",)),
-    Row("dosconcga", "soak", py("tests/dosconcga.py"), 150.0,
+    Row("dosconcga", "soak", py("tests/dosconcga.py"), 40.0,
         "THE CONSOLE BAND ON THE SHORT ADAPTER (SPEC.md 96.33.8). CGA's 200 "
         "lines leave the DOS box 17 of the console's 25 rows, and [con_vtop] "
         "is which buffer row the band starts at. It was CON_ROWS - "
@@ -10214,7 +10214,7 @@ SOAK = [
         "Unicorn: inside `pxsave` it skipped itself and the row still "
         "reported `ok`",
         needs=("nasm", "unicorn"), wants=("build/pixel.o88",)),
-    Row("pxsave", "soak", py("tests/pxsave.py", "--guest-only"), 600.0,
+    Row("pxsave", "soak", py("tests/pxsave.py", "--guest-only"), 280.0,
         "SPEC.md 106.24, PiXEL's Save As on the machine (the WRITE part's "
         "host leg is `pxsavehost`): on MartyPC's VGA XT a save in each of PNG, GIF, BMP, PCX and PIX through the card "
         "and the Standard File dialog, read back off the floppy - pixelsim's "
