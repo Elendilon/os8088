@@ -6,10 +6,10 @@ DONE kdmo	kdmouse	120	tests/kdmouse.py
 DONE fatw	fatwpin	120	tests/fatwpin.py
 DONE brra	brrace	120	tests/brrace.py
 DONE disk	diskclone	120	tests/diskclone.py
-czto	czto	115	tests/czto.py
+DONE czto	czto	115	tests/czto.py
 DONE brfe	brfetch	95	tests/brfetch.py
-vidm	vidmsync	90	tests/vidmsync.py
-gfxe	gfxewalk	90	tests/gfxewalk.py
+DONE vidm	vidmsync	90	tests/vidmsync.py
+DONE gfxe	gfxewalk	90	tests/gfxewalk.py
 calc	calcflick	90	tests/calcflick.py
 scha	schacct	90	tests/schacct.py
 sock	socktest	90	tests/socktest.py

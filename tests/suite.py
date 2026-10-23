@@ -3472,7 +3472,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/small360.img", "build/smallapps360.img",
                "build/smallk/kernel.bin")),
-    Row("gfxewalk", "soak", py("tests/gfxewalk.py"), 90.0,
+    Row("gfxewalk", "soak", py("tests/gfxewalk.py"), 60.0,
         "SPEC.md 5.12.5: Cyclone's warp and Missile's trails step the"
         " resumable walk in their OWN images now (apps/os88gfx.inc) and commit"
         " through OSAPI_GFX_POINTS. Two things no picture can show: that the"
@@ -9335,7 +9335,7 @@ SOAK = [
         "the check's compare disabled in compress.inc the damaged copy "
         "joined into a wrong DMG.DAT and the row went red on it",
         needs=("marty",), wants=("build/os8088.img",)),
-    Row("czto", "soak", py("tests/czto.py"), 115.0,
+    Row("czto", "soak", py("tests/czto.py"), 120.0,
         "SPEC.md 22.23.6: File > Uncompress To... - the result goes where "
         "the Save box says and the join ASKS for each floppy it needs. The "
         "parts are on B: and the result goes to A:, and the harness swaps "
@@ -14414,7 +14414,7 @@ SOAK = [
         "six. Broken on purpose (first_pts=0 out of ffmpeg_audio) the "
         "late-sound source FAILS at -0.500 s. SKIPS without ffmpeg",
         needs=("ffmpeg",)),
-    Row("vidmsync", "soak", py("tests/vidmsync.py"), 90.0,
+    Row("vidmsync", "soak", py("tests/vidmsync.py"), 80.0,
         "SPEC.md 98.3.20: the play waits out a monitor's re-sync after a "
         "REAL mode change, and only then. A two-second clip with sound off "
         "an XT-IDE disk, whose fill is too short to hide the wait: CGA4 "
