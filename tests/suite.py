@@ -6051,7 +6051,7 @@ SOAK = [
         "MartyPC is an 8088. VERIFIED RED against `os88build.py build "
         "NOKDKBD=1`, whose image this row takes as an argument.",
         needs=("marty",), serial=True, wants=("build/doscom360.img",)),
-    Row("kdhand", "soak", py("tests/kdhand.py"), 40.0,
+    Row("kdhand", "soak", py("tests/kdhand.py"), 30.0,
         "THE DOS HANDOFF, END TO END (SPEC.md 96.40, "
         "docs/plans/KERN-DOS-PLAN.md 7): run a .COM in the window, then run "
         "THE SAME .COM with the Memory page's third arm picked, and assert "
@@ -6130,7 +6130,7 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/doscom360.img",
                "build/kerndos.bin")),
-    Row("kdmix", "soak", py("tests/kdmix.py"), 55.0,
+    Row("kdmix", "soak", py("tests/kdmix.py"), 40.0,
         "A 1.44MB FLOPPY IN B: UNDER kern_dos (SPEC.md 96.40.5). Every other "
         "kd* row boots two 360KB drives - not by choice, but because every "
         "machine in tools/martypc/configs/os8088_machines.toml had two drives "
@@ -6232,7 +6232,7 @@ SOAK = [
         "taken out. MartyPC: the shed is a real DOS program taking the real "
         "arena, and no other emulator here runs one.",
         wants=("build/dossnd360.img",), needs=("marty",)),
-    Row("kdreturn", "soak", py("tests/kdreturn.py"), 37.0,
+    Row("kdreturn", "soak", py("tests/kdreturn.py"), 20.0,
         "THE DOS HANDOFF COMES BACK (SPEC.md 96.41, "
         "docs/plans/KERN-DOS-PLAN.md 8). W5 restarted the machine because "
         "there was nothing to return to; on a machine with a FIXED DISK the "
@@ -6273,7 +6273,7 @@ SOAK = [
         "doubling DOS_EROWH to 32 - row 3 then ends exactly ON the button "
         "row and the third check names it. MartyPC.",
         needs=("marty",)),
-    Row("kdreturnf", "soak", py("tests/kdreturn.py", "--boot", "floppy"), 42.0,
+    Row("kdreturnf", "soak", py("tests/kdreturn.py", "--boot", "floppy"), 30.0,
         "...AND THE SAME ROUND TRIP ON A MACHINE THAT BOOTED OFF A FLOPPY "
         "(SPEC.md 96.46.1). Which volume HIBERNAT.IMG lands on is hb_pick's: "
         "the one the machine booted from when that is fixed, else the FIRST "
@@ -6297,7 +6297,7 @@ SOAK = [
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv", "build/os8088-360.img")),
     Row("kdreturnm", "soak",
-        py("tests/kdreturn.py", "--machine", "os8088_5150_herc_hdd_gla"), 36.0,
+        py("tests/kdreturn.py", "--machine", "os8088_5150_herc_hdd_gla"), 30.0,
         "...AND THE SAME ROUND TRIP ON A MONO MACHINE (SPEC.md 96.49.2). The "
         "staging area IS the text framebuffer, so it is at B000 on a Hercules "
         "primary and B800 everywhere else - and kd_stageseg read the BDA's "
@@ -6325,7 +6325,7 @@ SOAK = [
                "build/ctrl.drv", "build/hdd.drv")),
     Row("kdreturnmode", "soak",
         py("tests/kdreturn.py", "--mode", "--machine",
-           "os8088_5150_herc_hdd_gla"), 38.0,
+           "os8088_5150_herc_hdd_gla"), 30.0,
         "...AND THE SAME ROUND TRIP WITH A PROGRAM THAT SETS A BIOS VIDEO "
         "MODE (SPEC.md 96.49.6). 96.49.2 fixed kd_stageseg so it CAN answer "
         "B000; it still answers out of the BDA's video mode byte at "
@@ -6349,7 +6349,7 @@ SOAK = [
                "build/ctrl.drv", "build/hdd.drv")),
     Row("kdreturngfx", "soak",
         py("tests/kdreturn.py", "--gfx", "--machine", "os8088_xt_vga_hdd"),
-        40.0,
+        30.0,
         "...AND THE SAME ROUND TRIP WITH A PROGRAM THAT EXITS IN A GRAPHICS "
         "MODE (SPEC.md 96.49.6), which is the arm that goes RED. In mode 13h "
         "a VGA decodes A000 ALONE - the Graphics Controller's memory map "
@@ -6369,7 +6369,7 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSGFX.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
-    Row("kdreturnpit", "soak", py("tests/kdreturn.py", "--pit"), 38.0,
+    Row("kdreturnpit", "soak", py("tests/kdreturn.py", "--pit"), 30.0,
         "...AND THE MACHINE'S TIMEBASE SURVIVES A PROGRAM THAT TAKES PIT "
         "CHANNEL 0 (SPEC.md 96.5, 96.5.3). DOSPIT.COM is DOSHELLO built "
         "-DPITFAST: it reprograms channel 0 to 0x4000 - four times fast - and "
@@ -6396,7 +6396,7 @@ SOAK = [
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
     Row("kdreturncx", "soak", py("tests/kdreturn.py", "--compact", "extent"),
-        36.0,
+        30.0,
         "...AND THE BOX MOVES UNDER THE HANDOFF (SPEC.md 96.40.8). The post "
         "is a far pointer, [hb_dosseg], and DOS.O88's region is MOVABLE and "
         "frameless at ui_task step 0 - so a claim inside the handoff that has "
@@ -6416,7 +6416,7 @@ SOAK = [
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
     Row("kdreturncm", "soak", py("tests/kdreturn.py", "--compact", "module"),
-        32.0,
+        20.0,
         "...AND THE SAME MOVE ONE CLAIM EARLIER (SPEC.md 96.40.8): the heap "
         "is walled so that HIBER.DRV's own image - loaded by hbf_perform "
         "before hbm_dosrun's step 1 copies the record - can only be met by "
