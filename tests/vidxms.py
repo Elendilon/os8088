@@ -199,7 +199,8 @@ def live_clip(tmp, loop=None):
 class Q(object):
     """One private QEMU: its own socket, pidfile and copies of both disks."""
 
-    def __init__(self, tmp, sysimg, apps, mem, extra=(), bps=None):
+    def __init__(self, tmp, sysimg, apps, mem, extra=(), bps=None,
+                 keep=False):
         self.sock = os.path.join(tmp, "qmp.sock")
         self.pid = os.path.join(tmp, "qemu.pid")
         self.pidn = None
@@ -223,8 +224,11 @@ class Q(object):
         signal.signal(signal.SIGTERM, lambda n, f: sys.exit(128 + n))
         subprocess.run(cmd, check=True)
         self.pidn = int(open(self.pid).read().strip())
+        if keep:                # one QMP connection for the run (xmcheck.keep)
+            xmcheck.keep(self.sock)
 
     def close(self):
+        xmcheck.keep(self.sock, False)
         if self.pidn:
             try:
                 os.kill(self.pidn, signal.SIGTERM)

@@ -166,14 +166,18 @@ def state(m, seg, cell):
 
 
 def boot():
-    """`make test`'s machine - the default images, VGA, the apps disk in B:
-    - launched by os88qemu.launch_test in a directory of its own: the make
-    would rebuild a build/ that is behind its sources, and its fixed socket
-    kept two QEMU rows from running at once."""
+    """`make test`'s machine - the default images, VGA, the apps disk in B:,
+    the OPL2 its DEVCARD adds - as an os88qemu.Private in a directory of its
+    own: the make would rebuild a build/ that is behind its sources, and its
+    fixed socket kept two QEMU rows from running at once."""
     import tempfile
+    import os88build
     tmp = tempfile.mkdtemp(prefix="mnsrc-")     # short: a socket path
-    sock, _ = os88qemu.launch_test(tmp)
-    q = Qemu(sock)
+    p = os88qemu.Private(tmp, os88build.at("build/os8088.img"),
+                         os88build.at("build/apps.img"),
+                         extra=["-audiodev", "none,id=devsnd", "-device",
+                                "adlib,audiodev=devsnd"])
+    q = Qemu(p.sock)
     # dispcp scrolls a Disk window with the ARROWS and calls `m.key` with
     # MartyPC's W3C names, which is the only thing it needs that the QEMU
     # harness does not already have. Two names reach it, and QEMU's sendkey

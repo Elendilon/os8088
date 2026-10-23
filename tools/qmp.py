@@ -42,12 +42,29 @@ def run(path, cmds):
     """The command line's work IN PROCESS: (stdout, stderr, exit code), the
     text exactly what main() prints. tests/xmcheck.py's `qmp` calls this
     rather than spawning a Python per memory read (~60 ms each)."""
-    outs = []
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.connect(path)
-    f = s.makefile("rw")
+    c = Client(path)
+    try:
+        return c.run(cmds)
+    finally:
+        c.close()
 
-    def send(obj):
+
+class Client(object):
+    """One QMP connection, kept: `run(cmds)` is run()'s work without the
+    connect, greeting and qmp_capabilities - three round trips a call where a
+    loaded QEMU answers each in ~10 ms. QMP serves ONE client: while this is
+    open every other client (tools/mouse.py, tools/shot.py) waits in the
+    listen backlog for ever, so close it before handing the socket on."""
+
+    def __init__(self, path):
+        self.s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.s.connect(path)
+        self.f = self.s.makefile("rw")
+        json.loads(self.f.readline())         # greeting
+        self.send({"execute": "qmp_capabilities"})
+
+    def send(self, obj):
+        f = self.f
         f.write(json.dumps(obj) + "\n")
         f.flush()
         while True:
@@ -59,31 +76,38 @@ def run(path, cmds):
                 continue
             return msg
 
-    json.loads(f.readline())          # greeting
-    send({"execute": "qmp_capabilities"})
+    def close(self):
+        try:
+            self.f.close()
+        finally:
+            self.s.close()
 
-    def ticks():
-        r = send({"execute": "human-monitor-command",
-                  "arguments": {"command-line": "xp /1hx 0x46c"}})
-        m = re.search(r":\s*0x([0-9a-fA-F]+)", r.get("return", ""))
-        if not m:
-            raise RuntimeError("xp answered %r" % r)
-        return int(m.group(1), 16)
+    def run(self, cmds):
+        outs = []
+        send = self.send
 
-    def gsleep(secs):
-        # Whole ticks, rounded UP and one more for the phase, so it is never
-        # less than `secs`; a clock that stops ends it, as a sleep would.
-        need = int(secs * TICK_HZ + 0.999) + 1
-        last, n, seen = ticks(), 0, time.monotonic()
-        while n < need and time.monotonic() - seen < STALL:
-            time.sleep(0.01)
-            t = ticks()
-            d = (t - last) & 0xFFFF
-            if d:
-                n += 1 if d > 256 else d    # SET (POST, midnight), not run
-                last, seen = t, time.monotonic()
+        def ticks():
+            r = send({"execute": "human-monitor-command",
+                      "arguments": {"command-line": "xp /1hx 0x46c"}})
+            m = re.search(r":\s*0x([0-9a-fA-F]+)", r.get("return", ""))
+            if not m:
+                raise RuntimeError("xp answered %r" % r)
+            return int(m.group(1), 16)
 
-    try:
+        def gsleep(secs):
+            # Whole ticks, rounded UP and one more for the phase, so it is
+            # never less than `secs`; a clock that stops ends it, as a sleep
+            # would.
+            need = int(secs * TICK_HZ + 0.999) + 1
+            last, n, seen = ticks(), 0, time.monotonic()
+            while n < need and time.monotonic() - seen < STALL:
+                time.sleep(0.01)
+                t = ticks()
+                d = (t - last) & 0xFFFF
+                if d:
+                    n += 1 if d > 256 else d    # SET (POST, midnight), not run
+                    last, seen = t, time.monotonic()
+
         for cmd in cmds:
             if cmd.startswith("sleep "):  # convenience: pacing between inputs
                 time.sleep(float(cmd.split()[1]))
@@ -99,9 +123,6 @@ def run(path, cmds):
             elif "error" in r:
                 return "\n".join(outs), f"error: {r['error']}", 1
         return "\n".join(outs), "", 0
-    finally:
-        f.close()
-        s.close()
 
 
 if __name__ == "__main__":

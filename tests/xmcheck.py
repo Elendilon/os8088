@@ -94,7 +94,20 @@ def qmp(sock, *cmds):
         sys.path.insert(0, t)
     import qmp as qmpc
     try:
-        out, err, rc = qmpc.run(sock, list(cmds))
+        c = _KEEP.get(sock)
+        if c is None and sock in _WANT:
+            try:
+                c = _KEEP[sock] = qmpc.Client(sock)
+            except OSError:
+                c = None
+        if c is not None:
+            try:
+                out, err, rc = c.run(list(cmds))
+            except (OSError, RuntimeError, ValueError):
+                release(sock)               # (a dead connection: once more,
+                c = None                    # on a fresh one)
+        if c is None:
+            out, err, rc = qmpc.run(sock, list(cmds))
     except Exception:                       # noqa: BLE001 - as a crashed child
         out, err, rc = "", traceback.format_exc(), 1
     if rc != 0:
@@ -102,12 +115,43 @@ def qmp(sock, *cmds):
     return out + "\n" if out else ""
 
 
+_KEEP = {}
+_WANT = set()
+
+
+def keep(sock, on=True):
+    """Hold ONE QMP connection to `sock` for every later `qmp` call in this
+    process (tools/qmp.py's Client): a call is then one round trip where a
+    fresh connection is three, ~35 ms a memory read on a loaded box. QMP
+    serves ONE client, so this file's mouse.py helpers `release` it before
+    they spawn (the next `qmp` call opens it again); anything else that
+    connects - a tools/shot.py child - must `release` first too, or it waits
+    for ever. `keep(sock, False)` ends it (vidxms.Q.close does)."""
+    if on:
+        _WANT.add(sock)
+    else:
+        _WANT.discard(sock)
+        release(sock)
+
+
+def release(sock):
+    """Close the kept connection, if any; `qmp` reopens it while kept."""
+    c = _KEEP.pop(sock, None)
+    if c is not None:
+        try:
+            c.close()
+        except OSError:
+            pass
+
+
 def goto(sock, x, y):
+    release(sock)
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mouse.py"), sock,
                     "to", str(x), str(y)], capture_output=True, cwd=ROOT)
 
 
 def click(sock, x, y):
+    release(sock)
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mouse.py"), sock,
                     "click", str(x), str(y)], capture_output=True, cwd=ROOT)
 
