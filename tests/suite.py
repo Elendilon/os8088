@@ -2794,7 +2794,7 @@ SOAK = [
         "the table goes 4 claims to 2 and this row names it. Needs `make "
         "mseg`.",
         needs=("marty", "nasm"), serial=True, wants=("build/mseg.img",)),
-    Row("gbcpu", "soak", py("tests/gbcpu.py"), 50.0,
+    Row("gbcpu", "soak", py("tests/gbcpu.py"), 40.0,
         "REALDMG's SM83 core (docs/REALDMG-SPEC.md) against Blargg's eleven "
         "cpu_instrs ROMs, the combined MBC1 one, instr_timing, mem_timing and "
         "halt_bug, and the 24 of Mooneye's DMG acceptance tests it passes - "

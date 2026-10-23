@@ -425,6 +425,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | xmcheck | not runnable as was (`make test`); declared 50 | 3.6 s | 14, 15 | `boot()` -> `launch_test`; the two dblclicks and the close-box click closed-loop; `pace(1)` -> `ui_done`; polls 0.3 -> 0.05. **SKIP here**: build/xmtest.img not in the shared build/; green with it from a private plain tree |
 | hdtakeboot (+ hdtake, hdtakeblank re-run) | 15.7 s | 6.5 s (2.6 / 2.0) | 15 | QH.click and the two C: dblclicks closed-loop (`mouse_click`/`mouse_dblclick`) where tools/mouse.py walked blind |
 | colorpresets (+ fmtpair re-run) | 213 s direct (load ~10): 3,923 RSP commands at ~44 ms each | 40.8 s (fmtpair 7.6) | 17 | TCP_NODELAY on the gdb-stub and QMP sockets of `colorpresets_qemu.Guest` (fmtpair's too) and the RSP reply read buffered (a `recv(1)` a byte). Every command now ~0.1 ms; the rest is 17 boots and the guest calls. Same screens and SYSTEM.CFG compares. secs 72 -> 60 (CPU-charged: the QEMU children) |
+| gbcpu | 38.5 s | 34.5 s (26 s charged) | 8, 10 | `rdgshot.capture` polled its serial log at 0.3 s (27 captures); `rom_path` spawned getgbtest.py per ROM (42) - in process now. The rest is 50 bare QEMU runs of the ROMs themselves |
 
 ## Resuming
 
