@@ -2487,7 +2487,7 @@ SOAK = [
         "says wm_show already drew it. The 'Decoding GIF' toast (42.14) and "
         "the picture arriving are what stop it passing vacuously.",
         needs=("marty",), serial=True),
-    Row("assocopen", "soak", py("tests/assocopen.py"), 40.0,
+    Row("assocopen", "soak", py("tests/assocopen.py"), 30.0,
         "SPEC.md 22.13.2: opening a DOCUMENT draws no pixel of the Disk "
         "window. The instrument is a breakpoint on fm_repaint, and the "
         "FOLDER open beside it is the control that says the breakpoint "
@@ -2512,7 +2512,7 @@ SOAK = [
         "MartyPC's ROMs do not wait for the spin-up, so the ORDER is what is "
         "asserted; RED on the kernel before it (arm 193 ms after the read)",
         needs=("marty",)),
-    Row("assocstale", "soak", py("tests/assocstale.py"), 15.0,
+    Row("assocstale", "soak", py("tests/assocstale.py"), 20.0,
         "SPEC.md 54.4.2.3: a STALE hint falls back to another disk's own "
         "ASSOC.DAT. The system disk's cache names A:\\APPS\\VIDEO.O88, "
         "which is deleted; apps720 in B: carries one. A double-click on "
@@ -2520,7 +2520,7 @@ SOAK = [
         "VIDEO.O88', the sweep trying each volume's root and a folder only "
         "the five built-ins have",
         needs=("marty",), serial=True),
-    Row("assocfind", "soak", py("tests/assocfind.py"), 18.0,
+    Row("assocfind", "soak", py("tests/assocfind.py"), 30.0,
         "SPEC.md 54.4.3: an extension nothing here claims is LOOKED FOR. "
         "A:\\HELLO.TEX on the 720KB system disk, whose kernel and ASSOC.DAT "
         "know no .TEX; apps720 in B:, never opened, declares it for TEXPAD. "
@@ -2539,7 +2539,7 @@ SOAK = [
         "disk is tried once a session. Red with the harvest's asc_learn, the "
         "capture, the location trigger or [asc_wno] taken out",
         needs=("marty",), serial=True),
-    Row("assocvol", "soak", py("tests/assocvol.py"), 21.0,
+    Row("assocvol", "soak", py("tests/assocvol.py"), 40.0,
         "SPEC.md 54.3.3, 98.4.7: a .V88 on a bare B: with VIDEO.O88 in "
         "A:\\APPS - its glyph once the association is learned (a raise "
         "drew the bare mark back off the raise cache), a player that READS "
@@ -4382,7 +4382,7 @@ SOAK = [
         "file's stored bytes",
         needs=("marty", "nasm"), serial=True,
         wants=("build/covoxsys720.img",)),
-    Row("covoxdrv", "soak", py("tests/covox.py", "--arm", "drv"), 30.0,
+    Row("covoxdrv", "soak", py("tests/covox.py", "--arm", "drv"), 10.0,
         "SOUND.DRV's Covox (SPEC.md 34.14) on MartyPC's Covox machine - a "
         "Hercules 5150 whose adapter port at 3BCh is LPT1 and whose Covox is "
         "on LPT2 at 378h, no sound card - booting `make covoxtest`'s disk: "
@@ -4391,13 +4391,13 @@ SOAK = [
         "SND_CAP_LPTDAC with the DAC at 378h",
         needs=("marty", "nasm"), serial=True,
         wants=("build/covoxsys720.img",)),
-    Row("covoxauto", "soak", py("tests/covox.py", "--arm", "auto"), 30.0,
+    Row("covoxauto", "soak", py("tests/covox.py", "--arm", "auto"), 20.0,
         "the same machine with the sound tier AUTO (`make miditest`'s disk): "
         "attached, both port choices live, and SND_CAP_LPTDAC NOT published "
         "- a port is not a Covox until the user says so (SPEC.md 34.14)",
         needs=("marty", "nasm"), serial=True,
         wants=("build/midisys720.img",)),
-    Row("covoxcp", "soak", py("tests/covox.py", "--arm", "cp"), 45.0,
+    Row("covoxcp", "soak", py("tests/covox.py", "--arm", "cp"), 20.0,
         "the Control Panel's Sound page on the Covox machine's HERCULES "
         "(SPEC.md 34.14, 31.7), by the mouse: LPT1 takes SND_RT_LPT and "
         "publishes the DAC, LPT2 takes + 1, LPT3 - which did not answer - is "
@@ -4405,7 +4405,7 @@ SOAK = [
         "Covox label takes the first port that answered",
         needs=("marty", "nasm"), serial=True,
         wants=("build/midisys720.img",)),
-    Row("covoxnolpt", "soak", py("tests/covox.py", "--arm", "nolpt"), 30.0,
+    Row("covoxnolpt", "soak", py("tests/covox.py", "--arm", "nolpt"), 20.0,
         "the 360KB Covox disk on the CGA 5150, which has no parallel port at "
         "all and no card: SOUND.DRV refuses, and the Covox tier stays in the "
         "kernel's byte for the machine the disk goes home to (SPEC.md 34.14)",
@@ -5432,7 +5432,7 @@ SOAK = [
         "text rather than any error.",
         needs=("marty",), serial=True,
         wants=("build/dosexe360.img",)),
-    Row("dosmouse", "soak", py("tests/dosmouse.py"), 60.0,
+    Row("dosmouse", "soak", py("tests/dosmouse.py"), 40.0,
         "THE DOS MOUSE GATE (SPEC.md 96.10): INT 33h is a TRANSLATION over "
         "numbers os8088's own ISR is already keeping, so the row is a "
         "COMPARISON - it moves the kernel's pointer, reads mouse_x/mouse_y "
@@ -5539,7 +5539,7 @@ SOAK = [
         "the same thing while kern_dos drives a UART at 0x10F8.",
         needs=("marty",), serial=True,
         wants=("build/os8088-360.img", "build/dosmou360.img")),
-    Row("dosfile", "soak", py("tests/dosfile.py"), 35.0,
+    Row("dosfile", "soak", py("tests/dosfile.py"), 30.0,
         "THE DOS FILE-HANDLE GATE (SPEC.md 96.11): os8088 has no file handle "
         "anywhere - the published API is by NAME and by WHOLE FILE - so the "
         "layer is built in the package over ONE cluster-aligned window carved "
@@ -5604,7 +5604,7 @@ SOAK = [
         "`jnz/jmp near` merge disabled the pinned arm reads `changed` and "
         "the row goes red.",
         needs=("nasm",)),
-    Row("dosdir", "soak", py("tests/dosdir.py"), 35.0,
+    Row("dosdir", "soak", py("tests/dosdir.py"), 20.0,
         "THE DOS DIRECTORY, FIND, VECTOR AND CLOCK GATE (SPEC.md 96.12, "
         "96.13). The clock half asserts that the DOS box and the MENU BAR "
         "fall back to the same day on a machine with no clock chip - which "
@@ -5623,7 +5623,7 @@ SOAK = [
         "answering B.",
         needs=("marty",), serial=True,
         wants=("build/dosdir360.img",)),
-    Row("dosdrv", "soak", py("tests/dosdrv.py"), 40.0,
+    Row("dosdrv", "soak", py("tests/dosdrv.py"), 20.0,
         "A DRIVE LETTER IN A NAME REACHES THE DRIVE IT NAMES (SPEC.md "
         "96.6.2). THE FOUND COLUMN IS THE ROW: a search of another drive "
         "that comes back with THIS drive's directory reports success, so it "
@@ -5643,7 +5643,7 @@ SOAK = [
         "not 15, on 4Eh, 3Dh and 3Bh alike.",
         needs=("marty",), serial=True,
         wants=("build/dosdrv360.img", "build/dosdrvsys.img")),
-    Row("dosregs", "soak", py("tests/dosregs.py"), 25.0,
+    Row("dosregs", "soak", py("tests/dosregs.py"), 20.0,
         "DOES INT 21h GIVE BACK EVERY REGISTER IT DOES NOT ANSWER IN? "
         "(SPEC.md 96.7.1.2). ONE BINARY RUNS ON BOTH - tests/dostrap/regs.asm "
         "under this box and under a real IBM DOS 3.30 off a real floppy, "
@@ -5718,7 +5718,7 @@ SOAK = [
         "ico_need's stamp clear removed fails 'stamp'.",
         needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
 
-    Row("dosmcb", "soak", py("tests/dosmcb.py"), 30.0,
+    Row("dosmcb", "soak", py("tests/dosmcb.py"), 20.0,
         "A BLOCK GROWS BACK INTO WHAT IT GAVE UP (SPEC.md 96.9.2). AH=4Ah "
         "grows only into the block immediately above it, which is DOS's own "
         "rule and only half of DOS: DOS coalesces adjacent free blocks during "
@@ -5765,7 +5765,7 @@ SOAK = [
         "the field's `Exit code 002` came from.",
         needs=("marty",), wants=("build/dosvec360.img",)),
 
-    Row("dosfcb", "soak", py("tests/dosfcb.py"), 30.0,
+    Row("dosfcb", "soak", py("tests/dosfcb.py"), 20.0,
         "AH=29h PARSES A NAME INTO AN FCB, exactly as DOS does (SPEC.md "
         "96.28). THE CARRY IS THE ROW: unimplemented, the call fell to the "
         "invalid-function arm and answered CF=1 with AX=0001 - and DOS does "
@@ -5868,7 +5868,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/doslong360.img",)),
 
-    Row("dosrange", "soak", py("tests/dosrange.py"), 45.0,
+    Row("dosrange", "soak", py("tests/dosrange.py"), 50.0,
         "INT 33h's COORDINATE WINDOW (SPEC.md 96.10.7). `07h` and `08h` are a "
         "program saying what its own screen is, and every `03h` after that is "
         "an answer in those units - and this box answered both as NO-OPS, on "
@@ -6703,7 +6703,7 @@ SOAK = [
         "on both, against the build that shipped them.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/apps360.img")),
-    Row("dosdev", "soak", py("tests/dosdev.py"), 25.0,
+    Row("dosdev", "soak", py("tests/dosdev.py"), 20.0,
         "`CON` IS A CHARACTER DEVICE, NOT A FILE NAME THAT IS MISSING "
         "(SPEC.md 96.11.7). Microsoft Works - the first program anyone ran on "
         "this box from outside the project - could not open its own WORKS.INI "
@@ -6736,7 +6736,7 @@ SOAK = [
         "the third way and is Bochs's.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/call5360.img")),
-    Row("dosgap", "soak", py("tests/dosgap.py"), 25.0,
+    Row("dosgap", "soak", py("tests/dosgap.py"), 20.0,
         "A WRITE PAST THE END OF A FILE THE SAME HANDLE CREATED (SPEC.md "
         "96.11.6.3). Microsoft Works could not save a document - `Cannot "
         "write file`, on a floppy with 42 free clusters - and its Save As is "
@@ -6794,7 +6794,7 @@ SOAK = [
         wants=("build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/hiber.drv", "build/ctrl.drv", "build/hdd.drv",
                "build/kdos/DOS.O88", "build/SEQCOST.COM")),
-    Row("dosmouevt", "soak", py("tests/dosmouevt.py"), 60.0,
+    Row("dosmouevt", "soak", py("tests/dosmouevt.py"), 30.0,
         "INT 33h's EVENT HANDLER IS CALLED (SPEC.md 96.10.4). Microsoft Works "
         "'had a mouse' and had none, and 96.10.3's histogram says why in one "
         "line: it calls 00h, 08h, 0Ah and 0Ch SET EVENT HANDLER, and then "
@@ -6892,7 +6892,7 @@ SOAK = [
         "the wrong thing is how this cursor shipped broken once already.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/mredraw360.img")),
-    Row("dossnd", "soak", py("tests/dossnd.py"), 30.0,
+    Row("dossnd", "soak", py("tests/dossnd.py"), 20.0,
         "THE DOS SOUND GATE (SPEC.md 96.17, 51.11): a DOS program that wants "
         "the Sound Blaster wants to program it ITSELF, and SOUND.DRV is in "
         "the way three ways - an IRQ vector, DMA channel 1, and a refill "

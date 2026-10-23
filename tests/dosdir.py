@@ -37,7 +37,7 @@ def main():
         if not os.path.exists(p):
             fail("%s is missing - `make doscom` builds the gate disks" % p)
 
-    with os88ui.boot(SYS, apps=DIR) as ui:
+    with os88ui.boot(SYS, apps=DIR, quick=True) as ui:
         m = ui.m
         if not ui.path("B:/DOSDIR.COM"):
             fail("double-clicking DOSDIR.COM opened no window")
@@ -48,7 +48,7 @@ def main():
             rows[:] = m.screen() or []
             return any("READY" in r for r in rows)
         try:                        # GUEST time: `limit` is idle-box seconds
-            os88marty.until(m, _seen, "DOSDIR.COM to finish", poll=0.3,
+            os88marty.until(m, _seen, "DOSDIR.COM to finish", poll=0.05,
                             limit=180.0)
         except os88marty.MartyError:
             fail("the program never finished; the last text screen was %r"
@@ -169,8 +169,7 @@ def main():
         if "DIR ok" not in text:
             fail("the mkdir/chdir/rmdir round trip did not complete")
 
-        m.type_text("x")
-        os88marty.settle(m)
+        os88marty.text_taken(m, "x")      # taken, and the bracket left
         if "Disk" not in ui.titles():
             fail("the desktop did not come back after the bracket")
 

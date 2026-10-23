@@ -59,7 +59,7 @@ def main():
         if not os.path.exists(p):
             fail("%s is missing - `make doscom` builds the gate disks" % p)
 
-    with os88ui.boot(SYS, apps=GATE) as ui:
+    with os88ui.boot(SYS, apps=GATE, quick=True) as ui:
         m = ui.m
         if not ui.path("B:/MCB.COM"):
             fail("double-clicking MCB.COM opened no window")
@@ -70,7 +70,7 @@ def main():
             rows[:] = m.screen() or []
             return any("KEY" in r for r in rows)
         try:
-            os88marty.until(m, keyed, "the KEY prompt", poll=0.25, limit=90)
+            os88marty.until(m, keyed, "the KEY prompt", poll=0.05, limit=90)
         except os88marty.MartyError:
             fail("the probe never reached its KEY prompt; the last screen was "
                  "%r" % ([r.rstrip() for r in rows if r.strip()][-10:],))

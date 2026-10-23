@@ -1,36 +1,36 @@
 # ROUND 2, queue 6: the small (<60s-ish) open rows of r2-q1 (its agent finished) and r2-q3 (its agent keeps its >=60 s rows). family  row  declared_secs  script
 isot	isotronsmall	40	tests/isotronsmall.py
-doss	dosshrink	30	tests/dosshrink.py
-doss	dossnd	30	tests/dossnd.py
+DONE doss	dosshrink	30	tests/dosshrink.py
+DONE doss	dossnd	30	tests/dossnd.py
 mult	mseg360	40	tests/multiseg.py
 mult	multiseg	20	tests/multiseg.py
-asso	assocsweep	50	tests/assocsweep.py
-asso	assocopen	40	tests/assocopen.py
-asso	assocglyph	30	tests/assocglyph.py
-asso	assocwake	30	tests/assocwake.py
-asso	assocvol	21	tests/assocvol.py
-asso	assocfind	18	tests/assocfind.py
-asso	assocstale	15	tests/assocstale.py
-dosd	dosdrv	40	tests/dosdrv.py
-dosd	dosdir	35	tests/dosdir.py
-dosd	dosdev	25	tests/dosdev.py
-dosm	dosmouse	60	tests/dosmouse.py
-dosm	dosmouevt	60	tests/dosmouevt.py
-dosm	dosmcb	30	tests/dosmcb.py
+DONE asso	assocsweep	50	tests/assocsweep.py
+DONE asso	assocopen	40	tests/assocopen.py
+DONE asso	assocglyph	30	tests/assocglyph.py
+DONE asso	assocwake	30	tests/assocwake.py
+DONE asso	assocvol	21	tests/assocvol.py
+DONE asso	assocfind	18	tests/assocfind.py
+DONE asso	assocstale	15	tests/assocstale.py
+DONE dosd	dosdrv	40	tests/dosdrv.py
+DONE dosd	dosdir	35	tests/dosdir.py
+DONE dosd	dosdev	25	tests/dosdev.py
+DONE dosm	dosmouse	60	tests/dosmouse.py
+DONE dosm	dosmouevt	60	tests/dosmouevt.py
+DONE dosm	dosmcb	30	tests/dosmcb.py
 reho	rehome	45	tests/rehome.py
 reho	rehomeabort	40	tests/rehomeabort.py
 vide	videms	45	tests/videms.py
 vide	videmshyb	45	tests/videms.py
 vide	videmsslow	45	tests/videms.py
 vide	videmswrap	45	tests/videms.py
-covo	covoxcp	45	tests/covox.py
-covo	covoxdrv	30	tests/covox.py
-covo	covoxauto	30	tests/covox.py
-covo	covoxnolpt	30	tests/covox.py
+DONE covo	covoxcp	45	tests/covox.py
+DONE covo	covoxdrv	30	tests/covox.py
+DONE covo	covoxauto	30	tests/covox.py
+DONE covo	covoxnolpt	30	tests/covox.py
 time	timerrace	30	tests/timerrace.py
 sbar	sbar	60	tests/sbar.py
 sbar	sbardlg	60	tests/sbar.py
-dosg	dosgap	25	tests/dosgap.py
+DONE dosg	dosgap	25	tests/dosgap.py
 vidh	vidhdmake	65	tests/vidhdmake.py
 int	int0sweep	60	tests/int0sweep.py
 spla	splashbar	40	tests/splashbar.py
@@ -89,15 +89,15 @@ redl	redlinechipcga	40	tests/redline.py
 redl	redlinechipherc	40	tests/redline.py
 redl	redlinechipvga	40	tests/redline.py
 redl	redlinev20	10	tests/redline.py
-dosf	dosfile	35	tests/dosfile.py
-dosf	dosfcb	30	tests/dosfcb.py
+DONE dosf	dosfile	35	tests/dosfile.py
+DONE dosf	dosfcb	30	tests/dosfcb.py
 pkgt	pkgthumb-np	50	tests/pkgthumb.py
 pkgt	pkgthumb-br	50	tests/pkgthumb.py
 pkgt	pkgthumb-wd	50	tests/pkgthumb.py
 pkgt	pkgthumb-tp	50	tests/pkgthumb.py
-dosr	dosrange	45	tests/dosrange.py
-dosr	dosren	30	tests/dosren.py
-dosr	dosregs	25	tests/dosregs.py
+DONE dosr	dosrange	45	tests/dosrange.py
+DONE dosr	dosren	30	tests/dosren.py
+DONE dosr	dosregs	25	tests/dosregs.py
 kdmo	kdnomouse	45	tests/kdmouse.py
 lzmo	lzmod-lz4big	40	tests/lzmod.py
 lzmo	lzmod	30	tests/lzmod.py

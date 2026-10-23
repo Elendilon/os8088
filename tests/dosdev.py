@@ -58,7 +58,7 @@ def main():
         if not os.path.exists(p):
             fail("%s is missing - `make kdostest` builds the gate disks" % p)
 
-    with os88ui.boot(SYS, apps=FLOPPY, machine=a.machine) as ui:
+    with os88ui.boot(SYS, apps=FLOPPY, machine=a.machine, quick=True) as ui:
         m = ui.m
         # An association open of a .COM RUNS it (SPEC.md 54), which is the
         # shortest route to a DOS program and the one a user takes.
@@ -71,7 +71,7 @@ def main():
             rows[:] = [r.rstrip() for r in (m.screen() or []) if r.strip()]
             return any("CONDEV PASS" in r or "CONDEV FAIL" in r for r in rows)
         try:                        # GUEST time: `limit` is idle-box seconds
-            M.until(m, _seen, "CONDEV.COM to report", poll=0.5,
+            M.until(m, _seen, "CONDEV.COM to report", poll=0.05,
                             limit=240.0)
         except M.MartyError:
             fail("CONDEV.COM never reported; the last screen was %r"
