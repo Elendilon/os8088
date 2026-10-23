@@ -125493,7 +125493,7 @@ the image.
 |---|---|---|
 | when it is read | at launch, by `op_load` in `cc_entry`, in the same carve read as every other eager part - right behind the image the kernel just read | the first time an `ovl_*` function is called, by `op_fetch` from `cc_ovneed` - §73.14's on-demand load, out of the package's own file |
 | the claim | the parts CARVE, top-down (`op_claim`, §20.12.10.8) | a claim of its own, through `op_fetch`'s door (bottom-up), shrunk to the part |
-| movable | **NO — PINNED, at the top, always** (since LEMMINGS' wave 4, §116.6). It used to be declared movable through `cc_ovcarve` when the overlay was the carve's only part, on the argument that only `cc_ovthunk`'s re-read `retf` ever holds the module's CS. That is half the list: a module function calling ANOTHER is `call far [cc_ovm_*]`, which pushes the module's own CS for a plain `retf` to pop, so a claim that compacted under such a call moved the carve under a live return. LEMMINGS claims ~329 KB three such frames deep (`ovl_launch` → `ovl_level_load` → `ovl_claim_all`). `tests/ovlhigh.py` now asserts `MC_RLOC` = 0 | yes, from the moment it is bound (`cc_ovreloc`) — **and that carries the same exposure**: it is safe only while no module function that another module function calls can claim, which nothing checks (open, §116.6) |
+| movable | **yes, while the carve holds the module alone** (`OS88_PART_N` = 1): `cc_ovcarve` re-derives the module's segment through `op_seg` and re-stamps the vectors. It was PINNED for a cycle (LEMMINGS' wave 4, §116.6) because a module function calling ANOTHER was `call far [cc_ovm_*]`, which left the module's own CS on the stack for a plain `retf`, so a claim that compacted under such a call moved the carve under a live return - LEMMINGS claims ~329 KB three such frames deep (`ovl_launch` → `ovl_level_load` → `ovl_claim_all`). **That call goes through `cc_ovmthunk` now** (`tools/cc8086.py` emits `mov bx, cc_ovm_*` / `call far [cc_ovvmm]`): the CS comes off, the return offset goes to `cc_ovthunk`'s stash and the `retf` is rebuilt from `[cc_ovcs]`, so no stack holds the module's CS on either crossing and the pin is gone (docs/plans/NO-PINNING-PLAN.md). A carve with MORE rows stays pinned until the program can be told its parts moved (that plan's C2). `tests/ovlhigh.py` asserts `MC_RLOC` ≠ 0 | yes, from the moment it is bound (`cc_ovreloc`) - safe under a module-to-module call for the same reason |
 | where `[cc_ovseg]` lives | a word of the runtime's bss, written once by `cc_ovinit` | **the row's own `zkb`**: `op_fetch` banks the claim's base there and `op_seg` reads it there, so `cc_ovseg` is `%define`d to that word and the relocation proc's one store keeps the binder, `op_seg`, `op_drop` and the thunk's `retf` in step - there is no second copy to forget |
 | `cc_ovneed` | the worker gate and nothing else | the worker gate, the row's `OP_FETCHED`, then the HOME BRACKET and `op_fetch` |
 | a refusal | the LAUNCH refuses, with the parts standard's toast (`Not enough memory`, `Cannot read my parts`, ...), and no window whose every menu says no ever opens | the CALL refuses with `op_fetch`'s toast, `AX` = 0 and the call skipped, as §73.14's refusal always was |
@@ -126828,9 +126828,9 @@ stays PINNED (§73.14.2.1: crt0 cannot know the C banked no segment), where
 the `RUNCPM.OVL` claim it replaced was movable. Inside the module it is one
 LZ4 stream with the code (6,726 -> **4,916**), no row and no padding, and the
 carve is the overlay ALONE as far as crt0 can see, so `cc_ovcarve` declared it
-movable with no shared code touched — **until §116.6's wave 4 pinned every
-eager carve** (§73.14.2.1's movable row says why: a module-to-module call
-leaves the module's CS on the stack). What makes that safe is on the C side:
+movable with no shared code touched — §116.6's wave 4 pinned every eager
+carve for a cycle and `cc_ovmthunk` took the pin back off (§73.14.2.1's
+movable row says why). What makes that safe is on the C side:
 the CCP's segment is ASKED (`os88_part_seg(RC_CCP_PART)` + `RC_CCP_OFF`) at
 each use - `rc_boot`'s copy, `rc_ax_load`'s poke - and banked nowhere, so the
 relocation proc re-binding the module is the whole of the move. It is never
@@ -126845,7 +126845,7 @@ still the package's. The Makefile names the CCP as a prerequisite of
 | image + bss | 29,966 + 10,453 | **30,836 + 10,551** (+870: the parts standard's carve - `op_load`, `op_size`, `op_claim`, `op_read`, `op_unpack`, `op_seg` - against `cc_ovneed`'s file path, stamp and refusals, the CCP's file read and the two `Unable to load` paths; +98 bss: `OP_BSS`, less `rc_ccpseg`/`rc_ccplen`) |
 | the module | 4,682 (stamp included) | 6,726 (4,678 of code, the CCP's 2,048) |
 | on a disk | `RUNCPM.O88` 20,607 + `RUNCPM.OVL` 3,155 + `CCP-DR.60K` 2,048 = 25,810, three files, 52 sectors, 27 clusters of 1KB | `RUNCPM.O88` **26,420**, one file, 52 sectors, 26 clusters of 1KB (the image 21,490 of LZ4, the part 4,916) |
-| launch claims | the CCP's 2KB, and on the first wake the module's 5KB - two, the CCP's pinned | one carve of 8KB, movable (read off `mem_tab` on MartyPC) — **pinned since §116.6's wave 4** (§73.14.2.1's movable row) |
+| launch claims | the CCP's 2KB, and on the first wake the module's 5KB - two, the CCP's pinned | one carve of 8KB, movable (read off `mem_tab` on MartyPC) — pinned for a cycle by §116.6's wave 4 and movable again since `cc_ovmthunk` (§73.14.2.1's movable row) |
 
 **The carve is 1KB more than the two claims it replaces, and that is
 measured and kept.** `op_claim` cuts an eager compressed carve for the
@@ -214616,17 +214616,16 @@ module; what is left a lemming is `lem_anim_at` and `lem_r_sprite` (and
 `lem_mask_at` for a fuse). The final pass's MartyPC row confirms the number
 rather than discovering it (§116.7.3).
 
-**AND ONE EXPOSURE IT FOUND IN THE SDK**: wave 4 pinned the eager carve
-(§73.14.2.1) because a module-to-module call is `call far [cc_ovm_*]` whose
-pushed CS is the module's; `ovl_launch` → `ovl_level_load` →
-`ovl_claim_all` → `os88_mem_claim` is ~329 KB of claims three such frames
-deep, and a claim that compacted could move the carve under them. The LAZY
-arm and the `<NAME>.OVL` sidecar still declare the module movable through
-`cc_ovreloc` and carry the same exposure — not this package's (it refuses
-`CC_OVL_LAZY` by name) and not changed here; it is APPLE2's, LOOM's,
-WEAVE's and `tests/covl`'s arm. The eager pin reaches every single-part eager
-package: CWORD (−30 bytes, measured) and RUNCPM, whose module is its only part
-too (§74's "one carve of 8KB, movable" is pinned now).
+**AND ONE EXPOSURE IT FOUND IN THE SDK**: a module-to-module call was
+`call far [cc_ovm_*]` whose pushed CS is the module's; `ovl_launch` →
+`ovl_level_load` → `ovl_claim_all` → `os88_mem_claim` is ~329 KB of claims
+three such frames deep, and a claim that compacted could move the module under
+them - on every arm, eager carve, lazy part and `<NAME>.OVL` alike. Wave 4
+pinned the eager carve; that was the wrong half to fix, a pinned carve being a
+wall in the arena for the program's whole life, and NO-PINNING fixed the call
+instead (§73.14.2.1: `cc_ovmthunk`, the stash `cc_ovthunk` already kept). The
+carve is movable again on every single-part eager package - CWORD, RUNCPM and
+this one - and the lazy arm's exposure is closed by the same change.
 
 **What crossed 55,000 and came back.** The first whole build of wave 3 was
 **59,540 resident** — the trigger this section set — and the move-out was
