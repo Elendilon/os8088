@@ -59,7 +59,7 @@ def leg_window(machine):
     and A:'s 0 is also what the pre-fix box exits with (AH is 0 at entry, so
     its first CALL 5 is a terminate). Only B: current makes 1 the answer
     nothing but a dispatched, returning CALL 5 produces."""
-    with os88ui.boot(SYS, apps=FLOPPY, machine=machine) as ui:
+    with os88ui.boot(SYS, apps=FLOPPY, machine=machine, quick=True) as ui:
         m = ui.m
         if not ui.path("A:/APPS/DOS.O88"):
             fail("could not open DOS.O88 off the system disk")
@@ -87,7 +87,7 @@ def leg_window(machine):
 
 
 def leg_whole(machine):
-    with os88ui.boot(SYS, apps=FLOPPY, machine=machine) as ui:
+    with os88ui.boot(SYS, apps=FLOPPY, machine=machine, quick=True) as ui:
         m = ui.m
         try:
             kdhand.launch_whole(ui, "CALL5.COM")

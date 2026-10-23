@@ -74,29 +74,29 @@ DONE cppr	cppromise	50	tests/cppromise.py
 DONE kdcw	kdcwd	50	tests/kdcwd.py
 DONE rdmo	rdmove	30	tests/rdmove.py
 DONE rdmo	rdmount	20	tests/rdmount.py
-romn	romnodisk	45	tests/romnodisk.py
-kdbi	kdbigexe	45	tests/kdbigexe.py
-radi	radio	45	tests/radio.py
-imgs	imgswap	45	tests/imgswap.py
-vgad	vgadrop	40	tests/vgadrop.py
-cych	cychs	40	tests/cychs.py
+SKIP(fails at base: os88rom - "file offset 0x54 is a site but the plain kernel does not hold COLD_SEG" - the ROM cut and build/ disagree) romn	romnodisk	45	tests/romnodisk.py
+SKIP(already lean, 19.5 s; quick=True breaks it - up() resolves desk_rows against the wrong map under its kern_dos map env) kdbi	kdbigexe	45	tests/kdbigexe.py
+DONE radi	radio	45	tests/radio.py
+DONE imgs	imgswap	45	tests/imgswap.py
+DONE vgad	vgadrop	40	tests/vgadrop.py
+DONE cych	cychs	40	tests/cychs.py
 DONE brpr	brpromise	40	tests/brpromise.py
-tpst	tpstore	40	tests/tpstore.py
-fmtr	fmtreach	39	tests/fmtreach.py
+DONE tpst	tpstore	40	tests/tpstore.py
+DONE fmtr	fmtreach	39	tests/fmtreach.py
 DONE brte	brtest	35	tests/brtest.py
-appl	apple2part	30	tests/apple2part.py
-call	call5	30	tests/call5.py
-lzfi	lzfile	30	tests/lzfile.py
-medi	mediadisk	30	tests/mediadisk.py
-toas	toastbar	30	tests/toastbar.py
-btng	btngesture	26	tests/btngesture.py
-pkgr	pkgrun	25	tests/pkgrun.py
-dosi	dosirq	25	tests/dosirq.py
-btnm	btnmove	20	tests/btnmove.py
+DONE appl	apple2part	30	tests/apple2part.py
+DONE call	call5	30	tests/call5.py
+DONE lzfi	lzfile	30	tests/lzfile.py
+DONE medi	mediadisk	30	tests/mediadisk.py
+DONE toas	toastbar	30	tests/toastbar.py
+DONE btng	btngesture	26	tests/btngesture.py
+DONE pkgr	pkgrun	25	tests/pkgrun.py
+DONE dosi	dosirq	25	tests/dosirq.py
+DONE btnm	btnmove	20	tests/btnmove.py
 SKIP(needs rgbds, absent here) gblo	gblog	20	tests/gblog.py
-evqf	evqfull	20	tests/evqfull.py
-tmlo	tmload	20	tests/tmload.py
-size	sizesnap	20	tests/sizesnap.py
+DONE evqf	evqfull	20	tests/evqfull.py
+DONE tmlo	tmload	20	tests/tmload.py
+DONE size	sizesnap	20	tests/sizesnap.py
 gbso	gbsound	15	tests/gbsound.py
 zone	zonedmg	15	tests/zonedmg.py
 kern	kerndos	10	tests/kerndos.py

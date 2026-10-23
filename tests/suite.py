@@ -1505,7 +1505,7 @@ FAST = [
         "(VIDEO's vblkpm part three times, VIDEO's live CPU_F_PM/XMEM_RUN/"
         "CODESEL, os88spkfx.inc's and MIDIRack's PM copies). FAST: host-side "
         "and 1.6s, and the writer who breaks it never builds kern_mega"),
-    Row("btngesture", "soak", py("tests/btngesture.py"), 26,
+    Row("btngesture", "soak", py("tests/btngesture.py"), 20.0,
         "SPEC.md 13.7/13.8 ON THE GLASS: a standard button goes DOWN while "
         "held, comes UP when the pointer slides off it, goes down again on the "
         "way back, and does NOT act when the release lands elsewhere. Telnet's "
@@ -2011,7 +2011,7 @@ FULL = [
         "description that is wrong is what makes the next person distrust "
         "the column",
         needs=("marty",), serial=True),
-    Row("vgadrop", "soak", py("tests/vgadrop.py"), 40.0,
+    Row("vgadrop", "soak", py("tests/vgadrop.py"), 20.0,
         "SPEC.md 39.22: the heap floor starts UNDER .vgabuf on a machine with "
         "no VGA and AT KERN_END on one that has it. Reads [mem_base] as a "
         "WORD on three adapters rather than a KB total, because a KB rounds "
@@ -2449,7 +2449,7 @@ SOAK = [
         "mounts nothing (FERR_NODISK), and A: still opens after it",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/cdromtest.img", "build/apps.img", "build/cdrom.bin")),
-    Row("btnmove", "soak", py("tests/btnmove.py"), 20.0,
+    Row("btnmove", "soak", py("tests/btnmove.py"), 10.0,
         "SPEC.md 20.5.1.3.5: a standard button answers where its window IS "
         "after a drag. A drag replays the window and never paints it "
         "(11.96.12.0), so the record's OS88UI_BT_PLACE proc (the Timer's "
@@ -3071,7 +3071,7 @@ SOAK = [
         "cc_ovseg in the guest - the segment every vector far-calls.",
         needs=("marty", "cc"), serial=True,
         wants=("build/c64.img",)),
-    Row("apple2part", "soak", py("tests/apple2part.py"), 30.0,
+    Row("apple2part", "soak", py("tests/apple2part.py"), 10.0,
         "c64part's shape one machine along (SPEC.md 20.12, APPLE2-SPEC 1.5): "
         "the 14,848 bytes of Applesoft, the Autostart Monitor, the character "
         "generator and the Disk II boot ROM have been part 0 since wave 1, "
@@ -4621,7 +4621,7 @@ SOAK = [
         "Does holding the mouse button repeat the gun, and does a press on "
         "somebody else's window leave it alone? (SPEC.md 67.11.3)",
         needs=("marty",), serial=True),
-    Row("cychs", "soak", py("tests/cychs.py"), 40.0,
+    Row("cychs", "soak", py("tests/cychs.py"), 20.0,
         "Does Cyclone's HIGH-SCORE TABLE survive a save and a re-launch? "
         "(SPEC.md 67.23, 77.31.1) cy_hstab IS CYCLONE.HS - read straight into "
         "and written straight out of, at the 512-byte boundary "
@@ -5090,7 +5090,7 @@ SOAK = [
         "driver has gone - is invisible to every assertion about state. QEMU "
         "by name: MartyPC has no network card of any kind",
         needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
-    Row("pkgrun", "soak", py("tests/pkgrun.py"), 25.0,
+    Row("pkgrun", "soak", py("tests/pkgrun.py"), 40.0,
         "OSAPI_PKG_START (SPEC.md 21.5): the loader's back half with the disk "
         "read replaced by a copy, which is how the Wire runs a package it "
         "fetched over the network into a claim. `make pkgrun` builds a TEST "
@@ -6147,7 +6147,7 @@ SOAK = [
         "NO `--fatcap`, deliberately, so its FAT is the nine sectors a real "
         "DOS writes. MartyPC; `make kdostest` builds the B: floppy.",
         wants=("build/os8088-360.img", "build/doscom144.img")),
-    Row("kdbigexe", "soak", py("tests/kdbigexe.py"), 45.0,
+    Row("kdbigexe", "soak", py("tests/kdbigexe.py"), 30.0,
         "THE READ-AHEAD LADDER, UNDER THE LOAD (SPEC.md 96.44.11.1). "
         "`kdarena` covers the handover, and the BOTTOM is all the ladder can "
         "ever reach there - `dos_build_psp` hands a program everything and "
@@ -6908,7 +6908,7 @@ SOAK = [
         "the wrong one.",
         needs=("marty",), serial=True,
         wants=("build/dossnd360.img",)),
-    Row("dosirq", "soak", py("tests/dosirq.py"), 25.0,
+    Row("dosirq", "soak", py("tests/dosirq.py"), 20.0,
         "THE DOS HARDWARE GATE (SPEC.md 96.18) - the row that says what the "
         "DOS box is FOR. Every other dos* row asks about INT 21h, which is "
         "our own code answering; this one asks about the machine underneath. "
@@ -8836,7 +8836,7 @@ SOAK = [
         "evidence across the move of SP on the stack). Broken on purpose "
         "(two pushes swapped) it FAILS on the pen and the SP digit",
         needs=("marty",), serial=True),
-    Row("evqfull", "soak", py("tests/evqfull.py"), 20.0,
+    Row("evqfull", "soak", py("tests/evqfull.py"), 10.0,
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
         "a coalesced WAKE - asked of evq_push directly, with the CPU parked",
         needs=("marty",), serial=True),
@@ -9216,7 +9216,7 @@ SOAK = [
         "twelve bytes are compared one by one",
         needs=("marty",), serial=True,
         wants=("build/lzfence360.img",)),
-    Row("lzfile", "soak", py("tests/lzfile.py"), 30.0,
+    Row("lzfile", "soak", py("tests/lzfile.py"), 20.0,
         "SPEC.md 20.14: a COMPRESSED FILE is read transparently, and a write "
         "derives the hint from the bytes it is writing. The disk carries one "
         "document TWICE - plain, and inside a 'CZ' wrapper - so every "
@@ -10618,7 +10618,7 @@ SOAK = [
         "and an output path and DEFAULTS both: registered with neither,"
         "every run died on sys.argv[1] before the emulator started.",
         needs=("marty",), serial=True),
-    Row("mediadisk", "soak", py("tests/mediadisk.py"), 30.0,
+    Row("mediadisk", "soak", py("tests/mediadisk.py"), 20.0,
         "The 360KB MEDIA DISK mounts, and the apps disk keeps MEDIA (SPEC.md"
         "24.4).",
         needs=("marty",), serial=True),
@@ -10702,7 +10702,7 @@ SOAK = [
         "arm's click cycles the page and the small arm's does not, and the "
         "page they share is compared pixel for pixel.",
         needs=("marty",), serial=True, timeout=900, wants=("build/smallapps360.img",)),
-    Row("tmload", "soak", py("tests/tmload.py"), 20.0,
+    Row("tmload", "soak", py("tests/tmload.py"), 10.0,
         "SPEC.md 28.7: the CPU meter and the process rows read the same "
         "numbers. The page used to show two figures that contradicted each "
         "other in plain sight and were both right - it charged its own "
@@ -10721,7 +10721,7 @@ SOAK = [
         "File > Remove Shortcut; and the claim and the trailer go with the "
         "last one. `--machine os8088_5150_cga` / `_herc` are the 1bpp looks.",
         needs=("marty",), timeout=600),
-    Row("tpstore", "soak", py("tests/tpstore.py"), 40.0,
+    Row("tpstore", "soak", py("tests/tpstore.py"), 30.0,
         "SPEC.md 66: TeXPad's parser stores its own variables through DS. "
         "Two routines wrote them with `stos` while ES was the SOURCE "
         "segment, so the bytes went to the source claim at the variable's "
@@ -11669,7 +11669,7 @@ SOAK = [
         "blanked them all. It counts font_run_x in the pane rather than"
         "reading pixels, because the final frame is identical either way",
         needs=("marty",), serial=True),
-    Row("radio", "soak", py("tests/radio.py"), 45.0,
+    Row("radio", "soak", py("tests/radio.py"), 20.0,
         "SPEC.md 13.17: does os88ui_rad draw a RADIO - corners clear, a"
         "centred dot - and does its press answer three things? On HERCULES,"
         "because 13.17.1's shape rule is a 1bpp rule (SPEC.md 39.4) and a VGA"
@@ -15095,7 +15095,7 @@ SOAK = [
         "that refuses it. VERIFIED RED: AH forced to 0, the old probe's, "
         "fails 3 of 4. Measured at 21s",
         needs=("qemu", "nasm"), serial=True),
-    Row("fmtreach", "soak", py("tests/fmtreach.py"), 39.0,
+    Row("fmtreach", "soak", py("tests/fmtreach.py"), 40.0,
         "fmtreach - a 720K format PROVES the drive reaches cylinder 79 "
         "(SPEC.md 18.96.2): dskw_fmt_reach_x writes a marker to LBA 1439, "
         "re-zeroes, reads it back and compares, and on a failure remakes the "
@@ -15149,7 +15149,7 @@ SOAK = [
         "pictures drifting apart - red with dsk_img_icon's call taken out. "
         "Measured at 75s",
         needs=("marty",), serial=True),
-    Row("imgswap", "soak", py("tests/imgswap.py"), 45.0,
+    Row("imgswap", "soak", py("tests/imgswap.py"), 20.0,
         "SPEC.md 18.101.7: an image on a FLOPPY is swapped with that floppy. "
         "TEST.IMG (tests/imgfix.py's 1.44MB set) mounts off B: and lists; "
         "its BPB bank must not be PERMANENT (dsk_bpbok != 1, read off the "
@@ -15310,7 +15310,7 @@ SOAK = [
         "condition: a window aims `[dsk_dseg]` at its own cache, which is "
         "why `rdmove` clicks Mount and stays green. Measured at 14.9s",
         needs=("marty",), serial=True),
-    Row("toastbar", "soak", py("tests/toastbar.py"), 30.0,
+    Row("toastbar", "soak", py("tests/toastbar.py"), 10.0,
         "A TOAST OF THE MAXIMUM WIDTH REACHES THE BAR WHOLE, AND TOUCHES NO "
         "MENU (SPEC.md 59.10.2). tests/unit/t_toast.py checks every fixed "
         "message against TOAST_MAX; NOTHING CHECKED TOAST_MAX ITSELF, and it "
@@ -15352,7 +15352,7 @@ SOAK = [
         "SPEC.md 13.10/38.3: the chooser's bar at the list's right edge "
         "narrowed by FM_CHCOLW, its arrow scrolling the chooser's own block.",
         needs=("marty",), serial=True),
-    Row("sizesnap", "soak", py("tests/sizesnap.py"), 20.0,
+    Row("sizesnap", "soak", py("tests/sizesnap.py"), 10.0,
         "the SIZE snap aligns a content width WITHOUT shrinking the zoom "
         "(SPEC.md 11.94.5) - a maximized window must stay x=0, w=[vid_pw]",
         needs=("marty",), serial=True),

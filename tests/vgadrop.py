@@ -33,8 +33,9 @@ for mach, name in (("os8088_xt_vga", "vga"),
                    ("os8088_5150_cga_gla", "cga"),
                    ("os8088_5150_herc_gla", "herc")):
     with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
-                          machine=mach) as m:
-        os88marty.settle(m)
+                          machine=mach, boot=False) as m:
+        m.run()                         # the boot gate on STATE: what is
+        os88marty.kernel_up(m)          # read next is mem_base
         base = int.from_bytes(m.read(S("mem_base"), 2), "little")
         avail = m.read(S("vid_avail"), 1)[0]
         got[name] = base

@@ -74,7 +74,7 @@ def main():
             sys.exit("btnmove: no %s - `make` first" % f)
     syms = timer_syms()
     with os88ui.boot("build/os8088-360.img",
-                     apps="build/apps360.img") as ui:
+                     apps="build/apps360.img", quick=True) as ui:
         m = ui.m
         w = ui.path("B:/APPS/TIMER.O88")
         base = ui._S("wm_wins") + w.i * geom.WIN_SIZE
