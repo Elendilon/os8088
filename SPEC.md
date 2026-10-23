@@ -121205,11 +121205,19 @@ every Telnet window that is not downloading** (§70.11.6).
   reason: a reconnect that zeroed it would leak the claim rather than free it.
   A window closed mid-transfer needs nothing — the kernel frees an instance's
   claims with it (§50.3).
-- **It is PINNED**, by not declaring it (§66), and that is the honest answer
-  rather than an audit nobody did: `tz_store` loads ES from `[tz_sseg]` on the
-  worker, and this package is not `OSAPI_MEM_PARKSAFE`, so a move could land
-  between the load and the store. Pinned for one transfer is eight kilobytes
-  standing still for as long as a download takes.
+- **It MOVES** (NO-PINNING A3), declared at the claim with `tz_sreloc`, one
+  word. It was pinned on the reasoning that `tz_store` loads ES from
+  `[tz_sseg]` on the worker and the package is not `OSAPI_MEM_PARKSAFE`, so a
+  move could land between the load and the store - and that is the case the
+  kernel already excludes: a RUNNING worker pins every claim of its package
+  (`inst_seg_parked`), and a worker that is not `OSAPI_MEM_PARKSAFE` parks only
+  inside `OSAPI_TASK_ALIVE`, which this one reaches at the top of its loop with
+  nothing held. The UI task's one use is `tz_commit`'s write out of it, which
+  `tz_spin` pins for the call (§66.3 rule 5, bucket C). So eight kilobytes no
+  longer stand still for as long as a download takes. +44 bytes of image;
+  there is no move gate - the claim exists only during a Zmodem transfer,
+  which needs a NIC and so QEMU (§70.12) - and the argument above is the whole
+  of it.
 
 **The worker fills one half while the UI task writes the other.** When the half
 in flight has not been collected and the other is full, **the worker simply
@@ -166445,6 +166453,21 @@ was a defect once:
   `dd_bdkb_calc` for more and refuses harder. `[dd_nomem]` is set on
   `dd_fit_claim`'s arm and cleared on `dd_layout`'s, and `dd_draw_toosmall`
   letters *Not enough memory.* on it.
+
+##### 93.3.4.6 ...and the picture MOVES (NO-PINNING A3)
+
+The board picture (4KB windowed on a CGA, up to 27KB) was born pinned and held
+for the life of the instance, so a game left open was a wall. `dd_fit_claim`
+declares it with `dd_bdreloc` when it first claims it, and a regrow keeps the
+declaration (§50.3.1). `[dd_bdseg]` is the one word naming it; every reader -
+`dd_bd_hrun`, `dd_bd_wipe`, the band copy, the wall blit - loads it for one
+run, band or blit and claims nothing while holding it. The worker draws its
+frames through it, and a running worker pins every claim of ours
+(`inst_seg_parked`); it parks only inside `OSAPI_TASK_ALIVE` at the top of
+`dd_worker`, after `dd_render` has returned. Inside the fsx bracket the worker
+is frozen and nothing compacts but `dd_fit_claim`'s own claim, which holds no
+copy, and no file is ever read into the picture or written from it. +19 bytes
+of image. `pkgmove-dotdel` is the gate, red with `dd_bdreloc` a bare `ret`.
 
 #### 93.4.1 `W_ONRESIZE`, and why the window is not resizable
 
@@ -211943,6 +211966,21 @@ only`, the alarm saved, ringing at 07:00 on the guest's clock and snoozed, and
 the clock back after a reset - and the `herc` leg (`deskclockherc`), the Red
 LED face on one plane. `t_stik` (fast) holds the payload and the bss fields to
 the host tool and walks every system image for `STIKAPPS/DESKCLOK.O88`.
+
+#### 110.14.10 The face cache MOVES (NO-PINNING A3)
+
+The face's static layer (§110.14.4) is a claim sized to the face, held for as
+long as the clock is open, and it was born pinned (§66.2). `dk_cbuild`
+declares it with `dk_creloc` when it claims it. `[dk_cseg]` names it, and the
+composer's `[ck_bseg]` borrows it for `dk_cbuild` alone - `ck_ourband` puts
+DS back at the end of the build and at every `ck_setband` - and the proc puts
+the borrowed copy right as well, `sh_reloc`'s rule for one (§66.1). Every use
+loads it for one build or one slab copy (`dk_ccard`'s `mov ds`) and claims
+nothing while holding it; there is no worker on the shipped arm (kern_small's
+`stik_worker` touches no claim) and no file call. The settings window's tall
+band (`[dk_sbseg]`, `dk_stall`) stays undeclared: it is claimed and freed
+inside one paint. +32 bytes of image. `pkgmove-deskclock` is the gate, red
+with `dk_creloc` a bare `ret`.
 
 ### 110.15 The Sticky App library: one copy, in `DESK.DRV`
 

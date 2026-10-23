@@ -2713,6 +2713,30 @@ SOAK = [
         "Measured: ct_chartseg 24c0 -> 2380; red with ct_reloc a bare ret "
         "(stale word, a different picture). 15s measured",
         needs=("marty",), serial=True, wants=("build/office360.img",)),
+    Row("pkgmove-dotdel", "soak",
+        py("tests/pkgmove.py", "--app", "dotdel",
+           "--disk", "build/games360.img",      # launch(apps=) resolves it
+           "--first", "B:/DOTDEL.O88", "--open", "B:/DOTDEL.O88",
+           "--word", "dd_bdseg", "--animated", "--hide"), 90.0,
+        "NO-PINNING A3 (SPEC.md 93.3.4.6): Dot Delirium's board picture "
+        "MOVES. A first instance's claims leave the hole; the target is "
+        "HIDDEN for the pass (--hide), because its worker draws flat out "
+        "and was measured never reaching OSAPI_TASK_ALIVE inside "
+        "INST_PARKW while it shows, and the window must keep animating "
+        "after (--animated). Measured: dd_bdseg 2640 -> 2380 and the region "
+        "9380 -> 99c0 (a restartable worker); red with dd_bdreloc a bare "
+        "ret (stale word). ~70s measured",
+        needs=("marty",), serial=True, wants=("build/games360.img",)),
+    Row("pkgmove-deskclock", "soak",
+        py("tests/pkgmove.py", "--app", "deskclok", "--first",
+           "B:/APPS/NOTEPAD.O88", "--open", "A:/STIKAPPS/DESKCLOK.O88",
+           "--word", "dk_cseg"), 30.0,
+        "NO-PINNING A3 (SPEC.md 110.14.10): the Desk Clock's face cache "
+        "MOVES. The redraw check masks the windows above it, the clock "
+        "being on the desk layer under every window. Measured: dk_cseg "
+        "2300 -> 22c0; red with dk_creloc a bare ret (a different picture). "
+        "21s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
     Row("editmove-frotz", "soak", py("tests/editmove.py", "--app", "frotz"),
         40.0,
         "SPEC.md 66.5.9 and NO-PINNING A3 (66.5.9.2): a running story's "

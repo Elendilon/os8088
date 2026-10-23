@@ -66,6 +66,22 @@ def main():
                     "closed after it, so its claims leave a hole UNDER the "
                     "target's (a claim already on the floor cannot move)")
     ap.add_argument("--machine", default="os8088_5150_cga_gla")
+    ap.add_argument("--keys", help="MartyKey names, comma-separated, typed "
+                    "at the target once it is in front - a game is started "
+                    "and PAUSED with them, so its worker parks within "
+                    "INST_PARKW and its window holds still for check 5")
+    ap.add_argument("--hide", action="store_true",
+                    help="minimize the target through its dock tile for the "
+                    "compaction and raise it after: a game whose worker "
+                    "draws flat out reaches OSAPI_TASK_ALIVE too rarely to "
+                    "park inside INST_PARKW, and a hidden window draws "
+                    "nothing (DotDel measured: its worker is sch_cur for "
+                    "the whole park window and never parked)")
+    ap.add_argument("--animated", action="store_true",
+                    help="the window animates on its own (a game's worker), "
+                    "so check 5 cannot compare two pictures: it requires the "
+                    "window to KEEP CHANGING after the move instead, which a "
+                    "worker that faulted on a stale word stops doing")
     a = ap.parse_args()
     MAP = dispapps._map(a.app)
     fails = []
@@ -115,6 +131,10 @@ def main():
                 o.i == first and o.visible for o in os88geom.windows(m, S)),
                 "the first window closed", limit=20)
 
+        for k in (a.keys.split(",") if a.keys else ()):
+            m.key(k)
+            os88marty.pace(m, 1.0)
+
         def pseg():
             rec = m.read(S("wm_wins") + win * dispcp.WIN_SIZE,
                          dispcp.WIN_SIZE)
@@ -152,11 +172,26 @@ def main():
 
         shot0 = repaint()
         wptr = os88geom.winptr(m, win, S)
+
+        def shown():
+            return any(o.i == win and o.visible
+                       for o in os88geom.windows(m, S))
+
+        if a.hide:
+            mo.click(*os88geom.tile_xy(m, win, S))
+            os88marty.until(m, lambda _: not shown(), "the target hidden",
+                            limit=20)
+            os88marty.pace(m, 1.0)
         m.write(S("mem_cpq_lvl"), bytes([0xFC]))
         m.write(S("mem_cpq"), bytes([wptr & 0xFF, wptr >> 8]))
         os88marty.until(m, lambda _: u16(m.read(S("mem_cpq"), 2)) == 0,
                         "the posted compaction", poll=0.2, limit=30)
         os88marty.ui_done(m)
+        if a.hide:
+            mo.click(*os88geom.tile_xy(m, win, S))
+            os88marty.until(m, lambda _: shown(), "the target raised",
+                            limit=20)
+            os88marty.ui_done(m)
 
         seg1 = pseg()
         w1 = words(seg1)
@@ -167,6 +202,15 @@ def main():
         print("  2 moved              %s" % (", ".join(moved) or "NOTHING"))
         if not moved:
             fails.append("nothing moved: the run proves nothing")
+            raw = m.read(S("mem_tab"), MEM_MAX * MC_SIZE)     # ...and WHY:
+            for i in sorted(range(MEM_MAX),                   # the heap map,
+                            key=lambda i: u16(raw, i * MC_SIZE)):  # base order
+                b = u16(raw, i * MC_SIZE)
+                if b:
+                    print("     %04x %3dKB own %04x %s"
+                          % (b, u16(raw, i * MC_SIZE + 2) // 64,
+                             u16(raw, i * MC_SIZE + 4),
+                             "MOVABLE" if u16(raw, i * MC_SIZE + 8) else ""))
         stale = [k for k, c in w1.items() if c not in held]
         print("  3 every word live    %s" % ("yes" if not stale else
                                              "STALE: %s" % stale))
@@ -181,14 +225,38 @@ def main():
             fails.append("contents changed: %s" % bad)
         shot1 = repaint()
         W = shot0[0]
+        # ...and ONLY the target's own pixels: a window ABOVE it in the
+        # z-order repaints its own way (a Disk window's selection over a Desk
+        # Clock, which sits on the desk layer under every window), so those
+        # rects are masked out of both pictures
+        zn = m.read(S("wm_zn"), 1)[0]
+        z = list(m.read(S("wm_zord"), zn))
+        above = [o for o in os88geom.windows(m, S) if o.visible and o.i in z
+                 and win in z and z.index(o.i) > z.index(win)]
 
         def band(f):
-            return b"".join(f[2][(yy * W + x) * 3:(yy * W + x + w) * 3]
-                            for yy in range(y, y + h))
-        same = band(shot0) == band(shot1)
-        print("  5 redraws the same   %s" % ("yes" if same else "NO"))
-        if not same:
-            fails.append("the window does not redraw identically")
+            out = bytearray()
+            for yy in range(y, y + h):
+                row = bytearray(f[2][(yy * W + x) * 3:(yy * W + x + w) * 3])
+                for o in above:
+                    if o.y <= yy < o.y + o.h:
+                        a0 = max(o.x, x) - x
+                        a1 = min(o.x + o.w, x + w) - x
+                        if a1 > a0:
+                            row[a0 * 3:a1 * 3] = bytes((a1 - a0) * 3)
+                out += row
+            return bytes(out)
+        if a.animated:
+            os88marty.pace(m, 1.0)
+            live = band(shot1) != band(m.fbuf())
+            print("  5 still animating    %s" % ("yes" if live else "NO"))
+            if not live:
+                fails.append("the window stopped changing after the move")
+        else:
+            same = band(shot0) == band(shot1)
+            print("  5 redraws the same   %s" % ("yes" if same else "NO"))
+            if not same:
+                fails.append("the window does not redraw identically")
 
     print("pkgmove %s: %s" % (a.app, "FAIL: " + "; ".join(fails) if fails
                               else "5 checks passed"))
