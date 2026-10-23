@@ -108,8 +108,8 @@ tmgr	tmgraph	90	tests/tmgraph.py
 tmgr	tmground	60	tests/tmground.py
 scsi	scsize	140	tests/scsize.py
 imgt	imgtest	135	tests/imgtest.py
-kzbo	kzboot-off	100	tests/kzboot.py
-kzbo	kzboot	30	tests/kzboot.py
+DONE kzbo	kzboot-off	100	tests/kzboot.py
+DONE kzbo	kzboot	30	tests/kzboot.py
 shut	shutdown	120	tests/shutdown.py
 brli	brlink	120	tests/brlink.py
 hdbo	hdboot	120	tests/hdboot.py

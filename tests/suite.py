@@ -9495,7 +9495,7 @@ SOAK = [
         "level and not only at the decoder's. A tree of its own, so the two "
         "formats coexist instead of overwriting each other",
         needs=("marty", "nasm"), serial=True),
-    Row("kzboot", "soak", py("tests/kzboot.py"), 30.0,
+    Row("kzboot", "soak", py("tests/kzboot.py"), 20.0,
         "SPEC.md 2.9.13: the COMPRESSED KERNEL boots, and it is the SHIPPED "
         "one. The only compression in the tree whose decoder is not in the "
         "kernel - it is in the BLOB, which mem_unblob hands back to the heap "
@@ -9516,7 +9516,7 @@ SOAK = [
         "that gets booted. It builds nothing - the four images it reads are "
         "the shipped ones",
         needs=("marty",), serial=True),
-    Row("kzboot-off", "soak", py("tests/kzboot.py", "--nokzip"), 100.0,
+    Row("kzboot-off", "soak", py("tests/kzboot.py", "--nokzip"), 80.0,
         "...and the A/B (`NOKZIP=1`), which is what tells 'the packed disk "
         "boots' from 'any disk boots'. It is also the only row that ever "
         "RUNS the unpacked arm of either loader - t_buildmatrix keeps it "

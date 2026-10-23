@@ -238,6 +238,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | brtable / br14 | 9.4 / 7.4 s (declared 200 each) | 7.3 / 6.6 s | 4 | already cheap; brreload's conversion (state boot, `ui_done`) and re-declared |
 | telnet / telnetherc | 25 / 29 s (declared 300 each) | 29 / 31 s (two in parallel) | - | boot on state only; the rest waits on a WORKER that draws on its own turn (the settles there are honest). Re-declared |
 | vidv2 / vidvga8 / vidvga4 / vidv2bench (26 rows) | 1,172 guest s waited, rows 11-157 s (load 7) | 1,077 guest s, 9-157 s (load 6); all green | 8 + quick boot | `quick=True` on five boots; polls 0.05; `os88venc`'s PFILL mix table (3 s a build, 4 builds an encode for the same palette) made once a palette - output byte-identical. The encoded-clip rows (pgmx/pg4/ly4/lp/flmx, 100-157 s) are the ENCODER's real work under load (~45 host s a 4 s clip); not cut |
+| kzboot-off / kzboot | 208 s (3 lanes) / 46 guest s waited; - | 63 / 14 s; 13 guest | 4 | the two 'reaches a desktop' settles -> `kernel_up` (state); the rest of kzboot-off is its NOKZIP tree's make check |
 
 ## Resuming
 
