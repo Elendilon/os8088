@@ -84,8 +84,8 @@ DONE doss	dosseq	240	tests/dosseq.py
 doss	dosshrink	30	tests/dosshrink.py
 doss	dossnd	30	tests/dossnd.py
 DONE dock	dockpos	300	tests/dockpos.py
-dock	dockmodule	120	tests/dockmodule.py
-dock	dockmark	90	tests/dockmark.py
+DONE dock	dockmodule	120	tests/dockmodule.py
+DONE dock	dockmark	90	tests/dockmark.py
 mult	msegz	60	tests/multiseg.py
 mult	msegz360	60	tests/multiseg.py
 mult	msegw	60	tests/multiseg.py
@@ -95,7 +95,7 @@ mult	msegwz360	60	tests/multiseg.py
 mult	mseg360	40	tests/multiseg.py
 mult	multiseg	20	tests/multiseg.py
 DONE fddp	fddpark	300	tests/fddpark.py
-fddp	fddpage	120	tests/fddpage.py
+DONE fddp	fddpage	120	tests/fddpage.py
 DONE asso	assocflush	170	tests/assocflush.py
 asso	assocsweep	50	tests/assocsweep.py
 asso	assocopen	40	tests/assocopen.py

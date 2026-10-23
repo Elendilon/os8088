@@ -5154,11 +5154,11 @@ SOAK = [
         "the claim instead, this row scored WORSE than the bug",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/os8088.img",)),
-    Row("dockmark", "soak", py("tests/dockmark.py"), 90.0,
+    Row("dockmark", "soak", py("tests/dockmark.py"), 30.0,
         "Does the dock strip mark windows it did not draw under? (SPEC.md"
         "30.3.3)",
         needs=("marty",), serial=True),
-    Row("dockmodule", "soak", py("tests/dockmodule.py"), 120.0,
+    Row("dockmodule", "soak", py("tests/dockmodule.py"), 30.0,
         "Optional Dock module: missing/corrupt file refusal and saved-setting "
         "boot fallback, with no live callback into an unloaded claim",
         needs=("marty",), serial=True),
@@ -8949,7 +8949,7 @@ SOAK = [
         "greyed and refuses. Red with drv_boot_x's call to vgcf_boot taken "
         "out (leg 3). Measured 36s",
         needs=("marty",), serial=True),
-    Row("fddpage", "soak", py("tests/fddpage.py"), 120.0,
+    Row("fddpage", "soak", py("tests/fddpage.py"), 60.0,
         "SPEC.md 31.14: does the Control Panel's Floppy page override the "
         "drive detection? Four drop-down picks by a real left-press gesture "
         "(menu_popup, 12.4), the panel's close writes 'FD', and a second boot "

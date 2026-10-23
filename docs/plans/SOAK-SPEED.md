@@ -177,6 +177,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| dockmodule / dockmark / fddpage | 21 / 25 / 40 s; 59 / 50 / 108 guest s | unchanged | - | lean (boot settles + the subject); dockmodule already rides dockpos's `ui_done` verbs. Re-declared 120/90/120 -> 30/30/60 |
 | mouresume | 15.5 s / 56 guest s waited (declared 150) | 13.4 s / 49 | 4, 8 | boot gated on `ui.up` (launch's settle 33 guest s); a pre-click settle -> `ui_done`; kdreturn's text/desktop polls 0.25/0.2 -> 0.05. The rest is the HDD boot and the DOS handoff |
 | frpromise / zoomsave / regmove | 61 / 90 / 47 s (load ~12); 91 / 36 / 69 guest s; CPU 31 / 53 / 20 s | unchanged | - | lean: a boot settle each and the subject's own work (frpromise's 51 guest s promise wait). Re-declared 150/150/130 -> 60/90/40 |
 | gfxlk | 139 s (load) / 51 guest s waited + ~20 unlogged in advance(), 59 s CPU | 39 s / 28 guest s, 40 s CPU | 4 | `kernel_up` boot; Cyclone's two launches `advance(300)` -> until the window + `ui_done(lock=False, cap)` (a game); the close clicks' `advance(90)` -> `ui_done(cap)`. The hand-moving loop and the pixel compares' settles are the measurement. secs 150 -> 60 |
