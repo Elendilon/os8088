@@ -99,3 +99,27 @@ Claude-Session: https://claude.ai/code/session_0128wd3x4TL6TkrT5R6Y6y6u
 - A new file under docs/ needs `python3 tools/os88index.py`, or checkdocs
   fails the next make.
 - Scratch files go in your scratchpad, never the repo root.
+
+## Round 3: Bochs and 86Box (both newly installed in this container)
+- These emulators have never been driven by an agent in this environment, and
+  their harnesses (tools/os88bochs.py, tools/os88bochsui.py, tools/os88box.py)
+  have had none of the work MartyPC's got. Read docs/BOCHS.md or
+  docs/86BOX.md FIRST, then SOAK-SPEED.md's techniques and harness section.
+- Step 1 is a BASELINE of every row in your queue as it stands: pass / fail
+  / skip, wall time, and where the time goes (profile the host side too -
+  Xvfb, screenshots, xdotool, debugger round trips). Rows that fail at base:
+  find out whether the harness or the environment is the cause (fix those)
+  or the product (record, don't chase).
+- The harness work is expected and WANTED: the same kinds of features
+  MartyPC got - a boot gate on kernel state instead of a fixed wait or a
+  picture settle, waits on guest memory/state instead of sleeps, a
+  closed-loop pointer, several instances at once without collisions (display
+  numbers, ports, run dirs, pidfiles; reap only your own), and cheaper
+  round trips. Keep it generic and opt-in-compatible; document each in
+  SOAK-SPEED.md's "Harness changes" AND in the emulator's own doc
+  (docs/BOCHS.md / docs/86BOX.md).
+- Only you own your emulator's harness files this round; another agent owns
+  the other emulator. Don't edit the other one's.
+- Run rows with `MAKELEVEL=1 python3 tools/os88test.py soak -k <row>`. All
+  declared artefacts are prebuilt; don't run make in build/ (private trees
+  via tools/os88build.py if a row needs a knob kernel).
