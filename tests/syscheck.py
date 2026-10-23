@@ -225,7 +225,6 @@ def qemu(work, img, keep=False):
     socket, pidfile and copies of both floppies, so the row runs no `make`
     and kills no other row's emulator (it used os88qemu.kill() on
     build/qemu.pid)."""
-    import atexit
     import signal
     import os88build
     import os88qemu
@@ -253,7 +252,7 @@ def qemu(work, img, keep=False):
         except OSError:
             pass
     if not keep:
-        atexit.register(close)
+        os88qemu.own(pidf, SOCK)        # atexit AND SIGTERM (t_qemuown)
     for _ in range(150):
         if os.path.exists(SOCK):
             break
