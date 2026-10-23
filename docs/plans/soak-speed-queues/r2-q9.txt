@@ -1,7 +1,7 @@
 # ROUND 2, queue 9: the NON-MartyPC soak rows (QEMU, ffmpeg, host-only) - never queued in round 1. family  row  declared_secs  script  needs
 vide	videnc	1300	tests/videnc.py	ffmpeg
-t	frcyclefull	900	tests/unit/t_frcycle.py	
-t	frinsetfull	900	tests/unit/t_frinset.py	
+DONE t	frcyclefull	900	tests/unit/t_frcycle.py	
+DONE t	frinsetfull	900	tests/unit/t_frinset.py	
 vidl	vidlayer	320	tests/vidlayer.py	ffmpeg
 SKIP builds=True (writes build/; not runnable in the shared tree) telz	telzm	300	tests/telzm.py	qemu
 rega	regapp	210	tests/regapp.py	

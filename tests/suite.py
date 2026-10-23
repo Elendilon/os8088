@@ -9543,11 +9543,11 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/editmove360.img", "build/zmove360.img")),
     Row("frcyclefull", "soak",
-        py("tests/unit/t_frcycle.py", "--stride", "7"), 900.0,
+        py("tests/unit/t_frcycle.py", "--stride", "7"), 180.0,
         "...and the same agreement at stride 7 - about 25 million (point,"
         "type) pairs, each run through the core twice (SPEC.md 40.7)."),
     Row("frinsetfull", "soak",
-        py("tests/unit/t_frinset.py", "--stride", "2"), 900.0,
+        py("tests/unit/t_frinset.py", "--stride", "2"), 180.0,
         "...and the same sweep at stride 2 - 5.7 million of the lattice"
         "points fr_inset can claim, against the core (SPEC.md 40.5). The fast"
         "row strides 32 to fit its tier. Stride 1 is the exhaustive one and"
