@@ -135,8 +135,19 @@ has captured re-captures inside the NEXT xdotool call (`xd`, so a row's own
 And a stop waits `INPUT_GAP` (60 ms) after the last input, so a click still in
 the X queue is taken while the mouse is captured rather than dropped.
 
-`tools/os88test.py` gives each Bochs row its own display from :110 up, held
-with an flock on `/tmp/.os88bochs-N.lock`, so two runners never share one.
+| `box.in_fsx()` | an exclusive fullscreen bracket is running (`[fsx_task]` not FFh) - ui_task is FROZEN inside one, so `ui_done` cannot end there; wait on this into and out of it |
+| `box.fault()` | the first `kern_mega FAULT` line, or None; every `until` raises on one at once rather than waiting out its budget |
+| `box.shot(path)` | a screenshot after `GLASS` (0.45 s): the X window lags the guest by up to one of Bochs's 5 Hz VGA updates |
+| `box.xd(...)`, `box.key(...)`, `box.type(...)` | xdotool on THIS machine's display |
+
+**SEVERAL MACHINES IN ONE PROCESS.** `Box(..., display=os88bochs.take_display(),
+megs=N)` gives a machine its own Xvfb display and input state, so a row runs
+its independent legs in threads at once (tests/megavidv2.py). Drive such a box
+through its own methods - the module's `xd`/`shot` are the DEFAULT display's.
+`take_display()` holds an flock on `/tmp/.os88bochs-N.lock` (:150 up) for the
+life of the process; `tools/os88test.py` takes the same locks for each Bochs
+row's own display (:110 up), so two runners - or a runner and a row's extra
+legs - never share one.
 
 ## Reading it
 
@@ -236,7 +247,8 @@ kern_mega puts no field reading on the glass (KERN-MEGA-PLAN 14.65).
 
 ## Things that cost an hour each here
 
-* **ONE Bochs per DISPLAY.** Clicks, keys and screenshots go to whichever
+* **ONE Bochs per DISPLAY** (and as many displays as you like - `Box(display=)`
+  above). Clicks, keys and screenshots go to whichever
   window is on top of the display, and two machines on one read exactly like a
   guest that froze. `boot` refuses while one runs ON ITS DISPLAY. Two at once
   is two displays: `OS88_BOCHS_DISPLAY=:97 tools/os88bochs.py ... --out

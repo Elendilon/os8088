@@ -14845,7 +14845,7 @@ SOAK = [
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megak/apps/video.o88")),
-    Row("megavidv2", "soak", py("tests/megavidv2.py"), 400.0,
+    Row("megavidv2", "soak", py("tests/megavidv2.py"), 140.0,
         "SPEC.md 98.3.23.2: a VERSION 2 video played on kern_mega through "
         "the block decoder's PROTECTED-MODE part with NO #GP fixup. "
         "MEGATRAP=1's kern_mega (a private tree) under Bochs at 16MB, "
@@ -14857,7 +14857,9 @@ SOAK = [
         "a FAULT, and the two tail pictures must be the same. Red with "
         "--part0 (part 0 fetched under protected mode too): hundreds of "
         "fixups a play step, vb_walk's count and vb_set's patching, and "
-        "its tails the same pictures. 400s is 339 measured",
+        "its tails the same pictures (verified on the three legs at once). "
+        "The legs are three machines run AT ONCE, one display each "
+        "(os88bochs.take_display). 140s is 107 measured",
         needs=("bochs",),
         wants=("build/megak/apps/video.o88", "build/vblk.bin",
                "build/vblkpm.bin", "build/megak/apps/video.bin")),
@@ -14874,7 +14876,7 @@ SOAK = [
         "put back to one paragraph (BOUNCE.GIF FAULTs on frame 0). 90s is "
         "65 measured: each step ends on the UI task done (Box.ui_done)",
         needs=("bochs", "nasm")),
-    Row("megadosp", "soak", py("tests/megadosp.py"), 160.0,
+    Row("megadosp", "soak", py("tests/megadosp.py"), 70.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.54: the windowed DOS box's PROMPT "
         "on kern_mega with no #GP fixup per character printed - dos_hk_tty "
         "entered con_write with `push cs / pop ds`, so every byte of a DIR, "
@@ -14885,7 +14887,7 @@ SOAK = [
         "ECHO of 60 characters and DIR add no trap line, TYPE at most the "
         "two .stale fixups its buffer's free costs a command, and none a "
         "kern_mega FAULT. Red with the `push cs / pop ds` put back "
-        "(ECHO 62, DIR 87, TYPE 802). 160s is 157 measured, the tree reused",
+        "(ECHO 62, DIR 87, TYPE 802). 70s is 56 measured, the tree reused",
         needs=("bochs", "nasm")),
     Row("pxsmega", "soak", py("tests/pxsmega.py"), 70.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.50: PIXELSTEIN 3D PLAYED on kern_mega "

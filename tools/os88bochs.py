@@ -107,26 +107,79 @@ display_library: x
 """
 
 
-_LAST_INPUT = [0.0]
 INPUT_GAP = 0.06    # s: Bochs's GUI takes X events every ~10 ms of its own
-# A DEBUGGER STOP RELEASES THE MOUSE (Bochs drops its capture whenever the
-# debugger takes over). A Box that has captured it sets this after a stop,
-# and the next xdotool call - whoever makes it - re-captures FIRST, in the
-# same call: X delivers the toggle ahead of the input, so the click lands
-# captured, and a read costs no re-capture of its own.
-_REGRAB = [False]
 GLASS = 0.45        # s: two of Bochs's VGA updates (5 Hz) - see Box.shot
 GRAB = ("keydown", "ctrl", "click", 2, "keyup", "ctrl")
 
 
+class _Input(object):
+    """One X display's input state. A DEBUGGER STOP RELEASES THE MOUSE
+    (Bochs drops its capture whenever the debugger takes over): a Box that
+    has captured it sets `regrab` after a stop, and the next xdotool call -
+    whoever makes it - re-captures FIRST, in the same call. X delivers the
+    toggle ahead of the input, so the click lands captured, and a read costs
+    no re-capture of its own. `last` is when input was last sent: a stop
+    waits INPUT_GAP after it, so nothing is still in the X queue."""
+
+    def __init__(self, display):
+        self.display = display
+        self.env = dict(os.environ, DISPLAY=display)
+        self.regrab = False
+        self.last = 0.0
+
+    def xd(self, *a):
+        pre = ()
+        if self.regrab:
+            self.regrab = False
+            pre = GRAB
+        subprocess.run(["xdotool"] + [str(x) for x in pre + a],
+                       env=self.env, check=True)
+        self.last = time.time()
+
+    def shot(self, path):
+        subprocess.run("xwd -root -silent | convert xwd:- -crop 650x500+5+40 "
+                       "+repage '%s'" % path, shell=True, env=self.env,
+                       check=True)
+
+
+_IN = {}
+
+
+def _input(display=None):
+    display = display or DISPLAY
+    if display not in _IN:
+        _IN[display] = _Input(display)
+    return _IN[display]
+
+
 def xd(*a):
-    pre = ()
-    if _REGRAB[0]:
-        _REGRAB[0] = False
-        pre = GRAB
-    subprocess.run(["xdotool"] + [str(x) for x in pre + a], env=ENV,
-                   check=True)
-    _LAST_INPUT[0] = time.time()
+    _input().xd(*a)
+
+
+_HELD = []
+
+
+def take_display(lo=150, hi=199):
+    """A free X display for ONE MORE machine in this process (`Box(...,
+    display=)`), held until the process exits by an flock on
+    /tmp/.os88bochs-N.lock - the same lock tools/os88test.py takes for a
+    row's own display (:110 up), so neither hands out the other's. This is
+    how a row runs its independent legs at once."""
+    import fcntl
+    for n in range(lo, hi + 1):
+        fd = os.open("/tmp/.os88bochs-%d.lock" % n, os.O_RDWR | os.O_CREAT,
+                     0o666)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            continue
+        if running(":%d" % n):      # a hand-started machine holds no lock
+            os.close(fd)
+            continue
+        _HELD.append(fd)
+        return ":%d" % n
+    raise RuntimeError("os88bochs: no free display in :%d-:%d" % (lo, hi))
 
 
 def rel(dx, dy):
@@ -155,12 +208,12 @@ def dbl(x, y):
 
 
 def shot(path):
-    subprocess.run("xwd -root -silent | convert xwd:- -crop 650x500+5+40 "
-                   "+repage '%s'" % path, shell=True, env=ENV, check=True)
+    _input().shot(path)
 
 
-def xvfb():
-    n = DISPLAY.lstrip(":").split(".")[0]
+def xvfb(display=None):
+    display = display or DISPLAY
+    n = display.lstrip(":").split(".")[0]
     sock = "/tmp/.X11-unix/X" + n
     # A LIVE Xvfb on THIS display, not a socket file: a server that died (or
     # was killed with its row) leaves the socket and its lock behind, and a
@@ -174,7 +227,7 @@ def xvfb():
                 os.remove(stale)
             except OSError:
                 pass
-        subprocess.Popen(["Xvfb", DISPLAY, "-screen", "0", "1024x768x24"],
+        subprocess.Popen(["Xvfb", display, "-screen", "0", "1024x768x24"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(50):             # until it is listening, not a guess
             if os.path.exists(sock):
@@ -183,28 +236,28 @@ def xvfb():
         time.sleep(0.5)
 
 
-def _ours(pid):
+def _ours(pid, display=None):
     """Is PID's environment on this instance's display?"""
     try:
         with open("/proc/%d/environ" % pid, "rb") as f:
             env = f.read().split(b"\0")
     except OSError:
         return False
-    return ("DISPLAY=" + DISPLAY).encode() in env
+    return ("DISPLAY=" + (display or DISPLAY)).encode() in env
 
 
-def _pids(*pgrep):
+def _pids(*pgrep, display=None):
     r = subprocess.run(["pgrep"] + list(pgrep), capture_output=True,
                        text=True)
-    return [p for p in map(int, r.stdout.split()) if _ours(p)]
+    return [p for p in map(int, r.stdout.split()) if _ours(p, display)]
 
 
-def running():
+def running(display=None):
     """PIDs of every Bochs on the box. ONE AT A TIME: the mouse, the keys and
     the screenshots all go to the X display, and with two machines on it they
     land on whichever window is on top - which reads exactly like a guest that
     froze. `bochs` execs `bochs-bin`, so that is the name to look for."""
-    return _pids("-x", "bochs-bin")
+    return _pids("-x", "bochs-bin", display=display)
 
 
 def dbg(out, cmds):
@@ -224,7 +277,7 @@ def _tail(path, n):
         return f.read().decode("latin-1")
 
 
-def session(out, cmds, timeout=20.0, pids=None):
+def session(out, cmds, timeout=20.0, pids=None, inp=None):
     """Break in, run the debugger commands CMDS, continue - and answer the
     transcript of the commands, read off OUT/e9.out (the debugger writes to
     the same stdout the E9 hack does).
@@ -238,7 +291,7 @@ def session(out, cmds, timeout=20.0, pids=None):
     # INPUT FIRST: a stop RELEASES Bochs's mouse capture, so a click still
     # in the X queue when the debugger takes over is dropped on the floor.
     # Give the GUI the moment it needs to have taken the last xdotool input.
-    gap = _LAST_INPUT[0] + INPUT_GAP - time.time()
+    gap = (inp or _input()).last + INPUT_GAP - time.time()
     if gap > 0:
         time.sleep(gap)
     n = os.path.getsize(e9)
@@ -340,17 +393,25 @@ class Box(object):
 
     def __init__(self, out, pkgs, sb=False, cfg=None, bimg=None, ne2k=False,
                  btype="1_2", cmode="run", bootc=False, noa=False,
-                 build=None, csys=False, put=(), cd=None, aimg=None):
-        if running():
-            sys.exit("os88bochs: a Bochs is already running (pids %s) - every "
-                     "click would land on whichever window is on top. "
-                     "`os88bochs.py stop` ends it" %
-                     " ".join(map(str, running())))
+                 build=None, csys=False, put=(), cd=None, aimg=None,
+                 display=None, megs=None):
+        # DISPLAY: the X display this machine owns - the module's
+        # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
+        # can run several machines at once (one display each)
+        self.display = display or DISPLAY
+        self.inp = _input(self.display)
+        self.env = self.inp.env
+        if running(self.display):
+            sys.exit("os88bochs: a Bochs is already running on %s (pids %s) "
+                     "- every click would land on whichever window is on "
+                     "top. `os88bochs.py stop` ends it" %
+                     (self.display,
+                      " ".join(map(str, running(self.display)))))
         bld = build or os.path.join(ROOT, "build")
         self.build = bld
         self._map = None
         self.captured = False
-        _REGRAB[0] = False
+        self.inp.regrab = False
         self.out = out
         self.e9 = os.path.join(out, "e9.out")
         a, b = os.path.join(out, "a.img"), os.path.join(out, "b.img")
@@ -399,7 +460,7 @@ class Box(object):
         rc = os.path.join(out, "bochsrc")
         with open(rc, "w") as f:
             f.write(BOCHSRC.format(
-                megs=MEGS, a=a, b=b, c=c, cy=GEOM[0], hd=GEOM[1], sp=GEOM[2],
+                megs=megs or MEGS, a=a, b=b, c=c, cy=GEOM[0], hd=GEOM[1], sp=GEOM[2],
                 boot="disk" if bootc else "floppy",
                 astat="ejected" if noa else "inserted",
                 btype=btype, bmedia={368640: "360k", 737280: "720k",
@@ -419,7 +480,7 @@ class Box(object):
         for n in os.listdir(out):
             if n.endswith(".lock"):
                 os.remove(os.path.join(out, n))
-        xvfb()
+        xvfb(self.display)
         self.f = open(self.e9, "wb")
         # The debugger reads a FIFO, held open by a `sleep` of its own so the
         # machine outlives this process (`boot`) and `dbg` can still reach it
@@ -430,9 +491,9 @@ class Box(object):
         self.p = subprocess.Popen(["bochs", "-q", "-f", rc], cwd=out,
                                   stdin=os.open(fifo, os.O_RDWR),
                                   stdout=self.f, stderr=subprocess.STDOUT,
-                                  env=ENV)
+                                  env=self.env)
         self.hold = subprocess.Popen("exec sleep 86400 > '%s'" % fifo,
-                                     shell=True, env=ENV)
+                                     shell=True, env=self.env)
         with open(fifo, "w") as fh:
             fh.write("c\n")
 
@@ -478,16 +539,28 @@ class Box(object):
             time.sleep(0.2)
         return False
 
+    def xd(self, *a):
+        """xdotool on THIS machine's display (re-capturing first after a
+        debugger stop, as the module's `xd` does on the default display)."""
+        self.inp.xd(*a)
+
+    def key(self, *keys, delay=80):
+        self.xd("key", "--delay", delay, *keys)
+
+    def type(self, text, delay=80):
+        self.xd("type", "--delay", delay, text)
+
     def capture(self):
-        w = subprocess.run(["xdotool", "search", "--name", "Bochs"], env=ENV,
+        w = subprocess.run(["xdotool", "search", "--name", "Bochs"],
+                           env=self.env,
                            capture_output=True, text=True).stdout.split()[0]
-        xd("windowfocus", "--sync", w)
-        xd("mousemove", 330, 300)
-        xd("keydown", "ctrl")
-        xd("click", 2)
-        xd("keyup", "ctrl")
+        self.inp.regrab = False
+        self.xd("windowfocus", "--sync", w)
+        self.xd("mousemove", 330, 300)
+        self.xd("keydown", "ctrl")
+        self.xd("click", 2)
+        self.xd("keyup", "ctrl")
         self.captured = True
-        _REGRAB[0] = False
         time.sleep(1)
 
     # ---- the guest's own state, through the debugger (docs/BOCHS.md,
@@ -507,9 +580,10 @@ class Box(object):
         debugger takes over, so after one the next move and click reach
         nobody. Once `capture` has been called this re-captures after every
         stop, so a read can sit between two moves."""
-        t = session(self.out, cmds, timeout)
+        t = session(self.out, cmds, timeout, pids=[self.p.pid],
+                    inp=self.inp)
         if self.captured:
-            _REGRAB[0] = True       # the next input re-captures first
+            self.inp.regrab = True  # the next input re-captures first
         return t
 
     def reads(self, spans):
@@ -709,7 +783,7 @@ class Box(object):
         up to one VGA update (5 a second, Bochs's default): after a
         `ui_done` the picture is drawn, so wait out one update and take it."""
         time.sleep(GLASS)
-        shot(path)
+        self.inp.shot(path)
 
     def mouse(self):
         """(mouse_x, mouse_y): where the KERNEL has the pointer."""
@@ -732,7 +806,7 @@ class Box(object):
             x2, y2 = 2 * dx, 2 * dy
             while x2 or y2:
                 sx, sy = max(-60, min(60, x2)), max(-60, min(60, y2))
-                xd("mousemove_relative", "--", sx, sy)
+                self.xd("mousemove_relative", "--", sx, sy)
                 x2 -= sx
                 y2 -= sy
             was, end = pos, time.time() + 2.0
@@ -756,7 +830,7 @@ class Box(object):
               lock=True, button=1):
         if x is not None:
             self.goto(x, y)
-        xd("click", button)
+        self.xd("click", button)
         return self.ui_done(what, lock=lock)
 
     def dbl(self, x=None, y=None, what="the UI to take the double-click",
@@ -765,7 +839,7 @@ class Box(object):
         is a program whose worker holds the gfx lock (a game)."""
         if x is not None:
             self.goto(x, y)
-        xd("click", "--repeat", 2, "--delay", 120, 1)
+        self.xd("click", "--repeat", 2, "--delay", 120, 1)
         return self.ui_done(what, lock=lock)
 
     def megarun(self, row=0):

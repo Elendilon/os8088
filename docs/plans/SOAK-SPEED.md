@@ -150,6 +150,12 @@ reading the guest state the page is drawn from instead of pumping the screen).
    rehome/vidbig 105/81/103/287 -> 51/39/41/62 s. Inside an FSX bracket
    ui_task is frozen and `ui_done` never ends: gate on `Box.in_fsx()`.
 
+20. **Independent legs are independent machines: run them at once.** A row
+   whose legs share nothing but the script (layouts, red/green trees, RAM
+   sizes) gives each its own emulator in a thread - Bochs: `Box(display=
+   os88bochs.take_display())`. Make anything that patches a shared module
+   (an encoder's Writer) BEFORE the threads start. megavidv2 3 legs: 107 s.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
@@ -242,7 +248,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **`Marty.batch([cmd dicts])`** (os88marty) + a pipelining server (`debug_server.rs`, deployed): several requests in ONE write, replies in order, first refusal raised by index, a `run` in it marks the resume like `run()`. The server now sets TCP_NODELAY (a pipelined burst had every reply after the first held ~40 ms by Nagle against delayed ACK - pipelining "hung") and keeps a line split across reads (it was dropped). 25 reads: 0.3 ms pipelined vs 3.1 ms serial. An old server (no `pipeline` in `ping`) is asked one at a time. n1942's `Game.call` (park + 13 setregs + bp + run + restore) is 4 round trips: 1942sound 105 -> 90 s, same figures as the old path. Any stopped-machine register/park sequence wants it.
 - **QEMU (r2-q10)**: `tests/xmcheck.qmp` runs `tools/qmp.py`'s new `run()` IN PROCESS (it spawned a Python per memory read, ~60 ms; same text and same SystemExit on failure); `xmcheck.wait_desktop` polls 0.05 (was 0.4) and ends on `os88qemu.ui_done(cap=1)` (was `pace(1)`). `colorpresets_qemu.Guest` boots on state (`peek` = `xp` while running) instead of `sleep(3)`. `rdgqemu.run(..., final=[" END\n"])` skips its 0.3 s trailing read when the output is known complete; poll 0.2 -> 0.05. Validated: hdtake(+blank), viddiskcpu, fmtpair, colorpresets, rdgstatic.
 
-- **Bochs (r3): `tools/os88bochs.py` reads the guest** - `session()` (break in, commands, continue, on the PROMPT not a clock: ~20 ms where `dbg` slept 3.5 s + 0.3 s a command; module `dbg` is it now), `Box.read/reads/until/sym` (labels off the BOOTED tree's megak/kernel.map, .lowbss/.cold by the map's equates), `Box.up()` (kernel_up's gate), `Box.ui_done()` (ui_idle's five bytes held 0.25 s with [ticks] moving), `Box.goto/click/dbl` (CLOSED-LOOP on mouse_x/mouse_y, ~0.6 s where the pin-and-walk was ~3.5), `Box.megarun()` (C:, RUN, 0RUN on those), `Box.instances/pkg_base/pkg_read` (a package's own bytes, OS88_HIGH through its LDT descriptor), `sweep` on all of it. A stop RELEASES the mouse: `xd()` re-captures first after a Box read. `os88test` takes a Bochs display with an flock on /tmp/.os88bochs-N.lock, so two runners never share one. docs/BOCHS.md "Waiting on the guest". megaflt, megaown, megarehome, megavidbig, megaovl.
+- **Bochs (r3): `tools/os88bochs.py` reads the guest** - `session()` (break in, commands, continue, on the PROMPT not a clock: ~20 ms where `dbg` slept 3.5 s + 0.3 s a command; module `dbg` is it now), `Box.read/reads/until/sym` (labels off the BOOTED tree's megak/kernel.map, .lowbss/.cold by the map's equates), `Box.up()` (kernel_up's gate), `Box.ui_done()` (ui_idle's five bytes held 0.25 s with [ticks] moving), `Box.goto/click/dbl` (CLOSED-LOOP on mouse_x/mouse_y, ~0.6 s where the pin-and-walk was ~3.5), `Box.megarun()` (C:, RUN, 0RUN on those), `Box.instances/pkg_base/pkg_read` (a package's own bytes, OS88_HIGH through its LDT descriptor), `sweep` on all of it. A stop RELEASES the mouse: `xd()` re-captures first after a Box read. **`Box(display=, megs=)` + `os88bochs.take_display()`**: several machines in ONE process, each its own display and input state (`box.xd/key/type/shot`); `Box.in_fsx()`, `Box.fault()` (a FATAL fault ends every `until`), `Box.shot()` (waits out the glass's 5 Hz update). `os88test` takes a Bochs display with an flock on /tmp/.os88bochs-N.lock, so two runners never share one. docs/BOCHS.md "Waiting on the guest". megaflt, megaown, megarehome, megavidbig, megaovl.
 
 ## Ledger
 
@@ -465,6 +471,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | megavidbig (Bochs) | 287 s | 62 s | 19 | HOLD = 110 s slept for a fill that takes ~5 (waits on the player's [vp_xfull]), PLAY = 30 for a play that ends at ~20 ([vp_played], asserted 0 before Space) |
 | megaovl (Bochs) | 157 s FAIL | 71 s FAIL | 19 | **fails at base**: MEGALOWB's OSAPI_MEM_AVAIL claim (79C0 paras, the ascending run alone) fits UNDER the carve, so nothing slides it - MEGALOWH's hole above is not counted. The typed-and-saved DOC.RTF half passes |
 | pxmega / pxsmega / megatrap0 (Bochs, MEGATRAP census) | 252 / 172 / 267 s | 65 / 56 / 171 s | 19 | a step was QUIET s of no E9 line - on a clean run, a fixed 12 / 8 s whatever the program did. Now `ui_done` (`lock=False` for the game), `[fsx_task]` into and out of the bracket, the timedemo's 8 s kept as a run; the trap windows TILE (one running offset). pxsmega red with px_compose's `[es:px_cdi]` -> `[cs:` (22,240 traps). megatrap0 is MEGARUN + LINGER bound |
+| megavidv2 / megadosp (Bochs, MEGATRAP census) | 388 / 225 s | 107 / 56 s | 19, 20 | megavidv2's three layouts are three MACHINES, run at once (one display each); the Escs out of a fullscreen play gate on `[fsx_task]`, the keys inside a play keep their gaps (where the pause lands is the scenario). Red with --part0: thousands of fixups a step on all three legs. megadosp: steps on `ui_done` (the box runs DOS in the UI task's wakes); the prompt's first paint, slept 10 s OUTSIDE every window, is counted now |
 
 ## Resuming
 
