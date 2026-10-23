@@ -2,7 +2,7 @@
 DONE disp	dispsize	210	tests/dispsize.py
 DONE disp	dispfrac	180	tests/dispfrac.py
 DONE disp	dispmcfs	180	tests/dispmcfs.py
-disp	dispblitp	180	tests/dispblitp.py
+DONE disp	dispblitp	180	tests/dispblitp.py
 disp	dispapps	120	tests/dispapps.py
 disp	dispcorner	120	tests/dispcorner.py
 disp	dispfreeze	120	tests/dispfreeze.py

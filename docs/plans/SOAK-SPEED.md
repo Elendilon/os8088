@@ -135,6 +135,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| dispblitp | 49 s / 124 guest s, 2 boots | 23 s / 58 guest s, 1 boot | 3, 4, 8 | both legs (`pt_planar` is one-way) fork the boot after Paint opens instead of re-booting; each leg now ASSERTS its fork is still four planes; setup settles -> `ui_done`, the capture keeps its settle. secs 180 -> 30 |
 | dispmcfs | 88 s / 234 guest s | 76 s / 190 guest s | 4, 8 | `kernel_up` boot; settles before window-record reads -> `ui_done(lock=False)` (Missile draws all the time, so plain `ui_done`/settle waited out ~110 guest s of its animation); `state()`'s settles before the lit-pixel counts are the measurement and stay. secs 180 -> 120 |
 | dispfrac | 21 s / 45 guest s | 21-56 s (noisy) | - | `kernel_up` boot; the adapter-switch settles vary 17-70 guest s with the fractal rendering and stay (pixels never still). secs 180 -> 60 |
 | dispsize | 54 s / 148 guest s (round-1 harness already in; declared 210) | 43 s / 112 guest s | 4 | `kernel_up` boot; every settle -> `ui_done` (all reads are window records / bss) except leg C's capture pair; the rest is four package launches. secs 210 -> 60 |
