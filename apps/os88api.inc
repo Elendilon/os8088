@@ -3062,8 +3062,12 @@ HDI_SLOTS    equ 1              ; DL = a device, ES:DI = 4 * HDIS_SIZE. out
                                 ; AL = the slot the Install window would
                                 ; select, 0FFh none would do, 0FEh no such
                                 ; device or its geometry is unknown
-HDI_GO       equ 2              ; DL = device, DH = slot, CH = 1 erase / 0 keep
-                                ; the files; ES:DI = an HDIB_* block. out AL =
+HDI_GO       equ 2              ; DL = device, DH = slot, CH = bit 0 1 erase /
+                                ; 0 keep the files, bits 7..1 the SOURCE volume
+                                ; + 1 (0 = the engine's own: the bank, then the
+                                ; floppies), and a named one is taken to carry
+                                ; the apps (SPEC.md 117.10.5); ES:DI = an
+                                ; HDIB_* block. out AL =
                                 ; an HDG_* and the engine's caption at HDIB_CAP.
                                 ; The Install window's two clicks in one
 HDI_APPS     equ 3              ; ES:DI = an HDIB_* block: the apps phase, once

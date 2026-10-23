@@ -560,9 +560,9 @@
   "sources": [
    "apps/install"
   ],
-  "stamped": "2860afd2",
-  "strings": "870e2bb98c420ccf",
-  "why": "the first page chooses the source, the network install, the startup check: all described"
+  "stamped": "db7a1c22",
+  "strings": "47c8e14dee7b7b93",
+  "why": "network source no longer copies a floppy in B:, news for any release, the tick kept"
  },
  "INTRO_MID": {
   "sources": [],

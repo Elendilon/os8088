@@ -63,15 +63,17 @@ On a machine with its Ethernet driver loaded, the first page asks the os8088
 website which release it has, and says **looking...** while it does. The
 **Network** line then names that release and says whether it is newer than
 the one you are running, the same, or older. A newer release is picked for
-you, and up to four lines under it say what is new in it.
+you. While **Network** is picked, up to four lines under it say what is new
+in the website's release; picking **Floppy disks** takes them away.
 
 The line is greyed when there is nothing to install from: **no network
 card** when the Ethernet driver is not loaded, and **no answer** when the
 website could not be reached.
 
 Installing from the network copies the system and all the programs in one
-go, so Install does not ask for the apps disk. The rest of the pages are the
-same as for floppies. A web address you mounted on the Control Panel's Web
+go, so Install does not ask for the apps disk - and does not copy one that
+happens to be in a drive either. The rest of the pages are the same as for
+floppies. A web address you mounted on the Control Panel's Web
 Drive page ([[HTTPPAGE.DRV]]) is put back when Install is done with it.
 
 ## Copying
@@ -104,7 +106,9 @@ installed machine ask the website each time it starts. When there is a newer
 release, Install opens on its first page with the network picked. When there
 is not, a short message in the menu bar says **os8088 is up to date**, or
 why it could not ask, and nothing else happens. **Do not check for updates**
-is the default, and picking it when you install again turns the check off.
+is the default, unless the hard disk already checks at startup: installing
+again then keeps the check picked, and picking **Do not check for updates**
+turns it off.
 
 The check is a link called `OSCHECK.LNK` in the `AUTOSTRT` folder of the hard
 disk. Deleting it turns the check off too, and holding Shift while the

@@ -597,8 +597,9 @@ in_b_welcome:
     call in_cat
     call in_pad
     mov word [in_lines+6], in_lb2
-    cmp byte [in_net], NET_NEW      ; ...and what is new, when it is
-    jne .out
+    cmp byte [in_src], 0            ; ...and what is new, whatever release it
+    jne .out                        ; is, while the network is the pick: .why
+                                    ; moved the pick off a row with no answer
     mov si, in_news
     mov di, in_lines + 8
     mov cx, IN_NEWS
@@ -1112,6 +1113,10 @@ in_ret2:                            ; again: the release above is what it would
 ; in_go - [in_page] = AL: build it and draw it. SI = the window
 in_go:
     mov [in_page], al
+    cmp al, P_DONE                  ; the Done page's row is what the target
+    jne .b                          ; already says (SPEC.md 117.10.6)
+    call in_autoread
+.b:
     push si
     call in_build
     pop si
@@ -1178,9 +1183,14 @@ in_netck:
     mov bl, HFV_STATE
     call in_hf                      ; AL = its volume
     mov bl, al
+    mov [in_tdrv], al               ; (in_dive's volume)
     xor dx, dx
     call OSAPI_FILE_GOTO_QM         ; its root (and our instance with it)
     mov bl, NET_FAIL
+    jc .home
+    mov bp, in_s_sysd
+    call in_dive                    ; ...and SYSTEM\, where the release is
+    mov bl, NET_FAIL                ; published (SPEC.md 117.10.2)
     jc .home
     push es
     push ds
@@ -1237,9 +1247,13 @@ in_hf:
 in_netmount:
     cmp byte [in_hfmod], 0
     jne .mount                      ; banked already: ours is what is mounted
+    mov al, DRVC_HTTP
+    call OSAPI_DRV_CLASSK           ; up already: the tick would read CTRL.DRV
+    jnc .up                         ; off the system disk to find that out
     mov ax, (DRVU_UP << 8) | DRVC_HTTP
     call OSAPI_DRV_USE              ; the Drivers page's tick, for the session
     jc .out
+.up:
     mov di, in_ourl
     mov bl, HFV_URL
     call in_hf                      ; the user's own address...
@@ -1357,8 +1371,8 @@ in_vparse:
 
 ; -----------------------------------------------------------------------------
 ; in_netgo - the source page's Next with the network picked: IN_URL mounted
-; again and stood on, so HDI_GO copies from it (SPEC.md 117.10.5); CF = 1 it
-; would not mount, and the page says so
+; again and its volume kept, which HDI_GO then NAMES as the source (SPEC.md
+; 117.10.5); CF = 1 it would not mount, and the page says so
 ; -----------------------------------------------------------------------------
 in_netgo:
     push si
@@ -1366,9 +1380,7 @@ in_netgo:
     jc .out
     mov bl, HFV_STATE
     call in_hf
-    mov bl, al
-    xor dx, dx
-    call OSAPI_FILE_GOTO_QM         ; the engine's source: where we stand
+    mov [in_nvol], al
 .out:
     pop si
     ret
@@ -1638,7 +1650,14 @@ in_install:
     mov si, [in_win]
     mov dl, [in_dev]
     mov dh, [in_slot]
-    mov ch, [in_wipe]
+    xor ch, ch                      ; CH bits 7..1: the source + 1, 0 = the
+    cmp byte [in_netsrc], 0         ; engine's own (SPEC.md 117.10.5)...
+    je .src
+    mov ch, [in_nvol]
+    inc ch
+    shl ch, 1
+.src:
+    or ch, [in_wipe]                ; ...and bit 0 erase / keep
     mov cl, HDI_GO
     jmp short in_stage
 
@@ -1665,6 +1684,7 @@ in_stage:
     pop si
     xor al, al
 .ran:
+    mov byte [in_wait], 0           ; nothing of ours waits, until it does
     mov word [in_lhead], in_h_bdone
     mov bl, P_DONE
     mov di, in_s_ldone
@@ -1672,6 +1692,7 @@ in_stage:
     je .end
     cmp al, HDG_APPS
     jne .fail
+    mov byte [in_wait], 1           ; the run waits on its apps disk
     mov bl, P_APPS
     mov di, in_s_lapps
     cmp byte [in_netsrc], 0
@@ -1902,21 +1923,9 @@ in_restart:
 ; -----------------------------------------------------------------------------
 in_autolink:
     push si
-    mov di, in_slots
-    mov dl, [in_dev]
-    mov cl, HDI_SLOTS
-    call in_tool
-    jc .out
-    mov bx, [in_slot]
-    call in_srec
-    mov al, [si+HDIS_LET]
-    sub al, 'A'
-    jb .out                         ; no letter: nothing to stand on
-    mov [in_tdrv], al
-    mov bl, al
-    xor dx, dx
-    call OSAPI_FILE_GOTO_QM         ; its root
+    call in_tgtroot
     jc .back
+    mov bp, in_s_auto
     call in_dive                    ; \AUTOSTRT, if it is there...
     jnc .in
     cmp byte [in_chk], 0
@@ -1924,7 +1933,7 @@ in_autolink:
     mov si, in_s_auto
     call OSAPI_FILE_MKDIR
     jc .back
-    call in_dive
+    call in_dive                    ; (BP is the name still)
     jc .back
 .in:
     mov si, in_s_lnk
@@ -1943,11 +1952,68 @@ in_autolink:
     call OSAPI_FILE_DELETE
 .back:
     call in_gohome
-.out:
     pop si
     ret
 
-; in_dive - into \AUTOSTRT in the folder we stand in: CF = 1 it is not there
+; in_autoread - [in_chk] = 1 when the target's \AUTOSTRT\OSCHECK.LNK is
+; already ours, CHECK and all: a re-install keeps the user's answer. One
+; read of the 50-byte link into in_vbuf - FILE_READ refuses a buffer smaller
+; than the file - which the source page alone uses. Keeps AX and SI
+in_autoread:
+    push ax
+    push si
+    mov byte [in_chk], 0
+    call in_tgtroot
+    jc .home
+    mov bp, in_s_auto
+    call in_dive
+    jc .home
+    push es
+    push ds
+    pop es
+    mov bx, in_vbuf
+    mov cx, IN_VBUFSZ
+    xor dx, dx
+    mov si, in_s_lnk
+    call OSAPI_FILE_READ
+    jc .pe
+    mov si, in_vbuf
+    mov di, in_lnkrec
+    mov cx, IN_LNKCMP
+    repe cmpsb
+    jne .pe
+    mov byte [in_chk], 1
+.pe:
+    pop es
+.home:
+    call in_gohome
+    pop si
+    pop ax
+    ret
+
+; in_tgtroot - stand in the installed volume's root: the slot's letter as the
+; engine has it now (an erase may have made the partition this run mounted),
+; banked in [in_tdrv]. CF = 1 it has none. Spends SI
+in_tgtroot:
+    mov di, in_slots
+    mov dl, [in_dev]
+    mov cl, HDI_SLOTS
+    call in_tool
+    jc .r
+    mov bx, [in_slot]
+    call in_srec
+    mov al, [si+HDIS_LET]
+    sub al, 'A'
+    jb .r                           ; no letter: nothing to stand on
+    mov [in_tdrv], al
+    mov bl, al
+    xor dx, dx
+    call OSAPI_FILE_GOTO_QM         ; its root
+.r:
+    ret
+
+; in_dive - into the folder BP names, in the folder we stand in on [in_tdrv]:
+; CF = 1 it is not there
 in_dive:
     xor cx, cx
 .each:
@@ -1960,7 +2026,7 @@ in_dive:
     jc .out
     cmp word [in_find+14], OSAPI_FT_DIR
     jne .each
-    mov si, in_s_auto
+    mov si, bp
     mov di, in_find
 .cmp:
     mov al, [si]
@@ -1981,12 +2047,16 @@ in_dive:
 ; tool back (DRVU_DONE). Both keep every register
 ; -----------------------------------------------------------------------------
 in_quit:
-    push ax
-    push cx
+    cmp byte [in_wait], 0           ; NOTHING WAITS: no verb. HDI_QUIT is
+    je .out                         ; HDD.DRV's door, which reads HDDTOOL.DRV
+    mov byte [in_wait], 0           ; in before it forwards anything - 36
+    push ax                         ; sectors off A: to be told there was
+    push cx                         ; nothing to abandon
     mov cl, HDI_QUIT
     call in_tool                    ; CF = 1: no driver - nothing to abandon
     pop cx
     pop ax
+.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2089,6 +2159,10 @@ in_picked:
     push si
     call in_build
     pop si
+    cmp byte [in_page], P_WELCOME   ; the source page's news comes and goes
+    jne .m                          ; with the pick
+    call in_newsp
+.m:
     cmp byte [in_page], P_MODE      ; the mode page's two explanation lines
     jne .h                          ; change with the pick as well
     mov bx, si
@@ -2103,6 +2177,48 @@ in_picked:
     pop si
 .h:
     jmp in_hint
+
+; in_newsp - the source page's news lines (4..7) after a pick: drawn onto the
+; ground they left, or that ground put back. One write a pixel either way
+; (PERFORMANCE.md rule 2): a hidden band was blanked, a shown one is text over
+; nothing. SI = the window, the clip armed; keeps SI
+in_newsp:
+    push si
+    mov bx, si
+    call OSAPI_WM_CONTENT
+    mov cx, ax
+    add cx, IN_LX
+    add dx, IN_L0 + 4 * IN_LP
+    mov si, in_lines + 8
+    cmp word [si], 0
+    je .blank
+    mov di, IN_NEWS
+.l:
+    push si
+    mov si, [si]
+    or si, si
+    jz .n
+    call in_ink
+    call in_run
+.n:
+    pop si
+    inc si
+    inc si
+    add dx, IN_LP
+    dec di
+    jnz .l
+    pop si
+    ret
+.blank:
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov bx, dx
+    mov ax, cx
+    add cx, IN_CW - 2 * IN_LX - 1
+    add dx, IN_NEWS * IN_LP - 1
+    call OSAPI_GFX_FILL
+    pop si
+    ret
 
 ; -----------------------------------------------------------------------------
 ; in_onkey - W_ONKEY: Enter is the default button, Escape is Cancel, the
@@ -2156,13 +2272,18 @@ in_onkey:
     pop cx
     test [in_rad+OS88UI_RD_DIS], bx
     jnz .step
-    mov [in_rad+OS88UI_RD_SEL], ax
+    mov di, ax                      ; THE TWO DOTS, as a click redraws them
+    xchg di, [in_rad+OS88UI_RD_SEL] ; (SPEC.md 13.17.4): os88ui_rad repaints
+    push si                         ; rings and the new dot and never takes
+    push ax                         ; the old one off, so the group read as
+    push di                         ; two picks after an arrow key
     mov bx, si
-    push si
     call in_layout
     mov bx, in_rad
-    xor di, di
-    call os88ui_rad                 ; the group as it now stands
+    pop si
+    call os88ui_raddot              ; the row that lost it...
+    pop si
+    call os88ui_raddot              ; ...and the row that has it
     pop si
     jmp in_picked
 
@@ -2345,6 +2466,7 @@ in_s_tnonet:  db 'Update check: no network', 0
 in_s_tnoans:  db 'Update check: no answer', 0
 in_s_ver:     db 'OS88VER.TXT', 0
 in_s_auto:    db 'AUTOSTRT', 0
+in_s_sysd:    db 'SYSTEM', 0
 in_s_lnk:     db 'OSCHECK.LNK', 0
 in_s_url:     db IN_URL, 0
 in_rel:       db IN_REL
@@ -2354,6 +2476,7 @@ in_rel:       db IN_REL
 in_lnkrec:                          ; SPEC.md 26.10.1 and 26.10.7: 'LK', LNK_V,
     db 'LK', 1, 0xFF, 1             ; the link's own volume, a package...
     db 'INSTALL.O88', 0, 'CHECK', 0 ; ...in the root, with its parameter
+IN_LNKCMP equ $ - in_lnkrec        ; what in_autoread compares
     times 50 - ($ - in_lnkrec) db 0
 
 in_s_loff:    db 'Do not switch the machine off.', 0
@@ -2517,7 +2640,9 @@ in_hfmod    equ in_netsrc + 1                   ; 1 = the HTTP drive is ours
 in_ovol     equ in_hfmod + 1                    ; its volume as we found it
 in_chk      equ in_ovol + 1                     ; the Done page's row
 in_tdrv     equ in_chk + 1                      ; the installed volume
-in_home     equ in_tdrv + 1                     ; where we started: dw, db
+in_wait     equ in_tdrv + 1                     ; 1 = a run waits on its apps
+in_nvol     equ in_wait + 1                     ; the network volume
+in_home     equ in_nvol + 1                     ; where we started: dw, db
 in_news     equ in_home + 3                     ; IN_NEWS line pointers
 in_find     equ in_news + 2 * IN_NEWS           ; OSAPI_FIND_SZ
 in_ourl     equ in_find + OSAPI_FIND_SZ         ; HF_URLMAX: the user's address

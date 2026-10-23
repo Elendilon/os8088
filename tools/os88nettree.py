@@ -5,7 +5,11 @@
 
 One tree out of two disks: the system disk's files and the apps disk's files,
 the apps disk's folders merged into the system disk's, with OS88VER.TXT in
-the root and the OS88.IDX tools/os88httpdrv.py writes for any published tree.
+SYSTEM/ - where an install copies it, so an installed machine keeps the record
+of its release - and the OS88.IDX tools/os88httpdrv.py writes for any
+published tree. EDIT NOTHING IN OUT BY HAND: OS88.IDX carries every file's
+size and the drive believes it, so a file edited in place is served cut to its
+old length. Rebuild instead, or run `os88httpdrv.py export OUT OUT`.
 A file both disks carry is the SYSTEM disk's, and said; ASSOC.DAT is left out,
 because an install builds the destination volume's own (SPEC.md 52.10.14) and
 neither disk's cache describes the merged tree.
@@ -41,6 +45,10 @@ def check_version(text):
     if not re.fullmatch(rb"\d{8}", lines[0].strip()):
         raise ValueError("%s: line 1 must be the release as YYYYMMDD, not %r"
                          % (VER_NAME, lines[0][:20]))
+    news = [l for l in lines[1:] if l.strip()]
+    if len(news) > 4:
+        H.warn("%s has %d lines of news; INSTALL shows the first 4"
+               % (VER_NAME, len(news)))
     for i, l in enumerate(lines[1:5], 2):
         if len(l) > 40:
             H.warn("%s line %d is %d characters; INSTALL shows 40"
@@ -62,7 +70,7 @@ def build(sysimg, appsimg, verfile, out):
     attrs.update(sattr)
     ver = open(verfile, "rb").read()
     rel = check_version(ver)
-    tree[VER_NAME] = ver
+    tree.setdefault("SYSTEM", {})[VER_NAME] = ver
     if os.path.isdir(out):
         shutil.rmtree(out)
     os.makedirs(out)

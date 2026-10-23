@@ -15,10 +15,13 @@ machine as A:\\INSTALL.O88.
      picks the network row; the drive is then put back as the user had it -
      HTTPDRV.CFG names http://10.0.2.2:8095/fix/, which is mounted again.
   B. The install. Enter through every page onto the IDE disk's FAT16 volume
-     (kept); the run copies the tree from the HTTP drive and skips the apps
-     disk by itself, so C: holds NETMARK.TXT (only the served tree has it)
-     and the apps disk's folders. On the Done page, Down picks *Check for
-     updates at startup*, and Restart writes C:\\AUTOSTRT\\OSCHECK.LNK naming
+     (kept); HDI_GO NAMES the HTTP drive as the source, so the run copies the
+     tree from it and does not go looking for an apps disk - and there IS one
+     in B:, carrying BMARK.TXT, which must not arrive (the engine used to find
+     it and copy the apps phase off the floppy). C: holds NETMARK.TXT (only
+     the served tree has it), the apps disk's folders, and
+     SYSTEM\\OS88VER.TXT. On the Done page, Down picks *Check for updates
+     at startup*, and Restart writes C:\\AUTOSTRT\\OSCHECK.LNK naming
      INSTALL.O88 with the parameter CHECK (26.10.7).
   C. Started at boot with CHECK and a release that is NOT newer: no window,
      one toast. The same link without the parameter is the A/B, and opens
@@ -26,7 +29,8 @@ machine as A:\\INSTALL.O88.
 
 BREAK IT ON PURPOSE: serve an OS88VER.TXT whose release is INSTALL's own
 (`--same`) and leg A finds the network row not the default, so B never
-starts from the network and fails on NETMARK.TXT.
+starts from the network and fails on NETMARK.TXT - and with the apps disk in
+B: it fails on BMARK.TXT as well.
 """
 import os
 import shutil
@@ -131,9 +135,13 @@ def machine(tmp, hd, gate, link=None):
                        capture_output=True)         # (it may be there)
         subprocess.run(["mcopy", "-i", sysimg, lnk, "::AUTOSTRT/OSCHECK.LNK"],
                        check=True, capture_output=True)
-    bimg = os.path.join(tmp, "b.img")
-    subprocess.run([sys.executable, "tools/os88disk.py", "-o", bimg, "--size",
-                    "1440"], check=True, capture_output=True)
+    bimg = os.path.join(tmp, "b.img")          # an APPS disk, marked
+    shutil.copy(os88build.at("build/apps.img"), bimg)
+    bm = os.path.join(tmp, "BMARK.TXT")
+    open(bm, "wb").write(b"from the floppy in B:\r\n")
+    HI.put(bimg, bm, "BMARK.TXT")
+    subprocess.run(["mcopy", "-i", bimg, bm, "::APPS/BMARK.TXT"],
+                   check=True, capture_output=True)
     q = HI.Q(tmp, sysimg, bimg, hd)
     os88qemu.acted(q, lambda: os.path.exists(q.sock), secs=30, what="QMP")
     xmcheck.wait_desktop(q.sock, "netinst")
@@ -247,6 +255,15 @@ def main():
         if "NETMARK.TXT" not in root:
             bad.append("B. NETMARK.TXT is not on C: - the install did not come "
                        "from the network")
+        if "BMARK.TXT" in root or ("APPS" in root and "BMARK.TXT" in
+                                   fat16_dir(hd, part, ["APPS"])):
+            bad.append("B. BMARK.TXT is on C: - the apps came off the floppy "
+                       "in B:, not the network (SPEC.md 117.10.5)")
+        if "SYSTEM" not in root or "OS88VER.TXT" not in fat16_dir(
+                hd, part, ["SYSTEM"]):
+            bad.append("B. SYSTEM\\OS88VER.TXT is not on C:")
+        if "OS88VER.TXT" in root:
+            bad.append("B. OS88VER.TXT is in C:'s root, not SYSTEM\\")
         for d in ("APPS", "GAMES"):
             if d not in root:
                 bad.append("B. %s\\ is not on C: - the apps did not come with "

@@ -138,6 +138,37 @@ volume, and its apps phase is skipped because there is nothing left to copy.
       `httpinstall`, `install`, `autostart`, `netinst`, the link gate; then
       `test-full` once.
 
+### Wave 8 - what the first field run found (SPEC.md 117.10.5, 117.10.6)
+
+Booted from A:, network picked, installing to C:, with the apps disk in B:.
+
+- [x] **The apps came off the floppy.** INSTALL stood on the HTTP drive and
+      let the bank find it; the engine then looked for an apps disk in a
+      drive, found B:'s and copied the apps phase from it. `HDI_GO` now
+      NAMES its source in `CH` bits 7..1, and a named source skips the probe.
+      `netinst` carries an apps disk with a marker in B: and fails if the
+      marker arrives (and fails with the fix taken out).
+- [x] **`OS88VER.TXT` landed in the root.** It is published as
+      `SYSTEM\OS88VER.TXT`, so the copy is the installed machine's record of
+      its release.
+- [x] **The news was cut short** - a stale `OS88.IDX` after an edit on the
+      server, not INSTALL. The release skill and `os88nettree.py` now say so,
+      and the skill recommends four one-line points or three with one over
+      two lines.
+- [x] **The news shows for any release** while the network row is the pick,
+      and goes with the floppy row; the floppy help line replaces it.
+- [x] **The tick is kept**: a target that already has INSTALL's link opens
+      the Done page on *Check for updates at startup* (`install` asserts it).
+- [x] **Cancel on the first page read `HDDTOOL.DRV`** (31 sectors, measured
+      with a `DISKCNT` kernel) to send `HDI_QUIT`. It is sent only to a run
+      that waits now. Close after a finished install moved no sector in the
+      same measurement; the field's slow close did not reproduce.
+- [x] **The HTTP tick read `CTRL.DRV`** even with the drive already up; the
+      class is asked first.
+- [x] **Arrow keys left two picks on every radio page** - `os88ui_rad`
+      draws the new dot and never removes the old one. The keyboard path
+      draws the two dots a click draws.
+
 ## 3. Cost, estimated before the build
 
 | where | bytes | note |

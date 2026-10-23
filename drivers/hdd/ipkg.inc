@@ -201,7 +201,8 @@ hd_pv_dev:
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_pv_go - HDI_GO: DL = device, DH = slot, CH = 1 erase / 0 keep;
+; hd_pv_go - HDI_GO: DL = device, DH = slot, CH = bit 0 erase / keep, bits
+;            7..1 = the SOURCE volume + 1 or 0 for the engine's own choice;
 ;            ES:DI = an HDIB_* block: the caption out, the log proc in
 ; out AL = an HDG_* - the stage hd_inst_step left - and the caption at ES:DI
 ; -----------------------------------------------------------------------------
@@ -218,6 +219,10 @@ hd_pv_go:
     mov [hd_ilfiles], ax
     mov [hd_ilkb], ax
     mov cl, ch                  ; CL = the erase choice
+    and cl, 1
+    shr ch, 1                   ; ...CH = the source + 1: NAMED, so the
+    dec ch                      ; engine neither guesses it nor looks for an
+    mov [hd_isrcx], ch          ; apps disk (SPEC.md 117.10.5); 0FFh = as ever
     call hd_pv_win
     jnc hd_pv_busy              ; the Install window owns the state
     mov word [hd_imsg], hd_s_ibad
@@ -233,9 +238,6 @@ hd_pv_go:
     mov [hd_isel], dh           ; so it is put back after it
     mov bl, dh
     xor bh, bh
-    neg cl                      ; non-zero -> CF...
-    sbb cl, cl
-    neg cl                      ; ...CL = 0 keep / 1 erase
     cmp byte [bx+hd_ivol], 0
     jne .wipe
     mov cl, 1                   ; nothing to keep: the Erase box is SET AND

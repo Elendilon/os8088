@@ -50,6 +50,7 @@ import os88marty as M                                       # noqa: E402
 import os88ui                                               # noqa: E402
 import os88geom as geom                                     # noqa: E402
 import instdeep as ID                                       # noqa: E402
+import os88lnk                                              # noqa: E402
 import hdboot as HB                                         # noqa: E402
 import instkeep as IK                                       # noqa: E402
 import os88build                                            # noqa: E402
@@ -269,7 +270,9 @@ def launch_wizard(ui, path):
 
 
 def plant(vhd):
-    """USER.TXT into the root of the active partition, through mtools."""
+    """USER.TXT into the root of the active partition, through mtools - and
+    the update check's startup link, which the upgrade's Done page must
+    find and keep ticked (SPEC.md 117.10.6)."""
     blob = bytearray(open(vhd, "rb").read())
     for i in range(4):
         e = blob[446 + i * 16:462 + i * 16]
@@ -284,6 +287,12 @@ def plant(vhd):
         open(img, "wb").write(part)
         open(os.path.join(td, "USER.TXT"), "wb").write(USER_TXT)
         IK.mtools("mcopy", "-i", img, os.path.join(td, "USER.TXT"), "::/")
+        lnk = os.path.join(td, "OSCHECK.LNK")
+        open(lnk, "wb").write(os88lnk.make("INSTALL.O88", arg="CHECK"))
+        subprocess.run(["mmd", "-i", img, "::/AUTOSTRT"],     # (the system
+                       capture_output=True,                  # disk has one)
+                       env=dict(os.environ, MTOOLS_SKIP_CHECK="1"))
+        IK.mtools("mcopy", "-i", img, lnk, "::/AUTOSTRT/")
         part = open(img, "rb").read()
     blob[lba * SECTOR:(lba + secs) * SECTOR] = part
     blob[400] = 0xA5                   # the MBR's unused tail: a marker the
@@ -424,6 +433,11 @@ def main():
         if not wz.byte("in_skip"):
             sys.exit("install: FAIL - Done after Skip does not say the apps "
                      "disk was left off")
+        if wz.byte("in_chk") != 1:
+            sys.exit("install: FAIL - C: has \\AUTOSTRT\\OSCHECK.LNK and the "
+                     "Done page does not start on *Check for updates at "
+                     "startup* (SPEC.md 117.10.6)")
+        print("  KEPT       the startup check's tick, off C:\\AUTOSTRT")
     blob = open(vhd, "rb").read(SECTOR)
     v = ID.partition(vhd)
     bad = []

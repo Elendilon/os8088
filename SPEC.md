@@ -203819,7 +203819,7 @@ preserves every register but AX.
 |---|---|---|---|
 | 0 | `HDI_DEVS` | ES:DI = `HD_MAXDEV` (4) × `HDIV_SIZE` | AL = devices; one `HDIV_*` record each |
 | 1 | `HDI_SLOTS` | DL = a device; ES:DI = 4 × `HDIS_SIZE` | AL = the slot the Install window would select (0..3), `0FFh` none would do, `0FEh` no such device or its geometry is unknown, `0FDh` the Install window is open; one `HDIS_*` record a slot |
-| 2 | `HDI_GO` | DL = device, DH = slot, CH = 1 erase / 0 keep; ES:DI = an `HDIB_*` block (`HDIB_SIZE`, 91 bytes) | AL = an `HDG_*` stage, and the engine's caption at `HDIB_CAP` |
+| 2 | `HDI_GO` | DL = device, DH = slot, CH = bit 0 erase / keep, bits 7..1 the SOURCE volume + 1 or 0 for the engine's own (117.10.5); ES:DI = an `HDIB_*` block (`HDIB_SIZE`, 91 bytes) | AL = an `HDG_*` stage, and the engine's caption at `HDIB_CAP` |
 | 3 | `HDI_APPS` | ES:DI = an `HDIB_*` block | as `HDI_GO` |
 | 4 | `HDI_QUIT` | — | abandons a run waiting on its apps disk; AL = 0 |
 
@@ -204000,10 +204000,9 @@ back when they are done.
 
 `docs/plans/completed/NET-UPDATE-PLAN.md` is the story list. **The network install is
 the ordinary install with another source volume**: `HTTPFS.DRV` (120) mounts
-a published tree, INSTALL stands on its root, and `HDI_GO` copies from there,
-because the engine's source is the volume the bank left the machine on when
-it carries `KERNEL.SYS` (`hd_isrc_ck`, 52.10.5.1). Nothing in the engine, the
-driver or the kernel learns about it.
+a published tree and `HDI_GO` NAMES that volume as its source (117.10.5).
+The engine learns one thing - that a named source carried the apps with it -
+and the driver and the kernel learn nothing.
 
 #### 117.10.1 The release number
 
@@ -204023,8 +204022,15 @@ build.
 #### 117.10.2 The published tree, and `OS88VER.TXT`
 
 `make nettree` writes `build/nettree/`: the 1.44MB system disk's files and
-the 1.44MB apps disk's files as one tree, `OS88VER.TXT` in its root, and the
-`OS88.IDX` `tools/os88httpdrv.py export` writes for it. **`ASSOC.DAT` is left
+the 1.44MB apps disk's files as one tree, `SYSTEM\OS88VER.TXT`, and the
+`OS88.IDX` `tools/os88httpdrv.py export` writes for it. The version file is
+in `SYSTEM\` because an install copies the tree whole: there it lands beside
+the rest of the system on the installed volume, as that machine's record of
+the release it got, where the root would have been a stray file. **The index
+carries every file's size and the drive believes it**, so a file edited in
+the published folder is served cut to its old length: edit
+`apps/install/OS88VER.TXT` and build the tree again, or re-index the folder in
+place with `os88httpdrv.py export DIR DIR`. **`ASSOC.DAT` is left
 out**: an install builds the destination's own (52.10.14). The release skill
 publishes the tree at **`http://os8088.com/net/`**, which is INSTALL's
 `IN_URL`.
@@ -204032,7 +204038,9 @@ publishes the tree at **`http://os8088.com/net/`**, which is INSTALL's
 `OS88VER.TXT` is text: line 1 the release, `YYYYMMDD`, and up to four more
 lines of what is new, each shown to 40 characters. CR, LF or both end a line;
 anything after the fifth is ignored; a first line that is not eight digits
-makes the release unknown, which is never newer.
+makes the release unknown, which is never newer. The release skill writes the
+four lines as four one-line points or three points with one of them over two
+lines, its second line indented two spaces.
 
 #### 117.10.3 The check
 
@@ -204041,11 +204049,13 @@ INSTALL asks the network **only if a `DRVC_NET` driver is loaded**
 and a machine without a card would pay it for nothing. Then:
 
 1. `OSAPI_DRV_USE` `DRVU_UP` `DRVC_HTTP` - the Drivers page's tick, for the
-   session only (117.3);
+   session only (117.3) - and only when `OSAPI_DRV_CLASSK` says the class is
+   not up already, because the tick reads `CTRL.DRV` off the system disk to
+   find that out;
 2. `HFV_URL` and `HFV_STATE` bank the drive's address and whether it was
    mounted;
-3. `HFV_MOUNT` with `IN_URL`, `HFV_FETCH`, and `OS88VER.TXT` read off the
-   volume's root (256 bytes at most);
+3. `HFV_MOUNT` with `IN_URL`, `HFV_FETCH`, and `SYSTEM\OS88VER.TXT` read off
+   the volume (319 bytes at most);
 4. the drive is put back: `HFV_MOUNT` with the banked address, or
    `HFV_UNMOUNT` if none was mounted. **`HTTPDRV.CFG` is never written** - only
    the Control Panel's page saves it (120.5) - so the setting a user made
@@ -204064,32 +204074,52 @@ replaced by one page:
 | heading | *Install os8088 on a hard disk* / *Upgrade os8088 on this hard disk* |
 | 2 radio rows | *Network: release 20261101, newer* (*, the same*, *, older*; or why not, greyed) and *Floppy disks* |
 | help | what the chosen row does: *Downloads the system and all the apps.* / *Uses the system disk, then the apps disk.*; *Looking for a newer os8088...* while it asks |
-| up to 4 lines | the newer release's lines of what is new |
+| up to 4 lines | the published release's lines of what is new, while the network row is the pick |
 
 The network row is **greyed with the reason** (47 rule 5) only when there is
 nothing to install from: *no network card*, *no answer* (no HTTP drive, no
 reply, or an `OS88VER.TXT` with no release in it), and *looking...* while
 it asks. A server whose release is the same or older is still a source - a
 machine can be reinstalled from it without floppies - but only a NEWER one
-is the default selection and only a newer one shows what is new. On CGA's 344 x 136 content the page is the
+is the default selection. What is new shows **whenever the network row is
+the pick**, whatever release it is, and goes when the floppy row is: a pick
+paints that band alone (`in_newsp`), the lines onto the ground they left or
+the ground back over them, one write a pixel either way. The floppy row's
+help line is what replaces it. On CGA's 344 x 136 content the page is the
 heading, two radio rows (24px), the help line and four lines at the body
 pitch, above the buttons.
 
 #### 117.10.5 The install from the network
 
 `Next` from the source page with the network row picked mounts `IN_URL` again
-and stands on its root (`OSAPI_FILE_GOTO_QM`, which moves the instance too,
-19.2.1); the drive, partition and keep-or-erase pages are unchanged; Confirm
-says *and copy os8088 from the network onto it*; `HDI_GO` copies the whole
-tree in its system phase (52.10.13). When the verb answers `HDG_APPS`,
-INSTALL sends `HDI_QUIT` itself - the tree carried the apps - and goes to
-Done; the engine's `ASSOC.DAT` pass runs on a declined apps phase too
-(52.10.14). The drive is put back as in 117.10.3 when the window closes.
+and keeps its volume; the drive, partition and keep-or-erase pages are
+unchanged; Confirm says *and copy os8088 from the network onto it*; `HDI_GO`
+**names that volume as the source** - `CH` bits 7..1 are the volume + 1, bit
+0 erase or keep, so 0 or 1 there is every earlier caller's *the engine's own
+choice* - and copies the whole tree in its system phase (52.10.13).
+
+It used to stand on the volume instead and let the bank find it, and that was
+half a source: **a named source is also the engine's word that the apps came
+with it**. Standing there, the system phase came off the network and then the
+engine did what it does on a floppy machine - looked for an apps disk already
+in a drive (52.10.5) and, finding one in B:, carried straight on and copied
+the apps phase off the floppy without INSTALL ever being asked. Named, the
+engine skips that probe, answers `HDG_APPS` with no line asking for a disk,
+and INSTALL sends `HDI_QUIT` - the engine's `ASSOC.DAT` pass runs on a
+declined apps phase too (52.10.14) - and goes to Done. The drive is put back
+as in 117.10.3 when the window closes. `HDI_QUIT` is sent **only to a run
+that is waiting** (`[in_wait]`, set by an `HDG_APPS` answer): it is
+`HDD.DRV`'s door, which reads `HDDTOOL.DRV` in before it forwards a verb, so
+a Cancel on the first page used to read 31 sectors off the system disk to say
+there was nothing to abandon.
 
 #### 117.10.6 Checking at startup
 
 The Done page has two radio rows, *Check for updates at startup* and *Do not
-check*, the second the default. `Restart` with the first picked writes
+check*. The first is the pick when the installed volume already has
+INSTALL's own link, `CHECK` and all - read as the Done page opens, so a
+re-install keeps the user's answer - and the second otherwise. `Restart` with
+the first picked writes
 `\AUTOSTRT\OSCHECK.LNK` on the **installed** volume - `LNK_SELF`, kind 1,
 `INSTALL.O88`, parameter **`CHECK`** (26.10.7) - and with the second deletes
 it, so a user can turn it off by installing again or by deleting the link.
@@ -204118,8 +204148,20 @@ Measured at one commit against the commit before the work (`kernsize`, kern_big)
 | `INSTALL.O88` on the disk | 6,179 -> **7,031** | 13 -> 14 clusters of 512 |
 | `HTTPFS.DRV`, `ETHER.DRV`, `HDDTOOL.DRV` | 0 | reached through their published verbs |
 
-`tests/netinst.py` (soak, QEMU) is the gate: the check, the install, the link
-and the boot check with and without its parameter.
+The second round - the named source, `SYSTEM\OS88VER.TXT`, the news on any
+release, the kept tick, `HDI_QUIT` only to a waiting run, the HTTP tick only
+when the class is down, and the arrow keys' radio redraw:
+
+| | bytes | |
+|---|---:|---|
+| `INSTALL.O88` image | 8,891 -> **9,126** | `in_newsp` ~55, `in_autoread` and the target root it shares with `in_autolink` ~60, the rest a few bytes each |
+| `INSTALL.O88` on the disk | 7,031 -> **7,230** | one cluster more at every geometry |
+| `HDDTOOL.DRV` image / file | 18,322 -> **18,327** / 14,079 -> 14,100 | the named source; `hd_pv_go`'s erase normaliser went, the bit now being a bit. No cluster crossed |
+
+`tests/netinst.py` (soak, QEMU) is the gate: the check, the install - with an
+apps disk in B: that must NOT be copied - the link and the boot check with
+and without its parameter. `tests/install.py` (soak, MartyPC) plants
+`OSCHECK.LNK` on the volume it upgrades and asserts the Done page keeps it.
 
 ## 118. SYSCHECK — System Check, the installed system's health (`apps/syscheck/`)
 
