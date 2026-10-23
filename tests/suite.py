@@ -14611,7 +14611,7 @@ SOAK = [
         needs=("qemu", "mtools"), serial=True, timeout=600,
         wants=("build/os8088.img", "build/apps.img", "build/syscheck.o88",
                "build/mbr.bin", "build/boothd.bin")),
-    Row("atkey", "soak", py("tests/atkey.py"), 100.0,
+    Row("atkey", "soak", py("tests/atkey.py"), 70.0,
         "WHAT ONE ARTFULTYPE KEYSTROKE COSTS on a 4.77MHz 8088, in guest "
         "cycles off at_onkey's entry to its return. Nothing in this tree had "
         "ever measured this app - SPEC.md 46.1 states a contract and every "

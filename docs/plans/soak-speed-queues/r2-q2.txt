@@ -118,7 +118,7 @@ arkp	arkpuwipesmall	35	tests/arkpuwipe.py
 cmem	cmemmove	110	tests/cmemmove.py
 vidw	vidwin	56	tests/vidwin.py
 vidw	vidwinshd	54	tests/vidwin.py
-atke	atkey	100	tests/atkey.py
+DONE atke	atkey	100	tests/atkey.py
 wmar	wmartifact	92	tests/wmartifact.py
 ems	ems	45	tests/ems.py
 ems	emspico	45	tests/ems.py
