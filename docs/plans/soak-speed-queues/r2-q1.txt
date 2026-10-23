@@ -59,11 +59,11 @@ DONE vidl	vidlogo	30	tests/vidlogo.py
 DONE vidl	vidlogocga	30	tests/vidlogo.py
 DONE vidl	vidlyplaydisk	25	tests/vidlyplay.py
 DONE vidl	vidlyplaynoroom	25	tests/vidlyplay.py
-pixe	pixelstein-vga	160	tests/pixelstein.py
-pixe	pixelstein-c160	155	tests/pixelstein.py
-pixe	pixelstein	135	tests/pixelstein.py
-pixe	pixelstein-herc	135	tests/pixelstein.py
-pixe	pixelstein-win	135	tests/pixelstein.py
+DONE pixe	pixelstein-vga	160	tests/pixelstein.py
+DONE pixe	pixelstein-c160	155	tests/pixelstein.py
+DONE pixe	pixelstein	135	tests/pixelstein.py
+DONE pixe	pixelstein-herc	135	tests/pixelstein.py
+DONE pixe	pixelstein-win	135	tests/pixelstein.py
 stik	stiknote	150	tests/stiknote.py
 stik	stiknotevga	80	tests/stiknote.py
 stik	stikswap	50	tests/stikswap.py
@@ -131,7 +131,7 @@ vide	videmshyb	45	tests/videms.py
 vide	videmsslow	45	tests/videms.py
 vide	videmswrap	45	tests/videms.py
 knob	knobhd	180	tests/knobhd.py
-pxsf	pxsfsx	165	tests/pxsfsx.py
+DONE pxsf	pxsfsx	165	tests/pxsfsx.py
 gfxl	gfxlk	150	tests/gfxlk.py
 frpr	frpromise	150	tests/frpromise.py
 zoom	zoomsave	150	tests/zoomsave.py
@@ -163,8 +163,8 @@ imgm	imgmount	75	tests/imgmount.py
 fcpr	fcproom	70	tests/fcproom.py
 vidx	vidxdisp	70	tests/vidxdisp.py
 trkt	trktxsurf	70	tests/trktxsurf.py
-pxs	pxs160	45	tests/pxs160.py
-pxs	pxs256	20	tests/pxs256.py
+DONE pxs	pxs160	45	tests/pxs160.py
+DONE pxs	pxs256	20	tests/pxs256.py
 vidh	vidhdmake	65	tests/vidhdmake.py
 int	int0sweep	60	tests/int0sweep.py
 spla	splashbar	40	tests/splashbar.py

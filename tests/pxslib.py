@@ -153,14 +153,14 @@ def find(m, S=None, guest=0.0, title=TITLE):
     if isinstance(m, os88marty.Marty):
         try:
             os88marty.until(m, lambda mm: _window(mm, S, title) is not None,
-                            what, poll=0.3, guest=guest)
+                            what, poll=0.05, guest=guest)
         except os88marty.MartyError as e:
             print("   pxslib: %s" % str(e).split("\n")[0])  # budget or a stop,
             return None                                     # and it says which
     else:
         import os88qemu                                     # noqa: E402
         os88qemu.acted(m, lambda: _window(m, S, title) is not None,
-                       secs=guest, what=what, poll=0.3)
+                       secs=guest, what=what, poll=0.05)
     return _window(m, S, title)
 
 
@@ -532,14 +532,14 @@ class Game:
             f0 = self.f0 if self.f0 is not None else self.word("px_frames")
         self.f0 = None
         os88marty.until(self.m, lambda mm: (self.word("px_frames") - f0) & 0xFFFF >= n,
-                        "%d frame(s)" % n, poll=0.2, limit=limit, guest=guest)
+                        "%d frame(s)" % n, poll=0.05, limit=limit, guest=guest)
         return self.word("px_frames")
 
     def enter_fsx(self, limit=60.0):
         self.m.type_text("f")
         os88marty.until(self.m, lambda mm: self.byte("px_inbr") == 1 and
                         self.byte("px_back") not in WINDOWED, "the bracket",
-                        poll=0.3, limit=limit)
+                        poll=0.05, limit=limit)
 
     def leave_fsx(self, limit=60.0):
         """Esc, then PAST the exit path: px_inbr clears at the top of it, and
@@ -553,7 +553,7 @@ class Game:
         n = self.word("px_brn")
         self.m.key("Escape")
         os88marty.until(self.m, lambda mm: self.word("px_brn") != n,
-                        "the desktop", poll=0.3, limit=limit)
+                        "the desktop", poll=0.05, limit=limit)
 
     # --- reading the frame back ---------------------------------------------
     def columns(self):
@@ -927,7 +927,7 @@ def open_game(m, apps_root=True, S=None, play=True):
                                folder=None if apps_root else "GAMES")
     g = Game(m, win, seg)
     os88marty.until(m, lambda mm: g.word("px_frames") >= 1, "the first frame",
-                    poll=0.3, limit=120.0)
+                    poll=0.05, limit=120.0)
     ui.mo.to(4, 4)                          # the pointer parked off the window
     if play:
         g.start()

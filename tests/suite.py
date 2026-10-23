@@ -12063,7 +12063,7 @@ SOAK = [
         "instruction in "
         "code the frame calls 64 times",
         needs=("marty", "nasm"), serial=True),
-    Row("pxs160", "soak", py("tests/pxs160.py"), 45.0,
+    Row("pxs160", "soak", py("tests/pxs160.py"), 30.0,
         "SPEC.md 97.5, 97.10: the delta-fill GHOST gate on the glass - a "
         "textured scene composed whole, turned three times incrementally, "
         "then the framebuffer at B800 (the C160 expanding present, the CGA "
