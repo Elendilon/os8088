@@ -53,7 +53,10 @@ weavesim, WEAVE-SPEC 11.1), the module IS LOOM.WPV's code; and the Preview
 pane - a far call through the moved vector over the moved output claim -
 redraws the same picture. Then 6: View > Edit gives Preview's claims back, a
 typed character lands in the moved source claim, ^S saves it (pinned across
-the write, lm_save) and the claim is movable again after.
+the write, lm_save) and the claim is movable again after. And 7: a Pack
+from the Preview pane gives Preview's two claims back first - it reused the
+same two words and leaked 112KB until LOOM closed. Red with lm_pack's
+lm_prev_off() taken out: 7 fails naming the two leaked claims.
 
 RED RUNS (each verified by hand, see the suite row): WEAVE's os88_onmove
 emptied fails 3 (stale words); LOOM's os88_onmove emptied fails 3.
@@ -503,6 +506,39 @@ def loom(r):
             "write's pin", "MC_RLOC %04x" % (c[3] if c else 0xFFFF))
     r.check(m.read(st["_lm_srcseg"] * 16, len(wml) + 1) == b"q" + wml,
             "6 LOOM: the claim holds what was saved")
+
+    # --- 7: Pack WHILE Preview is up gives Preview's claims back ------------
+    # lm_pack_claim() reuses lm_outseg/lm_workseg, so a Pack from the Preview
+    # pane overwrote both words and leaked 112KB until LOOM closed (found by
+    # this work, fixed in lm_pack). LOOM's claims after the Pack must be what
+    # they were in the editor before the Preview.
+    # The "q" is a pack error, and a Preview that fails to pack does not go
+    # up: take it back out and save, so the project packs again
+    m.key("Backspace")
+    os88marty.until(m, lambda _: m.read(src * 16, 1) != b"q",
+                    "the typed character deleted", poll=0.3, guest=30)
+    m.ctrl("KeyS")
+    os88marty.until(m, lambda _: m.read(state(win)["reg"] * 16 + smod, 1)
+                    == b"\0", "^S to save slot 0 again", poll=0.5, guest=120)
+    os88marty.ui_done(m)
+
+    def owned():
+        reg = state(win)["reg"]
+        return sorted((c[0], c[1]) for c in claims(m, S) if c[2] == reg)
+    base = owned()
+    ui.menu_pick("View", "Preview")
+    os88marty.until(m, lambda _: state(win)["state"] == 2,
+                    "LOOM's Preview again", poll=0.5, guest=240)
+    m.ctrl("KeyP")
+    os88marty.until(m, lambda _: (lambda st: st["_lm_outseg"] == 0 and st["_lm_workseg"] == 0
+                    and w(st["reg"], "_lm_packran") == 1)(state(win)),
+                    "^P to pack from the Preview pane", poll=0.5, guest=240)
+    os88marty.quiesce(m, owned, guest=1.0, what="LOOM's claims")
+    st = state(win)
+    after = owned()
+    r.check(after == base and st["state"] == 1,
+            "7 LOOM: a Pack from Preview leaks neither of its claims",
+            "before %s, after %s" % (base, after))
 
 
 def main():

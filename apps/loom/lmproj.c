@@ -821,6 +821,12 @@ static void lm_pack(void)
 
     if (lm_state == LM_ST_EMPTY)
         return;
+    if (lm_state == LM_ST_PREVIEW)      /* the pane's two claims go back
+                                         * FIRST: lm_pack_claim() reuses the
+                                         * same two words, and overwriting
+                                         * them leaked 112KB until LOOM
+                                         * closed (NO-PINNING C5) */
+        lm_prev_off();
     lm_packran = 1;
     lm_packok = 0;
     lm_packlen = 0;

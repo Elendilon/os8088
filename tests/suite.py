@@ -5619,7 +5619,7 @@ SOAK = [
         "this row. Needs `cc`",
         needs=("marty", "cc"), serial=True,
         wants=("build/weavemove360.img",)),
-    Row("loommove", "soak", py("tests/weavemove.py", "--pkg", "loom"), 45.0,
+    Row("loommove", "soak", py("tests/weavemove.py", "--pkg", "loom"), 55.0,
         "WEAVE-SPEC 1.2.6 (NO-PINNING C3, Loom): LOOM's source claim, "
         "Preview's two pack claims and the preview module (part 0) MOVE: "
         "c64move's layout with LOOM opening PONG.WML and View > Preview up. "
@@ -5629,8 +5629,10 @@ SOAK = [
         "Preview pane - a far call through the moved vector over the moved "
         "output claim - redraws the same; then View > Edit gives Preview's "
         "claims back, a typed character lands in the moved source claim and "
-        "^S saves it, the claim movable again after the write's pin. 45s for "
-        "a measured 28-36s. VERIFIED RED: os88_onmove emptied fails 1 "
+        "^S saves it, the claim movable again after the write's pin; then a "
+        "Pack from the Preview pane leaks neither of Preview's claims (it "
+        "reused their words and leaked 112KB; red with lm_pack's "
+        "lm_prev_off() taken out). 55s for a measured 38s. VERIFIED RED: os88_onmove emptied fails 1 "
         "(heapfrag's own pass moved the claims, the words did not follow) "
         "and the machine stops answering. Needs `cc`",
         needs=("marty", "cc"), serial=True,
