@@ -2020,7 +2020,7 @@ FULL = [
         "[vid_avail], which reads identically until somebody switches a VGA "
         "machine to mono",
         needs=("marty",), serial=True),
-    Row("weavesmoke", "soak", py("tests/weavesmoke.py"), 70.0,
+    Row("weavesmoke", "soak", py("tests/weavesmoke.py"), 50.0,
         "WEAVE opens FORM.WAB and draws a window on both 1bpp GLaBIOS twins - "
         "the Weave family's widest single row (WEAVE-SPEC 12.3), and "
         "the widest reach per second the family has: the .WAB association, "
@@ -2208,7 +2208,7 @@ SOAK = [
         "FAIL, one wrong buffer and one wrong end state. 20s is 1s MEASURED "
         "plus the corpus generation and the nasm run",
         needs=("qemu", "nasm"), serial=True, timeout=300),
-    Row("weavesession", "soak", py("tests/weavesession.py"), 150.0,
+    Row("weavesession", "soak", py("tests/weavesession.py"), 30.0,
         "WEAVE-SPEC 12.3, 12.3.1: a scripted session driven through the "
         "SHIPPING package under MartyPC - type in a field, press a button, "
         "toggle a check, take a menu command, dismiss an alert - and every "
@@ -2227,7 +2227,7 @@ SOAK = [
         "registry's budgets exist to stop drifting",
         needs=("marty", "cc"), serial=True, timeout=360,
         wants=("build/weave360.img",)),
-    Row("weavegrid", "soak", py("tests/weavegrid.py"), 120.0,
+    Row("weavegrid", "soak", py("tests/weavegrid.py"), 30.0,
         "WEAVE-SPEC 13.1's wave-4 gate: the <grid>, against the model and "
         "against itself. Three things no other row in this family can see. "
         "(1) Every visible BAND is read off the glass by 12.3.2's "
@@ -2253,7 +2253,7 @@ SOAK = [
         "and 156.7, with room for the demo growing",
         needs=("marty", "cc"), serial=True, timeout=480,
         wants=("build/weave360.img",)),
-    Row("weavegfx", "soak", py("tests/weavegfx.py"), 90.0,
+    Row("weavegfx", "soak", py("tests/weavegfx.py"), 40.0,
         "WEAVE-SPEC 12.3's pixels-vs-model row, zgfx's shape: every other "
         "gate in this family reads a number or a structure, and none of them "
         "can see a component drawn at the wrong row, a control that draws "
@@ -2275,7 +2275,7 @@ SOAK = [
         "(Mouse.DBL_STEP), so none of them depends on the host keeping up",
         needs=("marty", "cc"), serial=True, timeout=600,
         wants=("build/weave360.img",)),
-    Row("weaveprev", "soak", py("tests/weaveprev.py"), 240.0,
+    Row("weaveprev", "soak", py("tests/weaveprev.py"), 70.0,
         "WEAVE-SPEC 1.7.1 and 12.3: LOOM's PREVIEW PANE against "
         "`weavesim --render --preview`. Wave 7 draws the pane with WEAVE's "
         "own flow walk and WEAVE's own component painter, compiled a second "
@@ -2299,7 +2299,7 @@ SOAK = [
         "238.5 and 238.6 standalone) with a margin for the demo growing",
         needs=("marty", "cc"), serial=True, timeout=600,
         wants=("build/loom360.img",)),
-    Row("weaveone", "soak", py("tests/weaveone.py"), 60.0,
+    Row("weaveone", "soak", py("tests/weaveone.py"), 20.0,
         "WEAVE-SPEC 1.4's 256KB machine, ASSERTED: the family's floor board "
         "holds exactly ONE Weave app, and the second launch is refused while "
         "the first goes on running. It is the one row in this family about "
@@ -2321,7 +2321,7 @@ SOAK = [
         "runs (46.1 inside the tier, 46.0 and 45.9 standalone)",
         needs=("marty", "cc"), serial=True, timeout=300,
         wants=("build/weave360.img",)),
-    Row("weavegame", "soak", py("tests/weavegame.py"), 50.0,
+    Row("weavegame", "soak", py("tests/weavegame.py"), 20.0,
         "WEAVE-SPEC 6.10, 12.3, 14: PONG.WAB under MartyPC, and it asks "
         "wireflick's two questions of a sprite canvas "
         "(SPEC.md 78.9). HOW MANY GFX CALLS A FRAME, read out of the canvas core's "
@@ -2379,7 +2379,7 @@ SOAK = [
         "to. Measured when it was written: 0 verdict disagreements, 0 byte "
         "disagreements, 93 differing messages in 1,000",
         needs=()),
-    Row("weavelat", "soak", py("tests/weavelat.py"), 40.0,
+    Row("weavelat", "soak", py("tests/weavelat.py"), 20.0,
         "SPEC.md 7.3's click-to-action bar with a WEAVE FORM as the load "
         "(WEAVE-SPEC 12.4), measured the way tests/uilat.py measures it - "
         "two memory breakpoints and the cycle counter, because os88mouse's "
@@ -8972,7 +8972,7 @@ SOAK = [
     Row("dispsave", "soak", py("tests/dispsave.py"), 60.0,
         "Does the raise cache work on the SECOND display? (SPEC.md 39.14.8)",
         needs=("marty",), serial=True),
-    Row("dispblitp", "soak", py("tests/dispblitp.py"), 180.0,
+    Row("dispblitp", "soak", py("tests/dispblitp.py"), 30.0,
         "SPEC.md 5.4.3: does gfx_blitp's REFUSAL survive its own teardown?"
         "Its whole output is CF and the teardown opened with a `cmp`, so every"
         "refusal came back as drawn - invisible until an extended desktop,"

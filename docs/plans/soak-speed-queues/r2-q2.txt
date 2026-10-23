@@ -1,13 +1,13 @@
 # ROUND 2. family  row  declared_secs  script. VERIFY = shared script edited in round 1, row never re-run: run it once first.
 DONE weav	weavepack	1500	tests/weavepack.py
-weav	weaveprev	240	tests/weaveprev.py
-weav	weavesession	150	tests/weavesession.py
-weav	weavegrid	120	tests/weavegrid.py
-weav	weavegfx	90	tests/weavegfx.py
-weav	weavesmoke	70	tests/weavesmoke.py
-weav	weaveone	60	tests/weaveone.py
-weav	weavegame	50	tests/weavegame.py
-weav	weavelat	40	tests/weavelat.py
+DONE weav	weaveprev	240	tests/weaveprev.py
+DONE weav	weavesession	150	tests/weavesession.py
+DONE weav	weavegrid	120	tests/weavegrid.py
+DONE weav	weavegfx	90	tests/weavegfx.py
+DONE weav	weavesmoke	70	tests/weavesmoke.py
+DONE weav	weaveone	60	tests/weaveone.py
+DONE weav	weavegame	50	tests/weavegame.py
+DONE weav	weavelat	40	tests/weavelat.py
 pxfs	pxfsx	1500	tests/pxfsx.py
 vidd	viddiskfd	195	tests/viddisk.py
 vidd	wseq	182	tests/viddisk.py
