@@ -553,7 +553,7 @@ FAST = [
         "can reach, nobody edits it build to build, and lzfmt-all beside it "
         "is already soak",
         needs=()),
-    Row("lzfmt-all", "soak", ["python3", "tools/os88lz.py", "--selfcheck"], 55.0,
+    Row("lzfmt-all", "soak", ["python3", "tools/os88lz.py", "--selfcheck"], 15.0,
         "the same round trip over every binary the tree builds - packages, "
         "drivers and the kernel. SOAK and not fast: the fixed corpus above is "
         "what catches a format bug, this is what catches a bug that only some "

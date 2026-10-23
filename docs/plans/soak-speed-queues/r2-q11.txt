@@ -1,5 +1,5 @@
 # ROUND 2, queue 11: the bottom of r2-q9's open rows (non-MartyPC). family  row  declared_secs  script  needs
-os	lzfmt-all	55	tools/os88lz.py	
+DONE os	lzfmt-all	55	tools/os88lz.py	
 kdmi	kdmix	55	tests/kdmix.py	
 gbcp	gbcpu	50	tests/gbcpu.py	qemu,nasm
 mseg	msegxms	50	tests/msegxms.py	qemu
