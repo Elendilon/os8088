@@ -5493,6 +5493,30 @@ SOAK = [
         "inst_seg_parked with chosen registers and puts everything back. 7.6s "
         "measured; all six go red with the push's `jne .count` taken out",
         needs=("marty",), serial=True),
+    Row("lemmove", "soak", py("tests/lemmove.py"), 121.0,
+        "LEMMINGS' KEPT LEVEL MOVES AND PLAYS ON (SPEC.md 116.6.2, "
+        "docs/plans/NO-PINNING-PLAN.md C4): the ~250-330 KB of claims a "
+        "level kept by 'f' holds are MOVABLE on the desktop and PINNED "
+        "around the launch, and os88_onmove (lemblit.inc) range-translates "
+        "eighteen words. MartyPC on BOTH claim sets - the 5150 Hercules "
+        "(world + shadow) and the VGA XT (T planes): play Fun 2, pause, "
+        "snapshot, keep, FORCE a compaction by writing [mem_cpq] (the "
+        "posted pass, rank 0xFC drops the icon store and a raise cache "
+        "under the claims), then nine assertions - pinned in the bracket, "
+        "movable kept, moved with lem_cl_* following, contents hashed, the "
+        "derived LEMMAIN segments' offsets kept, the raster's words, the "
+        "resumed paused picture identical to the pixel, pinned again, and "
+        "150 iterations later the mechanics (80 lemming records, counts, "
+        "mask and object map) equal to a CONTROL leg played from the "
+        "snapshot with no suspend and no move. Prints mem_compact's cost "
+        "(G1): 848 ms for 252 KB on Hercules, 1,066 ms for 329 KB on VGA. "
+        "RUN RED: lem_anseg dropped from the proc's table fails 5 (its "
+        "offset inside LEMMAIN 556 -> 1388) and 7 (238 px of garbage "
+        "lemmings); --nomove is the A/B and fails 3 alone. 121s MEASURED "
+        "(both arms, one os88test run). Needs `cc` and the fetched data "
+        "(wants= builds the disk, or the row SKIPS)",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/lemmings360.img",)),
     Row("cmemmove", "soak", py("tests/cmemmove.py"), 60.0,
         "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "

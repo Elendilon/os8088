@@ -215302,6 +215302,79 @@ put back by a copy rather than by drawing terrain again. A machine too small
 for its adapter's figure (329, 283 or 252 KB) is refused **before any I/O**
 with that arithmetic on the glass, which is WEAVE-SPEC §1.4's precedent.
 
+#### 116.6.2 The claims MOVE while the desktop holds them
+
+**A level kept on the desktop used to be a wall.** 'f' keeps a level, and so
+does the window's postview (`LEM_X_DONE`). Either way the claims above, 252
+to 329 KB, stayed claimed with nothing of LEMMINGS running, and every one of
+them was PINNED (§66.2's default). The arena could not close over them: a
+user with a level kept could see 300 KB free and still be refused a 200 KB
+picture. Under docs/plans/NO-PINNING-PLAN.md's policy, a claim may be pinned
+only while the program is using it. These are now movable whenever the
+desktop holds them.
+
+**Pinned exactly for the launch, and nowhere else.** `os88_onwake()` wraps
+`ovl_launch()` in `ovl_cl_movable(0)` before and `ovl_cl_movable(1)` after.
+`ovl_cl_movable` calls `os88_mem_movable` on each live claim, and pinning is
+§66.2's `AX = 0`. The launch is the only path that touches the claims: the
+level's read, the bracket, play, and the next level's read inside it. In
+there a local or a register holds a claim's segment across a call that can
+claim. The band reads go through `ovl_parts_read(…, seg, …)`, and a file read
+can take a sector cache (§66.3 rule 5). So pinning across the launch is the
+policy's bucket C, and it costs the frame path nothing. Inside the bracket,
+workers are frozen and only the UI task compacts (§66.3.1), which is
+LEMMINGS' own task, so pinned is the right answer there anyway. The
+alternative was to declare the claims once and re-read every segment at
+each use. That would have added a load to every raster call and been
+fragile in the read loops, so it was refused.
+
+**The proc, and what it has to put right.** `os88_onmove` (`CC_HAS_ONMOVE`)
+is written in assembly in `lemblit.inc`, beside seven of the words it
+patches. A move must fix every segment word kept between calls that lies
+inside the block. That means the claim's own word plus every word derived
+from it by base + offset. One table names eighteen words:
+
+| words | set by | read by |
+|---|---|---|
+| `lem_cl_mask`, `_bank`, `_main`, `_world`, `_shadow`, `_rec`, `_t` | `ovl_claim_all` | everything |
+| `lem_anseg`, `lem_mkseg`, `lem_ptseg`: LEMMAIN items 3, 4 and 10, segments **inside** `lem_cl_main` | `ovl_types`, once per level load | every frame (`lem_anim_at`, `lem_mask_at`, the spray) |
+| `lem_far_seg`, the out-parameter `ovl_far`/`lem_far_add` answer through | per use | per use |
+| `lb_world`, `lb_shadow`, `lb_t`, `lb_wp0`, `lb_wp3`, `lm_seg`, `lo_seg` | the raster's `*_setup` | every draw and probe |
+
+The proc first finds which claim moved: the one of the seven whose word
+equals `was`. It takes that claim's EXACT size from `lem_cl_kb[]`, where the
+world's size is the adapter's (63 or 32 KB) and is written where the world is
+claimed. Then every listed word in `[was, was + KB * 64)` moves by
+`now − was`. A derived segment is base + off/16 with off inside its claim, so
+it lies in exactly one claim's range. A 0 (no spray, no world on VGA, no T on
+the 1bpp cards) lies in none. A word set and used within one call
+(`lbp_seg`, `lp_fseg`) needs no entry, because nothing in a draw can compact.
+**A new segment word kept across a launch belongs in that table**, or a move
+leaves it naming whatever took the block's place.
+
+**What it costs.** The package grew 234 resident bytes (image 31,782 →
+32,016) and 82 module bytes, with bss unchanged. That covers the proc and
+its table, `cc_onmove` and the `os88_mem_movable` thunk, `lem_cltab` and
+`lem_cl_kb`, and two calls in `os88_onwake`. Not one instruction was added
+to the frame. The move itself is `mem_compact`'s copy, measured by
+`tests/lemmove.py` on a 4.77 MHz 8088:
+
+| machine | LEMMINGS' claims moved | the whole pass |
+|---|---:|---:|
+| 5150, Hercules | 252 KB | 4,048,301 cycles = **848 ms** |
+| XT, VGA | 329 KB | 5,087,663 cycles = **1,066 ms** |
+
+Task switching is paused for that pass. It happens only when a claim cannot
+be met without it, which is the case the move exists to serve.
+
+`tests/lemmove.py` (soak) is the gate on both claim sets. It forces the
+compaction by writing `[mem_cpq]`, the posted request of §66.4.3. It then
+asserts that the claims moved with their contents intact and every derived
+word kept its offset. It also asserts that the resumed, paused picture is
+the same to the pixel, and that 150 iterations later the mechanics equal a
+control leg played from a snapshot with no move. Dropping `lem_anseg` from
+the table turns it red with 238 pixels of garbage lemmings.
+
 ### 116.7 The frame arithmetic, and the XT
 
 Said once and honestly. A 4.77 MHz 8088 runs about 262,000 CYCLES in a 55 ms
