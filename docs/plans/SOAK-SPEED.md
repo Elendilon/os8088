@@ -161,6 +161,14 @@ reading the guest state the page is drawn from instead of pumping the screen).
    mount: czdos's DOS half 8 -> 2 s); likewise a host-made input the guest
    only reads goes through technique 16's cache keyed on the packer's source.
 
+22. **Under Unicorn, a per-instruction Python hook IS the row.** Each
+   `UC_HOOK_CODE` callback is ~5 us of Python plus ~4 us a `reg_read`, so a
+   few million instructions is a minute. `hlt` already ends `emu_start`
+   (Unicorn 2, IP one past it); hook an ADDRESS (`begin=end=`) for a stub or
+   callback; read a register only once the cheap test passes; and watch a
+   flag at the only instructions that can change it (csprobe's IF: `sti`,
+   `popf`, `iret`, their result read before they run). cProfile finds it.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
@@ -254,6 +262,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **QEMU (r2-q10)**: `tests/xmcheck.qmp` runs `tools/qmp.py`'s new `run()` IN PROCESS (it spawned a Python per memory read, ~60 ms; same text and same SystemExit on failure); `xmcheck.wait_desktop` polls 0.05 (was 0.4) and ends on `os88qemu.ui_done(cap=1)` (was `pace(1)`). `colorpresets_qemu.Guest` boots on state (`peek` = `xp` while running) instead of `sleep(3)`. `rdgqemu.run(..., final=[" END\n"])` skips its 0.3 s trailing read when the output is known complete; poll 0.2 -> 0.05. Validated: hdtake(+blank), viddiskcpu, fmtpair, colorpresets, rdgstatic.
 
 - **Bochs (r3): `tools/os88bochs.py` reads the guest** - `session()` (break in, commands, continue, on the PROMPT not a clock: ~20 ms where `dbg` slept 3.5 s + 0.3 s a command; module `dbg` is it now), `Box.read/reads/until/sym` (labels off the BOOTED tree's megak/kernel.map, .lowbss/.cold by the map's equates), `Box.up()` (kernel_up's gate), `Box.ui_done()` (ui_idle's five bytes held 0.25 s with [ticks] moving), `Box.goto/click/dbl` (CLOSED-LOOP on mouse_x/mouse_y, ~0.6 s where the pin-and-walk was ~3.5), `Box.megarun()` (C:, RUN, 0RUN on those), `Box.instances/pkg_base/pkg_read` (a package's own bytes, OS88_HIGH through its LDT descriptor), `sweep` on all of it. A stop RELEASES the mouse: `xd()` re-captures first after a Box read. **`Box(display=, megs=)` + `os88bochs.take_display()`**: several machines in ONE process, each its own display and input state (`box.xd/key/type/shot`); `sweep(..., parallel=True)` (the batches' boots at once, one display each; what a FAULT left unreached goes round serially as before), `Box.at_prompt(cmds)` (a machine already stopped on a breakpoint: commands, continue, on the prompts), one xdotool at a time per display (a wiggle thread and a click both re-capturing toggled the capture OFF), `Box.goto` gives up after two sends that moved nothing; `Box.in_fsx()`, `Box.fault()` (a FATAL fault ends every `until`), `Box.shot()` (waits out the glass's 5 Hz update). `os88test` takes a Bochs display with an flock on /tmp/.os88bochs-N.lock, so two runners never share one. docs/BOCHS.md "Waiting on the guest". megaflt, megaown, megarehome, megavidbig, megaovl.
+- **`tests/pxpartemu.py`** parses `apps/os88api.inc` and `build/pxlink.inc` once per process (keyed on path + mtime; callers get a copy) - every `PxPart` re-ran both regexes. pxsavehost, pxedithost, pxextraemu, pxanimemu; all green.
 
 ## Ledger
 
@@ -481,6 +490,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | nasm3 | 283 s (178 charged, load ~10) | 283 s | - | measured only: the shipped tree is warm (1.3 s) and 128 knob arms are ~4.5 s of nasm 3 each (2.16 takes 3.0), cold every run - the buildnum include changes per commit, so keeping the arm trees buys a same-commit re-run only. -O2 rebuild of nasm no faster. Re-declared 240 |
 | hmahiber / p2hiber / hmadosret (QEMU 9) | 15.1 / 18.1 / 16.3 s | 9.1 / 6.9 / 12.1 s | 14, 8 | pace(1..3)s -> `ui_done(cap=)` at boot and before each `sendkey ret`; p2hiber's pace(3) before power-off -> a host wait for both files on C: (a new assertion), its 5 x pace(0.3) -> `acted` on mouse_x/y; host_wait polls 0.05. p2hiber `--img` (14.57 reverted) still red on 2 and 3. hmadosret needed build/DOSHMA.COM, which was not prebuilt (nasm'd by hand) |
 | czdos (DOSBox) | 12.3 s | 2.1 s (6.5 cache miss) | 21, 16 | DOSBox at cycles=max; the ten compressed fixtures cached on os88cz/os88lz/t_lzfmt/czdos source, byte-identical to a fresh pack; `--break` still red |
+| csprobe / picomem / vblkemu / vblkemupm / pxsavehost / pxedithost / pxextraemu / pxanimemu / mixerhost / xmla / decfmt / m83 (Unicorn) | 36.6 / 2.0 FAIL / 8.4 / 9.5 / 8.2 / 9.3 / 2.3 / 0.9 / 0.7 / 1.0 / 0.4 / 0.2 s | 5.4 / 3.9 / 6.8 / 6.5 / 7.1 / 6.1 / 1.5 / 0.7 / (same) s | 22 | host-only, no guest clock. csprobe's IF watch moved to the IF-raising opcodes: with `wrong` forced true both watchers print byte-identical output (59 red checks). **picomem failed at base, two test bugs**: its `disk.inc` slicer stopped at the first `%endif`, which a later `%ifdef KERN_MEGA` arm inside `dsk_fdd_park_x` owns (now nesting-aware; red with the ramp's `jne` made `jmp`), and pmdma's 'AH02' check took benchlib's PARKED copy of the header in `bl_draw` (the report-saves banner, #272, made one) for the report's own. Then a hlt-poll hook off and EFLAGS read only with an IRQ pending: 238 checks green, profile 57 -> 8 s. vblkemu: the callback hook on CBSEG alone unless the wm3 latch restore needs every boundary, the write hook on VRAM + the code aliases (red with either range off by one). px*: the memoised parse (harness changes). The four 2-s rows are lean: re-declared |
 
 ## Resuming
 

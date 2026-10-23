@@ -3564,7 +3564,7 @@ SOAK = [
         "REDLINE four FAT12 geometries and actual recorded reference (SPEC.md 103)",
         needs=("nasm",), wants=("build/redline.img", "build/redline720.img",
                                "build/redline120.img", "build/redline360.img")),
-    Row("csprobe", "soak", py("tests/csprobe.py"), 45.0,
+    Row("csprobe", "soak", py("tests/csprobe.py"), 10.0,
         "REDLINE's chipset probes and writes (SPEC.md 103.6) under Unicorn: every "
         "probe against every modelled board on 8088/286/386, 22h written only "
         "40h/60h-67h, nothing on an 8088; every FE3001 write locked-in and with "
@@ -10076,7 +10076,7 @@ SOAK = [
         "then pixcorpus's hostile JPEGs, each refused with its number. "
         "Without Pillow the PSNR half SKIPS and says so - the verdicts, which "
         "are what the guest is held to, need nothing but Python"),
-    Row("pxextraemu", "soak", py("tests/pxextraemu.py"), 5.0,
+    Row("pxextraemu", "soak", py("tests/pxextraemu.py"), 2.0,
         "SPEC.md 106.25's EXTRAS part (build/pxextra.bin) on the HOST, under "
         "Unicorn (tests/pxpartemu.py): every TIFF, ICO, IFF and MacPaint "
         "fixture tools/pixcorpus.py makes through HEAD - its own next heads "
@@ -10089,7 +10089,7 @@ SOAK = [
         "Without Unicorn the RUNNER skips it (`needs`): the script's own "
         "skip printed SKIP and exited 0, which a soak scored `ok` in 0.1s",
         needs=("nasm", "unicorn"), wants=("build/pixel.o88",)),
-    Row("pxanimemu", "soak", py("tests/pxanimemu.py"), 3.0,
+    Row("pxanimemu", "soak", py("tests/pxanimemu.py"), 1.0,
         "SPEC.md 106.25's GIF that plays, on the HOST under Unicorn: the GIF "
         "part decodes frame 0 into a 1/1 master, AV_INIT reads the "
         "animation's facts out of that decode, and the worker's frame job "
@@ -10217,7 +10217,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/pixel.o88",
                "build/os8088-360.img")),
-    Row("pxedithost", "soak", py("tests/pxedit.py", "--host-only"), 13.0,
+    Row("pxedithost", "soak", py("tests/pxedit.py", "--host-only"), 10.0,
         "SPEC.md 106.24, PiXEL's editing, the HOST LEG: the EDIT part "
         "(build/pxedit.bin) under Unicorn (tests/pxpartemu.py) - 63 palette "
         "cases and 546 pixel cases over seven sizes, three palettes and both "
@@ -10237,7 +10237,7 @@ SOAK = [
         "Each operation's guest time is printed",
         needs=("marty", "nasm"), serial=True,
         wants=("build/pixel.o88", "build/os8088.img")),
-    Row("pxsavehost", "soak", py("tests/pxsave.py", "--host-only"), 14.0,
+    Row("pxsavehost", "soak", py("tests/pxsave.py", "--host-only"), 10.0,
         "SPEC.md 106.24, PiXEL's Save As, the HOST LEG: the WRITE part "
         "(build/pxwrite.bin) under Unicorn - 336 files over every format, "
         "seven sizes, three pictures and the three palette modes, five ring "
@@ -13377,7 +13377,7 @@ SOAK = [
         "a box pixel's x, the skip's width; a tile's row, a box tile's "
         "byte, the empty-list test, the banks) it FAILS each time",
         needs=("nasm", "unicorn"), wants=("build/vblk.bin",)),
-    Row("vblkemupm", "soak", py("tests/vblkemu.py", "--pm"), 16.0,
+    Row("vblkemupm", "soak", py("tests/vblkemu.py", "--pm"), 10.0,
         "SPEC.md 98.3.23.2: the block decoder's PROTECTED-MODE assembly "
         "(build/vblkpm.bin, part 1, the one kern_mega fetches) under the "
         "same random rounds as vblkemu, called the way kern_mega calls it: "
@@ -15520,7 +15520,7 @@ SOAK = [
         "writes, absent/stuck bus, IF and SS != DS, detach restoration and a "
         "deliberately wrong register that must fail",
         needs=("nasm", "unicorn")),
-    Row("picomem", "soak", py("tests/picomem.py"), 35.0,
+    Row("picomem", "soak", py("tests/picomem.py"), 10.0,
         "SPEC.md 34.10.1, 72.2: the driver code a PicoMEM talks to, AS IT "
         "SHIPS, under unicorn against a model of the card written from its "
         "firmware - ETHER.DRV's probe must put the PicoMEM's NE2000 (8-bit "
