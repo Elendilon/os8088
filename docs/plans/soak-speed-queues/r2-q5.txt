@@ -14,14 +14,14 @@ DONE calc	calcflick	90	tests/calcflick.py
 DONE scha	schacct	90	tests/schacct.py
 DONE sock	socktest	90	tests/socktest.py
 DONE mcse	mcseg	90	tests/mcseg.py
-aler	alertbtn	80	tests/alertbtn.py
-lzlo	lzload-lz4	80	tests/lzload.py
-tgui	tgui	80	tests/tgui.py
-dosr	dosram	75	tests/dosram.py
-gbwi	gbwindow	75	tests/gbwindow.py
-btnc	btncp	75	tests/btncp.py
+DONE aler	alertbtn	80	tests/alertbtn.py
+DONE lzlo	lzload-lz4	80	tests/lzload.py
+DONE tgui	tgui	80	tests/tgui.py
+DONE dosr	dosram	75	tests/dosram.py
+DONE gbwi	gbwindow	75	tests/gbwindow.py
+DONE btnc	btncp	75	tests/btncp.py
 thm	thm95	75	tests/thm95.py
-rdic	rdicon	75	tests/rdicon.py
+DONE rdic	rdicon	75	tests/rdicon.py
 pxsm	pxsmd	70	tests/pxsmd.py
 stk	stk0water	70	tests/stk0water.py
 regr	regrowshed	70	tests/regrowshed.py
@@ -31,7 +31,7 @@ gbke	gbkeys	66	tests/gbkeys.py
 kdmr	kdmredraw	66	tests/kdmredraw.py
 sndp	sndplay	65	tests/sndplay.py
 fmtl	fmtlow	65	tests/fmtlow.py
-aler	alertanim	60	tests/alertanim.py
+DONE aler	alertanim	60	tests/alertanim.py
 gfxp	gfxptsmall	60	tests/gfxpoints.py
 mous	mouseup	60	tests/mouseup.py
 line	linecar	60	tests/linecar.py

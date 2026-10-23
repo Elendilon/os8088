@@ -1526,7 +1526,7 @@ FAST = [
         "content-relative coordinates) and every one was found by a person "
         "looking at a screen. All four are visible in BT_DOWN and BT_N",
         needs=("marty",)),
-    Row("btncp", "soak", py("tests/btncp.py"), 75,
+    Row("btncp", "soak", py("tests/btncp.py"), 20.0,
         "THE FAR SIDE of the button (SPEC.md 2.6): the Control Panel is an "
         "on-demand module with a CS of its own and reaches the control by "
         "`call COLD_SEG:os88ui_btn_f`, which a grep for `call os88ui_btn` "
@@ -2842,7 +2842,7 @@ SOAK = [
         "no-op must lose the picture. WHY QEMU: counted, not timed. SOAK: one "
         "package's renderer",
         needs=("qemu", "nasm")),
-    Row("gbwindow", "soak", py("tests/gbwindow.py"), 75.0,
+    Row("gbwindow", "soak", py("tests/gbwindow.py"), 120.0,
         "REALDMG.O88 in a window (docs/REALDMG-SPEC.md section 14): dmg-acid2 "
         "opened from the Disk window through its association, the frame "
         "counter in the package's view advancing, and the window's content "
@@ -6542,7 +6542,7 @@ SOAK = [
         "dos_walk_at names the file, the line and the path from dos_int21, "
         "and adding a `call OSAPI_TASK_YIELD` to dos_fh_enter takes the "
         "registry rule red."),
-    Row("dosram", "soak", py("tests/dosram.py"), 75.0,
+    Row("dosram", "soak", py("tests/dosram.py"), 50.0,
         "THE MEMORY PAGE'S FIGURE IS THE FIGURE THE PROGRAM GETS (SPEC.md "
         "96.36.3). `For the program: ~NNNNN K` is one live number that every "
         "control under it moves, and two of its terms can be checked against "
@@ -9193,7 +9193,7 @@ SOAK = [
         "COMPRESS=lz4 kernel must REFUSE - the row below",
         needs=("marty",), serial=True,
         wants=("build/lzload360.img",)),
-    Row("lzload-lz4", "soak", py("tests/lzload.py", "--lz4only"), 80.0,
+    Row("lzload-lz4", "soak", py("tests/lzload.py", "--lz4only"), 70.0,
         "...and the REFUSAL, on a kernel built COMPRESS=lz4. The shipped one "
         "carries both formats (SPEC.md 20.13.6), so the row above proves the "
         "dispatch and this one proves the fence: SPEC.md 20.13.3 says the "
@@ -10653,7 +10653,7 @@ SOAK = [
         "42). It prints cycles per tick kind; --ref against a saved run of "
         "another build is how a hot path is held to not slower",
         needs=("marty", "nasm"), serial=True, timeout=900),
-    Row("tgui", "soak", py("tests/tgui.py"), 80.0,
+    Row("tgui", "soak", py("tests/tgui.py"), 30.0,
         "SPEC.md 49.6/49.8: TameGram's UI half, which tgplay never reaches - "
         "it posts the worker's command byte, and W_ONKEY is two tables now. "
         "Every key through the real keyboard (P/p, C/c, F/f, N, Space, A, D, "
@@ -11621,7 +11621,7 @@ SOAK = [
         "the row that forces the second",
         needs=("marty", "nasm"), serial=True),
     Row("alertbtn", "soak",
-        py("tests/alertbtn.py", "--machine", "os8088_5150_herc_gla"), 80.0,
+        py("tests/alertbtn.py", "--machine", "os8088_5150_herc_gla"), 60.0,
         "SPEC.md 75.3.0: the STANDARD alert's button row - os88ui's and not"
         "Paint's, which is only the alert easiest to raise. One press must"
         "draw ONE button (os88ui_adn redrew the whole row, so a press lettered"
@@ -11630,7 +11630,7 @@ SOAK = [
         "before the finger commits. Also checks 42.16.1's GIF default",
         needs=("marty",), serial=True),
     Row("alertanim", "soak",
-        py("tests/alertanim.py", "--machine", "os8088_5150_herc_gla"), 60.0,
+        py("tests/alertanim.py", "--machine", "os8088_5150_herc_gla"), 30.0,
         "SPEC.md 11.99.2.1: the 'Save changes?' alert must NOT zoom open. The"
         "user clicked the close box and got a dialog instead, so a third of a"
         "second of outline in front of it is the machine making a show of"
@@ -15270,7 +15270,7 @@ SOAK = [
         "costs no extra int 13h. Measured at 55s",
         needs=("marty",), serial=True),
 
-    Row("rdicon", "soak", py("tests/rdicon.py"), 75.0,
+    Row("rdicon", "soak", py("tests/rdicon.py"), 40.0,
         "SPEC.md 62.9.2.1: a DOCUMENT on a redirected volume gets its "
         "association icon. The mount's redirected tail ran pass 4a' and then "
         "`jmp short .done`, PAST SPEC.md 54.3's pass 4b, on the ground that "
