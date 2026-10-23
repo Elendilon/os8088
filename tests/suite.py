@@ -868,7 +868,7 @@ FAST = [
         "mouse's vector left on the vacated copy is a dead pointer after any "
         "compaction (docs/FIELD-NOTES.md 67)",
         wants=("build/regmove360.img",)),
-    Row("regapp", "soak", py("tests/regapp.py"), 210.0,
+    Row("regapp", "soak", py("tests/regapp.py"), 30.0,
         "SPEC.md 66.6.1/66.6.2 per SHIPPED PACKAGE: seven declare "
         "OS88_REGION_MOVABLE, and those that hire a worker declare "
         "OS88_WORKER_RESTARTABLE too - a declaration the owner fence refused "
