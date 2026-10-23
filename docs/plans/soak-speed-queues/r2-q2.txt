@@ -55,15 +55,15 @@ DONE teln	telnet	300	tests/telnet.py
 DONE teln	telnetherc	300	tests/telnet.py
 DONE boot	bootfloor-ab	420	tests/bootfloor.py
 DONE boot	bootstatus	90	tests/bootstatus.py
-trks	trkspkcovox	90	tests/trkspk.py
-trks	trkspkrate	70	tests/trkspk.py
-trks	trkscrub	60	tests/trkspk.py
-trks	trkspklevel	55	tests/trkspk.py
-trks	trkspk	45	tests/trkspk.py
-trks	trkspkdrop	40	tests/trkspk.py
-trks	trkspkend	40	tests/trkspk.py
-trks	trkspkturbo	36	tests/trkspk.py
-trks	trkspkref	20	tests/trkspk.py
+DONE trks	trkspkcovox	90	tests/trkspk.py
+DONE trks	trkspkrate	70	tests/trkspk.py
+DONE trks	trkscrub	60	tests/trkspk.py
+DONE trks	trkspklevel	55	tests/trkspk.py
+DONE trks	trkspk	45	tests/trkspk.py
+DONE trks	trkspkdrop	40	tests/trkspk.py
+DONE trks	trkspkend	40	tests/trkspk.py
+DONE trks	trkspkturbo	36	tests/trkspk.py
+DONE trks	trkspkref	20	tests/trkspk.py
 mrdr	mrdraw	200	tests/mrdraw.py
 mrdr	mrdrawvga	200	tests/mrdraw.py
 vidr	vidrepeat	60	tests/vidrepeat.py
