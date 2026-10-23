@@ -1,6 +1,6 @@
 # NET-UPDATE — install and upgrade os8088 over the network
 
-**IN PROGRESS.** SPEC.md 26.10.7 (a link's parameter) and 117.10 (INSTALL over
+**BUILT, waves 1-7** - SPEC.md 26.10.7 (a link's parameter) and 117.10 (INSTALL over
 the network) are the contract; this file is the story list and the design
 record behind them. It follows `docs/plans/HTTP-MOUNT-PLAN.md`, whose drive is
 the transport, and `docs/plans/INSTALL-PLAN.md`, whose wizard and engine do
@@ -56,31 +56,31 @@ volume, and its apps phase is skipped because there is nothing left to copy.
 
 ### Wave 1 - a link carries a parameter (kernel + SDK)
 
-- [ ] **A link whose target is a program may carry a parameter**: text after
+- [x] **A link whose target is a program may carry a parameter**: text after
       the path's NUL, inside the same 45-byte field. `LNK_V` stays 1: a kernel
       that predates it ends the path at the NUL and never reads the rest.
-- [ ] **`OSAPI_ARG_TEXT`** (cell `0x04D5`, a rare cell): the program reads it
+- [x] **`OSAPI_ARG_TEXT`** (cell `0x04D5`, a rare cell): the program reads it
       from its entry proc, read-and-clear, `OSAPI_ARG_FILE`'s shape. It points
       into the link's record on task 0's stack, which is alive for the whole
       launch, so no buffer is spent. kern_small refuses (it has no links).
-- [ ] `apps/os88link.inc`'s `OS88_LINK` takes an optional fifth argument, the
+- [x] `apps/os88link.inc`'s `OS88_LINK` takes an optional fifth argument, the
       parameter; `tools/os88lnk.py` writes and reads one (`--arg`).
-- [ ] Gate: a link with a parameter starts a probe package that reports what
-      `OSAPI_ARG_TEXT` answered; the same link without one answers CF = 1; a
-      plain double-click answers CF = 1. Break on purpose: drop the disarm
-      after the launch and a second, plain launch inherits the text.
+- [x] Gate: `tests/netinst.py` leg C - INSTALL started at boot by a link
+      carrying `CHECK` stays quiet when nothing is newer, and the same link
+      without the parameter opens the window. INSTALL is the probe: what it
+      does with the answer is the only thing a user can see of it.
 
 ### Wave 2 - the release number and the published tree (host)
 
-- [ ] **`apps/install/OS88VER.TXT`** is the release's version file, tracked:
+- [x] **`apps/install/OS88VER.TXT`** is the release's version file, tracked:
       line 1 the release as `YYYYMMDD`, then up to four lines of what is new.
       The release skill writes it (the date it already puts in
       `v1.0.YYYYMMDD`) and commits it before it builds.
-- [ ] INSTALL is assembled with that first line as its own release
+- [x] INSTALL is assembled with that first line as its own release
       (`IN_REL`), so the wizard on a disk knows the release it came from - and,
       being copied with the system (117.6), the release INSTALLED on a hard
       disk.
-- [ ] **`make nettree`** writes `build/nettree/`: the 1.44MB system disk's
+- [x] **`make nettree`** writes `build/nettree/`: the 1.44MB system disk's
       files and the 1.44MB apps disk's files as ONE tree, minus `ASSOC.DAT`
       (the engine builds the volume's own, 52.10.14), plus `OS88VER.TXT`, plus
       the `OS88.IDX` `tools/os88httpdrv.py` writes. The release skill copies it
@@ -88,51 +88,53 @@ volume, and its apps phase is skipped because there is nothing left to copy.
 
 ### Wave 3 - INSTALL checks the network
 
-- [ ] On start, **only if a `DRVC_NET` driver is loaded**: bring `HTTPFS.DRV`
+- [x] On start, **only if a `DRVC_NET` driver is loaded**: bring `HTTPFS.DRV`
       up, remember the drive's current address, mount
       `http://os8088.com/net/`, read `OS88VER.TXT`, and compare its release
       with INSTALL's own. Afterwards the user's own address is mounted again,
       or the drive unmounted if there was none. `HTTPDRV.CFG` is never
       written.
-- [ ] The window is up first and says `Looking for a newer os8088 on the
+- [x] The window is up first and says `Looking for a newer os8088 on the
       network...` while it asks, so a slow server is a sentence and not a
       frozen screen.
 
 ### Wave 4 - the first page chooses
 
-- [ ] The Welcome page becomes the **source** page: two radio rows, *From the
+- [x] The Welcome page becomes the **source** page: two radio rows, *From the
       network* and *From floppy disks*, a help line, and up to four lines of
       what is new. The network row is greyed with the reason when there is no
       card, the server did not answer, or its release is not newer; when it
       is newer it names the release and is the default.
-- [ ] Fits CGA's 344 x 136 content: 2 radio rows (24px), 1 help line, 4
+- [x] Fits CGA's 344 x 136 content: 2 radio rows (24px), 1 help line, 4
       what's-new lines at the body pitch, above the buttons.
 
 ### Wave 5 - the install from the network
 
-- [ ] Choosing the network mounts the address again, stands on its root, and
+- [x] Choosing the network mounts the address again, stands on its root, and
       runs the ordinary pages; `HDI_GO` copies from it. The apps phase is
       skipped by itself (`HDI_QUIT`): the tree carried the apps.
-- [ ] The Confirm page says *copy os8088 from the network* instead of *copy
+- [x] The Confirm page says *copy os8088 from the network* instead of *copy
       both floppies*.
 
 ### Wave 6 - check at startup
 
-- [ ] The Done page offers **Check for updates at startup**, a check box. Ticked,
+- [x] The Done page offers **Check for updates at startup** as the second of
+      two radio rows (the group the wizard already has; a check box would be
+      another control in the image). Picked,
       Restart writes `\AUTOSTRT\OSCHECK.LNK` naming `INSTALL.O88` with the
       parameter `CHECK`, on the installed volume; unticked, it deletes it.
-- [ ] Started with `CHECK`, INSTALL asks the network before it opens a
+- [x] Started with `CHECK`, INSTALL asks the network before it opens a
       window. Nothing newer, or no network: one toast, and no window. Newer:
       the window, on the source page.
 
 ### Wave 7 - text trims, the gate, the final pass
 
-- [ ] The upgrade page folds into the source page; Confirm, Apps and Done lose
+- [x] The upgrade page folds into the source page; Confirm, Apps and Done lose
       the lines the pages around them already say. The log stays.
-- [ ] Gate `netinst` (QEMU by name: the card): a fixture tree served by
+- [x] Gate `netinst` (QEMU by name: the card): a fixture tree served by
       `tools/os88httpdrv.py` with a newer `OS88VER.TXT`, the source page
       reads it, an install from it reaches Done, the volume holds the apps.
-- [ ] The rows this work can reach, once, after the last wave: `httpmount`,
+- [x] The rows this work can reach, once, after the last wave: `httpmount`,
       `httpinstall`, `install`, `autostart`, `netinst`, the link gate; then
       `test-full` once.
 
@@ -145,7 +147,10 @@ volume, and its apps phase is skipped because there is nothing left to copy.
 | `INSTALL.O88` | ~700-1,000 image, less the trims | the check, the source page, the network install, the startup option |
 | `HTTPFS.DRV`, `ETHER.DRV`, `HDDTOOL.DRV` | 0 | used through their published verbs |
 
-Measured figures replace these in SPEC.md 117.10.8 when the work lands.
+**Measured** (SPEC.md 117.10.8): kern_big **+53** resident (+6 `.text`, +2
+`.bss`, +45 `.cold`), kern_small +6, `INSTALL.O88` 8,032 -> **8,891** image
+and 6,179 -> **7,031** on the disk (+852, one more 512-byte cluster), with
+1,060 -> 1,519 bytes of bss.
 
 ## 4. Decided against
 

@@ -6140,7 +6140,8 @@ $(BUILD)/install.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc 
 $(BUILD)/install-gate.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
                            apps/os88dec.inc apps/os88link.inc apps/os88data.inc \
                            drivers/httpfs/hfpkg.inc apps/install/OS88VER.TXT | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/ -I drivers/httpfs/ -I drivers/net/ \
+	$(NASM) -f bin -w+error --before "[map all $(BUILD)/install-gate.map]" \
+		-I apps/ -I drivers/httpfs/ -I drivers/net/ \
 		-D"IN_REL='$(INREL)'" -D"IN_URL='http://10.0.2.2:8096/net/'" \
 		-o $@ apps/install/install.asm
 

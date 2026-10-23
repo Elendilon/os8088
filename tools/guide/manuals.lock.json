@@ -560,9 +560,9 @@
   "sources": [
    "apps/install"
   ],
-  "stamped": "ddaef50f",
-  "strings": "1dc0fc6f30c645db",
-  "why": "Copying section describes the Installing page's log and its click-Next ending (SPEC.md 117.4.1)"
+  "stamped": "2860afd2",
+  "strings": "870e2bb98c420ccf",
+  "why": "the first page chooses the source, the network install, the startup check: all described"
  },
  "INTRO_MID": {
   "sources": [],

@@ -203663,7 +203663,7 @@ every greyed choice says why (§47 rule 5).
 
 | page | it says | it does on `Next` |
 |---|---|---|
-| **Welcome** | what an install is, that it needs the system disk now and the apps disk later, that it takes minutes on an XT; on a machine booted from its hard disk (`OSAPI_VOL_SYS`), that this is an UPGRADE and the new system disk goes in a floppy drive | the driver and the drives (below) |
+| **The source** (117.10.4) | the network or the floppy disks, and what is new in a newer release; the heading says UPGRADE on a machine booted from its hard disk (`OSAPI_VOL_SYS`) | the network mounted and stood on, or INSTALL's own folder; then the driver and the drives (below) |
 | **Step 1: the hard disk** | the driver's state — *on*, *switched on now*, or why it would not start (the `DRVE_*` in words, §117.3) — then every device `HDI_DEVS` reports as a radio row: its number, its size and how the machine reaches it (`BIOS drive 80h`, `IDE, BIOS drive 81h`, `IDE, unit 0`); a drive whose geometry is unknown is greyed and the hint names the Control Panel | `HDI_SLOTS` for the pick, and the `KERNEL.SYS` probe (§117.5) |
 | **Step 2: where to put it** | the four slots as radio rows — size and `HDI_SLOTS`' State text, the Install window's words exactly — greyed unless an install may take them; a hint for the pick: *os8088 is on it already: Upgrade it*, *It has files: next, keep or erase them*, *Free space: INSTALL makes a partition*, *Not formatted*, *That partition cannot be used* | — |
 | **Step 3: keep or erase** | two radio choices, *Keep them, and upgrade os8088* and *Erase it and install fresh*, two lines on what each does, and the reason when one is greyed (§117.5) | — |
@@ -203998,7 +203998,7 @@ back when they are done.
 
 ### 117.10 Installing over the network
 
-`docs/plans/NET-UPDATE-PLAN.md` is the story list. **The network install is
+`docs/plans/completed/NET-UPDATE-PLAN.md` is the story list. **The network install is
 the ordinary install with another source volume**: `HTTPFS.DRV` (120) mounts
 a published tree, INSTALL stands on its root, and `HDI_GO` copies from there,
 because the engine's source is the volume the bank left the machine on when
@@ -204062,13 +204062,16 @@ replaced by one page:
 | line | it says |
 |---|---|
 | heading | *Install os8088 on a hard disk* / *Upgrade os8088 on this hard disk* |
-| 2 radio rows | *From the network: release 20261101* (or why not, greyed) and *From floppy disks* |
-| help | what the chosen row needs: *Needs the network for some minutes.* / *Needs the system disk now, the apps disk later.* |
-| up to 4 lines | the newer release's lines of what is new, when the network row is live |
+| 2 radio rows | *Network: release 20261101, newer* (*, the same*, *, older*; or why not, greyed) and *Floppy disks* |
+| help | what the chosen row does: *Downloads the system and all the apps.* / *Uses the system disk, then the apps disk.*; *Looking for a newer os8088...* while it asks |
+| up to 4 lines | the newer release's lines of what is new |
 
-The network row is **greyed with the reason** (47 rule 5): *no network
-card*, *the server did not answer*, *this release is the newest*. When it is
-newer it is the default selection. On CGA's 344 x 136 content the page is the
+The network row is **greyed with the reason** (47 rule 5) only when there is
+nothing to install from: *no network card*, *no answer* (no HTTP drive, no
+reply, or an `OS88VER.TXT` with no release in it), and *looking...* while
+it asks. A server whose release is the same or older is still a source - a
+machine can be reinstalled from it without floppies - but only a NEWER one
+is the default selection and only a newer one shows what is new. On CGA's 344 x 136 content the page is the
 heading, two radio rows (24px), the help line and four lines at the body
 pitch, above the buttons.
 
@@ -204099,8 +204102,24 @@ Newer: the window, on the source page, with the network row picked.
 
 #### 117.10.7 What the user sees on a machine with no card
 
-Exactly what they saw before, minus a page: the source page with the network
-row greyed *no network card* and the floppy row picked.
+The source page with the network row greyed *no network card*, the floppy
+row picked, and the floppy row's help line; `Next` goes to the drive page as
+Welcome's did.
+
+#### 117.10.8 What it cost
+
+Measured at one commit against the commit before the work (`kernsize`, kern_big):
+
+| | bytes | |
+|---|---:|---|
+| kern_big `.text` / `.bss` / `.cold` | +6 / +2 / +45 | **53 resident**: the cell, `[lnk_argo]`, the parameter's arm in `lnk_open` and `osapi_arg_text_x` |
+| kern_small `.text` | +6 | the cell, refusing (`mod_gone`) |
+| `INSTALL.O88` image / bss | 8,032 -> **8,891** / 1,060 -> **1,519** | the check, the source page, the network install, the startup link; the Welcome and upgrade pages' text went with the pages. The bss is the version file (320), the user's address (96) and FIND's record (24) |
+| `INSTALL.O88` on the disk | 6,179 -> **7,031** | 13 -> 14 clusters of 512 |
+| `HTTPFS.DRV`, `ETHER.DRV`, `HDDTOOL.DRV` | 0 | reached through their published verbs |
+
+`tests/netinst.py` (soak, QEMU) is the gate: the check, the install, the link
+and the boot check with and without its parameter.
 
 ## 118. SYSCHECK — System Check, the installed system's health (`apps/syscheck/`)
 
