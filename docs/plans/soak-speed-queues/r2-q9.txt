@@ -1,0 +1,210 @@
+# ROUND 2, queue 9: the NON-MartyPC soak rows (QEMU, ffmpeg, host-only) - never queued in round 1. family  row  declared_secs  script  needs
+vide	videnc	1300	tests/videnc.py	ffmpeg
+t	frcyclefull	900	tests/unit/t_frcycle.py	
+t	frinsetfull	900	tests/unit/t_frinset.py	
+vidl	vidlayer	320	tests/vidlayer.py	ffmpeg
+SKIP builds=True (writes build/; not runnable in the shared tree) telz	telzm	300	tests/telzm.py	qemu
+rega	regapp	210	tests/regapp.py	
+SKIP builds=True (writes build/; not runnable in the shared tree) tela	telansi	210	tests/telansi.py	qemu
+venc	vencgui	200	tests/vencguitest.py	ffmpeg
+SKIP builds=True (writes build/; not runnable in the shared tree) t	buildmatrix	180	tests/unit/t_buildmatrix.py	
+weav	weavefuzz	180	tests/weavefuzz.py	
+drvm	drvmove	170	tests/drvmove.py	
+regw	regwork	170	tests/regwork.py	
+rdxm	rdxms	170	tests/rdxms.py	qemu,nasm
+regp	regpin	160	tests/regpin.py	
+sndm	sndmove	150	tests/sndmove.py	
+dosn	dosnetarena	150	tests/dosnetarena.py	qemu
+vidb	vidbank	150	tests/vidbank.py	qemu,nasm
+vidx	vidxiphd	150	tests/vidxip.py	qemu,nasm
+vidx	vidxiphdnoharm	150	tests/vidxip.py	qemu,nasm
+vidx	vidxipbankbig	150	tests/vidxip.py	qemu,nasm
+vidx	vidxipbankdry	150	tests/vidxip.py	qemu,nasm
+vidx	vidxipbankdrysnd	150	tests/vidxip.py	qemu,nasm
+gbtr	gbtrace	130	tests/gbtrace.py	qemu,nasm
+vidx	vidxipsnd	130	tests/vidxip.py	qemu,nasm
+vidx	vidxipahead	130	tests/vidxip.py	qemu,nasm
+dosp	dospkt	120	tests/dospkt.py	qemu
+vidx	vidxip	120	tests/vidxip.py	qemu,nasm
+vidx	vidxipbank	120	tests/vidxip.py	qemu,nasm
+vidx	vidxiphdhold	120	tests/vidxip.py	qemu,nasm
+vidx	vidxipxspeed	120	tests/vidxip.py	qemu,nasm
+vidx	vidxipbankwrap	120	tests/vidxip.py	qemu,nasm
+sysc	syscheck	120	tests/syscheck.py	qemu,mtools
+SKIP builds=True (writes build/; not runnable in the shared tree) wire	wirechat	120	tests/wirechat.py	qemu
+vidb	vidbankgap	115	tests/vidbank.py	qemu,nasm
+SKIP builds=True (writes build/; not runnable in the shared tree) thew	thewire	110	tests/thewire.py	qemu
+vidx	vidxipbanksnd	110	tests/vidxip.py	qemu,nasm
+wire	wirefleetlink	100	tests/wirefleetlink.py	qemu,nasm,pil
+lemm	lemmings	100	tests/lemmings.py	qemu,cc
+vidl	vidlysplitinplace	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlysplitinplacebase	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlyorder	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
+vidl	vidlyorderbank	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
+netc	netcoexist	90	tests/netcoexist.py	qemu
+SKIP builds=True (writes build/; not runnable in the shared tree) ethc	ethcfg	90	tests/ethcfg.py	qemu
+rltu	rltune	81	tests/rltune.py	nasm,qemu
+vgad	vgadirty	80	tests/vgadirty.py	qemu,nasm
+mine	minesrc	80	tests/minesrc.py	qemu,nasm
+vidc	vidclose	75	tests/vidclose.py	qemu,nasm
+dosx	dosxlat	75	tests/dosxlat.py	qemu
+vidb	vidbankwin	75	tests/vidbank.py	qemu,nasm
+vidb	vidbankspk	75	tests/vidbank.py	qemu,nasm
+vidl	vidlayerpal	75	tests/vidlayer.py	ffmpeg
+colo	colorpresets	72	tests/colorpresets_qemu.py	qemu,nasm,pil
+wire	wireball	65	tests/wireball.py	qemu,nasm,pil
+pxsw	pxswin-qemu	65	tests/pxswin.py	qemu
+hmad	hmadrv	62	tests/hmadrv.py	qemu,nasm
+vidb	vidbankspkbank	60	tests/vidbank.py	qemu,nasm
+vidl	vidlysplit	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlysplitbase	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlysplituntimed	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlybank	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+vidl	vidlybankcopy	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+vidl	vidlybanknone	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+vidx	vidxmslive	60	tests/vidxms.py	qemu,nasm
+vidx	vidxmsliverep	60	tests/vidxms.py	qemu,nasm
+gifd	gifdrag	56	tests/gifdrag.py	
+whee	wheelps2	56	tests/wheelps2.py	qemu,nasm
+os	lzfmt-all	55	tools/os88lz.py	
+kdmi	kdmix	55	tests/kdmix.py	
+gbcp	gbcpu	50	tests/gbcpu.py	qemu,nasm
+mseg	msegxms	50	tests/msegxms.py	qemu
+SKIP builds=True (writes build/; not runnable in the shared tree) wire	wirezone	50	tests/wirezone.py	qemu,nasm
+xmch	xmcheck	50	tests/xmcheck.py	qemu,nasm
+vidx	vidxmsgap	50	tests/vidxms.py	qemu,nasm
+vidx	vidxmslivevga4	50	tests/vidxms.py	qemu,nasm
+trkc	trkclick	47	tests/trkclick.py	qemu,nasm
+cdro	cdrom	45	tests/cdrom.py	qemu,nasm
+vmmo	vmmouse	45	tests/vmmouse.py	qemu,nasm
+dosx	dosxmsq	45	tests/dosxmsq.py	qemu
+vidx	vidxms	45	tests/vidxms.py	qemu,nasm
+vidx	vidxmsbios	45	tests/vidxms.py	qemu,nasm
+vidx	vidxmsidle	45	tests/vidxms.py	qemu,nasm
+vidx	vidxmsnox	45	tests/vidxms.py	qemu,nasm
+vidx	vidxmslivenox	45	tests/vidxms.py	qemu,nasm
+kdre	kdreturnf	42	tests/kdreturn.py	
+vidb	vidbankspkfast	40	tests/vidbank.py	qemu,nasm
+kdha	kdhand	40	tests/kdhand.py	
+kdre	kdreturngfx	40	tests/kdreturn.py	
+vids	vidspkat	40	tests/vidspkat.py	qemu,nasm
+vidb	vidbankauto	40	tests/vidbankauto.py	ffmpeg
+mixe	mixersb16	40	tests/mixer.py	qemu,nasm
+SKIP builds=True (writes build/; not runnable in the shared tree) ethe	ethernet	40	tests/ethernet.py	qemu
+kdre	kdreturnmode	38	tests/kdreturn.py	
+kdre	kdreturnpit	38	tests/kdreturn.py	
+trks	trkscrl	38	tests/trkscrl.py	qemu,nasm
+kdre	kdreturn	37	tests/kdreturn.py	
+kdre	kdreturnm	36	tests/kdreturn.py	
+kdre	kdreturncx	36	tests/kdreturn.py	
+SKIP builds=True (writes build/; not runnable in the shared tree) exci	excitebikeg1	35	tests/excitebike_video.py	qemu,nasm
+vidl	vidlysplitdisk	35	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlysplitflip	35	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlysplitflipcmp	35	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlag	35	tests/vidlag.py	ffmpeg
+kdre	kdreturncm	32	tests/kdreturn.py	
+hmac	hmacold	30	tests/hmacold.py	qemu,nasm
+t	bmshare	30	tests/unit/t_bmshare.py	
+t	kernmods	30	tests/unit/t_kernmods.py	nasm
+hdta	hdtakeboot	30	tests/hdtake.py	qemu,nasm
+cdro	cdromsim	30	tests/cdrom.py	qemu,nasm
+heap	heapmap	30	tests/heapmap.py	qemu,nasm
+rdgs	rdgstatic	24	tests/rdgstatic.py	qemu,nasm
+fmtp	fmtpair	21	tests/fmtpair.py	qemu,nasm
+cdro	cdromempty	20	tests/cdrom.py	qemu,nasm
+t	lzfmt	17.6	tests/unit/t_lzfmt.py	
+vidd	viddiskcpu	16	tests/viddiskcpu.py	qemu,nasm
+vidf	vidfmt	16	tests/vidfmt.py	
+hdta	hdtake	15	tests/hdtake.py	qemu,nasm
+redl	redlinemodern	15	tests/redline.py	nasm,qemu
+venc	vencbundle	15	tests/vencbundle.py	ffmpeg
+isot	isotronsim	11	tools/isotronsim.py	
+t	lowwin	10	tests/unit/t_lowwin.py	nasm
+t	stackprose	10	tests/unit/t_stackprose.py	
+t	lmpack	10	tests/unit/t_lmpack.py	
+weav	weavevm	10	tests/weavevm.py	qemu,nasm
+weav	weavecanvas	10	tests/weavecanvas.py	qemu,nasm
+hdta	hdtakeblank	10	tests/hdtake.py	qemu,nasm
+os	coldpic	9	tools/os88romfix.py	nasm
+exci	excitebikeassets	9	tests/excitebike_assets.py	nasm
+wire	wirefleetart	8	tests/wirefleet.py	pil
+t	t_pxsscale	6	tests/unit/t_pxsscale.py	
+os	dosdbg	4.7	tools/os88dosdbg.py	nasm
+exci	excitebikegeomhost	4	tests/excitebike_geom.py	
+t	resident	3.7	tests/unit/t_resident.py	
+t	bootfloor	3.5	tests/unit/t_bootfloor.py	nasm
+t	bsssentinel	3.5	tests/unit/t_bsssentinel.py	
+t	mlen	3.4	tests/unit/t_mlen.py	
+t	vbrseg	3.4	tests/unit/t_vbrseg.py	
+rdga	gbacid	3	tests/rdgcore/rdgacid.py	qemu,nasm
+exbs	excitebikesim	3	tools/exbsim.py	nasm
+t	cz	3	tests/unit/t_cz.py	
+t	pxs-level	3	tests/unit/t_pxslevel.py	
+t	t_pxsmap	3	tests/unit/t_pxsmap.py	
+vida	vidavsync	3	tests/vidavsync.py	ffmpeg
+t	wire	2.5	tests/unit/t_wire.py	
+t	ccmake	2.1	tests/unit/t_ccmake.py	
+t	csworld	2	tests/unit/t_csworld.py	
+t	csrad	2	tests/unit/t_csrad.py	
+t	csworlds	2	tests/unit/t_csworlds.py	
+exci	excitebikeselfcheck	2	tools/excitebike_assets.py	nasm
+t	t_pxsart	2	tests/unit/t_pxsart.py	
+vids	vidspkshape	2	tests/vidspkshape.py	ffmpeg
+t	frinset	1.9	tests/unit/t_frinset.py	
+t	dosbss	1.7	tests/unit/t_dosbss.py	
+trkf	trkface	1.5	tools/trkface.py	
+t	drmarcoart	1.5	tests/unit/t_drmarcoart.py	pil
+pix	pixjpegref	1.5	sh -c python3 tools/pixjpeg.py --verify && python3 tools/pix	
+t	lzbclust	1.2	tests/unit/t_lzbclust.py	
+t	invariants	1.2	tests/unit/t_invariants.py	
+exci	excitebikeaudiohost	1	tests/excitebike_audio.py	
+t	cspanel	1	tests/unit/t_cspanel.py	
+t	csamph	1	tests/unit/t_csamph.py	
+redl	redlinehost	1	tests/redline.py	nasm
+kdpa	kdpart	1	tests/kdpart.py	
+t	dosseam	1	tests/unit/t_dosseam.py	
+pxsd	pxsdisk	1	tests/pxsdisk.py	
+t	pxs-gen	0.9	tests/unit/t_pxsgen.py	
+t	frcycle	0.8	tests/unit/t_frcycle.py	
+t	appsmall	0.8	tests/unit/t_appsmall.py	
+t	allapps	0.7	tests/unit/t_allapps.py	
+t	buildlock	0.7	tests/unit/t_build_lock.py	
+t	csart	0.6	tests/unit/t_csart.py	
+t	frstepv	0.4	tests/unit/t_frstepv.py	
+t	hddgeom	0.4	tests/unit/t_hddgeom.py	
+t	sfx	0.4	tests/unit/t_sfx.py	
+pixc	pixcorpus	0.4	tools/pixcorpus.py	
+stkd	stknosave	0.4	tools/stkdepth.py	
+t	kdapi	0.4	tests/unit/t_kdapi.py	
+t	p2restore	0.3	tests/unit/t_p2restore.py	
+t	csink	0.3	tests/unit/t_csink.py	
+t	csplane	0.3	tests/unit/t_csplane.py	
+t	cssin	0.3	tests/unit/t_cssin.py	
+t	pmcrom	0.3	tests/unit/t_paccman.py	
+os	imgcases	0.3	tools/os88imgcase.py	
+pixa	pixart	0.3	tools/pixart.py	
+t	kdfar	0.3	tests/unit/t_kdfar.py	
+t	excitebikeclean	0.2	tests/unit/t_excitebike_clean.py	
+t	midtab	0.2	tests/unit/t_midtab.py	
+t	csterrain	0.2	tests/unit/t_csterrain.py	
+t	inktab	0.2	tests/unit/t_inktab.py	
+t	cpmcache	0.2	tests/unit/t_cpmcache.py	
+t	wakedrain	0.2	tests/unit/t_wakedrain.py	
+pixs	pixsamples	0.2	tools/pixsamples.py	
+pixe	pixelsim	0.2	tools/pixelsim.py	
+dseg	dsegaudit	0.2	tools/dsegaudit.py	
+t	ddmaze	0.2	tests/unit/t_ddmaze.py	nasm
+os	rdiffself	0.2	tools/os88rdiff.py	nasm
+t	blobruns	0.1	tests/unit/t_blobruns.py	nasm
+t	spkfxtab	0.1	tests/unit/t_spkfx.py	
+t	csair	0.1	tests/unit/t_csair.py	
+t	drvclaim	0.1	tests/unit/t_drvclaim.py	
+t	smallreq	0.1	tests/unit/t_smallreq.py	
+t	ktags	0.1	tests/unit/t_ktags.py	
+t	dirwsize	0.1	tests/unit/t_dirwsize.py	
+t	pgrank	0.1	tests/unit/t_pgrank.py	
+t	imager	0.1	tests/unit/t_imager.py	
+t	assocpage	0.1	tests/unit/t_assocpage.py	
+t	wab	0.1	tests/unit/t_wab.py	
+pixj	pixjpeg	0.1	tools/pixjpeg.py	
+os	dosfat	0.1	tools/os88fat.py	
