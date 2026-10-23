@@ -2667,6 +2667,18 @@ SOAK = [
         "mounted - B: is asked before A: (SPEC.md 54.4.2.2; was D A B). "
         "VERIFIED RED on the kernel before each fix.",
         needs=("marty",)),
+    Row("pkgmove-texpad", "soak",
+        py("tests/pkgmove.py", "--app", "texpad", "--first",
+           "B:/APPS/NOTEPAD.O88", "--open", "B:/MEDIA/PAPER.TEX",
+           "--word", "tp_srcseg"), 25.0,
+        "NO-PINNING A3: TeXPad's source claim MOVES. tests/pkgmove.py is the "
+        "generic gate for a package's movable claims: Note Pad opens first so "
+        "its claims become a hole under TeXPad's, a compaction is posted from "
+        "outside at the TRIVIAL rank, and every named word must follow, its "
+        "bytes survive and the window redraw the same. Measured: tp_srcseg "
+        "2300 -> 22c0, the region 9340 -> 9840; red with tp_srcreloc a bare "
+        "ret (stale word, a different picture). 19s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
     Row("tymove", "soak", py("tests/tymove.py"), 15.0,
         "NO-PINNING A7: apps/os88type.inc's claims MOVE - an open face "
         "(TF_CLAIM = TF_SEG, [ty_curseg] its copy) and the pre-shifted table "
