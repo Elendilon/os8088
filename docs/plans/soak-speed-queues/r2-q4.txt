@@ -60,28 +60,28 @@ DONE(re-declared) wdun	wdunsel	360	tests/wdunsel.py
 DONE(re-declared) lzbi	lzbig	330	tests/lzbig.py
 DONE(re-declared) brcl	brclick	300	tests/brclick.py
 DONE(re-declared) pxfo	pxfolder	300	tests/pxfolder.py
-smal	smalllaunch	150	tests/smalllaunch.py
-smal	smallboot	110	tests/smallboot.py
-lzco	lzcomp	150	tests/lzcomp.py
+DONE(re-declared) smal	smalllaunch	150	tests/smalllaunch.py
+DONE(re-declared) smal	smallboot	110	tests/smallboot.py
+DONE(re-declared) lzco	lzcomp	150	tests/lzcomp.py
 lzco	lzglyph	65	tests/lzcomp.py
-vidk	vidkeyclus	120	tests/vidkeyclus.py
+DONE(re-declared) vidk	vidkeyclus	120	tests/vidkeyclus.py
 vidk	vidkern	48	tests/vidkern.py
 vidk	vidkpartbad	45	tests/vidkpartbad.py
-lzsh	lzship-lzb	120	tests/lzship.py
+DONE(re-declared) lzsh	lzship-lzb	120	tests/lzship.py
 lzsh	lzship	80	tests/lzship.py
-dosp	dospkg	190	tests/dospkg.py
-dosl	doslnk	150	tests/doslnk.py
+DONE(re-declared) dosp	dospkg	190	tests/dospkg.py
+DONE(re-declared) dosl	doslnk	150	tests/doslnk.py
 dosl	doslong	30	tests/doslong.py
-wmch	wmchrome	180	tests/wmchrome.py
+DONE(re-declared) wmch	wmchrome	180	tests/wmchrome.py
 mseg	mseglazy	50	tests/mseglazy.py
 mseg	mseglzslack	50	tests/mseglzslack.py
 mseg	msegnomem	40	tests/msegnomem.py
 mseg	msegplslack	20	tests/mseglzslack.py
-shee	sheetmove	130	tests/sheetmove.py
+DONE(re-declared) shee	sheetmove	130	tests/sheetmove.py
 shee	sheetbtn	30	tests/sheetbtn.py
 pxpa	pxpaint	90	tests/pxpaint.py
 pxpa	pxparts	60	tests/pxparts.py
-trac	trackmove	150	tests/trackmove.py
+DONE(re-declared) trac	trackmove	150	tests/trackmove.py
 font	fontpick	75	tests/fontpick.py
 font	fontview	60	tests/fontview.py
 icos	icoshed	75	tests/icoshed.py
@@ -90,14 +90,14 @@ tank	tankspawn	40	tests/tankspawn.py
 tank	tank	30	tests/tank.py
 tank	tankaim	30	tests/tankaim.py
 tank	tanksmall	30	tests/tanksmall.py
-ddco	ddcorner	120	tests/ddcorner.py
-dost	dostype	120	tests/dostype.py
-czjo	czjoin	120	tests/czjoin.py
-mpup	mpupin	120	tests/mpupin.py
-bigv	bigvol	110	tests/bigvol.py
+DONE(re-declared) ddco	ddcorner	120	tests/ddcorner.py
+DONE(re-declared) dost	dostype	120	tests/dostype.py
+DONE(re-declared) czjo	czjoin	120	tests/czjoin.py
+DONE(re-declared) mpup	mpupin	120	tests/mpupin.py
+DONE(re-declared) bigv	bigvol	110	tests/bigvol.py
 cycp	cycplay	55	tests/cycplay.py
 cycp	cycpu	45	tests/cycpu.py
-tmsm	tmsmall	100	tests/tmsmall.py
+DONE(re-declared) tmsm	tmsmall	100	tests/tmsmall.py
 ptsm	ptsmix	95	tests/ptsmix.py
 pkgf	pkgfence	60	tests/pkgfence.py
 pkgf	pkgfmt	30	tests/pkgfmt.py

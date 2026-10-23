@@ -1886,7 +1886,7 @@ FULL = [
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
         needs=("marty",), serial=True),
-    Row("smallboot", "soak", py("tests/smallboot.py"), 110.0,
+    Row("smallboot", "soak", py("tests/smallboot.py"), 260.0,
         "does KERN_SMALL still reach a desktop - buildmatrix assembles that "
         "build and nothing has ever booted it, which is how it has been "
         "DISCOVERED broken three times rather than reported broken. Here "
@@ -4495,7 +4495,7 @@ SOAK = [
         "`--arm cga` is one adapter. At 360 KB it rides games360.img "
         "and not the apps disk (93.13)",
         needs=("marty", "nasm"), serial=True),
-    Row("ddcorner", "soak", py("tests/ddcorner.py"), 120.0,
+    Row("ddcorner", "soak", py("tests/ddcorner.py"), 150.0,
         "DOT DELIRIUM's walls are NEVER on the glass in an actor's colour, "
         "on VGA, windowed and fullscreen (SPEC.md 93.5.19). A band goes "
         "down in one pen, and 93.2.3's concave corner block sits inside the "
@@ -5353,7 +5353,7 @@ SOAK = [
         "forcing claim looks exactly like a granted one",
         needs=("marty",), serial=True,
         wants=("build/regmove360.img",)),
-    Row("sheetmove", "soak", py("tests/sheetmove.py"), 130.0,
+    Row("sheetmove", "soak", py("tests/sheetmove.py"), 70.0,
         "Compact the heap out from under a LIVE Sheet "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 2). SHEET was the largest "
         "undeclared holder in the tree - six claims at its entry proc, ~99KB, "
@@ -7409,7 +7409,7 @@ SOAK = [
         "pictures. VERIFIED RED both ways with the caroff taken back out: "
         "backspaced 16 pixels at two cells, moved 6 at one.",
         needs=("marty",), serial=True),
-    Row("dospkg", "soak", py("tests/dospkg.py"), 190.0,
+    Row("dospkg", "soak", py("tests/dospkg.py"), 40.0,
         "A .O88 TYPED AT THE DOS PROMPT OPENS THE PACKAGE (SPEC.md 96.33.17), "
         "BY ITS BARE NAME TOO (96.33.7). "
         "96.33.15 refuses an extension that is not .COM or .EXE and .O88 went "
@@ -7553,7 +7553,7 @@ SOAK = [
         "dotted ones, while the search and the refusal stayed green.",
         needs=("marty",), serial=True,
         wants=("build/dosargs360.img",)),
-    Row("dostype", "soak", py("tests/dostype.py"), 120.0,
+    Row("dostype", "soak", py("tests/dostype.py"), 90.0,
         "TYPE, AND THE FLAG THAT MUTED THE BOX (SPEC.md 96.30.7). A tester "
         "ran the verbs for the first time and TYPE answered `File creation "
         "error` on every file - compressed, uncompressed, and a name that was "
@@ -7589,7 +7589,7 @@ SOAK = [
         "TXT NOTES TXT SHORT TXT` with no sizes on the last. 37s measured.",
         needs=("marty",), serial=True,
         wants=("build/dostype360.img",)),
-    Row("doslnk", "soak", py("tests/doslnk.py"), 150.0,
+    Row("doslnk", "soak", py("tests/doslnk.py"), 80.0,
         "A SHORTCUT: can what a DOS program needs be SAVED and reopened? "
         "(SPEC.md 96.21). Arguments and an environment that have to be retyped "
         "every launch are arguments nobody sets, so the box writes a .LNK "
@@ -9240,7 +9240,7 @@ SOAK = [
         "file FOLDED, so 295 carriage returns had to arrive to be dropped",
         needs=("marty",), serial=True,
         wants=("build/lzfile360.img",)),
-    Row("lzcomp", "soak", py("tests/lzcomp.py"), 150.0,
+    Row("lzcomp", "soak", py("tests/lzcomp.py"), 130.0,
         "SPEC.md 22.22: File > Compress, and the machine's LZB stream against "
         "the host's BYTE FOR BYTE. os88lz.lzb_compress_machine is a mirror of "
         "kernel/compress.inc statement for statement rather than a model of "
@@ -9317,7 +9317,7 @@ SOAK = [
         "the arrow must move with the lock held (144 moves; the first build, "
         "whose toast spent the hide, read 6) while `Compressing...` stays up",
         needs=("marty",), serial=True, wants=("build/os8088.img",)),
-    Row("czjoin", "soak", py("tests/czjoin.py"), 120.0,
+    Row("czjoin", "soak", py("tests/czjoin.py"), 200.0,
         "SPEC.md 20.17 and 22.23.5: File > Uncompress on a PART of a split "
         "set joins it, STREAMING - an 82KB claim whatever the set's size. "
         "tools/os88cz.py cuts the sets on the host and every assertion is "
@@ -9487,7 +9487,7 @@ SOAK = [
         "through `make zset`, which existed only because the compressed "
         "images land at the paths a plain build uses",
         needs=("marty", "nasm"), serial=True),
-    Row("lzship-lzb", "soak", py("tests/lzship.py", "--fmt", "lzb"), 120.0,
+    Row("lzship-lzb", "soak", py("tests/lzship.py", "--fmt", "lzb"), 200.0,
         "...and the same set through the bit-oriented decoder. It is a second "
         "full build of everything plus LZB's ~4x compression time, which is "
         "why it is separate from the row above rather than a loop inside it - "
@@ -9718,7 +9718,7 @@ SOAK = [
         "kernel case instead of quietly asserting the shipped numbers "
         "against another tree.",
         needs=("marty",), serial=True),
-    Row("smalllaunch", "soak", py("tests/smalllaunch.py"), 150.0,
+    Row("smalllaunch", "soak", py("tests/smalllaunch.py"), 250.0,
         "SPEC.md 24.5.6: every package on kern_small's system disk OPENS on "
         "the 128KB machine - the list read off the built disk, so a package "
         "that joins it is covered the day it does. Nothing launched them "
@@ -10578,7 +10578,7 @@ SOAK = [
         "what the old installer wrote, and must fail. It ERASES the VHD and "
         "builds knobhd's knob tree.",
         needs=("marty",), serial=True, timeout=2400),
-    Row("bigvol", "soak", py("tests/bigvol.py"), 110.0,
+    Row("bigvol", "soak", py("tests/bigvol.py"), 70.0,
         "SPEC.md 18.7.5: a 321MB FAT16 volume (654/16/63, TotSec32, 8KB "
         "clusters) formatted on the HOST by mtools with a 40MB file at the "
         "front, so everything the install writes lands PAST 32MB and the "
@@ -10691,7 +10691,7 @@ SOAK = [
         # guest's own [ticks].
         needs=("qemu", "nasm"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/apps.img")),
-    Row("tmsmall", "soak", py("tests/tmsmall.py"), 100.0,
+    Row("tmsmall", "soak", py("tests/tmsmall.py"), 80.0,
         "SPEC.md 28.12: the APP_SMALL Task Manager gates out two of its three "
         "PAGES, which is 39.9% of one heap claim and the largest saving of "
         "any package in the tree - and the two that go share their row "
@@ -14368,7 +14368,7 @@ SOAK = [
         "sum) it FAILS with 'This .V88 is damaged'",
         needs=("marty", "nasm", "mtools"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidkeyclus", "soak", py("tests/vidkeyclus.py"), 120.0,
+    Row("vidkeyclus", "soak", py("tests/vidkeyclus.py"), 60.0,
         "SPEC.md 18.4.4.2, 98.1.7.6: a STREAMED .V88 keeps its seek and its "
         "poster on a FAT16 C: with 32 KB clusters - vidbigclus's disk, a VGA8 "
         "clip whose 39 KB keys a cluster-granular read refused there. "
@@ -15546,7 +15546,7 @@ SOAK = [
         "by name: MartyPC has no NIC",
         needs=("qemu",), serial=True,
         wants=("build/ether360.img", "build/apps360.img")),
-    Row("mpupin", "soak", py("tests/mpupin.py"), 120.0,
+    Row("mpupin", "soak", py("tests/mpupin.py"), 50.0,
         "SPEC.md 51.9.2: the MPU-401's port pin on MartyPC's recording MPU "
         "at 330h, four boots of a copy of `make miditest`'s disk with a "
         "different 'SP' record, mpu_base read out of SOUND.DRV's image: "
@@ -15753,7 +15753,7 @@ SOAK = [
         "rows OFF THE GLASS: nothing about the window's shape was ever wrong, "
         "so a geometry check passes on the broken build",
         needs=("marty",), serial=True),
-    Row("trackmove", "soak", py("tests/trackmove.py"), 150.0,
+    Row("trackmove", "soak", py("tests/trackmove.py"), 40.0,
         "Compact the heap out from under a LOADED module (SPEC.md 66.5.2/45).",
         needs=("marty",), serial=True,
         wants=("build/trackmove360.img",)),
@@ -15802,7 +15802,7 @@ SOAK = [
         " full repaint pixel for pixel (45.21.8). Measured 64s",
         needs=("marty",),
         wants=("build/trkship360.img",)),
-    Row("wmchrome", "soak", py("tests/wmchrome.py"), 180.0,
+    Row("wmchrome", "soak", py("tests/wmchrome.py"), 100.0,
         "chrome that is WHOLLY obstructed is not drawn - a covered drop "
         "shadow (SPEC.md 11.97.3) and a covered title strip (11.97.4) - and "
         "a resize that changed nothing does not repaint at all (11.91.5)",
