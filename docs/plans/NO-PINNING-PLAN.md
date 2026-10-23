@@ -185,7 +185,7 @@ pays for itself. Leave K4/K6b/K6c (~76) for after the next size pass.
 
 | claim | bucket | retires it |
 |---|---|---|
-| `HDDTOOL.DRV`, `RAMPAGE.DRV`, `HTTPPAGE.DRV` page images (a base that is a CS, `[rd_pfar]`-style far pointers) | NONE | **R1**: load them through the `MEM_K_DRV` path, or give them a proc that re-stamps the far pointer |
+| `HDDTOOL.DRV`, `RAMPAGE.DRV`, `HTTPPAGE.DRV` page images (a base that is a CS, `[rd_pfar]`-style far pointers) | C | **R1 CLOSED, no code**: each image is loaded when its Control Panel page is selected and dropped at `DSV_CPCLOSE` (`rd_page_closed` -> `rd_page_drop`), so it is held only while the user is IN the panel, using it - bucket C. It is claimed top-down, so it is not a wall in the arena while held |
 | HTTPFS index (hfidx.inc), 16 KB, life of the mount | - | **R2 BUILT**: `hf_reloc` (one word, `[hf_iseg]`), declared once the fetch is validated (it is the network's write target until then); `hf_list` re-reads ES after `OSAPI_FS_ENT`, the one call inside a verb that can claim. `httpmount` regression-green on QEMU. **No move proof**: QEMU cannot post a compaction from outside the way MartyPC can, and MartyPC has no NIC |
 | VOLUME save-under, 2-30 KB while the popup is up | C | allowed; a `ret` proc is free (R2) |
 | Sound Blaster ring / direct pool | D | allowed (narrowed by K1) |
