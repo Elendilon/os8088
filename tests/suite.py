@@ -2406,7 +2406,7 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/os8088.img", "build/apps.img", "build/hdd.bin",
                "build/calc.o88")),
-    Row("hdtakeboot", "soak", py("tests/hdtake.py", "--boot"), 30.0,
+    Row("hdtakeboot", "soak", py("tests/hdtake.py", "--boot"), 10.0,
         "SPEC.md 52.1.1 on an INSTALLED machine (QEMU, booted from the IDE "
         "disk): C:, the kernel's own int 13h boot volume, must be HANDED to "
         "HDD.DRV by a take, OSAPI_VOL_ADD with DX != 0 (row kind DVK_DRV, DV_BUNIT 80h) and a "
