@@ -555,7 +555,11 @@ def main():
             else:
                 print("   B: blank, no hold: the next key refused, as it must be")
         else:
-            # --- 1: the hold, and its first chunk
+            # --- 1: the hold, and its first chunk. [vp_loaded] is stored
+            # before the hold is opened, so a fast harness can read xon 0
+            # in between: wait for it (a guest second or two, not a race)
+            os88qemu.acted(q, lambda: rb("vp_xon") == 1, secs=5,
+                           what="the hold", poll=0.05)
             cap = rd("vp_xcap")
             print("   the hold: on=%d, %d bytes for a file of %d"
                   % (rb("vp_xon"), cap, size))

@@ -6302,9 +6302,15 @@ vp_xlag:
     ret
 
 ; vp_bncq - ZF=0: the session's claim has a BOUNCE slot (vp_bbnc) - an XMS
-; bank's, or a hold still filling's (vp_xlag). Preserves all but flags
+; bank's, or a hold still filling's (vp_xlag) - and a bank IN PLACE is a
+; bank, not a hold filling: [vp_xbank] is 0 for that play and so is
+; [vp_xfull], and vp_xlag would vp_xstep the file into the slots the ring
+; has in place. Preserves all but flags
 vp_bncq:
+    cmp byte [vp_einp], 0           ; in place: vp_xmsbk's no ([vp_xbank] 0)
+    jne .bk
     cmp byte [vp_xbank], 0
+.bk:
     jne vp_xmsbk                    ; a bank: XMS's (EMS reads into its frame)
     cmp byte [vp_xon], 0
     je .r                           ; (ZF=1: no hold)
