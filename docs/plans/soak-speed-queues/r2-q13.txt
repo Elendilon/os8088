@@ -5,9 +5,9 @@ DONE vidl	vidlysplitinplacebase	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
 DONE vidl	vidlyorder	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
 DONE vidl	vidlyorderbank	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
 DONE netc	netcoexist	90	tests/netcoexist.py	qemu
-rltu	rltune	81	tests/rltune.py	nasm,qemu
-vgad	vgadirty	80	tests/vgadirty.py	qemu,nasm
-mine	minesrc	80	tests/minesrc.py	qemu,nasm
+SKIP build/redline.img absent (runner SKIPs it: would not build; it also boots through `make test`) rltu	rltune	81	tests/rltune.py	nasm,qemu
+DONE vgad	vgadirty	80	tests/vgadirty.py	qemu,nasm
+DONE mine	minesrc	80	tests/minesrc.py	qemu,nasm
 vidc	vidclose	75	tests/vidclose.py	qemu,nasm
 dosx	dosxlat	75	tests/dosxlat.py	qemu
 colo	colorpresets	72	tests/colorpresets_qemu.py	qemu,nasm,pil

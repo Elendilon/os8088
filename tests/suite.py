@@ -10665,7 +10665,7 @@ SOAK = [
         "hard drop moves THREAT. --save/--ref compares the two panels' "
         "pixels with another build's",
         needs=("marty", "nasm"), serial=True, timeout=600),
-    Row("minesrc", "soak", py("tests/minesrc.py"), 80.0,
+    Row("minesrc", "soak", py("tests/minesrc.py"), 20.0,
         "SPEC.md 13.11's right button: it flags a Minesweeper cell, and it "
         "does nothing on the strip, on an open cell or on a window that was "
         "not already frontmost. EVERY PRESS IS NOW READ BACK ON THE GUEST'S "

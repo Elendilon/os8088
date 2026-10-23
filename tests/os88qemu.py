@@ -511,3 +511,56 @@ def mouse_dblclick(m, sym, hmp, x, y):
     for _ in range(2):
         mouse_button(m, sym, hmp, 1)
         mouse_button(m, sym, hmp, 0)
+
+
+def launch_test(tmp, sysimg="build/os8088.img", apps="build/apps.img",
+                extra=(), card=True, copy=True):
+    """`make test`'s machine WITHOUT `make`, in a directory of its own.
+
+    `make test` is a launcher, but its parse rewrites build/buildnum.inc and
+    its prerequisites are the shared images - so in a checkout whose build/
+    is behind its sources (every commit moves the build number) it REBUILDS
+    the kernel and the disks under every other row before it boots. This is
+    the same command line (Makefile `test:` with the default MOUSE and
+    DEVCARD - the OPL2 at 388h, `card=False` is NOCARD=1) against COPIES of
+    the two images in `tmp` (the guest writes SYSTEM.CFG; `copy=False` boots
+    the files given, for a row that reads its own scratch back), and its own
+    socket and pidfile, so two of these can run at once. Paths resolve
+    through os88build.at. Answers (sock, pidfile); torn down at exit (own)."""
+    import shutil
+    import subprocess
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import os88build
+    imgs = []
+    for name, src in (("sys.img", sysimg), ("apps.img", apps)):
+        src = os88build.at(src) if not os.path.isabs(src) else src
+        if copy:
+            dst = os.path.join(tmp, name)
+            shutil.copyfile(src, dst)
+            src = dst
+        imgs.append(os.path.abspath(src))
+    sock = os.path.join(tmp, "qmp.sock")
+    pid = os.path.join(tmp, "qemu.pid")
+    cmd = ["qemu-system-i386", "-machine", "pc,vmport=off",
+           "-drive", "file=%s,format=raw,if=floppy" % imgs[0], "-boot", "a",
+           "-chardev", "msmouse,id=m0", "-serial", "chardev:m0",
+           "-drive", "file=%s,format=raw,if=floppy,index=1" % imgs[1],
+           "-display", "none", "-qmp", "unix:%s,server,nowait" % sock,
+           "-daemonize", "-pidfile", pid]
+    if card:
+        cmd += ["-audiodev", "none,id=devsnd", "-device",
+                "adlib,audiodev=devsnd"]
+    own(pid, sock)
+    subprocess.run(cmd + list(extra), cwd=ROOT, check=True)
+    # ...and BY THE PID IT WROTE as well (vidxms.Q's lesson): a caller that
+    # deletes `tmp` on its way out takes the pidfile own() would read
+    atexit.register(_killpid, int(open(pid).read().strip()))
+    return sock, pid
+
+
+def _killpid(pid):
+    try:
+        os.kill(pid, signal.SIGTERM)
+        gone(pid)
+    except OSError:
+        pass
