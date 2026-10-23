@@ -2569,7 +2569,7 @@ SOAK = [
         "mounted - B: is asked before A: (SPEC.md 54.4.2.2; was D A B). "
         "VERIFIED RED on the kernel before each fix.",
         needs=("marty",)),
-    Row("fontview", "soak", py("tests/fontview.py"), 60.0,
+    Row("fontview", "soak", py("tests/fontview.py"), 20.0,
         "SPEC.md 90: an F88 association launches FONT VIEWER with that family "
         "selected, every installed face is listed, typing edits the specimen, "
         "and both arrow and mouse selection finish loading another face.",
@@ -5677,7 +5677,7 @@ SOAK = [
         "un-pushing CX in .getcwd.",
         needs=("marty",), wants=("build/dosregs360.img",)),
 
-    Row("icostore", "soak", py("tests/icostore.py"), 60.0,
+    Row("icostore", "soak", py("tests/icostore.py"), 20.0,
         "TWO VOLUMES, ONE BODY (SPEC.md 25.9). The Disk window's icons were a "
         "64-byte slot PER ENTRY, per listing and mirrored per open window, so "
         "the copy of a package on the system disk and the copy on the apps "
@@ -7951,7 +7951,7 @@ SOAK = [
         "else, and the sight closes on exactly the shots that land - read"
         "against tk_aimq and tk_aimz, the code's own measured error and range",
         needs=("marty",), serial=True),
-    Row("tankspawn", "soak", py("tests/tankspawn.py"), 40.0,
+    Row("tankspawn", "soak", py("tests/tankspawn.py"), 30.0,
         "SPEC.md 85.6.6: no round starts inside a piece of scenery - which one"
         "in nineteen did, sealing the player in a box a 26-unit step cannot"
         "leave - and a player who somehow IS inside one can still drive out",
@@ -10016,7 +10016,7 @@ SOAK = [
         "Measured at 20.4s.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/word.p1.bin", "build/WELCOME.DOC")),
-    Row("pxparts", "soak", py("tests/pxparts.py"), 60.0,
+    Row("pxparts", "soak", py("tests/pxparts.py"), 20.0,
         "SPEC.md 106.5: PiXEL far-calls LAZY code parts - the first assembly "
         "package to - and every decoder will stand on the boundary, so wave 1 "
         "proves it with the keyboard card before anything depends on it. A: "

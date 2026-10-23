@@ -77,17 +77,23 @@ def lit(fb):
 def open_game(m):
     """Boot to the desktop and get TANK.O88 open. Returns (slot, seg, bss)."""
     S = os88sym.linear
-    os88marty.settle(m)
+    if int(m.status().get("cycles", 1)) == 0:   # launch(boot=False): the
+        m.run()                     # boot gate is the kernel's STATE (the
+        os88marty.kernel_up(m)      # next steps read window records and
+        settle = lambda mm, **k: os88marty.ui_done(mm)   # the listing)
+    else:
+        os88marty.settle(m)
+        settle = os88marty.settle
     mo = os88mouse.Mouse(marty=m)
-    dispcp.open_drive(m, mo, S, os88marty.settle, "B")
+    dispcp.open_drive(m, mo, S, settle, "B")
     disk = dispcp.win_list(m, S)[-1]
     wx, wy = dispcp.win_rect(m, S, disk)[:2]
-    dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "GAMES")
+    dispcp.open_named(m, mo, S, settle, wx, wy, "GAMES")
     wx, wy = dispcp.win_rect(m, S, disk)[:2]
     rows = [r[0] for r in dispcp.listing(m, S)]
     if "TANK.O88" not in rows:
         sys.exit("tank: TANK.O88 is not on the apps disk")
-    row = dispcp.scroll_to(m, mo, S, os88marty.settle, wx, wy,
+    row = dispcp.scroll_to(m, mo, S, settle, wx, wy,
                            rows.index("TANK.O88"))
     x, y = dispcp.row_xy(wx, wy, row)
     # NOT open_named: it settles, and a window whose game is running never
@@ -117,7 +123,8 @@ def main(argv):
     os.chdir(ROOT)
     bad = []
 
-    with os88marty.launch(a.image, apps=a.apps, machine=a.machine) as m:
+    with os88marty.launch(a.image, apps=a.apps, machine=a.machine,
+                          boot=False) as m:
         slot, seg, base = open_game(m)
         print("  TANK.O88: window %d, segment %04x, bss at %04x"
               % (slot, seg, base))

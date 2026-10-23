@@ -9,26 +9,26 @@ DONE mseg	mseglzslack	50	tests/mseglzslack.py
 DONE mseg	msegnomem	40	tests/msegnomem.py
 DONE mseg	msegplslack	20	tests/mseglzslack.py
 DONE shee	sheetbtn	30	tests/sheetbtn.py
-pxpa	pxparts	60	tests/pxparts.py
-font	fontview	60	tests/fontview.py
-icos	icostore	60	tests/icostore.py
-tank	tankspawn	40	tests/tankspawn.py
-tank	tank	30	tests/tank.py
-tank	tankaim	30	tests/tankaim.py
-tank	tanksmall	30	tests/tanksmall.py
+DONE pxpa	pxparts	60	tests/pxparts.py
+DONE font	fontview	60	tests/fontview.py
+DONE icos	icostore	60	tests/icostore.py
+DONE tank	tankspawn	40	tests/tankspawn.py
+DONE tank	tank	30	tests/tank.py
+DONE tank	tankaim	30	tests/tankaim.py
+DONE tank	tanksmall	30	tests/tanksmall.py
 cycp	cycplay	55	tests/cycplay.py
 cycp	cycpu	45	tests/cycpu.py
 pkgf	pkgfence	60	tests/pkgfence.py
-pkgf	pkgfmt	30	tests/pkgfmt.py
-save	saverate	28	tests/saverate.py
-save	savervga	27	tests/saver.py
-save	saver	25	tests/saver.py
-vidt	vidthumb	34	tests/vidthumb.py
-vidt	vidthumbherc	34	tests/vidthumb.py
-msel	msel	55	tests/msel.py
-mart	martyresume	30	tests/martyresume.py
-mart	martyconc	20	tests/martyconc.py
-cycf	cycfire	50	tests/cycfire.py
+MOVED->r2-q12 pkgf	pkgfmt	30	tests/pkgfmt.py
+MOVED->r2-q12 save	saverate	28	tests/saverate.py
+MOVED->r2-q12 save	savervga	27	tests/saver.py
+MOVED->r2-q12 save	saver	25	tests/saver.py
+MOVED->r2-q12 vidt	vidthumb	34	tests/vidthumb.py
+MOVED->r2-q12 vidt	vidthumbherc	34	tests/vidthumb.py
+MOVED->r2-q12 msel	msel	55	tests/msel.py
+MOVED->r2-q12 mart	martyresume	30	tests/martyresume.py
+MOVED->r2-q12 mart	martyconc	20	tests/martyconc.py
+MOVED->r2-q12 cycf	cycfire	50	tests/cycfire.py
 MOVED->r2-q8 mcpe	mcperf	50	tests/mcperf.py
 MOVED->r2-q8 dmgc	dmgcull	50	tests/dmgcull.py
 MOVED->r2-q8 bptr	bptrace	45	tests/bptrace.py
