@@ -2859,6 +2859,52 @@ def key_taken(m, name, ui=True, cap=0.675, tail=0.0,
     return prog.spent()
 
 
+def text_taken(m, text, ui=True, cap=0.675, what="the guest to take that text"):
+    """`m.type_text(text)` and return once the guest has TAKEN every key, in
+    guest seconds - `key_taken` for a string, the replacement for
+    `m.type_text(t); settle(m)` when what follows is a guest read or a click.
+
+    Typed with the machine PAUSED, so MartyPC's keyboard model queues the
+    whole string and none of it is stored before the count starts; then the
+    BIOS ring's tail is followed (modulo the ring, 0040:0080/0082) until it
+    has moved one entry per character (`type_text` stores one per character:
+    a shift is a modifier, not an entry), its head has caught up and, with
+    `ui`, `ui_done` - the passes that handled them are over. BOUNDED like
+    `key_taken`: `cap` guest seconds a character, then it returns quietly, so
+    a key the consumer never reads costs the old pace and never more."""
+    def w(a):
+        b = m.read(a, 2)
+        return b[0] | (b[1] << 8)
+    lo, hi = w(0x480), w(0x482)
+    size = (hi - lo) if hi > lo else 32
+    was = m.status().get("state") == "running"
+    m.pause()
+    last = w(BIOS_KBUF + 2)
+    m.type_text(text)
+    m.run()
+    n = len(text)
+    prog = _Progress(m, what, 60.0 * GUEST_BUDGET_RATIO)
+    adv = 0
+    while True:
+        prog.check()
+        if prog.spent() >= cap * max(n, 1):
+            return prog.spent()
+        kb = m.read(BIOS_KBUF, 4)
+        t = kb[2] | (kb[3] << 8)
+        if t != last:
+            adv += ((t - last) % size) // 2
+            last = t
+        if adv >= n and kb[0:2] == kb[2:4]:
+            break
+        time.sleep(0.002)
+    if ui:
+        ui_done(m, what)
+    else:
+        prog.done("text_taken")
+    if not was:
+        m.pause()
+    return prog.spent()
+
 def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,
            guest=None):
     """Run until the SCREEN STOPS CHANGING, and answer how long that took.
