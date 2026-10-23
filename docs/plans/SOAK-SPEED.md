@@ -78,6 +78,10 @@ reading the guest state the page is drawn from instead of pumping the screen).
    Likewise a breakpoint whose only job is "did X run at all" is disarmed at
    its first hit, not stopped at per row/frame.
 
+9. **A key is taken when the guest has read it, not after a pace.** `key_taken`
+   (harness changes); then assert the state the key set. Check fullscreen
+   exits: the kernel drains the key ring at the end of `fsx_restore`.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
@@ -135,6 +139,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
   `launch(boot=False)` + `m.run()` caller - desk_rows/menu_nbar live,
   [spl_live] = 0, then `ui_done`; no picture settle. dispseam's four boots.
 - **`ui_done(m, lock=False)` / `ui_idle(m, lock=False)`** (os88marty): the UI pass is over without asking the gfx lock - for a GAME whose worker holds it nearly always (Missile: a `ui_done` after a drag ran 110 guest s). The framebuffer is then not promised; settle before a capture. dispmcfs.
+- **`os88marty.key_taken(m, name)`**: press a key and return when the guest has TAKEN it - BIOS ring tail moved, head caught up, ui_task asleep with nothing queued (the gfx lock NOT asked, so a package drawing on every tick ends at once); `ui=False, tail=` for a fullscreen loop that reads keys itself; capped at the old `pace(.15)`. `ui_passed(m, cap)` is its last clause alone. The replacement for `m.key(); pace(.15)` + `ui_done(cap=)`. Gorillas family.
+- **`Marty.wait_stop`'s nap is capped at 4 ms** (`WAIT_STOP_NAP`, `OS88_WAIT_STOP_NAP`; was doubling to `poll`=20 ms): a few-ms guest routine bracketed by breakpoints paid up to 2x its run in the last nap. gorillasinput's VGA arm 76.5 -> 63.9 s A/B back to back; uilayer, martyconc green.
 - `tools/redline_profile.py` `wait()`: 5-frame steps for the first guest second, then 30 (same guest bound). The benchmark runs are minutes of guest time and each 5-frame step was a round trip plus the predicate's reads. redline* rows; validated on redlinecga/herc/v20native (pass) and redlinevga (fails identically with the old wait).
 - **`tests/weavesmoke.py`'s `_open_bundle` on os88ui verbs, and `booted()`** (a quick boot): the whole Weave family's navigation (weaveprev/session/grid/gfx/one/game/lat). Validated on all eight rows.
 
@@ -197,6 +203,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | skieshaze | 110 s / waits 41 guest | 53 s / 29 guest | 2, 8 | `cs_hzfill` breakpoint disarmed after its first hit (it only proves the fill runs; it stopped once per split row of 77 frames). `--clobber-ends` still FAILS (69 frames, worst 13 bytes). Secs 187 -> 70 |
 | skies (+ every skies*.py) | skies 66 s / 37 guest | 49 s / 25 guest | 2 | `quick=True` on the 29 os88ui.boot scripts; `skies.open_game` (6 launch-based scripts) is `ui.up` + `ui.path` instead of four dispcp settles, launched `boot=False`. Whole skie family run green after; secs left as declared |
 | redline (cga, herc, v20native) | cga 172 s | cga 148 s; herc 222, v20 233 (loaded) | - | the guest benchmark runs (two full runs, the rerun is a tested behaviour) ARE the row; only the poll step shrank. **redlinevga FAILS at base**: `ru_buttons+10 == 2` (held press, redline.py:312), identically with the old wait |
+| gorillas | 180 s / 352 guest s waited + ~175 unlogged in key paces | 110 s / 300 | 2, 9 | `key_taken` for ~330 keys (0.675 guest pace + up to 0.5 ui_done cap each -> 0.07); `quick=True`. A windowed key now waits `[fsx_task]` = 0xFF first: `fsx_restore` DRAINS the key ring after `[gr_fs]` clears, so a key in that window was eaten (gorillasfront went red on it) |
+| gorillasfront / menu / input / reactions / music / city | declared 305 / 160 / 300 / 300 / 253 / 100 | 78 / 156 / 160 / 157 / 62 / 66 s (load 5-7) | 2, 9 | the same `key`; menu/input's post-measure `pace+ui_done` -> `ui_passed`; menu needed a `ui_done` after `[gr_state]`=5 (state is set before the setup text). input/reactions are ~70% `check_repaint`'s VGA plane readback (153,600 bytes through a guest stub, 4 reads a key) - a debug-server plane read would be the next win |
 | weavepack | 67 s / 250 guest s waited (declared 1,500) | 51 s / 160 | 2, 4 | os88ui verbs (`open` confirms LOOM's window, `close` its record) and `ui_done` after ^P - Pack runs whole on the UI task - instead of three settles; quick boot. The rest is eleven LOOM launches and their packs |
 | weaveprev | 79 s / 283 guest s waited | 53 s / 190 | 2, 3, 4 | six boots -> two (Forks a project); the Preview's two settles -> `ui_done` (compile + module read are UI-task); every read is `m.vram`. The rest is three LOOM launches and Previews a machine |
 | weavesession | 28 s / 91 | 24 s / 66 | 2, 4 | six settles -> `ui_done` (the VM drains in WM_ONWAKE slices on the UI task; FORM has no canvas) |

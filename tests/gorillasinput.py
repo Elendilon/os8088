@@ -97,7 +97,10 @@ def video_bytes(m, tag):
     saved = m.regs()
     original_stub = m.read(p.base + stub, 9)
     original_scratch = m.read(p.base + scratch, scratch_size)
-    m.write(p.base + stub, bytes.fromhex('fa b8 00 a0 8e d8 f3 a4 90'))
+    # REP MOVSW, not MOVSB: the copy is the guest's own time and the whole
+    # cost of a VGA check_repaint (153,600 bytes a read); a word string move
+    # is ~25% fewer clocks a byte on the 8088 and the chunks are all even.
+    m.write(p.base + stub, bytes.fromhex('fa b8 00 a0 8e d8 f3 a5 90'))
     index = m.inb(0x3ce)
     m.outb(0x3ce, 5)
     mode = m.inb(0x3cf)
@@ -111,7 +114,7 @@ def video_bytes(m, tag):
             count = min(scratch_size, 38400-offset)
             m.cmd(cmd='park', cs=p.base >> 4, ip=stub)
             for reg, value in (('es', p.base >> 4), ('si', offset),
-                               ('di', scratch), ('cx', count),
+                               ('di', scratch), ('cx', count // 2),
                                ('flags', saved['flags'] & ~0x600)):
                 m.setreg(reg, value)
             m.bp_exec(p.base + stub + 8)
@@ -177,9 +180,8 @@ def measure(m, p, code, name, tag, repaint):
         check_repaint(m, p, code, tag)
     m.bp_exec()
     m.run()
-    G.M.pace(m, .08)
-    if not p.b('fs') and p.b('state') != 1:
-        G.M.ui_done(m)
+    if not p.b('fs'):
+        G.M.ui_passed(m)   # the pass that ran gr_key is over
     return cycles
 
 
@@ -269,11 +271,10 @@ def main():
                        cwd=G.ROOT, check=True)
         for tag in ([args.arm] if args.arm else G.ARMS):
             with G.os88ui.boot(G.os88build.at('build/os8088-360.img'),
-                              apps=str(disk), machine=G.ARMS[tag]) as ui:
+                              apps=str(disk), machine=G.ARMS[tag], quick=True) as ui:
                 m = ui.m
                 ui.open_drive('B')
                 ui.open('GORILLAS.O88')
-                G.M.pace(m, .3)
                 p = G.Probe(ui, off)
                 m.gorillas_probe = p
                 G.setup(m)

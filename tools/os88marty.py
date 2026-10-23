@@ -169,6 +169,10 @@ GUEST_BUDGET_RATIO = float(os.environ.get("OS88_GUEST_RATIO", "3.0"))
 # 4.5 is the idle measurement, not a margin; OS88_GUEST_PACE=0 puts the host
 # sleeps back, for an A/B and nothing else.
 GUEST_PACE = float(os.environ.get("OS88_GUEST_PACE", "4.5"))
+# wait_stop's longest nap between polls. Doubling straight to `poll` (20 ms)
+# overshot a stop by up to the last nap - a harness-driven guest routine of a
+# few ms (a breakpoint-bracketed handler, a readback stub) paid ~2x its run.
+WAIT_STOP_NAP = float(os.environ.get("OS88_WAIT_STOP_NAP", "0.004"))
 
 # SETTLE'S SHORT WINDOW. `settle` proves stillness over `stable` intervals of
 # `quiet`, and at GUEST_PACE that is nine guest seconds of a still screen
@@ -883,7 +887,7 @@ class Marty:
             else:
                 stuck = None
             time.sleep(nap)
-            nap = min(nap * 2, poll)
+            nap = min(nap * 2, poll, WAIT_STOP_NAP)
 
     # --- input, through the REAL devices -------------------------------------
     #
@@ -2779,6 +2783,80 @@ def ui_done(m, what="the UI to finish with that input", hold=0.06,
         if held and idle(m) and m.disk().get("reads") == r0:
             prog.done("ui_done")
             return prog.spent()
+
+
+def _ui_asleep(m):
+    """ui_task asleep at `.idle` with no event queued and no wake pending -
+    `ui_idle` WITHOUT the gfx lock and the key ring."""
+    a = getattr(m, "_ui_idle_syms", None)
+    if a is None:
+        a = m._ui_idle_syms = (m.sym("sch_tasks") + UI_T_STATE,
+                               m.sym("evq_count"), m.sym("sch_uiwake"),
+                               m.sym("gfx_lock_flag"))
+    return (m.read(a[0], 1)[0] == UI_ASLEEP and not m.read(a[1], 1)[0]
+            and not m.read(a[2], 1)[0])
+
+
+def ui_passed(m, cap=0.5, what="ui_task to finish its pass"):
+    """Run until ui_task has finished the pass it is in (`_ui_asleep`), at most
+    `cap` guest seconds, and answer the guest seconds spent. `ui_done` for a
+    package that draws on every tick, whose lock is never idle for a whole
+    tick: the pass that handled an input is over, which is what a following
+    breakpoint-armed input or a state read needs."""
+    prog = _Progress(m, what, 60.0 * GUEST_BUDGET_RATIO)
+    while not _ui_asleep(m):
+        prog.check()
+        if prog.spent() >= cap:
+            return prog.spent()
+        time.sleep(0.002)
+    prog.done("ui_passed")
+    return prog.spent()
+
+
+def key_taken(m, name, ui=True, cap=0.675, tail=0.0,
+              what="the guest to take that key"):
+    """Press `name` (`Marty.key`) and return once the guest has TAKEN it, in
+    guest seconds - the replacement for `m.key(name); pace(m, .15)`.
+
+    Taken is three facts read off the machine: the BIOS key ring's TAIL moved
+    (the keyboard ISR stored the key - MartyPC's keyboard model delivers a
+    press some milliseconds after the request), its HEAD caught up (whoever
+    reads keys has read it), and, with `ui`, ui_task is asleep with nothing
+    queued and no wake pending - the pass that dispatched the key is over.
+    The gfx lock is NOT asked, unlike `ui_done`, so a package whose worker
+    or tick draws all the time still ends here as soon as its key handler
+    has run. `ui=False` is for a consumer that is not ui_task (a fullscreen
+    bracket's own loop); `tail` guest seconds are then run after the read so
+    the loop gets to act on what it read.
+
+    BOUNDED: after `cap` guest seconds it returns quietly, so a key that never
+    reaches the ring (a modifier, a key the kernel's own ISR swallows) costs
+    exactly the old pace and never more."""
+    t0 = m.read(BIOS_KBUF + 2, 2)
+    m.key(name)
+    prog = _Progress(m, what, 60.0 * GUEST_BUDGET_RATIO)
+    stage = 0
+    while True:
+        prog.check()
+        if prog.spent() >= cap:
+            return prog.spent()
+        kb = m.read(BIOS_KBUF, 4)
+        if stage == 0 and kb[2:4] != t0:
+            stage = 1
+        if stage == 1 and kb[0:2] == kb[2:4]:
+            if not ui:
+                break
+            stage = 2
+        if stage == 2 and _ui_asleep(m):
+            break
+        time.sleep(0.002)
+    if tail > 0:
+        c0 = prog._cycles()
+        while (prog._cycles() - c0) / GUEST_HZ < tail:
+            prog.check()
+            time.sleep(0.002)
+    prog.done("key_taken")
+    return prog.spent()
 
 
 def settle(m, quiet=1.0, stable=2, gate=None, limit=120.0, card=None,

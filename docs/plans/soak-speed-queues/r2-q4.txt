@@ -1,11 +1,11 @@
 # ROUND 2. family  row  declared_secs  script. VERIFY = shared script edited in round 1, row never re-run: run it once first.
-gori	gorillas	370	tests/gorillas.py
-gori	gorillasfront	305	tests/gorillasfront.py
-gori	gorillasreactions	300	tests/gorillasreactions.py
-gori	gorillasinput	300	tests/gorillasinput.py
-gori	gorillasmusic	253.5	tests/gorillasmusic.py
-gori	gorillasmenu	160	tests/gorillasmenu.py
-gori	gorillascity	100	tests/gorillascity.py
+DONE gori	gorillas	370	tests/gorillas.py
+DONE gori	gorillasfront	305	tests/gorillasfront.py
+DONE gori	gorillasreactions	300	tests/gorillasreactions.py
+DONE gori	gorillasinput	300	tests/gorillasinput.py
+DONE gori	gorillasmusic	253.5	tests/gorillasmusic.py
+DONE gori	gorillasmenu	160	tests/gorillasmenu.py
+DONE gori	gorillascity	100	tests/gorillascity.py
 pxde	pxdecode	1670	tests/pxdecode.py
 inst	install	400	tests/install.py
 inst	instcross	240	tests/instcross.py

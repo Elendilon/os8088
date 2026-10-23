@@ -146,9 +146,8 @@ def measure(m, p, code, key, tag):
     I.check_repaint(m, p, code, tag)
     m.bp_exec()
     m.run()
-    G.M.pace(m, .08)
     if not p.b('fs'):
-        G.M.ui_done(m)
+        G.M.ui_passed(m)   # the pass that ran gr_key is over
     return ms
 
 
@@ -166,7 +165,7 @@ def main():
                        cwd=G.ROOT, check=True)
         for tag in ([args.arm] if args.arm else G.ARMS):
             with G.os88ui.boot(G.os88build.at('build/os8088-360.img'),
-                              apps=str(disk), machine=G.ARMS[tag]) as ui:
+                              apps=str(disk), machine=G.ARMS[tag], quick=True) as ui:
                 m = ui.m
                 ui.open_drive('B')
                 ui.open('GORILLAS.O88')
@@ -184,6 +183,7 @@ def main():
                 G.wait(m, lambda: not p.b('fs'), 'intro fullscreen exit')
                 G.key(m, 'Space')
                 G.wait(m, lambda: p.b('state') == 5, 'setup')
+                G.M.ui_done(m)   # [gr_state] is set before the setup text is composed
                 for mode in ('window', 'full'):
                     if mode == 'full':
                         # Start setup again through the actual gameplay key.

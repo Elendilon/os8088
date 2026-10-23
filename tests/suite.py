@@ -4237,7 +4237,7 @@ SOAK = [
         "service cost and a captured peak. Measured 60s CPU, 4.5 min wall",
         needs=("marty", "pil"), serial=True,
         wants=("build/drmario360.img", "build/os8088-360.img")),
-    Row("gorillas", "soak", py("tests/gorillas.py"), 370.0,
+    Row("gorillas", "soak", py("tests/gorillas.py"), 140.0,
         "Native Gorillas (SPEC.md 99), measured 97.3s on three adapters: "
         "keyboard angle/velocity editing, persistent terrain damage, pause, "
         "five self-hit rounds to a total-points match, actual fullscreen "
@@ -4248,7 +4248,7 @@ SOAK = [
         "states are injected by the test. Saves screenshots of each adapter",
         needs=("marty", "nasm"), serial=True,
         wants=("build/gorillas.o88", "build/os8088-360.img")),
-    Row("gorillasmusic", "soak", py("tests/gorillasmusic.py"), 253.5,
+    Row("gorillasmusic", "soak", py("tests/gorillasmusic.py"), 80.0,
         "Gorillas FM music (SPEC.md 99): AdLib, Sound Blaster and speaker-only "
         "guests. Complete loops of three scores, skyline rotation, idle and "
         "fullscreen progression, Yes/No setup, M during every gameplay state, "
@@ -4257,7 +4257,7 @@ SOAK = [
         "The corrupted-loop control fails at row 128; measured 253.5s",
         needs=("marty", "nasm"), serial=True,
         wants=("build/gorillas.o88", "build/os8088-360.img")),
-    Row("gorillasreactions", "soak", py("tests/gorillasreactions.py"), 300.0,
+    Row("gorillasreactions", "soak", py("tests/gorillasreactions.py"), 240.0,
         "Gorillas feature parity (SPEC.md 99.0): reference trajectory samples, "
         "numeric bounds, silhouette collision, throw/banana/blast animations, "
         "sun occlusion, all victory poses, automatic rounds, final scores and "
@@ -4434,7 +4434,7 @@ SOAK = [
         "as the card rasterised it in colour",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-360.img", "build/media360.img")),
-    Row("gorillascity", "soak", py("tests/gorillascity.py"), 100.0,
+    Row("gorillascity", "soak", py("tests/gorillascity.py"), 90.0,
         "Gorillas skyline redraw (SPEC.md 99.4): seed-stable city construction "
         "under 400 ms; complete VGA paints under 1800 ms and mono/CGA under "
         "600 ms at 4.77 MHz. Independent native VRAM decoding checks all ink "
@@ -4446,13 +4446,13 @@ SOAK = [
         "reference (SPEC.md 99.5)",
         needs=("marty", "nasm"), serial=True,
         wants=("build/gorillas.o88", "build/os8088-360.img")),
-    Row("gorillasfront", "soak", py("tests/gorillasfront.py"), 305.0,
+    Row("gorillasfront", "soak", py("tests/gorillasfront.py"), 150.0,
         "Gorillas frontend (SPEC.md 99): setup validation, player names, "
         "gravity, music, dance, solo play and fullscreen transitions on all "
         "three adapters; 88s measured",
         needs=("marty", "nasm"), serial=True,
         wants=("build/gorillas.o88", "build/os8088-360.img")),
-    Row("gorillasmenu", "soak", py("tests/gorillasmenu.py"), 160.0,
+    Row("gorillasmenu", "soak", py("tests/gorillasmenu.py"), 210.0,
         "Gorillas menu and animation budgets (SPEC.md 99.3): character edits "
         "under 20 ms, transitions under 150 ms and complete animation frames "
         "under 75 ms. Checks all marquee phases/poses against scene pixels "
@@ -4462,7 +4462,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/gorillas.o88", "build/os8088-360.img")),
     Row("gorillasinput", "soak",
-        py("tests/gorillasinput.py", "--check-repaint"), 300.0,
+        py("tests/gorillasinput.py", "--check-repaint"), 240.0,
         "Gorillas XT input (SPEC.md 99.2): three-adapter input/repaint checks "
         "with actual guest reads of all VGA planes and buffered keys. Real keyboard "
         "handlers must stay under 20 ms; six buffered fullscreen aiming keys "
