@@ -70,7 +70,7 @@ def wait_text(m, want, secs=120):
     try:
         os88marty.until(m, lambda _: any(want in r for r in
                                          [x.rstrip() for x in (m.screen() or [])]),
-                        "the %r line" % want, guest=secs, poll=0.25)
+                        "the %r line" % want, guest=secs, poll=0.05)
     except os88marty.MartyError as e:
         fail("%r never appeared: %s  The screen read %r"
              % (want, str(e).split("\n")[0][:160],
@@ -97,7 +97,7 @@ def main(argv):
     a = ap.parse_args(argv)
 
     mx, my = os88sym.linear("mouse_x"), os88sym.linear("mouse_y")
-    with os88ui.boot(SYS, apps=DISK, machine=a.machine) as ui:
+    with os88ui.boot(SYS, apps=DISK, machine=a.machine, quick=True) as ui:
         m = ui.m
         if not ui.path("B:/IRQGRAB.COM"):
             fail("double-clicking IRQGRAB.COM opened no window")

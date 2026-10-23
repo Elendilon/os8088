@@ -5,25 +5,25 @@ DONE bptr	bptrace	45	tests/bptrace.py
 DONE atme	atmenusu	45	tests/atmenusu.py
 DONE cpup	cpup	41.3	tests/cpup.py
 SKIP needs-rgbds(absent) gbst	gbstate	40	tests/gbstate.py
-kdcy	kdcylrun	40	tests/kdcylrun.py
-ddsm	ddsmall	40	tests/ddsmall.py
-reco	recorder	40	tests/recorder.py
-face	facescan	18	tests/facescan.py
-face	facescan144	18	tests/facescan.py
-irqg	irqgrab	35	tests/irqgrab.py
+DONE kdcy	kdcylrun	40	tests/kdcylrun.py
+DONE ddsm	ddsmall	40	tests/ddsmall.py
+DONE reco	recorder	40	tests/recorder.py
+DONE face	facescan	18	tests/facescan.py
+DONE face	facescan144	18	tests/facescan.py
+DONE irqg	irqgrab	35	tests/irqgrab.py
 SKIP needs-rgbds(absent) gbde	gbdemo	30	tests/gbdemo.py
-dtwr	dtwrite	30	tests/dtwrite.py
-path	pathcost	30	tests/pathcost.py
-fmth	fmthumb	30	tests/fmthumb.py
-cpli	cplistrow	30	tests/cplistrow.py
-dosx	dosxms	28	tests/dosxms.py
+DONE dtwr	dtwrite	30	tests/dtwrite.py
+DONE path	pathcost	30	tests/pathcost.py
+DONE fmth	fmthumb	30	tests/fmthumb.py
+DONE cpli	cplistrow	30	tests/cplistrow.py
+DONE dosx	dosxms	28	tests/dosxms.py
 SKIP needs-rgbds(absent) gbfm	gbfm	25	tests/gbfm.py
-dosv	dosvec	25	tests/dosvec.py
-tmco	tmcol2	21	tests/tmcol2.py
-post	postboot	20	tests/postboot.py
-lzfe	lzfence	20	tests/lzfence.py
-mouw	mouwheel	20	tests/mouwheel.py
-pxsb	pxsbench	18	tests/pxsbench.py
+DONE dosv	dosvec	25	tests/dosvec.py
+DONE tmco	tmcol2	21	tests/tmcol2.py
+DONE post	postboot	20	tests/postboot.py
+DONE lzfe	lzfence	20	tests/lzfence.py
+DONE mouw	mouwheel	20	tests/mouwheel.py
+DONE pxsb	pxsbench	18	tests/pxsbench.py
 SKIP needs-rgbds(absent) gbsh	gbship	15	tests/gbship.py
-dskw	dskwstage	15	tests/dskwstage.py
-dual	dualcheck	10	tests/dualcheck.py
+DONE dskw	dskwstage	15	tests/dskwstage.py
+DONE dual	dualcheck	10	tests/dualcheck.py

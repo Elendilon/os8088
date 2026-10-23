@@ -71,7 +71,7 @@ def main():
         if not os.path.exists(p):
             fail("%s is missing - `make doscom` builds the gate disks" % p)
 
-    with os88ui.boot(SYS, apps=GATE) as ui:
+    with os88ui.boot(SYS, apps=GATE, quick=True) as ui:
         m = ui.m
         if not ui.path("B:/VECS.COM"):
             fail("double-clicking VECS.COM opened no window")
@@ -86,7 +86,7 @@ def main():
             rows[:] = m.screen() or []
             return any("KEY" in r for r in rows)
         try:                        # GUEST time: `limit` is idle-box seconds
-            os88marty.until(m, _seen, "the probe to reach KEY", poll=0.25,
+            os88marty.until(m, _seen, "the probe to reach KEY", poll=0.05,
                             limit=45.0)
         except os88marty.MartyError:
             got = [r.rstrip() for r in (m.screen() or []) if r.strip()]
@@ -139,8 +139,7 @@ def main():
               "%s" % (mo.group(1), line[3:].split(" SPD")[0]))
 
         # --- and out through AH=00h, whose exit code is ZERO -----------------
-        m.type_text("x")
-        os88marty.settle(m)
+        os88marty.text_taken(m, "x")   # every read below is guest state
         titles = ui.titles()
         if "DOS" not in titles:
             fail("the DOS window is gone after the program exited: %r" % titles)

@@ -4653,7 +4653,7 @@ SOAK = [
         "failure that is not a disk error, because stage 2 and the loading "
         "screen are in the sectors that DID arrive",
         needs=("marty",), serial=True),
-    Row("postboot", "soak", py("tests/postboot.py"), 20.0,
+    Row("postboot", "soak", py("tests/postboot.py"), 10.0,
         "Does the machine survive its FIRST DISK ACCESS AFTER THE DESKTOP? "
         "(SPEC.md 2.9.5.1) Every other boot row in this file stops at the "
         "first frame, which is how a kernel whose next int 13h jumped into "
@@ -5739,7 +5739,7 @@ SOAK = [
         "last step reads `ask=5FEA cf=1 bx=5236`.",
         needs=("marty",), wants=("build/dosmcb360.img",)),
 
-    Row("dosvec", "soak", py("tests/dosvec.py"), 25.0,
+    Row("dosvec", "soak", py("tests/dosvec.py"), 20.0,
         "THE VECTORS A REAL DOS OWNS ARE INSTALLED, not left at 0000:0000 "
         "(SPEC.md 96.5.2). The box hooked 20h 21h 22h 23h 24h 2Fh 33h and "
         "left the other fourteen of DOS's own block empty - which is not "
@@ -5887,7 +5887,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/dosrange360.img",)),
 
-    Row("irqgrab", "soak", py("tests/irqgrab.py"), 35.0,
+    Row("irqgrab", "soak", py("tests/irqgrab.py"), 30.0,
         "A DOS PROGRAM TAKES THE MOUSE'S IRQ, AND THE KERNEL TAKES IT BACK "
         "(SPEC.md 9.13). A program inside an fsx bracket owns the machine and "
         "that includes the IVT: Battle Chess writes `int 0Ch`'s vector "
@@ -5923,7 +5923,7 @@ SOAK = [
         "rather than as a wrong number.",
         needs=("marty",), serial=True,
         wants=("build/dosexec360.img",)),
-    Row("dosxms", "soak", py("tests/dosxms.py"), 28.0,
+    Row("dosxms", "soak", py("tests/dosxms.py"), 20.0,
         "THE DOS XMS GATE (SPEC.md 96.15). ON AN 8088 THE WHOLE ASSERTION IS "
         "A REFUSAL, and it is worth a row because getting it wrong is silent "
         "both ways: int 2Fh AX=4300h must answer AL != 80h when the pool can "
@@ -6071,7 +6071,7 @@ SOAK = [
         "the whole point is a real 8088 running a DOS program with the "
         "operating system gone. `make kdostest` builds the B: floppy; the system disk is the shipped one.",
         wants=("build/os8088-360.img", "build/doscom360.img")),
-    Row("kdcylrun", "soak", py("tests/kdcylrun.py"), 40.0,
+    Row("kdcylrun", "soak", py("tests/kdcylrun.py"), 30.0,
         "kern_dos DOES NOT CROSS A HEAD IT WAS NEVER GIVEN LEAVE TO CROSS "
         "(SPEC.md 96.44.14). SPEC.md 18.93.1 settles that ONCE, in the "
         "loader, with a canary over its own transfer, and writes "
@@ -7956,7 +7956,7 @@ SOAK = [
         "in nineteen did, sealing the player in a box a 26-unit step cannot"
         "leave - and a player who somehow IS inside one can still drive out",
         needs=("marty",), serial=True),
-    Row("ddsmall", "soak", py("tests/ddsmall.py"), 40.0,
+    Row("ddsmall", "soak", py("tests/ddsmall.py"), 60.0,
         "SPEC.md 24.5.5: DOT DELIRIUM runs on kern_small's 128KB floor "
         "machine - a window, a board cut from the surface, a picture CLAIMED "
         "off a 52.5KB arena, Smiles eating on an OS88_STACK_256 worker, and "
@@ -9118,7 +9118,7 @@ SOAK = [
         "(SPEC.md 39.14.11) - it builds `make NOSEAMCUT=1` itself for the A/B"
         "and puts the default kernel back, both seam orientations",
         needs=("marty",), serial=True),
-    Row("dskwstage", "soak", py("tests/dskwstage.py"), 15.0,
+    Row("dskwstage", "soak", py("tests/dskwstage.py"), 30.0,
         "SPEC.md 18.4.2.1: does the DMA STAGING arm run, and does it move the "
         "RIGHT bytes? dskw_runadd's third answer - CF=0 with CX != 0, `not "
         "one sector fits this DMA page` - fell through into a shared "
@@ -9699,7 +9699,7 @@ SOAK = [
         "apps, so Note Pad is opened off A:.",
         needs=("marty",), serial=True,
         wants=("build/small360.img",)),
-    Row("fmthumb", "soak", py("tests/fmthumb.py"), 30.0,
+    Row("fmthumb", "soak", py("tests/fmthumb.py"), 20.0,
         "SPEC.md 13.10.5: the Disk window's scroll-bar THUMB is dragged, and"
         "x is never read.",
         needs=("marty",), serial=True),
@@ -10364,7 +10364,7 @@ SOAK = [
         "record. --bar=1 drives the preview pane's.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("facescan", "soak", py("tests/facescan.py"), 18.0,
+    Row("facescan", "soak", py("tests/facescan.py"), 20.0,
         "SPEC.md 19.8: ty_scan WALKS to SYSTEM/FONTS on the machine and comes "
         "back with every family - a package standing on the apps floppy, told "
         "nothing but OSAPI_VOL_SYS. The unit rows either side of it check the "
@@ -10377,7 +10377,7 @@ SOAK = [
     Row("facescan144", "soak", py("tests/facescan.py", "--machine",
                                   "os8088_xt_vga_144", "--sys",
                                   "build/os8088.img", "--bench",
-                                  "build/bench.img"), 18.0,
+                                  "build/bench.img"), 20.0,
         "SPEC.md 19.8: facescan's FIRST rung - the faces in SYSTEM/FONTS on "
         "the 1.44MB system disk, the package on a B: that has none.",
         needs=("marty",), wants=("build/bench.img",)),
@@ -11662,7 +11662,7 @@ SOAK = [
         "decoder, pt_line_put's packing into four planes and gfx_blitp are"
         "all inside one answer",
         needs=("marty",), serial=True),
-    Row("cplistrow", "soak", py("tests/cplistrow.py"), 30.0,
+    Row("cplistrow", "soak", py("tests/cplistrow.py"), 20.0,
         "SPEC.md 31.1.4: does a Control Panel selection redraw TWO ROWS, or"
         "blank the left pane? cp_list erases the pane before re-lettering"
         "every row and used to BE the redraw path, so moving one highlight"
@@ -12106,7 +12106,7 @@ SOAK = [
         "corridor's; the map up, and still up with PXM_MAP after Esc) - it "
         "judges no picture: LOOK at the PNGs. Three MartyPC launches in one row",
         needs=("marty", "pil"), serial=True),
-    Row("pxsbench", "soak", py("tests/pxsbench.py"), 18.0,
+    Row("pxsbench", "soak", py("tests/pxsbench.py"), 30.0,
         "SPEC.md 97.10: PIXELSTEIN 3D's unit costs, MEASURED. Every figure "
         "the frame table of 97.1 is built from - the compiled store, the "
         "static ladder, the patched DDA body at 10 and 20 crossings, the two "
@@ -12512,7 +12512,7 @@ SOAK = [
         "release's store removed, the sub-tick's hand-back removed - each "
         "FAILS",
         needs=("marty", "nasm")),
-    Row("recorder", "soak", py("tests/recorder.py"), 40.0,
+    Row("recorder", "soak", py("tests/recorder.py"), 30.0,
         "SPEC.md 35: RECORDER on a Sound Blaster 5150, from a scratch floppy "
         "(it ships on no floppy). The DEMO BUTTON fires on its release; all "
         "8,000 staged samples equal the 400-800-400 Hz sweep's model; Play "
@@ -15742,7 +15742,7 @@ SOAK = [
         "Manager's caption lost its bottom rows beside a Disk window. The "
         "whole title strip against itself uncovered, both sides. Hercules",
         needs=("marty",), serial=True),
-    Row("tmcol2", "soak", py("tests/tmcol2.py"), 21.0,
+    Row("tmcol2", "soak", py("tests/tmcol2.py"), 20.0,
         "SPEC.md 28.1.2: on CGA the process list wraps into a SECOND COLUMN, "
         "and that column has to carry rows. It shipped EMPTY from the day "
         "two-column mode landed - the list took column 0's depth from the "
