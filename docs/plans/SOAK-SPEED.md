@@ -152,6 +152,11 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **`UI.chooser()` ends on `still()`, not `settle()`**: the chooser's paint
   is inside the pass that showed it. fdlgchoose 186 -> 116 guest s with its
   own settles; validated on the six fdlg rows, editmove, sbar, wimgtrip, lzmod.
+- **`pxslib.open_game` takes an UNBOOTED machine**: `launch(..., boot=False)`
+  -> it runs it and gates on `kernel_up` instead of a picture settle (a
+  booted one is settled as before). `tools/pxsart.py` memoises
+  `nearest_index` and `load_sprite` (outputs checked equal): 80+ host s of
+  pxssim's 134 was the sprite set re-parsed per scene. Every pxs* row.
 - **`os88marty.kernel_up(m)`**: os88ui's `up` gate for a bare
   `launch(boot=False)` + `m.run()` caller - desk_rows/menu_nbar live,
   [spl_live] = 0, then `ui_done`; no picture settle. dispseam's four boots.
@@ -276,6 +281,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | trkspk* (9 rows) | trkspkcovox 42 s (3 lanes) / launch + `ready` settles ~22 guest s a boot | all green; walls 32-105 s at load ~8, 85 s charged for the nine | 4, 8 | boots gated on `ui.up` + `ui_done` (were launch's settle AND `ready`'s); poll 0.2 -> 0.05. The `pace`s are the PLAY running (pulse rates, the ring never dry) and stay. Secs left as declared |
 | mrdraw(vga), wfdraw(herc), dosext, kdnoprog, hdnoclaim, heaphi, apspk* (5) | boot settles 20-42 guest s a row (survey) | 13 rows green, 165 s for all in 3 lanes at load ~8 | 4 | quick boots / `up` + `ui_done` / `kernel_up` where launch's settle (and `ready`'s, or a second settle) gated a boot whose first act confirms itself; measurement windows untouched. Over-declared ones re-declared |
 | imgtest, brlink, cmemmove, arkpuwipe(small), tmgraph, netpromise, drvscroll, tmrepair, wmartifact, heapscrl, dosargs | 27 / 11 / 26 / 29 / 43 / 57 / 35 / 73 / 74 / 60 / 26 s (survey, 3 lanes) | 14 / 15 / 44 / 53 / 18 / 25 / 17 / 31 / 37 / 24 / 32 s (12 in 3 lanes, load ~8) | 4 | launch's boot settle (20-33 guest s each) -> `kernel_up` + `no_saver`, or `quick=True`; nothing else touched. Re-declared |
+| pxssim / -herc / pxsshots / pxsstate / pxsscale | 134 / 122 / 86 / 53 / 11 s (load 7), 513 guest s waited | 54 / 52 / 78 / 33 / 14 s (load 5), 459 guest | 9(host), quick boot | host-bound: pxsart's per-pixel palette search and sprite re-parse memoised; launches unbooted through `open_game`. What is left is ~715 real game frames and the package loads. pxssim-herc FAILED once (a door's shadow 121 bytes off the host's) and passed alone twice - an intermittent, not this change (it is on the boot path only) |
 
 ## Resuming
 

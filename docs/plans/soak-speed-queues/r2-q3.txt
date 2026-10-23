@@ -94,11 +94,11 @@ DONE fdlg	fdlgchsmall	105	tests/fdlgchoose.py
 DONE fdlg	fdlgdrop	80	tests/fdlgdrop.py
 DONE fdlg	fdlggrey	60	tests/fdlggrey.py
 DONE fdlg	fdlgup	60	tests/fdlgup.py
-pxss	pxssim	200	tests/pxssim.py
-pxss	pxssim-herc	195	tests/pxssim.py
-pxss	pxsshots	145	tests/pxsshots.py
-pxss	pxsstate	70	tests/pxsstate.py
-pxss	pxsscale	26	tests/pxsscale.py
+DONE pxss	pxssim	200	tests/pxssim.py
+DONE pxss	pxssim-herc	195	tests/pxssim.py
+DONE pxss	pxsshots	145	tests/pxsshots.py
+DONE pxss	pxsstate	70	tests/pxsstate.py
+DONE pxss	pxsscale	26	tests/pxsscale.py
 pxed	pxedit	600	tests/pxedit.py
 czse	czseqnone	330	tests/czseq.py
 czse	czseq	150	tests/czseq.py

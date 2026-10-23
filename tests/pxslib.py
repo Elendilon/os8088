@@ -917,7 +917,11 @@ def open_game(m, apps_root=True, S=None, play=True):
     were written against. tests/pxsstate.py passes play=False: the states
     are its subject."""
     S = S or os88sym.linear
-    os88marty.settle(m)
+    if int(m.status().get("cycles", 1)) == 0:   # launch(boot=False): the boot
+        m.run()                     # gate is the kernel's STATE, not a
+        os88marty.kernel_up(m)      # picture settle (every next step is a
+    else:                           # verb or a guest read)
+        os88marty.settle(m)
     os88marty.no_saver(m)           # every PIXELSTEIN row drives for guest
                                     # MINUTES with no key: the idle saver
                                     # came up mid-row (px_hidden set by an

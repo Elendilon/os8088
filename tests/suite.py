@@ -11764,7 +11764,7 @@ SOAK = [
         "the floor once shared a colour) - REPORTED, never gated, for the "
         "snow question 88.15.4 leaves open on a real IBM CGA",
         needs=("marty", "nasm"), serial=True),
-    Row("pxssim", "soak", py("tests/pxssim.py"), 200.0,
+    Row("pxssim", "soak", py("tests/pxssim.py"), 70.0,
         "SPEC.md 97.5, 97.10: the package's column arrays (top, bot, wallh, "
         "mat, side, u) and its WHOLE shadow against tools/pxssim.py - the "
         "reference renderer, a second independent route to the same bytes - "
@@ -11783,7 +11783,7 @@ SOAK = [
         "the row below",
         needs=("marty", "nasm"), serial=True),
     Row("pxssim-herc", "soak",
-        py("tests/pxssim.py", "--machine", "os8088_5150_herc_gla"), 195.0,
+        py("tests/pxssim.py", "--machine", "os8088_5150_herc_gla"), 70.0,
         "SPEC.md 97.5, 97.10: pxssim on the Hercules 5150 - the only run of "
         "the present's 4-bank device-row arm (px_devrows' HERC branch: bank "
         "y & 3, 90 bytes a row, +5 for the box) against the reference "
@@ -12050,7 +12050,7 @@ SOAK = [
         "generator hung on a zero once); tests/pxslib.py's layout literals "
         "are pxgen.inc's; and build/pxstein.o88's part 0 is the tree's. "
         "Named so because t_pxsgen is the digest row. Host-side, soak"),
-    Row("pxsscale", "soak", py("tests/pxsscale.py"), 26.0,
+    Row("pxsscale", "soak", py("tests/pxsscale.py"), 20.0,
         "SPEC.md 97.3, 97.10: the generated part read back off MartyPC's "
         "5150 between frames and diffed BYTE FOR BYTE against tools/"
         "pxsgen.py - the bodies against the image's, the driver against its "
@@ -12093,7 +12093,7 @@ SOAK = [
         "its ladder-entry and skipped-column counters. The report is "
         "docs/reports/PXS-FRAME-<date>.md",
         needs=("marty", "nasm"), serial=True),
-    Row("pxsshots", "soak", py("tests/pxsshots.py"), 145.0,
+    Row("pxsshots", "soak", py("tests/pxsshots.py"), 100.0,
         "SPEC.md 97.6, 97.15: PIXELSTEIN 3D's PHOTOGRAPHS, an instrument - the "
         "two montages SPEC.md 97.15 and PIXELSTEIN-PLAN 17.2 cite as wave 6's "
         "evidence (build/pxs-shots/wave6f-montage-corridor-dog.png: scene A's "
