@@ -245,6 +245,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | atkey | 57.5 s alone (172 in 3 lanes) | 52 s | 4 | quick boots, five `ui.settle()` -> `ui_done` (it measures cycles and words, never the glass); same cycle figures. The rest is typing the scene a character at a time on two kernels |
 | curdisk | 170 s (3 lanes) / 107 guest s of boot settles | 38 s | 4 | four boots gated on `kernel_up`; setup's dispcp settles -> `ui_done`; `watch()` (the measurement) untouched, same move counts |
 | tmselfsu | 84 s alone (declared 300) | 94 s (noise) | - | boot on state only (20 guest s); the rest is dispcells' stop-per-call breakpoints on font_run_x/gfx_fill (host round trips; the measurement) and the Task Manager's own interval ticks. Re-declared |
+| hdboot | 131 s (3 lanes) / 36 guest s waited | 37 s / 35 | 4 | the install machine's double boot settle (launch's + one more) -> `kernel_up`; the C: boot was already a frame-stepped state watch |
 
 ## Resuming
 

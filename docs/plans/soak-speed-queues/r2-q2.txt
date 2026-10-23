@@ -112,7 +112,7 @@ DONE kzbo	kzboot-off	100	tests/kzboot.py
 DONE kzbo	kzboot	30	tests/kzboot.py
 shut	shutdown	120	tests/shutdown.py
 brli	brlink	120	tests/brlink.py
-hdbo	hdboot	120	tests/hdboot.py
+DONE hdbo	hdboot	120	tests/hdboot.py
 arkp	arkpuwipe	80	tests/arkpuwipe.py
 arkp	arkpuwipesmall	35	tests/arkpuwipe.py
 cmem	cmemmove	110	tests/cmemmove.py

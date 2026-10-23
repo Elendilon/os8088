@@ -10415,7 +10415,7 @@ SOAK = [
         "be TOLD where the heap starts. REBUILDS build/ and puts it back, and "
         "erases the VHD.",
         needs=("marty",), serial=True, timeout=2400),
-    Row("hdboot", "soak", py("tests/hdboot.py"), 120.0,
+    Row("hdboot", "soak", py("tests/hdboot.py"), 50.0,
         "Does os8088 BOOT from the hard disk it was installed to? (SPEC.md "
         "2.9.9) instdeep proves the bytes ARRIVE and every other boot row "
         "boots a floppy, so the volume boot record - a different 512 bytes "
