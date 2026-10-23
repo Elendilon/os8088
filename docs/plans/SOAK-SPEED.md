@@ -312,6 +312,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | desklayer (11 rows), vidrepeat(3), vidresbig, heapcheck, heapdrv, tmground, win1bpp, hdmap, kdkbd, drvcall, fmbtn, modstr, trkcompact, editmove | declared 20-150 s | 26 rows green, 9-59 s each (in 3 lanes, load ~8; 167 s charged) | 4 | the same boot conversion (quick boots / `kernel_up`, and the second settle some did after launch's); re-declared from this run |
 | pxedit | declared 600 | 225 s / 558 guest s waited (load 5), unchanged | - | guest-bound: the Effects ops ARE the work (Blur 38 guest s on the 8088) and every wait already ends on its condition; re-declared only |
 | czseqnone / czseq / czseqlose | 114 / 79 / 25 s (load 4), 118 guest s waited | 80 / 65 / 28 s (load 8), 88 guest | 4 + quick boot | quick boots (floppy and XT-IDE); settles before guest reads -> `ui_done`; polls 0.05. czseqnone's wall includes a ~40 s FATWNONE private-tree rebuild whenever the commit count moved (the build number), <1 s otherwise; czseq's rest is its per-`int 13h` breakpoint trace, the measurement |
+| vidfskeys (13 rows) | 28-102 s (load 11), 1,114 guest s waited | 33-78 s (load 9), 1,096 guest | 8 + quick boot | quick boot, polls 0.2 -> 0.05. The rest is the VGA floppy boot (~14 guest s to `up`) and the plays' own holds and seeks, which ARE the subject |
 
 ## Resuming
 

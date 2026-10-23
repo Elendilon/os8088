@@ -103,19 +103,19 @@ DONE pxed	pxedit	600	tests/pxedit.py
 DONE czse	czseqnone	330	tests/czseq.py
 DONE czse	czseq	150	tests/czseq.py
 DONE czse	czseqlose	40	tests/czseq.py
-vidf	vidfskeysvga4m3	55	tests/vidfskeys.py
-vidf	vidfskeysvga4pl	55	tests/vidfskeys.py
-vidf	vidfskeysvga4	45	tests/vidfskeys.py
-vidf	vidfskeysink	45	tests/vidfskeys.py
-vidf	vidfskeysmodex	40	tests/vidfskeys.py
-vidf	vidfskeysflip	40	tests/vidfskeys.py
-vidf	vidkpartfs	40	tests/vidfskeys.py
-vidf	vidfskeysc160	35	tests/vidfskeys.py
-vidf	vidfskeystext	35	tests/vidfskeys.py
-vidf	vidfskeysvga8	35	tests/vidfskeys.py
-vidf	vidfskeys	30	tests/vidfskeys.py
-vidf	vidfskeyscga4	30	tests/vidfskeys.py
-vidf	vidfskeysc512	25	tests/vidfskeys.py
+DONE vidf	vidfskeysvga4m3	55	tests/vidfskeys.py
+DONE vidf	vidfskeysvga4pl	55	tests/vidfskeys.py
+DONE vidf	vidfskeysvga4	45	tests/vidfskeys.py
+DONE vidf	vidfskeysink	45	tests/vidfskeys.py
+DONE vidf	vidfskeysmodex	40	tests/vidfskeys.py
+DONE vidf	vidfskeysflip	40	tests/vidfskeys.py
+DONE vidf	vidkpartfs	40	tests/vidfskeys.py
+DONE vidf	vidfskeysc160	35	tests/vidfskeys.py
+DONE vidf	vidfskeystext	35	tests/vidfskeys.py
+DONE vidf	vidfskeysvga8	35	tests/vidfskeys.py
+DONE vidf	vidfskeys	30	tests/vidfskeys.py
+DONE vidf	vidfskeyscga4	30	tests/vidfskeys.py
+DONE vidf	vidfskeysc512	25	tests/vidfskeys.py
 pxdr	pxdraw	200	tests/pxdraw.py
 pxdr	pxdrawvga	200	tests/pxdraw.py
 dotd	dotdel	150	tests/dotdel.py
@@ -123,10 +123,10 @@ dotd	dotdelpen	90	tests/dotdelpen.py
 dotd	dotdelwin	75	tests/dotdelwin.py
 dotd	dotdelmd	60	tests/dotdelmd.py
 redl	redlinescene	240	tests/redline.py
-redl	redlinechipcga	40	tests/redline.py
-redl	redlinechipherc	40	tests/redline.py
-redl	redlinechipvga	40	tests/redline.py
-redl	redlinev20	10	tests/redline.py
+MOVED->r2-q6 redl	redlinechipcga	40	tests/redline.py
+MOVED->r2-q6 redl	redlinechipherc	40	tests/redline.py
+MOVED->r2-q6 redl	redlinechipvga	40	tests/redline.py
+MOVED->r2-q6 redl	redlinev20	10	tests/redline.py
 wdsc	wdscroll	330	tests/wdscroll.py
 pxop	pxopenpng	120	tests/pxopen.py
 pxop	pxopen	90	tests/pxopen.py
@@ -134,100 +134,100 @@ pxop	pxopencga	90	tests/pxopen.py
 telp	telpen	300	tests/telpen.py
 dosf	dosfull	120	tests/dosfull.py
 dosf	dosfix	60	tests/dosfix.py
-dosf	dosfile	35	tests/dosfile.py
-dosf	dosfcb	30	tests/dosfcb.py
+MOVED->r2-q6 dosf	dosfile	35	tests/dosfile.py
+MOVED->r2-q6 dosf	dosfcb	30	tests/dosfcb.py
 mixe	mixercga	100	tests/mixer.py
 mixe	mixerherc	65	tests/mixer.py
 mixe	mixervga	65	tests/mixer.py
 dlju	dljunk	210	tests/dljunk.py
-pkgt	pkgthumb-np	50	tests/pkgthumb.py
-pkgt	pkgthumb-br	50	tests/pkgthumb.py
-pkgt	pkgthumb-wd	50	tests/pkgthumb.py
-pkgt	pkgthumb-tp	50	tests/pkgthumb.py
+MOVED->r2-q6 pkgt	pkgthumb-np	50	tests/pkgthumb.py
+MOVED->r2-q6 pkgt	pkgthumb-br	50	tests/pkgthumb.py
+MOVED->r2-q6 pkgt	pkgthumb-wd	50	tests/pkgthumb.py
+MOVED->r2-q6 pkgt	pkgthumb-tp	50	tests/pkgthumb.py
 wdme	wdmenusu	190	tests/wdmenusu.py
 ftpd	ftpdflick	120	tests/ftpdflick.py
 ftpd	ftpdfocus	60	tests/ftpdfocus.py
 MOVED->r2-q5 dosr	dosram	75	tests/dosram.py
-dosr	dosrange	45	tests/dosrange.py
-dosr	dosren	30	tests/dosren.py
-dosr	dosregs	25	tests/dosregs.py
+MOVED->r2-q6 dosr	dosrange	45	tests/dosrange.py
+MOVED->r2-q6 dosr	dosren	30	tests/dosren.py
+MOVED->r2-q6 dosr	dosregs	25	tests/dosregs.py
 MOVED->r2-q5 kdmo	kdmouse	120	tests/kdmouse.py
-kdmo	kdnomouse	45	tests/kdmouse.py
-lzmo	lzmod-lz4big	40	tests/lzmod.py
-lzmo	lzmod	30	tests/lzmod.py
-lzmo	lzmod-dialog	30	tests/lzmod.py
-lzmo	lzmod-nohint	30	tests/lzmod.py
-lzmo	lzmod-lzb	30	tests/lzmod.py
+MOVED->r2-q6 kdmo	kdnomouse	45	tests/kdmouse.py
+MOVED->r2-q6 lzmo	lzmod-lz4big	40	tests/lzmod.py
+MOVED->r2-q6 lzmo	lzmod	30	tests/lzmod.py
+MOVED->r2-q6 lzmo	lzmod-dialog	30	tests/lzmod.py
+MOVED->r2-q6 lzmo	lzmod-nohint	30	tests/lzmod.py
+MOVED->r2-q6 lzmo	lzmod-lzb	30	tests/lzmod.py
 MOVED->r2-q5 mour	mouresume	150	tests/mouresume.py
 MOVED->r2-q5 brto	brtoolbar	145	tests/brtoolbar.py
 MOVED->r2-q5 aler	alertbtn	80	tests/alertbtn.py
 MOVED->r2-q5 aler	alertanim	60	tests/alertanim.py
 MOVED->r2-q5 vidm	vidmsync	90	tests/vidmsync.py
-vidm	vidmove	45	tests/vidmove.py
+MOVED->r2-q6 vidm	vidmove	45	tests/vidmove.py
 MOVED->r2-q5 wdcl	wdclick	130	tests/wdclick.py
 MOVED->r2-q5 fatw	fatwpin	120	tests/fatwpin.py
 MOVED->r2-q5 brra	brrace	120	tests/brrace.py
 MOVED->r2-q5 disk	diskclone	120	tests/diskclone.py
 MOVED->r2-q5 czto	czto	115	tests/czto.py
 MOVED->r2-q5 lzlo	lzload-lz4	80	tests/lzload.py
-lzlo	lzload	30	tests/lzload.py
+MOVED->r2-q6 lzlo	lzload	30	tests/lzload.py
 MOVED->r2-q5 gfxp	gfxptsmall	60	tests/gfxpoints.py
-gfxp	gfxpoints	45	tests/gfxpoints.py
+MOVED->r2-q6 gfxp	gfxpoints	45	tests/gfxpoints.py
 MOVED->r2-q5 pxsm	pxsmd	70	tests/pxsmd.py
-pxsm	pxsmove	30	tests/pxsmove.py
+MOVED->r2-q6 pxsm	pxsmove	30	tests/pxsmove.py
 MOVED->r2-q5 brfe	brfetch	95	tests/brfetch.py
 MOVED->r2-q5 gfxe	gfxewalk	90	tests/gfxewalk.py
 MOVED->r2-q5 calc	calcflick	90	tests/calcflick.py
 MOVED->r2-q5 scha	schacct	90	tests/schacct.py
-uila	uilayer	50	tests/uilayer.py
-uila	uilat	30	tests/uilat.py
+MOVED->r2-q6 uila	uilayer	50	tests/uilayer.py
+MOVED->r2-q6 uila	uilat	30	tests/uilat.py
 MOVED->r2-q5 mous	mouseup	60	tests/mouseup.py
-mous	mousess	20	tests/mousess.py
+MOVED->r2-q6 mous	mousess	20	tests/mousess.py
 MOVED->r2-q5 gbwi	gbwindow	75	tests/gbwindow.py
-pxsh	pxshud-vga	45	tests/pxshud.py
-pxsh	pxshud	30	tests/pxshud.py
+MOVED->r2-q6 pxsh	pxshud-vga	45	tests/pxshud.py
+MOVED->r2-q6 pxsh	pxshud	30	tests/pxshud.py
 MOVED->r2-q5 stk	stk0water	70	tests/stk0water.py
 MOVED->r2-q5 regr	regrowshed	70	tests/regrowshed.py
 MOVED->r2-q5 rdcz	rdcz	70	tests/rdcz.py
 MOVED->r2-q5 gbke	gbkeys	66	tests/gbkeys.py
 MOVED->r2-q5 sndp	sndplay	65	tests/sndplay.py
-vidb	vidbench	34	tests/vidbench.py
-vidb	vidbigclus	30	tests/vidbigclus.py
+MOVED->r2-q6 vidb	vidbench	34	tests/vidbench.py
+MOVED->r2-q6 vidb	vidbigclus	30	tests/vidbigclus.py
 MOVED->r2-q5 line	linecar	60	tests/linecar.py
 MOVED->r2-q5 drvu	drvup	60	tests/drvup.py
 MOVED->r2-q5 fsxd	fsxdisp	60	tests/fsxdisp.py
 MOVED->r2-q5 rdup	rdup	60	tests/rdup.py
-wimg	wimgtrip	56	tests/wimgtrip.py
-fcpa	fcpapi	55	tests/fcpapi.py
-vidg	vidgrey	30	tests/vidgrey.py
-vidg	vidgreyherc	25	tests/vidgrey.py
-auto	autostart	50	tests/autostart.py
-su	su1bpp	50	tests/su1bpp.py
-gbhe	gbheader	45	tests/gbheader.py
-dirw	dirwshed	45	tests/dirwshed.py
-covb	covbench	45	tests/covbench.py
-tmow	tmowner	45	tests/tmowner.py
-gbsa	gbsave	40	tests/gbsave.py
-kdar	kdarena	40	tests/kdarena.py
-vgac	vgacolor	40	tests/vgacolor.py
-b	b4walk	40	tests/b4walk.py
-runc	runclipcga	20	tests/runclip.py
-runc	runclip	16	tests/runclip.py
-gbsp	gbspeed	32	tests/gbspeed.py
-ptse	ptsext	31	tests/ptsext.py
-kbdb	kbdburst	30	tests/kbdburst.py
-cfgt	cfgtrip	30	tests/cfgtrip.py
-whee	wheel	30	tests/wheel.py
-appd	appdata	30	tests/appdata.py
-wdpa	wdparts	27	tests/wdparts.py
-fmre	fmrefuse	25	tests/fmrefuse.py
-kdhd	kdhdd	25	tests/kdhdd.py
-fsxc	fsxclip	22	tests/fsxclip.py
-ovlh	ovlhigh	20	tests/ovlhigh.py
-fmar	fmarrows	20	tests/fmarrows.py
-spkb	spkbench	20	tests/spkbench.py
-v	v20boot	17	tests/v20boot.py
-drag	dragui	15	tests/dragui.py
-stkp	stkpanel	15	tests/stkpanel.py
-cylr	cylrun	10	tests/cylrun.py
-pitn	pitnow	5	tests/pitnow.py
+MOVED->r2-q6 wimg	wimgtrip	56	tests/wimgtrip.py
+MOVED->r2-q6 fcpa	fcpapi	55	tests/fcpapi.py
+MOVED->r2-q6 vidg	vidgrey	30	tests/vidgrey.py
+MOVED->r2-q6 vidg	vidgreyherc	25	tests/vidgrey.py
+MOVED->r2-q6 auto	autostart	50	tests/autostart.py
+MOVED->r2-q6 su	su1bpp	50	tests/su1bpp.py
+MOVED->r2-q6 gbhe	gbheader	45	tests/gbheader.py
+MOVED->r2-q6 dirw	dirwshed	45	tests/dirwshed.py
+MOVED->r2-q6 covb	covbench	45	tests/covbench.py
+MOVED->r2-q6 tmow	tmowner	45	tests/tmowner.py
+MOVED->r2-q6 gbsa	gbsave	40	tests/gbsave.py
+MOVED->r2-q6 kdar	kdarena	40	tests/kdarena.py
+MOVED->r2-q6 vgac	vgacolor	40	tests/vgacolor.py
+MOVED->r2-q6 b	b4walk	40	tests/b4walk.py
+MOVED->r2-q6 runc	runclipcga	20	tests/runclip.py
+MOVED->r2-q6 runc	runclip	16	tests/runclip.py
+MOVED->r2-q6 gbsp	gbspeed	32	tests/gbspeed.py
+MOVED->r2-q6 ptse	ptsext	31	tests/ptsext.py
+MOVED->r2-q6 kbdb	kbdburst	30	tests/kbdburst.py
+MOVED->r2-q6 cfgt	cfgtrip	30	tests/cfgtrip.py
+MOVED->r2-q6 whee	wheel	30	tests/wheel.py
+MOVED->r2-q6 appd	appdata	30	tests/appdata.py
+MOVED->r2-q6 wdpa	wdparts	27	tests/wdparts.py
+MOVED->r2-q6 fmre	fmrefuse	25	tests/fmrefuse.py
+MOVED->r2-q6 kdhd	kdhdd	25	tests/kdhdd.py
+MOVED->r2-q6 fsxc	fsxclip	22	tests/fsxclip.py
+MOVED->r2-q6 ovlh	ovlhigh	20	tests/ovlhigh.py
+MOVED->r2-q6 fmar	fmarrows	20	tests/fmarrows.py
+MOVED->r2-q6 spkb	spkbench	20	tests/spkbench.py
+MOVED->r2-q6 v	v20boot	17	tests/v20boot.py
+MOVED->r2-q6 drag	dragui	15	tests/dragui.py
+MOVED->r2-q6 stkp	stkpanel	15	tests/stkpanel.py
+MOVED->r2-q6 cylr	cylrun	10	tests/cylrun.py
+MOVED->r2-q6 pitn	pitnow	5	tests/pitnow.py

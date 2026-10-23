@@ -72,19 +72,19 @@ pkgm	pkgmax	15	tests/pkgmax.py
 fpgn	fpgnotch	13	tests/fpgnotch.py
 tick	tickzero	10	tests/tickzero.py
 kdos	kdos	10	tests/kdos.py
-vidf	vidfskeysvga4m3	55	tests/vidfskeys.py
-vidf	vidfskeysvga4pl	55	tests/vidfskeys.py
-vidf	vidfskeysvga4	45	tests/vidfskeys.py
-vidf	vidfskeysink	45	tests/vidfskeys.py
-vidf	vidfskeysmodex	40	tests/vidfskeys.py
-vidf	vidfskeysflip	40	tests/vidfskeys.py
-vidf	vidkpartfs	40	tests/vidfskeys.py
-vidf	vidfskeysc160	35	tests/vidfskeys.py
-vidf	vidfskeystext	35	tests/vidfskeys.py
-vidf	vidfskeysvga8	35	tests/vidfskeys.py
-vidf	vidfskeys	30	tests/vidfskeys.py
-vidf	vidfskeyscga4	30	tests/vidfskeys.py
-vidf	vidfskeysc512	25	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeysvga4m3	55	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeysvga4pl	55	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeysvga4	45	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeysink	45	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeysmodex	40	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeysflip	40	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidkpartfs	40	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeysc160	35	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeystext	35	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeysvga8	35	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeys	30	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeyscga4	30	tests/vidfskeys.py
+DONE(by agent 3, a8 below) vidf	vidfskeysc512	25	tests/vidfskeys.py
 redl	redlinechipcga	40	tests/redline.py
 redl	redlinechipherc	40	tests/redline.py
 redl	redlinechipvga	40	tests/redline.py

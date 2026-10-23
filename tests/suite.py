@@ -12804,7 +12804,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeys", "soak", py("tests/vidfskeys.py", "--kind", "herc"),
-        30.0,
+        50.0,
         "SPEC.md 98.3.13, 98.3.14: the full screen's keys and its text on "
         "the Hercules 5150, one bit. Space shows Paused and puts the "
         "picture back exact; R's toast is up while frames decode (a block "
@@ -12817,7 +12817,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeyscga4", "soak", py("tests/vidfskeys.py", "--kind", "cga4"),
-        30.0,
+        50.0,
         "SPEC.md 98.3.13, 98.3.14: the full screen's keys and its text on "
         "the CGA 5150 in mode 4, two bits a pixel. Space shows Paused and puts the "
         "picture back exact; R's toast is up while frames decode (a block "
@@ -12830,7 +12830,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeysc160", "soak", py("tests/vidfskeys.py", "--kind", "c160"),
-        35.0,
+        60.0,
         "SPEC.md 98.3.13, 98.3.14: the full screen's keys and its text on "
         "the CGA 5150's text hack, THROUGH THE SHADOW - its cells' attributes. Space shows Paused and puts the "
         "picture back exact; R's toast is up while frames decode (a block "
@@ -12843,7 +12843,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeysc512", "soak", py("tests/vidfskeys.py", "--kind", "c512"),
-        25.0,
+        70.0,
         "SPEC.md 98.3.12.2, 98.3.13: vidfskeysc160's questions on C512, the "
         "same text mode NATIVE - the screen is the canvas, character and "
         "attribute - so the text is vosd.inc's VOM_C, four 0DEh cells a "
@@ -12855,7 +12855,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeystext", "soak", py("tests/vidfskeys.py", "--kind", "text"),
-        35.0,
+        60.0,
         "SPEC.md 98.3.13, 98.3.16: vidfskeys on TEXT, the 80 x 25 text screen "
         "NATIVE on the CGA 5150 - the box is ONE row of the characters "
         "themselves on 70h; Paused, the toast decoded round (vd_clip), both "
@@ -12863,7 +12863,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeysvga8", "soak", py("tests/vidfskeys.py", "--kind", "vga8"),
-        35.0,
+        80.0,
         "SPEC.md 98.3.13, 98.3.14: the full screen's keys and its text on "
         "the VGA XT in 13h, a byte a pixel. Space shows Paused and puts the "
         "picture back exact; R's toast is up while frames decode (a block "
@@ -12876,7 +12876,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeysmodex", "soak", py("tests/vidfskeys.py", "--kind", "modex"),
-        40.0,
+        60.0,
         "SPEC.md 98.3.13, 98.3.14: the full screen's keys and its text on "
         "the VGA XT in Mode X, a plane at a time, on the glass. Space shows Paused and puts the "
         "picture back exact; R's toast is up while frames decode (a block "
@@ -12889,7 +12889,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeysflip", "soak", py("tests/vidfskeys.py", "--kind", "modexflip"),
-        40.0,
+        60.0,
         "SPEC.md 98.3.13, 98.3.14: the full screen's keys and its text on "
         "Mode X FLIPPING pages - a save a page - on the glass. Space shows Paused and puts the "
         "picture back exact; R's toast is up while frames decode (a block "
@@ -12902,7 +12902,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeysvga4", "soak", py("tests/vidfskeys.py", "--kind", "vga4"),
-        45.0,
+        80.0,
         "SPEC.md 98.3.13, 98.3.14: the full screen's keys and its text on "
         "mode 12h's sixteen colours, four planes saved, on the glass. Space shows Paused and puts the "
         "picture back exact; R's toast is up while frames decode (a block "
@@ -12915,7 +12915,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeysvga4m3", "soak", py("tests/vidfskeys.py", "--kind",
-                                      "vga4m3"), 55.0,
+                                      "vga4m3"), 100.0,
         "SPEC.md 98.1.3.2.4, 98.3.13: vidfskeysvga4's questions on the same "
         "clip as SUB2 - list maps, and every byte whose changed pixels take "
         "one even colour stored as a COLOUR SUB-RECORD in VGA write mode 3, "
@@ -12928,7 +12928,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeysink", "soak", py("tests/vidfskeys.py", "--kind", "vga4",
-                                   "--whitein", "7"), 45.0,
+                                   "--whitein", "7"), 100.0,
         "SPEC.md 98.3.13: the full screen's text on a file's OWN sixteen is "
         "drawn in the palette's BRIGHTEST entry (vp_inkset) - the EGA's with "
         "white moved to entry 7, so the box's ink is 7 and every hold exact. "
@@ -12938,7 +12938,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidfskeysvga4pl", "soak", py("tests/vidfskeys.py", "--kind",
-                                      "vga4m3", "--nowm3"), 55.0,
+                                      "vga4m3", "--nowm3"), 80.0,
         "SPEC.md 98.1.3.2.4: vidfskeysvga4m3's clip and questions with the "
         "player told its card has NO write mode 3 (vp_m3ok cleared after "
         "the load) - an EGA's case, whose desktop plays VGA4 in a window - "
@@ -13570,7 +13570,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidkpartfs", "soak", py("tests/vidfskeys.py", "--kind", "vga4",
-                                 "--kpart", "600"), 40.0,
+                                 "--kpart", "600"), 60.0,
         "SPEC.md 98.1.3.8: vidfskeysvga4 with every key in 15 parts: the "
         "full screen's seeks - Right, Left while paused, Home - read every "
         "part and land exact. Broken as vidkpart, held FAILS from frame 19",
