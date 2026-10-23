@@ -147,7 +147,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
    a gate: `Box.up()` (desktop ~6 s, not "80 s" + 15), `ui_done` after a
    click, a package's own byte through `pkg_read`. A stop RELEASES Bochs's
    mouse capture; `Box` re-captures inside the next input. megaflt/own/
-   rehome/vidbig 105/81/103/287 -> 51/39/41/62 s.
+   rehome/vidbig 105/81/103/287 -> 51/39/41/62 s. Inside an FSX bracket
+   ui_task is frozen and `ui_done` never ends: gate on `Box.in_fsx()`.
 
 ## Harness changes made in this pass
 
@@ -463,6 +464,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | megaflt / megaown / megarehome (Bochs) | 105 / 81 / 103 s | 51 / 39 / 41 s | 19 | the boot's 15 + 10 + 8 s sleeps and the closed-loop MEGARUN navigation; MEGARUN's own 5 s a package is the floor |
 | megavidbig (Bochs) | 287 s | 62 s | 19 | HOLD = 110 s slept for a fill that takes ~5 (waits on the player's [vp_xfull]), PLAY = 30 for a play that ends at ~20 ([vp_played], asserted 0 before Space) |
 | megaovl (Bochs) | 157 s FAIL | 71 s FAIL | 19 | **fails at base**: MEGALOWB's OSAPI_MEM_AVAIL claim (79C0 paras, the ascending run alone) fits UNDER the carve, so nothing slides it - MEGALOWH's hole above is not counted. The typed-and-saved DOC.RTF half passes |
+| pxmega / pxsmega / megatrap0 (Bochs, MEGATRAP census) | 252 / 172 / 267 s | 65 / 56 / 171 s | 19 | a step was QUIET s of no E9 line - on a clean run, a fixed 12 / 8 s whatever the program did. Now `ui_done` (`lock=False` for the game), `[fsx_task]` into and out of the bracket, the timedemo's 8 s kept as a run; the trap windows TILE (one running offset). pxsmega red with px_compose's `[es:px_cdi]` -> `[cs:` (22,240 traps). megatrap0 is MEGARUN + LINGER bound |
 
 ## Resuming
 

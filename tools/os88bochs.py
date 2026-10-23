@@ -115,6 +115,7 @@ INPUT_GAP = 0.06    # s: Bochs's GUI takes X events every ~10 ms of its own
 # same call: X delivers the toggle ahead of the input, so the click lands
 # captured, and a read costs no re-capture of its own.
 _REGRAB = [False]
+GLASS = 0.45        # s: two of Bochs's VGA updates (5 Hz) - see Box.shot
 GRAB = ("keydown", "ctrl", "click", 2, "keyup", "ctrl")
 
 
@@ -538,9 +539,31 @@ class Box(object):
             v = cond()
             if v:
                 return v
+            f = self.fault()
+            if f:                   # a FATAL fault ends every wait: the
+                raise RuntimeError(  # machine is stopped on its screen
+                    "os88bochs: %s while waiting for %s" % (f, what))
             if time.time() > end:
                 raise RuntimeError("os88bochs: no %s in %.0fs" % (what, secs))
             time.sleep(poll)
+
+    def fault(self):
+        """The first `kern_mega FAULT` line E9 has carried, or None - read
+        incrementally, so a census log of thousands of lines costs nothing
+        a poll."""
+        if getattr(self, "_flt", None) is None:
+            self._flt, self._fpos = None, 0
+        if self._flt is None:
+            with open(self.e9, "rb") as f:
+                f.seek(self._fpos)
+                t = f.read()
+            cut = t.rfind(b"\n") + 1
+            self._fpos += cut
+            for l in t[:cut].decode("latin-1").splitlines():
+                if l.startswith("kern_mega FAULT"):
+                    self._flt = l
+                    break
+        return self._flt
 
     def _ui_spans(self):
         import os88marty as om
@@ -675,6 +698,19 @@ class Box(object):
             label = os88sym._parse_map(pkgmap)[0][label]
         return self.read(base + label, n)
 
+    def in_fsx(self):
+        """True while an exclusive fullscreen bracket runs ([fsx_task] is
+        the exclusive task's slot, FFh off - SPEC.md 53.2). ui_task is
+        frozen inside one, so `ui_done` cannot end there: wait on this."""
+        return self.read("fsx_task", 1)[0] != 0xFF
+
+    def shot(self, path):
+        """A screenshot of the GLASS, which lags the guest's framebuffer by
+        up to one VGA update (5 a second, Bochs's default): after a
+        `ui_done` the picture is drawn, so wait out one update and take it."""
+        time.sleep(GLASS)
+        shot(path)
+
     def mouse(self):
         """(mouse_x, mouse_y): where the KERNEL has the pointer."""
         b = self.read("mouse_x", 4)
@@ -716,17 +752,21 @@ class Box(object):
         raise RuntimeError("os88bochs: the pointer is at %s, not (%d, %d) - "
                            "is the mouse captured?" % (pos, x, y))
 
-    def click(self, x=None, y=None, what="the UI to take the click"):
+    def click(self, x=None, y=None, what="the UI to take the click",
+              lock=True, button=1):
         if x is not None:
             self.goto(x, y)
-        xd("click", 1)
-        return self.ui_done(what)
+        xd("click", button)
+        return self.ui_done(what, lock=lock)
 
-    def dbl(self, x=None, y=None, what="the UI to take the double-click"):
+    def dbl(self, x=None, y=None, what="the UI to take the double-click",
+            lock=True):
+        """A double-click, then `ui_done` - `lock=False` when what it opens
+        is a program whose worker holds the gfx lock (a game)."""
         if x is not None:
             self.goto(x, y)
         xd("click", "--repeat", 2, "--delay", 120, 1)
-        return self.ui_done(what)
+        return self.ui_done(what, lock=lock)
 
     def megarun(self, row=0):
         """Capture the mouse, open C:, its RUN folder and 0RUN.O88 (ROW

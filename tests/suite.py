@@ -14783,7 +14783,7 @@ SOAK = [
         "the grid is four planes and repaints through gfx_blitp, so a window "
         "left where it opens does not reach this primitive at all.",
         needs=("marty", "nasm"), serial=True, timeout=900),
-    Row("megatrap0", "soak", py("tests/megatrap0.py"), 300.0,
+    Row("megatrap0", "soak", py("tests/megatrap0.py"), 220.0,
         "docs/plans/KERN-MEGA-PLAN.md 10.3 item 50: kern_mega COMPLETES a "
         "write through CS, a far transfer through a data segment and a "
         "segment-0 access rather than faulting on it, so a package doing one "
@@ -14793,8 +14793,8 @@ SOAK = [
         "MEGARUN and left running; any #GP charged to an image not in the "
         "row's ALLOW fails it, as does a refusal or a kern_mega FAULT. The "
         "failing case is any `push cs / pop ds` and a store in one of them - "
-        "MEGACSL (tests/megacsw) is one on purpose. 300s is 277 measured, "
-        "the tree's build included",
+        "MEGACSL (tests/megacsw) is one on purpose. 220s is 171 measured "
+        "(two boots, MEGARUN's 5 s a start and LINGER are the floor)",
         needs=("bochs", "nasm")),
     Row("megacdrom", "soak", py("tests/megacdrom.py"), 20.0,
         "SPEC.md 119 and 34.15 under docs/plans/KERN-MEGA-PLAN.md 14.68: "
@@ -14861,7 +14861,7 @@ SOAK = [
         needs=("bochs",),
         wants=("build/megak/apps/video.o88", "build/vblk.bin",
                "build/vblkpm.bin", "build/megak/apps/video.bin")),
-    Row("pxmega", "soak", py("tests/pxmega.py"), 260.0,
+    Row("pxmega", "soak", py("tests/pxmega.py"), 90.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.40: PiXEL USED on kern_mega with no "
         "#GP fixup - megatrap0 counts what a launch costs, and a decoder's "
         "cost is in the pictures. MEGATRAP=1's census (a private tree) under "
@@ -14871,8 +14871,8 @@ SOAK = [
         "(progressive), then the Rotate tool clicked with each button. Every "
         "step adds no trap line and no kern_mega FAULT, and leaves a canvas "
         "that is a picture and not the last. Red with pxgif.asm's pa_comp "
-        "put back to one paragraph (BOUNCE.GIF FAULTs on frame 0). 260s is "
-        "192 measured under Bochs plus the tree",
+        "put back to one paragraph (BOUNCE.GIF FAULTs on frame 0). 90s is "
+        "65 measured: each step ends on the UI task done (Box.ui_done)",
         needs=("bochs", "nasm")),
     Row("megadosp", "soak", py("tests/megadosp.py"), 160.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.54: the windowed DOS box's PROMPT "
@@ -14887,7 +14887,7 @@ SOAK = [
         "kern_mega FAULT. Red with the `push cs / pop ds` put back "
         "(ECHO 62, DIR 87, TYPE 802). 160s is 157 measured, the tree reused",
         needs=("bochs", "nasm")),
-    Row("pxsmega", "soak", py("tests/pxsmega.py"), 200.0,
+    Row("pxsmega", "soak", py("tests/pxsmega.py"), 70.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.50: PIXELSTEIN 3D PLAYED on kern_mega "
         "with no #GP fixup - megatrap0 counts a launch, and the game's cost "
         "was in the frames: px_compose stored its per-column memory through "
@@ -14897,7 +14897,8 @@ SOAK = [
         "timedemo (T, the Mode X bracket), a new game in the window, walk, "
         "turn, shoot, F into the bracket, the same there, Esc back. Every "
         "step adds no trap line and no kern_mega FAULT. Red with one "
-        "px_compose `[es:` store put back to `[cs:` (thousands on the walk)",
+        "px_compose `[es:` store put back to `[cs:` (thousands on the walk; "
+        "px_cdi, verified: 22,240). 70s is 56 measured",
         needs=("bochs", "nasm")),
     Row("megaflt", "soak", py("tests/megaflt.py"), 70.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.42: on kern_mega a fault in a "
