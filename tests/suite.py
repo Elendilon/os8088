@@ -2423,7 +2423,7 @@ SOAK = [
         "row must stay exactly as it was",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/os8088.img", "build/apps.img", "build/hdd.bin")),
-    Row("cdrom", "soak", py("tests/cdrom.py", "--disc"), 45.0,
+    Row("cdrom", "soak", py("tests/cdrom.py", "--disc"), 20.0,
         "SPEC.md 119: CDROM.DRV on QEMU's 386 with build/cdfix.iso as the "
         "secondary master. The row loads and finds the drive at 170h unit 0; "
         "the CD-ROM zone opens and every folder lists what tools/os88cdiso.py "
@@ -2433,7 +2433,7 @@ SOAK = [
         "to B: is byte-identical on the host",
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/cdromtest.img", "build/cdfix.iso", "build/cdrom.bin")),
-    Row("cdromsim", "soak", py("tests/cdrom.py", "--sim"), 30.0,
+    Row("cdromsim", "soak", py("tests/cdrom.py", "--sim"), 10.0,
         "SPEC.md 119.3.5/119.6 on QEMU, whose drive holds no audio: the "
         "gate's CDROM.DRV (-DCDSIM_AUDIO) gives the one-track disc three "
         "audio tracks; the root lists TRACK02..04.CDA, and double-clicking "
@@ -2443,7 +2443,7 @@ SOAK = [
         "says the drive plays no audio",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/cdromsim.img", "build/cdfix.iso", "build/cdrack.bin")),
-    Row("cdromempty", "soak", py("tests/cdrom.py", "--empty"), 20.0,
+    Row("cdromempty", "soak", py("tests/cdrom.py", "--empty"), 10.0,
         "SPEC.md 119.3: the same machine with the CD-ROM drive EMPTY - the "
         "row still loads and the zone is on the desktop, a double-click "
         "mounts nothing (FERR_NODISK), and A: still opens after it",
