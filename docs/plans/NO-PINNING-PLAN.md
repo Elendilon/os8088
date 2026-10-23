@@ -348,3 +348,29 @@ anything at all on a full system. It is rare, and when it runs it is almost
 always one of those two cases, so the case K6a would help is the smaller set.
 **Deferred to a later research pass.** Raise caches stay purgeable and stay
 DROPPED by the compactor. The ratchet (4) records them as "shed, by design".
+
+## 7. Resume point (paused 2026-10-23 for the capacity limit)
+
+**Built and pushed on `no-pinning`:** wave 0 (the C overlay moves; `ovlhigh`,
+`ovlmove`), K8 (+14), K1a (-16), K2 (+58), K9 (+42 as a count; `tnest`), and G1
+(`cpcost`, the baseline in 5.1). K6a is deferred and K3 is deferred as niche.
+
+**In flight in agent worktrees (branches off `no-pinning`, NOT merged):**
+- C4: LEMMINGS' claims movable (range-translating `os88_onmove`)
+- C3/C2: RunCPM, C64 and APPLE2 RAM, and the multi-row eager carve
+- A2: Word and Scribe data claims
+
+Each was asked to stop at a clean point and commit WIP in its own worktree
+with a report. **On resume:** read each report, review each diff against the
+section 5 lessons (every holder, derived segments, declare after all claims),
+merge, re-run G1 with LEMMINGS suspended (5.1), then run the deduplicated soak
+union of every row these touch, once.
+
+**Mine, next:** A6 (Video Player ring). Read so far: the ring is claimed PER
+PLAY in `vp_sndprep` (`OSAPI_MEM_CLAIM_DMA_HI`, "page-safe and never moved")
+and freed in `vp_sndoff`/`vp_sfree`. If `vp_sfree` runs when a play ENDS, the
+ring is already bucket D for its whole life and A6 is closed with a note. If
+it is held until the file closes, it is to be declared movable when a play
+stops and pinned again (`OSAPI_MEM_MOVABLE`, AX = 0) when the next one starts,
+outside the frame loop. Then P1 (Sheet's chart overlay as a part), A1
+(RealDMG: procs only, gated on its speed), A3-A8, R1/R2 and P2.
