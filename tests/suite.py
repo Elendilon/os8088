@@ -2713,7 +2713,7 @@ SOAK = [
         "still answers `MSEG 6/6 OK`, which is why neither alone is the "
         "gate. Needs `make mseg`.",
         needs=("marty",), serial=True, wants=("build/mseg360.img",)),
-    Row("msegz", "soak", py("tests/multiseg.py", "1440", "--comp"), 60.0,
+    Row("msegz", "soak", py("tests/multiseg.py", "1440", "--comp"), 30.0,
         "SPEC.md 20.12.7: the same seven parts with two of them COMPRESSED. "
         "It is one source built twice - `-DMSEG_COMP` puts OP_COMP on parts 0 "
         "and 2 - so every assertion the row above makes has to come out "
@@ -2730,7 +2730,7 @@ SOAK = [
         "will not unpack` on a package whose bytes, lengths and pointers "
         "were all correct. Needs `make msegz`.",
         needs=("marty",), serial=True, wants=("build/msegz.img",)),
-    Row("msegz360", "soak", py("tests/multiseg.py", "360", "--comp"), 60.0,
+    Row("msegz360", "soak", py("tests/multiseg.py", "360", "--comp"), 30.0,
         "...and off a 360KB disk, where op_claim's head slack is 512 rather "
         "than 0 - so op_unpack's walk starts a paragraph run into the claim "
         "and not at its base. It is mseg360's argument applied to the new "
@@ -2738,7 +2738,7 @@ SOAK = [
         "everything else is tested on, and a walk that ignored it would pass "
         "at 1.44MB and put every part 512 bytes low here. Needs `make msegz`.",
         needs=("marty",), serial=True, wants=("build/msegz360.img",)),
-    Row("msegw", "soak", py("tests/multiseg.py", "1440", "--wide"), 60.0,
+    Row("msegw", "soak", py("tests/multiseg.py", "1440", "--wide"), 30.0,
         "SPEC.md 20.12.11: the CARVE PASSES 64KB. MSEG's own primary with "
         "parts 1 and 2 padded by tests/multiseg/mkwide.py, so the eager run "
         "is 179 sectors - past the 128 op_size and the packer used to refuse "
@@ -2749,20 +2749,20 @@ SOAK = [
         "20.12.11: the same file is refused at launch, ld_status 4 (the "
         "package refusing itself). Needs `make msegw`.",
         needs=("marty",), serial=True, wants=("build/msegw.img",)),
-    Row("msegw360", "soak", py("tests/multiseg.py", "360", "--wide"), 60.0,
+    Row("msegw360", "soak", py("tests/multiseg.py", "360", "--wide"), 30.0,
         "...and off a 360KB disk, where the head slack is 512 and the 32-bit "
         "op_want and op_bend have it added in; mseg360's argument for the "
         "carve past 64KB. Needs `make msegw`.",
         needs=("marty",), serial=True, wants=("build/msegw360.img",)),
     Row("msegwz", "soak", py("tests/multiseg.py", "1440", "--comp", "--wide"),
-        60.0,
+        30.0,
         "...and with parts 0 and 2 COMPRESSED, so the carve is past 64KB at "
         "BOTH ends - 146 sectors read, 179 unpacked - and op_unpack walks the "
         "packed run R paragraphs up a claim bigger than a segment, R now "
         "being cut from two sector counts. Needs `make msegw`.",
         needs=("marty",), serial=True, wants=("build/msegwz.img",)),
     Row("msegwz360", "soak", py("tests/multiseg.py", "360", "--comp",
-                                "--wide"), 60.0,
+                                "--wide"), 30.0,
         "...and that off a 360KB disk, with the head slack. Needs `make "
         "msegw`.",
         needs=("marty",), serial=True, wants=("build/msegwz360.img",)),

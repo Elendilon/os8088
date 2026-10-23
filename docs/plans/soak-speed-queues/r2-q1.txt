@@ -86,12 +86,12 @@ doss	dossnd	30	tests/dossnd.py
 DONE dock	dockpos	300	tests/dockpos.py
 DONE dock	dockmodule	120	tests/dockmodule.py
 DONE dock	dockmark	90	tests/dockmark.py
-mult	msegz	60	tests/multiseg.py
-mult	msegz360	60	tests/multiseg.py
-mult	msegw	60	tests/multiseg.py
-mult	msegw360	60	tests/multiseg.py
-mult	msegwz	60	tests/multiseg.py
-mult	msegwz360	60	tests/multiseg.py
+DONE mult	msegz	60	tests/multiseg.py
+DONE mult	msegz360	60	tests/multiseg.py
+DONE mult	msegw	60	tests/multiseg.py
+DONE mult	msegw360	60	tests/multiseg.py
+DONE mult	msegwz	60	tests/multiseg.py
+DONE mult	msegwz360	60	tests/multiseg.py
 mult	mseg360	40	tests/multiseg.py
 mult	multiseg	20	tests/multiseg.py
 DONE fddp	fddpark	300	tests/fddpark.py
