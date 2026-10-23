@@ -373,7 +373,7 @@ FAST = [
         "and is exactly B. SOAK: the subject is one driver's overlay",
         needs=("qemu", "nasm"),
         wants=("build/os8088.img", "build/apps.img", "build/coldhma.sys")),
-    Row("hmadrv", "soak", py("tests/hmadrv.py"), 62.0,
+    Row("hmadrv", "soak", py("tests/hmadrv.py"), 50.0,
         "SPEC.md 2.10.8, docs/plans/HMA-PLAN.md 5: drivers and a driver's "
         "buffer in the pool under .cold in the HMA. WHY QEMU: the closed "
         "list, entry 1. A, -m 128 with an SB16 and an IDE disk, SOUND + HDD "
