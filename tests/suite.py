@@ -10193,7 +10193,7 @@ SOAK = [
         "A row of its own because the leg needs Unicorn: inside `pxedit` it "
         "skipped itself and the row still reported `ok`",
         needs=("nasm", "unicorn"), wants=("build/pixel.o88",)),
-    Row("pxedit", "soak", py("tests/pxedit.py", "--guest-only"), 600.0,
+    Row("pxedit", "soak", py("tests/pxedit.py", "--guest-only"), 280.0,
         "SPEC.md 106.24, PiXEL's editing on the machine (the EDIT part's "
         "host leg is `pxedithost`): on MartyPC's VGA XT, CITY.PCX: every Image and Effects "
         "operation from its menu or card against pixelsim, Undo putting the "
