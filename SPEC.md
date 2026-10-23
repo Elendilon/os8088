@@ -57196,6 +57196,52 @@ lot, and an Alt-drop writes a link that works. `tests/rltune.py` (QEMU, on
 REDLINE's AT path) checks that Apply on boot writes the link and that a reboot
 then runs RLAPPLY with nobody touching anything.
 
+#### 26.10.7 A link's parameter, and `OSAPI_ARG_TEXT`
+
+**A link whose target is a PROGRAM may carry a parameter**: the text after
+the path's NUL, inside the same 45-byte field. The path and the parameter
+share 44 characters, and the field's last byte is forced to 0 by `lnk_open`
+as it always was, so the parameter is terminated whatever the file says.
+`LNK_V` stays **1**: a kernel that predates this ends the path at its NUL and
+never reads the rest, so a new link opens on an old kernel as a plain one.
+
+```
++5   S Y S T E M \ R L A P P L Y . O 8 8 00 C H E C K 00 ... 00
+     |--- the path ------------------------|  |-param-|
+```
+
+**It reaches the program as `OSAPI_ARG_TEXT`** (cell `0x04D5`, a rare cell):
+no inputs; out CF = 1, no parameter - the ordinary case, every launch but a
+link's - or CF = 0 with **DX:SI** the NUL-terminated text. Read and clear,
+`OSAPI_ARG_FILE`'s shape (54.5), so the first proc to ask spends it and a
+later launch cannot inherit it. **Valid in the entry proc only**: copy it out.
+
+**It is not copied anywhere.** `lnk_open` reads the record onto task 0's
+stack (26.10.3) and `sc_walk` launches the program from beneath it, so the
+record is alive for the whole launch and the cell answers a pointer into it -
+`DX` = the stack's segment, which on kern_mega is a selector and on the rest
+`LOW_SEG`. The cost is one word of `.bss`, `[lnk_argo]`, the offset or 0:
+armed by `lnk_open` for a kind-1 link (a program) whose parameter is not
+empty, and cleared when `sc_walk` returns whatever it did. A link to a
+document or a folder carries no parameter to its program: the document is
+the argument there, and a parameter meant for one program must not reach
+whichever program the document's extension happens to name.
+
+**kern_small has no links** (26.10), so the cell is there and refuses -
+`mod_gone`'s `stc`/`retf`, the parity rule (20.8 rule 4).
+
+**Why a parameter and not a document.** INSTALL's startup check (117.10.6) is
+the first consumer and the case that decided it: a program started at boot
+must know it was started at boot. A document of a type of its own would do -
+`OSAPI_ARG_FILE` answers which document - but a type is a slot in the
+association table (54.2), a bounded table an everything-install already
+overflows, and an extension that names no real document would spend one for
+a flag. A parameter costs the table nothing and serves any program.
+
+Writers: `apps/os88link.inc`'s `OS88_LINK` takes the parameter as an optional
+fifth argument; `tools/os88lnk.py --arg` writes one and `--read` shows it.
+The Control Panel's Alt-drop writes none.
+
 ## 27. HELLO and NOTEPAD — the second and third packages
 
 Deliberately minimal, to prove the SDK surface and the no-icon fallback:
@@ -203949,6 +203995,112 @@ The resident bytes are the cell, `osapi_drv_use_x` and `drv_cp_closed`'s far
 entry: the load itself is `CTRL.DRV`'s (§2.8) and the install is
 `HDDTOOL.DRV`'s, both of which come off the disk when they are used and go
 back when they are done.
+
+### 117.10 Installing over the network
+
+`docs/plans/NET-UPDATE-PLAN.md` is the story list. **The network install is
+the ordinary install with another source volume**: `HTTPFS.DRV` (120) mounts
+a published tree, INSTALL stands on its root, and `HDI_GO` copies from there,
+because the engine's source is the volume the bank left the machine on when
+it carries `KERNEL.SYS` (`hd_isrc_ck`, 52.10.5.1). Nothing in the engine, the
+driver or the kernel learns about it.
+
+#### 117.10.1 The release number
+
+A **release** is named by its date, `YYYYMMDD` - the date the release skill
+already puts in `v1.0.YYYYMMDD`. `apps/install/OS88VER.TXT` is tracked and
+holds it on its first line; the release skill writes the date there and
+commits it before building. INSTALL is assembled with that line as `IN_REL`,
+so a wizard knows the release it came from - and since an install copies the
+root (117.6), `C:\INSTALL.O88` knows the release installed.
+
+Eight digits compare as text exactly as they compare as numbers, so *newer*
+is a byte compare. It is **not** the build number (14.2): that is a commit
+count, and `main` squash-merges while `elendilon` does not, so a newer
+release built from `main` can carry a smaller count than an older branch
+build.
+
+#### 117.10.2 The published tree, and `OS88VER.TXT`
+
+`make nettree` writes `build/nettree/`: the 1.44MB system disk's files and
+the 1.44MB apps disk's files as one tree, `OS88VER.TXT` in its root, and the
+`OS88.IDX` `tools/os88httpdrv.py export` writes for it. **`ASSOC.DAT` is left
+out**: an install builds the destination's own (52.10.14). The release skill
+publishes the tree at **`http://os8088.com/net/`**, which is INSTALL's
+`IN_URL`.
+
+`OS88VER.TXT` is text: line 1 the release, `YYYYMMDD`, and up to four more
+lines of what is new, each shown to 40 characters. CR, LF or both end a line;
+anything after the fifth is ignored; a first line that is not eight digits
+makes the release unknown, which is never newer.
+
+#### 117.10.3 The check
+
+INSTALL asks the network **only if a `DRVC_NET` driver is loaded**
+(`OSAPI_DRV_CLASSK`). It never loads `ETHER.DRV` itself: that is a DHCP wait,
+and a machine without a card would pay it for nothing. Then:
+
+1. `OSAPI_DRV_USE` `DRVU_UP` `DRVC_HTTP` - the Drivers page's tick, for the
+   session only (117.3);
+2. `HFV_URL` and `HFV_STATE` bank the drive's address and whether it was
+   mounted;
+3. `HFV_MOUNT` with `IN_URL`, `HFV_FETCH`, and `OS88VER.TXT` read off the
+   volume's root (256 bytes at most);
+4. the drive is put back: `HFV_MOUNT` with the banked address, or
+   `HFV_UNMOUNT` if none was mounted. **`HTTPDRV.CFG` is never written** - only
+   the Control Panel's page saves it (120.5) - so the setting a user made
+   survives whatever happens here.
+
+The window is up before step 1, saying *Looking for a newer os8088 on the
+network...*, so a slow server is a sentence rather than a frozen screen.
+
+#### 117.10.4 The first page chooses the source
+
+The Welcome page (and the upgrade page it became on a hard-disk boot) is
+replaced by one page:
+
+| line | it says |
+|---|---|
+| heading | *Install os8088 on a hard disk* / *Upgrade os8088 on this hard disk* |
+| 2 radio rows | *From the network: release 20261101* (or why not, greyed) and *From floppy disks* |
+| help | what the chosen row needs: *Needs the network for some minutes.* / *Needs the system disk now, the apps disk later.* |
+| up to 4 lines | the newer release's lines of what is new, when the network row is live |
+
+The network row is **greyed with the reason** (47 rule 5): *no network
+card*, *the server did not answer*, *this release is the newest*. When it is
+newer it is the default selection. On CGA's 344 x 136 content the page is the
+heading, two radio rows (24px), the help line and four lines at the body
+pitch, above the buttons.
+
+#### 117.10.5 The install from the network
+
+`Next` from the source page with the network row picked mounts `IN_URL` again
+and stands on its root (`OSAPI_FILE_GOTO_QM`, which moves the instance too,
+19.2.1); the drive, partition and keep-or-erase pages are unchanged; Confirm
+says *and copy os8088 from the network onto it*; `HDI_GO` copies the whole
+tree in its system phase (52.10.13). When the verb answers `HDG_APPS`,
+INSTALL sends `HDI_QUIT` itself - the tree carried the apps - and goes to
+Done; the engine's `ASSOC.DAT` pass runs on a declined apps phase too
+(52.10.14). The drive is put back as in 117.10.3 when the window closes.
+
+#### 117.10.6 Checking at startup
+
+The Done page has two radio rows, *Check for updates at startup* and *Do not
+check*, the second the default. `Restart` with the first picked writes
+`\AUTOSTRT\OSCHECK.LNK` on the **installed** volume - `LNK_SELF`, kind 1,
+`INSTALL.O88`, parameter **`CHECK`** (26.10.7) - and with the second deletes
+it, so a user can turn it off by installing again or by deleting the link.
+
+Started with `CHECK` (`OSAPI_ARG_TEXT`), INSTALL runs 117.10.3 **before** it
+creates a window. Nothing newer, no card, or no answer: one toast saying which
+(*os8088 is up to date*, *Update check: no network*) and the entry refuses,
+which aborts the launch with the toast standing and no `Load failed` (20.12.4).
+Newer: the window, on the source page, with the network row picked.
+
+#### 117.10.7 What the user sees on a machine with no card
+
+Exactly what they saw before, minus a page: the source page with the network
+row greyed *no network card* and the floppy row picked.
 
 ## 118. SYSCHECK — System Check, the installed system's health (`apps/syscheck/`)
 

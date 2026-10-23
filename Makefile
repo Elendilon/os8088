@@ -6120,11 +6120,41 @@ $(BUILD)/cdrack.o88: $(BUILD)/cdrack.bin tools/os88pkg.py $(PKGZSTAMP)
 # system disk ($(SYSINST)). It installs nothing itself - OSAPI_DRV_USE and
 # HDD.DRV's HDV_TOOL reach the Control Panel's own engine - so its only
 # dependencies are the SDK and the two shared includes.
+#
+# THE RELEASE is the first line of apps/install/OS88VER.TXT (SPEC.md 117.10.1),
+# which the release skill writes, and INURL is where the published tree is
+# (117.10.2). Both are assembled in, so a gate that serves its own tree builds
+# its own INSTALL (install-gate.o88 below) rather than editing the shipped one.
+INREL := $(shell head -n 1 apps/install/OS88VER.TXT | tr -d '\r\n ')
+INURL := http://os8088.com/net/
 $(BUILD)/install.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
-                      apps/os88dec.inc | $(BUILD)
+                      apps/os88dec.inc apps/os88link.inc apps/os88data.inc \
+                      drivers/httpfs/hfpkg.inc apps/install/OS88VER.TXT | $(BUILD)
 	$(NASM) -f bin -w+error --before "[map all $(BUILD)/install.map]" \
-		-I apps/ -o $@ apps/install/install.asm
+		-I apps/ -I drivers/httpfs/ -I drivers/net/ -D"IN_REL='$(INREL)'" \
+		-D"IN_URL='$(INURL)'" -o $@ apps/install/install.asm
 	@echo "install: $(call FILESIZE,$@) bytes"
+
+# ...and the GATE's build of it, never shipped (SPEC.md 117.10, tests/netinst.py):
+# the same source pointed at the host the test serves from QEMU's slirp.
+$(BUILD)/install-gate.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
+                           apps/os88dec.inc apps/os88link.inc apps/os88data.inc \
+                           drivers/httpfs/hfpkg.inc apps/install/OS88VER.TXT | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I drivers/httpfs/ -I drivers/net/ \
+		-D"IN_REL='$(INREL)'" -D"IN_URL='http://10.0.2.2:8096/net/'" \
+		-o $@ apps/install/install.asm
+
+$(BUILD)/install-gate.o88: $(BUILD)/install-gate.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/install-gate.bin -o $@
+
+# THE PUBLISHED TREE (SPEC.md 117.10.2): the 1.44MB system and apps disks as one
+# tree, OS88VER.TXT and its OS88.IDX. On demand; the release skill publishes it.
+.PHONY: nettree
+nettree: $(BUILD)/nettree/OS88.IDX
+$(BUILD)/nettree/OS88.IDX: $(IMG) $(APPSIMG) apps/install/OS88VER.TXT \
+                           tools/os88nettree.py tools/os88httpdrv.py
+	python3 tools/os88nettree.py $(IMG) $(APPSIMG) apps/install/OS88VER.TXT \
+		$(BUILD)/nettree
 
 $(BUILD)/install.o88: $(BUILD)/install.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/install.bin -o $@

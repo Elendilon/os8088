@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "09a7e1b51d3ed04cdcbb96ba377514f538d9f53112df683ad5500e08ed155583",
+  "fingerprint": "9fbaa56d2e881a2c36f7b3f50cd35b833eda4cb38da2659a576114c7e8d9f1c7",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "02235e92df0657eb1ad4c9c6703b2d6c8a753a743e9d8a21343c20d82cbcd1e1",
+  "fingerprint": "0e0df2ffcaec5002e625e19036d60539b2af8499597ade1e1ef06f591010e78c",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -868,6 +868,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "merge network-mount into elendilon: DRVC_HTTP = 10 appended, DQ_MAXREC 9 -> 10 for kern_emu's tenth row (SPEC.md 120.1), over elendilon's OS88UI_BT_PLACE record change - both additions, nothing built before moves",
+   "to": 11
+  },
+  {
+   "fingerprint": "0e0df2ffcaec5002e625e19036d60539b2af8499597ade1e1ef06f591010e78c",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_ARG_TEXT appended at 0x04D5 (SPEC.md 26.10.7): a link's parameter for the program it started - a cell added at the end, nothing built before moves",
+   "to": 10
+  },
+  {
+   "fingerprint": "9fbaa56d2e881a2c36f7b3f50cd35b833eda4cb38da2659a576114c7e8d9f1c7",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_ARG_TEXT appended at 0x04D5 (SPEC.md 26.10.7): a link's parameter for the program it started - a cell added at the end, nothing built before moves",
    "to": 11
   }
  ]

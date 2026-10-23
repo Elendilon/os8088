@@ -4958,6 +4958,15 @@ OS88_BSS_SIZE equ 0
                                  ; READ-AND-CLEAR - the first proc to ask
                                  ; gets it, so a second instance launched
                                  ; later can never inherit a document
+%define OSAPI_ARG_TEXT      KERNEL_SEG:0x04D5   ; a LINK's parameter (SPEC.md
+                                 ; 26.10.7): the text a .LNK naming this
+                                 ; program carried after its path. No inputs;
+                                 ; out CF=1 = none, every launch but such a
+                                 ; link's; CF=0 with DX:SI -> the NUL text,
+                                 ; VALID IN THE ENTRY PROC ONLY - copy it out.
+                                 ; Clobbers DX and SI either way.
+                                 ; READ-AND-CLEAR, as OSAPI_ARG_FILE is.
+                                 ; kern_small refuses (it has no links)
 %define OSAPI_ASSOC_FLUSH   KERNEL_SEG:0x0493   ; DL = a volume, AL = the
                                  ; ASSOC_FL_* bits below (0 = incremental):
                                  ; bring that volume's
