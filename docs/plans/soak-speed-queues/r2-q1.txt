@@ -122,8 +122,8 @@ reho	rehomemove	75	tests/rehomemove.py
 reho	rehomemove360	75	tests/rehomemove.py
 reho	rehome	45	tests/rehome.py
 reho	rehomeabort	40	tests/rehomeabort.py
-wdmo	wdmove	210	tests/wdmove.py
-wdre	wdreach	200	tests/wdreach.py
+DONE wdmo	wdmove	210	tests/wdmove.py
+DONE wdre	wdreach	200	tests/wdreach.py
 pxsw	pxswin	120	tests/pxswin.py
 pxsw	pxswin-price	65	tests/pxswin.py
 vide	videms	45	tests/videms.py

@@ -9891,7 +9891,7 @@ SOAK = [
         "formatted document always full-repaints (68.6).",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdreach", "soak", py("tests/wdreach.py"), 200.0,
+    Row("wdreach", "soak", py("tests/wdreach.py"), 40.0,
         "SPEC.md 27.11.2: EVERY PIXEL OF THE TEXT BAND NAMES A ROW. "
         "wd_penadv gives a paragraph mark a whole 8px cell in the kernel's "
         "face, so a row that exactly FILLS the measure wrapped its own "
@@ -10313,7 +10313,7 @@ SOAK = [
         "the strips.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdmove", "soak", py("tests/wdmove.py"), 210.0,
+    Row("wdmove", "soak", py("tests/wdmove.py"), 40.0,
         "SPEC.md 68.3.1: Word's document movers go a WORD at a time, and the "
         "assertion is the BUFFER rather than the glass - a wrong word is a "
         "corrupted document, not a slow one, and no pixel test would see it. "
