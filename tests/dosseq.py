@@ -85,7 +85,7 @@ def run(m, what):
         return any(r.startswith(("READY", "FAILED")) for r in rows)
     try:
         os88marty.until(m, done, "the probe's READY line (%s)" % what,
-                        poll=2.0, limit=3000.0)
+                        poll=0.25, limit=3000.0)
     except os88marty.MartyError:
         fail("%s: the probe never finished; the last text screen was %r"
              % (what, [r.rstrip() for r in rows if r.strip()]))
@@ -138,21 +138,23 @@ def main():
     if hdd:
         hdd_fixture()
         ctx = os88marty.launch(None, apps=HFLOP, machine=HMACHINE,
-                               extra=["--mount", "hd:0:" + VHD])
+                               extra=["--mount", "hd:0:" + VHD], boot=False)
         where = "C:/SEQCOST.COM"
     else:
         for p in (SYS, GATE):
             if not os.path.exists(p):
                 fail("%s is missing - `make build/seqcost360.img`" % p)
         shutil.copyfile(GATE, SCRATCH)      # the probe writes 256KB
-        ctx = os88ui.boot(SYS, apps=SCRATCH)
+        ctx = os88ui.boot(SYS, apps=SCRATCH, quick=True)
         where = "B:/SEQCOST.COM"
     try:
         with ctx as c:
             if hdd:
                 m = c
+                m.run()
                 ui = os88ui.UI(m)
-                ui.ready(limit=240)
+                ui.up(limit=240)        # the first act is ui.path: no settle
+                os88marty.no_saver(m)
             else:
                 ui = c
                 m = ui.m

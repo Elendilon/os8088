@@ -6781,7 +6781,7 @@ SOAK = [
         "lost clusters before 18.4.9.2.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/dosfull360.img")),
-    Row("dosseq", "soak", py("tests/dosseq.py", "--hdd", "--kd"), 240.0,
+    Row("dosseq", "soak", py("tests/dosseq.py", "--hdd", "--kd"), 40.0,
         "A DOS PROGRAM'S SEQUENTIAL I/O COSTS THE SAME AT EVERY OFFSET "
         "(docs/plans/completed/DOS-STREAM-PLAN.md). SEQCOST.COM writes a "
         "1MB file in 8KB chunks off an XT-IDE C:, reads it back and seeks, "
