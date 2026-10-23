@@ -1096,69 +1096,6 @@ fpg_finish:
                                 ; (t_hotpar). kern_big's +36 is even already
 %endif
 
-%ifdef OS88_SNDCARD
-; -----------------------------------------------------------------------------
-; fpg_move - follow [vid_clk_hx] when the speaker's field moved it (SPEC.md
-;            34.15)
-; in:  [vid_clk_hx] already the NEW edge; called by menu_sound alone, from
-;      inside menu_draw_bar, before it re-composes the menus segment
-; clobbers: AX, BX, CX, SI, flags (DX preserved)
-;
-; The field widens LEFT by three cells while a toast that missed the gap holds
-; it, and an armed widget is the commonest reason a toast misses the gap - its
-; cells come off the menus segment. With the origin fixed at arm time the
-; strip was lettered under the widget's old span and the next step drew over
-; it. So the widget moves with the edge, and only the part of the old span the
-; new one does not cover is erased - `.unpaint`'s two thin fills and a
-; menu_inval, so the text band is re-lettered once, by the menus or by the
-; clock (menu_sound zeroes [menu_ckck] after this), and never blanked first.
-; -----------------------------------------------------------------------------
-fpg_move:
-    cmp byte [fpg_on], 0
-    je .out
-    push dx
-    mov ax, [vid_clk_hx]
-    sub ax, FPG_W               ; AX = the new origin
-    mov bx, [fpg_x0]            ; BX = the old one
-    lea si, [bx+FPG_W]          ; SI = one past the old span
-    mov [fpg_x0], ax
-    cmp ax, bx
-    je .done
-    jb .left
-    mov cx, ax                  ; RIGHT: the old span's left end is bare,
-    cmp cx, si                  ; up to the new origin or the old span's
-    jbe .r                      ; end, whichever is first
-    mov cx, si
-.r:
-    dec cx
-    mov ax, bx
-    jmp short .erase
-.left:                          ; LEFT: its right end is bare, from the new
-    add ax, FPG_W               ; span's end or the old origin, whichever is
-    cmp ax, bx                  ; last
-    jae .l
-    mov ax, bx
-.l:
-    mov cx, si
-    dec cx
-.erase:                         ; AX..CX, inclusive
-    call thm_bg
-    xor bx, bx
-    mov dx, MENU_TEXT_Y - 1
-    call gfx_fill
-    mov bl, MENU_TEXT_Y + 8
-    mov dl, MBAR_H - 2
-    call gfx_fill
-    call menu_inval
-    call fpg_paint              ; ...and the widget, where it is now
-    call fpg_span
-    call menu_inval
-.done:
-    pop dx
-.out:
-    ret
-%endif
-
 ; -----------------------------------------------------------------------------
 ; fpg_span - the whole widget's horizontal extent, from the armed origin
 ; out: AX = left x, CX = right x (both inclusive)
