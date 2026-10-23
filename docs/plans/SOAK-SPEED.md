@@ -177,6 +177,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| brtoolbar / brrace / brfetch / brpromise / brtest | 8.6 / 76 / 35 / 21 / 13 s; 184 guest s waited for the five | 12 / 66 / 29 / 23 / 13 s (5 in 3 lanes); 154 | 4 | boots gated on `kernel_up` (15-20 guest s of settle each); open verbs' settles -> `ui_done` where the next read is the window list. The rest is the partner link's host-stepped work and pre-capture settles |
 | dockmodule / dockmark / fddpage | 21 / 25 / 40 s; 59 / 50 / 108 guest s | unchanged | - | lean (boot settles + the subject); dockmodule already rides dockpos's `ui_done` verbs. Re-declared 120/90/120 -> 30/30/60 |
 | mouresume | 15.5 s / 56 guest s waited (declared 150) | 13.4 s / 49 | 4, 8 | boot gated on `ui.up` (launch's settle 33 guest s); a pre-click settle -> `ui_done`; kdreturn's text/desktop polls 0.25/0.2 -> 0.05. The rest is the HDD boot and the DOS handoff |
 | frpromise / zoomsave / regmove | 61 / 90 / 47 s (load ~12); 91 / 36 / 69 guest s; CPU 31 / 53 / 20 s | unchanged | - | lean: a boot settle each and the subject's own work (frpromise's 51 guest s promise wait). Re-declared 150/150/130 -> 60/90/40 |

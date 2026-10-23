@@ -7645,7 +7645,7 @@ SOAK = [
         "in XMEM.DRV now (SPEC.md 41.12), not in the kernel.",
         needs=("qemu", "nasm"), serial=True, timeout=600,
         wants=("build/os8088.img", "build/xmtest.img")),
-    Row("brpromise", "soak", py("tests/brpromise.py"), 40.0,
+    Row("brpromise", "soak", py("tests/brpromise.py"), 30.0,
         "SPEC.md 71.11: the Browser's WF_SAVEU promise follows the FETCH - "
         "withdrawn when br_go starts one, back when it settles. The plain apps "
         "disk, so unlike the other br* rows it needs no `make browsertest`",
@@ -7654,7 +7654,7 @@ SOAK = [
     # disk, which `wants=` builds before the run; until the shared-wins round
     # they were exempt in t_registry for wanting it, which is the case wants=
     # exists for, so four of them rotted unseen (HANDOFF-APPS-SHARED 6.4) ---
-    Row("brtest", "soak", py("tests/brtest.py"), 35.0,
+    Row("brtest", "soak", py("tests/brtest.py"), 20.0,
         "SPEC.md 71: DEMO.HTM opens the Browser through its association, the "
         "page parses and RENDERS, and the location bar holds the file's URL",
         needs=("marty",), serial=True,
@@ -7697,18 +7697,18 @@ SOAK = [
         "TORTURE.HTM, the way brtable reads its rows",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
-    Row("brtoolbar", "soak", py("tests/brtoolbar.py"), 145.0,
+    Row("brtoolbar", "soak", py("tests/brtoolbar.py"), 20.0,
         "BROWSER-PLAN 14.4: the toolbar's buttons keep their right edge - "
         "br_status's floored pen must not paint over Reload's right stroke",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
-    Row("brfetch", "soak", py("tests/brfetch.py"), 95.0,
+    Row("brfetch", "soak", py("tests/brfetch.py"), 40.0,
         "SPEC.md 71 stage D: a URL typed into the bar goes out as an HTTP GET "
         "over the parallel-cable link (MartyPC's LPT partner) to an HTTP "
         "server this row runs on the host, and the reply renders",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
-    Row("brrace", "soak", py("tests/brrace.py"), 120.0,
+    Row("brrace", "soak", py("tests/brrace.py"), 90.0,
         "SPEC.md 71.14: a Reload clicked while the worker is inside br_parse "
         "must neither write through a freed buffer (the interrupt vector "
         "table stays untouched) nor lose the new fetch (the host server sees "
