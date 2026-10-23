@@ -327,6 +327,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | wdscroll | 160 s (load 12), 163 guest s waited + ~90 unlogged in `pace` | 131 s (load 8), 157 guest incl. what replaced the paces | 4 + quick boot | boot -> `kernel_up`; each gesture's quiesce(0.5) -> `ui_done` + quiesce(0.25); a tap's 0.25 s lead pace -> `ui_done(cap=<the old pause>)` (the hold before release stays: it is the press). The rest is ~95 real scrolls on a CGA XT |
 | redlinescene | declared 240 | 51 s (load 12), unchanged | - | already lean; re-declared |
 | pxopen / pxopenpng / pxopencga | 63 / 69 / 45 s (load 8), 257 guest s waited | 56 / 60 / 35 s, 218 guest | 4, 8 + quick boot | quick boot; settles before memory reads -> `ui_done`, before the exact pixelsim compare -> `still`; polls 0.05. The rest is PiXEL's decodes |
+| mixercga / herc / vga | 96 / 57 / 60 s (load 8), 250 guest s waited | 48 / 37 / 45 s (load 11), 99 guest | 4 + quick boot | every click and key is followed by a wait on the state it changes, so the click's 1.5-cap (it never idles: the popup) and the key's 0.3 sleep went (QEMU's arm keeps them); quick boots + a `still` before the first pixel compare. Exact-pixel restore checks still green |
+| dosfull / dosfix | 56 / 77 s (load 8), 162 guest / 129 host s waited | 20 / 24 s, 152 guest / 41 host | 8 + quick boot | quick boots; the READY poll (a text-screen read) 0.5-1.0 -> 0.1 host s. The rest is the DOS probe running |
+| telpen | declared 300 | 13 s | - | already lean; re-declared |
 
 ## Resuming
 

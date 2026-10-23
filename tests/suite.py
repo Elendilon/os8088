@@ -6757,7 +6757,7 @@ SOAK = [
         "B against the build that shipped the defect.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/wrgap360.img")),
-    Row("dosfix", "soak", py("tests/dosfix.py"), 60.0,
+    Row("dosfix", "soak", py("tests/dosfix.py"), 30.0,
         "A HANDLE KEEPS ITS FOLDER, AND A TERMINATING PROGRAM'S FILES ARE "
         "CLOSED (SPEC.md 96.52). DOSFIX.COM opens SUB\\X.DAT from the root "
         "with a DECOY X.DAT in the root, so a refill that re-resolves the bare "
@@ -6769,7 +6769,7 @@ SOAK = [
         "ok): VERIFIED TO FAIL as CWD BAD with AH=47h's stand taken out.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/dosfix360.img")),
-    Row("dosfull", "soak", py("tests/dosfull.py"), 120.0,
+    Row("dosfull", "soak", py("tests/dosfull.py"), 30.0,
         "A HELD STREAM THAT RUNS OUT OF ROOM, AND A DELETE WHILE ITS HOLD IS "
         "PENDING (SPEC.md 18.4.9.1, 18.4.9.2). DOSFULL.COM fills an empty "
         "360KB floppy through one handle - the box's flushes are one held "
@@ -15375,7 +15375,7 @@ SOAK = [
         "full-screen framebuffer is B000 rather than B800 with the MDA "
         "attribute mapping (70.8.9) under it",
         needs=("marty",), serial=True),
-    Row("telpen", "soak", py("tests/telpen.py"), 300.0,
+    Row("telpen", "soak", py("tests/telpen.py"), 20.0,
         "SPEC.md 5.4.2.2.1: gfx_blit1's pen used to REFUSE a pair whose two "
         "colours share no plane in either direction - green on red, and most "
         "of the sixteen-colour pairs a board's art is made of - and the Map "
@@ -15456,15 +15456,15 @@ SOAK = [
         "name for tests/ethernet.py's reason: MartyPC has no NIC, so this "
         "package's receive path cannot be reached on it at all",
         needs=("qemu",), serial=True, builds=True),
-    Row("mixercga", "soak", py("tests/mixer.py", "--adapter", "cga"), 100.0,
+    Row("mixercga", "soak", py("tests/mixer.py", "--adapter", "cga"), 60.0,
         "SPEC.md 34.15: CGA volume gestures, exact save-under restore and cleanup, "
         "optional package discovery/absence and absent hardware, native Mixer and About",
         needs=("marty", "nasm"), timeout=900,
         wants=("build/mixer360.img", "build/mixernone360.img")),
-    Row("mixerherc", "soak", py("tests/mixer.py", "--adapter", "herc"), 65.0,
+    Row("mixerherc", "soak", py("tests/mixer.py", "--adapter", "herc"), 50.0,
         "SPEC.md 34.15: the same volume/Mixer UI and resource checks on Hercules",
         needs=("marty", "nasm"), timeout=600, wants=("build/mixer360.img",)),
-    Row("mixervga", "soak", py("tests/mixer.py", "--adapter", "vga"), 65.0,
+    Row("mixervga", "soak", py("tests/mixer.py", "--adapter", "vga"), 60.0,
         "SPEC.md 34.15: the same volume/Mixer UI on VGA, including its four-plane save-under",
         needs=("marty", "nasm"), timeout=600, wants=("build/mixer360.img",)),
     Row("mixersb16", "soak", py("tests/mixer.py", "--adapter", "sb16"), 40.0,

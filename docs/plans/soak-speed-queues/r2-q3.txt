@@ -131,14 +131,14 @@ DONE wdsc	wdscroll	330	tests/wdscroll.py
 DONE pxop	pxopenpng	120	tests/pxopen.py
 DONE pxop	pxopen	90	tests/pxopen.py
 DONE pxop	pxopencga	90	tests/pxopen.py
-telp	telpen	300	tests/telpen.py
-dosf	dosfull	120	tests/dosfull.py
-dosf	dosfix	60	tests/dosfix.py
+DONE telp	telpen	300	tests/telpen.py
+DONE dosf	dosfull	120	tests/dosfull.py
+DONE dosf	dosfix	60	tests/dosfix.py
 MOVED->r2-q6 dosf	dosfile	35	tests/dosfile.py
 MOVED->r2-q6 dosf	dosfcb	30	tests/dosfcb.py
-mixe	mixercga	100	tests/mixer.py
-mixe	mixerherc	65	tests/mixer.py
-mixe	mixervga	65	tests/mixer.py
+DONE mixe	mixercga	100	tests/mixer.py
+DONE mixe	mixerherc	65	tests/mixer.py
+DONE mixe	mixervga	65	tests/mixer.py
 dlju	dljunk	210	tests/dljunk.py
 MOVED->r2-q6 pkgt	pkgthumb-np	50	tests/pkgthumb.py
 MOVED->r2-q6 pkgt	pkgthumb-br	50	tests/pkgthumb.py

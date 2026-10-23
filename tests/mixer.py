@@ -61,13 +61,15 @@ class Session:
     def key(self,k):
         if self.qemu: self.m.hmp('sendkey '+{'space':'spc'}.get(k,k))
         else: self.m.key({'esc':'Escape','home':'Home','end':'End','space':'Space'}[k])
-        self.pace(.3)
+        if self.qemu: self.pace(.3)   # (MartyPC: every key is followed by a
+                                      # wait on the state it changes)
 
     def click(self,x,y):
         if self.qemu:
             self.mo.to(x,y);self.mo._edge(True);self.mo._edge(False)
             self.pace(.4)
-        else: self.mo.click(x,y)
+        else: self.mo.click(x,y,settle=0)   # (every click is followed by a
+                                            # wait on the state it changes)
 
     def open(self):
         self.click(self.hx+12,9)
@@ -145,6 +147,7 @@ def toast(s,pw):
 
 
 def session(ui,adapter):
+    if adapter!='sb16': ui.still()      # (a quick boot: the desktop drawn)
     s=Session(ui,adapter);d=s.d
     check(s.seg and d.rb('mix_kind')>0,'readable mixer publishes the speaker')
     pw=ui._word('vid_pw')
@@ -229,13 +232,13 @@ def session(ui,adapter):
 
 def absent():
     # The quick UI works when the optional package is not present.
-    with os88ui.boot('build/mixernone360.img',machine=MACHINES['cga'],verbose=False) as ui:
+    with os88ui.boot('build/mixernone360.img',machine=MACHINES['cga'],verbose=False,quick=True) as ui:
         s=Session(ui,'cga');s.open()
         check(s.d.rb('volume_found')==0,'missing package removes Open Mixer')
         check(s.d.rw('volume_bottom')==91,'missing package removes its command row')
         s.key('end');s.wait(lambda:s.d.rb('volume_levelv')==100,'quick volume works without Mixer')
         s.close();check(not s.owned(),'optional-package absence leaves no claim')
-    with os88ui.boot('build/os8088-360.img',machine='os8088_5150_cga_gla',verbose=False) as ui:
+    with os88ui.boot('build/os8088-360.img',machine='os8088_5150_cga_gla',verbose=False,quick=True) as ui:
         check(ui._word('menu_mixcap')==0,'no mixer leaves the speaker absent')
         check(ui._word('vid_clk_hx')==(ui._word('vid_pw')-206)&0xFFF8,
               'no mixer keeps the full clock field')
@@ -291,7 +294,7 @@ def main():
                     background(ui)
                 finally:q.close()
     else:
-        with os88ui.boot('build/mixer360.img',machine=MACHINES[a.adapter],verbose=False) as ui:
+        with os88ui.boot('build/mixer360.img',machine=MACHINES[a.adapter],verbose=False,quick=True) as ui:
             session(ui,a.adapter)
         if a.adapter=='cga':absent()
 
