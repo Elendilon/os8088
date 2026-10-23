@@ -255,6 +255,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | deskflash / deskzoom | 103 / 109 s (3 lanes) | 45 / 93 s (load 8) | 4, 10 | quick boots; settles -> `ui.still()`, the one before `dc.verify` dropped (verify stills itself); deskflash's per-pixel Python `flashes` over 30-70 glass frames -> numpy (`OS88_FLASHCHECK=1` asserts it equal to the loop: equal on all 16 checks). deskzoom's rest is `dc.verify`'s whole-repaint compares |
 | 1942sound / 1942 / 1942front | declared 752 / 216 / 180; measured 158 / 131 / 102 s (load 10), 304 guest s waited | 139 / 124 / 91 s (load 6), 223 guest s | 4 + quick boot | quick boots; splash settles -> `ui_done` / `UI.still` before the exact-pixel logo compares; `Game.call` restores only the registers a call changed. What is left is ~7,300 `call_guest`s at ~25 round trips each (park + 13 setregs + bp + run + regs + restore). **Pipelining them does NOT work on today's server** - queued lines after the first are not answered until more input arrives (tried, hung); a server-side drain of `pending` would make a 25-trip call ~3 |
 | fishedge | 72 s | 14 s | 12 | two `launch(boot=40)` - a fixed pace - -> `kernel_up`; same strip counts' shape (they vary run to run with the swimmers) |
+| scsize / shutdown | 136 / 92 s (3 lanes) | 60 / 79 s (2 lanes) | 8 | quick boots (scsize's launch + `ready` settles 20 guest s; shutdown's three launches 52); polls 0.3 -> 0.05. The rest is SCRIBE's loads and saves / three shutdown cycles and a warm reset |
 
 ## Resuming
 

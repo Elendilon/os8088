@@ -4679,7 +4679,7 @@ SOAK = [
         "at a time - a bar that parked at 44% for the whole load passed every "
         "other row in this file and was found by somebody watching it",
         needs=("marty",), serial=True),
-    Row("shutdown", "soak", py("tests/shutdown.py"), 120.0,
+    Row("shutdown", "soak", py("tests/shutdown.py"), 100.0,
         "Shut Down confirms, Escape and Cancel preserve the desktop, sliding "
         "off cancels a press, settings flush, OS ticks stop while the BIOS "
         "clock and splash pixels animate, and Ctrl-Alt-Del still warm-resets "
@@ -9818,7 +9818,7 @@ SOAK = [
         "against a screen no early-out touched.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("scsize", "soak", py("tests/scsize.py"), 140.0,
+    Row("scsize", "soak", py("tests/scsize.py"), 80.0,
         "SPEC.md 95.13: SCRIBE's first size pass, and the only row that drives "
         "SCRIBE at all. SPEC.md 95.8.8's PARTS leg: SCRIBE.O88 is one file, "
         "the loader re-homes into part 0, I_SIZE is SC_P1ORG, the region's "
