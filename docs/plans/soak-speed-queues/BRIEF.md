@@ -123,3 +123,16 @@ Claude-Session: https://claude.ai/code/session_0128wd3x4TL6TkrT5R6Y6y6u
 - Run rows with `MAKELEVEL=1 python3 tools/os88test.py soak -k <row>`. All
   declared artefacts are prebuilt; don't run make in build/ (private trees
   via tools/os88build.py if a row needs a knob kernel).
+
+## Round 4: the rows that used to SKIP for a missing tool
+- Installed today: `unicorn` (pip), `dosbox` (apt), NASM 3 (built by
+  tools/setup-nasm3.sh into build/nasm3, found automatically), QEMU 9.2
+  (built by tools/setup-qemu9.sh into build/qemu9/inst/bin). The qemu9 rows
+  launch `qemu-system-i386` BY NAME, so they need
+  `PATH=/home/user/os8088/build/qemu9/inst/bin:$PATH` in front of the run -
+  only for those rows; every other QEMU row stays on the system QEMU 8.
+  Whether the qemu9 rows should find build/qemu9 themselves (as nasm3 finds
+  build/nasm3) is a fair harness question for whoever owns them.
+- These rows have never run in this container: baseline first (pass /
+  fail / where the time goes), then the usual speed pass. Many are small
+  host-side rows; for an already-lean one, confirm and re-declare `secs`.
