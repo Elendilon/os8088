@@ -2065,14 +2065,14 @@ SOAK = [
         "WireFleet generated tiles: reproducibility, palette/bounds, distinct color/mono shot shapes (SPEC.md 114); "
         "the 16 effect stamps in three forms, the song and the Sound Blaster clips (114.11)",
         needs=("pil",)),
-    Row("wfdraw", "soak", py("tests/wfdraw.py"), 120.0,
+    Row("wfdraw", "soak", py("tests/wfdraw.py"), 50.0,
         "WireFleet's colour face priced in drawing calls (SPEC.md 114.10): five "
         "seconds of the automatic search draws nothing, each gesture under a "
         "ceiling a repaint blows through, and the cached picture pixel-identical "
         "to a forced full repaint. The 4.77 MHz VGA XT",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-360.img", "build/wireflet360.img")),
-    Row("wfdrawherc", "soak", py("tests/wfdraw.py", "--herc"), 120.0,
+    Row("wfdrawherc", "soak", py("tests/wfdraw.py", "--herc"), 40.0,
         "wfdraw on the Hercules 5150: 114.2's mono face, the same idle, ceilings "
         "and incremental-equals-repaint identity",
         needs=("marty", "nasm"), serial=True,
@@ -4420,7 +4420,7 @@ SOAK = [
         "tritone-transposed reference as the negative control",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/mrwt720.img")),
-    Row("mrdraw", "soak", py("tests/mrdraw.py"), 200.0,
+    Row("mrdraw", "soak", py("tests/mrdraw.py"), 50.0,
         "MIDIRack's redraw, priced in drawing calls (SPEC.md 105.9.4): every "
         "far call into a drawing cell of the API table, per gesture, told "
         "apart as the UI task's or the worker's by its stack; each gesture "
@@ -4428,7 +4428,7 @@ SOAK = [
         "caches drew pixel-identical to a forced full repaint. Hercules",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
-    Row("mrdrawvga", "soak", py("tests/mrdraw.py", "--vga"), 200.0,
+    Row("mrdrawvga", "soak", py("tests/mrdraw.py", "--vga"), 50.0,
         "mrdraw on the VGA XT, the colour face (SPEC.md 105.9.5): the same "
         "ceilings and the same incremental-equals-repaint identity, compared "
         "as the card rasterised it in colour",
@@ -6179,7 +6179,7 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/os8088-360.img", "build/dosbig144.img",
                "build/BIG.EXE", "build/kerndos.bin")),
-    Row("kdnoprog", "soak", py("tests/kdnoprog.py"), 75.0,
+    Row("kdnoprog", "soak", py("tests/kdnoprog.py"), 30.0,
         "A PROGRAM THAT IS NOT THERE, ON ARM 1, SAYS SO (SPEC.md 96.40.7). "
         "Field report: \"trying to run a program that doesn\'t exist, via "
         "typing it in the text box and clicking run with shut down the os "
@@ -7530,7 +7530,7 @@ SOAK = [
         "refusal the LAUNCH earned fell through it and came back `File not "
         "found` about a document that was there. 173.2s measured.",
         needs=("marty",), serial=True),
-    Row("dosext", "soak", py("tests/dosext.py"), 170.0,
+    Row("dosext", "soak", py("tests/dosext.py"), 120.0,
         "A TYPED EXTENSION, AND THE ARGUMENTS AFTER IT (SPEC.md 96.33.15.1). "
         "COMMAND.COM's rule has two halves - no extension is a search, an "
         "extension must be one it can execute - and dos_con_ext shipped with a "
@@ -15016,7 +15016,7 @@ SOAK = [
         "Measured at 26.3s.",
         needs=("marty",), serial=True,
         wants=("build/heapfrag360.img",)),
-    Row("hdnoclaim", "soak", py("tests/hdnoclaim.py"), 75.0,
+    Row("hdnoclaim", "soak", py("tests/hdnoclaim.py"), 40.0,
         "A mounted hard-disk partition costs NO HEAP (SPEC.md 22.6). It "
         "REPLACES `hdmove`, which compacted the heap out from under the 6KB "
         "listing claim HDD.DRV used to donate per partition; the donation is "
@@ -15038,7 +15038,7 @@ SOAK = [
         "the machine decide its OFF ones. Red with the DRVR_ANS mask taken "
         "out of want_set (D, F) or the boot loop's unload (B)",
         needs=("marty",), serial=True, timeout=600),
-    Row("heaphi", "soak", py("tests/heaphi.py"), 90.0,
+    Row("heaphi", "soak", py("tests/heaphi.py"), 40.0,
         "A driver's second image goes at the TOP of the heap (SPEC.md "
         "50.3.2.1). The user's sequence - tick Hard Drive, tick Ram Disk, "
         "select its page - and then the number mem_claim answers a claim "

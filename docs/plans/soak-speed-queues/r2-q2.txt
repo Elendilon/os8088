@@ -64,8 +64,8 @@ DONE trks	trkspkdrop	40	tests/trkspk.py
 DONE trks	trkspkend	40	tests/trkspk.py
 DONE trks	trkspkturbo	36	tests/trkspk.py
 DONE trks	trkspkref	20	tests/trkspk.py
-mrdr	mrdraw	200	tests/mrdraw.py
-mrdr	mrdrawvga	200	tests/mrdraw.py
+DONE mrdr	mrdraw	200	tests/mrdraw.py
+DONE mrdr	mrdrawvga	200	tests/mrdraw.py
 vidr	vidrepeat	60	tests/vidrepeat.py
 vidr	vidrepeatshd	60	tests/vidrepeat.py
 vidr	vidkpartrep	60	tests/vidrepeat.py
@@ -75,25 +75,25 @@ vidr	vidresidentcga	50	tests/vidresident.py
 vidr	vidresidentvga	50	tests/vidresident.py
 DONE brre	brreload	360	tests/brreload.py
 heap	heapscrl	120	tests/heapscrl.py
-heap	heaphi	90	tests/heaphi.py
+DONE heap	heaphi	90	tests/heaphi.py
 heap	heapcheck	60	tests/heapcheck.py
 heap	heapdrv	60	tests/heapdrv.py
-dose	dosext	170	tests/dosext.py
+DONE dose	dosext	170	tests/dosext.py
 dose	dosenvfold	40	tests/dosenvfold.py
 dose	dosest	40	tests/dosest.py
 dose	dosexec	30	tests/dosexec.py
 dose	dosexe	28	tests/dosexe.py
 DONE tmse	tmselfsu	300	tests/tmselfsu.py
-wfdr	wfdraw	120	tests/wfdraw.py
-wfdr	wfdrawherc	120	tests/wfdraw.py
+DONE wfdr	wfdraw	120	tests/wfdraw.py
+DONE wfdr	wfdrawherc	120	tests/wfdraw.py
 DONE curd	curdisk	240	tests/curdisk.py
 DONE brta	brtable	200	tests/brtable.py
 DONE br	br14	200	tests/br14.py
-apsp	apspk	80	tests/apspk.py
-apsp	apspkcovox	60	tests/apspk.py
-apsp	apspkcardc	20	tests/apspk.py
-apsp	apspkpause	20	tests/apspk.py
-apsp	apspkcard	18	tests/apspk.py
+DONE apsp	apspk	80	tests/apspk.py
+DONE apsp	apspkcovox	60	tests/apspk.py
+DONE apsp	apspkcardc	20	tests/apspk.py
+DONE apsp	apspkpause	20	tests/apspk.py
+DONE apsp	apspkcard	18	tests/apspk.py
 DONE wdco	wdcourier	100	tests/wdcourier.py
 DONE wdco	wdcombo	80	tests/wdcombo.py
 DONE fish	fishedge	150	tests/fishedge.py
@@ -126,8 +126,8 @@ DONE wden	wdenter	90	tests/wdenter.py
 netp	netpromise	90	tests/netpromise.py
 drvs	drvscroll	80	tests/drvscroll.py
 tmre	tmrepair	80	tests/tmrepair.py
-kdno	kdnoprog	75	tests/kdnoprog.py
-hdno	hdnoclaim	75	tests/hdnoclaim.py
+DONE kdno	kdnoprog	75	tests/kdnoprog.py
+DONE hdno	hdnoclaim	75	tests/hdnoclaim.py
 clip	clipkeep	40	tests/clipkeep.py
 clip	clipgrow	30	tests/clipgrow.py
 DONE wdty	wdtype	70	tests/wdtype.py

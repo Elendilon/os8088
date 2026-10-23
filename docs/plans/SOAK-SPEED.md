@@ -273,6 +273,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | fdlg* (6 rows) | fdlgchoose 52 s / 187 guest s; the rest 9-12 s (declared 60-300) | fdlgchoose 39-46 s / 116 guest; the rest 9-12 s | 4 + quick boot | quick boots; settles -> `ui_done`, or `still` before the ink (fbuf) compares that would go red if early; `UI.chooser`'s settle -> still. Re-declared |
 | midirack* (11 rows) | midirackend 44 s (3 lanes) / boot settle 21 guest s each | 15-69 s, all green (11 in 3 lanes) | 8 | quick boot (`ui.path` is the first act), polls 0.2 -> 0.05; the playback windows are the measurement. Re-declared from this run |
 | trkspk* (9 rows) | trkspkcovox 42 s (3 lanes) / launch + `ready` settles ~22 guest s a boot | all green; walls 32-105 s at load ~8, 85 s charged for the nine | 4, 8 | boots gated on `ui.up` + `ui_done` (were launch's settle AND `ready`'s); poll 0.2 -> 0.05. The `pace`s are the PLAY running (pulse rates, the ring never dry) and stay. Secs left as declared |
+| mrdraw(vga), wfdraw(herc), dosext, kdnoprog, hdnoclaim, heaphi, apspk* (5) | boot settles 20-42 guest s a row (survey) | 13 rows green, 165 s for all in 3 lanes at load ~8 | 4 | quick boots / `up` + `ui_done` / `kernel_up` where launch's settle (and `ready`'s, or a second settle) gated a boot whose first act confirms itself; measurement windows untouched. Over-declared ones re-declared |
 
 ## Resuming
 
