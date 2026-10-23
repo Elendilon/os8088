@@ -5450,6 +5450,46 @@ SOAK = [
         "[ch_seg] stale and the move count at 0. Needs `cc`",
         needs=("marty", "cc"), serial=True,
         wants=("build/cmemmove360.img",)),
+    Row("rcmove", "soak", py("tests/rcmove.py"), 120.0,
+        "RUNCPM'S 64KB Z80 CLAIM MOVES and the machine keeps running "
+        "(SPEC.md 74.3.2, docs/plans/NO-PINNING-PLAN.md C3): cmemmove's "
+        "recipe with the CCP at its A> prompt - MC_RLOC set, the claim at a "
+        "new base, rc_zseg AND rc_z.seg both following it, the 64KB hashed "
+        "equal at both bases, and `xyzzy` typed afterwards answered XYZZY? "
+        "by the CCP running in the moved claim. 30s is its passing run "
+        "MEASURED here (25.5s wall). VERIFIED RED: os88_onmove leaving "
+        "rc_z.seg stale fails 3 (rc_z.seg 55c0, claim at 4e80) and 5 (no "
+        "XYZZY? in 120 guest seconds). Needs `cc` and the RunCPM fetch",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/rcmove360.img",)),
+    Row("c64move", "soak", py("tests/emumove.py", "--pkg", "c64"), 30.0,
+        "THE C64'S 64KB RAM AND ITS PARTS CARVE MOVE and the 6510 keeps "
+        "running (C64-SPEC 3.1.1, SPEC.md 73.14.2.1's CC_ONMOVE_PARTS): Note "
+        "Pad, C64, then heapfrag; Note Pad closed and heapfrag's key-driven "
+        "region pass posted, which moves the RAM down, the region and the "
+        "ROM+overlay carve up. Asserts both MC_RLOCs, c64_m.ramseg on the new "
+        "claim, c64_m.romseg and cc_ovseg at the same distance above op_base, "
+        "the ROM's first and last 16 bytes at the new romseg, c64_chr_seg on "
+        "one of the two claims, and the cycle counter moving with no JAM. It "
+        "does not wait for READY. (~280 guest seconds on an 8088). 30s is its "
+        "passing run MEASURED here (~18-26s wall). VERIFIED RED: os88_onmove "
+        "not storing os88_part_seg's answer into c64_m.romseg fails 3 and 4. "
+        "Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/c64move360.img",)),
+    Row("a2move", "soak", py("tests/emumove.py", "--pkg", "apple2"), 30.0,
+        "c64move's layout one machine along (APPLE2-SPEC 3.1.1): the Apple "
+        "II's 49KB RAM moves down and its ROM-only carve up - the carve's "
+        "proc is crt0's cc_partsmv proper, the overlay being lazy, so this "
+        "is the only row that runs that path. Asserts both MC_RLOCs, "
+        "a2_m.ramseg on the new claim, a2_m.romseg following the carve, the "
+        "ROM's first and last kept 16 bytes at the new romseg, and the 6502 "
+        "not jammed and at more than one PC after the pass. 30s is its "
+        "passing run MEASURED here (19.7s wall). VERIFIED RED: os88_onmove "
+        "not re-reading a2_m.romseg fails 3, 4 and 6. Needs `cc` and the "
+        "Apple II ROM fetch",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/a2move360.img",)),
     Row("gfxpoints", "soak", py("tests/gfxpoints.py"), 20.0,
         "SPEC.md 5.6.9: gfx_points draws the SAME pixels as a gfx_pixel loop. "
         "The slot exists to REPLACE that loop, so the only claim worth gating "

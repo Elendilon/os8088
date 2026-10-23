@@ -125547,11 +125547,31 @@ the image.
 |---|---|---|
 | when it is read | at launch, by `op_load` in `cc_entry`, in the same carve read as every other eager part - right behind the image the kernel just read | the first time an `ovl_*` function is called, by `op_fetch` from `cc_ovneed` - §73.14's on-demand load, out of the package's own file |
 | the claim | the parts CARVE, top-down (`op_claim`, §20.12.10.8) | a claim of its own, through `op_fetch`'s door (bottom-up), shrunk to the part |
-| movable | **yes, while the carve holds the module alone** (`OS88_PART_N` = 1): `cc_ovcarve` re-derives the module's segment through `op_seg` and re-stamps the vectors. It was PINNED for a cycle (LEMMINGS' wave 4, §116.6) because a module function calling ANOTHER was `call far [cc_ovm_*]`, which left the module's own CS on the stack for a plain `retf`, so a claim that compacted under such a call moved the carve under a live return - LEMMINGS claims ~329 KB three such frames deep (`ovl_launch` → `ovl_level_load` → `ovl_claim_all`). **That call goes through `cc_ovmthunk` now** (`tools/cc8086.py` emits `mov bx, cc_ovm_*` / `call far [cc_ovvmm]`): the CS comes off, the return offset goes to `cc_ovthunk`'s stash and the `retf` is rebuilt from `[cc_ovcs]`, so no stack holds the module's CS on either crossing and the pin is gone (docs/plans/NO-PINNING-PLAN.md). A carve with MORE rows stays pinned until the program can be told its parts moved (that plan's C2). `tests/ovlhigh.py` asserts `MC_RLOC` ≠ 0 | yes, from the moment it is bound (`cc_ovreloc`) - safe under a module-to-module call for the same reason |
+| movable | **yes, while the carve holds the module alone** (`OS88_PART_N` = 1): `cc_ovcarve` re-derives the module's segment through `op_seg` and re-stamps the vectors. It was PINNED for a cycle (LEMMINGS' wave 4, §116.6) because a module function calling ANOTHER was `call far [cc_ovm_*]`, which left the module's own CS on the stack for a plain `retf`, so a claim that compacted under such a call moved the carve under a live return - LEMMINGS claims ~329 KB three such frames deep (`ovl_launch` → `ovl_level_load` → `ovl_claim_all`). **That call goes through `cc_ovmthunk` now** (`tools/cc8086.py` emits `mov bx, cc_ovm_*` / `call far [cc_ovvmm]`): the CS comes off, the return offset goes to `cc_ovthunk`'s stash and the `retf` is rebuilt from `[cc_ovcs]`, so no stack holds the module's CS on either crossing and the pin is gone (docs/plans/NO-PINNING-PLAN.md). A carve with MORE rows moves when the package says `CC_ONMOVE_PARTS` (below), which C64 (ROM + module) and the Apple II (ROM, its overlay lazy) both do. `tests/ovlhigh.py` asserts `MC_RLOC` ≠ 0 | yes, from the moment it is bound (`cc_ovreloc`) - safe under a module-to-module call for the same reason |
 | where `[cc_ovseg]` lives | a word of the runtime's bss, written once by `cc_ovinit` | **the row's own `zkb`**: `op_fetch` banks the claim's base there and `op_seg` reads it there, so `cc_ovseg` is `%define`d to that word and the relocation proc's one store keeps the binder, `op_seg`, `op_drop` and the thunk's `retf` in step - there is no second copy to forget |
 | `cc_ovneed` | the worker gate and nothing else | the worker gate, the row's `OP_FETCHED`, then the HOME BRACKET and `op_fetch` |
 | a refusal | the LAUNCH refuses, with the parts standard's toast (`Not enough memory`, `Cannot read my parts`, ...), and no window whose every menu says no ever opens | the CALL refuses with `op_fetch`'s toast, `AX` = 0 and the call skipped, as §73.14's refusal always was |
 | resident code, CWORD measured | +1,100 image bytes over the file form | +924 |
+
+**A carve holding MORE than the module moves too, when the package says so
+- `CC_ONMOVE_PARTS`** (docs/plans/NO-PINNING-PLAN.md C2). Such a carve holds
+parts whose segments the C read with `os88_part_seg()` and may have kept -
+C64's and the Apple II's ROM in `romseg` - and crt0 cannot know whether it
+did, so without the define it stays pinned. The define (with `CC_HAS_ONMOVE`
+and `CC_HAS_PARTS`, or the build stops) is the package's ASSERTION that its
+`os88_onmove(was, now)` re-reads `os88_part_seg()` for every part segment it
+keeps and translates any copy it made. `cc_entry` then declares the carve
+movable AFTER `os88_main` returns - every claim made, every copy banked - with
+the proc `cc_partsmv`: on an eager overlay that is `cc_ovcarve`, which
+re-derives and re-stamps the module and then calls `os88_onmove` with the
+carve's two bases; otherwise it stores `op_base` and calls it. `op_seg` is
+arithmetic on `op_base` and touches no heap, so the C may ask it from inside
+the proc, and asking on EVERY call - whichever claim moved - is the simple
+correct handler (`c64.c`, `apple2.c`). Opt-in, so every package that does not
+define it assembles byte for byte as before (CWORD, PACCMAN, WEAVE, LOOM,
+LEMMINGS, CHELLO, COVL, CCSMOKE all `cmp` equal). `tests/emumove.py` moves
+both kinds on MartyPC: `--pkg c64` through `cc_ovcarve`, `--pkg apple2`
+through `cc_partsmv` proper (C64-SPEC 3.1.1, APPLE2-SPEC 3.1.1).
 
 **The home bracket is the lazy arm's, and it closes a hole the file form
 had.** `op_fetch` reads the part out of `op_name` - the package's own file -
@@ -126878,7 +126898,8 @@ a part is sector-aligned, so the file was **26,702 bytes, 53 sectors** - one
 more than the three files it replaced on the 512-byte-cluster geometries
 (2,048 bytes is four sectors plain, and LZ4 takes it only to 1,762, still four
 once padded) - and a carve holding the package's own part beside the module
-stays PINNED (§73.14.2.1: crt0 cannot know the C banked no segment), where
+stayed PINNED (§73.14.2.1: crt0 cannot know the C banked no segment - until
+`CC_ONMOVE_PARTS`, which lets a package say so), where
 the `RUNCPM.OVL` claim it replaced was movable. Inside the module it is one
 LZ4 stream with the code (6,726 -> **4,916**), no row and no padding, and the
 carve is the overlay ALONE as far as crt0 can see, so `cc_ovcarve` declared it
@@ -126925,6 +126946,60 @@ On the four `make runcpmdisk` floppies the root loses two entries and the
 `apps/runcpm/hosttest/rcuitest.c` models the part: one claim at launch, the
 CCP at the part's segment and never read as a file (a read of the name fails
 the harness), and its disk-without-the-CCP scene is gone with the case.
+
+#### 74.3.2 The Z80's 64KB and the open files MOVE
+
+**Every claim RunCPM holds for longer than one call is movable** (§66.2,
+docs/plans/NO-PINNING-PLAN.md C3). Until this the Z80's 64KB and the
+open-file table's buffers - up to eight more claims of up to 64KB each,
+held while a CP/M program has a file open - were born pinned and stayed
+pinned, a wall in the middle of the arena for the whole session. The shim
+says `CC_HAS_ONMOVE` and `os88_onmove` (`runcpm.c`) puts right every word
+that names one, and only those words:
+
+| claim | the words that name it | declared |
+|---|---|---|
+| the Z80's 64KB | `rc_zseg`, and `rc_z.seg` - the copy `rcz80.inc` and `rcmem.inc` load DS/ES from | in `os88_main`, after `rc_z.seg` is set and `AUTOEXEC.TXT`'s read into it is done |
+| an open file's buffer | `o->seg`, its row of `rc_oft` (`rcfs.c`) | at the end of `rc_oft_get`, once the whole-file read into it is done |
+| the parts carve (module + CCP) | `[cc_ovseg]`, the vectors, `op_base` - the runtime's (§73.14.2.1) | by crt0, a one-row carve |
+
+**THE CORE IS UNTOUCHED, and that is the whole performance argument.**
+`rc_run` loads DS from `rc_z.seg` at its door, every slice, and holds it only
+until it returns; it runs on the UI task, the only task that compacts or
+sheds (§66.3.1), and nothing inside it claims - so a move lands BETWEEN two
+slices and never inside one, and the proc does all its work at move time.
+The movers in `rcmem.inc` read `rc_z.seg` per call. `tools/os88rdiff.py`
+over the two builds reads **every routine of `rcz80.inc`, `rcmem.inc` and
+`rcband.inc` instruction-identical at an EVEN shift** (388 of them): the
+shim's one-byte parity pad ahead of the core keeps it at the parity it was
+measured at however the compiled C above it grows, because an odd shift
+re-prices every word fetch on a 16-bit bus (PERFORMANCE.md Part 7).
+
+**A file call into a movable claim pins it for the call** (§66.5.7.1's
+`np_dmov` pair): the debug loader's two `.COM` reads into the TPA
+(`rc_zmov(0)` .. `rc_zmov(1)`, both paths) and a flush's whole-file write
+out of `o->seg`. A buffer is declared only AFTER its read, so the load needs
+no pair. `os88_mem_regrow` (a file growing a record at a time) carries
+`MC_RLOC` through all three of its paths and moves nothing else (§66.7), so
+`o->seg = s` stays the one store it was.
+
+**The close worker changes nothing here.** It is hired only on main.c's
+exit, is `os88_task_restartable`, and holds no claim's segment - and while
+it RUNS `inst_seg_parked` pins the package's claims anyway.
+
+**Gated three ways.** `rcfstest` refuses a file call handed a movable claim
+and asserts a freshly opened file's buffer is declared (green; verified red
+with the declaration taken out); `rcuitest` refuses a read into the movable
+Z80 claim (verified red with the loader's pin taken out), asserts the launch
+declares it and that `os88_onmove` follows it into both words; and
+`tests/rcmove.py` moves it on MartyPC under a machine sitting at `A>` -
+`55c0 -> 4e80`, both words following and the 64KB hashing equal at both
+bases - and types `xyzzy` into the CCP afterwards, which answers `XYZZY?`
+from the moved claim (`soak -k rcmove`, 26 s). Red with `os88_onmove`
+leaving `rc_z.seg` stale: the CCP never answers.
+
+**Cost:** image +224 bytes (31,030 -> 31,254), bss +0, the module part +18;
+the file 26,941 -> 26,950, no sector.
 
 ### 74.4 What is present and greyed, and what is absent
 
