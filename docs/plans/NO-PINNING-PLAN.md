@@ -35,9 +35,28 @@ proc is a `ret` or one store (SPEC.md 66.3, author rule 2).
   kern_mega). This is bucket D or nothing. A proc that reloads the
   descriptor-table registers is a few instructions. **Not a reason.**
 - *The build has no compactor* (`kern_small`; `NOCOMPACT`). `NOCOMPACT` is an
-  A/B knob, so it is fine. **kern_small is a real question for the owner**:
-  SPEC.md 66.0 left the compactor out of the 128 KB build to save bytes, and
-  that pins every claim on the machine that has the least memory. Item K7.
+  A/B knob, so it is fine. **kern_small is SETTLED (the owner, 2026-10-23):
+  out of scope.** Nothing there compacts, so movable or pinned makes no
+  difference. On a 128 KB machine the user is the memory manager: they can
+  open one large thing or a few small ones, there are no driver interactions
+  they cannot see, and what is open on the screen is what is claimed. *"You
+  can run this at all"* is bought with *"you manage your own free RAM"*. Every
+  kernel proc below is inside `%ifdef OS88_COMPACT`, so it costs kern_small
+  nothing.
+
+**Two more owner constraints bind every item below:**
+
+- **RealDMG and the Video Player may not lose performance.** They still
+  comply. The shape that makes that possible is a relocation proc that does
+  ALL the work at MOVE time: it patches the state block, the bank table and
+  the ring pointers once, when the compactor calls it. The hot loop is not
+  touched, keeps its cached segments, and pays nothing per frame. The
+  alternative, *"re-read your base at each use"* (SPEC.md 66.3 rule 2), is
+  REFUSED for these two, because it adds a load inside the loop. Each one's
+  gate is a measured frame or emulated-cycle rate before and after on
+  MartyPC, and the after must not be lower.
+- **Kernel bytes stay minimal.** Each kernel item is costed in 2.2, and any
+  that is large may wait for a size pass.
 
 ## 1. Wave 0 - BUILT: the C SDK's eager overlay carve (what LEMMINGS pinned)
 
@@ -107,24 +126,54 @@ segment arithmetic (the case the policy refuses outright).
 | **ANY `[drv_wcnt]` != 0 pins EVERY driver image** | D, too broad | **K1**: count workers per image. One driver's service task should not freeze the others |
 | **ANY `[drv_wcnt]` != 0 pins EVERY `MC_DMA` head** | D, too broad | **K1**: a per-claim "a chip is armed here" bit, set by the arming driver |
 | region with a worker and no restart point | NONE | only FROTZ is hit (2.4) |
-| kern_small: no compactor at all | NONE | **K7**, the owner decides |
+| kern_small: no compactor at all | - | **settled, out of scope** (0) |
 | *(a gap, not a pin)* the UI task PRE-EMPTED inside a package, with a data claim's segment in ES or the overlay's CS in its interrupt frame, while another task's claim compacts | C, unguarded | **K8**: SPEC.md 66.3 context 3 says "a worker may not claim", but SPEC.md 13's menu note says a package worker can, while a menu is down. If it can, `mem_can_move` should pin the claims of every package standing in the nest whenever the compacting task is not the UI task. That is the momentary pin bucket C describes, and it is the pin that makes ALL the other declarations safe. Settle which spec sentence is true first |
 
-### 2.2 Kernel claims
+### 2.2 Kernel claims - checked against the code, and COSTED
 
-| claim | size / life | bucket | retires it |
-|---|---|---|---|
-| `MEM_K_MOD` (mod.inc, driver.inc, stikmenu.inc) | 2-8 KB | M | the module work |
-| `MEM_K_IMG` ⚑ (diskops.inc `.build`) | 1 KB per mounted `.img`, for the mount's life | NONE | **K2**: `dsk_xfer`'s `.img` arm re-reads `IMG_DVSEG` after the nested transfer, then a one-word proc |
-| `MEM_K_MTBL` (mega.inc) | 82 KB, whole session, kern_mega | NONE | **K3**: a proc that rewrites the descriptor bases and reloads GDTR/IDTR |
-| `MEM_K_FONT` (font.inc) | 1 KB, boot to shutdown (copy verdict only) | NONE | **K4**: one-word proc |
-| `MEM_K_BAND` (band.inc, `BAND=1` only) | `BAND_KB` | NONE | **K4**: one-word proc (`bnd_seg`) |
-| `MEM_P_RAHB` (disk.inc, read-ahead bounce) | 5 KB | NONE; its comment's premise ("a page-safe claim is pinned") stopped being true at SPEC.md 66.4.2 | **K4**: proc stores `dsk_rah_bnc`; D only while a transfer is in it, which `mem_in_xfer` already covers |
-| `MEM_K_COPY` (filecp.inc) | one copy | D while transferring | **K4**: `ret` proc; `mem_in_xfer` covers the transfer |
-| `MEM_K_CMPR` ⚑ (compress.inc) | 2x file + 40 KB, one operation | C | allowed while compressing; a proc that rebuilds the three derived segments costs little and removes the argument (K5, low priority) |
-| `MEM_K_ASC`, `MEM_K_SC`, `MEM_K_CLONE`, `MEM_K_HIB` | one call each | C/D | allowed |
-| `MEM_P_WSAVE`, `FATW`, `ICO`, `FLIST`, `VIEW` | caches | NONE (shed, not moved) | **K6**: give each a proc; shedding becomes the second resort |
-| kern_small `MEM_K_SAVE`, `MEM_K_CLIP` | - | NONE | K7 |
+Re-read claim by claim on this branch; that corrected the first inventory in
+three places. `MEM_P_ICO`, `MEM_P_DIRW`, `MEM_P_MSAVE`, `MEM_K_CLIP`,
+`MEM_K_SC` and the persistent `MEM_K_ASC` cache already declare a proc, and
+`MEM_K_DRV` moves under SPEC.md 66.6.3. The comment on `MEM_P_FATW` claims
+`mem_can_move` refuses any purgeable cache. That stopped being true: a cache
+with a declared proc moves now (`mem_can_move`'s `.notpg` note).
+
+**The prices.** A kernel proc follows `dsk_rah_reloc`'s or `ico_reloc`'s
+shape: `cmp bx, [w] / jne / mov [w], dx / ret`, 11 bytes. The call site that
+declares it, `mov ax, proc / call mem_movable_x`, is 6 bytes (8-10 through
+`COLD_SEG`). So **a one-word claim is ~17 bytes, all on kern_big, behind
+`OS88_COMPACT`**. These are estimates in that measured shape. Each item's own
+measured cost goes in when it is built.
+
+**A FINDING THAT SAVES BYTES. Top-down claims made at BOOT and never freed
+are not walls.** They ARE the ceiling: everything claimed later lands below
+them, and nothing above them is ever freed to open a hole. Pinning them costs
+the arena nothing. That puts `MEM_K_FONT` and `MEM_K_MTBL` (82 KB) at
+**0 bytes, no work**. Each stays listed with that reason, and the ratchet (4)
+must accept the reason only when the claim is (a) top-down, (b) made before
+the first desktop frame, and (c) never freed.
+
+| claim | life / door | bucket | work | kernel bytes (est.) |
+|---|---|---|---|---|
+| `MEM_K_MOD` | on demand | M | the module conversion, next | - |
+| `MEM_K_FONT` 1 KB | boot, top-down, never freed | ceiling | none | **0** |
+| `MEM_K_MTBL` 82 KB (kern_mega) | boot, top-down, never freed | ceiling | none, while it stays boot-only | **0** |
+| `MEM_K_BAND` | `BAND=1` knob only | - | none on a shipped kernel | **0 shipped** |
+| `MEM_K_ASC` flush, `MEM_K_SC` compose, `MEM_K_CLONE`, `MEM_K_HIB`, `MEM_K_CMPR` | one call or operation | C/D | none: the kernel is using it for that call | **0** |
+| **K1a** `[drv_wcnt]` pins every `MC_DMA` head | - | D, too broad | **delete the check**. `SOUND.DRV` pins its own ring while a double-buffered stream is open (`OSAPI_MEM_MOVABLE` with AX = 0) and re-declares it when the stream closes, which is what its DIRECT stream does already (sb.inc's pool). The kernel then has nothing to ask | **-12** (kernel), +~12 in `SOUND.DRV` |
+| **K1b** `[drv_wcnt]` pins every driver IMAGE | - | D, too broad | a per-row worker count in `drv_tab`. Spawn and exit bump the row of the image the task runs in, and `.drvimg` tests that row. Only `SOUND.DRV` spawns a task (`OSAPI_DRV_TASK` has one caller), so this is worth doing only when a second driver does. **Defer** | ~45 + `DRV_MAX` `.bss` |
+| **K2** `MEM_K_IMG` 1 KB per mounted `.img` | mount, mid-session, top-down: **a real wall** | NONE ⚑ | re-read `IMG_DVSEG` in `dsk_xfer`'s `.img` arm after the nested transfer, plus a proc that walks the image rows for the old base | ~40 |
+| **K4a** `MEM_P_RAHB` 5 KB (kern_mega) | mount | NONE | one-word proc on `[dsk_rah_bnc]`, `dsk_rah_reloc`'s shape | ~17 |
+| **K4b** `MEM_K_COPY` | one Cut/Copy/Paste, including a suspended overwrite question | C, but held across user waits | one-word proc. The transfer itself is pinned by `mem_in_xfer` already | ~17 |
+| **K6a** `MEM_P_WSAVE` raise caches | bottom-up, one per covered window: **the commonest kernel wall in a normal session** | NONE (shed at rank) | a proc that finds the old base in `wm_su_segs` and stores the new one | ~22 |
+| **K6b** `MEM_P_FATW` FAT windows | bottom-up per volume | NONE (shed at MED) | a proc for `dsk_fatwc` AND `[dsk_fatseg]`, the second naming word. Fix the stale comment too | ~25 |
+| **K6c** `MEM_P_FLIST` multi-file clipboard, 1 KB | until the next Cut/Copy | NONE | one-word proc on `[fcp_lseg]` | ~17 |
+| ~~`MEM_P_VIEW`~~, ~~`MEM_K_SAVE`~~, ~~`MEM_K_CLIP` small~~ | kern_small | - | settled, out of scope | 0 |
+
+**Kernel total if every row is taken: ~138 bytes** (K2 + K4a/b + K6a/b/c,
+less K1a's 12), plus K1b's ~45 when it is wanted. Proposed: **take K1a, K2
+and K6a now**, ~50 bytes net: the two that open real walls and the one that
+pays for itself. Leave K4/K6b/K6c (~76) for after the next size pass.
 
 ### 2.3 Drivers
 
@@ -151,7 +200,7 @@ the base at each use". The ⚑ rows are the ones that need real work.
 
 | package | claims | work |
 |---|---|---|
-| **REALDMG** ⚑ | ROM, SRAM, JIT, profile, bank table, logs | **A1**: a proc that patches the core state block and the bank table |
+| **REALDMG** ⚑ | ROM, SRAM, JIT, profile, bank table, logs | **A1, PERFORMANCE-BOUND**: one proc does all the work at move time. It patches the core state block, the bank table and any JIT code that has a segment baked in. Then it **forces a resync on return**: the emulation loop re-reads its cached segments at the next slice boundary, where it already yields, never inside an instruction. Zero instructions are added to the dispatch loop. Gate: emulated cycles per host second on MartyPC with a cartridge running, before and after, and the after must not be lower. A JIT block holding an absolute segment is the case to audit first: if one exists, the proc relocates it or flushes the JIT, and is never allowed to re-read per instruction |
 | **WORD**, **SCRIBE** | doc, CHP, PAP, undo, italic, picture (up to 40 KB), scratch | **A2**: "nobody has looked". Audit, then mostly `ret` procs |
 | **BROWSER** | up to 63 KB + 8 + 6 | A3 |
 | **TEXPAD** | source buffer (`[tp_srcseg]`) | A3: the proc is named in its own comment and not written |
@@ -159,7 +208,7 @@ the base at each use". The ⚑ rows are the ones that need real work.
 | **FROTZ** | scrollback 24 KB (outside `zf_reloc`) | A3 |
 | **CLEAR SKIES** ⚑, **TANK**, **PIXELSTEIN**, **ISOTRON**, **1942** | shadows/canvases 16-64 KB | **A4**: in use only inside the fsx bracket, so they are bucket C there. Outside it, either free them or declare them. CS keeps ES from `[cs_tseg]` across spans, so its proc must also be safe at the park points |
 | **EXCITEBIKE** ⚑ | compiled poses are far-called IN the claim (a CS) | **A5**: a proc that re-stamps the pose vectors |
-| **VIDEO** ⚑ | ring, "page-safe and never moved" | **A6**: D while playing; between plays nothing un-pins it. Declare it, and pin it through K1's armed bit |
+| **VIDEO** ⚑ | ring, "page-safe and never moved" | **A6, PERFORMANCE-BOUND**: the ring is bucket D/C only WHILE A PLAY RUNS (the reader, the hook and a card may all be writing it). Declare it movable when the play ENDS, and pin it again (`OSAPI_MEM_MOVABLE` with AX = 0) when the next play STARTS. Both happen outside the frame loop, so the play path gains nothing. A move between plays is one proc storing the ring's segment. Gate: the Video Player's frame rate on its demo videos, before and after |
 | **MIDIRACK**, **TRACKER**, **AUDIO**, **WIREFLEET**, **1942** PCM rings | D while armed, NONE idle | A6 |
 | **THE WIRE**, **FTPD**, **CHART**, **PIXEL**, **TELNET**, **RECORDER**, DeskClock, DotDel, StikNote | assorted | A3 |
 | `os88type.inc` face cache 8 KB | NONE | **A7**: shared include, so one proc covers every carrier |
@@ -187,16 +236,17 @@ Ranked by the free memory each recovers on a real session, then by cost.
    built). **K8** - settle the worker-claim question before declaring more.
 2. **C4** LEMMINGS - the largest pin on the desktop, and the package this
    branch exists for.
-3. **K1** - per-image and per-claim DMA pins. Small kernel change; every
-   driver-heavy session gains from it.
+3. **K1a, K2, K6a** - ~50 kernel bytes net (2.2). The rest of the kernel
+   rows wait for a size pass.
 4. **C3/C2** C emulators and Weave/Loom - 50-64 KB walls each.
 5. **P1** SHEET chart overlay as a part - 52 KB + the region.
 6. **A2** WORD/SCRIBE audit, **A1** REALDMG.
-7. **K2-K4, K6** kernel one-word procs.
+7. **K4, K6b, K6c** (~76 bytes) after a size pass, and **K1b** when a second
+   driver spawns a task.
 8. **A3-A8** the remaining package claims, one row each.
 9. **R1/R2** drivers.
 10. **P2** FROTZ worker - needs a proof, not just code.
-11. **K7** kern_small compactor - the owner decides.
+11. ~~K7~~ kern_small - settled: the user manages its RAM (0).
 
 ## 4. The ratchet (after the work)
 
