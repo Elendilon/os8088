@@ -124,6 +124,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **`os88marty.kernel_up(m)`**: os88ui's `up` gate for a bare
   `launch(boot=False)` + `m.run()` caller - desk_rows/menu_nbar live,
   [spl_live] = 0, then `ui_done`; no picture settle. dispseam's four boots.
+- **`ui_done(m, lock=False)` / `ui_idle(m, lock=False)`** (os88marty): the UI pass is over without asking the gfx lock - for a GAME whose worker holds it nearly always (Missile: a `ui_done` after a drag ran 110 guest s). The framebuffer is then not promised; settle before a capture. dispmcfs.
 - `tools/redline_profile.py` `wait()`: 5-frame steps for the first guest second, then 30 (same guest bound). The benchmark runs are minutes of guest time and each 5-frame step was a round trip plus the predicate's reads. redline* rows; validated on redlinecga/herc/v20native (pass) and redlinevga (fails identically with the old wait).
 
 ## Ledger
@@ -131,6 +132,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| dispmcfs | 88 s / 234 guest s | 76 s / 190 guest s | 4, 8 | `kernel_up` boot; settles before window-record reads -> `ui_done(lock=False)` (Missile draws all the time, so plain `ui_done`/settle waited out ~110 guest s of its animation); `state()`'s settles before the lit-pixel counts are the measurement and stay. secs 180 -> 120 |
+| dispfrac | 21 s / 45 guest s | 21-56 s (noisy) | - | `kernel_up` boot; the adapter-switch settles vary 17-70 guest s with the fractal rendering and stay (pixels never still). secs 180 -> 60 |
 | dispsize | 54 s / 148 guest s (round-1 harness already in; declared 210) | 43 s / 112 guest s | 4 | `kernel_up` boot; every settle -> `ui_done` (all reads are window records / bss) except leg C's capture pair; the rest is four package launches. secs 210 -> 60 |
 | excitebikeaudiolap | 450 s / 356 guest s | 126 s / 268 guest s | 3, 7 | the lap traced with logging breakpoints (80 -> 20 host s a lap), the script ring fed from `until`; mute/on laps from one boot (snapshot at the splash); a tightened gate goes red |
 | excitebikelap | 237 s / 165 guest s | 88 s / 158 guest s | 7 | as audiolap, one lap an adapter |

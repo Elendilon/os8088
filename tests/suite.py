@@ -7890,7 +7890,7 @@ SOAK = [
         "What size is a window given when it lands on the other card?"
         "(SPEC.md 11.100.3/11.100.4)",
         needs=("marty",), serial=True, timeout=400),
-    Row("dispfrac", "soak", py("tests/dispfrac.py"), 180.0,
+    Row("dispfrac", "soak", py("tests/dispfrac.py"), 60.0,
         "Does apps/fractal's restore cache survive an adapter change?"
         "(SPEC.md 40.1)",
         needs=("marty",), serial=True),
@@ -7904,7 +7904,7 @@ SOAK = [
     Row("dispherc1", "soak", py("tests/dispherc1.py"), 60.0,
         "HERCULES PRIMARY, VGA SECOND (SPEC.md 39.19.2's other arrangement)",
         needs=("marty",), serial=True),
-    Row("dispmcfs", "soak", py("tests/dispmcfs.py"), 180.0,
+    Row("dispmcfs", "soak", py("tests/dispmcfs.py"), 120.0,
         "SPEC.md 11.2 fullscreen with the window's CENTRE on the second"
         "display"
         " THE GAME'S OWN CONTENT IS OUT OF THE COMPARISON, and that is"

@@ -2654,8 +2654,12 @@ def _ui_same(a, b):
             and a[1] != b[1])
 
 
-def ui_idle(m):
+def ui_idle(m, lock=True):
     """True when the UI TASK HAS FINISHED WITH EVERYTHING IT WAS GIVEN.
+
+    `lock=False` skips the gfx lock: for a package whose WORKER draws all the
+    time (a game), where the lock is almost never free but ui_task's own
+    pass - the drag, the click - is finished all the same.
 
     Five bytes, and each one names a thing that could still be pending:
 
@@ -2683,14 +2687,15 @@ def ui_idle(m):
                                m.sym("gfx_lock_flag"))
     if m.read(a[0], 1)[0] != UI_ASLEEP:
         return False
-    if m.read(a[1], 1)[0] or m.read(a[2], 1)[0] or m.read(a[3], 1)[0]:
+    if (m.read(a[1], 1)[0] or m.read(a[2], 1)[0]
+            or (lock and m.read(a[3], 1)[0])):
         return False
     kb = m.read(BIOS_KBUF, 4)
     return kb[0:2] == kb[2:4]
 
 
 def ui_done(m, what="the UI to finish with that input", hold=0.06,
-            limit=60.0, cap=None):
+            limit=60.0, cap=None, lock=True):
     """Run until `ui_idle` is true and STAYS true for `hold` guest seconds with
     no disk read in between, and answer the guest seconds that took.
 
@@ -2718,7 +2723,12 @@ def ui_done(m, what="the UI to finish with that input", hold=0.06,
     early whenever the machine says it can - so no caller ever waits longer
     than it did, and a game whose worker keeps the lock busy gets exactly the
     old pause.
+
+    `lock=False` (ui_idle's) is for a worker that draws ALL the time: the
+    pass is over without the lock ever being seen free, and the framebuffer
+    is then NOT promised finished - settle before a capture.
     """
+    idle = (lambda mm: ui_idle(mm, False)) if not lock else ui_idle
     prog = _Progress(m, what, limit * GUEST_BUDGET_RATIO)
     while True:
         # THE CLOCK IS READ HERE, EVERY PASS. `spent()` is only as fresh as the
@@ -2732,7 +2742,7 @@ def ui_done(m, what="the UI to finish with that input", hold=0.06,
         prog.check()
         if cap is not None and prog.spent() >= cap:
             return prog.spent()
-        while not ui_idle(m):
+        while not idle(m):
             if cap is not None and prog.spent() >= cap:
                 return prog.spent()
             st = m.status()
@@ -2751,14 +2761,14 @@ def ui_done(m, what="the UI to finish with that input", hold=0.06,
         # that it is THIS kernel's bytes being read (see `_ui_mark`).
         while ((prog._cycles() - c0) / GUEST_HZ < hold
                or _ktick(m) == k0):
-            if not ui_idle(m):
+            if not idle(m):
                 held = False
                 break
             if cap is not None and prog.spent() >= cap:
                 return prog.spent()
             prog.check()
             time.sleep(0.005)
-        if held and ui_idle(m) and m.disk().get("reads") == r0:
+        if held and idle(m) and m.disk().get("reads") == r0:
             prog.done("ui_done")
             return prog.spent()
 
