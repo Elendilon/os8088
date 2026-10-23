@@ -1260,7 +1260,16 @@ unsigned os88_mem_total_kb(void);
  *
  * The kernel will not move it while a WORKER of yours could be running in it
  * (SPEC.md 66.5), so a package with no worker gets this for free and one with
- * a worker gets it whenever that worker is parked. */
+ * a worker gets it whenever that worker is parked.
+ *
+ * YOUR REGION moves too (crt0 declares it), and your C needs telling of that
+ * only if your ASSEMBLY banked your own DS somewhere - a VM that hands a
+ * callback its segment back, say. Then add
+ *
+ *     %define CC_ONMOVE_REGION         (beside CC_HAS_ONMOVE)
+ *
+ * and os88_onmove() is called with the region's two bases as well (SPEC.md
+ * 73.14.2.1, WEAVE-SPEC 1.2.6's wvm_ourds). */
 int os88_mem_movable(unsigned seg, int on);   /* on: 1 = movable, 0 = pin.
                                                * 0 = the kernel took it,
                                                * -1 = refused. ALWAYS take
