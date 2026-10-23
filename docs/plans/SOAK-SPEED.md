@@ -178,6 +178,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| dosmem / dosmedia / timerbounce / btnall / kdmcur | 35 / 26 / 24 / 58 / 46 s at load ~12; CPU 18 / 10 / 10 / 30 / 21 s | unchanged | - | lean; re-declared 90/90/90/95/90 -> 45/30/30/70/60. **rombig fails at base, environment**: `os88rom.py` refuses `build/kernel-full.bin` (.text differs) because the prebuilt kernel carries an older commit-count build number and os88rom, unlike os88sym, does not substitute it |
 | wdclick / wdpen | 97.6 / 33.2 s (load ~6); ~70 / ~38 guest s waited | 57.9 / 11.7 s; 32 / 28 | 4, 8 | boots gated on `kernel_up` (wdpen settled twice); open verbs -> `ui_done`; a capture on CGA/MDA reads video memory, so its settle -> `ui_done` (the fbuf arm keeps the settle); `done()`'s 277 polls 0.05 -> 0.01 host |
 | kdmouse / kdnomouse | 41.6 / - s (declared 120 / 45) | 17.9 / 15.9 s; 88 guest s for both | 2, 4, 8 | `quick=True`; the DOS window's eight settles -> `ui_done`, its two typed strings -> `text_taken` (new); the line poll 0.2 -> 0.05 |
 | pxswin / pxswin-price / ldcost / fptest / wdcaret / paccman | 70 / 64 / 28 / 20 / 76 / 66 s at load ~12; CPU 51 / 27 / 11 / 8 / 42 / 32 s | unchanged | - | lean: boot settles + the subject (PIXELSTEIN frames, Word's 333 gesture holds, capture settles). pxswin rides pxslib's 0.05 polls already. Re-declared 120/-/120/120/110/100 -> 90/-/30/30/90/80 |

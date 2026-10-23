@@ -1515,7 +1515,7 @@ FAST = [
         "package and needs an emulator (docs/WRITING-TESTS.md 2.1); "
         "tests/unit/t_btnrules.py is the static half that catches a NEW "
         "offender", needs=("marty",)),
-    Row("btnall", "soak", py("tests/btnall.py"), 95,
+    Row("btnall", "soak", py("tests/btnall.py"), 70,
         "EVERY converted button, DRIVEN: the record is aimed after a plain "
         "paint, its rects are a sane rectangle inside the window, a press "
         "ARMS, and sliding off UN-arms. It exists because reading the code "
@@ -6586,7 +6586,7 @@ SOAK = [
     # does the same work. A `secs` nobody measured is docs/WRITING-TESTS.md's
     # first recurring failure and this is it: 90 gives a 390 s ceiling, which
     # a loaded box cannot reach and a hung emulator still trips.
-    Row("dosmem", "soak", py("tests/dosmem.py"), 90.0,
+    Row("dosmem", "soak", py("tests/dosmem.py"), 45.0,
         "THE MEMORY PAGE'S TWO ARMS (SPEC.md 96.36, 96.25, 47): the choice "
         "of how much of the machine a DOS program gets was a CHECK BOX, which "
         "holds two answers; it became three arms, and it is TWO since "
@@ -6836,7 +6836,7 @@ SOAK = [
         "that shipped the defect.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/attrdir360.img")),
-    Row("kdmcur", "soak", py("tests/kdmcur.py"), 90.0,
+    Row("kdmcur", "soak", py("tests/kdmcur.py"), 60.0,
         "**A DOS MOUSE DRIVER DRAWS ITS OWN POINTER** (SPEC.md 96.10.5). "
         "There is no compositor and no arrow the machine keeps for it, so "
         "`01h` means put a cursor on the screen and keep it under the mouse - "
@@ -7173,7 +7173,7 @@ SOAK = [
         " against 96.19",
         needs=("marty",), serial=True,
         wants=("build/dosargs360.img",)),
-    Row("dosmedia", "soak", py("tests/dosmedia.py"), 90.0,
+    Row("dosmedia", "soak", py("tests/dosmedia.py"), 30.0,
         "A FLOPPY SWAPPED UNDER A RUNNING PACKAGE (SPEC.md 18.9.1.1). "
         "Reported from the field: the DOS box standing on B:, DIR correct, a "
         "DIFFERENT 720KB disk inserted, DIR again - and the listing was the "
@@ -14587,7 +14587,7 @@ SOAK = [
     # frame for frame across two kernels - retired with the kind: Bounce is
     # a package since SPEC.md 14.8, and its frame is the API's to price.
     # PERFORMANCE.md Set 110 keeps the measurement it took.)
-    Row("timerbounce", "soak", py("tests/timerbounce.py"), 90.0,
+    Row("timerbounce", "soak", py("tests/timerbounce.py"), 30.0,
         "SPEC.md 14.8, 111, 112: TIMER.O88 and BOUNCE.O88, the two kinds of "
         "SPEC.md 14 as packages, opened BY NAME out of the apps disk's APPS/ "
         "on a 5150 with a CGA. The Timer's seconds advance (its one-shot "

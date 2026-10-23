@@ -108,8 +108,8 @@ DONE dosd	dosdirsw	260	tests/dosdirsw.py
 dosd	dosdrv	40	tests/dosdrv.py
 dosd	dosdir	35	tests/dosdir.py
 dosd	dosdev	25	tests/dosdev.py
-dosm	dosmem	90	tests/dosmem.py
-dosm	dosmedia	90	tests/dosmedia.py
+DONE dosm	dosmem	90	tests/dosmem.py
+DONE dosm	dosmedia	90	tests/dosmedia.py
 dosm	dosmouse	60	tests/dosmouse.py
 dosm	dosmouevt	60	tests/dosmouevt.py
 dosm	dosmcb	30	tests/dosmcb.py
@@ -142,7 +142,7 @@ covo	covoxdrv	30	tests/covox.py
 covo	covoxauto	30	tests/covox.py
 covo	covoxnolpt	30	tests/covox.py
 DONE regm	regmove	130	tests/regmove.py
-time	timerbounce	90	tests/timerbounce.py
+DONE time	timerbounce	90	tests/timerbounce.py
 time	timerrace	30	tests/timerrace.py
 DONE ldco	ldcost	120	tests/ldcost.py
 DONE fpte	fptest	120	tests/fptest.py
@@ -152,9 +152,9 @@ DONE wdca	wdcaret	110	tests/wdcaret.py
 DONE pacc	paccman	100	tests/paccman.py
 dosg	dosglyph	75	tests/dosglyph.py
 dosg	dosgap	25	tests/dosgap.py
-btna	btnall	95	tests/btnall.py
-romb	rombig	90	tests/rombig.py
-kdmc	kdmcur	90	tests/kdmcur.py
+DONE btna	btnall	95	tests/btnall.py
+SKIP fails at base, environment: os88rom.py refuses build/kernel-full.bin (".text differs between this tree's assembly") - the prebuilt kernel carries an older commit-count build number and os88rom, unlike os88sym, does not substitute it romb	rombig	90	tests/rombig.py
+DONE kdmc	kdmcur	90	tests/kdmcur.py
 hddc	hddcp	90	tests/hddcp.py
 fmco	fmcommit	80	tests/fmcommit.py
 tgpl	tgplay	80	tests/tgplay.py
