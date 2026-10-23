@@ -11373,7 +11373,7 @@ SOAK = [
         "graphics fullscreen is not what a tier-0 machine draws.",
         needs=("qemu", "nasm"), serial=True, timeout=900,
         wants=("build/os8088.img", "build/trkscrl.img")),
-    Row("trkclick", "soak", py("tests/trkclick.py"), 47.0,
+    Row("trkclick", "soak", py("tests/trkclick.py"), 10.0,
         "SPEC.md 45.21.10: a CLICKED Tracker button's action may repaint the "
         "face. tw_prefire parked the fired button in tw_t2, the face's shared "
         "drawing scratch, and an XT-mode rate click repaints - at 11 kHz "
