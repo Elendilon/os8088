@@ -204856,8 +204856,10 @@ the image) and so is a read of a packed file (the sniff, then the read),
 and each was a handshake and a close. So the request says
 `Connection: keep-alive` - on **HTTP/1.0**, which forbids a chunked reply
 this driver does not decode - and a reply read **whole** leaves its socket
-open (`[hf_live]`) when the server agreed - **`Connection: keep-alive` in
-the reply, and that alone**: the request is HTTP/1.0, and a 1.0 client's
+open (`[hf_live]`) when the server agreed - **`keep-alive` in the reply's
+`Connection:`, and that alone**, anywhere in its list (Apache with HTTP/2
+enabled says `Upgrade, Keep-Alive`, and the driver reads any `K` in the
+value as it: `close` has none): the request is HTTP/1.0, and a 1.0 client's
 connection persists only when the reply says so, whatever version it answers
 in (RFC 7230 6.3) - and sent a `Content-Length`. The next GET reuses it when it is still `NSK_UP` with nothing
 unread on it, and otherwise drops it and opens a fresh one, which is all a
@@ -204871,6 +204873,17 @@ Unmount and detach drop a kept connection, so a re-pointed drive never
 sends its next GET to the old server. **What it holds is one of
 `ETHER.DRV`'s socket slots while the drive is idle**, until the server
 closes it (`os88httpdrv.py serve` does after 15 seconds).
+
+**A connection that is not kept is ABORTED, never closed** - even after a
+reply read whole. A close we start holds its slot through FIN-WAIT for a
+round trip, and there are four. Found in the field against Apache, whose
+`Upgrade, Keep-Alive` the first parser read as no: every GET ended in our
+close, and the sniff's or the header peek's OPEN, the next GET, was refused
+while the read after it connected - so a packed file opened as its raw
+`CZ` bytes and every package off the drive said `Load failed`. The HFDIAG
+build (`-DHFDIAG`, `drivers/httpfs/hfdiag.inc`) is the instrument that
+showed it: the last two reads drawn on the page, what each asked, what the
+reply said and what landed.
 
 Cost: `HTTPFS.DRV` +225 bytes of image. Measured on the gate: a launch and
 a copy each one connection for their two GETs, and the whole run 10

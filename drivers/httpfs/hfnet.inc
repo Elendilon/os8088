@@ -230,15 +230,15 @@ hf_open:
     stc
     ret
 
-; --- hf_close / hf_abort - give the handle back (both keep every register) --
-hf_close:
+; --- hf_abort - give the handle back, NOW (keeps every register) ----------
+; Never a graceful NETV_CLOSE, even after a reply read whole: a close we
+; START holds the slot through FIN-WAIT for a round trip to the server, and
+; ETHER.DRV has four. A field run against Apache - which keeps every
+; connection, so we were always the one closing - had the next GET's OPEN
+; refused on a short read every time, while the read after it connected
+hf_abort:
     push ax
-    mov ah, NETV_CLOSE
-    jmp short hf_drop
-hf_abort:                       ; DROP IT NOW: a transfer abandoned midway
-    push ax                     ; must not sit in TIME-WAIT holding a slot
     mov ah, NETV_ABORT
-hf_drop:
     push cx
     pushf
     mov byte [hf_live], 0
@@ -639,10 +639,13 @@ hf_get:
     mov si, hf_s_conn
     call hf_hdris
     jne .cr2
-    mov al, [si]
-    and al, 0xDF                ; K(eep-alive) or C(lose), either case
+.kk:
+    lodsb                       ; a K ANYWHERE in it: `keep-alive`, alone
+    or al, al                   ; or in a list - Apache with HTTP/2 says
+    jz .h                       ; `Upgrade, Keep-Alive` - and `close` has
+    and al, 0xDF                ; none
     cmp al, 'K'
-    jne .h
+    jne .kk
     mov byte [hf_keep], 1
     jmp short .h
 .cr2:
@@ -692,12 +695,12 @@ hf_get:
 ; -----------------------------------------------------------------------------
 hf_done:
     cmp byte [hf_keep], 0
-    je hf_close
+    je hf_abort
     push ax
     mov ax, [hf_rpos]
     cmp ax, [hf_rlen]
     pop ax
-    jne hf_close
+    jne hf_abort
     mov byte [hf_live], 1
     ret
 
