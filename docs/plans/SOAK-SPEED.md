@@ -22,6 +22,12 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **Prefix `MAKELEVEL=1`** in a shared checkout: a row with `wants=` makes
   `os88test.py` run a plain `make` in `build/` first (and it fails on a
   half-edited doc); `MAKELEVEL` makes it only check the artefacts exist.
+- **A row SKIPPED for a missing `wants=` artefact** (a `make kdostest` /
+  `doscom` / `cdromtest` disk nobody built) is measured on a PRIVATE tree:
+  `os88build.tree(targets=(...))`, then run the script with
+  `OS88_TREE=<tree>` (+ `OS88_BUILD=<tree>` when it boots that tree\x27s
+  kernel, + `OS88_PREBUILT="build/x.img ..."` so `os88fixture.need` does not
+  make). A tree is a subset: what it lacks still resolves into it
 
 ## Techniques (numbered; cite by number in the ledger)
 
@@ -132,6 +138,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
+
+- **`hmacold.QMouse.to` closed-loop** (`os88qemu.mouse_to`, carrying a drag's button; tests/hmacold.py) - it walked tools/mouse.py blind, ~1.5 s a move. mixersb16 109 -> 32 s; also hmacold's, colorpresets_qemu's, the hma*/p2hiber rows'. Validated on mixersb16 (108 checks), hmacold, hmadrv (fails at base, same point either way). `tests/rdgcore/rdgshot.capture` polls at 0.05 (was 0.3): every gb* row that captures a frame.
 
 - **FIX: `UI.still()` on a QEMU UI** (os88ui): `chooser()` ending on `still()` (round 1) called `os88marty.ui_done`, which needs `m.status` - every QEMU-driven os88ui chooser died with `'Machine' object has no attribute 'status'` (wirefleetlink failed at base). A machine with no `status` now takes the UI's own `settle()` (a QEMU subclass's state wait). wirefleetlink green again.
 
