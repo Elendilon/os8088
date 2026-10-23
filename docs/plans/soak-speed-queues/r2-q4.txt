@@ -42,8 +42,8 @@ DONE hibe	hibernatem	82	tests/hibernate.py
 DONE hibe	hibernate	80	tests/hibernate.py
 DONE hibe	hibsumbad	50	tests/hibernate.py
 DONE hibe	hibsumok	35	tests/hibernate.py
-atbl	atblitvga	330	tests/atblit.py
-atbl	atblit	165	tests/atblit.py
+DONE atbl	atblitvga	330	tests/atblit.py
+DONE atbl	atblit	165	tests/atblit.py
 vidc	vidcga4	45	tests/vidcga.py
 vidc	vidcga4p	45	tests/vidcga.py
 vidc	vidcga4vga	45	tests/vidcga.py

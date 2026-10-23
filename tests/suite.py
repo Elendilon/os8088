@@ -14693,7 +14693,7 @@ SOAK = [
         "wants= and shares the emulator lane.",
         needs=("marty", "nasm"), serial=True, timeout=900,
         wants=("build/os8088-360.img", "build/apps360.img")),
-    Row("atblit", "soak", py("tests/atblit.py"), 165.0,
+    Row("atblit", "soak", py("tests/atblit.py"), 300.0,
         "SPEC.md 46.4.2: does ArtfulType's BAND emit draw the same picture as "
         "the expander it replaced? at_draw_line hands at_compose's 1bpp strip "
         "straight to OSAPI_GFX_BLIT1 now instead of widening it to packed "
@@ -14721,7 +14721,7 @@ SOAK = [
         "two ArrowUps before anything could be pushed past a wrap "
         "(SPEC.md 46.4.11).",
         needs=("marty", "nasm"), serial=True, timeout=900),
-    Row("atblitvga", "soak", py("tests/atblit.py", "--card", "vga"), 330.0,
+    Row("atblitvga", "soak", py("tests/atblit.py", "--card", "vga"), 230.0,
         "SPEC.md 46.4.12: atblit on os8088_xt_vga, because the colour "
         "CODE LINE's run split is reached on a colour adapter alone - a 1bpp "
         "line takes the one band whatever it holds, so the CGA row cannot "
