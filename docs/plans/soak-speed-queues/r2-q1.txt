@@ -46,7 +46,7 @@ DONE isot	isotronwin	60	tests/isotron.py
 DONE isot	isotronrules	45	tests/isotron.py
 DONE isot	isotroninput	45	tests/isotronlive.py
 DONE isot	isotronbound	40	tests/isotron.py
-isot	isotronsmall	40	tests/isotronsmall.py
+MOVED->r2-q6 isot	isotronsmall	40	tests/isotronsmall.py
 DONE vidl	vidlyplay	150	tests/vidlyplay.py
 DONE vidl	vidlyplaystream	150	tests/vidlyplay.py
 DONE vidl	vidlive	70	tests/vidlive.py
@@ -81,8 +81,8 @@ DONE stik	stikshort	15	tests/stikshort.py
 DONE stik	stikhiber	15	tests/stikhiber.py
 SKIP intermittent: the probe's DONE marker is missed (garbled text screen) in 2 of 3 runs at base, and that wait's limit=240 HOST s then dominates (31 s vs 163-192 s); the codes still pass. Not a test-speed fix doss	dosshell	270	tests/dosshell.py
 DONE doss	dosseq	240	tests/dosseq.py
-doss	dosshrink	30	tests/dosshrink.py
-doss	dossnd	30	tests/dossnd.py
+MOVED->r2-q6 doss	dosshrink	30	tests/dosshrink.py
+MOVED->r2-q6 doss	dossnd	30	tests/dossnd.py
 DONE dock	dockpos	300	tests/dockpos.py
 DONE dock	dockmodule	120	tests/dockmodule.py
 DONE dock	dockmark	90	tests/dockmark.py
@@ -92,27 +92,27 @@ DONE mult	msegw	60	tests/multiseg.py
 DONE mult	msegw360	60	tests/multiseg.py
 DONE mult	msegwz	60	tests/multiseg.py
 DONE mult	msegwz360	60	tests/multiseg.py
-mult	mseg360	40	tests/multiseg.py
-mult	multiseg	20	tests/multiseg.py
+MOVED->r2-q6 mult	mseg360	40	tests/multiseg.py
+MOVED->r2-q6 mult	multiseg	20	tests/multiseg.py
 DONE fddp	fddpark	300	tests/fddpark.py
 DONE fddp	fddpage	120	tests/fddpage.py
 DONE asso	assocflush	170	tests/assocflush.py
-asso	assocsweep	50	tests/assocsweep.py
-asso	assocopen	40	tests/assocopen.py
-asso	assocglyph	30	tests/assocglyph.py
-asso	assocwake	30	tests/assocwake.py
-asso	assocvol	21	tests/assocvol.py
-asso	assocfind	18	tests/assocfind.py
-asso	assocstale	15	tests/assocstale.py
+MOVED->r2-q6 asso	assocsweep	50	tests/assocsweep.py
+MOVED->r2-q6 asso	assocopen	40	tests/assocopen.py
+MOVED->r2-q6 asso	assocglyph	30	tests/assocglyph.py
+MOVED->r2-q6 asso	assocwake	30	tests/assocwake.py
+MOVED->r2-q6 asso	assocvol	21	tests/assocvol.py
+MOVED->r2-q6 asso	assocfind	18	tests/assocfind.py
+MOVED->r2-q6 asso	assocstale	15	tests/assocstale.py
 DONE dosd	dosdirsw	260	tests/dosdirsw.py
-dosd	dosdrv	40	tests/dosdrv.py
-dosd	dosdir	35	tests/dosdir.py
-dosd	dosdev	25	tests/dosdev.py
+MOVED->r2-q6 dosd	dosdrv	40	tests/dosdrv.py
+MOVED->r2-q6 dosd	dosdir	35	tests/dosdir.py
+MOVED->r2-q6 dosd	dosdev	25	tests/dosdev.py
 DONE dosm	dosmem	90	tests/dosmem.py
 DONE dosm	dosmedia	90	tests/dosmedia.py
-dosm	dosmouse	60	tests/dosmouse.py
-dosm	dosmouevt	60	tests/dosmouevt.py
-dosm	dosmcb	30	tests/dosmcb.py
+MOVED->r2-q6 dosm	dosmouse	60	tests/dosmouse.py
+MOVED->r2-q6 dosm	dosmouevt	60	tests/dosmouevt.py
+MOVED->r2-q6 dosm	dosmcb	30	tests/dosmcb.py
 DONE drma	drmario	110	tests/drmario.py
 SKIP fails at base: build/drmario-art/preview/drmarco-vga-splash.png missing (an artefact no wants= declares) drma	drmariofront	110	tests/drmario_front.py
 DONE drma	drmarioaudio	90	tests/drmario_audio.py
@@ -120,16 +120,16 @@ DONE tpdr	tpdraw	300	tests/tpdraw.py
 DONE doso	dosopen	240	tests/dosopen.py
 DONE reho	rehomemove	75	tests/rehomemove.py
 DONE reho	rehomemove360	75	tests/rehomemove.py
-reho	rehome	45	tests/rehome.py
-reho	rehomeabort	40	tests/rehomeabort.py
+MOVED->r2-q6 reho	rehome	45	tests/rehome.py
+MOVED->r2-q6 reho	rehomeabort	40	tests/rehomeabort.py
 DONE wdmo	wdmove	210	tests/wdmove.py
 DONE wdre	wdreach	200	tests/wdreach.py
 DONE pxsw	pxswin	120	tests/pxswin.py
 DONE pxsw	pxswin-price	65	tests/pxswin.py
-vide	videms	45	tests/videms.py
-vide	videmshyb	45	tests/videms.py
-vide	videmsslow	45	tests/videms.py
-vide	videmswrap	45	tests/videms.py
+MOVED->r2-q6 vide	videms	45	tests/videms.py
+MOVED->r2-q6 vide	videmshyb	45	tests/videms.py
+MOVED->r2-q6 vide	videmsslow	45	tests/videms.py
+MOVED->r2-q6 vide	videmswrap	45	tests/videms.py
 DONE knob	knobhd	180	tests/knobhd.py
 DONE pxsf	pxsfsx	165	tests/pxsfsx.py
 DONE gfxl	gfxlk	150	tests/gfxlk.py
@@ -137,21 +137,21 @@ DONE frpr	frpromise	150	tests/frpromise.py
 DONE zoom	zoomsave	150	tests/zoomsave.py
 DONE fcpc	fcpcopy	70	tests/fcpcopy.py
 DONE fcpc	fcpsmall	70	tests/fcpcopy.py
-covo	covoxcp	45	tests/covox.py
-covo	covoxdrv	30	tests/covox.py
-covo	covoxauto	30	tests/covox.py
-covo	covoxnolpt	30	tests/covox.py
+MOVED->r2-q6 covo	covoxcp	45	tests/covox.py
+MOVED->r2-q6 covo	covoxdrv	30	tests/covox.py
+MOVED->r2-q6 covo	covoxauto	30	tests/covox.py
+MOVED->r2-q6 covo	covoxnolpt	30	tests/covox.py
 DONE regm	regmove	130	tests/regmove.py
 DONE time	timerbounce	90	tests/timerbounce.py
-time	timerrace	30	tests/timerrace.py
+MOVED->r2-q6 time	timerrace	30	tests/timerrace.py
 DONE ldco	ldcost	120	tests/ldcost.py
 DONE fpte	fptest	120	tests/fptest.py
-sbar	sbar	60	tests/sbar.py
-sbar	sbardlg	60	tests/sbar.py
+MOVED->r2-q6 sbar	sbar	60	tests/sbar.py
+MOVED->r2-q6 sbar	sbardlg	60	tests/sbar.py
 DONE wdca	wdcaret	110	tests/wdcaret.py
 DONE pacc	paccman	100	tests/paccman.py
 DONE dosg	dosglyph	75	tests/dosglyph.py
-dosg	dosgap	25	tests/dosgap.py
+MOVED->r2-q6 dosg	dosgap	25	tests/dosgap.py
 DONE btna	btnall	95	tests/btnall.py
 SKIP fails at base, environment: os88rom.py refuses build/kernel-full.bin (".text differs between this tree's assembly") - the prebuilt kernel carries an older commit-count build number and os88rom, unlike os88sym, does not substitute it romb	rombig	90	tests/rombig.py
 DONE kdmc	kdmcur	90	tests/kdmcur.py
@@ -165,45 +165,45 @@ DONE vidx	vidxdisp	70	tests/vidxdisp.py
 DONE trkt	trktxsurf	70	tests/trktxsurf.py
 DONE pxs	pxs160	45	tests/pxs160.py
 DONE pxs	pxs256	20	tests/pxs256.py
-vidh	vidhdmake	65	tests/vidhdmake.py
-int	int0sweep	60	tests/int0sweep.py
-spla	splashbar	40	tests/splashbar.py
-spla	splashspin	20	tests/splashspin.py
-span	spantest	30	tests/spantest.py
-span	spantest-vga	30	tests/spantest.py
-sbra	sbrate286	60	tests/sbrate286.py
+MOVED->r2-q6 vidh	vidhdmake	65	tests/vidhdmake.py
+MOVED->r2-q6 int	int0sweep	60	tests/int0sweep.py
+MOVED->r2-q6 spla	splashbar	40	tests/splashbar.py
+MOVED->r2-q6 spla	splashspin	20	tests/splashspin.py
+MOVED->r2-q6 span	spantest	30	tests/spantest.py
+MOVED->r2-q6 span	spantest-vga	30	tests/spantest.py
+MOVED->r2-q6 sbra	sbrate286	60	tests/sbrate286.py
 DONE hdsi	hdsize	60	tests/hdsize.py
-rdpr	rdpreserve	60	tests/rdpreserve.py
-uidr	uidrdis	55	tests/uidrdis.py
-roms	romsmall	45	tests/romsmall.py
-roms	romsock	5	tests/romsock.py
-dtfi	dtfield	50	tests/dtfield.py
-mine	minexflag	50	tests/minexflag.py
-tpsa	tpsaveu	50	tests/tpsaveu.py
-cpna	cpnameshdd	25	tests/cpnames.py
-cpna	cpnames	20	tests/cpnames.py
-atcl	atclip	45	tests/atclip.py
-trkr	trkrate	45	tests/trkrate.py
-cycw	cycweb	40	tests/cycweb.py
-fscl	fsclass	40	tests/fsclass.py
-icoc	icoclip	40	tests/icoclip.py
-mono	monoink	40	tests/monoink.py
-usbm	usbmouse	35	tests/usbmouse.py
-alte	altenter	33	tests/altenter.py
-c	c64part	30	tests/c64part.py
-asca	ascabsorb	30	tests/ascabsorb.py
-curb	curbusy	30	tests/curbusy.py
-npsc	npscroll	30	tests/npscroll.py
-glyp	glyphcost	30	tests/glyphcost.py
-blob	blobsum	27	tests/blobsum.py
-audh	audhand	26	tests/audhand.py
-spkf	spkfx	25	tests/spkfx.py
-fpgc	fpgcold	20	tests/fpgcold.py
-shed	shedrelist	20	tests/shedrelist.py
-fill	fillpat	20	tests/fillpat.py
-uibl	uiblock	20	tests/uiblock.py
-xorr	xorrect	20	tests/xorrect.py
-pkgm	pkgmax	15	tests/pkgmax.py
-fpgn	fpgnotch	13	tests/fpgnotch.py
-tick	tickzero	10	tests/tickzero.py
-kdos	kdos	10	tests/kdos.py
+MOVED->r2-q6 rdpr	rdpreserve	60	tests/rdpreserve.py
+MOVED->r2-q6 uidr	uidrdis	55	tests/uidrdis.py
+MOVED->r2-q6 roms	romsmall	45	tests/romsmall.py
+MOVED->r2-q6 roms	romsock	5	tests/romsock.py
+MOVED->r2-q6 dtfi	dtfield	50	tests/dtfield.py
+MOVED->r2-q6 mine	minexflag	50	tests/minexflag.py
+MOVED->r2-q6 tpsa	tpsaveu	50	tests/tpsaveu.py
+MOVED->r2-q6 cpna	cpnameshdd	25	tests/cpnames.py
+MOVED->r2-q6 cpna	cpnames	20	tests/cpnames.py
+MOVED->r2-q6 atcl	atclip	45	tests/atclip.py
+MOVED->r2-q6 trkr	trkrate	45	tests/trkrate.py
+MOVED->r2-q6 cycw	cycweb	40	tests/cycweb.py
+MOVED->r2-q6 fscl	fsclass	40	tests/fsclass.py
+MOVED->r2-q6 icoc	icoclip	40	tests/icoclip.py
+MOVED->r2-q6 mono	monoink	40	tests/monoink.py
+MOVED->r2-q6 usbm	usbmouse	35	tests/usbmouse.py
+MOVED->r2-q6 alte	altenter	33	tests/altenter.py
+MOVED->r2-q6 c	c64part	30	tests/c64part.py
+MOVED->r2-q6 asca	ascabsorb	30	tests/ascabsorb.py
+MOVED->r2-q6 curb	curbusy	30	tests/curbusy.py
+MOVED->r2-q6 npsc	npscroll	30	tests/npscroll.py
+MOVED->r2-q6 glyp	glyphcost	30	tests/glyphcost.py
+MOVED->r2-q6 blob	blobsum	27	tests/blobsum.py
+MOVED->r2-q6 audh	audhand	26	tests/audhand.py
+MOVED->r2-q6 spkf	spkfx	25	tests/spkfx.py
+MOVED->r2-q6 fpgc	fpgcold	20	tests/fpgcold.py
+MOVED->r2-q6 shed	shedrelist	20	tests/shedrelist.py
+MOVED->r2-q6 fill	fillpat	20	tests/fillpat.py
+MOVED->r2-q6 uibl	uiblock	20	tests/uiblock.py
+MOVED->r2-q6 xorr	xorrect	20	tests/xorrect.py
+MOVED->r2-q6 pkgm	pkgmax	15	tests/pkgmax.py
+MOVED->r2-q6 fpgn	fpgnotch	13	tests/fpgnotch.py
+MOVED->r2-q6 tick	tickzero	10	tests/tickzero.py
+MOVED->r2-q6 kdos	kdos	10	tests/kdos.py
