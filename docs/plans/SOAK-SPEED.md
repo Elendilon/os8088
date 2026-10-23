@@ -177,6 +177,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| pxswin / pxswin-price / ldcost / fptest / wdcaret / paccman | 70 / 64 / 28 / 20 / 76 / 66 s at load ~12; CPU 51 / 27 / 11 / 8 / 42 / 32 s | unchanged | - | lean: boot settles + the subject (PIXELSTEIN frames, Word's 333 gesture holds, capture settles). pxswin rides pxslib's 0.05 polls already. Re-declared 120/-/120/120/110/100 -> 90/-/30/30/90/80 |
 | drmario / drmarioaudio | 92 / 89 s; 58 / 99 guest s; CPU 52 / 51 | 73 / 69 s; 47 / 81 guest s; CPU 45 / 43 | 2 | `quick=True` on the boots (also drmario_front's). **drmariofront FAILS at base**: `build/drmario-art/preview/drmarco-vga-splash.png` is missing - an artefact the row reads and no `wants=` declares |
 | brtoolbar / brrace / brfetch / brpromise / brtest | 8.6 / 76 / 35 / 21 / 13 s; 184 guest s waited for the five | 12 / 66 / 29 / 23 / 13 s (5 in 3 lanes); 154 | 4 | boots gated on `kernel_up` (15-20 guest s of settle each); open verbs' settles -> `ui_done` where the next read is the window list. The rest is the partner link's host-stepped work and pre-capture settles |
 | dockmodule / dockmark / fddpage | 21 / 25 / 40 s; 59 / 50 / 108 guest s | unchanged | - | lean (boot settles + the subject); dockmodule already rides dockpos's `ui_done` verbs. Re-declared 120/90/120 -> 30/30/60 |

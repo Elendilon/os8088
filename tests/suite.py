@@ -2108,7 +2108,7 @@ SOAK = [
         "ball/paddles, controls, visible raster and desktop restoration (SPEC.md 109)",
         needs=("marty", "nasm"),
         wants=("build/wireball360.img", "build/os8088-360.img")),
-    Row("paccman", "soak", py("tests/paccman.py"), 100.0,
+    Row("paccman", "soak", py("tests/paccman.py"), 80.0,
         "PACCMAN's attract screen and tick path on a cycle-accurate 8088 "
         "(SPEC.md 91): the program opening on the attract screen with the "
         "CHARACTER / NICKNAME reveal run, a real Space arriving at int 09h "
@@ -7094,7 +7094,7 @@ SOAK = [
         "no I/O at all' measured rather than quoted. Reads 3/0/0 here.",
         needs=("marty",), serial=True,
         wants=("build/pathtest360.img",)),
-    Row("ldcost", "soak", py("tests/ldcost.py"), 120.0,
+    Row("ldcost", "soak", py("tests/ldcost.py"), 30.0,
         "A LAUNCH READS THE POSTER'S OWN CACHE, AND THE COST IS THE "
         "ASSERTION (docs/plans/LISTING-HOME-PLAN.md wave 1). loader_run_x is "
         "handed a directory INDEX plus [ld_pwin], the Disk window that "
@@ -7715,7 +7715,7 @@ SOAK = [
         "two requests and the page finishes) - red on the pre-fix browser",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
-    Row("fptest", "soak", py("tests/fptest.py"), 120.0,
+    Row("fptest", "soak", py("tests/fptest.py"), 30.0,
         "SPEC.md 84.4: apps/os88fp.inc against host-computed IEEE-754 bytes - "
         "88 cases, the summary line read out of FPTEST's own bss. The "
         "float library Sheet and Chart compute with; fp_i2a, fp_a2i and "
@@ -9838,7 +9838,7 @@ SOAK = [
         "line: the base tree printed the same eleven, and failed TOOBIG.",
         needs=("marty",), serial=True,
         wants=("build/scribe.o88", "build/WELCOME.DOC")),
-    Row("wdcaret", "soak", py("tests/wdcaret.py"), 110.0,
+    Row("wdcaret", "soak", py("tests/wdcaret.py"), 90.0,
         "SPEC.md 27.4.6: a caret move lays the note out ONCE. Leg A counts "
         "wd_walk calls inside one keystroke and requires 1 - the change "
         "itself, and what fails on a build with the feature off; leg C is the "
@@ -11928,7 +11928,7 @@ SOAK = [
         "draw_weapon (97.6: the check's erase never drew, and the page not "
         "drawn last kept the recoil).",
         needs=("marty",), serial=True),
-    Row("pxswin", "soak", py("tests/pxswin.py"), 120.0,
+    Row("pxswin", "soak", py("tests/pxswin.py"), 90.0,
         "SPEC.md 97.14 (wave 5): PIXELSTEIN's two windows on a two-card XT "
         "(os8088_xt_vga_herc, extended right): on an 8086 the window is "
         "WIN1 and Detail > Colour is GREYED WITH ITS PRICE, and EVERY menu "

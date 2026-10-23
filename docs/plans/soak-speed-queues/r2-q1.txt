@@ -124,8 +124,8 @@ reho	rehome	45	tests/rehome.py
 reho	rehomeabort	40	tests/rehomeabort.py
 DONE wdmo	wdmove	210	tests/wdmove.py
 DONE wdre	wdreach	200	tests/wdreach.py
-pxsw	pxswin	120	tests/pxswin.py
-pxsw	pxswin-price	65	tests/pxswin.py
+DONE pxsw	pxswin	120	tests/pxswin.py
+DONE pxsw	pxswin-price	65	tests/pxswin.py
 vide	videms	45	tests/videms.py
 vide	videmshyb	45	tests/videms.py
 vide	videmsslow	45	tests/videms.py
@@ -144,12 +144,12 @@ covo	covoxnolpt	30	tests/covox.py
 DONE regm	regmove	130	tests/regmove.py
 time	timerbounce	90	tests/timerbounce.py
 time	timerrace	30	tests/timerrace.py
-ldco	ldcost	120	tests/ldcost.py
-fpte	fptest	120	tests/fptest.py
+DONE ldco	ldcost	120	tests/ldcost.py
+DONE fpte	fptest	120	tests/fptest.py
 sbar	sbar	60	tests/sbar.py
 sbar	sbardlg	60	tests/sbar.py
-wdca	wdcaret	110	tests/wdcaret.py
-pacc	paccman	100	tests/paccman.py
+DONE wdca	wdcaret	110	tests/wdcaret.py
+DONE pacc	paccman	100	tests/paccman.py
 dosg	dosglyph	75	tests/dosglyph.py
 dosg	dosgap	25	tests/dosgap.py
 btna	btnall	95	tests/btnall.py
