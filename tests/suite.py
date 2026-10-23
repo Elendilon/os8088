@@ -14783,7 +14783,7 @@ SOAK = [
         "the grid is four planes and repaints through gfx_blitp, so a window "
         "left where it opens does not reach this primitive at all.",
         needs=("marty", "nasm"), serial=True, timeout=900),
-    Row("megatrap0", "soak", py("tests/megatrap0.py"), 220.0,
+    Row("megatrap0", "soak", py("tests/megatrap0.py"), 160.0,
         "docs/plans/KERN-MEGA-PLAN.md 10.3 item 50: kern_mega COMPLETES a "
         "write through CS, a far transfer through a data segment and a "
         "segment-0 access rather than faulting on it, so a package doing one "
@@ -14793,8 +14793,9 @@ SOAK = [
         "MEGARUN and left running; any #GP charged to an image not in the "
         "row's ALLOW fails it, as does a refusal or a kern_mega FAULT. The "
         "failing case is any `push cs / pop ds` and a store in one of them - "
-        "MEGACSL (tests/megacsw) is one on purpose. 220s is 171 measured "
-        "(two boots, MEGARUN's 5 s a start and LINGER are the floor)",
+        "MEGACSL (tests/megacsw) is one on purpose. 160s is 121 measured: "
+        "the two boots run AT ONCE (sweep's parallel=True), MEGARUN's 5 s a "
+        "start and LINGER the floor",
         needs=("bochs", "nasm")),
     Row("megacdrom", "soak", py("tests/megacdrom.py"), 20.0,
         "SPEC.md 119 and 34.15 under docs/plans/KERN-MEGA-PLAN.md 14.68: "

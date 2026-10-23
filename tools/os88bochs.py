@@ -888,91 +888,127 @@ class Box(object):
         self.f.close()
 
 
+def _sweep_boot(d, todo, quiet_secs, sb, cfg, build, cap_secs, linger, put,
+                cd, display=None):
+    """One boot of `sweep`: TODO's packages on C:, MEGARUN started, its E9
+    followed. -> (report lines, the names MEGARUN started, booted)"""
+    os.makedirs(d, exist_ok=True)
+    report, started = [], []
+    box = Box(d, todo, sb, cfg, build=build, put=put, cd=cd, display=display)
+    shot = box.inp.shot             # (this machine's display)
+    try:
+        try:
+            box.up()                # the desktop, off kernel state
+        except RuntimeError as e:
+            report.append(("(boot)", str(e)))
+            return report, started, False
+        # 0RUN.O88, under '..' - and under any folder --put made in RUN/,
+        # a listing showing folders first (16 pixels a row)
+        subs = {q.split(":", 1)[0].split("/")[1] for q in put
+                if q.split(":", 1)[0].startswith("RUN/")}
+        box.megarun(len(subs))
+        seen, last, quiet = 0, None, time.time()
+        began = quiet
+        while True:
+            ls = box.lines()
+            new = ls[seen:]
+            seen = len(ls)
+            fault = None
+            for l in new:
+                if l.startswith("MEGARUN: ") and l not in (
+                        "MEGARUN: ok", "MEGARUN: done") \
+                        and not l.startswith("MEGARUN: no "):
+                    last = l[9:]
+                    started.append(last)
+                elif l == "MEGARUN: ok" and last:
+                    time.sleep(4)
+                    shot(os.path.join(d, last.replace(".", "_") + ".png"))
+                    report.append((last, "ok"))
+                elif l.startswith("MEGARUN: no "):
+                    report.append((last, "refused " + l[12:]))
+                elif l.startswith("kern_mega FAULT"):
+                    fault = l + " | " + " ".join(
+                        ls[ls.index(l) + 1:ls.index(l) + 2])
+                elif l == "MEGARUN: done":
+                    fault = "done"
+            if new:
+                quiet = time.time()
+            if fault == "done":
+                if linger:
+                    # MEGATRAP=1: let what was started run on, so its
+                    # loops land in the census, then a picture of it
+                    time.sleep(linger)
+                    shot(os.path.join(d, "LINGER.png"))
+                break
+            if fault:
+                shot(os.path.join(d, "FAULT.png"))
+                report.append((last or "(before MEGARUN)", "FAULT " + fault))
+                break
+            if time.time() - began > cap_secs:
+                # a MEGATRAP=1 boot never goes quiet while a site loops
+                shot(os.path.join(d, "CAP.png"))
+                report.append((last or "(MEGARUN did not start)",
+                               "still going after %ds" % cap_secs))
+                break
+            if time.time() - quiet > quiet_secs:
+                shot(os.path.join(d, "QUIET.png"))
+                report.append((last or "(MEGARUN did not start)",
+                               "no E9 line in %ds" % quiet_secs))
+                break
+            time.sleep(0.5)
+        return report, started, True
+    finally:
+        box.stop()
+
+
 def sweep(pkgs, batch, out, quiet_secs=60, sb=False, cfg=None, build=None,
-          cap_secs=900, linger=0, put=(), cd=None):
+          cap_secs=900, linger=0, put=(), cd=None, parallel=False):
+    """PARALLEL: the batches' boots at ONCE, one X display each
+    (take_display) - they share nothing but this report. What a boot never
+    reached (a FAULT ends it) goes round again one boot at a time, as it
+    always did."""
     os.makedirs(out, exist_ok=True)
     left = list(pkgs)
     report = []
     boot = 0
+    args = (quiet_secs, sb, cfg, build, cap_secs, linger, put, cd)
+
+    def unreached(todo, started):
+        return [p for p in todo if os.path.basename(p).upper() not in started]
+    if parallel and len(left) > batch:
+        import threading
+        batches = [left[i:i + batch] for i in range(0, len(left), batch)]
+        res = [None] * len(batches)
+
+        def run(k, disp):
+            try:
+                res[k] = _sweep_boot(os.path.join(out, "boot%02d" % (k + 1)),
+                                     batches[k], *args, display=disp)
+            except Exception as e:          # (reported, never swallowed)
+                res[k] = ([("(boot %d)" % (k + 1), repr(e))], [], False)
+        ths = [threading.Thread(target=run, args=(k, None if k == 0 else
+                                                  take_display()))
+               for k in range(len(batches))]
+        for th in ths:
+            th.start()
+        for th in ths:
+            th.join()
+        boot, left = len(batches), []
+        for todo, (rep, started, _) in zip(batches, res):
+            report += rep
+            left += unreached(todo, started)
     while left:
         boot += 1
         todo, left = left[:batch], left[batch:]
-        d = os.path.join(out, "boot%02d" % boot)
-        os.makedirs(d, exist_ok=True)
-        box = Box(d, todo, sb, cfg, build=build, put=put, cd=cd)
-        try:
-            try:
-                box.up()            # the desktop, off kernel state
-            except RuntimeError as e:
-                report.append(("(boot)", str(e)))
-                left = todo + left
-                break
-            # 0RUN.O88, under '..' - and under any folder --put made in RUN/,
-            # a listing showing folders first (16 pixels a row)
-            subs = {q.split(":", 1)[0].split("/")[1] for q in put
-                    if q.split(":", 1)[0].startswith("RUN/")}
-            box.megarun(len(subs))
-            seen, last, quiet = 0, None, time.time()
-            began = quiet
-            started = []
-            while True:
-                ls = box.lines()
-                new = ls[seen:]
-                seen = len(ls)
-                fault = None
-                for l in new:
-                    if l.startswith("MEGARUN: ") and l not in (
-                            "MEGARUN: ok", "MEGARUN: done") \
-                            and not l.startswith("MEGARUN: no "):
-                        last = l[9:]
-                        started.append(last)
-                    elif l == "MEGARUN: ok" and last:
-                        time.sleep(4)
-                        shot(os.path.join(d, last.replace(".", "_") +
-                                          ".png"))
-                        report.append((last, "ok"))
-                    elif l.startswith("MEGARUN: no "):
-                        report.append((last, "refused " + l[12:]))
-                    elif l.startswith("kern_mega FAULT"):
-                        fault = l + " | " + " ".join(
-                            ls[ls.index(l) + 1:ls.index(l) + 2])
-                    elif l == "MEGARUN: done":
-                        fault = "done"
-                if new:
-                    quiet = time.time()
-                if fault == "done":
-                    if linger:
-                        # MEGATRAP=1: let what was started run on, so its
-                        # loops land in the census, then a picture of it
-                        time.sleep(linger)
-                        shot(os.path.join(d, "LINGER.png"))
-                    break
-                if fault:
-                    shot(os.path.join(d, "FAULT.png"))
-                    report.append((last or "(before MEGARUN)",
-                                   "FAULT " + fault))
-                    break
-                if time.time() - began > cap_secs:
-                    # a MEGATRAP=1 boot never goes quiet while a site loops
-                    shot(os.path.join(d, "CAP.png"))
-                    report.append((last or "(MEGARUN did not start)",
-                                   "still going after %ds" % cap_secs))
-                    break
-                if time.time() - quiet > quiet_secs:
-                    shot(os.path.join(d, "QUIET.png"))
-                    report.append((last or "(MEGARUN did not start)",
-                                   "no E9 line in %ds" % quiet_secs))
-                    break
-                time.sleep(1)
-            # what MEGARUN never reached goes round again
-            done = {os.path.basename(p).upper() for p in todo
-                    if os.path.basename(p).upper() in started}
-            left = [p for p in todo
-                    if os.path.basename(p).upper() not in done] + left
-            if not started:
-                break               # nothing moved: do not loop for ever
-        finally:
-            box.stop()
+        rep, started, booted = _sweep_boot(
+            os.path.join(out, "boot%02d" % boot), todo, *args)
+        report += rep
+        # what MEGARUN never reached goes round again
+        left = unreached(todo, started) + left
+        if not booted:
+            break
+        if not started:
+            break                   # nothing moved: do not loop for ever
     for name, what in report:
         print("%-14s %s" % (name, what))
     if left:

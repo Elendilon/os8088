@@ -239,7 +239,10 @@ python3 tools/megatraps.py build/census/x/e9.out --top 20
 `write`, `null0`) and resolves the IP in the image's own listing - by header
 name, or `--lst 1600=part.lst` for a nameless image such as a PiXEL part.
 A `sweep --build build/megatrap --linger 60` leaves a boot running after
-MEGARUN's last start, for the loops a program runs on its own.
+MEGARUN's last start, for the loops a program runs on its own. From Python,
+`sweep(..., parallel=True)` boots every batch AT ONCE, one display each
+(tests/megatrap0.py), and only what a FAULT left unreached goes round again
+one boot at a time.
 
 **Count something per second without a debugger.** The kernel's `mega_rfsec`
 (once a second, from the tick) and `mega_tell` (from `ui_task`, the only
