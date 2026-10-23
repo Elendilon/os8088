@@ -2,7 +2,7 @@
 DONE os	lzfmt-all	55	tools/os88lz.py	
 DONE kdmi	kdmix	55	tests/kdmix.py	
 gbcp	gbcpu	50	tests/gbcpu.py	qemu,nasm
-mseg	msegxms	50	tests/msegxms.py	qemu
+DONE mseg	msegxms	50	tests/msegxms.py	qemu
 xmch	xmcheck	50	tests/xmcheck.py	qemu,nasm
 DONE vidx	vidxmsgap	50	tests/vidxms.py	qemu,nasm
 DONE vidx	vidxmslivevga4	50	tests/vidxms.py	qemu,nasm

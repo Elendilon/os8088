@@ -408,6 +408,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | trkclick | not runnable as was (`make test` would rebuild the shared build/); declared 47 | 7.7 s | 14, 15 | `os88qemu.launch_test` with SB16=1 ADLIB=1's devices; the tools/mouse.py walk and host-slept double-click -> `mouse_dblclick`/`mouse_click`; the three `pace(1)` before a click -> `ui_done(cap=1)`; polls 0.05 |
 | trkscrl | not runnable as was (`make trkscrl` and `make test` in the shared build/); declared 38 | 15.1 s | 14, 15 | `os88fixture.need` for the disk (it is in `wants=`) and `launch_test`; the pin-and-walk with 0.06-host-s packets and the host-slept double-click -> `mouse_dblclick`/`mouse_click`; three `pace(1)` -> `ui_done(cap=1)`; polls 0.05. The eight jumps and their screen compares are the subject |
 | dosxmsq | not runnable as was (`make test`); 29 host s of fixed sleeps + 1-s polls | 1.8 s | 14, 15 | `launch_test`; the 22-s "to a desktop" sleep -> `acted` on B:'s zone + `ui_done`; the 7-s sleep -> the Disk window in `win_list` + `ui_done`; READY polled on the guest clock; closed-loop dblclicks; memory through `heapmap.Qmp` (pmemsave) rather than a spawned qmp.py per read. **SKIPS here**: build/dosxmsq.img (`make doscom`) is not in the shared build/; green with it built into the scratchpad |
+| msegxms | not runnable as was (`make test`); declared 50 | 1.7 s | 14, 15 | `launch_test` + xmcheck's desktop gate; the two blind tools/mouse.py dblclicks closed-loop; `pace(1)` -> `ui_done`; polls 0.05 |
 
 ## Resuming
 

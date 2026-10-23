@@ -3170,7 +3170,7 @@ SOAK = [
         "moved bytes). Needs `make msegpl`.",
         needs=("marty", "nasm"), serial=True,
         wants=("build/msegpl.img", "build/mseg.bin")),
-    Row("msegxms", "soak", py("tests/msegxms.py"), 50.0,
+    Row("msegxms", "soak", py("tests/msegxms.py"), 5.0,
         "SPEC.md 20.12.4: an OP_XMS part really goes ABOVE 1MB. Every MartyPC "
         "row proves the FALLBACK - an 8088 has nothing up there, so the part "
         "comes back as an ordinary conventional claim, which is what makes "
