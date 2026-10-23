@@ -720,16 +720,26 @@ def qemu9():
     by NAME, so PATH is the question; tools/setup-qemu9.sh builds one and
     prints the PATH line. Read by `--version`, never by name.
     """
-    p = shutil.which("qemu-system-i386")
-    if not p:
-        return None
-    try:
-        out = subprocess.run([p, "--version"], capture_output=True, text=True,
-                             timeout=30).stdout
-    except (OSError, subprocess.SubprocessError):
-        return None
-    m = re.search(r"QEMU emulator version (\d+)\.", out or "")
-    return p if m and int(m.group(1)) >= 9 else None
+    for p in (shutil.which("qemu-system-i386"),
+              os.path.join(QEMU9_BIN, "qemu-system-i386")):
+        if not p or not os.path.exists(p):
+            continue
+        try:
+            out = subprocess.run([p, "--version"], capture_output=True,
+                                 text=True, timeout=30).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        m = re.search(r"QEMU emulator version (\d+)\.", out or "")
+        if m and int(m.group(1)) >= 9:
+            return p
+    return None
+
+
+# ...where tools/setup-qemu9.sh installs it. The rows launch QEMU BY NAME, so
+# the runner puts this first on PATH for a row that needs qemu9 (and for no
+# other row: they stay on the system QEMU) - nasm3's build/nasm3 shape, so the
+# script's work counts without an export.
+QEMU9_BIN = os.path.join(ROOT, "build", "qemu9", "inst", "bin")
 
 
 def tree_root():

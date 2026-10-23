@@ -609,6 +609,10 @@ def run_row(row, caps, strict, verbose, unbuilt=()):
     env = None
     if disp is not None:
         env = dict(os.environ, OS88_BOCHS_DISPLAY=":%d" % disp)
+    q9 = os88build.qemu9() if "qemu9" in row.needs else None
+    if q9:                              # the rows launch QEMU BY NAME
+        env = dict(env or os.environ)
+        env["PATH"] = os.path.dirname(q9) + os.pathsep + env.get("PATH", "")
     try:
         try:
             p = subprocess.Popen(row.cmd, cwd=ROOT, stdout=subprocess.PIPE,
