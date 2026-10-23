@@ -3353,7 +3353,7 @@ SOAK = [
         "SPEC.md 31.12: the Control Panel promises per PAGE, and the clock"
         "page is the one that cannot.",
         needs=("marty",), serial=True),
-    Row("cpup", "soak", py("tests/cpup.py"), 41.3,
+    Row("cpup", "soak", py("tests/cpup.py"), 20.0,
         "SPEC.md 13.8.3: the Control Panel acts on the RELEASE, not the"
         "press.",
         needs=("marty",), serial=True),
@@ -14673,7 +14673,7 @@ SOAK = [
         "shares the emulator lane.",
         needs=("marty", "nasm"), serial=True, timeout=900,
         wants=("build/os8088-360.img", "build/apps360.img")),
-    Row("atmenusu", "soak", py("tests/atmenusu.py"), 45.0,
+    Row("atmenusu", "soak", py("tests/atmenusu.py"), 30.0,
         "SPEC.md 46.5.1: ArtfulType's pull-down banks the pixels it covers and "
         "the close writes them back, instead of repainting every text line the "
         "panel crossed FULL WIDTH - 104.9 ms to 14.5 on a 4.77MHz 8088. THE "

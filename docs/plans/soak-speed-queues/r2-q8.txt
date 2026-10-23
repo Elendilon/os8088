@@ -2,28 +2,28 @@
 DONE mcpe	mcperf	50	tests/mcperf.py
 SKIP fails-at-base(Task Manager redesign 89afd69c: memory page paints 27 font_run cells, all under the mover) dmgc	dmgcull	50	tests/dmgcull.py
 DONE bptr	bptrace	45	tests/bptrace.py
-atme	atmenusu	45	tests/atmenusu.py
-cpup	cpup	41.3	tests/cpup.py
-gbst	gbstate	40	tests/gbstate.py
+DONE atme	atmenusu	45	tests/atmenusu.py
+DONE cpup	cpup	41.3	tests/cpup.py
+SKIP needs-rgbds(absent) gbst	gbstate	40	tests/gbstate.py
 kdcy	kdcylrun	40	tests/kdcylrun.py
 ddsm	ddsmall	40	tests/ddsmall.py
 reco	recorder	40	tests/recorder.py
 face	facescan	18	tests/facescan.py
 face	facescan144	18	tests/facescan.py
 irqg	irqgrab	35	tests/irqgrab.py
-gbde	gbdemo	30	tests/gbdemo.py
+SKIP needs-rgbds(absent) gbde	gbdemo	30	tests/gbdemo.py
 dtwr	dtwrite	30	tests/dtwrite.py
 path	pathcost	30	tests/pathcost.py
 fmth	fmthumb	30	tests/fmthumb.py
 cpli	cplistrow	30	tests/cplistrow.py
 dosx	dosxms	28	tests/dosxms.py
-gbfm	gbfm	25	tests/gbfm.py
+SKIP needs-rgbds(absent) gbfm	gbfm	25	tests/gbfm.py
 dosv	dosvec	25	tests/dosvec.py
 tmco	tmcol2	21	tests/tmcol2.py
 post	postboot	20	tests/postboot.py
 lzfe	lzfence	20	tests/lzfence.py
 mouw	mouwheel	20	tests/mouwheel.py
 pxsb	pxsbench	18	tests/pxsbench.py
-gbsh	gbship	15	tests/gbship.py
+SKIP needs-rgbds(absent) gbsh	gbship	15	tests/gbship.py
 dskw	dskwstage	15	tests/dskwstage.py
 dual	dualcheck	10	tests/dualcheck.py
