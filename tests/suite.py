@@ -359,7 +359,7 @@ FAST = [
         "middle of .cold in a kernel ROM. Negative control: one byte of U30 "
         "wrong must read U30 BAD. SOAK: no package can reach it",
         needs=("marty", "nasm"), serial=True),
-    Row("hmacold", "soak", py("tests/hmacold.py"), 30.0,
+    Row("hmacold", "soak", py("tests/hmacold.py"), 20.0,
         "docs/plans/HMA-PLAN.md: kern_big's .cold runs from the HMA on a "
         "286 or better, which hands the heap the whole cold rung. WHY QEMU: "
         "docs/TESTING.md's closed list, entry 1 - above 1MB is a 286 place "

@@ -411,6 +411,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | dosxmsq | not runnable as was (`make test`); 29 host s of fixed sleeps + 1-s polls | 1.8 s | 14, 15 | `launch_test`; the 22-s "to a desktop" sleep -> `acted` on B:'s zone + `ui_done`; the 7-s sleep -> the Disk window in `win_list` + `ui_done`; READY polled on the guest clock; closed-loop dblclicks; memory through `heapmap.Qmp` (pmemsave) rather than a spawned qmp.py per read. **SKIPS here**: build/dosxmsq.img (`make doscom`) is not in the shared build/; green with it built into the scratchpad |
 | msegxms | not runnable as was (`make test`); declared 50 | 1.7 s | 14, 15 | `launch_test` + xmcheck's desktop gate; the two blind tools/mouse.py dblclicks closed-loop; `pace(1)` -> `ui_done`; polls 0.05 |
 | vidclose / vidxmslive / vidxmsliverep | 65 s (direct, load 10; 18 s of it mouse.py clicks, 28 s 800 three-trip QMP reads) / declared 60 / 60 | 37.3 / 23.4 / 30.6 s | 14, 15 | vidclose: `Q(keep=True)`, `mouse_dblclick`/`mouse_click`, its paces -> `ui_done` caps; the rest is three plays to a random frame. vidxms live arms (r2-q11 had converted the script): measured - the samples are spread over the real-time play. secs 75/60/60 -> 50/30/40 |
+| hmacold | 15.2 s (18.6 charged) | 11.6 s (17.4) | 14 | three boots each ended in a `pace(1)` before memory reads -> `ui_done(cap=1)`. Left: the kernel assembly in `os88rom.kernel_tables` (5.4 s) and the Control Panel pick |
 
 ## Resuming
 

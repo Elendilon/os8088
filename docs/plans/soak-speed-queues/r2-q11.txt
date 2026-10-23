@@ -33,7 +33,7 @@ DONE vidl	vidlysplitflip	35	tests/vidlysplit.py	qemu,nasm,ffmpeg
 DONE vidl	vidlysplitflipcmp	35	tests/vidlysplit.py	qemu,nasm,ffmpeg
 DONE vidl	vidlag	35	tests/vidlag.py	ffmpeg
 DONE kdre	kdreturncm	32	tests/kdreturn.py	
-hmac	hmacold	30	tests/hmacold.py	qemu,nasm
+DONE hmac	hmacold	30	tests/hmacold.py	qemu,nasm
 DONE t	bmshare	30	tests/unit/t_bmshare.py	
 DONE t	kernmods	30	tests/unit/t_kernmods.py	nasm
 hdta	hdtakeboot	30	tests/hdtake.py	qemu,nasm

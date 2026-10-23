@@ -137,7 +137,7 @@ def boot(tmp, mem, sysimg, panel=True, sites=(), vg=()):
         raise SystemExit("hmacold: the boot never finished (-m %d): "
                          "[mem_base] = %04X" % (mem, u16(q.read(S("mem_base"),
                                                                 2))))
-    os88qemu.pace(q, 1)
+    os88qemu.ui_done(q, S, cap=1.0)     # (was pace(1): every read is memory)
     mfp = q.read(S("rom_mfp"), 4)
     out = {"cs": u16(q.read(S("api_coldseg"), 2)),
            "base": u16(q.read(S("mem_base"), 2)),
