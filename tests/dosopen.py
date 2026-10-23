@@ -96,7 +96,8 @@ def main():
     if fails:
         return 1
 
-    with os88ui.boot(SYS, apps=APPS, machine="os8088_5150_herc_gla") as ui:
+    with os88ui.boot(SYS, apps=APPS, machine="os8088_5150_herc_gla",
+                     quick=True) as ui:
         m = ui.m
         # B: IS DELIBERATELY NEVER OPENED IN A DISK WINDOW. See the docstring:
         # that is what makes every lookup below a test of the kernel's own seed.
@@ -142,9 +143,12 @@ def main():
             if w:
                 ui.raise_window(w)
 
-        def typ(s):
+        def typ(s, wait=True):
             m.type_text(s)
-            os88marty.settle(m)
+            if wait:            # what is read next is the console, in guest
+                os88marty.quiesce(      # memory, and a command mid-read can
+                    m, lambda: (console(), m.disk().get("reads")),  # sit still
+                    guest=0.5, stable=3, what="the DOS box's console")
 
         REFUSALS = ("Cannot open", "Bad command", "no program on this disk")
 
@@ -176,7 +180,7 @@ def main():
                         ui.close(w)
                     except Exception:
                         pass
-            os88marty.settle(m)
+            os88marty.ui_done(m)    # ui.close confirmed each; reads follow
             to_box()
 
         def launch(line, want, limit=30.0):
@@ -195,7 +199,7 @@ def main():
                 return bool(res)
             try:                # `limit` is budgeted on the GUEST's clock
                 os88marty.until(m, answered, "%r to open %r or be refused"
-                                % (line, want), poll=0.3, limit=limit)
+                                % (line, want), poll=0.05, limit=limit)
                 return res[-1]
             except os88marty.MartyError:
                 pass
@@ -208,7 +212,7 @@ def main():
             try:                # `limit` is budgeted on the GUEST's clock
                 os88marty.until(m, lambda _: any(want in c
                                                  for c in console()[-3:]),
-                                "%r on the console" % want, poll=0.3,
+                                "%r on the console" % want, poll=0.05,
                                 limit=limit)
                 return True
             except os88marty.MartyError:
@@ -395,7 +399,7 @@ def main():
         try:
             os88marty.until(m, lambda _: any("Note Pad" in t
                                              for t in titles()),
-                            "Note Pad to open", poll=0.3, limit=25.0)
+                            "Note Pad to open", poll=0.05, limit=25.0)
         except os88marty.MartyError:
             pass
         if not any("Note Pad" in t for t in titles()):

@@ -117,7 +117,7 @@ drma	drmario	110	tests/drmario.py
 drma	drmariofront	110	tests/drmario_front.py
 drma	drmarioaudio	90	tests/drmario_audio.py
 DONE tpdr	tpdraw	300	tests/tpdraw.py
-doso	dosopen	240	tests/dosopen.py
+DONE doso	dosopen	240	tests/dosopen.py
 reho	rehomemove	75	tests/rehomemove.py
 reho	rehomemove360	75	tests/rehomemove.py
 reho	rehome	45	tests/rehome.py

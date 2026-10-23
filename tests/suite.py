@@ -7449,7 +7449,7 @@ SOAK = [
         "shipped with had, because the declaration is read on slower boxes "
         "than the one that takes it.",
         needs=("marty",), serial=True),
-    Row("dosopen", "soak", py("tests/dosopen.py"), 240.0,
+    Row("dosopen", "soak", py("tests/dosopen.py"), 60.0,
         "A .O88 BY PATH, WITH A DOCUMENT, AND `OPEN` (SPEC.md 96.33.21, "
         "96.33.22) - three things the DOS prompt could not do and ONE kernel "
         "argument that carries all three: OSAPI_PKG_START takes a DOCUMENT "
