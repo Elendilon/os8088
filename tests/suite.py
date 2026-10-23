@@ -15060,7 +15060,7 @@ SOAK = [
         "of KERNEL_SEG on the disk and the volume does not come back. "
         "Measured at 47s",
         needs=("marty",), serial=True),
-    Row("diskclone", "soak", py("tests/diskclone.py"), 120.0,
+    Row("diskclone", "soak", py("tests/diskclone.py"), 60.0,
         "diskclone - Clone Disk... (SPEC.md 18.99/22.21) driven end to end, "
         "with the assertion that cannot pass for the wrong reason: the two "
         "floppies read back off the guest and diffed byte for byte. Cross "
