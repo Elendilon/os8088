@@ -1320,7 +1320,7 @@ assoc_run_x:
     jne .notlnk                 ; at all (SPEC.md 26.10.3): every door to a
     call lnk_open               ; document arrives here, so this is all of
     jnc .lnk                    ; them. CF = 1 is a .LNK that is not ours -
-.notlnk:                        ; the DOS box's (SPEC.md 96.21) - and it goes
+.notlnk:                        ; DOS's (SPEC.md 96.21) - and it goes
 %endif                          ; on to its association like any document
 
     pop ax

@@ -1865,7 +1865,7 @@ section .cold
 ; The Drivers page has priced a driver since drv_memk was written (SPEC.md
 ; 51.2.4), and it prices it PER ROW because that is what it draws. The
 ; question a PACKAGE asks is the other one - "what would I get back if this
-; class went away", which the DOS box's memory page puts on screen beside a
+; class went away", which DOS's memory page puts on screen beside a
 ; checkbox that makes it happen (SPEC.md 96.32.3) - and that is per CLASS,
 ; because OSAPI_DRV_SUSPEND's mask is per class.
 ;

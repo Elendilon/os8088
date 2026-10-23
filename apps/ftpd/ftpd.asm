@@ -3118,7 +3118,7 @@ fd_log_sockfail:
 
 ; --- fd_c_pasv - 227, with our own address ----------------------------------
 ; The address comes from NETV_ADDR, which exists for this reply and nothing
-; else (netpkg.inc). On the cable it is the DOS box's, which is the true
+; else (netpkg.inc). On the cable it is the DOS machine's, which is the true
 ; answer there: that is the machine an inbound connection reaches.
 fd_c_pasv:
     call fd_pasv_addr               ; the OVERRIDE if one is set, else our own
@@ -4994,7 +4994,7 @@ fd_root_resolve:
     call fd_issep                   ; **'/' OR '\' HERE, AND ONLY HERE.** This
     jc .comp                        ; is the one path in the system a PERSON
     inc si                          ; types at the machine, and the person is
-.comp:                              ; looking at a DOS box: `A:\DOCS` is what
+.comp:                              ; looking at a DOS prompt: `A:\DOCS` is what
     cmp byte [si], 0                ; they will write. An FTP path stays '/'
     je .here                        ; alone - that is the protocol's, not ours
     mov di, fd_comp

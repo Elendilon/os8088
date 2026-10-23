@@ -417,7 +417,7 @@ eth_v_abort:
 ; what counts as a link are the one thing the cable and the card genuinely
 ; disagree about. An ADDRESS is not: both ends answer with the IP of the
 ; machine the stack is running on, and over the cable that machine is the DOS
-; box - which is the true answer there, because an inbound connection arrives
+; machine - which is the true answer there, because an inbound connection arrives
 ; there and is forwarded (docs/plans/completed/NET-STACK-PLAN.md 1.5). One body, so the two
 ; transports cannot come to differ about it.
 ;
@@ -565,7 +565,7 @@ eth_v_raw:
     ret
 .release:
     mov byte [eth_raw], 0       ; **A RELEASE ALWAYS SUCCEEDS** (netpkg.inc):
-    clc                         ; the DOS box calls it on every exit path it
+    clc                         ; DOS calls it on every exit path it
     ret                         ; has, including the ones that never claimed
 .held:
     mov ax, NETE_BUSY

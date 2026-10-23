@@ -1920,9 +1920,9 @@ ld_pkg_start_x:
 ; **BOTH NAMES ARRIVE UPPER CASE AND THIS ARM DOES NOT FOLD** (21.5.3.2): the
 ; association tables are uppercase-exact because they are built from FAT
 ; names, and folding here was 44 resident bytes of every machine spent on
-; behalf of ONE caller, which is ours. The DOS box folds in dos_pgname - the
+; behalf of ONE caller, which is ours. DOS folds in dos_pgname - the
 ; copy that fills both launch cells, and which was three copies - so it costs
-; the box nothing it was not already walking; tests/dosopen.py is the gate and
+; DOS.O88 nothing it was not already walking; tests/dosopen.py is the gate and
 ; types three lower- and mixed-case spellings.
 ;
 ; **A DOCUMENT TAKES THE ASSOCIATION ROUTE AND NOT ld_run_name's.** That is
@@ -2188,7 +2188,7 @@ osapi_pkg_rehome_x:
     retf
 %else
 ; No re-homing loader ships on kern_small: the only two callers of the slot -
-; the DOS box (SPEC.md 18.4.7.4) and Skies ($(SMALLOMIT_GAMES)) - are both off
+; DOS.O88 (SPEC.md 18.4.7.4) and Skies ($(SMALLOMIT_GAMES)) - are both off
 ; the small disks, and no small package hands its identity to one of its parts
 ; (SPEC.md 20.12.10). So step 8a is not assembled here at all - its test, its
 ; arm, mem_reown_x and the words they read (SPEC.md 20.12.10.7) - and CF=1 is

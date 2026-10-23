@@ -2055,7 +2055,7 @@ te_tpl:
                                 ; the same buffer onto real text VRAM, which
                                 ; tetxt.inc's bracket drives
 %include "os88con.inc"          ; THE 80x25 CONSOLE (SPEC.md 70.8), which was
-                                ; this package's until SPEC.md 96.32's DOS box
+                                ; this package's until SPEC.md 96.32's DOS
                                 ; wanted the same screen. It carries the CP437
                                 ; face and its own bss, so [te_win] and the
                                 ; rest of ours chain off CON_BSS below

@@ -645,7 +645,7 @@ os88ui_btn:
                                 ; Without it the frame is redrawn round a
                                 ; black box and the caption is lettered BLACK
                                 ; ON BLACK: the button goes dark and its text
-                                ; disappears, which is what the DOS box did
+                                ; disappears, which is what DOS did
                                 ; the day it was converted - it had always
                                 ; drawn with `xor di, di`, correctly, because
                                 ; nothing had ever pressed it.
@@ -3047,7 +3047,7 @@ os88ui_ar:    dw 0, 0, 0, 0      ; ONE button's rect at a time - os88ui_krect's
 ; to -1 and drew NOTHING; index 1 read OS88UI_BT_DOWN out of os88ui_asets' own
 ; first word, found 1, and painted a rectangle read from four arbitrary words
 ; of the package's image with the PRESSED interior - black, across the whole
-; screen, which is what the DOS box's "Open windows are lost" question did.
+; screen, which is what DOS's "Open windows are lost" question did.
 ; The registry counted this site as "the library's own" and never asked
 ; whether it had been converted; tests/unit/t_btnrules.py asks now.
 ;
@@ -4611,7 +4611,7 @@ os88ui_radhit:
 ; a package whose drop-down is PRESS-PRESS - the press opens the list and the
 ; next press picks or takes it down, both through os88ui_drpress - and which
 ; never takes a list down from outside the control carries os88ui_drdrag,
-; os88ui_drup and os88ui_drclose and reaches none of them (the DOS box).
+; os88ui_drup and os88ui_drclose and reaches none of them (DOS.O88).
 ; It removes the SYMBOLS, so a package that sets it and then wires a W_ONDRAG
 ; or W_ONMOUSEUP to the control, or closes it on Esc, does not assemble.
 

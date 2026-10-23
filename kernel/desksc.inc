@@ -320,7 +320,7 @@ lnk_is:
 ; out: CF = 0 it was OURS and is dealt with: what it names is opened as its
 ;      Disk window would open it, or `Shortcut not found (B:)`, or - a newer
 ;      version, a volume no row has, a chain too deep - nothing, silently.
-;      CF = 1 it is NOT ours: no file this size, or not 'LK' - the DOS box's
+;      CF = 1 it is NOT ours: no file this size, or not 'LK' - DOS's
 ;      shortcuts are .LNK too, in Microsoft's format (SPEC.md 96.21), and the
 ;      caller carries on to the association that opens those
 ; clobbers: AX..DI, ES, flags
@@ -1853,7 +1853,7 @@ ovl_sc_load:
 ;   an empty folder  that, and its first directory sector
 ;   a link           opened AS A DOUBLE-CLICK WOULD: assoc_run_x with nothing
 ;                    posted, standing in the folder, so a link of ours is
-;                    followed and the DOS box's (SPEC.md 96.21) goes to the
+;                    followed and DOS's (SPEC.md 96.21) goes to the
 ;                    program that reads it. Anything not *.LNK is not started
 ;
 ; EITHER SHIFT, HELD AT THE FIRST LINK, SKIPS THE LOT and says so - read off

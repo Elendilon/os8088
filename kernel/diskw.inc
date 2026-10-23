@@ -158,7 +158,7 @@ DSKW_EOC16   equ 0xFFFF        ; (0FF8h / 0FFF8h), so a host fsck walks the
 
 %ifdef DSK_STREAM                ; WRITE_SEQ's record rides the append body
 %define DSKW_WSEQ                ; (SPEC.md 18.4.9) on kern_big and in
-%define DSKW_SYSW                ; kern_dos, whose DOS box streams (96.53.1)
+%define DSKW_SYSW                ; kern_dos, whose DOS streams (96.53.1)
 %endif                           ; ...and DSKW_SYSW: can a SYSTEM write
 %ifdef OS88_DRIVERS              ; happen at all (SPEC.md 19.6)? WSQF_SYS, a
 %define DSKW_SYSW                ; driver's fenced cell, the assoc writer and
@@ -523,7 +523,7 @@ dskw_dfree_x:
 ;      AX = FERR_NODISK
 ; clobbers: AX/BX/CX/DX (the outputs), CF
 ;
-; DOS AH=36h's own register shape, and that is not an accident: the DOS box
+; DOS AH=36h's own register shape, and that is not an accident: DOS.O88
 ; is this slot's only caller and it forwards these four to the program
 ; unchanged. It used to be a twelve-byte RECORD with eight fields and a
 ; "the size you pass is the request" rule, so that a short buffer skipped
@@ -3461,7 +3461,7 @@ dws_hlose:
 ; - into the SAME test the write-at makes on any offset: it must land on a
 ; cluster boundary. Two bodies used to make that test two ways.
 ;
-; The offset decides which of two exclusive things happens, and the DOS box's
+; The offset decides which of two exclusive things happens, and DOS's
 ; window (SPEC.md 96.11.6) is why there is no third:
 ;
 ;   INSIDE  - offset + count fits what the file OWNS (its size rounded up to
@@ -3478,7 +3478,7 @@ dws_hlose:
 ;
 ; Anything else - past the allocated end, or straddling it - is FERR_NAME. A
 ; caller that has a partly-full last cluster to top up before it grows makes
-; two calls, which is what the DOS box's window does by construction: its
+; two calls, which is what DOS's window does by construction: its
 ; last window ends at the size and the first window past it starts at the
 ; allocated end.
 ;
@@ -3697,7 +3697,7 @@ dskw_wabody:
     inc bp                      ; ...1: it starts exactly AT the allocated end
     cmp dx, [dwr_off+2]
     jne .jbad                   ; past it, or across it: this is not the
-    cmp ax, [dwr_off]           ; allocator, and the DOS box never asks
+    cmp ax, [dwr_off]           ; allocator, and DOS never asks
     jne .jbad
 .in:
 %ifdef DSKW_WSEQ
@@ -6504,7 +6504,7 @@ dwf_dskw_write_seq:             ; SPEC.md 18.4.9: kern_big's alone too
 dwf_dskw_read_seq:  mov ax, FERR_NAME   ; SPEC.md 18.4.8: kern_big's alone, and
                                         ; the cell is in both kernels (20.8
                                         ; rule 4) - falling into the refusal
-dwf_dskw_write_at:  stc         ; the DOS box is the one caller (SPEC.md
+dwf_dskw_write_at:  stc         ; DOS.O88 is the one caller (SPEC.md
                     retf        ; 18.4.7.4) and it does not ship on the small
                                 ; disks: the INSIDE arm, dsk_write_chain and
                                 ; this door are kern_big's, and an append

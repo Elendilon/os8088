@@ -65,8 +65,8 @@
 ; - the claim map, the screen's row table, and on kern_mega font_run's
 ; unaligned-run state - so a call made on a stack of your own reads and
 ; writes whatever segment that stack is in. A package that switches SS for
-; its own reasons (the DOS box, around a DOS program) switches back before
-; it calls the kernel, as the DOS box does (docs/plans/KERN-MEGA-PLAN.md 14.39).
+; its own reasons (DOS, around a DOS program) switches back before
+; it calls the kernel, as DOS does (docs/plans/KERN-MEGA-PLAN.md 14.39).
 ;
 ; Your image is linked at org 0 and loaded at a paragraph boundary, so it is
 ; position-independent: there are no relocations, and two instances of one
@@ -1005,7 +1005,7 @@ OSAPI_LZ_BIG equ 0x80            ; ...OR'd in: AH:CX is the length (20.13.3)
                                  ; the engine cannot claim its buffer - which
                                  ; a MOVE on one volume never needs, so that
                                  ; one works with no free heap at all (the
-                                 ; DOS box's shell-out is the case, SPEC.md
+                                 ; DOS's shell-out is the case, SPEC.md
                                  ; 96.30.6).
                                  ; WHERE YOU WERE STANDING is put back by the
                                  ; next file call (SPEC.md 19.2.1), and the
@@ -1073,7 +1073,7 @@ OSAPI_FCP_MOVE equ 1
                                  ; with AX = FERR_NODISK. Clobbers all four.
                                  ;
                                  ; DOS AH=36h's own register shape, because
-                                 ; the DOS box is what asks. What
+                                 ; DOS.O88 is what asks. What
                                  ; OSAPI_FILE_DFREE does not say is the
                                  ; volume's SIZE, and this is where it lives.
                                  ; The free count is the same FAT walk DFREE
@@ -3902,7 +3902,7 @@ OS88_HDR_FLAGS equ 0
 ;
 ; Without this block the kernel REDUCES your 16x16 icon to 8x8 by majority of
 ; each 2x2 block (SPEC.md 54.3), which keeps a silhouette and loses every
-; one-pixel stroke. Ship one when your icon is a line drawing - the DOS box's
+; one-pixel stroke. Ship one when your icon is a line drawing - DOS's
 ; CRT reduced to an empty square, which is what this exists for.
 ; -----------------------------------------------------------------------------
 %macro OS88_DOCGLYPH8 0
@@ -4577,7 +4577,7 @@ OS88__AFIT  equ OS88__AF%[OS88__AN]
 ;
 ;   * a record aimed in the CLICK path was not aimed on the PAINT path, so a
 ;     plain repaint drew with a live count of 0 and the buttons were absent
-;     (the DOS box);
+;     (DOS.O88);
 ;   * a count written AFTER the draws meant every paint used the previous one
 ;     and the first used zero (ArtfulType, twice - its modal and its splash
 ;     were separate callers);
@@ -5436,7 +5436,7 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
 ; Disk window's LISTING (SPEC.md 19.5), which is a different structure.
 ;
 ; Three packages each built a descent stack for want of this - ftpd's 16-level
-; FD_CDMAX, the DOS box's self-maintained `AH=47h` string, and Tank Attack's
+; FD_CDMAX, DOS's self-maintained `AH=47h` string, and Tank Attack's
 ; walk to SYSTEM\APPDATA. If you are about to write a fourth, this is it.
 ;
 ; **IT COSTS ONE MOUNT AND THEN NOTHING.** The kernel walks with the directory
@@ -6226,7 +6226,7 @@ WHEEL_STEPS equ 3                ; LINES of text one wheel notch scrolls
 ; with nothing held. So the record must live in your IMAGE or your BSS and not
 ; on a stack, and it must still be there when you return.
 ;
-; This is the DOS box's verb and nothing else in the tree uses it. It had a
+; This is DOS's verb and nothing else in the tree uses it. It had a
 ; cell of its own for one cycle (0x05A0, withdrawn - SPEC.md 51.11.3) and is a
 ; verb of the door the drivers leave through now, because the two are one
 ; family: "get out of my way", and how far. The layout is published rather
@@ -6243,17 +6243,17 @@ KDH_PLEN    equ 23              ; dd its packed bytes
 KDH_ULEN    equ 27              ; dd ...and its unpacked bytes
 KDH_LB      equ 31              ; db[512] the launch block, verbatim
 KDH_WIN     equ 543             ; dw the window to wake on the way back - the
-                                ; box's, because only the box knows it
+                                ; DOS.O88's, because only DOS.O88 knows it
 KDH_CODE    equ 545             ; dw the program's exit code, poked in by the
                                 ; RESTORED kernel, KDH_NOCODE until then
 KDH_COFF    equ 547             ; dw the CORE part's first file SECTOR - the
 KDH_CPLEN   equ 549             ; dd its packed bytes, and its unpacked ones.
 KDH_CULEN   equ 553             ; kern_dos's image has a HOLE where the core
                                 ; goes, so the stub reads TWO parts (SPEC.md
-                                ; 96.44.5.4) and only the box knows where
+                                ; 96.44.5.4) and only DOS.O88 knows where
                                 ; either sits in the file
 KDH_CORG    equ 557             ; dw where the core sits in kern_dos's
-                                ; segment - CORE_ORG, which only the box knows
+                                ; segment - CORE_ORG, which only DOS.O88 knows
 KDH_AKB     equ 559             ; dw the ARENA the program was given, in KB.
                                 ; The restored kernel pokes it in beside
                                 ; KDH_CODE (SPEC.md 96.41.1) - the figure is
