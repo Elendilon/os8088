@@ -158,6 +158,12 @@ def main():
                  "machine without one answers nothing (SPEC.md 51.3.1)")
         say("dosnetarena: ETHER.DRV at %04X" % seg)
 
+        # THE DESKTOP, NOT THE DRIVER. drv_boot_x fills ETHER.DRV's row
+        # during the loading screen and desk_rowcalc lays the zones out AFTER
+        # it (kernel.asm's kmain), so a row that is there says nothing about
+        # B:'s zone - a loaded box landed in that window and open_drive read
+        # "no desktop zone". Drive B's zone is the condition, as dosxlat's.
+        xmcheck.wait_desktop(q.sock, "dosnetarena")
         dispcp.open_drive(m, mouse, eth.S, eth.settle, "B")
         wins = dispcp.win_list(m, eth.S)
         wx, wy = dispcp.win_rect(m, eth.S, wins[-1])[:2]
