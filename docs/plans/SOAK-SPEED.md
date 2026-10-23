@@ -139,6 +139,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
 
 (one line each: what, where, which rows it speeds, how it was validated)
 
+- **`tools/os88venc.py`'s cut-frame selection** sums each unit's (cycles, bytes) once per frame (`usum`) instead of per member per attempt: the step-down clip 149 -> 115 s wall and a byte-identical .V88. Every encode that cuts frames - videnc, vidlayer*, vencgui, every vid* row that encodes a clip.
+
 - **`hmacold.QMouse.to` closed-loop** (`os88qemu.mouse_to`, carrying a drag's button; tests/hmacold.py) - it walked tools/mouse.py blind, ~1.5 s a move. mixersb16 109 -> 32 s; also hmacold's, colorpresets_qemu's, the hma*/p2hiber rows'. Validated on mixersb16 (108 checks), hmacold, hmadrv (fails at base, same point either way). `tests/rdgcore/rdgshot.capture` polls at 0.05 (was 0.3): every gb* row that captures a frame.
 
 - **FIX: `UI.still()` on a QEMU UI** (os88ui): `chooser()` ending on `still()` (round 1) called `os88marty.ui_done`, which needs `m.status` - every QEMU-driven os88ui chooser died with `'Machine' object has no attribute 'status'` (wirefleetlink failed at base). A machine with no `status` now takes the UI's own `settle()` (a QEMU subclass's state wait). wirefleetlink green again.
@@ -435,6 +437,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | colorpresets (+ fmtpair re-run) | 213 s direct (load ~10): 3,923 RSP commands at ~44 ms each | 40.8 s (fmtpair 7.6) | 17 | TCP_NODELAY on the gdb-stub and QMP sockets of `colorpresets_qemu.Guest` (fmtpair's too) and the RSP reply read buffered (a `recv(1)` a byte). Every command now ~0.1 ms; the rest is 17 boots and the guest calls. Same screens and SYSTEM.CFG compares. secs 72 -> 60 (CPU-charged: the QEMU children) |
 | gbcpu | 38.5 s | 34.5 s (26 s charged) | 8, 10 | `rdgshot.capture` polled its serial log at 0.3 s (27 captures); `rom_path` spawned getgbtest.py per ROM (42) - in process now. The rest is 50 bare QEMU runs of the ROMs themselves |
 | vmmouse | declared 45 | 7.9 s | - | lean: every wait already on guest state, the two paces are the clock-rate and stray-byte windows. **SKIP here**: build/vmmouse.img (kern_emu) not in the shared build/; green from a private plain tree with `OS88_TREE` + `OS88_PREBUILT` |
+| videnc / vidlayer / vencgui / vidlayerpal | videnc 1,763 s (load 4-10); vencgui 111 s | videnc 1,201 s (similar load), its coarse-cut leg 399 -> 146 s; vidlayer 329, vencgui 206 and vidlayerpal 183 s run side by side (vidlayerpal 52 s alone) | 10 | host-only, ENCODER-BOUND: the row is the encoder's own work. cProfile of the step-down clip found `os88venc`'s cut-frame selection re-summing every skipped unit's members per member per attempt (358M generator steps) - now once per frame, byte-identical (harness changes); what is left is the Knoll ditherer's numpy per frame and the dither pool. vencgui's cancel leg makes a 6 s mandelbrot, not 20 (3 s of ffmpeg; the cancel still lands at frame 6 of 180). secs left as declared |
 
 ## Resuming
 

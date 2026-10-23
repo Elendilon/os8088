@@ -1,12 +1,12 @@
 # ROUND 2, queue 9: the NON-MartyPC soak rows (QEMU, ffmpeg, host-only) - never queued in round 1. family  row  declared_secs  script  needs
-vide	videnc	1300	tests/videnc.py	ffmpeg
+DONE vide	videnc	1300	tests/videnc.py	ffmpeg
 DONE t	frcyclefull	900	tests/unit/t_frcycle.py	
 DONE t	frinsetfull	900	tests/unit/t_frinset.py	
-vidl	vidlayer	320	tests/vidlayer.py	ffmpeg
+DONE vidl	vidlayer	320	tests/vidlayer.py	ffmpeg
 SKIP builds=True (writes build/; not runnable in the shared tree) telz	telzm	300	tests/telzm.py	qemu
 DONE rega	regapp	210	tests/regapp.py	
 SKIP builds=True (writes build/; not runnable in the shared tree) tela	telansi	210	tests/telansi.py	qemu
-venc	vencgui	200	tests/vencguitest.py	ffmpeg
+DONE venc	vencgui	200	tests/vencguitest.py	ffmpeg
 SKIP builds=True (writes build/; not runnable in the shared tree) t	buildmatrix	180	tests/unit/t_buildmatrix.py	
 DONE weav	weavefuzz	180	tests/weavefuzz.py	
 DONE drvm	drvmove	170	tests/drvmove.py	
@@ -50,7 +50,7 @@ MOVED->r2-q13 vidc	vidclose	75	tests/vidclose.py	qemu,nasm
 MOVED->r2-q13 dosx	dosxlat	75	tests/dosxlat.py	qemu
 DONE vidb	vidbankwin	75	tests/vidbank.py	qemu,nasm
 DONE vidb	vidbankspk	75	tests/vidbank.py	qemu,nasm
-vidl	vidlayerpal	75	tests/vidlayer.py	ffmpeg
+DONE vidl	vidlayerpal	75	tests/vidlayer.py	ffmpeg
 MOVED->r2-q13 colo	colorpresets	72	tests/colorpresets_qemu.py	qemu,nasm,pil
 MOVED->r2-q13 wire	wireball	65	tests/wireball.py	qemu,nasm,pil
 MOVED->r2-q13 pxsw	pxswin-qemu	65	tests/pxswin.py	qemu
