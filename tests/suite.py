@@ -4927,7 +4927,7 @@ SOAK = [
         needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
         wants=("build/os8088-360.img", "build/video.o88")),
     Row("vidbankspkbank", "soak", py("tests/vidbank.py", "--arm",
-                                     "spkbank"), 60.0,
+                                     "spkbank"), 40.0,
         "SPEC.md 98.3.18.9: THE SPEAKER AGAINST THE BANK on QEMU with no "
         "card - a file asking for a bank whose yardstick (key 0's decode on "
         "the machine it was made for) says this machine is not twice as "
@@ -13949,7 +13949,7 @@ SOAK = [
         "refused",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidbank", "soak", py("tests/vidbank.py"), 150.0,
+    Row("vidbank", "soak", py("tests/vidbank.py"), 110.0,
         "docs/plans/VIDEO-XMS-PLAN.md 4, SPEC.md 98.3.18.2: a streamed .V88 "
         "BIGGER than the XMS pool, played through a BANK - a FIFO of 32 KB "
         "chunks ahead of the ring. WHY QEMU: docs/TESTING.md's closed list, "
@@ -13965,7 +13965,7 @@ SOAK = [
         "where this FIFO is not used (vidxipbank is the in place)",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidbankwin", "soak", py("tests/vidbank.py", "--arm", "win"), 75.0,
+    Row("vidbankwin", "soak", py("tests/vidbank.py", "--arm", "win"), 40.0,
         "SPEC.md 98.3.18.4: the bank's PREFILL IN THE WINDOW, where the full "
         "screen's box is not the window's and the play bar's THUMB is the "
         "meter. A 160 x 120 stream bigger than the pool, B: throttled to 64 "
@@ -13974,7 +13974,7 @@ SOAK = [
         "vp_pfsay's window arm skipped - the thumb never moves",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidbankspk", "soak", py("tests/vidbank.py", "--arm", "spk"), 75.0,
+    Row("vidbankspk", "soak", py("tests/vidbank.py", "--arm", "spk"), 50.0,
         "SPEC.md 98.3.18.5: NO XMS COPY UNDER THE SPEAKER'S CLOCK. QEMU has "
         "no card, so a PCM8 play is the speaker's, whose clock is its own "
         "interrupts and every transport holds them off for a copy - the "
@@ -13997,7 +13997,7 @@ SOAK = [
         "this guards is argued in SPEC.md 2.10.8 rather than reproduced",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidxip", "soak", py("tests/vidxip.py"), 120.0,
+    Row("vidxip", "soak", py("tests/vidxip.py"), 50.0,
         "SPEC.md 98.3.18.11, 98.3.18.14: a file held whole in XMS decoded "
         "IN PLACE - the SHIPPED player on QEMU's 386, which loads DS's "
         "hidden base (apps/os88ub.inc) where a 286 runs LOADALL, against "
@@ -14010,13 +14010,13 @@ SOAK = [
         "starts; the yield sites unpatched and no yield opens; vp_ubld's "
         "ub_set out, vp_xok fails and the play copies",
         needs=("qemu", "nasm")),
-    Row("vidxipsnd", "soak", py("tests/vidxip.py", "--arm", "snd"), 130.0,
+    Row("vidxipsnd", "soak", py("tests/vidxip.py", "--arm", "snd"), 60.0,
         "SPEC.md 98.3.18.11: vidxip with QEMU's SB16 and a clip with sound - "
         "the card's audio copied out of the hold through a borrow every "
         "frame (vp_aput's VP_DSDX)",
         needs=("qemu", "nasm")),
     Row("vidxipahead", "soak", py("tests/vidxip.py", "--arm", "ahead"),
-        130.0,
+        60.0,
         "SPEC.md 98.3.18.11: vidxip with SOUND AHEAD (8 frames) and the SB16 "
         "captured - every frame's sound a level of its own, and the two "
         "plays' levels whole and in order: the lead read into the ring and "
@@ -14036,7 +14036,7 @@ SOAK = [
         "play: the ring starts 2,048 mod 4,096 from the BANK, and every "
         "screen vidbank compares is still the decode's",
         needs=("qemu", "nasm")),
-    Row("vidxipbank", "soak", py("tests/vidxip.py", "--arm", "bank"), 120.0,
+    Row("vidxipbank", "soak", py("tests/vidxip.py", "--arm", "bank"), 100.0,
         "SPEC.md 98.3.18.13: a 1.3 MB clip on a 2 MB QEMU, past the pool, "
         "played through a BANK - copying ([vp_noinp]), and then by the "
         "shipped player IN PLACE on QEMU's 386 (98.3.18.14), the card kinds "
@@ -14046,7 +14046,7 @@ SOAK = [
         "and the window after the play cannot see it",
         needs=("qemu", "nasm")),
     Row("vidxiphd", "soak", py("tests/vidxip.py", "--hd", "--arm", "bank"),
-        150.0,
+        110.0,
         "SPEC.md 98.3.18.15, 52.1.4: vidxipbank with the clip on an IDE DISK, "
         "which QEMU's SeaBIOS knows and HDD.DRV's rung 1 takes, so every "
         "fill ARMS the driver and its sectors go straight into XMS through "
@@ -14056,19 +14056,19 @@ SOAK = [
         "Broken on purpose (hd_xa_read's rep insw replaced by a read that "
         "drops the words) the play stalls on garbage before frame 140",
         needs=("qemu", "nasm")),
-    Row("vidxiphdhold", "soak", py("tests/vidxip.py", "--hd"), 120.0,
+    Row("vidxiphdhold", "soak", py("tests/vidxip.py", "--hd"), 60.0,
         "SPEC.md 98.3.18.15: vidxip's HOLD with the clip on an IDE disk - the "
         "hold's own fill (vp_xstep, the window's timer) armed and read "
         "straight into XMS, then both plays out of it, the window identical",
         needs=("qemu", "nasm")),
     Row("vidxiphdnoharm", "soak", py("tests/vidxip.py", "--hd", "--noharm",
-                                     "--arm", "bank"), 150.0,
+                                     "--arm", "bank"), 110.0,
         "SPEC.md 98.3.18.15: vidxiphd's A/B - the player built VP_NOHARM, "
         "which never arms HDD.DRV: the same plays and holds, and [vp_hsk] "
         "must stay 0, so vidxiphd's count is the arm's and not a counter "
         "that always moves",
         needs=("qemu", "nasm")),
-    Row("vidxipxspeed", "soak", py("tests/vidxip.py", "--xspeed"), 120.0,
+    Row("vidxipxspeed", "soak", py("tests/vidxip.py", "--xspeed"), 60.0,
         "SPEC.md 98.3.18.15: vp_xspeed, the pool's copy priced against RAM "
         "for vp_epref's EMS-or-XMS choice, taken at the hold's open by a "
         "VP_XSPTEST build - no emulator here has an EMS board beside XMS, so "
@@ -14077,7 +14077,7 @@ SOAK = [
         "own table; broken on purpose (the free taken out) it fails on both",
         needs=("qemu", "nasm")),
     Row("vidxipbankwrap", "soak", py("tests/vidxip.py", "--arm", "bankwrap"),
-        120.0,
+        110.0,
         "SPEC.md 98.3.18.13: vidxipbank with the ring in place capped at 3 "
         "slots ([vp_ekr], a gate's), so the bank's MIRROR - its last slot, "
         "what a super-packet in slot K-1 runs on into of slot 0 - is read "
@@ -14085,7 +14085,7 @@ SOAK = [
         "takes it red at 36 of 39 holds",
         needs=("qemu", "nasm")),
     Row("vidxipbankbig", "soak", py("tests/vidxip.py", "--arm", "bankbig"),
-        150.0,
+        70.0,
         "SPEC.md 98.3.18.13: the bank in place for a BIGSP file (98.1.4.1), "
         "the owner's Last Exile at --frame-cap 48, which had to copy down "
         "because the mirror in place was one slot. The wrap arm's 3-slot "
@@ -14096,13 +14096,13 @@ SOAK = [
         "it names",
         needs=("qemu", "nasm")),
     Row("vidxipbanksnd", "soak", py("tests/vidxip.py", "--arm", "banksnd"),
-        110.0,
+        90.0,
         "SPEC.md 98.3.18.13: vidxipbankwrap with QEMU's SB16 and a clip with "
         "sound: the card's audio copied out of the bank through a borrow "
         "every frame, the ring wrapping, 33 holds against the decode",
         needs=("qemu", "nasm")),
     Row("vidxipbankdry", "soak", py("tests/vidxip.py", "--arm", "bankdry"),
-        150.0,
+        100.0,
         "SPEC.md 98.3.18.13: the XMS bank in place RUN DRY - a test build's "
         "reader (VP_RDSLOW) a chunk every 12 ticks, slower than the stream, "
         "and no holds: the play must pause, end on its last frame and leave "
@@ -14110,7 +14110,7 @@ SOAK = [
         "14 wait states, 2026-10-16)",
         needs=("qemu", "nasm")),
     Row("vidxipbankdrysnd", "soak", py("tests/vidxip.py", "--arm",
-                                       "bankdrysnd"), 150.0,
+                                       "bankdrysnd"), 100.0,
         "SPEC.md 98.3.18.13: vidxipbankdry with QEMU's SB16 and a clip with "
         "sound - the card's sound out of a bank that keeps running dry",
         needs=("qemu", "nasm")),
