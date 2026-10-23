@@ -498,6 +498,11 @@ Three places needed more than a declaration:
 `cc_onmove`), overlay +108, bss +0; `LOOM.O88` image 42,092 -> 42,316
 (+224), overlay +14, bss +0; neither module changed. No kernel byte.
 
+**What it changes on the floor machine** (§1.4): on a 256KB XT the second
+WEAVE's REGION now fits - the first instance's claims are packed out of its
+way - and the second launch refuses one step later, in its own window, for
+want of its overlay. `weaveone` asserts either shape.
+
 **The gates** are `soak -k weavemove -k loommove` (`tests/weavemove.py`),
 c64move's layout on MartyPC: every claim declared, moved, every word live and
 every COPY agreeing with its word, the bytes intact (the bundle claim IS the
@@ -582,18 +587,26 @@ authority per docs/KERNEL-MEMORY.md:
   once, or two plus Loom. Loom + one WEAVE + Finder leaves ~250KB spare.
 - **256KB XT, ~140.5KB heap:** exactly **ONE** Weave app at a time. A full
   spreadsheet instance (~110KB) fits with ~30KB slack; the second launch
-  refuses **before any I/O** — and it is the **kernel's loader** that
-  refuses, not the runtime. A package's region is claimed by the loader
+  refuses **before any I/O** — and until §1.2.6 it was the **kernel's
+  loader** that refused, not the runtime. A package's region is claimed by the loader
   before the package runs at all (SPEC.md §20.1, §21), WEAVE's is ~60KB, and
   with one instance up there is not that much left — so `loader_run` answers
   `LD_ENOMEM` and the Finder says `Out of memory` in the Disk window's status
   row and in a toast (SPEC.md §22.9, §59). §10.1's sentence is what a
   **single** instance sees when its own bundle, VM, grid and canvas asks do
   not fit, which a 256KB machine reaches with one large bundle rather than
-  with two small ones. `tests/weaveone.py` (§12.3) asserts the byte
-  (`[ld_status]` = 5 on the second double-click), that no second window
-  opens, and that the first app is still running, on a 256KB MartyPC;
-  `make xt-weave-256` is the same machine on 86Box, to look at.
+  with two small ones. **Since §1.2.6 the second REGION fits**: the first
+  instance's claims move, so the compactor packs them under the ceiling and
+  the loader gets its ~53KB run; what the second instance then cannot have is
+  its own overlay (~15KB), `op_fetch` toasts `Not enough memory`, and its
+  window carries §10.3's `WEAVE could not load its overlay; no bundle can
+  open.` with no bundle, VM or grid claimed. Still one Weave APP at a time,
+  still before any bundle I/O - the refusal has moved back from the loader
+  to the runtime. `tests/weaveone.py` (§12.3) accepts either shape - the
+  loader's (`[ld_status]` = 5, no second window) or the runtime's (one
+  window, `W_ST_ERR`, no VM claim) - says which, and asserts the first app is
+  still running, on a 256KB MartyPC; `make xt-weave-256` is the same machine
+  on 86Box, to look at.
 - **128KB machine, kern_small, ~22KB heap:** WEAVE refuses at launch with
   the arithmetic. kern_small also refuses `GFX_BLIT1`, `WM_TIMER` and
   `WM_ONDRAG` by CF=1, so the floor machine for the family is **256KB**.
