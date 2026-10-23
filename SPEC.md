@@ -114386,6 +114386,30 @@ still passes *and the machine still draws* — the stale vector is silent until
 the card next raises its IRQ, and by then the compactor has re-let the bytes
 the CPU would jump into.
 
+#### 66.6.3.2 …while a WORKER stands in an image (NO-PINNING K9)
+
+`wm_pkgs` answers "which images is the machine executing in" by a STACK, and
+a stack is one task's structure. It was pushed from every task: a package
+worker's `OSAPI_DRV_CALL` (ETHER.DRV's verbs run on FTPD's, Telnet's and the
+Browser's workers, §72) and a dying worker's repaint inside a `W_PAINT`
+(§66.3.1). Two tasks pushing and popping one stack interleave, and a pop could
+leave it naming the wrong image - so a driver image could move under a
+worker's return address. Separately, a driver's DATA claim was never protected
+while a worker stood in one of its verbs: `inst_seg_parked`'s driver arm counts
+only `TF_SERVICE` tasks, and ETHER.DRV's socket pool is movable, so a worker
+pre-empted mid-`rep movsb` with ES = the pool came back writing into somebody
+else's block.
+
+**The stack is the UI task's alone now.** `wm_nest_pushd`/`wm_nest_pop` COUNT
+every other task's calls in `[wm_tcnt]`, and while it is non-zero
+`mem_in_nest` pins every image and `inst_seg_parked` pins every driver's
+claims. It is deliberately coarse: it binds only at the instant a compaction
+runs (on the UI task, §66.3.1) while some worker is inside some image, and
+then the compaction achieves less once - never corruption. The exact form (a
+word per task naming its image) was built and measured at 148 resident bytes
+against this one's 42, and refused for that. `tests/tnest.py` is the gate.
+kern_small has no compactor and is byte-identical.
+
 #### 66.6.4 …and the one claim a CHIP points into
 
 §66.4.2 is right that `MC_DMA` is about where a claim may **land** and not

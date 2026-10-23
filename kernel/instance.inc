@@ -707,7 +707,11 @@ inst_seg_parked:
     ; slot count. The byte walks in DI, which inst_of_seg's refusal left as
     ; nothing and the `pop di` below puts back.)
     push bx
-    mov bx, sch_tasks
+%ifdef OS88_COMPACT
+    cmp word [wm_tcnt], 0       ; A PACKAGE WORKER INSIDE A DRIVER VERB (K9):
+    jne .svcbusy                ; ETHER.DRV's run on FTPD's, Telnet's and the
+%endif                          ; Browser's workers, which hold its pool in ES
+    mov bx, sch_tasks           ; mid-copy - and are no TF_SERVICE task
     mov di, sch_parked
 .svc:
     cmp byte [bx+T_STATE], 0
@@ -727,6 +731,10 @@ inst_seg_parked:
 .cf:
     pop di
     retf
+%ifdef OS88_COMPACT
+    nop                         ; PARITY PAD, never executed: K9's test above
+%endif                          ; is 7 bytes and the routines below keep an
+                                ; EVEN shift (t_hotpar.py)
 ; -----------------------------------------------------------------------------
 ; inst_svc_parked - has every DRIVER worker parked? (SPEC.md 66.5.5) - INLINE,
 ; in inst_seg_parked's .drv arm above (size pass 9)

@@ -236,7 +236,7 @@ Ranked by the free memory each recovers on a real session, then by cost.
    built). **K8** (c), ~6 bytes, plus the two SPEC.md corrections.
 2. **C4** LEMMINGS - the largest pin on the desktop, and the package this
    branch exists for.
-3. **K1a, K2** - BUILT (+42 resident net with K8). **K9** next (6.1). K6a
+3. **K1a, K2, K9** - BUILT (K8 +14, K1a -16, K2 +58, K9 +42 resident). K6a
    deferred (6.2). The rest of the kernel rows wait for a size pass.
 4. **C3/C2** C emulators and Weave/Loom - 50-64 KB walls each.
 5. **P1** SHEET chart overlay as a part - 52 KB + the region.
@@ -296,35 +296,18 @@ workers are frozen there and the posted pass runs only at `ui_task` step 0).
 
 ## 6. Open decisions for the owner
 
-### 6.1 K9 - work done on a driver's memory from a package worker
+### 6.1 K9 - BUILT, as a count (SPEC.md 66.6.3.2)
 
-The nest (`wm_pkgs`) answers "which images is the machine executing in" for
-the UI task, and is wrong as soon as a worker pushes onto it.
-
-**Not every driver is at risk.** Only a driver whose MOVABLE memory is touched
-inside a verb that runs on a package worker. Today that is ETHER.DRV's socket
-pool (FTPD, Telnet, the Browser). SOUND.DRV's pool is pinned for exactly the
-stream, its double buffer is never declared, and its refill task re-reads the
-segment under `cli`. HTTPFS's index is undeclared (R2 would change that).
-Pinning every driver while any worker is inside any verb would freeze them all
-for most of an FTP session. So the shape is the EXACT one:
-
-- **A per-task word: the driver image this task is inside.**
-  `drv_pkg_call_x` (the `OSAPI_DRV_CALL` site) stores the target image there
-  when `[sch_cur]` != 0, instead of pushing onto the nest, and puts the old
-  value back on the way out. `mem_can_move` then pins a driver IMAGE, and a
-  driver DATA claim (owner = that image), only when some task's word names it.
-  Every other driver stays movable. A worker that NESTS (driver A calling
-  driver B on that worker: HTTPFS calls ETHER) marks the word "all drivers"
-  for the inner call, which is conservative only in the rare case.
-- **It also takes workers off the shared nest**, which is what made the nest
-  name the wrong image.
-- **Est.** ~40 resident bytes plus `MAX_TASKS` words of `.bss` (28 on
-  kern_big). kern_small loads no drivers, so it gets none of it.
-
-Refused: pinning all drivers while a worker is in any verb (too coarse), a
-per-task copy of the whole nest (most bytes), and forbidding `OSAPI_DRV_CALL`
-on workers (FTPD, Telnet and the Browser are built on it).
+The exact per-task form (a word per task naming the image it is in, a depth,
+0FFFFh for nesting) was built: correct, gated, and **148 resident bytes**. The
+owner asked for smaller. What shipped is a COUNT: non-UI calls into an image
+increment `[wm_tcnt]` instead of pushing onto the UI task's stack, and while
+it is non-zero every image and every driver claim is pinned. **42 bytes**
+(`.cold` +32, `.text` +8 incl. a parity pad, `.bss` +2), and kern_small is
+byte-identical. It is coarse, but only at the instant a compaction runs while a
+worker happens to be inside an image, and the cost is a compaction that
+achieves less once, never corruption. If that ever shows up in a measurement,
+the exact form is in this branch's history at 148 bytes.
 
 ### 6.2 K6a - raise caches: DEFERRED (the owner, 2026-10-23)
 

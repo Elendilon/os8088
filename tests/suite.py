@@ -5438,6 +5438,17 @@ SOAK = [
         "pixels on the code before the fix",
         needs=("qemu", "cc"), serial=True,
         wants=("build/lemmings.img",)),
+    Row("tnest", "soak", py("tests/tnest.py"), 10.0,
+        "NO-PINNING K9: a non-UI task's call into an image is COUNTED in "
+        "wm_tcnt and never pushed onto the UI task's wm_pkgs stack (a worker's "
+        "OSAPI_DRV_CALL used to interleave with the UI task's callbacks there), "
+        "and while the count stands mem_in_nest pins every image and "
+        "inst_seg_parked every driver claim - ETHER.DRV's movable socket pool "
+        "under FTPD's pre-empted worker. A unit test inside the live machine: "
+        "the row parks the CPU on wm_nest_pushd/pop, mem_in_nest and "
+        "inst_seg_parked with chosen registers and puts everything back. 7.6s "
+        "measured; all six go red with the push's `jne .count` taken out",
+        needs=("marty",), serial=True),
     Row("cmemmove", "soak", py("tests/cmemmove.py"), 60.0,
         "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "

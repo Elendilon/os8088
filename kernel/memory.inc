@@ -2098,6 +2098,8 @@ mem_is_region:
 mem_in_nest:
     push cx
     push di
+    cmp word [wm_tcnt], 0       ; ANOTHER TASK is inside SOME image (K9):
+    jne .yes                    ; pin them all while it lasts
     mov cx, [wm_pkgd]
     cmp cx, WM_PKGD_MAX
     ja .yes                     ; deeper than wm_pkgs records: pin everything
