@@ -110,9 +110,17 @@ reading the guest state the page is drawn from instead of pumping the screen).
    ~10 s is usually its subject's own work (an assembler, a compressor):
    confirm `secs` and move on.
 
+15. **On QEMU, drive the mouse CLOSED-LOOP, not through `tools/mouse.py`.**
+   mouse.py cannot see the pointer, so it pins on the clamp, walks back with
+   a 0.06 s host sleep a packet and holds each edge 0.2 guest s: ~1.7 s a
+   click (88 of rdxms's 111 s). `os88qemu.mouse_to/_click/_button(m, sym,
+   hmp, ...)` read `mouse_x`/`mouse_btn` and wait for the word to move.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
+
+- **`os88qemu.mouse_to` / `mouse_click` / `mouse_button` / `mouse_where`** (tests/os88qemu.py): the QEMU mouse closed-loop on the kernel's published `mouse_x`/`mouse_y`/`mouse_btn` - each packet waits for the word to move (guest-clock budget), each edge for `mouse_btn` to agree, MouseError when it stops short. Technique 15. rdxms 111 -> 24 s, same checks; syscheck.
 
 - **Logging breakpoints** (`tools/martypc/debug_server.rs`, deployed in
   `build/martypc/run`): `os88marty.bp_trace(m, ..., log=True)` (or
@@ -363,6 +371,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | stackprose / lmpack | 6.9 / 5.8 s | 7.2 / 5.8 s (A/B back to back 8.3 -> 7.6) | 10 | stackprose: flatten by one `sub`, regexes run once, the line map only for a matching file; red on a stale size planted across a line break. lmpack: builds in a PRIVATE temp dir (it rewrote build/lmfoldc.h, which would make the next `make` rebuild LOOM) |
 | r2-q10 host rows (90) | declared 0.1-17.6 s | 0.1-8.2 s, lean | - | the subject's own work (nasm, the LZ compressors, encoders, simulators); lzfmt/vidfmt/vencbundle re-declared 10. **Fail at base** (tree vs source drift, not timing): appsmall (taskmgr -DTMF_MEM arm does not assemble), smallreq (SERIAL.DRV on build/small*.img), ktags (MEM_K_MTBL not in os88api.inc / tm_ktab), dosseam (`call [dos_hslot]` at apps/dos/dos.asm:2950) |
 | kernmods / bmshare | 29 / 35 s wall beside other rows | 7.5 / 12 s alone (7 / 11 s CPU) | - | host-only and lean: three kernel assemblies / four package makes into private `build/bms-*` trees. Re-declared 30/30 -> 10/20 |
+| rdxms | 181.9 s wall (111 s host in-script, 88 s of it 53 `tools/mouse.py` spawns) | 22.3 s | 15 | QEMU: clicks closed-loop (`os88qemu.mouse_click`), the same 26 checks pass. secs 170 -> 30 |
 | pxparts / fontview / icostore / tank / tankaim / tankspawn / tanksmall | 13 / 22 / 21 / 25 / 22 / 25 / 23 s; 233 guest s waited for the seven | 14 / 14 / 14 / 13-17 / 13-22 / 16-26 / 17 s; 200 guest s | 2, 4, 9, 12 | already lean; boots on state: `quick=True` (pxparts, icostore, tanksmall), `kernel_up` (fontview; tank's `open_game` boots an unbooted launch itself, so tank/tankaim/tankspawn pass `boot=False` - a booted caller such as tankperf is settled as before). fontview's typed text / key / click settles -> `text_taken` / `key_taken` / `ui_done` (fv_* bss). Taking the 2 s pace off TANK's launch double-click went RED (the attract logo check times the window from the launch), so it stays. secs 60/60/60/30/30/40/30 -> 20/20/20/30/30/30/30 |
 
 ## Resuming

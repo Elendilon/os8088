@@ -15217,7 +15217,7 @@ SOAK = [
         "4KB-chunk path is not reached: every MartyPC machine is an 8088 - "
         "that is rdxms, on QEMU. Measured at 55s on a loaded box",
         needs=("marty",), serial=True),
-    Row("rdxms", "soak", py("tests/rdxms.py"), 170.0,
+    Row("rdxms", "soak", py("tests/rdxms.py"), 30.0,
         "SPEC.md 62.9.10, 62.9.14: the RAM disk's EXTENDED-MEMORY store end "
         "to end. WHY QEMU: docs/TESTING.md's closed list, entry 1 - `pc` "
         "with -m 128 has 63MB above 1MB (xm_kb 64448, cpu_tier 2) and no "

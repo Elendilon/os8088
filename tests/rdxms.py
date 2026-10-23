@@ -149,11 +149,23 @@ class Machine(Q):
             n -= k
         return bytes(out)
 
-    def mouse(self, *args):
-        subprocess.run([sys.executable, os.path.join(ROOT, "tools",
-                                                     "mouse.py"), self.sock]
-                       + [str(a) for a in args], check=True,
-                       capture_output=True, cwd=ROOT)
+    def mouse(self, verb, *xy):
+        """tools/mouse.py's verbs, CLOSED-LOOP (os88qemu.mouse_to): the
+        pointer is read back off mouse_x/mouse_y and each button edge off
+        mouse_btn, where mouse.py pinned, walked and slept - 88 of this
+        row's 111 host seconds were its clicks."""
+        hmp = self.hmp
+        if xy:
+            os88qemu.mouse_to(self, S, hmp, *xy,
+                              btn=os88qemu.mouse_where(self, S)[2])
+        if verb == "click":
+            os88qemu.mouse_click(self, S, hmp, *xy)
+        elif verb == "down":
+            os88qemu.mouse_button(self, S, hmp, 1)
+        elif verb == "up":
+            os88qemu.mouse_button(self, S, hmp, 0)
+        elif verb != "to":
+            raise ValueError(verb)
 
     def done(self, cap=2.0):
         os88qemu.ui_done(self, S, cap=cap)

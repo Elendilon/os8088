@@ -11,7 +11,7 @@ SKIP builds=True (writes build/; not runnable in the shared tree) t	buildmatrix	
 DONE weav	weavefuzz	180	tests/weavefuzz.py	
 DONE drvm	drvmove	170	tests/drvmove.py	
 regw	regwork	170	tests/regwork.py	
-rdxm	rdxms	170	tests/rdxms.py	qemu,nasm
+DONE rdxm	rdxms	170	tests/rdxms.py	qemu,nasm
 regp	regpin	160	tests/regpin.py	
 DONE sndm	sndmove	150	tests/sndmove.py	
 dosn	dosnetarena	150	tests/dosnetarena.py	qemu
@@ -66,48 +66,48 @@ vidx	vidxmslive	60	tests/vidxms.py	qemu,nasm
 vidx	vidxmsliverep	60	tests/vidxms.py	qemu,nasm
 gifd	gifdrag	56	tests/gifdrag.py	
 whee	wheelps2	56	tests/wheelps2.py	qemu,nasm
-os	lzfmt-all	55	tools/os88lz.py	
-kdmi	kdmix	55	tests/kdmix.py	
-gbcp	gbcpu	50	tests/gbcpu.py	qemu,nasm
-mseg	msegxms	50	tests/msegxms.py	qemu
+MOVED->r2-q11 os	lzfmt-all	55	tools/os88lz.py	
+MOVED->r2-q11 kdmi	kdmix	55	tests/kdmix.py	
+MOVED->r2-q11 gbcp	gbcpu	50	tests/gbcpu.py	qemu,nasm
+MOVED->r2-q11 mseg	msegxms	50	tests/msegxms.py	qemu
 SKIP builds=True (writes build/; not runnable in the shared tree) wire	wirezone	50	tests/wirezone.py	qemu,nasm
-xmch	xmcheck	50	tests/xmcheck.py	qemu,nasm
-vidx	vidxmsgap	50	tests/vidxms.py	qemu,nasm
-vidx	vidxmslivevga4	50	tests/vidxms.py	qemu,nasm
-trkc	trkclick	47	tests/trkclick.py	qemu,nasm
-cdro	cdrom	45	tests/cdrom.py	qemu,nasm
-vmmo	vmmouse	45	tests/vmmouse.py	qemu,nasm
-dosx	dosxmsq	45	tests/dosxmsq.py	qemu
-vidx	vidxms	45	tests/vidxms.py	qemu,nasm
-vidx	vidxmsbios	45	tests/vidxms.py	qemu,nasm
-vidx	vidxmsidle	45	tests/vidxms.py	qemu,nasm
-vidx	vidxmsnox	45	tests/vidxms.py	qemu,nasm
-vidx	vidxmslivenox	45	tests/vidxms.py	qemu,nasm
-kdre	kdreturnf	42	tests/kdreturn.py	
-vidb	vidbankspkfast	40	tests/vidbank.py	qemu,nasm
-kdha	kdhand	40	tests/kdhand.py	
-kdre	kdreturngfx	40	tests/kdreturn.py	
-vids	vidspkat	40	tests/vidspkat.py	qemu,nasm
-vidb	vidbankauto	40	tests/vidbankauto.py	ffmpeg
-mixe	mixersb16	40	tests/mixer.py	qemu,nasm
+MOVED->r2-q11 xmch	xmcheck	50	tests/xmcheck.py	qemu,nasm
+MOVED->r2-q11 vidx	vidxmsgap	50	tests/vidxms.py	qemu,nasm
+MOVED->r2-q11 vidx	vidxmslivevga4	50	tests/vidxms.py	qemu,nasm
+MOVED->r2-q11 trkc	trkclick	47	tests/trkclick.py	qemu,nasm
+MOVED->r2-q11 cdro	cdrom	45	tests/cdrom.py	qemu,nasm
+MOVED->r2-q11 vmmo	vmmouse	45	tests/vmmouse.py	qemu,nasm
+MOVED->r2-q11 dosx	dosxmsq	45	tests/dosxmsq.py	qemu
+MOVED->r2-q11 vidx	vidxms	45	tests/vidxms.py	qemu,nasm
+MOVED->r2-q11 vidx	vidxmsbios	45	tests/vidxms.py	qemu,nasm
+MOVED->r2-q11 vidx	vidxmsidle	45	tests/vidxms.py	qemu,nasm
+MOVED->r2-q11 vidx	vidxmsnox	45	tests/vidxms.py	qemu,nasm
+MOVED->r2-q11 vidx	vidxmslivenox	45	tests/vidxms.py	qemu,nasm
+MOVED->r2-q11 kdre	kdreturnf	42	tests/kdreturn.py	
+MOVED->r2-q11 vidb	vidbankspkfast	40	tests/vidbank.py	qemu,nasm
+MOVED->r2-q11 kdha	kdhand	40	tests/kdhand.py	
+MOVED->r2-q11 kdre	kdreturngfx	40	tests/kdreturn.py	
+MOVED->r2-q11 vids	vidspkat	40	tests/vidspkat.py	qemu,nasm
+MOVED->r2-q11 vidb	vidbankauto	40	tests/vidbankauto.py	ffmpeg
+MOVED->r2-q11 mixe	mixersb16	40	tests/mixer.py	qemu,nasm
 SKIP builds=True (writes build/; not runnable in the shared tree) ethe	ethernet	40	tests/ethernet.py	qemu
-kdre	kdreturnmode	38	tests/kdreturn.py	
-kdre	kdreturnpit	38	tests/kdreturn.py	
-trks	trkscrl	38	tests/trkscrl.py	qemu,nasm
-kdre	kdreturn	37	tests/kdreturn.py	
-kdre	kdreturnm	36	tests/kdreturn.py	
-kdre	kdreturncx	36	tests/kdreturn.py	
+MOVED->r2-q11 kdre	kdreturnmode	38	tests/kdreturn.py	
+MOVED->r2-q11 kdre	kdreturnpit	38	tests/kdreturn.py	
+MOVED->r2-q11 trks	trkscrl	38	tests/trkscrl.py	qemu,nasm
+MOVED->r2-q11 kdre	kdreturn	37	tests/kdreturn.py	
+MOVED->r2-q11 kdre	kdreturnm	36	tests/kdreturn.py	
+MOVED->r2-q11 kdre	kdreturncx	36	tests/kdreturn.py	
 SKIP builds=True (writes build/; not runnable in the shared tree) exci	excitebikeg1	35	tests/excitebike_video.py	qemu,nasm
-vidl	vidlysplitdisk	35	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlysplitflip	35	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlysplitflipcmp	35	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlag	35	tests/vidlag.py	ffmpeg
-kdre	kdreturncm	32	tests/kdreturn.py	
-hmac	hmacold	30	tests/hmacold.py	qemu,nasm
-t	bmshare	30	tests/unit/t_bmshare.py	
-t	kernmods	30	tests/unit/t_kernmods.py	nasm
-hdta	hdtakeboot	30	tests/hdtake.py	qemu,nasm
-cdro	cdromsim	30	tests/cdrom.py	qemu,nasm
+MOVED->r2-q11 vidl	vidlysplitdisk	35	tests/vidlysplit.py	qemu,nasm,ffmpeg
+MOVED->r2-q11 vidl	vidlysplitflip	35	tests/vidlysplit.py	qemu,nasm,ffmpeg
+MOVED->r2-q11 vidl	vidlysplitflipcmp	35	tests/vidlysplit.py	qemu,nasm,ffmpeg
+MOVED->r2-q11 vidl	vidlag	35	tests/vidlag.py	ffmpeg
+MOVED->r2-q11 kdre	kdreturncm	32	tests/kdreturn.py	
+MOVED->r2-q11 hmac	hmacold	30	tests/hmacold.py	qemu,nasm
+MOVED->r2-q11 t	bmshare	30	tests/unit/t_bmshare.py	
+MOVED->r2-q11 t	kernmods	30	tests/unit/t_kernmods.py	nasm
+MOVED->r2-q11 hdta	hdtakeboot	30	tests/hdtake.py	qemu,nasm
+MOVED->r2-q11 cdro	cdromsim	30	tests/cdrom.py	qemu,nasm
 MOVED->r2-q10 heap	heapmap	30	tests/heapmap.py	qemu,nasm
 MOVED->r2-q10 rdgs	rdgstatic	24	tests/rdgstatic.py	qemu,nasm
 MOVED->r2-q10 fmtp	fmtpair	21	tests/fmtpair.py	qemu,nasm

@@ -298,3 +298,97 @@ def quiesce(m, read, secs=1.0, stable=2, limit=60.0, what=None, poll=0.1):
         else:
             time.sleep(poll)
     return last
+
+
+# --- a CLOSED-LOOP mouse (docs/plans/SOAK-SPEED.md, harness changes) ---------
+#
+# tools/mouse.py cannot know where the pointer is, so it PINS against the
+# bottom-right clamp and walks back, a host `sleep 0.06` after every packet,
+# then holds each button edge 0.2 guest s: ~1.7 s a click, which was 88 of
+# rdxms's 111 host seconds. A row that can resolve kernel symbols can do what
+# tools/os88mouse.py does on MartyPC instead - read `mouse_x`/`mouse_y`/
+# `mouse_btn` (kernel/mouse.inc, published by the ISR), send the exact delta,
+# and wait for the word to MOVE rather than for a clock. The packet still goes
+# through QEMU's msmouse, the UART and mou_isr: nothing is poked.
+
+PKT_SECS = 0.5          # guest seconds a packet may take to land (it is ~25 ms
+                        # at 1200 baud; the slack is a guest busy repainting)
+STEP = 60               # msmouse truncates bigger deltas (tools/mouse.py)
+
+
+class MouseError(RuntimeError):
+    """The pointer did not get where it was sent, or a button edge was lost."""
+
+
+def mouse_where(m, sym):
+    """(x, y, buttons) as the kernel last published them."""
+    a = getattr(m, "_mouse_at", None)
+    if a is None:
+        a = sym("mouse_x")
+        if sym("mouse_y") != a + 2 or sym("mouse_btn") != a + 4:
+            raise MouseError("mouse_x/mouse_y/mouse_btn are not contiguous "
+                             "any more - mouse_where reads them as one block")
+        m._mouse_at = a
+    b = m.read(a, 5)
+    return b[0] | (b[1] << 8), b[2] | (b[3] << 8), b[4]
+
+
+def _changed(m, sym, was, what):
+    c = Clock(m)
+    lim = to_ticks(PKT_SECS)
+    while True:
+        if mouse_where(m, sym) != was:
+            return True
+        if c.step() >= lim or c.stalled():
+            return False
+        time.sleep(0.003)
+
+
+def mouse_to(m, sym, hmp, x, y, btn=0):
+    """Drive to (x, y) and PROVE it, carrying button level `btn` (an HMP
+    move carries the current buttons). `hmp(*cmds)` sends human-monitor
+    commands (xmcheck.qmp bound to the socket). Raises MouseError when the
+    pointer stops short - a target off the kernel's clamp, or packets lost
+    for longer than a busy guest explains."""
+    cx, cy, _ = mouse_where(m, sym)
+    tries = (max(abs(x - cx), abs(y - cy)) + STEP - 1) // STEP * 2 + 6
+    for _ in range(tries):
+        cx, cy, b = mouse_where(m, sym)
+        dx, dy = x - cx, y - cy
+        if not dx and not dy:
+            return
+        hmp("mouse_move %d %d" % (max(-STEP, min(STEP, dx)),
+                                  max(-STEP, min(STEP, dy))))
+        _changed(m, sym, (cx, cy, b), "the pointer to move")
+    cx, cy, _ = mouse_where(m, sym)
+    if (cx, cy) != (x, y):
+        raise MouseError("could not reach (%d,%d): stuck at (%d,%d)"
+                         % (x, y, cx, cy))
+
+
+def mouse_button(m, sym, hmp, mask):
+    """Set the buttons to `mask` (HMP's: 1 left, 2 right) and wait until the
+    kernel has decoded that level - mouse_btn's bit 0 left, bit 1 right."""
+    want = (1 if mask & 1 else 0) | (2 if mask & 2 else 0)
+    for _ in range(3):
+        hmp("mouse_button %d" % mask)
+        c = Clock(m)
+        lim = to_ticks(PKT_SECS)
+        while c.step() < lim and not c.stalled():
+            if mouse_where(m, sym)[2] & 3 == want:
+                return
+            time.sleep(0.003)
+        if mouse_where(m, sym)[2] & 3 == want:
+            return
+    raise MouseError("the button level %d was never decoded (mouse_btn = %02x)"
+                     % (want, mouse_where(m, sym)[2]))
+
+
+def mouse_click(m, sym, hmp, x, y, mask=1):
+    """to (x, y), press, release - each edge confirmed. No pause after: the
+    caller's wait (ui_done, acted) is on the state the click is FOR."""
+    mouse_to(m, sym, hmp, x, y)
+    if mouse_where(m, sym)[2] & 3:
+        mouse_button(m, sym, hmp, 0)
+    mouse_button(m, sym, hmp, mask)
+    mouse_button(m, sym, hmp, 0)
