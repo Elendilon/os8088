@@ -14495,7 +14495,7 @@ SOAK = [
         "only thing keeping mcbench.inc assembling",
         needs=("marty", "nasm"), serial=True,
         wants=("build/mcbench360.img",)),
-    Row("blitp", "soak", py("tests/blitp.py"), 120.0,
+    Row("blitp", "soak", py("tests/blitp.py"), 20.0,
         "SPEC.md 5.4.3: does gfx_blitp put the bytes where it was given them?"
         "Reads the four PLANES rather than the rendered frame - which below"
         "the raster is last frame's, and reads exactly like a blit that"
@@ -14517,7 +14517,7 @@ SOAK = [
         "FAIL with the old push order. fmrefuse is the same fixture asking "
         "whether the refused call comes back",
         needs=("marty",), wants=("build/fmtest.o88",)),
-    Row("blitpair", "soak", py("tests/blitpair.py"), 90.0,
+    Row("blitpair", "soak", py("tests/blitpair.py"), 20.0,
         "SPEC.md 5.4.1.1: is the 1bpp canvas the PICTURE? OS8088.GIF is two"
         "colours, so 39.4 sends every pixel to a solid class and the"
         "framebuffer can be compared against the FILE - which is the only"
@@ -14731,7 +14731,7 @@ SOAK = [
         "drawn in the text run's pen is red here and GREEN on `atblit`. "
         "330s is 314 MEASURED; it rebuilds the knob tree like atblit",
         needs=("marty", "nasm"), serial=True, timeout=1200),
-    Row("blitplane", "soak", py("tests/blitplane.py"), 180.0,
+    Row("blitplane", "soak", py("tests/blitplane.py"), 150.0,
         "SPEC.md 5.4.1.3: does gfx_blit4's PLANAR DECODER draw the same "
         "pixels as the run writer, on both destination phases, and is it "
         "still several times quicker? Rebuilds the tree - one of two rows "
@@ -14989,7 +14989,7 @@ SOAK = [
         "and 600+ fills) and with the odd column's draw removed (68 and 52 "
         "pixels). 40s is 35 measured",
         needs=("marty",), serial=True, wants=("build/b4walk.o88",)),
-    Row("blitcut", "soak", py("tests/blitcut.py"), 330.0,
+    Row("blitcut", "soak", py("tests/blitcut.py"), 150.0,
         "SPEC.md 39.14.7.2: does a STRADDLING gfx_blit4 draw the same pixels "
         "cut at the seam as it does whole-virtual, and is it several times "
         "quicker? blitplane's shape one seam along, and rebuilds the tree for "

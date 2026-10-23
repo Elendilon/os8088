@@ -47,10 +47,10 @@ midi	midirackspk	60	tests/midirack.py
 midi	midirackmpu	60	tests/midirack.py
 midi	midirackcovox	60	tests/midirack.py
 midi	midiracktone	50	tests/midirack.py
-blit	blitcut	330	tests/blitcut.py
-blit	blitplane	180	tests/blitplane.py
-blit	blitp	120	tests/blitp.py
-blit	blitpair	90	tests/blitpair.py
+DONE blit	blitcut	330	tests/blitcut.py
+DONE blit	blitplane	180	tests/blitplane.py
+DONE blit	blitp	120	tests/blitp.py
+DONE blit	blitpair	90	tests/blitpair.py
 teln	telnet	300	tests/telnet.py
 teln	telnetherc	300	tests/telnet.py
 boot	bootfloor-ab	420	tests/bootfloor.py

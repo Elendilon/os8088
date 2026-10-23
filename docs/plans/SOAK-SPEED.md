@@ -215,6 +215,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | weavesmoke / weaveone / weavegame / weavelat | 71 / 15 / 11 / - s | 33 / 16 / 10 / 13 s | 2 | the shared `_open_bundle` + quick boot only; one/game/lat were already lean - re-declared |
 | viddisk family (10 rows) | viddiskfd 253 s / 750 guest; wseq 106 / 381 | 192 / 750; all ten green | 8 | bench rows: W and R ARE the measurement (575 + 104 guest s of 750). Boots launched paused with `up` + `ui_done` as the gate (an HDD boot publishes B:'s zone after [spl_live] falls - `up` alone found none); polls 2.0/1.0 -> 0.25. ~4 guest s a boot, nothing more to take |
 | pxfsx | 242 s / 475 guest s waited (declared 1,500) | 207 s / 512 | 8 | guest-bound: 26 full-screen renders (209 guest s, a 640x480x16 one is 26 s of 8088) and a slideshow ARE the row; quick boot (54 -> 42 guest) and polls 0.3-0.5 -> 0.05. The baseline's 'Memory:' look costs a 5.5-s retry or two either way. Re-declared |
+| blitcut / blitplane / blitp / blitpair | 132 / 156 / 30 / 14 s; 212 / 135 / 32 / 38 guest waited | 111 / 118 / 15 / 12 s; 172 / 98 / 25 / 35 | 4 | boot gate `kernel_up`; dispcp's `settle` -> `ui_done` (the verbs confirm); settles before a breakpoint window or a rect quiesce -> `ui_done`; before `fbuf`, `ui_done` + 0.1 guest s (both cards). Same pixel and cycle results; the rest is two kernels' Paint loads and the blits measured |
 
 ## Resuming
 
