@@ -42,32 +42,32 @@ DONE vids	vidlivesnds	30	tests/vidsound.py
 DONE vids	vidspkroute	28	tests/vidspk.py
 DONE vids	vidspksilent	24	tests/vidspk.py
 DONE vids	vidspkfast	24	tests/vidspk.py
-vidv	vidv2benchmx	240	tests/vidv2bench.py
-vidv	vidv2bench4	240	tests/vidv2bench.py
-vidv	vidv2bench1	240	tests/vidv2bench.py
-vidv	vidvga4	60	tests/vidvga4.py
-vidv	vidv2pgmx	60	tests/vidv2.py
-vidv	vidv2flmx	60	tests/vidv2.py
-vidv	vidv2pg4	60	tests/vidv2.py
-vidv	vidv2lp	60	tests/vidv2.py
-vidv	vidv2ly4	60	tests/vidv2.py
-vidv	vidv2hpa	60	tests/vidv2.py
-vidv	vidmodexrk	40	tests/vidvga8.py
-vidv	vidmodexrs	40	tests/vidvga8.py
-vidv	vidv24	40	tests/vidv2.py
-vidv	vidmodexflc	35	tests/vidvga8.py
-vidv	vidmodex	34	tests/vidvga8.py
-vidv	vidmodex2	34	tests/vidvga8.py
-vidv	vidmodexfl	34	tests/vidvga8.py
-vidv	vidvga8	32	tests/vidvga8.py
-vidv	vidmodexflo	32	tests/vidvga8.py
-vidv	vidmodexflh	31	tests/vidvga8.py
-vidv	vidv2cga	30	tests/vidv2.py
-vidv	vidv2herc	30	tests/vidv2.py
-vidv	vidv2shd	30	tests/vidv2.py
-vidv	vidv2	25	tests/vidv2.py
-vidv	vidv2mx	25	tests/vidv2.py
-vidv	vidv2no	20	tests/vidv2.py
+DONE vidv	vidv2benchmx	240	tests/vidv2bench.py
+DONE vidv	vidv2bench4	240	tests/vidv2bench.py
+DONE vidv	vidv2bench1	240	tests/vidv2bench.py
+DONE vidv	vidvga4	60	tests/vidvga4.py
+DONE vidv	vidv2pgmx	60	tests/vidv2.py
+DONE vidv	vidv2flmx	60	tests/vidv2.py
+DONE vidv	vidv2pg4	60	tests/vidv2.py
+DONE vidv	vidv2lp	60	tests/vidv2.py
+DONE vidv	vidv2ly4	60	tests/vidv2.py
+DONE vidv	vidv2hpa	60	tests/vidv2.py
+DONE vidv	vidmodexrk	40	tests/vidvga8.py
+DONE vidv	vidmodexrs	40	tests/vidvga8.py
+DONE vidv	vidv24	40	tests/vidv2.py
+DONE vidv	vidmodexflc	35	tests/vidvga8.py
+DONE vidv	vidmodex	34	tests/vidvga8.py
+DONE vidv	vidmodex2	34	tests/vidvga8.py
+DONE vidv	vidmodexfl	34	tests/vidvga8.py
+DONE vidv	vidvga8	32	tests/vidvga8.py
+DONE vidv	vidmodexflo	32	tests/vidvga8.py
+DONE vidv	vidmodexflh	31	tests/vidvga8.py
+DONE vidv	vidv2cga	30	tests/vidv2.py
+DONE vidv	vidv2herc	30	tests/vidv2.py
+DONE vidv	vidv2shd	30	tests/vidv2.py
+DONE vidv	vidv2	25	tests/vidv2.py
+DONE vidv	vidv2mx	25	tests/vidv2.py
+DONE vidv	vidv2no	20	tests/vidv2.py
 n	1942sound	751.5	tests/n1942sound.py
 n	1942	216.1	tests/n1942.py
 n	1942front	180	tests/n1942front.py

@@ -12791,7 +12791,7 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv")),
-    Row("vidvga8", "soak", py("tests/vidvga8.py"), 32.0,
+    Row("vidvga8", "soak", py("tests/vidvga8.py"), 50.0,
         "SPEC.md 98.1.2, 98.3, 98.4.4: 256 colours in mode 13h on MartyPC's "
         "VGA XT. A 160 x 96 VGA8 clip made here, with a palette no BIOS "
         "has: the player reads it as VGA8 on LIN320 in FSXM_VGA13 with no "
@@ -12964,7 +12964,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidmodex", "soak", py("tests/vidvga8.py", "--layout", "modex"),
-        34.0,
+        50.0,
         "SPEC.md 98.1.3.1: vidvga8's clip in Mode X - sub-records under a "
         "Map Mask, 0Fh for a four-pixel group of one colour - played on "
         "MartyPC's VGA XT: the poster from the planes bit for bit, every "
@@ -12975,7 +12975,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidmodex2", "soak", py("tests/vidvga8.py", "--layout", "modex",
-                                "--rows2"), 34.0,
+                                "--rows2"), 60.0,
         "SPEC.md 98.2.4: vidmodex's clip at half its rows with a row scale "
         "of 2 - the player sets the CRTC's Maximum Scan Line so each row "
         "shows twice and the picture keeps its size - and pair sub-records "
@@ -13000,7 +13000,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidmodexfl", "soak", py("tests/vidvga8.py", "--layout", "modex",
-                                 "--flip"), 34.0,
+                                 "--flip"), 70.0,
         "SPEC.md 98.3.8: vidmodex's clip PAGE-FLIPPED - each record decoded "
         "into the back page after the last one, and the CRTC pointed at it. "
         "The glass at every hold is right only if both halves work, and "
@@ -13008,7 +13008,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidmodexflh", "soak", py("tests/vidvga8.py", "--layout", "modex",
-                                  "--flip", "--held"), 31.0,
+                                  "--flip", "--held"), 70.0,
         "SPEC.md 98.1.3.9: vidmodexfl's clip with HELD records - one, and a "
         "run of two - each the next frame's top over the last one's bottom, "
         "drawn on the back page and not shown. The glass exact at every "
@@ -13020,7 +13020,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidmodexflo", "soak", py("tests/vidvga8.py", "--layout", "modex",
-                                  "--flip", "--own", "--held"), 32.0,
+                                  "--flip", "--own", "--held"), 70.0,
         "SPEC.md 98.1.3.10, 98.3.8.7: vidmodexflh's clip AGAINST ITS OWN "
         "PAGE (byte 37 7) - every record drawn on the back page as it "
         "stands, none brought up, the held ones left unshown, and the "
@@ -13030,7 +13030,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidmodexflc", "soak", py("tests/vidvga8.py", "--layout", "modex",
-                                  "--flip", "--lcopy"), 35.0,
+                                  "--flip", "--lcopy"), 60.0,
         "SPEC.md 98.3.8.1: vidmodexfl with every back page brought up by "
         "the LATCH COPY of the last record's rows off the glass, not its "
         "decode again (vp_flcw 0). The glass exact at every hold, odd and "
@@ -13071,7 +13071,7 @@ SOAK = [
                "build/boothd.bin", "build/mbr.bin", "build/hdd.drv",
                "build/hiber.drv", "build/ctrl.drv")),
     Row("vidmodexrk", "soak", py("tests/vidvga8.py", "--layout", "modex",
-                                 "--flip", "--repeat", "key"), 40.0,
+                                 "--flip", "--repeat", "key"), 70.0,
         "SPEC.md 98.3.9, 98.3.8: a flipped Mode X clip with no seam, R on, "
         "two laps: the join clears both pages and decodes keyframe 0 into "
         "both, with no last record owed. Frame 0 is black but for a box, so "
@@ -13079,7 +13079,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidmodexrs", "soak", py("tests/vidvga8.py", "--layout", "modex",
-                                 "--flip", "--repeat", "seam"), 40.0,
+                                 "--flip", "--repeat", "seam"), 60.0,
         "SPEC.md 98.3.9, 98.3.8: a flipped Mode X clip with a seam back to "
         "frame 20: the seam drawn into the back page as a frame, two laps, "
         "every hold on the glass",
@@ -13332,7 +13332,7 @@ SOAK = [
         45.0, "VIDEO-PLAN 14.3: vidlogo on MartyPC's VGA XT",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidvga4", "soak", py("tests/vidvga4.py"), 60.0,
+    Row("vidvga4", "soak", py("tests/vidvga4.py"), 80.0,
         "SPEC.md 98.1.3.2, 98.4.5: sixteen colours in mode 12h, IN THE "
         "WINDOW on MartyPC's VGA XT: the file read as VGA4 on LIN80's "
         "bit-planes; the Preview's poster vga4_pack of the key byte for "
@@ -13372,7 +13372,7 @@ SOAK = [
         "store. Pointed at the plain part (--part build/vblk.bin) it FAILS "
         "naming 40-odd CS stores",
         needs=("nasm", "unicorn"), wants=("build/vblkpm.bin",)),
-    Row("vidv2", "soak", py("tests/vidv2.py"), 25.0,
+    Row("vidv2", "soak", py("tests/vidv2.py"), 40.0,
         "SPEC.md 98.3.23: a VERSION 2 file on MartyPC's VGA XT, LIN320 - "
         "the clip made here, its odd frames 150 blocks of every kind and "
         "its even frames version 1's: read as version 2 with the block "
@@ -13386,7 +13386,7 @@ SOAK = [
         "nothing) it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2no", "soak", py("tests/vidv2.py", "--refuse"), 20.0,
+    Row("vidv2no", "soak", py("tests/vidv2.py", "--refuse"), 40.0,
         "SPEC.md 98.3.23, 98.1.10.1: on a CGA XT the part is FETCHED too "
         "(every screen plays one bit), a one-bit version 2 file is "
         "playable, and one with a seam - its LOOPREC set by hand, the "
@@ -13394,7 +13394,7 @@ SOAK = [
         "player'",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2cga", "soak", py("tests/vidv2.py", "--layout", "cga"), 30.0,
+    Row("vidv2cga", "soak", py("tests/vidv2.py", "--layout", "cga"), 40.0,
         "SPEC.md 98.3.23.1: ONE BIT on MartyPC's CGA 5150 - the clip's odd "
         "frames 150 TILES out of a codebook kept up to date (the whole of "
         "it at frame 0 and after every key, a slice of it in the rest), "
@@ -13403,58 +13403,58 @@ SOAK = [
         "Broken on purpose (vp_bset reading one bank) it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2herc", "soak", py("tests/vidv2.py", "--layout", "herc"), 30.0,
+    Row("vidv2herc", "soak", py("tests/vidv2.py", "--layout", "herc"), 40.0,
         "SPEC.md 98.3.23.1: vidv2cga on the Hercules 5150 - four banks",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidv2shd", "soak", py("tests/vidv2.py", "--layout", "cga",
-                               "--screen", "herc"), 30.0,
+                               "--screen", "herc"), 60.0,
         "SPEC.md 98.3.23, 98.3.2: the CGA clip on a Hercules, THROUGH THE "
         "SHADOW - the tiles decoded into the file's own layout at the "
         "shadow's 0. Broken on purpose (vp_blin1 leaving the screen's "
         "origin in BP) it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2pgmx", "soak", py("tests/vidv2.py", "--enc", "pgmx"), 60.0,
+    Row("vidv2pgmx", "soak", py("tests/vidv2.py", "--enc", "pgmx"), 200.0,
         "SPEC.md 98.1.10.1: a clip ENCODED with --blocks on and page-ahead "
         "on Mode X - the hidden page drawing no block - played full "
         "screen and held against the decode, round the box too",
         needs=("marty", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2flmx", "soak", py("tests/vidv2.py", "--enc", "flmx"), 60.0,
+    Row("vidv2flmx", "soak", py("tests/vidv2.py", "--enc", "flmx"), 130.0,
         "SPEC.md 98.1.10.1: blocks in a file FLIPPED every frame on Mode X "
         "- the back page brought up by the last record again",
         needs=("marty", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2pg4", "soak", py("tests/vidv2.py", "--enc", "pg4"), 60.0,
+    Row("vidv2pg4", "soak", py("tests/vidv2.py", "--enc", "pg4"), 180.0,
         "SPEC.md 98.1.10.1: blocks with page-ahead on THREE pages and the "
         "page pool, sixteen colours on a 320 x 240 screen of their own",
         needs=("marty", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2lp", "soak", py("tests/vidv2.py", "--enc", "lp320"), 60.0,
+    Row("vidv2lp", "soak", py("tests/vidv2.py", "--enc", "lp320"), 140.0,
         "SPEC.md 98.1.10.1: blocks with a SEAM on LIN320 and Repeat on - "
         "held in lap 1, straight after the seam and on round",
         needs=("marty", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2ly4", "soak", py("tests/vidv2.py", "--enc", "ly4"), 60.0,
+    Row("vidv2ly4", "soak", py("tests/vidv2.py", "--enc", "ly4"), 200.0,
         "SPEC.md 98.1.10.1: blocks in a file with a LAYER, sixteen colours "
         "- the layer's records drawing none",
         needs=("marty", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2hpa", "soak", py("tests/vidv2.py", "--enc", "hpa"), 60.0,
+    Row("vidv2hpa", "soak", py("tests/vidv2.py", "--enc", "hpa"), 90.0,
         "SPEC.md 98.1.10.1: one bit's tiles with page-ahead on the "
         "Hercules 5150 - the second page at B800h, the codebook the shown "
         "page's encoder's alone, keys and hidden records with no block "
         "lists",
         needs=("marty", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv2mx", "soak", py("tests/vidv2.py", "--layout", "modex"), 25.0,
+    Row("vidv2mx", "soak", py("tests/vidv2.py", "--layout", "modex"), 60.0,
         "SPEC.md 98.3.23: vidv2 in MODE X - the blocks a plane at a time "
         "under the Map Mask, the glass read through the palette, and the "
         "box's leg with each pixel's plane through the callback",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidv24", "soak", py("tests/vidv2.py", "--layout", "vga4"), 40.0,
+    Row("vidv24", "soak", py("tests/vidv2.py", "--layout", "vga4"), 80.0,
         "SPEC.md 98.3.23: vidv2 in SIXTEEN COLOURS - PFILL and TWO by "
         "write mode 3 full screen, round the box through vc_m3b, IN THE "
         "WINDOW's same-mode bracket, and with [vp_m3ok] 0: the EGA's "
@@ -13474,19 +13474,19 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidv2benchmx", "soak", py("tests/vidv2bench.py", "--layout",
-                                   "modex"), 240.0,
+                                   "modex"), 40.0,
         "SPEC.md 98.3.23: vidv2bench in MODE X - FILL, TWO and EIGHT a "
         "plane at a time under the Map Mask",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidv2bench4", "soak", py("tests/vidv2bench.py", "--layout",
-                                  "vga4"), 240.0,
+                                  "vga4"), 30.0,
         "SPEC.md 98.3.23: vidv2bench in SIXTEEN COLOURS - PFILL and TWO "
         "by write mode 3",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidv2bench1", "soak", py("tests/vidv2bench.py", "--layout",
-                                  "cga"), 240.0,
+                                  "cga"), 20.0,
         "SPEC.md 98.3.23.1: vidv2bench for ONE BIT's tile on the CGA 5150, "
         "at 40 and 200 tiles, the codebook's two whole copies untimed",
         needs=("marty", "nasm"), serial=True,
