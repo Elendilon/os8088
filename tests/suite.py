@@ -3039,7 +3039,7 @@ SOAK = [
         "it. SOAK: one package, and 86Box's",
         needs=("86box", "gbroms", "nasm"),
         wants=("build/realdmg.o88", "build/os8088.img")),
-    Row("gbreplay", "soak", py("tests/gbreplay.py"), 420.0,
+    Row("gbreplay", "soak", py("tests/gbreplay.py"), 30.0,
         "REALDMG's replays (docs/REALDMG-SPEC.md section 10.5) on 86Box's 286, "
         "in the window and in full screen (the canvas, the recompiler, the "
         "page flips): GBPAD.GB (tools/gbours.py, ours) folds the buttons and "
@@ -3050,7 +3050,7 @@ SOAK = [
         "the comparison could see nothing. SOAK: one package, and 86Box's",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088.img")),
-    Row("gbbank", "soak", py("tests/gbbank.py"), 150.0,
+    Row("gbbank", "soak", py("tests/gbbank.py"), 20.0,
         "REALDMG's bank cache (docs/REALDMG-SPEC.md section 10.3) on 86Box's "
         "286 with 4MB: GBBANK.GB (tools/gbours.py, ours), a 1MB MBC5 cartridge "
         "that switches among all 64 banks in an LFSR's order and checks each "
@@ -3061,7 +3061,7 @@ SOAK = [
         "memory, so 86Box's. SOAK: one package, and 86Box's",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088.img")),
-    Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 20.0,
+    Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 10.0,
         "REALDMG's speaker asked for 131,072 Hz (docs/REALDMG-SPEC.md section "
         "17) on 86Box's 286: GBTONE.GB ends with square channel 1 at x = 7FFh, "
         "where 131,072 / (2048 - x) divides by 1. ASSERTS the core's frames keep "
@@ -14783,7 +14783,7 @@ SOAK = [
         "the grid is four planes and repaints through gfx_blitp, so a window "
         "left where it opens does not reach this primitive at all.",
         needs=("marty", "nasm"), serial=True, timeout=900),
-    Row("megatrap0", "soak", py("tests/megatrap0.py"), 300.0,
+    Row("megatrap0", "soak", py("tests/megatrap0.py"), 160.0,
         "docs/plans/KERN-MEGA-PLAN.md 10.3 item 50: kern_mega COMPLETES a "
         "write through CS, a far transfer through a data segment and a "
         "segment-0 access rather than faulting on it, so a package doing one "
@@ -14793,10 +14793,11 @@ SOAK = [
         "MEGARUN and left running; any #GP charged to an image not in the "
         "row's ALLOW fails it, as does a refusal or a kern_mega FAULT. The "
         "failing case is any `push cs / pop ds` and a store in one of them - "
-        "MEGACSL (tests/megacsw) is one on purpose. 300s is 277 measured, "
-        "the tree's build included",
+        "MEGACSL (tests/megacsw) is one on purpose. 160s is 121 measured: "
+        "the two boots run AT ONCE (sweep's parallel=True), MEGARUN's 5 s a "
+        "start and LINGER the floor",
         needs=("bochs", "nasm")),
-    Row("megacdrom", "soak", py("tests/megacdrom.py"), 35.0,
+    Row("megacdrom", "soak", py("tests/megacdrom.py"), 20.0,
         "SPEC.md 119 and 34.15 under docs/plans/KERN-MEGA-PLAN.md 14.68: "
         "CDROM.DRV, CDRack and the Mixer on kern_mega, on 86Box's 286 "
         "(vm/286-mega-cdrom: the mr286 with an IDE CD-ROM holding "
@@ -14809,11 +14810,11 @@ SOAK = [
         "and its paragraph fold of ES:DI is #GP 9CF4, a kern_mega FAULT; "
         "red with that SOUND.DRV (--sound): the speaker opens nothing. "
         "86Box by name: Bochs plays no CD audio and MartyPC is an 8088. "
-        "35s is 34 measured",
+        "20s is 12 measured (it was 34 before the boot gate)",
         needs=("86box",),
         wants=("build/megacdtest.img", "build/cdaudio.cue",
                "build/cdrack.bin", "build/mixer.bin", "build/cdrom.bin")),
-    Row("megarehome", "soak", py("tests/megarehome.py"), 120.0,
+    Row("megarehome", "soak", py("tests/megarehome.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.44, 14.48, SPEC.md 20.12.10.9: a "
         "RE-HOMED program whose own header says OS88_HIGH runs above 1MB on "
         "kern_mega. Bochs at 16MB, MEGARUN starting kern_mega's DOS.O88, "
@@ -14827,10 +14828,10 @@ SOAK = [
         "the scratch part's code/data pair and the byte textures' selector "
         "inside it, none past its end (14.48). The failing case is WORD.O88 "
         "from before 14.44 (no OS88_HIGH), or PXSTEIN.O88 from before 14.48: "
-        "its I_SPTR comes back a conventional segment. 120s is 99 measured",
+        "its I_SPTR comes back a conventional segment. 60s is 41 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
-    Row("megavidbig", "soak", py("tests/megavidbig.py"), 330.0,
+    Row("megavidbig", "soak", py("tests/megavidbig.py"), 50.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.58: a BIGSP video (records past 32 "
         "KB, SPEC.md 98.1.4.1) played from XMS on kern_mega without a fault "
         "- the owner's Mechwarrior 2 froze the Victory 286 at its first "
@@ -14840,11 +14841,13 @@ SOAK = [
         "played with Space at 2MB (the XMS BANK) and at 16MB (the HOLD, "
         "whole): neither may log a kern_mega FAULT. Red with VIDEO.O88 from "
         "before 14.58 (--pkg): #GP at vd_native's rep movsw in both legs. "
-        "330s is 301 measured",
+        "50s is 35 measured: the hold's fill and the play are waited "
+        "on by the player's own [vp_xfull] and [vp_played], and the two "
+        "legs are two machines run at once",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megak/apps/video.o88")),
-    Row("megavidv2", "soak", py("tests/megavidv2.py"), 400.0,
+    Row("megavidv2", "soak", py("tests/megavidv2.py"), 140.0,
         "SPEC.md 98.3.23.2: a VERSION 2 video played on kern_mega through "
         "the block decoder's PROTECTED-MODE part with NO #GP fixup. "
         "MEGATRAP=1's kern_mega (a private tree) under Bochs at 16MB, "
@@ -14856,11 +14859,13 @@ SOAK = [
         "a FAULT, and the two tail pictures must be the same. Red with "
         "--part0 (part 0 fetched under protected mode too): hundreds of "
         "fixups a play step, vb_walk's count and vb_set's patching, and "
-        "its tails the same pictures. 400s is 339 measured",
+        "its tails the same pictures (verified on the three legs at once). "
+        "The legs are three machines run AT ONCE, one display each "
+        "(os88bochs.take_display). 140s is 107 measured",
         needs=("bochs",),
         wants=("build/megak/apps/video.o88", "build/vblk.bin",
                "build/vblkpm.bin", "build/megak/apps/video.bin")),
-    Row("pxmega", "soak", py("tests/pxmega.py"), 260.0,
+    Row("pxmega", "soak", py("tests/pxmega.py"), 90.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.40: PiXEL USED on kern_mega with no "
         "#GP fixup - megatrap0 counts what a launch costs, and a decoder's "
         "cost is in the pictures. MEGATRAP=1's census (a private tree) under "
@@ -14870,10 +14875,10 @@ SOAK = [
         "(progressive), then the Rotate tool clicked with each button. Every "
         "step adds no trap line and no kern_mega FAULT, and leaves a canvas "
         "that is a picture and not the last. Red with pxgif.asm's pa_comp "
-        "put back to one paragraph (BOUNCE.GIF FAULTs on frame 0). 260s is "
-        "192 measured under Bochs plus the tree",
+        "put back to one paragraph (BOUNCE.GIF FAULTs on frame 0). 90s is "
+        "65 measured: each step ends on the UI task done (Box.ui_done)",
         needs=("bochs", "nasm")),
-    Row("megadosp", "soak", py("tests/megadosp.py"), 160.0,
+    Row("megadosp", "soak", py("tests/megadosp.py"), 80.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.54: the windowed DOS's PROMPT "
         "on kern_mega with no #GP fixup per character printed - dos_hk_tty "
         "entered con_write with `push cs / pop ds`, so every byte of a DIR, "
@@ -14884,9 +14889,9 @@ SOAK = [
         "ECHO of 60 characters and DIR add no trap line, TYPE at most the "
         "two .stale fixups its buffer's free costs a command, and none a "
         "kern_mega FAULT. Red with the `push cs / pop ds` put back "
-        "(ECHO 62, DIR 87, TYPE 802). 160s is 157 measured, the tree reused",
+        "(ECHO 62, DIR 87, TYPE 802). 80s is 56 measured alone, 73 in three lanes",
         needs=("bochs", "nasm")),
-    Row("pxsmega", "soak", py("tests/pxsmega.py"), 200.0,
+    Row("pxsmega", "soak", py("tests/pxsmega.py"), 100.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.50: PIXELSTEIN 3D PLAYED on kern_mega "
         "with no #GP fixup - megatrap0 counts a launch, and the game's cost "
         "was in the frames: px_compose stored its per-column memory through "
@@ -14896,9 +14901,10 @@ SOAK = [
         "timedemo (T, the Mode X bracket), a new game in the window, walk, "
         "turn, shoot, F into the bracket, the same there, Esc back. Every "
         "step adds no trap line and no kern_mega FAULT. Red with one "
-        "px_compose `[es:` store put back to `[cs:` (thousands on the walk)",
+        "px_compose `[es:` store put back to `[cs:` (thousands on the walk; "
+        "px_cdi, verified: 22,240). 100s is 56 measured alone, 94 in three lanes",
         needs=("bochs", "nasm")),
-    Row("megaflt", "soak", py("tests/megaflt.py"), 110.0,
+    Row("megaflt", "soak", py("tests/megaflt.py"), 70.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.42: on kern_mega a fault in a "
         "PACKAGE closes that package and not the machine. Under Bochs (a "
         "286's segment checks), MEGARUN starts tests/megaflt's seven builds: "
@@ -14909,14 +14915,14 @@ SOAK = [
         "what it held (the next one's entry sees the same free memory) and "
         "leave the machine running: the control started last must answer a "
         "key and a click from the host. The failing case is a `ret` at the "
-        "top of mega_fkill, which makes the first one fatal. 110s is 102 "
+        "top of mega_fkill, which makes the first one fatal. 70s is 51 "
         "measured",
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/flta.o88", "build/fltb.o88", "build/fltc.o88",
                "build/fltd.o88", "build/flte.o88", "build/fltf.o88",
                "build/fltz.o88")),
-    Row("megaown", "soak", py("tests/megaown.py"), 100.0,
+    Row("megaown", "soak", py("tests/megaown.py"), 50.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.15's open item, 14.46: on kern_mega "
         "the extended pool's compaction moves a package's OWN region while "
         "that package is the caller. Under Bochs at 2MB, MEGAHOLE holds "
@@ -14926,11 +14932,12 @@ SOAK = [
         "lower offset after the claim, every block's stamps and its own bss "
         "and code must read back, and a second callback must say the same. "
         "The failing case is mx_compactf pinning a package region, which "
-        "leaves it where it was. 100s is 82 measured",
+        "leaves it where it was. 50s is 39 measured (Bochs waits on "
+        "kernel state, docs/BOCHS.md)",
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megahole.o88", "build/megaown.o88")),
-    Row("megaovl", "soak", py("tests/megaovl.py"), 260.0,
+    Row("megaovl", "soak", py("tests/megaovl.py"), 90.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.46: on kern_mega a C package's "
         "OVERLAY is moved by a compaction and then used. Under Bochs, "
         "MEGALOWH holds a top-down claim at the heap's ceiling so CWORD's "
@@ -14940,13 +14947,13 @@ SOAK = [
         "the carve up into the hole can place. The carve must be at a higher "
         "segment after; then CWORD takes typing and File > Save As, and "
         "C:\\DOC.RTF must hold the line. The failing case is cc_ovinit "
-        "without its OSAPI_MEM_MOVABLE: the carve is pinned. 260s is 225 "
+        "without its OSAPI_MEM_MOVABLE: the carve is pinned. 90s is 71 "
         "measured",
         needs=("bochs", "nasm", "cc"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megalowh.o88", "build/megalowb.o88",
                "build/cword.o88")),
-    Row("megahiber", "soak", py("tests/megahiber.py"), 300.0,
+    Row("megahiber", "soak", py("tests/megahiber.py"), 80.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.5, 14.46: a hibernate and resume "
         "on kern_mega IN PROTECTED MODE, under MEGATRAP=1's census (a "
         "private tree). Bochs boots off C:'s boot partition with the system "
@@ -14956,10 +14963,10 @@ SOAK = [
         "most 2,048 #GP fixups - the conventional picture was one write from "
         "segment 0, the NULL selector, and took 32,512 null0 fixups in "
         "HDD.DRV's PIO loop; hbm_xwconv takes the first cluster alone that "
-        "way. The failing case is that one write put back: 32,513. 300s is "
-        "266 measured, the tree's build included",
+        "way. The failing case is that one write put back: 32,513. 80s is "
+        "62 measured: the hibernate's end is its sentence on the text screen",
         needs=("bochs", "nasm")),
-    Row("megap2hiber", "soak", py("tests/megap2hiber.py"), 200.0,
+    Row("megap2hiber", "soak", py("tests/megap2hiber.py"), 30.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.57, SPEC.md 96.45.2.4: the PS/2 "
         "mouse after a hibernate's REBOOT-route resume on kern_mega. Bochs "
         "with an IntelliMouse (type=imps2) boots off C:, hibernates, powers "
@@ -14971,11 +14978,11 @@ SOAK = [
         "with (`not [mou_line]` was 0 for MOU_P2LINE: B8h came home 00h), "
         "mou_p2wz still 3 and the pointer moving. The failing cases, each "
         "verified: the slave mask out (8Fh at .nowz) and the MOU_P2LINE "
-        "guard out (master 00h). 200s is 160 measured",
+        "guard out (master 00h). 30s is 18 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/mines.o88")),
-    Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 360.0,
+    Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.61, 14.62: the keyboard INSIDE a "
         "DOS program and the keyboard and pointer after it, over ten round "
         "trips on kern_mega's park arm with the pointer moving across every "
@@ -14987,11 +14994,13 @@ SOAK = [
         "asserts the key, the return and the pointer moving; the next trip's "
         "typed command is the desktop's keyboard. The failing case, "
         "verified: the tree before 14.62 (--build on a copy), 3 of 6 trips "
-        "with no key and a stray `2` typed on the seventh. 360s is 300 "
-        "measured",
+        "with no key and a stray `2` typed on the seventh. 60s is 48 "
+        "measured. INTERMITTENT at base: KBTRIP now and then reads 4300h (F9) "
+        "for the `k` - trip 1 of the base run, trip 7 of a later one, with "
+        "64=10 at entry (docs/plans/SOAK-SPEED.md ledger)",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
-    Row("megapiclose", "soak", py("tests/megapiclose.py"), 450.0,
+    Row("megapiclose", "soak", py("tests/megapiclose.py"), 150.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.63, 14.64, SPEC.md 96.45.2.5, "
         "9.9.9: the mouse moved DURING the live resume from a DOS program "
         "came home with the mouse AND the keyboard dead on the Victory 286 "
@@ -15005,8 +15014,9 @@ SOAK = [
         "command typed into the DOS window. RED, PICLOSE=2 (mega_kwd "
         "compiled out): must die - it does on trip 1, pointer and keyboard "
         "both. GREEN, PICLOSE=1: six trips clean, and E9's `8042 edge lost` "
-        "at least once (seven in the measured run). 450s is 383 measured "
-        "with both trees built",
+        "at least once (seven in the measured run). The two legs are two "
+        "machines run at once. 150s is 71 measured alone and 143 in three "
+        "lanes (it is two machines itself), the trees built",
         needs=("bochs", "nasm"), timeout=1500),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
