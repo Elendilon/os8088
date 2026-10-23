@@ -135,6 +135,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| dispfreeze | 87 s (loaded) / 50 guest s | 18.5 s / 39 guest s | 4, 5 | `alive()`'s pass-counting window (a mem breakpoint STOPPING on every ui_task pass, 2-4 guest s fixed) ends at 3 passes + a moved tick - only a frozen/reset machine pays the window; clicks' settles -> `ui_done`; `kernel_up` boot |
+| dispcorner / dispmodex | 166 / 159 s (heavily loaded) / 65 / 69 guest s | 43 / 33 s / 63 / 68 guest s | - | `kernel_up` boot only; the rest is pixel-capture settles (the measurement) and Missile's own quiesces. Re-declared 120 -> 60 / 45 |
 | dispapps | 232 s (loaded) / 168 guest s | 33 s / 58 guest s | 4 | three games draw all the time, so settle (98 guest s over two adapter switches) -> `ui_done(lock=False)`; the switched facts are `quiesce`d where read (an early read is RED: before==after fails); `kernel_up` boot. secs 120 -> 45 |
 | dispblitp | 49 s / 124 guest s, 2 boots | 23 s / 58 guest s, 1 boot | 3, 4, 8 | both legs (`pt_planar` is one-way) fork the boot after Paint opens instead of re-booting; each leg now ASSERTS its fork is still four planes; setup settles -> `ui_done`, the capture keeps its settle. secs 180 -> 30 |
 | dispmcfs | 88 s / 234 guest s | 76 s / 190 guest s | 4, 8 | `kernel_up` boot; settles before window-record reads -> `ui_done(lock=False)` (Missile draws all the time, so plain `ui_done`/settle waited out ~110 guest s of its animation); `state()`'s settles before the lit-pixel counts are the measurement and stay. secs 180 -> 120 |

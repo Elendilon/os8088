@@ -7840,7 +7840,7 @@ SOAK = [
     Row("dispcold", "soak", py("tests/dispcold.py"), 60.0,
         "WHO DRAWS INTO .cold? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
-    Row("dispcorner", "soak", py("tests/dispcorner.py"), 120.0,
+    Row("dispcorner", "soak", py("tests/dispcorner.py"), 60.0,
         "REPORTED ARTIFACTS, LOCALISED (a corner pixel, and two drags across"
         "a seam)",
         needs=("marty",), serial=True),
@@ -7894,7 +7894,7 @@ SOAK = [
         "Does apps/fractal's restore cache survive an adapter change?"
         "(SPEC.md 40.1)",
         needs=("marty",), serial=True),
-    Row("dispfreeze", "soak", py("tests/dispfreeze.py"), 120.0,
+    Row("dispfreeze", "soak", py("tests/dispfreeze.py"), 30.0,
         "The field's freeze: a straddling window over a Disk window, then a"
         "click",
         needs=("marty",), serial=True),
@@ -8884,7 +8884,7 @@ SOAK = [
         "BIOS byte must be SEEN to move, or the row is passing on a ROM that"
         "does not carry the defect's own input",
         needs=("marty",), serial=True),
-    Row("dispmodex", "soak", py("tests/dispmodex.py"), 120.0,
+    Row("dispmodex", "soak", py("tests/dispmodex.py"), 45.0,
         "Which display does Missile Command ask about Mode X? (SPEC.md "
         "39.18.1). **IT WAS RED FOR A GUEST CRASH AND THAT CRASH IS FIXED** - "
         "gfx_points ran its one-bit inline loop on a PLANAR display with "
