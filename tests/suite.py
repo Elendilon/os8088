@@ -886,7 +886,7 @@ FAST = [
         "region declaration placed at the SPAWN, where a package that hires "
         "no worker never reaches it",
         wants=("build/regapp360.img",)),
-    Row("regwork", "soak", py("tests/regwork.py"), 170.0,
+    Row("regwork", "soak", py("tests/regwork.py"), 30.0,
         "SPEC.md 66.6.2: a WORKER-OWNING region moves once the package has "
         "declared a restart point, and the worker comes back. regpin is the "
         "same disk, the same arena and the same forcing ask with the 'R' key "
@@ -895,7 +895,7 @@ FAST = [
         "built a frame the scheduler never resumed leaves the counters right "
         "and the machine one worker short, so the loop count is read twice",
         wants=("build/regpin360.img",)),
-    Row("regpin", "soak", py("tests/regpin.py"), 160.0,
+    Row("regpin", "soak", py("tests/regpin.py"), 30.0,
         "THE NEGATIVE ARM of SPEC.md 66.6.1 (docs/plans/HEAP-UNPIN-PLAN.md "
         "10.1): a region whose package owns a WORKER must NOT move, because "
         "task_spawn wrote the segment into the worker's frame and a pass that "
@@ -1818,7 +1818,7 @@ FULL = [
         "does not build, and the one that had a `cc` capability with no row "
         "behind it while no C package assembled for two releases",
         needs=("cc",), serial=True, builds=True),
-    Row("martyresume", "soak", py("tests/martyresume.py"), 30.0,
+    Row("martyresume", "soak", py("tests/martyresume.py"), 25.0,
         "TELLING ONE STOP FROM THE NEXT, which `state` cannot do. A caller "
         "that resumes a breakpoint and polls gets `\"breakpoint\"` both when "
         "its resume has not landed and when the machine went round and "
@@ -1841,7 +1841,7 @@ FULL = [
         "it cannot answer that tier's question - martyconc's reason, and it "
         "is the other row a change to tools/os88marty.py runs",
         needs=("marty",)),
-    Row("martyconc", "soak", py("tests/martyconc.py"), 20.0,
+    Row("martyconc", "soak", py("tests/martyconc.py"), 15.0,
         "TWO EMULATORS AT ONCE, and every way that used to go wrong. It is "
         "here rather than in soak because it gates the INSTRUMENT the whole "
         "marty tier runs on, and every failure it catches is SILENT: two "
@@ -3220,7 +3220,7 @@ SOAK = [
         "fixtures are *.O88 files that are deliberately not packages, and "
         "validate_o88 exists to make those unbuildable. 40s measured.",
         needs=("marty",), serial=True, wants=("build/pkgbig.img",)),
-    Row("pkgfmt", "soak", py("tests/pkgfmt.py"), 30.0,
+    Row("pkgfmt", "soak", py("tests/pkgfmt.py"), 15.0,
         "SPEC.md 20.2.0: the package format byte is the API TABLE'S. Kernel "
         "size pass 4 moved 158 cells and left the byte at 3, so a package "
         "built for one table loaded under the other and far-called the wrong "
@@ -3371,14 +3371,14 @@ SOAK = [
         "here: a 5150 has no RTC and MartyPC models no clock card, so the "
         "writers themselves are a QEMU session (see the docstring).",
         needs=("marty",), serial=True),
-    Row("saver", "soak", py("tests/saver.py"), 25.0,
+    Row("saver", "soak", py("tests/saver.py"), 15.0,
         "the animated screen saver end to end (SPEC.md 79): every mode draws, "
         "the overlay is loaded and freed, the wake puts the whole desktop back "
         "including the bar and the dock, no block is left in the menu bar, and "
         "all three fallbacks reach the blanker with the framebuffer untouched",
         needs=("marty",), serial=True),
     Row("savervga", "soak", py("tests/saver.py", "--machine",
-                               "os8088_xt_vga"), 27.0,
+                               "os8088_xt_vga"), 25.0,
         "saver on a VGA, and the only row that drives SPEC.md 64.3's PLANAR "
         "blanker arm (AC 12h, Color Plane Enable) at all - the arm that had "
         "to be written because the CGA branch's 3D8h write was swallowed by "
@@ -3420,7 +3420,7 @@ SOAK = [
         "NOT armed there, which is what keeps gfx_blit1's own right clip the "
         "only cut on the two adapters with no artifact to hide.",
         needs=("marty",), serial=True),
-    Row("saverate", "soak", py("tests/saverate.py"), 28.0,
+    Row("saverate", "soak", py("tests/saverate.py"), 25.0,
         "is a saver mode ASLEEP while it is behind? (SPEC.md 79.5.7, 8.1.2.4). "
         "ui_task's task_sleep(1) quantises a deadline polled once a pass to "
         "whole ticks, so a mode whose pass runs a millisecond into the next "
@@ -4617,7 +4617,7 @@ SOAK = [
         "the event itself. 45s is 28.1s MEASURED idle, over two runs. SOAK: "
         "it is ONE package and wants an emulator",
         needs=("marty", "nasm"), serial=True),
-    Row("cycfire", "soak", py("tests/cycfire.py"), 50.0,
+    Row("cycfire", "soak", py("tests/cycfire.py"), 25.0,
         "Does holding the mouse button repeat the gun, and does a press on "
         "somebody else's window leave it alone? (SPEC.md 67.11.3)",
         needs=("marty",), serial=True),
@@ -9652,7 +9652,7 @@ SOAK = [
         "jumped past (D alone - the drag MOVES the package).",
         needs=("marty",), serial=True,
         wants=("build/autostart360.img", "build/astapps360.img")),
-    Row("msel", "soak", py("tests/msel.py"), 55.0,
+    Row("msel", "soak", py("tests/msel.py"), 40.0,
         "SPEC.md 22.27: MULTI-SELECT in a Disk window (kern_big). Ctrl+click "
         "adds and removes one entry, Shift+click takes the run from the "
         "anchor, Shift+Down/Up extend and retract it, a plain click collapses "
@@ -12984,7 +12984,7 @@ SOAK = [
         "(vp_crtc skipped) the rows come out half height and it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidthumb", "soak", py("tests/vidthumb.py"), 34.0,
+    Row("vidthumb", "soak", py("tests/vidthumb.py"), 20.0,
         "SPEC.md 98.3.7: the scrub bar's thumb follows an IN-WINDOW play on "
         "a VGA desktop, written into mode 12h through the Bit Mask - "
         "the bar's eight inside rows read off plane 0 at each hold, the "
@@ -12994,7 +12994,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidthumbherc", "soak", py("tests/vidthumb.py", "--machine",
-                                   "os8088_5150_herc_gla"), 34.0,
+                                   "os8088_5150_herc_gla"), 15.0,
         "SPEC.md 98.3.7: vidthumb on the Hercules 5150's desktop, the "
         "thumb an OR and an AND into the page",
         needs=("marty", "nasm"), serial=True,

@@ -10,9 +10,9 @@ venc	vencgui	200	tests/vencguitest.py	ffmpeg
 SKIP builds=True (writes build/; not runnable in the shared tree) t	buildmatrix	180	tests/unit/t_buildmatrix.py	
 DONE weav	weavefuzz	180	tests/weavefuzz.py	
 DONE drvm	drvmove	170	tests/drvmove.py	
-regw	regwork	170	tests/regwork.py	
+DONE regw	regwork	170	tests/regwork.py	
 DONE rdxm	rdxms	170	tests/rdxms.py	qemu,nasm
-regp	regpin	160	tests/regpin.py	
+DONE regp	regpin	160	tests/regpin.py	
 DONE sndm	sndmove	150	tests/sndmove.py	
 DONE dosn	dosnetarena	150	tests/dosnetarena.py	qemu
 vidb	vidbank	150	tests/vidbank.py	qemu,nasm
