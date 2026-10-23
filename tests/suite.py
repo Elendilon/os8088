@@ -3609,7 +3609,7 @@ SOAK = [
         "and shaded cube pixels, tall canvas, Mandelbrot, nested object inheritance/movement "
         "(SPEC.md 103.5)", needs=("marty", "nasm"),
         wants=("build/redline360.img", "build/os8088-360.img")),
-    Row("excitebikefront", "soak", py("tests/excitebike_front.py", "--arm", "all"), 90.0,
+    Row("excitebikefront", "soak", py("tests/excitebike_front.py", "--arm", "all"), 130.0,
         "EXCITEBIKE front end on MartyPC (SPEC.md 102.6), VGA, CGA and Hercules: "
         "the desktop splash and help pixel for pixel against the compiler's "
         "own render, the window-shade reveal under one XT tick a band, the "
@@ -3621,7 +3621,7 @@ SOAK = [
         "closing back to the desktop's own heap; the Hercules plays since wave 6 "
         "(its loading screen is read from B000, 16 game pixels in from the left)",
         needs=("marty", "nasm"), wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeega", "soak", py("tests/excitebike_front.py", "--arm", "ega"), 120.0,
+    Row("excitebikeega", "soak", py("tests/excitebike_front.py", "--arm", "ega"), 100.0,
         "EXCITEBIKE on an EGA desktop (SPEC.md 39.24, 102.6): a private VIDEO=ega "
         "tree, so the kernel believes it is an EGA - OSAPI_FSX_CAPS answers "
         "VID_EGA and the game refuses with its sentence rather than entering "
@@ -4170,21 +4170,21 @@ SOAK = [
         "The 1.2MB floppy is only walked: no MartyPC machine has a 5.25 inch HD drive",
         wants=("build/excitebike360.img", "build/excitebike.img", "build/excitebike720.img",
                "build/excitebike120.img")),
-    Row("excitebikeboot360", "soak", py("tests/excitebike_geom.py", "--boot", "360"), 60.0,
+    Row("excitebikeboot360", "soak", py("tests/excitebike_geom.py", "--boot", "360"), 40.0,
         "EXCITEBIKE wave 7 (SPEC.md 102.8.2), boot-and-launch from the 360KB floppy on the VGA XT: open B:, "
         "open the package, the splash art loads, Enter runs the race loop, the frame counter moves, Esc "
         "leaves and closing the window returns the heap to what the desktop had",
         needs=("marty", "nasm"), wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeboot720", "soak", py("tests/excitebike_geom.py", "--boot", "720"), 70.0,
+    Row("excitebikeboot720", "soak", py("tests/excitebike_geom.py", "--boot", "720"), 40.0,
         "EXCITEBIKE wave 7 (SPEC.md 102.8.2), the same from the 720KB floppy on the Hercules XT with 720KB "
         "drives (os8088_5150_herc_sb_720_gla, the only machine here that has them): the Hercules race runs "
         "from a 1,024-byte-cluster disk",
         needs=("marty", "nasm"), wants=("build/excitebike720.img", "build/os8088-720.img")),
-    Row("excitebikeboot1440", "soak", py("tests/excitebike_geom.py", "--boot", "1440"), 70.0,
+    Row("excitebikeboot1440", "soak", py("tests/excitebike_geom.py", "--boot", "1440"), 50.0,
         "EXCITEBIKE wave 7 (SPEC.md 102.8.2), the same from the 1.44MB floppy on the VGA XT with 1.44MB "
         "drives (os8088_xt_vga_144)",
         needs=("marty", "nasm"), wants=("build/excitebike.img", "build/os8088.img")),
-    Row("excitebikelowmem", "soak", py("tests/excitebike_geom.py", "--lowmem"), 70.0,
+    Row("excitebikelowmem", "soak", py("tests/excitebike_geom.py", "--lowmem"), 40.0,
         "EXCITEBIKE wave 7 (SPEC.md 102.8.3): a 256KB XT (os8088_5150_cga_gla_256k) holds one Excitebike; "
         "a SECOND window opens (the code is shared) and Enter on it is REFUSED with `NOT ENOUGH MEMORY` "
         "on the glass - xb_error 3 and xb_nomem 1, not the `CANNOT LOAD THE RACE` an unrelated refusal "
@@ -4212,7 +4212,7 @@ SOAK = [
         "machine to itself",
         needs=("marty", "nasm"), alone=True, timeout=2400,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
-    Row("excitebikeload", "soak", py("tests/excitebike_load.py"), 120.0,
+    Row("excitebikeload", "soak", py("tests/excitebike_load.py"), 50.0,
         "EXCITEBIKE launch-to-title load time on MartyPC's 4.77 MHz XT (PERFORMANCE.md Set 153): "
         "the loader's entry for EXCBIKE.O88 to the splash reveal finishing, on VGA, CGA and Hercules, "
         "read in emulated cycles. A measurement that asserts the title comes up at all on each adapter; "
