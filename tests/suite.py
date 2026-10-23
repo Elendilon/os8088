@@ -3200,7 +3200,7 @@ SOAK = [
         "proc never returned. Needs `make mseg`.",
         needs=("qemu",), serial=True,
         wants=("build/os8088.img", "build/mseg.img")),
-    Row("pkgbig", "soak", py("tests/pkgbig.py"), 60.0,
+    Row("pkgbig", "soak", py("tests/pkgbig.py"), 50.0,
         "SPEC.md 19.1's package-size rule and the loader half that makes it "
         "safe. APP_MAX_SIZE bounds the primary SEGMENT's image+bss; it "
         "stopped bounding the FILE when a package could carry parts, so the "
@@ -5258,7 +5258,7 @@ SOAK = [
         "asks",
         needs=("marty",), serial=True,
         wants=("build/ptstest360.img",)),
-    Row("gfxptsmall", "soak", py("tests/gfxpoints.py", "--small"), 60.0,
+    Row("gfxptsmall", "soak", py("tests/gfxpoints.py", "--small"), 20.0,
         "SPEC.md 5.6.9.3.1: the row above, on the OTHER kernel. gfx_points is "
         "not one routine on both builds - kern_small expands GFXPT_LOOP ONCE "
         "and asks the ink class per point, kern_big expands it three times "
@@ -7384,7 +7384,7 @@ SOAK = [
         "re-mount on the way out of the fsx bracket finds a machine told to "
         "hold nothing, for the rest of the session.",
         needs=("marty",), serial=True, wants=("build/doscom360.img",)),
-    Row("linecar", "soak", py("tests/linecar.py"), 60.0,
+    Row("linecar", "soak", py("tests/linecar.py"), 30.0,
         "THE CARET'S BAR, AFTER AN EDIT THAT MOVED IT (SPEC.md 83.1.1). "
         "os88line_edit repaints what one keystroke changed instead of the "
         "whole field (96.19.1) and was given the view and the length to work "
@@ -8843,7 +8843,7 @@ SOAK = [
     Row("dispmine", "soak", py("tests/dispmine.py"), 20.0,
         "Can Minesweeper's bottom row be PLAYED on a CGA? (SPEC.md 11.93)",
         needs=("marty",), serial=True),
-    Row("curshape", "soak", py("tests/curshape.py"), 60.0,
+    Row("curshape", "soak", py("tests/curshape.py"), 20.0,
         "Does the pointer change SHAPE over a window that asks for one? "
         "(SPEC.md 7.2) - nothing covered it when 7.2.1.1 rewrote the test",
         needs=("marty",), serial=True),
@@ -9534,7 +9534,7 @@ SOAK = [
         "SPEC.md 31.1.2: scrolling the Drivers list draws the LIST once, not"
         "thrice.",
         needs=("marty",), serial=True),
-    Row("drvup", "soak", py("tests/drvup.py"), 60.0,
+    Row("drvup", "soak", py("tests/drvup.py"), 30.0,
         "SPEC.md 13.8.4: a DRIVER's Control Panel page acts on the RELEASE.",
         needs=("marty",), serial=True),
     Row("editmove", "soak", py("tests/editmove.py", "--app", "notepad"), 60.0,
@@ -10385,7 +10385,7 @@ SOAK = [
         "SPEC.md 22.18: the Disk window's two header buttons fire on the"
         "RELEASE.",
         needs=("marty",), serial=True),
-    Row("fsxdisp", "soak", py("tests/fsxdisp.py", "--dock"), 60.0,
+    Row("fsxdisp", "soak", py("tests/fsxdisp.py", "--dock"), 50.0,
         "Does an fsx bracket take ONE display and dark the others? (SPEC.md "
         "39.18) BOTH LEGS USED TO ASK THE CGA A QUESTION IT CANNOT ANSWER. "
         "`dark` was `frames == 0 OR nothing lit`, and a blanked CGA here "
@@ -11421,7 +11421,7 @@ SOAK = [
         "three-byte and stray-byte CONTROLS still pass - so the row isolates "
         "the defect instead of going red wholesale.",
         needs=("marty",), serial=True),
-    Row("mouseup", "soak", py("tests/mouseup.py"), 60.0,
+    Row("mouseup", "soak", py("tests/mouseup.py"), 20.0,
         "SPEC.md 13.7's release, apps/os88ui.inc's arm, and MOUSEUP-PLAN"
         "4.2's guard - and SPEC.md 12.2's 'may clobber SI': muptest's "
         "W_ONCLICK zeroes SI and case 0 checks [ui_armw] still names the "
@@ -14509,7 +14509,7 @@ SOAK = [
         # artefacts.
         needs=("marty", "nasm"), serial=True,
         wants=("build/gfxbench.o88",)),
-    Row("fmpatch", "soak", py("tests/fmpatch.py"), 60.0,
+    Row("fmpatch", "soak", py("tests/fmpatch.py"), 20.0,
         "SPEC.md 34.2.2: does an FM patch-load reach the channel it NAMES? "
         "OSAPI_SND_FM verb 2 staged the patch with a loop over CX and handed "
         "the driver CX = 0, so every patch landed on channel 0. Drives "
@@ -15191,7 +15191,7 @@ SOAK = [
         "sectors). VERIFIED RED with clo_saved's clo_fnget taken out (the "
         "name stays the Write Img's). Measured at 56s, 41s charged",
         needs=("marty",), serial=True),
-    Row("rdup", "soak", py("tests/rdup.py"), 60.0,
+    Row("rdup", "soak", py("tests/rdup.py"), 30.0,
         "SPEC.md 62.9.11.3: the Ram Disk page acts on the RELEASE.",
         needs=("marty",), serial=True),
     Row("rdpreserve", "soak", py("tests/rdpreserve.py"), 70.0,
@@ -15662,7 +15662,7 @@ SOAK = [
         "it is about to - 452 cells under the mover became 26. Counts CELLS "
         "and not calls, because a culled cell is still a call.",
         needs=("marty",), serial=True),
-    Row("tmdmg", "soak", py("tests/tmdmg.py"), 60.0,
+    Row("tmdmg", "soak", py("tests/tmdmg.py"), 40.0,
         "SPEC.md 28.10.2: a partial repaint of the Task Manager draws only "
         "the part - 225 cells put on the glass became 0, against 549 for a "
         "whole repaint. CELLS and not calls (11.3.3).",

@@ -32,18 +32,18 @@ DONE kdmr	kdmredraw	66	tests/kdmredraw.py
 DONE sndp	sndplay	65	tests/sndplay.py
 DONE fmtl	fmtlow	65	tests/fmtlow.py
 DONE aler	alertanim	60	tests/alertanim.py
-gfxp	gfxptsmall	60	tests/gfxpoints.py
-mous	mouseup	60	tests/mouseup.py
-line	linecar	60	tests/linecar.py
-drvu	drvup	60	tests/drvup.py
-fsxd	fsxdisp	60	tests/fsxdisp.py
-rdup	rdup	60	tests/rdup.py
-pkgb	pkgbig	60	tests/pkgbig.py
-extd	extdmod	60	tests/extdmod.py
-curs	curshape	60	tests/curshape.py
+DONE gfxp	gfxptsmall	60	tests/gfxpoints.py
+DONE mous	mouseup	60	tests/mouseup.py
+DONE line	linecar	60	tests/linecar.py
+DONE drvu	drvup	60	tests/drvup.py
+DONE fsxd	fsxdisp	60	tests/fsxdisp.py
+DONE rdup	rdup	60	tests/rdup.py
+DONE pkgb	pkgbig	60	tests/pkgbig.py
+DONE extd	extdmod	60	tests/extdmod.py
+DONE curs	curshape	60	tests/curshape.py
 DONE wdpe	wdpen	60	tests/wdpen.py
-fmpa	fmpatch	60	tests/fmpatch.py
-tmdm	tmdmg	60	tests/tmdmg.py
+DONE fmpa	fmpatch	60	tests/fmpatch.py
+DONE tmdm	tmdmg	60	tests/tmdmg.py
 desk	deskmodal	40	tests/deskmodal.py
 desk	deskfdd	35	tests/deskfdd.py
 desk	deskpen	31	tests/deskpen.py

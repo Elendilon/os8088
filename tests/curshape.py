@@ -57,14 +57,19 @@ def main(argv):
     a = ap.parse_args(argv)
     say = lambda s: print("  " + s, flush=True)
     bad = []
-    with os88marty.launch(a.image, apps=a.apps, machine=a.machine) as m:
-        mo = os88mouse.Mouse(marty=m)
-        dispcp.open_drive(m, mo, S, os88marty.settle, "B")
+    with os88marty.launch(a.image, apps=a.apps, machine=a.machine,
+                          boot=False) as m:
+        m.run()                         # the boot gate on STATE; every read
+        os88marty.kernel_up(m)          # is [cur_shape] and window records,
+        os88marty.no_saver(m)           # and MISSILE draws for ever, so the
+        done = lambda mm, **k: os88marty.ui_done(mm, lock=False)  # noqa: E731
+        mo = os88mouse.Mouse(marty=m)   # waits do not ask for an idle lock
+        dispcp.open_drive(m, mo, S, done, "B")
         wx, wy, _, _ = dispcp.win_rect(m, S, dispcp.win_list(m, S)[-1])
-        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "GAMES")
-        os88marty.settle(m)
-        dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "MISSILE.O88")
-        os88marty.settle(m)
+        dispcp.open_named(m, mo, S, done, wx, wy, "GAMES")
+        done(m)
+        dispcp.open_named(m, mo, S, done, wx, wy, "MISSILE.O88")
+        done(m)
         mx, my, mw, mh = dispcp.win_rect(m, S, dispcp.win_list(m, S)[-1])
         say("Missile Command at (%d,%d) %dx%d" % (mx, my, mw, mh))
         for where, (px, py), want in (
@@ -72,7 +77,7 @@ def main(argv):
                 ("its TITLE BAR", (mx + mw // 2, my + 4),       CUR_ARROWSH),
                 ("the DESKTOP",   (8, 190),                     CUR_ARROWSH)):
             mo.to(px, py)
-            os88marty.settle(m)
+            done(m)
             got = shape(m)
             say("pointer over %-14s cur_shape = %d %s (want %s)"
                 % (where, got, name(got), name(want)))
