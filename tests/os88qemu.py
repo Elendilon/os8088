@@ -392,3 +392,96 @@ def mouse_click(m, sym, hmp, x, y, mask=1):
         mouse_button(m, sym, hmp, 0)
     mouse_button(m, sym, hmp, mask)
     mouse_button(m, sym, hmp, 0)
+
+
+class Private(object):
+    """A PRIVATE QEMU - what `make test TESTIMG=a TESTAPPS=b [TESTHD=hd]
+    [ETHER=1]` launched, with its own socket, pidfile and COPIES of the
+    floppies in `work`, so a row runs no `make` in the shared tree and never
+    kills another row's emulator through build/qemu.pid. `ether` adds the
+    NE2000 at 300h/IRQ3 on slirp, WITHOUT `make test`'s host forwards (a
+    fixed host port is a collision between two rows). `.sock` is the QMP
+    socket; `.close()` (also at exit) ends it by the pid it wrote."""
+
+    def __init__(self, work, a, b, hd=None, ether=False, extra=()):
+        import atexit
+        import shutil
+        import subprocess
+        self.sock = os.path.join(work, "qmp.sock")
+        pidf = os.path.join(work, "qemu.pid")
+        self.a = os.path.join(work, "a.img")
+        self.b = os.path.join(work, "b.img")
+        shutil.copy(a, self.a)
+        shutil.copy(b, self.b)
+        cmd = ["qemu-system-i386", "-machine", "pc,vmport=off",
+               "-drive", "file=%s,format=raw,if=floppy" % self.a,
+               "-boot", "c" if hd else "a",
+               "-chardev", "msmouse,id=m0", "-serial", "chardev:m0",
+               "-drive", "file=%s,format=raw,if=floppy,index=1" % self.b]
+        if hd:
+            cmd += ["-drive", "file=%s,format=raw,if=ide,index=0,media=disk"
+                    % hd]
+        if ether:
+            cmd += ["-netdev", "user,id=n0",
+                    "-device", "ne2k_isa,netdev=n0,iobase=0x300,irq=3"]
+        cmd += ["-display", "none", "-qmp", "unix:%s,server,nowait"
+                % self.sock, "-daemonize", "-pidfile", pidf] + list(extra)
+        subprocess.run(cmd, check=True)
+        self.pid = int(open(pidf).read().strip())
+        atexit.register(self.close)
+        for _ in range(150):
+            if os.path.exists(self.sock):
+                break
+            time.sleep(0.2)             # the socket appearing is a HOST event
+
+    def close(self):
+        if self.pid:
+            try:
+                os.kill(self.pid, signal.SIGTERM)
+                gone(self.pid)
+            except OSError:
+                pass
+            self.pid = None
+
+
+class Mouse(object):
+    """tools/mouse.py's verbs as an OBJECT, closed-loop (mouse_to): `click`,
+    `dblclick`, `run("to"|"down"|"up"|"click", ...)` - the shape
+    tests/ethernet.py's Mouse and the dispcp verbs take. `after` is the
+    guest pause that followed each gesture there, now a CEILING: ui_done
+    ends it as soon as the UI is finished with the gesture."""
+
+    def __init__(self, m, sym, hmp, after=0.4):
+        self.m, self.sym, self.hmp, self.after = m, sym, hmp, after
+
+    def _wait(self):
+        if self.after:
+            ui_done(self.m, self.sym, cap=self.after)
+
+    def run(self, verb, *xy):
+        xy = tuple(int(v) for v in xy)
+        if verb == "click":
+            mouse_click(self.m, self.sym, self.hmp, *xy)
+            return
+        if xy:
+            mouse_to(self.m, self.sym, self.hmp, *xy)
+        if verb in ("down", "up"):
+            mouse_button(self.m, self.sym, self.hmp, 1 if verb == "down" else 0)
+        elif verb != "to":
+            raise ValueError("Mouse.run: %r" % verb)
+
+    def to(self, x, y):
+        mouse_to(self.m, self.sym, self.hmp, x, y)
+
+    def click(self, x, y):
+        mouse_click(self.m, self.sym, self.hmp, x, y)
+        self._wait()
+
+    def dblclick(self, x, y):
+        """Both presses down ONE QMP connection, as xmcheck.dblclick: the
+        detectors' 9-tick window is shorter than two confirmed clicks."""
+        mouse_to(self.m, self.sym, self.hmp, x, y)
+        self.hmp("mouse_button 1", "sleep 0.08", "mouse_button 0",
+                 "sleep 0.12", "mouse_button 1", "sleep 0.08",
+                 "mouse_button 0")
+        self._wait()

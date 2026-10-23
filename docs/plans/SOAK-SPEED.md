@@ -120,6 +120,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
 
 (one line each: what, where, which rows it speeds, how it was validated)
 
+- **`os88qemu.Private(work, a, b, hd=, ether=)`** - a private QEMU in place of `make test` (no make in build/, no kill through build/qemu.pid, the floppies copied) - and **`os88qemu.Mouse(m, sym, hmp, after=0.4)`**, the closed-loop mouse as an object with `click`/`dblclick`/`run(verb)` (the shape tests/ethernet.py's Mouse and the dispcp verbs take; `after` is a ui_done ceiling). dospkt, dosnetarena; syscheck has its own copy.
+
 - **`os88qemu.mouse_to` / `mouse_click` / `mouse_button` / `mouse_where`** (tests/os88qemu.py): the QEMU mouse closed-loop on the kernel's published `mouse_x`/`mouse_y`/`mouse_btn` - each packet waits for the word to move (guest-clock budget), each edge for `mouse_btn` to agree, MouseError when it stops short. Technique 15. rdxms 111 -> 24 s, same checks; syscheck.
 
 - **Logging breakpoints** (`tools/martypc/debug_server.rs`, deployed in
@@ -376,6 +378,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | cycplay / cycpu / pkgfence | 9.3 / 10.3 / 16.3 s; 80 guest s waited for the three | 15 / 17.5 / 22 s (load); 73 guest s | 4, 12 | lean; boot settles -> `kernel_up` (the first act is a click), pkgfence's post-refusal settle -> `ui_done` (it reads ld_status). secs 55/45/60 -> 30/30/30 |
 | syscheck | >= 45 s by its sleeps (20 + 1.5 + 1 + 2 + 6 + 2 + 2 a Save) plus a `make test` in the SHARED build/ and `os88qemu.kill()` of build/qemu.pid (any other row's QEMU) | 6.1 s | 14, 15 | QEMU: a private QEMU (own socket, pidfile, copied floppies, the fixture image in a tempdir) instead of `make test TESTHD=`; artefacts via `os88build.at` (the run's tree); the boot gates on both windows + `ui_done`, every sleep -> `ui_done` capped at it (the scan is wake slices on the UI task), clicks closed-loop. Red with a planted breakage left out. NOTE: in this checkout it fails at base AND after because build/kernel.sys (05:01) is newer than build/syscheck_man.inc (04:43) - 14 broken; green on a consistent private tree. secs 120 -> 20 |
 | kdreturn (+f, m, mode, gfx, pit, cx, cm) / kdhand / kdmix | kdreturn 29.7 s, 52 guest s waited; kdhand 30.7 s, 72; kdmix 33 s, 55 (load ~6) | 14.4 s, 46; 24.6 s, 55; 27 s, 40; the arms 16-24 s each in one lane | 4, 9, quick boot | boots on `up`/`quick=True`; the windowed key `text_taken`; the Run click `settle=0` (a fixed 1.5-host-s pace, 6.8 guest s, before a wait on READY); the resumed desktop `up` + `ui_done` (every read after it is memory); kdhand/kdmix click settles -> `ui_done`, polls 1.0/0.25 -> 0.05. kdreturn's 28 guest s left is the HD boot. **mode/gfx/pit and kdmix SKIP here**: DOSMODE/DOSGFX/DOSPIT.COM and doscom144.img are not in the shared build/ (a `make kdostest` artefact); run green with them built into the scratchpad and resolved through `os88build._LOCAL` |
+| dospkt / dosnetarena | not runnable in a shared checkout: `make test ETHER=1` in build/, after killing whatever build/qemu.pid named | 10.6 / 11.5 s | 15 | QEMU: `os88qemu.Private(..., ether=True)` (copies, own socket, the NE2000 without `make test`'s fixed host forwards), `os88qemu.Mouse` closed-loop for the dispcp verbs and the DOS box's buttons; every assertion as it was. secs 120 / 150 -> 20 / 20 |
 
 ## Resuming
 

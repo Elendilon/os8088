@@ -6931,7 +6931,7 @@ SOAK = [
         "is why the assertion is a read of drv_tab and not a symptom.",
         needs=("marty",), serial=True,
         wants=("build/dosirq360.img",)),
-    Row("dosnetarena", "soak", py("tests/dosnetarena.py"), 150.0,
+    Row("dosnetarena", "soak", py("tests/dosnetarena.py"), 20.0,
         "THE MEMORY PAGE'S FIGURE IS THE FIGURE THE PROGRAM GETS, WITH A CARD "
         "IN THE MACHINE (SPEC.md 96.23.7.1, 96.23.7.2). **IT IS ITS OWN ROW "
         "BECAUSE THE DEFECT IS INVISIBLE WITHOUT A WIRE**: dos_pkt_bufs "
@@ -6956,7 +6956,7 @@ SOAK = [
         "against 405/405 and 441/441 after.",
         needs=("qemu",), serial=True,
         wants=("build/ether360.img", "build/dospkt360.img")),
-    Row("dospkt", "soak", py("tests/dospkt.py"), 120.0,
+    Row("dospkt", "soak", py("tests/dospkt.py"), 20.0,
         "THE PACKET DRIVER, OVER A REAL CARD (SPEC.md 96.23, 72.22) - wave 4 "
         "of DOS-EXEC-PLAN.md, and the row that says a DOS program can reach "
         "the network. DOSPKT.COM walks 60h..80h for `PKT DRVR` at offset 3, "

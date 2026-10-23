@@ -14,7 +14,7 @@ regw	regwork	170	tests/regwork.py
 DONE rdxm	rdxms	170	tests/rdxms.py	qemu,nasm
 regp	regpin	160	tests/regpin.py	
 DONE sndm	sndmove	150	tests/sndmove.py	
-dosn	dosnetarena	150	tests/dosnetarena.py	qemu
+DONE dosn	dosnetarena	150	tests/dosnetarena.py	qemu
 vidb	vidbank	150	tests/vidbank.py	qemu,nasm
 vidx	vidxiphd	150	tests/vidxip.py	qemu,nasm
 vidx	vidxiphdnoharm	150	tests/vidxip.py	qemu,nasm
@@ -24,7 +24,7 @@ vidx	vidxipbankdrysnd	150	tests/vidxip.py	qemu,nasm
 gbtr	gbtrace	130	tests/gbtrace.py	qemu,nasm
 vidx	vidxipsnd	130	tests/vidxip.py	qemu,nasm
 vidx	vidxipahead	130	tests/vidxip.py	qemu,nasm
-dosp	dospkt	120	tests/dospkt.py	qemu
+DONE dosp	dospkt	120	tests/dospkt.py	qemu
 vidx	vidxip	120	tests/vidxip.py	qemu,nasm
 vidx	vidxipbank	120	tests/vidxip.py	qemu,nasm
 vidx	vidxiphdhold	120	tests/vidxip.py	qemu,nasm
