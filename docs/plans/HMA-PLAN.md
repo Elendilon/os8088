@@ -112,7 +112,7 @@ AH=87h). The 286 machines in `vm/` are where it can be looked at.
 
 * **A DOS program that closes A20 itself** (DOS.O88, SPEC.md 96) would strand
   `.cold`. A program that calls int 15h AH=87h directly, or writes port 92h
-  or the keyboard controller, is the case. Nothing in the box hooks that
+  or the keyboard controller, is the case. Nothing in DOS hooks that
   today; it is the same class of hazard as a DOS program writing to kernel
   memory. **It cannot reach the resumed session**: the handoff sums `.cold`
   and the tail's code, `kd_resume` sums them again, and a shut gate or a

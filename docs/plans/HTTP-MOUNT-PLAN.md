@@ -124,7 +124,7 @@ through the mounted volume's class; `FSV_*` refusals at or past the table
 length (§62.9.1.1); `OSAPI_FS_PROG` for the progress bar; `OSAPI_FS_ENT` for
 the listing; the copy engine's `FSV_READAT` stream when `FSV_COPY` is 0.
 
-**Hibernate and the DOS box.** Class 10, like 8 and 9, is past what a byte
+**Hibernate and DOS.** Class 10, like 8 and 9, is past what a byte
 mask can name, so `hbm_sweep` never asks it to leave. That is right here for
 a better reason than CD-ROM's: the drive is STATELESS on the wire - no socket
 outlives a verb (section 4.1) - so it survives a hibernate untouched, and while
