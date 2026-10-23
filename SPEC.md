@@ -31192,12 +31192,11 @@ lock, let alone calls `ui_dispatch` — and a context menu before `files.inc`
 looks its command up. Whatever the item then does, launching a package
 included, allocates into a heap the menu has already left.
 
-The one thing still overlapping it: `menu_drop`'s tracking loop calls
-`task_yield`, so a package worker can claim while a menu is down. Its claim
-lands above the save-under (both fit from the bottom) and freeing the
-save-under leaves a hole under it — transient, not a split, because the next
-bottom-up claim reuses it and package regions come from the other end
-anyway.
+Nothing overlaps it, either: `menu_drop`'s tracking loop calls
+`task_yield`, but it holds the gfx lock while it does, and every worker
+path to the allocator takes that lock first - so no claim lands while a menu
+is down (§66.3.1; this paragraph used to say a worker's could, which was never
+true).
 
 ### 15.1 Size guards
 
@@ -40194,7 +40193,15 @@ zone label is their only reader, and it stops at the NUL). The row lookup at
 the top of `dsk_xfer` loads the word into DX for every row, which is three
 bytes against the per-volume table and its lookup that it replaced.
 
-The table, a 1KB `MEM_K_IMG` claim (`0xFF12`), top-down and pinned:
+The table, a 1KB `MEM_K_IMG` claim (`0xFF12`), top-down. **It MOVES once
+the mount is proved** (NO-PINNING K2). Top-down and pinned for the mount's
+life, a mid-session mount was a wall. `img_reloc` re-points `IMG_DVSEG`, the
+one word that names it between operations. While the kernel holds the segment
+across a disk call that can claim, `[mem_pinimg]` (a second word beside
+§66.3 rule 5's `[mem_pinseg]`, read by the same `mem_in_xfer`) keeps it still:
+`dsk_xfer`'s image arm across the host's transfer (nested, saved and
+restored), and DISKOPS.DRV from the claim to the mount's end, and from an
+unmount's first read to the free.
 
 ```
 0     db  the host's volume index   } the same five bytes, in the same order,
@@ -112243,6 +112250,34 @@ silent memory corruption rather than a crash:
    across a whole menu and a menu command can claim. Bounded by the holder's
    own discipline, which is the second author rule below.
 
+#### 66.3.1 Only the UI task compacts or sheds
+
+Context 1 bounds the tasks that are suspended *now*. It says nothing about a
+task suspended in a REGISTER: the UI task pre-empted by IRQ0 with a claim's
+segment in ES, in kernel code that takes no gfx lock. A compaction run from
+another task's stack would move that claim under it, and a shed would free
+it. §20.6 rule 7 says a worker may not claim, but nothing enforces it, and
+two non-UI paths really do reach the allocator:
+
+- **a dying worker**: `OSAPI_TASK_ALIVE` → `inst_task_die` → `wm_destroy`'s
+  repaint → `wm_su_bank` → `wm_su_take` → `mem_claim`, banking the raise
+  caches of the windows the closing one uncovered;
+- **Fractal's worker**: `OSAPI_MEM_REGROW` on its row cache (§28's precedent
+  for a growing cache), which can shed.
+
+Both happen to take the gfx lock first, and package callbacks run holding it,
+so neither can land while the UI task stands in a package. That is luck, not
+a rule. The rule since NO-PINNING K8 is: **`mem_claim` and `mem_regrow` compact
+and shed only when `[sch_cur]` is 0.** Any other task gets plain first fit and
+CF = 1 past it. Its raise-cache claim declines a copy (which is already the
+outcome on a full heap), and the next repaint on the UI task takes one. The
+test is on `OS88_COMPACT` kernels only. kern_small has no compactor, and its
+user manages its RAM (docs/plans/NO-PINNING-PLAN.md).
+
+The menu save-under's note that *"a package worker can claim while a menu is
+down"* (§12.4.2) was never true: `menu_drop` holds the gfx lock across its
+`task_yield` loop, and every worker path to the allocator waits on that lock.
+
 **Author rules for a relocation proc (binding, none enforceable):**
 
 1. **It is an ordinary near proc with a near `ret`**, called through your own
@@ -114395,6 +114430,17 @@ pool — which is itself an `MC_DMA` claim now, page-safe by request. So
 on it: verb 0 **pins** the pool (`OSAPI_MEM_MOVABLE`, AX = 0) and
 `sbl_unpin` declares it again after `sbl_stop_stream` has masked the channel.
 `mem_can_move` refuses a claim with no proc before it asks anything else.
+
+**And the kernel test is GONE (NO-PINNING K1a).** Once the double buffer was
+never declared and the direct pool pinned by the driver itself, `[drv_wcnt]`
+protected no claim a chip points into. What it still did was pin every OTHER
+`MC_DMA` claim (the parts carves, the lazy part claims, the typeface caches)
+for as long as any driver had a worker, which means for as long as a sound
+stream played. The rule now: **the code that arms a chip on a claim pins that
+claim for exactly as long as the chip is armed.** SOUND.DRV already does. A
+package ring handed over as `SND_OPENF_EXT` is the package's to keep still
+while it plays, and today none of them is declared movable. `[drv_wcnt]` still
+pins driver IMAGES (§66.6.3), where the service task runs.
 
 ### 66.7 What is deliberately not done
 

@@ -246,8 +246,8 @@ MEM_K_SC   equ 0xFF11           ; the desktop SHORTCUTS' table (SPEC.md 26.8):
                                 ; movable, freed with the last one. 0xFF10 is
                                 ; the font's, so this is 0xFF11
 MEM_K_IMG  equ 0xFF12           ; a MOUNTED IMAGE's run table (SPEC.md
-                                ; 18.101): 1KB a mount, top-down and pinned,
-                                ; freed at its unmount. 0xFF11 is the
+                                ; 18.101): 1KB a mount, top-down, MOVABLE once
+                                ; mounted (img_reloc), freed at its unmount. 0xFF11 is the
                                 ; shortcuts', so this is 0xFF12
 MEM_K_MTBL equ 0xFF13           ; kern_mega's DESCRIPTOR TABLES in conventional
                                 ; memory (KERN-MEGA-PLAN 14.1 answer 16): 82KB
@@ -832,6 +832,16 @@ mem_claim_x:
     call mem_claim_1            ; COMPACT, THEN SHED AND RETRY (SPEC.md 66.4 /
     jnc .out                    ; 50.6.2). A cache loses to anything that is
 %ifdef OS88_COMPACT
+    cmp byte [sch_cur], 0       ; ...BUT ONLY THE UI TASK COMPACTS OR SHEDS
+    jne .busy                   ; (SPEC.md 66.3.1). Any other caller gets first
+                                ; fit and nothing more: a compaction run from
+                                ; another task's stack could move a claim the
+                                ; UI task holds in a register while it is
+                                ; pre-empted, and a shed could free one. The
+                                ; one such caller is a dying worker's repaint
+                                ; banking raise caches (inst_task_die), which
+                                ; declines a copy where today it would have
+                                ; made room - never a wrong pixel
     call mem_compact            ; not one, and a package load loses to nothing
     jnc .go                     ; - so both are on mem_claim_hi's path too.
 %endif                          ; ...and on kern_small it is SHED AND RETRY,
@@ -1714,29 +1724,15 @@ mem_can_move:
 .notslot:
     cmp bh, 0xFF
     je .ok                      ; a kernel tag: its proc is the kernel's own
-%ifdef OS88_DRIVERS
-    ; A CHIP MAY BE POINTING AT IT (SPEC.md 66.6.4). MC_DMA marks a claim the
-    ; 64KB page rule placed, and §66.4.2 is right that the rule is about where
-    ; it may LAND and not about whether it may move - but one of the four such
-    ; claims in the tree has a bus master armed on it, the Sound Blaster's
-    ; ring, and the 8237 holds an address into it that no relocation proc can
-    ; rewrite while it is playing.
-    ;
-    ; [drv_wcnt] is the kernel's handle on that and it is exact in the
-    ; direction that matters for a DOUBLE-BUFFERED stream: one is open only
-    ; while its refill or drain task lives (SPEC.md 34.5), so zero means no
-    ; such stream. A DIRECT one (34.5.2) has no task, and the driver pins its
-    ; pool itself - MC_RLOC = 0, refused at the top of this routine. It costs the other three MC_DMA claims a refusal only
-    ; while some driver has a worker at all, which is rare and always brief.
-    ; PARKED IS NOT ENOUGH, for §66.6.3's reason one claim along: a parked
-    ; refill task means the DSP is playing, not that it has stopped.
-    mov ax, [ss:si+MC_DMA]      ; the HEAD alone: bit 15 is the door, and a
-    and ax, MC_DMA_HEAD         ; top-down claim is not a DMA one
-    jz .nodma
-    cmp byte [drv_wcnt], 0
-    jne .pin
-.nodma:
-%endif
+    ; A CHIP MAY BE POINTING AT IT (SPEC.md 66.6.4) - AND THE DRIVER THAT
+    ; ARMED IT SAYS SO. This used to pin EVERY MC_DMA head whenever ANY driver
+    ; had a worker ([drv_wcnt]), which froze the parts carves, the lazy part
+    ; claims and the typeface caches - none of which a chip ever points at -
+    ; for as long as a sound stream played, and protected nothing: SOUND.DRV's
+    ; double buffer is never declared movable (sbl_dma_get), its direct pool
+    ; is PINNED by the driver for exactly the stream (sbl_unpin declares it
+    ; again), and a package ring handed over as SND_OPENF_EXT is the package's
+    ; to keep still while it plays (docs/plans/NO-PINNING-PLAN.md K1a).
                                 ; THE WHAT-IF'S EXCUSE LIVES IN THE CALLEE NOW
                                 ; (SPEC.md 66.4.3.2): it was the asker's claims
                                 ; alone, tested here, and inst_seg_parked
@@ -2170,10 +2166,13 @@ mem_fatw_dirty:
 
 %ifdef OS88_COMPACT
 ; -----------------------------------------------------------------------------
-mem_in_xfer:
-    push ax
-    push bx
-    mov ax, [mem_pinseg]
+mem_in_xfer:                    ; TWO WORDS (docs/plans/NO-PINNING-PLAN.md
+    push ax                     ; K2): [mem_pinseg], the transfer's
+    push bx                     ; destination, and [mem_pinimg], a mounted
+    push di                     ; image's run table while the kernel holds
+    mov di, mem_pinseg          ; its segment across disk calls - a nested
+.w:                             ; transfer re-points the first and leaves
+    mov ax, [di]                ; the second alone. Adjacent, asserted below
     or ax, ax
     jz .no
     cmp ax, [ss:si+MC_SEG]
@@ -2183,8 +2182,13 @@ mem_in_xfer:
     cmp ax, bx
     jb .out                     ; inside - and `jb` is CF = 1, the answer
 .no:
-    clc
+    inc di
+    inc di
+    cmp di, mem_pinimg + 2      ; CF = 1 while a word is left to ask...
+    jb .w
+    clc                         ; (...and the `jae` fell through on CF = 0)
 .out:
+    pop di
     pop bx
     pop ax
     ret
@@ -3945,6 +3949,11 @@ mem_regrow:
     ; routine may not call a relocation proc, and the claim the walk would
     ; most likely move is this very one.
 .shed:
+%ifdef OS88_COMPACT
+    cmp byte [sch_cur], 0       ; ONLY THE UI TASK SHEDS (SPEC.md 66.3.1):
+    jne .fail                   ; Fractal's worker grows its cache here, and a
+%endif                          ; shed from its stack could free a cache the
+                                ; pre-empted UI task holds in a register
     call mem_shed_one
     jnc .grow
     jmp short .fail
@@ -5350,11 +5359,20 @@ mem_pinseg:  resw 1             ; a segment a disk transfer is reading into, so
                                 ; dsk_xfer's, set and cleared inside its
                                 ; [sch_lock] hold - and 0 is the safe value it
                                 ; spends every path back to
+mem_pinimg:  resw 1             ; ...and a MOUNTED IMAGE's run table while the
+                                ; kernel holds its segment: the image arm of
+                                ; dsk_xfer across the host's transfer, and
+                                ; DISKOPS.DRV's mount and unmount across their
+                                ; own disk calls. Bucket C of NO-PINNING-PLAN:
+                                ; in use right now. 0 = none
 mem_cp_key:  resw 1             ; the compaction walk's cursor: the ORIGINAL
                                 ; base + 1 of the last claim processed. A word
                                 ; rather than a stack slot because BOTH passes
                                 ; use it and the run rewrites the bases it is
                                 ; walking - see mem_cp_plan
+%if mem_pinimg != mem_pinseg + 2
+  %error "mem_in_xfer walks mem_pinseg and mem_pinimg as two ADJACENT words"
+%endif
 %endif                          ; OS88_COMPACT: mem_pinseg's ONLY reader is
                                 ; mem_in_xfer and mem_cp_key's is the walk, so
                                 ; both go with it - and so do the writes, in
