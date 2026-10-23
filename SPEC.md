@@ -121728,6 +121728,22 @@ cable, so `OS88NET.COM` carries it too. `tests/httpmount.py --name` is the
 gate (soak `httpmountname`): QEMU's slirp pointed at a stub resolver, and
 the resolver asked **once** for six connections - six without the cache.
 
+#### 72.5.2 The first ephemeral port is the clock's
+
+Every boot used to start the walk at 49153, so the first connections of a
+session reused the PORTS of the session before it - and a NAT that outlives
+the guest (86Box's and QEMU's slirp, a home router) still holds whatever that
+session left open, most of all a connection kept alive for its next request
+(SPEC.md 120.2.1). A SYN that lands on one of those is never answered, the
+open runs out its time, and the connect after it, one port along, works: the
+field saw an HTTP drive time out after every reboot and succeed on the retry.
+`eth_attach` starts the walk at `49152 + ((minute * 60 + second) * 8 + ticks)
+mod 8192` instead - two boots minutes apart start thousands of ports apart,
+and on a machine whose clock has never been set the ticks since boot still
+move it. Reproduced on 86Box (mr286, NE1000, slirp): a warm reboot with a
+connection kept open, then the drive's first fetch never reached the server
+until a later retry. 34 bytes of `ETHER.DRV`.
+
 ### 72.6 The page says which half is missing
 
 `drivers/ether/etherui.inc`, and it is the **fifth** driver row — which is why
