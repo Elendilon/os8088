@@ -4341,7 +4341,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/covoxsys720.img", "build/apps720.img")),
     Row("midirackcovoxpoll", "soak",
-        py("tests/midirack.py", "--arm", "covoxpoll"), 75.0,
+        py("tests/midirack.py", "--arm", "covoxpoll"), 50.0,
         "SPEC.md 34.14.3: MIDIRack's POLLED Covox play - a rate chosen in "
         "Settings on an XT. No ISR a sample: IRQ0 is os88spk_ptick, owing "
         "the kernel's tick; 6,520 Hz played at 100% of the rate by the "
