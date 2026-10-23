@@ -82,7 +82,12 @@ from lemplaymarty import lemmap                             # noqa: E402
 S = os88sym.linear
 HZ = 4772727.0
 MC_SIZE, MEM_MAX = os88geom.MC_SIZE, os88geom.MEM_MAX
-IMG = os.path.join(ROOT, "build", "lemmings360.img")
+# THE SOURCE comes out of the run's tree (os88build.at, docs/plans/
+# SOAK-PARALLEL.md 14.2), and the SCRATCH copy is handed to launch() as an
+# ABSOLUTE path, which at() leaves alone: a `build/...` relative path is
+# resolved against the frozen tree, where this row's own scratch file is not.
+import os88build                                         # noqa: E402
+IMG = os88build.at("build/lemmings360.img")
 SCRATCH = os.path.join(ROOT, "build", "lemmove360.img")
 CLAIMS = ("_lem_cl_mask", "_lem_cl_bank", "_lem_cl_main", "_lem_cl_world",
           "_lem_cl_shadow", "_lem_cl_rec", "_lem_cl_t")
@@ -217,7 +222,7 @@ def run(a, machine, sym):
 
     try:
         with os88marty.launch("build/os8088-360.img",
-                              apps=os.path.relpath(SCRATCH, ROOT),
+                              apps=SCRATCH,
                               machine=machine, label="lemmove") as m:
             os88marty.no_saver(m)
             mo = os88mouse.Mouse(marty=m)

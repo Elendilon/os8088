@@ -323,6 +323,12 @@ task held off. That is a pause, not a failure. Re-run this row with LEMMINGS
 suspended once C4 lands; whether a per-pass cap is wanted is the owner's call,
 made on that number.
 
+**G1 WITH A LEVEL KEPT (C4, measured by `lemmove`):** the pass that moves
+LEMMINGS' set is **848 ms** for 252 KB on a 5150 Hercules and **1,066 ms**
+for 329 KB on a VGA XT, task switching paused throughout. A 64 KB emulator RAM
+(C3) is ~180 ms by the same rate. These are the numbers the owner's per-pass
+cap decision (6.3) is made on.
+
 ## 6. Open decisions for the owner
 
 ### 6.1 K9 - BUILT, as a count (SPEC.md 66.6.3.2)
@@ -365,9 +371,9 @@ All three paused cleanly, each with a WIP commit rebased onto `no-pinning`
 
 | item | branch @ commit | state | next step |
 |---|---|---|---|
-| A2 Word, Scribe | `worktree-agent-aed038112485c85c2` @ 45165d2b | code done. Word 6/6 and Scribe 7/7 claims MOVE (`tests/wdheapmove.py`), three red runs taken; +108 / +141 image bytes, bss down by the same | register the two rows, write the new Word and Scribe memory sections (after SPEC.md 68.3.1, and in 95), HEAP-CLAIMS rows, `make`, run the Word/Scribe rows once |
-| C4 LEMMINGS | `worktree-agent-a589750b58a51e736` @ 2c213e44 | 18 words translated (not 7). Claims movable while held on the desktop and PINNED around the launch/play stretch (bucket C, zero per-frame cost). One hand run on VGA: all claims moved, hashes identical; +234 image, +82 module | fix `tests/lemmove.py`'s wait on a paused screen that keeps changing, run it on Hercules and VGA, the red run, the row, SPEC.md 116.6, HEAP-CLAIMS. Then G1 again with a level suspended |
-| C3/C2 emulators | `worktree-agent-a0e6fd7fc8914d127` @ dcef7354 | RunCPM, C64 and APPLE2 RAM movable; new opt-in `CC_ONMOVE_PARTS` makes the multi-row carve movable (byte-identical for packages that do not opt in); core hot paths instruction-identical at even shifts; +158..+240 bytes; host gates red-tested | run `tests/rcmove.py` for the first time, the red run, SPEC.md 73.14.2.1 / C64-SPEC 3.1.1 / APPLE2-SPEC 3.1.1 / HEAP-CLAIMS / os88.h |
+| A2 Word, Scribe - **MERGED** | `worktree-agent-aed038112485c85c2` @ 9989cda3 | code done. Word 6/6 and Scribe 7/7 claims MOVE (`tests/wdheapmove.py`), three red runs taken; +108 / +141 image bytes, bss down by the same | register the two rows, write the new Word and Scribe memory sections (after SPEC.md 68.3.1, and in 95), HEAP-CLAIMS rows, `make`, run the Word/Scribe rows once |
+| C4 LEMMINGS - **MERGED** | `worktree-agent-a589750b58a51e736` @ 6cad7abe | 18 words translated (not 7). Claims movable while held on the desktop and PINNED around the launch/play stretch (bucket C, zero per-frame cost). One hand run on VGA: all claims moved, hashes identical; +234 image, +82 module | fix `tests/lemmove.py`'s wait on a paused screen that keeps changing, run it on Hercules and VGA, the red run, the row, SPEC.md 116.6, HEAP-CLAIMS. Then G1 again with a level suspended |
+| C3/C2 emulators - **MERGED** | `worktree-agent-a0e6fd7fc8914d127` @ 96631eb3 | RunCPM, C64 and APPLE2 RAM movable; new opt-in `CC_ONMOVE_PARTS` makes the multi-row carve movable (byte-identical for packages that do not opt in); core hot paths instruction-identical at even shifts; +158..+240 bytes; host gates red-tested | run `tests/rcmove.py` for the first time, the red run, SPEC.md 73.14.2.1 / C64-SPEC 3.1.1 / APPLE2-SPEC 3.1.1 / HEAP-CLAIMS / os88.h |
 
 One stray file for the owner: the C4 agent left a 27 KB build log at `/x.log`
 and the sandbox would not let it delete it. **On resume:** read each report, review each diff against the
@@ -383,3 +389,23 @@ it is held until the file closes, it is to be declared movable when a play
 stops and pinned again (`OSAPI_MEM_MOVABLE`, AX = 0) when the next one starts,
 outside the frame loop. Then P1 (Sheet's chart overlay as a part), A1
 (RealDMG: procs only, gated on its speed), A3-A8, R1/R2 and P2.
+
+### 6.3 A per-pass cost cap? (from G1)
+
+Moving a kept LEMMINGS level is ~1 s with task switching paused. During that
+second a playing Sound Blaster stream's refill task cannot run, so it
+underruns: a pause the refill task resumes, never stale audio. The pointer
+still moves, because the mouse ISR draws it, and the machine is otherwise
+frozen. That is the price of the 300 KB picture opening at all, and it is paid
+only when a claim could not be served otherwise. The options:
+
+- **(a) Accept it.** Compaction is rare, and the alternative is refusing the
+  open.
+- **(b) Cap one pass**, e.g. at ~128 KB of copying, and let the claim fail
+  only if the capped pass could not make room. This is simple, but it can
+  refuse an open that an uncapped pass would have served.
+- **(c) Drop `[sch_lock]` between block copies**, so the refill task runs in
+  the gaps. This is the most work, and each gap needs the map re-validated.
+
+Recommended: **(a)** for now, with `cpcost` and `lemmove` printing the figure
+every run so a regression shows.
