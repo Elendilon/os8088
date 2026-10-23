@@ -2574,7 +2574,7 @@ SOAK = [
         "selected, every installed face is listed, typing edits the specimen, "
         "and both arrow and mouse selection finish loading another face.",
         needs=("marty",), serial=True),
-    Row("fmcommit", "soak", py("tests/fmcommit.py"), 80.0,
+    Row("fmcommit", "soak", py("tests/fmcommit.py"), 45.0,
         "SPEC.md 22.13.3: a committing keystroke redraws the Disk window and "
         "a REFUSED character does not. fm_onkey banks fm_editkey's answer "
         "across the modal-dialog test, because `cmp word [x], 0` clears the "
@@ -2613,7 +2613,7 @@ SOAK = [
         "back and re-homed the program to itself until wm_create ran out of "
         "window slots. Needs `make rehome`.",
         needs=("marty",), serial=True, wants=("build/rehome360.img",)),
-    Row("rehomemove", "soak", py("tests/rehomemove.py"), 75.0,
+    Row("rehomemove", "soak", py("tests/rehomemove.py"), 45.0,
         "SPEC.md 20.12.10.5 and 66.6.1: the block a re-homed program is left "
         "running in is an ORDINARY MOVABLE REGION afterwards, and the one "
         "word no other package has to fix, gets fixed. 1.44MB is the EASY "
@@ -3306,7 +3306,7 @@ SOAK = [
         "that reads it as success deletes a source that never went anywhere.",
         needs=("marty",), serial=True,
         wants=("build/fcpapi.img",)),
-    Row("fcpcopy", "soak", py("tests/fcpcopy.py"), 70.0,
+    Row("fcpcopy", "soak", py("tests/fcpcopy.py"), 40.0,
         "SPEC.md 22.3-22.5: Cut/Copy/Paste actually moves a file AND a folder "
         "tree. Nothing exercised kernel/filecp.inc at all until this row - a "
         "whole-file pass over the copy engine could be green on assembly, "
@@ -3334,7 +3334,7 @@ SOAK = [
         # is why this arm could never have passed.
         ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
          "OS88_SYSIMG=build/small.img",
-         "OS88_APPSIMG=build/smallapps.img"] + py("tests/fcpcopy.py"), 70.0,
+         "OS88_APPSIMG=build/smallapps.img"] + py("tests/fcpcopy.py"), 30.0,
         "...and the SAME drive against kern_small, where Cut/Copy/Paste is an "
         "on-demand module (SPEC.md 22.3, docs/plans/completed/KERN-SMALL-MODULE-SPLIT.md 9.2) "
         "rather than resident code. It is a different engine to reach: every "
@@ -5390,7 +5390,7 @@ SOAK = [
         "flags and the program itself prints 'the gate has FAILED'.",
         needs=("marty",), serial=True,
         wants=("build/doscom360.img",)),
-    Row("dosglyph", "soak", py("tests/dosglyph.py"), 75.0,
+    Row("dosglyph", "soak", py("tests/dosglyph.py"), 30.0,
         "a SHIPPED document glyph (SPEC.md 54.3.2) reaches every path the "
         "kernel fills a slot's glyph by - the baked table, the cache seed "
         "at a volume switch, a cache hit at a mount and a miss's harvest "
@@ -10612,7 +10612,7 @@ SOAK = [
         needs=("marty",), serial=True, timeout=900),
     Row("hddcp", "soak",
         py("tests/hddcp.py", "build/os8088-360.img", "build/hddcp-out.bin"),
-        90.0,
+        45.0,
         "The hard-disk driver's Control Panel page, the two windows behind"
         "it, and SPEC.md 52.6.1's tick-mounts-the-disk. It takes an image"
         "and an output path and DEFAULTS both: registered with neither,"
@@ -10636,7 +10636,7 @@ SOAK = [
         "inside the black glyph beneath and cannot be seen.",
         needs=("marty",), serial=True, timeout=900),
     Row("tgplay", "soak", py("tests/tgplay.py", "--expect",
-                             "191:18:7705a20873339764"), 80.0,
+                             "191:18:7705a20873339764"), 40.0,
         "SPEC.md 49.8: TameGram played as ONE seeded game - a fixed "
         "osapi_seed written at tg_newgame, a prepared board laid down at "
         "tick 0 (runs of eight butting onto the other faction, a run of "
@@ -15786,7 +15786,7 @@ SOAK = [
         "45.9.3)",
         needs=("marty",), serial=True,
         wants=("build/trklog360.img",)),
-    Row("trktxsurf", "soak", py("tests/trktxsurf.py"), 70.0,
+    Row("trktxsurf", "soak", py("tests/trktxsurf.py"), 60.0,
         "The fullscreen SURFACE is a pick, not XT mode's - text at a 45.10"
         "rate (SPEC.md 45.13.7)",
         needs=("marty",), serial=True,

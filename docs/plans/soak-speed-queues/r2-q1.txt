@@ -118,8 +118,8 @@ SKIP fails at base: build/drmario-art/preview/drmarco-vga-splash.png missing (an
 DONE drma	drmarioaudio	90	tests/drmario_audio.py
 DONE tpdr	tpdraw	300	tests/tpdraw.py
 DONE doso	dosopen	240	tests/dosopen.py
-reho	rehomemove	75	tests/rehomemove.py
-reho	rehomemove360	75	tests/rehomemove.py
+DONE reho	rehomemove	75	tests/rehomemove.py
+DONE reho	rehomemove360	75	tests/rehomemove.py
 reho	rehome	45	tests/rehome.py
 reho	rehomeabort	40	tests/rehomeabort.py
 DONE wdmo	wdmove	210	tests/wdmove.py
@@ -135,8 +135,8 @@ DONE pxsf	pxsfsx	165	tests/pxsfsx.py
 DONE gfxl	gfxlk	150	tests/gfxlk.py
 DONE frpr	frpromise	150	tests/frpromise.py
 DONE zoom	zoomsave	150	tests/zoomsave.py
-fcpc	fcpcopy	70	tests/fcpcopy.py
-fcpc	fcpsmall	70	tests/fcpcopy.py
+DONE fcpc	fcpcopy	70	tests/fcpcopy.py
+DONE fcpc	fcpsmall	70	tests/fcpcopy.py
 covo	covoxcp	45	tests/covox.py
 covo	covoxdrv	30	tests/covox.py
 covo	covoxauto	30	tests/covox.py
@@ -150,19 +150,19 @@ sbar	sbar	60	tests/sbar.py
 sbar	sbardlg	60	tests/sbar.py
 DONE wdca	wdcaret	110	tests/wdcaret.py
 DONE pacc	paccman	100	tests/paccman.py
-dosg	dosglyph	75	tests/dosglyph.py
+DONE dosg	dosglyph	75	tests/dosglyph.py
 dosg	dosgap	25	tests/dosgap.py
 DONE btna	btnall	95	tests/btnall.py
 SKIP fails at base, environment: os88rom.py refuses build/kernel-full.bin (".text differs between this tree's assembly") - the prebuilt kernel carries an older commit-count build number and os88rom, unlike os88sym, does not substitute it romb	rombig	90	tests/rombig.py
 DONE kdmc	kdmcur	90	tests/kdmcur.py
-hddc	hddcp	90	tests/hddcp.py
-fmco	fmcommit	80	tests/fmcommit.py
-tgpl	tgplay	80	tests/tgplay.py
-trkb	trkbigmod	80	tests/trkbigmod.py
-imgm	imgmount	75	tests/imgmount.py
+DONE hddc	hddcp	90	tests/hddcp.py
+DONE fmco	fmcommit	80	tests/fmcommit.py
+DONE tgpl	tgplay	80	tests/tgplay.py
+DONE trkb	trkbigmod	80	tests/trkbigmod.py
+SKIP fails at base: "...and the MOUNT clears what the earlier kernel's stop left [(33, 193)]" imgm	imgmount	75	tests/imgmount.py
 DONE fcpr	fcproom	70	tests/fcproom.py
-vidx	vidxdisp	70	tests/vidxdisp.py
-trkt	trktxsurf	70	tests/trktxsurf.py
+DONE vidx	vidxdisp	70	tests/vidxdisp.py
+DONE trkt	trktxsurf	70	tests/trktxsurf.py
 DONE pxs	pxs160	45	tests/pxs160.py
 DONE pxs	pxs256	20	tests/pxs256.py
 vidh	vidhdmake	65	tests/vidhdmake.py
