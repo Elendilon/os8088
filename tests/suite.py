@@ -1950,7 +1950,7 @@ FULL = [
         "writable and the write assertion would otherwise find last run's "
         "files already there",
         needs=("qemu",), serial=True, builds=True, wants=("build/hello.o88", "build/mines.o88", "build/mseg.o88")),
-    Row("stk0water", "soak", py("tests/stk0water.py"), 70.0,
+    Row("stk0water", "soak", py("tests/stk0water.py"), 20.0,
         "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
         "section says `redo the fill probe before lowering either` and the "
         "probe was a hand edit to kmain plus a hand read, so it had been run "
@@ -2860,7 +2860,7 @@ SOAK = [
         "package",
         needs=("marty", "nasm"),
         wants=("build/realdmg.o88", "build/os8088-720.img")),
-    Row("gbkeys", "soak", py("tests/gbkeys.py"), 66.0,
+    Row("gbkeys", "soak", py("tests/gbkeys.py"), 100.0,
         "REALDMG's Machine > Controls... (docs/REALDMG-SPEC.md section 14.2) "
         "on VGA and on a CGA, driven by its own layout: a click on A lights "
         "the box and the next key typed (Q) is A's, read out of rw_keymap; "
@@ -6864,7 +6864,7 @@ SOAK = [
         "would pass just as happily with a box that scribbled on the desktop.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/mcursor360.img")),
-    Row("kdmredraw", "soak", py("tests/kdmredraw.py"), 66.0,
+    Row("kdmredraw", "soak", py("tests/kdmredraw.py"), 50.0,
         "**WRITTEN TO PROVE A DEFECT, AND IT MEASURED THE OTHER WAY ROUND** "
         "(SPEC.md 96.10.5.4). kdmcur asks whether the driver can draw; this "
         "asks what happens when the APPLICATION draws over what it drew, "
@@ -11974,7 +11974,7 @@ SOAK = [
         "one, so it shares the lane (docs/WRITING-TESTS.md 4.1)",
         needs=("marty",), serial=True,
         wants=("build/os8088-360.img", "build/games360.img")),
-    Row("pxsmd", "soak", py("tests/pxsmd.py"), 70.0,
+    Row("pxsmd", "soak", py("tests/pxsmd.py"), 80.0,
         "SPEC.md 97.14, 53.7.1, 39.18 (wave 5): a PIXELSTEIN bracket changes "
         "its OWN card only, on a two-card XT (os8088_xt_vga_herc, extended "
         "right): OSAPI_VIDEO asked once, in px_entry, and every "
@@ -12498,7 +12498,7 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv")),
-    Row("sndplay", "soak", py("tests/sndplay.py"), 65.0,
+    Row("sndplay", "soak", py("tests/sndplay.py"), 30.0,
         "SPEC.md 34.4: OSAPI_SND_PLAY's PWM clip end to end, on MartyPC with "
         "every OUT to 40h/42h/43h traced and the speaker captured - no "
         "shipped package plays one (Recorder rides the live media only), so "
@@ -15026,7 +15026,7 @@ SOAK = [
         "back: osapi_vol_add ignores DX now, so it would leak 6KB a mount "
         "in silence",
         needs=("marty",), serial=True, timeout=600),
-    Row("hdauto", "soak", py("tests/hdauto.py"), 70.0,
+    Row("hdauto", "soak", py("tests/hdauto.py"), 100.0,
         "The hard disk loads ITSELF and a default never nags or lingers "
         "(SPEC.md 51.3.2), and a row nobody answered stays the machine's "
         "(51.5.4). Six legs read drv_tab, dsk_vtab and [drv_nerr] out of the "
@@ -15069,7 +15069,7 @@ SOAK = [
         "18.8.2.1), different from the source's and from the other clone's "
         "- red on all three with DSK_VOLID emptied",
         needs=("marty",), serial=True),
-    Row("fmtlow", "soak", py("tests/fmtlow.py"), 65.0,
+    Row("fmtlow", "soak", py("tests/fmtlow.py"), 90.0,
         "fmtlow - Format Disk... reclaims a disk it cannot READ (SPEC.md "
         "18.96.3): with every probe read failed at the int 13h gate the "
         "confirmation must still come up, at the 360K the drive makes, and "
@@ -15241,7 +15241,7 @@ SOAK = [
         "green. ~170s measured, most of it the guest's own clock",
         needs=("qemu", "nasm"), serial=True,
         wants=("build/os8088.img",)),
-    Row("rdcz", "soak", py("tests/rdcz.py"), 70.0,
+    Row("rdcz", "soak", py("tests/rdcz.py"), 40.0,
         "SPEC.md 20.14.6: a compressed file with NO HINT is still read as a "
         "compressed file. The hint is a CACHE and SPEC.md 20.14 has said "
         "since it was written that the read path checks the file's own 'CZ' "

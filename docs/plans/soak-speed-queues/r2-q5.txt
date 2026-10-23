@@ -22,15 +22,15 @@ DONE gbwi	gbwindow	75	tests/gbwindow.py
 DONE btnc	btncp	75	tests/btncp.py
 DONE(legs A,B verified; C-E fail at base since build/ctrl.drv was rebuilt 04:28 by someone - mismatched with the 01:35 kernel) thm	thm95	75	tests/thm95.py
 DONE rdic	rdicon	75	tests/rdicon.py
-pxsm	pxsmd	70	tests/pxsmd.py
-stk	stk0water	70	tests/stk0water.py
-regr	regrowshed	70	tests/regrowshed.py
-rdcz	rdcz	70	tests/rdcz.py
-hdau	hdauto	70	tests/hdauto.py
-gbke	gbkeys	66	tests/gbkeys.py
-kdmr	kdmredraw	66	tests/kdmredraw.py
-sndp	sndplay	65	tests/sndplay.py
-fmtl	fmtlow	65	tests/fmtlow.py
+DONE pxsm	pxsmd	70	tests/pxsmd.py
+DONE stk	stk0water	70	tests/stk0water.py
+SKIP(fails at base: its TOOBIG.TXT fixture needs 24 clusters and the boot disk has 12 free - os88fat add) regr	regrowshed	70	tests/regrowshed.py
+DONE rdcz	rdcz	70	tests/rdcz.py
+DONE hdau	hdauto	70	tests/hdauto.py
+DONE gbke	gbkeys	66	tests/gbkeys.py
+DONE kdmr	kdmredraw	66	tests/kdmredraw.py
+DONE sndp	sndplay	65	tests/sndplay.py
+DONE fmtl	fmtlow	65	tests/fmtlow.py
 DONE aler	alertanim	60	tests/alertanim.py
 gfxp	gfxptsmall	60	tests/gfxpoints.py
 mous	mouseup	60	tests/mouseup.py
@@ -93,7 +93,7 @@ btng	btngesture	26	tests/btngesture.py
 pkgr	pkgrun	25	tests/pkgrun.py
 dosi	dosirq	25	tests/dosirq.py
 btnm	btnmove	20	tests/btnmove.py
-gblo	gblog	20	tests/gblog.py
+SKIP(needs rgbds, absent here) gblo	gblog	20	tests/gblog.py
 evqf	evqfull	20	tests/evqfull.py
 tmlo	tmload	20	tests/tmload.py
 size	sizesnap	20	tests/sizesnap.py
