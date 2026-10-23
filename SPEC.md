@@ -25325,22 +25325,36 @@ last menu title and the clock; nothing else in the bar can see it.
 
 | symbol            | contract                                                  |
 |-------------------|------------------------------------------------------------|
-| `menu_draw_clock` | in: nothing (gfx lock held by the caller). Formats the live clock with `clk_fmt` (§37), and **returns having drawn nothing if the string is the one already on the glass** — a check word over it, `0` reserved for "nothing drawn yet". Otherwise stages it into `menu_clkbuf` right-aligned in the field by **leading spaces** and emits ONE `font_run` at x = `[vid_clk_hx]`, y = `MENU_TEXT_Y`, black on white. Leaves `[gfx_color]` = `CBLACK` on both paths; preserves all registers. |
+| `menu_draw_clock` | in: nothing (gfx lock held by the caller). Composes the live clock (`clk_fmt`, §37) into the bar's own cells, right-aligned in the field by **leading spaces**, and letters only the cells that differ from what is on the glass — `menu_bar_clock`, §12.9 — then lets the speaker answer to it (§34.15). Preserves all registers. |
 
-The field is `[vid_clk_hx] .. vid_w-9`, both ends on cell boundaries, so it is
+The field is `[vid_clk_hx]` to the bar's margin — or to the speaker's left
+edge while the speaker shows (§34.15) — both ends on cell boundaries, so it is
 exactly 25 cells on both screen widths — one more than the longest form, so
 the pad is never negative. Right alignment is what makes a format change a
 redraw of the same field rather than a relayout, and **the padding is the
 erase**: a shorter string blanks the cells it gave up inside the same opaque
 pass that letters the rest, so there is no fill in this path at all and the
-clock is never momentarily blank. It used to erase 206px of bar and then
-re-letter ~20 glyph cells — tens of milliseconds of blank clock on a 4.77MHz
-machine, on **every window operation**, for a string that changes once a
-minute.
+clock is never momentarily blank.
 
-`menu_draw_bar` ends with a `menu_draw_clock` call, so every `wm_paint_all`
-reaches it (and the check word usually stops it there); ui_task redraws just
-the cell when its text changes — once a second with seconds shown, **once a
+**It is cells in the bar's one composition** (§12.9), and that is what
+prices a minute: the digit that changed, as one `font_run`. Measured on
+MartyPC, one `menu_draw_clock` at a minute rolling over, the whole call:
+
+| adapter | its own painter, all 25 cells | cells of the composition |
+|---|---|---|
+| CGA (5150) | 40,791 cycles, 8.5 ms | **20,111**, 4.2 ms |
+| Hercules (5150) | 40,162 | **19,928** |
+| VGA (XT) | 43,320 | **24,608** |
+
+About half of what is left is `clk_fmt` and the 25-cell compare; the
+`font_run` of one cell is the rest, and its fixed part dominates, which is
+why two or four changed cells cost little more than one. Before the check word it erased 206px and re-lettered
+the lot on every window operation.
+
+`menu_draw_bar` composes the clock with everything else when the bar is
+dirty and on its own otherwise, so every `wm_paint_all` reaches it (and
+finds no cell to draw, usually); ui_task redraws just the cell when its text
+changes — once a second with seconds shown, **once a
 minute without** (§13 step 4). No
 `wm_obscured` check is needed anywhere: windows clamp to `y >= MBAR_H`
 (§13), so nothing can ever cover the bar — **except a fullscreen window
@@ -26963,28 +26977,77 @@ parity pad - the fix alone is +37 there, which left `ui_task` and every
 routine after `fprog.inc` at an odd shift (`t_hotpar`), so a never-executed
 byte after `fpg_finish`'s tail jump puts them back.
 
-### 12.9 The bar is three segments, and each answers for itself
+#### 12.8.7 A toast outranks the widget
 
-**Only the segment that changed may put pixels on the bar.** The menu bar
-carries four things that change on four completely different cadences — a
-logo that never changes, the active application's menus, a clock that changes
-once a minute, and the file-activity widget of §12.8 — and until this they
-shared one flag. Any of them moving redrew all of them, as a full-width white
-fill followed by every glyph being put back: **PERFORMANCE.md Part 1's
-double-draw flash**, at the top of the screen, on every window operation.
+**While a toast is up and within its time, the widget is armed and not
+drawn.** Both say *the machine is busy, and here is what with*, and one bar
+cannot carry both without one shunting the other along: until this the widget
+reserved its `FPG_CELLS` off the menus' end, the toast was placed in whatever
+gap was left, and so the strip moved every time a disk read started or ended
+under it. Now the toast is the one somebody chose to say, so it wins:
 
-| segment | x span | drawn when | by |
-|---|---|---|---|
-| logo | `0 .. MENU_TXT_X0-1` | the bar was painted **over** (`[menu_bovr]`) | `menu_furniture` |
-| menus | `MENU_TXT_X0 .. [vid_clk_hx]-1` | its composed text differs from what is showing | `menu_bar_text` |
-| clock | `[vid_clk_hx] .. vid_w-9` | its string differs from what is showing | `menu_draw_clock` (§12.1) |
+- **Armed, not drawn.** `[fpg_on]` stays set, so `mou_apply` still defers
+  (§12.8.4), the trough's state still moves with every step, and the freeze
+  is still reported to everything that asks. Nothing is painted and no cells
+  are reserved, so the strip stays centred in the gap (§59.9).
+- **`FPG_SHOWN`** (bit 2 of `[fpg_on]`) is *its pixels are on the bar*.
+  `fpg_show` sets it — at the arm, and whenever a painter or `fpg_busy` finds
+  the widget may show and is not — and composes the bar with the reservation
+  before it paints. `menu_bar_text`'s prologue clears it through `fpg_hide`
+  when a toast arrives: the rows outside the text band are filled and the
+  cells forgotten, and the composition's own run is the erase of the band.
+  `fpg_finish` clears it with the rest of the byte and erases only if it was
+  set.
+- **The hand-back is mid-operation.** `toast_up` asks the clock (`[ticks]`
+  against `[toast_die]`, the sign of the difference) rather than
+  `[toast_on]`, because the idle pass that retires a toast cannot run inside
+  the freeze the widget is reporting. A strip whose seconds are spent is not
+  composed and the widget is shown at its next step; the idle pass retires
+  the toast formally later and finds nothing to draw.
+- **Its cells are 0 while it shows.** `menu_bar_text` composes the clock
+  after the widget's cells, so a composition in which a menu and the clock
+  both moved spans them; the emit skips a 0 cell, which no composed cell can
+  be (§12.9).
 
-The file-activity widget is not a fourth segment: it **borrows** the right
-end of the menus segment and gives it back through `menu_inval` (§12.8).
+A toast put up *before* a long operation therefore hides the widget for the
+whole of it, which is wrong when the widget is what tells the user how long
+is left. The rule for a caller is the one §59.5 already states — a toast is a
+verdict, not a status line — and the three that broke it say what they are
+doing only while the bar cannot (§42.15, §22.22.6, WEAVE-SPEC §11.3).
 
-Both interior boundaries are glyph-cell boundaries — `MENU_TXT_X0` is 32 and
-`[vid_clk_hx]` is floored to a multiple of 8 (§12.1) — so a segment is a whole
-number of 8x8 cells. That is not tidiness: it is what lets a segment be
+### 12.9 The bar is one composition, and only what changed is drawn
+
+**Only the cells that changed may put pixels on the bar.** The menu bar
+carries things that change on completely different cadences — a logo that
+never changes, the active application's menus, a clock that changes once a
+minute, a toast, the file-activity widget of §12.8 and the speaker of §34.15
+— and until §12.9 they shared one flag: any of them moving redrew all of them,
+as a full-width white fill followed by every glyph being put back
+(**PERFORMANCE.md Part 1's double-draw flash**, at the top of the screen, on
+every window operation). Then the bar became three segments that each
+answered for itself, and the clock and the toast strip were painters of their
+own beside the menus. **Now everything lettered is one composition:**
+
+| part | cells (from `MENU_TXT_X0`) | drawn by |
+|---|---|---|
+| logo | x `0 .. MENU_TXT_X0-1`, a bitmap | `menu_furniture`, after an overdraw (`[menu_bovr]`) |
+| menus | `0 .. [menu_bn]-1` | composed: the app name and each title at its pen x, spaces between |
+| widget | `[menu_bn] .. [menu_bc0]-1`, `FPG_CELLS` while it **shows**, none otherwise | §12.8, straight onto the glass; its cells are left 0 |
+| clock | `[menu_bc0]` to `menu_ckend` | composed: §12.1's line, right-aligned by leading spaces |
+| toast | over the gap or the clock's field (§59.9) | composed, bit 7 set, over what is under it |
+| speaker | the last 24px before the margin, while it shows | `SOUND.DRV`'s `SNDV_MIXICON` (§34.15) |
+
+`menu_bar_text` composes the lot into `menu_bcell` and emits the runs that
+differ; `menu_bar_clock` is the same routine entered past the menus, for the
+UI task's clock tick and for a `menu_draw_bar` with nothing dirty. A
+composition is bounded per part by `[menu_blim]`, which `menu_bput`,
+`menu_bpadc` and `menu_bstr` read — `[menu_bn]` while the menus are composed
+and the clock field's end after — so a menu title can never be lettered into
+the clock, nor the clock into the speaker.
+
+All the boundaries are glyph-cell boundaries — `MENU_TXT_X0` is 32 and
+`[vid_clk_hx]` is floored to a multiple of 8 (§12.1) — so the bar is a whole
+number of 8x8 cells. That is not tidiness: it is what lets any run of it be
 redrawn by `font_run` (§6.1) on its **single-pass** path, where a cell row is
 one framebuffer store on the two mono adapters and the span is never
 momentarily blank. The layout follows: `MENU_NAME_X` is 40, `MENU_TITLE_PAD`
@@ -26996,9 +27059,10 @@ path (§45), and `WF_SNAP` (§11.94) doing it for ordinary windows.
 | symbol | contract |
 |---|---|
 | `menu_force` | in: nothing. The bar was **painted over**: sets `[menu_bovr]` and `[menu_bdirty]`. The only path that reaches `menu_furniture`, and so the only one that erases anything. Preserves all registers. |
-| `menu_inval` | in: AX = x1, CX = x2 (inclusive, absolute). Forgets what was drawn in that span of the **menus** segment, rounded OUTWARD to whole cells and clamped to the segment; sets `[menu_bdirty]`. Preserves all registers. |
-| `menu_furniture` | in: nothing (gfx lock held). White-fills the bar's field, draws the black rule and the logo, forgets every cell and the clock's check word. Preserves all registers. |
-| `menu_bar_text` | in: nothing (gfx lock held). Composes the menus segment into `menu_bcell` and emits the one `font_run` span that differs. Preserves all registers. |
+| `menu_inval` | in: AX = x1, CX = x2 (inclusive, absolute). Forgets what was drawn in that span of the bar's cells, rounded OUTWARD to whole cells and clamped to `MENU_BCMAX`; sets `[menu_bdirty]`. Preserves all registers. |
+| `menu_furniture` | in: nothing (gfx lock held). White-fills the bar's field, draws the black rule and the logo, forgets every cell. Preserves all registers. |
+| `menu_bar_text` | in: nothing (gfx lock held). Composes menus, clock and toast into `menu_bcell` and emits the runs that differ. Preserves all registers. |
+| `menu_bar_clock` | as `menu_bar_text`, past the menus: the clock and the toast strip only. |
 
 #### The composition IS the diff
 
@@ -27006,13 +27070,15 @@ path (§45), and `WF_SNAP` (§11.94) doing it for ordinary windows.
 buffer the bar's text is composed into, and the record of **what is on the
 glass**. So there is no separate "what did I draw last time" structure to
 keep in step — writing a cell and comparing it are the same instruction pair,
-and the first and last cells that differ bound exactly one `font_run`.
+and the first and last cells that differ bound the emit, which is one
+`font_run` per run of one highlight: the strip is the only thing that
+inverts, so there are at most three.
 
 Four things hold it up, and three of them are somebody else's rule first.
 
-- **Spaces are content.** The segment is composed *whole* — the name at
-  `MENU_NAME_X`, each title at its own pen x, and **spaces everywhere else**,
-  out to the clock. So a bar that lost its longest menu blanks the cells it
+- **Spaces are content.** The bar is composed *whole* — the name at
+  `MENU_NAME_X`, each title at its own pen x, the clock right-aligned in its
+  field, and **spaces everywhere else**. So a bar that lost its longest menu blanks the cells it
   gave up inside the same opaque pass that letters the ones it kept. There is
   no fill in this path at all, which is what removes the flash rather than
   shrinking it. (Note Pad's rows, §27.2, and Missile Command's status strip,
@@ -27031,13 +27097,17 @@ Four things hold it up, and three of them are somebody else's rule first.
   skips it inside.
 - **Invalidation writes a byte that can never be composed.** `0` is the
   sentinel because every byte that goes into this buffer is a printable
-  character — a NUL would have ended the string it came from.
+  character — a NUL would have ended the string it came from. **The emit
+  skips a 0 cell**, which is how the widget's cells survive a composition
+  that spans them: while it shows they are 0 (`fpg_show`'s `menu_inval`) and
+  composed by nothing, so a menu and the clock that both changed are lettered
+  as two runs on either side of it rather than one through it.
 
 #### What each flag is NOT
 
 `[menu_bdirty]` and `[menu_bovr]` look like a coarse and a fine version of one
-question and are two different questions. `[menu_bdirty]` says *the menus
-segment's text may have moved*, and is cheap and frequently set — the answer
+question and are two different questions. `[menu_bdirty]` says *the bar's
+text may have moved*, and is cheap and frequently set — the answer
 is usually "nothing differs" and nothing is drawn. `[menu_bovr]` says *our
 pixels were destroyed*, is rare, and is the one flag in the module that
 erases. A caller that overdrew part of the bar and reached for `menu_force`
@@ -52502,7 +52572,7 @@ no hold, so a held stream would be read past the size the disk shows. The
 `WRITE_AT` that path makes is a write, so the token goes stale and the next
 chunk is simply cold.
 
-#### 22.22.6 The pointer tracks and the bar says `Compressing...`
+#### 22.22.6 The pointer tracks and the bar says how long is left
 
 **The parse is CPU work with no disk in it, and the pointer used to freeze for
 all of it** — a 160KB file is a minute of 8088 inside a lock hold (§12.8.3).
@@ -52521,17 +52591,17 @@ measured, and the kernel §18.4.7.5's 106 bytes of `kern_big` `.cold`. Uncompres
 already; the decode between them is inside the kernel's read and is not
 bracketed.
 
-**`Compressing...` goes up before the work starts** — after the refusals that
-need no work, so `Already compressed` does not flash it first — and it goes up
-**inside fpg's bar bracket** (`CURBAR_ON`, §7.4.3). The strip is drawn by
-`menu_draw_bar`, and without the bracket that composition spends `gfx_lock`'s
-promised hide: the arrow leaves the glass and a hidden arrow cannot track, so
-the first build of this read **6 moves in 150 looks** through a parse — every
-one inside the file's own read — against **144** with it (`tests/lzbig.py`). `OSAPI_TOAST`
-draws at once when the UI task holds the lock (`toast_now`, §59), and nothing
-takes it down: the progress widget no longer retires a toast (§59.8.1 keeps
-the two apart by geometry), and expiry is the idle pass's, which does not run
-until the verb returns — by which time the verdict has replaced it.
+**The file widget says it, scaled across the parse** (§12.8): `cmz_prog`
+steps it every `CMZ_PSTEP` of source and `cmz_rearm` re-scales it after each
+read and write the verb makes, so the trough fills across the whole verb and
+not just its disk work. There was a `Compressing...` toast as well, put up
+before the parse inside fpg's bar bracket (`CURBAR_ON`, §7.4.3) so that its
+composition did not spend `gfx_lock`'s promised hide - the first build without
+the bracket read **6 arrow moves in 150 looks** through a parse against
+**144** with it (`tests/lzbig.py`). §12.8.7 made a toast that is up outrank
+the widget, and this one would have hidden the bar that says how long is left
+for the whole verb, so it went: the widget is what `tests/lzbig.py` watches
+now, up from the first read to the verdict.
 
 ### 22.23 `Uncompress` — and it is the same module
 
@@ -81792,19 +81862,25 @@ provably own it: `pt_ondlg` is a dialog completion and `pt_onwake` (§54.10)
 takes the lock for its stated burst. The outcome toast — `Opened`, or why not
 — replaces it after the repaint, so nothing has to take it down.
 
-**This is `pt_save`'s `Saving...` at the other end of the same file**, and the
-argument is identical and was already written down there: an encode comes
-*before* the floppy starts, so the widget has nothing to report while it runs.
-The decode is the mirror image, and the reason it took longer to say so is
-that the load path had a different message removed for a different reason.
-That one was `Loading...`, and **removing it was right and stays right**: it
-said what the widget says better — a live bar rather than a static line — and
-it said it over the widget's own pixels. The two decisions are about different
-halves of the operation and do not contradict each other; `pt_ondlg`'s comment
-now carries both so the next reader does not have to reconstruct that.
+**A GIF save is the mirror image: `Encoding GIF`.** An encode comes *before*
+the floppy starts, so the widget has nothing to report while it runs —
+`pt_gif_out` encodes the whole file into a staging claim and only then makes
+one `OSAPI_FILE_WRITE`. So it says `Encoding GIF` at the encode's first
+instruction and **retires it** (an empty toast, §59.3) at its last, before the
+write: a toast that is up outranks the widget (§12.8.7), and the widget is
+what says how long the write has left. A BMP save has no encode, says nothing,
+and the widget reports the whole of it. There used to be a `Saving...` toast
+at all three save paths, up through the encode **and** the write, which hid the
+bar for exactly the part of a save it can measure.
 
-Two toasts and not one, because which decoder is running is a fact the user
-can act on: a GIF that takes twenty seconds and a BMP that takes four are the
+The load path once had a `Loading...` toast too, and **removing it was right
+and stays right**: it said what the widget says better — a live bar rather
+than a static line. `Decoding ...` is the other half and is put up only when
+the read has ended, so the widget reports the read and the toast the decode,
+in that order, and never both at once.
+
+Two decode toasts and not one, because which decoder is running is a fact
+the user can act on: a GIF that takes twenty seconds and a BMP that takes four are the
 same wait with different reasons behind it. Both are 12 characters against
 `TOAST_MAX`'s 24 (§59.8).
 
@@ -103622,19 +103698,19 @@ fast path and repainting the **whole content** on the next keystroke — a full
 every load. Paint's cost the artwork instead: its toast sat at `(2,2)` **on
 the picture**, and hiding it was a canvas blit.
 
-**And the erase was already written.** The bar's two composers each hold the
-record of what is on their own glass, so composing *is* the diff and one
-`font_run` puts back exactly what moved — `menu_bcell` for the menus (§12.9),
-the check word plus `menu_clkbuf` for the clock's field. A toast expiring is
-*stop composing it*. There is no fill in `toast.inc`, no `menu_inval`, and no
+**And the erase was already written.** The bar's composition holds the record
+of what is on the glass, so composing *is* the diff and one `font_run` puts
+back exactly what moved — `menu_bcell`, for the menus and the clock alike
+(§12.9). A toast expiring is *stop composing it*. There is no fill in `toast.inc`, no `menu_inval`, and no
 drawing routine in that file at all.
 
 ### 59.2 How the strip is composed
 
-`menu_draw_clock` composes it, because the strip is part of that field
-(§59.8). One routine stages the whole 25 cells: `clk_fmt`'s line first,
-right-aligned by leading spaces exactly as it always was, and then the strip
-laid over the field's **left** end.
+**It is cells in the bar's one composition** (§12.9): `menu_bar_text`
+composes the menus and the clock, and then lays the strip over whichever of
+them `toast_place` put it on — centred in the gap between the last menu and
+the clock's first glyph (§59.9), or over the clock field's **left** end when
+it does not fit there (§59.8).
 
 The strip is **inverse video** — `font_run` already takes an ink *and* a
 background, so "draw this run inverted" is `AL = CWHITE, AH = CBLACK` and
@@ -103658,28 +103734,21 @@ the right covers its last cells — the *time* — and leaves the date, and it
 puts the message exactly where the eye goes for the time. Left-aligned, the
 message arrives beside the clock and spends the date first.
 
-So the emit is **two runs** whenever the strip is narrower than the field: the
-strip, and the clock's surviving tail in the ordinary colours. They are
-disjoint cell ranges, each written exactly once, so there is no double-draw
-and no blank moment (PERFORMANCE.md Part 1) — and the check word answers every
-call in between, so it is twice per *change*, not twice per repaint.
+So the emit over the clock is **two runs** whenever the strip is narrower
+than the field: the strip, and the clock's surviving tail in the ordinary
+colours. They are disjoint cell ranges, each written exactly once, so there is
+no double-draw and no blank moment (PERFORMANCE.md Part 1) — and the runs are
+cut by what differs, so it is twice per *change*, not twice per repaint.
 
-The check word hashes the **composed field** rather than either source string,
-which is what makes a minute rolling over under a live toast a difference like
-any other. `[menu_ckstrip]` — the strip's width in cells, 0 for none — carries
-the one property of the field that hashing its characters cannot see, so a
-message can never be left up behind a clock reading that happened to hash the
-same.
-
-**Bit 7 of a `menu_bcell` byte is no longer an inversion flag.** It was, while
-the strip lived in the menus segment: `menu_bcell` is the record of what is on
-the glass, so a cell whose *character* did not change but whose *highlight*
-did had to read as a difference to `menu_bput`, and a space at the strip's
-edge was exactly that cell. With the strip out of that segment there is
-nothing inverted in it, `menu_bemit` is folded back into `menu_bar_text` as
-the one plain run it always was, and the menus are 7-bit characters again.
-Note Pad's selection still hashes with bit 15 set for the reason this used
-bit 7 (§27.8).
+**Bit 7 of a `menu_bcell` byte is the inversion flag.** `menu_bcell` is the
+record of what is on the glass, so a cell whose *character* did not change but
+whose *highlight* did has to read as a difference to `menu_bput` — and a space
+at the strip's edge is exactly that cell. `menu_bemit` masks it off to draw
+and splits the emit wherever it changes, and the half-cell white lead of
+§59.8.1 is drawn only when the run begins at the strip's own first cell.
+(While the strip had a painter of its own in the clock's field, a check word
+hashed the composed field and `[menu_ckstrip]` carried its width; both went
+when the clock became cells, §12.9.)
 
 ### 59.3 `toast_show` stages; `toast_pass` draws
 
@@ -104046,15 +104115,15 @@ convenience with a Control Panel row behind it — and it is *self-repairing* in
 a way a menu title is not: it says the same thing again a second later. It is
 also where a Macintosh puts this kind of message.
 
-**One painter, so there is no rule to break.** `menu_draw_clock` composes the
-field — clock first, strip over its left end — and emits it. "The clock may
+**One painter, so there is no rule to break.** `menu_bar_text` composes the
+field — clock first, strip over its left end — and emits what differs. "The clock may
 not draw while a toast is up" is therefore not something a second routine has
 to remember: there is no second routine, and the clock is not *suppressed*,
 it is simply not what those particular cells say. And the clock comes back on
 its own, because the strip going away is just a different composition of the
-same field. Nothing restores anything. `menu_furniture`'s `[menu_ckck] = 0`
-already meant "this field's glass is gone" and now covers both tenants, so a
-full-bar overdraw repairs a live toast for free.
+same field. Nothing restores anything. `menu_furniture` forgets every cell of
+the bar, the clock's and the strip's with the rest, so a full-bar overdraw
+repairs a live toast for free.
 
 **And it hides only what it covers** (§59.2). The strip is its message plus
 one inverted space at each end and no wider; the clock is staged
@@ -104201,9 +104270,11 @@ its `y`, and any message between 7 and 23 glyphs left the tail of a date word
 the same way. **So the cells after the strip are blanked up to the next space
 of the clock's line** — the field's NUL stopping it too — and what survives is
 whole words: a 15-glyph message shows the time, a 23-glyph one shows nothing
-beside it. Eight bytes of `.text` on both kernels (`menu_draw_clock`'s
-`.cut`), and the composed field is hashed after it as before, so the cut is
-part of the picture the clock compares against rather than a second pass.
+beside it. It is `menu_bar_text`'s `.cw`, after the strip is laid over the
+clock and only then (a strip in the gap ends before the clock's first glyph),
+and the blanks are cells of the composition like any other, so the cut is
+part of the picture the next composition compares against rather than a
+second pass.
 
 ### 59.9 …and it prefers the gap, where it covers nothing at all
 
@@ -104283,12 +104354,12 @@ exists to avoid. So `TOAST_MAX` still measures against the clock's 25 cells,
 every message in the tree still fits there, and what this section adds is that
 the ones which fit the gap cost nothing.
 
-**`toast_place` is the single decision point** and both painters read its
-answer: `[toast_scn]` = how many cells the *menus* segment holds, 0 meaning the
-clock's field takes it. `menu_bar_text` calls it after composing the titles —
-so `[menu_bend]` is this bar's and not the previous owner's — and
-`menu_draw_clock` composes a strip only while that word is 0. One writer, two
-readers, and no way for the two fields to both think they have it.
+**`toast_place` is the single decision point**: `[toast_scell]` and
+`[toast_scn]` are where the strip goes and how many cells it takes (0 = none),
+and `[toast_scov]` is 1 when that is over the clock, which is what hides the
+speaker (§34.15). `menu_bar_text` calls it after composing the titles — so
+`[menu_bend]` is this bar's and not the previous owner's — and before the
+clock, whose field's end depends on whether the speaker shows.
 
 **Bit 7 of a `menu_bcell` byte is the inversion flag again**, which §59.2 had
 retired with the strip's first tenancy of this segment. It has to be:
@@ -104356,9 +104427,17 @@ correctly reports a still screen, and the reference build got the redraw for
 free from `menu_furniture` while the incremental build legitimately declined.
 `clk_str` did not reveal it either, because `toast_gapend` calls `clk_fmt`
 itself — so the staged string was fresh while the pixels were a minute old.
-`[menu_ckck] = 0` is what makes the two builds answer the same question.
+Forgetting the clock's record was what made the two builds answer the same
+question (it was `[menu_ckck] = 0` then; it is the clock's cells, `menu_inval`,
+since the clock became cells of the bar's one composition, §12.9).
 
 #### 59.9.2 …and the gap already had a tenant: §12.8's progress widget
+
+**Superseded by §12.8.7**, and kept for the measurement that drove it: a
+toast that is up and within its time now outranks the widget, which then
+draws nothing and holds no cells, so the strip's place never depends on
+whether a disk is being read. What follows is the arrangement that came
+before — the widget reserving its cells and the strip placed around it.
 
 §59.9 took the blank cells between the last menu and the clock and called them
 "the one placement with no victim". **They are not blank.** The file-activity

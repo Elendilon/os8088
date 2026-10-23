@@ -132,7 +132,13 @@ def toast(s,pw):
     """A toast that missed the gap HIDES the speaker and leaves [vid_clk_hx]
     where it is (SPEC.md 34.15), so a progress widget armed against that edge
     is never under the strip. It used to widen the field three cells left."""
-    ui=s.ui;hx=ui._word('vid_clk_hx')
+    ui=s.ui
+    # The gap runs to the clock's first GLYPH (SPEC.md 59.9.1), so on a bare
+    # desktop even a TOAST_MAX strip fits it at 640px. A Disk window's four
+    # menus narrow it to 21 cells there - and leave 31 at 720, which is the
+    # other branch, asserted rather than skipped.
+    w=ui.open_drive('A')
+    hx=ui._word('vid_clk_hx')
     msg=b'Toast covers the speaker'           # TOAST_MAX characters
     s.m.write(ui._S('toast_buf'),msg+b'\0')
     s.m.write(ui._S('toast_ttl'),struct.pack('<H',36))
@@ -140,14 +146,17 @@ def toast(s,pw):
     s.m.write(ui._S('toast_want'),b'\1')
     s.wait(lambda:ui._byte('toast_on')==1,'toast is up')
     s.pace(.3)
-    if ui._word('toast_scn')==0:
+    if pw==640:
+        check(ui._byte('toast_scov'),'a TOAST_MAX strip misses a Disk window\'s gap at 640px')
         check(ui._word('menu_mixcap')==0,'a toast in the clock field hides the speaker')
         check(ui._word('vid_clk_hx')==hx,'...and the clock edge does not move for it')
-    else:                                    # a 720px bar fits it in the gap
-        check(pw>640,'a TOAST_MAX strip misses the gap on a 640px bar')
+    else:
+        check(not ui._byte('toast_scov'),'...and fits it at %dpx'%pw)
+        check(ui._word('menu_mixcap')!=0,'a toast in the gap leaves the speaker up')
         check(ui._word('vid_clk_hx')==hx,'a toast in the gap moves nothing')
     s.wait(lambda:ui._byte('toast_on')==0,'toast expires')
     s.wait(lambda:ui._word('menu_mixcap')!=0,'the speaker comes back')
+    ui.close(w)
     s.pace(.3);s.icon()
 
 

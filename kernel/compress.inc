@@ -1482,15 +1482,11 @@ cmz_compress:
 .long:                          ; refuses it in the same words
     cmp cl, LZ_LZB
     je .already
-    CURBAR_ON                   ; the strip is drawn by menu_draw_bar, which
-    mov ax, cmz_s_busy          ; would SPEND gfx_lock's promised hide and take
-    call cmz_say                ; the arrow off the glass for the rest of the
-    CURBAR_OFF                  ; hold - fpg's own bracket keeps it (SPEC.md
-                                ; 7.4.3). Up NOW and for the whole operation
-                                ; (22.22.6): OSAPI_TOAST draws at once for the
-                                ; lock's holder, and the idle pass that would
-                                ; expire it does not run until the verdict has
-                                ; replaced it
+                                ; NO `Compressing...` here: the file widget is
+                                ; scaled across the parse itself (cmz_prog,
+                                ; cmz_rearm), and a toast up through it would
+                                ; outrank the bar that says how long is left
+                                ; (SPEC.md 12.8.7, 22.22.6)
 %ifdef CMZ_STREAM
     CSDO mov byte [CSEG cmz_mode], 0
     call cmz_route              ; too big to hold twice? (SPEC.md 22.22.5)
@@ -3594,7 +3590,6 @@ cmz_s_alr:   db 'Already compressed', 0
 cmz_s_nomem: db 'Not enough memory', 0
 cmz_s_worse: db 'It would not get smaller', 0
 cmz_s_tail:  db "Its end won't compress", 0 ; a raw tail over 64KB (20.15.4)
-cmz_s_busy:  db 'Compressing...', 0
 cmz_s_tmpn:  db 'CMPRESS~.TMP', 0  ; a streamed Compress's new file (22.22.5)
 CMZ_TMPL     equ $ - cmz_s_tmpn    ; ...13 with its NUL, fm_ebuf's size -
 %if CMZ_TMPL != 13                 ; and cmz_jtmpn's cmz_cs13 moves exactly 13

@@ -632,9 +632,9 @@
   "sources": [
    "apps/loom"
   ],
-  "stamped": "7ec8cb8a",
-  "strings": "59bb257edd8ea46a",
-  "why": "checked: New Project starter packs as-is (page updated), Preview status line text updated; pack refusals lost their spec citations (page quotes none)"
+  "stamped": "6495d304",
+  "strings": "f1ec8a4b0eb77b99",
+  "why": "the Packing toast now brackets only the compile; the status line, which the page describes, still says Packing... for the whole verb - unchanged"
  },
  "MEDIA": {
   "sources": [],
@@ -774,9 +774,9 @@
   "sources": [
    "apps/paint"
   ],
-  "stamped": "e4576a70",
-  "strings": "3dcd43ffda068c4a",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "6495d304",
+  "strings": "6aad204f2e3bef9f",
+  "why": "Saving... toast replaced by Encoding GIF around a GIF's encode; the page's save paragraph rewritten to match"
  },
  "PAPER_TEX": {
   "sources": [],

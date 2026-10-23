@@ -2280,8 +2280,8 @@ clk_fbuf:   resb 5              ; one field's text, same ownership. The widest
 ;
 ; (a) NOTHING WRITES clk_str BEFORE THE PROBE HAS RETURNED. clk_str is named
 ;     at exactly two places in the tree, both inside clk_fmt (.text), and
-;     clk_fmt at exactly two, menu.inc's menu_draw_clock and toast.inc's
-;     toast_gapend. kmain is a straight line: OVLCALL clk_init is at MARK 6,
+;     clk_fmt at three, menu.inc's menu_bar_text and menu_sound and
+;     toast.inc's toast_place. kmain is a straight line: OVLCALL clk_init is at MARK 6,
 ;     menu_init a hundred lines later, and the first wm_paint_all after MARK
 ;     32. The loading screen is splash.inc's and names no clk_ symbol.
 ;

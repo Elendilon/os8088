@@ -9357,7 +9357,7 @@ SOAK = [
         "perfectly and leaks or cross-links another. And BIG2's "
         "Compress is WATCHED (22.22.6): the mouse swings through the parse and "
         "the arrow must move with the lock held (144 moves; the first build, "
-        "whose toast spent the hide, read 6) while `Compressing...` stays up",
+        "whose toast spent the hide, read 6) while SPEC.md 12.8's widget stays up (12.8.7 retired the `Compressing...` toast)",
         needs=("marty",), serial=True, wants=("build/os8088.img",)),
     Row("czjoin", "soak", py("tests/czjoin.py"), 200.0,
         "SPEC.md 20.17 and 22.23.5: File > Uncompress on a PART of a split "
@@ -15384,6 +15384,21 @@ SOAK = [
         "59.7's clamp holds - it clips rather than reaching the menus), and "
         "an expiry that clears [toast_on] without redrawing reports the bed "
         "left on the glass, cell by cell.",
+        needs=("marty",), serial=True),
+    Row("toastfpg", "soak", py("tests/toastfpg.py"), 15.0,
+        "A TOAST THAT IS UP AND WITHIN ITS TIME OUTRANKS THE FILE WIDGET, AND "
+        "THE WIDGET HAS THE BAR BACK THE MOMENT THE TOAST'S TIME IS SPENT "
+        "(SPEC.md 12.8.7). Three launches of the Calculator off B:, the toast "
+        "POKED at the first fpg_arm with the guest stopped so it is up before "
+        "the widget's first pixel: none (fpg_paint runs - the baseline that "
+        "makes the other two mean anything), one longer than the load (the "
+        "widget still arms and never paints with the toast up), and one that "
+        "dies three ticks in (the widget paints INSIDE the freeze, with "
+        "[toast_on] still set and not before the toast's last tick - "
+        "toast_up asks the clock because the idle pass that retires a toast "
+        "cannot run inside the freeze). MEASURED 12s. VERIFIED RED both ways: "
+        "fpg_vis ignoring the toast paints in leg B, and toast_up reading "
+        "[toast_on] alone leaves leg C with no paint until the idle pass.",
         needs=("marty",), serial=True),
     Row("sbar", "soak", py("tests/sbar.py"), 20.0,
         "SPEC.md 13.10: the shared scroll bar, and the two kernel bars are"

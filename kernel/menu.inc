@@ -34,21 +34,22 @@
 ; persistent and what is a transient VRAM overlay is subtle, and two
 ; copies of it would drift.
 ;
-; The right end of the bar is the system clock (SPEC.md 12.1): drawn by
-; menu_draw_clock, repainted once a second by the UI task, and - because
-; ui.inc hit-tests its cell before menu_track ever sees the click - a
-; shortcut to the Control Panel's Date/Time page rather than a menu title.
+; The right end of the bar is the system clock (SPEC.md 12.1): composed with
+; the menus, repainted once a minute (a second, with seconds shown) by the UI
+; task, and - because ui.inc hit-tests its cell before menu_track ever sees
+; the click - a shortcut to the Control Panel's Date/Time page rather than a
+; menu title.
 ;
-; **THE BAR IS THREE SEGMENTS AND EACH ANSWERS FOR ITSELF** (SPEC.md 12.9).
-; The logo never changes, the menus change when the owner does, the clock
-; changes once a minute, and SPEC.md 12.8's file-activity widget borrows the
-; right end of the menus. Those are four cadences and there used to be one
-; flag, so any of them moving white-filled the whole bar and put every glyph
-; back - tens of milliseconds of a BLANK bar on a 4.77MHz machine, on every
-; window operation. Now [menu_bovr] owns the static furniture and is the only
-; thing here that erases, the menus are composed into menu_bcell and emitted
-; as the one font_run span that differs from what is on the glass, and the
-; clock has a check word of its own.
+; **THE BAR IS ONE COMPOSITION** (SPEC.md 12.9). The logo never changes, the
+; menus change when the owner does, the clock changes once a minute, a toast
+; comes and goes, and SPEC.md 12.8's file-activity widget borrows the cells
+; against the clock. Those are five cadences and there used to be one flag,
+; so any of them moving white-filled the whole bar and put every glyph back -
+; tens of milliseconds of a BLANK bar on a 4.77MHz machine, on every window
+; operation. Now [menu_bovr] owns the static furniture and is the only thing
+; here that erases, and everything lettered - menus, clock, toast strip - is
+; composed into menu_bcell and emitted as the runs that differ from what is
+; on the glass.
 ; =============================================================================
 
 ; --- the kernel's own commands (SPEC.md 12.3; reconstructed by ui.inc) -------
@@ -163,64 +164,32 @@ MENU_NAME_X    equ 40           ; app-name label pen x
 MENU_NAME_PAD  equ 16           ; gap after the name, before the first menu
 MENU_TITLE_PAD equ 16           ; per-title cell padding (8px each side)
 
-; --- the bar is THREE SEGMENTS, and each is redrawn on its own (SPEC.md 12.9)
-; The logo never changes, the menus change when the owner does, the clock
-; changes once a minute, and the file-activity widget (SPEC.md 12.8) borrows
-; the right end of the menus segment. Redrawing any of them used to redraw
-; all of them - one white fill across the whole bar and then every glyph put
-; back, which on a 4.77MHz machine is tens of milliseconds of a BLANK bar
-; and is the double-draw flash of PERFORMANCE.md Part 1 in its plainest form.
+; --- the bar is ONE COMPOSITION, and only what changed is drawn (SPEC.md 12.9)
+; The logo is a bitmap, drawn only after an overdraw. Everything lettered is
+; composed into menu_bcell, one byte per 8px cell from MENU_TXT_X0:
 ;
-;   x 0 .. MENU_TXT_X0-1     the logo. Static: drawn only when something
-;                            painted OVER the bar ([menu_bovr]).
-;   x MENU_TXT_X0 .. hx-1    the menus: the app name and every cell title,
-;                            composed into menu_bcell and emitted as the
-;                            font_run span(s) that differ from what is already
-;                            on the glass - AND, in the free gap past the last
-;                            title, the toast strip when it fits there
-;                            (SPEC.md 59.9).
-;   x [vid_clk_hx] .. w-1    the clock - and the toast strip when it does NOT
-;                            fit that gap (SPEC.md 59.8), taking the LEFT end
-;                            of this field in inverse video on the same check
-;                            word. It is only as wide as its message, so what
-;                            is left of the field goes on showing the time.
+;   cells 0 .. [menu_bn]-1      the menus: the app name and every title
+;   [menu_bn] .. [menu_bc0]-1   SPEC.md 12.8's widget, while it SHOWS
+;   [menu_bc0] .. menu_ckend    the clock, right-aligned by leading spaces
+;   ...and then the toast strip, inverted, over the gap the menus leave or
+;   over the clock's field when it does not fit there (SPEC.md 59.9)
 ;
-; **THE TOAST HAS TWO HOMES AND ONE PREFERENCE** (SPEC.md 59.9), and both of
-; them are corrections of the one before. It began at the right end of the
-; MENUS segment, where a long enough message covered the frontmost
-; application's own menu titles: the strip sat on File, Edit and View and
-; menu_bput's clamp dropped them, which reads as an application losing its
-; menus rather than as a message arriving. 59.8 moved it to the CLOCK, which
-; is the right neighbour to displace for a reason about kind rather than room -
-; it is the one thing on the bar that is never a CONTROL, nothing in that field
-; can be clicked into except SPEC.md 31.5's Date/Time shortcut, it says the
-; same thing again a second later, and it is where a Macintosh puts this kind
-; of message.
+; and the speaker's picture sits in the last 24px before the margin while it
+; shows (SPEC.md 34.15). menu_bcell is also the record of what is on the
+; glass, so composing it IS the diff, and the padding is the erase.
 ;
-; 59.9 adds the placement that has no victim at all. The menus end wherever
-; the active application's last title ends, and everything from there to
-; [vid_clk_hx] is blank white - so a message that FITS between them is
-; centred in that gap and covers neither a menu title nor a clock cell. Only
-; when it will not fit does it fall back to 59.8's clock field and cost the
-; date. So the width the messages are written against is still the clock's -
-; the field is 25 cells on every screen this runs on, against the menus
-; segment's 50, which is what TOAST_MAX = 23 is - and the gap is a bonus
-; rather than a constraint, because a message may never depend on how many
-; menus the application in front happens to have.
-;
-; MENU_TXT_X0 is a glyph-cell boundary and so is [vid_clk_hx], so a segment
-; is a whole number of 8px cells - which is what earns font_run's single-pass
+; MENU_TXT_X0 is a glyph-cell boundary and so is [vid_clk_hx], so the bar is
+; a whole number of 8px cells - which is what earns font_run's single-pass
 ; path (SPEC.md 6.1) on the two mono adapters, where a cell row is one store
 ; and the run is never momentarily blank. Everything the bar lays out is
 ; therefore snapped to 8 as well: MENU_NAME_X, MENU_TITLE_PAD's half, and
 ; the name cell's own edges.
 MENU_TXT_X0 equ 32              ; the menus segment's left edge (8-aligned,
                                 ; and clear of MENU_SYS_XR = 29)
-MENU_BCMAX  equ 62              ; cells in it, worst case: Hercules is 720
-                                ; wide, so [vid_clk_hx] = (720-206) & ~7 =
-                                ; 512 and the segment is (512-32)/8 = 60.
-                                ; menu_bar_text clamps to the LIVE count, so
-                                ; this only has to be big enough
+MENU_BCMAX  equ (720 - 8 - MENU_TXT_X0) / 8 ; cells on the bar, worst case:
+                                ; Hercules is 720 wide and the margin is 8, so
+                                ; the menus, the widget and the clock are 85
+                                ; cells between them (SPEC.md 12.9)
 
 MENU_TEXT_Y equ 6               ; title text row (8px glyphs in a 19px bar)
 MENU_LOGO_Y equ 4               ; logo glyph top row (11px tall)
@@ -291,10 +260,6 @@ MENU_CLK_HX equ (MENU_CLK_X - 6) & 0FFF8h   ; 432: hit band left edge, and the
                                             ; left edge of the clock SEGMENT -
                                             ; floored to a glyph cell, so the
                                             ; field is a whole number of them
-MENU_CLKC   equ 26              ; menu_clkbuf: the field is 25 cells on both
-                                ; screen widths ((w-8 - (w-206 & ~7)) / 8),
-                                ; and the longest form is 24 glyphs, so the
-                                ; pad is never negative. + the NUL
 
 ; -----------------------------------------------------------------------------
 ; menu_init - boot state: Locator owns the bar (SPEC.md 12)
@@ -849,9 +814,9 @@ menu_des:
 ; The other thing that sets the flag is somebody having drawn OVER the bar,
 ; which only two things can do - a fullscreen window (SPEC.md 11.2) and a
 ; dropped menu whose save-under was refused - so wm_paint_all and menu_track
-; set it rather than reason about it. The clock is outside all of this:
-; menu_draw_clock fills its own cell and is what the UI task's own clock
-; step calls direct - nothing to do with the Timer app (SPEC.md 14).
+; set it rather than reason about it. The UI task's own clock step calls
+; menu_draw_clock direct - the clock's cells and nothing else - and it has
+; nothing to do with the Timer app (SPEC.md 14).
 ; -----------------------------------------------------------------------------
 menu_draw_bar:
     call kent_di                ; = push ax/bx/cx/dx/si/di
@@ -884,23 +849,26 @@ menu_draw_bar:
     cmp byte [menu_bovr], 0     ; --- segment 1: the static furniture -------
     je .txt                     ; only ever owed after an OVERDRAW
     call menu_furniture
-    cmp byte [fpg_on], 0        ; ...and that fill took SPEC.md 12.8's widget
-    je .txt                     ; with it, which since 12.8.3 can be up across
+    test byte [fpg_on], FPG_SHOWN   ; ...and that fill took SPEC.md 12.8's
+    jz .txt                     ; widget with it, which can be up across
     call fpg_paint              ; a repaint at all. Its own pixels only - the
                                 ; cells are already ours, the text pass below
                                 ; keeps off them, and fpg_paint deliberately
                                 ; does not call back into this routine
 
 .txt:
-    mov al, 0                   ; --- segment 2: the menus ------------------
+    mov al, 0                   ; --- the text: menus, clock and toast -----
     xchg al, [menu_bdirty]      ; taken and cleared in one exchange (size
     or al, al                   ; pass 10: 2 bytes; AX is banked above)
     jz .clock
-    call menu_bar_text
-
+    call menu_bar_text          ; the whole bar's cells (SPEC.md 12.9)...
+%ifdef OS88_SNDCARD
+    call menu_sound             ; ...and the speaker, which answers to them
+%endif
+    jmp short .out
 .clock:
-    call menu_draw_clock        ; --- segment 3: the clock (SPEC.md 12.1) ---
-.out:
+    call menu_draw_clock        ; ...or only the clock's, nothing else having
+.out:                           ; moved (SPEC.md 12.1)
     jmp kret_di
 
 ; -----------------------------------------------------------------------------
@@ -952,93 +920,86 @@ menu_furniture:
                                 ; clamps to all MENU_BCMAX cells and raises
                                 ; [menu_bdirty] itself, where this carried the
                                 ; loop and the store a second time (kernel size
-                                ; pass 10: 13 bytes). It preserves AX = 0
-    mov [menu_ckck], ax
+                                ; pass 10: 13 bytes) - the clock's cells
+                                ; with them, the clock being composed there
 
     pop di
     jmp kret_dx
 
 ; -----------------------------------------------------------------------------
-; menu_bar_text - the menus segment: compose it, diff it, emit what moved
+; menu_bar_text  - the whole bar's text: compose it, diff it, emit what moved
+; menu_bar_clock - ...the clock and the toast strip only (SPEC.md 12.9)
 ; in:  nothing (caller holds the gfx lock)
 ; out: nothing (all registers preserved)
 ;
-; The bar's text is composed into menu_bcell - ONE BYTE PER GLYPH CELL, the
-; app name and every cell title at the x menu_layout gave them, spaces
-; everywhere else - and menu_bcell is also the record of what is ON THE
-; GLASS. So composing it IS the diff: the first and last cells that differ
-; bound one font_run, and a bar whose owner has not changed emits nothing at
-; all.
+; **THE BAR IS ONE COMPOSITION** (SPEC.md 12.9). Everything lettered on it -
+; the app name, every menu title, the toast strip and the clock - is composed
+; into menu_bcell, ONE BYTE PER GLYPH CELL from MENU_TXT_X0 to the margin, and
+; menu_bcell is also the record of what is ON THE GLASS. So composing it IS
+; the diff: the cells that differ are the only ones drawn, as one font_run per
+; run, and a bar whose content has not moved emits nothing at all. A minute
+; rolling over is the one digit that changed and not the 25-cell field.
 ;
-; That is the Task Manager's row check (SPEC.md 28) and Missile Command's
-; status strip (SPEC.md 48.17) applied to the chrome, and the reason it is
-; sound here is the same one: the bar is never covered (windows clamp to
-; y >= MBAR_H), so what the last emit drew is still what is showing, and the
-; only thing that can invalidate that is an overdraw - which is exactly what
-; menu_force and menu_inval say.
+; It is sound for the reason the Task Manager's row check is (SPEC.md 28): the
+; bar is never covered (windows clamp to y >= MBAR_H), so what the last emit
+; drew is still what is showing, and the only thing that can falsify that is
+; an overdraw - which is exactly what menu_force and menu_inval say. The
+; padding IS the erase: a space is an opaque cell like any other, so there is
+; no fill anywhere in this path.
 ;
-; The padding IS the erase. A space is an opaque cell like any other, so a
-; bar that got SHORTER blanks its tail in the same single pass that letters
-; its head, and there is no fill anywhere in this path.
+; Left to right, and each part has its own bound in [menu_blim]:
+;   cells 0 .. [menu_bn]-1      the menus, padded with spaces
+;   [menu_bn] .. [menu_bc0]-1   SPEC.md 12.8's widget, when it is SHOWING -
+;                               drawn straight onto the glass, composed into
+;                               nothing, its cells left 0 so the emit skips
+;                               them (FPG_CELLS of them; none otherwise)
+;   [menu_bc0] .. menu_ckend    the clock, right-aligned by leading spaces
+; and then the toast strip over whichever of those it was placed on
+; (toast_place, SPEC.md 59.9). Two painters for one strip of glass cannot
+; happen: there is one painter.
+;
+; menu_bar_clock is the same routine entered past the menus, for the UI
+; task's clock tick and for a menu_draw_bar with nothing dirty: the menus'
+; cells are already right, so what is left to compare is 25 cells.
 ; -----------------------------------------------------------------------------
-menu_bar_text:
+menu_bar_clock:
     call kent_di                ; = push ax/bx/cx/dx/si/di
     push es
+    stc                         ; CF = 1: past the menus
+    jmp short menu_bt_go
+menu_bar_text:
+    call kent_di
+    push es
+    clc
+menu_bt_go:
+    pushf                       ; ...the choice, across the prologue
 
-    mov ax, [vid_clk_hx]        ; the live segment, in whole cells - both
-    sub ax, MENU_TXT_X0         ; ends are 8-aligned by construction
+    call fpg_vis                ; --- is SPEC.md 12.8's widget on the bar?
+    sbb dx, dx                  ; DX = -1 it may be, 0 a toast outranks it
+    test byte [fpg_on], FPG_SHOWN   ; (SPEC.md 12.8.7) - and the cells are
+    jz .nores                   ; reserved only while its pixels are there
+    or dx, dx
+    jnz .res
+    call fpg_hide               ; a toast just outranked it: take it down
+.nores:                         ; (the rows outside the text band; the band
+    xor dx, dx                  ; is this composition's), and its cells are
+.res:                           ; the menus' and the clock's again
+    mov ax, [vid_clk_hx]        ; the clock field's first cell - both ends
+    sub ax, MENU_TXT_X0         ; are 8-aligned by construction
     mov cl, 3
     shr ax, cl
-    cmp ax, MENU_BCMAX
-    jbe .n
-    mov ax, MENU_BCMAX
-.n:
-    cmp byte [fpg_on], 0        ; ...and the whole of it is the menus' UNLESS
-    je .res                     ; SPEC.md 12.8's widget is up, when the last
-    sub ax, FPG_CELLS           ; FPG_CELLS of it are ITS (SPEC.md 12.8.3).
-    jns .res                    ; The widget is drawn straight onto them and
-    xor ax, ax                  ; is composed into no buffer at all, so
-.res:                           ; menu_bcell cannot see it and the diff cannot
-    mov [menu_bn], ax           ; arbitrate: two painters, one strip of glass,
-                                ; which is exactly what 59.1 exists to
-                                ; prevent.
-                                ;
-                                ; Taking it off [menu_bn] rather than off the
-                                ; toast alone is what SPEC.md 12.8.3 needed:
-                                ; the widget now outlives the operation that
-                                ; armed it, so a composition CAN happen while
-                                ; it is up - launching an application from a
-                                ; Disk window changes the bar's owner between
-                                ; the package load and the document read, with
-                                ; the machine frozen throughout - and the
-                                ; padding below would have lettered spaces
-                                ; straight through the icon and the box.
-                                ; menu_bput already drops a cell at or past
-                                ; this bound without advancing DI, and
-                                ; menu_bpadc already clamps to it (59.7), so
-                                ; one subtraction is the whole of it.
-                                ;
-                                ; The cells come back at fpg_finish, which
-                                ; clears the flag and asks for one more
-                                ; composition; what was under them is put back
-                                ; by fpg_arm's menu_inval, taken when the
-                                ; widget went up.
-                                ;
-                                ; The clamp at 0 is for a screen too narrow to
-                                ; hold both - fpg_arm refuses such a screen,
-                                ; so it cannot happen, but a negative cell
-                                ; count here would be an unsigned bound
-                                ; everywhere below
+    mov [menu_bc0], ax
+    and dx, FPG_CELLS
+    sub ax, dx                  ; the widget sits against the clock: its
+    mov [menu_bn], ax           ; cells come off the menus' end
+    mov [menu_blim], ax
 
     xor di, di                  ; DI = cell index, 0 = x MENU_TXT_X0
-    mov [menu_blast], di        ; SEEDED now that it is a maximum (menu_bput).
-                                ; It needed none while it was assigned beside
-                                ; [menu_bfirst] on every difference; 0 is
-                                ; below every cell and is read only when
-                                ; [menu_bfirst] says something differed at all
-    lea ax, [di-1]              ; ...and [menu_bfirst] = 0FFFFh, both out of
-    mov [menu_bfirst], ax       ; the zero DI already holds (kernel size pass
-                                ; 10: 2 bytes; AX is dead until .bare reloads)
+    mov [menu_blast], di        ; SEEDED: a maximum (menu_bput), read only
+    lea ax, [di-1]              ; when [menu_bfirst] says something differed
+    mov [menu_bfirst], ax       ; ...and [menu_bfirst] = 0FFFFh
+    popf
+    jc .clock
 
     mov bx, [menu_abcell]       ; --- the application's name ----------------
     or bx, bx                   ; a CELL when the application declared an
@@ -1072,32 +1033,51 @@ menu_bar_text:
     jbe .bend                   ; MB_XL + 8 with MENU_TITLE_PAD split 8px each
     mov ax, [menu_bn]           ; side - so that cell is still inside the last
 .bend:                          ; menu's BOX and the one after it is the first
-    mov [menu_bend], ax         ; that no menu owns. Clamped, because the gap
-                                ; arithmetic subtracts this from [menu_bn]
+    mov [menu_bend], ax         ; that no menu owns
 
-    mov ax, [menu_bn]           ; spaces to the clock: this is what erases
-    call menu_bpadc             ; the menus of the app that just went away -
-                                ; AND, on a toast's down edge, the strip below
+    mov ax, [menu_bn]           ; spaces to the menus' end: this is what erases
+    call menu_bpadc             ; the menus of the app that just went away
 
-    call toast_place            ; --- and the toast strip, if the gap those
-    mov cx, [toast_scn]         ; spaces just laid down is wide enough for it
-    jcxz .diff                  ; (SPEC.md 59.9); 0 = the clock's field has it
-    mov di, [toast_scell]       ; and nothing here is owed
+.clock:
+    call toast_place            ; --- where the strip goes, FIRST: it decides
+                                ; whether the speaker shows, and so where the
+    call menu_ckend             ; clock's field ends (SPEC.md 34.15)
+    mov [menu_blim], ax
+    xchg ax, dx                 ; DX = the field's end cell
+    call clk_fmt                ; SI = the line, CX = its glyphs (18..24)
+    mov ax, dx
+    sub ax, cx                  ; AX = the cell its first glyph lands in
+    mov di, [menu_bc0]
+    call menu_bpadc             ; the leading spaces, which are the erase of a
+.cg:                            ; longer line that went before
+    lodsb
+    call menu_bput
+    loop .cg
+
+    mov cx, [toast_scn]         ; --- and the toast strip over it, if one is
+    jcxz .diff                  ; up and within its time (SPEC.md 59.9)
+    mov di, [toast_scell]
     mov al, ' ' | 0x80
     call menu_bput              ; the gap cell: menu_bemit white-fills its left
-    dec cx                      ; 4px after the run, so both homes pad alike
-    jcxz .strail
+    dec cx                      ; 4px after the run (SPEC.md 59.8.1)
+    jcxz .cut
     mov si, toast_buf
 .sch:
-    lodsb                       ; ...the message, **BIT 7 SET ON EVERY CELL**
-                                ; (SPEC.md 59.2): menu_bcell is the record of
-    or al, 0x80                 ; what is on the glass, so a cell whose
-    call menu_bput              ; CHARACTER did not change but whose HIGHLIGHT
-    loop .sch                   ; did has to read as a difference to menu_bput -
-.strail:                        ; and a space at the strip's edge is exactly
-                                ; that cell. menu_bemit masks it off to draw.
-                                ; NO trailing cell: SPEC.md 59.8.1's font
-                                ; argument holds here too
+    lodsb                       ; **BIT 7 SET ON EVERY CELL** (SPEC.md 59.2):
+    or al, 0x80                 ; a cell whose CHARACTER did not change but
+    call menu_bput              ; whose HIGHLIGHT did has to read as a
+    loop .sch                   ; difference. menu_bemit masks it off to draw
+.cut:
+    cmp byte [toast_scov], 0    ; ...and over the CLOCK, the cells after it are
+    je .diff                    ; blanked to the end of the word they cut into,
+.cw:                            ; so no fragment of the date is left standing
+    cmp di, [menu_blim]         ; beside it (SPEC.md 59.8.2)
+    jae .diff
+    cmp byte [menu_bcell+di], ' '
+    je .diff
+    mov al, ' '
+    call menu_bput
+    jmp short .cw
 
 .diff:
     mov bx, [menu_bfirst]       ; --- emit the span(s) that moved -------------
@@ -1105,35 +1085,41 @@ menu_bar_text:
     je .out                     ; nothing on the bar changed: no pixels
     mov dx, [menu_blast]
 
-.piece:                         ; AT MOST THREE RUNS, and exactly one whenever
-    mov al, [menu_bcell+bx]     ; the strip is not in this segment: the span is
-    and al, 0x80                ; split wherever the inversion changes, and
-    mov si, bx                  ; 59.9's strip is the only thing that inverts
+.piece:                         ; the span is split wherever the inversion
+    mov al, [menu_bcell+bx]     ; changes - the strip is the only thing that
+    or al, al                   ; inverts - and wherever a cell is 0, which is
+    jnz .pz                     ; a cell nobody composed: the widget's, when a
+    inc bx                      ; menu and the clock moved in one composition
+    jmp short .pnext            ; on either side of it
+.pz:
+    and al, 0x80
+    mov si, bx
 .pscan:
     inc si
     cmp si, dx
     ja .pemit
-    mov ah, [menu_bcell+si]     ; same highlight as the piece? AL is 0 or
-    xor ah, al                  ; 80h, so the XOR's sign IS the answer (size
-    jns .pscan                  ; pass 10: 3 bytes)
+    mov ah, [menu_bcell+si]
+    or ah, ah
+    jz .pemit
+    xor ah, al                  ; same highlight as the piece? AL is 0 or
+    jns .pscan                  ; 80h, so the XOR's sign IS the answer
 .pemit:
     push dx                     ; the piece is BX .. SI-1, and SI is the next
     push si                     ; piece's first cell
     dec si
     mov dx, si
     mov [menu_binv], al         ; SPEC.md 76.3: the STRIP, SAID rather than
-    or al, al                   ; inferred - and AL already IS the inversion
-    jz .pnorm                   ; bit, so this is the bit and not a literal
+    or al, al                   ; inferred
+    jz .pnorm
     call thm_rpair              ; INVERSE VIDEO, the one distinction that
-                                ; survives SPEC.md 39.4's reduction intact
-    jmp short .pgo              ; on both mono adapters
+    jmp short .pgo              ; survives SPEC.md 39.4's reduction intact
 .pnorm:
     call thm_pair
-                                
 .pgo:
     call menu_bemit
     pop bx
     pop dx
+.pnext:
     cmp bx, dx
     jbe .piece
 .out:
@@ -1199,6 +1185,9 @@ menu_bemit:
 
     cmp byte [menu_binv], 0     ; the STRIP: take its first cell's left 4px
     je .nogap                   ; back to the ground, so the gap home pads
+    cmp bx, [toast_scell]       ; - ITS first cell, not the first of a run
+    jne .nogap                  ; that began inside it because only the
+                                ; message's tail changed
     mov ax, cx                  ; as the clock home does (SPEC.md 59.8.1).
     add cx, 3                   ; Drawn and then half-erased rather than
                                 ; composed as two halves, because menu_bcell
@@ -1312,7 +1301,7 @@ menu_bpadc:
                                 ; UI. Clamping here rather than at the two
                                 ; callers is what keeps the invariant a
                                 ; property of the routine
-    cmp di, [menu_bn]           ; **AND THE BOUND IS RE-READ EVERY PASS.** The
+    cmp di, [menu_blim]           ; **AND THE BOUND IS RE-READ EVERY PASS.** The
     jae .d                      ; clamp above caches [menu_bn] in BX, and the
                                 ; field hung a machine right here with the bar
                                 ; padded to 60 cells and [menu_bn] BELOW the
@@ -1344,7 +1333,7 @@ menu_bstr:
     or al, al                   ; never seen (kernel size pass 10: 2 bytes)
     jz .d
     call menu_bput
-    cmp di, [menu_bn]
+    cmp di, [menu_blim]
     jb .n
 .d:
     pop si
@@ -1352,7 +1341,7 @@ menu_bstr:
     ret
 
 menu_bput:
-    cmp di, [menu_bn]
+    cmp di, [menu_blim]
     jae .out                    ; past the segment: dropped, exactly as
                                 ; menu_layout drops a cell that will not fit
     cmp [menu_bcell+di], al     ; DI-based: [di+disp16] is an 8086 mode, so
@@ -1387,292 +1376,48 @@ menu_bput:
     ret
 
 ; -----------------------------------------------------------------------------
-; menu_draw_clock - draw the right-hand field: the clock, or a toast over it
+; menu_draw_clock - bring the clock's cells up to date (SPEC.md 12.1)
 ; in:  nothing (caller holds the gfx lock)
-; out: nothing
-; clobbers: nothing (flags only; leaves [gfx_color] = CBLACK)
+; out: nothing (all registers preserved)
 ;
-; **The clock is its own segment and answers for itself** (SPEC.md 12.9).
-; menu_draw_bar calls it on every window operation and ui_task calls it once
-; a second, and the string changes once a MINUTE - so the first thing it does
-; is check. It used to erase 206px of bar and re-letter ~20 glyph cells every
-; time, which on a 4.77MHz machine is tens of milliseconds of a blank clock
-; for content that had not moved: the flash was the whole cost, since nothing
-; had changed to justify it.
-;
-; When it HAS changed it is one opaque font_run over a fixed field - the
-; string right-aligned inside it by LEADING SPACES, which is what makes the
-; erase and the lettering one pass instead of two (SPEC.md 6.1). The field is
-; [vid_clk_hx] .. w-9, both ends on glyph cells, so a shorter form blanks the
-; cells it gave up in the same pass. No wm_obscured check: windows clamp to
-; y >= MBAR_H, so nothing can ever cover the bar. Ordinary persistent content
-; - it is drawn like everything else and the caller's
-; gfx_unlock flushes it (SPEC.md 32).
-;
-; **AND IT IS THE TOAST STRIP'S PAINTER TOO** (SPEC.md 59.8). While [toast_on]
-; is set, the LEFT end of this field is the message, in inverse video, and
-; the rest of it is still the clock - so "the clock may not draw over a toast"
-; is not a rule anybody has to obey, because there is no second painter to
-; obey it. The field is composed once, whole, and whoever owns a cell owns it.
-; That is the same argument menu_bcell makes for the menus and it buys the
-; same two things: the strip cannot diverge from a full repaint, because
-; menu_furniture's `[menu_ckck] = 0` says "this field's glass is gone" about
-; whatever is on it; and the clock COMES BACK by itself when the message
-; expires - toast_pass calls menu_draw_bar, this runs, the strip is 0 cells
-; wide, the composed field differs from what is recorded, and the whole thing
-; is re-lettered. Nothing has to remember that a toast was ever there.
-;
-; **THE STRIP HIDES ONLY WHAT IT COVERS.** It is as wide as its message plus
-; one inverted space at each end and no wider, and the clock is staged into
-; the field FIRST - right-aligned, as it always was - so the cells the strip
-; does not reach go on showing the time. A short message lands entirely in the
-; leading spaces and the clock is not touched at all; a longer one eats into
-; the date from the left, which is the end worth losing, because the time is
-; what the corner is for. Blanking the field whole would have been one run
-; instead of two and is the wrong answer: a toast is three seconds long and
-; the clock is the one thing on the bar somebody may be watching.
-;
-; That is what makes it the LEFT end and not the right, which was the first
-; cut: right-aligned, a snug strip covers the clock's last cells - the time -
-; and leaves the date, and it also puts the message where the eye goes for the
-; time. Left-aligned it costs the date first and reads as a message arriving
-; beside the clock.
-;
-; So the emit is TWO runs whenever the strip is narrower than the field: the
-; strip in inverse video and the clock's surviving tail in the ordinary
-; colours. They are disjoint cell ranges, each written exactly once, so there
-; is no double-draw and no blank moment (PERFORMANCE.md Part 1) - and the
-; check word answers every call in between, so it is twice per CHANGE and not
-; twice per repaint.
-;
-; [menu_ckstrip] is what makes that check exact rather than probable. The
-; check word hashes the composed FIELD - message and surviving clock together,
-; which is why a minute rolling over under a live toast still redraws - and
-; the strip's WIDTH is the one thing about the field that hashing its
-; characters cannot see. One byte, one compare.
+; The clock is composed into the bar's own cells (menu_bar_text, SPEC.md 12.9),
+; so a minute rolling over is the digit that changed, lettered by one font_run
+; - measured on a 4.77MHz 5150 with a CGA, 40,791 cycles when this field
+; was its own painter and re-lettered all 25 cells, 20,111 now. Then
+; the speaker, whose picture and geometry answer to what was just composed.
 ; -----------------------------------------------------------------------------
-; menu_clkcells - the clock field's width, in whole glyph cells (SPEC.md 12.9)
-; in:  nothing
-; out: AX = ([vid_wm8] - [vid_clk_hx]) / 8, clamped to MENU_CLKC - 1
+menu_draw_clock:
+    call menu_bar_clock
+%ifdef OS88_SNDCARD
+    jmp menu_sound
+%else
+    ret
+%endif
+
+; -----------------------------------------------------------------------------
+; menu_ckend - the cell the clock's field ends at (SPEC.md 12.9, 34.15)
+; out: AX = that cell, counted from MENU_TXT_X0
 ; clobbers: CX (the shift count), flags
 ;
-; The LIVE geometry words, never the SCREEN_W reference values (SPEC.md 39).
-; The clamp is the buffer's: menu_clkbuf is the field plus its NUL, and a
-; screen wider than any this runs on is the one thing that would notice.
-;
-; Written out twice until size pass 2 - here and toast.inc's toast_gapend,
-; whose copy already carried the comment "menu_draw_clock's own arithmetic,
-; and clamped the same way".  Both are `.text`, so the call is near.  CX is
-; spendable at both: each banks it and each loads it from clk_fmt afterwards.
+; The bar's margin, or the speaker's left edge while the speaker shows - which
+; is while a toast is not covering the clock ([toast_scov], SPEC.md 34.15).
+; [vid_wm8] and not [menu_mixx]: the speaker is always the last 24 pixels
+; before the margin, and this is asked before menu_sound has ever run.
 ; -----------------------------------------------------------------------------
-menu_clkcells:
+menu_ckend:
     mov ax, [vid_wm8]
 %ifdef OS88_SNDCARD
-    cmp word [menu_mixcap], SND_CAP_MIXER
-    jne .plain                  ; the speaker, if it is SHOWING, ends the field
-    mov ax, [menu_mixx]         ; (SPEC.md 34.15) - a toast can hide it
-.plain:
+    cmp byte [toast_scov], 0
+    jne .p
+    test word [drv_svc+DSV_CAPS], SND_CAP_MIXER
+    jz .p
+    sub ax, 24
+.p:
 %endif
-    sub ax, [vid_clk_hx]
+    sub ax, MENU_TXT_X0
     mov cl, 3
     shr ax, cl
-    cmp ax, MENU_CLKC - 1
-    jbe .fw
-    mov ax, MENU_CLKC - 1
-.fw:
     ret
-
-menu_draw_clock:
-%ifdef OS88_SNDCARD
-    call menu_sound
-%endif
-    call kent_di                ; = push ax/bx/cx/dx/si/di
-    push es
-
-    call menu_clkcells          ; --- the field, in whole cells, clamped
-    mov bx, ax                  ; (BX = 0 is refused at .hash, below)
-    call clk_fmt                ; SI = the line in its live form and CX = its
-                                ; length (SPEC.md 37), ALWAYS - a toast covers
-                                ; only the cells it needs and the rest of the
-                                ; field is still the clock, so there is no
-                                ; branch to take here. It is below the field
-                                ; arithmetic and not above it because that
-                                ; arithmetic needs CL for its shift
-    cmp cx, bx                  ; --- the clock's length, clamped to the field
-    jbe .stage
-    mov cx, bx                  ; a form wider than the field cannot happen
-                                ; (24 glyphs into 25 cells), but it must not
-                                ; underflow the pad into a 64KB rep stosb
-.stage:
-    mov ax, bx                  ; --- the clock, right-aligned by LEADING
-    sub ax, cx                  ; SPACES, which is what makes the erase and
-    push ds                     ; the lettering one pass instead of two
-    pop es                      ; (SPEC.md 6.1). The staging buffer is ours
-    mov di, menu_clkbuf
-    cld
-    push cx
-    mov cx, ax
-    mov al, ' '
-    rep stosb                   ; NO jcxz round either copy: a REP with CX = 0
-    pop cx                      ; moves nothing and leaves DI where it was,
-    rep movsb                   ; which is all the guards bought (kernel size
-                                ; pass 10: 4 bytes). DS:SI -> ES:DI, the live
-                                ; string
-    mov byte [es:di], 0         ; DI = the field's end: pad + text is exactly
-                                ; the field by construction
-
-    xor dh, dh                  ; --- and the toast strip over its left end,
-    cmp byte [toast_on], 0      ; DH = how many cells of it are the strip
-    je .hash
-    cmp word [toast_scn], 0     ; ...unless the MENUS segment took it, which is
-    jne .hash                   ; SPEC.md 59.9's first choice and costs this
-                                ; field nothing: the strip is then wholly in
-                                ; the gap the menus left and no clock cell is
-                                ; covered at all. One flag, read by the two
-                                ; painters, written by toast_place alone
-    mov si, toast_buf           ; ...its length, plus the inverted space at
-    call str_len                ; each end
-    inc cx                      ; the gap cell plus n glyph cells (SPEC.md
-                                ; 59.8.1) - where this was n+2, one whole
-                                ; inverted cell of padding at each end
-    cmp cx, bx
-    jbe .wide
-    mov cx, bx                  ; wider than the whole field: it takes the lot
-.wide:                          ; and truncates (TOAST_MAX = 23 into 25 cells,
-    cmp cx, 2                   ; so unreachable) - and a field too narrow to
-    jb .hash                    ; hold even the padding gets no strip at all,
-                                ; because the two decs below would wrap
-    mov dh, cl
-    mov di, menu_clkbuf
-    mov si, toast_buf
-    mov al, ' '
-    stosb                       ; cell 0 is the GAP, and it is a SPACE so the
-    dec cx                      ; ordinary clock run paints it white for free
-    rep movsb                   ; ...and the message from cell 1, on the grid
-                                ; (CX >= 1 here anyway: the `jb` above)
-.cut:                           ; ...and NO PIECE OF A CLOCK WORD after it: a
-    scasb                       ; strip that ends inside the line ate the
-    jae .hash                   ; front of a word, and what it left was a stray
-    mov [di-1], al              ; digit beside the message (SPEC.md 59.8.2).
-    jmp short .cut              ; Blanked to the next space - or the NUL, the
-                                ; `jae` (AL = ' ' >= the cell) taking both.
-                                ; scasb and not cmp/stosb: EIGHT bytes, even,
-                                ; so ui_task's parity holds (t_hotpar)
-
-.hash:
-    xor ax, ax                  ; --- one check word over the composed FIELD,
-    mov si, menu_clkbuf         ; so a minute rolling over beside a live toast
-    mov cx, bx                  ; is a difference like any other
-    jcxz .jout                  ; ...and a field of NO cells has nothing to
-                                ; hash: `loop` with CX = 0 runs 65,536 times.
-                                ; Unreachable - the field is 25 cells on every
-                                ; width, both ends being derived from it - but
-                                ; this is the only routine that would find
-                                ; out. Asked HERE and not at the top: with BX
-                                ; = 0 every step above clamps to an empty copy
-                                ; and writes one NUL into menu_clkbuf, and
-                                ; .jout is in short reach where .out is not
-                                ; (kernel size pass 11: -5, and the live path
-                                ; pays a 6-cycle jcxz for the 19 cycles of
-                                ; `or` plus the relaxed `jz` pair)
-.h:
-    rol ax, 1                   ; position-sensitive: '10:23' and '23:10' are
-    xor al, [si]                ; different times
-    inc si
-    loop .h
-    or ax, ax
-    jnz .hok
-    inc ax                      ; 0 means 'nothing has been drawn' - never a
-.hok:                           ; live key (the tm_elchk rule)
-    cmp ax, [menu_ckck]
-    jne .draw
-    cmp dh, [menu_ckstrip]      ; ...and the same characters split differently
-    je .jout                    ; are a different field
-.draw:
-    mov [menu_ckck], ax
-    mov [menu_ckstrip], dh
-
-    mov al, dh                  ; the strip's width, out of DH before DX is
-    cbw                         ; loaded: MENU_TEXT_Y fits in DL and so zeroes
-    xchg ax, di                 ; DH, which would read as "no toast" every time.
-                                ; DH <= the field's 25 cells, so `cbw` is a zero
-                                ; extension; AX is reloaded on both paths below
-    mov dx, MENU_TEXT_Y
-    mov cx, [vid_clk_hx]
-    mov si, menu_clkbuf
-    or di, di
-    jnz .strip
-    call thm_pair               ; --- no toast: one opaque pass over the lot
-                                
-    call font_run
-.jout:
-    jmp short .out
-.strip:
-    mov al, [menu_clkbuf+1]     ; --- cell 0 FIRST, in the clock's own colours:
-    push ax                     ; it is a space, so this is the 4px white gap
-    mov byte [menu_clkbuf+1], 0 ; that keeps the bed off SPEC.md 12.8's widget
-    call thm_pair               ; (whose trough fills BLACK) - and it is free,
-                                ; the clock having to paint that cell anyway
-    call font_run
-    pop ax
-    mov [menu_clkbuf+1], al
-
-    mov ax, cx                  ; --- the 4px black lead. No glyph can do this:
-    add ax, 4                   ; the table is 95 glyphs, ASCII 32..126 (6.2),
-    push cx                     ; so CP437's half-block is not available,
-    add cx, 4 + 3               ; and a gfx_fill costs PERFORMANCE.md Part 2's
-    pushf                       ; per-call floor almost exactly (4,142 cycles,
-    push ax                     ; the 32 pixels ~110us of it), so a wider lead
-    push bx                     ; would cost the same. (x2 off CX itself, not
-    push dx                     ; through AX: 2 bytes.) It was menu_tbar_k,
-    call thm_ink                ; its one caller's now: kernel size pass 12,
-    mov bx, MENU_TEXT_Y         ; -6, its own CX bank being the one above
-    mov dx, MENU_TEXT_Y + 7
-    call gfx_fill
-    pop dx
-    pop bx
-    pop ax
-    popf
-    pop cx
-
-    mov al, [menu_clkbuf+di]    ; --- and the message. font_run wants ASCIIZ
-    push ax                     ; and the buffer's own NUL is at the field's
-    mov byte [menu_clkbuf+di], 0    ; end, so the cell past the strip is
-    push cx                     ; banked and put back (menu_bar_text's idiom)
-    push si
-    add cx, 8                   ; ALWAYS cell 1: `test cx, 7` stays 0, so the
-    inc si                      ; single-store path survives the inset - 2.76x
-    call thm_rpair              ; on a Hercules 5150 if it does not (59.8.1)
-                                ; INVERSE VIDEO: the one distinction that
-    call font_run               ; survives SPEC.md 39.4's reduction intact
-    pop si
-    pop cx
-    pop ax
-    mov [menu_clkbuf+di], al
-
-                                ; ...and NO trailing lead: column 7 is lit in
-                                ; 2 of the 95 glyphs, so every other character
-                                ; brings 1px of black with it, and a fill here
-                                ; would have to reach outside the field, where
-                                ; no painter owns the pixels (SPEC.md 59.8.1)
-
-    cmp di, bx
-    jae .out                    ; the strip took the whole field: no clock left
-    mov ax, di                  ; --- and the clock the strip did not reach
-    mov cl, 3
-    shl ax, cl
-    add ax, [vid_clk_hx]
-    mov cx, ax
-    mov si, menu_clkbuf
-    add si, di
-    call thm_pair               
-                                
-    call font_run
-.out:
-    call thm_ink                   ; the documented parting state, on both
-                                   ; paths - font_run leaves its own
-    pop es
-    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; menu_track - run one full BAR menu interaction. Finds the title under the
@@ -2836,45 +2581,28 @@ menu_bovr:  resb 1              ; ...and somebody painted OVER the bar, so the
 %if menu_bovr - menu_bdirty != 1  ; ADJACENT: menu_force and menu_init
 %error "menu_bovr must follow menu_bdirty - menu_force sets both with one word store"
 %endif
-menu_bcell: resb MENU_BCMAX + 1 ; the menus segment as it is ON THE GLASS, one
-                                ; byte per 8px cell - composed into, diffed
-                                ; against and emitted from. The spare cell is
-                                ; the NUL menu_bar_text plants past a run
-menu_bn:    resw 1              ; cells in it on THIS screen (SPEC.md 39.2)
+menu_bcell: resb MENU_BCMAX + 1 ; the bar's text as it is ON THE GLASS, one
+                                ; byte per 8px cell from MENU_TXT_X0 - menus,
+                                ; clock and toast strip - composed into,
+                                ; diffed against and emitted from. 0 = not
+                                ; known (menu_inval) or not ours (the widget's
+                                ; cells while it shows). The spare cell is the
+                                ; NUL menu_bemit plants past a run
+menu_bn:    resw 1              ; the menus' cells on THIS screen (SPEC.md 39.2)
+menu_bc0:   resw 1              ; the clock field's first cell: [vid_clk_hx]'s
+menu_blim:  resw 1              ; menu_bput's bound - [menu_bn] for the menus,
+                                ; the field's end for the clock and the strip
 menu_bend:  resw 1              ; ...and the first cell past the last menu's
-                                ; BOX, so [menu_bn] - this is the free gap the
-                                ; toast strip prefers (SPEC.md 59.9). Written
-                                ; by menu_bar_text, read by toast_place only
+                                ; BOX - where the gap the toast strip prefers
+                                ; begins (SPEC.md 59.9). Written by
+                                ; menu_bar_text, read by toast_place only
 menu_bfirst: resw 1             ; the span that differs, 0FFFFh = none
 menu_blast: resw 1
-menu_ckck:  resw 1              ; the clock string's check word, 0 = nothing
-                                ; drawn (menu_draw_clock)
-menu_ckstrip: resb 1            ; ...and how many of the field's cells were
-                                ; the TOAST STRIP, 0 = none (SPEC.md 59.8).
-                                ; The check word hashes the field's characters
-                                ; and cannot see where the inversion stops, so
-                                ; without this a message could be left up for
-                                ; ever behind a clock that hashed the same
-menu_clkbuf: resb MENU_CLKC     ; ...and its field, space-padded so the erase
-                                ; and the lettering are one pass
 menu_sseg:  resw 1              ; the save-under claim's segment, 0 = none
                                 ; (menu_drop then repaints instead)
-menu_tbuf   equ menu_clkbuf     ; menu_trunc's staging buffer IS the clock's
-                                ; field (kernel size pass 10: 25 bytes of .bss
-                                ; on both kernels). It is safe because both
-                                ; are TRANSIENT: menu_draw_clock composes the
-                                ; whole field from scratch on every call and
-                                ; reads back nothing it did not just write -
-                                ; the check word [menu_ckck] is what persists -
-                                ; and menu_tbuf lives from menu_trunc to the
-                                ; font_run_x a few instructions later in
-                                ; menu_drop's item loop, on the UI task with
-                                ; the gfx lock held and no yield between, so
-                                ; no clock draw can land inside it (toast_now
-                                ; draws only on task 0, and task 0 is here)
-%if MENU_MAXCH + 1 > MENU_CLKC
-  %error "menu_tbuf is carved out of menu_clkbuf and no longer fits it"
-%endif
+menu_tbuf:  resb MENU_MAXCH + 1 ; menu_trunc's staging buffer. It was carved
+                                ; out of the clock's field buffer, which went
+                                ; when the clock moved into menu_bcell
 menu_abcell: resw 1             ; bar index of the app-NAME cell, 0 = none -
                                 ; cell 0 is the System menu, so 0 is free to
                                 ; mean "Locator owns the bar" (SPEC.md 12.7)
@@ -2918,14 +2646,10 @@ menu_sound:
     add ax, MENU_CLK_W - 16    ; the speaker: the field's last 24 pixels.
     mov [menu_mixx], ax         ; Through AX and back, one byte under BX's
     sub ax, MENU_CLK_W - 16    ; imm16 form, and an EVEN routine (t_hotpar)
-    cmp byte [toast_on], 0      ; **A TOAST THAT MISSED THE GAP COVERS THE
+    cmp byte [toast_scov], 0    ; **A TOAST THAT MISSED THE GAP COVERS THE
     je .need                    ; SPEAKER** (SPEC.md 34.15): the field is then
-    cmp word [toast_scn], 0     ; the one it has with no speaker, which holds
-    jne .need                   ; its widest strip, and the boundary stays put
-    xor dx, dx                  ; - so a progress widget armed against it
-    jmp short .origin           ; (12.8) is never under the strip. It was
-                                ; widened LEFT by three cells, and the widget
-                                ; kept its old origin under them
+    xor dx, dx                  ; the one it has with no speaker, which holds
+    jmp short .origin           ; its widest strip, and the boundary stays put
 .need:
     call clk_fmt                ; CX = the clock's glyphs, 18..24
     sub cx, (MENU_CLK_W - 16) / 8
@@ -2939,30 +2663,33 @@ menu_sound:
     cmp dx, [menu_mixcap]
     je .out
 .changed:
-    xchg ax, [vid_clk_hx]
-    mov cx, [vid_pw]            ; forget the cells from the OLD edge on: a
-    call menu_inval             ; segment growing back takes cells the clock
-                                ; drew and its record never saw
+    mov [vid_clk_hx], ax        ; nothing to forget: menu_bcell is the record
+                                ; of menus and clock alike (SPEC.md 12.9)
     or dx, dx
     jnz .store
     cmp word [menu_mixcap], SND_CAP_MIXER
     jne .store
-    call thm_bg                 ; the speaker went: erase its whole picture,
-    mov ax, [menu_mixx]         ; the clock repaints only its text band
-    mov cx, ax
-    add cx, 23
+    call thm_bg                 ; the speaker went: erase its picture ABOVE
+    mov ax, [menu_mixx]         ; and BELOW the text band - the band is the
+    mov cx, ax                  ; composition's, which has just lettered the
+    add cx, 23                  ; clock or the strip over it
     mov bx, 2
-    mov dx, 17
+    mov dx, MENU_TEXT_Y - 1
+    call gfx_fill
+    mov bl, MENU_TEXT_Y + 8
+    mov dl, 17
     call gfx_fill
     xor dx, dx
 .store:
     mov [menu_mixcap], dx
-    mov word [menu_ckck], 0     ; the field moved or narrowed: repaint it
     call menu_relayout          ; bounded at the new right-hand hit band
-    call menu_bar_text          ; compose only the changed menu cells
+    call menu_bar_text          ; compose only the changed cells
     or dx, dx                   ; ...both preserve DX, the new capability
     jz .out
-    mov cx, [menu_mixx]
+    mov ax, [menu_mixx]         ; the speaker is drawn over cells the record
+    mov cx, [vid_pw]            ; still holds: forget them, so the next toast
+    call menu_inval             ; that hides it letters them again
+    xchg ax, cx
     mov bx, DRVC_SOUND*256 + SNDV_MIXICON ; SNDV_MIXICON (SPEC.md 34.15)
     push ds
     pop es
