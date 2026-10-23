@@ -275,6 +275,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | midirack* (11 rows) | midirackend 44 s (3 lanes) / boot settle 21 guest s each | 15-69 s, all green (11 in 3 lanes) | 8 | quick boot (`ui.path` is the first act), polls 0.2 -> 0.05; the playback windows are the measurement. Re-declared from this run |
 | trkspk* (9 rows) | trkspkcovox 42 s (3 lanes) / launch + `ready` settles ~22 guest s a boot | all green; walls 32-105 s at load ~8, 85 s charged for the nine | 4, 8 | boots gated on `ui.up` + `ui_done` (were launch's settle AND `ready`'s); poll 0.2 -> 0.05. The `pace`s are the PLAY running (pulse rates, the ring never dry) and stay. Secs left as declared |
 | mrdraw(vga), wfdraw(herc), dosext, kdnoprog, hdnoclaim, heaphi, apspk* (5) | boot settles 20-42 guest s a row (survey) | 13 rows green, 165 s for all in 3 lanes at load ~8 | 4 | quick boots / `up` + `ui_done` / `kernel_up` where launch's settle (and `ready`'s, or a second settle) gated a boot whose first act confirms itself; measurement windows untouched. Over-declared ones re-declared |
+| imgtest, brlink, cmemmove, arkpuwipe(small), tmgraph, netpromise, drvscroll, tmrepair, wmartifact, heapscrl, dosargs | 27 / 11 / 26 / 29 / 43 / 57 / 35 / 73 / 74 / 60 / 26 s (survey, 3 lanes) | 14 / 15 / 44 / 53 / 18 / 25 / 17 / 31 / 37 / 24 / 32 s (12 in 3 lanes, load ~8) | 4 | launch's boot settle (20-33 guest s each) -> `kernel_up` + `no_saver`, or `quick=True`; nothing else touched. Re-declared |
 
 ## Resuming
 

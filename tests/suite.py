@@ -3443,7 +3443,7 @@ SOAK = [
         "milliseconds off the cycle counter, sampled per displayed frame by "
         "m.flicker, so it shares the lane: a busy box cannot move one.",
         needs=("marty",), serial=True),
-    Row("arkpuwipe", "soak", py("tests/arkpuwipe.py"), 80.0,
+    Row("arkpuwipe", "soak", py("tests/arkpuwipe.py"), 70.0,
         "Does a capsule the blit REFUSED leave a streak behind it? (SPEC.md "
         "44.10.6.2). VGA on purpose - on CGA ARK_PUFALL floors to 1 and the "
         "one vacated row is the capsule's BLACK top edge on a BLACK playfield, "
@@ -3462,7 +3462,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/small360.img", "build/smallapps360.img",
                "build/smallk/kernel.bin")),
-    Row("arkpuwipesmall", "soak", py("tests/arkpuwipe.py", "--small"), 35.0,
+    Row("arkpuwipesmall", "soak", py("tests/arkpuwipe.py", "--small"), 60.0,
         "SPEC.md 44.10.6.2's TRIGGER A as it ships: kern_small refuses every "
         "off-grid x by itself, so this is the one arm where the refusal is the "
         "kernel's and not one the row poked in. Hercules, because kern_small "
@@ -5222,7 +5222,7 @@ SOAK = [
         "pixels on the code before the fix",
         needs=("qemu", "cc"), serial=True,
         wants=("build/lemmings.img",)),
-    Row("cmemmove", "soak", py("tests/cmemmove.py"), 110.0,
+    Row("cmemmove", "soak", py("tests/cmemmove.py"), 60.0,
         "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "
         "whole of the C SDK's heap surface until now, so every C claim was "
@@ -7124,7 +7124,7 @@ SOAK = [
         "a page is TWO int 13h wherever the heap put it - a constant of 2 "
         "read that as a mount the day a kernel size pass moved the heap.",
         needs=("marty",), serial=True),
-    Row("dosargs", "soak", py("tests/dosargs.py"), 90.0,
+    Row("dosargs", "soak", py("tests/dosargs.py"), 50.0,
         "CAN A DOS PROGRAM BE GIVEN ARGUMENTS? (SPEC.md 96.19). Half the DOS "
         "software worth running is configured by its command line and the box "
         "wrote an EMPTY tail until this wave - Creative's own card test says "
@@ -7665,7 +7665,7 @@ SOAK = [
         "fires",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
-    Row("brlink", "soak", py("tests/brlink.py"), 120.0,
+    Row("brlink", "soak", py("tests/brlink.py"), 30.0,
         "BROWSER-PLAN 2.6: two links with a space between them are TWO "
         "underlines - the pending space must not land inside the second "
         "anchor's span",
@@ -7724,7 +7724,7 @@ SOAK = [
         "disagreeing with its AX",
         needs=("marty",), serial=True,
         wants=("build/fptest.o88",)),
-    Row("imgtest", "soak", py("tests/imgtest.py"), 135.0,
+    Row("imgtest", "soak", py("tests/imgtest.py"), 30.0,
         "apps/os88img.inc's decoders RUN: every IMGTEST case's verdict read "
         "out of its own record (the imgcases fast row checks the expectations "
         "against the format documents and never runs the decoder). The "
@@ -9530,7 +9530,7 @@ SOAK = [
         "stage A)",
         needs=("marty",), serial=True,
         wants=("build/drvcall.img", "build/drvcall360.img")),
-    Row("drvscroll", "soak", py("tests/drvscroll.py"), 80.0,
+    Row("drvscroll", "soak", py("tests/drvscroll.py"), 30.0,
         "SPEC.md 31.1.2: scrolling the Drivers list draws the LIST once, not"
         "thrice.",
         needs=("marty",), serial=True),
@@ -11355,7 +11355,7 @@ SOAK = [
         "- and the driver is up at the first desktop frame there.",
         needs=("marty",), serial=True, timeout=900,
         wants=("build/sndmove360.img",)),
-    Row("heapscrl", "soak", py("tests/heapscrl.py"), 120.0,
+    Row("heapscrl", "soak", py("tests/heapscrl.py"), 40.0,
         "SPEC.md 28.4.4: the Task Manager's memory page (the heap page's "
         "list, merged into it with every group opened by +ALL, 28.4.10) "
         "scrolls, its bar "
@@ -15620,7 +15620,7 @@ SOAK = [
         "ZACKs, and the ZNAK that refuses the one deliberate ZBIN32 header. "
         "QEMU by name for tests/ethernet.py's reason: MartyPC has no NIC",
         needs=("qemu",), serial=True, builds=True),
-    Row("netpromise", "soak", py("tests/netpromise.py"), 90.0,
+    Row("netpromise", "soak", py("tests/netpromise.py"), 40.0,
         "SPEC.md 70.7/77.47: Telnet and the FTP server promise per DEBT, not"
         "per session.",
         needs=("marty",), serial=True),
@@ -15667,7 +15667,7 @@ SOAK = [
         "the part - 225 cells put on the glass became 0, against 549 for a "
         "whole repaint. CELLS and not calls (11.3.3).",
         needs=("marty",), serial=True),
-    Row("tmgraph", "soak", py("tests/tmgraph.py"), 90.0,
+    Row("tmgraph", "soak", py("tests/tmgraph.py"), 30.0,
         "SPEC.md 28.10.3: the Task Manager's history graph is damage-gated "
         "and run-coded. It was 216 columns at up to two primitive calls each "
         "on EVERY paint whatever the damage said, so uncovering the RAM bar "
@@ -15680,7 +15680,7 @@ SOAK = [
         "TM_INT by construction, so two captures never agree and `settle` "
         "never returns",
         needs=("marty",), serial=True),
-    Row("tmrepair", "soak", py("tests/tmrepair.py"), 80.0,
+    Row("tmrepair", "soak", py("tests/tmrepair.py"), 50.0,
         "SPEC.md 28.11: the Task Manager's quiet pages hold a raise cache by "
         "REPAIRING at the restore - a whole-content band, and tm_update "
         "spends the debt W_PAINT is handed. The REPAIR leg names the "
@@ -15807,7 +15807,7 @@ SOAK = [
         "shadow (SPEC.md 11.97.3) and a covered title strip (11.97.4) - and "
         "a resize that changed nothing does not repaint at all (11.91.5)",
         needs=("marty",), serial=True),
-    Row("wmartifact", "soak", py("tests/wmartifact.py"), 92.0,
+    Row("wmartifact", "soak", py("tests/wmartifact.py"), 60.0,
         "Two window-manager artifacts, reproduced with NO package of ours"
         "involved.",
         needs=("marty",), serial=True),

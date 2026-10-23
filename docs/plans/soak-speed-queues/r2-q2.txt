@@ -74,7 +74,7 @@ vidr	vidresident	50	tests/vidresident.py
 vidr	vidresidentcga	50	tests/vidresident.py
 vidr	vidresidentvga	50	tests/vidresident.py
 DONE brre	brreload	360	tests/brreload.py
-heap	heapscrl	120	tests/heapscrl.py
+DONE heap	heapscrl	120	tests/heapscrl.py
 DONE heap	heaphi	90	tests/heaphi.py
 heap	heapcheck	60	tests/heapcheck.py
 heap	heapdrv	60	tests/heapdrv.py
@@ -98,34 +98,34 @@ DONE wdco	wdcourier	100	tests/wdcourier.py
 DONE wdco	wdcombo	80	tests/wdcombo.py
 DONE fish	fishedge	150	tests/fishedge.py
 fish	fishfit	20	tests/fishfit.py
-dosa	dosargs	90	tests/dosargs.py
+DONE dosa	dosargs	90	tests/dosargs.py
 dosa	dosarena	35	tests/dosarena.py
 dosa	dosattr	25	tests/dosattr.py
 dosa	dosaltenter	20	tests/dosaltenter.py
 edit	editmove	150	tests/editmove.py
 DONE wddr	wddrag	150	tests/wddrag.py
-tmgr	tmgraph	90	tests/tmgraph.py
+DONE tmgr	tmgraph	90	tests/tmgraph.py
 tmgr	tmground	60	tests/tmground.py
 DONE scsi	scsize	140	tests/scsize.py
-imgt	imgtest	135	tests/imgtest.py
+DONE imgt	imgtest	135	tests/imgtest.py
 DONE kzbo	kzboot-off	100	tests/kzboot.py
 DONE kzbo	kzboot	30	tests/kzboot.py
 DONE shut	shutdown	120	tests/shutdown.py
-brli	brlink	120	tests/brlink.py
+DONE brli	brlink	120	tests/brlink.py
 DONE hdbo	hdboot	120	tests/hdboot.py
-arkp	arkpuwipe	80	tests/arkpuwipe.py
-arkp	arkpuwipesmall	35	tests/arkpuwipe.py
-cmem	cmemmove	110	tests/cmemmove.py
+DONE arkp	arkpuwipe	80	tests/arkpuwipe.py
+DONE arkp	arkpuwipesmall	35	tests/arkpuwipe.py
+DONE cmem	cmemmove	110	tests/cmemmove.py
 vidw	vidwin	56	tests/vidwin.py
 vidw	vidwinshd	54	tests/vidwin.py
 DONE atke	atkey	100	tests/atkey.py
-wmar	wmartifact	92	tests/wmartifact.py
+DONE wmar	wmartifact	92	tests/wmartifact.py
 ems	ems	45	tests/ems.py
 ems	emspico	45	tests/ems.py
 DONE wden	wdenter	90	tests/wdenter.py
-netp	netpromise	90	tests/netpromise.py
-drvs	drvscroll	80	tests/drvscroll.py
-tmre	tmrepair	80	tests/tmrepair.py
+DONE netp	netpromise	90	tests/netpromise.py
+DONE drvs	drvscroll	80	tests/drvscroll.py
+DONE tmre	tmrepair	80	tests/tmrepair.py
 DONE kdno	kdnoprog	75	tests/kdnoprog.py
 DONE hdno	hdnoclaim	75	tests/hdnoclaim.py
 clip	clipkeep	40	tests/clipkeep.py
