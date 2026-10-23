@@ -1262,9 +1262,9 @@
   "sources": [
    "apps/wirefleet"
   ],
-  "stamped": "3f9bc879",
-  "strings": "4f7d7f10c65ff1a8",
-  "why": "missiles, impacts, music and the Music U item added to Connect and deploy and Display and sound (SPEC 114.11)"
+  "stamped": "ae722338",
+  "strings": "d75cf6c6c06c7437",
+  "why": "90792af7 adds wf_btnplace, the button record's layout proc run before each hit test: an internal fix below the page's level of detail, nothing a user reads changes"
  },
  "WORD": {
   "sources": [],
