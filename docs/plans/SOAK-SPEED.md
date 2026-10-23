@@ -341,6 +341,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | mcperf | 42.5 s; 181 guest s waited | 11.0 s; 49 | 4, 7 | the 400-frame TOP/END trace LOGGED (800 pumped stops a run); the post-run screen settle (55 guest s of live play no seed governs) -> a hash of video memory at a stop on `mc_bshow` - the 400th frame itself; `kernel_up` boot, dispcp verbs and the pre-run settle (77 guest s under a running game) -> `ui_done`. Same C3B7 state, same per-frame cycles |
 | bptrace | 25.9 s; 40 guest s | 23.7 s; 33 | 4, quick boot | lean: the rest is the trace's own subject. Re-declared 45 -> 30 |
 | dmgcull | FAILS at base | - | - | the Task Manager redesign (89afd69c, one tree of groups) left the gesture painting 27 font_run cells, all inside the mover's rect, deterministically (not the pump's lost-stop flake: 3/3 retries, two runs). The scenario needs re-deriving against the new page |
+| lzship | 51.4 s / 73 guest s waited, 47 s CPU | 14.7 s / 45 guest s, 15 s CPU | 1, 4 | both boots gate on `kernel_up` (every read is drv_tab, the window list, the listing or the module claim), the dispcp verbs and the folder opens end on `ui_done`; the BEVERLY.MOD open keeps its own wait (Tracker plays). secs 80 -> 30 |
 
 ## Resuming
 

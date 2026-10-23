@@ -9469,7 +9469,7 @@ SOAK = [
         "module, status `trk_s_ioerr` - FERR_IO, the LZ4 refusal at entry",
         needs=("marty",), serial=True,
         wants=("build/lzmodbig360.img",)),
-    Row("lzship", "soak", py("tests/lzship.py", "--fmt", "lz4"), 80.0,
+    Row("lzship", "soak", py("tests/lzship.py", "--fmt", "lz4"), 30.0,
         "THE WHOLE SHIPPED SET, COMPRESSED (`make zset ZFMT=lz4`): every "
         "shipped package, every shipped driver and every data file on both "
         "360KB floppies at once, under a kernel built to carry that format. "
