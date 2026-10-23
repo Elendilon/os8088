@@ -326,6 +326,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | 25 small rows: videms x4, multiseg/mseg360, rehome(abort), timerrace, sbar(dlg), spantest(-vga), dtfield, minexflag, tpsaveu, cpnames(hdd), atclip, trkrate, cycweb, fsclass, icoclip, monoink, fillpat | 272 s in 3 lanes, 103 charged; 1,028 guest s waited | 244 s in 3 lanes (load 8), 105 charged; 838 guest | 4 + quick boot | the boot gate only, mostly (launch's settle 15-37 guest -> `kernel_up` 13-31; videms' EMS XT boots 37 -> 31 x4); cpnames' clock-ticking panel settles (14 guest each) -> `ui_done` before its `vram` reads, 100 -> 52 guest; spantest's blind 250 frames after the open -> `ui_done`. Walls barely move under load 8 - these are boot-bound rows |
 | wdscroll | 160 s (load 12), 163 guest s waited + ~90 unlogged in `pace` | 131 s (load 8), 157 guest incl. what replaced the paces | 4 + quick boot | boot -> `kernel_up`; each gesture's quiesce(0.5) -> `ui_done` + quiesce(0.25); a tap's 0.25 s lead pace -> `ui_done(cap=<the old pause>)` (the hold before release stays: it is the press). The rest is ~95 real scrolls on a CGA XT |
 | redlinescene | declared 240 | 51 s (load 12), unchanged | - | already lean; re-declared |
+| pxopen / pxopenpng / pxopencga | 63 / 69 / 45 s (load 8), 257 guest s waited | 56 / 60 / 35 s, 218 guest | 4, 8 + quick boot | quick boot; settles before memory reads -> `ui_done`, before the exact pixelsim compare -> `still`; polls 0.05. The rest is PiXEL's decodes |
 
 ## Resuming
 

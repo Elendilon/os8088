@@ -10089,7 +10089,7 @@ SOAK = [
         "On the 1.44 MB VGA XT: the corpus outgrew a 360 KB disk",
         needs=("marty", "nasm"), serial=True,
         wants=("build/pixel.o88", "build/os8088.img")),
-    Row("pxopen", "soak", py("tests/pxopen.py"), 90.0,
+    Row("pxopen", "soak", py("tests/pxopen.py"), 70.0,
         "SPEC.md 106.11/106.13 on a VGA: a picture opened by its association "
         "is drawn as tools/pixelsim.py renders it - the zoom is pixelsim's "
         "Fit and the steps its View's; every canvas pixel at Fit, after two "
@@ -10101,7 +10101,7 @@ SOAK = [
         wants=("build/pixel.o88", "build/os8088-360.img")),
     Row("pxopenpng", "soak", py("tests/pxopen.py", "--picture",
                                 "apps/pixel/samples/BALLOONS.PNG", "--second",
-                                "apps/pixel/samples/CAT.GIF"), 120.0,
+                                "apps/pixel/samples/CAT.GIF"), 80.0,
         "pxopen for the decoder PARTS on a VGA (SPEC.md 106.18): a palette "
         "PNG opened by its association - whose palette is known only in the "
         "stream, so its 256 plans must be searched for the PLTE's entries "
@@ -10111,7 +10111,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/pixel.o88", "build/os8088-360.img")),
     Row("pxopencga", "soak", py("tests/pxopen.py", "--machine",
-                                "os8088_5150_cga_gla"), 90.0,
+                                "os8088_5150_cga_gla"), 50.0,
         "pxopen on a 1bpp display (SPEC.md 106.11): the CGA's 5/12 pixel "
         "aspect in the Fit and the steps, the luma thresholds and the Bayer "
         "bit tables, BLIT1 - the same six legs, every bit against pixelsim",

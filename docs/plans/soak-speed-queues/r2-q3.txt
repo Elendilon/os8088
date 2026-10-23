@@ -128,9 +128,9 @@ MOVED->r2-q6 redl	redlinechipherc	40	tests/redline.py
 MOVED->r2-q6 redl	redlinechipvga	40	tests/redline.py
 MOVED->r2-q6 redl	redlinev20	10	tests/redline.py
 DONE wdsc	wdscroll	330	tests/wdscroll.py
-pxop	pxopenpng	120	tests/pxopen.py
-pxop	pxopen	90	tests/pxopen.py
-pxop	pxopencga	90	tests/pxopen.py
+DONE pxop	pxopenpng	120	tests/pxopen.py
+DONE pxop	pxopen	90	tests/pxopen.py
+DONE pxop	pxopencga	90	tests/pxopen.py
 telp	telpen	300	tests/telpen.py
 dosf	dosfull	120	tests/dosfull.py
 dosf	dosfix	60	tests/dosfix.py
