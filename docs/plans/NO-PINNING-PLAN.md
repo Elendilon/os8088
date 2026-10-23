@@ -165,7 +165,7 @@ the first desktop frame, and (c) never freed.
 | **K2** `MEM_K_IMG` 1 KB per mounted `.img` | mount, mid-session, top-down: **a real wall** | NONE ⚑ | re-read `IMG_DVSEG` in `dsk_xfer`'s `.img` arm after the nested transfer, plus a proc that walks the image rows for the old base | ~40 |
 | **K4a** `MEM_P_RAHB` 5 KB (kern_mega) | mount | NONE | one-word proc on `[dsk_rah_bnc]`, `dsk_rah_reloc`'s shape | ~17 |
 | **K4b** `MEM_K_COPY` | one Cut/Copy/Paste, including a suspended overwrite question | C, but held across user waits | one-word proc. The transfer itself is pinned by `mem_in_xfer` already | ~17 |
-| **K6a** `MEM_P_WSAVE` raise caches | bottom-up, one per covered window: **the commonest kernel wall in a normal session** | NONE (shed at rank) | a proc that finds the old base in `wm_su_segs` and stores the new one | ~22 |
+| ~~K6a~~ `MEM_P_WSAVE` raise caches | bottom-up, one per covered window | shed by design | **DEFERRED** (6.2): the compactor drops them, which is what serves a big request on a full machine | 0 |
 | **K6b** `MEM_P_FATW` FAT windows | bottom-up per volume | NONE (shed at MED) | a proc for `dsk_fatwc` AND `[dsk_fatseg]`, the second naming word. Fix the stale comment too | ~25 |
 | **K6c** `MEM_P_FLIST` multi-file clipboard, 1 KB | until the next Cut/Copy | NONE | one-word proc on `[fcp_lseg]` | ~17 |
 | ~~`MEM_P_VIEW`~~, ~~`MEM_K_SAVE`~~, ~~`MEM_K_CLIP` small~~ | kern_small | - | settled, out of scope | 0 |
@@ -236,8 +236,8 @@ Ranked by the free memory each recovers on a real session, then by cost.
    built). **K8** (c), ~6 bytes, plus the two SPEC.md corrections.
 2. **C4** LEMMINGS - the largest pin on the desktop, and the package this
    branch exists for.
-3. **K1a, K2, K6a** - ~50 kernel bytes net (2.2). The rest of the kernel
-   rows wait for a size pass.
+3. **K1a, K2** - BUILT (+42 resident net with K8). **K9** next (6.1). K6a
+   deferred (6.2). The rest of the kernel rows wait for a size pass.
 4. **C3/C2** C emulators and Weave/Loom - 50-64 KB walls each.
 5. **P1** SHEET chart overlay as a part - 52 KB + the region.
 6. **A2** WORD/SCRIBE audit, **A1** REALDMG.
@@ -299,25 +299,40 @@ workers are frozen there and the posted pass runs only at `ui_task` step 0).
 ### 6.1 K9 - work done on a driver's memory from a package worker
 
 The nest (`wm_pkgs`) answers "which images is the machine executing in" for
-the UI task, and is wrong as soon as a worker pushes onto it. Three shapes:
+the UI task, and is wrong as soon as a worker pushes onto it.
 
-- **(a) Count, don't stack, for non-UI tasks.** `drv_pkg_call_x` (the
-  `OSAPI_DRV_CALL` site) bumps a `[drv_wkin]` count instead of pushing when
-  `[sch_cur]` != 0. `mem_can_move` then pins every driver IMAGE and every
-  driver DATA claim while it is non-zero. This is bucket C, momentary, and as
-  coarse as `[drv_wcnt]` is today. Estimated ~25 resident bytes.
-- **(b) A per-task nest.** Exact, but it costs a table per task slot (12
-  slots), which is the most bytes of the three.
-- **(c) Forbid `OSAPI_DRV_CALL` from workers.** Refused: FTPD, Telnet and the
-  Browser are built on it.
+**Not every driver is at risk.** Only a driver whose MOVABLE memory is touched
+inside a verb that runs on a package worker. Today that is ETHER.DRV's socket
+pool (FTPD, Telnet, the Browser). SOUND.DRV's pool is pinned for exactly the
+stream, its double buffer is never declared, and its refill task re-reads the
+segment under `cli`. HTTPFS's index is undeclared (R2 would change that).
+Pinning every driver while any worker is inside any verb would freeze them all
+for most of an FTP session. So the shape is the EXACT one:
 
-Recommended: **(a)**.
+- **A per-task word: the driver image this task is inside.**
+  `drv_pkg_call_x` (the `OSAPI_DRV_CALL` site) stores the target image there
+  when `[sch_cur]` != 0, instead of pushing onto the nest, and puts the old
+  value back on the way out. `mem_can_move` then pins a driver IMAGE, and a
+  driver DATA claim (owner = that image), only when some task's word names it.
+  Every other driver stays movable. A worker that NESTS (driver A calling
+  driver B on that worker: HTTPFS calls ETHER) marks the word "all drivers"
+  for the inner call, which is conservative only in the rare case.
+- **It also takes workers off the shared nest**, which is what made the nest
+  name the wrong image.
+- **Est.** ~40 resident bytes plus `MAX_TASKS` words of `.bss` (28 on
+  kern_big). kern_small loads no drivers, so it gets none of it.
 
-### 6.2 K6a - raise caches: move or drop?
+Refused: pinning all drivers while a worker is in any verb (too coarse), a
+per-task copy of the whole nest (most bytes), and forbidding `OSAPI_DRV_CALL`
+on workers (FTPD, Telnet and the Browser are built on it).
 
-Today the compactor DROPS a raise cache that is in the way (free now, and a
-~578 ms repaint the next time that window is raised). Movable, it COPIES it
-(~2.9 ms/KB: a 6 KB mono cache ~17 ms, a full VGA one up to ~180 ms). That
-keeps the instant raise, at the cost of claim latency. A middle shape is
-cheap: move a cache only if it is under a size cap (say 16 KB), and drop the
-rest.
+### 6.2 K6a - raise caches: DEFERRED (the owner, 2026-10-23)
+
+Moving raise caches instead of dropping them would also need the PLAN changed:
+`mem_avail` would have to answer "can this be served by compacting without
+dropping?", and the compactor would compact more often in exchange for fewer
+drops. Compaction is what lets the machine serve the 300 KB picture, or serve
+anything at all on a full system. It is rare, and when it runs it is almost
+always one of those two cases, so the case K6a would help is the smaller set.
+**Deferred to a later research pass.** Raise caches stay purgeable and stay
+DROPPED by the compactor. The ratchet (4) records them as "shed, by design".
