@@ -103,11 +103,18 @@ SYM = symmap()
 
 def hd_tseg_off():
     """[hd_tseg]'s offset in HDD.DRV's image (the HMA build is the same code
-    assembled at DRV_ORG = E000h)."""
+    assembled at DRV_ORG = the kernel's DRV_HMA_ORG, read rather than
+    restated: it was E000h when this was written and is C000h now, and a
+    stale constant here read a word of CODE and called it a leaked tool)."""
+    m = re.search(r"^DRV_HMA_ORG\s+equ\s+(0x[0-9A-Fa-f]+|\d+)",
+                  open("kernel/kernel.asm").read(), re.M)
+    if not m:
+        sys.exit("install: DRV_HMA_ORG is not an `equ` in kernel/kernel.asm")
+    org = int(m.group(1), 0)
     for line in open(os88build.at("build/hdd.hma.map")):
         p = line.split()
         if len(p) == 3 and p[2] == "hd_tseg":
-            return int(p[0], 16) - 0xE000
+            return int(p[0], 16) - org
     sys.exit("install: no hd_tseg in build/hdd.hma.map")
 
 
