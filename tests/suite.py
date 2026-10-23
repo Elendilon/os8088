@@ -15777,7 +15777,7 @@ SOAK = [
         " a load that the same heap refused before the feature",
         needs=("marty",), serial=True,
         wants=("build/trackmove360.img",)),
-    Row("tpdraw", "soak", py("tests/tpdraw.py"), 300.0,
+    Row("tpdraw", "soak", py("tests/tpdraw.py"), 90.0,
         "Does TeXPad's INCREMENTAL source redraw draw what a full repaint"
         "draws? (SPEC.md 69.8)",
         needs=("marty",), serial=True),
