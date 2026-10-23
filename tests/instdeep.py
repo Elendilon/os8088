@@ -274,20 +274,33 @@ def open_installer(m):
     mo.click(x0 + 40, y0 + CP_I0Y + CP_IDRV * CP_IROWH + 7)     # Drivers
     if not int.from_bytes(m.read(m.sym("drv_tab") + 16 + 2, 2), "little"):
         mo.click(x0 + CP_RX + 40, y0 + CP_DBY1 + CP_DROWH + CP_DROWH // 2,
-                 settle=8.0)                    # tick Hard Drive (row 1) -
+                 settle=0)                      # tick Hard Drive (row 1) -
                                                 # ONLY if it is not up: SPEC.md
                                                 # 51.3.2 loads it at boot on a
                                                 # machine whose BIOS knows a
                                                 # disk, and a click on a loaded
                                                 # row UNLOADS it
+        # (was a fixed 36 guest s: the load is done when the row has a
+        # segment, and its page entry is drawn when the pass is over)
+        M.until(m, lambda _: int.from_bytes(
+            m.read(m.sym("drv_tab") + 16 + 2, 2), "little"),
+            "HDD.DRV to load", poll=.05, limit=60)
+        M.ui_done(m, "the Hard Drive tick")
     nst = m.read(m.sym("cp_nst"), 1)[0]         # SPEC.md 31.9: the driver's
-    mo.click(x0 + 40, y0 + CP_I0Y + nst * CP_IROWH + 7, settle=3.0)  # own page
+    mo.click(x0 + 40, y0 + CP_I0Y + nst * CP_IROWH + 7, settle=0)  # own page
+    M.ui_done(m, "the driver's own page")
     known = {w[0] for w in wins(m)}
     mo.click(x0 + CP_RX + HDP_B2X + HDP_BW2 // 2, y0 + HDP_BY + HDP_BH // 2,
-             settle=20.0)                       # Install: a floppy read
-    iw = next((w for w in wins(m) if w[0] not in known), None)
-    if iw is None:
+             settle=0)                          # Install: a floppy read
+    # (was a fixed 90 guest s: the window is the answer, and the pass that
+    # opened it is over when the UI is)
+    try:
+        M.until(m, lambda _: any(w[0] not in known for w in wins(m)),
+                "the installer window", poll=.05, limit=120)
+    except M.MartyError:
         sys.exit("the installer window never opened")
+    M.ui_done(m, "the installer window's paint")
+    iw = next((w for w in wins(m) if w[0] not in known), None)
     print("  installer window = %s" % (iw,))
     ix, iy = content(iw)
     return mo, ix, iy
@@ -300,7 +313,8 @@ def tick_erase(m, mo, ix, iy):
     the MartyPC XT-IDE disk ships a DOS 3.3 partition - so a row that means a
     FRESH install has to say so, or it is testing the other one.
     """
-    mo.click(ix + HIW_LX + 6, iy + HIW_CKY + HIW_CKH // 2, settle=2.0)
+    mo.click(ix + HIW_LX + 6, iy + HIW_CKY + HIW_CKH // 2, settle=0)
+    M.ui_done(m, "the Erase tick")
     # It is proved AFTER the install, not here: the box lives in HDDTOOL.DRV's
     # heap image, where no symbol reader reaches, and the disk answers the
     # question better anyway - main() refuses a volume that still carries the
@@ -310,7 +324,8 @@ def tick_erase(m, mo, ix, iy):
 def run_install(m, mo, ix, iy):
     """Two clicks on the action button - arm, then go - and then WAIT."""
     bx, by = ix + HIW_B0X + HIW_BW0 // 2, iy + HIW_BY + HIW_BH // 2
-    mo.click(bx, by, settle=3.0)                # Install: arms
+    mo.click(bx, by, settle=0)                  # Install: arms
+    M.ui_done(m, "the Install button arming")
     mo.click(bx, by, settle=0)                  # Install: goes
 
     # THE SCREEN GOES STILL WHILE IT WORKS - the copy holds the gfx lock for
@@ -348,10 +363,15 @@ def run_install(m, mo, ix, iy):
     # A DIGEST, not the 8MB: `quiesce` compares with `==` and holds the last
     # reading, so hashing keeps two 8MB strings out of the loop for a
     # comparison that is exactly as strong.
+    # The copy holds the gfx lock for its whole run, so the UI going idle
+    # (no disk read across its hold) is the install's end; the quiesce after
+    # it is the drive's own word, shortened from 8 x 2 guest s (16 s of
+    # proof on top of the ~40 the apps phase takes) to 3 x 1.
     try:
+        M.ui_done(m, "the installer's copy", limit=480.0)
         M.quiesce(m, lambda: hashlib.sha1(
                       open(disk, "rb").read(8 << 20)).digest(),
-                  guest=2.0, stable=8, budget=480.0,
+                  guest=1.0, stable=3, budget=480.0,
                   what="the drive to go quiet")
     except M.MartyError as e:
         sys.exit("the disk never stopped changing - the install did not "
@@ -401,8 +421,8 @@ def main():
         if not os.path.exists(img):
             sys.exit("no %s - `make` first" % img)
     with M.launch("build/os8088-360.img", apps="build/apps360.img",
-                  machine=MACHINE) as m:
-        M.settle(m)
+                  machine=MACHINE, boot=False) as m:
+        m.run(); M.kernel_up(m)       # a state gate: every act is a click
         install(m)
         # NO SCREENSHOT, and that is the point rather than an omission: the
         # window says `Done` in both the broken and the fixed case, so the

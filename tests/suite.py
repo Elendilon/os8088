@@ -10432,7 +10432,7 @@ SOAK = [
         "menu on the bar dropped the System menu and no floppy-booted machine "
         "could see it (SPEC.md 87.2)",
         needs=("marty",), serial=True),
-    Row("instdeep", "soak", py("tests/instdeep.py"), 120.0,
+    Row("instdeep", "soak", py("tests/instdeep.py"), 90.0,
         "SPEC.md 52.10.13: an install reproduces the source disk's WHOLE "
         "tree - the empty SYSTEM/APPDATA and SYSTEM/DOS/OS88NET.COM included, "
         "which one folder level could not reach - AND ITS BYTES (52.10.13.1). "
@@ -10447,7 +10447,7 @@ SOAK = [
         "install, red with hd_bpb_fill's two stores taken out. It ERASES the "
         "VHD.",
         needs=("marty",), serial=True, timeout=1200),
-    Row("instassoc", "soak", py("tests/instassoc.py"), 85.0,
+    Row("instassoc", "soak", py("tests/instassoc.py"), 90.0,
         "SPEC.md 52.10.14: the installed volume's ASSOC.DAT describes THAT "
         "volume. The install copied the source floppy's copy, whose app rows "
         "carry the cluster of a folder on the FLOPPY (SPEC.md 54.7.1) - so on "
@@ -10516,13 +10516,13 @@ SOAK = [
         "LOW_SEG's, so the sum covered nothing on both sides and a damaged "
         "image resumed. MartyPC.",
         needs=("marty",), serial=True, timeout=1500),
-    Row("instrest", "soak", py("tests/instrest.py"), 120.0,
+    Row("instrest", "soak", py("tests/instrest.py"), 90.0,
         "SPEC.md 52.10.6.1: the installer's ACTION BUTTON reads Install and "
         "then Restart, there is no third button, and clicking it at the end "
         "restarts the machine. The caption is read out of the framebuffer "
         "against the kernel's own glyph table. It ERASES the VHD.",
         needs=("marty",), serial=True, timeout=1200),
-    Row("inststate", "soak", py("tests/inststate.py"), 135.0,
+    Row("inststate", "soak", py("tests/inststate.py"), 90.0,
         "SPEC.md 52.10.4.2: the installer's State column says what each slot "
         "IS - `C: FAT16` for a mounted volume, a foreign type by name, "
         "`Not Formatted`, `Unpartitioned`, and the reason after a comma when "
@@ -10546,7 +10546,7 @@ SOAK = [
         "found and picked, Erase greyed - and checks the file kept, the "
         "kernel the floppy's and the MBR committed; then boots C: once more.",
         needs=("marty", "mtools"), serial=True, timeout=2400),
-    Row("instkeep", "soak", py("tests/instkeep.py"), 200.0,
+    Row("instkeep", "soak", py("tests/instkeep.py"), 160.0,
         "SPEC.md 52.10.15: an install that KEEPS the volume's files. The "
         "fixture is MartyPC's DOS 3.3 partition with two holes punched and a "
         "user's USER.TXT, SYSTEM.CFG and SYSTEM/APPDATA/NOTE.CFG planted by "
@@ -10556,7 +10556,7 @@ SOAK = [
         "the booted-from volume IN PLACE with the system disk in B:, and "
         "boots it again.",
         needs=("marty", "mtools"), serial=True, timeout=1500),
-    Row("instimg", "soak", py("tests/instimg.py"), 145.0,
+    Row("instimg", "soak", py("tests/instimg.py"), 150.0,
         "SPEC.md 52.10.17: an install whose two disks are MOUNTED IMAGES on "
         "the hard disk. mtools plants SYS.IMG and APPS.IMG, each with a "
         "marker only it carries, in MartyPC's DOS partition; a floppy install "
@@ -10566,7 +10566,7 @@ SOAK = [
         "a system disk built before 52.10.17 is the break: no system disk "
         "is found and the commit never comes. Measured 143s.",
         needs=("marty", "mtools"), serial=True, timeout=1500),
-    Row("instcross", "soak", py("tests/instcross.py"), 240.0,
+    Row("instcross", "soak", py("tests/instcross.py"), 160.0,
         "SPEC.md 52.10.16: an install ACROSS BUILDS from a machine booted off "
         "its hard disk - the ordinary upgrade, and the one the field found "
         "freezing at `Booting HDD0`: the installer wrote the boot sector built "

@@ -160,8 +160,8 @@ def main():
 
     # 1. FROM THE FLOPPY, onto the DOS partition, keeping it.
     with M.launch("build/os8088-360.img", apps="build/apps360.img",
-                  machine=ID.MACHINE, run_dir=run_dir) as m:
-        M.settle(m)
+                  machine=ID.MACHINE, run_dir=run_dir, boot=False) as m:
+        m.run(); M.kernel_up(m)       # a state gate: every act is a click
         mo, ix, iy = ID.open_installer(m)
         ID.run_install(m, mo, ix, iy)           # the box as it defaults: KEEP
     bad = check(vhd)

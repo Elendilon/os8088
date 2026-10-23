@@ -7,14 +7,14 @@ DONE gori	gorillasmusic	253.5	tests/gorillasmusic.py
 DONE gori	gorillasmenu	160	tests/gorillasmenu.py
 DONE gori	gorillascity	100	tests/gorillascity.py
 pxde	pxdecode	1670	tests/pxdecode.py
-inst	install	400	tests/install.py
-inst	instcross	240	tests/instcross.py
-inst	instkeep	200	tests/instkeep.py
-inst	instimg	145	tests/instimg.py
-inst	inststate	135	tests/inststate.py
-inst	instdeep	120	tests/instdeep.py
-inst	instrest	120	tests/instrest.py
-inst	instassoc	85	tests/instassoc.py
+SKIP fails at base (HDDTOOL.DRV held after Close, product?) inst	install	400	tests/install.py
+DONE inst	instcross	240	tests/instcross.py
+DONE inst	instkeep	200	tests/instkeep.py
+DONE inst	instimg	145	tests/instimg.py
+DONE inst	inststate	135	tests/inststate.py
+DONE inst	instdeep	120	tests/instdeep.py
+DONE inst	instrest	120	tests/instrest.py
+DONE inst	instassoc	85	tests/instassoc.py
 dosc	doscable	600	tests/doscable.py
 dosc	dosconcga	150	tests/dosconcga.py
 dosc	doscon	100	tests/doscon.py
