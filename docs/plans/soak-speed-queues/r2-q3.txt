@@ -118,10 +118,10 @@ DONE vidf	vidfskeyscga4	30	tests/vidfskeys.py
 DONE vidf	vidfskeysc512	25	tests/vidfskeys.py
 DONE pxdr	pxdraw	200	tests/pxdraw.py
 DONE pxdr	pxdrawvga	200	tests/pxdraw.py
-dotd	dotdel	150	tests/dotdel.py
-dotd	dotdelpen	90	tests/dotdelpen.py
-dotd	dotdelwin	75	tests/dotdelwin.py
-dotd	dotdelmd	60	tests/dotdelmd.py
+DONE dotd	dotdel	150	tests/dotdel.py
+DONE dotd	dotdelpen	90	tests/dotdelpen.py
+DONE dotd	dotdelwin	75	tests/dotdelwin.py
+DONE dotd	dotdelmd	60	tests/dotdelmd.py
 redl	redlinescene	240	tests/redline.py
 MOVED->r2-q6 redl	redlinechipcga	40	tests/redline.py
 MOVED->r2-q6 redl	redlinechipherc	40	tests/redline.py

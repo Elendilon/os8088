@@ -4471,7 +4471,7 @@ SOAK = [
         "all four VGA planes, numeric bounds, erased digits and paused edits",
         needs=("marty", "nasm"), serial=True,
         wants=("build/gorillas.o88", "build/os8088-360.img")),
-    Row("dotdel", "soak", py("tests/dotdel.py"), 150.0,
+    Row("dotdel", "soak", py("tests/dotdel.py"), 160.0,
         "DOT DELIRIUM on the glass, on all three adapters (SPEC.md 93): the "
         "title screen's four compositors, the blink, Enter starting a game "
         "that actually EATS, the tile cut from each adapter's own pixel shape "
@@ -4510,7 +4510,7 @@ SOAK = [
         "stores that allow the planar band so they store 0 - the one-pen "
         "build on the same machine and scene - and it goes red",
         needs=("marty", "nasm"), serial=True),
-    Row("dotdelpen", "soak", py("tests/dotdelpen.py"), 90.0,
+    Row("dotdelpen", "soak", py("tests/dotdelpen.py"), 120.0,
         "DOT DELIRIUM's ghost house, and the pellets that share its bug class "
         "(SPEC.md 93.8.6): every pellet on the board gets refreshed and not "
         "only the first - dd_pills_blit walks the list with SI and "
@@ -4537,7 +4537,7 @@ SOAK = [
         "real-time package in the tree drew straight through one "
         "(79.6.1). One adapter: none of the four is about the surface",
         needs=("marty", "nasm"), serial=True),
-    Row("dotdelwin", "soak", py("tests/dotdelwin.py"), 75.0,
+    Row("dotdelwin", "soak", py("tests/dotdelwin.py"), 40.0,
         "DOT DELIRIUM's WINDOW (SPEC.md 93.3.4.2): opening it costs ONE full "
         "redraw and not three, a MOVE costs none at all - the kernel's drag "
         "cache has already replayed the pixels at the new place, so only the "
@@ -4552,7 +4552,7 @@ SOAK = [
         "this row first read eleven differing rows for a pixel-perfect move" 
         "Leg D runs TWICE - once on the Hercules and once on a VGA, where the two aspect tables agree at 100 (93.3.3.1) so the tile is the only thing separating Thin from Full, and a 1.2 tolerance refused the wide one by one part in fifty: Full came out as Thin's own 8x9 with a bigger window round it, and the leg that tests exactly that had never run on the adapter that failed it. EVERY WAIT IN THIS ROW IS ON THE GUEST'S CLOCK and that is not decoration: it was seven `time.sleep(N)` calls, and in the 2026-09-21 full soak leg D read the tile the Thin re-cut had not replaced yet - 16x9 in the soak and 16x13 in the next run, and a wrong CONSTANT does not vary. Stillness alone is not the fix either, because a tile the re-cut has not reached yet is perfectly stable: each wait is TWO edges, the words leaving what they were and then settling. It also re-measured what a switch COSTS, because the old bound of 3 and the figure of 2 beside it were both read through the truncated sleep - complete, it is Full 1 then 2 (deterministic) and Thin 3 or 4 on both adapters over 24 switches, with [dd_fulls] confirmed not to move on its own (1 -> 1 over 30 guest seconds untouched). The bound is 5 and the row no longer claims the 2 ",
         needs=("marty", "nasm"), serial=True),
-    Row("dotdelmd", "soak", py("tests/dotdelmd.py"), 60.0,
+    Row("dotdelmd", "soak", py("tests/dotdelmd.py"), 90.0,
         "DOT DELIRIUM on a TWO-CARD desktop (SPEC.md 93.4): straddling the "
         "seam with a real share of the picture on each card, moving wholly "
         "onto the Hercules and having the board RE-CUT to it and back, and a "
