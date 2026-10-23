@@ -313,9 +313,28 @@ class UI:
         set"). `spl_finish` is kmain_o's last act, after the settings, so
         both words live and the splash done is the end of the boot.
         """
-        self._wait(lambda: self._word("desk_rows") and self._word("menu_nbar")
-                   and not self._byte("spl_live"),
-                   "the kernel to reach the desktop", limit)
+        # **AND THE KERNEL'S TICK MOVING ACROSS IT.** Between the kernel
+        # image landing and kmain clearing its .bss, those three words are
+        # whatever the loader left there - on an XT-IDE boot, desk_rows 42227,
+        # menu_nbar 56073 and spl_live 0 for half a guest second - and a
+        # quick boot polled straight into it, so its first mouse packet
+        # landed in the middle of the mouse probe and the pointer never moved
+        # again. [ticks] does not move until THIS kernel's IRQ0 is in, so the
+        # gate must hold on two reads with the tick different between them
+        # (one tick, 55 ms; it also refuses a warm reboot's stale bytes).
+        seen = [None]
+
+        def ok():
+            if not (self._word("desk_rows") and self._word("menu_nbar")
+                    and not self._byte("spl_live")):
+                seen[0] = None
+                return False
+            t = os88marty._ktick(self.m)
+            if seen[0] is None:
+                seen[0] = t
+                return False
+            return t != seen[0]
+        self._wait(ok, "the kernel to reach the desktop", limit)
         return self
 
     def ready(self, limit=180.0, saver=False):

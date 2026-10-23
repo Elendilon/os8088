@@ -123,6 +123,14 @@ reading the guest state the page is drawn from instead of pumping the screen).
   moves 5.3 -> 1.2 guest s. Every row that moves the pointer. Validated on
   uilayer, martyconc, dispdrag, dispthm, dispprefer.
 
+- **`UI.up` / `kernel_up` need [ticks] to MOVE across the gate** (one tick):
+  between the kernel image landing and kmain clearing `.bss`, desk_rows /
+  menu_nbar / spl_live are loader junk that passes the old test (XT-IDE boot:
+  0.5 guest s of it), and a quick boot's first mouse packet then landed in the
+  mouse probe - the pointer never moved again (vidsound hung). Also
+  `os88vid.read_frame` has a P4 fast path (bytes inverted, pad bits cleared;
+  equal to the per-pixel path on 200 random sizes): 30 ms -> ~0 a frame, which
+  was 53 of vidsound's 96 host s - every row that encodes a clip from PBMs.
 - **`os88marty.kernel_up(m)`**: os88ui's `up` gate for a bare
   `launch(boot=False)` + `m.run()` caller - desk_rows/menu_nbar live,
   [spl_live] = 0, then `ui_done`; no picture settle. dispseam's four boots.
