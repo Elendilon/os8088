@@ -1,9 +1,9 @@
 """A HELD stream that runs out of room, and a DELETE while its hold is
-pending (SPEC.md 18.4.9.1, 18.4.9.2; the DOS box's writes are held streams
+pending (SPEC.md 18.4.9.1, 18.4.9.2; DOS's writes are held streams
 since SPEC.md 96.53).
 
 tests/dostrap/dosfull.asm fills an empty 360KB floppy through one handle in
-8KB writes until the box refuses, then deletes the file WITHOUT closing it.
+8KB writes until DOS refuses, then deletes the file WITHOUT closing it.
 Every cluster must be free afterwards but the program's own, and the host's
 own fsck (os88disk --verify) says so or names the lost ones.
 

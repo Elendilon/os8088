@@ -197,7 +197,7 @@ def main():
     # a record, and the registry counted the call as "the library's own" and
     # asked nothing else about it. The live count came out of the rect's y2,
     # the flags pointer out of its x2, OS88UI_BT_DOWN out of os88ui_asets'
-    # first word - so the DOS box's "Open windows are lost. Proceed?" filled
+    # first word - so DOS's "Open windows are lost. Proceed?" filled
     # the whole screen with a PRESSED button's black interior, at a rect read
     # from four arbitrary words of the package's own image.
     #

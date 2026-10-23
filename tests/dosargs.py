@@ -2,7 +2,7 @@
 """Can a DOS program be given ARGUMENTS? (SPEC.md 96.19)
 
 Half the DOS software worth running is configured by its command line, and
-until this wave the box wrote an EMPTY tail and every program got its
+until this wave DOS wrote an EMPTY tail and every program got its
 defaults.  Creative's own card test prints "run this program again and select
 the other options manually" and there was no way to say `/M`.
 
@@ -322,7 +322,7 @@ def main():
         # not call the paint callback** - the window manager carries the
         # pixels - so every screen-coordinate rect this package caches stays
         # at the old position until something paints or clicks. dos_click and
-        # dos_key both call dos_place first, so the box itself is never wrong;
+        # dos_key both call dos_place first, so DOS itself is never wrong;
         # a reader that takes the rects out of bss and then clicks them is.
         w = ui.window("DOS")
 

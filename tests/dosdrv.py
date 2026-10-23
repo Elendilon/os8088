@@ -5,14 +5,14 @@ THE FOUND COLUMN IS THE ROW.  A search of another drive that comes back with
 THIS drive's directory reports `AX=0000 CF=1`-free success - it is
 indistinguishable, from the program's side and from every other instrument
 here, from a search that worked.  That is how it shipped: standing on B:, this
-box answered `A:*.*` with B:'s own directory and answered `C:*.*` on a machine
+DOS answered `A:*.*` with B:'s own directory and answered `C:*.*` on a machine
 with no hard disk, both of them successfully.  So the assertion is WHICH FILE,
 checked against what is really on each floppy rather than against a literal.
 
 THE `CUR` COLUMN IS THE SECOND HALF, and without it the row is passable by a
 wrong fix: a letter must not MOVE the program.  Under DOS it selects which
 drive's current directory the name is resolved against and `AH=0Eh` alone
-changes drives, so a box that got the search right by leaving the program on
+changes drives, so a DOS that got the search right by leaving the program on
 A: would satisfy every other assertion here.
 
 THE HANDLE ROWS ARE THE THIRD, and are what a pattern cannot reach.  A handle

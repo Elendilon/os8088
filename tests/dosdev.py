@@ -4,9 +4,9 @@
     python3 tests/dosdev.py [--machine NAME]
 
 SPEC.md 96.11.7, and the row exists because of what it cost: Microsoft
-Works - the first program anyone ran on this box from outside the project -
+Works - the first program anyone ran on this DOS from outside the project -
 could not open its own WORKS.INI, and said `Too many files open` about it.
-The box was answering `file not found`, to `CON`.
+DOS was answering `file not found`, to `CON`.
 
 Works opens CON at ONE CALL SITE over and over until DOS refuses, counts the
 handles it got, and closes them again. Traced against IBM DOS 3.30 on the
@@ -19,7 +19,7 @@ DIFFERENT handles, because that is the property the counting loop rests on -
 and an implementation that answers with one of the five standard handles
 passes `does CON open` and hangs the loop for ever.
 
-CONDEV.COM runs under this box AND under a real DOS unchanged
+CONDEV.COM runs under this DOS AND under a real DOS unchanged
 (docs/DOS-DEBUGGING.md), so the answers it checks are the reference's.
 
 WHAT IT WOULD CATCH: the device test taken out of AH=3Dh (A); a device handle

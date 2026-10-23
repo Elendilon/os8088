@@ -435,7 +435,7 @@ FAST = [
         "int 19h route writes. A, DOSHELLO.COM in the OS and then on the "
         "whole machine ([dos_keepc] set through QEMU's GDB stub): back LIVE, "
         "the mailbox untouched, `.cold` still FFFF and its bytes unchanged, "
-        "the box DST_RAN with 42, HDD.DRV's HMA row kept and C: listing "
+        "DOS DST_RAN with 42, HDD.DRV's HMA row kept and C: listing "
         "through it, no MEM_K_HIB left. B, DOSHMA.COM flips one word of "
         "`.cold` under kern_dos: the negative control - kd_resume's sum "
         "refuses, back by int 19h with the mailbox spent and 42 behind it, "
@@ -2687,7 +2687,7 @@ SOAK = [
         "package runs in*: mem_is_region's equality, mem_frameless asking "
         "mem_in_nest about the wrong segment, mem_rr_walk matching the base "
         "alone, and mem_reloc_call far-calling PKG_DISP into the carve's head "
-        "SLACK. That cost the DOS box 14KB on a Sound Blaster machine "
+        "SLACK. That cost DOS 14KB on a Sound Blaster machine "
         "(96.35.4.1) and made every re-homing package a permanent wall. THIS "
         "IS THE GATE ON THE FIX and the row above is not: at a zero slack all "
         "four questions have the same answer either way, so only this "
@@ -5566,7 +5566,7 @@ SOAK = [
     Row("kdmouse", "soak", py("tests/kdmouse.py"), 30.0,
         "THE SAME QUESTION WITH NO KERNEL ON THE MACHINE (SPEC.md 96.45). "
         "`dosmouse` above is a TRANSLATION gate - the kernel owns the "
-        "hardware and the box scales its numbers - and under arm 3 there is "
+        "hardware and DOS scales its numbers - and under arm 3 there is "
         "no kernel at all: the handoff calls `mouse_unhook` (it must, or a "
         "live IRQ4 vectors into kern_dos's image at `mou_isr`'s KERNEL "
         "offset), so the pointer has to be brought back by a second driver "
@@ -5607,7 +5607,7 @@ SOAK = [
         "inside the wrong entry. WHAT IT COVERS is the half that has no "
         "emulator in it: apps/dos's constants assemble out and the ring is a "
         "power of two (its mask depends on that), tests/dostrap/trap.asm "
-        "publishes its own layout and AGREES with the box on the entry size - "
+        "publishes its own layout and AGREES with DOS on the entry size - "
         "one reader decodes both rings, so a field added to one and not the "
         "other reads as a plausible trace of a program that never ran - the "
         "ring decodes oldest-first WRAPPED and not, and the alignment survives "
@@ -5648,7 +5648,7 @@ SOAK = [
         needs=("nasm",)),
     Row("dosdir", "soak", py("tests/dosdir.py"), 20.0,
         "THE DOS DIRECTORY, FIND, VECTOR AND CLOCK GATE (SPEC.md 96.12, "
-        "96.13). The clock half asserts that the DOS box and the MENU BAR "
+        "96.13). The clock half asserts that DOS and the MENU BAR "
         "fall back to the same day on a machine with no clock chip - which "
         "is every machine this project targets - and that 4 July 2026 comes "
         "out a Saturday, which is the only digit a wrong Sakamoto table "
@@ -5675,7 +5675,7 @@ SOAK = [
         "FILE, computed from the two floppies rather than written down: the "
         "pair is built so each carries a name the other has not. THE `CUR` "
         "COLUMN IS THE SECOND HALF and without it a wrong fix passes - a "
-        "letter must not MOVE the program, so a box that got the search "
+        "letter must not MOVE the program, so a DOS that got the search "
         "right by leaving it on A: would satisfy everything else here. THE "
         "HANDLE ROWS ARE THE THIRD and are what a pattern cannot reach: a "
         "handle is a NAME, re-resolved at every window, and the A: handle is "
@@ -5688,7 +5688,7 @@ SOAK = [
     Row("dosregs", "soak", py("tests/dosregs.py"), 20.0,
         "DOES INT 21h GIVE BACK EVERY REGISTER IT DOES NOT ANSWER IN? "
         "(SPEC.md 96.7.1.2). ONE BINARY RUNS ON BOTH - tests/dostrap/regs.asm "
-        "under this box and under a real IBM DOS 3.30 off a real floppy, "
+        "under this DOS and under a real IBM DOS 3.30 off a real floppy, "
         "printing the same table - because the two findings before this one "
         "each came out of a PROGRAM visibly breaking, and 'which register "
         "does the next one destroy' is not a question reading the code "
@@ -5697,7 +5697,7 @@ SOAK = [
         "the call does not need goes in carrying a sentinel and the whole set "
         "is pushed THE INSTRUCTION AFTER THE `int` - before the AH=02h that "
         "prints it, which is itself one of the calls under test. 45 calls: "
-        "every function the box dispatches except AH=4Bh (needs a child - "
+        "every function DOS dispatches except AH=4Bh (needs a child - "
         "dosexec is its gate), AH=01h/07h/08h (they BLOCK on a keystroke), "
         "AH=4Ch/00h (they do not return) and the memory trio, where a .COM "
         "owning all of memory makes the comparison about DOS's memory model "
@@ -5708,7 +5708,7 @@ SOAK = [
         "the other has a different set of outputs. It found three things - "
         "AH=47h eating CX (a program that kept a count across `where am I` "
         "got 132 back), AH=44h's bit 6, which 96.7.1.1 recorded and could "
-        "not fix, and AH=44h's DRIVE bits, which read the box's standing "
+        "not fix, and AH=44h's DRIVE bits, which read DOS's standing "
         "drive where DOS answers the FILE's, so the last five rows stand the "
         "machine on A: and open B:REGS.COM by name. The `57 ` row is RED ON "
         "PURPOSE and named: AH=57h is unimplemented because "
@@ -5764,7 +5764,7 @@ SOAK = [
         "A BLOCK GROWS BACK INTO WHAT IT GAVE UP (SPEC.md 96.9.2). AH=4Ah "
         "grows only into the block immediately above it, which is DOS's own "
         "rule and only half of DOS: DOS coalesces adjacent free blocks during "
-        "the allocation walk and this box did not. Every DOS memory manager "
+        "the allocation walk and this DOS did not. Every DOS memory manager "
         "takes the largest block there is and then shrinks and grows it as "
         "the program's heap moves, each shrink cutting a NEW free tail - so "
         "after two of them the space given up is two or three adjacent free "
@@ -5773,7 +5773,7 @@ SOAK = [
         "high-water mark. Measured on Commander Keen 2 under kern_dos: "
         "granted 0x78C0 paragraphs (483 KB), refused 0x6900 (420 KB), with "
         "221 KB free above the block in three pieces. ONE BINARY ON BOTH - "
-        "tests/dostrap/mcb.asm under this box and under a real IBM DOS 3.30 "
+        "tests/dostrap/mcb.asm under this DOS and under a real IBM DOS 3.30 "
         "off a real floppy - and THE NUMBERS ARE NOT COMPARABLE, the two "
         "arenas differing by design: what holds on both is that all five "
         "steps succeed with bx equal to the ask, and the fifth asks for LESS "
@@ -5783,7 +5783,7 @@ SOAK = [
 
     Row("dosvec", "soak", py("tests/dosvec.py"), 20.0,
         "THE VECTORS A REAL DOS OWNS ARE INSTALLED, not left at 0000:0000 "
-        "(SPEC.md 96.5.2). The box hooked 20h 21h 22h 23h 24h 2Fh 33h and "
+        "(SPEC.md 96.5.2). DOS hooked 20h 21h 22h 23h 24h 2Fh 33h and "
         "left the other fourteen of DOS's own block empty - which is not "
         "'unimplemented', it is a JUMP TO ADDRESS ZERO, and a program cannot "
         "test for it beforehand because the probe IS the call. BOLOBALL asks "
@@ -5792,7 +5792,7 @@ SOAK = [
         "into the IVT with SP walking down two bytes a lap; nothing in our "
         "own INT 21h trace looks wrong at any point. ONE BINARY ON BOTH, "
         "dosregs's shape: tests/dostrap/vecs.asm prints five lines under this "
-        "box and under a real IBM DOS 3.30 off a real floppy, and every "
+        "DOS and under a real IBM DOS 3.30 off a real floppy, and every "
         "expected value here is that run. NUL=NONE is the block; 2A=00 is the "
         "probe SURVIVING the call and the handler being an iret rather than "
         "something that scribbles; 29=[*] is fast console output, where an "
@@ -5801,7 +5801,7 @@ SOAK = [
         "leaves the FLAGS the INT pushed ON THE STACK, so a handler that "
         "irets answers correctly and unbalances the caller by two bytes. CF "
         "and AX on that line are NOT compared and the probe judges nothing: "
-        "DOS reads sector 0 of drive A and succeeds where this box refuses. "
+        "DOS reads sector 0 of drive A and succeeds where this DOS refuses. "
         "The last assertion is the exit code - the probe leaves through "
         "AH=00h with AL=42h, whose code is ZERO, and reporting AL is where "
         "the field's `Exit code 002` came from.",
@@ -5871,7 +5871,7 @@ SOAK = [
         "bytes DIRECTLY BELOW its own stack pointer. A real DOS switches to "
         "an internal stack at its first instruction, so all that lands there "
         "is the three words the `int` pushed, at +0A..+0F, where nothing "
-        "reads them; this box built its whole gate frame there instead, six "
+        "reads them; this DOS built its whole gate frame there instead, six "
         "words deeper, onto the signature, the owner and the size. THE "
         "ASSERTION IS THE HEADER AND NOT THE EXEC: SHRINK.COM snapshots it "
         "before any other call and again after five AH=30h, so a regression "
@@ -5887,7 +5887,7 @@ SOAK = [
         "the window it measures spends NO push of its own - the counter is a "
         "memory cell - and the stack moves somewhere safe before the first "
         "`putc`, whose eight pushes would otherwise smash the header this row "
-        "is watching and go red on a box that is behaving. SHRINK.COM runs "
+        "is watching and go red on a DOS that is behaving. SHRINK.COM runs "
         "under a real IBM DOS 3.30 unchanged, which is where `MCB INTACT` "
         "comes from.",
         needs=("marty",), serial=True,
@@ -5913,7 +5913,7 @@ SOAK = [
     Row("dosrange", "soak", py("tests/dosrange.py"), 50.0,
         "INT 33h's COORDINATE WINDOW (SPEC.md 96.10.7). `07h` and `08h` are a "
         "program saying what its own screen is, and every `03h` after that is "
-        "an answer in those units - and this box answered both as NO-OPS, on "
+        "an answer in those units - and this DOS answered both as NO-OPS, on "
         "the ground that the host's pointer is already inside THE SCREEN, "
         "which is not the claim the program made. Battle Chess is the report "
         "(docs/FIELD-NOTES.md 56): a mode 13h game that sets 0..319 x 0..199, "
@@ -5937,7 +5937,7 @@ SOAK = [
         "`mou_isr` is never called again, `[mouse_x]` freezes and the game's "
         "cursor never moves (docs/FIELD-NOTES.md 56). IRQGRAB.COM is that "
         "theft with nothing else in it and then BLOCKS on `AH=08h`, which is "
-        "the window: the box's key poll is what samples the mouse, so a "
+        "the window: DOS's key poll is what samples the mouse, so a "
         "re-arm that lives on `osapi_mouse` gets its chance there. IT READS "
         "THE VECTOR AS WELL AS THE POSITION, and needs to: an earlier "
         "spelling shifted `[mou_port]` into the word tables when that cell is "
@@ -6030,7 +6030,7 @@ SOAK = [
         "opens and reads itself through the NEW doors - then AH=4Ch with a "
         "known code, because a fall into the arena produces a clean-looking "
         "zero as readily as a clean exit. It reads 500 KB above its own PSP "
-        "against the windowed box's 449, which is the number the whole plan "
+        "against the windowed DOS's 449, which is the number the whole plan "
         "exists to move. A: carries no file system (the loader and the blob "
         "raw) and B: is an ordinary FAT12 volume; measured at 4.5s idle.",
         needs=("marty",), serial=True),
@@ -6203,7 +6203,7 @@ SOAK = [
         "the middle of that band, which leaves ~16KB of slack on each side "
         "(sixteen rungs of KD_IMG_KB either way) and a failure message that "
         "says which way it has drifted. THE WINDOWED RUN IS THE CONTROL and "
-        "must FAIL: 586KB does not fit the box's ~437KB arena, so a program "
+        "must FAIL: 586KB does not fit DOS's ~437KB arena, so a program "
         "that would have run anywhere could not pass. Five assertions - the "
         "windowed refusal, the program's own check of the image head 585KB "
         "BELOW its code (a short read or a `dos_movedown` that bound at 64KB "
@@ -6255,7 +6255,7 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("icoshed", "soak", py("tests/icoshed.py"), 70.0,
         "THE ICON STORE IS SHED AND THE WINDOW GETS IT BACK (SPEC.md "
-        "25.9.5). A DOS box claims the whole arena, which is a full "
+        "25.9.5). DOS claims the whole arena, which is a full "
         "compaction, which correctly drops the machine-wide store - it is "
         "MEM_PG_TRIV so that this IS the cheap thing to give up. What was "
         "missing is the other half of cheap: a repaint is not a mount, so "
@@ -6439,20 +6439,20 @@ SOAK = [
                "build/ctrl.drv", "build/hdd.drv")),
     Row("kdreturncx", "soak", py("tests/kdreturn.py", "--compact", "extent"),
         30.0,
-        "...AND THE BOX MOVES UNDER THE HANDOFF (SPEC.md 96.40.8). The post "
+        "...AND DOS MOVES UNDER THE HANDOFF (SPEC.md 96.40.8). The post "
         "is a far pointer, [hb_dosseg], and DOS.O88's region is MOVABLE and "
         "frameless at ui_task step 0 - so a claim inside the handoff that has "
         "to compact can carry the region away from the word that names it. "
         "Stopped at hbf_perform, the heap is walled (a tombstone-tagged "
         "pinned claim per run, both caches retagged pinned) so that HIBER.DRV "
         "fits a hole of its own and step 3's 2KB extent list can only be met "
-        "by moving the box 1KB. It asserts the box DID move - a run where it "
+        "by moving DOS 1KB. It asserts DOS DID move - a run where it "
         "did not proved nothing and fails saying so - that [hb_dosseg] names "
         "the new base at the extent claim, and then every ordinary kdreturn "
         "assertion. VERIFIED RED with mem_rr_tab's row taken back to "
-        "MEM_RR_ONE drv_dlg_seg: [hb_dosseg] 91E0 against a box at 9220, and "
+        "MEM_RR_ONE drv_dlg_seg: [hb_dosseg] 91E0 against DOS at 9220, and "
         "unchecked the wake wrote the exit code a kilobyte under the record, "
-        "into the box's own code, and the box came home with [dos_exit] 0. "
+        "into DOS's own code, and DOS came home with [dos_exit] 0. "
         "Measured at 26s alone and 35.5s in a four-lane run. MartyPC.",
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
@@ -6462,7 +6462,7 @@ SOAK = [
         "...AND THE SAME MOVE ONE CLAIM EARLIER (SPEC.md 96.40.8): the heap "
         "is walled so that HIBER.DRV's own image - loaded by hbf_perform "
         "before hbm_dosrun's step 1 copies the record - can only be met by "
-        "moving the box 3KB, with a hole of its own left for the extent list. "
+        "moving DOS 3KB, with a hole of its own left for the extent list. "
         "This is the window a fix inside the MODULE could not reach, which is "
         "why [hb_dosseg] is a mem_rr_tab holder rather than re-read in "
         "hbm_dosrun. VERIFIED RED the same way: hbm_dosrun REFUSED at step 1, "
@@ -6475,7 +6475,7 @@ SOAK = [
     Row("dosbss", "soak", py("tests/unit/t_dosbss.py"), 1.7,
         "THE DOS CORE'S bss IS AT THE SAME OFFSETS IN EVERY HOST (SPEC.md "
         "96.44.2). docs/plans/KERN-DOS-PLAN.md 4.1.3 puts the INT 21h core in "
-        "a part BOTH the box and kern_dos join, so it is assembled once and "
+        "a part BOTH the windowed DOS and kern_dos join, so it is assembled once and "
         "reads its state DS-relative at os88_image_end + DOS_B_* - and DOS_B_* "
         "is a running sum, so ONE conditional row moves every cell after it. "
         "Not hypothetical: 96.43.2 gated twenty-nine window rows out of "
@@ -6489,7 +6489,7 @@ SOAK = [
         "ASSEMBLER rather than the source. Rule 4 exists because the other "
         "three were green while the halves disagreed by four bytes (96.44.2.1): "
         "the offender was a row's SIZE, `2 * DVOL_MAX`, and what it cost was "
-        "every program typed at the parted box's prompt answering `Bad command "
+        "every program typed at the parted DOS's prompt answering `Bad command "
         "or file name`. Host-side; four nasm runs, and it fails naming the row "
         "and both offsets.",
         ),
@@ -6567,7 +6567,7 @@ SOAK = [
         "kerndos into the kernel and the kernel into kdshim.inc's stubs.",
         ),
     Row("dosseam", "soak", py("tests/unit/t_dosseam.py"), 1.0,
-        "THE DOS BOX'S FILE SEAM (SPEC.md 96.4.1, 96.4.2): the INT 21h core "
+        "DOS'S FILE SEAM (SPEC.md 96.4.1, 96.4.2): the INT 21h core "
         "reaches the file system through the DBE_* doors and nothing else, "
         "which SPEC.md 96.4.1 states for the STACK SWAP's sake and "
         "docs/plans/KERN-DOS-PLAN.md 3 rests on for a different one - every "
@@ -6659,7 +6659,7 @@ SOAK = [
         "it; and step 8's demotion read 2 while dos_mem_fix hung off dos_run, "
         "which an empty path box never reaches. What the inversion COST it is "
         "one assertion it can no longer make - the demotion itself needs a "
-        "box whose package has no part, and no shipped disk carries one - so "
+        "DOS package with no part, and no shipped disk carries one - so "
         "step 8 asserts the other side of the same consumer: a pick the "
         "machine CAN honour must survive the commit. **AND ARM 1'S ROW IS ITS "
         "OWN OPTION** (96.36.8, 96.36.9): one row carries `Disable the mouse` "
@@ -6693,7 +6693,7 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("dosarena", "soak", py("tests/dosarena.py"), 30.0,
         "THE DOS ARENA'S UNMOUNT-AND-COMPACT (SPEC.md 96.35, 51.11.1, 66.4.3): "
-        "SOUND.DRV is ~14KB at the TOP of the heap and the box unmounts it, "
+        "SOUND.DRV is ~14KB at the TOP of the heap and DOS unmounts it, "
         "and that memory used to be unreachable because the suspend was fenced "
         "on the fsx bracket - long AFTER the arena was claimed. It is an A/B "
         "BETWEEN TWO MACHINES and that is the whole design: the same disk and "
@@ -6708,7 +6708,7 @@ SOAK = [
         "again with the unmount happening and the DOS REGION not declared "
         "movable, so the hole sat above a wall. **AND THE A/B IS RETIRED "
         "since SPEC.md 96.40.3 shipped the four-piece DOS.O88** (96.35.4.1): "
-        "the box is PART 0 of a RE-HOMED package now, whose region is the "
+        "DOS is PART 0 of a RE-HOMED package now, whose region is the "
         "loader's carve re-stamped to the instance slot - so mem_find_own "
         "cannot match it and OSAPI_MEM_MOVABLE is refused, by design and "
         "correctly (I_SPTR is the part's segment at 0x8FE0 where the claim's "
@@ -6748,7 +6748,7 @@ SOAK = [
     Row("dosdev", "soak", py("tests/dosdev.py"), 20.0,
         "`CON` IS A CHARACTER DEVICE, NOT A FILE NAME THAT IS MISSING "
         "(SPEC.md 96.11.7). Microsoft Works - the first program anyone ran on "
-        "this box from outside the project - could not open its own WORKS.INI "
+        "this DOS from outside the project - could not open its own WORKS.INI "
         "and said `Too many files open` about it, while the handle table held "
         "ONE slot of eight. Traced against IBM DOS 3.30 on the same disk, "
         "Works opens CON at one call site until DOS refuses, counts what it "
@@ -6757,7 +6757,7 @@ SOAK = [
         "ASSERTION IS NOT `CON OPENS` - it is that two opens give two "
         "DIFFERENT handles, which is what the counting loop rests on and what "
         "an answer of `handle 1` would hang for ever. CONDEV.COM runs under "
-        "this box and under a real DOS unchanged, so its expected answers are "
+        "this DOS and under a real DOS unchanged, so its expected answers are "
         "the reference\'s; it also covers AH=44h AL=08h and AH=0Dh, the other "
         "two answers that trace showed DOS giving and us refusing.",
         needs=("marty",),
@@ -6765,14 +6765,14 @@ SOAK = [
     Row("call5", "soak", py("tests/call5.py"), 30.0,
         "CP/M'S CALL 5 DISPATCHES ON CL AND COMES BACK (KERN-MEGA-DOS-PLAN "
         "10.5 defect 3). PSP:5 is a far call DOS aims so that segment x 16 + "
-        "offset is its own dispatcher; the box aimed it at PSP:0050, the DOS "
+        "offset is its own dispatcher; DOS aimed it at PSP:0050, the DOS "
         "2+ far gate, which takes AH where CP/M passes CL and returns FAR to "
         "PSP:000A, a data field - so CALL 5 had never served CP/M on any "
         "kernel. It reaches `dos_cpm` now on every host. CALL5.COM, run with "
         "B: current, exits with function 19h's answer through CALL 5, which "
         "is 1 and is produced by nothing but a dispatched, returning call - "
-        "the pre-fix box exits 0 (AH is 0 at entry, so its first CALL 5 is a "
-        "terminate), on both legs: the windowed box, where the segment fits "
+        "the pre-fix DOS exits 0 (AH is 0 at entry, so its first CALL 5 is a "
+        "terminate), on both legs: the windowed DOS, where the segment fits "
         "a word, and kern_dos, where it goes below 0 and the call lands "
         "through the 1MB wrap as IBM DOS 3.30's does. kern_mega's HMA run is "
         "the third way and is Bochs's.",
@@ -6790,7 +6790,7 @@ SOAK = [
         "PAST the end in the same breath as one BEHIND it, and those are "
         "opposite cases - behind is 96.11.2's real refusal, past is a GAP "
         "`dos_fh_wiloop`'s `.ihole` already lays. WRGAP.COM runs under this "
-        "box and under a real DOS unchanged, so its expected answers are the "
+        "DOS and under a real DOS unchanged, so its expected answers are the "
         "reference's; its last step also covers AH=41h on a name that is not "
         "there, which answered `access denied` where DOS says `file not "
         "found` (96.11.9). THE GAP'S OWN CONTENT IS DELIBERATELY NOT "
@@ -6814,7 +6814,7 @@ SOAK = [
     Row("dosfull", "soak", py("tests/dosfull.py"), 30.0,
         "A HELD STREAM THAT RUNS OUT OF ROOM, AND A DELETE WHILE ITS HOLD IS "
         "PENDING (SPEC.md 18.4.9.1, 18.4.9.2). DOSFULL.COM fills an empty "
-        "360KB floppy through one handle - the box's flushes are one held "
+        "360KB floppy through one handle - DOS's flushes are one held "
         "WRITE_SEQ stream since SPEC.md 96.53 - then deletes the file "
         "without closing it, and the host fscks the floppy: every cluster "
         "free but the program's. The failed held call used to flush its "
@@ -6831,7 +6831,7 @@ SOAK = [
         "kern_dos; the row asserts the SHAPE - the last block within 1.5x "
         "of the first - which a layer walking the chain from the front "
         "cannot pass. Before the streams: write 49 -> 85, read 28 -> 62 "
-        "ticks a block in the box, and the same climb under kern_dos.",
+        "ticks a block in DOS, and the same climb under kern_dos.",
         needs=("marty",),
         wants=("build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/hiber.drv", "build/ctrl.drv", "build/hdd.drv",
@@ -6840,7 +6840,7 @@ SOAK = [
         "INT 33h's EVENT HANDLER IS CALLED (SPEC.md 96.10.4). Microsoft Works "
         "'had a mouse' and had none, and 96.10.3's histogram says why in one "
         "line: it calls 00h, 08h, 0Ah and 0Ch SET EVENT HANDLER, and then "
-        "NOTHING - it never polls function 3. A box whose functions 3, 5, 6 "
+        "NOTHING - it never polls function 3. A DOS whose functions 3, 5, 6 "
         "and 0Bh are all exact and which answers 0Ch with `not supported` has "
         "told a program a mouse exists and then never mentions it again, "
         "which a program cannot tell from no mouse at all. THE ASSERTION IS "
@@ -6849,7 +6849,7 @@ SOAK = [
         "0Ch and called from the chained IRQ0 (96.10.4.1), with a position "
         "that tracks the mouse the harness is moving. It moves RELATIVELY, "
         "because this is motion with no destination. MOUEVT.COM runs under "
-        "this box and under a real DOS unchanged, and prints SKIP on a DOS "
+        "this DOS and under a real DOS unchanged, and prints SKIP on a DOS "
         "with no mouse driver rather than failing. Its last step is that the "
         "handler STOPS when the program asks for none - a callback into code "
         "that may since have been freed.",
@@ -6882,7 +6882,7 @@ SOAK = [
         "**A DOS MOUSE DRIVER DRAWS ITS OWN POINTER** (SPEC.md 96.10.5). "
         "There is no compositor and no arrow the machine keeps for it, so "
         "`01h` means put a cursor on the screen and keep it under the mouse - "
-        "and this box answered `01h` and `02h` with a shrug, on the reasoning "
+        "and this DOS answered `01h` and `02h` with a shrug, on the reasoning "
         "that the kernel owns the pointer. Right in the WINDOWED host and "
         "wrong in `kern_dos`, where the program owns every pixel and the "
         "kernel is not running at all, which is why the capability hangs off "
@@ -6903,7 +6903,7 @@ SOAK = [
         "BOTH ARE ASSERTIONS: under kern_dos the cursor must be drawn, and IN "
         "THE WINDOW it must NOT be - there B800 is the kernel's framebuffer "
         "and DHK_TXT is absent for that reason, so a row that only ran arm 3 "
-        "would pass just as happily with a box that scribbled on the desktop.",
+        "would pass just as happily with a DOS that scribbled on the desktop.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/mcursor360.img")),
     Row("kdmredraw", "soak", py("tests/kdmredraw.py"), 50.0,
@@ -6922,7 +6922,7 @@ SOAK = [
         "compose that cell. A serial mouse that is not moving raises no "
         "interrupt, so there is nothing to repaint from and neither driver "
         "hooks the tick for it. So the behaviour STAYS and this row is a "
-        "COMPATIBILITY RATCHET: red if this box ever repaints where CuteMouse "
+        "COMPATIBILITY RATCHET: red if this DOS ever repaints where CuteMouse "
         "does not. Four checks: the cursor is drawn (A, the control), the "
         "program's own word survives a store over it (B), a hide leaves that "
         "word alone rather than restoring the cell the driver saved - which "
@@ -6952,7 +6952,7 @@ SOAK = [
         wants=("build/dossnd360.img",)),
     Row("dosirq", "soak", py("tests/dosirq.py"), 20.0,
         "THE DOS HARDWARE GATE (SPEC.md 96.18) - the row that says what the "
-        "DOS box is FOR. Every other dos* row asks about INT 21h, which is "
+        "DOS is FOR. Every other dos* row asks about INT 21h, which is "
         "our own code answering; this one asks about the machine underneath. "
         "A program inside the bracket resets the Sound Blaster's DSP and "
         "reads its version back (ports both ways), hooks INT 0Fh and unmasks "
@@ -6967,7 +6967,7 @@ SOAK = [
         "the buffer's PHYSICAL address, which is the one sum a program does "
         "differently here - its segment is wherever the arena put it, so a "
         "page register computed by habit is right everywhere it was tested "
-        "and wrong in the box. VERIFIED TO FAIL by nop-ing out the suspend; "
+        "and wrong in DOS. VERIFIED TO FAIL by nop-ing out the suspend; "
         "worth knowing that the three hardware numbers DID NOT MOVE when it "
         "did (96.18.2), because an idle driver has hooked no vector - which "
         "is why the assertion is a read of drv_tab and not a symptom.",
@@ -7007,7 +7007,7 @@ SOAK = [
         "SPINS ON THE BIOS TICK and never asks the driver for anything again. "
         "QEMU'S, on CLAUDE.md's closed list for tests/ethernet.py's reason: "
         "MartyPC has no NIC of any kind. IT READS THE DRIVER AND NOT THE "
-        "SCREEN, because the box has no windowed text yet (wave 6) and a "
+        "SCREEN, because DOS has no windowed text yet (wave 6) and a "
         "program's output dies with the bracket - so the evidence is "
         "ETHER.DRV's own eth_nrawtx/eth_nraw, zeroed by NETV_RAW and "
         "surviving its release, plus eth_raw back at 0 to prove the claim was "
@@ -7038,7 +7038,7 @@ SOAK = [
         "A PAGE FETCHED OVER THE PARALLEL CABLE BY THE SOCKET ABI'S REFERENCE "
         "CONSUMER (SPEC.md 62.11): SOCKTEST.O88 asks net_find, NETV_STATE, "
         "NETV_OPEN, SEND, RECV until NSK_CLOSING, CLOSE and NETV_STATE again, "
-        "straight against a real NET.DRV - no browser above it and no DOS box "
+        "straight against a real NET.DRV - no browser above it and no DOS "
         "beside it, which is what `doscable` and `dispbrow` are. The CABLE is "
         "MartyPC's parallel port driven a nibble at a time by "
         "tests/lptlink/partner.py and the far side's TCP is real host "
@@ -7068,7 +7068,7 @@ SOAK = [
         "net_find picks NET.DRV with no knob at all, and 96.23's raw path "
         "does not exist because NETV_RAW is one of the three verbs the cable "
         "refuses (72.22.3). The GUEST is a cycle-accurate 8088 running the "
-        "shipped kernel, a real NET.DRV, the real DOS box and a real Crynwr "
+        "shipped kernel, a real NET.DRV, the real DOS.O88 and a real Crynwr "
         "client; the CABLE is MartyPC's parallel port driven a nibble at a "
         "time by tests/lptlink/partner.py; and the far side's TCP is not "
         "modelled at all - partner.SocketBox is real host sockets. THE FAR "
@@ -7096,9 +7096,9 @@ SOAK = [
         "THE CABLE TRANSLATION, ONE WHOLE TCP CONNECTION (SPEC.md 96.26). "
         "Where `dospkt` asks whether a frame reached a CARD, this asks whether "
         "a DOS client's own stack gets what TCP owes it over the PARALLEL "
-        "CABLE, which carries sockets and no frames at all (72.22.3): the box "
+        "CABLE, which carries sockets and no frames at all (72.22.3): DOS "
         "terminates the client's TCP and re-opens it as a NETV_OPEN. NOTHING "
-        "OUTSIDE THE CLIENT CAN ANSWER THAT - every counter in the box and in "
+        "OUTSIDE THE CLIENT CAN ANSWER THAT - every counter in DOS and in "
         "the driver reads correct while the client hears nothing, which is "
         "exactly how three register defects hid (96.26.3) - so DOSPKT.COM "
         "runs the connection by hand and BANKS THE FLAGS BYTE OF EVERY "
@@ -7168,7 +7168,7 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("dosargs", "soak", py("tests/dosargs.py"), 50.0,
         "CAN A DOS PROGRAM BE GIVEN ARGUMENTS? (SPEC.md 96.19). Half the DOS "
-        "software worth running is configured by its command line and the box "
+        "software worth running is configured by its command line and DOS "
         "wrote an EMPTY tail until this wave - Creative's own card test says "
         "'run this program again and select the other options manually' and "
         "there was no way to say /M. The row drives the whole loop: run with "
@@ -7217,7 +7217,7 @@ SOAK = [
         wants=("build/dosargs360.img",)),
     Row("dosmedia", "soak", py("tests/dosmedia.py"), 30.0,
         "A FLOPPY SWAPPED UNDER A RUNNING PACKAGE (SPEC.md 18.9.1.1). "
-        "Reported from the field: the DOS box standing on B:, DIR correct, a "
+        "Reported from the field: DOS standing on B:, DIR correct, a "
         "DIFFERENT 720KB disk inserted, DIR again - and the listing was the "
         "OLD disk\'s, permanently, until the program was closed and reopened. "
         "**THE HARNESS CANNOT SWAP A FLOPPY UNDER A RUNNING GUEST** - "
@@ -7241,11 +7241,11 @@ SOAK = [
         "stopped by the second one, so `burst <= n` was 1 <= 1 for ever",
         needs=("marty",), wants=("build/doscom360.img",)),
     Row("doscon", "soak", py("tests/doscon.py"), 40.0,
-        "THE DOS BOX'S CONSOLE, AND THE PROMPT IN IT (SPEC.md 96.33). The band "
+        "DOS'S CONSOLE, AND THE PROMPT IN IT (SPEC.md 96.33). The band "
         "below the top bar carried three lines of status text and now carries "
         "an 80x25 screen - apps/os88con.inc, which is Telnet's terminal made "
         "into a shared include (70.8.12) because three consumers were coming. "
-        "SEVEN STEPS, in the order a person does them: the box opens on a "
+        "SEVEN STEPS, in the order a person does them: DOS opens on a "
         "PROMPT and not on an error, naming the drive it was LAUNCHED from "
         "(96.33.2 - it read `A:\\>` on a machine standing on C: until "
         "OSAPI_FILE_HERE was asked); typing echoes; a BUILT-IN runs into the "
@@ -7257,8 +7257,8 @@ SOAK = [
         "neither answers DOS's own `Bad command or file name` rather "
         "than `It could not be read.` about a file the user never had. **STEP "
         "6 IS THE WEDGE'S GUARD AND IT FAILS BY HANGING**: it types DOS.O88, "
-        "the box's own package in the folder it was launched from, and before "
-        "96.33.15 the box RAN it - 30KB of OP_ header and org-0 code entered "
+        "DOS's own package in the folder it was launched from, and before "
+        "96.33.15 DOS RAN it - 30KB of OP_ header and org-0 code entered "
         "at PSP:0100, after which the machine does not come back, the bracket "
         "up and the gfx lock held. The refusal it used to get was the wrong "
         "one: [dos_dir] was the volume ROOT (96.33.13), so the file was simply "
@@ -7285,12 +7285,12 @@ SOAK = [
         "three-state sequence and not a screenshot - [dos_fsxup]/[dos_inbr] "
         "1/0 -> 0/1 -> 1/0 - because a screenshot of a text screen cannot say "
         "which renderer wrote it. AND STEP 5b IS THE DRIVE CHANGE (96.33.6): a bare `B:` is "
-        "COMMAND.COM's and not a verb, which this box answered `Bad command "
+        "COMMAND.COM's and not a verb, which this DOS answered `Bad command "
         "or file name` until it was reported - a drive letter falls through a "
         "table that has no row for it - and `Z:` must be refused AND must not "
         "move. STEP 5c IS THE OTHER HALF OF THAT SHAPE (96.33.7): a bare name "
         "with no extension is a SEARCH, .COM then .EXE, and typing `PRINCE` "
-        "was refused by a box standing in a folder holding PRINCE.EXE. **B: IS "
+        "was refused by a DOS standing in a folder holding PRINCE.EXE. **B: IS "
         "THE doscom DISK** for that step alone - it needs a `.COM` at a root "
         "to type the bare name of, and every package on an apps disk is a "
         "`.O88`.",
@@ -7303,12 +7303,12 @@ SOAK = [
         "ARE WAS MEASURED - off the IBM DOS 3.30 image and out of "
         "COMMAND.COM's own string table - and one answer is why this row "
         "exists: **/B IS NOT A DOS 3.3 SWITCH**, the real thing answers "
-        "`Invalid parameter` exactly as it does for /Z, so a box reporting "
+        "`Invalid parameter` exactly as it does for /Z, so a DOS reporting "
         "3.31 that accepted it would be wrong in the direction nobody checks. "
         "AND /P MAY NOT WAIT FOR A KEY: dos_con_key is W_ONKEY's handler and "
         "its contract is the gfx lock HELD, so a built-in blocking there would "
         "hold it until a human pressed something - no pointer, no repaint, no "
-        "other window, the whole machine and not just this box. The listing "
+        "other window, the whole machine and not just this DOS. The listing "
         "SUSPENDS instead, and FIVE ASSERTIONS are about that mechanism rather "
         "than about the text: an unknown switch is `Invalid parameter` and not "
         "a file name (/Z, and /B beside it); /W keeps the FILE COUNT, which is "
@@ -7326,7 +7326,7 @@ SOAK = [
         needs=("marty",), serial=True, wants=("build/dirsw360.img",)),
     Row("dosconcga", "soak", py("tests/dosconcga.py"), 40.0,
         "THE CONSOLE BAND ON THE SHORT ADAPTER (SPEC.md 96.33.8). CGA's 200 "
-        "lines leave the DOS box 17 of the console's 25 rows, and [con_vtop] "
+        "lines leave DOS 17 of the console's 25 rows, and [con_vtop] "
         "is which buffer row the band starts at. It was CON_ROWS - "
         "[con_vrows] - the bottom of the BUFFER - which is the right number "
         "only once the console has scrolled a whole screenful; at the first "
@@ -7358,7 +7358,7 @@ SOAK = [
     Row("dirwshed", "soak", py("tests/dirwshed.py"), 60.0,
         "THE DIRECTORY READ-AHEAD WINDOW IS 32K A DOS PROGRAM CAN HAVE "
         "(SPEC.md 66.10.4). 50.6.6 gave a claimant a FLOOR - \"compact the "
-        "disk cache, do not destroy it\" - and the DOS box is its ONE "
+        "disk cache, do not destroy it\" - and DOS is its ONE "
         "consumer: the Setup page shows both figures and a radio picks "
         "between them (96.24, 96.25). They read the SAME NUMBER for a release. "
         "66.10 rests on \"a cache is genuinely unmovable\" and 18.95.7 "
@@ -7366,7 +7366,7 @@ SOAK = [
         "mem_cp_plan reaches mem_cp_drop only from its `.pinned` arm, so the "
         "day MEM_P_DIRW became movable the door shut, a cache that CAN move "
         "was moved and never dissolved, OSAPI_MEM_AVAIL_LVL answered "
-        "identically at every rank, and the box - which sizes its claim DOWN "
+        "identically at every rank, and DOS - which sizes its claim DOWN "
         "from that figure - handed every program 32K less than the machine "
         "had. FOUR ASSERTIONS, and each is a separate thing that can be "
         "missing: the cache IS THERE (read out of mem_tab by owner 0xFE02, "
@@ -7378,10 +7378,10 @@ SOAK = [
         "the right pair while the launch uses the wrong one fails here alone); "
         "and [dsk_rah_seg] - the KERNEL's own word - WENT, read under each arm "
         "while the program is running, without which the row would pass on a "
-        "box that asked for the bigger number and was quietly given the "
+        "DOS that asked for the bigger number and was quietly given the "
         "smaller. That last one is read INSIDE the bracket and not after it, "
         "which is not a nicety: the window is claimed at a MOUNT (18.95.5) "
-        "and the box re-mounts every volume on the way out of an fsx bracket, "
+        "and DOS re-mounts every volume on the way out of an fsx bracket, "
         "so a read taken once the program has exited finds the cache back and "
         "says the shed never happened. The KEEP arm is asserted the other way "
         "for 50.6.6's floor. IT READS STATE AND NOT THE GLASS. "
@@ -7403,7 +7403,7 @@ SOAK = [
         "both comparisons ran backwards and it failed naming a spread of -32 "
         "against a 32KB cache, the right quantity with the wrong sign. "
         "tests/dosmem.py's header names that trap in as many words. "
-        "**TWO MORE ASSERTIONS SINCE 18.95.8**, which gave the box a door "
+        "**TWO MORE ASSERTIONS SINCE 18.95.8**, which gave DOS a door "
         "that takes a WIDTH (OSAPI_DSK_CACHE) and collapsed the dial to ONE "
         "list on both arms - so `Off` is item 4 here and used to be item 1, "
         "and a row poking the old index picks 32K. (5) A MIDDLE RUNG IS REAL: "
@@ -7458,10 +7458,10 @@ SOAK = [
         "with the rest - rightly, since entering 30KB of package image as a "
         ".COM wedges the machine - and what was missing was not a fourth "
         "extension to allow but something else to DO with one. "
-        "OSAPI_PKG_START (21.6) is it, so the box hands the name to the kernel "
-        "and the package opens in its own window, NOT inside the box. Four "
+        "OSAPI_PKG_START (21.6) is it, so DOS hands the name to the kernel "
+        "and the package opens in its own window, NOT inside DOS. Four "
         "steps and the last two are the ones that break silently: CALC.O88 "
-        "opens 'Calculator' AND the box is still there (a launch that "
+        "opens 'Calculator' AND DOS is still there (a launch that "
         "replaced it would be the .COM path back); NOSUCH.O88 says `Cannot "
         "open NOSUCH.O88` and opens nothing, because at that point there is "
         "no window to look at; a SECOND package launches, which a one-shot "
@@ -7471,7 +7471,7 @@ SOAK = [
         "down first, which is 96.33.16's rule reaching a second kind of "
         "launch - without it the wake is never dispatched and the machine "
         "shows 80x25 text with a package running behind it. Asserted on "
-        "GUEST STATE and not pixels: wm_wins for the titles, the box's own "
+        "GUEST STATE and not pixels: wm_wins for the titles, DOS's own "
         "con_scr for the console. VERIFIED RED with the .O88 arm taken back "
         "out of dos_con_ext - 5 of the assertions, every spelling answering "
         "`Bad command or file name` again. STEP 1b IS THE BARE NAME: a bare "
@@ -7507,7 +7507,7 @@ SOAK = [
         "BROWSED IN A DISK WINDOW HERE and that is the sharp part: the "
         "association tables are filled by the mount HARVEST and every path a "
         "program reaches this slot by is a QUIET mount which skips it "
-        "(21.5.3.1) - the DOS box seeds NOTHING, dos_drv_sel doing no mount "
+        "(21.5.3.1) - DOS seeds NOTHING, dos_drv_sel doing no mount "
         "at all (96.48) - so the kernel seeds the cache itself and this row "
         "proves it by never opening B:. FOUR NEGATIVE CONTROLS, which is the "
         "half that breaks silently: a typo with NO tail still answers `Bad "
@@ -7558,7 +7558,7 @@ SOAK = [
         "the glass as Note Pad with a black band through it. Asserted on "
         "GUEST STATE: [con_drb] is the console's dirty-ROW bitmap, so marks "
         "kept rather than spent is exactly what `the draw was skipped` means "
-        "- and raising the box must then spend them, or a skipped draw would "
+        "- and raising DOS must then spend them, or a skipped draw would "
         "cost the prompt. HELP is asserted here too (96.33.23) - that it PRINTS "
         "whole, that the opening hint NAMES it (checked at the top, the "
         "console being a 25-row screen rather than a log, so by the HELP case "
@@ -7567,7 +7567,7 @@ SOAK = [
         "The third needs a file no shipped "
         "disk has (every visible document on both is associated, and the "
         "unclaimed ones in the root are HIDDEN), so the row MAKES one with "
-        "the box`s own COPY onto the scratch B:. VERIFIED RED once more on "
+        "DOS's own COPY onto the scratch B:. VERIFIED RED once more on "
         "the way: `.nodoc` was placed between `jnc .out` and `.bad`, so every "
         "refusal the LAUNCH earned fell through it and came back `File not "
         "found` about a document that was there. 173.2s measured.",
@@ -7596,7 +7596,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/dosargs360.img",)),
     Row("dostype", "soak", py("tests/dostype.py"), 90.0,
-        "TYPE, AND THE FLAG THAT MUTED THE BOX (SPEC.md 96.30.7). A tester "
+        "TYPE, AND THE FLAG THAT MUTED DOS (SPEC.md 96.30.7). A tester "
         "ran the verbs for the first time and TYPE answered `File creation "
         "error` on every file - compressed, uncompressed, and a name that was "
         "not there alike. FOUR defects standing on each other, one assertion "
@@ -7608,13 +7608,13 @@ SOAK = [
         "against an 8KB chunk on purpose, so it takes two passes and finishes "
         "on a partial one, which is the case 18.4.4 makes its own exception "
         "for; SHORT.TXT is 13, so the first read IS the tail; CTRLZ.TXT has "
-        "text after a ^Z that must not appear. **ONE `>` MUTED THE BOX FOR "
+        "text after a ^Z that must not appear. **ONE `>` MUTED DOS FOR "
         "GOOD** - [dsh_quiet] is package bss and was never cleared, so one "
         "redirection silenced every dsh_say for the life of a window somebody "
         "leaves open, which is not an error to look at: VER prints nothing "
         "and DIR keeps printing NAMES while losing its <DIR> markers, its "
         "sizes and its footer, so the listing silently changes SHAPE. That is "
-        "asserted LAST and in that order, because a box that has stopped "
+        "asserted LAST and in that order, because a DOS that has stopped "
         "speaking passes every other row in this file by printing nothing. "
         "**AND THE REFUSAL WAS SILENCED BY THE FLAG IT SETS** - the `>` set it "
         "before the target was judged, so `Cannot redirect to that file` never "
@@ -7634,7 +7634,7 @@ SOAK = [
     Row("doslnk", "soak", py("tests/doslnk.py"), 80.0,
         "A SHORTCUT: can what a DOS program needs be SAVED and reopened? "
         "(SPEC.md 96.21). Arguments and an environment that have to be retyped "
-        "every launch are arguments nobody sets, so the box writes a .LNK "
+        "every launch are arguments nobody sets, so DOS writes a .LNK "
         "carrying the path, the command line and the variables - a real SHELL "
         "LINK, because 8.3 leaves no room to invent an extension and the "
         "format is one every other system already reads. THREE STEPS, and the "
@@ -7658,7 +7658,7 @@ SOAK = [
         "which is why os88line_resync exists (96.21.1). STEP 5 IS THE SECOND "
         "TRY (96.21.2.1): WORKING_DIR is written FULLY QUALIFIED now - "
         "`B:\\BIN` - which is right until the floppy turns up in another "
-        "drive, so the box tries the drive the link NAMES and then the drive "
+        "drive, so DOS tries the drive the link NAMES and then the drive "
         "the link IS ON. The row forges that rather than hoping for it: one "
         "byte of a COPY of the link is patched from `B` to `A` and the copy "
         "is added to the ROOT of the same floppy, so try 1 walks A:\\BIN - the "
@@ -7666,7 +7666,7 @@ SOAK = [
         "THE PLACEMENT IS THE TEST: a link beside its program resolves "
         "whether or not the fallback exists, because the folder it falls back "
         "to is the one it was already in. VERIFIED RED by deleting the second "
-        "call - the box then keeps the link's own folder, B:\\, and starts no "
+        "call - DOS then keeps the link's own folder, B:\\, and starts no "
         "program at all.",
         needs=("marty",), serial=True,
         wants=("build/doslnk360.img", "build/dosargs360.img")),
@@ -8901,7 +8901,7 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("dispfsxherc", "soak", py("tests/dispfsxherc.py"), 60.0,
         "Does the PRIMARY survive an fsx bracket on the SECOND display?"
-        "(SPEC.md 39.19.4.1) dispfsxcga's MIRROR - the DOS box dragged onto"
+        "(SPEC.md 39.19.4.1) dispfsxcga's MIRROR - DOS's window dragged onto"
         "the CGA of a Hercules-primary desktop, taken full screen and brought"
         "back. The ROM's mode set is EQUIPMENT-driven, so vid_text asking for"
         "mode 3 while 40:10 still says mono forced mode 7 and the 3B4h CRTC -"
@@ -8916,7 +8916,7 @@ SOAK = [
     Row("dispfsxcga", "soak", py("tests/dispfsxcga.py"), 50.0,
         "Does the SECOND display survive an fsx bracket on the first?"
         "(SPEC.md 39.18.1.1) A Hercules primary with a CGA beside it, the DOS"
-        "box taken full screen and brought back: fsx_mode's `int 10h AX=0007h`"
+        "window taken full screen and brought back: fsx_mode's `int 10h AX=0007h`"
         "stamps the BIOS's ONE CRT mode shadow at 40:65h, and"
         "vid_unblank_kind's CGA arm used to write that byte to 3D8h - so the"
         "CGA came back in 80x25 TEXT with blink on over a 6845 still timed for"
@@ -9135,7 +9135,7 @@ SOAK = [
         " down when the app's loop next looks",
         needs=("marty",), serial=True),
     Row("dosaltenter", "soak", py("tests/dosaltenter.py"), 20.0,
-        "SPEC.md 96.33.5.1: does Alt+Enter take the DOS box into full screen "
+        "SPEC.md 96.33.5.1: does Alt+Enter take DOS into full screen "
         "and back out? Leg 0 is the premise and is the reason the mechanism "
         "exists at all - the period XT ROM this boots enqueues NOTHING for "
         "Alt+Enter (measured at 0040:001A/001C, the tail does not move), so "
@@ -9144,7 +9144,7 @@ SOAK = [
         "key's typematic repeats are invisible from the WINDOW, because the "
         "first press puts the bracket up and ui_task stops dispatching - it "
         "is on the way BACK, with the key still down and fsx_restore having "
-        "just dropped the latch, that a missing guard throws the box "
+        "just dropped the latch, that a missing guard throws DOS "
         "straight back into full screen",
         needs=("marty",), serial=True),
     Row("fontpick", "soak", py("tests/fontpick.py"), 150.0,
@@ -11438,7 +11438,7 @@ SOAK = [
         "and only the UART's enable and the 8259 mask do not - the reporter "
         "could type in the DOS window throughout. kdreturn drives this exact "
         "resume and passes: NOTHING in the suite looked at the pointer after "
-        "a return, and kdmouse is about the mouse INSIDE the box. Reading 3 "
+        "a return, and kdmouse is about the mouse under kern_dos. Reading 3 "
         "is what stops the row passing vacuously - it asserts in guest CYCLES "
         "that the LIVE route was taken, because kd_leave's fallback is a "
         "whole boot and a boot runs mouse_init. VERIFIED TO FAIL both ways: "
@@ -14874,10 +14874,10 @@ SOAK = [
         "192 measured under Bochs plus the tree",
         needs=("bochs", "nasm")),
     Row("megadosp", "soak", py("tests/megadosp.py"), 160.0,
-        "docs/plans/KERN-MEGA-PLAN.md 14.54: the windowed DOS box's PROMPT "
+        "docs/plans/KERN-MEGA-PLAN.md 14.54: the windowed DOS's PROMPT "
         "on kern_mega with no #GP fixup per character printed - dos_hk_tty "
         "entered con_write with `push cs / pop ds`, so every byte of a DIR, "
-        "an ECHO or a TYPE was one completed write through the box's code "
+        "an ECHO or a TYPE was one completed write through DOS's code "
         "selector (20,002 for a 20,000-byte TYPE; 5.55 s against 4.02 s on "
         "86Box's mr286). MEGATRAP=1's census (a private tree) under Bochs, "
         "B: holding kern_mega's DOS.O88 and an 800-byte file: the launch, "

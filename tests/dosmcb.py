@@ -3,7 +3,7 @@
 
 `AH=4Ah` grows a block only into the block immediately above it - DOS's own
 rule, implemented faithfully, and only half of DOS: DOS COALESCES adjacent
-free blocks during the allocation walk and this box did not.
+free blocks during the allocation walk and this DOS did not.
 
 WHY THAT IS NOT A REFINEMENT.  Every DOS memory manager takes the largest
 block there is and then shrinks and grows it as the program's own heap moves.
@@ -18,9 +18,9 @@ Measured on Commander Keen 2 under kern_dos: granted 0x78C0 paragraphs
 three adjacent pieces.
 
 ONE BINARY ON BOTH, dosregs's and dosvec's shape: tests/dostrap/mcb.asm runs
-under this box and under a real IBM DOS 3.30 off a real floppy.
+under this DOS and under a real IBM DOS 3.30 off a real floppy.
 
-    IBM DOS 3.30            this box
+    IBM DOS 3.30            this DOS
     MAX=93AE                MAX=6D9E
     ask=93AE cf=0 bx=93AE   ask=6D9E cf=0 bx=6D9E
     ask=49D7 cf=0 bx=49D7   ask=36CF cf=0 bx=36CF

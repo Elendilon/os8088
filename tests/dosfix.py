@@ -1,7 +1,7 @@
 """The two handle defects docs/plans/completed/DOS-STREAM-PLAN.md 3 found, as a row.
 
 tests/dostrap/dosfix.asm opens SUB\\X.DAT from the ROOT and reads it past the
-box's 8KB window, with a DECOY X.DAT in the root whose bytes are all 0xEE -
+DOS's 8KB window, with a DECOY X.DAT in the root whose bytes are all 0xEE -
 so a refill that looks the bare name up where the program STANDS, rather
 than in the folder the name was opened in, reads the decoy and the probe
 prints `FDIR BAD at <offset>`. Then it writes 3,000 bytes to NOCLOSE.DAT and
@@ -11,7 +11,7 @@ handle of a terminating process, so all 3,000 must be on the disk.
 WHAT IT WOULD CATCH: the handle forgetting its folder (FDIR BAD at 8192, the
 first refill), an interleaved writer refused at its second round (ILV BAD,
 DOS error 5), and the window left dirty at exit (NOCLOSE.DAT missing or
-empty - the box never flushed it). All three failed before SPEC.md 96.52.
+empty - DOS never flushed it). All three failed before SPEC.md 96.52.
 """
 import os
 import shutil

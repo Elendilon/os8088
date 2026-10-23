@@ -11,7 +11,7 @@ The report is a game whose cursor never moves (docs/FIELD-NOTES.md 56).
 
 `IRQGRAB.COM` is that theft with nothing else in it: take `int 0Ch`, point it
 at a handler that reads the LSR and the data register and EOIs, then BLOCK on
-`AH=08h` - which is the window this needs, because the box's key poll is what
+`AH=08h` - which is the window this needs, because DOS's key poll is what
 samples the mouse.
 
 WHAT IT WOULD CATCH, and the first of these is what it was written against:
@@ -79,10 +79,10 @@ def wait_text(m, want, secs=120):
 
 def sweep(m, dx, dy, n=10, read=None):
     """Move the pointer with the guest RUNNING - `pace='wall'`, because
-    `advance(frames=)` stops the emulator between packets and the box then
+    `advance(frames=)` stops the emulator between packets and DOS then
     never gets a slice to poll the mouse in. Then until `read` - the pointer
     and the vector - has held still for a guest second: the last packet is in
-    and the box's key poll has sampled it."""
+    and DOS's key poll has sampled it."""
     r = os88mouserel.Rel(m, pace="wall")
     for _ in range(n):
         r.move(dx, dy)
@@ -113,7 +113,7 @@ def main(argv):
 
         if seg != KSEG:
             fail("int 0Ch is %04X:%04X - the program still has it. The "
-                 "kernel re-arms on osapi_mouse, which the box's DHK_MOUSE "
+                 "kernel re-arms on osapi_mouse, which DOS's DHK_MOUSE "
                  "calls on every key poll, and this program is blocked in "
                  "one (SPEC.md 9.13)" % (seg, off))
         if after == before:

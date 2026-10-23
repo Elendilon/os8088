@@ -104,7 +104,7 @@ def main():
         # `type_text` goes nowhere at all. The failure is silent and lands two
         # steps later: Run with an empty path does nothing, and the row reports
         # "never reached READY" about a machine that never left the desktop.
-        # **AND THE EXTENSION IS PART OF THE NAME**: the box does not append
+        # **AND THE EXTENSION IS PART OF THE NAME**: DOS does not append
         # `.COM`, so `DOSHELLO` gets as far as kern_dos and comes back "the
         # program could not be loaded" - which reads exactly like the mount
         # defect this row is about and is not it.

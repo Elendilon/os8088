@@ -273,7 +273,7 @@ def main():
         # allocator and the cache could sit above `[kd_top]` with the window
         # and the program below it. Then the design's own figure got measured
         # and it is worth keeping: `KD_RAH_KEEP` rungs take Test Drive III's
-        # load from 75 seconds to 16, which beats the DOS this box imitates.
+        # load from 75 seconds to 16, which beats the DOS it imitates.
         #
         # So what is asserted is the SEPARATION rather than the absence, and
         # the two failures below are different bugs: a ladder that overshoots
