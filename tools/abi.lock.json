@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "3657e5029f46b904773021944fbe6b194861e175608b6b14825ad2b22058509e",
+  "fingerprint": "1bf777a93bde9f1ca5ac89b0512729670e5912413db590189daf5b77e0c99bbc",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "e795883cf944ed5d3a6cd9f50a65cf8e34f22b58a6b972990cc954e01497262f",
+  "fingerprint": "2f7c91493636933cbda58fff94a970b7ba6f35b48a3558577e5de52f5eb5edfe",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -980,6 +980,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_SERIAL: refusal 9 = a UART no BIOS COM slot lists, split from 4 (SPEC.md 115.1); old callers unchanged",
+   "to": 11
+  },
+  {
+   "fingerprint": "2f7c91493636933cbda58fff94a970b7ba6f35b48a3558577e5de52f5eb5edfe",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_XMEM_WALK: kern_big names the HMA's contents under XMW_FIXED (XMW_HMAK/HMAI/HMAB), additive",
+   "to": 10
+  },
+  {
+   "fingerprint": "1bf777a93bde9f1ca5ac89b0512729670e5912413db590189daf5b77e0c99bbc",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_XMEM_WALK: kern_big names the HMA's contents under XMW_FIXED (XMW_HMAK/HMAI/HMAB), additive",
    "to": 11
   }
  ]

@@ -62981,6 +62981,29 @@ would need a second walk to act on it. It survives a page switch, because
 coming back to where you were is the better behaviour and the clamp is what
 keeps it honest.
 
+#### 28.4.4.1 The thumb is DRAGGED, at rate 0 on an 8088
+
+The list's thumb was inert until now - a press on it paged toward where it
+lay - on an argument that held only half the question: a scroll here is a
+LIST REPAINT (~20 rows of text, ~450 ms on the target machine), so a view that
+followed the hand would be seconds behind it. That prices a FOLLOWING view.
+§13.10.5.4's rate 0 is the other answer, and the one Note Pad already ships:
+the thumb follows the hand (`os88ui_sbmove`, one bar's drawing per row of
+travel) and the list is repainted ONCE, at the release - a page-down's cost
+for a jump of any length. A 286 or better follows at 2 ticks
+(`TM_SBRATE286`, Note Pad's figure), resolved by `os88ui_sbrate`.
+
+- `tm_hscroll` grabs on `OS88UI_SBTHUMB` (`os88ui_sbgrab`); `tm_ondrag`
+  (W_ONDRAG) and `tm_onup` (W_ONMOUSEUP) hand what `os88ui_sbtrack` /
+  `os88ui_sbdrop` say the view is owed to `tm_hscroll.set`, the wheel's own
+  entry, so the end stops and the moved-or-not test are one body.
+- `tm_hsbset` runs `os88ui_sbfix`, so the twice-a-second refresh draws the
+  thumb where the HAND is during a drag rather than snapping it back.
+- `.set`'s moved-or-not test compares against `[tm_htop]` before the move,
+  not the block's pos, which is the hand's during a drag.
+- A kernel with no tracking edge (`OSAPI_WM_ONDRAG` answers CF = 1) sets
+  `[tm_nodrag]` and the thumb pages as it did.
+
 ### 28.4.5 A raise cache is filed under the package that owns the WINDOW
 
 `MEM_P_WSAVE + slot` is a **kernel** tag (§11.96.3), so `tm_hmatch`'s System
@@ -63194,7 +63217,7 @@ page:
 |---|---|
 | RAM | conventional + `[tm_hitot]` (the BIOS's extended KB) in MB |
 | System | `tm_sysk` + `[tm_hisys]` (+ `IVT+BIOS` when folded) + `SK_KCLAIM` |
-| memory view System SIZE | `tm_sysk` + `[tm_hisys]`, its items naming the fixed areas above 1MB and every owner there (§28.4.10) - or one `Above 1MB` row carrying the span where the walk has no markers - so the rows still sum |
+| memory view System SIZE | `tm_sysk` + `[tm_hisys]`, its items naming every owner (§28.4.10) and then the span above 1MB as a heading - `HMA` on kern_big, `Above 1MB` on kern_mega - with what is in it under it (§28.4.13), so the rows still sum |
 | a program, both pages | its region and conventional claims, plus `tm_slotxkb`'s blocks above 1MB (its `OSAPI_XMEM_ALLOC` blocks, and on kern_mega its `OS88_HIGHMEM` claims) |
 | the summary line, kern_mega in protected mode only | ONE pair, `Ram u.uu/t.ttM` - used (RAM's, as above) over total (conventional + `[tm_hitot]`) in MB to two decimals, truncated - and ONE bar (KERN-MEGA-PLAN 14.70.2) |
 
@@ -63214,7 +63237,7 @@ Measured on 86Box: the mr286 (4MB, kern_mega) reads `RAM 0.3/3.6M`, System
 343K of which 267K is above 1MB; an AMI 286 with 2MB on kern_big reads
 `RAM 0.1/1.6M`, System 122K of which 64K is the HMA, `XMS 0/960K`. The same
 board at 1MB reports no extended memory at all, and the page shows none.
-The `Above 1MB` row (or the fixed areas that replace it, §28.4.10) is drawn
+The span's heading and its rows (§28.4.13) are drawn
 only with `[tm_hion]`; the list scrolls, so it costs no other row.
 
 ### 28.4.9 `640K-1MB`: the memory view's read-only map of what is not RAM
@@ -63339,12 +63362,13 @@ with the Calculator open: `RAM 120/640K`, `System 102K` + `Programs 18K`,
 `AVAIL 520K`; DETAIL adds `Purgeable 116K`.
 
 System's items (`tm_sysitems`): `IVT+BIOS` at 0000 (§28.4.8), `Code+data`
-(the kernel's span, no address), `Stacks` and `FAT snap`; above 1MB on
-kern_mega the fixed areas by name - `HMA (DOS)`, `GDT`, `LDT+IDT`, `Kernel
-code`, `Padding` - off `OSAPI_XMEM_WALK`'s markers (§28.4.11), or one
-`Above 1MB` row where the walk has none to give (kern_big's HMA); then the
+(the kernel's span, no address), `Stacks` and `FAT snap`; then the
 `Kernel` group (its pool blocks and tagged claims), one group per driver, and
-one per built-in (a Disk window, named by its folder - `APPS`), each opening into its claims. The
+one per built-in (a Disk window, named by its folder - `APPS`), each opening
+into its claims; and LAST the span above 1MB as a heading with its contents
+under it (§28.4.13) - on kern_mega the fixed areas by name, `HMA (DOS)`,
+`GDT`, `LDT+IDT`, `Kernel code`, `Padding`, off `OSAPI_XMEM_WALK`'s markers
+(§28.4.11); on kern_big `.cold`, each driver in the HMA and what is free. The
 rows still sum: System's figure is the sum of exactly these.
 
 **`+ALL` opens every group and `-ALL` closes them** - the switch says what a
@@ -63401,7 +63425,8 @@ additively (§20.2.0.1: no `PKG_FMT` bump, `tools/abi.lock.json` refreshed):
   row shift.
 
 The Task Manager asks with BX = `XMW_FIXED` and keeps `[tm_hifix]`, so a
-kernel that answers no markers still reads as one `Above 1MB` row. Cost:
+kernel that answers no markers still reads as the span's heading alone
+(§28.4.13). Cost:
 kern_mega `.mega` 14,460 → 14,609 (+149 bytes), `.text` +0; kern_big and
 kern_small byte-identical (the build number aside).
 
@@ -63435,6 +63460,76 @@ HDDTOOL) is in no kernel table and answers CF = 1; its header's own name at
 no rung crossed; kern_small the cell's 6; kern_mega the same plus
 `mega_imgnf` above 1MB. `taskmgr.o88`'s image 9,595 -> 9,866 bytes, which
 is the DETAIL sign and blank row too.
+
+### 28.4.13 System's span above 1MB is a HEADING: `HMA` on kern_big
+
+**The defect**: on a 286 or better kern_big runs SOUND.DRV, HDD.DRV and
+NET.DRV from the HMA (§2.10.8), where an image is no heap claim and
+`OSAPI_MEM_HMA`'s buffers are none either - so a driver there held nothing
+the page could see, its group totalled 0 and was not drawn, and the 64KB
+were one `Above 1MB` row with nothing under it. Worse, a heap claim such a
+driver DID make (its fallback buffer) is owned by its HMA segment, F400-F9FF,
+where no claim is based, so `tm_hdrv` missed it and filed it under `Kernel`.
+
+**The data**: XMEM.DRV already loads the HMA's tail, so it banks two words of
+its `rom_id` when the install succeeds - +12, `hb_tab`'s offset, and +16,
+now `HB_HI` (where `.cold` begins, the pool's top; it was eight zero KEY
+bytes in the HMA kind) - and its `XMV_WALK` answers BX = `XMW_FIXED`, which
+it used to ignore, with the HMA's contents in front of the pool's blocks:
+
+| owner | record |
+|---|---|
+| `XMW_HMAK` (F5h) | `.cold` and the tail: `XMW_OFF` FFFFh, `XMW_KB` 64 less `HB_HI`'s whole KB |
+| `XMW_HMAI` (F6h) | a driver's image: `XMW_OFF` the segment it runs at, `XMW_KB` its bytes rounded UP, `XMW_CLS` its class off its own header |
+| `XMW_HMAB` (F7h) | a buffer a driver took there, the same fields, class off its OWNER's header |
+
+All of it is inside the span `[tm_hifix]` already counts, so `tm_hikb`'s
+system sum and `tm_himax` skip F0h-F7h, and a block's group is flagged
+`TMG_HMAF` (40h): past `TMG_N`, so it is in no group total and no
+conventional row. No kernel byte moved; the walk, the bank and `xm_hwalk`
+are XMEM.DRV's, and nothing changes on a machine whose tail did not install.
+
+**The tree**: the span is a HEADING one level into System - the Programs
+heading's row-kind, no marker, not a click target - and it is System's LAST
+item, so nothing after it reads as inside it:
+
+```
+-System          155K
+ IVT+BIOS 0000     3K
+ ...
+ -SOUND.DRV       24K      conventional claims, when it has any
+  DrvBuf  96C0    16K HELD
+  DrvBuf  94C0     8K HELD
+ HMA              64K      kern_big; `Above 1MB` on kern_mega
+   Kernel code    40K
+  -SOUND.DRV      11K      its HMA blocks: a group two columns in (tm_grp2)
+   DrvImg F400    11K HELD
+  +HDD.DRV         4K
+  +NET.DRV         5K
+   Free            4K      the span less every row above it
+Programs          ...
+```
+
+(Measured under QEMU with SOUND, HDD and NET wanted and Recorder playing:
+the pool's 4K free could not hold SOUND.DRV's 8KB double buffer, so it and
+the 16KB ring went to the heap - and read under `Kernel` before this.)
+
+A driver with blocks in the HMA AND heap claims appears twice, once per side,
+and shares ONE group bit: the group ids are the 32 bits of `[tm_exp]` and
+none is free, so opening one opens both. Each row is its own side's total.
+On kern_mega the heading reads `Above 1MB` and its five fixed areas
+(§28.4.11) are its items, which tile it, so there is no `Free` row; a kernel
+that names nothing in the span shows the heading alone.
+
+`tm_cgidof` now finds the driver whose heap claim is owned by an HMA segment:
+an owner at or above `DRV_HMA_SEG` whose header at `DRV_HMA_ORG` says `O8`
+is that driver's, by `tm_drvgid`, which reads the header there too.
+
+**What it cost**: no kernel byte on any build. XMEM.DRV's image 2,098 ->
+2,239 bytes (+141: `xm_hwalk`, the two banked words and the BX test), inside
+the 3KB claim it already took; COLDHMA.SYS +0 (the two bytes were zeros).
+`taskmgr.o88`'s image 9,954 -> 10,646 bytes, which is this section and
+§28.4.4.1's thumb drag together.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 

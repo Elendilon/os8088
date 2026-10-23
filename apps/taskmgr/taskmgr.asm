@@ -1090,7 +1090,16 @@ tm_entry:
 %ifdef TMF_HEAP
     mov ax, tm_onwheel          ; the WHEEL scrolls the heap page's list
     call OSAPI_WM_ONWHEEL       ; (SPEC.md 13.18); flags preserved too, and
-%endif                          ; kern_small's cell does nothing
+                                ; kern_small's cell does nothing
+    pushf                       ; ...and the THUMB is dragged (SPEC.md
+    mov ax, tm_onup             ; 28.4.4.1): the release, then the tracking
+    call OSAPI_WM_ONMOUSEUP     ; edge, whose own CF says whether this kernel
+    mov ax, tm_ondrag           ; has one - inside a pushf, because the CF our
+    call OSAPI_WM_ONDRAG        ; ret owes the loader is wm_create's
+    sbb al, al
+    mov [tm_nodrag], al         ; FFh: no tracking edge, so the thumb pages
+    popf
+%endif
     ; OUR REGION MAY MOVE (SPEC.md 66.6.1). Here, where the window
     ; exists, and not beside any worker's declaration: a package with
     ; NO worker is the case that moves most easily, and putting it at
@@ -1338,9 +1347,13 @@ tm_s_low:   db 'IVT+BIOS', 0
 tm_s_bimg:  db 'Code+data', 0
 tm_s_bstk:  db 'Stacks', 0
 tm_s_bfat:  db 'FAT snap', 0
-tm_s_bhi:   db 'Above 1MB', 0   ; between 1MB and the pool, named no further
-                                ; - kern_big's, or a kernel that names no
-                                ; fixed area (tm_hikb)
+tm_s_bhi:   db 'Above 1MB', 0   ; the HEADING over the span between 1MB and
+                                ; the pool on kern_mega, in protected mode -
+                                ; its fixed areas are listed under it
+tm_s_bhma:  db 'HMA', 0         ; ...and kern_big's, where that span IS the
+                                ; HMA: `.cold` and the drivers placed there
+                                ; are listed under it (SPEC.md 28.4.13)
+tm_s_bhfre: db 'Free', 0        ; the HMA's pool that no block holds
 tm_s_uhdr:  db '640K-1MB', 0    ; the read-only map's heading (28.4.9)
 tm_s_uvid:  db 'Video', 0
 tm_s_urom:  db 'ROM', 0
@@ -1405,6 +1418,8 @@ tm_tiers:   db 'TRIV', 'LOW ', 'MED ', 'HIGH'
   %error "taskmgr: tm_tiers is four 4-character records"
 %endif
 tm_s_hheld: db 'HELD', 0
+tm_nodrag:  db 0              ; FFh: the kernel has no tracking edge, so the
+                                ; thumb pages (tm_hscroll, SPEC.md 28.4.4.1)
 
 ; TYPE names, TMH_TYPEC = 8 columns. A claim the table does not know prints its owner
 ; word in hex instead (tm_htype) - a debug page must not label an unknown tag
@@ -2981,6 +2996,17 @@ tm_hscroll:
     jnz .page                   ; a frame with one row on it still pages by
     inc cx                      ; one, or the bar would have an inert half
 .page:
+    cmp al, OS88UI_SBTHUMB      ; the THUMB is taken by the hand (SPEC.md
+    jne .ntb                    ; 28.4.4.1) - and pages toward where it lies
+    cmp byte [tm_nodrag], 0     ; only on a kernel with no tracking edge, or
+    jne .ntb                    ; when there turns out to be no thumb
+    push ax
+    mov ax, TM_SBRATE | (TM_SBRATE286 << 8)
+    call os88ui_sbrate
+    call os88ui_sbgrab          ; BX = the block, DX = the press, absolute
+    pop ax
+    jnc .took
+.ntb:
     cmp al, OS88UI_SBDOWN       ; an ARROW moves one row, the track a page
     ja .step
     mov cx, 1
@@ -2997,12 +3023,12 @@ tm_hscroll:
 .on:                            ; repaint of nothing
     add dx, cx
 .set:
-    mov [tm_htop], dx
+    mov cx, [tm_htop]           ; CX = what the last paint drew from - the
+    mov [tm_htop], dx           ; block's pos is the HAND's during a drag
     call tm_hclamp              ; ...and the bottom end stop, which is the one
                                 ; place that knows how far down there is to go
-    mov cx, [tm_htop]           ; DID THE VIEW MOVE? The block still carries
-    cmp cx, [tm_hsb+12]         ; what the last paint drew from, so an end stop
-    je .took                    ; costs nothing instead of repainting twenty
+    cmp cx, [tm_htop]           ; DID THE VIEW MOVE? An end stop costs nothing
+    je .took                    ; instead of repainting twenty
     call tm_upd_mem             ; rows that did not move
 .took:
     clc
@@ -3010,6 +3036,38 @@ tm_hscroll:
 .no:
     stc
 .out:
+    jmp tm_pop_dcba
+
+; -----------------------------------------------------------------------------
+; tm_ondrag - W_ONDRAG: the pointer moved with the thumb in the hand (SPEC.md
+;             28.4.4.1). The element moves the thumb; what it says the view
+;             is owed - at this machine's rate - is scrolled to through
+;             tm_hscroll's own .set, as the wheel is
+; tm_onup   - W_ONMOUSEUP: the release, which commits where the hand left it
+; in:  DX = y (ABSOLUTE), SI = the window, the gfx lock held
+; -----------------------------------------------------------------------------
+TM_SBRATE    equ 0              ; an 8088 repaints the list once, at the release
+TM_SBRATE286 equ 2              ; ...a 286 follows the hand, nine times a second
+tm_ondrag:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bx, tm_hsb
+    call os88ui_sbtrack         ; CF = 1: nothing owed yet
+    jmp short tm_onup.go
+tm_onup:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov bx, tm_hsb
+    call os88ui_sbdrop          ; CF = 1: no drag was live
+.go:
+    jc .no
+    xchg dx, ax                 ; DX = the row the hand is on
+    jmp tm_hscroll.set
+.no:
     jmp tm_pop_dcba
 
 ; -----------------------------------------------------------------------------
@@ -3333,7 +3391,7 @@ tm_himax:
     jcxz .got
     cmp byte [si+XMW_OWN], XMW_HMA
     jb .cand
-    cmp byte [si+XMW_OWN], XMW_PAD
+    cmp byte [si+XMW_OWN], XMW_HMAB
     jbe .sn                     ; a fixed area: not in the pool
 .cand:
     cmp [si+XMW_OFF], bx
@@ -4236,8 +4294,13 @@ tm_hsbset:
 
                                 ; total and fit ARE [tm_hrows] and [tm_maxrow]
                                 ; (they live in this block), so only pos is
-    mov ax, [tm_htop]           ; copied - it must stay the value the last
-    mov [tm_hsb+12], ax         ; paint drew from, for tm_hscroll
+    mov ax, [tm_htop]           ; copied - the value the last paint drew
+    mov [tm_hsb+12], ax         ; from...
+    push bx
+    mov bx, tm_hsb              ; ...unless the thumb is in the hand: then it
+    call os88ui_sbfix           ; is drawn where the HAND is (SPEC.md
+    pop bx                      ; 13.10.5.6), whatever the list shows
+
     pop dx
     pop ax
     ret
@@ -4310,6 +4373,14 @@ TMG_KERN    equ INST_MAX + 3
 TMG_DRV     equ INST_MAX + 4
 TMG_N       equ TMG_DRV + 16    ; 32: one bit each in the dword [tm_exp]
 TMG_FIX     equ 0FEh            ; a fixed area above 1MB, not a group's
+DRV_HMA_ORG equ 0xC000          ; MIRRORED: kernel/kernel.asm's - an image in
+DRV_HMA_SEG equ 0xF000          ; the HMA runs at SEG:DRV_HMA_ORG, every such
+                                ; SEG at or above DRV_HMA_SEG (SPEC.md 2.10.8)
+TMG_HMAF    equ 40h             ; OR'd into a driver's group for a block it
+                                ; holds IN THE HMA (SPEC.md 28.4.13): past
+                                ; TMG_N, so no total and no conventional row
+                                ; counts it - the HMA heading's span does -
+                                ; and the HMA section lists it by this id
 %if TMG_N != 32
   %error "taskmgr: the group ids are the 32 bits of [tm_exp] (INST_MAX moved)"
 %endif
@@ -4457,7 +4528,7 @@ tm_cgidof:
     pop ax
     jnc .drv
     cmp byte [tm_pm], 0         ; a driver kern_mega moved above 1MB names its
-    je .kern                    ; claims with its DATA SELECTOR (drv_hi_move):
+    je .hma                     ; claims with its DATA SELECTOR (drv_hi_move):
     push ax                     ; VERR says it can be read without a fault
     mov ax, cx
     db 0x0F, 0x00, 0xE0         ; verr ax - a 286 instruction, reached only
@@ -4467,6 +4538,16 @@ tm_cgidof:
 .drv:
     call tm_drvgid
     jmp short .out
+.hma:                           ; kern_big: a driver RUNNING IN THE HMA owns
+    cmp ch, DRV_HMA_SEG >> 8    ; its heap claims by its segment there, F400-
+    jb .kern                    ; F9FF, where no claim is based (SPEC.md
+    mov bx, cx                  ; 2.10.8) - its header says which it is
+    push es
+    mov es, bx
+    cmp word [es:DRV_HMA_ORG], 0x384F
+    pop es
+    je .drv
+    jmp short .kern
 .pk:
     shr bx, 1
     mov al, bl
@@ -4486,10 +4567,18 @@ tm_cgidof:
 ; 14.70.3). Clobbers AH; keeps the rest
 tm_drvgid:
     push es
+    push di
+    xor di, di
+    cmp bh, DRV_HMA_SEG >> 8    ; an image in the HMA: its header is at
+    jb .h                       ; DRV_HMA_ORG (SPEC.md 2.10.8)
+    cmp byte [tm_pm], 0         ; (a SELECTOR that high is kern_mega's and is
+    jne .h                      ; read at 0)
+    mov di, DRV_HMA_ORG
+.h:
     mov es, bx
-    cmp word [es:0], 0x384F     ; 'O8', the driver header's magic
+    cmp word [es:di], 0x384F    ; 'O8', the driver header's magic
     jne .own
-    mov al, [es:3]              ; DRV_H_CLASS
+    mov al, [es:di+3]           ; DRV_H_CLASS
     dec al
     cmp al, TMD_NCLS - 1
     jae .own                    ; 0, or DRVC_OVL and anything past the table
@@ -4499,6 +4588,7 @@ tm_drvgid:
     mov ah, 0
     call tm_ogid
 .o:
+    pop di
     pop es
     ret
 
@@ -4568,8 +4658,19 @@ tm_xgidof:
     mov al, [si+XMW_OWN]
     cmp al, XMW_HMA
     jb .nm
-    cmp al, XMW_PAD
+    cmp al, XMW_HMAK
+    jbe .fix                    ; kern_mega's fixed areas, kern_big's `.cold`
+    cmp al, XMW_HMAB
     ja .nm
+    mov al, [si+XMW_CLS]        ; a driver's block in the HMA: its group,
+    dec al                      ; flagged so only the HMA section counts it
+    cmp al, TMD_NCLS - 1
+    jb .hc
+    mov al, -1                  ; (no class: the first driver group)
+.hc:
+    add al, TMG_DRV + 1 + TMG_HMAF
+    jmp short .o
+.fix:
     mov al, TMG_FIX
     jmp short .o
 .nm:
@@ -4903,49 +5004,7 @@ tm_sysitems:
     call tm_item
     xor bx, bx
 
-    ; --- above 1MB, the fixed spans under the pool ----------------------------
-    cmp word [tm_hifix], 0
-    je .owners
-    mov si, tm_xw               ; the walk's own names for them, if it gave
-    mov di, tm_xgid             ; any (BX counts them)
-    mov cx, [tm_xwn]
-.fx:
-    jcxz .fxd
-    cmp byte [di], TMG_FIX
-    jne .fxn
-    inc bx
-    push si
-    push cx
-    mov al, [si+XMW_OWN]
-    mov cx, [si+XMW_KB]
-    sub al, XMW_HMA
-    mov ah, TMX_NREC
-    mul ah
-    add ax, tm_xnames
-    mov si, ax
-    xchg ax, cx                 ; AX = KB
-    mov cx, 0FFFFh
-    push bx
-    xor bx, bx
-    call tm_item
-    pop bx
-    pop cx
-    pop si
-.fxn:
-    add si, XMW_SIZE
-    inc di
-    dec cx
-    jmp short .fx
-.fxd:
-    or bx, bx
-    jnz .owners
-    mov si, tm_s_bhi            ; ...or one row, named no further
-    mov ax, [tm_hifix]
-    mov cx, 0FFFFh
-    call tm_item
-
     ; --- the OWNERS: Kernel, each driver, each built-in ------------------------
-.owners:
     xor bx, bx
     mov bl, TMG_KERN
     cmp word [tm_gkb+TMG_KERN*2], 0
@@ -4977,7 +5036,124 @@ tm_sysitems:
     inc bx
     cmp bx, INST_MAX
     jb .bl
+
+    ; --- above 1MB: a HEADING over the span under the pool, and what is in it -
+    ; LAST in System, so nothing after it reads as inside it: the next row is
+    ; the Programs heading at column 0 (SPEC.md 28.4.13). The heading is
+    ; System's own row-kind for a total that is not a group - Programs' shape
+    ; one level in - so what it holds opens without a third level of indent
+    cmp word [tm_hifix], 0
+    je .done
+    call tm_mrow_nolast
+    mov si, tm_s_bhma           ; kern_big's span IS the HMA...
+    cmp byte [tm_pm], 0
+    je .hd
+    mov si, tm_s_bhi            ; ...kern_mega's is more than that
+.hd:
+    mov ax, [tm_hifix]
+    mov cx, 0FFFFh
+    xor bx, bx
+    mov dl, 1
+    call tm_item
+    mov dl, 3                   ; what is in it, where a group's NAME starts
+                                ; one level in (tm_grp2), so the heading's
+                                ; contents all begin a column past it
+    xor di, di                  ; DI = the KB its rows state
+    mov si, tm_xw
+    mov cx, [tm_xwn]
+.fx:
+    jcxz .fxd
+    mov al, [si+XMW_OWN]        ; a fixed area (kern_mega's five, or kern_big's
+    cmp al, XMW_HMA             ; `.cold` in the HMA), by its name
+    jb .fxn
+    cmp al, XMW_HMAK
+    ja .fxn
+    jb .fxk
+    mov al, XMW_KCODE           ; (kern_big's is kernel code too)
+.fxk:
+    push si
+    push cx
+    mov cx, [si+XMW_KB]
+    add di, cx
+    sub al, XMW_HMA
+    mov ah, TMX_NREC
+    mul ah
+    add ax, tm_xnames
+    mov si, ax
+    xchg ax, cx                 ; AX = KB
+    mov cx, 0FFFFh
+    xor bx, bx
+    call tm_item
+    pop cx
+    pop si
+.fxn:
+    add si, XMW_SIZE
+    dec cx
+    jmp short .fx
+.fxd:
+    mov bl, TMG_DRV             ; ...the drivers placed in it, each a group
+.hg:                            ; one level in, which opens into its blocks
+    call tm_hgkb                ; AX = its KB in the HMA
+    or ax, ax
+    jz .hgn
+    add di, ax
+    call tm_drvnam
+    push dx
+    xor dx, dx
+    call tm_grp2
+    pop dx
+    jc .hgn
+    push bx
+    or bl, TMG_HMAF
+    call tm_mbrs
+    pop bx
+.hgn:
+    inc bx
+    cmp bl, TMG_N
+    jb .hg
+    or di, di                   ; ...and what nothing holds, when anything
+    jz .done                    ; was named: a span the walk names nothing in
+    cmp byte [tm_pm], 0         ; is shown as the heading alone. kern_mega's
+    jne .done                   ; fixed areas tile theirs exactly
+    mov ax, [tm_hifix]
+    sub ax, di
+    jnc .fr
+    xor ax, ax                  ; (each block is rounded UP, so the rows can
+.fr:                            ; overshoot the span by a KB or two)
+    mov si, tm_s_bhfre
+    mov cx, 0FFFFh
+    xor bx, bx
+    call tm_item
+.done:
     jmp tm_pop_dsdcba
+
+; tm_hgkb - AX = the KB driver group BL holds IN THE HMA (its blocks the walk
+; flagged TMG_HMAF, SPEC.md 28.4.13). Keeps the rest
+tm_hgkb:
+    push bx
+    push cx
+    push si
+    push di
+    or bl, TMG_HMAF
+    xor ax, ax
+    mov si, tm_xw
+    mov di, tm_xgid
+    mov cx, [tm_xwn]
+    jcxz .o
+.l:
+    cmp [di], bl
+    jne .n
+    add ax, [si+XMW_KB]
+.n:
+    add si, XMW_SIZE
+    inc di
+    loop .l
+.o:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
 
 ; tm_owner - one of System's owners, a GROUP one level in that opens into its
 ; claims. in: BL = its group, SI = its name. Keeps everything
@@ -5130,6 +5306,10 @@ tm_stem:
 ; column a group leaves empty (TMH_SQC), and keys the row to a band on the
 ; map the way the memory view's squares did.
 ; -----------------------------------------------------------------------------
+tm_grp2:                        ; ...two: a driver under System's HMA
+    push cx                     ; heading (SPEC.md 28.4.13)
+    mov ch, 2
+    jmp short tm_grp.go
 tm_grp1:                        ; ...one level in: an owner inside System
     push cx
     mov ch, 1
@@ -5143,10 +5323,14 @@ tm_grp:
     call tm_mrow_nolast
     call tm_mrow_open
     mov [tm_cgrp], bl
-    or ch, ch
+    mov cl, ch
+.ind:
+    or cl, cl
     jz .ni
     mov byte [di], ' '
     inc di
+    dec cl
+    jmp short .ind
 .ni:
     mov byte [di], '+'
     call tm_isopen
@@ -5363,6 +5547,15 @@ tm_xrow:
     inc di
     inc di
     mov al, [si+XMW_OWN]
+    mov cx, TMH_TYPEC
+    cmp al, XMW_HMAI            ; an HMA block is under a group a column
+    jb .ind                     ; further in (tm_grp2), so its row is too and
+    cmp al, XMW_HMAB            ; its TYPE a column shorter - 'DrvImg' and
+    ja .ind                     ; 'DrvBuf' have it to spare
+    mov byte [di], ' '
+    inc di
+    dec cx
+.ind:
     push si
     cmp al, TMX_KERN            ; the kernel's: on kern_mega every MODULE is
     jne .nk                     ; one of these, named by its file (14.70.3)
@@ -5383,6 +5576,11 @@ tm_xrow:
     mov si, tm_s_tdimg
     cmp al, TMX_DRVIMG
     je .t
+    cmp al, XMW_HMAI            ; a driver's image in the HMA, and its
+    je .t                       ; buffers there (SPEC.md 28.4.13)
+    mov si, tm_s_tdrvb
+    cmp al, XMW_HMAB
+    je .t
     mov si, tm_s_tkern
     cmp al, TMX_KERN
     jae .t
@@ -5399,14 +5597,25 @@ tm_xrow:
     je .t
     mov si, tm_s_txmem
 .t:
-    mov cx, TMH_TYPEC
     call tm_copyn
 .tt:
     pop si
+    mov al, [si+XMW_OWN]        ; an HMA block HAS a segment that means
+    cmp al, XMW_HMAI            ; something - the one it runs at - so ADDR
+    jb .hi                      ; is that, as a conventional claim's is
+    cmp al, XMW_HMAB
+    ja .hi
+    mov byte [di], ' '
+    inc di
+    mov ax, [si+XMW_OFF]
+    call tm_put4x
+    jmp short .kb
+.hi:
     mov word [di], ' H'
     mov word [di+2], 'IG'
     mov byte [di+4], 'H'
     add di, 5
+.kb:
     mov ax, [si+XMW_KB]
     call tm_kcol
     mov byte [di], ' '
@@ -7263,7 +7472,7 @@ tm_hikb:
     jb .sysn
     cmp al, XMW_HMA             ; ...but NOT a fixed area's record, which is
     jb .sysa                    ; a name for KB already in DX
-    cmp al, XMW_PAD
+    cmp al, XMW_HMAB            ; (and kern_big's HMA contents, 28.4.13)
     jbe .sysn
 .sysa:
     add dx, [di+XMW_KB]
@@ -7496,18 +7705,20 @@ tm_putw:
 ; click target is the content itself (tm_click) - so it pays for the bar and
 ; not for os88ui_btn, os88ui_glyph and four 12x12 bitmaps beside it.
 ;
-; NO SBDRAG, and that is a refusal rather than an omission (PERFORMANCE.md
-; rule 6). A scroll here is a LIST REPAINT: rows move between screen slots and,
-; on a two-column layout, between COLUMNS, so there is no rectangle for
-; OSAPI_GFX_SCROLL to blit and Note Pad's answer (SPEC.md 27.7.2) does not
-; transfer. At SPEC.md 28.2's granularity that is ~20 rows of changed text,
-; ~450 ms on the target machine - which is about what a page switch already
-; costs and is fine for a deliberate click, and is unusable at one per pixel
-; of thumb travel. The travel is two page-downs in any case: 47 rows, 22 of
-; them on screen.
+; SBDRAG, at RATE 0 ON AN 8088 (SPEC.md 28.4.4.1). A scroll here is a LIST
+; REPAINT: rows move between screen slots and, on a two-column layout, between
+; COLUMNS, so there is no rectangle for OSAPI_GFX_SCROLL to blit and Note
+; Pad's answer (SPEC.md 27.7.2) does not transfer. At SPEC.md 28.2's
+; granularity that is ~20 rows of changed text, ~450 ms on the target machine
+; - unusable at one per row of thumb travel, which is why this was once
+; refused outright. Rate 0 is the answer that refusal did not weigh: the
+; THUMB follows the hand (os88ui_sbmove, one bar's worth of drawing) and the
+; list is repainted ONCE, at the release - which is a page-down's cost for a
+; jump of any length. A 286 follows at 2 ticks, Note Pad's figure.
 %ifdef TMF_HEAP
 %define OS88UI_BARONLY
 %define OS88UI_SCROLL
+%define OS88UI_SBDRAG
 %else
 %define OS88UI_NOBTN            ; the same statement without the bar: the small
                                 ; build has no heap page and so no scroll bar,

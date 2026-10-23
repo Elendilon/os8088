@@ -2577,8 +2577,18 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; pool too, as records IN FRONT of the blocks
                                  ; owned XMW_HMA..XMW_PAD, their XMW_OFF
                                  ; NEGATIVE (below the base) - they tile the
-                                 ; span exactly. Every other kernel ignores BX
-                                 ; and writes 0 at XMW_CLS
+                                 ; span exactly. ON kern_big with the HMA's
+                                 ; tail installed, BX = XMW_FIXED puts the
+                                 ; HMA's contents in front instead (SPEC.md
+                                 ; 28.4.13): XMW_HMAK for `.cold` and the
+                                 ; tail (XMW_OFF FFFFh), then one record per
+                                 ; pool block, XMW_OFF the SEGMENT it runs at,
+                                 ; XMW_KB rounded up, XMW_HMAI a driver's
+                                 ; image or XMW_HMAB its buffer, XMW_CLS the
+                                 ; driver's class - all inside the span
+                                 ; between 1MB and the pool, never on top of
+                                 ; it. Every other kernel ignores BX and
+                                 ; writes 0 at XMW_CLS
 %define OSAPI_MEM_HUGE      KERNEL_SEG:0x04C5   ; A CLAIM OF ANY SIZE, walked
                                  ; by a STEP (KERN-MEGA-PLAN 14.1 answers 6,
                                  ; 7): AX = KB (1..65535); out CF=0, DX = its
@@ -2629,6 +2639,9 @@ XMW_GDT     equ 0xF1            ; ...the GDT
 XMW_LDT     equ 0xF2            ; ...the LDT and the IDT
 XMW_KCODE   equ 0xF3            ; ...`.cold` and `.mega`
 XMW_PAD     equ 0xF4            ; ...and the padding up to the pool's base
+XMW_HMAK    equ 0xF5            ; kern_big: `.cold` and the tail in the HMA
+XMW_HMAI    equ 0xF6            ; ...a driver's image in the HMA's pool
+XMW_HMAB    equ 0xF7            ; ...and a buffer a driver took there
 %define OSAPI_XMEM_SEL      KERNEL_SEG:0x04B3   ; DX:AX = an address inside a
                                  ; block YOU own, CX = bytes (0 = 64KB); out
                                  ; CF=0 and AX = a DATA SELECTOR whose segment

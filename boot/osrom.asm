@@ -101,7 +101,14 @@ rom_id:
     dw 0                        ; +12 payload length (tool)
     dw 0                        ; +14 tail length (tool)
 %endif
+%if ROM_KIND == ROM_KIND_HMA
+    dw HB_HI                    ; +16 where `.cold` begins, the pool's top -
+    times 6 db 0                ; XMEM.DRV banks it with +12 so the Task
+                                ; Manager can name what the HMA holds
+                                ; (SPEC.md 28.4.13)
+%else
     times 8 db 0                ; +16 the KEY (tool; kernel ROMs only)
+%endif
     dw rom_patch                ; +24 the patcher's entry, which the tool
                                 ; copies into the header's +10
 %if ROM_KIND == ROM_KIND_HMA
