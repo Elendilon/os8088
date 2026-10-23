@@ -1320,7 +1320,7 @@ assoc_run_x:
     jne .notlnk                 ; at all (SPEC.md 26.10.3): every door to a
     call lnk_open               ; document arrives here, so this is all of
     jnc .lnk                    ; them. CF = 1 is a .LNK that is not ours -
-.notlnk:                        ; the DOS box's (SPEC.md 96.21) - and it goes
+.notlnk:                        ; DOS's (SPEC.md 96.21) - and it goes
 %endif                          ; on to its association like any document
 
     pop ax
@@ -1378,6 +1378,47 @@ assoc_run_x:
     jmp short .out              ; ...and, like that route's failed load, owes
                                 ; the screen nothing (ld_owed, SPEC.md 22.17)
 .nofile:
+    ; THE PROGRAM THIS EXTENSION NAMES IS NOWHERE (SPEC.md 54.4.2.4). Once a
+    ; run, before saying so: it may have been DELETED, with another package
+    ; that declares the same extension standing beside it - and ASSOC.DAT
+    ; keeps one owner an extension, so no cache names the other. A FULL
+    ; rebuild of the volume it was last seen on reads every package's header,
+    ; and the re-absorb re-points the extension at whoever declares it now.
+    ; The second miss falls through to the toast with assoc_fnb rebuilt by
+    ; the locate that missed, so a refused flush cannot leave it naming
+    ; ASSOC.DAT. Bit 7 of [assoc_dead] is the once: volumes are 0..5 there
+    test byte [assoc_dead], 0x80
+    jnz .needs
+    or byte [assoc_dead], 0x80
+    pop ax                      ; the slot the extension named...
+    push ax
+    cbw                         ; (a slot is < ASSOC_NAPP: AH = 0. One byte
+    mov bx, ax                  ; under `xor ah, ah`, which is what keeps
+                                ; this addition EVEN - dsk_xfer and its hot
+                                ; neighbours sit behind it in .cold, and
+                                ; t_hotpar pins their parity)
+    mov dl, [assoc_drv+bx]      ; ...and where that program was last seen,
+    cmp dl, 0xFF                ; or the document's own volume when it never
+    jne .rebuild                ; was
+    mov dl, [assoc_ddrv]
+.rebuild:
+    mov al, ASCF_FULL
+    call asc_flush              ; CF = 1 is not an end: the sweep below
+    mov byte [asc_vol], 0xFF    ; re-absorbs whichever file is there, written
+                                ; or not ("the same bytes write nothing")
+    mov si, assoc_doc
+    call assoc_slot_of          ; BX = the extension's row - a runtime claim
+    jc .resweep                 ; whose program is gone protects nothing, so
+    and byte [bx+3], ASSOC_IX   ; the merge may take it back
+.resweep:
+    pop ax
+    mov bp, assoc_tryext
+    call assoc_sweep            ; AL = the slot some volume names now
+    jc .rnone
+    jmp .known
+.rnone:
+    jmp .noassoc
+.needs:
     call assoc_back
     mov si, assoc_pnbuf         ; 'Needs TRACKER.O88', because "Program not
     push ds                     ; found" alone leaves the user with no way to
@@ -2321,10 +2362,19 @@ asc_take_x:
     push di
     push es
     push ax                     ; the store row: assoc_stem_of answers in DI
-    call assoc_stem_of          ; and assoc_app_get in AL, so it cannot stay
+    call assoc_stem_of          ; and assoc_app_of in AL, so it cannot stay
     mov si, di                  ; where it is
-    call assoc_app_get          ; AL = the slot, CF=1 = no association, so
-    pop cx                      ; there is nothing to point at the glyph
+    call assoc_app_of           ; AL = the slot, CF=1 = no association, so
+    pop cx                      ; there is nothing to point at the glyph.
+                                ; OF and not GET: a store hit is EVERY package
+                                ; a listing shows, and creating here spent a
+                                ; permanent slot on MINES, CALC and INSTALL -
+                                ; sixteen of them gone after a few folders,
+                                ; and the next DECLARING program (REALDMG)
+                                ; got none, so its documents read `Load
+                                ; failed` (SPEC.md 54.2.2). A declaring
+                                ; package already has its slot: asc_merge_ext
+                                ; made it, or assoc_note_app did on a miss
     jc .done
     mov bl, al
     xor bh, bh

@@ -2,13 +2,13 @@
 """THE DIRECTORY READ-AHEAD WINDOW IS 32K A DOS PROGRAM CAN HAVE (SPEC.md 66.10.4).
 
 §50.6.6 gave a claimant a FLOOR - "compact the disk cache, do not destroy it" -
-and the DOS box is its one consumer: the Setup page shows the two figures side
+and DOS is its one consumer: the Setup page shows the two figures side
 by side and a check box picks between them (§96.24, §96.25).  They read the
 SAME NUMBER for a release, because §66.10 rests on a sentence §18.95.7 withdrew.
 `mem_cp_plan` reaches `mem_cp_drop` only from its `.pinned` arm, and the day
 `MEM_P_DIRW` became movable it stopped being pinned - so a cache that can move
 is moved, never dissolved, `OSAPI_MEM_AVAIL_LVL` answered identically at every
-rank, and the box handed its programs 32K less than the machine had.
+rank, and DOS handed its programs 32K less than the machine had.
 
 Four assertions, and each is a separate thing that can be missing:
 
@@ -22,10 +22,10 @@ Four assertions, and each is a separate thing that can be missing:
      right pair while the launch used the wrong one fails here alone.
   4  and the cache really WENT - [dsk_rah_seg], the kernel's own word, read
      under each arm while the program is running.  Without this the row would
-     pass on a box that asked for the bigger number and was quietly given the
+     pass if DOS asked for the bigger number and was quietly given the
      smaller.  **IT IS READ INSIDE THE BRACKET AND NOT AFTER IT**, which is
-     not a nicety: the window is claimed at a MOUNT (SPEC.md 18.95.5) and the
-     box re-mounts every volume on the way out of an fsx bracket, so a read
+     not a nicety: the window is claimed at a MOUNT (SPEC.md 18.95.5) and
+     DOS re-mounts every volume on the way out of an fsx bracket, so a read
      taken once the program has exited finds the cache back and says the shed
      never happened.
 
@@ -52,7 +52,7 @@ sharpest shape a polarity bug has - so the values it pokes are named after the
 list they index and not after what they mean.
 
 It is ONE list on both arms now - `Auto / 32K / 18K / 9K / Off (SLOW!)` -
-because §18.95.8 gave the box a door that takes a WIDTH.  `Off` is item **4**
+because §18.95.8 gave DOS a door that takes a WIDTH.  `Off` is item **4**
 and it used to be item 1; a row that pokes the old index picks 32K, which is
 the same family of failure the paragraph above is about.
 
@@ -94,7 +94,7 @@ SYS = "build/os8088-360.img"
 # B: carries a `.COM` for assertion 3 - a launch is what banks [dos_akb], and
 # every package on an apps disk is a `.O88`.  doscon.py's disk, for its reason.
 APPS = "build/doscom360.img"
-BOX = "A:/APPS/DOS.O88"
+DOSPKG = "A:/APPS/DOS.O88"
 PROG = "DOSHELLO"
 
 MEM_MAX = 32
@@ -135,16 +135,18 @@ def main():
         if not os.path.exists(p):
             fail("%s is missing - `make` and `make doscom` build them" % p)
 
-    with os88ui.boot(SYS, apps=APPS) as ui:
+    with os88ui.boot(SYS, apps=APPS,
+                     quick=True) as ui:
+        ui.still(0)     # booted on STATE; the first paint done (SOAK-SPEED 4)
         m = ui.m
-        win = ui.path(BOX)
+        win = ui.path(DOSPKG)
         if not win:
-            fail("could not launch %s" % BOX)
+            fail("could not launch %s" % DOSPKG)
         os88marty.settle(m)
         dm = dosmap.package()
 
-        # **RESOLVED PER READ AND NOT BANKED** (SPEC.md 66.6.1.2). The DOS
-        # box's region is a re-homed carve and MOVES under the compactor now,
+        # **RESOLVED PER READ AND NOT BANKED** (SPEC.md 66.6.1.2). DOS's
+        # region is a re-homed carve and MOVES under the compactor now,
         # which on this row is guaranteed rather than possible: the whole
         # subject here is the arena claim SHEDDING the directory cache, and a
         # shed is a compaction. A base taken before the run named the bytes
@@ -224,7 +226,7 @@ def main():
         r = [int.from_bytes(m.read(pb() + dm["dos_trect"] + i * 2, 2), "little")
              for i in range(4)]
         if m.read(pb() + dm["dos_page"], 1)[0] != 0:
-            fail("clicking Return at %r left the box on page %d, so there is "
+            fail("clicking Return at %r left DOS on page %d, so there is "
                  "no console to type at" % (r, m.read(pb() + dm["dos_page"], 1)[0]))
 
         # --- 3: what a program is actually handed ---------------------------
@@ -281,7 +283,7 @@ def main():
         # --- 4: ...and the cache really went, and only under the arm that
         #        asked for it -------------------------------------------------
         if rah[CA_OFF] != 0:
-            fail("the box asked for %d KB at MEM_LVL_TOP and [dsk_rah_seg] was "
+            fail("DOS asked for %d KB at MEM_LVL_TOP and [dsk_rah_seg] was "
                  "still %04X while the program ran, so the claim was satisfied "
                  "without the cache - the arena figure and the arena disagree"
                  % (got[CA_OFF], rah[CA_OFF]))

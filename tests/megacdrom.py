@@ -70,13 +70,7 @@ def mr_setup(b):
     """MR BIOS 1.65 from a fresh CMOS: both floppies 3.5" 1.44MB (docs/86BOX.md)"""
     def row(r):
         return bytes.fromhex(b.cmd("text")["chars"][r]).decode("cp437")
-    for _ in range(40):
-        b.cmd("step 500")
-        try:
-            if "Press Any Key" in "".join(row(r) for r in range(25)):
-                break
-        except SystemExit:
-            pass
+    b.wait_text("Press Any Key", 20000)         # (86Box's own check, each ms)
     b.tap("return"); b.cmd("step 1500")
     for _ in range(4):
         b.tap("right"); b.cmd("step 300")
@@ -154,7 +148,10 @@ def main():
                                    stdout=os88box.subprocess.DEVNULL)
     bad = []
     name = "megacd%d" % os.getpid()
-    b = os88box.launch(a.vm, name=name, hold=True, fresh=True, a=img)
+    # (NOT turbo=True: with 86Box's floppy turbo, kern_mega's protected-mode
+    # module load for the speaker's quick volume fails - "Needs Sys Disk A:"
+    # on the bar and no popup - where the real-time floppy loads it)
+    b = os88box.launch(a.vm, name=name, hold=True, fresh=True, a=img, temp=True)
     try:
         steps(b, a, cr, mx, cd, bad)
     except SystemExit as e:                     # os88box: the guest stopped
@@ -168,8 +165,7 @@ def main():
             bad.append("5. %d exception(s) in a driver's or a package's code"
                        % len(f))
         if not a.keep:
-            b.cmd("quit")
-            shutil.rmtree(b.run, ignore_errors=True)
+            b.quit(remove=True)
         shutil.rmtree(tmp, ignore_errors=True)
     for x in bad:
         print("FAIL megacdrom: " + x)
@@ -182,7 +178,16 @@ def main():
 def steps(b, a, cr, mx, cd, bad):
     if True:
         mr_setup(b)
-        b.cmd("step 70000")                     # the boot, the autostart
+        # the boot, the autostart: was a fixed 70 emulated s. Now the
+        # desktop's own state (os88box.kernel_up), protected mode entered
+        # ([mega_on]) and the autostarted CDRack's window up, and the UI done
+        # with it - each bounded by the old 70 s, so a boot that never gets
+        # there fails at the same reads as before
+        t = b.kernel_up(guest_ms=70000, idle=False)
+        b.until(lambda: b.byte("mega_on") and [s for s in windows(b) if s],
+                "kern_mega and the autostart", max(1000, 70000 - t), 250,
+                need=False)
+        b.ui_done(cap_ms=10000)
         row = b.memr(b.ksym("drv_tab") + CD_ROW * DRVR_SIZE, DRVR_SIZE)
         seg = struct.unpack_from("<H", row, DRVR_SEG)[0]
         port = struct.unpack("<H", b.memr(seg * 16 + cd["cd_base"], 2))[0] \
@@ -193,9 +198,11 @@ def steps(b, a, cr, mx, cd, bad):
             bad.append("1. CDROM.DRV is not loaded, or did not find the "
                        "secondary master")
         low = windows(b)
-        b.to(*CLOSE_BOX); b.click(); b.cmd("step 3000")
+        b.to(*CLOSE_BOX); b.click(); b.ui_done(cap_ms=3000)
         have = windows(b)
-        b.to(*SYS_CDRACK); b.click(2); b.cmd("step 15000")
+        b.to(*SYS_CDRACK); b.click(2)           # (bounded by the old 15 s)
+        b.until(lambda: high(b, have), "CDRack above 1MB", 15000, 250, need=False)
+        b.ui_done(cap_ms=5000)
         h = high(b, have)
         crb = base_of(b, h[0]) + cr["os88_image_end"] if h else None
         print("   2. windows %s before, %s after CDRack from SYSTEM; above "
@@ -206,7 +213,9 @@ def steps(b, a, cr, mx, cd, bad):
         if len(h) != 1:
             bad.append("2. CDRack did not start above 1MB")
         else:
-            b.to(*PLAY); b.click(); b.cmd("step 4000")
+            b.to(*PLAY); b.click()              # PLAYING, then the 5 s
+            b.until(lambda: b.memr(crb + 1, 1)[0] == CDS_PLAYING, "PLAYING",
+                    4000, 100, need=False)
             s0 = struct.unpack("<H", b.memr(crb + 12, 2))[0]
             b.cmd("step 5000")
             st = b.memr(crb + 1, 1)[0]
@@ -217,11 +226,14 @@ def steps(b, a, cr, mx, cd, bad):
                            "-> %d" % (st, s0, s1))
         have = windows(b)
         mxx = struct.unpack("<H", b.memr(b.ksym("menu_mixx"), 2))[0]
-        b.to(mxx + 12, 9); b.click(); b.cmd("step 3000")
-        b.to(mxx - 106, 101); b.click(); b.cmd("step 15000")
+        b.to(mxx + 12, 9); b.click(); b.ui_done(cap_ms=3000)
+        b.to(mxx - 106, 101); b.click()         # (each bounded by the old 15 s)
+        mask = lambda h: struct.unpack("<H", b.memr(
+            base_of(b, h[0]) + mx["mx_mask"], 2))[0] if h else 0
+        b.until(lambda: mask(high(b, have)), "the Mixer reading the card",
+                15000, 250, need=False)
         h = high(b, have)
-        mask = struct.unpack("<H", b.memr(base_of(b, h[0]) + mx["mx_mask"], 2)
-                             )[0] if h else 0
+        mask = mask(h)
         print("   4. speaker at x %d; the Mixer above 1MB: %s, mx_mask %04Xh"
               % (mxx, "%04X at %06Xh" % (h[0], base_of(b, h[0])) if h
                  else "none", mask))

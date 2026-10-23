@@ -659,7 +659,7 @@ op_claim:
     ; CS-based claims, and this is one - it is code you far-call, and on a
     ; re-home it becomes the region itself. Claimed bottom-up it landed at the
     ; FLOOR, left the loader's freed region as a hole beneath it that no single
-    ; contiguous claim can use, and cost the DOS box 6 KB of the arena it hands
+    ; contiguous claim can use, and cost DOS 6 KB of the arena it hands
     ; its program. Measured there: 437 -> 431 KB, 5,120 of hole and 1,024 of
     ; carve head slack. The hole SURVIVED a posted compaction, which is an
     ; open question and not this routine's - SPEC.md 20.12.10.8.1 has the

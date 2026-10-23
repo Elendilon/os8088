@@ -319,7 +319,7 @@ def herc(tmp):
     img = os.path.join(tmp, "os8088-360.img")
     shutil.copy(os.path.join(BDIR, "os8088-360.img"), img)
     welcome = open(os.path.join(BDIR, "notes", "WELCOME.TXT"), "rb").read()
-    with os88ui.boot(img, machine="os8088_5150_herc_gla") as ui:
+    with os88ui.boot(img, machine="os8088_5150_herc_gla", quick=True) as ui:
         n = Note(ui, tmp)
         m = n.m
         print("A: the launch, and the folder")
@@ -541,7 +541,7 @@ def vga(tmp):
     img = os.path.join(tmp, "os8088-360.img")
     shutil.copy(os.path.join(BDIR, "os8088-360.img"), img)
     fill_notes(img, S.STIKNOTE_SLOTS - 3)       # '.', '..', WELCOME.TXT
-    with os88ui.boot(img, machine="os8088_xt_vga") as ui:
+    with os88ui.boot(img, machine="os8088_xt_vga", quick=True) as ui:
         n = Note(ui, tmp)
         m = n.m
         n.launch()
@@ -601,7 +601,7 @@ def small(tmp):
     apps = os88marty.scratch_disk(os.path.join(tmp, "snsmall.img"),
                                   os.path.join(tree, "stiknote.o88"))
     with os88ui.boot(os.path.join(tree, "small360.img"), apps=apps,
-                     machine="os8088_5150_cga") as ui:
+                     machine="os8088_5150_cga", quick=True) as ui:
         print("L: kern_small refuses it, in words")
         try:
             ui.path("B:/STIKNOTE.O88")

@@ -299,18 +299,6 @@ def capabilities():
     # #GP census under it counts nothing (docs/BOCHS.md)
     if os88build.have_bochs():
         caps.add("bochs")
-    # the owner's XDC video streams, for `vidbench`, whose only subject they
-    # are. Not in the tree and never can be (copyrighted), so a box without
-    # $OS88_XDC_SAMPLES pointing at them SKIPS the row; it used to run, skip
-    # itself and exit 0, which scored `ok` in 0.1s against 34s declared.
-    if os88build.have_xdc():
-        caps.add("xdc")
-    # the owner's two Game Boy cartridges, for `rdgspeed286` - never in the
-    # tree, so $OS88_GB_ROMS names them or the row SKIPS (have_gbroms) - and
-    # the automation-enabled 86Box that row times them on, which is built on
-    # demand (`python3 tools/os88box.py build`) and not by `make deps`.
-    if os88build.have_gbroms():
-        caps.add("gbroms")
     if os88build.have_86box():
         caps.add("86box")
     # rgbds at tools/gbclock.py's pinned commit, for `gbsound`, whose ROM is
@@ -557,18 +545,45 @@ def charge(results, par, ser, conc, j, mj):
 # the default :99 and the numbers agents pick by hand.
 _BOCHS_LOCK = threading.Lock()
 _BOCHS_FREE = list(range(110, 118))
+# ...and ACROSS RUNNERS: two os88test processes each started their pool at
+# :110, so a second `soak -k megaflt` beside a running Bochs row booted onto
+# the first one's display. A display is taken only with an flock on
+# $TMPDIR-independent /tmp/.os88bochs-<n>.lock, held for the row's life, and
+# a display somebody else holds is skipped (the pool runs on to :149).
+_BOCHS_HELD = {}
+
+
+def _bochs_take(n):
+    import fcntl
+    fd = os.open("/tmp/.os88bochs-%d.lock" % n, os.O_RDWR | os.O_CREAT, 0o666)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return False
+    _BOCHS_HELD[n] = fd
+    return True
 
 
 def _bochs_display():
     while True:
         with _BOCHS_LOCK:
-            if _BOCHS_FREE:             # (an Xvfb a previous row left
-                return _BOCHS_FREE.pop(0)   # on it is reused, not a clash)
+            for i, n in enumerate(_BOCHS_FREE):   # (an Xvfb a previous row
+                if _bochs_take(n):                # left on it is reused,
+                    return _BOCHS_FREE.pop(i)     # not a clash)
+            if len(_BOCHS_FREE) < 8 or _BOCHS_FREE[-1] < 149:
+                nxt = max(_BOCHS_FREE + list(_BOCHS_HELD) + [117]) + 1
+                if nxt <= 149:
+                    _BOCHS_FREE.append(nxt)
+                    continue
         time.sleep(1)
 
 
 def _bochs_free(n):
     with _BOCHS_LOCK:
+        fd = _BOCHS_HELD.pop(n, None)
+        if fd is not None:
+            os.close(fd)
         _BOCHS_FREE.append(n)
 
 
@@ -594,6 +609,10 @@ def run_row(row, caps, strict, verbose, unbuilt=()):
     env = None
     if disp is not None:
         env = dict(os.environ, OS88_BOCHS_DISPLAY=":%d" % disp)
+    q9 = os88build.qemu9() if "qemu9" in row.needs else None
+    if q9:                              # the rows launch QEMU BY NAME
+        env = dict(env or os.environ)
+        env["PATH"] = os.path.dirname(q9) + os.pathsep + env.get("PATH", "")
     try:
         try:
             p = subprocess.Popen(row.cmd, cwd=ROOT, stdout=subprocess.PIPE,

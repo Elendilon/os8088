@@ -88,7 +88,14 @@ TAG_MOUSE = 0x4F4D              # 'MO'
 STEP = 100
 # 1200 baud, 3 bytes: ~25 ms of guest time. Below this the server blocks and
 # the client times out, which reads exactly like a hung emulator.
-GAP = 0.12
+#
+# IT IS A pace() ARGUMENT, so it is IDLE-BOX HOST SECONDS and costs GAP x
+# GUEST_PACE of the guest's time: 0.12 was 0.54 guest seconds a packet, twenty
+# times the 25 ms the UART needs, and `to` then proves arrival with `_landed`
+# anyway. 0.012 is 54 ms - two packet times. Measured on an idle CGA desktop,
+# six moves cost 5.32 guest seconds at 0.12 and 1.15 here, every one arriving
+# exactly (docs/plans/completed/SOAK-SPEED.md, harness changes).
+GAP = 0.012
 # WHAT ONE PACKET IS ALLOWED, in GUEST seconds. `to` used to sleep a fixed
 # 0.25 HOST seconds after each one - about 0.9 guest seconds on an idle box
 # here and 0.25 on a full one, so the same click bought the machine four times
@@ -97,6 +104,10 @@ GAP = 0.12
 # milliseconds; this is only the deadline, and reaching it means the packet
 # was dropped - which `to`'s loop handles by sending another.
 PKT_GUEST = 1.0
+# WHAT A DRAG'S PRESS IS GIVEN to be taken before the pointer moves, in GUEST
+# seconds (_press_drag_release): the raise a press on a background window
+# starts. It ends early on ui_done, so a quiet desktop pays ~a tick.
+PRESS_GUEST = 3.0
 BUSY = 6.0                      # ...and how long a repaint may hold the guest
                                 # before `to` gives up on it - GUEST seconds
                                 # now, for the same reason. A window
@@ -184,7 +195,7 @@ def _ui_wait(m, dflt, why):
 
     A guest that is not executing ends it at once, as `pace` does - the
     caller armed a breakpoint or paused the machine, and nothing more will
-    happen until it acts. A kernel whose map cannot be read here (a DOS box,
+    happen until it acts. A kernel whose map cannot be read here (kern_dos,
     a private build this process cannot resolve) takes the old pause, and so
     does every call under OS88_SETTLE_UI=0, the A/B for both halves."""
     if os88marty.GUEST_PACE <= 0 or m is None or not os88marty.SETTLE_UI:
@@ -721,6 +732,14 @@ class Mouse:
             self._edge(False, btn=btn)
         self._sep()                     # a drag OPENS with a press, and two
         self._edge(True, btn=btn)       # of them in a row are a double-click
+        # ...AND THE PRESS IS TAKEN before the pointer moves. A press on a
+        # BACKGROUND window raises it first, which is a repaint of seconds on
+        # a 4.77MHz 8088; a move-and-release sent into it arrives as a click
+        # and the window stays put (dispsave's back window, once GAP stopped
+        # being half a guest second a packet). Bounded: a drag loop that
+        # never lets ui_task sleep costs PRESS_GUEST and no more.
+        os88marty.ui_done(self.m, "the press to be taken", cap=PRESS_GUEST,
+                          lock=False)
         self.to(x1, y1, l=btn == 1, r=btn == 2)
         self._edge(False, btn=btn)
         _wait(self.m, settle, "drag/menu", dflt)

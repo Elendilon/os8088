@@ -54,6 +54,12 @@ rdg_bmiss        dw 0
 ; rdg_init - AX = view, BX = core, CX = ROM image, DX = 16KB banks in it
 ; =============================================================================
 rdg_init:
+%ifdef RDG_LOSSY
+    call rdg_lpatch                      ; (the lossy picture's hooks as
+    jmp short .lp                       ;   rdg_lossy says, REALDMG-SPEC 13.4:
+    times 11 db 0                       ;   16 bytes, so every routine after
+.lp:                                    ;   it is on the 16 it had)
+%endif
     push ax
     push bx
     push cx
@@ -1656,6 +1662,7 @@ rdg_rlog:
     mov si,ax
     mov [RDG_RLOG+si],dl                 ; line
     mov [RDG_RLOG+si+1],ch               ; register
+..@lk_rlog:
     mov [RDG_RLOG+si+2],cl               ; value
 .done:
     pop si

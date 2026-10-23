@@ -187,8 +187,10 @@ def main():
     back = span(*big)
     bad = []
     with M.launch("build/os8088-360.img", apps="build/apps360.img",
-                  machine=ID.MACHINE, run_dir=run_dir) as m:
-        M.settle(m)
+                  machine=ID.MACHINE, run_dir=run_dir, boot=False) as m:
+        m.run()
+        M.kernel_up(m)          # the boot gate on STATE
+        M.no_saver(m)
         tab = IR.glyph_table(m)
         mo, tx, ty = HS.open_tool(m)
 

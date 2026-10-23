@@ -1044,6 +1044,11 @@ void os88_onclick(int x, int y, void *win)
         return;
     }
 
+    /* THE ORIGIN IS READ NOW, not trusted from the last layout: a window
+     * dragged by its title is replayed without a paint (SPEC.md 11.96.12.0),
+     * so lem_org can still name where it was. Only the origin - lem_layout()
+     * also pages lem_top, and a hit test must not move the list it reads. */
+    os88_wm_content(win, &lem_org);
     hit = lem_hit(x, y);
     if (hit == LEM_HIT_NONE)
         return;

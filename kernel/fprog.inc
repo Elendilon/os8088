@@ -70,6 +70,10 @@ FPG_CELLS  equ FPG_W / 8        ; ...and what that is in menu-bar glyph cells,
                                 ; (SPEC.md 12.8.3): the widget is drawn
                                 ; straight onto the segment's last cells and
                                 ; is composed into no buffer at all
+FPG_SHOWN  equ 4                ; [fpg_on]: its pixels are on the bar (SPEC.md
+                                ; 12.8.7). Bit 0 is "armed", bit 1 the cursor
+                                ; debt (12.8.4); every reader that asks "non-
+                                ; zero?" means armed, and still gets that
 FPG_WARM   equ 3                ; sectors of disk work inside ONE lock hold
                                 ; before the widget appears at all (12.8.3).
                                 ; Its unit is the only honest one available -
@@ -192,6 +196,107 @@ fpg_bare:
 ; window over the bar (SPEC.md 11.2), and an origin that would reach the
 ; System menu on a narrow screen.
 ; -----------------------------------------------------------------------------
+; fpg_vis  - may the widget be on the glass? (SPEC.md 12.8.7)
+; fpg_show - ...then put it there, if it is not already
+; fpg_hide - take it off: the rows outside the text band, and its cells
+; fpg_gbare - fpg_bare for a painter that draws only while it is shown
+;
+; **A TOAST THAT IS UP AND WITHIN ITS TIME OUTRANKS THE WIDGET.** Both say
+; "the machine is busy and here is what with", one bar cannot carry both
+; without one shunting the other along, and the toast is the one somebody
+; chose to say. So while one is up the widget is ARMED - it counts, its
+; trough state moves, mou_apply still defers to it - and draws nothing and
+; holds no cells; the strip sits centred in the gap, where it always does.
+; When the toast's seconds are spent the widget has the bar back at its next
+; step, mid-operation: toast_up asks the clock, because the idle pass that
+; would retire the toast cannot run inside the freeze it is reporting.
+;
+; FPG_SHOWN in [fpg_on] is "its pixels are on the bar", and the three
+; transitions are each one place: fpg_show sets it (arm, and the hand-back),
+; menu_bar_text's prologue clears it through fpg_hide when a toast arrives,
+; and fpg_finish's teardown when the operation ends.
+;
+; fpg_vis:  out CF = 1 yes; clobbers AX
+; fpg_show: clobbers AX, BX, CX, DX (SI preserved: fpg_step's argument)
+; fpg_hide: clobbers AX, BX, CX, DX
+; -----------------------------------------------------------------------------
+fpg_vis:
+    test byte [fpg_on], 1       ; armed? (CF = 0 either way)
+    jz .r
+    call toast_up               ; CF = 1 a toast outranks it...
+    cmc                         ; ...so CF = 1 the widget may show
+.r:
+    ret
+
+fpg_show:
+    call fpg_vis
+    jnc .r
+    test byte [fpg_on], FPG_SHOWN
+    jnz .r
+    or byte [fpg_on], FPG_SHOWN ; SET FIRST: the composition below reserves
+    mov byte [menu_bdirty], 1   ; our cells only while this bit says so
+    push si
+    mov al, [menu_bovr]         ; sampled BEFORE: a bar that owes an overdraw
+    call menu_draw_bar          ; repair gets it from in there, and
+    or al, al                   ; menu_furniture puts the widget back ITSELF
+    jnz .span                   ; (SPEC.md 12.9) - a second paint would be
+    call fpg_paint              ; PERFORMANCE.md Part 1's double draw
+.span:
+    call fpg_span               ; ...and the bar has lost those cells: tell it
+    call menu_inval             ; which, so they are 0 - the emit skips them -
+    pop si                      ; and are lettered again when we leave
+.r:
+    ret
+
+fpg_hide:
+    and byte [fpg_on], ~FPG_SHOWN & 0FFh
+    call thm_bg
+    call fpg_span               ; --- above the text band: the icon's head
+    xor bx, bx
+    mov dx, MENU_TEXT_Y - 1
+    call gfx_fill
+    mov bl, MENU_TEXT_Y + 8     ; --- and below it: its foot and the box.
+    mov dl, MBAR_H - 2          ; AX/CX are still the span and BH/DH 0:
+    call gfx_fill               ; gfx_fill is "clobbers: flags"
+%ifdef VID_EXT
+                                ; --- and the TEXT BAND too, where no cell can
+                                ; reach it (SPEC.md 120.5): menu_bar_text
+                                ; composes at most MENU_BCMAX cells, and a
+                                ; 1024-wide bar puts the widget past them, so
+                                ; the run would repaint none of it and the
+                                ; icon's middle and the trough stayed up after
+                                ; every transfer. A 640- or 720-wide bar sits
+                                ; inside the cap, and this is a compare and a
+                                ; jump there
+    call fpg_span               ; AX = x1, CX = x2 again
+    cmp ax, MENU_TXT_X0 + MENU_BCMAX * 8    ; the first x past the composed
+    jae .band                   ; cells
+    mov ax, MENU_TXT_X0 + MENU_BCMAX * 8
+.band:
+    cmp ax, cx
+    ja .nband
+    xor bh, bh
+    mov bl, MENU_TEXT_Y
+    mov dx, MENU_TEXT_Y + 7
+    call gfx_fill               ; (the ground is still thm_bg's)
+.nband:
+    call fpg_span               ; AX/CX = the whole span, for menu_inval
+%endif
+    jmp menu_inval              ; **THE TEXT BAND IS THE COMPOSITION'S** - its
+                                ; opaque run is the erase, and forgetting the
+                                ; cells is what makes it run
+
+fpg_gbare:
+    call fpg_bare               ; on the glass if it may be (the hand-back)
+    dw fpg_show
+    test byte [fpg_on], FPG_SHOWN
+    jnz fpg_bare                ; ...then this painter, through no region
+    pop bx                      ; ...else step past its inline word: a
+    inc bx                      ; painter while a toast holds the bar draws
+    inc bx                      ; nothing, and the state it would have drawn
+    jmp bx                      ; is what fpg_paint restores from
+
+; -----------------------------------------------------------------------------
 fpg_begin:
     pushf
     FPG_BARON                   ; SPEC.md 7.4.3: everything this module draws
@@ -265,7 +370,10 @@ fpg_begin:
                                 ; transfer and no arithmetic anywhere was
                                 ; wrong (SPEC.md 12.8.1). fpg_step never reads
                                 ; it, so the sector path is untouched
-    call fpg_bare               ; the trough is this phase's now: empty it,
+    mov [fpg_pat], cx           ; CX = 0 out of the shift loop: the trough's
+                                ; state is this phase's now, whether or not a
+                                ; toast lets it be drawn (SPEC.md 12.8.7)
+    call fpg_gbare              ; the trough is this phase's now: empty it,
     dw fpg_clear                ; (through no region, SPEC.md 12.8.6)
                                 ; whether it held the previous phase's bar or
                                 ; the busy hatch (SPEC.md 12.8.3)
@@ -359,6 +467,11 @@ fpg_busy:
                                 ; and is six instructions when there is nothing
                                 ; to do
 %endif
+    call fpg_bare               ; on the glass if a toast lets it be - the
+    dw fpg_show                 ; hand-back when one's time ran out mid-
+                                ; operation (SPEC.md 12.8.7)
+    test byte [fpg_on], FPG_SHOWN
+    jz .out
     cmp word [fpg_total], 0
     jne .out                    ; a phase with a scale owns the trough
     cmp byte [fpg_pat], 0
@@ -487,26 +600,11 @@ fpg_arm:
                                 ; `mov byte [mem],imm` is 5 and `mov word` 6
     inc ax
     mov [fpg_on], al            ; ...and the payload is written BEFORE the flag
-    mov [menu_bdirty], al       ; that publishes it, which is the kernel's own
-                                ; discipline and strictly safer than the order
-                                ; this replaced. Nothing DRAWS in between, and
-                                ; no cross-task reader of [fpg_on] (mou_apply,
+                                ; that publishes it, which is the kernel's own
+                                ; discipline. Nothing DRAWS in between, and no
+                                ; cross-task reader of [fpg_on] (mou_apply,
                                 ; menu_bar_text, toast_pass, fsx_mode) reads
                                 ; [fpg_px] or [fpg_pat] at all
-    mov al, [menu_bovr]         ; LAST OF THE FOUR, and it has to be: the block
-                                ; above builds its constants in AX. Still
-                                ; sampled BEFORE the composition below, which
-                                ; is what matters - a bar that owes an
-                                ; overdraw repair gets it from inside
-                                ; menu_draw_bar, and menu_furniture puts the
-                                ; widget back ITSELF (SPEC.md 12.9), so the
-                                ; paint at the bottom of this routine would be
-                                ; a second one over the same pixels.
-                                ; menu_draw_bar clobbers nothing, so AL still
-                                ; carries the answer on the far side of it
-                                ;
-                                ; A strip is placed where it fitted
-                                ; when it went up, and SPEC.md 59.9's first
 
     ; --- ...AND THE ARROW COMES OFF THE GLASS (SPEC.md 12.8.4) --------------
     ; This module is the one painter in the machine that draws with the gfx
@@ -608,7 +706,7 @@ fpg_arm:
     ; not prevent it. It is a bound, not an exclusion - a third painter, or a
     ; UI-task path that reaches a lock-free arm, would break it.
     call fpg_bare               ; ...and THROUGH NO WINDOW'S REGION (SPEC.md
-    dw .show                    ; 12.8.6): the bar is inside none, and a caller
+    dw fpg_show                 ; 12.8.6): the bar is inside none, and a caller
                                 ; that drew its window through one in this hold
                                 ; would otherwise clip all of what follows away
 .yes:
@@ -617,42 +715,6 @@ fpg_arm:
 .no:
     stc
     ret
-
-.show:                          ; AL = [menu_bovr], sampled above
-    call menu_draw_bar          ; choice - the gap the menus leave - is the
-                                ; same stretch of bar this widget is about to
-                                ; be drawn on; measured on a 5150/CGA, Paint's
-                                ; own `Saving...` lands on cells 43..53 and
-                                ; the widget takes 43..53. Without this the
-                                ; bed fill below simply destroys the message
-                                ; and the operation runs with `Sa` and half a
-                                ; document icon on the bar.
-                                ;
-                                ; The flag being set FIRST is also what makes
-                                ; that composition keep off our cells at all:
-                                ; menu_bar_text shortens the menus segment by
-                                ; FPG_CELLS while it is up (SPEC.md 12.8.3),
-                                ; and this is the one composition that has to
-                                ; see the reservation appear.
-                                ;
-                                ; Re-placing it costs one composition, which
-                                ; is a compare per cell plus at most one
-                                ; font_run, once per FREEZE - against a disk
-                                ; this is not measurable. It is done HERE and
-                                ; not by asking toast_kill to retire the
-                                ; message, which is what this site used to do:
-                                ; a refusal loses the message for good and
-                                ; silently, and the messages worth saying are
-                                ; exactly the ones about the operation that is
-                                ; starting.
-
-    or al, al                   ; the bed, the icon and the box - unless the
-    jnz .span                   ; repair above has just drawn them, in which
-    call fpg_paint              ; case doing it again is PERFORMANCE.md Part 1's
-.span:                          ; double-draw flash with the widget as the flash
-    call fpg_span               ; ...and the bar has lost those cells: tell it
-    jmp menu_inval              ; which, so fpg_finish gives back exactly them
-                                ; and not the whole bar (SPEC.md 12.9)
 
 ; -----------------------------------------------------------------------------
 ; fpg_paint - the widget's own pixels, from its own state (internal)
@@ -752,11 +814,7 @@ fpg_hatch:
     call fpg_tin
     jmp gfx_fill_gray
 
-fpg_clear:
-    xor ax, ax                  ; the pair in one word store - see fpg_arm.
-    mov [fpg_pat], ax           ; AX is free: this routine's header says it
-                                ; clobbers AX, its ONE caller is fpg_begin, and
-                                ; `call fpg_tin` on the next line overwrites it
+fpg_clear:                      ; the state is fpg_begin's, so this is pixels
     call fpg_tin
     call thm_bg                
     jmp gfx_fill
@@ -826,7 +884,7 @@ fpg_step:
     jbe .done                   ; nothing new to light
 
     mov si, ax                  ; SI = the new extent, and the strip from the
-    call fpg_bare               ; old one to it is fpg_paint's own restore -
+    call fpg_gbare              ; old one to it is fpg_paint's own restore -
     dw fpg_lit                  ; (through no region, SPEC.md 12.8.6)
                                 ; ONE routine, above. It is BELOW the `jbe
                                 ; .done` gate, so it runs only when the bar
@@ -1009,8 +1067,8 @@ fpg_finish:
                                 ; everything between this and the pop destroys
                                 ; it. The jump above is above the push, so the
                                 ; stack balances on both exits
-    xor ax, ax                  ; ...and no phase survives the widget either.
-    mov [fpg_total], ax         ; BELOW the `je`, so the unarmed path - which
+    xor cx, cx                  ; ...and no phase survives the widget either.
+    mov [fpg_total], cx         ; BELOW the `je`, so the unarmed path - which
                                 ; gfx_unlock runs on every drawing burst in the
                                 ; machine - does exactly the work it did before
 
@@ -1036,91 +1094,12 @@ fpg_finish:
                                 ; `jmp`, so it grows a byte rather than failing
                                 ; to assemble if it ever leaves short reach
 
-.unpaint:
-    call thm_bg                
-    call fpg_span               ; --- above the text band: the icon's head
-    xor bx, bx
-    mov dx, MENU_TEXT_Y - 1
-    call gfx_fill
-
-                                ; --- and below it: its foot and the box.
-                                ; AX and CX still carry the span: gfx_fill is
-                                ; "clobbers: flags" and nothing between the
-                                ; two fills writes either, so the second
-                                ; `call fpg_span` was asking for what it was
-                                ; already holding
-    mov bl, MENU_TEXT_Y + 8     ; BH is still 0 from the `xor bx,bx` above and
-    mov dl, MBAR_H - 2          ; DH from `mov dx, MENU_TEXT_Y - 1`, because
-                                ; the gfx_fill between them is "clobbers:
-                                ; flags" - the same contract the two `fpg_span`
-                                ; calls that used to be here were collapsed on
-    call gfx_fill
-%ifdef VID_EXT
-                                ; --- and the TEXT BAND too, where no cell can
-                                ; reach it (SPEC.md 120.5): menu_bar_text
-                                ; composes at most MENU_BCMAX cells, and a
-                                ; 1024-wide bar puts the widget past them, so
-                                ; the run below would repaint none of it and
-                                ; the icon's middle and the trough stayed up
-                                ; after every transfer. A 640- or 720-wide
-                                ; bar sits inside the cap, and this is a
-                                ; compare and a jump there
-    call fpg_span               ; AX = x1, CX = x2 again
-    cmp ax, MENU_TXT_X0 + MENU_BCMAX * 8    ; the first x past the composed
-    jae .band                   ; cells
-    mov ax, MENU_TXT_X0 + MENU_BCMAX * 8
-.band:
-    cmp ax, cx
-    ja .nband
-    xor bh, bh                  ; (a byte move and a word move: 29 bytes keeps
-    mov bl, MENU_TEXT_Y         ; ui_task's parity beside SPEC.md 119's rows,
-    mov dx, MENU_TEXT_Y + 7     ; tests/unit/t_hotpar.py)
-    call gfx_fill               ; (the ground is still thm_bg's)
-.nband:
-    call fpg_span               ; AX/CX = the whole span, for menu_inval
-%endif
-
-    call menu_inval             ; **THE TEXT BAND IS OURS TO ASK FOR.** The
-                                ; box's rows MENU_TEXT_Y..+7 are erased by
-                                ; nothing here - the opaque run that rewrites
-                                ; them is the erase (above) - and that run
-                                ; only happens if [menu_bdirty] is set.
-                                ; fpg_begin's menu_inval sets it, but anything
-                                ; composing the bar in between SPENDS it, and
-                                ; then the box frame stays on the glass for
-                                ; good. This makes the erase this routine's own
-                                ; rather than a debt somebody else may settle.
-                                ;
-                                ; menu_inval rather than the store it opens
-                                ; with: it is a strict SUPERSET (it also
-                                ; forgets those cells in menu_bcell, which is
-                                ; what the paragraph above is asking for), it
-                                ; is 3 bytes where the store is 5, and AX/CX
-                                ; still hold the widget's span from fpg_span -
-                                ; the identical span fpg_arm already passes it
-                                ; at the foot of that routine, so the range is
-                                ; legal by an existing site rather than by
-                                ; argument. It preserves every register
-                                ; (jmp kret_dx) - and fpg_arm's banked cursor
-                                ; debt is on the stack across all of this
-                                ; anyway, under fpg_bare's frame. It runs
-                                ; AFTER [fpg_on] went to 0, so the menus
-                                ; segment is back to full length and nothing
-                                ; is clamped away
-%ifdef OS88_SNDCARD
-    ; Sound can publish its mixer during this very boot transfer, moving
-    ; vid_clk_hx left. The armed widget's old span then covers the icon;
-    ; menu text cannot erase it beyond its new bound. Redraw the picture too.
-    cmp cx, [vid_clk_hx]
-    jb .soundok
-    mov word [menu_mixcap], 0FFFFh
-.soundok:
-%endif
-    jmp menu_draw_bar           ; the text band, as the ONE run that differs -
-                                ; and the menus segment is FPG_CELLS longer
-                                ; again the moment [fpg_on] went to 0 above,
-                                ; so this is also the composition that gives
-                                ; those cells back (SPEC.md 12.8.3)
+.unpaint:                       ; AL = what [fpg_on] was
+    test al, FPG_SHOWN
+    jz .give                    ; a toast had it off the glass already
+    call fpg_hide
+.give:
+    jmp menu_draw_bar           ; the cells back, as the ONE run that differs
 %ifdef KERN_SMALL
     db 0                        ; PARITY PAD, never executed (after a `jmp`):
                                 ; fpg_bare (SPEC.md 12.8.6) is +37 on

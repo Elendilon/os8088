@@ -50,6 +50,7 @@ import os88marty as M                                       # noqa: E402
 import os88ui                                               # noqa: E402
 import os88geom as geom                                     # noqa: E402
 import instdeep as ID                                       # noqa: E402
+import os88lnk                                              # noqa: E402
 import hdboot as HB                                         # noqa: E402
 import instkeep as IK                                       # noqa: E402
 import os88build                                            # noqa: E402
@@ -103,11 +104,18 @@ SYM = symmap()
 
 def hd_tseg_off():
     """[hd_tseg]'s offset in HDD.DRV's image (the HMA build is the same code
-    assembled at DRV_ORG = E000h)."""
+    assembled at DRV_ORG = the kernel's DRV_HMA_ORG, read rather than
+    restated: it was E000h when this was written and is C000h now, and a
+    stale constant here read a word of CODE and called it a leaked tool)."""
+    m = re.search(r"^DRV_HMA_ORG\s+equ\s+(0x[0-9A-Fa-f]+|\d+)",
+                  open("kernel/kernel.asm").read(), re.M)
+    if not m:
+        sys.exit("install: DRV_HMA_ORG is not an `equ` in kernel/kernel.asm")
+    org = int(m.group(1), 0)
     for line in open(os88build.at("build/hdd.hma.map")):
         p = line.split()
         if len(p) == 3 and p[2] == "hd_tseg":
-            return int(p[0], 16) - 0xE000
+            return int(p[0], 16) - org
     sys.exit("install: no hd_tseg in build/hdd.hma.map")
 
 
@@ -262,7 +270,9 @@ def launch_wizard(ui, path):
 
 
 def plant(vhd):
-    """USER.TXT into the root of the active partition, through mtools."""
+    """USER.TXT into the root of the active partition, through mtools - and
+    the update check's startup link, which the upgrade's Done page must
+    find and keep ticked (SPEC.md 117.10.6)."""
     blob = bytearray(open(vhd, "rb").read())
     for i in range(4):
         e = blob[446 + i * 16:462 + i * 16]
@@ -277,6 +287,12 @@ def plant(vhd):
         open(img, "wb").write(part)
         open(os.path.join(td, "USER.TXT"), "wb").write(USER_TXT)
         IK.mtools("mcopy", "-i", img, os.path.join(td, "USER.TXT"), "::/")
+        lnk = os.path.join(td, "OSCHECK.LNK")
+        open(lnk, "wb").write(os88lnk.make("INSTALL.O88", arg="CHECK"))
+        subprocess.run(["mmd", "-i", img, "::/AUTOSTRT"],     # (the system
+                       capture_output=True,                  # disk has one)
+                       env=dict(os.environ, MTOOLS_SKIP_CHECK="1"))
+        IK.mtools("mcopy", "-i", img, lnk, "::/AUTOSTRT/")
         part = open(img, "rb").read()
     blob[lba * SECTOR:(lba + secs) * SECTOR] = part
     blob[400] = 0xA5                   # the MBR's unused tail: a marker the
@@ -417,6 +433,11 @@ def main():
         if not wz.byte("in_skip"):
             sys.exit("install: FAIL - Done after Skip does not say the apps "
                      "disk was left off")
+        if wz.byte("in_chk") != 1:
+            sys.exit("install: FAIL - C: has \\AUTOSTRT\\OSCHECK.LNK and the "
+                     "Done page does not start on *Check for updates at "
+                     "startup* (SPEC.md 117.10.6)")
+        print("  KEPT       the startup check's tick, off C:\\AUTOSTRT")
     blob = open(vhd, "rb").read(SECTOR)
     v = ID.partition(vhd)
     bad = []

@@ -63,7 +63,7 @@
 %ifdef KERN_MEGA
 
 MEGA_GDT_LIN    equ 0x110000        ; above the HMA, which KERN-MEGA-PLAN 2.7
-MEGA_LDT_LIN    equ 0x120000        ; keeps free for the DOS box's real-mode
+MEGA_LDT_LIN    equ 0x120000        ; keeps free for DOS's real-mode
 MEGA_IDT_LIN    equ 0x124000        ; half
 MEGA_GDT_N      equ 8192            ; the CPU's maximum: 64KB
 MEGA_LDT_N      equ 2048            ; 1MB / 512 bytes: 16KB
@@ -782,7 +782,7 @@ section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
 ; `pushf / call far [sch_old08]` exactly as the ROM was: the tick at 40:6C and
 ; its midnight wrap, the floppy motor-off count at 40:40, the EOI, iret.
 ; int 1Ch, which the ROM calls from here, is NOT called: nothing in the tree
-; hooks it outside the DOS box, which is real mode (KERN-MEGA-PLAN 2.7).
+; hooks it outside DOS, which is real mode (KERN-MEGA-PLAN 2.7).
 ; -----------------------------------------------------------------------------
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_t08:
@@ -9253,8 +9253,12 @@ mega_t86    db "real mode: 8086-class CPU", 0
 mega_tmem   db "real mode: no 82KB for kern_mega's tables", 0
 mega_ta20   db "real mode: A20 will not open", 0
 mega_ttask  db "real mode: a task predates it", 0
+%ifdef MEGA_DIAG                    ; the field build names the way BACK
 mega_mtoast db "protected, 286 reset", 0
 mega_mtoast3 db "protected, 386 CR0", 0
+%else                               ; ...a shipped one only that it got in,
+mega_mtoast db "Entered protected mode", 0 ; which is true on any CPU
+%endif
 
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 ; mega_pmtail - the rest of the switch, once `.mega` is where MEGA_SEL_CODE
@@ -9317,10 +9321,12 @@ mega_pmtail:
     push ds                         ; with no debug port: the menu bar says it
     pop es                          ; for a few seconds (toast_show only
     mov si, mega_mtoast             ; stages; the UI task's first idle pass
+%ifdef MEGA_DIAG
     cmp byte [cpu_tier], CPU_386    ; ...naming the way BACK it will use,
     jb .t286                        ; which is the thing a field run is for
     mov si, mega_mtoast3
 .t286:
+%endif
     mov cx, 146                     ; draws it), for eight seconds: long enough
                                     ; to photograph
     call KERNEL_SEG:cw_toast_show
@@ -9376,6 +9382,63 @@ mega_ivt_syncm:
 mega_xmwalkf:
     call mega_xmwalk
     retf
+; mega_imgnf - FAR (osapi_img_name's BX = 1 arm, KERN-MEGA-PLAN 14.70.3): AX =
+; a pool block's KB offset -> CF = 0, SI = the segment word of the drv_tab,
+; ss_row or mod_tab row whose image is based there, AL = 0 a driver / 1 a
+; module; CF = 1 none. mega_xmcls's match - the row's selector, its LDT base,
+; mx_rel - over every row that names an image. DS = KDATA. Keeps the rest
+mega_imgnf:
+    push bx
+    push cx
+    push dx
+    mov bx, ax                      ; BX = the offset wanted
+    mov si, drv_tab + DRVR_SEG
+.d:
+    call .is
+    je .drv
+    add si, DRVR_SIZE
+    cmp si, drv_tab + DRVR_SEG + DRV_MAX * DRVR_SIZE
+    jb .d
+    mov si, ss_row + DRVR_SEG
+    call .is
+    je .drv
+    mov si, mod_tab + MODR_SEG
+.m:
+    call .is
+    je .mod
+    add si, MODR_SIZE
+    cmp si, mod_tab_end
+    jb .m
+    mov ax, bx
+    stc
+    jmp short .out
+.drv:
+    mov al, 0
+    jmp short .ok
+.mod:
+    mov al, 1
+.ok:
+    clc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    retf
+; .is - ZF = 1 the selector at [SI] names an image based at BX KB from the
+; pool's base. Clobbers AX, CL, DX
+.is:
+    mov ax, [si]
+    test al, 4                      ; an LDT selector: an image above 1MB
+    jz .isno
+    call mega_selbase               ; DX:AX = its base (CL spent)
+    jc .isno
+    call mx_rel                     ; AX = KB from the pool's base
+    jc .isno
+    cmp ax, bx
+    ret
+.isno:
+    or si, si                       ; (SI is never 0: ZF = 0)
+    ret
 mega_codeself:
     call mega_codesel
     retf
@@ -9384,7 +9447,7 @@ mega_bpcall:                        ; xm_dsp's: BP = a `.mega` routine
     retf
 section .text
 
-%include "megados.inc"          ; M6: the DOS box's park (KERN-MEGA-DOS-PLAN)
+%include "megados.inc"          ; M6: DOS's park (KERN-MEGA-DOS-PLAN)
 
 section .bss
 mega_nmi61  resb 1                  ; port 61h at the last latched NMI

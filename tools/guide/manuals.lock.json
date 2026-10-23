@@ -534,6 +534,22 @@
   "strings": null,
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
  },
+ "HTTPFS_DRV": {
+  "sources": [
+   "drivers/httpfs"
+  ],
+  "stamped": "cbabc048",
+  "strings": "3c04230d6d85ba66",
+  "why": "new pages, written from SPEC.md 120 and the drivers' own strings"
+ },
+ "HTTPPAGE_DRV": {
+  "sources": [
+   "drivers/httpfs"
+  ],
+  "stamped": "cbabc048",
+  "strings": "3c04230d6d85ba66",
+  "why": "new pages, written from SPEC.md 120 and the drivers' own strings"
+ },
  "INCONSOL_F88": {
   "sources": [],
   "stamped": "e4576a70",
@@ -544,9 +560,9 @@
   "sources": [
    "apps/install"
   ],
-  "stamped": "ddaef50f",
-  "strings": "1dc0fc6f30c645db",
-  "why": "Copying section describes the Installing page's log and its click-Next ending (SPEC.md 117.4.1)"
+  "stamped": "177c1b6c",
+  "strings": "e66d0a07c66d6c99",
+  "why": "the check asks the sockets directly; nothing the page says changed"
  },
  "INTRO_MID": {
   "sources": [],
@@ -616,9 +632,9 @@
   "sources": [
    "apps/loom"
   ],
-  "stamped": "7ec8cb8a",
-  "strings": "59bb257edd8ea46a",
-  "why": "checked: New Project starter packs as-is (page updated), Preview status line text updated; pack refusals lost their spec citations (page quotes none)"
+  "stamped": "6495d304",
+  "strings": "f1ec8a4b0eb77b99",
+  "why": "the Packing toast now brackets only the compile; the status line, which the page describes, still says Packing... for the whole verb - unchanged"
  },
  "MEDIA": {
   "sources": [],
@@ -758,9 +774,9 @@
   "sources": [
    "apps/paint"
   ],
-  "stamped": "e4576a70",
-  "strings": "3dcd43ffda068c4a",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "6495d304",
+  "strings": "6aad204f2e3bef9f",
+  "why": "Saving... toast replaced by Encoding GIF around a GIF's encode; the page's save paragraph rewritten to match"
  },
  "PAPER_TEX": {
   "sources": [],
@@ -848,9 +864,9 @@
   "sources": [
    "apps/realdmg"
   ],
-  "stamped": "206eb5be",
-  "strings": "08e5749fb6393b85",
-  "why": "new manual, checked against realdmg.asm's menus, keys and strings"
+  "stamped": "10248be6",
+  "strings": "18551f6e3106339d",
+  "why": "Scroll's F11 order is Smooth, 2, 4, 8"
  },
  "REDLINE_O88": {
   "sources": [
@@ -1066,9 +1082,9 @@
   "sources": [
    "apps/taskmgr"
   ],
-  "stamped": "f596e80c",
-  "strings": "3227cc1b27be84bd",
-  "why": "the memory page and the heap page are one page now (SPEC.md 28.4.10): two pages, collapsible owner groups, the PROGRAMS/SYSTEM and +ALL/-ALL switches, AVAIL/MAX RUN; the third page and its heap shot removed; checked against taskmgr.asm's strings and SPEC.md 28.4.10"
+  "stamped": "5b1feb3f",
+  "strings": "41fa08640852a6a6",
+  "why": "rewrote the memory pages as the one memory page (tree of groups, +DETAIL, +ALL, AVAIL/MAX RUN incl. above 1MB, named drivers and modules); dropped the third page's shot; 12K to open"
  },
  "TELNET_O88": {
   "sources": [
@@ -1272,9 +1288,9 @@
   "sources": [
    "apps/wirefleet"
   ],
-  "stamped": "3f9bc879",
-  "strings": "4f7d7f10c65ff1a8",
-  "why": "missiles, impacts, music and the Music U item added to Connect and deploy and Display and sound (SPEC 114.11)"
+  "stamped": "ae722338",
+  "strings": "d75cf6c6c06c7437",
+  "why": "90792af7 adds wf_btnplace, the button record's layout proc run before each hit test: an internal fix below the page's level of detail, nothing a user reads changes"
  },
  "WORD": {
   "sources": [],

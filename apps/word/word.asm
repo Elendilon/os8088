@@ -2350,6 +2350,63 @@ wd_ctcalc:
     ret
 
 ; -----------------------------------------------------------------------------
+; wd_rebase - move every SCREEN rect Word banked to where the window IS NOW
+; in:  AX/DX = the live content origin, [wd_cl]/[wd_ct] = the one the rects
+;      were laid out against (wd_bounds, before it banks the new one);
+;      preserves all registers
+;
+; A window dragged by its title is REPLAYED, not painted (SPEC.md 11.96.12.0),
+; so the combos' rects the ribbon and ruler painters wrote, the About card and
+; its OK, a dialog's corner and an open menu's panel all named where the
+; window WAS - a press on any of them answered nothing, or the wrong thing,
+; until something repainted. Every one of them was laid out against the
+; origin wd_bounds banked, and wd_bounds is the first thing every handler
+; runs, so the live origin less that one is exactly what each owes - the
+; same delta skies' cs_regeo takes. Closed or never-drawn ones shift too and
+; harmlessly: each is rewritten whole when it next opens or paints.
+; -----------------------------------------------------------------------------
+wd_rebase:
+    push ax
+    push cx
+    push dx
+    push si
+    push di
+    sub ax, [wd_cl]
+    sub dx, [wd_ct]
+    mov cx, ax
+    or cx, dx
+    jz .out                         ; not moved: nothing owed
+    mov si, wd_rbrects
+    mov cx, WD_RBN
+.r:
+    mov di, [si]                    ; a 4-word inclusive rect: x1 y1 x2 y2
+    add [di], ax
+    add [di+2], dx
+    add [di+4], ax
+    add [di+6], dx
+    inc si
+    inc si
+    loop .r
+    add [wd_dlgx], ax               ; the open dialog's corner
+    add [wd_dlgy], dx
+    add [wd_dfont + OS88UI_DR_TOP], dx  ; an open list's first row
+    add [wd_dpts + OS88UI_DR_TOP], dx
+    add [wd_dstyle + OS88UI_DR_TOP], dx
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    ret
+wd_rbrects:
+    dw wd_dfont + OS88UI_DR_RECT, wd_dpts + OS88UI_DR_RECT
+    dw wd_dstyle + OS88UI_DR_RECT, wd_abrect, wd_abok, wd_dlrect
+    dw wd_mnrec + OS88UI_MN_MRECT, wd_mnrec + OS88UI_MN_ABOX
+    dw wd_mnrec + OS88UI_MN_BRECT
+WD_RBN equ ($ - wd_rbrects) / 2
+
+; -----------------------------------------------------------------------------
 ; wd_bounds - the content rectangle and the text origin, from the live record
 ; in:  SI = window ptr, ES = KERNEL_SEG (as every callback is entered)
 ; out: [wd_tx] = the wrap column and left margin, [wd_ty] = the first text
@@ -2364,6 +2421,7 @@ wd_bounds:
     call wd_sv4
     mov bx, si
     call OSAPI_WM_CONTENT           ; AX = content left, DX = content top
+    call wd_rebase                  ; the rects banked at the OLD one follow
     mov [wd_cl], ax                 ; the content box, banked for every chrome
     mov [wd_ct], dx                 ; painter and hit test (SPEC.md 68.2) -
                                     ; read here once, exactly like wd_tx/wd_ty
@@ -18095,6 +18153,7 @@ wd_mkey:
     push di
     cmp word [wd_dlg], 0            ; the dialog is modal (SPEC.md 68.3):
     je .nodlg                       ; Enter fires OK, Esc cancels, a letter
+    call wd_bounds                  ; (where the window IS: wd_rebase)
     call wd_dgkey                   ; toggles its box, and nothing leaks
     jmp .cons
 .nodlg:
@@ -18108,6 +18167,7 @@ wd_mkey:
     je .abx
     jmp .cons                       ; everything else bounces off the modal
 .abx:
+    call wd_bounds                  ; the card's rect where the window IS
     call wd_abclose
     jmp .cons
 .noab:
@@ -18142,6 +18202,7 @@ wd_mkey:
     call wd_mopenm                  ; opened sticky, no highlight yet
     jmp .cons
 .open:
+    call wd_bounds                  ; the panel's rect where the window IS
     cmp al, 27
     je .close
     cmp al, 13
@@ -21452,7 +21513,7 @@ section .text
 ; is not defined yet. DOS_BTREC_SZ in apps/dos/dos.asm is the same
 ; mirror for the same reason; the %if below the include is what stops
 ; either copy drifting.
-WD_BTREC_SZ equ 24
+WD_BTREC_SZ equ 18
 
 %macro WDVAR 2                      ; name, size in bytes
     %1 equ os88_image_end + WDB

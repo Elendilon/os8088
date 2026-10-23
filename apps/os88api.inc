@@ -65,8 +65,8 @@
 ; - the claim map, the screen's row table, and on kern_mega font_run's
 ; unaligned-run state - so a call made on a stack of your own reads and
 ; writes whatever segment that stack is in. A package that switches SS for
-; its own reasons (the DOS box, around a DOS program) switches back before
-; it calls the kernel, as the DOS box does (docs/plans/KERN-MEGA-PLAN.md 14.39).
+; its own reasons (DOS, around a DOS program) switches back before
+; it calls the kernel, as DOS does (docs/plans/KERN-MEGA-PLAN.md 14.39).
 ;
 ; Your image is linked at org 0 and loaded at a paragraph boundary, so it is
 ; position-independent: there are no relocations, and two instances of one
@@ -90,11 +90,11 @@ KERNEL_SEG   equ 0x0060     ; where the kernel is, and what ES holds on entry.
 ;      earlier pass. A rect in bss is valid until the next thing that can move
 ;      the window, which is any moment your code is not running.
 ;
-; **A STANDARD BUTTON'S RECTS ARE THE ONE EXCEPTION, and the library makes
-; it one**: os88ui_btninit's record banks where its rects were last right and
-; moves them with the window before every draw and hit test (§20.5.1.3.5).
-; Every other rect - a radio group, a list, a scroll bar, a text field - is
-; still yours to re-place.
+; **A STANDARD BUTTON'S PRESS IS THE LIBRARY'S**, so it cannot follow rule
+; 1 by itself: give the record an OS88UI_BT_PLACE proc that lays its rects
+; out from OSAPI_WM_CONTENT, and the library runs it before every press,
+; drag and release it tests (§20.5.1.3.5). Every other rect - a radio group,
+; a drop-down, a list, a scroll bar, a text field - you re-place yourself.
 ;
 ; **ASSUME IT ALWAYS HAPPENS.** §11.96.13 snaps a drop's x onto a multiple of
 ; 8 before the cache is taken - it exists because the byte-phase refusal below
@@ -1005,7 +1005,7 @@ OSAPI_LZ_BIG equ 0x80            ; ...OR'd in: AH:CX is the length (20.13.3)
                                  ; the engine cannot claim its buffer - which
                                  ; a MOVE on one volume never needs, so that
                                  ; one works with no free heap at all (the
-                                 ; DOS box's shell-out is the case, SPEC.md
+                                 ; DOS's shell-out is the case, SPEC.md
                                  ; 96.30.6).
                                  ; WHERE YOU WERE STANDING is put back by the
                                  ; next file call (SPEC.md 19.2.1), and the
@@ -1073,7 +1073,7 @@ OSAPI_FCP_MOVE equ 1
                                  ; with AX = FERR_NODISK. Clobbers all four.
                                  ;
                                  ; DOS AH=36h's own register shape, because
-                                 ; the DOS box is what asks. What
+                                 ; DOS.O88 is what asks. What
                                  ; OSAPI_FILE_DFREE does not say is the
                                  ; volume's SIZE, and this is where it lives.
                                  ; The free count is the same FAT walk DFREE
@@ -2107,6 +2107,23 @@ OS88_HUGE_INCR      equ 0x1000
                                  ; region and MOVE with it (the selector does
                                  ; not change). CF=1 and EVERY register kept:
                                  ; use your segment + AX. Any context.
+
+; OSAPI_IMG_NAME - WHICH driver or module an image is (KERN-MEGA-PLAN 14.70.3).
+; A class names a driver only when it has one, and a module's header names
+; nothing, so the Task Manager could list a `DrvImg` or a `ModImg` and not say
+; whose. The names are the kernel's own tables'.
+%define OSAPI_IMG_NAME      KERNEL_SEG:0x04D7   ; AX = the segment an image is
+                                 ; loaded at - the base of a MEM_K_DRV or
+                                 ; MEM_K_MOD claim - with BX = 0; or BX = 1
+                                 ; and AX = a block's XMW_OFF in the pool above
+                                 ; 1MB (OSAPI_XMEM_WALK), where kern_mega puts
+                                 ; both. ES:DI = 13 bytes. out CF=0, the 8.3
+                                 ; file name at ES:DI, NUL-terminated, AL = 0
+                                 ; a driver / 1 a module; CF=1 none of the
+                                 ; kernel's is there (a driver a module loaded
+                                 ; on a record of its own, such as THMPAL.DRV,
+                                 ; and every image on kern_small, which
+                                 ; refuses). Every other register kept
 ;
 ; --- volumes (SPEC.md 18.7/51.8) --------------------------------------------
 ; A DRVC_DISK DRIVER's slots, not an application's: the four that CHANGE
@@ -2891,10 +2908,10 @@ DQ_A       equ 2                 ; dw: the class's own three words. For
 DQ_B       equ 4                 ; dw: DRVC_SOUND: the DSP base port, then
 DQ_C       equ 6                 ; dw: (IRQ | DMA<<8), then the DSP version -
 DQ_SIZE    equ 8                 ;     which is what a BLASTER= is made of
-DQ_MAXREC  equ 10                ; the most records one call can write, so
+DQ_MAXREC  equ 11                ; the most records one call can write, so
                                  ; a caller can size a buffer without
                                  ; mirroring the kernel's own DRV_MAX -
-                                 ; which is 10, 9 or 4 depending on the
+                                 ; which is 11, 10, 9 or 4 depending on the
                                  ; build and is asserted against this at
                                  ; assembly time (SPEC.md 51.11.2)
 %define OSAPI_DRV_SUSPEND   KERNEL_SEG:0x0419   ; AL = 1 suspend / 0 resume /
@@ -3085,8 +3102,12 @@ HDI_SLOTS    equ 1              ; DL = a device, ES:DI = 4 * HDIS_SIZE. out
                                 ; AL = the slot the Install window would
                                 ; select, 0FFh none would do, 0FEh no such
                                 ; device or its geometry is unknown
-HDI_GO       equ 2              ; DL = device, DH = slot, CH = 1 erase / 0 keep
-                                ; the files; ES:DI = an HDIB_* block. out AL =
+HDI_GO       equ 2              ; DL = device, DH = slot, CH = bit 0 1 erase /
+                                ; 0 keep the files, bits 7..1 the SOURCE volume
+                                ; + 1 (0 = the engine's own: the bank, then the
+                                ; floppies), and a named one is taken to carry
+                                ; the apps (SPEC.md 117.10.5); ES:DI = an
+                                ; HDIB_* block. out AL =
                                 ; an HDG_* and the engine's caption at HDIB_CAP.
                                 ; The Install window's two clicks in one
 HDI_APPS     equ 3              ; ES:DI = an HDIB_* block: the apps phase, once
@@ -3154,6 +3175,9 @@ DRVC_CD      equ 9              ; the THIRD file class: CDROM.DRV, an ATAPI
                                 ; CD-ROM (SPEC.md 119). Its volume is ISO 9660
                                 ; answered as FSV_* verbs; its package door is
                                 ; drivers/cdrom/cdpkg.inc - CD audio
+DRVC_HTTP    equ 10             ; the FOURTH file class: HTTPFS.DRV, a
+                                ; read-only drive over HTTP (SPEC.md 121). Its
+                                ; package door is drivers/httpfs/hfpkg.inc
 DRVC_EMS     equ 7              ; EXPANDED MEMORY - a LIM EMS board's page
                                 ; registers, EMS.DRV (SPEC.md 107). Pages are
                                 ; MAPPED into a 64 KB frame below 1 MB, never
@@ -3922,7 +3946,7 @@ OS88_HDR_FLAGS equ 0
 ;
 ; Without this block the kernel REDUCES your 16x16 icon to 8x8 by majority of
 ; each 2x2 block (SPEC.md 54.3), which keeps a silhouette and loses every
-; one-pixel stroke. Ship one when your icon is a line drawing - the DOS box's
+; one-pixel stroke. Ship one when your icon is a line drawing - DOS's
 ; CRT reduced to an empty square, which is what this exists for.
 ; -----------------------------------------------------------------------------
 %macro OS88_DOCGLYPH8 0
@@ -4597,7 +4621,7 @@ OS88__AFIT  equ OS88__AF%[OS88__AN]
 ;
 ;   * a record aimed in the CLICK path was not aimed on the PAINT path, so a
 ;     plain repaint drew with a live count of 0 and the buttons were absent
-;     (the DOS box);
+;     (DOS.O88);
 ;   * a count written AFTER the draws meant every paint used the previous one
 ;     and the first used zero (ArtfulType, twice - its modal and its splash
 ;     were separate callers);
@@ -4616,7 +4640,7 @@ OS88__AFIT  equ OS88__AF%[OS88__AN]
 ; its top and os88ui.inc near its bottom. The OS88UI_BT_* offsets are `equ`s
 ; and forward-resolve, which is why they can stay with the control.
 ; -----------------------------------------------------------------------------
-%macro OS88UI_BTNREC 5
+%macro OS88UI_BTNREC 5-6 0
 %1:
     dw %2                       ; OS88UI_BT_RECTS
     dw %3                       ; OS88UI_BT_LABELS
@@ -4632,8 +4656,8 @@ OS88__AFIT  equ OS88__AF%[OS88__AN]
                                 ; 20.5.1.3.4)
     dw 0                        ; OS88UI_BT_ONCLK, your click proc - btninit
     dw 0                        ; OS88UI_BT_NEXT, THE LIBRARY'S list link
-    dw 0, 0, 0, 0               ; OS88UI_BT_OX/OY/FX/FY, THE LIBRARY'S: where
-                                ; the rects were last right (SPEC.md
+    dw %6                       ; OS88UI_BT_PLACE, your layout proc or 0:
+                                ; run before every hit test (SPEC.md
                                 ; 20.5.1.3.5)
 %endmacro
 
@@ -4978,6 +5002,15 @@ OS88_BSS_SIZE equ 0
                                  ; READ-AND-CLEAR - the first proc to ask
                                  ; gets it, so a second instance launched
                                  ; later can never inherit a document
+%define OSAPI_ARG_TEXT      KERNEL_SEG:0x04DD   ; a LINK's parameter (SPEC.md
+                                 ; 26.10.7): the text a .LNK naming this
+                                 ; program carried after its path. No inputs;
+                                 ; out CF=1 = none, every launch but such a
+                                 ; link's; CF=0 with DX:SI -> the NUL text,
+                                 ; VALID IN THE ENTRY PROC ONLY - copy it out.
+                                 ; Clobbers DX and SI either way.
+                                 ; READ-AND-CLEAR, as OSAPI_ARG_FILE is.
+                                 ; kern_small refuses (it has no links)
 %define OSAPI_ASSOC_FLUSH   KERNEL_SEG:0x0493   ; DL = a volume, AL = the
                                  ; ASSOC_FL_* bits below (0 = incremental):
                                  ; bring that volume's
@@ -5456,7 +5489,7 @@ CLIP_MAXKB equ 32                ; the clipboard's ceiling, KB. A put longer
 ; Disk window's LISTING (SPEC.md 19.5), which is a different structure.
 ;
 ; Three packages each built a descent stack for want of this - ftpd's 16-level
-; FD_CDMAX, the DOS box's self-maintained `AH=47h` string, and Tank Attack's
+; FD_CDMAX, DOS's self-maintained `AH=47h` string, and Tank Attack's
 ; walk to SYSTEM\APPDATA. If you are about to write a fourth, this is it.
 ;
 ; **IT COSTS ONE MOUNT AND THEN NOTHING.** The kernel walks with the directory
@@ -6247,7 +6280,7 @@ WHEEL_STEPS equ 3                ; LINES of text one wheel notch scrolls
 ; with nothing held. So the record must live in your IMAGE or your BSS and not
 ; on a stack, and it must still be there when you return.
 ;
-; This is the DOS box's verb and nothing else in the tree uses it. It had a
+; This is DOS's verb and nothing else in the tree uses it. It had a
 ; cell of its own for one cycle (0x05A0, withdrawn - SPEC.md 51.11.3) and is a
 ; verb of the door the drivers leave through now, because the two are one
 ; family: "get out of my way", and how far. The layout is published rather
@@ -6264,17 +6297,17 @@ KDH_PLEN    equ 23              ; dd its packed bytes
 KDH_ULEN    equ 27              ; dd ...and its unpacked bytes
 KDH_LB      equ 31              ; db[512] the launch block, verbatim
 KDH_WIN     equ 543             ; dw the window to wake on the way back - the
-                                ; box's, because only the box knows it
+                                ; DOS.O88's, because only DOS.O88 knows it
 KDH_CODE    equ 545             ; dw the program's exit code, poked in by the
                                 ; RESTORED kernel, KDH_NOCODE until then
 KDH_COFF    equ 547             ; dw the CORE part's first file SECTOR - the
 KDH_CPLEN   equ 549             ; dd its packed bytes, and its unpacked ones.
 KDH_CULEN   equ 553             ; kern_dos's image has a HOLE where the core
                                 ; goes, so the stub reads TWO parts (SPEC.md
-                                ; 96.44.5.4) and only the box knows where
+                                ; 96.44.5.4) and only DOS.O88 knows where
                                 ; either sits in the file
 KDH_CORG    equ 557             ; dw where the core sits in kern_dos's
-                                ; segment - CORE_ORG, which only the box knows
+                                ; segment - CORE_ORG, which only DOS.O88 knows
 KDH_AKB     equ 559             ; dw the ARENA the program was given, in KB.
                                 ; The restored kernel pokes it in beside
                                 ; KDH_CODE (SPEC.md 96.41.1) - the figure is
@@ -6413,7 +6446,9 @@ FSIF_BANKED equ 4
 
 ; --- THE THEME (SPEC.md 76, 76.14.14) --------------------------------------
 ; --- Desktop serial lease (SPEC.md 115), UI-task context -------------------
-%define OSAPI_SERIAL KERNEL_SEG:0x049F ; AL=0 Open (BL=COM1/2, SI=517-byte
+%define OSAPI_SERIAL KERNEL_SEG:0x049F ; AL=0 Open (BL=COM1/2, +80h when
+                                 ; the USER named the port: taken before the
+                                 ; mouse settles, 115.1.1; SI=517-byte
                                  ; pinned-region buffer, BH=the 8250 divisor
                                  ; of 115200: 0 or 12 = 9600, 48 = 2400 -
                                  ; SPEC.md 115.1), 1 Close, 2 Read

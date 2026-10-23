@@ -167,6 +167,12 @@ summary = "The hard disk setup tool, used to partition and format a hard disk an
 short = "Partition and install on a disk"
 needs = "A hard disk"
 
+["HTTPPAGE.DRV"]
+title = "HTTP drive settings"
+kind = "system"
+summary = "The Control Panel page for the HTTP drive: the web address to mount, and Mount and Unmount."
+short = "HTTP drive settings page"
+
 ["RAMPAGE.DRV"]
 title = "RAM disk settings"
 kind = "system"
@@ -237,6 +243,13 @@ kind = "driver"
 summary = "Reads CD-ROM discs in an IDE CD-ROM drive as a drive on the desktop, and plays audio CDs through the drive's own audio output."
 short = "CD-ROM discs and audio CDs"
 needs = "A 286 or better with an IDE (ATAPI) CD-ROM drive"
+
+["HTTPFS.DRV"]
+title = "HTTP drive"
+kind = "driver"
+summary = "Mounts a folder published on a web server as a read-only drive on the desktop. The Control Panel's Web Drive page takes the address."
+short = "A read-only drive from a web address"
+needs = "A network card, or the parallel link"
 
 ["RAMDISK.DRV"]
 title = "RAM disk"

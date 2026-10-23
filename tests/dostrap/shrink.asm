@@ -10,7 +10,7 @@
 ; A real DOS switches to an internal stack at its first instruction, so all
 ; that ever lands there is the three words the `int` pushed - which fall in
 ; the new block's RESERVED bytes, at +0A..+0F, where nothing reads them.  This
-; box used to build its whole INT 21h frame on the program's stack instead,
+; DOS used to build its whole INT 21h frame on the program's stack instead,
 ; six words deeper, straight onto the SIGNATURE, the OWNER and the SIZE
 ; (SPEC.md 96.7.2).
 ;
@@ -66,7 +66,7 @@ start:
     ; **NOT ONE PUSH OF OUR OWN IN HERE**, and that is the test rather than
     ; tidiness. A stack grows DOWN, so with SP one paragraph above the header
     ; anything this program pushes lands on it too - and then the row would go
-    ; red on a box that is behaving. Playroom pushes three words at most
+    ; red on a DOS that is behaving. Playroom pushes three words at most
     ; before its own calls, which is what fits in the header's RESERVED bytes;
     ; so the counter is a memory cell and `loop`'s CX would be eaten by AH=30h
     ; anyway.

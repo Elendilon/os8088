@@ -110,7 +110,7 @@ def main():
         cap = os.path.join(tmp, "cap")
         os.environ["MARTYPC_WAV"] = cap
         booted = os88ui.boot("build/os8088-360.img", apps=img,
-                             machine=MACHINE)
+                             machine=MACHINE, quick=True)
         os.environ.pop("MARTYPC_WAV", None)
         with booted as ui:
             m = ui.m

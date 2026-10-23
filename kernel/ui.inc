@@ -482,10 +482,10 @@ ui_task:
 
 .clock_cell:                    ; speaker first, then the Date/Time cell
 %ifdef OS88_SNDCARD
-    test word [drv_svc+DSV_CAPS], SND_CAP_MIXER
-    jz .date_cell
+    cmp word [menu_mixcap], SND_CAP_MIXER
+    jne .date_cell              ; ...when it is showing: a toast can hide it
     mov ax, cx
-    sub ax, [menu_mixx]
+    sub ax, [menu_mixx]         ; the field's right end (SPEC.md 34.15)
     cmp ax, 24
     jae .date_cell
     mov cx, [menu_mixx]

@@ -197,7 +197,7 @@ def main():
     # a record, and the registry counted the call as "the library's own" and
     # asked nothing else about it. The live count came out of the rect's y2,
     # the flags pointer out of its x2, OS88UI_BT_DOWN out of os88ui_asets'
-    # first word - so the DOS box's "Open windows are lost. Proceed?" filled
+    # first word - so DOS's "Open windows are lost. Proceed?" filled
     # the whole screen with a PRESSED button's black interior, at a rect read
     # from four arbitrary words of the package's own image.
     #
@@ -258,7 +258,7 @@ def main():
     # A reservation given as a SYMBOL is accepted: the assembler guards those
     # (`%if WD_BTREC_SZ != OS88UI_BT_SIZE`, DOS_BTREC_SZ's own mirror), and a
     # symbol is what a fixed one looks like.
-    SIZE = 24                   # OS88UI_BT_SIZE, mirrored - and checked below
+    SIZE = 18                   # OS88UI_BT_SIZE, mirrored - and checked below
     m = re.search(r"^OS88UI_BT_SIZE\s+equ\s+(\d+)", ui, re.M)
     if not m or int(m.group(1)) != SIZE:
         bad.append("apps/os88ui.inc's OS88UI_BT_SIZE is %s and this check "

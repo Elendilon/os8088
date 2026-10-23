@@ -80,6 +80,7 @@ wf_connect:
     mov byte [wf_cands], cl     ; COM1 = bit 0 = 1, COM2 = bit 1 = 2
     call wf_disconnect
     mov al, [wf_wantport]
+    or al, 0x80                 ; the user NAMED it: not the mouse (115.1.1)
     call wf_lease
     jc .failed
     mov word [wf_message], wf_searching
@@ -97,10 +98,14 @@ wf_autostart:
     mov [wf_retry], ax          ; due now
     ret
 
-; AL=port. Opens, or MOVES a lease this instance already holds (115.1).
-; CF=refused with AX=error and the lease closed; else the port is live.
+; AL=port, bit 7 set when the user chose it. Opens, or MOVES a lease this
+; instance already holds (115.1). CF=refused with AX=error and the lease
+; closed; else the port is live.
 wf_lease:
+    push ax
+    and al, 0x7f
     mov [wf_curport], al
+    pop ax
     cmp byte [wf_linkopen], 0
     jne .open
     push ax
@@ -1195,7 +1200,7 @@ wf_crc:
 wf_linkerrors: dw wf_searching,wf_linkbusy,wf_movemouse,wf_mouseport,wf_noport,wf_badbuffer,wf_searching,wf_searching,wf_needsserial
 wf_searching: db 'Looking for your opponent on the null-modem cable...',0
 wf_linkbusy: db 'Another program is using the serial port. Trying again...',0
-wf_movemouse: db 'Move the mouse once so the OS can tell it from the cable.',0
+wf_movemouse: db 'Which port is the cable? Link > Connect COM1/COM2, or move the mouse.',0
 wf_mouseport: db 'That COM port is the mouse. Connect using the other port.',0
 wf_noport: db 'No supported BIOS-advertised UART on that port.',0
 wf_badbuffer: db 'Serial lease refused this application buffer.',0

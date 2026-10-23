@@ -20,6 +20,8 @@
 ; its speed and the picture takes what is left (REALDMG-SPEC section 15.2).
 ; =============================================================================
 
+%define RDG_LOSSY                       ; F10, F11: the lossy picture's toggles
+                                        ;   (rdgppu.inc, REALDMG-SPEC 13.4)
 %include "os88api.inc"
 %include "sndpkg.inc"                   ; SOUND.DRV's FM verbs (rwfm.inc)
 
@@ -226,8 +228,7 @@ rw_cfg          equ rw_jit2seg + 2  ; RW_CFGN: REALDMG.CFG as it is read
 rw_cfgip        equ rw_cfg + RW_CFGN ; byte: os88data.inc's stamp for it
 rw_big          equ rw_cfgip + 1    ; byte: Machine > Cache: 128K (the
                                     ;   setting, kept in REALDMG.CFG)
-rw_286          equ rw_big + 1      ; byte: a 286 or later: a recompiler
-rw_seg2q        equ rw_286 + 1      ; byte: the cache's segments changed:
+rw_seg2q        equ rw_big + 1      ; byte: the cache's segments changed:
                                     ;   the worker's to start it again
 rw_f3q          equ rw_seg2q + 1    ; byte: the mode F3 asked for in the
                                     ;   window, when it wants the UI task
@@ -315,11 +316,6 @@ RW_PBUF         equ 11520           ; the frame as the screen takes it: the
 ; =============================================================================
 rw_entry:
     mov byte [rw_jitmode], 1        ; Recompiler: On (REALDMG-SPEC 16.7)
-    call OSAPI_CPU_INFO
-    cmp al, CPU_8086
-    je .c86
-    mov byte [rw_286], 1
-.c86:
     call rw_cfgload
     call rw_spdset                  ; (Speed: 100% until a game says)
     call OSAPI_FILE_HERE            ; where the program is: the log's folder
@@ -563,10 +559,18 @@ rw_load:
     mov dx, [rw_jitseg]
     call OSAPI_MEM_FREE
     mov word [rw_jitseg], 0
-    mov ax, 64 + 16
-    mov byte [rw_hmask], 7
-    call OSAPI_MEM_CLAIM
-    jc .nojit
+    call rw_jpkb                    ; the claim WITH the recompiler's part,
+    add ax, 64 + 16                 ;   read again into its new tail: the
+    mov byte [rw_hmask], 7          ;   64 + 16 this was left the part past
+    call OSAPI_MEM_CLAIM            ;   the claim's end and its pointers at
+    jc .nojit                       ;   the old place, and the slots were
+    mov bx, 1000h + 400h            ;   claimed over it - a 1MB cartridge
+    add bx, dx                      ;   hung on its first frame, or ran the
+    call rw_jpart                   ;   stack over (rw_jitget's fallback)
+    jnc .jp16
+    call OSAPI_MEM_FREE
+    jmp short .nojit
+.jp16:
     mov [rw_jitseg], dx
     call rw_plan
     jnc .planned
@@ -923,18 +927,15 @@ rw_jitoff:
     ret
 
 ; rw_jitclaim - on the UI task, once: a 64KB cache and the 16KB of its block
-; table after it (REALDMG-SPEC 16.3), on a 286 or later. The
-; recompiler's code is bigger than the interpreter's, and an 8088's bus makes
-; bytes the cost; and without the memory it is simply not used.
+; table after it (REALDMG-SPEC 16.3), on every CPU - an 8088 runs a busy
+; M-cycle in 21.7 clocks translated against 51 interpreted (REALDMG-SPEC
+; 16.10); without the memory it is simply not used.
 rw_jitclaim:
     cmp byte [rw_jitmode], 2        ; (CPU > Interpreter: none - the ROM
     je rw_jitget.r                  ;   has the room, REALDMG-SPEC 16.7)
 rw_jitget:                          ; (CF = 1: none, a game running too)
     cmp word [rw_jitseg], 0
     jne .r
-    call OSAPI_CPU_INFO
-    cmp al, CPU_8086
-    je .r
     call rw_jpkb                    ; AX = the recompiler's own KB, its part
     push ax                         ;   read into the claim's tail (16.9)
     add ax, 64 + JIT_HASHN * 8 / 1024 ; the cache and its block table: 64KB
@@ -1657,8 +1658,6 @@ rw_cfgsave:
 ; the heap has left, and the worker starts the recompiler again over both;
 ; without the room - or going back to 64K - it is the next game's.
 rw_bigtoggle:
-    cmp byte [rw_286], 0
-    je .r
     xor byte [rw_big], 1
     call rw_cfgsave
     call rw_mgrey
@@ -1685,9 +1684,7 @@ rw_bigtoggle:
 ; keeps its 9KB and writes no file at the close. Static reads the profile,
 ; so it stays on while Static is the setting. Before a game it is the
 ; setting the load takes.
-rw_prftoggle:
-    cmp byte [rw_286], 0            ; (before a game too: its load claims
-    je .r                           ;   it)
+rw_prftoggle:                       ; (before a game too: its load claims it)
     cmp byte [rw_prfon], 0
     jne .off
     mov byte [rw_prfon], 1
@@ -2214,6 +2211,14 @@ rw_worker:                          ;   the worker parked at the top of its
     mov byte [rw_jitqn], 0
     call rw_jnote
 .nojq:
+%ifdef RDG_LOSSY
+    mov al, 0                       ; Screen's toggles, posted by the UI task:
+    xchg al, [rw_lossq]             ;   turned over here, between frames
+    or al, al
+    jz .nolq
+    call rw_lossyt
+.nolq:
+%endif
     cmp byte [rw_state], 1
     jne .held
     cmp byte [rw_pause], 0
@@ -2724,13 +2729,13 @@ rw_keys:
     call rw_stats
 .nof1:
     push dx
-    mov al, 3Ch                     ; F2: Machine > Interlace's next, and
+    mov al, 3Ch                     ; F2: Screen > Interlace's next, and
     mov bx, rw_f2was                ;   said (rw_note)
     mov cl, 2
     call rw_fedge
     jnc .nof2
     call rw_iltoggle
-    mov si, [rw_i_mach + 2 * RW_MIL] ; (what rw_mgrey made the item say)
+    mov si, [rw_i_scr + 2 * RW_SIL] ; (what rw_mgrey made the item say)
     call rw_note
 .nof2:
     mov al, 3Dh                     ; F3: Machine > Recompiler's next - here,
@@ -2738,8 +2743,6 @@ rw_keys:
     mov cl, 4
     call rw_fedge                   ;   and the bracket alike (the menu's
     jnc .nof3                       ;   goes through the worker's rw_jitq)
-    cmp byte [rw_286], 0
-    je .nof3
     mov bl, [rw_jitmode]
     xor bh, bh
     mov al, [rw_jnext + bx]         ; AL = the next mode. Static, or the
@@ -2792,6 +2795,24 @@ rw_keys:
     mov bx, [rw_win]
     call OSAPI_WM_WAKE
 .nof9:
+%ifdef RDG_LOSSY
+    mov al, 44h                     ; F10: TWO SHADES on or off, F11: THE
+    mov bx, rw_f10was               ;   CAMERA IN STEPS OF 2, 4, 8 (rdg_lossy,
+    mov cl, 40h                     ;   REALDMG-SPEC 13.4) - said, and the
+    call rw_fedge                   ;   next draw whole. No menu item, and
+    jnc .nof10                      ;   not kept: they are to be tried
+    mov al, RDG_LBW
+    call rw_lossyt
+.nof10:
+    mov al, 57h
+    mov bx, rw_f11was
+    mov cl, 80h
+    call rw_fedge
+    jnc .nof11
+    mov al, RDG_LCOARSE
+    call rw_lossyt
+.nof11:
+%endif
     mov al, 58h                     ; F12: the log written now (rw_logflush,
     mov bx, rw_f12was               ;   the UI task's - after the bracket,
     mov cl, 10h                     ;   where a toast can be read)
@@ -2861,6 +2882,57 @@ rw_keys:
     mov [S_JOY], dl
     pop ds
     ret
+%ifdef RDG_LOSSY
+; rw_lossyt - AL = RDG_LBW to turn Two Shades over, RDG_LCOARSE to take
+; Scroll's next step (Off, 2, 4, 8 - F11, Screen's items): the composer
+; patched (rdg_lpatch - so this runs where no task is inside it: rw_keys,
+; the worker's loop, a game not running), said, kept for the game, and the
+; next draw whole. Clobbers BX, SI, DX
+rw_lossyt:
+    test al, RDG_LBW
+    jz .co
+    xor [rdg_lossy], al
+    call rdg_lpatch
+    mov si, rw_s_bw
+    test [rdg_lossy], al
+    jnz .on
+    mov si, rw_s_bw2                ; (its "Off")
+.on:
+    call rw_mgrey
+    jmp short .say
+.co:
+    mov ah, [rdg_lossy]             ; the level's next - DOWN, the levels
+    mov dl, ah                      ;   being 8, 4, 2 - wrapping to Off
+    and dl, ~RDG_LCOARSE
+    sub ah, RDG_LCO8
+    and ah, RDG_LCOARSE
+    or ah, dl
+    mov [rdg_lossy], ah
+    call rdg_lpatch
+    call rw_mgrey
+    mov si, [rw_i_scr + 2 * RW_SCO] ; (what rw_mgrey made the item say)
+.say:
+    call rw_note
+    call rw_dmgfull
+    call rw_cfgrec                  ; kept for the game, REALDMG.CFG the UI
+                                    ;   task's to write (as F4's and F9's)
+    mov byte [rw_spdq], 1
+    mov bx, [rw_win]
+    call OSAPI_WM_WAKE
+    ret
+
+; rw_losspost - Screen > Two Shades or Scroll, on the UI task: AL the
+; bit, for the worker to turn over between frames (rw_lossq) - or now, with
+; no game running and so no draw to be inside
+rw_losspost:
+    cmp byte [rw_state], 1
+    je .q
+    jmp rw_lossyt
+.q:
+    xor [rw_lossq], al
+    ret
+
+%endif
 ; rw_fedge - AL = F1-F4's scancode, BX = its was-held byte, CL = its bit in
 ; rw_ftyped: CF = 1 when it is pressed now (held now, not at the last look),
 ; or TYPED since the last look and up at both - a tap that fell between two
@@ -3016,12 +3088,17 @@ rw_flatch:  db 0                    ; F1-F4, F12 and F9 TYPED since the last loo
                                     ;   (rw_klat)
 rw_f12was:  db 0                    ; F12 was held at the last look
 rw_f9was:   db 0                    ; ...and F9
+rw_f10was:  db 0                    ; ...and F10, F11
+rw_f11was:  db 0
+rw_lossq:   db 0                    ; Screen's toggles for the worker
+rw_s_bw:    db 'Two shades: On', 0  ; (rw_lossyt's: each "On", then its
+rw_s_bw2:   db 'Two shades: Off', 0 ;   "Off")
 rw_lflq:    db 0                    ; F12: the log to be written by the UI
                                     ;   task (rw_onwake, rw_fsenter's end)
 rw_ftyped:  db 0                    ; ...and this look's (rw_fedge)
 rw_flook:   dw 0                    ; rw_keys's looks, counted...
-rw_fwhen:   dw 0, 0, 0, 0, 0, 0     ; ...and the last that saw F1, F2, F3,
-                                    ;   F4, F12 and F9 held
+rw_fwhen:   dw 0, 0, 0, 0, 0, 0, 0, 0 ; ...and the last that saw F1, F2,
+                                    ;   F3, F4, F12, F9, F10 and F11 held
 
 ; rw_socd - one opposite pair, BL its two bits: DL the buttons, AH those
 ; pressed since the last look, CL the preferred of each pair. Not both held:
@@ -3067,6 +3144,14 @@ rw_klat:
     je .fl
     mov al, 20h                     ; F9: bit 5
     cmp ah, 43h
+    je .fl
+    mov al, 40h                     ; F10: bit 6
+    cmp ah, 44h
+    je .fl
+    mov al, 80h                     ; F11 (an AT's 85h, a PC's 57h): bit 7
+    cmp ah, 85h
+    je .fl
+    cmp ah, 57h
     je .fl
     cmp ah, 3Bh                     ; F1-F4: latched for rw_fedge
     jb .m
@@ -3551,6 +3636,14 @@ rw_spdgame:
     mov byte [rw_gkon], 1
     call rw_cfgfind                 ; SI = its entry, CF = 1 none
     jc .r
+%ifdef RDG_LOSSY
+    mov al, [si + 3]                ; bits 5 and 6: Two Shades and Scroll by
+    mov cl, 5                       ;   8/4/2, bits 6-7 (rdg_lossy) - patched here, before
+    shr al, cl                      ;   the worker is hired
+    and al, RDG_LBW | RDG_LCOARSE
+    mov [rdg_lossy], al
+    call rdg_lpatch
+%endif
     mov al, [si + 3]
     mov ah, al
     and al, 7
@@ -3635,6 +3728,12 @@ rw_cfgrec:
     mov cl, 3
     shl al, cl
     or al, [rw_speed]
+%ifdef RDG_LOSSY
+    mov ah, [rdg_lossy]             ; (bits 5-7: Screen's two)
+    mov cl, 5
+    shl ah, cl
+    or al, ah
+%endif
     mov [rw_cfg + 11], al
     pop es
     pop di
@@ -3644,7 +3743,7 @@ rw_cfgrec:
 .r0:
     ret
 
-; rw_iltoggle - Machine > Interlace (REALDMG-SPEC 13.2), Off -> On ->
+; rw_iltoggle - Screen > Interlace (REALDMG-SPEC 13.2), Off -> On ->
 ; Scrolling: a draw composes the lines of one parity, the next the other's,
 ; for twice the pictures a second at a price in looks - always, or only
 ; while the picture scrolls; off, every line again. Either way the next draw
@@ -3795,6 +3894,8 @@ rw_oncmd:
     call rw_abdismiss
     pop ax
     cmp ah, 1
+    je .scr
+    cmp ah, 2
     je .cpu
     ja .st
     cmp al, RW_MLOAD                ; MACHINE
@@ -3809,8 +3910,6 @@ rw_oncmd:
     je rw_sndmenu
     cmp al, RW_MSTATS
     je rw_stats
-    cmp al, RW_MIL
-    je rw_iltoggle
     cmp al, RW_MLOG
     je rw_logtoggle
     cmp al, RW_MCTL
@@ -3832,6 +3931,19 @@ rw_oncmd:
 .pe:
     call rw_logevt
     jmp rw_mgrey
+.scr:
+    cmp al, RW_SIL                  ; SCREEN
+    je rw_iltoggle
+%ifdef RDG_LOSSY
+    mov ah, al
+    mov al, RDG_LBW
+    cmp ah, RW_SBW
+    je rw_losspost
+    mov al, RDG_LCOARSE
+    cmp ah, RW_SCO
+    je rw_losspost
+%endif
+    ret
 .cpu:
     cmp al, RW_CJOFF                ; CPU
     jbe .mode
@@ -3844,8 +3956,6 @@ rw_oncmd:
     sub al, RW_CSPD                 ; a speed: as F4 would step to it
     jmp rw_spdpick
 .mode:                              ; a mode: rw_jitto's
-    cmp byte [rw_286], 0
-    je .r
     mov bl, al
     xor bh, bh
     mov al, [rw_jmenu + bx]
@@ -3905,7 +4015,8 @@ rw_tpl:
     dw rw_ttl, rw_paint, rw_onkey, rw_abdismiss
 
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
-        OS88_MENU rw_m_mach, rw_i_mach, 11
+        OS88_MENU rw_m_mach, rw_i_mach, 10
+        OS88_MENU rw_m_scr, rw_i_scr, RW_SCRN
         OS88_MENU rw_m_cpu, rw_i_cpu, 11
         OS88_MENU rw_m_st, rw_i_st, 11
     OS88_MENUSET_END rw_menus
@@ -3931,7 +4042,7 @@ RW_MW           equ MENU_MAXCH      ; glyphs an item, its mark and key with it
 rw_ttl:         db 'RealDMG', 0
 rw_m_mach:      db 'Machine', 0
 rw_i_mach:      dw rw_it_load + 1, rw_it_reset + 1, rw_it_pause + 1, rw_it_fs
-                dw rw_it_sep, rw_it_snd0 + 1, rw_it_stats + 1, rw_it_il0 + 1
+                dw rw_it_sep, rw_it_snd0 + 1, rw_it_stats + 1
                 dw rw_it_log + 1, rw_it_sep, rw_it_ctl + 1
 RW_MLOAD        equ 0               ; (Machine's items)
 RW_MRESET       equ 1
@@ -3939,9 +4050,19 @@ RW_MPAUSE       equ 2
 RW_MFS          equ 3
 RW_MSND         equ 5
 RW_MSTATS       equ 6
-RW_MIL          equ 7
-RW_MLOG         equ 8
-RW_MCTL         equ 10
+RW_MLOG         equ 7
+RW_MCTL         equ 9
+rw_m_scr:       db 'Screen', 0      ; SCREEN: what the picture may leave out
+rw_i_scr:       dw rw_it_il0 + 1    ;   for speed (REALDMG-SPEC 13.2, 13.4)
+%ifdef RDG_LOSSY
+                dw rw_it_sep, rw_it_bw + 1, rw_it_co0 + 1
+RW_SCRN         equ 4
+%else
+RW_SCRN         equ 1
+%endif
+RW_SIL          equ 0               ; (Screen's items)
+RW_SBW          equ 2
+RW_SCO          equ 3
 rw_m_cpu:       db 'CPU', 0
 rw_i_cpu:       dw rw_it_jon, rw_it_jst, rw_it_joff + 1, rw_it_sep
                 dw rw_it_prf, rw_it_big, rw_it_sep, rw_it_spd0 + 1
@@ -3975,16 +4096,17 @@ rw_it_sep:      db MENU_DIS, '----------------------', 0
     RW_MI rw_it_il2, 'Interlace: Scrolling', 'F2'
     RW_MI rw_it_il3, 'Interlace: Doubled', 'F2'
     RW_MI rw_it_log, 'Log', 'F12'
+    RW_MI rw_it_bw, 'Two Shades', 'F10'
+    RW_MI rw_it_co0, 'Scroll: Smooth', 'F11'
+    RW_MI rw_it_co1, 'Scroll: By 8', 'F11'
+    RW_MI rw_it_co2, 'Scroll: By 4', 'F11'
+    RW_MI rw_it_co3, 'Scroll: By 2', 'F11'
     RW_MI rw_it_ctl, 'Controls...', ''
     RW_MI rw_it_jon, 'Recompiler', 'F3'
     RW_MI rw_it_jst, 'Static Recompiler', 'F3'
     RW_MI rw_it_joff, 'Interpreter', 'F3'
-    RW_MI rw_it_jon8, 'Recompiler (286+)', ''
-    RW_MI rw_it_jst8, 'Static (286+)', ''
     RW_MI rw_it_prf, 'Profile for Static', ''
-    RW_MI rw_it_prf8, 'Profile (286+)', ''
     RW_MI rw_it_big, 'Cache: 128K', ''
-    RW_MI rw_it_big8, 'Cache (286+)', ''
     RW_MI rw_it_spd0, 'Speed: 100%', 'F4'
     RW_MI rw_it_spd1, 'Speed: 90%', 'F4'
     RW_MI rw_it_spd2, 'Speed: 75%', 'F4'
@@ -4008,6 +4130,9 @@ rw_s_cfg:       db 'REALDMG.CFG', 0
 rw_spdit:       dw rw_it_spd0, rw_it_spd1, rw_it_spd2, rw_it_spd3
 rw_sndit:       dw rw_it_snd0, rw_it_snd1, rw_it_snd2
 rw_ilit:        dw rw_it_il0, rw_it_il1, rw_it_il2, rw_it_il3
+%ifdef RDG_LOSSY
+rw_coit:        dw rw_it_co0, rw_it_co1, rw_it_co2, rw_it_co3
+%endif
 rw_jit:         dw rw_it_jon, rw_it_joff, rw_it_jst  ; (by rw_jitmode - 1)
 rw_jmenu:       db 1, 3, 2          ; CPU's items 0-2: the mode each chooses
 rw_spdtab:      dw 256, 230, 192, 128   ; Speed, 256ths of the Game Boy's

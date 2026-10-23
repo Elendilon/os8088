@@ -177,6 +177,7 @@ hd_iw_open:
     mov byte [hd_iw_st], HII_IDLE
     mov word [hd_imsg], hd_s_ipick
     mov byte [hd_iautod], 0xFF  ; a fresh run asks the machine again
+    mov byte [hd_isrcx], 0xFF   ; ...and names no source: that is HDI_GO's
     mov al, [hd_sel]
     mov [hd_idev], al           ; BOUND here, tool.inc's hd_tdev reason: the
                                 ; Control Panel underneath stays clickable, and
@@ -1454,7 +1455,7 @@ hd_bn_save:
     mov di, [hd_bp]                 ; file and the window cannot disagree
     mov si, hd_line
     call hd_scat
-    mov word [di], 0x0A0D           ; CR LF: this is read on a DOS box
+    mov word [di], 0x0A0D           ; CR LF: this is read on a DOS machine
     add di, 2
     mov [hd_bp], di
     inc byte [hd_irow]
@@ -1670,6 +1671,8 @@ hd_inst_step:
                                 ; find nothing it may load
     call hd_inst_sys
     jc .failed
+    cmp byte [hd_isrcx], 0xFF   ; a NAMED source carried the apps with it:
+    jne .named                  ; no disk to find, and none to ask for
     call hd_iapps_find          ; ...and do not ask for a disk that is already
     jc .swap                    ; in the machine (SPEC.md 52.10.5). Falling
     mov [hd_iautod], al         ; straight into .apps is what makes the whole
@@ -1678,6 +1681,7 @@ hd_inst_step:
 .swap:
     mov si, hd_s_laask
     call hd_ilog
+.named:
     mov byte [hd_iw_st], HII_SYSDONE
     mov word [hd_imsg], hd_s_iswap
     jmp short .out
@@ -1797,6 +1801,11 @@ hd_inst_sys:
                                 ; full repaint here was a flash right before
                                 ; a long freeze (SPEC.md 52.10.6)
     call hd_ivol_bank           ; SPEC.md 51.5.2, whatever happens below
+    mov al, [hd_isrcx]          ; ...and a source HDI_GO NAMED overrides the
+    cmp al, 0xFF                ; bank's: the network volume the package
+    je .bank                    ; mounted, not wherever the machine stands
+    mov [hd_isrcdrv], al        ; (SPEC.md 117.10.5). hd_isrc_ck still asks
+.bank:                          ; it for a KERNEL.SYS
     call hd_iunmount_dst        ; ...and NOTHING may still be mounted on the
                                 ; slot we are about to erase (SPEC.md 52.10.8)
     call OSAPI_BATCH_BEGIN      ; the interface is frozen from here to the
@@ -4564,6 +4573,7 @@ hd_isrcdrv:   db 0              ; the drive the COPY reads from, which is the
 hd_iafound:   db 0              ; hd_iapps_find: an APPS folder has been seen
 hd_iappsc:    dw 0              ; ...and its first cluster, for the descent
 hd_iheld:     db 0              ; 1 = this install HOLDS the ASSOC.DAT writer
+hd_isrcx:     db 0xFF           ; HDI_GO's NAMED source, 0xFF = none (117.10.5)
 hd_iautod:    db 0xFF           ; the auto-detected apps drive, 0xFF = none.
                                 ; .text with a real initialiser, hd_iwin's
                                 ; reason: -f bin zeroes nothing and 0 here is

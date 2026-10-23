@@ -63,16 +63,20 @@ def main(argv):
     bad = []
 
     for fname, app in PKGS:
-        with os88marty.launch(a.image, apps=a.apps, machine=a.machine) as m:
-            os88marty.settle(m)
+        with os88marty.launch(a.image, apps=a.apps, machine=a.machine,
+                              boot=False) as m:
+            m.run()                     # the boot gate on STATE; the verbs
+            os88marty.kernel_up(m)      # below confirm on the window list
+            os88marty.no_saver(m)
+            done = lambda mm, **k: os88marty.ui_done(mm)    # noqa: E731
             mo = os88mouse.Mouse(marty=m)
-            dispcp.open_drive(m, mo, S, os88marty.settle, "B")
+            dispcp.open_drive(m, mo, S, done, "B")
             disk = dispcp.win_list(m, S)[-1]
             wx, wy = dispcp.win_rect(m, S, disk)[:2]
-            dispcp.open_named(m, mo, S, os88marty.settle, wx, wy, "GAMES")
+            dispcp.open_named(m, mo, S, done, wx, wy, "GAMES")
             wx, wy = dispcp.win_rect(m, S, disk)[:2]
             rows = [r[0] for r in dispcp.listing(m, S)]
-            row = dispcp.scroll_to(m, mo, S, os88marty.settle, wx, wy,
+            row = dispcp.scroll_to(m, mo, S, done, wx, wy,
                                    rows.index(fname))
             x, y = dispcp.row_xy(wx, wy, row)
             mo.dblclick(x, y)

@@ -502,7 +502,13 @@ cache could not be claimed and the game ran interpreted (its log has no J).
   bank - and **at least 8 (`RW_SLOTWANT`) while the recompiler still has
   memory to give up**: the second segment goes first, then the 64KB table
   for the 16KB one, and only then are 4 taken, and 4 with no recompiler at
-  all. The fourth field run is why: on a 116K heap with SOUND.DRV mounted
+  all. **The 16KB table is a claim made anew WITH the recompiler's part,
+  read again into its tail** (`rw_jpart`): it was re-claimed at 64 + 16KB,
+  leaving the part past the claim's end and its four pointers on the old
+  place, and the slots were then claimed over it - a 1MB cartridge hung
+  on its first frame or ran the stack over whenever the heap fell where
+  the 64KB table missed (`tests/gbbank.py` on a package 1.2KB larger: 12
+  slots, 0 banks fetched; fixed, 10 slots and 0 wrong). The fourth field run is why: on a 116K heap with SOUND.DRV mounted
   the plan stopped at 5 slots with both kept, and Kirby's Dream Land
   fetched ~95 banks a second over a 286's XMS at 15% of real time - in its
   window as in full screen, with the recompiler on or off, so it read as
@@ -891,7 +897,7 @@ it changed), and AX holds the count.
   compared it was never FAST: standing still on the Victory's 86Box twin,
   judging 144 lines was 5 ms a draw and the picture 23 frames a second; it
   is 41 now, the judging 0.15 ms.
-- **INTERLACE** (`[rdg_ilace]`, Machine > Interlace: Off, On, Scrolling,
+- **INTERLACE** (`[rdg_ilace]`, Screen > Interlace: Off, On, Scrolling,
   Doubled;
   off by default): a call composes the changed lines of one parity and
   leaves the other's pending (`RDG_DPEND`, a byte a line) for the next call,
@@ -1168,6 +1174,64 @@ reference sharing `ppu_line` and the sprites with what it checks.
   cache gives up (256 bytes).
 
 
+### 13.4 The lossy picture: Two Shades and Scroll by 8, 4 or 2
+
+**Two things the picture may leave out, for speed: Screen > Two Shades
+(F10) and Screen > Scroll (F11), which steps Smooth, By 2, By 4, By 8**, each kept for the game in
+REALDMG.CFG with its Speed and Sound (15.2). `rdg_lossy` in `rdgppu.inc`
+holds them, `RDG_LBW` and `RDG_LCOARSE` - the latter a two-bit LEVEL,
+`RDG_LCO8`, `RDG_LCO4`, `RDG_LCO2`, which F11 steps 2, 4, 8 and wraps to off; the
+code is assembled under `RDG_LOSSY`, which the package defines and the bare
+harness only with `LOSSY_BW`, `LOSSY_COARSE`, `LOSSY_COARSE4` or
+`LOSSY_COARSE2` (docs/reports/REALDMG-LOSSY-2026-10-22.md).
+Either says its new state (`rw_lossyt`) and the next draw is whole.
+
+- **Off costs nothing - not a test.** Every place the two change is a
+  `..@lk_*` site in the composer holding its ORIGINAL instruction, and
+  `rdg_lpatch` writes a CALL or JMP of the same length over it (NOPs
+  after) into a stub at the end of `rdgppu.inc` when one is turned on, and
+  the original back - kept at its first call - when it is turned off; the
+  stub does the instruction it replaced. `rdg_lhooks` is the twelve. So
+  with both off the composer runs its own bytes, and the module after it
+  and `rdg_init`'s call to `rdg_lpatch` are padded to 16 so nothing after
+  them moves within its paragraph: on `286-victory`, 4,800 frames of Super
+  Mario Land read 1,172 ticks as shipped and 1,171 with the code in.
+  Testing a flag a line at a time had cost +3.2%, and through two pointers
+  +1.5%.
+- **Patching is the code's own**, so it runs where no task is inside the
+  composer: `rdg_init`, a game's load (`rw_spdgame`, before the worker is
+  hired), F10 and F11 in `rw_keys` between frames, and the worker's loop
+  for Screen's items, which the UI task only posts (`rw_lossq`) while a
+  game runs.
+- **TWO SHADES**: shade bit 1 alone - shades 0 and 1 white, 2 and 3 black.
+  On a line whose BGP is the identity the background fetches and shifts its
+  tile rows' high plane alone (`ppu_fshifth`, `ppu_fcopybh`); another BGP
+  composes as ever. `ppu_dput` compares bit 1 alone and writes it as both
+  planes - VGA's full screen in one pass with the map mask at 3
+  (`ppu_dvgabw`), keeping only plane 1 in the buffer: `rdg_bwst` then makes
+  the next draw that reads the buffer (the window's, the 1bpp writers')
+  whole. `rdg_render` writes bit 1 as both.
+- **SCROLL BY 8, 4 OR 2**: SCX is snapped to a multiple of the step
+  (`and` with `rdg_cmask`, F8h, FCh or FEh, which `rdg_lpatch` sets from
+  the level) and the rest (`rdg_cfine`'s bits) added to every sprite's X
+  (`rdg_csd`), so the picture stays together and the camera moves in steps
+  of 8, 4 or 2. A raster write's SCX is logged snapped,
+  the rest in the log entry's fourth byte (`rdg_rlog`), which
+  `ppu_logsame` then does not compare - a status bar's split stays the
+  same log every frame - and `ppu_log` takes it at the entry's line. When
+  the frame's set of fine scrolls changes (`rdg_csig`) every sprite has
+  moved: OAM's shadow is made to differ in X so the scan marks their
+  lines. SCY is not snapped. At 8, seven scrolled frames in eight become
+  still frames and every background line takes `ppu_fcopyb`; at 4 and 2,
+  three in four and one in two, a scroll of a pixel a frame - and the
+  shift stays, the snapped SCX not being a whole byte. Some games are
+  harder to play: the owner's verdict, and why it is a choice.
+- **What they buy**, drawing every frame on `286-victory` (`rdgbench
+  --vga`): Super Mario Land 18.40 ms a frame, 16.57 with Two Shades, 13.82
+  with Scroll by 8, 13.23 both; Kirby's Dream Land 38.86, 35.20, 30.16,
+  29.11. Scroll by 4 and by 2: Super Mario Land 14.83 and 16.02, Kirby's
+  Dream Land 32.13 and 34.74 (-19% and -13%, -17% and -11%).
+
 ## 14. The package
 
 `REALDMG.O88` (`apps/realdmg/realdmg.asm`, `OS88_STACK_384`) is a window of
@@ -1199,7 +1263,7 @@ reference sharing `ppu_line` and the sprites with what it checks.
   half of the machine is for a game with frames to run, and the third
   field run's Super Mario Land interlaced slept ~190 ms a second at 20
   pictures. F1 puts the game's speed and the frames drawn a second over the
-  picture. F2 is Machine > Interlace's next setting and F3 CPU >
+  picture. F2 is Screen > Interlace's next setting and F3 CPU >
   Recompiler's, each on its press and in the window and full screen alike
   (`rw_keys`, between two core runs - where the recompiler may change); the
   setting it changed to is said (`rw_note`): a toast on the desktop, and in
@@ -1306,7 +1370,7 @@ on a machine with no debugger.
   frames drawn, the lines composed and the lines changed (section 13.2),
   the milliseconds spent drawing and the longest draw, the most frames
   owed (at most 31), and W or F (window or full screen) with J when the
-  recompiler ran and I when Machine > Interlace was on.
+  recompiler ran and I when Screen > Interlace was on.
 - **Where a second went**, which the third field run asked for: of the
   drawing's milliseconds, those comparing VRAM and OAM (**scan**,
   `ppu_dscan`, timed through `rdg_dhook`) and those composing lines
@@ -1357,7 +1421,7 @@ is 155 rows, and the window fits it whole.
   nothing changed; with nothing waiting, Esc puts the window away.
 - **Refused, and said so on the screen**: Esc, Alt (Alt+Enter is full
   screen, and while Alt is held the joypad reads nothing), F1-F4 - the
-  speed line and Machine > Interlace, Recompiler and Speed's next settings
+  speed line and Screen > Interlace, Recompiler and Speed's next settings
   - the save states' F5, F8 and 1-9 (10.4), the replays' F6 and F7
   (10.5), and F12, the log written now
   (section 14.1's Machine > Log), documented shortcuts every one. A REALDMG.CFG whose map holds one of
@@ -1430,10 +1494,12 @@ file off the floppy as the guest left it, and Default.
 
 ### 14.3 The menus
 
-Three on the bar, none over 11 items - a pull-down taller than that runs
+Four on the bar, none over 11 items - a pull-down taller than that runs
 off CGA's 200 lines, and the kernel does not clamp one (`menu_pull`):
 - **Machine:** Load Game..., Reset, Pause, Full Screen (Alt+Enter) | Sound
-  (F9), Show Stats (F1), Interlace (F2), Log (F12) | Controls...
+  (F9), Show Stats (F1), Log (F12) | Controls...
+- **Screen:** Interlace (F2) | Two Shades (F10), Scroll (F11) - what
+  the picture may leave out for speed (13.2, 13.4).
 - **CPU:** Recompiler, Static Recompiler, Interpreter (F3 steps through
   them, 16.7) | Profile for Static, Cache: 128K | Speed 100%, 90%, 75%, 50%
   (F4 steps through them).
@@ -1461,7 +1527,7 @@ chosen and a space on the others, written by `rw_mgrey` (`rw_mark`,
 Interlace - names its value instead. A separator is a greyed line of
 dashes, which the kernel's keyboard walk steps over. `rw_note` says an item
 without its mark or key (a toast, or the speed line in full screen): F2,
-F3, F4 and F9 say what they changed to.
+F3, F4, F9, F10 and F11 say what they changed to.
 
 ### 14.3.1 The window says it is slow
 
@@ -1616,7 +1682,8 @@ Speed's next, in the window and full screen alike, and says it
 - **Both are the game's**, remembered in REALDMG.CFG version 2: a count at
   +4 and, from +8, `RW_CFGGN` (32) entries of four bytes, the latest first
   - the header's 014Dh byte and 014Eh word (as a profile's name takes
-  them), then Speed in bits 0-2 and Sound in 3-4 (`rw_cfgrec`). A game
+  them), then Speed in bits 0-2, Sound in 3-4 and Screen's Two Shades in 5 and
+  Scroll's level in 6-7, bit 6 alone being By 8 as it always was (`rw_cfgrec`; a RealDMG from before them masks them off). A game
   opened (`rw_spdgame`) takes its entry; one with none keeps what was
   chosen before it, kept for it at its first change. The menu writes the
   file at once; F4's change is the UI task's to write (`[rw_spdq]`,
@@ -1669,12 +1736,15 @@ runs into the core it loads, which the experiment did, silently.
 
 ## 16. The recompiler
 
-On a 286 RealDMG translates the Game Boy's ROM code into 8086 code, a block
-at a time, and runs that instead of interpreting it (`apps/realdmg/rdgjit.inc`,
+On every CPU RealDMG translates the Game Boy's ROM code into 8086 code, a
+block at a time, and runs that instead of interpreting it (`apps/realdmg/rdgjit.inc`,
 `rdgtmpl.py`; `tests/rdgcore/rdghost.asm`'s `b_jit` and the package's CPU >
 Recompiler turn it off). What it saves is the interpreter's fixed cost: the
-three-instruction dispatch, which flushes a 286's prefetch queue every time,
-and the operand fetches through SI.
+three-instruction dispatch, which flushes the prefetch queue every time,
+and the operand fetches through SI. It was built for the 286 and ran only
+there until 16.10 measured it on an 8088, where it pays more than on the
+286: every template is assembled `cpu 8086`, and the bytes the translator
+writes by hand are 8086 opcodes.
 
 ### 16.1 Templates
 
@@ -1899,7 +1969,7 @@ code the first has no room for, before anything is flushed:
   past it, the package asks for it then, from what the heap has left.
   Without the memory there is one segment.
 - **CPU > Cache: 128K** asks for it for every game, whatever its
-  profile says (greyed on an 8088). It is a SETTING, kept in
+  profile says. It is a SETTING, kept in
   `SYSTEM\APPDATA\REALDMG.CFG` (`'RB'`, the version, bit 0 of the fourth
   byte; version 2 goes on with each game's Speed and Sound, section 15.2,
   and version 3 with Machine > Controls' keys, section 14.2)
@@ -1962,8 +2032,7 @@ translated into its fill runs exactly as code in a cache segment does.
 - **The interpreter is untouched**: nothing is written into a half-slot's
   code, and nothing reads the fill. A flush leaves the old code in the holes
   - unreachable, as it is in a cache segment.
-- **An 8088 never uses it** (no recompiler), and **the host may turn it
-  off**: `[S_JITNOC]` = 1, the bare harness's `JF_NOCORE` and
+- **The host may turn it off**: `[S_JITNOC]` = 1, the bare harness's `JF_NOCORE` and
   `rdgbench.py --nocore`, which is the A/B.
 - **Static** preloads through the same `rt_room`, so its preload fills the
   tiers in the same order and stops at the last (16.8).
@@ -2094,7 +2163,7 @@ copy loop: an HRAM block is at most 16 bytes and is entered through a GUARD
 (`rt_guard`) that compares its bytes with HRAM as it is now, and a block
 whose bytes changed is forgotten (`tr_stale`) and its code interpreted.
 `gbrmw` rewrites a routine there once it has been translated. **With no
-recompiler** - an 8088, no memory for the cache, or CPU > Interpreter
+recompiler** - no memory for the cache, or CPU > Interpreter
 - `rt_dispatch` writes the plain dispatch over the first five bytes of all
 45 `JDISPATCH` sites (rdgtmpl.py lists them), so the interpreter is the one
 there was before the recompiler, and writes them back when it is turned on. Translated code does not keep DS;
@@ -2245,9 +2314,8 @@ taken from the wrong byte; a wait skipped one pass too far).
 
 **CPU has three modes**: **Recompiler** (the default), **Static
 Recompiler** (16.8) and **Interpreter**; F3 steps through them in that
-order. On an 8088 the first two are greyed with "(286+)" and Interpreter is
-the mode; on a 286 they are settings before a game is loaded too, which its
-load then takes up.
+order, on every CPU (16.10). They are settings before a game is loaded
+too, which its load then takes up.
 
 There was a fourth, **Auto**, that timed the recompiler against the
 interpreter when its cache thrashed and kept the cheaper, and it is gone.
@@ -2306,7 +2374,7 @@ entries of 4 bytes in the segment `S_PRFSEG` (0: none):
   there before the game copies them in.
 - **Over sessions:** the profile accumulates across every session of the
   game played with the Recompiler and **CPU > Profile for Static** on.
-- **CPU > Profile for Static** (On or Off; greyed on an 8088, and settable before
+- **CPU > Profile for Static** (On or Off, and settable before
   a game, whose load then claims it). Off claims
   nothing and writes no file. What it saves is the 9 KB claim and the 8 KB
   write at the close; the cycles are nothing to speak of, since recording
@@ -2437,10 +2505,10 @@ part 3 of `REALDMG.O88` (`apps/realdmg/rdgjitp.asm`, assembled at org 0),
 compressed, `OP_LAZY | OP_SELF`, and `rw_jitget` reads it into the TAIL of
 the recompiler's own claim - past the cache and its block table - when it
 claims them. So:
-- **An 8088 never holds it.** The image went from 52.7K to 33.2K, and the
-  region a game holds with it (SPEC.md 20.12). An 8088 never claims a cache
-  and never reads the part.
-- **A 286 holds it only with a cache.** CPU > Interpreter frees the claim
+- **Only a machine with a cache holds it.** The image went from 52.7K to
+  33.2K, and the region a game holds with it (SPEC.md 20.12); with no room
+  for a cache the part is never read.
+- **It is held only with a cache.** CPU > Interpreter frees the claim
   and the part with it (16.7); choosing a recompiler again claims and reads
   both. It is one `OSAPI_FILE_READ_AT` of the packed stream at the part's
   own sector, R up the claim, and `OSAPI_DECOMP` down onto its base - the
@@ -2466,8 +2534,8 @@ claims them. So:
   `rdg_jit` leaves through the part's own copy of `rdg_ret`, and `RDG_TOHOST`
   reads the view from the part's own word, which `rt_init`'s door sets.
 - **What stays in the image** is `rw_jdoff`: the interpreter's 46
-  JDISPATCH sites made plain DISPATCH (16.4), which an 8088 needs without
-  the part - `rdgtmpl.py` writes the list into `rdgcore.inc` again as
+  JDISPATCH sites made plain DISPATCH (16.4), which the interpreter needs
+  without the part - `rdgtmpl.py` writes the list into `rdgcore.inc` again as
   `RDGC_JDTAB` for it.
 - **The bare harness** (`tests/rdgcore/rdghost.asm`) still includes
   `rdgjit.inc` inline, so every gate on the translator runs the same source.
@@ -2478,6 +2546,46 @@ claims them. So:
   175 blocks into a fixed table, as before the move. A volume whose clusters
   are larger than a sector on `kern_small` refuses the read (`READ_AT`'s
   unit), and the game then runs on the interpreter, as with no memory.
+
+### 16.10 On an 8088, MEASURED
+
+The package gated the recompiler to a 286 or later on a prediction - *"an
+8088's bus makes bytes the cost"* - that no one had measured. MartyPC's
+4.77 MHz 8088 (`os8088_xt_vga`) running the bare harness, which never
+asked the CPU, says the opposite. The CPU alone, no picture, guest CYCLES
+between the harness's two reads of the BIOS clock (2026-10-22):
+
+| gbclock, 300 frames | interpreter | recompiler |
+|---|---|---|
+| CLOCK0 (0.7% busy) | 8,532,302 | 9,309,444 |
+| CLOCK25 (25.7%) | 75,650,032 | 38,127,156 |
+| CLOCK50 (50.7%) | 142,732,742 | 66,554,556 |
+| **a busy M-cycle** | **50.96 clocks** | **21.74 (2.34x)** |
+
+| in play, frames 800-2,000 | interpreter | recompiler |
+|---|---|---|
+| libbet (32K, pinobatch/libbet `1232e71d`) | 41.81 s, 48% of real time | 25.32 s, 79% (**1.65x**) |
+| `GBDEMO.GB` | 3.55 s | 3.09 s (1.15x) |
+
+Both arms of every pair take the same events and skip the same M-cycles.
+The 8088 gains MORE than the 286 does (26.2 -> 13.95 there, 1.88x): what
+translation removes - the dispatch's queue flush and the operand bytes
+read through SI - is exactly what an 8088 pays most for, and an immediate
+costs it no more than the data read it replaces. So the gate is gone: the
+recompiler is the default on every CPU, CPU > Recompiler, Static, Profile
+and Cache: 128K are offered on an 8088 as on a 286, and the "(286+)" items
+are deleted. A 64KB cartridge holds ~387-435KB with the recompiler's
+claim, which a 640KB machine has; one that has not falls to the
+interpreter as any machine with no room does. The budgets (14) stand:
+1,400 M-cycles recompiled are ~6.4 ms at 21.7 clocks, inside a mouse
+byte's 8.3 ms. What it costs an 8088 is the part's read at a game's launch
+(16.9): `GBTONE.GB` off a 720KB floppy starts its sound 1.5-1.9 s later than
+it did interpreted (`tests/gbsound.py`).
+
+**`rdgbench.py --marty`'s ticks are wrong on an 8088**: a budget runs long
+enough with interrupts off to swallow IRQ0s, so CLOCK0 reads 19 ticks over
+1.79 guest seconds and CLOCK25 and CLOCK50 157 and 160. The figures above
+are cycles, not ticks; the 286's runs are short enough to lose few.
 
 ## 17. Sound
 

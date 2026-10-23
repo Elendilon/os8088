@@ -173,8 +173,18 @@ class Part:
                           X.UC_X86_REG_CX, X.UC_X86_REG_DX):
                     u.reg_write(r, 0xDEAD)          # the contract: clobbered
 
-        uc.hook_add(UC_HOOK_MEM_WRITE, on_write)
-        uc.hook_add(UC_HOOK_CODE, on_code)
+        # only the ranges on_write acts on: a stack or data write never
+        # reaches Python (the full-memory hook was a callback per store)
+        uc.hook_add(UC_HOOK_MEM_WRITE, on_write, None,
+                    VSEG * 16, VSEG * 16 + 65535)
+        if self.pm:
+            for a in (PART, ALIAS):
+                uc.hook_add(UC_HOOK_MEM_WRITE, on_write, None,
+                            a * 16, a * 16 + n - 1)
+        if wm3_reads:                   # the latch restore: every boundary
+            uc.hook_add(UC_HOOK_CODE, on_code)
+        else:                           # pend stays empty: the callback only
+            uc.hook_add(UC_HOOK_CODE, on_code, None, CBSEG * 16, CBSEG * 16)
         uc.hook_add(UC_HOOK_INSN, lambda u, port, size, value, user:
                     vga.out(port, size, value), None, 1, 0,
                     X.UC_X86_INS_OUT)

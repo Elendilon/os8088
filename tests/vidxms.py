@@ -199,7 +199,8 @@ def live_clip(tmp, loop=None):
 class Q(object):
     """One private QEMU: its own socket, pidfile and copies of both disks."""
 
-    def __init__(self, tmp, sysimg, apps, mem, extra=(), bps=None):
+    def __init__(self, tmp, sysimg, apps, mem, extra=(), bps=None,
+                 keep=False):
         self.sock = os.path.join(tmp, "qmp.sock")
         self.pid = os.path.join(tmp, "qemu.pid")
         self.pidn = None
@@ -223,8 +224,11 @@ class Q(object):
         signal.signal(signal.SIGTERM, lambda n, f: sys.exit(128 + n))
         subprocess.run(cmd, check=True)
         self.pidn = int(open(self.pid).read().strip())
+        if keep:                # one QMP connection for the run (xmcheck.keep)
+            xmcheck.keep(self.sock)
 
     def close(self):
+        xmcheck.keep(self.sock, False)
         if self.pidn:
             try:
                 os.kill(self.pidn, signal.SIGTERM)
@@ -304,6 +308,7 @@ def main():
         xmcheck.wait_desktop(q.sock, "vidxms")
         S = xmcheck.sym
         ui = os88ui.UI(q, mouse=object(), sym=S, verbose=False)
+        mo = os88qemu.Mouse(q, S, q.hmp, after=0)   # SOAK-SPEED 15
         if a.arm == "bios":
             # THE ARM'S PREMISE, read and not assumed: XMEM.DRV attached at
             # tier 1, so no unreal mode was armed (CPU_F_UNREAL, 0x04) and
@@ -322,7 +327,7 @@ def main():
 
         # --- open B: and double-click the clip
         x, y = geom.drive_pt(q, "B", S)
-        xmcheck.dblclick(q.sock, x, y)
+        mo.dblclick(x, y)
         box = {}
 
         def diskwin():
@@ -332,11 +337,11 @@ def main():
                     return True
             return False
         wait(diskwin, "drive B's window", 30)
-        os88qemu.pace(q, 1)
+        os88qemu.ui_done(q, S, cap=1.0)     # (was pace(1): the listing)
         w = box["w"]
         i, _ = ui.entry("CLIP.V88", w)
         before = set(o.i for o in ui.windows())
-        xmcheck.dblclick(q.sock, *ui.row_xy(w, i - ui.scroll(w)))
+        mo.dblclick(*ui.row_xy(w, i - ui.scroll(w)))
 
         def player():
             for o in ui.windows():
@@ -424,10 +429,25 @@ def main():
             key that cannot be read leaves [vp_sel] where it was and says
             so (vp_seekto's .fail)"""
             s0 = rw("vp_sel")
+            t0 = q.read(0x41C, 2)                   # the BIOS ring's tail
+
+            def handled():
+                # the key went into the ring, the UI task took it and has
+                # finished with it - a refusal is that pass's own answer
+                kb = q.read(0x41A, 4)
+                return kb[2:4] != t0 and kb[0:2] == kb[2:4] and \
+                    os88qemu.ui_idle(q, S)
             q.hmp("sendkey right")
-            ok = os88qemu.acted(q, lambda: rw("vp_sel") != s0, secs=10,
-                                what="the next key", poll=0.05)
-            return ok and rw("vp_kload") == rw("vp_sel")
+            # NOT a 10-guest-s wait for a change that must not come (the
+            # refusing arms paid all of it): the change, or the key handled
+            # and the UI idle across two ticks, then a guest second's tail
+            os88qemu.acted(q, lambda: rw("vp_sel") != s0 or handled(),
+                           secs=10, what="the next key", poll=0.05)
+            if rw("vp_sel") == s0:
+                os88qemu.ui_done(q, S, cap=2.0)
+                os88qemu.acted(q, lambda: rw("vp_sel") != s0, secs=1.0,
+                               what="the next key", poll=0.05)
+            return rw("vp_sel") != s0 and rw("vp_kload") == rw("vp_sel")
 
         if a.arm == "livenox":
             # --- no pool: the streamed Live file plays in the window

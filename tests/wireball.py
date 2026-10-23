@@ -486,9 +486,9 @@ def mono(adapters=('cga', 'herc')):
         if adapter not in adapters:
             continue
         with os88ui.boot(artifact('os8088-360.img'), apps=DISK_OVERRIDE or artifact('wireball360.img'),
-                        machine=machine) as ui:
+                        machine=machine, quick=True) as ui:
             ui.path('B:/WIREBALL.O88')
-            ui.settle()
+            ui.still()
             m = ui.m
             seg = dispapps.pkg_seg(m, 0)[1]
             sy = dispapps._map('wireball')
@@ -538,7 +538,7 @@ def mono(adapters=('cga', 'herc')):
             key('Escape')
             M.until(m, lambda _: m.read(m.sym('fsx_task'), 1) == b'\xff',
                     'serial match returns to desktop', guest=8, poll=0.03)
-            ui.settle()
+            ui.still()
             m.pause()
             check([uart(base) for base in (0x3f8, 0x2f8)] == saved,
                   adapter + ' serial exit restores both UARTs including their original divisors')
@@ -672,7 +672,7 @@ def mono(adapters=('cga', 'herc')):
             key('Escape')
             M.until(m, lambda _: m.read(m.sym('fsx_task'), 1) == b'\xff',
                     'practice returns to desktop', guest=8, poll=0.03)
-            ui.settle()
+            ui.still()
             ui.mo.to(100, 90)
             xy = struct.unpack('<HH', m.read(m.sym('mouse_x'), 4))
             check(xy == (100, 90), adapter + ' desktop pointer works after practice')
@@ -686,9 +686,9 @@ def front():
                              ('cga', 'os8088_5150_cga_gla'),
                              ('herc', 'os8088_5150_herc_gla')]:
         with os88ui.boot(artifact('os8088-360.img'),
-                        apps=DISK_OVERRIDE or artifact('wireball360.img'), machine=machine) as ui:
+                        apps=DISK_OVERRIDE or artifact('wireball360.img'), machine=machine, quick=True) as ui:
             ui.path('B:/WIREBALL.O88')
-            ui.settle()
+            ui.still()
             m = ui.m
             seg = dispapps.pkg_seg(m, 0)[1]
             sy = dispapps._map('wireball')
@@ -701,7 +701,7 @@ def front():
                 M.guest_sleep(m, 0.12, poll=0.005)
             def shot(label):
                 ui.mo.to(2, 2)
-                ui.settle()
+                ui.still()
                 w, h, rgb = m.fbuf()
                 path = artifact('wireball-' + adapter + '-' + label + '.png')
                 M.write_png_rgb(path, w, h, rgb)
@@ -745,7 +745,7 @@ def front():
             key('Escape')
             M.until(m, lambda _: m.read(m.sym('fsx_task'), 1) == b'\xff',
                     'return to illustrated splash', guest=8, poll=0.03)
-            ui.settle()
+            ui.still()
             check(val('soundactive') == 0, adapter + ' returning to splash releases game sound')
 
 
@@ -754,9 +754,9 @@ def physics():
     import os88marty as M
     import os88ui
     with os88ui.boot(artifact('os8088-360.img'),
-                    apps=DISK_OVERRIDE or artifact('wireball360.img'), machine='os8088_5150_cga_gla') as ui:
+                    apps=DISK_OVERRIDE or artifact('wireball360.img'), machine='os8088_5150_cga_gla', quick=True) as ui:
         ui.path('B:/WIREBALL.O88')
-        ui.settle()
+        ui.still()
         m = ui.m
         seg = dispapps.pkg_seg(m, 0)[1]
         sy = dispapps._map('wireball')

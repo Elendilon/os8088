@@ -807,7 +807,7 @@ rw_lline:
     jz .e2
     mov al, ' '
     stosb
-    mov al, 'I'                     ; Machine > Interlace on
+    mov al, 'I'                     ; Screen > Interlace on
     stosb
 .e2:
     mov dx, [bx + RL_EVT]           ; what the user did, by name

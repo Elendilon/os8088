@@ -82,7 +82,10 @@ def main():
     ap.add_argument("--turns", type=int, default=3)
     a = ap.parse_args()
     os.chdir(ROOT)
-    with os88marty.launch(a.image, apps=a.apps, machine=a.machine) as m:
+    with os88marty.launch(a.image, apps=a.apps, machine=a.machine,
+                          boot=False) as m:
+        m.run()
+        os88marty.kernel_up(m)          # open_game's first act is a click
         g = pxslib.open_game(m)
         st = g.state()
         print("   PXSTEIN.O88: window %d, part 0 at %04x, texok %d" % (g.win, g.seg, st["texok"]))

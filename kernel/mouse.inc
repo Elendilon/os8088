@@ -1493,7 +1493,7 @@ mou_vset:
 ;
 ; kern_big: A PROGRAM MAY TAKE THE MOUSE'S IRQ, AND THIS TAKES IT BACK (SPEC.md
 ; 9.13). Inside an fsx bracket a program owns the machine and may have hooked
-; the mouse's vector out from under us; this is the call the DOS box's own
+; the mouse's vector out from under us; this is the call DOS's own
 ; DHK_MOUSE makes on every INT 33h read and every key poll - the same choke
 ; point kd_mou_read is for kern_dos - so the recovery needs no new slot.
 ;

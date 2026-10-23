@@ -178,7 +178,7 @@ def main():
         ty0 = (348 - H) // 2 // tg.banks * tg.banks
         tx0 = (tg.stride - WB) // 2
         rows_at = [tg.base[y + ty0] + tx0 for y in range(H)]
-        with os88ui.boot(os88build.at(IMG), apps=disk, machine=MACHINE) as ui:
+        with os88ui.boot(os88build.at(IMG), apps=disk, machine=MACHINE, quick=True) as ui:
             m = ui.m
             w = ui.path("B:/LAY.V88")
             rec = m.read(ui._S("wm_wins") + w.i * geom.WIN_SIZE,
@@ -199,7 +199,7 @@ def main():
             flips = []
 
             def until(cond, what, guest=120.0):
-                os88marty.until(m, lambda mm: cond(), what, poll=0.2,
+                os88marty.until(m, lambda mm: cond(), what, poll=0.05,
                                 limit=900.0, guest=guest)
 
             def state():

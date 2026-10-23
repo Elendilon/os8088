@@ -826,7 +826,12 @@ static void lm_pack(void)
      * seconds for the smallest demo, more for PONG's sprite art. One
      * status-row line - 78 cells, ~71 ms - is a cheap thing to spend on
      * saying so. */
-    lm_say("Packing...");
+    /* The status row says it for the whole verb; the TOAST says it only
+     * around the compile below. The save before it and the .WAB write after
+     * it are disk work, which SPEC.md 12.8's file widget reports with how
+     * much is left - and a toast that is up outranks that widget (SPEC.md
+     * 12.8.7), so one up through the writes would hide the bar. */
+    lm_quiet("Packing...");
     lm_status_paint(1);
 
     /* Save first. WEAVE-SPEC 11.3 calls pack-on-save Loom's default, and the
@@ -848,7 +853,9 @@ static void lm_pack(void)
     }
 
     lm_clearerr();
+    os88_toast("Packing...", 0);        /* the compile: no disk, no widget */
     ok = ovl_pack();
+    os88_toast("", 0);                  /* retired: the write shows the bar */
     if (!ok && !lm_failed()) {
         lm_pack_free();
         lm_say("LOOM could not load its overlay; no bundle can be packed.");

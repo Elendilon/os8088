@@ -122,6 +122,8 @@ class _Booted(object):
     def __enter__(self):
         m = self._cm.__enter__()
         try:
+            if self._kw.get("quick"):   # (launched PAUSED: `up` is the gate)
+                m.run()
             ui = UI(m, card=self._kw.get("card"),
                     verbose=self._kw.get("verbose", True))
             limit = self._kw.get("limit", 180.0)
@@ -148,7 +150,7 @@ class _Booted(object):
 
 def boot(image, apps=None, machine="os8088_5150_cga", card=None,
          saver=False, why_ibm=None, verbose=True, limit=180.0, settle=True,
-         **kw):
+         quick=False, **kw):
     """Launch, boot to a settled desktop, turn the saver off, hand back a UI.
 
     THE THREE LINES 175 SCRIPTS OPEN WITH, and the two things most of them
@@ -173,14 +175,23 @@ def boot(image, apps=None, machine="os8088_5150_cga", card=None,
         step is confirmed off guest state - every os88ui verb is - does not
         need the screen to stop moving first, and the settle was the one
         long input-free wait such a row had.
+      * `quick=True` goes further and skips `launch`'s OWN boot settle too
+        (it implies `settle=False`): the machine is launched paused, run, and
+        `up` - the kernel's desktop STATE, [spl_live] = 0 - is the whole
+        gate. Measured on the VGA XT, 360KB: `up` at 15 guest seconds against
+        launch's picture settle at ~30. Only for a row whose first act is an
+        os88ui verb or a guest read, never a framebuffer compare.
 
     Everything else is `os88marty.launch`'s, passed straight through.
     """
+    if quick:
+        settle = False
+        kw.setdefault("boot", False)
     cm = os88marty.launch(image, apps=apps,
                           machine=os88marty.machine(machine, why_ibm),
                           card=card, **kw)
     return _Booted(cm, card=card, saver=saver, verbose=verbose, limit=limit,
-                   settle=settle)
+                   settle=settle, quick=quick and not kw.get("boot"))
 
 
 # =============================================================================
@@ -259,6 +270,27 @@ class UI:
         kw.setdefault("card", self.card)
         return os88marty.settle(self.m, **kw)
 
+    def still(self, frames=0.05):
+        """The UI has FINISHED DRAWING and the card has shown it - the cheap
+        `settle` for a read that follows an input this machine is handling.
+
+        `os88marty.ui_done` (ui_task asleep, nothing queued, the lock free,
+        for a tick: every repaint is inside a pass, under the lock), then
+        `frames` guest seconds - three frames by default - because `fbuf` is
+        the RENDERED glass and lags the framebuffer by up to one. No 2-host-
+        second floor. NOT for a worker that draws on its own clock (a game, a
+        Task Manager graph): ui_done cannot see that, `settle` can.
+        """
+        if (not hasattr(self.m, "status")   # NOT A MARTY whose UI brings its
+                and type(self).settle is not UI.settle):   # own settle - a
+            self.settle()                   # state wait (wirefleetlink.py).
+            return self                     # Otherwise ui_done reads any
+                                            # machine with read() (rdxms.py)
+        os88marty.ui_done(self.m, "the desktop to finish drawing")
+        if frames:
+            os88marty.guest_sleep(self.m, frames)
+        return self
+
     # --- the desktop --------------------------------------------------------
     def up(self, limit=180.0):
         """Wait until the kernel's DESKTOP STATE exists - the first half of
@@ -286,9 +318,28 @@ class UI:
         set"). `spl_finish` is kmain_o's last act, after the settings, so
         both words live and the splash done is the end of the boot.
         """
-        self._wait(lambda: self._word("desk_rows") and self._word("menu_nbar")
-                   and not self._byte("spl_live"),
-                   "the kernel to reach the desktop", limit)
+        # **AND THE KERNEL'S TICK MOVING ACROSS IT.** Between the kernel
+        # image landing and kmain clearing its .bss, those three words are
+        # whatever the loader left there - on an XT-IDE boot, desk_rows 42227,
+        # menu_nbar 56073 and spl_live 0 for half a guest second - and a
+        # quick boot polled straight into it, so its first mouse packet
+        # landed in the middle of the mouse probe and the pointer never moved
+        # again. [ticks] does not move until THIS kernel's IRQ0 is in, so the
+        # gate must hold on two reads with the tick different between them
+        # (one tick, 55 ms; it also refuses a warm reboot's stale bytes).
+        seen = [None]
+
+        def ok():
+            if not (self._word("desk_rows") and self._word("menu_nbar")
+                    and not self._byte("spl_live")):
+                seen[0] = None
+                return False
+            t = os88marty._ktick(self.m)
+            if seen[0] is None:
+                seen[0] = t
+                return False
+            return t != seen[0]
+        self._wait(ok, "the kernel to reach the desktop", limit)
         return self
 
     def ready(self, limit=180.0, saver=False):
@@ -1456,8 +1507,10 @@ class UI:
                    snapshot=self.titles)
         # ...and VISIBLE IS NOT PAINTED: wm_show sets the flag and then
         # paints, and the paint's own fm_layout is what arms the Save form's
-        # box and draws the button column (SPEC.md 38.3, 38.5)
-        self.settle()
+        # box and draws the button column (SPEC.md 38.3, 38.5) - all inside
+        # the UI pass that showed it, so `still` (ui_done + 3 frames) sees it
+        # finished without settle's 2-host-second floor
+        self.still()
         return box["w"]
 
     def chooser_gone(self, limit=T_NAV):

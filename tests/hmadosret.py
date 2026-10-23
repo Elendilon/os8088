@@ -155,7 +155,7 @@ def boot(tmp, prog):
     if not os88qemu.acted(q, lambda: u16(q.read(S("mem_base"), 2)) in floors,
                           secs=120, what="the blob to be given back"):
         raise SystemExit("hmadosret: the boot never finished")
-    os88qemu.pace(q, 1)
+    os88qemu.ui_done(q, S, cap=1.0)         # (was pace(1): capped at it)
     return q, Gdb(port)
 
 
@@ -186,9 +186,9 @@ def trip(q, gdb, prog, want, label):
     if not ui.path("B:/" + prog):
         want(False, "%s: double-clicking %s opened a window" % (label, prog))
         return None
-    # IN THE OS the run is the box's console, which on a VGA is the
+    # IN THE OS the run is DOS's console, which on a VGA is the
     # full-screen TEXT one (SPEC.md 96.10) and in a window elsewhere - so the
-    # page and the box's own buffer are both asked
+    # page and DOS's own buffer are both asked
     def shown():
         t = text_page(q) if q.read(0x449, 1)[0] in (2, 3, 7) else ""
         return t if "READY" in t else console(q, dm)
@@ -244,7 +244,7 @@ def trip(q, gdb, prog, want, label):
         want(False, "%s: the session came back - mode %02X, text page %r"
              % (label, q.read(0x449, 1)[0], text_page(q).strip()[:240]))
         return None
-    os88qemu.pace(q, 1)
+    os88qemu.ui_done(q, S, cap=1.0)         # (was pace(1): capped at it)
     return mb0, q.read(KDB, 8)
 
 

@@ -131,7 +131,7 @@ def main():
     img = os.path.join(tmp, "os8088-360.img")
     shutil.copy(os.path.join(BDIR, "os8088-360.img"), img)
     try:
-        with os88ui.boot(img, machine=MACHINE) as ui:
+        with os88ui.boot(img, machine=MACHINE, quick=True) as ui:
             c = Cal(ui, tmp, check=check)
             m = c.m
             check(c.li() == 1, "Hercules takes the MID layout (stik_li %d)"
@@ -156,7 +156,7 @@ def main():
 
             def frame_now():
                 ui.mo.to(20, 300)        # the pointer off the window: it is
-                os88marty.pace(m, 1.0)   # drawn INTO the framebuffer
+                ui.still()               # drawn INTO the framebuffer
                 return m.vram("herc")[2]
 
             def done(k):

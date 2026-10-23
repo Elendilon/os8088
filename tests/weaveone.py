@@ -179,7 +179,7 @@ def main():
         # it before any row starts. That is what lets this row drop
         # builds=True and share the emulator lane.
         os88fixture.need(DISK)
-    with os88marty.launch("build/os8088-360.img", apps=DISK,
+    with weavesmoke.booted("build/os8088-360.img", apps=DISK,
                           machine=MACHINE) as m:
         try:
             _drive(m, a.png)

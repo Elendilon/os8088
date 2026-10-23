@@ -1238,4 +1238,27 @@ wf_footer:
 .out:
     ret
 
-    OS88UI_BTNREC wf_buttons,wf_btnrects,wf_btnlabels,wf_btnflags,5
+    OS88UI_BTNREC wf_buttons,wf_btnrects,wf_btnlabels,wf_btnflags,5,wf_btnplace
+
+; The record's PLACE proc (SPEC.md 20.5.1.3.5): BX = the record, SI = the
+; window. A window dragged by its title is replayed and never painted, and the
+; press is the library's, so wf_geometry has to run from inside its hit test
+; or the rects name where the window WAS. It lays out exactly what the
+; painter would for this state - mono or colour face, deployment or battle -
+; and draws nothing; OS88UI_BT_N is the state's own, set where the state
+; changes. wf_geometry keeps no register, so this keeps them all.
+wf_btnplace:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    call wf_geometry
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret

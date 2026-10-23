@@ -320,7 +320,7 @@ lnk_is:
 ; out: CF = 0 it was OURS and is dealt with: what it names is opened as its
 ;      Disk window would open it, or `Shortcut not found (B:)`, or - a newer
 ;      version, a volume no row has, a chain too deep - nothing, silently.
-;      CF = 1 it is NOT ours: no file this size, or not 'LK' - the DOS box's
+;      CF = 1 it is NOT ours: no file this size, or not 'LK' - DOS's
 ;      shortcuts are .LNK too, in Microsoft's format (SPEC.md 96.21), and the
 ;      caller carries on to the association that opens those
 ; clobbers: AX..DI, ES, flags
@@ -365,7 +365,24 @@ lnk_open:
     jae .pop                    ; the file is hostile: no row has that index
     lea di, [bp+LNK_PATH]       ; ABOVE SP: sc_walk reads it through SS
     mov byte [bp+LNK_PATH+SC_PATHMAX-1], 0  ; ...terminated, whatever it said
+    cmp ah, 1                   ; A PROGRAM'S LINK MAY CARRY A PARAMETER
+    jne .walk                   ; (SPEC.md 26.10.7): the text after the
+    push ax                     ; path's NUL, armed for OSAPI_ARG_TEXT. It
+    push di                     ; stays where it is - this record outlives
+    push ss                     ; the launch - and a link to a document
+    pop es                      ; carries none to whichever program its
+    xor al, al                  ; extension names
+    mov cx, SC_PATHMAX - 1
+    repne scasb                 ; past the path's NUL - or onto the forced
+    cmp [es:di], al             ; one, a path of 44 having no room for any
+    je .noarg
+    mov [lnk_argo], di
+.noarg:
+    pop di
+    pop ax
+.walk:
     call sc_walk
+    mov word [lnk_argo], 0      ; SPENT OR NOT, it dies with the launch
 .pop:
     add sp, LNK_SIZE
 .done:
@@ -375,6 +392,23 @@ lnk_open:
     add sp, LNK_SIZE
     stc
     ret
+
+; -----------------------------------------------------------------------------
+; osapi_arg_text - a link's parameter for the program it started (0x04DD,
+;                  SPEC.md 26.10.7). api_rsc's far body: DS = KDATA
+; in:  nothing
+; out: CF=1 none - every launch but a link's; CF=0 with DX:SI -> the NUL text,
+;      in the link's record on task 0's stack, alive until the entry returns
+; clobbers: DX, SI
+;
+; READ-AND-CLEAR, OSAPI_ARG_FILE's shape: the first proc to ask spends it
+; -----------------------------------------------------------------------------
+osapi_arg_text_x:
+    xor si, si
+    xchg si, [lnk_argo]
+    cmp si, 1                   ; CF = 1: it was 0, nothing armed
+    mov dx, ss                  ; the stack's segment - a selector on kern_mega
+    retf
 
 ; -----------------------------------------------------------------------------
 ; sc_modcall - run one of CTRL.DRV's desktop operations (SPEC.md 26.8.7)
@@ -594,6 +628,9 @@ section .bss
 ; =============================================================================
 sc_seg      resw 1              ; the table's claim, 0 = no shortcuts
 sc_nrows    resb 1              ; rows the claim holds, 0..SC_MAX
+lnk_argo    resw 1              ; a link's parameter for OSAPI_ARG_TEXT: an
+                                ; offset into its record on task 0's stack,
+                                ; 0 = none (SPEC.md 26.10.7)
 
 ; =============================================================================
 section .modc                   ; CTRL.DRV (SPEC.md 26.8.7): CS = the image,
@@ -1860,7 +1897,7 @@ ovl_sc_load:
 ;   an empty folder  that, and its first directory sector
 ;   a link           opened AS A DOUBLE-CLICK WOULD: assoc_run_x with nothing
 ;                    posted, standing in the folder, so a link of ours is
-;                    followed and the DOS box's (SPEC.md 96.21) goes to the
+;                    followed and DOS's (SPEC.md 96.21) goes to the
 ;                    program that reads it. Anything not *.LNK is not started
 ;
 ; EITHER SHIFT, HELD AT THE FIRST LINK, SKIPS THE LOT and says so - read off

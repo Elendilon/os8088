@@ -81,8 +81,13 @@ POPBC_FAST = "C104:9090"
 
 
 def rom_path(name):
-    return subprocess.check_output([sys.executable, os.path.join(ROOT, "tools/getgbtest.py"),
-                                    "--path", name], text=True).strip()
+    """`tools/getgbtest.py --path NAME`, in process (a Python start a ROM)"""
+    import getgbtest
+    hits = [f for f in list(getgbtest.FILES) + list(getgbtest.ZIP_FILES)
+            if name in f]
+    if len(hits) != 1:
+        sys.exit("gbcpu: %r matches %d files" % (name, len(hits)))
+    return os.path.join(getgbtest.DEST, hits[0])
 
 
 def run_screen(rom, frames, core, host):

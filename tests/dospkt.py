@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The DOS box's packet driver, over a real card (SPEC.md 96.23, 72.22).
+"""DOS's packet driver, over a real card (SPEC.md 96.23, 72.22).
 
     make && make ethertest && make dospkt && python3 tests/dospkt.py
 
@@ -10,7 +10,7 @@ none is about speed.
 
 WHAT IT ASSERTS, AND WHY IT READS THE DRIVER RATHER THAN THE SCREEN.
 
-The box has no windowed text yet (wave 6), so a DOS program's output dies with
+DOS has no windowed text yet (wave 6), so a DOS program's output dies with
 the bracket - and the text screen under the bracket is the desktop's own
 framebuffer read as characters, which is unreadable whether or not the program
 worked. So the evidence is `ETHER.DRV`'s own counters, read out of the running
@@ -70,27 +70,21 @@ def main():
             fail("%s is not in the driver map - SPEC.md 72.22's verbs are the "
                  "thing under test and this build has not got them" % n)
 
-    if os.path.exists("build/qemu.pid"):
-        try:
-            pid = int(open("build/qemu.pid").read().strip())
-            os.kill(pid, 15)
-            os88qemu.gone(pid)
-        except (OSError, ValueError):
-            pass
-    for f in ("build/qmp.sock", "build/qemu.pid"):
-        if os.path.exists(f):
-            os.remove(f)
-
-    # `make test` DAEMONISES the emulator, so it outlives this script unless
-    # somebody kills it - and the somebody is us (tests/os88qemu.py).
-    os88qemu.own()
-    r = subprocess.run(["make", "test", "ETHER=1", "TESTIMG=" + SYS,
-                        "TESTAPPS=" + PKT], capture_output=True, text=True)
-    if r.returncode:
-        fail("make test failed:\n" + r.stdout + r.stderr)
-
-    m = eth.Qemu()
-    mouse = eth.Mouse()
+    # A PRIVATE QEMU (os88qemu.Private): what `make test ETHER=1 TESTIMG=
+    # TESTAPPS=` launched, without the `make` in the shared tree or the kill
+    # of whatever build/qemu.pid named; the mouse is closed-loop
+    # (docs/plans/completed/SOAK-SPEED.md technique 15).
+    import tempfile
+    import xmcheck
+    import atexit
+    import shutil
+    work = tempfile.mkdtemp(prefix="dpk-")      # short: a QMP socket path
+    atexit.register(shutil.rmtree, work, True)  # (runs after q's close)
+    q = os88qemu.Private(work, os88build.at(SYS), os88build.at(PKT),
+                         ether=True)
+    eth.SOCK = q.sock
+    m = eth.Qemu(q.sock)
+    mouse = os88qemu.Mouse(m, eth.S, lambda *c: xmcheck.qmp(q.sock, *c))
     try:
         # --- the card, before anything is asked of it ----------------------
         # Every wait in this row is in the GUEST's seconds (tests/os88qemu.py).
@@ -106,7 +100,7 @@ def main():
         say("dospkt: ETHER.DRV at %04X" % seg)
 
         # **THE SEGMENT IS RE-READ ON EVERY READ.** A driver image is a
-        # movable claim (SPEC.md 66.6.3), and the DOS box's arena is exactly
+        # movable claim (SPEC.md 66.6.3), and DOS's arena is exactly
         # the claim that moves it: read once at the top, every counter below
         # came out of the image's VACATED copy - eth_raw 199, 21,254 frames
         # "received" against the probe's own STATS of two - which satisfied
@@ -152,7 +146,7 @@ def main():
         # The door-call count is what tells "the driver answered wrongly"
         # from "nobody is calling it", and the two are indistinguishable from
         # inside the guest. It is printed rather than asserted: the poll rate
-        # is a property of the host's speed here, not of the box.
+        # is a property of the host's speed here, not of DOS.
         say("dospkt: door calls %d, frames off the ring %d, dropped %d"
             % (dw("eth_ncall"), dw("eth_nrx"), dw("eth_ndrop")))
 

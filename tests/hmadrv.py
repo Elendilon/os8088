@@ -131,7 +131,7 @@ def boot(tmp, mem, sysimg, apps, hd):
     if not os88qemu.acted(q, lambda: u16(q.read(S("mem_base"), 2)) in floors,
                           secs=120, what="the blob to be given back"):
         raise SystemExit("hmadrv: the boot never finished (-m %d)" % mem)
-    os88qemu.pace(q, 1)
+    os88qemu.ui_done(q, S, cap=1.0)         # (was pace(1): capped at it)
     return q
 
 
@@ -206,6 +206,17 @@ def record_play(q, ui, snd_seg, want, hma):
         at = u16(q.readseg(seg, syms["rc_msg"], 2))
         return bytes(q.readseg(seg, at, 32)).split(b"\0")[0] \
             .decode("latin-1")
+    # THE APP'S BAR, before the pick: the window is up a pass before its
+    # menu set is (the bar read Apple..Disk + Locator, or + Recorder alone)
+    def bar():
+        try:
+            return any(c[0] == "Sound" for c in ui.menus())
+        except Exception:                           # noqa: BLE001
+            return False
+    if not os88qemu.acted(q, bar, secs=10, what="Recorder's Sound menu"):
+        want(False, "Recorder's Sound menu on the bar (%r)"
+             % [c[0] for c in ui.menus()])
+        return
     ui.menu_pick("Sound", "Demo")
     if not os88qemu.acted(q, lambda: msg().startswith("DEMO STAGED"),
                           secs=20, what="the demo staged"):
@@ -213,6 +224,12 @@ def record_play(q, ui, snd_seg, want, hma):
         return
     under0 = u16(drv("sbl_under", 2))
     ui.menu_pick("Sound", "Play")
+    # (the pick's release is handled; the command it posts is the NEXT pass,
+    # so the stream is waited for rather than read at once - which read
+    # 'DEMO STAGED' still, or a stream already flagged)
+    os88qemu.acted(q, lambda: msg() == "PLAYING (SB)" and
+                   drv("sbl_str_act")[0] == 1, secs=5, what="the stream",
+                   poll=0.02)
     want(msg() == "PLAYING (SB)" and drv("sbl_str_act")[0] == 1,
          "Play opened a stream on the card (%r)" % msg())
     sbase = u16(drv("sbl_sbase", 2))
@@ -342,6 +359,10 @@ def hd_page(q, hdd_seg, want, hma):
         want(False, "the Hard Disk page loaded HDDTOOL.DRV")
         return
     tool = lambda name, n=1: q.read((tseg << 4) + tl[name], n)
+    # (hd_tseg is set when the image is in; HDT_INIT and the paint that
+    # makes the call are the tool's next acts - waited for, not raced)
+    os88qemu.acted(q, lambda: any(tool("hd_rdisp", 4)), secs=10,
+                   what="HDT_INIT's dispatcher pointer", poll=0.02)
     disp = tool("hd_rdisp", 4)
     want(u16(disp) == org + 12 and u16(disp, 2) == hdd_seg,
          "HDDTOOL.DRV at %04X calls the resident through %04X:%04X"
@@ -386,7 +407,7 @@ def hd_install(q, hdd_seg, hdimg, want):
     bx = ix + instdeep.HIW_B0X + instdeep.HIW_BW0 // 2
     by = iy + instdeep.HIW_BY + instdeep.HIW_BH // 2
     click(bx, by)                               # Install: arms
-    os88qemu.pace(q, 2)
+    os88qemu.ui_done(q, S, cap=2)               # (was pace(2): the arming)
     click(bx, by)                               # Install: goes
 
     def tree():
@@ -399,9 +420,15 @@ def hd_install(q, hdd_seg, hdimg, want):
                           what="the installer's SYSTEM folder"):
         want(False, "the install wrote SYSTEM/ on C: (%s)" % sorted(tree()))
         return
+    # THE COPY HOLDS THE GFX LOCK for its whole run, so the UI going idle is
+    # the install's end and the drive's own quiet after it is 3 x 1 guest s
+    # of proof, not 8 x 2 (tests/instdeep.py's run_install, the same rule);
+    # a UI that never idles in the cap keeps the old proof
+    idle = os88qemu.ui_done(q, S, cap=300)
+    n, gap = (3, 1) if idle else (8, 2)
     last, still = digest(), 0
-    while still < 8:                            # the drive going quiet
-        os88qemu.pace(q, 2)
+    while still < n:                            # the drive going quiet
+        os88qemu.pace(q, gap)
         d = digest()
         still = still + 1 if d == last else 0
         last = d

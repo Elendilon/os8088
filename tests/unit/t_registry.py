@@ -64,6 +64,9 @@ UNREGISTERED = {
                    "pays for may not be about a program that ships nowhere "
                    "(docs/WRITING-TESTS.md 2.1)",
 
+    # --- ON DEMAND: needs material that is never in the tree ---
+    "rdgspeed286.py": "RealDMG's game speed on 86Box's 286 with the OWNER'S cartridges (Super Mario Land, Kirby; $OS88_GB_ROMS) - never in the tree, so no tier can run it and a soak row only ever SKIPPED. Run it by hand when the cartridges are to hand: OS88_GB_ROMS=<dir> python3 tests/rdgspeed286.py (docs/plans/REALDMG-PLAN.md wave 4)",
+
     # --- library and support code, not tests ---
     "wcprobe.py": "WireChat's guest reader and reply injector (SPEC.md "
                   "113.5.1) - tests/wcdraw.py's, mrprobe's shape",
@@ -113,7 +116,7 @@ UNREGISTERED = {
                  "green row that tests nothing is worse than B4's three rows "
                  "that failed where they meant to skip, because nobody "
                  "investigates a pass",
-    "dosmap.py": "symbol offsets for the DOS box and for a probe running "
+    "dosmap.py": "symbol offsets for DOS and for a probe running "
                  "INSIDE it - library, not a test. It exists because "
                  "dispapps._map's `defines` argument means exactly ONE thing "
                  "(-DAPP_SMALL, compared against build/smallapp/), and its "

@@ -674,6 +674,12 @@ static int a2_hold_l1;
  * rule). Only code moves; a static an ovl_* writes is resident and
  * DS-relative like every other (SPEC.md 73.14). */
 static int a2_cfm_bx[2], a2_cfm_by;
+/* ...and THE CONTENT ORIGIN ALL SIX WERE PLACED AGAINST. A window dragged by
+ * its title is replayed and not repainted (SPEC.md 11.96.12.0), so the card
+ * moves on the glass with nothing telling ovl_about_geom: a2_pan_reorg
+ * (a2about.c) moves the rects by however far the origin went before a click
+ * is hit-tested or the card's rect is handed on as damage. */
+static int a2_abt_ox, a2_abt_oy;
 #define A2_CFM_BW 48
 #define A2_CFM_BH 13
 static int a2_covered;                      /* the last wake's clip_set found
@@ -1783,6 +1789,8 @@ void os88_onclick(int x, int y, void *win)
     if (a2_state == A2_ST_DEAD)
         return;
     if (a2_abt_up) {
+        a2_pan_reorg(win);                  /* the rects, where the window
+                                             * is NOW (SPEC.md 11.96.12.0) */
         if (a2_pan_kind == A2_PAN_CFM) {
             /* THE HIT TEST IS RESIDENT and the RECTS ARE THE OVERLAY'S, which
              * is the split working rather than an exception to it: a click is

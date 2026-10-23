@@ -1251,7 +1251,7 @@ def run_gate(m, mo, fails):
     say("rooted at B:\\DEEP, / holds %r" % names)
     if names != ["FTPHELLO.TXT"]:
         fails.append("a backslash root served %r - the Root field must take "
-                     "`B:\\DEEP` as well as `B:/DEEP`, because a DOS box is "
+                     "`B:\\DEEP` as well as `B:/DEEP`, because DOS is "
                      "what the person typing it is looking at" % names)
     f.quit()
 

@@ -133,7 +133,7 @@
  *     caller of one has to test CF.
  *   OSAPI_DSK_CACHE                       commands the kernel's directory
  *     read-ahead window to a width, for a program about to claim the whole
- *     arena. No C package does that - the DOS box is NASM - so it is listed
+ *     arena. No C package does that - DOS.O88 is NASM - so it is listed
  *     rather than wrapped; adding it is a thunk of a dozen lines.
  *   OSAPI_SYS_SNAPSHOT / CLAIM_SNAPSHOT / SYS_KB   buffer layouts that the
  *     kernel renumbers; for the Task Manager, not for applications.

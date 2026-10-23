@@ -128,7 +128,7 @@ def main():
     C = consts()
     pitch, rw, colw = C["TM_ROW_H"], C["TM_RW"], C["TM_COLW"]
 
-    with os88ui.boot(KERNEL, apps=APPS, machine=MACHINE) as ui:
+    with os88ui.boot(KERNEL, apps=APPS, machine=MACHINE, quick=True) as ui:
         m = ui.m
         # THE REPORTED REPRO, in the order the harness can drive it: a Disk
         # window, a package, a second Disk window, then the Task Manager.

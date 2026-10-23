@@ -51,27 +51,35 @@ CORELST = os.path.join(ROOT, "build", "realdmg", "rdgcore.asm.lst")
 DRIVE_B = (592, 105)            # the B: icon on the VGA desktop
 CLOSE_BOX = (170, 68)           # the RealDMG window's close box, where it opens
 MENU_MACHINE = (140, 9)         # RealDMG's Machine menu on the bar (REALDMG-
-MENU_CPU = (203, 9)             #   SPEC 14.3), its CPU menu, and an item's
-ROW = lambda i: 28 + 16 * i     #   centre, item i (from 0)
+MENU_SCREEN = (215, 9)          #   SPEC 14.3), its Screen and CPU menus, and
+MENU_CPU = (267, 9)             #   an item's centre, item i (from 0)
+ROW = lambda i: 28 + 16 * i
 ITEM_RESET = (150, ROW(1))      # Machine's...
 ITEM_FULLSCREEN = (150, ROW(3))
-ITEM_ILACE = (150, ROW(7))
-ITEM_LOG = (150, ROW(8))
-CPU_STATIC = (213, ROW(1))      # CPU's...
-CPU_INTERP = (213, ROW(2))
-CPU_PROFILE = (213, ROW(4))
+ITEM_LOG = (150, ROW(7))
+ITEM_ILACE = (230, ROW(0))      # Screen's...
+ITEM_BW = (230, ROW(2))
+ITEM_COARSE = (230, ROW(3))
+CPU_STATIC = (277, ROW(1))      # CPU's...
+CPU_INTERP = (277, ROW(2))
+CPU_PROFILE = (277, ROW(4))
 FIRST_ICON = (160, 127)         # the first file in a fresh B: window (list view)
+# the ami286's POST from a fresh CMOS, answered: Esc bypasses the memory
+# count (5 emulated s; the size is still counted), F1 resumes past the CMOS
+# checksum message, and the setup menu it can still land in is left to boot
+BIOS_PROMPTS = (("bypass MEMORY test", "esc"), ("to RESUME", "f1"),
+                ("EXIT FOR BOOT", "return"))
 
 
 def find(b, tries=30):
     """the package, once it has a view: a big cartridge's read off the
     floppy outlasts the boot's ten seconds (Looney Tunes, 1MB), so it is
     looked for again every five emulated seconds"""
-    for _ in range(tries - 1):
-        try:
+    for _ in range(5 * (tries - 1)):            # (the same budget, a second
+        try:                                    #   at a time)
             return find1(b)
         except SystemExit:
-            b.cmd("step 5000")
+            b.cmd("step 1000")
     return find1(b)
 
 
@@ -264,7 +272,7 @@ def main():
     ap.add_argument("--mem", type=int, help="the machine's RAM in KB, for the VM's own")
     ap.add_argument("--nojit", action="store_true", help="CPU > Interpreter first")
     ap.add_argument("--ilace", type=int, nargs="?", const=1, default=0,
-                    help="Machine > Interlace N times first: 1 On, 2 Scrolling")
+                    help="Screen > Interlace N times first: 1 On, 2 Scrolling")
     ap.add_argument("--log", default="", help="Machine > Log over the span, written here")
     ap.add_argument("--static", type=float, default=None, metavar="SECS",
                     help="the recompiler's Static (REALDMG-SPEC 16.8), timed on the SAME span a "
@@ -292,7 +300,7 @@ def main():
         measure(b, o)
     finally:
         if not o.keep:
-            b.cmd("quit")
+            b.quit()                            # (and waits: the disks written)
     if o.log and not o.keep:
         readlog(b, o)                           # (86Box writes the disk at quit)
     if o.rdp and not o.keep:
@@ -322,24 +330,36 @@ def boot(o):
                             "--size", "1440", os.environ.get("RDGWIN_O88", os.path.join(ROOT, "build", "realdmg.o88")), gb]
                            + extra, check=True, stdout=os88box.subprocess.DEVNULL)
     b = os88box.launch(o.vm, name=name, hold=True, fresh=True, mem=o.mem,
-                       a=os.path.join(ROOT, "build", "os8088.img"), b=disk)
-    if True:
-        for _ in range(120):
-            b.cmd("step 500")
-            try:
-                t = "".join(bytes.fromhex(x).decode("cp437") for x in b.cmd("text").get("chars", []))
-            except SystemExit:
-                t = ""
-            if "EXIT FOR BOOT" in t:
-                b.tap("return")
-        b.cmd("step 20000")
-        b.to(*DRIVE_B)
-        b.click(2)
-        b.cmd("step 6000")
-        b.to(FIRST_ICON[0], FIRST_ICON[1] + (16 if getattr(o, "big", False) else 0))
-        b.click(2)                              # (--big's SYSTEM folder lists first)
-        b.cmd("step 10000")
+                       a=os.path.join(ROOT, "build", "os8088.img"), b=disk,
+                       temp=not o.keep, turbo=getattr(o, "quick", False))
+    # THE BOOT IS GATED ON THE KERNEL'S STATE (os88box.Box.kernel_up): the
+    # ami286's fresh CMOS stops in setup and is answered on the way. It was
+    # 60 emulated s of polled steps plus a fixed 20 whatever the boot took,
+    # against a desktop up at ~22 (SOAK-SPEED round 3)
+    b.kernel_up(prompts=BIOS_PROMPTS)
+    wins = len(windows(b))
+    b.to(*DRIVE_B)
+    b.click(2)                                  # the B: window: open and drawn
+    b.until(lambda: len(windows(b)) > wins, "the B: window", 20000, 100)
+    b.ui_done(limit_ms=20000)
+    b.to(FIRST_ICON[0], FIRST_ICON[1] + (16 if getattr(o, "big", False) else 0))
+    b.click(2)                                  # (--big's SYSTEM folder lists first)
+    if getattr(o, "quick", False):              # the caller waits on the package
+        b.cmd("step 500")                       #   itself (find, the core's frames)
+    else:
+        b.cmd("step 10000")                     # (a measurement's lead-in, kept)
     return b
+
+
+def windows(b):
+    """the visible windows' W_SEGs, out of wm_wins (kern_big's geometry)"""
+    import os88geom as g
+    tab, out = b.memr(b.sym("wm_wins"), g.WIN_SIZE * g.MAX_WIN), []
+    for i in range(g.MAX_WIN):
+        r = g.WIN_SIZE * i
+        if tab[r + g.W_FLAGS] & 1:
+            out.append(tab[r + g.W_SEG] | tab[r + g.W_SEG + 1] << 8)
+    return out
 
 
 def machine_item(b, item, menu=MENU_MACHINE):
@@ -388,7 +408,7 @@ def measure(b, o):
             b.cmd("step 3000")
             press(b, o)
         for _ in range(o.ilace):
-            machine_item(b, ITEM_ILACE)
+            machine_item(b, ITEM_ILACE, MENU_SCREEN)
         if o.log:
             machine_item(b, ITEM_LOG)          # Log: Off -> on
         if o.fs:

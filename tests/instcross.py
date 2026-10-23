@@ -130,7 +130,8 @@ def offer(run_dir, vhd, floppy, commit):
             return
         bx = ix + ID.HIW_B0X + ID.HIW_BW0 // 2
         by = iy + ID.HIW_BY + ID.HIW_BH // 2
-        mo.click(bx, by, settle=3.0)    # arms
+        mo.click(bx, by, settle=0)      # arms
+        M.ui_done(m, "the Install button arming")
         mo.click(bx, by, settle=0)      # goes - and must stop at once
         M.quiesce(m, lambda: hashlib.sha1(open(vhd, "rb").read(8 << 20))
                   .digest(), guest=2.0, stable=8, budget=240.0,
@@ -166,8 +167,8 @@ def main():
     # 1. the STOCK build onto the disk, the erasing install
     print("  1. a stock install from the stock floppy")
     with M.launch("build/os8088-360.img", apps="build/apps360.img",
-                  machine=ID.MACHINE, run_dir=run_dir) as m:
-        M.settle(m)
+                  machine=ID.MACHINE, run_dir=run_dir, boot=False) as m:
+        m.run(); M.kernel_up(m)       # a state gate: every act is a click
         ID.install(m)
     vbr, k = vbr_and_kernel(vhd)
     if code(vbr) != code(stock_vbr) or k != stock_k:

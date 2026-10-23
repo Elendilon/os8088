@@ -113,17 +113,17 @@ def main():
     syms = pkg_syms()
 
     with os88ui.boot(tree.img("os8088-360.img"), apps=tree.img("apps360.img"),
-                     machine=CARDS[a.card]) as ui:
+                     machine=CARDS[a.card], quick=True) as ui:
         m = ui.m
         w = ui.path("B:/APPS/ARTFUL.O88")
         seg = u16(m.read(os88geom.winptr(m, w.i, ui.sym) + os88geom.W_SEG, 2))
-        ui.settle()
+        os88marty.ui_done(m)
         m.key("KeyN")                          # New -> fullscreen (46.5)
         # Freeze the blink before the first settle, exactly as atblit does:
         # a fullscreen ArtfulType otherwise never stops changing.
         m.write(seg * 16 + syms["at_drag"], b"\x01")
         m.write(seg * 16 + syms["at_cphase"], b"\x00")
-        ui.settle()
+        os88marty.ui_done(m, lock=False)    # typing below confirms on the caret
         caret = syms["at_caret"]
 
         def key1(send, what):
@@ -140,7 +140,7 @@ def main():
                 key1(lambda: m.key("Enter"), "Enter")
             for ch in "the quick brown fox jumps over the lazy dog":
                 key1(lambda c=ch: m.type_text(c), repr(ch))
-        ui.settle()
+        os88marty.ui_done(m, lock=False)    # the reads below are memory
 
         rw = lambda n: u16(m.readseg(seg, syms[n], 2))
         vw, vh = rw("at_vw"), rw("at_vh")

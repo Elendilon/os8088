@@ -4815,7 +4815,7 @@ mem_cpq_run_x:
 ; package calls the slots it always called.
 ;
 ; THE FLOOR OUTLIVES THE CALL, and that is the point rather than a hazard: the
-; DOS box sets it, sizes, posts a compaction, RETURNS, and claims on the wake -
+; DOS sets it, sizes, posts a compaction, RETURNS, and claims on the wake -
 ; and the pass in between drops only what the floor allows. It is the TASK's
 ; (SPEC.md 50.6.6.2) so nothing another task claims in a switch window sees
 ; it, and it is lifted by the package when the claim is behind it, or by

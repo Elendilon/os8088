@@ -150,7 +150,7 @@ NETV_ADDR    equ 10             ; out ES:DI = filled with FOUR bytes, this
                                 ; and every package built before it keeps
                                 ; working untouched.
                                 ;
-                                ; **ON THE CABLE THE ANSWER IS THE DOS BOX'S**
+                                ; **ON THE CABLE THE ANSWER IS THE DOS MACHINE'S**
                                 ; and that is the honest answer rather than a
                                 ; convenient one (docs/plans/completed/NET-STACK-PLAN.md 1.5):
                                 ; mTCP on the far end owns the IP, an inbound
@@ -282,7 +282,7 @@ NETV_BULK    equ 14
 ;
 ; Every verb above this point is a SOCKET: the driver owns ARP, IP and TCP and
 ; the package owns a byte stream. These three are the other shape - the caller
-; has a stack of its own and wants the wire. The DOS box's packet driver
+; has a stack of its own and wants the wire. DOS's packet driver
 ; (SPEC.md 96.23) is the first consumer and the Crynwr interface is why they
 ; are shaped as they are.
 ;

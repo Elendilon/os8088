@@ -1004,14 +1004,17 @@ sh_%1_ondrag_r:
     pop bx
     ret
 %endmacro
-; SH_BTREC eng, n, labels - the record and its n rects
+; SH_BTREC eng, n, labels - the record and its n rects. Every one carries
+; sh_<eng>_place as its OS88UI_BT_PLACE (SPEC.md 20.5.1.3.5): a window dragged
+; by its title is REPLAYED and never painted (11.96.12.0), so rects the
+; overlay's painter laid out name where it WAS until the place proc moves them
 %macro SH_BTREC 3
-    OS88UI_BTNREC sh_%1_btrec, sh_%1_btrects, %3, sh_dlg_bflags, %2
+    OS88UI_BTNREC sh_%1_btrec, sh_%1_btrects, %3, sh_dlg_bflags, %2, sh_%1_place
 sh_%1_btrects: times 4 * %2 dw 0
 %endmacro
 ; SH_BTRECF eng, n, labels, flags - the same with a flags array of its own
 %macro SH_BTRECF 4
-    OS88UI_BTNREC sh_%1_btrec, sh_%1_btrects, %3, %4, %2
+    OS88UI_BTNREC sh_%1_btrec, sh_%1_btrects, %3, %4, %2, sh_%1_place
 sh_%1_btrects: times 4 * %2 dw 0
 %endmacro
 ; CHOUT - MACRO.OVL's calls into CHART.OVL (81.94): a verb, through the far
@@ -18166,6 +18169,127 @@ sh_btattach:
     call os88ui_btninit
     ret
 
+; -----------------------------------------------------------------------------
+; THE PLACE PROCS (SPEC.md 20.5.1.3.5) - OS88UI_BT_PLACE for each SH_BTREC
+; record: in BX = the record, SI = its window; draw nothing, keep everything.
+;
+; The painters are CHART.OVL's and lay every rect out from the content origin
+; they bank in [sh_<eng>_ox/oy], so the resident half does not describe the
+; layout a second time: it MOVES what the painter laid out by however far the
+; window has gone since that origin, and banks the new one. That keeps the
+; overlay's own reads of the origin - its click work, a key's redraw - in step
+; with the window too. The library calls it before the press, the drag and
+; the release; the two dialogs with a field, and the Form, call it before a
+; key as well (sh_btreplace), so a field is drawn where the window IS.
+; -----------------------------------------------------------------------------
+sh_fdlg_place:
+    push di
+    mov di, sh_fdlg_ox
+    jmp short sh_btplace
+sh_bdlg_place:
+    push di
+    mov di, sh_bdlg_ox
+    jmp short sh_btplace
+sh_ldlg_place:
+    push di
+    mov di, sh_ldlg_ox
+    jmp short sh_btplace
+sh_df_place:
+    push di
+    mov di, sh_df_ox
+sh_btplace:                            ; DI pushed by the entry, the origin in it
+    push ax
+    push dx
+    call sh_btmove
+    pop dx
+    pop ax
+    pop di
+    ret
+sh_idlg_place:                         ; ...and the one-line field with them
+    push di
+    mov di, sh_idlg_ox
+    push ax
+    push dx
+    call sh_btmove
+    push si
+    push cx
+    mov si, sh_idlg_line               ; LN_X1..LN_Y2: a rect, the same shape
+    jmp short sh_btfield
+sh_ndlg_place:                         ; ...and the Note's text box
+    push di
+    mov di, sh_ndlg_ox
+    push ax
+    push dx
+    call sh_btmove
+    push si
+    push cx
+    mov si, sh_notebox                 ; TX_X1..TX_Y2, likewise
+sh_btfield:
+    mov cx, 1
+    call sh_btshift
+    pop cx
+    pop si
+    pop dx
+    pop ax
+    pop di
+    ret
+
+; sh_btmove - in: BX = the record, SI = its window, DI = the painter's banked
+; origin (x, then y). out: AX/DX = how far the window has moved since that
+; origin (0 when there is no window or no paint yet), the origin re-banked,
+; the record's live rects moved by it. Keeps every other register
+sh_btmove:
+    xor ax, ax
+    xor dx, dx
+    or si, si
+    jz .out                            ; no window: nothing to ask
+    cmp [di], ax
+    jne .ask
+    cmp [di+2], ax
+    je .out                            ; never painted: nothing laid out
+.ask:
+    push bx
+    mov bx, si
+    call OSAPI_WM_CONTENT              ; AX = content left, DX = top, NOW
+    pop bx
+    xchg ax, [di]                      ; bank NOW; AX/DX = THEN
+    xchg dx, [di+2]
+    neg ax
+    add ax, [di]                       ; AX/DX = NOW - THEN
+    neg dx
+    add dx, [di+2]
+    push cx
+    push si
+    mov si, [bx+OS88UI_BT_RECTS]
+    mov cx, [bx+OS88UI_BT_N]
+    call sh_btshift
+    pop si
+    pop cx
+.out:
+    ret
+
+; sh_btshift - CX rects at SI moved by AX, DX; CX and SI are spent
+sh_btshift:
+    jcxz .out
+.l:
+    add [si], ax
+    add [si+2], dx
+    add [si+4], ax
+    add [si+6], dx
+    add si, 8
+    loop .l
+.out:
+    ret
+
+; sh_btreplace - in: BX = a record; run its place proc on its window, for a
+; key that draws a field (a drag replays the window and never paints it)
+sh_btreplace:
+    push si
+    mov si, [bx+OS88UI_BT_WIN]
+    call [bx+OS88UI_BT_PLACE]
+    pop si
+    ret
+
 
     SH_BTREC fdlg, 2, sh_dlg_blfd
     SH_BTDOORS fdlg, SHM_FDBTN
@@ -18267,6 +18391,10 @@ sh_idlg_paint_r:
     pop bp
     ret
 sh_idlg_key_r:
+    push bx                            ; the field where the window IS, not
+    mov bx, sh_idlg_btrec              ; where the last paint left it
+    call sh_btreplace                  ; (SPEC.md 20.5.1.3.5)
+    pop bx
     push bp
     mov bp, SHM_IDKEY
     call ch_ovcall
@@ -19659,6 +19787,10 @@ sh_ndlg_paint_r:
     pop bp
     ret
 sh_ndlg_onkey_r:
+    push bx                            ; the field where the window IS, not
+    mov bx, sh_ndlg_btrec              ; where the last paint left it
+    call sh_btreplace                  ; (SPEC.md 20.5.1.3.5)
+    pop bx
     push bp
     mov bp, SHM_NKEY
     call ch_ovcall
@@ -20290,6 +20422,10 @@ sh_df_paint_r:                         ; SI = the window, the gfx lock held
     ret
 
 sh_df_onkey_r:                         ; AL = ascii, AH = scan
+    push bx                            ; the field where the window IS, not
+    mov bx, sh_df_btrec              ; where the last paint left it
+    call sh_btreplace                  ; (SPEC.md 20.5.1.3.5)
+    pop bx
     push bp
     mov bp, SHM_FKEY
     call ch_ovcall

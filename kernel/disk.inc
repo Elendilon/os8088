@@ -3190,13 +3190,13 @@ dsk_vol_add:
     mov [bx+DV_CLASS], al       ; matched the caller's segment against a
                                 ; publication slot and left the class here
     mov ah, DVK_DRV             ; ...AND THE KIND FOLLOWS THE CLASS. A
-    cmp al, DRVC_CD             ; (the range is CLOSED: DRVC_IMG is 0x41, a
+    cmp al, DRVC_HTTP           ; (the range is CLOSED: DRVC_IMG is 0x41, a
     ja .kindpub                 ; mounted image has SECTORS, and an open
                                 ; `jae` made every one a sectorless DVK_FILE
                                 ; row whose proof-mount said 'Not a disk
                                 ; image' - SPEC.md 18.101)
     cmp al, DRVC_FILE2          ; (every file class - SPEC.md 62.9.19, and
-    jae .kindfile               ; DRVC_CD past it, 119.1)
+    jae .kindfile               ; DRVC_CD and DRVC_HTTP past it, 119.1, 121.1)
     cmp al, DRVC_FILE           ; DRVC_FILE driver answers questions about
     jne .kindpub                ; FILES (SPEC.md 62.9), so its volume has no
 .kindfile:
@@ -3269,7 +3269,7 @@ dsk_vol_del:
     mov ah, [bx+DV_BUNIT]       ; ...BUT A ROW THE DRIVER TOOK IS GIVEN BACK
     or ah, ah                   ; (52.1.1): the boot volume, mounted, and the
     jz .free                    ; BIOS reads it again - an unload, an unmount,
-    mov al, DVK_BIOS            ; a hibernate's detach or the DOS box's
+    mov al, DVK_BIOS            ; a hibernate's detach or DOS's
     mov [bx+DV_KIND], ax        ; handoff must never drop the system volume.
     mov [bx+DV_CLASS], al       ; Kind and unit in ONE store (osapi_vol_add's
     mov [bx+DV_BUNIT], al       ; take), then class and BUNIT back to 0
@@ -7597,12 +7597,15 @@ dsk_find_x:
     ; ...AND FSV_ENUM's ANSWER ARRIVES HERE (SPEC.md 62.9.17), with dsk_ent
     ; already staged by the driver. There is no raw entry behind it, so the
     ; two fields the sector arm reads out of one come from the staged form
-    ; instead: the size is dsk_ent's own dword, and the attribute is 0 -
-    ; which is what a redirected volume's entries are, the species bits
-    ; living in the driver's row and never on this side of the ABI.
+    ; instead: the size is dsk_ent's own dword, and the attribute is +24,
+    ; the first of the eight bytes SPEC.md 19.1 declares zero (62.9.17.1).
+    ; Every driver stages a zeroed 32 bytes, so one with no species bits
+    ; answers 0 as before - and one that has them (HTTPFS.DRV, whose index
+    ; carries the disk's own) lets the installer see that KERNEL.SYS is a
+    ; SYSTEM file, which it copies through the _SYS verbs (52.10.12)
     mov ax, [dsk_ent+20]
     mov dx, [dsk_ent+22]
-    xor cl, cl
+    mov cl, [dsk_ent+24]
 .staged:
     push ax
     push dx
@@ -8004,7 +8007,7 @@ dsk_dest_x:
 ; this file and of nothing outside it, because dsk_find drops the on-disk dot
 ; links outright (`cmp al, '.'` / `je .skip`) so no package can see '..'.
 ; Three have each built a descent stack for want of this one answer:
-; apps/ftpd's 16-level FD_CDMAX, the DOS box's self-maintained AH=47h string,
+; apps/ftpd's 16-level FD_CDMAX, DOS's self-maintained AH=47h string,
 ; and apps/tank's walk to SYSTEM\APPDATA.
 ;
 ; **AND THE READ COUNT IS THE POINT.** A package-side walk would name each
@@ -8051,7 +8054,7 @@ dsk_dest_x:
 ; choice on this CPU.
 ; -----------------------------------------------------------------------------
 %ifndef KERN_SMALL              ; NO CALLER ON THE SMALL DISKS (SPEC.md 24.5):
-                                ; the DOS box is the slot's consumer and
+                                ; DOS is the slot's consumer and
                                 ; DOS.O88 ships on kern_big's system disk
                                 ; alone, so kern_small carries the cell and
                                 ; no body - gfx_spans' precedent

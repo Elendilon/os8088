@@ -121,6 +121,8 @@ dns_try:    db 0
 dns_id:     dw 0
 dns_lport:  dw 0
 dns_tmo:    dw 0
+dns_cip:    times 4 db 0        ; the last name answered, and its address
+dns_cnm:    times NET_HOSTMAX db 0  ; (dns_cached, SPEC.md 72.5.1)
 
 ; --- the sockets and the frames ---------------------------------------------
 ; **A DRIVER EMITS THESE AND A .COM RESERVES THEM.** A driver's bss ships

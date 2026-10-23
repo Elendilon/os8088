@@ -476,17 +476,18 @@ OS88UI_BT_NEXT   equ 14         ; THE LIBRARY'S: the next record of this
                                 ; number of windows. A LIST and not a table
                                 ; because Sheet has five dialogs and a table
                                 ; would have a limit to get wrong
-OS88UI_BT_OX     equ 16         ; THE LIBRARY'S, all four (SPEC.md
-OS88UI_BT_OY     equ 18         ; 20.5.1.3.5): the content origin the rects
-OS88UI_BT_FX     equ 20         ; were last seen at, and the first rect's
-OS88UI_BT_FY     equ 22         ; x1,y1 then - so a window DRAGGED since, which
-                                ; is replayed and never painted (SPEC.md
-                                ; 11.96.12.0), has its rects moved with it
-                                ; before they are drawn or hit-tested. Only a
-                                ; record os88ui_btninit names a window for is
-                                ; ever rebased; the kernel's own record stops
-                                ; at OS88UI_BT_OX
-OS88UI_BT_SIZE   equ 24
+OS88UI_BT_PLACE  equ 16         ; YOURS: a near proc that lays the record's
+                                ; rects out from where the window IS NOW, or
+                                ; 0. The library calls it before every hit
+                                ; test - the press, the drag and the release -
+                                ; with BX = the record, SI = its window; it
+                                ; draws nothing and keeps every register. A
+                                ; window dragged by its title is REPLAYED and
+                                ; never painted (SPEC.md 11.96.12.0), so rects
+                                ; laid out in W_PAINT alone name where it WAS
+                                ; (SPEC.md 20.5.1.3.5). The kernel's own
+                                ; record stops short of it
+OS88UI_BT_SIZE   equ 18
 
 ; OS88UI_BTNREC declares a group's record and lives in apps/os88api.inc, not
 ; here: a macro is PREPROCESSOR-time and must be defined before it is used,
@@ -551,14 +552,14 @@ OS88UI_BT_SIZE   equ 24
  %endif
  %define OS88UI_NOBTNINIT       ; the gesture's two halves, both out (below)
 %endif
-; --- OS88UI_REBASE: the rects follow a DRAGGED window (SPEC.md 20.5.1.3.5) ---
-; Wherever os88ui_btninit is, because that is what names the record's window:
+; --- OS88UI_PLACE: the record's rects laid out at every hit test (20.5.1.3.5)
+; Wherever os88ui_btninit is, because only then is the press the library's:
 ; every package with buttons, minus OS88UI_NOBTNINIT (and so OS88UI_NOGEST),
 ; and never the kernel, whose dialogs place their own rects at every pass.
 %ifndef OS88UI_KERNEL
  %ifndef OS88UI_NOBTN
   %ifndef OS88UI_NOBTNINIT
-   %define OS88UI_REBASE
+   %define OS88UI_PLACE
   %endif
  %endif
 %endif
@@ -606,9 +607,6 @@ OS88UI_BT_SIZE   equ 24
 ; adjustment and no separate "is anything armed" flag to keep in step.
 ; -----------------------------------------------------------------------------
 os88ui_btn:
-%ifdef OS88UI_REBASE
-    call os88ui_brebase         ; the rects where the window IS (20.5.1.3.5)
-%endif
     push ax
     push bx
     push cx
@@ -650,7 +648,7 @@ os88ui_btn:
                                 ; Without it the frame is redrawn round a
                                 ; black box and the caption is lettered BLACK
                                 ; ON BLACK: the button goes dark and its text
-                                ; disappears, which is what the DOS box did
+                                ; disappears, which is what DOS did
                                 ; the day it was converted - it had always
                                 ; drawn with `xor di, di`, correctly, because
                                 ; nothing had ever pressed it.
@@ -1919,80 +1917,6 @@ os88ui_btnclick:
 os88ui_btlist: dw 0             ; the head of this package's record list -
                                 ; DATA, inline, for os88ui_armw's reason
 
-; -----------------------------------------------------------------------------
-; os88ui_brebase - a record's rects, MOVED WITH ITS WINDOW (SPEC.md 20.5.1.3.5)
-; in:  BX = the record; out: nothing; every register preserved, flags not
-;
-; **A DRAGGED WINDOW IS NOT PAINTED** (SPEC.md 11.96.12.0): the drag cache
-; replays its pixels at the new place, so rects a package laid out in its
-; W_PAINT go on naming where the window WAS - and a press on a button lands
-; on nothing, or on another button's old place, until something repaints.
-; Thirteen packages shipped exactly that, and INSTALL's Next was the one
-; reported. The rule was always "lay the rects out at every press", and it
-; cannot be followed here: os88ui_btnclick IS the window's W_ONCLICK and tests
-; the rects before any package code runs.
-;
-; So the library notices instead. Every draw and every hit test of a record
-; banks the window's content origin and the first rect's corner. The next one
-; finds either the SAME corner - nobody has laid the rects out since, so they
-; are exactly where they were and the window's move since the bank is what
-; they owe: every live rect is shifted by it - or a DIFFERENT corner, which
-; is a package that re-laid them out from the origin it has now (Redline,
-; Tracker, the Video Player, PiXEL, INSTALL all do, at the press): those are
-; current, and are banked as they stand. A window that has not moved shifts
-; by nothing. No package changes and no new obligation is created.
-;
-; A record with no window yet (btninit not called) is left alone.
-; -----------------------------------------------------------------------------
-os88ui_brebase:
-    push ax
-    push cx
-    push dx
-    push si
-    mov si, [bx+OS88UI_BT_WIN]
-    or si, si
-    jz .out                     ; no window: nothing to ask, nothing to move
-    push bx
-    mov bx, si
-    call OSAPI_WM_CONTENT       ; AX = content left, DX = top, NOW
-    pop bx
-    mov si, [bx+OS88UI_BT_RECTS]
-    mov cx, [si]
-    cmp cx, [bx+OS88UI_BT_FX]
-    jne .bank                   ; laid out since the bank: current already
-    mov cx, [si+2]
-    cmp cx, [bx+OS88UI_BT_FY]
-    jne .bank
-    push ax
-    push dx
-    sub ax, [bx+OS88UI_BT_OX]   ; AX/DX = how far the window has moved
-    sub dx, [bx+OS88UI_BT_OY]   ; since the rects were last right
-    mov cx, [bx+OS88UI_BT_N]
-    jcxz .moved
-.shift:
-    add [si], ax
-    add [si+2], dx
-    add [si+4], ax
-    add [si+6], dx
-    add si, 8
-    loop .shift
-.moved:
-    pop dx
-    pop ax
-    mov si, [bx+OS88UI_BT_RECTS]
-.bank:
-    mov [bx+OS88UI_BT_OX], ax
-    mov [bx+OS88UI_BT_OY], dx
-    mov cx, [si]
-    mov [bx+OS88UI_BT_FX], cx
-    mov cx, [si+2]
-    mov [bx+OS88UI_BT_FY], cx
-.out:
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    ret
 %endif                          ; OS88UI_KERNEL
 %endif                          ; OS88UI_NOBTNINIT
 
@@ -2024,9 +1948,18 @@ os88ui_btnpress:
 ;      and nothing else, so it is one entry rather than three copies of the
 ;      record's unpacking.
 os88ui_bfrec:
-%ifdef OS88UI_REBASE
-    call os88ui_brebase         ; the press, the drag and the release all
-%endif                          ; test here: the rects where the window IS
+%ifdef OS88UI_PLACE
+    push ax                     ; THE RECTS FROM WHERE THE WINDOW IS (SPEC.md
+    mov ax, [bx+OS88UI_BT_PLACE]; 20.5.1.3.5): the press, the drag and the
+    or ax, ax                   ; release all test here, so the package's
+    jz .placed                  ; own layout runs first - a dragged window
+    push si                     ; is replayed and never painted
+    mov si, [bx+OS88UI_BT_WIN]
+    call ax
+    pop si
+.placed:
+    pop ax
+%endif
     push bx
     push si
     mov si, [bx+OS88UI_BT_N]
@@ -3124,7 +3057,7 @@ os88ui_ar:    dw 0, 0, 0, 0      ; ONE button's rect at a time - os88ui_krect's
 ; to -1 and drew NOTHING; index 1 read OS88UI_BT_DOWN out of os88ui_asets' own
 ; first word, found 1, and painted a rectangle read from four arbitrary words
 ; of the package's image with the PRESSED interior - black, across the whole
-; screen, which is what the DOS box's "Open windows are lost" question did.
+; screen, which is what DOS's "Open windows are lost" question did.
 ; The registry counted this site as "the library's own" and never asked
 ; whether it had been converted; tests/unit/t_btnrules.py asks now.
 ;
@@ -4697,7 +4630,7 @@ os88ui_radhit:
 ; a package whose drop-down is PRESS-PRESS - the press opens the list and the
 ; next press picks or takes it down, both through os88ui_drpress - and which
 ; never takes a list down from outside the control carries os88ui_drdrag,
-; os88ui_drup and os88ui_drclose and reaches none of them (the DOS box).
+; os88ui_drup and os88ui_drclose and reaches none of them (DOS.O88).
 ; It removes the SYMBOLS, so a package that sets it and then wires a W_ONDRAG
 ; or W_ONMOUSEUP to the control, or closes it on Esc, does not assemble.
 
@@ -6517,8 +6450,8 @@ section .bss
 os88ui_krect: resw 4
 os88ui_krlbl: resw 1            ; ...and the one control's staging beside it
 os88ui_krflg: resw 1            ; (SPEC.md 20.5.1.3). The kernel cannot use
-os88ui_krec:  resw OS88UI_BT_OX / 2  ; up to the rebase bank, which is a
-                                ; package's (OS88UI_REBASE, 20.5.1.3.5)
+os88ui_krec:  resw OS88UI_BT_PLACE / 2  ; up to the place proc, which is
+                                ; a package's (OS88UI_PLACE, 20.5.1.3.5)
                                 ; OS88UI_BTNREC - that macro is in
                                 ; apps/os88api.inc, which the kernel does not
                                 ; include - so this record is .bss and

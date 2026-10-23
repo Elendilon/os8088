@@ -1184,7 +1184,15 @@ wr_ddesc:
 ; pass because wr_may decides each button's greying from the state.
 wr_btlbl: dw wr_s_run, wr_s_add
 wr_btflg: dw OS88UI_FILL, OS88UI_FILL
-    OS88UI_BTNREC wr_btrec, wr_ra, wr_btlbl, wr_btflg, 2
+    OS88UI_BTNREC wr_btrec, wr_ra, wr_btlbl, wr_btflg, 2, wr_geom
+                                        ; ...and wr_geom is its PLACE proc
+                                        ; (SPEC.md 20.5.1.3.5): a window
+                                        ; dragged by its title is replayed
+                                        ; and never painted, so the library
+                                        ; asks for wr_ra/wr_rb from where the
+                                        ; window IS before each hit test.
+                                        ; It draws nothing and keeps every
+                                        ; register; its CF is not read
 
 wr_dbtns:
     call wr_sv                          ; AX..DI and ES, given back by the ret

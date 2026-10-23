@@ -294,3 +294,20 @@ RDGF_Z           equ 0x40
 RDGF_N           equ 0x20
 RDGF_H           equ 0x10
 RDGF_C           equ 0x01
+
+; THE LOSSY PICTURE (REALDMG-SPEC 13.4): RDG_LOSSY assembles the composer's
+; two-shade and coarse-camera code, toggled at run time by rdg_lossy. The
+; package defines it (F10, F11); the bare harness only when LOSSY_BW or
+; LOSSY_COARSE turns one on from the start
+%ifdef LOSSY_BW
+%define RDG_LOSSY
+%endif
+%ifdef LOSSY_COARSE
+%define RDG_LOSSY
+%endif
+%ifdef LOSSY_COARSE4
+%define RDG_LOSSY
+%endif
+%ifdef LOSSY_COARSE2
+%define RDG_LOSSY
+%endif

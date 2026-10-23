@@ -133,7 +133,9 @@ def native(machine):
     out = ROOT / ('build/redline-test-' + machine)
     out.mkdir(exist_ok=True)
     with os88ui.boot(str(ROOT / 'build/os8088-360.img'),
-                     apps=str(ROOT / 'build/redline360.img'), machine=machine) as ui:
+                     apps=str(ROOT / 'build/redline360.img'), machine=machine,
+                     quick=True) as ui:
+        ui.still(0)     # booted on STATE; the first paint done (SOAK-SPEED 4)
         ui.open_drive('B')
         ui.open('REDLINE.O88')
         original_frame = (ui.window('REDLINE').w, ui.window('REDLINE').h)
@@ -392,7 +394,9 @@ def scene():
     out = ROOT/'build/redline-scene'
     out.mkdir(exist_ok=True)
     with os88ui.boot(str(ROOT/'build/os8088-360.img'),
-                     apps=str(ROOT/'build/redline360.img'), machine='os8088_redline_vga_gla') as ui:
+                     apps=str(ROOT/'build/redline360.img'), machine='os8088_redline_vga_gla',
+                     quick=True) as ui:
+        ui.still(0)     # booted on STATE; the first paint done (SOAK-SPEED 4)
         ui.open_drive('B')
         ui.open('REDLINE.O88')
         p = R.Probe(ui,sym)
@@ -703,7 +707,9 @@ def chipset(machine):
     import os88marty as M
     sym = R.symbols()
     with os88ui.boot(str(ROOT / 'build/os8088-360.img'),
-                     apps=str(ROOT / 'build/redline360.img'), machine=machine) as ui:
+                     apps=str(ROOT / 'build/redline360.img'), machine=machine,
+                     quick=True) as ui:
+        ui.still(0)     # booted on STATE; the first paint done (SOAK-SPEED 4)
         ui.open_drive('B')
         ui.open('REDLINE.O88')
         p = R.Probe(ui, sym)

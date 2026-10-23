@@ -95,6 +95,7 @@ OFFICEIMG360  := $(BUILD)/office360.img
 NETWORKIMG360 := $(BUILD)/network360.img
 GAMESIMG360   := $(BUILD)/games360.img
 EMUIMG360     := $(BUILD)/emu360.img
+UTILIMG360    := $(BUILD)/util360.img
 
 # ...and all thirteen in one list, because it appeared in FOUR places (`all`
 # and the three tiers) and each of those had to be edited by hand the first
@@ -104,7 +105,17 @@ EMUIMG360     := $(BUILD)/emu360.img
 SHIPIMGS := $(IMG) $(IMG120) $(IMG720) $(IMG360) \
             $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
             $(MEDIAIMG360) $(OFFICEIMG360) $(NETWORKIMG360) $(GAMESIMG360) \
-            $(EMUIMG360)
+            $(EMUIMG360) $(UTILIMG360)
+
+# ...and each of them SIGNS IN A SLOT OF ITS OWN (SPEC.md 18.8.2.2): os88disk.py
+# reads this list (tools/os88ship.py) and steers every member's boot-sector
+# signature into its sorted place, so no two shipped disks can look like one
+# disk to dsk_bpb_sig. The slot is the image's place in the LIST, so the list
+# is a prerequisite: this stamp is named for it and every member depends on it,
+# and an image added or removed rebuilds the set rather than leaving a stale
+# one in a slot that now belongs to somebody else.
+SHIPSTAMP := $(BUILD)/.ship-$(shell printf '%s' '$(notdir $(SHIPIMGS))' | cksum | cut -d' ' -f1)
+$(SHIPIMGS): $(SHIPSTAMP) tools/os88ship.py
 
 BOX   := /Applications/86Box.app/Contents/MacOS/86Box
 
@@ -1796,7 +1807,7 @@ PKGZBSTAMP := $(BUILD)/.pkgzb$(if $(PKGZ),-$(PKGZ)-$(PKGZBFMT))-$(shell printf '
 # dozen up-to-date .o88 files and rebuilds none of them.
 PKGZSTAMP := $(BUILD)/.pkgz$(if $(PKGZ),-$(PKGZ))
 
-# DOSNETCARD=1 forces the DOS box's CABLE TRANSLATION (SPEC.md 96.26) on a
+# DOSNETCARD=1 forces DOS's CABLE TRANSLATION (SPEC.md 96.26) on a
 # machine that HAS a card, which is the only way it can be driven at all -
 # net_find prefers the card and §96.23's raw path is strictly better there, so
 # the translation would otherwise never run anywhere an emulator can reach it
@@ -3265,6 +3276,15 @@ DRIVERS += $(BUILD)/ems.drv
 # SYSTEM.CFG bit 8, not wanted by default (attach selects a device on every IDE
 # channel it probes). kern_big's alone, and refused below a 286 at attach
 DRIVERS += $(BUILD)/cdrom.drv
+# ...and SPEC.md 121's HTTPFS.DRV, a read-only drive over HTTP: a drv_tab row
+# with SYSTEM.CFG bit 10, not wanted by default. kern_big's alone. It probes
+# nothing and opens no socket until a drive is opened, so a disk that carries
+# it costs a machine that never ticks it one directory slot and nothing read.
+# ON EVERY kern_big SYSTEM DISK, the 360KB one included: SPEC.md 24.3.1.6
+# made that disk's room for it.
+DRIVERS += $(BUILD)/httpfs.drv
+# ...and its Control Panel page, which it reads in itself (SPEC.md 121.5)
+DRIVERS += $(BUILD)/httppage.drv
 # VESA.DRV - the packed-pixel display's renderer (SPEC.md 120). On every
 # kern_big disk for USBMOUSE.DRV's reason: a tick on the Drivers page is how
 # it is wanted, and the tick needs the file to be there. kern_small filters
@@ -3401,6 +3421,10 @@ STIKARGS := $(addprefix STIKAPPS:,$(STIKAPPS))
 # (the browser's live image filters it back out, LIVENOTOOLS below).
 SYSTOOLS := $(BUILD)/syscheck.o88
 SYSTOOLSARGS := $(addprefix SYSTEM:,$(SYSTOOLS))
+# ...EXCEPT THE 360KB SYSTEM DISK (SPEC.md 24.3.1.7, the owner's of
+# 2026-10-22): there it rides util360.img, and an install from the 360KB pair
+# carries no C:\SYSTEM\SYSCHECK.O88 - it is run off util360 instead, and it
+# offers the hard disk by default (118.13).
 
 # ...and STICKY NOTE'S NOTES (SPEC.md 110.13.1): a note is a plain .TXT in
 # SYSTEM\APPDATA\NOTES on the boot volume, and the folder SHIPS, pre-sized -
@@ -3438,12 +3462,12 @@ $(STIKNOTESTXT): apps/stiknote/welcome.txt | $(BUILD)
 # running from carries kern_dos as a part.
 #
 # IT WAS TRIED ONCE AND REFUSED, and what was refused was a DIFFERENT PACKAGE.
-# §96.44.4's two-piece shape made the BOX the image, and os88pkg.py refuses
-# `--compress` beside parts - a part's offset is measured from the image - so
-# DOS.O88 went 26,723 to 57,272 RAW bytes: 30 of the 360KB system disk's 50
-# free clusters, and +932 ms on every launch (23 int 13h / 125 sectors / 2,690
-# ms plain against 25 / 146 / 3,622). Twelve soak rows that sat about two
-# seconds inside a fifteen-second wait went red at once.
+# §96.44.4's two-piece shape made the WINDOWED DOS the image, and os88pkg.py
+# refuses `--compress` beside parts - a part's offset is measured from the
+# image - so DOS.O88 went 26,723 to 57,272 RAW bytes: 30 of the 360KB system
+# disk's 50 free clusters, and +932 ms on every launch (23 int 13h / 125
+# sectors / 2,690 ms plain against 25 / 146 / 3,622). Twelve soak rows that sat
+# about two seconds inside a fifteen-second wait went red at once.
 #
 # §96.44.5's FOUR pieces are what that refusal asked for: a 2,092-byte raw
 # loader in front of three COMPRESSED parts, two of them OP_LAZY. MEASURED on
@@ -3848,6 +3872,16 @@ SYS360OMIT := $(BUILD)/browser.o88 $(BUILD)/telnet.o88 $(BUILD)/mines.o88 \
 CORE_TOOLS360 := $(filter-out $(SYS360OMIT),$(CORE_TOOLS))
 CORE_GAMES360 := $(filter-out $(SYS360OMIT),$(CORE_GAMES))
 COREAPPS360 := $(CORE_TOOLS360) $(CORE_GAMES360)
+# **AND THE THREE FILES AN 8088 CANNOT USE** (SPEC.md 24.3.1.6): CDROM.DRV
+# refuses below a 286 (a 16-bit data port on an 8-bit bus, 119.2),
+# COLDHMA.SYS and XMEM.DRV are the HMA and the RAM above 1MB, which only a
+# 286 has. 22 of the 706 512-byte clusters, taken off so the disk keeps 10KB
+# free with a 5KB driver still to come. A 286 booting from a 360KB drive is
+# possible and odd; the 720KB, 1.44MB and 1.2MB system disks keep all three.
+# System Check's manifest marks them OPTIONAL (118.2.3), so a hard disk
+# installed from this disk is not reported as missing them.
+SYS360OMITDRV := $(BUILD)/cdrom.drv $(HMAIMG) $(BUILD)/xmem.drv
+DRIVERS360 := $(filter-out $(SYS360OMITDRV),$(DRIVERS))
 COREAPPSARGS360 := $(addprefix APPS:,$(CORE_TOOLS360)) \
                    $(addprefix GAMES:,$(CORE_GAMES360))
 # NO FACES at 360KB (SPEC.md 24.3.1.5): office360.img carries SYSTEM/FONTS
@@ -3902,6 +3936,7 @@ $(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) \
                            tools/os88drv.py tools/os88mod.py tools/os88lz.py | $(BUILD)
 	python3 tools/os88sysman.py --kernel $(KERNFILE) \
 	        --retired apps/syscheck/retired.txt -o $@ \
+	        $(addprefix --optional ,$(SYS360OMITDRV)) \
 	        $(DRIVERS) $(SYSAPPSARGS) $(STIKARGS)
 
 $(BUILD)/syscheck.bin: apps/syscheck/syscheck.asm apps/syscheck/scan.inc \
@@ -4472,6 +4507,34 @@ $(BUILD)/cdrom.bin: $(CDROM_SRC) drivers/os88drv.inc apps/os88api.inc | $(BUILD)
 
 $(BUILD)/cdrom.drv: $(BUILD)/cdrom.bin tools/os88drv.py $(PKGZSTAMP)
 	$(OS88DRV) $(BUILD)/cdrom.bin -o $@
+
+# HTTPFS.DRV - SPEC.md 121: a read-only volume served over HTTP, through the
+# socket verbs ETHER.DRV and the cable answer (drivers/net/netpkg.inc).
+# Its Control Panel page is HTTPPAGE.DRV, RAMPAGE.DRV's shape (SPEC.md 121.5):
+# built FIRST, because -DHFPAGE_KB is the claim HTTPFS.DRV makes for it, off
+# the IMAGE - a ceiling, the transparent read expanding the 'CZ' file into it.
+HTTPFS_SRC := drivers/httpfs/httpfs.asm drivers/httpfs/hfpkg.inc \
+              drivers/httpfs/hfnet.inc drivers/httpfs/hfidx.inc \
+              drivers/httpfs/hfpage.inc drivers/net/netpkg.inc \
+              apps/os88sock.inc
+$(BUILD)/httppage.bin: drivers/httpfs/httppage.asm drivers/httpfs/hfpkg.inc \
+                       drivers/net/netpkg.inc drivers/os88drv.inc \
+                       apps/os88api.inc apps/os88ui.inc apps/os88line.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I drivers/httpfs/ -I drivers/net/ -I drivers/ -I apps/ -o $@ $<
+	@echo "httppage: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/httppage.drv: $(BUILD)/httppage.bin tools/os88drv.py $(PKGZSTAMP)
+	$(OS88DRV) $(BUILD)/httppage.bin -o $@
+
+$(BUILD)/httpfs.bin: $(HTTPFS_SRC) drivers/os88drv.inc apps/os88api.inc \
+                     $(BUILD)/httppage.bin | $(BUILD)
+	$(NASM) -f bin -w+error -I drivers/httpfs/ -I drivers/net/ -I drivers/ -I apps/ \
+	        -DHFPAGE_KB=$$(( ( $(call FILESIZE,$(BUILD)/httppage.bin) + 1023 ) / 1024 )) \
+	        -o $@ $<
+	@echo "httpfs: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/httpfs.drv: $(BUILD)/httpfs.bin tools/os88drv.py $(PKGZSTAMP)
+	$(OS88DRV) $(BUILD)/httpfs.bin -o $@
 
 # ...and the GATE'S build of it, never shipped (usbmouse's CH375SIM shape):
 # -DCDSIM_AUDIO gives QEMU's one-track data disc three audio tracks, so
@@ -5465,6 +5528,38 @@ miditest: $(BUILD)/midisys720.img $(APPSIMG720)
 	@echo "miditest: build/midisys720.img - SOUND.DRV already wanted, for the"
 	@echo "          MPU-only machine. Run it with: python3 tests/midirack.py --arm mpu"
 
+# HTTPMOUNTTEST: the HTTP drive's gate disk (SPEC.md 121.7), ethertest's
+# shape at 1.44MB. Its SYSTEM.CFG wants ETHER.DRV (bit 4) and HTTPFS.DRV
+# (bit 10), and HTTPDRV.CFG at the root names the HOST's own server through
+# QEMU's slirp gateway with bit 0 set - so the drive is on the desktop, lazy,
+# before the first paint, and tests/httpmount.py serves the tree it built.
+# Port 8095: tests/ethernet.py has 8090 and the Wire 8092, and a bound port
+# is a gate reading the OTHER one's answers. A directory of its own for
+# build/wirecfg's reason: os88disk.py names a file from its BASENAME.
+$(BUILD)/httpcfg/SYSTEM.CFG: | $(BUILD)
+	@mkdir -p $(BUILD)/httpcfg
+	python3 -c "import sys; sys.stdout.buffer.write(b'O88CFG\0\0' + \
+	  (3).to_bytes(2,'little') + b'DW' + bytes([1,2]) + \
+	  ((1 << 4) | (1 << 10)).to_bytes(2,'little') + b'\0\0')" > $@
+
+$(BUILD)/httpcfg/HTTPDRV.CFG: | $(BUILD)
+	@mkdir -p $(BUILD)/httpcfg
+	python3 -c "import sys; u = b'http://10.0.2.2:8095/fix/'; \
+	  sys.stdout.buffer.write(b'HD' + bytes([1, 1]) + u + bytes(96 - len(u)))" > $@
+
+$(BUILD)/httpmount.img: $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSROOT) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(BUILD)/httpcfg/SYSTEM.CFG $(BUILD)/httpcfg/HTTPDRV.CFG tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 1440 \
+		--boot $(BUILD)/boot.bin --kernel $(KERNFILE) \
+		$(DRIVERS) $(SYSAPPSARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSDOC) $(SYSLOGOARG) $(FACESARG) \
+		$(BUILD)/httpcfg/SYSTEM.CFG $(BUILD)/httpcfg/HTTPDRV.CFG \
+		--folder SYSTEM/APPDATA
+
+.PHONY: httpmounttest
+httpmounttest: $(BUILD)/httpmount.img $(BUILD)/mines.o88
+	@echo "httpmounttest: build/httpmount.img - ETHER.DRV and HTTPFS.DRV wanted,"
+	@echo "               HTTPDRV.CFG naming 10.0.2.2:8095/fix/."
+	@echo "               Run it with: python3 tests/httpmount.py"
+
 .PHONY: ethertest
 ethertest: $(BUILD)/ether360.img
 	@echo "ethertest: build/ether360.img - the Ethernet driver already wanted."
@@ -5678,10 +5773,10 @@ $(BUILD)/ftpapps.img: $(FTPDFILES) tools/os88disk.py
 # is what fails if this flag is lost, and autostart360.img below takes it too
 # because it is this disk plus four files.
 SYS360SPC := --spc 1
-$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
+$(IMG360): $(BUILD)/boot360.bin $(KERNFILE) $(DRIVERS360) $(SYSAPPS) $(STIKAPPS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS360) $(SYSDOC) $(SYSLOGO) $(FACES360) $(FACELIC) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(SYS360SPC) \
 		--boot $(BUILD)/boot360.bin --kernel $(KERNFILE) \
-		$(DRIVERS) $(SYSAPPSARGS) $(STIKARGS) $(SYSTOOLSARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
+		$(DRIVERS360) $(SYSAPPSARGS) $(STIKARGS) $(STIKNOTESARG) $(SYSROOTARG) $(SYSINST) $(COREAPPSARGS360) $(SYSDOC) $(SYSLOGOARG) $(FACESARG360) \
 		$(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # AUTOSTARTTEST - the LINKS and AUTOSTART gate's disk (SPEC.md 26.10): the
@@ -6234,11 +6329,44 @@ $(BUILD)/cdrack.o88: $(BUILD)/cdrack.bin tools/os88pkg.py $(PKGZSTAMP)
 # system disk ($(SYSINST)). It installs nothing itself - OSAPI_DRV_USE and
 # HDD.DRV's HDV_TOOL reach the Control Panel's own engine - so its only
 # dependencies are the SDK and the two shared includes.
+#
+# THE RELEASE is the first line of apps/install/OS88VER.TXT (SPEC.md 117.10.1),
+# which the release skill writes, and INURL is where the published tree is
+# (117.10.2). Both are assembled in, so a gate that serves its own tree builds
+# its own INSTALL (install-gate.o88 below) rather than editing the shipped one.
+INREL := $(shell head -n 1 apps/install/OS88VER.TXT | tr -d '\r\n ')
+INURL := http://os8088.com/net/
 $(BUILD)/install.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
-                      apps/os88dec.inc | $(BUILD)
+                      apps/os88dec.inc apps/os88link.inc apps/os88data.inc \
+                      drivers/httpfs/hfpkg.inc drivers/net/netpkg.inc \
+                      apps/os88sock.inc apps/install/OS88VER.TXT | $(BUILD)
 	$(NASM) -f bin -w+error --before "[map all $(BUILD)/install.map]" \
-		-I apps/ -o $@ apps/install/install.asm
+		-I apps/ -I drivers/httpfs/ -I drivers/net/ -D"IN_REL='$(INREL)'" \
+		-D"IN_URL='$(INURL)'" -o $@ apps/install/install.asm
 	@echo "install: $(call FILESIZE,$@) bytes"
+
+# ...and the GATE's build of it, never shipped (SPEC.md 117.10, tests/netinst.py):
+# the same source pointed at the host the test serves from QEMU's slirp.
+$(BUILD)/install-gate.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
+                           apps/os88dec.inc apps/os88link.inc apps/os88data.inc \
+                           drivers/httpfs/hfpkg.inc drivers/net/netpkg.inc \
+                           apps/os88sock.inc apps/install/OS88VER.TXT | $(BUILD)
+	$(NASM) -f bin -w+error --before "[map all $(BUILD)/install-gate.map]" \
+		-I apps/ -I drivers/httpfs/ -I drivers/net/ \
+		-D"IN_REL='$(INREL)'" -D"IN_URL='http://10.0.2.2:8096/net/'" \
+		-o $@ apps/install/install.asm
+
+$(BUILD)/install-gate.o88: $(BUILD)/install-gate.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(BUILD)/install-gate.bin -o $@
+
+# THE PUBLISHED TREE (SPEC.md 117.10.2): the 1.44MB system and apps disks as one
+# tree, OS88VER.TXT and its OS88.IDX. On demand; the release skill publishes it.
+.PHONY: nettree
+nettree: $(BUILD)/nettree/OS88.IDX
+$(BUILD)/nettree/OS88.IDX: $(IMG) $(APPSIMG) apps/install/OS88VER.TXT \
+                           tools/os88nettree.py tools/os88httpdrv.py
+	python3 tools/os88nettree.py $(IMG) $(APPSIMG) apps/install/OS88VER.TXT \
+		$(BUILD)/nettree
 
 $(BUILD)/install.o88: $(BUILD)/install.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/install.bin -o $@
@@ -6374,6 +6502,10 @@ $(SBSTAMP): | $(BUILD)
 
 $(PKGZSTAMP): | $(BUILD)
 	@rm -f $(BUILD)/.pkgz $(BUILD)/.pkgz-lz4 $(BUILD)/.pkgz-lzb
+	@touch $@
+
+$(SHIPSTAMP): | $(BUILD)
+	@rm -f $(BUILD)/.ship-*
 	@touch $@
 
 $(PKGZBSTAMP): | $(BUILD)
@@ -6813,12 +6945,12 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
 # takes the SOURCE file's name, and assoc_locate looks for the handler a
 # document's association names (SPEC.md 54.4.2). A `DOSP.O88` in APPS/ is a
 # package no .COM on any disk can reach.
-# **AND THE IMAGE IS THE LOADER, NOT THE BOX** (SPEC.md 96.44.4). os88pkg.py
-# refuses --compress beside parts, so whatever is the IMAGE ships raw - which
-# is what cost 96.40.3's +932 ms a launch when the box itself was it. The
-# loader is 1,812 bytes and the two heavy pieces are parts, both compressed:
-# the box as OP_SEG|OP_COMP and kern_dos as OP_ASSET|OP_COMP|OP_LAZY, the
-# pairing 20.12.7.4 had to unrefuse.
+# **AND THE IMAGE IS THE LOADER, NOT THE WINDOWED DOS** (SPEC.md 96.44.4).
+# os88pkg.py refuses --compress beside parts, so whatever is the IMAGE ships
+# raw - which is what cost 96.40.3's +932 ms a launch when the windowed DOS
+# itself was it. The loader is 1,812 bytes and the two heavy pieces are parts,
+# both compressed: the windowed DOS as OP_SEG|OP_COMP and kern_dos as
+# OP_ASSET|OP_COMP|OP_LAZY, the pairing 20.12.7.4 had to unrefuse.
 $(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(BUILD)/dosp.bin \
                        $(BUILD)/doscore.bin $(BUILD)/kerndos.bin tools/os88pkg.py \
                        $(if $(KERN_MEGA),$(BUILD)/kerndosl.bin) $(PKGZSTAMP)
@@ -6948,7 +7080,7 @@ $(BUILD)/cwdsub.img: $(BUILD)/CWDHERE.COM $(BUILD)/HERE.TXT tools/os88disk.py
 
 # --- ...AND THE ONE THAT ASKS WHETHER CON IS A DEVICE (SPEC.md 96.11.7) -----
 # CONDEV.COM alone on a 360KB floppy. It needs no data file: what it tests is
-# what the box does with a name that is NOT on the disk and must not be looked
+# what DOS does with a name that is NOT on the disk and must not be looked
 # for there, so an empty volume is the honest fixture.
 $(BUILD)/CONDEV.COM: tests/dostrap/condev.asm | $(BUILD)
 	$(NASM) -f bin -w+error -o $@ tests/dostrap/condev.asm
@@ -6958,7 +7090,7 @@ $(BUILD)/condev360.img: $(BUILD)/CONDEV.COM tools/os88disk.py
 
 # --- ...AND CP/M'S WAY IN (KERN-MEGA-DOS-PLAN 10.5 defect 3) ----------------
 # CALL5.COM alone on a 360KB floppy for tests/call5.py: a near `call 5` with
-# the function in CL, on the windowed box and under kern_dos. Run from B:, it
+# the function in CL, in the windowed DOS and under kern_dos. Run from B:, it
 # exits with function 19h's answer through CALL 5 - 1 - which only a call
 # that dispatched on CL and came back to the program can produce.
 $(BUILD)/CALL5.COM: tests/dostrap/call5.asm | $(BUILD)
@@ -7127,7 +7259,7 @@ $(BUILD)/dosbig144.img: $(BUILD)/BIG.EXE tools/os88disk.py
 # Without it, adding `BIN:` left a built disk with no BIN on it and `make`
 # saw nothing to do, because neither DOSHELLO.COM nor os88disk.py had moved:
 # `dosdirsw` then failed on `CD BIN did not move the prompt`, which reads
-# exactly like the DOS box losing CD.
+# exactly like DOS losing CD.
 $(BUILD)/dirsw360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py Makefile | $(BUILD)
 	@rm -rf $(BUILD)/dirsw && mkdir -p $(BUILD)/dirsw
 	@for i in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 \
@@ -7426,7 +7558,7 @@ $(BUILD)/dosirq360.img: $(BUILD)/DOSIRQ.COM tools/os88disk.py
 # --- the packet driver's gate disk (SPEC.md 96.23) ---------------------------
 # DOSPKT.COM asks our packet driver the questions a client asks and prints the
 # answers; tests/dospkt.py reads ETHER.DRV's counters rather than that screen,
-# because the box has no windowed text yet.
+# because DOS has no windowed text yet.
 #
 # **mTCP IS NOT IN THIS REPOSITORY AND CANNOT BE.** It is Michael Brutman's
 # work under its own licence and it is the CLIENT half - what wave 4 provides
@@ -12337,9 +12469,10 @@ $(BUILD)/pxsbench.o88: $(BUILD)/pxsbench.bin tools/os88pkg.py
 # frame decoded three ways - XDC's own program, and the plan's operand lists
 # through apps/video/vdec.inc native and translating - on each adapter,
 # in the mode the player would take. ON DEMAND ONLY and on no disk: its data
-# is built from XDC streams that are not in the tree, so tests/vidbench.py
-# makes VIDBENCH.DAT and a scratch floppy itself. `make vidbench` is the
-# package; `python3 tests/vidbench.py --samples DIR` is the run.
+# is built from XDC streams that are not in the tree (the field disks below
+# use `os88vid.py benchdat --synth`). `make vidbench` is the package; the
+# MartyPC runner that decoded the owner's XDC streams is retired - XDC was
+# where the Video Player started, not what it plays now.
 .PHONY: vidbench
 vidbench: $(BUILD)/vidbench.o88
 
@@ -15242,7 +15375,7 @@ APPS_TOOLS_360 := $(filter-out $(BUILD)/sheet.o88 $(BUILD)/chart.o88 \
                     $(CC_OVLZ)/CHART.OVL $(CC_OVLZ)/MACRO.OVL \
                     $(BUILD)/midirack.o88 $(BUILD)/pixel.o88 \
                     $(BUILD)/wirechat.o88,$(APPS_TOOLS))
-APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES_360) $(APPS_DATA_360) $(APPS_SYS) $(APPS_DOS)
+APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES_360) $(APPS_DATA_360) $(APPS_SYS)
 
 # ...and the same list with the folder each package lands in. os88disk.py
 # reads a "DIR:" prefix per package, so the grouping lives here rather than
@@ -15332,11 +15465,13 @@ APPSARGS720 := $(filter-out $(APPDATAFOLDER),$(APPSARGS720)) \
 # AND IT IS PACKED NOW (SPEC.md 62.12): 11,653 bytes and 12 clusters, which is
 # what took this disk off THREE free clusters and put it on ten.
 # Being on this disk is the whole reason a user has it to hand.
+# ...AND IT IS OFF IT AGAIN (SPEC.md 24.3.1.7, the owner's of 2026-10-22):
+# at 360KB the DOS tools ride util360.img, both of them, and network360.img
+# keeps its own copy beside the programs that use the link.
 APPSARGS360 := $(addprefix APPS:,$(APPS_TOOLS_360)) \
                $(addprefix GAMES:,$(APPS_GAMES_360)) \
                $(addprefix MEDIA:,$(APPS_DATA_360)) \
                $(APPSYSARGS) \
-               $(addprefix SYSTEM/DOS:,$(APPS_DOS)) \
                $(MEDIAFOLDER) $(APPDATAFOLDER)
 
 # ...and the media disk's own arguments. MEDIA/ and not the root, so the file
@@ -15517,6 +15652,27 @@ $(NETWORKIMG360): $(NETWORK360) tools/os88disk.py
 
 $(GAMESIMG360): $(GAMES360) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(GAMESARGS360)
+
+# --- util360 -----------------------------------------------------------------
+# THE UTILITIES' DISK (SPEC.md 24.3.1.7 and 24.6, the owner's of 2026-10-22):
+# what a 360KB machine runs to look AT itself rather than to do its work.
+# SYSTEM CHECK left the 360KB system disk for it, REDLINE (SPEC.md 103) had
+# no shipped 360KB disk at all - only its on-demand redline360.img - and the
+# TASK MANAGER is a copy, as the apps disk carries one. All three at the root,
+# 24.6's rule. The two DOS tools - OS88NET.COM (the cable link's DOS end,
+# SPEC.md 62) and OS88CZ.COM (the split set's, 20.17.4) - go in SYSTEM/DOS/,
+# network360's convention and for its reason: a .COM at the root invites a
+# double-click on a machine it is not for. OS88NET.COM left apps360.img for
+# this disk; OS88CZ.COM had never fitted that one.
+UTIL_PKGS := $(BUILD)/syscheck.o88 $(BUILD)/redline.o88 $(BUILD)/taskmgr.o88
+UTIL_DOS := $(APPS_DOS) $(APPS_DOSCZ)
+UTIL360 := $(UTIL_PKGS) $(UTIL_DOS)
+UTILARGS360 := $(UTIL_PKGS) \
+               $(addprefix SYSTEM/DOS:,$(UTIL_DOS)) \
+               $(MEDIAFOLDER) $(APPDATAFOLDER)
+
+$(UTILIMG360): $(UTIL360) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(UTILARGS360)
 
 # --- emu360 ------------------------------------------------------------------
 # THE EMULATORS' DISK (SPEC.md 24.6, the owner's of 2026-10-22). RealDMG at
@@ -15966,7 +16122,7 @@ $(BUILD)/zcat/live/CATALOG.TXT: tools/getstories.py
 	@mkdir -p $(dir $@)
 	python3 tools/getstories.py --catalog $@
 
-# $(SYSROOTARG) IS THE DOS BOX, and it is here for THEWIRE.O88's reason one
+# $(SYSROOTARG) IS DOS.O88, and it is here for THEWIRE.O88's reason one
 # package along: the live volume IS the boot volume (SPEC.md 80.6), and
 # DOS.O88 rides APPS/ on every system disk through $(SYSROOTARG) rather than
 # through $(ALLAPPSARGS) - so a list built out of the APPS floppies alone
