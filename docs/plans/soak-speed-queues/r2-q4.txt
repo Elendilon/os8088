@@ -55,11 +55,11 @@ vidc	vidtextherc	30	tests/vidcga.py
 vidc	vidcard	26	tests/vidcard.py
 vidc	vidc512	20	tests/vidcga.py
 vidc	vidtexthercno	20	tests/vidcga.py
-brsc	brscroll	385	tests/brscroll.py
-wdun	wdunsel	360	tests/wdunsel.py
-lzbi	lzbig	330	tests/lzbig.py
-brcl	brclick	300	tests/brclick.py
-pxfo	pxfolder	300	tests/pxfolder.py
+DONE(re-declared) brsc	brscroll	385	tests/brscroll.py
+DONE(re-declared) wdun	wdunsel	360	tests/wdunsel.py
+DONE(re-declared) lzbi	lzbig	330	tests/lzbig.py
+DONE(re-declared) brcl	brclick	300	tests/brclick.py
+DONE(re-declared) pxfo	pxfolder	300	tests/pxfolder.py
 smal	smalllaunch	150	tests/smalllaunch.py
 smal	smallboot	110	tests/smallboot.py
 lzco	lzcomp	150	tests/lzcomp.py
@@ -101,26 +101,26 @@ tmsm	tmsmall	100	tests/tmsmall.py
 ptsm	ptsmix	95	tests/ptsmix.py
 pkgf	pkgfence	60	tests/pkgfence.py
 pkgf	pkgfmt	30	tests/pkgfmt.py
-sock	socktest	90	tests/socktest.py
-mcse	mcseg	90	tests/mcseg.py
+MOVED->r2-q5 sock	socktest	90	tests/socktest.py
+MOVED->r2-q5 mcse	mcseg	90	tests/mcseg.py
 save	saverate	28	tests/saverate.py
 save	savervga	27	tests/saver.py
 save	saver	25	tests/saver.py
-tgui	tgui	80	tests/tgui.py
-btnc	btncp	75	tests/btncp.py
-thm	thm95	75	tests/thm95.py
-rdic	rdicon	75	tests/rdicon.py
-hdau	hdauto	70	tests/hdauto.py
+MOVED->r2-q5 tgui	tgui	80	tests/tgui.py
+MOVED->r2-q5 btnc	btncp	75	tests/btncp.py
+MOVED->r2-q5 thm	thm95	75	tests/thm95.py
+MOVED->r2-q5 rdic	rdicon	75	tests/rdicon.py
+MOVED->r2-q5 hdau	hdauto	70	tests/hdauto.py
 vidt	vidthumb	34	tests/vidthumb.py
 vidt	vidthumbherc	34	tests/vidthumb.py
-kdmr	kdmredraw	66	tests/kdmredraw.py
-fmtl	fmtlow	65	tests/fmtlow.py
-pkgb	pkgbig	60	tests/pkgbig.py
-extd	extdmod	60	tests/extdmod.py
-curs	curshape	60	tests/curshape.py
-wdpe	wdpen	60	tests/wdpen.py
-fmpa	fmpatch	60	tests/fmpatch.py
-tmdm	tmdmg	60	tests/tmdmg.py
+MOVED->r2-q5 kdmr	kdmredraw	66	tests/kdmredraw.py
+MOVED->r2-q5 fmtl	fmtlow	65	tests/fmtlow.py
+MOVED->r2-q5 pkgb	pkgbig	60	tests/pkgbig.py
+MOVED->r2-q5 extd	extdmod	60	tests/extdmod.py
+MOVED->r2-q5 curs	curshape	60	tests/curshape.py
+MOVED->r2-q5 wdpe	wdpen	60	tests/wdpen.py
+MOVED->r2-q5 fmpa	fmpatch	60	tests/fmpatch.py
+MOVED->r2-q5 tmdm	tmdmg	60	tests/tmdmg.py
 msel	msel	55	tests/msel.py
 mart	martyresume	30	tests/martyresume.py
 mart	martyconc	20	tests/martyconc.py

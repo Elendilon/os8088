@@ -7659,7 +7659,7 @@ SOAK = [
         "page parses and RENDERS, and the location bar holds the file's URL",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
-    Row("brclick", "soak", py("tests/brclick.py"), 300.0,
+    Row("brclick", "soak", py("tests/brclick.py"), 40.0,
         "SPEC.md 71: the PAGE takes the mouse - links parse in order and "
         "underline, a click on a form field focuses it, the submit button "
         "fires",
@@ -7677,7 +7677,7 @@ SOAK = [
         "one desync",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
-    Row("brscroll", "soak", py("tests/brscroll.py"), 385.0,
+    Row("brscroll", "soak", py("tests/brscroll.py"), 60.0,
         "SPEC.md 71.10, BROWSER-PLAN 4.1: a one-line scroll costs one line "
         "ANYWHERE in the document - the blit tier keyed on the delta, not "
         "the old scroll position",
@@ -9283,7 +9283,7 @@ SOAK = [
         "leg fails; the launch legs stay green, the file being left as it "
         "shipped. 63s measured",
         needs=("marty",), serial=True),
-    Row("lzbig", "soak", py("tests/lzbig.py"), 330.0,
+    Row("lzbig", "soak", py("tests/lzbig.py"), 400.0,
         "SPEC.md 20.15.4 and 22.22.4: File > Compress and Uncompress on "
         "files PAST 64KB, which used to answer 'Too large'. The machine's "
         "file against os88lz.lzb_compress_machine's BYTE FOR BYTE, as "
@@ -9978,7 +9978,7 @@ SOAK = [
         "(14 against 20, and a 1,252 ms Down).",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdunsel", "soak", py("tests/wdunsel.py"), 360.0,
+    Row("wdunsel", "soak", py("tests/wdunsel.py"), 280.0,
         "SPEC.md 27.8.2.6: A DESELECT TAKES THE HIGHLIGHT OFF WITH THE XORS "
         "THAT PUT IT ON. A click that cleared a selection re-lettered every "
         "row it covered and walked the view twice (1.5 s for six rows on a "
@@ -10153,7 +10153,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/pixel.o88",
                "build/os8088-360.img")),
-    Row("pxfolder", "soak", py("tests/pxfolder.py"), 300.0,
+    Row("pxfolder", "soak", py("tests/pxfolder.py"), 150.0,
         "SPEC.md 106.21 on the VGA XT with a 720 KB B:: a folder of seven "
         "pictures opened by its ASSOCIATION from a subfolder of B: - with "
         "ANOTHER window in front (106.25, review-w5 F13) no hidden decode is "
