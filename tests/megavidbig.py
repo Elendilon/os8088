@@ -48,6 +48,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -74,11 +75,11 @@ def fault(box):
     return [l for l in box.lines() if l.startswith("kern_mega FAULT")]
 
 
-def leg(name, megs, disk, out, held):
-    os88bochs.MEGS = megs
+def leg(name, megs, disk, out, held, display=None):
     d = os.path.join(out, name)
     os.makedirs(d)
-    box = os88bochs.Box(d, [], bimg=disk, btype="1_44")
+    box = os88bochs.Box(d, [], bimg=disk, btype="1_44", megs=megs,
+                        display=display)
     try:
         if not box.wait_for("kern_mega: protected mode", 300):
             return "%s: kern_mega never reached protected mode" % name
@@ -94,18 +95,18 @@ def leg(name, megs, disk, out, held):
         if held:
             box.until(lambda: fault(box) or vbyte(box, "vp_xfull"),
                       "the hold to fill off B:", HOLD + 60, poll=1.0)
-        os88bochs.shot(os.path.join(d, "open.png"))
+        box.shot(os.path.join(d, "open.png"))
         if not fault(box) and vbyte(box, "vp_played"):
             return "%s: [vp_played] was set before Play - the gate below " \
                    "would not be waiting for this play" % name
-        os88bochs.xd("key", "space")
+        box.xd("key", "space")
         box.until(lambda: fault(box) or vbyte(box, "vp_played"),
                   "the play to end", PLAY + 60, poll=0.5)
-        os88bochs.shot(os.path.join(d, "play.png"))
-        os88bochs.xd("key", "Escape")
+        box.shot(os.path.join(d, "play.png"))
+        box.xd("key", "Escape")
         if not fault(box):
             box.ui_done("the window after the play", lock=False)
-        os88bochs.shot(os.path.join(d, "after.png"))
+        box.shot(os.path.join(d, "after.png"))
         f = fault(box)
         if f:
             return "%s (%dMB): %s" % (name, megs, f[0])
@@ -139,8 +140,23 @@ def main():
                                                      "os88disk.py"),
                         "-o", disk, "--size", "1440", stage, v88],
                        check=True, stdout=subprocess.DEVNULL)
-        fails = [f for f in (leg("bank", 2, disk, out, False),
-                             leg("held", 16, disk, out, True)) if f]
+        # THE TWO LEGS ARE TWO MACHINES, run at once (one X display each,
+        # os88bochs.take_display): nothing passes between them
+        res = {}
+
+        def run(name, megs, held, disp):
+            try:
+                res[name] = leg(name, megs, disk, out, held, disp)
+            except Exception as e:      # (reported, never swallowed)
+                res[name] = "%s: %r" % (name, e)
+        ths = [threading.Thread(target=run, args=("bank", 2, False, None)),
+               threading.Thread(target=run, args=(
+                   "held", 16, True, os88bochs.take_display()))]
+        for th in ths:
+            th.start()
+        for th in ths:
+            th.join()
+        fails = [res[n] for n in ("bank", "held") if res.get(n)]
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("megavidbig: %.0fs under Bochs" % (time.time() - t0))

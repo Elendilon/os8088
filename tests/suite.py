@@ -14830,7 +14830,7 @@ SOAK = [
         "its I_SPTR comes back a conventional segment. 60s is 41 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
-    Row("megavidbig", "soak", py("tests/megavidbig.py"), 80.0,
+    Row("megavidbig", "soak", py("tests/megavidbig.py"), 50.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.58: a BIGSP video (records past 32 "
         "KB, SPEC.md 98.1.4.1) played from XMS on kern_mega without a fault "
         "- the owner's Mechwarrior 2 froze the Victory 286 at its first "
@@ -14840,8 +14840,9 @@ SOAK = [
         "played with Space at 2MB (the XMS BANK) and at 16MB (the HOLD, "
         "whole): neither may log a kern_mega FAULT. Red with VIDEO.O88 from "
         "before 14.58 (--pkg): #GP at vd_native's rep movsw in both legs. "
-        "80s is 62 measured: the hold's fill and the play are waited "
-        "on by the player's own [vp_xfull] and [vp_played]",
+        "50s is 35 measured: the hold's fill and the play are waited "
+        "on by the player's own [vp_xfull] and [vp_played], and the two "
+        "legs are two machines run at once",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megak/apps/video.o88")),

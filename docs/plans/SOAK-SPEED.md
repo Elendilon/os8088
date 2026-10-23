@@ -147,7 +147,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
    a gate: `Box.up()` (desktop ~6 s, not "80 s" + 15), `ui_done` after a
    click, a package's own byte through `pkg_read`. A stop RELEASES Bochs's
    mouse capture; `Box` re-captures inside the next input. megaflt/own/
-   rehome/vidbig 105/81/103/287 -> 51/39/41/62 s. Inside an FSX bracket
+   rehome/vidbig 105/81/103/287 -> 51/39/41/35 s. Inside an FSX bracket
    ui_task is frozen and `ui_done` never ends: gate on `Box.in_fsx()`.
 
 20. **Independent legs are independent machines: run them at once.** A row
@@ -468,7 +468,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | gifdrag / wheelps2 | 51.2 / 7.4 s (load ~10) | 37.9 / 7.4 s | - | measured only. gifdrag (MartyPC) is its drags: the `tick(m, 400)` after each is the stack-water EXPOSURE window (Task Manager repainting twice a second), so it is not cut; wheelps2 is lean. secs 56/56 -> 50/10 |
 | gbreplay / gbbank / gbhifreq / megacdrom (86Box) | 63 / 51 / 18 / 27 s (3 at once, load ~5); guest ~250 / 125 / 107 / 125 s | 18 / 11 / 7 / 12 s; guest 78 / 44 / 28 / 34 s | 18 | boots were 60 emulated s of polled BIOS steps + a fixed 20 (desktop up at ~22, ~14 with turbo); gbbank's fixed 60-s load -> until the cartridge's checked-switch byte; gbhifreq's 6 s -> until frame 160; megacdrom's 70-s boot -> kernel_up + `[mega_on]` + the autostart's window, its 15-s launches -> until the window/the card read (red path seen: under turbo the Mixer never came, and the bounded wait failed step 4 as before). gbreplay's `sleep(3)` after quit -> `quit()`. The 5/20 s measurement windows and the replay's key script unchanged |
 | megaflt / megaown / megarehome (Bochs) | 105 / 81 / 103 s | 51 / 39 / 41 s | 19 | the boot's 15 + 10 + 8 s sleeps and the closed-loop MEGARUN navigation; MEGARUN's own 5 s a package is the floor |
-| megavidbig (Bochs) | 287 s | 62 s | 19 | HOLD = 110 s slept for a fill that takes ~5 (waits on the player's [vp_xfull]), PLAY = 30 for a play that ends at ~20 ([vp_played], asserted 0 before Space) |
+| megavidbig (Bochs) | 287 s | 35 s | 19, 20 | HOLD = 110 s slept for a fill that takes ~5 (waits on the player's [vp_xfull]), PLAY = 30 for a play that ends at ~20 ([vp_played], asserted 0 before Space) |
 | megaovl (Bochs) | 157 s FAIL | 71 s FAIL | 19 | **fails at base**: MEGALOWB's OSAPI_MEM_AVAIL claim (79C0 paras, the ascending run alone) fits UNDER the carve, so nothing slides it - MEGALOWH's hole above is not counted. The typed-and-saved DOC.RTF half passes |
 | pxmega / pxsmega / megatrap0 (Bochs, MEGATRAP census) | 252 / 172 / 267 s | 65 / 56 / 171 s | 19 | a step was QUIET s of no E9 line - on a clean run, a fixed 12 / 8 s whatever the program did. Now `ui_done` (`lock=False` for the game), `[fsx_task]` into and out of the bracket, the timedemo's 8 s kept as a run; the trap windows TILE (one running offset). pxsmega red with px_compose's `[es:px_cdi]` -> `[cs:` (22,240 traps). megatrap0 is MEGARUN + LINGER bound |
 | megavidv2 / megadosp (Bochs, MEGATRAP census) | 388 / 225 s | 107 / 56 s | 19, 20 | megavidv2's three layouts are three MACHINES, run at once (one display each); the Escs out of a fullscreen play gate on `[fsx_task]`, the keys inside a play keep their gaps (where the pause lands is the scenario). Red with --part0: thousands of fixups a step on all three legs. megadosp: steps on `ui_done` (the box runs DOS in the UI task's wakes); the prompt's first paint, slept 10 s OUTSIDE every window, is counted now |
