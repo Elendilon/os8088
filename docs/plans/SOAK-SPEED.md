@@ -412,6 +412,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | msegxms | not runnable as was (`make test`); declared 50 | 1.7 s | 14, 15 | `launch_test` + xmcheck's desktop gate; the two blind tools/mouse.py dblclicks closed-loop; `pace(1)` -> `ui_done`; polls 0.05 |
 | vidclose / vidxmslive / vidxmsliverep | 65 s (direct, load 10; 18 s of it mouse.py clicks, 28 s 800 three-trip QMP reads) / declared 60 / 60 | 37.3 / 23.4 / 30.6 s | 14, 15 | vidclose: `Q(keep=True)`, `mouse_dblclick`/`mouse_click`, its paces -> `ui_done` caps; the rest is three plays to a random frame. vidxms live arms (r2-q11 had converted the script): measured - the samples are spread over the real-time play. secs 75/60/60 -> 50/30/40 |
 | hmacold | 15.2 s (18.6 charged) | 11.6 s (17.4) | 14 | three boots each ended in a `pace(1)` before memory reads -> `ui_done(cap=1)`. Left: the kernel assembly in `os88rom.kernel_tables` (5.4 s) and the Control Panel pick |
+| wirefleetlink | FAILED at base (os88ui `still()` on QEMU, fixed above); then 153 s | 106 s | 15 | two linked QEMUs: its Mouse (and, patched into this process, wireball's, which opens the package inside `Machine.__init__`) closed-loop; one `W.settle` added after closing WireFleet, because a fast close left `[fm_vinst]` naming the dying instance for the next open. The link handshakes and port probes are guest real time. build/wireflet.img is not built here: private tree. secs 100 -> 140 (it never fitted 100) |
 
 ## Resuming
 

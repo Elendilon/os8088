@@ -35,7 +35,7 @@ SKIP builds=True (writes build/; not runnable in the shared tree) wire	wirechat	
 DONE vidb	vidbankgap	115	tests/vidbank.py	qemu,nasm
 SKIP builds=True (writes build/; not runnable in the shared tree) thew	thewire	110	tests/thewire.py	qemu
 DONE vidx	vidxipbanksnd	110	tests/vidxip.py	qemu,nasm
-wire	wirefleetlink	100	tests/wirefleetlink.py	qemu,nasm,pil
+DONE wire	wirefleetlink	100	tests/wirefleetlink.py	qemu,nasm,pil
 MOVED->r2-q13 lemm	lemmings	100	tests/lemmings.py	qemu,cc
 MOVED->r2-q13 vidl	vidlysplitinplace	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
 MOVED->r2-q13 vidl	vidlysplitinplacebase	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
