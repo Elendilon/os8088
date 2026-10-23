@@ -21,7 +21,7 @@ DONE vidx	vidxiphdnoharm	150	tests/vidxip.py	qemu,nasm
 DONE vidx	vidxipbankbig	150	tests/vidxip.py	qemu,nasm
 DONE vidx	vidxipbankdry	150	tests/vidxip.py	qemu,nasm
 DONE vidx	vidxipbankdrysnd	150	tests/vidxip.py	qemu,nasm
-gbtr	gbtrace	130	tests/gbtrace.py	qemu,nasm
+DONE gbtr	gbtrace	130	tests/gbtrace.py	qemu,nasm
 DONE vidx	vidxipsnd	130	tests/vidxip.py	qemu,nasm
 DONE vidx	vidxipahead	130	tests/vidxip.py	qemu,nasm
 DONE dosp	dospkt	120	tests/dospkt.py	qemu

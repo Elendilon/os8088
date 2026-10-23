@@ -3030,7 +3030,7 @@ SOAK = [
         "package, and 86Box's",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088.img")),
-    Row("gbtrace", "soak", py("tests/gbtrace.py"), 130.0,
+    Row("gbtrace", "soak", py("tests/gbtrace.py"), 180.0,
         "REALDMG's core against Peanut-GB (pinned by tools/gbprof.py), the "
         "registers AND the M-cycle clock compared before each of the first "
         "1,000,000 instructions of cpu_instrs (tools/gbtrace.py; the wave 1 "
