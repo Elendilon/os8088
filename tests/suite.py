@@ -15357,7 +15357,7 @@ SOAK = [
         "(SPEC.md 11.94.5) - a maximized window must stay x=0, w=[vid_pw]",
         needs=("marty",), serial=True),
     Row("telnet", "soak", py("tests/telnet.py", "--machine",
-                             "os8088_5150_cga_gla"), 300.0,
+                             "os8088_5150_cga_gla"), 40.0,
         "SPEC.md 70.8: TELNET's 80x25 screen of CHARACTER AND ATTRIBUTE, both "
         "renderers and the 1bpp polarity rule. Seven assertions and no wire - "
         "the transport is tests/socktest's - and the two defects 70.8.8 "
@@ -15367,7 +15367,7 @@ SOAK = [
         "twin because the default machine wants the licensed IBM ROM",
         needs=("marty",), serial=True),
     Row("telnetherc", "soak", py("tests/telnet.py", "--adapter", "herc",
-                                 "--machine", "os8088_5150_herc_gla"), 300.0,
+                                 "--machine", "os8088_5150_herc_gla"), 40.0,
         "...and the same seven on the OTHER 1bpp adapter, which is not a "
         "duplicate: Hercules is 720 wide, so the window shows all EIGHTY "
         "columns there and CGA shows 79 of them and only 13 rows - the "

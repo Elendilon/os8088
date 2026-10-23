@@ -51,8 +51,8 @@ DONE blit	blitcut	330	tests/blitcut.py
 DONE blit	blitplane	180	tests/blitplane.py
 DONE blit	blitp	120	tests/blitp.py
 DONE blit	blitpair	90	tests/blitpair.py
-teln	telnet	300	tests/telnet.py
-teln	telnetherc	300	tests/telnet.py
+DONE teln	telnet	300	tests/telnet.py
+DONE teln	telnetherc	300	tests/telnet.py
 DONE boot	bootfloor-ab	420	tests/bootfloor.py
 DONE boot	bootstatus	90	tests/bootstatus.py
 trks	trkspkcovox	90	tests/trkspk.py

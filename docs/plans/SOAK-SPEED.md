@@ -234,6 +234,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | bootstatus | 45 s | 9.6 s | 4, 10 | the per-frame sampler decoded a whole `m.vram` frame each displayed frame to look at ONE scanline: it reads that row's bytes out of video memory (same 7 distinct bands both adapters); the tail's blind `advance(240)` -> `ui_done` + 0.1 s |
 | brreload | 16 s / 62 guest s waited (declared 360) | 9.5 s / 32 | 4 | boot on state; every settle and the two `pace(1)` -> `ui_done` (all reads are browser state or `m.vram`); identical ink counts |
 | brtable / br14 | 9.4 / 7.4 s (declared 200 each) | 7.3 / 6.6 s | 4 | already cheap; brreload's conversion (state boot, `ui_done`) and re-declared |
+| telnet / telnetherc | 25 / 29 s (declared 300 each) | 29 / 31 s (two in parallel) | - | boot on state only; the rest waits on a WORKER that draws on its own turn (the settles there are honest). Re-declared |
 
 ## Resuming
 
