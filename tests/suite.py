@@ -4641,7 +4641,7 @@ SOAK = [
         "MEASURED. It reads the shipped disks and builds nothing",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-360.img", "build/apps360.img")),
-    Row("bootstatus", "soak", py("tests/bootstatus.py"), 90.0,
+    Row("bootstatus", "soak", py("tests/bootstatus.py"), 20.0,
         "Does the boot say WHAT it is doing, not only how far? (SPEC.md 15.6)"
         " Builds a disk whose SYSTEM.CFG wants two drivers, then reads the "
         "composed line out of the overlay AND hashes the pixel band under the"
