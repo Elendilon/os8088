@@ -4,22 +4,22 @@ DONE kdmi	kdmix	55	tests/kdmix.py
 gbcp	gbcpu	50	tests/gbcpu.py	qemu,nasm
 mseg	msegxms	50	tests/msegxms.py	qemu
 xmch	xmcheck	50	tests/xmcheck.py	qemu,nasm
-vidx	vidxmsgap	50	tests/vidxms.py	qemu,nasm
-vidx	vidxmslivevga4	50	tests/vidxms.py	qemu,nasm
+DONE vidx	vidxmsgap	50	tests/vidxms.py	qemu,nasm
+DONE vidx	vidxmslivevga4	50	tests/vidxms.py	qemu,nasm
 trkc	trkclick	47	tests/trkclick.py	qemu,nasm
 cdro	cdrom	45	tests/cdrom.py	qemu,nasm
 vmmo	vmmouse	45	tests/vmmouse.py	qemu,nasm
 dosx	dosxmsq	45	tests/dosxmsq.py	qemu
-vidx	vidxms	45	tests/vidxms.py	qemu,nasm
-vidx	vidxmsbios	45	tests/vidxms.py	qemu,nasm
-vidx	vidxmsidle	45	tests/vidxms.py	qemu,nasm
-vidx	vidxmsnox	45	tests/vidxms.py	qemu,nasm
-vidx	vidxmslivenox	45	tests/vidxms.py	qemu,nasm
+SKIP fails at base (first play does not fill the hold) vidx	vidxms	45	tests/vidxms.py	qemu,nasm
+DONE vidx	vidxmsbios	45	tests/vidxms.py	qemu,nasm
+DONE vidx	vidxmsidle	45	tests/vidxms.py	qemu,nasm
+DONE vidx	vidxmsnox	45	tests/vidxms.py	qemu,nasm
+DONE vidx	vidxmslivenox	45	tests/vidxms.py	qemu,nasm
 DONE kdre	kdreturnf	42	tests/kdreturn.py	
 vidb	vidbankspkfast	40	tests/vidbank.py	qemu,nasm
 DONE kdha	kdhand	40	tests/kdhand.py	
 DONE kdre	kdreturngfx	40	tests/kdreturn.py	
-vids	vidspkat	40	tests/vidspkat.py	qemu,nasm
+DONE vids	vidspkat	40	tests/vidspkat.py	qemu,nasm
 vidb	vidbankauto	40	tests/vidbankauto.py	ffmpeg
 mixe	mixersb16	40	tests/mixer.py	qemu,nasm
 DONE kdre	kdreturnmode	38	tests/kdreturn.py	

@@ -12698,7 +12698,7 @@ SOAK = [
         needs=("marty",),
         wants=("build/tracker.o88", "build/sound.drv", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin")),
-    Row("vidspkat", "soak", py("tests/vidspkat.py"), 40.0,
+    Row("vidspkat", "soak", py("tests/vidspkat.py"), 30.0,
         "SPEC.md 34.11.8: 22,050 Hz through the PC speaker on a 286 or "
         "better - QEMU's 386, closed list entry 1. A pulse of N = 54 PIT "
         "counts, which only a 286-or-better's door takes: the clip opens "
@@ -13986,7 +13986,7 @@ SOAK = [
         "fill",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidxmsbios", "soak", py("tests/vidxms.py", "--arm", "bios"), 45.0,
+    Row("vidxmsbios", "soak", py("tests/vidxms.py", "--arm", "bios"), 40.0,
         "SPEC.md 2.10.8, 41.12: vidxms with every XMS copy through int 15h "
         "AH=87h - XMEM.DRV built with XM_FORCE_BIOS, the 286's transport, on "
         "QEMU's 386 - so xm_bios and the PIC it holds shut across the call "
@@ -14022,7 +14022,7 @@ SOAK = [
         "plays' levels whole and in order: the lead read into the ring and "
         "staged, the audio cursor's records borrowed in place",
         needs=("qemu", "nasm")),
-    Row("vidxmsgap", "soak", py("tests/vidxms.py", "--gap", "2048"), 50.0,
+    Row("vidxmsgap", "soak", py("tests/vidxms.py", "--gap", "2048"), 40.0,
         "SPEC.md 98.3.18.12: vidxms with THE GAP written 2,048 before each "
         "play (QEMU measures its host's noise): the ring starts 2,048 mod "
         "4,096 from the hold inside its claim on BOTH plays - [vp_noinp] "
@@ -14114,7 +14114,7 @@ SOAK = [
         "SPEC.md 98.3.18.13: vidxipbankdry with QEMU's SB16 and a clip with "
         "sound - the card's sound out of a bank that keeps running dry",
         needs=("qemu", "nasm")),
-    Row("vidxmsidle", "soak", py("tests/vidxms.py", "--arm", "idle"), 45.0,
+    Row("vidxmsidle", "soak", py("tests/vidxms.py", "--arm", "idle"), 30.0,
         "SPEC.md 98.3.18: vidxms with no play at the start - the window's "
         "timer alone loads the file to its end (a short last chunk is what "
         "says so), with the info card out so its line 6 is drawn from the "
@@ -14122,7 +14122,7 @@ SOAK = [
         "the shipped choice on QEMU's 386, in place (98.3.18.14)",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidxmsnox", "soak", py("tests/vidxms.py", "--arm", "nox"), 45.0,
+    Row("vidxmsnox", "soak", py("tests/vidxms.py", "--arm", "nox"), 30.0,
         "SPEC.md 98.3.18's NEGATIVE CONTROL, and the fallback: QEMU with -m 1, "
         "so no pool. No hold is taken and the play runs off the disk to the "
         "last frame - and after the same swap to a blank B: the same next "
@@ -14151,7 +14151,7 @@ SOAK = [
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidxmslivevga4", "soak", py("tests/vidxms.py", "--arm", "livevga4"),
-        50.0,
+        40.0,
         "SPEC.md 98.3.18.1 IN COLOUR: a 1.2 MB VGA4 stream for the VGA "
         "desktop, held, B: blank, Play LIVE - the keeper sized to plane 3's "
         "base + 64 KB, because nothing checks a stream's writes ahead of the "
@@ -14161,7 +14161,7 @@ SOAK = [
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidxmslivenox", "soak", py("tests/vidxms.py", "--arm", "livenox"),
-        45.0,
+        20.0,
         "SPEC.md 98.3.18.1's other half: on -m 1 (no pool) the streamed Live "
         "file is NOT played Live - a worker cannot read a file, so with "
         "nothing held Play is the in-window play",
