@@ -484,7 +484,7 @@ def customize(m, mo, ui, eq):
     mo.click(wx + 1 + dispcp.CP_RX + eq["CPH_CZX"] + 20,
              wy + geom.TITLE_H + 1 + eq["CPH_CZY"] + 8, settle=0)
     wait(m, lambda: "Color Theme" in ui.titles(), "the Customize window")
-    os88marty.settle(m)
+    os88marty.ui_done(m)
     return ui.window("Color Theme")
 
 
@@ -503,10 +503,10 @@ def shipped():
 def leg_c(eq, folder):
     shipped()
     print("C: the Theme page mounts and drops WIN95.DRV")
-    with os88ui.boot(fixture(folder, "c", True, False), machine=VGA) as ui:
+    with os88ui.boot(fixture(folder, "c", True, False), machine=VGA, quick=True) as ui:
         m, mo = ui.m, ui.mo
         at_rest(m, "C boot")
-        dispcp.open_panel(m, mo, m.sym, os88marty.settle, page=5)
+        dispcp.open_panel(m, mo, m.sym, lambda mm, **k: os88marty.ui_done(mm), page=5)
         ch = customize(m, mo, ui, eq)
         style_win(mo, ch)
         wait(m, lambda: kind(m) == THM_WIN, "the Windows style to take")
@@ -514,7 +514,7 @@ def leg_c(eq, folder):
         m.key("Enter")                      # Return keeps it (tv_key)
         wait(m, lambda: "Color Theme" not in ui.titles(),
              "Return to close the chooser")
-        os88marty.settle(m)
+        os88marty.ui_done(m)
         if kind(m) != THM_WIN:
             fail("C: Return did not keep Windows (kind %d)" % kind(m))
         pick(m, mo, 0)
@@ -540,9 +540,9 @@ def leg_c(eq, folder):
 def leg_d(eq, folder):
     shipped()
     print("D: Windows with no WIN95.DRV on the disk")
-    with os88ui.boot(fixture(folder, "d", False, False), machine=VGA) as ui:
+    with os88ui.boot(fixture(folder, "d", False, False), machine=VGA, quick=True) as ui:
         m, mo = ui.m, ui.mo
-        dispcp.open_panel(m, mo, m.sym, os88marty.settle, page=5)
+        dispcp.open_panel(m, mo, m.sym, lambda mm, **k: os88marty.ui_done(mm), page=5)
         ch = customize(m, mo, ui, eq)
         before = m.read(m.sym("toast_buf"), 24).split(b"\0")[0]
         style_win(mo, ch)
@@ -563,7 +563,7 @@ def leg_d(eq, folder):
 def leg_e(eq, folder):
     shipped()
     print("E: Windows saved, no WIN95.DRV, at boot")
-    with os88ui.boot(fixture(folder, "e", False, True), machine=VGA) as ui:
+    with os88ui.boot(fixture(folder, "e", False, True), machine=VGA, quick=True) as ui:
         m = ui.m
         if kind(m) != THM_COLOR:
             fail("E: the boot came up kind %d, not Color" % kind(m))

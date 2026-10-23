@@ -7870,7 +7870,7 @@ SOAK = [
         "again since SPEC.md 5.9.6, and puts the default kernel back",
         needs=("marty",), serial=True),
     # 71 s measured, all five legs (a THEMEDARK=3 private tree built once).
-    Row("thm95", "soak", py("tests/thm95.py"), 180.0,
+    Row("thm95", "soak", py("tests/thm95.py"), 110.0,
         "The Windows theme (SPEC.md 76.14): its caption buttons pixel by "
         "pixel on VGA and Hercules, one title bar under 40 ms, the "
         "click-open menu (Esc, Up/Down, Enter, a click off it reaching "

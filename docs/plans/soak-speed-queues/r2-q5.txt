@@ -20,7 +20,7 @@ DONE tgui	tgui	80	tests/tgui.py
 DONE dosr	dosram	75	tests/dosram.py
 DONE gbwi	gbwindow	75	tests/gbwindow.py
 DONE btnc	btncp	75	tests/btncp.py
-DONE(legs A,B verified; C-E fail at base since build/ctrl.drv was rebuilt 04:28 by someone - mismatched with the 01:35 kernel) thm	thm95	75	tests/thm95.py
+DONE thm	thm95	75	tests/thm95.py
 DONE rdic	rdicon	75	tests/rdicon.py
 DONE pxsm	pxsmd	70	tests/pxsmd.py
 DONE stk	stk0water	70	tests/stk0water.py
