@@ -6,7 +6,7 @@ DONE gori	gorillasinput	300	tests/gorillasinput.py
 DONE gori	gorillasmusic	253.5	tests/gorillasmusic.py
 DONE gori	gorillasmenu	160	tests/gorillasmenu.py
 DONE gori	gorillascity	100	tests/gorillascity.py
-pxde	pxdecode	1670	tests/pxdecode.py
+DONE(re-declared; fast polls expose a lost Ctrl+R, see ledger) pxde	pxdecode	1670	tests/pxdecode.py
 SKIP fails at base (HDDTOOL.DRV held after Close, product?) inst	install	400	tests/install.py
 DONE inst	instcross	240	tests/instcross.py
 DONE inst	instkeep	200	tests/instkeep.py
@@ -22,14 +22,14 @@ DONE dosc	doscom	30	tests/doscom.py
 DONE pxsa	pxsave	600	tests/pxsave.py
 DONE pxsa	pxsauto	65	tests/pxsauto.py
 DONE pxsa	pxsact	65	tests/pxsact.py
-wire	wirefleetsystem	120	tests/wirefleetsystem.py
-wire	wireballvideo	100	tests/wireball.py
-wire	wirefleetnomouse	90	tests/wirefleetnomouse.py
-wire	wirefleetdeploy	80	tests/wirefleet.py
-wire	wireballmono	80	tests/wireball.py
-wire	wireballfront	75	tests/wireball.py
-wire	wireballphysics	65	tests/wireball.py
-wire	wireflick	30	tests/wireflick.py
+DONE wire	wirefleetsystem	120	tests/wirefleetsystem.py
+DONE wire	wireballvideo	100	tests/wireball.py
+DONE wire	wirefleetnomouse	90	tests/wirefleetnomouse.py
+DONE wire	wirefleetdeploy	80	tests/wirefleet.py
+DONE wire	wireballmono	80	tests/wireball.py
+DONE wire	wireballfront	75	tests/wireball.py
+DONE wire	wireballphysics	65	tests/wireball.py
+DONE wire	wireflick	30	tests/wireflick.py
 exci	excitebikeega	120	tests/excitebike_front.py
 exci	excitebikeload	120	tests/excitebike_load.py
 exci	excitebikefront	90	tests/excitebike_front.py

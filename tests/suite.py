@@ -2055,10 +2055,10 @@ SOAK = [
     Row("wirefleetlink", "soak", py("tests/wirefleetlink.py"), 100.0,
         "WireFleet two UART peers: turn rules, private fleets, lost result, save/load/reconnect, duplicate commands/chat, malformed frames, victory and cleanup (SPEC.md 114/115)",
         needs=("qemu", "nasm", "pil"), wants=("build/wireflet.img", "build/os8088.img"), timeout=300),
-    Row("wirefleetsystem", "soak", py("tests/wirefleetsystem.py"), 120.0,
+    Row("wirefleetsystem", "soak", py("tests/wirefleetsystem.py"), 150.0,
         "WireFleet on 8088s: original 8250 lease and forced cleanup, CGA color fullscreen and return, saved-record validation, finite speaker/AdLib/SB cues (SPEC.md 114/115)",
         needs=("marty", "nasm", "pil"), wants=("build/wireflet360.img", "build/wireflet720.img", "build/os8088-360.img", "build/os8088-720.img"), timeout=300),
-    Row("wirefleetnomouse", "soak", py("tests/wirefleetnomouse.py"), 90.0,
+    Row("wirefleetnomouse", "soak", py("tests/wirefleetnomouse.py"), 50.0,
         "WireFleet's link before the mouse contest settles (SPEC.md 115.1.1): no evidence refused with the name-the-port line, Link > Connect COM2 taken, an identified mouse port refused even when named, and the search finding COM2 beside it - driven on the keyboard mouse",
         needs=("marty", "nasm"), wants=("build/wireflet360.img", "build/os8088-360.img"), timeout=300),
     Row("wirefleetart", "soak", py("tests/wirefleet.py", "--art"), 8.0,
@@ -2077,11 +2077,11 @@ SOAK = [
         "and incremental-equals-repaint identity",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-360.img", "build/wireflet360.img")),
-    Row("wirefleetdeploy", "soak", py("tests/wirefleet.py"), 80.0,
+    Row("wirefleetdeploy", "soak", py("tests/wirefleet.py"), 130.0,
         "WireFleet on VGA/CGA/Hercules: native deployment, bounds/overlap refusal, rotation, removal, auto, Ready, release/cancel and About (SPEC.md 114)",
         needs=("marty", "nasm", "pil"),
         wants=("build/wireflet360.img", "build/os8088-360.img"), timeout=240),
-    Row("wireballphysics", "soak", py("tests/wireball.py", "--physics"), 65.0,
+    Row("wireballphysics", "soak", py("tests/wireball.py", "--physics"), 30.0,
         "WireBall 8088 physics: center/end contact, paddle motion, ball extent, "
         "rally acceleration, swept end contact and remaining substep motion (SPEC.md 109)",
         needs=("marty", "nasm"),
@@ -2092,7 +2092,7 @@ SOAK = [
         "bad frames, unplug/reconnect and serial mouse restoration (SPEC.md 109)",
         needs=("qemu", "nasm", "pil"),
         wants=("build/wireball.img", "build/os8088.img"), timeout=240),
-    Row("wireballfront", "soak", py("tests/wireball.py", "--front"), 75.0,
+    Row("wireballfront", "soak", py("tests/wireball.py", "--front"), 120.0,
         "WireBall illustrated splash on VGA/CGA/Hercules: fitted art, "
         "release/cancel buttons, controls, sound toggle, Practice launch and return (SPEC.md 109.4)",
         needs=("marty", "nasm", "pil"),
@@ -2102,7 +2102,7 @@ SOAK = [
         "display/physics frame rates on VGA/CGA/Hercules 4.77MHz 8088s (SPEC.md 109.5)",
         needs=("marty", "nasm"),
         wants=("build/wireball360.img", "build/os8088-360.img"), timeout=240),
-    Row("wireballmono", "soak", py("tests/wireball.py", "--mono"), 80.0,
+    Row("wireballmono", "soak", py("tests/wireball.py", "--mono"), 60.0,
         "WireBall original-8250 discovery/register restoration and practice on "
         "CGA and Hercules 8088s: native pixel framebuffer, "
         "ball/paddles, controls, visible raster and desktop restoration (SPEC.md 109)",
@@ -10068,7 +10068,7 @@ SOAK = [
         "is gif_restart's. Without Unicorn the RUNNER skips it (`needs`): "
         "the script's own skip exited 0 and scored `ok` in 0.1s",
         needs=("nasm", "unicorn"), wants=("build/pixel.o88",)),
-    Row("pxdecode", "soak", py("tests/pxdecode.py"), 1670.0,
+    Row("pxdecode", "soak", py("tests/pxdecode.py"), 900.0,
         "SPEC.md 106.13: every fixture tools/pixcorpus.py makes, decoded by "
         "PIXEL.O88 itself through File > Revert, against tools/pixelsim.py "
         "BYTE FOR BYTE - the master and the palette of each good one (BMP "
