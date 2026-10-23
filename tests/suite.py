@@ -1909,6 +1909,18 @@ FULL = [
         "and a stale line for a package that declares. FULL and not fast "
         "because the owner asked for it there; host-side, 2s measured",
         needs=()),
+    Row("sysfree", "full", py("tests/unit/t_sysfree.py"), 0.2,
+        "at the owner's word: every SYSTEM disk keeps room for what the "
+        "system saves on it - 5 KB on a disk of 512-byte clusters, 10 KB on "
+        "one of 1 KB - the floor being SYSTEM.CFG, two AUTOSTRT links, a "
+        "2 KB ASSOC.DAT, ETHER.CFG and HTTPDRV.CFG plus one more save "
+        "(the Calendar, the Clock or a sticky note). Free space counted off "
+        "the FAT by its own reader; the four shipped disks are required and "
+        "the small, emu and mega ones checked when built. Red, tried: the "
+        "360KB disk with 13 KB copied onto it fails naming every file. FULL "
+        "and not fast because the owner asked for it there; host-side, "
+        "0.03s measured",
+        needs=()),
     Row("bootsmoke", "full", py("tests/bootsmoke.py"), 20.0,
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
