@@ -2679,6 +2679,41 @@ SOAK = [
         "2300 -> 22c0, the region 9340 -> 9840; red with tp_srcreloc a bare "
         "ret (stale word, a different picture). 19s measured",
         needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("pkgmove-wireflet", "soak",
+        py("tests/pkgmove.py", "--app", "wirefleet", "--disk",
+           "games360.img", "--open", "B:/WIREFLET.O88", "--word",
+           "wf_fxseg", "--word", "wf_fxpseg", "--machine", "os8088_xt_vga"),
+        35.0,
+        "NO-PINNING A8: the PARTS STANDARD'S opt-in (SPEC.md 20.12.12) on its "
+        "first adopter. WireFleet's stamp bank is a lazy part declared with "
+        "op_movable (the library's op_lazymv stores the row, the package's "
+        "OP_ONMOVE hook wf_partsmv re-reads op_seg), and the planar copy is "
+        "a claim of its own (wf_fxpmv); VGA so the planar copy exists. Both "
+        "move under a posted compaction (wf_fxseg 24e0 -> 23a0, wf_fxpseg "
+        "2860 -> 2720), bytes and picture unchanged. Red with both procs a "
+        "bare ret (stale words). 30s measured",
+        needs=("marty",), serial=True, wants=("build/games360.img",)),
+    Row("pkgmove-1942", "soak",
+        py("tests/pkgmove.py", "--app", "1942", "--disk",
+           "1942-360.img", "--open", "B:/1942.O88", "--word",
+           "n_canvas", "--machine", "os8088_xt_vga"), 20.0,
+        "NO-PINNING A4: 1942's 64 KB canvas MOVES on the desktop (SPEC.md "
+        "101.2.1) - n_canvasmv, and pinned around OSAPI_FSX_RUN. 24e0 -> "
+        "23a0 under a posted compaction, the splash redrawn the same. Red "
+        "with n_canvasmv a bare ret (stale word, a different picture). 14s "
+        "measured",
+        needs=("marty",), serial=True, wants=("build/1942-360.img",)),
+    Row("pkgmove-isotron", "soak",
+        py("tests/pkgmove.py", "--app", "isotron", "--disk",
+           "games360.img", "--open", "B:/ISOTRON.O88", "--word",
+           "it_cseg", "--word", "it_seg", "--machine", "os8088_xt_vga"),
+        25.0,
+        "NO-PINNING A4: isoTron's canvas (63 KB) and work claim (30 KB) MOVE "
+        "on the desktop (SPEC.md 108.8.1) - it_claimmv, both pinned around "
+        "OSAPI_FSX_RUN - with its restartable worker parked: 24e0 -> 23a0 "
+        "and 34a0 -> 3360, the title redrawn the same. Red with it_claimmv a "
+        "bare ret (both words stale, a different picture). 19s measured",
+        needs=("marty",), serial=True, wants=("build/games360.img",)),
     Row("tymove", "soak", py("tests/tymove.py"), 15.0,
         "NO-PINNING A7: apps/os88type.inc's claims MOVE - an open face "
         "(TF_CLAIM = TF_SEG, [ty_curseg] its copy) and the pre-shifted table "
@@ -8279,7 +8314,10 @@ SOAK = [
     Row("tank", "soak", py("tests/tank.py"), 30.0,
         "SPEC.md 85: TANK ATTACK draws, ADVANCES, and does not flash - the ink"
         "on the glass per DISPLAYED frame, whose floor against its median is"
-        "the whole question a foreign-mode raster is built to answer",
+        "the whole question a foreign-mode raster is built to answer. Its "
+        "last leg leaves the bracket with F and asserts the 32 KB shadow went "
+        "with it (SPEC.md 85.3.5.2, NO-PINNING A4): red with tk_shfree's call "
+        "taken out. 19s measured",
         needs=("marty",), serial=True),
     Row("tankaim", "soak", py("tests/tankaim.py"), 30.0,
         "SPEC.md 85.6.5's aim assist and its reticle: no bearing is unreachable"
@@ -12254,6 +12292,11 @@ SOAK = [
         "compaction and more after: a frame count alone passes a worker that "
         "was never parked). Broken on purpose with the proc's table cut to one row "
         "the worker far-calls the old driver and no frame is ever drawn. "
+        "LEG 8 (NO-PINNING A4, SPEC.md 97.9.2): the 16 KB shadow is DECLARED "
+        "movable and [px_shseg]/[px_dseg] name a live claim after - red with "
+        "the declaration taken out. On this layout the shadow sits right above "
+        "the loader's pinned sprite set and does not move, so the proc itself "
+        "is proved by reading (two words). 13s measured. "
         "Needs `make pxsmove`.",
         needs=("marty",), serial=True, wants=("build/pxsmove360.img",)),
     Row("appdata", "soak", py("tests/appdata.py"), 50.0,
