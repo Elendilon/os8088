@@ -10,10 +10,10 @@ DONE czto	czto	115	tests/czto.py
 DONE brfe	brfetch	95	tests/brfetch.py
 DONE vidm	vidmsync	90	tests/vidmsync.py
 DONE gfxe	gfxewalk	90	tests/gfxewalk.py
-calc	calcflick	90	tests/calcflick.py
-scha	schacct	90	tests/schacct.py
-sock	socktest	90	tests/socktest.py
-mcse	mcseg	90	tests/mcseg.py
+DONE calc	calcflick	90	tests/calcflick.py
+DONE scha	schacct	90	tests/schacct.py
+DONE sock	socktest	90	tests/socktest.py
+DONE mcse	mcseg	90	tests/mcseg.py
 aler	alertbtn	80	tests/alertbtn.py
 lzlo	lzload-lz4	80	tests/lzload.py
 tgui	tgui	80	tests/tgui.py

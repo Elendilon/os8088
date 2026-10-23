@@ -6992,7 +6992,7 @@ SOAK = [
         "Folder. VERIFIED RED with drv_fs_seg keyed on class 5 again: the "
         "RAM disk's mount goes to NET.DRV and fails. Measured at 37s",
         needs=("marty",), serial=True),
-    Row("socktest", "soak", py("tests/socktest.py"), 90.0,
+    Row("socktest", "soak", py("tests/socktest.py"), 30.0,
         "A PAGE FETCHED OVER THE PARALLEL CABLE BY THE SOCKET ABI'S REFERENCE "
         "CONSUMER (SPEC.md 62.11): SOCKTEST.O88 asks net_find, NETV_STATE, "
         "NETV_OPEN, SEND, RECV until NSK_CLOSING, CLOSE and NETV_STATE again, "
@@ -7732,7 +7732,7 @@ SOAK = [
         "pixel byte and that case goes red",
         needs=("marty", "nasm"), serial=True,
         wants=("build/imgtest.o88", "build/imgtest.bin")),
-    Row("calcflick", "soak", py("tests/calcflick.py"), 90.0,
+    Row("calcflick", "soak", py("tests/calcflick.py"), 30.0,
         "Does the Calculator FLASH? (PERFORMANCE.md Part 3.1, SPEC.md 65.4)",
         needs=("marty",), serial=True, wants=("build/calcref.img",)),
     Row("ftpdflick", "soak", py("tests/ftpdflick.py"), 120.0,
@@ -10622,7 +10622,7 @@ SOAK = [
         "The 360KB MEDIA DISK mounts, and the apps disk keeps MEDIA (SPEC.md"
         "24.4).",
         needs=("marty",), serial=True),
-    Row("mcseg", "soak", py("tests/mcseg.py"), 90.0,
+    Row("mcseg", "soak", py("tests/mcseg.py"), 20.0,
         "SPEC.md 48.16.1: Missile's SEGMENT arm - the one a trail takes when"
         " mc_tr_lay will not lay a walk for it - draws and commits through"
         " OSAPI_GFX_POINTS. The row exists because the arm does not run:"
@@ -11322,7 +11322,7 @@ SOAK = [
         "LOST WAKEUP (8.1.2.3) is a TAIL, not a median, and before the guard "
         "existed it was one mouse event in fourteen waiting a whole tick.",
         needs=("marty",), serial=True, timeout=900),
-    Row("schacct", "soak", py("tests/schacct.py"), 90.0,
+    Row("schacct", "soak", py("tests/schacct.py"), 20.0,
         "SPEC.md 8.1.1: the scheduler charges a slice only when the task "
         "CHANGES, so an idle desktop - where every switch resumes the task "
         "that was already running - pays the TICK rate and not the switch "
