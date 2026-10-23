@@ -1,0 +1,30 @@
+# ROUND 2, queue 13: the bottom half of r2-q9's remaining rows (non-MartyPC). family  row  declared_secs  script  needs
+lemm	lemmings	100	tests/lemmings.py	qemu,cc
+vidl	vidlysplitinplace	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlysplitinplacebase	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlyorder	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
+vidl	vidlyorderbank	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
+netc	netcoexist	90	tests/netcoexist.py	qemu
+rltu	rltune	81	tests/rltune.py	nasm,qemu
+vgad	vgadirty	80	tests/vgadirty.py	qemu,nasm
+mine	minesrc	80	tests/minesrc.py	qemu,nasm
+vidc	vidclose	75	tests/vidclose.py	qemu,nasm
+dosx	dosxlat	75	tests/dosxlat.py	qemu
+vidb	vidbankwin	75	tests/vidbank.py	qemu,nasm
+vidb	vidbankspk	75	tests/vidbank.py	qemu,nasm
+vidl	vidlayerpal	75	tests/vidlayer.py	ffmpeg
+colo	colorpresets	72	tests/colorpresets_qemu.py	qemu,nasm,pil
+wire	wireball	65	tests/wireball.py	qemu,nasm,pil
+pxsw	pxswin-qemu	65	tests/pxswin.py	qemu
+hmad	hmadrv	62	tests/hmadrv.py	qemu,nasm
+vidb	vidbankspkbank	60	tests/vidbank.py	qemu,nasm
+vidl	vidlysplit	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlysplitbase	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlysplituntimed	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+vidl	vidlybank	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+vidl	vidlybankcopy	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+vidl	vidlybanknone	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+vidx	vidxmslive	60	tests/vidxms.py	qemu,nasm
+vidx	vidxmsliverep	60	tests/vidxms.py	qemu,nasm
+gifd	gifdrag	56	tests/gifdrag.py	
+whee	wheelps2	56	tests/wheelps2.py	qemu,nasm
