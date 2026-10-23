@@ -10167,7 +10167,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/pixel.o88",
                "build/os8088-360.img")),
-    Row("pxfsx", "soak", py("tests/pxfsx.py"), 1500.0,
+    Row("pxfsx", "soak", py("tests/pxfsx.py"), 300.0,
         "SPEC.md 106.23, PiXEL's full screen, on MartyPC's VGA XT, CGA 5150 "
         "and Hercules 5150: every mode each display offers (Mode X, 13h and "
         "640x480's adaptive sixteen; C160, 320x200's chosen four and "

@@ -8,7 +8,7 @@ DONE weav	weavesmoke	70	tests/weavesmoke.py
 DONE weav	weaveone	60	tests/weaveone.py
 DONE weav	weavegame	50	tests/weavegame.py
 DONE weav	weavelat	40	tests/weavelat.py
-pxfs	pxfsx	1500	tests/pxfsx.py
+DONE pxfs	pxfsx	1500	tests/pxfsx.py
 DONE vidd	viddiskfd	195	tests/viddisk.py
 DONE vidd	wseq	182	tests/viddisk.py
 DONE vidd	wseqheld	177	tests/viddisk.py
