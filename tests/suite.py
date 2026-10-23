@@ -5438,6 +5438,17 @@ SOAK = [
         "pixels on the code before the fix",
         needs=("qemu", "cc"), serial=True,
         wants=("build/lemmings.img",)),
+    Row("cpcost", "soak", py("tests/cpcost.py"), 100.0,
+        "NO-PINNING G1: what a compaction COSTS while a Sound Blaster plays. "
+        "trackmove's scenario on os8088_5150_sb_gla with the music left "
+        "PLAYING: every mem_compact call is timed in guest cycles (breakpoint "
+        "on entry and on its return address) and SOUND.DRV's sbl_underrun "
+        "count is read across the claim. Asserts the module moved and the "
+        "stream still plays; the cost and the underruns are REPORTED, being "
+        "the owner's numbers to decide on. First run: nine passes, 56-677 ms "
+        "each, one underrun, the 116KB module 55c0 -> 2f80; 91s measured",
+        needs=("marty",), serial=True,
+        wants=("build/trackmove360.img",)),
     Row("ovlmove", "soak", py("tests/ovlmove.py"), 30.0,
         "NO-PINNING wave 0: a C overlay MOVES out from under its own call "
         "chain and both returns land. tests/covl's M key runs ovl_mv_outer -> "

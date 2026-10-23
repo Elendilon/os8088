@@ -303,6 +303,26 @@ first claim), K2's nesting and image non-nesting, K6a's mechanics, and
 RealDMG and the Video Player inside an fsx bracket (protected for free:
 workers are frozen there and the posted pass runs only at `ui_task` step 0).
 
+### 5.1 G1 - the cost of a compaction under a playing stream (MEASURED)
+
+`tests/cpcost.py`: the trackmove scenario on a 5150 with a Sound Blaster and
+the music LEFT PLAYING. HEAPFRAG's suite asked for nine compactions while
+Tracker played BEVERLY.MOD from a double-buffered stream:
+
+| pass | ms on a 4.77 MHz 8088 |
+|---|---|
+| 1 (moves the 116 KB module) | 491.7 |
+| 2-9 | 74.1, 398.1, 58.2, 676.5, 104.7, 56.1, 84.0, 264.4 |
+
+**One underrun across ~2.2 s of compaction**, and the stream played on
+(SPEC.md 34.5's contract: an underrun is a pause the refill task resumes,
+never stale audio). So TODAY a compaction under music is a short audible gap
+at worst. The figure to watch as C3/C4 land is the largest single pass: a
+330 KB LEMMINGS set is ~2.8x the module's 116 KB, so ~1.4 s with the refill
+task held off. That is a pause, not a failure. Re-run this row with LEMMINGS
+suspended once C4 lands; whether a per-pass cap is wanted is the owner's call,
+made on that number.
+
 ## 6. Open decisions for the owner
 
 ### 6.1 K9 - BUILT, as a count (SPEC.md 66.6.3.2)
