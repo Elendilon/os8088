@@ -14952,7 +14952,7 @@ SOAK = [
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megalowh.o88", "build/megalowb.o88",
                "build/cword.o88")),
-    Row("megahiber", "soak", py("tests/megahiber.py"), 300.0,
+    Row("megahiber", "soak", py("tests/megahiber.py"), 80.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.5, 14.46: a hibernate and resume "
         "on kern_mega IN PROTECTED MODE, under MEGATRAP=1's census (a "
         "private tree). Bochs boots off C:'s boot partition with the system "
@@ -14962,10 +14962,10 @@ SOAK = [
         "most 2,048 #GP fixups - the conventional picture was one write from "
         "segment 0, the NULL selector, and took 32,512 null0 fixups in "
         "HDD.DRV's PIO loop; hbm_xwconv takes the first cluster alone that "
-        "way. The failing case is that one write put back: 32,513. 300s is "
-        "266 measured, the tree's build included",
+        "way. The failing case is that one write put back: 32,513. 80s is "
+        "62 measured: the hibernate's end is its sentence on the text screen",
         needs=("bochs", "nasm")),
-    Row("megap2hiber", "soak", py("tests/megap2hiber.py"), 200.0,
+    Row("megap2hiber", "soak", py("tests/megap2hiber.py"), 30.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.57, SPEC.md 96.45.2.4: the PS/2 "
         "mouse after a hibernate's REBOOT-route resume on kern_mega. Bochs "
         "with an IntelliMouse (type=imps2) boots off C:, hibernates, powers "
@@ -14977,11 +14977,11 @@ SOAK = [
         "with (`not [mou_line]` was 0 for MOU_P2LINE: B8h came home 00h), "
         "mou_p2wz still 3 and the pointer moving. The failing cases, each "
         "verified: the slave mask out (8Fh at .nowz) and the MOU_P2LINE "
-        "guard out (master 00h). 200s is 160 measured",
+        "guard out (master 00h). 30s is 18 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/mines.o88")),
-    Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 360.0,
+    Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.61, 14.62: the keyboard INSIDE a "
         "DOS program and the keyboard and pointer after it, over ten round "
         "trips on kern_mega's park arm with the pointer moving across every "
@@ -14993,11 +14993,11 @@ SOAK = [
         "asserts the key, the return and the pointer moving; the next trip's "
         "typed command is the desktop's keyboard. The failing case, "
         "verified: the tree before 14.62 (--build on a copy), 3 of 6 trips "
-        "with no key and a stray `2` typed on the seventh. 360s is 300 "
+        "with no key and a stray `2` typed on the seventh. 60s is 48 "
         "measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
-    Row("megapiclose", "soak", py("tests/megapiclose.py"), 450.0,
+    Row("megapiclose", "soak", py("tests/megapiclose.py"), 90.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.63, 14.64, SPEC.md 96.45.2.5, "
         "9.9.9: the mouse moved DURING the live resume from a DOS program "
         "came home with the mouse AND the keyboard dead on the Victory 286 "
@@ -15011,8 +15011,8 @@ SOAK = [
         "command typed into the DOS window. RED, PICLOSE=2 (mega_kwd "
         "compiled out): must die - it does on trip 1, pointer and keyboard "
         "both. GREEN, PICLOSE=1: six trips clean, and E9's `8042 edge lost` "
-        "at least once (seven in the measured run). 450s is 383 measured "
-        "with both trees built",
+        "at least once (seven in the measured run). The two legs are two "
+        "machines run at once. 90s is 71 measured, the trees built",
         needs=("bochs", "nasm"), timeout=1500),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "

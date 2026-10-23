@@ -126,15 +126,21 @@ class _Input(object):
         self.env = dict(os.environ, DISPLAY=display)
         self.regrab = False
         self.last = 0.0
+        # ONE xdotool at a time on a display: a row that wiggles the mouse
+        # in a thread while it clicks would otherwise have two calls both
+        # see `regrab` and toggle the capture twice - OFF
+        import threading
+        self.lock = threading.Lock()
 
     def xd(self, *a):
-        pre = ()
-        if self.regrab:
-            self.regrab = False
-            pre = GRAB
-        subprocess.run(["xdotool"] + [str(x) for x in pre + a],
-                       env=self.env, check=True)
-        self.last = time.time()
+        with self.lock:
+            pre = ()
+            if self.regrab:
+                self.regrab = False
+                pre = GRAB
+            subprocess.run(["xdotool"] + [str(x) for x in pre + a],
+                           env=self.env, check=True)
+            self.last = time.time()
 
     def shot(self, path):
         subprocess.run("xwd -root -silent | convert xwd:- -crop 650x500+5+40 "
@@ -277,7 +283,7 @@ def _tail(path, n):
         return f.read().decode("latin-1")
 
 
-def session(out, cmds, timeout=20.0, pids=None, inp=None):
+def session(out, cmds, timeout=20.0, pids=None, inp=None, interrupt=True):
     """Break in, run the debugger commands CMDS, continue - and answer the
     transcript of the commands, read off OUT/e9.out (the debugger writes to
     the same stdout the E9 hack does).
@@ -296,14 +302,21 @@ def session(out, cmds, timeout=20.0, pids=None, inp=None):
         time.sleep(gap)
     n = os.path.getsize(e9)
     end = time.time() + timeout
-    for p in (pids if pids is not None else running()):
+    if not interrupt:
+        # ALREADY STOPPED (a breakpoint hit): the prompt it printed is the
+        # one before n, so start the transcript there
+        with open(e9, "rb") as f:
+            t = f.read().decode("latin-1")
+        k = t.rfind("<bochs:")
+        n = k if k >= 0 else n
+    for p in (pids if pids is not None else running()) if interrupt else ():
         os.kill(p, 2)               # SIGINT: Bochs stops at its prompt
     text, nap, kick = "", 0.002, time.time() + 1.0
     while True:
         text = _tail(e9, n)
         if _PROMPT.search(text) and text.rstrip(" ").endswith(">"):
             break
-        if time.time() > kick:          # a signal lost at a prompt
+        if interrupt and time.time() > kick:    # a signal lost at a prompt
             for p in (pids if pids is not None else running()):
                 os.kill(p, 2)
             kick = time.time() + 1.0
@@ -573,6 +586,16 @@ class Box(object):
             self._map = kmap(self.build)
         return self._map[name]
 
+    def at_prompt(self, cmds, timeout=20.0):
+        """`dbg` for a machine that is ALREADY at the debugger's prompt -
+        stopped on a breakpoint (`lb`): run CMDS, continue, answer the
+        transcript. No signal is sent."""
+        t = session(self.out, cmds, timeout, pids=[self.p.pid],
+                    inp=self.inp, interrupt=False)
+        if self.captured:
+            self.inp.regrab = True
+        return t
+
     def dbg(self, cmds, timeout=20.0):
         """`session` on this machine: the commands' transcript.
 
@@ -798,8 +821,10 @@ class Box(object):
         walk, no fixed pause: ~0.1-0.3 s where module `goto` is ~3.5 s.
         RuntimeError if the pointer will not move - the mouse is not
         captured (`capture`), or the guest is not taking packets."""
-        pos = self.mouse()
+        pos, stuck = self.mouse(), 0
         for _ in range(tries):
+            if stuck >= 2:          # two sends that moved NOTHING: dead -
+                break               # said in ~4 s, not tries x 2
             dx, dy = x - pos[0], y - pos[1]
             if not dx and not dy:
                 return pos
@@ -823,6 +848,7 @@ class Box(object):
                     continue
                 if time.time() > end:
                     break
+            stuck = stuck + 1 if pos == was else 0
         raise RuntimeError("os88bochs: the pointer is at %s, not (%d, %d) - "
                            "is the mouse captured?" % (pos, x, y))
 

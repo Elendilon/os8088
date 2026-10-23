@@ -138,7 +138,9 @@ the X queue is taken while the mouse is captured rather than dropped.
 | `box.in_fsx()` | an exclusive fullscreen bracket is running (`[fsx_task]` not FFh) - ui_task is FROZEN inside one, so `ui_done` cannot end there; wait on this into and out of it |
 | `box.fault()` | the first `kern_mega FAULT` line, or None; every `until` raises on one at once rather than waiting out its budget |
 | `box.shot(path)` | a screenshot after `GLASS` (0.45 s): the X window lags the guest by up to one of Bochs's 5 Hz VGA updates |
-| `box.xd(...)`, `box.key(...)`, `box.type(...)` | xdotool on THIS machine's display |
+| `box.xd(...)`, `box.key(...)`, `box.type(...)` | xdotool on THIS machine's display - one call at a time (a thread wiggling the mouse beside a click is safe) |
+| `box.at_prompt(cmds)` | the machine is ALREADY stopped (an `lb` breakpoint hit): run CMDS and continue, on the prompts |
+| text screen | `box.read(0xB8000, n)[0::2]` is the characters - how a hibernate's `os8088 has hibernated` is waited for, it having no E9 line |
 
 **SEVERAL MACHINES IN ONE PROCESS.** `Box(..., display=os88bochs.take_display(),
 megs=N)` gives a machine its own Xvfb display and input state, so a row runs
