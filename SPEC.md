@@ -212337,6 +212337,25 @@ the row fills the window by INJECTION (`tests/wcprobe.py`): a reply §113.2.3
 would send is written into `wc_resp` and handed to the UI task as the worker
 would hand it.
 
+**A flush does not restore the grow box**, because nothing it draws reaches
+it: the status bar's band stops `WC_GROWC` cells short of the corner, and
+every other region ends at or above the input row. Both flush paths
+(`wc_cbflush` and the wake's) called `OSAPI_WM_GROW` after every change, and
+`wm_grow_paint` FILLS the square white before framing it - the
+erase-and-letter flash in one corner, three or four times a gesture, which
+§27.2.1 took out of Note Pad for the same reason. A full paint (`wc_repaint`,
+and the kernel's own after `W_PAINT`) still restores it: that is the path
+whose ground fill covers the corner. `tests/wcdraw.py` counts the package's
+`OSAPI_WM_GROW` calls apart from its drawing calls and holds every gesture at
+ZERO. The same defect is what made its identity INTERMITTENT on the VGA: a
+capture that landed inside a restore read a half-drawn grow box, on either
+side of the comparison. The other thing that legitimately changes between the
+two captures is the header's CLOCK, so the identity starts only with 30
+guest seconds left in the kernel's minute (`clk_min`/`clk_sec`), waiting for
+the turn and for `wc_clkm` to show it otherwise, and with the activity lamp
+out and nothing dirty - and fails by name if the minute still turned. -18
+bytes of image (22,186 -> 22,168).
+
 #### 113.5.2 The themes
 
 Five, picked from the **Theme** menu (§113.6.4) and kept in `WIRECHAT.CFG`
