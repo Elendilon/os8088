@@ -25,9 +25,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **A row SKIPPED for a missing `wants=` artefact** (a `make kdostest` /
   `doscom` / `cdromtest` disk nobody built) is measured on a PRIVATE tree:
   `os88build.tree(targets=(...))`, then run the script with
-  `OS88_TREE=<tree>` (+ `OS88_BUILD=<tree>` when it boots that tree\x27s
+  `OS88_TREE=<tree>` (+ `OS88_BUILD=<tree>` when it boots that tree's
   kernel, + `OS88_PREBUILT="build/x.img ..."` so `os88fixture.need` does not
-  make). A tree is a subset: what it lacks still resolves into it
+  make). A tree is a subset: what it lacks still resolves into it.
 
 ## Techniques (numbered; cite by number in the ledger)
 
