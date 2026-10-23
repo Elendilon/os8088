@@ -24,7 +24,7 @@ DONE vidb	vidbankauto	40	tests/vidbankauto.py	ffmpeg
 mixe	mixersb16	40	tests/mixer.py	qemu,nasm
 DONE kdre	kdreturnmode	38	tests/kdreturn.py	
 DONE kdre	kdreturnpit	38	tests/kdreturn.py	
-trks	trkscrl	38	tests/trkscrl.py	qemu,nasm
+DONE trks	trkscrl	38	tests/trkscrl.py	qemu,nasm
 DONE kdre	kdreturn	37	tests/kdreturn.py	
 DONE kdre	kdreturnm	36	tests/kdreturn.py	
 DONE kdre	kdreturncx	36	tests/kdreturn.py	

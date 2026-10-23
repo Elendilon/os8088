@@ -4943,7 +4943,7 @@ SOAK = [
         "stays, the bank idle under it as 98.3.18.5 has it",
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
-    Row("vidclose", "soak", py("tests/vidclose.py"), 75.0,
+    Row("vidclose", "soak", py("tests/vidclose.py"), 50.0,
         "SPEC.md 98.3.18.10: THE CLOSE BOX ON A LOAD STILL RUNNING, on QEMU "
         "with XMS and B: throttled - play, Esc, close while the window's "
         "timer is still reading the file's hold into XMS, three rounds: the "
@@ -11366,7 +11366,7 @@ SOAK = [
         "is the one that can put a tm_mrow_nolast blank between the table and "
         "its own end stop and no one-column machine can show it.",
         needs=("marty",), serial=True, timeout=900),
-    Row("trkscrl", "soak", py("tests/trkscrl.py"), 38.0,
+    Row("trkscrl", "soak", py("tests/trkscrl.py"), 20.0,
         "SPEC.md 45.12.2: a jump of n rows in the pattern view costs ONE "
         "gfx_scroll and no full repaint, and what it leaves on the screen is "
         "byte-identical to a repaint of the same view. QEMU, because the "
@@ -14130,7 +14130,7 @@ SOAK = [
         "bites",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidxmslive", "soak", py("tests/vidxms.py", "--arm", "live"), 60.0,
+    Row("vidxmslive", "soak", py("tests/vidxms.py", "--arm", "live"), 30.0,
         "SPEC.md 98.3.18.1: a STREAMED Live file played LIVE from the hold. "
         "A 1.2 MB one-bit stream for the VGA desktop, four times the biggest "
         "ring, is held whole; B: is changed to a BLANK floppy; Play must be "
@@ -14143,7 +14143,7 @@ SOAK = [
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidxmsliverep", "soak", py("tests/vidxms.py", "--arm", "liverep"),
-        60.0,
+        40.0,
         "SPEC.md 98.3.18.1 with REPEAT: the same streamed Live file looping "
         "from frame 10 - the file's end asks for the seam and the next lap's "
         "start, and the play goes round: over a lap and a half drawn, the "
