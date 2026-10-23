@@ -199642,10 +199642,17 @@ bracket opens on a TITLE, not on a race: `xb_game` is the state machine and
 results, 5 game over, 6 best times, 7 attract. Every screen is drawn as TILES
 (`xb_puts`: the compiled font, a run of byte moves a glyph; on the VGA the ink is
 the map mask of a palette slot, on the CGA there is one ink) over a black screen and
-every one begins with `xb_flush`, which empties the typed keys and waits (bounded, 40
-frames) for the Enter that brought it there to be let go of, BEFORE it draws, so a key
+every one begins with `xb_flush`, which empties the typed keys BEFORE it draws, so a key
 typed while a screen is being drawn is kept. A screen waits with `xb_getkey`: one
 `FSXW_FRAME` (an 18 ms sleep, not a spin) and the typed key, `CF` = Alt+Enter.
+**One press of Enter is one screen however long it is held**: every typed key - the
+menus' and the race's - comes through `xb_rdkey`, which takes an Enter once per PRESS
+(`[xb_enth]` is set when one is taken and cleared when `OSAPI_KEY_DOWN` reads Enter up)
+and throws away every Enter typed in between, which is the held key's typematic
+repeats. It replaced a bounded wait (40 frames) in `xb_flush` for the release, which a
+hold longer than the bound ran straight through: the course screen took a repeat and
+the mode screen's one press started a race. Being a level read it is advice (SPEC.md
+67.11.1) - a break lost inside an interrupts-off window costs one extra press.
 `xb_menu_begin` hands the card back from a race (VGA: the line-compare split off,
 the start address home, write mode 0 with every plane and the bit mask open, two
 frames for the start address to latch; CGA: the start address home) and paints the
