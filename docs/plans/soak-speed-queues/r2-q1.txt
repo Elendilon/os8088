@@ -96,7 +96,7 @@ mult	mseg360	40	tests/multiseg.py
 mult	multiseg	20	tests/multiseg.py
 DONE fddp	fddpark	300	tests/fddpark.py
 fddp	fddpage	120	tests/fddpage.py
-asso	assocflush	170	tests/assocflush.py
+DONE asso	assocflush	170	tests/assocflush.py
 asso	assocsweep	50	tests/assocsweep.py
 asso	assocopen	40	tests/assocopen.py
 asso	assocglyph	30	tests/assocglyph.py

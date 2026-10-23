@@ -2528,7 +2528,7 @@ SOAK = [
         "HELLO.ZZZ, which nothing declares: the search runs and the verdict "
         "is the old one",
         needs=("marty",), serial=True),
-    Row("assocflush", "soak", py("tests/assocflush.py"), 170.0,
+    Row("assocflush", "soak", py("tests/assocflush.py"), 60.0,
         "SPEC.md 54.7.6: what the machine learns is written BACK to the "
         "volume's ASSOC.DAT. Five boots, every answer read off the floppy "
         "the guest wrote: a cold B:\\APPS is ONE flush whose rows equal "
