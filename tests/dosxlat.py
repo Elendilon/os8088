@@ -145,28 +145,38 @@ def main():
 
     lis = Listener()
     say("dosxlat: listening on %d, %d bytes of answer" % (PORT, len(RESP)))
-    os88qemu.kill()
-    os88qemu.own()
-    r = subprocess.run(["make", "test", "ETHER=1", "TESTIMG=" + sysimg,
-                        "TESTAPPS=" + pkt], capture_output=True, text=True)
-    if r.returncode:
-        say("dosxlat: FAILED - make test:\n" + r.stdout + r.stderr)
-        return 1
-
-    m = eth.Qemu()
-    mouse = eth.Mouse()
+    # A PRIVATE QEMU (os88qemu.Private): what `make test ETHER=1 TESTIMG=
+    # TESTAPPS=` launched - its DEVCARD OPL2 too - without the `make` in the
+    # shared tree (it rebuilds a build/ that is behind its sources) or the
+    # kill of whatever build/qemu.pid named; the mouse is closed-loop
+    # (docs/plans/SOAK-SPEED.md technique 15).
+    import tempfile
+    import xmcheck
+    import atexit
+    import shutil
+    work = tempfile.mkdtemp(prefix="dxl-")      # short: a QMP socket path
+    atexit.register(shutil.rmtree, work, True)  # (runs after q's close)
+    q = os88qemu.Private(work, sysimg, pkt, ether=True,
+                         extra=["-audiodev", "none,id=devsnd", "-device",
+                                "adlib,audiodev=devsnd"])
+    eth.SOCK = q.sock
+    m = eth.Qemu(q.sock)
+    mouse = os88qemu.Mouse(m, eth.S, lambda *c: xmcheck.qmp(q.sock, *c))
     try:
         # Every wait in this row is in the GUEST's seconds (tests/os88qemu.py)
         # - the probe paces itself in BIOS ticks, so its budget is that clock.
         drvrow = eth.S("drv_tab") + eth.ETH_ROW * eth.DRVR_SZ + eth.DRVR_SEG
         os88qemu.acted(m, lambda: eth.u16(m.read(drvrow, 2)) != 0, secs=60,
-                       what="ETHER.DRV's drv_tab row", poll=0.4)
+                       what="ETHER.DRV's drv_tab row", poll=0.05)
         seg = eth.u16(m.read(drvrow, 2))
         if not seg:
             say("dosxlat: FAILED - ETHER.DRV never attached; no card was "
                 "found, or SYSTEM.CFG did not ask for it")
             return 1
         say("dosxlat: ETHER.DRV at %04X" % seg)
+        # THE DESKTOP, before the first click: the driver attaches in the
+        # boot, ahead of drive B's zone, and the click aims at that zone
+        xmcheck.wait_desktop(q.sock, "dosxlat")
 
         # BY NAME, NEVER BY COORDINATE (CLAUDE.md; tests/dispcp.py)
         dispcp.open_drive(m, mouse, eth.S, eth.settle, "B")
@@ -176,7 +186,7 @@ def main():
 
         pseg = None
         if os88qemu.acted(m, lambda: dispapps.pkg_seg(m, 0) is not None,
-                          secs=20, what="the DOS window", poll=0.5):
+                          secs=20, what="the DOS window", poll=0.05):
             pseg = dispapps.pkg_seg(m, 0)[1]
         if pseg is None:
             say("dosxlat: FAILED - no package window: DOS.O88 never launched")
@@ -197,7 +207,7 @@ def main():
         # IS the offset from the PSP.
         os88qemu.acted(m, lambda: eth.u16(m.read((pseg << 4)
                                                  + dm["dos_ldpsp"], 2)) != 0,
-                       secs=10, what="[dos_ldpsp]", poll=0.5)
+                       secs=10, what="[dos_ldpsp]", poll=0.05)
         psp = eth.u16(m.read((pseg << 4) + dm["dos_ldpsp"], 2))
         if not psp:
             say("dosxlat: FAILED - [dos_ldpsp] is 0: no program was loaded")
@@ -213,7 +223,7 @@ def main():
         # the close is the last thing that happens, so waiting for anything
         # else would be a fixed sleep
         os88qemu.acted(m, lambda: any(b & F_FIN for b in flags()), secs=60,
-                       what="the FIN", poll=0.5)
+                       what="the FIN", poll=0.05)
         log = flags()
         gw = m.read((psp << 4) + pm["gwmac"], 6)
         st = m.read((psp << 4) + pm["statbuf"], 24)

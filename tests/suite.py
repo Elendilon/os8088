@@ -7050,7 +7050,7 @@ SOAK = [
         "loop would take 33,000.",
         needs=("marty",), serial=True,
         wants=("build/dospkt360.img",)),
-    Row("dosxlat", "soak", py("tests/dosxlat.py"), 75.0,
+    Row("dosxlat", "soak", py("tests/dosxlat.py"), 10.0,
         "THE CABLE TRANSLATION, ONE WHOLE TCP CONNECTION (SPEC.md 96.26). "
         "Where `dospkt` asks whether a frame reached a CARD, this asks whether "
         "a DOS client's own stack gets what TCP owes it over the PARALLEL "
