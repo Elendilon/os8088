@@ -92,12 +92,12 @@ TICK_HZ_N, TICK_HZ_B = _e("IT_SND_TICK"), _e("IT_SND_TICKB")
 
 def boot():
     system, apps, machine = T.boot_for(TAG)
-    return os88ui.boot(system, apps=apps, machine=machine)
+    return os88ui.boot(system, apps=apps, machine=machine, quick=True)
 
 
 def open_game(ui):
     g = L.open_game(ui)
-    M.until(ui.m, lambda _: g.b("it_spawned") == 1, "the worker to start", poll=0.2, guest=20)
+    M.until(ui.m, lambda _: g.b("it_spawned") == 1, "the worker to start", poll=0.05, guest=20)
     T.presented(ui, g)
     return g
 

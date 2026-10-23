@@ -36,16 +36,16 @@ DONE disp	dispstrad	30	tests/dispstrad.py
 DONE disp	dispsaver	20	tests/dispsaver.py
 pxbe	pxbenchvga	760	tests/pxbench.py
 pxbe	pxbench	700	tests/pxbench.py
-isot	isotrontoggle	180	tests/isotron.py
-isot	isotronfs	150	tests/isotron.py
-isot	isotrontwodisp	90	tests/isotron.py
-isot	isotronflow	90	tests/isotron.py
-isot	isotronsound	90	tests/isotronlive.py
-isot	isotronpace	75	tests/isotronlive.py
-isot	isotronwin	60	tests/isotron.py
-isot	isotronrules	45	tests/isotron.py
-isot	isotroninput	45	tests/isotronlive.py
-isot	isotronbound	40	tests/isotron.py
+DONE isot	isotrontoggle	180	tests/isotron.py
+DONE isot	isotronfs	150	tests/isotron.py
+DONE isot	isotrontwodisp	90	tests/isotron.py
+DONE isot	isotronflow	90	tests/isotron.py
+DONE isot	isotronsound	90	tests/isotronlive.py
+DONE isot	isotronpace	75	tests/isotronlive.py
+DONE isot	isotronwin	60	tests/isotron.py
+DONE isot	isotronrules	45	tests/isotron.py
+DONE isot	isotroninput	45	tests/isotronlive.py
+DONE isot	isotronbound	40	tests/isotron.py
 isot	isotronsmall	40	tests/isotronsmall.py
 vidl	vidlyplay	150	tests/vidlyplay.py
 vidl	vidlyplaystream	150	tests/vidlyplay.py

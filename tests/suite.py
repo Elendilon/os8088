@@ -3731,7 +3731,7 @@ SOAK = [
         "title. Measured ~120 s for the three machines (wave 3)",
         needs=("marty", "nasm"),
         wants=("build/isotron360.img", "build/os8088-360.img")),
-    Row("isotrontoggle", "soak", py("tests/isotron.py", "--toggle", "all"), 180.0,
+    Row("isotrontoggle", "soak", py("tests/isotron.py", "--toggle", "all"), 90.0,
         "isoTron's WINDOWED <-> FULL SCREEN TOGGLE (SPEC.md 108.12.6), MartyPC's "
         "5150 CGA and XT-VGA: a paced seeded round frozen mid-way by the harness "
         "(it_tpause: no iteration, no message), then F, Alt+Enter and Game > "
