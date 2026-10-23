@@ -3403,7 +3403,7 @@ SOAK = [
         "swimmers forced to the larger size: one roll in sixteen, so a test "
         "that waited for one would usually measure something cheaper.",
         needs=("marty",), serial=True),
-    Row("fishedge", "soak", py("tests/fishedge.py"), 150.0,
+    Row("fishedge", "soak", py("tests/fishedge.py"), 20.0,
         "does sea life leave the reserved strip at the right edge DARK on "
         "Hercules? (SPEC.md 79.5.10). SPEC.md 79.5.9 places the field's "
         "column-0 shimmer in 86Box's plain Hercules renderer rather than in "

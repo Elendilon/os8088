@@ -90,6 +90,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
 11. **Ask `os88build.tree()` once per configuration per process.** A warm
    tree still costs a `make` to prove it current (~17 host s loaded); a row
    asking for the same knobs again pays it again (bootfloor: 12 asks, 5 trees).
+12. **`launch(boot=<N>)` is a blind N-second pace** (cProfile: 64 of
+   fishedge's 69 s were `time.sleep` inside it). `boot=False`, `m.run()`,
+   `kernel_up(m)`. `grep -n 'boot=[1-9]' tests/*.py` lists the rest.
 
 ## Harness changes made in this pass
 
@@ -250,6 +253,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | hdboot | 131 s (3 lanes) / 36 guest s waited | 37 s / 35 | 4 | the install machine's double boot settle (launch's + one more) -> `kernel_up`; the C: boot was already a frame-stepped state watch |
 | deskflash / deskzoom | 103 / 109 s (3 lanes) | 45 / 93 s (load 8) | 4, 10 | quick boots; settles -> `ui.still()`, the one before `dc.verify` dropped (verify stills itself); deskflash's per-pixel Python `flashes` over 30-70 glass frames -> numpy (`OS88_FLASHCHECK=1` asserts it equal to the loop: equal on all 16 checks). deskzoom's rest is `dc.verify`'s whole-repaint compares |
 | 1942sound / 1942 / 1942front | declared 752 / 216 / 180; measured 158 / 131 / 102 s (load 10), 304 guest s waited | 139 / 124 / 91 s (load 6), 223 guest s | 4 + quick boot | quick boots; splash settles -> `ui_done` / `UI.still` before the exact-pixel logo compares; `Game.call` restores only the registers a call changed. What is left is ~7,300 `call_guest`s at ~25 round trips each (park + 13 setregs + bp + run + regs + restore). **Pipelining them does NOT work on today's server** - queued lines after the first are not answered until more input arrives (tried, hung); a server-side drain of `pending` would make a 25-trip call ~3 |
+| fishedge | 72 s | 14 s | 12 | two `launch(boot=40)` - a fixed pace - -> `kernel_up`; same strip counts' shape (they vary run to run with the swimmers) |
 
 ## Resuming
 

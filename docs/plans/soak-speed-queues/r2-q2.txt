@@ -96,7 +96,7 @@ apsp	apspkpause	20	tests/apspk.py
 apsp	apspkcard	18	tests/apspk.py
 wdco	wdcourier	100	tests/wdcourier.py
 wdco	wdcombo	80	tests/wdcombo.py
-fish	fishedge	150	tests/fishedge.py
+DONE fish	fishedge	150	tests/fishedge.py
 fish	fishfit	20	tests/fishfit.py
 dosa	dosargs	90	tests/dosargs.py
 dosa	dosarena	35	tests/dosarena.py
