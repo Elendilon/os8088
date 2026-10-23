@@ -3062,8 +3062,12 @@ HDI_SLOTS    equ 1              ; DL = a device, ES:DI = 4 * HDIS_SIZE. out
                                 ; AL = the slot the Install window would
                                 ; select, 0FFh none would do, 0FEh no such
                                 ; device or its geometry is unknown
-HDI_GO       equ 2              ; DL = device, DH = slot, CH = 1 erase / 0 keep
-                                ; the files; ES:DI = an HDIB_* block. out AL =
+HDI_GO       equ 2              ; DL = device, DH = slot, CH = bit 0 1 erase /
+                                ; 0 keep the files, bits 7..1 the SOURCE volume
+                                ; + 1 (0 = the engine's own: the bank, then the
+                                ; floppies), and a named one is taken to carry
+                                ; the apps (SPEC.md 117.10.5); ES:DI = an
+                                ; HDIB_* block. out AL =
                                 ; an HDG_* and the engine's caption at HDIB_CAP.
                                 ; The Install window's two clicks in one
 HDI_APPS     equ 3              ; ES:DI = an HDIB_* block: the apps phase, once
@@ -4958,6 +4962,15 @@ OS88_BSS_SIZE equ 0
                                  ; READ-AND-CLEAR - the first proc to ask
                                  ; gets it, so a second instance launched
                                  ; later can never inherit a document
+%define OSAPI_ARG_TEXT      KERNEL_SEG:0x04D5   ; a LINK's parameter (SPEC.md
+                                 ; 26.10.7): the text a .LNK naming this
+                                 ; program carried after its path. No inputs;
+                                 ; out CF=1 = none, every launch but such a
+                                 ; link's; CF=0 with DX:SI -> the NUL text,
+                                 ; VALID IN THE ENTRY PROC ONLY - copy it out.
+                                 ; Clobbers DX and SI either way.
+                                 ; READ-AND-CLEAR, as OSAPI_ARG_FILE is.
+                                 ; kern_small refuses (it has no links)
 %define OSAPI_ASSOC_FLUSH   KERNEL_SEG:0x0493   ; DL = a volume, AL = the
                                  ; ASSOC_FL_* bits below (0 = incremental):
                                  ; bring that volume's

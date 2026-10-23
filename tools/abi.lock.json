@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "d7c87702ffffdb423e17ba541a16526a5ce9ef77506e6fc052fbf3a4c3455112",
+  "fingerprint": "8abb2facb5e077f3f6c653f6fff1f82f465756c6b94a0d8e0e13ed0367dc27d7",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "4af7b11e5626d27c1c9509067c60f4d2ff512b3128a4243f92a31be1ff7cbc75",
+  "fingerprint": "592515ce8b58af48f65d0834bcbf5d475b996002689e82af6b252b9a0e8b8294",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -882,6 +882,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "comment-only: os88api.inc contract comments call the DOS package DOS",
+   "to": 11
+  },
+  {
+   "fingerprint": "592515ce8b58af48f65d0834bcbf5d475b996002689e82af6b252b9a0e8b8294",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "merge of network-mount: OSAPI_ARG_TEXT at the table's end, HDI_GO's CH names a source; nothing built before stops running",
+   "to": 10
+  },
+  {
+   "fingerprint": "8abb2facb5e077f3f6c653f6fff1f82f465756c6b94a0d8e0e13ed0367dc27d7",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "merge of network-mount: OSAPI_ARG_TEXT at the table's end, HDI_GO's CH names a source; nothing built before stops running",
    "to": 11
   }
  ]

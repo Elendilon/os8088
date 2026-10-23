@@ -153,6 +153,39 @@ hash a lie. If the user says go ahead, note it in the PR body.
 If the website repo has uncommitted changes, stop and ask; the release commits
 to a fresh branch off `main` and would otherwise sweep unrelated work into it.
 
+### 1a. Stamp the release (SPEC.md 117.10.1)
+
+INSTALL's network check compares releases, not builds: the release is the
+date in this version, `YYYYMMDD`, and it lives on the first line of
+`apps/install/OS88VER.TXT`. Write it there, and replace the lines under it
+with **exactly four lines of what is new, 40 characters each** - INSTALL
+shows them on its first page whenever the network is the pick. Recommend one
+of two shapes to the user and let them choose:
+
+- **four points**, one line each, every line starting `* `;
+- **three points**, one of which takes two lines - its second line indented
+  two spaces, so it reads as the same point:
+
+```
+20261024
+* Install and upgrade over the network
+* RealDMG recompiler on 8088 class
+* File Progress, toast, clock and
+  volume icon system consolidation
+```
+
+Count to 40 including the `* `; a longer line is cut at 40 on the glass, and
+a fifth line is never shown (`make nettree` warns on both). Ask the user for
+the points if the changes since the last release do not make them obvious. Then commit it (`Release YYYYMMDD: version file`)
+so the images, the zip and the published tree all carry the same release and
+the manifest's commit is the one that says so.
+
+```bash
+cd "$OS_REPO"
+$EDITOR apps/install/OS88VER.TXT        # line 1 = the date, then what is new
+git commit -m "Release YYYYMMDD: version file" apps/install/OS88VER.TXT
+```
+
 ### 2. Build the images
 
 ```bash
@@ -166,7 +199,23 @@ ls -l build/os8088.img build/os8088-120.img build/os8088-720.img \
       build/emu.img
 ```
 
-All thirteen must exist -- step 3a refuses to pack without them. (Four
+All thirteen must exist -- step 3a refuses to pack without them.
+
+**And the published tree** INSTALL upgrades from (SPEC.md 117.10.2):
+
+```bash
+make nettree           # build/nettree/: system + apps, SYSTEM/OS88VER.TXT, OS88.IDX
+```
+
+It goes on the website at **`/net/`** - INSTALL's built-in address is
+`http://os8088.com/net/` - copied whole, replacing the last release's, in the
+same website commit as the release entry (`rsync -a --delete build/nettree/
+"$WEB_REPO/site/net/"`, or wherever the site's document root is). Plain
+`http://` must serve it: the HTTP drive does not do TLS. **Change nothing in
+it by hand once it is built**: `OS88.IDX` carries every file's size and the
+drive believes it, so an edited OS88VER.TXT is served cut to its old length.
+Edit `apps/install/OS88VER.TXT` and run `make nettree` again, or re-index the
+folder in place with `python3 tools/os88httpdrv.py export DIR DIR`. (Four
 geometries of each pair since SPEC.md 19's 1.2MB disk, plus the 360KB-only media
 disk and SPEC.md 24.6's three 360KB-only category disks -- at that size the
 spreadsheet and the chart viewer ship on the office disk and on NO other.)

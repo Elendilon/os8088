@@ -2463,6 +2463,22 @@ SOAK = [
         wants=("build/httpmount.img", "build/os8088-360.img",
                "build/httpfs.bin", "build/mbr.bin", "build/boothd.bin",
                "build/kernel.sys", "build/readme.txt")),
+    Row("netinst", "soak", py("tests/netinst.py"), 120.0,
+        "SPEC.md 117.10 and 26.10.7: INSTALL over the network. A published "
+        "tree (os88nettree.py's, release 99991231) at 10.0.2.2:8096/net/: "
+        "the source page finds it newer and picks the network row, and the "
+        "user's own HTTP drive address is mounted again after; Enter through "
+        "every page installs from it onto the IDE disk - the MBR commits, "
+        "NETMARK.TXT and the apps folders arrive, the apps disk is skipped "
+        "by itself - and the Done page's startup row writes AUTOSTRT\\"
+        "OSCHECK.LNK with the parameter CHECK. Booted with that link and "
+        "nothing newer: no window; the same link without the parameter: the "
+        "window. Red with --same (the tree's release is INSTALL's own)",
+        needs=("qemu", "nasm", "mtools"), serial=True, timeout=600,
+        wants=("build/httpmount.img", "build/install-gate.o88",
+               "build/install-gate.map", "build/os8088.img", "build/apps.img",
+               "build/httpfs.bin", "build/mbr.bin", "build/boothd.bin",
+               "build/kernel.sys", "build/readme.txt")),
     Row("httpmount", "soak", py("tests/httpmount.py"), 105.0,
         "SPEC.md 120: HTTPFS.DRV on QEMU's NE2000, against tools/"
         "os88httpdrv.py's own server serving a fixture tree on the host. The "

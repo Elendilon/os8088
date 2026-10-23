@@ -3691,7 +3691,13 @@ apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
                                   ;          file name at ES:DI, AL = 0 a
                                   ;          driver / 1 a module (KERN-MEGA-
                                   ;          PLAN 14.70.3). kern_small refuses
-osapi_table_end:                  ; 0x04D5 today (0x04CF before OSAPI_IMG_NAME,
+    OSAPI_RCSLOT osapi_arg_text_x ; 0x04D5 - a link's parameter for the program
+                                  ;          it started (SPEC.md 26.10.7): out
+                                  ;          CF=1 none; CF=0 with DX:SI the NUL
+                                  ;          text, valid in the entry proc.
+                                  ;          kern_small refuses
+osapi_table_end:                  ; 0x04DB today (0x04D5 before OSAPI_ARG_TEXT,
+                                  ; 0x04CF before OSAPI_IMG_NAME,
                                   ; 0x04C9 before OSAPI_MEM_SUBSEG,
                                   ; 0x04C3 before OSAPI_XMEM_RUN,
                                   ; 0x04BD before OSAPI_MEM_HUGE,
@@ -3728,8 +3734,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 114*6 + 6*3 + 6 + 12*5 + 4*6 + 8
-%error "os8088 API jump table must be exactly 0x04C5 bytes: 43 SLOT (8), 11 XCELL (7), 114 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
+%if OSAPI_TABLE_LEN != 43*8 + 11*7 + 115*6 + 6*3 + 6 + 12*5 + 4*6 + 8
+%error "os8088 API jump table must be exactly 0x04CB bytes: 43 SLOT (8), 11 XCELL (7), 115 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
 %endif
 
 %ifdef KERN_MEGA
@@ -5466,6 +5472,9 @@ section .text
 %else
 osapi_mem_subseg equ mod_gone   ; `stc / retf`: CF = 1, every register kept
 %endif
+%ifndef OS88_SHORTCUTS
+osapi_arg_text_x equ mod_gone   ; no links on kern_small, so no parameter
+%endif                          ; (SPEC.md 26.10.7): CF = 1
 
 ; ---- osapi_img_name - API slot 0x04CF (KERN-MEGA-PLAN 14.70.3) -------------
 ; in:  AX = the segment a driver's or module's image is loaded at - what the
