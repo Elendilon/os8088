@@ -113,9 +113,9 @@ dosm	dosmedia	90	tests/dosmedia.py
 dosm	dosmouse	60	tests/dosmouse.py
 dosm	dosmouevt	60	tests/dosmouevt.py
 dosm	dosmcb	30	tests/dosmcb.py
-drma	drmario	110	tests/drmario.py
-drma	drmariofront	110	tests/drmario_front.py
-drma	drmarioaudio	90	tests/drmario_audio.py
+DONE drma	drmario	110	tests/drmario.py
+SKIP fails at base: build/drmario-art/preview/drmarco-vga-splash.png missing (an artefact no wants= declares) drma	drmariofront	110	tests/drmario_front.py
+DONE drma	drmarioaudio	90	tests/drmario_audio.py
 DONE tpdr	tpdraw	300	tests/tpdraw.py
 DONE doso	dosopen	240	tests/dosopen.py
 reho	rehomemove	75	tests/rehomemove.py
