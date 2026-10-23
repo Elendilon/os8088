@@ -1468,9 +1468,9 @@ menu_bput:
 menu_clkcells:
     mov ax, [vid_wm8]
 %ifdef OS88_SNDCARD
-    test word [drv_svc+DSV_CAPS], SND_CAP_MIXER
-    jz .plain
-    mov ax, [menu_mixx]         ; the speaker ends the field (SPEC.md 34.15)
+    cmp word [menu_mixcap], SND_CAP_MIXER
+    jne .plain                  ; the speaker, if it is SHOWING, ends the field
+    mov ax, [menu_mixx]         ; (SPEC.md 34.15) - a toast can hide it
 .plain:
 %endif
     sub ax, [vid_clk_hx]
@@ -2897,8 +2897,8 @@ section .text
 ; The speaker is the RIGHT end of the clock's field, and the clock is
 ; right-aligned against it (SPEC.md 34.15). The menus' boundary stays where
 ; it is with no speaker, so the gap a toast tries first is unchanged; it
-; moves left only by the cells a clock line, or a toast that missed the gap,
-; needs past the 22 left of the speaker. The driver owns the picture: no idle
+; moves left only by the cells a clock line needs past the 22 left of the
+; speaker. A toast that missed the gap hides the speaker instead. The driver owns the picture: no idle
 ; port reads or icon blits, only a capability, geometry or need change.
 menu_sound:
     push ax
@@ -2918,13 +2918,16 @@ menu_sound:
     add ax, MENU_CLK_W - 16    ; the speaker: the field's last 24 pixels.
     mov [menu_mixx], ax         ; Through AX and back, one byte under BX's
     sub ax, MENU_CLK_W - 16    ; imm16 form, and an EVEN routine (t_hotpar)
-    call clk_fmt                ; CX = the clock's glyphs, 18..24
-    cmp byte [toast_on], 0
-    je .need
-    cmp word [toast_scn], 0     ; ...or a toast that missed the gap, which
-    jne .need                   ; gets the whole field it had before: its
-    mov cl, TOAST_MAX + 1       ; widest strip, and CH is already 0
+    cmp byte [toast_on], 0      ; **A TOAST THAT MISSED THE GAP COVERS THE
+    je .need                    ; SPEAKER** (SPEC.md 34.15): the field is then
+    cmp word [toast_scn], 0     ; the one it has with no speaker, which holds
+    jne .need                   ; its widest strip, and the boundary stays put
+    xor dx, dx                  ; - so a progress widget armed against it
+    jmp short .origin           ; (12.8) is never under the strip. It was
+                                ; widened LEFT by three cells, and the widget
+                                ; kept its old origin under them
 .need:
+    call clk_fmt                ; CX = the clock's glyphs, 18..24
     sub cx, (MENU_CLK_W - 16) / 8
     jbe .origin
 .wide:

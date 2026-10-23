@@ -121,6 +121,29 @@ class Session:
               'speaker pixels match its bitmap after disk activity')
 
 
+def toast(s,pw):
+    """A toast that missed the gap HIDES the speaker and leaves [vid_clk_hx]
+    where it is (SPEC.md 34.15), so a progress widget armed against that edge
+    is never under the strip. It used to widen the field three cells left."""
+    ui=s.ui;hx=ui._word('vid_clk_hx')
+    msg=b'Toast covers the speaker'           # TOAST_MAX characters
+    s.m.write(ui._S('toast_buf'),msg+b'\0')
+    s.m.write(ui._S('toast_ttl'),struct.pack('<H',36))
+    s.m.write(ui._S('toast_inst'),b'\0')
+    s.m.write(ui._S('toast_want'),b'\1')
+    s.wait(lambda:ui._byte('toast_on')==1,'toast is up')
+    s.pace(.3)
+    if ui._word('toast_scn')==0:
+        check(ui._word('menu_mixcap')==0,'a toast in the clock field hides the speaker')
+        check(ui._word('vid_clk_hx')==hx,'...and the clock edge does not move for it')
+    else:                                    # a 720px bar fits it in the gap
+        check(pw>640,'a TOAST_MAX strip misses the gap on a 640px bar')
+        check(ui._word('vid_clk_hx')==hx,'a toast in the gap moves nothing')
+    s.wait(lambda:ui._byte('toast_on')==0,'toast expires')
+    s.wait(lambda:ui._word('menu_mixcap')!=0,'the speaker comes back')
+    s.pace(.3);s.icon()
+
+
 def session(ui,adapter):
     s=Session(ui,adapter);d=s.d
     check(s.seg and d.rb('mix_kind')>0,'readable mixer publishes the speaker')
@@ -132,6 +155,7 @@ def session(ui,adapter):
           'the default clock keeps its whole line left of the speaker')
     check(not s.owned(),'idle mixer holds no scratch claim')
     s.mo.to(80,150);s.pace(.3);s.icon()
+    if not s.qemu: toast(s,pw)   # QEMU's monitor here writes no memory
     x=s.open()
     check(d.rb('volume_found')==1,'SYSTEM/MIXER.O88 discovered on opening')
     check(ui._byte('fpg_on')==0,'file activity ends while popup remains open')

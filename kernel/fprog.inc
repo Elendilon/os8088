@@ -1083,16 +1083,6 @@ fpg_finish:
                                 ; AFTER [fpg_on] went to 0, so the menus
                                 ; segment is back to full length and nothing
                                 ; is clamped away
-%ifdef OS88_SNDCARD
-    ; The speaker's field can widen during this very transfer (a long clock
-    ; line or a toast it must hold), moving vid_clk_hx left. The armed
-    ; widget's old span then covers clock cells menu text cannot erase
-    ; beyond its new bound: force the clock and the picture again.
-    cmp cx, [vid_clk_hx]
-    jb .soundok
-    mov word [menu_mixcap], 0FFFFh
-.soundok:
-%endif
     jmp menu_draw_bar           ; the text band, as the ONE run that differs -
                                 ; and the menus segment is FPG_CELLS longer
                                 ; again the moment [fpg_on] went to 0 above,

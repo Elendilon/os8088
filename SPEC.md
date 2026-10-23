@@ -69870,9 +69870,16 @@ draws exactly where it did when it is not. `[vid_clk_hx]`, and with it the
 menus segment and the gap a toast tries first (59.9), stays where it is
 with no speaker: 22 cells are left of the speaker, and every clock form
 fits them but the 12-hour line with seconds (23-24 glyphs). The boundary
-moves left only by the cells past 22 the live clock line needs, or by all
-three while a toast that missed the gap holds the field (`TOAST_MAX` + 1
-cells, the field it always had). A move relayouts the application menus at
+moves left only by the cells past 22 the live clock line needs. **A toast
+that missed the gap HIDES the speaker** for as long as it holds the field:
+the field is then the one it has with no speaker, which holds the widest
+strip (`TOAST_MAX` + 1 cells), and the speaker comes back when the toast
+goes. While it is hidden its cell is the Date/Time cell's - `[menu_mixcap]`,
+what is SHOWING, is what the field width and the hit test read, not the
+driver's capability. A toast moved the boundary three cells left until it
+was found to letter the strip under §12.8's progress widget, whose origin is
+taken at arm time; the boundary no longer moves for a toast at all, so the
+widget and the strip cannot meet. A move relayouts the application menus at
 the new boundary - their existing prefix/index rule is unchanged - and
 forgets the drawn record from the old boundary on, so a segment growing
 back repaints cells the clock had drawn. It was the LEFT end of a field
@@ -69884,9 +69891,11 @@ Its hit range is tested before
 the Date/Time cell, without changing application menu indices. The icon is
 cached independently, invalidated when the bar is overwritten or capabilities
 change, and is omitted entirely on kern_small. A progress widget armed before
-that boundary moves retains its origin for the operation. If its old span
-reaches the new boundary, `fpg_finish` invalidates the icon before the final
-bar repaint, which repaints the clock's field and the picture both.
+that boundary moves retains its origin for the operation, so the one move
+left - the 12-hour line with seconds crossing 9:59 to 10:00 mid-operation -
+lets the clock's first cell or two overlap the widget until `fpg_finish`. It
+is accepted: following the edge cost 78 bytes, and reserving the widest line
+would cost that setting two menu cells for good.
 
 The popup is SOUND.DRV code, available with the loaded driver. Its private
 bridge is supplied by the kernel each call: AL=0 finish file activity, restore the pointer, spend lazy hide/show,
