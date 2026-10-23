@@ -176,7 +176,7 @@ the first desktop frame, and (c) never freed.
 | **K6c** `MEM_P_FLIST` multi-file clipboard, 1 KB | until the next Cut/Copy | NONE | one-word proc on `[fcp_lseg]` | ~17 |
 | ~~`MEM_P_VIEW`~~, ~~`MEM_K_SAVE`~~, ~~`MEM_K_CLIP` small~~ | kern_small | - | settled, out of scope | 0 |
 
-**Kernel total if every row is taken: ~138 bytes** (K2 + K4a/b + K6a/b/c,
+**(Superseded by 6.4: K4a, K6b and K6c are purgeable and go with K6a's research pass; the size pass is K4b alone.)** **Kernel total if every row is taken: ~138 bytes** (K2 + K4a/b + K6a/b/c,
 less K1a's 12), plus K1b's ~45 when it is wanted. Proposed: **take K1a, K2
 and K6a now**, ~50 bytes net: the two that open real walls and the one that
 pays for itself. Leave K4/K6b/K6c (~76) for after the next size pass.
@@ -414,3 +414,15 @@ every run so a regression shows.
 a user action (opening something big on a full machine), and partial
 compaction spread over several runs is not worth its complexity or its
 bytes.
+
+### 6.4 Purgeable caches are one decision, not four rows (the owner, 2026-10-23)
+
+K6a's deferral reaches every PURGEABLE cache, not only raise caches. A
+`MEM_P_*` claim is dropped by the compactor rather than moved, and making one
+movable is the same research question as K6a's: a plan that compacts without
+dropping, and more compactions for fewer drops. So **K4a** (`MEM_P_RAHB`, the
+read-ahead buffer), **K6b** (`MEM_P_FATW`, the FAT caches) and **K6c**
+(`MEM_P_FLIST`, the multi-file clipboard list) move into that research pass
+with K6a, and they are NOT size-pass items. The size pass is left with one
+row: **K4b**, `MEM_K_COPY`, the clipboard copy buffer (~17 bytes), the only
+non-purgeable claim of the four.
