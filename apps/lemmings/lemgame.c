@@ -145,7 +145,7 @@ static unsigned lem_ptseg, lem_ptoff;   /* item 10's, the spray (wave 6), and
                                          * lem_ptseg 0 when the bank has none */
 static int lem_gfx_ok;              /* all three tables were read */
 
-/* --- THE CLAIMS MOVE (SPEC.md 116.6.1, docs/plans/NO-PINNING-PLAN.md C4) ---
+/* --- THE CLAIMS MOVE (SPEC.md 116.6.2, docs/plans/NO-PINNING-PLAN.md C4) ---
  *
  * A level held on the desktop is up to ~330 KB of claims (lemload.c's seven
  * lem_cl_* words), and a pinned claim is a wall the heap cannot close over.

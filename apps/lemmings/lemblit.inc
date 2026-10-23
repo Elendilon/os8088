@@ -691,7 +691,7 @@ _lem_r_tsetup:
     ret
 
 ; void os88_onmove(unsigned was, unsigned now) - THE HEAP COMPACTOR MOVED ONE
-; OF THE LEVEL'S CLAIMS from `was` to `now` (SPEC.md 116.6.1; lemgame.c's
+; OF THE LEVEL'S CLAIMS from `was` to `now` (SPEC.md 116.6.2; lemgame.c's
 ; "THE CLAIMS MOVE" is the why). It is the C SDK's relocation callback
 ; (CC_HAS_ONMOVE, apps/cc/crt0.asm cc_onmove), written HERE because seven of
 ; the words it has to put right are the raster's, and one table naming all
