@@ -4877,7 +4877,7 @@ SOAK = [
         "200 frames right, the card naming EMS",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img", "build/video.o88")),
-    Row("vidlyplay", "soak", py("tests/vidlyplay.py"), 150.0,
+    Row("vidlyplay", "soak", py("tests/vidlyplay.py"), 90.0,
         "SPEC.md 98.1.9: the PLAYER reads a file's LAYER - a Life clip made "
         "for a 12 KB/s 5150 with a layer for 40, on MartyPC's Hercules off a "
         "floppy. First with NOTHING to decide it (no disk words, no key "
@@ -4901,7 +4901,7 @@ SOAK = [
         needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
         wants=("build/os8088-360.img", "build/video.o88")),
     Row("vidlyplaystream", "soak", py("tests/vidlyplay.py", "--stream"),
-        150.0,
+        80.0,
         "SPEC.md 98.1.9: the layer STREAMED - six seconds banked in two "
         "slots, so the reader refills them at the ring-full moment during "
         "the play, off a floppy that cannot keep up: the play must end with "
@@ -4909,7 +4909,7 @@ SOAK = [
         "every hold where none had been missed yet",
         needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
         wants=("build/os8088-360.img", "build/video.o88")),
-    Row("vidlyplaydisk", "soak", py("tests/vidlyplay.py", "--disk"), 25.0,
+    Row("vidlyplaydisk", "soak", py("tests/vidlyplay.py", "--disk"), 40.0,
         "SPEC.md 98.1.9.3: THE DISK TEST's instrument, on MartyPC's "
         "cycle-exact 5150 - vidlyplay's clip, its base for 12 KB/s and its "
         "layer for 40, off a 360 KB floppy: the ring's fill timed on the "
@@ -4920,7 +4920,7 @@ SOAK = [
         "on purpose (vp_lydisk not called) the layer is drawn and it FAILS",
         needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
         wants=("build/os8088-360.img", "build/video.o88")),
-    Row("vidlyplaynoroom", "soak", py("tests/vidlyplay.py", "--noroom"), 25.0,
+    Row("vidlyplaynoroom", "soak", py("tests/vidlyplay.py", "--noroom"), 40.0,
         "SPEC.md 98.1.9.4: the carve REFUSED - the "
         "ring capped at five, too small to lend: the base exact and the "
         "card's line 4 'Layer off: no room, N KB short'",

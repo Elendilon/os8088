@@ -47,18 +47,18 @@ DONE isot	isotronrules	45	tests/isotron.py
 DONE isot	isotroninput	45	tests/isotronlive.py
 DONE isot	isotronbound	40	tests/isotron.py
 isot	isotronsmall	40	tests/isotronsmall.py
-vidl	vidlyplay	150	tests/vidlyplay.py
-vidl	vidlyplaystream	150	tests/vidlyplay.py
-vidl	vidlive	70	tests/vidlive.py
-vidl	vidlivecga	70	tests/vidlive.py
-vidl	vidlivevga	70	tests/vidlive.py
-vidl	vidlivevga4	60	tests/vidlive.py
-vidl	vidlivext	60	tests/vidlivext.py
-vidl	vidlogovga	45	tests/vidlogo.py
-vidl	vidlogo	30	tests/vidlogo.py
-vidl	vidlogocga	30	tests/vidlogo.py
-vidl	vidlyplaydisk	25	tests/vidlyplay.py
-vidl	vidlyplaynoroom	25	tests/vidlyplay.py
+DONE vidl	vidlyplay	150	tests/vidlyplay.py
+DONE vidl	vidlyplaystream	150	tests/vidlyplay.py
+DONE vidl	vidlive	70	tests/vidlive.py
+DONE vidl	vidlivecga	70	tests/vidlive.py
+DONE vidl	vidlivevga	70	tests/vidlive.py
+DONE vidl	vidlivevga4	60	tests/vidlive.py
+DONE vidl	vidlivext	60	tests/vidlivext.py
+DONE vidl	vidlogovga	45	tests/vidlogo.py
+DONE vidl	vidlogo	30	tests/vidlogo.py
+DONE vidl	vidlogocga	30	tests/vidlogo.py
+DONE vidl	vidlyplaydisk	25	tests/vidlyplay.py
+DONE vidl	vidlyplaynoroom	25	tests/vidlyplay.py
 pixe	pixelstein-vga	160	tests/pixelstein.py
 pixe	pixelstein-c160	155	tests/pixelstein.py
 pixe	pixelstein	135	tests/pixelstein.py
