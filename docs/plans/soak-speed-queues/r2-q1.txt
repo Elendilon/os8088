@@ -133,15 +133,15 @@ vide	videmswrap	45	tests/videms.py
 DONE knob	knobhd	180	tests/knobhd.py
 DONE pxsf	pxsfsx	165	tests/pxsfsx.py
 DONE gfxl	gfxlk	150	tests/gfxlk.py
-frpr	frpromise	150	tests/frpromise.py
-zoom	zoomsave	150	tests/zoomsave.py
+DONE frpr	frpromise	150	tests/frpromise.py
+DONE zoom	zoomsave	150	tests/zoomsave.py
 fcpc	fcpcopy	70	tests/fcpcopy.py
 fcpc	fcpsmall	70	tests/fcpcopy.py
 covo	covoxcp	45	tests/covox.py
 covo	covoxdrv	30	tests/covox.py
 covo	covoxauto	30	tests/covox.py
 covo	covoxnolpt	30	tests/covox.py
-regm	regmove	130	tests/regmove.py
+DONE regm	regmove	130	tests/regmove.py
 time	timerbounce	90	tests/timerbounce.py
 time	timerrace	30	tests/timerrace.py
 ldco	ldcost	120	tests/ldcost.py

@@ -5340,7 +5340,7 @@ SOAK = [
         ".md is the diagnosis behind all of it",
         needs=("marty",), serial=True,
         wants=("build/ptstest360.img",)),
-    Row("regmove", "soak", py("tests/regmove.py"), 130.0,
+    Row("regmove", "soak", py("tests/regmove.py"), 40.0,
         "A package's REGION moves and the package keeps working (SPEC.md "
         "66.6.1). 66.6 said since it was written that a region can never move "
         "because its base IS its CS; this is the door open. FOUR PACKAGES and "
@@ -9555,7 +9555,7 @@ SOAK = [
         "would be the longest row in the tree by a factor of two; it was run"
         "once, at the shipped margin and again at a margin of zero, and"
         "SPEC.md 40.5 records what it found."),
-    Row("frpromise", "soak", py("tests/frpromise.py"), 150.0,
+    Row("frpromise", "soak", py("tests/frpromise.py"), 60.0,
         "SPEC.md 40.4: Fractal promises when the frame lands and takes it"
         "back when the view moves.",
         needs=("marty",), serial=True),
@@ -15653,7 +15653,7 @@ SOAK = [
         "and never given back. Allows guard 1's 2KB branch grace with a "
         "warning; `--release` does not. 12.1s measured.",
         needs=("marty",), serial=True),
-    Row("zoomsave", "soak", py("tests/zoomsave.py"), 150.0,
+    Row("zoomsave", "soak", py("tests/zoomsave.py"), 90.0,
         "SPEC.md 11.96.16.2: a window ZOOMED over another banks it - the "
         "precover pass had one caller and a maximize took 0 caches.",
         needs=("marty",), serial=True),
