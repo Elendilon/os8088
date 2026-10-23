@@ -7885,10 +7885,10 @@ SOAK = [
         needs=("marty",), serial=True),
     # 295 s measured, and the row the settle profile above was taken on.
     # See the note above `dispcalc`.
-    Row("dispsize", "soak", py("tests/dispsize.py"), 210.0,
+    Row("dispsize", "soak", py("tests/dispsize.py"), 60.0,
         "What size is a window given when it lands on the other card?"
         "(SPEC.md 11.100.3/11.100.4)",
-        needs=("marty",), serial=True, timeout=900),
+        needs=("marty",), serial=True, timeout=400),
     Row("dispfrac", "soak", py("tests/dispfrac.py"), 180.0,
         "Does apps/fractal's restore cache survive an adapter change?"
         "(SPEC.md 40.1)",

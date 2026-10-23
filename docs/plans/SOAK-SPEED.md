@@ -131,6 +131,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| dispsize | 54 s / 148 guest s (round-1 harness already in; declared 210) | 43 s / 112 guest s | 4 | `kernel_up` boot; every settle -> `ui_done` (all reads are window records / bss) except leg C's capture pair; the rest is four package launches. secs 210 -> 60 |
 | excitebikeaudiolap | 450 s / 356 guest s | 126 s / 268 guest s | 3, 7 | the lap traced with logging breakpoints (80 -> 20 host s a lap), the script ring fed from `until`; mute/on laps from one boot (snapshot at the splash); a tightened gate goes red |
 | excitebikelap | 237 s / 165 guest s | 88 s / 158 guest s | 7 | as audiolap, one lap an adapter |
 | excitebikeperf | 89 s / 134 guest s | 59 s / 85 guest s | 3, 7 | scroll and governor on one boot an adapter (4 -> 2); the scroll trace logged |

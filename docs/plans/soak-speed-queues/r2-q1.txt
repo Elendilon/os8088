@@ -1,5 +1,5 @@
 # ROUND 2. family  row  declared_secs  script. VERIFY = shared script edited in round 1, row never re-run: run it once first.
-disp	dispsize	210	tests/dispsize.py
+DONE disp	dispsize	210	tests/dispsize.py
 disp	dispfrac	180	tests/dispfrac.py
 disp	dispmcfs	180	tests/dispmcfs.py
 disp	dispblitp	180	tests/dispblitp.py
