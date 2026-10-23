@@ -130,7 +130,7 @@ vide	videms	45	tests/videms.py
 vide	videmshyb	45	tests/videms.py
 vide	videmsslow	45	tests/videms.py
 vide	videmswrap	45	tests/videms.py
-knob	knobhd	180	tests/knobhd.py
+DONE knob	knobhd	180	tests/knobhd.py
 DONE pxsf	pxsfsx	165	tests/pxsfsx.py
 gfxl	gfxlk	150	tests/gfxlk.py
 frpr	frpromise	150	tests/frpromise.py

@@ -10406,7 +10406,7 @@ SOAK = [
         "ndisp reading to the other value.",
         needs=("marty",), serial=True,
         wants=("build/fsxtest360.img",)),
-    Row("knobhd", "soak", py("tests/knobhd.py"), 180.0,
+    Row("knobhd", "soak", py("tests/knobhd.py"), 150.0,
         "SPEC.md 52.10.2.1: a KNOB kernel installed to a hard disk and booted "
         "off it, on BOTH adapters. The build matrix assembles knob kernels and "
         "never boots one; hdboot boots a disk and only the shipped kernel; "
