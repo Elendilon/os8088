@@ -4367,7 +4367,7 @@ SOAK = [
         "them, no shaper - and not one write to the speaker's 42h",
         needs=("marty", "nasm"), serial=True,
         wants=("build/covoxsys720.img",)),
-    Row("vidspkcovox", "soak", py("tests/vidspk.py", "--covox"), 90.0,
+    Row("vidspkcovox", "soak", py("tests/vidspk.py", "--covox"), 20.0,
         "the Video Player with no card and a COVOX on LPT2 (SPEC.md "
         "98.3.15.1, 34.14), on MartyPC's Covox machine: every frame drawn, "
         "800 writes to port 378h following the clip's sweep through the "
@@ -4376,7 +4376,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/covoxsys720.img",)),
     Row("vidspkcovoxc", "soak", py("tests/vidspk.py", "--covox", "--counts"),
-        90.0,
+        20.0,
         "...and a clip made FOR THE SPEAKER (counts, SPEC.md 98.1.1.3) on the "
         "Covox: copied raw, as a card plays one - the writes on 378h are the "
         "file's stored bytes",
@@ -12309,7 +12309,7 @@ SOAK = [
         wants=("build/viddisk.o88", "build/viddisk360.img",
                "build/kernel.sys", "build/boothd.bin", "build/mbr.bin",
                "build/hdd.drv")),
-    Row("vidsnd", "soak", py("tests/vidsnd.py"), 37.0,
+    Row("vidsnd", "soak", py("tests/vidsnd.py"), 30.0,
         "docs/plans/VIDEO-PLAN.md wave 0 (c)(e): ONE INTERRUPT PER VIDEO "
         "FRAME off a Sound Blaster 2.0 - the clock XDC plays by and the "
         "frame stream VIDEO-PLAN 4.4 adds to SOUND.DRV - programmed by hand "
@@ -12462,7 +12462,7 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
-    Row("vidspk", "soak", py("tests/vidspk.py"), 30.0,
+    Row("vidspk", "soak", py("tests/vidspk.py"), 20.0,
         "SPEC.md 34.11, 98.3.15: PCM THROUGH THE PC SPEAKER with no card - "
         "OSAPI_FSX_SPK and apps/os88spk.inc - in VIDEO.O88's window play of a "
         "5,512 Hz sine sweep, on the card-less Hercules 5150 with a fixed "
@@ -12486,7 +12486,7 @@ SOAK = [
         "result verifying. Broken on purpose (the filter, the compressor and "
         "the drive taken out of spk_shape_f) - red at both",
         needs=("ffmpeg",)),
-    Row("vidspk2", "soak", py("tests/vidspk.py", "--pulses", "2"), 32.0,
+    Row("vidspk2", "soak", py("tests/vidspk.py", "--pulses", "2"), 20.0,
         "SPEC.md 34.11.7, 98.1.1.3.1: vidspk on a clip made for TWO PULSES "
         "A SAMPLE (SPKMUL) - an 11 kHz carrier from 5,512 Hz sound. An 8088 "
         "opens it muted (vp_mwhy 2) and M plays it; the 800 writes to 42h "
@@ -12710,7 +12710,7 @@ SOAK = [
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidspk22", "soak", py("tests/vidspk.py", "--rate", "22050",
-                                "--unmute"), 30.0,
+                                "--unmute"), 20.0,
         "SPEC.md 34.11.8: the 8088's half of vidspkat - a 22,050 Hz clip, a "
         "pulse of 54 counts, which only a 286-or-better's door takes. On "
         "MartyPC's 5150 it opens MUTED (past VP_SPKMAX), and after M the "
@@ -12721,7 +12721,7 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv")),
-    Row("vidspkcounts", "soak", py("tests/vidspk.py", "--counts"), 30.0,
+    Row("vidspkcounts", "soak", py("tests/vidspk.py", "--counts"), 20.0,
         "SPEC.md 98.1.1.3: vidspk on a clip MADE for the speaker - its PCM8 "
         "stored as the counts (SPKPWM), which the player copies rather than "
         "translating: the pulses must be the file's bytes as they are. Red "
@@ -12729,7 +12729,7 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv")),
-    Row("vidspkroute", "soak", py("tests/vidspk.py", "--route-spk"), 28.0,
+    Row("vidspkroute", "soak", py("tests/vidspk.py", "--route-spk"), 30.0,
         "SPEC.md 34.8, 98.3.15: a Sound Blaster installed and SOUND.DRV "
         "loaded, SYSTEM.CFG's route PC Speaker ('SR' = 1): the driver's DSP "
         "tier is off at boot (no PCM_BG in its caps) and the play is the "
@@ -12737,7 +12737,7 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv", "build/sound.drv")),
-    Row("vidspkcp", "soak", py("tests/vidspk.py", "--cp-spk"), 32.0,
+    Row("vidspkcp", "soak", py("tests/vidspk.py", "--cp-spk"), 30.0,
         "SPEC.md 34.8, 98.3.15: the same machine with the route AUTO, and PC "
         "Speaker CLICKED in the Control Panel's Sound page at run time - the "
         "route moves 0 -> 1, the driver drops PCM_BG, and the play that "
@@ -12745,7 +12745,7 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv", "build/sound.drv")),
-    Row("vidspkfull", "soak", py("tests/vidspk.py", "--full"), 30.0,
+    Row("vidspkfull", "soak", py("tests/vidspk.py", "--full"), 20.0,
         "SPEC.md 34.11, 98.3.6: vidspk in the FULL SCREEN, the player's main "
         "case - entered paused with F and started with Space, so the door "
         "opens on the resume path (vp_upaus, os88spk_go) rather than "
@@ -12753,14 +12753,14 @@ SOAK = [
         needs=("marty", "nasm"),
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv")),
-    Row("vidspkoff", "soak", py("tests/vidspk.py", "--fs-off"), 30.0,
+    Row("vidspkoff", "soak", py("tests/vidspk.py", "--fs-off"), 20.0,
         "SPEC.md 98.3.15: S in the full screen, part way through - the "
         "speaker closes within a second of the key and the play finishes "
         "SILENT on the PIT, every frame drawn, the kernel left clean",
         needs=("marty", "nasm"),
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv")),
-    Row("vidspksilent", "soak", py("tests/vidspk.py", "--silent"), 24.0,
+    Row("vidspksilent", "soak", py("tests/vidspk.py", "--silent"), 20.0,
         "SPEC.md 98.3.15: S in the window before Play chooses PERFORMANT "
         "SILENCE - the door never opens, and the capture over the play's "
         "own stretch is flat",
@@ -12768,7 +12768,7 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv")),
     Row("vidspkfast", "soak", py("tests/vidspk.py", "--rate", "11025"),
-        24.0,
+        20.0,
         "SPEC.md 34.11.4, 98.3.17: 11,025 Hz PCM8 on an 8088 opens MUTED "
         "(why 2) and plays silent - a pulse every 432 cycles leaves the "
         "machine nothing, and the play measured 20 s for a 4 s clip",
@@ -12776,14 +12776,14 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv")),
     Row("vidspkunmute", "soak", py("tests/vidspk.py", "--rate", "11025",
-                                   "--unmute"), 60.0,
+                                   "--unmute"), 30.0,
         "SPEC.md 98.3.17: the same, unmuted with M - the speaker plays it "
         "anyway, its pulses the clip's counts in order (its time and its "
         "losses are the 8088's to lose, and not checked)",
         needs=("marty", "nasm"),
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/ctrl.drv")),
-    Row("vidspkfson", "soak", py("tests/vidspk.py", "--fs-on"), 40.0,
+    Row("vidspkfson", "soak", py("tests/vidspk.py", "--fs-on"), 20.0,
         "SPEC.md 98.3.17: muted with S, F and Space, then M a second into "
         "the full screen - the door opens within 2 guest s, from the key at "
         "or before the frame on the glass, its pulses the clip's in order",
@@ -13901,7 +13901,7 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
-    Row("vidaheadspk", "soak", py("tests/vidspk.py", "--ahead", "4"), 38.0,
+    Row("vidaheadspk", "soak", py("tests/vidspk.py", "--ahead", "4"), 20.0,
         "SPEC.md 98.1.8, 98.3.15: sound ahead through the PC SPEAKER - the "
         "lead goes through the shaper one frame a piece, as a record's "
         "does, and the pulses read back exact against tools/os88spkfx.py",
