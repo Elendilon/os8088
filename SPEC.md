@@ -196011,6 +196011,18 @@ arrived:
   back, the next play - is out of memory even where the loader never ran.
   (The timer does not fire inside a bracket, whose main loop is one
   callback.)
+- **ahead of that, while the stream is PAST the hold's end** (`vp_xlag`):
+  a play started before the loader got that far - from the first frame
+  after key 0, or a seek - reads every chunk beyond a gap, and `vp_xput`
+  keeps none of them. So where the bracket's reader has nothing to read
+  (the ring has no room) it takes the loader's next chunk, as the timer
+  would, until the hold reaches the stream and `vp_xput` carries it on - a
+  play started at any point of the load returns with the hold whole. The
+  bracket has the heap, so the chunk is read through a BOUNCE slot the
+  ring's claim keeps for it, the bank's (98.3.18.2, `vp_bbnc`): a claim
+  made while a hold is still filling is one slot longer (`vp_bncq`). Not
+  under the speaker's clock (98.3.18.5); a step that put nothing up is not
+  asked again that play. +124 bytes of the package.
 
 A short read is the file's end, and sets `[vp_xfull]`: only then is a range
 that runs past `[vp_xhave]` the file's end rather than the disk's business.
@@ -196111,7 +196123,9 @@ loading the file to its end, the card's line drawn from the timer.
 `vidxmsnox` (`-m 1`) is the NEGATIVE CONTROL: no hold, the play off the
 disk, and after the same swap the same key REFUSED. Broken on purpose -
 `vp_xput` out of `vp_fill`, the hold short at the play's end (163,840 of
-973,312); `vp_xrdat` out of `vp_rdat`, the key refused - `vidxms` FAILS.
+973,312); `vp_xlag` out of the bracket's loop, short too (32,768: the play
+starts past key 0, beyond the one chunk then held); `vp_xrdat` out of
+`vp_rdat`, the key refused - `vidxms` FAILS.
 
 ###### 98.3.18.1.1 A wake that only fed the ring paints nothing
 

@@ -74,7 +74,9 @@ and after the same swap the same Right arrow FAILS. That is what says the
 swap bites, so that arm xms passing means something.
 
 VERIFIED TO FAIL: with `call vp_xput` taken out of vp_fill, arm xms reports
-the hold short when the play returns; with `call vp_xrdat` taken out of
+the hold short when the play returns - and so does `call vp_xlag` taken out
+of the bracket's loop, because the stream starts past key 0, beyond the one
+chunk held at Play, so vp_xput alone finds a gap before every chunk; with `call vp_xrdat` taken out of
 vp_rdat, step 4's key is refused.
 """
 import argparse
