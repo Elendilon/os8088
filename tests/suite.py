@@ -14878,7 +14878,7 @@ SOAK = [
         "put back to one paragraph (BOUNCE.GIF FAULTs on frame 0). 90s is "
         "65 measured: each step ends on the UI task done (Box.ui_done)",
         needs=("bochs", "nasm")),
-    Row("megadosp", "soak", py("tests/megadosp.py"), 70.0,
+    Row("megadosp", "soak", py("tests/megadosp.py"), 80.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.54: the windowed DOS box's PROMPT "
         "on kern_mega with no #GP fixup per character printed - dos_hk_tty "
         "entered con_write with `push cs / pop ds`, so every byte of a DIR, "
@@ -14889,9 +14889,9 @@ SOAK = [
         "ECHO of 60 characters and DIR add no trap line, TYPE at most the "
         "two .stale fixups its buffer's free costs a command, and none a "
         "kern_mega FAULT. Red with the `push cs / pop ds` put back "
-        "(ECHO 62, DIR 87, TYPE 802). 70s is 56 measured, the tree reused",
+        "(ECHO 62, DIR 87, TYPE 802). 80s is 56 measured alone, 73 in three lanes",
         needs=("bochs", "nasm")),
-    Row("pxsmega", "soak", py("tests/pxsmega.py"), 70.0,
+    Row("pxsmega", "soak", py("tests/pxsmega.py"), 100.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.50: PIXELSTEIN 3D PLAYED on kern_mega "
         "with no #GP fixup - megatrap0 counts a launch, and the game's cost "
         "was in the frames: px_compose stored its per-column memory through "
@@ -14902,7 +14902,7 @@ SOAK = [
         "turn, shoot, F into the bracket, the same there, Esc back. Every "
         "step adds no trap line and no kern_mega FAULT. Red with one "
         "px_compose `[es:` store put back to `[cs:` (thousands on the walk; "
-        "px_cdi, verified: 22,240). 70s is 56 measured",
+        "px_cdi, verified: 22,240). 100s is 56 measured alone, 94 in three lanes",
         needs=("bochs", "nasm")),
     Row("megaflt", "soak", py("tests/megaflt.py"), 70.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.42: on kern_mega a fault in a "
@@ -14995,10 +14995,12 @@ SOAK = [
         "typed command is the desktop's keyboard. The failing case, "
         "verified: the tree before 14.62 (--build on a copy), 3 of 6 trips "
         "with no key and a stray `2` typed on the seventh. 60s is 48 "
-        "measured",
+        "measured. INTERMITTENT at base: KBTRIP now and then reads 4300h (F9) "
+        "for the `k` - trip 1 of the base run, trip 7 of a later one, with "
+        "64=10 at entry (docs/plans/SOAK-SPEED.md ledger)",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
-    Row("megapiclose", "soak", py("tests/megapiclose.py"), 90.0,
+    Row("megapiclose", "soak", py("tests/megapiclose.py"), 150.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.63, 14.64, SPEC.md 96.45.2.5, "
         "9.9.9: the mouse moved DURING the live resume from a DOS program "
         "came home with the mouse AND the keyboard dead on the Victory 286 "
@@ -15013,7 +15015,8 @@ SOAK = [
         "compiled out): must die - it does on trip 1, pointer and keyboard "
         "both. GREEN, PICLOSE=1: six trips clean, and E9's `8042 edge lost` "
         "at least once (seven in the measured run). The two legs are two "
-        "machines run at once. 90s is 71 measured, the trees built",
+        "machines run at once. 150s is 71 measured alone and 143 in three "
+        "lanes (it is two machines itself), the trees built",
         needs=("bochs", "nasm"), timeout=1500),
     Row("mousess", "soak", py("tests/mousess.py"), 20.0,
         "SPEC.md 9.10.1: the mouse ISR's body runs on LOW_SEG whatever stack "
