@@ -37,11 +37,11 @@ DONE exci	excitebikeboot720	70	tests/excitebike_geom.py
 DONE exci	excitebikeboot1440	70	tests/excitebike_geom.py
 DONE exci	excitebikelowmem	70	tests/excitebike_geom.py
 DONE exci	excitebikeboot360	60	tests/excitebike_geom.py
-hibe	hibernatedrv	300	tests/hibernate.py
-hibe	hibernatem	82	tests/hibernate.py
-hibe	hibernate	80	tests/hibernate.py
-hibe	hibsumbad	50	tests/hibernate.py
-hibe	hibsumok	35	tests/hibernate.py
+DONE hibe	hibernatedrv	300	tests/hibernate.py
+DONE hibe	hibernatem	82	tests/hibernate.py
+DONE hibe	hibernate	80	tests/hibernate.py
+DONE hibe	hibsumbad	50	tests/hibernate.py
+DONE hibe	hibsumok	35	tests/hibernate.py
 atbl	atblitvga	330	tests/atblit.py
 atbl	atblit	165	tests/atblit.py
 vidc	vidcga4	45	tests/vidcga.py

@@ -10464,7 +10464,7 @@ SOAK = [
         "the partition back on the HOST with instdeep's FAT reader. It "
         "ERASES the VHD.",
         needs=("marty",), serial=True, timeout=1200),
-    Row("hibernate", "soak", py("tests/hibernate.py"), 80.0,
+    Row("hibernate", "soak", py("tests/hibernate.py"), 70.0,
         "SPEC.md 87: Hibernate... writes the machine to the hard disk and the "
         "next boot offers to resume it - the About box is the witness, read "
         "out of the restored instance table; then the same again with "
@@ -10473,14 +10473,14 @@ SOAK = [
         "disk read-write in three emulators (2 runs in 6, at a different leg "
         "every time; docs/WRITING-TESTS.md 5.5)",
         needs=("marty",), serial=True, timeout=1500),
-    Row("hibernatedrv", "soak", py("tests/hibernate.py", "--driver"), 300.0,
+    Row("hibernatedrv", "soak", py("tests/hibernate.py", "--driver"), 80.0,
         "SPEC.md 87 through HDD.DRV: a floppy boot whose SYSTEM.CFG wants the "
         "driver, so C: is a DVK_DRV volume and the resume's transport facts "
         "come through DSV_GEOM",
         needs=("marty",), serial=True, timeout=1500),
     Row("hibernatem", "soak",
         py("tests/hibernate.py", "--machine", "os8088_5150_herc_hdd_gla"),
-        82.0,
+        70.0,
         "SPEC.md 87 ON A MONO MACHINE, which is the other half of "
         "96.49.2's hole. The staging area IS the text framebuffer (87.5), so "
         "it is at B000 on a Hercules primary and B800 everywhere else - and a "
