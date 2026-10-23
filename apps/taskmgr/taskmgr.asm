@@ -1456,6 +1456,8 @@ tm_s_twsav: db 'WinSave', 0
 ;   MEM_K_SC    - the desktop shortcuts' one table (SPEC.md 26.8), read off
 ;                 SYSTEM.CFG at boot and held while any shortcut exists
 ;   MEM_K_IMG   - a mounted .IMG's run table (SPEC.md 18.101), 1KB a mount
+;   MEM_K_MTBL  - kern_mega's GDT, LDT and IDT when extended memory cannot
+;                 hold them (KERN-MEGA-PLAN 14.1): 82KB, pinned for the session
 ;
 ; MEM_K_OVL used to be a row, and was the one kernel tag with a lifetime
 ; SHORTER than the session - a heap page open early enough could catch it. The
@@ -1481,6 +1483,7 @@ tm_ktab:
     dw MEM_K_FONT,  'Font', 0, 0
     dw MEM_K_SC,    'Shortcut'
     dw MEM_K_IMG,   'Disk img'
+    dw MEM_K_MTBL,  'DescTbl'
     dw MEM_P_DIRW,  'DirRead'
     dw MEM_P_RAHB,  'RdLand', 0
     dw MEM_P_FLIST, 'FileClp'

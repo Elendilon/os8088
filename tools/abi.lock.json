@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "3657e5029f46b904773021944fbe6b194861e175608b6b14825ad2b22058509e",
+  "fingerprint": "33919181b9294d4c4360f98a2007c6e66da8242b63413d3d549b75a07fd3bd9b",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "e795883cf944ed5d3a6cd9f50a65cf8e34f22b58a6b972990cc954e01497262f",
+  "fingerprint": "dda5df33188a7103bb163cd752cfdb7f3c81334b863bccc6e9eb1fdb2f677421",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -980,6 +980,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_SERIAL: refusal 9 = a UART no BIOS COM slot lists, split from 4 (SPEC.md 115.1); old callers unchanged",
+   "to": 11
+  },
+  {
+   "fingerprint": "dda5df33188a7103bb163cd752cfdb7f3c81334b863bccc6e9eb1fdb2f677421",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "MEM_K_MTBL (0xFF13) mirrored from kernel/memory.inc so the Task Manager can name kern_mega's descriptor-table claim; a constant added, nothing built before changes",
+   "to": 10
+  },
+  {
+   "fingerprint": "33919181b9294d4c4360f98a2007c6e66da8242b63413d3d549b75a07fd3bd9b",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "MEM_K_MTBL (0xFF13) mirrored from kernel/memory.inc so the Task Manager can name kern_mega's descriptor-table claim; a constant added, nothing built before changes",
    "to": 11
   }
  ]
