@@ -64181,6 +64181,37 @@ picture: the cache word cannot be read (§11.96.18.1), a forced repaint cannot
 be a reference while anything else is up, and what is left to assert is the
 **calls**.
 
+#### 28.11.3 A paint the WORKER did not make forgets the quiet key
+
+`tm_quiet`'s key (§28.6.1) is recorded by the worker's own paint and by
+nothing else. Every other draw of the two quiet pages - `tm_paint` as
+`W_PAINT`, and the page turn in `tm_click` - draws from the last **sample**,
+and leaves the recorded key describing an older glass than the one it just
+made. That is an **ABA**, and it is not hypothetical:
+
+1. the Disk window opens; its listing claim moves the table to state **B**
+   and the page shows `RAM 114K` - drawn by a `W_PAINT`, so the key still
+   says **A**;
+2. a zoomed window covers the Task Manager wholly, so every worker paint is
+   refused at `OSAPI_WM_CLIP_SET` and records nothing;
+3. the Disk window closes under the cover (table back to **A**), and the
+   uncover's `W_PAINT` draws the sample it has - still **B**, `RAM 114K`;
+4. `tm_quiet` compares **A** with the **A** recorded before step 1 and
+   answers *nothing moved* - **for ever**, over a page reading two KB more
+   than the machine is using.
+
+`tests/tmground.py`'s PIXELS leg found it as `72 subpixels` (the `RAM`,
+`HEAP`, `AVAIL`, `MAX RUN` and `System` figures): whether step 1's paint was
+the worker's or the kernel's is the phase of `TM_SLOW`'s two-second cadence
+against the harness, which a kernel three bytes longer moved, and which host
+load moves as well (7 of 8 runs at four-wide on four cores).
+
+`tm_promise` - which both of those callers already call last - stores **0**
+there first. No hash answers 0 (`tm_qpeek`'s never-zero rule), so the next
+due interval walks and `tm_update` draws only the elements whose OWN keys
+moved: nothing at all when the glass was current, which is §28.6's measured
+quiet refresh. **+6 package bytes, no kernel byte.**
+
 ### 28.12 `APP_SMALL` — the small build of this package
 
 Note Pad's §27.16, applied here, and the rules there hold unchanged: one

@@ -2288,6 +2288,29 @@ tm_iname:
 ; KERNEL_SEG (TM_ES_DATA exists for exactly that).
 ; -----------------------------------------------------------------------------
 tm_promise:
+    mov word [tm_elck + 2*TMC_QUIET], 0     ; ...AND FORGET WHAT THE WORKER
+                                ; LAST VOUCHED FOR. Both callers have just drawn
+                                ; this page OUTSIDE the worker - a W_PAINT, a
+                                ; page turn - from whatever the last SAMPLE
+                                ; held, and the claim table that sample was
+                                ; taken from may already be gone. The quiet key
+                                ; is only ever recorded by the worker's own
+                                ; paint, so left standing it describes an older
+                                ; glass than this one: ABA. Open a Disk window
+                                ; (key B, drawn by W_PAINT, not recorded), cover
+                                ; us wholly (the worker's paints refused), close
+                                ; it under the cover (the uncover draws the
+                                ; sample - still B - and the table is back to
+                                ; A), and tm_quiet compares A with the A it
+                                ; recorded before the Disk window ever opened:
+                                ; "nothing moved", for ever, over a page that
+                                ; reads `RAM 114K` on a 112K machine. Zero is
+                                ; a key no hash answers (tm_qpeek's never-zero
+                                ; rule), so the next due interval walks, and
+                                ; tm_update draws only the elements whose OWN
+                                ; keys moved - nothing at all when the glass
+                                ; was current (tests/tmground.py, SPEC.md
+                                ; 28.11.3)
     pushf
     push ax
     push bx
