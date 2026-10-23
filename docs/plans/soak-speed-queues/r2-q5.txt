@@ -44,36 +44,36 @@ DONE curs	curshape	60	tests/curshape.py
 DONE wdpe	wdpen	60	tests/wdpen.py
 DONE fmpa	fmpatch	60	tests/fmpatch.py
 DONE tmdm	tmdmg	60	tests/tmdmg.py
-desk	deskmodal	40	tests/deskmodal.py
-desk	deskfdd	35	tests/deskfdd.py
-desk	deskpen	31	tests/deskpen.py
-desk	deskitem	25	tests/deskitem.py
-vidr	vidresident	50	tests/vidresident.py
-vidr	vidresidentcga	50	tests/vidresident.py
-vidr	vidresidentvga	50	tests/vidresident.py
-dose	dosenvfold	40	tests/dosenvfold.py
-dose	dosest	40	tests/dosest.py
-dose	dosexec	30	tests/dosexec.py
-dose	dosexe	28	tests/dosexe.py
+DONE desk	deskmodal	40	tests/deskmodal.py
+DONE desk	deskfdd	35	tests/deskfdd.py
+DONE desk	deskpen	31	tests/deskpen.py
+DONE desk	deskitem	25	tests/deskitem.py
+DONE vidr	vidresident	50	tests/vidresident.py
+DONE vidr	vidresidentcga	50	tests/vidresident.py
+DONE vidr	vidresidentvga	50	tests/vidresident.py
+DONE dose	dosenvfold	40	tests/dosenvfold.py
+DONE dose	dosest	40	tests/dosest.py
+DONE dose	dosexec	30	tests/dosexec.py
+DONE dose	dosexe	28	tests/dosexe.py
 fish	fishfit	20	tests/fishfit.py
-dosa	dosarena	35	tests/dosarena.py
-dosa	dosattr	25	tests/dosattr.py
-dosa	dosaltenter	20	tests/dosaltenter.py
-vidw	vidwin	56	tests/vidwin.py
-vidw	vidwinshd	54	tests/vidwin.py
-ems	ems	45	tests/ems.py
-ems	emspico	45	tests/ems.py
-clip	clipkeep	40	tests/clipkeep.py
-clip	clipgrow	30	tests/clipgrow.py
-trkl	trklcd	45	tests/trklcd.py
-trkl	trkload	20	tests/trkload.py
-lzdr	lzdrv	45	tests/lzdrv.py
-lzdr	lzdrv-nohint	16	tests/lzdrv.py
-pxsp	pxsperf	55	tests/pxsperf.py
-cppr	cppromise	50	tests/cppromise.py
-kdcw	kdcwd	50	tests/kdcwd.py
-rdmo	rdmove	30	tests/rdmove.py
-rdmo	rdmount	20	tests/rdmount.py
+DONE dosa	dosarena	35	tests/dosarena.py
+DONE dosa	dosattr	25	tests/dosattr.py
+DONE dosa	dosaltenter	20	tests/dosaltenter.py
+DONE vidw	vidwin	56	tests/vidwin.py
+DONE vidw	vidwinshd	54	tests/vidwin.py
+DONE ems	ems	45	tests/ems.py
+DONE ems	emspico	45	tests/ems.py
+DONE clip	clipkeep	40	tests/clipkeep.py
+DONE clip	clipgrow	30	tests/clipgrow.py
+DONE trkl	trklcd	45	tests/trklcd.py
+DONE trkl	trkload	20	tests/trkload.py
+DONE lzdr	lzdrv	45	tests/lzdrv.py
+DONE lzdr	lzdrv-nohint	16	tests/lzdrv.py
+DONE pxsp	pxsperf	55	tests/pxsperf.py
+DONE cppr	cppromise	50	tests/cppromise.py
+DONE kdcw	kdcwd	50	tests/kdcwd.py
+DONE rdmo	rdmove	30	tests/rdmove.py
+DONE rdmo	rdmount	20	tests/rdmount.py
 romn	romnodisk	45	tests/romnodisk.py
 kdbi	kdbigexe	45	tests/kdbigexe.py
 radi	radio	45	tests/radio.py

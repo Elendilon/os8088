@@ -3272,7 +3272,7 @@ SOAK = [
         "at segment:0xFDFF; and nothing left after the close box. Shares "
         "build/pkgbig.img with pkgbig and pkgfence - `make pkgbig`.",
         needs=("marty",), serial=True, wants=("build/pkgbig.img",)),
-    Row("clipkeep", "soak", py("tests/clipkeep.py"), 40.0,
+    Row("clipkeep", "soak", py("tests/clipkeep.py"), 50.0,
         "SPEC.md 11.96.18: a wholly covered window keeps its raise cache when"
         "it arms a clip, and a partly covered one still loses it.",
         needs=("marty",), serial=True),
@@ -3349,7 +3349,7 @@ SOAK = [
         "(`make small`) for smallboot's reason.",
         needs=("marty",), serial=True,
         wants=("build/small.img", "build/smallapps.img")),
-    Row("cppromise", "soak", py("tests/cppromise.py"), 50.0,
+    Row("cppromise", "soak", py("tests/cppromise.py"), 40.0,
         "SPEC.md 31.12: the Control Panel promises per PAGE, and the clock"
         "page is the one that cannot.",
         needs=("marty",), serial=True),
@@ -4814,7 +4814,7 @@ SOAK = [
         "see is the datasheet read wrong in both halves at once",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/usbmsim.img", "build/usbmbusy.img", "build/apps360.img")),
-    Row("ems", "soak", py("tests/ems.py"), 45.0,
+    Row("ems", "soak", py("tests/ems.py"), 80.0,
         "EMS.DRV (SPEC.md 107), as a package sees it, on MartyPC's Lo-tech "
         "2 MB board (os8088_5150_herc_hdd_sb_ems_gla) - an 8088 with expanded "
         "memory. `make emstest`'s disk wants the driver (SYSTEM.CFG bit 7) "
@@ -4834,7 +4834,7 @@ SOAK = [
         "FREEs the first's handle)",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img",)),
-    Row("emspico", "soak", py("tests/ems.py", "--leg", "pico"), 45.0,
+    Row("emspico", "soak", py("tests/ems.py", "--leg", "pico"), 50.0,
         "SPEC.md 107.2: EMS.DRV finds a board where a PICOMEM puts its EMS by "
         "default - registers at 288h, the frame at D000h - on a MartyPC "
         "machine with the Lo-tech model moved there "
@@ -5417,7 +5417,7 @@ SOAK = [
         "after the glyph resolves. Both watched going red on their own "
         "defect and no other leg",
         needs=("marty",), wants=("build/doscom360.img",)),
-    Row("dosexe", "soak", py("tests/dosexe.py"), 28.0,
+    Row("dosexe", "soak", py("tests/dosexe.py"), 30.0,
         "THE DOS WAVE-2 GATE (SPEC.md 96.8, 96.9): a real MZ .EXE - header, "
         "relocation table, and a last page that is exactly full so e_cblp is "
         "0. It checks the four things only an .EXE has: the relocation "
@@ -6254,7 +6254,7 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
-    Row("dosenvfold", "soak", py("tests/dosenvfold.py"), 40.0,
+    Row("dosenvfold", "soak", py("tests/dosenvfold.py"), 30.0,
         "EVERY ENVIRONMENT ROW IS ON THE SETUP PAGE, AND REACHABLE (SPEC.md "
         "96.32.2.1). The four NAME=VALUE rows had a page of their own while "
         "the window was 288px wide; at 80 columns they fit under the first in "
@@ -6451,7 +6451,7 @@ SOAK = [
         "or file name`. Host-side; four nasm runs, and it fails naming the row "
         "and both offsets.",
         ),
-    Row("kdcwd", "soak", py("tests/kdcwd.py"), 50.0,
+    Row("kdcwd", "soak", py("tests/kdcwd.py"), 40.0,
         "WHERE A LAUNCHED PROGRAM STANDS, under BOTH arms of one machine "
         "(SPEC.md 96.44.10). CWDHERE.COM in B:\\SUB\\ with the only copy of "
         "HERE.TXT beside it prints four things - AH=19h's drive, AH=47h's "
@@ -6649,7 +6649,7 @@ SOAK = [
         "kernel's own solve picks 32K (18.95.5), so Auto and 32K read the "
         "same figure for a TRUE reason. VERIFIED red on the shipped build. ",
         needs=("marty",), serial=True),
-    Row("dosarena", "soak", py("tests/dosarena.py"), 35.0,
+    Row("dosarena", "soak", py("tests/dosarena.py"), 30.0,
         "THE DOS ARENA'S UNMOUNT-AND-COMPACT (SPEC.md 96.35, 51.11.1, 66.4.3): "
         "SOUND.DRV is ~14KB at the TOP of the heap and the box unmounts it, "
         "and that memory used to be unreachable because the suspend was fenced "
@@ -6680,7 +6680,7 @@ SOAK = [
         "learned to relocate a re-homed carve, and this row is stale).",
         needs=("marty",), serial=True,
         wants=("build/dossnd360.img",)),
-    Row("dosest", "soak", py("tests/dosest.py"), 40.0,
+    Row("dosest", "soak", py("tests/dosest.py"), 30.0,
         "THE MEMORY PAGE'S ESTIMATE IS WHAT THE MACHINE WOULD REALLY HAND "
         "OVER (SPEC.md 96.36.3.1, 51.12.2) - two defects the field found in "
         "one sitting on a 5150 with a Sound Blaster: the page read 433K, then "
@@ -6813,7 +6813,7 @@ SOAK = [
         "that may since have been freed.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/mouevt360.img")),
-    Row("dosattr", "soak", py("tests/dosattr.py"), 25.0,
+    Row("dosattr", "soak", py("tests/dosattr.py"), 10.0,
         "`AH=43h` IS ASKED ABOUT DIRECTORIES (SPEC.md 96.12.4). Microsoft "
         "Works's Save As, given a name on another drive, asks about the "
         "directory the file would go in before it writes anything - and puts "
@@ -9023,7 +9023,7 @@ SOAK = [
         "that hangs off, on BOTH strides (CGA 80, Hercules 90), over a zeroed "
         "background so two draws are comparable.",
         needs=("marty",), serial=True),
-    Row("deskfdd", "soak", py("tests/deskfdd.py"), 35.0,
+    Row("deskfdd", "soak", py("tests/deskfdd.py"), 20.0,
         "Is a floppy drawn as the diskette its DRIVE takes? (SPEC.md 26.4.1) "
         "Boots a CGA and a Hercules 5150 with 360KB drives - the ROM refuses "
         "int 13h AH=08h, so both are guessed 5.25\" - and a GLaBIOS machine "
@@ -9153,7 +9153,7 @@ SOAK = [
     Row("dispvy", "soak", py("tests/dispvy.py"), 40.0,
         "How many rows of the SECOND monitor can a straddling window use?",
         needs=("marty",), serial=True),
-    Row("lzdrv", "soak", py("tests/lzdrv.py"), 45.0,
+    Row("lzdrv", "soak", py("tests/lzdrv.py"), 20.0,
         "docs/plans/O88-COMPRESSION-PLAN.md 12.6: a COMPRESSED DRIVER loads, "
         "expands and answers. RAMDISK.DRV is the subject because it has both "
         "halves of wave 3 - a 2,416-byte bss drv_bss re-makes and a body "
@@ -9166,7 +9166,7 @@ SOAK = [
         "probes, which a bss full of floppy leftovers does not answer",
         needs=("marty",), serial=True,
         wants=("build/lzdrv360.img", "build/drvcall360.img")),
-    Row("lzdrv-nohint", "soak", py("tests/lzdrv.py", "--nohint"), 16.0,
+    Row("lzdrv-nohint", "soak", py("tests/lzdrv.py", "--nohint"), 20.0,
         "SPEC.md 20.14.6.4: THE SAME DRIVER WITH ITS HINT STRUCK, which is "
         "what a host tool's copy leaves - DOS, Windows or "
         "`tools/os88fat.py add`. drv_find sized the claim from the hint and "
@@ -10796,7 +10796,7 @@ SOAK = [
         "the zoomed window left beside the mover). Red on a SETUP line if "
         "the layout stops overflowing, never green.",
         needs=("marty",), timeout=900),
-    Row("deskpen", "soak", py("tests/deskpen.py"), 31.0,
+    Row("deskpen", "soak", py("tests/deskpen.py"), 20.0,
         "SPEC.md 5.4.2.2.2: the gfx_blit1 pen is scoped to a CALLBACK, not "
         "to a lock hold, which is wider than one caller - a repaint pass "
         "calls several packages' paints in one and a drag holds it from "
@@ -10815,7 +10815,7 @@ SOAK = [
         "redrawn, its pixels match. Red without the skip (both cells drawn, "
         "the window redrawn). Builds kern_small into small128's private tree.",
         needs=("marty",), serial=True, timeout=900),
-    Row("deskitem", "soak", py("tests/deskitem.py"), 25.0,
+    Row("deskitem", "soak", py("tests/deskitem.py"), 20.0,
         "SPEC.md 26.9: OSAPI_DESK_ITEM from a PACKAGE. `make deskitem`'s "
         "DESKITEM.O88 hands the kernel a link to itself through its File "
         "menu: the link lands in the cell it ASKED for, its hostile record "
@@ -11282,7 +11282,7 @@ SOAK = [
         "read back off A: by tools/os88stik.py.",
         needs=("marty", "mtools"), timeout=900,
         wants=("build/os8088-360.img",)),
-    Row("deskmodal", "soak", py("tests/deskmodal.py"), 40.0,
+    Row("deskmodal", "soak", py("tests/deskmodal.py"), 20.0,
         "SPEC.md 110.3, 11.103.4: a widget's DELETE on MartyPC's VGA XT "
         "with a Disk window in front: the widget is wm_zord[0] and the Disk "
         "window wm_top; Del on the widget's appointment arms (`Delete again "
@@ -12083,7 +12083,7 @@ SOAK = [
         "and 320x200x4), the regeneration and the transpose each time",
         needs=("marty", "nasm"), serial=True,
         wants=("build/games360.img",)),
-    Row("pxsperf", "soak", py("tests/pxsperf.py"), 55.0,
+    Row("pxsperf", "soak", py("tests/pxsperf.py"), 30.0,
         "SPEC.md 97.10: THE STAGED FRAME, an instrument (skiesperf's shape: "
         "asserts only that every stage produced a number). Textured Low res "
         "64x80, Textured Full, the 48x80 Low res fallback and Flat Low res "
@@ -13085,7 +13085,7 @@ SOAK = [
         "every hold on the glass",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidresident", "soak", py("tests/vidresident.py"), 50.0,
+    Row("vidresident", "soak", py("tests/vidresident.py"), 20.0,
         "SPEC.md 98.1.7: a RESIDENT file of three renditions, LZB, on the "
         "Hercules 5150: the desktop's own rendition taken, its block in "
         "memory byte for byte as the host expands it, no ring, every held "
@@ -13095,12 +13095,12 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidresidentcga", "soak", py("tests/vidresident.py", "--screen",
-                                     "cga", "--pack", "lz4"), 50.0,
+                                     "cga", "--pack", "lz4"), 20.0,
         "SPEC.md 98.1.7: vidresident on the CGA 5150, the blocks LZ4",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidresidentvga", "soak", py("tests/vidresident.py", "--screen",
-                                     "vga"), 50.0,
+                                     "vga"), 30.0,
         "SPEC.md 98.1.7: vidresident on MartyPC's VGA XT - where CGA's own "
         "mode is on the display too, and the rendition taken must still be "
         "the desktop's LIN80 one",
@@ -14167,7 +14167,7 @@ SOAK = [
         "nothing held Play is the in-window play",
         needs=("qemu", "nasm"),
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidwin", "soak", py("tests/vidwin.py"), 56.0,
+    Row("vidwin", "soak", py("tests/vidwin.py"), 80.0,
         "SPEC.md 98.3.7: VIDEO.O88 PLAYS IN ITS WINDOW - a same-mode "
         "bracket, the decoder writing the desktop's own framebuffer at the "
         "picture's place in the box. vidplay's Hercules clip at its own size "
@@ -14181,7 +14181,7 @@ SOAK = [
         "click is not the frame played",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidwinshd", "soak", py("tests/vidwin.py", "--layout", "cga"), 54.0,
+    Row("vidwinshd", "soak", py("tests/vidwin.py", "--layout", "cga"), 70.0,
         "SPEC.md 98.3.7, 98.3.2: vidwin with the CGA clip in the Hercules "
         "window - through the SHADOW, its copy re-addressing each row into "
         "the desktop's layout at the window's origin",
@@ -15005,7 +15005,7 @@ SOAK = [
         "66.2/42).",
         needs=("marty",), serial=True,
         wants=("build/heapfrag360.img",)),
-    Row("rdmove", "soak", py("tests/rdmove.py"), 30.0,
+    Row("rdmove", "soak", py("tests/rdmove.py"), 50.0,
         "Compact the heap out from under the RAM disk's store (SPEC.md "
         "66.5.10). The hole under the store is BUILT: a second heapfrag "
         "opens while the first still holds the floor, the first closes, and "
@@ -15734,7 +15734,7 @@ SOAK = [
         py("tests/runclip.py", "--machine", "os8088_5150_cga_gla"), 30.0,
         "SPEC.md 11.3.4.2: runclip on the CGA 5150",
         needs=("marty",), serial=True),
-    Row("clipgrow", "soak", py("tests/clipgrow.py"), 30.0,
+    Row("clipgrow", "soak", py("tests/clipgrow.py"), 20.0,
         "SPEC.md 11.3.4.3: a caption beside a covering window's CORNER keeps "
         "every row. The region is cut in horizontal strips, so a wholly "
         "visible cell beside a window and straddling its top edge is in two "
@@ -15791,7 +15791,7 @@ SOAK = [
         "rate (SPEC.md 45.13.7)",
         needs=("marty",), serial=True,
         wants=("build/trkship360.img",)),
-    Row("trklcd", "soak", py("tests/trklcd.py"), 45.0,
+    Row("trklcd", "soak", py("tests/trklcd.py"), 50.0,
         "Tracker on an XT: the visualiser button is VU Meter / Spectrum / Off"
         " and greys only at 11 kHz (SPEC.md 45.23.1); the XT spectrum is 12"
         " bars at 17+ fps with the ring half full, and a 286 marker falls to"
