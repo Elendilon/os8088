@@ -4692,14 +4692,15 @@ SOAK = [
         "changing - a stopped tick parks the logo at one angle and the "
         "machine still boots, so no screendump in this tree would notice",
         needs=("marty",), serial=True),
-    Row("bootfloor-ab", "soak", py("tests/bootfloor.py"), 420.0,
+    Row("bootfloor-ab", "soak", py("tests/bootfloor.py"), 90.0,
         "SPEC.md 2.7.1's floor, both sides, both kernels: RAMKB at the floor "
         "must reach a DESKTOP - everything the bound is computed from is "
         "downstream of the refusal - and one KB under it must print RAM. "
         "kern_small is the half that matters: guard 5 has asserted it boots "
         "on 128KB since the split and stage 1 refused it at 129 until 2.7.1, "
-        "which no host-side row could have noticed",
-        needs=("marty",), serial=True),
+        "which no host-side row could have noticed. 90s is 66s MEASURED with "
+        "its five private trees warm; building them cold is minutes more",
+        needs=("marty",), serial=True, timeout=1200),
     Row("v20boot", "soak", py("tests/v20boot.py"), 17.0,
         "A NEC V20 boots, runs and reads CPU_8086. MartyPC's V20 let POPF "
         "and IRET write FLAGS bit 15 (MD, the mode flag), which a real V20 "
