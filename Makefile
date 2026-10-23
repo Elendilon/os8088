@@ -8866,6 +8866,16 @@ $(BUILD)/cmemmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/chello.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/chello.o88
 
+# ...and the C OVERLAY's, for tests/ovlmove.py (docs/plans/NO-PINNING-PLAN.md
+# wave 0): COVL's lazy module is a bottom-up claim that lands above heapfrag's
+# floor, so closing heapfrag opens a hole under it and COVL's own M key - a
+# module-to-module call that claims - compacts the module out from under its
+# own call chain.
+$(BUILD)/ovlmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/covl.o88 \
+                         tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
+		$(BUILD)/covl.o88
+
 # ...and SHEET's own disk, for tests/sheetmove.py
 # (docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 2). Its own image for
 # trackmove360's reason - the listing is sorted by name (SPEC.md 19.4) - and

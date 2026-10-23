@@ -5438,6 +5438,18 @@ SOAK = [
         "pixels on the code before the fix",
         needs=("qemu", "cc"), serial=True,
         wants=("build/lemmings.img",)),
+    Row("ovlmove", "soak", py("tests/ovlmove.py"), 30.0,
+        "NO-PINNING wave 0: a C overlay MOVES out from under its own call "
+        "chain and both returns land. tests/covl's M key runs ovl_mv_outer -> "
+        "ovl_mv_inner (module to module, through crt0's cc_ovmthunk) -> "
+        "cv_claim -> os88_mem_claim, sized so it fits only after a compaction; "
+        "HEAPFRAG owns the floor and closes, so the module slides down while "
+        "both frames are live. The claim is POISONED with HLT before it is "
+        "freed - without that, a stale return ran the module's old, intact "
+        "bytes and the red run passed. Red with cc8086 emitting the old "
+        "direct call (the chain answers 0 and the program dies); 20s measured",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/ovlmove360.img", "build/COVL.OVL")),
     Row("tnest", "soak", py("tests/tnest.py"), 10.0,
         "NO-PINNING K9: a non-UI task's call into an image is COUNTED in "
         "wm_tcnt and never pushed onto the UI task's wm_pkgs stack (a worker's "

@@ -100,7 +100,13 @@ exposure and were left as an open item.
 the thunk (~30 bytes) plus 32 bytes of stash. Per call: ~40 us on a
 4.77 MHz 8088.
 
-**Still to gate (W0-T).** A row that really compacts the carve UNDER a live
+**W0-T is BUILT: `tests/ovlmove.py`.** The module moved 5340 -> 2100 under
+`ovl_mv_outer -> ovl_mv_inner -> cv_claim`, and the chain answered 1008. The
+row's own lesson: the first red run (the old direct call put back) PASSED,
+because the claim made under the chain is never written, so the module's old
+bytes were still where the stale return landed and the old copy ran
+correctly. The row now poisons the claim with HLT before it is freed, and the
+red run dies. *(What follows is the original note.)* **Still to gate (W0-T).** A row that really compacts the carve UNDER a live
 module-to-module frame, then returns through it. `tests/covl` already makes
 module-to-module calls (`ovl_mix` -> `ovl_inner`) but no row runs it, and
 nothing forces a move at that moment. Shape: cmemmove.py's recipe (heapfrag
@@ -232,8 +238,11 @@ the base at each use". The ⚑ rows are the ones that need real work.
 
 Ranked by the free memory each recovers on a real session, then by cost.
 
-1. **W0-T** - the move-under-a-frame row for the C overlay (gates what is
-   built). **K8** (c), ~6 bytes, plus the two SPEC.md corrections.
+1. ~~W0-T~~ BUILT (`ovlmove`). ~~K8~~ BUILT. **K3** (kern_mega's tables):
+   DEFERRED as niche. It binds only on a 286 with under 192 KB of extended
+   memory, after a boot driver is unloaded, and the cheap fix (claim before
+   `drv_boot`) means reordering kern_mega's gate. **G1** (the cost of moving big
+   claims, and sound underruns while it happens) is next, and it binds C3/C4.
 2. **C4** LEMMINGS - the largest pin on the desktop, and the package this
    branch exists for.
 3. **K1a, K2, K9** - BUILT (K8 +14, K1a -16, K2 +58, K9 +42 resident). K6a
