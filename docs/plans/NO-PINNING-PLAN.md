@@ -207,7 +207,7 @@ the base at each use". The ⚑ rows are the ones that need real work.
 | package | claims | work |
 |---|---|---|
 | **REALDMG** ⚑ | ROM, SRAM, JIT, profile, bank table, logs | **A1, PERFORMANCE-BOUND**: one proc does all the work at move time. It patches the core state block, the bank table and any JIT code that has a segment baked in. Then it **forces a resync on return**: the emulation loop re-reads its cached segments at the next slice boundary, where it already yields, never inside an instruction. Zero instructions are added to the dispatch loop. Gate: emulated cycles per host second on MartyPC with a cartridge running, before and after, and the after must not be lower. A JIT block holding an absolute segment is the case to audit first: if one exists, the proc relocates it or flushes the JIT, and is never allowed to re-read per instruction |
-| **WORD**, **SCRIBE** | doc, CHP, PAP, undo, italic, picture (up to 40 KB), scratch | **A2**: "nobody has looked". Audit, then mostly `ret` procs |
+| **WORD**, **SCRIBE** | doc, CHP, PAP, undo, italic, pictures | **A2 BUILT** (merged from its agent branch): every long-lived claim moves; staging and scratch stay pinned as bucket C; `wdheapmove`, `wdheapmove-sc` |
 | **BROWSER** | up to 63 KB + 8 + 6 | A3 |
 | **TEXPAD** | source buffer (`[tp_srcseg]`) | A3: the proc is named in its own comment and not written |
 | **PAINT** ⚑ | GIF staging (C), LZW 16 KB (`[pt_gbase]` derived) | A3 |
@@ -217,7 +217,7 @@ the base at each use". The ⚑ rows are the ones that need real work.
 | **VIDEO** ⚑ | ring, "page-safe and never moved" | **A6, PERFORMANCE-BOUND**: the ring is bucket D/C only WHILE A PLAY RUNS (the reader, the hook and a card may all be writing it). Declare it movable when the play ENDS, and pin it again (`OSAPI_MEM_MOVABLE` with AX = 0) when the next play STARTS. Both happen outside the frame loop, so the play path gains nothing. A move between plays is one proc storing the ring's segment. Gate: the Video Player's frame rate on its demo videos, before and after |
 | **MIDIRACK**, **TRACKER**, **AUDIO**, **WIREFLEET**, **1942** PCM rings | D while armed, NONE idle | A6 |
 | **THE WIRE**, **FTPD**, **CHART**, **PIXEL**, **TELNET**, **RECORDER**, DeskClock, DotDel, StikNote | assorted | A3 |
-| `os88type.inc` face cache 8 KB | NONE | **A7**: shared include, so one proc covers every carrier |
+| `os88type.inc` face cache 8 KB | - | **A7 BUILT**: `ty_reloc` (faces and the pre-shifted table), every includer at once; `tymove`, red-tested |
 | `os88parts.inc` carve ⚑ (op_claim) | "every part's segment is arithmetic on this base" | **A8**: declare from the library with a proc that stores `op_base`. A package that banks a part segment supplies a hook (as C2) |
 | lazy `op_fetch` claims | declared only by DrMario, Excitebike, Pixel | A8 |
 | **DOS** `dos_hk_claim` | undeclared | A3 |

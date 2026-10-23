@@ -2667,6 +2667,15 @@ SOAK = [
         "mounted - B: is asked before A: (SPEC.md 54.4.2.2; was D A B). "
         "VERIFIED RED on the kernel before each fix.",
         needs=("marty",)),
+    Row("tymove", "soak", py("tests/tymove.py"), 15.0,
+        "NO-PINNING A7: apps/os88type.inc's claims MOVE - an open face "
+        "(TF_CLAIM = TF_SEG, [ty_curseg] its copy) and the pre-shifted table "
+        "([ty_psseg]), put right by ty_reloc. Font Viewer opens CHARTER.F88, "
+        "the row posts a compaction at the TRIVIAL rank from outside "
+        "([mem_cpq]), the table slides down, every word stays live and the "
+        "specimen redraws the same. Red with ty_reloc a bare ret (legs 2/3; "
+        "leg 4 cannot see it, the old bytes surviving a move). 12s measured",
+        needs=("marty",), serial=True, wants=("build/office360.img",)),
     Row("fontview", "soak", py("tests/fontview.py"), 20.0,
         "SPEC.md 90: an F88 association launches FONT VIEWER with that family "
         "selected, every installed face is listed, typing edits the specimen, "
