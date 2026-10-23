@@ -4719,7 +4719,7 @@ SOAK = [
         "not: without the second half a sector that ignored DL outright "
         "would pass the first",
         needs=("marty", "nasm"), serial=True, timeout=420),
-    Row("fatwpin", "soak", py("tests/fatwpin.py"), 120.0,
+    Row("fatwpin", "soak", py("tests/fatwpin.py"), 30.0,
         "Is the kernel's own FAT window somebody's PIN, and only ever one "
         "volume's? (SPEC.md 18.8.3) FAT_SEG used to be a fallback owned by "
         "nobody, so a machine whose volumes all won heap claims reserved "
