@@ -9801,7 +9801,7 @@ SOAK = [
         "from them.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdtype", "soak", py("tests/wdtype.py"), 70.0,
+    Row("wdtype", "soak", py("tests/wdtype.py"), 90.0,
         "SPEC.md 27.4.3: a keystroke stops walking where the row indices "
         "reconverge (205.6 -> 80.4 ms). Legs B..D are CORRECTNESS legs and the "
         "old code was correct, so they pass on a build with the early-out "
@@ -9917,7 +9917,7 @@ SOAK = [
         "wd_wrapq's call taken out.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdcourier", "soak", py("tests/wdcourier.py"), 100.0,
+    Row("wdcourier", "soak", py("tests/wdcourier.py"), 80.0,
         "SPEC.md 68.6.2: a walk that SEEDS reconstructs its row's glyph y "
         "and its BAND TOP by hand, and the copy carried the kernel's cell "
         "height as a LITERAL 8. In the 8x8 face 8 IS [wd_gh] and the two "
@@ -9947,7 +9947,7 @@ SOAK = [
         "end of 4 while the bar's page was the 8px [wd_vrows].",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wddrag", "soak", py("tests/wddrag.py"), 150.0,
+    Row("wddrag", "soak", py("tests/wddrag.py"), 90.0,
         "SPEC.md 27.8.2.4, FIELD-NOTES 59: a drag that auto-scrolls left the "
         "rows it scrolled past UNSELECTED on the glass while [wd_sel0].."
         "[wd_sel1] covered them. wd_redraw's .scrolled0 dropped the drag "
@@ -10266,7 +10266,7 @@ SOAK = [
         "strips itself afterwards and a toggle measures nothing.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdenter", "soak", py("tests/wdenter.py"), 90.0,
+    Row("wdenter", "soak", py("tests/wdenter.py"), 50.0,
         "SPEC.md 27.4.5: an Enter pushes the note below the split down with "
         "one gfx_scroll instead of erasing to the content bottom and "
         "lettering every row in it (448.2 -> 133.3 ms). Leg A is the one that "
@@ -10325,7 +10325,7 @@ SOAK = [
         "go red - dropping wd_mvup's step-back fails every text assertion.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdcombo", "soak", py("tests/wdcombo.py"), 80.0,
+    Row("wdcombo", "soak", py("tests/wdcombo.py"), 50.0,
         "SPEC.md 68.2.3: Word's three combos are os88ui_drop records rather "
         "than rows of wd_mtab, so the gesture is THREE EVENTS (press, drag, "
         "release) where the pseudo-menu ran one modal poll - and each edge "

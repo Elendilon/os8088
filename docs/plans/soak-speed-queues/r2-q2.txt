@@ -94,8 +94,8 @@ apsp	apspkcovox	60	tests/apspk.py
 apsp	apspkcardc	20	tests/apspk.py
 apsp	apspkpause	20	tests/apspk.py
 apsp	apspkcard	18	tests/apspk.py
-wdco	wdcourier	100	tests/wdcourier.py
-wdco	wdcombo	80	tests/wdcombo.py
+DONE wdco	wdcourier	100	tests/wdcourier.py
+DONE wdco	wdcombo	80	tests/wdcombo.py
 DONE fish	fishedge	150	tests/fishedge.py
 fish	fishfit	20	tests/fishfit.py
 dosa	dosargs	90	tests/dosargs.py
@@ -103,7 +103,7 @@ dosa	dosarena	35	tests/dosarena.py
 dosa	dosattr	25	tests/dosattr.py
 dosa	dosaltenter	20	tests/dosaltenter.py
 edit	editmove	150	tests/editmove.py
-wddr	wddrag	150	tests/wddrag.py
+DONE wddr	wddrag	150	tests/wddrag.py
 tmgr	tmgraph	90	tests/tmgraph.py
 tmgr	tmground	60	tests/tmground.py
 DONE scsi	scsize	140	tests/scsize.py
@@ -122,7 +122,7 @@ DONE atke	atkey	100	tests/atkey.py
 wmar	wmartifact	92	tests/wmartifact.py
 ems	ems	45	tests/ems.py
 ems	emspico	45	tests/ems.py
-wden	wdenter	90	tests/wdenter.py
+DONE wden	wdenter	90	tests/wdenter.py
 netp	netpromise	90	tests/netpromise.py
 drvs	drvscroll	80	tests/drvscroll.py
 tmre	tmrepair	80	tests/tmrepair.py
@@ -130,7 +130,7 @@ kdno	kdnoprog	75	tests/kdnoprog.py
 hdno	hdnoclaim	75	tests/hdnoclaim.py
 clip	clipkeep	40	tests/clipkeep.py
 clip	clipgrow	30	tests/clipgrow.py
-wdty	wdtype	70	tests/wdtype.py
+DONE wdty	wdtype	70	tests/wdtype.py
 win	win1bpp	70	tests/win1bpp.py
 hdma	hdmap	65	tests/hdmap.py
 trkl	trklcd	45	tests/trklcd.py
