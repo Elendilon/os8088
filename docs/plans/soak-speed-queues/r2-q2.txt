@@ -1,5 +1,5 @@
 # ROUND 2. family  row  declared_secs  script. VERIFY = shared script edited in round 1, row never re-run: run it once first.
-weav	weavepack	1500	tests/weavepack.py
+DONE weav	weavepack	1500	tests/weavepack.py
 weav	weaveprev	240	tests/weaveprev.py
 weav	weavesession	150	tests/weavesession.py
 weav	weavegrid	120	tests/weavegrid.py

@@ -178,6 +178,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | skieshaze | 110 s / waits 41 guest | 53 s / 29 guest | 2, 8 | `cs_hzfill` breakpoint disarmed after its first hit (it only proves the fill runs; it stopped once per split row of 77 frames). `--clobber-ends` still FAILS (69 frames, worst 13 bytes). Secs 187 -> 70 |
 | skies (+ every skies*.py) | skies 66 s / 37 guest | 49 s / 25 guest | 2 | `quick=True` on the 29 os88ui.boot scripts; `skies.open_game` (6 launch-based scripts) is `ui.up` + `ui.path` instead of four dispcp settles, launched `boot=False`. Whole skie family run green after; secs left as declared |
 | redline (cga, herc, v20native) | cga 172 s | cga 148 s; herc 222, v20 233 (loaded) | - | the guest benchmark runs (two full runs, the rerun is a tested behaviour) ARE the row; only the poll step shrank. **redlinevga FAILS at base**: `ru_buttons+10 == 2` (held press, redline.py:312), identically with the old wait |
+| weavepack | 67 s / 250 guest s waited (declared 1,500) | 51 s / 160 | 2, 4 | os88ui verbs (`open` confirms LOOM's window, `close` its record) and `ui_done` after ^P - Pack runs whole on the UI task - instead of three settles; quick boot. The rest is eleven LOOM launches and their packs |
 
 ## Resuming
 
