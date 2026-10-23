@@ -96,6 +96,11 @@ reading the guest state the page is drawn from instead of pumping the screen).
    fishedge's 69 s were `time.sleep` inside it). `boot=False`, `m.run()`,
    `kernel_up(m)`. `grep -n 'boot=[1-9]' tests/*.py` lists the rest.
 
+13. **`click(..., settle=N)` is a fixed N x 4.5 guest-s pace.** Spell it
+   `click(..., settle=0); ui_done(m, cap=N * 4.5)`: ends when the UI idles,
+   never waits longer than before, and still ends on a knob kernel whose UI
+   never idles (knobhd's MOUDIAG). hdsize 196 -> 75 guest s.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
