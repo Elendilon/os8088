@@ -87,6 +87,7 @@ class Guest:
             for _ in range(100):
                 try:
                     self.q = socket.create_connection(('127.0.0.1', qp), timeout=2)
+                    self.q.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     break
                 except OSError:
                     if self.proc.poll() is not None:
@@ -98,6 +99,12 @@ class Guest:
             self.f.readline()
             self.qmp('qmp_capabilities')
             self.g = socket.create_connection(('127.0.0.1', gp), timeout=10)
+            # NO NAGLE: every command is the ack '+' then the next packet, two
+            # small writes, and Nagle held the second for the stub's delayed
+            # ACK - 44 ms an RSP command, whatever it moved (174 of 213 s)
+            self.g.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.gf = self.g.makefile('rb')     # (read a reply BUFFERED: a
+                                                # recv(1) a byte was 8 s)
             self.rsp('?')
             self.qmp('cont')
             # The boot on STATE, not a 3 host-s sleep: the desktop's tables
@@ -138,7 +145,7 @@ class Guest:
         self.proc.terminate()
         self.proc.wait(timeout=10)
         Path(self.pidfile).unlink(missing_ok=True)
-        for name in ('f','q','g'):
+        for name in ('f','gf','q','g'):
             resource = getattr(self,name,None)
             if resource is not None:
                 resource.close()
@@ -156,21 +163,22 @@ class Guest:
     def rsp(self, command):
         data = command.encode()
         self.g.sendall(b'$'+data+b'#'+f'{sum(data)&255:02x}'.encode())
+        gf = self.gf
         while True:
-            c = self.g.recv(1)
+            c = gf.read(1)
             if not c:
                 raise EOFError('GDB disconnected before reply')
             if c == b'$':
                 break
         reply = bytearray()
         while True:
-            c = self.g.recv(1)
+            c = gf.read(1)
             if not c:
                 raise EOFError('GDB disconnected during reply')
             if c == b'#':
                 break
             reply += c
-        self.g.recv(2)
+        gf.read(2)
         self.g.sendall(b'+')
         result = reply.decode()
         if result.startswith('E'):

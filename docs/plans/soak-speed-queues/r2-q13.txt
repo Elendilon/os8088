@@ -10,7 +10,7 @@ DONE vgad	vgadirty	80	tests/vgadirty.py	qemu,nasm
 DONE mine	minesrc	80	tests/minesrc.py	qemu,nasm
 DONE vidc	vidclose	75	tests/vidclose.py	qemu,nasm
 DONE dosx	dosxlat	75	tests/dosxlat.py	qemu
-colo	colorpresets	72	tests/colorpresets_qemu.py	qemu,nasm,pil
+DONE colo	colorpresets	72	tests/colorpresets_qemu.py	qemu,nasm,pil
 wire	wireball	65	tests/wireball.py	qemu,nasm,pil
 pxsw	pxswin-qemu	65	tests/pxswin.py	qemu
 hmad	hmadrv	62	tests/hmadrv.py	qemu,nasm

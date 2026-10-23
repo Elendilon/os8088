@@ -15819,7 +15819,7 @@ SOAK = [
         "reentry; another process waits until the holder exits. Covers both "
         "POSIX flock and the Windows byte-lock fallback without building.",
         needs=()),
-    Row("colorpresets", "soak", py("tests/colorpresets_qemu.py"), 72.0,
+    Row("colorpresets", "soak", py("tests/colorpresets_qemu.py"), 60.0,
         "all eight EGA-index presets retain white application interiors and "
         "unchanged graphical content, and XOR the menu bar with their mask and "
         "back; the Windows style wears the preset; the chooser opened through "

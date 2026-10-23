@@ -124,6 +124,11 @@ reading the guest state the page is drawn from instead of pumping the screen).
    source bytes; poke per-arm headers after the copy. Check the hit equal to a
    fresh make once; a source with no seed gets frozen to one draw - say so.
 
+17. **TCP_NODELAY on a request/reply socket.** A gdb-stub client acks with
+   `+` and then sends the next packet: two small writes, and Nagle holds the
+   second for the peer's delayed ACK - **44 ms a command whatever it moves**
+   (colorpresets: 174 of 213 s). Time a few commands; ~40 ms each is this.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
@@ -419,6 +424,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | cdrom / cdromsim (+ cdromempty) | 32 / 8 s | 11 / 2 / 2 s | 5, 14, 15 | eight tools/mouse.py dblclicks and QH.click -> closed-loop (`mouse_dblclick`/`mouse_click`); the empty drive's blind `pace(8)` -> `ui_done(cap=8)` (the mount attempt runs in the UI task's handler; red with a disc in the drive); the sim's `pace(2)` -> CPS_NOAUD then `ui_done`; the key walk's `pace(.3)` -> `ui_done`. Same printed results. **SKIP here**: cdromtest.img/cdfix.iso/cdromsim.img are not in the shared build/; run against a private plain tree (`OS88_TREE`/`OS88_BUILD`) |
 | xmcheck | not runnable as was (`make test`); declared 50 | 3.6 s | 14, 15 | `boot()` -> `launch_test`; the two dblclicks and the close-box click closed-loop; `pace(1)` -> `ui_done`; polls 0.3 -> 0.05. **SKIP here**: build/xmtest.img not in the shared build/; green with it from a private plain tree |
 | hdtakeboot (+ hdtake, hdtakeblank re-run) | 15.7 s | 6.5 s (2.6 / 2.0) | 15 | QH.click and the two C: dblclicks closed-loop (`mouse_click`/`mouse_dblclick`) where tools/mouse.py walked blind |
+| colorpresets (+ fmtpair re-run) | 213 s direct (load ~10): 3,923 RSP commands at ~44 ms each | 40.8 s (fmtpair 7.6) | 17 | TCP_NODELAY on the gdb-stub and QMP sockets of `colorpresets_qemu.Guest` (fmtpair's too) and the RSP reply read buffered (a `recv(1)` a byte). Every command now ~0.1 ms; the rest is 17 boots and the guest calls. Same screens and SYSTEM.CFG compares. secs 72 -> 60 (CPU-charged: the QEMU children) |
 
 ## Resuming
 
