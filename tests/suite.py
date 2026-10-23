@@ -4710,7 +4710,7 @@ SOAK = [
         "it step 1 reads tier 2. Step 3 executes an 80186 shift so a profile "
         "that is silently an 8088 fails too",
         needs=("marty",), timeout=180),
-    Row("dljunk", "soak", py("tests/dljunk.py"), 210.0,
+    Row("dljunk", "soak", py("tests/dljunk.py"), 90.0,
         "SPEC.md 2.9.11's DL check, both ways: a BIOS that never set DL left "
         "0x61 in it and every int 13h named a unit that is not there, which "
         "is `Disk error` since the first commit (docs/FIELD-NOTES.md 36). "
@@ -7735,11 +7735,11 @@ SOAK = [
     Row("calcflick", "soak", py("tests/calcflick.py"), 30.0,
         "Does the Calculator FLASH? (PERFORMANCE.md Part 3.1, SPEC.md 65.4)",
         needs=("marty",), serial=True, wants=("build/calcref.img",)),
-    Row("ftpdflick", "soak", py("tests/ftpdflick.py"), 120.0,
+    Row("ftpdflick", "soak", py("tests/ftpdflick.py"), 50.0,
         "What does clicking into an FTPD Setup field cost, and is it still "
         "two cells rather than the page? (SPEC.md 77.45)",
         needs=("marty",), serial=True),
-    Row("ftpdfocus", "soak", py("tests/ftpdfocus.py"), 60.0,
+    Row("ftpdfocus", "soak", py("tests/ftpdfocus.py"), 40.0,
         "Does FTPD's Setup page keep a caret it cannot type into? "
         "(SPEC.md 77.45.4)",
         needs=("marty",), serial=True),
@@ -10347,7 +10347,7 @@ SOAK = [
         "stale segment.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdmenusu", "soak", py("tests/wdmenusu.py"), 190.0,
+    Row("wdmenusu", "soak", py("tests/wdmenusu.py"), 40.0,
         "SPEC.md 68.2.1: Word's dropdown BANKS the pixels it covers and the "
         "close writes them back (521.4 ms -> 19.7 ms on a 4.77MHz 8088). The "
         "assertion is PIXEL EQUALITY, because a save-under that is fast and "

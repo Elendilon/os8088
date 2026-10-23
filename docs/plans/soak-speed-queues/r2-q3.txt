@@ -139,14 +139,14 @@ MOVED->r2-q6 dosf	dosfcb	30	tests/dosfcb.py
 DONE mixe	mixercga	100	tests/mixer.py
 DONE mixe	mixerherc	65	tests/mixer.py
 DONE mixe	mixervga	65	tests/mixer.py
-dlju	dljunk	210	tests/dljunk.py
+DONE dlju	dljunk	210	tests/dljunk.py
 MOVED->r2-q6 pkgt	pkgthumb-np	50	tests/pkgthumb.py
 MOVED->r2-q6 pkgt	pkgthumb-br	50	tests/pkgthumb.py
 MOVED->r2-q6 pkgt	pkgthumb-wd	50	tests/pkgthumb.py
 MOVED->r2-q6 pkgt	pkgthumb-tp	50	tests/pkgthumb.py
-wdme	wdmenusu	190	tests/wdmenusu.py
-ftpd	ftpdflick	120	tests/ftpdflick.py
-ftpd	ftpdfocus	60	tests/ftpdfocus.py
+DONE wdme	wdmenusu	190	tests/wdmenusu.py
+DONE ftpd	ftpdflick	120	tests/ftpdflick.py
+DONE ftpd	ftpdfocus	60	tests/ftpdfocus.py
 MOVED->r2-q5 dosr	dosram	75	tests/dosram.py
 MOVED->r2-q6 dosr	dosrange	45	tests/dosrange.py
 MOVED->r2-q6 dosr	dosren	30	tests/dosren.py
