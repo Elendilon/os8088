@@ -7671,7 +7671,7 @@ SOAK = [
         "anchor's span",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
-    Row("brreload", "soak", py("tests/brreload.py"), 360.0,
+    Row("brreload", "soak", py("tests/brreload.py"), 20.0,
         "BROWSER-PLAN 14.5: Reload's greying predicate and its action ask the "
         "same question - the field's three faults after a screen saver were "
         "one desync",

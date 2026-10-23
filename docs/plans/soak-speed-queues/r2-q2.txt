@@ -73,7 +73,7 @@ vidr	vidresbig	60	tests/vidresbig.py
 vidr	vidresident	50	tests/vidresident.py
 vidr	vidresidentcga	50	tests/vidresident.py
 vidr	vidresidentvga	50	tests/vidresident.py
-brre	brreload	360	tests/brreload.py
+DONE brre	brreload	360	tests/brreload.py
 heap	heapscrl	120	tests/heapscrl.py
 heap	heaphi	90	tests/heaphi.py
 heap	heapcheck	60	tests/heapcheck.py

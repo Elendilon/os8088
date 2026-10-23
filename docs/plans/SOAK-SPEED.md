@@ -232,6 +232,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | vidspk (15 rows) + vidsnd | 20-46 s (load 10) / 688 guest s waited | 12-20 s (load 6-8) / 622 guest | 4, 8 | quick boot (`up`); a no-op `until(lambda: True)` "beat" between Control Panel clicks -> `ui_done`; polls 0.05. The rest is the XT-IDE boot and the real-time plays |
 | bootfloor-ab | 210 s warm (450 cold) / 43 guest s waited | 66 s / 28 | 5, 11 | `os88build.tree()` asked once per process (each ask is a `make` over the tree, ~17 host s, and it asked 12 times for 5 trees); one launch a boot that runs until the desktop STATE or the sector's message has held a guest second, instead of a refused boot timing out launch's gate and booting again. **The `says RAM` check was always true**: GLaBIOS's POST prints `RAM    [ 640 KB OK ]`, so it now wants a line ENDING in RAM (the sector's `msg_mem`). RAM at reset reads 'desktop' in those three words - hence the hold |
 | bootstatus | 45 s | 9.6 s | 4, 10 | the per-frame sampler decoded a whole `m.vram` frame each displayed frame to look at ONE scanline: it reads that row's bytes out of video memory (same 7 distinct bands both adapters); the tail's blind `advance(240)` -> `ui_done` + 0.1 s |
+| brreload | 16 s / 62 guest s waited (declared 360) | 9.5 s / 32 | 4 | boot on state; every settle and the two `pace(1)` -> `ui_done` (all reads are browser state or `m.vram`); identical ink counts |
 
 ## Resuming
 
