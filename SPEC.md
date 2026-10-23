@@ -64198,7 +64198,7 @@ the pages themselves:
 
 | flag | off in `APP_SMALL` | what goes with it |
 |---|---|---|
-| `TMF_HEAP` | the heap page (§28.4), the memory page's groups since §28.4.10 | the per-claim rows and their `TYPE`/`TIER` decode, the groups and the two header switches, the `AVAIL` line (`tm_hsnap`'s `OSAPI_MEM_AVAIL` pair), the scroll bar (§13.10) and `TM_SHOWN`'s share of `tm_rowck` |
+| `TMF_HEAP` | the heap page (§28.4), the memory page's groups since §28.4.10 | the per-claim rows and their `TYPE`/`TIER` decode, the groups and the two header switches, the 640K–1MB rows (`tm_romscan`), the `AVAIL` line (`tm_hsnap`'s `OSAPI_MEM_AVAIL` pair), the scroll bar (§13.10) and `TM_SHOWN`'s share of `tm_rowck` |
 | `TMF_MEM` | the memory view (§28) | the conventional-memory map, the XMS bar, the `NAME/ADDR/SIZE/HEAP` re-columning, the legend squares and their textures (the claim swatch beside the RAM line's HEAP pair among them; the pair itself stays) — and the whole of §28.6/§28.8/§28.11's quiet-page machinery, which exists for these two pages and for nothing else |
 
 **The ladder is ORDERED and the guard says so.** The heap page borrows the
@@ -64221,11 +64221,17 @@ worth a byte of `.text` here and `tools/os88pkgsize.py` prints the sum:
 | arm | image | bss | claim | vs. full |
 |---|---|---|---|---|
 | full (shipped) | 7,589 | 1,698 | **9,287** | — |
-| `TMF_HEAP` off | 6,300 | 1,586 | 7,886 | −1,401 (15.1%) |
+| `TMF_HEAP` off | 5,356 | 2,054 | 7,410 | −4,926 (39.9%) against the full arm's 9,929 + 2,407 = 12,336 *(as of the §28.4.10 merge)* |
 | both off (`APP_SMALL`) | 3,641 | 1,313 | **4,954** | −4,333 (46.7%) |
 
 (As of §28.12.3; §28.12.2's pass left the small arm at 4,400 of image; the first pass left them at 8,223 / 6,970 / 4,980 of
-image against 1,707 / 1,581 / 1,317 of bss.)
+image against 1,707 / 1,581 / 1,317 of bss. The `TMF_HEAP` row is re-measured
+after §28.4.10 merged the heap page into the memory page and left its list
+reachable under `TMF_MEM` alone, so the middle rung stopped assembling: the
+list - groups, claim rows, the 640K-1MB rows, the `AVAIL` line, the header's
+switches and the scroll bar - is `TMF_HEAP`'s again, and that rung is the
+memory page ENDING at the XMS line. Its bss grew with the pool walk the summary
+line reads (`tm_xw`), not with the list.)
 
 The first size pass on the package (it had only ever been moved, never
 trimmed) took the full arm from 9,245 + 2,269 = 11,514 to the row above and
