@@ -360,8 +360,17 @@ DROPPED by the compactor. The ratchet (4) records them as "shed, by design".
 - C3/C2: RunCPM, C64 and APPLE2 RAM, and the multi-row eager carve
 - A2: Word and Scribe data claims
 
-Each was asked to stop at a clean point and commit WIP in its own worktree
-with a report. **On resume:** read each report, review each diff against the
+All three paused cleanly, each with a WIP commit rebased onto `no-pinning`
+(fc717f36) in its own worktree under `.claude/worktrees/`:
+
+| item | branch @ commit | state | next step |
+|---|---|---|---|
+| A2 Word, Scribe | `worktree-agent-aed038112485c85c2` @ 45165d2b | code done. Word 6/6 and Scribe 7/7 claims MOVE (`tests/wdheapmove.py`), three red runs taken; +108 / +141 image bytes, bss down by the same | register the two rows, SPEC.md 68.3.2 and 95.14, HEAP-CLAIMS rows, `make`, run the Word/Scribe rows once |
+| C4 LEMMINGS | `worktree-agent-a589750b58a51e736` @ 2c213e44 | 18 words translated (not 7). Claims movable while held on the desktop and PINNED around the launch/play stretch (bucket C, zero per-frame cost). One hand run on VGA: all claims moved, hashes identical; +234 image, +82 module | fix `tests/lemmove.py`'s wait on a paused screen that keeps changing, run it on Hercules and VGA, the red run, the row, SPEC.md 116.6, HEAP-CLAIMS. Then G1 again with a level suspended |
+| C3/C2 emulators | `worktree-agent-a0e6fd7fc8914d127` @ dcef7354 | RunCPM, C64 and APPLE2 RAM movable; new opt-in `CC_ONMOVE_PARTS` makes the multi-row carve movable (byte-identical for packages that do not opt in); core hot paths instruction-identical at even shifts; +158..+240 bytes; host gates red-tested | run `tests/rcmove.py` for the first time, the red run, SPEC.md 73.14.2.1 / C64-SPEC 3.1.1 / APPLE2-SPEC 3.1.1 / HEAP-CLAIMS / os88.h |
+
+One stray file for the owner: the C4 agent left a 27 KB build log at `/x.log`
+and the sandbox would not let it delete it. **On resume:** read each report, review each diff against the
 section 5 lessons (every holder, derived segments, declare after all claims),
 merge, re-run G1 with LEMMINGS suspended (5.1), then run the deduplicated soak
 union of every row these touch, once.
