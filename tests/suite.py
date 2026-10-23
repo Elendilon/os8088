@@ -15691,7 +15691,7 @@ SOAK = [
         "guest time however many breakpoints fire: 12 of 12 at 335e584, eight "
         "of them four-wide beside a full soak",
         needs=("marty",), serial=True),
-    Row("tmselfsu", "soak", py("tests/tmselfsu.py"), 300.0,
+    Row("tmselfsu", "soak", py("tests/tmselfsu.py"), 120.0,
         "SPEC.md 28.8.1: the Task Manager stops repainting for ITS OWN raise "
         "cache and so gets to keep one - and still sees everybody else's, "
         "which is what makes the cut the self-reference and not the range. "

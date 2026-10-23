@@ -83,7 +83,7 @@ dose	dosenvfold	40	tests/dosenvfold.py
 dose	dosest	40	tests/dosest.py
 dose	dosexec	30	tests/dosexec.py
 dose	dosexe	28	tests/dosexe.py
-tmse	tmselfsu	300	tests/tmselfsu.py
+DONE tmse	tmselfsu	300	tests/tmselfsu.py
 wfdr	wfdraw	120	tests/wfdraw.py
 wfdr	wfdrawherc	120	tests/wfdraw.py
 DONE curd	curdisk	240	tests/curdisk.py
