@@ -64,21 +64,21 @@ DONE pixe	pixelstein-c160	155	tests/pixelstein.py
 DONE pixe	pixelstein	135	tests/pixelstein.py
 DONE pixe	pixelstein-herc	135	tests/pixelstein.py
 DONE pixe	pixelstein-win	135	tests/pixelstein.py
-stik	stiknote	150	tests/stiknote.py
-stik	stiknotevga	80	tests/stiknote.py
-stik	stikswap	50	tests/stikswap.py
-stik	stikregister	50	tests/stikregister.py
-stik	stikmenu	45	tests/stikmenu.py
-stik	stiknotesmall	45	tests/stiknote.py
-stik	stiksmall	35	tests/stiksmall.py
-stik	stiknodesk	32	tests/stiknodesk.py
-stik	stikmove	30	tests/stikmove.py
-stik	stikmovecga	25	tests/stikmove.py
-stik	stikanchor	25	tests/stikmove.py
-stik	stikmiss	21	tests/stikmiss.py
-stik	stikboot	17	tests/stikboot.py
-stik	stikshort	15	tests/stikshort.py
-stik	stikhiber	15	tests/stikhiber.py
+DONE stik	stiknote	150	tests/stiknote.py
+DONE stik	stiknotevga	80	tests/stiknote.py
+DONE stik	stikswap	50	tests/stikswap.py
+DONE stik	stikregister	50	tests/stikregister.py
+DONE stik	stikmenu	45	tests/stikmenu.py
+DONE stik	stiknotesmall	45	tests/stiknote.py
+DONE stik	stiksmall	35	tests/stiksmall.py
+DONE stik	stiknodesk	32	tests/stiknodesk.py
+DONE stik	stikmove	30	tests/stikmove.py
+DONE stik	stikmovecga	25	tests/stikmove.py
+DONE stik	stikanchor	25	tests/stikmove.py
+DONE stik	stikmiss	21	tests/stikmiss.py
+DONE stik	stikboot	17	tests/stikboot.py
+DONE stik	stikshort	15	tests/stikshort.py
+DONE stik	stikhiber	15	tests/stikhiber.py
 doss	dosshell	270	tests/dosshell.py
 doss	dosseq	240	tests/dosseq.py
 doss	dosshrink	30	tests/dosshrink.py

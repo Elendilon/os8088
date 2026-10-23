@@ -10993,7 +10993,7 @@ SOAK = [
         "Del twice empties the list; and three again show the last one's "
         "page and the pager wraps.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
-    Row("stiknote", "soak", py("tests/stiknote.py"), 150.0,
+    Row("stiknote", "soak", py("tests/stiknote.py"), 40.0,
         "SPEC.md 110.13: Sticky Note on a Hercules 5150 off the shipped 360KB "
         "system disk - the MID layout, a pad over SYSTEM/APPDATA/NOTES. It "
         "reads WELCOME.TXT (one note, its head the file's bytes) and the "
@@ -11014,7 +11014,7 @@ SOAK = [
         "time is press (or the editor gone) to the visit's end off kernel "
         "breakpoints, the motor stopped first.",
         needs=("marty",), timeout=900, wants=("build/os8088-360.img",)),
-    Row("stiknotevga", "soak", py("tests/stiknote.py", "--leg", "vga"), 80.0,
+    Row("stiknotevga", "soak", py("tests/stiknote.py", "--leg", "vga"), 50.0,
         "SPEC.md 110.13: Sticky Note's PAPERS and a FULL folder on a VGA XT, "
         "read off the card's rendered framebuffer (fbuf): the TALL layout; "
         "the sheet yellow with a black edge; Color > Pink makes it pink and "
