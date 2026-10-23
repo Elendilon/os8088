@@ -71,23 +71,23 @@ DONE vidv	vidv2no	20	tests/vidv2.py
 DONE n	1942sound	751.5	tests/n1942sound.py
 DONE n	1942	216.1	tests/n1942.py
 DONE n	1942front	180	tests/n1942front.py
-VERIFY vidp	vidpagetextf	95	tests/vidpagetext.py
-VERIFY vidp	vidplaybigvga	85	tests/vidplay.py
-VERIFY vidp	vidpallayer	80	tests/vidpal.py
-VERIFY vidp	vidprevherc	72	tests/vidpreview.py
-VERIFY vidp	vidkpartpv	72	tests/vidpreview.py
-VERIFY vidp	vidprevshd	70	tests/vidpreview.py
-VERIFY vidp	vidplayshd	45	tests/vidplay.py
-VERIFY vidp	vidplaycompvga	45	tests/vidplay.py
-VERIFY vidp	vidplay	40	tests/vidplay.py
-VERIFY vidp	vidplayring	40	tests/vidplay.py
-VERIFY vidp	vidplay3	40	tests/vidplay.py
-VERIFY vidp	vidplayherc	40	tests/vidplay.py
-VERIFY vidp	vidplaycomp	40	tests/vidplay.py
-VERIFY vidp	vidpagetext	40	tests/vidpagetext.py
-VERIFY vidp	vidplaybig	35	tests/vidplay.py
-VERIFY vidp	vidpalloop	30	tests/vidpal.py
-VERIFY vidp	vidpalrep0	30	tests/vidpal.py
+DONE (verified green) vidp	vidpagetextf	95	tests/vidpagetext.py
+DONE (verified green) vidp	vidplaybigvga	85	tests/vidplay.py
+DONE (verified green) vidp	vidpallayer	80	tests/vidpal.py
+DONE (verified green) vidp	vidprevherc	72	tests/vidpreview.py
+DONE (verified green) vidp	vidkpartpv	72	tests/vidpreview.py
+DONE (verified green) vidp	vidprevshd	70	tests/vidpreview.py
+DONE (verified green) vidp	vidplayshd	45	tests/vidplay.py
+DONE (verified green) vidp	vidplaycompvga	45	tests/vidplay.py
+DONE (verified green) vidp	vidplay	40	tests/vidplay.py
+DONE (verified green) vidp	vidplayring	40	tests/vidplay.py
+DONE (verified green) vidp	vidplay3	40	tests/vidplay.py
+DONE (verified green) vidp	vidplayherc	40	tests/vidplay.py
+DONE (verified green) vidp	vidplaycomp	40	tests/vidplay.py
+DONE (verified green) vidp	vidpagetext	40	tests/vidpagetext.py
+DONE (verified green) vidp	vidplaybig	35	tests/vidplay.py
+DONE (verified green) vidp	vidpalloop	30	tests/vidpal.py
+DONE (verified green) vidp	vidpalrep0	30	tests/vidpal.py
 fdlg	fdlgsmall	300	tests/fdlggrey.py
 fdlg	fdlgchoose	120	tests/fdlgchoose.py
 fdlg	fdlgchsmall	105	tests/fdlgchoose.py
