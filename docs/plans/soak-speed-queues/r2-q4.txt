@@ -44,17 +44,17 @@ DONE hibe	hibsumbad	50	tests/hibernate.py
 DONE hibe	hibsumok	35	tests/hibernate.py
 DONE atbl	atblitvga	330	tests/atblit.py
 DONE atbl	atblit	165	tests/atblit.py
-vidc	vidcga4	45	tests/vidcga.py
-vidc	vidcga4p	45	tests/vidcga.py
-vidc	vidcga4vga	45	tests/vidcga.py
-vidc	vidc160	45	tests/vidcga.py
-vidc	vidc160vga	45	tests/vidcga.py
-vidc	vidtextvga	40	tests/vidcga.py
-vidc	vidtext	30	tests/vidcga.py
-vidc	vidtextherc	30	tests/vidcga.py
-vidc	vidcard	26	tests/vidcard.py
-vidc	vidc512	20	tests/vidcga.py
-vidc	vidtexthercno	20	tests/vidcga.py
+DONE vidc	vidcga4	45	tests/vidcga.py
+DONE vidc	vidcga4p	45	tests/vidcga.py
+DONE vidc	vidcga4vga	45	tests/vidcga.py
+DONE vidc	vidc160	45	tests/vidcga.py
+DONE vidc	vidc160vga	45	tests/vidcga.py
+DONE vidc	vidtextvga	40	tests/vidcga.py
+DONE vidc	vidtext	30	tests/vidcga.py
+DONE vidc	vidtextherc	30	tests/vidcga.py
+DONE vidc	vidcard	26	tests/vidcard.py
+DONE vidc	vidc512	20	tests/vidcga.py
+DONE vidc	vidtexthercno	20	tests/vidcga.py
 DONE(re-declared) brsc	brscroll	385	tests/brscroll.py
 DONE(re-declared) wdun	wdunsel	360	tests/wdunsel.py
 DONE(re-declared) lzbi	lzbig	330	tests/lzbig.py
@@ -79,12 +79,12 @@ mseg	msegnomem	40	tests/msegnomem.py
 mseg	msegplslack	20	tests/mseglzslack.py
 DONE(re-declared) shee	sheetmove	130	tests/sheetmove.py
 shee	sheetbtn	30	tests/sheetbtn.py
-pxpa	pxpaint	90	tests/pxpaint.py
+DONE(re-declared) pxpa	pxpaint	90	tests/pxpaint.py
 pxpa	pxparts	60	tests/pxparts.py
 DONE(re-declared) trac	trackmove	150	tests/trackmove.py
-font	fontpick	75	tests/fontpick.py
+DONE(re-declared) font	fontpick	75	tests/fontpick.py
 font	fontview	60	tests/fontview.py
-icos	icoshed	75	tests/icoshed.py
+DONE(re-declared) icos	icoshed	75	tests/icoshed.py
 icos	icostore	60	tests/icostore.py
 tank	tankspawn	40	tests/tankspawn.py
 tank	tank	30	tests/tank.py
@@ -98,7 +98,7 @@ DONE(re-declared) bigv	bigvol	110	tests/bigvol.py
 cycp	cycplay	55	tests/cycplay.py
 cycp	cycpu	45	tests/cycpu.py
 DONE(re-declared) tmsm	tmsmall	100	tests/tmsmall.py
-ptsm	ptsmix	95	tests/ptsmix.py
+DONE(re-declared) ptsm	ptsmix	95	tests/ptsmix.py
 pkgf	pkgfence	60	tests/pkgfence.py
 pkgf	pkgfmt	30	tests/pkgfmt.py
 MOVED->r2-q5 sock	socktest	90	tests/socktest.py

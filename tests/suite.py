@@ -5303,7 +5303,7 @@ SOAK = [
         "and 'did you obviously break the OS' is not what it asks",
         needs=("marty",), serial=True,
         wants=("build/ptstest360.img",)),
-    Row("ptsmix", "soak", py("tests/ptsmix.py"), 95.0,
+    Row("ptsmix", "soak", py("tests/ptsmix.py"), 140.0,
         "SPEC.md 5.6.9.5.2: the row above's claim on a MIXED pair of cards - "
         "os8088_xt_vga_herc, a VGA primary with a Hercules beside it. ptsext "
         "boots os8088_5150_both_gla_mono, where BOTH displays are 1bpp, so "
@@ -6211,7 +6211,7 @@ SOAK = [
         "is the IN-FLIGHT state here and a predicate accepting it fires before "
         "the machine has hibernated. VERIFIED red on the shipped kern_dos.",
         needs=("marty",), serial=True),
-    Row("icoshed", "soak", py("tests/icoshed.py"), 75.0,
+    Row("icoshed", "soak", py("tests/icoshed.py"), 70.0,
         "THE ICON STORE IS SHED AND THE WINDOW GETS IT BACK (SPEC.md "
         "25.9.5). A DOS box claims the whole arena, which is a full "
         "compaction, which correctly drops the machine-wide store - it is "
@@ -9105,7 +9105,7 @@ SOAK = [
         "just dropped the latch, that a missing guard throws the box "
         "straight back into full screen",
         needs=("marty",), serial=True),
-    Row("fontpick", "soak", py("tests/fontpick.py"), 75.0,
+    Row("fontpick", "soak", py("tests/fontpick.py"), 150.0,
         "SPEC.md 6.0.1: which 8x8 table the kernel reads. On the VGA XT the "
         "BIOS answers with its option ROM at C000 and the kernel must read "
         "the planar F000:FB6E instead (same glyphs), with no MEM_K_FONT "
@@ -10117,7 +10117,7 @@ SOAK = [
         "bit tables, BLIT1 - the same six legs, every bit against pixelsim",
         needs=("marty", "nasm"), serial=True,
         wants=("build/pixel.o88", "build/os8088-360.img")),
-    Row("pxpaint", "soak", py("tests/pxpaint.py"), 90.0,
+    Row("pxpaint", "soak", py("tests/pxpaint.py"), 80.0,
         "SPEC.md 106.14's budget: the primitive calls of an open, a zoom "
         "step (the canvas and the Navigator's frame, not the panels), a pan "
         "down (ONE scroll and the strip), a pan across (SAVE/REST and the "
@@ -13191,7 +13191,7 @@ SOAK = [
         "sample read 255 and it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidcga4", "soak", py("tests/vidcga.py", "--fmt", "cga4"), 45.0,
+    Row("vidcga4", "soak", py("tests/vidcga.py", "--fmt", "cga4"), 30.0,
         "SPEC.md 98.1.3.3, 98.3.12, 98.4.6: CGA IN COLOUR on the CGA 5150 - "
         "a mode 4 clip with mode 5's palette (51h): read as CGA4, the poster "
         "cga4_mono's grey byte for byte, Play full screen, and at four holds "
@@ -13213,17 +13213,17 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidcga4p", "soak", py("tests/vidcga.py", "--fmt", "cga4",
-                               "--pal", "2E"), 45.0,
+                               "--pal", "2E"), 30.0,
         "SPEC.md 98.3.12: vidcga4 with the BIOS's own set 1, dim, on yellow",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidcga4vga", "soak", py("tests/vidcga.py", "--fmt", "cga4",
-                                 "--screen", "vga"), 45.0,
+                                 "--screen", "vga"), 40.0,
         "SPEC.md 98.3.12: vidcga4 on MartyPC's VGA XT - mode 5's red made "
         "from palette register 2",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidc160", "soak", py("tests/vidcga.py", "--fmt", "c160"), 45.0,
+    Row("vidc160", "soak", py("tests/vidcga.py", "--fmt", "c160"), 40.0,
         "SPEC.md 98.1.3.3, 98.3.12: SIXTEEN COLOURS at 160 x 100 on the CGA "
         "5150 - the text mode retimed to 100 rows, every character 0DEh, "
         "each attribute at its odd address against the decode, every "
@@ -13231,7 +13231,7 @@ SOAK = [
         "purpose (the retime skipped) it FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidc512", "soak", py("tests/vidcga.py", "--fmt", "c512"), 20.0,
+    Row("vidc512", "soak", py("tests/vidcga.py", "--fmt", "c512"), 40.0,
         "SPEC.md 98.1.3.5, 98.3.12.2: C512 on the CGA 5150 - COMPOSITE "
         "colour on the text hack, 512 codes a cell, played NATIVE: the "
         "file's layout, no shadow, the card byte through to [vp_cgapal]; "
@@ -13243,12 +13243,12 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidc160vga", "soak", py("tests/vidcga.py", "--fmt", "c160",
-                                 "--screen", "vga"), 45.0,
+                                 "--screen", "vga"), 40.0,
         "SPEC.md 98.3.12: vidc160 on MartyPC's VGA XT - rows of four scan "
         "lines, blink off through the BIOS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidtext", "soak", py("tests/vidcga.py", "--fmt", "text"), 30.0,
+    Row("vidtext", "soak", py("tests/vidcga.py", "--fmt", "text"), 40.0,
         "SPEC.md 98.1.3.6, 98.3.16, 98.4.6: TEXT VIDEO in colour on the CGA "
         "5150 - the 80 x 25 text screen played NATIVE, the colour byte "
         "through to [vp_cgapal]; at four holds every character and "
