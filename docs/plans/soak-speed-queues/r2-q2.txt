@@ -20,22 +20,22 @@ DONE vidd	wseqcut	57	tests/viddisk.py
 DONE vidd	viddisk	52	tests/viddisk.py
 DONE vidd	wseqdeleted	39	tests/viddisk.py
 DONE desk	deskflash	85	tests/deskflash.py
-desk	deskhover	80	tests/desklayer.py
-desk	deskdrag	75	tests/desklayer.py
+DONE desk	deskhover	80	tests/desklayer.py
+DONE desk	deskdrag	75	tests/desklayer.py
 DONE desk	deskzoom	72	tests/deskzoom.py
-desk	deskground	60	tests/desklayer.py
-desk	deskkeys	45	tests/desklayer.py
-desk	deskclose	45	tests/desklayer.py
-desk	deskfit	45	tests/desklayer.py
-desk	deskhovercga	40	tests/desklayer.py
-desk	deskhoverherc	40	tests/desklayer.py
+DONE desk	deskground	60	tests/desklayer.py
+DONE desk	deskkeys	45	tests/desklayer.py
+DONE desk	deskclose	45	tests/desklayer.py
+DONE desk	deskfit	45	tests/desklayer.py
+DONE desk	deskhovercga	40	tests/desklayer.py
+DONE desk	deskhoverherc	40	tests/desklayer.py
 desk	deskmodal	40	tests/deskmodal.py
 desk	deskfdd	35	tests/deskfdd.py
 desk	deskpen	31	tests/deskpen.py
-desk	deskz	30	tests/desklayer.py
-desk	desksmall	30	tests/desklayer.py
+DONE desk	deskz	30	tests/desklayer.py
+DONE desk	desksmall	30	tests/desklayer.py
 desk	deskitem	25	tests/deskitem.py
-desk	deskdock	25	tests/desklayer.py
+DONE desk	deskdock	25	tests/desklayer.py
 DONE midi	midirackend	120	tests/midirack.py
 DONE midi	midirackcovoxpoll	75	tests/midirack.py
 DONE midi	midiracksbmem	70	tests/midirack.py
@@ -66,18 +66,18 @@ DONE trks	trkspkturbo	36	tests/trkspk.py
 DONE trks	trkspkref	20	tests/trkspk.py
 DONE mrdr	mrdraw	200	tests/mrdraw.py
 DONE mrdr	mrdrawvga	200	tests/mrdraw.py
-vidr	vidrepeat	60	tests/vidrepeat.py
-vidr	vidrepeatshd	60	tests/vidrepeat.py
-vidr	vidkpartrep	60	tests/vidrepeat.py
-vidr	vidresbig	60	tests/vidresbig.py
+DONE vidr	vidrepeat	60	tests/vidrepeat.py
+DONE vidr	vidrepeatshd	60	tests/vidrepeat.py
+DONE vidr	vidkpartrep	60	tests/vidrepeat.py
+DONE vidr	vidresbig	60	tests/vidresbig.py
 vidr	vidresident	50	tests/vidresident.py
 vidr	vidresidentcga	50	tests/vidresident.py
 vidr	vidresidentvga	50	tests/vidresident.py
 DONE brre	brreload	360	tests/brreload.py
 DONE heap	heapscrl	120	tests/heapscrl.py
 DONE heap	heaphi	90	tests/heaphi.py
-heap	heapcheck	60	tests/heapcheck.py
-heap	heapdrv	60	tests/heapdrv.py
+DONE heap	heapcheck	60	tests/heapcheck.py
+DONE heap	heapdrv	60	tests/heapdrv.py
 DONE dose	dosext	170	tests/dosext.py
 dose	dosenvfold	40	tests/dosenvfold.py
 dose	dosest	40	tests/dosest.py
@@ -102,10 +102,10 @@ DONE dosa	dosargs	90	tests/dosargs.py
 dosa	dosarena	35	tests/dosarena.py
 dosa	dosattr	25	tests/dosattr.py
 dosa	dosaltenter	20	tests/dosaltenter.py
-edit	editmove	150	tests/editmove.py
+DONE edit	editmove	150	tests/editmove.py
 DONE wddr	wddrag	150	tests/wddrag.py
 DONE tmgr	tmgraph	90	tests/tmgraph.py
-tmgr	tmground	60	tests/tmground.py
+DONE tmgr	tmground	60	tests/tmground.py
 DONE scsi	scsize	140	tests/scsize.py
 DONE imgt	imgtest	135	tests/imgtest.py
 DONE kzbo	kzboot-off	100	tests/kzboot.py
@@ -131,17 +131,17 @@ DONE hdno	hdnoclaim	75	tests/hdnoclaim.py
 clip	clipkeep	40	tests/clipkeep.py
 clip	clipgrow	30	tests/clipgrow.py
 DONE wdty	wdtype	70	tests/wdtype.py
-win	win1bpp	70	tests/win1bpp.py
-hdma	hdmap	65	tests/hdmap.py
+DONE win	win1bpp	70	tests/win1bpp.py
+DONE hdma	hdmap	65	tests/hdmap.py
 trkl	trklcd	45	tests/trklcd.py
 trkl	trkload	20	tests/trkload.py
 lzdr	lzdrv	45	tests/lzdrv.py
 lzdr	lzdrv-nohint	16	tests/lzdrv.py
-kdkb	kdkbd	60	tests/kdkbd.py
-drvc	drvcall	60	tests/drvcall.py
-fmbt	fmbtn	60	tests/fmbtn.py
-mods	modstr	60	tests/modstr.py
-trkc	trkcompact	60	tests/trkcompact.py
+DONE kdkb	kdkbd	60	tests/kdkbd.py
+DONE drvc	drvcall	60	tests/drvcall.py
+DONE fmbt	fmbtn	60	tests/fmbtn.py
+DONE mods	modstr	60	tests/modstr.py
+DONE trkc	trkcompact	60	tests/trkcompact.py
 pxsp	pxsperf	55	tests/pxsperf.py
 cppr	cppromise	50	tests/cppromise.py
 kdcw	kdcwd	50	tests/kdcwd.py

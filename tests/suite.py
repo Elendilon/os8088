@@ -6026,7 +6026,7 @@ SOAK = [
         "BIOS buffer drained, and one more paced key still lands. Red on a "
         "MartyPC built without patch 14 (leg B stops in sch_stkdie).",
         needs=("marty",)),
-    Row("kdkbd", "soak", py("tests/kdkbd.py"), 60.0,
+    Row("kdkbd", "soak", py("tests/kdkbd.py"), 50.0,
         "KERN_DOS KEEPS THE BIOS KEY BUFFER OFF FULL (SPEC.md 96.50). "
         "Reported off an 86Box 386: hold a direction key in Prince of Persia "
         "under the whole-machine arm and the BIOS beeps for longer than the "
@@ -7628,7 +7628,7 @@ SOAK = [
         "program at all.",
         needs=("marty",), serial=True,
         wants=("build/doslnk360.img", "build/dosargs360.img")),
-    Row("heapcheck", "soak", py("tests/heapcheck.py"), 60.0,
+    Row("heapcheck", "soak", py("tests/heapcheck.py"), 40.0,
         "Drive tests/heapfrag and read its verdict out of the guest (SPEC.md"
         "66.8). 60s is 42.8 MEASURED after SPEC.md 66.4.3 added the region "
         "rows, which open PAINT first so heapfrag's own region lands under it "
@@ -9525,7 +9525,7 @@ SOAK = [
         "kernel is a PRIVATE TREE now (tools/os88build.py) and the shipped "
         "directory is never written",
         needs=("marty", "nasm"), serial=True),
-    Row("drvcall", "soak", py("tests/drvcall.py"), 60.0,
+    Row("drvcall", "soak", py("tests/drvcall.py"), 30.0,
         "Can a PACKAGE reach a DRIVER? (SPEC.md 20.11, docs/plans/completed/NET-STACK-PLAN.md"
         "stage A)",
         needs=("marty",), serial=True,
@@ -9537,7 +9537,7 @@ SOAK = [
     Row("drvup", "soak", py("tests/drvup.py"), 60.0,
         "SPEC.md 13.8.4: a DRIVER's Control Panel page acts on the RELEASE.",
         needs=("marty",), serial=True),
-    Row("editmove", "soak", py("tests/editmove.py", "--app", "notepad"), 150.0,
+    Row("editmove", "soak", py("tests/editmove.py", "--app", "notepad"), 60.0,
         "Compact the heap out from under a live app that is holding a big"
         "claim",
         needs=("marty",), serial=True,
@@ -10381,7 +10381,7 @@ SOAK = [
         "SPEC.md 19.8: facescan's FIRST rung - the faces in SYSTEM/FONTS on "
         "the 1.44MB system disk, the package on a B: that has none.",
         needs=("marty",), wants=("build/bench.img",)),
-    Row("fmbtn", "soak", py("tests/fmbtn.py"), 60.0,
+    Row("fmbtn", "soak", py("tests/fmbtn.py"), 20.0,
         "SPEC.md 22.18: the Disk window's two header buttons fire on the"
         "RELEASE.",
         needs=("marty",), serial=True),
@@ -10599,7 +10599,7 @@ SOAK = [
         "volumes checked on the host. Broken on purpose - hd_tw_cap's call "
         "removed - slot 1 is the whole drive.",
         needs=("marty",), serial=True, timeout=900),
-    Row("hdmap", "soak", py("tests/hdmap.py"), 65.0,
+    Row("hdmap", "soak", py("tests/hdmap.py"), 50.0,
         "SPEC.md 52.2.8: the disk tool's drive map. A 321MB XT-IDE drive "
         "with two 32MB partitions in the MIDDLE - slot 1 an empty extent, "
         "slot 2 a volume - the shape the map was asked for. The bar is read "
@@ -11079,7 +11079,7 @@ SOAK = [
         "00:00 reminder on the new day rings.",
         needs=("marty", "mtools"), timeout=900,
         wants=("build/os8088-360.img",)),
-    Row("deskz", "soak", py("tests/desklayer.py", "--leg", "z"), 30.0,
+    Row("deskz", "soak", py("tests/desklayer.py", "--leg", "z"), 40.0,
         "SPEC.md 11.103: the DESK LAYER on MartyPC's VGA XT, off `make "
         "stiktest`'s stikdesk360.img (DESKPROB.O88, tests/stikprob's -DDP_DESK "
         "build). MAKE took (WF_DESK|WF_OWNBG|WF_NOANIM, no WF_SAVEU, IF_DESK on "
@@ -11097,14 +11097,14 @@ SOAK = [
         "never the widget; and with only the widget up Close Window is the "
         "MENU_DIS twin.",
         needs=("marty",), timeout=600, wants=("build/stikdesk360.img",)),
-    Row("deskdock", "soak", py("tests/desklayer.py", "--leg", "dock"), 25.0,
+    Row("deskdock", "soak", py("tests/desklayer.py", "--leg", "dock"), 20.0,
         "SPEC.md 30, 11.103.9: a package with header flag OS88_F_DESK takes "
         "the TOP instance slot (INST_MAX - 1); the strip draws no tile for an "
         "IF_DESK instance (the slot's rect is bare strip); a click where its "
         "tile would be fronts nothing, minimizes nothing and reaches nothing; "
         "and the first application opened is tile 0.",
         needs=("marty",), timeout=600, wants=("build/stikdesk360.img",)),
-    Row("deskkeys", "soak", py("tests/desklayer.py", "--leg", "keys"), 45.0,
+    Row("deskkeys", "soak", py("tests/desklayer.py", "--leg", "keys"), 30.0,
         "SPEC.md 11.103.4, 12.6: Note Pad in front; a press on the widget "
         "sends the keys to IT while Note Pad stays wm_top, and Note Pad's "
         "W_ONKEY is never entered (a breakpoint on it, its positive control "
@@ -11113,7 +11113,7 @@ SOAK = [
         "too; a Standard File chooser takes the keys over a widget that owns "
         "the bar.",
         needs=("marty",), timeout=600, wants=("build/stikdesk360.img",)),
-    Row("deskdrag", "soak", py("tests/desklayer.py", "--leg", "drag"), 75.0,
+    Row("deskdrag", "soak", py("tests/desklayer.py", "--leg", "drag"), 50.0,
         "SPEC.md 11.103.6: the POSTED DRAG on MartyPC's VGA XT. A press on the "
         "probe's tag row, then a gap, then its 1-px ground column posts "
         "OSAPI_WM_DESK DRAG from W_ONCLICK and the kernel's ui_drag moves it: "
@@ -11134,7 +11134,7 @@ SOAK = [
         "on the glass by the include's next beat and saved there.",
         needs=("marty",), timeout=900,
         wants=("build/stikdesk360.img",)),
-    Row("deskhover", "soak", py("tests/desklayer.py", "--leg", "hover"), 80.0,
+    Row("deskhover", "soak", py("tests/desklayer.py", "--leg", "hover"), 40.0,
         "SPEC.md 11.103.7: the HOVER EDGE on MartyPC's VGA XT. The pointer on "
         "a gap sets WF_HOVER, names the widget in [cur_hovw] and wakes it "
         "ONCE, and os88stik.inc's stik_wake (STIK_WIDGET, 110.11) shows the "
@@ -11149,19 +11149,19 @@ SOAK = [
         "first move after the chooser is reaped reveals.",
         needs=("marty",), timeout=900, wants=("build/stikdesk360.img",)),
     Row("deskhovercga", "soak", py("tests/desklayer.py", "--leg",
-                                   "hovercga"), 40.0,
+                                   "hovercga"), 20.0,
         "SPEC.md 11.103.7 on the 5150's CGA (MartyPC os8088_5150_cga, its "
         "GLaBIOS twin): the edge, the one wake and the handle and rest "
         "pictures read off the 1bpp framebuffer's own bits, in the COMPACT "
         "layout the include picks for 200 rows.",
         needs=("marty",), timeout=900, wants=("build/stikdesk360.img",)),
     Row("deskhoverherc", "soak", py("tests/desklayer.py", "--leg",
-                                    "hoverherc"), 40.0,
+                                    "hoverherc"), 20.0,
         "SPEC.md 11.103.7 on the 5150's Hercules card (720x348): the edge, "
         "the one wake and both tag pictures off the 1bpp framebuffer, in "
         "the MID layout.",
         needs=("marty",), timeout=900, wants=("build/stikdesk360.img",)),
-    Row("deskclose", "soak", py("tests/desklayer.py", "--leg", "close"), 45.0,
+    Row("deskclose", "soak", py("tests/desklayer.py", "--leg", "close"), 20.0,
         "SPEC.md 11.103.6-7, 110.11: a widget closes by its OWN box. On the "
         "revealed handle a press arms and lights the box; slid off and "
         "released, nothing closes, and the handle goes only after the linger, "
@@ -11172,7 +11172,7 @@ SOAK = [
         needs=("marty",), timeout=900,
         wants=("build/stikdesk360.img",)),
     Row("deskground", "soak", py("tests/desklayer.py", "--leg", "ground"),
-        60.0,
+        40.0,
         "SPEC.md 110.11 (wave 3): the THEME in a widget's gaps. On MartyPC's "
         "VGA XT, with DESKPROB up, Bright, then Dark and Color picked on the "
         "Control Panel's Theme page: every gap pixel, both ground columns "
@@ -11185,7 +11185,7 @@ SOAK = [
         "bold one cut at the stride on the general path); "
         "under Color a Disk window laid over it and closed leaves teal.",
         needs=("marty",), timeout=900, wants=("build/stikdesk360.img",)),
-    Row("deskfit", "soak", py("tests/desklayer.py", "--leg", "fit"), 45.0,
+    Row("deskfit", "soak", py("tests/desklayer.py", "--leg", "fit"), 60.0,
         "SPEC.md 110.11 (wave 3): the layout by the screen's HEIGHT. A "
         "VIDEO=ega kernel in a private tree (39.24's 640x350 on a VGA): the "
         "include picks MID - [stik_li] 1, a 130 x 83 frame, not TALL's 104 - "
@@ -11193,7 +11193,7 @@ SOAK = [
         "its face drawn.",
         needs=("marty", "nasm"), timeout=1200,
         wants=("build/stikdesk360.img",)),
-    Row("desksmall", "soak", py("tests/desklayer.py", "--leg", "small"), 30.0,
+    Row("desksmall", "soak", py("tests/desklayer.py", "--leg", "small"), 20.0,
         "SPEC.md 11.103.9, 110.7: kern_small has the two cells and no layer. "
         "On MartyPC's 128KB CGA 5150 off `make small`'s system disk with "
         "DESKPROB.O88 mcopied into STIKAPPS\\: QUERY refuses, so the probe "
@@ -11332,7 +11332,7 @@ SOAK = [
         "books are checked beside it against MartyPC's own cycle counter, "
         "which is an authority outside the kernel's arithmetic.",
         needs=("marty",), serial=True, timeout=600),
-    Row("heapdrv", "soak", py("tests/heapdrv.py"), 60.0,
+    Row("heapdrv", "soak", py("tests/heapdrv.py"), 50.0,
         "SPEC.md 28.4.6: a DRIVER's own claims are on the heap page. "
         "SOUND.DRV's image was on it - MEM_K_DRV is a kernel tag, so DrvImg "
         "files under System - and the claims the driver takes for itself "
@@ -14317,7 +14317,7 @@ SOAK = [
         "on purpose (spans merged across bytes outside the canvas; keyframes "
         "stamped a frame early) it FAILS naming the layout and frame. 16 s "
         "with the samples, 2 s without."),
-    Row("vidresbig", "soak", py("tests/vidresbig.py"), 60.0,
+    Row("vidresbig", "soak", py("tests/vidresbig.py"), 80.0,
         "SPEC.md 98.1.7.1: a RESIDENT block as big as memory - a ~200 KB "
         "STORED block (past the old 60 KB packed / 128 KB bounds) read in "
         "pieces into its claim byte for byte and played exactly on the "
@@ -15048,7 +15048,7 @@ SOAK = [
         "which moved that number by 64.5KB and the LIVE largest run by "
         "nothing at all",
         needs=("marty",), serial=True),
-    Row("modstr", "soak", py("tests/modstr.py"), 60.0,
+    Row("modstr", "soak", py("tests/modstr.py"), 40.0,
         "modstr - a module's own strings letter correctly (SPEC.md 2.8.6). "
         "The bytes, out of fm_hdrbuf and toast_buf, because a string read "
         "through DS instead of CS lands in kernel code and letters plausible "
@@ -15632,7 +15632,7 @@ SOAK = [
         "SPEC.md 11.96.17: a two-colour window's raise cache is ONE plane, a "
         "quarter the size, and puts back the pixels a full repaint would",
         needs=("marty",), serial=True),
-    Row("win1bpp", "soak", py("tests/win1bpp.py"), 70.0,
+    Row("win1bpp", "soak", py("tests/win1bpp.py"), 60.0,
         "SPEC.md 11.96.17's two-colour declaration reaches W_FLAGS, and clear "
         "of SPEC.md 7.2.1's cursor shape in the same byte",
         needs=("marty",), serial=True),
@@ -15717,7 +15717,7 @@ SOAK = [
         "paused), which is what the list draws its groups from - 41 s, where "
         "reassembling the drawn rows off font_run was ~450",
         needs=("marty",), serial=True),
-    Row("tmground", "soak", py("tests/tmground.py"), 60.0,
+    Row("tmground", "soak", py("tests/tmground.py"), 40.0,
         "SPEC.md 28.10: the Task Manager paints its own ground, so a repaint"
         "is not a 450ms white hole.",
         needs=("marty",), serial=True),
@@ -15767,7 +15767,7 @@ SOAK = [
         " somebody's file",
         needs=("marty",), serial=True,
         wants=("build/trkbig.img",)),
-    Row("trkcompact", "soak", py("tests/trkcompact.py"), 60.0,
+    Row("trkcompact", "soak", py("tests/trkcompact.py"), 40.0,
         "Tracker asks for the room before it refuses (SPEC.md 66.4.3, 45.3.1)"
         " - the EXACT-requirement consumer of OSAPI_MEM_COMPACT's what-if"
         " and its post. It stacks instances down from the ceiling"
