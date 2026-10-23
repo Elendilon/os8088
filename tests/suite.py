@@ -1786,7 +1786,7 @@ FULL = [
         "kernel is built by `make` and kern_small by small128's own private "
         "tree - and at 143s it is four fifths of the whole tier budget on "
         "its own. It is what a change to a knob runs", builds=True, cpus=4),
-    Row("bmshare", "soak", py("tests/unit/t_bmshare.py"), 30.0,
+    Row("bmshare", "soak", py("tests/unit/t_bmshare.py"), 20.0,
         "...and that the three variables it builds them WITH change no byte. "
         "ICODIR/NOOVLCHK/NOKERNSIZE each take work out of a knob build - the "
         "shared packages, the source-only overlay gate, the size report's "
@@ -1798,7 +1798,7 @@ FULL = [
         "both ends of that derivation are asserted here"
         ". SOAK and not full: it is about t_buildmatrix's own build-speed "
         "variables, so it follows that row down"),
-    Row("kernmods", "soak", py("tests/unit/t_kernmods.py"), 30.0,
+    Row("kernmods", "soak", py("tests/unit/t_kernmods.py"), 10.0,
         "tools/kernsize.py's PER-MODULE pass still measures - the byte "
         "compare inside it worked and nothing ran it, so --bless returned 1 "
         "without writing while t_kernbudget went on advising it. Here and "
