@@ -821,7 +821,7 @@ FAST = [
         "and `make` says 'up to date'. apps/os88ui.inc was missing from NINE "
         "shipped packages and apps/os88type.inc from three; it was found by an "
         "A/B that measured zero because the package never reassembled"),
-    Row("sndmove", "soak", py("tests/sndmove.py"), 150.0,
+    Row("sndmove", "soak", py("tests/sndmove.py"), 30.0,
         "SPEC.md 66.6.3.1/34.5.2: SOUND.DRV is the only driver that hooks an "
         "interrupt vector, so its image is the one a compaction must follow "
         "into the IVT - moved at IF=0 with the card idle and the vector still "
@@ -856,7 +856,7 @@ FAST = [
         "the driver dispatch who runs it",
         needs=("marty",), serial=True,
         wants=("build/fmtest.img",)),
-    Row("drvmove", "soak", py("tests/drvmove.py"), 170.0,
+    Row("drvmove", "soak", py("tests/drvmove.py"), 20.0,
         "SPEC.md 66.6.3: a DRIVER IMAGE moves. It drives the scenario the "
         "whole study exists for - mount the hard disk, mount the RAM disk "
         "above nothing, unmount the hard disk, and before this the hole "
