@@ -3234,7 +3234,7 @@ SOAK = [
         "of a shipped kernel and was measured once with --swap from a worktree "
         "of the squash. 23s measured.",
         needs=("marty",), wants=("build/pkgfmt360.img",)),
-    Row("pkgfence", "soak", py("tests/pkgfence.py"), 60.0,
+    Row("pkgfence", "soak", py("tests/pkgfence.py"), 30.0,
         "SPEC.md 21 steps 4 and 6's WRITE BOUND: ld_check_hdr's `image + bss` "
         "fence. Both operands are separately bounded at APP_MAX_SIZE, so "
         "their sum reaches 0x1E000 - SEVENTEEN BITS - and the compare that "
@@ -4563,7 +4563,7 @@ SOAK = [
     Row("cycweb", "soak", py("tests/cycweb.py"), 40.0,
         "Does the claw eat the web it slides over? (SPEC.md 67.5.3.1)",
         needs=("marty",), serial=True),
-    Row("cycplay", "soak", py("tests/cycplay.py"), 55.0,
+    Row("cycplay", "soak", py("tests/cycplay.py"), 30.0,
         "SPEC.md 67.23 and 67.25: a kill scores what cy_kindsc SAYS it "
         "scores, A DEATH DOES NOT RESTART THE WAVE, the "
         "superzapper is recharged at the top of every level, and firing one "
@@ -4589,7 +4589,7 @@ SOAK = [
         "level could not be finished. SOAK: it is ONE package and wants an "
         "emulator",
         needs=("marty", "nasm"), serial=True),
-    Row("cycpu", "soak", py("tests/cycpu.py"), 45.0,
+    Row("cycpu", "soak", py("tests/cycpu.py"), 30.0,
         "SPEC.md 67.24: can a pickup be SWEPT UP? It used to be taken only if "
         "the claw was on its EXACT lane on the ONE frame it reached the lip, "
         "which on this window is very nearly impossible. Twelve cases: on the "

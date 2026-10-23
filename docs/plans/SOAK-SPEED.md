@@ -373,6 +373,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | kernmods / bmshare | 29 / 35 s wall beside other rows | 7.5 / 12 s alone (7 / 11 s CPU) | - | host-only and lean: three kernel assemblies / four package makes into private `build/bms-*` trees. Re-declared 30/30 -> 10/20 |
 | rdxms | 181.9 s wall (111 s host in-script, 88 s of it 53 `tools/mouse.py` spawns) | 22.3 s | 15 | QEMU: clicks closed-loop (`os88qemu.mouse_click`), the same 26 checks pass. secs 170 -> 30 |
 | pxparts / fontview / icostore / tank / tankaim / tankspawn / tanksmall | 13 / 22 / 21 / 25 / 22 / 25 / 23 s; 233 guest s waited for the seven | 14 / 14 / 14 / 13-17 / 13-22 / 16-26 / 17 s; 200 guest s | 2, 4, 9, 12 | already lean; boots on state: `quick=True` (pxparts, icostore, tanksmall), `kernel_up` (fontview; tank's `open_game` boots an unbooted launch itself, so tank/tankaim/tankspawn pass `boot=False` - a booted caller such as tankperf is settled as before). fontview's typed text / key / click settles -> `text_taken` / `key_taken` / `ui_done` (fv_* bss). Taking the 2 s pace off TANK's launch double-click went RED (the attract logo check times the window from the launch), so it stays. secs 60/60/60/30/30/40/30 -> 20/20/20/30/30/30/30 |
+| cycplay / cycpu / pkgfence | 9.3 / 10.3 / 16.3 s; 80 guest s waited for the three | 15 / 17.5 / 22 s (load); 73 guest s | 4, 12 | lean; boot settles -> `kernel_up` (the first act is a click), pkgfence's post-refusal settle -> `ui_done` (it reads ld_status). secs 55/45/60 -> 30/30/30 |
 
 ## Resuming
 

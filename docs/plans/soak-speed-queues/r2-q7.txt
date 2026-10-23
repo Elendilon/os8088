@@ -16,9 +16,9 @@ DONE tank	tankspawn	40	tests/tankspawn.py
 DONE tank	tank	30	tests/tank.py
 DONE tank	tankaim	30	tests/tankaim.py
 DONE tank	tanksmall	30	tests/tanksmall.py
-cycp	cycplay	55	tests/cycplay.py
-cycp	cycpu	45	tests/cycpu.py
-pkgf	pkgfence	60	tests/pkgfence.py
+DONE cycp	cycplay	55	tests/cycplay.py
+DONE cycp	cycpu	45	tests/cycpu.py
+DONE pkgf	pkgfence	60	tests/pkgfence.py
 MOVED->r2-q12 pkgf	pkgfmt	30	tests/pkgfmt.py
 MOVED->r2-q12 save	saverate	28	tests/saverate.py
 MOVED->r2-q12 save	savervga	27	tests/saver.py
