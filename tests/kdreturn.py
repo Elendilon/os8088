@@ -332,7 +332,7 @@ def wait_text(m, want, secs, what):
             return True
         return False
     try:                        # `secs` is budgeted on the GUEST's clock
-        M.until(m, seen, "%s: %r" % (what, want), poll=0.25, limit=secs)
+        M.until(m, seen, "%s: %r" % (what, want), poll=0.05, limit=secs)
         return got[-1]
     except M.MartyError:
         pass
@@ -380,7 +380,7 @@ def wait_desktop(m, ui, secs=300, stamp=None):
         except Exception:
             return False
     try:                        # `secs` is budgeted on the GUEST's clock
-        M.until(m, graphics, "a graphics desktop", poll=0.2, limit=secs)
+        M.until(m, graphics, "a graphics desktop", poll=0.05, limit=secs)
         if stamp is not None:
             stamp.append(m.status()["cycles"])
         return ui.ready(limit=secs)

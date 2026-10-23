@@ -11385,7 +11385,7 @@ SOAK = [
         "because an XT never makes the transition that arms it.",
         needs=("qemu", "nasm"), serial=True,
         wants=("build/os8088.img", "build/trkship360.img")),
-    Row("mouresume", "soak", py("tests/mouresume.py"), 150.0,
+    Row("mouresume", "soak", py("tests/mouresume.py"), 20.0,
         "SPEC.md 96.45.2: THE POINTER IS ALIVE AFTER A LIVE RESUME FROM "
         "kern_dos. kd_mou_stop gives the port back quiet - IER 0 and the line "
         "masked - and restored nothing, on the ground that the live restore "
