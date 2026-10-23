@@ -135,9 +135,17 @@ reading the guest state the page is drawn from instead of pumping the screen).
    second for the peer's delayed ACK - **44 ms a command whatever it moves**
    (colorpresets: 174 of 213 s). Time a few commands; ~40 ms each is this.
 
+18. **On 86Box, gate on the kernel and let the floppy be fast.** Fixed `step`s
+   are paid in full: `Box.kernel_up(prompts=)` for the boot, `ui_done(cap_ms=)`
+   / `until(..., need=False)` bounded at the old step after an input, and
+   `launch(turbo=True)` where the floppy's timing is not the subject (not
+   kern_mega - docs/86BOX.md). gb* rows 63/51/18 -> 18/11/7 s.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
+
+- **86Box (`tools/os88box.py`, round 3)**: `Box.kernel_up(prompts=)` (boot gate on desk_rows/menu_nbar/spl_live/ticks, answering BIOS prompts), `ui_idle`/`ui_done(cap_ms=)`, `until(cond, what, guest_ms, step_ms, need=)`, `wait_mem`/`wait_text` (86Box's server-side waits), `sym`/`word`/`byte` (map cached; `pointer` re-parsed it), `to` waits for the pointer to move instead of 60 ms a packet, `quit(remove=)` waits for the process (disk images flushed), `launch(turbo=, temp=)` + `reap()`, `OS88_BOXLOG` per-request log; CLI `up`, `ui-done`, `reap`, `--turbo`, `--temp`. `tests/rdgcore/rdgwin.boot` gates on them (`quick=True` callers skip its 10 s lead-in). docs/86BOX.md *Waiting on the guest*. Validated on gbreplay, gbbank, gbhifreq, megacdrom, and rdgwin's own measurement path.
 
 - **`tools/os88venc.py`'s cut-frame selection** sums each unit's (cycles, bytes) once per frame (`usum`) instead of per member per attempt: the step-down clip 149 -> 115 s wall and a byte-identical .V88. Every encode that cuts frames - videnc, vidlayer*, vencgui, every vid* row that encodes a clip.
 
@@ -441,6 +449,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | hmadrv | **failed at base**: three RACES, each a read before the guest had done it - `menu_pick("Sound")` before Recorder's menu set was on the bar, the stream asserted the instant Play was picked, `hd_rdisp` read the instant `hd_tseg` was set | 36 s, 3/3 green (each race now an `acted` on the state it asserts) | 4, 14 | test bugs fixed by waiting for the asserted state; the install's end on `ui_done` (the copy holds the gfx lock) + the digest quiet 3 x 1 guest s instead of 8 x 2 (instdeep's rule; a UI that never idles keeps 8 x 2); the arm click's `pace(2)` -> `ui_done`. secs 62 -> 50 |
 | pxswin-qemu | 95.5 s (runner, load ~10) - and it `make test`s: **this run rebuilt the shared build/kernel.bin, os8088.img, apps.img** (buildnum 581 vs HEAD 606; no source under kernel/ apps/ drivers/ differs, so the images are equivalent bar the build number) | 22.9 s | 14, 15 | `os88qemu.Private` + the OPL2 (no make), mouse closed-loop keeping mouse.py's 0.15 guest s after each gesture - without it a drag's move and release beat the UI to the press (the game's worker holds the gfx lock, so `ui_done` cannot see it) and q3b/q4 went RED, which is the check that the drags are asserted; keys in process; polls 0.3 -> 0.05. secs 65 -> 30 |
 | gifdrag / wheelps2 | 51.2 / 7.4 s (load ~10) | 37.9 / 7.4 s | - | measured only. gifdrag (MartyPC) is its drags: the `tick(m, 400)` after each is the stack-water EXPOSURE window (Task Manager repainting twice a second), so it is not cut; wheelps2 is lean. secs 56/56 -> 50/10 |
+| gbreplay / gbbank / gbhifreq / megacdrom (86Box) | 63 / 51 / 18 / 27 s (3 at once, load ~5); guest ~250 / 125 / 107 / 125 s | 18 / 11 / 7 / 12 s; guest 78 / 44 / 28 / 34 s | 18 | boots were 60 emulated s of polled BIOS steps + a fixed 20 (desktop up at ~22, ~14 with turbo); gbbank's fixed 60-s load -> until the cartridge's checked-switch byte; gbhifreq's 6 s -> until frame 160; megacdrom's 70-s boot -> kernel_up + `[mega_on]` + the autostart's window, its 15-s launches -> until the window/the card read (red path seen: under turbo the Mixer never came, and the bounded wait failed step 4 as before). gbreplay's `sleep(3)` after quit -> `quit()`. The 5/20 s measurement windows and the replay's key script unchanged |
 
 ## Resuming
 

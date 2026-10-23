@@ -3039,7 +3039,7 @@ SOAK = [
         "it. SOAK: one package, and 86Box's",
         needs=("86box", "gbroms", "nasm"),
         wants=("build/realdmg.o88", "build/os8088.img")),
-    Row("gbreplay", "soak", py("tests/gbreplay.py"), 420.0,
+    Row("gbreplay", "soak", py("tests/gbreplay.py"), 30.0,
         "REALDMG's replays (docs/REALDMG-SPEC.md section 10.5) on 86Box's 286, "
         "in the window and in full screen (the canvas, the recompiler, the "
         "page flips): GBPAD.GB (tools/gbours.py, ours) folds the buttons and "
@@ -3050,7 +3050,7 @@ SOAK = [
         "the comparison could see nothing. SOAK: one package, and 86Box's",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088.img")),
-    Row("gbbank", "soak", py("tests/gbbank.py"), 150.0,
+    Row("gbbank", "soak", py("tests/gbbank.py"), 20.0,
         "REALDMG's bank cache (docs/REALDMG-SPEC.md section 10.3) on 86Box's "
         "286 with 4MB: GBBANK.GB (tools/gbours.py, ours), a 1MB MBC5 cartridge "
         "that switches among all 64 banks in an LFSR's order and checks each "
@@ -3061,7 +3061,7 @@ SOAK = [
         "memory, so 86Box's. SOAK: one package, and 86Box's",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088.img")),
-    Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 20.0,
+    Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 10.0,
         "REALDMG's speaker asked for 131,072 Hz (docs/REALDMG-SPEC.md section "
         "17) on 86Box's 286: GBTONE.GB ends with square channel 1 at x = 7FFh, "
         "where 131,072 / (2048 - x) divides by 1. ASSERTS the core's frames keep "
@@ -14796,7 +14796,7 @@ SOAK = [
         "MEGACSL (tests/megacsw) is one on purpose. 300s is 277 measured, "
         "the tree's build included",
         needs=("bochs", "nasm")),
-    Row("megacdrom", "soak", py("tests/megacdrom.py"), 35.0,
+    Row("megacdrom", "soak", py("tests/megacdrom.py"), 20.0,
         "SPEC.md 119 and 34.15 under docs/plans/KERN-MEGA-PLAN.md 14.68: "
         "CDROM.DRV, CDRack and the Mixer on kern_mega, on 86Box's 286 "
         "(vm/286-mega-cdrom: the mr286 with an IDE CD-ROM holding "
@@ -14809,7 +14809,7 @@ SOAK = [
         "and its paragraph fold of ES:DI is #GP 9CF4, a kern_mega FAULT; "
         "red with that SOUND.DRV (--sound): the speaker opens nothing. "
         "86Box by name: Bochs plays no CD audio and MartyPC is an 8088. "
-        "35s is 34 measured",
+        "20s is 12 measured (it was 34 before the boot gate)",
         needs=("86box",),
         wants=("build/megacdtest.img", "build/cdaudio.cue",
                "build/cdrack.bin", "build/mixer.bin", "build/cdrom.bin")),
