@@ -240,6 +240,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | vidv2 / vidvga8 / vidvga4 / vidv2bench (26 rows) | 1,172 guest s waited, rows 11-157 s (load 7) | 1,077 guest s, 9-157 s (load 6); all green | 8 + quick boot | `quick=True` on five boots; polls 0.05; `os88venc`'s PFILL mix table (3 s a build, 4 builds an encode for the same palette) made once a palette - output byte-identical. The encoded-clip rows (pgmx/pg4/ly4/lp/flmx, 100-157 s) are the ENCODER's real work under load (~45 host s a 4 s clip); not cut |
 | kzboot-off / kzboot | 208 s (3 lanes) / 46 guest s waited; - | 63 / 14 s; 13 guest | 4 | the two 'reaches a desktop' settles -> `kernel_up` (state); the rest of kzboot-off is its NOKZIP tree's make check |
 | atkey | 57.5 s alone (172 in 3 lanes) | 52 s | 4 | quick boots, five `ui.settle()` -> `ui_done` (it measures cycles and words, never the glass); same cycle figures. The rest is typing the scene a character at a time on two kernels |
+| curdisk | 170 s (3 lanes) / 107 guest s of boot settles | 38 s | 4 | four boots gated on `kernel_up`; setup's dispcp settles -> `ui_done`; `watch()` (the measurement) untouched, same move counts |
 
 ## Resuming
 

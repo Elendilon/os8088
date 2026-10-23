@@ -86,7 +86,7 @@ dose	dosexe	28	tests/dosexe.py
 tmse	tmselfsu	300	tests/tmselfsu.py
 wfdr	wfdraw	120	tests/wfdraw.py
 wfdr	wfdrawherc	120	tests/wfdraw.py
-curd	curdisk	240	tests/curdisk.py
+DONE curd	curdisk	240	tests/curdisk.py
 DONE brta	brtable	200	tests/brtable.py
 DONE br	br14	200	tests/br14.py
 apsp	apspk	80	tests/apspk.py

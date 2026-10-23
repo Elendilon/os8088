@@ -11291,7 +11291,7 @@ SOAK = [
         "Delete QUESTION's row until the size pass took the alert out.",
         needs=("marty", "mtools"), timeout=600,
         wants=("build/os8088-360.img",)),
-    Row("curdisk", "soak", py("tests/curdisk.py"), 240.0,
+    Row("curdisk", "soak", py("tests/curdisk.py"), 50.0,
         "SPEC.md 7.4: the arrow TRACKS the hand through a disk transfer. It "
         "used to freeze with the machine and then LEAVE THE SCREEN - once an "
         "operation moved FPG_WARM = 3 sectors the widget armed, and the "
