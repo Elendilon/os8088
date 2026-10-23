@@ -9,6 +9,14 @@ import tempfile
 
 import gorillas as G
 import gorillasinput as I
+# The VGA arm reads its planes through the guest copy stub, NOT the debug
+# server's `planes` verb: with the verb (no guest time spent inside
+# check_repaint) the windowed setup's second measured key never reaches
+# gr_key - port 60h stays empty, IRQ1 unmasked and idle, the ROM ring empty -
+# while the stub's ~0.3 guest s a read (IF=0, devices running) passes every
+# time. Unexplained, and recorded in docs/plans/SOAK-SPEED.md for whoever
+# takes it; gorillasinput/reactions/music/city take the verb.
+I.PLANES_STUB = True
 
 
 def animation(m, p, code, tag):

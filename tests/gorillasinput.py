@@ -83,55 +83,26 @@ def check_hud(m, p, code):
     assert p.data('scene', len(expected)) == expected, 'HUD differs from OS glyphs'
 
 
+# gorillasmenu sets this: its VGA arm wedges with the zero-cost plane read.
+PLANES_STUB = False
+
+
 def video_bytes(m, tag):
     if tag != 'vga':
         # CGA has 16 KB; the next 16 KB aliases it on this card model.
         return m.read(0xb0000, 32768) if tag == 'herc' else m.read(0xb8000, 16384)
-    # MartyPC's side-effect-free VGA peek hardcodes plane 0. Actual guest
-    # MOVSB reads honor Read Map Select; use a temporary stub and restore all
-    # registers/scratch bytes. The caller is paused under the graphics lock.
+    # A memory read of A0000 is the card's side-effect-free peek, which serves
+    # plane 0 only; `m.planes` reads all four out of the card's VRAM (the
+    # debug server's `planes` verb, no guest cycle). On an older emulator it
+    # falls back to a REP MOVSW stub in gr_under copying through gr_band,
+    # every register and both buffers restored. The caller is paused under
+    # the graphics lock.
     p = m.gorillas_probe
-    stub, scratch = p.offsets['gr_under'], p.offsets['gr_band']
     source = (G.ROOT / 'apps/gorillas/gorillas.asm').read_text()
     scratch_size = int(re.search(r'^VAR gr_band, (\d+)$', source, re.M)[1])
-    saved = m.regs()
-    original_stub = m.read(p.base + stub, 9)
-    original_scratch = m.read(p.base + scratch, scratch_size)
-    # REP MOVSW, not MOVSB: the copy is the guest's own time and the whole
-    # cost of a VGA check_repaint (153,600 bytes a read); a word string move
-    # is ~25% fewer clocks a byte on the 8088 and the chunks are all even.
-    m.write(p.base + stub, bytes.fromhex('fa b8 00 a0 8e d8 f3 a5 90'))
-    index = m.inb(0x3ce)
-    m.outb(0x3ce, 5)
-    mode = m.inb(0x3cf)
-    m.outb(0x3cf, mode & ~8)
-    m.outb(0x3ce, 4)
-    selected = m.inb(0x3cf)
-    planes = []
-    for plane in range(4):
-        m.outb(0x3cf, plane)
-        for offset in range(0, 38400, scratch_size):
-            count = min(scratch_size, 38400-offset)
-            m.cmd(cmd='park', cs=p.base >> 4, ip=stub)
-            for reg, value in (('es', p.base >> 4), ('si', offset),
-                               ('di', scratch), ('cx', count // 2),
-                               ('flags', saved['flags'] & ~0x600)):
-                m.setreg(reg, value)
-            m.bp_exec(p.base + stub + 8)
-            m.run()
-            assert m.wait_stop(30) == 'breakpoint', 'VGA readback stub hung'
-            planes.append(m.read(p.base + scratch, count))
-    m.outb(0x3cf, selected)
-    m.outb(0x3ce, 5)
-    m.outb(0x3cf, mode)
-    m.outb(0x3ce, index)
-    m.write(p.base + stub, original_stub)
-    m.write(p.base + scratch, original_scratch)
-    m.cmd(cmd='park', cs=saved['cs'], ip=saved['ip'])
-    for reg in ('ax', 'bx', 'cx', 'dx', 'si', 'di', 'bp', 'sp',
-                'ss', 'ds', 'es', 'flags'):
-        m.setreg(reg, saved[reg])
-    return b''.join(planes)
+    return b''.join(m.planes(0, 38400, stub=(
+        p.base >> 4, p.offsets['gr_under'], p.offsets['gr_band'],
+        scratch_size), use_stub=PLANES_STUB))
 
 
 def check_repaint(m, p, code, tag):
@@ -158,6 +129,11 @@ def check_repaint(m, p, code, tag):
                              sum(a != b for a, b in zip(before, after)),
                              [(i, a, b) for i, (a, b) in enumerate(zip(before, after))
                               if a != b][:12])
+    # Park back where the handler returned: it flushes the prefetch queue the
+    # full repaint's RET left. The guest-stub plane read used to end in this
+    # park and the row depended on it (with the server's plane read and no
+    # park, gorillasmenu's next key never reached gr_key).
+    m.cmd(cmd='park', cs=saved['cs'], ip=saved['ip'])
     for reg in registers:
         m.setreg(reg, saved[reg])
 

@@ -790,6 +790,7 @@ impl DebugServer {
             "cards" => cards(machine),
             "park" => park(machine, &req),
             "fbuf" => fbuf(machine, &req),
+            "planes" => planes(machine, &req),
             "flicker" => flicker(machine, exec, &req),
             "pace" => pace(machine, exec, &req),
             "advance" => advance(machine, exec, &req),
@@ -1608,6 +1609,51 @@ fn fbuf(machine: &mut Machine, req: &Value) -> Value {
             "data": hex_encode(&data),
         }),
         Err(e) => err(&e),
+    }
+}
+
+/// The card's BIT PLANES, read straight out of its VRAM: `{"cmd":"planes",
+/// "offset":o, "len":n, "planes":[0,1,2,3], "card":c}` answers one hex string
+/// per plane asked, each `len` bytes from plane offset `offset`.
+///
+/// A memory `read` of A0000 is the card's side-effect-free peek, which serves
+/// plane 0 whatever Read Map Select says, so the only other route to planes
+/// 1-3 is a guest copy loop per plane - 153,600 bytes of REP MOVSW for a mode
+/// 12h screen, ~70% of a VGA pixel-reading row's wall time. This costs the
+/// guest nothing: no cycle, no register, no latch. The offset is the PLANE
+/// offset (mode 12h and Mode X: the A000 offset; chain-4 and odd/even modes
+/// interleave, which is the caller's arithmetic). VGA and EGA only - the 1bpp
+/// cards answer a dummy plane, so they are refused rather than read.
+fn planes(machine: &mut Machine, req: &Value) -> Value {
+    let idx = match card_idx(machine, req) {
+        Ok(i) => i,
+        Err(e) => return err(&e),
+    };
+    let off = req.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let want: Vec<usize> = match req.get("planes") {
+        None | Some(Value::Null) => vec![0, 1, 2, 3],
+        Some(Value::Array(a)) => a.iter().filter_map(Value::as_u64).map(|v| v as usize).collect(),
+        Some(_) => return err("planes must be a list of plane numbers"),
+    };
+    if want.is_empty() || want.iter().any(|&p| p > 3) {
+        return err("planes must name planes 0..3");
+    }
+    let r = with_card(machine, idx, |card| {
+        // By name: the EGA and VGA variants are feature-gated in the enum.
+        let t = format!("{:?}", card.video_type()).to_lowercase();
+        if t != "vga" && t != "ega" {
+            return Err(format!("card {} is {}: only VGA and EGA have planes", idx, t));
+        }
+        let plen = card.plane_slice(0).len();
+        let len = req.get("len").and_then(Value::as_u64).map(|v| v as usize).unwrap_or(plen - off.min(plen));
+        if len == 0 || off + len > plen {
+            return Err(format!("offset {} + len {} past the {}-byte plane", off, len, plen));
+        }
+        Ok(want.iter().map(|&p| hex_encode(&card.plane_slice(p)[off..off + len])).collect::<Vec<String>>())
+    });
+    match r {
+        Ok(Ok(data)) => json!({"ok": true, "card": idx, "offset": off, "planes": want, "data": data}),
+        Ok(Err(e)) | Err(e) => err(&e),
     }
 }
 

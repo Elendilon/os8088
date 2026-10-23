@@ -264,6 +264,7 @@ class Marty:
         self._proc = None
         self._rec = None
         self._pumping = 0   # bp_trace blocks in flight
+        self._planes_verb = None  # the server has `planes`: unknown yet
         self._greet(timeout)
 
     def _greet(self, timeout):
@@ -547,6 +548,89 @@ class Marty:
         """
         r = self.cmd(cmd="fbuf", aperture=aperture, card=card)
         return r["w"], r["h"], bytes.fromhex(r["data"])
+
+    def planes(self, offset=0, length=38400, planes=(0, 1, 2, 3), card=None,
+               stub=None, use_stub=False):
+        """The VGA/EGA card's BIT PLANES as a list of bytes, one per plane in
+        `planes`, each `length` bytes from PLANE offset `offset` (mode 12h and
+        Mode X: the A000 offset). The default is a whole mode 12h screen.
+
+        A `read` of A0000 is the card's side-effect-free peek and serves
+        plane 0 whatever Read Map Select says, so planes 1-3 are not in guest
+        memory at all. The debug server's `planes` verb reads the card's VRAM
+        directly: no guest cycle, register or latch is touched, and it is
+        exact while the machine RUNS as well as stopped. An OLDER server has
+        no such verb; then `stub=(seg, code_off, scratch_off, scratch_size)`
+        names 9 bytes of code room and an EVEN-sized scratch buffer in one
+        guest segment, and the planes come through a REP MOVSW per chunk with
+        Read Map Select stepped - the machine must be PAUSED (and the caller
+        is expected to hold whatever lock keeps the screen still), and every
+        register, both buffers and the GC registers are put back (its exec
+        breakpoint REPLACES any armed set). Without a `stub` an old server
+        raises. `use_stub=True` takes the stub path on any server (a row
+        whose sequence turns out to depend on the guest time the copy spends;
+        see tests/gorillasmenu.py)."""
+        planes = list(planes)
+        if self._planes_verb is not False and not use_stub:
+            try:
+                r = self.cmd(cmd="planes", offset=offset, len=length,
+                             planes=planes, card=card)
+                self._planes_verb = True
+                return [bytes.fromhex(d) for d in r["data"]]
+            except MartyError as e:
+                if "unknown cmd" not in str(e):
+                    raise
+                self._planes_verb = False
+        if stub is None:
+            raise MartyError("this MartyPC has no `planes` verb (rebuild it: "
+                             "make marty) and no guest stub was given")
+        return self._planes_stub(offset, length, planes, stub)
+
+    def _planes_stub(self, offset, length, planes, stub):
+        seg, code, scratch, size = stub
+        size &= ~1
+        base = seg << 4
+        saved = self.regs()
+        old_code = self.read(base + code, 9)
+        old_scr = self.read(base + scratch, size)
+        # cli; mov ax,A000h; mov ds,ax; rep movsw; nop (the stop)
+        self.write(base + code, bytes.fromhex("fab800a08ed8f3a590"))
+        index = self.inb(0x3ce)
+        self.outb(0x3ce, 5)
+        mode = self.inb(0x3cf)
+        self.outb(0x3cf, mode & ~8)             # read mode 0
+        self.outb(0x3ce, 4)
+        selected = self.inb(0x3cf)
+        out = []
+        try:
+            for plane in planes:
+                self.outb(0x3cf, plane)
+                got = []
+                for at in range(0, length, size):
+                    n = min(size, length - at)
+                    self.cmd(cmd="park", cs=seg, ip=code)
+                    for reg, value in (("es", seg), ("si", offset + at),
+                                       ("di", scratch), ("cx", (n + 1) // 2),
+                                       ("flags", saved["flags"] & ~0x600)):
+                        self.setreg(reg, value)
+                    self.bp_exec(base + code + 8)
+                    self.run()
+                    if self.wait_stop(30) != "breakpoint":
+                        raise MartyError("the VGA plane copy stub hung")
+                    got.append(self.read(base + scratch, n))
+                out.append(b"".join(got))
+        finally:
+            self.outb(0x3cf, selected)
+            self.outb(0x3ce, 5)
+            self.outb(0x3cf, mode)
+            self.outb(0x3ce, index)
+            self.write(base + code, old_code)
+            self.write(base + scratch, old_scr)
+            self.cmd(cmd="park", cs=saved["cs"], ip=saved["ip"])
+            for reg in ("ax", "bx", "cx", "dx", "si", "di", "bp", "sp",
+                        "ss", "ds", "es", "flags"):
+                self.setreg(reg, saved[reg])
+        return out
 
     def vram(self, kind=None):
         """The 1bpp framebuffer as (width, height, rows-of-bits).
