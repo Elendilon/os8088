@@ -5183,7 +5183,7 @@ SOAK = [
         "Can this MartyPC drive TWO video cards at once?"
         "(docs/plans/completed/DUAL-DISPLAY-PLAN.md 9)",
         needs=("marty",), serial=True),
-    Row("gfxlk", "soak", py("tests/gfxlk.py"), 150.0,
+    Row("gfxlk", "soak", py("tests/gfxlk.py"), 60.0,
         "Does ANYTHING draw with the gfx lock free - which is the one state "
         "the mouse ISR draws in? (SPEC.md 7/12.8.4, docs/FIELD-NOTES.md 34) "
         "Rebuilds the tree, because the counters are a knob kernel",
