@@ -560,9 +560,9 @@
   "sources": [
    "apps/install"
   ],
-  "stamped": "db7a1c22",
-  "strings": "47c8e14dee7b7b93",
-  "why": "network source no longer copies a floppy in B:, news for any release, the tick kept"
+  "stamped": "177c1b6c",
+  "strings": "e66d0a07c66d6c99",
+  "why": "the check asks the sockets directly; nothing the page says changed"
  },
  "INTRO_MID": {
   "sources": [],

@@ -11,9 +11,10 @@ to ask (the shipped INSTALL asks os8088.com). That package is put on the
 machine as A:\\INSTALL.O88.
 
   A. The check. INSTALL is started from A:; its source page asks the network
-     (one GET of the index, one of OS88VER.TXT), finds a NEWER release and
-     picks the network row; the drive is then put back as the user had it -
-     HTTPDRV.CFG names http://10.0.2.2:8095/fix/, which is mounted again.
+     (ONE GET, of SYSTEM/OS88VER.TXT, on a socket of its own - no index, no
+     mount), finds a NEWER release and picks the network row; the HTTP
+     drive is untouched - HTTPDRV.CFG names http://10.0.2.2:8095/fix/, and
+     that is still its address.
   B. The install. Enter through every page onto the IDE disk's FAT16 volume
      (kept); HDI_GO NAMES the HTTP drive as the source, so the run copies the
      tree from it and does not go looking for an apps disk - and there IS one
@@ -204,6 +205,11 @@ def main():
         net, src = rd("in_net"), rd("in_src")
         print("   A. in_net %d, source row %d, requests %r"
               % (net, src, [g for g in log.gets()][-3:]))
+        if [g for g in log.gets() if not g.endswith("/SYSTEM/OS88VER.TXT")]:
+            bad.append("A. the check asked for more than SYSTEM/OS88VER.TXT "
+                       "(%r): it is one GET of its own, never the HTTP "
+                       "drive's mount and index (SPEC.md 117.10.3)"
+                       % log.gets())
         want = NET_SAME if SAME else NET_NEW
         if net != want:
             bad.append("A. the check answered %d, not %d" % (net, want))

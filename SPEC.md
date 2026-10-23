@@ -204046,23 +204046,33 @@ lines, its second line indented two spaces.
 
 INSTALL asks the network **only if a `DRVC_NET` driver is loaded**
 (`OSAPI_DRV_CLASSK`). It never loads `ETHER.DRV` itself: that is a DHCP wait,
-and a machine without a card would pay it for nothing. Then:
+and a machine without a card would pay it for nothing. Then it asks the
+**sockets**, not the HTTP drive: one `GET <path>SYSTEM/OS88VER.TXT HTTP/1.0`
+to the host and port of `IN_URL` (`in_vget`, over `apps/os88sock.inc`'s
+`net_find`), the reply read into a 768-byte buffer until the server closes,
+`200` checked, and the body taken from after the blank line. The handle is
+**aborted** rather than closed, `hf_abort`'s reason (120.2.1): a close we
+start holds one of `ETHER.DRV`'s four slots through FIN-WAIT. The whole
+exchange is bounded by ten seconds of ticks from the open.
 
-1. `OSAPI_DRV_USE` `DRVU_UP` `DRVC_HTTP` - the Drivers page's tick, for the
-   session only (117.3) - and only when `OSAPI_DRV_CLASSK` says the class is
-   not up already, because the tick reads `CTRL.DRV` off the system disk to
-   find that out;
-2. `HFV_URL` and `HFV_STATE` bank the drive's address and whether it was
-   mounted;
-3. `HFV_MOUNT` with `IN_URL`, `HFV_FETCH`, and `SYSTEM\OS88VER.TXT` read off
-   the volume (319 bytes at most);
-4. the drive is put back: `HFV_MOUNT` with the banked address, or
-   `HFV_UNMOUNT` if none was mounted. **`HTTPDRV.CFG` is never written** - only
-   the Control Panel's page saves it (120.5) - so the setting a user made
-   survives whatever happens here.
+It was the HTTP drive, and the measurement is why it is not: `DRVU_UP`
+reads `CTRL.DRV` off the system disk to find the class, then `HTTPFS.DRV`,
+and the mount fetches the tree's whole `OS88.IDX` - two or three floppy calls
+and 2.2KB off the network for one file of about 150 bytes, at every boot
+once the startup check (117.10.6) is on. The drive is mounted only when
+`Next` is pressed with the network picked (117.10.5), and the user's own
+address is banked then. **`HTTPDRV.CFG` is never written** - only the
+Control Panel's page saves it (120.5) - so the setting a user made survives
+whatever happens here.
 
-The window is up before step 1, saying *Looking for a newer os8088 on the
-network...*, so a slow server is a sentence rather than a frozen screen.
+`IN_URL` is split into `IN_HOST`, `IN_PORT` and `IN_PATH` **by the
+assembler** (`%substr` over the string), so the one Makefile setting is still
+the only source and nothing parses an address on the machine. A body needs no
+index entry either, so the check reads an `OS88VER.TXT` edited on the server
+whole - the install's copy of it is still sized by the index (117.10.2).
+
+The window is up before the request, saying *Looking for a newer os8088 on
+the network...*, so a slow server is a sentence rather than a frozen screen.
 
 #### 117.10.4 The first page chooses the source
 
@@ -204157,6 +204167,8 @@ when the class is down, and the arrow keys' radio redraw:
 | `INSTALL.O88` image | 8,891 -> **9,126** | `in_newsp` ~55, `in_autoread` and the target root it shares with `in_autolink` ~60, the rest a few bytes each |
 | `INSTALL.O88` on the disk | 7,031 -> **7,230** | one cluster more at every geometry |
 | `HDDTOOL.DRV` image / file | 18,322 -> **18,327** / 14,079 -> 14,100 | the named source; `hd_pv_go`'s erase normaliser went, the bit now being a bit. No cluster crossed |
+| `INSTALL.O88` image / bss, the direct check | 9,126 -> **9,461** / 1,521 -> 1,972 | `in_vget` and its three helpers, `net_find`, the request and host strings (about 70 bytes for `os8088.com`); the mount, the walk into `SYSTEM\` and the file read left the check. The bss is the reply buffer, 320 -> 768 |
+| `INSTALL.O88` on the disk | 7,230 -> **7,542** | no cluster crossed: the eighth KB at 360KB, the fifteenth 512 bytes elsewhere |
 
 `tests/netinst.py` (soak, QEMU) is the gate: the check, the install - with an
 apps disk in B: that must NOT be copied - the link and the boot check with

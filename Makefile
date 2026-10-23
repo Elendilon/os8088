@@ -6129,7 +6129,8 @@ INREL := $(shell head -n 1 apps/install/OS88VER.TXT | tr -d '\r\n ')
 INURL := http://os8088.com/net/
 $(BUILD)/install.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
                       apps/os88dec.inc apps/os88link.inc apps/os88data.inc \
-                      drivers/httpfs/hfpkg.inc apps/install/OS88VER.TXT | $(BUILD)
+                      drivers/httpfs/hfpkg.inc drivers/net/netpkg.inc \
+                      apps/os88sock.inc apps/install/OS88VER.TXT | $(BUILD)
 	$(NASM) -f bin -w+error --before "[map all $(BUILD)/install.map]" \
 		-I apps/ -I drivers/httpfs/ -I drivers/net/ -D"IN_REL='$(INREL)'" \
 		-D"IN_URL='$(INURL)'" -o $@ apps/install/install.asm
@@ -6139,7 +6140,8 @@ $(BUILD)/install.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc 
 # the same source pointed at the host the test serves from QEMU's slirp.
 $(BUILD)/install-gate.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
                            apps/os88dec.inc apps/os88link.inc apps/os88data.inc \
-                           drivers/httpfs/hfpkg.inc apps/install/OS88VER.TXT | $(BUILD)
+                           drivers/httpfs/hfpkg.inc drivers/net/netpkg.inc \
+                           apps/os88sock.inc apps/install/OS88VER.TXT | $(BUILD)
 	$(NASM) -f bin -w+error --before "[map all $(BUILD)/install-gate.map]" \
 		-I apps/ -I drivers/httpfs/ -I drivers/net/ \
 		-D"IN_REL='$(INREL)'" -D"IN_URL='http://10.0.2.2:8096/net/'" \

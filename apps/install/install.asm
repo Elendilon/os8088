@@ -35,6 +35,7 @@
 
 %include "os88api.inc"
 %include "hfpkg.inc"                ; HTTPFS.DRV's package door (SPEC.md 120.4)
+%include "netpkg.inc"               ; ...and the socket verbs, for the check
 
 %ifndef IN_REL                      ; the release, OS88VER.TXT's first line, and
   %define IN_REL '00000000'         ; where the published tree is (SPEC.md
@@ -42,6 +43,45 @@
 %ifndef IN_URL
   %define IN_URL 'http://os8088.com/net/'
 %endif
+
+; IN_URL CUT INTO ITS PARTS HERE, BY THE ASSEMBLER (SPEC.md 117.10.3): the
+; check asks for one file with one GET of its own, so it wants the host, the
+; port and the path apart - and they are constants, so nothing parses them on
+; the machine. 'http://' is seven characters, so the host starts at the 8th
+IN_HOSTMAX  equ 64                  ; NETV_OPEN's NET_HOSTMAX
+%strlen in_ul IN_URL
+%assign in_i 8
+%assign in_hend 0
+%assign in_pbeg 0
+%rep in_ul
+  %if in_i > in_ul
+    %exitrep
+  %endif
+  %substr in_c IN_URL in_i
+  %ifidn in_c, ':'
+    %if in_hend = 0
+      %assign in_hend in_i
+    %endif
+  %elifidn in_c, '/'
+    %if in_hend = 0
+      %assign in_hend in_i
+    %endif
+    %assign in_pbeg in_i
+    %exitrep
+  %endif
+  %assign in_i in_i + 1
+%endrep
+%if in_pbeg = 0 || in_hend < 9 || in_hend - 8 >= IN_HOSTMAX
+  %error "IN_URL must be http://host[:port]/path/"
+%endif
+%substr IN_HOST IN_URL 8, in_hend - 8
+%if in_pbeg > in_hend
+  %substr in_pstr IN_URL in_hend + 1, in_pbeg - in_hend - 1
+  %deftok IN_PORT in_pstr
+%else
+  %define IN_PORT 80
+%endif
+%substr IN_PATH IN_URL in_pbeg, in_ul - in_pbeg + 1
 
     OS88_HEADER 'Install', in_entry, 1, OS88_HIGH | OS88_HIGHMEM
     OS88_ICON16                     ; an arrow onto a hard disk
@@ -128,7 +168,8 @@ NET_FAIL    equ 2                   ; no HTTP drive, no answer, no version
 NET_OLD     equ 3                   ; it answered with an OLDER release...
 NET_SAME    equ 4                   ; ...the same one...
 NET_NEW     equ 5                   ; ...or a newer one
-IN_VBUFSZ   equ 320                 ; OS88VER.TXT, read whole
+IN_VBUFSZ   equ 768                 ; the reply, headers and all: Apache's
+                                    ; run to ~250 bytes before the file
 IN_NEWS     equ 4                   ; lines of what is new shown
 
 ; =============================================================================
@@ -1166,9 +1207,11 @@ in_next:
 
 ; -----------------------------------------------------------------------------
 ; in_netck - [in_net] = what the published tree says about its release, and
-; [in_news] its lines of what is new. Asks only when a DRVC_NET driver is up;
-; brings HTTPFS.DRV up for the session, mounts IN_URL, reads OS88VER.TXT, and
-; puts the drive back as it found it. Keeps SI (the window)
+; [in_news] its lines of what is new. Asks only when a DRVC_NET driver is up,
+; and asks the SOCKETS: one GET of SYSTEM/OS88VER.TXT (in_vget). The HTTP
+; drive is not touched - bringing it up reads CTRL.DRV and HTTPFS.DRV off the
+; system disk and fetches the tree's whole index, for one 151-byte file - and
+; is mounted only when the network is picked (in_netgo). Keeps SI (the window)
 ; -----------------------------------------------------------------------------
 in_netck:
     push si
@@ -1178,41 +1221,178 @@ in_netck:
     call OSAPI_DRV_CLASSK           ; never loads ETHER.DRV: that is a DHCP wait
     jc .set
     mov bl, NET_FAIL
-    call in_netmount                ; ...the drive banked, IN_URL fetched
-    jc .back
-    mov bl, HFV_STATE
-    call in_hf                      ; AL = its volume
-    mov bl, al
-    mov [in_tdrv], al               ; (in_dive's volume)
-    xor dx, dx
-    call OSAPI_FILE_GOTO_QM         ; its root (and our instance with it)
-    mov bl, NET_FAIL
-    jc .home
-    mov bp, in_s_sysd
-    call in_dive                    ; ...and SYSTEM\, where the release is
-    mov bl, NET_FAIL                ; published (SPEC.md 117.10.2)
-    jc .home
-    push es
-    push ds
-    pop es
-    mov bx, in_vbuf
-    mov cx, IN_VBUFSZ - 1
-    xor dx, dx
-    mov si, in_s_ver
-    call OSAPI_FILE_READ            ; DX:AX = its length
-    pop es
-    mov bl, NET_FAIL
-    jc .home
-    mov bx, ax
-    mov byte [in_vbuf+bx], 0
+    call in_vget                    ; in_vbuf = the file, NUL-ended
+    jc .set
     call in_vparse                  ; BL = the answer
-.home:
-    call in_gohome
-.back:
-    call in_hfback
 .set:
     mov [in_net], bl
     pop si
+    ret
+
+; -----------------------------------------------------------------------------
+; in_vget - GET IN_PATH SYSTEM/OS88VER.TXT from IN_HOST:IN_PORT, the body to
+; in_vbuf NUL-ended. CF = 1: no link, no connection, not 200, or no answer
+; within IN_WAIT ticks (from the open, across the whole exchange - a file this
+; small has no business taking longer). HTTP/1.0 and no keep-alive, so the
+; server's close is the end of the body; the handle is ABORTED, never
+; closed, for hf_abort's reason: a close we start holds a slot through
+; FIN-WAIT, and ETHER.DRV has four. Spends every register but BP
+; -----------------------------------------------------------------------------
+IN_WAIT     equ 182                 ; ticks: ten seconds, HTTPFS.DRV's bound
+in_vget:
+    call net_find                   ; CF = 1 no socket driver, ZF = 1 no link
+    jc in_vno
+    jz in_vno
+    call OSAPI_GET_TICKS
+    mov [in_tbase], ax
+.o:
+    mov si, in_s_host
+    mov cx, IN_PORT
+    mov bl, NETV_OPEN
+    call in_nc
+    jnc .op
+    cmp ax, NETE_BUSY               ; the only refusal worth waiting out
+    jne in_vno
+    call in_twait
+    jnc .o
+    jmp in_vno
+.op:
+    mov [in_sock], al
+.c:
+    mov bl, NETV_STATUS
+    call in_ncs
+    jc .cw
+    cmp ah, NSK_UP
+    je .up
+    cmp ah, NSK_CONNECT             ; (or still resolving the name)
+    jne in_vfail
+.cw:
+    call in_twait
+    jnc .c
+    jmp in_vfail
+.up:
+    mov si, in_s_req
+    mov cx, IN_REQLEN
+.s:
+    push cx
+    mov bl, NETV_SEND
+    call in_ncs                     ; CX = how many it took
+    mov ax, cx
+    pop cx
+    jnc .took
+    xor ax, ax                      ; refused: none taken, and the clock
+.took:                              ; decides
+    add si, ax
+    sub cx, ax
+    jz .rx
+    call in_twait
+    jnc .s
+    jmp short in_vfail
+.rx:
+    mov di, in_vbuf
+.r:
+    mov cx, in_vbuf + IN_VBUFSZ - 1
+    sub cx, di
+    jz .got                         ; full: what fits is what is read
+    mov bl, NETV_RECV
+    call in_ncs                     ; CX = delivered. 0 is NOT the end
+    jc .st
+    add di, cx
+    jcxz .st
+    jmp short .r
+.st:
+    mov bl, NETV_STATUS
+    call in_ncs
+    jc .rw
+    cmp ah, NSK_UP
+    je .rw
+    cmp ah, NSK_CLOSING
+    jne .got                        ; CLOSED, FAILED: nothing more comes
+    jcxz .got                       ; closing with nothing left: the end
+    jmp short .r
+.rw:
+    call in_twait
+    jnc .r
+    jmp short in_vfail
+.got:
+    mov byte [di], 0
+    call in_abort
+    cmp word [in_vbuf+9], '20'      ; 'HTTP/1.x 200'
+    jne in_vno
+    cmp byte [in_vbuf+11], '0'
+    jne in_vno
+    mov si, in_vbuf
+.h:                                 ; ...then the blank line: an LF with
+    lodsb                           ; another LF, or a CR LF, straight after
+    or al, al
+    jz in_vno
+    cmp al, 10
+    jne .h
+    cmp byte [si], 10
+    je .lf
+    cmp word [si], 0x0A0D
+    jne .h
+    inc si
+.lf:
+    inc si                          ; SI = the body: down to the buffer's
+    push es                         ; start, its NUL with it
+    push ds
+    pop es
+    sub di, si
+    mov cx, di
+    inc cx
+    mov di, in_vbuf
+    rep movsb
+    pop es
+    clc
+    ret
+in_vfail:
+    call in_abort
+in_vno:
+    stc
+    ret
+
+; in_twait - CF = 1 once IN_WAIT ticks have passed since [in_tbase]. Spends AX
+in_twait:
+    call OSAPI_GET_TICKS
+    sub ax, [in_tbase]
+    cmp ax, IN_WAIT
+    cmc
+    ret
+
+; in_ncs / in_nc - one socket verb, BL = the NETV_*: in_ncs on our handle,
+; in_nc with AL, CX, SI and DI as they are. ES:SI and ES:DI are OUR segment by
+; the X stub. out the verb's AX, CX and flags; keeps SI, DI and DX
+in_ncs:
+    mov al, [in_sock]
+in_nc:
+    push dx
+    push si
+    push di
+    mov bh, [net_cls]
+    call OSAPI_DRV_CALL
+    pop di
+    pop si
+    pop dx
+    ret
+
+; in_abort - give the handle back now, if there is one. Keeps every register
+in_abort:
+    push ax
+    push bx
+    push cx
+    pushf
+    xor al, al
+    xchg al, [in_sock]
+    or al, al
+    jz .out
+    mov bl, NETV_ABORT
+    call in_nc
+.out:
+    popf
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; in_gohome - stand where INSTALL was started. Keeps every register but flags
@@ -2464,11 +2644,13 @@ in_s_chk1:    db 'Check for updates at startup', 0
 in_s_tuptodate: db 'os8088 is up to date', 0     ; toasts: 24 characters at most
 in_s_tnonet:  db 'Update check: no network', 0
 in_s_tnoans:  db 'Update check: no answer', 0
-in_s_ver:     db 'OS88VER.TXT', 0
 in_s_auto:    db 'AUTOSTRT', 0
-in_s_sysd:    db 'SYSTEM', 0
 in_s_lnk:     db 'OSCHECK.LNK', 0
 in_s_url:     db IN_URL, 0
+in_s_host:    db IN_HOST, 0
+in_s_req:     db 'GET ', IN_PATH, 'SYSTEM/OS88VER.TXT HTTP/1.0', 13, 10
+              db 'Host: ', IN_HOST, 13, 10, 13, 10
+IN_REQLEN   equ $ - in_s_req
 in_rel:       db IN_REL
 %if $ - in_rel != 8
   %error "IN_REL is a release, YYYYMMDD: eight characters"
@@ -2596,6 +2778,8 @@ in_ab3:     db 'Contributed by Jorge Gonzalez', 0
 %define OS88UI_RAD
 %define OS88UI_NOGCHECK
 %include "os88ui.inc"
+%define OS88SOCK_STATE              ; ...and net_find asks NSTF_SOCK as well
+%include "os88sock.inc"
 
 IN_IBSZ     equ 44
     OS88_BSS IN_BSS
@@ -2642,7 +2826,9 @@ in_chk      equ in_ovol + 1                     ; the Done page's row
 in_tdrv     equ in_chk + 1                      ; the installed volume
 in_wait     equ in_tdrv + 1                     ; 1 = a run waits on its apps
 in_nvol     equ in_wait + 1                     ; the network volume
-in_home     equ in_nvol + 1                     ; where we started: dw, db
+in_sock     equ in_nvol + 1                     ; the check's socket, 0 = none
+in_tbase    equ in_sock + 1                     ; ...and its clock
+in_home     equ in_tbase + 2                    ; where we started: dw, db
 in_news     equ in_home + 3                     ; IN_NEWS line pointers
 in_find     equ in_news + 2 * IN_NEWS           ; OSAPI_FIND_SZ
 in_ourl     equ in_find + OSAPI_FIND_SZ         ; HF_URLMAX: the user's address

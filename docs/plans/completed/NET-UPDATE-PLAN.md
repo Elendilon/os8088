@@ -169,6 +169,15 @@ Booted from A:, network picked, installing to C:, with the apps disk in B:.
       draws the new dot and never removes the old one. The keyboard path
       draws the two dots a click draws.
 
+### Wave 9 - the check asks the sockets (SPEC.md 117.10.3)
+
+- [x] **One GET of `SYSTEM/OS88VER.TXT`** on a socket of INSTALL's own, in
+      place of bringing the HTTP drive up for the check: no `CTRL.DRV` or
+      `HTTPFS.DRV` read off the floppy, no index fetched. The drive is
+      mounted only when the network is picked. `IN_URL` is cut into host,
+      port and path by the assembler. +335 image bytes, no cluster crossed.
+      `netinst` fails if the check asks for anything but that one file.
+
 ## 3. Cost, estimated before the build
 
 | where | bytes | note |
