@@ -348,9 +348,11 @@ FD_STGSZ    equ 8192                ; with -DFD_STGSZ= (SPEC.md 77.50)
 ; the server at all.
 ;
 ; **We own the ES we pass now**, so every verb that touches a stage sets it
-; explicitly and puts it back. The claim is PINNED (the default, SPEC.md 66) -
-; a movable one could be relocated at a park point with the driver holding its
-; segment.
+; explicitly and puts it back. The claim was PINNED (the default, SPEC.md 66)
+; on the fear that a movable one could be relocated at a park point with the
+; driver holding its segment - and the driver holds none: NETV_SEND/RECV copy
+; and return, and the worker parks only at OSAPI_TASK_ALIVE with fd_step done.
+; It MOVES since NO-PINNING A3 (fd_reloc, SPEC.md 77.51.1).
 FD_STGKB    equ FD_STGSZ / 1024
 
 ; --- FD_WSEQF - A STOR IS A HELD, KEPT STREAM (SPEC.md 77.50) ---------------
@@ -492,6 +494,8 @@ fd_entry:
     call OSAPI_MEM_CLAIM            ; out DX = the base segment
     jc .nostage2
     mov [fd_stg2], dx
+    mov ax, fd_reloc                ; it moves too, fd_bigseg's reason
+    call OSAPI_MEM_MOVABLE
 .nostage2:
 %endif
     mov word [fd_bigseg], 0         ; ...and STOR's stage (77.50.2, 77.50.3)
@@ -502,6 +506,8 @@ fd_entry:
     call OSAPI_MEM_CLAIM            ; a whole number of KB, so 512-aligned
     jc .nobig                       ; refused: the 8KB server, which works
     mov [fd_bigseg], dx
+    mov ax, fd_reloc                ; ...AND IT MOVES (NO-PINNING A3, SPEC.md
+    call OSAPI_MEM_MOVABLE          ; 77.51.1): fd_reloc's header
     mov word [fd_wstg], FD_BIGSZ
     mov byte [fd_ckpn], FD_CKPT / FD_BIGSZ
 .nobig:
@@ -1910,6 +1916,47 @@ fd_stgp:
     mov dx, [fd_stg2]
     ret
 %endif
+
+; --- fd_reloc - a stage claim moved (SPEC.md 66.2, NO-PINNING A3) -----------
+; BX = where it was, DX = where it is now. ONE word names each stage, and
+; fd_fillp/fd_commp above are the only readers: every caller turns DX:AX into
+; ES for one call (a NETV_* verb through OSAPI_DRV_CALL_AT, or a file slot)
+; and keeps it nowhere. So the stage is MOVABLE (SPEC.md 77.51.1) except:
+;   * while the WORKER runs - a running worker pins every claim of ours
+;     (inst_seg_parked), and it parks only inside OSAPI_TASK_ALIVE at the top
+;     of fd_worker, where fd_step has returned and holds nothing (no
+;     OSAPI_MEM_PARKSAFE). ETHER.DRV's send and receive copy synchronously and
+;     keep no pointer to it past the call;
+;   * across the UI task's file call into or out of it - fd_do_read and
+;     fd_do_write pin it (fd_stgpin), because the kernel holds that ES:BX across
+;     claims of its own before its transfer pin applies (SPEC.md 66.3 rule 5).
+fd_reloc:
+    cmp bx, [fd_bigseg]
+    jne .s2
+    mov [fd_bigseg], dx
+.s2:
+%if FD_STG2
+    cmp bx, [fd_stg2]
+    jne .o
+    mov [fd_stg2], dx
+.o:
+%endif
+    ret
+
+; --- fd_stgpin - AX = 0 PINS STOR's stage, AX = fd_reloc lets it move again --
+; Around a file call whose ES:BX it may be (fd_reloc's header). No stage, no
+; call. Preserves every register and the flags.
+fd_stgpin:
+    pushf
+    push dx
+    mov dx, [fd_bigseg]
+    or dx, dx
+    jz .o
+    call OSAPI_MEM_MOVABLE
+.o:
+    pop dx
+    popf
+    ret
 
 ; --- fd_handoff - the fill stage becomes the commit stage, and we flip ------
 ; The worker's half of the two-buffer handshake (SPEC.md 77.41), and it runs
@@ -5541,6 +5588,8 @@ fd_do_read:
                                     ; was invisible
     call fd_xfersplit
     jc .no
+    xor ax, ax
+    call fd_stgpin                  ; pinned for the read (fd_reloc's header)
     mov si, fd_leaf
     call fd_commp                   ; ES:BX - STOR's 32KB stage when there is
     mov bx, ax                      ; one, else fd_stage (SPEC.md 77.51); a
@@ -5579,6 +5628,8 @@ fd_do_read:
     mov si, fd_r551
     call fd_xfail
 .out:
+    mov ax, fd_reloc
+    call fd_stgpin                  ; free to move again
     FT_E FT_DISK
     pop es
     pop di
@@ -5616,6 +5667,8 @@ fd_do_write:
                                     ; answered '552 disk full or protected'
                                     ; for a directory that does not exist -
                                     ; 77.20's misleading-cause class exactly
+    xor ax, ax
+    call fd_stgpin                  ; pinned for the write (fd_reloc's header)
     call fd_commp                   ; the stage the worker HANDED US, far: not
     mov bx, ax                      ; the one it is filling now, and possibly
     mov es, dx                      ; not in our segment at all. The file API
@@ -5714,7 +5767,9 @@ fd_do_write:
 %endif
     FT_E FT_DISK
 .pops:
-    pop es
+    mov ax, fd_reloc
+    call fd_stgpin                  ; free to move again (a no-op re-declare
+    pop es                          ; on .nopath, which never pinned it)
     pop di
     pop si
     pop dx

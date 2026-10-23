@@ -113595,8 +113595,9 @@ design rather than luck.** `zm_pcaddr` turns the live `ES:SI` back into a
 20-bit **story address**, so every return address in every frame on the
 Z-stack, every object pointer and every packed address is relative to the base
 and survives a move untouched. The Z-stack and the undo snapshot are one word
-each; the save staging buffer, the transcript, the picture buffer and the
-`.mg1` probe stay pinned, being file-operation targets or transients.
+each; the picture buffer and the `.mg1` probe stay pinned, being
+transients. The save staging buffer, the transcript and the scrollback were
+pinned too, and move since §66.5.9.2.
 
 #### 66.5.9.1 It cannot declare `OSAPI_MEM_PARKSAFE`, and does not need to
 
@@ -113629,6 +113630,41 @@ compactions; a boolean would repair the first and lose the rest.
 
 Cost in the ordinary pass: one word read and a compare. The repair path runs
 only when the story actually moved.
+
+#### 66.5.9.2 ...and the three claims that sat under the scrollback (NO-PINNING A3)
+
+**The scrollback** (`ZW_SBKB` 24KB, `zwin.inc`) was outside `zf_reloc` and
+pinned by default, and declaring it alone bought nothing: measured, it sat
+directly on the **save staging** claim (`[zi_savseg]`, dynamic memory + the
+Z-stack + 1KB - 19KB for the test story) and the **transcript** (`ZI_SCRKB`
+16KB, `[zi_scrseg]`), both session-lived and both pinned as "file-operation
+targets", so it could never slide. All three move now. Each is ONE word and
+`zf_reloc`'s tail is a table of them (`zf_rltab`: the Z-stack, the undo
+snapshot and these three).
+
+Why no copy of their segments survives a move:
+
+- **The scrollback** is reached through `zw_lineptr`, `zw_headptr` and
+  `zw_upptr`, which load ES from the word; each caller copies one record or
+  draws one row and puts ES back, and none claims, touches a file or reaches
+  `zi_yield`/`OSAPI_TASK_ALIVE` while holding it.
+- **The save staging** is filled by the worker (`zi_save`) and parsed by it
+  (`zi_restore`) with ES loaded from the word, and `zi_save` gives ES back to
+  the story BEFORE `zi_request`'s wait - the one park point either reaches.
+  The UI task's write and read of it (`zi_dlg_save`, `zi_dlg_restore`) pin it
+  for the call (`zi_savpin`; §66.3 rule 5's reason, bucket C).
+- **The transcript** is loaded per character by the worker
+  (`zi_script_putc`), and `zi_script_flush`'s whole-file write pins it
+  (`zi_scrpin`).
+
+Frotz's worker is NOT restartable and declares no `OSAPI_MEM_PARKSAFE`
+(§66.5.9.1), so its claims move only while it is parked inside
+`OSAPI_TASK_ALIVE` - at `zx_worker`'s loop top or inside `zi_yield` - and at
+both every one of these ES loads has already been undone; a running worker
+pins all of them (`inst_seg_parked`). +92 bytes of image. `editmove-frotz`
+is the gate: all five one-word claims move on `zmove360.img`, contents
+hashed, and the story still answers a command after; red with the three new
+words left out of the table (all three stale).
 
 ### 66.5.10 The drivers, and the claim a callback cannot reach
 
@@ -122513,6 +122549,37 @@ What a page holds while it is on screen, `eth.htm` (442 bytes) off the wire:
 109KB before, **16KB** after (source 1, document `2 x 1 + 4` = 6, lines 8,
 links 1) - and the peak DURING a fetch is the 32KB source alone. A file load
 saves only the link arena's difference, its other three sizes being unchanged.
+
+#### 71.14.1 ...and all four of them MOVE (NO-PINNING A3)
+
+The four page claims were born pinned (§66.2) and declared nothing, so a page
+on screen was up to ~109KB of wall in the middle of the heap. **Each is named
+by ONE word** - `[br_srcseg]`, `[br_docseg]`, `[br_lseg]`, `[br_lnkseg]` -
+and every use loads that word into ES for one parse, one layout or one band,
+so `br_reloc` is a compare and a store per word and nothing else. `br_movable`
+declares each where it is claimed (`br_srcclaim`, `br_claimpage`,
+`br_claimrest`); `OSAPI_MEM_REGROW` keeps a declaration (§50.3.1), so the
+fetch's cut-back and the frameset's re-grow need nothing.
+
+Why no other copy of a segment survives a move:
+
+- **The UI task** claims nothing while it holds one. Its only claiming calls
+  are the four claim routines, which STORE the word, and the file read
+  (`br_load`) and write (`br_saved`), whose ES:BX is the source: `br_srcpin`
+  pins it for the length of each (bucket C, the kernel holding that pointer
+  across claims of its own before its transfer pin applies - §66.3 rule 5).
+- **The worker** loads the word each pass (`br_take`, `br_finish`'s parse), and
+  a RUNNING worker pins every claim of ours (`inst_seg_parked`). It parks only
+  inside `OSAPI_TASK_ALIVE` at the top of `br_worker`, where `br_nstep` has
+  returned and holds nothing; there is no `OSAPI_MEM_PARKSAFE`.
+- **No socket buffer is one of these** (§72): every `NETV_*` verb is handed
+  `br_rxb` or `br_reqb` in the package's own segment, `br_take` copies out of
+  `br_rxb`, and `ETHER.DRV`'s send and receive copy synchronously, keeping no
+  pointer past the call.
+
++86 bytes of image. `pkgmove-browser` is the gate (a file load on a VGA XT,
+Note Pad opened first so its claims leave a hole under the page's), red with
+`br_reloc` a bare `ret`.
 
 ### 71.15 Bounded compatibility for retro pages
 
@@ -132503,6 +132570,32 @@ stage is a heap claim and the plain door puts our own segment in ES over it:
 keeps `fd_stage`: its rows are composed in our segment.
 
 What it costs: `ftpd.o88`'s image **+46 bytes** (14,670 -> 14,716).
+
+#### 77.51.1 ...and the 32 KB stage MOVES (NO-PINNING A3)
+
+The stage was born pinned, its comment fearing that *"a movable one could be
+relocated at a park point with the driver holding its segment"*. The driver
+holds none: `ETHER.DRV`'s `NETV_SEND` and `NETV_RECV` copy into or out of the
+caller's ES and return, keeping no pointer past the call (`eth_v_send`,
+`eth_v_recv`). So it is declared with `fd_reloc` - one word, `[fd_bigseg]`
+(and `[fd_stg2]` should `FD_STG2` ever come back) - and every reader goes
+through `fd_fillp`/`fd_commp`, which hand back DX:AX for ONE call and keep it
+nowhere. What stops a move while the stage is in use:
+
+- **the worker**, filling it from a socket or sending it to one, is RUNNING,
+  and a running worker pins every claim of ours (`inst_seg_parked`). It parks
+  only inside `OSAPI_TASK_ALIVE` at the top of `fd_worker`, where `fd_step`
+  has returned and holds nothing (no `OSAPI_MEM_PARKSAFE`);
+- **the UI task's file call** - `fd_do_read`'s read into it, `fd_do_write`'s
+  write or append out of it - is bracketed by `fd_stgpin` (bucket C: the kernel
+  holds that ES:BX across claims of its own before its transfer pin applies,
+  §66.3 rule 5).
+
+Between those - a transfer waiting on the wire or on the user, or the server
+standing idle with the stage held since the entry proc - 32 KB is no longer a
+wall. +62 bytes of image. `pkgmove-ftpd` moves it on MartyPC (the entry proc
+claims it with or without a card), red with `fd_reloc` a bare `ret`; the
+worker and file arms are argued here, MartyPC having no NIC.
 
 ### 77.52 Apps size pass 2 - the shipped file
 
@@ -146610,6 +146703,21 @@ Data > Column (§82.12) reads it again; the export used to copy the Save
 dialog's answer over it, so a column choice after an export parsed `CHART.BMP`
 as SYLK and said *No data in that column.* The export name is staged in
 `ct_ntxt`, `ct_esatof`'s scratch, which no read is using at that moment.
+
+#### 82.14.1 ...and the canvas MOVES (NO-PINNING A3)
+
+The canvas was born pinned (§66.2) and declared nothing, so an open Chart was
+19KB of wall for as long as it was open. It is declared at the end of the
+entry proc with `ct_reloc`: `[ct_chartseg]` is the one word naming it, and
+`ch_prep`'s borrowed copy in `[ch_stgseg]` (re-stored at every render) is put
+right as well, `sh_reloc`'s rule for a borrowed copy (§66.1). Every use loads
+ES from the word for one blit, one render or one flip, Chart hires no worker,
+and nothing it calls while holding ES claims - except the export's
+`OSAPI_FILE_WRITE`, whose ES:BX the canvas is, and `ct_pin` pins it for that
+call (§66.3 rule 5, bucket C). The read's staging claim stays undeclared: it
+lives inside one callback and is a file read's target throughout. +59 bytes of
+image. `pkgmove-chart` is the gate, red with `ct_reloc` a bare `ret`.
+
 ### 82.18 Keeping Chart in step with what Sheet writes
 
 Sheet grew four stages of value model while Chart's readers stood still, and

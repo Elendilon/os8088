@@ -2679,6 +2679,50 @@ SOAK = [
         "2300 -> 22c0, the region 9340 -> 9840; red with tp_srcreloc a bare "
         "ret (stale word, a different picture). 19s measured",
         needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("pkgmove-browser", "soak",
+        py("tests/pkgmove.py", "--app", "browser", "--machine",
+           "os8088_xt_vga", "--first", "B:/APPS/NOTEPAD.O88", "--open",
+           "B:/MEDIA/BROWSER.HTM", "--word", "br_srcseg", "--word",
+           "br_docseg", "--word", "br_lseg", "--word", "br_lnkseg"), 30.0,
+        "NO-PINNING A3 (SPEC.md 71.14.1): the Browser's four page claims - "
+        "source, document, line table, link arena - MOVE, each named by one "
+        "word. A file load (no NIC needed: the worker idles at BN_IDLE and "
+        "parks at OSAPI_TASK_ALIVE). On a VGA XT because on CGA the Browser "
+        "is allowed over the dock and Note Pad's tile cannot be reached. "
+        "Measured: 3760/3f60/4f20/5120 -> 2420/2c20/3be0/3de0; red with "
+        "br_reloc a bare ret (all four stale). 25s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("pkgmove-ftpd", "soak",
+        py("tests/pkgmove.py", "--app", "ftpd", "--first",
+           "B:/APPS/NOTEPAD.O88", "--open", "B:/APPS/FTPD.O88", "--word",
+           "fd_bigseg"), 22.0,
+        "NO-PINNING A3 (SPEC.md 77.51.1): FTPD's 32KB STOR/RETR stage, "
+        "claimed by the entry proc with or without a card, MOVES. MartyPC "
+        "has no NIC, so this moves the idle server's stage; the worker and "
+        "file-call arms (fd_stgpin) are argued in 77.51.1. Measured: "
+        "fd_bigseg 2780 -> 2400; red with fd_reloc a bare ret (stale word). "
+        "17s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("pkgmove-chart", "soak",
+        py("tests/pkgmove.py", "--app", "chart",
+           "--disk", "build/office360.img",     # launch(apps=) resolves it
+           "--first", "B:/ARTFUL.O88", "--open", "B:/CHART.O88",
+           "--word", "ct_chartseg"), 20.0,
+        "NO-PINNING A3 (SPEC.md 82.14.1): Chart's 19KB canvas MOVES "
+        "(ArtfulType opens first so its claims leave a hole under it). "
+        "Measured: ct_chartseg 24c0 -> 2380; red with ct_reloc a bare ret "
+        "(stale word, a different picture). 15s measured",
+        needs=("marty",), serial=True, wants=("build/office360.img",)),
+    Row("editmove-frotz", "soak", py("tests/editmove.py", "--app", "frotz"),
+        40.0,
+        "SPEC.md 66.5.9 and NO-PINNING A3 (66.5.9.2): a running story's "
+        "claims MOVE - the story (and its live PC and running delta), the "
+        "Z-stack, and since A3 the scrollback, the save staging and the "
+        "transcript, which sat under the scrollback and walled it in. All "
+        "five words move, contents hashed, and the story still answers "
+        "`look` after. Red with the three new words left out of zf_rltab "
+        "(all three stale). 27s measured",
+        needs=("marty",), serial=True, wants=("build/zmove360.img",)),
     Row("tymove", "soak", py("tests/tymove.py"), 15.0,
         "NO-PINNING A7: apps/os88type.inc's claims MOVE - an open face "
         "(TF_CLAIM = TF_SEG, [ty_curseg] its copy) and the pre-shifted table "

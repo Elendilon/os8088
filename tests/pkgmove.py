@@ -71,23 +71,30 @@ def main():
     fails = []
     done = lambda mm, **k: os88marty.ui_done(mm)
 
+    def front(m):
+        # THE FRONTMOST window, not the last slot: open_drive FRONTS a Disk
+        # window that is already open (a second file at the same volume's
+        # root - office360's CHART.O88 after ARTFUL.O88), and a launched
+        # package's window may take a lower free slot than the last one
+        t = os88geom.top(m, S)
+        return [i for i in dispcp.win_list(m, S)
+                if os88geom.winptr(m, i, S) == t][0]
+
     def walk(m, mo, spec):
         drive, path = spec.split(":/", 1)
         parts = path.split("/")
         dispcp.open_drive(m, mo, S, done, drive)
         for name in parts[:-1]:
-            slot = dispcp.win_list(m, S)[-1]
-            wx, wy, _, _ = dispcp.win_rect(m, S, slot)
+            wx, wy, _, _ = dispcp.win_rect(m, S, front(m))
             dispcp.open_named(m, mo, S, done, wx, wy, name)
-        slot = dispcp.win_list(m, S)[-1]
-        wx, wy, _, _ = dispcp.win_rect(m, S, slot)
+        wx, wy, _, _ = dispcp.win_rect(m, S, front(m))
         before = dispcp.win_list(m, S)
         dispcp.open_named(m, mo, S, done, wx, wy, parts[-1])
         os88marty.until(m, lambda _: len(dispcp.win_list(m, S)) > len(before),
                         "%s's window" % parts[-1], poll=0.3, limit=60)
         os88marty.quiesce(m, lambda: sorted(claims(m)), guest=2.0,
                           what="the claims")
-        return dispcp.win_list(m, S)[-1]
+        return [i for i in dispcp.win_list(m, S) if i not in before][0]
 
     with os88marty.launch("build/os8088-360.img", apps=a.disk,
                           machine=a.machine, boot=False) as m:
