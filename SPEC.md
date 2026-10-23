@@ -31192,11 +31192,12 @@ lock, let alone calls `ui_dispatch` — and a context menu before `files.inc`
 looks its command up. Whatever the item then does, launching a package
 included, allocates into a heap the menu has already left.
 
-Nothing overlaps it, either: `menu_drop`'s tracking loop calls
-`task_yield`, but it holds the gfx lock while it does, and every worker
-path to the allocator takes that lock first - so no claim lands while a menu
-is down (§66.3.1; this paragraph used to say a worker's could, which was never
-true).
+The one thing still overlapping it: `menu_drop`'s tracking loop calls
+`task_yield`, so a worker can claim while a menu is down. Its claim lands
+above the save-under (both fit from the bottom), and freeing the save-under
+leaves a transient hole under it. Since §66.3.1 such a claim is first fit
+only: it cannot compact or shed, so it cannot move or drop the save-under
+while `menu_drop` is using it.
 
 ### 15.1 Size guards
 
@@ -112265,18 +112266,25 @@ two non-UI paths really do reach the allocator:
 - **Fractal's worker**: `OSAPI_MEM_REGROW` on its row cache (§28's precedent
   for a growing cache), which can shed.
 
-Both happen to take the gfx lock first, and package callbacks run holding it,
-so neither can land while the UI task stands in a package. That is luck, not
-a rule. The rule since NO-PINNING K8 is: **`mem_claim` and `mem_regrow` compact
-and shed only when `[sch_cur]` is 0.** Any other task gets plain first fit and
-CF = 1 past it. Its raise-cache claim declines a copy (which is already the
-outcome on a full heap), and the next repaint on the UI task takes one. The
-test is on `OS88_COMPACT` kernels only. kern_small has no compactor, and its
-user manages its RAM (docs/plans/NO-PINNING-PLAN.md).
+The gfx lock does NOT bound this, and it never did. Both paths take it first,
+but **a package's `OSAPI_WM_ONWAKE` handler runs with no lock at all**
+(`ui.inc`'s `.wake` arm, §74.1), so the UI task can be pre-empted inside a
+package, overlay module included, with the lock free. And `OSAPI_MEM_CLAIM`
+itself has no lock and no task test, so a driver verb that claims can be
+reached from a worker (`sbl_v_grant` claims). The rule since NO-PINNING K8 is
+the gate, not a lock: **`mem_claim` and `mem_regrow` compact and shed only
+when `[sch_cur]` is 0.** Any other task gets plain first fit and CF = 1 past
+it. Its raise-cache claim declines a copy (which is already the outcome on a
+full heap), and the next repaint on the UI task takes one. The test is on
+`OS88_COMPACT` kernels only. kern_small has no compactor, and its user manages
+its RAM (docs/plans/NO-PINNING-PLAN.md).
 
-The menu save-under's note that *"a package worker can claim while a menu is
-down"* (§12.4.2) was never true: `menu_drop` holds the gfx lock across its
-`task_yield` loop, and every worker path to the allocator waits on that lock.
+What the gate does NOT cover is the reverse case: a WORKER pre-empted while
+holding a claim's segment, with the UI task then compacting. A package's own
+data claims are covered (`inst_seg_parked`: a running worker pins its
+package's claims). A DRIVER's data claim reached through a driver verb on a
+package worker is not. NO-PINNING-PLAN K9 is that case.
+
 
 **Author rules for a relocation proc (binding, none enforceable):**
 

@@ -265,3 +265,59 @@ host-side, so cheap:
   and fail on any live claim with `MC_RLOC` = 0 that is not M, not in a
   transfer, and not in the nest. This catches pins the source scan cannot
   see.
+
+## 5. The adversarial review (2026-10-23) and what it changed
+
+An independent reviewer was asked to find what the plan would BREAK, LEMMINGS'
+trap run the other way: making things movable in a way that breaks another
+system silently. Each finding and what was done about it:
+
+| # | finding | disposition |
+|---|---|---|
+| 1 | **Wave 0 was unsafe without K8.** An `OSAPI_WM_ONWAKE` handler runs with NO gfx lock (`ui.inc` `.wake`), so the UI task can be pre-empted inside an overlay module with the lock free. A dying worker could then compact the carve under it. The "callbacks hold the lock" argument in 2.1 and SPEC.md 66.3.1 was false | **K8 landed in the same series** (`0cd9f0d9`), so `no-pinning` has never had wave 0 without the `sch_cur` gate. SPEC.md 66.3.1 now names the GATE as the reason and says the lock never was. The menu paragraph is corrected again: a worker CAN claim while a menu is down (driver verbs, rule-7 violators), but since K8 only first fit |
+| 2 | **A driver's data claim can move under a PACKAGE worker inside a driver verb.** ETHER.DRV's socket pool is declared movable (`tcp.inc`), and its verbs run on the CALLER's worker (FTPD, Telnet, Browser). `inst_seg_parked`'s driver arm counts only `TF_SERVICE` tasks. A pre-empted worker mid-`rep movsb` with ES = `[sk_seg]` comes back writing into whatever block took the pool's place. **Pre-existing, live** | **K9, new, needs a decision (6.1).** Worse than reported: `wm_pkgs`, the nest, is ONE global stack, and a worker's `OSAPI_DRV_CALL` pushes onto it from its own task, so two tasks interleave on it. An interleaved pop can leave the table naming the wrong image, which puts both the driver image and a package region at risk |
+| 3 | K8 turns every non-UI claim into first fit, and `OSAPI_MEM_AVAIL` still plans both passes, so a worker that asks and then claims (Fractal) is promised room it cannot get | **Accepted as the honest answer.** The only asker-then-claimer on a worker is Fractal, and its refusal is a smaller cache. **To do (K8b):** an instrument row counting non-UI arrivals at `mem_claim_x`'s failure arm across the soak, before anything else relies on it |
+| 4 | `cc_ovthunk` wrote its stash unchecked, and module-to-module calls now share that stash (Weave/Loom's FX parser takes ~5 entries a paren level) | **Fixed**: a full stash REFUSES the call (AX = 0, the call skipped: SPEC.md 47's refusal shape, `cc_ovneed`'s). `cc_ovmthunk` falls back to the direct call as before |
+| 5 | **C4 is not seven words.** LEMMINGS derives `lem_anseg`, `lem_mkseg` and `lem_ptseg` and `lem_far_seg` (base + offset), `lem_m_apply` WRITES through one, and per-claim declaration would compact claims 1..N-1 while N is being claimed and derived | **C4 re-scoped**: the proc RANGE-translates every derived word (in [was, was + size) → add now - was), and is declared once, after the whole of `ovl_claim_all` |
+| 6 | **The ceiling argument is false for `MEM_K_MTBL`**: `mega_enter` runs AFTER `drv_boot`, so boot driver images sit above the 82 KB tables, and unloading one leaves a hole over the wall | **K3 back in**: either claim MTBL before `drv_boot` (~0 bytes if the order allows it) or give it a proc that reloads GDTR/IDTR/LDT. `MEM_K_FONT` stays at 0 (claimed before `drv_boot`) |
+| 7 | **Moving big claims costs time, with task switching paused**: ~2.86 ms/KB, so a suspended Lemmings set (~330 KB) is ~1 s, and a 64 KB emulator RAM ~180 ms. A double-buffered stream's refill task cannot run in that window, and Tracker's mixer parks | **New gate (G1), required before C3/C4 land**: Lemmings suspended + Tracker playing, then open a large package. Measure the compaction's wall time and underruns on MartyPC. If it is audible, the answer is a per-claim cost cap in the plan, not a pin |
+| 8 | K1a: the deleted rule also pinned PACKAGE `MC_DMA` claims, and `sb.inc` documented relying on it for external rings | No package ring is declared movable today, so nothing broke. **Fixed the documentation**: `SND_OPENF_EXT` in `os88api.inc` and `sb.inc`'s note now say the package keeps its ring still until the stream is CLOSED (a pause keeps it armed). A6 is bound by that. The "SOUND.DRV pins its ring while a double-buffered stream is open" shape is WITHDRAWN: it was never needed (the double buffer is never declared) and would have been a wall |
+| 9 | K2 traced correct; the mount's own pin before the declaration is redundant; every `clo_*` exit must clear `[mem_pinimg]` | Redundant pin **removed**. Exits audited: every refusal after the claim goes through `clo_mfree` |
+| 10 | K6a turns a free DROP into a COPY (up to ~64 KB on VGA) | **K6a held for the owner (6.2)** |
+| 11 | The ratchet's runtime half would fail on legitimate D and C pins during play | The runtime half reads only at a QUIET desktop (no stream, no transfer, no fsx), and names the D/C pins it may meet |
+
+Checked and SOUND, per the reviewer: kern_mega's code selector after a move
+(`cc_ovbind` recomputes `[cc_ovcs]`), no `ovl_*` function can become a
+callback (`cc8086` refuses its address), `cc_ovcarve`, RunCPM's CCP, the
+`sch_cur` test (task 0 is the UI task on every kernel and from before the
+first claim), K2's nesting and image non-nesting, K6a's mechanics, and
+RealDMG and the Video Player inside an fsx bracket (protected for free:
+workers are frozen there and the posted pass runs only at `ui_task` step 0).
+
+## 6. Open decisions for the owner
+
+### 6.1 K9 - work done on a driver's memory from a package worker
+
+The nest (`wm_pkgs`) answers "which images is the machine executing in" for
+the UI task, and is wrong as soon as a worker pushes onto it. Three shapes:
+
+- **(a) Count, don't stack, for non-UI tasks.** `drv_pkg_call_x` (the
+  `OSAPI_DRV_CALL` site) bumps a `[drv_wkin]` count instead of pushing when
+  `[sch_cur]` != 0. `mem_can_move` then pins every driver IMAGE and every
+  driver DATA claim while it is non-zero. This is bucket C, momentary, and as
+  coarse as `[drv_wcnt]` is today. Estimated ~25 resident bytes.
+- **(b) A per-task nest.** Exact, but it costs a table per task slot (12
+  slots), which is the most bytes of the three.
+- **(c) Forbid `OSAPI_DRV_CALL` from workers.** Refused: FTPD, Telnet and the
+  Browser are built on it.
+
+Recommended: **(a)**.
+
+### 6.2 K6a - raise caches: move or drop?
+
+Today the compactor DROPS a raise cache that is in the way (free now, and a
+~578 ms repaint the next time that window is raised). Movable, it COPIES it
+(~2.9 ms/KB: a 6 KB mono cache ~17 ms, a full VGA one up to ~180 ms). That
+keeps the instant raise, at the cost of claim latency. A middle shape is
+cheap: move a cache only if it is under a size cap (say 16 KB), and drop the
+rest.

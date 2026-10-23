@@ -837,11 +837,13 @@ mem_claim_x:
                                 ; fit and nothing more: a compaction run from
                                 ; another task's stack could move a claim the
                                 ; UI task holds in a register while it is
-                                ; pre-empted, and a shed could free one. The
-                                ; one such caller is a dying worker's repaint
-                                ; banking raise caches (inst_task_die), which
-                                ; declines a copy where today it would have
-                                ; made room - never a wrong pixel
+                                ; pre-empted (an ONWAKE handler runs with no
+                                ; gfx lock at all), and a shed could free one.
+                                ; The callers this reaches are a dying
+                                ; worker's repaint banking raise caches
+                                ; (inst_task_die), which declines a copy -
+                                ; never a wrong pixel - and a driver verb that
+                                ; claims from a worker, which is first fit
     call mem_compact            ; not one, and a package load loses to nothing
     jnc .go                     ; - so both are on mem_claim_hi's path too.
 %endif                          ; ...and on kern_small it is SHED AND RETRY,

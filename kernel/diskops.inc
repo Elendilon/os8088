@@ -3091,10 +3091,8 @@ clo_mount:
     pop si                      ; SI = the sectors, from here to the row
     jc .nomem
     mov es, dx
-    CSDO mov [CSEG clo_mseg], dx
-    mov [mem_pinimg], dx        ; pinned for the whole mount: every step
-                                ; below reads disks, and a read can claim
-                                ; (NO-PINNING-PLAN K2)
+    CSDO mov [CSEG clo_mseg], dx    ; (born pinned, MC_RLOC = 0, until
+                                ; .marked declares it: no [mem_pinimg] needed)
     xchg ax, di                 ; AL = the attribute, AH = byte 12
     mov cx, ax                  ; CX = IMG_FLG: the attribute's read-only
     and cx, IMGF_RO             ; bit IS IMGF_RO (asserted below), so the

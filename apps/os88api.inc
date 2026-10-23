@@ -680,7 +680,13 @@ SND_OPENF_EXT    equ 2           ; ...an EXTERNAL ring (SPEC.md 34.5.3), with
                                  ; consumed count to [...+SND_EXT_CONS], both
                                  ; free-running mod 65536, so you feed without
                                  ; a call; verb 1 is only needed to RESUME an
-                                 ; underrun, and verb 9 still answers exactly
+                                 ; underrun, and verb 9 still answers exactly.
+                                 ; KEEP THAT CLAIM STILL while the card
+                                 ; is armed on it: undeclared, or pinned with
+                                 ; OSAPI_MEM_MOVABLE AX = 0 from verb 0 until
+                                 ; the stream is CLOSED - a pause (verb 10)
+                                 ; keeps it armed. The kernel no longer pins
+                                 ; MC_DMA claims for you (SPEC.md 66.6.4)
 SND_OPENF_ADPCM4 equ 4           ; ...the bytes are Creative 4-bit ADPCM, the
                                  ; card decoding them (DSP 7Dh, auto-init with
                                  ; a reference byte: stream byte 0). DX is the

@@ -1318,6 +1318,15 @@ cc_ovthunk:
     pop dx                          ; ...and its segment, which is [cc_ovcs]:
                                     ; discarded rather than stashed
     mov si, [cc_ovrsp]              ; AX, DX and SI are all dead here - the ABI
+    cmp si, CC_OVDEPTH * 2          ; A FULL STASH REFUSES THE CALL rather than
+    jae .full                       ; write past it into the program's bss: the
+                                    ; convention change needs the slot, so
+                                    ; there is no direct fallback here (there is
+                                    ; in cc_ovmthunk). AX = 0 and the call did
+                                    ; not happen - cc_ovneed's refusal, SPEC.md
+                                    ; 47. The stash is shared with module-to-
+                                    ; module calls now, so a deep parser can
+                                    ; reach it (NO-PINNING review finding 4)
     mov [cc_ovrst+si], ax           ; has no callee-saved register, so nothing
     add si, 2                       ; is live in one across a call, which is
     mov [cc_ovrsp], si              ; the same fact the push-imm lowering rests
@@ -1329,6 +1338,11 @@ cc_ovthunk:
     push word [cc_ovcs]             ; AX is the answer and nothing above
     push word [cc_ovrst+si]         ; touches it. [cc_ovcs], not [cc_ovseg]:
     retf                            ; see cc_ovbind
+.full:
+    push dx                         ; the module's [IP][CS] back as they were,
+    push ax                         ; and AX = 0 for the call that did not
+    xor ax, ax                      ; happen
+    retf
 
 ; -----------------------------------------------------------------------------
 ; cc_ovmthunk - the module calling ANOTHER MODULE FUNCTION, through the same
