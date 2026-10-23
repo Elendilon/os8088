@@ -3604,7 +3604,7 @@ SOAK = [
         "release/cancel buttons, report save and Quit; never reference calibration "
         "(SPEC.md 103)",
         needs=("marty", "nasm"), wants=("build/redline360.img", "build/os8088-360.img")),
-    Row("redlinescene", "soak", py("tests/redline.py", "--scene"), 240.0,
+    Row("redlinescene", "soak", py("tests/redline.py", "--scene"), 70.0,
         "REDLINE live VGA lab: running indicator, integer projected wireframe "
         "and shaded cube pixels, tall canvas, Mandelbrot, nested object inheritance/movement "
         "(SPEC.md 103.5)", needs=("marty", "nasm"),
@@ -10285,7 +10285,7 @@ SOAK = [
         "must refuse the blit and repaint.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdscroll", "soak", py("tests/wdscroll.py"), 330.0,
+    Row("wdscroll", "soak", py("tests/wdscroll.py"), 170.0,
         "SPEC.md 68.2.2 and 27.7.2.2: Word's scroll bar is not part of the "
         "text band, and a scroll UPWARD blits like a scroll down. Leg A "
         "samples the bar's ARROW CELL through a down-arrow click and requires "

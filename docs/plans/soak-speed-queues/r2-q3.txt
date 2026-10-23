@@ -122,12 +122,12 @@ DONE dotd	dotdel	150	tests/dotdel.py
 DONE dotd	dotdelpen	90	tests/dotdelpen.py
 DONE dotd	dotdelwin	75	tests/dotdelwin.py
 DONE dotd	dotdelmd	60	tests/dotdelmd.py
-redl	redlinescene	240	tests/redline.py
+DONE redl	redlinescene	240	tests/redline.py
 MOVED->r2-q6 redl	redlinechipcga	40	tests/redline.py
 MOVED->r2-q6 redl	redlinechipherc	40	tests/redline.py
 MOVED->r2-q6 redl	redlinechipvga	40	tests/redline.py
 MOVED->r2-q6 redl	redlinev20	10	tests/redline.py
-wdsc	wdscroll	330	tests/wdscroll.py
+DONE wdsc	wdscroll	330	tests/wdscroll.py
 pxop	pxopenpng	120	tests/pxopen.py
 pxop	pxopen	90	tests/pxopen.py
 pxop	pxopencga	90	tests/pxopen.py
