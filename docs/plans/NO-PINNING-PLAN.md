@@ -127,7 +127,7 @@ segment arithmetic (the case the policy refuses outright).
 | **ANY `[drv_wcnt]` != 0 pins EVERY `MC_DMA` head** | D, too broad | **K1**: a per-claim "a chip is armed here" bit, set by the arming driver |
 | region with a worker and no restart point | NONE | only FROTZ is hit (2.4) |
 | kern_small: no compactor at all | - | **settled, out of scope** (0) |
-| *(a gap, not a pin)* the UI task PRE-EMPTED inside a package, with a data claim's segment in ES or the overlay's CS in its interrupt frame, while another task's claim compacts | C, unguarded | **K8**: SPEC.md 66.3 context 3 says "a worker may not claim", but SPEC.md 13's menu note says a package worker can, while a menu is down. If it can, `mem_can_move` should pin the claims of every package standing in the nest whenever the compacting task is not the UI task. That is the momentary pin bucket C describes, and it is the pin that makes ALL the other declarations safe. Settle which spec sentence is true first |
+| *(a gap, not a pin)* a compaction run by a task other than the UI task | traced, 2026-10-23 | **K8, ANSWERED.** The allocator checks no caller. Two non-UI paths reach it. (1) **A dying package's worker**: `OSAPI_TASK_ALIVE` → `inst_task_die` (instance.inc) takes `gfx_lock` → `inst_unwin` → `wm_destroy`'s repaint → `wm_su_bank` → `wm_su_take` → `mem_claim` → `mem_compact`, on the worker's stack, far-calling the surviving windows' `W_PAINT` there too. (2) **Fractal's worker** calls `OSAPI_MEM_REGROW` under the gfx lock; regrow never compacts. **What makes both safe today is the GFX LOCK, by accident.** Callbacks run holding it, and both paths take it first, so neither can run while the UI task is suspended inside a package. `menu_drop` holds it across its `task_yield` loop, which is why no worker can claim while a menu is down. **SPEC.md's menu sentence (*"a package worker can claim while a menu is down"*) is STALE**, and rule 7 holds in practice. Proposed: (a) correct the sentence; (b) write the gfx-lock reason into SPEC.md 66.3 as the binding one, instead of rule 7's *"None of this is enforced"*; (c) have `inst_task_die` not BANK raise caches during its repaint, so the dying worker never reaches `mem_claim`. That is the last task path, and it costs ~6 bytes (a flag tested in `wm_su_bank`). Then a non-UI compaction cannot happen at all, and no momentary pin for it is needed |
 
 ### 2.2 Kernel claims - checked against the code, and COSTED
 
@@ -233,7 +233,7 @@ the base at each use". The ⚑ rows are the ones that need real work.
 Ranked by the free memory each recovers on a real session, then by cost.
 
 1. **W0-T** - the move-under-a-frame row for the C overlay (gates what is
-   built). **K8** - settle the worker-claim question before declaring more.
+   built). **K8** (c), ~6 bytes, plus the two SPEC.md corrections.
 2. **C4** LEMMINGS - the largest pin on the desktop, and the package this
    branch exists for.
 3. **K1a, K2, K6a** - ~50 kernel bytes net (2.2). The rest of the kernel
