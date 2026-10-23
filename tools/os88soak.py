@@ -234,28 +234,15 @@ def requirements():
                 "python3 -m pip install unicorn"))
 
     req.append(("bochs", os88build.have_bochs(),
-                "megatrap0, kern_mega's #GP census held at zero: Bochs is the "
-                "one emulator here that checks a 286's segment rules "
-                "(docs/BOCHS.md).",
+                "the kern_mega rows (megatrap0's #GP census and the other mega*): "
+                "Bochs is the one emulator here that checks a 286's segment "
+                "rules (docs/BOCHS.md).",
                 "apt-get install -y bochs bochsbios vgabios bochs-x xvfb "
                 "xdotool x11-apps imagemagick"))
 
-    req.append(("xdc", os88build.have_xdc(),
-                "vidbench, which decodes the owner's four XDC streams and has "
-                "nothing else to decode (docs/plans/VIDEO-PLAN.md 13).",
-                "export OS88_XDC_SAMPLES=<a directory holding %s>\n"
-                "                  (copyrighted: they are the owner's and "
-                "never in the tree)" % ", ".join(os88build.XDC_STREAMS)))
-
-    req.append(("gbroms", os88build.have_gbroms(),
-                "rdgspeed286, which times RealDMG on the owner's two Game Boy "
-                "cartridges (docs/plans/REALDMG-PLAN.md wave 4).",
-                "export OS88_GB_ROMS=<a directory holding %s>\n"
-                "                  (copyrighted: they are the owner's and "
-                "never in the tree)" % ", ".join(os88build.GB_ROMS)))
-
     req.append(("86box", os88build.have_86box(),
-                "rdgspeed286, which needs the automation-enabled 86Box's 286.",
+                "gbreplay, gbbank, gbhifreq and megacdrom, which need the "
+                "automation-enabled 86Box (docs/86BOX.md).",
                 "python3 tools/os88box.py build      (three minutes)"))
 
     req.append(("rgbds", os88build.have_rgbds(),

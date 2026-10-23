@@ -656,41 +656,6 @@ def have_numpy():
     return True
 
 
-# THE OWNER'S XDC STREAMS (docs/plans/VIDEO-PLAN.md section 13), named here
-# once: tests/vidbench.py reads them in this order and the suite's probe asks
-# for all four. They are copyrighted and never in the tree.
-XDC_STREAMS = ("BADAPPLE.XDV", "THUNDERC.XDV", "TRONDISC.XDV", "BBBB_BW.XDV")
-
-
-def have_xdc():
-    """Does $OS88_XDC_SAMPLES name a directory holding all four XDC streams?
-
-    `vidbench` decodes them and has nothing else to decode, so without them
-    it printed SKIP and exited 0 - and a soak scored that `ok` in 0.1s against
-    34s declared (docs/plans/HANDOFF-APPS-SHARED.md). A capability makes the
-    RUNNER say SKIP and name the fix instead.
-    """
-    d = os.environ.get("OS88_XDC_SAMPLES")
-    return bool(d) and all(os.path.isfile(os.path.join(d, n))
-                           for n in XDC_STREAMS)
-
-
-GB_ROMS = ("SML.GB", "KIRBY.GB")
-
-
-def have_gbroms():
-    """Does $OS88_GB_ROMS name a directory holding Super Mario Land and
-    Kirby's Dream Land as SML.GB and KIRBY.GB?
-
-    `rdgspeed286` times RealDMG on them (docs/plans/REALDMG-PLAN.md wave 4).
-    They are the owner's cartridges and can never be in this tree, so a box
-    without them SKIPS the row, by the runner, naming the fix - `vidbench`'s
-    shape (have_xdc above).
-    """
-    d = os.environ.get("OS88_GB_ROMS")
-    return bool(d) and all(os.path.isfile(os.path.join(d, n)) for n in GB_ROMS)
-
-
 def have_rgbds():
     """Is rgbds built at tools/gbclock.py's pinned commit (`python3
     tools/gbclock.py --rgbds`)? The Game Boy ROMs RealDMG's rows run are ours

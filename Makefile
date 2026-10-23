@@ -12176,9 +12176,10 @@ $(BUILD)/pxsbench.o88: $(BUILD)/pxsbench.bin tools/os88pkg.py
 # frame decoded three ways - XDC's own program, and the plan's operand lists
 # through apps/video/vdec.inc native and translating - on each adapter,
 # in the mode the player would take. ON DEMAND ONLY and on no disk: its data
-# is built from XDC streams that are not in the tree, so tests/vidbench.py
-# makes VIDBENCH.DAT and a scratch floppy itself. `make vidbench` is the
-# package; `python3 tests/vidbench.py --samples DIR` is the run.
+# is built from XDC streams that are not in the tree (the field disks below
+# use `os88vid.py benchdat --synth`). `make vidbench` is the package; the
+# MartyPC runner that decoded the owner's XDC streams is retired - XDC was
+# where the Video Player started, not what it plays now.
 .PHONY: vidbench
 vidbench: $(BUILD)/vidbench.o88
 

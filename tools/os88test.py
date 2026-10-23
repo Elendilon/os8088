@@ -299,18 +299,6 @@ def capabilities():
     # #GP census under it counts nothing (docs/BOCHS.md)
     if os88build.have_bochs():
         caps.add("bochs")
-    # the owner's XDC video streams, for `vidbench`, whose only subject they
-    # are. Not in the tree and never can be (copyrighted), so a box without
-    # $OS88_XDC_SAMPLES pointing at them SKIPS the row; it used to run, skip
-    # itself and exit 0, which scored `ok` in 0.1s against 34s declared.
-    if os88build.have_xdc():
-        caps.add("xdc")
-    # the owner's two Game Boy cartridges, for `rdgspeed286` - never in the
-    # tree, so $OS88_GB_ROMS names them or the row SKIPS (have_gbroms) - and
-    # the automation-enabled 86Box that row times them on, which is built on
-    # demand (`python3 tools/os88box.py build`) and not by `make deps`.
-    if os88build.have_gbroms():
-        caps.add("gbroms")
     if os88build.have_86box():
         caps.add("86box")
     # rgbds at tools/gbclock.py's pinned commit, for `gbsound`, whose ROM is

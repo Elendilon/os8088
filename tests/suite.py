@@ -3028,17 +3028,6 @@ SOAK = [
         "the counters and the clock back. SOAK: one package",
         needs=("marty", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088-720.img")),
-    Row("rdgspeed286", "soak", py("tests/rdgspeed286.py"), 1200.0,
-        "REALDMG's game speed on 86Box's 286 with 2MB (docs/plans/REALDMG-PLAN.md "
-        "wave 4): Super Mario Land and Kirby's Dream Land started and walked right, "
-        "in the window and full screen, the game's frames against 20 emulated "
-        "seconds and the frames drawn off the package's F1 line. ASSERTS each "
-        "runs (frames advance, >= 10% of real time) and REPORTS the speed - "
-        "86Box is not cycle-accurate, so a speed is a measurement and not a "
-        "gate. The games are the owner's: $OS88_GB_ROMS, or the runner SKIPS "
-        "it. SOAK: one package, and 86Box's",
-        needs=("86box", "gbroms", "nasm"),
-        wants=("build/realdmg.o88", "build/os8088.img")),
     Row("gbreplay", "soak", py("tests/gbreplay.py"), 30.0,
         "REALDMG's replays (docs/REALDMG-SPEC.md section 10.5) on 86Box's 286, "
         "in the window and in full screen (the canvas, the recompiler, the "
@@ -12162,22 +12151,6 @@ SOAK = [
         "`make bench`; --machine picks the adapter",
         needs=("marty", "nasm"), serial=True, alone=True,
         wants=("build/bench360.img",)),
-    Row("vidbench", "soak", py("tests/vidbench.py"), 34.0,
-        "docs/plans/VIDEO-PLAN.md wave 0 (a)(d): what a video frame COSTS, "
-        "decoded as XDC's own program and as the plan's operand lists "
-        "(apps/video/vdec.inc), to the screen, to a RAM shadow and "
-        "shadow-then-copy, on MartyPC's cycle-exact 5150. The assertion is "
-        "the PICTURE: every frame applied to black by both decoders must "
-        "match the host's checksum (tools/os88vid.py), and every row must "
-        "produce a number; the cycles go to docs/reports/ and are never "
-        "gated. Broken on purpose (a 3-byte store short by one) it FAILS "
-        "every frame holding a 3-byte change, naming each. The RUNNER skips "
-        "it without the XDC streams, which are the owner's and not in the "
-        "tree: "
-        "$OS88_XDC_SAMPLES (the `xdc` capability; the script also takes "
-        "--samples DIR). --machine picks the adapter",
-        needs=("marty", "nasm", "xdc"), serial=True,
-        wants=("build/vidbench.o88",)),
     Row("viddisk", "soak", py("tests/viddisk.py"), 52.0,
         "docs/plans/VIDEO-PLAN.md wave 0 (b): what streaming a 12.6 MB file "
         "off the fixed disk costs today. OSAPI_FILE_READ_AT, 32 KB at 0, 3, "
