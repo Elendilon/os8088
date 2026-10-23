@@ -463,8 +463,8 @@ def pass_resume(driver):
         # construction (`hb_probe_x` says so in as many words) - so the latch
         # came back with the image and nothing ever spent it.
         # `osapi_dos_handoff_x` refuses a second post while one stands, so
-        # "Take the whole OS" was dead for the whole restored session and the
-        # box reported it as "Not enough memory" on a machine with 425K free.
+        # "Take the whole OS" was dead for the whole restored session and
+        # DOS reported it as "Not enough memory" on a machine with 425K free.
         #
         # Poked rather than staged, `tests/fishedge.py`'s shape: the word is
         # what the handoff leaves behind and one store reproduces it, where
@@ -513,7 +513,7 @@ def pass_resume(driver):
         check(word(m, "hb_dosseg") == 0,
               "the DOS handoff's post was spent by the wake (SPEC.md 96.40.6) "
               "- left standing it refuses every later handover for the rest "
-              "of the session, and the box calls that a memory shortage",
+              "of the session, and DOS calls that a memory shortage",
               got=word(m, "hb_dosseg"), want=0)
         check(byte(m, "sch_lock") == 0, "sch_lock is down again",
               got=byte(m, "sch_lock"), want=0)

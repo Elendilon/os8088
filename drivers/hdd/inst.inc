@@ -1454,7 +1454,7 @@ hd_bn_save:
     mov di, [hd_bp]                 ; file and the window cannot disagree
     mov si, hd_line
     call hd_scat
-    mov word [di], 0x0A0D           ; CR LF: this is read on a DOS box
+    mov word [di], 0x0A0D           ; CR LF: this is read on a DOS machine
     add di, 2
     mov [hd_bp], di
     inc byte [hd_irow]

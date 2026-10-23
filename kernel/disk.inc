@@ -3269,7 +3269,7 @@ dsk_vol_del:
     mov ah, [bx+DV_BUNIT]       ; ...BUT A ROW THE DRIVER TOOK IS GIVEN BACK
     or ah, ah                   ; (52.1.1): the boot volume, mounted, and the
     jz .free                    ; BIOS reads it again - an unload, an unmount,
-    mov al, DVK_BIOS            ; a hibernate's detach or the DOS box's
+    mov al, DVK_BIOS            ; a hibernate's detach or DOS's
     mov [bx+DV_KIND], ax        ; handoff must never drop the system volume.
     mov [bx+DV_CLASS], al       ; Kind and unit in ONE store (osapi_vol_add's
     mov [bx+DV_BUNIT], al       ; take), then class and BUNIT back to 0
@@ -8007,7 +8007,7 @@ dsk_dest_x:
 ; this file and of nothing outside it, because dsk_find drops the on-disk dot
 ; links outright (`cmp al, '.'` / `je .skip`) so no package can see '..'.
 ; Three have each built a descent stack for want of this one answer:
-; apps/ftpd's 16-level FD_CDMAX, the DOS box's self-maintained AH=47h string,
+; apps/ftpd's 16-level FD_CDMAX, DOS's self-maintained AH=47h string,
 ; and apps/tank's walk to SYSTEM\APPDATA.
 ;
 ; **AND THE READ COUNT IS THE POINT.** A package-side walk would name each
@@ -8054,7 +8054,7 @@ dsk_dest_x:
 ; choice on this CPU.
 ; -----------------------------------------------------------------------------
 %ifndef KERN_SMALL              ; NO CALLER ON THE SMALL DISKS (SPEC.md 24.5):
-                                ; the DOS box is the slot's consumer and
+                                ; DOS is the slot's consumer and
                                 ; DOS.O88 ships on kern_big's system disk
                                 ; alone, so kern_small carries the cell and
                                 ; no body - gfx_spans' precedent

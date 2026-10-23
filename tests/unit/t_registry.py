@@ -113,7 +113,7 @@ UNREGISTERED = {
                  "green row that tests nothing is worse than B4's three rows "
                  "that failed where they meant to skip, because nobody "
                  "investigates a pass",
-    "dosmap.py": "symbol offsets for the DOS box and for a probe running "
+    "dosmap.py": "symbol offsets for DOS and for a probe running "
                  "INSIDE it - library, not a test. It exists because "
                  "dispapps._map's `defines` argument means exactly ONE thing "
                  "(-DAPP_SMALL, compared against build/smallapp/), and its "

@@ -98,7 +98,7 @@ def _listing_cap():
     rather than building one the kernel cannot list).
 
     **AND IT IS PER-KERNEL SINCE SPEC.md 22.6.2** - 64 on kern_big, 32 on
-    kern_small, which has no DOS box to list a DOS directory for.  So the
+    kern_small, which has no DOS.O88 to list a DOS directory for.  So the
     file holds two `DSK_NENT equ` lines behind a `%ifndef KERN_SMALL` and
     this returns BOTH, kern_big's first, because that is the default every
     caller wants and `--kern-small` is what selects the other.  Returning

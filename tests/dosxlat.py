@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The DOS box's CABLE TRANSLATION, one whole TCP connection (SPEC.md 96.26).
+"""DOS's CABLE TRANSLATION, one whole TCP connection (SPEC.md 96.26).
 
     python3 tests/dosxlat.py
 
@@ -13,7 +13,7 @@ WHAT IT ASSERTS, AND WHY THE PROBE IS THE INSTRUMENT.
 here and re-opened as a socket, so the question is not "did a frame go out" -
 that is `dospkt`'s question, over a card - but "does a client's own stack get
 what TCP owes it". Nothing outside the client can answer that, because every
-counter in the box and the driver reads correct while the client hears nothing:
+counter in DOS and the driver reads correct while the client hears nothing:
 that is exactly how three register defects hid (SPEC.md 96.26.3).
 
 So DOSPKT.COM runs one connection by hand and BANKS WHAT IT HEARD -
@@ -285,7 +285,7 @@ def main():
                          "one IP header each - the field is not being kept"
                          % (stat[3], stat[1]))
         if stat[4]:
-            fails.append("errors_in is %d: nothing in the box can report one, "
+            fails.append("errors_in is %d: nothing in DOS can report one, "
                          "so the field is being written by something else"
                          % stat[4])
 

@@ -28,7 +28,7 @@ def u16(b): return b[0] | (b[1] << 8)
 
 def pkg_syms(src=None, inc=None):
     """A package's own symbols, by re-assembling it with a map - atclip's
-    trick.  THE DEFINES MUST MATCH THE SHIPPED BUILD: the DOS box on the
+    trick.  THE DEFINES MUST MATCH THE SHIPPED BUILD: DOS on the
     system disk is dosp.bin (-DDOSKPART -DDOS_EXTCORE), and a map taken
     without them resolves to plausible, wrong offsets."""
     import subprocess, tempfile
@@ -93,7 +93,7 @@ with os88ui.boot(ROOT + "/build/os8088-360.img",
     # simply absent. Every static check passed and every still looked like a
     # window with no buttons in it, which is not obviously wrong.
     #
-    # So this opens the DOS box - which nothing above touches, and which is
+    # So this opens DOS - which nothing above touches, and which is
     # PAINTED and never clicked here - and reads the record the painter was
     # supposed to aim. BT_N is the exact byte that was zero.
     ui.menu_pick("Telnet", "Close")

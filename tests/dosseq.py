@@ -3,7 +3,7 @@
 
 tests/dostrap/seqcost.asm writes BIGSEQ.DAT in 8KB chunks, reads it back and
 seeks between its ends, printing the BIOS ticks each block of chunks took.
-The OS's cost of a chunk used to grow with its OFFSET - the box's window was
+The OS's cost of a chunk used to grow with its OFFSET - DOS's window was
 refilled with READ_AT, which re-walks the cluster chain from the front, and
 drained with APPEND, which does the same - so the blocks' times rose along
 the file. On the stream slots (SPEC.md 18.4.8, 18.4.9) they are flat.
@@ -12,8 +12,8 @@ THE ASSERTION IS THE SHAPE, not a number: the LAST block may not cost more
 than FLAT x the first. A walk from the front cannot pass that on the fixed
 disk and a stream cannot fail it, whatever the machine's absolute speed.
 
-    python3 tests/dosseq.py                  the 360KB floppy, 256KB, the box
-    python3 tests/dosseq.py --hdd            an XT-IDE fixed disk, 1MB, the box
+    python3 tests/dosseq.py                  the 360KB floppy, 256KB, DOS.O88
+    python3 tests/dosseq.py --hdd            an XT-IDE fixed disk, 1MB, DOS.O88
     python3 tests/dosseq.py --hdd --kd       ...and then again under kern_dos
     --measure                                print the table, assert only bytes
 
@@ -160,12 +160,12 @@ def main():
                 m = ui.m
             if not ui.path(where):
                 fail("double-clicking %s opened no window" % where)
-            box = run(m, "box")
+            win = run(m, "window")
             m.type_text("x")
             kdt = None
             if kd:
                 import kdhdd                    # its arm-3 driver, as is
-                os88marty.until(m, lambda mm: kdhdd.box_state(mm) ==
+                os88marty.until(m, lambda mm: kdhdd.dos_state(mm) ==
                                 kdhdd.DST_RAN, "the windowed run to end",
                                 guest=60.0, poll=0.25)
                 kdhdd.arm3_run(m, os88mouse.Mouse(marty=m))
@@ -178,7 +178,7 @@ def main():
                 except OSError:
                     pass
     shape = hdd and not measure
-    judge(box, "box", shape)
+    judge(win, "window", shape)
     if kdt is not None:
         judge(kdt, "kern_dos", shape)
     print("dosseq: ok" + (" (measured, shape not asserted)" if not shape

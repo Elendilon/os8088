@@ -182,7 +182,7 @@ def main():
         if m.read(S("vid_ndisp"), 1)[0] != 2:
             sys.exit("dispfsxherc: the Control Panel did not turn Extend on")
 
-        # --- the DOS box, then DRAGGED onto the second display -------------
+        # --- DOS, then DRAGGED onto the second display -------------
         dispcp.open_drive(m, mo, S, settle, "A", card=HERC)
         x, y, ww, wh = dispcp.win_rect(m, S, dispcp.win_list(m, S)[-1])
         dispcp.open_named(m, mo, S, settle, x, y, "APPS", card=HERC)

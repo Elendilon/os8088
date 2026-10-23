@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "09a7e1b51d3ed04cdcbb96ba377514f538d9f53112df683ad5500e08ed155583",
+  "fingerprint": "d7c87702ffffdb423e17ba541a16526a5ce9ef77506e6fc052fbf3a4c3455112",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "02235e92df0657eb1ad4c9c6703b2d6c8a753a743e9d8a21343c20d82cbcd1e1",
+  "fingerprint": "4af7b11e5626d27c1c9509067c60f4d2ff512b3128a4243f92a31be1ff7cbc75",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -868,6 +868,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "merge network-mount into elendilon: DRVC_HTTP = 10 appended, DQ_MAXREC 9 -> 10 for kern_emu's tenth row (SPEC.md 120.1), over elendilon's OS88UI_BT_PLACE record change - both additions, nothing built before moves",
+   "to": 11
+  },
+  {
+   "fingerprint": "4af7b11e5626d27c1c9509067c60f4d2ff512b3128a4243f92a31be1ff7cbc75",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "comment-only: os88api.inc contract comments call the DOS package DOS",
+   "to": 10
+  },
+  {
+   "fingerprint": "d7c87702ffffdb423e17ba541a16526a5ce9ef77506e6fc052fbf3a4c3455112",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "comment-only: os88api.inc contract comments call the DOS package DOS",
    "to": 11
   }
  ]

@@ -99,7 +99,7 @@ def rec(m, pseg, dm, off):
 
 
 # os88ui.inc's alert geometry, mirrored for the same reason tests/dosmem.py
-# mirrors the radio's: these are the SDK's numbers and the box does not own
+# mirrors the radio's: these are the SDK's numbers and DOS does not own
 # them. The row is a FORMULA (SPEC.md 75.3) - every button OS88UI_ABW wide - so
 # a click lands out of the guest's own window record rather than a remembered
 # coordinate.
@@ -129,7 +129,7 @@ def launch_whole(ui, program, drive="B:"):
     """Give a DOS program the WHOLE machine, from a fresh desktop.
 
     The Memory page's third arm (SPEC.md 96.36.1), driven the way
-    `tests/kdmouse.py` does it and for its reasons: open the BOX and not the
+    `tests/kdmouse.py` does it and for its reasons: open DOS and not the
     program (a program launched by ASSOCIATION is already running in the
     window, and the Memory page cannot be re-armed underneath one), change
     drive FIRST, then name the program with no drive on it (SPEC.md 96.48).
@@ -277,7 +277,7 @@ def main():
         # --- 3a. ...WHICH ASKS FIRST (SPEC.md 96.42) -------------------------
         # This machine has no fixed disk, so there is nothing to come back to:
         # every open window goes and the machine restarts when the program
-        # exits. That is the one deliberately destructive thing this box does,
+        # exits. That is the one deliberately destructive thing this DOS does,
         # and it is not allowed to happen quietly.
         base = pseg << 4
         if not alert_up(m, base, dm):

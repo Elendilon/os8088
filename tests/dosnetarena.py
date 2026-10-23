@@ -25,7 +25,7 @@ WHAT IT ASSERTS, and the two failures are DIFFERENT SIZES on purpose:
     that the arena - which is ONE run - cannot reach the floor under it
     (96.23.7.2).
 
-2.  **NO CLAIM THE BOX HOLDS IS PINNED BELOW THE ARENA.** That is the
+2.  **NO CLAIM DOS HOLDS IS PINNED BELOW THE ARENA.** That is the
     mechanism behind assertion 1 and it is read out of `mem_tab` itself, so a
     build that loses the `OSAPI_MEM_MOVABLE` declaration is named rather than
     inferred from a number. A claim is born pinned (SPEC.md 66.2), so this is
@@ -106,7 +106,7 @@ def claims(m):
 def pkg_seg(m, want=0):
     """The segment of a visible package window, newest last.
 
-    **ASKED AT THE POINT OF USE** (SPEC.md 66.6.1.2): the DOS box's region
+    **ASKED AT THE POINT OF USE** (SPEC.md 66.6.1.2): DOS's region
     moves under the compactor at every arena claim, so a base taken earlier
     names the bytes the package used to occupy - which decode as plausible
     rubbish rather than as an error.
@@ -203,7 +203,7 @@ def main():
                  if c[3] and abase and c[0] < abase and c[2] == pseg]
         if walls:
             fails.append(
-                "the DOS box holds %d PINNED claim(s) below its own arena: %s."
+                "DOS holds %d PINNED claim(s) below its own arena: %s."
                 " A claim is born pinned (SPEC.md 66.2) and dos_pkt_bufs takes"
                 " its buffers BEFORE dos_run's compaction pass, so one left"
                 " undeclared is a wall with a hole under it that the arena -"
@@ -213,11 +213,11 @@ def main():
                 % (len(walls), ", ".join("%04X+%.1fK" % (c[0], c[1] / 64.0)
                                          for c in walls)))
         else:
-            say("dosnetarena: no claim of the box's is pinned below the arena")
+            say("dosnetarena: no claim of DOS's is pinned below the arena")
 
         # --- 1: the promise IS the delivery, in both arms -------------------
         # **LET THE PROGRAM OUT FIRST.** An association open of a `.COM` runs
-        # it (SPEC.md 54), so the box arrives inside its own fsx bracket with
+        # it (SPEC.md 54), so DOS arrives inside its own fsx bracket with
         # the program on the screen - no window and no page. DOSPKT.COM holds
         # on int 16h, so Enter is what ends it, and what happens next is a
         # whole bracket teardown: poll for the window rather than sleeping on

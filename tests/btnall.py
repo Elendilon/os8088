@@ -41,7 +41,7 @@ def u16(b):
 
 def pkg_syms(src, inc, defines=()):
     """A package's symbols, by re-assembling it with a map.  THE DEFINES MUST
-    MATCH THE SHIPPED BUILD - the DOS box on the system disk is dosp.bin, and
+    MATCH THE SHIPPED BUILD - DOS on the system disk is dosp.bin, and
     a map taken without -DDOSKPART resolves to plausible, wrong offsets."""
     with tempfile.TemporaryDirectory() as d:
         cp, mp = os.path.join(d, "t.asm"), os.path.join(d, "t.map")

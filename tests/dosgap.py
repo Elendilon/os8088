@@ -4,7 +4,7 @@
     python3 tests/dosgap.py [--machine NAME]
 
 SPEC.md 96.11.6.3, and the row exists because of what it cost: Microsoft
-Works - the first program anyone ran on this box from outside the project -
+Works - the first program anyone ran on this DOS from outside the project -
 could not save a document, and said `Cannot write file` about a floppy with
 42 free clusters on it.
 
@@ -19,7 +19,7 @@ it, and those are opposite cases.  Behind is 96.11.2's real refusal - this
 layer cannot overwrite the middle of a file it is still accumulating.  Past is
 a GAP, and `dos_fh_wiloop`'s `.ihole` already lays one.
 
-WRGAP.COM runs under this box AND under a real DOS unchanged
+WRGAP.COM runs under this DOS AND under a real DOS unchanged
 (docs/DOS-DEBUGGING.md), so the answers it checks are the reference's.
 
 WHAT IT WOULD CATCH: the seek past the end refusing (A); the write there

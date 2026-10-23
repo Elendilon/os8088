@@ -186,9 +186,9 @@ def trip(q, gdb, prog, want, label):
     if not ui.path("B:/" + prog):
         want(False, "%s: double-clicking %s opened a window" % (label, prog))
         return None
-    # IN THE OS the run is the box's console, which on a VGA is the
+    # IN THE OS the run is DOS's console, which on a VGA is the
     # full-screen TEXT one (SPEC.md 96.10) and in a window elsewhere - so the
-    # page and the box's own buffer are both asked
+    # page and DOS's own buffer are both asked
     def shown():
         t = text_page(q) if q.read(0x449, 1)[0] in (2, 3, 7) else ""
         return t if "READY" in t else console(q, dm)

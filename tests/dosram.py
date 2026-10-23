@@ -142,7 +142,7 @@ def main():
         M.no_saver(m)                   # wait after an input is ui_done
         M.ui_done(m)
         mo = os88mouse.Mouse(marty=m)
-        # **OPEN THE PROGRAM, NOT THE BOX** (SPEC.md 54): a double click on a
+        # **OPEN THE PROGRAM, NOT DOS** (SPEC.md 54): a double click on a
         # .COM opens a DOS window already pointed at it, which is what every
         # kd* row does - typing a path into the arguments field opens nothing
         # and the Run below then has no program.
@@ -177,11 +177,11 @@ def main():
                 fail("the arena row reads %r and should be digits and a KB - "
                      "the page has never been painted (SPEC.md 96.36.3)" % raw)
 
-        # **AN ASSOCIATION OPEN OF A `.COM` RUNS IT** (SPEC.md 54), so the box
+        # **AN ASSOCIATION OPEN OF A `.COM` RUNS IT** (SPEC.md 54), so DOS
         # arrives inside its own fsx bracket with the program's output on the
-        # screen - no window, no page, and every read below would be of a box
+        # screen - no window, no page, and every read below would be of a DOS
         # that has not painted one.  DOSHELLO waits on AH=08h so its screen
-        # can be read; a key dismisses it and leaves the box with the program
+        # can be read; a key dismisses it and leaves DOS with the program
         # still NAMED, which is exactly the state arm 3 wants.
         def inbr(_=None):
             return m.read(pb() + dm["dos_inbr"], 1)[0]

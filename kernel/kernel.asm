@@ -3397,7 +3397,7 @@ apic_inst_minimize:               ; DOCK.DRV's door (SPEC.md 30.4)
                                   ;          clusters, CX = bytes per sector,
                                   ;          DX = total clusters; CF=1 with
                                   ;          AX = FERR_NODISK. DOS AH=36h's own
-                                  ;          shape, the DOS box being its one
+                                  ;          shape, DOS.O88 being its one
                                   ;          caller - it was a 12-byte record
                                   ;          until the size pass found no
                                   ;          caller read more than these four
@@ -5667,7 +5667,7 @@ osapi_vol_stat:
     call COLD_SEG:dwf_dskw_vstat    ; AX/BX/CX/DX and CF are ours
     ret
 %else
-osapi_vol_stat equ osapi_snd_fm     ; DOS-only, and the DOS box is not on the
+osapi_vol_stat equ osapi_snd_fm     ; DOS-only, and DOS is not on the
                                     ; small disks (SPEC.md 18.4.7.4): the cell
                                     ; refuses with snd.inc's kern_small FM
                                     ; body, the same `stc` / `ret`

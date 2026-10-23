@@ -1797,7 +1797,7 @@ PKGZBSTAMP := $(BUILD)/.pkgzb$(if $(PKGZ),-$(PKGZ)-$(PKGZBFMT))-$(shell printf '
 # dozen up-to-date .o88 files and rebuilds none of them.
 PKGZSTAMP := $(BUILD)/.pkgz$(if $(PKGZ),-$(PKGZ))
 
-# DOSNETCARD=1 forces the DOS box's CABLE TRANSLATION (SPEC.md 96.26) on a
+# DOSNETCARD=1 forces DOS's CABLE TRANSLATION (SPEC.md 96.26) on a
 # machine that HAS a card, which is the only way it can be driven at all -
 # net_find prefers the card and §96.23's raw path is strictly better there, so
 # the translation would otherwise never run anywhere an emulator can reach it
@@ -3447,12 +3447,12 @@ $(STIKNOTESTXT): apps/stiknote/welcome.txt | $(BUILD)
 # running from carries kern_dos as a part.
 #
 # IT WAS TRIED ONCE AND REFUSED, and what was refused was a DIFFERENT PACKAGE.
-# §96.44.4's two-piece shape made the BOX the image, and os88pkg.py refuses
-# `--compress` beside parts - a part's offset is measured from the image - so
-# DOS.O88 went 26,723 to 57,272 RAW bytes: 30 of the 360KB system disk's 50
-# free clusters, and +932 ms on every launch (23 int 13h / 125 sectors / 2,690
-# ms plain against 25 / 146 / 3,622). Twelve soak rows that sat about two
-# seconds inside a fifteen-second wait went red at once.
+# §96.44.4's two-piece shape made the WINDOWED DOS the image, and os88pkg.py
+# refuses `--compress` beside parts - a part's offset is measured from the
+# image - so DOS.O88 went 26,723 to 57,272 RAW bytes: 30 of the 360KB system
+# disk's 50 free clusters, and +932 ms on every launch (23 int 13h / 125
+# sectors / 2,690 ms plain against 25 / 146 / 3,622). Twelve soak rows that sat
+# about two seconds inside a fifteen-second wait went red at once.
 #
 # §96.44.5's FOUR pieces are what that refusal asked for: a 2,092-byte raw
 # loader in front of three COMPRESSED parts, two of them OP_LAZY. MEASURED on
@@ -6665,12 +6665,12 @@ $(BUILD)/doscore.bin: apps/dos/doscore.asm apps/dos/dos.asm apps/dos/dosh.inc \
 # takes the SOURCE file's name, and assoc_locate looks for the handler a
 # document's association names (SPEC.md 54.4.2). A `DOSP.O88` in APPS/ is a
 # package no .COM on any disk can reach.
-# **AND THE IMAGE IS THE LOADER, NOT THE BOX** (SPEC.md 96.44.4). os88pkg.py
-# refuses --compress beside parts, so whatever is the IMAGE ships raw - which
-# is what cost 96.40.3's +932 ms a launch when the box itself was it. The
-# loader is 1,812 bytes and the two heavy pieces are parts, both compressed:
-# the box as OP_SEG|OP_COMP and kern_dos as OP_ASSET|OP_COMP|OP_LAZY, the
-# pairing 20.12.7.4 had to unrefuse.
+# **AND THE IMAGE IS THE LOADER, NOT THE WINDOWED DOS** (SPEC.md 96.44.4).
+# os88pkg.py refuses --compress beside parts, so whatever is the IMAGE ships
+# raw - which is what cost 96.40.3's +932 ms a launch when the windowed DOS
+# itself was it. The loader is 1,812 bytes and the two heavy pieces are parts,
+# both compressed: the windowed DOS as OP_SEG|OP_COMP and kern_dos as
+# OP_ASSET|OP_COMP|OP_LAZY, the pairing 20.12.7.4 had to unrefuse.
 $(BUILD)/kdos/DOS.O88: $(BUILD)/dosload.bin $(BUILD)/dosp.bin \
                        $(BUILD)/doscore.bin $(BUILD)/kerndos.bin tools/os88pkg.py \
                        $(if $(KERN_MEGA),$(BUILD)/kerndosl.bin) $(PKGZSTAMP)
@@ -6800,7 +6800,7 @@ $(BUILD)/cwdsub.img: $(BUILD)/CWDHERE.COM $(BUILD)/HERE.TXT tools/os88disk.py
 
 # --- ...AND THE ONE THAT ASKS WHETHER CON IS A DEVICE (SPEC.md 96.11.7) -----
 # CONDEV.COM alone on a 360KB floppy. It needs no data file: what it tests is
-# what the box does with a name that is NOT on the disk and must not be looked
+# what DOS does with a name that is NOT on the disk and must not be looked
 # for there, so an empty volume is the honest fixture.
 $(BUILD)/CONDEV.COM: tests/dostrap/condev.asm | $(BUILD)
 	$(NASM) -f bin -w+error -o $@ tests/dostrap/condev.asm
@@ -6810,7 +6810,7 @@ $(BUILD)/condev360.img: $(BUILD)/CONDEV.COM tools/os88disk.py
 
 # --- ...AND CP/M'S WAY IN (KERN-MEGA-DOS-PLAN 10.5 defect 3) ----------------
 # CALL5.COM alone on a 360KB floppy for tests/call5.py: a near `call 5` with
-# the function in CL, on the windowed box and under kern_dos. Run from B:, it
+# the function in CL, in the windowed DOS and under kern_dos. Run from B:, it
 # exits with function 19h's answer through CALL 5 - 1 - which only a call
 # that dispatched on CL and came back to the program can produce.
 $(BUILD)/CALL5.COM: tests/dostrap/call5.asm | $(BUILD)
@@ -6979,7 +6979,7 @@ $(BUILD)/dosbig144.img: $(BUILD)/BIG.EXE tools/os88disk.py
 # Without it, adding `BIN:` left a built disk with no BIN on it and `make`
 # saw nothing to do, because neither DOSHELLO.COM nor os88disk.py had moved:
 # `dosdirsw` then failed on `CD BIN did not move the prompt`, which reads
-# exactly like the DOS box losing CD.
+# exactly like DOS losing CD.
 $(BUILD)/dirsw360.img: $(BUILD)/DOSHELLO.COM tools/os88disk.py Makefile | $(BUILD)
 	@rm -rf $(BUILD)/dirsw && mkdir -p $(BUILD)/dirsw
 	@for i in 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 18 19 20 \
@@ -7278,7 +7278,7 @@ $(BUILD)/dosirq360.img: $(BUILD)/DOSIRQ.COM tools/os88disk.py
 # --- the packet driver's gate disk (SPEC.md 96.23) ---------------------------
 # DOSPKT.COM asks our packet driver the questions a client asks and prints the
 # answers; tests/dospkt.py reads ETHER.DRV's counters rather than that screen,
-# because the box has no windowed text yet.
+# because DOS has no windowed text yet.
 #
 # **mTCP IS NOT IN THIS REPOSITORY AND CANNOT BE.** It is Michael Brutman's
 # work under its own licence and it is the CLIENT half - what wave 4 provides
@@ -15808,7 +15808,7 @@ $(BUILD)/zcat/live/CATALOG.TXT: tools/getstories.py
 	@mkdir -p $(dir $@)
 	python3 tools/getstories.py --catalog $@
 
-# $(SYSROOTARG) IS THE DOS BOX, and it is here for THEWIRE.O88's reason one
+# $(SYSROOTARG) IS DOS.O88, and it is here for THEWIRE.O88's reason one
 # package along: the live volume IS the boot volume (SPEC.md 80.6), and
 # DOS.O88 rides APPS/ on every system disk through $(SYSROOTARG) rather than
 # through $(ALLAPPSARGS) - so a list built out of the APPS floppies alone

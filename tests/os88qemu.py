@@ -139,7 +139,7 @@ def own(pidfile=PIDFILE, sock=SOCK):
 # 18.2 Hz, and only by running GUEST CODE (the ROM's int 08h, which the kernel
 # chains, SPEC.md 8.5) - so a tick that has moved is proof the guest ran, and
 # a budget counted in ticks is one a loaded box cannot shorten. It needs no
-# symbol, so it is the same address under the kernel, the DOS box and a bare
+# symbol, so it is the same address under the kernel, DOS and a bare
 # boot.
 #
 # `m` is any object with `read(linear, n)` - tests/ethernet.py's `Qemu`,

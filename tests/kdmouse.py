@@ -3,7 +3,7 @@
 
     make kdostest && make dosmou360.img && python3 tests/kdmouse.py
 
-`tests/dosmouse.py` is this question in the WINDOW, where the box fills
+`tests/dosmouse.py` is this question in the WINDOW, where DOS fills
 `DHK_MOUSE` from `OSAPI_MOUSE` and the kernel owns the hardware. This is the
 same program on the other arm, where there is no kernel at all: the handoff's
 step 6 calls `mouse_unhook` - it must, or a live IRQ4 vectors into kern_dos's
@@ -130,7 +130,7 @@ def main():
         m = ui.m
 
         # --- 1. hand the machine over, the way kdmix does -------------------
-        # **THE BOX AND NOT THE PROGRAM**, which is a flow correction and not
+        # **DOS AND NOT THE PROGRAM**, which is a flow correction and not
         # a style one: a program launched by association is RUNNING in the
         # window, and the Memory page cannot be re-armed underneath one. Open
         # DOS.O88 itself, pick the arm, then name the program - which is also

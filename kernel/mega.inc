@@ -63,7 +63,7 @@
 %ifdef KERN_MEGA
 
 MEGA_GDT_LIN    equ 0x110000        ; above the HMA, which KERN-MEGA-PLAN 2.7
-MEGA_LDT_LIN    equ 0x120000        ; keeps free for the DOS box's real-mode
+MEGA_LDT_LIN    equ 0x120000        ; keeps free for DOS's real-mode
 MEGA_IDT_LIN    equ 0x124000        ; half
 MEGA_GDT_N      equ 8192            ; the CPU's maximum: 64KB
 MEGA_LDT_N      equ 2048            ; 1MB / 512 bytes: 16KB
@@ -782,7 +782,7 @@ section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
 ; `pushf / call far [sch_old08]` exactly as the ROM was: the tick at 40:6C and
 ; its midnight wrap, the floppy motor-off count at 40:40, the EOI, iret.
 ; int 1Ch, which the ROM calls from here, is NOT called: nothing in the tree
-; hooks it outside the DOS box, which is real mode (KERN-MEGA-PLAN 2.7).
+; hooks it outside DOS, which is real mode (KERN-MEGA-PLAN 2.7).
 ; -----------------------------------------------------------------------------
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_t08:
@@ -9433,7 +9433,7 @@ mega_bpcall:                        ; xm_dsp's: BP = a `.mega` routine
     retf
 section .text
 
-%include "megados.inc"          ; M6: the DOS box's park (KERN-MEGA-DOS-PLAN)
+%include "megados.inc"          ; M6: DOS's park (KERN-MEGA-DOS-PLAN)
 
 section .bss
 mega_nmi61  resb 1                  ; port 61h at the last latched NMI

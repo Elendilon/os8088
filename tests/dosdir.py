@@ -84,7 +84,7 @@ def main():
         print("dosdir: AH=0Eh selects, comes back, and refuses what is not there")
 
         # A VOLUME LABEL SEARCH MUST NOT ANSWER WITH A FILE (SPEC.md
-        # 96.12.1). AH=4Eh's CX is an attribute mask and this box ignored it,
+        # 96.12.1). AH=4Eh's CX is an attribute mask and this DOS ignored it,
         # so "what is this disk called" was answered with the first ordinary
         # file on it - which is how Prince of Persia was told it was not
         # running from its own floppy.
@@ -117,7 +117,7 @@ def main():
 
         # --- the date and the time (SPEC.md 96.13) --------------------------
         # MartyPC's 5150 has no clock chip and neither does the machine this
-        # project targets, so both the kernel and the DOS box fall back - and
+        # project targets, so both the kernel and DOS fall back - and
         # the assertion is that they fall back to the SAME DAY. 2026-07-04 is
         # a Saturday, which is DOS's day-of-week 6, and getting Sakamoto's
         # table or its January/February shift wrong moves only that digit.

@@ -12,7 +12,7 @@ KERN-MEGA-PLAN.md 14.61, 14.62).
     python3 tests/megakbtrip.py --out D      ...writing there instead (two at
                                              once, on two OS88_BOCHS_DISPLAYs)
 
-The owner's Victory 286 ran Test Drive III through the DOS box a few times,
+The owner's Victory 286 ran Test Drive III through DOS a few times,
 then came home with the keyboard and the PS/2 mouse both dead - and on a later
 launch the keyboard was dead INSIDE the game. Both are one fact about the
 8042: it has ONE output buffer for the two devices, and a byte left in it

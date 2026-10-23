@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The windowed DOS box's PROMPT on kern_mega with no #GP fixup per character
+"""The windowed DOS's PROMPT on kern_mega with no #GP fixup per character
 (docs/plans/KERN-MEGA-PLAN.md 14.54).
 
     python3 tests/megadosp.py                the row
@@ -9,8 +9,8 @@
                                              reports, does not gate
 
 kern_mega COMPLETES a store through a code selector (mega_gpw) instead of
-faulting, and each completion is an exception - ~880 clocks on a 286. The
-box's console hook, dos_hk_tty, entered with `push cs / pop ds`, so every
+faulting, and each completion is an exception - ~880 clocks on a 286.
+DOS's console hook, dos_hk_tty, entered with `push cs / pop ds`, so every
 byte the prompt printed - a DIR row, an ECHO, a TYPE - was one completed
 #GP at con_markc's first store (and con_write's, for a CR): 20,002 for a
 20,000-byte TYPE, and 4.0 s against 5.6 s on 86Box's mr286. megatrap0 counts
@@ -102,7 +102,7 @@ def main():
             with open(box.e9, "rb") as f:
                 f.seek(n0)
                 new = f.read().decode("latin-1").splitlines()
-            # every trap from the prompt on is the box's: the one image
+            # every trap from the prompt on is DOS's: the one image
             # running is DOS, and api_x.done's `pop es` (CS 0060) is the
             # kernel returning to it - so none is set aside by name
             traps = [l for l in new if l.startswith("T ")]

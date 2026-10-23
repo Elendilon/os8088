@@ -773,7 +773,7 @@ first and refuses a window it can prove cannot close, naming `until`.
 ### `m.video()` WEDGES A GUEST THAT IS CHANGING MODE — read the screen instead
 
 **Measured, and it is the strongest instrument effect in this document.**
-`tests/kdhdd.py` presses Run on the DOS box's *Shut down the OS* arm and the
+`tests/kdhdd.py` presses Run on DOS's *Shut down the OS* arm and the
 machine leaves graphics for `kern_dos`'s text screen. Polling `m.video()`
 every 250 ms across that window — on the otherwise untouched row, with
 nothing else changed — makes it fail **3 times in 3**. Polling `m.screen()`
