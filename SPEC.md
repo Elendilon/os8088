@@ -181434,10 +181434,24 @@ from sending anything more from EITHER device. Five places, four rules:
   there for the whole program. Bochs, the pointer moving over every launch:
   `KBTRIP entry 64=31` (OBF, AUX) and no key, 6 trips of 12. Now, with a PS/2
   pointer live: IRQ12 masked, `0xD4 0xF5` (reporting off, as POST leaves it),
-  its `0xFA` read behind any queued packet (64 bytes at most), then
-  `mouse_unhook`, then every AUX byte still in the buffer read and dropped
-  (a keyboard byte is left for `int 09h`). The wake's `0xF4` turns reporting
-  back on, so nothing on the return changes for it. 0 of 12 after.
+  its `0xFA` read behind any queued packet (256 bytes at most), every AUX
+  byte still coming read and dropped until 4,096 polls in a row bring none
+  (`hbm_p2drop`), then `mouse_unhook`, then `hbm_p2drop` again (a keyboard
+  byte is left for `int 09h` both times). The wake's `0xF4` turns reporting
+  back on, so nothing on the return changes for it. 0 of 12 after. The drop
+  BEFORE the unhook is docs/plans/KERN-MEGA-PLAN.md 14.62.1: `mouse_unhook`'s
+  command-byte write must not meet an AUX byte in the buffer, because Bochs
+  then raises IRQ1 for it and the AUX byte's read never lowers that line -
+  so the DOS program got no keyboard edge at all (`nokey 64=11`), or read
+  the stale data register as its first key (`key 4300`).
+* **On kern_mega, an IRQ1 takes only a keyboard byte that is there**
+  (`kbm_isr`, under `KERN_MEGA`). `mega_k09`, the ROM half it chains to,
+  reads port 60h without asking, so an IRQ1 whose byte a poll already took
+  read the data register's STALE byte - in Bochs, the command byte 43h that
+  `mega_d8042get` had just polled for, stored as F9 and read by the next DOS
+  program as `4300` (14.62.1). Status bit 0 clear, or bit 5 set (an AUX byte
+  is no scan code), and the ISR sends its EOI and leaves; it asks before the
+  `.peek` below it, which clears OBF.
 * **The wake collects the device's `0xFA` to its `0xF4`** with IRQ12 still
   masked (`hbm_wake` `.nowz`). It was left for the ISR - and step 4's `int 10h`
   follows at once, which on a 286 is a CPU reset whose BIOS can re-initialise
@@ -181478,6 +181492,11 @@ HIBER.DRV and every hunk is inside `KERN_BIG` or `KERN_MEGA`.
 `tests/megakbtrip.py` is the row: Bochs with an IntelliMouse, ten round trips
 of `tests/dostrap/kbtrip.asm` with the pointer moving across each launch, a key
 asserted INSIDE the program, the return, and the pointer moving after it.
+14.62.1's two added +17 bytes to HIBER.DRV on both kernels (`hbm_p2drop`,
+inside the same padded images; packed +16 and +13) and +8 to kern_mega's
+`.text` (`kbm_isr`'s test); kern_big's and kern_small's `kernel.bin` are
+byte-identical, and kern_mega's `.mega` moves by one immediate - the
+offset of `mpk_stub` in HIBER.DRV, which `mega_dstubup` names.
 
 #### 96.45.3 The pointer STARTS in the middle, and ours started at the origin
 
