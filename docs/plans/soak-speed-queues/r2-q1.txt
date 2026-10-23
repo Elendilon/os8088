@@ -11,29 +11,29 @@ DONE disp	dispclose-small	100	tests/dispclose.py
 DONE disp	dispreboot	100	tests/dispreboot.py
 DONE disp	dispcalcx	90	tests/dispcalcx.py
 DONE disp	dispclose	90	tests/dispclose.py
-disp	disptitle	80	tests/disptitle.py
-disp	dispblit	60	tests/dispblit.py
-disp	dispbrow	60	tests/dispbrow.py
+DONE disp	disptitle	80	tests/disptitle.py
+DONE disp	dispblit	60	tests/dispblit.py
+DONE disp	dispbrow	60	tests/dispbrow.py
 disp	dispcheck	60	tests/dispcheck.py
-disp	dispdepth	60	tests/dispdepth.py
+DONE disp	dispdepth	60	tests/dispdepth.py
 disp	dispfit	60	tests/dispfit.py
-disp	dispthm	60	tests/dispthm.py
-disp	dispfsx	60	tests/dispfsx.py
+DONE disp	dispthm	60	tests/dispthm.py
+DONE disp	dispfsx	60	tests/dispfsx.py
 disp	dispherc1	60	tests/dispherc1.py
 disp	dispmode	60	tests/dispmode.py
-disp	dispnp	60	tests/dispnp.py
-disp	dispsave	60	tests/dispsave.py
-disp	dispband	54.1	tests/dispband.py
-disp	dispzoom	50	tests/dispzoom.py
-disp	dispapp	40	tests/dispapp.py
-disp	dispdrag	40	tests/dispdrag.py
-disp	dispfsxherc	40	tests/dispfsxherc.py
+DONE disp	dispnp	60	tests/dispnp.py
+DONE disp	dispsave	60	tests/dispsave.py
+DONE disp	dispband	54.1	tests/dispband.py
+DONE disp	dispzoom	50	tests/dispzoom.py
+DONE disp	dispapp	40	tests/dispapp.py
+DONE disp	dispdrag	40	tests/dispdrag.py
+DONE disp	dispfsxherc	40	tests/dispfsxherc.py
 disp	disptext	40	tests/disptext.py
-disp	dispvy	40	tests/dispvy.py
-disp	dispfsxcga	35	tests/dispfsxcga.py
+DONE disp	dispvy	40	tests/dispvy.py
+DONE disp	dispfsxcga	35	tests/dispfsxcga.py
 disp	dispmine	30	tests/dispmine.py
-disp	dispstrad	30	tests/dispstrad.py
-disp	dispsaver	20	tests/dispsaver.py
+DONE disp	dispstrad	30	tests/dispstrad.py
+DONE disp	dispsaver	20	tests/dispsaver.py
 pxbe	pxbenchvga	760	tests/pxbench.py
 pxbe	pxbench	700	tests/pxbench.py
 isot	isotrontoggle	180	tests/isotron.py

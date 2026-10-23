@@ -162,7 +162,7 @@ def main():
                      "about the CGA arm of vid_unblank_kind"
                      % (CGA, a.machine, cards[CGA]["type"]))
         m.run()
-        settle(m, gate=os88marty.desktop_up)
+        os88marty.kernel_up(m)
         mo = os88mouse.Mouse(marty=m)
 
         # --- the extended desktop, which is what puts the CGA in mode 6 ----

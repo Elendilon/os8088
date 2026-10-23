@@ -7748,10 +7748,10 @@ SOAK = [
     Row("dispapps", "soak", py("tests/dispapps.py"), 45.0,
         "Do the apps that lay out ONCE re-derive when the adapter changes?",
         needs=("marty",), serial=True),
-    Row("dispband", "soak", py("tests/dispband.py"), 54.1,
+    Row("dispband", "soak", py("tests/dispband.py"), 30.0,
         "Can a window use the SECOND display's top rows? (SPEC.md 39.16.2)",
         needs=("marty",), serial=True),
-    Row("dispsaver", "soak", py("tests/dispsaver.py"), 20.0,
+    Row("dispsaver", "soak", py("tests/dispsaver.py"), 30.0,
         "Does a saver SESSION dark the second monitor? (SPEC.md 79.1.1) The "
         "blanker always walked every display; the animation returned before "
         "the walk, so an extended desktop saved one tube and left the other "
@@ -7773,10 +7773,10 @@ SOAK = [
         "broken. Reads the record, because 7px of geometry does not show in a"
         "screenshot of a mostly-white window",
         needs=("marty",), serial=True),
-    Row("dispblit", "soak", py("tests/dispblit.py"), 60.0,
+    Row("dispblit", "soak", py("tests/dispblit.py"), 20.0,
         "Does a BLIT reach the second display? (SPEC.md 39.14.7)",
         needs=("marty",), serial=True),
-    Row("dispbrow", "soak", py("tests/dispbrow.py"), 60.0,
+    Row("dispbrow", "soak", py("tests/dispbrow.py"), 30.0,
         "The field's browser report: a drag that does not move it, and a"
         "width cut on a card wide enough to hold it",
         needs=("marty",), serial=True),
@@ -7844,7 +7844,7 @@ SOAK = [
         "REPORTED ARTIFACTS, LOCALISED (a corner pixel, and two drags across"
         "a seam)",
         needs=("marty",), serial=True),
-    Row("dispdepth", "soak", py("tests/dispdepth.py"), 60.0,
+    Row("dispdepth", "soak", py("tests/dispdepth.py"), 40.0,
         "Does a window dragged BACK from a different-depth display arrive"
         "intact?",
         needs=("marty",), serial=True),
@@ -7863,7 +7863,7 @@ SOAK = [
         "Does a package's PER-ADAPTER preference and floor survive a drag"
         "across the seam, and does a USER outrank it? (SPEC.md 11.100)",
         needs=("marty",), serial=True, timeout=700),
-    Row("disptitle", "soak", py("tests/disptitle.py"), 80.0,
+    Row("disptitle", "soak", py("tests/disptitle.py"), 60.0,
         "Does a title bar STRADDLING the seam have one polarity? (SPEC.md"
         "5.4.2.4) - it builds `make BAND=1` itself, the composer being a knob"
         "again since SPEC.md 5.9.6, and puts the default kernel back",
@@ -8856,7 +8856,7 @@ SOAK = [
         "Single or Extend, where the second display sits, and does it survive"
         "a",
         needs=("marty",), serial=True),
-    Row("dispfsxherc", "soak", py("tests/dispfsxherc.py"), 40.0,
+    Row("dispfsxherc", "soak", py("tests/dispfsxherc.py"), 60.0,
         "Does the PRIMARY survive an fsx bracket on the SECOND display?"
         "(SPEC.md 39.19.4.1) dispfsxcga's MIRROR - the DOS box dragged onto"
         "the CGA of a Hercules-primary desktop, taken full screen and brought"
@@ -8870,7 +8870,7 @@ SOAK = [
         "40:10 left claiming a colour primary. Leg 2 is the RASTER and not"
         "40:65h, because IBM gives mode 3 and mode 7 the same mode byte",
         needs=("marty",), serial=True),
-    Row("dispfsxcga", "soak", py("tests/dispfsxcga.py"), 35.0,
+    Row("dispfsxcga", "soak", py("tests/dispfsxcga.py"), 50.0,
         "Does the SECOND display survive an fsx bracket on the first?"
         "(SPEC.md 39.18.1.1) A Hercules primary with a CGA beside it, the DOS"
         "box taken full screen and brought back: fsx_mode's `int 10h AX=0007h`"
@@ -8910,7 +8910,7 @@ SOAK = [
         "heights and correctly refuses at the two below display 1's bottom "
         "edge",
         needs=("marty",), serial=True),
-    Row("dispnp", "soak", py("tests/dispnp.py"), 60.0,
+    Row("dispnp", "soak", py("tests/dispnp.py"), 30.0,
         "Does a WIDE straddling Note Pad letter its whole row? (SPEC.md"
         "27.2.1)",
         needs=("marty",), serial=True),
@@ -8969,7 +8969,7 @@ SOAK = [
     Row("dispreboot", "soak", py("tests/dispreboot.py"), 60.0,
         "WHO WRITES ui_rebootq? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
-    Row("dispsave", "soak", py("tests/dispsave.py"), 60.0,
+    Row("dispsave", "soak", py("tests/dispsave.py"), 20.0,
         "Does the raise cache work on the SECOND display? (SPEC.md 39.14.8)",
         needs=("marty",), serial=True),
     Row("dispblitp", "soak", py("tests/dispblitp.py"), 30.0,

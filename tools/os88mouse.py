@@ -104,6 +104,10 @@ GAP = 0.012
 # milliseconds; this is only the deadline, and reaching it means the packet
 # was dropped - which `to`'s loop handles by sending another.
 PKT_GUEST = 1.0
+# WHAT A DRAG'S PRESS IS GIVEN to be taken before the pointer moves, in GUEST
+# seconds (_press_drag_release): the raise a press on a background window
+# starts. It ends early on ui_done, so a quiet desktop pays ~a tick.
+PRESS_GUEST = 3.0
 BUSY = 6.0                      # ...and how long a repaint may hold the guest
                                 # before `to` gives up on it - GUEST seconds
                                 # now, for the same reason. A window
@@ -728,6 +732,14 @@ class Mouse:
             self._edge(False, btn=btn)
         self._sep()                     # a drag OPENS with a press, and two
         self._edge(True, btn=btn)       # of them in a row are a double-click
+        # ...AND THE PRESS IS TAKEN before the pointer moves. A press on a
+        # BACKGROUND window raises it first, which is a repaint of seconds on
+        # a 4.77MHz 8088; a move-and-release sent into it arrives as a click
+        # and the window stays put (dispsave's back window, once GAP stopped
+        # being half a guest second a packet). Bounded: a drag loop that
+        # never lets ui_task sleep costs PRESS_GUEST and no more.
+        os88marty.ui_done(self.m, "the press to be taken", cap=PRESS_GUEST,
+                          lock=False)
         self.to(x1, y1, l=btn == 1, r=btn == 2)
         self._edge(False, btn=btn)
         _wait(self.m, settle, "drag/menu", dflt)
