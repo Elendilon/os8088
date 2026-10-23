@@ -141,6 +141,14 @@ reading the guest state the page is drawn from instead of pumping the screen).
    `launch(turbo=True)` where the floppy's timing is not the subject (not
    kern_mega - docs/86BOX.md). gb* rows 63/51/18 -> 18/11/7 s.
 
+19. **On Bochs, the debugger IS the memory read - ~20 ms, so wait on state.**
+   A SIGINT stop, `xp`, `c`, each ended on the next prompt rather than a
+   clock (`os88bochs.Box.read`/`reads`/`until`), turns every fixed sleep into
+   a gate: `Box.up()` (desktop ~6 s, not "80 s" + 15), `ui_done` after a
+   click, a package's own byte through `pkg_read`. A stop RELEASES Bochs's
+   mouse capture; `Box` re-captures inside the next input. megaflt/own/
+   rehome/vidbig 105/81/103/287 -> 51/39/41/62 s.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
@@ -232,6 +240,8 @@ reading the guest state the page is drawn from instead of pumping the screen).
 - **`Marty.planes(offset, length, planes, card)`** (os88marty) + the server's `planes` verb (`tools/martypc/debug_server.rs`, deployed in `build/martypc/run`): VGA/EGA bit planes straight out of the card's VRAM - no guest cycle, register or latch, exact running or stopped. Falls back to a REP MOVSW guest stub given `stub=(seg, code, scratch, size)` on an older server (`use_stub=True` forces it). Byte-identical to the stub on a desktop with four distinct planes written; a whole 12h screen 0.007 s vs the stub's 0.11-0.15 s. gorillasinput/reactions 108 -> 86 CPU s together; **gorillasmenu keeps the stub** - with the zero-time read its VGA arm's second measured key never reaches gr_key (port 60h empty, IRQ1 idle; unexplained). check_repaint now also parks back at the handler's return (prefetch), which the stub's own park used to supply.
 - **`Marty.batch([cmd dicts])`** (os88marty) + a pipelining server (`debug_server.rs`, deployed): several requests in ONE write, replies in order, first refusal raised by index, a `run` in it marks the resume like `run()`. The server now sets TCP_NODELAY (a pipelined burst had every reply after the first held ~40 ms by Nagle against delayed ACK - pipelining "hung") and keeps a line split across reads (it was dropped). 25 reads: 0.3 ms pipelined vs 3.1 ms serial. An old server (no `pipeline` in `ping`) is asked one at a time. n1942's `Game.call` (park + 13 setregs + bp + run + restore) is 4 round trips: 1942sound 105 -> 90 s, same figures as the old path. Any stopped-machine register/park sequence wants it.
 - **QEMU (r2-q10)**: `tests/xmcheck.qmp` runs `tools/qmp.py`'s new `run()` IN PROCESS (it spawned a Python per memory read, ~60 ms; same text and same SystemExit on failure); `xmcheck.wait_desktop` polls 0.05 (was 0.4) and ends on `os88qemu.ui_done(cap=1)` (was `pace(1)`). `colorpresets_qemu.Guest` boots on state (`peek` = `xp` while running) instead of `sleep(3)`. `rdgqemu.run(..., final=[" END\n"])` skips its 0.3 s trailing read when the output is known complete; poll 0.2 -> 0.05. Validated: hdtake(+blank), viddiskcpu, fmtpair, colorpresets, rdgstatic.
+
+- **Bochs (r3): `tools/os88bochs.py` reads the guest** - `session()` (break in, commands, continue, on the PROMPT not a clock: ~20 ms where `dbg` slept 3.5 s + 0.3 s a command; module `dbg` is it now), `Box.read/reads/until/sym` (labels off the BOOTED tree's megak/kernel.map, .lowbss/.cold by the map's equates), `Box.up()` (kernel_up's gate), `Box.ui_done()` (ui_idle's five bytes held 0.25 s with [ticks] moving), `Box.goto/click/dbl` (CLOSED-LOOP on mouse_x/mouse_y, ~0.6 s where the pin-and-walk was ~3.5), `Box.megarun()` (C:, RUN, 0RUN on those), `Box.instances/pkg_base/pkg_read` (a package's own bytes, OS88_HIGH through its LDT descriptor), `sweep` on all of it. A stop RELEASES the mouse: `xd()` re-captures first after a Box read. `os88test` takes a Bochs display with an flock on /tmp/.os88bochs-N.lock, so two runners never share one. docs/BOCHS.md "Waiting on the guest". megaflt, megaown, megarehome, megavidbig, megaovl.
 
 ## Ledger
 
@@ -450,6 +460,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | pxswin-qemu | 95.5 s (runner, load ~10) - and it `make test`s: **this run rebuilt the shared build/kernel.bin, os8088.img, apps.img** (buildnum 581 vs HEAD 606; no source under kernel/ apps/ drivers/ differs, so the images are equivalent bar the build number) | 22.9 s | 14, 15 | `os88qemu.Private` + the OPL2 (no make), mouse closed-loop keeping mouse.py's 0.15 guest s after each gesture - without it a drag's move and release beat the UI to the press (the game's worker holds the gfx lock, so `ui_done` cannot see it) and q3b/q4 went RED, which is the check that the drags are asserted; keys in process; polls 0.3 -> 0.05. secs 65 -> 30 |
 | gifdrag / wheelps2 | 51.2 / 7.4 s (load ~10) | 37.9 / 7.4 s | - | measured only. gifdrag (MartyPC) is its drags: the `tick(m, 400)` after each is the stack-water EXPOSURE window (Task Manager repainting twice a second), so it is not cut; wheelps2 is lean. secs 56/56 -> 50/10 |
 | gbreplay / gbbank / gbhifreq / megacdrom (86Box) | 63 / 51 / 18 / 27 s (3 at once, load ~5); guest ~250 / 125 / 107 / 125 s | 18 / 11 / 7 / 12 s; guest 78 / 44 / 28 / 34 s | 18 | boots were 60 emulated s of polled BIOS steps + a fixed 20 (desktop up at ~22, ~14 with turbo); gbbank's fixed 60-s load -> until the cartridge's checked-switch byte; gbhifreq's 6 s -> until frame 160; megacdrom's 70-s boot -> kernel_up + `[mega_on]` + the autostart's window, its 15-s launches -> until the window/the card read (red path seen: under turbo the Mixer never came, and the bounded wait failed step 4 as before). gbreplay's `sleep(3)` after quit -> `quit()`. The 5/20 s measurement windows and the replay's key script unchanged |
+| megaflt / megaown / megarehome (Bochs) | 105 / 81 / 103 s | 51 / 39 / 41 s | 19 | the boot's 15 + 10 + 8 s sleeps and the closed-loop MEGARUN navigation; MEGARUN's own 5 s a package is the floor |
+| megavidbig (Bochs) | 287 s | 62 s | 19 | HOLD = 110 s slept for a fill that takes ~5 (waits on the player's [vp_xfull]), PLAY = 30 for a play that ends at ~20 ([vp_played], asserted 0 before Space) |
+| megaovl (Bochs) | 157 s FAIL | 71 s FAIL | 19 | **fails at base**: MEGALOWB's OSAPI_MEM_AVAIL claim (79C0 paras, the ascending run alone) fits UNDER the carve, so nothing slides it - MEGALOWH's hole above is not counted. The typed-and-saved DOC.RTF half passes |
 
 ## Resuming
 

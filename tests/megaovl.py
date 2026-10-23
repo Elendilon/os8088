@@ -71,30 +71,23 @@ def main():
     lines = []
     try:
         if box.wait_for("kern_mega:", 240):
-            time.sleep(15)
-            box.capture()
-            os88bochs.dbl(591, 160)     # C:
-            time.sleep(10)
-            os88bochs.dbl(150, 123)     # RUN
-            time.sleep(8)
-            os88bochs.dbl(160, 139)     # 0RUN.O88
+            box.up()                    # the desktop, off kernel state
+            box.megarun()               # C:, RUN, 0RUN.O88
             if not box.wait_for("MEGALOWB: done", 200):
                 fails.append("MEGALOWB never finished")
-            time.sleep(5)
-            os88bochs.goto(300, 200)    # CWORD's text, the front window now
-            os88bochs.xd("click", 1)
-            os88bochs.xd("type", "--delay", 150, LINE)
+            # every step below ends when the UI task is done with it (the
+            # guest's own state, os88bochs.Box.ui_done) instead of the 5, 2,
+            # 4, 8 and 15 s that were slept; what proves the steps worked is
+            # still the line in C:\DOC.RTF, read off the disk afterwards
+            box.ui_done("MEGALOWB's exit")
+            box.click(300, 200, "CWORD's text taking the click")
+            os88bochs.xd("type", "--delay", 60, LINE)
             os88bochs.xd("key", "Return")
-            time.sleep(2)
-            os88bochs.goto(44, 60)      # File
-            os88bochs.xd("click", 1)
-            time.sleep(4)
-            os88bochs.goto(80, 113)     # Save As...
-            os88bochs.xd("click", 1)
-            time.sleep(8)
-            os88bochs.goto(400, 118)    # Save, onto C:\ as DOC.RTF
-            os88bochs.xd("click", 1)
-            time.sleep(15)
+            box.ui_done("CWORD to take the typed line")
+            box.click(44, 60, "the File menu")
+            box.click(80, 113, "Save As...'s dialog")
+            box.click(400, 118, "the save onto C:\\DOC.RTF")
+            box.ui_done("the save", hold=1.0)
             os88bochs.shot(os.path.join(out, "after.png"))
         else:
             fails.append("no kern_mega line in 240s")

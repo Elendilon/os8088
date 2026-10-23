@@ -71,11 +71,12 @@ python3 tools/os88bochs.py stop                  # end every Bochs on the box
 | `--cd ISO` | an ATAPI CD-ROM, the secondary master at 170h, holding an ISO 9660 image (CDROM.DRV, SPEC.md 119). **Data only**: Bochs 2.7 answers PLAY AUDIO and a SubQ READ SUB-CHANNEL "not implemented", so `build/megacdsim.img`'s `-DCDSIM_AUDIO` driver is what gives CDRack a TOC here, and 86Box's `vm/286-mega-cdrom` is where a disc plays (KERN-MEGA-PLAN 14.68). `--cfg 0x101` wants SOUND.DRV and CDROM.DRV |
 
 `boot` returns once Bochs is up and leaves it running; the machine outlives the
-command. The desktop takes about **80 seconds**. Wait for it by condition, not
-by a fixed sleep:
+command. The desktop is up about **6 seconds** after reset (it was quoted at
+80 here). Wait for it by condition, not by a fixed sleep - from a script,
+`Box.up()` (below); by hand:
 
 ```
-until grep -aq "kern_mega: protected mode" build/bochs/e9.out; do sleep 3; done; sleep 15
+until grep -aq "kern_mega: protected mode" build/bochs/e9.out; do sleep 1; done
 ```
 
 ## Driving it: tools/os88bochsui.py
@@ -108,6 +109,34 @@ Coordinates on the 640x480 desktop that every recipe below uses:
 
 Take a `shot` and read it before trusting a coordinate in a window you have not
 opened before.
+
+## Waiting on the guest: `os88bochs.Box` from a script
+
+The debugger is cheap: a SIGINT stop, an `xp`, and `c` is **~20 ms** when each
+step is ended on the debugger's NEXT PROMPT rather than on a clock
+(`os88bochs.session`; the module's `dbg` is it too). So a script reads the
+kernel instead of sleeping:
+
+| call | what it waits on / answers |
+|---|---|
+| `box.sym(name)` | a kernel label's LINEAR address, off the BOOTED tree's `megak/kernel.map` (`.text`/`.bss` at KERNEL_SEG, `.lowbss` at LOW_SEG, `.cold` at COLD_SEG) |
+| `box.read(addr_or_label, n)`, `box.reads([(a, n), ...])` | bytes; `reads` is one stop for all of them |
+| `box.until(cond, what, secs)` | polls a condition that reads the guest; RuntimeError naming WHAT |
+| `box.up()` | the boot gate: `desk_rows`/`menu_nbar` written, `[spl_live]` 0, `[ticks]` moving, then `ui_done` - os88marty's `kernel_up` |
+| `box.ui_done(what, lock=True)` | ui_task asleep with nothing queued, no wake, the gfx lock free (`lock=False` for a game's worker) and the BIOS key ring empty, at two reads 0.25 s apart with the tick moving - what a sleep after a click stood for |
+| `box.goto(x, y)`, `box.click(x, y)`, `box.dbl(x, y)` | the pointer CLOSED-LOOP on `mouse_x`/`mouse_y` (~0.6 s, no homing walk), then `ui_done` |
+| `box.megarun(row=0)` | capture, then C:, RUN and 0RUN.O88 - MEGARUN starts the rest |
+| `box.instances()`, `box.pkg_base(name)`, `box.pkg_read(name, label, n, map)` | a package's own bytes by its header name, through its LDT descriptor when it is OS88_HIGH (`build/<pkg>.map` names the label) |
+
+**A stop RELEASES THE MOUSE.** Bochs drops its capture whenever the debugger
+takes over, so after a read the next move or click reaches nobody. A Box that
+has captured re-captures inside the NEXT xdotool call (`xd`, so a row's own
+`os88bochs.xd(...)` is covered too): X delivers the toggle ahead of the input.
+And a stop waits `INPUT_GAP` (60 ms) after the last input, so a click still in
+the X queue is taken while the mouse is captured rather than dropped.
+
+`tools/os88test.py` gives each Bochs row its own display from :110 up, held
+with an flock on `/tmp/.os88bochs-N.lock`, so two runners never share one.
 
 ## Reading it
 

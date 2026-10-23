@@ -2,14 +2,14 @@
 mega	megapiclose	450	tests/megapiclose.py
 mega	megavidv2	400	tests/megavidv2.py
 mega	megakbtrip	360	tests/megakbtrip.py
-mega	megavidbig	330	tests/megavidbig.py
+DONE mega	megavidbig	330	tests/megavidbig.py
 mega	megatrap0	300	tests/megatrap0.py
 mega	megahiber	300	tests/megahiber.py
 mega	pxmega	260	tests/pxmega.py
-mega	megaovl	260	tests/megaovl.py
+DONE(fails at base, product) mega	megaovl	260	tests/megaovl.py
 mega	pxsmega	200	tests/pxsmega.py
 mega	megap2hiber	200	tests/megap2hiber.py
 mega	megadosp	160	tests/megadosp.py
-mega	megarehome	120	tests/megarehome.py
-mega	megaflt	110	tests/megaflt.py
-mega	megaown	100	tests/megaown.py
+DONE mega	megarehome	120	tests/megarehome.py
+DONE mega	megaflt	110	tests/megaflt.py
+DONE mega	megaown	100	tests/megaown.py

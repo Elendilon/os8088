@@ -14813,7 +14813,7 @@ SOAK = [
         needs=("86box",),
         wants=("build/megacdtest.img", "build/cdaudio.cue",
                "build/cdrack.bin", "build/mixer.bin", "build/cdrom.bin")),
-    Row("megarehome", "soak", py("tests/megarehome.py"), 120.0,
+    Row("megarehome", "soak", py("tests/megarehome.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.44, 14.48, SPEC.md 20.12.10.9: a "
         "RE-HOMED program whose own header says OS88_HIGH runs above 1MB on "
         "kern_mega. Bochs at 16MB, MEGARUN starting kern_mega's DOS.O88, "
@@ -14827,10 +14827,10 @@ SOAK = [
         "the scratch part's code/data pair and the byte textures' selector "
         "inside it, none past its end (14.48). The failing case is WORD.O88 "
         "from before 14.44 (no OS88_HIGH), or PXSTEIN.O88 from before 14.48: "
-        "its I_SPTR comes back a conventional segment. 120s is 99 measured",
+        "its I_SPTR comes back a conventional segment. 60s is 41 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
-    Row("megavidbig", "soak", py("tests/megavidbig.py"), 330.0,
+    Row("megavidbig", "soak", py("tests/megavidbig.py"), 80.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.58: a BIGSP video (records past 32 "
         "KB, SPEC.md 98.1.4.1) played from XMS on kern_mega without a fault "
         "- the owner's Mechwarrior 2 froze the Victory 286 at its first "
@@ -14840,7 +14840,8 @@ SOAK = [
         "played with Space at 2MB (the XMS BANK) and at 16MB (the HOLD, "
         "whole): neither may log a kern_mega FAULT. Red with VIDEO.O88 from "
         "before 14.58 (--pkg): #GP at vd_native's rep movsw in both legs. "
-        "330s is 301 measured",
+        "80s is 62 measured: the hold's fill and the play are waited "
+        "on by the player's own [vp_xfull] and [vp_played]",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megak/apps/video.o88")),
@@ -14898,7 +14899,7 @@ SOAK = [
         "step adds no trap line and no kern_mega FAULT. Red with one "
         "px_compose `[es:` store put back to `[cs:` (thousands on the walk)",
         needs=("bochs", "nasm")),
-    Row("megaflt", "soak", py("tests/megaflt.py"), 110.0,
+    Row("megaflt", "soak", py("tests/megaflt.py"), 70.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.42: on kern_mega a fault in a "
         "PACKAGE closes that package and not the machine. Under Bochs (a "
         "286's segment checks), MEGARUN starts tests/megaflt's seven builds: "
@@ -14909,14 +14910,14 @@ SOAK = [
         "what it held (the next one's entry sees the same free memory) and "
         "leave the machine running: the control started last must answer a "
         "key and a click from the host. The failing case is a `ret` at the "
-        "top of mega_fkill, which makes the first one fatal. 110s is 102 "
+        "top of mega_fkill, which makes the first one fatal. 70s is 51 "
         "measured",
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/flta.o88", "build/fltb.o88", "build/fltc.o88",
                "build/fltd.o88", "build/flte.o88", "build/fltf.o88",
                "build/fltz.o88")),
-    Row("megaown", "soak", py("tests/megaown.py"), 100.0,
+    Row("megaown", "soak", py("tests/megaown.py"), 50.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.15's open item, 14.46: on kern_mega "
         "the extended pool's compaction moves a package's OWN region while "
         "that package is the caller. Under Bochs at 2MB, MEGAHOLE holds "
@@ -14926,11 +14927,12 @@ SOAK = [
         "lower offset after the claim, every block's stamps and its own bss "
         "and code must read back, and a second callback must say the same. "
         "The failing case is mx_compactf pinning a package region, which "
-        "leaves it where it was. 100s is 82 measured",
+        "leaves it where it was. 50s is 39 measured (Bochs waits on "
+        "kernel state, docs/BOCHS.md)",
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megahole.o88", "build/megaown.o88")),
-    Row("megaovl", "soak", py("tests/megaovl.py"), 260.0,
+    Row("megaovl", "soak", py("tests/megaovl.py"), 90.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.46: on kern_mega a C package's "
         "OVERLAY is moved by a compaction and then used. Under Bochs, "
         "MEGALOWH holds a top-down claim at the heap's ceiling so CWORD's "
@@ -14940,7 +14942,7 @@ SOAK = [
         "the carve up into the hole can place. The carve must be at a higher "
         "segment after; then CWORD takes typing and File > Save As, and "
         "C:\\DOC.RTF must hold the line. The failing case is cc_ovinit "
-        "without its OSAPI_MEM_MOVABLE: the carve is pinned. 260s is 225 "
+        "without its OSAPI_MEM_MOVABLE: the carve is pinned. 90s is 71 "
         "measured",
         needs=("bochs", "nasm", "cc"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",

@@ -63,7 +63,18 @@ HOLD = 110                      # seconds for 1.26MB to fill the hold off B:
 PLAY = 30                       # 150 frames at 30 fps, and its settle
 
 
-def leg(name, megs, disk, out, wait):
+VMAP = os.path.join(BUILD, "megak", "apps", "video.map")
+
+
+def vbyte(box, label):
+    return box.pkg_read("Video", label, 1, VMAP)[0]
+
+
+def fault(box):
+    return [l for l in box.lines() if l.startswith("kern_mega FAULT")]
+
+
+def leg(name, megs, disk, out, held):
     os88bochs.MEGS = megs
     d = os.path.join(out, name)
     os.makedirs(d)
@@ -71,22 +82,33 @@ def leg(name, megs, disk, out, wait):
     try:
         if not box.wait_for("kern_mega: protected mode", 300):
             return "%s: kern_mega never reached protected mode" % name
-        time.sleep(25)
+        # on the guest's own state rather than the 25 + 10 + 3 s, HOLD s
+        # and PLAY s that were slept: the desktop up, each double-click
+        # done with, the hold FULL (the player's [vp_xfull]), and the play
+        # OVER ([vp_played], "what a gate waits on" in apps/video) - a FAULT
+        # ends any of those waits at once
+        box.up()
         box.capture()
-        os88bochs.dbl(591, 105)              # B:
-        time.sleep(10)
-        os88bochs.dbl(170, 123)              # CLIP.V88, the first row
-        time.sleep(wait)
+        box.dbl(591, 105, "B:'s Disk window")
+        box.dbl(170, 123, "CLIP.V88's open")    # the first row
+        if held:
+            box.until(lambda: fault(box) or vbyte(box, "vp_xfull"),
+                      "the hold to fill off B:", HOLD + 60, poll=1.0)
         os88bochs.shot(os.path.join(d, "open.png"))
+        if not fault(box) and vbyte(box, "vp_played"):
+            return "%s: [vp_played] was set before Play - the gate below " \
+                   "would not be waiting for this play" % name
         os88bochs.xd("key", "space")
-        time.sleep(PLAY)
+        box.until(lambda: fault(box) or vbyte(box, "vp_played"),
+                  "the play to end", PLAY + 60, poll=0.5)
         os88bochs.shot(os.path.join(d, "play.png"))
         os88bochs.xd("key", "Escape")
-        time.sleep(5)
+        if not fault(box):
+            box.ui_done("the window after the play", lock=False)
         os88bochs.shot(os.path.join(d, "after.png"))
-        fault = [l for l in box.lines() if l.startswith("kern_mega FAULT")]
-        if fault:
-            return "%s (%dMB): %s" % (name, megs, fault[0])
+        f = fault(box)
+        if f:
+            return "%s (%dMB): %s" % (name, megs, f[0])
         print("megavidbig: %-4s %2dMB played, no fault" % (name, megs))
         return None
     finally:
@@ -117,8 +139,8 @@ def main():
                                                      "os88disk.py"),
                         "-o", disk, "--size", "1440", stage, v88],
                        check=True, stdout=subprocess.DEVNULL)
-        fails = [f for f in (leg("bank", 2, disk, out, 3),
-                             leg("held", 16, disk, out, HOLD)) if f]
+        fails = [f for f in (leg("bank", 2, disk, out, False),
+                             leg("held", 16, disk, out, True)) if f]
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("megavidbig: %.0fs under Bochs" % (time.time() - t0))
