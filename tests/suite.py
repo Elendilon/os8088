@@ -1713,7 +1713,7 @@ FAST = [
         "opposite ends (docs/plans/completed/STKBALANCE-KERNEL.md 4)",
         ),
 
-    Row("gifdrag", "soak", py("tests/gifdrag.py"), 56.0,
+    Row("gifdrag", "soak", py("tests/gifdrag.py"), 50.0,
         "THE FIELD'S OWN FREEZE, driven end to end (SPEC.md 8.7.4): the Task "
         "Manager on its HEAP page while PAINT holds MEDIA/OS8088.GIF, then the "
         "window dragged again and again. It asserts the MARGIN and not the "
@@ -4755,7 +4755,7 @@ SOAK = [
         "closed list - MartyPC is an 8088 and has no 8042 to test",
         needs=("qemu", "nasm"), serial=True, timeout=420,
         wants=("build/os8088.img", "build/apps.img")),
-    Row("wheelps2", "soak", py("tests/wheelps2.py"), 56.0,
+    Row("wheelps2", "soak", py("tests/wheelps2.py"), 10.0,
         "Does SPEC.md 9.9.8's knock put a PS/2 wheel mouse in four-byte mode, "
         "and does its Z byte reach the wheel's level (10.4)? ps2mouse.py's "
         "machine: mou_p2wz 3 with mou_p2id still the reset's 0, the pointer "

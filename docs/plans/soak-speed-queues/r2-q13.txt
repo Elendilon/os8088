@@ -22,5 +22,5 @@ DONE vidl	vidlybankcopy	60	tests/vidlybank.py	qemu,nasm,ffmpeg
 DONE vidl	vidlybanknone	60	tests/vidlybank.py	qemu,nasm,ffmpeg
 DONE vidx	vidxmslive	60	tests/vidxms.py	qemu,nasm
 DONE vidx	vidxmsliverep	60	tests/vidxms.py	qemu,nasm
-gifd	gifdrag	56	tests/gifdrag.py	
-whee	wheelps2	56	tests/wheelps2.py	qemu,nasm
+DONE gifd	gifdrag	56	tests/gifdrag.py	
+DONE whee	wheelps2	56	tests/wheelps2.py	qemu,nasm
