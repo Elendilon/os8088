@@ -9,7 +9,7 @@ DONE vidx	vidxmslivevga4	50	tests/vidxms.py	qemu,nasm
 DONE trkc	trkclick	47	tests/trkclick.py	qemu,nasm
 cdro	cdrom	45	tests/cdrom.py	qemu,nasm
 vmmo	vmmouse	45	tests/vmmouse.py	qemu,nasm
-dosx	dosxmsq	45	tests/dosxmsq.py	qemu
+DONE dosx	dosxmsq	45	tests/dosxmsq.py	qemu
 SKIP fails at base (first play does not fill the hold) vidx	vidxms	45	tests/vidxms.py	qemu,nasm
 DONE vidx	vidxmsbios	45	tests/vidxms.py	qemu,nasm
 DONE vidx	vidxmsidle	45	tests/vidxms.py	qemu,nasm

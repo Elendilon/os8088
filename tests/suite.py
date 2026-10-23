@@ -5937,7 +5937,7 @@ SOAK = [
         "(SPEC.md 96.15.3) and neither row can answer the other's half.",
         needs=("marty",), serial=True,
         wants=("build/dosxms360.img",)),
-    Row("dosxmsq", "soak", py("tests/dosxmsq.py"), 45.0,
+    Row("dosxmsq", "soak", py("tests/dosxmsq.py"), 10.0,
         "THE DOS XMS WORKING GATE (SPEC.md 96.15.3) - the other half of "
         "`dosxms`, and QEMU because it has to be: the assertion needs a "
         "machine with memory ABOVE 1MB and MartyPC's 8088 never has any, "
