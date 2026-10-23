@@ -1,7 +1,7 @@
 # ROUND 2, queue 7: r2-q4's open rows (its agent finished). family  row  declared_secs  script
-lzco	lzglyph	65	tests/lzcomp.py
-vidk	vidkern	48	tests/vidkern.py
-vidk	vidkpartbad	45	tests/vidkpartbad.py
+SKIP fails at base (os88pkg: DOS.O88 or VIDEO.O88 now has PARTS, compress_image refuses; what Compress does to a parted package is a design question) lzco	lzglyph	65	tests/lzcomp.py
+DONE vidk	vidkern	48	tests/vidkern.py
+DONE vidk	vidkpartbad	45	tests/vidkpartbad.py
 lzsh	lzship	80	tests/lzship.py
 dosl	doslong	30	tests/doslong.py
 mseg	mseglazy	50	tests/mseglazy.py

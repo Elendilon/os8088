@@ -13592,7 +13592,7 @@ SOAK = [
         "FAILS by 100 bytes",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidkpartbad", "soak", py("tests/vidkpartbad.py"), 45.0,
+    Row("vidkpartbad", "soak", py("tests/vidkpartbad.py"), 20.0,
         "SPEC.md 98.1.3.8: a HOSTILE key in parts - vidkpartpv's clip with "
         "the poster's first part saying it is 0 bytes and the word before "
         "it naming its own read. The open refuses the picture and returns, "
@@ -14283,7 +14283,7 @@ SOAK = [
         wants=("build/video.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv", "build/hiber.drv",
                "build/ctrl.drv", "build/sound.drv")),
-    Row("vidkern", "soak", py("tests/vidkern.py"), 48.0,
+    Row("vidkern", "soak", py("tests/vidkern.py"), 40.0,
         "Video Player wave 2 (VIDEO-PLAN 4.1-4.3), on the 5150-shaped "
         "os8088_5150_herc_hdd_sb_gla. FSXF_RATE (SPEC.md 53.2.2): three "
         "calls that must refuse, then 30.0 Hz for 150 periods with a hook "
