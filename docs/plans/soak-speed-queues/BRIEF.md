@@ -1,6 +1,6 @@
 # Soak-speed agent brief (read fully before starting)
 
-You are one of SIX agents working IN PARALLEL in ONE shared checkout:
+You are one of FOUR agents working IN PARALLEL in ONE shared checkout:
 /home/user/os8088, branch `soak-speed` (cut from origin/elendilon). Read
 CLAUDE.md's Testing section and docs/WRITING-TESTS.md §1 once. The goal: make
 each soak-tier emulator row MUCH cheaper (the precedent: tests/tmowner.py,
@@ -10,7 +10,7 @@ fail. Owner's words: "Every time we optimize an individual test, it can often
 drop 60-90% of its time ... focus, in depth, on each test."
 
 ## Your queue
-Your rows are in the queue file named in your prompt (family, row, declared
+Your rows are in the queue file named in your prompt (round 2: see the end of this brief) (family, row, declared
 secs, script). Work top-down (largest first; when you open a family, do its
 siblings while the context is hot - they usually share a library). Mark each
 line you finish by prefixing it `DONE ` / `SKIP <reason> ` in that file so a
@@ -54,7 +54,7 @@ measure.
 - Never kill or reap MartyPC instances you did not start (no kill_all, no
   pkill martypc). os88marty.launch() isolates instances already.
 - Never run the whole soak tier; only `-k <row>` scoped runs.
-- Box: 4 cores, six agents => wall clock is noisy and slower. Never wait for
+- Box: 4 cores, four agents => wall clock is noisy and slower. Never wait for
   load to drop. Compare guest seconds / cycles; wall as secondary.
 - Harness (tools/os88marty.py, os88ui.py, os88mouse.py, os88mouserel.py,
   tests/dispcp.py and other shared libs): missing GENERIC features SHOULD be
@@ -81,3 +81,21 @@ why, and anything the coordinator must know (e.g. product bugs found).
 Commit trailer lines:
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_0128wd3x4TL6TkrT5R6Y6y6u
+
+## Round 2 additions (read these too)
+- Your queue is `docs/plans/soak-speed-queues/r2-q<N>.txt`. Lines prefixed
+  `VERIFY` are rows whose shared script was edited in round 1 and never
+  re-run: run each once first (pass = mark DONE; fail = diagnose).
+- Read docs/plans/SOAK-SPEED.md FIRST: eight techniques and a dozen harness
+  features exist already (quick boots, Forks, UI.still, kernel_up, logging
+  breakpoints, ui_done-as-settle). Reuse before inventing.
+- EVERY os88test run is `MAKELEVEL=1 python3 tools/os88test.py soak -k <row>`.
+  Without it the runner makes in the shared build/ and breaks every agent.
+- `git commit -- tests/suite.py` commits the WHOLE file, including other
+  agents' uncommitted edits. Commit only your hunks: write your hunk(s) as a
+  patch and `git apply --cached <patch>`, then `git commit` (no paths); or
+  edit suite.py and commit it immediately so the window is seconds.
+- Commit your queue file (with its DONE/SKIP marks) with each row's commit.
+- A new file under docs/ needs `python3 tools/os88index.py`, or checkdocs
+  fails the next make.
+- Scratch files go in your scratchpad, never the repo root.
