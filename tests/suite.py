@@ -7076,7 +7076,7 @@ SOAK = [
         "silently. BREAK IT: put dn_pump's counter back in CL and the data "
         "assertions fire; take dn_tcp_in's .unknown arm out and the log "
         "gains a trailing 14.",
-        needs=("qemu",), serial=True),
+        needs=("qemu",), serial=True, timeout=240),
     Row("pathcost", "soak", py("tests/pathcost.py"), 30.0,
         "OSAPI_FILE_PATH, AND WHAT IT COSTS (SPEC.md 19.2.4). The slot exists "
         "because dsk_find drops the on-disk dot links, so no package can walk "
