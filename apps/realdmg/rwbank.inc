@@ -116,8 +116,8 @@ rw_bload:
     mov ax, [rw_nslot]
     mov cl, 4
     shl ax, cl
-    call OSAPI_MEM_CLAIM            ; DX = the slots, pinned: the bank table
-    jc .room                        ;   names them
+    call OSAPI_MEM_CLAIM            ; DX = the slots (the bank table names
+    jc .room                        ;   them: rw_mreloc, rwmove.inc)
     mov [rw_slotseg], dx
     mov ax, [rw_romkb]
     sub ax, 16

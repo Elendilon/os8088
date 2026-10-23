@@ -1,0 +1,222 @@
+; =============================================================================
+; os8088 - apps/realdmg/rwmove.inc
+;
+; RealDMG's claims MOVE (docs/REALDMG-SPEC.md section 14.4, SPEC.md 66.2,
+; docs/plans/NO-PINNING-PLAN.md A1). Included by realdmg.asm, after every
+; routine the machine runs a frame through, so none of them moved for it.
+;
+; ALL THE WORK IS DONE AT MOVE TIME. The emulation reads its segments out of
+; the state block (S_ROMX, S_RAMSEG, S_JITSEGA...), the bank table and words
+; of ours, once a bank switch or once a frame; rw_mreloc puts each of them
+; right when the compactor calls it, and the core, the recompiler's part and
+; every routine a frame runs gain no instruction. A move happens only with
+; the worker PARKED at OSAPI_TASK_ALIVE (the top of its loop, the machine
+; between two runs and every register spent) or with the machine the UI
+; task's own between two frames (full screen): a package's data claim is
+; pinned while its worker runs (SPEC.md 66.3.1, inst_seg_parked).
+;
+; THE RECOMPILER'S CODE CANNOT BE PUT RIGHT IN PLACE: a chain into the other
+; cache segment is a `jmp far` with the segment in its bytes (16.2.1), the
+; core's own holes hold such chains too (16.2.2), and only the chains into an
+; OLDER tier are logged (16.2.3) - so there is no list of the sites. A move of
+; either cache segment FLUSHES the cache instead (rt_init over the new
+; segments, which forgets every block) - a re-warm like a recycle's, once per
+; move and never per instruction. Static's table is fixed and would stay
+; empty: it goes dynamic at once and the worker preloads again at its next
+; turn (rw_seg2q, rw_jiton).
+;
+; WHAT IS NOT IN THE TABLE stays pinned: the parts carve (the core and the
+; view, op_load's - docs/plans/NO-PINNING-PLAN.md A8), and the log's text,
+; claimed and freed inside one rw_logwrite (bucket C). Every claim in the
+; table is pinned again around a call that can claim while its segment is in
+; a register (rw_mpin: every file call, through rw_fgo, and the load).
+; =============================================================================
+
+; the words that each name one claim of ours, by its base (rw_mdecl's walk;
+; rw_romseg is the view itself when the cartridge is the bank cache's, and
+; the view is not ours to declare)
+rw_mtab:        dw rw_pseg, rdg_dmgseg, rw_jitseg, rw_jit2seg, rw_romseg
+                dw rw_slotseg, rw_ramseg, rw_prfseg, rw_logseg, rw_rpseg, 0
+
+; rw_mpin - every claim of ours PINNED (OSAPI_MEM_MOVABLE AX = 0): around a
+; call that can claim while one of their segments is in a register - a file
+; call (rw_fgo), the load (rw_load). Every register and flag kept.
+rw_mpin:
+    pushf
+    push ax
+    xor ax, ax
+    jmp short rw_mdecl
+
+; rw_mfree - ...and every one free to move again (rw_mreloc), unless a load
+; holds them ([rw_mhold]). Every register and flag kept - rw_fback's callers
+; read its CF.
+rw_mfree:
+    pushf
+    push ax
+    mov ax, rw_mreloc
+    cmp byte [rw_mhold], 0
+    je rw_mdecl
+    pop ax
+    popf
+    ret
+
+; rw_mdecl - AX = the proc or 0, for every word of rw_mtab that names a
+; claim. Entered with the flags and AX pushed, in that order
+rw_mdecl:
+    push bx
+    push dx
+    push si
+    mov si, rw_mtab
+.l:
+    mov bx, [si]
+    inc si
+    inc si
+    or bx, bx
+    jz .r
+    mov dx, [bx]
+    or dx, dx
+    jz .l
+    cmp bx, rw_romseg               ; (the view, in the bank cache's load)
+    jne .d
+    cmp byte [rw_bcache], 0
+    jne .l
+.d:
+    call OSAPI_MEM_MOVABLE
+    jmp short .l
+.r:
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    popf
+    ret
+
+; rw_mreloc - A CLAIM OF OURS MOVED (SPEC.md 66.2): BX = where it was, DX =
+; where it is, DS = CS = ours, ES = KERNEL_SEG. Every word that names it, and
+; every one derived from it, put right; may clobber AX-DI and ES. It runs in
+; the allocator: nothing here claims, draws, yields or touches a file.
+rw_mreloc:
+    mov ax, dx
+    sub ax, bx                      ; AX = the move, paragraphs
+    mov es, [rdg_viewseg]
+    cmp bx, [rw_pseg]               ; the frames: rw_fseg is 11,520 bytes in
+    jne .n1
+    mov [rw_pseg], dx
+    add [rw_fseg], ax
+    ret
+.n1:
+    cmp bx, [rdg_dmgseg]             ; the damage memory: the one word
+    jne .n2
+    mov [rdg_dmgseg], dx
+    ret
+.n2:
+    mov si, rw_ramseg               ; cartridge RAM: ours and S_RAMSEG
+    mov di, S_RAMSEG
+    cmp bx, [si]
+    je .two
+    mov si, rw_prfseg               ; Static's profile: ours and S_PRFSEG
+    mov di, S_PRFSEG
+    cmp bx, [si]
+    je .two
+    cmp bx, [rw_rpseg]              ; a replay's buttons: the one word
+    jne .n3
+    mov [rw_rpseg], dx
+    ret
+.n3:
+    cmp bx, [rw_logseg]             ; the log's records: the one word (the
+    jne .n4                         ;   write pins them before it copies
+    mov [rw_logseg], dx             ;   the word, rw_logwrite)
+    ret
+.n4:
+    cmp byte [rw_bcache], 0         ; THE ROM: its banks in the bank table
+    jne .n5
+    cmp bx, [rw_romseg]
+    jne .n5
+    mov [rw_romseg], dx
+    mov cx, [rw_banks]              ; CX = its length, paragraphs
+    jmp short .bank
+.n5:
+    cmp bx, [rw_slotseg]            ; ...or the bank cache's slots
+    jne .n6
+    mov [rw_slotseg], dx
+    mov cx, [rw_nslot]
+.bank:
+    mov ch, cl                      ; x 400h
+    xor cl, cl
+    shl cx, 1
+    shl cx, 1
+    mov si, RDG_BTAB                 ; every bank the claim holds: a word a
+.b:                                 ;   bank, the segment whose 4000h is the
+    mov di, [es:si]                 ;   bank's first byte, so the bank at
+    add di, 400h                    ;   400h past it
+    sub di, bx
+    cmp di, cx
+    jae .bn
+    add [es:si], ax
+.bn:
+    inc si
+    inc si
+    cmp si, RDG_BTAB + 512 * 2
+    jb .b
+    mov di, [es:S_ROMX]             ; ...the bank switched in now
+    add di, 400h
+    sub di, bx
+    cmp di, cx
+    jae .bx
+    add [es:S_ROMX], ax
+.bx:
+    mov di, S_ROMSEG                ; ...and the whole image's
+.one:
+    cmp [es:di], bx
+    jne .r
+    mov [es:di], dx
+.r:
+    ret
+.two:
+    mov [si], dx
+    jmp short .one
+.n6:
+    cmp bx, [rw_jitseg]             ; THE RECOMPILER'S CLAIM: its cache, its
+    jne .n7                         ;   block table and its own code, whose
+    mov [rw_jitseg], dx             ;   four doors are far pointers
+    add [rw_jinit + 2], ax
+    add [rw_jres + 2], ax
+    add [rw_jpre + 2], ax
+    add [rw_jdisp + 2], ax
+    cmp [es:S_JITSEGA], bx          ; the core running over it: flushed
+    je rw_mjit
+    ret
+.n7:
+    cmp bx, [rw_jit2seg]            ; ...and its second 64KB
+    jne .r
+    mov [rw_jit2seg], dx
+    cmp [es:S_JITSEGB], bx
+    jne .r
+    ; on into rw_mjit
+
+; rw_mjit - a cache segment the core was translating into moved: rt_init
+; over the claims where they are now (rw_rtinit) - the segments, the doors,
+; the tails and a flush, so no block and no chain is left naming the old
+; place - and the core left as it was: the interpreter if it was, and
+; Static's fixed table dynamic until the worker's preload (rw_seg2q)
+rw_mjit:
+    push ds
+    mov ds, [cs:rdg_viewseg]
+    mov al, [S_JITON]
+    push ax
+    call rw_rtinit
+    pop ax
+    or al, al
+    jnz .on
+    mov byte [S_JITON], 0           ; (rw_jitoff's three)
+    mov word [S_RESVEC], RDGC_RDG_DISPATCH
+    call rw_jdoff
+.on:
+    cmp byte [S_JITFIX], 0
+    je .x
+    mov byte [S_JITFIX], 0          ; Static: an empty fixed table would
+    mov byte [S_JITPRE], 0          ;   translate nothing; dynamic until the
+    mov byte [cs:rw_seg2q], 1       ;   worker preloads it again (rw_jiton)
+.x:
+    pop ds
+    ret

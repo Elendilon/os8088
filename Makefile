@@ -6236,7 +6236,7 @@ $(BUILD)/realdmg.bin: apps/realdmg/realdmg.asm apps/realdmg/rdgdefs.inc \
                       $(BUILD)/rdgcore.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
-                      apps/realdmg/rwfm.inc drivers/sound/sndpkg.inc \
+                      apps/realdmg/rwfm.inc apps/realdmg/rwmove.inc drivers/sound/sndpkg.inc \
                       apps/os88data.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/realdmg/ -I drivers/sound/ -I $(BUILD)/ -l $(BUILD)/realdmg.lst \
 		-o $@ apps/realdmg/realdmg.asm
