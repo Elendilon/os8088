@@ -1,9 +1,9 @@
 # ROUND 2, queue 13: the bottom half of r2-q9's remaining rows (non-MartyPC). family  row  declared_secs  script  needs
-lemm	lemmings	100	tests/lemmings.py	qemu,cc
-vidl	vidlysplitinplace	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlysplitinplacebase	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlyorder	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
-vidl	vidlyorderbank	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
+SKIP build/lemmings.img absent (fetched data + make lemmingsdisk would write build/; row also launches via `make test`) lemm	lemmings	100	tests/lemmings.py	qemu,cc
+DONE vidl	vidlysplitinplace	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
+DONE vidl	vidlysplitinplacebase	90	tests/vidlysplit.py	qemu,nasm,ffmpeg
+DONE vidl	vidlyorder	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
+DONE vidl	vidlyorderbank	90	tests/vidlyorder.py	qemu,nasm,ffmpeg
 netc	netcoexist	90	tests/netcoexist.py	qemu
 rltu	rltune	81	tests/rltune.py	nasm,qemu
 vgad	vgadirty	80	tests/vgadirty.py	qemu,nasm
@@ -14,12 +14,12 @@ colo	colorpresets	72	tests/colorpresets_qemu.py	qemu,nasm,pil
 wire	wireball	65	tests/wireball.py	qemu,nasm,pil
 pxsw	pxswin-qemu	65	tests/pxswin.py	qemu
 hmad	hmadrv	62	tests/hmadrv.py	qemu,nasm
-vidl	vidlysplit	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlysplitbase	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlysplituntimed	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
-vidl	vidlybank	60	tests/vidlybank.py	qemu,nasm,ffmpeg
-vidl	vidlybankcopy	60	tests/vidlybank.py	qemu,nasm,ffmpeg
-vidl	vidlybanknone	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+DONE vidl	vidlysplit	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+DONE vidl	vidlysplitbase	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+DONE vidl	vidlysplituntimed	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
+DONE vidl	vidlybank	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+DONE vidl	vidlybankcopy	60	tests/vidlybank.py	qemu,nasm,ffmpeg
+DONE vidl	vidlybanknone	60	tests/vidlybank.py	qemu,nasm,ffmpeg
 vidx	vidxmslive	60	tests/vidxms.py	qemu,nasm
 vidx	vidxmsliverep	60	tests/vidxms.py	qemu,nasm
 gifd	gifdrag	56	tests/gifdrag.py	

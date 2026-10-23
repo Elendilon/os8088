@@ -485,3 +485,16 @@ class Mouse(object):
                  "sleep 0.12", "mouse_button 1", "sleep 0.08",
                  "mouse_button 0")
         self._wait()
+
+
+def mouse_dblclick(m, sym, hmp, x, y):
+    """to (x, y), then two clicks, every edge confirmed off mouse_btn - four
+    packets, well inside the kernel's 9-tick double-click window (SPEC.md
+    22), where xmcheck.dblclick paced them with host sleeps after a
+    tools/mouse.py walk (~1.7 s)."""
+    mouse_to(m, sym, hmp, x, y)
+    if mouse_where(m, sym)[2] & 3:
+        mouse_button(m, sym, hmp, 0)
+    for _ in range(2):
+        mouse_button(m, sym, hmp, 1)
+        mouse_button(m, sym, hmp, 0)

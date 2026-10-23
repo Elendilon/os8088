@@ -4952,22 +4952,22 @@ SOAK = [
         "region), no XMS block left owned, and the machine still ticking",
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
-    Row("vidlysplit", "soak", py("tests/vidlysplit.py"), 60.0,
+    Row("vidlysplit", "soak", py("tests/vidlysplit.py"), 20.0,
         "SPEC.md 98.1.9.2: the XMS pool split AFTER the CPU is timed - QEMU is the faster machine: the base's bank (it needs none) given up and the layer's its whole 800 KB ask, 25 slots where the open took 18. "
         "Broken on purpose (vp_lysplit not called) the layer and base arms "
         "FAIL with the open's 8 and 18. Every arm writes [vp_noinp] before "
         "Play: QEMU's 386 reads an XMS bank in place (98.3.18.14), chosen "
         "before the split, which then has no FIFO to resize",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
-        wants=("build/video.o88", "build/os8088.img")),
-    Row("vidlysplitbase", "soak", py("tests/vidlysplit.py", "--arm", "base"), 60.0,
+        wants=("build/video.o88", "build/os8088.img"), timeout=240),
+    Row("vidlysplitbase", "soak", py("tests/vidlysplit.py", "--arm", "base"), 30.0,
         "SPEC.md 98.1.9.2: the XMS pool split AFTER the CPU is timed - key 0's CPU verdict poked in as a kept no, so this CPU is the base's: the layer's bank given back, the base's taking the whole pool, the open's 8 and 18 slots (98.1.9.11). "
         "Broken on purpose (vp_lysplit not called) the layer and base arms "
         "FAIL with the open's 8 and 18",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidlysplitinplace", "soak", py("tests/vidlysplit.py", "--inplace"),
-        90.0,
+        60.0,
         "SPEC.md 98.3.18.14: a LAYER beside a base bank read IN PLACE "
         "(no [vp_noinp], QEMU's 386): [vp_einp] 2, the disk's verdict taken "
         "on a third chunk read into the in-place ring and timed there (both "
@@ -4979,18 +4979,18 @@ SOAK = [
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
     Row("vidlysplitinplacebase", "soak", py("tests/vidlysplit.py", "--inplace",
-                                            "--arm", "base"), 90.0,
+                                            "--arm", "base"), 50.0,
         "SPEC.md 98.3.18.14: vidlysplitinplace on the BASE's machine (key "
         "0's no kept): the layer off and its bank given back, the base's "
         "bank in place at the open's 8 slots, the play whole",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidlysplituntimed", "soak", py("tests/vidlysplit.py", "--arm", "untimed"), 60.0,
+    Row("vidlysplituntimed", "soak", py("tests/vidlysplit.py", "--arm", "untimed"), 20.0,
         "SPEC.md 98.1.9.2: the XMS pool split AFTER the CPU is timed - from the first frame of a one-bit file there is no key to time, and the pool stays as the open took it - the base's bank is never risked on a guess. "
         "Broken on purpose (vp_lysplit not called) the layer and base arms "
         "FAIL with the open's 8 and 18",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
-        wants=("build/video.o88", "build/os8088.img")),
+        wants=("build/video.o88", "build/os8088.img"), timeout=240),
     Row("vidlysplitdisk", "soak", py("tests/vidlysplit.py", "--arm", "diskslow"), 35.0,
         "SPEC.md 98.1.9.3: THE DISK TEST's verdict on the pool split - the "
         "file's two disks set to 4000 and 3000 KB/s, past anything QEMU's "
@@ -5016,7 +5016,7 @@ SOAK = [
         "it back to the base's bank as the least bank, 128 KB",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidlyorder", "soak", py("tests/vidlyorder.py"), 90.0,
+    Row("vidlyorder", "soak", py("tests/vidlyorder.py"), 40.0,
         "SPEC.md 98.1.9.1: a file with a layer and a base bank, bigger than "
         "-m 2's pool, is read RING, then the LAYER's slots, then the base's "
         "BANK - held before frame 20 on a throttled B:, the bank never takes "
@@ -5025,16 +5025,16 @@ SOAK = [
         "Both write [vp_noinp] before Play, the bank COPYING: QEMU's 386 "
         "reads an XMS bank in place (98.3.18.14), with no FIFO to order",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
-        wants=("build/video.o88", "build/os8088.img")),
+        wants=("build/video.o88", "build/os8088.img"), timeout=240),
     Row("vidlyorderbank", "soak", py("tests/vidlyorder.py", "--arm",
-                                     "bank"), 90.0,
+                                     "bank"), 40.0,
         "SPEC.md 98.1.9.1's NEGATIVE CONTROL: [vp_lyneed] poked past the bank, the "
         "bank short of what the base needs - the bank fills with the "
         "layer's slots not full, so vidlyorder's instrument tells the two "
         "orders apart",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidlybank", "soak", py("tests/vidlybank.py"), 60.0,
+    Row("vidlybank", "soak", py("tests/vidlybank.py"), 20.0,
         "SPEC.md 98.1.9: THE LAYER's XMS BANK and its PREFILL, on QEMU's "
         "386 - a Life clip held whole in XMS (the base) with --layer-bank "
         "512 --layer-prefill all: the prefill fills the slots and the bank "
@@ -5047,14 +5047,14 @@ SOAK = [
         "timed the disk for the layer's verdict (vp_xfillt)",
         needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
-    Row("vidlybankcopy", "soak", py("tests/vidlybank.py", "--copy"), 60.0,
+    Row("vidlybankcopy", "soak", py("tests/vidlybank.py", "--copy"), 30.0,
         "SPEC.md 98.1.9, 98.3.18.14: vidlybank with the base COPYING out of "
         "its hold ([vp_noinp] = 1 before Play) - the path every 386 took "
         "before a 386 went in place, kept gated beside it",
         needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidlybanknone", "soak", py("tests/vidlybank.py", "--arm",
-                                    "nobank"), 60.0,
+                                    "nobank"), 20.0,
         "SPEC.md 98.1.9: vidlybank's NEGATIVE CONTROL - the bank zeroed "
         "before Play, so the prefill fills the slots alone: after the swap "
         "the layer's reader finds no disk and the play must draw FEWER "

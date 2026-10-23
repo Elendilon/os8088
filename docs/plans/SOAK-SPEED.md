@@ -118,9 +118,17 @@ reading the guest state the page is drawn from instead of pumping the screen).
    click (88 of rdxms's 111 s). `os88qemu.mouse_to/_click/_button(m, sym,
    hmp, ...)` read `mouse_x`/`mouse_btn` and wait for the word to move.
 
+16. **A host-made fixture is made once per INPUT, not per row.** An encode
+   of a seeded source (vidly*: 32 of a 50 s row, the same clip in five rows)
+   goes through `os88fixture.cached`, keyed on the arguments AND the encoder's
+   source bytes; poke per-arm headers after the copy. Check the hit equal to a
+   fresh make once; a source with no seed gets frozen to one draw - say so.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
+
+- **`os88fixture.cached(dest, key, produce, sources=ENCODER, tools=())`** (tools/os88fixture.py): a host-made input (an ffmpeg source through os88venc) made once per KEY - the caller's parameters plus the bytes of the encoder's sources and `ffmpeg -version` - into `build/fixcache/`, copied out after that; atomic, a miss only slow, `OS88_FIXCACHE=0` the A/B. Technique 16. vidlysplit 50 -> 12 s (cached clip byte-identical to a fresh encode). **`os88qemu.mouse_dblclick`**: technique 15's double-click (four confirmed edges), for `xmcheck.dblclick`'s mouse.py walk.
 
 - **`os88qemu.Private(work, a, b, hd=, ether=)`** - a private QEMU in place of `make test` (no make in build/, no kill through build/qemu.pid, the floppies copied) - and **`os88qemu.Mouse(m, sym, hmp, after=0.4)`**, the closed-loop mouse as an object with `click`/`dblclick`/`run(verb)` (the shape tests/ethernet.py's Mouse and the dispcp verbs take; `after` is a ui_done ceiling). dospkt, dosnetarena; syscheck has its own copy.
 
@@ -386,6 +394,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | pkgfmt / saverate / saver / savervga / vidthumb / vidthumbherc | 16 / 20.6 / 12.8 / 19.6 / 15.4 / 11.0 s; 17 / 36 / 58 / 64 / 30 / 24 guest s waited | 9.7 / 16.7 / 9.9 / 16.1 / 12.2 / 9.9 s; 17 / 30 / 38 / 41 / 28 / 26 | 4, 8, quick boot | boots gate on `kernel_up` / `quick=True` (saver keeps the saver ON: not `no_saver`); polls 0.2-0.3 -> 0.05. saver: a mode's fixed 2.5 s -> the image read's disk quiesce (the bar's block is painted at the end of that hold; `ui_done` never ends inside a session - ui_task wakes every tick) then `lit > 10` capped at 2.5; the wake's 2.5 s -> blk_on/blk_sv/image 0 capped at 2.5, `ui_done`. saverate's 32 guest s of windows ARE the measurement and untouched. pkgfmt red with `--swap` |
 | msel / martyresume / martyconc / cycfire | 32.1 / 22.5 / 24.4 / 24.3 s; 84 / 21 / 39 / 32 guest s waited | 29.5 / 19.5 / 9.8 / 19.4 s; 56 / 13 / 14 / 24 | 2, 4, 9, quick boot | msel: every pre-`fbuf` settle -> `ui.still()`, `m.key` -> `key_taken`. martyconc's two boots were SERIAL (a settle per launch): both `boot=False`, both run, then `kernel_up` each - the pair now really boots at once. cycfire: `kernel_up`, the launch dblclick `settle=0` (its window is waited on). Their hold/no-repeat/negative paces are the measurement, kept |
 | regwork / regpin | 30 / 30 s; 90 / 89 guest s waited | 22 / 24 s; 49 / 60 | 4, 12 | regapp's treatment: `kernel_up`, every settle before a claims/bss read and the dispcp verbs -> `ui_done(lock=False)`, clicks `settle=0`, poll 0.25 dropped. Same verdict lines. build/regpin360.img not built here: a private tree, as regapp. secs 170 / 160 -> 30 / 30 |
+| vidlysplit (+base, untimed, inplace, inplacebase; disk/flip/flipcmp re-run) / vidlyorder(+bank) / vidlybank(+copy, none) | 50-64 s each (cache-miss run ~= before: vidlyorder 51, vidlybank 31); profile: 32 of 50 s the ffmpeg+os88venc encode | 14.5 / 18 / 16 / 43 / 38; 26 / 27; 16 / 17 / 15 s (hit) | 15, 16 | the clip cached (`os88fixture.cached`, identical bytes); drive B and the clip opened with `os88qemu.mouse_dblclick` (mouse.py walk ~1.7 s each), the listing's `pace(1)` -> `ui_done`. inplace rows are the real-time play to its last frame. secs 60/60/60/90/90, 90/90, 60/60/60 -> 20/30/20/60/50, 40/40, 20/30/20; timeout 240 on the miss-first rows |
 
 ## Resuming
 
