@@ -4768,7 +4768,7 @@ SOAK = [
         "the closed list (entry 4)",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/os8088.img", "build/apps.img")),
-    Row("vmmouse", "soak", py("tests/vmmouse.py"), 45.0,
+    Row("vmmouse", "soak", py("tests/vmmouse.py"), 10.0,
         "The VMware absolute pointer (SPEC.md 9.11), the browser's grabless "
         "mouse - and the one CI gate a browser-only feature gets. QEMU's pc "
         "machine carries a vmport and a vmmouse by default, so VMMOUSE.DRV's "
