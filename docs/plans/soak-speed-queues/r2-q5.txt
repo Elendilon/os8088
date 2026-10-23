@@ -1,7 +1,7 @@
 # ROUND 2, queue 5: rows moved from r2-q3 / r2-q4 tails (largest first) and r2-q2's small open rows. family  row  declared_secs  script
 DONE mour	mouresume	150	tests/mouresume.py
 DONE brto	brtoolbar	145	tests/brtoolbar.py
-wdcl	wdclick	130	tests/wdclick.py
+DONE wdcl	wdclick	130	tests/wdclick.py
 DONE kdmo	kdmouse	120	tests/kdmouse.py
 fatw	fatwpin	120	tests/fatwpin.py
 DONE brra	brrace	120	tests/brrace.py
@@ -41,7 +41,7 @@ rdup	rdup	60	tests/rdup.py
 pkgb	pkgbig	60	tests/pkgbig.py
 extd	extdmod	60	tests/extdmod.py
 curs	curshape	60	tests/curshape.py
-wdpe	wdpen	60	tests/wdpen.py
+DONE wdpe	wdpen	60	tests/wdpen.py
 fmpa	fmpatch	60	tests/fmpatch.py
 tmdm	tmdmg	60	tests/tmdmg.py
 desk	deskmodal	40	tests/deskmodal.py

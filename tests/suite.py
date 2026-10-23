@@ -9863,7 +9863,7 @@ SOAK = [
         "banked x 96 px off (different indices).",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
-    Row("wdclick", "soak", py("tests/wdclick.py"), 130.0,
+    Row("wdclick", "soak", py("tests/wdclick.py"), 80.0,
         "SPEC.md 27.4.7 and 27.4.9: a CLICK is a caret move. It reached "
         "wd_redraw with no KIND at all, so 27.4.1's bound, 27.4.4's seed and "
         "27.4.6's single pass were all switched off at once - the view laid "
@@ -10246,7 +10246,7 @@ SOAK = [
         "and the composer turns lanes into four planes for BLITP",
         needs=("marty", "nasm"), serial=True,
         wants=("build/pixel.o88", "build/os8088-360.img")),
-    Row("wdpen", "soak", py("tests/wdpen.py"), 60.0,
+    Row("wdpen", "soak", py("tests/wdpen.py"), 20.0,
         "SPEC.md 68.2.5: [gfx_dis] is ONE KERNEL BYTE whose lifetime is one "
         "gfx-lock hold, and 12.8.3 takes that lock around the WHOLE event "
         "handler - so a greyed control drawn earlier in the same hold is "
