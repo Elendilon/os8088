@@ -117412,6 +117412,72 @@ word here is a corrupted document rather than a slow one, and no pixel test
 would see it — the damage is one byte deep in a buffer the screen shows six
 rows of.
 
+#### 68.3.2 Every claim the document keeps MOVES (§66)
+
+Word holds six session-lived claims besides its region, and since
+docs/plans/NO-PINNING-PLAN.md item A2 all six are declared movable with
+**one** relocation proc, `wd_reloc`, Note Pad's shape (§66.5.7):
+
+| word | claim | declared |
+|---|---|---|
+| `[wd_dseg]` | the text, `WD_KB0`..`WD_MAXKB` | `wd_entry`, once all three exist |
+| `[wd_cseg]` | its CHP twin, the same size | `wd_entry` |
+| `[wd_pseg]` | the PAP dictionary, 1KB | `wd_entry` |
+| `[wd_iseg]` | the italic glyph table + its staging, `WD_ITKB` | `wd_itinit`, after the claim |
+| `[wd_useg]` / `[wd_cuseg]` | the undo arena and its CHP twin | `wd_ugrow`, at the first claim |
+
+**One store each, because every cursor is an offset.** Each claim is named by
+exactly one word, and everything that points into one — `[wd_len]`,
+`[wd_cur]`, the selection, every undo record's blob position, the PAP index a
+¶'s CHP byte carries — is a byte offset, which a move does not change. So the
+proc is a walk of `wd_rltab` that stores `DX` into the one word equal to `BX`,
+and nothing in the typing or drawing path re-reads anything it did not
+already: the keystroke and the walk cost what they cost before. A regrow
+(`wd_resize`, `wd_ugrow`) keeps the declaration — `MC_RLOC` rides the record
+through all three of `mem_regrow`'s paths (§50.3.1) — and calls no proc, its
+new base coming back in `DX` exactly as before.
+
+**THE ONE TRAP is the italic table.** `wd_walk` holds `ES = [wd_dseg]` for its
+whole pass, and `wd_rflush` → `wd_itrun` → `wd_itinit` builds the table on the
+first italic run it draws — a claim, from inside the walk, which can compact.
+So `wd_itinit` PINS every claim in the table (`wd_dmov` with `AX` = 0, §66.2's
+`HLock`) across that one claim and declares them all again after it, the new
+table with them. It costs two far calls a claim **once a session**; the
+alternative, a walk that re-read its segment after every flush, would have
+been paid on every row of every redraw. An audit of every call that can
+compact (`OSAPI_MEM_CLAIM*`, `OSAPI_FILE_*`, `OSAPI_CLIP_PUT`, the window
+calls that bank raise caches, and os88ui's and os88type's own claims), traced
+through the call graph from every load of one of these words, found no other
+segment held across one: `wd_modpap` and `wd_copy` reload or drop ES after
+theirs (and `OSAPI_CLIP_PUT` pins its own source, §66.3 rule 5), and the load
+holds only its staging buffer.
+
+**Pinned on purpose — bucket C.** The load and save staging (`[wd_stgseg]`,
+up to 62KB) and the Utilities scratch (`[wd_scseg]`) are claimed and freed
+inside one command, and each is a file transfer's target or a splice's source
+throughout, so they are pinned by having no declaration (§66.5.7.1's
+counter-example). The typeface cache (`apps/os88type.inc`) and os88ui's menu
+and dropdown save-unders are the shared includes' claims, not Word's.
+
+**The worker** parks only in `OSAPI_TASK_ALIVE` at the top of its loop, where
+it holds nothing; it sleeps `WD_WTICKS` = 3, inside `INST_PARKW`, so it parks
+when asked, and `[wd_inwk]` keeps it from ever claiming (§20.6 rule 7). While
+it runs, the package's claims are pinned by `inst_seg_parked` (§66.5).
+
+**Part 1 needs nothing** (§68.10): it is inside the region's own claim, and
+the region already moves.
+
+**Cost**: image +108 bytes and bss −108, so the region is still exactly
+`WD_P1ORG` and the RAM bill is nil. `tests/wdheapmove.py --app word` is the
+gate: heapfrag holds the floor, Word opens a 4KB+ document above it (a 3KB one
+fits the ceiling gap beside the region, where no pass ever moves it), types,
+deletes to claim the undo arenas, and heapfrag's re-run forces the pass; every
+claim must be declared, every word must name a claim Word still holds, all
+six must move with their live bytes, and three characters typed after the
+move must land at the caret in both the text and the CHP. Verified red: a
+proc that skips `[wd_dseg]` fails on the stale word, and a table without
+`wd_cseg` leaves that claim pinned.
+
 ### 68.4 File format and association
 
 **The file is a real Word file.** Not a private container with Opus's magic
@@ -169457,6 +169523,50 @@ refresh it; `make scribedisk` does). A word in the module naming the
 resident layout - `os88_image_end`, say - compared in `sc_ovload` would
 refuse the pair as "Old SCRIBE.OVL" for a handful of resident bytes.
 *(Fixed by §95.8.7's build stamp, and moot since §95.8.8: there is one file.)*
+
+### 95.14 Every claim the document keeps MOVES — and so does every picture
+
+WORD's §68.3.2, one fork along: `sc_reloc`, `sc_rltab` and `sc_dmov` are
+`wd_reloc`, `wd_rltab` and `wd_dmov` renamed, the same six claims are declared
+in the same three places (`sc_entry`, `sc_itinit`, `sc_ugrow`), and
+`sc_itinit` pins the document across the italic table's claim for the same
+reason - `sc_walk` holds `ES = [sc_dseg]` for its whole pass. The audit found
+the same answer: nothing else holds one of these segments across a call that
+can compact.
+
+**What the fork adds is the PICTURES** (§95.9), up to `SC_PICMAX` = 8, each a
+claim of its own. A picture is named by the segment word of its `sc_pictab`
+slot and by nothing else - the CHP byte of its `SC_PICCH` is the slot's INDEX
+(§95.9) - so a move is one store there too. `sc_reloc` visits all eight slots
+rather than `[sc_npic]` of them: a slot past the count holds a freed
+picture's old segment, and patching it is harmless where stopping at it would
+miss the live one. `sc_picmov` declares a picture once it is REGISTERED, at
+each of the three places one is:
+
+- Insert ▸ Picture: `sc_pictkeep`, after `OSAPI_MEM_REGROW` has shrunk the
+  40KB decode scratch onto the picture in place;
+- the `.DOC` reader: `sc_dpic1`, after the 1bpp rows are expanded into it;
+- the RTF reader: `sc_rpfin`, on its success arm only - a picture the
+  document had no room for goes straight back.
+
+**Three copies of a picture's segment are NOT in the proc, on purpose**:
+`[sc_dpicsg]` (the `.DOC` reader's and writer's picture in hand), `[sc_rpg]`
+(the RTF writer's) and `sc_imgblk`'s `IMG_DSTSEG` (Insert ▸ Picture's decode
+target). Each is live only across a stretch that claims nothing - the reader
+stores `[sc_dpicsg]` after its claim returns, and the two writers run inside a
+save whose only claim, the staging buffer, is made before either is loaded.
+
+**Pinned on purpose, bucket C**: the staging (`[sc_stgseg]`), the 40KB decode
+scratch (`[sc_picseg]`, freed or shrunk into a picture before the command
+returns), the RTF picture still being collected (`[sc_rpseg]`, until
+`sc_rpfin` registers it) and the Utilities scratch.
+
+**Cost**: part 0's image +141 bytes and bss −141, so the region is still
+`SC_P1ORG`; part 1 +19. `tests/wdheapmove.py --app scribe` is the gate - Word's
+row plus a 64×48 picture inserted before the pass, which must move with its
+pixels. Verified red: a proc that skips the picture slots fails on the stale
+slot.
+
 ## 96. DOS — running `.COM` and `.EXE` programs (`apps/dos/`)
 
 **Not an emulator.** This machine is an 8086 in real mode and a DOS `.COM` is

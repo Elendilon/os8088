@@ -10615,6 +10615,28 @@ SOAK = [
         "go red - dropping wd_mvup's step-back fails every text assertion.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
+    Row("wdheapmove", "soak", py("tests/wdheapmove.py", "--app", "word"),
+        45.0,
+        "SPEC.md 68.3.2: every claim Word's document keeps MOVES - text, CHP, "
+        "PAP, italic table and both undo arenas, one proc over one table. "
+        "heapfrag holds the floor, Word opens a 4KB+ document above it (a 3KB "
+        "one fits the ceiling gap beside the region and never moves, which "
+        "left [wd_dseg] untested), types and deletes to claim the arenas, and "
+        "heapfrag's re-run forces the pass: every claim declared, every word "
+        "names a claim Word still holds, all six move with their live bytes, "
+        "and three characters typed after the move land at the caret in both "
+        "the text and the CHP. Verified red: a proc skipping [wd_dseg] fails "
+        "on the stale word; a table without wd_cseg leaves it pinned.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/heapfrag.o88")),
+    Row("wdheapmove-sc", "soak",
+        py("tests/wdheapmove.py", "--app", "scribe"), 60.0,
+        "SPEC.md 95.14: SCRIBE's arm of wdheapmove - Word's six claims plus a "
+        "PICTURE inserted before the pass (each picture is a claim named by "
+        "its sc_pictab slot alone), which must move with its pixels. Verified "
+        "red: a sc_reloc that skips the picture slots fails on the stale slot.",
+        needs=("marty",), serial=True,
+        wants=("build/scribe.o88", "build/heapfrag.o88")),
     Row("wdcombo", "soak", py("tests/wdcombo.py"), 50.0,
         "SPEC.md 68.2.3: Word's three combos are os88ui_drop records rather "
         "than rows of wd_mtab, so the gesture is THREE EVENTS (press, drag, "
