@@ -6367,6 +6367,13 @@ class EncoderP(Flipped, Encoder):
                     members = {}
                     for i, u in enumerate(unit):
                         members.setdefault(u, []).append(i)
+                    # each unit's (cycles, bytes) ONCE: the loop below asks
+                    # again for every member of every unit it skips, on
+                    # every attempt - 358M generator steps in one 2.5 s clip
+                    # (docs/plans/SOAK-SPEED.md). Same sums, same order
+                    usum = {u: (sum(costs[j][0] for j in js),
+                                sum(costs[j][1] for j in js))
+                            for u, js in members.items()}
                     if self.blocks:
                         blk = self.block_cands(target, er, eb)
                     if blk is not None:
@@ -6393,8 +6400,7 @@ class EncoderP(Flipped, Encoder):
                         continue
                     if blk is not None and ublk.get(u, set()) & taken:
                         continue
-                    c = sum(costs[j][0] for j in members[u])
-                    b = sum(costs[j][1] for j in members[u])
+                    c, b = usum[u]
                     if uc + c > er or ub + b > eb:
                         if self.cut == "tear":
                             break       # (one tear line: 98.2.1.2.1)
