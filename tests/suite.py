@@ -7683,13 +7683,13 @@ SOAK = [
         "the old scroll position",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
-    Row("brtable", "soak", py("tests/brtable.py"), 200.0,
+    Row("brtable", "soak", py("tests/brtable.py"), 20.0,
         "BROWSER-PLAN 14 / issue #137: the Apache-index page's three "
         "defects - the last line drawn twice and the table's two layout "
         "faults",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
-    Row("br14", "soak", py("tests/br14.py"), 200.0,
+    Row("br14", "soak", py("tests/br14.py"), 20.0,
         "SPEC.md 71.17: a <td colspan> spans its columns in the composed row, "
         "align=center/middle/right move the cell's text, and password, file "
         "and textarea controls read `[unsupported]` with their contents kept "

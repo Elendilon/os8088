@@ -87,8 +87,8 @@ tmse	tmselfsu	300	tests/tmselfsu.py
 wfdr	wfdraw	120	tests/wfdraw.py
 wfdr	wfdrawherc	120	tests/wfdraw.py
 curd	curdisk	240	tests/curdisk.py
-brta	brtable	200	tests/brtable.py
-br	br14	200	tests/br14.py
+DONE brta	brtable	200	tests/brtable.py
+DONE br	br14	200	tests/br14.py
 apsp	apspk	80	tests/apspk.py
 apsp	apspkcovox	60	tests/apspk.py
 apsp	apspkcardc	20	tests/apspk.py
