@@ -160,7 +160,7 @@ fmco	fmcommit	80	tests/fmcommit.py
 tgpl	tgplay	80	tests/tgplay.py
 trkb	trkbigmod	80	tests/trkbigmod.py
 imgm	imgmount	75	tests/imgmount.py
-fcpr	fcproom	70	tests/fcproom.py
+DONE fcpr	fcproom	70	tests/fcproom.py
 vidx	vidxdisp	70	tests/vidxdisp.py
 trkt	trktxsurf	70	tests/trktxsurf.py
 DONE pxs	pxs160	45	tests/pxs160.py
@@ -172,7 +172,7 @@ spla	splashspin	20	tests/splashspin.py
 span	spantest	30	tests/spantest.py
 span	spantest-vga	30	tests/spantest.py
 sbra	sbrate286	60	tests/sbrate286.py
-hdsi	hdsize	60	tests/hdsize.py
+DONE hdsi	hdsize	60	tests/hdsize.py
 rdpr	rdpreserve	60	tests/rdpreserve.py
 uidr	uidrdis	55	tests/uidrdis.py
 roms	romsmall	45	tests/romsmall.py

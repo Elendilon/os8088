@@ -10589,7 +10589,7 @@ SOAK = [
         "It also reads C:'s Disk window for SPEC.md 22.7.1's units: "
         "FILLER.BIN `40M`, USER.TXT `3700`, `Size 40M`, `Free <n>M`.",
         needs=("marty", "mtools"), serial=True, timeout=1500),
-    Row("hdsize", "soak", py("tests/hdsize.py"), 60.0,
+    Row("hdsize", "soak", py("tests/hdsize.py"), 30.0,
         "SPEC.md 52.2.7: the disk tool's size line. A blank 321MB XT-IDE "
         "drive; the line must open on `Size: all 321M`, the keys `0 1 0 0 5 "
         "Bksp 0` must leave `Size: 100M of 321M` (leading zero and past-the-"
