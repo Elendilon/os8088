@@ -355,11 +355,32 @@ always one of those two cases, so the case K6a would help is the smaller set.
 **Deferred to a later research pass.** Raise caches stay purgeable and stay
 DROPPED by the compactor. The ratchet (4) records them as "shed, by design".
 
+### 6.5 PIXELSTEIN's re-homed claims need the fence widened (a kernel-byte decision)
+
+A4 made PIXELSTEIN's shadow movable (`px_shmv`), but its levels (10 KB), art
+masters (37 KB) and sprite set (60 KB) cannot be declared: the loader claims
+them, OSAPI_PKG_REHOME re-owns every claim to the instance SLOT
+(`mem_reown_x`), and `mem_find_own` accepts only `MC_OWN = caller's segment`
+or `base = caller's segment`. So `OSAPI_MEM_MOVABLE` refuses the program's own
+claims. The fix is one more arm in `mem_find_own`: accept `MC_OWN` = the
+caller's slot. It needs the slot found from the caller's segment, so it is
+ESTIMATED at 12-20 resident bytes, and it widens the fence for every re-homed
+program (Skies, DOS) in the same way the `cmp dx, bx` arm already does for the
+region. Until the owner decides, those three stay PINNED (rule: undeclared),
+107 KB of a re-homed program's life.
+
 ## 7. Resume point (paused 2026-10-23 for the capacity limit)
 
 **Built and pushed on `no-pinning`:** wave 0 (the C overlay moves; `ovlhigh`,
 `ovlmove`), K8 (+14), K1a (-16), K2 (+58), K9 (+42 as a count; `tnest`), and G1
 (`cpcost`, the baseline in 5.1). K6a is deferred and K3 is deferred as niche.
+
+**Merged since:** A4/A5/A8 (`afb03c59`): 1942 and isoTron canvases movable on
+the desktop and pinned across the bracket; Tank's shadow freed at the bracket's
+end; PIXELSTEIN's shadow movable (6.5 is what blocks the rest); WireFleet the
+first adopter of the parts standard's `OP_ONMOVE` opt-in (SPEC.md 20.12.12);
+Excitebike audited, all bucket C. Rows `pkgmove-wireflet`, `pkgmove-1942`,
+`pkgmove-isotron`, and `tank` and `pxsmove` extended.
 
 **In flight in agent worktrees (branches off `no-pinning`, NOT merged):**
 - C4: LEMMINGS' claims movable (range-translating `os88_onmove`)
