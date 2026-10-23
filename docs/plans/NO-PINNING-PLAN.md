@@ -196,7 +196,7 @@ pays for itself. Leave K4/K6b/K6c (~76) for after the next size pass.
 | line | bucket | retires it |
 |---|---|---|
 | csload, wdload, scload, dosload, pxstein: launch images | C (`[ld_base]`) | correct as they stand |
-| **SHEET region** - `ch_ovbind` stamps CS into `CHART.OVL`'s vectors; the 52 KB chart overlay claim is undeclared too | NONE ⚑ | **P1**: the overlay becomes a PART in the package's own segment (SCRIBE's SPEC.md 95.8.8 shape). Then both lines go |
+| **SHEET region** | - | **P1 BUILT, smaller than planned.** The binds stamp CS into vector tables in SHEET's OWN data, so a region proc that re-runs them (`sh_rgnreloc`, 6 bytes) is the whole fix, with no part conversion needed. The "far frame across file calls" reason never bound the region (callbacks pin it). `sheetmove` 3c, red-tested. **Still pinned: the two MODULE claims** (CHART.OVL 52 KB, MACRO.OVL), whose own CS is on the stack across their file calls - the C overlay's shape. That is P1b: a thunk like `cc_ovmthunk`, or making each a part |
 | **FROTZ worker** - `zi_yield` holds ES = the story's PC segment across the yield | NONE | **P2**: show whether an opcode in flight at `zi_yield` has committed; if it has, declare the restart point at the burst boundary |
 
 ### 2.5 Assembly packages - undeclared data claims

@@ -1969,6 +1969,18 @@ sh_m2name: db 'MACRO.OVL', 0
 SH_M2STAMP equ sh_modm_stamp - sh_modm0   ; the stamp's offset in the claim
 
 ; -----------------------------------------------------------------------------
+; sh_rgnreloc - THE REGION MOVED (SPEC.md 66.6.1, NO-PINNING P1). BX = where it
+; was, DX = where it is; DS = CS = the new one. Every word the kernel holds for
+; it the kernel has already put right; what is ours is the CS stamped into the
+; two vector tables the modules far-call back through, so both binds run again.
+; Nothing else holds this segment between callbacks (the region is pinned
+; while one stands - SHEET has no worker).
+; -----------------------------------------------------------------------------
+sh_rgnreloc:
+    call sh_ovbind
+    jmp ch_ovbind
+
+; -----------------------------------------------------------------------------
 ; sh_ovbind - fill the vector table: this package's shim offsets and its own
 ; segment. The offsets are assembled in; only the segment is a runtime fact,
 ; and it is the same one for all of them. ch_ovbind's shape exactly (82.16).
@@ -2602,23 +2614,24 @@ sh_entry:
                                         ; now: sh_reloc patches the WORD, never
                                         ; this register, and the BMP header copy
                                         ; below writes through DX as ES
-    ; THE REGION ITSELF IS NOT DECLARED MOVABLE IN THIS TREE, and that is the
-    ; one place this proc departs from upstream's (SPEC.md 66.6.1). Upstream's
-    ; case for it is that SHEET "stores its own segment nowhere", which is
-    ; true of a package with no overlay and false of this one twice over:
+    ; THE REGION IS DECLARED MOVABLE, below, where the window exists
+    ; (SPEC.md 66.6.1.1; NO-PINNING P1). It was pinned for two stated reasons
+    ; and only the first was a reason:
     ;
-    ;  - ch_ovbind stamps CS into CHART.OVL's vector table, and every SHOUT
-    ;    reaches back through a far pointer holding it. A moved image leaves
-    ;    all of them naming the old one.
-    ;  - the module makes ELEVEN file calls (every format's reader and
-    ;    writer, 82.16.9), each while this package's far return address is on
-    ;    the stack - and a file call claims, so it can compact. The module's
-    ;    retf would pop a segment the kernel has no record of.
+    ;  - ch_ovbind and sh_ovbind stamp CS into the two vector tables the
+    ;    modules reach back through (ch_v_*, sh_v_*). Both tables are in OUR
+    ;    data, so they move with the region and only their stamps go stale -
+    ;    sh_rgnreloc re-runs both binds after a move, which is the whole fix.
+    ;  - "the module makes file calls with this package's far return address
+    ;    on the stack, and a file call can compact". True, and it never
+    ;    reached the REGION: SHEET has no worker, so every module call is
+    ;    inside a callback, and mem_in_nest pins a region for exactly as long
+    ;    as a callback stands in it (SPEC.md 66.6.1). What that argument does
+    ;    bind is the MODULES' OWN claims, which stay undeclared.
     ;
     ; The data claims above DO move: every file transfer stages through
     ; sh_stgseg, which is pinned, and every copy of a movable segment is
-    ; either in sh_segw or dead across no compaction point. The image and
-    ; CHART.OVL are what stay put.
+    ; either in sh_segw or dead across no compaction point.
     mov word [sh_chartwin], 0
     mov word [sh_chart_cnt], 0
     mov word [ch_type], CH_T_COLUMN
@@ -2648,6 +2661,9 @@ sh_entry:
     mov si, sh_tpl
     call OSAPI_WM_CREATE
     jc .fail
+    OS88_REGION_MOVABLE sh_rgnreloc   ; THE REGION MOVES (NO-PINNING P1): see
+                                      ; sh_rgnreloc for the one thing that
+                                      ; names this segment between callbacks
     push ax
     mov ax, sh_onclose                ; the close negotiator (81.118, SPEC.md
     call OSAPI_WM_ONCLOSE             ; 75.1): a changed workbook asks first

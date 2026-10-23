@@ -360,11 +360,28 @@ def main():
         print("  3 every word names a claim %s"
               % ("OK" if not stale else "STALE: " + ", ".join(stale)))
         bad += bool(stale)
-        nt = sword("sh_noteseg")              # 81.94: carved, so it FOLLOWS
+        nt = sword1("sh_noteseg")             # 81.94: carved, so it FOLLOWS
         nt_ok = nt == w1["sh_bordseg"] + 4 * 64   # the border table's move
         print("  3a sh_noteseg follows      %s" % ("OK" if nt_ok else
               "STALE: %04x, border table at %04x" % (nt, w1["sh_bordseg"])))
         bad += not nt_ok
+        # 3c THE MODULES' VECTOR TABLES FOLLOWED THE REGION (NO-PINNING P1):
+        # ch_v_* and sh_v_* hold OUR segment, stamped by the binds, and the
+        # modules far-call back through them - a stale stamp lands in whatever
+        # took the region's old place. sh_rgnreloc re-runs both binds.
+        if sh_seg1 != sh_seg:
+            vs = [u16(m.read(sh_seg1 * 16 + SH[t] + 2 + 4 * i, 2))
+                  for t, n in (("ch_v_first", 9), ("sh_v_first", 2))
+                  for i in range(n)]
+            vec_ok = all(v == sh_seg1 for v in vs)
+            print("  3c vector stamps follow    %s"
+                  % ("OK (%d)" % len(vs) if vec_ok else
+                     "STALE: %s, region at %04x"
+                     % (["%04x" % v for v in vs], sh_seg1)))
+            bad += not vec_ok
+        else:
+            print("  3c vector stamps follow    (not exercised: the region "
+                  "did not move)")
         pin_ok = w1[PINNED] == w0[PINNED]
         print("  3b %s stayed put         %s"
               % (PINNED, "OK" if pin_ok else "MOVED <-- it is a file target"))
