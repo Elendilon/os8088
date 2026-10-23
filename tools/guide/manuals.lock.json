@@ -534,6 +534,22 @@
   "strings": null,
   "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
  },
+ "HTTPFS_DRV": {
+  "sources": [
+   "drivers/httpfs"
+  ],
+  "stamped": "cbabc048",
+  "strings": "3c04230d6d85ba66",
+  "why": "new pages, written from SPEC.md 120 and the drivers' own strings"
+ },
+ "HTTPPAGE_DRV": {
+  "sources": [
+   "drivers/httpfs"
+  ],
+  "stamped": "cbabc048",
+  "strings": "3c04230d6d85ba66",
+  "why": "new pages, written from SPEC.md 120 and the drivers' own strings"
+ },
  "INCONSOL_F88": {
   "sources": [],
   "stamped": "e4576a70",
