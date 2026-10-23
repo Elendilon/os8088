@@ -146933,7 +146933,9 @@ module calls `fp_unpack_a` and five siblings, which are resident. From another
 segment that is a far call; every one of them is a near proc ending in `ret`.
 So each gets a shim in the resident half — `call` plus `retf` — and
 `ch_ovbind` fills `ch_v_*` with each shim's offset and the package's own
-segment at start-up.
+segment at start-up. *(Since §82.16.11 the shim is `CHX`, a call to
+`ch_xthunk` with the routine's offset after it, so the module's CS is not
+on the stack while the routine runs.)*
 
 `ch_s_aiszero` is the **fused** one and shows the class of problem: the module
 used to load `bx, fp_am0` itself, which is an address in the package's bss —
@@ -147322,6 +147324,77 @@ fails the build at that line. And the refusal path was run, not assumed: with
 no `CHART.OVL` on the disk, `=PMT(0.01,60,-20000)` typed into A1 is stored as
 `SH_T_ERR`/`#VALUE!` and `=1+1` in A2 — typed next, parsed by the same routine
 the refusal had to hand the position back to — is stored as 2.
+
+#### 82.16.11 Both modules MOVE: no module CS is ever left on the stack (NO-PINNING P1b)
+
+`CHART.OVL` (52KB) and `MACRO.OVL` (28KB) are heap claims, taken at SHEET's
+entry, and they were never declared movable — up to **80KB of wall** in the
+arena for as long as a sheet was open. The region itself moves since P1
+(`sh_rgnreloc`, §66.6.1); the modules could not, for the C overlay's reason
+(§73.14.2.1): **a module's own CS sat on the stack across calls that can
+claim**, so a compaction under one would slide the module and the `retf`
+would land in whatever took its place. It sat there in four ways, and each is
+closed:
+
+| holder | where | now |
+|---|---|---|
+| a module calling resident code | every `SHOUT` (`call far [sh_v_*]`) and `CHFP` (`call far [ch_v_*]`): 1,170 + 18 sites in `CHART.OVL`, 336 in `MACRO.OVL` | the shim is `CHX` → **`ch_xthunk`** (`apps/os88chartovl.inc`) |
+| `MACRO.OVL` calling `CHART.OVL` | `CHOUT`, 17 sites: `call far [ch_ovfar]` straight across | `SHOUT ch_ovcall` — through resident code like any other call out |
+| a module calling a kernel slot that can claim | `WM_CREATE`/`SHOW`/`DESTROY` (raise caches), every `FILE_*` (sector cache, FAT window, mount): 30 sites in `CHART.OVL` (one of them `os88chart.inc`'s BMP export, `CH_FWRITE`), 9 in `MACRO.OVL` | **`SHK`**: a vector, a `CHX` shim and a two-instruction resident stub (`sh_k_*`) — one byte SHORTER a site than the far call it replaces |
+| `ES` = the module's own claim across a file call | `MACRO.OVL`'s text channels read into and write from its own tail (§81.91.1, `push cs / pop es`) | `SHK m2read` / `m2write`: the claim is PINNED for the call and declared again after (`sh_m2pin`/`sh_m2unpin`, §66.5.7.1's `np_dmov` pair), because `dsk_xfer` pins a destination per transfer and not the walk between them (§66.3 rule 5) |
+
+**`ch_xthunk` is `cc_ovthunk`'s shape done in place**, because no register
+here is dead — every shimmed routine keeps its own register and flag contract.
+On the way in it swaps the stacked CS for a TAG — the *address* of the word
+that names the calling module, `ch_ovseg` or (`CH_OV2SEG`) `sh_m2far + 2` —
+and enters the routine with a near return to `.back`, so the routine sees
+`[ret][IP][tag]`: the old shim's depth exactly. On the way back it
+dereferences the tag, which is the module's segment as it is NOW, and `retf`s
+through it. Nothing is stashed off the stack, so there is **no depth limit** and
+nothing to race; a routine may re-enter a module (`ch_ovcall` pushes the
+REGION's CS, which `mem_in_nest` pins while a callback stands — SHEET has no
+worker) and each frame carries its own tag. The way back touches no flag,
+because the routine's CF is its answer.
+
+**Every other holder was searched for and there are none.** The modules name
+no segment of their own: each addresses itself through `CS` and its data
+through `DS`, the package's. `MACRO.OVL`'s run state is in its own claim
+(`[cs:shm_*]`) and moves with it; its channel buffers are offsets in it. The
+module-to-module near calls carry an IP and no CS. The two other `push cs`
+sites in `MACRO.OVL` (`FREAD`, `FWRITE`) loop over the tail with no call in
+the loop. No `jmp far`/`call far` with an immediate segment exists in either
+module, and no resident code far-calls a vector. The slots a module still calls
+DIRECTLY are the ones that cannot reach `mem_claim`: the drawing and font
+slots, `SET_COLOR`, `WM_CONTENT`, `VIDEO`, `KEY_DOWN`, `WM_KEEPH`,
+`WM_ONWHEEL`, and `MEM_AVAIL` (which plans and moves nothing).
+
+**Declared after the read and the stamp check**, never before — the read
+holds `ES:BX` in the claim: `ch_ovneed` with `ch_ovreloc` (two stores,
+`[ch_ovseg]` and `[ch_ovfar+2]`) and `sh_m2need` with `sh_m2reloc` (one,
+`[sh_m2far+2]`). A refused declaration only leaves the claim pinned.
+
+**What it costs.** Package image 53,080 → **53,518** (+438: a byte a shim
+across 160 shims, the thunk, twelve new shims and their stubs, the pin pair,
+the two procs and two declarations), bss 9,337 → **9,385** (+48: twelve
+vectors), `CHART.OVL` 52,373 → 52,343 and `MACRO.OVL` 18,908 → 18,900 (the
+`SHK` sites are a byte shorter). No kernel byte. Per crossing, counted on the
+8088: **~400 clocks over the old `call`/`retf` shim, ~84 µs at 4.77 MHz** —
+~288 in, ~150 back, against the old 34-clock `retf`. That is less than two
+`OSAPI_*` far calls (46.7 µs each, PERFORMANCE.md); a `CHOUT` pays it once
+more plus `ch_ovneed`'s compare. Estimated from the instruction timings, not
+measured. It is ten times `cc_ovthunk`'s ~40, which can
+afford to be cheap because the C ABI kills AX, DX and SI at every call.
+
+**Gated by `tests/sheetovlmove.py`** (soak). Formula > Goto (F5) is
+`ch_ovcall` → `SHM_IDOPEN` → `SHK wm_show` → `ch_xthunk` → `OSAPI_WM_SHOW` →
+`wm_raise` → `wm_su_take`'s `mem_claim`; the row inflates that claim to one KB
+past the largest run, so only a compaction grants it, with a claim record owned
+by Note Pad placed between SHEET's data (whose staging buffer is a pinned wall)
+and its modules as the hole. Both modules move (`5c00 -> 44c0`, `6900 ->
+51c0`), the module's IP read off the stack is watched at BOTH homes, and the
+return lands at the new one; the old homes are poisoned with HLT. **Red** with
+`CHX` put back to `call routine / retf`: the return is caught at the OLD home
+`5c00:2559`, the UI task halts in the poison, and Esc never closes the dialog.
 
 ### 82.19 Apps size pass 2: the shipped file
 

@@ -5626,6 +5626,19 @@ SOAK = [
         "check 4's repaint differs over 24 rows of the grid",
         needs=("marty",), serial=True,
         wants=("build/sheetmove360.img",)),
+    Row("sheetovlmove", "soak", py("tests/sheetovlmove.py"), 35.0,
+        "NO-PINNING P1b (SPEC.md 82.16.11): SHEET's CHART.OVL MOVES out from "
+        "under its own call chain and the return lands in the new home. F5 is "
+        "ch_ovcall -> SHM_IDOPEN -> SHK wm_show -> ch_xthunk -> OSAPI_WM_SHOW "
+        "-> wm_su_take's mem_claim, which the row inflates to one KB past the "
+        "largest run; a claim record OWNED BY NOTE PAD, placed between SHEET's "
+        "data (whose staging buffer is a pinned wall) and its modules, is the "
+        "hole. The module's frame is read off the stack and its IP watched at "
+        "BOTH homes, and the old home is poisoned with HLT. Red with CHX put "
+        "back to `call routine / retf`: the return lands at the OLD home "
+        "5c00:2559 and Esc never closes the dialog; 35s measured",
+        needs=("marty",), serial=True,
+        wants=("build/sheetovl360.img", "build/CHART.OVL", "build/MACRO.OVL")),
     Row("sheetbtn", "soak", py("tests/sheetbtn.py"), 40.0,
         "A stale button record must not answer a REUSED window slot "
         "(SPEC.md 20.5.1.3.3). Sheet's Goto, then its Format dialog, then "
