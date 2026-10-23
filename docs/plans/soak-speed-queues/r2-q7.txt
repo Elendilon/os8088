@@ -3,12 +3,12 @@ SKIP fails at base (os88pkg: DOS.O88 or VIDEO.O88 now has PARTS, compress_image 
 DONE vidk	vidkern	48	tests/vidkern.py
 DONE vidk	vidkpartbad	45	tests/vidkpartbad.py
 DONE lzsh	lzship	80	tests/lzship.py
-dosl	doslong	30	tests/doslong.py
-mseg	mseglazy	50	tests/mseglazy.py
-mseg	mseglzslack	50	tests/mseglzslack.py
-mseg	msegnomem	40	tests/msegnomem.py
-mseg	msegplslack	20	tests/mseglzslack.py
-shee	sheetbtn	30	tests/sheetbtn.py
+DONE dosl	doslong	30	tests/doslong.py
+DONE mseg	mseglazy	50	tests/mseglazy.py
+DONE mseg	mseglzslack	50	tests/mseglzslack.py
+DONE mseg	msegnomem	40	tests/msegnomem.py
+DONE mseg	msegplslack	20	tests/mseglzslack.py
+DONE shee	sheetbtn	30	tests/sheetbtn.py
 pxpa	pxparts	60	tests/pxparts.py
 font	fontview	60	tests/fontview.py
 icos	icostore	60	tests/icostore.py

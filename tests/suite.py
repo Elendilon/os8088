@@ -2766,7 +2766,7 @@ SOAK = [
         "...and that off a 360KB disk, with the head slack. Needs `make "
         "msegw`.",
         needs=("marty",), serial=True, wants=("build/msegwz360.img",)),
-    Row("msegnomem", "soak", py("tests/msegnomem.py"), 40.0,
+    Row("msegnomem", "soak", py("tests/msegnomem.py"), 30.0,
         "SPEC.md 20.12.3: a package that cannot fit is refused BEFORE IT "
         "READS ANYTHING, and this row measures that rather than asserting it. "
         "MSEGBIG is MSEG's twin - the same three filed parts and one more, a "
@@ -3132,7 +3132,7 @@ SOAK = [
         "of the row itself and that is still 0. Presence is what the package "
         "was told; the carve is what the disk did. Needs `make mseg`.",
         needs=("marty", "nasm"), serial=True, wants=("build/mseg.img",)),
-    Row("mseglzslack", "soak", py("tests/mseglzslack.py"), 50.0,
+    Row("mseglzslack", "soak", py("tests/mseglzslack.py"), 20.0,
         "SPEC.md 88.10.4.1, 20.12.7.4: a fetched OP_COMP | OP_LAZY part "
         "keeps ITS OWN LENGTH and nothing of the volume's. op_fetch claims R "
         "plus the packed read rounded to whole clusters, and a read may only "
@@ -5367,7 +5367,7 @@ SOAK = [
         "check 4's repaint differs over 24 rows of the grid",
         needs=("marty",), serial=True,
         wants=("build/sheetmove360.img",)),
-    Row("sheetbtn", "soak", py("tests/sheetbtn.py"), 30.0,
+    Row("sheetbtn", "soak", py("tests/sheetbtn.py"), 40.0,
         "A stale button record must not answer a REUSED window slot "
         "(SPEC.md 20.5.1.3.3). Sheet's Goto, then its Format dialog, then "
         "Goto again, all on one slot through Sheet's own in-window bar: the "
@@ -5851,7 +5851,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/dosshrink360.img",)),
 
-    Row("doslong", "soak", py("tests/doslong.py"), 30.0,
+    Row("doslong", "soak", py("tests/doslong.py"), 20.0,
         "DOS TRUNCATES A NAME THAT IS NOT 8.3 (SPEC.md 96.12.5). "
         "`dos_fh_core` counted the thirteen bytes of its parse buffer and "
         "answered 3 for anything longer; DOS fills an eleven-byte FCB-shaped "
