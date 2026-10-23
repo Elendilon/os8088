@@ -82,6 +82,12 @@ reading the guest state the page is drawn from instead of pumping the screen).
    (harness changes); then assert the state the key set. Check fullscreen
    exits: the kernel drains the key ring at the end of `fsx_restore`.
 
+9. **Profile the HOST before the guest.** When wall >> waitlog host total,
+   `python3 -m cProfile -s tottime tests/<row>.py <args>`: fixture making
+   (clip encoding, PBM parsing, per-sample Python loops over a capture) was
+   2/3 of vidsound's wall. Vectorise it (numpy, `bytes.translate`) and check
+   it equal to the loop it replaces.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
