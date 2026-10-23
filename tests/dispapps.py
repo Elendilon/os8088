@@ -425,7 +425,11 @@ def main(argv):
 
     fail = []
     say = lambda s: print("  " + s)
-    settle = os88marty.settle
+    # EVERY ASSERTION IS A PACKAGE'S BSS OR A WINDOW RECORD, with three games
+    # drawing on their own clocks the whole time - so the wait after an
+    # action is ui_task's pass ending, lock not asked (ui_done lock=False),
+    # and the facts a switch changes are QUIESCED where they are read.
+    settle = lambda m, card=None, gate=None: os88marty.ui_done(m, lock=False)
     watch = {"taskmgr": ["tm_cols", "tm_colrows", "tm_col2rows", "tm_maxrow"],
              "arkanoid": ["ark_bw", "ark_bh", "ark_rows", "ark_pw0",
                           "ark_bpp"],
@@ -433,7 +437,10 @@ def main(argv):
                            "sol_bpp"],
              "missile": ["mc_mono", "mc_ecoarse", "mc_expfr", "mc_caps"],
              "piano": ["pn_kby2", "pn_bky2"]}
-    with os88marty.launch(a.image, apps=a.apps, machine=a.machine) as m:
+    with os88marty.launch(a.image, apps=a.apps, machine=a.machine,
+                          boot=False) as m:
+        m.run()
+        os88marty.kernel_up(m)          # the first act is a click
         mo = os88mouse.Mouse(marty=m)
         if dispfit.kind(m) != VID_VGA:
             sys.exit("dispapps: %s did not come up on the VGA" % a.machine)
@@ -515,6 +522,8 @@ def main(argv):
 
         dispcp.open_panel(m, mo, S, settle)
         dispfit.switch_to(m, mo, settle, 1, VID_CGA)
+        allw = lambda: [words(m, segs[a], a, watch[a]) for a in sorted(segs)]
+        os88marty.quiesce(m, allw, guest=0.5, what="the packages' facts")
         after = dict((a, words(m, segs[a], a, watch[a])) for a in segs)
         for a in sorted(after):
             say("CGA  %-10s %r" % (a, after[a]))
@@ -561,6 +570,7 @@ def main(argv):
                         % (before["piano"]["pn_kby2"], PN_KB_Y2_FULL))
 
         dispfit.switch_to(m, mo, settle, 0, VID_VGA)
+        os88marty.quiesce(m, allw, guest=0.5, what="the packages' facts")
         back = dict((a, words(m, segs[a], a, watch[a])) for a in segs)
         for a in sorted(back):
             say("VGA  %-10s %r" % (a, back[a]))

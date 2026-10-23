@@ -135,6 +135,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | row | before | after | techniques | notes |
 |---|---|---|---|---|
 | tmowner | ~450 s | 41 s | 1, 2 | b787057, prior to this pass |
+| dispapps | 232 s (loaded) / 168 guest s | 33 s / 58 guest s | 4 | three games draw all the time, so settle (98 guest s over two adapter switches) -> `ui_done(lock=False)`; the switched facts are `quiesce`d where read (an early read is RED: before==after fails); `kernel_up` boot. secs 120 -> 45 |
 | dispblitp | 49 s / 124 guest s, 2 boots | 23 s / 58 guest s, 1 boot | 3, 4, 8 | both legs (`pt_planar` is one-way) fork the boot after Paint opens instead of re-booting; each leg now ASSERTS its fork is still four planes; setup settles -> `ui_done`, the capture keeps its settle. secs 180 -> 30 |
 | dispmcfs | 88 s / 234 guest s | 76 s / 190 guest s | 4, 8 | `kernel_up` boot; settles before window-record reads -> `ui_done(lock=False)` (Missile draws all the time, so plain `ui_done`/settle waited out ~110 guest s of its animation); `state()`'s settles before the lit-pixel counts are the measurement and stay. secs 180 -> 120 |
 | dispfrac | 21 s / 45 guest s | 21-56 s (noisy) | - | `kernel_up` boot; the adapter-switch settles vary 17-70 guest s with the fractal rendering and stay (pixels never still). secs 180 -> 60 |

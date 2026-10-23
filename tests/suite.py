@@ -7745,7 +7745,7 @@ SOAK = [
     Row("dispapp", "soak", py("tests/dispapp.py"), 40.0,
         "Does a PACKAGE stay on its own display? (SPEC.md 39.2.1)",
         needs=("marty",), serial=True),
-    Row("dispapps", "soak", py("tests/dispapps.py"), 120.0,
+    Row("dispapps", "soak", py("tests/dispapps.py"), 45.0,
         "Do the apps that lay out ONCE re-derive when the adapter changes?",
         needs=("marty",), serial=True),
     Row("dispband", "soak", py("tests/dispband.py"), 54.1,
