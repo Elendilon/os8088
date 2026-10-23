@@ -401,6 +401,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | netcoexist | 15.6 s direct (declared 90); 6.9 s of it `gone` after four closes | 8.5 s | - | the zombie fix above; the four machines are already state-driven. secs 90 -> 20 |
 | minesrc | not runnable as was (`make test` would rebuild the shared build/: buildnum 581 vs HEAD); declared 80 | 12.0 s | 14, 15 | `os88qemu.launch_test` boot; the Mouse closed-loop (`mouse_click`/`mouse_dblclick`, mask 2 for the right press) ending on `ui_done(cap=0.4)` where each gesture paced 0.4 guest s; polls 0.4/0.25 -> 0.05, the board-paint `pace(1)` -> `ui_done`. Red with case C aimed at a cell. secs 80 -> 20 |
 | vgadirty | 67 s cold | 2.5 s warm | - | lean: 62 s of the cold run is `os88build.tree("VGADIRTY=1")` building its knob kernel (warm: no make at all); the guest is ~2 s. secs left at 80 for the cold case |
+| vidbankspkfast / vidlysplit{disk,flip,flipcmp} / vidlag / vidbankauto | declared 40 / 35 / 35 / 40 | 15 / 17 / 11 / 17 / 28 / 84 s alone (vidbankauto 96 s CPU, vidlag 31) | - | the QEMU four already on closed-loop mouse and `ui_done`: re-declared down. vidlag and vidbankauto are the host ENCODER (3 and 6 encode passes, its meter pool): re-declared UP (vidbankauto was declared 40). `--jobs 1` gives the same outputs at -15% CPU and +8% wall - not taken |
 
 ## Resuming
 

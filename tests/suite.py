@@ -4991,7 +4991,7 @@ SOAK = [
         "FAIL with the open's 8 and 18",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img"), timeout=240),
-    Row("vidlysplitdisk", "soak", py("tests/vidlysplit.py", "--arm", "diskslow"), 35.0,
+    Row("vidlysplitdisk", "soak", py("tests/vidlysplit.py", "--arm", "diskslow"), 20.0,
         "SPEC.md 98.1.9.3: THE DISK TEST's verdict on the pool split - the "
         "file's two disks set to 4000 and 3000 KB/s, past anything QEMU's "
         "floppy reads, so the CPU passes and the disk says this is the "
@@ -5001,7 +5001,7 @@ SOAK = [
         "called) it FAILS with 0 and 25",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidlysplitflip", "soak", py("tests/vidlysplit.py", "--arm", "flip"), 35.0,
+    Row("vidlysplitflip", "soak", py("tests/vidlysplit.py", "--arm", "flip"), 20.0,
         "SPEC.md 98.1.9.10: THE LAYER IS THE RING'S, with XMS (QEMU) - its "
         "slots, its bank's bounce and its mirror (the claim's slack) the "
         "ring claim's top, past the ring's own slots, its "
@@ -5010,7 +5010,7 @@ SOAK = [
         "(vp_lycarve not called) the layer is not read and it FAILS",
         needs=("qemu", "nasm", "ffmpeg"), serial=True,
         wants=("build/video.o88", "build/os8088.img")),
-    Row("vidlysplitflipcmp", "soak", py("tests/vidlysplit.py", "--arm", "flipcmp"), 35.0,
+    Row("vidlysplitflipcmp", "soak", py("tests/vidlysplit.py", "--arm", "flipcmp"), 20.0,
         "SPEC.md 98.1.9.4: the flip's PAY-BACK - the header's ring poked "
         "past the carve, so the ring lends 96 KB of it and the split gives "
         "it back to the base's bank as the least bank, 128 KB",
@@ -14378,7 +14378,7 @@ SOAK = [
         "dsk_read_chain's first-run skip) it FAILS",
         needs=("marty", "nasm", "mtools"), serial=True,
         wants=("build/video.o88",)),
-    Row("vidbankauto", "soak", py("tests/vidbankauto.py"), 40.0,
+    Row("vidbankauto", "soak", py("tests/vidbankauto.py"), 100.0,
         "SPEC.md 98.2.1.3.3, host-side: --bank auto asks for what the encode "
         "drew of --pool, in whole slots, and the record holds the KB; "
         "--layer-bank auto is the layer's pool less H_LYNEED; two passes make "
@@ -14448,7 +14448,7 @@ SOAK = [
         "pans (98.2.1.2.1), and --bands' writes never climbing back a band "
         "(98.2.1.2.2), each red with its mechanism taken out.",
         needs=("ffmpeg",)),
-    Row("vidlag", "soak", py("tests/vidlag.py"), 35.0,
+    Row("vidlag", "soak", py("tests/vidlag.py"), 40.0,
         "SPEC.md 98.2.1.1.3: the lag searched, host-side. A frame's ceiling "
         "under the lag schedule must be the most it may take - safe and "
         "tight to a hundredth of a period, an allowance between two calls "
