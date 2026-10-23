@@ -108,6 +108,7 @@ segment arithmetic (the case the policy refuses outright).
 | **ANY `[drv_wcnt]` != 0 pins EVERY `MC_DMA` head** | D, too broad | **K1**: a per-claim "a chip is armed here" bit, set by the arming driver |
 | region with a worker and no restart point | NONE | only FROTZ is hit (2.4) |
 | kern_small: no compactor at all | NONE | **K7**, the owner decides |
+| *(a gap, not a pin)* the UI task PRE-EMPTED inside a package, with a data claim's segment in ES or the overlay's CS in its interrupt frame, while another task's claim compacts | C, unguarded | **K8**: SPEC.md 66.3 context 3 says "a worker may not claim", but SPEC.md 13's menu note says a package worker can, while a menu is down. If it can, `mem_can_move` should pin the claims of every package standing in the nest whenever the compacting task is not the UI task. That is the momentary pin bucket C describes, and it is the pin that makes ALL the other declarations safe. Settle which spec sentence is true first |
 
 ### 2.2 Kernel claims
 
@@ -182,7 +183,8 @@ the base at each use". The ⚑ rows are the ones that need real work.
 
 Ranked by the free memory each recovers on a real session, then by cost.
 
-1. **W0-T** - the move-under-a-frame row for the C overlay (gates what is built).
+1. **W0-T** - the move-under-a-frame row for the C overlay (gates what is
+   built). **K8** - settle the worker-claim question before declaring more.
 2. **C4** LEMMINGS - the largest pin on the desktop, and the package this
    branch exists for.
 3. **K1** - per-image and per-claim DMA pins. Small kernel change; every
