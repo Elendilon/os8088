@@ -79,11 +79,11 @@ DONE stik	stikmiss	21	tests/stikmiss.py
 DONE stik	stikboot	17	tests/stikboot.py
 DONE stik	stikshort	15	tests/stikshort.py
 DONE stik	stikhiber	15	tests/stikhiber.py
-doss	dosshell	270	tests/dosshell.py
+SKIP intermittent: the probe's DONE marker is missed (garbled text screen) in 2 of 3 runs at base, and that wait's limit=240 HOST s then dominates (31 s vs 163-192 s); the codes still pass. Not a test-speed fix doss	dosshell	270	tests/dosshell.py
 doss	dosseq	240	tests/dosseq.py
 doss	dosshrink	30	tests/dosshrink.py
 doss	dossnd	30	tests/dossnd.py
-dock	dockpos	300	tests/dockpos.py
+DONE dock	dockpos	300	tests/dockpos.py
 dock	dockmodule	120	tests/dockmodule.py
 dock	dockmark	90	tests/dockmark.py
 mult	msegz	60	tests/multiseg.py
@@ -94,7 +94,7 @@ mult	msegwz	60	tests/multiseg.py
 mult	msegwz360	60	tests/multiseg.py
 mult	mseg360	40	tests/multiseg.py
 mult	multiseg	20	tests/multiseg.py
-fddp	fddpark	300	tests/fddpark.py
+DONE fddp	fddpark	300	tests/fddpark.py
 fddp	fddpage	120	tests/fddpage.py
 asso	assocflush	170	tests/assocflush.py
 asso	assocsweep	50	tests/assocsweep.py

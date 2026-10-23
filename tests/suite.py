@@ -5169,7 +5169,7 @@ SOAK = [
         "with Extend saved comes up Single - and two displays with no image "
         "is a failure wherever it is seen",
         needs=("marty",), serial=True),
-    Row("dockpos", "soak", py("tests/dockpos.py", "--cga"), 300.0,
+    Row("dockpos", "soak", py("tests/dockpos.py", "--cga"), 60.0,
         "Does the dock stand on every edge and hide? (SPEC.md 30.5, 30.6,"
         "31.13) The Dock page drives Left, Right and Auto-hide on a 5150/"
         "Hercules: the band the kernel published, the rule on its edge and the"
@@ -11302,7 +11302,7 @@ SOAK = [
         "one-armed reading could not tell that from a test that never "
         "reached a freeze at all.",
         needs=("marty",), serial=True, timeout=900),
-    Row("fddpark", "soak", py("tests/fddpark.py"), 300.0,
+    Row("fddpark", "soak", py("tests/fddpark.py"), 60.0,
         "SPEC.md 18.100: a Restart leaves the floppy heads on TRACK 0. int "
         "19h resets no hardware, so the next boot inherits drive B's head "
         "where the session left it - which costs 18.97's probe its fast path "
