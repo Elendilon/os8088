@@ -195,7 +195,7 @@ def _ui_wait(m, dflt, why):
 
     A guest that is not executing ends it at once, as `pace` does - the
     caller armed a breakpoint or paused the machine, and nothing more will
-    happen until it acts. A kernel whose map cannot be read here (a DOS box,
+    happen until it acts. A kernel whose map cannot be read here (kern_dos,
     a private build this process cannot resolve) takes the old pause, and so
     does every call under OS88_SETTLE_UI=0, the A/B for both halves."""
     if os88marty.GUEST_PACE <= 0 or m is None or not os88marty.SETTLE_UI:

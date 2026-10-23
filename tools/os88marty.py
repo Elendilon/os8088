@@ -2775,7 +2775,7 @@ def _ktick(m):
 def _ui_mark(m):
     """settle's short-window test: (drive reads, kernel tick) if `ui_idle`
     holds, else None. Anything that cannot be read - a map that does not
-    describe the running kernel, a DOS box that has overwritten it - is None,
+    describe the running kernel, a kern_dos that has overwritten it - is None,
     which is the full window and the old behaviour.
 
     THE TICK IS THE LIVENESS PROOF. A warm reboot does not clear RAM, so
