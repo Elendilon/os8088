@@ -2470,7 +2470,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/os8088-360.img", "build/apps360.img",
                "build/skies.o88")),
-    Row("timerrace", "soak", py("tests/timerrace.py"), 30.0,
+    Row("timerrace", "soak", py("tests/timerrace.py"), 20.0,
         "SPEC.md 13.9.2: ui_timer_pass asks again, UNDER the gfx lock, "
         "whether the window it is about to call still exists - gfx_lock can "
         "block on a dying worker that destroys the record and frees its "
@@ -2583,7 +2583,7 @@ SOAK = [
         "(assocopen's), and the refused comma is the leg that says the fix "
         "did not buy the repaint back with one nobody owes.",
         needs=("marty",), serial=True),
-    Row("rehome", "soak", py("tests/rehome.py", "360"), 45.0,
+    Row("rehome", "soak", py("tests/rehome.py", "360"), 30.0,
         "SPEC.md 20.12.10: a LOADER hands its identity to one of its own "
         "PARTS and is then FREED. REHOME.O88's image is a small parts reader "
         "- it loads two parts, writes where it put them into the head of part "
@@ -2670,7 +2670,7 @@ SOAK = [
         "an instance slot - which is invisible from the glass and is why this "
         "is a row rather than an argument. Needs `make rehome`.",
         needs=("marty",), serial=True, wants=("build/rehomeabort.img",)),
-    Row("multiseg", "soak", py("tests/multiseg.py", "1440"), 20.0,
+    Row("multiseg", "soak", py("tests/multiseg.py", "1440"), 30.0,
         "SPEC.md 20.12: a package carries its parts in its OWN FILE and loads "
         "them ITSELF. The kernel parses none of it - all it learns is flags "
         "bit 2, that the file is longer than the image on purpose, and it "
@@ -2696,7 +2696,7 @@ SOAK = [
         "MEASURED with the kernel's bit-2 exception disabled: ld_status 2, "
         "`Bad package`. Needs `make mseg`.",
         needs=("marty",), serial=True, wants=("build/mseg.img",)),
-    Row("mseg360", "soak", py("tests/multiseg.py", "360"), 40.0,
+    Row("mseg360", "soak", py("tests/multiseg.py", "360"), 20.0,
         "...and the same package off a 360KB disk, where it is NOT a "
         "duplicate. A part begins on a 512-byte boundary in the FILE and "
         "OSAPI_FILE_READ_AT will only BEGIN a read on a CLUSTER boundary - "
@@ -3357,7 +3357,7 @@ SOAK = [
         "SPEC.md 13.8.3: the Control Panel acts on the RELEASE, not the"
         "press.",
         needs=("marty",), serial=True),
-    Row("dtfield", "soak", py("tests/dtfield.py"), 50.0,
+    Row("dtfield", "soak", py("tests/dtfield.py"), 90.0,
         "SPEC.md 37.93: the Date/Time field editor still edits now that it "
         "runs from inside CTRL.DRV. The day clamp is the load-bearing leg - "
         "cw_clk_mlen is the only call clk_fld_adj makes out of the image, so "
@@ -4844,7 +4844,7 @@ SOAK = [
         "taken off the list this row reproduces exactly that (DRVE_HW)",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img",)),
-    Row("videms", "soak", py("tests/videms.py"), 45.0,
+    Row("videms", "soak", py("tests/videms.py"), 70.0,
         "SPEC.md 98.3.18.6-7: VIDEO.O88'S BANK IN EXPANDED MEMORY, decoded IN "
         "PLACE (the ring is the board's slots, the conventional ring 2), on MartyPC's "
         "8088 with the Lo-tech 2 MB board and no XMS - booted from `make "
@@ -4861,7 +4861,7 @@ SOAK = [
         "which is how a recipe stored from the wrong register looked)",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img", "build/video.o88")),
-    Row("videmshyb", "soak", py("tests/videms.py", "--hybrid"), 45.0,
+    Row("videmshyb", "soak", py("tests/videms.py", "--hybrid"), 60.0,
         "SPEC.md 98.3.18.6: videms's play through the EMS HYBRID (vp_noinp) - "
         "a FIFO of the board's pages ahead of a conventional ring of 3, "
         "copied down by rep movsw - B: blanked after the prefill and all 200 "
@@ -4869,7 +4869,7 @@ SOAK = [
         "cannot play in place (BIGSP, sound ahead, Repeat) plays this way",
         needs=("marty", "nasm"), serial=True, timeout=300,
         wants=("build/emstest.img", "build/video.o88")),
-    Row("videmsslow", "soak", py("tests/videms.py", "--slow"), 45.0,
+    Row("videmsslow", "soak", py("tests/videms.py", "--slow"), 70.0,
         "SPEC.md 98.3.18.8: the board's READ SPEED, measured at the open "
         "against the package's RAM (MartyPC's board reads 1.0x, asserted), "
         "then forced SLOW (vp_eslow 1, a PicoMEM v1's PSRAM): the session "
@@ -5061,7 +5061,7 @@ SOAK = [
         "layer records than the file has (what the slots held, still drawn)",
         needs=("qemu", "nasm", "ffmpeg"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
-    Row("videmswrap", "soak", py("tests/videms.py", "--wrap"), 45.0,
+    Row("videmswrap", "soak", py("tests/videms.py", "--wrap"), 60.0,
         "SPEC.md 98.3.18.7: the DECODE IN PLACE with its ring held to 3 of "
         "the board's slots (vp_ekr), so it WRAPS - 7 chunks through 3 slots, "
         "the reader filling quarter 3 off the disk while the hook maps "
@@ -6979,7 +6979,7 @@ SOAK = [
         "programs on the disk beside ours.",
         needs=("qemu",), serial=True,
         wants=("build/ether360.img", "build/dospkt360.img")),
-    Row("fsclass", "soak", py("tests/fsclass.py"), 40.0,
+    Row("fsclass", "soak", py("tests/fsclass.py"), 50.0,
         "SPEC.md 62.9.19: the RAM disk and the parallel cable attached AT "
         "ONCE. Both were DRVC_FILE, a class is one publication slot, and the "
         "second attach was DRVE_TWICE; RAMDISK.DRV is DRVC_FILE2 now and "
@@ -8798,7 +8798,7 @@ SOAK = [
         "the pixel? Nothing covered undo at all until the copy-on-first-touch"
         "bitmap went from a bit a ROW to a bit a BLOCK",
         needs=("marty",), serial=True),
-    Row("spantest", "soak", py("tests/spantest.py"), 30.0,
+    Row("spantest", "soak", py("tests/spantest.py"), 40.0,
         "SPEC.md 5.10: gfx_spans against the GFX_FILL a row its own refusal"
         "sends a caller to - nine shapes including an EMPTY row, both clips"
         "and a middle grey's dither, plus the refusal itself. apps/paint only"
@@ -8806,7 +8806,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/spantest.img",)),
     Row("spantest-vga", "soak",
-        py("tests/spantest.py", "--machine", "os8088_xt_vga"), 30.0,
+        py("tests/spantest.py", "--machine", "os8088_xt_vga"), 40.0,
         "...and the same on VGA, which is gfx_spans' other row writer - the"
         "latch-and-bit-mask one, with vga_set_color and vga_gc_reset hoisted"
         "out of the span loop",
@@ -8924,7 +8924,7 @@ SOAK = [
         "flush the disk the guest wrote and boot IT. Two boots, which is why it"
         "is here and not in the gate",
         needs=("marty",), serial=True),
-    Row("cpnames", "soak", py("tests/cpnames.py"), 20.0,
+    Row("cpnames", "soak", py("tests/cpnames.py"), 30.0,
         "SPEC.md 2.8.6.1/31.9: do the Control Panel's list names and page"
         "headings letter, now that the item table and every static name are"
         "in CTRL.DRV's image and staged per draw, and the heading is drawn by"
@@ -8932,7 +8932,7 @@ SOAK = [
         "the framebuffer, per page. Red with the staging call removed (every"
         "name) and with the heading block removed (every page). Measured 16s",
         needs=("marty",), serial=True),
-    Row("cpnameshdd", "soak", py("tests/cpnames.py", "hdd"), 25.0,
+    Row("cpnameshdd", "soak", py("tests/cpnames.py", "hdd"), 40.0,
         "cpnames on os8088_xt_hdd, plus a DRIVER's row: the hard disk ticked in"
         "on the Drivers page, and its page's list name - staged out of the"
         "driver's segment by CTRL.DRV's cp_drv_name into cp_sbuf since kernel"
@@ -8996,7 +8996,7 @@ SOAK = [
     # draws no chevrons and the Task Manager has to be open, so a
     # boot-and-look version of this is a null test that reads like a pass -
     # icoclip's problem one primitive along, and the same answer.
-    Row("fillpat", "soak", py("tests/fillpat.py"), 20.0,
+    Row("fillpat", "soak", py("tests/fillpat.py"), 30.0,
         "Does the 1bpp PATTERNED fill lay the tile down where it says? "
         "(SPEC.md 5, 32) - gfx_fill_pat on a mono adapter is two masked edge "
         "columns through sw_patcol plus a rep stosw interior, with the tile "
@@ -9014,7 +9014,7 @@ SOAK = [
     # PASSES - measured, on the tree that introduced the kind. The record and
     # the entry have to be named together or this row tests nothing.
     Row("icoclip", "soak", py("tests/icoclip.py", "--entry", "icon_draw_ix"),
-        40.0,
+        20.0,
         "Does a 32-wide icon HANGING OFF THE RIGHT EDGE still clip byte for "
         "byte? (SPEC.md 25.6) - ico_pass_bb's per-byte column test is the "
         "only thing between an icon at x = w-8 and a write on the NEXT SCAN "
@@ -10630,7 +10630,7 @@ SOAK = [
         " so it patches mc_tr_lay to stc/ret in the guest to force every trail"
         " down it",
         needs=("marty",), serial=True),
-    Row("minexflag", "soak", py("tests/minexflag.py"), 50.0,
+    Row("minexflag", "soak", py("tests/minexflag.py"), 20.0,
         "A wrong flag must not be drawn pixel-identical to a mine (SPEC.md "
         "23): the X over it is light red because a black one lands entirely "
         "inside the black glyph beneath and cannot be seen.",
@@ -14624,7 +14624,7 @@ SOAK = [
         "a figure. It reads at_rlk back afterwards, which is what turns "
         "46.1's honest 'that paragraph's visual lines' into a table.",
         needs=("marty", "nasm"), serial=True, timeout=900),
-    Row("atclip", "soak", py("tests/atclip.py"), 45.0,
+    Row("atclip", "soak", py("tests/atclip.py"), 30.0,
         "SPEC.md 46.5.2/46.5.3/46.6.1/46.7.1: ArtfulType's MINIMIZE BOX, its "
         "DOCK round trip, its CLOSE BOX and its SYSTEM "
         "clipboard, one boot, because most of it is reachable only from the "
@@ -15343,12 +15343,12 @@ SOAK = [
         "an expiry that clears [toast_on] without redrawing reports the bed "
         "left on the glass, cell by cell.",
         needs=("marty",), serial=True),
-    Row("sbar", "soak", py("tests/sbar.py"), 60.0,
+    Row("sbar", "soak", py("tests/sbar.py"), 20.0,
         "SPEC.md 13.10: the shared scroll bar, and the two kernel bars are"
         "one now.",
         needs=("marty",), serial=True,
         wants=()),
-    Row("sbardlg", "soak", py("tests/sbar.py", "dlg"), 60.0,
+    Row("sbardlg", "soak", py("tests/sbar.py", "dlg"), 30.0,
         "SPEC.md 13.10/38.3: the chooser's bar at the list's right edge "
         "narrowed by FM_CHCOLW, its arrow scrolling the chooser's own block.",
         needs=("marty",), serial=True),
@@ -15624,7 +15624,7 @@ SOAK = [
         "SPEC.md 70.7/77.47: Telnet and the FTP server promise per DEBT, not"
         "per session.",
         needs=("marty",), serial=True),
-    Row("monoink", "soak", py("tests/monoink.py"), 40.0,
+    Row("monoink", "soak", py("tests/monoink.py"), 30.0,
         "SPEC.md 11.96.17.1's hook reaches font_run and not font_str - it must "
         "not perturb the path it does not serve, and the gap is measured",
         needs=("marty",), serial=True),
@@ -15636,7 +15636,7 @@ SOAK = [
         "SPEC.md 11.96.17's two-colour declaration reaches W_FLAGS, and clear "
         "of SPEC.md 7.2.1's cursor shape in the same byte",
         needs=("marty",), serial=True),
-    Row("tpsaveu", "soak", py("tests/tpsaveu.py"), 50.0,
+    Row("tpsaveu", "soak", py("tests/tpsaveu.py"), 30.0,
         "TeXPad - the largest window in the tree, and the one four planes "
         "cannot fund - keeps its pixels one plane deep (SPEC.md 11.96.17)",
         needs=("marty",), serial=True),
@@ -15781,7 +15781,7 @@ SOAK = [
         "Does TeXPad's INCREMENTAL source redraw draw what a full repaint"
         "draws? (SPEC.md 69.8)",
         needs=("marty",), serial=True),
-    Row("trkrate", "soak", py("tests/trkrate.py"), 45.0,
+    Row("trkrate", "soak", py("tests/trkrate.py"), 30.0,
         "trkrate - XT mode's second rate, and the surface it refuses (SPEC.md"
         "45.9.3)",
         needs=("marty",), serial=True,

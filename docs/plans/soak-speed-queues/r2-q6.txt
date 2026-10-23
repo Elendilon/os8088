@@ -2,8 +2,8 @@
 isot	isotronsmall	40	tests/isotronsmall.py
 DONE doss	dosshrink	30	tests/dosshrink.py
 DONE doss	dossnd	30	tests/dossnd.py
-mult	mseg360	40	tests/multiseg.py
-mult	multiseg	20	tests/multiseg.py
+DONE mult	mseg360	40	tests/multiseg.py
+DONE mult	multiseg	20	tests/multiseg.py
 DONE asso	assocsweep	50	tests/assocsweep.py
 DONE asso	assocopen	40	tests/assocopen.py
 DONE asso	assocglyph	30	tests/assocglyph.py
@@ -17,42 +17,42 @@ DONE dosd	dosdev	25	tests/dosdev.py
 DONE dosm	dosmouse	60	tests/dosmouse.py
 DONE dosm	dosmouevt	60	tests/dosmouevt.py
 DONE dosm	dosmcb	30	tests/dosmcb.py
-reho	rehome	45	tests/rehome.py
-reho	rehomeabort	40	tests/rehomeabort.py
-vide	videms	45	tests/videms.py
-vide	videmshyb	45	tests/videms.py
-vide	videmsslow	45	tests/videms.py
-vide	videmswrap	45	tests/videms.py
+DONE reho	rehome	45	tests/rehome.py
+DONE reho	rehomeabort	40	tests/rehomeabort.py
+DONE vide	videms	45	tests/videms.py
+DONE vide	videmshyb	45	tests/videms.py
+DONE vide	videmsslow	45	tests/videms.py
+DONE vide	videmswrap	45	tests/videms.py
 DONE covo	covoxcp	45	tests/covox.py
 DONE covo	covoxdrv	30	tests/covox.py
 DONE covo	covoxauto	30	tests/covox.py
 DONE covo	covoxnolpt	30	tests/covox.py
-time	timerrace	30	tests/timerrace.py
-sbar	sbar	60	tests/sbar.py
-sbar	sbardlg	60	tests/sbar.py
+DONE time	timerrace	30	tests/timerrace.py
+DONE sbar	sbar	60	tests/sbar.py
+DONE sbar	sbardlg	60	tests/sbar.py
 DONE dosg	dosgap	25	tests/dosgap.py
 vidh	vidhdmake	65	tests/vidhdmake.py
 int	int0sweep	60	tests/int0sweep.py
 spla	splashbar	40	tests/splashbar.py
 spla	splashspin	20	tests/splashspin.py
-span	spantest	30	tests/spantest.py
-span	spantest-vga	30	tests/spantest.py
+DONE span	spantest	30	tests/spantest.py
+DONE span	spantest-vga	30	tests/spantest.py
 sbra	sbrate286	60	tests/sbrate286.py
 rdpr	rdpreserve	60	tests/rdpreserve.py
 uidr	uidrdis	55	tests/uidrdis.py
-roms	romsmall	45	tests/romsmall.py
+SKIP(fails at base: os88rom 'file offset 0x54 is a site but the plain kernel does not hold COLD_SEG' - rombig's failure) roms	romsmall	45	tests/romsmall.py
 roms	romsock	5	tests/romsock.py
-dtfi	dtfield	50	tests/dtfield.py
-mine	minexflag	50	tests/minexflag.py
-tpsa	tpsaveu	50	tests/tpsaveu.py
-cpna	cpnameshdd	25	tests/cpnames.py
-cpna	cpnames	20	tests/cpnames.py
-atcl	atclip	45	tests/atclip.py
-trkr	trkrate	45	tests/trkrate.py
-cycw	cycweb	40	tests/cycweb.py
-fscl	fsclass	40	tests/fsclass.py
-icoc	icoclip	40	tests/icoclip.py
-mono	monoink	40	tests/monoink.py
+DONE dtfi	dtfield	50	tests/dtfield.py
+DONE mine	minexflag	50	tests/minexflag.py
+DONE tpsa	tpsaveu	50	tests/tpsaveu.py
+DONE cpna	cpnameshdd	25	tests/cpnames.py
+DONE cpna	cpnames	20	tests/cpnames.py
+DONE atcl	atclip	45	tests/atclip.py
+DONE trkr	trkrate	45	tests/trkrate.py
+DONE cycw	cycweb	40	tests/cycweb.py
+DONE fscl	fsclass	40	tests/fsclass.py
+DONE icoc	icoclip	40	tests/icoclip.py
+DONE mono	monoink	40	tests/monoink.py
 usbm	usbmouse	35	tests/usbmouse.py
 alte	altenter	33	tests/altenter.py
 c	c64part	30	tests/c64part.py
@@ -65,7 +65,7 @@ audh	audhand	26	tests/audhand.py
 spkf	spkfx	25	tests/spkfx.py
 fpgc	fpgcold	20	tests/fpgcold.py
 shed	shedrelist	20	tests/shedrelist.py
-fill	fillpat	20	tests/fillpat.py
+DONE fill	fillpat	20	tests/fillpat.py
 uibl	uiblock	20	tests/uiblock.py
 xorr	xorrect	20	tests/xorrect.py
 pkgm	pkgmax	15	tests/pkgmax.py
