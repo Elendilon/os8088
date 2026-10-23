@@ -128,7 +128,7 @@ def launch(q, ui, S, bad, tag):
         if not os88qemu.acted(q, disk, secs=30, what="C:'s window"):
             raise RuntimeError("C:'s window never opened")
         w = box["w"]
-        os88qemu.pace(q, 1)
+        q.done(1.0)                             # (was pace(1): the listing)
         i, _ = ui.entry("CALC.O88", w)
         before = set(o.i for o in ui.windows())
         xmcheck.dblclick(q.sock, *ui.row_xy(w, i - ui.scroll(w)))

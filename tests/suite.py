@@ -536,7 +536,7 @@ FAST = [
         "failures, and the reason took a screenshot to see. The gate reads "
         "the DRIVERS' OWN SOURCE for the names they load, so a third overlay "
         "is covered the day it is written"),
-    Row("lzfmt", "soak", py("tests/unit/t_lzfmt.py"), 17.6,
+    Row("lzfmt", "soak", py("tests/unit/t_lzfmt.py"), 10.0,
         "docs/plans/O88-COMPRESSION-PLAN.md wave 0: both compression formats "
         "round-trip. tools/os88lz.py is the REFERENCE and the kernel's "
         "decoders are the copy, so this is what makes that claim mean "
@@ -2396,7 +2396,7 @@ SOAK = [
         "A DECLARED extension's icon is right from a COLD mount (SPEC.md"
         "54.7.3).",
         needs=("marty",), serial=True),
-    Row("hdtake", "soak", py("tests/hdtake.py"), 15.0,
+    Row("hdtake", "soak", py("tests/hdtake.py"), 10.0,
         "SPEC.md 52.1.1: on QEMU's 386, HDD.DRV's own IDE rung TAKES a drive "
         "SeaBIOS also knows once LBA 0 read through both rungs agrees - the "
         "AT BIOS's PIO runs with interrupts off and the PC speaker's clock "
@@ -12159,7 +12159,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/viddisk.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv")),
-    Row("viddiskcpu", "soak", py("tests/viddiskcpu.py"), 16.0,
+    Row("viddiskcpu", "soak", py("tests/viddiskcpu.py"), 12.0,
         "docs/plans/DISK-CPU-PLAN.md 7: VIDDISK's C mode, what a read costs "
         "the CPU - sectors read through the IDE task file by the bench "
         "itself, PIT-timed per sector (rep insw and the old in/stosw/loop), "
@@ -14302,7 +14302,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/vidkern.o88", "build/kernel.sys", "build/boothd.bin",
                "build/mbr.bin", "build/hdd.drv")),
-    Row("vidfmt", "soak", py("tests/vidfmt.py"), 16.0,
+    Row("vidfmt", "soak", py("tests/vidfmt.py"), 10.0,
         "SPEC.md 98.1: the .V88 file and tools/os88vid.py, host-side. "
         "`--selfcheck` encodes generated frames on all three layouts and "
         "imports a synthetic XDC stream to each, decodes every frame back "
@@ -14337,7 +14337,7 @@ SOAK = [
         "FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
-    Row("vencbundle", "soak", py("tests/vencbundle.py"), 15.0,
+    Row("vencbundle", "soak", py("tests/vencbundle.py"), 10.0,
         "SPEC.md 98.2.13: `make vencbundle`'s zip, unpacked OUTSIDE the "
         "tree and used from there - whole and deterministic, it encodes, "
         "makes a floppy with the player beside the tool on it, and an "
@@ -15082,7 +15082,7 @@ SOAK = [
         "disk that it can then format (the docstring has the three ways). "
         "Measured at 60s",
         needs=("marty",), serial=True),
-    Row("fmtpair", "soak", py("tests/fmtpair.py"), 21.0,
+    Row("fmtpair", "soak", py("tests/fmtpair.py"), 15.0,
         "fmtpair - the formatter offers the DRIVE's two sizes whatever the "
         "read said (SPEC.md 18.96.4): a bulk-erased 1.44MB disk was offered "
         "1200K, 720K and 1440K on three erasures because a read of noise "

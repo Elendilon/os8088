@@ -86,11 +86,20 @@ ROW = (180, 128)
 
 
 def qmp(sock, *cmds):
-    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "qmp.py"), sock,
-                        *cmds], capture_output=True, text=True, cwd=ROOT)
-    if r.returncode != 0:
-        raise SystemExit("xmcheck: qmp failed:\n" + (r.stderr or r.stdout)[-600:])
-    return r.stdout
+    """tools/qmp.py's work, in process (a Python start a call was most of a
+    memory read's cost); a failure is the same SystemExit as before."""
+    import traceback
+    t = os.path.join(ROOT, "tools")
+    if t not in sys.path:
+        sys.path.insert(0, t)
+    import qmp as qmpc
+    try:
+        out, err, rc = qmpc.run(sock, list(cmds))
+    except Exception:                       # noqa: BLE001 - as a crashed child
+        out, err, rc = "", traceback.format_exc(), 1
+    if rc != 0:
+        raise SystemExit("xmcheck: qmp failed:\n" + (err or out)[-600:])
+    return out + "\n" if out else ""
 
 
 def goto(sock, x, y):
@@ -292,10 +301,10 @@ def wait_desktop(sock, who="xmcheck"):
             return dispcp.drive_ordinal(m, sym, "B") is not None
         except Exception:                   # noqa: BLE001 - not answering yet
             return False
-    if not os88qemu.acted(m, zone, secs=90, what="drive B's zone", poll=0.4):
+    if not os88qemu.acted(m, zone, secs=90, what="drive B's zone", poll=0.05):
         raise SystemExit("%s: drive B: never got a desktop zone - the guest "
                          "did not reach a desktop" % who)
-    os88qemu.pace(m, 1)
+    os88qemu.ui_done(m, sym, cap=1.0)       # (was pace(1): the paint, capped)
 
 
 class Mem(object):

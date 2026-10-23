@@ -30,8 +30,19 @@ def main() -> int:
     if len(sys.argv) < 3:
         print(__doc__)
         return 2
-    path, cmds = sys.argv[1], sys.argv[2:]
+    out, err, rc = run(sys.argv[1], sys.argv[2:])
+    if out:
+        print(out)
+    if err:
+        print(err, file=sys.stderr)
+    return rc
 
+
+def run(path, cmds):
+    """The command line's work IN PROCESS: (stdout, stderr, exit code), the
+    text exactly what main() prints. tests/xmcheck.py's `qmp` calls this
+    rather than spawning a Python per memory read (~60 ms each)."""
+    outs = []
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.connect(path)
     f = s.makefile("rw")
@@ -72,22 +83,25 @@ def main() -> int:
                 n += 1 if d > 256 else d    # SET (POST, midnight), not run
                 last, seen = t, time.monotonic()
 
-    for cmd in cmds:
-        if cmd.startswith("sleep "):  # convenience: pacing between inputs
-            time.sleep(float(cmd.split()[1]))
-            continue
-        if cmd.startswith("gsleep "):
-            gsleep(float(cmd.split()[1]))
-            continue
-        r = send({"execute": "human-monitor-command",
-                  "arguments": {"command-line": cmd}})
-        out = r.get("return", r)
-        if isinstance(out, str) and out.strip():
-            print(out.strip())
-        elif "error" in r:
-            print(f"error: {r['error']}", file=sys.stderr)
-            return 1
-    return 0
+    try:
+        for cmd in cmds:
+            if cmd.startswith("sleep "):  # convenience: pacing between inputs
+                time.sleep(float(cmd.split()[1]))
+                continue
+            if cmd.startswith("gsleep "):
+                gsleep(float(cmd.split()[1]))
+                continue
+            r = send({"execute": "human-monitor-command",
+                      "arguments": {"command-line": cmd}})
+            out = r.get("return", r)
+            if isinstance(out, str) and out.strip():
+                outs.append(out.strip())
+            elif "error" in r:
+                return "\n".join(outs), f"error: {r['error']}", 1
+        return "\n".join(outs), "", 0
+    finally:
+        f.close()
+        s.close()
 
 
 if __name__ == "__main__":

@@ -90,10 +90,12 @@ SEGCHK = bytes.fromhex("3B16CC4075")
 
 
 def run(rom, frames, core, host, jit="static", seg2=False, small=False, squeeze=None):
-    img = os.path.join(ROOT, "build", "realdmg", "rdgstatic.img")
+    img = os.path.join(rdgimg.private(os.path.join(ROOT, "build", "realdmg")),
+                       "rdgstatic.img")
     rdgimg.make_image(rom, img, frames=frames, core=core, host=host, jit=jit,
                      seg2=seg2, squeeze=seg2 if squeeze is None else squeeze, small=small)
-    text = rdgqemu.run(img, ["RDGHOST DONE", "RDGHOST BADOP"], timeout=400, quiet=True)
+    text = rdgqemu.run(img, ["RDGHOST DONE", "RDGHOST BADOP"], timeout=400, quiet=True,
+                       final=[" END\n"])
     if jit != "static":
         m = re.search(r"flushes (\d+) seg2 (\d+)", text)
         r = re.search(r"recycled (\d+)", text)

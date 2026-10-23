@@ -100,7 +100,29 @@ class Guest:
             self.g = socket.create_connection(('127.0.0.1', gp), timeout=10)
             self.rsp('?')
             self.qmp('cont')
-            time.sleep(3)
+            # The boot on STATE, not a 3 host-s sleep: the desktop's tables
+            # written, [spl_live] = 0 (kmain's last act) and the BIOS tick
+            # moving past it (os88marty.kernel_up's gate), read over QMP while
+            # the guest runs; then the UI idle. Budgeted in GUEST seconds.
+            up = (os88sym.linear('desk_rows'), os88sym.linear('menu_nbar'),
+                  os88sym.linear('spl_live'))
+            seen = [None]
+            def booted():
+                if not (any(self.peek(up[0], 2)) and any(self.peek(up[1], 2))
+                        and not self.peek(up[2], 1)[0]):
+                    seen[0] = None
+                    return False
+                t = os88qemu.ticks(self)
+                if seen[0] is None:
+                    seen[0] = t
+                return t != seen[0]
+            mem, self.read = self.read, self.peek    # os88qemu reads `m.read`
+            try:
+                if not os88qemu.acted(self, booted, secs=120, what='the desktop'):
+                    raise RuntimeError('the kernel never reached the desktop')
+                os88qemu.ui_done(self, os88sym.linear, cap=3.0, what='the boot')
+            finally:
+                self.read = mem
             self.qmp('stop')
             # Enter on the UI task's normal stack, outside the graphics lock.
             # Injecting disk/UI work on the idle task trips its stack guard.
@@ -154,6 +176,16 @@ class Guest:
         if result.startswith('E'):
             raise RuntimeError(f'GDB {command[:50]}: {result}')
         return result
+
+    def peek(self, address, size):
+        """Guest memory over QMP's `xp`, which works while the guest RUNS
+        (`read` is the gdb stub's and needs it stopped)."""
+        out = self.qmp('human-monitor-command',
+                       **{'command-line': 'xp /%dxb 0x%x' % (size, address)})
+        b = bytearray()
+        for line in out.splitlines():
+            b += bytes(int(x, 16) for x in line.split(':', 1)[1].split())
+        return bytes(b[:size])
 
     def read(self, address, size):
         return bytes.fromhex(self.rsp(f'm{address:x},{size:x}'))
