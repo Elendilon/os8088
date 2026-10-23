@@ -2772,6 +2772,17 @@ def _ktick(m):
     return b[0] | (b[1] << 8)
 
 
+def _ui_lastt(m):
+    """[ui_lastt]: the [ticks] value ui_task's last pass saw (kernel/ui.inc's
+    .posted_done). Asleep with this equal to [ticks] is that tick's pass
+    FINISHED - ui_task sleeps only at .idle, after the whole pass."""
+    a = getattr(m, "_ui_lastt_sym", None)
+    if a is None:
+        a = m._ui_lastt_sym = m.sym("ui_lastt")
+    b = m.read(a, 2)
+    return b[0] | (b[1] << 8)
+
+
 def _ui_mark(m):
     """settle's short-window test: (drive reads, kernel tick) if `ui_idle`
     holds, else None. Anything that cannot be read - a map that does not
@@ -2843,8 +2854,12 @@ def ui_idle(m, lock=True):
 
 def ui_done(m, what="the UI to finish with that input", hold=0.06,
             limit=60.0, cap=None, lock=True):
-    """Run until `ui_idle` is true and STAYS true for `hold` guest seconds with
-    no disk read in between, and answer the guest seconds that took.
+    """Run until `ui_idle` is true, at least `hold` guest seconds and one kernel
+    tick after it was first seen true, with no disk read in between and
+    ui_task's pass for the CURRENT tick finished ([ui_lastt] = [ticks]) - and
+    answer the guest seconds that took. ui_task may be busy inside that
+    window: its own tick wake makes it ready every tick, and beside a worker
+    that draws all the time it waits out the worker's frame before it runs.
 
     This is what a fixed pause after a click or a key was standing in for.
     `pace(m, 2.5)` spends eleven guest seconds whether the handler took two
@@ -2877,6 +2892,7 @@ def ui_done(m, what="the UI to finish with that input", hold=0.06,
     """
     idle = (lambda mm: ui_idle(mm, False)) if not lock else ui_idle
     prog = _Progress(m, what, limit * GUEST_BUDGET_RATIO)
+    c0 = r0 = k0 = None
     while True:
         # THE CLOCK IS READ HERE, EVERY PASS. `spent()` is only as fresh as the
         # last `check()`, and the commonest way round this loop calls none: a
@@ -2900,24 +2916,83 @@ def ui_done(m, what="the UI to finish with that input", hold=0.06,
                     % (prog.spent(), what, st["state"], st["cs"], st["ip"]))
             prog.check()
             time.sleep(0.005)
-        c0 = prog._cycles()
-        r0, k0 = m.disk().get("reads"), _ktick(m)
-        held = True
+        # THE HOLD IS A STATE, NOT A STREAK. It used to need ui_idle to read
+        # true at EVERY host poll from its first sighting until a tick had
+        # passed - and ui_task's own tick wake makes it READY at every tick
+        # whether or not anything is owed. On a bare desktop it runs at once
+        # and sleeps again inside a millisecond, so no poll ever saw it. Beside
+        # a worker that draws every frame (Missile, on dispmcfs) the round
+        # robin hands the CPU to the WORKER first and ui_task waits out its
+        # frame - MEASURED at ~25 ms of every 55, ready and not running, with
+        # no event queued and no wake owed. Any poll inside that window broke
+        # the streak and the next tick broke the next one, so whether the
+        # wait ended at all was decided by where the host's polls happened to
+        # land: 3,000 tries in 180 guest seconds without one, on a loaded box.
+        #
+        # What the streak was standing in for is now READ: ui_task stamps
+        # [ui_lastt] with [ticks] on the first pass after each tick, and
+        # sleeps only at .idle, after a whole pass - so asleep with
+        # [ui_lastt] = [ticks] is "the pass for the current tick is FINISHED",
+        # exactly, at whatever moment it is read. The window opens at the
+        # first idle sighting and is NOT reset by ui_task being busy inside
+        # it - only by a disk read, which is a load still moving.
+        if c0 is None or m.disk().get("reads") != r0:
+            c0 = prog._cycles()
+            r0, k0 = m.disk().get("reads"), _ktick(m)
         # At least `hold` guest seconds AND one kernel tick: the tick is
         # ui_task's own periodic wake having come and gone, and the proof
         # that it is THIS kernel's bytes being read (see `_ui_mark`).
-        while ((prog._cycles() - c0) / GUEST_HZ < hold
-               or _ktick(m) == k0):
-            if not idle(m):
-                held = False
-                break
-            if cap is not None and prog.spent() >= cap:
-                return prog.spent()
+        if (prog._cycles() - c0) / GUEST_HZ < hold:
             prog.check()
             time.sleep(0.005)
-        if held and idle(m) and m.disk().get("reads") == r0:
+            continue
+        got = _ui_settled(m, idle, k0, r0)
+        if got:
             prog.done("ui_done")
             return prog.spent()
+        if got is None:                 # a disk read: the window starts again
+            c0 = None
+        time.sleep(0.005)
+
+
+# THE CONFIRMATION IS READ ON A STOPPED GUEST, AND STEPPED IN GUEST TIME.
+# Five reads taken on a running machine are five instants, and MartyPC serves a
+# request at its own cadence - so a poll loop falls into step with anything
+# periodic in the guest and stays there. MEASURED beside Missile (dispmcfs):
+# the tick read and [ui_lastt] came back from the idle half of the tick and the
+# T_STATE read after them from the busy half, sixty polls running, every one -
+# a check that could have passed at half of all instants passed at none,
+# because it was never asked at the other half. Stopped, the bytes are one
+# instant; stepped, the instants are the GUEST's and an eighth of a tick apart,
+# so three ticks of them cannot all land in a window that is ~25 ms of 55.
+_UI_STEP = 65536 * 4 // 8              # cycles: an eighth of a tick (65,536
+_UI_STEPS = 24                          # PIT counts, 4 CPU clocks each) - and
+                                        # 24 of them are three ticks
+
+
+def _ui_settled(m, idle, k0, r0):
+    """True when ui_task's pass for the current tick is FINISHED, a tick later
+    than `k0`, with no read since `r0`; False when three ticks of guest time
+    stepped on a stopped machine never showed it; None when a disk read moved.
+    Under a breakpoint pump the guest is not ours to stop, so it is one
+    snapshot taken running."""
+    def ok():
+        if m.disk().get("reads") != r0:
+            return None
+        k = _ktick(m)
+        return k != k0 and _ui_lastt(m) == k and idle(m)
+    if getattr(m, "_pumping", 0):
+        return ok()
+    m.pause()
+    try:
+        for _ in range(_UI_STEPS):
+            got = ok()
+            if got or got is None:
+                return got
+            m.advance(cycles=_UI_STEP)
+        return ok()
+    finally:
+        m.run()
 
 
 def _ui_asleep(m):
