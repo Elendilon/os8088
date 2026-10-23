@@ -36,7 +36,7 @@ measure.
    expectation, a knob tree) and watch the row go red, then restore.
 5. Re-declare the row's `secs` in tests/suite.py at ~1.25x measured (10/30/60s
    steps), and keep `timeout` sane.
-6. Docs: re-read docs/plans/SOAK-SPEED.md BEFORE each row (others add
+6. Docs: re-read docs/plans/completed/SOAK-SPEED.md BEFORE each row (others add
    techniques as they go - use them). Add a ledger row (row | before | after |
    technique numbers | one-line note; quote guest seconds as well as wall).
    Add/extend a numbered Technique ONLY when it generalises, in 1-3 lines -
@@ -83,10 +83,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_0128wd3x4TL6TkrT5R6Y6y6u
 
 ## Round 2 additions (read these too)
-- Your queue is `docs/plans/soak-speed-queues/r2-q<N>.txt`. Lines prefixed
+- Your queue is `docs/plans/completed/soak-speed-queues/r2-q<N>.txt`. Lines prefixed
   `VERIFY` are rows whose shared script was edited in round 1 and never
   re-run: run each once first (pass = mark DONE; fail = diagnose).
-- Read docs/plans/SOAK-SPEED.md FIRST: eight techniques and a dozen harness
+- Read docs/plans/completed/SOAK-SPEED.md FIRST: eight techniques and a dozen harness
   features exist already (quick boots, Forks, UI.still, kernel_up, logging
   breakpoints, ui_done-as-settle). Reuse before inventing.
 - EVERY os88test run is `MAKELEVEL=1 python3 tools/os88test.py soak -k <row>`.

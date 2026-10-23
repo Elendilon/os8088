@@ -1,11 +1,10 @@
 # SOAK-SPEED — making each soak row cheaper, one row at a time
 
-**OPEN.** Working notes for the soak-speed pass: every emulator row in the
-soak tier, taken one at a time, looked at in depth and made cheaper without
-making it less able to fail. The findings here are to be folded into
-docs/WRITING-TESTS.md when the pass ends; this file is the raw material, so it
-stays short and is rewritten rather than appended to where a technique
-generalises.
+**COMPLETED, and folded into docs/WRITING-TESTS.md** (its sections 4.2, 6 and 7 are
+where these techniques live now). This file is the pass's design record: the
+numbered techniques that test comments cite as `SOAK-SPEED N`, the harness
+features it added, and the per-row ledger. It is not maintained against later
+trees.
 
 Background: docs/plans/SOAK-PARALLEL.md §11 (where a row's time goes:
 `settle` is ~half of it) and `tests/tmowner.py` (b787057: ~450 s → 41 s by
@@ -495,7 +494,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 ## Resuming
 
 The six work queues and the agent brief that drove the first session are in
-`docs/plans/soak-speed-queues/`: each row is prefixed `DONE`, `SKIP <why>` or
+`docs/plans/completed/soak-speed-queues/`: each row is prefixed `DONE`, `SKIP <why>` or
 nothing (open). Rows marked `DONE(script changed, row not re-run)` carry a
 shared script edit and need one run to confirm. Run every row as
 `MAKELEVEL=1 python3 tools/os88test.py soak -k <row>` in a shared checkout.

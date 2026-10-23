@@ -136,7 +136,7 @@ def py_pack(wsim, wml, out):
     """`weavesim --pack wml -o out` IN THIS PROCESS: (packed?, last line).
 
     A spawned interpreter per case was 0.1 s of the row's ~0.12 s a case
-    (docs/plans/SOAK-SPEED.md technique 10). The verdict is main()'s: a
+    (docs/plans/completed/SOAK-SPEED.md technique 10). The verdict is main()'s: a
     PackError or BundleError is a refusal with its message, and anything else
     is the traceback a spawned run would have died on - so its LAST LINE, the
     exception, is what `lastline` read off stderr. `--spawn` is the old path,

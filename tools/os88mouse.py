@@ -94,7 +94,7 @@ STEP = 100
 # times the 25 ms the UART needs, and `to` then proves arrival with `_landed`
 # anyway. 0.012 is 54 ms - two packet times. Measured on an idle CGA desktop,
 # six moves cost 5.32 guest seconds at 0.12 and 1.15 here, every one arriving
-# exactly (docs/plans/SOAK-SPEED.md, harness changes).
+# exactly (docs/plans/completed/SOAK-SPEED.md, harness changes).
 GAP = 0.012
 # WHAT ONE PACKET IS ALLOWED, in GUEST seconds. `to` used to sleep a fixed
 # 0.25 HOST seconds after each one - about 0.9 guest seconds on an idle box

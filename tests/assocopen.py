@@ -90,7 +90,7 @@ def bp_open(m, mo, wx, wy, name):
         # tick: the open's pass is over, so a repaint it owed would have
         # stopped the machine already. (It was `tr.wait(1, limit=30)`, whose
         # PASS for a document was its whole 90-guest-second budget -
-        # docs/plans/SOAK-SPEED.md 5.)
+        # docs/plans/completed/SOAK-SPEED.md 5.)
         quiet = [None]
 
         def over():
@@ -118,7 +118,7 @@ def bp_open(m, mo, wx, wy, name):
 
 # every read below is guest memory (or the framebuffer after the UI is
 # done), so the boot gate is the kernel's STATE and the dispcp verbs settle
-# on ui_done (docs/plans/SOAK-SPEED.md 4)
+# on ui_done (docs/plans/completed/SOAK-SPEED.md 4)
 def UD(m, **_):
     return os88marty.ui_done(m)
 

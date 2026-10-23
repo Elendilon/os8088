@@ -193,7 +193,7 @@ def media(m, mo, wx, wy):
 
 # every read below is guest memory (or the framebuffer after the UI is
 # done), so the boot gate is the kernel's STATE and the dispcp verbs settle
-# on ui_done (docs/plans/SOAK-SPEED.md 4)
+# on ui_done (docs/plans/completed/SOAK-SPEED.md 4)
 def UD(m, **_):
     return os88marty.ui_done(m)
 

@@ -119,7 +119,7 @@ linear address of any `.text`/`.bss` kernel symbol, for `memr`; anything in
 
 A held machine runs only when asked, so every wait is a `step` - and a
 fixed one is paid in full whether the guest needed it or not. `Box` has the
-gates `tools/os88marty.py` grew (docs/plans/SOAK-SPEED.md, round 3):
+gates `tools/os88marty.py` grew (docs/plans/completed/SOAK-SPEED.md, round 3):
 
 | | |
 |---|---|

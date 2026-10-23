@@ -6370,7 +6370,7 @@ class EncoderP(Flipped, Encoder):
                     # each unit's (cycles, bytes) ONCE: the loop below asks
                     # again for every member of every unit it skips, on
                     # every attempt - 358M generator steps in one 2.5 s clip
-                    # (docs/plans/SOAK-SPEED.md). Same sums, same order
+                    # (docs/plans/completed/SOAK-SPEED.md). Same sums, same order
                     usum = {u: (sum(costs[j][0] for j in js),
                                 sum(costs[j][1] for j in js))
                             for u, js in members.items()}

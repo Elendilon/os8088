@@ -47,7 +47,7 @@ def frames(wire):
 
 
 class Mouse(W.Mouse):
-    """CLOSED-LOOP (docs/plans/SOAK-SPEED.md technique 15): the pointer read
+    """CLOSED-LOOP (docs/plans/completed/SOAK-SPEED.md technique 15): the pointer read
     back off mouse_x/mouse_y and each edge off mouse_btn, where tools/
     mouse.py pinned, walked and slept ~1.7 s a click."""
 

@@ -7890,7 +7890,7 @@ SOAK = [
         needs=("marty",), serial=True),
     # 546 s measured - the longest of the three, 16 adapter switches at four
     # settles each. See the note above `dispcalc`. 208-218 s since the
-    # soak-speed pass (docs/plans/SOAK-SPEED.md: 461 -> 235 guest seconds),
+    # soak-speed pass (docs/plans/completed/SOAK-SPEED.md: 461 -> 235 guest seconds),
     # measured on a box at load 11.
     Row("dispprefer", "soak", py("tests/dispprefer.py"), 270.0,
         "Does a package's PER-ADAPTER preference and floor survive a drag"
@@ -14971,7 +14971,7 @@ SOAK = [
         "with no key and a stray `2` typed on the seventh. 60s is 48 "
         "measured. INTERMITTENT at base: KBTRIP now and then reads 4300h (F9) "
         "for the `k` - trip 1 of the base run, trip 7 of a later one, with "
-        "64=10 at entry (docs/plans/SOAK-SPEED.md ledger)",
+        "64=10 at entry (docs/plans/completed/SOAK-SPEED.md ledger)",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
     Row("megapiclose", "soak", py("tests/megapiclose.py"), 150.0,

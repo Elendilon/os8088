@@ -73,7 +73,7 @@ def main():
     # A PRIVATE QEMU (os88qemu.Private): what `make test ETHER=1 TESTIMG=
     # TESTAPPS=` launched, without the `make` in the shared tree or the kill
     # of whatever build/qemu.pid named; the mouse is closed-loop
-    # (docs/plans/SOAK-SPEED.md technique 15).
+    # (docs/plans/completed/SOAK-SPEED.md technique 15).
     import tempfile
     import xmcheck
     import atexit

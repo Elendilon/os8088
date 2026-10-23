@@ -268,7 +268,7 @@ def main():
               "both arms reach the same desktop: %r against %r" % (bstate, astate))
         # IN GUEST CYCLES, which a loaded box cannot move. The win used to be
         # ~0.4x host and the bound 0.9x host; then `settle` itself learned to
-        # end when the UI idles (docs/plans/SOAK-SPEED.md, harness changes),
+        # end when the UI idles (docs/plans/completed/SOAK-SPEED.md, harness changes),
         # so the settling arm now costs the same work plus ~0.6 guest s of
         # stillness proof per wait - 0.89x guest, and a host ratio that is
         # noise (1.09x on a box at load 8). What is refused is unchanged: a

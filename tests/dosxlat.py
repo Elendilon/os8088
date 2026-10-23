@@ -149,7 +149,7 @@ def main():
     # TESTAPPS=` launched - its DEVCARD OPL2 too - without the `make` in the
     # shared tree (it rebuilds a build/ that is behind its sources) or the
     # kill of whatever build/qemu.pid named; the mouse is closed-loop
-    # (docs/plans/SOAK-SPEED.md technique 15).
+    # (docs/plans/completed/SOAK-SPEED.md technique 15).
     import tempfile
     import xmcheck
     import atexit

@@ -313,7 +313,7 @@ def quiesce(m, read, secs=1.0, stable=2, limit=60.0, what=None, poll=0.1):
     return last
 
 
-# --- a CLOSED-LOOP mouse (docs/plans/SOAK-SPEED.md, harness changes) ---------
+# --- a CLOSED-LOOP mouse (docs/plans/completed/SOAK-SPEED.md, harness changes) ---------
 #
 # tools/mouse.py cannot know where the pointer is, so it PINS against the
 # bottom-right clamp and walks back, a host `sleep 0.06` after every packet,
