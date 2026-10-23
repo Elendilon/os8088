@@ -510,10 +510,10 @@ hp_diag:
     lodsw                       ; status
     call hp_hex4
     call hp_sp
-    lodsw                       ; Content-Length
+    lodsw                       ; body bytes not delivered
     call hp_hex4
     call hp_sp
-    lodsw                       ; Content-Range start
+    lodsw                       ; ticks taken
     call hp_hex4
     call hp_sp
     lodsw                       ; result

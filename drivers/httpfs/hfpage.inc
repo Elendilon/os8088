@@ -116,6 +116,14 @@ hp_need:
     jc .back
     mov [hf_pseg], dx
     mov es, dx
+    xor di, di                  ; ZEROED FIRST: the page's state is the zeros
+    mov cx, HFPAGE_KB * 512     ; os88drv strips off the FILE, which drv_bss
+    xor ax, ax                  ; puts back for a driver the kernel loads and
+    cld
+    rep stosw                   ; nothing puts back for this one - a warm boot
+                                ; left 55h there and the page read it as an
+                                ; address it already had (rampage.asm's rp_bss
+                                ; is the same answer, from the other side)
     xor bx, bx
     mov cx, HFPAGE_KB * 1024
     xor dx, dx

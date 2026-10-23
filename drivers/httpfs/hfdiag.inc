@@ -18,6 +18,11 @@ hf_dgin:
     mov [hf_dgo], bx
     mov word [hf_err], 0
     mov word [hf_status], 0
+    mov byte [hf_dgr], 0
+    push ax
+    call OSAPI_GET_TICKS
+    mov [hf_dgt], ax
+    pop ax
     ret
 
 ; --- hf_dgout - the record. keeps every register and the flags ------------
@@ -57,6 +62,10 @@ hf_dgout:
     jz .k4
     or bl, 16
 .k4:
+    test byte [hf_dgr], 0xFF
+    jz .k5
+    or bl, 32                   ; a kept connection died and was retried
+.k5:
     mov bh, bl
     mov bl, [hf_dgk]
     push ax
@@ -70,10 +79,11 @@ hf_dgout:
     stosw                       ; +6 the count asked
     mov ax, [hf_status]
     stosw                       ; +8 the reply's status
-    mov ax, [hf_clen]
-    stosw                       ; +10 its Content-Length
-    mov ax, [hf_crlo]
-    stosw                       ; +12 its Content-Range start
+    mov ax, [hf_left]
+    stosw                       ; +10 body bytes NOT delivered
+    call OSAPI_GET_TICKS
+    sub ax, [hf_dgt]
+    stosw                       ; +12 ticks the read took
     pop ax
     stosw                       ; +14 the result AX
     mov ax, [hf_err]
@@ -108,6 +118,8 @@ hf_pdiag:
     ret
 
 hf_dgk:     db 0
+hf_dgr:     db 0
+hf_dgt:     dw 0
 hf_dgh:     dw 0
 hf_dgs:     dw 0
 hf_dgo:     dw 0

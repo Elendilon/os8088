@@ -679,6 +679,9 @@ hf_get:
     cmp word [hf_rlen], 0       ; is tried once more on a fresh one; the
     jne .fail                   ; request is still in hf_rbuf, since nothing
     mov byte [hf_kept], 0       ; was received over it
+%ifdef HFDIAG
+    mov byte [hf_dgr], 1
+%endif
     jmp .fresh
 .fail:
     stc

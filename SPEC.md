@@ -205014,6 +205014,16 @@ boot volume's root - `ETHER.CFG`'s shape (§72.7.1): `'HD'`, version 1, a flags 
 adds the volume **lazily**, so a dead server or a missing card costs the
 boot no time at all.
 
+**The claim is ZEROED before the image is read into it.** The page's state
+is the zero run `os88drv.py` strips off the FILE, which the kernel's
+`drv_bss` puts back for a driver it loads - and nothing puts back for an
+image a driver reads for itself. On an emulator's first boot the heap is
+zero anyway, which is why it shipped; after a warm reboot on a real machine
+the page found its `hp_have` already set, drew the `55h`s left behind as the
+address, and kept a line editor whose length was garbage - a field that was
+blank or `UUUU` and took no keys. (`rampage.asm`'s `rp_bss` answers the same
+thing from the page's side.)
+
 ### 120.6 What it costs
 
 Measured at one build number against the tree before it:
