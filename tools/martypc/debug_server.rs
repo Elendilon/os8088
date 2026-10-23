@@ -369,6 +369,10 @@ pub struct DebugServer {
     /// name sends the reader looking for a process rather than for a session.
     client_peer: Option<String>,
     pending:  VecDeque<String>,
+    /// A line read up to WouldBlock and not yet ended: `read_line` has
+    /// already consumed those bytes, so they are kept for the next poll
+    /// rather than dropped (a command split across TCP segments).
+    partial:  String,
     quit:     bool,
     #[cfg(unix)]
     snaps:    Vec<Snap>,
@@ -446,6 +450,7 @@ impl DebugServer {
             client: None,
             client_peer: None,
             pending: VecDeque::new(),
+            partial: String::new(),
             quit: false,
             #[cfg(unix)]
             snaps: Vec::new(),
@@ -535,6 +540,7 @@ impl DebugServer {
         self.client = None;
         self.client_peer = None;
         self.pending.clear();
+        self.partial.clear();
         for w in self.wavs.iter_mut() {
             w.disable();
         }
@@ -550,6 +556,13 @@ impl DebugServer {
                 Ok((stream, peer)) => {
                     log::info!("Debug client connected from {}", peer);
                     let _ = stream.set_nonblocking(true);
+                    // NO NAGLE. Replies are small writes, and a client that
+                    // PIPELINES (several requests in one write) gets them
+                    // back-to-back: with Nagle on, every reply after the
+                    // first waits for an ACK the client's delayed-ACK holds
+                    // for ~40 ms, so a batch cost more than its round trips.
+                    let _ = stream.set_nodelay(true);
+                    self.partial.clear();
                     self.client_peer = Some(peer.to_string());
                     self.client = Some(BufReader::new(stream));
                 }
@@ -620,9 +633,9 @@ impl DebugServer {
 
         let mut drop_client = false;
         if let Some(reader) = self.client.as_mut() {
-            let mut line = String::new();
+            let line = &mut self.partial;
             loop {
-                match reader.read_line(&mut line) {
+                match reader.read_line(line) {
                     Ok(0) => {
                         // EOF. A disconnect leaves the machine exactly as it
                         // is - running or paused - so a client may come and
@@ -650,6 +663,7 @@ impl DebugServer {
         if drop_client {
             self.client = None;
             self.client_peer = None;
+            self.partial.clear();
         }
     }
 
@@ -717,6 +731,10 @@ impl DebugServer {
             "ping" => json!({
                 "ok": true,
                 "pong": true,
+                // A client may PIPELINE: several requests in one write are
+                // all answered (in order) with no Nagle stall between the
+                // replies, and a request split across reads is kept whole.
+                "pipeline": true,
                 "pid": std::process::id(),
                 "port": self.listener.as_ref()
                             .and_then(|l| l.local_addr().ok())

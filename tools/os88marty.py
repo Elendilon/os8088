@@ -265,6 +265,7 @@ class Marty:
         self._rec = None
         self._pumping = 0   # bp_trace blocks in flight
         self._planes_verb = None  # the server has `planes`: unknown yet
+        self._pipeline = None     # ...and answers a pipelined burst (batch)
         self._greet(timeout)
 
     def _greet(self, timeout):
@@ -373,6 +374,56 @@ class Marty:
         if not r.get("ok", False):
             raise MartyError(r.get("err", "refused"))
         return r
+
+    def batch(self, cmds):
+        """Several requests as ONE round trip: `cmds` is a list of `cmd()`
+        keyword dicts, sent in one write; the replies come back in order.
+
+        A server that says `pipeline` in its `ping` answers a pipelined burst
+        with no stall, so a stopped-machine sequence (park, a dozen
+        `setreg`s, `bp`, `run`) costs one round trip instead of fifteen. An
+        older server is asked one request at a time - correct and as slow as
+        before (pipelining to it works, but Nagle holds every reply after the
+        first for ~40 ms). Every request is answered before anything is
+        raised; the first refusal raises MartyError naming its index. A
+        `run` in the batch records the resume mark exactly as `run()` does,
+        so a `wait_stop` after the batch is right.
+        """
+        cmds = [dict(c) for c in cmds]
+        if not cmds:
+            return []
+        if self._pipeline is None:
+            try:
+                self._pipeline = bool(self.cmd(cmd="ping").get("pipeline"))
+            except MartyError:
+                self._pipeline = False
+        if not self._pipeline:
+            out = [self._raw_cmd(c) for c in cmds]
+        else:
+            data = b"".join((json.dumps(c) + "\n").encode() for c in cmds)
+            try:
+                with self._lock:
+                    self.f.write(data)
+                    self.f.flush()
+                    lines = [self.f.readline() for _ in cmds]
+            except OSError as e:
+                raise MartyError(self._gone(type(e).__name__ + ": " + str(e))) from None
+            if not all(lines):
+                raise MartyError(self._gone("it closed the connection"))
+            out = [json.loads(l) for l in lines]
+        for i, (c, r) in enumerate(zip(cmds, out)):
+            if not r.get("ok", False):
+                raise MartyError("batch[%d] %s: %s" % (i, c.get("cmd"),
+                                                       r.get("err", "refused")))
+            if c.get("cmd") == "run":
+                self._go = self._mark(r, resumed=True)
+        return out
+
+    def _raw_cmd(self, c):
+        try:
+            return self.cmd(**c)
+        except MartyError as e:
+            return {"ok": False, "err": str(e)}
 
     def _gone(self, how):
         """One sentence for "the emulator is not there any more".
