@@ -5556,6 +5556,44 @@ SOAK = [
         "Needs `cc`",
         needs=("marty", "cc"), serial=True,
         wants=("build/c64move360.img",)),
+    Row("weavemove", "soak", py("tests/weavemove.py", "--pkg", "weave"),
+        45.0,
+        "WEAVE-SPEC 1.2.6 (NO-PINNING C3, Weave): every WEAVE claim MOVES and "
+        "every COPY follows - c64move's layout with two instances, SHEET.WAB "
+        "(bundle, VM, grid) and PONG.WAB (bundle, VM, canvas, canvas core). "
+        "Asserts MC_RLOC on each, that each instance moved, that every word "
+        "names a live claim and every copy agrees with its word "
+        "(wvm_vmseg/wvm_bseg/wfx_gseg, wvm_ourds = the REGION, the core's "
+        "WSS_CVSEG/WSS_BSEG, the parts row's zkb and wcv_vec = the core), "
+        "that the bundle claim is still the .WAB and the core still "
+        "WEAVE.WSM, that both windows redraw the same; then PONG is SERVED "
+        "(a WJS handler and start() through the moved words), the worker "
+        "plays, the core is now PINNED (the worker parks in it) - and SHEET "
+        "closes and a pass posted from outside moves PONG's bundle UNDER THE "
+        "RUNNING WORKER, which plays on. 45s for a measured 30-40s. VERIFIED "
+        "RED: os88_onmove emptied fails 1 (heapfrag's own pass already moved "
+        "the claims and the words did not follow); CC_ONMOVE_REGION taken out "
+        "fails 3 (wvm_ourds left on the old region) and 6 (start() never "
+        "reaches the worker) - the region move was a live defect before "
+        "this row. Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/weavemove360.img",)),
+    Row("loommove", "soak", py("tests/weavemove.py", "--pkg", "loom"), 45.0,
+        "WEAVE-SPEC 1.2.6 (NO-PINNING C3, Loom): LOOM's source claim, "
+        "Preview's two pack claims and the preview module (part 0) MOVE: "
+        "c64move's layout with LOOM opening PONG.WML and View > Preview up. "
+        "Asserts MC_RLOC on all four, that they moved and every word is live, "
+        "that the parts row's zkb and lpv_vec follow lm_pvseg, that the "
+        "claims still hold PONG.WML, PONG.WAB and LOOM.WPV's code, that the "
+        "Preview pane - a far call through the moved vector over the moved "
+        "output claim - redraws the same; then View > Edit gives Preview's "
+        "claims back, a typed character lands in the moved source claim and "
+        "^S saves it, the claim movable again after the write's pin. 45s for "
+        "a measured 28-36s. VERIFIED RED: os88_onmove emptied fails 1 "
+        "(heapfrag's own pass moved the claims, the words did not follow) "
+        "and the machine stops answering. Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/weavemove360.img",)),
     Row("a2move", "soak", py("tests/emumove.py", "--pkg", "apple2"), 30.0,
         "c64move's layout one machine along (APPLE2-SPEC 3.1.1): the Apple "
         "II's 49KB RAM moves down and its ROM-only carve up - the carve's "

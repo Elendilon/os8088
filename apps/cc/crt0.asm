@@ -229,6 +229,11 @@ CC_OVDEPTH  equ 32
 ; os88_main() returns, and the carve's proc calls os88_onmove(was, now) with
 ; the carve's two bases once op_base is the new one. Opt-in, so a package that
 ; does not define it assembles byte for byte as it did.
+%ifdef CC_ONMOVE_REGION
+  %ifndef CC_HAS_ONMOVE
+    %fatal "CC_ONMOVE_REGION without CC_HAS_ONMOVE: os88_onmove is how the program is told its region moved"
+  %endif
+%endif
 %ifdef CC_ONMOVE_PARTS
   %ifndef CC_HAS_ONMOVE
     %fatal "CC_ONMOVE_PARTS without CC_HAS_ONMOVE: os88_onmove is how the program is told its parts moved"
@@ -1560,7 +1565,21 @@ section .text
 ; vectors from [cc_ovseg], which a region move does not touch, so it costs a
 ; few stores and is right either way.
 ; -----------------------------------------------------------------------------
-%ifdef CC_HAS_OVL
+%ifdef CC_ONMOVE_REGION
+; CC_ONMOVE_REGION - ...AND THE PROGRAM IS TOLD (docs/plans/NO-PINNING-PLAN.md,
+; WEAVE-SPEC 1.2.6). A package whose ASSEMBLY banks its own data segment - the
+; WJS VM's wvm_ourds, the DS a slice puts back for a native - holds a word that
+; names the region, and nothing above puts it right: mem_region_reloc fixes
+; the kernel's words and cc_ovbind the overlay's. With this define the region's
+; proc calls os88_onmove(was, now) as well, AFTER the vectors, so the C (or an
+; asm helper it calls) can translate every banked copy at move time instead of
+; re-reading DS at every entry. Opt-in: without it this assembles as before.
+cc_regreloc:
+  %ifdef CC_HAS_OVL
+    call cc_ovbind
+  %endif
+    jmp cc_onmove                   ; every register preserved, BX/DX passed
+%elifdef CC_HAS_OVL
 cc_regreloc equ cc_ovbind
 %else
 cc_regreloc:

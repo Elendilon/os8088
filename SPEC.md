@@ -125663,6 +125663,23 @@ LEMMINGS, CHELLO, COVL, CCSMOKE all `cmp` equal). `tests/emumove.py` moves
 both kinds on MartyPC: `--pkg c64` through `cc_ovcarve`, `--pkg apple2`
 through `cc_partsmv` proper (C64-SPEC 3.1.1, APPLE2-SPEC 3.1.1).
 
+**And a package can be told of its REGION's move - `CC_ONMOVE_REGION`**
+(docs/plans/NO-PINNING-PLAN.md C3, WEAVE-SPEC 1.2.6). `cc_entry` declares
+every C package's region movable (§66.6.1.1) with `cc_regreloc`, which is a
+`ret` - or `cc_ovbind` where there is an overlay - because the C names its own
+region with no word at all: its statics move with it. That stops being true
+the moment the package's ASSEMBLY banks its own data segment, and WEAVE's WJS
+VM does: `wvm.inc` keeps DS in `wvm_ourds` so a slice, whose DS is the VM
+claim, can hand a native the package's segment back - and a region move left
+it naming where the region WAS, so the next native ran its C against stale
+memory (`soak -k weavemove` goes red without the define: `start()` never
+reaches the canvas worker). With the define (which needs `CC_HAS_ONMOVE`, or
+the build stops) `cc_regreloc` calls `cc_ovbind` when there is an overlay and
+then `cc_onmove`, so `os88_onmove(was, now)` is called with the region's two
+bases as well and translates the banked copy at move time; no entry point
+has to re-read DS. Opt-in, so every package that does not define it
+assembles byte for byte as before.
+
 **The home bracket is the lazy arm's, and it closes a hole the file form
 had.** `op_fetch` reads the part out of `op_name` - the package's own file -
 by NAME, and a name resolves in the folder the instance stands in (§19.2.1),
