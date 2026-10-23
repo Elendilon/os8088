@@ -28,7 +28,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
 1. **Read the state, don't settle the screen.** If what follows a wait is a
    guest-memory read, wait on those bytes (`os88marty.quiesce`) or on the
    flag that says the work is done, not on the framebuffer
-   (SOAK-PARALLEL §11.6).
+   (SOAK-PARALLEL §11.6). Put `m.disk().get("reads")` in the quiesce key
+   when the work can stall on the drive with nothing changing (a DOS-box
+   command: dosdirsw, dosopen).
 2. **Drive with `tools/os88ui.py`.** Verbs confirm by reading guest state, so
    the check replaces the wait (~0.35x of settle-and-hope).
 3. **One boot for the legs that start from the same state.** A boot plus
