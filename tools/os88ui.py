@@ -1502,8 +1502,10 @@ class UI:
                    snapshot=self.titles)
         # ...and VISIBLE IS NOT PAINTED: wm_show sets the flag and then
         # paints, and the paint's own fm_layout is what arms the Save form's
-        # box and draws the button column (SPEC.md 38.3, 38.5)
-        self.settle()
+        # box and draws the button column (SPEC.md 38.3, 38.5) - all inside
+        # the UI pass that showed it, so `still` (ui_done + 3 frames) sees it
+        # finished without settle's 2-host-second floor
+        self.still()
         return box["w"]
 
     def chooser_gone(self, limit=T_NAV):

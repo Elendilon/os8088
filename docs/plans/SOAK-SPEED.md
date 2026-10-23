@@ -147,6 +147,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
   `os88vid.read_frame` has a P4 fast path (bytes inverted, pad bits cleared;
   equal to the per-pixel path on 200 random sizes): 30 ms -> ~0 a frame, which
   was 53 of vidsound's 96 host s - every row that encodes a clip from PBMs.
+- **`UI.chooser()` ends on `still()`, not `settle()`**: the chooser's paint
+  is inside the pass that showed it. fdlgchoose 186 -> 116 guest s with its
+  own settles; validated on the six fdlg rows, editmove, sbar, wimgtrip, lzmod.
 - **`os88marty.kernel_up(m)`**: os88ui's `up` gate for a bare
   `launch(boot=False)` + `m.run()` caller - desk_rows/menu_nbar live,
   [spl_live] = 0, then `ui_done`; no picture settle. dispseam's four boots.
@@ -260,6 +263,7 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | fishedge | 72 s | 14 s | 12 | two `launch(boot=40)` - a fixed pace - -> `kernel_up`; same strip counts' shape (they vary run to run with the swimmers) |
 | scsize / shutdown | 136 / 92 s (3 lanes) | 60 / 79 s (2 lanes) | 8 | quick boots (scsize's launch + `ready` settles 20 guest s; shutdown's three launches 52); polls 0.3 -> 0.05. The rest is SCRIBE's loads and saves / three shutdown cycles and a warm reset |
 | wdcourier / wddrag / wdcombo / wdenter / wdtype | 41 / 56 / 39 / 29 / 54 s (5 in 3 lanes, base) | 67 / 74 / 33 / 36 / 86 s (same, loaded box) | 4 | boots gated on state (they settled twice: launch's and one more); the rest waits on WORD'S LAZY WORKER (status line, height count), which `ui_done` cannot see - its quiesces and paces stay. Wall here is load noise either way. **wdenter failed once in two at base** (intermittent), passed after |
+| fdlg* (6 rows) | fdlgchoose 52 s / 187 guest s; the rest 9-12 s (declared 60-300) | fdlgchoose 39-46 s / 116 guest; the rest 9-12 s | 4 + quick boot | quick boots; settles -> `ui_done`, or `still` before the ink (fbuf) compares that would go red if early; `UI.chooser`'s settle -> still. Re-declared |
 
 ## Resuming
 

@@ -9559,7 +9559,7 @@ SOAK = [
         "SPEC.md 40.4: Fractal promises when the frame lands and takes it"
         "back when the view moves.",
         needs=("marty",), serial=True),
-    Row("fdlggrey", "soak", py("tests/fdlggrey.py"), 60.0,
+    Row("fdlggrey", "soak", py("tests/fdlggrey.py"), 20.0,
         "SPEC.md 38.3/38.8: the chooser's default button (Open form, greyed "
         "with nothing selected). Each state is reached by a PARTIAL redraw - "
         "a row click (FDH_SEL -> fdlg_drawbtn), a click on empty list, and "
@@ -9572,7 +9572,7 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("fdlgsmall", "soak",
         ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
-         "OS88_SYSIMG=build/small360.img"] + py("tests/fdlggrey.py"), 300.0,
+         "OS88_SYSIMG=build/small360.img"] + py("tests/fdlggrey.py"), 20.0,
         "...and the SAME drive against kern_small, where the chooser's glue "
         "is the on-demand module FDLG.DRV (SPEC.md 38.0) rather than resident "
         "code. It is `fcpsmall`'s argument one feature along: five entries "
@@ -9591,7 +9591,7 @@ SOAK = [
         # that cannot run anywhere but a checkout where somebody has already
         # typed `make small` by hand (docs/WRITING-TESTS.md 4).
         wants=("build/small360.img",)),
-    Row("fdlgdrop", "soak", py("tests/fdlgdrop.py"), 80.0,
+    Row("fdlgdrop", "soak", py("tests/fdlgdrop.py"), 20.0,
         "...and the module comes BACK on every route a dialog ends by "
         "(SPEC.md 38.0.1). The row above drives the dialog and never asks "
         "what happened to its image. Today the commit and the two cancels "
@@ -9615,7 +9615,7 @@ SOAK = [
         "reason.",
         needs=("marty",), serial=True,
         wants=("build/muptest.img", "build/small360.img")),
-    Row("fdlgup", "soak", py("tests/fdlgup.py"), 60.0,
+    Row("fdlgup", "soak", py("tests/fdlgup.py"), 20.0,
         "SPEC.md 13.8.3/38.3: the chooser's column buttons are ids 3..5 of "
         "the Disk window's own button set and fire on RELEASE: a press draws "
         "Cancel down ([fm_dbtn]), sliding off lets it up, a slide-off release "
@@ -9669,7 +9669,7 @@ SOAK = [
         "and with fm_ondrag's FM_BBAND dispatch taken out (the four drag-"
         "select checks, and only those).",
         needs=("marty",), serial=True),
-    Row("fdlgchoose", "soak", py("tests/fdlgchoose.py"), 120.0,
+    Row("fdlgchoose", "soak", py("tests/fdlgchoose.py"), 60.0,
         "SPEC.md 38: the Standard File chooser end to end, through Note "
         "Pad's own File > Open and Save As - a first Open on MEDIA (38.10) "
         "captioned Open with the default button greyed until a row is "
@@ -9690,7 +9690,7 @@ SOAK = [
     Row("fdlgchsmall", "soak",
         ["env", "OS88_DEFINES=KERN_SMALL", "OS88_BUILD=build/smallk",
          "OS88_SYSIMG=build/small360.img", "OS88_NP=A:/APPS/NOTEPAD.O88"]
-        + py("tests/fdlgchoose.py"), 105.0,
+        + py("tests/fdlgchoose.py"), 60.0,
         "...and the same drive on kern_small, where the glue is FDLG.DRV "
         "(SPEC.md 38.0): every hook crosses into the image through "
         "fdlg_hook's far call, and the button column is drawn and fired by "

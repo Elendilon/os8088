@@ -88,12 +88,12 @@ DONE (verified green) vidp	vidpagetext	40	tests/vidpagetext.py
 DONE (verified green) vidp	vidplaybig	35	tests/vidplay.py
 DONE (verified green) vidp	vidpalloop	30	tests/vidpal.py
 DONE (verified green) vidp	vidpalrep0	30	tests/vidpal.py
-fdlg	fdlgsmall	300	tests/fdlggrey.py
-fdlg	fdlgchoose	120	tests/fdlgchoose.py
-fdlg	fdlgchsmall	105	tests/fdlgchoose.py
-fdlg	fdlgdrop	80	tests/fdlgdrop.py
-fdlg	fdlggrey	60	tests/fdlggrey.py
-fdlg	fdlgup	60	tests/fdlgup.py
+DONE fdlg	fdlgsmall	300	tests/fdlggrey.py
+DONE fdlg	fdlgchoose	120	tests/fdlgchoose.py
+DONE fdlg	fdlgchsmall	105	tests/fdlgchoose.py
+DONE fdlg	fdlgdrop	80	tests/fdlgdrop.py
+DONE fdlg	fdlggrey	60	tests/fdlggrey.py
+DONE fdlg	fdlgup	60	tests/fdlgup.py
 pxss	pxssim	200	tests/pxssim.py
 pxss	pxssim-herc	195	tests/pxssim.py
 pxss	pxsshots	145	tests/pxsshots.py
