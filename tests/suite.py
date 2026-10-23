@@ -11652,6 +11652,15 @@ SOAK = [
         "shut line.",
         needs=("marty",), serial=True,
         wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM")),
+    Row("mouerrq", "soak", py("tests/mouerrq.py"), 15.0,
+        "SPEC.md 9.5.6: a port reporting line errors cannot win the mouse "
+        "contest. A null-modem peer's 2400 baud into a booting machine's 1200 "
+        "7N1 mouse port settled a ONE-port machine on the cable (two Compaq "
+        "Portable IIIs, WireBall/WireFleet waiting to connect): pointer off "
+        "to a side, keyboard mouse retired. QEMU leg: a telnet BREAK on a "
+        "one-port cable, then a packet - not settled; clean later - settled. "
+        "MartyPC leg: a stamped real mouse waits the window out, then wins",
+        needs=("qemu", "marty", "nasm"), wants=("build/os8088.img", "build/os8088-360.img"), timeout=240),
     Row("mouwheel", "soak", py("tests/mouwheel.py"), 20.0,
         "SPEC.md 9.5.4: a WHEEL mouse's FOURTH byte must not break the packet "
         "run. An IntelliMouse sends four bytes and the last has bit 6 CLEAR, "

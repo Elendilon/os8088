@@ -14436,6 +14436,43 @@ it is recorded because the next author to say "it lands in the padding" needs
 to know the padding is spent. Nothing is added to the per-interrupt path
 except that one `mov`, and `mou_lockon` runs once in the life of a machine.
 
+### 9.5.6 A port reporting line errors cannot win the contest
+
+A null-modem game (WireBall §109, WireFleet §114) talks at 2400 baud 8N1 and
+the mouse ports listen at 1200 7N1. A machine that boots, or sits unsettled,
+while its peer is already sending receives that stream as a sequence of
+mangled bytes, and some of those bytes have exactly a mouse packet's shape: a
+byte with bit 6 set and two without. On a machine with ONE serial port
+`[mou_need]` is 1, so the first such triple settled the contest on the cable:
+the pointer moved on cable bytes, and the keyboard mouse retired for the
+session (§9.6.1.1). Reported off two Compaq Portable IIIs, and modelled with
+an 8250 receiver against WireBall's own frames: the one-port machine settles
+within the first frame, in 2 to 10 received bytes.
+
+The tell is the receiver's own: that stream is 28 to 94% framing errors, and a
+mouse at its own rate makes none. So the ISR's port scan stamps `[ticks]` into
+`[bx+mou_errt]` whenever LSR reports a framing error or a break (bits 3 and
+4), and `mou_claim` will not add a packet to a port's run, and
+zeroes it, while that port's last error is under `MOU_ERRQ` = 36 ticks
+(~2 s) old. A cable that keeps talking keeps its port out of the contest; a
+mouse that glitches once while being plugged in is delayed by two seconds and
+no more. A stamp rather than a block until the next reset edge, because the
+hot-plug poller stands down once a port has identified (§9.4.1) and a block
+would then be permanent. Only the unsettled contest is gated: a settled
+mouse's packets are untouched. A peer at the SAME rate makes no errors and is
+not caught by this; nothing on this system sends at 1200. Overrun (bit 1)
+is deliberately NOT counted: it says our ISR was late, not what the device is,
+and a busy boot could otherwise hold a real mouse back. Parity (bit 2) cannot
+occur, the ports running without it.
+
+Cost: 34 bytes of `.text` on both kernels - the 4-byte table, 12 in the ISR's
+scan and 18 in `mou_claim`, both even so the hot code behind them keeps its
+parity (`tests/unit/t_hotpar.py`). `tests/mouerrq.py` is the gate: a BREAK on
+a one-port QEMU machine's cable, then a well-formed packet, must not settle
+the contest; the same packet two seconds later must. MartyPC reports no
+framing errors, so it carries only the gate's half: a stamped port's mouse
+cannot win inside the window and wins after it.
+
 ### 9.5.4 The WHEEL mouse's fourth byte, and why the contest could never be won
 
 docs/FIELD-NOTES.md 44's second reading, and the actual defect behind the
