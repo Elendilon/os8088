@@ -9046,7 +9046,7 @@ SOAK = [
         "surfacing twenty steps later. Ends with the same navigation run "
         "both ways on one machine: settle-and-hope against read-the-answer.",
         needs=("marty",), serial=True),
-    Row("bptrace", "soak", py("tests/bptrace.py"), 45.0,
+    Row("bptrace", "soak", py("tests/bptrace.py"), 30.0,
         "Can the harness drive the UI with BREAKPOINTS ARMED? It could not "
         "until os88marty.bp_trace: every os88ui and os88mouse verb confirms "
         "by reading guest state, and a guest stopped at a breakpoint "
@@ -14485,7 +14485,7 @@ SOAK = [
         "the layer switches nowhere and it FAILS; with Encoder.set_pal's "
         "cache reset taken out it FAILS at 38 frames",
         needs=("ffmpeg",)),
-    Row("mcperf", "soak", py("tests/mcperf.py"), 50.0,
+    Row("mcperf", "soak", py("tests/mcperf.py"), 20.0,
         "SPEC.md 48.16.2: does Missile play the SAME GAME twice? A fixed"
         "seed, scripted shots and 400 frames back to back rather than one a"
         "tick - because mc_worker sleeps to a DEADLINE, so a faster frame"

@@ -1,7 +1,7 @@
 # ROUND 2, queue 8: the bottom half of r2-q7's open rows. family  row  declared_secs  script
-mcpe	mcperf	50	tests/mcperf.py
-dmgc	dmgcull	50	tests/dmgcull.py
-bptr	bptrace	45	tests/bptrace.py
+DONE mcpe	mcperf	50	tests/mcperf.py
+SKIP fails-at-base(Task Manager redesign 89afd69c: memory page paints 27 font_run cells, all under the mover) dmgc	dmgcull	50	tests/dmgcull.py
+DONE bptr	bptrace	45	tests/bptrace.py
 atme	atmenusu	45	tests/atmenusu.py
 cpup	cpup	41.3	tests/cpup.py
 gbst	gbstate	40	tests/gbstate.py
