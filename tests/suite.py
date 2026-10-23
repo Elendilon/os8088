@@ -11947,7 +11947,7 @@ SOAK = [
         "only it hosts two displays AND reads both back (docs/TESTING.md).",
         needs=("marty",), serial=True,
         wants=("build/os8088-360.img", "build/games360.img")),
-    Row("pxswin-qemu", "soak", py("tests/pxswin.py", "--qemu"), 65.0,
+    Row("pxswin-qemu", "soak", py("tests/pxswin.py", "--qemu"), 30.0,
         "SPEC.md 97.14 (wave 5): WIN4 is the DEFAULT on QEMU's 386 VGA - no "
         "poke - and its glass is the shadow through the 32->16 table pixel "
         "for pixel (the palette read off the dump, one colour an index); the "

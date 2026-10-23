@@ -12,7 +12,7 @@ DONE vidc	vidclose	75	tests/vidclose.py	qemu,nasm
 DONE dosx	dosxlat	75	tests/dosxlat.py	qemu
 DONE colo	colorpresets	72	tests/colorpresets_qemu.py	qemu,nasm,pil
 SKIP build/wireball.img absent (runner SKIPs: would not build) wire	wireball	65	tests/wireball.py	qemu,nasm,pil
-pxsw	pxswin-qemu	65	tests/pxswin.py	qemu
+DONE pxsw	pxswin-qemu	65	tests/pxswin.py	qemu
 DONE hmad	hmadrv	62	tests/hmadrv.py	qemu,nasm
 DONE vidl	vidlysplit	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
 DONE vidl	vidlysplitbase	60	tests/vidlysplit.py	qemu,nasm,ffmpeg
