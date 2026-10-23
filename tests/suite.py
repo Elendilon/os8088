@@ -392,7 +392,7 @@ FAST = [
         wants=("build/os8088.img", "build/coldhma.sys", "build/recorder.o88",
                "build/sound.hma.map", "build/hdd.hma.map",
                "build/hddtool.map")),
-    Row("hmahiber", "soak", py("tests/hmahiber.py"), 45.0,
+    Row("hmahiber", "soak", py("tests/hmahiber.py"), 20.0,
         "SPEC.md 87.4 step 3b, 87.6 step 0b: hibernate carries the HMA's "
         "driver pool. WHY QEMU: the closed list, entry 1. hmadrv's machine "
         "booted from the FLOPPY, so C: is HDD.DRV's own volume - the "
@@ -411,7 +411,7 @@ FAST = [
         wants=("build/os8088.img", "build/coldhma.sys", "build/recorder.o88",
                "build/hdd.hma.bin", "build/net.hma.bin",
                "build/sound.hma.map", "build/hdd.hma.map")),
-    Row("p2hiber", "soak", py("tests/p2hiber.py"), 45.0,
+    Row("p2hiber", "soak", py("tests/p2hiber.py"), 10.0,
         "SPEC.md 96.45.2.4, docs/plans/KERN-MEGA-PLAN.md 14.57: kern_big's "
         "PS/2 mouse after a hibernate's REBOOT-route resume. WHY QEMU: the "
         "closed list, entry 4 (an 8042). hmahiber's machine with the serial "
@@ -422,12 +422,12 @@ FAST = [
         "raises IRQ12 at once, so with IRQ12 open through the re-knock "
         "mou_p2_isr took its first ACK and the wheel came home 0) and the "
         "pointer moving. The failing case is the HIBER.DRV before 14.57 "
-        "(--img): 2 and 3 red, verified. NEEDS QEMU 9, as hmahiber. 45s is "
-        "30 measured",
+        "(--img): 2 and 3 red, verified. NEEDS QEMU 9, as hmahiber. 10s is "
+        "6.9 measured",
         needs=("qemu", "qemu9", "nasm"),
         wants=("build/os8088.img", "build/apps.img", "build/mbr.bin",
                "build/boothd.bin", "build/kernel.sys")),
-    Row("hmadosret", "soak", py("tests/hmadosret.py"), 45.0,
+    Row("hmadosret", "soak", py("tests/hmadosret.py"), 20.0,
         "SPEC.md 96.49.9: the DOS live resume with `.cold` and HDD.DRV in "
         "the HMA. WHY QEMU: the closed list, entry 1. hmadrv's machine, "
         "booted from the floppy, so the image goes to HDD.DRV's own C:. The "
@@ -2146,7 +2146,7 @@ SOAK = [
         # `cannot read build/pacman.o88` - a pass wearing a failure, and the
         # ABSENT-artefact shape docs/WRITING-TESTS.md 4 is about.
         wants=("build/paccman.o88", "build/pacman.o88")),
-    Row("nasm3", "soak", py("tests/unit/t_nasm3.py"), 165.0,
+    Row("nasm3", "soak", py("tests/unit/t_nasm3.py"), 240.0,
         "THE OTHER ASSEMBLER. Every tier here assembles with whatever nasm "
         "the box has, which on this container, on CI and on every Debian or "
         "Ubuntu box is 2.16 - and CONTRIBUTING.md's floor being 2 is read as "
@@ -2164,8 +2164,9 @@ SOAK = [
         "imported, not restated. It does NOT assert that the two assemblers "
         "emit the same bytes: they do not, and it is legitimate (xmem.drv's "
         "32-bit movers come out with the two prefixes in the other order). "
-        "165s is MEASURED cold on this container, 128s with the private "
-        "tree already there; the knob half is cold every run either way. "
+        "240s: 283s measured (178s charged) under a loaded box with the "
+        "private tree warm - the 128 knob arms are ~4.5s of nasm 3 each, "
+        "cold every run, and are the whole of it (SOAK-SPEED ledger). "
         "Soak rather than full because it is three minutes of pure `make` "
         "and the thing it defends moves at the speed of somebody typing a "
         "new construct, not per commit - run it before a merge that lands "
@@ -9403,7 +9404,7 @@ SOAK = [
         "set's SET.002 on the second disk and the row goes red. 115s "
         "measured",
         needs=("marty",), wants=("build/os8088.img",)),
-    Row("czdos", "soak", py("tests/czdos.py"), 11.0,
+    Row("czdos", "soak", py("tests/czdos.py"), 10.0,
         "SPEC.md 20.17.4: OS88CZ.COM under a real DOS (DOSBox, headless, "
         "one session running every leg from a batch file). What DOS splits, "
         "os88cz.py must join - text, text-and-noise and a /S store - and "

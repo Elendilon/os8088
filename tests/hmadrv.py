@@ -131,7 +131,7 @@ def boot(tmp, mem, sysimg, apps, hd):
     if not os88qemu.acted(q, lambda: u16(q.read(S("mem_base"), 2)) in floors,
                           secs=120, what="the blob to be given back"):
         raise SystemExit("hmadrv: the boot never finished (-m %d)" % mem)
-    os88qemu.pace(q, 1)
+    os88qemu.ui_done(q, S, cap=1.0)         # (was pace(1): capped at it)
     return q
 
 

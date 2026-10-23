@@ -156,6 +156,11 @@ reading the guest state the page is drawn from instead of pumping the screen).
    os88bochs.take_display())`. Make anything that patches a shared module
    (an encoder's Writer) BEFORE the threads start. megavidv2 3 legs: 107 s.
 
+21. **An emulator's SPEED is not the subject: turn it up.** DOSBox's default
+   `cycles` throttles the guest (`-c "config -set cpu cycles=max"` after the
+   mount: czdos's DOS half 8 -> 2 s); likewise a host-made input the guest
+   only reads goes through technique 16's cache keyed on the packer's source.
+
 ## Harness changes made in this pass
 
 (one line each: what, where, which rows it speeds, how it was validated)
@@ -473,6 +478,9 @@ reading the guest state the page is drawn from instead of pumping the screen).
 | pxmega / pxsmega / megatrap0 (Bochs, MEGATRAP census) | 252 / 172 / 267 s | 65 / 56 / 121 s | 19 | a step was QUIET s of no E9 line - on a clean run, a fixed 12 / 8 s whatever the program did. Now `ui_done` (`lock=False` for the game), `[fsx_task]` into and out of the bracket, the timedemo's 8 s kept as a run; the trap windows TILE (one running offset). pxsmega red with px_compose's `[es:px_cdi]` -> `[cs:` (22,240 traps). megatrap0 is MEGARUN + LINGER bound: its two boots run at once (`sweep(parallel=True)`, MEGACSL still charged 6 traps in the second) |
 | megavidv2 / megadosp (Bochs, MEGATRAP census) | 388 / 225 s | 107 / 56 s | 19, 20 | megavidv2's three layouts are three MACHINES, run at once (one display each); the Escs out of a fullscreen play gate on `[fsx_task]`, the keys inside a play keep their gaps (where the pause lands is the scenario). Red with --part0: thousands of fixups a step on all three legs. megadosp: steps on `ui_done` (DOS runs in the UI task's wakes); the prompt's first paint, slept 10 s OUTSIDE every window, is counted now |
 | megapiclose / megakbtrip / megahiber / megap2hiber (Bochs) | 417 / 227 FAIL / 274 / 144 s | 71 / 48 / 62 / 18 s | 19, 20, 5 | the red and green trees are two machines at once; the pointer check is the closed-loop goto (a dead mouse raises in ~4 s: red still dies on trip 1); the red leg's informational keyboard check is 20 s, not 90. A hibernate ends on its own sentence read off the text screen (B8000), not 30 s of E9 silence; a breakpoint's stop is read with `Box.at_prompt`. **megakbtrip is INTERMITTENT at base**: KBTRIP now and then reads 4300h (F9 - a set-1 scan code no key sent) for the `k`, entry 64=10: trip 1 of the base run, trip 7 of the final union, 10/10 in two runs between - the stray-byte class this row exists for, not chased. Final union (3 lanes): 143 / 50 / 64 / 19 s |
+| nasm3 | 283 s (178 charged, load ~10) | 283 s | - | measured only: the shipped tree is warm (1.3 s) and 128 knob arms are ~4.5 s of nasm 3 each (2.16 takes 3.0), cold every run - the buildnum include changes per commit, so keeping the arm trees buys a same-commit re-run only. -O2 rebuild of nasm no faster. Re-declared 240 |
+| hmahiber / p2hiber / hmadosret (QEMU 9) | 15.1 / 18.1 / 16.3 s | 9.1 / 6.9 / 12.1 s | 14, 8 | pace(1..3)s -> `ui_done(cap=)` at boot and before each `sendkey ret`; p2hiber's pace(3) before power-off -> a host wait for both files on C: (a new assertion), its 5 x pace(0.3) -> `acted` on mouse_x/y; host_wait polls 0.05. p2hiber `--img` (14.57 reverted) still red on 2 and 3. hmadosret needed build/DOSHMA.COM, which was not prebuilt (nasm'd by hand) |
+| czdos (DOSBox) | 12.3 s | 2.1 s (6.5 cache miss) | 21, 16 | DOSBox at cycles=max; the ten compressed fixtures cached on os88cz/os88lz/t_lzfmt/czdos source, byte-identical to a fresh pack; `--break` still red |
 
 ## Resuming
 

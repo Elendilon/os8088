@@ -155,7 +155,7 @@ def boot(tmp, prog):
     if not os88qemu.acted(q, lambda: u16(q.read(S("mem_base"), 2)) in floors,
                           secs=120, what="the blob to be given back"):
         raise SystemExit("hmadosret: the boot never finished")
-    os88qemu.pace(q, 1)
+    os88qemu.ui_done(q, S, cap=1.0)         # (was pace(1): capped at it)
     return q, Gdb(port)
 
 
@@ -244,7 +244,7 @@ def trip(q, gdb, prog, want, label):
         want(False, "%s: the session came back - mode %02X, text page %r"
              % (label, q.read(0x449, 1)[0], text_page(q).strip()[:240]))
         return None
-    os88qemu.pace(q, 1)
+    os88qemu.ui_done(q, S, cap=1.0)         # (was pace(1): capped at it)
     return mb0, q.read(KDB, 8)
 
 
