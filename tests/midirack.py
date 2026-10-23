@@ -203,11 +203,11 @@ def session(arm, cap, brk):
                         "MEDIA/MIDI:" + SONG, "MEDIA/MIDI:" + INTRO,
                         "--folder", "SYSTEM/APPDATA"], check=True,
                        stdout=subprocess.DEVNULL)
-    with os88ui.boot(img, apps=apps, machine=machine) as ui:
+    with os88ui.boot(img, apps=apps, machine=machine, quick=True) as ui:
         ui.path("B:/APPS/MIDIRACK.O88")
         p = mrprobe.attach(ui)
         M.until(ui.m, lambda _: p.b("mr_loaded") == 1, "the autoload",
-                poll=.2, limit=120)
+                poll=.05, limit=120)
         if p.b("mrl_n") != 2:
             fail("autoload found %d songs in MEDIA\\MIDI, want the 720KB "
                  "disk's two" % p.b("mrl_n"))
@@ -516,7 +516,7 @@ def arm_wt(ui, p):
     stream's OPENING: the bank is read off the floppy first, and the seconds
     that takes are not the mixer's."""
     M.until(ui.m, lambda _: p.b("mrb_open") == 1, "the wavetable's stream",
-            poll=.2, limit=60)
+            poll=.05, limit=60)
     tail = arm_sb(ui, p)
     if p.w("mwt_bseg") == 0:
         fail("wt: the bank was never read")

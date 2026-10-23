@@ -36,17 +36,17 @@ desk	deskz	30	tests/desklayer.py
 desk	desksmall	30	tests/desklayer.py
 desk	deskitem	25	tests/deskitem.py
 desk	deskdock	25	tests/desklayer.py
-midi	midirackend	120	tests/midirack.py
-midi	midirackcovoxpoll	75	tests/midirack.py
-midi	midiracksbmem	70	tests/midirack.py
-midi	midirackwt	70	tests/midirack.py
-midi	midirackfm	60	tests/midirack.py
-midi	midiracksb	60	tests/midirack.py
-midi	midiracksbrate	60	tests/midirack.py
-midi	midirackspk	60	tests/midirack.py
-midi	midirackmpu	60	tests/midirack.py
-midi	midirackcovox	60	tests/midirack.py
-midi	midiracktone	50	tests/midirack.py
+DONE midi	midirackend	120	tests/midirack.py
+DONE midi	midirackcovoxpoll	75	tests/midirack.py
+DONE midi	midiracksbmem	70	tests/midirack.py
+DONE midi	midirackwt	70	tests/midirack.py
+DONE midi	midirackfm	60	tests/midirack.py
+DONE midi	midiracksb	60	tests/midirack.py
+DONE midi	midiracksbrate	60	tests/midirack.py
+DONE midi	midirackspk	60	tests/midirack.py
+DONE midi	midirackmpu	60	tests/midirack.py
+DONE midi	midirackcovox	60	tests/midirack.py
+DONE midi	midiracktone	50	tests/midirack.py
 DONE blit	blitcut	330	tests/blitcut.py
 DONE blit	blitplane	180	tests/blitplane.py
 DONE blit	blitp	120	tests/blitp.py

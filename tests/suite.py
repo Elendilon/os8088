@@ -4264,7 +4264,7 @@ SOAK = [
         "ties. Checks native pixels and repaint consistency on three adapters",
         needs=("marty", "nasm"), serial=True,
         wants=("build/gorillas.o88", "build/os8088-360.img")),
-    Row("midirackfm", "soak", py("tests/midirack.py", "--arm", "fm"), 60.0,
+    Row("midirackfm", "soak", py("tests/midirack.py", "--arm", "fm"), 30.0,
         "MIDIRack on the AdLib (SPEC.md 105.6): the autoload finds "
         "MEDIA\\MIDI and measures BATTLE1, the chip is claimed in OPL2 mode "
         "and voices key, and the capture's strongest pitch class agrees with "
@@ -4272,7 +4272,7 @@ SOAK = [
         "against a tritone-transposed reference must fail",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
-    Row("midiracksb", "soak", py("tests/midirack.py", "--arm", "sb"), 60.0,
+    Row("midiracksb", "soak", py("tests/midirack.py", "--arm", "sb"), 30.0,
         "MIDIRack's synth on the Sound Blaster (SPEC.md 105.8.4): the "
         "external ring this DSP 2.1 plays in place (the grant ring on one "
         "without auto-init), no underrun after the first, the stream at its "
@@ -4281,7 +4281,7 @@ SOAK = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
     Row("midiracksbmem", "soak", py("tests/midirack.py", "--arm", "sbmem"),
-        70.0,
+        60.0,
         "MIDIRack's two rings live only while they play (SPEC.md 105.8.4, "
         "105.8.3; KERN-MEGA-PLAN 14.55, 14.59): the card's external ring in "
         "the claim map during a play and gone at Stop; the speaker's held "
@@ -4296,32 +4296,32 @@ SOAK = [
         wants=("build/os8088-720.img", "build/midirack.o88",
                "build/filler.o88")),
     Row("midiracksbrate", "soak", py("tests/midirack.py", "--arm", "sb",
-                                     "--rate", "2"), 60.0,
+                                     "--rate", "2"), 30.0,
         "MIDIRack's Settings rate reaching the card (SPEC.md 105.7.1, "
         "105.9.2): 11,025 Hz chosen, the stream opened at it, the card "
         "consuming it by the guest's clock, the pitch agreement and its "
         "negative control",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
-    Row("midirackspk", "soak", py("tests/midirack.py", "--arm", "spk"), 60.0,
+    Row("midirackspk", "soak", py("tests/midirack.py", "--arm", "spk"), 20.0,
         "MIDIRack's synth on the PC speaker, in its bracket (SPEC.md 105.7.1, "
         "105.8.3): 5.5 kHz on the 8088, the ring never under a quarter, CONS "
         "at the rate, the pitch agreement on the low-passed capture and its "
         "negative control",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
-    Row("midiracktone", "soak", py("tests/midirack.py", "--arm", "tone"), 50.0,
+    Row("midiracktone", "soak", py("tests/midirack.py", "--arm", "tone"), 40.0,
         "MIDIRack's 'Play in Background' on a machine with no card (SPEC.md "
         "105.8.2): the melody as one square wave on the desktop, moving "
         "through the song's pitches",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
-    Row("midirackend", "soak", py("tests/midirack.py", "--arm", "end"), 120.0,
+    Row("midirackend", "soak", py("tests/midirack.py", "--arm", "end"), 90.0,
         "MIDIRack's song end (SPEC.md 105.8.1): Loop plays INTRO again from "
         "its start, and without it the last song's end stops the playlist",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/apps720.img")),
-    Row("midirackmpu", "soak", py("tests/midirack.py", "--arm", "mpu"), 60.0,
+    Row("midirackmpu", "soak", py("tests/midirack.py", "--arm", "mpu"), 40.0,
         "MIDIRack's MIDI out (SPEC.md 105.8.5, SOUND.DRV's MPU-401, 34.13) on "
         "a 5150 with an MPU-401 and NO other card - so the driver attaches on "
         "the MPU alone: GM ON first, the reference sequencer's own channel "
@@ -4411,7 +4411,7 @@ SOAK = [
         "kernel's byte for the machine the disk goes home to (SPEC.md 34.14)",
         needs=("marty", "nasm"), serial=True,
         wants=("build/covoxsys360.img",)),
-    Row("midirackwt", "soak", py("tests/midirack.py", "--arm", "wt"), 70.0,
+    Row("midirackwt", "soak", py("tests/midirack.py", "--arm", "wt"), 30.0,
         "MIDIRack's Sound Blaster WAVETABLE (SPEC.md 105.8.6) on the 5150, "
         "with tools/os88midbank.py's synthetic bank beside the package (no "
         "network): the bank read in 32 KB chunks, three voices at the 8088's "
