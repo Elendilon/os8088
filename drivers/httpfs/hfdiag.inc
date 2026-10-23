@@ -58,10 +58,6 @@ hf_dgout:
     jz .k3
     or bl, 8
 .k3:
-    test byte [hf_hascr], 0xFF
-    jz .k4
-    or bl, 16
-.k4:
     test byte [hf_dgr], 0xFF
     jz .k5
     or bl, 32                   ; a kept connection died and was retried

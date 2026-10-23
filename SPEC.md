@@ -204839,12 +204839,13 @@ sector at a time (its section 2).
 ```
 GET /<prefix><path> HTTP/1.0
 Host: <host>[:<port>]
-User-Agent: os8088
 [Range: bytes=<from>-<to>]          FSV_READ and FSV_READAT
 Connection: keep-alive
 ```
 
-§92.4's profile and its rules, but for the kept connection (§120.2.1): no
+No `User-Agent:` - HTTP/1.0 asks for none, and its 20 bytes were what stood
+between the driver and seven 360 KB clusters (size round 2). §92.4's profile
+and its rules, but for the kept connection (§120.2.1): no
 chunked decoding, no redirects; a status other than 200 or 206 is a failure
 that names its number. `https://` is refused by name, as the browser refuses
 it (§71.2) - a TLS source goes through the host proxy. A path byte other than
@@ -204962,7 +204963,7 @@ one on purpose.
 | `FSV_STAT` | the current folder's run, by FAT name: the handle, the size, `BL` = 10h a folder / 0 |
 | `FSV_ENUM` | the *n*th of a named folder's run, hidden and system ones included, with the record's attribute at the entry's +24 (§62.9.17.1) |
 | `FSV_READ` | `FERR_BIG` past the capacity, before any request; then `FSV_READAT`'s GET for the whole file. The body must be the index's size to the byte - a tree replaced under a mounted index fails rather than handing over another file |
-| `FSV_READAT` | **one GET with `Range:`** (`hf_xfer`, which `FSV_READ` shares). A 206 must say it starts at the offset asked and carry the length asked. A 200 has IGNORED the range: the body is the whole file, its length the index's, so the offset is drained and the handle dropped after the bytes wanted unless they reached the file's end - correct on any server, slow only on one that will not range |
+| `FSV_READAT` | **one GET with `Range:`** (`hf_xfer`, which `FSV_READ` shares). A 206 must carry the length asked; where it starts is taken on trust (the owner's call at size round 2: a server that honours `Range:` at all honours its start, and the hosts this is for are Apache). A 200 has IGNORED the range: the body is the whole file, its length the index's, so the offset is drained and the handle dropped after the bytes wanted unless they reached the file's end - correct on any server, slow only on one that will not range |
 | `FSV_DFREE` | 0 bytes free, granule 512 |
 | `FSV_WRITE` `APPEND` `DELETE` `RENAME` `MKDIR` `RMDIR` | `FERR_WPROT` |
 | `FSV_COPY` `FSV_RMTREE` | not published (0): the kernel's fallbacks |
@@ -205047,7 +205048,7 @@ Measured at one build number against the tree before it:
 | | `kern_big` | `kern_small` |
 |---|---|---|
 | resident | **81 bytes**: `.text` +43 - `drv_tab`'s row (16), its two strings (22), `drv_fptr10`'s pair (4), `drv_svcix`'s byte (1) - and `.bss` +38, `drv_owner`'s word and the class's 36-byte service-table copy. `DRVC_CD`'s shape (§119.5), five bytes of longer name over it. No rung crossed (the image rung 409 -> 316 left). `.boot2` +1, `drv_cfgbit`'s byte, is not resident | 0 - byte-identical |
-| `HTTPFS.DRV` | **5,573 bytes of image, a 6 KB claim while attached; 3,680 on the floppy**, LZ4 - 7,927 / 5,653 with the page in it. The 1 KB reader is most of its bss | none |
+| `HTTPFS.DRV` | **5,460 bytes of image, a 6 KB claim while attached; 3,575 on the floppy** (7 clusters at 360 KB), LZ4 - 7,927 / 5,653 with the page in it. The 1 KB reader is most of its bss | none |
 | `HTTPPAGE.DRV` | **2,357 bytes of image, a 3 KB claim while the panel shows the page; 2,030 on the floppy** - four 512-byte clusters, and under 2 KB as split. Half of it is the shared field (`os88line.inc`, 775) and button (`os88ui.inc`, 299) | none |
 | while mounted | the index's claim: `ceil((16 + 18 x records) / 1024)` KB - **2 KB for a system disk's 70 records**, 16 KB at `HF_MAXREC` | none |
 

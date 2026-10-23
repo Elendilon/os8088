@@ -418,3 +418,17 @@ helpers. **7 clusters wants 96 more bytes off the resident file**, and what
 is left at that size is a CHECK and not fat: the 206 `Content-Range` start
 (~70), the User-Agent header (~25), or the index's tree-consistency checks
 (~40) - the owner's call.
+
+**Size round 2 (2026-10-23).** The owner took the first two: the 206 start
+check went (Apache honours a range's start; the length is still checked) and
+so did `User-Agent:`. Between round 1 and this the field fixes had added 7
+bytes (keep-alive read anywhere in `Connection:`, abort instead of close, the
+page's claim zeroed before it is read in), so the cuts paid for those too:
+
+| | image | file | 360 KB clusters (512 B) |
+|---|---|---|---|
+| `HTTPFS.DRV`, after the field fixes | 5,581 | 3,687 | 8 |
+| ...without the `Content-Range` start check | 5,485 | 3,604 | 8 |
+| ...and without `User-Agent:` | **5,460** | **3,575** | **7** |
+
+The index's tree checks stay: the index is hostile input.

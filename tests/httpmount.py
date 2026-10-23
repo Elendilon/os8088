@@ -41,9 +41,10 @@ ETHER.DRV's name cache holds `localhost` after the open, and its DNS
 transaction id (random per query) has not moved by the end, across every
 later connection (SPEC.md 72.5.1).
 
-Break on purpose: drop hf_readat's `.part` start check and leg 5 still
-passes, which is why leg 6 exists - drop the `[hf_skip]` load in its 200 arm
-and leg 6 reads the file's FIRST bytes for every chunk.
+Break on purpose: drop the `[hf_skip]` load in hf_xfer's 200 arm and leg 6
+reads the file's FIRST bytes for every chunk. (A 206's start is taken on
+trust since size round 2, SPEC.md 120.4 - leg 5 is what a range-honouring
+server delivers.)
 """
 import atexit
 import os

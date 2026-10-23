@@ -811,7 +811,8 @@ hf_rdout:
 ; in:  AL = [hf_prog]'s value. out: CF=0 and DX:AX = [hf_rn]; CF=1, AX =
 ;      FERR_IO, DX = 0, the reason in [hf_err]. clobbers: BX, CX, SI, DI
 ;
-; A 206 must say it starts at the offset asked and carry the length asked. A
+; A 206 must carry the length asked; where it starts is taken on trust - a
+; server that honours Range: at all honours its start (SPEC.md 120.4). A
 ; server that answers 200 has IGNORED the range: the body is the whole file -
 ; its length checked against the index's - so the offset is DRAINED, and the
 ; connection is kept only if the read took the body to its end. Correct on any
@@ -837,14 +838,6 @@ hf_xfer:
     jmp short .body
 .part:
     mov ax, HFE_SHORT
-    cmp byte [hf_hascr], 0
-    je .io                      ; a 206 that does not say where it starts
-    mov dx, [hf_crlo]
-    cmp dx, [hf_rlo]
-    jne .io
-    mov dx, [hf_crlo+2]
-    cmp dx, [hf_rlo+2]
-    jne .io
     cmp byte [hf_hasl], 0
     je .body
     mov dx, [hf_clen]

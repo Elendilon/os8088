@@ -509,7 +509,7 @@ hf_scpy:
 ; hf_get - request [hf_path] below the prefix, and read the status and headers
 ; in:  SI = the path below the prefix ([hf_path], or the index's own name);
 ;      [hf_rlo]/[hf_rn] = the range wanted when [hf_rng] is 1 (start, count)
-; out: CF=0: [hf_status], [hf_clen]/[hf_hasl], [hf_crlo]/[hf_hascr] read and
+; out: CF=0: [hf_status] and [hf_clen]/[hf_hasl] read and
 ;      the reader at the body; the status is 200 or 206.
 ;      CF=1 and AX = an HFE_*; the connection is gone
 ; clobbers: AX, BX, CX, DX, SI, DI
@@ -521,7 +521,6 @@ hf_get:
     xor ax, ax
     mov [hf_status], ax
     mov [hf_hasl], al
-    mov [hf_hascr], al
     mov di, hf_rbuf             ; GET <prefix><path> HTTP/1.0 - COMPOSED IN
                                 ; THE RECEIVE BUFFER, which is idle until the
                                 ; request has gone: the prefix, a path whose
@@ -552,8 +551,8 @@ hf_get:
     xor dx, dx
     call hf_ultoa
 .nop:
-    mov si, hf_s_ua
-    call hf_scpy
+    mov ax, 0x0A0D              ; the Host line's end - and no User-Agent:
+    stosw                       ; HTTP/1.0 asks none (SPEC.md 120.2)
     cmp byte [hf_rng], 0
     je .norng
     mov si, hf_s_rng            ; Range: bytes=<lo>-<lo+n-1>
@@ -638,7 +637,7 @@ hf_get:
 .cr:
     mov si, hf_s_conn
     call hf_hdris
-    jne .cr2
+    jne .h
 .kk:
     lodsb                       ; a K ANYWHERE in it: `keep-alive`, alone
     or al, al                   ; or in a list - Apache with HTTP/2 says
@@ -647,16 +646,6 @@ hf_get:
     cmp al, 'K'
     jne .kk
     mov byte [hf_keep], 1
-    jmp short .h
-.cr2:
-    mov si, hf_s_crng
-    call hf_hdris
-    jne .h
-    call hf_atol
-    jc .h
-    mov [hf_crlo], ax
-    mov [hf_crlo+2], dx
-    mov byte [hf_hascr], 1
     jmp short .h
 .hdone:
     cmp byte [hf_hasl], 0
@@ -830,9 +819,7 @@ hf_bnorm:
 
 hf_s_get:   db 'GET ', 0
 hf_s_host:  db ' HTTP/1.0', 13, 10, 'Host: ', 0
-hf_s_ua:    db 13, 10, 'User-Agent: os8088', 13, 10, 0
 hf_s_rng:   db 'Range: bytes=', 0
 hf_s_end:   db 'Connection: keep-alive', 13, 10, 13, 10, 0
 hf_s_conn:  db 'CONNECTION:', 0
 hf_s_clen:  db 'CONTENT-LENGTH:', 0
-hf_s_crng:  db 'CONTENT-RANGE: BYTES ', 0
