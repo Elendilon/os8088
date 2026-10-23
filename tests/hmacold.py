@@ -69,18 +69,18 @@ class QMouse(os88mouse.Mouse):
         self.q = q
 
     def to(self, x, y, l=False, **_kw):
-        # A PACKET LOST IS A POSITION WRONG: the msmouse line runs at 1200
-        # baud and tools/mouse.py's walk is relative, so a dropped packet
-        # leaves the pointer short - which the read-back sees, and a second
-        # walk (it pins at the clamp first) repairs. `l` is the level a drag
-        # carries, and QMP's button state is sticky, so it needs nothing here
-        for _ in range(4):
-            xmcheck.goto(self.q.sock, x, y)
-            if os88qemu.acted(self.q, lambda: self.where()[:2] == (x, y),
-                              secs=3, what="the pointer at %d,%d" % (x, y)):
-                return
-        raise os88ui.UIError("the pointer did not reach %d,%d (at %r)"
-                             % (x, y, self.where()))
+        # CLOSED-LOOP (os88qemu.mouse_to, SOAK-SPEED 15): each relative
+        # packet waits for mouse_x/mouse_y to move, so a lost one is seen and
+        # re-sent at once - where tools/mouse.py pinned at the clamp and
+        # walked back blind, ~1.5 s a move. `l` is the level a drag carries;
+        # QMP's button state is sticky, so it only tells the wait what to see
+        try:
+            os88qemu.mouse_to(self.q, os88sym.linear,
+                              lambda *c: xmcheck.qmp(self.q.sock, *c), x, y,
+                              btn=1 if l else 0)
+        except os88qemu.MouseError as e:
+            raise os88ui.UIError("the pointer did not reach %d,%d (at %r): %s"
+                                 % (x, y, self.where(), e))
 
     def dblclick(self, x, y, **_kw):
         """Two clicks over QMP with nothing between them: the msmouse line

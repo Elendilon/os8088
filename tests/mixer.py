@@ -58,16 +58,21 @@ class Session:
         if self.qemu: os88qemu.pace(self.m,n)
         else: M.guest_sleep(self.m,n)
 
+    def done(self,n):
+        """QEMU: the UI finished with the input, capped at the old pause
+        (SOAK-SPEED 14) - a crop after it sees what the handler drew"""
+        os88qemu.ui_done(self.m,os88sym.linear,cap=n)
+
     def key(self,k):
         if self.qemu: self.m.hmp('sendkey '+{'space':'spc'}.get(k,k))
         else: self.m.key({'esc':'Escape','home':'Home','end':'End','space':'Space'}[k])
-        if self.qemu: self.pace(.3)   # (MartyPC: every key is followed by a
+        if self.qemu: self.done(.3)   # (MartyPC: every key is followed by a
                                       # wait on the state it changes)
 
     def click(self,x,y):
         if self.qemu:
             self.mo.to(x,y);self.mo._edge(True);self.mo._edge(False)
-            self.pace(.4)
+            self.done(.4)
         else: self.mo.click(x,y,settle=0)   # (every click is followed by a
                                             # wait on the state it changes)
 
@@ -276,7 +281,7 @@ def main():
             def click(self,x,y,**_kw):
                 # UI.close also uses click; pace it on QEMU's guest ticks.
                 self.to(x,y);self._edge(True);self._edge(False)
-                os88qemu.pace(self.q,.2)
+                os88qemu.ui_done(self.q,os88sym.linear,cap=.2)
         for memory in (1,128):
             with tempfile.TemporaryDirectory(prefix='mixer-qemu-',dir=ROOT/'build') as t:
                 sy=Path(t)/'system.img';apps=Path(t)/'apps.img'
@@ -288,7 +293,7 @@ def main():
                 try:
                     xmcheck.wait_desktop(q.sock,'mixer')
                     ui=hmacold.QUI(q,mouse=QMouse(q),sym=os88sym.linear,verbose=False)
-                    os88qemu.pace(q,2)
+                    os88qemu.ui_done(q,os88sym.linear,cap=2)
                     print('SB16 memory:',memory,flush=True)
                     session(ui,'sb16')
                     background(ui)
