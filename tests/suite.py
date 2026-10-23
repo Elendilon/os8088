@@ -3390,7 +3390,7 @@ SOAK = [
         "--machine flag was a trap - vram() answered a VGA with an empty "
         "Hercules aperture and the boot gate read '0 lit'",
         needs=("marty",), serial=True),
-    Row("fishfit", "soak", py("tests/fishfit.py"), 20.0,
+    Row("fishfit", "soak", py("tests/fishfit.py"), 10.0,
         "does the most expensive sea the generator can roll still fit ONE "
         "TICK? (SPEC.md 79.5.8). Sea life is the one saver mode that ever "
         "cost more than the 54.93 ms a task_sleep(1) parks for, and what that "
@@ -10732,7 +10732,7 @@ SOAK = [
         "section` printed `\\ype` (two documents differing in one letter "
         "before it must differ in one cell).",
         needs=("marty",), timeout=600),
-    Row("zonedmg", "soak", py("tests/zonedmg.py"), 15.0,
+    Row("zonedmg", "soak", py("tests/zonedmg.py"), 10.0,
         "SPEC.md 11.91/11.91.6: a window over B:'s cell, a second window "
         "closed below it whose frame reaches the cell and not the first: the "
         "first window's pixels over the cell must match a whole repaint. "

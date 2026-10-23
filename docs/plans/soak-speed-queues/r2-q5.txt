@@ -55,7 +55,7 @@ DONE dose	dosenvfold	40	tests/dosenvfold.py
 DONE dose	dosest	40	tests/dosest.py
 DONE dose	dosexec	30	tests/dosexec.py
 DONE dose	dosexe	28	tests/dosexe.py
-fish	fishfit	20	tests/fishfit.py
+DONE fish	fishfit	20	tests/fishfit.py
 DONE dosa	dosarena	35	tests/dosarena.py
 DONE dosa	dosattr	25	tests/dosattr.py
 DONE dosa	dosaltenter	20	tests/dosaltenter.py
@@ -97,6 +97,6 @@ SKIP(needs rgbds, absent here) gblo	gblog	20	tests/gblog.py
 DONE evqf	evqfull	20	tests/evqfull.py
 DONE tmlo	tmload	20	tests/tmload.py
 DONE size	sizesnap	20	tests/sizesnap.py
-gbso	gbsound	15	tests/gbsound.py
-zone	zonedmg	15	tests/zonedmg.py
-kern	kerndos	10	tests/kerndos.py
+SKIP(needs rgbds, absent here) gbso	gbsound	15	tests/gbsound.py
+DONE zone	zonedmg	15	tests/zonedmg.py
+DONE kern	kerndos	10	tests/kerndos.py
