@@ -119,7 +119,9 @@ def main():
     S = os88sym.linear
 
     kw = {"machine": a.machine} if a.machine else {}
-    with os88ui.boot("build/os8088-360.img", apps=DISK, **kw) as ui:
+    with os88ui.boot("build/os8088-360.img", apps=DISK, **kw,
+                     quick=True) as ui:
+        ui.still(0)     # booted on STATE; the first paint done (SOAK-SPEED 4)
         m = ui.m
         before = claims(m, S)
         w = ui.path("B:/CWORD.O88")

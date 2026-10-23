@@ -108,9 +108,10 @@ def main():
     ap.add_argument("--apps", default="build/pxsmove360.img")
     a = ap.parse_args()
     os.chdir(ROOT)
-    with os88marty.launch(a.image, apps=a.apps, machine=a.machine) as m:
+    with os88marty.launch(a.image, apps=a.apps, machine=a.machine,
+                          boot=False) as m:
         S = m.sym
-        g = pxslib.open_game(m)
+        g = pxslib.open_game(m)         # runs it, gates on kernel_up
         ui = os88ui.UI(m, verbose=False, sym=S)
         seg0 = g.seg
         h0 = g.handoff()

@@ -188,7 +188,9 @@ def main():
     print("kdarena: the map is this kern_dos's own (%d bytes)"
           % os.path.getsize(KDBIN))
 
-    with os88ui.boot(SYS, apps=COM, machine=MACH) as ui:
+    with os88ui.boot(SYS, apps=COM, machine=MACH,
+                     quick=True) as ui:
+        ui.still(0)     # booted on STATE; the first paint done (SOAK-SPEED 4)
         m = ui.m
         if not ui.path("B:/DOSHELLO.COM"):
             fail("DOSHELLO.COM did not open a DOS window")

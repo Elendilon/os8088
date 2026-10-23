@@ -229,7 +229,9 @@ def main():
     with tempfile.TemporaryDirectory() as work:
         bimg = scratch_b(work, data)
         with os88ui.boot(os88build.at(a.sys), apps=bimg,
-                         machine=a.machine) as ui:
+                         machine=a.machine,
+                         quick=True) as ui:
+            ui.still(0)     # booted on STATE; the first paint done (SOAK-SPEED 4)
             session(ui, a, R, data)
     for f in fails:
         say("  FAIL: " + f)

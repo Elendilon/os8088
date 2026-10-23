@@ -66,7 +66,9 @@ def main():
     flydn = dispapps.bss_off("skies", "cs_flydn")
     want = dispapps.bss_off("skies", "cs_want")
 
-    with os88ui.boot(a.image, apps=a.apps, machine=a.machine) as ui:
+    with os88ui.boot(a.image, apps=a.apps, machine=a.machine,
+                     quick=True) as ui:
+        ui.still(0)     # booted on STATE; the first paint done (SOAK-SPEED 4)
         m = ui.m
         w = ui.path("B:/GAMES/SKIES.O88")
         base = ui._S("wm_wins") + w.i * geom.WIN_SIZE

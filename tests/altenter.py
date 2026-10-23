@@ -260,7 +260,9 @@ def leg_bracket(ui, st):
 
 def main():
     with os88ui.boot("build/os8088-360.img", apps="build/apps360.img",
-                     machine=MACHINE) as ui:
+                     machine=MACHINE,
+                     quick=True) as ui:
+        ui.still(0)     # booted on STATE; the first paint done (SOAK-SPEED 4)
         st = State(ui.m)
         ok = leg_latch(ui, st)
         ok = leg_bracket(ui, st) and ok

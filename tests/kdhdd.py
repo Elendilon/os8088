@@ -246,10 +246,12 @@ def arm3_run(m, mo):
 def main():
     fixture()
     m = M.launch(None, apps=FLOPPY, machine=MACHINE,
-                 extra=["--mount", "hd:0:" + VHD])
+                 extra=["--mount", "hd:0:" + VHD], boot=False)
     try:
         ui = os88ui.UI(m)
-        ui.ready(limit=240)
+        m.run()                    # a quick boot: the next act is a
+        ui.up(limit=240)            # verb or a read, so STATE is the gate
+        M.no_saver(m)
         mo = os88mouse.Mouse(marty=m)
         print("kdhdd: booted off the fixed disk")
 
