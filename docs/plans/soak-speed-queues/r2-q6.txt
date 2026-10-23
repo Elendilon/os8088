@@ -33,15 +33,15 @@ DONE sbar	sbardlg	60	tests/sbar.py
 DONE dosg	dosgap	25	tests/dosgap.py
 DONE vidh	vidhdmake	65	tests/vidhdmake.py
 DONE int	int0sweep	60	tests/int0sweep.py
-spla	splashbar	40	tests/splashbar.py
-spla	splashspin	20	tests/splashspin.py
+DONE spla	splashbar	40	tests/splashbar.py
+DONE spla	splashspin	20	tests/splashspin.py
 DONE span	spantest	30	tests/spantest.py
 DONE span	spantest-vga	30	tests/spantest.py
 DONE sbra	sbrate286	60	tests/sbrate286.py
 DONE rdpr	rdpreserve	60	tests/rdpreserve.py
 DONE uidr	uidrdis	55	tests/uidrdis.py
 SKIP(fails at base: os88rom 'file offset 0x54 is a site but the plain kernel does not hold COLD_SEG' - rombig's failure) roms	romsmall	45	tests/romsmall.py
-roms	romsock	5	tests/romsock.py
+DONE roms	romsock	5	tests/romsock.py
 DONE dtfi	dtfield	50	tests/dtfield.py
 DONE mine	minexflag	50	tests/minexflag.py
 DONE tpsa	tpsaveu	50	tests/tpsaveu.py
@@ -60,7 +60,7 @@ DONE asca	ascabsorb	30	tests/ascabsorb.py
 DONE curb	curbusy	30	tests/curbusy.py
 DONE npsc	npscroll	30	tests/npscroll.py
 DONE glyp	glyphcost	30	tests/glyphcost.py
-blob	blobsum	27	tests/blobsum.py
+DONE blob	blobsum	27	tests/blobsum.py
 DONE audh	audhand	26	tests/audhand.py
 DONE spkf	spkfx	25	tests/spkfx.py
 DONE fpgc	fpgcold	20	tests/fpgcold.py
@@ -70,7 +70,7 @@ DONE uibl	uiblock	20	tests/uiblock.py
 DONE xorr	xorrect	20	tests/xorrect.py
 DONE pkgm	pkgmax	15	tests/pkgmax.py
 DONE fpgn	fpgnotch	13	tests/fpgnotch.py
-tick	tickzero	10	tests/tickzero.py
+DONE tick	tickzero	10	tests/tickzero.py
 DONE kdos	kdos	10	tests/kdos.py
 DONE(by agent 3, a8 below) vidf	vidfskeysvga4m3	55	tests/vidfskeys.py
 DONE(by agent 3, a8 below) vidf	vidfskeysvga4pl	55	tests/vidfskeys.py
@@ -98,17 +98,17 @@ DONE pkgt	pkgthumb-tp	50	tests/pkgthumb.py
 DONE dosr	dosrange	45	tests/dosrange.py
 DONE dosr	dosren	30	tests/dosren.py
 DONE dosr	dosregs	25	tests/dosregs.py
-kdmo	kdnomouse	45	tests/kdmouse.py
+DONE kdmo	kdnomouse	45	tests/kdmouse.py
 DONE lzmo	lzmod-lz4big	40	tests/lzmod.py
 DONE lzmo	lzmod	30	tests/lzmod.py
 DONE lzmo	lzmod-dialog	30	tests/lzmod.py
 DONE lzmo	lzmod-nohint	30	tests/lzmod.py
 DONE lzmo	lzmod-lzb	30	tests/lzmod.py
 DONE vidm	vidmove	45	tests/vidmove.py
-lzlo	lzload	30	tests/lzload.py
+DONE lzlo	lzload	30	tests/lzload.py
 DONE gfxp	gfxpoints	45	tests/gfxpoints.py
 DONE pxsm	pxsmove	30	tests/pxsmove.py
-uila	uilayer	50	tests/uilayer.py
+DONE uila	uilayer	50	tests/uilayer.py
 DONE uila	uilat	30	tests/uilat.py
 DONE mous	mousess	20	tests/mousess.py
 DONE pxsh	pxshud-vga	45	tests/pxshud.py
@@ -119,15 +119,15 @@ DONE wimg	wimgtrip	56	tests/wimgtrip.py
 DONE fcpa	fcpapi	55	tests/fcpapi.py
 DONE vidg	vidgrey	30	tests/vidgrey.py
 DONE vidg	vidgreyherc	25	tests/vidgrey.py
-auto	autostart	50	tests/autostart.py
+DONE auto	autostart	50	tests/autostart.py
 DONE su	su1bpp	50	tests/su1bpp.py
 SKIP(needs rgbds, absent here) gbhe	gbheader	45	tests/gbheader.py
 DONE dirw	dirwshed	45	tests/dirwshed.py
 DONE covb	covbench	45	tests/covbench.py
-tmow	tmowner	45	tests/tmowner.py
+DONE tmow	tmowner	45	tests/tmowner.py
 SKIP(needs rgbds, absent here) gbsa	gbsave	40	tests/gbsave.py
 DONE kdar	kdarena	40	tests/kdarena.py
-vgac	vgacolor	40	tests/vgacolor.py
+DONE vgac	vgacolor	40	tests/vgacolor.py
 DONE b	b4walk	40	tests/b4walk.py
 DONE runc	runclipcga	20	tests/runclip.py
 DONE runc	runclip	16	tests/runclip.py
@@ -147,5 +147,5 @@ DONE spkb	spkbench	20	tests/spkbench.py
 DONE v	v20boot	17	tests/v20boot.py
 DONE drag	dragui	15	tests/dragui.py
 DONE stkp	stkpanel	15	tests/stkpanel.py
-cylr	cylrun	10	tests/cylrun.py
-pitn	pitnow	5	tests/pitnow.py
+DONE cylr	cylrun	10	tests/cylrun.py
+DONE pitn	pitnow	5	tests/pitnow.py

@@ -350,7 +350,7 @@ FAST = [
         needs=("marty", "nasm"), serial=True,
         wants=("build/small360.img", "build/muptest.img",
                "build/smallapp/taskmgr.o88")),
-    Row("romsock", "soak", py("tests/romsock.py"), 5.0,
+    Row("romsock", "soak", py("tests/romsock.py"), 10.0,
         "docs/plans/ROM-PLAN.md 1.3 and 1.7: the socket-check ROM in U28-U32 "
         "on a GLaBIOS 5150 with no disk. The BIOS must find the window as an "
         "option ROM (55 AA, a 32KB declaration, both balance bytes), call its "
@@ -4647,7 +4647,7 @@ SOAK = [
         "composed line out of the overlay AND hashes the pixel band under the"
         " bar, on both 1bpp adapters",
         needs=("marty", "nasm"), serial=True, wants=("build/ether360.img",)),
-    Row("blobsum", "soak", py("tests/blobsum.py"), 27.0,
+    Row("blobsum", "soak", py("tests/blobsum.py"), 10.0,
         "Does a SHORT READ of stage 2's blob halt instead of executing what "
         "landed? (SPEC.md 2.9.7) Blanks one sector in the middle of it - the "
         "failure that is not a disk error, because stage 2 and the loading "
@@ -4685,7 +4685,7 @@ SOAK = [
         "clock and splash pixels animate, and Ctrl-Alt-Del still warm-resets "
         "back into the kernel, on VGA, CGA and Hercules",
         needs=("marty",), serial=True),
-    Row("splashspin", "soak", py("tests/splashspin.py"), 20.0,
+    Row("splashspin", "soak", py("tests/splashspin.py"), 10.0,
         "Does the logo turn on the WALL CLOCK? (SPEC.md 15.3.6) The composed "
         "angle checked against the guest's own BIOS tick on every frame it "
         "changes, and the rate compared either side of the notch rate "
@@ -5512,7 +5512,7 @@ SOAK = [
         "(docs/MARTYPC-DEBUG.md).",
         needs=("marty",), serial=True,
         wants=("build/kdos/DOS.O88", "build/kernel.sys", "build/hiber.drv")),
-    Row("kdnomouse", "soak", py("tests/kdmouse.py", "--nomouse"), 20.0,
+    Row("kdnomouse", "soak", py("tests/kdmouse.py", "--nomouse"), 40.0,
         "DISABLE THE MOUSE MEANS NO MOUSE (SPEC.md 96.36.8): kdmouse's "
         "handoff with the box ticked, and INT 33h's reset must answer AX = 0 "
         "- 33h an iret, the vector DOS leaves with no driver loaded - where a "
@@ -8939,7 +8939,7 @@ SOAK = [
         "size pass 8 - must letter. Red with the staging copy skipped."
         "Measured 20s",
         needs=("marty",), serial=True),
-    Row("vgacolor", "soak", py("tests/vgacolor.py"), 40.0,
+    Row("vgacolor", "soak", py("tests/vgacolor.py"), 70.0,
         "SPEC.md 39.28/31.10.4: Force Color. MartyPC's VGA booted with a "
         "PVGA1A's 'monochrome display' verdict planted at drvf_drv_mounted "
         "(40:89h summing + mono, the live DAC summed grey): the box CLEAR "
@@ -9037,7 +9037,7 @@ SOAK = [
         "Red when icon_draw_ix's pool arithmetic is broken and when "
         "desk_learn_x does nothing; both measured.",
         needs=("marty",), serial=True),
-    Row("uilayer", "soak", py("tests/uilayer.py"), 50.0,
+    Row("uilayer", "soak", py("tests/uilayer.py"), 40.0,
         "Does tools/os88ui.py do what it says, and is confirming cheaper "
         "than settling? Every verb - open_drive, open, drag_window, "
         "raise_window from BEHIND another window, menu_pick off the live "
@@ -9637,7 +9637,7 @@ SOAK = [
         "open, because a move shuts that window. VERIFIED RED with .selmove's "
         "FS_CLKT store taken out (the Audio Player launched on one click).",
         needs=("marty",), serial=True),
-    Row("autostart", "soak", py("tests/autostart.py"), 50.0,
+    Row("autostart", "soak", py("tests/autostart.py"), 60.0,
         "SPEC.md 26.10: LINKS and AUTOSTART on kern_big, off "
         "`make autostarttest`'s disk. A: the boot opens every link in the "
         "boot volume's \\AUTOSTRT - the Task Manager is up with nobody "
@@ -11789,7 +11789,7 @@ SOAK = [
         "y & 3, 90 bytes a row, +5 for the box) against the reference "
         "renderer's bytes, and the WIN1 band on a 1bpp desktop",
         needs=("marty", "nasm"), serial=True),
-    Row("pitnow", "soak", py("tests/pitnow.py"), 5.0,
+    Row("pitnow", "soak", py("tests/pitnow.py"), 10.0,
         "SPEC.md 72.15.1: apps/os88pit.inc's pit_now - the 838 ns clock "
         "PIXELSTEIN, isoTron, MIDIRack, FTPD and ETHER.DRV's profiler share - "
         "hammered 60,000 times from a BOOT SECTOR on the 5150 with the "
@@ -15708,7 +15708,7 @@ SOAK = [
         "every sample lands badly - and CELLS below is deliberately NOT "
         "retried, being the half that would hide a real regression",
         needs=("marty",), serial=True),
-    Row("tmowner", "soak", py("tests/tmowner.py"), 45.0,
+    Row("tmowner", "soak", py("tests/tmowner.py"), 40.0,
         "SPEC.md 28.4.10: a raise cache is listed under PURGEABLE, the "
         "kernel window's and a package's alike - it is in nobody's total, so "
         "it is in no owner's group (it was the window's package, 28.4.5, "

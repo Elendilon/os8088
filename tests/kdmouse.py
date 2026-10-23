@@ -151,7 +151,7 @@ def main():
         base = pseg << 4
         mo = os88mouse.Mouse(marty=m)
 
-        mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"))
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"), settle=0)
         os88marty.ui_done(m)
         dis = kdhand.rec(m, pseg, dm, kdhand.RD_DIS)
         if dis & (1 << kdhand.WHOLE):
@@ -175,12 +175,12 @@ def main():
         # The path box has to be CLICKED first and the extension is part of
         # the name - tests/kdmix.py carries both reasons, and both fail as a
         # message about the wrong subject.
-        mo.click(*dosmap.centre(m, pseg, dm, "dos_trect"))
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_trect"), settle=0)
         os88marty.ui_done(m)
-        mo.click(*dosmap.centre(m, pseg, dm, "dos_pln"))
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_pln"), settle=0)
         os88marty.ui_done(m)
         os88marty.text_taken(m, "DOSMOUSE.COM")
-        mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"))
+        mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"), settle=0)
         os88marty.ui_done(m)
         if kdhand.alert_up(m, base, dm):
             mo.click(*kdhand.alert_button(m, base, dm, 1))      # Proceed
