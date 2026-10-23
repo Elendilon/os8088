@@ -7806,7 +7806,7 @@ SOAK = [
     Row("dispcalcx", "soak", py("tests/dispcalcx.py"), 45.0,
         "Does the Calculator re-fold cleanly when its box moves under it?",
         needs=("marty",), serial=True),
-    Row("dispcheck", "soak", py("tests/dispcheck.py"), 60.0,
+    Row("dispcheck", "soak", py("tests/dispcheck.py"), 30.0,
         "Did os8088 bring the SECOND card up, can it DRAW on it, and does the",
         needs=("marty",), serial=True),
     Row("dispclose", "soak", py("tests/dispclose.py"), 20.0,
@@ -7851,7 +7851,7 @@ SOAK = [
     Row("dispdrag", "soak", py("tests/dispdrag.py"), 40.0,
         "Does a window DRAGGED across the seam arrive on both displays?",
         needs=("marty",), serial=True),
-    Row("dispfit", "soak", py("tests/dispfit.py"), 60.0,
+    Row("dispfit", "soak", py("tests/dispfit.py"), 30.0,
         "Is changing adapter and changing back the IDENTITY on every window"
         "rect?",
         needs=("marty",), serial=True),
@@ -7901,7 +7901,7 @@ SOAK = [
     Row("dispfsx", "soak", py("tests/dispfsx.py"), 60.0,
         "WHICH MONITOR DOES A FULLSCREEN BRACKET LAND ON? (SPEC.md 53.7.1)",
         needs=("marty",), serial=True),
-    Row("dispherc1", "soak", py("tests/dispherc1.py"), 60.0,
+    Row("dispherc1", "soak", py("tests/dispherc1.py"), 30.0,
         "HERCULES PRIMARY, VGA SECOND (SPEC.md 39.19.2's other arrangement)",
         needs=("marty",), serial=True),
     Row("dispmcfs", "soak", py("tests/dispmcfs.py"), 120.0,
@@ -8839,7 +8839,7 @@ SOAK = [
         "SPEC.md 10.1: a full event ring discards its OLDEST input, and never"
         "a coalesced WAKE - asked of evq_push directly, with the CPU parked",
         needs=("marty",), serial=True),
-    Row("dispmine", "soak", py("tests/dispmine.py"), 30.0,
+    Row("dispmine", "soak", py("tests/dispmine.py"), 20.0,
         "Can Minesweeper's bottom row be PLAYED on a CGA? (SPEC.md 11.93)",
         needs=("marty",), serial=True),
     Row("curshape", "soak", py("tests/curshape.py"), 60.0,
@@ -8852,7 +8852,7 @@ SOAK = [
         "passed the whole fast tier and drew nothing",
         needs=("marty",), serial=True,
         wants=("build/office360.img",)),
-    Row("dispmode", "soak", py("tests/dispmode.py"), 60.0,
+    Row("dispmode", "soak", py("tests/dispmode.py"), 30.0,
         "Single or Extend, where the second display sits, and does it survive"
         "a",
         needs=("marty",), serial=True),
@@ -9146,7 +9146,7 @@ SOAK = [
         "Does a window dragged across the seam give back the rows only ONE"
         "display",
         needs=("marty",), serial=True),
-    Row("disptext", "soak", py("tests/disptext.py"), 40.0,
+    Row("disptext", "soak", py("tests/disptext.py"), 20.0,
         "Does going back to text name the CARD? (SPEC.md 39.20)",
         needs=("marty",), serial=True),
     Row("dispvy", "soak", py("tests/dispvy.py"), 40.0,
