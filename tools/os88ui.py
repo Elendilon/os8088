@@ -281,9 +281,11 @@ class UI:
         second floor. NOT for a worker that draws on its own clock (a game, a
         Task Manager graph): ui_done cannot see that, `settle` can.
         """
-        if not hasattr(self.m, "status"):   # NOT A MARTY (a QEMU UI such as
-            self.settle()                   # tests/wirefleetlink.py's, whose
-            return self                     # settle is its own state wait)
+        if (not hasattr(self.m, "status")   # NOT A MARTY whose UI brings its
+                and type(self).settle is not UI.settle):   # own settle - a
+            self.settle()                   # state wait (wirefleetlink.py).
+            return self                     # Otherwise ui_done reads any
+                                            # machine with read() (rdxms.py)
         os88marty.ui_done(self.m, "the desktop to finish drawing")
         if frames:
             os88marty.guest_sleep(self.m, frames)
