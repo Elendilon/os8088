@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SPEC.md 34.15.1 / 51.1.3: with no mixer, SOUND.DRV hands its tail back.
+"""SPEC.md 34.15.1 / 51.1.3: SOUND.DRV hands back what this machine cannot run.
 
     make covoxtest mixertest && python3 tests/sndkeep.py
 
@@ -12,13 +12,14 @@ Two legs, one per answer the attach can give:
          record both ceil(snd_keep / 1024) KB - with the Covox tier still
          published and SND_CAP_MIXER clear.
   mix    the Sound Blaster 5150 (os8088_5150_sb_gla), whose card has a mixer:
-         DRV_H_KEEP stays 0 and the claim stays the whole image, because the
-         popup and the mixer verbs live past snd_keep.
+         DRV_H_KEEP is snd_keepmix and the claim ceil(snd_keepmix / 1024) KB -
+         the popup and the mixer verbs kept, the attach-only code past
+         snd_keepmix handed back, SND_CAP_MIXER published.
 
-Break it on purpose: take the `mov word [DRV_H_KEEP], snd_keep` out of
-sound.asm, or the `call %2 / dw mem_regrow` out of driver.inc's %1_att, and
-nomix goes red at the image's full 11KB; make the attach write it
-unconditionally and mix goes red at 8KB.
+Break it on purpose: take the `mov [DRV_H_KEEP], ax` out of sound.asm, or
+the `call %2 / dw mem_regrow` out of driver.inc's %1_att, and both legs go
+red at the image's full 11KB; make the attach write snd_keep unconditionally
+and mix goes red at 7KB.
 """
 import argparse
 import math
@@ -52,7 +53,7 @@ def fail(msg):
     sys.exit(1)
 
 
-def leg(name, keep):
+def leg(name, keep, keepmix):
     machine, img = LEGS[name]
     with os88ui.boot(img, machine=machine, quick=True) as ui:
         m = ui.m
@@ -109,29 +110,32 @@ def leg(name, keep):
                 fail("nomix: snd_keep %d rounds to %dK, the whole image's %dK "
                      "- nothing to give back" % (keep, want, full))
         else:
-            want = full
+            want = math.ceil(keepmix / 1024)
             if not caps & SND_CAP_MIXER:
                 fail("mix: SND_CAP_MIXER clear on the Sound Blaster machine - "
                      "the leg tests nothing")
-            if said:
-                fail("mix: DRV_H_KEEP %d with a mixer present - the popup "
-                     "would be dropped from under the speaker" % said)
+            if said != keepmix:
+                fail("mix: DRV_H_KEEP %d, want snd_keepmix %d - with a mixer "
+                     "only the attach-only code may go, never the popup"
+                     % (said, keepmix))
         if kb != want or c.para != want * 64:
             fail("%s: DRVR_KB %d and the claim %.1fK, want %dK"
                  % (name, kb, c.kb, want))
         print("PASS %s: SOUND.DRV holds %dK of a %dK image%s"
               % (name, want, full,
-                 ", the mixer and the popup handed back" if want < full
-                 else ", the popup kept"), flush=True)
+                 ", the mixer, the popup and the attach-only code handed back"
+                 if name == "nomix" else
+                 ", the popup kept and the attach-only code handed back"),
+              flush=True)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--leg", choices=sorted(LEGS), action="append")
     a = ap.parse_args()
-    keep = os88drvsym.symbols("sound.bin")["snd_keep"]
+    sym = os88drvsym.symbols("sound.bin")
     for name in a.leg or sorted(LEGS, reverse=True):
-        leg(name, keep)
+        leg(name, sym["snd_keep"], sym["snd_keepmix"])
     return 0
 
 

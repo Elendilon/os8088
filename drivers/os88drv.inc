@@ -62,8 +62,9 @@ PKG_DISP     equ 12
 ; (SPEC.md 51.1.3). It is the link word at +4, which the loader requires to be
 ; 0 and never reads again, so a driver built before it leaves it 0 and keeps
 ; its whole claim. A driver whose attach found that the end of its image can
-; never run on THIS machine - SOUND.DRV with no mixer, whose volume popup is
-; the last 4KB of it - writes the byte offset where what it still needs ENDS:
+; run again on THIS machine - SOUND.DRV's probes, which run once, and with no
+; mixer its volume popup too - writes the byte offset where what it still
+; needs ENDS:
 ;
 ;     mov word [DRV_H_KEEP], my_keep    ; my_keep: everything past it is dead
 ;

@@ -1551,7 +1551,7 @@ DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
                                 ; would be arithmetic rather than advice
 
 DRVM_IMG_SND equ 11             ; ceil(build/sound.drv   / 1024) - t_drvmem
-                                ; (WITH a mixer: 8 without, SPEC.md 34.15.1)
+                                ; (as LOADED: 10 held with a mixer, 7 without - SPEC.md 34.15.1)
 DRVM_IMG_HDD equ 4              ; ceil(build/hdd.drv     / 1024)   checks
 DRVM_IMG_ETH equ 17             ; ceil(build/ether.drv   / 1024)   every one
 DRVM_IMG_RAM equ 6              ; ceil(build/ramdisk.drv / 1024)   of these
@@ -3677,9 +3677,9 @@ section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):
     call %1 %+ _publish         ; SI is an offset in ES, so copy it now
 %ifdef KERN_BIG
     mov es, [bx+DRVR_SEG]       ; ...THEN GIVE BACK THE TAIL IT DISOWNED
-    mov ax, [es:DRV_H_KEEP]     ; (SPEC.md 51.1.3): SOUND.DRV with no mixer
-    add ax, 1023                ; says its volume popup can never run, 11KB
-    jc .keepall                 ; becoming 8. Before the tier and READY, so
+    mov ax, [es:DRV_H_KEEP]     ; (SPEC.md 51.1.3): SOUND.DRV's attach-only
+    add ax, 1023                ; code, 11KB becoming 10 - and with no mixer
+    jc .keepall                 ; its popup too, 7. Before tier and READY, so
     mov cl, 10                  ; no verb after the attach is ever sent to a
     shr ax, cl                  ; driver holding more than it said it needs.
     jz .keepall                 ; 0 = it said nothing: every driver built
