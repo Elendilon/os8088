@@ -28,9 +28,6 @@
 %if HDS_OK != HIS_OK || HDS_SMALL != HIS_SMALL || HDS_ALIEN != HIS_ALIEN || HDS_NONE != HIS_NONE || HDS_LIVE != HIS_LIVE
   %error "HDS_* (apps/os88api.inc) is HIS_*'s numbering, and has drifted"
 %endif
-%if HDIS_TEXTSZ < 25
-  %error "HDIS_TEXT must hold the State column's longest row (24) and its NUL"
-%endif
 
 ; -----------------------------------------------------------------------------
 ; hd_pkgv - HDT_PKG's dispatcher
@@ -134,7 +131,7 @@ hd_pv_slots:
     call hd_iw_rowtext          ; the slot's row, into hd_line...
     push cx
     push di
-    mov si, hd_line + HIW_STATEC    ; ...and its State column is ours
+    mov si, hd_line
     add di, HDIS_TEXT
     mov cx, HDIS_TEXTSZ - 1
 .cp:
@@ -516,7 +513,8 @@ hd_s_lmbr:   db 'Writing the partition table', 0
 hd_s_lboot:  db 'The disk starts os8088 now', 0
 hd_s_lafnd:  db 'Apps disk: drive ', 0
 hd_s_laask:  db 'No apps disk in a drive', 0
-hd_s_lasc:   db 'Writing ASSOC.DAT', 0
+hd_s_lasc:   db 'Writing '          ; ...and hd_s_assoc is its tail: ONE run,
+hd_s_assoc:  db 'ASSOC.DAT', 0      ; so nothing may be inserted between
 hd_s_lkept:  db 'kept', 0
 hd_s_lleft:  db 'left alone', 0
 hd_s_lsum0:  db 'Copied ', 0

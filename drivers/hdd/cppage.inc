@@ -1050,8 +1050,9 @@ hd_lkret:                       ; ...a `ret`, which is the paint the launch
 
 hd_lwin:     dw 0               ; the launch window, 0 = no launch pending
 hd_ltpl:     dw 0, 0, 8, 8, hd_s_inspkg, hd_lkret, 0, 0
-hd_s_inspkg: db 'INSTALL.O88', 0
-hd_s_insfail: db 'Cannot start INSTALL.O88', 0
+hd_s_insfail: db 'Cannot start '   ; THREE STRINGS IN ONE RUN: the toast,
+hd_s_inspkg: db 'INSTALL'           ; the name it starts, and inst.inc's
+hd_s_o88:    db '.O88', 0           ; package suffix - so nothing goes between
 
 hd_s_page:   db 'Hard Drive', 0 ; THE PAGE'S HEADING, and the resident keeps
                                 ; its own copy for DSV_CPNAME - cp_list
@@ -1145,12 +1146,12 @@ hd_s_nodev:   db 'No hard disk found', 0
 hd_s_nogeom:  db 'Geometry unknown: type it', 0
 hd_s_typed:   db 'Geometry set by hand', 0
 hd_s_mounted: db 'Mounted ', 0
-hd_s_vol1:    db ' volume', 0
 hd_s_mnofat:  db 'No FAT partition on it', 0
 hd_s_mhave:   db 'Already mounted', 0
 hd_s_unmounted: db 'Unmounted', 0
 hd_s_mnotab:  db 'No partition table yet', 0
-hd_s_mfull:   db 'No free volume', 0
+hd_s_mfull:   db 'No free'           ; ...and hd_s_vol1 is its tail: ONE run,
+hd_s_vol1:    db ' volume', 0        ; so nothing may be inserted between
 hd_s_mbig:    db 'Partition is over 2GB', 0
 hd_s_nosys:   db 'Need the system disk', 0
 hd_s_notool:  db 'Tool would not open', 0

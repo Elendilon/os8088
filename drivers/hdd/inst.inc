@@ -69,7 +69,7 @@
 
 HIW_CELLS    equ 42             ; the longest caption and status row, in
                                 ; characters: the State column's longest row
-                                ; is 24 cells from HIW_STATEC (SPEC.md
+                                ; is 24 characters (SPEC.md
                                 ; 52.10.4.2). Both reach the wizard through
                                 ; HDI_CAPSZ and HDIS_TEXTSZ, so it must stay
                                 ; under the first
@@ -77,10 +77,8 @@ HIW_CELLS    equ 42             ; the longest caption and status row, in
   %error "an installer caption would not fit the wizard's HDI_CAPSZ"
 %endif
 
-HIW_SIZEC    equ 12             ; the Size and State columns, in cells -
-HIW_STATEC   equ 18             ; in hd_iw_rowtext's row
-%if HIW_STATEC + 24 > HIW_CELLS
-  %error "the State column's longest row does not fit HIW_CELLS"
+%if 24 >= HDIS_TEXTSZ
+  %error "the State column's longest row (24) does not fit HDIS_TEXT"
 %endif
 
 ; What a slot is as an install TARGET, which is not tool.inc's HTS_* question.
@@ -339,18 +337,37 @@ hd_iw_letter:
 ; the one slot they most need to be sure of.
 ; -----------------------------------------------------------------------------
 hd_ptype_name:
+    push ax
+    push cx
     push si
+    mov ah, al
     mov si, hd_ptypes
-.next:
-    mov dx, [si+1]
-    or dx, dx
-    jz .out                     ; the terminator: 0 = not one we know
-    cmp al, [si]
-    je .out
-    add si, 3
-    jmp short .next
+    xor dx, dx                  ; 0 = not one we know: 'Type nnh'
+.rec:
+    lodsb                       ; the record's count of type bytes
+    or al, al
+    jz .out                     ; the terminator
+    mov cl, al
+    xor ch, ch
+.type:
+    lodsb
+    cmp al, ah
+    jne .nt
+    mov dx, si                  ; a hit: the name follows the type bytes
+    add dx, cx
+    dec dx
+    jmp short .out
+.nt:
+    loop .type
+.skip:
+    lodsb                       ; past the name and its NUL
+    or al, al
+    jnz .skip
+    jmp short .rec
 .out:
     pop si
+    pop cx
+    pop ax
     ret
 
 
@@ -384,44 +401,17 @@ hd_iact_ok:
     ret
 
 ; -----------------------------------------------------------------------------
-; hd_iw_rowtext - one row into hd_line (module internal)
+; hd_iw_rowtext - slot [hd_irow]'s State column into hd_line (module
+; internal): [letter ': '] body [', ' reason], SPEC.md 52.10.4.2
+;
+; THE STATE COLUMN AND NOTHING ELSE. It was the Install window's whole row -
+; 'Slot 1', the size, then this - and since that window went (SPEC.md
+; 52.10.4.4) its one reader is hd_pv_slots, which hands the wizard the size
+; as a number (HDIS_SECS) and the slot as an index.
 ; -----------------------------------------------------------------------------
 hd_iw_rowtext:
     call os88_ent
-%ifdef INSTBENCH
-    cmp byte [hd_iw_st], HII_DONE   ; SPEC.md 52.10.9: the install is over, so
-    jne .slots                      ; the slot list is answering a question
-    call hd_bn_rowtext              ; nobody has any more
-    jmp .rtout
-.slots:
-%endif
     mov di, hd_line
-    mov si, hd_s_islot
-    call hd_scat
-    mov al, [hd_irow]
-    xor ah, ah
-    inc ax
-    call hd_utoa
-    mov al, HIW_SIZEC           ; the Size column, under its heading
-    call hd_itab_to
-
-    mov bl, [hd_irow]
-    xor bh, bh
-    shl bx, 1
-    shl bx, 1
-    mov ax, [bx+hd_isecs]
-    mov dx, [bx+hd_isecs+2]
-    mov cx, ax
-    or cx, dx
-    jz .nosize
-    call hd_iw_size
-    jmp short .state
-.nosize:
-    mov si, hd_s_idash
-    call hd_scat
-.state:
-    mov al, HIW_STATEC          ; ...and the State column, under its own
-    call hd_itab_to
     mov bl, [hd_irow]
     xor bh, bh
     mov al, [bx+hd_ilet]        ; 'C: ' when it is on the desktop
@@ -453,31 +443,7 @@ hd_iw_rowtext:
     call hd_scat
 .done:
     mov byte [di], 0
-%ifdef INSTBENCH
-.rtout:
-%endif
     jmp os88_r_bp
-
-; -----------------------------------------------------------------------------
-; hd_itab_to - space-pad hd_line from DI out to column AL
-; in:  DI = the write position in hd_line, AL = the column
-; out: DI at that column (or where it was, if already past it: a wide field
-;      prints wide, hd_utoa's own rule)
-; clobbers: DI (the output), flags
-; -----------------------------------------------------------------------------
-hd_itab_to:
-    push ax
-    xor ah, ah
-    add ax, hd_line
-.pad:
-    cmp di, ax
-    jae .out
-    mov byte [di], ' '
-    inc di
-    jmp short .pad
-.out:
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; hd_hex2 - AL as two hex digits at DI, DI advanced
@@ -878,57 +844,6 @@ hd_bn_rowtext:
 %endif
 
 ; -----------------------------------------------------------------------------
-; hd_iw_size - DX:AX sectors as '31M', '970K' or '12G' at DI, DI advanced
-;
-; KB as well as MB, because SPEC.md 52.2.1's alignment gaps are real
-; partitions: a disk repartitioned by a modern tool leaves ~1,985 sectors at
-; the front, and a size column reading '0M' looks like a broken tool rather
-; than a small volume.
-;
-; NOT os88_ent: that banks DI as well and the ladder would put it back, and
-; the ADVANCED DI is this routine's output - hd_iw_rowtext pads from it to
-; the State column, so a restored DI blanked every size it had just written.
-; -----------------------------------------------------------------------------
-hd_iw_size:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    or dx, dx
-    jnz .mb
-    cmp ax, 2048
-    jae .mb
-    shr ax, 1                   ; sectors / 2 = KB
-    call hd_utoa
-    mov si, hd_s_ik
-    jmp short .unit
-.mb:
-    mov cx, 11                  ; sectors / 2048 = MB, a 32-bit shift: a
-.shift:                         ; partition is not bounded by a word of
-    shr dx, 1                   ; sectors (SPEC.md 18.7.5)
-    rcr ax, 1
-    loop .shift
-    mov si, hd_s_mb
-    or dx, dx                   ; past 65,535MB, say it in GB
-    jnz .gb
-    cmp ax, 10000
-    jb .num
-.gb:
-    mov cx, 10
-.gshift:
-    shr dx, 1
-    rcr ax, 1
-    loop .gshift
-    mov si, hd_s_ig
-.num:
-    call hd_utoa
-.unit:
-    call hd_scat
-    jmp os88_r_si               ; ax..si: DI goes back ADVANCED
-
-
-; -----------------------------------------------------------------------------
 ; hd_inst_step - one step of the stage machine (module internal)
 ; in:  [hd_iw_st] = HII_ARMED (HDI_GO) or HII_SYSDONE (HDI_APPS) - ipkg.inc's
 ;      two verbs, which are its only callers and test the stage first
@@ -957,9 +872,8 @@ hd_inst_step:
     mov si, hd_s_laask
     call hd_ilog
 .named:
-    mov byte [hd_iw_st], HII_SYSDONE
-    mov word [hd_imsg], hd_s_iswap
-    jmp short .out
+    mov byte [hd_iw_st], HII_SYSDONE    ; (no caption: the wizard reads one
+    jmp short .out                      ; only on HDG_FAIL)
 .apps:
     call hd_inst_apps
     jc .failed
@@ -982,11 +896,6 @@ hd_inst_step:
     call hd_ia_rel
     call hd_ilog_sum
     mov byte [hd_iw_st], HII_DONE
-%ifdef INSTBENCH
-    mov word [hd_imsg], hd_s_bdone  ; the legend of the report's rows (SPEC.md
-%else                               ; 52.10.9)
-    mov word [hd_imsg], hd_s_idone
-%endif
     jmp short .out
 .failed:
     call hd_ia_rel
@@ -1067,12 +976,10 @@ hd_inst_sys:
                                 ; against cannot arise here: the small-buffer
                                 ; case succeeds instead of failing after the
                                 ; format
-    mov word [hd_imsg], hd_s_iwork
-                                ; hundreds of sectors and the user should not
-                                ; watch a frozen window wonder. ONE LINE: the
-                                ; rest of the window has not changed, and a
-                                ; full repaint here was a flash right before
-                                ; a long freeze (SPEC.md 52.10.6)
+    mov word [hd_imsg], hd_s_ierr   ; THE CAPTION A STOP SHOWS when no step
+                                ; set a sharper one (the wizard reads it only
+                                ; on HDG_FAIL). It was 'Copying...', the
+                                ; Install window's progress line
     call hd_ivol_bank           ; SPEC.md 51.5.2, whatever happens below
     mov al, [hd_isrcx]          ; ...and a source HDI_GO NAMED overrides the
     cmp al, 0xFF                ; bank's: the network volume the package
@@ -1208,7 +1115,7 @@ hd_inst_apps:
                                 ; Install click
     call hd_ibuf_get
     jc .nomem
-    mov word [hd_imsg], hd_s_iwork
+    mov word [hd_imsg], hd_s_ierr   ; hd_inst_sys's default, the same reason
 %ifdef INSTBENCH
     call hd_bn_bank             ; SPEC.md 52.10.9 - and this phase is the one
 %endif                          ; the progress bar has always shown
@@ -3671,24 +3578,19 @@ hd_inst_mbr:
 ; =============================================================================
 hd_s_ititle:  db 'Install', 0
 hd_s_iinst    equ hd_s_ititle
-hd_s_islot:   db 'Slot ', 0
-hd_s_idash    equ hd_s_minus    ; cppage.inc's '-'
-hd_s_ik       equ hd_s_kb       ; tool.inc's 'K'
 hd_s_kernel:  db 'KERNEL.SYS', 0
 hd_s_bootsys: db 'BOOTHD.SYS', 0    ; ...and the boot sector it came with
                                 ; (SPEC.md 52.10.16)
 hd_s_cfg:     db 'SYSTEM.CFG', 0    ; ...and the two a KEPT volume keeps
 hd_s_appdata: db 'APPDATA', 0       ; (SPEC.md 52.10.15)
 hd_s_kpad:    db 'KPAD.TMP', 0      ; the allocator's pad, for one moment
-hd_s_assoc:   db 'ASSOC.DAT', 0 ; ...the OTHER file the copy may not carry
-                                ; (SPEC.md 52.10.14)
+hd_s_inomb    equ hd_s_tnomb    ; tool.inc's, the same sentence
 hd_s_iapps:   db 'APPS', 0      ; what makes a disk THE APPS DISK (52.10.5)
-hd_s_o88:     db '.O88', 0      ; ...and what has to be INSIDE it
 
 ; THE STATE COLUMN (SPEC.md 52.10.4.2): [letter ': '] body [', ' reason].
 ; What is THERE, and why not only when the answer is no - so the longest row
-; is `C: FAT16, Wrong Geometry`, 24 cells from HIW_STATEC, which is what
-; HIW_CELLS is sized for. The FAT names and three of the reasons are the
+; is `C: FAT16, Wrong Geometry`, 24 characters, which is what HDIS_TEXT is
+; sized for. The FAT names and three of the reasons are the
 ; Format window's own strings, so two windows use one word for one fact.
 hd_s_iunpart: db 'Unpartitioned', 0 ; a free slot the disk has room behind
 hd_s_iempty:  db 'Empty', 0         ; ...and one it has none behind
@@ -3700,78 +3602,29 @@ hd_s_icolon:  db ': ', 0
 hd_s_icomma:  db ', ', 0
 hd_s_itype:   db 'Type ', 0
 hd_s_ih:      db 'h', 0
-hd_s_ig:      db 'G', 0
 
 ; The foreign types worth a NAME: type byte, then the string. Anything else
 ; reads 'Type nnh', which is still more than 'Unusable' said.
+; THE NAMES INLINE: each is its type bytes, then the name. A record is a
+; COUNT byte (0 ends the table), that many type bytes, and the NUL-ended
+; name - no pointer table, which was 25 three-byte entries for 15 names.
 hd_ptypes:
-    db 0x05
-    dw hd_s_pext
-    db 0x0F
-    dw hd_s_pext
-    db 0x85
-    dw hd_s_pext
-    db 0x07
-    dw hd_s_pntfs
-    db 0x0B
-    dw hd_s_pfat32
-    db 0x0C
-    dw hd_s_pfat32
-    db 0x82
-    dw hd_s_pswap
-    db 0x83
-    dw hd_s_plinux
-    db 0x8E
-    dw hd_s_plvm
-    db 0xA5
-    dw hd_s_pbsd
-    db 0xA6
-    dw hd_s_pbsd
-    db 0xA9
-    dw hd_s_pbsd
-    db 0x02
-    dw hd_s_pxenix
-    db 0x03
-    dw hd_s_pxenix
-    db 0x63
-    dw hd_s_punix
-    db 0x0A
-    dw hd_s_pos2
-    db 0xDB
-    dw hd_s_pcpm
-    db 0x64
-    dw hd_s_pnw
-    db 0x65
-    dw hd_s_pnw
-    db 0xEE
-    dw hd_s_pgpt
-    db 0xEF
-    dw hd_s_pefi
-    db 0x11
-    dw hd_s_phid
-    db 0x14
-    dw hd_s_phid
-    db 0x16
-    dw hd_s_phid
-    db 0x1E
-    dw hd_s_phid
-    db 0
-    dw 0                        ; the terminator: its WORD is the test
-hd_s_pext:    db 'Extended', 0
-hd_s_pntfs:   db 'NTFS/HPFS', 0
-hd_s_pfat32:  db 'FAT32', 0
-hd_s_pswap:   db 'Linux Swap', 0
-hd_s_plinux:  db 'Linux', 0
-hd_s_plvm:    db 'Linux LVM', 0
-hd_s_pbsd:    db 'BSD', 0
-hd_s_pxenix:  db 'XENIX', 0
-hd_s_punix:   db 'Unix', 0
-hd_s_pos2:    db 'OS/2 Boot', 0
-hd_s_pcpm:    db 'CP/M-86', 0
-hd_s_pnw:     db 'NetWare', 0
-hd_s_pgpt:    db 'GPT Disk', 0
-hd_s_pefi:    db 'EFI System', 0
-hd_s_phid:    db 'Hidden FAT', 0    ; a FAT type with the hide bit (10h) set
+    db 3, 0x05, 0x0F, 0x85, 'Extended', 0
+    db 1, 0x07, 'NTFS/HPFS', 0
+    db 2, 0x0B, 0x0C, 'FAT32', 0
+    db 1, 0x82, 'Linux Swap', 0
+    db 1, 0x83, 'Linux', 0
+    db 1, 0x8E, 'Linux LVM', 0
+    db 3, 0xA5, 0xA6, 0xA9, 'BSD', 0
+    db 2, 0x02, 0x03, 'XENIX', 0
+    db 1, 0x63, 'Unix', 0
+    db 1, 0x0A, 'OS/2 Boot', 0
+    db 1, 0xDB, 'CP/M-86', 0
+    db 2, 0x64, 0x65, 'NetWare', 0
+    db 1, 0xEE, 'GPT Disk', 0
+    db 1, 0xEF, 'EFI System', 0
+    db 4, 0x11, 0x14, 0x16, 0x1E, 'Hidden FAT', 0
+    db 0                        ; the terminator
 
 ; Every line below is one CAPTION, and the macro is what stops one growing
 ; past the band: HIW_CELLS is the run's width and a longer string is silently
@@ -3785,12 +3638,8 @@ hd_s_phid:    db 'Hidden FAT', 0    ; a FAT type with the hide bit (10h) set
     %endif
 %endmacro
 
-    HIMSG hd_s_iwork, 'Copying - this takes a few minutes'
-    HIMSG hd_s_iswap, 'Insert the APPS disk, then Install'
-    HIMSG hd_s_idone, 'Done - remove the floppy, Restart'
     HIMSG hd_s_ibad, 'That partition cannot be used'
     HIMSG hd_s_inomem, 'Not enough memory to copy'
-    HIMSG hd_s_inomb, 'Cannot read the partition table'
     HIMSG hd_s_insys, 'No system disk:'   ; + hd_isd_add's entries
     HIMSG hd_s_inovbr, 'Older disk: boot from it to install it'
     HIMSG hd_s_ifmt, 'Could not format that partition'
@@ -3802,9 +3651,6 @@ hd_s_phid:    db 'Hidden FAT', 0    ; a FAT type with the hide bit (10h) set
     HIMSG hd_s_ikbpb, 'That volume is not one we can keep'
     HIMSG hd_s_ikgeom, 'Formatted for another geometry'
     HIMSG hd_s_iksplit, 'The kernel did not land in one piece'
-%ifdef INSTBENCH
-    HIMSG hd_s_bdone, '     fC   fS   dC   dS   tk  done'
-%endif
 
 hd_iw_st:     db 0
 hd_isel:      db 0
