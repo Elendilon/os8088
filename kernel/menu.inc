@@ -964,8 +964,82 @@ menu_bar_clock:
     clc                         ; CF = 0: past the menus
 menu_bt_ent:
 %ifdef OS88_SNDCARD
-    call menu_bt_raw
-    jmp menu_sound
+    call menu_bt_raw            ; ...and FALLS INTO menu_sound, which is
+                                ; written here for that (pass 14: 3 bytes)
+; The speaker is the RIGHT end of the clock's field, and the clock is
+; right-aligned against it (SPEC.md 34.15). The menus' boundary stays where
+; it is with no speaker, so the gap a toast tries first is unchanged; it
+; moves left only by the cells a clock line needs past the 22 left of the
+; speaker. A toast that missed the gap hides the speaker instead. The driver owns the picture: no idle
+; port reads or icon blits, only a capability, geometry or need change.
+menu_sound:
+    call kent_di                ; = push ax/bx/cx/dx/si/di - and with BP and
+    push bp                     ; ES that is kret_es's run exactly (kernel
+    push es                     ; size pass 14: 9 bytes against eight pops)
+    mov ax, [vid_pw]
+    sub ax, 8 + MENU_CLK_W + 6
+    and ax, 0FFF8h             ; the clock's field with no speaker
+    mov dx, SND_CAP_MIXER       ; the immediate in the 3-byte `mov` and the
+    and dx, [drv_svc+DSV_CAPS]  ; word in the `and` (pass 14: 1). DX is now
+    jz .origin                  ; SND_CAP_MIXER itself, so DL is a ZERO the
+                                ; scov test below compares against, a byte
+                                ; under the immediate (snd.inc's %if holds it)
+    add ax, MENU_CLK_W - 16    ; the speaker: the field's last 24 pixels.
+    mov [menu_mixx], ax         ; Through AX and back, one byte under BX's
+    sub ax, MENU_CLK_W - 16    ; imm16 form, and an EVEN routine (t_hotpar)
+    cmp [toast_scov], dl        ; **A TOAST THAT MISSED THE GAP COVERS THE
+    je .need                    ; SPEAKER** (SPEC.md 34.15): the field is then
+    xor dx, dx                  ; the one it has with no speaker, which holds
+    jmp short .origin           ; its widest strip, and the boundary stays put
+.need:
+    call clk_fmt                ; CX = the clock's glyphs, 18..24
+    sub cx, (MENU_CLK_W - 16) / 8
+    jbe .origin
+.wide:
+    sub ax, 8                   ; one cell of the menus' per glyph past 22
+    loop .wide
+.origin:
+    cmp ax, [vid_clk_hx]
+    jne .changed
+    cmp dx, [menu_mixcap]
+    je .out
+.changed:
+    mov [vid_clk_hx], ax        ; nothing to forget: menu_bcell is the record
+                                ; of menus and clock alike (SPEC.md 12.9)
+    or dx, dx
+    jnz .store
+    cmp byte [menu_mixcap+1], SND_CAP_MIXER >> 8  ; 0, 0200h or 0FFFFh: the
+    jne .store                  ; high byte says which (pass 14: 1)
+    mov ax, [menu_mixx]         ; the speaker went: erase its picture ABOVE
+    mov cx, ax                  ; and BELOW the text band - the band is the
+    add cx, 23                  ; composition's, which has just lettered the
+    call fpg_ring               ; clock or the strip over it. fpg_ring's rows
+                                ; are the whole field's, 0..MBAR_H-2, where
+                                ; the picture is rows 2..17: the four more are
+                                ; the bar's own ground under no other painter
+                                ; at these columns, so they are written with
+                                ; the colour they already hold (pass 14: 16)
+    xor dx, dx
+.store:
+    mov [menu_mixcap], dx
+    call menu_relayout          ; bounded at the new right-hand hit band
+    call menu_bar_text          ; compose only the changed cells
+    or dx, dx                   ; ...both preserve DX, the new capability
+    jz .out
+    mov ax, [menu_mixx]         ; the speaker is drawn over cells the record
+    mov cx, [vid_pw]            ; still holds: forget them, so the next toast
+    call menu_inval             ; that hides it letters them again
+    xchg ax, cx
+    call thm_rpair              ; the THEMED icon: AL = the bar's ground, AH =
+    mov bx, DRVC_SOUND*256 + SNDV_MIXICON_THEME ; its ink (SPEC.md 34.15).
+    call drv_pkg_call_x         ; ES is whatever it is: the verb takes no
+                                ; buffer, and mix_icon sets its own ES for
+                                ; the blit (volume.inc) - the `push ds / pop
+                                ; es` here was for nothing (pass 14: 2)
+.out:
+    jmp kret_es                 ; pops es, bp, di, si, dx, cx, bx, ax
+menu_mixcap: dw 0FFFFh
+menu_mixx:   dw 0
 menu_bar_text:
     stc                         ; CF = 1: the menus too
 menu_bt_raw:
@@ -1277,49 +1351,21 @@ menu_bpad:
 menu_bpadc:
     push ax
     push bx
-    mov bx, ax                  ; **NEVER PAST THE SEGMENT.** menu_bput DROPS
-                                ; a cell at or past [menu_bn] and does NOT
-                                ; advance DI, so a target beyond it spins here
-.p:                             ; forever - with the gfx lock held, on the UI
-    cmp di, bx                  ; task, while IRQ0 keeps the clock running, so
-    jae .d                      ; the machine looks alive and answers nothing.
-                                ; THE RE-READ BELOW IS THE WHOLE GUARD: it
-                                ; stops the pad at min(target, [menu_bn]) on
-                                ; every pass, which is exactly what the clamp
-                                ; of BX to [menu_bn] that stood here computed
-                                ; once and then could not keep (kernel size
-                                ; pass 10: the clamp, 10 bytes, is gone).
-                                ; It was unreachable while [menu_bn] was
-                                ; always the whole segment (menu_layout clamps
-                                ; every pen into it); SPEC.md 59.2's toast
-                                ; strip LOWERS it, so a message wide enough to
-                                ; reach back over a menu title's pen hangs the
-                                ; UI. Clamping here rather than at the two
-                                ; callers is what keeps the invariant a
-                                ; property of the routine
-    cmp di, [menu_blim]           ; **AND THE BOUND IS RE-READ EVERY PASS.** The
-    jae .d                      ; clamp above caches [menu_bn] in BX, and the
-                                ; field hung a machine right here with the bar
-                                ; padded to 60 cells and [menu_bn] BELOW the
-                                ; pen: menu_bput drops a cell at or past it
-                                ; without advancing DI, so the loop had no
-                                ; terminator left. Only a composition writes
-                                ; [menu_bn] and fpg_arm/fpg_finish each force
-                                ; one (SPEC.md 12.8.3) - so the value the
-                                ; clamp read is not the value the drop rule
-                                ; uses, and a cached bound cannot be made
-                                ; safe. This test IS menu_bput's drop rule,
-                                ; asked before the call instead of inferred
-                                ; from it: the pad stops where the cells stop,
-                                ; whenever the bound moved and whoever moved
-                                ; it. One compare a cell (SPEC.md 59.7)
-    mov al, ' '
-    call menu_bput
-    jmp short .p
-.d:
-    pop bx
-    pop ax
-    ret
+    xchg ax, bx                 ; BX = the target cell
+    mov al, ' '                 ; ...and AL the pad, once: menu_bput keeps it
+.p:                             ; **THE ONE TERMINATOR IS LOCAL.** menu_bput
+    cmp di, bx                  ; ADVANCES DI on every call, a dropped cell
+    jae .d                      ; included (kernel size pass 14), so this
+    call menu_bput              ; loop ends at its own target whatever
+    jmp short .p                ; [menu_blim] does meanwhile. It used to
+.d:                             ; drop WITHOUT advancing, which made any loop
+    pop bx                      ; padding past the bound spin forever with the
+    pop ax                      ; gfx lock held - SPEC.md 59.7, and 59.7.1
+    ret                         ; when the bound MOVED under a re-read clamp:
+                                ; a terminator another task can lower is a
+                                ; livelock. A drop that advances cannot spin
+                                ; any caller, so the clamp and its re-read
+                                ; went (7 bytes; SPEC.md 59.7.2)
 
 menu_bstr:
     push ax
@@ -1338,8 +1384,15 @@ menu_bstr:
 
 menu_bput:
     cmp di, [menu_blim]
-    jae .out                    ; past the segment: dropped, exactly as
-                                ; menu_layout drops a cell that will not fit
+    jae .same                   ; past the segment: dropped, exactly as
+                                ; menu_layout drops a cell that will not fit -
+                                ; and DI ADVANCES, so no loop calling this can
+                                ; spin on a bound it cannot reach (SPEC.md
+                                ; 59.7.2). Every caller's later use of DI is
+                                ; bounded already: menu_bstr stops at the
+                                ; bound, the tail's [menu_bend] is the min of
+                                ; DI+1 and [menu_bn], and the clock, the strip
+                                ; and the blanking after it reset or count it
     cmp [menu_bcell+di], al     ; DI-based: [di+disp16] is an 8086 mode, so
     je .same                    ; no BX copy and no bank of it (kernel size
     mov [menu_bcell+di], al     ; pass 10: 4 bytes)
@@ -1368,7 +1421,6 @@ menu_bput:
     mov [menu_blast], di
 .same:
     inc di
-.out:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2631,80 +2683,4 @@ menu_abstr: resb MENU_ABPFX_LEN + MENU_MAXCH + 1
                                 ; both strings the cell needs are KERNEL data
                                 ; and its MB_SEG is 0 even under a package
 
-section .text
-
-%ifdef OS88_SNDCARD
-; The speaker is the RIGHT end of the clock's field, and the clock is
-; right-aligned against it (SPEC.md 34.15). The menus' boundary stays where
-; it is with no speaker, so the gap a toast tries first is unchanged; it
-; moves left only by the cells a clock line needs past the 22 left of the
-; speaker. A toast that missed the gap hides the speaker instead. The driver owns the picture: no idle
-; port reads or icon blits, only a capability, geometry or need change.
-menu_sound:
-    call kent_di                ; = push ax/bx/cx/dx/si/di - and with BP and
-    push bp                     ; ES that is kret_es's run exactly (kernel
-    push es                     ; size pass 14: 9 bytes against eight pops)
-    mov ax, [vid_pw]
-    sub ax, 8 + MENU_CLK_W + 6
-    and ax, 0FFF8h             ; the clock's field with no speaker
-    mov dx, SND_CAP_MIXER       ; the immediate in the 3-byte `mov` and the
-    and dx, [drv_svc+DSV_CAPS]  ; word in the `and` (pass 14: 1)
-    jz .origin
-    add ax, MENU_CLK_W - 16    ; the speaker: the field's last 24 pixels.
-    mov [menu_mixx], ax         ; Through AX and back, one byte under BX's
-    sub ax, MENU_CLK_W - 16    ; imm16 form, and an EVEN routine (t_hotpar)
-    cmp byte [toast_scov], 0    ; **A TOAST THAT MISSED THE GAP COVERS THE
-    je .need                    ; SPEAKER** (SPEC.md 34.15): the field is then
-    xor dx, dx                  ; the one it has with no speaker, which holds
-    jmp short .origin           ; its widest strip, and the boundary stays put
-.need:
-    call clk_fmt                ; CX = the clock's glyphs, 18..24
-    sub cx, (MENU_CLK_W - 16) / 8
-    jbe .origin
-.wide:
-    sub ax, 8                   ; one cell of the menus' per glyph past 22
-    loop .wide
-.origin:
-    cmp ax, [vid_clk_hx]
-    jne .changed
-    cmp dx, [menu_mixcap]
-    je .out
-.changed:
-    mov [vid_clk_hx], ax        ; nothing to forget: menu_bcell is the record
-                                ; of menus and clock alike (SPEC.md 12.9)
-    or dx, dx
-    jnz .store
-    cmp byte [menu_mixcap+1], SND_CAP_MIXER >> 8  ; 0, 0200h or 0FFFFh: the
-    jne .store                  ; high byte says which (pass 14: 1)
-    mov ax, [menu_mixx]         ; the speaker went: erase its picture ABOVE
-    mov cx, ax                  ; and BELOW the text band - the band is the
-    add cx, 23                  ; composition's, which has just lettered the
-    call fpg_ring               ; clock or the strip over it. fpg_ring's rows
-                                ; are the whole field's, 0..MBAR_H-2, where
-                                ; the picture is rows 2..17: the four more are
-                                ; the bar's own ground under no other painter
-                                ; at these columns, so they are written with
-                                ; the colour they already hold (pass 14: 16)
-    xor dx, dx
-.store:
-    mov [menu_mixcap], dx
-    call menu_relayout          ; bounded at the new right-hand hit band
-    call menu_bar_text          ; compose only the changed cells
-    or dx, dx                   ; ...both preserve DX, the new capability
-    jz .out
-    mov ax, [menu_mixx]         ; the speaker is drawn over cells the record
-    mov cx, [vid_pw]            ; still holds: forget them, so the next toast
-    call menu_inval             ; that hides it letters them again
-    xchg ax, cx
-    call thm_rpair              ; the THEMED icon: AL = the bar's ground, AH =
-    mov bx, DRVC_SOUND*256 + SNDV_MIXICON_THEME ; its ink (SPEC.md 34.15).
-    call drv_pkg_call_x         ; ES is whatever it is: the verb takes no
-                                ; buffer, and mix_icon sets its own ES for
-                                ; the blit (volume.inc) - the `push ds / pop
-                                ; es` here was for nothing (pass 14: 2)
-.out:
-    jmp kret_es                 ; pops es, bp, di, si, dx, cx, bx, ax
-menu_mixcap: dw 0FFFFh
-menu_mixx:   dw 0
-%endif
 section .text

@@ -26422,8 +26422,8 @@ record of the glass, and the widget is composed into no buffer at all, so the
 diff cannot arbitrate between two painters on one strip).
 
 So `menu_bar_text` takes `FPG_CELLS` off `[menu_bn]` while `[fpg_on]` is set.
-`menu_bput` already drops a cell at or past that bound without advancing `DI`,
-and `menu_bpadc` already clamps to it (§59.7), so one subtraction is the whole
+`menu_bput` already drops a cell at or past that bound (advancing `DI` since
+§59.7.2), and `menu_bpadc` cannot pad past it (§59.7), so one subtraction is the whole
 of it — and it subsumes `toast_place`'s own copy of the same reservation
 (§59.9.2), which was the only reader that needed one while the widget's life
 was an operation. The cells come back when `fpg_finish` clears the flag and
@@ -105724,6 +105724,21 @@ that being true.
 not a bounded loop**, and the original clamp did not make it one — it made the
 *first* value safe. The difference is invisible in a single-threaded reading
 of the routine, which is exactly how it survived §59.7's fix and its test.
+
+#### 59.7.2 The drop advances, so nothing has a terminator to lose
+
+Both guards above are the same answer to one fact - `menu_bput` dropped a cell
+at or past the bound **without advancing `DI`** - asked again at every caller
+that loops. Kernel size pass 14 changed the fact instead: a dropped cell
+advances `DI` like a stored one, so `menu_bpadc` ends at its own target
+whatever `[menu_blim]` does meanwhile, and the clamp and its per-cell re-read
+are gone (7 bytes). No other caller reads a `DI` the change could move:
+`menu_bstr` stops at the bound by its own compare, the menus' end
+`[menu_bend]` is the lesser of `DI + 1` and `[menu_bn]` (and every cell below
+the bound is composed before the first drop can happen), and the clock, the
+strip and the blanking after it each reset `DI` or count their cells. What
+`menu_bcell` records - and so every pixel - is what it was. The livelock
+§59.7.1 describes is not guarded against any more; it cannot be written.
 
 ### 59.8 It covers the clock, never a menu — and only the cells it needs
 

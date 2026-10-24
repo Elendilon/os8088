@@ -489,9 +489,9 @@ toast_place:
 ; ticks - die.
 ; -----------------------------------------------------------------------------
 toast_up:
-    cmp byte [toast_on], 1      ; CF = 1 when it is 0
-    cmc
-    jnc .r
+    test byte [toast_on], 1     ; CF = 0 either way; [toast_on] is 0 or 1 at
+    jz .r                       ; every writer, so 0 is "not up" (a byte under
+                                ; the compare and its cmc: kernel size pass 14)
     mov ax, [ticks]
     sub ax, [toast_die]
     rol ah, 1                   ; CF = the sign: still to come
