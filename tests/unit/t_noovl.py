@@ -63,6 +63,29 @@ OVL_ALLOWED = [
 ]
 OVL_RECIPE_EXEMPT = re.compile(r"cfsx", re.I)          # EXEMPT's fixture
 
+# What to DO about a failure - printed with every one, so the reader is not
+# left to reverse-engineer the rule from the check's name.
+HOWTO = """
+    WHAT TO DO: put that code INSIDE your .o88, as a PART. A package never
+    ships an .OVL beside itself - a user in the folder sees it as a program,
+    and copying the .o88 leaves it behind.
+
+    1. Read the parts documentation first:
+         SPEC.md 20.12          the parts standard (what a part is, the rules)
+         SPEC.md 20.12.4        lazy parts: op_fetch / op_drop / op_lazyok
+         apps/os88parts.inc     the header: what you write, the three rules
+         SPEC.md 19.11          why there is no .OVL on a disk
+    2. In your package: OS88_F_PARTS in OS88_HEADER, %include "os88parts.inc",
+       an OS88_PARTS_BEGIN / OS88_PART OP_SEG, OP_LAZY | OP_COMP / ..._END
+       table, `call op_load` FIRST in the entry proc, and op_fetch + op_seg
+       where you used to read the .OVL (op_movable if its claim may move).
+    3. In the Makefile: keep the os88ovl.py cut but name it *.bin, not *.OVL,
+       hand it to os88pkg.py with --part, and take the .OVL out of every
+       disk list.
+    Worked examples: SHEET (apps/sheet/sheet.asm, apps/os88chartovl.inc,
+    SPEC.md 82.16.12) and PiXEL (apps/pixel/pixel.asm) for far-called code
+    modules; a C package passes `part` to CC_PACKAGE (SPEC.md 73.14.2)."""
+
 
 def walk(img, ents, path, out):
     """Every file of a FAT12 volume as (folder, NAME.EXT)."""
@@ -143,12 +166,8 @@ def check_disks(argv):
             pkgs = [n for n in names if n.endswith(".O88")]
             check(not (ovls and pkgs),
                   "%s %s has no .OVL beside a package" % (img, folder),
-                  "an overlay is a PART of its package now (SPEC.md 19.11, "
-                  "20.12): a user in this folder sees %s as a program, and a "
-                  "copy of the package leaves it behind. Make it a part - "
-                  "SHEET.O88 is the worked example (SPEC.md 82.16.12), and "
-                  "a C package says `part` (SPEC.md 73.14.2)"
-                  % ", ".join(ovls),
+                  "%s sits beside %s on a shipped disk.%s"
+                  % (", ".join(ovls), ", ".join(pkgs), HOWTO),
                   got=", ".join(ovls), want="none")
     print("t_noovl: %d floppy image(s) walked" % walked)
 
@@ -170,9 +189,9 @@ def check_recipes():
     bad = list(dict.fromkeys(bad))
     check(not bad, "no recipe puts an .OVL on a disk",
           "an .OVL may be a cut, a --part, its askable-by-name rule or a C "
-          "package's overlay declared `part`; anything else is an overlay "
+          "package's overlay declared `part`; each line below is an overlay "
           "on its way to a floppy beside its package (SPEC.md 19.11):\n    "
-          + "\n    ".join(bad), got=len(bad), want=0)
+          + "\n    ".join(bad) + "\n" + HOWTO, got=len(bad), want=0)
 
 
 def main():
