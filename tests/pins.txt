@@ -264,6 +264,14 @@ C apps/video/video.asm vp_tscr           # the mono poster's text scratch, freed
 C apps/video/video.asm vp_rdseg          # the record buffer a key is read through,
                                          # given back by vp_rdfree once the read
                                          # is done, inside the call that read it
+C apps/video/video.asm vp_ldseg          # vp_ldblk's scratch word: a RESIDENT
+                                         # block pinned only inside vp_rload's
+                                         # call - read into (file calls hold
+                                         # it), expanded, the other block's
+                                         # claim and read, the walk - then
+                                         # handed back in AX as [vp_rblk] or
+                                         # [vp_rablk] and declared movable
+                                         # there (vp_rmov, SPEC.md 98.1.7.4)
 C apps/video/video.asm vp_simseg         # the 64KB shadow of one simulated borrow
                                          # probe, inside vp_xok's call
 C apps/video/video.asm vp_xsclm          # one chunk's staging into the XMS hold,
@@ -298,11 +306,6 @@ X apps/imgtest/imgtest.asm @it_entry     # ...the same instrument's source claim
 
 # --- packages: bucket N - pinned with no valid reason yet (the backlog) --------
 
-N apps/sheet/sheet.asm sh_stgseg         # the 32KB staging is the ES:BX of all
-                                         # seven of SHEET's file calls - and is
-                                         # held for the SESSION. A pin/unpin pair
-                                         # around those calls (SPEC.md 66.5.7.1)
-                                         # retires it
 N apps/thewire/thewire.asm wr_catseg     # the catalog, for as long as the window
                                          # is open. A3 left it: its readers hand
                                          # back ES:SI, and nothing can gate a move
@@ -338,16 +341,3 @@ N apps/pixelstein/pxstein.asm op:PX_PART_LEV  # the 10KB levels, behind the same
                                          # fence (6.5)
 N apps/pixelstein/pxstein.asm pxl_sseg   # the 60KB sprite set, behind the same
                                          # fence (6.5)
-N apps/dos/dos.asm op:carve              # DOS's own parts carve: its segments are
-                                         # banked ([dos_trseg], [dos_m33seg]) and
-                                         # it never opted into OP_ONMOVE (A8)
-N apps/video/video.asm vp_ldseg          # a block's claim (vp_ldblk, banked in
-                                         # [vp_rblk]/[vp_rablk]) - not in
-                                         # vp_smtab, and A6 has not reached it
-N apps/video/video.asm vp_lyseg          # the layer's own claim, for the session;
-                                         # not in vp_smtab (A6's remainder)
-N apps/video/video.asm vp_prseg          # the words' claim, for the session; not
-                                         # in vp_smtab (A6's remainder)
-N apps/video/video.asm @vp_sstart        # the session ring's key-record arm
-                                         # (vp_sstart's [vp_kbkb] claim); not
-                                         # traced into vp_smtab (A6's remainder)

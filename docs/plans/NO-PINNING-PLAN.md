@@ -214,7 +214,7 @@ the base at each use". The ⚑ rows are the ones that need real work.
 | **FROTZ** | scrollback 24 KB (outside `zf_reloc`) | A3 |
 | **CLEAR SKIES** ⚑, **TANK**, **PIXELSTEIN**, **ISOTRON**, **1942** | shadows/canvases 16-64 KB | **A4**: in use only inside the fsx bracket, so they are bucket C there. Outside it, either free them or declare them. CS keeps ES from `[cs_tseg]` across spans, so its proc must also be safe at the park points |
 | **EXCITEBIKE** ⚑ | compiled poses are far-called IN the claim (a CS) | **A5**: a proc that re-stamps the pose vectors |
-| **VIDEO** ⚑ | ring, "page-safe and never moved" | **A6, PERFORMANCE-BOUND**: the ring is bucket D/C only WHILE A PLAY RUNS (the reader, the hook and a card may all be writing it). Declare it movable when the play ENDS, and pin it again (`OSAPI_MEM_MOVABLE` with AX = 0) when the next play STARTS. Both happen outside the frame loop, so the play path gains nothing. A move between plays is one proc storing the ring's segment. Gate: the Video Player's frame rate on its demo videos, before and after |
+| **VIDEO** ⚑ | ring, "page-safe and never moved" | **A6, PERFORMANCE-BOUND**: the ring is bucket D/C only WHILE A PLAY RUNS (the reader, the hook and a card may all be writing it). Declare it movable when the play ENDS, and pin it again (`OSAPI_MEM_MOVABLE` with AX = 0) when the next play STARTS. Both happen outside the frame loop, so the play path gains nothing. A move between plays is one proc storing the ring's segment. Gate: the Video Player's frame rate on its demo videos, before and after. **The ring was already that shape** (SPEC.md 98.3.19.2: `vp_smov` around every bracket); **the rest of the session joined it 2026-10-24** - the resident key record, the layer's own claim, VPDIAG's profile, and a paused bank's chunk pinned for its read - at +46 bytes of image and no instruction a frame |
 | **MIDIRACK**, **TRACKER**, **AUDIO**, **WIREFLEET**, **1942** PCM rings | D while armed, NONE idle | A6. **BUILT for the four** (7, *A6 audio*): each long-held claim movable while idle and pinned from a play's start to its stop. 1942's ring was already claimed and freed inside its bracket (A4) |
 | **THE WIRE**, **FTPD**, **CHART**, **PIXEL**, **TELNET**, **RECORDER**, DeskClock, DotDel, StikNote | assorted | A3 |
 | `os88type.inc` face cache 8 KB | - | **A7 BUILT**: `ty_reloc` (faces and the pre-shifted table), every includer at once; `tymove`, red-tested |
@@ -357,16 +357,29 @@ accepts:
 - the A6 remainder - the session-long rings nobody declares between plays:
   ~~Audio's look-ahead and speaker rings, Tracker's speaker ring, WireFleet's
   PCM ring (claimed at ENTRY), MIDIRack's song, wavetable bank and mix
-  claim~~ (BUILT, 7's *A6 audio*: seven lines gone, N 29 -> 22), and four
-  Video Player claims `vp_smtab` does not reach (`vp_ldseg`,
-  `vp_lyseg`, `vp_prseg`, the session's key-record arm);
-- SHEET's 32KB staging (held for the session; a pin/unpin pair retires it);
+  claim~~ (BUILT, 7's *A6 audio*: seven lines gone), and four Video Player
+  claims `vp_smtab` did not reach (`vp_ldseg`,
+  `vp_lyseg`, `vp_prseg`, the session's key-record arm) - **CLOSED
+  2026-10-24** (SPEC.md 98.3.19.2): three moved into `vp_smov`/`vp_smove`,
+  the key-record arm found LEAKING its claim at every resident play from a
+  key, and `vp_ldseg` a C line (`vp_rload` declares the block under
+  `[vp_rblk]`); per-frame cost 5,623,594 -> 5,623,600 guest cycles over
+  vidplay's clip, every play routine identical at an even shift;
+  `tests/vidclmove.py`;
+- ~~SHEET's 32KB staging~~ **BUILT (NO-PINNING 1, SPEC.md 81.2.1)**: movable,
+  pinned only across each file call by `sh_stgpin` in the two resident stubs
+  every one of them goes through; +41 image bytes; `sheetmove` 3b and
+  `sheetmove-rt`;
 - The Wire's catalog and transfer claims (A3 left them: no NIC on MartyPC);
 - PiXEL: the flat file, the work claims of `pxmaster`, `pxedit`, `pxgif` and
   `pxwrite`, an animation's frames, and its OP_SEG CODE parts (`px_pfetch`),
   the C overlay's shape that a thunk fixed in wave 0;
 - PIXELSTEIN's art, levels and sprites, behind 6.5's fence;
-- DOS's own parts carve (never opted into `OP_ONMOVE`).
+- ~~DOS's own parts carve~~ **BUILT (NO-PINNING 2, SPEC.md 96.29.1.2)**: it
+  exists only in the `DOSTRACE` instrument build (the shipped `DOS.O88` has
+  no carve at runtime - its loader's carve IS the region). It opts into
+  `OP_ONMOVE` (`dos_trmove`), moves at the prompt and is pinned from the
+  program's start to its `TRACE.LOG`; shipped arms byte-identical; `dostrmove`.
 
 ## 5. The adversarial review (2026-10-23) and what it changed
 
@@ -481,6 +494,23 @@ instruction**, which the owner's rule allows. It is built after A3 merges,
 since A3 also edits `zio.inc` and `zwin.inc`. Its gate is one leg per park
 site (described in the audit), with red runs for a declaration pointed at
 plain `zx_worker` and for the [MORE] withdrawal removed.
+
+**6.6 BUILT (SPEC.md 66.5.9.3).** As designed, and smaller: **+37 bytes of
+FROTZ.O88, zero kernel bytes, nothing per instruction, `.bss` +0** (the
+estimate was 200-250; `@save` and `@restore` each share one body and one
+resume row across their 0OP and EXT forms, and `zx_park`/`zx_relock` replace
+the push-lock-pop pairs they wrapped). `tests/movable.txt`'s last `worker`
+line is gone. `zrestart` (`tests/zrestart.py`) stops the worker in all eight
+park sites, moves the region in each but `[MORE]`, and holds every leg's
+dynamic memory, `[zf_sp]`, Z-stack and transcript to a boot that moves
+nothing; red with the declaration pointed at plain `zx_worker` and with the
+`[MORE]` withdrawal taken out. Two things the audit did not have: `@save`'s
+handler branched through `zi_save`'s popped ES after a wait the story can
+move across, so it reloads the PC from bss now; and `zf_reloc` shifts
+`[zx_seglim]`, `zx_step`'s bound for the PC's segment. **And the gate found
+`@save`/`@restore` had never worked** - three defects since Frotz shipped, +7
+bytes between them, fixed here because the gate could not run without them
+(SPEC.md 66.5.9.3's last paragraph).
 
 ### 6.5 PIXELSTEIN's re-homed claims need the fence widened (a kernel-byte decision)
 
