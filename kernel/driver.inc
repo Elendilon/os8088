@@ -996,11 +996,23 @@ CFG_KESZ    equ 5               ; bytes per table entry
 CFG_FBUF    equ CFG_REC0 + CFG_NKEY * CFR_HDR + CFG_NB + 2
 ; BOOT2_RES - what mem_init keeps of the heap's floor while stage 2 lives: the
 ; blob's sectors and, past them, its nobits scratch - the SYSTEM.CFG file
-; buffer ovc_buf (below), a paragraph-rounded CFG_FBUF (kernel size pass 14:
-; 164 zero bytes that were read off the disk on every boot). Guard 5 (the
+; buffer ovc_buf (below), CFG_FBUF rounded up to a SECTOR (kernel size pass
+; 14: 164 zero bytes that were read off the disk on every boot). Guard 5 (the
 ; 128KB boot, kernel.asm) still sums BOOT2_PAD: ovc_buf is first written by
-; drv_boot, long after stage 1's copy and its stack at the top of RAM are dead
-BOOT2_RES   equ BOOT2_PAD + ((CFG_FBUF + 15) / 16) * 16
+; drv_boot, long after stage 1's copy and its stack at the top of RAM are dead.
+;
+; 512 AND NOT 16, because this is the HEAP'S FLOOR until mem_unblob: every
+; claim made at boot is stacked bottom-up on it, and a pinned one (the FAT
+; window's) holds whatever phase it was given for the whole session - so a
+; floor rounded to a paragraph put EVERY bottom-up base off the 512-byte grid
+; (SPEC.md 1: every disk-visible base is 512-aligned), and PiXEL's
+; OSAPI_MEM_CLAIM_DMA, which refuses a base that is not, refused every open
+; (`-: not enough memory`, tests/vesablitd.py and tests/vesasu.py red). The
+; cost is under 512 bytes of the boot's heap, given back with the blob
+BOOT2_RES   equ BOOT2_PAD + ((CFG_FBUF + 511) / 512) * 512
+%if BOOT2_RES % 512 || BOOT2_PAD % 512
+  %error "driver: BOOT2_RES is the heap's floor at boot, and must keep every claim base on the 512-byte grid"
+%endif
 
 ; --- whose blob is whose (SPEC.md 51.9.1) ------------------------------------
 ; row index, size, offset into the struct. The ROW and not the class, for the
@@ -1257,12 +1269,15 @@ drv_fseg10:  dw 0
 
 ; drv_svcix - per class, from class 1: which drv_svc copy is its, as
 ; slot * DSV_SIZE/2 + 1, and 0 = it keeps none (drv_cls_svc_x). Class 3 is
-; RETIRED and reads class 4's slot, which is what the compaction it replaced
-; answered; nothing publishes class 3 (SPEC.md 58). Classes 6 and 7 keep no
-; copy, and classes 8, 9 and 10 are the copied classes past them (SPEC.md
-; 62.9.19, 119.1, 121.1)
+; RETIRED (SPEC.md 58) and keeps none either: it read class 4's slot, which
+; is what the compaction it replaced answered, and so every walk of the
+; classes visited ETHER.DRV's table twice - a panel close called its
+; DSV_CPCLOSE twice and drv_cp_class needed a test of its own to step over
+; it. 0 answers both (kernel size pass 14, at the owner's word: "we don't
+; run retired drivers"). Classes 6 and 7 keep no copy, and classes 8, 9 and
+; 10 are the copied classes past them (SPEC.md 62.9.19, 119.1, 121.1)
 DRV_SVCH    equ DSV_SIZE / 2
-drv_svcix:   db 0*DRV_SVCH+1, 1*DRV_SVCH+1, 2*DRV_SVCH+1, 2*DRV_SVCH+1
+drv_svcix:   db 0*DRV_SVCH+1, 1*DRV_SVCH+1, 0, 2*DRV_SVCH+1
              db 3*DRV_SVCH+1, 0, 0, 4*DRV_SVCH+1, 5*DRV_SVCH+1, 6*DRV_SVCH+1
 %if $ - drv_svcix != DRVC_MAX || 6*DRV_SVCH+1 > 0x7F || DSV_SIZE & 1
   %error "driver: drv_svcix is one byte per class, cbw-able, and DSV_SIZE is even"
@@ -3177,10 +3192,8 @@ drv_cp_class_x:
     mov cl, 1                   ; CL = the class (drv_cls_svc_x banks CX)
 .next:
     mov al, cl
-    cmp al, DRVC_RETIRED3       ; ...whose compacted slot IS class 4's, so a
-    je .skip                    ; walk that visits it counts ETHER.DRV twice
     call drv_cls_svc_x
-    jc .skip                    ; DRVC_POINT and DRVC_EMS keep no copy
+    jc .skip                    ; class 3, DRVC_POINT and DRVC_EMS keep no copy
     cmp word [di+DSV_CPNAME], 0
     je .skip
     cmp bl, bh

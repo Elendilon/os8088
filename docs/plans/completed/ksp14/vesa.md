@@ -330,3 +330,43 @@ drew and the desktop came back to within the arrow's 128 pixels.
   instrument for "what does the hook cost a machine without the driver": it
   names every routine the hook touched, which the concept table (a diff across
   commits) cannot separate from the rest of the merge.
+
+## FIXED AT THE OWNER'S WORD: a VESA desktop's Shut Down screen
+
+The owner asked for DEFECTS FOUND's *"A VESA desktop's Shut Down draws no
+'safe to turn off' screen"* to be fixed if it was easy (*"If its easy, again,
+can do it"*). Branch merged up to `kernel-size-14` (`3e98b6b1`, a fast-forward)
+first.
+
+**The fix**, in CTRL.DRV's `modc_e_shutdown` (`kernel/shutdown.inc`) and
+under `VID_EXT` only: just before the screen's `vid_setmode`, a
+`cmp byte [vid_kind], VID_VESA / jne`; on a VESA desktop `[vid_kind]` becomes
+`VID_VGA` and THIS image's `vid_apply` (the panel's, `VID_APPLY vid, KSWK` in
+`.modu`) publishes the VGA's geometry and depth, so the `vid_setmode` that
+follows sets the card's own mode 12h and `sd_text`/`sd_spin` draw on it.
+`VESA.DRV` is already gone at that point (`drv_shutdown_x`), which is the
+reason the kernel's own mode is the only one left to draw on; nothing is
+reordered, and the desktop is not repainted first (a whole `vid_switch` would
+have been - menu bar, refit, a paint nobody sees).
+
+* **Bytes: 0 resident** on every kernel. `CTRL.DRV` (an on-demand module)
+  14,889 -> **14,904** (+15) on kern_big, the same +15 on kern_emu, a 15 KB
+  claim either way; kern_small (no `VID_EXT`) and kern_mega assemble byte for
+  byte as before (`os88rdiff`: every routine the same).
+* **Behaviour elsewhere is unchanged**: on a VGA, CGA, EGA or Hercules desktop
+  the arm is one compare and a taken `jne`, in a module, once per Shut Down.
+* **Rows** (one scoped run, `soak -k 'vesa*' -k mixervesa -k shutdown`):
+  `shutdown` (MartyPC: VGA, CGA and Hercules) ok; `vesa`, `vesa8`, `vesacp`,
+  `vesablit4`, `vesafsx`, `vesapref`, `vesabench`, `mixervesa` ok; **the new
+  row `vesashut`** ok - System > Shut Down... and Enter on `build/vesa.img`,
+  asserting a 640x480 screen, `vid_kind` 0 / `vid_planes` 4 and the sentence's
+  white pixels. **Broken on purpose** (the `jne` made a `jmp`): the screen
+  stays 1024x768, `vid_kind` 4, red; restored, green.
+  `vesagor` failed in 0.3 s in that run - the shared-socket scheduling defect
+  above - and passes alone. **`vesasu` and `vesablitd` FAIL, alone, and fail
+  identically on a worktree of `kernel-size-14`'s tip `3e98b6b1` without this
+  change** (*"the card's format drop-down has no rect: Save As did not open"*;
+  *"0 distinct non-EGA colours on the glass: the canvas is not at depth"*).
+  Both passed on this branch before the merge, so something that arrived with
+  `kernel-size-14` broke them; not this fix, which neither row reaches.
+

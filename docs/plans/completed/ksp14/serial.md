@@ -192,7 +192,8 @@ base against tip: the same six known tail-`jmp kret_*` paths, none new.
    mouse then settles on the other line** (DEFECTS, by reading): the fix is
    `cmp bx, [ser_row] / je .next` in `mou_lockon`, **+6 resident on all four
    kernels**, ESTIMATED - and with it the question of what `srl_close` should
-   restore on a port the contest retired while it was leased.
+   restore on a port the contest retired while it was leased. **FIXED at the
+   owner's word** - see the last section.
 
 ## WANTS AN ABI BREAK
 
@@ -244,3 +245,82 @@ matters); that is covered by construction - `srl_pump` names no BX at all.
   contest's unmasked, RX-armed state - re-arming a port the contest retired
   (harmless: `mou_byte` drops a settled machine's other ports, but each byte the
   far end sends is an IRQ and a scan). WANTS THE OWNER 1.
+
+## FIXED AT THE OWNER'S WORD - a lease taken before the settle keeps its line (DEFECT / WANTS THE OWNER 1)
+
+The owner's constraint: *"we just can't break mice, or serial"* - smallest
+change, and nothing may change on a machine where no lease is held when the
+mouse settles. Done on `ksp14-serial` after a fast-forward to
+`kernel-size-14` at `e03cfb79`; the bytes below are against that tip.
+
+**The repro row first: `tests/serlease.py`** (soak, `serlease`, 12 s
+measured, MartyPC `os8088_5150_cga_gla`). MartyPC because it is the 8088
+with both UARTs, a serial mouse on COM1 (IRQ4) and COM2 on its own line
+(IRQ3), and its debug server's `inb` reads the 8259's mask and the UARTs'
+IER/MCR without side effects. Nothing here is on the closed QEMU list: no
+cross-wired card and no modem, and COM2 is empty. The row opens WireFleet,
+puts the machine back into "no mouse has spoken" the way `wirefleetnomouse`
+does, and sets COM2's IER and IRQ3 to what `mouse_init` leaves on a no-mouse
+boot, because opening the package with the mouse has already retired it. On
+the keyboard mouse it then:
+- **A.** takes Link > Connect COM2 while the contest is unsettled;
+- **B.** catches `mou_hotplug` in state 1 and checks that COM1's DTR/RTS are
+  down (the positive control) and COM2's are up;
+- **C.** moves the real mouse until the contest settles on COM1 and
+  `mou_lockon` has run, then asserts: IRQ3 unmasked, COM2's IER armed, IRQ4
+  unmasked, the lease still held, and the pointer moving;
+- **D.** closes WireFleet and asserts COM2 is retired (IER 0, IRQ3 masked),
+  IRQ4 is unmasked and the pointer still moves.
+
+**Red on the base exactly as reported**: *C: the LEASED COM2 line IRQ3 masked
+by the settle (IMR ac)*, *D: COM2 re-armed at close (IER 01)*, *D: IRQ3
+unmasked at close (IMR a4)*.
+
+**Owner's item 2 - the hot-plug reset cycle: it already skipped the leased
+port, and nothing was changed.** `mou_hotplug` reaches the UARTs only through
+`mou_pall`, which loops `mou_pout`, and `mou_pout` has tested
+`cmp bx, [ser_row] / je .out` since #278. Leg B is the proof: on the base it
+was already green, with COM1's MCR caught at DTR/RTS low and COM2's at 0Bh.
+The `.have` path's raise uses the same `mou_pall`.
+
+**The fix:**
+
+| | kern_big | kern_small | kern_emu | kern_mega | `SERIAL.DRV` image |
+|---|---:|---:|---:|---:|---:|
+| `mou_lockon` skips `[ser_row]` | `.text` +6 (43,010 -> 43,016; resident 91,591) | +6 (30,790 -> 30,796; resident 58,137) | +6 (`.text` 43,272) | +6 (`.text` 46,773; `mou_lockon` 65 -> 71 in its map) | - |
+| `srl_open` banks `[mou_seen]` as `srl_seen`; `srl_close` retires a port retired during the lease | - | - | - | - | 857 -> 909 (+52, 1 KB claim either way, 115 to spare) |
+
+`.bss`, `.cold`, `.lowbss`, `.boot2`, `.ovl` and `KERN_SIZE` do not move on
+any kernel. Every hot routine stays at its measured parity (`hotpar`), because
+`mou_lockon`'s +6 is even and nothing hot sits between it and `mou_hotplug`.
+
+* **`mou_lockon`**: `cmp bx, [ser_row] / je .next` after its `[mou_port]`
+  test. With no lease `[ser_row]` is FFFFh and never equals a row, so a
+  machine without a lease runs the same retirement with one more
+  not-taken compare. That is once per session, on the UI task, not on a hot
+  path.
+* **`srl_close`** (module): if the lease was taken unsettled
+  (`srl_seen = 0`) and `[mou_seen]` is set now, the contest retired this
+  port while it was leased. Close then leaves it as `mou_lockon` leaves a
+  loser: IER 0, and the PIC bit masked unless the line is `[mou_line]` or
+  unknown. It does this by overwriting the banked `srl_ier` and `srl_pic`
+  before the usual restore. A lease opened after the settle, or still
+  unsettled at Close, restores exactly as before. `mou_lockon` and the lease
+  verbs both run on the UI task, so nothing races.
+* SPEC.md 9.5 (the loser bullet), 115.1.1 (a new paragraph: the settle
+  DURING a lease) and 115.2 (Close's exception) say so.
+
+**Broken on purpose**: `srl_close`'s `jne .put` made a `jmp` - `serlease`
+red on D (*COM2 re-armed at close (IER 01)*, *IRQ3 unmasked at close*), green
+again restored. The kernel half's red arm is the base run above.
+
+**Rows run once, after the fix** (`--marty-jobs 1`), all ok:
+`serlease` 11.8s (MartyPC), `mousess` 10.1s (MartyPC), `mouerrq` 8.6s (QEMU +
+MartyPC), `mouwheel` 3.3s (MartyPC), `wheel` 14.4s (MartyPC), `wheelps2`
+6.8s (QEMU), `ps2mouse` 10.2s (QEMU, the full-tier row alone),
+`wirefleetlink` 105.3s (QEMU), `wirefleetsystem` 64.4s (MartyPC),
+`wirefleetnomouse` 12.9s (MartyPC), `buildmatrix` 306.7s (host: the knob
+arms of `mouse.inc`). Fast tier 61/61 with `hotpar`, `make small`, `make
+emu`, `make mega`; `os88ovlchk` clean; `stkbalance` over `serial.inc` and
+`mouse.inc` the same six known paths, none new.
+

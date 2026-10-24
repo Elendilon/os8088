@@ -14196,7 +14196,9 @@ Two things frame the whole design:
   leaves the row's **base in place**, because `mouse_unhook` still owes that
   port its vector. After it, the second port cannot be heard again at all,
   which is what bounds everything below to the seconds before the mouse is
-  first moved.
+  first moved. **A row LEASED to `SERIAL.DRV` is skipped** (`[ser_row]`,
+  §115.2): a lease taken before the contest settled (§115.1.1) keeps its IER
+  and its line until it is released, and the release retires it then.
 
 #### 9.5.1 The other port is a modem, and that is the hard part
 
@@ -16977,7 +16979,12 @@ a rare cell is six bytes (§20.3).*
   down by one, so **class 3 and class 4 land on the SAME `drv_svc` slot** —
   harmless only for as long as class 3 is never published. A published class-3
   driver would overwrite `DRVC_NET`'s service table, which is precisely the
-  silent cross-class disconnection §51.2.1 exists to prevent.
+  silent cross-class disconnection §51.2.1 exists to prevent. (That is still
+  `kern_small`'s compaction. On the builds with a driver layer, `drv_svcix`
+  gives class 3 **no** copied table since kernel size pass 14, at the owner's
+  word that retired drivers are not run, so `drv_cls_svc_x` refuses it and the
+  Control Panel's close walk no longer reaches `ETHER.DRV`'s `DSV_CPCLOSE` a
+  second time through it.)
 - **Giving `DRVC_POINT` no `drv_svc` slot at all is worth 38 bytes of `.bss`
   and IS actionable — as its own change, with a gate.** The driver publishes
   only `DSV_NAME`, which the kernel reads **nowhere** (three matches in
@@ -32860,10 +32867,12 @@ that letters it; there is no fill anywhere in the module and the line is never
 momentarily blank. It also puts §11.3's granularity rule out of reach — there
 is no erase-and-letter pair here to disagree. The pen is floored to a cell by
 `spl_mgeom`, so both mono adapters take `font_run`'s single-store path (§6.1),
-which is what makes a 32-cell line affordable on the machine it exists for.
+which is what makes a 37-cell line affordable on the machine it exists for.
 
-`SPL_MSG_CELLS` is 32 because the longest line the tree can compose is
-`Loading Driver 1/5 (Hard Drive)` = 31 cells. The bound lives inside
+`SPL_MSG_CELLS` is 37 because the longest line the tree can compose is
+`Loading Driver NN/NN (Absolute mouse)` = 37 cells: a two-digit row count
+and `DRV_TITLES`' longest title, kern_emu's. It was 32, sized when the
+longest was `Loading Driver 1/5 (Hard Drive)`, and cut kern_emu's lines off. The bound lives inside
 `spl_mput`, so a longer one truncates at the reserved width rather than writing
 past the buffer, and nothing above it has to carry a length. The gfx lock is
 not held, exactly as `spl_paint` does not hold it: the UI task does not exist
@@ -215021,6 +215030,17 @@ that later proves to hold an idle mouse costs that mouse its port only until
 Close; the contest resumes there afterwards. All of it is in `SERIAL.DRV`:
 no resident byte. A settled contest ignores bit 7.
 
+**The contest settling DURING the lease** - a mouse moved on the other port -
+leaves the leased port alone: `mou_hotplug`'s reset cycle never drops its
+DTR/RTS (`mou_pall` goes through `mou_pout`, which skips `[ser_row]`), and
+`mou_lockon` skips the row, so its IER and its 8259 line stay as Open set
+them for as long as the lease is held. Before kernel size pass 14 the
+retirement masked a leased port whose line was not the mouse's, leaving the
+link serviced only by Read and Write (an 8250 at 2400 baud on an XT drops
+bytes). Close then leaves the port as `mou_lockon` would have: IER 0 and its
+line masked unless it is the mouse's - not the armed state Open found, which
+was the unsettled contest's (§115.2). `tests/serlease.py` is the gate.
+
 Refusals are AX=1 busy/wrong owner, 2 mouse not settled, 3 mouse port,
 4 absent/unsupported port (BL not 1 or 2, or the boot probe found no UART
 there, §9.5), 5 invalid caller/buffer, 8 module unavailable, and 9 the
@@ -215057,7 +215077,11 @@ recovers from a missed IRQ edge without waiting for another mouse event.
 The rings and their publication order are identical on both paths.
 
 Close first withdraws the row from serial dispatch with interrupts disabled,
-then restores the UART/PIC state before the module can be freed. Instance
+then restores the UART/PIC state before the module can be freed - except
+IER and the PIC bit of a port the contest RETIRED while it was leased
+(settled at Close and not at Open, §115.1.1): those go back as `mou_lockon`
+leaves a loser, IER 0 and the line masked unless it is the mouse's
+(`[mou_line]`) or unknown. Instance
 teardown force-releases its lease before freeing package memory; reboot
 silences it before mouse vectors are unhooked. A lease survives §53 entry.
 Hibernate is refused while a serial lease is active: UART registers and
