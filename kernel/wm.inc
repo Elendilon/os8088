@@ -8606,8 +8606,8 @@ wm_keeph:
 wm_damage:
     push si
     push di
-    mov di, bx                  ; the window: wm_su_rect writes all four
-    call wm_su_rect             ; AX/BX/CX/DX = its content rect
+    call wm_su_rect_bx          ; the window: wm_su_rect writes all four
+                                ; AX/BX/CX/DX = its content rect
     xor si, si                  ; ...and SI says whether that rect has been
                                 ; NARROWED by anything below, which is what
                                 ; lets "no sub-rect named" still be an answer
@@ -9135,8 +9135,8 @@ wm_chrome_clip:
 ; -----------------------------------------------------------------------------
 wm_cov_rect:
     call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
-    mov di, bx                  ; DI = us, for the walk and for wm_su_rect
-    call wm_su_rect             ; AX/BX/CX/DX = our content rect
+    call wm_su_rect_bx          ; DI = us, for the walk and for wm_su_rect
+                                ; AX/BX/CX/DX = our content rect
                                 ; ...the FRAME on a chromeless window -
                                 ; desk or fullscreen - which is the content
     call rect_put               ; <- AX..DX, four adjacent words
@@ -9427,6 +9427,10 @@ wm_bar_span:
 ; fullscreen window's OSAPI_WM_DAMAGE answered the inset rect: the owner's
 ; call, taken with the bytes it saves in wm_cov_rect; on kern_small, which has
 ; no desk window, the arm costs 3 bytes net and is the defect's fix there.)
+; wm_su_rect_bx: the same, with the `mov di, bx` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+wm_su_rect_bx:
+    mov di, bx
 wm_su_rect:
     WM_CHROMELESS di
     jz .ord
@@ -9826,6 +9830,10 @@ wm_su_bget:
 ; in:  BX = window ptr
 ; out: SI = -> its wm_su_segs word, BX = its owner tag (the base plus the
 ;      slot, SPEC.md 11.96.3); clobbers nothing else (flags)
+; wm_su_slot_di: the same, with the `mov bx, di` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+wm_su_slot_di:
+    mov bx, di
 wm_su_slot:
     push ax
     call wm_ptr2idx             ; AL = slot, AH = 0 (and it IS 0 now)
@@ -9936,8 +9944,7 @@ wm_su_ck:
     push dx
     push si
     push es
-    mov bx, di
-    call wm_su_slot
+    call wm_su_slot_di
     mov si, [si]                ; SI = the claim, 0 = no cache for this window
     or si, si
     jz .no
@@ -10040,8 +10047,7 @@ wm_dc_take:
     push si
     push di
     push es
-    mov di, bx
-    call wm_su_rect             ; ...AND SOME OF IT ON SCREEN WHERE IT IS GOING
+    call wm_su_rect_bx          ; ...AND SOME OF IT ON SCREEN WHERE IT IS GOING
     call wm_su_vset             ; (SPEC.md 11.96.14). This asked for the WHOLE
     jc short .out               ; rect and refused, which cost the commonest
     mov word [wm_su_von], 0     ; drag there is: ui_drag clamps the TITLE BAR
@@ -10097,8 +10103,7 @@ wm_dc_take:
     call wm_su_take
     mov [di+W_X], cx
     mov [di+W_Y], si
-    mov bx, di
-    call wm_su_slot             ; SI = the slot word, and a refusal anywhere in
+    call wm_su_slot_di          ; SI = the slot word, and a refusal anywhere in
     mov ax, [si]                ; wm_su_take just leaves it 0
     or ax, ax
     jz .drop
@@ -10251,8 +10256,7 @@ wm_su_take:
     call mem_bytes_kb           ; AX = KB for every fragment together, the
                                 ; header included, rounded UP and never 0
                                 ; (memory.inc)
-    mov bx, di
-    call wm_su_slot             ; SI = its wm_su_segs word, BX = its own tag
+    call wm_su_slot_di          ; SI = its wm_su_segs word, BX = its own tag
     call mem_claim              ; DX = segment
     jc .out                     ; refused: no cache, and the raise repaints -
                                 ; which is what it did before this existed

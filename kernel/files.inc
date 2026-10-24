@@ -1465,8 +1465,7 @@ fmv_icorefs:
                                 ; FSD_CACHE is stronger and is left alone
 %endif
     mov dx, [di+FS_VSEG]        ; ...and ONLY NOW, re-read (see the header)
-    xor bx, bx
-    call dsk_dest_x
+    call dsk_dest_b0
     mov bp, [di+FS_N]
     call dsk_icopass
 %ifdef OS88_ASSOC
@@ -1534,8 +1533,8 @@ fmv_load:
     push dx
     push bx
     mov dx, [di+FS_VSEG]        ; 0 = this window has NO store, and there is
-    xor bx, bx                  ; no floor to fall back to any more: the
-    call dsk_dest_x             ; mount goes quiet and the window paints
+    call dsk_dest_b0            ; no floor to fall back to any more: the
+                                ; mount goes quiet and the window paints
                                 ; SPEC.md 22's refusal in its row area
                                 ; instead of a listing (13.5 commit 3)
     pop bx
@@ -1774,8 +1773,7 @@ fmv_sync_x:
     call fm_mzero               ; ...and a multi-selection was of the folder
 %endif                          ; that went: its indices name the ROOT now
     push si
-    xor si, si
-    call fm_settitle
+    call fm_settitle0
     pop si
 .out:
     jmp kretc_di
@@ -1930,8 +1928,7 @@ fm_focus_x:
                                 ; wm_dmg_mine keeps the dock's pass off it
     test ch, ch
     je .owed                    ; the caller is drawing this window
-    mov si, bx
-    call fm_repaint             ; frontmost, so nothing is on top of it and
+    call fm_repaint_bx          ; frontmost, so nothing is on top of it and
                                 ; no clip region is needed (SPEC.md 11.3)
 .owed:
     stc
@@ -2034,8 +2031,7 @@ fmv_take:
     mov al, [si+FS_MOK]         ; the mount's verdict travels with the listing
     mov [di+FS_MOK], al         ; it describes, and that mount was the
                                 ; source's (SPEC.md 18.4)
-    xor bx, bx                  ; entry 0 at the base of the source's claim
-    call dsk_dest_x
+    call dsk_dest_b0            ; entry 0 at the base of the source's claim
     call fmv_store              ; ...which copies it into DI's own
     xor dx, dx                  ; and the destination goes back to NOWHERE,
     call dsk_dest_x             ; for fmv_load's reason: a `.bss` word may not
@@ -2564,8 +2560,7 @@ fm_choose:
                                 ; a fragment, exactly as fm_kinit's seed is.
                                 ; BX, the window `mov si, bx` wants, is kept
     call fm_settitle            ; SI = the name, still untouched
-    mov si, bx
-    call fm_repaint
+    call fm_repaint_bx
 .unlock:
     jmp ct_cw_gfx_unlock
 
@@ -3316,6 +3311,10 @@ fm_paint_x:
 ; right-press and a drag drop. fm_layout preserves CX and DX, which is what
 ; lets the answer come back in them.
 ; -----------------------------------------------------------------------------
+; fm_relayout_si: the same, with the `mov bx, si` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+fm_relayout_si:
+    mov bx, si
 fm_relayout:
     push cx                     ; save the x...
     mov cx, dx                  ; ...CX = the y
@@ -3385,8 +3384,7 @@ fm_onclick_x:
     mov [fm_pressy], dx         ; conversion below eats it: a drag tracks in
                                 ; screen coordinates and may end in another
                                 ; window entirely (SPEC.md 22.4)
-    mov bx, si
-    call fm_relayout            ; CX = content-relative y, DX = x, and the
+    call fm_relayout_si         ; CX = content-relative y, DX = x, and the
                                 ; layout mirrors published
 
 %ifdef KERN_BIG
@@ -3822,8 +3820,7 @@ fm_ondrag_x:
     jmp kretc_di
 %ifdef FM_MSEL
 .band:                          ; off the entries, nothing changes: the run
-    mov bx, si                  ; holds where the pointer left it
-    call fm_relayout
+    call fm_relayout_si         ; holds where the pointer left it
     call fm_hit
     jc .out
     mov di, [fm_vp]
@@ -4445,8 +4442,7 @@ fm_mount:
     xor dx, dx                  ; the root
     mov di, [fm_vp]
     call fmv_load
-    xor si, si                  ; ...which titles itself
-    call fm_settitle
+    call fm_settitle0           ; ...which titles itself
     jmp kretc_di
 
 ; -----------------------------------------------------------------------------
@@ -4701,6 +4697,10 @@ pth_push:
 ; say, which is what made a deferred escalation necessary at all; a strip the
 ; window redraws once it has decided has no such ordering.
 ; -----------------------------------------------------------------------------
+; fm_settitle0: the same, with the `xor si, si` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+fm_settitle0:
+    xor si, si
 fm_settitle:
     call kentc_di
     mov di, [fm_vinst]
@@ -5755,8 +5755,7 @@ fm_img_done_x:
     mov di, [fm_vp]
     call fmv_winof              ; SI = the window, which nothing here had put
     jc .out                     ; there
-    mov si, bx
-    call fm_repaint
+    call fm_repaint_bx
     jmp short .out
 .nodrv:
     mov ax, CERR_NOMOD          ; DISKOPS.DRV is on the system disk, and it is
@@ -6124,8 +6123,8 @@ fm_rclick_x:
     push dx                     ; point; everything between here and the pop
                                 ; works in content coordinates
 
-    mov bx, si                  ; the same content-relative transform
-    call fm_relayout            ; fm_onclick makes, publishing the mirrors
+    call fm_relayout_si         ; the same content-relative transform
+                                ; fm_onclick makes, publishing the mirrors
                                 ; fm_hit reads
 
 %ifdef FM_MSEL
@@ -6662,8 +6661,8 @@ fm_edit_commit:
     xor dx, dx
     call fmv_load
     push si
-    xor si, si                  ; ...and the caption follows it: 'Disk' is
-    call fm_settitle            ; the one name fm_settitle can always derive
+    call fm_settitle0           ; ...and the caption follows it: 'Disk' is
+                                ; the one name fm_settitle can always derive
     pop si
 
     ; 'Formatted B:' in the menu bar (SPEC.md 22.12.1). SPEC.md 59.6's
@@ -7460,6 +7459,10 @@ fm_wfill:                       ; ...which is also every WHITE fill in this
 ; and before that it was wm_paint_all: the desktop, both drive zones, the
 ; chrome and every other window, to correct one string.
 ; -----------------------------------------------------------------------------
+; fm_repaint_bx: the same, with the `mov si, bx` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+fm_repaint_bx:
+    mov si, bx
 fm_repaint:
     call kentc_di
 

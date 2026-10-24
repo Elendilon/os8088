@@ -607,8 +607,7 @@ dskw_gate:
     jmp short dskw_mounted.quit ; CF/AX = the driver's answer
 %endif                          ; OS88_REDIR
 dskw_gate83:
-    mov di, dskw_n83
-    call dskw_name83            ; SI -> the 11-byte raw name field
+    call dskw_name83n           ; SI -> the 11-byte raw name field
     jnc dskw_mounted.ret
     mov ax, FERR_NAME
     jmp short dskw_mounted.fail
@@ -2600,8 +2599,7 @@ dskw_nbody:
 .fatn:
     push si
     mov si, di                  ; the new name first: parse it, then prove
-    mov di, dskw_n83            ; it is free
-    call dskw_name83
+    call dskw_name83n           ; it is free
     pop si
     jnc .named
 .badarg:                        ; (dskw_rtbody and dskw_wabody answer here too)
@@ -2740,8 +2738,7 @@ dskw_stat_x:
     jmp short .out              ; (CF = 0 from the `jc`; xchg writes no flag)
 %endif
 .fat:
-    mov di, dskw_n83
-    call dskw_name83
+    call dskw_name83n
     jc .badname
     call dskw_find              ; ...which now leaves the 32 raw bytes in
     jc .fail                    ; dskw_raw itself (AX = FERR_* on failure)
@@ -4927,6 +4924,10 @@ dskw_now:
 ; wildcard or a byte outside 21h..7Eh is a rejection - and 0xE5 (the
 ; deleted mark) and "." / ".." cannot be spelled at all.
 ; -----------------------------------------------------------------------------
+; dskw_name83n: the same, with the `mov di, dskw_n83` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+dskw_name83n:
+    mov di, dskw_n83
 dskw_name83:
     call kentc_di               ; KENT: push ax..di, so the exit is kretc_di's
                                 ; rung

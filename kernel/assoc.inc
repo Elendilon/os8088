@@ -198,6 +198,10 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; would quietly become 0x4C4C. Everything else reaching here is already
 ; uppercase, being FAT-derived or a declared block.
 ; -----------------------------------------------------------------------------
+; assoc_stage8: the same, with the `mov cx, 8` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+assoc_stage8:
+    mov cx, 8
 assoc_stage:
     mov al, [es:si]
     mov [di], al
@@ -467,6 +471,10 @@ assoc_slot_of:
 ; out: CF=0 and AL = slot index; CF=1 = this stem is in no slot
 ; clobbers: AX (output), CF
 ; -----------------------------------------------------------------------------
+; assoc_app_di: the same, with the `mov si, di` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+assoc_app_di:
+    mov si, di
 assoc_app_of:
     push bx
     push cx
@@ -551,8 +559,8 @@ assoc_glyph_take:
     call asc_inkck              ; blank test is asc_inkck above and the copy
     stc                         ; is SPEC.md 20.2's staging idiom, which is
     jz .out                     ; ES:SI -> DS:DI and exactly what a glyph in a
-    mov cx, 8                   ; cache row, a store row or an image needs.
-    call assoc_stage            ; Both advance SI and this routine banks it
+    call assoc_stage8           ; cache row, a store row or an image needs.
+                                ; Both advance SI and this routine banks it
     clc                         ; anyway
 .out:
     pop di
@@ -680,8 +688,7 @@ assoc_note_app_x:
     mov dh, [assoc_hflags]      ; DH = the header's flags, banked once: every
                                 ; callee below preserves DX
     call assoc_stem_of          ; DI -> assoc_stemb. The entry in SI is not
-    mov si, di                  ; wanted again, and the ladder restores it
-    call assoc_app_of
+    call assoc_app_di           ; wanted again, and the ladder restores it
     jnc .haveslot
     test dh, 2                  ; no slot yet - but a package that DECLARES
     jz .out                     ; extensions is asking for one (SPEC.md 54.6)
@@ -1702,8 +1709,7 @@ assoc_app_new:
 .take:
     mov si, assoc_stemb
     mov di, bx
-    mov cx, 8
-    call dsk_ncopy              ; disk.inc's counted copy (SPEC.md 4), which
+    call dsk_ncopy8             ; disk.inc's counted copy (SPEC.md 4), which
     mov bl, al                  ; preserves every register - CX is still 8
     call assoc_glyph_di         ; for the glyph below
 .zap:
@@ -2229,8 +2235,7 @@ asc_merge_ext:
 ; seed's walk and asc_slot_of each spelled it out (kernel size pass 5).
 asc_stem_in:
     mov di, assoc_stemb
-    mov cx, 8
-    call assoc_stage
+    call assoc_stage8
     mov si, assoc_stemb
     ret
 
@@ -2313,8 +2318,8 @@ asc_take_x:
     push es
     push ax                     ; the store row: assoc_stem_of answers in DI
     call assoc_stem_of          ; and assoc_app_of in AL, so it cannot stay
-    mov si, di                  ; where it is
-    call assoc_app_of           ; AL = the slot, CF=1 = no association, so
+    call assoc_app_di           ; where it is
+                                ; AL = the slot, CF=1 = no association, so
     pop cx                      ; there is nothing to point at the glyph.
                                 ; OF and not GET: a store hit is EVERY package
                                 ; a listing shows, and creating here spent a

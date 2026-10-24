@@ -4218,8 +4218,7 @@ disk_mount_x:
 .harvest:
     cmp dx, bp
     jae .harvested
-    mov ax, dx
-    call dsk_get_dir_x            ; SI -> dsk_ent, the synthesized entry
+    call dsk_get_dir_dx         ; SI -> dsk_ent, the synthesized entry
     call ico_ref_try            ; a folder, or a body the store already has?
     jnc .h_next                 ; then this entry costs no sector read at all
 .h_read:
@@ -4299,8 +4298,8 @@ disk_mount_x:
     pop dx
 .h_noicon:                      ; case the declaration ships on first
 %ifdef OS88_ASSOC
-    mov ax, dx                  ; the NAME again - the header staged above
-    call dsk_get_dir_x            ; overwrote dsk_ent's copy of it
+    call dsk_get_dir_dx         ; the NAME again - the header staged above
+                                ; overwrote dsk_ent's copy of it
     call assoc_note_app_x         ; this program is HERE, declares THIS, and
                                 ; looks like THAT (SPEC.md 54.3) - no extra
                                 ; I/O: the sector is the one just read
@@ -6529,8 +6528,7 @@ dsk_rah_serve:
     mov cx, di
     mov di, bx                  ; ES:BX is the destination
     mov dx, [dsk_rah_seg]
-    mov ax, es
-    call dsk_copy_seg_x         ; ~1.6 ms a sector against the ~400 ms call it
+    call dsk_copy_seg_es        ; ~1.6 ms a sector against the ~400 ms call it
                                 ; is standing in for
     pop ax                      ; sectors copied
     clc
@@ -7980,6 +7978,10 @@ dsk_goto:
 ; would let two callers disagree about a layout `fmv_iofs` and the harvest
 ; both have to read the same way.
 ; -----------------------------------------------------------------------------
+; dsk_dest_b0: the same, with the `xor bx, bx` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+dsk_dest_b0:
+    xor bx, bx
 dsk_dest_x:
     push ax
     push dx
@@ -8514,6 +8516,10 @@ dsk_read_chain_x:
 ; out:      nothing
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
+; dsk_copy_seg_es: the same, with the `mov ax, es` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+dsk_copy_seg_es:
+    mov ax, es
 dsk_copy_seg_x:
     push ax
     push cx
@@ -8590,6 +8596,10 @@ dsk_copy_in_x:
 ; this body, one per file. NOT to be confused with fm_ncpy, which is a
 ; NUL-stopping bounded copy and answers a different question.
 ; -----------------------------------------------------------------------------
+; dsk_ncopy8: the same, with the `mov cx, 8` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+dsk_ncopy8:
+    mov cx, 8
 dsk_ncopy:
     push cx
     push si
@@ -8637,8 +8647,7 @@ dsk_icopass:                    ; NO PROLOGUE, and the header above is where
 .ip:
     cmp dx, bp
     jae .ip_done
-    mov ax, dx
-    call dsk_get_dir_x          ; SI -> dsk_ent
+    call dsk_get_dir_dx         ; SI -> dsk_ent
     call ico_ref_try
     inc dx
     jmp short .ip
@@ -8672,8 +8681,7 @@ dsk_docpass:                    ; `dsk_icopass`'s reason for having no
 .dp:
     cmp dx, bp
     jae .dp_done
-    mov ax, dx
-    call dsk_get_dir_x
+    call dsk_get_dir_dx
     cmp word [si+16], 0         ; type 0 alone: a package draws its own icon
     jne .dp_next               ; and a folder has dsk_folder_ico
     pushf                       ; dsk_ico has FIVE tenants (below)
@@ -8843,6 +8851,10 @@ dsk_is_img:
 ; out:      SI -> dsk_ent, holding that entry's 32 bytes
 ; clobbers: SI (the output), flags
 ; -----------------------------------------------------------------------------
+; dsk_get_dir_dx: the same, with the `mov ax, dx` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+dsk_get_dir_dx:
+    mov ax, dx
 dsk_get_dir_x:
     push ax
     push cx
@@ -9242,8 +9254,8 @@ ico_glyph_put:
     jc .out                     ; and it was written out a second time here:
     add di, ICO_R_GLYPH - ICO_R_BODY    ; the claim, the stale-row guard and
     mov cx, 8                   ; the row offset are three things `ico_body`
-    mov ax, es                  ; already does, and the glyph is a fixed
-    call dsk_copy_seg_x         ; distance past what it answers. DX = source
+    call dsk_copy_seg_es        ; already does, and the glyph is a fixed
+                                ; distance past what it answers. DX = source
 .out:                           ; segment, AX = the claim
     pop es
     jmp kretc_di
@@ -9287,8 +9299,7 @@ ico_add:
                                 ; that true if the layout ever gains a pad
     mov si, bx                  ; ...then the BODY, out of its own segment
     mov cx, DSK_ICO_SIZE
-    mov ax, es
-    call dsk_copy_seg_x         ; DX = source segment, AX = the claim
+    call dsk_copy_seg_es        ; DX = source segment, AX = the claim
 %ifdef OS88_ASSOC
     add di, DSK_ICO_SIZE        ; ...and the glyph column CLEARED - STRAIGHT
     mov cx, 8                   ; PAST THE BODY, dsk_copy_seg_x having
@@ -9422,8 +9433,7 @@ ico_key_of:
                                 ; one row
     mov si, di
     mov di, ico_keyb
-    mov cx, 8
-    call dsk_ncopy              ; DS:SI -> DS:DI, SPEC.md 4's counted copy
+    call dsk_ncopy8             ; DS:SI -> DS:DI, SPEC.md 4's counted copy
     pop di
     pop si
 %else
@@ -9495,8 +9505,7 @@ ico_key_doc:
                                 ; ES = SS
     mov si, di
     mov di, ico_keyb+2
-    mov cx, 8
-    call dsk_ncopy
+    call dsk_ncopy8
 %if ICO_KEY > 10
     xor ax, ax                  ; ...and the tail, to the end of the key: a
     mov [ico_keyb+10], ax       ; composed body reports no size, and two word
@@ -9530,8 +9539,7 @@ ico_key_stem:
     push si
     push di
     mov di, ico_keyb
-    mov cx, 8
-    call assoc_stage            ; ES:SI -> DS:DI, SPEC.md 20.2's staging idiom.
+    call assoc_stage8           ; ES:SI -> DS:DI, SPEC.md 20.2's staging idiom.
                                 ; VERBATIM, where this used to walk the stem to
                                 ; its first space, write `.O88` after it and
                                 ; NUL-pad the rest to the size word - a

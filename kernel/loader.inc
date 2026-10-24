@@ -1968,8 +1968,7 @@ ld_pkg_byname:
                                 ; routine had written out again, pad loop and
                                 ; `.` stop and all. It answers DI =
                                 ; assoc_stemb and leaves SI alone
-    mov si, di
-    call assoc_app_of
+    call assoc_app_di
     jmp short .have
 .byext:
     mov si, assoc_doc           ; ...or none was: the double-click's own
