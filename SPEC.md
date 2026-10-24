@@ -3958,7 +3958,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/fprog.inc`  | the file-operation progress widget (§12.8): a document icon and a progress bar in a line box at the right end of the menu bar, armed by the file-operation layer and stepped from inside `dsk_xfer`'s per-sector loop — prefix `fpg_`, all state in `.text` |
 | `kernel/ui.inc`     | UI task: event pump, keyboard poll, drag, dispatch      |
 | `kernel/apps.inc`   | the built-in app kind: About — its template, strings and paint. Timer and Bounce were kinds here until §14.8 made them packages (§111, §112) |
-| `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19); and `dsk_ncopy`/`dsk_streq`, the **counted DS:SI→DS:DI byte copy and the NUL string compare the whole `.cold` segment shares** — `diskw.inc`, `filecp.inc`, `files.inc` and `fdlg.inc` all call it, and it lives here because `disk.inc` is the first `.cold` `%include`, so every site is a backward near reference. It was the same seventeen bytes in four files. Not to be confused with a NUL-stopping bounded copy, which answers a different question |
+| `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19); and `dsk_ncopy`, the **counted DS:SI→DS:DI byte copy the whole `.cold` segment shares** — `diskw.inc`, `filecp.inc`, `files.inc` and `fdlg.inc` all call it, and it lives here because `disk.inc` is the first `.cold` `%include`, so every site is a backward near reference. It was the same seventeen bytes in four files. (Its NUL string compare, `dsk_streq`, was down to one caller and is written at it since kernel size pass 14.) Not to be confused with a NUL-stopping bounded copy, which answers a different question |
 | `kernel/diskw.inc`  | the FAT write path (§18.4): name parsing, cluster allocation + free, FAT flush, directory entry create/update/delete, the five whole-file operations — prefix `dskw_`; the ONLY caller of `disk_write`. **`.cold`** (§2.6) |
 | `kernel/diskops.inc`  | the disk cloner (§18.99): the on-demand `DISKOPS.DRV` — sector-for-sector copy between any two floppy drives or one drive twice, its XMS/heap planner, its own geometry probe and its status-line prompts — prefix `clo_`; the resident half is one word and one thunk, both **`.cold`**/`.text` (§2.6) |
 | `kernel/hiber.inc`  | hibernate and resume (§87): the on-demand `HIBER.DRV` — the Hibernate window, the image write, the boot-time question, the extent walk, the stub that puts memory back from the text framebuffer and the wake — prefix `hbm_`/`hbs_`; the resident half is the template, the state block, the `.text` thunks a kernel window needs, and in **`.cold`** the boot probe, the greying predicate and the loading thunks (`hb_`/`hbf_`/`hbk_`) |
@@ -19714,8 +19714,8 @@ A hidden window and a fullscreen one (§11.2, which has no title bar) both
 return having drawn nothing, so a caller need not test either.
 
 **The file manager is the reference consumer.** `fm_settitle` writes the 16
-bytes and banks the window in `[fm_tdirty]`; `fm_title_flush` spends it, and
-only `fm_repaint` calls that, under the lock (`files_poster` was the second
+bytes and banks the window in `[fm_tdirty]`; `fm_title_flush` spends it (written
+in `fm_repaint` since kernel size pass 14), and only `fm_repaint` calls that, under the lock (`files_poster` was the second
 caller and is retired, §22.17). It is
 deferred, and it is a **pointer rather than a flag**, because `fm_settitle`'s
 callers are a mixed set: `fm_go`, `fm_mount` and `fm_view` hold the lock,
@@ -28962,7 +28962,8 @@ the way, and `kern_small` is untouched throughout: the whole gesture is
 `KERN_BIG`'s, because `W_ONDRAG` is.
 
 **One redundancy is known and left.** On a commit the element has already moved
-the thumb, and `fm_scroll_by` then reaches `fm_sb_thumb`, which moves it again
+the thumb, and `fm_scroll_by` then reaches `fm_sb_thumb` (written in
+`fm_scrollpaint` since kernel size pass 14), which moves it again
 from where `[fm_lscr]` says it was. The picture is right either way — the
 second move draws the thumb where it already is and greys a band that is
 already grey — and it costs three drawing calls, ~2.3 ms on the target machine,
@@ -34392,7 +34393,7 @@ into whatever claims that memory next.
 #### 18.7.1 What the letters mean
 
 The letter is the ROW INDEX and nothing else — six sites do `add al, 'A'`
-(`desk_zone_label`, `dsk_bootltr`, `fdlg`, and three in `files.inc`), so the
+(`desk_caprect`, `dsk_bootltr`, `fdlg`, and three in `files.inc`), so the
 whole of the lettering policy is *which row a volume is given*. There is no
 letter field, nothing persisted moves, and no display code knows this section
 exists. §18.7.4 is that policy's one rule beyond "the first free row".
@@ -38568,9 +38569,9 @@ is why that argument had it backwards for a floppy.
 
 | routine | contract |
 |---------|----------|
-| `dskw_fmt_probe` | in: `[disk_drive]` = the volume. Out: CF=0 with AL = a row of `dskw_fmt_tab`; CF=1 with AX = `FERR_*` — the volume is not a floppy (`FERR_PROT`), or `FORMAT.DRV` could not be read (`FERR_NODISK`). A medium nothing can read is **not** a refusal (§18.96.3). Clobbers AX, flags. **Reads only**, so it is safe to call before the user has agreed to anything, and that is the point: the confirmation names the size it is about to make. |
-| `dskw_format` | in: AL = a `dskw_fmt_tab` row, `[disk_drive]` = the volume. Out: CF=0; CF=1 with AX = `FERR_IO` / `FERR_WPROT` / `FERR_PROT`. Clobbers flags. Writes the boot sector **first** and the root directory last. |
-| `dskw_fmt_reach` | in: AL = the row just written, `[disk_drive]` = the volume, `[disk_spt]`/`[disk_heads]` still the format's. Out: CF=0 — the volume's **last** sector was written and read back intact; CF=1 — it was not. Clobbers AX, flags. Destroys that sector's contents, so it is callable only on a disk the user has already agreed to erase (§18.96.2). |
+| `dskw_fmt_probe` | in: `[disk_drive]` = the volume. Out: CF=0 with AL = a row of `dskw_fmt_tab` and AH = the other row the drive makes (or 0FFh), both also stored as `[fm_fmtrow]`/`[fm_fmtalt]`; CF=1 with AX = `FERR_*` — the volume is not a floppy (`FERR_PROT`), or `FORMAT.DRV` could not be read (`FERR_NODISK`). A medium nothing can read is **not** a refusal (§18.96.3). Clobbers AX, flags. **Reads only**, so it is safe to call before the user has agreed to anything, and that is the point: the confirmation names the size it is about to make. |
+| `dskw_format` | in: `[fm_fmtrow]` = a `dskw_fmt_tab` row, `[fm_fmtalt]` = the other row this drive makes (or 0FFh), `[disk_drive]` = the volume. Out: CF=0 with AL = 1 if it fell back to 360KB (§18.96.2) and 0 if the row asked for stood, `[fm_fmtrow]` naming what is on the platter; CF=1 with AX = `FERR_IO` / `FERR_WPROT` / `FERR_PROT` (or `FERR_NODISK`, `FORMAT.DRV` unreadable). Clobbers AX, flags. Writes the boot sector **first** and the root directory last, then runs the reach test below on what it wrote - inside `FORMAT.DRV`, as `dskw_fmt_do_x` (kernel size pass 14 moved the test and its fallback there from the resident `fm_fmt_reach`). |
+| `dskw_fmt_reach_x` | image-internal now (no resident stub). In: AL = the row just written, `[disk_drive]` = the volume, `[disk_spt]`/`[disk_heads]` still the format's. Out: CF=0 — the volume's **last** sector was written and read back intact; CF=1 — it was not. Clobbers AX, flags. Destroys that sector's contents, so it is callable only on a disk the user has already agreed to erase (§18.96.2). |
 
 The boot sector it writes is `tools/os88disk.py`'s data-floppy sector byte for
 byte **but for its serial**: `dskw_fmt_t2`'s 0x88000888 is only the base, and
@@ -38726,7 +38727,7 @@ the reason for the check, since a disk that silently loses whatever is
 written past cylinder 39 is not a thing to ship on the grounds that it can be
 reformatted afterwards.)
 
-So `dskw_fmt_reach` runs after a successful `dskw_format` of **row 2**, the
+So `dskw_fmt_reach_x` runs after a successful format of **row 2**, the
 only row the toggle can produce that a 40-cylinder drive cannot hold (and
 since §18.96.4 after every format, with this fallback kept for row 2 where
 360KB is the drive's other format). It
@@ -40272,8 +40273,8 @@ and the freed row is the next mount's, `dsk_vol_add` handing out the first
 free one. Left naming the index, the image's transfers went to whatever took
 it: another image recursed through `.img`, overwrote `[dsk_imgcur]` and
 traded the wrong claim back, and a partition took the image's writes at its
-host LBAs. So `dsk_vol_del`'s free path calls `dsk_img_orphan` (`.cold`, near), which
-walks the rows from 3 (an image is never C:) and sets byte 0 of every
+host LBAs. So `dsk_vol_del`'s free path (in line since kernel size pass 14;
+it was `dsk_img_orphan`, a near routine with that one caller) walks the rows from 3 (an image is never C:) and sets byte 0 of every
 `DRVC_IMG` claim naming the freed index to `0xFF`, which no row is: the image's next transfer fails at the inner
 `dsk_vol_row_x`, *Disk error* and never a sector, and Unmount Image still
 takes the row and the claim through its *file not where it was* path
@@ -40361,7 +40362,7 @@ write-at body - call it after `dskw_find` has staged the entry in `dskw_raw`,
 and it ORs `DSKW_RDO` into the staged attribute byte when a `DRVC_IMG` row's
 claim names the CURRENT volume as its host (byte 0) and the entry's first
 cluster as the file's (`IMG_M_CLUS`). The walk over the rows is
-`dsk_img_next`, which `dsk_img_orphan` (§18.101.1) shares. The OR is safe
+`dsk_img_next`, which `dsk_vol_del`'s orphan walk (§18.101.1) shares. The OR is safe
 because every caller tests that byte next and refuses on it, so a staged
 entry carrying the bit is never written back; the one path that forgives
 read-only is `dskw_write_sys` replacing a file that already wears the
@@ -41835,7 +41836,8 @@ property:
 
 Three consequences worth stating:
 
-- **The header says "N files" without the link.** `fm_nfiles` asks the
+- **The header says "N files" without the link.** `fm_nfiles` (written in the
+  header's composer since kernel size pass 14) asks the
   listing — is entry 0 type 3? — rather than deriving it from `FS_CWD`,
   because those two can disagree: a `..` whose on-disk link is unreadable
   gets **cluster 0, the root**, rather than no row at all, so the user is
@@ -51093,7 +51095,8 @@ the file. The unnaming in `fcp_relink` is the one delete in this system that
 leaves the clusters alone, because they are not free: the entry just written owns them
 now, and `dskw_delete` would take the moved file with it.
 
-**A moved folder's own `..` follows it** (`fcp_rlup`). Entry 1 of a
+**A moved folder's own `..` follows it** (`fcp_rlup`, written in `fcp_relink`
+since kernel size pass 14). Entry 1 of a
 subdirectory is `..` by spec — the same fact `dsk_dotdot` rests on (§19.2) —
 and it is checked rather than assumed, because everything read off the disk
 is hostile. Without it the folder still lists and still opens, but going up
@@ -51296,7 +51299,8 @@ that offset — the low byte is always zero, because the offset is `nmax × 32`
 and both caps are multiples of 8, and `files.inc` asserts that at assembly
 time rather than trusting it. It is written by `fmv_store`, which is already
 "THE ONE PLACE A WINDOW'S LISTING IS REPLACED" (§22.14) and therefore the one
-place that knows the shape it has just written; `fmv_viofs` reads it.
+place that knows the shape it has just written; `fmv_viofs` reads it (in line in
+`fmv_get_dir`, its one caller, since kernel size pass 14).
 `fmv_iofs` still answers for the **global** snapshot and still has exactly
 the two callers that mean the global: `fmv_store`, which is copying it, and
 `fmv_copy_in`'s no-cache fallback, which is reading it. A window with no
@@ -51810,7 +51814,7 @@ sake (§22.4), so it has one to give.
 **The down state is TWO words, not one byte**, and that is the trap this
 window has that the Control Panel does not: there can be **four** Disk
 windows. `[fm_dbtn]` is which button and `[fm_dvp]` is whose, and `fm_isdown`
-asks both — without the second, a damage repaint of a *different* Disk window
+(written at its one call since kernel size pass 14) asks both — without the second, a damage repaint of a *different* Disk window
 behind the drag draws the same button pressed in a window nobody has touched.
 
 **The edges are installed in `fm_kinit`**, because `W_ONMOUSEUP` and
@@ -52332,7 +52336,7 @@ falls back to its own arena stream on: nothing was written.
 
 **The answer is read out of `[fcp_err]`**, which `fcp_run` leaves as
 `FERR_OK`, as `FERR_EXIST` when the destination is the folder the entry is
-already in (`fcp_here`: nothing to do and nothing written — a paste treats it
+already in (`fcp_here`, written in `fcp_run2` since kernel size pass 14: nothing to do and nothing written — a paste treats it
 as done, a door says so, and doing it would truncate the entry being read), or
 as the `FERR_*` behind an `FCPS_ERR`. It lands under the **same name**; a copy
 that renames is a copy and then `OSAPI_FILE_RENAME`. A folder goes with
@@ -55824,7 +55828,7 @@ the kernel is RAM on every machine that can never draw it.
 
 So a FILE-class driver (§62.9) may set **`FSCAP_ICON` = 2** in `DSV_CAPS`,
 beside `FSCAP_LOCAL`. `desk_pic`, before it consults the medium, asks
-`desk_drvico`: a `DVK_FILE` row, its class's copied `DSV_CAPS` with the bit
+(in line - it was `desk_drvico` until kernel size pass 14): a `DVK_FILE` row, its class's copied `DSV_CAPS` with the bit
 set - and then the driver's door, `DSV_PKGCALL` with **BL = `DRV_ICONV`
 (41h)** and CX/DX the picture's top-left, exactly as `.svcico` asks The
 Wire's driver for its zone (§26.7). The driver draws with `OSAPI_ICON_DRAW`
@@ -55839,7 +55843,7 @@ driver's picture like any other and nothing is written twice.
 The verb is 41h, clear of every door's own verbs and of `WZV_PAINT` (40h),
 because `NET.DRV` is a file class with a door and a zone of its own.
 
-**What it costs**: `desk_drvico` and its call, `.cold` only (no picture, no
+**What it costs**: that test in `desk_pic`, `.cold` only (no picture, no
 `.text`); `kern_small` has no driver and no change. `CDROM.DRV` is the first
 driver to set it (`drivers/cdrom/cdico.inc`, §119.3).
 
@@ -55979,8 +55983,8 @@ driver's string went with the notice.
 and every routine in `desk.inc` is asked about a zone INDEX and never about a
 drive, so it selects, highlights, repaints under a dragged window, moves when
 dragged and packs into the next free cell exactly as a disk does. What is its
-own is three arms: `desk_live` (`[desk_svc_seg]` non-zero), `desk_zone_label`
-and `desk_draw_zone`.
+own is three arms: `desk_live` (`[desk_svc_seg]` non-zero), `desk_caprect`'s
+caption (it was `desk_zone_label`) and `desk_draw_zone`.
 
 **It is visible when a driver has registered one** (`[desk_svc_seg]` is its
 segment, and 0 is the whole of what a machine without such a driver tests)
@@ -103893,7 +103897,7 @@ of twenty new packages is one flush that writes all twenty.
 #### 54.7.6.4 The flush, `FME_ASCW`, in `FORMAT.DRV`
 
 `asc_flush` (DL = volume, AL = mode) loads the format image through
-`dskw_fmt_go`, far-calls its fifth entry, and drops the image again. No
+`dskw_fmt_go`, far-calls its fourth entry, and drops the image again. No
 formatter code can be on the stack when it runs. A format prompt that was
 holding the image reloads it through `dskw_fmt_go`, as every formatter stub
 already does. A refused load is silent: CF=1,

@@ -644,51 +644,9 @@ assoc_compose:
     pop si
     jmp kretc_cx
 
-; -----------------------------------------------------------------------------
-; assoc_docicon - compose a document icon for one directory entry
-; in:  SI -> a staged 32-byte entry (SPEC.md 19.1)
-; out: CF=0 and dsk_ico holds the 64-byte body; CF=1 = no association
-; clobbers: CF (everything else preserved)
-;
-; dsk_ico is dsk_get_icon's staging buffer and has FOUR tenants: dsk_get_icon
-; (fdlg_icon), fmv_get_icon (fm_draw_icon16), assoc_docicon (mount pass 4b)
-; and asc_take (mount pass 4a). All four run on task 0 - one on the repaint
-; path, two inside disk_mount, one in the modal dialog - and NO tenant's live
-; range contains a yield, a claim or a drawing call that reaches another.
-; disk_mount_x in particular DRAWS NOTHING AT ALL, which is what makes "no
-; tile is composed during a mount" structural rather than hoped for. A fifth
-; tenant must state which task it runs on and prove it cannot be entered from
-; inside another's stage-to-consume window - which is exactly why
-; inst_icon_ptr (dock_draw_tile) is NOT one: wm_destroy reaches it on a dying
-; package's worker, and osapi_file_goto reaches a mount with no lock held, so
-; it stages into inst_icobuf of its own (instance.inc).
-; -----------------------------------------------------------------------------
-assoc_docicon_x:
-    push ax
-    push bx                     ; assoc_find answers the matched row in BX
-    push si
-    push di
-    call assoc_slot_of          ; AL = the app slot the extension names
-    jc .no
-    mov di, dsk_ico
-    call assoc_compose
-    mov [assoc_docslot], al     ; ...AND WHICH SLOT IT CAME FROM (SPEC.md
-                                ; 25.9). The body is a pure function of the
-                                ; slot's glyph, so every document of one
-                                ; association composes the same 64 bytes -
-                                ; which is the whole reason the store keys
-                                ; them by slot instead of by name. Banked in
-                                ; a cell rather than returned in AL because
-                                ; this proc's contract preserves every
-                                ; register and four callers rely on it
-    clc
-.no:
-.out:
-    pop di
-    pop si
-    pop bx
-    pop ax
-    ret
+; assoc_docicon - a document icon for one directory entry (SPEC.md 54.3) - is
+; written in disk.inc's dsk_docpass, its one caller, since kernel size pass 14;
+; dsk_ico's tenancy rule, which it was the home of, went with it.
 
 section .text                   ; DATA, so back to the kernel segment
                                 ; (SPEC.md 2.6 rule 1)
@@ -1309,9 +1267,12 @@ assoc_run_x:
     mov dx, [dsk_cwd]           ; no poster - a package's own request - so the
     mov al, [disk_drive]        ; volume the machine is on IS the home
 .located:
-    mov [assoc_ddrv], al        ; ...banked once, whichever rung answered
-    mov [assoc_dclus], dx
-    mov byte [assoc_dead], 0    ; every volume may be asked, once (assoc_go) -
+    cbw                         ; ...banked once, whichever rung answered,
+    mov [assoc_ddrv], ax        ; and AH = 0 into assoc_dead, the byte after
+                                ; (a volume is < DVOL_MAX, so `cbw` is the
+                                ; zero - one byte, and what keeps dsk_xfer
+                                ; behind this on an EVEN shift, t_hotpar):
+    mov [assoc_dclus], dx       ; every volume may be asked, once (assoc_go) -
                                 ; ONCE A RUN and not once a locate, so an
                                 ; empty drive the search below found empty is
                                 ; not asked again by the locate after it
@@ -1414,10 +1375,8 @@ assoc_run_x:
     pop ax
     mov bp, assoc_tryext
     call assoc_sweep            ; AL = the slot some volume names now
-    jc .rnone
+    jc .noassoc                 ; (short: .noassoc is just above .nofile)
     jmp .known
-.rnone:
-    jmp .noassoc
 .needs:
     call assoc_back
     mov si, assoc_pnbuf         ; 'Needs TRACKER.O88', because "Program not
@@ -1542,7 +1501,12 @@ assoc_doc    equ assoc_dblk     ; 13: the pending document's 8.3 name
 assoc_dclus  equ assoc_dblk+13  ; ...and where it lives: directory cluster
 assoc_ddrv   equ assoc_dblk+15  ; ...and volume
 assoc_dead:  resb 1             ; volumes whose mount failed in this locate,
-                                ; one bit each (assoc_go)
+                                ; one bit each (assoc_go). The byte after
+                                ; assoc_ddrv: assoc_run_x clears it as the
+                                ; high half of that store
+%if assoc_dead - assoc_ddrv != 1
+  %error "assoc_run_x stores assoc_ddrv and clears assoc_dead as one word"
+%endif
 assoc_pwin:  resw 1             ; the posting Disk window's STATE BLOCK, not
                                 ; its window record - FS_DRV/FS_CWD are read
                                 ; off it (SPEC.md 54.9.1), as ld_pwin is
@@ -1838,7 +1802,7 @@ ASC_KB       equ 5              ; apps disk held 34: 55*88 + 16 + 64*4 =
   %error "the association cache no longer fits its own claim: asc_use claims ASC_KB and mem_claim does not clear the block, so a row past the end is parsed out of whatever the heap handed out last"
 %endif
 %if ASC_ROW > 255 || ASC_NAPP > 255 || (((ASC_NAPP + ASC_NEXT) * ASC_ROW) + ASC_HDR) > 0xFFFF
-  %error "asc_slot_of and asc_merge_ext use the 8-BIT `mul bl` so DX survives (asc_slot_of's header says `clobbers AX, CF`): both operands must fit a byte, and the whole cache must fit one segment"
+  %error "asc_merge_ext uses the 8-BIT `mul bl` twice so DX survives (DL carries the slot): both operands must fit a byte, and the whole cache must fit one segment"
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -2061,7 +2025,7 @@ asc_use_x:
 ; (SPEC.md 19.2). ASSOC.DAT already covers the whole VOLUME, so one root mount
 ; can answer for all of it, and the only thing the row was missing was where.
 ;
-; assoc_app_of and NOT asc_slot_of: find, never create. A slot only matters if
+; assoc_app_of and NOT asc_merge_ext's assoc_app_get: find, never create. A slot only matters if
 ; some extension points at it, and the kernel's table is 12 rows against a disk
 ; that can hold 32 - creating one per package would evict the associations this
 ; exists to serve. Run AFTER asc_merge_ext so a DECLARING package (54.6) has
@@ -2234,8 +2198,20 @@ asc_merge_ext:
     mov al, [es:di+3]           ; the app row it names
     cmp al, [asc_n]
     jae .next
-    call asc_slot_of            ; AL = a kernel app slot for that row (DI is
-    jc .next                    ; preserved by it)
+    ; THE KERNEL APP SLOT FOR THAT CACHE ROW, created if the stem is new
+    ; (CF = 1: the kernel's table is full). It was asc_slot_of, written at
+    ; its one call - kernel size pass 14: CX, SI and BX are dead here, so
+    ; only the row pointer is banked
+    push di
+    mov bl, ASC_ROW             ; the 8-BIT form: `mul bl` reads AL and BL
+    mul bl                      ; only, so AH needs no clearing and DX SURVIVES.
+    add ax, ASC_HDR             ; The row index is < ASC_NAPP, so AL*88 <=
+    mov si, ax                  ; 4,752 and the product cannot leave AX.
+                                ; ES:SI = the row
+    call asc_stem_in            ; stage its stem into the kernel
+    call assoc_app_get          ; AL = the slot; a full table leaves AL alone
+    pop di                      ; and CF set (a pop writes no flag)
+    jc .next
     mov dl, al
     mov si, di                  ; the row is the SOURCE, and the row pointer
     push di                     ; is banked across the take
@@ -2247,32 +2223,6 @@ asc_merge_ext:
     loop .row
 .out:
     jmp kretc_di
-
-; -----------------------------------------------------------------------------
-; asc_slot_of - the kernel app slot for a CACHE row (module-internal)
-; in:  AL = cache row index, ES = [asc_seg]
-; out: CF=0 and AL = a kernel app slot (created if the stem is new);
-;      CF=1 = the kernel's table is full
-; clobbers: AX (the output), CF
-; -----------------------------------------------------------------------------
-asc_slot_of:
-    push bx
-    push cx
-    push si
-    push di
-    mov bl, ASC_ROW             ; the 8-BIT form: `mul bl` reads AL and BL
-    mul bl                      ; only, so AH needs no clearing and DX SURVIVES
-    add ax, ASC_HDR             ; - this routine's header says it clobbers AX
-    mov si, ax                  ; and CF, and `mul bx` clobbered DX. The row
-                                ; index is < ASC_NAPP, so AL*88 <= 4,752 and
-                                ; the product cannot leave AX. ES:SI = the row
-    call asc_stem_in            ; stage its stem into the kernel
-    call assoc_app_get          ; a full table leaves AL alone and CF set, and
-    pop di                      ; this routine's caller reads neither
-    pop si
-    pop cx
-    pop bx
-    ret
 
 ; asc_stem_in - a cache row's stem at ES:SI into assoc_stemb, and SI -> it
 ; there (the kernel lookups read through DS). Clobbers AL, CX and DI. The
