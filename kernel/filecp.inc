@@ -544,7 +544,7 @@ fcp_lnext:
 ; and the rest of its set, and whatever writes ES puts it back, because the
 ; three bodies do not bank ES. A routine that says "fcp_run's free set" in its
 ; clobbers line is leaning on this paragraph; one that may be reached from
-; anywhere else (fcp_here, fcp_n13, fcp_unbatch) keeps its own contract.
+; anywhere else (fcp_n13, fcp_unbatch) keeps its own contract.
 ;
 ; The copy buffer is NOT claimed here. It used to be, ahead of the first step,
 ; and a same-volume Cut - which fcp_relink finishes with three directory
@@ -561,9 +561,29 @@ fcp_run2:
     cmp byte [dsk_mntok], 1
     jne .nodisk
 
-    call fcp_here               ; pasting into the folder it came from is
-    jc .none                    ; nothing to do, and DOING it destroys the
-                                ; entry (see the proc below)
+    ; IS THE PASTE TARGET THE FOLDER THE CLIPBOARD ENTRY ALREADY LIVES IN?
+    ; Then there is nothing to do, and doing it DESTROYS the thing being
+    ; copied - the easiest case in the system to reach: Copy (or Cut) and
+    ; then Paste without navigating anywhere. Source and destination are the
+    ; same directory, so fcp_xfer would open a read stream on an entry and
+    ; hand that entry's own name to dskw_write as a truncating create, which
+    ; frees the chain the stream is walking; a folder is worse, fcp_mkroot
+    ; ADOPTING the one already there, so the walk mirrors a directory into
+    ; itself and a Cut finishes with dskw_rmtree on the destination. NOT
+    ; fcp_selfchk's job: that one asks about the TREE, and only a folder can
+    ; fail it; this asks about one directory and applies to every species. A
+    ; no-op rather than an error, as fm_dgdrop decided for the same fact
+    ; arriving as a drag: the clipboard stays armed. (It was fcp_here,
+    ; written at its one call - kernel size pass 14: AX is dead on both
+    ; arms, so it needs no bank.) The folder is tested first only because it
+    ; is the word; the predicate is an AND
+    mov ax, [fcp_cwd]
+    xor ax, FCV(fcp_dcwd)
+    jnz .there
+    mov al, [fcp_drv]
+    xor al, [fcp_ddrv]
+    jz .none
+.there:
 
     call fcp_selfchk            ; a folder may not be pasted into itself
     jc .loop_err
@@ -598,44 +618,6 @@ fcp_run2:
                                 ; full-remount afterwards anyway; this is
                                 ; what keeps "every path back to the event
                                 ; loop pays" true of the NEXT caller too
-
-; -----------------------------------------------------------------------------
-; fcp_here - is the paste target the folder the clipboard entry already lives
-;            in? (module-internal)
-; out: CF=1 = yes; all registers preserved
-;
-; The one case where doing the work DESTROYS the thing being copied, and it is
-; the easiest one in the system to reach: Copy (or Cut) and then Paste without
-; navigating anywhere. Source and destination are then the same directory, so
-; fcp_xfer opens a read stream on an entry and immediately hands that entry's
-; own name to dskw_write as a truncating create - which frees the chain the
-; stream is walking. A one-cluster file survives by luck; anything longer comes
-; back 0 bytes with FERR_IO, and a Cut then deletes what is left. A folder is
-; worse: fcp_mkroot ADOPTS a folder that is already there (SPEC.md 22.3), so
-; the walk mirrors a directory into itself and a Cut finishes with dskw_rmtree
-; on the destination.
-;
-; This is deliberately NOT fcp_selfchk's job. That one asks a question about
-; the TREE - is the destination inside the source - and only a folder can fail
-; it. This asks about one directory and applies to every species.
-;
-; A no-op rather than an error, which is what fm_dgdrop already decided for the
-; same fact arriving as a drag ("the drag went nowhere and there is nothing to
-; do"): the clipboard is left armed, so the user can navigate somewhere it does
-; mean something and paste there.
-; -----------------------------------------------------------------------------
-fcp_here:
-    push ax                     ; `xor` CLEARS CF, which is the "not here"
-    mov ax, [fcp_cwd]           ; answer - so the two arms share one tail and
-    xor ax, FCV(fcp_dcwd)       ; the folder is tested first only because it
-    jnz .no                     ; is the word.  The predicate is an AND, so
-    mov al, [fcp_drv]           ; testing it first is the same question.
-    xor al, [fcp_ddrv]          ; AH is left dirty by the second xor and is
-    jnz .no                     ; never read - the `pop` restores AX whole
-    stc
-.no:
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fcp_selfchk - refuse a folder pasted into itself or into its own subtree
@@ -1083,11 +1065,10 @@ fcp_relink:
     jc .half                    ; dskw_raw); 0xE5 is SPEC.md 19's deleted
                                 ; marker
 
-    cmp word [fcp_type], 2      ; a folder's own '..' has to follow it
-    jb .done
-    call fcp_rlup               ; best effort: the move has happened either
-.done:                          ; way, and a stale '..' is a wrong parent
-    clc                         ; link, not a lost file
+    cmp word [fcp_type], 2      ; a folder's own '..' has to follow it:
+    jae .rlup                   ; below, past .no
+.done:
+    clc
     ret
 .half:
     mov ax, FERR_IO             ; past the point of no return: the entry is
@@ -1097,19 +1078,16 @@ fcp_relink:
     xor ax, ax                  ; not attempted, nothing written
     stc
     ret
-
-; -----------------------------------------------------------------------------
-; fcp_rlup - point a moved folder's own '..' at its new parent
-; out: nothing; a failure is left alone
-; clobbers: AX, BX, CX, DX, flags (fcp_run's free set); ES is kept
-;
-; Entry 1 of a subdirectory is '..' by spec, which is the same fact
-; dsk_dotdot rests on (SPEC.md 19.2) - and it is checked here rather than
-; assumed, because everything read off the disk is hostile. Without this the
-; moved folder still lists and still opens, but going UP out of it lands in
-; the folder it used to live in.
-; -----------------------------------------------------------------------------
-fcp_rlup:
+    ; A MOVED FOLDER'S OWN '..' FOLLOWS IT, best effort: the move has
+    ; happened either way, and a stale '..' is a wrong parent link, not a
+    ; lost file. Entry 1 of a subdirectory is '..' by spec, which is the same
+    ; fact dsk_dotdot rests on (SPEC.md 19.2) - and it is checked here rather
+    ; than assumed, because everything read off the disk is hostile. Without
+    ; this the moved folder still lists and still opens, but going UP out of
+    ; it lands in the folder it used to live in. (It was fcp_rlup, written at
+    ; its one call - kernel size pass 14, past .no so the jumps above keep
+    ; their short reach)
+.rlup:
     push es
     push ss                     ; ES = LOW_SEG (SPEC.md 2.1), which is what SS names
     pop es
@@ -1119,22 +1097,23 @@ fcp_rlup:
 %else                           ; word armed (SPEC.md 18.7.5)
     FCPX dsk_clus2lba_x ; AX = the folder's first sector
 %endif
-    jc .out
+    jc .rlout
     push ax
     FCPX dsk_rd1_x
     pop ax
-    jc .out
+    jc .rlout
     cmp word [es:dsk_secbuf+32], '..'   ; the first TWO bytes of the name,
-    jne .out                    ; in one compare
+    jne .rlout                    ; in one compare
     mov bx, FCV(fcp_dcwd)
     mov [es:dsk_secbuf+32+DSK_R_CLUS], bx
 %ifdef OS88_BIGVOL
     FCPX dsk_c2arm_x            ; [dsk_c2hi] is still the folder's: the read
 %endif                          ; between spent [dsk_lbahi], not it
     FCPX dsk_wr1_x
-.out:
+.rlout:
     pop es
-    ret
+    jmp short .done
+
 
 ; -----------------------------------------------------------------------------
 ; fcp_frame / fcp_push - the frame stack (module-internal)

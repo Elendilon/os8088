@@ -51089,7 +51089,8 @@ the file. The unnaming in `fcp_relink` is the one delete in this system that
 leaves the clusters alone, because they are not free: the entry just written owns them
 now, and `dskw_delete` would take the moved file with it.
 
-**A moved folder's own `..` follows it** (`fcp_rlup`). Entry 1 of a
+**A moved folder's own `..` follows it** (`fcp_rlup`, written in `fcp_relink`
+since kernel size pass 14). Entry 1 of a
 subdirectory is `..` by spec — the same fact `dsk_dotdot` rests on (§19.2) —
 and it is checked rather than assumed, because everything read off the disk
 is hostile. Without it the folder still lists and still opens, but going up
@@ -52329,7 +52330,7 @@ falls back to its own arena stream on: nothing was written.
 
 **The answer is read out of `[fcp_err]`**, which `fcp_run` leaves as
 `FERR_OK`, as `FERR_EXIST` when the destination is the folder the entry is
-already in (`fcp_here`: nothing to do and nothing written — a paste treats it
+already in (`fcp_here`, written in `fcp_run2` since kernel size pass 14: nothing to do and nothing written — a paste treats it
 as done, a door says so, and doing it would truncate the entry being read), or
 as the `FERR_*` behind an `FCPS_ERR`. It lands under the **same name**; a copy
 that renames is a copy and then `OSAPI_FILE_RENAME`. A folder goes with

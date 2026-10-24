@@ -8689,8 +8689,7 @@ dsk_docpass:                    ; `dsk_icopass`'s reason for having no
     call dsk_get_dir_x
     cmp word [si+16], 0         ; type 0 alone: a package draws its own icon
     jne .dp_next               ; and a folder has dsk_folder_ico
-    pushf                       ; dsk_ico has FIVE tenants (assoc.inc says
-                                ; which, above assoc_docicon)
+    pushf                       ; dsk_ico has FIVE tenants (below)
     cli                         ; and this one stages it with the gfx lock
                                 ; FREE, so a tick here could switch to a
                                 ; package worker whose wm_show repaints the
@@ -8698,7 +8697,32 @@ dsk_docpass:                    ; `dsk_icopass`'s reason for having no
                                 ; tenant - and the document would cache 64
                                 ; bytes of that package's icon. A compose
                                 ; and a 64-byte copy, well under one tick
-    call assoc_docicon_x          ; CF=0 and dsk_ico holds the composed body
+    ; ASSOC_DOCICON: a document icon composed for this entry (it was
+    ; assoc_docicon_x in assoc.inc, written here at its one call - kernel
+    ; size pass 14: AX, BX, DI are this pass's to spend - dsk_img_icon below
+    ; spends DI and CX anyway - and assoc_slot_of preserves SI). dsk_ico is
+    ; dsk_get_icon's staging buffer and has FIVE tenants: dsk_get_icon
+    ; (fdlg_icon), fmv_get_icon (fm_draw_icon16), this one (mount pass 4b),
+    ; asc_take (mount pass 4a) and inst_icon_ptr (the dock). The first four
+    ; run on task 0 - one on the repaint path, two inside disk_mount, one in
+    ; the modal dialog - and NO tenant's live range contains a yield, a claim
+    ; or a drawing call that reaches another; disk_mount_x DRAWS NOTHING AT
+    ; ALL, which is what makes "no tile is composed during a mount"
+    ; structural. A new tenant must state which task it runs on and prove it
+    ; cannot be entered from inside another's stage-to-consume window. The
+    ; fifth is why the cli above exists
+    call assoc_slot_of          ; AL = the app slot the extension names
+    jc .dp_noasc
+    mov di, dsk_ico
+    call assoc_compose          ; CF = 0 and dsk_ico holds the composed body
+    mov [assoc_docslot], al     ; ...AND WHICH SLOT IT CAME FROM (SPEC.md
+                                ; 25.9). The body is a pure function of the
+                                ; slot's glyph, so every document of one
+                                ; association composes the same 64 bytes -
+                                ; which is the whole reason the store keys
+                                ; them by slot instead of by name
+    clc
+.dp_noasc:
 %ifdef OS88_IMG
     mov al, [assoc_docslot]     ; ...keyed by the SLOT it composed from, so
     jnc .dp_key                 ; every document of one association is one row
