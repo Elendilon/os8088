@@ -339,23 +339,21 @@ menu_inval:
     js .out                     ; wholly left of it: nothing of ours
     shr dx, cl                  ; ...and the cell x2 lands IN, which is the
                                 ; outward rounding at that end (pass 14: 10)
-    cmp ax, MENU_BCMAX
-    jae .out
     cmp dx, MENU_BCMAX
     jb .hi
     mov dx, MENU_BCMAX-1
 .hi:
-    cmp ax, dx
-    ja .out
-    mov cx, dx
-    sub cx, ax
-    inc cx                      ; CX = cells to forget
-    mov bx, menu_bcell
-    add bx, ax
+    cmp ax, dx                  ; a first cell at or past MENU_BCMAX is past
+    ja .out                     ; the clamped DX too, so this one compare is
+                                ; also the `cmp ax, MENU_BCMAX` that stood
+                                ; above it (kernel size pass 14: 10 bytes
+                                ; with the walk below)
+    xchg ax, bx                 ; BX = the cell; AX comes back off the stack
 .z:
-    mov byte [bx], 0            ; 0 is never composed: every byte that goes
-    inc bx                      ; into this buffer is a printable one, so it
-    loop .z                     ; can never match and the cell is redrawn
+    mov byte [bx + menu_bcell], 0   ; 0 is never composed: every byte that
+    inc bx                      ; goes into this buffer is a printable one,
+    cmp bx, dx                  ; so it can never match and the cell is
+    jbe .z                      ; redrawn
 .out:
     jmp kret_dx
 
@@ -2699,10 +2697,11 @@ menu_sound:
     call menu_inval             ; that hides it letters them again
     xchg ax, cx
     call thm_rpair              ; the THEMED icon: AL = the bar's ground, AH =
-    mov bx, DRVC_SOUND*256 + SNDV_MIXICON_THEME ; its ink (SPEC.md 34.15)
-    push ds
-    pop es
-    call drv_pkg_call_x
+    mov bx, DRVC_SOUND*256 + SNDV_MIXICON_THEME ; its ink (SPEC.md 34.15).
+    call drv_pkg_call_x         ; ES is whatever it is: the verb takes no
+                                ; buffer, and mix_icon sets its own ES for
+                                ; the blit (volume.inc) - the `push ds / pop
+                                ; es` here was for nothing (pass 14: 2)
 .out:
     jmp kret_es                 ; pops es, bp, di, si, dx, cx, bx, ax
 menu_mixcap: dw 0FFFFh
