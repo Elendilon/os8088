@@ -54,7 +54,8 @@ import sheetfmt as SF                                        # noqa: E402
 import sheetfin as FN                                        # noqa: E402
 
 WORK = "build/sheetdec"                 # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetdec.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetdec.img")        # the run's tree, so a soak lane finds it
 WRONG = -999.0
 MFLOWS = FN.MFLOWS
 

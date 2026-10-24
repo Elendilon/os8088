@@ -73,7 +73,8 @@ from harness import check, done                              # noqa: E402
 KINDS = ('bif', 'slk', 'dif', 'csv', 'txt', 'dbf')
 MACHINE = "os8088_5150_cga_gla"
 SYS = "build/os8088-360.img"
-DISK = "build/sheetfmt.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetfmt.img")        # the run's tree, so a soak lane finds it
 
 # The cells the HOST authors.  One of everything the value model has that a
 # text format can express, plus the two that turned out to matter:

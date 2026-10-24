@@ -40,7 +40,8 @@ from os88geom import WIN_SIZE, W_SEG                            # noqa: E402
 from paintmove import pkg_syms                                  # noqa: E402
 
 WORK = "build/sheetkeys"
-DISK = "build/sheetkeys.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetkeys.img")        # the run's tree, so a soak lane finds it
 CELLS = {(0, 0): 1.0, (1, 0): 2.0, (0, 1): 'x'}
 EDIT = (123, 45)                        # sheetundo's measured titles
 OPTIONS = (123 + 280, 45)

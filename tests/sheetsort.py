@@ -43,7 +43,8 @@ import sheetfmt as SF                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheetsort"                # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetsort.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetsort.img")        # the run's tree, so a soak lane finds it
 NAME = "SHIN.SLK"
 EDIT = (123, 45)
 DATA = (311, 45)

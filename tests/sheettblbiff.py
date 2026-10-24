@@ -54,7 +54,8 @@ from paintmove import pkg_syms                                # noqa: E402
 from os88geom import WIN_SIZE, W_SEG                          # noqa: E402
 
 WORK = "build/sheettblbiff"
-DISK = "build/sheettblbiff.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheettblbiff.img")        # the run's tree, so a soak lane finds it
 NAME = "TBL.BIF"
 # SAVED OVER THE SAME NAME, deliberately: the chooser is a Disk window now
 # (SPEC.md 38.3) and naming a NEW file is a second thing to drive and a

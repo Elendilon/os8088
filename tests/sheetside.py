@@ -45,7 +45,8 @@ import sheetxl2 as X2                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheetside"                # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetside.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetside.img")        # the run's tree, so a soak lane finds it
 EDIT = (123, 45)
 OPTIONS = (371, 45)
 ITEM = lambda x, i: (x + 17, 57 + 12 * i + 2)

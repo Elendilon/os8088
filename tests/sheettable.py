@@ -51,7 +51,8 @@ import sheetfmt as SF                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheettable"
-DISK = "build/sheettable.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheettable.img")        # the run's tree, so a soak lane finds it
 NAME = "SHIN.SLK"
 
 # MEASURED off a photograph of the pulldown taken mid-hold, never computed:

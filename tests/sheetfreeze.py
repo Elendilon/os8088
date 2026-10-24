@@ -40,7 +40,8 @@ import sheetfmt as SF                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheetfreeze"              # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetfreeze.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetfreeze.img")        # the run's tree, so a soak lane finds it
 NAME = "FRZ.SLK"
 OPTIONS = (371, 45)                     # the Options menu, tests/sheetside.py's
 ITEM = lambda x, i: (x + 17, 57 + 12 * i + 2)

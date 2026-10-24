@@ -51,7 +51,8 @@ import sheetfmt as SF                                        # noqa: E402
 import sheetdec as SD                                        # noqa: E402
 
 WORK = "build/sheetxl2"                 # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetxl2.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetxl2.img")        # the run's tree, so a soak lane finds it
 ARCHIVE = os.environ.get("EXCEL21D_7Z", os.path.join(
     HERE, "..", "..", "LIBRARY", "platforms", "msdos", "install-media",
     "Microsoft Excel 2.1d for Windows (1990-07) (3.5-720k).7z"))

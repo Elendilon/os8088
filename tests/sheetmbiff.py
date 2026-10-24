@@ -47,7 +47,8 @@ from harness import check, done                              # noqa: E402
 import sheetfmt as SF                                        # noqa: E402
 
 WORK = "build/sheetmbiff"               # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetmbiff.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetmbiff.img")        # the run's tree, so a soak lane finds it
 NAME = "SHIN.SLK"
 OUT = "SHIN.BIF"
 XLREF = "build/sheetxl2/A0.XLS"         # Excel 2.1d's own macro sheet, expanded

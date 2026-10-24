@@ -50,7 +50,8 @@ import sheetfmt as SF                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheetrowh"                # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetrowh.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetrowh.img")        # the run's tree, so a soak lane finds it
 NAME = "ROWH.BIF"
 EDIT = (123, 45)
 ITEM = lambda x, i: (x + 17, 57 + 12 * i + 2)

@@ -48,7 +48,8 @@ from os88geom import WIN_SIZE, W_SEG                            # noqa: E402
 from paintmove import pkg_syms                                  # noqa: E402
 
 WORK = "build/sheetrecord"              # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetrecord.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetrecord.img")        # the run's tree, so a soak lane finds it
 NAME = "REC.SLK"
 MACRO = (435, 45)
 ITEM = lambda x, i: (x + 17, 57 + 12 * i + 2)

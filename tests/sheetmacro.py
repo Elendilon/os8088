@@ -53,7 +53,8 @@ import glass                                                 # noqa: E402
 import sheetdec as SD                                        # noqa: E402
 
 WORK = "build/sheetmacro"               # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetmacro.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetmacro.img")        # the run's tree, so a soak lane finds it
 NAME = "MAC.SLK"
 MACRO = (435, 45)
 RUN = (MACRO[0] + 17, 57 + 12 + 2)      # Macro's SECOND item: 81.74's

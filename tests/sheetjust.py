@@ -45,7 +45,8 @@ import sheetfmt as SF                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheetjust"                # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetjust.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetjust.img")        # the run's tree, so a soak lane finds it
 NAME = "SHIN.SLK"
 FORMAT = (259, 45)                      # sheetfmt.py measured this one
 ITEM = lambda x, i: (x + 17, 57 + 12 * i + 2)

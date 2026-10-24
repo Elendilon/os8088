@@ -42,7 +42,8 @@ from os88geom import WIN_SIZE, W_SEG                            # noqa: E402
 from paintmove import pkg_syms                                  # noqa: E402
 
 WORK = "build/sheetdlgclose"
-DISK = "build/sheetdlgclose.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetdlgclose.img")        # the run's tree, so a soak lane finds it
 NAME = "BOX.SLK"
 TITLES = ["File", "Edit", "Formula", "Format", "Data", "Options", "Macro",
           "Sheets", "Help"]
