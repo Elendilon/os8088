@@ -7271,7 +7271,8 @@ dsk_dirw_get_x:
 ; in:  AX = the folder (its first cluster, or on a redirected volume its
 ;      handle); CX = where to START, a RAW slot (sector * 16 + slot) on a FAT
 ;      volume and a dense row on a redirected one; BP = live entries to step
-;      over before the one wanted; DL = 1 if hidden and system entries count
+;      over before the one wanted; DL = 1 if hidden and system entries count,
+;      0 if not (nothing else: the test is `test dl, dl`)
 ; out: CF=0 with dsk_ent staged (SPEC.md 19.1), CX = where the NEXT call
 ;      should start, and on a FAT volume SS:SI -> the raw 32-byte entry;
 ;      CF=1 with AX = FERR_NOENT at the end of the directory or FERR_IO on
@@ -7322,8 +7323,32 @@ dsk_dscan:
 .readsec:
     call dsk_dirw_get_x         ; dsk_secbuf = the sector holding slot DI
     jnc .secok
-    jz .end                     ; ZF = 1: the chain ended
-    jmp short .ioerr
+.rderr:                         ; ZF = 1: the chain ended (FSV_ENUM's "none"
+    mov ax, FERR_IO             ; joins here too); ZF = 0: a read failed.
+    jnz .stc                    ; (`mov` writes no flag)
+.end:
+    mov ax, FERR_NOENT          ; dsk_find's own answer, so it passes it on
+.stc:
+    stc
+.out:
+    pop es
+    pop di
+    ret
+
+%ifdef OS88_REDIR
+.fsenum:
+    add cx, bp                  ; the row: start + live entries to step over
+    push cx
+    mov bp, FSV_ENUM
+    mov dx, ds                  ; DX:BX and not ES:BX (SPEC.md 51.8), and DS
+    mov bx, dsk_ent             ; because dsk_ent is `.bss`
+    call drv_fs_call            ; AX = 0 with CF is "no FSV_ENUM" - the same
+    pop cx                      ; word an empty folder gives, so it is the end
+    inc cx                      ; and never an error (62.9.7)
+    jnc .out                    ; (`inc` keeps CF: CF = 0 is the answer)
+    or ax, ax
+    jmp short .rderr            ; ZF = 1 the end, ZF = 0 FERR_IO
+%endif
 .secok:
     mov si, di
     and si, 15
@@ -7346,9 +7371,9 @@ dsk_dscan:
     jnz .next
     test ah, 0x06
     jz .live                    ; neither hidden nor system: always live
-    cmp dl, 1
-    jne .next                   ; ...and the rest only when DL says so
-.live:
+    test dl, dl                 ; ...and the rest only when DL says so (0 or
+    jz .next                    ; 1 from every caller: `test` is a byte and
+.live:                          ; a clock under `cmp dl, 1`)
     or bp, bp
     jz .take
     dec bp                      ; still stepping over
@@ -7363,32 +7388,6 @@ dsk_dscan:
     mov cx, di                  ; the slot after it
     clc
     jmp short .out
-
-%ifdef OS88_REDIR
-.fsenum:
-    add cx, bp                  ; the row: start + live entries to step over
-    push cx
-    mov bp, FSV_ENUM
-    mov dx, ds                  ; DX:BX and not ES:BX (SPEC.md 51.8), and DS
-    mov bx, dsk_ent             ; because dsk_ent is `.bss`
-    call drv_fs_call            ; AX = 0 with CF is "no FSV_ENUM" - the same
-    pop cx                      ; word an empty folder gives, so it is the end
-    inc cx                      ; and never an error (62.9.7)
-    jnc .out                    ; (`inc` keeps CF: CF = 0 is the answer)
-    or ax, ax
-    jnz .ioerr
-%endif
-.end:
-    mov ax, FERR_NOENT          ; dsk_find's own answer, so it passes it on
-    jmp short .stc
-.ioerr:
-    mov ax, FERR_IO
-.stc:
-    stc
-.out:
-    pop es
-    pop di
-    ret
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -7499,8 +7498,8 @@ dsk_find_x:
                                 ; label bit, so it needs no test of its own
     test ah, 0x06
     jz .live                    ; neither hidden nor system: everybody sees it
-    cmp dl, 1
-    jne .skip                   ; ...and only a driver sees the rest
+    test dl, dl                 ; ...and only a driver sees the rest (DL is
+    jz .skip                    ; the fence's 0 or 1, every caller's)
 .live:
     or bp, bp
     jz .take

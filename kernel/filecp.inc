@@ -573,10 +573,10 @@ fcp_run2:
 %endif
     xor ax, ax                  ; (AL is fcp_step's to set on the way back)
     mov FCV(fcp_depth), ax
-    mov [fcp_err], al           ; FERR_OK
     mov FCV(fcp_started), al
     inc ax
-    mov [fcp_busy], al
+    mov [fcp_busy], ax          ; busy, and FERR_OK into fcp_err, the byte
+                                ; after it (AH = 0)
     jmp fcp_step                ; a tail call: AL = FCPS_* is its answer
 .none:
     mov byte [fcp_err], FERR_EXIST  ; the truthful name for "the destination
@@ -1423,8 +1423,8 @@ fcp_ensure:
 ; -----------------------------------------------------------------------------
 fcp_file1:
     xor ax, ax
-    mov FCV(fcp_ovw), al
-    mov FCV(fcp_pend), al       ; no question owed until one is found
+    mov FCV(fcp_pend), ax       ; no question owed until one is found, and no
+                                ; verdict: fcp_ovw is the byte after it
     mov FCV(fcp_ovwsz), ax      ; ...and it replaces nothing until proven
     mov FCV(fcp_ovwsz+2), ax    ; otherwise (SPEC.md 22.5.2)
     call fcp_fnames             ; publish this file's source and destination
@@ -1938,8 +1938,8 @@ FCPBODY fcp_door
     cmp al, 1                   ; a verb the SDK does not name is refused, not
     ja .bad                     ; guessed at: a caller that left AL alone must
     inc ax                      ; not find its file moved. 0/1 -> FCP_COPY /
-    mov [fcp_op], al            ; FCP_CUT
-    mov [fcp_drv], bl
+    mov ah, bl                  ; FCP_CUT, and fcp_drv the byte after it:
+    mov [fcp_op], ax            ; one word (AX is the answer's, below)
     mov [fcp_cwd], dx
     mov [fcp_ddrv], bh
     mov FCV(fcp_dcwd), cx
@@ -2020,6 +2020,9 @@ fcp_lcnt:   resw 1              ; ...and its records x 16, 0 = a single entry
 ; fcp_fname by fm_paste_res and fmv_reload_all AFTER fcp_fin has dropped it.
 fcp_busy:   resb 1              ; 1 = an operation is running or suspended
 fcp_err:    resb 1              ; FERR_* of whatever stopped us
+%if fcp_err - fcp_busy != 1
+  %error "fcp_run2 raises fcp_busy and clears fcp_err with one word store"
+%endif
 fcp_ddrv:   resb 1              ; the operation's target drive (its folder,
                                 ; fcp_dcwd, is the image's - below)
 ; THE OPERATION RECORD - the clipboard's shape, in the clipboard's order.
@@ -2033,7 +2036,11 @@ fcp_ddrv:   resb 1              ; the operation's target drive (its folder,
 fcp_op:     resb 1              ; FCP_COPY / FCP_CUT (a move IS a cut)
 fcp_drv:    resb 1              ; the entry's drive - the source drive of the
                                 ; whole tree, so the walk reads this one word
-                                ; wherever it is
+                                ; wherever it is. The byte after fcp_op, which
+                                ; fcp_door stores with it as one word
+%if fcp_drv - fcp_op != 1
+  %error "fcp_door stores fcp_op and fcp_drv as one word"
+%endif
 fcp_cwd:    resw 1              ; ...its folder...
 fcp_type:   resw 1              ; ...its SPEC.md 19 type word...
 fcp_name:   resb 13             ; ...and its 8.3 name
@@ -2121,7 +2128,11 @@ fcp_flen:   resw 1              ; ...and the byte count dskw_read reported
 fcp_started: resb 1             ; 1 = fcp_step is past its first step
 fcp_all:    resb 1              ; 1 = 'replace all' was answered
 fcp_pend:   resb 1              ; 1 = a file is waiting on a verdict
-fcp_ovw:    resb 1              ; that verdict: 1 = replace it
+fcp_ovw:    resb 1              ; that verdict: 1 = replace it. The byte after
+                                ; fcp_pend: fcp_file1 clears both as a word
+%if fcp_ovw - fcp_pend != 1
+  %error "fcp_file1 clears fcp_pend and fcp_ovw with one word store"
+%endif
 %ifndef FCP_MOD
 section .bss
 %else

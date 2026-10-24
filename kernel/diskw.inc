@@ -5345,7 +5345,9 @@ dskw_fmt_line_x:
 ; dskw_fmt_probe_x - which of the four formats is this drive holding?
 ; in:  [disk_drive] = the volume; UI task, gfx lock held (it reads the disk)
 ; out: CF=0 with AL = a dskw_fmt_tab row, the default, and AH = the other row
-;      this drive makes or 0FFh (SPEC.md 18.96.4); CF=1 with AX = FERR_*
+;      this drive makes or 0FFh (SPEC.md 18.96.4) - both also stored, as
+;      [fm_fmtrow] and [fm_fmtalt], the confirmation's pair; CF=1 with AX =
+;      FERR_* and neither stored
 ; clobbers: AX (the output), flags. Returns FAR: it is the module entry
 ;
 ; READS ONLY. That is what lets the Disk window call it before the user has
@@ -5570,6 +5572,10 @@ dskw_fmt_probe_x:
     jae .got2                   ; a 9-sector drive: AL already is
     xchg al, ah                 ; an HD drive: its 9-sector row, the HD alt
 .got2:
+    mov [fm_fmtrow], ax         ; ...and the confirmation's pair, fm_fmtalt
+                                ; the byte after: its one caller, fm_fmt_go,
+                                ; banked them (kernel size pass 14 - three
+                                ; bytes of image for three resident)
     pop bp
     pop word [dsk_totsec]       ; THE PROBE LEAVES NO GEOMETRY BEHIND:
     pop word [disk_heads]       ; dskw_fmt_geo wrote these three to aim its
@@ -5918,11 +5924,12 @@ dskw_fmt_do_x:                  ; STKBALANCE-OK: its two callees are far
     mov al, 0                   ; format; AL = 0, the size stood (`mov`
     jnc .out                    ; writes no flag)
     mov ax, FERR_IO
-    cmp byte [fm_fmtrow], 2     ; only 720K falls back, and only where 360K
-    jne .stc                    ; is the drive's other format - an HD
-    cmp byte [fm_fmtalt], 3     ; drive's or an internal 720K drive's 720K
-    jne .stc                    ; that cannot reach its end is a bad disk,
-                                ; not a 40-cylinder drive
+    cmp word [fm_fmtrow], 0x0302 ; only 720K (2) falls back, and only where
+    jne .stc                    ; 360K (3, in fm_fmtalt, the byte after) is
+                                ; the drive's other format - an HD drive's or
+                                ; an internal 720K drive's 720K that cannot
+                                ; reach its end is a bad disk, not a
+                                ; 40-cylinder drive
     mov al, 3                   ; 360K - and the caller re-lists and re-titles
     mov [fm_fmtrow], al         ; from this, so the window describes the disk
     push cs                     ; that exists rather than the one asked for

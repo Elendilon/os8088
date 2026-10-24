@@ -5271,11 +5271,13 @@ fm_c_format:                    ; File > Format Disk... (SPEC.md 22.12)
     ; loaded from a previous format, this is six compares and nothing is asked.
     call dskw_fmt_load          ; diskw.inc's own wrapper, which is this bank,
     jnc fm_fmt_go               ; this `mov al` and this call, already written
-    mov byte [fm_fmtstep], 0    ; ...and if it could not: the swap prompt
-    mov byte [fm_swapwho], 0    ; on the FORMATTER's behalf (SPEC.md 22.21.4).
+    mov word [fm_swapwho], 0    ; ...and if it could not: the swap prompt
+                                ; at step 0 (fm_fmtstep, the byte after) on
+                                ; the FORMATTER's behalf (SPEC.md 22.21.4).
                                 ; .bss arrives as whatever was in memory, so
                                 ; both bytes are written by whoever arms the
-                                ; prompt rather than trusted from last time.
+                                ; prompt rather than trusted from last time -
+                                ; as one word (kernel size pass 14, -4).
                                 ; DI is still the block: dskw_fmt_load banks
                                 ; AX alone and mod_need preserves the rest
     mov al, 6
@@ -5297,11 +5299,11 @@ fm_fmt_go:                      ; the image is here; the drive is the user's
                                 ; it, because disk_mount sets that before it
                                 ; validates anything and its failure path does
                                 ; not undo it (SPEC.md 18.3)
-    call dskw_fmt_probe         ; AL = the format this medium can take, or
-    jc .bad                     ; CF=1 with AX = FERR_*. READS ONLY, so a
+    call dskw_fmt_probe         ; [fm_fmtrow] = the format this medium can
+    jc .bad                     ; take and [fm_fmtalt] the other size Space
+                                ; offers (18.96.4), the image's own stores;
+                                ; or CF=1 with AX = FERR_*. READS ONLY, so a
                                 ; refusal here has changed nothing at all
-    mov [fm_fmtrow], ax         ; ...and fm_fmtalt, the other size Space
-                                ; offers (18.96.4): the byte after it
     mov al, 5                   ; ...and ask, with the size in the question
     jmp fm_edit_arm
 .bad:
@@ -5343,8 +5345,9 @@ fm_c_clone:
                                 ; a prompt with a live claim (SPEC.md 22.21.2)
     call clo_need
     jnc fm_clone_go
-    mov byte [fm_fmtstep], 0    ; ...and if it could not: the swap prompt,
-    mov byte [fm_swapwho], 1    ; asking for the system disk on the CLONER's
+    mov word [fm_swapwho], 1    ; ...and if it could not: the swap prompt at
+                                ; step 0 (the byte after), asking for the
+                                ; system disk on the CLONER's
                                 ; behalf (SPEC.md 22.21.4). DI is still the
                                 ; block: clo_need preserves every register
     mov al, 6
@@ -9589,7 +9592,12 @@ fm_fmtstep: resb 1              ; the swap prompt's step (SPEC.md 2.8.5):
                                 ; 0 = the system disk is wanted, 1 = the disk
                                 ; to be formatted. Not per window for
                                 ; fm_fmtrow's reason - at most one status-line
-                                ; confirmation exists in the machine at a time
+                                ; confirmation exists in the machine at a time.
+                                ; The byte after fm_swapwho: the two commands
+                                ; that arm the prompt write both as one word
+%if fm_fmtstep - fm_swapwho != 1
+  %error "fm_c_format and fm_c_clone arm the swap prompt with one word store: fm_fmtstep is the byte after fm_swapwho"
+%endif
 fm_fmtrow:  resb 1              ; the dskw_fmt_tab row the FORMAT confirmation
                                 ; (SPEC.md 22.12) was built from, banked when
                                 ; the mode was armed. Not per-window, because
@@ -9602,11 +9610,11 @@ fm_fmtalt:  resb 1              ; the OTHER row this drive makes, or 0FFh -
                                 ; what Space swaps fm_fmtrow with (SPEC.md
                                 ; 18.96.4), for fm_fmtrow's reason. RIGHT
                                 ; AFTER IT, so the pair is one word: the probe
-                                ; answers AL/AH and is stored with one `mov`,
-                                ; and Space swaps the halves (kernel size pass
-                                ; 14, -5)
+                                ; (dskw_fmt_probe_x, in FORMAT.DRV) stores its
+                                ; AL/AH answer with one `mov`, and Space swaps
+                                ; the halves (kernel size pass 14)
 %if fm_fmtalt - fm_fmtrow != 1
-  %error "fm_fmt_go stores the probe's AX as [fm_fmtrow] and Space swaps it as a word: fm_fmtalt is the byte after fm_fmtrow"
+  %error "the probe stores its AX as [fm_fmtrow] and Space swaps it as a word: fm_fmtalt is the byte after fm_fmtrow"
 %endif
 
 fm_delt:    resw 1              ; [ticks] at the last DELETE key fm_onkey saw,
