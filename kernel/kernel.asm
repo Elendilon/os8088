@@ -1520,7 +1520,13 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; and t_blobruns priced the thirteenth at no int 13h on any geometry - it puts
 ; stage 2's kernel read on 360KB and 720KB back to the eleven calls its
 ; ratchet names, from the twelve the base had grown to.
+; ...and kern_emu took its extra sector BACK in the same pass (ksp14/reach.md:
+; vid_apply and wm_refit's callees moved into the blob, and kern_big's
+; thirteen hold them with 61 bytes to spare - vmm_boot_x is ~100). The Makefile
+; adds it in the knob's block, as before.
 %ifdef KERN_KNOB
+  %define BOOT2_KNOBSEC 1
+%elifdef KERN_EMU
   %define BOOT2_KNOBSEC 1
 %else
   %define BOOT2_KNOBSEC 0
@@ -5108,17 +5114,14 @@ kmain_o:
     pop bx
     pop ax
 %endif
-%ifdef KERN_SMALL
-    mov di, mod_fp              ; mod_init, WRITTEN OUT IN THE BLOB on the
-    mov cx, MOD_NSLOT           ; kernel whose blob has the room (kernel size
-.modinit:                       ; pass 13: 10 resident bytes of `.cold` for 20
-    mov word [di], mod_gone     ; of blob). The segment is the cold one by
-    mov word [di+2], COLD_SEG   ; NAME - a blob word tools/os88rom.py moves
-    add di, 4                   ; with it - where mod_disarm, running in
-    loop .modinit               ; `.cold`, takes it from CS
-%else
-    call COLD_SEG:mod_init_x
-%endif
+    mov di, mod_fp              ; mod_init, WRITTEN OUT IN THE BLOB (kernel
+    mov cx, MOD_NSLOT           ; size pass 13 on kern_small, pass 14 on
+.modinit:                       ; kern_big once its blob had the room: 10
+    mov word [di], mod_gone     ; resident bytes of `.cold` for 15 of blob).
+    mov word [di+2], COLD_SEG   ; The segment is the cold one by NAME - a blob
+    add di, 4                   ; word tools/os88rom.py moves with it - where
+    loop .modinit               ; mod_disarm, running in `.cold`, takes it
+                                ; from CS
                                 ; on-demand modules (SPEC.md 2.8): point every
                                 ; entry slot at mod_gone. `-f bin` zeroes no
                                 ; .bss, so until this runs those slots hold
@@ -6236,6 +6239,9 @@ EXT_SPAN    equ 8               ; wm_disp_span: registers kept = the primary
 EXT_FSRECT  equ 9               ; wm_fs_setrect's arm: CF = 1 one display
 EXT_DESK    equ 10              ; vid_disp_desk: CF = 1 nothing painted
 EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
+EXT_DEAD    equ 14              ; ui_drag_dead, UNGATED: registers kept (12 and
+                                ; 13 are the seam cuts, font.inc/vga12.inc)
+EXT_PHASE   equ 15              ; ui_drag_phase's arm, UNGATED: registers kept
 %macro EXTCALL 1
     call far [EXFP + %1*4]
 %endmacro
@@ -7002,8 +7008,9 @@ cw_thm_desk equ apic_thm_desk   ; THE CELL IS THE DOOR (size pass 13): the
                                 ; desktop's ground, once per damaged zone
 %endif
 %ifdef DOCK_OPT
-cw_dock_band:           call dock_band
-                       retf
+; (cw_dock_band went in kernel size pass 14: its three callers - DOCK_GEOM's
+; blob and CTRL.DRV copies and EXTD.DRV's fullscreen restore - reach
+; dock_band through their image's own hop)
 cw_gfx_clip_query:      call gfx_clip_query ; CLIPQF: shared region query
                     retf                    ; from .cold (SPEC.md 30.6.1)
 %endif
@@ -7103,13 +7110,9 @@ cw_vga_xor_rect_vram:   call vga_xor_rect_vram
 %ifdef KERN_BIG
 ; vidsel.inc's whole dual-display half is inside one %ifdef KERN_BIG, so these
 ; bodies do not exist in the small build.
-; ...and this one is the BOOT OVERLAY's and EXTD.DRV's: vid_ctx_init went
-; into the overlay (docs/plans/LAST-DROP-BYTES.md row 13) and calls it, and so
-; does the Extend. It is `cw_` rather than `ovw_` for the reason the clock's
-; pair is. (cw_vid_ctx_ptr, vid_ctx_init's other one, is spw_near's `call bp`
-; since kernel size pass 13.)
-cw_vid_ctx_capture:     call vid_ctx_capture
-                    retf
+; (cw_vid_ctx_capture went in kernel size pass 14: vid_ctx_init in the boot
+; overlay reaches vid_ctx_capture through spw_near's `call bp`, as it already
+; reached vid_ctx_ptr, and EXTD.DRV's Extend through its own EXK hop)
 ; ...and EXTD.DRV's one hop that is on OSAPI_WM_DISPLAY's path (wm_disp_now's
 ; one-display arm, SPEC.md 39.19.6.2). Four bytes here where the image carried
 ; a twelve-byte stub of its own, and a near call + RETF where the stub built

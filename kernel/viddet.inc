@@ -672,7 +672,26 @@ vid_depth_set:
     pop ax
     ret
 
-vid_apply:
+; VID_APPLY %1, %2 - %1_apply, WRITTEN ONCE (kernel size pass 14). Nothing
+; resident calls it on kern_big: its callers are the boot (the splash's first
+; tick, vid_init, and the blob's copies of vid_switch and vid_disp_init), the
+; Control Panel (CTRL.DRV's vid_switch and vid_disp_init) and EXTD.DRV's
+; fullscreen restore - the population ksp13/dispsw.md moved vid_switch for -
+; so kern_big expands it three times, DRV_ATTACH's shape: `bvs_apply` in the
+; blob (here, beside vid_init), `vid_apply` in CTRL.DRV (vidsel.inc) and
+; `ext_apply` in EXTD.DRV (extmod.inc). kern_small keeps the one resident copy
+; (`VID_APPLY vid, call`, below), byte for byte what it was: its panel image
+; has no room for a copy.
+;
+; %2 is how a copy reaches vid_depth_set: `call` resident, KSWK/EXK from an
+; image, BSPW from the blob - spw_near, the door the splash's first tick
+; already uses, because KGO_PAIR's return lands in the cw_ block at the END of
+; `.text`, which is not aboard yet on that tick. An image's copy also writes
+; gfx_nextrow's three instructions out (its operands are `[cs:]`, the
+; kernel's CS) and its own epilogue (vid_pop7 is `.text`'s). DS = KERNEL_SEG at
+; every caller, so ES = DS is KES's answer (on kern_mega too: the data alias).
+%macro VID_APPLY 2
+%1 %+ _apply:
     push ax
     push bx
     push cx
@@ -681,9 +700,14 @@ vid_apply:
     push di
     push es
 
+%ifidn %2, call
     KES                         ; rep movsw writes through ES, and we may be
                                 ; called from the splash, where ES is the
                                 ; boot sector's
+%else
+    push ds                     ; (an image's copy: DS = KERNEL_SEG, see above)
+    pop es
+%endif
 
     mov al, [vid_kind]          ; AL * 18 -> the record. AH is 0 after the
     mov bl, VID_REC             ; mul (3 * 18 = 54 at worst), so the two
@@ -827,7 +851,7 @@ vid_apply:
 %ifdef GFX_VGA                  ; (kern_small's vid_depth_set reads no AL)
     mov al, [vid_kind]          ; --- the renderer's DEPTH, in one place
 %endif
-    call vid_depth_set          ; (see there: a display swap needs it too)
+    %2 vid_depth_set            ; (see there: a display swap needs it too)
     mov ax, [vid_seg]           ; font_run's target, [vid_tseg]: see the block
     mov [vid_tseg], ax          ; below for why it is the LIVE [vid_seg]
 %ifdef GFX_VGA                  ; (kern_small has no planar kind to set - SPEC.md
@@ -931,8 +955,16 @@ vid_apply:
     mov [ss:si], di             ; loop no longer calls it. LOW_SEG, like every
     inc si                      ; other reach for the table
     inc si
-    call gfx_nextrow            ; the INCREMENTAL form - see the wrap
-    loop .rowtab                ; arithmetic above. DI and flags, nothing else
+%ifidn %2, call
+    %2 gfx_nextrow              ; the INCREMENTAL form - see the wrap
+%else                           ; arithmetic above. DI and flags, nothing else
+    add di, [vid_rowadd]        ; ...gfx_nextrow written out: its operands are
+    test di, [vid_wrapbit]      ; `[cs:]`, and an image's CS is not the
+    jz %%nw                     ; kernel's
+    add di, [vid_wrapfix]
+%%nw:
+%endif
+    loop .rowtab
     mov word [vid_rowmax], VID_ROWTAB   ; ...and only now may anything read it
     ; NOT FROM THE SPLASH'S FIRST TICK - the `jne .homed` above. Everything
     ; below writes PAST the plain head (mouse.inc's pair, cur_shchk, ui_post's
@@ -980,15 +1012,31 @@ vid_apply:
 %endif
 .homed:
     pop es                      ; ...and the other seven are vid_pop8's own run
+%ifnidn %2, call                ; (the resident copy's `jmp vid_pop7` follows
+    pop di                      ; its expansion, below: an image's copy pops
+                                ; its own, vid_pop7 being `.text`'s)
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
+%endmacro
+%ifdef KERN_SMALL
+VID_APPLY vid, call             ; the resident copy (kern_small alone, above)
     jmp vid_pop7                ; one label in - this routine has no BP in its
                                 ; frame. See vid_pop8's header
-                                ; (kern_small's PARITY pad that stood here -
-                                ; its planar residue came out of this file in
-                                ; an ODD total, kernel size pass 13 - went in
-                                ; pass 14 with an odd byte kernel.asm's API
-                                ; helpers gave back on that kernel: the two
-                                ; cancel ahead of gfx_rowbase, gfx_nextrow and
-                                ; gfx_blit4, PERFORMANCE.md Part 7)
+%endif                          ; (kern_big: PARITY, the nop below - the copy
+%ifdef KERN_BIG                 ; left `.text` in an ODD total, kernel size
+    nop                         ; pass 14). kern_small's own pad here
+%endif                          ; (PARITY, kernel size pass 13: its planar
+                                ; residue came out of this file in an ODD
+                                ; total) went in pass 14 with an odd byte
+                                ; kernel.asm's API helpers gave back on that
+                                ; kernel - the two cancel ahead of
+                                ; gfx_rowbase, gfx_nextrow and gfx_blit4
+                                ; (PERFORMANCE.md Part 7)
 
 ; -----------------------------------------------------------------------------
 ; vid_6845_prog - write R0..R11 of the mono card's CRTC from a 12-byte table
@@ -1436,8 +1484,12 @@ section .boot2                    ; kmain_o's alone (SPEC.md 2.5.3.3), out throu
 vid_init:                       ; the spw_near door the splash already needs
     BLOBCALL vid_detect
     push bp                     ; BP names the routine to spw_near, and this
-    mov bp, vid_apply           ; routine clobbers only flags
+%ifdef KERN_SMALL               ; routine clobbers only flags
+    mov bp, vid_apply
     call KERNEL_SEG:spw_near
+%else
+    call bvs_apply              ; (the blob's own copy: VID_APPLY, below)
+%endif
 %ifdef DOCK_OPT
     mov bp, dock_geom           ; (BP is banked above for spw_near already)
     call KERNEL_SEG:spw_near    ; ...and the strip where the user put it
@@ -1452,6 +1504,17 @@ vid_init:                       ; the spw_near door the splash already needs
 .keep:
     pop bp
     retf
+%ifndef KERN_SMALL
+; BSPW - the blob's way into a `.text` routine that is aboard on the splash's
+; first tick: spw_near, as vid_init and spl_chrome already use it. BP banked.
+%macro BSPW 1
+    push bp
+    mov bp, %1
+    call KERNEL_SEG:spw_near
+    pop bp
+%endmacro
+VID_APPLY bvs, BSPW             ; bvs_apply: the splash, vid_init, and the
+%endif                          ; blob's vid_switch/vid_disp_init (driver.inc)
 section .text
 
 ; -----------------------------------------------------------------------------

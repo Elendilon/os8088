@@ -1207,6 +1207,46 @@ wm_nat_take_wh:
 ; `wm` and the boot blob's `bvw`, %2 the hop a resident callee is reached
 ; through. Its callers are vid_switch, the Display page's arrangement and the
 ; Dock page's dock_reflow, and the boot's copies of the two of those
+; WM_SZNOTE %1 - wm_sz_notify, WRITTEN OUT at each of its callers (kernel size
+; pass 14): it had three, WM_REFIT's two expansions (CTRL.DRV, the blob) and
+; EXTD.DRV's ui_drag_size, and nothing resident, so none of the three needs a
+; resident body. %1 is the hop the image reaches the kernel through. Every
+; register preserved; FLAGS are not (no caller reads them after it).
+;
+; It tells window BX its environment moved, if it asked to be told (SPEC.md
+; 11.98) - THERE IS NO COMPARE, AND THAT IS THE POINT: what goes stale across
+; an adapter change is not only a window's BOX (apps/missile's mc_mono,
+; arkanoid's ark_bpp, solitaire's sol_bpp and paint's pt_bpp are all decided
+; from the adapter), so the notice is "re-derive", one per window per refit,
+; and the app decides what of it matters. It runs with the LOCK HELD and the
+; handler may not draw - W_ONSIZE's contract too - and the caller's repaint
+; comes after, so an app that relayouts here is painted right the first time.
+%macro WM_SZNOTE 1
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    mov bp, [bx+W_ONSZ]
+    or bp, bp
+    jz %%out                    ; never asked to be told: one word, and this is
+                                ; the whole cost to every window that has not
+    %1 wm_geom                  ; CX/DX = the content size the record has NOW
+    mov si, bx                  ; SI = the window
+    %1 wm_pkgcall               ; (BP is the handler; wm_pkgcall puts ES =
+                                ; KERNEL_SEG for it, like every other callback)
+%%out:
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+%endmacro
+
 %macro WM_REFIT 2
 %1 %+ _refit:
     push bx
@@ -1218,14 +1258,35 @@ wm_nat_take_wh:
     jz .skip
     test byte [bx+W_FLAGS], WF_FULL
     jnz .full
-    %2 wm_apply_size            ; what it ASKED for, then its own answer for
+                                ; what it ASKED for, then its own answer for
                                 ; the adapter it now finds itself on, then the
                                 ; clamp - SPEC.md 11.100's one sequence, the
                                 ; same three wm_prefer and wm_keeph run. This
                                 ; is 11.100.4's single-display half: switching a
                                 ; VGA machine to its CGA row gives every window
                                 ; its CGA size rather than the VGA one cut to
-                                ; the band (39.11.2.1)
+                                ; the band (39.11.2.1).
+                                ;
+                                ; It was wm_apply_size, and this was its ONE
+                                ; caller (SPEC.md 11.100.9), so it is written
+                                ; here (kernel size pass 14). It replays the
+                                ; WHOLE banked rect, POSITION INCLUDED, which is
+                                ; right for the one event it is for: the adapter
+                                ; changed under a window nobody has touched. A
+                                ; hand on the window goes through wm_apply_wh,
+                                ; which leaves the origin alone.
+    push ax
+    cmp word [bx+W_NATR+NR_W], 0    ; nothing banked: whatever is in the record
+    je .pref                    ; is the best answer there is
+    mov ax, [bx+W_NATR+NR_X]
+    mov [bx+W_X], ax
+    mov ax, [bx+W_NATR+NR_Y]
+    mov [bx+W_Y], ax
+    %2 wm_nat_take_wh           ; ...and the SIZE it asked for
+.pref:
+    %2 wm_pref_now              ; its own answer for the adapter it is on
+    %2 wm_fit
+    pop ax
     jmp short .told
 .full:
     %2 wm_fs_setrect            ; a fullscreen window wants the NEW screen, and
@@ -1237,7 +1298,7 @@ wm_nat_take_wh:
                                 ; desktop band, and a fullscreen frame covers
                                 ; the bar and the dock by definition
 .told:
-    %2 wm_sz_notify             ; ...and NOW tell it, unconditionally and while
+    WM_SZNOTE %2                ; ...and NOW tell it, unconditionally and while
                                 ; the caller's repaint is still ahead of us. An
                                 ; app that relayouts here is painted correctly
                                 ; the first time; and it is told even when its
@@ -1760,7 +1821,7 @@ wm_kind_now:
 ; out: CF as wm_pref_take's; every other register preserved
 ; clobbers: flags
 ;
-; The pair wm_apply_size and wm_refit both want, in one place so the two cannot
+; The pair wm_refit's replay and wm_apply_wh both want, in one place so the two cannot
 ; disagree about which display's kind decides.
 ; -----------------------------------------------------------------------------
 wm_pref_now:
@@ -1894,32 +1955,8 @@ wm_minsize:
     jmp wm_apply_wh             ; SPEC.md 11.100.9: a floor is a size and says
                                 ; nothing about where the window is
 
-; -----------------------------------------------------------------------------
-; wm_apply_size - replay the bank, take the preference, re-fit (module internal)
-; in:  BX = window ptr
-; out: W_X..W_H settled; every register preserved, FLAGS INCLUDED
-;
-; The one sequence SPEC.md 11.100 names - "preference proposes, display clamps,
-; floor lifts" - and the floor itself lives inside wm_fit, where every other
-; clamp already is.
-;
-; **wm_refit IS ITS ONLY CALLER, and the position is why** (SPEC.md 11.100.9).
-; It replays the WHOLE banked rect, which is right for the one event it is for:
-; the adapter changed under a window nobody has touched, so putting it back
-; where it was before a clamp moved it is the whole of 39.11.2.1. It is wrong
-; the moment a hand is on the window, and the three public cells below all go
-; through wm_apply_wh instead.
-; -----------------------------------------------------------------------------
-wm_apply_size:
-    pushf
-    push ax                     ; the rect it ASKED for, POSITION INCLUDED
-    cmp word [bx+W_NATR+NR_W], 0    ; (SPEC.md 39.11.2.1). This was wm_nat_take,
-    je wm_apply_pf              ; a routine with this as its one caller. Nothing
-    mov ax, [bx+W_NATR+NR_X]    ; banked: whatever is in the record is the best
-    mov [bx+W_X], ax            ; answer there is (and wm_nat_take_wh would
-    mov ax, [bx+W_NATR+NR_Y]    ; agree and do nothing)...
-    mov [bx+W_Y], ax
-    jmp short wm_apply_wh.one   ; ...and the SIZE is wm_nat_take_wh's
+; (wm_apply_size is written out in WM_REFIT, its one caller - kernel size
+; pass 14)
 
 ; -----------------------------------------------------------------------------
 ; wm_apply_wh - the same sequence with the ORIGIN LEFT ALONE (SPEC.md 11.100.9)
@@ -1951,7 +1988,7 @@ wm_apply_wh:
 %endif                          ; near card has left. wm_strad_fit IS this
 .one:                           ; same sequence with the right clamp on the end
     call wm_nat_take_wh         ; the SIZE it asked for and not the position
-wm_apply_pf:                    ; ...and from here the three are one routine
+                                ; ...and from here the three are one routine
     call wm_pref_now            ; its own answer for the adapter it is on
     call wm_fit
 wm_apply_out:                   ; NOT a local label: wm_apply_pf sits between
@@ -1967,55 +2004,8 @@ wm_apply_out:                   ; NOT a local label: wm_apply_pf sits between
 ; -----------------------------------------------------------------------------
 ; (wm_szh_slot is gone: the handler is W_ONSZ, in the record)
 
-; -----------------------------------------------------------------------------
-; wm_sz_notify - tell BX its environment moved, if it asked to be told
-;                (SPEC.md 11.98)
-; in:  BX = window ptr; the gfx lock held by the caller
-; out: nothing (all registers preserved, FLAGS INCLUDED)
-;
-; THERE IS NO COMPARE, AND THAT IS THE POINT. The first version fired only
-; when the content box had actually changed, which is the obvious economy and
-; is wrong for the case this exists for: what goes stale across an adapter
-; change is not only a window's BOX. apps/missile decides mc_mono, mc_ecoarse
-; and mc_caps from the adapter at launch, apps/arkanoid ark_bpp,
-; apps/solitaire sol_bpp, apps/paint pt_bpp - and a window small enough to fit
-; two geometries unchanged (100x100 across VGA -> Hercules) would have got no
-; notice at all and kept a stale bpp. On a 1bpp adapter apps/missile with
-; mc_mono = 0 is SPEC.md 48.8's unplayable case, reached by a change that told
-; it nothing.
-;
-; So the notice is "your environment moved - re-derive", one per window per
-; refit, and the app decides what of it matters: OSAPI_WM_GEOM for the box,
-; OSAPI_VIDEO for the adapter, both callable from here. It costs a handful of
-; callbacks on an event a human causes by clicking Activate Mode.
-;
-; It runs with the LOCK HELD and the handler may not draw - that is the
-; contract, and it is W_ONSIZE's contract too. It is also the only ordering
-; that works: the caller's repaint comes after, so an app that relayouts here
-; is painted correctly the first time, where a deferred notice would let one
-; frame go up in the old layout.
-; -----------------------------------------------------------------------------
-wm_sz_notify:
-    pushf
-    call kent_bp                ; = push ax/bx/cx/dx/si/di/bp
-    mov bp, [bx+W_ONSZ]
-    or bp, bp
-    jz .out                     ; never asked to be told: one word, and this is
-                                ; the whole cost to every window that has not
-    call wm_geom                ; CX/DX = the content size the record has NOW
-    mov si, bx                  ; SI = the window
-    call wm_pkgcall             ; (BP is the handler; wm_pkgcall puts ES =
-                                ; KERNEL_SEG for it, like every other callback)
-.out:
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    popf
-    ret
+; (wm_sz_notify is WM_SZNOTE, written out at its three callers - kernel size
+; pass 14)
 
 ; -----------------------------------------------------------------------------
 ; wm_onmouseup - install (or clear) a window's release handler (SPEC.md 13.7)

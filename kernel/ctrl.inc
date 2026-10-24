@@ -1138,7 +1138,7 @@ modc_e_onkey:
 %ifdef DOCK_OPT
 modc_e_dock_geom: call cpd_geom
     retf
-DOCK_GEOM cpd
+DOCK_GEOM cpd, KSWK
 
 %endif
 section .cold                   ; ...and the two that stay resident
@@ -2765,6 +2765,9 @@ cp_krect:
 ; KGO_PAIR, which says how; the boot blob carries the same pair as bvs_kgo /
 ; bvs_cgo for its copies of the adapter switch)
 KGO_PAIR cp
+%ifdef KERN_BIG
+EXF_SYNC cxf, CPXC              ; the arrangement row's EXTD.DRV sync (extmod.inc)
+%endif
 
 cp_wfill:   mov byte [gfx_color], CWHITE ; ...a fill in the GROUND, which is
                                     ; what six sites set the pen for first
@@ -2772,7 +2775,11 @@ cp_fill:    call KERNEL_SEG:cw_gfx_fill
             ret
 cp_penlive: CPXK gfx_pen_live
             ret
-cp_drvrow:  call COLD_SEG:drvf_drv_row
+%ifdef OS88_DRIVERS
+cp_drvrow:  CPXC drv_row_x      ; (the resident far shim went, size pass 14)
+%else
+cp_drvrow:  call COLD_SEG:drvf_drv_row  ; kern_small: driver.inc's refusing stub
+%endif
             ret
 cp_clssvc:  call COLD_SEG:drvf_drv_cls_svc
             ret
@@ -2969,14 +2976,14 @@ cp_thmv_open:
                                 ; cp_sbuf carries it for the length of the
                                 ; call. Nothing else reads thmv_row's FILE or
                                 ; TITLE - it is past DRV_MAX, so no walk meets it
-    call COLD_SEG:drvf_drv_load_at  ; CF = 0 immediately once it is already live
+    CPXC drv_load_at  ; CF = 0 immediately once it is already live
     jc .no
     push es
     mov es, [bx+DRVR_SEG]
     cmp word [es:10], THMV_ABI_VER
     pop es
     je .ok
-    call COLD_SEG:drvf_drv_release  ; never call an incompatible private overlay
+    CPXC drv_release  ; never call an incompatible private overlay
     mov byte [bx+DRVR_ERR], DRVE_BAD
     jmp short .no
 .ok:
@@ -2992,7 +2999,7 @@ cp_thmv_open:
     mov bp, [bx+DRVR_ENT]       ; the panel close's own two steps (the tail
     mov al, THMV_CLOSE          ; of drv_cp_closed_x), through the two far
     call COLD_SEG:drvf_drv_call ; entries. The row and the entry are loaded
-    call COLD_SEG:drvf_drv_release  ; again: a refusing driver may answer in
+    CPXC drv_release  ; again: a refusing driver may answer in
 .no:                            ; BX, and drv_call spends BP
     stc
 .out:
@@ -4471,13 +4478,13 @@ cp_vid_click:
     ; close (SPEC.md 31.8). NOTHING IS REDRAWN, for the Activate button's
     ; reason one screen up: vid_disp_init moves the desktop and re-fits every
     ; window, so DI/BP describe a rectangle that may no longer exist.
-    call COLD_SEG:exf_sync      ; Extend: EXTD.DRV FIRST (SPEC.md 39.19.6)
+    call cxf_sync               ; Extend: EXTD.DRV FIRST (SPEC.md 39.19.6)
     jc .mref                    ; refused, and [vid_dmode] is Single again
     call vid_disp_init           ; (vid_disp_relayout's three, written out:
     call COLD_SEG:desk_rowcalc_x ; it was a resident far body this image
     call wm_refit                ; alone called - kernel size pass 13; the
                                  ; first and last are this image's own now)
-    call COLD_SEG:exf_sync      ; Single: the image goes AFTER the collapse
+    call cxf_sync               ; Single: the image goes AFTER the collapse
     call cp_repost              ; ...and SAY SO once (SPEC.md 13.13)
 %endif
     jmp .done                   ; (near on kern_big: .fc's 0/1 store, 39.28)
@@ -7035,7 +7042,7 @@ cp_drv_click:
     call cp_repost              ; ...and the whole screen is a new shape
 .novx:
 %endif
-    call COLD_SEG:drvf_drv_unload             ; it is up: take it down...
+    CPXC drv_unload_x             ; it is up: take it down...
     jmp short .off              ; ...and nothing failed - it was turned off
 .load:
     cmp byte [bx+DRVR_WANT], 0  ; unloaded but WANTED: the boot tried and

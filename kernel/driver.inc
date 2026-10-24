@@ -780,7 +780,7 @@ CFG_FDR     equ CFG_FDD + 1     ; db: ...and the READ bound, 0 Auto, 1 Track,
 CFG_VGC     equ CFG_FDR + 1     ; db: Force Color, 0 off (SPEC.md 39.28): a
                                 ; VGA BIOS's POST verdict of "monochrome
                                 ; display" overridden. CFG_FDD's shape - not a
-                                ; plain store and not in _map: vgcf_boot
+                                ; plain store and not in _map: drv_boot_x
                                 ; reads it once at boot and the panel edits
                                 ; it here
 CFG_ANS     equ CFG_VGC + 1     ; word: the rows the USER has answered, in
@@ -989,6 +989,13 @@ CFG_KESZ    equ 5               ; bytes per table entry
 ; expression anyone can evaluate is just .bss nothing can use - which, with
 ; KERN_CODE_MAX as tight as it now is, is memory somebody else needs.
 CFG_FBUF    equ CFG_REC0 + CFG_NKEY * CFR_HDR + CFG_NB + 2
+; BOOT2_RES - what mem_init keeps of the heap's floor while stage 2 lives: the
+; blob's sectors and, past them, its nobits scratch - the SYSTEM.CFG file
+; buffer ovc_buf (below), a paragraph-rounded CFG_FBUF (kernel size pass 14:
+; 164 zero bytes that were read off the disk on every boot). Guard 5 (the
+; 128KB boot, kernel.asm) still sums BOOT2_PAD: ovc_buf is first written by
+; drv_boot, long after stage 1's copy and its stack at the top of RAM are dead
+BOOT2_RES   equ BOOT2_PAD + ((CFG_FBUF + 15) / 16) * 16
 
 ; --- whose blob is whose (SPEC.md 51.9.1) ------------------------------------
 ; row index, size, offset into the struct. The ROW and not the class, for the
@@ -3677,7 +3684,7 @@ section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):
 ; drv_cls_fp_x are eight instructions between them, so they are written out
 ; here (%1_clsidx) rather than given a resident far entry each.
 ; =============================================================================
-%macro DRV_ATTACH 1
+%macro DRV_ATTACH 2              ; %2: THIS image's far hop into `.cold`
 
 ; %1_load - drv_load: bring one drv_tab row up (SPEC.md 51.3)
 ; in:  BX = the row - every caller has it in hand (drv_boot_want, cp_drvrow;
@@ -3689,7 +3696,8 @@ section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):
     push di
     mov di, %1 %+ _att          ; THIS image's attach half, which drv_load_at
     mov si, cs                  ; far-calls through DI:SI
-    call COLD_SEG:drvf_drv_load_at
+    call %2                     ; (the image's own hop - drvf_drv_load_at
+    dw drv_load_at              ; went, kernel size pass 14)
     pop di
     pop si
     ret
@@ -4504,7 +4512,7 @@ section .modc                   ; **THE MACROS BELOW ARE IMAGE CODE, AND THIS
 ;
 ; A macro only so it sits beside the settings it serves: it is expanded ONCE,
 ; as cp_vgc_force in CTRL.DRV's SETTINGS CORE (SPEC.md 2.8.7), which the boot
-; reaches through SC_OP_VGC (vgcf_boot) and the panel near. Not in the boot
+; reaches through SC_OP_VGC (drv_boot_x) and the panel near. Not in the boot
 ; overlay, which had 25 bytes for it, and not resident.
 ;
 ; The equipment word 40:10h is NOT touched: vid_cga_equip owns it around
@@ -5191,7 +5199,13 @@ DRVP_OPL    equ 0x388           ; the OPL2's address/status port; +1 is data
 ; new setting used to cost.
 CFG_MAP    ovc
 CFG_DATA   ovc
-ovc_buf: times CFG_FBUF db 0    ; boot-only scratch; not retained at desktop
+; ovc_buf - boot-only scratch, and NOT BLOB BYTES (kernel size pass 14): it
+; is the paragraphs just past the loaded blob, which mem_init reserves with it
+; (BOOT2_RES) and mem_unblob gives back with it. Nothing reads it before
+; %1_load/%1_ser write it - _deser is bounded by the count the read returned -
+; so the zeros it carried as 164 bytes of every boot's sector read bought
+; nothing (docs/plans/completed/ksp13/xfile.md WANTS 3)
+ovc_buf     equ BOOT2_PAD       ; .boot2 is vstart 0: its end IS this offset
 CFG_SHARED ovc
 CFG_BOOT   ovc
 
@@ -5612,14 +5626,23 @@ drv_boot_x:
                                 ; banks the flags, which swallows this answer
                                 ; whole (SPEC.md 2.9.5.4)
 %ifdef KERN_BIG
-    call COLD_SEG:vgcf_boot     ; Force Color (SPEC.md 39.28), BEFORE the
-                                ; adapter switch below, so a switch onto the
-                                ; VGA finds the BIOS's record colour already.
-                                ; THE TEST IS INSIDE IT NOW (SPEC.md 120.4:
-                                ; the blob gave up its seven bytes to the
-                                ; 'VM' record's class byte); it keeps every
-                                ; register but AX - CH is the loop's, and AL
-                                ; is reloaded on the next line
+    test byte [drv_cfg+CFG_VGC], 1  ; Force Color (SPEC.md 39.28), BEFORE the
+    jz .novgc                   ; adapter switch below, so a switch onto the
+    mov ax, (SC_OP_VGC << 8) | MOD_SETS ; VGA finds the BIOS's record colour
+    call bvs_cgo                ; already. It was vgcf_boot, a resident far
+    dw mod_need                 ; body with this one caller - in the blob
+    call far [SETFP]            ; since kernel size pass 14, its hops the
+    call bvs_cgo                ; blob's own (KGO_PAIR bvs). mod_need's CF is
+    dw mod_drop                 ; NOT tested: a core that could not be read
+.novgc:                         ; leaves SETFP on mod_gone and its row empty,
+                                ; which mod_drop passes over - and there is no
+                                ; desktop yet to say it on, so a refusal boots
+                                ; grey exactly as a clear box does. AX is
+                                ; spent; CH is the loop's and AL is reloaded
+                                ; on the next line. CPE_SC's SC_OP_VGC keeps
+                                ; AL (modc_e_sc counts AH down, cp_vgc_force
+                                ; banks AX), so AL is still MOD_SETS for the
+                                ; drop
 %endif
 
     ; --- the display adapter, FIRST (SPEC.md 39.11.3) ------------------------
@@ -5645,7 +5668,7 @@ drv_boot_x:
     ja .vdone2
     mov [vid_dlay], al
 .vdone2:
-    call COLD_SEG:exf_sync      ; EXTD.DRV before the switch can extend
+    call bxf_sync               ; EXTD.DRV before the switch can extend
 %endif                          ; (SPEC.md 39.19.6): a refusal is Single,
                                 ; SYSTEM.CFG untouched until the panel writes
     ; THE ADAPTER, AND THEN WHATEVER THE SWITCH DID NOT DO. vid_switch answers
@@ -5723,7 +5746,8 @@ drv_boot_x:
     cmp byte [bx+DRVR_ERR], DRVE_NOVOL  ; says - they ticked it to reach the
     jne .skip                   ; disk tool, say - but a default that came
     mov al, cl                  ; up with NOTHING TO DO is taken down again
-    call COLD_SEG:drvf_drv_unload   ; and its memory given back. DRVR_ERR
+    call bvs_cgo                ; and its memory given back. DRVR_ERR
+    dw drv_unload_x
 .drop:                          ; stays, so the page says why the row is
     mov byte [bx+DRVR_WANT], 0  ; unticked. RAM only: DRVR_ANS is 0, so the
 .skip:                          ; file never records it as an answer
@@ -5772,7 +5796,8 @@ drv_boot_x:
     retf
 drv_boot_want:                  ; CL = a row: ZF = 1 when it has no file or is
     mov al, cl                  ; not wanted, else BX = it - the one question
-    call COLD_SEG:drvf_drv_row  ; all three walks above ask (CH is 0 in each).
+    call bvs_cgo                ; all three walks above ask (CH is 0 in each).
+    dw drv_row_x
     cmp word [bx+DRVR_FILE], 0  ; A ROUTINE OF ITS OWN and not a local of
     je .wret                    ; drv_boot_x: a near `ret` inside a far
     cmp byte [bx+DRVR_WANT], 0  ; routine's extent makes os88ovlchk read its
@@ -5795,7 +5820,7 @@ drv_boot_want:                  ; CL = a row: ZF = 1 when it has no file or is
 ; (SPEC.md 31.5): app_launch takes its own locks, so this must run with none
 ; held - which is why it is the last thing kmain does before ui_task.
 ; -----------------------------------------------------------------------------
-DRV_ATTACH bdl                  ; drv_load and the attach half, for drv_boot
+DRV_ATTACH bdl, bvs_cgo                  ; drv_load and the attach half, for drv_boot
                                 ; (kernel size pass 13) - given back with the
                                 ; rest of the blob
 %ifdef KERN_BIG
@@ -5825,16 +5850,17 @@ WM_REFIT bvw, BSWK
 %ifdef DOCK_OPT
 DOCK_APPLY bdk, BSWK, BSWC, bvw
 %endif
+EXF_SYNC bxf, BSWC              ; ...and EXTD.DRV's sync (extmod.inc)
 KGO_PAIR bvs
 %endif
 DRV_TITLES bdt                  ; the rows' names, for drv_boot_x's 'Loading
                                 ; Driver n/N (Title)' - the blob's own copy
 
 section .modu                   ; ...and for the Drivers and Sound pages, in
-DRV_ATTACH cdl                  ; CTRL.DRV's panel half: cp_drv_click and
+DRV_ATTACH cdl, cp_cgo                  ; CTRL.DRV's panel half: cp_drv_click and
                                 ; cp_snd_click are both .modu
 section .modh                   ; ...and for HIBER.DRV's reload after a wake or
-DRV_ATTACH hdl                  ; a suspend (hbm_reload_m). Here and not in
+DRV_ATTACH hdl, hbg_cgo                  ; a suspend (hbm_reload_m). Here and not in
                                 ; hiber.inc because that file is %included
                                 ; before this one, and the macro is defined here
 section .cold                   ; ...and back: drv_notice_x runs AFTER the first
@@ -5977,24 +6003,15 @@ section .cold                   ; ...the far entries themselves live HERE, or
 ; with a module on the other end instead of `.text`, and they are four bytes
 ; each because the bodies keep the near `ret` they have always had.
 ; -----------------------------------------------------------------------------
-drvf_drv_row:            call drv_row_x
-                    retf
 ; ...and three the BOOT OVERLAY needs (SPEC.md 2.5.2): xm_boot_x moved into the
 ; blob and reaches the driver layer exactly as a module does.
-%ifdef KERN_BIG                 ; drv_load_at is not in the small kernel. Its
-                                ; far callers: xm_boot_x and THMPAL.DRV's
-                                ; panel (overlays), and every DRV_ATTACH
-                                ; expansion's %1_load (kernel size pass 13)
-drvf_drv_load_at:        call drv_load_at
-                    retf
-%endif
+; (drvf_drv_row, drvf_drv_load_at and drvf_drv_unload went in kernel size
+; pass 14: their callers are the blob, CTRL.DRV's panel and HIBER.DRV, and each
+; reaches the near body through its own image's KGO_PAIR hop - bvs_cgo,
+; cp_cgo, hbg_cgo - at the five bytes the far call was)
 drvf_drv_call:           call drv_call
                     retf
-drvf_drv_release:        call drv_release
-                    retf
 drvf_drv_cls_svc:        call drv_cls_svc_x
-                    retf
-drvf_drv_unload:         call drv_unload_x
                     retf
 
 ; ...and the four SPEC.md 51.5.3's parser needs. drvf_drv_cfg_save is gone with
@@ -6006,6 +6023,10 @@ drvf_drv_vol_back:       call drv_vol_back
                     retf
 drvf_drv_mounted:        call drv_mounted
                     retf
+; (drvf_drv_release went in kernel size pass 14: every caller is CTRL.DRV's
+; panel, through CPXC, or the blob, through bvs_cgo - the hops those two
+; images already carry - at the five bytes the far call was. drvf_drv_mounted
+; stays: the settings core, `.modc`, may not reach the panel's hop)
 ; (drvf_drv_find and drvf_ss_mins2idle went in kernel size pass 13: their one
 ; caller each - hb_probe_x and the settings reader's unpack - is in the blob,
 ; with nothing in BP, and reaches the near body through wm_cbd)
@@ -6029,7 +6050,7 @@ CFG_SHARED cpc
 CFG_SAVE   cpc
 %ifdef KERN_BIG
 cp_vgc_force:                   ; SPEC.md 39.28: THE ONE COPY, in the settings
-    VGC_FORCE                   ; core - SC_OP_VGC at boot (vgcf_boot) and
+    VGC_FORCE                   ; core - SC_OP_VGC at boot (drv_boot_x) and
 %endif                          ; ctrl.inc's cp_vid_click on the tick
 section .modcb                  ; the writer's file buffer is the module's
 cpc_buf:    resb CFG_FBUF       ; own BSS (docs/plans/MODULE-SELFCONTAIN-PLAN.md

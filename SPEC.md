@@ -3960,7 +3960,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/fprog.inc`  | the file-operation progress widget (§12.8): a document icon and a progress bar in a line box at the right end of the menu bar, armed by the file-operation layer and stepped from inside `dsk_xfer`'s per-sector loop — prefix `fpg_`, all state in `.text` |
 | `kernel/ui.inc`     | UI task: event pump, keyboard poll, drag, dispatch      |
 | `kernel/apps.inc`   | the built-in app kind: About — its template, strings and paint. Timer and Bounce were kinds here until §14.8 made them packages (§111, §112) |
-| `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19); and `dsk_ncopy`/`dsk_streq`, the **counted DS:SI→DS:DI byte copy and the NUL string compare the whole `.cold` segment shares** — `diskw.inc`, `filecp.inc`, `files.inc` and `fdlg.inc` all call it, and it lives here because `disk.inc` is the first `.cold` `%include`, so every site is a backward near reference. It was the same seventeen bytes in four files. Not to be confused with a NUL-stopping bounded copy, which answers a different question |
+| `kernel/disk.inc`   | BIOS int 13h floppy transfers (`disk_read`/`disk_write`), FAT12/16 mount + directory + chain walk (§18–19); and `dsk_ncopy`, the **counted DS:SI→DS:DI byte copy the whole `.cold` segment shares** — `diskw.inc`, `filecp.inc`, `files.inc` and `fdlg.inc` all call it, and it lives here because `disk.inc` is the first `.cold` `%include`, so every site is a backward near reference. It was the same seventeen bytes in four files. (Its NUL string compare, `dsk_streq`, was down to one caller and is written at it since kernel size pass 14.) Not to be confused with a NUL-stopping bounded copy, which answers a different question |
 | `kernel/diskw.inc`  | the FAT write path (§18.4): name parsing, cluster allocation + free, FAT flush, directory entry create/update/delete, the five whole-file operations — prefix `dskw_`; the ONLY caller of `disk_write`. **`.cold`** (§2.6) |
 | `kernel/diskops.inc`  | the disk cloner (§18.99): the on-demand `DISKOPS.DRV` — sector-for-sector copy between any two floppy drives or one drive twice, its XMS/heap planner, its own geometry probe and its status-line prompts — prefix `clo_`; the resident half is one word and one thunk, both **`.cold`**/`.text` (§2.6) |
 | `kernel/hiber.inc`  | hibernate and resume (§87): the on-demand `HIBER.DRV` — the Hibernate window, the image write, the boot-time question, the extent walk, the stub that puts memory back from the text framebuffer and the wake — prefix `hbm_`/`hbs_`; the resident half is the template, the state block, the `.text` thunks a kernel window needs, and in **`.cold`** the boot probe, the greying predicate and the loading thunks (`hb_`/`hbf_`/`hbk_`) |
@@ -3972,7 +3972,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
 | `kernel/dock.inc`   | basic bottom Dock, shared state, advanced-module dispatch and lifetime (§30) |
 | `kernel/dockmod.inc` | optional DOCK.DRV: placement, auto-hide, advanced painting and input (§30.5–30.6) |
-| `kernel/extmod.inc` | EXTD.DRV, `kern_big` only: the extended desktop's placement policy — bringing display 1 up, landing and the straddle fit, which display a window is on, the fsx bracket's collapse, and the second display's arms that run on a user's action (its ground, the zoom and fullscreen boxes, a drag's floor, fsx caps) — prefix `ext_`/`exk_`; the resident half is `exf_sync` in **`.cold`** and the `EXTCALL` sites (§39.19.6) |
+| `kernel/extmod.inc` | EXTD.DRV, `kern_big` only: the extended desktop's placement policy — bringing display 1 up, landing and the straddle fit, which display a window is on, the fsx bracket's collapse, and the second display's arms that run on a user's action (its ground, the zoom and fullscreen boxes, a drag's floor, fsx caps) — prefix `ext_`/`exk_`; the resident half is the `EXTCALL` sites alone since kernel size pass 14 (`exf_sync` is the `EXF_SYNC` macro, expanded in CTRL.DRV and the blob, §39.19.6.1) |
 | `kernel/winmod.inc` | WIN95.DRV, `kern_big` only: the Windows theme's chrome — the title bar with its three buttons on the right, which button a point is on, a held button's rect, the size grip and the pull-down that stays open on a click — prefix `wn_`/`wnx_`/`wnk_`; the resident half is `thv`, its five `jmp far` doors and `thf_apply` in **`.cold`** (§76.14) |
 | `kernel/deskmod.inc` | DESK.DRV, `kern_big` only: the desk layer's code that runs only where a widget exists — `OSAPI_WM_DESK`'s MAKE, DRAG and RELEASE, the hover edge's body, a desk window's show and the widget's key arm — prefix `dkd_`; the resident half is `osapi_wm_desk_x`'s QUERY thunk and `desk_need` in **`.cold`** (which load it - `desk_need` is also the loader's step 5's, for an `OS88_F_DESK` package, and keeps an open `drv_vol` bracket's pair) and the slot calls in `cur_shape_pass`, `wm_show_b` and `fdlg_top_x` (§11.103.10) |
 | `kernel/stikmenu.inc` | STIKMENU.DRV, `kern_big` only: Locator's Sticky Apps menu (§110.12) — the scan of every reachable `STIKAPPS\`, the card reader, the panel's composer and tracker, and the posted pick's launch, close, hide, show and arrange — prefix `stm_`/`smn_`; the resident half is `stm_track_x` and `stm_act_x` in **`.cold`** (load, track, drop; the posted act, drop), `menu_track`'s test for the item-less kernel cell and `ui_cmd`'s `CMD_STIK` |
@@ -16401,8 +16401,9 @@ again - which is `.boot2`'s definition (§2.5.3.3), and it is where
 `xm_boot_x`, the same shape for `XMEM.DRV`, already was. It shipped in `.cold`
 instead, resident for the life of the machine, only because the blob was full
 when it was written. It is in the blob now, reached from `kmain_o` with
-`BLOBCALL`, its edges out far (`drvf_drv_call`, `drvf_drv_release`,
-`ovw_mou_lockon`) and its exit a `retf`.
+`BLOBCALL`, its edges out far (`drvf_drv_call`, `drv_release` through the
+blob's `bvs_cgo` hop since kernel size pass 14, `ovw_mou_lockon`) and its exit
+a `retf`.
 
 **`kern_emu`'s blob is ELEVEN sectors to make the room, and kern_big's stays
 ten.** The body is 94 bytes in the blob (the near calls it had in `.cold`
@@ -16421,7 +16422,11 @@ bytes back, and kern_big and kern_small byte-identical.
 round: kern_big's blob took the sector for `VESA.DRV`'s attach (§120.4), and
 kern_emu's - `vmm_boot_x` and `vx_boot_x` both - fits the same thirteen, so
 kern_emu is on kern_big's length and its `KSIG_OFF`, and only a knob build
-reads one more.
+reads one more. **And it is back later in the same pass**: the reach agent
+moved `vid_apply` and `wm_refit`'s two callees into kern_big's blob
+(§39.3.1, §39.11.2), which leaves the thirteen sectors 61 bytes spare on
+kern_big - and `vmm_boot_x` is ~100 more. So kern_emu reads fourteen again,
+`BOOT2_KNOBSEC`'s arm, for the reason this section gave the first time.
 
 #### 9.11.3 `VMMV_READ`, and the pump
 
@@ -19716,8 +19721,8 @@ A hidden window and a fullscreen one (§11.2, which has no title bar) both
 return having drawn nothing, so a caller need not test either.
 
 **The file manager is the reference consumer.** `fm_settitle` writes the 16
-bytes and banks the window in `[fm_tdirty]`; `fm_title_flush` spends it, and
-only `fm_repaint` calls that, under the lock (`files_poster` was the second
+bytes and banks the window in `[fm_tdirty]`; `fm_title_flush` spends it (written
+in `fm_repaint` since kernel size pass 14), and only `fm_repaint` calls that, under the lock (`files_poster` was the second
 caller and is retired, §22.17). It is
 deferred, and it is a **pointer rather than a flag**, because `fm_settitle`'s
 callers are a mixed set: `fm_go`, `fm_mount` and `fm_view` hold the lock,
@@ -25226,7 +25231,10 @@ now its only caller** — which is the one event it was ever right for: the
 adapter changed under a window nobody has touched, so putting it back where it
 was before a clamp moved it is the whole of §39.11.2.1. The two share a tail,
 so "preference proposes, display clamps, floor lifts" is still composed in one
-place.
+place. (Since kernel size pass 14 the replay is written out in `wm_refit`
+itself - its one caller is a macro expanded only in `CTRL.DRV` and the boot
+blob - and reaches `wm_nat_take_wh`, `wm_pref_now` and `wm_fit` through the
+image's hop.)
 
 **The general rule is the one §39.16.4.2 states from the other side**: the
 kernel decides a window's size; a *user* decides where it is. A cell that
@@ -28964,7 +28972,8 @@ the way, and `kern_small` is untouched throughout: the whole gesture is
 `KERN_BIG`'s, because `W_ONDRAG` is.
 
 **One redundancy is known and left.** On a commit the element has already moved
-the thumb, and `fm_scroll_by` then reaches `fm_sb_thumb`, which moves it again
+the thumb, and `fm_scroll_by` then reaches `fm_sb_thumb` (written in
+`fm_scrollpaint` since kernel size pass 14), which moves it again
 from where `[fm_lscr]` says it was. The picture is right either way — the
 second move draws the thumb where it already is and greys a band that is
 already grey — and it costs three drawing calls, ~2.3 ms on the target machine,
@@ -34395,7 +34404,7 @@ into whatever claims that memory next.
 #### 18.7.1 What the letters mean
 
 The letter is the ROW INDEX and nothing else — six sites do `add al, 'A'`
-(`desk_zone_label`, `dsk_bootltr`, `fdlg`, and three in `files.inc`), so the
+(`desk_caprect`, `dsk_bootltr`, `fdlg`, and three in `files.inc`), so the
 whole of the lettering policy is *which row a volume is given*. There is no
 letter field, nothing persisted moves, and no display code knows this section
 exists. §18.7.4 is that policy's one rule beyond "the first free row".
@@ -38571,9 +38580,9 @@ is why that argument had it backwards for a floppy.
 
 | routine | contract |
 |---------|----------|
-| `dskw_fmt_probe` | in: `[disk_drive]` = the volume. Out: CF=0 with AL = a row of `dskw_fmt_tab`; CF=1 with AX = `FERR_*` — the volume is not a floppy (`FERR_PROT`), or `FORMAT.DRV` could not be read (`FERR_NODISK`). A medium nothing can read is **not** a refusal (§18.96.3). Clobbers AX, flags. **Reads only**, so it is safe to call before the user has agreed to anything, and that is the point: the confirmation names the size it is about to make. |
-| `dskw_format` | in: AL = a `dskw_fmt_tab` row, `[disk_drive]` = the volume. Out: CF=0; CF=1 with AX = `FERR_IO` / `FERR_WPROT` / `FERR_PROT`. Clobbers flags. Writes the boot sector **first** and the root directory last. |
-| `dskw_fmt_reach` | in: AL = the row just written, `[disk_drive]` = the volume, `[disk_spt]`/`[disk_heads]` still the format's. Out: CF=0 — the volume's **last** sector was written and read back intact; CF=1 — it was not. Clobbers AX, flags. Destroys that sector's contents, so it is callable only on a disk the user has already agreed to erase (§18.96.2). |
+| `dskw_fmt_probe` | in: `[disk_drive]` = the volume. Out: CF=0 with AL = a row of `dskw_fmt_tab` and AH = the other row the drive makes (or 0FFh), both also stored as `[fm_fmtrow]`/`[fm_fmtalt]`; CF=1 with AX = `FERR_*` — the volume is not a floppy (`FERR_PROT`), or `FORMAT.DRV` could not be read (`FERR_NODISK`). A medium nothing can read is **not** a refusal (§18.96.3). Clobbers AX, flags. **Reads only**, so it is safe to call before the user has agreed to anything, and that is the point: the confirmation names the size it is about to make. |
+| `dskw_format` | in: `[fm_fmtrow]` = a `dskw_fmt_tab` row, `[fm_fmtalt]` = the other row this drive makes (or 0FFh), `[disk_drive]` = the volume. Out: CF=0 with AL = 1 if it fell back to 360KB (§18.96.2) and 0 if the row asked for stood, `[fm_fmtrow]` naming what is on the platter; CF=1 with AX = `FERR_IO` / `FERR_WPROT` / `FERR_PROT` (or `FERR_NODISK`, `FORMAT.DRV` unreadable). Clobbers AX, flags. Writes the boot sector **first** and the root directory last, then runs the reach test below on what it wrote - inside `FORMAT.DRV`, as `dskw_fmt_do_x` (kernel size pass 14 moved the test and its fallback there from the resident `fm_fmt_reach`). |
+| `dskw_fmt_reach_x` | image-internal now (no resident stub). In: AL = the row just written, `[disk_drive]` = the volume, `[disk_spt]`/`[disk_heads]` still the format's. Out: CF=0 — the volume's **last** sector was written and read back intact; CF=1 — it was not. Clobbers AX, flags. Destroys that sector's contents, so it is callable only on a disk the user has already agreed to erase (§18.96.2). |
 
 The boot sector it writes is `tools/os88disk.py`'s data-floppy sector byte for
 byte **but for its serial**: `dskw_fmt_t2`'s 0x88000888 is only the base, and
@@ -38729,7 +38738,7 @@ the reason for the check, since a disk that silently loses whatever is
 written past cylinder 39 is not a thing to ship on the grounds that it can be
 reformatted afterwards.)
 
-So `dskw_fmt_reach` runs after a successful `dskw_format` of **row 2**, the
+So `dskw_fmt_reach_x` runs after a successful format of **row 2**, the
 only row the toggle can produce that a 40-cylinder drive cannot hold (and
 since §18.96.4 after every format, with this fallback kept for row 2 where
 360KB is the drive's other format). It
@@ -40275,8 +40284,8 @@ and the freed row is the next mount's, `dsk_vol_add` handing out the first
 free one. Left naming the index, the image's transfers went to whatever took
 it: another image recursed through `.img`, overwrote `[dsk_imgcur]` and
 traded the wrong claim back, and a partition took the image's writes at its
-host LBAs. So `dsk_vol_del`'s free path calls `dsk_img_orphan` (`.cold`, near), which
-walks the rows from 3 (an image is never C:) and sets byte 0 of every
+host LBAs. So `dsk_vol_del`'s free path (in line since kernel size pass 14;
+it was `dsk_img_orphan`, a near routine with that one caller) walks the rows from 3 (an image is never C:) and sets byte 0 of every
 `DRVC_IMG` claim naming the freed index to `0xFF`, which no row is: the image's next transfer fails at the inner
 `dsk_vol_row_x`, *Disk error* and never a sector, and Unmount Image still
 takes the row and the claim through its *file not where it was* path
@@ -40364,7 +40373,7 @@ write-at body - call it after `dskw_find` has staged the entry in `dskw_raw`,
 and it ORs `DSKW_RDO` into the staged attribute byte when a `DRVC_IMG` row's
 claim names the CURRENT volume as its host (byte 0) and the entry's first
 cluster as the file's (`IMG_M_CLUS`). The walk over the rows is
-`dsk_img_next`, which `dsk_img_orphan` (§18.101.1) shares. The OR is safe
+`dsk_img_next`, which `dsk_vol_del`'s orphan walk (§18.101.1) shares. The OR is safe
 because every caller tests that byte next and refuses on it, so a staged
 entry carrying the bit is never written back; the one path that forgives
 read-only is `dskw_write_sys` replacing a file that already wears the
@@ -41838,7 +41847,8 @@ property:
 
 Three consequences worth stating:
 
-- **The header says "N files" without the link.** `fm_nfiles` asks the
+- **The header says "N files" without the link.** `fm_nfiles` (written in the
+  header's composer since kernel size pass 14) asks the
   listing — is entry 0 type 3? — rather than deriving it from `FS_CWD`,
   because those two can disagree: a `..` whose on-disk link is unreadable
   gets **cluster 0, the root**, rather than no row at all, so the user is
@@ -51127,7 +51137,8 @@ the file. The unnaming in `fcp_relink` is the one delete in this system that
 leaves the clusters alone, because they are not free: the entry just written owns them
 now, and `dskw_delete` would take the moved file with it.
 
-**A moved folder's own `..` follows it** (`fcp_rlup`). Entry 1 of a
+**A moved folder's own `..` follows it** (`fcp_rlup`, written in `fcp_relink`
+since kernel size pass 14). Entry 1 of a
 subdirectory is `..` by spec — the same fact `dsk_dotdot` rests on (§19.2) —
 and it is checked rather than assumed, because everything read off the disk
 is hostile. Without it the folder still lists and still opens, but going up
@@ -51330,7 +51341,8 @@ that offset — the low byte is always zero, because the offset is `nmax × 32`
 and both caps are multiples of 8, and `files.inc` asserts that at assembly
 time rather than trusting it. It is written by `fmv_store`, which is already
 "THE ONE PLACE A WINDOW'S LISTING IS REPLACED" (§22.14) and therefore the one
-place that knows the shape it has just written; `fmv_viofs` reads it.
+place that knows the shape it has just written; `fmv_viofs` reads it (in line in
+`fmv_get_dir`, its one caller, since kernel size pass 14).
 `fmv_iofs` still answers for the **global** snapshot and still has exactly
 the two callers that mean the global: `fmv_store`, which is copying it, and
 `fmv_copy_in`'s no-cache fallback, which is reading it. A window with no
@@ -51844,7 +51856,7 @@ sake (§22.4), so it has one to give.
 **The down state is TWO words, not one byte**, and that is the trap this
 window has that the Control Panel does not: there can be **four** Disk
 windows. `[fm_dbtn]` is which button and `[fm_dvp]` is whose, and `fm_isdown`
-asks both — without the second, a damage repaint of a *different* Disk window
+(written at its one call since kernel size pass 14) asks both — without the second, a damage repaint of a *different* Disk window
 behind the drag draws the same button pressed in a window nobody has touched.
 
 **The edges are installed in `fm_kinit`**, because `W_ONMOUSEUP` and
@@ -52366,7 +52378,7 @@ falls back to its own arena stream on: nothing was written.
 
 **The answer is read out of `[fcp_err]`**, which `fcp_run` leaves as
 `FERR_OK`, as `FERR_EXIST` when the destination is the folder the entry is
-already in (`fcp_here`: nothing to do and nothing written — a paste treats it
+already in (`fcp_here`, written in `fcp_run2` since kernel size pass 14: nothing to do and nothing written — a paste treats it
 as done, a door says so, and doing it would truncate the entry being read), or
 as the `FERR_*` behind an `FCPS_ERR`. It lands under the **same name**; a copy
 that renames is a copy and then `OSAPI_FILE_RENAME`. A folder goes with
@@ -55858,7 +55870,7 @@ the kernel is RAM on every machine that can never draw it.
 
 So a FILE-class driver (§62.9) may set **`FSCAP_ICON` = 2** in `DSV_CAPS`,
 beside `FSCAP_LOCAL`. `desk_pic`, before it consults the medium, asks
-`desk_drvico`: a `DVK_FILE` row, its class's copied `DSV_CAPS` with the bit
+(in line - it was `desk_drvico` until kernel size pass 14): a `DVK_FILE` row, its class's copied `DSV_CAPS` with the bit
 set - and then the driver's door, `DSV_PKGCALL` with **BL = `DRV_ICONV`
 (41h)** and CX/DX the picture's top-left, exactly as `.svcico` asks The
 Wire's driver for its zone (§26.7). The driver draws with `OSAPI_ICON_DRAW`
@@ -55873,7 +55885,7 @@ driver's picture like any other and nothing is written twice.
 The verb is 41h, clear of every door's own verbs and of `WZV_PAINT` (40h),
 because `NET.DRV` is a file class with a door and a zone of its own.
 
-**What it costs**: `desk_drvico` and its call, `.cold` only (no picture, no
+**What it costs**: that test in `desk_pic`, `.cold` only (no picture, no
 `.text`); `kern_small` has no driver and no change. `CDROM.DRV` is the first
 driver to set it (`drivers/cdrom/cdico.inc`, §119.3).
 
@@ -56013,8 +56025,8 @@ driver's string went with the notice.
 and every routine in `desk.inc` is asked about a zone INDEX and never about a
 drive, so it selects, highlights, repaints under a dragged window, moves when
 dragged and packs into the next free cell exactly as a disk does. What is its
-own is three arms: `desk_live` (`[desk_svc_seg]` non-zero), `desk_zone_label`
-and `desk_draw_zone`.
+own is three arms: `desk_live` (`[desk_svc_seg]` non-zero), `desk_caprect`'s
+caption (it was `desk_zone_label`) and `desk_draw_zone`.
 
 **It is visible when a driver has registered one** (`[desk_svc_seg]` is its
 segment, and 0 is the whole of what a machine without such a driver tests)
@@ -72674,6 +72686,18 @@ change — every caller of `vid_apply`: `vid_switch`, `vid_disp_init`, and the f
 anyway — and a 9.2 s boot does not notice 15 ms; it is written down because
 that is only true while somebody has checked.
 
+**On kern_big no resident code calls `vid_apply` at all** (kernel size pass
+14), so it is written ONCE as `viddet.inc`'s `VID_APPLY` macro and expanded
+where its callers are, §51's `DRV_ATTACH` shape: `bvs_apply` in the boot blob
+(the splash's first tick, `vid_init` and the blob's own `vid_switch` /
+`vid_disp_init`), `vid_apply` in `CTRL.DRV` (Set Primary and the arrangement)
+and `ext_apply` in `EXTD.DRV` (the fullscreen bracket's restore of an extended
+desktop). An image's copy writes `gfx_nextrow`'s three instructions out - its
+operands are `[cs:]` - and pops its own frame; the blob's reaches
+`vid_depth_set` through `spw_near`, the one door the first tick has aboard.
+kern_small keeps the single resident copy, byte for byte: its panel image has
+no room for one.
+
 **It does not run on a §39.12 display swap, and must not.** `vid_ctx_act` sits
 under a drawing primitive whose whole floor is ~756 us; a rebuild there is 23.6
 ms, thirty-one times the primitive it is inside. That is why the swap turns the
@@ -73341,8 +73365,12 @@ expanded a third time, into EXTD.DRV (`ext_`). 399 resident bytes for a
 twelfth blob sector that costs no `int 13h` on any geometry (`t_blobruns`);
 kern_small keeps eleven. What stays resident is what something outside the
 panel, the boot and EXTD.DRV reaches: `wm_su_drop_all` (`OSAPI_THM_SET`),
-`vid_dual_ok` (`fsx_page`), `vid_ctx_capture` and `wm_pref_take`/
-`wm_apply_size` (every window that is sized).
+`vid_dual_ok` (`fsx_page`), `vid_ctx_capture` and `wm_pref_take` (every
+window that is sized). Kernel size pass 14 took the rest of that walk: nothing
+resident reached `vid_apply`, `wm_apply_size` or `wm_sz_notify` either, so the
+first is written once and expanded in the blob, `CTRL.DRV` and `EXTD.DRV`
+(§39.3.1) and the other two are written out at their callers - `wm_refit`'s
+two expansions and EXTD.DRV's `ui_drag_size`.
 
 #### 39.11.2.1 …and back again — the natural bank
 
@@ -76217,7 +76245,15 @@ arm, because `wm_bord` reaches them under every window's content rect and
 `fsx_surf`'s arm, which Tracker and DOT DELIRIUM ask per frame inside a
 bracket; `ui_drag_dead` and `ui_drag_phase`, on the drag; and ui_task's two
 secondary-click tests, six bytes each on every press, where an `EXTCALL` is
-four and a far call per click on one display buys two. `fsx_run`'s
+four and a far call per click on one display buys two. **Kernel size pass 14
+took `ui_drag_dead` after all** (`EXT_DEAD`, −37 resident), **and
+`ui_drag_phase`'s arm** (`EXT_PHASE`, −10): both run ONCE, at the drag's
+release and not under the tracking loop. On one display `ui_drag_dead`'s
+`EXTCALL` into `mod_gone` (`call far [m]` 43 + `stc`/`retf` 36 cycles on the
+8088) costs what the resident near call, its `[vid_ndisp]` compare, branch and
+`ret` cost (~81); the phase arm's costs ~37 cycles more than its compare and
+branch, once per drop. An extended desktop pays a far call and an `EXK` hop or
+two (~400-700 cycles) once per drop. `fsx_run`'s
 `wm_disp_of` stays a near call to the resident routine, which is the same
 bytes either way.
 
@@ -76246,6 +76282,8 @@ every register kept (§2.8.1) — and every call site is either behind a
 | 11 | `EXT_YLOW` — `ui_ylow`'s arm | `ui_drag`, GATED (the release) | never reached; the caller loaded `MBAR_H` into SI |
 | 12 | `EXT_FCUT` — `ext_fcut`, §39.14.11's cell cut | `font_ch_spill`, GATED (`[gfx_dnest]` = 1) | never reached; CF = 1 would be §39.14.2's whole-cell drop |
 | 13 | `EXT_BCUT` — `ext_bcut`, §39.14.7.2's blit cut | `gfx_blit4`, GATED (`[vid_ndisp]` > 1, a straddle) | never reached; CF = 1 (and an ODD cut) is §39.14.7's run-splitting path |
+| 14 | `EXT_DEAD` — `ext_e_dead`, §39.16.1's dead-zone pull (was `ui_drag_dead`) | `ui_drag`, UNGATED (once, at the release) | every register kept: one display has no dead zone |
+| 15 | `EXT_PHASE` — `ext_e_phase`, `ui_drag_phase`'s second-display arm (§11.96.13) | `ui_drag_phase`, UNGATED (once, at the release) | every register kept: on one display the phase stands |
 
 `mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
 the first of these can run; the early `vid_disp_init` in `kmain_o`, before
@@ -76265,8 +76303,11 @@ refused both times, naming the line.
 
 ##### 39.19.6.1 Lifetime: pinned while extended, dropped on the way back to Single
 
-One resident routine, **`exf_sync`** (`.cold`, far, 46 bytes), reconciles the
-image with `[vid_dmode]`, `dkf_apply`'s shape: Extend → `mod_need(MOD_EXT)`,
+One routine, **`exf_sync`**, reconciles the image with `[vid_dmode]` - since
+kernel size pass 14 NOT resident: it is the `EXF_SYNC` macro (extmod.inc),
+expanded as `cxf_sync` in CTRL.DRV and `bxf_sync` in the boot blob, its two
+kernel calls through each image's own `KGO_PAIR` hop (−46 resident, it was 46
+bytes of far `.cold`) - `dkf_apply`'s shape: Extend → `mod_need(MOD_EXT)`,
 and a refusal puts `[vid_dmode]` back to Single and answers CF = 1; Single →
 `mod_drop`, but **only once `[vid_ndisp]` ≤ 1** — the drop waits for the
 collapse, which is the invariant kept by construction rather than by care.
@@ -79058,7 +79099,8 @@ overlay, which dies at `mem_unblob` and costs nothing resident. It is 113
 bytes, and the overlay had 25 left on `kern_big` and **19 on `kern_emu`**,
 whose VMware probe also lives there; a key costs it 10 bytes on its own
 (the `_keys` row and `CFG_FBUF`'s growth). So the overlay makes one far call
-and nothing else, and `vgcf_boot` — 28 bytes of `.cold`, resident — tests
+and nothing else, and `vgcf_boot` — 28 bytes of `.cold`, resident (in the
+boot blob, at its one call site in `drv_boot_x`, since kernel size pass 14) — tests
 the byte, reads the core with `mod_need MOD_SETS`, runs `SC_OP_VGC` through
 its one slot and drops it again. **The core is read only on a machine whose
 box is ticked**, so every other machine pays the 28 bytes and no disk time;
@@ -103945,7 +103987,7 @@ of twenty new packages is one flush that writes all twenty.
 #### 54.7.6.4 The flush, `FME_ASCW`, in `FORMAT.DRV`
 
 `asc_flush` (DL = volume, AL = mode) loads the format image through
-`dskw_fmt_go`, far-calls its fifth entry, and drops the image again. No
+`dskw_fmt_go`, far-calls its fourth entry, and drops the image again. No
 formatter code can be on the stack when it runs. A format prompt that was
 holding the image reloads it through `dskw_fmt_go`, as every formatter stub
 already does. A refused load is silent: CF=1,

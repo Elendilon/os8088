@@ -2151,7 +2151,8 @@ hbm_sweep:
     xor cx, cx
 .row:
     mov al, cl
-    call COLD_SEG:drvf_drv_row  ; BX = the row
+    call hbg_cgo                ; BX = the row
+    dw drv_row_x
     cmp word [bx+DRVR_SEG], 0
     je .next
 %ifdef VID_EXT
@@ -2216,7 +2217,8 @@ hbm_sweep:
     pop cx
 .unload:
     mov al, cl
-    call COLD_SEG:drvf_drv_unload
+    call hbg_cgo
+    dw drv_unload_x
 .next:
     inc cx
     cmp cx, DRV_MAX
@@ -2243,7 +2245,8 @@ hbm_reload_m:
     shr dx, 1
     jnc .next
     mov al, cl
-    call COLD_SEG:drvf_drv_row  ; BX = the row hdl_load takes
+    call hbg_cgo                ; BX = the row hdl_load takes
+    dw drv_row_x
     call hdl_load               ; failures show on the Drivers page, as at boot
 .next:
     inc cx
@@ -5642,6 +5645,12 @@ hbm_s_psbad: db 13, 10, 'Resume failed: the programs', 39, ' memory did not read
 hbm_s_off:  db 13, 10, 'os8088 has hibernated.', 13, 10, 13, 10
             db 'It is now safe to switch the machine off.', 13, 10
             db 'Press any key to restart it.', 13, 10, 0
+
+; hbg_kgo / hbg_cgo - this image's far hop into the kernel (kernel.asm's
+; KGO_PAIR, CTRL.DRV's cp_ pair and the blob's bvs_ one): drv_row_x,
+; drv_unload_x and drv_load_at are reached through it, so the three resident
+; four-byte far shims that only images called could go (kernel size pass 14)
+KGO_PAIR hbg
 
 ; --- THE IMAGE'S OWN BSS (docs/plans/MODULE-SELFCONTAIN-PLAN.md 3.1) --------
 ; `nobits`, in the tail of the module's own claim: mod_need rounds the claim up

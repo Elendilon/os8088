@@ -281,7 +281,8 @@ xm_boot_x:
     cmp byte [xm_row+DRVR_WANT], 0
     je .out                     ; no store on this machine: not one sector
     mov bx, xm_row
-    call COLD_SEG:drvf_drv_load_at            ; loaded and validated, NOT attached
+    call bvs_cgo                ; loaded and validated, NOT attached
+    dw drv_load_at
     jc .out
     mov bp, [bx+DRVR_ENT]
     mov al, DRVV_ATTACH
@@ -366,7 +367,8 @@ xm_boot_x:
                                 ; but a debugger reading the row should find
                                 ; the truth rather than the DRVE_OK the load
                                 ; stamped on its way past
-    call COLD_SEG:drvf_drv_release            ; BX = the row; the claim goes back and
+    call bvs_cgo            ; BX = the row; the claim goes back and
+    dw drv_release              ; (the blob's hop: drvf_drv_release went)
     jmp short .out              ; nothing was hooked
 %endif
 

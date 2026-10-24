@@ -540,7 +540,11 @@ mem_init_x:
     cmp word [spl_fseg], 0
     je .nospl
     mov ax, [spl_fseg]
+%ifdef KERN_SMALL
     add ax, BOOT2_PAD / 16      ; ...the paragraph past the blob's last byte
+%else                           ; ...and past its nobits scratch, kern_big's
+    add ax, BOOT2_RES / 16      ; SYSTEM.CFG buffer (ovc_buf, driver.inc)
+%endif
 .nospl:
     mov [mem_base], ax
     mov [mem_top], ax           ; an empty heap until int 12h says more
