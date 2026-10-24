@@ -199,7 +199,7 @@ def main():
         ui.open_drive("A")              # the machine still answers
         check(True, "the desktop answers after the registers are put back")
     print("tnest: %s" % ("FAIL (%d)" % len(FAILS) if FAILS else
-                         "6 checks passed"))
+                         "7 assertions passed"))
     return 1 if FAILS else 0
 
 

@@ -5826,7 +5826,10 @@ SOAK = [
         "under FTPD's pre-empted worker. A unit test inside the live machine: "
         "the row parks the CPU on wm_nest_pushd/pop, mem_in_nest and "
         "inst_seg_parked with chosen registers and puts everything back. 7.6s "
-        "measured; all six go red with the push's `jne .count` taken out",
+        "measured; all six go red with the push's `jne .count` taken out, and "
+        "the seventh - a UI push made while a worker's count stands is still "
+        "recorded, wm_tcnt being wm_pkgd's HIGH byte - with the push's index "
+        "made a word load again (kernel size pass 14)",
         needs=("marty",), serial=True),
     Row("lemmove", "soak", py("tests/lemmove.py"), 121.0,
         "LEMMINGS' KEPT LEVEL MOVES AND PLAYS ON (SPEC.md 116.6.2, "
