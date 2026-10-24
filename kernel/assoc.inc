@@ -1414,10 +1414,8 @@ assoc_run_x:
     pop ax
     mov bp, assoc_tryext
     call assoc_sweep            ; AL = the slot some volume names now
-    jc .rnone
+    jc .noassoc                 ; (short: .noassoc is just above .nofile)
     jmp .known
-.rnone:
-    jmp .noassoc
 .needs:
     call assoc_back
     mov si, assoc_pnbuf         ; 'Needs TRACKER.O88', because "Program not

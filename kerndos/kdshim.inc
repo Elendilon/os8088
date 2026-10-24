@@ -46,7 +46,7 @@
 ; disk layer reads. They cost nothing and are here rather than %included
 ; because pulling those three files in is exactly what this root is avoiding.
 MEM_P_FATW_N equ 8              ; one FAT window per volume (SPEC.md 18.8.4)
-FM_NENT      equ 4              ; diskw.inc's format module's entry count
+FM_NENT      equ 3              ; diskw.inc's format module's entry count
 
 ; ...and the rest, LIFTED VERBATIM from the files that own them rather than
 ; re-derived, because a constant re-typed is a constant that drifts - which is

@@ -3938,7 +3938,9 @@ fm_onwheel_x:
     call kentc_di
     call fm_svp_set             ; DI = this window's state, as fm_onkey_x has
     test byte [di+FS_EDIT], ~FM_ESAVE & 0xFF ; 0 (none) and 8 (the Save
-    jnz .x                      ; box, on the status line) scroll; 1-7 do not
+    jnz fm_onkey_x.outI         ; box, on the status line) scroll; 1-7 do
+                                ; not, and leave by the key handler's own
+                                ; `jmp kretc_di`, just below (-3)
     call fm_slayout             ; fm_scroll_by clamps against the live layout
     call fm_isicon
     jne .grid
@@ -3947,8 +3949,6 @@ fm_onwheel_x:
     add ax, dx
 .grid:
     jmp fm_onkey_x.scr_move
-.x:
-    jmp kretc_di
 %endif
 
 fm_onkey_x:
@@ -5186,62 +5186,6 @@ fm_fmt_ok:
     stc
 .out:
     pop bx
-    ret
-
-; -----------------------------------------------------------------------------
-; fm_fmt_reach - prove the drive can hold what was just declared (18.96.2)
-; in:  [fm_fmtrow] = the row dskw_format has just written, [disk_drive] = the
-;      volume, that format's geometry still live
-; out: CF=0 with AL = 1 if it had to FALL BACK to 360K and 0 if the size the
-;      user asked for stood; [fm_fmtrow] names the volume ACTUALLY on the
-;      platter either way. CF=1 with AX = FERR_* - the fallback format failed,
-;      or a format with no fallback did not reach its last sector (FERR_IO)
-; clobbers: AX, flags
-;
-; Every row is checked (SPEC.md 18.96.4): Space can pick a size the read argued
-; against, and a format that cannot write and read back its own last sector is
-; reported rather than mounted. Row 2 (720K) on a drive whose other format is
-; 360K is the one that FALLS BACK: it is the 40-cylinder case below. Anywhere
-; else a failure is FERR_IO.
-;
-; A failure RE-FORMATS as 360K rather than reporting and stopping, and that is
-; not a courtesy: the 720K volume just written MOUNTS - its whole layout is
-; inside cylinder 0 - and 22.12's predicate greys Format Disk out on a window
-; whose mount succeeded. Stopping would leave a disk that lies about its size
-; and no way left to remake it.
-;
-; **IT SAYS NOTHING ITSELF, and that is a MERGE finding rather than a design
-; one.** It used to raise its own toast here, which was correct while it was
-; the only verdict on this path; 22.12.1's 'Formatted B:' then arrived from
-; the integration branch and is said AFTER fmv_load, so the two features each
-; worked alone and, together, the success overwrote the failure and the
-; message that mattered was the one nobody saw. One operation gets one verdict
-; (SPEC.md 59), so the ANSWER comes back in AL and fm_edit_commit picks which
-; of the two to say - after the re-list, on 22.12.1's own ordering.
-; -----------------------------------------------------------------------------
-fm_fmt_reach:
-    mov al, [fm_fmtrow]         ; EVERY format is checked now (18.96.4): the
-    call dskw_fmt_reach         ; size can be the user's against the read's,
-    jnc .ok                     ; and two int 13h calls is nothing to an
-                                ; ~80-second format
-    mov ax, FERR_IO
-    cmp byte [fm_fmtrow], 2     ; only 720K falls back, and only where 360K
-    jne .bad                    ; is the drive's other format - an HD
-    cmp byte [fm_fmtalt], 3     ; drive's or an internal 720K drive's 720K
-    jne .bad                    ; that cannot reach its end is a bad disk,
-                                ; not a 40-cylinder drive
-    mov byte [fm_fmtrow], 3     ; 360K - and the caller re-lists and re-titles
-    mov al, 3                   ; from this, so the window describes the disk
-    call dskw_format            ; that exists rather than the one asked for
-    jc .out                     ; AX = FERR_*, said by the caller
-    mov al, 1                   ; ...and the caller says WHICH verdict (CF=0:
-    ret                         ; the jc above was not taken)
-.ok:
-    xor al, al                  ; CF=0 too
-.out:
-    ret
-.bad:
-    stc                         ; AX = FERR_IO, said by the caller
     ret
 
 ; -----------------------------------------------------------------------------
@@ -6730,15 +6674,14 @@ fm_edit_commit:
     ; this window's keystrokes throughout), and a sync now would cost a
     ; doomed mount of the very disk we are about to replace.
 .fmt:
-    mov al, [fm_fmtrow]
-    call dskw_format
-    jc .bad
-    call fm_fmt_reach           ; the size may have been the USER's, and a
-                                ; 720K volume a 40-cylinder drive cannot hold
-                                ; mounts perfectly and then lies (18.96.2).
-                                ; BEFORE the re-list below, because this can
-                                ; make the disk a second time and the window
-                                ; has to describe what is on the platter
+    call dskw_format            ; [fm_fmtrow] - and PROVED: the size may have
+                                ; been the USER's, and a 720K volume a
+                                ; 40-cylinder drive cannot hold mounts
+                                ; perfectly and then lies (18.96.2), so the
+                                ; image reads its last sector back and falls a
+                                ; 720K back to 360K. BEFORE the re-list below,
+                                ; because that makes the disk a second time and
+                                ; the window has to describe the platter
     jc .bad
     push ax                     ; AL = did it fall back? Banked across the
                                 ; re-list, because the verdict below is one

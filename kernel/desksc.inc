@@ -369,9 +369,11 @@ lnk_open:
     jne .walk                   ; (SPEC.md 26.10.7): the text after the
     push ax                     ; path's NUL, armed for OSAPI_ARG_TEXT. It
     push di                     ; stays where it is - this record outlives
-    push ss                     ; the launch - and a link to a document
-    pop es                      ; carries none to whichever program its
-    xor al, al                  ; extension names
+                                ; the launch - and a link to a document
+                                ; carries none to whichever program its
+                                ; extension names. ES is still SS: the read
+                                ; above was handed ES:BX and keeps ES
+    xor al, al
     mov cx, SC_PATHMAX - 1
     repne scasb                 ; past the path's NUL - or onto the forced
     cmp [es:di], al             ; one, a path of 44 having no room for any

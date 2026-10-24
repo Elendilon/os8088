@@ -38563,8 +38563,8 @@ is why that argument had it backwards for a floppy.
 | routine | contract |
 |---------|----------|
 | `dskw_fmt_probe` | in: `[disk_drive]` = the volume. Out: CF=0 with AL = a row of `dskw_fmt_tab`; CF=1 with AX = `FERR_*` — the volume is not a floppy (`FERR_PROT`), or `FORMAT.DRV` could not be read (`FERR_NODISK`). A medium nothing can read is **not** a refusal (§18.96.3). Clobbers AX, flags. **Reads only**, so it is safe to call before the user has agreed to anything, and that is the point: the confirmation names the size it is about to make. |
-| `dskw_format` | in: AL = a `dskw_fmt_tab` row, `[disk_drive]` = the volume. Out: CF=0; CF=1 with AX = `FERR_IO` / `FERR_WPROT` / `FERR_PROT`. Clobbers flags. Writes the boot sector **first** and the root directory last. |
-| `dskw_fmt_reach` | in: AL = the row just written, `[disk_drive]` = the volume, `[disk_spt]`/`[disk_heads]` still the format's. Out: CF=0 — the volume's **last** sector was written and read back intact; CF=1 — it was not. Clobbers AX, flags. Destroys that sector's contents, so it is callable only on a disk the user has already agreed to erase (§18.96.2). |
+| `dskw_format` | in: `[fm_fmtrow]` = a `dskw_fmt_tab` row, `[fm_fmtalt]` = the other row this drive makes (or 0FFh), `[disk_drive]` = the volume. Out: CF=0 with AL = 1 if it fell back to 360KB (§18.96.2) and 0 if the row asked for stood, `[fm_fmtrow]` naming what is on the platter; CF=1 with AX = `FERR_IO` / `FERR_WPROT` / `FERR_PROT` (or `FERR_NODISK`, `FORMAT.DRV` unreadable). Clobbers AX, flags. Writes the boot sector **first** and the root directory last, then runs the reach test below on what it wrote - inside `FORMAT.DRV`, as `dskw_fmt_do_x` (kernel size pass 14 moved the test and its fallback there from the resident `fm_fmt_reach`). |
+| `dskw_fmt_reach_x` | image-internal now (no resident stub). In: AL = the row just written, `[disk_drive]` = the volume, `[disk_spt]`/`[disk_heads]` still the format's. Out: CF=0 — the volume's **last** sector was written and read back intact; CF=1 — it was not. Clobbers AX, flags. Destroys that sector's contents, so it is callable only on a disk the user has already agreed to erase (§18.96.2). |
 
 The boot sector it writes is `tools/os88disk.py`'s data-floppy sector byte for
 byte **but for its serial**: `dskw_fmt_t2`'s 0x88000888 is only the base, and
@@ -38720,7 +38720,7 @@ the reason for the check, since a disk that silently loses whatever is
 written past cylinder 39 is not a thing to ship on the grounds that it can be
 reformatted afterwards.)
 
-So `dskw_fmt_reach` runs after a successful `dskw_format` of **row 2**, the
+So `dskw_fmt_reach_x` runs after a successful format of **row 2**, the
 only row the toggle can produce that a 40-cylinder drive cannot hold (and
 since §18.96.4 after every format, with this fallback kept for row 2 where
 360KB is the drive's other format). It
@@ -40266,8 +40266,8 @@ and the freed row is the next mount's, `dsk_vol_add` handing out the first
 free one. Left naming the index, the image's transfers went to whatever took
 it: another image recursed through `.img`, overwrote `[dsk_imgcur]` and
 traded the wrong claim back, and a partition took the image's writes at its
-host LBAs. So `dsk_vol_del`'s free path calls `dsk_img_orphan` (`.cold`, near), which
-walks the rows from 3 (an image is never C:) and sets byte 0 of every
+host LBAs. So `dsk_vol_del`'s free path (in line since kernel size pass 14;
+it was `dsk_img_orphan`, a near routine with that one caller) walks the rows from 3 (an image is never C:) and sets byte 0 of every
 `DRVC_IMG` claim naming the freed index to `0xFF`, which no row is: the image's next transfer fails at the inner
 `dsk_vol_row_x`, *Disk error* and never a sector, and Unmount Image still
 takes the row and the claim through its *file not where it was* path
@@ -40355,7 +40355,7 @@ write-at body - call it after `dskw_find` has staged the entry in `dskw_raw`,
 and it ORs `DSKW_RDO` into the staged attribute byte when a `DRVC_IMG` row's
 claim names the CURRENT volume as its host (byte 0) and the entry's first
 cluster as the file's (`IMG_M_CLUS`). The walk over the rows is
-`dsk_img_next`, which `dsk_img_orphan` (§18.101.1) shares. The OR is safe
+`dsk_img_next`, which `dsk_vol_del`'s orphan walk (§18.101.1) shares. The OR is safe
 because every caller tests that byte next and refuses on it, so a staged
 entry carrying the bit is never written back; the one path that forgives
 read-only is `dskw_write_sys` replacing a file that already wears the
@@ -55818,7 +55818,7 @@ the kernel is RAM on every machine that can never draw it.
 
 So a FILE-class driver (§62.9) may set **`FSCAP_ICON` = 2** in `DSV_CAPS`,
 beside `FSCAP_LOCAL`. `desk_pic`, before it consults the medium, asks
-`desk_drvico`: a `DVK_FILE` row, its class's copied `DSV_CAPS` with the bit
+(in line - it was `desk_drvico` until kernel size pass 14): a `DVK_FILE` row, its class's copied `DSV_CAPS` with the bit
 set - and then the driver's door, `DSV_PKGCALL` with **BL = `DRV_ICONV`
 (41h)** and CX/DX the picture's top-left, exactly as `.svcico` asks The
 Wire's driver for its zone (§26.7). The driver draws with `OSAPI_ICON_DRAW`
@@ -55833,7 +55833,7 @@ driver's picture like any other and nothing is written twice.
 The verb is 41h, clear of every door's own verbs and of `WZV_PAINT` (40h),
 because `NET.DRV` is a file class with a door and a zone of its own.
 
-**What it costs**: `desk_drvico` and its call, `.cold` only (no picture, no
+**What it costs**: that test in `desk_pic`, `.cold` only (no picture, no
 `.text`); `kern_small` has no driver and no change. `CDROM.DRV` is the first
 driver to set it (`drivers/cdrom/cdico.inc`, §119.3).
 
@@ -103887,7 +103887,7 @@ of twenty new packages is one flush that writes all twenty.
 #### 54.7.6.4 The flush, `FME_ASCW`, in `FORMAT.DRV`
 
 `asc_flush` (DL = volume, AL = mode) loads the format image through
-`dskw_fmt_go`, far-calls its fifth entry, and drops the image again. No
+`dskw_fmt_go`, far-calls its fourth entry, and drops the image again. No
 formatter code can be on the stack when it runs. A format prompt that was
 holding the image reloads it through `dskw_fmt_go`, as every formatter stub
 already does. A refused load is silent: CF=1,
