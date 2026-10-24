@@ -12,87 +12,73 @@ section .text
 ser_row: dw 0xffff
 
 ; X cell: ES is the caller's package segment. UI task only. Preserve all
-; but AX/CF. The instance stamp is the OS's, never a caller-supplied owner.
+; but AX/CF. The instance stamp is the OS's, never a caller-supplied owner:
+; DH = the caller's slot, which ser_api_x refuses past INST_MAX and the module
+; turns into its record (srl_open) - so DI is never spent here (kernel size
+; pass 14: inst_ptr and its AX/DI banks lived here, -20 resident)
 osapi_serial:
     push dx
-    push di
     call inst_caller
-    cmp dh, INST_MAX
-    jae .bad
-    push ax
-    mov al, dh
-    call inst_ptr
-    pop ax
     call COLD_SEG:ser_api_x
-.out:
-    pop di
     pop dx
     ret
-.bad:
-    mov ax, 5
-    stc
-    jmp short .out
 
-; AL=instance being torn down. Release before its region can be freed.
+; AL=instance being torn down, or FFh (mouse_unhook's reboot sweep). Release
+; before its region can be freed. Clobbers AX and FLAGS: both callers pop or
+; overwrite AX next and read no flag (inst_rel_rec, mouse_unhook)
 ser_release_inst:
     cmp word [ser_row], 0xffff
     je .out
-    pushf
-    push ax
     call far [SERFP+SER_RELEASE]
-    jc .done
-    call COLD_SEG:ser_drop_x
-.done:
-    pop ax
-    popf
+    call COLD_SEG:ser_tidy      ; drops the module iff that closed the lease
 .out:
     ret
 
 section .cold
+; DH = the caller's slot (osapi_serial). No lease is held exactly when the
+; module is not loaded (ser_tidy drops it on the call that ends one), so only
+; Open with no lease reads the disk; with one, every verb goes straight to it
 ser_api_x:
-    cmp al, 0
-    jne .existing
+    cmp dh, INST_MAX
+    jae .bad
+    cmp word [ser_row], 0xffff
+    jne .call
+    cmp al, 1
+    jb .open
+    mov ax, 0                   ; Close with nothing open: CF = 0 from the
+    je .r                       ; compare (AL = 1), done
+    inc ax                      ; any other verb: busy
+    stc
+.r:
+    retf
+.bad:
+    mov ax, 5
+    stc
+    retf
+.open:
     push ax
     mov al, MOD_SER
     call mod_need
     pop ax
-    jc .nodisk
-.existing:
-    cmp word [ser_row], 0xffff
-    jne .call
-    cmp al, 0
-    je .call
-    cmp al, 1
-    je .closed
-    mov ax, 1
-    stc
-    retf
-.closed:
-    xor ax, ax
+    jnc .call
+    mov ax, 8                   ; CF = 1 from mod_need
     retf
 .call:
     call far [SERFP+SER_API]
+                                ; ...and on into ser_tidy, whose retf is ours
+; ser_tidy - far: drop SERIAL.DRV unless a lease is held. Every register and
+; the FLAGS kept, so the verb's AX/CF answer comes back through it
+ser_tidy:
     pushf
     cmp word [ser_row], 0xffff
     jne .keep
-    call ser_drop
-.keep:
-    popf
-    retf
-.nodisk:
-    mov ax, 8
-    stc
-    retf
-
-ser_drop_x:
-    call ser_drop
-    retf
-ser_drop:
     push ax
     mov al, MOD_SER
     call mod_drop
     pop ax
-    ret
+.keep:
+    popf
+    retf
 
 section .mods
 mods_ser_header:
@@ -117,7 +103,7 @@ srl_div: db 12
 srl_pic: db 0
 srl_mask: db 0
 
-; Module API. DI=stamped instance record, DH=instance slot, ES=caller.
+; Module API. DH=the stamped instance slot (< INST_MAX), ES=caller.
 srl_api:
     push bx
     push cx
@@ -226,6 +212,11 @@ srl_open:
     mov bh, 12
 .div:
     CSDO mov [CSEG srl_div], bh
+    mov al, dh                  ; DI = the caller's record: inst_ptr's sum,
+    mov ah, I_RECSZ             ; done here so that no resident byte does it
+    mul ah                      ; (DH < INST_MAX: ser_api_x refused the rest)
+    add ax, inst_tab
+    xchg ax, di
     cmp byte [di+I_STATE], 0
     je srl_body.bad
     mov ax, es
@@ -399,8 +390,10 @@ srl_close:
     xor ax, ax
     ret
 
-; The mouse ISR has saved all registers and owns EOI. At most 16 RX bytes
-; per entry, then one TX byte; original 8250s normally have one waiting.
+; The mouse ISR has saved all registers and owns EOI - all but BX, its scan
+; index, which srl_pump leaves alone (the ring is addressed through SI) so
+; the ISR need not bank it. At most 16 RX bytes per entry, then one TX byte;
+; original 8250s normally have one waiting.
 srl_irq:
     call srl_pump
     retf
@@ -410,7 +403,7 @@ srl_pump:
     in al, dx                  ; acknowledge THRE before queuing its next byte
     mov ax, [cs:srl_seg]
     mov es, ax
-    mov bx, [cs:srl_buf]
+    mov si, [cs:srl_buf]
     mov bp, 16
 .rx:
     mov dx, [cs:srl_base]
@@ -418,25 +411,25 @@ srl_pump:
     in al, dx
     mov ah, al
     and al, 0x1e
-    or [es:bx+2], al
+    or [es:si+2], al
     test ah, 1
     jz .tx
     sub dx, 5
     in al, dx
-    mov dl, [es:bx]
+    mov dl, [es:si]
     mov dh, dl
     inc dh
-    cmp dh, [es:bx+1]
+    cmp dh, [es:si+1]
     je .overflow
     xor dh, dh
-    mov di, bx
+    mov di, si
     add di, dx
     mov [es:di+SER_RX], al
     inc dl
-    mov [es:bx], dl
+    mov [es:si], dl
     jmp short .more
 .overflow:
-    or byte [es:bx+2], 0x80
+    or byte [es:si+2], 0x80
 .more:
     dec bp
     jnz .rx
@@ -447,16 +440,16 @@ srl_pump:
 .tx:
     test ah, 0x20
     jz .out
-    mov dl, [es:bx+4]
-    cmp dl, [es:bx+3]
+    mov dl, [es:si+4]
+    cmp dl, [es:si+3]
     je .idle
     xor dh, dh
-    mov di, bx
+    mov di, si
     add di, dx
     mov al, [es:di+SER_TX]
     mov dx, [cs:srl_base]
     out dx, al
-    inc byte [es:bx+4]
+    inc byte [es:si+4]
 .out:
     ret
 .idle:
