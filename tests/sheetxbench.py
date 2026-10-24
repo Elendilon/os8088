@@ -61,7 +61,12 @@ import os88sheetfmt as F                                # noqa: E402
 import os88sym                                          # noqa: E402
 from sheetmove import pkg_syms                          # noqa: E402
 
-WORK = "build/sheetxbench"
+import os88build                                        # noqa: E402
+
+# BOTH resolved through the run's tree (os88build.at): in a soak lane the
+# emulator stages `build/...` out of the frozen tree, so a scratch disk written
+# relative to the checkout is a file that does not exist where it is read
+WORK = os88build.at("build/sheetxbench")
 NAME = "BENCH.SLK"
 ROWS = 48                           # 60 overruns the SYLK staging buffer: the
                                     # save is then truncated (sh_trunc) and
@@ -115,7 +120,7 @@ def build_disk(pkg):
     open(src, "wb").write('\r\n'.join(body).encode('latin-1'))
     disk = os.path.join(WORK, "bench.img")
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", disk, "--size",
-                    "360"] + [os.path.join(pkg, n) for n in
+                    "360"] + [os.path.join(os88build.at(pkg), n) for n in
                               ("sheet.o88", "CHART.OVL", "MACRO.OVL")]
                    + [src], check=True, stdout=subprocess.DEVNULL)
     return disk
