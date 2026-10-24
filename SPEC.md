@@ -70512,7 +70512,9 @@ bitmap in screen polarity, inverting it for Dark with the popup's existing
 scratch. Verb 10 stays in the driver for an older kernel; this kernel calls
 12 alone, so a sound driver built before the themed verb shows no speaker
 rather than costing every kernel the fallback. SOUND.DRV rounds to 11KB of
-image plus state on the heap; `DRVM_IMG_SND` is 11. The popup claims only
+image plus state on the heap; `DRVM_IMG_SND` is 11. **That is the figure WITH
+a mixer**: on a machine where none answered the claim is 8KB, the mixer verbs
+and this popup having been handed back after the attach (§34.15.1). The popup claims only
 its adapter-sized save-under while open: up to 8KB on VGA/EGA and 2KB on
 the mono adapters. VESA uses the same depth-based formula: 15KB at 8bpp or
 30KB at 16bpp (§120.4).
@@ -70568,6 +70570,42 @@ instances while allowing smooth dragging on coarse mixers.
 Hardware reference: Creative, *Sound Blaster Series Hardware Programming
 Guide*, chapter 4 (CT1335/CT1345/CT1745), available at
 https://www.phatcode.net/res/243/files/sbhwpg.pdf .
+
+### 34.15.1 With no mixer, the mixer and the popup leave the claim
+
+The mixer verbs (7–9), the speaker icon (10, 12) and the volume popup (11)
+are **3,751 bytes of SOUND.DRV's 11,148** - 2,693 of code and tables and
+1,058 of state, the popup's 1KB drawing band most of it - and they are dead
+weight on every machine whose attach found no readable mixer: the PC speaker,
+an AdLib alone, a Covox, an MPU-401, a Sound Blaster older than the CT1335.
+The kernel never shows the speaker there (`SND_CAP_MIXER` is clear) and Mixer
+is told `SNDE_NOMIX`. So the image is laid out to give them back:
+
+```
+[header][the tiers' code][their state][mix_kind] snd_keep: [mixer][popup][their state]
+```
+
+`snd_keep` is the end of what a machine with no mixer keeps, and the attach -
+the one place `mix_probe` runs, so a tier change cannot bring a mixer into
+existence - writes it into the header's `DRV_H_KEEP` when `[mix_kind]` is 0.
+The kernel shrinks the image's claim to it right after the attach (§51.1.3):
+**11KB → 8KB** on the shipped build (`snd_keep` is 7,397 bytes, past the 7KB
+rung by 229 because the PicoMEM tier is in it), and 11KB → 7KB with
+`NOPICOMEM=1` (6,894). With a mixer nothing changes and the claim is 11KB.
+
+**Nothing past `snd_keep` is ever reached without a test BEFORE it.**
+`snd_pkg` refuses verbs 7–12 with `SNDE_NOMIX` when `[mix_kind]` is 0 (verb
+11's CF = 1 is then "not on the speaker", which is true), and `snd_detach`
+tests it before `mix_detach`. That is why `mix_kind` moved out of `MIX_STATE`
+into the core's state, and why the verbs themselves no longer test it.
+
+**What it costs**: the core's state is no longer the file's trailing zero run,
+so its ~190 bytes ship on the disk - nearly free under `PKGZ`, and the
+popup's band is the run now, so `.drv` is the size it was. The shrink keeps the
+image's BASE (§50.3 path 1), so no CS and no hooked vector moves; the KB it
+frees is the top of a top-down claim, a free run directly above the driver
+(§51.1.2.1 is what that costs a PAD; here it is memory that was otherwise held
+for the session).
 
 ## 35. Recorder — the sound layer's recording client
 
@@ -96598,6 +96636,30 @@ allocator (a top-down claim is placed at the highest base that FITS over every
 gap, and the map shows a 2KB claim landing inside a former 9KB hole); and it
 was not the two-claim scratch §20.13.3.1 has since deleted — removing the pad
 while that scratch still stood left 5 runs and 364.0K.
+
+### 51.1.3 An attach may hand the end of its image back (`DRV_H_KEEP`)
+
+A driver can know, once its attach has probed, that the END of its image can
+never run on this machine - SOUND.DRV with no mixer (§34.15.1). It says so by
+writing the byte offset where what it still needs ends into **`DRV_H_KEEP`,
+the header's link word at +4**, before it returns from `DRVV_ATTACH`. The
+loader has already required that word to be 0 (`ld_hdr_ok`) and never reads
+it again, so no driver says this by accident, an older driver keeps its whole
+claim, and an older kernel ignores the word: **no ABI break, no `DRV_VER`
+bump**.
+
+The kernel (`DRV_ATTACH`'s `%1_att`, kern_big's three expansions: the boot
+blob, CTRL.DRV and HIBER.DRV) reads it after the publish and before
+`DRVV_TIER` and `DRVV_READY`, rounds it up to a KB and, when that is smaller
+than `DRVR_KB`, calls `mem_regrow` through the image's own hop into `.cold` -
+**zero resident bytes** - and stores the new KB in `DRVR_KB`, which is what
+the Drivers page weighs. A refusal leaves the claim as it was. It is skipped
+when `DRVR_KB` is 0 (an image in the HMA or above 1MB, which no claim holds),
+and kern_small, which loads no driver that writes it, does not assemble it.
+
+The rules for the driver are the ones for any memory it gives away: put what
+may be dropped LAST, its zeroed state after its code, and let every way into
+it be guarded by a byte BEFORE the offset.
 
 ### 51.2 The contract
 

@@ -82,9 +82,7 @@ volume_popup:
                                 ; so the speaker opened nothing there. A
                                 ; package's ES is its own segment or a pool
                                 ; selector, never at or below 60h
-    cmp byte [mix_kind], 0
-    je .out
-    cmp byte [volume_live], 0
+    cmp byte [volume_live], 0   ; (no mix_kind test: snd_pkg made it)
     jne .out
     mov ax, [es:di]
     mov [volume_bridge], ax

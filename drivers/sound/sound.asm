@@ -363,6 +363,13 @@ snd_entry:
                                 ; ends in snd_upnm itself
     cmp byte [drv_up], 0
     je .nohw
+    cmp byte [mix_kind], 0      ; NO MIXER ANSWERED, so nothing past snd_keep
+    jne .ready                  ; can ever run - the mixer verbs and the
+    mov word [DRV_H_KEEP], snd_keep ; volume popup - and the kernel may hand
+                                ; it back: 11KB of claim becomes 8 (SPEC.md
+                                ; 34.15.1). Settled HERE and only here:
+                                ; mix_probe runs at attach alone, so a tier
+                                ; change cannot bring a mixer into existence
 .ready:
     mov si, snd_services
     clc
@@ -421,7 +428,10 @@ snd_detach:
     push cx
     cmp byte [drv_up], 0
     je .out
-    call mix_detach             ; restore only exposed mixer registers
+    cmp byte [mix_kind], 0      ; the test is HERE and not in mix_detach:
+    je .nomix                   ; with no mixer that code may not be in the
+    call mix_detach             ; claim any more (SPEC.md 34.15.1). Restores
+.nomix:                         ; only the exposed mixer registers
     call mpu_detach             ; a module that was playing, silenced
     call sbl_detach             ; the Sound Blaster FIRST: it is the tier
                                 ; with an interrupt vector and a worker task
@@ -1081,10 +1091,19 @@ opl_defpat:
 snd_pkg:
     cmp bl, SNDV_MIXICON_THEME
     ja .bad
-    mov bp, bx                  ; a table through BP, which the kernel's
+    cmp bl, SNDV_MIXINFO
+    jb .go
+    cmp byte [mix_kind], 0      ; EVERY mixer verb is refused HERE when there
+    je .nomix                   ; is no mixer, before its body is reached:
+.go:                            ; the body is past snd_keep and the kernel
+    mov bp, bx                  ; may have dropped it (SPEC.md 34.15.1)                  ; a table through BP, which the kernel's
     and bp, 0x00FF              ; OSAPI_DRV_CALL banks: BX comes back as it
     shl bp, 1                   ; came, as it always did
     jmp [ds:snd_ptab+bp]
+.nomix:
+    mov ax, SNDE_NOMIX          ; ...and SNDV_MIXPOP's CF = 1 is "not on the
+    stc                         ; speaker", which is true: none is drawn
+    ret
 .bad:                           ; a verb we do not know: CF=1, AX=0
     xor ax, ax
     stc
@@ -1474,8 +1493,6 @@ opl_init:
     pop ax
     ret
 
-%include "volume.inc"           ; the loaded driver's quick-volume popup
-%include "mixer.inc"            ; hardware mixer verbs (SPEC.md 34.15)
 %include "sb.inc"               ; the Sound Blaster half (SPEC.md 34.5/34.6)
 %include "mpu.inc"              ; ...and the MPU-401's MIDI out (SPEC.md 34.13)
     OS88_PIN                    ; ...whose port the Ports view may pin
@@ -1515,6 +1532,26 @@ opl_xmode:  db 0                ; the mode it was granted: SND_OPL2 / SND_OPL3
 %endif
 MPU_STATE
 SBL_STATE
+mix_kind:   db 0                ; 0 = no mixer: 1/2/3 the CT1335/1345/1745.
+                                ; It is the CORE's byte and not MIX_STATE's,
+                                ; because it is what says whether anything
+                                ; below snd_keep exists (SPEC.md 34.15.1)
+
+; =============================================================================
+; snd_keep - THE END OF WHAT A MACHINE WITH NO MIXER KEEPS (SPEC.md 34.15.1).
+; Everything below is the hardware mixer and the menu bar's volume popup, code
+; first and its state last, and is reached ONLY through snd_pkg's verbs 7..12
+; and snd_detach - both of which test [mix_kind] above before they call in.
+; With no mixer the attach writes this offset into the header's DRV_H_KEEP and
+; the kernel shrinks the claim to it, so the state above is NOT this file's
+; trailing zero run any more: it ships on the disk (a couple of hundred bytes,
+; nearly free under PKGZ) so that the popup's 1KB band can be the run instead
+; and stay off the disk the way it was.
+; =============================================================================
+snd_keep:
+%include "volume.inc"           ; the loaded driver's quick-volume popup
+%include "mixer.inc"            ; hardware mixer verbs (SPEC.md 34.15)
+
 MIX_STATE
 VOLUME_STATE
 

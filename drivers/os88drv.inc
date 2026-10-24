@@ -58,6 +58,23 @@
 ; into it exactly as wm_pkgcall calls a package (SPEC.md 52.11).
 PKG_DISP     equ 12
 
+; THE HEADER WORD AN ATTACH MAY WRITE TO GIVE THE KERNEL ITS TAIL BACK
+; (SPEC.md 51.1.3). It is the link word at +4, which the loader requires to be
+; 0 and never reads again, so a driver built before it leaves it 0 and keeps
+; its whole claim. A driver whose attach found that the end of its image can
+; never run on THIS machine - SOUND.DRV with no mixer, whose volume popup is
+; the last 4KB of it - writes the byte offset where what it still needs ENDS:
+;
+;     mov word [DRV_H_KEEP], my_keep    ; my_keep: everything past it is dead
+;
+; and the kernel shrinks the image's claim to that offset rounded up to a KB,
+; right after the attach and before any other verb is sent. So put what may be
+; dropped LAST, its zeroed state after its code, and never reach it again:
+; the bytes are gone from under you, and a test of a byte BEFORE the offset is
+; what guards every way in. Ignored by a kernel that does not know it, and by
+; one whose image is not a heap claim (the HMA, kern_mega above 1MB).
+DRV_H_KEEP   equ 4
+
 ; --- driver classes ----------------------------------------------------------
 ; DRVC_* IS IN apps/os88api.inc, which this file includes above, and it is
 ; there rather than here because a PACKAGE names one too: OSAPI_DRV_CALL takes
