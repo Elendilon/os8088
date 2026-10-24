@@ -568,7 +568,7 @@ FAST = [
                "build/x3front.bin", "build/sound.drv", "build/mbr.bin",
                "build/boothd.bin", "build/kernel.sys")),
     Row("xtmp3move", "soak", py("tests/xtmp3xt.py", "--leg", "std",
-                                "--move"), 300.0,
+                                "--move"), 100.0,
         "SPEC.md 121.10.1 (NO-PINNING): XTMP3's claims MOVE. xtmp3xt's std "
         "leg on MartyPC's 4.77 MHz XT, stopped at the decode-first dialog - "
         "the XT part, its work segments, the ring and the carve all held "
@@ -579,7 +579,9 @@ FAST = [
         "conversion runs on the moved claims, and its WAV must be "
         "tools/x3simxt.py's BIT FOR BIT, which is what proves x3_rmove, "
         "x3_partsmv and the XT part's RESEG verb put every banked segment "
-        "right",
+        "right. Measured: 7 claims moved (the ring, the XT part, all five "
+        "work segments). VERIFIED RED with RESEG a bare retf: the WAV "
+        "differs from byte 0. 81s alone, 97s in a four-lane soak",
         needs=("marty", "nasm", "mtools", "numpy"), timeout=2400,
         wants=("build/xtmp3.o88", "build/xtmp3.bin", "build/x3xt.bin",
                "build/x3front.bin", "build/sound.drv", "build/mbr.bin",
