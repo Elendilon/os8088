@@ -3164,8 +3164,8 @@ wm_destroy:
     call kent_di                ; = push ax/bx/cx/dx/si/di
     call wm_su_drop             ; the slot is about to be reusable, and a new
                                 ; window in it would inherit this cache
-    mov si, bx                  ; the rect it is vacating, banked before the
-    call wm_win_rect            ; record is cleared out from under us
+    call wm_win_rect_bx         ; the rect it is vacating, banked before the
+                                ; record is cleared out from under us
     test byte [si+W_FLAGS], 2
     jnz .bank                   ; ...and a FULLSCREEN window needs no arm of
     mov ax, 1                   ; its own: wm_win_rect already answers its rect
@@ -3730,8 +3730,8 @@ wm_dock_clear:
     jz .next
     push cx
     push si                     ; (the walk's cursor: wm_win_rect wants SI)
-    mov si, bx
-    call wm_win_rect            ; a rect overlap against the LIVE strip, on
+    call wm_win_rect_bx
+                                ; a rect overlap against the LIVE strip, on
     call dock_live_hit          ; whichever edge (SPEC.md 30.5), frame and
     pop si                      ; drop shadow included
     pop cx
@@ -3812,8 +3812,8 @@ wm_hide_b:
                                 ; below - wm_su_take refuses an invisible
                                 ; window, having no pixels to read
 %endif
-    mov si, bx
-    call wm_win_rect            ; AX,BX,CX,DX = the rect it is vacating - AND
+    call wm_win_rect_bx
+                                ; AX,BX,CX,DX = the rect it is vacating - AND
                                 ; A FULLSCREEN WINDOW'S IS THE SAME ANSWER:
                                 ; wm_win_rect's own WF_FULL arm decrements both
                                 ; far edges because 11.2's fullscreen draws no
@@ -4899,7 +4899,12 @@ wm_hit_ttl_b:
 ; in:  SI = window ptr
 ; out: AX = x1, BX = y1, CX = x2, DX = y2 (inclusive)
 ; clobbers: the four outputs only
+; wm_win_rect_bx: the same with the window in BX, which it copies into SI
+; first - six callers spelt that `mov si, bx` at the call (kernel size pass
+; 14: an entry that falls into the body costs the two bytes once)
 ; -----------------------------------------------------------------------------
+wm_win_rect_bx:
+    mov si, bx
 wm_win_rect:
     mov ax, [si+W_X]
     mov bx, [si+W_Y]
@@ -5423,8 +5428,8 @@ wm_dmg_wins:
                                 ; window below it (SPEC.md 30.3.4). Unarmed the
                                 ; word is 0 and no window record lives there,
                                 ; so the test is inert
-    mov si, bx                  ; SI = our window for the rest of the pass
-    call wm_win_rect            ; AX,BX,CX,DX = our rect, shadow included
+    call wm_win_rect_bx         ; SI = our window for the rest of the pass
+                                ; AX,BX,CX,DX = our rect, shadow included
     call wm_dmg_hit
     jnc .mnodmg
     cmp si, [wm_dmg_stwin]
@@ -5566,8 +5571,8 @@ wm_dmg_wins:
 %ifndef REDRAWFULL
     mov byte [wm_dmg_cullq], 0
     push si                     ; ...and it has now painted its own FRAME,
-    mov si, bx                  ; cache hit or not - so every window above it
-    call wm_win_rect            ; owes that too. (SI is the z-order cursor here
+    call wm_win_rect_bx         ; cache hit or not - so every window above it
+                                ; owes that too. (SI is the z-order cursor here
     mov si, wm_dmg_x1           ; and wm_win_rect wants the window - and then
     call wm_runion              ; wm_runion the damage rect: this was wm_dmg_add,
     pop si                      ; its one caller and a push/pop of SI shorter)
@@ -5777,12 +5782,8 @@ wm_content:
 wm_about_set:
     pushf
     mov [bx+W_ABOUT], si
-    cmp bx, [menu_win]
-    jne .out
-    call menu_relayout          ; the active application's bar changed
-.out:
-    popf
-    ret
+    jmp menu_win_set.mine       ; the active application's bar changed: the
+                                ; same relayout and popf (kernel size pass 14)
 
 ; -----------------------------------------------------------------------------
 ; wm_about_get - a window's About handler offset, 0 = none (module internal
@@ -9165,8 +9166,8 @@ wm_cov_rect:
     ; non-empty rects, which is what the four compares it replaced asked first.
     push cx                     ; the walk's count and cursor
     push si
-    mov si, bx
-    call wm_win_rect            ; AX..DX = its frame, shadow included
+    call wm_win_rect_bx
+                                ; AX..DX = its frame, shadow included
     mov si, wm_cov_c1
     call gfx_rect_isectcf       ; ...cut to our content, CF = 1 = nothing left
     jc .none
@@ -11261,6 +11262,7 @@ wm_grow_erase:
     cmp al, WF_SIZABLE|2        ; already uses for two of the three. A hidden
     jne .pop                    ; window has no pixels to erase
     call wm_grow_rect
+.fill:                          ; (dock.inc's db_erase_tile joins here)
     call thm_bg                
     call gfx_fill
 .pop:

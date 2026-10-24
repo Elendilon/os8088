@@ -7710,24 +7710,17 @@ cpf_cp_onkey:
 ; module is gone the arm is stale and there is nothing to fire. Loading the
 ; Control Panel off a floppy to answer a mouse movement would be absurd, and
 ; mod_need on the drag path would do it eighteen times a second.
+;
+; NOR DO THEY ASK mod_live, which is cpf_cp_onkey's shape and the same answer:
+; with no image the slot rests on mod_gone - CF = 1, every register kept -
+; which is exactly what `push ax / mov al, MOD_CTRL / call mod_live / pop ax /
+; jc` returned on that path (kernel size pass 14, -10 a thunk).
 cpf_cp_onup:
-    push ax
-    mov al, MOD_CTRL
-    call mod_live               ; already resident? (no disk, no claim)
-    pop ax
-    jc .u_gone
     call far [CPFP + CPE_ONUP*4]
-.u_gone:
     ret
 %ifdef KERN_BIG
 cpf_cp_ondrag:
-    push ax
-    mov al, MOD_CTRL
-    call mod_live
-    pop ax
-    jc .d_gone
     call far [CPFP + CPE_ONDRAG*4]
-.d_gone:
     ret
 %endif
 

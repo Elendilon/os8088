@@ -298,11 +298,14 @@ mod_row:
 ;      WHICH flags carry the answer. `cmp word [bx+MODR_SEG], 1` sets CF iff
 ;      the word is below 1 unsigned, and for a 16-bit word that is exactly
 ;      "is zero" - the question this routine asks. ZF/SF/OF now differ on the
-;      resident arm; both callers (ctrl.inc's cpf_cp_onup and cpf_cp_ondrag,
-;      the complete set) read CF alone, and the contract never named the rest.
+;      resident arm; its callers (hiber.inc's hbf_onup and desksc.inc's
+;      sc_modcall, the complete set - ctrl.inc's two edges ask the slot's own
+;      mod_gone now, kernel size pass 14) read CF alone, and the contract
+;      never named the rest.
 ;
 ; mod_need without the loading. The callers are the ones that can only ever
-; follow a gesture the module itself took - a W_ONMOUSEUP or a W_ONDRAG after
+; follow a gesture the module itself took - a W_ONMOUSEUP (or, once, a
+; W_ONDRAG) after
 ; a W_ONCLICK that loaded it (SPEC.md 13.8.3) - where "not resident" means the
 ; arm is stale and there is nothing to fire. Loading the Control Panel off a
 ; FLOPPY to answer a mouse movement would be absurd, and on the drag path

@@ -1226,10 +1226,8 @@ ui_arm_trk:                     ; ui_task tests [ui_armw] before calling
     or bp, bp
     jz .ret                     ; the package never asked for tracking, which
                                 ; is every shipped package but Calculator
-    call gfx_lock
-    call ui_bill
-    jmp gfx_unlock
-.ret:
+    jmp ui_rdown.lock           ; lock, bill, dispatch, unlock: ui_rdown's own
+.ret:                           ; three lines (kernel size pass 14, -6)
     ret
 .chrome:
     call wm_hit                 ; BX = window, AL = region
@@ -1449,6 +1447,7 @@ ui_rdown:                       ; CX = press x, DX = press y, loaded by
                                 ; loaded and there is nothing to set up
     or bp, bp
     jz .ctxwin
+.lock:                          ; (ui_arm_trk's drag dispatch joins here)
     call gfx_lock               ; W_ONCLICK's environment exactly - CX = x,
 .bill:                          ; DX = y, SI = window, billed to the owning
     call ui_bill                ; instance (CX/DX survived wm_hit/wm_top)

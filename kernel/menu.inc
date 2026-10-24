@@ -450,6 +450,7 @@ menu_activate:
 menu_win_set:
     pushf
     mov [bx + W_MENUS], si
+.mine:                          ; (wm_about_set joins here with its own store)
     cmp bx, [menu_win]
     jne .out
     call menu_relayout          ; the active application's menus changed
