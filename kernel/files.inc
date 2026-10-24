@@ -1059,6 +1059,10 @@ fm_owed:
     ret                         ; posts costs one tick (the sweep, SPEC.md 13.12)
 
 ; -----------------------------------------------------------------------------
+; fmv_winof_vp: the same, with the `mov di, [fm_vp]` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+fmv_winof_vp:
+    mov di, [fm_vp]
 fmv_winof:
     push si
     call fmv_ifirst
@@ -1497,6 +1501,10 @@ fmv_icorefs:
 ; (SPEC.md 19.2), and a window claiming to be inside a folder it never
 ; entered is a lie the user could act on.
 ; -----------------------------------------------------------------------------
+; fmv_hload_vp: the same, with the `mov di, [fm_vp]` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+fmv_hload_vp:
+    mov di, [fm_vp]
 fmv_hload:                      ; ...re-listing the folder DI already shows:
     call fmv_here               ; AL/DX off its own block, then fall in
 fmv_load:
@@ -4466,8 +4474,7 @@ fm_mount:
 ; -----------------------------------------------------------------------------
 fm_reload:
     call kentc_di
-    mov di, [fm_vp]
-    call fmv_hload
+    call fmv_hload_vp
     jmp short fm_go.tail
 
 %ifdef KERN_BIG
@@ -5104,6 +5111,10 @@ fm_mdelarm:                     ; (Rename names the focus, as every one-name-
 ; the spot and reports, and an unreadable disk gets a toast rather than a
 ; greyed menu that cannot say why.
 ; -----------------------------------------------------------------------------
+; fm_fmt_ok_vp: the same, with the `mov di, [fm_vp]` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+fm_fmt_ok_vp:
+    mov di, [fm_vp]
 fm_fmt_ok:
     push bx                     ; (no AX: nothing below writes it - it was
                                 ; banked anyway, kernel size pass 12)
@@ -5222,8 +5233,7 @@ fm_fmt_home:
     jmp kretc_di
 
 fm_c_format:                    ; File > Format Disk... (SPEC.md 22.12)
-    mov di, [fm_vp]
-    call fm_fmt_ok              ; the greying is the primary answer; this is
+    call fm_fmt_ok_vp           ; the greying is the primary answer; this is
     jc .no                      ; the belt, because a body may not assume
                                 ; which surface picked it
     ; THE IMAGE COMES FIRST (SPEC.md 2.8.5), before the probe touches the
@@ -5287,8 +5297,7 @@ fm_fmt_go:                      ; the image is here; the drive is the user's
 ; DI = [fm_vp]: a BIOS floppy (fm_fmt_ok) and no clone or join already holding
 ; [clo_seg]. Clone Disk's and Write Img's one head (size pass 8)
 fm_cloneok:
-    mov di, [fm_vp]
-    call fm_fmt_ok
+    call fm_fmt_ok_vp
     jc .r
     cmp word [clo_seg], 1       ; CF=1 exactly when the word is 0 - free...
     cmc                         ; ...so CF=1 now means busy
@@ -5330,8 +5339,7 @@ fm_clone_go:
     ; and would hand the cloner the PREVIOUS disk's BPB as this one's
     ; geometry. It may or may not mount, and both are cloneable: the whole
     ; point of a sector copy is that the file system is never consulted.
-    mov di, [fm_vp]
-    call fmv_hload              ; (DI survives it; AL is re-read, the mount
+    call fmv_hload_vp           ; (DI survives it; AL is re-read, the mount
     mov al, [di+FS_DRV]         ; having recorded where it really landed)
     mov ah, [dsk_mntok]         ; ...and THE MOUNT'S OWN VERDICT, which is the
                                 ; global fmv_take records into FS_MOK: whether
@@ -5752,8 +5760,7 @@ fm_img_done_x:
     ; granularity refusal answers that the same way a mount does. The prompt
     ; the OPEN half just armed rides along in it.
 .paint:
-    mov di, [fm_vp]
-    call fmv_winof              ; SI = the window, which nothing here had put
+    call fmv_winof_vp           ; SI = the window, which nothing here had put
     jc .out                     ; there
     call fm_repaint_bx
     jmp short .out
@@ -6935,8 +6942,8 @@ fm_dgdrop:
     cmp word [fcp_lcnt], 0      ; a LIST dropped on one of its OWN folders,
     je .have                    ; in the window it came from: refused here,
     push bx                     ; because the list would run every entry
-    mov di, [fm_vp]             ; before that one and then stop on it
-    call fmv_winof              ; (SPEC.md 22.27). BX = the hit window
+    call fmv_winof_vp           ;before that one and then stop on it
+                                ; (SPEC.md 22.27). BX = the hit window
     cmp bx, [fm_dgwin]
     pop bx
     jne .have
@@ -8051,10 +8058,9 @@ fm_draw_lrow:
     mul di
     call fm_rowy
     mov bp, ax
-    mov ax, di
-    add ax, [fm_lscr]           ; AX = directory index, which neither call
-                                ; below disturbs (fm_draw_icon16 banks it)
-    call fm_pen8                ; 16x16 icon at x=8, row top
+    call fm_pen8_di             ; AX = directory index, which neither call
+                                ; below disturbs (fm_draw_icon16 banks it);
+                                ; 16x16 icon at x=8, row top
                                 ; 8, NOT 4, and NOT because it is a text pen:
                                 ; an icon is a blit and ico_pass shifts it to
                                 ; wherever it is asked for. Two other things
@@ -8139,9 +8145,8 @@ fm_draw_licon:
     mov ax, di
     call fm_row16               ; + fm_cy + FM_ROW_Y0, which fm_scrollpaint
     mov dx, ax                  ; has already worked out. DX = row band top
-    mov ax, di
-    add ax, [fm_lscr]           ; AX = directory index
-    call fm_pen8                ; the same +8 as fm_draw_lrow's, and it has to
+    call fm_pen8_di             ; AX = directory index
+                                ; the same +8 as fm_draw_lrow's, and it has to
                                 ; be: this is the strip pass's own re-icon, so
                                 ; a disagreement here draws the icon in a
                                 ; different place than the row painter did
@@ -9227,6 +9232,11 @@ fm_rowy:                        ; AX = a row band's offset in pixels -> its
     add ax, FM_ROW_Y0
     ret
 
+; fm_pen8_di: the same, with the `mov ax, di / add ax, [fm_lscr]` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+fm_pen8_di:
+    mov ax, di
+    add ax, [fm_lscr]
 fm_pen8:                        ; CX = the content's left edge + 8: the pen
     mov cx, [fm_cx]             ; every left-aligned run in this window starts
     add cx, 8                   ; at - a MULTIPLE OF 8 (SPEC.md 11.94.3)

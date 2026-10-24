@@ -915,6 +915,11 @@ assoc_go:
 ; cluster HINT safe: a cluster means nothing on a disk that has been swapped,
 ; so the hint is only ever a place to look.
 ; -----------------------------------------------------------------------------
+; assoc_try_ix: the same, with the `shl bx, 1 / mov ax, [assoc_clus+bx]` its
+; callers spelt at the call (kernel size pass 14: it falls into the body)
+assoc_try_ix:
+    shl bx, 1
+    mov ax, [assoc_clus+bx]
 assoc_try:
     call kentc_di               ; KENT: push ax..di
     call assoc_go               ; QUIET (SPEC.md 18.9): the question here is
@@ -1007,9 +1012,7 @@ assoc_tryvol:
     mov bx, di
     cmp [assoc_drv+bx], dl      ; ...and if it knows this program, the place
     jne .fold                   ; it names
-    shl bx, 1
-    mov ax, [assoc_clus+bx]
-    call assoc_try
+    call assoc_try_ix
     jnc .out
 .fold:
     mov bl, 1                   ; ...then APPS, which is a built-in's own
@@ -1075,8 +1078,8 @@ assoc_sweep:
 .ord:                           ; end. CL counts; DL is the VOLUME, 0 and 1
     cmp dl, [assoc_ddrv]        ; swapped: B: BEFORE A:, because on the
     je .volnext                 ; machine this runs on A: is the system disk
-    mov bl, dl                  ; and B: the apps disk
-    call dsk_vol_row_x          ; a FREE row is skipped for the TIME, not for
+    call dsk_vol_row_dl         ;and B: the apps disk
+                                ; a FREE row is skipped for the TIME, not for
     jc .volnext                 ; correctness: mounting one fails anyway, but
                                 ; that failure is the BIOS's retries and on a
                                 ; 4.77MHz machine those are seconds
@@ -1161,9 +1164,7 @@ assoc_locate:
     mov dl, [assoc_drv+bx]
     cmp dl, 0xFF
     je .rung2
-    shl bx, 1
-    mov ax, [assoc_clus+bx]
-    call assoc_try
+    call assoc_try_ix
     jnc .found
 
     ; --- rung 2: the document's own directory -----------------------------

@@ -2410,6 +2410,10 @@ dsk_runcap:
 ; out: CF = 0 and BX = the row; CF = 1 = out of range or a free row
 ; clobbers: BX (the output), flags
 ; -----------------------------------------------------------------------------
+; dsk_vol_row_dl: the same, with the `mov bl, dl` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+dsk_vol_row_dl:
+    mov bl, dl
 dsk_vol_row_x:
     call dsk_vol_slot_x
     jc .out                     ; the slot already left BX = 0 and CF = 1
@@ -3520,8 +3524,7 @@ osapi_vol_add_x:
     retf
 .take:
     push bx
-    mov bl, dl
-    call dsk_vol_row_x          ; BX = the row; CF = 1 = no such index
+    call dsk_vol_row_dl         ; BX = the row; CF = 1 = no such index
     jc .tout
     cmp byte [bx+DV_KIND], DVK_BIOS
     jne .tno                    ; taken already, or not the BIOS's
@@ -3823,8 +3826,7 @@ disk_mount_x:
     mov al, 9                   ; BPB can supply one - see .nofloppy below
     mov [disk_spt], ax
     push bx
-    mov bl, dl
-    call dsk_vol_row_x
+    call dsk_vol_row_dl
     jc .kindok
     ; DV_SECS is loaded FIRST and DV_KIND LAST, because `mov ax, [bx+DV_SECS]`
     ; writes AL and the floppy test below reads it. The other order assembles
@@ -7778,8 +7780,7 @@ dsk_media_ok:
     push ax
     push bx
     push es
-    mov bl, dl
-    call dsk_vol_row_x
+    call dsk_vol_row_dl
     jc .no
 %ifdef OS88_IMG
     call dsk_vol_rmv            ; the test below, and A MOUNTED IMAGE asks it
