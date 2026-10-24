@@ -1720,18 +1720,18 @@ vid_ctx_act:
 ; docs/plans/LAST-DROP-BYTES.md row 13) - and a stale comment naming a runtime caller
 ; is exactly how a later session would add the one that breaks it silently.
 ;
-; Its two outbound calls go through cw_ shims, which is `.boot2`'s discipline
-; unchanged from `.cold`'s: CS is the blob's, DS is still KERNEL_SEG, so the
-; body reads [vid_ndisp] and [vid_ox] exactly as it did.
+; Its two outbound calls go through spw_near's `call bp`, which is `.boot2`'s
+; discipline unchanged from `.cold`'s: CS is the overlay's, DS is still
+; KERNEL_SEG, so the body reads [vid_ndisp] and [vid_ox] exactly as it did.
 ; -----------------------------------------------------------------------------
 section .ovl
 vid_ctx_init:
     push ax
-    push cx
     push di
     push es
-    mov cx, KERNEL_SEG
-    mov es, cx
+    push ds                     ; ES = DS = KERNEL_SEG (real mode: the boot),
+    pop es                      ; and nothing here touches CX (kernel size
+                                ; pass 14, which needed the bytes)
     mov word [vid_ndisp], 1     ; one display, display 0 current (a pair)
     xor al, al
     mov bp, vid_ctx_ptr         ; (spw_near's `call bp`: kmain_o, the one
@@ -1741,11 +1741,12 @@ vid_ctx_init:
     mov [es:di+VID_CTX_VY], ax
     mov [vid_ox], ax            ; ...and it is current, so vid_ctx_act - which
     mov [vid_oy], ax            ; is what normally publishes these - never runs
-    xor al, al
-    call KERNEL_SEG:cw_vid_ctx_capture
+    mov bp, vid_ctx_capture     ; ...and capture display 0 (AL = 0 already).
+    call KERNEL_SEG:spw_near    ; spw_near and not a cw_ shim since kernel
+                                ; size pass 14: EXTD.DRV, the shim's other
+                                ; caller, has its own EXK hop
     pop es
     pop di
-    pop cx
     pop ax
     retf                        ; FAR: kmain reaches this through SPLGATE1
 section .text

@@ -34,8 +34,8 @@
 ; routine's own near `ret` lands on cw_kretf - dockmod.inc's device, so the
 ; image costs no resident shim. The two kernel routines that are a pointer
 ; walk (vid_ctx_ptr, vid_kind_of) have a near copy here instead, and the ones
-; that have a resident far shim (cw_thm_desk,
-; cw_vid_ctx_capture, and cw_vid_disp_of for the one on OSAPI_WM_DISPLAY's
+; that have a resident far shim (cw_thm_desk, and cw_vid_disp_of for the one
+; on OSAPI_WM_DISPLAY's
 ; path) or a cell of their own (apic_wm_top) are far-called through it, at
 ; the same five bytes as an EXK and without exk_go's work. os88ovlchk
 ; refuses a near call either way across the boundary (its MODS list names
@@ -1200,7 +1200,7 @@ ext_extend_b:
                                 ; card, and what makes its 32KB/16KB clear
                                 ; land on the right memory
     mov al, 1
-    call KERNEL_SEG:cw_vid_ctx_capture ; bank it as display 1
+    EXK vid_ctx_capture         ; bank it as display 1
 
     mov al, ah                  ; ...and back. No vid_setmode: the primary is
     call ext_kapply_eq          ; already in its mode with the splash on it;
@@ -1208,7 +1208,7 @@ ext_extend_b:
                                 ; vid_setmode's CGA path flipped it to colour
                                 ; and nothing else ever would (SPEC.md 39.11.2)
     xor al, al
-    call KERNEL_SEG:cw_vid_ctx_capture ; a no-op today - vid_apply has just republished
+    EXK vid_ctx_capture         ; a no-op today - vid_apply has just republished
                                 ; what vid_ctx_init banked - and 39.12's rule
                                 ; followed mechanically rather than reasoned
                                 ; about one instance at a time

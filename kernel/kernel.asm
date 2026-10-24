@@ -7046,13 +7046,9 @@ cw_vga_xor_rect_vram:   call vga_xor_rect_vram
 %ifdef KERN_BIG
 ; vidsel.inc's whole dual-display half is inside one %ifdef KERN_BIG, so these
 ; bodies do not exist in the small build.
-; ...and this one is the BOOT OVERLAY's and EXTD.DRV's: vid_ctx_init went
-; into the overlay (docs/plans/LAST-DROP-BYTES.md row 13) and calls it, and so
-; does the Extend. It is `cw_` rather than `ovw_` for the reason the clock's
-; pair is. (cw_vid_ctx_ptr, vid_ctx_init's other one, is spw_near's `call bp`
-; since kernel size pass 13.)
-cw_vid_ctx_capture:     call vid_ctx_capture
-                    retf
+; (cw_vid_ctx_capture went in kernel size pass 14: vid_ctx_init in the boot
+; overlay reaches vid_ctx_capture through spw_near's `call bp`, as it already
+; reached vid_ctx_ptr, and EXTD.DRV's Extend through its own EXK hop)
 ; ...and EXTD.DRV's one hop that is on OSAPI_WM_DISPLAY's path (wm_disp_now's
 ; one-display arm, SPEC.md 39.19.6.2). Four bytes here where the image carried
 ; a twelve-byte stub of its own, and a near call + RETF where the stub built
