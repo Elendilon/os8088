@@ -3605,6 +3605,10 @@ hd_s_ih:      db 'h', 0
 
 ; The foreign types worth a NAME: type byte, then the string. Anything else
 ; reads 'Type nnh', which is still more than 'Unusable' said.
+; THE COMMON ONES ONLY: what a PC that also runs DOS, Windows or Linux
+; carries. Anything rarer (BSD, XENIX, OS/2, NetWare, GPT, hidden FAT, ...)
+; reads 'Type nnh', which still says more than 'Unusable' did - the full list
+; cost a 360KB system disk a sector (SPEC.md 52.10.4.4).
 ; THE NAMES INLINE: each is its type bytes, then the name. A record is a
 ; COUNT byte (0 ends the table), that many type bytes, and the NUL-ended
 ; name - no pointer table, which was 25 three-byte entries for 15 names.
@@ -3614,16 +3618,6 @@ hd_ptypes:
     db 2, 0x0B, 0x0C, 'FAT32', 0
     db 1, 0x82, 'Linux Swap', 0
     db 1, 0x83, 'Linux', 0
-    db 1, 0x8E, 'Linux LVM', 0
-    db 3, 0xA5, 0xA6, 0xA9, 'BSD', 0
-    db 2, 0x02, 0x03, 'XENIX', 0
-    db 1, 0x63, 'Unix', 0
-    db 1, 0x0A, 'OS/2 Boot', 0
-    db 1, 0xDB, 'CP/M-86', 0
-    db 2, 0x64, 0x65, 'NetWare', 0
-    db 1, 0xEE, 'GPT Disk', 0
-    db 1, 0xEF, 'EFI System', 0
-    db 4, 0x11, 0x14, 0x16, 0x1E, 'Hidden FAT', 0
     db 0                        ; the terminator
 
 ; Every line below is one CAPTION, and the macro is what stops one growing

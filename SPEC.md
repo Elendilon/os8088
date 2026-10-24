@@ -99283,7 +99283,7 @@ So the column is now `[letter ': '] body [', ' reason]`:
 | anything FAT under `HIW_MINSEC` | `…, Too Small` | refused |
 | a free slot with room behind it | `Unpartitioned` | fine — the install makes the entry |
 | a free slot with none | `Empty, No Room` | refused |
-| a foreign type | its name — `Extended`, `NTFS/HPFS`, `FAT32`, `Linux`, `Linux Swap`, `Linux LVM`, `BSD`, `XENIX`, `Unix`, `OS/2 Boot`, `CP/M-86`, `NetWare`, `GPT Disk`, `EFI System`, `Hidden FAT` — or `Type nnh` | refused |
+| a foreign type | its name — `Extended`, `NTFS/HPFS`, `FAT32`, `Linux`, `Linux Swap` — or `Type nnh` (§52.10.4.4 trimmed the list to the common five for a sector of the 360 KB system disk) | refused |
 | a table that would not read | `Unreadable` | refused, where it used to read free and offer Install |
 
 **The letter comes from two owners and is asked of both.** The kernel's
@@ -99361,6 +99361,17 @@ back where it was. A wizard that cannot be started says so in a toast,
 `Cannot start INSTALL.O88`. While the launch window exists `HDT_BUSY`
 answers busy, so the Control Panel cannot free the image between the post
 and the wake, and `HDT_SHUT` destroys it if the wake never came.
+
+**And then what only the window's face had needed came out of the engine
+too**: `hd_iw_rowtext` builds the State column alone (the slot number and
+size in front of it were the window's columns, and `hd_pv_slots` skipped
+them - the wizard has `HDIS_SECS`); the success captions and *Copying...*
+went, the wizard reading the caption only on `HDG_FAIL`, so a stop's default
+is *Disk error - the install stopped*; one copy of each repeated sentence, and
+three strings share their tails; and the partition-type names are the common
+five, inline after their type bytes. That took the file to **12,796 bytes,
+25 sectors** of the 360 KB system disk's 512-byte clusters - **4 bytes under
+the line**, so the next byte added to this image is a sector back.
 
 **What it cost and bought**, measured on the tree it landed on:
 `HDDTOOL.DRV`'s image **18,327 → 17,038 bytes (−1,289)**, its claim

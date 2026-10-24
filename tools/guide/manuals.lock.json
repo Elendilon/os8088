@@ -502,17 +502,17 @@
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "26a6303",
-  "strings": "d786a00636fb0957",
-  "why": "Install window removed (SPEC.md 52.10.4.4): the button starts INSTALL.O88; Install section rewritten to point at it, its screenshot dropped"
+  "stamped": "a1bcc392",
+  "strings": "d0a86e795c1cacbc",
+  "why": "engine-side trims (State column only, window captions, common partition-type names); the page's level of detail is unchanged"
  },
  "HDD_DRV": {
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "26a6303",
-  "strings": "d786a00636fb0957",
-  "why": "Install row: it starts INSTALL.O88 now (SPEC.md 52.10.4.4); the rest of drivers/hdd's change is HDDTOOL.DRV's"
+  "stamped": "a1bcc392",
+  "strings": "d0a86e795c1cacbc",
+  "why": "only two dead labels left hdcom.inc; nothing the page describes"
  },
  "HELV_F88": {
   "sources": [],

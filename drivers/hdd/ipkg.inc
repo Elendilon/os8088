@@ -300,7 +300,7 @@ hd_pv_quit:
     clc
     ret
 
-hd_s_pvnone: db 'Nothing to continue - install again', 0
+hd_s_pvnone: db 'Nothing to continue', 0   ; HDI_APPS with no run waiting
 
 ; =============================================================================
 ; THE LOG (SPEC.md 117.4.1): one line a step, handed to the PACKAGE that asked

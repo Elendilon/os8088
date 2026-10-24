@@ -1062,7 +1062,7 @@ hd_s_page:   db 'Hard Drive', 0 ; THE PAGE'S HEADING, and the resident keeps
 
 ; --- the page's OWN state, which came over with it (SPEC.md 52.13) ---------
 ; Every one of these was in the resident's bss and had exactly one reader:
-; this file. hd_ndev, hd_sel, hd_rowslot and hd_pair are NOT here - they are
+; this file. hd_ndev and hd_sel are NOT here - they are
 ; hdcom.inc's and so exist in both images already, which is what makes
 ; hd_sync a copy rather than an ABI.
 hd_field:    db 0               ; the C/H/S field the page has selected
