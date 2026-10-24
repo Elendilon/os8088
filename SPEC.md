@@ -99372,6 +99372,16 @@ two strings is a 188-byte span), and the sector buffers' alignment pad
 moving 195 → 199. `HDD.DRV` changes only in the `HDTOOL_KB` it
 claims with, and `INSTALL.O88` is byte-identical.
 
+**Where the wizard is started is its floppy source** (§117.10.5's
+`in_home`), and that is the one behaviour that moved. The window took its
+source from wherever the user stood (§51.5.2's bank); the button starts the
+wizard from the boot volume, so the engine's own search runs as before - the
+boot volume where it is a floppy, every floppy and mounted image after it,
+never the destination. A source the search passes over by KIND, a mounted
+network drive above all (§62.9.17.1, `hd_iapps_cand`), is reached the way a
+user reaches any program on it: open `INSTALL.O88` there. `tests/httpinstall.py`
+is that case.
+
 **An older tool can still answer `0FDh`.** An upgrade booted from C: reaches
 C:'s `HDDTOOL.DRV` (§52.10.16), which may predate this; the wizard keeps its
 `0FDh` refusal for that machine and a new tool never sends it.

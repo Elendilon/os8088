@@ -45,6 +45,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [os.path.join(ROOT, "tests"), os.path.join(ROOT, "tools")]
 os.chdir(ROOT)
 import hmacold                                                # noqa: E402
+from os88geom import WIN_SIZE, MAX_WIN                        # noqa: E402
 import httpmount as HM                                        # noqa: E402
 import instwiz                                                # noqa: E402
 import os88build                                              # noqa: E402
@@ -78,6 +79,14 @@ class Q(HM.QH):
              "-qmp", "unix:%s,server,nowait" % self.sock,
              "-daemonize", "-pidfile", self.pid], check=True)
         self.pidn = int(open(self.pid).read().strip())
+
+
+def wins(q):
+    """(index, x, y, w, h) of every visible window - tests/netinst.py's too."""
+    b = q.read(xmcheck.sym("wm_wins"), WIN_SIZE * MAX_WIN)
+    return [(i,) + struct.unpack_from("<4H", b, i * WIN_SIZE + 2)
+            for i in range(MAX_WIN)
+            if struct.unpack_from("<H", b, i * WIN_SIZE)[0] & 2]
 
 
 def put(img, path, name):
@@ -205,14 +214,56 @@ def main():
         # name a mounted network volume, the engine's own floppy search
         # passing it over by kind (hd_iapps_cand). It was the Control Panel's
         # Install window with the drive current until SPEC.md 52.10.4.4.
-        qui = hmacold.QUI(q, mouse=hmacold.QMouse(q), sym=S, verbose=False)
+        # A DOUBLE-CLICK ON ITS ROW, located off the guest's own listing and
+        # brought on screen by the keyboard: os88ui's scroll_to times itself
+        # on MartyPC's cycle counter, which QEMU has not got. On kern_big the
+        # arrows move a SELECTION once there is one (SPEC.md 22.26) and the
+        # view follows it, so the first visible row is clicked to select it
+        # and the arrows walk [FS_SEL] - a directory index - to the entry.
         mo = hmacold.QMouse(q)
 
         def click(x, y):
             mo.to(x, y)
             mo._edge(True)
             mo._edge(False)
-        w = qui.path("%s:/INSTALL.O88" % chr(ord("A") + vol))
+        dw = HM.front_on(ui, vol)
+        idx, _ = ui.entry("INSTALL.O88", dw)
+        base = ui._fsblk(dw)            # os88ui's own sel(), its fallback too
+        if base is None:
+            base = (HM.geom.KERNEL_SEG << 4) + ui._word("fm_vp")
+        sel = lambda: struct.unpack("<H", q.read(base + HM.geom.FS_SEL,
+                                                  2))[0]
+        click(*ui.row_xy(dw, 0))
+        os88qemu.acted(q, lambda: sel() == ui.scroll(dw), secs=10,
+                       what="the first row to be selected")
+        for _ in range(64):
+            was = sel()
+            if was == idx:
+                break
+            xmcheck.qmp(q.sock, "sendkey %s" % ("up" if was > idx
+                                                else "down"))
+            os88qemu.acted(q, lambda: sel() != was, secs=5,
+                           what="the selection to move")
+        if sel() != idx:
+            sys.exit("httpinstall: the arrows never selected INSTALL.O88 "
+                     "(selection %04X, want %d)" % (sel(), idx))
+        os88qemu.ui_done(q, S, cap=2.0)
+        row = idx - ui.scroll(dw)
+        x, y = ui.row_xy(dw, row)
+        known = {w.i for w in HM.geom.windows(q, S)}
+        xmcheck.dblclick(q.sock, x, y)
+        box = {}
+
+        def opened():
+            new = [w for w in HM.geom.windows(q, S)
+                   if w.i not in known and w.visible]
+            if new:
+                box["w"] = new[0]
+            return bool(new)
+        if not os88qemu.acted(q, opened, secs=60, what="the wizard"):
+            sys.exit("httpinstall: a double-click on INSTALL.O88 (entry %d, "
+                     "row %d at %d,%d) opened nothing" % (idx, row, x, y))
+        w = box["w"]
         print("   3. INSTALL.O88 started off drive %s, keeping files"
               % chr(ord("A") + vol))
         n0 = len(log.gets())

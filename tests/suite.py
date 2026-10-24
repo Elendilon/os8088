@@ -2492,7 +2492,10 @@ SOAK = [
     Row("httpinstall", "soak", py("tests/httpinstall.py"), 35.0,
         "SPEC.md 62.9.17.1 and 121.3: an Install whose SOURCE is the HTTP "
         "drive, onto an IDE disk that already holds a hidden + system "
-        "KERNEL.SYS (keeping files) - the field's upgrade. The 360KB system "
+        "KERNEL.SYS (keeping files) - the field's upgrade, by starting "
+        "INSTALL.O88 OFF the HTTP drive (the wizard's source is where it "
+        "was started, 117.10.5; 52.10.4.4 took the Control Panel's window "
+        "that read the current volume instead). The 360KB system "
         "disk is served with its attributes in OS88.IDX plus a marker only "
         "the served tree has; the MBR commits, the marker arrives, and every "
         "root file is on C: with its bytes, KERNEL.SYS and the drivers hidden "
