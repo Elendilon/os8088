@@ -2560,7 +2560,10 @@ SOAK = [
         "window. Red with --same (the tree's release is INSTALL's own)",
         needs=("qemu", "nasm", "mtools"), serial=True, timeout=600,
         wants=("build/httpmount.img", "build/install-gate.o88",
-               "build/install-gate.map", "build/os8088.img", "build/apps.img",
+               # (install-gate.map is written by install-gate.bin's rule,
+               # which the .o88 pulls in; it has no rule of its own, so
+               # naming it here failed every soak prewarm)
+               "build/os8088.img", "build/apps.img",
                "build/httpfs.bin", "build/mbr.bin", "build/boothd.bin",
                "build/kernel.sys", "build/readme.txt")),
     Row("httpmount", "soak", py("tests/httpmount.py"), 105.0,
