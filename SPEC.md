@@ -70521,7 +70521,10 @@ bitmap in screen polarity, inverting it for Dark with the popup's existing
 scratch. Verb 10 stays in the driver for an older kernel; this kernel calls
 12 alone, so a sound driver built before the themed verb shows no speaker
 rather than costing every kernel the fallback. SOUND.DRV rounds to 11KB of
-image plus state on the heap; `DRVM_IMG_SND` is 11. The popup claims only
+image plus state on the heap; `DRVM_IMG_SND` is 11. **That is the IMAGE**: loaded,
+the driver holds 10KB with a mixer and 7KB without, the attach-only code -
+and with no mixer the mixer verbs and this popup too - having been handed
+back after the attach (§34.15.1). The popup claims only
 its adapter-sized save-under while open: up to 8KB on VGA/EGA and 2KB on
 the mono adapters. VESA uses the same depth-based formula: 15KB at 8bpp or
 30KB at 16bpp (§120.4).
@@ -70577,6 +70580,66 @@ instances while allowing smooth dragging on coarse mixers.
 Hardware reference: Creative, *Sound Blaster Series Hardware Programming
 Guide*, chapter 4 (CT1335/CT1345/CT1745), available at
 https://www.phatcode.net/res/243/files/sbhwpg.pdf .
+
+### 34.15.1 What a machine cannot run leaves the claim
+
+SOUND.DRV is 11,151 bytes and two runs of it are dead weight once its attach
+has answered:
+
+- **the attach-only code** - `opl_probe` and `opl_kind_probe`, `opl_init`'s
+  one-time chip init, `mpu_probe` and its three helpers with `os88_pin`,
+  `cvx_probe` and the `snd_upnm` it falls into, the PicoMEM's bring-up and
+  undo (`pm_init`, `pm_cmd`, `pm_wait`, `pm_undo`) and `mix_probe`. They run
+  inside `DRVV_ATTACH` and never again, on EVERY machine. **The Sound Blaster
+  probe is not among them**: `DRVV_TIER` re-runs `sbl_attach` all session, so
+  `sb.inc` stays whole.
+- **the mixer verbs (7–9), the speaker icon (10, 12) and the volume popup
+  (11)**, dead on every machine whose attach found no readable mixer: the PC
+  speaker, an AdLib alone, a Covox, an MPU-401, a Sound Blaster older than the
+  CT1335. The kernel never shows the speaker there (`SND_CAP_MIXER` is clear)
+  and Mixer is told `SNDE_NOMIX`.
+
+So the image is laid out to give them back, with two ends:
+
+```
+[header][the tiers][their state][mix_kind] snd_keep: [mixer][popup][their state] snd_keepmix: [attach-only]
+```
+
+The attach - the one place `mix_probe` runs, so a tier change cannot bring a
+mixer into existence - writes `snd_keepmix` into the header's `DRV_H_KEEP`,
+or `snd_keep` when `[mix_kind]` is 0, and the kernel shrinks the image's
+claim to it before the tier and `DRVV_READY` calls (§51.1.3):
+
+| build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) |
+|---|---|---|
+| shipped (PicoMEM in) | 6,579 bytes: **11KB → 7KB**, 589 under the rung | 10,124: **11KB → 10KB**, 116 under |
+| `NOPICOMEM=1` | 6,373: 11KB → 7KB | 9,918: 11KB → 10KB |
+
+The attach-only bodies are defined as macros (`MPU_ONCE`, `CVX_ONCE`,
+`PM_ONCE`, `MIX_ONCE`) and expanded where their files put them unless
+`SND_SPLIT` is defined - which SOUND.DRV does, expanding them past
+`snd_keepmix` - so `picomem.inc`'s other includers (`tests/picomem/`,
+`tests/vidbench/vidsnd.asm`) assemble exactly as before.
+
+**Nothing kept is ever reached into what was handed back.** `snd_pkg`
+refuses verbs 7–12 with `SNDE_NOMIX` when `[mix_kind]` is 0 (verb 11's CF = 1
+is then "not on the speaker", which is true), and `snd_detach` tests it
+before `mix_detach` - which is why `mix_kind` is the core's byte and not
+`MIX_STATE`'s, and why the verbs themselves no longer test it. Below
+`snd_keepmix` only `snd_entry` names a label past it. Both rules are layout
+rules that assemble cleanly when broken, so `tests/unit/t_sndonce.py` reads
+them off the assembler's listing; its first run found `snd_detach` calling
+`opl_tmrst`, a ten-byte helper that had sat between the probes and moved with
+them - it is resident beside `opl_defpat` now.
+
+**What it costs**: no state is the file's trailing zero run any more - the
+attach-only code is the end of the file - so ~1.3KB of zeros ship: **+10
+bytes** of the `.drv` under `PKGZ` (8,600 → 8,610), ~1.3KB under `PKGZ=`. The
+shrink keeps the image's BASE (§50.3 path 1), so no CS and no hooked vector
+moves; the KB it frees is the top of a top-down claim, a free run directly
+above the driver, and on the Covox 5150 the boot's last compaction carries
+the shrunk image to the ceiling so that run rejoins the free middle
+(`tests/sndkeep.py`).
 
 ## 35. Recorder — the sound layer's recording client
 
@@ -96607,6 +96670,30 @@ allocator (a top-down claim is placed at the highest base that FITS over every
 gap, and the map shows a 2KB claim landing inside a former 9KB hole); and it
 was not the two-claim scratch §20.13.3.1 has since deleted — removing the pad
 while that scratch still stood left 5 runs and 364.0K.
+
+### 51.1.3 An attach may hand the end of its image back (`DRV_H_KEEP`)
+
+A driver can know, once its attach has probed, that the END of its image can
+never run on this machine - SOUND.DRV with no mixer (§34.15.1). It says so by
+writing the byte offset where what it still needs ends into **`DRV_H_KEEP`,
+the header's link word at +4**, before it returns from `DRVV_ATTACH`. The
+loader has already required that word to be 0 (`ld_hdr_ok`) and never reads
+it again, so no driver says this by accident, an older driver keeps its whole
+claim, and an older kernel ignores the word: **no ABI break, no `DRV_VER`
+bump**.
+
+The kernel (`DRV_ATTACH`'s `%1_att`, kern_big's three expansions: the boot
+blob, CTRL.DRV and HIBER.DRV) reads it after the publish and before
+`DRVV_TIER` and `DRVV_READY`, rounds it up to a KB and, when that is smaller
+than `DRVR_KB`, calls `mem_regrow` through the image's own hop into `.cold` -
+**zero resident bytes** - and stores the new KB in `DRVR_KB`, which is what
+the Drivers page weighs. A refusal leaves the claim as it was. It is skipped
+when `DRVR_KB` is 0 (an image in the HMA or above 1MB, which no claim holds),
+and kern_small, which loads no driver that writes it, does not assemble it.
+
+The rules for the driver are the ones for any memory it gives away: put what
+may be dropped LAST, its zeroed state after its code, and let every way into
+it be guarded by a byte BEFORE the offset.
 
 ### 51.2 The contract
 
