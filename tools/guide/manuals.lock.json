@@ -1082,9 +1082,9 @@
   "sources": [
    "apps/taskmgr"
   ],
-  "stamped": "c1bf8532",
-  "strings": "90d344db69cb7124",
-  "why": "e4bddd9e (HMA holdings named, the list's thumb dragged) and this branch (kern_mega's DescTbl row, the quiet key forgotten after a non-worker paint, the TMF_MEM rung): the type table is 'some of the types you will see', HIGH already says above 1MB, and 'use its scroll bar' covers the thumb - nothing a first-time writer would word differently"
+  "stamped": "15bf7dd5",
+  "strings": "17ad04af66b54570",
+  "why": "e5ddebd1 fixes the heap view's scroll-thumb drag (DX clobbered before os88ui_sbgrab); no user-visible text or behaviour the page describes changed"
  },
  "TELNET_O88": {
   "sources": [
