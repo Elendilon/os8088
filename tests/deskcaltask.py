@@ -156,7 +156,17 @@ def main():
 
             def frame_now():
                 ui.mo.to(20, 300)        # the pointer off the window: it is
-                ui.still()               # drawn INTO the framebuffer
+                # drawn INTO the framebuffer. ...AND THE HANDLE DOWN: a press
+                # reveals it at once and it hides DOCK_LEAVE_T (14) ticks
+                # after the pointer leaves (SPEC.md 110.11), while still()
+                # returns a tick after the UI goes quiet - so a read straight
+                # after the box's press caught the handle still up (stik_hv
+                # LINGER, stik_tagp 2) about one run in two, and the plate's
+                # 359 pixels read as the toggle drawing outside its box
+                ui._wait(lambda: c.wb("stik_hv") == 0
+                         and c.wb("stik_tagp") in (0, 1), "the handle down",
+                         30)
+                ui.still()
                 return m.vram("herc")[2]
 
             def done(k):
