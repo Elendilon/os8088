@@ -882,10 +882,11 @@ br_take:
     shl bx, cl                      ; FILE's size and nothing else here knows
     dec bx                          ; that, so a fetch bounded on BR_MAXKB
     pop cx                          ; writes past a smaller block
-    mov es, [br_srcseg]             ; ONCE - the claim is PINNED, so it cannot
-    mov dx, es                      ; move under us - and ZERO means br_go has
-    or dx, dx                       ; freed it: segment 0 is the kernel image
-    jz .done                        ; and every task's stack
+    mov es, [br_srcseg]             ; ONCE - the claim is MOVABLE (br_movable)
+    mov dx, es                      ; but not while this worker RUNS, which
+    or dx, dx                       ; pins it (inst_seg_parked) - and ZERO
+    jz .done                        ; means br_go has freed it: segment 0 is
+                                    ; the kernel image and every task's stack
     mov si, br_rxb
 .next:
     mov al, [si]

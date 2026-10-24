@@ -23,7 +23,7 @@ be run side by side; a bound port is a gate reading the other one's answers.
 the machine asks the host for it and every byte under test is a byte this file
 chose.
 
-SIXTEEN ASSERTIONS.
+EIGHTEEN ASSERTIONS.
 
 1. THE CATALOG ARRIVES AND IS UNDERSTOOD. `wr_n` is 5, `wr_state` is WS_DONE
    and `wr_nodrv` is 0 - which is the whole stack under it (ARP, a handshake,
@@ -118,6 +118,16 @@ SIXTEEN ASSERTIONS.
    Program reaches the loader, which answers LD_EVER, and the Wire says `Made
    for another os8088 version`; Add to Disk reads the header it downloaded
    and refuses before writing, so OLDHELLO.O88 is on no disk afterwards.
+
+17-18. THE CATALOG AND THE TRANSFER CLAIM MOVE (NO-PINNING, SPEC.md 66).
+   A compaction is POSTED from outside - `[mem_cpq]` and `[mem_cpq_lvl]`,
+   written through QEMU's GDB stub (`os88qemu.poke`; the monitor has no
+   memory write) - once with the catalog on the glass and every half second
+   while the archive chain of assertion 9 holds its claim. Each claim is
+   read back DECLARED, the catalog MOVED with its bytes and the list counted
+   again out of it, the transfer claim moved at least once - and everything
+   after runs against the moved claims, so a relocation proc that left a word
+   behind fails there too. The red run is `wr_reloc` made a bare `ret`.
 
 **THE LAUNCH IS THE DESKTOP ZONE** (SPEC.md 26.7). `ETHER.DRV` registers it,
 so the ethertest-shaped disk that already asks for the driver has the icon on
@@ -694,6 +704,36 @@ def u16(b, i=0):
 
 
 # =============================================================================
+# THE HEAP, read from outside, and a compaction POSTED from outside
+# (tests/pkgmove.py's two halves, on QEMU)
+# =============================================================================
+def claims(m):
+    """{base: (paragraphs, MC_RLOC)} for every live record of mem_tab."""
+    raw = m.read(S("mem_tab"), os88geom.MEM_MAX * os88geom.MC_SIZE)
+    z = os88geom.MC_SIZE
+    return {u16(raw, i * z): (u16(raw, i * z + 2), u16(raw, i * z + 8))
+            for i in range(os88geom.MEM_MAX) if u16(raw, i * z)}
+
+
+def heapmap(m):
+    for base, (para, rloc) in sorted(claims(m).items()):
+        say("     %04X %4dKB %s" % (base, para // 64,
+                                     "MOVABLE" if rloc else ""))
+
+
+def post(m, win):
+    """Post a compaction at the TRIVIAL rank and wait until ui_task has spent
+    it. [mem_cpq_lvl] first and [mem_cpq] LAST: the second is what ui_task
+    tests, so it must not see a post with a stale rank. QEMU's monitor writes
+    no memory, so both go through its GDB stub (os88qemu.poke)."""
+    wp = os88geom.winptr(m, win, S)
+    os88qemu.poke(m.hmp, S("mem_cpq_lvl"), bytes([0xFC]))
+    os88qemu.poke(m.hmp, S("mem_cpq"), bytes([wp & 0xFF, (wp >> 8) & 0xFF]))
+    return os88qemu.acted(m, lambda: u16(m.read(S("mem_cpq"), 2)) == 0,
+                          secs=10, what="the posted compaction", poll=0.1)
+
+
+# =============================================================================
 # THE HOST'S WIRE - one catalog, two packages, and it remembers what was asked
 # =============================================================================
 class Server(threading.Thread):
@@ -1069,18 +1109,26 @@ def main():
         if not 0 < kb0 < os88wire.WIRE_CATMAX // 1024:
             no("[wr_catkb] is %d: the accepted catalog's claim was not shrunk "
                "to the catalog" % kb0)
-        cell = m.read(S("menu_bar") + 1 * os88geom.MB_ENTSZ,
-                      os88geom.MB_ENTSZ)
-        fx = (u16(cell, os88geom.MB_XL) + u16(cell, os88geom.MB_XL + 2)) // 2
-        nasked = len(srv.asked)
-        mo.run("down", str(fx), "8")        # a menu is press, drag, release
-        time.sleep(0.5)
-        mo.run("to", str(fx), "26")         # File > Refresh, item 0
-        time.sleep(0.4)
-        mo.run("up")
-        os88qemu.acted(m, lambda: len(srv.asked) > nasked and w("wr_n") == NREC
-                       and b("wr_state")[0] == WS_DONE,
-                       secs=40, what="the refreshed catalog", poll=0.5)
+        def refresh():
+            """File > Refresh through the real menu; the Wire must be in front.
+            Answers the menu cell's x and how many requests the host had."""
+            cell = m.read(S("menu_bar") + 1 * os88geom.MB_ENTSZ,
+                          os88geom.MB_ENTSZ)
+            fx = (u16(cell, os88geom.MB_XL)
+                  + u16(cell, os88geom.MB_XL + 2)) // 2
+            nasked = len(srv.asked)
+            mo.run("down", str(fx), "8")    # a menu is press, drag, release
+            time.sleep(0.5)
+            mo.run("to", str(fx), "26")     # File > Refresh, item 0
+            time.sleep(0.4)
+            mo.run("up")
+            os88qemu.acted(m, lambda: len(srv.asked) > nasked
+                           and w("wr_n") == NREC
+                           and b("wr_state")[0] == WS_DONE,
+                           secs=40, what="the refreshed catalog", poll=0.5)
+            return fx, nasked
+
+        fx, nasked = refresh()
         kb1 = b("wr_catkb")[0]
         say("after Refresh: asked %d -> %d, wr_n = %d, claim %d KB"
             % (nasked, len(srv.asked), w("wr_n"), kb1))
@@ -1232,7 +1280,7 @@ def main():
             return (rgt + 5 + os88geom.FM_BTN_W // 2,
                     cy + 2 + 20 * k + os88geom.FM_BTN_H // 2)
 
-        def save_to_b(tag, base):
+        def save_to_b(tag, base, churn=None):
             """Add to Disk..., walk the Save chooser to B:, and press Save.
 
             The chooser is a Disk window in a chooser role (SPEC.md 38.1), and
@@ -1287,9 +1335,17 @@ def main():
             os88qemu.acted(m, lambda: len(srv.asked) > nasked
                            or b("wr_job")[0] != 0, secs=2.0,
                            what="the Add chain to start", poll=0.1)
-            os88qemu.acted(m, lambda: b("wr_job")[0] == 0
-                           and b("wr_state")[0] in (WS_DONE, WS_FAIL),
-                           secs=120, what="the Add chain", poll=0.5)
+            def ended():
+                if churn is not None:           # assertion 18's compactions
+                    f = w("wr_fseg")
+                    if f and (not churn or churn[-1][0] != f):
+                        churn.append((f, claims(m).get(f, (0, 0))[1]))
+                    if f and u16(m.read(S("mem_cpq"), 2)) == 0:
+                        post(m, ww)
+                return b("wr_job")[0] == 0 \
+                    and b("wr_state")[0] in (WS_DONE, WS_FAIL)
+            os88qemu.acted(m, ended, secs=120, what="the Add chain",
+                           poll=0.5)
             shot(tag + "-added")
             say("after the chain: wr_job = %d, wr_state = %d, wr_msg = %04X"
                 % (b("wr_job")[0], b("wr_state")[0], w("wr_msg")))
@@ -1414,7 +1470,28 @@ def main():
                "WF_FLOPPY with WF_ARC on purpose (SPEC.md 92.2) and a reader "
                "that knows bit 4 must ignore bit 3 on it - this is that "
                "reader failing to (wr_grey = %d)" % b("wr_grey")[0])
-        arc_added = save_to_b("07", dispcp.win_list(m, S))
+        # --- 18: ...AND THE TRANSFER CLAIM MOVES UNDER IT (NO-PINNING) -----
+        # The archive's one claim is held for the whole chain, across every
+        # entry's pause, so the chain is run with a compaction POSTED every
+        # half second while the claim exists: [wr_fseg] must be declared
+        # (MC_RLOC) each time it is read, and must have MOVED at least once -
+        # every move after that is the worker's next pass re-reading
+        # [wr_dseg], and the host-side read-back of the whole tree at the
+        # bottom of this file is what says no byte went to the old place
+        # (the red run: wr_reloc made a bare `ret`)
+        moves = []
+        arc_added = save_to_b("07", dispcp.win_list(m, S), churn=moves)
+        say("the archive's claim while the chain ran: %s"
+            % " -> ".join("%04X%s" % (f, "" if r else " PINNED")
+                          for f, r in moves))
+        if not any(r for f, r in moves):
+            no("the transfer claim was never declared movable while the "
+               "chain held it (MC_RLOC = 0 at every reading; one taken "
+               "inside a file call's pin is expected, all of them is not)")
+        if len(moves) < 2:
+            no("the transfer claim never moved under the archive chain, so "
+               "assertion 18 proved nothing - the heap map follows")
+            heapmap(m)
         if not arc_added:
             no("the archive chain ended in WS_FAIL: wr_msg = %04X, and the "
                "candidates are wr_s_badarc (a field wr_ahdrck or wr_aentck "
@@ -1446,6 +1523,56 @@ def main():
                "(wr_ahdrck, wr_aentck); wr_s_wrote is a piece the disk "
                "refused - the first is OSAPI_FILE_WRITE, the rest "
                "OSAPI_FILE_APPEND" % w("wr_msg"))
+
+        # --- 17: THE CATALOG MOVES (NO-PINNING, SPEC.md 66) ----------------
+        # TAKEN HERE AND NOT AT THE FIRST CATALOG, because there it cannot
+        # move: it is claimed straight after the boot's own claims, and
+        # nothing below it is ever freed. By now the chains have put claims
+        # directly ABOVE it, so this Refresh's REGROW to the ceiling cannot
+        # extend in place and lands it high (mem_regrow's path 3) - and the
+        # shrink after the fetch leaves it there, over a hole.
+        # Its claim is held for as long as the window is open, so it is
+        # declared movable (wr_reloc). A compaction is POSTED from outside at
+        # the TRIVIAL rank - [mem_cpq] and [mem_cpq_lvl], the door
+        # OSAPI_MEM_COMPACT posts through (SPEC.md 66.4.3), written through
+        # QEMU's GDB stub because its monitor has no memory write
+        # (os88qemu.poke) - and the claim must be DECLARED (MC_RLOC, read
+        # from the kernel's own table), have MOVED, be named by [wr_catseg]
+        # afterwards and hold the same bytes. Everything below then runs
+        # against the MOVED catalog: the filter's count, the picture's
+        # record, the names Add to Disk writes and the image Load Program
+        # runs are all read through [wr_catseg], so a proc that left the
+        # word behind (the red run: wr_reloc made a bare `ret`) fails here
+        # and again at every one of them.
+        raise_wire()
+        refresh()
+        c0 = w("wr_catseg")
+        held = claims(m)
+        rloc = held.get(c0, (0, 0))[1]
+        kb2 = b("wr_catkb")[0]
+        cbytes = m.read(c0 * 16, kb2 * 1024)
+        post(m, ww)
+        os88qemu.poke(m.hmp, S("cp_dirty"), b"\x01")  # repaint it all, so the
+        os88qemu.pace(m, 1.5)          # list is counted again out of the claim
+        c1 = w("wr_catseg")
+        held = claims(m)
+        say("catalog claim: %04X -> %04X after a posted compaction, MC_RLOC "
+            "%04X, %s" % (c0, c1, rloc, "live" if c1 in held else "STALE"))
+        if not rloc:
+            no("the catalog claim is not declared movable (MC_RLOC = 0)")
+        if c1 not in held:
+            no("[wr_catseg] = %04X names no claim after the compaction: the "
+               "relocation proc left the word behind" % c1)
+        elif c1 == c0:
+            no("the catalog did not move, so assertion 17 proved nothing - "
+               "the heap map follows")
+            heapmap(m)
+        elif m.read(c1 * 16, kb2 * 1024) != cbytes:
+            no("the catalog's bytes changed in the move")
+        os88qemu.acted(m, lambda: shown() == NREC, secs=3,
+                       what="the list after the move", poll=0.1)
+        if shown() != NREC:
+            no("after the move the list shows %d rows" % shown())
 
         # --- 10: AN ARCHIVE, RUN FROM RAM (SPEC.md 92.14) -------------------
         vols0 = live_vols(m)

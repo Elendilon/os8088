@@ -94,6 +94,10 @@ def _map(app, defines=()):
                                         # too. Harmless for every other app -
                                         # nasm only reaches a -I when an
                                         # %include misses
+           "-I", os.path.join(ROOT, "drivers", "sound") + os.sep,
+                                        # ...and apps/realdmg sndpkg.inc from
+                                        # SOUND.DRV, on the same argument
+                                        # (tests/rdgmove.py maps its bss)
            "-I", os.path.join(ROOT, "build") + os.sep]
                                         # A C PACKAGE'S SHIM %includes THE
                                         # COMPILED C out of build/ (SPEC.md

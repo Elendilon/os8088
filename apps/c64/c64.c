@@ -468,6 +468,44 @@ static void ovl_load_prg(const char *name, unsigned size_lo);
 #include "c64about.c"                       /* ovl_*: the About panel */
 
 /* ==========================================================================
+ * os88_onmove - THE COMPACTOR MOVED ONE OF OUR CLAIMS (C64-SPEC 3.1.1,
+ * SPEC.md 66.2). Three movable claims and every word that names one:
+ *
+ *   - the 64KB RAM: c64_m.ramseg, which c64cpu.inc and c64mem.inc load DS/ES
+ *     from, and c64_chr_seg (c64scr.c) when the character generator is in RAM;
+ *   - the parts CARVE, ROM and overlay (crt0 re-stamps the overlay itself and
+ *     then calls this with the carve's two bases): c64_m.romseg is re-read
+ *     through os88_part_seg on EVERY call, which is right whichever claim
+ *     moved, and c64_chr_seg follows it when the character generator is the
+ *     ROM's;
+ *   - Paste's 2KB queue, c64_paste_seg (c64kbd.c).
+ *
+ * THE CORE IS UNTOUCHED. c64_run loads DS from c64_m.ramseg at its door, and
+ * zeroes the fetch BOUND there so its first fetch re-derives the cached fetch
+ * ES from both words; every C entry into the core reads them per call. It
+ * runs on the UI task - the only task that compacts (SPEC.md 66.3.1) - with
+ * no claim inside it, so a move lands between two runs and never inside one.
+ * Assignments and compares only: this runs INSIDE the compaction (SPEC.md
+ * 66.3 rule 3), and op_seg is arithmetic on op_base, touching no heap.
+ * ========================================================================*/
+void os88_onmove(unsigned was, unsigned now)
+{
+    unsigned rom;
+
+    rom = os88_part_seg(C64_ROM_PART);
+    if (c64_chr_seg == c64_m.romseg)
+        c64_chr_seg = rom;
+    c64_m.romseg = rom;
+    if (c64_m.ramseg == was) {
+        if (c64_chr_seg == was)
+            c64_chr_seg = now;
+        c64_m.ramseg = now;
+    } else if (c64_paste_seg == was) {
+        c64_paste_seg = now;
+    }
+}
+
+/* ==========================================================================
  * THE MESSAGE AREA
  *
  * Every refusal in this port takes BOTH routes - the status row and a toast -
@@ -1743,5 +1781,10 @@ void *os88_main(void)
      * (build/port-shots/wave2-03-launch.png). RUNCPM posts its first wake
      * from its own paint for the same reason. */
     c64_kick = 1;
+    /* THE RAM MAY MOVE FROM HERE ON (C64-SPEC 3.1.1): every claim this
+     * launch makes is made, every copy of the segment (c64_chr_seg, through
+     * c64_frame_regs above) is taken, and os88_onmove keeps them. The parts
+     * carve is crt0's to declare, once this returns (CC_ONMOVE_PARTS). */
+    os88_mem_movable(c64_m.ramseg, 1);
     return win;                             /* the first paint kicks */
 }

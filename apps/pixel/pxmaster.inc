@@ -52,7 +52,8 @@ px_htail:
 ; px_mreloc - the master's relocation proc (SPEC.md 66): BX = where a claim
 ; WAS, DX = where it is. Either master - the picture shown, or the one a
 ; cancel would put back - is ours to re-base; nothing else derives from it.
-; The view, the undo hold and the colour face's pictures share the proc.
+; The view, the undo hold, an animation's claim and the colour face's
+; pictures share the proc, and so do the code parts (OP_ONMOVE).
 ; Called inside the allocator: it may not claim, draw or yield
 ; =============================================================================
 px_mreloc:
@@ -72,12 +73,18 @@ px_mreloc:
     jne .a                          ; shown one's copy of its own name
     mov [px_urec + PXR_MSEG], dx    ; (SPEC.md 106.24)
 .a:
+    cmp [px_anseg], bx              ; ...and a GIF's animation claim, between
+    jne .f                          ; its passes (pxgif.asm's av_start pins
+    mov [px_anseg], dx              ; it for one, av_wake lets it go)
+.f:
     cmp [pxa_seg], bx               ; ...and the colour face's pictures,
     jne .out                        ; whose row's zkb is the claim op_drop
     mov [pxa_seg], dx               ; would free (SPEC.md 106.16)
     mov [PXA_ROW + OP_R_ZKB], dx
 .out:
-    ret
+    ret                             ; ...and the CODE parts' hook as well
+                                    ; (OP_ONMOVE): op_lazymv has put the row
+                                    ; right and none of these words matches
 
 ; =============================================================================
 ; THE ARITHMETIC every setup path shares. None of it is hot.

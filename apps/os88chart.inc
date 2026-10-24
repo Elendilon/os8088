@@ -125,6 +125,11 @@
   %endif
 %endmacro
 
+%ifdef CH_OVERLAY
+  %ifndef CH_FWRITE                ; 82.16.11: the module's one kernel call
+    %error "CH_OVERLAY needs CH_FWRITE: OSAPI_FILE_WRITE through a resident stub, never a direct far call from the module"
+  %endif
+%endif
 %ifndef CH_OVERLAY
   %define ch_res_unpacka fp_unpack_a
   %define ch_res_unpackb fp_unpack_b
@@ -2794,7 +2799,11 @@ ch_bmp_write:
     xor bx, bx                          ; bytes to write
     mov cx, CH_HDRSZ + (CH_STRIDE * CH_H)   ; 19318, fits one word
     xor dx, dx
-    call OSAPI_FILE_WRITE
+%ifdef CH_OVERLAY                       ; 82.16.11: in the module the write
+    CH_FWRITE                           ; goes out through the includer's
+%else                                   ; resident stub, so the kernel's retf
+    call OSAPI_FILE_WRITE               ; never holds the module's own CS
+%endif
     pop es                              ; caller's real es, restored
     pop dx
     pop cx

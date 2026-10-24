@@ -629,8 +629,12 @@ vid_depth_set:
     cmp al, VID_VESA            ; SPEC.md 120.4: colour ([vid_mono] = 0), the
     jne .notext                 ; DEPTH for a plane count, and the hook armed
     mov ah, [vx_bpp]            ; - the stores below, one word for the pair
-    xor al, al                  ; and the _w twin, as on every other kind. A
-    jmp short .st               ; depth above 4 IS the hook's test (vidext.inc)
+    xor al, al                  ; and the _w twin, as on every other kind,
+    jmp short .st               ; THROUGH THE SAME STORES and not a copy:
+                                ; SPEC.md 39.26 rests on the pair having ONE
+                                ; writer, and tests/unit/t_invariants.py counts
+                                ; it. A depth above 4 IS the hook's test
+                                ; (vidext.inc)
 .notext:
 %endif
 %ifdef GFX_VGA                  ; **ZF IS THE ANSWER AND IT SURVIVES TO THE

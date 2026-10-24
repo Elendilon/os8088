@@ -11716,13 +11716,24 @@ wm_nest_pushd:
     push bx
     push ds
     pop ax                      ; AX = the image, at no register cost to the
-    mov bx, [es:wm_pkgd]        ; caller
+%ifdef OS88_COMPACT               ; caller
+    mov bx, wm_tcnt
+    cmp byte [es:sch_cur], 0    ; ANOTHER TASK'S CALL IS ONLY COUNTED (K9)
+    jne .count
+%endif
+    mov bx, [es:wm_pkgd]
     cmp bx, WM_PKGD_MAX
     jae .over                   ; deeper than wm_pkgs records: mem_in_nest
     shl bx, 1                   ; pins every image rather than guess
     mov [es:bx+wm_pkgs], ax
 .over:
+%ifdef OS88_COMPACT
+    mov bx, wm_pkgd
+.count:
+    inc word [es:bx]            ; the UI task's depth, or the other tasks'
+%else                           ; count
     inc word [es:wm_pkgd]
+%endif
     pop bx
     pop ax
     popf
@@ -11730,9 +11741,19 @@ wm_nest_pushd:
 
 wm_nest_pop:
     pushf
+%ifdef OS88_COMPACT
+    cmp byte [sch_cur], 0       ; (the task cannot change under us: a switch
+    jne .task                   ; resumes this one with the same index)
+%endif
     dec word [wm_pkgd]
     popf
     ret
+%ifdef OS88_COMPACT
+.task:
+    dec word [wm_tcnt]
+    popf
+    ret
+%endif
 
 ; ...and the FAR entries, for the sites that are .text (wm_pkgcall itself,
 ; vmmouse.inc, xmem.inc). SPEC.md 2.6.1: a far entry ends in `retf` and is
@@ -11795,6 +11816,18 @@ wm_pkgd:    resw 1              ; NESTING DEPTH OF KERNEL -> PACKAGE CALLS. A
                                 ; the one being loaded, and [ld_base] names
                                 ; that one already
 wm_pkgs:    resw WM_PKGD_MAX
+%ifdef OS88_COMPACT
+wm_tcnt:    resw 1              ; ...AND A COUNT FOR EVERY OTHER TASK (NO-PINNING
+                                ; K9): how many calls into an image are in
+                                ; flight on a task that is not the UI task - a
+                                ; worker's OSAPI_DRV_CALL, a dying worker's
+                                ; repaint. The stack is the UI task's alone; a
+                                ; worker used to push onto it from its own
+                                ; task, so two tasks interleaved on one stack.
+                                ; Non-zero pins every image, and every driver's
+                                ; claims, for as long as it lasts. Inside the
+                                ; zero run wm_init clears, which is label-sized
+%endif
 wm_wins:    resb MAX_WIN * WIN_SIZE ; 12 windows x WIN_SIZE bytes
 ; THE DESK BAND (SPEC.md 11.103.1): every WF_DESK window occupies
 ; wm_zord[0 .. k-1] and every ordinary one is above them - no count byte. The

@@ -87,7 +87,10 @@ def slots_at_rest(m, eq, where):
                      "%s" % (where, got.hex()))
 
 
-def fixture(folder, name, extd, extend_saved, vm_ext=False):
+EQ = {}
+
+
+def fixture(folder, name, extd, extend_saved):
     files = [os88build.at("build/ctrl.drv")]
     if extd:
         files.append(os88build.at("build/extd.drv"))
@@ -98,19 +101,20 @@ def fixture(folder, name, extd, extend_saved, vm_ext=False):
         # the boot takes drv_boot_x's .vnosw arm and applies the ARRANGEMENT on
         # whichever card the probe chose - this test is about the two bytes,
         # not about a switch.
+        #
+        # ...and on a kernel with VID_EXT (kern_big's default since SPEC.md
+        # 120.3) the record is ver 3, FOUR bytes: the packed display's mode
+        # class rides after the arrangement (120.2.3, CFG_VE; 0 = Auto). A
+        # ver-2 record stops matching there and the defaults stand - which
+        # booted this arm Single and read as EXTD.DRV failing to load.
+        # CFG_VEL is 1 * DRV_VX, so the kernel's own equate says which.
+        vel = EQ.get("CFG_VEL", 0)
         d = folder / name
         d.mkdir()
         cfg = d / "system.cfg"          # the basename IS the 8.3 name
-        #
-        # ...and on a kernel with SPEC.md 120's external renderer (VID_EXT,
-        # kern_big) the record is ver 3 with a FOURTH byte, the packed
-        # display's mode class (driver.inc's CFG_VE, 0 = Auto): a ver-2
-        # record stops matching there and the defaults stand, which is the
-        # Single boot this arm reported as a kernel defect from SPEC.md
-        # 120.2.3 until kernel size pass 14 (ksp14/reach.md)
-        vm = bytes([3, 4, 0xFF, 1, 0, 0]) if vm_ext else bytes([2, 3, 0xFF, 1, 0])
         cfg.write_bytes(b"O88CFG\0\0" + (3).to_bytes(2, "little")
-                        + b"VM" + vm + b"\0\0")
+                        + b"VM" + bytes([2 + vel, 3 + vel, 0xFF, 1, 0])
+                        + bytes(vel) + b"\0\0")
         files.append(str(cfg))
     image = folder / (name + ".img")
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", str(image),
@@ -215,6 +219,7 @@ def arm_boot(image, eq, fails, arm, want_ext):
 
 def main():
     eq = os88sym.equates()
+    EQ.update(eq)
     if "MOD_EXT" not in eq:
         sys.exit("extdmod: this kernel has no MOD_EXT - kern_small? "
                  "EXTD.DRV is kern_big's alone (SPEC.md 39.19.6)")
@@ -226,10 +231,9 @@ def main():
         print("B: the panel's Extend with no EXTD.DRV")
         arm_b(fixture(t, "b", False, False), eq, fails)
         print("C: a boot with Extend saved")
-        vx = "CFG_VE" in eq             # a VID_EXT kernel's 'VM' is ver 3
-        arm_boot(fixture(t, "c", True, True, vx), eq, fails, "C", True)
+        arm_boot(fixture(t, "c", True, True), eq, fails, "C", True)
         print("D: a boot with Extend saved and no EXTD.DRV")
-        arm_boot(fixture(t, "d", False, True, vx), eq, fails, "D", False)
+        arm_boot(fixture(t, "d", False, True), eq, fails, "D", False)
     print()
     for f in fails:
         print("extdmod: FAIL: " + f)

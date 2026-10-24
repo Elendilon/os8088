@@ -45,6 +45,21 @@ hf_rec:
     ret
 
 ; -----------------------------------------------------------------------------
+; hf_reloc - the index moved (SPEC.md 66.2, NO-PINNING R2). BX = where it was,
+; DX = where it is; every register preserved (sk_reloc's shape). [hf_iseg] is
+; the one word naming it between verbs; within a verb it is loaded into ES and
+; re-read after the one call that can claim (hf_list's OSAPI_FS_ENT). While a
+; package WORKER is inside a driver verb, the kernel pins every driver claim
+; (SPEC.md 66.6.3.2).
+; -----------------------------------------------------------------------------
+hf_reloc:
+    cmp bx, [hf_iseg]
+    jne .out
+    mov [hf_iseg], dx
+.out:
+    ret
+
+; -----------------------------------------------------------------------------
 ; hf_drop_idx - give the index back. clobbers: nothing
 ; -----------------------------------------------------------------------------
 hf_drop_idx:
@@ -129,6 +144,11 @@ hf_fetch:
     jc .free
     mov ax, [hf_tseg]
     mov [hf_iseg], ax
+    push dx                     ; ...AND IT MAY MOVE from here (NO-PINNING R2):
+    mov dx, ax                  ; it was the network's write target until the
+    mov ax, hf_reloc            ; fetch finished, and now [hf_iseg] is the one
+    call OSAPI_MEM_MOVABLE      ; word that names it (hf_reloc). A refusal
+    pop dx                      ; only pins it
     mov ax, [hf_nwant]
     mov [hf_nrec], ax           ; ([hf_cwd] is the root: hf_drop_idx said so)
     mov byte [hf_failed], 0
@@ -557,6 +577,9 @@ hf_list:
     call OSAPI_FS_ENT           ; AX = where it landed: not ours to keep
     pop cx
     pop ax
+    mov es, [hf_iseg]           ; RE-READ: FS_ENT can claim, a claim can
+                                ; compact, and the index moves (hf_reloc) -
+                                ; the ES hf_cwdrun handed over is stale then
     jc .out                     ; the listing is full
 .skip:
     inc ax
