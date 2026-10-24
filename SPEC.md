@@ -216600,8 +216600,13 @@ build.
 
 #### 117.10.2 The published tree, and `OS88VER.TXT`
 
-`make nettree` writes `build/nettree/`: the 1.44MB system disk's files and
-the 1.44MB apps disk's files as one tree, `SYSTEM\OS88VER.TXT`, and the
+`make nettree` writes `build/nettree/`, which holds **one tree per kernel**:
+`big/` and `mega/`. kern_big and kern_mega install different kernels and
+different package builds (kern_mega's arms, 20.18), so a machine must upgrade
+from the tree of the kernel it runs. Each tree is the 1.44MB system disk's
+files and the 1.44MB apps disk's files as one - `build/os8088.img` and
+`build/apps.img` for `big/`, `build/mega.img` and `build/megaapps.img` for
+`mega/` - `SYSTEM\OS88VER.TXT`, and the
 `OS88.IDX` `tools/os88httpdrv.py export` writes for it. The version file is
 in `SYSTEM\` because an install copies the tree whole: there it lands beside
 the rest of the system on the installed volume, as that machine's record of
@@ -216611,8 +216616,11 @@ the published folder is served cut to its old length: edit
 `apps/install/OS88VER.TXT` and build the tree again, or re-index the folder in
 place with `os88httpdrv.py export DIR DIR`. **`ASSOC.DAT` is left
 out**: an install builds the destination's own (52.10.14). The release skill
-publishes the tree at **`http://os8088.com/net/`**, which is INSTALL's
-`IN_URL`.
+publishes `build/nettree/` whole at **`http://os8088.com/net/`**, so the two
+trees are `http://os8088.com/net/big/` - the `IN_URL` of the INSTALL on
+kern_big's system disks - and `http://os8088.com/net/mega/`, the `IN_URL` of
+the INSTALL kern_mega's system disks carry (`$(MEGAINST)`, the same source
+assembled with the other address).
 
 `OS88VER.TXT` is text: line 1 the release, `YYYYMMDD`, and up to four more
 lines of what is new, each shown to 40 characters. CR, LF or both end a line;

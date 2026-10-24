@@ -14,7 +14,10 @@ A file both disks carry is the SYSTEM disk's, and said; ASSOC.DAT is left out,
 because an install builds the destination volume's own (SPEC.md 52.10.14) and
 neither disk's cache describes the merged tree.
 
-The release skill publishes OUT at http://os8088.com/net/, INSTALL's IN_URL.
+One tree per kernel: `make nettree` writes build/nettree/big/ (os8088.img +
+apps.img) and build/nettree/mega/ (mega.img + megaapps.img), and the release
+skill publishes build/nettree/ at http://os8088.com/net/ - so each lands at
+net/big/ or net/mega/, the IN_URL of that kernel's own INSTALL.
 """
 import os
 import re
