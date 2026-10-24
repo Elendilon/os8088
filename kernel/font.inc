@@ -580,7 +580,11 @@ font_char:
     add dx, ax                  ; ...and at the screen row it belongs on
 
 
-%ifdef GFX_VGA
+%ifdef VID_EXT
+    cmp byte [vid_planes], 4    ; 1bpp? the software renderer IS the direct
+    jae .vram                   ; path there (SPEC.md 39.5) - and .vram's `je`
+                                ; reads these flags: planar, or packed
+%elifdef GFX_VGA
     cmp byte [vid_mono], 0      ; 1bpp? the software renderer IS the direct
     je .vram                    ; path there (SPEC.md 39.5). Without a VGA in
 %endif                          ; the build there is nothing to ask: the call
@@ -590,8 +594,15 @@ font_char:
 %ifdef GFX_VGA                  ; on the framebuffer. With no VGA in the build
     jmp .done                   ; `.done` is the NEXT instruction, and nasm
 .vram:                          ; spends two bytes on `jmp short $+2`
-    VIDEXTC VX_FONTCHAR, .done  ; SPEC.md 120.3: the cell is the driver's,
-                                ; and the frame above is still ours to pop
+%ifdef VID_EXT
+    je .vplanar                 ; (ENTERED BY THE ONE `jae` above.) SPEC.md
+    VXCALL VX_FONTCHAR          ; 120.3: a packed display's cell is the
+    jmp .done                   ; driver's, and the frame above is still ours
+%if ($ - .vram) & 1             ; to pop
+    db 0                        ; PARITY, never executed
+%endif
+.vplanar:
+%endif
     mov di, cx                  ; x/8 goes STRAIGHT into DI and x&7 stays in
     shr di, 1                   ; CL: the old spelling hopped x through BX and
     shr di, 1                   ; back (`mov bx,cx` ... `mov ax,bx` ...

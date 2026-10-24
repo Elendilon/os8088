@@ -2005,12 +2005,11 @@ gfx_blit4:
                                 ; GFXDISP (SPEC.md 39.14.7)
 .dsp1:
 %endif
-    VIDEXTC VX_BLIT4, .out      ; a packed display (SPEC.md 120.3): the block
-                                ; is the driver's whole - the gfx_blit_* cells
-                                ; are set, ES:SI and BP are the source - and
-                                ; .out tears down nothing ([gfx_blit_fst] is
-                                ; still 0) but the hook, if one was taken
-%ifdef GFX_VGA
+%ifdef VID_EXT
+    cmp byte [vid_planes], 4    ; ONE compare for the three (SPEC.md 120.3.1):
+    je .vga                     ; planar...
+    ja .vx                      ; ...a packed display, the driver's (at .vx)
+%elifdef GFX_VGA                ; ...and 1bpp falls through, as below
     cmp byte [vid_mono], 0
     je .vga                     ; (no test at all without a VGA in the build:
 %endif                          ; [vid_mono] is 1 by construction there)
@@ -2025,7 +2024,15 @@ gfx_blit4:
     call sw_pairbuild           ; once a boot, from gfx_inktab
 %ifdef GFX_VGA                  ; (with no planar arm between, .slow is the
     jmp short .slow             ; next instruction and the jump is not
-.vga:                           ; assembled)
+                                ; assembled)
+%ifdef VID_EXT
+.vx:                            ; a packed display (SPEC.md 120.3): the block
+    VXCALL VX_BLIT4             ; is the driver's whole - the gfx_blit_* cells
+    jmp .out                    ; are set, ES:SI and BP are the source - and
+                                ; .out tears down nothing ([gfx_blit_fst] is
+                                ; still 0) but the hook, if one was taken
+%endif
+.vga:
     mov byte [gfx_blit_fst], 2  ; 2 = the planar SPAN writer, whose Enable
     push ax                     ; Set/Reset is armed ONCE here and cleared at
     mov dx, VGA_GC              ; .out: only the colour and the bit mask
@@ -4963,11 +4970,15 @@ gfx_scroll:
     mov [vgas_ydst], dx          ; down: dest rows y1+|dy|..y2, walked
     mov word [vgas_step], -1     ; bottom-up (source above destination)
 .disp:
-    VIDEXTC VX_SCROLL, .ok      ; a packed display (SPEC.md 120.3.1): the six
-                                ; vgas_* cells say what moves where
-%ifdef GFX_VGA
+%ifdef VID_EXT
+    cmp byte [vid_planes], 4    ; ONE compare for the three: 1bpp, packed
+    jb .mono                    ; (.vx, beside it), and planar falls through
+    ja .vx
+%elifdef GFX_VGA
     cmp byte [vid_planes], 1
     je .mono
+%endif
+%ifdef GFX_VGA
     mov dx, 0x03CE              ; VRAM, via the latches
     mov ax, 0x0105              ; GC5: write mode 1 - a movsb read fills the
     out dx, ax                  ; latches, the write stores all four planes
@@ -5043,6 +5054,12 @@ gfx_scroll:
     out dx, ax
     jmp short .ok
 %endif
+%ifdef VID_EXT
+.vx:                            ; a packed display (SPEC.md 120.3.1): the six
+    VXCALL VX_SCROLL            ; vgas_* cells say what moves where
+    jmp short .ok
+    db 0                        ; PARITY, never executed: font_run and the hot
+%endif                          ; routines after it (tests/unit/t_hotpar.py)
 .mono:
     call vgas_bankcopy           ; the framebuffer IS [vid_rseg] (SPEC.md 39)
 .ok:
