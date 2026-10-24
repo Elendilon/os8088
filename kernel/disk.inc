@@ -5383,8 +5383,7 @@ dsk_fatw_park:
                                 ; already lost those bytes, and refusing the
                                 ; mount would lose the volume as well
 .bank:
-    mov bl, [disk_drive]
-    call dsk_fatw_slot          ; BX = this volume's saved-sector word
+    call dsk_fatw_slotd         ; BX = this volume's saved-sector word
     jc .out
     mov ax, [dsk_fatw0]
     mov [bx], ax                ; unconditional: banking 0xFFFF is what makes
@@ -5416,8 +5415,7 @@ dsk_fatw_pick:
     push ax
     push bx
     mov word [dsk_fatseg], FAT_SEG
-    mov bl, [disk_drive]
-    call dsk_fatw_slot
+    call dsk_fatw_slotd
     jc .homeless
     mov ax, [bx+DVOL_MAX*2]     ; the claim, or FAT_SEG for the pin; the saved
     or ax, ax                   ; sector is at [bx]
@@ -5555,8 +5553,8 @@ DSK_FATW_MINK equ ((DSK_FAT_SECS*512 + 1023) / 1024) * 2   ; ...and it is
 
 dsk_fatw_want:
     call kentc_di               ; KENT: push ax..di (SI, DI for the rung)
-    mov bl, [disk_drive]        ; EVERY volume, not just the two floppies:
-    call dsk_fatw_slot          ; the driver volumes' claim at osapi_vol_add
+    call dsk_fatw_slotd         ; EVERY volume, not just the two floppies:
+                                ; the driver volumes' claim at osapi_vol_add
     jc .out                     ; is their only one, so a refusal there used
     cmp word [bx+DVOL_MAX*2], 0 ; to be PERMANENT where a floppy retried
     jne .out                    ; every mount (SPEC.md 18.8.3)
@@ -5686,8 +5684,7 @@ dsk_fatw_demote:
     push bx
     mov ax, bx
     sub ax, MEM_P_FATW          ; AX = the volume this owner names
-    mov bl, al
-    call dsk_fatw_slot
+    call dsk_fatw_slota
     jc .out
     xor ax, ax                  ; the claim that is going, read and zeroed
     xchg ax, [bx+DVOL_MAX*2]    ; in one - mem_pg_forget's own store, done here
@@ -5717,6 +5714,13 @@ dsk_fatw_home:
 ;      the disk signature (18.8.2) BX + DVOL_MAX*4
 ; clobbers: BX (the output), flags
 ; -----------------------------------------------------------------------------
+; dsk_fatw_slotd / dsk_fatw_slota: the same, with the `mov bl, [disk_drive]`
+; or the `mov bl, al` their callers spelt at the call (kernel size pass 14)
+dsk_fatw_slotd:
+    mov bl, [disk_drive]
+    jmp short dsk_fatw_slot
+dsk_fatw_slota:
+    mov bl, al
 dsk_fatw_slot:
     cmp bl, DVOL_MAX
     jae .bad
@@ -5743,8 +5747,7 @@ dsk_fatw_slot:
 ; -----------------------------------------------------------------------------
 dsk_fatw_claim:
     call kentc_di               ; KENT: push ax..di (SI, DI for the rung)
-    mov bl, al
-    call dsk_fatw_slot
+    call dsk_fatw_slota
     jc .out
     or word [bx], -1            ; nothing resident in it yet
     add bx, DVOL_MAX*2
@@ -5808,8 +5811,7 @@ dsk_fatw_drop:
     push ax
     push bx
     push dx
-    mov bl, al
-    call dsk_fatw_slot
+    call dsk_fatw_slota
     jc .out
     or word [bx], -1
     add bx, DVOL_MAX*2
@@ -7116,8 +7118,7 @@ dsk_fatw_lowf:
     xor al, al
 .vol:
     push ax
-    mov bl, al
-    call dsk_fatw_slot
+    call dsk_fatw_slota
     jc .next
     mov bx, [bx+DVOL_MAX*2]     ; the window's claim, 0 = none
     or bx, bx
