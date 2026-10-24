@@ -63294,6 +63294,12 @@ for a jump of any length. A 286 or better follows at 2 ticks
   not the block's pos, which is the hand's during a drag.
 - A kernel with no tracking edge (`OSAPI_WM_ONDRAG` answers CF = 1) sets
   `[tm_nodrag]` and the thumb pages as it did.
+- **The grab comes before `tm_hscroll` spends DX on the view.** It shipped
+  after, so `os88ui_sbgrab` took `[tm_htop]` - a row - as the press's y and
+  banked an anchor some 200 pixels negative: every press on the thumb sent
+  it to the end of the track, which read as a track click, and no drag
+  could bring it back up. A drag DOWN from the top looked right, the clamp
+  at the end hiding it, which is all the change was checked with.
 
 ### 28.4.5 A raise cache is filed under the package that owns the WINDOW
 

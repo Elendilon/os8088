@@ -3034,23 +3034,23 @@ tm_hscroll:
     cmp al, OS88UI_SBNONE       ; is not in the bar at all - so the cycle
     je .no                      ; click needs no rect of its own
 
+    cmp al, OS88UI_SBTHUMB      ; the THUMB is taken by the hand (SPEC.md
+    jne .ntb                    ; 28.4.4.1) - and pages toward where it lies
+    cmp byte [tm_nodrag], 0     ; only on a kernel with no tracking edge, or
+    jne .ntb                    ; when there turns out to be no thumb. BEFORE
+    push ax                     ; DX is spent on the view below: sbgrab's
+    mov ax, TM_SBRATE | (TM_SBRATE286 << 8)
+    call os88ui_sbrate          ; anchor is the PRESS's y, and handed the row
+    call os88ui_sbgrab          ; [tm_htop] it put the hand ~200px under the
+    pop ax                      ; bar - every press jumped to the end and no
+    jnc .took                   ; drag came back up (SPEC.md 28.4.4.1)
+.ntb:
     mov dx, [tm_htop]           ; DX = where the view would go
     mov cx, [tm_maxrow]         ; ...and CX = one page of it
     dec cx
     jnz .page                   ; a frame with one row on it still pages by
     inc cx                      ; one, or the bar would have an inert half
 .page:
-    cmp al, OS88UI_SBTHUMB      ; the THUMB is taken by the hand (SPEC.md
-    jne .ntb                    ; 28.4.4.1) - and pages toward where it lies
-    cmp byte [tm_nodrag], 0     ; only on a kernel with no tracking edge, or
-    jne .ntb                    ; when there turns out to be no thumb
-    push ax
-    mov ax, TM_SBRATE | (TM_SBRATE286 << 8)
-    call os88ui_sbrate
-    call os88ui_sbgrab          ; BX = the block, DX = the press, absolute
-    pop ax
-    jnc .took
-.ntb:
     cmp al, OS88UI_SBDOWN       ; an ARROW moves one row, the track a page
     ja .step
     mov cx, 1
