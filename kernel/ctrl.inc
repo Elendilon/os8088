@@ -1137,7 +1137,7 @@ modc_e_onkey:
 %ifdef DOCK_OPT
 modc_e_dock_geom: call cpd_geom
     retf
-DOCK_GEOM cpd
+DOCK_GEOM cpd, KSWK
 
 %endif
 section .cold                   ; ...and the two that stay resident

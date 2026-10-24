@@ -16419,7 +16419,11 @@ bytes back, and kern_big and kern_small byte-identical.
 round: kern_big's blob took the sector for `VESA.DRV`'s attach (§120.4), and
 kern_emu's - `vmm_boot_x` and `vx_boot_x` both - fits the same thirteen, so
 kern_emu is on kern_big's length and its `KSIG_OFF`, and only a knob build
-reads one more.
+reads one more. **And it is back later in the same pass**: the reach agent
+moved `vid_apply` and `wm_refit`'s two callees into kern_big's blob
+(§39.3.1, §39.11.2), which leaves the thirteen sectors 61 bytes spare on
+kern_big - and `vmm_boot_x` is ~100 more. So kern_emu reads fourteen again,
+`BOOT2_KNOBSEC`'s arm, for the reason this section gave the first time.
 
 #### 9.11.3 `VMMV_READ`, and the pump
 
@@ -25224,7 +25228,10 @@ now its only caller** — which is the one event it was ever right for: the
 adapter changed under a window nobody has touched, so putting it back where it
 was before a clamp moved it is the whole of §39.11.2.1. The two share a tail,
 so "preference proposes, display clamps, floor lifts" is still composed in one
-place.
+place. (Since kernel size pass 14 the replay is written out in `wm_refit`
+itself - its one caller is a macro expanded only in `CTRL.DRV` and the boot
+blob - and reaches `wm_nat_take_wh`, `wm_pref_now` and `wm_fit` through the
+image's hop.)
 
 **The general rule is the one §39.16.4.2 states from the other side**: the
 kernel decides a window's size; a *user* decides where it is. A cell that
@@ -72644,6 +72651,18 @@ change — every caller of `vid_apply`: `vid_switch`, `vid_disp_init`, and the f
 anyway — and a 9.2 s boot does not notice 15 ms; it is written down because
 that is only true while somebody has checked.
 
+**On kern_big no resident code calls `vid_apply` at all** (kernel size pass
+14), so it is written ONCE as `viddet.inc`'s `VID_APPLY` macro and expanded
+where its callers are, §51's `DRV_ATTACH` shape: `bvs_apply` in the boot blob
+(the splash's first tick, `vid_init` and the blob's own `vid_switch` /
+`vid_disp_init`), `vid_apply` in `CTRL.DRV` (Set Primary and the arrangement)
+and `ext_apply` in `EXTD.DRV` (the fullscreen bracket's restore of an extended
+desktop). An image's copy writes `gfx_nextrow`'s three instructions out - its
+operands are `[cs:]` - and pops its own frame; the blob's reaches
+`vid_depth_set` through `spw_near`, the one door the first tick has aboard.
+kern_small keeps the single resident copy, byte for byte: its panel image has
+no room for one.
+
 **It does not run on a §39.12 display swap, and must not.** `vid_ctx_act` sits
 under a drawing primitive whose whole floor is ~756 us; a rebuild there is 23.6
 ms, thirty-one times the primitive it is inside. That is why the swap turns the
@@ -73311,8 +73330,12 @@ expanded a third time, into EXTD.DRV (`ext_`). 399 resident bytes for a
 twelfth blob sector that costs no `int 13h` on any geometry (`t_blobruns`);
 kern_small keeps eleven. What stays resident is what something outside the
 panel, the boot and EXTD.DRV reaches: `wm_su_drop_all` (`OSAPI_THM_SET`),
-`vid_dual_ok` (`fsx_page`), `vid_ctx_capture` and `wm_pref_take`/
-`wm_apply_size` (every window that is sized).
+`vid_dual_ok` (`fsx_page`), `vid_ctx_capture` and `wm_pref_take` (every
+window that is sized). Kernel size pass 14 took the rest of that walk: nothing
+resident reached `vid_apply`, `wm_apply_size` or `wm_sz_notify` either, so the
+first is written once and expanded in the blob, `CTRL.DRV` and `EXTD.DRV`
+(§39.3.1) and the other two are written out at their callers - `wm_refit`'s
+two expansions and EXTD.DRV's `ui_drag_size`.
 
 #### 39.11.2.1 …and back again — the natural bank
 
@@ -76187,7 +76210,15 @@ arm, because `wm_bord` reaches them under every window's content rect and
 `fsx_surf`'s arm, which Tracker and DOT DELIRIUM ask per frame inside a
 bracket; `ui_drag_dead` and `ui_drag_phase`, on the drag; and ui_task's two
 secondary-click tests, six bytes each on every press, where an `EXTCALL` is
-four and a far call per click on one display buys two. `fsx_run`'s
+four and a far call per click on one display buys two. **Kernel size pass 14
+took `ui_drag_dead` after all** (`EXT_DEAD`, −37 resident), **and
+`ui_drag_phase`'s arm** (`EXT_PHASE`, −10): both run ONCE, at the drag's
+release and not under the tracking loop. On one display `ui_drag_dead`'s
+`EXTCALL` into `mod_gone` (`call far [m]` 43 + `stc`/`retf` 36 cycles on the
+8088) costs what the resident near call, its `[vid_ndisp]` compare, branch and
+`ret` cost (~81); the phase arm's costs ~37 cycles more than its compare and
+branch, once per drop. An extended desktop pays a far call and an `EXK` hop or
+two (~400-700 cycles) once per drop. `fsx_run`'s
 `wm_disp_of` stays a near call to the resident routine, which is the same
 bytes either way.
 
@@ -76216,6 +76247,8 @@ every register kept (§2.8.1) — and every call site is either behind a
 | 11 | `EXT_YLOW` — `ui_ylow`'s arm | `ui_drag`, GATED (the release) | never reached; the caller loaded `MBAR_H` into SI |
 | 12 | `EXT_FCUT` — `ext_fcut`, §39.14.11's cell cut | `font_ch_spill`, GATED (`[gfx_dnest]` = 1) | never reached; CF = 1 would be §39.14.2's whole-cell drop |
 | 13 | `EXT_BCUT` — `ext_bcut`, §39.14.7.2's blit cut | `gfx_blit4`, GATED (`[vid_ndisp]` > 1, a straddle) | never reached; CF = 1 (and an ODD cut) is §39.14.7's run-splitting path |
+| 14 | `EXT_DEAD` — `ext_e_dead`, §39.16.1's dead-zone pull (was `ui_drag_dead`) | `ui_drag`, UNGATED (once, at the release) | every register kept: one display has no dead zone |
+| 15 | `EXT_PHASE` — `ext_e_phase`, `ui_drag_phase`'s second-display arm (§11.96.13) | `ui_drag_phase`, UNGATED (once, at the release) | every register kept: on one display the phase stands |
 
 `mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
 the first of these can run; the early `vid_disp_init` in `kmain_o`, before

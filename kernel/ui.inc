@@ -1709,8 +1709,12 @@ ui_drag:
     or di, ax                   ; the reload at the union
 
 %ifdef KERN_BIG
-    call ui_drag_dead           ; ...and the title bar has to land somewhere a
-                                ; person can reach (SPEC.md 39.16.1)
+    EXTCALL EXT_DEAD            ; ...and the title bar has to land somewhere a
+                                ; person can reach (SPEC.md 39.16.1). EXTD.DRV's
+                                ; ext_e_dead (kernel size pass 14): a dead zone
+                                ; is two displays, so one display is mod_gone's
+                                ; CF = 1 with every register kept - nothing to
+                                ; correct - once per drag, at the release
 %endif
     call wm_dock_snap           ; barely over the dock? then back above it,
     jnc .nosnap                 ; if it still fits (SPEC.md 11.90)
@@ -1951,14 +1955,16 @@ ui_drag_phase:
                                 ; drop lands on the row the hand chose
 %ifdef KERN_BIG                 ; kern_small has one display and no
                                 ; vid_disp_find (SPEC.md 39.12)
-    cmp byte [vid_ndisp], 1     ; ONE DISPLAY: the interval argument above is
-    jbe .out                    ; the whole proof and nothing more is asked.
-                                ; (AX IS the W_X just stored.)
-                                ; TWO: the legal top-lefts are a UNION of two
-    mov bx, [si + W_Y]          ; rectangles and not an interval, so a phase
-    call vid_disp_find          ; along EITHER axis can leave the origin in the
-    jnc .out                    ; dead zone - x moves toward ui_origx while y
-    mov [si + W_X], cx          ; holds the row the drop chose, and that pair
+    EXTCALL EXT_PHASE           ; ONE DISPLAY: the interval argument above is
+                                ; the whole proof and nothing more is asked -
+                                ; mod_gone, every register kept. (AX IS the
+                                ; W_X just stored, CX the bank, SI the window.)
+                                ; TWO: EXTD.DRV's ext_e_phase since kernel size
+                                ; pass 14 - the legal top-lefts are a UNION of
+                                ; two rectangles and not an interval, so a phase
+                                ; along EITHER axis can leave the origin in the
+                                ; dead zone - x moves toward ui_origx while y
+                                ; holds the row the drop chose, and that pair
                                 ; need not be a point any card has. ui_drag_dead
                                 ; ran before this and cannot see it, and nothing
                                 ; after it moves the origin back. So the phased
@@ -2012,50 +2018,8 @@ ui_drag_xor:
 ;
 ; Reuses ui_drag's statics - one tracker runs at a time on the single UI
 ; task: ui_curx/ui_cury hold the FIXED outline origin (W_X/W_Y),
-%ifdef KERN_BIG
-; -----------------------------------------------------------------------------
-; ui_drag_dead - pull a dragged window's origin out of the DEAD ZONE
-;                (SPEC.md 39.16.1)
-; in:       BX = the window, W_X/W_Y just written by the clamps above
-; out:      an origin inside some display
-; clobbers: flags
-;
-; The two clamps above are per-AXIS, and the virtual desktop is a union
-; (SPEC.md 39.2.1) - so between two displays of different heights they can
-; agree on a point no display covers, and a title bar dropped there is one
-; nobody can grab back. It is mou_clamp's problem one layer up, and it takes
-; the same two routines.
-;
-; INTO THE POINTER'S DISPLAY, because during a drag the title bar is under the
-; hand and [cur_disp] is where the hand is - and 39.15.4 guarantees the
-; pointer itself is inside a display, so there is no second dead zone to fall
-; into. Clamping into the display the window CAME from would be the smaller
-; move, and the record no longer holds that origin by the time this runs.
-; -----------------------------------------------------------------------------
-ui_drag_dead:
-    cmp byte [vid_ndisp], 1
-    jbe .out
-    push ax
-    push bx
-    push cx
-    push si
-    mov si, bx                  ; SI, because vid_disp_find wants BX = y and
-    mov ax, [si+W_X]            ; an 8086 addresses through BX/BP/SI/DI only
-    mov bx, [si+W_Y]
-    call vid_disp_find
-    jnc .done                   ; on a display already: nothing to correct
-    mov cl, [cur_disp]
-    call vid_pt_clamp
-    mov [si+W_X], ax
-    mov [si+W_Y], bx
-.done:
-    pop si
-    pop cx
-    pop bx
-    pop ax
-.out:
-    ret
-%endif
+; (ui_drag_dead is EXTD.DRV's ext_e_dead since kernel size pass 14: a dead
+; zone needs two displays, and two displays need the image - SPEC.md 39.19.6)
 
 ; ui_origx/ui_origy the frame size at mousedown, ui_dragw/ui_dragh the
 ; tracked size ui_drag_xor draws. The low clamp applies every pass (the
@@ -2532,11 +2496,9 @@ UI_LOC_N equ 2
 ; [ui_pcmd] lives in .text, not .bss: ui_task reads it on its first pass and
 ; -f bin gives .bss no image bytes (the dsk_cwd lesson, SPEC.md 1).
 ; -----------------------------------------------------------------------------
-ui_post_cmd:
-    mov [ui_pcmd], ax
-    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13)
-    retf
-
+; (ui_post_cmd's one caller was STIKMENU.DRV's stm_pick, which writes its two
+; stores out now - kernel size pass 14. The contract above is unchanged: one
+; word store and one bump, drained by ui_task step 3 with nothing held.)
 ui_pcmd:    dw 0                ; posted CMD_*, 0 = none (see above)
 
 ; =============================================================================

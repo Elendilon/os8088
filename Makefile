@@ -2097,7 +2097,14 @@ endif
 # under KERN_KNOB, and the shipped literal above is what t_canary compares.
 # kern_emu TOOK the same sector (SPEC.md 9.11.2.1) for vmm_boot_x until kernel
 # size pass 14 gave kern_big a thirteenth for VESA.DRV's attach: both fit
-# thirteen, so kern_emu is on the literal with kern_big now.
+# thirteen, so kern_emu was on the literal with kern_big - and the same pass's
+# reach agent took it back, when vid_apply and wm_refit's two callees moved
+# into the blob (ksp14/reach.md): kern_big's thirteen hold them with 61 bytes
+# to spare, and vmm_boot_x is the ~100 more that kern_emu carries. Only an
+# emulator boots it.
+ifneq ($(KERN_EMU),)
+BOOT2_XSEC := 1
+endif
 ifneq ($(BOOT2_XSEC),)
 BOOT2_SECS := $(shell echo $$(( $(BOOT2_SECS) + 1 )))
 BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
