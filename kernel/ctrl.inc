@@ -2720,7 +2720,11 @@ cp_bemit:
     mov byte [cp_skip], 0
     jne .out
 %endif
+%ifdef KERN_SMALL
+    call os88ui_kbtn            ; this image's own (fdlg.inc, OS88UI_KBTNIMG)
+%else
     call COLD_SEG:os88ui_btn_f
+%endif
 %ifdef KERN_BIG
 .out:
 %endif
