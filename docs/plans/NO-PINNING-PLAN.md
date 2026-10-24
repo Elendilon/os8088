@@ -215,7 +215,7 @@ the base at each use". The ⚑ rows are the ones that need real work.
 | **CLEAR SKIES** ⚑, **TANK**, **PIXELSTEIN**, **ISOTRON**, **1942** | shadows/canvases 16-64 KB | **A4**: in use only inside the fsx bracket, so they are bucket C there. Outside it, either free them or declare them. CS keeps ES from `[cs_tseg]` across spans, so its proc must also be safe at the park points |
 | **EXCITEBIKE** ⚑ | compiled poses are far-called IN the claim (a CS) | **A5**: a proc that re-stamps the pose vectors |
 | **VIDEO** ⚑ | ring, "page-safe and never moved" | **A6, PERFORMANCE-BOUND**: the ring is bucket D/C only WHILE A PLAY RUNS (the reader, the hook and a card may all be writing it). Declare it movable when the play ENDS, and pin it again (`OSAPI_MEM_MOVABLE` with AX = 0) when the next play STARTS. Both happen outside the frame loop, so the play path gains nothing. A move between plays is one proc storing the ring's segment. Gate: the Video Player's frame rate on its demo videos, before and after |
-| **MIDIRACK**, **TRACKER**, **AUDIO**, **WIREFLEET**, **1942** PCM rings | D while armed, NONE idle | A6 |
+| **MIDIRACK**, **TRACKER**, **AUDIO**, **WIREFLEET**, **1942** PCM rings | D while armed, NONE idle | A6. **BUILT for the four** (7, *A6 audio*): each long-held claim movable while idle and pinned from a play's start to its stop. 1942's ring was already claimed and freed inside its bracket (A4) |
 | **THE WIRE**, **FTPD**, **CHART**, **PIXEL**, **TELNET**, **RECORDER**, DeskClock, DotDel, StikNote | assorted | A3 |
 | `os88type.inc` face cache 8 KB | - | **A7 BUILT**: `ty_reloc` (faces and the pre-shifted table), every includer at once; `tymove`, red-tested |
 | `os88parts.inc` carve ⚑ (op_claim) | "every part's segment is arithmetic on this base" | **A8**: declare from the library with a proc that stores `op_base`. A package that banks a part segment supplies a hook (as C2) |
@@ -355,9 +355,10 @@ accepts:
   panel's second save-under** (`[stm_sseg2]`, `stikmenu.inc`), held while the
   panel is open with no proc - and tagged `MEM_K_MOD` though it is no module;
 - the A6 remainder - the session-long rings nobody declares between plays:
-  Audio's look-ahead and speaker rings, Tracker's speaker ring, WireFleet's
-  PCM ring (claimed at ENTRY), MIDIRack's song, wavetable bank and mix claim,
-  and four Video Player claims `vp_smtab` does not reach (`vp_ldseg`,
+  ~~Audio's look-ahead and speaker rings, Tracker's speaker ring, WireFleet's
+  PCM ring (claimed at ENTRY), MIDIRack's song, wavetable bank and mix
+  claim~~ (BUILT, 7's *A6 audio*: seven lines gone, N 29 -> 22), and four
+  Video Player claims `vp_smtab` does not reach (`vp_ldseg`,
   `vp_lyseg`, `vp_prseg`, the session's key-record arm);
 - SHEET's 32KB staging (held for the session; a pin/unpin pair retires it);
 - The Wire's catalog and transfer claims (A3 left them: no NIC on MartyPC);
@@ -554,6 +555,28 @@ macro loop +0.70% - under the 2% bar, so no leaf fast path was built. Rows
 `sheetovlmove`, `sheetxbench`. Found on the way, NOT this work's: a SYLK save
 of 60 rows came out truncated and formula text near 60 characters cut short,
 in both builds.
+
+**A6 audio** (branch `nopin-audio`, off `no-pinning` 5d2792cf): the seven N
+lines of Audio, Tracker, WireFleet and MIDIRack are gone, ZERO kernel bytes.
+Each claim is declared movable while idle and pinned (`OSAPI_MEM_MOVABLE` AX =
+0) from a play's start to its stop - never per buffer: Audio's look-ahead and
+speaker ring for a play, a pause included (SPEC.md 86.5.3, +66 image);
+Tracker's speaker ring from `tsp_start` to `tsp_halt` (45.25.6, +48);
+WireFleet's clip ring per clip, verb 0 to verb 2 (114.11.1, +24, out of the
+alignment pad, so image + bss still 65,024 and 0 bytes of pad left);
+MIDIRack's bank and mix claim for a wavetable play, its song movable except
+across its own read (105.10.1, +92). One `PARITY` pad byte each in Audio,
+Tracker and MIDIRack keeps every hot routine instruction-identical at an even
+shift (`os88rdiff --hot`: Audio 216 of 217, the odd one out the idle sleep's
+immediate; Tracker 255; MIDIRack 108; WireFleet 359, all but its sound
+routines). Gate: `tests/ringmove.py`, five rows
+(`ringmove-audio`, `-audiospk`, `-tracker`, `-midirack`, `-wirefleet`), each
+red both ways (proc a bare `ret`; the play-time pin dropped). Two defects
+found on the way, both package-side and fixed: **Audio's idle worker slept 6
+ticks against `INST_PARKW`'s 4**, so a compaction left its claims where they
+were about one time in three (now 3, 86.5.1); and **`wf_pcm_play` never
+loaded verb 0's CX**, which `SOUND.DRV` refuses as 0 (7), so a WireFleet clip
+played or fell back to tones on whatever CX its caller left.
 
 **Kernel finding from A1b, not acted on (kernel bytes):** in a pass that
 moves a package's REGION, `mem_region_reloc` re-enters the restartable worker

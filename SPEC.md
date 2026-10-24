@@ -90664,6 +90664,32 @@ not kept.
 It costs Tracker **189 bytes of image** (34,180 -> 34,369), 2 of bss and 140
 of the packed file; no kernel byte.
 
+#### 45.25.6 The ring moves between plays, and is pinned for one (NO-PINNING A6)
+
+The speaker's ring (`[tsp_rseg]`, 16 KB plus its table and the shaper's
+family) is claimed once, at the first speaker Play, and held for the
+session, so pinned it was a wall for as long as Tracker was open
+(docs/plans/NO-PINNING-PLAN.md 4.1, bucket N). Between plays nothing reads
+it - the card's worker never does, and os88spk's ISR runs only while the door
+is open, which is only inside a play.
+
+So `tsp_ring` declares it movable the moment it is claimed (`tsp_rmove`, one
+store), `tsp_start` pins it (`tsp_rpin`, `OSAPI_MEM_MOVABLE` AX = 0) before
+`[tsp_run]` says a play is on, and `tsp_halt` declares it again when `[tsp_run]`
+goes to 0 - a stop, a pause (§45.17's stop that parks), the song's end. The
+door opening and shutting inside that, the brackets the play crosses (the
+imposter window to the full screen and back) and a rung down (`tsp_behind`)
+all happen with the ring pinned; nothing is pinned or declared per span.
+`tsp_rmove` needs only `[tsp_rseg]`: the library's copy (`os88spk_rseg`) is
+live only inside a play, and `os88spk_init` writes it at every start
+(`tsp_start` -> `tsp_tables`).
+
+No instruction was added to the mixer, the producer or the ISR:
+`tools/os88rdiff.py --hot` puts all 255 of the play path's routines
+instruction-identical at even shifts (a `PARITY` pad byte after `tsp_rmove`
+holds `tsp_poll` and `tsp_fill` there). +48 bytes of image, no bss.
+`tests/ringmove.py --app tracker` is the gate.
+
 ### 45.26 Apps size pass 2 — the shipped file, not the machine
 
 The second apps size pass (docs/plans/HANDOFF-APPS-SIZE-P2.md) measures a
@@ -114568,7 +114594,9 @@ for as long as any driver had a worker, which means for as long as a sound
 stream played. The rule now: **the code that arms a chip on a claim pins that
 claim for exactly as long as the chip is armed.** SOUND.DRV already does. A
 package ring handed over as `SND_OPENF_EXT` is the package's to keep still
-while it plays, and today none of them is declared movable. `[drv_wcnt]` still
+while it plays: WireFleet's clip ring is the one declared movable, and it is
+pinned from verb 0 to verb 2 by the package (§114.11.1); MIDIRack's and
+1942's are claimed for a play and freed at its end. `[drv_wcnt]` still
 pins driver IMAGES (§66.6.3), where the service task runs.
 
 ### 66.7 What is deliberately not done
@@ -150640,7 +150668,8 @@ freed by `ap_stream_close`. A refused `OSAPI_TASK_SPAWN` for the worker is a
 refusal like any other (`No free task - close an app and retry`, the FTPD
 sentence): the stream is closed again, not left open under a "Playing" that
 nothing feeds. The look-ahead buffer is one 32 KB
-`OSAPI_MEM_CLAIM`, taken once and held for the instance's life.
+`OSAPI_MEM_CLAIM`, taken once and held for the instance's life - movable
+between plays and pinned for one (§86.5.3).
 
 ### 86.5.1 Worker pacing and the redraw throttle
 
@@ -150648,8 +150677,13 @@ The worker loop is `ALIVE → sleep → reap → feed → draw`, and each step i
 budgeted for the 4.77 MHz target, not the emulator:
 
 - **Adaptive sleep.** `OSAPI_TASK_SLEEP AP_SLP_FEED` (1 tick) only while the
-  stream is open, unpaused and not ended; otherwise `AP_SLP_IDLE` (6 ticks). A
+  stream is open, unpaused and not ended; otherwise `AP_SLP_IDLE` (3 ticks). A
   stopped or paused player has no ring to starve, so it does not wake ~18×/s.
+  It was 6 until §86.5.3, and 6 is longer than `INST_PARKW`'s 4 (§66.5): a
+  compaction asking the idle worker to park waited out the window with the
+  worker asleep, and the instance's claims stayed where they were about one
+  time in three. Three ticks answers every park, for three more wakes a second
+  of a loop that finds nothing to do.
 - **Feed early-out.** `ap_feed` polls `verb 3` every pass (cheap — it is the
   clock's source) but stages nothing while the SND ring still holds more than
   `ring − 2 halves`; a "skip" that is one tick early costs at most another
@@ -150726,6 +150760,46 @@ file` rather than posing as the end of the track — **and only then**: the
 data's NORMAL end used to fall through into that message, so every track's
 last gulp put `Cannot read the file` on the status line for the seconds the
 ring took to play out.
+
+### 86.5.3 The two rings move between plays, and are pinned for one (NO-PINNING A6)
+
+The look-ahead (`[ap_la_seg]`, 32 KB) and the speaker's ring (`[aps_rseg]`,
+§86.21) are each claimed once and held for the instance, so pinned they were
+two walls for as long as the window was open (docs/plans/NO-PINNING-PLAN.md
+4.1, bucket N). Neither is anything the owner's rule pins **between** plays:
+no device is armed on either and nothing is using them. So:
+
+- **Pinned for a play.** `ap_ensure_bufs` - the first thing `ap_prep_track`
+  does that touches the ring - pins both (`OSAPI_MEM_MOVABLE`, AX = 0,
+  `ap_rpin`) before the parse's first read. For the whole play the
+  look-ahead is a file read's `ES:BX` (`os88_rseq`'s `READ_SEQ` walks between
+  transfers, which `dsk_xfer`'s own pin does not cover: §66.5.7.1), and the
+  speaker ring is what os88spk's ISR reads and holds a copy of
+  (`os88spk_rseg`). A ring claimed during a play (the speaker's, on the first
+  speaker play) is born pinned.
+- **Movable again once no play is open.** `ap_rdecl` declares both with one
+  proc, `ap_rmove`: from `ap_stream_close`'s tail (after the stream is
+  closed and the worker drained - every UI path that ends a play goes
+  through it), from `aps_close` (a speaker play that stopped or ran out
+  inside its bracket) and from a refused open (`ap_open_track`'s refusal).
+- **A PAUSE IS A PLAY.** A card's pause keeps its stream armed (§66.6.4,
+  `SND_OPENF_EXT`'s rule) and a paused speaker session resumes the same ring
+  from where it stopped, so both stay pinned until Stop, the list's end or
+  the window's close.
+- **`ap_rmove` is two words.** Every reader of the look-ahead loads
+  `[ap_la_seg]` - the worker's `ap_la_get` too, and a running worker pins the
+  package's claims anyway (`inst_seg_parked`) - and the library's copy of the
+  speaker ring's segment is live only inside a play: `os88spk_init` writes
+  it at each (`aps_setup`), and no play is open while the proc can run.
+
+Nothing was added to the feed, the decoder, the producer or an ISR: the four
+pin and declare calls are at a play's edges, two far calls each against a
+track's opening read. `tools/os88rdiff.py --hot` puts 216 of the play
+path's 217 routines instruction-identical at even shifts (one `PARITY` pad
+byte after `ap_open_track` holds them there); the 217th, `ap_worker_sleep`,
+differs in its idle immediate alone, `AP_SLP_IDLE` (§86.5.1). +66 bytes of `audio.o88`'s image, no
+bss. `tests/ringmove.py --app audio` (a card) and `--app audiospk` (the
+speaker) are the gates.
 
 ### 86.6 The WAV parser (`apw_parse`)
 
@@ -202810,6 +202884,39 @@ this package no longer reads - and
 `SOUND.DRV` grew 603 bytes of image for §34.12 and 420 for §34.13 (5,098 to
 5,997 bytes on the system disk, packed); no kernel byte moved.
 
+#### 105.10.1 The song, the bank and the mix claim move (NO-PINNING A6)
+
+The three claims MIDIRack holds until its window closes - the song
+(`[mr_fseg]`), the wavetable bank (`[mwt_bseg]`) and its mix claim
+(`[mwt_xseg]`) - were pinned by not declaring (docs/plans/NO-PINNING-PLAN.md
+4.1, bucket N). The two rings were never in that list: the card's external
+ring and the speaker's are claimed per Play and freed at its end (§105.8.3,
+§105.8.4), bucket D for their whole lives.
+
+- **The song moves whenever it is not being read into.** `mrl_load` declares
+  it (`mr_fmove`, one store) once the read and the parse are done, on every
+  path out, and pins a KEPT claim (the last song's, when the new one fits it)
+  across the read, whose `ES:BX` it is (§66.5.7.1); a fresh claim is born
+  pinned. It stays movable through a play: every position the sequencer keeps
+  is an offset, every reader loads `[mr_fseg]` into ES for one walk that
+  claims nothing, the worker parks only at `OSAPI_TASK_ALIVE` (MIDIRack does
+  not declare `OSAPI_MEM_PARKSAFE`), and a running worker pins the package's
+  claims (`inst_seg_parked`).
+- **The bank and the mix claim are pinned for a wavetable play.** `mro_play`
+  pins both (`mwt_pin`) once `mwt_load` has the bank; `mro_close` (Stop, the
+  list's end, the next song's play, the window's close) and a refused start
+  declare them again (`mwt_decl`, proc `mwt_move`). Between the two the
+  voices hold segments DERIVED from the bank (`mwt_sseg`, set by `mwt_place`
+  at each note-on) across the worker's park, which a one-word proc could not
+  put right; outside it no voice sounds, and `mwt_open` silences them all
+  before the next play. A pause keeps the play open, and both pinned.
+
+Nothing was added to the worker, the sequencer, the synth or the mixer:
+`tools/os88rdiff.py --hot` puts all 108 of their routines instruction-
+identical at even shifts (a `PARITY` pad byte after `mro_close` holds them
+there). +92 bytes of image, no bss. `tests/ringmove.py --app midirack` is the
+gate, on the synthetic bank `make mrwttest` writes.
+
 ### 105.11 Tests
 
 `tests/mrprobe.py` reads the running package's variables by name out of a
@@ -213796,8 +213903,47 @@ filled. Every reader loads either word into ES or DS for a burst of moves and
 calls nothing inside it, the worker only wakes the UI task, and the link's
 rate hook reads neither. +111 bytes of image, taken out of the 512-byte
 alignment pad in front of `wf_savebuf`, so image + bss is still 65,024. The
-samples need nothing: fetched, copied into the ring and dropped inside
-`wf_pcm_open`. `pkgmove-wireflet` is the gate.
+samples' PART needs nothing: fetched, copied into the ring and dropped
+inside `wf_pcm_open`. `pkgmove-wireflet` is the gate. The ring the clips are
+copied into is §114.11.1's.
+
+#### 114.11.1 The samples' ring moves between clips (NO-PINNING A6)
+
+The 13KB clip claim (`[wf_pcmseg]`) is made at the window's open and held
+for the instance, so pinned it was a wall for the whole game
+(docs/plans/NO-PINNING-PLAN.md 4.1, bucket N). A card is armed on it only
+while a clip plays: `wf_pcm_play` hands verb 0 the segment as an external
+ring and `wf_pcm_halt`'s verb 2 masks the channel, after which the driver
+holds nothing of it.
+
+So `wf_pcm_open` declares it movable once the three clips are copied in
+(`wf_pcmmv`, one store), `wf_pcm_play` pins it (`OSAPI_MEM_MOVABLE` AX = 0)
+before the stream opens, and `wf_pcm_halt` declares it again after the
+close - a clip played out (`wf_pcm_tick`), cut by the next one, or the
+window's close. A pin and a declaration a CLIP, which is a play: half a
+second of sound for two far calls, and nothing in the renderer, the link or
+the rate hook.
+
+**A defect the gate found: verb 0's CX was never loaded.** `SOUND.DRV`
+takes CX as what is already staged and refuses 0 (7, `jcxz` at the head of
+its ring checks), and `wf_pcm_play` handed it whatever its caller left - so
+on a refusal `wf_pcm_close` gave the samples up for the session and the
+effects fell back to tones, depending on a register nobody set. It is 4096
+now, the clip's TOTAL, 1942's shape (§101.6).
+
+**It cost no RAM.** +24 bytes of image, taken out of the alignment pad in
+front of `wf_savebuf` (24 -> 0), so image + bss is still 65,024. Three
+spellings paid for most of them: the open's tail is shared between a clip
+part that checked and one that did not, `wf_pcm_close` hands
+`OSAPI_MEM_FREE` a 0 when nothing is held (a free record never matches, so it
+refuses harmlessly) instead of testing first, and `wf_pcm_play` stores TOTAL
+from the CX it now loads and CONS as one pair. **The pad is now 0 bytes**:
+the next byte of image here crosses into another 512 and the package no
+longer fits `APP_MAX_SIZE`. The renderer and every routine but the sound
+routines keep their shift (`tools/os88rdiff.py --hot`, 359 identical at even
+shifts). `tests/ringmove.py --app wirefleet` is the gate; it injects the
+launch cue, there being no clip to be had without a link partner.
+
 
 ## 115. Desktop serial lease (`kernel/serial.inc`, `SERIAL.DRV`)
 
