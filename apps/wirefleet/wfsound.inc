@@ -127,16 +127,18 @@ wf_soundnote:
 .out:
     ret
 .done:
-    mov word [wf_soundseq], 0
-    mov byte [wf_soundactive], 0
-    mov word [wf_soundhz], 0
+    xor ax, ax                  ; (both callers keep no AX: wf_sfx saves it)
+    mov [wf_soundseq], ax
+    mov [wf_soundactive], al
+    mov [wf_soundhz], ax
     ret
-wf_soundquiet:
-    mov word [wf_soundseq], 0
-    mov byte [wf_soundwait], 0
-    mov byte [wf_soundactive], 0
-    mov word [wf_soundhz], 0
-    mov byte [wf_cueq], 0
+wf_soundquiet:                  ; clobbers AX, as wf_pcm_halt always could
+    xor ax, ax
+    mov [wf_soundseq], ax
+    mov [wf_soundwait], al
+    mov [wf_soundactive], al
+    mov [wf_soundhz], ax
+    mov [wf_cueq], al
     ; Every note is finite (at most three ticks). An unconditional off could
     ; silence another instance that has since won the same-priority router.
     ; Close's instance teardown releases only our own actual grant.

@@ -1127,13 +1127,13 @@ wf_controls:
     mov word [wf_btnlabels+4], wf_clearlabel
     mov word [wf_btnlabels+6], wf_readylabel
     mov word [wf_btnlabels+8], wf_soundlabel
-    mov word [wf_btnflags+8], 0
+    xor ax, ax                  ; 0 through .flags on both paths
+    mov [wf_btnflags+8], ax
     cmp byte [wf_muted], 0
     je .flags
     mov word [wf_btnlabels+8], wf_soundoff
 .flags:
     mov di, wf_btnflags
-    xor ax, ax
     cmp byte [wf_ready], 0
     je .editable
     mov ax, OS88UI_DIS
@@ -1152,21 +1152,22 @@ wf_controls:
     mov word [wf_btnlabels+2], wf_chatlabel
     mov word [wf_btnlabels+4], wf_savelabel
     mov word [wf_btnlabels+6], wf_connectlabel
-    mov word [wf_btnflags+2], 0
-    mov word [wf_btnflags+4], 0
-    mov word [wf_btnflags+6], 0
+    xor ax, ax
+    mov [wf_btnflags+2], ax
+    mov [wf_btnflags+4], ax
+    mov [wf_btnflags+6], ax
     call wf_canfire
     jc .draw
     mov word [wf_btnflags], 0
 .draw:
     cmp byte [wf_chatmode], 0
     je .buttons
-    mov word [wf_btnflags], OS88UI_DIS
-    mov word [wf_btnflags+2], OS88UI_DIS
-    mov word [wf_btnflags+4], OS88UI_DIS
-    mov word [wf_btnflags+6], OS88UI_DIS
-    mov word [wf_btnflags+8], OS88UI_DIS
-    jmp .buttons
+    mov ax, OS88UI_DIS          ; (.buttons reloads AX before reading it)
+    mov [wf_btnflags], ax
+    mov [wf_btnflags+2], ax
+    mov [wf_btnflags+4], ax
+    mov [wf_btnflags+6], ax
+    mov [wf_btnflags+8], ax
 .buttons:
     mov bx, wf_buttons
     mov al, 1
