@@ -3278,23 +3278,29 @@ ui_volume_service:
 ; at the field's right end when it is showing - a toast can hide it - and the
 ; Control Panel's Date/Time page anywhere else. UI task, no lock held.
 ; in: CX = the press's x;  clobbers AX, BX, CX, DX, SI, DI, ES
+;
+; **THE SPEAKER'S HIT TEST IS SOUND.DRV'S** (kernel size pass 14, at the
+; owner's word): the driver is handed the press AND the speaker's x and answers
+; CF = 1 for a press that is not on its 24 pixels - and so does
+; drv_pkg_call_x when no SOUND.DRV is published, so a press in the instant
+; between the driver going and the bar recomposing opens the Date/Time page
+; where the speaker was (the clock is drawn there a moment later anyway).
+; The speaker's x travels with every press rather than being remembered by
+; the driver, so a driver re-mounted before the bar recomposes still hits.
 ui_clkcell:
     cmp byte [menu_mixcap+1], SND_CAP_MIXER >> 8    ; 0, 0200h or 0FFFFh:
     jne .date                   ; the high byte says which
-    mov ax, cx
-    sub ax, [menu_mixx]         ; the field's right end (SPEC.md 34.15)
-    cmp ax, 24
-    jae .date
-    mov cx, [menu_mixx]
+    mov dx, [menu_mixx]         ; DX = the speaker's left x, CX the press's
     push ds
     pop es
     mov di, ui_volume_bridge
     mov bx, DRVC_SOUND*256 + SNDV_MIXPOP ; SNDV_MIXPOP, no graphics lock held
-    jmp drv_pkg_call_x
-.date:
+    call drv_pkg_call_x
+    jnc .r                      ; the speaker's: the popup has run (or said
+.date:                          ; why not)
     mov byte [cp_sel], CP_ITIME ; page (SPEC.md 31.5); no lock held here, so
     call COLD_SEG:cpf_cp_open   ; cp_open is app_launch with the module load
-    ret                         ; in front of it (SPEC.md 2.8.4) - and it owns
-                                ; the refusal, beep or toast
+.r:                             ; in front of it (SPEC.md 2.8.4) - and it owns
+    ret                         ; the refusal, beep or toast
 %endif
 section .text

@@ -70277,7 +70277,7 @@ The package ABI extends `drivers/sound/sndpkg.inc`, through the existing
 | `SNDV_MIXGET` (8) | AL = channel | CF=0, CL/CH = left/right percentage 0..100; DL bit 0 = stereo, bit 1 = tone control; DH = native maximum (3/7/15/31); mono repeats left; CF=1 AX=SNDE_MIXARG (8) for unsupported channel |
 | `SNDV_MIXSET` (9) | AL = channel; CL/CH = left/right 0..100 | CF=0 written; invalid values or channel refuse before any write, CF=1 AX=SNDE_MIXARG; unavailable mixer answers SNDE_NOMIX |
 | `SNDV_MIXICON` (10) | CX = left x, gfx lock held | opaque 24x16 speaker image at (CX,2), CF=0; kernel callers only |
-| `SNDV_MIXPOP` (11) | CX = icon left x; ES:DI = kernel-private far bridge record; UI task, no lock held | tracks volume popup, restores pixels and frees scratch on every exit; CF=0 |
+| `SNDV_MIXPOP` (11) | CX = the PRESS's x, DX = icon left x; ES:DI = kernel-private far bridge record; UI task, no lock held | CF=1 when the press is not on the icon's 24 pixels (the kernel then opens the Date/Time page - the hit test is the driver's since kernel size pass 14, at the owner's word); otherwise tracks volume popup, restores pixels and frees scratch on every exit; CF=0 |
 | `SNDV_MIXICON_THEME` (12) | CX = left x, AL = menu-bar background, AH = menu-bar ink, gfx lock held | opaque 24x16 speaker image at (CX,2), CF=0; kernel callers only; verb 10 retains its original white/black drawing |
 
 `SNDV_MIXPOP` is the kernel's alone and the driver tells it apart by ES: the

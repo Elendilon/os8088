@@ -179,6 +179,48 @@ the widget is unarmed - and `dsk_img16`, whose jump relaxed for a byte there
 (pass 13 saw the same). A pad byte in front of `fpg_arm` would even it for +1
 if the coordinator wants `fpg_step` pinned; `t_hotpar` does not ask.
 
+### Taken after the merge, at the owner's word: the speaker's hit test is SOUND.DRV's
+
+WANTS THE OWNER item 1, approved: *"the window between SOUND.DRV unloading and
+the bar recomposing is so short no human could do it, so we can take the -10
+resident from that. It's not that bad even if it happens (the clock is going
+to be in that spot as soon as the draw finishes anyway)."* Item 2 was NOT
+approved and is not taken. Measured on `kernel-size-14` after the vesa and
+serial merges (`ea108fa8`, fast-forwarded to):
+
+* `ui_clkcell` (44 -> 35) hands SNDV_MIXPOP the press (CX) AND the speaker's
+  x (DX, `[menu_mixx]`), and opens the Date/Time page when the driver answers
+  CF = 1 - which `drv_pkg_call_x` also answers with no SOUND.DRV published:
+  that is the owner's accepted edge. The speaker's x goes with every press
+  rather than being the driver's own `[volume_iconx]` because a SOUND.DRV
+  unticked and re-ticked inside a minute is mounted before any composition
+  runs `menu_sound` again, and a fresh image's `[volume_iconx]` is 0 - the
+  driver would answer "not mine" to its own speaker until the bar next moved.
+  That costs 4 of the estimated 13.
+* `volume_popup` does the hit test first: `CX - DX < 24`, else CF = 1 and a
+  `ret` before anything is pushed or claimed (+13). SPEC.md 34.15's verb
+  table, `sndpkg.inc` and `volume.inc` say so.
+
+| | before | after | delta |
+|---|---:|---:|---:|
+| kern_big `.text` / resident | 43,507 / 92,602 | 43,499 / 92,594 | **-8** |
+| kern_emu `.text` | 43,778 | 43,768 | **-10** (`ui_clkcell` -9, `dsk_img16`'s jump relaxes a byte) |
+| kern_mega `.text` | 47,191 | 47,181 | **-10** (the same two) |
+| kern_small | - | - | 0 (`OS88_SNDCARD` is kern_big's; byte-identical) |
+| `SOUND.DRV` image (header +8) | 11,134 | 11,147 | +13 |
+| `SOUND.DRV` stored stream (`os88drv.image_unwrap`, trailing bss cut) | 10,254 | 10,251 | -3 |
+| `SOUND.DRV` claim | 11 KB | 11 KB | none (117 bytes left in it) |
+
+Rows at the tip: `mixercga`, `mixerherc`, `mixervga` (MartyPC), `mixersb16`,
+`mixervesa` (QEMU) - every one presses the speaker and drives the popup - and
+`sndmove`, `sndplay` for SOUND.DRV itself: 7/7 ok. No row presses the clock
+field BESIDE a showing speaker, so that arm was checked by hand on MartyPC
+(`os8088_5150_sb_gla`, `mixer360.img`): a press on the clock's text (x 436)
+and one in the margin right of the speaker (x 634) each opened the Control
+Panel on Date/Time (`[cp_sel]` = 1), and a press on the speaker opened no
+window. `make`, `make small`, `make emu`, `make mega`, the fast tier and
+`hotpar` on both kernels: green.
+
 ## REFUSED
 
 * **`fpg_busy` through `fpg_gbare`** with the no-scale/no-hatch tests moved
@@ -207,7 +249,7 @@ if the coordinator wants `fpg_step` pinned; `t_hotpar` does not ask.
 
 ## WANTS THE OWNER
 
-1. **The speaker's hit test into SOUND.DRV** - about -10 resident kernel bytes
+1. **TAKEN at the owner's word after the merge (section above).** **The speaker's hit test into SOUND.DRV** - about -10 resident kernel bytes
    (`ui_clkcell`'s `mov ax, cx / sub ax, [menu_mixx] / cmp ax, 24 / jae / mov
    cx, [menu_mixx]` become a `jc .date` after the driver call), ~+12 in
    `SOUND.DRV`, which already holds the icon's x (`[volume_iconx]`). The
