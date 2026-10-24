@@ -176,6 +176,60 @@ vesa agent's thirteenth sector this pass took it away - and only an emulator
 boots kern_emu (SPEC.md 9.11.7). kern_big, kern_small and the shipped images
 are untouched; SPEC.md 9.11.2.1 says so.
 
+### 8. kern_small: `vid_apply` and the button leave resident - TAKEN AT THE OWNER'S WORD (`0e2eb5cf`, `4a0baaeb`) - kern_small -494
+
+WANTS THE OWNER 1, approved after the merge in the owner's words: *"500b
+resident for 1kb control panel is well worth paying."* Measured on the merged
+tree (`5fc79571`, kern_big's and files' work together), all assembled:
+
+| | merged `5fc79571` | tip | delta |
+|---|---:|---:|---:|
+| **kern_small resident** | 58,810 | **58,316** | **-494** (`.text` -196, `.cold` -298) |
+| kern_small `KERN_SIZE` | 61,440 | **60,928** | -512 |
+| kern_small blob | 4,592 of 5,632 | 4,800 | +208 (11 sectors, unchanged) |
+| kern_small **`CTRL.DRV`** (unpacked image, no bss on this kernel) | 4,946 + 58 = 5,004, a 5 KB claim | **5,496**, a **6 KB claim** | +492; **648 bytes of the 6 KB left** |
+| kern_small `FDLG.DRV` | 1,284 + 16 bss | 1,586 + 16 bss | +302, still 2 KB (446 left) |
+| kern_big, kern_emu, kern_mega | | | **byte-identical** (`cmp` of `build/kernel.bin` at one commit; the changes are `KERN_SMALL`/`OS88UI_KBTNIMG`-gated or a macro expanding to the same bytes) |
+| every package and driver image (`build/*.o88`, `*.drv`, `*.bin`) | | | **byte-identical** (md5 over all of them, before and after) |
+
+* **`vid_apply` (-196, and its `jmp vid_pop7` and parity nop, an even
+  200)**: kern_small expands `VID_APPLY` as `bvs_apply` (blob: the splash's
+  first tick and `vid_init`) and `vid_apply` (CTRL.DRV: Set Primary), exactly
+  as kern_big. No kernel has a resident copy now, so the macro's resident arm
+  (`KES`, `call gfx_nextrow`, `jmp vid_pop7`) and the `vid_pop7` label went.
+* **The button (-298 `.cold`)**: `os88ui_btn` (222), `os88ui_kbtn` (49),
+  `os88ui_btn_f` (4) and `os88ui_bhit` (23) had no resident caller on
+  kern_small - the callers are CTRL.DRV's `cp_bemit` and `sd_button` and
+  FDLG.DRV's `fdlg_drawbtn` and hit test. **Pass 13's refusal was "the
+  include cannot be assembled twice into one image pair"**, and the answer is
+  that it still is not: `apps/os88ui.inc` writes the three bodies ONCE as
+  macros (`OS88UI_BTN_BODY`, `OS88UI_KBTN_BODY`, `OS88UI_BHIT_BODY`) and
+  expands them in place for every package and for kern_big - byte for byte
+  what they were - while kern_small (`OS88UI_KBTNIMG`, set by `fdlg.inc`)
+  expands them after the include into CTRL.DRV (`os88ui_btn`, `os88ui_kbtn`)
+  and FDLG.DRV (`fdb_btn`, `fdb_kbtn`, `fdb_bhit`) under `OS88UI_KFAR`.
+  `UI_RUN` and `UI_WIDTH` gained the far arms `UI_FRAME`/`UI_FILL`/`UI_PEN`
+  already had (`cw_font_run`, `font_width`). `os88ui_krect` and the staging
+  record stay in `.bss`: the body reads them through DS, KERNEL_SEG in both
+  images. `tests/unit/t_btnrules.py` no longer counts a `*_BODY` line as a
+  call, and `tests/btnsites.txt` says ctrl.inc and shutdown.inc carry one
+  site per kernel. SPEC.md 38.0 and 39.3.1 say where the bodies are.
+* `make rom-small` builds: the ROM window holds the bigger CTRL.DRV and
+  FDLG.DRV with **4,245 bytes** spare.
+
+**Rows** (one pass, `--marty-jobs 1`): `small128`, `smallboot`,
+`fdlgsmall`, `fdlgdrop`, `dispclose-small`, `romsmall` (kern_small);
+`btncp`, `btnall`, `fdlgup`, `fdlggrey`, `cpup`, `shutdown` (kern_big's
+buttons, unchanged bytes) - **12/12 ok**. `tests/shutdown.py --small` (the
+Control Panel's Shut Down card on the 128 KB CGA: CTRL.DRV's `sd_button`
+through its own `os88ui_kbtn`): **ok**. **Set Primary on kern_small** has no
+row (xfile's pass-13 reason), so a scratch harness drove it on
+`os8088_5150_both_gla` - CGA -> Hercules -> CGA through CTRL.DRV's
+`vid_apply` and its buttons: `[vid_kind]` 2 -> 1 -> 2, the geometry 640x200
+-> 720x348 -> 640x200, the pointer homed each time: **PASS**. **Broken on
+purpose**: FDLG.DRV's `fdb_bhit` made to answer "outside" always -
+**`fdlgdrop` went red**; restored, green.
+
 ## REFUSED
 
 * **`vid_ctx_capture` (25) out of resident**: it would need a copy in the
@@ -222,7 +276,8 @@ are untouched; SPEC.md 9.11.2.1 says so.
 
 ## WANTS THE OWNER
 
-1. **kern_small: `CTRL.DRV`'s claim 5 KB -> 6 KB for ~-500 resident bytes**
+1. **TAKEN at the owner's word after the merge - TAKEN 8: -494 measured.**
+   **kern_small: `CTRL.DRV`'s claim 5 KB -> 6 KB for ~-500 resident bytes**
    (ESTIMATED from symbol spans). On kern_small two bodies are reached only
    from the boot and the on-demand images: `vid_apply` (196: the blob and
    CTRL.DRV's Set Primary) and the kernel's button `os88ui_btn` with
@@ -234,7 +289,8 @@ are untouched; SPEC.md 9.11.2.1 says so.
    needs 1 KB more free heap to open, on the 128 KB machine. xfile's pass-13
    refusal of the button ("the include cannot be assembled twice into one
    image pair") is the work this needs, and it is why this is an estimate.
-2. **kern_big: a 14th blob sector, ~-200 to -270 resident** (ESTIMATED),
+2. **DECLINED by the owner (boot time); api takes the free `ovc_buf`
+   alternative.** **kern_big: a 14th blob sector, ~-200 to -270 resident** (ESTIMATED),
    at one more `int 13h` for the blob and one more for the kernel read on
    360 KB and 720 KB floppies (`t_blobruns --sectors 14`; ~0.4-0.8 s of a
    5150 boot). It would hold `desk_rowcalc_x` (-100) and `vgcf_boot` (-21)
