@@ -14196,7 +14196,9 @@ Two things frame the whole design:
   leaves the row's **base in place**, because `mouse_unhook` still owes that
   port its vector. After it, the second port cannot be heard again at all,
   which is what bounds everything below to the seconds before the mouse is
-  first moved.
+  first moved. **A row LEASED to `SERIAL.DRV` is skipped** (`[ser_row]`,
+  §115.2): a lease taken before the contest settled (§115.1.1) keeps its IER
+  and its line until it is released, and the release retires it then.
 
 #### 9.5.1 The other port is a modem, and that is the hard part
 
@@ -214941,6 +214943,17 @@ that later proves to hold an idle mouse costs that mouse its port only until
 Close; the contest resumes there afterwards. All of it is in `SERIAL.DRV`:
 no resident byte. A settled contest ignores bit 7.
 
+**The contest settling DURING the lease** - a mouse moved on the other port -
+leaves the leased port alone: `mou_hotplug`'s reset cycle never drops its
+DTR/RTS (`mou_pall` goes through `mou_pout`, which skips `[ser_row]`), and
+`mou_lockon` skips the row, so its IER and its 8259 line stay as Open set
+them for as long as the lease is held. Before kernel size pass 14 the
+retirement masked a leased port whose line was not the mouse's, leaving the
+link serviced only by Read and Write (an 8250 at 2400 baud on an XT drops
+bytes). Close then leaves the port as `mou_lockon` would have: IER 0 and its
+line masked unless it is the mouse's - not the armed state Open found, which
+was the unsettled contest's (§115.2). `tests/serlease.py` is the gate.
+
 Refusals are AX=1 busy/wrong owner, 2 mouse not settled, 3 mouse port,
 4 absent/unsupported port (BL not 1 or 2, or the boot probe found no UART
 there, §9.5), 5 invalid caller/buffer, 8 module unavailable, and 9 the
@@ -214977,7 +214990,11 @@ recovers from a missed IRQ edge without waiting for another mouse event.
 The rings and their publication order are identical on both paths.
 
 Close first withdraws the row from serial dispatch with interrupts disabled,
-then restores the UART/PIC state before the module can be freed. Instance
+then restores the UART/PIC state before the module can be freed - except
+IER and the PIC bit of a port the contest RETIRED while it was leased
+(settled at Close and not at Open, §115.1.1): those go back as `mou_lockon`
+leaves a loser, IER 0 and the line masked unless it is the mouse's
+(`[mou_line]`) or unknown. Instance
 teardown force-releases its lease before freeing package memory; reboot
 silences it before mouse vectors are unhooked. A lease survives §53 entry.
 Hibernate is refused while a serial lease is active: UART registers and
