@@ -1714,7 +1714,7 @@ desk_ret:
 %endif
 
 ; desk_pic - the zone's picture at [desk_zx]/[desk_zy], into ico_band or onto
-; the glass as [ico_bnd] says. Clobbers AX, BX, CX, DX, SI, BP, ES.
+; the glass as [ico_bnd] says. Clobbers AX, BX, CX, DX, SI, DI, BP, ES.
 desk_pic:
     mov cx, [desk_zx]
     mov dx, [desk_zy]
@@ -1734,9 +1734,9 @@ desk_pic:
     ; icon rather than nothing. CF = 1 everywhere else - every floppy, every
     ; hard disk, a file driver without the bit - is the kernel's to draw.
     ; Written here, at its one call (kernel size pass 14: it was desk_drvico,
-    ; and AX is this routine's to clobber, so only BL and DI are banked)
+    ; and AX and DI are this routine's to clobber - its two calls are both
+    ; desk_col's, which clobbers AX..DI - so only BL is banked)
     push bx
-    push di
     call dsk_vol_slot_x         ; BX = the row
     jc .kern
     cmp byte [bx+DV_KIND], DVK_FILE
@@ -1752,8 +1752,7 @@ desk_pic:
     mov bl, DRV_ICONV
     call KERNEL_SEG:cw_drv_pkg_call ; the driver's answer is the CF
 .kern:
-    pop di                      ; (a pop writes no flag)
-    pop bx
+    pop bx                      ; (a pop writes no flag)
     jnc desk_ret                ; drawn
     call dsk_vol_fixed_x        ; the MEDIUM, not the transport (SPEC.md 18.7.2)
     jc .icon
@@ -1764,8 +1763,11 @@ desk_pic:
 .svcico:                        ; THE DRIVER DRAWS IT (SPEC.md 26.7): no glyph
                                 ; in here, so a machine with no network card
                                 ; carries none. drv_pkg_call refuses (CF = 1)
-    mov bh, [desk_svc_cls]      ; when no such driver is published, so one
-    mov bl, [desk_svc_vrb]      ; that went away draws nothing. ES = our DS
+    mov bx, [desk_svc_cls]      ; when no such driver is published, so one
+    xchg bl, bh                 ; that went away draws nothing. (The class
+                                ; and the verb are adjacent in the record's
+                                ; own order, so one word and a swap give
+                                ; BH = class, BL = verb: -2.) ES = our DS
                                 ; is the X cell's own first act (api_x), and
                                 ; it gives ES back after - nothing here reads
                                 ; it: desk_cap's caption rect reloads it
@@ -2357,7 +2359,9 @@ desk_svc_rec:                   ; ...and the record itself, IN THE RECORD'S
 desk_svc_cap  resb DSV_CAPMAX   ; OWN ORDER, so the copy is one `rep movsb`
 desk_svc_file resb DSV_FILEMAX  ; the 8.3 file it launches out of SYSTEM/
 desk_svc_cls  resb 1            ; its DRVC_* class...
-desk_svc_vrb  resb 1            ; ...and the verb that paints the icon
+desk_svc_vrb  resb 1            ; ...and the verb that paints the icon - the
+                                ; byte after it, which desk_pic's .svcico
+                                ; reads as one word
 desk_svc_name resb DSV_NAMEMAX  ; the package's header name - the singleton
 desk_svc_cell resb 1            ; the cell it asked for (SPEC.md 26.9)
 %if ($ - desk_svc_rec) != DSV_R_SIZE

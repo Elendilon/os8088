@@ -5300,8 +5300,8 @@ fm_fmt_go:                      ; the image is here; the drive is the user's
     call dskw_fmt_probe         ; AL = the format this medium can take, or
     jc .bad                     ; CF=1 with AX = FERR_*. READS ONLY, so a
                                 ; refusal here has changed nothing at all
-    mov [fm_fmtrow], al
-    mov [fm_fmtalt], ah         ; ...and the other size Space offers (18.96.4)
+    mov [fm_fmtrow], ax         ; ...and fm_fmtalt, the other size Space
+                                ; offers (18.96.4): the byte after it
     mov al, 5                   ; ...and ask, with the size in the question
     jmp fm_edit_arm
 .bad:
@@ -6335,9 +6335,9 @@ fm_editkey:
     jne .confirm
     cmp byte [fm_fmtalt], 0xFF  ; the SAME byte the line is composed from,
     je .confirm                 ; so the two cannot disagree
-    mov al, [fm_fmtrow]
-    xchg al, [fm_fmtalt]
-    mov [fm_fmtrow], al
+    mov ax, [fm_fmtrow]         ; the row and fm_fmtalt, the byte after it -
+    xchg al, ah                 ; swapped as one word (AX is the entry's to
+    mov [fm_fmtrow], ax         ; restore)
     jmp .lineonly               ; the size on the line IS [fm_fmtrow], so the
                                 ; redraw is the one a typed rename character
                                 ; already takes - nothing else on the window
@@ -9590,9 +9590,6 @@ fm_fmtstep: resb 1              ; the swap prompt's step (SPEC.md 2.8.5):
                                 ; to be formatted. Not per window for
                                 ; fm_fmtrow's reason - at most one status-line
                                 ; confirmation exists in the machine at a time
-fm_fmtalt:  resb 1              ; the OTHER row this drive makes, or 0FFh -
-                                ; what Space swaps fm_fmtrow with (SPEC.md
-                                ; 18.96.4), for fm_fmtrow's reason
 fm_fmtrow:  resb 1              ; the dskw_fmt_tab row the FORMAT confirmation
                                 ; (SPEC.md 22.12) was built from, banked when
                                 ; the mode was armed. Not per-window, because
@@ -9601,6 +9598,16 @@ fm_fmtrow:  resb 1              ; the dskw_fmt_tab row the FORMAT confirmation
                                 ; the machine at a time, which is the same
                                 ; thing that lets fm_onam and fm_ebuf be
                                 ; single copies
+fm_fmtalt:  resb 1              ; the OTHER row this drive makes, or 0FFh -
+                                ; what Space swaps fm_fmtrow with (SPEC.md
+                                ; 18.96.4), for fm_fmtrow's reason. RIGHT
+                                ; AFTER IT, so the pair is one word: the probe
+                                ; answers AL/AH and is stored with one `mov`,
+                                ; and Space swaps the halves (kernel size pass
+                                ; 14, -5)
+%if fm_fmtalt - fm_fmtrow != 1
+  %error "fm_fmt_go stores the probe's AX as [fm_fmtrow] and Space swaps it as a word: fm_fmtalt is the byte after fm_fmtrow"
+%endif
 
 fm_delt:    resw 1              ; [ticks] at the last DELETE key fm_onkey saw,
                                 ; arming and confirming alike (SPEC.md 22):
