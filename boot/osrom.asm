@@ -311,6 +311,10 @@ rom_sock_check:
 ;                                 under it, what every far reference names
 ;   RT_COLDLEN                    `.cold`'s length; ours is at CS:0x10
 ;   RT_HASH                       the `.text` hash; rt_spans its word spans
+;   RT_SLIDES RT_SLIDSEG RT_HASHS  the HMA kind: a kernel that slides `.cold`
+;                                 over a dropped VGA rung (SPEC.md 2.10.9),
+;                                 where it is then and the `.text` hash with
+;                                 every listed word saying so
 ;   rt_text / rt_win / rt_blob    the far references, by the segment each is
 ;                                 an offset into: `.text`, the window half
 ;                                 `.ovl` at FAT_SEG, and the blob `.boot2`,
@@ -372,17 +376,6 @@ rom_patch:
     mov ds, ax                  ; stage 2 (or the VBR) published before the
     mov bp, [RT_FSEG]           ; kernel was entered - read here so the
                                 ; doorbell need not carry it
-%if ROM_KIND == ROM_KIND_HMA
-    mov dx, [RT_ACS]            ; DX = WHERE `.cold` RUNS NOW, which every
-                                ; listed word must name and which `.cold` is
-                                ; copied up from. A DELTA MOVER: the kernel may
-                                ; have slid `.cold` down over a dropped VGA
-                                ; rung before this runs (MOVABLE-COLD-PLAN 4) -
-                                ; a 286 with a CGA or a Hercules and memory
-                                ; above 1MB is that machine
-%else
-    mov dx, RT_COLDSEG          ; ...and a ROM rings before anything has moved
-%endif
 %if ROM_KIND == ROM_KIND_KERNEL
     ; --- 1. `.cold`, byte for byte -------------------------------------------
     push cs
@@ -418,8 +411,33 @@ rom_patch:
     loop .word
     jmp short .span
 .hashed:
+    ; (DX is the hash's until here, so where `.cold` runs is loaded after it)
+%if ROM_KIND == ROM_KIND_HMA
+    ; WHERE `.cold` RUNS NOW, which every listed word must name and which
+    ; `.cold` is copied up from. A DELTA MOVER: the kernel may have slid
+    ; `.cold` down over a dropped VGA rung before this runs (SPEC.md 2.10.9,
+    ; MOVABLE-COLD-PLAN 4) - a 286 with a CGA or a Hercules and memory above
+    ; 1MB is that machine - and then every listed `.text` word says so, which
+    ; is a second `.text` and a second hash. Nothing else is accepted
+    mov ax, [RT_ACS]            ; (DS = RT_KSEG: the hash's)
+%if RT_SLIDES
+    cmp ax, RT_SLIDSEG
+    jne .home
+    cmp dx, RT_HASHS
+    jmp short .hcmp
+.home:
+%endif
+    cmp ax, RT_COLDSEG
+    jne .no
+    cmp dx, RT_HASH
+.hcmp:
+    jne .no
+    xchg ax, dx
+%else
     cmp dx, RT_HASH
     jne .no
+    mov dx, RT_COLDSEG          ; ...and a ROM rings before anything has moved
+%endif
     ; --- 3. every listed word names what it should - and only then, 4. ------
     mov bx, dx                  ; BX = DX: look (what is there is what each
     call rp_walk                ; word gets back)

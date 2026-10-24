@@ -635,10 +635,25 @@ def kernel_tables(build, variant):
         spans.append((s0 * 2, w - s0))
     text = a[tst:ten]
     h = text_hash(text, spans)
+    # ...and the hash of the SAME `.text` after kmain_o's slide (COLD_SLIDE,
+    # SPEC.md 2.10.9): on a machine with neither a VGA nor an EGA every listed
+    # `.text` word already says COLD_HOME - VGA_PARA when XMEM.DRV rings, so
+    # the HMA image meets one of exactly two kernels and carries a hash for
+    # each. rp_walk still reads every listed word against where `.cold` runs,
+    # so the second hash covers the rest of `.text` just as the first does
+    m = re.search(r"^([0-9A-F]{8})\s+VGA_PARA\s*$", amap, re.M)
+    slidseg = hslid = None
+    if m and cfixed and int(m[1], 16):
+        slidseg = coldseg - int(m[1], 16)
+        st = bytearray(text)
+        for o in lists["text"]:
+            st[o], st[o + 1] = slidseg & 0xFF, slidseg >> 8
+        hslid = text_hash(st, spans)
     return {"coldram": coldram, "coldseg": coldseg, "fatseg": fatseg,
             "kseg": kseg, "vst": vst,
             "vgabram": vgabram,
             "cold": a[cst:cen], "hash": h, "spans": spans, "lists": lists,
+            "slidseg": slidseg, "hslid": hslid,
             "nmods": len(rows), "mfp": _symbol(amap, ".text", "rom_mfp"),
             "fseg": _symbol(amap, ".text", "spl_fseg"),
             # ROMF_PKG ends in a near jump to it (osrom.asm's rom_pkg): its
@@ -728,6 +743,10 @@ def write_romtab(t, path, held=None, pkg=None, hdrv=(), drvorg=0):
            f"RT_HDRT     equ 0x{t['hdrt']:04X}",
            f"RT_ACS      equ 0x{t['acs']:04X}",
            f"RT_MODFIX   equ {1 if t['modfix'] else 0}"]
+    slides = t.get("hslid") is not None     # a kernel that slides `.cold`
+    out += [f"RT_SLIDES   equ {1 if slides else 0}",
+            f"RT_SLIDSEG  equ 0x{t['slidseg'] if slides else 0:04X}",
+            f"RT_HASHS    equ 0x{t['hslid'] if slides else 0:04X}"]
 
     def words(label, ws):
         out.append(f"{label}:")

@@ -127,7 +127,8 @@ def boot(tmp, mem, sysimg, apps, hd):
             break
         time.sleep(0.2)
     xmcheck.wait_desktop(q.sock, "hmadrv")
-    floors = (EQ["HEAP_SEG"], EQ["COLD_RAM"] + EQ["VGABUF_PARA"])
+    floors = (EQ["HEAP_SEG"],                  # (rounded: SPEC.md 2.10.9)
+              (EQ["COLD_RAM"] + EQ["VGABUF_PARA"] + 31) // 32 * 32)
     if not os88qemu.acted(q, lambda: u16(q.read(S("mem_base"), 2)) in floors,
                           secs=120, what="the blob to be given back"):
         raise SystemExit("hmadrv: the boot never finished (-m %d)" % mem)

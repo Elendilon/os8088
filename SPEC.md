@@ -3937,8 +3937,17 @@ gives the kernel its own, so it can move `.cold` itself.
   `.cold` runs now from `[api_coldseg]` (`RT_ACS`), checks every listed word
   against THAT, copies `.cold` up from THAT, and re-points the `mod_fp`
   slots that name it - so it still adopts a kernel that slid `.cold` before
-  XMEM.DRV attached. A ROM rings before anything moves and checks against
-  the built value as before.
+  XMEM.DRV attached. Its `.text` hash covers the listed words, which the
+  slide rewrites, so a sliding kernel's image carries TWO hashes
+  (`RT_SLIDES`, `RT_SLIDSEG`, `RT_HASHS`): one for `.text` with `.cold` at
+  `COLD_HOME` and one with every listed word saying `COLD_HOME - VGA_PARA`,
+  picked by `[api_coldseg]`, and any third value is refused. Leaving the
+  words out of the spans instead would cost a span per site, ~370 bytes the
+  kern_big ROM does not have. On a 286 with a CGA or a Hercules the floor
+  then falls to `VGA_RAM` rounded - the rung and both copies of `.cold` -
+  0EA0 on a `VIDEO=cga` kernel against 1820 with neither move;
+  `tests/hmacold.py` leg D is the gate. A ROM rings before anything moves
+  and checks against the built value as before.
 - **The top of the ladder is packed (`LADDER_PACK`, every `ROM_ADOPT`
   kernel; `NO_LADDER_PACK` is the A/B).** The rungs were there for guard 6,
   and guard 6 names the bases an `int 13h` transfer lands on - `KERNEL_SEG`,

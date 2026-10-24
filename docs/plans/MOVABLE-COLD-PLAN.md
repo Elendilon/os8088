@@ -26,7 +26,8 @@
 >   under the blob's lift, and the slide's code rides with it. And
 >   **kern_small keeps the ROM's module lists and `ROMF_FIX`**: it has no
 >   slide, and SPEC.md 39.27.4 spends nothing there, so its `.text` and
->   `.cold` are byte-identical to the base.
+>   `.cold` are the base's plus §5's floor round-up (five bytes) and the
+>   parity pad that keeps `dsk_xfer` and its neighbours even behind it.
 > * **§5's packed top is -512 on both kernels at this build**, as predicted
 >   for kern_big's VGA machines; kern_small gets it too.
 > * **The window**: 6,432 bytes of KERNEL_SEG's 64KB left above the rung,
@@ -35,6 +36,16 @@
 > * **Gates**: `tests/vgarefs.txt` (os88ovlchk rule 2f), os88cfx refusing a
 >   `.cold` word in the rung, the window guard, `cfix_prove`, and the soak
 >   row `coldslide`. `tools/os88marty.py`'s `sym()` follows a slid `.cold`.
+> * **The HMA on a slid machine needed a second hash**, which §4 did not see:
+>   `COLDHMA.SYS`'s `.text` hash covers the very words the slide rewrites, so
+>   it refused every slid kernel. It carries both now and picks by
+>   `[api_coldseg]` (SPEC.md 2.10.9) - skipping the words instead would be a
+>   span per site, ~370 bytes the kern_big ROM has not got. A 286 with a CGA
+>   then gets the rung AND both copies of `.cold` back: floor 0EA0 against
+>   1820. `tests/hmacold.py` leg D is that machine (a `VIDEO=cga` tree).
+>   The final soak pass found it, together with a register the first cut of
+>   the delta mover clobbered (DX loaded before the hash that reuses it), which
+>   had every ROM and HMA adoption refusing.
 
 It answers docs/plans/MONO-RECLAIM-PLAN.md's open question, *"the RAM that
 is mono-only has no customer"*, the other way round: give it back rather
