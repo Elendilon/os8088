@@ -61,7 +61,11 @@ def main():
     ap.add_argument("--open", required=True,
                     help="D:/FOLDER/.../FILE to double-click")
     ap.add_argument("--word", action="append", required=True)
-    ap.add_argument("--disk", default="build/apps360.img")
+    ap.add_argument("--disk", default="build/apps360.img",
+                    help="the B: floppy; a bare name (games360.img) is "
+                    "build/'s, which is how a suite row names one without "
+                    "a literal build/ path (tests/unit/t_artpath.py) - "
+                    "launch() resolves it against the run's tree either way")
     ap.add_argument("--first", help="D:/.../FILE opened BEFORE the target and "
                     "closed after it, so its claims leave a hole UNDER the "
                     "target's (a claim already on the floor cannot move)")
@@ -83,6 +87,8 @@ def main():
                     "window to KEEP CHANGING after the move instead, which a "
                     "worker that faulted on a stale word stops doing")
     a = ap.parse_args()
+    if "/" not in a.disk:
+        a.disk = os.path.join("build", a.disk)
     MAP = dispapps._map(a.app)
     fails = []
     done = lambda mm, **k: os88marty.ui_done(mm)

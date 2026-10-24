@@ -176,7 +176,7 @@ the first desktop frame, and (c) never freed.
 | **K6c** `MEM_P_FLIST` multi-file clipboard, 1 KB | until the next Cut/Copy | NONE | one-word proc on `[fcp_lseg]` | ~17 |
 | ~~`MEM_P_VIEW`~~, ~~`MEM_K_SAVE`~~, ~~`MEM_K_CLIP` small~~ | kern_small | - | settled, out of scope | 0 |
 
-**Kernel total if every row is taken: ~138 bytes** (K2 + K4a/b + K6a/b/c,
+**(Superseded by 6.4: K4a, K6b and K6c are purgeable and go with K6a's research pass; the size pass is K4b alone.)** **Kernel total if every row is taken: ~138 bytes** (K2 + K4a/b + K6a/b/c,
 less K1a's 12), plus K1b's ~45 when it is wanted. Proposed: **take K1a, K2
 and K6a now**, ~50 bytes net: the two that open real walls and the one that
 pays for itself. Leave K4/K6b/K6c (~76) for after the next size pass.
@@ -185,8 +185,8 @@ pays for itself. Leave K4/K6b/K6c (~76) for after the next size pass.
 
 | claim | bucket | retires it |
 |---|---|---|
-| `HDDTOOL.DRV`, `RAMPAGE.DRV`, `HTTPPAGE.DRV` page images (a base that is a CS, `[rd_pfar]`-style far pointers) | NONE | **R1**: load them through the `MEM_K_DRV` path, or give them a proc that re-stamps the far pointer |
-| HTTPFS index (hfidx.inc), 16 KB, life of the mount | NONE | **R2**: proc re-points `hf_iseg`/`hf_tseg` |
+| `HDDTOOL.DRV`, `RAMPAGE.DRV`, `HTTPPAGE.DRV` page images (a base that is a CS, `[rd_pfar]`-style far pointers) | C | **R1 CLOSED, no code**: each image is loaded when its Control Panel page is selected and dropped at `DSV_CPCLOSE` (`rd_page_closed` -> `rd_page_drop`), so it is held only while the user is IN the panel, using it - bucket C. It is claimed top-down, so it is not a wall in the arena while held |
+| HTTPFS index (hfidx.inc), 16 KB, life of the mount | - | **R2 BUILT**: `hf_reloc` (one word, `[hf_iseg]`), declared once the fetch is validated (it is the network's write target until then); `hf_list` re-reads ES after `OSAPI_FS_ENT`, the one call inside a verb that can claim. `httpmount` regression-green on QEMU. **No move proof**: QEMU cannot post a compaction from outside the way MartyPC can, and MartyPC has no NIC |
 | VOLUME save-under, 2-30 KB while the popup is up | C | allowed; a `ret` proc is free (R2) |
 | Sound Blaster ring / direct pool | D | allowed (narrowed by K1) |
 | install/mount/MBR bounce buffers, xmem HMA, RAM-disk write buffer | C/D | allowed |
@@ -197,7 +197,7 @@ pays for itself. Leave K4/K6b/K6c (~76) for after the next size pass.
 |---|---|---|
 | csload, wdload, scload, dosload, pxstein: launch images | C (`[ld_base]`) | correct as they stand |
 | **SHEET region** | - | **P1 BUILT, smaller than planned.** The binds stamp CS into vector tables in SHEET's OWN data, so a region proc that re-runs them (`sh_rgnreloc`, 6 bytes) is the whole fix, with no part conversion needed. The "far frame across file calls" reason never bound the region (callbacks pin it). `sheetmove` 3c, red-tested. **Still pinned: the two MODULE claims** (CHART.OVL 52 KB, MACRO.OVL), whose own CS is on the stack across their file calls - the C overlay's shape. That is P1b: a thunk like `cc_ovmthunk`, or making each a part |
-| **FROTZ worker** - `zi_yield` holds ES = the story's PC segment across the yield | NONE | **P2**: show whether an opcode in flight at `zi_yield` has committed; if it has, declare the restart point at the burst boundary |
+| **FROTZ worker** | NONE | **P2, ANALYSED - a decision.** The story DATA already moves across the park (`zi_yield` banks `[zf_sdelta]` and re-bases a saved ES by range, SPEC.md 66.5.9). What pins the REGION is the worker's own stack while parked: the far return frame of `call OSAPI_TASK_ALIVE` holds Frotz's CS, and `zi_yield` is reached from every wait loop - mid-opcode, several near frames deep in `zx_run`. Two ways out: **(a)** a restart point, which needs every opcode that can wait (`read`, `read_char`, timed input, `@sound`) to be safely RE-EXECUTABLE from its start, because the restart discards the stack. That is an interpreter audit, Frotz only. **(b)** A kernel *park-frame relocation*: a worker parked at `OSAPI_TASK_ALIVE` whose package declares that NOTHING on its stack names its region except the frame ALIVE itself built (near calls push IP only) gets that one frame patched by `mem_region_reloc`. This is general (any deep worker that parks only at ALIVE), but it is resident kernel bytes, estimated 40-60 (unmeasured), and the declaration is unverifiable, so a false one is silent corruption. Recommended: (a) if the audit is clean, else (b) after a size pass. **DECIDED (the owner, 2026-10-23): NO kernel bytes. Do the audit (a); if it does not come out clean, Frotz's worker stays pinned for this round** |
 
 ### 2.5 Assembly packages - undeclared data claims
 
@@ -355,11 +355,86 @@ always one of those two cases, so the case K6a would help is the smaller set.
 **Deferred to a later research pass.** Raise caches stay purgeable and stay
 DROPPED by the compactor. The ratchet (4) records them as "shed, by design".
 
+### 6.6 P2's audit: CLEAN-WITH-WORK (2026-10-23)
+
+The audit read every park site in `apps/frotz/`. Only the `OSAPI_TASK_ALIVE`
+calls can park Frotz (it does not declare PARKSAFE, SPEC.md 66.5.9.1), and
+there are eight of them: the burst loop's own, @read, @read_char, @save,
+@restore, @restart, @verify's chunk loop and the [MORE] wait.
+
+**Re-dispatching the current Z instruction is LOSSY and is not the design.**
+Its operand decode pops the Z stack for variable-0 operands, five handlers
+spill `[zf_pcoff]` to the store/branch byte before they park, and
+re-executing repeats what is already on the glass (@read's echo, a posted
+Save dialog, text printed before [MORE]).
+
+**What works is RESUMING THE WAIT**, from state that is already in bss. One
+byte, `[zx_rsm]`, names the handler (set before its spill/unlock, cleared
+after the re-lock), and `zx_restart` either enters `zx_worker` (0) or jumps
+to that handler's post-wait tail through a second entry into
+`zi_readline`/`zi_readchar`/`zi_request`'s `.wait`. No Z instruction is
+re-executed except @verify, which is pure. @restart gains the `zx_spill` the
+others have (3 bytes).
+
+**[MORE] withdraws the declaration** (`OSAPI_TASK_RESTARTABLE AX=0`) for the
+length of its wait, because the text decoder's state is on the stack there
+and replaying it duplicates output. The region stays pinned while the prompt
+is up. That is a missed move, not a loss. A `mem_avail` plan taken mid-burst
+can therefore read HIGH if Frotz reaches a page boundary before it parks. It
+is the K9 shape (a compaction achieves less, once), and rare.
+
+Estimated **200-250 bytes of FROTZ.O88, zero kernel bytes, zero per
+instruction**, which the owner's rule allows. It is built after A3 merges,
+since A3 also edits `zio.inc` and `zwin.inc`. Its gate is one leg per park
+site (described in the audit), with red runs for a declaration pointed at
+plain `zx_worker` and for the [MORE] withdrawal removed.
+
+### 6.5 PIXELSTEIN's re-homed claims need the fence widened (a kernel-byte decision)
+
+A4 made PIXELSTEIN's shadow movable (`px_shmv`), but its levels (10 KB), art
+masters (37 KB) and sprite set (60 KB) cannot be declared: the loader claims
+them, OSAPI_PKG_REHOME re-owns every claim to the instance SLOT
+(`mem_reown_x`), and `mem_find_own` accepts only `MC_OWN = caller's segment`
+or `base = caller's segment`. So `OSAPI_MEM_MOVABLE` refuses the program's own
+claims. The fix is one more arm in `mem_find_own`: accept `MC_OWN` = the
+caller's slot. It needs the slot found from the caller's segment, so it is
+ESTIMATED at 12-20 resident bytes, and it widens the fence for every re-homed
+program (Skies, DOS) in the same way the `cmp dx, bx` arm already does for the
+region. Until the owner decides, those three stay PINNED (rule: undeclared),
+107 KB of a re-homed program's life.
+
 ## 7. Resume point (paused 2026-10-23 for the capacity limit)
 
 **Built and pushed on `no-pinning`:** wave 0 (the C overlay moves; `ovlhigh`,
 `ovlmove`), K8 (+14), K1a (-16), K2 (+58), K9 (+42 as a count; `tnest`), and G1
 (`cpcost`, the baseline in 5.1). K6a is deferred and K3 is deferred as niche.
+
+**Merged since:** A4/A5/A8 (`afb03c59`): 1942 and isoTron canvases movable on
+the desktop and pinned across the bracket; Tank's shadow freed at the bracket's
+end; PIXELSTEIN's shadow movable (6.5 is what blocks the rest); WireFleet the
+first adopter of the parts standard's `OP_ONMOVE` opt-in (SPEC.md 20.12.12);
+Excitebike audited, all bucket C. Rows `pkgmove-wireflet`, `pkgmove-1942`,
+`pkgmove-isotron`, and `tank` and `pxsmove` extended.
+C5 Weave/Loom (`1c406a9f`, WEAVE-SPEC 1.2.6): every long-lived claim of
+both moves, through one `os88_onmove` each that rewrites every copy of a base;
+part 0 is pinned once WEAVE's worker is hired (it parks inside it). It found
+and fixed a live defect: WEAVE's region was already movable and its first
+move left `wvm_ourds` stale, so natives ran against the old segment (new
+opt-in `CC_ONMOVE_REGION`). On the 256KB XT the second WEAVE's region now
+fits, so the refusal moved from the loader to the runtime's own window
+(`weaveone` accepts either). Rows `weavemove`, `loommove`. It also found
+LOOM leaking Preview's 112KB on a Pack from the pane, fixed in `056841dd`.
+A1 RealDMG (`3465d15a`, REALDMG-SPEC 14.4): every long-lived claim moves
+through one proc, `rw_mreloc`, which also fixes the core's copies (ROM
+segment, bank table, `S_ROMX`, RAM, profile). Translated code bakes 8086
+`jmp far` segments in and logs no list of them, so a move of the recompiler's
+claim FLUSHES the cache (`rw_mjit`), a re-warm once per move. File calls and
+the load pin everything (bucket C). **Speed unchanged**: 1414.3 against
+1414.4 bank switches a guest second saturated, `gbdemo` 1.000 of real time,
+all 145 hot routines instruction-identical at even shifts. +436 bytes of
+image. Row `rdgmove`. The parts carve (core + view, 128KB) stays pinned until
+RealDMG opts into A8's `OP_ONMOVE`, which needs a hook for `rdg_viewseg`,
+`rdg_coreseg`, `S_VIEW`, `S_DISP`, `BTAB[0]` and a cache flush.
 
 **In flight in agent worktrees (branches off `no-pinning`, NOT merged):**
 - C4: LEMMINGS' claims movable (range-translating `os88_onmove`)
@@ -409,3 +484,20 @@ only when a claim could not be served otherwise. The options:
 
 Recommended: **(a)** for now, with `cpcost` and `lemmove` printing the figure
 every run so a regression shows.
+
+**DECIDED (the owner, 2026-10-23): (a), accepted.** A compaction is caused by
+a user action (opening something big on a full machine), and partial
+compaction spread over several runs is not worth its complexity or its
+bytes.
+
+### 6.4 Purgeable caches are one decision, not four rows (the owner, 2026-10-23)
+
+K6a's deferral reaches every PURGEABLE cache, not only raise caches. A
+`MEM_P_*` claim is dropped by the compactor rather than moved, and making one
+movable is the same research question as K6a's: a plan that compacts without
+dropping, and more compactions for fewer drops. So **K4a** (`MEM_P_RAHB`, the
+read-ahead buffer), **K6b** (`MEM_P_FATW`, the FAT caches) and **K6c**
+(`MEM_P_FLIST`, the multi-file clipboard list) move into that research pass
+with K6a, and they are NOT size-pass items. The size pass is left with one
+row: **K4b**, `MEM_K_COPY`, the clipboard copy buffer (~17 bytes), the only
+non-purgeable claim of the four.

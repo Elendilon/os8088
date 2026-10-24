@@ -6236,7 +6236,7 @@ $(BUILD)/realdmg.bin: apps/realdmg/realdmg.asm apps/realdmg/rdgdefs.inc \
                       $(BUILD)/rdgcore.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
-                      apps/realdmg/rwfm.inc drivers/sound/sndpkg.inc \
+                      apps/realdmg/rwfm.inc apps/realdmg/rwmove.inc drivers/sound/sndpkg.inc \
                       apps/os88data.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/realdmg/ -I drivers/sound/ -I $(BUILD)/ -l $(BUILD)/realdmg.lst \
 		-o $@ apps/realdmg/realdmg.asm
@@ -11214,6 +11214,22 @@ $(BUILD)/loom120.img: $(LOOMDISK) tools/os88disk.py
 $(BUILD)/loom360.img: $(LOOMDISK) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 --folder SYSTEM/APPDATA \
 		--dir-slots LOOM=32 $(WEAVEFOLDER) $(LOOMFOLDER)
+	@python3 tools/os88disk.py --verify $@
+
+# THE FAMILY'S MOVE GATES' DISK (WEAVE-SPEC 1.2.6; tests/weavemove.py,
+# `soak -k weavemove -k loommove`): c64move360's layout - Note Pad for the
+# ceiling and a floor document, the package under test, heapfrag LAST so its
+# pinned blocks wall nothing - with both packages and what each opens, all at
+# the root: PONG.WAB and SHEET.WAB for WEAVE, PONG's three sources for LOOM.
+# On demand; a prerequisite of nothing.
+$(BUILD)/weavemove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/notepad.o88 \
+                           $(WEAVEDISK) $(WEAVELOOM) $(LOOMSRCS) \
+                           tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 --folder SYSTEM/APPDATA \
+		$(BUILD)/heapfrag.o88 $(BUILD)/notepad.o88 $(BUILD)/weave.o88 \
+		$(BUILD)/PONG.WAB $(BUILD)/SHEET.WAB $(WEAVELOOM) \
+		apps/weave/demos/pong.wml apps/weave/demos/pong.wjs \
+		apps/weave/demos/pong.wsp
 	@python3 tools/os88disk.py --verify $@
 
 
