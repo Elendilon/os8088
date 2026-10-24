@@ -318,7 +318,10 @@ rom_sock_check:
 ;   rt_vgab, RT_VGABRAM           kern_big's `.vgabuf` words, and the rung
 ;                                 they name, moved down to RT_COLDRAM
 ;   rt_mods                       per mod_tab ROW: its list and its count (the
-;                                 settings core's row shares CTRL.DRV's)
+;                                 settings core's row shares CTRL.DRV's) - and
+;                                 ONLY for a kernel with no mod_cfix (RT_MODFIX:
+;                                 kern_small), a kernel that slides `.cold`
+;                                 finding them itself (MOVABLE-COLD-PLAN 4)
 ;   rt_img                        per ROW: the image this ROM holds (its offset
 ;                                 in the window and its bytes), 0 = none
 ;   RT_PKGOFF RT_PKGLEN           the one package it may hold, and its name,
@@ -369,6 +372,17 @@ rom_patch:
     mov ds, ax                  ; stage 2 (or the VBR) published before the
     mov bp, [RT_FSEG]           ; kernel was entered - read here so the
                                 ; doorbell need not carry it
+%if ROM_KIND == ROM_KIND_HMA
+    mov dx, [RT_ACS]            ; DX = WHERE `.cold` RUNS NOW, which every
+                                ; listed word must name and which `.cold` is
+                                ; copied up from. A DELTA MOVER: the kernel may
+                                ; have slid `.cold` down over a dropped VGA
+                                ; rung before this runs (MOVABLE-COLD-PLAN 4) -
+                                ; a 286 with a CGA or a Hercules and memory
+                                ; above 1MB is that machine
+%else
+    mov dx, RT_COLDSEG          ; ...and a ROM rings before anything has moved
+%endif
 %if ROM_KIND == ROM_KIND_KERNEL
     ; --- 1. `.cold`, byte for byte -------------------------------------------
     push cs
@@ -407,8 +421,8 @@ rom_patch:
     cmp dx, RT_HASH
     jne .no
     ; --- 3. every listed word names what it should - and only then, 4. ------
-    mov bx, RT_COLDSEG          ; BX = RT_COLDSEG: look (what is there is
-    call rp_walk                ; what each word gets back)
+    mov bx, dx                  ; BX = DX: look (what is there is what each
+    call rp_walk                ; word gets back)
     jc .no
 %if ROM_KIND == ROM_KIND_HMA
     ; --- HMA: no module may be HELD. This runs after the mount, and a module a
@@ -431,7 +445,8 @@ rom_patch:
     ; read it and no byte of it is data (os88ovlchk's rule)
     mov ax, ROM_COLDSEG
     mov es, ax
-    mov ax, RT_COLDRAM
+    mov ax, dx                  ; `.cold`'s RAM, wherever it runs: DX:VST
+    add ax, RT_COLDVST / 16
     mov ds, ax
     xor si, si
     mov di, RT_COLDVST          ; `.cold`'s own offsets: FFFF:x is 0xFFFF0 + x
@@ -448,7 +463,8 @@ rom_patch:
     mov cx, rom_tail_end - rom_res
     repe cmpsb
     jne .no
-    mov ax, RT_COLDRAM
+    mov ax, dx
+    add ax, RT_COLDVST / 16
     mov ds, ax
     xor si, si
     mov di, RT_COLDVST
@@ -472,7 +488,7 @@ rom_patch:
     mov cx, RT_NSLOT
     jcxz .slotted
 .slot:
-    cmp word [es:di], RT_COLDSEG
+    cmp [es:di], dx             ; (where it ran)
     jne .snext
     mov word [es:di], ROM_COLDSEG
 .snext:
@@ -502,8 +518,9 @@ rom_patch:
     pop ax
     retf
 
-; rp_walk - the four lists, looked at (BX = RT_COLDSEG, CF = 1 at the first
-; word that is not COLD_SEG) or written (BX = ROM_COLDSEG). BP = the blob.
+; rp_walk - the four lists, looked at (BX = DX, CF = 1 at the first word that
+; does not name DX) or written (BX = ROM_COLDSEG). BP = the blob, DX = where
+; `.cold` runs now (rom_patch).
 rp_walk:
     mov ax, RT_KSEG
     mov si, rt_text
@@ -533,7 +550,7 @@ rp_walk:
 .vnext:
     cs lodsw                    ; (DF = 0: rom_patch's cld)
     xchg ax, di
-    cmp bx, RT_COLDSEG
+    cmp bx, dx
     jne .vwrite
     cmp word [es:di], RT_VGABRAM
     jne .vbad
@@ -562,30 +579,24 @@ rp_walk:
 rom_res:
 %endif
 ; rp_list - AX = the segment, CS:SI = CX offsets, BX = what each word gets:
-; RT_COLDSEG to look (a word that says it is given it back, which writes
-; nothing that was not there) or ROM_COLDSEG to write. Either way CF = 1 at
-; the first word that does not say COLD_SEG - which on a write cannot happen,
+; DX to look (a word that says it is given it back, which writes nothing that
+; was not there) or ROM_COLDSEG to write. Either way CF = 1 at the first word
+; that does not say DX, where `.cold` runs - which on a write cannot happen,
 ; the look having just read every one of them, and each list being a set of
 ; distinct offsets (tools/os88rom.py walks the diff two bytes at a time).
-; DX = no limit. Clobbers AX, CX, DI, SI (past the list), ES = AX. One body
-; for both passes rather than a branch per word (kernel size pass 12, -14)
+; Clobbers AX, CX, DI, SI (past the list), ES = AX. One body for both passes
+; rather than a branch per word (kernel size pass 12, -14). The module door's
+; FIX has a loop of its own (rm_list), DX here being where `.cold` runs and
+; not a limit. DF = 0
 rp_list:
     mov es, ax
-    mov dx, 0xFFFF
-; ...and the module door's way in, with DX = the LAST offset a word may start
-; at, plus one: the bytes it read less one, so a word at or past DX is not in
-; this claim (the settings core reads a PART, SPEC.md 2.8.7). DF = 0
-rp_list_lim:
     jcxz .ok
 .next:
     cs lodsw
     xchg ax, di
-    cmp di, dx
-    jae .skip
-    cmp word [es:di], RT_COLDSEG
+    cmp [es:di], dx             ; DX = where `.cold` runs (rom_patch)
     jne .bad
     mov [es:di], bx
-.skip:
     loop .next
 .ok:
     clc
@@ -608,8 +619,9 @@ rp_list_lim:
 ;           mod_need then refuses it. ES is the claim's, out of the row
 ;           ([bx], MODR_SEG = 0), and is NOT kept. The ROM's own copies are
 ;           kept AS THE BUILD CUT THEM, so a copied module is fixed like a
-;           read one. BX and BP, not ES and CX: mod_need holds both already,
-;           and loading the other two cost it 5 bytes (kernel size pass 12)
+;           read one. ONLY RT_MODFIX's (kern_small): a kernel that slides
+;           `.cold` re-points its modules itself, out of the bytes alone
+;           (mod_cfix, MOVABLE-COLD-PLAN 4), and is never asked this
 ;   2 PKG   DS:SI = a package's 8.3 name (the kernel's) -> the package STARTED
 ;           out of this ROM: ldf_ld_pkg_start run on ES:DI = its image here,
 ;           DX:CX = its length, so CF/AL are that far entry's answer and the
@@ -632,10 +644,12 @@ rom_modfix:
                                 ; mod_row gave mod_need, in the kernel this
                                 ; ROM adopted: it is not re-checked here
 %if RT_MODRSZ != 4
-  %error "rt_mods and rt_img are indexed by row*4 and mod_tab's stride is not 4"
+  %error "rt_img is indexed by row*4 and mod_tab's stride is not 4"
 %endif
+%if RT_MODFIX
     cmp al, ROMF_FIX
     je .fix
+%endif
     mov si, [cs:rt_img+bx]      ; the image's offset in this ROM, 0 = none
     or si, si
     jz .no
@@ -666,38 +680,66 @@ rom_modfix:
 .yes:
     clc
     jmp short .out
+%if RT_MODFIX
 .fix:
     push ax
     push cx
     push dx
     push di
     mov es, [bx + RT_MODTAB]    ; the row's MODR_SEG (+0), DS = the kernel's
-    mov dx, bp                  ; DX = the limit for rp_list_lim: the bytes
-    dec dx                      ; it holds, less one (BP > 0: a header)
+    mov dx, bp                  ; DX = the limit: the bytes it holds, less one
+    dec dx                      ; (BP > 0: a header)
     mov si, [cs:rt_mods+bx]     ; the list...
     mov cx, [cs:rt_mods+bx+2]   ; ...and its count
     push si
     push cx
     cld
     mov bx, RT_COLDSEG          ; look
-    call rp_list_lim
+    call rm_list
     pop cx
     pop si
     jc .fixed
     mov bx, ROM_COLDSEG         ; ...then write: CF = 0
-    call rp_list_lim
+    call rm_list
 .fixed:
     pop di
     pop dx
     pop cx
     pop ax
     jmp short .out
+%endif
 .no:
     stc
 .out:
     pop si
     pop bx
     retf
+
+%if RT_MODFIX
+; rm_list - a module's list: ES = its claim, CS:SI = CX offsets, BX = what each
+; word gets (RT_COLDSEG to look, ROM_COLDSEG to write), DX = the last offset a
+; word may start at plus one (the settings core reads a PART, SPEC.md 2.8.7).
+; CF = 1 at the first word in the claim that does not say COLD_SEG.
+; Clobbers AX, CX, DI, SI. DF = 0
+rm_list:
+    jcxz .ok
+.next:
+    cs lodsw
+    xchg ax, di
+    cmp di, dx
+    jae .skip
+    cmp word [es:di], RT_COLDSEG
+    jne .bad
+    mov [es:di], bx
+.skip:
+    loop .next
+.ok:
+    clc
+    ret
+.bad:
+    stc
+    ret
+%endif
 
 ; rom_pkg - ROMF_PKG: the one package this ROM may carry, LAUNCHED, if it is
 ; the one ui_sys_open is opening: the kernel's [ui_desc] (RT_UIDESC) names a

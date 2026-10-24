@@ -751,6 +751,20 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     %define ROM_ADOPT 1
   %endif
 %endif
+; COLD_SLIDE - the kernel moves `.cold` BY ITSELF (docs/plans/MOVABLE-COLD-
+; PLAN.md): down over the VGA rung on a machine with neither a VGA nor an EGA,
+; which can never use it. It needs the kernel's own list of the words that
+; name `.cold`'s segment - cfx_tab, which tools/os88cfx.py stamps into the
+; blob after the assembly - and ROM_ADOPT's mod_cfix for the modules. kern_big
+; alone: kern_small drives no VGA at all (MONO-RECLAIM-PLAN 2), so it has no
+; rung to slide over. NO_COLD_SLIDE is the A/B
+%ifdef ROM_ADOPT
+  %ifdef KERN_BIG
+    %ifndef NO_COLD_SLIDE
+      %define COLD_SLIDE 1
+    %endif
+  %endif
+%endif
 %ifdef KERN_BIG                 ; ...and kern_big's HMA holds more than `.cold`
   %ifdef ROM_COLD               ; when COLDHMA.SYS put it there: drivers and
     %ifndef NO_HMA_DRV          ; their buffers, in the pool under it, through
@@ -1219,7 +1233,15 @@ COLD_VSTART equ HMA_COLD_AT
 COLD_VSTART equ 0x10            ; kern_small has no HMA: the sixteen bytes
 %endif                          ; under it are the ROM's header
 COLD_HOME   equ COLD_RAM - COLD_VSTART / 16
-COLD_SEG    equ COLD_HOME
+%ifdef COLD_CS                  ; THE TOOLS' HOOK, and nothing else's: every
+COLD_SEG    equ COLD_CS         ; word that moves when this does is a word that
+%else                           ; names `.cold`'s segment, so assembling twice
+COLD_SEG    equ COLD_HOME       ; at two values and diffing finds them all.
+%endif                          ; tools/os88cfx.py (the kernel's own list,
+                                ; MOVABLE-COLD-PLAN 4), os88rom.py and
+                                ; os88romfix.py all do. It was spliced into a
+                                ; temporary copy of this file; written here it
+                                ; costs nothing and needs no copy of kernel/
                                 ; ^ the segment `.cold` EXECUTES in, baked as
                                 ; its RAM rung LESS COLD_VSTART, because the
                                 ; section's offsets start there (`vstart=`
@@ -1597,6 +1619,9 @@ section .lowbss  nobits vstart=0
 section .bss     nobits vfollows=.text valign=1
 section .text    start=BOOT2_PAD vstart=0
 section .cold    start=COLD_START vstart=COLD_VSTART
+%ifdef COLD_SLIDE               ; the kernel's own list of the words naming
+section .cfx     start=CFX_START vstart=0 ; `.cold` (MOVABLE-COLD-PLAN 4)
+%endif
 %ifdef KERN_MEGA                ; kern_mega's own segment: protected-mode code
 section .mega    start=MEGA_START vstart=0 ; under MEGA_SEL_CODE and nothing
 %endif                          ; else (KERN-MEGA-SEGMENTS-PLAN 3.1, mega.inc)
@@ -6159,8 +6184,13 @@ osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
     push bp
     mov bp, sp                  ; [bp+2] offset, [bp+4] segment, [bp+6] the
     push bx                     ; near return, [bp+8] the far return's offset
-    mov word [bp+4], COLD_SEG   ; and [bp+10] the call's own return, which
-    mov bx, cold_kretf          ; becomes the far return's CS
+%ifdef ROM_ADOPT                ; and [bp+10] the call's own return, which
+    push word [api_coldseg]     ; becomes the far return's CS. WHERE `.cold`
+    pop word [bp+4]             ; RUNS NOW and not COLD_SEG: CTRL.DRV and
+%else                           ; HIBER.DRV expand this, and a module names
+    mov word [bp+4], COLD_SEG   ; `.cold` only through a far call's segment,
+%endif                          ; which mod_cfix finds (MOVABLE-COLD-PLAN 4)
+    mov bx, cold_kretf
     jmp short %%t
 %1 %+ _kgo:                     ; ovlchk: builds its own far frame
     push ax                     ; STKBALANCE-OK: the same frame, its target's
@@ -7840,6 +7870,29 @@ BOOT2_SIZE equ boot2_end - $$   ; THE WHOLE BLOB: the loader, the splash and
 section .cold
 cold_end:
 COLD_SIZE equ cold_end - $$
+%ifdef COLD_SLIDE
+; --- .cfx: THE KERNEL'S OWN LIST of the words outside `.cold` that name its
+; segment - in `.text`, the window half and the blob - which the slide
+; re-points (docs/plans/MOVABLE-COLD-PLAN.md 4). ZEROS AS ASSEMBLED:
+; tools/os88cfx.py finds the words by moving COLD_CS and stamps them in, so
+; the list is always this assembly's own. AFTER `.cold` IN THE FILE, so stage
+; 2's one read lands it on the RAM just past the kernel - the cold rung's
+; slack, `.vgabuf`, and the heap floor under the blob's lift - which nothing
+; claims until mem_unblob. It is wanted once, at the boot, before mem_init;
+; a resident copy would be the bytes the slide exists to give back, and the
+; blob had no sector for it that did not cost 360KB and 720KB a whole int 13h
+; call (tests/unit/t_blobruns.py --sectors 14).
+CFX_MAX     equ 256
+CFX_START   equ (COLD_START + COLD_SIZE + 15) & ~15  ; on a paragraph...
+CFX_RAM     equ KERNEL_SEG + (CFX_START - BOOT2_PAD) / 16 ; ...so a segment
+section .cfx
+cfx_tab:    times CFX_MAX db 0
+cfx_tab_end:
+%if (CFX_RAM * 16 + CFX_MAX) > BLOB_SEG_AT * 16
+  %error "`.cfx` lands on stage 2's blob - raise BLOB_LIFT (MOVABLE-COLD-PLAN 4)"
+%endif
+section .cold
+%endif
 %if COLD_VSTART + COLD_SIZE > 0xFF00
   %error "`.cold` runs past FF00 at COLD_VSTART - lower HMA_COLD_AT (an offset past FFFF wraps, in RAM as in the HMA)"
 %endif
@@ -7919,6 +7972,8 @@ OVL_SIZE equ ovl_end - $$     ; `$$` is 0 here: `.ovl` has a vstart of its
 %ifdef KERN_MEGA
 MEGA_START   equ COLD_START + COLD_PARA * 16 ; `.mega` on its rung, over the
 MODC_START   equ MEGA_START + MEGA_SIZE ; cold one - the file's last section
+%elifdef COLD_SLIDE
+MODC_START   equ CFX_START + CFX_MAX ; `.cfx` is the file's last section
 %elifdef ROM_COLD
 MODC_START   equ COLD_START + COLD_SIZE ; `.cold` is the file's last section
 %else

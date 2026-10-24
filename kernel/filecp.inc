@@ -261,10 +261,20 @@ fcpx_go:                        ; ovlchk: builds its own far frame
     push bp
     mov bp, sp                  ; [bp+2] offset, [bp+4] segment, [bp+6] the
     push bx                     ; near return, [bp+8] the far return's offset
-    mov bx, [bp+10]             ; and [bp+10] the call's own return, which
-    mov [bp+10], cs             ; becomes the far return's CS
+%ifdef ROM_ADOPT                ; and [bp+10] the call's own return, which
+    push ds                     ; becomes the far return's CS. The segment is
+    KDATAR_M bx                 ; where `.cold` RUNS and not COLD_SEG: a module
+    mov ds, bx                  ; names it only as a far call's segment, which
+    mov bx, [api_coldseg]       ; is what mod_cfix finds (MOVABLE-COLD-PLAN
+    mov [bp+4], bx              ; 4). DS is loaded rather than assumed: this
+    pop ds                      ; image switches it around its own copies
+%endif
+    mov bx, [bp+10]
+    mov [bp+10], cs
     mov word [bp+6], cold_kretf
+%ifndef ROM_ADOPT
     mov word [bp+4], COLD_SEG
+%endif
     lea bx, [bx+2]              ; past the `dw`
     mov [bp+8], bx
     mov bx, [cs:bx-2]           ; ...which names the target

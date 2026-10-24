@@ -3886,6 +3886,58 @@ grows takes that slack first, and past it `tools/os88rom.py` refuses the
 build until `HMA_COLD_AT` comes down. On a machine with no HMA the shipped
 drivers load and run exactly as before.
 
+#### 2.10.9 Moving `.cold` by itself (`COLD_SLIDE`)
+
+**The contract for docs/plans/MOVABLE-COLD-PLAN.md.** §2.10.2 made `.cold`
+free to move by SEGMENT; what made a move expensive was outside it - the
+lists of words that name its segment rode with the destination (the ROM,
+COLDHMA.SYS), each mover checked them against the BUILT value, and a moved
+kernel's modules needed a resident fixer that only the ROM or the HMA could
+supply. `COLD_SLIDE` (kern_big and kern_emu; `NO_COLD_SLIDE` is the A/B)
+gives the kernel its own, so it can move `.cold` itself.
+
+- **Modules find their own words: `mod_cfix`** (mod.inc, `.cold`). A module
+  names `.cold` only as the SEGMENT HALF OF A FAR CALL OR JMP IMMEDIATE.
+  `mod_need` calls `mod_cfix` after `mod_check`, and when `[api_coldseg]` is
+  not `COLD_HOME` it scans the bytes the claim holds for COLD_HOME's low
+  byte, confirms the high byte and an opcode three bytes back that reads FA
+  once OR'd with 70h (9A, EA and six opcodes no module puts there), writes
+  `[api_coldseg]` and steps over the word. No table anywhere: the ROM and
+  COLDHMA.SYS carry no module lists and no FIX door for a `COLD_SLIDE`
+  kernel. **`tools/os88rom.py` PROVES it on every build** (`cfix_prove`):
+  for every module image and every segment `.cold` can be moved to - the
+  ROM's, the HMA's, every slide, and segments chosen to make a written word
+  read as the start of another - a Python model of the scan re-points
+  exactly the two-assembly diff's words. A module word that names `.cold`
+  any other way fails the build; such a word takes the segment from
+  `[api_coldseg]` at run time instead (`KGO_PAIR`, `fdx_go`, `fcpx_go`,
+  `cmz_tsh`, WIN95.DRV's `WN_COLD` token). +52 bytes of kern_big's `.cold`.
+  **kern_small keeps the ROM's lists and `ROMF_FIX`** (`RT_MODFIX`): it has
+  no slide, and §39.27.4 spends nothing there - its `.text` and `.cold` are
+  byte-identical to the kernel before this section.
+- **The kernel's own list: `.cfx`.** The words in `.text`, the window half
+  and the blob that name `.cold`'s segment (93 + 4 + 32 at build 470) are
+  stamped by `tools/os88cfx.py` into `cfx_tab`, `CFX_MAX` (256) bytes of
+  zeros in a section of its own straight after `.cold` in the FILE. The tool
+  re-assembles with kernel.asm's `COLD_CS` hook at two values and diffs, as
+  os88rom.py does, after each of the build's two passes; the passes must
+  pack the same bytes past `.boot2` (§2.9.13), so both are stamped. Stage
+  2's one read lands `.cfx` on the RAM just past the kernel, under the
+  blob's lift (§2.10.3), which nothing claims before `mem_unblob`; a guard
+  keeps it off the blob. **It costs no resident byte and no blob sector**:
+  the blob was the first home, and its 14th sector cost the 360KB and 720KB
+  disks a whole `int 13h` call each (`t_blobruns --sectors 14`). The format:
+  three groups (`.text`, `.ovl`, `.boot2`), each a stream of offset steps
+  from the last site - a byte 1-255, or 0 and a word - ended by a word of 0.
+  `tools/os88sym.py` compares its assembly with the stamped kernel through
+  `os88cfx.blank`.
+- **The HMA image is a delta mover.** `rom_patch` (kind 3) reads where
+  `.cold` runs now from `[api_coldseg]` (`RT_ACS`), checks every listed word
+  against THAT, copies `.cold` up from THAT, and re-points the `mod_fp`
+  slots that name it - so it still adopts a kernel that slid `.cold` before
+  XMEM.DRV attached. A ROM rings before anything moves and checks against
+  the built value as before.
+
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
 ```nasm

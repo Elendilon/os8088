@@ -252,6 +252,13 @@ def _assemble(tmp, build, variant, defs=(), inc_first=None, mapkind=None):
     return data, None
 
 
+def _has_symbol(maptext, section, name):
+    try:
+        return any(n == name for _v, n in _section_symbols(maptext, section))
+    except ValueError:
+        return False
+
+
 def _section_symbols(maptext, section):
     t = maptext[maptext.index("-- Symbols"):]
     i = t.index("---- Section " + section + " ")
@@ -330,6 +337,70 @@ def decouple_vgab(src):
                        "%else\nVGABUF_SEG equ VGABUF_RAM\n%endif\n", 1)
 
 
+def cfix(img, home, new):
+    """kernel/mod.inc's mod_cfix, byte for byte: every low byte of `home`
+    from offset 3 to len-2 whose next byte is home's high byte and whose
+    opcode three bytes back reads FA once OR'd with 70h - a far CALL (9A) or
+    JMP (EA), and six opcodes no module puts there, which is why this models
+    the predicate rather than the intent - gets `new`, and a hit's high byte
+    is stepped over."""
+    b = bytearray(img)
+    if new == home:
+        return b
+    lo, hi = home & 0xFF, home >> 8
+    di, cx = 3, len(b) - 4
+    if cx <= 0:
+        return b
+    pat = bytes([lo])
+    while True:
+        k = b.find(pat, di, di + cx)
+        if k < 0:
+            return b
+        cx -= k - di + 1
+        di = k + 1
+        if b[di] == hi and (b[di - 4] | 0x70) == 0xFA:
+            b[di - 1:di + 1] = new.to_bytes(2, "little")
+            if cx == 0:
+                return b
+            di += 1
+            cx -= 1
+        if cx == 0:
+            return b
+
+
+def cfix_prove(images, names, mods, home, vst):
+    """THE PROOF mod_cfix needs no table (MOVABLE-COLD-PLAN 4): for every
+    module image and every segment `.cold` can be moved to - the ROM's, the
+    HMA's, any slide down over a dropped rung, and segments chosen to make a
+    written word look like the start of another - the scan re-points exactly
+    the two-assembly diff's words and nothing else."""
+    rom = (ROM_BASE >> 4) - (vst - 0x10) // 16
+    lo = home & 0xFF
+    news = {HMA_SEG, rom, 0xF400}
+    news |= {(home - 2 * k) & 0xFFFF for k in range(1, 4096, 7)}
+    news |= {(lo << 8) | x for x in (0, lo, home >> 8, 0x9A, 0xEA, 0xFF)}
+    news.discard(home)
+    for n, img in enumerate(images):
+        sites = mods.get(n, [])
+        for o in sites:
+            if o < 3 or img[o - 3] not in (0x9A, 0xEA):
+                fail(f"{names[n]} names `.cold`'s segment at +{o:#x} other "
+                     f"than as a far call's or jump's (opcode "
+                     f"{img[o - 3] if o >= 3 else 0:#04x}) - mod_cfix cannot "
+                     f"find it; take the segment from [api_coldseg] there "
+                     f"(MOVABLE-COLD-PLAN 4)")
+        for new in sorted(news):
+            want = bytearray(img)
+            for o in sites:
+                want[o:o + 2] = new.to_bytes(2, "little")
+            got = cfix(img, home, new)
+            if got != want:
+                d = next(i for i in range(len(img)) if got[i] != want[i])
+                fail(f"mod_cfix would re-point {names[n]} wrongly for a "
+                     f"`.cold` at {new:#06x}: first difference at +{d:#x} "
+                     f"(MOVABLE-COLD-PLAN 4)")
+
+
 def kernel_tables(build, variant):
     """Everything the ROM needs to know about the kernel `build` holds."""
     sys.path.insert(0, HERE)
@@ -396,8 +467,8 @@ def kernel_tables(build, variant):
         fail(f"{full_path} is {len(full):,} bytes and this tree assembles "
              f"{len(a):,} - rebuild that kernel from this tree first")
     for name, (st, en) in secs.items():
-        if name == ".boot2":
-            continue
+        if name in (".boot2", ".cfx"):      # .cfx: stamped after the assembly
+            continue                        # (tools/os88cfx.py)
         if a[st:en] != full[st:en]:
             fail(f"{name} differs between this tree's assembly and "
                  f"{full_path} - rebuild that kernel from this tree first")
@@ -532,6 +603,9 @@ def kernel_tables(build, variant):
         rowimg.append(same[0])
     names = [cstr(fileof[j]) for j in range(len(rows))]
     images = [bytes(a[st:st + sz]) for st, sz, _ne in rows]
+    cfixed = _has_symbol(amap, ".cold", "mod_cfix")
+    if cfixed:
+        cfix_prove(images, names, lists["mods"], coldseg, vst)
 
     tsyms = _section_symbols(amap, ".text")
     data = _data_labels()
@@ -566,6 +640,12 @@ def kernel_tables(build, variant):
             # mod_check's header, whose build word rom_modfix compares a held
             # image's against: a kernel one commit newer reads the disk
             "hdrt": _symbol(amap, ".text", "mod_hdrt"),
+            # [api_coldseg]: the HMA image reads where `.cold` runs NOW off
+            # it, the kernel having perhaps slid it (MOVABLE-COLD-PLAN 4)
+            "acs": _symbol(amap, ".text", "api_coldseg"),
+            # ...and whether the kernel re-points its own modules (mod_cfix,
+            # COLD_SLIDE) or needs this ROM's lists and FIX door (kern_small)
+            "modfix": not cfixed,
             "modfp": _symbol_any(amap, "mod_fp"),
             "modfpend": _symbol_any(amap, "mod_fp_end"),
             "modtab": modtab, "rowimg": rowimg, "names": names,
@@ -637,7 +717,9 @@ def write_romtab(t, path, held=None, pkg=None, hdrv=(), drvorg=0):
            f"RT_PKGLEN   equ {pkg[2] if pkg else 0}",
            f"RT_LDFPKG   equ 0x{t['ldfpkg']:04X}",
            f"RT_UIDESC   equ 0x{t['uidesc']:04X}",
-           f"RT_HDRT     equ 0x{t['hdrt']:04X}"]
+           f"RT_HDRT     equ 0x{t['hdrt']:04X}",
+           f"RT_ACS      equ 0x{t['acs']:04X}",
+           f"RT_MODFIX   equ {1 if t['modfix'] else 0}"]
 
     def words(label, ws):
         out.append(f"{label}:")
@@ -658,11 +740,15 @@ def write_romtab(t, path, held=None, pkg=None, hdrv=(), drvorg=0):
     words("rt_vgab", L["vgab"])
     out.append("%endmacro")
     out.append("%macro RT_RES_DATA 0")
-    out.append("rt_mods:")                  # per ROW (see kernel_tables)
-    for n in t["rowimg"]:
-        out.append(f"    dw rt_mod{n}, {len(L['mods'].get(n, []))}")
-    for n in range(t["nmods"]):
-        words(f"rt_mod{n}", L["mods"].get(n, []))
+    # MODULE LISTS only for a kernel with no mod_cfix (kern_small): one that
+    # slides `.cold` finds every module's far references itself, and
+    # kernel_tables proves it would (MOVABLE-COLD-PLAN 4)
+    if t["modfix"]:
+        out.append("rt_mods:")              # per ROW (see kernel_tables)
+        for n in t["rowimg"]:
+            out.append(f"    dw rt_mod{n}, {len(L['mods'].get(n, []))}")
+        for n in range(t["nmods"]):
+            words(f"rt_mod{n}", L["mods"].get(n, []))
     out.append("rt_img:")                   # ...and the image each row has
     for n in t["rowimg"]:
         if n in held:

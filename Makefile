@@ -2705,7 +2705,7 @@ endif
 KERNNAME   := kernel.sys
 KERNFILE   := $(BUILD)/$(KERNNAME)
 
-$(BUILD)/kernel-full.bin: $(KERNEL_SRC) $(KERNEL_INC) $(ASSOCICO) $(FONTINC) $(BUILDINC) tools/os88ovlchk.py \
+$(BUILD)/kernel-full.bin: $(KERNEL_SRC) $(KERNEL_INC) $(ASSOCICO) $(FONTINC) $(BUILDINC) tools/os88ovlchk.py tools/os88cfx.py \
                           $(BUILD)/stiklib.bin | $(BUILD)
 ifeq ($(NOOVLCHK),)
 	@python3 tools/os88ovlchk.py
@@ -2714,6 +2714,15 @@ else
 endif
 	$(NASM) -f bin -w+error $(KINC) $(VIDDEF) $(KZDEF) \
 	        --before "[map all $(BUILD)/kernel.map]" -o $@ $(KERNEL_SRC)
+# THE KERNEL'S OWN LIST of the words naming `.cold`'s segment, stamped into
+# the blob's cfx_tab (docs/plans/MOVABLE-COLD-PLAN.md 4). Two more assemblies
+# with the segment moved, side by side; a kernel with no cfx_tab (kern_small,
+# kern_mega) is left alone. A packed kernel is stamped again after PASS 2
+# below, that being the assembly that ships - and stamped HERE too, because
+# `.cfx` is past `.boot2` and the two passes must pack the same bytes there
+# (a KZ define that moved a blob word would then say so, which is right).
+	@python3 tools/os88cfx.py $@ $(BUILD)/kernel.map -- \
+	        $(NASM) -f bin -w+error $(KINC) $(VIDDEF) $(KZDEF) $(KERNEL_SRC)
 
 $(BUILD)/kernel.bin: $(BUILD)/kernel-full.bin tools/os88mod.py tools/os88lz.py $(PKGZSTAMP) | $(BUILD)
 	python3 tools/os88mod.py $< -k $@ $(KMODARGS) --build $(BUILDNUM)
@@ -2726,7 +2735,7 @@ $(BUILD)/kernel.bin: $(BUILD)/kernel-full.bin tools/os88mod.py tools/os88lz.py $
 # moved a byte of `.text`, this is where it would say so rather than at a
 # customer's boot.
 $(BUILD)/kernel.sys: $(BUILD)/kernel.bin tools/os88kz.py tools/os88lz.py \
-                     tools/os88mod.py
+                     tools/os88mod.py tools/os88cfx.py
 ifeq ($(KZIP),)
 	@cp $< $@ && rm -f $(BUILD)/kernel.kz.json
 else
@@ -2736,6 +2745,8 @@ else
 	 $(NASM) -f bin -w+error $(KINC) $(VIDDEF) -DKZIP $$KZD \
 	        --before "[map all $(BUILD)/kernel.map]" \
 	        -o $(BUILD)/kernel-full.bin $(KERNEL_SRC) && \
+	 python3 tools/os88cfx.py $(BUILD)/kernel-full.bin $(BUILD)/kernel.map -- \
+	        $(NASM) -f bin -w+error $(KINC) $(VIDDEF) -DKZIP $$KZD $(KERNEL_SRC) && \
 	 python3 tools/os88mod.py $(BUILD)/kernel-full.bin -k $(BUILD)/kernel.bin \
 	        $(KMODARGS) --build $(BUILDNUM) >/dev/null && \
 	 python3 tools/os88kz.py $(BUILD)/kernel.bin -o $@ --blob $(BOOT2_PAD) \
