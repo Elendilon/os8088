@@ -664,7 +664,16 @@ mem_floor_ax:
     add ax, VGABUF_PARA
 .out:
 %endif
-    ret
+%ifdef LADDER_PACK
+    add ax, 31                  ; ...and onto a 512-byte boundary: the rungs
+    and al, 0xE0                ; under the floor are paragraphs now, and a
+%endif                          ; heap base is an int 13h target (guard 6,
+    ret                         ; MOVABLE-COLD-PLAN 5)
+%ifdef LADDER_PACK
+    nop                         ; PARITY: never executed. The round-up is five
+%endif                          ; bytes, and the disk path's hot loops after
+                                ; this file were measured at an even shift
+                                ; (tests/unit/t_hotpar.py)
 
 ; -----------------------------------------------------------------------------
 ; mem_claim / mem_claim_hi / mem_claim_dma - claim a block of the heap

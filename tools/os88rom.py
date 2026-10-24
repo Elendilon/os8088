@@ -531,7 +531,12 @@ def kernel_tables(build, variant):
     # two-assembly diff, one equate along; there is one site today
     # (vga12.inc's `mov ax, VGABUF_SEG`), and a NOPLANE kernel has none
     vseen = set()
+    # VGABUF_RAM is the rung over `.cold`'s: a 512-byte cold rung on a kernel
+    # with rungs, `.cold`'s own paragraphs on a LADDER_PACK one
+    # (MOVABLE-COLD-PLAN 5). The plain kernel holds it at every site, so the
+    # site says which, and it must be one of the two
     vgabram = coldram + (cen - cst + 511) // 512 * 32
+    vgabpack = coldram + (cen - cst + 15) // 16
     lists["vgab"] = []
     if len(v1) != len(a) or len(v2) != len(a):
         fail("moving `.vgabuf`'s segment changed the kernel's size")
@@ -545,7 +550,10 @@ def kernel_tables(build, variant):
         if (w2 - w1) & 0xFFFF != FIX_B - FIX_A or w1 != FIX_A:
             fail(f"file offset {i:#x} moves with `.vgabuf`'s segment but is "
                  f"not a plain word naming it")
-        if a[i] | a[i + 1] << 8 != vgabram:
+        held = a[i] | a[i + 1] << 8
+        if not lists["vgab"] and held == vgabpack:
+            vgabram = vgabpack
+        if held != vgabram:
             fail(f"file offset {i:#x} is a `.vgabuf` site but the plain kernel "
                  f"does not hold VGABUF_RAM ({vgabram:#06x}) there")
         if not tst <= i < ten:

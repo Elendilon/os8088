@@ -765,6 +765,22 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     %endif
   %endif
 %endif
+; LADDER_PACK - the TOP of the ladder in paragraphs, not 512-byte rungs
+; (docs/plans/MOVABLE-COLD-PLAN.md 5). Guard 6 names every base an int 13h
+; transfer can land on - KERNEL_SEG, FAT_SEG, LOW_SEG, HEAP_SEG and the claims
+; - and COLD_RAM and VGABUF_RAM are not among them: `.cold` arrives inside
+; stage 2's one read of the file and `.vgabuf` is CPU scratch. So LOW's top,
+; `.cold` and `.vgabuf` round to the PARAGRAPH (a segment is all either needs)
+; and KERN_END alone rounds to 512, once, where it was three roundings to
+; make one number aligned - and every heap floor rounds up at run time
+; (mem_floor_ax). The image rung and the FAT window stay whole: FAT_SEG and
+; LOW_SEG sit on them. kern_mega keeps its rungs - COLD_SEG is a selector
+; there, a multiple of 8 paragraphs. NO_LADDER_PACK is the A/B
+%ifdef ROM_ADOPT
+  %ifndef NO_LADDER_PACK
+    %define LADDER_PACK 1
+  %endif
+%endif
 %ifdef KERN_BIG                 ; ...and kern_big's HMA holds more than `.cold`
   %ifdef ROM_COLD               ; when COLDHMA.SYS put it there: drivers and
     %ifndef NO_HMA_DRV          ; their buffers, in the pool under it, through
@@ -1274,7 +1290,11 @@ COLD_SEG    equ COLD_HOME       ; at two values and diffing finds them all.
                                 ; anywhere else would need the loader to skip
                                 ; over .lowbss, which is nobits and not in the
                                 ; file at all
+%ifdef LADDER_PACK
+COLD_PARA   equ (COLD_SIZE + 15) / 16   ; to the paragraph (MOVABLE-COLD-PLAN 5)
+%else
 COLD_PARA   equ ((COLD_SIZE + 511) / 512) * 32
+%endif
 %ifdef ROM_COLD
 ; ...and the HIGH BYTE alone says where `.cold` runs: COLD_HOME's, the ROM's
 ; (ROM_COLDSEG) and the HMA's (FF) are three different bytes, which is what
@@ -1292,7 +1312,12 @@ FAT_SEG     equ COLD_RAM + COLD_PARA   ; mount-time FAT snapshot
                                 ; never DS; dsk_next_clus is the one reader
 LOW_SEG     equ FAT_SEG + FAT_PARA    ; .lowbss (task stacks + disk buffers)
                                 ; and, on top of it, task 0's own stack
+%ifdef LADDER_PACK
+LOW_PARA    equ (KLOW_SIZE + STK0_SIZE + 15) / 16 ; LOW_SEG is aligned and its
+                                ; TOP need not be: only COLD_RAM sits on it
+%else
 LOW_PARA    equ ((KLOW_SIZE + STK0_SIZE + 511) / 512) * 32
+%endif
 STK0_TOP    equ KLOW_SIZE + STK0_SIZE - 2   ; task 0's stack top, growing down
 STK0_BOT    equ KLOW_SIZE       ; ...and the floor it grows down ONTO, which is
                                 ; the top of .lowbss - the other tasks' slices,
@@ -1355,7 +1380,13 @@ VGABUF_SEG  equ VGABUF_RAM
                                 ; would be made at boot, so the only machine
                                 ; that could miss is one with under 1KB of
                                 ; heap, which is a machine that does not run.
-%ifdef GFX_PLANE
+%ifdef LADDER_PACK
+ %ifdef GFX_PLANE
+VGABUF_PARA equ (KVGABUF_SIZE + 15) / 16 ; to the paragraph: the floor rounds
+ %else                          ; itself up now (MOVABLE-COLD-PLAN 5)
+VGABUF_PARA equ 0
+ %endif
+%elifdef GFX_PLANE
 VGABUF_PARA equ 32              ; 512 bytes, and A MULTIPLE OF 32
                                 ; PARAGRAPHS on purpose: the mono floor is
                                 ; HEAP_SEG - VGABUF_PARA, so 32-alignment
@@ -1372,7 +1403,13 @@ VGABUF_PARA equ 0               ; NO PLANAR DECODER, NO RUNG. GFX_PLANE is
                                 ; of 32, so guard 2d still passes and
                                 ; mem_init's conditional folds to nothing.
 %endif
+%ifdef LADDER_PACK
+KERN_END    equ ((VGABUF_RAM + VGABUF_PARA + 31) / 32) * 32 ; ...and there the
+                                ; kernel stops, on the ONE rounding the top of
+                                ; the ladder still has (MOVABLE-COLD-PLAN 5)
+%else
 KERN_END    equ VGABUF_RAM + VGABUF_PARA   ; ...and there the kernel stops
+%endif
 KERN_SIZE   equ (KERN_END - KERNEL_SEG) * 16   ; what KERN_BUDGET measures
 
 HEAP_SEG    equ KERN_END        ; the claim heap (SPEC.md 50) starts where
@@ -8391,6 +8428,11 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
   %assign KS_FATP   FAT_PARA
   %assign KS_LOWP   LOW_PARA
   %assign KS_VGABP  VGABUF_PARA
+ %ifdef LADDER_PACK              ; ...and ONE rung over LOW_SEG where the top
+  %assign KS_TOPP   KERN_END - LOW_SEG ; is packed (MOVABLE-COLD-PLAN 5)
+ %else
+  %assign KS_TOPP   0
+ %endif
   %assign KS_SIZE   KERN_SIZE
   %assign KS_BUDGET KERN_BUDGET
   %assign KS_GRACE  KERN_GRACE
@@ -8407,7 +8449,7 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
                                  ; that names one guard teaches everybody to
                                  ; steer by it, and for a while the one it
                                  ; named was the looser of the two
-  %warning ks: text=KS_TEXT bss=KS_BSS cold=KS_COLD lowbss=KS_LOW vgabuf=KS_VGAB ovl=KS_OVL boot2=KS_BOOT2 stk0=KS_STK0 imgpara=KS_IMGP coldpara=KS_COLDP fatpara=KS_FATP lowpara=KS_LOWP vgabufpara=KS_VGABP ksize=KS_SIZE budget=KS_BUDGET codemax=KS_CODEM kend=KS_END kseg=KS_KSEG colds=KS_COLDS fats=KS_FATS lows=KS_LOWS vgas=KS_VGAS blobseg=KS_BLOB minramkb=KS_MINRAM bootmax=KS_BOOTMX grace=KS_GRACE
+  %warning ks: text=KS_TEXT bss=KS_BSS cold=KS_COLD lowbss=KS_LOW vgabuf=KS_VGAB ovl=KS_OVL boot2=KS_BOOT2 stk0=KS_STK0 imgpara=KS_IMGP coldpara=KS_COLDP fatpara=KS_FATP lowpara=KS_LOWP vgabufpara=KS_VGABP ksize=KS_SIZE budget=KS_BUDGET codemax=KS_CODEM kend=KS_END kseg=KS_KSEG colds=KS_COLDS fats=KS_FATS lows=KS_LOWS vgas=KS_VGAS blobseg=KS_BLOB minramkb=KS_MINRAM bootmax=KS_BOOTMX grace=KS_GRACE toppara=KS_TOPP
   %ifdef KERN_MEGA              ; ...and kern_mega's own rung, on a line of
     %assign KS_MEGA  MEGA_SIZE  ; its own (tools/kernsize.py's `mega`
     %assign KS_MSCR  MEGA_SCR_OFF + MPS_SIZE - MEGA_SIZE ; variant): `.mega`,
@@ -8458,8 +8500,10 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
 ;    answers a straddling transfer with error 09h - "Disk error" on a large
 ;    save, on mono only. The second is the ordinary one: what is declared has
 ;    to fit what was reserved.
+%ifndef LADDER_PACK             ; (packed, mem_floor_ax rounds the floor up)
 %if VGABUF_PARA % 32
 %error "VGABUF_PARA must be a multiple of 32 paragraphs or the mono heap floor loses its 512-byte alignment - see guard 6"
+%endif
 %endif
 %if KVGABUF_SIZE > VGABUF_PARA * 16
 %error "the planar decoder's buffers overflow VGABUF_PARA - raise it by 32 paragraphs at a time"

@@ -174,6 +174,16 @@ RUNGS = (
     ("vgabuf", ("vgabuf",), "vgabufpara"),
 )
 
+# ...and a LADDER_PACK kernel's (docs/plans/MOVABLE-COLD-PLAN.md 5): the top
+# of the ladder - LOW, `.cold` and `.vgabuf` - is packed to the paragraph and
+# rounds to 512 ONCE, at KERN_END, so it is one rung and not three. The kernel
+# says which with `toppara` (0 on a kernel with rungs, and absent from a
+# baseline taken before it, which then reads as the three rungs' sum).
+RUNGS_PACK = (
+    ("image", ("text", "bss"), "imgpara"),
+    ("top", ("lowbss", "stk0", "cold", "vgabuf"), "toppara"),
+)
+
 # ...and therefore the sections a rung CHARGES for, which is not SECTIONS:
 # neither overlay half is charged to a rung at all (SPEC.md 2.5, 2.5.3), so
 # counting `.boot2` or `.ovl` in the spend would price a change that only moved
@@ -508,6 +518,9 @@ def rung_bytes(v, para_key):
     # (SPEC.md 39.22's `.vgabuf` is the case that arrived): a rung nobody had
     # measured was 0 bytes, which is the honest reading and makes the first
     # report after it lands price the whole thing rather than crashing.
+    if para_key == "toppara" and not v.get("toppara"):
+        return sum(v.get(k, 0) for k in ("lowpara", "coldpara",
+                                          "vgabufpara")) * 16
     return v.get(para_key, 0) * 16
 
 
@@ -585,10 +598,11 @@ def report(cur, base, variant="big", out=sys.stdout):
     # rungs, which is the number the verdict at the bottom prices.
     charged = (None if base is None
                else sum(d(s) or 0 for s in RUNG_SECTIONS))
+    rungs = RUNGS_PACK if cur.get("toppara") else RUNGS
 
     crossed = []
     cells = []
-    for name, members, para in RUNGS:
+    for name, members, para in rungs:
         size = rung_bytes(cur, para)
         used = rung_used(cur, members)
         slack = size - used
@@ -606,7 +620,7 @@ def report(cur, base, variant="big", out=sys.stdout):
     p(tag + " rungs      " + "   ".join(cells))
 
     acc = []
-    for name, members, para in RUNGS:
+    for name, members, para in rungs:
         size = rung_bytes(cur, para)
         spent = rung_accrued(size, rung_used(cur, members))
         acc.append(f"{name} {spent}/512 ({spent * 100 // 512}%)")

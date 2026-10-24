@@ -3937,6 +3937,23 @@ gives the kernel its own, so it can move `.cold` itself.
   slots that name it - so it still adopts a kernel that slid `.cold` before
   XMEM.DRV attached. A ROM rings before anything moves and checks against
   the built value as before.
+- **The top of the ladder is packed (`LADDER_PACK`, every `ROM_ADOPT`
+  kernel; `NO_LADDER_PACK` is the A/B).** The rungs were there for guard 6,
+  and guard 6 names the bases an `int 13h` transfer lands on - `KERNEL_SEG`,
+  `FAT_SEG`, `LOW_SEG`, `HEAP_SEG` and the claims. `COLD_RAM` and
+  `VGABUF_RAM` are not among them: `.cold` arrives inside stage 2's one read
+  of the file, and `.vgabuf` is CPU scratch. So LOW's top, `.cold` and
+  `.vgabuf` round to the PARAGRAPH, and `KERN_END` alone rounds to 512 -
+  one rounding where there were three. The image rung and the FAT window
+  stay whole, `FAT_SEG` and `LOW_SEG` sitting on them; kern_mega keeps its
+  rungs (`COLD_SEG` is a selector, a multiple of 8 paragraphs).
+  `mem_floor_ax` rounds every floor up to 32 paragraphs, because a ROM or
+  HMA floor lands on `COLD_RAM`, which is no longer a rung boundary: +6
+  bytes of `.cold` (the round-up and a `PARITY` byte for the disk path's hot
+  loops). `tools/kernsize.py` reports the packed top as one `top` rung
+  (`toppara`). At build 471 it is **-512 bytes of `KERN_SIZE` on both
+  kernels** (kern_big 97,792 -> 97,280, kern_small 60,928 -> 60,416), the
+  slack of two rungs.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
