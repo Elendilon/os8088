@@ -41,7 +41,7 @@
   %define IN_REL '00000000'         ; where the published tree is (SPEC.md
 %endif                              ; 117.10.1-2): the Makefile passes both
 %ifndef IN_URL
-  %define IN_URL 'http://os8088.com/net/'
+  %define IN_URL 'http://os8088.com/net/big/'
 %endif
 
 ; IN_URL CUT INTO ITS PARTS HERE, BY THE ASSEMBLER (SPEC.md 117.10.3): the

@@ -204,11 +204,15 @@ All thirteen must exist -- step 3a refuses to pack without them.
 **And the published tree** INSTALL upgrades from (SPEC.md 117.10.2):
 
 ```bash
-make nettree           # build/nettree/: system + apps, SYSTEM/OS88VER.TXT, OS88.IDX
+make mega              # kern_mega's system and apps disks, which the mega tree is cut from
+make nettree           # build/nettree/{big,mega}/: system + apps, SYSTEM/OS88VER.TXT, OS88.IDX
 ```
 
-It goes on the website at **`/net/`** - INSTALL's built-in address is
-`http://os8088.com/net/` - copied whole, replacing the last release's, in the
+There are TWO trees, one per kernel, because kern_big and kern_mega install
+different kernels and packages: `build/nettree/big/` and
+`build/nettree/mega/`. `build/nettree/` goes on the website at **`/net/`** -
+kern_big's INSTALL asks `http://os8088.com/net/big/` and kern_mega's
+`http://os8088.com/net/mega/` - copied whole, replacing the last release's, in the
 same website commit as the release entry (`rsync -a --delete build/nettree/
 "$WEB_REPO/site/net/"`, or wherever the site's document root is). Plain
 `http://` must serve it: the HTTP drive does not do TLS. **Change nothing in

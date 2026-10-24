@@ -3390,7 +3390,8 @@ SYSAPPSARGS := $(addprefix SYSTEM:,$(SYSAPPS))
 # should see, and on the disk the install copies FROM - so an installed
 # machine carries C:\INSTALL.O88 too, which is how the next release's upgrade
 # is found again. A plain path is the root to os88disk.py. kern_big's system
-# disks only: kern_small has no driver layer and so no HDD.DRV to switch on
+# disks here, and kern_mega's carry their own build of it ($(MEGAINST), which
+# asks the mega tree, SPEC.md 117.10.2): kern_small has no driver layer and so no HDD.DRV to switch on
 # (SPEC.md 51.0, 24.5) - its recipes never name this variable, and a
 # filter-out of something no list contains would be the no-op SPEC.md 24.5
 # warns about. DEFINED HERE for $(SYSAPPS)'s reason: a prerequisite list is
@@ -6334,8 +6335,16 @@ $(BUILD)/cdrack.o88: $(BUILD)/cdrack.bin tools/os88pkg.py $(PKGZSTAMP)
 # which the release skill writes, and INURL is where the published tree is
 # (117.10.2). Both are assembled in, so a gate that serves its own tree builds
 # its own INSTALL (install-gate.o88 below) rather than editing the shipped one.
+#
+# ONE TREE PER KERNEL (117.10.2): kern_big and kern_mega install different
+# kernels and different package builds (the mega arms, $(MEGAPKGS)), so each
+# INSTALL is pointed at its own tree under $(INURLBASE) - big/ here, and
+# mega/ for $(MEGAINST), the copy on kern_mega's system disks. A machine
+# therefore upgrades to the kernel it was installed with.
 INREL := $(shell head -n 1 apps/install/OS88VER.TXT | tr -d '\r\n ')
-INURL := http://os8088.com/net/
+INURLBASE := http://os8088.com/net/
+INURL := $(INURLBASE)big/
+INMEGAURL := $(INURLBASE)mega/
 $(BUILD)/install.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
                       apps/os88dec.inc apps/os88link.inc apps/os88data.inc \
                       drivers/httpfs/hfpkg.inc drivers/net/netpkg.inc \
@@ -6359,14 +6368,24 @@ $(BUILD)/install-gate.bin: apps/install/install.asm apps/os88api.inc apps/os88ui
 $(BUILD)/install-gate.o88: $(BUILD)/install-gate.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/install-gate.bin -o $@
 
-# THE PUBLISHED TREE (SPEC.md 117.10.2): the 1.44MB system and apps disks as one
-# tree, OS88VER.TXT and its OS88.IDX. On demand; the release skill publishes it.
-.PHONY: nettree
-nettree: $(BUILD)/nettree/OS88.IDX
-$(BUILD)/nettree/OS88.IDX: $(IMG) $(APPSIMG) apps/install/OS88VER.TXT \
-                           tools/os88nettree.py tools/os88httpdrv.py
+# THE PUBLISHED TREES (SPEC.md 117.10.2): per kernel, the 1.44MB system and
+# apps disks as one tree, OS88VER.TXT and its OS88.IDX - build/nettree/big/
+# from os8088.img + apps.img, build/nettree/mega/ from mega.img +
+# megaapps.img. On demand; the release skill publishes build/nettree/ whole
+# at $(INURLBASE), so each lands where its own INSTALL looks.
+.PHONY: nettree nettree-big nettree-mega
+nettree: nettree-big nettree-mega
+nettree-big: $(BUILD)/nettree/big/OS88.IDX
+nettree-mega: $(BUILD)/nettree/mega/OS88.IDX
+$(BUILD)/nettree/big/OS88.IDX: $(IMG) $(APPSIMG) apps/install/OS88VER.TXT \
+                               tools/os88nettree.py tools/os88httpdrv.py
 	python3 tools/os88nettree.py $(IMG) $(APPSIMG) apps/install/OS88VER.TXT \
-		$(BUILD)/nettree
+		$(BUILD)/nettree/big
+$(BUILD)/nettree/mega/OS88.IDX: $(BUILD)/mega.img $(BUILD)/megaapps.img \
+                                apps/install/OS88VER.TXT \
+                                tools/os88nettree.py tools/os88httpdrv.py
+	python3 tools/os88nettree.py $(BUILD)/mega.img $(BUILD)/megaapps.img \
+		apps/install/OS88VER.TXT $(BUILD)/nettree/mega
 
 $(BUILD)/install.o88: $(BUILD)/install.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/install.bin -o $@
@@ -14068,6 +14087,22 @@ $(MEGAAPPDIR)/midirack.bin: $(MIDIRACK_SRC) | $(BUILD)
 $(MEGAAPPDIR)/midirack.o88: $(MEGAAPPDIR)/midirack.bin $(BUILD)/mrfaces.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(MEGAAPPDIR)/midirack.bin -o $@ --part $(BUILD)/mrfaces.bin
 
+# ...and kern_mega's INSTALL (SPEC.md 117.10.2): the same source, asking the
+# mega tree. Not an arm in $(MEGAPKGS)'s sense - nothing in it is -DPKG_MEGA,
+# only the address differs - so it rides the system disks' roots by name
+MEGAINST := $(MEGAAPPDIR)/install.o88
+$(MEGAAPPDIR)/install.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
+                           apps/os88dec.inc apps/os88link.inc apps/os88data.inc \
+                           drivers/httpfs/hfpkg.inc drivers/net/netpkg.inc \
+                           apps/os88sock.inc apps/install/OS88VER.TXT | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error --before "[map all $(MEGAAPPDIR)/install.map]" \
+		-I apps/ -I drivers/httpfs/ -I drivers/net/ -D"IN_REL='$(INREL)'" \
+		-D"IN_URL='$(INMEGAURL)'" -o $@ apps/install/install.asm
+
+$(MEGAINST): $(MEGAAPPDIR)/install.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(MEGAAPPDIR)/install.bin -o $@
+
 megapkgs: $(MEGAPKGS) $(patsubst $(MEGAAPPDIR)/%,$(BUILD)/%,$(MEGAPKGS))
 	@python3 tests/unit/t_megapkg.py --sizes
 .PHONY: megapkgs
@@ -14098,13 +14133,13 @@ $(BUILD)/mega.img: KMODDIR := $(MEGADIR)
 # item 4): the same sources assembled with -DDOS_MEGA and kern_dos with
 # -DKD_MEGA, into $(MEGADIR)/kdos/, so the shipped $(SYSROOT) stays
 # byte-identical and a copy carried to the other kernel refuses in a sentence.
-$(BUILD)/mega.img: $(MEGADRIVERS) $(call MEGASUB,$(SYSAPPS)) $(call MEGASUB,$(SYSOPTIONAL)) $(STIKAPPS) $(call MEGASUB,$(COREAPPS)) $(SYSDOC) $(SYSLOGO) \
+$(BUILD)/mega.img: $(MEGADRIVERS) $(MEGAINST) $(call MEGASUB,$(SYSAPPS)) $(call MEGASUB,$(SYSOPTIONAL)) $(STIKAPPS) $(call MEGASUB,$(COREAPPS)) $(SYSDOC) $(SYSLOGO) \
                    $(FACES) $(FACELIC) tools/os88disk.py $(MEGASRC)
 	@$(MAKE) BUILD=$(MEGADIR) KERN_MEGA=1 $(if $(NOKZIP),NOKZIP=1) $(MEGADIR)/boot.bin $(MEGADIR)/boothd.sys \
 		$(MEGADIR)/kdos/DOS.O88
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(MEGADIR)/boot.bin --kernel $(MEGADIR)/$(KERNNAME) \
-		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
+		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER)
 
 # ...and the 1.2MB 5.25" HD twin (KERN-MEGA-PLAN 14.1 answer 19: kern_mega's
@@ -14117,13 +14152,13 @@ $(BUILD)/mega120.img: KMODDIR := $(MEGADIR)
 # $(MEGADIR), and two of them at once under -j race on one DOS.O88 (os88pkg
 # reading a file the other is still writing reads it as 0 bytes)
 $(BUILD)/mega120.img: | $(BUILD)/mega.img
-$(BUILD)/mega120.img: $(MEGADRIVERS) $(call MEGASUB,$(SYSAPPS)) $(call MEGASUB,$(SYSOPTIONAL)) $(STIKAPPS) $(call MEGASUB,$(COREAPPS)) $(SYSDOC) $(SYSLOGO) \
+$(BUILD)/mega120.img: $(MEGADRIVERS) $(MEGAINST) $(call MEGASUB,$(SYSAPPS)) $(call MEGASUB,$(SYSOPTIONAL)) $(STIKAPPS) $(call MEGASUB,$(COREAPPS)) $(SYSDOC) $(SYSLOGO) \
                    $(FACES) $(FACELIC) tools/os88disk.py $(MEGASRC)
 	@$(MAKE) BUILD=$(MEGADIR) KERN_MEGA=1 $(if $(NOKZIP),NOKZIP=1) $(MEGADIR)/boot120.bin $(MEGADIR)/boothd.sys \
 		$(MEGADIR)/kdos/DOS.O88
 	python3 tools/os88disk.py -o $@ --size 1200 \
 		--boot $(MEGADIR)/boot120.bin --kernel $(MEGADIR)/$(KERNNAME) \
-		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
+		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER)
 
 # MEGACDTEST - kern_mega's CD-ROM machine disks (SPEC.md 119.7, KERN-MEGA-PLAN
@@ -14145,7 +14180,7 @@ $(BUILD)/megacdcfg/system.cfg: | $(BUILD)
 $(BUILD)/megacdtest.img: $(BUILD)/mega.img $(BUILD)/megacdcfg/system.cfg $(BUILD)/cdlnk/CDRACK.LNK
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(MEGADIR)/boot.bin --kernel $(MEGADIR)/$(KERNNAME) \
-		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
+		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
 		$(SYSLOGOARG) $(FACESARG) $(BUILD)/megacdcfg/system.cfg \
 		AUTOSTRT:$(BUILD)/cdlnk/A_SYS.LNK AUTOSTRT:$(BUILD)/cdlnk/CDRACK.LNK $(APPDATAFOLDER)
 
