@@ -5910,14 +5910,30 @@ SOAK = [
         "undeclared holder in the tree - six claims at its entry proc, ~99KB, "
         "pinned for the session - which made SPEC.md 66.5.10.2's 'the arena "
         "below the top now has no barrier in it at all' false the moment a "
-        "sheet opened. Five are declared now; sh_stgseg is the ES:BX of all "
-        "seven of the package's file calls and stays pinned, and this asserts "
-        "THAT too, because 'we meant to leave that one' and 'we forgot that "
-        "one' are the same picture. paintmove's recipe. VERIFIED TO FAIL: "
-        "drop sh_cellseg from sh_reloc's table and check 3 reads STALE while "
-        "check 4's repaint differs over 24 rows of the grid",
+        "sheet opened. All six are declared now: the staging, every file "
+        "call's ES:BX, joined them in NO-PINNING 1 (SPEC.md 81.2.1) and 3b "
+        "asserts it moved and its word followed. paintmove's recipe. VERIFIED "
+        "TO FAIL: drop sh_cellseg from sh_reloc's table and check 3 reads "
+        "STALE while check 4's repaint differs over 24 rows of the grid; drop "
+        "sh_stgseg from it and the row fails at the entry proc ('[sh_stgseg] "
+        "= 6140 is not a claim Sheet holds'); sh_reloc a bare ret fails the "
+        "same way on sh_cellseg",
         needs=("marty",), serial=True,
         wants=("build/sheetmove360.img",)),
+    Row("sheetmove-rt", "soak", py("tests/sheetmove.py", "--leg", "rt"), 90.0,
+        "NO-PINNING 1 (SPEC.md 81.2.1): SHEET's 32KB staging MOVES and is "
+        "pinned only across each OSAPI_FILE_READ/WRITE (sh_stgpin in the two "
+        "resident stubs every file call goes through). sheetovlmove's disk "
+        "and arrangement (Note Pad owns the floor, both modules load), a "
+        "compaction posted from outside slides the staging down, then a Save "
+        "As SLK and an Open are each STOPPED INSIDE their file call and the "
+        "staging's MC_RLOC read there must be 0; the saved file is parsed on "
+        "the host and the reload fills an emptied cell store. VERIFIED TO "
+        "FAIL: the write's `call sh_stgpin` removed reads MC_RLOC 112 inside "
+        "the write (check 3). It cannot force a compaction INSIDE the call on "
+        "this disk - neither call claims at all - and says so per run",
+        needs=("marty",), serial=True,
+        wants=("build/sheetovl360.img",)),
     Row("sheetovlmove", "soak", py("tests/sheetovlmove.py"), 35.0,
         "NO-PINNING P1b (SPEC.md 82.16.11): SHEET's CHART.OVL MOVES out from "
         "under its own call chain and the return lands in the new home. F5 is "

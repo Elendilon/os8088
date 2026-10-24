@@ -298,11 +298,6 @@ X apps/imgtest/imgtest.asm @it_entry     # ...the same instrument's source claim
 
 # --- packages: bucket N - pinned with no valid reason yet (the backlog) --------
 
-N apps/sheet/sheet.asm sh_stgseg         # the 32KB staging is the ES:BX of all
-                                         # seven of SHEET's file calls - and is
-                                         # held for the SESSION. A pin/unpin pair
-                                         # around those calls (SPEC.md 66.5.7.1)
-                                         # retires it
 N apps/thewire/thewire.asm wr_catseg     # the catalog, for as long as the window
                                          # is open. A3 left it: its readers hand
                                          # back ES:SI, and nothing can gate a move

@@ -27,8 +27,10 @@ TWO ARRANGEMENTS, each found by a run that proved nothing without it:
     HELLO make for themselves: without it wm_su_take refuses at wm_dc_ok and
     the Goto open makes no claim at all.
   - The hole has to be BETWEEN SHEET's data claims and its modules, because
-    the staging buffer among the data is PINNED (sheetmove.py's 3b): a hole
-    under SHEET only ever moved three claims below that wall. So the row
+    the staging buffer among the data WAS PINNED when this row was written:
+    a hole under SHEET only ever moved three claims below that wall. (It
+    moves since NO-PINNING 1, SPEC.md 81.2.1; the placed hole still sits
+    above all six data claims, so the scenario is unchanged.) So the row
     writes one claim record into mem_tab, OWNED BY NOTE PAD (the package that
     owns the floor here - HEAPFRAG's comb holds half the arena and leaves no
     room for SHEET's 200KB), just past the room SHEET's six data claims take.
@@ -183,7 +185,9 @@ def main():
         # --- ...and ONE MORE CLAIM of Note Pad's, where the hole is wanted --
         # SHEET claims in one go at its entry - cell, text, STAGING, borders,
         # chart, undo, then CHART.OVL and MACRO.OVL - and the staging buffer
-        # is PINNED (it is every file call's ES:BX, sheetmove's 3b). So a hole
+        # WAS PINNED (it is every file call's ES:BX; movable since NO-PINNING
+        # 1, pinned only across each file call, and the arrangement stands
+        # because the hole below is placed above all six data claims). So a hole
         # left by a package closed under SHEET lands below that wall, and the
         # modules above it can never slide into it: the first runs here moved
         # three claims and no module. The hole has to be BETWEEN SHEET's data

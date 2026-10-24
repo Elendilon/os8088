@@ -892,12 +892,15 @@ SH_M_NONE    equ 0xFF
 ; directly - and SPEC.md 66.1 is the record of a design that failed on exactly
 ; that, "the pair that killed the word-poke design".
 ;
-; SH_STGSEG IS NOT IN THE TABLE AND IS NOT DECLARED. It is the ES:BX of every
-; one of this package's seven OSAPI_FILE_READ/WRITE calls (SPEC.md 66.9 reason
-; 4), and a file call claims, so a compaction inside one would move the buffer
-; out from under a transfer the kernel has already been given the address of.
-; SPEC.md 66.5.7.1's pin/unpin pair is what it would take; 67KB of the 99 move
-; without it.
+; SH_STGSEG IS IN THE TABLE SINCE NO-PINNING 1, and was the last of the six.
+; It is the ES:BX of every one of this package's OSAPI_FILE_READ/WRITE calls
+; (SPEC.md 66.9 reason 4), and a file call claims, so a compaction inside one
+; would move the buffer out from under a transfer the kernel has already been
+; given the address of. So it is pinned for exactly those calls and no longer:
+; sh_k_file_read/sh_k_file_write are the only doors to them and sh_stgpin's
+; pair brackets each (SPEC.md 66.5.7.1). Every other use holds its segment in
+; a register across no call that can claim (the CLIP_PUT is the kernel's to
+; pin, 66.3 rule 5), and os88chart.inc's borrowed copies are in this table.
 ;
 ; Everything else in this package is an OFFSET into one of these segments -
 ; a cell record, a formula's text, a note - so nothing else needs fixing.
@@ -928,10 +931,10 @@ sh_reloc:
     pop cx
     ret
 
-; The words that name a movable claim: cellseg, txtseg, bordseg, chartseg and
-; undoseg are the claims themselves, and ch_srcseg, ch_stgseg and ch_srcseg2
-; are os88chart.inc's borrowed copies, taken inside ch_bars_draw/ch_bmp_write
-; and dead between calls - they cost two bytes each and they close the one
+; The words that name a movable claim: cellseg, txtseg, bordseg, chartseg,
+; undoseg and stgseg are the claims themselves, and ch_srcseg, ch_stgseg and
+; ch_srcseg2 are os88chart.inc's borrowed copies (of chartseg and stgseg),
+; taken inside ch_bars_draw/ch_bmp_write and dead between calls - they cost two bytes each and they close the one
 ; window where a chart export could be holding a stale segment across the
 ; OSAPI_FILE_WRITE in the middle of it. The note table's segment is NOT here:
 ; it is derived from bordseg's carve, which sh_reloc recomputes after its
@@ -942,7 +945,8 @@ sh_segw:
     dw sh_chartseg
     dw ch_srcseg, ch_stgseg, ch_srcseg2
     dw sh_undoseg
-SH_NSEGW equ 8
+    dw sh_stgseg
+SH_NSEGW equ 9
 
 ; =============================================================================
 ; sh_entry - package entry point (SPEC.md 20.2). Claims run here, and only
@@ -2395,11 +2399,40 @@ sh_k_wm_show:
 sh_k_wm_destroy:
     call OSAPI_WM_DESTROY
     ret
+; sh_k_file_read / sh_k_file_write - EVERY OSAPI_FILE_READ/WRITE this package
+; makes from its own data is one of these two (the module's twelve SHK sites
+; and CH_FWRITE, the BMP export's), and the ES:BX of every one of them is
+; sh_stgseg. The kernel pins a transfer's destination only for each transfer
+; (SPEC.md 66.3 rule 5), not the directory walk between them, which claims -
+; so the staging is pinned for the call and declared again after, the
+; sh_m2pin pair below with the staging's word (SPEC.md 66.5.7.1, NO-PINNING
+; 1). One place for all thirteen, so a new file call cannot forget its pin.
+; Flags and every register preserved round the call: its CF is the verdict
 sh_k_file_read:
-    call OSAPI_FILE_READ
-    ret
+    call sh_stgpin
+.go:                                    ; tests/sheetmove.py stops here: the
+    call OSAPI_FILE_READ                ; staging is PINNED for this one call
+    jmp short sh_stgunpin
 sh_k_file_write:
+    call sh_stgpin
+.go:
     call OSAPI_FILE_WRITE
+sh_stgunpin:
+    pushf
+    push ax
+    mov ax, sh_reloc                    ; movable again
+    jmp short sh_stgmov
+sh_stgpin:
+    pushf
+    push ax
+    xor ax, ax                          ; pinned
+sh_stgmov:
+    push dx
+    mov dx, [sh_stgseg]
+    call OSAPI_MEM_MOVABLE
+    pop dx
+    pop ax
+    popf
     ret
 sh_k_file_here:
     call OSAPI_FILE_HERE
@@ -2551,6 +2584,9 @@ sh_entry:
     call OSAPI_MEM_CLAIM
     jc .fail
     mov [sh_stgseg], dx
+    mov ax, sh_reloc                   ; ...MOVABLE too (NO-PINNING 1): every
+    call OSAPI_MEM_MOVABLE             ; file call's ES:BX, so sh_stgpin pins
+                                       ; it round each one (sh_k_file_read)
     ; THE BORDER AND NOTE TABLES ARE ONE CLAIM, CARVED (81.94): MEM_OWNER_MAX
     ; is eight claims an owner and SHEET held eight, so MACRO.OVL's claim had
     ; nowhere to come from. The note table is the claim's second part, and
@@ -2615,8 +2651,9 @@ sh_entry:
     ;    through ch_xthunk, which leaves no module CS on the stack.
     ;
     ; The data claims above DO move: every file transfer stages through
-    ; sh_stgseg, which is pinned, and every copy of a movable segment is
-    ; either in sh_segw or dead across no compaction point.
+    ; sh_stgseg, which is pinned for each file call and only then
+    ; (sh_k_file_read), and every copy of a movable segment is either in
+    ; sh_segw or dead across no compaction point.
     mov word [sh_chartwin], 0
     mov word [sh_chart_cnt], 0
     mov word [ch_type], CH_T_COLUMN

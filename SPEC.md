@@ -135330,7 +135330,7 @@ count:
 |---|---|---|
 | `sh_cellseg`  | 32KB | the cell array above |
 | `sh_txtseg`   | 8KB  | the formula/note text arena |
-| `sh_stgseg`   | 32KB | file I/O staging, and the row/column shift |
+| `sh_stgseg`   | 32KB | file I/O staging, and the row/column shift (movable; pinned only across each file call, §81.2.1) |
 | `sh_bordseg`  | 4KB  | the border table (5-byte records) |
 | `sh_noteseg`  | 4KB  | the note table (6-byte records) |
 | `sh_chartseg` | 19KB | the live chart window's offscreen canvas (§82) |
@@ -135353,6 +135353,47 @@ the same way. That is a stated cost rather than a hidden one — a compacting
 arena means every `formula_off` in the cell array has to be rewritten in
 lockstep, which is the same class of invalidation the array's own insert
 shifting already makes dangerous, and 8KB is a great many formulas.
+
+#### 81.2.1 Every data claim moves, and the staging is pinned only across a file call (NO-PINNING 1)
+
+The six data claims are declared with one relocation proc, `sh_reloc`, which
+walks a TABLE of the words naming them (`sh_segw`) and patches every word
+equal to the old base, `os88chart.inc`'s borrowed copies (`ch_srcseg`,
+`ch_stgseg`, `ch_srcseg2`) included. The staging was the last one: it is the
+`ES:BX` of every `OSAPI_FILE_READ`/`WRITE` the package makes from its data,
+and §66.3 rule 5's transfer pin covers each transfer and not the directory
+walk between them, so it stayed undeclared - 32KB of wall for the session.
+
+**It moves now, and is pinned for exactly the file call** - §66.5.7.1's pair,
+in ONE place. Every such call is `SHK file_read` / `SHK file_write` from a
+module or `CH_FWRITE` from the BMP export, and every one of those reaches
+the kernel through the two resident stubs `sh_k_file_read` /
+`sh_k_file_write`, so `sh_stgpin` (`OSAPI_MEM_MOVABLE` AX = 0) before the
+call and `sh_stgunpin` (AX = `sh_reloc`) after it cover thirteen call sites
+and every one written later. Both preserve the flags: the CF beside them is
+the file call's verdict. **+41 bytes of image, no bss**, nothing on a
+keystroke, a recalc or a draw.
+
+The audit behind "only the file call": every other use of the staging loads
+its segment from `[sh_stgseg]` and holds it in a register across no call
+that can claim - the sort, the row/column shift, Copy's tab-separated
+block (whose `OSAPI_CLIP_PUT` publishes its own source through
+`[mem_pinseg]`, §66.3 rule 5), Paste's `OSAPI_CLIP_GET`, the chart's arrays,
+Undo's swap and the menu bar's `OSAPI_GFX_SAVE`/`REST` - and the two modules
+are claimed at the entry proc and never again, so their lazy loaders' claims
+are not reached while a staging segment is live.
+
+`tests/sheetmove.py` 3b moves it under heapfrag's recipe and checks the word
+and the bytes followed; `--leg rt` (`sheetmove-rt`) stops INSIDE a save's
+and a load's file call and reads the staging's `MC_RLOC` there (0), and
+saves and reloads a workbook after the staging moved. Red, each taken: the
+write's `call sh_stgpin` removed (MC_RLOC 0x0070 inside the write), and
+`sh_stgseg` dropped from `sh_segw` (the word goes stale already at the entry
+proc, whose later claims compact on a fragmented heap). What it could NOT
+show, and says so: a compaction INSIDE the call - on a 360KB FAT12 volume
+neither call makes a claim at all (the read-ahead window is claimed at the
+mount, and there is no FAT window), so the in-call reading is the pin's
+gate.
 
 ### 81.3 Formulas — a text grammar, re-parsed on demand
 
@@ -147678,8 +147719,9 @@ cycles a formula, ~28 crossings at the counted price.
 `ch_ovcall` → `SHM_IDOPEN` → `SHK wm_show` → `ch_xthunk` → `OSAPI_WM_SHOW` →
 `wm_raise` → `wm_su_take`'s `mem_claim`; the row inflates that claim to one KB
 past the largest run, so only a compaction grants it, with a claim record owned
-by Note Pad placed between SHEET's data (whose staging buffer is a pinned wall)
-and its modules as the hole. Both modules move (`5c00 -> 44c0`, `6900 ->
+by Note Pad placed between SHEET's data (whose staging buffer was a pinned
+wall when the row was written; §81.2.1 made it movable, and the placed hole
+still sits above all six) and its modules as the hole. Both modules move (`5c00 -> 44c0`, `6900 ->
 51c0`), the module's IP read off the stack is watched at BOTH homes, and the
 return lands at the new one; the old homes are poisoned with HLT. **Red** with
 `CHX` put back to `call routine / retf`: the return is caught at the OLD home

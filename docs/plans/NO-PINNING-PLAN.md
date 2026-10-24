@@ -359,7 +359,10 @@ accepts:
   PCM ring (claimed at ENTRY), MIDIRack's song, wavetable bank and mix claim,
   and four Video Player claims `vp_smtab` does not reach (`vp_ldseg`,
   `vp_lyseg`, `vp_prseg`, the session's key-record arm);
-- SHEET's 32KB staging (held for the session; a pin/unpin pair retires it);
+- ~~SHEET's 32KB staging~~ **BUILT (NO-PINNING 1, SPEC.md 81.2.1)**: movable,
+  pinned only across each file call by `sh_stgpin` in the two resident stubs
+  every one of them goes through; +41 image bytes; `sheetmove` 3b and
+  `sheetmove-rt`;
 - The Wire's catalog and transfer claims (A3 left them: no NIC on MartyPC);
 - PiXEL: the flat file, the work claims of `pxmaster`, `pxedit`, `pxgif` and
   `pxwrite`, an animation's frames, and its OP_SEG CODE parts (`px_pfetch`),
