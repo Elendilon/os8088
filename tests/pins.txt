@@ -264,6 +264,14 @@ C apps/video/video.asm vp_tscr           # the mono poster's text scratch, freed
 C apps/video/video.asm vp_rdseg          # the record buffer a key is read through,
                                          # given back by vp_rdfree once the read
                                          # is done, inside the call that read it
+C apps/video/video.asm vp_ldseg          # vp_ldblk's scratch word: a RESIDENT
+                                         # block pinned only inside vp_rload's
+                                         # call - read into (file calls hold
+                                         # it), expanded, the other block's
+                                         # claim and read, the walk - then
+                                         # handed back in AX as [vp_rblk] or
+                                         # [vp_rablk] and declared movable
+                                         # there (vp_rmov, SPEC.md 98.1.7.4)
 C apps/video/video.asm vp_simseg         # the 64KB shadow of one simulated borrow
                                          # probe, inside vp_xok's call
 C apps/video/video.asm vp_xsclm          # one chunk's staging into the XMS hold,
@@ -356,13 +364,3 @@ N apps/midirack/mrwt.inc mwt_bseg        # the wavetable bank, read once and hel
                                          # until the window closes
 N apps/midirack/mrwt.inc mwt_xseg        # the wavetable mix claim, made once and
                                          # held until the window closes
-N apps/video/video.asm vp_ldseg          # a block's claim (vp_ldblk, banked in
-                                         # [vp_rblk]/[vp_rablk]) - not in
-                                         # vp_smtab, and A6 has not reached it
-N apps/video/video.asm vp_lyseg          # the layer's own claim, for the session;
-                                         # not in vp_smtab (A6's remainder)
-N apps/video/video.asm vp_prseg          # the words' claim, for the session; not
-                                         # in vp_smtab (A6's remainder)
-N apps/video/video.asm @vp_sstart        # the session ring's key-record arm
-                                         # (vp_sstart's [vp_kbkb] claim); not
-                                         # traced into vp_smtab (A6's remainder)

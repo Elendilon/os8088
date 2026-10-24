@@ -197152,6 +197152,47 @@ stays pinned: the sound's ring (`MC_DMA`, which the kernel never moves -
 66.3), a LIVE session's claims (its worker decodes out of them on the
 desktop), and a claim for the length of a read into it (66.3 rule 5).
 
+**The rest of the session's claims joined it (NO-PINNING A6, 2026-10-24)**,
+so a session paused on the desktop holds no wall at all but the card's ring:
+- **A RESIDENT play's key record** - the claim a play from a key reads its
+  record into (`vp_sstart`'s resident arm) - is stored in `[vp_rclm]` as
+  well as `[vp_ring]`, as `vp_fseek`'s always was, and moves as the ring
+  does. Stored in `[vp_ring]` alone it was not only pinned: `vp_sfree` gives
+  back `[vp_rclm]`, so **every resident play from a key LEAKED it** - 17 KB
+  a play for an 80 x 200 noise key - from the day THE GAP gave the ring a
+  claim word of its own until this.
+- **THE LAYER's own claim** (`[vp_lyseg]`, a play in place: `vp_lyown`, 98.1.9)
+  is in `vp_smov`, and `vp_smove` asks for it FIRST: a flip's `[vp_lyseg]` is
+  derived, strictly inside the ring's claim, so it is no claim's base before
+  the ring's arm moves it and may equal the old base after. Its words are
+  read at each use (`vp_lyslseg`, `vp_lybounce`, `vp_lymir`, `vp_lypos`), and
+  every one of those runs inside a bracket or at the session's start.
+- **VPDIAG's profile** (`[vp_prseg]`, 98.3.22) is in both, and `vp_prend` pins
+  it for its last stretch, the `OSAPI_FILE_WRITE` that holds `ES:BX` on it
+  (66.5.7.1) - it is freed at the end, so nothing re-declares it.
+- **A pause that banks** (98.3.18.4: `vp_pstep`, a chunk a timer tick) reads
+  into the ring's claim - the copying bank's bounce, or in place the bounce
+  placed at THE GAP - and the kernel holds `ES:BX` there across its own
+  claims, which `[mem_pinseg]` covers a transfer at a time and not between
+  them (66.5.7.1). So the session is pinned for the chunk and declared again
+  after it: two `vp_smov` calls a chunk, against a chunk's disk read.
+
+A RESIDENT block's own claim was never a pin: `vp_ldblk` claims it under a
+scratch word, `vp_rload` hands it back as `[vp_rblk]`/`[vp_rablk]` and
+declares it there once it is loaded and walked (98.1.7.4) - pinned only
+inside that call, across the reads into it. **What it cost the play: nothing
+a frame.** The four routines changed (`vp_pstep`, `vp_sstart`, `vp_smov`,
+`vp_smove`) run at a session's edges, a bracket's edges, a paused chunk and
+a compaction; every one of the 392 routines a play runs is instruction-
+identical at an even shift in all four arms (`tools/os88rdiff.py
+--hot-file apps/video/rdiffhot.txt`, shipped, `VP_DIAG`, `VP_DIAG
+VP_RDLOG`, `PKG_MEGA`), and vidplay's clip played full screen on MartyPC's
+Hercules 5150, a breakpoint either side of every frame, costs 5,623,594
+guest cycles before and 5,623,600 after - 135 of 151 frames identical to the
+cycle and the other sixteen within 56 cycles of it either way, which is the
+refresh and the interrupts landing at another phase, run to run. +46 bytes
+of image, none of bss. `tests/vidclmove.py` is the gate, an arm a claim.
+
 ##### 98.3.19.3 The poster IS the keeper, at the video's own size
 
 **A play drawn onto the screen at its own size claims no keeper at all**

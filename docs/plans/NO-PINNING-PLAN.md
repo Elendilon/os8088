@@ -214,7 +214,7 @@ the base at each use". The ⚑ rows are the ones that need real work.
 | **FROTZ** | scrollback 24 KB (outside `zf_reloc`) | A3 |
 | **CLEAR SKIES** ⚑, **TANK**, **PIXELSTEIN**, **ISOTRON**, **1942** | shadows/canvases 16-64 KB | **A4**: in use only inside the fsx bracket, so they are bucket C there. Outside it, either free them or declare them. CS keeps ES from `[cs_tseg]` across spans, so its proc must also be safe at the park points |
 | **EXCITEBIKE** ⚑ | compiled poses are far-called IN the claim (a CS) | **A5**: a proc that re-stamps the pose vectors |
-| **VIDEO** ⚑ | ring, "page-safe and never moved" | **A6, PERFORMANCE-BOUND**: the ring is bucket D/C only WHILE A PLAY RUNS (the reader, the hook and a card may all be writing it). Declare it movable when the play ENDS, and pin it again (`OSAPI_MEM_MOVABLE` with AX = 0) when the next play STARTS. Both happen outside the frame loop, so the play path gains nothing. A move between plays is one proc storing the ring's segment. Gate: the Video Player's frame rate on its demo videos, before and after |
+| **VIDEO** ⚑ | ring, "page-safe and never moved" | **A6, PERFORMANCE-BOUND**: the ring is bucket D/C only WHILE A PLAY RUNS (the reader, the hook and a card may all be writing it). Declare it movable when the play ENDS, and pin it again (`OSAPI_MEM_MOVABLE` with AX = 0) when the next play STARTS. Both happen outside the frame loop, so the play path gains nothing. A move between plays is one proc storing the ring's segment. Gate: the Video Player's frame rate on its demo videos, before and after. **The ring was already that shape** (SPEC.md 98.3.19.2: `vp_smov` around every bracket); **the rest of the session joined it 2026-10-24** - the resident key record, the layer's own claim, VPDIAG's profile, and a paused bank's chunk pinned for its read - at +46 bytes of image and no instruction a frame |
 | **MIDIRACK**, **TRACKER**, **AUDIO**, **WIREFLEET**, **1942** PCM rings | D while armed, NONE idle | A6 |
 | **THE WIRE**, **FTPD**, **CHART**, **PIXEL**, **TELNET**, **RECORDER**, DeskClock, DotDel, StikNote | assorted | A3 |
 | `os88type.inc` face cache 8 KB | - | **A7 BUILT**: `ty_reloc` (faces and the pre-shifted table), every includer at once; `tymove`, red-tested |
@@ -357,8 +357,14 @@ accepts:
 - the A6 remainder - the session-long rings nobody declares between plays:
   Audio's look-ahead and speaker rings, Tracker's speaker ring, WireFleet's
   PCM ring (claimed at ENTRY), MIDIRack's song, wavetable bank and mix claim,
-  and four Video Player claims `vp_smtab` does not reach (`vp_ldseg`,
-  `vp_lyseg`, `vp_prseg`, the session's key-record arm);
+  and four Video Player claims `vp_smtab` did not reach (`vp_ldseg`,
+  `vp_lyseg`, `vp_prseg`, the session's key-record arm) - **CLOSED
+  2026-10-24** (SPEC.md 98.3.19.2): three moved into `vp_smov`/`vp_smove`,
+  the key-record arm found LEAKING its claim at every resident play from a
+  key, and `vp_ldseg` a C line (`vp_rload` declares the block under
+  `[vp_rblk]`); per-frame cost 5,623,594 -> 5,623,600 guest cycles over
+  vidplay's clip, every play routine identical at an even shift;
+  `tests/vidclmove.py`;
 - SHEET's 32KB staging (held for the session; a pin/unpin pair retires it);
 - The Wire's catalog and transfer claims (A3 left them: no NIC on MartyPC);
 - PiXEL: the flat file, the work claims of `pxmaster`, `pxedit`, `pxgif` and
