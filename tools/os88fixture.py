@@ -264,8 +264,11 @@ def apps360_plus(*pkgs, tag="plus"):
         path = p.split(":", 1)[-1]
         need(os.path.relpath(os88build.at(path), ROOT) if os.path.isabs(path)
              else path)
-    r = subprocess.run(argv + list(pkgs), cwd=ROOT, capture_output=True,
-                       text=True)
+    # BESIDE the recipe's own packages: they are one positional run, and
+    # os88disk.py's parser takes no second run after its trailing --folder
+    at = next(k for k, t in enumerate(argv) if t.endswith(".o88"))
+    argv[at:at] = list(pkgs)
+    r = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True)
     if r.returncode:
         raise SystemExit("os88fixture: apps360_plus%r:\n%s%s"
                          % (pkgs, r.stdout[-800:], r.stderr[-800:]))
