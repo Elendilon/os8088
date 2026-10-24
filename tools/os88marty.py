@@ -770,7 +770,21 @@ class Marty:
         a byte from it succeeds and means nothing. os88sym.py has the story.
         """
         import os88sym
-        return os88sym.linear(name, defines)
+        addr = os88sym.linear(name, defines)
+        # **`.cold` MAY HAVE SLID** (docs/plans/MOVABLE-COLD-PLAN.md 2): on a
+        # machine with neither a VGA nor an EGA, kmain_o moves it down by
+        # VGA_PARA at boot, and from then on a `.cold` label at COLD_SEG is
+        # an address the old copy's leftovers sit at. The guest says which:
+        # [api_coldseg] reads COLD_HOME - VGA_PARA exactly when it slid, and
+        # nothing else ever writes that value (a ROM or the HMA write their
+        # own segments, which the rows that want them name themselves)
+        eq = os88sym.equates(defines)
+        if "VGA_PARA" in eq and \
+                os88sym.segment_of(name, defines) == eq["COLD_SEG"]:
+            live = self.read(os88sym.linear("api_coldseg", defines), 2)
+            if live[0] | live[1] << 8 == eq["COLD_HOME"] - eq["VGA_PARA"]:
+                addr -= eq["VGA_PARA"] * 16
+        return addr
 
     def write(self, addr, data):
         return self.cmd(cmd="write", addr=addr, data=data.hex())["written"]

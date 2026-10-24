@@ -3657,7 +3657,9 @@ through `[rom_mfp]` with AL = a `ROMF_*` function and BX = the module's
   ROM does not hold, and the read then runs as it always did;
 - then `mod_check` and `ROMF_FIX` as for a module read off the disk. The
   ROM keeps its copies as the build cut them, naming `COLD_RAM`, so one path
-  re-points both.
+  re-points both. **kern_small only since §2.10.9**: a `COLD_SLIDE` kernel
+  re-points its modules itself (`mod_cfix`), and its ROM carries no module
+  lists and answers no FIX.
 
 The ROM's tables are per ROW and not per image, because kern_big's settings
 core (`MOD_SETS`, §2.8.7) is a row over CTRL.DRV's image; the tool counts the
@@ -3984,6 +3986,28 @@ gives the kernel its own, so it can move `.cold` itself.
     `.text` shim makes the call instead, `gfx_bpwalk_t`). And kernel.asm:
     the rung's last byte must be a KERNEL_SEG offset - the binding form of
     `KERN_CODE_MAX` now, which `kernsize`'s `window` line reports.
+  - **What is in it** (2,032 bytes at build 474): `vga_blit_span`, the
+    planar decoder (`vga_p4build`, `vga_blit_prow`, `vga_prow_emit`),
+    `gfx_blitp`'s body, the VGA bodies of `gfx_fill_gray_raw`,
+    `gfx_fill_pat_raw`, `vga_save_vram`, `vga_restore_vram` and
+    `vga_solid_rect` (with its two stubs), the pointer's planar half
+    (`cur_saveu`, `cur_rect`, `cur_draw`, `cur_restoreu`), `ico_core`'s planar
+    arm with `ico_pass`, and `gfx_scroll`'s planar copy. **What is not, and
+    why**: `vga_gc_reset` and `gfx_1bpp_on`/`off`, which `gfx_save`'s tail
+    and `wm_su_arm` call on every adapter; the VESA rows, which are tables
+    the driver machinery walks on every machine; and the planar arms inside
+    `font_char`, `gfx_points` and `gfx_blit4`, ~1.1KB where a `jmp` would
+    land on every call of the hottest paths there are.
+  - **Measured at build 474**: a machine with neither card keeps **95,232
+    bytes resident against 97,280** on a VGA or EGA machine - 2,048 back;
+    the kernel before this section was 97,792 everywhere less the 512 of
+    `.vgabuf` a mono machine already declined. What a VGA machine pays is
+    the doors and jumps (about a dozen near jumps, ~15 clocks each on the
+    calls that take them, the busiest being `vga_solid_rect`'s at +0.6% of a
+    fill, PREDICTED) and `.cold`'s +26 for the floor's mono arm.
+    `tests/coldslide.py` is the gate; `tools/os88marty.py`'s `sym()` follows
+    a slid `.cold`, so a row breaking on a `.cold` label on a CGA or a
+    Hercules lands where the code is.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 

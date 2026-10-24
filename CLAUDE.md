@@ -1170,6 +1170,16 @@ user gives a different workflow. The worked example is
   **Look at a drawing or greying change on a 1bpp adapter before calling it
   done** (§39.4, §47): grey rounds to black there, so a disabled glyph is a
   checkerboard and a ring is dotted.
+- **Code only a VGA or an EGA runs goes in `.vga`, behind a RUN-TIME door**
+  (SPEC.md 2.10.9). On kern_big the rung sits inside KERNEL_SEG's window, so
+  calls into it stay near, and a CGA, Hercules or MDA machine slides `.cold`
+  down over it at boot - after which a call into it runs `.cold`'s bytes.
+  Every way in from outside is registered in `tests/vgarefs.txt` with the
+  test that keeps those machines out (`[vid_planes]` = 4, `[vid_avail]`);
+  `%ifdef GFX_VGA` is not one, kern_big defining it on every machine. The
+  rung may not name `.cold`'s segment (a `.text` shim makes that call), and
+  a row reading a `.cold` label on a mono machine goes through `m.sym()`,
+  which follows the slide.
 - **Every disk-visible base is 512-byte aligned.** int 13h answers a transfer
   straddling a 64KB physical boundary with error 09h, and only starting
   512-aligned prevents it. The symptom is "Disk error" on a large save.

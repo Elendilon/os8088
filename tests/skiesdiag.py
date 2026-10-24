@@ -284,7 +284,9 @@ def main(argv):
                    if cs != kseg and cs < 0xF000]
         if strayed:                 # only NOW is it worth assembling the
             import os88sym          # kernel to place a `.cold` sample
-            cold = os88sym.equates().get("COLD_SEG")
+            # (where `.cold` RUNS - [api_coldseg], not COLD_SEG: on a machine with no VGA and no EGA it slid down at boot, docs/plans/MOVABLE-COLD-PLAN.md 2)
+            cold = int.from_bytes(m.read(os88sym.linear("api_coldseg"), 2),
+                                  "little")
             strayed = [x for x in strayed if x[0] != cold]
         check(not strayed,
               "...and every sample banked with another names the kernel"

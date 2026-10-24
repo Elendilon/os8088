@@ -1,8 +1,40 @@
 # Movable `.cold`, and the VGA code a mono machine gives back
 
-> **PLAN, nothing built.** Branch `movable-cold`, cut from `kernel-size-14`
-> at `2bc3442` (build 339). Every figure below was taken on that tree with a
-> plain `make`, unless it says ESTIMATE.
+> **BUILT, all three waves, on branch `movable-cold`** - SPEC.md 2.10.9 is
+> the contract and this file is the design record. Everything below the
+> line was written BEFORE any of it was built, at `2bc3442` (build 339), and
+> is kept as written; where the build came out differently, this box says
+> so. Measured at build 474:
+>
+> * **A machine with neither a VGA nor an EGA keeps 95,232 bytes resident
+>   against 97,280 on a VGA or EGA machine - 2,048 back.** The kernel before
+>   this work was 97,792 on VGA and 97,280 on mono (which already declined
+>   `.vgabuf`), so VGA/EGA machines gain 512 (wave 2) and mono 2,048.
+> * **The rung is 2,032 bytes, not the ~3.3KB §3 estimated.** §3's figure
+>   counted every VGA-only byte; ~1.1KB of them are short arms inside
+>   `font_char`, `gfx_points` and `gfx_blit4`, where a `jmp` would land on
+>   every call of the hottest paths there are, and they stay in `.text`.
+>   So do `vga_gc_reset` and `gfx_1bpp_on`/`off` (called on every adapter)
+>   and the VESA rows (tables walked on every machine).
+> * **Wave 1 went differently in three places.** The module lists did not
+>   move into the module files: `mod_cfix` SCANS a loaded module for its far
+>   calls into `.cold`, and `tools/os88rom.py` proves on every build that the
+>   scan finds exactly the two-assembly diff's words - no table anywhere
+>   (`COLDHMA.SYS` 3,210 -> 2,763 bytes). The kernel's own list did not fit
+>   the blob - its 14th sector costs 360KB and 720KB an `int 13h` call each -
+>   so it rides in `.cfx`, a section after `.cold` in the file that lands
+>   under the blob's lift, and the slide's code rides with it. And
+>   **kern_small keeps the ROM's module lists and `ROMF_FIX`**: it has no
+>   slide, and SPEC.md 39.27.4 spends nothing there, so its `.text` and
+>   `.cold` are byte-identical to the base.
+> * **§5's packed top is -512 on both kernels at this build**, as predicted
+>   for kern_big's VGA machines; kern_small gets it too.
+> * **The window**: 6,432 bytes of KERNEL_SEG's 64KB left above the rung,
+>   which `kernsize` prints as `window` - `KERN_BUDGET` (3,584 spare) still
+>   binds first.
+> * **Gates**: `tests/vgarefs.txt` (os88ovlchk rule 2f), os88cfx refusing a
+>   `.cold` word in the rung, the window guard, `cfix_prove`, and the soak
+>   row `coldslide`. `tools/os88marty.py`'s `sym()` follows a slid `.cold`.
 
 It answers docs/plans/MONO-RECLAIM-PLAN.md's open question, *"the RAM that
 is mono-only has no customer"*, the other way round: give it back rather

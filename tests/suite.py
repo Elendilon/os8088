@@ -359,6 +359,20 @@ FAST = [
         "middle of .cold in a kernel ROM. Negative control: one byte of U30 "
         "wrong must read U30 BAD. SOAK: no package can reach it",
         needs=("marty", "nasm"), serial=True),
+    Row("coldslide", "soak", py("tests/coldslide.py"), 60.0,
+        "docs/plans/MOVABLE-COLD-PLAN.md 2, SPEC.md 2.10.9: a machine with "
+        "neither a VGA nor an EGA gives kern_big's VGA rung back. A, a "
+        "Hercules 5150: kmain_o slid `.cold` down by VGA_PARA - "
+        "[api_coldseg] says so, the bytes at the new home are kernel.bin's "
+        "`.cold` to the byte, every listed `.text` word names the new "
+        "segment (checked against the two-assembly diff, not the list), "
+        "[mem_base] is MONO_FLOOR and the Task Manager's kernel row has both "
+        "rungs off it, and CTRL.DRV loaded after the move has every far "
+        "reference re-pointed by mod_cfix. B, the VGA XT: nothing moves - "
+        "the negative control, a slide there would run the planar renderer "
+        "out of `.cold`'s bytes. SOAK: the subject is the kernel's ladder on "
+        "two adapters",
+        needs=("marty", "nasm"), serial=True),
     Row("hmacold", "soak", py("tests/hmacold.py"), 20.0,
         "docs/plans/HMA-PLAN.md: kern_big's .cold runs from the HMA on a "
         "286 or better, which hands the heap the whole cold rung. WHY QEMU: "

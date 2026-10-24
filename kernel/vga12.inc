@@ -2597,7 +2597,8 @@ vga_blit_prow:
                                 ; VGA rung, and mem_floor_ax reads that word on
                                 ; machines that dropped the rung (kernel.asm's
                                 ; rom_vgabw, MOVABLE-COLD-PLAN 2)
-%else
+.segld:                         ; (AX = the segment here: tests/rombig.py
+%else                           ; breaks on it)
     mov ax, VGABUF_SEG          ; (the bank is annotated once, on the arm above:
 vga_pr_bufw equ $ - 2           ; os88ovlchk reads source, not %ifdef)
 %endif

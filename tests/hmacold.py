@@ -131,7 +131,8 @@ def boot(tmp, mem, sysimg, panel=True, sites=(), vg=()):
     # answer while `.cold` is still where stage 2 put it. [mem_base] is raised
     # over the blob until mem_unblob_x, the line after spl_finish, puts it on
     # the floor - one of exactly two floors, by where `.cold` ended up
-    floors = (EQ["HEAP_SEG"], EQ["COLD_RAM"] + EQ["VGABUF_PARA"])
+    floors = (EQ["HEAP_SEG"],                  # (rounded: SPEC.md 2.10.9)
+              (EQ["COLD_RAM"] + EQ["VGABUF_PARA"] + 31) // 32 * 32)
     if not os88qemu.acted(q, lambda: u16(q.read(S("mem_base"), 2)) in floors,
                           secs=120, what="the blob to be given back"):
         raise SystemExit("hmacold: the boot never finished (-m %d): "
@@ -181,7 +182,7 @@ def main():
              "HMA" % a["cs"])
         want(a["hma"] == cold[:64], "FFFF:%04X holds kernel.bin's `.cold` - "
              "the top of the HMA (SPEC.md 2.10.8)" % EQ["COLD_VSTART"])
-        want(a["base"] == cold_ram + vgap, "[mem_base] = %04X: the cold rung "
+        want(a["base"] == (cold_ram + vgap + 31) // 32 * 32, "[mem_base] = %04X: the cold rung "
              "back, the decoder's buffers kept under it (%04X; %04X without)"
              % (a["base"], cold_ram + vgap, heap))
         want(a["mfp"][0] == HMA, "rom_mfp = %04X:%04X" % a["mfp"])
