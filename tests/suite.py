@@ -837,6 +837,17 @@ FAST = [
         "os8088_5150_sb_gla, and the driver is already up at the first "
         "desktop frame there",
         wants=("build/sndmove360.img",)),
+    Row("sndkeep", "soak", py("tests/sndkeep.py"), 60.0,
+        "SPEC.md 34.15.1/51.1.3: with no mixer SOUND.DRV writes snd_keep "
+        "into DRV_H_KEEP at attach and the kernel shrinks its image claim "
+        "to it - the mixer verbs and the volume popup handed back, 11K -> "
+        "8K. Two legs: the Covox 5150 (no card, so no mixer) must hold "
+        "ceil(snd_keep/1K) in DRVR_KB AND the mem_tab record with the Covox "
+        "tier still up; the Sound Blaster 5150 (a mixer) must write nothing "
+        "and keep the whole image. Red at 11K with either the driver's store "
+        "or %1_att's mem_regrow taken out, and red at 8K on the SB leg with "
+        "the store made unconditional",
+        wants=("build/covoxsys720.img", "build/mixer360.img")),
     Row("fmrefuse", "soak", py("tests/fmrefuse.py"), 30.0,
         "SPEC.md 2.6.1.1: a FAR-ENTERED body needs a FAR tail, and "
         "drv_svc_call_x's refusal shared drv_svc_none's NEAR one with "

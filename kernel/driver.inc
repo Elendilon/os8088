@@ -308,6 +308,11 @@ DRV_H_MAGIC equ 0               ; word: 0x384F ('O','8')
 DRV_H_VER   equ 2               ; byte: DRV_VER = driver (a package is PKG_FMT)
 DRV_H_CLASS equ 3               ; byte: DRVC_*
 DRV_H_LINK  equ 4               ; word: 0 (org 0, like every v3 package)
+DRV_H_KEEP  equ 4               ; = DRV_H_LINK: once ATTACH has answered, the byte
+                                ; offset the driver still needs: %1_att
+                                ; shrinks the claim to it (SPEC.md 51.1.3).
+                                ; ld_hdr_ok has held it to 0 at the read, so
+                                ; only a driver that MEANT it can say so
 DRV_H_ENTRY equ 6               ; word: entry offset
 DRV_H_IMG   equ 8               ; word: image size = the file's whole size
 DRV_H_FSV   equ 10              ; word: THE FSV_* TABLE LENGTH THIS DRIVER WAS
@@ -1546,6 +1551,7 @@ DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
                                 ; would be arithmetic rather than advice
 
 DRVM_IMG_SND equ 11             ; ceil(build/sound.drv   / 1024) - t_drvmem
+                                ; (WITH a mixer: 8 without, SPEC.md 34.15.1)
 DRVM_IMG_HDD equ 4              ; ceil(build/hdd.drv     / 1024)   checks
 DRVM_IMG_ETH equ 17             ; ceil(build/ether.drv   / 1024)   every one
 DRVM_IMG_RAM equ 6              ; ceil(build/ramdisk.drv / 1024)   of these
@@ -3730,6 +3736,26 @@ section .modc                   ; IMAGE CODE (see VGC_FORCE's banner below):
     jc .nohwal                  ; ...which may say WHY in AL (SPEC.md 51.2)
     mov es, [bx+DRVR_SEG]
     call %1 %+ _publish         ; SI is an offset in ES, so copy it now
+%ifdef KERN_BIG
+    mov es, [bx+DRVR_SEG]       ; ...THEN GIVE BACK THE TAIL IT DISOWNED
+    mov ax, [es:DRV_H_KEEP]     ; (SPEC.md 51.1.3): SOUND.DRV with no mixer
+    add ax, 1023                ; says its volume popup can never run, 11KB
+    jc .keepall                 ; becoming 8. Before the tier and READY, so
+    mov cl, 10                  ; no verb after the attach is ever sent to a
+    shr ax, cl                  ; driver holding more than it said it needs.
+    jz .keepall                 ; 0 = it said nothing: every driver built
+    cmp ax, [bx+DRVR_KB]        ; before the word, and every one that keeps
+    jae .keepall                ; it all. DRVR_KB 0 is the HMA or kern_mega's
+    mov dx, es                  ; pool, which no claim holds, and `jae` takes
+    push bx                     ; that too. mem_regrow's shrink keeps the
+    mov bx, MEM_K_DRV           ; BASE, so no CS and no hooked vector moves -
+    call %2                     ; and costs no resident byte, being reached
+    dw mem_regrow               ; through THIS image's own hop into .cold
+    pop bx
+    jc .keepall                 ; refused: it keeps what it has, as before
+    mov [bx+DRVR_KB], ax        ; the Drivers page weighs the claim it HOLDS
+.keepall:
+%endif
     cmp byte [bx+DRVR_CLASS], DRVC_SOUND
     jne .notier                 ; a tier is SND_RT_*: it means nothing to a
                                 ; class that is not sound, and sending it
