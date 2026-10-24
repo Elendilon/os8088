@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import os88marty                                            # noqa: E402
+import os88fixture                                          # noqa: E402
 import os88mouse                                            # noqa: E402
 import os88sym                                              # noqa: E402
 import dispapps                                             # noqa: E402
@@ -56,8 +57,13 @@ def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", default="os8088_5150_herc_gla")
     ap.add_argument("--image", default="build/os8088-360.img")
-    ap.add_argument("--apps", default="build/apps360.img")
+    ap.add_argument("--apps", default=None,
+                    help="default: apps360.img plus MISSILE.O88 (SPEC.md 24.6.1 "
+                    "took it off), on a disk of this run's own")
     a = ap.parse_args(argv)
+    if a.apps is None:
+        a.apps = os88fixture.apps360_plus("GAMES:build/missile.o88",
+                                          tag="gfxewalk")
     os.chdir(ROOT)
     S = os88sym.linear
     bad = []

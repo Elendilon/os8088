@@ -15408,8 +15408,7 @@ APPS_GAMES := $(BUILD)/wireball.o88 $(BUILD)/wireflet.o88 $(BUILD)/arkanoid.o88 
 # parts of the one file. games360.img carries it with the other games.
 APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88 $(BUILD)/gorillas.o88 \
                     $(BUILD)/dotdel.o88 $(DM_SHIP) $(BUILD)/isotron.o88 \
-                    $(BUILD)/wireflet.o88 $(BUILD)/mines.o88 \
-                    $(BUILD)/missile.o88,$(APPS_GAMES))
+                    $(BUILD)/wireflet.o88 $(BUILD)/missile.o88,$(APPS_GAMES))
 
 # The CORE PACKAGES (SPEC.md 24.3) are a SECOND copy on the system disk and
 # never a move, so the two lists above are unchanged and still carry every
@@ -15906,13 +15905,17 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS) \
 #     Browser 1.6c and the newer app set exceed this geometry by 14 clusters.
 #     Keep the Browser on the 360KB disk; Calc, Mixer, Timer and Bounce move
 #     to roomier apps disks, while Mines and Missile move to games360.img.
+#     REMADE ON elendilon at the merge of main (2026-10-24): this branch's disk
+#     had already given OS88NET.COM to network360.img, so Fractal, Calc and
+#     Mines stay - dozens of rows boot this disk for them - while Piano,
+#     Mixer, Timer and Bounce go as main has it, and Missile to games360.img.
+#     A row that needs one of those four builds a disk of its own.
 APPS_TOOLS_360 := $(filter-out $(BUILD)/sheet.o88 $(BUILD)/chart.o88 \
                     $(CC_OVLZ)/CHART.OVL $(CC_OVLZ)/MACRO.OVL \
                     $(BUILD)/midirack.o88 $(BUILD)/pixel.o88 \
-                    $(BUILD)/fractal.o88 $(BUILD)/piano.o88 \
-                    $(BUILD)/wirechat.o88 $(BUILD)/mixer.o88 \
-                    $(BUILD)/timer.o88 $(BUILD)/bounce.o88 \
-                    $(BUILD)/calc.o88 $(BUILD)/xtmp3.o88,$(APPS_TOOLS))
+                    $(BUILD)/piano.o88 $(BUILD)/wirechat.o88 \
+                    $(BUILD)/mixer.o88 $(BUILD)/timer.o88 \
+                    $(BUILD)/bounce.o88 $(BUILD)/xtmp3.o88,$(APPS_TOOLS))
 APPS360 := $(APPS_TOOLS_360) $(APPS_GAMES_360) $(APPS_DATA_360) $(APPS_SYS)
 
 # ...and the same list with the folder each package lands in. os88disk.py

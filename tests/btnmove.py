@@ -40,6 +40,7 @@ import os88marty as M                                       # noqa: E402
 import os88ui                                               # noqa: E402
 import os88geom as geom                                     # noqa: E402
 import os88build                                            # noqa: E402
+import os88fixture                                          # noqa: E402
 
 SRC = "apps/timer/timer.asm"
 START = 0                       # TM_START: the first rect of the record
@@ -73,8 +74,15 @@ def main():
         if not os.path.exists(os88build.at(f)):
             sys.exit("btnmove: no %s - `make` first" % f)
     syms = timer_syms()
+    # THE TIMER IS NOT ON apps360.img (SPEC.md 24.6.1's 2026-10-22 curation):
+    # the shipped disk plus it, on a disk of this run's own
+    run_boot(syms, os88fixture.apps360_plus("APPS:build/timer.o88",
+                                            tag="btnmove"))
+
+
+def run_boot(syms, apps):
     with os88ui.boot("build/os8088-360.img",
-                     apps="build/apps360.img", quick=True) as ui:
+                     apps=apps, quick=True) as ui:
         m = ui.m
         w = ui.path("B:/APPS/TIMER.O88")
         base = ui._S("wm_wins") + w.i * geom.WIN_SIZE

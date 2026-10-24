@@ -2763,8 +2763,7 @@ SOAK = [
         "is now DRAWN, and [tm_run] must follow both. Red with the place "
         "proc out (the press lands on the window's old place)",
         needs=("marty",), serial=True,
-        wants=("build/os8088-360.img", "build/apps360.img",
-               "build/timer.bin")),
+        wants=("build/os8088-360.img", "build/apps360.img", "build/timer.bin", "build/timer.o88")),
     Row("dragui", "soak", py("tests/dragui.py"), 40.0,
         "SPEC.md 11.96.12.0: every control a package laid out answers where "
         "its window IS after a drag, which replays the window and paints "
@@ -4077,7 +4076,8 @@ SOAK = [
         " commit is actually happening, and that each program's point list"
         " holds its worst frame - a list that fills commits itself, so one"
         " sized too small is a silent extra arrival a frame, for ever",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True,
+        wants=("build/apps360.img", "build/missile.o88")),
     Row("ddmaze", "soak", py("tests/unit/t_ddmaze.py"), 0.2,
         "Are DOT DELIRIUM's three layouts playable boards? (SPEC.md 93.2) "
         "Reads the characters out of apps/dotdel/ddmzdat.inc and floods them "
@@ -8473,7 +8473,8 @@ SOAK = [
         "the way: `.nodoc` was placed between `jnc .out` and `.bad`, so every "
         "refusal the LAUNCH earned fell through it and came back `File not "
         "found` about a document that was there. 173.2s measured.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True,
+        wants=("build/apps360.img", "build/piano.o88")),
     Row("dosext", "soak", py("tests/dosext.py"), 120.0,
         "A TYPED EXTENSION, AND THE ARGUMENTS AFTER IT (SPEC.md 96.33.15.1). "
         "COMMAND.COM's rule has two halves - no extension is a search, an "
@@ -8704,7 +8705,8 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("dispapps", "soak", py("tests/dispapps.py"), 45.0,
         "Do the apps that lay out ONCE re-derive when the adapter changes?",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True,
+        wants=("build/apps360.img", "build/piano.o88", "build/missile.o88")),
     Row("dispband", "soak", py("tests/dispband.py"), 30.0,
         "Can a window use the SECOND display's top rows? (SPEC.md 39.16.2)",
         needs=("marty",), serial=True),
@@ -8800,7 +8802,8 @@ SOAK = [
     Row("dispcorner", "soak", py("tests/dispcorner.py"), 60.0,
         "REPORTED ARTIFACTS, LOCALISED (a corner pixel, and two drags across"
         "a seam)",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True,
+        wants=("build/apps360.img", "build/missile.o88")),
     Row("dispdepth", "soak", py("tests/dispdepth.py"), 40.0,
         "Does a window dragged BACK from a different-depth display arrive"
         "intact?",
@@ -8894,7 +8897,8 @@ SOAK = [
         " capture, and this note says so rather than implying a"
         " measurement nobody took. What holds either way is that a"
         " comparison is only entitled to a framebuffer it settled",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True,
+        wants=("build/apps360.img", "build/missile.o88")),
     Row("tank", "soak", py("tests/tank.py"), 30.0,
         "SPEC.md 85: TANK ATTACK draws, ADVANCES, and does not flash - the ink"
         "on the glass per DISPLAYED frame, whose floor against its median is"
@@ -9834,7 +9838,8 @@ SOAK = [
     Row("curshape", "soak", py("tests/curshape.py"), 20.0,
         "Does the pointer change SHAPE over a window that asks for one? "
         "(SPEC.md 7.2) - nothing covered it when 7.2.1.1 rewrote the test",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True,
+        wants=("build/apps360.img", "build/missile.o88")),
     Row("curbusy", "soak", py("tests/curbusy.py"), 20.0,
         "Does the pointer wear the HOURGLASS while the machine is frozen, and"
         "the arrow after? (SPEC.md 7.5) - the first build assembled clean, "
@@ -9898,7 +9903,8 @@ SOAK = [
         "mou_clamp, which crosses the seam deterministically at seven "
         "heights and correctly refuses at the two below display 1's bottom "
         "edge",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True,
+        wants=("build/apps360.img", "build/missile.o88")),
     Row("dispnp", "soak", py("tests/dispnp.py"), 30.0,
         "Does a WIDE straddling Note Pad letter its whole row? (SPEC.md"
         "27.2.1)",
@@ -11645,7 +11651,8 @@ SOAK = [
         " measured over 45 guest seconds of play, mc_tr_lay refused 0 of 39,"
         " so it patches mc_tr_lay to stc/ret in the guest to force every trail"
         " down it",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True,
+        wants=("build/apps360.img", "build/missile.o88")),
     Row("minexflag", "soak", py("tests/minexflag.py"), 20.0,
         "A wrong flag must not be drawn pixel-identical to a mine (SPEC.md "
         "23): the X over it is light red because a black one lands entirely "
@@ -12381,7 +12388,8 @@ SOAK = [
         "the table row. On a 5150 with a CGA, because the TWO-COLUMN layout "
         "is the one that can put a tm_mrow_nolast blank between the table and "
         "its own end stop and no one-column machine can show it.",
-        needs=("marty",), serial=True, timeout=900),
+        needs=("marty",), serial=True, timeout=900,
+        wants=("build/apps360.img", "build/timer.o88", "build/bounce.o88")),
     Row("trkscrl", "soak", py("tests/trkscrl.py"), 20.0,
         "SPEC.md 45.12.2: a jump of n rows in the pattern view costs ONE "
         "gfx_scroll and no full repaint, and what it leaves on the screen is "
@@ -15650,7 +15658,8 @@ SOAK = [
         "seconds still; the Bounce's worker takes a task slot at the first "
         "paint and its square moves inside the content. Everything is read "
         "out of each package's own bss through its map.",
-        needs=("marty",), serial=True, timeout=600),
+        needs=("marty",), serial=True, timeout=600,
+        wants=("build/apps360.img", "build/timer.o88", "build/bounce.o88")),
     Row("syscheck", "soak", py("tests/syscheck.py"), 20.0,
         "SPEC.md 118: SYSTEM CHECK on an upgraded install. A hard-disk image "
         "of the system disk's own files is planted with one of every "
@@ -17464,7 +17473,8 @@ SOAK = [
     Row("win1bpp", "soak", py("tests/win1bpp.py"), 60.0,
         "SPEC.md 11.96.17's two-colour declaration reaches W_FLAGS, and clear "
         "of SPEC.md 7.2.1's cursor shape in the same byte",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True,
+        wants=("build/apps360.img", "build/missile.o88")),
     Row("tpsaveu", "soak", py("tests/tpsaveu.py"), 30.0,
         "TeXPad - the largest window in the tree, and the one four planes "
         "cannot fund - keeps its pixels one plane deep (SPEC.md 11.96.17)",

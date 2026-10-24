@@ -55020,6 +55020,11 @@ On 2026-10-23, Browser 1.6c and the newer app set exceeded this geometry by
 Bounce move off `apps360.img`, along with Mines and Missile from the game
 list. The four apps remain on roomier apps disks; `games360.img` carries both
 games.
+On 2026-10-24, merging that into `elendilon`, the branch's own disk had
+already given `OS88NET.COM` to `network360.img`, so it kept Fractal, Calc
+and Mines, which dozens of rows boot this disk for; Piano, Mixer, Timer and
+Bounce go as above, and Missile to `games360.img`. A row that needs one of
+those four builds a disk of its own rather than a shipping one.
 On 2026-10-23 the 1.2MB apps disk ran out the same way: Browser 1.6c's 67
 clusters took the set to 2,399 of 2,371. XTMP3 and its demo songs come off
 `apps120.img` and `megaapps120.img` (§121.12), as they were already off the

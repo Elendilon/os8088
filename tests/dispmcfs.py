@@ -40,6 +40,7 @@ from os88geom import (VID_CTX_SZ, VID_CTX_VX,          # noqa: E402
 # VID_CTX_W = 18 layout - two bytes early, and what sits there is
 # display 1's vid_chm8, so the seam read 192 instead of 720.
 import os88marty, os88mouse, os88sym, dispcp                # noqa: E402
+import os88fixture                                          # noqa: E402
 
 S = os88sym.linear
 TITLE_H = 18
@@ -117,7 +118,10 @@ def state(m, mo, label, win, cards):
 
 
 def main():
-    with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
+    # MISSILE.O88 left apps360.img (SPEC.md 24.6.1): the shipped disk plus
+    # it, on a disk of this run's own
+    apps = os88fixture.apps360_plus("GAMES:build/missile.o88", tag="dispmcfs")
+    with os88marty.launch("build/os8088-360.img", apps=apps,
                           machine="os8088_xt_vga_herc", boot=False) as m:
         cards = {c["idx"]: c for c in m.cards()}
         pri = [i for i, c in cards.items() if c["type"] == "vga"][0]

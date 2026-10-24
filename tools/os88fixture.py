@@ -233,6 +233,46 @@ def recipe(goal, contains):
     return lines[0], g
 
 
+def apps360_plus(*pkgs, tag="plus"):
+    """`build/apps360.img` as the shipped recipe makes it, PLUS packages it no
+    longer carries, written to a disk of this process's own - never a
+    shipping one.
+
+        apps = os88fixture.apps360_plus("APPS:build/timer.o88")
+
+    The 360KB apps disk is CURATED (SPEC.md 24.6.1): a package comes off it
+    every time the geometry runs out, and a row that boots it for one of those
+    packages fails for a reason that has nothing to do with what it tests.
+    Re-arranging the shipping disks to keep a row green is the wrong way
+    round, so the row asks for its package here instead. Each argument is an
+    os88disk.py `FOLDER:path` (or a bare path for the root). The recipe is the
+    shipped one lifted out of `make -n` (`recipe` above), so everything else
+    on the disk is what ships; the extra files are appended to its argument
+    list, and os88disk.py refuses a disk they do not fit on. Returns the
+    image's path, which is deleted when the process exits.
+    """
+    import atexit
+    import os88build
+    import shlex
+    cmd, g = recipe("build/apps360.img", "os88disk.py")
+    argv = shlex.split(cmd)
+    out = os.path.join(os88build.at("build"), "apps360-%s-%d.img"
+                       % (tag, os.getpid()))
+    i = argv.index("-o")
+    argv[i + 1] = out
+    for p in pkgs:
+        path = p.split(":", 1)[-1]
+        need(os.path.relpath(os88build.at(path), ROOT) if os.path.isabs(path)
+             else path)
+    r = subprocess.run(argv + list(pkgs), cwd=ROOT, capture_output=True,
+                       text=True)
+    if r.returncode:
+        raise SystemExit("os88fixture: apps360_plus%r:\n%s%s"
+                         % (pkgs, r.stdout[-800:], r.stderr[-800:]))
+    atexit.register(lambda: os.path.exists(out) and os.remove(out))
+    return out
+
+
 # --- a HOST fixture made once per INPUT, not once per row ---------------------
 #
 # A row that makes its input on the host - an ffmpeg source run through

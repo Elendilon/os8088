@@ -77,6 +77,7 @@ import dosmap                                                  # noqa: E402
 import os88geom                                                # noqa: E402
 import os88marty                                               # noqa: E402
 import os88ui                                                  # noqa: E402
+import os88fixture                                          # noqa: E402
 
 SYS = "build/os8088-360.img"
 APPS = "build/apps360.img"
@@ -96,7 +97,10 @@ def main():
     if fails:
         return 1
 
-    with os88ui.boot(SYS, apps=APPS, machine="os8088_5150_herc_gla",
+    # PIANO.O88 left apps360.img (SPEC.md 24.6.1): the shipped disk plus it,
+    # on a disk of this run's own
+    apps = os88fixture.apps360_plus("APPS:build/piano.o88", tag="dosopen")
+    with os88ui.boot(SYS, apps=apps, machine="os8088_5150_herc_gla",
                      quick=True) as ui:
         m = ui.m
         # B: IS DELIBERATELY NEVER OPENED IN A DISK WINDOW. See the docstring:
