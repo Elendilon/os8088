@@ -1004,9 +1004,9 @@
   "sources": [
    "drivers/sound"
   ],
-  "stamped": "32e6dce5",
-  "strings": "d5ccec072faf56ae",
-  "why": "Document smooth requested volume and one-percent keys; speaker uses menu-bar theme colors"
+  "stamped": "e60ae715",
+  "strings": "84884b633231227c",
+  "why": "main's IRQ 5 refusal on an XT (SPEC.md 34.5.6) and stereo/16-bit streams (34.5.5) at the merge of main: the refusal's toast and its cure added to Good to know; the streams change no page text"
  },
  "SPACEJAM_MID": {
   "sources": [],

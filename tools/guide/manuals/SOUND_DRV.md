@@ -106,3 +106,8 @@ loaded** and os8088 stops trying at every start.
   The small system for 128KB machines loads no drivers and leaves it off.
 - A Covox cannot be detected, so it is used only when you choose it on the
   Sound page.
+- On an XT with a hard disk, a Sound Blaster set to IRQ 5 shares its line
+  with the disk controller and would fall silent after its first sound. The
+  driver says **IRQ 5 is the hard disk's** once a session and leaves the
+  card's digital sound off; set the card to IRQ 7 with its jumpers. FM music
+  still plays.
