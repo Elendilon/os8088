@@ -443,6 +443,20 @@ staging - each pinned only across its own file call. Rows `pkgmove-browser`,
 a reason in HEAP-CLAIMS: the bucket C transients, The Wire (needs a QEMU way to
 post a compaction and pins around `OSAPI_PKG_START`/`FILE_WRITE`), PiXEL (with
 its XMS work), DOS's DIR listing (an audit of `dsh_*`).
+A1b (`dff195ee`): RealDMG's parts carve (core + view, 128KB) moves - the
+first package beyond WireFleet on `OP_ONMOVE`, its hook `rw_partsmv` fixing
+the view's banked words and the 512-entry bank table and flushing translated
+code - and the close hang is fixed (`rw_bmiss` tested `[rw_closing]` before
+`[rw_bankreq]`; reordered, 0 bytes). +224 bytes; 1414.4 against 1414.5 and
+1403.8 against 1403.7 switches a guest second; hot routines unshifted. Rows
+`rdgmove` (extended) and `rdgclose` (86Box, the bank-cache path), each red.
+RealDMG now has NO long-lived pinned claim.
+
+**Kernel finding from A1b, not acted on (kernel bytes):** in a pass that
+moves a package's REGION, `mem_region_reloc` re-enters the restartable worker
+and clears its park byte, so `inst_seg_parked` reads "running" for the rest of
+that pass and the package's own claims under it wait for the NEXT compaction.
+It costs a second pass, not correctness; a fix is a kernel change.
 
 **In flight in agent worktrees (branches off `no-pinning`, NOT merged):**
 - C4: LEMMINGS' claims movable (range-translating `os88_onmove`)
