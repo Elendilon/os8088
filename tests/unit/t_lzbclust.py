@@ -88,6 +88,13 @@ def check_list(names, tmp):
     for name in names:
         o88 = os.path.join(BUILD, name + ".o88")
         binp = os.path.join(BUILD, name + ".bin")
+        # (the SAME input the Makefile packs: a package whose overlays
+        # tools/os88ovl.py splits off ships `<name>.trim.bin`, the image
+        # without them - Sheet 2.1's CHART.OVL and MACRO.OVL - and the whole
+        # .bin's image field is not that file's size)
+        trim = os.path.join(BUILD, name + ".trim.bin")
+        if os.path.exists(trim):
+            binp = trim
         if not harness.check(os.path.exists(o88) and os.path.exists(binp),
                              "%s: build/%s.o88 and .bin exist" % (name, name),
                              why="a name in LZBPKGS with nothing built is a list "

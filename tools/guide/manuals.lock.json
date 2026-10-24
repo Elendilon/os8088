@@ -1288,9 +1288,9 @@
   "sources": [
    "apps/wirefleet"
   ],
-  "stamped": "ae722338",
-  "strings": "d75cf6c6c06c7437",
-  "why": "90792af7 adds wf_btnplace, the button record's layout proc run before each hit test: an internal fix below the page's level of detail, nothing a user reads changes"
+  "stamped": "18b1ddbe",
+  "strings": "7567de0a93fbbb38",
+  "why": "f9ed8cc4/9217a5c5 change wflink.inc's refusal handling and three status messages (a port the BIOS does not list, a UART the OS did not find, retry on an older SERIAL.DRV); the page quotes no message and describes the Link menu and the automatic search at a level these do not change - rare-case messages, no words needed"
  },
  "WORD": {
   "sources": [],

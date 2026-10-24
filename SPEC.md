@@ -64313,6 +64313,37 @@ picture: the cache word cannot be read (§11.96.18.1), a forced repaint cannot
 be a reference while anything else is up, and what is left to assert is the
 **calls**.
 
+#### 28.11.3 A paint the WORKER did not make forgets the quiet key
+
+`tm_quiet`'s key (§28.6.1) is recorded by the worker's own paint and by
+nothing else. Every other draw of the two quiet pages - `tm_paint` as
+`W_PAINT`, and the page turn in `tm_click` - draws from the last **sample**,
+and leaves the recorded key describing an older glass than the one it just
+made. That is an **ABA**, and it is not hypothetical:
+
+1. the Disk window opens; its listing claim moves the table to state **B**
+   and the page shows `RAM 114K` - drawn by a `W_PAINT`, so the key still
+   says **A**;
+2. a zoomed window covers the Task Manager wholly, so every worker paint is
+   refused at `OSAPI_WM_CLIP_SET` and records nothing;
+3. the Disk window closes under the cover (table back to **A**), and the
+   uncover's `W_PAINT` draws the sample it has - still **B**, `RAM 114K`;
+4. `tm_quiet` compares **A** with the **A** recorded before step 1 and
+   answers *nothing moved* - **for ever**, over a page reading two KB more
+   than the machine is using.
+
+`tests/tmground.py`'s PIXELS leg found it as `72 subpixels` (the `RAM`,
+`HEAP`, `AVAIL`, `MAX RUN` and `System` figures): whether step 1's paint was
+the worker's or the kernel's is the phase of `TM_SLOW`'s two-second cadence
+against the harness, which a kernel three bytes longer moved, and which host
+load moves as well (7 of 8 runs at four-wide on four cores).
+
+`tm_promise` - which both of those callers already call last - stores **0**
+there first. No hash answers 0 (`tm_qpeek`'s never-zero rule), so the next
+due interval walks and `tm_update` draws only the elements whose OWN keys
+moved: nothing at all when the glass was current, which is §28.6's measured
+quiet refresh. **+6 package bytes, no kernel byte.**
+
 ### 28.12 `APP_SMALL` — the small build of this package
 
 Note Pad's §27.16, applied here, and the rules there hold unchanged: one
@@ -64330,7 +64361,7 @@ the pages themselves:
 
 | flag | off in `APP_SMALL` | what goes with it |
 |---|---|---|
-| `TMF_HEAP` | the heap page (§28.4), the memory page's groups since §28.4.10 | the per-claim rows and their `TYPE`/`TIER` decode, the groups and the two header switches, the `AVAIL` line (`tm_hsnap`'s `OSAPI_MEM_AVAIL` pair), the scroll bar (§13.10) and `TM_SHOWN`'s share of `tm_rowck` |
+| `TMF_HEAP` | the heap page (§28.4), the memory page's groups since §28.4.10 | the per-claim rows and their `TYPE`/`TIER` decode, the groups and the two header switches, the 640K–1MB rows (`tm_romscan`), the `AVAIL` line (`tm_hsnap`'s `OSAPI_MEM_AVAIL` pair), the scroll bar (§13.10) and `TM_SHOWN`'s share of `tm_rowck` |
 | `TMF_MEM` | the memory view (§28) | the conventional-memory map, the XMS bar, the `NAME/ADDR/SIZE/HEAP` re-columning, the legend squares and their textures (the claim swatch beside the RAM line's HEAP pair among them; the pair itself stays) — and the whole of §28.6/§28.8/§28.11's quiet-page machinery, which exists for these two pages and for nothing else |
 
 **The ladder is ORDERED and the guard says so.** The heap page borrows the
@@ -64353,11 +64384,17 @@ worth a byte of `.text` here and `tools/os88pkgsize.py` prints the sum:
 | arm | image | bss | claim | vs. full |
 |---|---|---|---|---|
 | full (shipped) | 7,589 | 1,698 | **9,287** | — |
-| `TMF_HEAP` off | 6,300 | 1,586 | 7,886 | −1,401 (15.1%) |
+| `TMF_HEAP` off | 5,356 | 2,054 | 7,410 | −4,926 (39.9%) against the full arm's 9,929 + 2,407 = 12,336 *(as of the §28.4.10 merge)* |
 | both off (`APP_SMALL`) | 3,641 | 1,313 | **4,954** | −4,333 (46.7%) |
 
 (As of §28.12.3; §28.12.2's pass left the small arm at 4,400 of image; the first pass left them at 8,223 / 6,970 / 4,980 of
-image against 1,707 / 1,581 / 1,317 of bss.)
+image against 1,707 / 1,581 / 1,317 of bss. The `TMF_HEAP` row is re-measured
+after §28.4.10 merged the heap page into the memory page and left its list
+reachable under `TMF_MEM` alone, so the middle rung stopped assembling: the
+list - groups, claim rows, the 640K-1MB rows, the `AVAIL` line, the header's
+switches and the scroll bar - is `TMF_HEAP`'s again, and that rung is the
+memory page ENDING at the XMS line. Its bss grew with the pool walk the summary
+line reads (`tm_xw`), not with the list.)
 
 The first size pass on the package (it had only ever been moved, never
 trimmed) took the full arm from 9,245 + 2,269 = 11,514 to the row above and
@@ -181560,10 +181597,24 @@ from sending anything more from EITHER device. Five places, four rules:
   there for the whole program. Bochs, the pointer moving over every launch:
   `KBTRIP entry 64=31` (OBF, AUX) and no key, 6 trips of 12. Now, with a PS/2
   pointer live: IRQ12 masked, `0xD4 0xF5` (reporting off, as POST leaves it),
-  its `0xFA` read behind any queued packet (64 bytes at most), then
-  `mouse_unhook`, then every AUX byte still in the buffer read and dropped
-  (a keyboard byte is left for `int 09h`). The wake's `0xF4` turns reporting
-  back on, so nothing on the return changes for it. 0 of 12 after.
+  its `0xFA` read behind any queued packet (256 bytes at most), every AUX
+  byte still coming read and dropped until 4,096 polls in a row bring none
+  (`hbm_p2drop`), then `mouse_unhook`, then `hbm_p2drop` again (a keyboard
+  byte is left for `int 09h` both times). The wake's `0xF4` turns reporting
+  back on, so nothing on the return changes for it. 0 of 12 after. The drop
+  BEFORE the unhook is docs/plans/KERN-MEGA-PLAN.md 14.62.1: `mouse_unhook`'s
+  command-byte write must not meet an AUX byte in the buffer, because Bochs
+  then raises IRQ1 for it and the AUX byte's read never lowers that line -
+  so the DOS program got no keyboard edge at all (`nokey 64=11`), or read
+  the stale data register as its first key (`key 4300`).
+* **On kern_mega, an IRQ1 takes only a keyboard byte that is there**
+  (`kbm_isr`, under `KERN_MEGA`). `mega_k09`, the ROM half it chains to,
+  reads port 60h without asking, so an IRQ1 whose byte a poll already took
+  read the data register's STALE byte - in Bochs, the command byte 43h that
+  `mega_d8042get` had just polled for, stored as F9 and read by the next DOS
+  program as `4300` (14.62.1). Status bit 0 clear, or bit 5 set (an AUX byte
+  is no scan code), and the ISR sends its EOI and leaves; it asks before the
+  `.peek` below it, which clears OBF.
 * **The wake collects the device's `0xFA` to its `0xF4`** with IRQ12 still
   masked (`hbm_wake` `.nowz`). It was left for the ISR - and step 4's `int 10h`
   follows at once, which on a 286 is a CPU reset whose BIOS can re-initialise
@@ -181604,6 +181655,11 @@ HIBER.DRV and every hunk is inside `KERN_BIG` or `KERN_MEGA`.
 `tests/megakbtrip.py` is the row: Bochs with an IntelliMouse, ten round trips
 of `tests/dostrap/kbtrip.asm` with the pointer moving across each launch, a key
 asserted INSIDE the program, the return, and the pointer moving after it.
+14.62.1's two added +17 bytes to HIBER.DRV on both kernels (`hbm_p2drop`,
+inside the same padded images; packed +16 and +13) and +8 to kern_mega's
+`.text` (`kbm_isr`'s test); kern_big's and kern_small's `kernel.bin` are
+byte-identical, and kern_mega's `.mega` moves by one immediate - the
+offset of `mpk_stub` in HIBER.DRV, which `mega_dstubup` names.
 
 #### 96.45.3 The pointer STARTS in the middle, and ours started at the origin
 
@@ -196137,6 +196193,18 @@ arrived:
   back, the next play - is out of memory even where the loader never ran.
   (The timer does not fire inside a bracket, whose main loop is one
   callback.)
+- **ahead of that, while the stream is PAST the hold's end** (`vp_xlag`):
+  a play started before the loader got that far - from the first frame
+  after key 0, or a seek - reads every chunk beyond a gap, and `vp_xput`
+  keeps none of them. So where the bracket's reader has nothing to read
+  (the ring has no room) it takes the loader's next chunk, as the timer
+  would, until the hold reaches the stream and `vp_xput` carries it on - a
+  play started at any point of the load returns with the hold whole. The
+  bracket has the heap, so the chunk is read through a BOUNCE slot the
+  ring's claim keeps for it, the bank's (98.3.18.2, `vp_bbnc`): a claim
+  made while a hold is still filling is one slot longer (`vp_bncq`). Not
+  under the speaker's clock (98.3.18.5); a step that put nothing up is not
+  asked again that play. +124 bytes of the package.
 
 A short read is the file's end, and sets `[vp_xfull]`: only then is a range
 that runs past `[vp_xhave]` the file's end rather than the disk's business.
@@ -196237,7 +196305,9 @@ loading the file to its end, the card's line drawn from the timer.
 `vidxmsnox` (`-m 1`) is the NEGATIVE CONTROL: no hold, the play off the
 disk, and after the same swap the same key REFUSED. Broken on purpose -
 `vp_xput` out of `vp_fill`, the hold short at the play's end (163,840 of
-973,312); `vp_xrdat` out of `vp_rdat`, the key refused - `vidxms` FAILS.
+973,312); `vp_xlag` out of the bracket's loop, short too (32,768: the play
+starts past key 0, beyond the one chunk then held); `vp_xrdat` out of
+`vp_rdat`, the key refused - `vidxms` FAILS.
 
 ###### 98.3.18.1.1 A wake that only fed the ring paints nothing
 
@@ -199735,10 +199805,17 @@ bracket opens on a TITLE, not on a race: `xb_game` is the state machine and
 results, 5 game over, 6 best times, 7 attract. Every screen is drawn as TILES
 (`xb_puts`: the compiled font, a run of byte moves a glyph; on the VGA the ink is
 the map mask of a palette slot, on the CGA there is one ink) over a black screen and
-every one begins with `xb_flush`, which empties the typed keys and waits (bounded, 40
-frames) for the Enter that brought it there to be let go of, BEFORE it draws, so a key
+every one begins with `xb_flush`, which empties the typed keys BEFORE it draws, so a key
 typed while a screen is being drawn is kept. A screen waits with `xb_getkey`: one
 `FSXW_FRAME` (an 18 ms sleep, not a spin) and the typed key, `CF` = Alt+Enter.
+**One press of Enter is one screen however long it is held**: every typed key - the
+menus' and the race's - comes through `xb_rdkey`, which takes an Enter once per PRESS
+(`[xb_enth]` is set when one is taken and cleared when `OSAPI_KEY_DOWN` reads Enter up)
+and throws away every Enter typed in between, which is the held key's typematic
+repeats. It replaced a bounded wait (40 frames) in `xb_flush` for the release, which a
+hold longer than the bound ran straight through: the course screen took a repeat and
+the mode screen's one press started a race. Being a level read it is advice (SPEC.md
+67.11.1) - a break lost inside an interrupts-off window costs one extra press.
 `xb_menu_begin` hands the card back from a race (VGA: the line-compare split off,
 the start address home, write mode 0 with every plane and the bit mask open, two
 frames for the start address to latch; CGA: the start address home) and paints the
@@ -212422,6 +212499,25 @@ back to repainting a region fails by name. MartyPC has no network card, so
 the row fills the window by INJECTION (`tests/wcprobe.py`): a reply §113.2.3
 would send is written into `wc_resp` and handed to the UI task as the worker
 would hand it.
+
+**A flush does not restore the grow box**, because nothing it draws reaches
+it: the status bar's band stops `WC_GROWC` cells short of the corner, and
+every other region ends at or above the input row. Both flush paths
+(`wc_cbflush` and the wake's) called `OSAPI_WM_GROW` after every change, and
+`wm_grow_paint` FILLS the square white before framing it - the
+erase-and-letter flash in one corner, three or four times a gesture, which
+§27.2.1 took out of Note Pad for the same reason. A full paint (`wc_repaint`,
+and the kernel's own after `W_PAINT`) still restores it: that is the path
+whose ground fill covers the corner. `tests/wcdraw.py` counts the package's
+`OSAPI_WM_GROW` calls apart from its drawing calls and holds every gesture at
+ZERO. The same defect is what made its identity INTERMITTENT on the VGA: a
+capture that landed inside a restore read a half-drawn grow box, on either
+side of the comparison. The other thing that legitimately changes between the
+two captures is the header's CLOCK, so the identity starts only with 30
+guest seconds left in the kernel's minute (`clk_min`/`clk_sec`), waiting for
+the turn and for `wc_clkm` to show it otherwise, and with the activity lamp
+out and nothing dirty - and fails by name if the minute still turned. -18
+bytes of image (22,186 -> 22,168).
 
 #### 113.5.2 The themes
 

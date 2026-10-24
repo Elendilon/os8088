@@ -74,7 +74,9 @@ and after the same swap the same Right arrow FAILS. That is what says the
 swap bites, so that arm xms passing means something.
 
 VERIFIED TO FAIL: with `call vp_xput` taken out of vp_fill, arm xms reports
-the hold short when the play returns; with `call vp_xrdat` taken out of
+the hold short when the play returns - and so does `call vp_xlag` taken out
+of the bracket's loop, because the stream starts past key 0, beyond the one
+chunk held at Play, so vp_xput alone finds a gap before every chunk; with `call vp_xrdat` taken out of
 vp_rdat, step 4's key is refused.
 """
 import argparse
@@ -553,7 +555,11 @@ def main():
             else:
                 print("   B: blank, no hold: the next key refused, as it must be")
         else:
-            # --- 1: the hold, and its first chunk
+            # --- 1: the hold, and its first chunk. [vp_loaded] is stored
+            # before the hold is opened, so a fast harness can read xon 0
+            # in between: wait for it (a guest second or two, not a race)
+            os88qemu.acted(q, lambda: rb("vp_xon") == 1, secs=5,
+                           what="the hold", poll=0.05)
             cap = rd("vp_xcap")
             print("   the hold: on=%d, %d bytes for a file of %d"
                   % (rb("vp_xon"), cap, size))

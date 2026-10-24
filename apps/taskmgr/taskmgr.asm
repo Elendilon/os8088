@@ -85,14 +85,16 @@
 ; (SPEC.md 27.16) is the pattern and its rules hold unchanged - one package
 ; built twice, never a second ABI, and the small arm runs on kern_big too.
 ;
-;   TMF_MEM    the memory page (SPEC.md 28): the conventional-memory map, the
-;              XMS bar and the 640K-1MB rows
+;   TMF_MEM    the memory page (SPEC.md 28): the conventional-memory map,
+;              the summary line over it and the XMS caption and bar
 ;   TMF_HEAP   that page's LIST (SPEC.md 28.4): every claim record classified
 ;              to the owner that holds it, the collapsible groups, the
-;              TYPE/TIER decode and the scroll bar. It was a page of its own
-;              until KERN-MEGA-PLAN 14.70.2 and is still its own flag, because
-;              the two halves still compile out together and the guard below
-;              is what says so
+;              TYPE/TIER decode, the 640K-1MB rows, the AVAIL line, the
+;              header's two switches and the scroll bar. It was a page of its
+;              own until KERN-MEGA-PLAN 14.70.2 and is still its own flag, so
+;              `-DAPP_SMALL -DTMF_MEM` is the memory page ENDING at the XMS
+;              line - the middle rung tests/unit/t_appsmall.py builds - and
+;              the guard below says the ladder only runs one way
 ;
 ; **AT THE TOP** because these are PREPROCESSOR tests answered in file order
 ; and the blocks they guard start ~400 lines below (apps/paint/paint.asm and
@@ -789,7 +791,9 @@ tm_init:
     jc .nohi                    ; in protected mode and on kern_big with a
     mov byte [tm_hion], 1       ; store (SPEC.md 28.4.8)
 .nohi:
+%ifdef TMF_HEAP
     call tm_romscan             ; ...and what is in 640K-1MB (28.4.9)
+%endif
 %endif
 
     call OSAPI_VIDEO            ; and the live geometry (SPEC.md 39.2): AX =
@@ -1289,7 +1293,9 @@ tm_s_t386:  db '386+  ', 0      ; name is padded to the SAME six columns, so
                                 ; performance view's own label - one string,
                                 ; because it is one word
 tm_s_xms:   db 'XMS ', 0        ; + used/size KB above 1MB (SPEC.md 41)
+%endif
 
+%ifdef TMF_HEAP
 ; The list's HEADER is three runs, two of them SWITCHES lettered white on
 ; black so they read as something to press (KERN-MEGA-PLAN 14.70.2): the view
 ; at the left, over the names, and +ALL / -ALL at the right, over the TIER
@@ -1471,6 +1477,8 @@ tm_s_twsav: db 'WinSave', 0
 ;   MEM_K_SC    - the desktop shortcuts' one table (SPEC.md 26.8), read off
 ;                 SYSTEM.CFG at boot and held while any shortcut exists
 ;   MEM_K_IMG   - a mounted .IMG's run table (SPEC.md 18.101), 1KB a mount
+;   MEM_K_MTBL  - kern_mega's GDT, LDT and IDT when extended memory cannot
+;                 hold them (KERN-MEGA-PLAN 14.1): 82KB, pinned for the session
 ;
 ; MEM_K_OVL used to be a row, and was the one kernel tag with a lifetime
 ; SHORTER than the session - a heap page open early enough could catch it. The
@@ -1496,6 +1504,7 @@ tm_ktab:
     dw MEM_K_FONT,  'Font', 0, 0
     dw MEM_K_SC,    'Shortcut'
     dw MEM_K_IMG,   'Disk img'
+    dw MEM_K_MTBL,  'DescTbl'
     dw MEM_P_DIRW,  'DirRead'
     dw MEM_P_RAHB,  'RdLand', 0
     dw MEM_P_FLIST, 'FileClp'
@@ -1549,8 +1558,10 @@ tm_pat_clm:
 ; gfx_fill_gray lays down - 0xAA on even rows, 0x55 on odd, and gfx_fill_pat
 ; indexes by the same y - so the square and the band it keys are the same
 ; pixels, not merely a similar grey.
-tm_pat_gray:
+%ifdef TMF_HEAP
+tm_pat_gray:                    ; (only a GROUP's square is gray - the list's)
     db 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55
+%endif
 
 ; Slot patterns: 12 x 8 row bytes, pattern i = tm_pats + i*8, bit set =
 ; white (SPEC.md 5/28). Black-on-white hatch textures, none of them the
@@ -2292,6 +2303,29 @@ tm_iname:
 ; KERNEL_SEG (TM_ES_DATA exists for exactly that).
 ; -----------------------------------------------------------------------------
 tm_promise:
+    mov word [tm_elck + 2*TMC_QUIET], 0     ; ...AND FORGET WHAT THE WORKER
+                                ; LAST VOUCHED FOR. Both callers have just drawn
+                                ; this page OUTSIDE the worker - a W_PAINT, a
+                                ; page turn - from whatever the last SAMPLE
+                                ; held, and the claim table that sample was
+                                ; taken from may already be gone. The quiet key
+                                ; is only ever recorded by the worker's own
+                                ; paint, so left standing it describes an older
+                                ; glass than this one: ABA. Open a Disk window
+                                ; (key B, drawn by W_PAINT, not recorded), cover
+                                ; us wholly (the worker's paints refused), close
+                                ; it under the cover (the uncover draws the
+                                ; sample - still B - and the table is back to
+                                ; A), and tm_quiet compares A with the A it
+                                ; recorded before the Disk window ever opened:
+                                ; "nothing moved", for ever, over a page that
+                                ; reads `RAM 114K` on a 112K machine. Zero is
+                                ; a key no hash answers (tm_qpeek's never-zero
+                                ; rule), so the next due interval walks, and
+                                ; tm_update draws only the elements whose OWN
+                                ; keys moved - nothing at all when the glass
+                                ; was current (tests/tmground.py, SPEC.md
+                                ; 28.11.3)
     pushf
     push ax
     push bx
@@ -3160,7 +3194,9 @@ tm_upd_mem:
 .body:                          ; (the full redraw joins here, SI = window)
     call tm_view_begin          ; [tm_cx]/[tm_cy]/[tm_rowx]/[tm_ylim]
     call tm_hsnap               ; ...the claim table and MEM_AVAIL's pair...
+%ifdef TMF_HEAP
     call tm_classify            ; ...and every record and block to its owner
+%endif
     mov ax, TMM_RAM_Y
     call tm_txt_ram_y
     or si, si
@@ -3182,12 +3218,17 @@ tm_upd_mem:
     call tm_map_ram
     call tm_cap_xms
     call tm_xbar
+%ifdef TMF_HEAP
     call tm_cap_avl             ; AVAIL / MAX RUN
     call tm_mhdr                ; the header and its two switches
     call tm_hsbset              ; BEFORE the rows: a row's band stops where
     call tm_rows_mem            ; the bar begins (tm_rowr)...
     call tm_hbar                ; ...and the bar itself once the walk has said
                                 ; how deep the list is (SPEC.md 28.4.4)
+%endif                          ; (without TMF_HEAP the page ENDS at the XMS
+                                ; line: the map, its caption and the summary
+                                ; line are the memory view, and the list under
+                                ; them is the heap page's - SPEC.md 28.12)
     jmp tm_pop_dsdcba
 
 ; -----------------------------------------------------------------------------
@@ -3280,6 +3321,7 @@ tm_cap_xms:
     call tm_capline             ; checked, placed, padded and drawn
     jmp tm_pop_dsdcba
 
+%ifdef TMF_HEAP
 ; -----------------------------------------------------------------------------
 ; tm_cap_avl - 'AVAIL nnnK  MAX RUN nnnK' (SPEC.md 28.4.1)
 ; in:  [tm_avl], [tm_maxrun] (tm_hsnap)
@@ -3702,6 +3744,8 @@ tm_kfig:
     inc di
     ret
 
+%endif
+
 ; -----------------------------------------------------------------------------
 ; tm_map_ram - the conventional-memory map interior (SPEC.md 28/50)
 ;
@@ -3914,6 +3958,7 @@ tm_ramkb2x:
 .done:
     ret
 
+%ifdef TMF_HEAP
 ; -----------------------------------------------------------------------------
 ; tm_romscan - the option ROMs between C000 and EFFF (SPEC.md 28.4.9), into
 ;              [tm_umn] records of {segment, KB} at tm_uma. A ROM is what
@@ -3982,6 +4027,8 @@ tm_romscan:
     pop ax
     ret
 
+%endif
+
 ; -----------------------------------------------------------------------------
 ; tm_hsnap - refresh the claim table (SPEC.md 20.9)
 ; in:  nothing
@@ -4014,6 +4061,7 @@ tm_hsnap:
     pop ax
     ret
 
+%ifdef TMF_HEAP
 ; -----------------------------------------------------------------------------
 ; tm_hkb - a claim's size in KB
 ; in:  AX = paragraphs (MC_PARA/CLS_PARA)
@@ -5633,6 +5681,8 @@ tm_xrow:
 
 %endif
 
+%endif
+
 ; -----------------------------------------------------------------------------
 ; tm_row_place - where on screen does list row AX go?
 ;
@@ -5722,7 +5772,7 @@ tm_row_place:
     pop ax
     ret
 
-%ifdef TMF_MEM
+%ifdef TMF_HEAP
 ; -----------------------------------------------------------------------------
 ; tm_mrow_open - start a list row: compute x and y, DI = the text buffer
 ; in:  [tm_mrow]
@@ -6405,6 +6455,7 @@ tm_elchk:
     ret
 
 %ifdef TMF_MEM
+%ifdef TMF_HEAP
 ; -----------------------------------------------------------------------------
 ; tm_kcol - one right-aligned KB column: 3 digits + 'K' (tm_kfig, so MB past
 ;           999), or "   -" for zero
@@ -6428,6 +6479,9 @@ tm_kcol:
 .out:
     pop ax
     ret
+
+%endif                          ; (the list's columns: tm_kcol above and
+                                ; tm_put4x below have no other reader)
 
 ; -----------------------------------------------------------------------------
 ; tm_sq_frame - the 1px black frame of the current row's legend square,
@@ -6502,6 +6556,7 @@ tm_sq_int:
     add dx, 5
     ret
 
+%ifdef TMF_HEAP
 ; -----------------------------------------------------------------------------
 ; tm_put4x - AX as exactly 4 uppercase hex chars at DI
 ; in:  AX = value, DI = dest
@@ -6532,6 +6587,7 @@ tm_put4x:
     pop ax
     ret
 
+%endif
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -8010,12 +8066,17 @@ tm_hisys    equ tm_hitot + 2    ; ...and of it the SYSTEM's: the kernel's
                                 ; blocks the kernel and drivers own (28.4.8)
 tm_xwn      equ tm_hisys + 2    ; records in tm_xw
 tm_xw       equ tm_xwn + 2      ; the pool's blocks, TM_XWN x XMW_SIZE
+%ifdef TMF_HEAP
 TM_UMAX     equ 8               ; option ROMs the 640K-1MB map lists
 tm_umn      equ tm_xw + TM_XWN * XMW_SIZE   ; byte: found (tm_romscan)
 tm_uma      equ tm_umn + 1      ; TM_UMAX x {dw segment, dw KB}
-
-; --- THE LIST'S GROUPS (KERN-MEGA-PLAN 14.70.2, SPEC.md 28.4) ----------------
 tm_hifix    equ tm_uma + TM_UMAX * 4    ; KB between 1MB and the pool's base
+%else                           ; (the 640K-1MB rows are the LIST's, so
+tm_hifix    equ tm_xw + TM_XWN * XMW_SIZE   ; tm_romscan and its records
+%endif                          ; go with it: SPEC.md 28.12)
+
+%ifdef TMF_HEAP
+; --- THE LIST'S GROUPS (KERN-MEGA-PLAN 14.70.2, SPEC.md 28.4) ----------------
 tm_detail   equ tm_hifix + 2    ; byte: 1 = DETAIL, Purgeable and 640K-1MB
                                 ; listed. Survives a page switch, as the
                                 ; scroll position does
@@ -8040,6 +8101,9 @@ tm_onum     equ tm_nbuf + 13    ; byte: how many tm_ogid found this paint
 tm_ohi      equ tm_onum + 1     ; TM_NOVL bytes: 1 = the key is a pool offset
 tm_okey     equ tm_ohi + TM_NOVL    ; TM_NOVL words: each image's key
 TM_BSS_TOTAL equ tm_okey + TM_NOVL * 2 - os88_image_end
+%else                           ; ...and with no list, no groups: the chain
+TM_BSS_TOTAL equ tm_hifix + 2 - os88_image_end  ; ends at the pool's
+%endif                          ; numbers, which the summary line still reads
 %else
 TM_BSS_TOTAL equ tm_lowkb + 2 - os88_image_end
 %endif

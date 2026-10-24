@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "1bf777a93bde9f1ca5ac89b0512729670e5912413db590189daf5b77e0c99bbc",
+  "fingerprint": "10c42a6dc84de9cdfddf7887590affc10cb6ef38a186d6b4303de7e7d11da237",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "2f7c91493636933cbda58fff94a970b7ba6f35b48a3558577e5de52f5eb5edfe",
+  "fingerprint": "cb2da1b8468a75b9cdd324ff08b207a353b9e03d653dbbaaae93018c0f01bb37",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -994,6 +994,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_XMEM_WALK: kern_big names the HMA's contents under XMW_FIXED (XMW_HMAK/HMAI/HMAB), additive",
+   "to": 11
+  },
+  {
+   "fingerprint": "cb2da1b8468a75b9cdd324ff08b207a353b9e03d653dbbaaae93018c0f01bb37",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "merge soak-run: MEM_K_MTBL (0xFF13) mirrored into apps/os88api.inc; a constant added, nothing built before changes",
+   "to": 10
+  },
+  {
+   "fingerprint": "10c42a6dc84de9cdfddf7887590affc10cb6ef38a186d6b4303de7e7d11da237",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "merge soak-run: MEM_K_MTBL (0xFF13) mirrored into apps/os88api.inc; a constant added, nothing built before changes",
    "to": 11
   }
  ]

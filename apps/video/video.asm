@@ -5421,7 +5421,7 @@ vp_lycarve:
     mov [vp_kr], ax
     mov [vp_lyb], bl
     add ax, [vp_msl]                ; past the mirror...
-    call vp_xmsbk                   ; ...and the base bank's bounce
+    call vp_bncq                    ; ...and the base's bounce
     jz .nb
     cmp byte [vp_livem], 0
     jne .nb
@@ -6258,6 +6258,66 @@ vp_xend:
     clc
     ret
 
+; vp_xlag - THE HOLD BEHIND THE PLAY (98.3.18): the stream already past the
+; hold's end - a play started before the loader got that far, from the first
+; frame after key 0 or from a seek - so vp_xput finds a gap before every
+; chunk and keeps none of them. The loader's next chunk instead, as the
+; timer's, while the ring has no room (the timer does not fire in here) and
+; through the BOUNCE the claim keeps for it (vp_bncq) - the bracket has the
+; heap - until the hold reaches the stream and vp_xput carries it on. A step
+; that put nothing up is not asked again this play. CF=0 a chunk went up.
+; Every register kept
+vp_xlag:
+    cmp byte [vp_snd], VP_SPK       ; (vp_xquiet: no copy under the speaker)
+    je .no
+    cmp byte [vp_xlno], 0
+    jne .no
+    call vp_bncq
+    jz .no                          ; (a bank's, or no hold filling)
+    push ax
+    push dx
+    mov ax, [vp_xhave]
+    mov dx, [vp_xhave+2]
+    cmp dx, [vp_cur+FSEQ_OFF+2]
+    jne .c
+    cmp ax, [vp_cur+FSEQ_OFF]
+.c:
+    jae .stc                        ; no gap: vp_xput's
+    call vp_bbnc
+    mov [vp_xsbnc], dx              ; vp_xstep's buffer, unclaimed
+    call vp_xstep                   ; CF=1 nothing left, or no hold
+    mov word [vp_xsbnc], 0          ; (flags kept)
+    jc .stc
+    cmp ax, [vp_xhave]
+    jne .out                        ; (CF=0)
+    mov byte [vp_xlno], 1           ; nothing went up
+.stc:
+    stc
+.out:
+    pop dx
+    pop ax
+    ret
+.no:
+    stc
+    ret
+
+; vp_bncq - ZF=0: the session's claim has a BOUNCE slot (vp_bbnc) - an XMS
+; bank's, or a hold still filling's (vp_xlag) - and a bank IN PLACE is a
+; bank, not a hold filling: [vp_xbank] is 0 for that play and so is
+; [vp_xfull], and vp_xlag would vp_xstep the file into the slots the ring
+; has in place. Preserves all but flags
+vp_bncq:
+    cmp byte [vp_einp], 0           ; in place: vp_xmsbk's no ([vp_xbank] 0)
+    jne .bk
+    cmp byte [vp_xbank], 0
+.bk:
+    jne vp_xmsbk                    ; a bank: XMS's (EMS reads into its frame)
+    cmp byte [vp_xon], 0
+    je .r                           ; (ZF=1: no hold)
+    cmp byte [vp_xfull], 1          ; ZF=0: still filling
+.r:
+    ret
+
 ; vp_xstep - the next chunk into the hold, through a claim of its own, on its
 ; own cursor. out CF=1 nothing is left to load (or the hold is gone)
 vp_xstep:
@@ -6274,6 +6334,9 @@ vp_xstep:
     push si
     push di
     push es
+    mov dx, [vp_xsbnc]              ; vp_xlag's BOUNCE: no claim
+    or dx, dx
+    jnz .nal
     mov ax, VP_CHUNK / 1024
     call vp_xgpad                   ; (+ THE GAP's slack, BX)
     call vp_mclaim
@@ -6361,6 +6424,8 @@ vp_xstep:
     call vp_xfree
 .fr:
     mov dx, [vp_xsclm]              ; (the claim, not where the read began)
+    cmp word [vp_xsbnc], 0          ; (the bounce is the ring claim's)
+    jne .later
     call OSAPI_MEM_FREE
 .later:
     pop es
@@ -8612,7 +8677,7 @@ vp_bseek:
     ret
 
 ; vp_bbnc - DX = the bounce slot: the claim's last, after the ring's K slots
-; and its mirror (vp_sstart claims it with them when there is a bank). From
+; and its mirror (vp_sstart claims it with them when vp_bncq asks). From
 ; [vp_ring] at its use, the claim being movable between brackets (98.3.19.2).
 ; Every other register kept
 vp_bbnc:
@@ -11278,7 +11343,7 @@ vp_sstart:
 %endif
     mov ax, cx
     add ax, [vp_msl]
-    call vp_xmsbk                   ; (+ the bank's bounce, vp_bbnc)
+    call vp_bncq                    ; (+ the bounce, vp_bbnc)
     jz .rkb
     cmp byte [vp_livem], 0
     jne .rkb
@@ -11431,9 +11496,9 @@ vp_kres:
 .a:
     sub ax, [vp_kekb]
     jc .z
-    call vp_xmsbk                   ; ...and THE BANK'S BOUNCE, a slot after
-    jz .r                           ; the mirror (vp_bbnc) - XMS's: EMS reads
-                                    ; into its frame
+    call vp_bncq                    ; ...and THE BOUNCE, a slot after the
+    jz .r                           ; mirror (vp_bbnc): an XMS bank's, or a
+                                    ; hold's still filling (vp_xlag)
     sub ax, VP_CHUNK / 1024
     jc .z
 .r:
@@ -14553,6 +14618,7 @@ vp_main:
     call vp_acur
     call vp_sopen                   ; the card, started with the picture
 .go:
+    mov byte [vp_xlno], 0           ; (vp_xlag asks again, each play)
     call OSAPI_GET_TICKS
     mov [vp_t0], ax
     call vp_rsay                    ; (said before the first frame)
@@ -14618,6 +14684,8 @@ vp_main:
     jnc .loop                       ; (VIDEO-XMS-PLAN 4.1)
 .nbk:
     call vp_lyread                  ; THE LAYER, with the disk free (98.1.9)
+    jnc .loop
+    call vp_xlag                    ; ...or the HOLD, behind the stream
     jnc .loop
     call vp_wthumb                 ; (in the window, the thumb moves)
     mov al, FSXW_FRAME              ; nothing to read yet: give the period
@@ -22787,6 +22855,8 @@ vp_hxp:       dw 0                  ; ...and its prefill, KB (0: 10 s at its
                                     ; mean, FFFFh: the bank whole)
 vp_pfok:      db 0                  ; 1: the next ring fill is a session's first
 vp_pfwait:    db 0                  ; 1: the prefill holds when done (a gate's)
+vp_xlno:      db 0                  ; 1: vp_xlag put nothing up, this play
+vp_xsbnc:     dw 0                  ; vp_xstep's buffer: vp_xlag's bounce
 vp_bhold:     db 0                  ; 1: the bracket's loop banks no further,
                                     ; the prefill and a pause still do (a gate's)
 vp_pfn:       dw 0                  ; the prefill's slots

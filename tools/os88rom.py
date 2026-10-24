@@ -412,7 +412,7 @@ def kernel_tables(build, variant):
         ksrc = f.read()
     kseg = int(re.search(r"^KERNEL_SEG\s+equ\s+(0x[0-9A-Fa-f]+)",
                          ksrc, re.M).group(1), 16)
-    vst = cold_vstart(ksrc, variant)
+    vst = cold_vstart(amap)
     for what, off in (("`.cold`", cst - tst), ("`.ovl`", wst - tst)):
         if off % 16:
             fail(f"{what} does not start on a paragraph past `.text`")
@@ -573,18 +573,20 @@ def kernel_tables(build, variant):
             "text": text, "skipwords": sorted(skip)}
 
 
-def cold_vstart(ksrc, variant):
-    """kernel.asm's COLD_VSTART for this variant: kern_big's is HMA_COLD_AT
-    (the top of the HMA, docs/plans/HMA-PLAN.md 5), kern_small's 0x10."""
-    if "KERN_SMALL" in variant:
-        vst = int(re.search(r"^COLD_VSTART\s+equ\s+(0x[0-9A-Fa-f]+)",
-                            ksrc, re.M).group(1), 16)
-    else:
-        # TWO lines: a knob kernel's first (inside %ifdef KERN_KNOB), the
-        # shipped one's second - kernel.asm says why
-        knob, ship = [int(v, 16) for v in re.findall(
-            r"^HMA_COLD_AT\s+equ\s+(0x[0-9A-Fa-f]+)", ksrc, re.M)]
-        vst = knob if "KERN_KNOB" in variant else ship
+def cold_vstart(maptext):
+    """`.cold`'s vstart, read off the ASSEMBLY'S OWN MAP rather than out of
+    kernel.asm's text: kern_big's is HMA_COLD_AT (the top of the HMA,
+    docs/plans/HMA-PLAN.md 5), kern_small's 0x10, a knob kernel's the first
+    of HMA_COLD_AT's two lines, kern_mega's 0x80. Every one of those is a
+    `COLD_VSTART equ` inside a different `%ifdef`, and a regex that took the
+    first match in the file read kern_mega's 0x80 for kern_small the day
+    that arm was written above it - so every site then failed as `not
+    COLD_SEG` by exactly 7 paragraphs. nasm has already chosen the arm."""
+    m = re.search(r"^\s*([0-9A-F]+)\s+[0-9A-F]+\s+[0-9A-F]+\s+[0-9A-F]+"
+                  r"\s+progbits\s+\.cold\s*$", maptext, re.M)
+    if not m:
+        fail("the kernel's map has no `.cold` section")
+    vst = int(m[1], 16)
     if vst < 0x10 or vst % 16:
         fail(f"COLD_VSTART is {vst:#x} - it must be a paragraph, at least "
              f"0x10: FFFF:0000-000F is the BIOS's, and in ROM the header is "

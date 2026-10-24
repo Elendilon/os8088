@@ -124,6 +124,15 @@ VISIT = ("osapi_file_goto", "osapi_file_goto_qm", "dwf_dskw_read",
          "dwf_dskw_read_at", "dwf_dskw_write")
 
 
+def whole(hits, after):
+    """Has the trace a whole visit after `after` (visit's own rule)?"""
+    try:
+        visit(hits, after, after)
+        return True
+    except SystemExit:
+        return False
+
+
 def visit(hits, c0, after):
     """(c0 to the visit's end, the visit's own length), GUEST seconds. A
     visit to NOTES starts at its first stand after `after` (OSAPI_FILE_GOTO
@@ -260,8 +269,11 @@ class Note(object):
             mo._edge(True)
             mo._edge(False)
             self.until(cond, what, guest)
-            os88marty.guest_sleep(self.m, 1.0)  # the visit's leave, if a poll
-        return visit(tr.hits, c0, c0)           # saw the head before it
+            # ...and the visit's LEAVE, which a poll can see the head before:
+            # waited for by name rather than a guest second, which a late
+            # write once outran (the stand home after it was never traced)
+            tr.until(lambda: whole(tr.hits, c0), "the visit's leave")
+        return visit(tr.hits, c0, c0)
 
 
     def volume(self, name="flushed.img"):

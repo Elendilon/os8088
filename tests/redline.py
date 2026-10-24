@@ -309,9 +309,17 @@ def native(machine):
         ui.mo.to((x1+x2)//2, (y1+y2)//2)
         ui.mo._sep()
         ui.mo._edge(True)
-        ui.m.advance(frames=8)
+        # the press is taken by the UI task's next pass, which no fixed frame
+        # count promises (8 frames came up short in a soak): step until the
+        # button reads pressed, bounded at 2 guest seconds
+        pressed = lambda: struct.unpack(
+            '<H', ui.m.read(p.addr('ru_buttons')+10, 2))[0] == 2
+        for _ in range(60):
+            if pressed():
+                break
+            ui.m.advance(frames=2)
         assert p.data('ru_view') == b'\0', 'Detailed fired on press'
-        assert struct.unpack('<H', ui.m.read(p.addr('ru_buttons')+10, 2))[0] == 2
+        assert pressed(), 'the press never reached the Detail button'
         ui.m.run()
         ui.mo.to(x1, y1-12)
         ui.mo._edge(False)

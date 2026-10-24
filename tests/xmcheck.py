@@ -317,8 +317,14 @@ def wait_desktop(sock, who="xmcheck"):
     m = Mem(sock)
 
     def zone():
+        # ...AND ui_task ASLEEP WITH NOTHING QUEUED. The zone alone can be
+        # read out of RAM the boot has not written yet - drv_boot_x runs, and
+        # fills a driver's drv_tab row, before desk_rowcalc lays the desktop
+        # out, and a first look in that window has read desk_rows as 33031 -
+        # while ui_idle cannot hold before kmain has become ui_task.
         try:
-            return dispcp.drive_ordinal(m, sym, "B") is not None
+            return (dispcp.drive_ordinal(m, sym, "B") is not None
+                    and os88qemu.ui_idle(m, sym))
         except Exception:                   # noqa: BLE001 - not answering yet
             return False
     if not os88qemu.acted(m, zone, secs=90, what="drive B's zone", poll=0.05):

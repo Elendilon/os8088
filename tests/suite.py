@@ -9518,17 +9518,21 @@ SOAK = [
         "SPEC.md 20.15.3, 22.22.1, 54.3.2: File > Uncompress and Compress "
         "on the packages whose CLEAR PREFIX carries the 16-byte document "
         "glyph (flags 0x2B), which lzcomp's CALC.O88 (flags 0x09) cannot "
-        "reach. DOS.O88 and VIDEO.O88 go on a scratch B: exactly as the "
-        "build ships them - LZ4 - and each goes round Uncompress (== "
+        "reach. DOS.O88 goes on a scratch B: exactly as the "
+        "build ships it - LZ4 - and goes round Uncompress (== "
         "os88pkg.image_unwrap of the shipped file, byte for byte), a launch, "
         "Compress (== pkg_want's LZB bytes), Uncompress again and a second "
-        "launch; B: is read back on the host. Both verbs ask ONE ladder, "
+        "launch; B: is read back on the host. VIDEO.O88 was the second "
+        "subject until it gained PARTS (flags 0x2F): neither verb takes a "
+        "parted package, so it is asked for both REFUSALS with the file "
+        "byte-identical to what shipped, and launched - a verb that wrote "
+        "there would drop its parts. Both verbs ask ONE ladder, "
         "cmz_cpre, and Uncompress once carried a copy that stopped at the "
         "association block. VERIFIED RED with that copy put back (bit 5 "
         "masked at Uncompress's ask, in a copy of the tree, the row run from "
-        "it): both packages answer `Cannot expand this one` and every byte "
+        "it): DOS.O88 answers `Cannot expand this one` and every byte "
         "leg fails; the launch legs stay green, the file being left as it "
-        "shipped. 63s measured",
+        "shipped. 57s measured",
         needs=("marty",), serial=True),
     Row("lzbig", "soak", py("tests/lzbig.py"), 400.0,
         "SPEC.md 20.15.4 and 22.22.4: File > Compress and Uncompress on "
@@ -10019,7 +10023,11 @@ SOAK = [
         "reading 'Too big', which is the field report exactly. It builds its "
         "own kern_small into a private tree, and the row is on the SMALL "
         "kernel because that is where the heap is tight enough to reach it - "
-        "the defect is in kern_big's mem_regrow too",
+        "the defect is in kern_big's mem_regrow too. The fixture needs 24 "
+        "clusters and the small system disk carries the whole apps payload "
+        "(24.5.6), so the largest GAMES/ packages come off the row's own "
+        "copy until it fits - WireFleet's arrival left 12 and the add died "
+        "before the boot",
         needs=("marty",), serial=True),
     Row("npscroll", "soak", py("tests/npscroll.py"), 60.0,
         "SPEC.md 27.7.6.1/27.7.2: scrolling a note whose height is still being"
@@ -15001,17 +15009,20 @@ SOAK = [
         "(vm/286-mega-cdrom: the mr286 with an IDE CD-ROM holding "
         "build/cdaudio.cue). CDRack started in protected mode lands above "
         "1MB and plays - its own cr_play PLAYING and cr_secs advancing - "
-        "and the menu bar's speaker opens the quick volume, whose Open "
-        "Mixer... starts MIXER.O88 above 1MB reading the card; the fault "
+        "and the menu bar's speaker opens the quick volume (SOUND.DRV's "
+        "[volume_live]), and MIXER.O88 from B:\\APPS - the popup has no "
+        "launcher since 34.15's #300 - starts above 1MB reading the card; "
+        "the fault "
         "log charges no exception to a loaded image. Red with CDROM.DRV "
         "from before 14.68 (--cdrom): its 0:046C tick traps on every poll "
         "and its paragraph fold of ES:DI is #GP 9CF4, a kern_mega FAULT; "
         "red with that SOUND.DRV (--sound): the speaker opens nothing. "
         "86Box by name: Bochs plays no CD audio and MartyPC is an 8088. "
-        "20s is 12 measured (it was 34 before the boot gate)",
+        "20s is 17 measured (12 before step 4 opened B:\\APPS; 34 before the boot gate)",
         needs=("86box",),
-        wants=("build/megacdtest.img", "build/cdaudio.cue",
-               "build/cdrack.bin", "build/mixer.bin", "build/cdrom.bin")),
+        wants=("build/megacdtest.img", "build/megaapps.img",
+               "build/cdaudio.cue", "build/cdrack.bin", "build/mixer.bin",
+               "build/cdrom.bin", "build/sound.bin")),
     Row("megarehome", "soak", py("tests/megarehome.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.44, 14.48, SPEC.md 20.12.10.9: a "
         "RE-HOMED program whose own header says OS88_HIGH runs above 1MB on "
@@ -16609,7 +16620,10 @@ SOAK = [
     Row("dmgcull", "soak", py("tests/dmgcull.py"), 50.0,
         "SPEC.md 11.3.3: a marked window does not paint where something above "
         "it is about to - 452 cells under the mover became 26. Counts CELLS "
-        "and not calls, because a culled cell is still a call.",
+        "and not calls, because a culled cell is still a call. The memory "
+        "page is put in +ALL and +DETAIL first: since 28.4.10 it opens three "
+        "rows long, all under the mover, and DREW read 0 for a cull doing "
+        "its job.",
         needs=("marty",), serial=True),
     Row("tmdmg", "soak", py("tests/tmdmg.py"), 40.0,
         "SPEC.md 28.10.2: a partial repaint of the Task Manager draws only "

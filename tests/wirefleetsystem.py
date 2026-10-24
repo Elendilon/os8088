@@ -252,7 +252,16 @@ def sounds():
             M.pace(m,.5)
             m.pause()
             returned=(seg<<4)+sy['wf_soundnote.out']
-            m.bp_exec(m.sym('osapi_snd_tone'),returned)
+            # The grant is read INSIDE the router, at the point its IF=0
+            # window has stamped the owner record and keyed the hardware -
+            # not at the return. A note is 1-2 ticks (SPEC.md 34.3's
+            # self-expiry), and on a card the grant's own window is OPL
+            # register writes long enough that IRQ0 is often PENDING when it
+            # closes: the tick is taken at the router's popf and a 1-tick
+            # note has expired, correctly, before control reaches the caller.
+            # Read at the return, that legal expiry looked like a refusal.
+            granted=m.sym('snd_tone_req.granted')
+            m.bp_exec(m.sym('osapi_snd_tone'),granted,returned)
             m.key('KeyY')
             m.run()
             notes=[]
@@ -262,7 +271,9 @@ def sounds():
                 notes.append(r['ax'])
                 assert r['ax']==hz and r['cx'] in (1,2),r
                 m.run()
-                assert m.wait_stop(20)=='breakpoint' and m.regs()['cs']==seg
+                assert m.wait_stop(20)=='breakpoint'
+                # a refusal never reaches .granted: it stops at the return
+                assert m.regs()['cs']!=seg,'router refused cue'
                 assert m.read(m.sym('snd_town_act'),1)==b'\1','router refused cue'
                 if backend=='speaker':
                     assert m.inb(0x61)&3==3,'speaker gate never opened'
@@ -272,6 +283,9 @@ def sounds():
                     driverseg=int.from_bytes(m.read(m.sym('drv_tab')+2,2),'little')
                     assert driverseg,'sound driver not loaded'
                     assert m.readseg(driverseg,ds['opl_b0']+8,1)[0]&32,'FM tone never keyed'
+                m.run()
+                assert m.wait_stop(20)=='breakpoint' and m.regs()['cs']==seg
+                assert not m.regs()['flags']&1,'router refused cue'
                 m.run()
             m.pause()
             m.bp_exec()
@@ -304,7 +318,7 @@ def sounds():
             ui.close(w)
             assert m.read(m.sym('snd_town_act'),1)==b'\0'
             print('wirefleetsystem:',backend,'Ready tones',notes,'finite; music',
-                  ('melody','FM')[want-1],'rows on; mute and close')
+                  ('FM','melody')[want-1],'rows on; mute and close')
 
 
 if __name__=='__main__':

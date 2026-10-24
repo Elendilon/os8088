@@ -2818,6 +2818,21 @@ kbm_isr:
 %ifdef KBD_DIAG
     call kbg_pre                ; KBDDIAG=1 (SPEC.md 9.8.1): the 8042's status
 %endif                          ; and the BIOS buffer, before anything reads
+%ifdef KERN_MEGA
+    ; ONLY A KEYBOARD BYTE THAT IS THERE (KERN-MEGA-PLAN 14.62.1). mega_k09,
+    ; this kernel's ROM half, reads port 60h unconditionally, and an IRQ1
+    ; whose byte a POLL already took reads the data register's STALE byte.
+    ; The DOS handoff polls with IRQ1 open at the PIC (mega_d8042get's 20h,
+    ; hbm_dosrun's drain), Bochs delivered such an IRQ1 once in ~30 launches,
+    ; and the stale byte was the command byte, 43h: F9 in 40:1E, so the DOS
+    ; program's first key read `4300`. An AUX byte (status bit 5) is no scan
+    ; code either. Asked HERE, before the peek below clears OBF; neither case
+    ; is a key, so EOI and leave the buffer as it is
+    in  al, 0x64
+    and al, 0x21                ; OBF, and not the AUX device's
+    cmp al, 0x01
+    jne .selfchain
+%endif
     call sch_wake_ui            ; A KEYSTROKE WAKES THE UI TASK (SPEC.md
                                 ; 8.1.2.2). Here at the head and not after the
                                 ; chain below, because the chain is a `jmp far`
