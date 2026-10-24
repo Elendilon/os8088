@@ -2444,13 +2444,20 @@ asc_s_name: db 'ASSOC   DAT'    ; the RAW 8.3 form: this walks directory
 ; asc_reloc - the compactor moved the cache (SPEC.md 66.2). ONE WORD: every
 ; reader loads ES from [asc_seg] immediately before a short in-memory burst,
 ; and the only disk read that targets the cache is the one that FILLS it,
-; which dsk_xfer pins for the duration (SPEC.md 66.3 rule 5).
+; which dsk_xfer pins for the duration (SPEC.md 66.3 rule 5). On kern_mega;
+; everywhere else [asc_seg] is a mem_rr_tab ROW (memory.inc, kernel size pass
+; 14) and this name is the walk's `ret` - exact, because asc_use's one exit
+; zeroes the word BEFORE it frees the claim, which lives one call.
+%ifdef KERN_MEGA
 asc_reloc:
     cmp bx, [asc_seg]
     jne .out
     mov [asc_seg], dx
 .out:
     ret
+%else
+asc_reloc   equ mem_rr_none
+%endif
 
 asc_seg:  dw 0                  ; the claim, 0 = none (refused, or not yet)
 asc_n:    dw 0                  ; app rows in it, 0 = no usable cache

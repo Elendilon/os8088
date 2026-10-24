@@ -6809,12 +6809,16 @@ section .text                   ; **.text AND NOT .cold**, and nothing static
                                 ; compacts at the end of kmain and the window
                                 ; is the first thing it moves
 %ifdef OS88_COMPACT             ; (kern_small and kern_dos move nothing,
-dsk_rah_reloc:                  ; SPEC.md 66.0: no proc to declare)
-    cmp bx, [dsk_rah_seg]
-    jne .out
-    mov [dsk_rah_seg], dx
-.out:
-    ret
+%ifdef KERN_MEGA                ; SPEC.md 66.0: no proc to declare)
+dsk_rah_reloc:                  ; ...and only kern_mega keeps a proc: its
+    cmp bx, [dsk_rah_seg]       ; word can hold an LDT SELECTOR ([dsk_rah_hi]),
+    jne .out                    ; which a table walk comparing every word with
+    mov [dsk_rah_seg], dx       ; every moved base must not see. Elsewhere it is
+.out:                           ; a mem_rr_tab row (memory.inc, kernel size
+    ret                         ; pass 14) - exact, because the word is zeroed
+%else                           ; at its one free (dsk_rah_redo) and by the
+dsk_rah_reloc equ mem_rr_none   ; shed's mem_pg_own protocol
+%endif
 %endif
 section .cold                   ; ...and back, or every routine below joins it
 
@@ -9370,12 +9374,20 @@ section .text                   ; ...AND THE KERNEL SEGMENT FOR BOTH OF THESE
 ; outside. assoc.inc's asc_reloc is in `.text` for exactly this reason.
 ; -----------------------------------------------------------------------------
 %ifdef OS88_COMPACT
-ico_reloc:
-    cmp bx, [ico_seg]
-    jne .out
-    mov [ico_seg], dx
-.out:
-    ret
+%ifdef KERN_MEGA                ; kern_mega alone keeps the proc: its
+ico_reloc:                      ; mem_hicaches_f swaps [ico_seg] for a pool
+    cmp bx, [ico_seg]           ; SELECTOR, which a table row must not compare.
+    jne .out                    ; Elsewhere the word is a mem_rr_tab row
+    mov [ico_seg], dx           ; (memory.inc, kernel size pass 14) - exact:
+.out:                           ; the store is never freed but by a shed, and
+    ret                         ; ico_demote zeroes the word in that same
+%else                           ; protocol
+ico_reloc   equ mem_rr_none
+    db 0                        ; PARITY PAD, never executed or read: `.text`
+%endif                          ; from here to its end lost an odd 11, and an
+                                ; odd `.text` starts `.bss` - every word in it
+                                ; - on an odd address (dsk_ico's `align 2`
+                                ; above evens out everything before it)
 %endif
 
 %ifdef OS88_IMG

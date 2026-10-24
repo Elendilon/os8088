@@ -731,10 +731,13 @@ inst_seg_parked:
 .cf:
     pop di
     retf
-%ifdef OS88_COMPACT
+%ifdef KERN_MEGA
     nop                         ; PARITY PAD, never executed: K9's test above
 %endif                          ; is 7 bytes and the routines below keep an
-                                ; EVEN shift (t_hotpar.py)
+                                ; EVEN shift (t_hotpar.py) - on kern_mega; the
+                                ; other compacting kernels are back even by
+                                ; mem_rr_tab's four new rows less menu_reloc
+                                ; (kernel size pass 14)
 ; -----------------------------------------------------------------------------
 ; inst_svc_parked - has every DRIVER worker parked? (SPEC.md 66.5.5) - INLINE,
 ; in inst_seg_parked's .drv arm above (size pass 9)

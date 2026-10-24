@@ -2728,6 +2728,9 @@ mem_rr_walk:
     jmp short .row
 .done:
     ret
+mem_rr_none equ mem_rr_walk.done ; the relocation proc of a claim whose word
+                                ; is a ROW above: nothing left to do (kernel
+                                ; size pass 14)
 
 ; -----------------------------------------------------------------------------
 ; mem_region_reloc - THE KERNEL'S HALF of a package REGION's move (SPEC.md 66.6)
@@ -2951,6 +2954,23 @@ mem_rr_tab:
                                     ; into its image (kernel/vidext.inc, SPEC.md
                                     ; 120.3.2): a moved image is otherwise
                                     ; called at its OLD address
+%endif
+%ifndef KERN_MEGA
+    ; FOUR KERNEL WORDS whose relocation procs were `cmp bx, [w] / jne /
+    ; mov [w], dx / ret`, eleven bytes each against a four-byte row (kernel
+    ; size pass 14). Each declares itself movable with mem_rr_none, the walk's
+    ; own `ret`, and is EXACT because its word is 0 whenever its claim is
+    ; gone: the free paths zero it (menu_drop's and stm_shut's xchg,
+    ; dsk_rah_redo's store, asc_use's exit, which zeroes before it frees)
+    ; and mem_shed_one zeroes the caches' through mem_pg_own,
+    ; so it never holds a base that is not its own live claim. Not on
+    ; kern_mega, where [ico_seg] and [dsk_rah_seg] can hold a SELECTOR
+    MEM_RR_ONE menu_sseg
+    MEM_RR_ONE ico_seg
+    MEM_RR_ONE dsk_rah_seg
+%ifdef OS88_ASSOC
+    MEM_RR_ONE asc_seg              ; ASSOC.DAT's one-call file buffer
+%endif
 %endif
     dw 0
     ; --- ES = LOW_SEG (SPEC.md 2.6) --------------------------------------
