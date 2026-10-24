@@ -368,17 +368,24 @@ mou_errt    dw -MOU_ERRQ, -MOU_ERRQ ; ...[ticks] at each port's last framing
 ; every task stack in the machine is the trade, and it is not close.
 ; -----------------------------------------------------------------------------
 %ifndef NO_MOUPRIV
-%ifdef VID_EXT
-MOU_PSTK    equ 256             ; ...AND TWICE THAT WITH THE EXTERNAL RENDERER
-                                ; (SPEC.md 120.3.3): the driver draws the arrow
-                                ; from this stack and a VBE window switch is an
-                                ; `int 10h`, whose BIOS frame the 54-byte chain
-                                ; never had to hold. 128 bytes of .lowbss,
-                                ; kern_big alone
-%else
 MOU_PSTK    equ 128             ; 2.4x the 54 the chain measures on the deepest
-%endif
-                                ; adapter. Nothing can interrupt this stack -
+                                ; adapter - and WITH the external renderer too,
+                                ; though there the driver draws the arrow from
+                                ; this stack and a VBE window switch is an
+                                ; `int 10h`, whose BIOS frame the 54-byte chain
+                                ; never had to hold (SPEC.md 120.3.3). It was
+                                ; 256 under VID_EXT for that, 128 bytes of
+                                ; .lowbss on every kern_big; since kernel size
+                                ; pass 14 vid_rowtab lies directly under it,
+                                ; and the row table is read by nothing while
+                                ; the display is packed - every body that
+                                ; would use a row is hooked - so a packed
+                                ; display's arrow may run on into those 696
+                                ; bytes, which vid_apply rebuilds whole when
+                                ; the desktop leaves VID_VESA (AFTER
+                                ; vid_depth_set has put [vid_planes] back to 4
+                                ; or 1, so no deep ISR can follow it).
+                                ; Every other kind stays inside the 128. Nothing can interrupt this stack -
                                 ; the ISR holds IF=0 throughout - so 54 is the
                                 ; whole answer and not a sample, and the margin
                                 ; is against a future cur_move rather than
@@ -1177,9 +1184,13 @@ mou_claim:
     sub ax, [bx+mou_errt]       ; MOU_ERRQ ticks (SPEC.md 9.5.6): a cable's
     cmp ax, MOU_ERRQ            ; stream at another baud rate decodes as
     jae .count                  ; packets now and then - on a ONE-port
-    mov [bx+mou_run], ah        ; machine, where one packet settles, within
-    jmp short .out              ; its first frame. AH is 0 here (AX < 36).
-                                ; Wrap-safe, like [ticks]. 18 bytes, EVEN
+    mov byte [bx+mou_run], -1   ; machine, where one packet settles, within
+                                ; its first frame. Wrap-safe, like [ticks].
+                                ; -1, so the `inc` below makes the run 0 and
+                                ; the compare after it - [mou_need] is never
+                                ; 0 - leaves by .out: the zeroing and the exit
+                                ; in one store (kernel size pass 14, -1; 17
+                                ; bytes, and mouse_unhook's pad went with it)
 .count:
     inc byte [bx+mou_run]
     mov al, [bx+mou_need]       ; 1 where the probe found one port, MOU_LOCKN
@@ -1480,8 +1491,9 @@ mouse_unhook:
     pop es
     pop si
     jmp kret_cx
-
-    db 0                       ; PARITY: serial cleanup added five bytes above
+                                ; (no PARITY pad: serial's five bytes above
+                                ; are evened by mou_claim's -1, kernel size
+                                ; pass 14)
 
 ; mou_vset - ES:SI = CX:AX, the one IVT write the three restores above share,
 ; under pushf/cli so no interrupt can take the vector half-written.
@@ -2227,10 +2239,10 @@ mou_p2_isr:
                                 ; never fires" are different faults and look
                                 ; identical from anywhere else (SPEC.md 9.9.6)
     in  al, MOU_P2CMD
-    test al, 0x01               ; anything in the buffer at all?
-    jz .eoi
-    test al, 0x20               ; ...and is it the AUXILIARY device's?
-    jz .eoi
+    and al, 0x21                ; anything in the buffer at all, and is it
+    cmp al, 0x21                ; the AUXILIARY device's? Both bits in one
+    jne .eoi                    ; compare (kernel size pass 14: -2, and 4
+                                ; clocks faster when a byte is there)
     in  al, MOU_P2DAT           ; ...and THIS read is what drops the request
     call mou_p2_byte
 .eoi:
@@ -3520,13 +3532,8 @@ mou_isr_body:
     mov dx, [bx+mou_bases]
     or  dx, dx
     jz .next                    ; the probe rejected this row
-    cmp bx, [ser_row]
-    jne .mouse
-    push bx
-    call far [SERFP+SER_IRQ]    ; capture before any mouse read of this UART
-    pop bx
-    jmp short .next
-.mouse:
+    cmp bx, [ser_row]           ; the leased UART is SERIAL.DRV's: out of
+    je mou_isr_ser              ; line, so a mouse port falls through
     add dx, 5
     in  al, dx                  ; LSR: is anything waiting here?
 %ifdef MOU_DIAG
@@ -3556,12 +3563,36 @@ mou_isr_body:
     inc bx
     cmp bx, MOU_PEND
     jb .scan
-    jmp mou_eoi
-%ifndef NO_MOUPRIV
- %ifndef KERN_MEGA
-    nop                         ; PARITY PAD, never executed (14.39, as above)
- %endif
-%endif
+                                ; ...and on into mou_eoi, which is HERE so
+                                ; that the serial ISR's exit is a fall and
+                                ; not a jump (kernel size pass 14: -3, and
+                                ; 15 clocks off every IRQ3/IRQ4)
+mou_eoi:
+    mov al, 0x20                ; EOI - the BIOS handles neither IRQ4 nor
+    out 0x20, al                ; IRQ3 for us, and both are on the master
+                                ; (mou_p2_isr joins here too, IRQ12's slave
+                                ; EOI already sent, with the frame in this
+                                ; order)
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    pop bx
+    MOUPRIV_LEAVE               ; ...and back to the task's, whose only cost
+    iret                        ; was the CPU's own six bytes
+
+mou_isr_ser:                    ; mou_isr_body's leased row, out of line:
+    call far [SERFP+SER_IRQ]    ; capture before any mouse read of this UART;
+    jmp short mou_isr_body.next ; BX, the index, comes back (srl_irq)
+%ifdef KERN_MEGA
+ %ifndef NO_MOUPRIV
+    nop                         ; PARITY PAD, never executed (kern_mega's
+ %endif                         ; ENTER is the size it was, so its arm is
+%endif                          ; the odd one here)
 
 ; -----------------------------------------------------------------------------
 ; mou_byte - one received byte, from port BX
@@ -4077,26 +4108,10 @@ mou_apply:
 .out:
     ret
 
-mou_eoi:
-    mov al, 0x20                ; EOI - the BIOS handles neither IRQ4 nor
-    out 0x20, al                ; IRQ3 for us, and both are on the master
-                                ; (mou_p2_isr joins here too, IRQ12's slave
-                                ; EOI already sent, with the frame in this
-                                ; order)
-    pop es
-    pop ds
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    pop bx
-    MOUPRIV_LEAVE               ; ...and back to the task's, whose only cost
-    iret                        ; was the CPU's own six bytes
 %ifndef NO_MOUPRIV
-    nop                         ; PARITY PAD, never executed (14.39: LEAVE
-%endif                          ; grew five)
+    nop                         ; PARITY PAD, never executed: mou_eoi used to
+%endif                          ; stand here (kernel size pass 14 moved it
+                                ; under mou_isr_body, which now falls into it)
 
 %ifdef GFXAUDIT
 ; cur_logput - one ring entry: the tag, the refcount, and where the pixels are
@@ -4236,10 +4251,10 @@ cur_vis:
 ; -----------------------------------------------------------------------------
 cur_put_1:
 %ifdef GFX_VGA                  ; ...AND ONLY A KERNEL WITH A VGA HAS A SIDE TO
-    cmp byte [vid_mono], 0      ; DISPATCH TO: kern_small's [vid_kind] is a
-    jne cur_put_mono            ; CGA or a Hercules for the life of the machine
-    VIDEXT VX_CURPUT            ; a packed display: the driver's whole cycle
-                                ; (SPEC.md 120.3.3) - save under and draw
+    VIDEXTM VX_CURPUT, cur_put_mono ; DISPATCH TO: kern_small's [vid_kind] is
+                                ; a CGA or a Hercules for the life of the
+                                ; machine. A packed display: the driver's whole
+                                ; cycle (SPEC.md 120.3.3) - save under and draw
     call cur_geom               ; (SPEC.md 39.27.1), so [vid_mono] is 1 before
     call cur_saveu              ; the first arrow is drawn and the planar half
     jmp cur_draw                ; was never reached there. The label FALLS
@@ -4316,9 +4331,9 @@ cur_put_mono:
 
 cur_get_1:
 %ifdef GFX_VGA                  ; cur_put_1's reason: the planar half and its
-    cmp byte [vid_mono], 0      ; dispatch are a VGA kernel's alone, and on
-    jne cur_get_mono            ; kern_small this falls into cur_get_mono
-    VIDEXT VX_CURGET            ; a packed display: the driver puts back what
+    VIDEXTM VX_CURGET, cur_get_mono ; dispatch are a VGA kernel's alone, and
+                                ; on kern_small this falls into cur_get_mono.
+                                ; A packed display: the driver puts back what
                                 ; its own put banked (SPEC.md 120.3.3)
     ; fall through to cur_restoreu
 
@@ -5227,10 +5242,10 @@ cur_move:
 cur_move_1:
     CURLOG 'm'                  ; ...from HERE (cur_drawn is still the old one)
 %ifdef GFX_VGA                  ; cur_put_1's reason: kern_small falls straight
-    cmp byte [vid_mono], 0      ; into cur_move_mono, every move a compare
-    jne cur_move_mono           ; and a taken jump cheaper
-    VIDEXT VX_CURMOVE           ; a packed display: AX/BX = the new position,
-                                ; the driver restores, stores, saves and draws
+    VIDEXTM VX_CURMOVE, cur_move_mono, pad ; into cur_move_mono, every move a
+                                ; compare and a taken jump cheaper. A packed
+                                ; display: AX/BX = the new position, the
+                                ; driver restores, stores, saves and draws
     mov [cur_drawn_x], ax       ; planar: the save is four planes through Read
     mov [cur_drawn_y], bx       ; Map Select and cannot take a background from
     call cur_restoreu           ; a buffer, so it stays erase-then-draw. The
@@ -6224,9 +6239,19 @@ resb (2 - (($-$$) % 2)) % 2     ; even, so SP is even across the swap. `alignb`
                                 ; spelled out - NASM refuses the macro form
                                 ; against this nobits section (sch_stacks'
                                 ; declaration carries the same note)
+%ifdef VID_ROWTAB_MOU
+vid_rowtab  resw VID_ROWTAB     ; viddet.inc's row table, declared HERE so the
+                                ; stack below runs on into it on a packed
+                                ; display (MOU_PSTK's note)
+%endif
 mou_pstack  resb MOU_PSTK       ; the mouse ISR's own stack (MOUPRIV_ENTER).
                                 ; .lowbss and not .bss: SS is LOW_SEG for every
                                 ; task and the swap moves SP alone
+%ifdef VID_ROWTAB_MOU
+%if mou_pstack - vid_rowtab != VID_ROWTAB * 2
+  %error "vid_rowtab must lie directly under mou_pstack: a packed display's arrow runs on into it (SPEC.md 120.3.3)"
+%endif
+%endif
 section .bss
 mou_psave   resw 1              ; the task's SP across it, reached through CS at
                                 ; entry because DS is not ours yet

@@ -1193,3 +1193,33 @@ PWM setup 12, channel 0 5, **the AX + DX:BX return** 9.
 (~−178) stays refused for READ_SEQ's reason (HANDOFF-KERNEL-SIZE-P6.md §2) -
 `mod_need` loads only from the boot volume, so a video on a data disk would
 ask for the system disk.
+
+### 7.12 A fourteenth blob sector on kern_big - ~200-270 resident bytes, DECLINED FOR BOOT TIME
+
+Priced by kernel size pass 14's `reach` agent (`docs/plans/completed/ksp14/reach.md`,
+WANTS THE OWNER 2), ESTIMATED. After that pass's vesa agent took kern_big's
+blob from 12 sectors to 13 (`vx_boot_x` and `vx_blk` into it, -178), and
+`reach` filled it with `vid_apply`'s boot copy and `mod_init`'s loop, the
+blob had **61 bytes** spare. A fourteenth sector would admit the boot-only
+bodies still resident for want of room:
+
+| body | resident bytes | where its callers are |
+|---|---:|---|
+| `desk_rowcalc_x` | ~100 (kern_small ~123 with `desk_reflow`/`desk_live`) | the blob, `CTRL.DRV`, `.ovl`'s `desk_init` - needs `.ovl` room too |
+| `vid_tab`'s four constant rows | ~72 | the three `vid_apply` copies (the VESA row stays DS-addressable) |
+| `vid_ctx_capture` | ~29 | needs a blob copy of ~49 |
+| `vgcf_boot` | ~21 | one caller, `driver.inc`'s blob path |
+| `exf_sync` | ~46 | one caller, `driver.inc`'s blob path, plus `CTRL.DRV` |
+
+**What it costs**: `python3 tests/unit/t_blobruns.py --sectors 14` prices one
+more `int 13h` for the blob AND one more for the kernel read on both 360 KB
+and 720 KB disks - **~0.4-0.8 s of a 5150 boot**, all of it before the user
+sees anything. The owner declined it on exactly that ground: *"We are
+increasing 'time before the user sees anything' a bit much."*
+
+**The free alternative was taken first**: `ovc_buf`'s 163 zero bytes made
+nobits with a `mem_init` reserve covering them (P14 handoff 6, ksp13 xfile's
+WANTS 3), which gives the blob room without a sector; whatever of the table
+above that room did not admit is what this row still buys. Re-price it
+against the blob as it then stands before proposing it again, and price the
+boot time on the 5150 (docs/FIELD-MACHINES.md), not in an emulator.

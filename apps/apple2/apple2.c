@@ -2321,6 +2321,36 @@ void os88_onwake(void *win)
  * literal-only walk - which is how all three over-long toasts shipped - so
  * the gate's TOAST_COMPOSED table carries `line` at 22 and `a2_jamline` at
  * 18, and a composed toast that is in neither fails the build. */
+/* ==========================================================================
+ * os88_onmove - THE COMPACTOR MOVED ONE OF OUR CLAIMS (APPLE2-SPEC 3.1.1,
+ * SPEC.md 66.2). Three movable claims and every word that names one:
+ *
+ *   - the 49KB RAM: a2_m.ramseg, which a2cpu.inc and a2mem.inc load DS/ES
+ *     from at each use;
+ *   - the parts CARVE, which holds the ROM part alone (crt0 stores op_base
+ *     and then calls this with the carve's two bases): a2_m.romseg is re-read
+ *     through os88_part_seg on EVERY call, which is right whichever claim
+ *     moved. The character generator was decoded into a2_chr at launch, so
+ *     no copy of the ROM's segment is kept anywhere else;
+ *   - Paste's 2KB queue, a2_paste_seg (a2io.c).
+ *
+ * THE CORE IS UNTOUCHED. a2_run loads DS from a2_m.ramseg at its door and
+ * zeroes the fetch BOUND there, so its first fetch re-derives the cached
+ * fetch ES from both words. It runs on the UI task - the only task that
+ * compacts (SPEC.md 66.3.1) - with no claim inside it, so a move lands
+ * between two runs and never inside one. Assignments and compares only: this
+ * runs INSIDE the compaction (SPEC.md 66.3 rule 3), and op_seg is arithmetic
+ * on op_base, touching no heap.
+ * ========================================================================*/
+void os88_onmove(unsigned was, unsigned now)
+{
+    a2_m.romseg = os88_part_seg(A2_ROM_PART);
+    if (a2_m.ramseg == was)
+        a2_m.ramseg = now;
+    else if (a2_paste_seg == was)
+        a2_paste_seg = now;
+}
+
 static void a2_refuse_kb(const char *what)
 {
     static char line[26];
@@ -2514,5 +2544,11 @@ void *os88_main(void)
      * against it and the first wake is what starts the machine moving. */
     a2_state = A2_ST_RUN;
     a2_kick = 1;
+    /* THE RAM MAY MOVE FROM HERE ON (APPLE2-SPEC 3.1.1): every claim this
+     * launch makes is made, and a2_m.ramseg is the one word that names it -
+     * os88_onmove keeps it. The parts carve is crt0's to declare, once this
+     * returns (CC_ONMOVE_PARTS), and the overlay part is crt0's own claim
+     * with crt0's own proc (SPEC.md 73.14.2.1). */
+    os88_mem_movable(a2_m.ramseg, 1);
     return win;                             /* the first paint kicks */
 }

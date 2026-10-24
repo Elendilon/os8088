@@ -40,6 +40,7 @@ import os88mouse                                            # noqa: E402
 import os88sym                                              # noqa: E402
 import dispapps                                             # noqa: E402
 import dispcp                                               # noqa: E402
+import os88geom                                             # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRAMES = 40                             # displayed frames sampled for the floor
@@ -406,6 +407,32 @@ def main(argv):
         if again != 0 or lives != TK_LIVES:
             bad.append("N did not start a fresh game (over=%d lives=%d)"
                        % (again, lives))
+
+        # --- THE SHADOW GOES WITH THE BRACKET (SPEC.md 85.3.5.2) ------------
+        # NO-PINNING A4: the 32 KB claim is the bracket's alone, so F gives
+        # it back - a TANK window on the desktop is not a wall in the heap.
+        # Red with tk_shfree's call taken out of tk_fsx_main: the word stands
+        sh0 = word(m, seg, base, "tk_shseg")
+        m.type_text("f")
+        try:
+            os88marty.until(m, lambda _: word(m, seg, base, "tk_shseg") == 0,
+                            "the shadow given back", poll=0.3, guest=30.0)
+        except os88marty.MartyError:
+            pass
+        sh1 = word(m, seg, base, "tk_shseg")
+        raw = m.read(os88sym.linear("mem_tab"),
+                     os88geom.MEM_MAX * os88geom.MC_SIZE)
+        held = [int.from_bytes(raw[i:i + 2], "little")
+                for i in range(0, len(raw), os88geom.MC_SIZE)]
+        print("  after F: tk_shseg %04x -> %04x, its claim %s"
+              % (sh0, sh1, "still held" if sh0 and sh0 in held else "freed"))
+        if sh0 == 0:
+            bad.append("no shadow was held in the bracket (tk_shseg 0): the "
+                       "leg proves nothing on this backend")
+        elif sh1 != 0 or sh0 in held:
+            bad.append("the shadow outlived the bracket (tk_shseg %04x, "
+                       "claim at %04x %s)" % (sh1, sh0, "held" if sh0 in held
+                                              else "freed"))
 
     if bad:
         for b in bad:

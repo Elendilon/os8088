@@ -50,8 +50,22 @@ mix_speaker:
     db 0F8h,0B6h,0FFh, 0F8h,0B6h,0FFh, 0F8h,0AEh,0FFh, 0FEh,0BDh,0FFh
     db 0FFh,3Bh,0FFh, 0FFh,0BFh,0FFh, 0FFh,0FFh,0FFh, 0FFh,0FFh,0FFh
 
-; CX=bar x, ES:DI=kernel's far bridge. No lock on entry/return.
+; CX=the press's x, DX=the speaker's x, ES:DI=kernel's far bridge. No lock on
+; entry/return. Out: CF = 1 the press was not on the speaker, else CF = 0.
+; The bridge (ui.inc's ui_volume_service) preserves DS and nothing else but
+; what a verb returns (2: AL buttons, CX/DX position): nothing here holds a
+; register across a bridge call, which is what let the kernel stop banking
+; ES/BX/SI/DI/BP for it (kernel size pass 14).
 volume_popup:
+    push ax                     ; THE HIT TEST IS OURS (kernel size pass 14,
+    mov ax, cx                  ; SPEC.md 34.15): CX is the press, DX the
+    sub ax, dx                  ; speaker's left x - handed in on every press,
+    cmp ax, 24                  ; so a re-mounted driver that never drew the
+    pop ax                      ; icon still knows where it is. CF = 1 to the
+    cmc                         ; kernel for a press that is not on our 24
+    jnc .mine                   ; pixels, which opens the Date/Time page
+    ret
+.mine:
     push ax
     push bx
     push cx
@@ -76,7 +90,7 @@ volume_popup:
     mov [volume_bridge], ax
     mov ax, [es:di+2]
     mov [volume_bridge+2], ax
-    mov [volume_iconx], cx
+    mov [volume_iconx], dx
     mov byte [volume_drag], 0
     call OSAPI_VIDEO
     mov [volume_planes], dh

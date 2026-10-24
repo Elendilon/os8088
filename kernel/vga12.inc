@@ -1833,12 +1833,10 @@ vga_b4out:
 ; -----------------------------------------------------------------------------
 gfx_blitd:
 %ifdef VID_EXT
-    cmp byte [vid_ext], 1
-    jne .no
+    cmp byte [vid_planes], 4    ; a packed display (vidext.inc's VIDEXT)
+    jbe .no
     call cur_unlazy             ; off the clip list (SPEC.md 11.3): 7.1.4
-    call vx_call
-    db VX_BLITD
-    ret
+    VXGO VX_BLITD               ; the driver's whole, back to our caller
 .no:
 %endif
     stc
@@ -2007,12 +2005,11 @@ gfx_blit4:
                                 ; GFXDISP (SPEC.md 39.14.7)
 .dsp1:
 %endif
-    VIDEXTC VX_BLIT4, .out      ; a packed display (SPEC.md 120.3): the block
-                                ; is the driver's whole - the gfx_blit_* cells
-                                ; are set, ES:SI and BP are the source - and
-                                ; .out tears down nothing ([gfx_blit_fst] is
-                                ; still 0) but the hook, if one was taken
-%ifdef GFX_VGA
+%ifdef VID_EXT
+    cmp byte [vid_planes], 4    ; ONE compare for the three (SPEC.md 120.3.1):
+    je .vga                     ; planar...
+    ja .vx                      ; ...a packed display, the driver's (at .vx)
+%elifdef GFX_VGA                ; ...and 1bpp falls through, as below
     cmp byte [vid_mono], 0
     je .vga                     ; (no test at all without a VGA in the build:
 %endif                          ; [vid_mono] is 1 by construction there)
@@ -2027,7 +2024,15 @@ gfx_blit4:
     call sw_pairbuild           ; once a boot, from gfx_inktab
 %ifdef GFX_VGA                  ; (with no planar arm between, .slow is the
     jmp short .slow             ; next instruction and the jump is not
-.vga:                           ; assembled)
+                                ; assembled)
+%ifdef VID_EXT
+.vx:                            ; a packed display (SPEC.md 120.3): the block
+    VXCALL VX_BLIT4             ; is the driver's whole - the gfx_blit_* cells
+    jmp .out                    ; are set, ES:SI and BP are the source - and
+                                ; .out tears down nothing ([gfx_blit_fst] is
+                                ; still 0) but the hook, if one was taken
+%endif
+.vga:
     mov byte [gfx_blit_fst], 2  ; 2 = the planar SPAN writer, whose Enable
     push ax                     ; Set/Reset is armed ONCE here and cleared at
     mov dx, VGA_GC              ; .out: only the colour and the bit mask
@@ -2804,12 +2809,6 @@ gfx_blitp:
     stc                         ; the same reason: the guard is INSIDE the
 .exit:                          ; geometry's own push and one is outstanding
     jmp .out
-%ifdef VID_EXT
-    db 0                        ; PARITY, never executed (between a jmp and a
-                                ; jump target): VIDEXTR's seven bytes above
-                                ; are even with it, and font_run keeps its
-                                ; entry parity (tests/unit/t_hotpar.py)
-%endif
 .clipok:
     test al, 7
     jz .xal                     ; x off the byte grid - refused, but for a
@@ -2864,12 +2863,20 @@ gfx_blitp:
     ; OUTSIDE the %endif rather than inside it: GFX_PLANE implies KERN_BIG
     ; today, so both spellings assemble, and this one stays right if that ever
     ; stops being true.
+%ifdef VID_EXT
+    cmp byte [vid_planes], 4    ; FOUR PLANES OR NOTHING: a 1bpp display is 1
+    jne .no                     ; and a packed one its depth, 8 or 16, and both
+                                ; refuse (SPEC.md 120.3.1) - the source is a
+                                ; plane layout neither display has, and Paint
+                                ; keeps its gfx_blit4 fallback for exactly this
+                                ; answer. vid_depth_set writes the bytes
+                                ; together, so this is "not 1bpp" and "not
+                                ; packed" in one compare (kernel size pass 14:
+                                ; VIDEXTR's seven bytes and a parity pad, -8)
+%else
     cmp byte [vid_mono], 0
     jne .no
-    VIDEXTR .no                 ; ...and a packed display refuses too (SPEC.md
-                                ; 120.3.1): the source is a plane layout this
-                                ; display does not have, and Paint keeps its
-                                ; gfx_blit4 fallback for exactly this answer
+%endif
     ; --- the geometry, once for the whole block. (The first version of this
     ; shifted with `mov cl, 3` and then popped x into CX - a count destroyed by
     ; the value it was going to shift, which made the block one byte too wide
@@ -3230,9 +3237,11 @@ gfx_fill_raw:
                                 ; THROUGH below is what a VGA build takes, and
                                 ; there is nothing here to fall into any more
 %else
-    cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
-    jne sw_fill                 ; the renderer - and the flag store is BELOW
+    VXMONO sw_fill              ; 1bpp? then the software renderer IS
+                                ; the renderer - and the flag store is BELOW
     mov byte [vga_xorm], 0      ; this jump, so the 1bpp arm is byte-identical
+                                ; (and `mov` writes no flag: vga_solid_rect's
+                                ; VIDEXTF reads the compare's)
 
 ; -----------------------------------------------------------------------------
 ; vga_solid_rect - the VGA rect body, for gfx_fill_raw AND gfx_xor_fill_raw
@@ -3257,9 +3266,11 @@ gfx_fill_raw:
 ; The 1bpp arm pays nothing.
 ; -----------------------------------------------------------------------------
 vga_solid_rect:
-    VIDEXT VX_FILL              ; a packed display (SPEC.md 120.3): the driver
+    VIDEXTF VX_FILL             ; a packed display (SPEC.md 120.3): the driver
                                 ; fills - or XORs, [vga_xorm] being set by
-                                ; both callers above - and returns to OURS
+                                ; both callers above - and returns to OURS.
+                                ; ENTERED WITH VXMONO's FLAGS: both callers
+                                ; test the depth on the way in
     push ax
     push bx
     push cx
@@ -3441,23 +3452,29 @@ gfx_spans:
     mov [gfx_sp_n], bx
 .rows:
     mov [gfx_sp_y], ax
-%ifdef VID_EXT
-    cmp byte [vid_ext], 0       ; a packed display (SPEC.md 120.3.1): AX is the
-    jz .vxplanar                ; first row, clipped, and the gfx_sp_* cells
-    CURUNLAZY                   ; the list - the hide is owed as below
-    call vx_call
-    db VX_SPANS
-    jmp .done
-.vxplanar:
-%endif
     call gfx_rowbase            ; the ONE row base this call computes
     mov [gfx_sp_row], ax
     CURUNLAZY                   ; unclipped, so this may write any pixel on
 %ifndef GFX_VGA
     jmp sw_spans                ; no VGA: softgfx.inc's row loop is the loop
 %else
+%ifdef VID_EXT
+    cmp byte [vid_planes], 4    ; the screen and a hide is owed (7.1.4)
+    jb sw_spans                 ; 1bpp: softgfx.inc's row loop, then .done
+    je .vga                     ; planar; and a PACKED display (SPEC.md
+    mov ax, [gfx_sp_y]          ; 120.3.1) is the driver's: AX = the first
+    VXCALL VX_SPANS             ; row, clipped, and the gfx_sp_* cells the
+    jmp .done                   ; list. (The row base above is computed for
+                                ; it and not used - a packed display reads no
+                                ; row - which is the price of one compare
+                                ; deciding all three, kernel size pass 14)
+    db 0                        ; PARITY, never executed: font_run and the hot
+                                ; routines after it keep their entry parity
+                                ; (tests/unit/t_hotpar.py)
+%else
     cmp byte [vid_mono], 0      ; the screen and a hide is owed (7.1.4)
     jne sw_spans                ; 1bpp: softgfx.inc's row loop, then .done
+%endif
 .vga:
     mov dx, VGA_GC              ; THE LIST'S, not the row's - four OUTs and a
     mov ah, [gfx_color]         ; GC reset hoisted out of every span but one.
@@ -3609,9 +3626,8 @@ gfx_fill_gray_d:
     NOVGA_ARM gfx_fill_gray_raw, sw_fill_gray
 %else                           ; renderer is not a branch - it is the
 gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray has
-    cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
-    jne sw_fill_gray
-    VIDEXT VX_GRAY              ; ...and a packed display's (SPEC.md 120.3)
+    VIDEXTM VX_GRAY, sw_fill_gray ; 1bpp? then the software renderer IS
+                                ; ...and a packed display's (SPEC.md 120.3)
     push ax
     push bx
     push cx
@@ -3764,9 +3780,8 @@ gfx_fill_pat_d:
     NOVGA_ARM gfx_fill_pat_raw, sw_fill_pat
 %else                           ; renderer is not a branch - it is the
 gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
-    cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
-    jne sw_fill_pat
-    VIDEXT VX_PAT               ; ...and a packed display's (SPEC.md 120.3):
+    VIDEXTM VX_PAT, sw_fill_pat ; 1bpp? then the software renderer IS
+                                ; ...and a packed display's (SPEC.md 120.3):
                                 ; the eight bytes at [gfx_pat], unstaged
     push ax
     push bx
@@ -4043,9 +4058,8 @@ vga_xor_fill_vram:
                                 ; NOT redundant: this label is entered
                                 ; directly by menu.inc, so it owes its own
                                 ; adapter check
-    cmp byte [vid_mono], 0
-    jne .sw
-    mov [vga_xorm], al          ; the MASK, never 0 - the body is
+    VXMONO .sw                  ; ...whose flags vga_solid_rect's VIDEXTF
+    mov [vga_xorm], al          ; reads: the MASK, never 0 - the body is
     pop ax                      ; gfx_fill_raw's, which is the same 155 bytes
     jmp vga_solid_rect          ; with two differences
 .sw:
@@ -4106,10 +4120,10 @@ gfx_sr_tail:                    ; (gfx_restore's tail too - size pass 10)
     NOVGA_ARM vga_save_vram, sw_save
 %else                           ; renderer is not a branch - it is the
 vga_save_vram:                              ; only renderer gfx_save has
-    cmp byte [vid_mono], 0      ; the cursor's save-under, from inside IRQ4:
-    jne sw_save                 ; on mono the framebuffer IS the renderer's
+    VIDEXTM VX_SAVE, sw_save    ; the cursor's save-under, from inside IRQ4:
+                                ; on mono the framebuffer IS the renderer's
                                 ; target, so one "plane" of sw_xfer is it
-    VIDEXT VX_SAVE              ; ...and a packed display's save is the
+                                ; ...and a packed display's save is the
                                 ; driver's, in [vga_pn]'s terms (SPEC.md 120.4)
     push ax
     push bx
@@ -4365,9 +4379,8 @@ gfx_restore:
     NOVGA_ARM vga_restore_vram, sw_restore
 %else                           ; renderer is not a branch - it is the
 vga_restore_vram:                              ; only renderer gfx_restore has
-    cmp byte [vid_mono], 0      ; see vga_save_vram
-    jne sw_restore
-    VIDEXT VX_RESTORE           ; ...and the driver's, [gfx_sub_*] honoured
+    VIDEXTM VX_RESTORE, sw_restore ; see vga_save_vram
+                                ; ...and the driver's, [gfx_sub_*] honoured
     push ax
     push bx
     push cx
@@ -4957,11 +4970,15 @@ gfx_scroll:
     mov [vgas_ydst], dx          ; down: dest rows y1+|dy|..y2, walked
     mov word [vgas_step], -1     ; bottom-up (source above destination)
 .disp:
-    VIDEXTC VX_SCROLL, .ok      ; a packed display (SPEC.md 120.3.1): the six
-                                ; vgas_* cells say what moves where
-%ifdef GFX_VGA
+%ifdef VID_EXT
+    cmp byte [vid_planes], 4    ; ONE compare for the three: 1bpp, packed
+    jb .mono                    ; (.vx, beside it), and planar falls through
+    ja .vx
+%elifdef GFX_VGA
     cmp byte [vid_planes], 1
     je .mono
+%endif
+%ifdef GFX_VGA
     mov dx, 0x03CE              ; VRAM, via the latches
     mov ax, 0x0105              ; GC5: write mode 1 - a movsb read fills the
     out dx, ax                  ; latches, the write stores all four planes
@@ -5037,6 +5054,12 @@ gfx_scroll:
     out dx, ax
     jmp short .ok
 %endif
+%ifdef VID_EXT
+.vx:                            ; a packed display (SPEC.md 120.3.1): the six
+    VXCALL VX_SCROLL            ; vgas_* cells say what moves where
+    jmp short .ok
+    db 0                        ; PARITY, never executed: font_run and the hot
+%endif                          ; routines after it (tests/unit/t_hotpar.py)
 .mono:
     call vgas_bankcopy           ; the framebuffer IS [vid_rseg] (SPEC.md 39)
 .ok:
@@ -5622,9 +5645,9 @@ gfx_blit1_x:
     sub dx, bx
 .ybot:
 %ifdef VID_EXT
-    cmp byte [vid_ext], 0       ; a packed display (SPEC.md 120.3.1): the band
-    jz .vxplanar                ; is clipped and local, the pen and the head
-    call KERNEL_SEG:vx_callf1   ; mask are in the cells, and the driver puts
+    cmp byte [vid_planes], 4    ; a packed display (SPEC.md 120.3.1): the band
+    jbe .vxplanar                ; is clipped and local, the pen and the head
+    call KERNEL_SEG:vx_b1       ; mask are in the cells, and the driver puts
     jmp .done                   ; it down. BEFORE .pen, whose port program
                                 ; would be wrong for a packed mode; .done tears
                                 ; down nothing ([gfx_b1act] is 0). The hook is

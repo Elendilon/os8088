@@ -1510,6 +1510,20 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; drv_boot, no second display - so it STAYS at eleven, and its KSIG_OFF at
 ; 5120: BOOT2_SMALLSEC takes the sector back off, and the Makefile does the
 ; same in the block that reads this line. The literal stays kern_big's.
+; THIRTEEN since kernel size pass 14 (docs/plans/completed/ksp14/vesa.md): the
+; thirteenth is VESA.DRV's attach (vx_boot_x) and the block of kernel pointers
+; it hands over (vx_blk), which were resident `.cold` and `.text` for want of
+; blob room - the vmm_boot_x story again. kern_emu's extra sector went with it:
+; its blob was a sector longer for vmm_boot_x alone, and both fit thirteen. So
+; it is kern_big's length now, and only a knob build takes the extra sector.
+; kern_small still has neither, so it stays at ELEVEN (BOOT2_SMALLSEC is two),
+; and t_blobruns priced the thirteenth at no int 13h on any geometry - it puts
+; stage 2's kernel read on 360KB and 720KB back to the eleven calls its
+; ratchet names, from the twelve the base had grown to.
+; ...and kern_emu took its extra sector BACK in the same pass (ksp14/reach.md:
+; vid_apply and wm_refit's callees moved into the blob, and kern_big's
+; thirteen hold them with 61 bytes to spare - vmm_boot_x is ~100). The Makefile
+; adds it in the knob's block, as before.
 %ifdef KERN_KNOB
   %define BOOT2_KNOBSEC 1
 %elifdef KERN_EMU
@@ -1518,11 +1532,11 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
   %define BOOT2_KNOBSEC 0
 %endif
 %ifdef KERN_SMALL
-  %define BOOT2_SMALLSEC 1
+  %define BOOT2_SMALLSEC 2
 %else
   %define BOOT2_SMALLSEC 0
 %endif
-BOOT2_SECS  equ 12 + BOOT2_KNOBSEC - BOOT2_SMALLSEC ; sectors stage 1 reads before it jumps - the
+BOOT2_SECS  equ 13 + BOOT2_KNOBSEC - BOOT2_SMALLSEC ; sectors stage 1 reads before it jumps - the
                                 ; loader, its screen and the blob half of
                                 ; the boot overlay, one section to BOOT2_PAD.
                                 ; THE TOTAL IS THIS, so
@@ -2015,6 +2029,19 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
     times %$len - ($ - %$start) db 0    ; SPEC.md 20.3): the same two
     %pop                                ; assertions, nothing emitted
 %endmacro
+; OSAPI_XREFUSE - kern_mega's protected-mode cells answered on every other
+; kernel, INLINE: AX = 1, CF = 1, every other register kept - the refusal
+; OSAPI_XMEM_SEL (0x04B3) and OSAPI_XMEM_RUN (0x04CB) publish for "no
+; protected mode here". It was a six-byte .text body behind two rare cells;
+; the cell IS that body now, and is faster for it (kernel size pass 14).
+; Six bytes: `cmp al, 2` borrows exactly as `stc` sets CF, and is the length
+; the cell already has. tests/unit/t_api_abi.py's FIXED ledger holds the bytes.
+%macro OSAPI_XREFUSE 0
+    OSAPI_ICELL 6
+    mov ax, 1
+    cmp al, 2
+    OSAPI_IEND
+%endmacro
 
 ; ---- CLC_OR_STC .label: THE CF-RETURN TAIL IN TWO BYTES (size pass 9) -------
 ; The tree's commonest exit is
@@ -2190,7 +2217,13 @@ api_gfx_blit4:                    ; (named: SPEC.md 5.4.1.5's walk far-calls it)
                                   ;          table nothing where an append
                                   ;          would have been eight bytes
 apic_wm_onmouseup:
+%ifdef KERN_MEGA
     OSAPI_RSLOT wm_onmouseup       ; 0x0196 - BX = window, AX = a near proc in
+%else                             ; (INLINE off kern_mega, OSAPI_WM_ONWHEEL's
+    OSAPI_ICELL 6                 ; word displacement for the cell's six
+    mov [word cs:bx+W_ONMOUSEUP], ax ; bytes; kern_mega's store needs the data
+    OSAPI_IEND                    ; alias, so it keeps the rare cell and its
+%endif                            ; body - kernel size pass 14)
                                   ;          YOUR segment (0 clears it): the
                                   ;          release half of a content click
                                   ;          (SPEC.md 13.7). Call it after
@@ -2870,7 +2903,18 @@ apic_fpg_stepb:
                                   ;          panel's - which is the window the
                                   ;          page is drawn in anyway
 apic_wm_ondrag_c:
+%ifdef KERN_MEGA                  ; kern_mega: its cell cannot store through CS
     OSAPI_RSLOT wm_ondrag_c        ; 0x0334 - BX = window, AX = a near proc in
+%else
+ %ifdef KERN_BIG                  ; INLINE on kern_big and kern_emu: the store,
+    OSAPI_ICELL 6                 ; and CF = 0, the ANSWER (the shim it was
+    mov [cs:bx+W_ONDRAG], ax      ; said so below) - kernel size pass 14
+    clc                           ; 0x0334 - BX = window, AX = a near proc in
+    OSAPI_IEND
+ %else
+    OSAPI_RSLOT wm_ondrag_c        ; 0x0334 - BX = window, AX = a near proc in
+ %endif
+%endif
                                   ;          YOUR segment (0 clears it): the
                                   ;          pointer MOVED while your press
                                   ;          was armed (SPEC.md 13.8.2).
@@ -2893,7 +2937,18 @@ apic_wm_timer_c:
                                   ;          timer disarms itself FIRST, so a
                                   ;          handler wanting a repeat re-arms
                                   ;          inside itself. 18.2 ticks a second
+%ifdef KERN_MEGA
     OSAPI_RSLOT wm_ontimer_c       ; 0x0342 - BX = window, AX = a near proc in
+%else
+ %ifdef KERN_BIG                  ; INLINE on kern_big and kern_emu, as 0x0334
+    OSAPI_ICELL 6
+    mov [cs:bx+W_ONTIMER], ax     ; 0x0342 - BX = window, AX = a near proc in
+    clc
+    OSAPI_IEND
+ %else
+    OSAPI_RSLOT wm_ontimer_c       ; 0x0342 - BX = window, AX = a near proc in
+ %endif
+%endif
                                   ;          YOUR segment (0 clears it): what
                                   ;          the timer above calls. CX = DX = 0
                                   ;          (a timer has no point), SI = the
@@ -2979,7 +3034,13 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          package called one and got the
                                   ;          other. Sort the %defines by address
                                   ;          after every merge from main
+%ifdef KERN_MEGA
     OSAPI_RSLOT wm_onclose         ; 0x0362 - BX = window, AX = a near proc in
+%else                             ; (INLINE off kern_mega, as 0x0196 above -
+    OSAPI_ICELL 6                 ; kernel size pass 14)
+    mov [word cs:bx+W_ONCL], ax   ; 0x0362 - BX = window, AX = a near proc in
+    OSAPI_IEND
+%endif
                                   ;          YOUR segment (0 clears it): the
                                   ;          CLOSE NEGOTIATOR (SPEC.md 75.1).
                                   ;          Called SI = your window, on the UI
@@ -3671,18 +3732,28 @@ apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
                                   ;          display (VID_VESA): the sixteen
                                   ;          colours through BLIT4 are the
                                   ;          fallback
+%ifdef KERN_MEGA
     OSAPI_RSLOT osapi_xmem_sel    ; 0x04B3 - DX:AX = an address inside an
+%else
+    OSAPI_XREFUSE                 ; 0x04B3 - DX:AX = an address inside an
+%endif
                                   ;          OSAPI_XMEM_ALLOC block you own, CX
                                   ;          = bytes (0 = 64KB) -> AX = a DATA
                                   ;          selector over exactly that window
                                   ;          (KERN-MEGA-PLAN 12.2). kern_mega in
                                   ;          protected mode only; CF=1, AX = 1
                                   ;          on every other kernel
+%ifdef KERN_MEGA
     OSAPI_RSLOT osapi_mem_codesel ; 0x04B9 - DX = a claim's segment (or
-                                  ;          selector) -> AX = the selector to
-                                  ;          far call code in it: the segment
-                                  ;          itself in real mode, its LDT code
-                                  ;          alias on kern_mega. CF=1 = none
+%else
+    OSAPI_ICELL 6                 ; 0x04B9 - DX = a claim's segment (or
+    mov ax, dx                    ;          selector) -> AX = the selector to
+    cmp ax, 1                     ;          far call code in it: the segment
+    OSAPI_IEND                    ;          itself in real mode, its LDT code
+%endif                            ;          alias on kern_mega. CF=1 = none:
+                                  ;          INLINE off kern_mega, where the
+                                  ;          answer is DX and the compare's
+                                  ;          borrow (kernel size pass 14)
     OSAPI_RSLOT osapi_xmem_walk   ; 0x04BF - ES:DI = CX records of 6 bytes ->
                                   ;          AX = the extended pool's blocks
                                   ;          written, each {KB offset, KB,
@@ -3695,7 +3766,11 @@ apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
                                   ;          the step to its next 64KB (1000h
                                   ;          conventional, 8 a run above 1MB on
                                   ;          kern_mega, KERN-MEGA-PLAN 14.1)
+%ifdef KERN_MEGA
     OSAPI_RSLOT osapi_xmem_run    ; 0x04CB - DX:AX = an OSAPI_XMEM_ALLOC block
+%else
+    OSAPI_XREFUSE                 ; 0x04CB - DX:AX = an OSAPI_XMEM_ALLOC block
+%endif
                                   ;          of yours -> DX = a run of DATA
                                   ;          selectors, one every 32KB and each
                                   ;          a 64KB window, CX = their step (8)
@@ -5039,17 +5114,14 @@ kmain_o:
     pop bx
     pop ax
 %endif
-%ifdef KERN_SMALL
-    mov di, mod_fp              ; mod_init, WRITTEN OUT IN THE BLOB on the
-    mov cx, MOD_NSLOT           ; kernel whose blob has the room (kernel size
-.modinit:                       ; pass 13: 10 resident bytes of `.cold` for 20
-    mov word [di], mod_gone     ; of blob). The segment is the cold one by
-    mov word [di+2], COLD_SEG   ; NAME - a blob word tools/os88rom.py moves
-    add di, 4                   ; with it - where mod_disarm, running in
-    loop .modinit               ; `.cold`, takes it from CS
-%else
-    call COLD_SEG:mod_init_x
-%endif
+    mov di, mod_fp              ; mod_init, WRITTEN OUT IN THE BLOB (kernel
+    mov cx, MOD_NSLOT           ; size pass 13 on kern_small, pass 14 on
+.modinit:                       ; kern_big once its blob had the room: 10
+    mov word [di], mod_gone     ; resident bytes of `.cold` for 15 of blob).
+    mov word [di+2], COLD_SEG   ; The segment is the cold one by NAME - a blob
+    add di, 4                   ; word tools/os88rom.py moves with it - where
+    loop .modinit               ; mod_disarm, running in `.cold`, takes it
+                                ; from CS
                                 ; on-demand modules (SPEC.md 2.8): point every
                                 ; entry slot at mod_gone. `-f bin` zeroes no
                                 ; .bss, so until this runs those slots hold
@@ -5249,7 +5321,7 @@ kmain_o:
                                 ; kmain releases the blob as soon as this
                                 ; returns
 %ifdef VID_EXT
-    call COLD_SEG:vx_boot_x     ; ...and VESA.DRV, if SYSTEM.CFG asked for it
+    BLOBCALL vx_boot_x          ; ...and VESA.DRV, if SYSTEM.CFG asked for it
                                 ; (SPEC.md 120.4): a DRVC_OVL row drv_boot_x
                                 ; read and stopped at, attached here and the
                                 ; desktop switched onto it through the blob's
@@ -5444,14 +5516,10 @@ kmain:
 ; THE PROTECTED-MODE ROUTE TO ADDRESS EXTENDED MEMORY IN PLACE, where real
 ; mode has LOADALL (apps/os88la.inc) and unreal mode (apps/os88ub.inc). Ask
 ; OSAPI_CPU_INFO's CPU_F_PM first and take whichever route the bit names.
-%ifdef KERN_SMALL
-osapi_xmem_sel equ xm_copy      ; kern_small: no extended memory, and its
-                                ; xm_copy is AX = 1, CF = 1 with every other
-                                ; register kept - this refusal to the byte, as
-                                ; osapi_fsx_spk already borrows it (snd.inc)
-%else
-osapi_xmem_sel:
+; EVERY KERNEL BUT kern_mega answers it IN THE CELL (OSAPI_XREFUSE, kernel
+; size pass 14), so the body below is kern_mega's alone.
 %ifdef KERN_MEGA
+osapi_xmem_sel:
     cmp byte [mega_on], 0
     je .no
     push bx
@@ -5460,7 +5528,6 @@ osapi_xmem_sel:
     pop bx
     ret
 .no:
-%endif
     mov ax, 1
     cmp al, 2                   ; CF = 1 - and SIX bytes where `stc` is five,
     ret                         ; which keeps every hot routine after this on
@@ -5479,15 +5546,13 @@ osapi_xmem_sel:
 ; THE IN-PLACE READ OF A STORE OF RECORDS, where OSAPI_XMEM_SEL's one window
 ; re-aimed per read cannot serve an ISR and OSAPI_MEM_HUGE's 64KB windows cut
 ; a record that straddles one in two (the Video Player's hold and bank)
-%ifdef KERN_MEGA
+%ifdef KERN_MEGA                ; (every other kernel: OSAPI_XREFUSE, the cell)
 osapi_xmem_run:                 ; (eleven bytes of .text: the segment binds
     push bx                     ; on kern_mega, so the [mega_on] test and the
     call xm_ownbl               ; rest are .cold's)
     call COLD_SEG:mega_xmrunf
     pop bx
     ret
-%else
-osapi_xmem_run equ osapi_xmem_sel ; its refusal, AX = 1 and CF = 1 (above)
 %endif
 
 ; ---- osapi_mem_subseg - API slot 0x04D1 (KERN-MEGA-PLAN 14.44) -------------
@@ -5543,7 +5608,11 @@ osapi_img_name:                 ; (api_rsc's far body: DS = KDATA)
     push cx
     push si
     or bx, bx
+%ifdef KERN_MEGA
     jnz .hi
+%else
+    jnz .no                     ; BX = 1 names kern_mega's pool, and only it
+%endif
     or ax, ax                   ; a row not loaded holds segment 0
     jz .no
     mov si, drv_tab + DRVR_SEG
@@ -5562,17 +5631,17 @@ osapi_img_name:                 ; (api_rsc's far body: DS = KDATA)
     je .drv
 %endif
     mov si, mod_tab + MODR_SEG
-.m:
+    mov cx, (mod_tab_end - mod_tab) / MODR_SIZE ; (a count: a byte under the
+.m:                             ; end compare - kernel size pass 14)
     cmp [si], ax
     je .mod
     add si, MODR_SIZE
-    cmp si, mod_tab_end
-    jb .m
+    loop .m
 .no:
     stc
     jmp short .out
-.hi:
 %ifdef KERN_MEGA
+.hi:
     cmp byte [mega_on], 0
     je .no
     push ax
@@ -5584,16 +5653,15 @@ osapi_img_name:                 ; (api_rsc's far body: DS = KDATA)
     jmp short .mod
 .hino:
     pop ax
-%endif
     jmp short .no
-.drv:
-    mov si, [si+DRVR_FILE-DRVR_SEG]
+%endif
+.mod:                           ; SI is the row's segment word either way, and
+    mov al, 1                   ; the name's pointer is the word after it in a
+    jmp short .name             ; drv_tab row and a mod_tab row alike (asserted
+.drv:                           ; below), so one load serves both
     mov al, 0
-    jmp short .copy
-.mod:
-    mov si, [si+MODR_FILE-MODR_SEG]
-    mov al, 1
-.copy:
+.name:
+    mov si, [si+DRVR_FILE-DRVR_SEG]
     push di
 .c:
     mov cl, [si]
@@ -5639,7 +5707,10 @@ osapi_xmem_walk:
     call MEGA_SEL_CODE:mega_xmwalkf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
     ret
 %elifndef KERN_BIG
-osapi_xmem_walk equ osapi_xmem_sel ; its refusal, AX = 1 and CF = 1 (above)
+osapi_xmem_walk equ xm_copy     ; kern_small: no extended memory, and its
+                                ; xm_copy is AX = 1, CF = 1 with every other
+                                ; register kept - this refusal to the byte, as
+                                ; osapi_fsx_spk already borrows it (snd.inc)
 %endif                          ; (kern_big's is XMEM.DRV's table, xmem.inc)
 
 ; ---- osapi_mem_codesel - API slot 0x04B9 (KERN-MEGA-PLAN 12.2, 10.3 item 51)
@@ -5650,17 +5721,19 @@ osapi_xmem_walk equ osapi_xmem_sel ; its refusal, AX = 1 and CF = 1 (above)
 ;      512-byte grid or a data-only selector in protected mode)
 ; apps/os88api.inc's OS88_CODESEL is this slot's fast path for a claim below
 ; 1MB; a claim that may be anywhere asks the slot.
-osapi_mem_codesel:
+; Every kernel but kern_mega answers it IN THE CELL - `mov ax, dx / cmp ax, 1`
+; (kernel size pass 14) - so the body is kern_mega's alone.
 %ifdef KERN_MEGA
+osapi_mem_codesel:
     cmp byte [mega_on], 0
     je .rm
     call MEGA_SEL_CODE:mega_codeself ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
     ret
 .rm:
-%endif
     mov ax, dx
     cmp ax, 1                   ; CF = 1 iff DX = 0
     ret
+%endif
 
 ; ---- osapi_rand - seed = seed*25173 + 13849; out: AX = new seed --------------
 osapi_rand:
@@ -5853,6 +5926,7 @@ osapi_file_goto_q:
 .out:                           ; it; on the CF=1 arm AX is dsk_goto's FERR_*
     pop dx
     pop bx
+.ret:                           ; (GOTO_QM's refusal returns here too)
     ret
 
 ; ---- osapi_file_goto_qm - the quiet stand that MOVES THE INSTANCE (74.1) -----
@@ -5870,10 +5944,8 @@ osapi_file_goto_q:
 ; preserves the flags, so GOTO_Q's CF answer is the answer.
 osapi_file_goto_qm:
     call osapi_file_goto_q
-    jc .out
-    jmp inst_vol_mark
-.out:
-    ret
+    jc osapi_file_goto_q.ret    ; (a `ret` of its own was one more byte -
+    jmp inst_vol_mark           ; kernel size pass 14)
 
 ; ---- osapi_video - the screen the program actually got (SPEC.md 39.2) --------
 ; out: AX = width, BX = height, CX = first row the dock owns (so the usable
@@ -5927,10 +5999,13 @@ osapi_video:
                                 ; fact vid_depth_set stores as a word, so the
                                 ; two cannot disagree (kernel size pass 13: it
                                 ; was a compare on [vid_mono] and two moves)
-%ifdef KERN_BIG
-    db 0                        ; PARITY PAD, never executed (kernel size pass
-%endif                          ; 13): gfx_blit4, font_run, the ISRs and the
-                                ; scheduler back at an even shift on kern_big
+                                ; (NO PARITY PAD: kern_big's, here since
+                                ; kernel size pass 13, went when pass 14 shared
+                                ; GOTO_QM's `ret` above - and kern_small's odd
+                                ; byte from the same `ret` cancels viddet.inc's
+                                ; kern_small pad, which went with it. gfx_blit4,
+                                ; font_run, the ISRs and the scheduler stay at
+                                ; the parity t_hotpar pins, on both kernels)
 
 osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 
@@ -6164,6 +6239,9 @@ EXT_SPAN    equ 8               ; wm_disp_span: registers kept = the primary
 EXT_FSRECT  equ 9               ; wm_fs_setrect's arm: CF = 1 one display
 EXT_DESK    equ 10              ; vid_disp_desk: CF = 1 nothing painted
 EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
+EXT_DEAD    equ 14              ; ui_drag_dead, UNGATED: registers kept (12 and
+                                ; 13 are the seam cuts, font.inc/vga12.inc)
+EXT_PHASE   equ 15              ; ui_drag_phase's arm, UNGATED: registers kept
 %macro EXTCALL 1
     call far [EXFP + %1*4]
 %endmacro
@@ -6930,8 +7008,9 @@ cw_thm_desk equ apic_thm_desk   ; THE CELL IS THE DOOR (size pass 13): the
                                 ; desktop's ground, once per damaged zone
 %endif
 %ifdef DOCK_OPT
-cw_dock_band:           call dock_band
-                       retf
+; (cw_dock_band went in kernel size pass 14: its three callers - DOCK_GEOM's
+; blob and CTRL.DRV copies and EXTD.DRV's fullscreen restore - reach
+; dock_band through their image's own hop)
 cw_gfx_clip_query:      call gfx_clip_query ; CLIPQF: shared region query
                     retf                    ; from .cold (SPEC.md 30.6.1)
 %endif
@@ -7031,13 +7110,9 @@ cw_vga_xor_rect_vram:   call vga_xor_rect_vram
 %ifdef KERN_BIG
 ; vidsel.inc's whole dual-display half is inside one %ifdef KERN_BIG, so these
 ; bodies do not exist in the small build.
-; ...and this one is the BOOT OVERLAY's and EXTD.DRV's: vid_ctx_init went
-; into the overlay (docs/plans/LAST-DROP-BYTES.md row 13) and calls it, and so
-; does the Extend. It is `cw_` rather than `ovw_` for the reason the clock's
-; pair is. (cw_vid_ctx_ptr, vid_ctx_init's other one, is spw_near's `call bp`
-; since kernel size pass 13.)
-cw_vid_ctx_capture:     call vid_ctx_capture
-                    retf
+; (cw_vid_ctx_capture went in kernel size pass 14: vid_ctx_init in the boot
+; overlay reaches vid_ctx_capture through spw_near's `call bp`, as it already
+; reached vid_ctx_ptr, and EXTD.DRV's Extend through its own EXK hop)
 ; ...and EXTD.DRV's one hop that is on OSAPI_WM_DISPLAY's path (wm_disp_now's
 ; one-display arm, SPEC.md 39.19.6.2). Four bytes here where the image carried
 ; a twelve-byte stub of its own, and a near call + RETF where the stub built
@@ -7237,16 +7312,23 @@ gfx_blit1:            call COLD_SEG:gbz_gfx_blit1
 ; kern_big side is a plain jump to code that knows nothing about the split,
 ; and so that the refusal is one place to read rather than three %ifdefs
 ; inside three routines.
+; kern_big's 0x0334 and 0x0342 are INLINE cells - the store and the `clc` -
+; since kernel size pass 14, so their shims are kern_mega's alone; 0x033A's
+; routine is more than a store and keeps its shim on both big builds.
 %ifdef KERN_BIG
+%ifdef KERN_MEGA
 wm_ondrag_c:          call wm_ondrag
                   clc             ; CF = 0 is the ANSWER, not the caller's own
                   ret             ; carry coming back: the bodies write no flag
+%endif
 wm_timer_c:           call wm_timer
                   clc             ; the arm path's is worse - it is the carry
                   ret             ; out of [ticks] + delay
+%ifdef KERN_MEGA
 wm_ontimer_c:         call wm_ontimer
                   clc
                   ret
+%endif
 %else
 wm_ondrag_c:                    ; THREE LABELS, ONE BODY - the cells are what
 wm_timer_c:                     ; cost, and a refusal has nothing to say about
@@ -7728,6 +7810,11 @@ COLD_START equ BOOT2_PAD + (COLD_RAM - KERNEL_SEG) * 16 ; after the gap
 COLD_START equ BOOT2_PAD + ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 512
 %endif
 
+%ifdef KERN_BIG                 ; osapi_img_name: one load names a driver
+%if DRVR_FILE - DRVR_SEG != MODR_FILE - MODR_SEG || (mod_tab_end - mod_tab) % MODR_SIZE
+  %error "osapi_img_name: one load names a driver row's file and a module row's, and mod_tab is whole rows"
+%endif                          ; row's file and a module row's (size pass 14)
+%endif
 VX_LAYOUT_ASSERT                ; vidext.inc's adjacency claims (SPEC.md 120.3.2),
                                 ; here because every cell they name is declared
                                 ; by now

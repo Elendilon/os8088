@@ -246,8 +246,8 @@ MEM_K_SC   equ 0xFF11           ; the desktop SHORTCUTS' table (SPEC.md 26.8):
                                 ; movable, freed with the last one. 0xFF10 is
                                 ; the font's, so this is 0xFF11
 MEM_K_IMG  equ 0xFF12           ; a MOUNTED IMAGE's run table (SPEC.md
-                                ; 18.101): 1KB a mount, top-down and pinned,
-                                ; freed at its unmount. 0xFF11 is the
+                                ; 18.101): 1KB a mount, top-down, MOVABLE once
+                                ; mounted (img_reloc), freed at its unmount. 0xFF11 is the
                                 ; shortcuts', so this is 0xFF12
 MEM_K_MTBL equ 0xFF13           ; kern_mega's DESCRIPTOR TABLES in conventional
                                 ; memory (KERN-MEGA-PLAN 14.1 answer 16): 82KB
@@ -540,7 +540,11 @@ mem_init_x:
     cmp word [spl_fseg], 0
     je .nospl
     mov ax, [spl_fseg]
+%ifdef KERN_SMALL
     add ax, BOOT2_PAD / 16      ; ...the paragraph past the blob's last byte
+%else                           ; ...and past its nobits scratch, kern_big's
+    add ax, BOOT2_RES / 16      ; SYSTEM.CFG buffer (ovc_buf, driver.inc)
+%endif
 .nospl:
     mov [mem_base], ax
     mov [mem_top], ax           ; an empty heap until int 12h says more
@@ -832,6 +836,18 @@ mem_claim_x:
     call mem_claim_1            ; COMPACT, THEN SHED AND RETRY (SPEC.md 66.4 /
     jnc .out                    ; 50.6.2). A cache loses to anything that is
 %ifdef OS88_COMPACT
+    cmp byte [sch_cur], 0       ; ...BUT ONLY THE UI TASK COMPACTS OR SHEDS
+    jne .busy                   ; (SPEC.md 66.3.1). Any other caller gets first
+                                ; fit and nothing more: a compaction run from
+                                ; another task's stack could move a claim the
+                                ; UI task holds in a register while it is
+                                ; pre-empted (an ONWAKE handler runs with no
+                                ; gfx lock at all), and a shed could free one.
+                                ; The callers this reaches are a dying
+                                ; worker's repaint banking raise caches
+                                ; (inst_task_die), which declines a copy -
+                                ; never a wrong pixel - and a driver verb that
+                                ; claims from a worker, which is first fit
     call mem_compact            ; not one, and a package load loses to nothing
     jnc .go                     ; - so both are on mem_claim_hi's path too.
 %endif                          ; ...and on kern_small it is SHED AND RETRY,
@@ -942,11 +958,6 @@ mem_claim_1:
                                 ; two again. Re-measure it after any change to
                                 ; this routine's length: a trampoline only pays
                                 ; while it is itself in short reach.
-    nop                         ; PARITY: never executed - the range test
-                                ; above is one byte longer than the shift's
-                                ; CF it replaced, and dsk_xfer and the hot
-                                ; disk routines after this in .cold must keep
-                                ; their measured parity (t_hotpar)
 .hi:
     mov dx, [mem_top]           ; the highest base that still fits
     sub dx, ax
@@ -1714,29 +1725,15 @@ mem_can_move:
 .notslot:
     cmp bh, 0xFF
     je .ok                      ; a kernel tag: its proc is the kernel's own
-%ifdef OS88_DRIVERS
-    ; A CHIP MAY BE POINTING AT IT (SPEC.md 66.6.4). MC_DMA marks a claim the
-    ; 64KB page rule placed, and §66.4.2 is right that the rule is about where
-    ; it may LAND and not about whether it may move - but one of the four such
-    ; claims in the tree has a bus master armed on it, the Sound Blaster's
-    ; ring, and the 8237 holds an address into it that no relocation proc can
-    ; rewrite while it is playing.
-    ;
-    ; [drv_wcnt] is the kernel's handle on that and it is exact in the
-    ; direction that matters for a DOUBLE-BUFFERED stream: one is open only
-    ; while its refill or drain task lives (SPEC.md 34.5), so zero means no
-    ; such stream. A DIRECT one (34.5.2) has no task, and the driver pins its
-    ; pool itself - MC_RLOC = 0, refused at the top of this routine. It costs the other three MC_DMA claims a refusal only
-    ; while some driver has a worker at all, which is rare and always brief.
-    ; PARKED IS NOT ENOUGH, for §66.6.3's reason one claim along: a parked
-    ; refill task means the DSP is playing, not that it has stopped.
-    mov ax, [ss:si+MC_DMA]      ; the HEAD alone: bit 15 is the door, and a
-    and ax, MC_DMA_HEAD         ; top-down claim is not a DMA one
-    jz .nodma
-    cmp byte [drv_wcnt], 0
-    jne .pin
-.nodma:
-%endif
+    ; A CHIP MAY BE POINTING AT IT (SPEC.md 66.6.4) - AND THE DRIVER THAT
+    ; ARMED IT SAYS SO. This used to pin EVERY MC_DMA head whenever ANY driver
+    ; had a worker ([drv_wcnt]), which froze the parts carves, the lazy part
+    ; claims and the typeface caches - none of which a chip ever points at -
+    ; for as long as a sound stream played, and protected nothing: SOUND.DRV's
+    ; double buffer is never declared movable (sbl_dma_get), its direct pool
+    ; is PINNED by the driver for exactly the stream (sbl_unpin declares it
+    ; again), and a package ring handed over as SND_OPENF_EXT is the package's
+    ; to keep still while it plays (docs/plans/NO-PINNING-PLAN.md K1a).
                                 ; THE WHAT-IF'S EXCUSE LIVES IN THE CALLEE NOW
                                 ; (SPEC.md 66.4.3.2): it was the asker's claims
                                 ; alone, tested here, and inst_seg_parked
@@ -2100,9 +2097,10 @@ mem_is_region:
 mem_in_nest:
     push cx
     push di
-    mov cx, [wm_pkgd]
-    cmp cx, WM_PKGD_MAX
-    ja .yes                     ; deeper than wm_pkgs records: pin everything
+    mov cx, [wm_pkgd]           ; [wm_tcnt] IS THE HIGH BYTE (wm.inc), so
+    cmp cx, WM_PKGD_MAX         ; this one bound pins everything both when the
+    ja .yes                     ; UI task is deeper than wm_pkgs records and
+                                ; while ANOTHER TASK is inside SOME image (K9)
     mov di, wm_pkgs
     jcxz .no                    ; nothing is being called at all
 .s:
@@ -2170,9 +2168,18 @@ mem_fatw_dirty:
 
 %ifdef OS88_COMPACT
 ; -----------------------------------------------------------------------------
-mem_in_xfer:
-    push ax
-    push bx
+mem_in_xfer:                    ; TWO WORDS (docs/plans/NO-PINNING-PLAN.md
+    push ax                     ; K2): [mem_pinimg], a mounted image's run
+    push bx                     ; table while the kernel holds its segment
+    mov ax, [mem_pinimg]        ; across disk calls, and [mem_pinseg], the
+    cmp ax, [ss:si+MC_SEG]      ; transfer's destination - a nested transfer
+    stc                         ; re-points the second and leaves the first
+    je .out                     ; alone. THE IMAGE'S IS A BASE, so it is an
+                                ; EQUAL compare and not a range: every writer
+                                ; stores IMG_DVSEG or the claim clo_mseg names,
+                                ; which is the claim's own MC_SEG, and 0 (none)
+                                ; is no live record's base (kernel size pass
+                                ; 14: it was this walk's second word, -3)
     mov ax, [mem_pinseg]
     or ax, ax
     jz .no
@@ -2721,6 +2728,9 @@ mem_rr_walk:
     jmp short .row
 .done:
     ret
+mem_rr_none equ mem_rr_walk.done ; the relocation proc of a claim whose word
+                                ; is a ROW above: nothing left to do (kernel
+                                ; size pass 14)
 
 ; -----------------------------------------------------------------------------
 ; mem_region_reloc - THE KERNEL'S HALF of a package REGION's move (SPEC.md 66.6)
@@ -2938,6 +2948,29 @@ mem_rr_tab:
     MEM_RR_ONE thmv_row + DRVR_SEG  ; THMPAL.DRV (kernel/vga12.inc, SPEC.md
                                     ; 76.14.14): cached while the panel is open,
                                     ; so a compaction can move it under us
+%endif
+%ifdef VID_EXT
+    MEM_RR_ONE vx_ep + 2            ; VESA.DRV's hook entry, a far pointer
+                                    ; into its image (kernel/vidext.inc, SPEC.md
+                                    ; 120.3.2): a moved image is otherwise
+                                    ; called at its OLD address
+%endif
+%ifndef KERN_MEGA
+    ; FOUR KERNEL WORDS whose relocation procs were `cmp bx, [w] / jne /
+    ; mov [w], dx / ret`, eleven bytes each against a four-byte row (kernel
+    ; size pass 14). Each declares itself movable with mem_rr_none, the walk's
+    ; own `ret`, and is EXACT because its word is 0 whenever its claim is
+    ; gone: the free paths zero it (menu_drop's and stm_shut's xchg,
+    ; dsk_rah_redo's store, asc_use's exit, which zeroes before it frees)
+    ; and mem_shed_one zeroes the caches' through mem_pg_own,
+    ; so it never holds a base that is not its own live claim. Not on
+    ; kern_mega, where [ico_seg] and [dsk_rah_seg] can hold a SELECTOR
+    MEM_RR_ONE menu_sseg
+    MEM_RR_ONE ico_seg
+    MEM_RR_ONE dsk_rah_seg
+%ifdef OS88_ASSOC
+    MEM_RR_ONE asc_seg              ; ASSOC.DAT's one-call file buffer
+%endif
 %endif
     dw 0
     ; --- ES = LOW_SEG (SPEC.md 2.6) --------------------------------------
@@ -3945,6 +3978,11 @@ mem_regrow:
     ; routine may not call a relocation proc, and the claim the walk would
     ; most likely move is this very one.
 .shed:
+%ifdef OS88_COMPACT
+    cmp byte [sch_cur], 0       ; ONLY THE UI TASK SHEDS (SPEC.md 66.3.1):
+    jne .fail                   ; Fractal's worker grows its cache here, and a
+%endif                          ; shed from its stack could free a cache the
+                                ; pre-empted UI task holds in a register
     call mem_shed_one
     jnc .grow
     jmp short .fail
@@ -4533,11 +4571,12 @@ mmf_osapi_mem_huge:
     xor cx, cx                  ; no head: no 64KB page constraint
     call osapi_mem_claim_dma_x
     mov cx, 0x1000              ; OS88_HUGE_INCR (mov leaves CF)
-    retf
-    nop                         ; PARITY: never executed - this cell's body is
-                                ; odd on every kernel, and dsk_xfer and the hot
-                                ; disk routines after it in .cold must stay on
-                                ; an even address (t_hotpar)
+    retf                        ; (ODD on every kernel, and so is mem_claim_1's
+                                ; range test above: the two cancel, and
+                                ; dsk_xfer and the hot disk routines after
+                                ; them in .cold keep their measured parity
+                                ; without the two never-executed pads each
+                                ; once carried - kernel size pass 14, t_hotpar)
 
 ; -----------------------------------------------------------------------------
 ; osapi_mem_free - in: DX = segment, ES = the caller's segment
@@ -5350,6 +5389,12 @@ mem_pinseg:  resw 1             ; a segment a disk transfer is reading into, so
                                 ; dsk_xfer's, set and cleared inside its
                                 ; [sch_lock] hold - and 0 is the safe value it
                                 ; spends every path back to
+mem_pinimg:  resw 1             ; ...and a MOUNTED IMAGE's run table while the
+                                ; kernel holds its segment: the image arm of
+                                ; dsk_xfer across the host's transfer, and
+                                ; DISKOPS.DRV's unmount and eject across their
+                                ; own disk calls. Bucket C of NO-PINNING-PLAN:
+                                ; in use right now. 0 = none
 mem_cp_key:  resw 1             ; the compaction walk's cursor: the ORIGINAL
                                 ; base + 1 of the last claim processed. A word
                                 ; rather than a stack slot because BOTH passes
@@ -5423,10 +5468,10 @@ mem_bytes_kb_x:
     mov cl, 10                  ; n >= 1, and NEVER CARRIES: `add ax, 1023`
     shr ax, cl                  ; did, and answered 0 KB for every n from
     inc ax                      ; 64,513 up - a 63.5KB package's region
-    ret                         ; (SPEC.md 20.1.1). A byte shorter, too...
-    nop                         ; ...so a PARITY PAD, never executed: the
-                                ; byte saved moved dsk_xfer, dsk_runcap and
-                                ; dsk_next_clus_x by an odd amount
-                                ; (tests/unit/t_hotpar.py)
+    ret                         ; (SPEC.md 20.1.1). A byte shorter, too -
+                                ; and its parity pad went with mod.inc's
+                                ; (mod_disarm), the two cancelling with
+                                ; nothing hot between them (kernel size pass
+                                ; 14; tests/unit/t_hotpar.py)
 
 section .text                   ; ...and the file ends in .text (CLAUDE.md 1)

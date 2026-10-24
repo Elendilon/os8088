@@ -148,6 +148,10 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 section .cold                   ; a bare restate, and it stays: this file
                                 ; toggles section three more times below and
                                 ; the discipline is per-block, not per-file
+; ld_slot_rec: the same, with the `mov di, [ld_rec]` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+ld_slot_rec:
+    mov di, [ld_rec]
 ld_slot:
     push cx                     ; ...and no AX save: the arithmetic is done in
     mov bx, di                  ; BX, which is the answer's own register.
@@ -1106,8 +1110,8 @@ ld_hisi:
     je .out
     test byte [es:LD_H_CLASS], 0x80     ; OS88_HIGH
     jz .out
-    mov di, [ld_rec]            ; ld_slot answers off DI, the RECORD - which
-    call ld_slot                ; it is not at ld_start's head; step 7 sets DI
+    call ld_slot_rec            ; ld_slot answers off DI, the RECORD - which
+                                ; it is not at ld_start's head; step 7 sets DI
                                 ; itself. BX = the slot
     mov dl, bl
     mov ax, [ld_base]
@@ -1504,8 +1508,8 @@ ld_start:
     ; ld_say_status to record the verdict without saying it. A toast raised
     ; by anybody else during the launch is not ours and is overwritten as
     ; before.
-    mov di, [ld_rec]            ; BL = the reserved slot's index. ld_slot is
-    call ld_slot                ; that arithmetic, near and `.cold` like this
+    call ld_slot_rec            ; BL = the reserved slot's index. ld_slot is
+                                ; that arithmetic, near and `.cold` like this
                                 ; - inst_idx is the same body in `.text` and a
                                 ; shim to it would cost 5 of those; a third
                                 ; inline copy costs 3 bytes more than the call
@@ -1968,8 +1972,7 @@ ld_pkg_byname:
                                 ; routine had written out again, pad loop and
                                 ; `.` stop and all. It answers DI =
                                 ; assoc_stemb and leaves SI alone
-    mov si, di
-    call assoc_app_of
+    call assoc_app_di
     jmp short .have
 .byext:
     mov si, assoc_doc           ; ...or none was: the double-click's own

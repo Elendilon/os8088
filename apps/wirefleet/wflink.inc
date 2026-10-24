@@ -57,16 +57,17 @@ wf_link_new:
     mov [wf_line+LN_VIEW], ax
     mov [wf_line+LN_FOCUS], al
     mov [wf_chatcount], ax
-    mov byte [wf_lastout], 0xff
-    mov byte [wf_chatline], 0
-    mov byte [wf_chatlog], 0
-    mov byte [wf_chatlog+40], 0
-    mov byte [wf_chatlog+80], 0
+    mov [wf_chatline], al       ; AX is still the 0 stored above
+    mov [wf_chatlog], al
+    mov [wf_chatlog+40], al
+    mov [wf_chatlog+80], al
     mov [wf_rlen], al
     mov [wf_rescape], al
     mov [wf_txlen], ax
     mov [wf_txpos], ax
-    mov word [wf_hash], 0xffff
+    dec ax                      ; 0xffff
+    mov [wf_lastout], al
+    mov [wf_hash], ax
     mov word [wf_chatseq], 1
     mov byte [wf_urgent], 1
     ret
@@ -128,11 +129,12 @@ wf_lease:
     jc .refused
     mov byte [wf_linkopen], 1
     mov byte [wf_urgent], 1
-    mov byte [wf_heard], 0
-    mov byte [wf_rlen], 0
-    mov byte [wf_rescape], 0
-    mov word [wf_txlen], 0
-    mov word [wf_txpos], 0
+    xor ax, ax                  ; AX is reloaded by OSAPI_GET_TICKS below
+    mov [wf_heard], al
+    mov [wf_rlen], al
+    mov [wf_rescape], al
+    mov [wf_txlen], ax
+    mov [wf_txpos], ax
     call OSAPI_GET_TICKS
     mov [wf_seen], ax
     sub ax, WF_BEAT

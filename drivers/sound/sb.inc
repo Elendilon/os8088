@@ -1382,8 +1382,10 @@ sbl_v_open:
     jz .pin
     mov byte [sbl_ext], 1       ; EXTERNAL (SPEC.md 34.5.3): the control words
     mov ax, si                  ; sit after the ring, in the package's claim,
-    add ax, [sbl_rmask]         ; which an MC_DMA claim keeps still with no
-    inc ax                      ; pin of ours - and there is no pool to pin
+    add ax, [sbl_rmask]         ; which THE PACKAGE keeps still until close
+    inc ax                      ; (SND_OPENF_EXT, os88api.inc; the kernel no
+                                ; longer pins MC_DMA, SPEC.md 66.6.4) - and
+                                ; there is no pool of ours to pin
     mov [sbl_extctl], ax
     mov [sbl_extctl+2], di
     jmp short .dset

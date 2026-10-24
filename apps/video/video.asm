@@ -8593,9 +8593,22 @@ vp_pstep:
     jne .no
     cmp byte [vp_ready], 0          ; (a bracket running reads its own)
     jne .no
-    cmp byte [vp_einp], 0           ; (in place, the ring is the bank)
-    jne vp_fill
-    jmp vp_bstep
+    push ax                         ; THE SESSION PINNED FOR THE CHUNK
+    xor ax, ax                      ; (SPEC.md 66.5.7.1): its read lands in
+    call vp_smov                    ; the ring's claim - the bank's bounce,
+    cmp byte [vp_einp], 0           ; or the bounce placed at THE GAP in
+    jne .f                          ; place - and the kernel holds ES:BX on
+    call vp_bstep                   ; it across its own claims; movable
+    jmp short .m                    ; again after, as between brackets
+.f:
+    call vp_fill                    ; (in place, the ring is the bank)
+.m:
+    pushf
+    mov ax, vp_smove
+    call vp_smov
+    popf
+    pop ax
+    ret
 .no:
     stc
     ret
@@ -11233,7 +11246,14 @@ vp_sstart:
     jnc .tor
     jmp .memf
 .tor:                               ; (.ring, where the tests above reach
-    jmp .ring                       ; it with a short jump)
+    mov [vp_rclm], dx               ; it with a short jump) - THE KEY'S
+                                    ; RECORD is the session's claim, as
+                                    ; vp_fseek's is: vp_sfree gives back
+                                    ; [vp_rclm] and not [vp_ring], so stored
+                                    ; only in [vp_ring] it was never freed,
+                                    ; and vp_smov declares it movable between
+                                    ; brackets (98.3.19.2). 0 with no key
+    jmp .ring
 .strm:
     call vp_lyclaim                 ; THE LAYER's slots first (98.1.9)
     ; --- the ring: K slots and the mirror (SPEC.md 98.3). IN THE BRACKET,
@@ -11929,8 +11949,9 @@ vp_cptry:
     pop ax
     ret
 
-; vp_smov - AX = vp_smove, or 0: the SESSION's claims - the ring, the keeper
-; and the page copy - movable between brackets, or pinned for one (SPEC.md
+; vp_smov - AX = vp_smove, or 0: the SESSION's claims - the ring (or a
+; RESIDENT play's key record), the keeper, the page copy, the layer's own
+; claim and VPDIAG's profile - movable between brackets, or pinned for one (SPEC.md
 ; 98.3.19.2). A bracket's hook reads them at interrupt time, which no
 ; relocation can reach (66.3); on the desktop nothing does. A LIVE session
 ; keeps them pinned: its worker decodes out of them on the desktop.
@@ -11953,6 +11974,16 @@ vp_smov:
     call vp_mmovz
     mov dx, [vp_bseg]               ; (and the block decoder, 98.3.23)
     call vp_mmovz
+    cmp byte [vp_lyb], 0            ; (and THE LAYER's own claim, in place -
+    jne .nly                        ; 98.1.9: a flip's slots are the ring
+    mov dx, [vp_lyseg]              ; claim's top, and move with it)
+    call vp_mmovz
+.nly:
+%ifdef VP_DIAG
+    mov dx, [vp_prseg]              ; (and THE PLAY'S PROFILE, 98.3.22)
+    call vp_mmovz
+    nop                             ; (VPDIAG's own parity)
+%endif
     nop                             ; (the play's routines' parity)
     pop dx
     ret
@@ -11973,6 +12004,11 @@ vp_mmovz:
 ; those claims holds its BASE - every other segment is derived at its use -
 ; so a word equal to the old base is the one to move. Clobbers AX, SI
 vp_smove:
+    cmp [vp_lyseg], bx              ; THE LAYER's own claim (in place). Asked
+    jne .ly                         ; FIRST: a flip's [vp_lyseg] lies strictly
+    mov [vp_lyseg], dx              ; inside the ring's claim, so it is no
+.ly:                                ; claim's base before the ring moves it -
+                                    ; and after, it may be the old one
     cmp [vp_rclm], bx               ; THE RING may start inside its claim
     jne .s                          ; (THE GAP, os88xgap.inc): it moves by
     mov ax, [vp_ring]               ; what the claim does
@@ -12002,7 +12038,11 @@ vp_smove:
     ret
 
 vp_smtab:     dw vp_rclm, vp_keep, vp_prevseg, vp_shseg, vp_pseg, vp_kshd
-              dw vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg, 0
+              dw vp_pevseg, vp_p8seg, vo_s1seg, vp_bseg
+%ifdef VP_DIAG
+              dw vp_prseg           ; (the profile: vp_prmark and the read
+%endif                              ; log load it at each use)
+              dw 0
 
 ; -----------------------------------------------------------------------------
 ; vp_spos - DX = the ring (or, resident, the key's claim, or 0): the session
@@ -17837,6 +17877,10 @@ vp_prend:
     push si
     push di
     push es
+    mov dx, [vp_prseg]              ; PINNED for the rest of it (SPEC.md
+    xor ax, ax                      ; 66.5.7.1): the write holds ES:BX on it
+    call vp_mmov                    ; across the file layer's own claims, and
+    nop                             ; it is freed at the end (nop: parity)
     mov al, [vp_pr61]               ; the gate as it was
     out 0x61, al
     mov es, [vp_prseg]              ; THE HEADER, in the claim's first 48

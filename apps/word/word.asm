@@ -721,6 +721,11 @@ wd_entry:
     pop es
     pop di
     pop cx
+    push ax                         ; ...and all three MOVE (SPEC.md 68.3.2).
+    mov ax, wd_reloc                ; Declared once all three exist: nothing
+    call wd_dmov                    ; points into any of them yet, and a
+    pop ax                          ; compaction inside the second or third
+                                    ; claim found the first still pinned
     mov word [wd_papn], 1
     mov word [wd_capkb], WD_KB0
     mov word [wd_cap], WD_KB0 * 1024
@@ -5785,10 +5790,20 @@ wd_itinit:
     push si
     push di
     push es
+    xor ax, ax                      ; PIN THE DOCUMENT across this claim
+    call wd_dmov                    ; (SPEC.md 68.3.2): we are inside a
+                                    ; wd_walk, which holds ES = [wd_dseg] for
+                                    ; the whole of its pass, and the claim
+                                    ; below may compact. The one claim this
+                                    ; program makes with a segment in hand
     mov ax, WD_ITKB                 ; the table AND the staging area
     call OSAPI_MEM_CLAIM
-    jc .fail
+    jc .let
     mov [wd_iseg], dx
+.let:
+    mov ax, wd_reloc                ; ...and let them all move again, the
+    call wd_dmov                    ; table with them. Flags kept: CF is the
+    jc .fail                        ; claim's verdict
     call OSAPI_FONT_GLYPHS          ; DX:SI = the kernel's table (NOT in
     mov [wd_itsg], dx               ; KERNEL_SEG - read through ES = DX)
     mov [wd_itso], si
@@ -8684,6 +8699,74 @@ wd_hirechk:
 ; =============================================================================
 ; The document claim (SPEC.md 27.6/50.3)
 ; =============================================================================
+
+; -----------------------------------------------------------------------------
+; wd_reloc - the compactor moved one of the document's claims (SPEC.md 68.3.2)
+; in:  BX = the base it WAS at, DX = the base it is at NOW, DS = CS = ours
+; out: nothing (mem_reloc_call banks every register, SPEC.md 66.3 rule 1)
+;
+; ONE PROC FOR EVERY CLAIM THE DOCUMENT KEEPS, Note Pad's shape (66.5.7): the
+; kernel calls the proc the moved claim was declared with and BX says which
+; one it was. Each claim is named by exactly ONE word and every cursor into
+; it is an OFFSET ([wd_len], [wd_cur], the selection, the undo records' blob
+; positions, the PAP indices in the CHP bytes), so the fix is one store - and
+; nothing in the typing or drawing path re-reads anything it did not already.
+; The two transients - the load/save staging and the Utilities scratch - are
+; not here: each is claimed and freed inside one command and is pinned by
+; having no declaration (66.5.7.1's counter-example, bucket C).
+; -----------------------------------------------------------------------------
+wd_reloc:
+    mov si, wd_rltab
+.n:
+    mov di, [si]
+    inc si
+    inc si
+    or di, di
+    jz .out
+    cmp bx, [di]
+    jne .n
+    mov [di], dx                    ; one word names one claim: done
+.out:
+    ret
+
+; ...and the words, which wd_dmov walks too. ORDER IS NOTHING: a base names
+; one claim, so the first match is the only one.
+wd_rltab:   dw wd_dseg, wd_cseg, wd_pseg, wd_iseg, wd_useg, wd_cuseg, 0
+
+; -----------------------------------------------------------------------------
+; wd_dmov - AX = wd_reloc to let every claim the document holds move, AX = 0
+;           to PIN them all (SPEC.md 68.3.2, 66.5.7.1's pair over the table)
+; out: nothing; every register AND the flags preserved - a caller's CF can be
+;      the verdict of the claim it is standing beside
+;
+; A word still 0 (the italic table before the first italic run, the undo
+; arenas before the first deletion) is skipped. The pin is for the one place
+; this program CLAIMS WHILE A SEGMENT IS IN A REGISTER: wd_itinit, reached
+; from inside wd_walk with ES = the document (SPEC.md 68.3.2).
+; -----------------------------------------------------------------------------
+wd_dmov:
+    pushf
+    push dx
+    push si
+    push di
+    mov si, wd_rltab
+.n:
+    mov di, [si]
+    inc si
+    inc si
+    or di, di
+    jz .out
+    mov dx, [di]
+    or dx, dx
+    jz .n
+    call OSAPI_MEM_MOVABLE          ; preserves every register but the CF
+    jmp short .n
+.out:
+    pop di
+    pop si
+    pop dx
+    popf
+    ret
 
 ; -----------------------------------------------------------------------------
 ; wd_resize - make the document claim AX kilobytes
@@ -13408,6 +13491,12 @@ wd_ugrow:
     jc .cfail0
     mov [wd_cuseg], dx
     mov [wd_ukb], ax
+    push ax                     ; ...and both MOVE (SPEC.md 68.3.2): every
+    mov ax, wd_reloc            ; record indexes them by OFFSET, and a regrow
+    call OSAPI_MEM_MOVABLE      ; below carries the declaration with the
+    mov dx, [wd_useg]           ; block (SPEC.md 50.3.1), so this is the
+    call OSAPI_MEM_MOVABLE      ; only place it is made
+    pop ax
     jmp short .yes
 .cfail0:
     mov dx, [wd_useg]           ; the half-claimed pair is no arena at all

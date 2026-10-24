@@ -234,6 +234,66 @@ def pace(m, secs, poll=0.02):
         time.sleep(poll)
 
 
+def poke(hmp, linear, data):
+    """WRITE guest memory - which QEMU's monitor cannot do.
+
+    HMP reads (`xp`, `pmemsave`) and has no write at all, so this borrows the
+    one door QEMU has: its GDB stub. `gdbserver` starts one on a free local
+    port at runtime (no relaunch, no `-s` in the Makefile), the remote
+    protocol's `M` packet writes the bytes, and `D` detaches - which also
+    RESUMES the guest the connection paused, so the write lands between two
+    instructions with the machine stopped and every byte of `data` written at
+    once. `gdbserver none` takes the stub down again. `hmp` is a callable
+    taking one HMP command line (tests/thewire.py's `Qemu.hmp`). In real mode
+    there is no paging, so the stub's address is the LINEAR one os88sym hands
+    out. Raises on any answer but OK - a write that did not happen must not
+    read as a test of what it would have done.
+    """
+    import socket
+    s0 = socket.socket()
+    s0.bind(("127.0.0.1", 0))
+    port = s0.getsockname()[1]
+    s0.close()
+    hmp("gdbserver tcp:127.0.0.1:%d" % port)
+    s = None
+    for _ in range(50):
+        try:
+            s = socket.create_connection(("127.0.0.1", port), timeout=5)
+            break
+        except OSError:
+            time.sleep(0.1)
+    if s is None:
+        raise RuntimeError("poke: no GDB stub on port %d" % port)
+    buf = b""
+
+    def packet(body):
+        nonlocal buf
+        b = body.encode("ascii")
+        s.sendall(b"$" + b + b"#%02x" % (sum(b) & 0xFF))
+        while True:                       # skip acks; read one $...#xx reply
+            while b"#" not in buf or len(buf) < buf.index(b"#") + 3:
+                got = s.recv(4096)
+                if not got:
+                    raise RuntimeError("poke: the GDB stub hung up")
+                buf += got
+            buf = buf.lstrip(b"+")
+            if buf.startswith(b"$"):
+                end = buf.index(b"#")
+                reply, buf = buf[1:end], buf[end + 3:]
+                s.sendall(b"+")
+                return reply.decode("ascii", "replace")
+            buf = buf[1:]                 # noise before a packet
+    try:
+        packet("?")                       # the stop reply: the guest is held
+        r = packet("M%x,%x:%s" % (linear, len(data), bytes(data).hex()))
+        if r != "OK":
+            raise RuntimeError("poke: M at %#x answered %r" % (linear, r))
+        packet("D")                       # detach: the guest runs on
+    finally:
+        s.close()
+        hmp("gdbserver none")
+
+
 def ui_idle(m, sym):
     """tools/os88marty.py's `ui_idle` on QEMU: ui_task ASLEEP (task 0's
     T_STATE is 2) with no event queued, no wake pending, the gfx lock free
