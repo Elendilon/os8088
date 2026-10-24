@@ -6356,14 +6356,17 @@ $(BUILD)/install.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc 
 
 # ...and the GATE's build of it, never shipped (SPEC.md 117.10, tests/netinst.py):
 # the same source pointed at the host the test serves from QEMU's slirp.
-$(BUILD)/install-gate.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
+# ONE RECIPE, TWO FILES: the map is a row's want (tests/netinst.py), and as a
+# side product with no rule of its own a tree build that named it before the
+# .o88 stopped on "No rule to make target" (tools/os88soak.py's frozen tree).
+$(BUILD)/install-gate.bin $(BUILD)/install-gate.map &: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
                            apps/os88dec.inc apps/os88link.inc apps/os88data.inc \
                            drivers/httpfs/hfpkg.inc drivers/net/netpkg.inc \
                            apps/os88sock.inc apps/install/OS88VER.TXT | $(BUILD)
 	$(NASM) -f bin -w+error --before "[map all $(BUILD)/install-gate.map]" \
 		-I apps/ -I drivers/httpfs/ -I drivers/net/ \
 		-D"IN_REL='$(INREL)'" -D"IN_URL='http://10.0.2.2:8096/net/'" \
-		-o $@ apps/install/install.asm
+		-o $(BUILD)/install-gate.bin apps/install/install.asm
 
 $(BUILD)/install-gate.o88: $(BUILD)/install-gate.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/install-gate.bin -o $@
