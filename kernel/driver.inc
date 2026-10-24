@@ -1252,12 +1252,15 @@ drv_fseg10:  dw 0
 
 ; drv_svcix - per class, from class 1: which drv_svc copy is its, as
 ; slot * DSV_SIZE/2 + 1, and 0 = it keeps none (drv_cls_svc_x). Class 3 is
-; RETIRED and reads class 4's slot, which is what the compaction it replaced
-; answered; nothing publishes class 3 (SPEC.md 58). Classes 6 and 7 keep no
-; copy, and classes 8, 9 and 10 are the copied classes past them (SPEC.md
-; 62.9.19, 119.1, 121.1)
+; RETIRED (SPEC.md 58) and keeps none either: it read class 4's slot, which
+; is what the compaction it replaced answered, and so every walk of the
+; classes visited ETHER.DRV's table twice - a panel close called its
+; DSV_CPCLOSE twice and drv_cp_class needed a test of its own to step over
+; it. 0 answers both (kernel size pass 14, at the owner's word: "we don't
+; run retired drivers"). Classes 6 and 7 keep no copy, and classes 8, 9 and
+; 10 are the copied classes past them (SPEC.md 62.9.19, 119.1, 121.1)
 DRV_SVCH    equ DSV_SIZE / 2
-drv_svcix:   db 0*DRV_SVCH+1, 1*DRV_SVCH+1, 2*DRV_SVCH+1, 2*DRV_SVCH+1
+drv_svcix:   db 0*DRV_SVCH+1, 1*DRV_SVCH+1, 0, 2*DRV_SVCH+1
              db 3*DRV_SVCH+1, 0, 0, 4*DRV_SVCH+1, 5*DRV_SVCH+1, 6*DRV_SVCH+1
 %if $ - drv_svcix != DRVC_MAX || 6*DRV_SVCH+1 > 0x7F || DSV_SIZE & 1
   %error "driver: drv_svcix is one byte per class, cbw-able, and DSV_SIZE is even"
@@ -3171,10 +3174,8 @@ drv_cp_class_x:
     mov cl, 1                   ; CL = the class (drv_cls_svc_x banks CX)
 .next:
     mov al, cl
-    cmp al, DRVC_RETIRED3       ; ...whose compacted slot IS class 4's, so a
-    je .skip                    ; walk that visits it counts ETHER.DRV twice
     call drv_cls_svc_x
-    jc .skip                    ; DRVC_POINT and DRVC_EMS keep no copy
+    jc .skip                    ; class 3, DRVC_POINT and DRVC_EMS keep no copy
     cmp word [di+DSV_CPNAME], 0
     je .skip
     cmp bl, bh

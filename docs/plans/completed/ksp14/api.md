@@ -272,18 +272,45 @@ refusing stub.
 
 ## WANTS THE OWNER
 
-1. **Class 3 keeps no copied table** (`drv_svcix`'s fourth byte 0) - **-4**
-   kern_big/emu/mega (`drv_cp_class_x`'s `cmp al, DRVC_RETIRED3 / je .skip`
-   goes; both short forms, computed from the encodings, not built), and it
-   FIXES DEFECT 1 below. Class 3 is retired and reads class 4's slot; every
-   kernel caller asks a class off a row, never 3, and a package's
-   `OSAPI_DRV_CALL` with BH = 3 is refused either way (its `drv_fseg3` is 0,
-   and with no table it is refused at the table instead, AX = 0 CF = 1 both).
-   What changes is that `ETHER.DRV` hears `DSV_CPCLOSE` once per panel close
-   where today it hears it twice. Invisible as far as this agent can see
-   (`eth_cp_close` writes `ETHER.CFG` when dirty and reaps a window, and the
-   second call finds nothing to do) - but it is a driver hook called a
-   different number of times.
+None open. The one item this note carried - class 3 keeps no copied table -
+was approved and is TAKEN, below.
+
+## TAKEN AT THE OWNER'S WORD
+
+**Class 3 keeps no copied service table.** The owner: *"Can drop this. We
+don't run retired drivers."* `drv_svcix`'s class-3 byte is 0 where it was
+class 4's slot, so `drv_cls_svc_x` refuses class 3 the way it refuses
+`DRVC_POINT` and `DRVC_EMS`, and `drv_cp_class_x`'s
+`cmp al, DRVC_RETIRED3 / je .skip` goes. **`ETHER.DRV` now hears
+`DSV_CPCLOSE` once per Control Panel close, not twice** (DEFECT 1, fixed):
+`drv_cp_closed`'s walk visited class 4's table under class 3 as well.
+Behaviour for packages is unchanged. An `OSAPI_DRV_CALL` with BH = 3 was
+refused at `drv_fseg3` = 0, and is now refused one step earlier at the
+table: AX = 0 and CF = 1 either way. A class-3 row cannot overwrite
+`DRVC_NET`'s table any more either.
+
+Bytes, assembled (`tools/os88rdiff.py kernel 3e98b6b1 .`, after the merge
+of `kernel-size-14` at 3e98b6b1):
+
+| kernel | section | before | after | delta |
+|---|---|---:|---:|---:|
+| kern_big | `.cold` | 37,487 | 37,483 | **-4** |
+| kern_emu | `.cold` | 37,487 | 37,483 | **-4** |
+| kern_mega | `.cold` | 42,211 | 42,207 | **-4** |
+| kern_small | - | - | - | **byte-identical** |
+
+kern_small is identical because its `drv_cls_svc_x` arm is the compaction,
+and that build has neither `drv_cp_closed` nor `drv_cp_class`. Resident at
+the tip: kern_big 91,585 and kern_emu 91,841. `drv_cp_class_x` is 50 -> 46
+bytes.
+
+Rows: `drvcall`, `drvup`, `drvscroll`, `cpnames` (MartyPC; the panel list
+is `drv_cp_class`'s count and ordinal walk) and `ethcfg` (QEMU) - **5/5
+green**. `ethcfg` is the row that covers `ETHER.DRV`'s close hook: its
+assertion 5 closes the Control Panel, and that close is what writes
+`ETHER.CFG` through `DSV_CPCLOSE`, read back across a reboot. `make -j2`
+(fast tier 61/61), `make small`, `make emu`, `make mega` and `t_hotpar`
+(big 18, small 16 at parity) are all green.
 
 ## WANTS AN ABI BREAK
 
@@ -369,7 +396,7 @@ emu` and `make mega` build at the tip.
    close proc is called for class 3 and again for class 4. `drv_cp_class_x`
    skips class 3 for exactly this reason ("a walk that visits it counts
    ETHER.DRV twice"); the close walk never did. Harmless today as far as can
-   be read. Not fixed: WANTS THE OWNER 1.
+   be read. **FIXED** at the owner's word: see TAKEN AT THE OWNER'S WORD.
 2. **The loading screen truncates a driver's line on kern_emu and with ten
    rows** (by reading): `SPL_MSG_CELLS` is 32 and its comment names 'Loading
    Driver 1/5 (Hard Drive)' (31) as the longest line, but `Loading Driver
