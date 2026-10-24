@@ -31508,13 +31508,14 @@ it is also the shape §15's own guard already refuses for `spl_gate`, *"the PATH
 is not aboard even though the destination is"*. **So `vid_pop8` keeps its own
 pop run, and any routine the first tick can reach must.**
 
-**A fourth routine joins it one label in.** `vid_apply` pushes the same run
-without `bp`, pops its own `es`, and enters at `vid_pop7` — the label between
-`pop bp` and `pop di` — instead of writing out seven pops and a `ret`. That is
-a LOCAL ladder inside `viddet.inc`, which is what makes it legal where the
-shared one is not: the destination is four instructions away and inside the
-same resident window as its callers. It is bound by the seven-push frame where
-the other three are bound by eight, and nothing mechanical checks either.
+**A fourth routine joined it one label in**, until kernel size pass 14:
+`vid_apply` pushed the same run without `bp`, popped its own `es`, and entered
+at `vid_pop7` — the label between `pop bp` and `pop di` — instead of writing
+out seven pops and a `ret`. That was a LOCAL ladder inside `viddet.inc`, legal
+where the shared one is not because the destination was four instructions away
+in the same resident window. `vid_apply` has no resident copy on any kernel
+now (§39.3.1): its copies are in the blob and the images, and each pops its
+own, so the label is gone.
 
 Nothing saw it. `make`, the fast tier, `stkbalance`, `os88ovlchk`,
 `t_asmrules` and `checkdocs` were all green, because none of them boots a
@@ -72168,8 +72169,8 @@ behaviour moved. What the bytes were:
   resident compare has just loaded, so seven `mov bx, [fdlg_blk]` went; the
   dispatch register is BP (FDH_RECT answers in SI and DI). `FDH_UP` is the
   one handler that does not come through it, and it loads its own.
-- **Far entries that already existed**: the image calls `os88ui_btn_f` and
-  FILECP.DRV's `xf_fm_stage_name` (both modules ship on `kern_small` only;
+- **Far entries that already existed**: the image called `os88ui_btn_f`
+  (until kernel size pass 14 - see below) and FILECP.DRV's `xf_fm_stage_name` (both modules ship on `kern_small` only;
   §38.13.2 retired the second) instead of thunks of its own, and the resident `fdlg_load` folded into the
   one `fdlg_open_x` that used it.
 - Smaller shapes: the caption chosen in a register, a refusal shared in front
@@ -72660,8 +72661,9 @@ and `ext_apply` in `EXTD.DRV` (the fullscreen bracket's restore of an extended
 desktop). An image's copy writes `gfx_nextrow`'s three instructions out - its
 operands are `[cs:]` - and pops its own frame; the blob's reaches
 `vid_depth_set` through `spw_near`, the one door the first tick has aboard.
-kern_small keeps the single resident copy, byte for byte: its panel image has
-no room for one.
+kern_small did the same later in the pass, at the owner's word, with two
+copies (the blob and `CTRL.DRV`, whose claim went 5 KB -> 6 KB for it and for
+the button, §38.0): no kernel has a resident `vid_apply` now.
 
 **It does not run on a §39.12 display swap, and must not.** `vid_ctx_act` sits
 under a drawing primitive whose whole floor is ~756 us; a rebuild there is 23.6
@@ -102420,6 +102422,20 @@ only `fdk_di`. And a CONTINUATION is not callable: the old
 banked - that pair is gone (the name box is `fm_editkey`'s now, §38.5), and
 `fm_dotin` folded back into `fm_hasdot` with it.
 
+
+**Since kernel size pass 14 the BUTTON is the images' on `kern_small`**, at
+the owner's word (CTRL.DRV's claim 5 KB -> 6 KB). Nothing resident on that
+kernel draws a button: its callers are this dialog and the Control Panel with
+its shutdown card. So `os88ui.inc`'s `os88ui_btn`, `os88ui_kbtn` and
+`os88ui_bhit` are written ONCE as macros (`OS88UI_BTN_BODY`,
+`OS88UI_KBTN_BODY`, `OS88UI_BHIT_BODY`), expanded in place for every
+package and for `kern_big` - byte for byte what they were - and on
+`kern_small` (`OS88UI_KBTNIMG`, set here in `fdlg.inc`) expanded instead into
+`CTRL.DRV` (`os88ui_btn`, `os88ui_kbtn`) and into this image (`fdb_btn`,
+`fdb_kbtn`, `fdb_bhit`), with `OS88UI_KFAR`'s far primitives. The include is
+still assembled once; the body is what is assembled twice, which is the
+answer to pass 13's refusal. `os88ui_btn_f` does not exist on `kern_small`;
+`os88ui_krect` and the staging record stay in `.bss`, read through DS.
 
 #### 38.0.1 The drop is guarded on the IMAGE, not on the window
 
