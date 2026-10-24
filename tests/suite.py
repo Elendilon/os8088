@@ -1969,13 +1969,13 @@ FULL = [
         "and boots it to a desktop, so what this adds is the THREE-adapter "
         "sweep - the deep gate a kern_small change runs, at 118s",
         needs=("marty",), serial=True),
-    Row("thewire", "soak", py("tests/thewire.py"), 110.0,
+    Row("thewire", "soak", py("tests/thewire.py"), 160.0,
         "THE WIRE, end to end over a real card (SPEC.md 92.12): a host HTTP "
         "server on 8092 serves a fixture catalog packed by tools/os88wire.py "
         "out of build/hello.o88, build/mines.o88, a tier-3 WF_DISK entry and "
         "a WF_ARC one whose .WPK the test packs with --archive, and the "
         "machine fetches it because `make thewiretest`'s "
-        "SYSTEM/APPDATA/WIRE.CFG says to. Twelve assertions: the catalog is "
+        "SYSTEM/APPDATA/WIRE.CFG says to. Eighteen assertions: the catalog is "
         "understood, the host saw the request it expected, the list is the "
         "catalog, the 8088/8086 filter cuts four rows to three, the predicate "
         "greys Load Program on a WF_DISK record and NOT Add to Disk, the "
@@ -2004,13 +2004,21 @@ FULL = [
         "Program the launched window's content is captured, dragged 8px and "
         "back for a clean repaint, and the two must agree pixel for pixel, "
         "which they do not when the Wire's wake handler has drawn its "
-        "buttons into a window that is not its own. "
+        "buttons into a window that is not its own. And NO-PINNING's two "
+        "(SPEC.md 92.5.1, assertions 17-18): a compaction POSTED through "
+        "QEMU's GDB stub (tests/os88qemu.py's poke - the monitor writes no "
+        "memory) moves the catalog after a late Refresh, bytes intact and "
+        "the list counted again out of it, and moves the transfer claim "
+        "under the first archive chain, posted every half second, with the "
+        "tree read back byte-identical; red with wr_reloc a bare ret. "
         "**SOAK AND NOT FULL, and the tier's own rule is why**: this file's "
         "header lists eight emulator rows as what ten minutes buys, and what "
         "earns one is BREADTH PER SECOND. This is a boot, twenty clicks and "
         "three floppy write chains that can only fail for one package's "
-        "reasons - the definition of a soak row. It runs in 96 seconds on "
-        "an idle host and the budget is 340 for the reason every budget "
+        "reasons - the definition of a soak row. It ran in 96 seconds on "
+        "an idle host, ~160 with the posted compactions of assertions 17-18 "
+        "(measured, make thewiretest included), and the budget is 340 for "
+        "the reason every budget "
         "here is generous: a concurrent build makes an emulator row three "
         "or four times slower and a tier that failed on that would be "
         "reporting on the box. It is also QEMU's and "
@@ -2764,6 +2772,59 @@ SOAK = [
         "9380 -> 99c0 (a restartable worker); red with dd_bdreloc a bare "
         "ret (stale word). ~70s measured",
         needs=("marty",), serial=True, wants=("build/games360.img",)),
+    Row("pkgmove-pixel", "soak",
+        py("tests/pkgmove.py", "--app", "pixel",
+           "--scratch", "PICS:apps/pixel/samples/BALLOONS.PNG",
+           "--disk", "pxmove.img", "--open", "B:/PICS/BALLOONS.PNG",
+           "--idle", "px_busy",
+           "--word", "px_cur+38", "--word", "op_table+32"), 30.0,
+        "NO-PINNING (SPEC.md 106.5.1): PiXEL's CODE PARTS move. A PNG opened "
+        "by its association on a scratch B: (PiXEL's pictures ride no "
+        "shipped disk), waited out by px_busy - its claims are all made "
+        "before the decode, so a quiet claim table is not a finished "
+        "picture - and the decoder part it keeps (part 2's row segment, "
+        "op_table+32) and the master (px_cur+PXR_MSEG) MOVE: 2640 -> 2380 "
+        "and 2940 -> 2680 measured. Red with op_lazymv's store taken out "
+        "(the row stale). 17s measured",
+        needs=("marty",), serial=True,
+        wants=("build/pixel.o88", "build/os8088-360.img")),
+    Row("pkgmove-pixelgif", "soak",
+        py("tests/pkgmove.py", "--app", "pixel", "--machine",
+           "os8088_xt_vga",
+           "--scratch", "PICS:apps/pixel/samples/BOUNCE.GIF=BOUNCE.PNG",
+           "--disk", "pxmovegif.img",
+           "--first", "B:/PICS/BOUNCE.PNG", "--tuck",
+           "--open", "B:/PICS/BOUNCE.PNG", "--idle", "px_busy",
+           "--keys", "KeyA", "--idle", "px_anjob",
+           "--word", "px_cur+38", "--word", "op_table+24",
+           "--word", "px_anseg"), 60.0,
+        "NO-PINNING (SPEC.md 106.5.1): a STOPPED animation's claim, its GIF "
+        "part and the master move. A GIF is Paint's by association, so PiXEL "
+        "is handed BOUNCE.GIF as BOUNCE.PNG (it sniffs what it reads); a "
+        "first instance of it leaves the hole, minimized (--tuck) because a "
+        "VGA PiXEL covers B:'s zone; A stops the target's animation, whose "
+        "pass then lets px_anseg go (av_wake). Measured: px_anseg 2320 -> "
+        "22e0, the part 5060 -> 2b20, the master 53e0 -> 2ea0. Red with "
+        "px_anseg out of px_mreloc (stale word). 45s measured",
+        needs=("marty",), serial=True,
+        wants=("build/pixel.o88", "build/os8088-360.img")),
+    Row("pkgmove-pixelanim", "soak",
+        py("tests/pkgmove.py", "--app", "pixel", "--machine",
+           "os8088_xt_vga",
+           "--scratch", "PICS:apps/pixel/samples/BOUNCE.GIF=BOUNCE.PNG",
+           "--disk", "pxmovegif1.img", "--open", "B:/PICS/BOUNCE.PNG",
+           "--idle", "px_busy", "--animated", "--busy", "px_anjob",
+           "--still", "op_table+24", "--still", "px_anseg"), 120.0,
+        "NO-PINNING (SPEC.md 106.5.1): the PIN half. An animation PLAYING - "
+        "px_anjob set, the worker parked at OSAPI_TASK_ALIVE INSIDE the GIF "
+        "part between frames - and a compaction posted: the part and the "
+        "animation claim must read PINNED and unmoved (--still) and the "
+        "window keep animating after. Red with px_pin's op_pin taken out: "
+        "the part MOVED 3320 -> 2aa0 under the parked worker, which is the "
+        "C overlay's CS-on-a-stack defect (NO-PINNING-PLAN wave 0). 90s "
+        "measured",
+        needs=("marty",), serial=True,
+        wants=("build/pixel.o88", "build/os8088-360.img")),
     Row("pkgmove-deskclock", "soak",
         py("tests/pkgmove.py", "--app", "deskclok", "--first",
            "B:/APPS/NOTEPAD.O88", "--open", "A:/STIKAPPS/DESKCLOK.O88",

@@ -285,6 +285,35 @@ D apps/midirack/mrout.inc mrb_seg        # the external ring, page-safe: claimed
 D apps/midirack/mrout.inc mrk_seg        # the speaker/Covox ring, filled by the
                                          # ISR for one session and freed at its end
                                          # (SPEC.md 105.8.3)
+C apps/pixel/pixel.asm px_flatraw        # a CZ-packed file read whole for ONE open:
+                                         # claimed in px_open's head read, given
+                                         # back by px_finish (or px_relclaims on a
+                                         # refusal) - for the length of the open,
+                                         # where the head parse holds [px_hseg] and
+                                         # the decode worker [px_rsegc] inside it,
+                                         # parking at OSAPI_TASK_ALIVE mid-read
+C apps/pixel/pxmaster.inc px_wbase       # the decode's WORK claim, for the length
+                                         # of one decode job: px_claims makes it,
+                                         # px_finish gives it back. The worker and
+                                         # the decoder parts hold segments derived
+                                         # from it ([px_wseg] + offsets, PXK_RSEG,
+                                         # PXK_DSEG) across their parks inside the
+                                         # job, so it is in use while it exists
+C apps/pixel/pxgif.asm px_wbase          # the GIF part's work claim for ONE pass
+                                         # of an animation (av_start to av_wake):
+                                         # pa_job banks pg_dseg/pg_rseg from it in
+                                         # the part's own words and the worker
+                                         # parks with them, inside the part, at
+                                         # every ring wait and frame delay
+C apps/pixel/pxedit.asm px_ewseg         # one pixel operation's work claim, for
+                                         # the length of the JOB_EDIT job: pf_go
+                                         # claims it, pf_fin gives it back when
+                                         # the worker answers; the operation's
+                                         # rows run on the worker inside it
+C apps/pixel/pxwrite.asm px_ewseg        # Save As's scratch, for the length of
+                                         # the JOB_SAVE job: pu_start claims it,
+                                         # pu_fin's pu_sfree gives it back; the
+                                         # encoder runs on the worker inside it
 D apps/pixel/pxpump.inc @px_dmaclaim     # pxpump's page-safe disk buffer, handed to
                                          # int 13h as the DMA ring of one read
 X apps/imgtest/imgtest.asm si+IMG_DSTSEG # a TEST INSTRUMENT: imgtest ships on no
@@ -303,32 +332,6 @@ N apps/sheet/sheet.asm sh_stgseg         # the 32KB staging is the ES:BX of all
                                          # held for the SESSION. A pin/unpin pair
                                          # around those calls (SPEC.md 66.5.7.1)
                                          # retires it
-N apps/thewire/thewire.asm wr_catseg     # the catalog, for as long as the window
-                                         # is open. A3 left it: its readers hand
-                                         # back ES:SI, and nothing can gate a move
-                                         # without a NIC on MartyPC
-N apps/thewire/thewire.asm wr_fseg       # the transfer claim, for a chain - also
-                                         # OSAPI_PKG_START's ES:DI and FILE_WRITE's
-                                         # ES:BX, so it wants a pin round both
-N apps/thewire/wrarc.inc wr_fseg         # ...the same claim taken for an archive,
-                                         # whose decode holds [wr_dseg] in ES
-N apps/pixel/pixel.asm px_flatraw        # the flat file's expansion, which is also
-                                         # the ring; A3 did not take PiXEL's claims
-                                         # (its XMS/carve work)
-N apps/pixel/pxmaster.inc px_wbase       # the edit work claim; [px_wseg] is derived
-                                         # off it and a worker writes it
-N apps/pixel/pxedit.asm px_ewseg         # the edit part's work claim; the worker
-                                         # (SV_SPAWN) writes it. Not in A3 (PiXEL's
-                                         # own XMS/carve work)
-N apps/pixel/pxwrite.asm px_ewseg        # Save As's work claim in the writers'
-                                         # part, the same audit's
-N apps/pixel/pxgif.asm px_anseg          # an animation's frame claim, held while
-                                         # it plays on the desktop
-N apps/pixel/pxgif.asm px_wbase          # the GIF part's work claim, [px_wseg]
-                                         # derived off it
-N apps/pixel/pixel.asm @px_pfetch        # PiXEL's OP_SEG parts are CODE, far-called
-                                         # in their claims - the C overlay's shape,
-                                         # which a thunk retired (wave 0)
 N apps/pixelstein/pxstein.asm op:PX_PART_ART  # the 37KB art masters: the loader
                                          # claims them and the re-home re-owns them
                                          # to the slot, so mem_find_own refuses the

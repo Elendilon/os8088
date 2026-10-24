@@ -216,7 +216,7 @@ the base at each use". The ⚑ rows are the ones that need real work.
 | **EXCITEBIKE** ⚑ | compiled poses are far-called IN the claim (a CS) | **A5**: a proc that re-stamps the pose vectors |
 | **VIDEO** ⚑ | ring, "page-safe and never moved" | **A6, PERFORMANCE-BOUND**: the ring is bucket D/C only WHILE A PLAY RUNS (the reader, the hook and a card may all be writing it). Declare it movable when the play ENDS, and pin it again (`OSAPI_MEM_MOVABLE` with AX = 0) when the next play STARTS. Both happen outside the frame loop, so the play path gains nothing. A move between plays is one proc storing the ring's segment. Gate: the Video Player's frame rate on its demo videos, before and after |
 | **MIDIRACK**, **TRACKER**, **AUDIO**, **WIREFLEET**, **1942** PCM rings | D while armed, NONE idle | A6 |
-| **THE WIRE**, **FTPD**, **CHART**, **PIXEL**, **TELNET**, **RECORDER**, DeskClock, DotDel, StikNote | assorted | A3 |
+| **THE WIRE**, **FTPD**, **CHART**, **PIXEL**, **TELNET**, **RECORDER**, DeskClock, DotDel, StikNote | assorted | A3; **THE WIRE and PIXEL BUILT in a follow-up** (7: SPEC.md 92.5.1, 106.5.1) |
 | `os88type.inc` face cache 8 KB | - | **A7 BUILT**: `ty_reloc` (faces and the pre-shifted table), every includer at once; `tymove`, red-tested |
 | `os88parts.inc` carve ⚑ (op_claim) | "every part's segment is arithmetic on this base" | **A8**: declare from the library with a proc that stores `op_base`. A package that banks a part segment supplies a hook (as C2) |
 | lazy `op_fetch` claims | declared only by DrMario, Excitebike, Pixel | A8 |
@@ -360,10 +360,9 @@ accepts:
   and four Video Player claims `vp_smtab` does not reach (`vp_ldseg`,
   `vp_lyseg`, `vp_prseg`, the session's key-record arm);
 - SHEET's 32KB staging (held for the session; a pin/unpin pair retires it);
-- The Wire's catalog and transfer claims (A3 left them: no NIC on MartyPC);
-- PiXEL: the flat file, the work claims of `pxmaster`, `pxedit`, `pxgif` and
-  `pxwrite`, an animation's frames, and its OP_SEG CODE parts (`px_pfetch`),
-  the C overlay's shape that a thunk fixed in wave 0;
+- ~~The Wire's catalog and transfer claims~~ and ~~PiXEL's~~: RETIRED by the
+  follow-up in 7 (The Wire's two and PiXEL's code parts and animation claim
+  MOVE; PiXEL's five job-length work claims are bucket C with the job named);
 - PIXELSTEIN's art, levels and sprites, behind 6.5's fence;
 - DOS's own parts carve (never opted into `OP_ONMOVE`).
 
@@ -554,6 +553,34 @@ macro loop +0.70% - under the 2% bar, so no leaf fast path was built. Rows
 `sheetovlmove`, `sheetxbench`. Found on the way, NOT this work's: a SYLK save
 of 60 rows came out truncated and formula text near 60 characters cut short,
 in both builds.
+
+**The Wire and PiXEL (follow-up, zero kernel bytes):** ten N lines retired,
+N 29 -> 19. **THE WIRE** (SPEC.md 92.5.1): the catalog and the transfer claim
+move through one proc, `wr_reloc`, over the three words that name them
+(`[wr_dseg]` being the worker's copy), pinned only across `OSAPI_FILE_WRITE`,
+`_APPEND` and `OSAPI_PKG_START`; +80 bytes of image. **The gate is QEMU's
+and it POSTS the compaction**: QEMU's monitor has no memory write, so
+`tests/os88qemu.py` grew `poke`, which starts the GDB stub at runtime
+(`gdbserver`), writes with the remote protocol's `M` and detaches - the same
+`[mem_cpq]`/`[mem_cpq_lvl]` post MartyPC's `pkgmove` writes. `thewire`
+assertions 17-18: catalog 1C00 -> 1AC0 (taken after a late Refresh, whose
+regrow lands it over a hole - at the first catalog nothing below it is ever
+freed), transfer claim 1AC0 -> 1980 under the archive chain with every file
+read back byte-identical; red with `wr_reloc` a bare `ret`. **PIXEL**
+(SPEC.md 106.5.1): the code parts move through the standard's
+`OP_ONMOVE px_mreloc`, pinned exactly while a task stands in one - a mask a
+task, set and cleared by `px_pin`/`px_unpin` around every far call under
+`cli`, so the worker parked INSIDE a decoder (or a playing GIF's part, at
+every frame delay) keeps its part still and an idle part moves; the
+full-screen bracket stands in its part once, so the per-frame poll costs no
+far call. The animation claim moves between passes. The five work claims
+(flat file, decode, GIF pass, edit, Save As scratch) are bucket C: each lives
+exactly as long as the job using it, whose worker holds derived segments
+across its parks. +226 image, +4 bss, +42 in the GIF part; all 768 unchanged
+routines at an even shift. Rows `pkgmove-pixel`, `-pixelgif`, `-pixelanim`,
+each red-tested (`px_pin` without its pin moved the GIF part 3320 -> 2AA0
+under the parked worker). `tests/pkgmove.py` grew `--scratch`, `--idle`,
+`--still`, `--busy` and `--tuck` for it.
 
 **Kernel finding from A1b, not acted on (kernel bytes):** in a pass that
 moves a package's REGION, `mem_region_reloc` re-enters the restartable worker

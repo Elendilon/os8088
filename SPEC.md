@@ -46547,7 +46547,7 @@ of image for the three routines plus its hook.
 | DrMarco, Excitebike's splash, Pixel's colour face, the Video Player's block decoder | lazy | already declared by hand, each with a proc storing the row's word |
 | 1942's banks, scenes and effects; WireFleet's samples | lazy | fetched and dropped inside one bracket or one call: bucket C (§101.2.1, §114.11) |
 | PIXELSTEIN's levels and art masters | lazy, fetched by the LOADER | **pinned, blocked**: the re-home re-owns them to the slot (§20.12.10.5), and `mem_find_own`'s fence wants the claim owned by the CALLER's segment, so the program cannot declare them (§97.9.2) |
-| Pixel's code parts 0-8 | lazy `OP_SEG` | not adopted: its WORKER far-calls into them (`px_wcall`), and a park inside a part is a CS on a stack |
+| **Pixel's code parts 0-8** | lazy `OP_SEG` | **MOVABLE** (§106.5.1): `OP_ONMOVE px_mreloc`, and a part is PINNED exactly while the UI task or the worker stands in it - a mask a task, set by `px_pin` and cleared by `px_unpin` around every far call, so the worker parked at `OSAPI_TASK_ALIVE` inside a decoder keeps its part still |
 | REALDMG | carve: the core (far-called code) and the 64 KB view; the recompiler | NO-PINNING A1's, performance-bound and left to it: the carve is code the dispatch loop runs in |
 | DOS's trace part | carve (`OP_ZERO`) | an instrument build nothing ships (§96.29.1) |
 | Clear Skies' streams, MIDIRack's faces, Excitebike's packs, RealDMG's recompiler | `OP_SELF` | read by the package into claims of its own, each answered where it is claimed |
@@ -164920,6 +164920,38 @@ mid-picture writes the rest of that chunk into a buffer the UI task has
 already freed — the check at the top of the pass is true when the pass starts
 and stale 512 stores later.
 
+#### 92.5.1 The catalog and the transfer claim MOVE (NO-PINNING)
+
+**Both of the package's claims are declared movable** (§66.2), with one proc,
+`wr_reloc`, for three words: `[wr_catseg]` the catalog, `[wr_fseg]` the
+transfer claim, and `[wr_dseg]`, the worker's copy of whichever of the two a
+transfer is filling (a picture's is the package's own DS and never matches).
+The catalog is held for as long as the window is open, so it was a wall for
+the whole session; the transfer claim is held for a chain, and an archive's
+across every entry's pause, which on a floppy is minutes.
+
+**What makes it a one-word proc is the division above.** Every reader loads
+its segment from one of the three words at each use - `wr_recs`, `wr_walk`
+and `wr_side` on the catalog; `wr_take`, `wr_ostore` and `wr_lzb` on the
+destination - and the worker parks only in `OSAPI_TASK_ALIVE` at the top of
+its loop, between two passes that each re-read `[wr_dseg]`. A RUNNING worker
+pins every claim of the package (§66.3.1), so a move lands only between two
+passes. The UI task's readers hand back ES:SI and use it before their next
+claim, file or driver call.
+
+**Pinned only across the calls that hold the transfer claim** (§66.5.7.1),
+by `wr_fpin`/`wr_fmov`, both keeping every register and the flags:
+`OSAPI_FILE_WRITE` in `wr_write` and `OSAPI_PKG_START` in `wr_pkgrun` (both
+followed by `wr_freefile` on every path, so neither lets go again), and
+`OSAPI_FILE_APPEND` and `_WRITE` in `wr_arcwrite`, which do let go, the claim
+taking the next entry. The catalog's `OSAPI_MEM_REGROW` at Refresh keeps the
+declaration (§50.3.1); it moves the claim itself only through its own path 3,
+which hands the new base back in DX and calls no proc.
+
+**80 bytes of image, no bss and no kernel byte.** `tests/thewire.py`
+assertions 17 and 18 are the gate (92.12); its red run is `wr_reloc` made a
+bare `ret`.
+
 ### 92.6 The window
 
 Title `The Wire`, content **384 px wide**, height from the adapter through
@@ -165194,6 +165226,7 @@ segment register, because the bytes really are ours (§77.10).
 | `tests/thewire.py` (archives) | soak | the same boot, with `RAMDISK.DRV` wanted as well (`BIT_RAM`, a `SYSTEM.CFG` of the gate's own in `build/wirecfg/`). A fixture `.WPK` the test packs with `--archive`: a `home`, three folders, six entries at depths 0..2 — a stored one, a 40,000-byte LZSS one, an empty file, a twelve-character name and `HELLO.O88` last with `WAH_PROGRAM`. Add to Disk to B: -> every file under `home/` byte-identical, read back by the FAT12 reader in that file, folders included. Load Program on it -> a third live volume appears in `dsk_vtab` and it is `DVK_FILE`, the tree lands on it, the status cell says `Loaded`, and a `HELLO` window appears. Then the clip assertion of 92.6.1: after Load Program the launched window's content is captured, the window is dragged 8px and back for a clean full repaint, and the two must agree PIXEL FOR PIXEL — they read 0 of 17,040 differing, and they do not agree at all when the buttons have been drawn into it. **The pointer is parked at a fixed spot before each capture**: the arrow is drawn into the framebuffer, so a screendump carries it, and the drag left it somewhere else — 47 differing pixels in the shape of a cursor, reported by the first version of this row as the defect it exists to catch |
 | `tests/unit/t_wire.py` (version 2) | fast | 92.13.1: a tree with an entry past `WIRE_FILEMAX` packs as version 2 with that entry STORED and the claim capped, round-trips byte for byte through both readers, and its record carries `WF_DISK`; `--verify` fails a big entry in a version 1 archive, a version 2 archive with none, an LZSS entry past the claim, and a version 2 record without `WF_DISK`; `--pack` refuses a plain record past `WIRE_FILEMAX` with or without `floppy_only` (92.2) |
 | `tests/thewire.py` (another os8088) | soak | two more records: NEWHELLO, whose `WC_PKGFMT` is one past ours - both buttons grey, the click says `Needs a newer os8088`, nothing is fetched; and OLDHELLO, whose bytes are the previous format under a `WC_PKGFMT` of 0 - Load Program reaches the loader's `LD_EVER` and the status cell says `Made for another os8088 version`, and Add to Disk refuses before writing, so OLDHELLO.O88 is on no disk afterwards |
+| `tests/thewire.py` (moves, 92.5.1) | soak | a compaction POSTED from outside - `[mem_cpq]` and `[mem_cpq_lvl]`, written through QEMU's GDB stub (`tests/os88qemu.py`'s `poke`: the monitor has no memory write) - once after a late Refresh, whose regrow lands the catalog over a hole, and every half second while the first archive chain holds its claim. The catalog reads DECLARED, MOVES with its bytes and the list is counted again out of it; the transfer claim reads declared and moves at least once, and the tree's host-side read-back is what says no byte went to the old place. Measured: catalog 1C00 -> 1AC0, transfer claim 1AC0 -> 1980. Red with `wr_reloc` a bare `ret`: `[wr_catseg]` names no claim, the records read garbage (`Needs a newer Wire`), and an archive file differs from byte 0 |
 | `tests/thewire.py` (version 2) | soak | a fifth record, `BIGTREE`, whose `DATA/HUGE.BIN` is 150,000 bytes between two ordinary entries: Load Program greyed and Add to Disk not, then the chain - one `OSAPI_FILE_WRITE` and two `OSAPI_FILE_APPEND`s for the big file - and all three files compared byte for byte off the B: image. The fixture's HTTP server serves each connection on a thread of its own, as a real one does |
 
 **The picture assertion is the one nothing else can make.** §92.3 stores the
@@ -203093,6 +203126,69 @@ byte for byte, one claim held while it is here and none after, and the row's
 `zkb` the packed length again; F1 again fetches again - the leg a compressed
 part could not pass before the shadow; and a row aimed at the package's own
 header is refused with its claim still given back.
+
+#### 106.5.1 The code parts MOVE, pinned exactly while a task stands in one (NO-PINNING)
+
+A fetched part was a claim nothing declared, so a decoder part kept after an
+open, the EDIT part held between two operations and the full-screen part all
+stood in the heap as walls. They are declared now through the parts
+standard's door (§20.12.12): `%define OP_ONMOVE px_mreloc`, so `op_lazymv`
+puts the row's segment right and jumps to PiXEL's one proc, which has nothing
+of a code part's to re-base - `px_pcall` and `px_wcall` build the far pointer
+and stamp the header (`px_pstamp`) at EVERY call, and rule 3 above already
+forbids a part a copy of anything past the call.
+
+**What the standard cannot check is a CS on a stack**, and that is the whole
+of the work. A part far-called on the UI task can reach a claim through the
+service gate (the toast, the walk, the alert, `op_fetch`); the worker's
+DECODE parks at `OSAPI_TASK_ALIVE` INSIDE the part, at every ring wait and,
+for a GIF that plays, at every frame delay. So each task keeps a mask of the
+parts it stands in, a bit a part - `[px_pum]` the UI task's, `[px_pwm]` the
+worker's - banked before each far call and put back after, so nesting is
+right by construction:
+
+- `px_pin` (before the far call) sets the bit and pins the claim
+  (`op_pin`) unless EITHER task already stands in the part;
+- `px_unpin` (after) declares it again (`op_movable`) only when NEITHER does.
+
+Both read the two masks under `cli`, and `px_pin` sets its bit inside the
+same window, so the other task's `px_unpin` can never declare a part this one
+has decided to stand in. A part is therefore movable whenever it is idle and
+pinned for exactly the length of a call into it - bucket C, a part's worth.
+The full-screen bracket stands in part 5 for its whole length (`px_fsgo`), so
+the per-frame `FSV_POLL` costs neither task a far call, and a GIF's `AV_TICK`
+finds the worker in part 1 already and costs none either. Nothing is added
+to a row, a pixel or a frame: the two far calls a pin and a declaration cost
+are paid per UI part call, against a part call that already costs a fetch
+lookup, a header check and three stamps.
+
+**A GIF's animation claim** (`[px_anseg]`, 106.25) moves too, through the same
+`px_mreloc`: declared when it is made and when `.grow` replaces it, PINNED
+by `av_start` for one pass - the worker reads the global table into it with
+ES held across a ring wait - and let go by `av_wake` when the pass ends. A
+stopped animation's claim moves; a playing one is in use.
+
+**What stays pinned, with the reason** (tests/pins.txt, bucket C): the flat
+file's expansion (one open), the decode's work claim (one decode job), the
+GIF part's work claim (one pass), an operation's work claim (one JOB_EDIT
+job) and Save As's scratch (one JOB_SAVE job). Each lives exactly as long as
+the job that uses it, and each job's worker holds segments derived from it
+across its parks - `[px_wseg]` and its offsets, the context's `PXK_RSEG` and
+`PXK_DSEG`, `pg_dseg` and `pg_rseg` banked in the GIF part's own words - so
+making one movable would buy a move only in the middle of the job that is
+using it.
+
+**Cost: +226 bytes of image** (the standard's three routines, 80; `px_pin`
+and `px_unpin`, 70; the call sites; two parity pads), +4 bytes of bss, +42 of
+the GIF part, no kernel byte. `tools/os88rdiff.py`: 768 routines identical
+and every one at an EVEN shift - the renderer, the quantiser and the emitter
+where they were measured. The rows are `pkgmove-pixel` (an idle decoder part
+and the master MOVE), `pkgmove-pixelgif` (a stopped animation's claim, its
+part and the master MOVE) and `pkgmove-pixelanim` (an animation PLAYING: the
+GIF part and the animation claim read PINNED and unmoved while the worker is
+parked inside the part). Red: `px_pin` without its `op_pin` - the GIF part
+moved 3320 -> 2AA0 under the parked worker; `px_anseg` out of `px_mreloc` -
+the word stale; `op_lazymv` without its store - the row stale.
 
 ### 106.6 Opening a file before there is a decoder (wave 1)
 

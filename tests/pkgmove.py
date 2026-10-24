@@ -25,6 +25,19 @@ FIVE ASSERTIONS:
 
 Each registration names its own red run: the package's proc made a bare
 `ret`, which leaves the word naming the old base and fails 3.
+
+FOR A PACKAGE WHOSE CLAIMS ARE NOT ALL OF THE STORY (PiXEL, SPEC.md 106.5.1):
+  --scratch DIR:FILE[=NAME]  the B: floppy built with build/<app>.o88 and these
+  --idle WORD                a byte of the package's that reads 0 when nothing
+                             runs - a quiet claim table is not a finished job
+  --busy WORD                ...and one that must read non-zero at the post
+  --still WORD               a claim the package STANDS IN (a code part its
+                             parked worker is inside): must read pinned and
+                             unmoved - the half that catches a CS on a stack
+  --tuck                     minimize the --first window, when it covers the
+                             drive's zone
+A --word may be an expression over the map's labels (`op_table+32`: part 2's
+row segment), and --word is optional when --still is given.
 """
 import argparse
 import hashlib
@@ -60,7 +73,9 @@ def main():
     ap.add_argument("--app", required=True)
     ap.add_argument("--open", required=True,
                     help="D:/FOLDER/.../FILE to double-click")
-    ap.add_argument("--word", action="append", required=True)
+    ap.add_argument("--word", action="append", default=[],
+                    help="a word naming a declared claim, which must MOVE "
+                    "(at least one of them) - optional with --still")
     ap.add_argument("--disk", default="build/apps360.img",
                     help="the B: floppy; a bare name (games360.img) is "
                     "build/'s, which is how a suite row names one without "
@@ -69,6 +84,28 @@ def main():
     ap.add_argument("--first", help="D:/.../FILE opened BEFORE the target and "
                     "closed after it, so its claims leave a hole UNDER the "
                     "target's (a claim already on the floor cannot move)")
+    ap.add_argument("--scratch", action="append", default=[],
+                    help="DIR:FILE[=NAME] onto a SCRATCH B: floppy built with the "
+                    "package's own build/<app>.o88 at its root (PiXEL's "
+                    "pictures ride no shipped disk) - the --disk is then "
+                    "that image's name")
+    ap.add_argument("--idle", action="append", default=[],
+                    help="a byte of the package's that reads 0 when nothing "
+                    "is running - PiXEL's px_busy: its claims are all made "
+                    "before a decode starts, so a quiet claim table is not "
+                    "a finished picture")
+    ap.add_argument("--still", action="append", default=[],
+                    help="a word naming a claim the package is STANDING IN "
+                    "when the compaction runs - a code part its parked "
+                    "worker is inside: it must read pinned and unmoved")
+    ap.add_argument("--busy", action="append", default=[],
+                    help="a byte of the package's that must read non-zero "
+                    "as the compaction is posted - PiXEL's px_anjob, the "
+                    "worker inside the GIF part for a pass")
+    ap.add_argument("--tuck", action="store_true",
+                    help="minimize the --first window to its dock tile "
+                    "before the target is opened: one that covers the "
+                    "drive's desktop zone leaves it nothing to click")
     ap.add_argument("--machine", default="os8088_5150_cga_gla")
     ap.add_argument("--keys", help="MartyKey names, comma-separated, typed "
                     "at the target once it is in front - a game is started "
@@ -89,7 +126,31 @@ def main():
     a = ap.parse_args()
     if "/" not in a.disk:
         a.disk = os.path.join("build", a.disk)
+    if a.scratch:
+        files = []
+        for spec in a.scratch:          # DIR:path=NAME puts it on as NAME:
+            if "=" in spec:             # a GIF's association is Paint's, so
+                spec, name = spec.split("=", 1)     # PiXEL is handed one as a
+                d, path = spec.split(":", 1)        # .PNG - it SNIFFS what it
+                tmp = os.path.join("build", "pkgmove-scratch")  # reads
+                os.makedirs(tmp, exist_ok=True)
+                dst = os.path.join(tmp, name)
+                if not os.path.exists(dst) or open(dst, "rb").read() != \
+                        open(path, "rb").read():
+                    open(dst, "wb").write(open(path, "rb").read())
+                spec = d + ":" + dst
+            files.append(spec)
+        a.disk = os88marty.scratch_disk(a.disk, "build/%s.o88" % a.app,
+                                        *files)
     MAP = dispapps._map(a.app)
+
+    def addr(w):
+        # A WORD is a name in the package's map, or an EXPRESSION over its
+        # labels - `op_table+32` is part 2's row's segment word once it is
+        # fetched (OP_T_ROWS 10 + 2 * OP_ROW 8 + OP_R_ZKB 6, os88parts.inc),
+        # which no label names. The map holds labels, not constants
+        return MAP[w] if w in MAP else int(eval(w, {"__builtins__": {}},
+                                                 dict(MAP)))
     fails = []
     done = lambda mm, **k: os88marty.ui_done(mm)
 
@@ -125,6 +186,12 @@ def main():
         os88marty.no_saver(m)
         mo = os88mouse.Mouse(marty=m)
         first = walk(m, mo, a.first) if a.first else None
+        if first is not None and a.tuck:   # a window as big as PiXEL's covers
+            fw = [o for o in os88geom.windows(m, S) if o.i == first][0]
+            mo.click(*os88geom.tile_xy(m, fw, S))   # the drive's zone: it is
+            os88marty.until(m, lambda _: not any(    # minimized to its tile
+                o.i == first and o.visible for o in os88geom.windows(m, S)),
+                "the first window tucked away", limit=20)
         win = walk(m, mo, a.open)
         if first is not None:            # its claims under ours become a hole
             fw = [o for o in os88geom.windows(m, S) if o.i == first][0]
@@ -145,15 +212,22 @@ def main():
             rec = m.read(S("wm_wins") + win * dispcp.WIN_SIZE,
                          dispcp.WIN_SIZE)
             return u16(rec, 22)
-        os88marty.quiesce(m, lambda: sorted(claims(m)), guest=2.0,
+        for z in a.idle:               # the package's own "nothing running"
+            os88marty.until(m, lambda _: m.read(pseg() * 16 + addr(z), 1)[0]
+                            == 0, "%s = 0" % z, poll=0.3, limit=120)
+        os88marty.quiesce(m, lambda: sorted(claims(m).items()), guest=2.0,
                           what="the package's claims")
         os88marty.ui_done(m)
 
         def words(seg):
-            return {w: u16(m.read(seg * 16 + MAP[w], 2)) for w in a.word}
+            return {w: u16(m.read(seg * 16 + addr(w), 2)) for w in a.word}
+
+        def stills(seg):
+            return {w: u16(m.read(seg * 16 + addr(w), 2)) for w in a.still}
 
         seg0 = pseg()
         w0 = words(seg0)
+        s0 = stills(seg0)
         held = claims(m)
         print("%s at %04x: %s" % (a.app, seg0, "  ".join(
             "%s=%04x" % kv for kv in w0.items())))
@@ -173,7 +247,10 @@ def main():
         def repaint():
             m.write(S("cp_dirty"), b"\x01")
             os88marty.ui_done(m)
-            os88marty.settle(m)
+            if a.animated:              # a picture that never holds still
+                os88marty.pace(m, 1.0)  # cannot settle: check 5 compares
+            else:                       # two moments instead
+                os88marty.settle(m)
             return m.fbuf()
 
         shot0 = repaint()
@@ -188,6 +265,12 @@ def main():
             os88marty.until(m, lambda _: not shown(), "the target hidden",
                             limit=20)
             os88marty.pace(m, 1.0)
+        for z in a.busy:               # ...and it IS standing in it now
+            v = m.read(pseg() * 16 + addr(z), 1)[0]
+            print("  0 %s = %d as the compaction is posted" % (z, v))
+            if not v:
+                fails.append("%s is 0: nothing was running in the package, "
+                             "so the --still check proves nothing" % z)
         m.write(S("mem_cpq_lvl"), bytes([0xFC]))
         m.write(S("mem_cpq"), bytes([wptr & 0xFF, wptr >> 8]))
         os88marty.until(m, lambda _: u16(m.read(S("mem_cpq"), 2)) == 0,
@@ -202,11 +285,19 @@ def main():
         seg1 = pseg()
         w1 = words(seg1)
         held = claims(m)
+        s1 = stills(seg1)               # ...and what must NOT have moved: a
+        for k in a.still:               # claim the package stands in, pinned
+            ok = s1[k] == s0[k] and s1[k] in held and not held[s1[k]][1]
+            print("  0 %s stood still  %04x -> %04x %s" % (
+                k, s0[k], s1[k], "pinned" if ok else "NOT PINNED / MOVED"))
+            if not ok:
+                fails.append("%s moved or was movable while the package "
+                             "stood in it" % k)
         print("%s at %04x: %s" % (a.app, seg1, "  ".join(
             "%s=%04x" % kv for kv in w1.items())))
         moved = [k for k in w1 if w1[k] != w0[k]]
         print("  2 moved              %s" % (", ".join(moved) or "NOTHING"))
-        if not moved:
+        if not moved and a.word:
             fails.append("nothing moved: the run proves nothing")
             raw = m.read(S("mem_tab"), MEM_MAX * MC_SIZE)     # ...and WHY:
             for i in sorted(range(MEM_MAX),                   # the heap map,
@@ -253,8 +344,13 @@ def main():
                 out += row
             return bytes(out)
         if a.animated:
-            os88marty.pace(m, 1.0)
-            live = band(shot1) != band(m.fbuf())
+            # SEVERAL moments and not one: an animation whose period divides
+            # the gap shows the same frame at both ends (BOUNCE.GIF at 10
+            # frames a second read frame 1, 7, 1, 7 at half-second steps)
+            live = False
+            for gap in (0.3, 0.4, 0.5, 0.7):
+                os88marty.pace(m, gap)
+                live = live or band(shot1) != band(m.fbuf())
             print("  5 still animating    %s" % ("yes" if live else "NO"))
             if not live:
                 fails.append("the window stopped changing after the move")
