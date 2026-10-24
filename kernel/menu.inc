@@ -1007,11 +1007,13 @@ menu_bt_raw:
 .bare:
     mov ax, MENU_NAME_X         ; Locator: a bare label, same pen x
     call menu_bpad
-    push es
-    call menu_es                ; the name belongs to the owner (12.2/20.1)
-    mov si, [menu_namep]
-    call menu_bstr
-    pop es
+    call menu_es                ; the name belongs to the owner (12.2/20.1).
+    mov si, [menu_namep]        ; ES is NOT banked round it: the entry's
+    call menu_bstr              ; `push es` is, and nothing below reads ES
+                                ; before the exit's `pop es` - menu_bent sets
+                                ; its own, font_run and the rest take DS (and
+                                ; what ES held there was the caller's, never
+                                ; ours): pass 14, 2 bytes
 
 .cells:                         ; --- the app's own menus, left to right ----
     mov bx, 1                   ; cell 0 is the logo: a bitmap, no text
@@ -1236,22 +1238,19 @@ menu_bent:
     add ax, menu_bar            ; the whole index; the base goes on before the
     xchg ax, si                 ; one-byte move into SI (size pass 10: 2).
                                 ; (menu_bar is .lowbss: read through SS)
-    mov ax, [ss:si + MB_TITLE]
-    or ax, ax
-    jz .out                     ; the logo cell has no text
-    mov cx, [ss:si + MB_SEG]
-    push ax
+    cmp word [ss:si + MB_TITLE], 0
+    je .out                     ; the logo cell has no text
     mov ax, [ss:si + MB_XL]
     add ax, MENU_TITLE_PAD / 2  ; the cell's pen x (SPEC.md 12.2: no MB_TX)
-    call menu_bpad              ; spaces up to this cell's pen
-    pop ax
-    KES
+    call menu_bpad              ; spaces up to this cell's pen (SI it keeps)
+    mov cx, [ss:si + MB_SEG]
+    mov si, [ss:si + MB_TITLE]  ; read last, into the register it is used
+    KES                         ; from: no AX bank (pass 14: 2 bytes)
                                 ; this cell's own segment (SPEC.md 12.2)
     or cx, cx
     jz .seg
     mov es, cx
 .seg:
-    mov si, ax
     call menu_bstr
 .out:
     pop es
@@ -2600,9 +2599,24 @@ menu_bfirst: resw 1             ; the span that differs, 0FFFFh = none
 menu_blast: resw 1
 menu_sseg:  resw 1              ; the save-under claim's segment, 0 = none
                                 ; (menu_drop then repaints instead)
-menu_tbuf:  resb MENU_MAXCH + 1 ; menu_trunc's staging buffer. It was carved
+menu_tbuf   equ clk_str         ; menu_trunc's staging buffer. It was carved
                                 ; out of the clock's field buffer, which went
-                                ; when the clock moved into menu_bcell
+                                ; when the clock moved into menu_bcell - and
+                                ; since kernel size pass 14 it is the clock's
+                                ; LINE buffer again, clock.inc's clk_str, at
+                                ; no bytes of its own (25). The two lifetimes
+                                ; cannot meet: clk_str is written by clk_fmt
+                                ; alone and read straight back by the bar's
+                                ; composition, under the gfx lock on the UI
+                                ; task; menu_tbuf is written by menu_trunc and
+                                ; read by the font_run_x three instructions
+                                ; on, inside menu_drop's item loop - which
+                                ; holds the lock on the UI task, so no
+                                ; composition can run between the two. The
+                                ; boot probe's scratch shares it too (clock.inc)
+%if MENU_MAXCH + 1 > CLK_STR_LEN
+  %error "menu_tbuf is clk_str: an item of MENU_MAXCH glyphs and its NUL no longer fit"
+%endif
 menu_abcell: resw 1             ; bar index of the app-NAME cell, 0 = none -
                                 ; cell 0 is the System menu, so 0 is free to
                                 ; mean "Locator owns the bar" (SPEC.md 12.7)

@@ -2263,7 +2263,8 @@ clk_rp24:   resb 1              ; ...and bit 0 = the chip is running 24-hour,
                                 ; reader, no writer and no %if of its own)
 %endif
 
-clk_str:    resb 25             ; the bar's line, longest form 24 glyphs + NUL
+CLK_STR_LEN equ 25
+clk_str:    resb CLK_STR_LEN    ; the bar's line, longest form 24 glyphs + NUL
                                 ; (drawn under the gfx lock, UI task only).
                                 ; 24 is counted off clk_fmt itself: 'Mmm' 3 +
                                 ; ' ' 1 + DD 2 + ' ' 1 + YYYY 4 + '  ' 2 +
@@ -2319,7 +2320,7 @@ clk_nsrol   equ clk_str + 20    ; 1 = the MM58167's month went backwards, so
 clk_rpyy    equ clk_str + 21    ; the RP5C01's two year digits, raw
 
 CLK_PROBE_SPAN equ 22
-%if CLK_PROBE_SPAN > 25
+%if CLK_PROBE_SPAN > CLK_STR_LEN
   %error "clock: the probe scratch no longer fits clk_str"
 %endif
 
