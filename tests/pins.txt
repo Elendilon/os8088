@@ -344,18 +344,3 @@ N apps/pixelstein/pxstein.asm op:PX_PART_LEV  # the 10KB levels, behind the same
                                          # fence (6.5)
 N apps/pixelstein/pxstein.asm pxl_sseg   # the 60KB sprite set, behind the same
                                          # fence (6.5)
-N apps/audio/apengine.inc ap_la_seg      # the 32KB look-ahead ring, claimed once
-                                         # and held for the instance's life
-N apps/audio/apspk.inc aps_rseg          # the speaker ring, claimed once for the
-                                         # instance: D while armed, a wall idle (A6)
-N apps/tracker/trkspk.inc tsp_rseg       # the speaker ring, claimed once for the
-                                         # session: D while armed, a wall idle (A6)
-N apps/wirefleet/wfsound.inc wf_pcmseg   # the PCM ring, claimed at ENTRY and held
-                                         # for the instance: D while armed, a wall
-                                         # idle (A6)
-N apps/midirack/mrlist.inc mr_fseg       # the song's claim, held until the window
-                                         # closes
-N apps/midirack/mrwt.inc mwt_bseg        # the wavetable bank, read once and held
-                                         # until the window closes
-N apps/midirack/mrwt.inc mwt_xseg        # the wavetable mix claim, made once and
-                                         # held until the window closes

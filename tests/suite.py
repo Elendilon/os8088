@@ -2875,6 +2875,76 @@ SOAK = [
         "2860 -> 2720), bytes and picture unchanged. Red with both procs a "
         "bare ret (stale words). 30s measured",
         needs=("marty",), serial=True, wants=("build/games360.img",)),
+    Row("ringmove-audio", "soak", py("tests/ringmove.py", "--app", "audio"),
+        25.0,
+        "NO-PINNING A6 (SPEC.md 86.5.3): the Audio Player's 32 KB look-ahead "
+        "ring MOVES between plays and is PINNED for one, on a 5150 with a "
+        "Sound Blaster. FURELISE.WAV double-clicked plays; mid-play MC_RLOC "
+        "is 0; S stops and it is declared; a compaction posted from outside "
+        "moves it 26c0 -> 2380, the word follows, the bytes hash the same; "
+        "Space plays again (ap_played advancing) with it pinned, and S "
+        "declares it again. Found on the way: the idle worker slept 6 ticks "
+        "against INST_PARKW's 4, so a compaction left the instance's claims "
+        "where they were about one time in three (AP_SLP_IDLE is 3 now, "
+        "86.5.1). VERIFIED RED both ways: ap_rmove a bare ret (3, the word "
+        "stale) and ap_rpin declaring instead of pinning (0 and 6, rloc "
+        "513 mid-play). 18s measured",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-720.img", "build/covoxlisten720.img")),
+    Row("ringmove-audiospk", "soak",
+        py("tests/ringmove.py", "--app", "audiospk"), 20.0,
+        "NO-PINNING A6 (SPEC.md 86.5.3): the same on a machine with NO card - "
+        "the look-ahead and the speaker's ring (aps_rseg) both pinned for "
+        "the speaker's bracket, both declared once S stops it inside the "
+        "bracket, both moved by a posted compaction (26c0 -> 2380, 2ec0 -> "
+        "2b80), and Space plays again in a new bracket with the ISR's CONS "
+        "advancing and both pinned. VERIFIED RED both ways (ap_rmove a bare "
+        "ret: both stale; ap_rpin declaring: both movable mid-play). 15s "
+        "measured",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-720.img", "build/covoxlisten720.img")),
+    Row("ringmove-tracker", "soak",
+        py("tests/ringmove.py", "--app", "tracker"), 25.0,
+        "NO-PINNING A6 (SPEC.md 45.25.6): Tracker's speaker ring (tsp_rseg) "
+        "MOVES between plays and is PINNED for one, on a card-less 5150. "
+        "BEVERLY.MOD double-clicked plays in the imposter bracket (the first "
+        "Play calibrates), Esc stops it and declares the ring, a posted "
+        "compaction moves it 4340 -> 4000, Enter plays again with the ISR's "
+        "CONS advancing and the ring pinned. VERIFIED RED both ways "
+        "(tsp_rmove a bare ret: stale; tsp_rpin declaring: movable "
+        "mid-play). 17s measured",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-720.img", "build/covoxlisten720.img")),
+    Row("ringmove-midirack", "soak",
+        py("tests/ringmove.py", "--app", "midirack"), 30.0,
+        "NO-PINNING A6 (SPEC.md 105.10.1): MIDIRack's song, wavetable bank and "
+        "mix claim MOVE, on a 5150 with a Sound Blaster and the synthetic "
+        "bank `make mrwttest` writes. The wavetable plays with the bank and "
+        "the mix claim pinned (the voices hold segments derived from the "
+        "bank) and the song still movable; Stop declares them; a posted "
+        "compaction moves all three (26c0 -> 2380, 28c0 -> 2580, 2a80 -> "
+        "2740), bytes unchanged; Play again moves the card's CONS. VERIFIED "
+        "RED both ways (mwt_move and mr_fmove a bare ret: all three stale; "
+        "mwt_pin declaring: both movable mid-play). 21s measured",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-720.img", "build/mrwt720.img")),
+    Row("ringmove-wirefleet", "soak",
+        py("tests/ringmove.py", "--app", "wirefleet"), 30.0,
+        "NO-PINNING A6 (SPEC.md 114.11.1): WireFleet's 13 KB clip ring MOVES "
+        "between clips and is PINNED for one, on a Hercules 5150 with a "
+        "Sound Blaster. It is a TOP-DOWN claim under the region, so Mines "
+        "opens first and closes after (the hole above it) and Link > "
+        "Disconnect frees the region its serial ring pins. The launch cue is "
+        "INJECTED (wf_fxsound called at WireFleet's own timer callback: no "
+        "clip can be had without a link partner) and read the instant it "
+        "returns: playing, pinned; it plays out to CONS 4096 and is declared "
+        "again; a posted compaction moves it 8980 -> 8a00. Found on the way: "
+        "wf_pcm_play never loaded verb 0's CX, which refuses 0 (7), so a clip "
+        "played or not on its caller's leftover CX. VERIFIED RED both ways "
+        "(wf_pcmmv a bare ret: stale; the play's pin taken out: movable "
+        "mid-clip). 21s measured",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/games360.img")),
     Row("pkgmove-1942", "soak",
         py("tests/pkgmove.py", "--app", "1942", "--disk",
            "1942-360.img", "--open", "B:/1942.O88", "--word",
@@ -4657,7 +4727,12 @@ SOAK = [
         "filler's T takes the rest and the card's Play and the speaker's are "
         "REFUSED with their messages, nothing open or held; the filler "
         "closed, both play again. Red with the card's ring kept at Stop, "
-        "with the grant fallback out, and with either speaker-ring free out",
+        "with the grant fallback out, and with either speaker-ring free out. "
+        "Since NO-PINNING A6 the song is MOVABLE (105.10.1) and packs down, "
+        "leaving the filler's 8 KB as one run that cannot hold a grant's "
+        "pool and its double buffer both, so the row pins the song from "
+        "outside (MC_RLOC = 0) for the fill and the grant leg - the wall the "
+        "leg is about - and declares it again after",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/midirack.o88",
                "build/filler.o88")),
