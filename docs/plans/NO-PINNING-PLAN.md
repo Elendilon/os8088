@@ -359,13 +359,20 @@ accepts:
   PCM ring (claimed at ENTRY), MIDIRack's song, wavetable bank and mix claim,
   and four Video Player claims `vp_smtab` does not reach (`vp_ldseg`,
   `vp_lyseg`, `vp_prseg`, the session's key-record arm);
-- SHEET's 32KB staging (held for the session; a pin/unpin pair retires it);
+- ~~SHEET's 32KB staging~~ **BUILT (NO-PINNING 1, SPEC.md 81.2.1)**: movable,
+  pinned only across each file call by `sh_stgpin` in the two resident stubs
+  every one of them goes through; +41 image bytes; `sheetmove` 3b and
+  `sheetmove-rt`;
 - The Wire's catalog and transfer claims (A3 left them: no NIC on MartyPC);
 - PiXEL: the flat file, the work claims of `pxmaster`, `pxedit`, `pxgif` and
   `pxwrite`, an animation's frames, and its OP_SEG CODE parts (`px_pfetch`),
   the C overlay's shape that a thunk fixed in wave 0;
 - PIXELSTEIN's art, levels and sprites, behind 6.5's fence;
-- DOS's own parts carve (never opted into `OP_ONMOVE`).
+- ~~DOS's own parts carve~~ **BUILT (NO-PINNING 2, SPEC.md 96.29.1.2)**: it
+  exists only in the `DOSTRACE` instrument build (the shipped `DOS.O88` has
+  no carve at runtime - its loader's carve IS the region). It opts into
+  `OP_ONMOVE` (`dos_trmove`), moves at the prompt and is pinned from the
+  program's start to its `TRACE.LOG`; shipped arms byte-identical; `dostrmove`.
 
 ## 5. The adversarial review (2026-10-23) and what it changed
 

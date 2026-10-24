@@ -5926,14 +5926,30 @@ SOAK = [
         "undeclared holder in the tree - six claims at its entry proc, ~99KB, "
         "pinned for the session - which made SPEC.md 66.5.10.2's 'the arena "
         "below the top now has no barrier in it at all' false the moment a "
-        "sheet opened. Five are declared now; sh_stgseg is the ES:BX of all "
-        "seven of the package's file calls and stays pinned, and this asserts "
-        "THAT too, because 'we meant to leave that one' and 'we forgot that "
-        "one' are the same picture. paintmove's recipe. VERIFIED TO FAIL: "
-        "drop sh_cellseg from sh_reloc's table and check 3 reads STALE while "
-        "check 4's repaint differs over 24 rows of the grid",
+        "sheet opened. All six are declared now: the staging, every file "
+        "call's ES:BX, joined them in NO-PINNING 1 (SPEC.md 81.2.1) and 3b "
+        "asserts it moved and its word followed. paintmove's recipe. VERIFIED "
+        "TO FAIL: drop sh_cellseg from sh_reloc's table and check 3 reads "
+        "STALE while check 4's repaint differs over 24 rows of the grid; drop "
+        "sh_stgseg from it and the row fails at the entry proc ('[sh_stgseg] "
+        "= 6140 is not a claim Sheet holds'); sh_reloc a bare ret fails the "
+        "same way on sh_cellseg",
         needs=("marty",), serial=True,
         wants=("build/sheetmove360.img",)),
+    Row("sheetmove-rt", "soak", py("tests/sheetmove.py", "--leg", "rt"), 45.0,
+        "NO-PINNING 1 (SPEC.md 81.2.1): SHEET's 32KB staging MOVES and is "
+        "pinned only across each OSAPI_FILE_READ/WRITE (sh_stgpin in the two "
+        "resident stubs every file call goes through). sheetovlmove's disk "
+        "and arrangement (Note Pad owns the floor, both modules load), a "
+        "compaction posted from outside slides the staging down, then a Save "
+        "As SLK and an Open are each STOPPED INSIDE their file call and the "
+        "staging's MC_RLOC read there must be 0; the saved file is parsed on "
+        "the host and the reload fills an emptied cell store. VERIFIED TO "
+        "FAIL: the write's `call sh_stgpin` removed reads MC_RLOC 112 inside "
+        "the write (check 3). It cannot force a compaction INSIDE the call on "
+        "this disk - neither call claims at all - and says so per run",
+        needs=("marty",), serial=True,
+        wants=("build/sheetovl360.img",)),
     Row("sheetovlmove", "soak", py("tests/sheetovlmove.py"), 35.0,
         "NO-PINNING P1b (SPEC.md 82.16.11): SHEET's CHART.OVL MOVES out from "
         "under its own call chain and the return lands in the new home. F5 is "
@@ -7244,6 +7260,22 @@ SOAK = [
         "kernel's own solve picks 32K (18.95.5), so Auto and 32K read the "
         "same figure for a TRUE reason. VERIFIED red on the shipped build. ",
         needs=("marty",), serial=True),
+    Row("dostrmove", "soak", py("tests/dostrmove.py"), 25.0,
+        "NO-PINNING 2 (SPEC.md 96.29.1.2): the DOSTRACE build's 35KB trace "
+        "part - DOS.O88's only parts carve, and one the shipped package never "
+        "makes - MOVES at the prompt through the parts standard's OP_ONMOVE "
+        "(dos_trmove re-asks op_seg for [dos_trseg] and the core's "
+        "[dos_m33seg]) and is PINNED from dos_run's .ready to the end of the "
+        "dump. Its own disk in build/dostrmove/ (the DOSTRACE package "
+        "assembled there, beside DOSHELLO.COM and Note Pad): Note Pad takes "
+        "the ceiling, DOS lands under it, Note Pad closes, a posted pass "
+        "moves the carve up; both words must name the new carve, the carve's "
+        "MC_RLOC must read 0 WHILE DOSHELLO runs and non-zero after, and the "
+        "trace must be in the NEW part. VERIFIED TO FAIL: dos_trmove a bare "
+        "ret -> 3 (both words at the old base) and 6 (no AH=30h in the new "
+        "part); the .ready pin removed -> 4 (MC_RLOC 3C86 while it runs)",
+        needs=("marty",), serial=True,
+        wants=("build/DOSHELLO.COM", "build/notepad.o88")),
     Row("dosarena", "soak", py("tests/dosarena.py"), 30.0,
         "THE DOS ARENA'S UNMOUNT-AND-COMPACT (SPEC.md 96.35, 51.11.1, 66.4.3): "
         "SOUND.DRV is ~14KB at the TOP of the heap and DOS unmounts it, "
