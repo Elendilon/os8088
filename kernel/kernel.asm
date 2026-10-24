@@ -5996,12 +5996,13 @@ osapi_video:
                                 ; fact vid_depth_set stores as a word, so the
                                 ; two cannot disagree (kernel size pass 13: it
                                 ; was a compare on [vid_mono] and two moves)
-%ifdef KERN_SMALL
-    db 0                        ; PARITY PAD, never executed: kern_big's since
-%endif                          ; kernel size pass 13, kern_small's since pass
-                                ; 14 shared GOTO_QM's `ret` above - gfx_blit4,
-                                ; font_run, the ISRs and the scheduler at the
-                                ; parity t_hotpar pins, on both kernels
+                                ; (NO PARITY PAD: kern_big's, here since
+                                ; kernel size pass 13, went when pass 14 shared
+                                ; GOTO_QM's `ret` above - and kern_small's odd
+                                ; byte from the same `ret` cancels viddet.inc's
+                                ; kern_small pad, which went with it. gfx_blit4,
+                                ; font_run, the ISRs and the scheduler stay at
+                                ; the parity t_hotpar pins, on both kernels)
 
 osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 
