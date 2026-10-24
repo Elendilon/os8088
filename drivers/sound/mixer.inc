@@ -14,6 +14,12 @@ mix_1745:
     db 36h,37h,3,31, 38h,39h,3,31, 3Ah,0,3,31
     db 3Bh,0,6,3, 46h,47h,4,15, 44h,45h,4,15
 
+; --- MIX_ONCE: ATTACH-ONLY (SPEC.md 34.15.1) ------------------------------
+; mix_probe runs inside the attach and never after.
+; Defined as a macro and expanded HERE unless SND_SPLIT is set; SOUND.DRV
+; sets it and expands MIX_ONCE past snd_keepmix, the end of what the driver
+; keeps once its attach has answered, so these bytes leave the claim.
+%macro MIX_ONCE 0
 ; Probe after the first successful DSP attach; own the base independently of
 ; stream tier teardown. Test two patterns so a floating/stuck bus cannot pass.
 mix_probe:
@@ -114,6 +120,10 @@ mix_probe:
     pop ax
     ret
 
+%endmacro
+%ifndef SND_SPLIT
+    MIX_ONCE
+%endif
 mix_info:                       ; (no mix_kind test in any verb here:
     xor ax, ax                  ; snd_pkg refuses them all without a mixer)
     mov al, [mix_kind]

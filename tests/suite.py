@@ -838,16 +838,27 @@ FAST = [
         "desktop frame there",
         wants=("build/sndmove360.img",)),
     Row("sndkeep", "soak", py("tests/sndkeep.py"), 60.0,
-        "SPEC.md 34.15.1/51.1.3: with no mixer SOUND.DRV writes snd_keep "
-        "into DRV_H_KEEP at attach and the kernel shrinks its image claim "
-        "to it - the mixer verbs and the volume popup handed back, 11K -> "
-        "8K. Two legs: the Covox 5150 (no card, so no mixer) must hold "
+        "SPEC.md 34.15.1/51.1.3: SOUND.DRV writes what it still needs into "
+        "DRV_H_KEEP at attach and the kernel shrinks its image claim to it - "
+        "the attach-only code always handed back, and the mixer verbs and "
+        "the volume popup too with no mixer: 11K -> 7K without, 11K -> 10K "
+        "with. Two legs: the Covox 5150 (no card, so no mixer) must hold "
         "ceil(snd_keep/1K) in DRVR_KB AND the mem_tab record with the Covox "
-        "tier still up; the Sound Blaster 5150 (a mixer) must write nothing "
-        "and keep the whole image. Red at 11K with either the driver's store "
-        "or %1_att's mem_regrow taken out, and red at 8K on the SB leg with "
-        "the store made unconditional",
+        "tier still up; the Sound Blaster 5150 (a mixer) ceil(snd_keepmix/"
+        "1K). Red at 11K on both with either the driver's store or %1_att's "
+        "mem_regrow taken out, and red at 7K on the SB leg with snd_keep "
+        "written unconditionally",
         wants=("build/covoxsys720.img", "build/mixer360.img")),
+    Row("sndonce", "soak", py("tests/unit/t_sndonce.py"), 1.0,
+        "SPEC.md 34.15.1: nothing SOUND.DRV keeps reaches into what its "
+        "attach hands back - read off the assembler's own listing, no "
+        "emulator. Below snd_keepmix only snd_entry (the attach, before the "
+        "shrink) may name a label past it; below snd_keep only snd_pkg's "
+        "verb table and snd_detach, both behind [mix_kind], may name the "
+        "mixer's. Red on `call opl_probe` in snd_tier and on `call mix_get` "
+        "in sbl_tick, and its first run caught snd_detach calling "
+        "opl_tmrst, a helper that had moved with the probes. SOAK, being "
+        "about one driver (docs/WRITING-TESTS.md 2.1)"),
     Row("fmrefuse", "soak", py("tests/fmrefuse.py"), 30.0,
         "SPEC.md 2.6.1.1: a FAR-ENTERED body needs a FAR tail, and "
         "drv_svc_call_x's refusal shared drv_svc_none's NEAR one with "
