@@ -8886,6 +8886,18 @@ $(BUILD)/sheetmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/sheet.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/sheet.o88
 
+# ...and SHEET WITH its two code modules, for tests/sheetovlmove.py (SPEC.md
+# 82.16.11): the row moves CHART.OVL out from under its own call chain, so the
+# modules have to load - sheetmove360 leaves them off on purpose, its row
+# counting five declared claims. NOTE PAD owns the floor here rather than
+# HEAPFRAG, whose comb holds half the arena and leaves SHEET's ~200KB no room.
+# The raw cuts, not the packed ones: the row finds each module by its bytes.
+$(BUILD)/sheetovl360.img: $(BUILD)/notepad.o88 $(BUILD)/sheet.o88 \
+                          $(BUILD)/CHART.OVL $(BUILD)/MACRO.OVL \
+                          tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/notepad.o88 \
+		$(BUILD)/sheet.o88 $(BUILD)/CHART.OVL $(BUILD)/MACRO.OVL
+
 # ...and the three editors' disk, for tests/editmove.py (SPEC.md 66.5.7). One
 # image for all three because each run needs heapfrag plus exactly ONE app -
 # the app has to land ABOVE heapfrag in the arena, and a second app opened
