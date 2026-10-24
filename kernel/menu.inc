@@ -1565,11 +1565,9 @@ menu_track:
     pop cx
     pop bx
     ret
-%ifdef KERN_BIG
-    db 0                        ; PARITY PAD, never executed (kernel size pass
-%endif                          ; 13): the Sticky Apps menu's cell left
-                                ; menu_popup .. ui_cmd - ui_task in it - at an
-                                ; odd shift on kern_big (tests/unit/t_hotpar.py)
+                                ; (kern_big's parity pad here cancelled
+                                ; instance.inc's before inst_minimize: kernel
+                                ; size pass 14, tests/unit/t_hotpar.py)
 
 ; -----------------------------------------------------------------------------
 ; menu_popup - drop a menu anywhere on screen and track it while a button

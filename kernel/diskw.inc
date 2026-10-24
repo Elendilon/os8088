@@ -2563,6 +2563,7 @@ dskw_dbody_n83:                 ; dskw_n83 already filled (dskw_rmtree)
 %endif
     test byte [dskw_raw+DSK_R_ATTR], DSKW_PROT
     jz .live
+.protj:                         ; (dskw_nbody's refusal jumps here too)
     jmp dskw_wbody.prot         ; read-only, hidden, system, label or dir:
 .out:                           ; FERR_PROT
     ret
@@ -2629,8 +2630,9 @@ dskw_nbody:
     call dskw_imgro             ; a mounted image's file (SPEC.md 18.101.3)
 %endif
     test byte [dskw_raw+DSK_R_ATTR], DSKW_NPROT
-    jz .patch                   ; 0x0F, not 0x1F: a FOLDER may be renamed
-    jmp dskw_wbody.prot
+    jnz dskw_dbody_n83.protj    ; 0x0F, not 0x1F: a FOLDER may be renamed -
+                                ; and the refusal is the delete's own `jmp`,
+                                ; in short reach (kernel size pass 14, -3)
 .patch:
     push si
     mov si, dskw_n83b

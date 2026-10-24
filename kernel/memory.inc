@@ -5451,10 +5451,10 @@ mem_bytes_kb_x:
     mov cl, 10                  ; n >= 1, and NEVER CARRIES: `add ax, 1023`
     shr ax, cl                  ; did, and answered 0 KB for every n from
     inc ax                      ; 64,513 up - a 63.5KB package's region
-    ret                         ; (SPEC.md 20.1.1). A byte shorter, too...
-    nop                         ; ...so a PARITY PAD, never executed: the
-                                ; byte saved moved dsk_xfer, dsk_runcap and
-                                ; dsk_next_clus_x by an odd amount
-                                ; (tests/unit/t_hotpar.py)
+    ret                         ; (SPEC.md 20.1.1). A byte shorter, too -
+                                ; and its parity pad went with mod.inc's
+                                ; (mod_disarm), the two cancelling with
+                                ; nothing hot between them (kernel size pass
+                                ; 14; tests/unit/t_hotpar.py)
 
 section .text                   ; ...and the file ends in .text (CLAUDE.md 1)
