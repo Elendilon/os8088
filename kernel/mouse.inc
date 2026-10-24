@@ -3532,8 +3532,8 @@ mou_isr_body:
     mov dx, [bx+mou_bases]
     or  dx, dx
     jz .next                    ; the probe rejected this row
-    cmp bx, [ser_row]           ; the leased UART is SERIAL.DRV's: .ser,
-    je .ser                     ; out of line, so a mouse port falls through
+    cmp bx, [ser_row]           ; the leased UART is SERIAL.DRV's: out of
+    je mou_isr_ser              ; line, so a mouse port falls through
     add dx, 5
     in  al, dx                  ; LSR: is anything waiting here?
 %ifdef MOU_DIAG
@@ -3563,15 +3563,36 @@ mou_isr_body:
     inc bx
     cmp bx, MOU_PEND
     jb .scan
-    jmp mou_eoi
-.ser:
+                                ; ...and on into mou_eoi, which is HERE so
+                                ; that the serial ISR's exit is a fall and
+                                ; not a jump (kernel size pass 14: -3, and
+                                ; 15 clocks off every IRQ3/IRQ4)
+mou_eoi:
+    mov al, 0x20                ; EOI - the BIOS handles neither IRQ4 nor
+    out 0x20, al                ; IRQ3 for us, and both are on the master
+                                ; (mou_p2_isr joins here too, IRQ12's slave
+                                ; EOI already sent, with the frame in this
+                                ; order)
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    pop bx
+    MOUPRIV_LEAVE               ; ...and back to the task's, whose only cost
+    iret                        ; was the CPU's own six bytes
+
+mou_isr_ser:                    ; mou_isr_body's leased row, out of line:
     call far [SERFP+SER_IRQ]    ; capture before any mouse read of this UART;
-    jmp short .next             ; BX, the index, comes back (srl_irq)
-%ifndef NO_MOUPRIV
- %ifndef KERN_MEGA
-    nop                         ; PARITY PAD, never executed (14.39, as above)
- %endif
-%endif
+    jmp short mou_isr_body.next ; BX, the index, comes back (srl_irq)
+%ifdef KERN_MEGA
+ %ifndef NO_MOUPRIV
+    nop                         ; PARITY PAD, never executed (kern_mega's
+ %endif                         ; ENTER is the size it was, so its arm is
+%endif                          ; the odd one here)
 
 ; -----------------------------------------------------------------------------
 ; mou_byte - one received byte, from port BX
@@ -4087,26 +4108,10 @@ mou_apply:
 .out:
     ret
 
-mou_eoi:
-    mov al, 0x20                ; EOI - the BIOS handles neither IRQ4 nor
-    out 0x20, al                ; IRQ3 for us, and both are on the master
-                                ; (mou_p2_isr joins here too, IRQ12's slave
-                                ; EOI already sent, with the frame in this
-                                ; order)
-    pop es
-    pop ds
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop ax
-    pop bx
-    MOUPRIV_LEAVE               ; ...and back to the task's, whose only cost
-    iret                        ; was the CPU's own six bytes
 %ifndef NO_MOUPRIV
-    nop                         ; PARITY PAD, never executed (14.39: LEAVE
-%endif                          ; grew five)
+    nop                         ; PARITY PAD, never executed: mou_eoi used to
+%endif                          ; stand here (kernel size pass 14 moved it
+                                ; under mou_isr_body, which now falls into it)
 
 %ifdef GFXAUDIT
 ; cur_logput - one ring entry: the tag, the refcount, and where the pixels are
