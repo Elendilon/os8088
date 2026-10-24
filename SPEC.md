@@ -42986,14 +42986,23 @@ The fifteen, each with the access `t_api_abi`'s INLINE ledger checks it for:
 | `OSAPI_WM_ONRCLICK` | `mov [cs:bx+W_ONRC], ax` |
 | `OSAPI_WM_ONMOUSEUP` | `mov [word cs:bx+W_ONMOUSEUP], ax` — kernel size pass 14, off kern_mega |
 | `OSAPI_WM_ONCLOSE` | `mov [word cs:bx+W_ONCL], ax` — kernel size pass 14, off kern_mega |
+| `OSAPI_WM_ONDRAG` | `mov [cs:bx+W_ONDRAG], ax` / `clc` — kern_big and kern_emu (pass 14) |
+| `OSAPI_WM_ONTIMER` | `mov [cs:bx+W_ONTIMER], ax` / `clc` — kern_big and kern_emu (pass 14) |
 
 **Kernel size pass 14 added two and a FOURTH SHAPE.** `OSAPI_WM_ONMOUSEUP`
 and `OSAPI_WM_ONCLOSE` were rule 1's named exceptions below: each had ONE
 kernel caller (`cp_kinit`, `ui_task`'s close request), and that caller now
 writes the store itself - three bytes, where its `call` was three - so the
 routine has no caller but its cell and the cell became it (−4 each). They use
-the word displacement for six bytes, as `OSAPI_WM_ONWHEEL` does. kern_mega
-keeps both as rare cells and their bodies: its cell cannot store through CS,
+the word displacement for six bytes, as `OSAPI_WM_ONWHEEL` does.
+`OSAPI_WM_ONDRAG` and `OSAPI_WM_ONTIMER` went the same way on kern_big (§13.8.2,
+§13.9): their routine was the store behind a `wm_*_c` shim that adds the
+`clc` the big build answers with, so the cell is the store and the `clc` -
+`t_api_abi` accepts a `clc` before the `retf` as it accepts `cbw` - and the
+body, the shim and the Control Panel's one kernel call go (−19 with the store
+`cp_kinit` writes in place). kern_small's three cells still share its refusing
+`stc / ret`, and `OSAPI_WM_TIMER`'s routine is more than a store and keeps its
+shim. kern_mega keeps all four as rare cells and their bodies: its cell cannot store through CS,
 and a `MEGA_ICWB` stub is eleven bytes for a four-byte body. **And three
 cells are inline with NO memory access at all** - kern_mega's protected-mode
 questions, which every other kernel answers in registers: `OSAPI_XMEM_SEL`

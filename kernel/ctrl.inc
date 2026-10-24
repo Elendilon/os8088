@@ -321,22 +321,20 @@ cp_tpl:     dw 160, 130, 320, 151, cp_ttl, cpf_cp_paint, 0, cpf_cp_onclick
 ; the dock, the bar and its own close box.
 ; -----------------------------------------------------------------------------
 cp_kinit:
-    push ax
 %ifdef KERN_BIG
-    mov byte [cp_down], 0
+    push ax
     xor ax, ax
+    mov [cp_down], al
     call COLD_SEG:os88ui_arm_f
+    pop ax
 %endif
     mov word [bx+W_ONMOUSEUP], cpf_cp_onup ; a COLD offset (SPEC.md 2.6.3):
                                 ; wm_onmouseup's store, written here - the
                                 ; routine is kern_mega's alone since cell
                                 ; 0x0196 became it (kernel size pass 14).
-                                ; apps.inc's kind table is resident and so
-%ifdef KERN_BIG                 ; is this proc
-    mov ax, cpf_cp_ondrag
-    call wm_ondrag
-%endif
-    pop ax
+%ifdef KERN_BIG                 ; apps.inc's kind table is resident and so
+    mov word [bx+W_ONDRAG], cpf_cp_ondrag ; is this proc. ...and
+%endif                          ; wm_ondrag's store, cell 0x0334's own now
     ret
 cp_ttl:     db 'Control Panel', 0
 cp_sname:   db 'Control', 0     ; KD_NAME: fits the memory view's 7-char

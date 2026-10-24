@@ -2897,7 +2897,18 @@ apic_fpg_stepb:
                                   ;          panel's - which is the window the
                                   ;          page is drawn in anyway
 apic_wm_ondrag_c:
+%ifdef KERN_MEGA                  ; kern_mega: its cell cannot store through CS
     OSAPI_RSLOT wm_ondrag_c        ; 0x0334 - BX = window, AX = a near proc in
+%else
+ %ifdef KERN_BIG                  ; INLINE on kern_big and kern_emu: the store,
+    OSAPI_ICELL 6                 ; and CF = 0, the ANSWER (the shim it was
+    mov [cs:bx+W_ONDRAG], ax      ; said so below) - kernel size pass 14
+    clc                           ; 0x0334 - BX = window, AX = a near proc in
+    OSAPI_IEND
+ %else
+    OSAPI_RSLOT wm_ondrag_c        ; 0x0334 - BX = window, AX = a near proc in
+ %endif
+%endif
                                   ;          YOUR segment (0 clears it): the
                                   ;          pointer MOVED while your press
                                   ;          was armed (SPEC.md 13.8.2).
@@ -2920,7 +2931,18 @@ apic_wm_timer_c:
                                   ;          timer disarms itself FIRST, so a
                                   ;          handler wanting a repeat re-arms
                                   ;          inside itself. 18.2 ticks a second
+%ifdef KERN_MEGA
     OSAPI_RSLOT wm_ontimer_c       ; 0x0342 - BX = window, AX = a near proc in
+%else
+ %ifdef KERN_BIG                  ; INLINE on kern_big and kern_emu, as 0x0334
+    OSAPI_ICELL 6
+    mov [cs:bx+W_ONTIMER], ax     ; 0x0342 - BX = window, AX = a near proc in
+    clc
+    OSAPI_IEND
+ %else
+    OSAPI_RSLOT wm_ontimer_c       ; 0x0342 - BX = window, AX = a near proc in
+ %endif
+%endif
                                   ;          YOUR segment (0 clears it): what
                                   ;          the timer above calls. CX = DX = 0
                                   ;          (a timer has no point), SI = the
@@ -7285,16 +7307,23 @@ gfx_blit1:            call COLD_SEG:gbz_gfx_blit1
 ; kern_big side is a plain jump to code that knows nothing about the split,
 ; and so that the refusal is one place to read rather than three %ifdefs
 ; inside three routines.
+; kern_big's 0x0334 and 0x0342 are INLINE cells - the store and the `clc` -
+; since kernel size pass 14, so their shims are kern_mega's alone; 0x033A's
+; routine is more than a store and keeps its shim on both big builds.
 %ifdef KERN_BIG
+%ifdef KERN_MEGA
 wm_ondrag_c:          call wm_ondrag
                   clc             ; CF = 0 is the ANSWER, not the caller's own
                   ret             ; carry coming back: the bodies write no flag
+%endif
 wm_timer_c:           call wm_timer
                   clc             ; the arm path's is worse - it is the carry
                   ret             ; out of [ticks] + delay
+%ifdef KERN_MEGA
 wm_ontimer_c:         call wm_ontimer
                   clc
                   ret
+%endif
 %else
 wm_ondrag_c:                    ; THREE LABELS, ONE BODY - the cells are what
 wm_timer_c:                     ; cost, and a refusal has nothing to say about

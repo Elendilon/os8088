@@ -228,9 +228,7 @@ ALIAS = {
     "OSAPI_XMEM_ALLOC":   "xm_alloc",
     "OSAPI_XMEM_FREE":    "xm_free",
     "OSAPI_XMEM_COPY":    "xm_copy",
-    "OSAPI_WM_ONDRAG":    "wm_ondrag_c",
     "OSAPI_WM_TIMER":     "wm_timer_c",
-    "OSAPI_WM_ONTIMER":   "wm_ontimer_c",
     "OSAPI_TASK_PARK":    "inst_task_park",
     "OSAPI_WM_TITLE":     "wm_title_set",
     "OSAPI_GFX_PEN":      "gfx_pen_cf",
@@ -288,6 +286,10 @@ INLINE = {
     # kern_mega keeps both as rare cells (its store needs the data alias)
     "OSAPI_WM_ONMOUSEUP":  ("store", "ax", "[bx+W_ONMOUSEUP]", ()),
     "OSAPI_WM_ONCLOSE":    ("store", "ax", "[bx+W_ONCL]", ()),
+    # ...and two whose contract is CF = 0 as well (SPEC.md 13.8.2, 13.9: the
+    # kern_big answer to kern_small's refusal), so a `clc` before the retf
+    "OSAPI_WM_ONDRAG":     ("store", "ax", "[bx+W_ONDRAG]", ("clc",)),
+    "OSAPI_WM_ONTIMER":    ("store", "ax", "[bx+W_ONTIMER]", ("clc",)),
 }
 
 
@@ -348,6 +350,8 @@ def inline(c):
     extra = ()
     if n < len(c) and c[n] == 0x98:
         extra, n = ("cbw",), n + 1
+    elif n < len(c) and c[n] == 0xF8:       # a setter whose answer is CF = 0
+        extra, n = ("clc",), n + 1
     if n >= len(c) or c[n] != 0xCB:
         return None
     return n + 1, (d, reg, opd, extra)
