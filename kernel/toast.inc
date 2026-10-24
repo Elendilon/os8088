@@ -353,21 +353,28 @@ toast_now:
                                 ; glass
     mov al, [gfx_color]         ; the caller is mid-callback: its pen and its
     push ax                     ; clip region are ITS, and the bar is inside
-    push word [wm_clip_n]       ; no window's region ever - drawn through an
-    xor ax, ax                  ; armed one the strip's cells would be dropped
-    mov [wm_clip_n], ax         ; on the glass while menu_bcell records them
-                                ; composed, and no later pass would repair it
-    call toast_arm
-    call menu_draw_bar
+    push bx                     ; no window's region ever - drawn through an
+    call fpg_bare               ; armed one the strip's cells would be dropped
+    dw toast_ad                 ; on the glass while menu_bcell records them
+                                ; composed, and no later pass would repair it.
+                                ; fpg_bare banks the region, clears it, runs
+                                ; the painter and puts it back: the three
+                                ; steps this wrote out itself (kernel size
+                                ; pass 14: 6 bytes; fpg_bare spends BX).
+                                ; Done now because the idle pass that would
                                 ; carry it to VRAM does not come until the
                                 ; operation this announces is over (SPEC.md
                                 ; 32) - fpg_begin's reasoning exactly
-    pop word [wm_clip_n]
+    pop bx
     pop ax
     mov [gfx_color], al
 .outa:
     pop ax
     ret
+
+toast_ad:                       ; toast_now's painter: arm, then the bar
+    call toast_arm
+    jmp menu_draw_bar
 
 ; -----------------------------------------------------------------------------
 ; toast_arm - spend [toast_want]: the strip goes up

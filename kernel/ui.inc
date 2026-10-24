@@ -3234,12 +3234,11 @@ ui_volume_service:
     push ds
     KDS
     KES
+    cmp al, 2                   ; AL = 0..3, and nothing else reaches here:
+    je .poll                    ; one compare splits the four (pass 14: 2)
+    ja .drain
     cmp al, 1
     je .hide
-    cmp al, 2
-    je .poll
-    cmp al, 3
-    je .drain
     call fpg_finish             ; discovery is over, even while the menu stays
     cmp byte [cur_shape], CUR_BUSYSH
     jne .arrow
@@ -3247,14 +3246,8 @@ ui_volume_service:
     call cur_shape_set
 .arrow:
     call cur_unlazy
+.show:
     call cursor_show
-    jmp short .out
-.hide:
-    call cursor_hide
-    jmp short .out
-.drain:
-    mov di, ui_ev
-    call evq_drain
     jmp short .out
 .poll:
     pushf                       ; the three reads as one instant (an ISR
@@ -3270,7 +3263,13 @@ ui_volume_service:
     je .out
 .move:
     call cursor_hide
-    call cursor_show
+    jmp short .show
+.drain:
+    mov di, ui_ev
+    call evq_drain
+    jmp short .out
+.hide:
+    call cursor_hide            ; ...and falls into the exit
 .out:
     pop ds
     retf
