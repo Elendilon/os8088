@@ -56342,6 +56342,31 @@ the ordering is still the design. A window filled at a different `[dsk_nmax]` sh
 (§22.6.1) is handed back rather than repaired, and falls through to the
 re-list.
 
+##### 25.9.5.2 The repair's own read can shed the store, and must not owe itself the repair
+
+**`asc_use`'s claim is an ordinary one and the store is `MEM_PG_TRIV`**, so
+when the arena is short the claim that loads `ASSOC.DAT` compacts, the
+compactor dissolves the icon store (§50.6.4's ladder, working as designed),
+and `ico_demote` marks every Disk window `FSD_ICONS` — **the window being
+repaired included**, because a shed's references can dangle anywhere. The
+repair then finishes: its two passes run against the store as it stands
+*after* the shed, so this window's references are right. But the mark stood,
+`fm_owed` had set `[fm_fchk]`, and the next `ui_task` pass repaired the same
+window again. Its paint had re-made the store in between (`ico_need`, lazily),
+the repair's claim shed it again, and the loop never ended: **the UI task
+never went idle** with an arena of 5–10 KB free — room for the 5 KB cache or
+the 5 KB store, never both. `tests/regwork.py` hung there on every kernel
+since §25.9.5, at its raise of the Disk window after `FILLER` took the arena
+down to 8 KB; it read as a compaction that never finished, because the
+compactor ran twice a pass for ever.
+
+So `fmv_icorefs` clears this window's own `FSD_ICONS` after `asc_use` and
+before the passes that pay it. Only `FSD_ICONS`: `FSD_CACHE` is the stronger
+debt (a shed of the window's LISTING) and is left for the re-list. Every other
+window keeps its mark and is repaired when it comes to the front, once. Ten
+bytes of `.cold`, resident, inside `%ifdef OS88_ASSOC`, so `kern_small` is
+unchanged.
+
 #### 25.9.1 Why a WINDOW can now read it, which is what made it possible
 
 A background Disk window holds a listing the global snapshot may have replaced,

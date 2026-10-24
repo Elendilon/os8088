@@ -1464,6 +1464,19 @@ fmv_icorefs:
                                 ; apiece. It re-reads rather than skipping,
                                 ; because ico_demote cleared [ico_n] and
                                 ; SPEC.md 54.7.4's guard is a compare on it
+    cmp byte [di+FS_DIRTY], FSD_ICONS   ; ...AND THE READ MAY HAVE SHED THE
+    jne .owes                   ; STORE ITSELF (SPEC.md 25.9.5.2): asc_use's
+    mov byte [di+FS_DIRTY], 0   ; 5KB claim compacts, the compactor dissolves
+.owes:                          ; the TRIV icon store, and ico_demote marks
+                                ; every Disk window FSD_ICONS - THIS one too.
+                                ; The two passes below resolve against the
+                                ; store as it now stands, so this window's
+                                ; mark is the debt they are about to pay.
+                                ; Left standing, the next pass repaired it
+                                ; again, the claim shed the store the paint
+                                ; had re-made, and the UI task never went
+                                ; idle with 5-10KB free (tests/regwork.py).
+                                ; FSD_CACHE is stronger and is left alone
 %endif
     mov dx, [di+FS_VSEG]        ; ...and ONLY NOW, re-read (see the header)
     xor bx, bx
