@@ -2785,7 +2785,7 @@ SOAK = [
         "picture - and the decoder part it keeps (part 2's row segment, "
         "op_table+32) and the master (px_cur+PXR_MSEG) MOVE: 2640 -> 2380 "
         "and 2940 -> 2680 measured. Red with op_lazymv's store taken out "
-        "(the row stale). 17s measured",
+        "(the row stale). 21s measured in a soak lane",
         needs=("marty",), serial=True,
         wants=("build/pixel.o88", "build/os8088-360.img")),
     Row("pkgmove-pixelgif", "soak",
@@ -2805,7 +2805,7 @@ SOAK = [
         "VGA PiXEL covers B:'s zone; A stops the target's animation, whose "
         "pass then lets px_anseg go (av_wake). Measured: px_anseg 2320 -> "
         "22e0, the part 5060 -> 2b20, the master 53e0 -> 2ea0. Red with "
-        "px_anseg out of px_mreloc (stale word). 45s measured",
+        "px_anseg out of px_mreloc (stale word). 60s measured in a soak lane",
         needs=("marty",), serial=True,
         wants=("build/pixel.o88", "build/os8088-360.img")),
     Row("pkgmove-pixelanim", "soak",
@@ -2814,15 +2814,15 @@ SOAK = [
            "--scratch", "PICS:apps/pixel/samples/BOUNCE.GIF=BOUNCE.PNG",
            "--disk", "pxmovegif1.img", "--open", "B:/PICS/BOUNCE.PNG",
            "--idle", "px_busy", "--animated", "--busy", "px_anjob",
-           "--still", "op_table+24", "--still", "px_anseg"), 120.0,
+           "--still", "op_table+24", "--still", "px_anseg"), 70.0,
         "NO-PINNING (SPEC.md 106.5.1): the PIN half. An animation PLAYING - "
         "px_anjob set, the worker parked at OSAPI_TASK_ALIVE INSIDE the GIF "
         "part between frames - and a compaction posted: the part and the "
         "animation claim must read PINNED and unmoved (--still) and the "
         "window keep animating after. Red with px_pin's op_pin taken out: "
         "the part MOVED 3320 -> 2aa0 under the parked worker, which is the "
-        "C overlay's CS-on-a-stack defect (NO-PINNING-PLAN wave 0). 90s "
-        "measured",
+        "C overlay's CS-on-a-stack defect (NO-PINNING-PLAN wave 0). 66s "
+        "measured in a soak lane",
         needs=("marty",), serial=True,
         wants=("build/pixel.o88", "build/os8088-360.img")),
     Row("pkgmove-deskclock", "soak",
