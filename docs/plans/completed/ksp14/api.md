@@ -186,7 +186,8 @@ had left kern_big's blob 61 bytes and this branch's `DRV_TITLES` copy is 79,
 so the merged blob was 6,673 of 6,656. The SYSTEM.CFG file buffer was 164
 zero bytes inside the blob, read off the disk on every boot. It is now the
 paragraphs just PAST the blob - `ovc_buf equ BOOT2_PAD` - and `mem_init`
-reserves `BOOT2_RES` (the blob plus `CFG_FBUF` rounded to a paragraph) where it
+reserves `BOOT2_RES` (the blob plus `CFG_FBUF` rounded to a SECTOR - it was a
+paragraph, and that was DEFECT 3 below) where it
 reserved `BOOT2_PAD` (kern_small, which has no `ovc_buf`, keeps the old
 line), and `mem_unblob` already gives back down to the floor. Nothing reads it
 before it is written: `%1_load`'s read or the shortcut stager fills it, and
@@ -403,3 +404,40 @@ emu` and `make mega` build at the tip.
    1/10 (Absolute mouse)` is 36 and `Loading Driver 10/10 (VESA Display)` 35;
    `spl_mput` bounds the line, so the closing `)` and the end of the name are
    cut. Not this pass's to change (a look).
+3. **`BOOT2_RES` took every boot-time claim off the 512-byte grid - THIS
+   BRANCH'S, introduced by TAKEN 12 in merge 84064932 and FIXED.** It
+   showed as `vesasu` (*"the card's format drop-down has no rect"*) and
+   `vesablitd` (*"canvas is not at depth"*) red on kernel-size-14 from
+   84064932 on, both parents green. The cause is that `BOOT2_RES` rounded
+   `CFG_FBUF` to a PARAGRAPH, and `mem_init` makes it the heap's floor while
+   the blob lives - so every bottom-up claim made at boot lay at an odd
+   phase. The heap map showed it at `224B0`, `238B0`, `24CB0`, `2B8B0`, all
+   `0x..B0`: `0x1A0` paragraphs of blob plus `0xB` of buffer. That broke
+   SPEC.md 1's rule that every disk-visible base is 512-aligned. Most of
+   those claims are movable, but the FAT window's is PINNED, so the phase
+   outlived `mem_unblob` and every claim above it inherited it. PiXEL's
+   `px_dmaclaim` refuses an `OSAPI_MEM_CLAIM_DMA` base with `DL & 1Fh`
+   non-zero. Its head claim was refused, so every open ended
+   `-: not enough memory` with 402 KB free, and the view claim was never
+   made: `px_vdepth` stayed 0 and the canvas stayed empty.
+
+   How it was isolated:
+   - Reproduced red on the tip.
+   - A variant tree with `BOOT2_RES` 8 KB larger stayed red. So nothing
+     was writing past the reservation; the trouble was its size modulo 512.
+   - A QEMU probe read PiXEL's own state: the document did arrive
+     (`px_argname` `CITY.PCX`, `px_ndone` 1), `px_lastref` was 7
+     (`PXD_MEM`) with format `-`, which pointed at `px_head`, and
+     `tools/heapmap.py` showed the bases.
+
+   **The fix is one constant**: `CFG_FBUF` rounded to 512. An assembly
+   assertion now refuses a `BOOT2_RES` or `BOOT2_PAD` that is not a multiple
+   of 512. The cost is **0 bytes in every section on all four kernels**:
+   the `add ax, BOOT2_RES / 16` immediate changes in `mem_init` and
+   nothing moves. At boot the heap floor sits 336 bytes higher until
+   `mem_unblob`, then gives them back with the blob. The saving TAKEN 12
+   was taken for (164 blob bytes) stands. Gates: `make -j2` (fast 61/61),
+   `make small`, `make emu`, `make mega`, `make vesatest`, `t_hotpar`.
+   Rows, `--marty-jobs 1`: `vesasu`, `vesablitd` (red -> green), `vesa`,
+   `vesa8`, `vesacp`, `vesafsx`, `extdmod`, `dispdrag`, `dragui`,
+   `pxopen`, `heapcheck` and `bootfloor-ab` (the floor moved) - **12/12**.

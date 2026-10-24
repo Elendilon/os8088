@@ -991,11 +991,23 @@ CFG_KESZ    equ 5               ; bytes per table entry
 CFG_FBUF    equ CFG_REC0 + CFG_NKEY * CFR_HDR + CFG_NB + 2
 ; BOOT2_RES - what mem_init keeps of the heap's floor while stage 2 lives: the
 ; blob's sectors and, past them, its nobits scratch - the SYSTEM.CFG file
-; buffer ovc_buf (below), a paragraph-rounded CFG_FBUF (kernel size pass 14:
-; 164 zero bytes that were read off the disk on every boot). Guard 5 (the
+; buffer ovc_buf (below), CFG_FBUF rounded up to a SECTOR (kernel size pass
+; 14: 164 zero bytes that were read off the disk on every boot). Guard 5 (the
 ; 128KB boot, kernel.asm) still sums BOOT2_PAD: ovc_buf is first written by
-; drv_boot, long after stage 1's copy and its stack at the top of RAM are dead
-BOOT2_RES   equ BOOT2_PAD + ((CFG_FBUF + 15) / 16) * 16
+; drv_boot, long after stage 1's copy and its stack at the top of RAM are dead.
+;
+; 512 AND NOT 16, because this is the HEAP'S FLOOR until mem_unblob: every
+; claim made at boot is stacked bottom-up on it, and a pinned one (the FAT
+; window's) holds whatever phase it was given for the whole session - so a
+; floor rounded to a paragraph put EVERY bottom-up base off the 512-byte grid
+; (SPEC.md 1: every disk-visible base is 512-aligned), and PiXEL's
+; OSAPI_MEM_CLAIM_DMA, which refuses a base that is not, refused every open
+; (`-: not enough memory`, tests/vesablitd.py and tests/vesasu.py red). The
+; cost is under 512 bytes of the boot's heap, given back with the blob
+BOOT2_RES   equ BOOT2_PAD + ((CFG_FBUF + 511) / 512) * 512
+%if BOOT2_RES % 512 || BOOT2_PAD % 512
+  %error "driver: BOOT2_RES is the heap's floor at boot, and must keep every claim base on the 512-byte grid"
+%endif
 
 ; --- whose blob is whose (SPEC.md 51.9.1) ------------------------------------
 ; row index, size, offset into the struct. The ROW and not the class, for the
