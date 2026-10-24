@@ -5883,6 +5883,21 @@ SOAK = [
         "5c00:2559 and Esc never closes the dialog; 35s measured",
         needs=("marty",), serial=True,
         wants=("build/sheetovl360.img", "build/CHART.OVL", "build/MACRO.OVL")),
+    Row("sheetxbench", "soak", py("tests/sheetxbench.py"), 280.0,
+        "What ch_xthunk (SPEC.md 82.16.11) costs SHEET on real work, in "
+        "MartyPC guest cycles on a 5150: F9's recalc+draw (sh_drawall), "
+        "Ctrl+S's off-screen recalc (sh_recalc_all), a chart render and a "
+        "40-turn macro (sh_m2call), each bracketed entry-to-return, over a "
+        "sheet of LN/SIN/SQRT/PMT/FV/LEN/MID/UPPER formulas. REPORTS the "
+        "cycles (run with --pkg/--src against another build for the A/B: "
+        "+0.47/+0.73/+0.01/+0.70% over no-pinning 1b933ed4) and ASSERTS that "
+        "every saved formula is the host's value and the macro's total is, "
+        "because a recalc that computed nothing is cheap on any build. Red "
+        "with a wrong host value (13 of 240 'wrong' while 60 rows overran the "
+        "SYLK staging buffer); ~4.5 min measured",
+        needs=("marty",), serial=True,
+        wants=("build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL",
+               "build/os8088-360.img")),
     Row("sheetbtn", "soak", py("tests/sheetbtn.py"), 40.0,
         "A stale button record must not answer a REUSED window slot "
         "(SPEC.md 20.5.1.3.3). Sheet's Goto, then its Format dialog, then "

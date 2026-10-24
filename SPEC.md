@@ -147650,9 +147650,29 @@ vectors), `CHART.OVL` 52,373 → 52,343 and `MACRO.OVL` 18,908 → 18,900 (the
 8088: **~400 clocks over the old `call`/`retf` shim, ~84 µs at 4.77 MHz** —
 ~288 in, ~150 back, against the old 34-clock `retf`. That is less than two
 `OSAPI_*` far calls (46.7 µs each, PERFORMANCE.md); a `CHOUT` pays it once
-more plus `ch_ovneed`'s compare. Estimated from the instruction timings, not
-measured. It is ten times `cc_ovthunk`'s ~40, which can
-afford to be cheap because the C ABI kills AX, DX and SI at every call.
+more plus `ch_ovneed`'s compare. That figure is counted from instruction
+timings. It is ten times `cc_ovthunk`'s ~40, which can afford to be cheap
+because the C ABI kills AX, DX and SI at every call.
+
+**And measured on the work a user does, which is what decides it**
+(`tests/sheetxbench.py`, MartyPC 5150, guest cycles, median of 3, a sheet of
+48 rows of `LN`/`SIN`/`SQRT`, `PMT`, `FV` and `LEN`/`MID`/`UPPER` formulas,
+every value checked against the host; base no-pinning 1b933ed4):
+
+| work | bracket | before | after | |
+|---|---|---|---|---|
+| F9, recalc + draw | `sh_drawall` | 68,767,560 | 69,093,720 | **+0.47%** |
+| Ctrl+S, off-screen recalc | `sh_recalc_all` | 276,261,228 | 278,273,611 | **+0.73%** |
+| chart render | `sh_chart_render` | 8,285,001 | 8,286,071 | **+0.01%** |
+| 40-turn macro | `sh_m2call` | 115,301,317 | 116,106,599 | **+0.70%** |
+
+Under 1% on the worst of them, a sheet built to cross as often as a sheet
+can. So the LEAF FAST PATH - a plain `call`/`retf` shim kept for routines that
+provably never reach a claim (`fp_*`, the string helpers), held by a host-side
+call-graph gate - was costed and NOT built: it is the answer if a workload is
+ever found that pays more than ~2%, and that workload is what to measure
+first. The 2.0M cycles Ctrl+S gained over ~176 module formulas is ~11,400
+cycles a formula, ~28 crossings at the counted price.
 
 **Gated by `tests/sheetovlmove.py`** (soak). Formula > Goto (F5) is
 `ch_ovcall` → `SHM_IDOPEN` → `SHK wm_show` → `ch_xthunk` → `OSAPI_WM_SHOW` →
