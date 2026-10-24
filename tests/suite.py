@@ -3257,9 +3257,26 @@ SOAK = [
         "RED both ways (--red, a ret poked into the running package): "
         "rw_mreloc bare stops the machine and the cartridge counts wrong "
         "banks; rw_mjit bare leaves the core on the old cache and the game "
-        "stops dead. 66-72s measured",
+        "stops dead. A1b: the Calculator opened first and closed, two posts, "
+        "so the region rises and then the PARTS CARVE (core + view): "
+        "op_base, rdg_viewseg/coreseg, S_VIEW, S_DISP and S_RESVEC must "
+        "follow; --red carve (rw_partsmv bare) stops the machine. 66-72s "
+        "measured before the carve legs",
         needs=("marty", "nasm", "rgbds"),
-        wants=("build/realdmg.o88", "build/os8088-720.img")),
+        wants=("build/realdmg.o88", "build/os8088-720.img", "build/calc.o88")),
+    Row("rdgclose", "soak", py("tests/rdgclose.py"), 20.0,
+        "REALDMG's BANK CACHE (docs/REALDMG-SPEC.md 10.3, 14.4) on 86Box's "
+        "286 with 4MB, GBBANK.GB fetching on nearly every switch. MOVE: "
+        "paused, two posted compactions, the SLOTS and the PARTS CARVE must "
+        "both move with the bank table, S_VIEW, S_ROMSEG and rw_romseg "
+        "following, and the cartridge run on with no wrong bank (--red slots "
+        "/ --red carve: a ret over rw_mreloc or rw_partsmv - it stops, or no "
+        "live view). CLOSE: the close box clicked while it fetches, and the "
+        "window gone in 20 emulated s - RED on the package before A1b "
+        "(RDGWIN_O88/RDGWIN_LST): rw_bmiss tested closing before the bank "
+        "and the close hung for ever. 13s measured",
+        needs=("86box", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088.img", "build/calc.o88")),
     Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 10.0,
         "REALDMG's speaker asked for 131,072 Hz (docs/REALDMG-SPEC.md section "
         "17) on 86Box's 286: GBTONE.GB ends with square channel 1 at x = 7FFh, "

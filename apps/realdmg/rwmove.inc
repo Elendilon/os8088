@@ -25,9 +25,11 @@
 ; empty: it goes dynamic at once and the worker preloads again at its next
 ; turn (rw_seg2q, rw_jiton).
 ;
-; WHAT IS NOT IN THE TABLE stays pinned: the parts carve (the core and the
-; view, op_load's - docs/plans/NO-PINNING-PLAN.md A8), and the log's text,
-; claimed and freed inside one rw_logwrite (bucket C). Every claim in the
+; THE PARTS CARVE - the core and the view, op_load's 128KB - moves too, with
+; the parts standard's own proc and rw_partsmv as its OP_ONMOVE hook (SPEC.md
+; 20.12.12): rw_mdecl declares and pins it with the table. The log's text,
+; claimed and freed inside one rw_logwrite, is the one claim left pinned
+; (bucket C). Every claim in the
 ; table is pinned again around a call that can claim while its segment is in
 ; a register (rw_mpin: every file call, through rw_fgo, and the load).
 ; =============================================================================
@@ -84,6 +86,14 @@ rw_mdecl:
     call OSAPI_MEM_MOVABLE
     jmp short .l
 .r:
+    or ax, ax                       ; ...and the parts carve, the core and
+    mov al, OP_CARVE                ;   the view (os88parts.inc's own proc,
+    jz .pin                         ;   then rw_partsmv)
+    call op_movable
+    jmp short .x
+.pin:
+    call op_pin
+.x:
     pop si
     pop dx
     pop bx
@@ -220,3 +230,61 @@ rw_mjit:
 .x:
     pop ds
     ret
+
+; rw_partsmv - THE PARTS CARVE MOVED (OP_ONMOVE, SPEC.md 20.12.12): the core
+; (parts 0 and 1) and the view (part 2) with it. [op_base] is the new one
+; already; BX = where the carve was, DX = where it is. Every segment banked
+; from an op_seg answer, and every copy of one, is put right: rdg_viewseg and
+; rdg_coreseg, and in the view - which moved with the carve, the state block
+; with it - S_VIEW, the core's far vectors (S_DISP, S_RESVEC, S_RETFAR), the
+; core's DS a run left (S_SAVDS), bank 0's word in the bank table and S_ROMX
+; when it is bank 0 (the view less 400h), and S_ROMSEG with rw_romseg when the
+; bank cache's load put bank 0 in the view - each by asking whether it lay in
+; the carve. Translated code jumps far into the core's holes and the core
+; tier IS the core, so a recompiler that has run is flushed (rw_mjit). A
+; relocation proc's rules (SPEC.md 66.3): nothing here claims, draws, yields
+; or touches a file
+rw_partsmv:
+    mov cx, [rdg_viewseg]           ; the old view: no game since the entry
+    jcxz .r                         ;   proc, nothing banked yet
+    add cx, 1000h                   ; CX = the carve's length, paragraphs: up
+    sub cx, bx                      ;   to the old view's end (bank 0's word,
+    mov ax, dx                      ;   the view less 400h, lies in the core
+    sub ax, bx                      ;   below it, so one test serves)
+    push ds                         ; AX = the move
+    pop es
+    mov si, rw_pmtab                ; ours...
+    call .tab
+    mov es, [rdg_viewseg]           ; ...the state block's, in the view that
+    mov si, rw_pmview               ;   moved with the carve...
+    call .tab
+    mov di, RDG_BTAB                 ; ...and the bank table's
+.b:
+    call .fix
+    inc di
+    inc di
+    cmp di, RDG_BTAB + 512 * 2
+    jb .b
+    cmp word [es:S_JITSEGA], 0      ; a recompiler that has run: flushed
+    jne rw_mjit
+.r:
+    ret
+.tab:                               ; every ES: word the list at SI names
+    mov di, [si]
+    or di, di
+    jz .r
+    call .fix
+    inc si
+    inc si
+    jmp short .tab
+.fix:                               ; ES:DI moves with the carve if it lay
+    mov dx, [es:di]                 ;   in it
+    sub dx, bx
+    cmp dx, cx
+    jae .r
+    add [es:di], ax
+    ret
+
+rw_pmtab:       dw rdg_viewseg, rdg_coreseg, rw_romseg, 0
+rw_pmview:      dw S_VIEW, S_DISP + 2, S_RESVEC + 2, S_RETFAR + 2, S_SAVDS
+                dw S_ROMX, S_ROMSEG, S_JITOUT + 2, 0

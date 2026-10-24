@@ -560,6 +560,16 @@ cache could not be claimed and the game ran interpreted (its log has no J).
   86Box's 286** with 18 slots and one bank fetched in ten seconds, and with
   the slots cut to 4 it fetched 12 in ten seconds and kept running.
 
+**A close while a fetch is outstanding** (A1b). `rw_bmiss` tested the
+closing flag BEFORE the bank: a worker waiting on a fetch when the window's
+close came went round `OSAPI_TASK_ALIVE` for ever, and `rw_onclose`, which
+serves the bank while it waits for `[rw_incore]` to fall, waited for ever
+too - the window never closed and the UI task stayed in the negotiator. On
+GBBANK.GB, where nearly every switch is a fetch, every close did it. The
+bank is tested first now, so the frame finishes and the worker leaves the
+machine; `tests/rdgclose.py`'s close leg is the gate (red on the package
+before it: STILL OPEN after 20 s; green: closed in 0.2-0.8 emulated s).
+
 ### 10.4 Save states
 
 **Nine slots a game, `NAME.SS1` to `NAME.SS9` beside it** as its `.SAV` is
@@ -1568,6 +1578,7 @@ does not (below).
 | the recompiler's claim (`[rw_jitseg]`: cache, block table, its own code) | the four far doors `rw_jinit`..`rw_jdisp`, then - if the core was running over it - a FLUSH, below |
 | the cache's second 64KB (`[rw_jit2seg]`, 16.2.1) | the flush, if the core was using it |
 | the log's records (`[rw_logseg]`, 14.1) and a replay's buttons (`[rw_rpseg]`, 10.5) | the one word each |
+| **the parts carve** - the core (parts 0 and 1) and the view (part 2), `op_load`'s 128KB | `[op_base]` by the parts standard's own proc (SPEC.md 20.12.12), then `rw_partsmv`, its `OP_ONMOVE` hook: `rdg_viewseg`, `rdg_coreseg`, `[rw_romseg]` when the bank cache put bank 0 in the view, and in the view itself `S_VIEW`, the core's far vectors `S_DISP`/`S_RESVEC`/`S_RETFAR`, `S_SAVDS`, `S_ROMX`, `S_ROMSEG`, `S_JITOUT` and every word of `RDG_BTAB` - each by asking whether it lay in the carve - then the FLUSH if the recompiler has run, since translated code jumps far into the core and the core's holes ARE a tier |
 
 - **WHEN it can run.** A package's data claim moves only with its worker
   PARKED (SPEC.md 66.3.1, `inst_seg_parked`), and this worker parks at
@@ -1577,7 +1588,21 @@ does not (below).
   machine is the UI task's own between two frames, and the bracket's only
   claiming calls are the file calls below. `rw_bmiss`'s `OSAPI_TASK_ALIVE`
   is reached only once the window is closing, when the UI task is in the
-  close negotiator and nothing compacts.
+  close negotiator and nothing compacts. Nothing that claims is ever reached
+  UNDER a far call into the core: the core leaves only for rdgsys, whose one
+  host call inside a run is `rw_bmiss`, which claims nothing.
+- **Two cases where a move waits, both MEASURED and both bucket C.** (1) A
+  cartridge on the BANK CACHE that is fetching keeps the worker inside a
+  frame for good: each fetch is the UI task's to serve, and the UI task is
+  the one waiting in the compactor's park, so the worker never reaches
+  `OSAPI_TASK_ALIVE` and every claim of the package stays where it is while
+  the game plays. Paused, or between games, it all moves. (2) In a pass that
+  moves the package's REGION, the claims walked after it - the carve, a
+  top-down claim right under the region - wait for the next pass:
+  `mem_region_reloc` re-enters the restartable worker and clears its park
+  byte, so `inst_seg_parked` answers "running" for the rest of that pass.
+  It is the kernel's to change (no kernel byte was spent here); a second
+  compaction moves the carve.
 - **The recompiler's code cannot be put right in place, so it is
   flushed.** A chain into the other cache segment is a `jmp far` with the
   segment in its bytes (16.2.1), the core's own holes carry such chains
@@ -1597,9 +1622,11 @@ does not (below).
   `[rw_mhold]`, which also holds back the declarations of the claims it is
   still making); `rw_logwrite` pins the records before it takes their word
   away. Bucket C, for the length of the call.
-- **Still pinned:** the parts carve - the core and the view, `op_load`'s,
-  docs/plans/NO-PINNING-PLAN.md A8 - and the log's TEXT, claimed and freed
-  inside one `rw_logwrite`.
+- **Still pinned:** the log's TEXT, claimed and freed inside one
+  `rw_logwrite`, and nothing else. `rw_mpin` pins the carve with the table
+  (`op_pin`) and `rw_mfree` declares it again (`op_movable`) - a save state
+  is written from the view and read back into it (10.4), and the bank
+  cache's load reads bank 0 into it.
 - **The speed, MEASURED** on MartyPC, GBBANK8 built never to halt so the
   8088 is the core's every cycle: **1,414.3 bank switches a guest second
   against 1,414.4** on the VGA XT and **1,404.3 against 1,404.3** on the
@@ -1609,15 +1636,28 @@ does not (below).
   instruction-identical and at an EVEN shift (two `nop`s, one in
   `rw_entry` and one in `rw_logwrite`, keep the parity), and the core and
   recompiler parts are not rebuilt at all. Cost: **+436 bytes of image, +1
-  of bss**, no kernel byte.
+  of bss**, no kernel byte. **The carve's hook** (A1b) measured again against
+  that build, same session: **1,414.4 against 1,414.5** (VGA XT) and
+  **1,403.8 against 1,403.7** (5150 Hercules), every hot routine identical
+  and unshifted, **+224 bytes of image** (the hook and its two lists, and the
+  parts standard's opt-in `op_movable`/`op_pin`, which sit after everything).
 - **The gate** is `tests/rdgmove.py` (soak `rdgmove`): GBBANK8.GB checks
   every bank switch by its bytes and by code run from 4000-7FFF while all
   of the claims above but the slots, the log's and the replay's move under
   it, dynamic and Static. Red runs: a `ret` over `rw_mreloc` stops the
   machine (and the cartridge itself counts wrong banks); one over `rw_mjit`
   leaves the core on the old cache segment, whose stale flush lands in the
-  ROM's new place, and the game stops dead. The slots cannot move on
-  MartyPC, which has no memory above 1MB for the bank cache to need.
+  ROM's new place, and the game stops dead. Since A1b it opens the
+  Calculator first and closes it, and posts twice, so the region rises and
+  then the CARVE does, and asserts `[op_base]`, `rdg_viewseg`/`rdg_coreseg`,
+  `S_VIEW`, `S_DISP` and `S_RESVEC` followed; a `ret` over `rw_partsmv`
+  stops the machine. **The slots' gate is `tests/rdgclose.py`** (soak
+  `rdgclose`, 86Box's 286 with 4MB - MartyPC has no memory above 1MB for
+  the bank cache to need): GBBANK.GB on the cache, paused, two posted
+  compactions, and the slots AND the carve must move with the bank table,
+  `S_ROMSEG` and `[rw_romseg]` (the view, in the cache's load) following and
+  the cartridge running on with no wrong bank; red with a `ret` over
+  `rw_mreloc` (it stops) or `rw_partsmv` (no live view).
 
 ## 15. Full screen
 
