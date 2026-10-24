@@ -567,6 +567,23 @@ FAST = [
         wants=("build/xtmp3.o88", "build/xtmp3.bin", "build/x3xt.bin",
                "build/x3front.bin", "build/sound.drv", "build/mbr.bin",
                "build/boothd.bin", "build/kernel.sys")),
+    Row("xtmp3move", "soak", py("tests/xtmp3xt.py", "--leg", "std",
+                                "--move"), 300.0,
+        "SPEC.md 121.10.1 (NO-PINNING): XTMP3's claims MOVE. xtmp3xt's std "
+        "leg on MartyPC's 4.77 MHz XT, stopped at the decode-first dialog - "
+        "the XT part, its work segments, the ring and the carve all held "
+        "through a user wait - where a compaction is posted from outside at "
+        "the trivial rank (tests/ringmove.py's door): every claim declared "
+        "movable in mem_tab, at least one moved, every word naming a live "
+        "claim, every moved claim's bytes hashing the same. Then the "
+        "conversion runs on the moved claims, and its WAV must be "
+        "tools/x3simxt.py's BIT FOR BIT, which is what proves x3_rmove, "
+        "x3_partsmv and the XT part's RESEG verb put every banked segment "
+        "right",
+        needs=("marty", "nasm", "mtools", "numpy"), timeout=2400,
+        wants=("build/xtmp3.o88", "build/xtmp3.bin", "build/x3xt.bin",
+               "build/x3front.bin", "build/sound.drv", "build/mbr.bin",
+               "build/boothd.bin", "build/kernel.sys")),
     Row("romtool", "fast", py("tools/os88rom.py", "--selfcheck"), 0.3,
         "docs/plans/ROM-PLAN.md 1.3: the ROM image builder re-derives its own "
         "invariants - 55 AA and a 32KB declaration (40KB would send the "

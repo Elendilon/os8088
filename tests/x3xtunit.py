@@ -170,7 +170,7 @@ class Part:
         if not r['cf'] and self.clobber:
             # OPEN's half is only OPEN's: GRANULE must run with it gone (the
             # engine may shrink the claim to X3C_PARTKB), so overwrite it
-            tail, end = struct.unpack_from('<HH', self.image, 18)
+            tail, end = struct.unpack_from('<HH', self.image, 20)   # the seal (x3xtgen.py)
             self.write(PART_SEG, tail, bytes([0xCC]) * (end - tail))
         return r
 

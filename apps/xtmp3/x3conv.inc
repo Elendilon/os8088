@@ -605,7 +605,9 @@ x3c_wavchk:
     mov cx, [ap_clu]
     xor ax, ax
     xor dx, dx
+    call x3_lpin                    ; (ES:BX the ring's claim)
     call OSAPI_FILE_READ_AT         ; DX:AX = bytes
+    call x3_ldecl
     pop si
     push ds
     pop es
@@ -1872,7 +1874,9 @@ x3c_start:
     xor bx, bx
     mov cx, [x3c_clu]
     xor dx, dx
+    call x3_lpin                    ; (the stage: the ring's claim)
     call OSAPI_FILE_WRITE
+    call x3_ldecl
     push ds
     pop es
     jc .wrerr
@@ -2286,7 +2290,9 @@ x3c_write:
     mov al, WSEQF_HELD | WSEQF_KEEP
     mov di, [x3c_tok]
     push cx
+    call x3_lpin                    ; (the stage: the ring's claim)
     call OSAPI_FILE_WRITE_SEQ
+    call x3_ldecl
     pop cx
     push ds
     pop es
@@ -2302,7 +2308,7 @@ x3c_write:
     cmp byte [x3c_one], 0
     jne .h
     xor byte [x3c_wh], 1
-    jmp short .h
+    jmp .h
 .gone:
     mov ax, FERR_NODISK
 .err:
@@ -2752,7 +2758,9 @@ x3c_final:
     mov cx, [x3c_clu]
     xor ax, ax
     xor dx, dx
+    call x3_lpin                    ; (the stage: the ring's claim)
     call OSAPI_FILE_WRITE_AT
+    call x3_ldecl
     push ds
     pop es
     jc .wr

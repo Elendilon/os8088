@@ -363,14 +363,3 @@ N apps/browser/brdownload.inc br_dl_partpaint+2  # the Download Manager's
                                          # Selection claims under that far call, so
                                          # op_movable's rule (SPEC.md 20.12.12)
                                          # refuses it; held while the manager is up
-N apps/xtmp3/x3eng.inc @x3_fetchhome     # XTMP3's lazy decoder parts (SPEC.md
-                                         # 121.3), arrived at the merge of main's
-                                         # #304 and not yet audited for NO-PINNING
-N apps/xtmp3/x3eng.inc ap_la_seg         # XTMP3's 32KB look-ahead ring, a
-                                         # track's life (121.10); unaudited, as above
-N apps/xtmp3/x3eng.inc x3_open+X3O_SEG+si  # CAPS' work segments in the open
-                                         # record (121.10); unaudited, as above
-N apps/xtmp3/x3hold.inc x3h_base         # the MP3 held in memory for a live play
-                                         # (121.6.1); unaudited, as above
-N apps/xtmp3/xtmp3.asm op:carve          # the decoder parts' carve, for the
-                                         # program's life (121.3); unaudited

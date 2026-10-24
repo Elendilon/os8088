@@ -1037,14 +1037,15 @@ def fullcheck(verbose=False):
 
 def seal(path):
     """Stamp the part's tail Fletcher-32 (x3xt.asm's x3x_open checks the
-    tail - OPEN's half - against it before entering it). The header is 18
-    bytes; at 18 and 20 the image holds the tail's and the end's offsets,
-    and the sum goes at 22. Returns (tail offset, end offset)."""
+    tail - OPEN's half - against it before entering it). The header is 20
+    bytes (x3gran.inc's X3K_SIZE: seven verbs since RESEG); at 20 and 22
+    the image holds the tail's and the end's offsets, and the sum goes at
+    24. Returns (tail offset, end offset)."""
     b = bytearray(open(path, 'rb').read())
-    tail, end = struct.unpack_from('<HH', b, 18)
+    tail, end = struct.unpack_from('<HH', b, 20)
     assert b[0:2] == b'X3' and 0 < tail < end <= len(b) and (end - tail) % 2 == 0, (tail, end)
     fl = XT.fl32(bytes(b[tail:end]))
-    struct.pack_into('<HH', b, 22, fl & 0xFFFF, fl >> 16)
+    struct.pack_into('<HH', b, 24, fl & 0xFFFF, fl >> 16)
     open(path, 'wb').write(bytes(b))
     return tail, end
 

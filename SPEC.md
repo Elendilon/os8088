@@ -46775,6 +46775,7 @@ of image for the three routines plus its hook.
 |---|---|---|
 | WORD, SCRIBE, DOS, Clear Skies, PIXELSTEIN loaders | carve | it becomes the program's REGION at the re-home (§20.12.10.5), declared there by the program; the loader's carve is `[ld_base]` until then, which pins it anyway |
 | C packages (CWORD, C64, APPLE2, RUNCPM, LEMMINGS, COVL) | carve, overlay | crt0's own door: `cc_ovcarve` and `CC_ONMOVE_PARTS` (§73.14.2.1) |
+| **XTMP3** | carve (FRONT, ART) and lazy: the two backends | **MOVABLE** (§121.10.1): `op_movable` on the carve at entry and on a backend once `x3_be_get` banks it; `x3_partsmv` re-reads FRONT's pair, ART's segment and the backend's three far vectors. Nothing far-called in a part calls the kernel |
 | **WireFleet** | lazy: the stamp bank | **MOVABLE**, the first adopter: `op_movable` after `wf_fx_need` banks `[wf_fxseg]`, `wf_partsmv` re-reads it (§114.11). `tests/pkgmove.py` is the gate (`pkgmove-wireflet`) |
 | DrMarco, Excitebike's splash, Pixel's colour face, the Video Player's block decoder | lazy | already declared by hand, each with a proc storing the row's word |
 | 1942's banks, scenes and effects; WireFleet's samples | lazy | fetched and dropped inside one bracket or one call: bucket C (§101.2.1, §114.11) |
@@ -220861,7 +220862,7 @@ lz4-packed on the disk):
 
 | row | part | load | image | on the disk | holds |
 |---|---|---|---|---|---|
-| (primary) | `xtmp3.bin` | the package | 42,935 + 14,279 bss | | the face, the engine, conversion, the front end's primary half |
+| (primary) | `xtmp3.bin` | the package | 45,029 + 14,353 bss | | the face, the engine, conversion, the front end's primary half |
 | 0 | FRONT (`x3front.bin`) | eager, in the carve | 24,509 | 8,982 | NEXT, GRAN, CHECK; the granule record; the Huffman tables |
 | 1 | ART (`x3art.bin`) | eager, in the carve | 12,985 | 4,789 | every picture and font (§121.8) |
 | 2 | STANDARD (`x3stdp.bin`) | lazy | 57,732 | 22,533 | the STANDARD backend |
@@ -220896,8 +220897,8 @@ fixed layout through ES with DS the package's own.
 | per channel (two) | `ok` (0 = this channel's granule is silence: a dropped frame, a short reservoir, a bad granule), block type, mixed, window switching, the last non-zero line + 1 (exact; every `ix` past it is zero), `ix[576]` int16 in bitstream order, `q[576]` int16 quarter-power exponents exactly as `quarter_exponents()` makes them (with the M/S `-2`) |
 | stereo plan | `X3G_PLAN` = L/R, all-M/S or per line (`0` L/R, `1` M/S, `80h + p` intensity), exactly `stereo_plan()`; L/R whenever a channel is not ok |
 
-**A backend part** starts with an 18-byte header: `'X3'`, the ABI, its kind
-(`X3K_STD`, `X3K_XT`), and six near verb offsets, far-called through
+**A backend part** starts with a 20-byte header: `'X3'`, the ABI, its kind
+(`X3K_STD`, `X3K_XT`), and seven near verb offsets, far-called through
 `op_cseg` with DS = the part's own data segment:
 
 | verb | does |
@@ -220908,6 +220909,7 @@ fixed layout through ES with DS the package's own.
 | `GRANULE` | the record at ES:SI into DX:DI: CX = 576/div frames written, AX = this granule's clips |
 | `STATS` | fills `X3Z_*`: saturations, per-stage counters, silent channel-granules |
 | `CLOSE` | nothing to free: the primary owns every claim |
+| `RESEG` | ES:DI an OPEN record: the work segments re-read from it, nothing else changed - a compaction moved one (§121.10.1). STANDARD and STUB answer it and do nothing |
 
 Refusals are `X3E_*`: `CHAN`, `DIV`, `MEM`, `RECORD`, `TABLE`, `NOTOPEN`.
 Every verb keeps every register but AX and its outputs, leaves DF clear,
@@ -221404,7 +221406,7 @@ makes and SOUND.DRV's claims made on its behalf. The engine plans to
 `X3_CEILKB` = 390 KB (399,360 bytes). It is reported live in Status:
 Advanced (`Peak 385K`). **`X3S_PEAK` is measured, not summed**
 (`x3_memck`): the region (`X3_REGIONKB`, the image and bss rounded up,
-56), the eager carve (`op_kb` = 37) and the fall in the heap's free total since launch, sampled after every
+58), the eager carve (`op_kb` = 37) and the fall in the heap's free total since launch, sampled after every
 claim and kept at its highest. Being the heap's own total, it counts what
 SOUND.DRV claims per stream and anything another task claims meanwhile. A
 conversion zeroes it at its start, so it is that job's peak.
@@ -221438,7 +221440,7 @@ finished WAV plays only after the decoder's parts are dropped.
 
 | claim | size | while |
 |---|---|---|
-| the region (image + bss) | 57,214 bytes (56 KB) | the package runs |
+| the region (image + bss) | 59,382 bytes (58 KB) | the package runs |
 | the eager carve: FRONT + ART | 37 KB | the package runs |
 | look-ahead ring + PCM (+ the stage) | 32 KB + 3 KB, or 16 KB + 3 KB under the XT backend (the plan may halve the look-ahead) | a track is open |
 | the card's ring | the 16 KB grant (8 when the pool is short) or 33 KB external; under the XT backend x3_plan's grant, 16 KB or 8 | live, a probe, or a finished file on a card |
@@ -221502,8 +221504,10 @@ enters it. Reading 128 KB of tables off a floppy would cost an XT over ten
 seconds; OPEN costs it 2.0 to 3.3 (§121.11.3, §121.11.5).
 
 **The primary segment** is `APP_MAX_SIZE` 65,024 bytes of image + bss: the
-shipped build uses 57,214 (7,810 left), the `PKG_MEGA` arm 58,111, the
-`X3STUB` test build 57,579 and the field's `X3REPORT` build 58,236.
+shipped build uses 59,382 (5,642 left), the `PKG_MEGA` arm 60,279, the
+`X3STUB` test build 59,860 and the field's `X3REPORT` build 60,957
+(measured after §121.10.1, which cost the shipped build 487 bytes: the
+region's KB did not move, 10 bytes short of the next).
 
 **Too little memory is stated, with the figure** (§24.5's rule). Each rung's
 working set, measured, is `x3_needkb`: XT Standard 390 KB, XT Fast 360, XT
@@ -221514,6 +221518,37 @@ refused for memory says it the same way: `Needs 390 KB, has 300 KB` (24
 characters, whole on the status line). A LIVE rung that cannot start is not
 an error at all: the ladder steps on (§121.5). The calibration's own peak
 is inside the ceiling too - 396,288 bytes on MartyPC, asserted by `xtmp3xt`.
+
+#### 121.10.1 The claims move (NO-PINNING, shipped)
+
+**Every heap claim XTMP3 makes may move, but two.** It arrived from main
+with five unaudited pins (tests/pins.txt's bucket N), and a 640 KB XT
+running it is mostly XTMP3: up to 236 KB of work, a 192 KB hold and a 35 KB
+ring stood as walls through a Pause and, the work and the parts, through
+Stop. What stays pinned has a reason the registry accepts: `x3_xseg`, the
+external ring a DSP 3.00+ plays by auto-init DMA (bucket D), and
+`x3p_pseg`, the queue probe's scratch, freed inside the call that claimed it
+(bucket C).
+
+| claim | how it moves | pinned when |
+|---|---|---|
+| the look-ahead (ring, PCM, stage) | declared at `x3_la_claim`; `x3_rmove` stores `[ap_la_seg]` and shifts the stage `[x3c_sseg]` by the same delta | across each file call into it (`x3_lpin`/`x3_ldecl`): `x3_readat`, the gulp's disk read (`x3_rseq`), the hold's load, and the conversion's header read and stage writes - READ_SEQ's walk between transfers is not `dsk_xfer`'s pin (§66.5.7.1). Two far calls a gulp |
+| a conventional hold (`X3HK_CONV`) | declared at its claim, the same proc | across each load read into it. A copy out (`x3_rseq`) claims nothing. An XMS hold is not a heap claim |
+| the speaker ring (`aps_rseg`, apspk.inc) | the Audio Player's rule (§86.5.3): `ap_rdecl` declares it at `aps_close` | for a speaker session: `x3_spkpin` before `aps_open`. A session paused on the desktop keeps it pinned |
+| the backend's work segments | declared once OPEN succeeds (`x3_wsdecl`); `x3_rmove` puts the open record right and sets `[x3_wsmv]` | never; `x3_wsck` hands the part the record through `RESEG` before its next verb or GRANULE |
+| the carve, a fetched backend | §20.12.12's `op_movable`, hook `x3_partsmv` | never |
+
+**Why a move cannot land under a use.** Only the UI task compacts
+(§66.3.1), so the UI task's own copies matter only across a call that can
+claim, and those are the file calls above. The worker reads `[ap_la_seg]`
+and the vectors afresh each pass, and the kernel moves this instance's
+claims only while it is parked at `OSAPI_TASK_ALIVE`, the top of its loop.
+FRONT's NEXT reads the ring's segment out of `x3_ring` on every call, and a
+part never calls the kernel, so no claim is made under a far call into one.
+The XT part banks its work segments in its resident half (`x3x_wseg`,
+`x3x_segsy`, `x3x_segh1`, `x3x_segh2`), and `RESEG` reaches them there
+after the shrink. That is why the header grew a verb and the seal moved
+from 18 to 20 (`tools/x3xtgen.py --seal`).
 
 ### 121.11 Measured (shipped, on emulators; real hardware and listening are TBD)
 
