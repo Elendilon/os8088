@@ -3161,7 +3161,13 @@ clo_mount:
     mov ax, img_reloc           ; (NO-PINNING-PLAN K2). It was top-down and
     mov bx, MEM_K_IMG           ; pinned for the mount's life, which made a
     call COLD_SEG:mmf_mem_movable   ; mid-session mount a wall; img_reloc
-    mov word [mem_pinimg], 0    ; re-points IMG_DVSEG. A refusal only pins it
+                                ; re-points IMG_DVSEG. A refusal only pins it.
+                                ; [mem_pinimg] is 0 here and needs no store:
+                                ; a mount never sets it, every operation that
+                                ; does leaves through clo_mfree, and
+                                ; dsk_xfer's is pushed and popped (kernel size
+                                ; pass 14: it was the mount's own pin's
+                                ; release, which NO-PINNING-PLAN 5 #9 took out)
     mov si, clo_s_mis
     call clo_msay2              ; 'TEST.IMG is drive D:'
     jmp .out

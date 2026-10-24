@@ -26,7 +26,7 @@ return address it has a breakpoint on - the real kernel code at its real
 addresses, in the shipped build - then puts everything back and checks the
 desktop still answers.
 
-SIX ASSERTIONS:
+SEVEN ASSERTIONS:
   1. a push with [sch_cur] = a worker counts, and leaves the UI task's stack
      (`wm_pkgd`, `wm_pkgs`) untouched;
   2. while it stands, `mem_in_nest` pins an image nothing else names...
@@ -34,10 +34,16 @@ SIX ASSERTIONS:
      owns), with no service task running;
   4. a nested push counts twice, and two pops return the count to zero;
   5. with the count back at zero both answer "movable" again;
-  6. the UI task ([sch_cur] = 0) still uses the stack.
+  6. the UI task ([sch_cur] = 0) still uses the stack;
+  7. a UI push made WHILE a worker's count stands is still recorded on the
+     stack. `wm_tcnt` is the high byte of the word `mem_in_nest` reads
+     (kernel size pass 14), so a push that bounded the whole word against
+     WM_PKGD_MAX would skip it and leave a stale level behind once the count
+     fell back to zero.
 
 VERIFIED TO FAIL: with the `jne .count` in wm_nest_pushd taken out (every push
-goes to the stack, as before K9), all six go red.
+goes to the stack, as before K9), all six go red; with the push's
+`mov bl`/`xor bh, bh` made a word load again, 7 goes red.
 """
 import os
 import sys
@@ -89,8 +95,8 @@ def main():
             return 2
         saved = m.regs()
         tabs = [(n, m.read(lin(n), sz)) for n, sz in
-                (("sch_cur", 1), ("wm_pkgd", 2), ("wm_pkgs", 16),
-                 ("wm_tcnt", 2))]
+                (("sch_cur", 1), ("wm_pkgd", 1), ("wm_pkgs", 16),
+                 ("wm_tcnt", 1))]
         ss, sp = saved["ss"], saved["sp"]
         ret = S["cold_kretf"]           # any .cold offset: never executed
         scratch_sp = (sp - 0x80) & 0xFFFF
@@ -137,34 +143,50 @@ def main():
 
         try:
             m.write(lin("sch_cur"), bytes([T]))
-            pkgd0 = w16("wm_pkgd")
+            pkgd0 = b8("wm_pkgd")
             stack0 = m.read(lin("wm_pkgs"), 16)
 
             call("wm_nest_pushd", X)
-            check(w16("wm_tcnt") == 1 and w16("wm_pkgd") == pkgd0
+            check(b8("wm_tcnt") == 1 and b8("wm_pkgd") == pkgd0
                   and m.read(lin("wm_pkgs"), 16) == stack0,
                   "1. a worker's push is counted, and the stack is untouched",
-                  (w16("wm_tcnt"), w16("wm_pkgd"), pkgd0))
+                  (b8("wm_tcnt"), b8("wm_pkgd"), pkgd0))
             check(call("mem_in_nest", KSEG, 0x6B00) == 1,
                   "2. while it stands, mem_in_nest pins any image")
             check(far_call("inst_seg_parked", 0x6B00) == 1,
                   "3. ...and a driver's claims")
             call("wm_nest_pushd", X)
-            two = w16("wm_tcnt")
+            two = b8("wm_tcnt")
             call("wm_nest_pop", KSEG)
             call("wm_nest_pop", KSEG)
-            check(two == 2 and w16("wm_tcnt") == 0,
+            check(two == 2 and b8("wm_tcnt") == 0,
                   "4. a nested push counts twice, and both pops undo it",
-                  (two, w16("wm_tcnt")))
+                  (two, b8("wm_tcnt")))
             m.write(lin("sch_cur"), bytes([0]))
             check(call("mem_in_nest", KSEG, 0x6B00) == 0
                   and far_call("inst_seg_parked", 0x6B00) == 0,
                   "5. at zero both answer movable again")
             call("wm_nest_pushd", X)
-            ui_ok = (w16("wm_pkgd") == pkgd0 + 1 and w16("wm_tcnt") == 0)
+            ui_ok = (b8("wm_pkgd") == pkgd0 + 1 and b8("wm_tcnt") == 0)
             call("wm_nest_pop", KSEG)
-            check(ui_ok and w16("wm_pkgd") == pkgd0,
+            check(ui_ok and b8("wm_pkgd") == pkgd0,
                   "6. the UI task still uses the stack")
+            m.write(lin("sch_cur"), bytes([T]))
+            call("wm_nest_pushd", X)            # a worker inside an image...
+            m.write(lin("sch_cur"), bytes([0]))
+            Y = 0x5B00
+            call("wm_nest_pushd", Y)            # ...while the UI task enters
+            at = w16("wm_pkgs", 2 * pkgd0)      # another: still RECORDED
+            call("wm_nest_pop", KSEG)
+            m.write(lin("sch_cur"), bytes([T]))
+            call("wm_nest_pop", KSEG)
+            m.write(lin("sch_cur"), bytes([0]))
+            check(pkgd0 >= 8 or (at == Y and b8("wm_pkgd") == pkgd0
+                                 and b8("wm_tcnt") == 0),
+                  "7. a UI push while a worker's count stands is still "
+                  "recorded (the count is wm_pkgd's HIGH byte, and the push "
+                  "indexes by the low one)", (hex(at), b8("wm_pkgd"),
+                                               b8("wm_tcnt")))
         finally:
             for n, data in tabs:
                 m.write(lin(n), data)
