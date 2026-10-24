@@ -354,6 +354,15 @@ NETV_RAWRX   equ 17
 NETV_MAX     equ 17             ; ...and anything above it is refused. A verb
                                 ; table indexed by an unchecked verb is a wild
                                 ; near call inside the driver
+NETV_GONE    equ 0x42           ; **THE KERNEL'S, NEVER A PACKAGE'S**: AL = an
+                                ; instance slot being torn down, ES =
+                                ; KERNEL_SEG (xm_release_rec, SPEC.md
+                                ; 72.13.4). ETHER.DRV drops that instance's
+                                ; sockets and, when no instance that has
+                                ; spoken to it is left, frees its ring pool.
+                                ; Above NETV_MAX, so a package's call with
+                                ; this number is refused as any other is.
+                                ; Mirrored in kernel/driver.inc
 
 ; --- NETV_STATE's bits -------------------------------------------------------
 NSTF_PORT    equ 0x01           ; a parallel port was found
