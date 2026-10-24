@@ -41,9 +41,19 @@ SP_SAFE equ 0x0F00                  ; ...and where the stack goes once the
 start:
     mov [pspseg], cs
     mov [pbc+4], cs                 ; the parameter block's tail SEGMENT
-    cli
+    cli                             ; ...and IF STAYS 0 UNTIL SNAPSHOT B: see
     mov sp, SP_AT                   ; INSIDE the block we are about to keep,
-    sti                             ; with the free header directly below
+                                    ; with the free header directly below
+    ; **NO HARDWARE INTERRUPT MAY LAND ON THIS STACK**, and that is the fixture
+    ; and not a workaround. Any ISR runs on the stack it interrupts: the IBM
+    ; ROM's int 08h pushes DS, AX and DX under the CPU's three words, and
+    ; os8088's sch_isr nine registers - so a TICK between the shrink and
+    ; snapshot B writes the header on a real DOS and on ours alike, and the
+    ; row went red one run in a few dozen with `B 00 0010 2600`: SI (MCB_AT),
+    ; BX (AH=30h's 0) and DX, sch_isr's frame to the word. With IF = 0 the
+    ; only frames that can reach the header are the ones each `int 21h`
+    ; builds, which is the question - the gate's `iret` hands our FLAGS back,
+    ; and the handlers may `sti` on DOS'S stack as they always do.
 
     ; --- the shrink, and NOTHING between it and the first snapshot ----------
     mov es, [pspseg]
@@ -89,8 +99,7 @@ start:
     ; THE STACK MOVES FIRST. Everything below here calls, and `putc` alone
     ; pushes eight registers - so leaving SP where the measurement needed it
     ; would have this program scribble on the very header it has just read.
-    cli
-    mov sp, SP_SAFE
+    mov sp, SP_SAFE                 ; (IF is still 0 from the start)
     sti
 
     mov si, s_head

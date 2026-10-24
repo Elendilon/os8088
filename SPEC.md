@@ -171263,6 +171263,18 @@ was behaving. Playroom pushes at most three words of its own before its calls,
 which is what fits in the header's reserved bytes; the row matches that by
 spending no push at all in the window it measures.
 
+**And no hardware interrupt may spend one either, so the window runs with
+`IF` = 0.** An ISR runs on the stack it interrupts: the IBM ROM's `int 08h`
+pushes DS, AX and DX under the CPU's three words and os8088's `sch_isr` nine
+registers, so a TICK landing between the shrink and snapshot B writes the
+header on a real DOS and on this one alike. The row went red one soak run in
+a few dozen with `B 00 0010 2600` — SI (`MCB_AT`), BX (`AH=30h`'s 0) and DX,
+`sch_isr`'s frame to the word, which a build holding the window open for half
+a second reproduces on every run. With interrupts off the only frames that
+can reach the header are the ones each `INT 21h` builds, which is the
+question: the gate's `iret` hands the probe's FLAGS back, and the handlers
+may `sti` on DOS's stack as they always have.
+
 ##### 96.7.2.2 What it costs is DEPTH, and the number that bounds it is 510
 
 §96.4.1 measured the deepest `SP` on task 0's stack while a DOS program wrote
