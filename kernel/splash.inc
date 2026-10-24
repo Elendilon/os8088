@@ -779,7 +779,7 @@ spl_pct:
 ; body and spl_step's start path enters there, and on a hard-disk boot nothing
 ; is loading a kernel.
 ; -----------------------------------------------------------------------------
-SPL_KCELLS  equ 32              ; the field, in cells - spl_mgeom's
+SPL_KCELLS  equ 37              ; the field, in cells - spl_mgeom's
 SPL_KY      equ 288             ; SPL_MSG_CELLS and SPL_MSG_Y, which live in
                                 ; `.boot2` and are %included AFTER this module.
                                 ; vidsel.inc asserts the pair rather than

@@ -32860,10 +32860,12 @@ that letters it; there is no fill anywhere in the module and the line is never
 momentarily blank. It also puts §11.3's granularity rule out of reach — there
 is no erase-and-letter pair here to disagree. The pen is floored to a cell by
 `spl_mgeom`, so both mono adapters take `font_run`'s single-store path (§6.1),
-which is what makes a 32-cell line affordable on the machine it exists for.
+which is what makes a 37-cell line affordable on the machine it exists for.
 
-`SPL_MSG_CELLS` is 32 because the longest line the tree can compose is
-`Loading Driver 1/5 (Hard Drive)` = 31 cells. The bound lives inside
+`SPL_MSG_CELLS` is 37 because the longest line the tree can compose is
+`Loading Driver NN/NN (Absolute mouse)` = 37 cells: a two-digit row count
+and `DRV_TITLES`' longest title, kern_emu's. It was 32, sized when the
+longest was `Loading Driver 1/5 (Hard Drive)`, and cut kern_emu's lines off. The bound lives inside
 `spl_mput`, so a longer one truncates at the reserved width rather than writing
 past the buffer, and nothing above it has to carry a length. The gfx lock is
 not held, exactly as `spl_paint` does not hold it: the UI task does not exist

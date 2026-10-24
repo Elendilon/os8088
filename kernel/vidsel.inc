@@ -653,11 +653,14 @@ vid_reboot:
 ; =============================================================================
 section .boot2
 
-SPL_MSG_CELLS equ 32            ; the reserved width, in 8px cells. 32 because
+SPL_MSG_CELLS equ 37            ; the reserved width, in 8px cells. 37 because
                                 ; the longest line the tree can compose is
-                                ; 'Loading Driver 1/5 (Hard Drive)' = 31, and
-                                ; 32 cells is 256px - byte-aligned arithmetic
-                                ; on every adapter this runs on
+                                ; 'Loading Driver NN/NN (' + DRV_TITLES'
+                                ; longest, 'Absolute mouse' (kern_emu), + ')'
+                                ; = 37 - it was 32 and cut those lines off
+                                ; (kernel size pass 14, ksp14/api.md defect 2).
+                                ; Cells, so byte-aligned arithmetic on every
+                                ; adapter this runs on
 SPL_MSG_Y     equ 288           ; VGA: under the bar trough (rows 262..281) and
                                 ; above spl_pct's text row 19 (y 304). Mono
                                 ; computes its own from the live geometry
