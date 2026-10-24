@@ -16419,7 +16419,11 @@ bytes back, and kern_big and kern_small byte-identical.
 round: kern_big's blob took the sector for `VESA.DRV`'s attach (§120.4), and
 kern_emu's - `vmm_boot_x` and `vx_boot_x` both - fits the same thirteen, so
 kern_emu is on kern_big's length and its `KSIG_OFF`, and only a knob build
-reads one more.
+reads one more. **And it is back later in the same pass**: the reach agent
+moved `vid_apply` and `wm_refit`'s two callees into kern_big's blob
+(§39.3.1, §39.11.2), which leaves the thirteen sectors 61 bytes spare on
+kern_big - and `vmm_boot_x` is ~100 more. So kern_emu reads fourteen again,
+`BOOT2_KNOBSEC`'s arm, for the reason this section gave the first time.
 
 #### 9.11.3 `VMMV_READ`, and the pump
 

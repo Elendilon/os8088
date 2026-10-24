@@ -1520,7 +1520,13 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; and t_blobruns priced the thirteenth at no int 13h on any geometry - it puts
 ; stage 2's kernel read on 360KB and 720KB back to the eleven calls its
 ; ratchet names, from the twelve the base had grown to.
+; ...and kern_emu took its extra sector BACK in the same pass (ksp14/reach.md:
+; vid_apply and wm_refit's callees moved into the blob, and kern_big's
+; thirteen hold them with 61 bytes to spare - vmm_boot_x is ~100). The Makefile
+; adds it in the knob's block, as before.
 %ifdef KERN_KNOB
+  %define BOOT2_KNOBSEC 1
+%elifdef KERN_EMU
   %define BOOT2_KNOBSEC 1
 %else
   %define BOOT2_KNOBSEC 0
