@@ -1955,14 +1955,16 @@ ui_drag_phase:
                                 ; drop lands on the row the hand chose
 %ifdef KERN_BIG                 ; kern_small has one display and no
                                 ; vid_disp_find (SPEC.md 39.12)
-    cmp byte [vid_ndisp], 1     ; ONE DISPLAY: the interval argument above is
-    jbe .out                    ; the whole proof and nothing more is asked.
-                                ; (AX IS the W_X just stored.)
-                                ; TWO: the legal top-lefts are a UNION of two
-    mov bx, [si + W_Y]          ; rectangles and not an interval, so a phase
-    call vid_disp_find          ; along EITHER axis can leave the origin in the
-    jnc .out                    ; dead zone - x moves toward ui_origx while y
-    mov [si + W_X], cx          ; holds the row the drop chose, and that pair
+    EXTCALL EXT_PHASE           ; ONE DISPLAY: the interval argument above is
+                                ; the whole proof and nothing more is asked -
+                                ; mod_gone, every register kept. (AX IS the
+                                ; W_X just stored, CX the bank, SI the window.)
+                                ; TWO: EXTD.DRV's ext_e_phase since kernel size
+                                ; pass 14 - the legal top-lefts are a UNION of
+                                ; two rectangles and not an interval, so a phase
+                                ; along EITHER axis can leave the origin in the
+                                ; dead zone - x moves toward ui_origx while y
+                                ; holds the row the drop chose, and that pair
                                 ; need not be a point any card has. ui_drag_dead
                                 ; ran before this and cannot see it, and nothing
                                 ; after it moves the origin back. So the phased

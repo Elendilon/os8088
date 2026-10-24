@@ -76207,12 +76207,14 @@ arm, because `wm_bord` reaches them under every window's content rect and
 bracket; `ui_drag_dead` and `ui_drag_phase`, on the drag; and ui_task's two
 secondary-click tests, six bytes each on every press, where an `EXTCALL` is
 four and a far call per click on one display buys two. **Kernel size pass 14
-took `ui_drag_dead` after all** (`EXT_DEAD`, −37 resident): it runs ONCE, at
-the drag's release and not under the tracking loop, and on one display the
+took `ui_drag_dead` after all** (`EXT_DEAD`, −37 resident), **and
+`ui_drag_phase`'s arm** (`EXT_PHASE`, −10): both run ONCE, at the drag's
+release and not under the tracking loop. On one display `ui_drag_dead`'s
 `EXTCALL` into `mod_gone` (`call far [m]` 43 + `stc`/`retf` 36 cycles on the
 8088) costs what the resident near call, its `[vid_ndisp]` compare, branch and
-`ret` cost (~81) - so a one-display machine pays nothing for the 42 bytes, and
-an extended one ~700 cycles once per drop. `ui_drag_phase` stays. `fsx_run`'s
+`ret` cost (~81); the phase arm's costs ~37 cycles more than its compare and
+branch, once per drop. An extended desktop pays a far call and an `EXK` hop or
+two (~400-700 cycles) once per drop. `fsx_run`'s
 `wm_disp_of` stays a near call to the resident routine, which is the same
 bytes either way.
 
@@ -76242,6 +76244,7 @@ every register kept (§2.8.1) — and every call site is either behind a
 | 12 | `EXT_FCUT` — `ext_fcut`, §39.14.11's cell cut | `font_ch_spill`, GATED (`[gfx_dnest]` = 1) | never reached; CF = 1 would be §39.14.2's whole-cell drop |
 | 13 | `EXT_BCUT` — `ext_bcut`, §39.14.7.2's blit cut | `gfx_blit4`, GATED (`[vid_ndisp]` > 1, a straddle) | never reached; CF = 1 (and an ODD cut) is §39.14.7's run-splitting path |
 | 14 | `EXT_DEAD` — `ext_e_dead`, §39.16.1's dead-zone pull (was `ui_drag_dead`) | `ui_drag`, UNGATED (once, at the release) | every register kept: one display has no dead zone |
+| 15 | `EXT_PHASE` — `ext_e_phase`, `ui_drag_phase`'s second-display arm (§11.96.13) | `ui_drag_phase`, UNGATED (once, at the release) | every register kept: on one display the phase stands |
 
 `mod_init_x` rests the slots on `mod_gone` before `wm_init`, which is before
 the first of these can run; the early `vid_disp_init` in `kmain_o`, before

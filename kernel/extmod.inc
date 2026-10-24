@@ -93,7 +93,7 @@ section .modx
     call exk_go
     dw %1
 %endmacro
-EXT_NENT    equ 15
+EXT_NENT    equ 16
 modx_hdr:
     dw 0x384F                   ; MOD_H_MAGIC
     db MOD_VER, MOD_EXT         ; MOD_H_VER, MOD_H_ID
@@ -121,9 +121,10 @@ modx_hdr:
 %else
     dw ext_refuse
 %endif
-    dw ext_e_dead               ; EXT_DEAD (kernel size pass 14)
-%if EXT_YLOW != 11 || EXT_DEAD != 14 || EXT_NENT != 15
-  %error "extmod: EXT_FCUT and EXT_BCUT are entries 12 and 13, after EXT_YLOW, and EXT_DEAD 14 (kernel.asm)"
+    dw ext_e_dead               ; EXT_DEAD  (kernel size pass 14)
+    dw ext_e_phase              ; EXT_PHASE (kernel size pass 14)
+%if EXT_YLOW != 11 || EXT_DEAD != 14 || EXT_PHASE != 15 || EXT_NENT != 16
+  %error "extmod: EXT_FCUT and EXT_BCUT are entries 12 and 13, after EXT_YLOW, then EXT_DEAD and EXT_PHASE (kernel.asm)"
 %endif
 %ifdef SEAMCUT
  %if EXT_FCUT != 12
@@ -153,12 +154,11 @@ modx_hdr:
 ; wm_disp_xw's arm, because wm_bord reaches them under every window's content
 ; rect (OSAPI_WM_CONTENT, again at the top of every draw) and wm_fs_vis under
 ; every bar and dock paint; fsx_surf's arm, which Tracker and DOT DELIRIUM ask
-; per frame inside a bracket; ui_drag_phase, on the drag; and the two
-; secondary-click tests in ui_task, six bytes each on every press.
-; ui_drag_dead was on that list and is EXT_DEAD now (kernel size pass 14): it
-; runs ONCE, at a drag's release, so the far call it costs a one-display
-; machine is mod_gone's few dozen clocks against the repaint the release
-; starts anyway - and 42 resident bytes for every machine that never extends.
+; per frame inside a bracket; and the two secondary-click tests in ui_task,
+; six bytes each on every press. ui_drag_dead and ui_drag_phase's arm were on
+; that list and are EXT_DEAD and EXT_PHASE now (kernel size pass 14): both run
+; ONCE, at a drag's release, so the far call they cost a one-display machine
+; is mod_gone's few dozen clocks against the repaint the release starts anyway.
 
 ext_e_strads:                   ; EXT_STRADS: CF = 1 not straddling, which is
     call wm_strads              ; also mod_gone's answer and the one-display
@@ -254,6 +254,23 @@ ext_e_dead:
     pop cx
     pop bx
     pop ax
+.out:
+    retf
+
+; ext_e_phase - EXT_PHASE, ui_drag_phase's second-display arm (ui.inc): the
+; phased drop is asked whether a card holds it, and a NO undoes the phase.
+; In: AX = the phased W_X (just stored), CX = the x the clamps left, SI = the
+; window. Every register kept but that one word of the record.
+ext_e_phase:
+    call ext_one
+    jb .out                     ; one display: the interval argument is whole
+    push bx
+    mov bx, [si + W_Y]
+    EXK vid_disp_find           ; (preserves CX, the bank)
+    jnc .ok
+    mov [si + W_X], cx          ; the drop stands where the clamps left it
+.ok:
+    pop bx
 .out:
     retf
 

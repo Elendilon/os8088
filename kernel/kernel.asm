@@ -6177,6 +6177,7 @@ EXT_DESK    equ 10              ; vid_disp_desk: CF = 1 nothing painted
 EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
 EXT_DEAD    equ 14              ; ui_drag_dead, UNGATED: registers kept (12 and
                                 ; 13 are the seam cuts, font.inc/vga12.inc)
+EXT_PHASE   equ 15              ; ui_drag_phase's arm, UNGATED: registers kept
 %macro EXTCALL 1
     call far [EXFP + %1*4]
 %endmacro
