@@ -1184,9 +1184,13 @@ mou_claim:
     sub ax, [bx+mou_errt]       ; MOU_ERRQ ticks (SPEC.md 9.5.6): a cable's
     cmp ax, MOU_ERRQ            ; stream at another baud rate decodes as
     jae .count                  ; packets now and then - on a ONE-port
-    mov [bx+mou_run], ah        ; machine, where one packet settles, within
-    jmp short .out              ; its first frame. AH is 0 here (AX < 36).
-                                ; Wrap-safe, like [ticks]. 18 bytes, EVEN
+    mov byte [bx+mou_run], -1   ; machine, where one packet settles, within
+                                ; its first frame. Wrap-safe, like [ticks].
+                                ; -1, so the `inc` below makes the run 0 and
+                                ; the compare after it - [mou_need] is never
+                                ; 0 - leaves by .out: the zeroing and the exit
+                                ; in one store (kernel size pass 14, -1; 17
+                                ; bytes, and mouse_unhook's pad went with it)
 .count:
     inc byte [bx+mou_run]
     mov al, [bx+mou_need]       ; 1 where the probe found one port, MOU_LOCKN
@@ -1487,8 +1491,9 @@ mouse_unhook:
     pop es
     pop si
     jmp kret_cx
-
-    db 0                       ; PARITY: serial cleanup added five bytes above
+                                ; (no PARITY pad: serial's five bytes above
+                                ; are evened by mou_claim's -1, kernel size
+                                ; pass 14)
 
 ; mou_vset - ES:SI = CX:AX, the one IVT write the three restores above share,
 ; under pushf/cli so no interrupt can take the vector half-written.
@@ -2234,10 +2239,10 @@ mou_p2_isr:
                                 ; never fires" are different faults and look
                                 ; identical from anywhere else (SPEC.md 9.9.6)
     in  al, MOU_P2CMD
-    test al, 0x01               ; anything in the buffer at all?
-    jz .eoi
-    test al, 0x20               ; ...and is it the AUXILIARY device's?
-    jz .eoi
+    and al, 0x21                ; anything in the buffer at all, and is it
+    cmp al, 0x21                ; the AUXILIARY device's? Both bits in one
+    jne .eoi                    ; compare (kernel size pass 14: -2, and 4
+                                ; clocks faster when a byte is there)
     in  al, MOU_P2DAT           ; ...and THIS read is what drops the request
     call mou_p2_byte
 .eoi:
@@ -3527,13 +3532,8 @@ mou_isr_body:
     mov dx, [bx+mou_bases]
     or  dx, dx
     jz .next                    ; the probe rejected this row
-    cmp bx, [ser_row]
-    jne .mouse
-    push bx
-    call far [SERFP+SER_IRQ]    ; capture before any mouse read of this UART
-    pop bx
-    jmp short .next
-.mouse:
+    cmp bx, [ser_row]           ; the leased UART is SERIAL.DRV's: .ser,
+    je .ser                     ; out of line, so a mouse port falls through
     add dx, 5
     in  al, dx                  ; LSR: is anything waiting here?
 %ifdef MOU_DIAG
@@ -3564,6 +3564,9 @@ mou_isr_body:
     cmp bx, MOU_PEND
     jb .scan
     jmp mou_eoi
+.ser:
+    call far [SERFP+SER_IRQ]    ; capture before any mouse read of this UART;
+    jmp short .next             ; BX, the index, comes back (srl_irq)
 %ifndef NO_MOUPRIV
  %ifndef KERN_MEGA
     nop                         ; PARITY PAD, never executed (14.39, as above)
