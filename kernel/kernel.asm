@@ -6169,6 +6169,8 @@ EXT_SPAN    equ 8               ; wm_disp_span: registers kept = the primary
 EXT_FSRECT  equ 9               ; wm_fs_setrect's arm: CF = 1 one display
 EXT_DESK    equ 10              ; vid_disp_desk: CF = 1 nothing painted
 EXT_YLOW    equ 11              ; ui_ylow's arm, behind its caller's gate
+EXT_DEAD    equ 14              ; ui_drag_dead, UNGATED: registers kept (12 and
+                                ; 13 are the seam cuts, font.inc/vga12.inc)
 %macro EXTCALL 1
     call far [EXFP + %1*4]
 %endmacro

@@ -93,7 +93,7 @@ section .modx
     call exk_go
     dw %1
 %endmacro
-EXT_NENT    equ 14
+EXT_NENT    equ 15
 modx_hdr:
     dw 0x384F                   ; MOD_H_MAGIC
     db MOD_VER, MOD_EXT         ; MOD_H_VER, MOD_H_ID
@@ -121,8 +121,9 @@ modx_hdr:
 %else
     dw ext_refuse
 %endif
-%if EXT_YLOW != 11 || EXT_NENT != 14
-  %error "extmod: EXT_FCUT and EXT_BCUT are entries 12 and 13, after EXT_YLOW"
+    dw ext_e_dead               ; EXT_DEAD (kernel size pass 14)
+%if EXT_YLOW != 11 || EXT_DEAD != 14 || EXT_NENT != 15
+  %error "extmod: EXT_FCUT and EXT_BCUT are entries 12 and 13, after EXT_YLOW, and EXT_DEAD 14 (kernel.asm)"
 %endif
 %ifdef SEAMCUT
  %if EXT_FCUT != 12
@@ -152,8 +153,12 @@ modx_hdr:
 ; wm_disp_xw's arm, because wm_bord reaches them under every window's content
 ; rect (OSAPI_WM_CONTENT, again at the top of every draw) and wm_fs_vis under
 ; every bar and dock paint; fsx_surf's arm, which Tracker and DOT DELIRIUM ask
-; per frame inside a bracket; ui_drag_dead and ui_drag_phase, on the drag; and
-; the two secondary-click tests in ui_task, six bytes each on every press.
+; per frame inside a bracket; ui_drag_phase, on the drag; and the two
+; secondary-click tests in ui_task, six bytes each on every press.
+; ui_drag_dead was on that list and is EXT_DEAD now (kernel size pass 14): it
+; runs ONCE, at a drag's release, so the far call it costs a one-display
+; machine is mod_gone's few dozen clocks against the repaint the release
+; starts anyway - and 42 resident bytes for every machine that never extends.
 
 ext_e_strads:                   ; EXT_STRADS: CF = 1 not straddling, which is
     call wm_strads              ; also mod_gone's answer and the one-display
@@ -216,6 +221,42 @@ ext_e_fsrect:                   ; EXT_FSRECT: wm_fs_setrect's arm, UNGATED.
     pop ax
     clc
     retf
+; ext_e_dead - EXT_DEAD, what was ui.inc's ui_drag_dead: pull a dragged
+; window's origin out of the DEAD ZONE (SPEC.md 39.16.1). In: BX = the window,
+; W_X/W_Y just written by ui_drag's clamps; every register kept.
+;
+; The two clamps are per-AXIS, and the virtual desktop is a union (SPEC.md
+; 39.2.1) - so between two displays of different heights they can agree on a
+; point no display covers, and a title bar dropped there is one nobody can grab
+; back. It is mou_clamp's problem one layer up, and it takes the same two
+; routines. INTO THE POINTER'S DISPLAY, because during a drag the title bar is
+; under the hand and [cur_disp] is where the hand is - and 39.15.4 guarantees
+; the pointer itself is inside a display. UNGATED: the image stays mounted
+; over a collapsed desktop, hence its own test (ext_one).
+ext_e_dead:
+    call ext_one
+    jb .out                     ; one display: no dead zone
+    push ax
+    push bx
+    push cx
+    push si
+    mov si, bx                  ; SI, because vid_disp_find wants BX = y and
+    mov ax, [si+W_X]            ; an 8086 addresses through BX/BP/SI/DI only
+    mov bx, [si+W_Y]
+    EXK vid_disp_find
+    jnc .done                   ; on a display already: nothing to correct
+    mov cl, [cur_disp]
+    EXK vid_pt_clamp
+    mov [si+W_X], ax
+    mov [si+W_Y], bx
+.done:
+    pop si
+    pop cx
+    pop bx
+    pop ax
+.out:
+    retf
+
 ext_e_ylow:                     ; EXT_YLOW: ui_ylow's arm, behind its caller's
     push ax                     ; gate - ui_drag's release, the drag path
     push bx
