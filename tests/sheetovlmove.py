@@ -290,7 +290,7 @@ def main():
             return 1
 
         # --- F5: stop on the bank's claim, inflate it; watch the return ----
-        take = S("wm_su_take")
+        take = m.sym("wm_su_take")
         tag, back = SH["ch_ovseg"], SH["ch_xthunk.back"]
         homes = {c0[0]: ("CHART.OVL", c0[1]), m0[0]: ("MACRO.OVL", m0[1])}
         bps = ["mem_claim", "mem_reloc_call"]
@@ -315,7 +315,7 @@ def main():
                          "NEW" if landed[0] == new_c else
                          "OLD" if landed[0] == c0[0] else "??"))
                 m.bp_exec(*bps)
-            elif at == S("mem_claim") and not forced:
+            elif at == m.sym("mem_claim") and not forced:
                 ret = r["cs"] * 16 + u16(m.read(r["ss"] * 16 + r["sp"], 2))
                 if take < ret < take + 0x200:
                     stack = m.read(r["ss"] * 16 + r["sp"], 1024)
@@ -328,7 +328,7 @@ def main():
                           "the module's frame: %s"
                           % (r["ax"], kb, "IP %04x under %s" % frame[1:]
                              if frame else "NOT FOUND"))
-            elif at == S("mem_reloc_call") and r["bx"] in homes:
+            elif at == m.sym("mem_reloc_call") and r["bx"] in homes:
                 name, para = homes[r["bx"]]
                 n = poison(m, S, r["bx"], r["dx"], para)
                 poisoned += n
