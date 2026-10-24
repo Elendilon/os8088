@@ -424,6 +424,17 @@ opt-in `CC_ONMOVE_REGION`). On the 256KB XT the second WEAVE's region now
 fits, so the refusal moved from the loader to the runtime's own window
 (`weaveone` accepts either). Rows `weavemove`, `loommove`. It also found
 LOOM leaking Preview's 112KB on a Pack from the pane, fixed in `056841dd`.
+A1 RealDMG (`3465d15a`, REALDMG-SPEC 14.4): every long-lived claim moves
+through one proc, `rw_mreloc`, which also fixes the core's copies (ROM
+segment, bank table, `S_ROMX`, RAM, profile). Translated code bakes 8086
+`jmp far` segments in and logs no list of them, so a move of the recompiler's
+claim FLUSHES the cache (`rw_mjit`), a re-warm once per move. File calls and
+the load pin everything (bucket C). **Speed unchanged**: 1414.3 against
+1414.4 bank switches a guest second saturated, `gbdemo` 1.000 of real time,
+all 145 hot routines instruction-identical at even shifts. +436 bytes of
+image. Row `rdgmove`. The parts carve (core + view, 128KB) stays pinned until
+RealDMG opts into A8's `OP_ONMOVE`, which needs a hook for `rdg_viewseg`,
+`rdg_coreseg`, `S_VIEW`, `S_DISP`, `BTAB[0]` and a cache flush.
 
 **In flight in agent worktrees (branches off `no-pinning`, NOT merged):**
 - C4: LEMMINGS' claims movable (range-translating `os88_onmove`)
