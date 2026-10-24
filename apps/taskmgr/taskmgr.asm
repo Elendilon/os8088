@@ -213,8 +213,15 @@ TM_ROW_Y    equ 97              ; first process row
 TM_ROW_H    equ 11              ; row pitch, px
 TM_ROWS     equ INST_MAX + 1    ; "System" plus one row per instance slot -
                                 ; the per-row DATA (tm_rcyc, tm_pct)...
-TM_PROWS    equ TM_ROWS + 1     ; ...and the rows DRAWN, which have IVT+BIOS
-                                ; above System (SPEC.md 28.4.7)
+%ifdef TMF_MEM
+TM_PROWS    equ TM_ROWS + 2     ; ...and the rows DRAWN, which have IVT+BIOS
+                                ; above System (SPEC.md 28.4.7) and, when the
+                                ; system holds RAM above 1MB, System HMA
+                                ; after its built-ins (SPEC.md 28.4.14)
+TM_ORDHMA   equ 0FEh            ; tm_ord's entry for that row: no slot
+%else
+TM_PROWS    equ TM_ROWS + 1     ; (the small build has no RAM above 1MB)
+%endif
 TM_LOWKB    equ 2               ; IVT+BIOS: the 1.5K under KERNEL_SEG and the
                                 ; half-KB the whole-KB heap and System leave
 TM_W        equ 232             ; the window's own width - the template's, and
@@ -1248,12 +1255,21 @@ tm_s_hdr:   db 'NAME'
             times TM_CPUC - 3      db ' '
             db 'MEM', 0
 tm_s_sys:   db 'System', 0      ; row 1: the kernel's own share
+%ifdef TMF_MEM
+; ...and what it keeps between 1MB and the pool, a row and a group of its own
+; on both pages, so System is what it holds in CONVENTIONAL memory (SPEC.md
+; 28.4.14). kern_big's span IS the HMA: `.cold` and the drivers placed there;
+; kern_mega's is more than that - its tables and code over the DOS trip's HMA
+tm_s_shma:  db 'System HMA', 0
+tm_s_shi:   db 'System>1MB', 0
+%endif
 ; Row 0, IVT+BIOS (SPEC.md 28.4.7, 28.4.8): no state, no CPU - up to the
 ; MEM column, which tm_memcol_kb fills from [tm_lowkb]
 tm_s_lowrow:
             db 'IVT+BIOS'
             times TM_NAMEF - 8     db ' '
-            times TM_STC + 1       db ' '
+tm_s_nost:  times TM_STC + 1       db ' '  ; ...whose tail System HMA's row
+                                ; shares: no state, no CPU (SPEC.md 28.4.14)
             db '  -'
             times TM_CPUC - 3      db ' '
             db 0
@@ -1353,12 +1369,6 @@ tm_s_low:   db 'IVT+BIOS', 0
 tm_s_bimg:  db 'Code+data', 0
 tm_s_bstk:  db 'Stacks', 0
 tm_s_bfat:  db 'FAT snap', 0
-tm_s_bhi:   db 'Above 1MB', 0   ; the HEADING over the span between 1MB and
-                                ; the pool on kern_mega, in protected mode -
-                                ; its fixed areas are listed under it
-tm_s_bhma:  db 'HMA', 0         ; ...and kern_big's, where that span IS the
-                                ; HMA: `.cold` and the drivers placed there
-                                ; are listed under it (SPEC.md 28.4.13)
 tm_s_bhfre: db 'Free', 0        ; the HMA's pool that no block holds
 tm_s_uhdr:  db '640K-1MB', 0    ; the read-only map's heading (28.4.9)
 tm_s_uvid:  db 'Video', 0
@@ -4408,14 +4418,15 @@ tm_hbar:
 ; [tm_cgid] / [tm_xgid] / [tm_rgid]:
 ;   0..INST_MAX-1   an instance: a program's group, or a built-in's
 ;   TMG_SYS         System
-;   TMG_PROG        the programs as ONE group - the SYSTEM view's, gone
-;                   since 14.70.3 and kept so the ids after it do not move
+;   TMG_HMA         System HMA: what the system keeps between 1MB and the
+;                   pool (SPEC.md 28.4.14) - the id was the programs' ONE
+;                   group, the SYSTEM view's, gone since 14.70.3
 ;   TMG_PURGE       every purgeable claim, whoever caused it
 ;   TMG_KERN        the kernel's own claims and blocks
 ;   TMG_DRV + c     a driver, by its DRVC_* class c (tm_dnames)
 ; =============================================================================
 TMG_SYS     equ INST_MAX
-TMG_PROG    equ INST_MAX + 1
+TMG_HMA     equ INST_MAX + 1
 TMG_PURGE   equ INST_MAX + 2
 TMG_KERN    equ INST_MAX + 3
 TMG_DRV     equ INST_MAX + 4
@@ -4490,7 +4501,7 @@ tm_classify:
     call tm_xgidof
     mov [di], al
     cmp al, TMG_N
-    jae .xn                     ; a fixed area: tm_sysitems names it
+    jae .xn                     ; a fixed area: tm_hmagrp names it
     mov bl, al
     xor bh, bh
     shl bx, 1
@@ -4793,16 +4804,27 @@ tm_rows_mem:
     mov [tm_mrow], ax           ; first row that is actually on screen
     mov [tm_hpad], ax
 
+    ; --- IVT+BIOS, at 0000: the machine's and not System's, so it is the
+    ; list's first row, as it is the process list's (SPEC.md 28.4.14)
+    mov si, tm_s_low
+    mov ax, [tm_lowkb]
+    xor bx, bx
+    xor cx, cx
+    xor dl, dl
+    call tm_item
+
     ; --- System, which opens into its parts and its owners ---------------------
     mov bl, TMG_SYS
     mov si, tm_s_sys
-    call tm_systot              ; AX = everything System holds
+    call tm_systot              ; AX = everything System holds below 640K
     mov dx, tm_pat_gray         ; ...and its band on the map is the gray one
     call tm_grp
-    jc .progs
+    jc .hma
     mov dl, 1                   ; open: its parts as ITEMS, and Kernel, each
     call tm_sysitems            ; driver and each built-in as GROUPS of their
                                 ; own one level in, which open into claims
+.hma:
+    call tm_hmagrp              ; ...and System HMA, what it keeps above 1MB
 
     ; --- Programs: a HEADING with their total, then each one as a group ------
     ; Not a group itself: the total is the one figure the SYSTEM view had and
@@ -4952,20 +4974,19 @@ tm_ispkg:
     ret
 
 ; -----------------------------------------------------------------------------
-; tm_systot - AX = everything System holds, KB: IVT+BIOS and the kernel below
-;             640K, its fixed spans above 1MB, and every group that is not a
-;             program's - Kernel, each driver, each built-in. Keeps the rest
+; tm_systot - AX = everything System holds, KB: the kernel below 640K and
+;             every group that is not a program's - Kernel, each driver, each
+;             built-in. Keeps the rest
 ; tm_progtot - AX = everything the programs hold, KB. Keeps the rest
 ;
-; The two are complements over the groups, and with the Purgeable group (in
-; neither, and in no total) and the fixed spans they partition the summary
-; line's used figure (SPEC.md 28.4.1, 28.4.7, 28.4.8).
+; The two are complements over the groups, and with IVT+BIOS and System HMA
+; (rows of their own, SPEC.md 28.4.14) and the Purgeable group (in neither,
+; and in no total) they partition the summary line's used figure (SPEC.md
+; 28.4.1, 28.4.7, 28.4.8).
 ; -----------------------------------------------------------------------------
 tm_systot:
     push bx
     call tm_sysk                ; the kernel, whole KB rounded down...
-    add ax, [tm_lowkb]          ; ...the low memory below it...
-    add ax, [tm_hifix]          ; ...what it keeps between 1MB and the pool
     add ax, [tm_gkb + 2*TMG_KERN]
     mov bx, TMG_DRV * 2
 .d:
@@ -5008,18 +5029,16 @@ tm_progtot:
     ret
 
 ; -----------------------------------------------------------------------------
-; tm_sysitems - System's parts, in order: IVT+BIOS, Code+data, Stacks, FAT
-;               snap, the fixed spans above 1MB, Kernel, each driver, each
-;               built-in
+; tm_sysitems - System's parts, in order: Code+data, Stacks, FAT snap,
+;               Kernel, each driver, each built-in
 ; in:  DL = the parts' indent, 1: they and the owners' groups are one level
 ;      inside System's (KERN-MEGA-PLAN 14.70.3)
 ; out: nothing (all registers preserved)
 ;
-; The parts below 640K are the kernel's own ladder (SPEC.md 20.9) and between
-; them they are the System row's conventional figure: Code+data takes the
-; half-KB IVT+BIOS gave up (SPEC.md 28.4.7). Above 1MB, kern_mega names each
-; fixed span when it is asked (OSAPI_XMEM_WALK, XMW_FIXED) and anything else
-; is one 'Above 1MB' row (KERN-MEGA-PLAN 14.70.2).
+; The parts are the kernel's own ladder (SPEC.md 20.9) and between them they
+; are the System row's conventional figure: Code+data takes the half-KB
+; IVT+BIOS gave up (SPEC.md 28.4.7). What the system keeps above 1MB is
+; System HMA's (tm_hmagrp, SPEC.md 28.4.14).
 ; -----------------------------------------------------------------------------
 tm_sysitems:
     push ax
@@ -5029,10 +5048,6 @@ tm_sysitems:
     push si
     push di
     xor bx, bx                  ; no square unless a row says otherwise
-    mov si, tm_s_low            ; IVT+BIOS, at 0000
-    mov ax, [tm_lowkb]
-    xor cx, cx
-    call tm_item
     call tm_sysk                ; Code+data: the kernel's code and tables,
     xchg ax, cx                 ; and the half-KB (28.4.7). It starts at
     add cx, [tm_kb+SK_IMG]      ; KERNEL_SEG, and gives its ADDR column up to
@@ -5085,27 +5100,33 @@ tm_sysitems:
     cmp bx, INST_MAX
     jb .bl
 
-    ; --- above 1MB: a HEADING over the span under the pool, and what is in it -
-    ; LAST in System, so nothing after it reads as inside it: the next row is
-    ; the Programs heading at column 0 (SPEC.md 28.4.13). The heading is
-    ; System's own row-kind for a total that is not a group - Programs' shape
-    ; one level in - so what it holds opens without a third level of indent
-    cmp word [tm_hifix], 0
-    je .done
-    call tm_mrow_nolast
-    mov si, tm_s_bhma           ; kern_big's span IS the HMA...
-    cmp byte [tm_pm], 0
-    je .hd
-    mov si, tm_s_bhi            ; ...kern_mega's is more than that
-.hd:
+    jmp tm_pop_dsdcba
+
+; -----------------------------------------------------------------------------
+; tm_hmagrp - System HMA: the span the system keeps between 1MB and the pool,
+;             a GROUP at System's column that opens into what is in it - on
+;             kern_mega its fixed areas by name, on kern_big `.cold`, each
+;             driver in the HMA (a group one level in, opening into its
+;             blocks) and what is free (SPEC.md 28.4.13, 28.4.14). No row
+;             when the system holds nothing there
+; out: nothing (all registers preserved)
+; -----------------------------------------------------------------------------
+tm_hmagrp:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
     mov ax, [tm_hifix]
-    mov cx, 0FFFFh
-    xor bx, bx
-    mov dl, 1
-    call tm_item
-    mov dl, 3                   ; what is in it, where a group's NAME starts
-                                ; one level in (tm_grp2), so the heading's
-                                ; contents all begin a column past it
+    or ax, ax
+    jz .done
+    call tm_hmanam
+    mov bx, TMG_HMA
+    xor dx, dx                  ; no square: the map is conventional memory
+    call tm_grp
+    jc .done
+    mov dl, 1                   ; open: its items one level in, as System's
     xor di, di                  ; DI = the KB its rows state
     mov si, tm_xw
     mov cx, [tm_xwn]
@@ -5148,7 +5169,7 @@ tm_sysitems:
     call tm_drvnam
     push dx
     xor dx, dx
-    call tm_grp2
+    call tm_grp1
     pop dx
     jc .hgn
     push bx
@@ -5354,10 +5375,6 @@ tm_stem:
 ; column a group leaves empty (TMH_SQC), and keys the row to a band on the
 ; map the way the memory view's squares did.
 ; -----------------------------------------------------------------------------
-tm_grp2:                        ; ...two: a driver under System's HMA
-    push cx                     ; heading (SPEC.md 28.4.13)
-    mov ch, 2
-    jmp short tm_grp.go
 tm_grp1:                        ; ...one level in: an owner inside System
     push cx
     mov ch, 1
@@ -5596,14 +5613,6 @@ tm_xrow:
     inc di
     mov al, [si+XMW_OWN]
     mov cx, TMH_TYPEC
-    cmp al, XMW_HMAI            ; an HMA block is under a group a column
-    jb .ind                     ; further in (tm_grp2), so its row is too and
-    cmp al, XMW_HMAB            ; its TYPE a column shorter - 'DrvImg' and
-    ja .ind                     ; 'DrvBuf' have it to spare
-    mov byte [di], ' '
-    inc di
-    dec cx
-.ind:
     push si
     cmp al, TMX_KERN            ; the kernel's: on kern_mega every MODULE is
     jne .nk                     ; one of these, named by its file (14.70.3)
@@ -7041,8 +7050,10 @@ tm_barfill:
 ; -----------------------------------------------------------------------------
 ; tm_order - the performance view's row order: built-ins first, then packages,
 ;            then the free slots (SPEC.md 28)
-; in:  the tm_ist/tm_iknd snapshot
-; out: tm_ord[0..INST_MAX-1] = instance indices, grouped
+; in:  the tm_ist/tm_iknd snapshot; [tm_hmarow]
+; out: tm_ord[0..INST_MAX-1] = instance indices, grouped - and with
+;      [tm_hmarow] set, TM_ORDHMA after the built-ins, so System HMA's row
+;      closes System's (SPEC.md 28.4.14) and tm_ord holds INST_MAX + 1
 ; clobbers: nothing (flags)
 ;
 ; This is the one place the Task Manager stops mirroring the instance table
@@ -7082,6 +7093,10 @@ tm_order:
     inc si
     cmp si, INST_MAX
     jb .scan
+%ifdef TMF_MEM
+    jcxz .hma                   ; the built-ins are in: System's last row
+.npass:
+%endif
     inc cx
     cmp cx, 3
     jb .pass
@@ -7090,6 +7105,14 @@ tm_order:
     pop bx
     pop ax
     ret
+%ifdef TMF_MEM
+.hma:
+    cmp byte [tm_hmarow], 0
+    je .npass
+    mov byte [tm_ord+bx], TM_ORDHMA
+    inc bx
+    jmp short .npass
+%endif
 
 ; -----------------------------------------------------------------------------
 ; tm_rows - the TM_ROWS process rows: white-fill each band, build the 20-char
@@ -7111,6 +7134,16 @@ tm_rows:
     push si
     push di
 
+%ifdef TMF_MEM
+    xor al, al                  ; System HMA's row: when the system holds RAM
+    cmp word [tm_hifix], 0      ; above 1MB, and the screen has room for it
+    je .hmset                   ; (tm_pshort: a short one folds it into
+    call tm_pshort              ; System with IVT+BIOS, SPEC.md 28.4.14)
+    cmc
+    adc al, 0
+.hmset:
+    mov [tm_hmarow], al
+%endif
     call tm_order               ; group the rows before laying any of them out
     xor si, si                  ; SI = row index
 .row:
@@ -7157,11 +7190,24 @@ tm_rows:
     call tm_sysk                ; the kernel, whole KB, rounded DOWN - the row
                                 ; above carries its tail (SPEC.md 28.4.7), so
                                 ; the rows still sum to the RAM line's used
+%ifdef TMF_MEM
+    call tm_hisysk              ; + what it holds above 1MB (SPEC.md 28.4.8)
+    call tm_pshort              ; ...and when there is no such row, System
+    jnc .nofold                 ; carries IVT+BIOS itself
+    add ax, [tm_lowkb]
+    jmp short .sysmem
+.nofold:
+    cmp byte [tm_hmarow], 0     ; ...and the span under the pool is System
+    je .sysmem                  ; HMA's when that has a row (28.4.14)
+    sub ax, [tm_hifix]
+.sysmem:
+%else
     call tm_pshort              ; ...and when there is no such row, System
     jnc .nofold                 ; carries IVT+BIOS itself
     add ax, [tm_lowkb]
 .nofold:
-    call tm_hisysk              ; + what it holds above 1MB (SPEC.md 28.4.8)
+    call tm_hisysk              ; (a ret here: no memory view)
+%endif
     add ax, [tm_kb+SK_KCLAIM]   ; + the kernel's OWN heap claims (SPEC.md
                                 ; 42.2): the save-under and the clipboard.
                                 ; A package's claim belongs to its own row.
@@ -7171,10 +7217,21 @@ tm_rows:
 .inst:
     dec bx                      ; logical row - 2: IVT+BIOS and System are
     dec bx                      ; above the first instance
-    mov bl, [tm_ord+bx]         ; BX = the instance this ROW shows, held to
-    xor bh, bh                  ; the end; [tm_rowi] is the same thing for the
-    mov [tm_rowi], bl           ; stretches where BX is needed for something
-    cmp byte [tm_ist+bx], 0
+%ifdef TMF_MEM
+    mov al, [tm_hmarow]         ; tm_ord's entries: every slot, and System
+    cbw                         ; HMA's when it has a row
+    add ax, INST_MAX
+    cmp bx, ax
+    jae .rdone                  ; past the last: the rows a fold gave up
+    mov bl, [tm_ord+bx]
+    cmp bl, TM_ORDHMA
+    je .hma
+%else
+    mov bl, [tm_ord+bx]
+%endif
+    xor bh, bh                  ; BX = the instance this ROW shows, held to
+    mov [tm_rowi], bl           ; the end; [tm_rowi] is the same thing for the
+    cmp byte [tm_ist+bx], 0     ; stretches where BX is needed for something
     je .free
 
     push si                     ; name: the I_NAME snapshot, 7 chars
@@ -7230,6 +7287,20 @@ tm_rows:
     mov si, tm_s_freerow
     call tm_copy
     pop si
+%ifdef TMF_MEM
+    jmp short .draw
+
+.hma:                           ; System HMA: no state, no CPU, the KB the
+    push si                     ; system keeps between 1MB and the pool
+    call tm_hmanam              ; (SPEC.md 28.4.14)
+    xor al, al                  ; at System's own column, closing its rows
+    call tm_namef
+    mov si, tm_s_nost
+    call tm_copy
+    pop si
+    mov ax, [tm_hifix]
+    call tm_memcol_kb
+%endif
 
 .draw:
     mov byte [di], 0
@@ -7251,8 +7322,10 @@ tm_rows:
 
 ; -----------------------------------------------------------------------------
 ; tm_pshort - can this screen NOT show every process row? (SPEC.md 28.4.7)
-; out: CF = 1 when column 0 and the later columns hold fewer than TM_PROWS -
-;      a CGA, where the list fitted exactly before IVT+BIOS joined it
+; out: CF = 1 when column 0 and the later columns hold fewer than the rows -
+;      a CGA, where the list fitted exactly before IVT+BIOS joined it. The
+;      rows are TM_PROWS less System HMA's when the system has none above
+;      1MB, and a short screen loses that row with IVT+BIOS (28.4.14)
 ; clobbers: nothing else
 ; -----------------------------------------------------------------------------
 tm_pshort:
@@ -7262,10 +7335,28 @@ tm_pshort:
     dec ax
     mul word [tm_col2rows]
     add ax, [tm_pcolrows]
-    cmp ax, TM_PROWS            ; CF = capacity < TM_PROWS
+%ifdef TMF_MEM
+    cmp word [tm_hifix], 0
+    jne .all
+    inc ax                      ; no System HMA: one row fewer to hold
+.all:
+%endif
+    cmp ax, TM_PROWS            ; CF = capacity < the rows
     pop dx
     pop ax
     ret
+
+%ifdef TMF_MEM
+; tm_hmanam - SI = System HMA's name: kern_big's span IS the HMA, and
+; kern_mega's is more than that (SPEC.md 28.4.14). Keeps everything else
+tm_hmanam:
+    mov si, tm_s_shma
+    cmp byte [tm_pm], 0
+    je .o
+    mov si, tm_s_shi
+.o:
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; tm_sysk - the System row's kernel figure: whole KB, rounded DOWN (SPEC.md
@@ -7969,8 +8060,13 @@ tm_vdock    equ tm_vw + 2  ; top row (osapi_video, SPEC.md 39.2), banked
                                 ; derived from them
 tm_cx       equ tm_vdock + 2  ; cached content origin (draw paths only,
 tm_cy       equ tm_cx + 2  ; always under the gfx lock)
-tm_ord      equ tm_cy + 2  ; tm_order: display row - 1 -> instance slot
+tm_ord      equ tm_cy + 2  ; tm_order: display row - 2 -> instance slot,
+%ifdef TMF_MEM                  ; or TM_ORDHMA for System HMA's row
+tm_hmarow   equ tm_ord + INST_MAX + 1   ; byte: 1 = that row is drawn
+tm_rowi     equ tm_hmarow + 1  ; ...the one tm_rows is drawing right now
+%else
 tm_rowi     equ tm_ord + INST_MAX  ; ...the one tm_rows is drawing right now
+%endif
 tm_rowy     equ tm_rowi + 1  ; tm_rows/tm_rows_mem scratch: current row y
 tm_ylim     equ tm_rowy + 2  ; ...and the lowest row top the frame holds
                                 ; (tm_view_begin): the row lists are fixed-pitch

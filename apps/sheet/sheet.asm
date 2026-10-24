@@ -892,12 +892,15 @@ SH_M_NONE    equ 0xFF
 ; directly - and SPEC.md 66.1 is the record of a design that failed on exactly
 ; that, "the pair that killed the word-poke design".
 ;
-; SH_STGSEG IS NOT IN THE TABLE AND IS NOT DECLARED. It is the ES:BX of every
-; one of this package's seven OSAPI_FILE_READ/WRITE calls (SPEC.md 66.9 reason
-; 4), and a file call claims, so a compaction inside one would move the buffer
-; out from under a transfer the kernel has already been given the address of.
-; SPEC.md 66.5.7.1's pin/unpin pair is what it would take; 67KB of the 99 move
-; without it.
+; SH_STGSEG IS IN THE TABLE SINCE NO-PINNING 1, and was the last of the six.
+; It is the ES:BX of every one of this package's OSAPI_FILE_READ/WRITE calls
+; (SPEC.md 66.9 reason 4), and a file call claims, so a compaction inside one
+; would move the buffer out from under a transfer the kernel has already been
+; given the address of. So it is pinned for exactly those calls and no longer:
+; sh_k_file_read/sh_k_file_write are the only doors to them and sh_stgpin's
+; pair brackets each (SPEC.md 66.5.7.1). Every other use holds its segment in
+; a register across no call that can claim (the CLIP_PUT is the kernel's to
+; pin, 66.3 rule 5), and os88chart.inc's borrowed copies are in this table.
 ;
 ; Everything else in this package is an OFFSET into one of these segments -
 ; a cell record, a formula's text, a note - so nothing else needs fixing.
@@ -928,10 +931,10 @@ sh_reloc:
     pop cx
     ret
 
-; The words that name a movable claim: cellseg, txtseg, bordseg, chartseg and
-; undoseg are the claims themselves, and ch_srcseg, ch_stgseg and ch_srcseg2
-; are os88chart.inc's borrowed copies, taken inside ch_bars_draw/ch_bmp_write
-; and dead between calls - they cost two bytes each and they close the one
+; The words that name a movable claim: cellseg, txtseg, bordseg, chartseg,
+; undoseg and stgseg are the claims themselves, and ch_srcseg, ch_stgseg and
+; ch_srcseg2 are os88chart.inc's borrowed copies (of chartseg and stgseg),
+; taken inside ch_bars_draw/ch_bmp_write and dead between calls - they cost two bytes each and they close the one
 ; window where a chart export could be holding a stale segment across the
 ; OSAPI_FILE_WRITE in the middle of it. The note table's segment is NOT here:
 ; it is derived from bordseg's carve, which sh_reloc recomputes after its
@@ -942,7 +945,8 @@ sh_segw:
     dw sh_chartseg
     dw ch_srcseg, ch_stgseg, ch_srcseg2
     dw sh_undoseg
-SH_NSEGW equ 8
+    dw sh_stgseg
+SH_NSEGW equ 9
 
 ; =============================================================================
 ; sh_entry - package entry point (SPEC.md 20.2). Claims run here, and only
@@ -975,6 +979,16 @@ SH_NSEGW equ 8
 ; -----------------------------------------------------------------------------
 %macro SHOUT 1
     call far [sh_v_%1]
+%endmacro
+; CHX - the body of each shim a vector names: a near call to
+; apps/os88chartovl.inc's ch_xthunk, and the routine's offset after it. The
+; thunk calls the routine and rebuilds the far return from the CALLING
+; MODULE's segment as it is now, so a module that moved under the routine
+; is returned into where it went (82.16.11). Defined here, above the shims;
+; the include defines it only for an includer that has not
+%macro CHX 1
+    call ch_xthunk
+    dw %1
 %endmacro
 ; 81.111: the button gesture's macros - the doors and the record of six dialog
 ; engines, which sh_btfix attaches from each engine's own open routine
@@ -1017,13 +1031,29 @@ sh_%1_btrects: times 4 * %2 dw 0
     OS88UI_BTNREC sh_%1_btrec, sh_%1_btrects, %3, %4, %2, sh_%1_place
 sh_%1_btrects: times 4 * %2 dw 0
 %endmacro
-; CHOUT - MACRO.OVL's calls into CHART.OVL (81.94): a verb, through the far
-; pointer the resident half already keeps. BP carries it, as ch_ovcall's does
+; CHOUT - MACRO.OVL's calls into CHART.OVL (81.94): a verb, BP carrying it as
+; ch_ovcall's does. THROUGH ch_ovcall, by a vector like any other call out,
+; and not `call far [ch_ovfar]` straight across (82.16.11): that left
+; MACRO.OVL's own CS on the stack for CHART.OVL's retf, and either module may
+; move while the other runs. Routed, the stack holds a tag for MACRO.OVL and
+; the REGION's CS for CHART.OVL - the region is pinned while a callback stands
 %macro CHOUT 1
     push bp
     mov bp, %1
-    call far [ch_ovfar]
+    SHOUT ch_ovcall
     pop bp
+%endmacro
+; SHK - a MODULE's call to a kernel slot that can CLAIM, and so compact: a
+; window created, shown or destroyed (raise caches, SPEC.md 11.96), any file
+; call (the sector cache, the FAT window, a mount). A direct `call OSAPI_*`
+; from module code leaves the module's CS for the kernel's retf; this goes
+; out through a vector and a resident stub (sh_k_*), so ch_xthunk holds a tag
+; instead (82.16.11). The slots a module calls DIRECTLY are the ones that
+; cannot reach mem_claim: drawing, the font, the colour, WM_CONTENT, VIDEO,
+; KEY_DOWN, WM_KEEPH, WM_ONWHEEL and MEM_AVAIL (which plans and moves
+; nothing). One byte SHORTER a site than the far call it replaces
+%macro SHK 1
+    SHOUT k_%1
 %endmacro
 SHM2_PMACRO  equ 0                  ; MACRO.OVL's verbs: the macro functions,
 SHM2_MRESUME equ 1                  ; and a run starting or carrying on
@@ -1940,6 +1970,8 @@ sh_m2need:
     jne .noread
     mov word [sh_m2far], 0              ; the dispatcher is at the claim's 0
     mov [sh_m2far + 2], dx
+    mov ax, sh_m2reloc                  ; READ AND CHECKED: now it may move
+    call OSAPI_MEM_MOVABLE              ; (82.16.11, ch_ovneed's rule)
     call ch_ovback
     pop es
     pop si
@@ -1967,6 +1999,18 @@ sh_m2need:
     ret
 sh_m2name: db 'MACRO.OVL', 0
 SH_M2STAMP equ sh_modm_stamp - sh_modm0   ; the stamp's offset in the claim
+
+; -----------------------------------------------------------------------------
+; sh_rgnreloc - THE REGION MOVED (SPEC.md 66.6.1, NO-PINNING P1). BX = where it
+; was, DX = where it is; DS = CS = the new one. Every word the kernel holds for
+; it the kernel has already put right; what is ours is the CS stamped into the
+; two vector tables the modules far-call back through, so both binds run again.
+; Nothing else holds this segment between callbacks (the region is pinned
+; while one stands - SHEET has no worker).
+; -----------------------------------------------------------------------------
+sh_rgnreloc:
+    call sh_ovbind
+    jmp ch_ovbind
 
 ; -----------------------------------------------------------------------------
 ; sh_ovbind - fill the vector table: this package's shim offsets and its own
@@ -1998,469 +2042,448 @@ sh_ovbind:
     pop ax
     ret
 
-; Each shim is a near call to the real routine and then the FAR return the
-; module's `call far` is waiting for. Registers and flags pass through both
+; Each shim is CHX: apps/os88chartovl.inc's ch_xthunk calls the real routine
+; and then makes the FAR return the module's `call far` is waiting for -
+; through that module's segment AS IT IS NOW, because the module may have
+; moved under the routine (82.16.11). Registers and flags pass through both
 ; ways untouched, so every routine keeps its own contract.
 
 sh_x_sh_itoa:
-    call sh_itoa
-    retf
+    CHX sh_itoa
 sh_x_sh_unpackrow:
-    call sh_unpackrow
-    retf
+    CHX sh_unpackrow
 sh_x_sh_pint:
-    call sh_pint
-    retf
+    CHX sh_pint
 sh_x_sh_setvald:
-    call sh_setvald
-    retf
+    CHX sh_setvald
 sh_x_sh_rw_emit:
-    call sh_rw_emit
-    retf
+    CHX sh_rw_emit
 sh_x_sh_settext:
-    call sh_settext
-    retf
+    CHX sh_settext
 sh_x_sh_findcell:
-    call sh_findcell
-    retf
+    CHX sh_findcell
 sh_x_sh_acc_store:
-    call sh_acc_store
-    retf
+    CHX sh_acc_store
 sh_x_sh_cellval_to_acc_si:
-    call sh_cellval_to_acc_si
-    retf
+    CHX sh_cellval_to_acc_si
 sh_x_sh_nameends:
-    call sh_nameends
-    retf
+    CHX sh_nameends
 sh_x_sh_acc_load_a:
-    call sh_acc_load_a
-    retf
+    CHX sh_acc_load_a
 sh_x_sh_name_def:
-    call sh_name_def
-    retf
+    CHX sh_name_def
 sh_x_sh_acc_int:
-    call sh_acc_int
-    retf
+    CHX sh_acc_int
 sh_x_sh_identcol:
-    call sh_identcol
-    retf
+    CHX sh_identcol
 sh_x_sh_setformula:
-    call sh_setformula
-    retf
+    CHX sh_setformula
 sh_x_sh_errname:
-    call sh_errname
-    retf
+    CHX sh_errname
 sh_x_sh_streq:
-    call sh_streq
-    retf
+    CHX sh_streq
 sh_x_sh_isletter_at:
-    call sh_isletter_at
-    retf
+    CHX sh_isletter_at
 sh_x_sh_psheetpfx:
-    call sh_psheetpfx
-    retf
+    CHX sh_psheetpfx
 sh_x_sh_getcell2:
-    call sh_getcell2
-    retf
+    CHX sh_getcell2
 sh_x_sh_funcid:
-    call sh_funcid
-    retf
+    CHX sh_funcid
 sh_x_sh_colname:
-    call sh_colname
-    retf
+    CHX sh_colname
 sh_x_sh_strcpy_to_di:
-    call sh_strcpy_to_di
-    retf
+    CHX sh_strcpy_to_di
 sh_x_fp_unpack_a:
-    call fp_unpack_a
-    retf
+    CHX fp_unpack_a
 sh_x_fp_cmpab:
-    call fp_cmpab
-    retf
+    CHX fp_cmpab
 sh_x_fp_unpack_b:
-    call fp_unpack_b
-    retf
+    CHX fp_unpack_b
 sh_x_fp_atof:
-    call fp_atof
-    retf
+    CHX fp_atof
 sh_x_fp_i2a:
-    call fp_i2a
-    retf
+    CHX fp_i2a
 sh_x_fp_a2i:
-    call fp_a2i
-    retf
+    CHX fp_a2i
 sh_x_fp_ftoa:
-    call fp_ftoa
-    retf
+    CHX fp_ftoa
 sh_x_fp_div:
-    call fp_div
-    retf
+    CHX fp_div
 sh_x_fp_i2b:
-    call fp_i2b
-    retf
+    CHX fp_i2b
 sh_x_fp_norm:
-    call fp_norm
-    retf
+    CHX fp_norm
 sh_x_sh_bios_ymd:
-    call sh_bios_ymd
-    retf
+    CHX sh_bios_ymd
 sh_x_sh_bt_get:
-    call sh_bt_get
-    retf
+    CHX sh_bt_get
 sh_x_sh_bt_addcell:
-    call sh_bt_addcell
-    retf
+    CHX sh_bt_addcell
 sh_x_fp_a_to_b:
-    call fp_a_to_b
-    retf
+    CHX fp_a_to_b
 sh_x_fp_add:
-    call fp_add
-    retf
+    CHX fp_add
 sh_x_fp_azero:
-    call fp_azero
-    retf
+    CHX fp_azero
 sh_x_fp_iszero:
-    call fp_iszero
-    retf
+    CHX fp_iszero
 sh_x_fp_ln:
-    call fp_ln
-    retf
+    CHX fp_ln
 sh_x_fp_mul:
-    call fp_mul
-    retf
+    CHX fp_mul
 sh_x_fp_pack_a:
-    call fp_pack_a
-    retf
+    CHX fp_pack_a
 sh_x_fp_pow:
-    call fp_pow
-    retf
+    CHX fp_pow
 sh_x_fp_sub:
-    call fp_sub
-    retf
+    CHX fp_sub
 sh_x_sh_pargref:
-    call sh_pargref
-    retf
+    CHX sh_pargref
 sh_x_sh_pcmp:
-    call sh_pcmp
-    retf
+    CHX sh_pcmp
 sh_x_sh_skipargs:
-    call sh_skipargs
-    retf
+    CHX sh_skipargs
 sh_x_sh_trcopy:
-    call sh_trcopy
-    retf
+    CHX sh_trcopy
 sh_x_sh_setbool:                        ; 81.51's logical value, for the
-    call sh_setbool                     ; readers and writers in the module
-    retf
+    CHX sh_setbool                      ; readers and writers in the module
 sh_x_sh_setlabel:
-    call sh_setlabel
-    retf
+    CHX sh_setlabel
 sh_x_sh_boolname:
-    call sh_boolname
-    retf
+    CHX sh_boolname
 sh_x_sh_bt_getw:                        ; 81.55: the writer's number formats
-    call sh_bt_getw
-    retf
+    CHX sh_bt_getw
 sh_x_sh_colwidth:                       ; 81.56: column widths, for the
-    call sh_colwidth                    ; readers and writers
-    retf
+    CHX sh_colwidth                     ; readers and writers
 sh_x_sh_colw_set:
-    call sh_colw_set
-    retf
+    CHX sh_colw_set
 sh_x_sh_colw_clear:
-    call sh_colw_clear
-    retf
+    CHX sh_colw_clear
 sh_x_sh_rowh_set:                       ; 81.60: row heights, for the reader
-    call sh_rowh_set
-    retf
+    CHX sh_rowh_set
 sh_x_sh_seterr:                         ; 81.61: resident, for Fill
-    call sh_seterr
-    retf
+    CHX sh_seterr
 ; 81.63: the macro engine's hands on the package
 sh_x_sh_commit:
-    call sh_commit
-    retf
+    CHX sh_commit
 sh_x_sh_drawstatus:
-    call sh_drawstatus
-    retf
+    CHX sh_drawstatus
 sh_x_sh_macro_alertup:
-    call sh_macro_alertup
-    retf
+    CHX sh_macro_alertup
 sh_x_sh_macro_beep:
-    call sh_macro_beep
-    retf
+    CHX sh_macro_beep
 sh_x_sh_macro_clear:
-    call sh_macro_clear
-    retf
+    CHX sh_macro_clear
 sh_x_sh_macro_cmd:
-    call sh_macro_cmd
-    retf
+    CHX sh_macro_cmd
 sh_x_sh_macro_inputup:
-    call sh_macro_inputup
-    retf
+    CHX sh_macro_inputup
 sh_x_sh_name_lookup:
-    call sh_name_lookup
-    retf
+    CHX sh_name_lookup
 sh_x_sh_recalc_all:
-    call sh_recalc_all
-    retf
+    CHX sh_recalc_all
 sh_x_sh_repaint:
-    call sh_repaint
-    retf
+    CHX sh_repaint
 sh_x_sh_scrollto:
-    call sh_scrollto
-    retf
+    CHX sh_scrollto
 sh_x_sh_str_want:
-    call sh_str_want
-    retf
+    CHX sh_str_want
 sh_x_sh_undo_drop:
-    call sh_undo_drop
-    retf
+    CHX sh_undo_drop
 ; 81.62: the text, transcendental and information families went to the
 ; module, and these are the resident routines they call
 sh_x_fp_atan:
-    call fp_atan
-    retf
+    CHX fp_atan
 sh_x_fp_cos:
-    call fp_cos
-    retf
+    CHX fp_cos
 sh_x_fp_exp:
-    call fp_exp
-    retf
+    CHX fp_exp
 sh_x_fp_sin:
-    call fp_sin
-    retf
+    CHX fp_sin
 sh_x_fp_sqrt:
-    call fp_sqrt
-    retf
+    CHX fp_sqrt
 sh_x_fp_tan:
-    call fp_tan
-    retf
+    CHX fp_tan
 sh_x_sh_acc_toint:
-    call sh_acc_toint
-    retf
+    CHX sh_acc_toint
 sh_x_sh_binop_ld:
-    call sh_binop_ld
-    retf
+    CHX sh_binop_ld
 sh_x_sh_fmtcode:
-    call sh_fmtcode
-    retf
+    CHX sh_fmtcode
 sh_x_sh_group3:
-    call sh_group3
-    retf
+    CHX sh_group3
 sh_x_sh_ins_at:
-    call sh_ins_at
-    retf
+    CHX sh_ins_at
 sh_x_sh_matchat:
-    call sh_matchat
-    retf
+    CHX sh_matchat
 sh_x_sh_numdp:
-    call sh_numdp
-    retf
+    CHX sh_numdp
 sh_x_sh_parg:
-    call sh_parg
-    retf
+    CHX sh_parg
 sh_x_sh_pcellref:
-    call sh_pcellref
-    retf
+    CHX sh_pcellref
 sh_x_sh_pstrarg:
-    call sh_pstrarg
-    retf
+    CHX sh_pstrarg
 sh_x_sh_spop:
-    call sh_spop
-    retf
+    CHX sh_spop
 sh_x_sh_spush:
-    call sh_spush
-    retf
+    CHX sh_spush
 sh_x_sh_srestore:
-    call sh_srestore
-    retf
+    CHX sh_srestore
 sh_x_sh_sslot:
-    call sh_sslot
-    retf
+    CHX sh_sslot
 sh_x_sh_str_cat:
-    call sh_str_cat
-    retf
+    CHX sh_str_cat
 sh_x_sh_strcpy:
-    call sh_strcpy
-    retf
+    CHX sh_strcpy
 sh_x_sh_strlen:
-    call sh_strlen
-    retf
+    CHX sh_strlen
 sh_x_sh_foldvalue:                     ; 81.65
-    call sh_foldvalue
-    retf
+    CHX sh_foldvalue
 sh_x_sh_funcfinish:
-    call sh_funcfinish
-    retf
+    CHX sh_funcfinish
 sh_x_sh_cell_totext:                ; 81.71: Data ▸ Delete/Extract move whole
-    call sh_cell_totext             ; RECORDS, and totext+commit is how this
-    retf                            ; app already moves one (Sort's own carry,
+    CHX sh_cell_totext              ; RECORDS, and totext+commit is how this
+                                    ; app already moves one (Sort's own carry,
 sh_x_sh_clearcell:                  ; and the block clipboard, 81.18)
-    call sh_clearcell
-    retf
+    CHX sh_clearcell
 sh_x_sh_formula_copyshift:          ; ...and a moved formula's own references
-    call sh_formula_copyshift       ; follow it, Sort's own rule (81.61)
-    retf
+    CHX sh_formula_copyshift        ; follow it, Sort's own rule (81.61)
 sh_x_os88line_set:                  ; 81.71.5: the widgets Data ▸ Form draws
 
-    call os88line_set
-    retf
+    CHX os88line_set
 sh_x_os88line_draw:
-    call os88line_draw
-    retf
+    CHX os88line_draw
 sh_x_os88line_key:
-    call os88line_key
-    retf
+    CHX os88line_key
 sh_x_os88line_click:
-    call os88line_click
-    retf
+    CHX os88line_click
 sh_x_os88ui_btn:
-    call os88ui_btn
-    retf
+    CHX os88ui_btn
 sh_x_os88ui_ask:
-    call os88ui_ask
-    retf
+    CHX os88ui_ask
 sh_x_os88ui_glyph:                  ; 81.71.5.1: the Border dialog's radios
-    call os88ui_glyph               ; and check boxes, and the sparse border
-    retf                            ; table it is the only writer of
+    CHX os88ui_glyph                ; and check boxes, and the sparse border
+                                    ; table it is the only writer of
 sh_x_os88ui_sbar:                   ; 81.71.6: the list dialog's scroll bar,
-    call os88ui_sbar                ; the number-format table it shows and
-    retf                            ; the two edit-mode entry points it uses
+    CHX os88ui_sbar                 ; the number-format table it shows and
+                                    ; the two edit-mode entry points it uses
 sh_x_os88ui_sbhit:
-    call os88ui_sbhit
-    retf
+    CHX os88ui_sbhit
 sh_x_sh_cell_nfid:
-    call sh_cell_nfid
-    retf
+    CHX sh_cell_nfid
 sh_x_sh_editstart:
-    call sh_editstart
-    retf
+    CHX sh_editstart
 sh_x_sh_flkey:
-    call sh_flkey
-    retf
+    CHX sh_flkey
 sh_x_sh_name_list:
-    call sh_name_list
-    retf
+    CHX sh_name_list
 sh_x_sh_nf_apply:
-    call sh_nf_apply
-    retf
+    CHX sh_nf_apply
 sh_x_sh_acc_toudw:                  ; 81.72: Data ▸ Series' calendar arms -
-    call sh_acc_toudw               ; fp_a2i is signed and a date serial is
-    retf                            ; not, which sh_acc_toudw's header is about
+    CHX sh_acc_toudw                ; fp_a2i is signed and a date serial is
+                                    ; not, which sh_acc_toudw's header is about
 sh_x_sh_ser_to_ymd:
-    call sh_ser_to_ymd
-    retf
+    CHX sh_ser_to_ymd
 sh_x_sh_ymd_to_ser:
-    call sh_ymd_to_ser
-    retf
+    CHX sh_ymd_to_ser
 ; 81.74.2: everything the two remaining dialog engines reach back for, now
 ; that they are in the module too
 sh_x_sh_chart_paint:
-    call sh_chart_paint
-    retf
+    CHX sh_chart_paint
 sh_x_sh_chart_render:
-    call sh_chart_render
-    retf
+    CHX sh_chart_render
 sh_x_sh_dlg:
-    call sh_dlg
-    retf
+    CHX sh_dlg
 sh_x_sh_docmd_paste:
-    call sh_docmd_paste
-    retf
+    CHX sh_docmd_paste
 sh_x_sh_geom:
-    call sh_geom
-    retf
+    CHX sh_geom
 sh_x_sh_new:
-    call sh_new
-    retf
+    CHX sh_new
 sh_x_sh_pnum_at:
-    call sh_pnum_at
-    retf
+    CHX sh_pnum_at
 sh_x_sh_prot_blocked:
-    call sh_prot_blocked
-    retf
+    CHX sh_prot_blocked
 sh_x_sh_ptwips:
-    call sh_ptwips
-    retf
+    CHX sh_ptwips
 sh_x_sh_rec_cmd:
-    call sh_rec_cmd
-    retf
+    CHX sh_rec_cmd
 sh_x_sh_rec_start:
-    call sh_rec_start
-    retf
+    CHX sh_rec_start
 sh_x_sh_rowcol_op:
-    call sh_rowcol_op
-    retf
+    CHX sh_rowcol_op
 sh_x_sh_rowtw:
-    call sh_rowtw
-    retf
+    CHX sh_rowtw
 sh_x_sh_select:
-    call sh_select
-    retf
+    CHX sh_select
 sh_x_sh_ser_setstep:
-    call sh_ser_setstep
-    retf
+    CHX sh_ser_setstep
 sh_x_sh_twpts:
-    call sh_twpts
-    retf
+    CHX sh_twpts
 sh_x_sh_undo_begin:
-    call sh_undo_begin
-    retf
+    CHX sh_undo_begin
 sh_x_sh_upcase_at:
-    call sh_upcase_at
-    retf
+    CHX sh_upcase_at
 sh_x_sh_docmd_dbrun:
-    call sh_docmd_dbrun
-    retf
+    CHX sh_docmd_dbrun
 sh_x_sh_undo_end:
-    call sh_undo_end
-    retf
+    CHX sh_undo_end
 sh_x_sh_idlg_after:
-    call sh_idlg_after
-    retf
+    CHX sh_idlg_after
 sh_x_sh_acc_fromudw:                ; ...and back: fp_i2a is signed, so a
-    call sh_acc_fromudw             ; serial past 32767 came out NEGATIVE
-    retf
+    CHX sh_acc_fromudw              ; serial past 32767 came out NEGATIVE
 sh_x_sh_monlen:                     ; ...and the day clamp needs the target
-    call sh_monlen                  ; month's own length
-    retf
+    CHX sh_monlen                   ; month's own length
 sh_x_sh_bt_findcell:
-    call sh_bt_findcell
-    retf
+    CHX sh_bt_findcell
 sh_x_sh_bt_removecell:
-    call sh_bt_removecell
-    retf
+    CHX sh_bt_removecell
 sh_x_sh_pnow:                       ; 81.86: WAIT's clock
-    call sh_pnow
-    retf
+    CHX sh_pnow
 sh_x_sh_macro_arm:                  ; ...and its timer
-    call sh_macro_arm
-    retf
+    CHX sh_macro_arm
 sh_x_sh_nt_get:                     ; 81.87: GET.NOTE
-    call sh_nt_get
-    retf
+    CHX sh_nt_get
 sh_x_sh_macro_mfire:                ; 81.88: a menu item, from a macro
-    call sh_macro_mfire
-    retf
+    CHX sh_macro_mfire
 sh_x_sh_note_load:                  ; 81.102: the Note dialog's open
-    call sh_note_load
-    retf
+    CHX sh_note_load
 sh_x_sh_btfix:                      ; 81.111: a dialog engine's window made
-    call sh_btfix
-    retf
+    CHX sh_btfix
 sh_x_os88ui_sbwheel:                ; 13.18: the WHEEL, for the Paste list -
-    call os88ui_sbwheel             ; os88ui.inc is resident and sh_ldlg_* is
-    retf                            ; not, so this is os88ui_sbar's own route
+    CHX os88ui_sbwheel              ; os88ui.inc is resident and sh_ldlg_* is
+                                    ; not, so this is os88ui_sbar's own route
 sh_x_sh_nt_set:                     ; 81.89: NOTE
-    call sh_nt_set
-    retf
+    CHX sh_nt_set
 sh_x_sh_mtab_calc:                  ; 81.95: the bar's titles, re-measured
-    call sh_mtab_calc
-    retf
+    CHX sh_mtab_calc
 sh_x_sh_dbx_open:                   ; 81.96: DIALOG.BOX's window
-    call sh_dbx_open
-    retf
+    CHX sh_dbx_open
+sh_x_ch_ovcall:                     ; 82.16.11: CHOUT, MACRO.OVL into
+    CHX ch_ovcall                   ; CHART.OVL through resident code
+
+; 82.16.11: THE KERNEL SLOTS A MODULE CALLS THAT CAN CLAIM (SHK), each a CHX
+; shim and a two-instruction stub - so it is ch_xthunk, not the kernel, that
+; holds the module's return. The stub is near and resident: the far call it
+; makes pushes the REGION's CS, which the kernel pins while a callback stands
+sh_x_k_wm_create:
+    CHX sh_k_wm_create
+sh_x_k_wm_show:
+    CHX sh_k_wm_show
+sh_x_k_wm_destroy:
+    CHX sh_k_wm_destroy
+sh_x_k_file_read:
+    CHX sh_k_file_read
+sh_x_k_file_write:
+    CHX sh_k_file_write
+sh_x_k_file_here:
+    CHX sh_k_file_here
+sh_x_k_file_goto_qm:
+    CHX sh_k_file_goto_qm
+sh_x_k_file_find:
+    CHX sh_k_file_find
+sh_x_k_file_delete:
+    CHX sh_k_file_delete
+sh_x_k_m2read:
+    CHX sh_k_m2read
+sh_x_k_m2write:
+    CHX sh_k_m2write
+sh_k_wm_create:
+    call OSAPI_WM_CREATE
+    ret
+sh_k_wm_show:
+    call OSAPI_WM_SHOW
+    ret
+sh_k_wm_destroy:
+    call OSAPI_WM_DESTROY
+    ret
+; sh_k_file_read / sh_k_file_write - EVERY OSAPI_FILE_READ/WRITE this package
+; makes from its own data is one of these two (the module's twelve SHK sites
+; and CH_FWRITE, the BMP export's), and the ES:BX of every one of them is
+; sh_stgseg. The kernel pins a transfer's destination only for each transfer
+; (SPEC.md 66.3 rule 5), not the directory walk between them, which claims -
+; so the staging is pinned for the call and declared again after, the
+; sh_m2pin pair below with the staging's word (SPEC.md 66.5.7.1, NO-PINNING
+; 1). One place for all thirteen, so a new file call cannot forget its pin.
+; Flags and every register preserved round the call: its CF is the verdict
+sh_k_file_read:
+    call sh_stgpin
+.go:                                    ; tests/sheetmove.py stops here: the
+    call OSAPI_FILE_READ                ; staging is PINNED for this one call
+    jmp short sh_stgunpin
+sh_k_file_write:
+    call sh_stgpin
+.go:
+    call OSAPI_FILE_WRITE
+sh_stgunpin:
+    pushf
+    push ax
+    mov ax, sh_reloc                    ; movable again
+    jmp short sh_stgmov
+sh_stgpin:
+    pushf
+    push ax
+    xor ax, ax                          ; pinned
+sh_stgmov:
+    push dx
+    mov dx, [sh_stgseg]
+    call OSAPI_MEM_MOVABLE
+    pop dx
+    pop ax
+    popf
+    ret
+sh_k_file_here:
+    call OSAPI_FILE_HERE
+    ret
+sh_k_file_goto_qm:
+    call OSAPI_FILE_GOTO_QM
+    ret
+sh_k_file_find:
+    call OSAPI_FILE_FIND
+    ret
+sh_k_file_delete:
+    call OSAPI_FILE_DELETE
+    ret
+; sh_k_m2read / sh_k_m2write - a file call whose ES:BX is MACRO.OVL'S OWN
+; CLAIM (its text-file channels, 81.91.1: `push cs / pop es`). The kernel pins
+; a transfer's destination only for each transfer (SPEC.md 66.3 rule 5), not
+; the directory walk between them, which claims - so the module is pinned for
+; the call and declared again after, Note Pad's np_dmov pair (SPEC.md
+; 66.5.7.1). Flags and every register preserved round the call: its CF is
+; the verdict
+sh_k_m2read:
+    call sh_m2pin
+    call OSAPI_FILE_READ
+    jmp short sh_m2unpin
+sh_k_m2write:
+    call sh_m2pin
+    call OSAPI_FILE_WRITE
+sh_m2unpin:
+    pushf
+    push ax
+    mov ax, sh_m2reloc                  ; movable again
+    jmp short sh_m2mov
+sh_m2pin:
+    pushf
+    push ax
+    xor ax, ax                          ; pinned
+sh_m2mov:
+    push dx
+    mov dx, [sh_m2far + 2]
+    call OSAPI_MEM_MOVABLE
+    pop dx
+    pop ax
+    popf
+    ret
+; sh_m2reloc - MACRO.OVL'S CLAIM MOVED (SPEC.md 66.3, 82.16.11). BX = where
+; it was, DX = where it is. Its run state is IN the claim ([cs:shm_*]) and
+; moves with it; its channel buffers are offsets in it; so the one word that
+; names it is the whole of it
+sh_m2reloc:
+    mov [sh_m2far + 2], dx
+    ret
 
 sh_ovshims:
     dw sh_x_sh_itoa, sh_x_sh_unpackrow, sh_x_sh_pint, sh_x_sh_setvald
@@ -2519,6 +2542,11 @@ sh_ovshims:
     dw sh_x_sh_note_load                                             ; 81.102
     dw sh_x_sh_btfix                                                 ; 81.111
     dw sh_x_os88ui_sbwheel                                           ; 13.18
+    dw sh_x_ch_ovcall, sh_x_k_wm_create, sh_x_k_wm_show              ; 82.16.11
+    dw sh_x_k_wm_destroy, sh_x_k_file_read, sh_x_k_file_write
+    dw sh_x_k_file_here, sh_x_k_file_goto_qm, sh_x_k_file_find
+    dw sh_x_k_file_delete, sh_x_k_m2read, sh_x_k_m2write
+SH_OVSHIMS_N equ ($ - sh_ovshims) / 2  ; ...asserted against SH_NVEC there
 sh_entry:
     push ax
     push dx
@@ -2556,6 +2584,9 @@ sh_entry:
     call OSAPI_MEM_CLAIM
     jc .fail
     mov [sh_stgseg], dx
+    mov ax, sh_reloc                   ; ...MOVABLE too (NO-PINNING 1): every
+    call OSAPI_MEM_MOVABLE             ; file call's ES:BX, so sh_stgpin pins
+                                       ; it round each one (sh_k_file_read)
     ; THE BORDER AND NOTE TABLES ARE ONE CLAIM, CARVED (81.94): MEM_OWNER_MAX
     ; is eight claims an owner and SHEET held eight, so MACRO.OVL's claim had
     ; nowhere to come from. The note table is the claim's second part, and
@@ -2602,23 +2633,27 @@ sh_entry:
                                         ; now: sh_reloc patches the WORD, never
                                         ; this register, and the BMP header copy
                                         ; below writes through DX as ES
-    ; THE REGION ITSELF IS NOT DECLARED MOVABLE IN THIS TREE, and that is the
-    ; one place this proc departs from upstream's (SPEC.md 66.6.1). Upstream's
-    ; case for it is that SHEET "stores its own segment nowhere", which is
-    ; true of a package with no overlay and false of this one twice over:
+    ; THE REGION IS DECLARED MOVABLE, below, where the window exists
+    ; (SPEC.md 66.6.1.1; NO-PINNING P1). It was pinned for two stated reasons
+    ; and only the first was a reason:
     ;
-    ;  - ch_ovbind stamps CS into CHART.OVL's vector table, and every SHOUT
-    ;    reaches back through a far pointer holding it. A moved image leaves
-    ;    all of them naming the old one.
-    ;  - the module makes ELEVEN file calls (every format's reader and
-    ;    writer, 82.16.9), each while this package's far return address is on
-    ;    the stack - and a file call claims, so it can compact. The module's
-    ;    retf would pop a segment the kernel has no record of.
+    ;  - ch_ovbind and sh_ovbind stamp CS into the two vector tables the
+    ;    modules reach back through (ch_v_*, sh_v_*). Both tables are in OUR
+    ;    data, so they move with the region and only their stamps go stale -
+    ;    sh_rgnreloc re-runs both binds after a move, which is the whole fix.
+    ;  - "the module makes file calls with this package's far return address
+    ;    on the stack, and a file call can compact". True, and it never
+    ;    reached the REGION: SHEET has no worker, so every module call is
+    ;    inside a callback, and mem_in_nest pins a region for exactly as long
+    ;    as a callback stands in it (SPEC.md 66.6.1). What that argument does
+    ;    bind is the MODULES' OWN claims - and those move too since 82.16.11,
+    ;    every module->resident call and claim-capable kernel slot going out
+    ;    through ch_xthunk, which leaves no module CS on the stack.
     ;
     ; The data claims above DO move: every file transfer stages through
-    ; sh_stgseg, which is pinned, and every copy of a movable segment is
-    ; either in sh_segw or dead across no compaction point. The image and
-    ; CHART.OVL are what stay put.
+    ; sh_stgseg, which is pinned for each file call and only then
+    ; (sh_k_file_read), and every copy of a movable segment is either in
+    ; sh_segw or dead across no compaction point.
     mov word [sh_chartwin], 0
     mov word [sh_chart_cnt], 0
     mov word [ch_type], CH_T_COLUMN
@@ -2648,6 +2683,9 @@ sh_entry:
     mov si, sh_tpl
     call OSAPI_WM_CREATE
     jc .fail
+    OS88_REGION_MOVABLE sh_rgnreloc   ; THE REGION MOVES (NO-PINNING P1): see
+                                      ; sh_rgnreloc for the one thing that
+                                      ; names this segment between callbacks
     push ax
     mov ax, sh_onclose                ; the close negotiator (81.118, SPEC.md
     call OSAPI_WM_ONCLOSE             ; 75.1): a changed workbook asks first
@@ -14071,7 +14109,7 @@ sh_fdlg_open:
 .placed:
     mov [sh_fdlg_tpl + WT_Y], bx
     mov si, sh_fdlg_tpl
-    call OSAPI_WM_CREATE
+    SHK wm_create
     jc .out
     mov [sh_fdlg_win], bx
     push ax                           ; a FIXED layout, taller than a CGA's
@@ -14081,7 +14119,7 @@ sh_fdlg_open:
                                       ; Hang over the dock instead (SPEC.md
                                       ; 11.93, 81.100) - 28 + 171 still fits
                                       ; the 200 rows the display has
-    call OSAPI_WM_SHOW
+    SHK wm_show
     SHOUT sh_btfix                     ; the gesture (81.111), from here
 .out:
     pop di
@@ -14856,7 +14894,7 @@ sh_fdlg_close:
     or bx, bx
     jz .out
     mov word [sh_fdlg_win], 0
-    call OSAPI_WM_DESTROY               ; NOT OSAPI_WM_CLOSE. Close means
+    SHK wm_destroy                      ; NOT OSAPI_WM_CLOSE. Close means
                                         ; "quit the instance owning this
                                         ; window" (app_close_win); a dialog
                                         ; has no owning instance, so that path
@@ -15055,14 +15093,14 @@ sh_bdlg_open:                          ; AL = SH_BK_* (81.106)
 .placed:
     mov [sh_bdlg_tpl + WT_Y], bx
     mov si, sh_bdlg_tpl
-    call OSAPI_WM_CREATE
+    SHK wm_create
     jc .out
     mov [sh_bdlg_win], bx
     push ax                           ; over the dock rather than cut on a
     mov al, 1                         ; CGA - sh_fdlg_open's reason (81.100)
     call OSAPI_WM_KEEPH
     pop ax
-    call OSAPI_WM_SHOW
+    SHK wm_show
     SHOUT sh_btfix                     ; the gesture (81.111), from here
 .out:
     pop si
@@ -15461,7 +15499,7 @@ sh_bdlg_close:
     or bx, bx
     jz .out
     mov word [sh_bdlg_win], 0
-    call OSAPI_WM_DESTROY               ; see sh_fdlg_close on why not CLOSE
+    SHK wm_destroy                      ; see sh_fdlg_close on why not CLOSE
 .out:
     pop bx
     pop ax
@@ -17228,10 +17266,10 @@ sh_idlg_open:
 .placed:
     mov [sh_idlg_tpl + WT_Y], bx
     mov si, sh_idlg_tpl
-    call OSAPI_WM_CREATE
+    SHK wm_create
     jc .out
     mov [sh_idlg_win], bx
-    call OSAPI_WM_SHOW
+    SHK wm_show
     SHOUT sh_btfix                     ; the gesture (81.111), from here
 .out:
     pop di
@@ -17778,7 +17816,7 @@ sh_idlg_close:
     or bx, bx
     jz .out
     mov word [sh_idlg_win], 0
-    call OSAPI_WM_DESTROY               ; see sh_fdlg_close on why not CLOSE
+    SHK wm_destroy                      ; see sh_fdlg_close on why not CLOSE
 .out:
     pop bx
     pop ax
@@ -18521,14 +18559,14 @@ sh_ldlg_open:
 .placed:
     mov [sh_ldlg_tpl + WT_Y], bx
     mov si, sh_ldlg_tpl
-    call OSAPI_WM_CREATE               ; the window comes back in BX, NOT SI -
+    SHK wm_create                      ; the window comes back in BX, NOT SI -
     jc .out                            ; SI is still the template - and it is
     mov [sh_ldlg_win], bx
     push ax
     mov ax, sh_ldlg_wheel_r            ; the wheel scrolls the list (13.18)
     call OSAPI_WM_ONWHEEL
     pop ax
-    call OSAPI_WM_SHOW                 ; created HIDDEN, so the show is not
+    SHK wm_show                        ; created HIDDEN, so the show is not
     SHOUT sh_btfix                     ; the gesture (81.111), from here
                                        ; optional. No WF_KEEPH: 147 rows from
                                        ; y 28 ends at 175, inside a CGA's
@@ -18972,7 +19010,7 @@ sh_ldlg_close:
     or bx, bx
     jz .out
     mov word [sh_ldlg_win], 0
-    call OSAPI_WM_DESTROY               ; see sh_fdlg_close on why not CLOSE
+    SHK wm_destroy                      ; see sh_fdlg_close on why not CLOSE
 .out:
     pop bx
     pop ax
@@ -19861,11 +19899,11 @@ sh_ndlg_open:
 .placed:
     mov [sh_ndlg_tpl + WT_Y], bx
     mov si, sh_ndlg_tpl
-    call OSAPI_WM_CREATE
+    SHK wm_create
     jc .out
     mov [sh_ndlg_win], bx
     mov byte [sh_noteopen], 1
-    call OSAPI_WM_SHOW
+    SHK wm_show
     SHOUT sh_btfix                     ; the gesture (81.111), from here
 .out:
     pop es
@@ -20102,7 +20140,7 @@ sh_ndlg_close:
     jz .out
     mov word [sh_ndlg_win], 0
     mov byte [sh_noteopen], 0
-    call OSAPI_WM_DESTROY               ; see sh_fdlg_close on why not CLOSE
+    SHK wm_destroy                      ; see sh_fdlg_close on why not CLOSE
 .out:
     pop bx
     pop ax
@@ -20505,10 +20543,10 @@ sh_docmd_form:
 .placed:
     mov [sh_df_tpl + WT_Y], bx
     mov si, sh_df_tpl
-    call OSAPI_WM_CREATE
+    SHK wm_create
     jc .out
     mov [sh_df_win], bx
-    call OSAPI_WM_SHOW
+    SHK wm_show
     SHOUT sh_btfix                     ; the gesture (81.111), from here
     jmp .out
 .nodb:
@@ -21412,7 +21450,7 @@ sh_df_close:
     or bx, bx
     jz .out
     mov word [sh_df_win], 0
-    call OSAPI_WM_DESTROY
+    SHK wm_destroy
     SHOUT sh_recalc_all                 ; a form can have rewritten any cell
     mov si, [sh_ownwin]
     SHOUT sh_repaint
@@ -22463,7 +22501,7 @@ sh_dowrite_sylk:
     mov cx, [sh_stagelen]
     xor dx, dx
     mov si, sh_name
-    call OSAPI_FILE_WRITE
+    SHK file_write
     jc .werr
     mov word [sh_msg], sh_m_saved
     cmp byte [sh_trunc], 0            ; cells dropped for room must not be
@@ -22746,7 +22784,7 @@ sh_doread_sylk:
     mov cx, SH_STAGE_MAX
     xor dx, dx
     mov si, sh_name
-    call OSAPI_FILE_READ              ; out: DX:AX = bytes read, or CF=1
+    SHK file_read                     ; out: DX:AX = bytes read, or CF=1
     jc .rerr
 
     mov word [sh_ncells], 0
@@ -23086,7 +23124,7 @@ sh_dowrite_dif:
     mov cx, [sh_stagelen]
     xor dx, dx
     mov si, sh_name
-    call OSAPI_FILE_WRITE
+    SHK file_write
     jc .werr
     mov word [sh_msg], sh_m_saved
     cmp byte [sh_trunc], 0            ; cells dropped for room must not be
@@ -23157,7 +23195,7 @@ sh_doread_dif:
     mov cx, SH_STAGE_MAX
     xor dx, dx
     mov si, sh_name
-    call OSAPI_FILE_READ               ; out: DX:AX = bytes read, or CF=1
+    SHK file_read                      ; out: DX:AX = bytes read, or CF=1
     jc .rerr
 
     mov word [sh_ncells], 0
@@ -23811,7 +23849,7 @@ sh_dowrite_biff:
     mov cx, [sh_stagelen]
     xor dx, dx
     mov si, sh_name
-    call OSAPI_FILE_WRITE
+    SHK file_write
     jc .werr
     mov word [sh_msg], sh_m_saved
     mov byte [sh_modified], 0         ; BIFF writes the WORKBOOK, so a plain
@@ -24582,7 +24620,7 @@ sh_biff_workbook:
     mov cx, [sh_stagelen]
     xor dx, dx
     mov si, sh_name
-    call OSAPI_FILE_WRITE
+    SHK file_write
     jc .err
     mov word [sh_msg], sh_m_saved
     mov byte [sh_modified], 0         ; the whole workbook went out: clean,
@@ -26232,7 +26270,7 @@ sh_doread_biff:
     mov cx, SH_STAGE_MAX
     xor dx, dx
     mov si, sh_name
-    call OSAPI_FILE_READ               ; out: AX = bytes read, or CF=1
+    SHK file_read                      ; out: AX = bytes read, or CF=1
     jc .rerr
 
     mov word [sh_ncells], 0
@@ -43613,7 +43651,7 @@ shm_mdirectory:
 .answer:
     push dx
     push bx
-    call OSAPI_FILE_HERE              ; DX = the folder, BL = the drive
+    SHK file_here                     ; DX = the folder, BL = the drive
     cmp byte [cs:shm_dirtxt], 0
     je .root
     cmp dx, [cs:shm_dirclu]
@@ -43654,7 +43692,7 @@ shm_dirwalk:
     push es
     push ds
     pop es                            ; FILE_FIND fills ES:DI - ours
-    call OSAPI_FILE_HERE
+    SHK file_here
     mov [cs:shm_dhere], dx
     mov [cs:shm_dhdrv], bl
     mov si, sh_sacc
@@ -43808,7 +43846,7 @@ shm_dgoto:
     push cx
     push si
     push di
-    call OSAPI_FILE_GOTO_QM
+    SHK file_goto_qm
     pop di
     pop si
     pop cx
@@ -43825,7 +43863,7 @@ shm_dfind:
     xor cx, cx
 .l:
     mov di, sh_clipbuf                ; OSAPI_FIND_SZ bytes, ES = DS
-    call OSAPI_FILE_FIND              ; CX = the next ordinal
+    SHK file_find                     ; CX = the next ordinal
     jc .no
     cmp word [sh_clipbuf + 14], OSAPI_FT_DIR
     jne .l
@@ -45183,7 +45221,7 @@ shm_mfdelete:
     SHOUT sh_skipargs
     push si
     mov si, sh_delname
-    call OSAPI_FILE_DELETE            ; CF=0 AX=0, else FERR_*
+    SHK file_delete                   ; CF=0 AX=0, else FERR_*
     pop si
     jc .gone
     jmp shm_mtrue
@@ -45537,7 +45575,7 @@ shm_mfopen:
     mov si, sh_delname
     mov cx, SHM_FEACH
     xor dx, dx
-    call OSAPI_FILE_READ
+    SHK m2read
     pop di
     pop es
     jc .na
@@ -45576,7 +45614,7 @@ shm_fsize0:
     xor cx, cx
 .l:
     mov di, sh_clipbuf
-    call OSAPI_FILE_FIND
+    SHK file_find
     jc .no
     cmp word [sh_clipbuf + 14], OSAPI_FT_DIR
     jae .l                            ; a folder is not a file
@@ -45654,7 +45692,7 @@ shm_fflush:
     or al, al
     jnz .nm
     mov si, sh_delname
-    call OSAPI_FILE_WRITE
+    SHK m2write
     pop di
     pop es
     jc .out
@@ -56062,7 +56100,7 @@ sh_dowrite_dbf:
     mov cx, [sh_stagelen]
     xor dx, dx
     mov si, sh_name
-    call OSAPI_FILE_WRITE
+    SHK file_write
     jc .werr
     mov word [sh_msg], sh_m_saved
     cmp byte [sh_trunc], 0
@@ -56450,7 +56488,7 @@ sh_doread_dbf:
     mov cx, SH_STAGE_MAX
     xor dx, dx
     mov si, sh_name
-    call OSAPI_FILE_READ
+    SHK file_read
     jc .rerr
     mov [sh_sepend], ax
     cmp ax, SH_DBF_HDR + 1
@@ -56829,7 +56867,7 @@ sh_dowrite_sep:
     mov cx, [sh_stagelen]
     xor dx, dx
     mov si, sh_name
-    call OSAPI_FILE_WRITE
+    SHK file_write
     jc .werr
     mov word [sh_msg], sh_m_saved
     cmp byte [sh_trunc], 0
@@ -56908,7 +56946,7 @@ sh_doread_sep:
     mov cx, SH_STAGE_MAX
     xor dx, dx
     mov si, sh_name
-    call OSAPI_FILE_READ
+    SHK file_read
     jc .rerr
     mov word [sh_ncells], 0
     mov word [sh_txtlen], 0           ; "replacing the sheet", the same three
@@ -57167,6 +57205,10 @@ section .text
 %include "os88dec.inc"
 
 %define CH_MODC_EXT sh_modc_ext     ; 82.16.8's hook, before ch_modc is emitted
+%define CH_OV2SEG sh_m2far + 2      ; 82.16.11: MACRO.OVL is ch_xthunk's
+                                    ; second module, its segment this word
+%define CH_FWRITE call far [sh_v_k_file_write]  ; ...and the BMP export's
+                                    ; write is SHK file_write (os88chart.inc)
 CH_OVSTAMP equ sh_modc_stamp - sh_modc0  ; ...and the build stamp ch_ovneed
 CH_OVLEN   equ sh_modc_end               ; checks: where it is, and the length
 %include "os88chartovl.inc"   ; the resident half of the shared
@@ -57185,7 +57227,7 @@ section .text                          ; fragment, so nothing lands after this
 ; bss (loader-zeroed, SPEC.md 21 step 5) - small now: the grid itself lives
 ; in claimed heap segments, not here.
 ; =============================================================================
-    OS88_BSS 9337                     ; +2 for sh_df_dirty, the Data Form's typed-in flag (81.71.5); +2 for sh_pstk0, the parser's stack anchor (81.3); +2 for ch_ovfail, CHART.OVL's failure latch (82.16.5); +38 for 81.118's ask-before-discard (sh_modified, sh_pend and sh_askmsg's OS88UI_AMAX+2); +4 at the 2026-10-20 merge for 13.18's sh_v_os88ui_sbwheel (the Paste list's wheel is in CHART.OVL, so it reaches the resident bar library through a shim); +9 for 81.114.10 (sh_tbl_isres, sh_tbl_idx and the 7-byte DATATABLE-written bitmap); +1 for 81.114.8's re-entrancy guard; +30 for 81.114.7 (the table list, the selection and table rectangles sh_tbl_overlap compares, and sh_prot_blocked's two bytes); +67 for 81.114 Data > Table; +8 at the 2026-10-14 merge for ch_v_dec_s16/ch_v_dec_u16, os88dec.inc being resident here now (20.5.2); 81.111: Find left the vectors, sh_btfix joined; +24 for 81.108's Reference scratch;
+    OS88_BSS 9385                     ; +48 for 82.16.11: twelve vectors, CHOUT and the SHK kernel slots; +2 for sh_df_dirty, the Data Form's typed-in flag (81.71.5); +2 for sh_pstk0, the parser's stack anchor (81.3); +2 for ch_ovfail, CHART.OVL's failure latch (82.16.5); +38 for 81.118's ask-before-discard (sh_modified, sh_pend and sh_askmsg's OS88UI_AMAX+2); +4 at the 2026-10-20 merge for 13.18's sh_v_os88ui_sbwheel (the Paste list's wheel is in CHART.OVL, so it reaches the resident bar library through a shim); +9 for 81.114.10 (sh_tbl_isres, sh_tbl_idx and the 7-byte DATATABLE-written bitmap); +1 for 81.114.8's re-entrancy guard; +30 for 81.114.7 (the table list, the selection and table rectangles sh_tbl_overlap compares, and sh_prot_blocked's two bytes); +67 for 81.114 Data > Table; +8 at the 2026-10-14 merge for ch_v_dec_s16/ch_v_dec_u16, os88dec.inc being resident here now (20.5.2); 81.111: Find left the vectors, sh_btfix joined; +24 for 81.108's Reference scratch;
                                        ; +1 for 81.107's own-RETURN byte;
                                        ; +1 for 81.106's check-box kind;
                                        ; +21 for 81.103's window caption;
@@ -58283,7 +58325,7 @@ sh_v_sh_acc_fromudw          equ sh_v_sh_idlg_after + 4
 sh_v_sh_monlen               equ sh_v_sh_acc_fromudw + 4
 sh_v_sh_bt_findcell          equ sh_v_sh_monlen + 4
 sh_v_sh_bt_removecell        equ sh_v_sh_bt_findcell + 4
-SH_NVEC       equ 151
+SH_NVEC       equ 163                  ; +12 for 82.16.11 (CHOUT, SHK)
 sh_v_sh_pnow                 equ sh_v_sh_bt_removecell + 4
 sh_v_sh_macro_arm            equ sh_v_sh_pnow + 4
 sh_v_sh_nt_get               equ sh_v_sh_macro_arm + 4
@@ -58294,7 +58336,25 @@ sh_v_sh_dbx_open             equ sh_v_sh_mtab_calc + 4
 sh_v_sh_note_load            equ sh_v_sh_dbx_open + 4
 sh_v_sh_btfix                equ sh_v_sh_note_load + 4
 sh_v_os88ui_sbwheel          equ sh_v_sh_btfix + 4
-sh_v_end      equ sh_v_os88ui_sbwheel + 4
+sh_v_ch_ovcall               equ sh_v_os88ui_sbwheel + 4  ; 82.16.11
+sh_v_k_wm_create             equ sh_v_ch_ovcall + 4
+sh_v_k_wm_show               equ sh_v_k_wm_create + 4
+sh_v_k_wm_destroy            equ sh_v_k_wm_show + 4
+sh_v_k_file_read             equ sh_v_k_wm_destroy + 4
+sh_v_k_file_write            equ sh_v_k_file_read + 4
+sh_v_k_file_here             equ sh_v_k_file_write + 4
+sh_v_k_file_goto_qm          equ sh_v_k_file_here + 4
+sh_v_k_file_find             equ sh_v_k_file_goto_qm + 4
+sh_v_k_file_delete           equ sh_v_k_file_find + 4
+sh_v_k_m2read                equ sh_v_k_file_delete + 4
+sh_v_k_m2write               equ sh_v_k_m2read + 4
+sh_v_end      equ sh_v_k_m2write + 4
+%if (sh_v_end - sh_v_first) != SH_NVEC * 4
+  %error "SH_NVEC must count the sh_v_* chain (sh_ovbind fills SH_NVEC)"
+%endif
+%if SH_OVSHIMS_N != SH_NVEC
+  %error "sh_ovshims and SH_NVEC disagree - a vector with no shim, or one past"
+%endif
 
 sh_abon           equ sh_v_end         ; byte: the About card is up (20.5.1)
                                        ; UPSTREAM added this against

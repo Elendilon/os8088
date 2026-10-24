@@ -45,7 +45,6 @@ therefore never written and is the pristine master by construction. That is
 also what lets two of these run at once - a shared VHD is one disk being
 installed onto twice.
 """
-import hashlib
 import os
 import struct
 import sys
@@ -53,6 +52,7 @@ import sys
 sys.path.insert(0, "tools")
 import os88marty as M                                      # noqa: E402
 from os88mouse import Mouse                                # noqa: E402
+import instwiz as IW                                       # noqa: E402
 import os88build                                       # noqa: E402
 
 MACHINE = "os8088_xt_hdd"
@@ -235,9 +235,6 @@ CP_IDRV = 2                        # SPEC.md 31.3
 HDP_BY, HDP_BH = 82, 16            # page.inc: the Disks page's button row
 HDP_B2X, HDP_BW2 = 74, 64          # ...Install, the middle of the three
                                    #    buttons (SPEC.md 52.4)
-HIW_BY, HIW_BH = 96, 16            # inst.inc: the installer's own button row
-HIW_B0X, HIW_BW0 = 8, 88           # ...and Install / Copy Apps, the first one
-HIW_LX, HIW_CKY, HIW_CKH = 8, 78, 12   # ...and the Erase box (SPEC.md 52.10.15)
 WIN_BORDER, WIN_TITLE = 1, 18      # a window's content origin, from its rect
 
 
@@ -254,16 +251,19 @@ def content(w):
     return w[1] + WIN_BORDER, w[2] + WIN_TITLE
 
 
-# The two halves are separate because tests/instrest.py needs to LOOK at the
-# window between them - the action button's caption is what it is about, and
-# that caption changes as the stage machine runs (SPEC.md 52.10.6.1). One copy
-# of the clicks rather than two that can drift: the coordinates are the
-# awkward part of driving this dialog and a second opinion about them is what
-# the module-constant rule above exists to prevent.
+# The two halves are separate because a row may want the wizard in hand
+# between them - tests/instcross.py reads its caption after a refusal. One
+# copy of the clicks rather than two that can drift: the coordinates are the
+# awkward part of driving the Control Panel, and the wizard's own are
+# tests/instwiz.py's.
 def open_installer(m):
     """Control Panel -> Drivers -> tick Hard Drive -> its page -> Install.
 
-    out: (mouse, ix, iy) - the installer window's CONTENT origin.
+    Install STARTS INSTALL.O88 off the boot volume (SPEC.md 52.10.4.4), so
+    this is also the gate on that button: a click that opened anything else,
+    or nothing, fails here by name.
+
+    out: the wizard (tests/instwiz.py's Wizard), on its Welcome page.
     """
     mo = Mouse(marty=m)
     mo.menu(8, 8, 8, 40)                        # chip menu -> Control Panel
@@ -291,113 +291,48 @@ def open_installer(m):
     M.ui_done(m, "the driver's own page", cap=13.5)
     known = {w[0] for w in wins(m)}
     mo.click(x0 + CP_RX + HDP_B2X + HDP_BW2 // 2, y0 + HDP_BY + HDP_BH // 2,
-             settle=0)                          # Install: a floppy read
-    # (was a fixed 90 guest s: the window is the answer, and the pass that
-    # opened it is over when the UI is)
+             settle=0)                          # Install: the wizard, read
+    # off the boot volume. The launch is POSTED (a hidden window's wake), so
+    # the new window is the answer and nothing before it is
     try:
-        M.until(m, lambda _: any(w[0] not in known for w in wins(m)),
-                "the installer window", poll=.05, limit=120)
+        M.until(m, lambda _: any(w[0] not in known and w[3] > 64
+                                 for w in wins(m)),
+                "the wizard's window", poll=.05, limit=120)
     except M.MartyError:
-        sys.exit("the installer window never opened")
-    M.ui_done(m, "the installer window's paint", cap=13.5)
-    iw = next((w for w in wins(m) if w[0] not in known), None)
-    print("  installer window = %s" % (iw,))
-    ix, iy = content(iw)
-    return mo, ix, iy
+        sys.exit("the Install button never opened the wizard")
+    M.ui_done(m, "the wizard's paint", cap=13.5)
+    iw = next(w for w in wins(m) if w[0] not in known and w[3] > 64)
+    print("  wizard window = %s" % (iw,))
+    wz = IW.Wizard(m, lambda x, y: mo.click(x, y, settle=0), iw[0], iw[1],
+                   iw[2])
+    wz.wait(IW.P["P_WELCOME"], "after the Control Panel's Install")
+    return wz
 
 
-def tick_erase(m, mo, ix, iy):
-    """Tick `Erase the partition first` (SPEC.md 52.10.15), and CHECK it took.
+def run_install(m, wz, wipe=None, expect=("P_DONE", "P_APPS")):
+    """The wizard from Welcome to the page after its log (tests/instwiz.py).
 
-    A slot with a volume on it defaults to KEEPING that volume's files, and
-    the MartyPC XT-IDE disk ships a DOS 3.3 partition - so a row that means a
-    FRESH install has to say so, or it is testing the other one.
-    """
-    mo.click(ix + HIW_LX + 6, iy + HIW_CKY + HIW_CKH // 2, settle=0)
-    M.ui_done(m, "the Erase tick", cap=9.0)
-    # It is proved AFTER the install, not here: the box lives in HDDTOOL.DRV's
-    # heap image, where no symbol reader reaches, and the disk answers the
-    # question better anyway - main() refuses a volume that still carries the
-    # DOS files the fixture partition was shipped with.
+    `wipe` True erases the slot, False keeps its files, None leaves the
+    wizard's own default - KEEP over a volume (SPEC.md 52.10.15).
 
-
-def run_install(m, mo, ix, iy):
-    """Two clicks on the action button - arm, then go - and then WAIT."""
-    bx, by = ix + HIW_B0X + HIW_BW0 // 2, iy + HIW_BY + HIW_BH // 2
-    mo.click(bx, by, settle=0)                  # Install: arms
-    idles = M.ui_done(m, "the Install button arming", cap=13.5) < 13.5
-    mo.click(bx, by, settle=0)                  # Install: goes
-
-    # THE SCREEN GOES STILL WHILE IT WORKS - the copy holds the gfx lock for
-    # its whole run - so `settle` would return five seconds in and the `with`
-    # block would kill the emulator mid-install. Watch the DISK instead: the
-    # MBR is the commit (SPEC.md 52.10.4), and the apps phase runs on past it,
-    # so the wait is "our boot code is in sector 0" and then "the drive went
-    # quiet".
-    disk = vhd(m)
-    # THIS INSTANCE'S OWN DISK, before the install - not BASE_VHD's.
-    #
-    # It used to read the shared master, on the docstring's reasoning that the
-    # master "is never written and is the pristine master by construction". It
-    # is written: any run of a commit that PREDATES per-instance isolation
-    # installs straight onto it, which a bisect or a base-side classification
-    # run does routinely. The master then carries an installed MBR, every
-    # cloned disk starts with those same bytes, and the installer writes them
-    # again - so `!= base` never becomes true and the row waits out the whole
-    # 600 seconds. Measured, and the message it ends with is right about
-    # itself: "either it is slower than the limit or the condition is asking
-    # about the wrong thing".
-    base = open(disk, "rb").read(446)
-    took = M.until(m, lambda _: open(disk, "rb").read(446) != base,
-                   "the installer to commit its MBR", limit=600.0)
-    print("  MBR committed after %.0fs" % took)
-    # THE DRIVE GOING QUIET IS `quiesce`, and on the GUEST's clock. This was
-    # eight identical 8MB reads two HOST seconds apart, which asks the box for
-    # 16 seconds of stillness and gets whatever fraction of the machine's own
-    # work a loaded box happens to give it - so under contention the apps
-    # phase's pause for a floppy read reads as the end of the install
-    # (docs/plans/SOAK-PARALLEL.md 1). Same signal, same eight readings, the
-    # interval and the budget in guest seconds: the pause it must see through
-    # is the guest's, not the host's.
-    #
-    # A DIGEST, not the 8MB: `quiesce` compares with `==` and holds the last
-    # reading, so hashing keeps two 8MB strings out of the loop for a
-    # comparison that is exactly as strong.
-    # The copy holds the gfx lock for its whole run, so the UI going idle
-    # (no disk read across its hold) is the install's end; the quiesce after
-    # it is the drive's own word, shortened from 8 x 2 guest s (16 s of
-    # proof on top of the ~40 the apps phase takes) to 3 x 1.
-    # A KNOB KERNEL CAN KEEP THE UI FROM EVER IDLING (knobhd's MOUDIAG=1), so
-    # each `ui_done` here is CAPPED at the fixed pause it replaced, and the
-    # copy's falls back to the old 8 x 2 guest s of disk-stillness proof.
-    idle = idles                # (the arming's wait said whether it can)
-    if idle:
-        try:
-            M.ui_done(m, "the installer's copy", limit=480.0)
-        except M.MartyError:
-            idle = False
-    try:
-        M.quiesce(m, lambda: hashlib.sha1(
-                      open(disk, "rb").read(8 << 20)).digest(),
-                  guest=1.0 if idle else 2.0, stable=3 if idle else 8,
-                  budget=480.0, what="the drive to go quiet")
-    except M.MartyError as e:
-        sys.exit("the disk never stopped changing - the install did not "
-                 "finish (%s)" % e)
-    print("  the drive went quiet")
+    THE WIZARD SAYS WHEN IT IS FINISHED, which the old dialog did not: the
+    rows that drove it watched the MBR change and then the drive go quiet,
+    because the screen went still for the whole copy. The Installing page's
+    [in_logend] is set when the verb has answered, so that is the wait, and
+    the page Next goes on to is the outcome - Done, or the apps-disk question
+    when no apps disk was in the machine."""
+    return wz.run(wipe=wipe, expect=expect)
 
 
 def install(m, wipe=True):
     """Drive the installer on `m`, and REFUSE a disk that is already installed.
 
-    `wipe` ticks the Erase box first, which is what every row written before
-    SPEC.md 52.10.15 meant by an install.
+    `wipe` picks Erase on the wizard's Keep or Erase page, which is what
+    every row written before SPEC.md 52.10.15 meant by an install.
 
-    The pre-flight is here because the alternative is a 600-second timeout
-    saying nothing useful: an already-installed disk gets the same MBR written
-    to it again, so the commit is invisible and the wait never ends. Naming it
-    up front turns ten minutes of nothing into one sentence with the cure in
-    it.
+    The pre-flight is here because an already-installed disk makes every
+    check after the install pass on the bytes that were already there.
+    Naming it up front is one sentence with the cure in it.
     """
     disk = vhd(m)
     try:
@@ -416,10 +351,7 @@ def install(m, wipe=True):
             "base-side classification run does routinely.\n"
             "  Restore it from its .pristine copy beside it, or delete it and "
             "re-run `make marty`." % BASE_VHD)
-    mo, ix, iy = open_installer(m)
-    if wipe:
-        tick_erase(m, mo, ix, iy)
-    run_install(m, mo, ix, iy)
+    run_install(m, open_installer(m), wipe=True if wipe else None)
 
 
 def main():

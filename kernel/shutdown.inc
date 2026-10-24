@@ -234,7 +234,11 @@ sd_button:
 .up:
     call sd_rect
     call cp_stage
+%ifdef KERN_SMALL
+    call os88ui_kbtn            ; CTRL.DRV's own (fdlg.inc, OS88UI_KBTNIMG)
+%else
     call COLD_SEG:os88ui_btn_f
+%endif
     ret
 
 sd_hit:

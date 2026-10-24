@@ -555,42 +555,8 @@ sc_rclick_x:
     stc
     retf
 
-; -----------------------------------------------------------------------------
-; vgcf_boot - Force Color at boot (SPEC.md 39.28), from drv_boot_x
-; in:  the box is ticked (drv_boot_x tests [drv_cfg+CFG_VGC]); the system
-;      volume mounted
-; out: nothing; AX clobbered (drv_boot_x reloads it on the next line), every
-;      other register preserved
-;
-; THE BOX'S TEST IS AT THE CALL SITE, which is the boot BLOB and is given
-; back once the machine is up, and AX is not banked - so what stays resident
-; is only the part that has to be reached far (kernel size pass 12: 28 -> 14
-; bytes; it was here when the call site was the full boot overlay, SPEC.md
-; 39.28).
-;
-; FAR, for the blob, and NOT sc_modcall: that one's refusal is `Needs Sys
-; Disk A:` as a toast, and there is no desktop yet to say it on. A core that
-; cannot be read here leaves the BIOS's palette as it was - the machine boots
-; grey, exactly as it would with the box clear.
-; -----------------------------------------------------------------------------
-vgcf_boot:
-    test byte [drv_cfg+CFG_VGC], 1  ; THE BOX'S TEST IS HERE AGAIN (SPEC.md
-    jz .out                     ; 120.4): seven bytes the blob could not hold
-                                ; once the packed display's class joined the
-                                ; 'VM' record - kernel size pass 12 put them
-                                ; at the call site when the blob had room, and
-                                ; the blob is the scarcer of the two now
-    mov ax, (SC_OP_VGC << 8) | MOD_SETS ; AL the module, AH the operation:
-    call mod_need               ; every register kept. Its CF is NOT TESTED:
-    call far [SETFP]            ; a core that could not be read leaves this
-    call mod_drop               ; slot on mod_gone (`stc / retf`, nothing
-.out:
-    retf                        ; done) and its row empty, which mod_drop
-                                ; passes over - so a refusal costs nothing
-                                ; here and needs no branch (kernel size pass
-                                ; 12). CPE_SC's SC_OP_VGC keeps AL: modc_e_sc
-                                ; counts AH down and cp_vgc_force banks AX, so
-                                ; AL is still MOD_SETS for the drop
+; (vgcf_boot - Force Color at boot - is drv_boot_x's own lines in the blob
+; since kernel size pass 14: the blob was its one caller, driver.inc)
 
 ; =============================================================================
 section .text

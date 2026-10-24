@@ -2227,6 +2227,11 @@ dsk_xfer:
                                 ; nothing below writes DX, and the inner
                                 ; dsk_xfer banks it (kentc_bp) - so it needs
                                 ; no cell (kernel size pass 12: it had one)
+%ifdef OS88_COMPACT
+    push word [mem_pinimg]      ; ...AND SO IT MAY NOT MOVE while we hold it
+    mov [mem_pinimg], dx        ; (NO-PINNING-PLAN K2): the claim is movable
+%endif                          ; now, and the host's transfer below can claim.
+                                ; NESTED, for DISKOPS.DRV's own pin around it
 .ipiece:                        ; a count of 0 takes one pass that moves
     push es                     ; nothing (CX = 0 below), as .sector's would
     mov es, dx
@@ -2243,6 +2248,9 @@ dsk_xfer:
                                 ; [dsk_ioerr] was the last transfer's (kernel
     pop es                      ; size pass 12, 0 bytes: the write refusal's
 .ijf:                           ; store is this one now)
+%ifdef OS88_COMPACT
+    pop word [mem_pinimg]       ; the pin back as we found it (pop writes no
+%endif                          ; flag, and .fail sets its own)
     jmp .fail
 .ihit:
     mov al, [dsk_op]            ; IMG_FLG is a mask of the int 13h functions
@@ -2278,9 +2286,15 @@ dsk_xfer:
     add bx, cx                  ; buffer, so count < 128
     or si, si
     jnz .ipiece
-    jmp short .out              ; CF = 0 off the `or`, and .success's one test
+%ifdef OS88_COMPACT
+    pop word [mem_pinimg]       ; (pop writes no flag: CF = 0 survives it)
+%endif
+    jmp .out                    ; CF = 0 off the `or`, and .success's one test
                                 ; - [dsk_bnc_si] - is 0 by the note above, so
                                 ; it is skipped rather than taken
+%ifdef OS88_COMPACT
+    nop                         ; PARITY PAD, never executed: K2's pin moved
+%endif                          ; dsk_runcap by an odd amount (t_hotpar.py)
 
 ; dsk_img_swap - disk_drive/disk_spt/disk_heads <-> the first five bytes of
 ; the image claim at DX. CF preserved - mov, xchg, push, pop, dec and jns
@@ -9344,6 +9358,34 @@ ico_reloc:
     mov [ico_seg], dx
 .out:
     ret
+%endif
+
+%ifdef OS88_IMG
+%ifdef OS88_COMPACT
+; -----------------------------------------------------------------------------
+; img_reloc - a MOUNTED IMAGE's run table moved (NO-PINNING-PLAN K2, SPEC.md
+; 18.101): every live image row naming the old base names the new one. In
+; `.text` for ico_reloc's reason above. IMG_DVSEG is the one word that names
+; the claim between operations; DISKOPS.DRV's [clo_mseg] is re-read from it at
+; the start of each, and while an operation or a transfer holds the segment
+; [mem_pinimg] keeps it still, so this is the whole of the move.
+; -----------------------------------------------------------------------------
+img_reloc:                      ; (SI is ours to spend: mem_reloc_call banks
+    mov si, dsk_vtab + IMG_DVSEG    ; every register, SPEC.md 66.3 rule 1)
+.r:                             ; THE CLASS ALONE, dsk_vol_rmv's test: a live
+    cmp byte [si+DV_CLASS-IMG_DVSEG], DRVC_IMG  ; row of any other kind never
+    jne .n                      ; carries it, and a FREE row that does names a
+    cmp [si], bx                ; freed claim - re-pointing it is harmless
+    jne .n
+    mov [si], dx
+.n:
+    add si, DV_SIZE
+    cmp si, dsk_vtab + IMG_DVSEG + DVOL_MAX*DV_SIZE
+    jb .r
+    ret
+    nop                         ; PARITY PAD, never executed: the 414 routines
+                                ; after this one keep an EVEN shift
+%endif
 %endif
 
 ico_seg:    dw 0                ; the store's claim, 0 = none (refused, or no

@@ -1261,7 +1261,11 @@ void os88_onwake(void *win)
      * that drew itself. */
     if (lem_launchpend) {
         lem_launchpend = 0;
+        ovl_cl_movable(0);          /* a KEPT level's claims, pinned for the
+                                     * launch that uses them (lemgame.c) */
         ovl_launch(win);
+        ovl_cl_movable(1);          /* ...and movable again for as long as the
+                                     * desktop holds them */
         return;
     }
 

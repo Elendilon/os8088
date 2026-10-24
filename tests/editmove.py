@@ -90,7 +90,8 @@ APPS = {
     # finds nothing on exactly the runs that worked
     "frotz":   dict(title="ZOPS", src="apps/frotz/frotz.asm",
                     incs=("apps/", "apps/frotz/"),
-                    words=["zf_sseg", "zf_stkseg"],
+                    words=["zf_sseg", "zf_stkseg", "zw_sbseg",
+                           "zi_savseg", "zi_scrseg"],
                     extra=["zf_pcseg", "zf_sdelta", "zi_undoseg",
                            "zf_err", "zf_dead", "zx_badop"],
                     img="build/zmove360.img", rows=PKG_Z),

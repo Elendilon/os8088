@@ -1450,6 +1450,19 @@ fmv_icorefs:
                                 ; apiece. It re-reads rather than skipping,
                                 ; because ico_demote cleared [ico_n] and
                                 ; SPEC.md 54.7.4's guard is a compare on it
+    cmp byte [di+FS_DIRTY], FSD_ICONS   ; ...AND THE READ MAY HAVE SHED THE
+    jne .owes                   ; STORE ITSELF (SPEC.md 25.9.5.2): asc_use's
+    mov byte [di+FS_DIRTY], 0   ; 5KB claim compacts, the compactor dissolves
+.owes:                          ; the TRIV icon store, and ico_demote marks
+                                ; every Disk window FSD_ICONS - THIS one too.
+                                ; The two passes below resolve against the
+                                ; store as it now stands, so this window's
+                                ; mark is the debt they are about to pay.
+                                ; Left standing, the next pass repaired it
+                                ; again, the claim shed the store the paint
+                                ; had re-made, and the UI task never went
+                                ; idle with 5-10KB free (tests/regwork.py).
+                                ; FSD_CACHE is stronger and is left alone
 %endif
     mov dx, [di+FS_VSEG]        ; ...and ONLY NOW, re-read (see the header)
     xor bx, bx
@@ -2301,11 +2314,10 @@ fm_s_free:    db '   Free ', 0      ; carries both figures (SPEC.md 22.7)
 %if fm_s_free - fm_s_size != 6
   %error "fm_draw_status reaches fm_s_free as the string after fm_s_size"
 %endif
-%ifdef KERN_BIG
-fm_s_root     equ drv_t_ram + 4 ; window title at the root - 'Disk', 0, the
-%else                           ; tail of the RAM disk's 'Ram Disk' (driver.inc,
-fm_s_root:    db 'Disk', 0      ; .text, a kern_big row) - kernel size pass 13
-%endif
+fm_s_root:    db 'Disk', 0      ; window title at the root. kern_big's was the
+                                ; tail of the RAM disk's resident 'Ram Disk'
+                                ; (kernel size pass 13) until pass 14 took the
+                                ; drivers' titles out of resident (driver.inc)
 fm_s_rootf:   db 'Root '        ; (the context menu's 'Root Folder' is this
 fm_s_folder:  db 'Folder', 0    ; with five bytes in front) ...and in a
                                 ; folder we arrived at from

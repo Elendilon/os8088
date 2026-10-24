@@ -1921,6 +1921,37 @@ FULL = [
         "and not fast because the owner asked for it there; host-side, "
         "0.03s measured",
         needs=()),
+    Row("pins", "full", py("tests/unit/t_pins.py"), 5.5,
+        "docs/plans/NO-PINNING-PLAN.md 4, at the owner's word ('a full tier "
+        "test to ratchet pins'): every heap-claim site in apps/, drivers/ "
+        "and kernel/ - OSAPI_MEM_CLAIM*, os88_mem_claim, the parts "
+        "standard's op_load/op_fetch, the kernel's mem_claim family - "
+        "declares itself movable or has a line in tests/pins.txt with its "
+        "bucket (M module, D device armed, C in use right now; B, S, X, N) "
+        "and a reason. Keyed by (file, the word the segment is stored to), "
+        "following DX through local branches, register copies, push/pop, "
+        "package-local claim and declaration thunks and table walks. One "
+        "way: a line whose claim now declares, or whose key no longer "
+        "claims, fails; a C line must name its call or bracket and a D line "
+        "its device. Red, all tried: dotdel's one declaration deleted, "
+        "assoc.inc's mem_movable_x deleted, cword's os88_mem_movable(.., 1) "
+        "made 0, a stale line and a vanished key added. Host-side, 4.1s "
+        "measured; FULL and not fast because the owner asked for it there",
+        needs=()),
+    Row("pinsrt", "full", py("tests/pinsrt.py", "--quiet"), 22.0,
+        "...and its RUNTIME half: the shipped 360KB pair booted on MartyPC, "
+        "Paint, TeXpad (PAPER.TEX) and the Browser (BROWSER.HTM) opened, "
+        "and every live mem_tab record at that QUIET desktop is movable, "
+        "purgeable, a kernel tag tests/pins.txt names with a bucket that can "
+        "be live there (M, B, X, N - a C or D claim still held is a call "
+        "that did not give it back, and a B claim must be top-down), a "
+        "region t_movable answers for, or a package claim its directory's "
+        "long-lived lines excuse. It sees what the source scan cannot: a "
+        "claim made by a path the scan does not follow. Red, both tried: a "
+        "Paint claim's MC_RLOC zeroed before the read (--red rloc), and a "
+        "claim retagged MEM_K_ICO_UNUSED and pinned (--red tag). 17.4s "
+        "measured",
+        needs=("marty",), serial=True),
     Row("bootsmoke", "full", py("tests/bootsmoke.py"), 20.0,
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",
@@ -1938,13 +1969,13 @@ FULL = [
         "and boots it to a desktop, so what this adds is the THREE-adapter "
         "sweep - the deep gate a kern_small change runs, at 118s",
         needs=("marty",), serial=True),
-    Row("thewire", "soak", py("tests/thewire.py"), 110.0,
+    Row("thewire", "soak", py("tests/thewire.py"), 160.0,
         "THE WIRE, end to end over a real card (SPEC.md 92.12): a host HTTP "
         "server on 8092 serves a fixture catalog packed by tools/os88wire.py "
         "out of build/hello.o88, build/mines.o88, a tier-3 WF_DISK entry and "
         "a WF_ARC one whose .WPK the test packs with --archive, and the "
         "machine fetches it because `make thewiretest`'s "
-        "SYSTEM/APPDATA/WIRE.CFG says to. Twelve assertions: the catalog is "
+        "SYSTEM/APPDATA/WIRE.CFG says to. Eighteen assertions: the catalog is "
         "understood, the host saw the request it expected, the list is the "
         "catalog, the 8088/8086 filter cuts four rows to three, the predicate "
         "greys Load Program on a WF_DISK record and NOT Add to Disk, the "
@@ -1973,13 +2004,21 @@ FULL = [
         "Program the launched window's content is captured, dragged 8px and "
         "back for a clean repaint, and the two must agree pixel for pixel, "
         "which they do not when the Wire's wake handler has drawn its "
-        "buttons into a window that is not its own. "
+        "buttons into a window that is not its own. And NO-PINNING's two "
+        "(SPEC.md 92.5.1, assertions 17-18): a compaction POSTED through "
+        "QEMU's GDB stub (tests/os88qemu.py's poke - the monitor writes no "
+        "memory) moves the catalog after a late Refresh, bytes intact and "
+        "the list counted again out of it, and moves the transfer claim "
+        "under the first archive chain, posted every half second, with the "
+        "tree read back byte-identical; red with wr_reloc a bare ret. "
         "**SOAK AND NOT FULL, and the tier's own rule is why**: this file's "
         "header lists eight emulator rows as what ten minutes buys, and what "
         "earns one is BREADTH PER SECOND. This is a boot, twenty clicks and "
         "three floppy write chains that can only fail for one package's "
-        "reasons - the definition of a soak row. It runs in 96 seconds on "
-        "an idle host and the budget is 340 for the reason every budget "
+        "reasons - the definition of a soak row. It ran in 96 seconds on "
+        "an idle host, ~160 with the posted compactions of assertions 17-18 "
+        "(measured, make thewiretest included), and the budget is 340 for "
+        "the reason every budget "
         "here is generous: a concurrent build makes an emulator row three "
         "or four times slower and a tier that failed on that would be "
         "reporting on the box. It is also QEMU's and "
@@ -2354,7 +2393,13 @@ SOAK = [
         "a ~3s transient no polling rate worth having catches; plus that the "
         "first app is STILL THERE, which is kernel/loader.inc's own opening "
         "promise and the thing a refusal that took the running app down "
-        "with it would break. MartyPC on a GLaBIOS 256KB machine, because a "
+        "with it would break. SINCE NO-PINNING C3 (WEAVE-SPEC 1.2.6) THE "
+        "SECOND REGION FITS: the first instance's claims move, the compactor "
+        "packs them, and it is the second instance's own overlay that cannot "
+        "be had - so the row accepts either shape, the loader's LD_ENOMEM "
+        "with no window or the runtime's W_ST_ERR window holding no bundle, "
+        "and says which (this machine takes the second). MartyPC on a "
+        "GLaBIOS 256KB machine, because a "
         "machine wanting IBM's ROM cannot boot in this tree; `make "
         "xt-weave-256` is the same question on 86Box and is manual evidence "
         "only (docs/TESTING.md). 90s is 46s measured over three consecutive "
@@ -2492,7 +2537,10 @@ SOAK = [
     Row("httpinstall", "soak", py("tests/httpinstall.py"), 35.0,
         "SPEC.md 62.9.17.1 and 121.3: an Install whose SOURCE is the HTTP "
         "drive, onto an IDE disk that already holds a hidden + system "
-        "KERNEL.SYS (keeping files) - the field's upgrade. The 360KB system "
+        "KERNEL.SYS (keeping files) - the field's upgrade, by starting "
+        "INSTALL.O88 OFF the HTTP drive (the wizard's source is where it "
+        "was started, 117.10.5; 52.10.4.4 took the Control Panel's window "
+        "that read the current volume instead). The 360KB system "
         "disk is served with its attributes in OS88.IDX plus a marker only "
         "the served tree has; the MBR commits, the marker arrives, and every "
         "root file is on C: with its bytes, KERNEL.SYS and the drivers hidden "
@@ -2515,7 +2563,10 @@ SOAK = [
         "window. Red with --same (the tree's release is INSTALL's own)",
         needs=("qemu", "nasm", "mtools"), serial=True, timeout=600,
         wants=("build/httpmount.img", "build/install-gate.o88",
-               "build/install-gate.map", "build/os8088.img", "build/apps.img",
+               # (install-gate.map is written by install-gate.bin's rule,
+               # which the .o88 pulls in; it has no rule of its own, so
+               # naming it here failed every soak prewarm)
+               "build/os8088.img", "build/apps.img",
                "build/httpfs.bin", "build/mbr.bin", "build/boothd.bin",
                "build/kernel.sys", "build/readme.txt")),
     Row("httpmount", "soak", py("tests/httpmount.py"), 105.0,
@@ -2667,6 +2718,269 @@ SOAK = [
         "mounted - B: is asked before A: (SPEC.md 54.4.2.2; was D A B). "
         "VERIFIED RED on the kernel before each fix.",
         needs=("marty",)),
+    Row("pkgmove-texpad", "soak",
+        py("tests/pkgmove.py", "--app", "texpad", "--first",
+           "B:/APPS/NOTEPAD.O88", "--open", "B:/MEDIA/PAPER.TEX",
+           "--word", "tp_srcseg"), 25.0,
+        "NO-PINNING A3: TeXPad's source claim MOVES. tests/pkgmove.py is the "
+        "generic gate for a package's movable claims: Note Pad opens first so "
+        "its claims become a hole under TeXPad's, a compaction is posted from "
+        "outside at the TRIVIAL rank, and every named word must follow, its "
+        "bytes survive and the window redraw the same. Measured: tp_srcseg "
+        "2300 -> 22c0, the region 9340 -> 9840; red with tp_srcreloc a bare "
+        "ret (stale word, a different picture). 19s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("pkgmove-browser", "soak",
+        py("tests/pkgmove.py", "--app", "browser", "--machine",
+           "os8088_xt_vga", "--first", "B:/APPS/NOTEPAD.O88", "--open",
+           "B:/MEDIA/BROWSER.HTM", "--word", "br_srcseg", "--word",
+           "br_docseg", "--word", "br_lseg", "--word", "br_lnkseg"), 30.0,
+        "NO-PINNING A3 (SPEC.md 71.14.1): the Browser's four page claims - "
+        "source, document, line table, link arena - MOVE, each named by one "
+        "word. A file load (no NIC needed: the worker idles at BN_IDLE and "
+        "parks at OSAPI_TASK_ALIVE). On a VGA XT because on CGA the Browser "
+        "is allowed over the dock and Note Pad's tile cannot be reached. "
+        "Measured: 3760/3f60/4f20/5120 -> 2420/2c20/3be0/3de0; red with "
+        "br_reloc a bare ret (all four stale). 25s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("pkgmove-ftpd", "soak",
+        py("tests/pkgmove.py", "--app", "ftpd", "--first",
+           "B:/APPS/NOTEPAD.O88", "--open", "B:/APPS/FTPD.O88", "--word",
+           "fd_bigseg"), 22.0,
+        "NO-PINNING A3 (SPEC.md 77.51.1): FTPD's 32KB STOR/RETR stage, "
+        "claimed by the entry proc with or without a card, MOVES. MartyPC "
+        "has no NIC, so this moves the idle server's stage; the worker and "
+        "file-call arms (fd_stgpin) are argued in 77.51.1. Measured: "
+        "fd_bigseg 2780 -> 2400; red with fd_reloc a bare ret (stale word). "
+        "17s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("pkgmove-chart", "soak",
+        py("tests/pkgmove.py", "--app", "chart",
+           "--disk", "office360.img",
+           "--first", "B:/ARTFUL.O88", "--open", "B:/CHART.O88",
+           "--word", "ct_chartseg"), 20.0,
+        "NO-PINNING A3 (SPEC.md 82.14.1): Chart's 19KB canvas MOVES "
+        "(ArtfulType opens first so its claims leave a hole under it). "
+        "Measured: ct_chartseg 24c0 -> 2380; red with ct_reloc a bare ret "
+        "(stale word, a different picture). 15s measured",
+        needs=("marty",), serial=True, wants=("build/office360.img",)),
+    Row("pkgmove-dotdel", "soak",
+        py("tests/pkgmove.py", "--app", "dotdel",
+           "--disk", "games360.img",
+           "--first", "B:/DOTDEL.O88", "--open", "B:/DOTDEL.O88",
+           "--word", "dd_bdseg", "--animated", "--hide"), 90.0,
+        "NO-PINNING A3 (SPEC.md 93.3.4.6): Dot Delirium's board picture "
+        "MOVES. A first instance's claims leave the hole; the target is "
+        "HIDDEN for the pass (--hide), because its worker draws flat out "
+        "and was measured never reaching OSAPI_TASK_ALIVE inside "
+        "INST_PARKW while it shows, and the window must keep animating "
+        "after (--animated). Measured: dd_bdseg 2640 -> 2380 and the region "
+        "9380 -> 99c0 (a restartable worker); red with dd_bdreloc a bare "
+        "ret (stale word). ~70s measured",
+        needs=("marty",), serial=True, wants=("build/games360.img",)),
+    Row("pkgmove-pixel", "soak",
+        py("tests/pkgmove.py", "--app", "pixel",
+           "--scratch", "PICS:apps/pixel/samples/BALLOONS.PNG",
+           "--disk", "pxmove.img", "--open", "B:/PICS/BALLOONS.PNG",
+           "--idle", "px_busy",
+           "--word", "px_cur+38", "--word", "op_table+32"), 30.0,
+        "NO-PINNING (SPEC.md 106.5.1): PiXEL's CODE PARTS move. A PNG opened "
+        "by its association on a scratch B: (PiXEL's pictures ride no "
+        "shipped disk), waited out by px_busy - its claims are all made "
+        "before the decode, so a quiet claim table is not a finished "
+        "picture - and the decoder part it keeps (part 2's row segment, "
+        "op_table+32) and the master (px_cur+PXR_MSEG) MOVE: 2640 -> 2380 "
+        "and 2940 -> 2680 measured. Red with op_lazymv's store taken out "
+        "(the row stale). 21s measured in a soak lane",
+        needs=("marty",), serial=True,
+        wants=("build/pixel.o88", "build/os8088-360.img")),
+    Row("pkgmove-pixelgif", "soak",
+        py("tests/pkgmove.py", "--app", "pixel", "--machine",
+           "os8088_xt_vga",
+           "--scratch", "PICS:apps/pixel/samples/BOUNCE.GIF=BOUNCE.PNG",
+           "--disk", "pxmovegif.img",
+           "--first", "B:/PICS/BOUNCE.PNG", "--tuck",
+           "--open", "B:/PICS/BOUNCE.PNG", "--idle", "px_busy",
+           "--keys", "KeyA", "--idle", "px_anjob",
+           "--word", "px_cur+38", "--word", "op_table+24",
+           "--word", "px_anseg"), 60.0,
+        "NO-PINNING (SPEC.md 106.5.1): a STOPPED animation's claim, its GIF "
+        "part and the master move. A GIF is Paint's by association, so PiXEL "
+        "is handed BOUNCE.GIF as BOUNCE.PNG (it sniffs what it reads); a "
+        "first instance of it leaves the hole, minimized (--tuck) because a "
+        "VGA PiXEL covers B:'s zone; A stops the target's animation, whose "
+        "pass then lets px_anseg go (av_wake). Measured: px_anseg 2320 -> "
+        "22e0, the part 5060 -> 2b20, the master 53e0 -> 2ea0. Red with "
+        "px_anseg out of px_mreloc (stale word). 60s measured in a soak lane",
+        needs=("marty",), serial=True,
+        wants=("build/pixel.o88", "build/os8088-360.img")),
+    Row("pkgmove-pixelanim", "soak",
+        py("tests/pkgmove.py", "--app", "pixel", "--machine",
+           "os8088_xt_vga",
+           "--scratch", "PICS:apps/pixel/samples/BOUNCE.GIF=BOUNCE.PNG",
+           "--disk", "pxmovegif1.img", "--open", "B:/PICS/BOUNCE.PNG",
+           "--idle", "px_busy", "--animated", "--busy", "px_anjob",
+           "--still", "op_table+24", "--still", "px_anseg"), 70.0,
+        "NO-PINNING (SPEC.md 106.5.1): the PIN half. An animation PLAYING - "
+        "px_anjob set, the worker parked at OSAPI_TASK_ALIVE INSIDE the GIF "
+        "part between frames - and a compaction posted: the part and the "
+        "animation claim must read PINNED and unmoved (--still) and the "
+        "window keep animating after. Red with px_pin's op_pin taken out: "
+        "the part MOVED 3320 -> 2aa0 under the parked worker, which is the "
+        "C overlay's CS-on-a-stack defect (NO-PINNING-PLAN wave 0). 66s "
+        "measured in a soak lane",
+        needs=("marty",), serial=True,
+        wants=("build/pixel.o88", "build/os8088-360.img")),
+    Row("pkgmove-deskclock", "soak",
+        py("tests/pkgmove.py", "--app", "deskclok", "--first",
+           "B:/APPS/NOTEPAD.O88", "--open", "A:/STIKAPPS/DESKCLOK.O88",
+           "--word", "dk_cseg"), 30.0,
+        "NO-PINNING A3 (SPEC.md 110.14.10): the Desk Clock's face cache "
+        "MOVES. The redraw check masks the windows above it, the clock "
+        "being on the desk layer under every window. Measured: dk_cseg "
+        "2300 -> 22c0; red with dk_creloc a bare ret (a different picture). "
+        "21s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("editmove-frotz", "soak", py("tests/editmove.py", "--app", "frotz"),
+        40.0,
+        "SPEC.md 66.5.9 and NO-PINNING A3 (66.5.9.2): a running story's "
+        "claims MOVE - the story (and its live PC and running delta), the "
+        "Z-stack, and since A3 the scrollback, the save staging and the "
+        "transcript, which sat under the scrollback and walled it in. All "
+        "five words move, contents hashed, and the story still answers "
+        "`look` after. Red with the three new words left out of zf_rltab "
+        "(all three stale). 27s measured",
+        needs=("marty",), serial=True, wants=("build/zmove360.img",)),
+    Row("zrestart", "soak", py("tests/zrestart.py"), 165.0,
+        "NO-PINNING P2 (SPEC.md 66.5.9.3): Frotz's worker RESTARTS and its "
+        "REGION moves. tests/frotz/zrestart.inf puts every park site behind "
+        "a command; the row stops the worker in each - the burst loop, "
+        "@read with half a line typed, @read_char, @save/@restore/@restart "
+        "both before RETURN and after the UI task answered with the worker "
+        "held parked, @verify at a breakpoint in its walk - and moves the "
+        "region (a Calculator closed above it per move); [MORE] must PIN "
+        "(restart word 0, no move). Every leg's dynamic memory, [zf_sp], "
+        "Z-stack and window transcript equal a second boot that moves "
+        "nothing; two save files and no third. VERIFIED RED: declaration "
+        "pointed at plain zx_worker (@read never sees 'open door'; @save's "
+        "store byte runs as an opcode and the story halts), and [MORE]'s "
+        "withdrawal taken out (the region moves under the prompt and the "
+        "transcript gains a line). 163s measured, two boots",
+        needs=("marty",), serial=True, wants=("build/zrestart360.img",)),
+    Row("pkgmove-wireflet", "soak",
+        py("tests/pkgmove.py", "--app", "wirefleet", "--disk",
+           "games360.img", "--open", "B:/WIREFLET.O88", "--word",
+           "wf_fxseg", "--word", "wf_fxpseg", "--machine", "os8088_xt_vga"),
+        35.0,
+        "NO-PINNING A8: the PARTS STANDARD'S opt-in (SPEC.md 20.12.12) on its "
+        "first adopter. WireFleet's stamp bank is a lazy part declared with "
+        "op_movable (the library's op_lazymv stores the row, the package's "
+        "OP_ONMOVE hook wf_partsmv re-reads op_seg), and the planar copy is "
+        "a claim of its own (wf_fxpmv); VGA so the planar copy exists. Both "
+        "move under a posted compaction (wf_fxseg 24e0 -> 23a0, wf_fxpseg "
+        "2860 -> 2720), bytes and picture unchanged. Red with both procs a "
+        "bare ret (stale words). 30s measured",
+        needs=("marty",), serial=True, wants=("build/games360.img",)),
+    Row("ringmove-audio", "soak", py("tests/ringmove.py", "--app", "audio"),
+        25.0,
+        "NO-PINNING A6 (SPEC.md 86.5.3): the Audio Player's 32 KB look-ahead "
+        "ring MOVES between plays and is PINNED for one, on a 5150 with a "
+        "Sound Blaster. FURELISE.WAV double-clicked plays; mid-play MC_RLOC "
+        "is 0; S stops and it is declared; a compaction posted from outside "
+        "moves it 26c0 -> 2380, the word follows, the bytes hash the same; "
+        "Space plays again (ap_played advancing) with it pinned, and S "
+        "declares it again. Found on the way: the idle worker slept 6 ticks "
+        "against INST_PARKW's 4, so a compaction left the instance's claims "
+        "where they were about one time in three (AP_SLP_IDLE is 3 now, "
+        "86.5.1). VERIFIED RED both ways: ap_rmove a bare ret (3, the word "
+        "stale) and ap_rpin declaring instead of pinning (0 and 6, rloc "
+        "513 mid-play). 18s measured",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-720.img", "build/covoxlisten720.img")),
+    Row("ringmove-audiospk", "soak",
+        py("tests/ringmove.py", "--app", "audiospk"), 20.0,
+        "NO-PINNING A6 (SPEC.md 86.5.3): the same on a machine with NO card - "
+        "the look-ahead and the speaker's ring (aps_rseg) both pinned for "
+        "the speaker's bracket, both declared once S stops it inside the "
+        "bracket, both moved by a posted compaction (26c0 -> 2380, 2ec0 -> "
+        "2b80), and Space plays again in a new bracket with the ISR's CONS "
+        "advancing and both pinned. VERIFIED RED both ways (ap_rmove a bare "
+        "ret: both stale; ap_rpin declaring: both movable mid-play). 15s "
+        "measured",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-720.img", "build/covoxlisten720.img")),
+    Row("ringmove-tracker", "soak",
+        py("tests/ringmove.py", "--app", "tracker"), 25.0,
+        "NO-PINNING A6 (SPEC.md 45.25.6): Tracker's speaker ring (tsp_rseg) "
+        "MOVES between plays and is PINNED for one, on a card-less 5150. "
+        "BEVERLY.MOD double-clicked plays in the imposter bracket (the first "
+        "Play calibrates), Esc stops it and declares the ring, a posted "
+        "compaction moves it 4340 -> 4000, Enter plays again with the ISR's "
+        "CONS advancing and the ring pinned. VERIFIED RED both ways "
+        "(tsp_rmove a bare ret: stale; tsp_rpin declaring: movable "
+        "mid-play). 17s measured",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-720.img", "build/covoxlisten720.img")),
+    Row("ringmove-midirack", "soak",
+        py("tests/ringmove.py", "--app", "midirack"), 30.0,
+        "NO-PINNING A6 (SPEC.md 105.10.1): MIDIRack's song, wavetable bank and "
+        "mix claim MOVE, on a 5150 with a Sound Blaster and the synthetic "
+        "bank `make mrwttest` writes. The wavetable plays with the bank and "
+        "the mix claim pinned (the voices hold segments derived from the "
+        "bank) and the song still movable; Stop declares them; a posted "
+        "compaction moves all three (26c0 -> 2380, 28c0 -> 2580, 2a80 -> "
+        "2740), bytes unchanged; Play again moves the card's CONS. VERIFIED "
+        "RED both ways (mwt_move and mr_fmove a bare ret: all three stale; "
+        "mwt_pin declaring: both movable mid-play). 21s measured",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-720.img", "build/mrwt720.img")),
+    Row("ringmove-wirefleet", "soak",
+        py("tests/ringmove.py", "--app", "wirefleet"), 30.0,
+        "NO-PINNING A6 (SPEC.md 114.11.1): WireFleet's 13 KB clip ring MOVES "
+        "between clips and is PINNED for one, on a Hercules 5150 with a "
+        "Sound Blaster. It is a TOP-DOWN claim under the region, so Mines "
+        "opens first and closes after (the hole above it) and Link > "
+        "Disconnect frees the region its serial ring pins. The launch cue is "
+        "INJECTED (wf_fxsound called at WireFleet's own timer callback: no "
+        "clip can be had without a link partner) and read the instant it "
+        "returns: playing, pinned; it plays out to CONS 4096 and is declared "
+        "again; a posted compaction moves it 8980 -> 8a00. Found on the way: "
+        "wf_pcm_play never loaded verb 0's CX, which refuses 0 (7), so a clip "
+        "played or not on its caller's leftover CX. VERIFIED RED both ways "
+        "(wf_pcmmv a bare ret: stale; the play's pin taken out: movable "
+        "mid-clip). 21s measured",
+        needs=("marty",), serial=True,
+        wants=("build/os8088-360.img", "build/games360.img")),
+    Row("pkgmove-1942", "soak",
+        py("tests/pkgmove.py", "--app", "1942", "--disk",
+           "1942-360.img", "--open", "B:/1942.O88", "--word",
+           "n_canvas", "--machine", "os8088_xt_vga"), 20.0,
+        "NO-PINNING A4: 1942's 64 KB canvas MOVES on the desktop (SPEC.md "
+        "101.2.1) - n_canvasmv, and pinned around OSAPI_FSX_RUN. 24e0 -> "
+        "23a0 under a posted compaction, the splash redrawn the same. Red "
+        "with n_canvasmv a bare ret (stale word, a different picture). 14s "
+        "measured",
+        needs=("marty",), serial=True, wants=("build/1942-360.img",)),
+    Row("pkgmove-isotron", "soak",
+        py("tests/pkgmove.py", "--app", "isotron", "--disk",
+           "games360.img", "--open", "B:/ISOTRON.O88", "--word",
+           "it_cseg", "--word", "it_seg", "--machine", "os8088_xt_vga"),
+        25.0,
+        "NO-PINNING A4: isoTron's canvas (63 KB) and work claim (30 KB) MOVE "
+        "on the desktop (SPEC.md 108.8.1) - it_claimmv, both pinned around "
+        "OSAPI_FSX_RUN - with its restartable worker parked: 24e0 -> 23a0 "
+        "and 34a0 -> 3360, the title redrawn the same. Red with it_claimmv a "
+        "bare ret (both words stale, a different picture). 19s measured",
+        needs=("marty",), serial=True, wants=("build/games360.img",)),
+    Row("tymove", "soak", py("tests/tymove.py"), 15.0,
+        "NO-PINNING A7: apps/os88type.inc's claims MOVE - an open face "
+        "(TF_CLAIM = TF_SEG, [ty_curseg] its copy) and the pre-shifted table "
+        "([ty_psseg]), put right by ty_reloc. Font Viewer opens CHARTER.F88, "
+        "the row posts a compaction at the TRIVIAL rank from outside "
+        "([mem_cpq]), the table slides down, every word stays live and the "
+        "specimen redraws the same. Red with ty_reloc a bare ret (legs 2/3; "
+        "leg 4 cannot see it, the old bytes surviving a move). 12s measured",
+        needs=("marty",), serial=True, wants=("build/office360.img",)),
     Row("fontview", "soak", py("tests/fontview.py"), 20.0,
         "SPEC.md 90: an F88 association launches FONT VIEWER with that family "
         "selected, every installed face is listed, typing edits the specimen, "
@@ -3111,6 +3425,42 @@ SOAK = [
         "memory, so 86Box's. SOAK: one package, and 86Box's",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088.img")),
+    Row("rdgmove", "soak", py("tests/rdgmove.py"), 85.0,
+        "NO-PINNING A1: REALDMG's claims MOVE while a game runs "
+        "(docs/REALDMG-SPEC.md section 14.4). GBBANK8.GB (tools/gbours.py, "
+        "ours: gbbank.asm at 8 banks with 32KB of RAM, 16 checked switches a "
+        "frame) checks every bank switch by its bytes and by code run from "
+        "4000-7FFF, recompiled; a compaction is posted from outside at the "
+        "TRIVIAL rank and the frames, the damage memory, the recompiler's "
+        "claim, the ROM, the RAM and (the Static leg) the profile must move, "
+        "every word and the core's copies - S_ROMSEG, the bank table, S_ROMX, "
+        "S_RAMSEG, S_PRFSEG, S_JITSEGA/HSEG, S_JITVEC - follow, the cache be "
+        "flushed (its chains are `jmp far` with the segment in their bytes), "
+        "the ROM's bytes survive and the cartridge run on with not one wrong "
+        "bank - and Static's table be preloaded again. Two legs, a boot each. "
+        "RED both ways (--red, a ret poked into the running package): "
+        "rw_mreloc bare stops the machine and the cartridge counts wrong "
+        "banks; rw_mjit bare leaves the core on the old cache and the game "
+        "stops dead. A1b: the Calculator opened first and closed, two posts, "
+        "so the region rises and then the PARTS CARVE (core + view): "
+        "op_base, rdg_viewseg/coreseg, S_VIEW, S_DISP and S_RESVEC must "
+        "follow; --red carve (rw_partsmv bare) stops the machine. 66-72s "
+        "measured before the carve legs",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-720.img", "build/calc.o88")),
+    Row("rdgclose", "soak", py("tests/rdgclose.py"), 20.0,
+        "REALDMG's BANK CACHE (docs/REALDMG-SPEC.md 10.3, 14.4) on 86Box's "
+        "286 with 4MB, GBBANK.GB fetching on nearly every switch. MOVE: "
+        "paused, two posted compactions, the SLOTS and the PARTS CARVE must "
+        "both move with the bank table, S_VIEW, S_ROMSEG and rw_romseg "
+        "following, and the cartridge run on with no wrong bank (--red slots "
+        "/ --red carve: a ret over rw_mreloc or rw_partsmv - it stops, or no "
+        "live view). CLOSE: the close box clicked while it fetches, and the "
+        "window gone in 20 emulated s - RED on the package before A1b "
+        "(RDGWIN_O88/RDGWIN_LST): rw_bmiss tested closing before the bank "
+        "and the close hung for ever. 13s measured",
+        needs=("86box", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088.img", "build/calc.o88")),
     Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 10.0,
         "REALDMG's speaker asked for 131,072 Hz (docs/REALDMG-SPEC.md section "
         "17) on 86Box's 286: GBTONE.GB ends with square channel 1 at x = 7FFh, "
@@ -4383,7 +4733,12 @@ SOAK = [
         "filler's T takes the rest and the card's Play and the speaker's are "
         "REFUSED with their messages, nothing open or held; the filler "
         "closed, both play again. Red with the card's ring kept at Stop, "
-        "with the grant fallback out, and with either speaker-ring free out",
+        "with the grant fallback out, and with either speaker-ring free out. "
+        "Since NO-PINNING A6 the song is MOVABLE (105.10.1) and packs down, "
+        "leaving the filler's 8 KB as one run that cannot hold a grant's "
+        "pool and its double buffer both, so the row pins the song from "
+        "outside (MC_RLOC = 0) for the fill and the grant leg - the wall the "
+        "leg is about - and declares it again after",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/midirack.o88",
                "build/filler.o88")),
@@ -5439,6 +5794,64 @@ SOAK = [
         "pixels on the code before the fix",
         needs=("qemu", "cc"), serial=True,
         wants=("build/lemmings.img",)),
+    Row("cpcost", "soak", py("tests/cpcost.py"), 100.0,
+        "NO-PINNING G1: what a compaction COSTS while a Sound Blaster plays. "
+        "trackmove's scenario on os8088_5150_sb_gla with the music left "
+        "PLAYING: every mem_compact call is timed in guest cycles (breakpoint "
+        "on entry and on its return address) and SOUND.DRV's sbl_underrun "
+        "count is read across the claim. Asserts the module moved and the "
+        "stream still plays; the cost and the underruns are REPORTED, being "
+        "the owner's numbers to decide on. First run: nine passes, 56-677 ms "
+        "each, one underrun, the 116KB module 55c0 -> 2f80; 91s measured",
+        needs=("marty",), serial=True,
+        wants=("build/trackmove360.img",)),
+    Row("ovlmove", "soak", py("tests/ovlmove.py"), 30.0,
+        "NO-PINNING wave 0: a C overlay MOVES out from under its own call "
+        "chain and both returns land. tests/covl's M key runs ovl_mv_outer -> "
+        "ovl_mv_inner (module to module, through crt0's cc_ovmthunk) -> "
+        "cv_claim -> os88_mem_claim, sized so it fits only after a compaction; "
+        "HEAPFRAG owns the floor and closes, so the module slides down while "
+        "both frames are live. The claim is POISONED with HLT before it is "
+        "freed - without that, a stale return ran the module's old, intact "
+        "bytes and the red run passed. Red with cc8086 emitting the old "
+        "direct call (the chain answers 0 and the program dies); 20s measured",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/ovlmove360.img", "build/COVL.OVL")),
+    Row("tnest", "soak", py("tests/tnest.py"), 10.0,
+        "NO-PINNING K9: a non-UI task's call into an image is COUNTED in "
+        "wm_tcnt and never pushed onto the UI task's wm_pkgs stack (a worker's "
+        "OSAPI_DRV_CALL used to interleave with the UI task's callbacks there), "
+        "and while the count stands mem_in_nest pins every image and "
+        "inst_seg_parked every driver claim - ETHER.DRV's movable socket pool "
+        "under FTPD's pre-empted worker. A unit test inside the live machine: "
+        "the row parks the CPU on wm_nest_pushd/pop, mem_in_nest and "
+        "inst_seg_parked with chosen registers and puts everything back. 7.6s "
+        "measured; all six go red with the push's `jne .count` taken out",
+        needs=("marty",), serial=True),
+    Row("lemmove", "soak", py("tests/lemmove.py"), 121.0,
+        "LEMMINGS' KEPT LEVEL MOVES AND PLAYS ON (SPEC.md 116.6.2, "
+        "docs/plans/NO-PINNING-PLAN.md C4): the ~250-330 KB of claims a "
+        "level kept by 'f' holds are MOVABLE on the desktop and PINNED "
+        "around the launch, and os88_onmove (lemblit.inc) range-translates "
+        "eighteen words. MartyPC on BOTH claim sets - the 5150 Hercules "
+        "(world + shadow) and the VGA XT (T planes): play Fun 2, pause, "
+        "snapshot, keep, FORCE a compaction by writing [mem_cpq] (the "
+        "posted pass, rank 0xFC drops the icon store and a raise cache "
+        "under the claims), then nine assertions - pinned in the bracket, "
+        "movable kept, moved with lem_cl_* following, contents hashed, the "
+        "derived LEMMAIN segments' offsets kept, the raster's words, the "
+        "resumed paused picture identical to the pixel, pinned again, and "
+        "150 iterations later the mechanics (80 lemming records, counts, "
+        "mask and object map) equal to a CONTROL leg played from the "
+        "snapshot with no suspend and no move. Prints mem_compact's cost "
+        "(G1): 848 ms for 252 KB on Hercules, 1,066 ms for 329 KB on VGA. "
+        "RUN RED: lem_anseg dropped from the proc's table fails 5 (its "
+        "offset inside LEMMAIN 556 -> 1388) and 7 (238 px of garbage "
+        "lemmings); --nomove is the A/B and fails 3 alone. 121s MEASURED "
+        "(both arms, one os88test run). Needs `cc` and the fetched data "
+        "(wants= builds the disk, or the row SKIPS)",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/lemmings360.img",)),
     Row("cmemmove", "soak", py("tests/cmemmove.py"), 60.0,
         "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "
@@ -5451,6 +5864,86 @@ SOAK = [
         "[ch_seg] stale and the move count at 0. Needs `cc`",
         needs=("marty", "cc"), serial=True,
         wants=("build/cmemmove360.img",)),
+    Row("rcmove", "soak", py("tests/rcmove.py"), 120.0,
+        "RUNCPM'S 64KB Z80 CLAIM MOVES and the machine keeps running "
+        "(SPEC.md 74.3.2, docs/plans/NO-PINNING-PLAN.md C3): cmemmove's "
+        "recipe with the CCP at its A> prompt - MC_RLOC set, the claim at a "
+        "new base, rc_zseg AND rc_z.seg both following it, the 64KB hashed "
+        "equal at both bases, and `xyzzy` typed afterwards answered XYZZY? "
+        "by the CCP running in the moved claim. 30s is its passing run "
+        "MEASURED here (25.5s wall). VERIFIED RED: os88_onmove leaving "
+        "rc_z.seg stale fails 3 (rc_z.seg 55c0, claim at 4e80) and 5 (no "
+        "XYZZY? in 120 guest seconds). Needs `cc` and the RunCPM fetch",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/rcmove360.img",)),
+    Row("c64move", "soak", py("tests/emumove.py", "--pkg", "c64"), 30.0,
+        "THE C64'S 64KB RAM AND ITS PARTS CARVE MOVE and the 6510 keeps "
+        "running (C64-SPEC 3.1.1, SPEC.md 73.14.2.1's CC_ONMOVE_PARTS): Note "
+        "Pad, C64, then heapfrag; Note Pad closed and heapfrag's key-driven "
+        "region pass posted, which moves the RAM down, the region and the "
+        "ROM+overlay carve up. Asserts both MC_RLOCs, c64_m.ramseg on the new "
+        "claim, c64_m.romseg and cc_ovseg at the same distance above op_base, "
+        "the ROM's first and last 16 bytes at the new romseg, c64_chr_seg on "
+        "one of the two claims, and the cycle counter moving with no JAM. It "
+        "does not wait for READY. (~280 guest seconds on an 8088). 30s is its "
+        "passing run MEASURED here (~18-26s wall). VERIFIED RED: os88_onmove "
+        "not storing os88_part_seg's answer into c64_m.romseg fails 3 and 4. "
+        "Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/c64move360.img",)),
+    Row("weavemove", "soak", py("tests/weavemove.py", "--pkg", "weave"),
+        45.0,
+        "WEAVE-SPEC 1.2.6 (NO-PINNING C3, Weave): every WEAVE claim MOVES and "
+        "every COPY follows - c64move's layout with two instances, SHEET.WAB "
+        "(bundle, VM, grid) and PONG.WAB (bundle, VM, canvas, canvas core). "
+        "Asserts MC_RLOC on each, that each instance moved, that every word "
+        "names a live claim and every copy agrees with its word "
+        "(wvm_vmseg/wvm_bseg/wfx_gseg, wvm_ourds = the REGION, the core's "
+        "WSS_CVSEG/WSS_BSEG, the parts row's zkb and wcv_vec = the core), "
+        "that the bundle claim is still the .WAB and the core still "
+        "WEAVE.WSM, that both windows redraw the same; then PONG is SERVED "
+        "(a WJS handler and start() through the moved words), the worker "
+        "plays, the core is now PINNED (the worker parks in it) - and SHEET "
+        "closes and a pass posted from outside moves PONG's bundle UNDER THE "
+        "RUNNING WORKER, which plays on. 45s for a measured 30-40s. VERIFIED "
+        "RED: os88_onmove emptied fails 1 (heapfrag's own pass already moved "
+        "the claims and the words did not follow); CC_ONMOVE_REGION taken out "
+        "fails 3 (wvm_ourds left on the old region) and 6 (start() never "
+        "reaches the worker) - the region move was a live defect before "
+        "this row. Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/weavemove360.img",)),
+    Row("loommove", "soak", py("tests/weavemove.py", "--pkg", "loom"), 55.0,
+        "WEAVE-SPEC 1.2.6 (NO-PINNING C3, Loom): LOOM's source claim, "
+        "Preview's two pack claims and the preview module (part 0) MOVE: "
+        "c64move's layout with LOOM opening PONG.WML and View > Preview up. "
+        "Asserts MC_RLOC on all four, that they moved and every word is live, "
+        "that the parts row's zkb and lpv_vec follow lm_pvseg, that the "
+        "claims still hold PONG.WML, PONG.WAB and LOOM.WPV's code, that the "
+        "Preview pane - a far call through the moved vector over the moved "
+        "output claim - redraws the same; then View > Edit gives Preview's "
+        "claims back, a typed character lands in the moved source claim and "
+        "^S saves it, the claim movable again after the write's pin; then a "
+        "Pack from the Preview pane leaks neither of Preview's claims (it "
+        "reused their words and leaked 112KB; red with lm_pack's "
+        "lm_prev_off() taken out). 55s for a measured 38s. VERIFIED RED: os88_onmove emptied fails 1 "
+        "(heapfrag's own pass moved the claims, the words did not follow) "
+        "and the machine stops answering. Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/weavemove360.img",)),
+    Row("a2move", "soak", py("tests/emumove.py", "--pkg", "apple2"), 30.0,
+        "c64move's layout one machine along (APPLE2-SPEC 3.1.1): the Apple "
+        "II's 49KB RAM moves down and its ROM-only carve up - the carve's "
+        "proc is crt0's cc_partsmv proper, the overlay being lazy, so this "
+        "is the only row that runs that path. Asserts both MC_RLOCs, "
+        "a2_m.ramseg on the new claim, a2_m.romseg following the carve, the "
+        "ROM's first and last kept 16 bytes at the new romseg, and the 6502 "
+        "not jammed and at more than one PC after the pass. 30s is its "
+        "passing run MEASURED here (19.7s wall). VERIFIED RED: os88_onmove "
+        "not re-reading a2_m.romseg fails 3, 4 and 6. Needs `cc` and the "
+        "Apple II ROM fetch",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/a2move360.img",)),
     Row("gfxpoints", "soak", py("tests/gfxpoints.py"), 20.0,
         "SPEC.md 5.6.9: gfx_points draws the SAME pixels as a gfx_pixel loop. "
         "The slot exists to REPLACE that loop, so the only claim worth gating "
@@ -5576,14 +6069,58 @@ SOAK = [
         "undeclared holder in the tree - six claims at its entry proc, ~99KB, "
         "pinned for the session - which made SPEC.md 66.5.10.2's 'the arena "
         "below the top now has no barrier in it at all' false the moment a "
-        "sheet opened. Five are declared now; sh_stgseg is the ES:BX of all "
-        "seven of the package's file calls and stays pinned, and this asserts "
-        "THAT too, because 'we meant to leave that one' and 'we forgot that "
-        "one' are the same picture. paintmove's recipe. VERIFIED TO FAIL: "
-        "drop sh_cellseg from sh_reloc's table and check 3 reads STALE while "
-        "check 4's repaint differs over 24 rows of the grid",
+        "sheet opened. All six are declared now: the staging, every file "
+        "call's ES:BX, joined them in NO-PINNING 1 (SPEC.md 81.2.1) and 3b "
+        "asserts it moved and its word followed. paintmove's recipe. VERIFIED "
+        "TO FAIL: drop sh_cellseg from sh_reloc's table and check 3 reads "
+        "STALE while check 4's repaint differs over 24 rows of the grid; drop "
+        "sh_stgseg from it and the row fails at the entry proc ('[sh_stgseg] "
+        "= 6140 is not a claim Sheet holds'); sh_reloc a bare ret fails the "
+        "same way on sh_cellseg",
         needs=("marty",), serial=True,
         wants=("build/sheetmove360.img",)),
+    Row("sheetmove-rt", "soak", py("tests/sheetmove.py", "--leg", "rt"), 45.0,
+        "NO-PINNING 1 (SPEC.md 81.2.1): SHEET's 32KB staging MOVES and is "
+        "pinned only across each OSAPI_FILE_READ/WRITE (sh_stgpin in the two "
+        "resident stubs every file call goes through). sheetovlmove's disk "
+        "and arrangement (Note Pad owns the floor, both modules load), a "
+        "compaction posted from outside slides the staging down, then a Save "
+        "As SLK and an Open are each STOPPED INSIDE their file call and the "
+        "staging's MC_RLOC read there must be 0; the saved file is parsed on "
+        "the host and the reload fills an emptied cell store. VERIFIED TO "
+        "FAIL: the write's `call sh_stgpin` removed reads MC_RLOC 112 inside "
+        "the write (check 3). It cannot force a compaction INSIDE the call on "
+        "this disk - neither call claims at all - and says so per run",
+        needs=("marty",), serial=True,
+        wants=("build/sheetovl360.img",)),
+    Row("sheetovlmove", "soak", py("tests/sheetovlmove.py"), 35.0,
+        "NO-PINNING P1b (SPEC.md 82.16.11): SHEET's CHART.OVL MOVES out from "
+        "under its own call chain and the return lands in the new home. F5 is "
+        "ch_ovcall -> SHM_IDOPEN -> SHK wm_show -> ch_xthunk -> OSAPI_WM_SHOW "
+        "-> wm_su_take's mem_claim, which the row inflates to one KB past the "
+        "largest run; a claim record OWNED BY NOTE PAD, placed between SHEET's "
+        "data (whose staging buffer is a pinned wall) and its modules, is the "
+        "hole. The module's frame is read off the stack and its IP watched at "
+        "BOTH homes, and the old home is poisoned with HLT. Red with CHX put "
+        "back to `call routine / retf`: the return lands at the OLD home "
+        "5c00:2559 and Esc never closes the dialog; 35s measured",
+        needs=("marty",), serial=True,
+        wants=("build/sheetovl360.img", "build/CHART.OVL", "build/MACRO.OVL")),
+    Row("sheetxbench", "soak", py("tests/sheetxbench.py"), 280.0,
+        "What ch_xthunk (SPEC.md 82.16.11) costs SHEET on real work, in "
+        "MartyPC guest cycles on a 5150: F9's recalc+draw (sh_drawall), "
+        "Ctrl+S's off-screen recalc (sh_recalc_all), a chart render and a "
+        "40-turn macro (sh_m2call), each bracketed entry-to-return, over a "
+        "sheet of LN/SIN/SQRT/PMT/FV/LEN/MID/UPPER formulas. REPORTS the "
+        "cycles (run with --pkg/--src against another build for the A/B: "
+        "+0.47/+0.73/+0.01/+0.70% over no-pinning 1b933ed4) and ASSERTS that "
+        "every saved formula is the host's value and the macro's total is, "
+        "because a recalc that computed nothing is cheap on any build. Red "
+        "with a wrong host value (13 of 240 'wrong' while 60 rows overran the "
+        "SYLK staging buffer); ~4.5 min measured",
+        needs=("marty",), serial=True,
+        wants=("build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL",
+               "build/os8088-360.img")),
     Row("sheetbtn", "soak", py("tests/sheetbtn.py"), 40.0,
         "A stale button record must not answer a REUSED window slot "
         "(SPEC.md 20.5.1.3.3). Sheet's Goto, then its Format dialog, then "
@@ -6062,7 +6599,11 @@ SOAK = [
         "the window it measures spends NO push of its own - the counter is a "
         "memory cell - and the stack moves somewhere safe before the first "
         "`putc`, whose eight pushes would otherwise smash the header this row "
-        "is watching and go red on a DOS that is behaving. SHRINK.COM runs "
+        "is watching and go red on a DOS that is behaving. **AND THE WINDOW "
+        "RUNS WITH IF = 0**: a timer tick there puts sch_isr's frame (a real "
+        "ROM's int 08h too) on the header, and the row went red one run in a "
+        "few dozen with `B 00 0010 2600` - SI, BX and DX to the word - until "
+        "SPEC.md 96.7.2.1 closed it. SHRINK.COM runs "
         "under a real IBM DOS 3.30 unchanged, which is where `MCB INTACT` "
         "comes from.",
         needs=("marty",), serial=True,
@@ -6866,6 +7407,22 @@ SOAK = [
         "kernel's own solve picks 32K (18.95.5), so Auto and 32K read the "
         "same figure for a TRUE reason. VERIFIED red on the shipped build. ",
         needs=("marty",), serial=True),
+    Row("dostrmove", "soak", py("tests/dostrmove.py"), 25.0,
+        "NO-PINNING 2 (SPEC.md 96.29.1.2): the DOSTRACE build's 35KB trace "
+        "part - DOS.O88's only parts carve, and one the shipped package never "
+        "makes - MOVES at the prompt through the parts standard's OP_ONMOVE "
+        "(dos_trmove re-asks op_seg for [dos_trseg] and the core's "
+        "[dos_m33seg]) and is PINNED from dos_run's .ready to the end of the "
+        "dump. Its own disk in build/dostrmove/ (the DOSTRACE package "
+        "assembled there, beside DOSHELLO.COM and Note Pad): Note Pad takes "
+        "the ceiling, DOS lands under it, Note Pad closes, a posted pass "
+        "moves the carve up; both words must name the new carve, the carve's "
+        "MC_RLOC must read 0 WHILE DOSHELLO runs and non-zero after, and the "
+        "trace must be in the NEW part. VERIFIED TO FAIL: dos_trmove a bare "
+        "ret -> 3 (both words at the old base) and 6 (no AH=30h in the new "
+        "part); the .ready pin removed -> 4 (MC_RLOC 3C86 while it runs)",
+        needs=("marty",), serial=True,
+        wants=("build/DOSHELLO.COM", "build/notepad.o88")),
     Row("dosarena", "soak", py("tests/dosarena.py"), 30.0,
         "THE DOS ARENA'S UNMOUNT-AND-COMPACT (SPEC.md 96.35, 51.11.1, 66.4.3): "
         "SOUND.DRV is ~14KB at the TOP of the heap and DOS unmounts it, "
@@ -8161,7 +8718,10 @@ SOAK = [
     Row("tank", "soak", py("tests/tank.py"), 30.0,
         "SPEC.md 85: TANK ATTACK draws, ADVANCES, and does not flash - the ink"
         "on the glass per DISPLAYED frame, whose floor against its median is"
-        "the whole question a foreign-mode raster is built to answer",
+        "the whole question a foreign-mode raster is built to answer. Its "
+        "last leg leaves the bracket with F and asserts the 32 KB shadow went "
+        "with it (SPEC.md 85.3.5.2, NO-PINNING A4): red with tk_shfree's call "
+        "taken out. 19s measured",
         needs=("marty",), serial=True),
     Row("tankaim", "soak", py("tests/tankaim.py"), 30.0,
         "SPEC.md 85.6.5's aim assist and its reticle: no bearing is unreachable"
@@ -10581,6 +11141,28 @@ SOAK = [
         "go red - dropping wd_mvup's step-back fails every text assertion.",
         needs=("marty",), serial=True,
         wants=("build/word.o88", "build/WELCOME.DOC")),
+    Row("wdheapmove", "soak", py("tests/wdheapmove.py", "--app", "word"),
+        45.0,
+        "SPEC.md 68.3.2: every claim Word's document keeps MOVES - text, CHP, "
+        "PAP, italic table and both undo arenas, one proc over one table. "
+        "heapfrag holds the floor, Word opens a 4KB+ document above it (a 3KB "
+        "one fits the ceiling gap beside the region and never moves, which "
+        "left [wd_dseg] untested), types and deletes to claim the arenas, and "
+        "heapfrag's re-run forces the pass: every claim declared, every word "
+        "names a claim Word still holds, all six move with their live bytes, "
+        "and three characters typed after the move land at the caret in both "
+        "the text and the CHP. Verified red: a proc skipping [wd_dseg] fails "
+        "on the stale word; a table without wd_cseg leaves it pinned.",
+        needs=("marty",), serial=True,
+        wants=("build/word.o88", "build/heapfrag.o88")),
+    Row("wdheapmove-sc", "soak",
+        py("tests/wdheapmove.py", "--app", "scribe"), 60.0,
+        "SPEC.md 95.14: SCRIBE's arm of wdheapmove - Word's six claims plus a "
+        "PICTURE inserted before the pass (each picture is a claim named by "
+        "its sc_pictab slot alone), which must move with its pixels. Verified "
+        "red: a sc_reloc that skips the picture slots fails on the stale slot.",
+        needs=("marty",), serial=True,
+        wants=("build/scribe.o88", "build/heapfrag.o88")),
     Row("wdcombo", "soak", py("tests/wdcombo.py"), 50.0,
         "SPEC.md 68.2.3: Word's three combos are os88ui_drop records rather "
         "than rows of wd_mtab, so the gesture is THREE EVENTS (press, drag, "
@@ -10772,24 +11354,19 @@ SOAK = [
         "LOW_SEG's, so the sum covered nothing on both sides and a damaged "
         "image resumed. MartyPC.",
         needs=("marty",), serial=True, timeout=1500),
-    Row("instrest", "soak", py("tests/instrest.py"), 90.0,
-        "SPEC.md 52.10.6.1: the installer's ACTION BUTTON reads Install and "
-        "then Restart, there is no third button, and clicking it at the end "
-        "restarts the machine. The caption is read out of the framebuffer "
-        "against the kernel's own glyph table. It ERASES the VHD.",
-        needs=("marty",), serial=True, timeout=1200),
     Row("inststate", "soak", py("tests/inststate.py"), 90.0,
         "SPEC.md 52.10.4.2: the installer's State column says what each slot "
         "IS - `C: FAT16` for a mounted volume, a foreign type by name, "
         "`Not Formatted`, `Unpartitioned`, and the reason after a comma when "
-        "the verdict is no. Three VHDs with slots 2-4 rewritten before boot, "
-        "every row read out of the framebuffer against the kernel's glyph "
-        "table (instrest's apparatus). Opens the installer and writes "
-        "nothing. Measured 132s for the three boots, serially.",
+        "the verdict is no. Three VHDs with slots 2-4 rewritten before boot; "
+        "the Control Panel's Install starts the wizard (52.10.4.4) and each "
+        "slot's words are read out of the wizard's HDI_SLOTS records on its "
+        "partition page. Writes nothing. Measured 132s for the three boots, "
+        "serially, before the wizard - not re-taken.",
         needs=("marty",), serial=True, timeout=900),
     Row("install", "soak", py("tests/install.py"), 400.0,
-        "SPEC.md 117: the INSTALL WIZARD drives the Control Panel's own "
-        "engine. On MartyPC's XT-IDE XT it launches A:\\INSTALL.O88, walks "
+        "SPEC.md 117: the INSTALL WIZARD, the install engine's only face "
+        "(52.10.4.4). On MartyPC's XT-IDE XT it launches A:\\INSTALL.O88, walks "
         "every page by its own buttons (reading the page out of the "
         "package's memory after each click), picks ERASE over DOS with the "
         "Down key, installs both disks - with the progress widget required ON "
@@ -10817,10 +11394,11 @@ SOAK = [
         "the hard disk. mtools plants SYS.IMG and APPS.IMG, each with a "
         "marker only it carries, in MartyPC's DOS partition; a floppy install "
         "keeps them; then C: boots with a blank in A: and nothing in B:, both "
-        "images are double-clicked into drives and Install runs onto C: "
-        "keeping files. Both markers must arrive and C: must boot. `--from` "
-        "a system disk built before 52.10.17 is the break: no system disk "
-        "is found and the commit never comes. Measured 143s.",
+        "images are double-clicked into drives and the wizard installs onto "
+        "C: keeping files, ending on Done with no apps-disk question. Both "
+        "markers must arrive and C: must boot. `--from` a system disk built "
+        "before 52.10.17 is the break: no system disk is found and the "
+        "wizard stops. Measured 143s before the wizard - not re-taken.",
         needs=("marty", "mtools"), serial=True, timeout=1500),
     Row("instcross", "soak", py("tests/instcross.py"), 160.0,
         "SPEC.md 52.10.16: an install ACROSS BUILDS from a machine booted off "
@@ -10830,7 +11408,9 @@ SOAK = [
         "C:'s and not the new disk's. Stock install; boot C: and offer a knob "
         "disk with its BOOTHD.SYS hidden (refused, nothing written); offer the "
         "real one (the knob tree's own sector lands); boot the knob kernel "
-        "from C:. `--break` gives the knob disk the stock sector, which is "
+        "from C:. The installs are the wizard's, started by the Control "
+        "Panel's Install (52.10.4.4), and the refusal is its Stopped page. "
+        "`--break` gives the knob disk the stock sector, which is "
         "what the old installer wrote, and must fail. It ERASES the VHD and "
         "builds knobhd's knob tree.",
         needs=("marty",), serial=True, timeout=2400),
@@ -12131,6 +12711,11 @@ SOAK = [
         "compaction and more after: a frame count alone passes a worker that "
         "was never parked). Broken on purpose with the proc's table cut to one row "
         "the worker far-calls the old driver and no frame is ever drawn. "
+        "LEG 8 (NO-PINNING A4, SPEC.md 97.9.2): the 16 KB shadow is DECLARED "
+        "movable and [px_shseg]/[px_dseg] name a live claim after - red with "
+        "the declaration taken out. On this layout the shadow sits right above "
+        "the loader's pinned sprite set and does not move, so the proc itself "
+        "is proved by reading (two words). 13s measured. "
         "Needs `make pxsmove`.",
         needs=("marty",), serial=True, wants=("build/pxsmove360.img",)),
     Row("appdata", "soak", py("tests/appdata.py"), 50.0,
@@ -13603,8 +14188,10 @@ SOAK = [
         "plane; SI past the lists, BP/DS/ES kept, two unknown leads CF=1. "
         "ONE BIT too (98.3.23.1): tiles on a CGA's two banks and a "
         "Hercules's four, straight on and round the box, the codebook "
-        "replaced in part between calls; VBV_SET keeps DI, and a tile "
-        "before any codebook and a codebook past 255 are refused. Broken "
+        "replaced in part between calls; VBV_SET keeps DI, a later "
+        "bracket keeps the codebook it held, and a tile before any "
+        "codebook in a session (VBM_NEWS) and a codebook past 255 are "
+        "refused. Broken "
         "on purpose twelve ways (a quadrant's planes, b's Set/Reset, the "
         "EGA's not, the box's colour, TWO's xor, EIGHT's c0 after a shift, "
         "a box pixel's x, the skip's width; a tile's row, a box tile's "
@@ -14586,6 +15173,44 @@ SOAK = [
         "FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidclmove", "soak", py("tests/vidclmove.py", "--arm",
+                                  "resident"), 25.0,
+        "SPEC.md 98.3.19.2, NO-PINNING A6: a session PAUSED on the desktop "
+        "holds claims that MOVE. A RESIDENT file played from KEY 1 in its "
+        "window on the Hercules 5150, a click back to the desktop, a "
+        "hole-maker's block freed under it and a compaction posted from "
+        "outside: the key's record (vp_rclm) declared to vp_smove, MOVED, "
+        "[vp_rclm] and [vp_ring] naming it and its bytes intact; Play goes "
+        "on in the window, the hold after it the host's decode, all 90 "
+        "frames; and after the end the key's record is GIVEN BACK - it "
+        "leaked at every such play before, held in [vp_ring] alone. VERIFIED "
+        "RED: vp_smove a bare ret (3: the words stale); the store into "
+        "[vp_rclm] taken out (1 and 6: undeclared, still held)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/os8088-360.img", "build/video.o88")),
+    Row("vidclmovely", "soak", py("tests/vidclmove.py", "--arm", "layer"),
+        45.0,
+        "SPEC.md 98.3.19.2, 98.1.9: vidclmove's LAYER - a layered Life clip "
+        "played IN PLACE on MartyPC's 8088 with the Lo-tech EMS board, so "
+        "the layer's slots are a claim of their own ([vp_lyseg], vp_lyown); "
+        "paused on the desktop it and the ring MOVE, every word live, bytes "
+        "intact, and Play goes on: the hold after the move is the LAYERED "
+        "decode (one the base alone does not draw), 47 records drawn, none "
+        "left out, all 60 frames. VERIFIED RED: vp_smove a bare ret (3, and "
+        "5 by 2,716 bytes); vp_smov's layer line taken out (1: undeclared)",
+        needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=300,
+        wants=("build/emstest.img", "build/video.o88")),
+    Row("vidclmovediag", "soak", py("tests/vidclmove.py", "--arm", "diag"),
+        20.0,
+        "SPEC.md 98.3.19.2, 98.3.22: vidclmove's PROFILE - VIDEOD "
+        "(build/videodiag.o88) on the Hercules 5150, a streamed clip paused "
+        "on the desktop: the profile's claim ([vp_prseg], claimed first, "
+        "under the ring) and the ring MOVE, and after Play goes on to the "
+        "end the VPPROFn.DAT it writes to B: holds all 90 frames, every slot "
+        "timed - the ones after the move written into the moved claim. "
+        "VERIFIED RED: vp_smove a bare ret (3: the words stale)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/os8088-360.img", "build/videodiag.o88")),
     Row("vencbundle", "soak", py("tests/vencbundle.py"), 10.0,
         "SPEC.md 98.2.13: `make vencbundle`'s zip, unpacked OUTSIDE the "
         "tree and used from there - whole and deterministic, it encodes, "

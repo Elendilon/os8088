@@ -157,7 +157,7 @@ def main():
     # row 2's driver, and a table read by index is exactly the kind that gets
     # re-ordered correctly in one place and not the other.
     src = open(os.path.join(ROOT, "kernel/driver.inc"), errors="replace").read()
-    tab = re.findall(r"^\s*dw\s+drv_f_(\w+),\s*drv_t_(\w+)", src, re.M)
+    tab = re.findall(r"^\s*dw\s+drv_f_(\w+),\s*DRVT_(\w+)", src, re.M)
     memk = re.search(r"^drv_memk:(.*?)^%if \(\$ - drv_memk\)", src,
                      re.M | re.S)          # ...and NOT the first ^%if:
                                            # the %ifdef KERN_BIG is INSIDE

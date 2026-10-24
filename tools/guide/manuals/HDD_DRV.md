@@ -48,7 +48,7 @@ disk, then a button:
 | Button | What it does |
 |---|---|
 | **Format** | Opens the disk tool, which shows the disk's four partition slots and makes a usable drive in one, or deletes one |
-| **Install** | Opens the installer, which copies the system disk and the software disk onto a partition and makes the hard disk start os8088 |
+| **Install** | Starts the installer, [[INSTALL.O88]], which copies the system disk and the software disk onto a partition and makes the hard disk start os8088 |
 | **Mount** | Mounts every FAT partition on the disk as a drive. It reads **Unmount** while the disk is mounted, and then takes all of them off the desktop |
 
 The **C**, **H** and **S** boxes show the disk's geometry. If the driver

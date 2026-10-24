@@ -104,47 +104,132 @@ CHM_BMPWRITE equ 2
 CHM_MAX      equ 2
 
 ; -----------------------------------------------------------------------------
+; ch_xthunk - EVERY CALL A MODULE MAKES BACK INTO THE PACKAGE (82.16.11).
+;
+; A module reaches resident code with `call far [vector]`, which pushes the
+; MODULE'S OWN CS for the far return. The module's claim is MOVABLE (82.16.11,
+; NO-PINNING P1b), and a resident routine can claim - a file call, a window
+; shown, a dialog asked - so a compaction under it could slide the module and
+; leave that CS naming whatever took its place. The retf would land there.
+; apps/cc/crt0.asm's cc_ovthunk is the same problem in the C SDK, and this is
+; its shape, done IN PLACE because no register here is dead:
+;
+;   way in   the stacked CS is swapped for a TAG naming WHICH module called:
+;            the ADDRESS of the word that names it - ch_ovseg for this
+;            include's module, CH_OV2SEG for the includer's second one
+;            (SHEET's MACRO.OVL, [sh_m2far+2]) - and the routine is entered
+;            with a near return to .back, so it sees [ret][IP][tag]: the same
+;            depth as the old shim's [ret][IP][CS], every offset unchanged.
+;   way back the tag is dereferenced: that module's segment AS IT IS NOW, the
+;            word its relocation proc keeps (ch_ovreloc, sh_m2reloc), and the
+;            retf takes it. No compare, so no flag is touched on the way back.
+;
+; Nothing is stashed off the stack, so there is no depth limit and no global
+; to race: a routine may re-enter a module (ch_ovcall pushes the REGION's CS,
+; which the kernel pins while a callback stands - mem_in_nest) and that module
+; may call back again, each frame carrying its own tag. A CS that is NEITHER
+; module's cannot reach here: every vector is called from module code, and a
+; module runs only at its own claim. So "not the first" is taken as "the
+; second" without a second compare.
+;
+; EVERY REGISTER AND THE FLAGS pass through both ways, as through the old
+; `call routine / retf` shim, so each routine keeps its own contract. The
+; routine's offset is the word after the shim's `call` (CHX), read through CS.
+;
+; Cost: ~400 clocks a crossing over the old shim's call/retf, ~84 us on a
+; 4.77MHz 8088 (82.16.11 counts it); one byte more per shim.
+; -----------------------------------------------------------------------------
+%ifnmacro CHX 1                     ; the includer may have defined it first,
+%macro CHX 1                        ; for shims of its own above this include
+    call ch_xthunk
+    dw %1
+%endmacro
+%endif
+
+ch_xthunk:                          ; [sp]: the CHX word, the module's IP, CS
+    ; STKBALANCE-OK: its `ret` is a JUMP into the routine through a pushed
+    ; slot, and its `retf` the module's own return - both are the design
+    push ax                         ; a slot for the routine's address
+    pushf
+    push bp
+    push ax
+    mov bp, sp                      ; +6 slot, +8 &word, +10 IP, +12 CS
+    mov ax, [bp+12]
+    cmp ax, [cs:ch_ovseg]           ; CS, not DS: the thunk is the REGION's,
+    mov ax, ch_ovseg                ; DS is whatever the caller left. The TAG
+                                    ; is the word naming the module
+    je .tag
+%ifdef CH_OV2SEG
+    mov ax, CH_OV2SEG               ; ...and the only other caller there is
+%endif
+.tag:
+    mov [bp+12], ax
+    mov ax, ch_xthunk.back
+    xchg ax, [bp+8]                 ; the routine returns to .back; AX = &word
+    xchg ax, bp                     ; BP = &word, AX = the frame
+    mov bp, [cs:bp]                 ; the routine
+    xchg ax, bp
+    mov [bp+6], ax                  ; ...into the slot, which the ret takes
+    pop ax
+    pop bp
+    popf
+    ret                             ; into the routine: [.back][IP][tag]
+.back:                              ; NO FLAG IS TOUCHED from here: the
+    push bp                         ; routine's CF is its answer
+    mov bp, sp                      ; +2 IP, +4 the tag
+    push bx
+    mov bx, [bp+4]
+    mov bx, [cs:bx]                 ; the module's segment NOW - through CS,
+                                    ; whatever DS the routine returned with
+    mov [bp+4], bx
+    pop bx
+    pop bp
+    retf
+
+; -----------------------------------------------------------------------------
 ; The shims apps/os88chart.inc's vectors point at (82.16).
 ;
-; Each is a near call to the real routine and then the FAR return the module's
-; `call far [ch_v_*]` is waiting for. Registers and flags pass through both
-; ways untouched, so a shimmed routine keeps its own contract - which is the
-; whole reason the shim exists rather than the vector naming the routine: every
-; routine here is a near proc ending in `ret`, and far-calling one pops the
-; offset, leaves the segment on the stack and returns into nothing.
+; Each is CHX: ch_xthunk calls the real routine, then makes the FAR return the
+; module's `call far [ch_v_*]` is waiting for, through the module's segment as
+; it is NOW. Registers and flags pass through both ways untouched, so a
+; shimmed routine keeps its own contract - which is the whole reason the shim
+; exists rather than the vector naming the routine: every routine here is a
+; near proc ending in `ret`, and far-calling one pops the offset, leaves the
+; segment on the stack and returns into nothing.
 ;
 ; ch_s_aiszero is the fused one. The module used to load `bx, fp_am0` itself,
 ; which is an address in THIS package's bss and exactly what a module shared
 ; with another package cannot know. The shim supplies it.
 ; -----------------------------------------------------------------------------
 ch_s_unpacka:
-    call fp_unpack_a
-    retf
+    CHX fp_unpack_a
 ch_s_unpackb:
-    call fp_unpack_b
-    retf
+    CHX fp_unpack_b
 ch_s_a2i:
-    call fp_a2i
-    retf
+    CHX fp_a2i
 ch_s_cmpab:
-    call fp_cmpab
-    retf
+    CHX fp_cmpab
 ch_s_round:
-    call fp_round
-    retf
+    CHX fp_round
 ch_s_scale10:
-    call fp_scale10
-    retf
+    CHX fp_scale10
 ch_s_aiszero:
     mov bx, fp_am0
-    call fp_iszero
-    retf
+    CHX fp_iszero
 ch_s_dec_s16:                         ; apps/os88dec.inc's two, which sheet.asm
-    call dec_s16                      ; claims for .text because sh_itoa calls
-    retf                              ; dec_s16 near from there (20.5.2)
+    CHX dec_s16                       ; claims for .text because sh_itoa calls
+                                      ; dec_s16 near from there (20.5.2)
 ch_s_dec_u16:
-    call dec_u16
-    retf
+    CHX dec_u16
+
+; ch_ovreloc - CHART.OVL'S CLAIM MOVED (SPEC.md 66.3, 82.16.11). BX = where it
+; was, DX = where it is. The module names no segment of its own - it addresses
+; itself through CS and its data through DS, the package's - so the two words
+; ch_ovcall and ch_xthunk read are the whole of it.
+ch_ovreloc:
+    mov [ch_ovseg], dx
+    mov [ch_ovfar+2], dx
+    ret
 
 ; ch_ovbind - fill the vector table: this package's shim offsets, and this
 ; package's segment. The offsets are assembled in; only the segment is a
@@ -231,6 +316,10 @@ ch_ovneed:
     mov ax, [es:CH_OVSTAMP + 2]
     cmp ax, os88_image_end
     jne .noread
+    mov dx, [ch_ovseg]              ; READ AND CHECKED: now it may move
+    mov ax, ch_ovreloc              ; (82.16.11). Not before - the read holds
+    call OSAPI_MEM_MOVABLE          ; ES:BX into it - and a refusal only leaves
+                                    ; it pinned, which is what it was
     call ch_ovback
     pop es
     pop di

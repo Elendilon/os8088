@@ -462,8 +462,13 @@ def main():
                            "the worker would have read the disk")
             q.hmp("sendkey esc")
         elif a.arm in ("live", "liverep", "livevga4"):
-            # --- the hold whole, B: blank, and Play is LIVE
-            if rb("vp_xon") != 1:
+            # --- the hold whole, B: blank, and Play is LIVE. [vp_loaded] is
+            # stored BEFORE vp_xopen opens the hold, so the hold is waited
+            # for as arm xms waits for it below - read at once, a loaded
+            # soak box caught xon 0 in between and reported xon=1 in the
+            # same breath
+            if not os88qemu.acted(q, lambda: rb("vp_xon") == 1, secs=5,
+                                  what="the hold", poll=0.05):
                 sys.exit("vidxms: no hold was taken: %s" % state())
             wait(lambda: rb("vp_xfull") == 1, "the loader to finish", 120)
             q.hmp("change floppy1 %s raw" % blank)

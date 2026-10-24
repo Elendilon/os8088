@@ -43,6 +43,8 @@
                                         ;   one that is the Color's alone)
     OS88_ASSOC16_END
 
+%define OP_ONMOVE rw_partsmv          ; the carve MOVES (SPEC.md 20.12.12,
+                                        ;   rwmove.inc)
 %include "os88parts.inc"
 
 RW_CONT_W       equ 160
@@ -304,7 +306,9 @@ rw_lbuf         equ rw_fseg + 2     ; 40: a line of it, for the Hercules and
                                     ;   CGA writers (rwfsx.inc)
 rw_ntc          equ rw_lbuf + 40    ; the window's notice is up (rw_ntcwait)
 rw_ntct         equ rw_ntc + 1      ; word: the tick it went up
-rw_bssend       equ rw_ntct + 2
+rw_mhold        equ rw_ntct + 2     ; byte: a load holds every claim still -
+                                    ;   rw_mfree declares nothing (rwmove.inc)
+rw_bssend       equ rw_mhold + 1
 RW_BSS          equ rw_bssend - rw_win   ; derived: a sum by hand drifted
 RW_FBUF         equ 5760            ; rdg_render's frame, at [rw_fseg]:0
 RW_PBUF         equ 11520           ; the frame as the screen takes it: the
@@ -331,6 +335,9 @@ rw_entry:
     mov [rw_pseg], dx
     add dx, RW_PBUF / 16
     mov [rw_fseg], dx
+    call rw_mfree                   ; ...and it moves (rwmove.inc)
+    nop                             ; (PARITY: the play path at its old
+                                    ;   alignment - os88rdiff's --hot)
     mov al, KSC_UP                  ; arm the key map (the first call only
     call OSAPI_KEY_DOWN             ;   arms it)
     OS88_ALTENTER_ARM               ; and Alt, for Alt+Enter
@@ -517,7 +524,15 @@ rw_opened:
 ; KB the read needs, from the directory and unpacked, with some slack for a
 ; compressed file's expansion - then a claim that size, the read, and the
 ; check on the bytes that actually came in: whole 16KB banks, 32 to 256KB.
+; EVERY CLAIM OF OURS IS PINNED FOR THE LOAD (rwmove.inc): it claims and reads
+; with segments in registers, and declares them all again at its end.
 rw_load:
+    inc byte [rw_mhold]
+    call rw_mpin
+    call rw_load0
+    dec byte [rw_mhold]
+    jmp rw_mfree
+rw_load0:
     push si
     push ds
     pop es
@@ -946,8 +961,8 @@ rw_jitget:                          ; (CF = 1: none, a game running too)
     jnc .got
     add ax, 64 + 16
     mov byte [rw_hmask], 7
-    call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the core's
-    mov bx, 1000h + 400h            ;   state block names it
+    call OSAPI_MEM_CLAIM            ; DX = its segment (the state block
+    mov bx, 1000h + 400h            ;   names it: rw_mreloc, rwmove.inc)
     jc .r
 .got:
     add bx, dx                      ; BX = the part's place, past the table
@@ -1129,7 +1144,7 @@ rw_jitprep:
     pop ax
 .ok:
     clc
-    ret
+    jmp rw_mfree                    ; the cache and its second 64KB move
 .room:
     push si
     mov si, rw_s_jroom
@@ -1275,8 +1290,8 @@ rw_ramsetup:
     mul ah                          ; AX = 8KB a bank
     add al, [rw_rtc]                ; + 1KB for the clock's trailer
     push ax
-    call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the state
-    pop ax                          ;   block names it
+    call OSAPI_MEM_CLAIM            ; DX = its segment (the state block
+    pop ax                          ;   names it: rw_mreloc, rwmove.inc)
     jc .room
     mov [rw_ramseg], dx
     push es                         ; FFh, as a cartridge without a save
@@ -1406,8 +1421,8 @@ rw_prfload:
     cmp byte [rw_prfon], 0          ; Machine > Profile: off, no claim
     je .r0
     mov ax, RW_PRFKB
-    call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the state
-    jc .r0                          ;   block names it
+    call OSAPI_MEM_CLAIM            ; DX = its segment (the state block
+    jc .r0                          ;   names it: rw_mreloc, rwmove.inc)
     mov [rw_prfseg], dx
     call rw_prfrd
     jc .empty
@@ -1538,8 +1553,8 @@ rw_jit2get:
     cmp word [rw_jit2seg], 0
     jne .r
     mov ax, 64
-    call OSAPI_MEM_CLAIM            ; DX = its segment, pinned: the state
-    jc .r                           ;   block names it
+    call OSAPI_MEM_CLAIM            ; DX = its segment (the state block
+    jc .r                           ;   names it: rw_mreloc, rwmove.inc)
     mov [rw_jit2seg], dx
 .r:
     ret
@@ -1671,6 +1686,7 @@ rw_bigtoggle:
     call rw_jit2get
     cmp word [rw_jit2seg], 0
     je .say                         ; no room now
+    call rw_mfree                   ; (it moves, rwmove.inc)
     mov byte [rw_seg2q], 1          ; the worker: the recompiler again
     ret
 .say:
@@ -2122,8 +2138,9 @@ rw_cumdays:     dw 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
 ; rw_fgo - stand in folder DX of volume BL (UI task), remembering where we
 ; stood for rw_fback. CF = 1: it could not, and nothing moved.
 rw_fgo:
-    push dx
-    push bx
+    call rw_mpin                    ; every claim of ours still until rw_fback:
+    push dx                         ;   the callers hold one in ES across the
+    push bx                         ;   file call (rwmove.inc)
     call OSAPI_FILE_HERE
     mov [rw_hdir], dx
     mov [rw_hvol], bl
@@ -2134,6 +2151,9 @@ rw_fgo:
     call OSAPI_FILE_GOTO_QM
     pop di
     pop si
+    jnc .r
+    call rw_mfree                   ; (no file call follows: free again)
+.r:
     ret
 
 ; rw_fback - back where rw_fgo found us. Every register and flag kept.
@@ -2155,7 +2175,7 @@ rw_fback:
     pop bx
     pop ax
     popf
-    ret
+    jmp rw_mfree                    ; (flags kept)
 
 ; rw_toast - SI = a line of our own, 24 characters at most
 rw_toast:
@@ -4182,6 +4202,7 @@ rw_jdtab:                               ; (rw_jdoff's, from rdgcore.inc)
 %include "rwstate.inc"
 %include "rwreplay.inc"
 %include "rwfm.inc"
+%include "rwmove.inc"                     ; the claims' relocation (A1)
 %include "os88data.inc"
 
 %define OS88UI_ABOUT

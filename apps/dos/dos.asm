@@ -878,6 +878,13 @@ dos_entry:
     mov [dos_trseg], ax
     mov [dos_m33seg], ax            ; ...and the CORE's own copy, which is what
                                     ; `dos_int33` may name (SPEC.md 96.10.3)
+    mov al, OP_CARVE                ; **AND THE PART MAY MOVE** (SPEC.md
+    call op_movable                 ; 96.29.1.2, NO-PINNING 2): both words are
+                                    ; banked, and dos_trmove asks op_seg for
+                                    ; them again after a move. CF=1 is the
+                                    ; OP_OPT refusal (no carve) and costs
+                                    ; nothing. dos_run pins it for the stretch
+                                    ; a program runs and the dump is written
     pop es
 %endif
 
@@ -1515,6 +1522,15 @@ dos_run:
     mov al, DER_BIG
     jmp short .freeerr
 .ready:
+%ifdef DOSTRACE
+    mov al, OP_CARVE                ; THE TRACE PART IS PINNED FROM HERE TO THE
+    call op_pin                     ; DUMP (SPEC.md 96.29.1.2): the program runs
+                                    ; in the bracket below, its INT 21h calls
+                                    ; trace into the part and claim (a mount's
+                                    ; read-ahead, the file window) on the UI
+                                    ; task - which is the task that compacts.
+                                    ; Only DX and the flags are spent
+%endif
 
     call OSAPI_GFX_LOCK             ; ...and only NOW, because fsx_run wants it
     mov ax, dos_fsx_main            ; held and nothing above this may pay for it
@@ -1542,8 +1558,12 @@ dos_run:
     mov byte [dos_state], DST_ERR
 .free:
 %ifdef DOSTRACE
-    call dos_trace_dump             ; ...and the field gets to read it too
-%endif
+    mov al, OP_CARVE                ; pinned again for the paths that never
+    call op_pin                     ; reached .ready: the dump's FILE_WRITE is
+    call dos_trace_dump             ; ES:BX INTO the part, across the kernel's
+    mov al, OP_CARVE                ; own claims (SPEC.md 66.5.7.1) ...and the
+    call op_movable                 ; field gets to read it too. MOVABLE AGAIN:
+%endif                              ; no program, no dump, nothing holds it
     mov dx, [dos_arena]
     or dx, dx
     jz .out
@@ -12541,12 +12561,36 @@ dos_mcb_resize:
 ; trace simply refuses, which is what an instrument owes a machine it cannot
 ; fit on.
 %define OP_BSS_AT dos_hbss       ; 96.44.2: the host's block, not the core's
+%define OP_ONMOVE dos_trmove     ; 96.29.1.2: the part MOVES (20.12.12)
 %include "os88parts.inc"
 OS88_PARTS_BEGIN 1
   OS88_PART OP_ASSET, OP_ZERO | OP_OPT, DOS_TRACE_KB
 OS88_PARTS_END
+
 %endif
 %endif                              ; DOS_EXTCORE
+
+%ifdef DOSTRACE
+%ifdef OP_ONMOVE
+; (HOST code, so outside the core span above: it reads [dos_trseg], a host
+; bss cell, which SPEC.md 96.44.2 forbids a core proc to name)
+; dos_trmove - THE TRACE PART MOVED (SPEC.md 96.29.1.2, NO-PINNING 2). The
+; standard's op_carvemv has already stored [op_base]; BX = was, DX = now,
+; under a relocation proc's rules (66.3). Two words were banked from op_seg
+; and nothing else names the part: [dos_trseg] (the host's, which
+; tools/os88dosdbg.py reads afresh at every poll) and [dos_m33seg] (the
+; core's copy, 96.10.3). Every routine that touches the part loads ES from
+; one of them on entry - dos_trace, dos_tr_result, dos_int33's buckets and
+; dos_trace_dump - and no program is ever handed a pointer into it: it is
+; data, not code, and no vector points at it
+dos_trmove:
+    xor al, al
+    call op_seg
+    mov [dos_trseg], ax
+    mov [dos_m33seg], ax
+    ret
+%endif
+%endif
 
 ; -----------------------------------------------------------------------------
 ; kern_dos, AS A PART (docs/plans/KERN-DOS-PLAN.md §4.1)

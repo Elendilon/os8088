@@ -2097,7 +2097,14 @@ endif
 # under KERN_KNOB, and the shipped literal above is what t_canary compares.
 # kern_emu TOOK the same sector (SPEC.md 9.11.2.1) for vmm_boot_x until kernel
 # size pass 14 gave kern_big a thirteenth for VESA.DRV's attach: both fit
-# thirteen, so kern_emu is on the literal with kern_big now.
+# thirteen, so kern_emu was on the literal with kern_big - and the same pass's
+# reach agent took it back, when vid_apply and wm_refit's two callees moved
+# into the blob (ksp14/reach.md): kern_big's thirteen hold them with 61 bytes
+# to spare, and vmm_boot_x is the ~100 more that kern_emu carries. Only an
+# emulator boots it.
+ifneq ($(KERN_EMU),)
+BOOT2_XSEC := 1
+endif
 ifneq ($(BOOT2_XSEC),)
 BOOT2_SECS := $(shell echo $$(( $(BOOT2_SECS) + 1 )))
 BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
@@ -6238,7 +6245,7 @@ $(BUILD)/realdmg.bin: apps/realdmg/realdmg.asm apps/realdmg/rdgdefs.inc \
                       $(BUILD)/rdgcore.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
-                      apps/realdmg/rwfm.inc drivers/sound/sndpkg.inc \
+                      apps/realdmg/rwfm.inc apps/realdmg/rwmove.inc drivers/sound/sndpkg.inc \
                       apps/os88data.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/realdmg/ -I drivers/sound/ -I $(BUILD)/ -l $(BUILD)/realdmg.lst \
 		-o $@ apps/realdmg/realdmg.asm
@@ -6357,14 +6364,17 @@ $(BUILD)/install.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc 
 
 # ...and the GATE's build of it, never shipped (SPEC.md 117.10, tests/netinst.py):
 # the same source pointed at the host the test serves from QEMU's slirp.
-$(BUILD)/install-gate.bin: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
+# ONE RECIPE, TWO FILES: the map is a row's want (tests/netinst.py), and as a
+# side product with no rule of its own a tree build that named it before the
+# .o88 stopped on "No rule to make target" (tools/os88soak.py's frozen tree).
+$(BUILD)/install-gate.bin $(BUILD)/install-gate.map &: apps/install/install.asm apps/os88api.inc apps/os88ui.inc \
                            apps/os88dec.inc apps/os88link.inc apps/os88data.inc \
                            drivers/httpfs/hfpkg.inc drivers/net/netpkg.inc \
                            apps/os88sock.inc apps/install/OS88VER.TXT | $(BUILD)
 	$(NASM) -f bin -w+error --before "[map all $(BUILD)/install-gate.map]" \
 		-I apps/ -I drivers/httpfs/ -I drivers/net/ \
 		-D"IN_REL='$(INREL)'" -D"IN_URL='http://10.0.2.2:8096/net/'" \
-		-o $@ apps/install/install.asm
+		-o $(BUILD)/install-gate.bin apps/install/install.asm
 
 $(BUILD)/install-gate.o88: $(BUILD)/install-gate.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/install-gate.bin -o $@
@@ -8886,6 +8896,16 @@ $(BUILD)/cmemmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/chello.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/chello.o88
 
+# ...and the C OVERLAY's, for tests/ovlmove.py (docs/plans/NO-PINNING-PLAN.md
+# wave 0): COVL's lazy module is a bottom-up claim that lands above heapfrag's
+# floor, so closing heapfrag opens a hole under it and COVL's own M key - a
+# module-to-module call that claims - compacts the module out from under its
+# own call chain.
+$(BUILD)/ovlmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/covl.o88 \
+                         tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
+		$(BUILD)/covl.o88
+
 # ...and SHEET's own disk, for tests/sheetmove.py
 # (docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 2). Its own image for
 # trackmove360's reason - the listing is sorted by name (SPEC.md 19.4) - and
@@ -8895,6 +8915,18 @@ $(BUILD)/sheetmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/sheet.o88 \
                            tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/sheet.o88
+
+# ...and SHEET WITH its two code modules, for tests/sheetovlmove.py (SPEC.md
+# 82.16.11): the row moves CHART.OVL out from under its own call chain, so the
+# modules have to load - sheetmove360 leaves them off on purpose, its row
+# counting five declared claims. NOTE PAD owns the floor here rather than
+# HEAPFRAG, whose comb holds half the arena and leaves SHEET's ~200KB no room.
+# The raw cuts, not the packed ones: the row finds each module by its bytes.
+$(BUILD)/sheetovl360.img: $(BUILD)/notepad.o88 $(BUILD)/sheet.o88 \
+                          $(BUILD)/CHART.OVL $(BUILD)/MACRO.OVL \
+                          tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/notepad.o88 \
+		$(BUILD)/sheet.o88 $(BUILD)/CHART.OVL $(BUILD)/MACRO.OVL
 
 # ...and the three editors' disk, for tests/editmove.py (SPEC.md 66.5.7). One
 # image for all three because each run needs heapfrag plus exactly ONE app -
@@ -8941,6 +8973,23 @@ $(BUILD)/zmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/frotz.o88 \
                        $(BUILD)/zt/ZOPS.Z5 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/frotz.o88 $(BUILD)/zt/ZOPS.Z5
+
+# ...and the worker RESTART's (SPEC.md 66.5.9.3, tests/zrestart.py). The story
+# is tests/frotz/zrestart.inf, one command per park site, compiled here for
+# the reason above. CALC.O88 is the hole-maker: a region is claimed top-down,
+# so the instances opened before the story sit ABOVE Frotz's region, and
+# closing one leaves the hole a posted compaction packs it up into - one
+# instance per move, there being no way to put a hole above a region that has
+# already reached the ceiling. ZRS.Z5 rather than ZRESTART.Z5: 8.3.
+$(BUILD)/zt/ZRS.Z5: tests/frotz/zrestart.inf
+	@mkdir -p $(BUILD)/zt
+	@$(INFORMCHK)
+	$(INFORM) -v5 $< $@
+
+$(BUILD)/zrestart360.img: $(BUILD)/calc.o88 $(BUILD)/frotz.o88 \
+                          $(BUILD)/zt/ZRS.Z5 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/calc.o88 \
+		$(BUILD)/frotz.o88 $(BUILD)/zt/ZRS.Z5
 
 $(BUILD)/filetest.bin: tests/filetest/filetest.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/filetest/filetest.asm
@@ -10193,6 +10242,17 @@ $(BUILD)/runcpm360.img: $(RUNCPMDEPS)
 	$(call RUNCPMIMG,$@,360)
 	@python3 tools/os88disk.py --verify $@
 
+# ...and the same 360KB disk with HEAPFRAG beside the package, for
+# tests/rcmove.py (SPEC.md 74.3.2): cmemmove360's recipe - heapfrag owns the
+# floor, RUNCPM lands above it, heapfrag's second run forces the pass that
+# moves the 64KB Z80 claim while the machine sits at its A> prompt. Its own
+# image because the listing is sorted by name (SPEC.md 19.4) and the row
+# names both packages; HEAPFRAG.O88 is an extra ROOT file the A\0 fill is
+# priced around ($(3) of RUNCPMIMG). On demand: nothing ships it.
+$(BUILD)/rcmove360.img: $(RUNCPMDEPS) $(BUILD)/heapfrag.o88
+	$(call RUNCPMIMG,$@,360,$(BUILD)/heapfrag.o88)
+	@python3 tools/os88disk.py --verify $@
+
 # THE CORE GATES (SPEC.md 71, docs/plans/completed/RUNCPM-PORT-PLAN.md wave 2). `make rczex`
 # is the plan's: boot build/runcpm.img in QEMU, launch RUNCPM, load ZEXDOC
 # through the debug key and read the terminal rows off screendumps until
@@ -10333,6 +10393,18 @@ $(BUILD)/c64120.img: $(C64DISK)
 
 $(BUILD)/c64360.img: $(C64DISK)
 	$(call C64IMG,$@,360)
+	@python3 tools/os88disk.py --verify $@
+
+# ...and C64 beside HEAPFRAG and NOTEPAD, for tests/emumove.py (C64-SPEC
+# 3.1.1): cmemmove's recipe for the 64KB RAM, plus a region-sized hole ABOVE
+# the parts carve - Note Pad's, opened before C64 and closed after - so the
+# pass moves the carve too (SPEC.md 73.14.2.1's CC_ONMOVE_PARTS). All at the
+# root - the row names them and the ROM is a part - and on demand: nothing
+# ships it.
+$(BUILD)/c64move360.img: $(BUILD)/heapfrag.o88 $(BUILD)/c64.o88 \
+                         $(BUILD)/notepad.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
+		$(BUILD)/c64.o88 $(BUILD)/notepad.o88
 	@python3 tools/os88disk.py --verify $@
 
 # THE COMPOSER'S BENCH (C64-SPEC §14.5, 9.7). The package's own
@@ -10538,6 +10610,14 @@ $(BUILD)/apple2120.img: $(APPLE2DISK)
 
 $(BUILD)/apple2360.img: $(APPLE2DISK)
 	$(call APPLE2IMG,$@,360)
+	@python3 tools/os88disk.py --verify $@
+
+# ...and the Apple II beside HEAPFRAG and NOTEPAD, for tests/emumove.py
+# --pkg apple2 (APPLE2-SPEC 3.1.1): c64move360's layout one machine along.
+$(BUILD)/a2move360.img: $(BUILD)/heapfrag.o88 $(BUILD)/apple2.o88 \
+                        $(BUILD)/notepad.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
+		$(BUILD)/apple2.o88 $(BUILD)/notepad.o88
 	@python3 tools/os88disk.py --verify $@
 
 # THE COMPOSER'S BENCH (APPLE2-SPEC section 16.6, 7.9). The package's own
@@ -11193,6 +11273,22 @@ $(BUILD)/loom120.img: $(LOOMDISK) tools/os88disk.py
 $(BUILD)/loom360.img: $(LOOMDISK) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 --folder SYSTEM/APPDATA \
 		--dir-slots LOOM=32 $(WEAVEFOLDER) $(LOOMFOLDER)
+	@python3 tools/os88disk.py --verify $@
+
+# THE FAMILY'S MOVE GATES' DISK (WEAVE-SPEC 1.2.6; tests/weavemove.py,
+# `soak -k weavemove -k loommove`): c64move360's layout - Note Pad for the
+# ceiling and a floor document, the package under test, heapfrag LAST so its
+# pinned blocks wall nothing - with both packages and what each opens, all at
+# the root: PONG.WAB and SHEET.WAB for WEAVE, PONG's three sources for LOOM.
+# On demand; a prerequisite of nothing.
+$(BUILD)/weavemove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/notepad.o88 \
+                           $(WEAVEDISK) $(WEAVELOOM) $(LOOMSRCS) \
+                           tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 --folder SYSTEM/APPDATA \
+		$(BUILD)/heapfrag.o88 $(BUILD)/notepad.o88 $(BUILD)/weave.o88 \
+		$(BUILD)/PONG.WAB $(BUILD)/SHEET.WAB $(WEAVELOOM) \
+		apps/weave/demos/pong.wml apps/weave/demos/pong.wjs \
+		apps/weave/demos/pong.wsp
 	@python3 tools/os88disk.py --verify $@
 
 

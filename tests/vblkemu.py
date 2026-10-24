@@ -61,7 +61,7 @@ ALIAS = 0x2800                          # --pm: CS, the code alias
 VSEG = 0xA000
 VB_PROBE = 0x5642 ^ 0x2E19
 VBV_SET, VBV_LIN, VBV_PLN, VBV_ONE = 0, 1, 2, 3
-VBM_NOWM3, VBM_VGA4 = 1, 2
+VBM_NOWM3, VBM_VGA4, VBM_NEWS = 1, 2, 4
 
 
 class Vga:
@@ -429,7 +429,16 @@ def main():
                         fails.append("%s (seed %d)" % (e, seed))
     g = vid.Geom(vid.LAY_CGA, 80, 200)   # ...and what one bit refuses
     vga = Vga(True)
+    # "No codebook yet" is a SESSION's state (98.3.23.1): VBV_SET forgets
+    # the codebook only with VBM_NEWS, a session's first bracket, and a
+    # later bracket KEEPS it - the rounds above have left one held, so
+    # without the bit the tile below is legal and must decode.
     cbset(part, vga, 80, 0, 2)
+    r = part.run(vga, VBV_ONE, data=vid.v2_lists(
+        [(0, b"\x00", "tile")], g))
+    if r["FLAGS"] & 1:
+        fails.append("one bit: a later bracket forgot the codebook it held")
+    cbset(part, vga, 80, VBM_NEWS, 2)
     r = part.run(vga, VBV_ONE, data=vid.v2_lists([], g))
     if r["FLAGS"] & 1:
         fails.append("one bit: an empty record with no codebook refused")

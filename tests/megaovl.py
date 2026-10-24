@@ -18,7 +18,7 @@ in the way) claims everything OSAPI_MEM_AVAIL says a compaction would leave,
 which the ascending run alone cannot hold - the compactor has to slide the
 carve UP into the hole. MEGALOWB prints every claim before and after.
 
-The carve (CWORD's 20KB, owned by CWORD's region) must be at a HIGHER
+The carve (CWORD's overlay, ~21KB, owned by CWORD's region) must be at a HIGHER
 segment after the claim; then the host types into CWORD and uses File > Save
 As (the overlay's dialog and its save path) onto C:, and C:\\DOC.RTF must
 hold the typed line. No kern_mega FAULT or CLOSED.
@@ -99,14 +99,24 @@ def main():
                 "kern_mega CLOSED"):
             fails.append(l)
     before, after = claims(lines, 0), claims(lines, 1)
-    # the carve: the 20KB block whose owner is a selector (CWORD's region
-    # above 1MB), the same owner on both sides
-    pick = lambda cs: [c for c in cs if c[1] == 0x500 and c[2] & 4]
+    # the carve: the block whose owner is a selector (CWORD's region above
+    # 1MB), the same owner AND size on both sides. Not MEGALOWB's own claim,
+    # which is selector-owned too and is at the segment its 'got' line
+    # printed. The size is not pinned here: the carve is the overlay's
+    # bytes rounded up, and the overlay grows with CWORD (cc_ovmthunk's
+    # module-to-module call made it 20KB -> 21KB), which a hard 0x500 read
+    # as "no carve at all"
+    got = [int(m.group(1), 16) for m in
+           (re.match(r"MEGALOWB: got (\w{4})$", l) for l in lines) if m]
+    sel = lambda cs: [c for c in cs if c[2] & 4 and c[0] not in got]
+    keys = set((c[1], c[2]) for c in sel(before)) & \
+        set((c[1], c[2]) for c in sel(after))
+    pick = lambda cs: [c for c in sel(cs) if (c[1], c[2]) in keys]
     b, a = pick(before), pick(after)
     print("megaovl: carve before %s after %s" % (
         ["%04X" % c[0] for c in b], ["%04X" % c[0] for c in a]))
     if len(b) != 1 or len(a) != 1:
-        fails.append("could not find CWORD's 20KB carve in both snapshots "
+        fails.append("could not find CWORD's carve in both snapshots "
                      "(%d, %d)" % (len(b), len(a)))
     elif a[0][0] <= b[0][0]:
         fails.append("CWORD's carve did not move up: %04X before, %04X "

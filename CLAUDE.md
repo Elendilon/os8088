@@ -296,8 +296,12 @@ make test-soak   #   ENFORCED budget — the runner FAILS fast over 30s and
                  #     OS? Boots to a desktop on both 1bpp adapters and on
                  #     VGA, builds and boots kern_small on its 128KB floor
                  #     machine, checks the mouse and the keyboard, and builds
-                 #     a C package. **5 rows**, and the 180s ceiling is a
-                 #     target for four lanes on an ordinary box. What it no
+                 #     a C package. **10 rows** - those five, and the
+                 #     ratchets the owner put there: `megahigh`, `sysfree`,
+                 #     `guidelock-full`, and the PIN ratchet's two halves,
+                 #     `pins` and `pinsrt` (docs/plans/NO-PINNING-PLAN.md
+                 #     4.1). The 180s ceiling is a target for four lanes
+                 #     on an ordinary box. What it no
                  #     longer carries is the 99-knob build matrix, which is
                  #     `soak -k 'buildmatrix'` now: a knob is an instrument,
                  #     and knob rot is not the OS being broken
@@ -1948,13 +1952,15 @@ session reading "push to elendilon" can plausibly hear "push to that person's
 repository", which is where the branch already lives, and do nothing.
 `git ls-remote --heads origin` settles it in one call.
 
-### 3. SEND the 360KB set after every commit, without being asked
+### 3. SEND the 360KB set and the two 1.44MB main disks after every commit, without being asked
 
-**All EIGHT of them** — `build/os8088-360.img`, `build/apps360.img`,
-`build/media360.img`, `build/office360.img`, `build/network360.img`,
-`build/games360.img`, `build/emu360.img` and `build/util360.img`. The owner wants the full set
-every time rather than a judgement about which disks a change could reach,
-and the set is exactly the 360KB images `all` builds: system, apps, the
+**All TEN of them**: the eight 360KB images `build/os8088-360.img`,
+`build/apps360.img`, `build/media360.img`, `build/office360.img`,
+`build/network360.img`, `build/games360.img`, `build/emu360.img` and
+`build/util360.img`, plus the two 1.44MB main disks, `build/os8088.img`
+(system) and `build/apps.img` (apps). The owner wants the full set
+every time rather than a judgement about which disks a change could reach.
+The 360KB part is exactly the 360KB images `all` builds: system, apps, the
 module's own disk (§24.4) and the five category disks (§24.6). It was three
 until the category disks landed, six until `emu360` did, seven until
 `util360` did, and it will grow
@@ -1962,14 +1968,16 @@ again — **`$(SHIPIMGS)` in the Makefile is the
 list**, filtered to the 360KB ones. Do NOT reach for `ls build/*360*.img`:
 that also catches `c64360`, `weave360`, `loom360` and `wire360`, which are
 on-demand disks `all` never builds and a soak leaves lying in `build/`.
+The 1.44MB pair is those two files and no others: the 720KB and 1.2MB
+geometries are not sent.
 
 **The exception: send them only when the commit could change the CONTENT of
-one of those eight disks.** A commit that cannot - documentation, notes, a plan,
+one of those ten disks.** A commit that cannot - documentation, notes, a plan,
 a test or harness file, a host tool that writes no shipped byte - sends
 nothing. The build number does not count: it is the commit count (SPEC.md
 §14.2), so every commit moves three bytes of `.text` in every image, and an
 image that differs only by that is not a change to its content. When the
-commit does reach one disk, the rule above stands and all eight go. Which tools
+commit does reach one disk, the rule above stands and all ten go. Which tools
 write shipped bytes, and so are NOT in the exception, is fork rule 6's list
 (`os88disk.py`, `os88pkg.py`, `os88drv.py`, `os88mini.py`, `buildnum.py`).
 

@@ -39,7 +39,8 @@ from harness import check, done                              # noqa: E402
 import sheetfmt as SF                                        # noqa: E402
 
 WORK = "build/sheetdel"                 # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetdel.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetdel.img")        # the run's tree, so a soak lane finds it
 DOC, JUNK = "SHIN.SLK", "ZJUNK.SLK"
 
 FILE_MENU = (75, 45)

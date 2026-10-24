@@ -115,10 +115,18 @@
    %endif
   %endmacro
   %macro UI_RUN 0                   ; text: the OPAQUE run (SPEC.md 6.1), and
-    call ct_cw_font_run             ; the only text this file draws
+   %ifdef OS88UI_KFAR               ; the only text this file draws
+    call KERNEL_SEG:cw_font_run
+   %else
+    call ct_cw_font_run
+   %endif
   %endmacro
   %macro UI_WIDTH 0
+   %ifdef OS88UI_KFAR
+    call KERNEL_SEG:font_width
+   %else
     call ct_font_width
+   %endif
   %endmacro
   %macro UI_PEN 0
    %ifdef OS88UI_KFAR
@@ -605,8 +613,15 @@ OS88UI_BT_SIZE   equ 18
 ; os88ui_bfind's answer, os88ui_arm's sentinel and OS88UI_BT_DOWN's - so a
 ; whole gesture is those routines' answers handed straight back here with no
 ; adjustment and no separate "is anything armed" flag to keep in step.
+;
+; WRITTEN ONCE AS A MACRO, OS88UI_BTN_BODY <label> (kernel size pass 14), and
+; expanded here as os88ui_btn - every package, and kern_big - byte for byte
+; what it was. kern_small (OS88UI_KBTNIMG, kernel/fdlg.inc) does not expand it
+; here: its button's only callers are CTRL.DRV and FDLG.DRV, so it is expanded
+; INTO each of those images instead, with OS88UI_KFAR's far primitives.
 ; -----------------------------------------------------------------------------
-os88ui_btn:
+%macro OS88UI_BTN_BODY 1
+%1:
     push ax
     push bx
     push cx
@@ -1217,6 +1232,10 @@ os88ui_ir: dw 0, 0, 0, 0        ; the inner rect, and the pair - DATA, inline,
 os88ui_bk: dw 0                 ; for os88ui_armw's reason
 os88ui_band: times 48 db 0      ; a picture cut by the clip, as a band
 %endif                          ; OS88UI_BIMG
+%endmacro
+%ifndef OS88UI_KBTNIMG
+OS88UI_BTN_BODY os88ui_btn
+%endif
 
 ; -----------------------------------------------------------------------------
 ; os88ui_bhit - is the point inside this button?
@@ -1228,7 +1247,10 @@ os88ui_band: times 48 db 0      ; a picture cut by the clip, as a band
 ; already, which is why the rect stays in BX here and moves to BP only in the
 ; drawing routine, where BX is one of gfx_frame's own arguments.
 ; -----------------------------------------------------------------------------
-os88ui_bhit:
+; (OS88UI_BHIT_BODY <label>, os88ui_btn's shape: kern_small's one caller is
+; FDLG.DRV, which carries its own - OS88UI_KBTNIMG)
+%macro OS88UI_BHIT_BODY 1
+%1:
     cmp cx, [bx+0]
     jl .no
     cmp cx, [bx+4]
@@ -1242,6 +1264,10 @@ os88ui_bhit:
 .no:
     stc
     ret
+%endmacro
+%ifndef OS88UI_KBTNIMG
+OS88UI_BHIT_BODY os88ui_bhit
+%endif
 
 ; --- OS88UI_NOGLYPH - the button WITHOUT the check-box/radio glyph ----------
 ; An OPT-OUT, OS88UI_BARONLY's shape one control along: the glyph's body and
@@ -6513,7 +6539,11 @@ section .cold
 ; could be DELETED: there is one way to draw a button and this is the kernel
 ; reaching it, not a second control.
 ; -----------------------------------------------------------------------------
-os88ui_kbtn:
+; (OS88UI_KBTN_BODY <label>, <its os88ui_btn>: kern_small expands it into
+; CTRL.DRV and FDLG.DRV beside their own button - OS88UI_KBTNIMG - and has no
+; resident copy and no os88ui_btn_f; the record stays in .bss, read through DS)
+%macro OS88UI_KBTN_BODY 2
+%1:
     push ax
     push bx
     mov [os88ui_krlbl], si
@@ -6525,10 +6555,13 @@ os88ui_kbtn:
     mov word [os88ui_krec+OS88UI_BT_DOWN], 0
     mov bx, os88ui_krec
     mov al, 1
-    call os88ui_btn
+    call %2
     pop bx
     pop ax
     ret
+%endmacro
+%ifndef OS88UI_KBTNIMG
+OS88UI_KBTN_BODY os88ui_kbtn, os88ui_btn
 
 ; -----------------------------------------------------------------------------
 ; os88ui_btn_f / os88ui_glyph_f - the far entries (SPEC.md 2.6)
@@ -6572,6 +6605,7 @@ os88ui_btn_f:
                                 ; while Theme lost its buttons. A FAR call is
                                 ; invisible to a grep for `call os88ui_btn`,
                                 ; which is how the sweep missed both.
+%endif                          ; OS88UI_KBTNIMG (os88ui_kbtn, os88ui_btn_f)
 %ifdef OS88UI_ARM
 ; ...and the arm's three, for ctrl.inc - which is an ON-DEMAND MODULE
 ; (SPEC.md 2.8) running from a heap claim with a CS of its own, so it reaches
