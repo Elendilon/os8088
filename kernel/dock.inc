@@ -963,9 +963,9 @@ db_erase_tile:
     push cx
     push dx
     call db_tile_rect         ; AX/BX/CX/DX = the whole tile
-    call thm_bg                 ; ("clobbers: nothing", so the rect survives)
-    call gfx_fill
-    jmp kret_dx
+    jmp wm_grow_erase.fill      ; ...and wm_grow_erase's own last three lines:
+                                ; the ground pen, the fill, the same four pops
+                                ; (kernel size pass 14, -6)
 
 ; -----------------------------------------------------------------------------
 ; db_xor_ring - toggle tile CX's ACTIVE mark   (the inner frame)

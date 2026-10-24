@@ -36,7 +36,8 @@ import sheetfmt as SF                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheetcell"                # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetcell.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetcell.img")        # the run's tree, so a soak lane finds it
 NAME = "CELLT.SLK"
 
 DATA = {(0, 0): 'Hello', (1, 0): 42.0}          # A1, A2 - A3 stays blank

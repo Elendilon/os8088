@@ -48,7 +48,8 @@ from os88geom import WIN_SIZE, W_SEG                          # noqa: E402
 from paintmove import pkg_syms                                # noqa: E402
 
 WORK = "build/sheetnote"
-DISK = "build/sheetnote.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetnote.img")        # the run's tree, so a soak lane finds it
 NAME = "NOTE.SLK"
 SAVED = "NOTE.BIF"
 CELLS = {(0, 0): 'Item', (0, 1): 'Cost', (1, 0): 'Rope', (1, 1): 12.5}

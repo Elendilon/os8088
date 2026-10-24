@@ -855,6 +855,28 @@ FAST = [
         "os8088_5150_sb_gla, and the driver is already up at the first "
         "desktop frame there",
         wants=("build/sndmove360.img",)),
+    Row("sndkeep", "soak", py("tests/sndkeep.py"), 60.0,
+        "SPEC.md 34.15.1/51.1.3: SOUND.DRV writes what it still needs into "
+        "DRV_H_KEEP at attach and the kernel shrinks its image claim to it - "
+        "the attach-only code always handed back, and the mixer verbs and "
+        "the volume popup too with no mixer: 11K -> 7K without, 11K -> 10K "
+        "with. Two legs: the Covox 5150 (no card, so no mixer) must hold "
+        "ceil(snd_keep/1K) in DRVR_KB AND the mem_tab record with the Covox "
+        "tier still up; the Sound Blaster 5150 (a mixer) ceil(snd_keepmix/"
+        "1K). Red at 11K on both with either the driver's store or %1_att's "
+        "mem_regrow taken out, and red at 7K on the SB leg with snd_keep "
+        "written unconditionally",
+        wants=("build/covoxsys720.img", "build/mixer360.img")),
+    Row("sndonce", "soak", py("tests/unit/t_sndonce.py"), 1.0,
+        "SPEC.md 34.15.1: nothing SOUND.DRV keeps reaches into what its "
+        "attach hands back - read off the assembler's own listing, no "
+        "emulator. Below snd_keepmix only snd_entry (the attach, before the "
+        "shrink) may name a label past it; below snd_keep only snd_pkg's "
+        "verb table and snd_detach, both behind [mix_kind], may name the "
+        "mixer's. Red on `call opl_probe` in snd_tier and on `call mix_get` "
+        "in sbl_tick, and its first run caught snd_detach calling "
+        "opl_tmrst, a helper that had moved with the probes. SOAK, being "
+        "about one driver (docs/WRITING-TESTS.md 2.1)"),
     Row("fmrefuse", "soak", py("tests/fmrefuse.py"), 30.0,
         "SPEC.md 2.6.1.1: a FAR-ENTERED body needs a FAR tail, and "
         "drv_svc_call_x's refusal shared drv_svc_none's NEAR one with "
@@ -1939,6 +1961,16 @@ FULL = [
         "and not fast because the owner asked for it there; host-side, "
         "0.03s measured",
         needs=()),
+    Row("chxthunk", "soak", py("tests/unit/t_chxthunk.py"), 4.0,
+        "No .text code in SHEET calls through a module vector (SHOUT / "
+        "call far [sh_v_|ch_v_]): ch_xthunk takes any CS that is not "
+        "CHART.OVL's for MACRO.OVL's, so a resident caller's far return "
+        "lands in MACRO.OVL at a .text offset and the machine dies on the "
+        "death panel - sh_new's SHOUT sh_colw_clear did, on File > New. "
+        "Sections are nasm's map, not a walk's guess; red with that SHOUT "
+        "put back. Soak, not fast: it is about one package; host-side, "
+        "3.9s measured",
+        needs=()),
     Row("pins", "full", py("tests/unit/t_pins.py"), 5.5,
         "docs/plans/NO-PINNING-PLAN.md 4, at the owner's word ('a full tier "
         "test to ratchet pins'): every heap-claim site in apps/, drivers/ "
@@ -2156,6 +2188,9 @@ SOAK = [
         needs=("marty", "nasm", "pil"), wants=("build/wireflet360.img", "build/wireflet720.img", "build/os8088-360.img", "build/os8088-720.img"), timeout=300),
     Row("wirefleetnomouse", "soak", py("tests/wirefleetnomouse.py"), 50.0,
         "WireFleet's link before the mouse contest settles (SPEC.md 115.1.1): no evidence refused with the name-the-port line, Link > Connect COM2 taken, an identified mouse port refused even when named, and the search finding COM2 beside it - driven on the keyboard mouse",
+        needs=("marty", "nasm"), wants=("build/wireflet360.img", "build/os8088-360.img"), timeout=300),
+    Row("serlease", "soak", py("tests/serlease.py"), 12.0,
+        "a serial lease taken BEFORE the mouse contest settles keeps its line (SPEC.md 115.1.1, 115.2): the hot-plug reset cycle leaves the leased COM2's DTR/RTS up, the settle on COM1 (IRQ4) leaves COM2's IRQ3 unmasked and its IER armed, and the close leaves COM2 retired (IER 0, IRQ3 masked) - mou_lockon and srl_close; the mouse moves throughout",
         needs=("marty", "nasm"), wants=("build/wireflet360.img", "build/os8088-360.img"), timeout=300),
     Row("wirefleetart", "soak", py("tests/wirefleet.py", "--art"), 8.0,
         "WireFleet generated tiles: reproducibility, palette/bounds, distinct color/mono shot shapes (SPEC.md 114); "
@@ -5274,6 +5309,17 @@ SOAK = [
         "by name, vesa's reason",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/os8088.img", "build/apps.img", "build/vesa.img")),
+    Row("vesashut", "soak", py("tests/vesashut.py"), 40.0,
+        "Shut Down on a VESA desktop draws its turn-off screen (SPEC.md "
+        "120.4, 12.3.2): drv_shutdown_x detaches VESA.DRV first, so the "
+        "screen is put back on the card's own mode 12h - [vid_kind] VID_VGA "
+        "and its geometry - before the mode set and the sentence. Asserts a "
+        "640x480 screen, vid_kind 0 / vid_planes 4 and the sentence's white "
+        "pixels. Broken on purpose (the arm out of kernel/shutdown.inc) the "
+        "card stays at 1024x768 and the row fails. QEMU by name, vesa's "
+        "reason",
+        needs=("qemu", "nasm"),
+        wants=("build/os8088.img", "build/apps.img", "build/vesa.img")),
     Row("vesablitd", "soak", py("tests/vesablitd.py"), 90.0,
         "A package at the display's depth (SPEC.md 120.7, 106.27): "
         "build/vesablitd.img is vesa.img plus an AUTOSTRT link to CITY.PCX "
@@ -5844,7 +5890,10 @@ SOAK = [
         "under FTPD's pre-empted worker. A unit test inside the live machine: "
         "the row parks the CPU on wm_nest_pushd/pop, mem_in_nest and "
         "inst_seg_parked with chosen registers and puts everything back. 7.6s "
-        "measured; all six go red with the push's `jne .count` taken out",
+        "measured; all six go red with the push's `jne .count` taken out, and "
+        "the seventh - a UI push made while a worker's count stands is still "
+        "recorded, wm_tcnt being wm_pkgd's HIGH byte - with the push's index "
+        "made a word load again (kernel size pass 14)",
         needs=("marty",), serial=True),
     Row("lemmove", "soak", py("tests/lemmove.py"), 121.0,
         "LEMMINGS' KEPT LEVEL MOVES AND PLAYS ON (SPEC.md 116.6.2, "

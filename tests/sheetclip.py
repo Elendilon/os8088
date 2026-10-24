@@ -44,7 +44,8 @@ from harness import check, done                              # noqa: E402
 import sheetfmt as SF                                        # noqa: E402
 
 WORK = "build/sheetclip"
-DISK = "build/sheetclip.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetclip.img")        # the run's tree, so a soak lane finds it
 NAME = "CLIP.SLK"
 TITLES = ["File", "Edit", "Formula", "Format", "Data", "Options", "Macro",
           "Sheets", "Help"]

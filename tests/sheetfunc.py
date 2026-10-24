@@ -36,7 +36,8 @@ from harness import check, done                              # noqa: E402
 import sheetfmt as SF                                        # noqa: E402
 
 WORK = "build/sheetfunc"                # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetfunc.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetfunc.img")        # the run's tree, so a soak lane finds it
 NAME = "FUNC.SLK"
 WRONG = -999.0
 T, FA = ('bool', True), ('bool', False)

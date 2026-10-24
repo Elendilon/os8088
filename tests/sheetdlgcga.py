@@ -41,7 +41,8 @@ from harness import check, done                              # noqa: E402
 import sheetfmt as SF                                        # noqa: E402
 
 WORK = "build/sheetdlgcga"
-DISK = "build/sheetdlgcga.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetdlgcga.img")        # the run's tree, so a soak lane finds it
 NAME = "CGA.SLK"
 CGA_H = 200
 TITLES = ["File", "Edit", "Formula", "Format", "Data", "Options", "Macro",

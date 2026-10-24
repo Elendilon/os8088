@@ -102,6 +102,7 @@ srl_mcr: db 0
 srl_div: db 12
 srl_pic: db 0
 srl_mask: db 0
+srl_seen: db 0                 ; [mou_seen] when the lease was taken
 
 ; Module API. DH=the stamped instance slot (< INST_MAX), ES=caller.
 srl_api:
@@ -265,6 +266,8 @@ srl_open:
     CSDO mov [CSEG srl_seg], es
     CSDO mov [CSEG srl_buf], si
     CSDO mov [CSEG srl_owner], dh
+    mov dl, [mou_seen]          ; settled or not, as the lease begins: what
+    CSDO mov [CSEG srl_seen], dl ; srl_close asks of the contest
     mov [ser_row], bx
     mov dl, [bx+mou_masks]
     CSDO mov [CSEG srl_mask], dl
@@ -357,6 +360,19 @@ srl_open:
 
 srl_close:
     mov word [ser_row], 0xffff ; withdraw IRQ routing before state is released
+    cmp byte [cs:srl_seen], 0   ; THE CONTEST SETTLED WHILE THIS WAS LEASED
+    jne .put                    ; (115.1.1), and mou_lockon skipped the row: it
+    cmp byte [mou_seen], 0      ; is a loser now, so it goes back as mou_lockon
+    je .put                     ; leaves one - IER 0, and its line masked
+    CSDO mov byte [CSEG srl_ier], 0 ; unless it is the mouse's (or unknown) -
+    mov al, [mou_line]          ; and not as the open found it, which was the
+    or al, al                   ; contest's armed state (SPEC.md 115.2)
+    jz .put
+    mov ah, [cs:srl_mask]
+    cmp al, ah
+    je .put
+    CSDO mov [CSEG srl_pic], ah
+.put:
     mov dx, [cs:srl_base]
     add dx, 3
     mov al, 0x80

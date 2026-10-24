@@ -708,7 +708,7 @@ inst_seg_parked:
     ; nothing and the `pop di` below puts back.)
     push bx
 %ifdef OS88_COMPACT
-    cmp word [wm_tcnt], 0       ; A PACKAGE WORKER INSIDE A DRIVER VERB (K9):
+    cmp byte [wm_tcnt], 0       ; A PACKAGE WORKER INSIDE A DRIVER VERB (K9):
     jne .svcbusy                ; ETHER.DRV's run on FTPD's, Telnet's and the
 %endif                          ; Browser's workers, which hold its pool in ES
     mov bx, sch_tasks           ; mid-copy - and are no TF_SERVICE task
@@ -731,10 +731,13 @@ inst_seg_parked:
 .cf:
     pop di
     retf
-%ifdef OS88_COMPACT
+%ifdef KERN_MEGA
     nop                         ; PARITY PAD, never executed: K9's test above
 %endif                          ; is 7 bytes and the routines below keep an
-                                ; EVEN shift (t_hotpar.py)
+                                ; EVEN shift (t_hotpar.py) - on kern_mega; the
+                                ; other compacting kernels are back even by
+                                ; mem_rr_tab's four new rows less menu_reloc
+                                ; (kernel size pass 14)
 ; -----------------------------------------------------------------------------
 ; inst_svc_parked - has every DRIVER worker parked? (SPEC.md 66.5.5) - INLINE,
 ; in inst_seg_parked's .drv arm above (size pass 9)
@@ -1680,11 +1683,9 @@ app_close_win:
 .out:
     pop di
     ret
-%ifndef KERN_SMALL
-    db 0                        ; PARITY PAD, never executed (kernel size pass
-                                ; 13): ui_task and everything to the end of
-                                ; .text back at an even shift on kern_big
-%endif                          ; (kern_small's pad is after dskw_batch)
+                                ; (kern_big's parity pad here and menu.inc's
+                                ; before menu_popup cancelled, with nothing
+                                ; hot between them: kernel size pass 14)
 
 ; -----------------------------------------------------------------------------
 ; inst_minimize - send a window's instance to the dock

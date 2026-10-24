@@ -1259,6 +1259,10 @@ mou_lockon:
 .port:
     cmp bl, [mou_port]
     je .next
+    cmp bx, [ser_row]           ; a port LEASED before the contest settled is
+    je .next                    ; SERIAL.DRV's until it is released: srl_close
+                                ; retires it then (SPEC.md 115.2). With no
+                                ; lease [ser_row] is FFFFh and never matches
     cmp word [bx+mou_bases], 0
     je .next
     mov ax, 0x0100              ; IER = 0 - and THIS is what silences the

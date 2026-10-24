@@ -1743,7 +1743,7 @@ in the tree.
   refuses — never at zero, which is a far call to the divide-by-zero vector.
 - **There is no `MOD_NENT`: each module's slot block is exactly its own
   entry count long.** Each module declares `X_NENT` beside its header
-  (`CP_NENT` 8 on `kern_big` and 6 on `kern_small`, plus one with
+  (`CP_NENT` 10 on `kern_big` and 6 on `kern_small`, plus one with
   `DOCK_OPT` and one with `OS88_SHORTCUTS`; `FM_NENT` 4, `CLO_NENT` 2,
   `HB_NENT` 7, `DK_NENT` 2, `EXT_NENT` 7, `FCP_NENT` 4, `FD_NENT` 7), and
   kernel.asm's `MODFP` macro, below every module's `%include`, emits that
@@ -14328,7 +14328,9 @@ Two things frame the whole design:
   leaves the row's **base in place**, because `mouse_unhook` still owes that
   port its vector. After it, the second port cannot be heard again at all,
   which is what bounds everything below to the seconds before the mouse is
-  first moved.
+  first moved. **A row LEASED to `SERIAL.DRV` is skipped** (`[ser_row]`,
+  §115.2): a lease taken before the contest settled (§115.1.1) keeps its IER
+  and its line until it is released, and the release retires it then.
 
 #### 9.5.1 The other port is a modem, and that is the hard part
 
@@ -17109,7 +17111,12 @@ a rare cell is six bytes (§20.3).*
   down by one, so **class 3 and class 4 land on the SAME `drv_svc` slot** —
   harmless only for as long as class 3 is never published. A published class-3
   driver would overwrite `DRVC_NET`'s service table, which is precisely the
-  silent cross-class disconnection §51.2.1 exists to prevent.
+  silent cross-class disconnection §51.2.1 exists to prevent. (That is still
+  `kern_small`'s compaction. On the builds with a driver layer, `drv_svcix`
+  gives class 3 **no** copied table since kernel size pass 14, at the owner's
+  word that retired drivers are not run, so `drv_cls_svc_x` refuses it and the
+  Control Panel's close walk no longer reaches `ETHER.DRV`'s `DSV_CPCLOSE` a
+  second time through it.)
 - **Giving `DRVC_POINT` no `drv_svc` slot at all is worth 38 bytes of `.bss`
   and IS actionable — as its own change, with a gate.** The driver publishes
   only `DSV_NAME`, which the kernel reads **nowhere** (three matches in
@@ -17856,8 +17863,9 @@ which dispatches another package's paint proc.
 Storage: `wm_wins` (MAX_WIN × WIN_SIZE, .bss), z-order byte array
 `wm_zord` (window indices, index 0 = backmost) + `wm_zn` count. Those
 three must stay contiguous and in that order — wm_init zeroes them as one
-`rep stosb` run, which starts at the nest stack `wm_pkgd`/`wm_pkgs` (§66.6.1)
-and runs through `wm_clreq`/`wm_clask` (§75.2). After it sits `wm_owner`
+`rep stosb` run, which starts at `wm_zrun` - the nest stack `wm_pkgd`/`wm_pkgs`
+on kern_big (§66.6.1), `wm_wins` itself on kern_small, which has no nest
+(§66.6.3.2) - and runs through `wm_clreq`/`wm_clask` (§75.2). After it sits `wm_owner`
 (MAX_WIN bytes, **not** part of the zero run): the instance index (§29) owning each window slot,
 0xFF = unowned; wm_init fills it with 0xFF separately. Writers:
 `inst_bind_win` at instance creation, `wm_destroy` (resets the destroyed
@@ -32991,10 +32999,12 @@ that letters it; there is no fill anywhere in the module and the line is never
 momentarily blank. It also puts §11.3's granularity rule out of reach — there
 is no erase-and-letter pair here to disagree. The pen is floored to a cell by
 `spl_mgeom`, so both mono adapters take `font_run`'s single-store path (§6.1),
-which is what makes a 32-cell line affordable on the machine it exists for.
+which is what makes a 37-cell line affordable on the machine it exists for.
 
-`SPL_MSG_CELLS` is 32 because the longest line the tree can compose is
-`Loading Driver 1/5 (Hard Drive)` = 31 cells. The bound lives inside
+`SPL_MSG_CELLS` is 37 because the longest line the tree can compose is
+`Loading Driver NN/NN (Absolute mouse)` = 37 cells: a two-digit row count
+and `DRV_TITLES`' longest title, kern_emu's. It was 32, sized when the
+longest was `Loading Driver 1/5 (Hard Drive)`, and cut kern_emu's lines off. The bound lives inside
 `spl_mput`, so a longer one truncates at the reserved width rather than writing
 past the buffer, and nothing above it has to carry a length. The gfx lock is
 not held, exactly as `spl_paint` does not hold it: the UI task does not exist
@@ -70643,7 +70653,10 @@ bitmap in screen polarity, inverting it for Dark with the popup's existing
 scratch. Verb 10 stays in the driver for an older kernel; this kernel calls
 12 alone, so a sound driver built before the themed verb shows no speaker
 rather than costing every kernel the fallback. SOUND.DRV rounds to 11KB of
-image plus state on the heap; `DRVM_IMG_SND` is 11. The popup claims only
+image plus state on the heap; `DRVM_IMG_SND` is 11. **That is the IMAGE**: loaded,
+the driver holds 10KB with a mixer and 7KB without, the attach-only code -
+and with no mixer the mixer verbs and this popup too - having been handed
+back after the attach (§34.15.1). The popup claims only
 its adapter-sized save-under while open: up to 8KB on VGA/EGA and 2KB on
 the mono adapters. VESA uses the same depth-based formula: 15KB at 8bpp or
 30KB at 16bpp (§120.4).
@@ -70699,6 +70712,66 @@ instances while allowing smooth dragging on coarse mixers.
 Hardware reference: Creative, *Sound Blaster Series Hardware Programming
 Guide*, chapter 4 (CT1335/CT1345/CT1745), available at
 https://www.phatcode.net/res/243/files/sbhwpg.pdf .
+
+### 34.15.1 What a machine cannot run leaves the claim
+
+SOUND.DRV is 11,151 bytes and two runs of it are dead weight once its attach
+has answered:
+
+- **the attach-only code** - `opl_probe` and `opl_kind_probe`, `opl_init`'s
+  one-time chip init, `mpu_probe` and its three helpers with `os88_pin`,
+  `cvx_probe` and the `snd_upnm` it falls into, the PicoMEM's bring-up and
+  undo (`pm_init`, `pm_cmd`, `pm_wait`, `pm_undo`) and `mix_probe`. They run
+  inside `DRVV_ATTACH` and never again, on EVERY machine. **The Sound Blaster
+  probe is not among them**: `DRVV_TIER` re-runs `sbl_attach` all session, so
+  `sb.inc` stays whole.
+- **the mixer verbs (7–9), the speaker icon (10, 12) and the volume popup
+  (11)**, dead on every machine whose attach found no readable mixer: the PC
+  speaker, an AdLib alone, a Covox, an MPU-401, a Sound Blaster older than the
+  CT1335. The kernel never shows the speaker there (`SND_CAP_MIXER` is clear)
+  and Mixer is told `SNDE_NOMIX`.
+
+So the image is laid out to give them back, with two ends:
+
+```
+[header][the tiers][their state][mix_kind] snd_keep: [mixer][popup][their state] snd_keepmix: [attach-only]
+```
+
+The attach - the one place `mix_probe` runs, so a tier change cannot bring a
+mixer into existence - writes `snd_keepmix` into the header's `DRV_H_KEEP`,
+or `snd_keep` when `[mix_kind]` is 0, and the kernel shrinks the image's
+claim to it before the tier and `DRVV_READY` calls (§51.1.3):
+
+| build | no mixer (`snd_keep`) | a mixer (`snd_keepmix`) |
+|---|---|---|
+| shipped (PicoMEM in) | 6,579 bytes: **11KB → 7KB**, 589 under the rung | 10,124: **11KB → 10KB**, 116 under |
+| `NOPICOMEM=1` | 6,373: 11KB → 7KB | 9,918: 11KB → 10KB |
+
+The attach-only bodies are defined as macros (`MPU_ONCE`, `CVX_ONCE`,
+`PM_ONCE`, `MIX_ONCE`) and expanded where their files put them unless
+`SND_SPLIT` is defined - which SOUND.DRV does, expanding them past
+`snd_keepmix` - so `picomem.inc`'s other includers (`tests/picomem/`,
+`tests/vidbench/vidsnd.asm`) assemble exactly as before.
+
+**Nothing kept is ever reached into what was handed back.** `snd_pkg`
+refuses verbs 7–12 with `SNDE_NOMIX` when `[mix_kind]` is 0 (verb 11's CF = 1
+is then "not on the speaker", which is true), and `snd_detach` tests it
+before `mix_detach` - which is why `mix_kind` is the core's byte and not
+`MIX_STATE`'s, and why the verbs themselves no longer test it. Below
+`snd_keepmix` only `snd_entry` names a label past it. Both rules are layout
+rules that assemble cleanly when broken, so `tests/unit/t_sndonce.py` reads
+them off the assembler's listing; its first run found `snd_detach` calling
+`opl_tmrst`, a ten-byte helper that had sat between the probes and moved with
+them - it is resident beside `opl_defpat` now.
+
+**What it costs**: no state is the file's trailing zero run any more - the
+attach-only code is the end of the file - so ~1.3KB of zeros ship: **+10
+bytes** of the `.drv` under `PKGZ` (8,600 → 8,610), ~1.3KB under `PKGZ=`. The
+shrink keeps the image's BASE (§50.3 path 1), so no CS and no hooked vector
+moves; the KB it frees is the top of a top-down claim, a free run directly
+above the driver, and on the Covox 5150 the boot's last compaction carries
+the shrunk image to the ceiling so that run rejoins the free middle
+(`tests/sndkeep.py`).
 
 ## 35. Recorder — the sound layer's recording client
 
@@ -96730,6 +96803,30 @@ gap, and the map shows a 2KB claim landing inside a former 9KB hole); and it
 was not the two-claim scratch §20.13.3.1 has since deleted — removing the pad
 while that scratch still stood left 5 runs and 364.0K.
 
+### 51.1.3 An attach may hand the end of its image back (`DRV_H_KEEP`)
+
+A driver can know, once its attach has probed, that the END of its image can
+never run on this machine - SOUND.DRV with no mixer (§34.15.1). It says so by
+writing the byte offset where what it still needs ends into **`DRV_H_KEEP`,
+the header's link word at +4**, before it returns from `DRVV_ATTACH`. The
+loader has already required that word to be 0 (`ld_hdr_ok`) and never reads
+it again, so no driver says this by accident, an older driver keeps its whole
+claim, and an older kernel ignores the word: **no ABI break, no `DRV_VER`
+bump**.
+
+The kernel (`DRV_ATTACH`'s `%1_att`, kern_big's three expansions: the boot
+blob, CTRL.DRV and HIBER.DRV) reads it after the publish and before
+`DRVV_TIER` and `DRVV_READY`, rounds it up to a KB and, when that is smaller
+than `DRVR_KB`, calls `mem_regrow` through the image's own hop into `.cold` -
+**zero resident bytes** - and stores the new KB in `DRVR_KB`, which is what
+the Drivers page weighs. A refusal leaves the claim as it was. It is skipped
+when `DRVR_KB` is 0 (an image in the HMA or above 1MB, which no claim holds),
+and kern_small, which loads no driver that writes it, does not assemble it.
+
+The rules for the driver are the ones for any memory it gives away: put what
+may be dropped LAST, its zeroed state after its code, and let every way into
+it be guarded by a byte BEFORE the offset.
+
 ### 51.2 The contract
 
 The entry proc is the only thing the kernel calls by offset; everything else
@@ -98164,6 +98261,13 @@ The caller is the **resident** driver, necessarily: the fence resolves a
 `drv_tab` row from the calling segment, and a driver's second image (§52.11,
 §62.9.9) has no row. A page living in an overlay therefore asks through its
 resident half and is called back through it, which is what `RAMDISK.DRV` does.
+
+**The cell's BODY is `CTRL.DRV`'s** (`modc_e_dlg`, entry `CPE_DLG`; kernel size
+pass 14). It can only succeed with the panel's window up, and a panel up is
+that image loaded, so the resident cell is `jmp far [CPFP + CPE_DLG*4]` and
+with no image the slot is `mod_gone`'s CF = 1, registers kept - the answer the
+body gave there. The slot never loads the image, so nothing new needs the
+system disk; `drv_dlg_done_x`, a kernel window's completion, stays resident.
 
 ## 52. HDD.DRV — the hard-disk driver (drivers/hdd/)
 
@@ -115254,7 +115358,20 @@ runs (on the UI task, §66.3.1) while some worker is inside some image, and
 then the compaction achieves less once - never corruption. The exact form (a
 word per task naming its image) was built and measured at 148 resident bytes
 against this one's 42, and refused for that. `tests/tnest.py` is the gate.
-kern_small has no compactor and is byte-identical.
+
+**The count is the HIGH BYTE of the depth's word** (kernel size pass 14):
+`[wm_pkgd]` and `[wm_tcnt]` are adjacent bytes, depth low, so `mem_in_nest`'s
+one load bounded against `WM_PKGD_MAX` answers both "deeper than the stack
+records" and "another task is inside an image" - and the push indexes the
+stack by the LOW byte alone, so a level the UI task enters while a worker's
+count stands is still recorded (`tests/tnest.py` assertion 7). 255 calls in
+flight on other tasks is past what twelve workers can make.
+
+**kern_small has no nest at all.** Its one reader is `mem_in_nest`, which is
+the compactor's, so on the kernel with no compactor the stack was written and
+never read: `wm_nest_pushd`/`wm_nest_pop`, their far entries, `wm_pkgcall`'s
+two calls and the 18 bytes of `.bss` are `OS88_COMPACT` (kernel size pass 14,
+74 resident bytes).
 
 #### 66.6.4 …and the one claim a CHIP points into
 
@@ -215045,6 +215162,17 @@ that later proves to hold an idle mouse costs that mouse its port only until
 Close; the contest resumes there afterwards. All of it is in `SERIAL.DRV`:
 no resident byte. A settled contest ignores bit 7.
 
+**The contest settling DURING the lease** - a mouse moved on the other port -
+leaves the leased port alone: `mou_hotplug`'s reset cycle never drops its
+DTR/RTS (`mou_pall` goes through `mou_pout`, which skips `[ser_row]`), and
+`mou_lockon` skips the row, so its IER and its 8259 line stay as Open set
+them for as long as the lease is held. Before kernel size pass 14 the
+retirement masked a leased port whose line was not the mouse's, leaving the
+link serviced only by Read and Write (an 8250 at 2400 baud on an XT drops
+bytes). Close then leaves the port as `mou_lockon` would have: IER 0 and its
+line masked unless it is the mouse's - not the armed state Open found, which
+was the unsettled contest's (§115.2). `tests/serlease.py` is the gate.
+
 Refusals are AX=1 busy/wrong owner, 2 mouse not settled, 3 mouse port,
 4 absent/unsupported port (BL not 1 or 2, or the boot probe found no UART
 there, §9.5), 5 invalid caller/buffer, 8 module unavailable, and 9 the
@@ -215081,7 +215209,11 @@ recovers from a missed IRQ edge without waiting for another mouse event.
 The rings and their publication order are identical on both paths.
 
 Close first withdraws the row from serial dispatch with interrupts disabled,
-then restores the UART/PIC state before the module can be freed. Instance
+then restores the UART/PIC state before the module can be freed - except
+IER and the PIC bit of a port the contest RETIRED while it was leased
+(settled at Close and not at Open, §115.1.1): those go back as `mou_lockon`
+leaves a loser, IER 0 and the line masked unless it is the mouse's
+(`[mou_line]`) or unknown. Instance
 teardown force-releases its lease before freeing package memory; reboot
 silences it before mouse vectors are unhooked. A lease survives §53 entry.
 Hibernate is refused while a serial lease is active: UART registers and

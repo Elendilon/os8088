@@ -60,7 +60,8 @@ import sheetfmt as SF                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheetdbcmd"               # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetdbcmd.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetdbcmd.img")        # the run's tree, so a soak lane finds it
 NAME = "DBCMD.SLK"
 DATA = (311, 45)                        # the Data menu, tests/sheetdb.py's
 ITEM = lambda x, i: (x + 17, 57 + 12 * i + 2)

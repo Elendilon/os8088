@@ -51,7 +51,8 @@ from paintmove import pkg_syms                                # noqa: E402
 from os88geom import WIN_SIZE, W_SEG                          # noqa: E402
 
 WORK = "build/sheetask"
-DISK = "build/sheetask.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetask.img")        # the run's tree, so a soak lane finds it
 NAME = "ASK.SLK"
 CELLS = {(0, 0): 'Item', (0, 1): 'Cost', (1, 0): 'Rope', (1, 1): 12.5}
 TITLE_H = 18

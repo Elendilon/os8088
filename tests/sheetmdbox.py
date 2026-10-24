@@ -38,7 +38,8 @@ import sheetfmt as SF                                        # noqa: E402
 from os88geom import WIN_SIZE, MAX_WIN, W_FLAGS                 # noqa: E402
 
 WORK = "build/sheetmdbox"               # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetmdbox.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetmdbox.img")        # the run's tree, so a soak lane finds it
 NAME = "DBOX.SLK"
 MACRO = (435, 45)
 RUN = (MACRO[0] + 17, 57 + 12 + 2)

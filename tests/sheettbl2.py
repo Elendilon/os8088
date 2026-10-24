@@ -83,7 +83,8 @@ from paintmove import pkg_syms                                # noqa: E402
 from os88geom import WIN_SIZE, W_SEG                          # noqa: E402
 
 WORK = "build/sheettbl2"
-DISK = "build/sheettbl2.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheettbl2.img")        # the run's tree, so a soak lane finds it
 NAME = "SHIN.SLK"
 
 # TWO one-input tables with COLUMN input cells, side by side in rows 1-3 so

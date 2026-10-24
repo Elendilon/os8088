@@ -2123,11 +2123,10 @@ mem_is_region:
 mem_in_nest:
     push cx
     push di
-    cmp word [wm_tcnt], 0       ; ANOTHER TASK is inside SOME image (K9):
-    jne .yes                    ; pin them all while it lasts
-    mov cx, [wm_pkgd]
-    cmp cx, WM_PKGD_MAX
-    ja .yes                     ; deeper than wm_pkgs records: pin everything
+    mov cx, [wm_pkgd]           ; [wm_tcnt] IS THE HIGH BYTE (wm.inc), so
+    cmp cx, WM_PKGD_MAX         ; this one bound pins everything both when the
+    ja .yes                     ; UI task is deeper than wm_pkgs records and
+                                ; while ANOTHER TASK is inside SOME image (K9)
     mov di, wm_pkgs
     jcxz .no                    ; nothing is being called at all
 .s:
@@ -2196,12 +2195,18 @@ mem_fatw_dirty:
 %ifdef OS88_COMPACT
 ; -----------------------------------------------------------------------------
 mem_in_xfer:                    ; TWO WORDS (docs/plans/NO-PINNING-PLAN.md
-    push ax                     ; K2): [mem_pinseg], the transfer's
-    push bx                     ; destination, and [mem_pinimg], a mounted
-    push di                     ; image's run table while the kernel holds
-    mov di, mem_pinseg          ; its segment across disk calls - a nested
-.w:                             ; transfer re-points the first and leaves
-    mov ax, [di]                ; the second alone. Adjacent, asserted below
+    push ax                     ; K2): [mem_pinimg], a mounted image's run
+    push bx                     ; table while the kernel holds its segment
+    mov ax, [mem_pinimg]        ; across disk calls, and [mem_pinseg], the
+    cmp ax, [ss:si+MC_SEG]      ; transfer's destination - a nested transfer
+    stc                         ; re-points the second and leaves the first
+    je .out                     ; alone. THE IMAGE'S IS A BASE, so it is an
+                                ; EQUAL compare and not a range: every writer
+                                ; stores IMG_DVSEG or the claim clo_mseg names,
+                                ; which is the claim's own MC_SEG, and 0 (none)
+                                ; is no live record's base (kernel size pass
+                                ; 14: it was this walk's second word, -3)
+    mov ax, [mem_pinseg]
     or ax, ax
     jz .no
     cmp ax, [ss:si+MC_SEG]
@@ -2211,13 +2216,8 @@ mem_in_xfer:                    ; TWO WORDS (docs/plans/NO-PINNING-PLAN.md
     cmp ax, bx
     jb .out                     ; inside - and `jb` is CF = 1, the answer
 .no:
-    inc di
-    inc di
-    cmp di, mem_pinimg + 2      ; CF = 1 while a word is left to ask...
-    jb .w
-    clc                         ; (...and the `jae` fell through on CF = 0)
+    clc
 .out:
-    pop di
     pop bx
     pop ax
     ret
@@ -2754,6 +2754,9 @@ mem_rr_walk:
     jmp short .row
 .done:
     ret
+mem_rr_none equ mem_rr_walk.done ; the relocation proc of a claim whose word
+                                ; is a ROW above: nothing left to do (kernel
+                                ; size pass 14)
 
 ; -----------------------------------------------------------------------------
 ; mem_region_reloc - THE KERNEL'S HALF of a package REGION's move (SPEC.md 66.6)
@@ -2977,6 +2980,23 @@ mem_rr_tab:
                                     ; into its image (kernel/vidext.inc, SPEC.md
                                     ; 120.3.2): a moved image is otherwise
                                     ; called at its OLD address
+%endif
+%ifndef KERN_MEGA
+    ; FOUR KERNEL WORDS whose relocation procs were `cmp bx, [w] / jne /
+    ; mov [w], dx / ret`, eleven bytes each against a four-byte row (kernel
+    ; size pass 14). Each declares itself movable with mem_rr_none, the walk's
+    ; own `ret`, and is EXACT because its word is 0 whenever its claim is
+    ; gone: the free paths zero it (menu_drop's and stm_shut's xchg,
+    ; dsk_rah_redo's store, asc_use's exit, which zeroes before it frees)
+    ; and mem_shed_one zeroes the caches' through mem_pg_own,
+    ; so it never holds a base that is not its own live claim. Not on
+    ; kern_mega, where [ico_seg] and [dsk_rah_seg] can hold a SELECTOR
+    MEM_RR_ONE menu_sseg
+    MEM_RR_ONE ico_seg
+    MEM_RR_ONE dsk_rah_seg
+%ifdef OS88_ASSOC
+    MEM_RR_ONE asc_seg              ; ASSOC.DAT's one-call file buffer
+%endif
 %endif
     dw 0
     ; --- ES = LOW_SEG (SPEC.md 2.6) --------------------------------------
@@ -5403,7 +5423,7 @@ mem_pinseg:  resw 1             ; a segment a disk transfer is reading into, so
 mem_pinimg:  resw 1             ; ...and a MOUNTED IMAGE's run table while the
                                 ; kernel holds its segment: the image arm of
                                 ; dsk_xfer across the host's transfer, and
-                                ; DISKOPS.DRV's mount and unmount across their
+                                ; DISKOPS.DRV's unmount and eject across their
                                 ; own disk calls. Bucket C of NO-PINNING-PLAN:
                                 ; in use right now. 0 = none
 mem_cp_key:  resw 1             ; the compaction walk's cursor: the ORIGINAL
@@ -5411,9 +5431,6 @@ mem_cp_key:  resw 1             ; the compaction walk's cursor: the ORIGINAL
                                 ; rather than a stack slot because BOTH passes
                                 ; use it and the run rewrites the bases it is
                                 ; walking - see mem_cp_plan
-%if mem_pinimg != mem_pinseg + 2
-  %error "mem_in_xfer walks mem_pinseg and mem_pinimg as two ADJACENT words"
-%endif
 %endif                          ; OS88_COMPACT: mem_pinseg's ONLY reader is
                                 ; mem_in_xfer and mem_cp_key's is the walk, so
                                 ; both go with it - and so do the writes, in
@@ -5482,10 +5499,10 @@ mem_bytes_kb_x:
     mov cl, 10                  ; n >= 1, and NEVER CARRIES: `add ax, 1023`
     shr ax, cl                  ; did, and answered 0 KB for every n from
     inc ax                      ; 64,513 up - a 63.5KB package's region
-    ret                         ; (SPEC.md 20.1.1). A byte shorter, too...
-    nop                         ; ...so a PARITY PAD, never executed: the
-                                ; byte saved moved dsk_xfer, dsk_runcap and
-                                ; dsk_next_clus_x by an odd amount
-                                ; (tests/unit/t_hotpar.py)
+    ret                         ; (SPEC.md 20.1.1). A byte shorter, too -
+                                ; and its parity pad went with mod.inc's
+                                ; (mod_disarm), the two cancelling with
+                                ; nothing hot between them (kernel size pass
+                                ; 14; tests/unit/t_hotpar.py)
 
 section .text                   ; ...and the file ends in .text (CLAUDE.md 1)

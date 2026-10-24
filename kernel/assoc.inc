@@ -198,6 +198,10 @@ section .cold                   ; cold code (SPEC.md 2.6): resident, but in a
 ; would quietly become 0x4C4C. Everything else reaching here is already
 ; uppercase, being FAT-derived or a declared block.
 ; -----------------------------------------------------------------------------
+; assoc_stage8: the same, with the `mov cx, 8` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+assoc_stage8:
+    mov cx, 8
 assoc_stage:
     mov al, [es:si]
     mov [di], al
@@ -467,6 +471,10 @@ assoc_slot_of:
 ; out: CF=0 and AL = slot index; CF=1 = this stem is in no slot
 ; clobbers: AX (output), CF
 ; -----------------------------------------------------------------------------
+; assoc_app_di: the same, with the `mov si, di` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+assoc_app_di:
+    mov si, di
 assoc_app_of:
     push bx
     push cx
@@ -551,8 +559,8 @@ assoc_glyph_take:
     call asc_inkck              ; blank test is asc_inkck above and the copy
     stc                         ; is SPEC.md 20.2's staging idiom, which is
     jz .out                     ; ES:SI -> DS:DI and exactly what a glyph in a
-    mov cx, 8                   ; cache row, a store row or an image needs.
-    call assoc_stage            ; Both advance SI and this routine banks it
+    call assoc_stage8           ; cache row, a store row or an image needs.
+                                ; Both advance SI and this routine banks it
     clc                         ; anyway
 .out:
     pop di
@@ -680,8 +688,7 @@ assoc_note_app_x:
     mov dh, [assoc_hflags]      ; DH = the header's flags, banked once: every
                                 ; callee below preserves DX
     call assoc_stem_of          ; DI -> assoc_stemb. The entry in SI is not
-    mov si, di                  ; wanted again, and the ladder restores it
-    call assoc_app_of
+    call assoc_app_di           ; wanted again, and the ladder restores it
     jnc .haveslot
     test dh, 2                  ; no slot yet - but a package that DECLARES
     jz .out                     ; extensions is asking for one (SPEC.md 54.6)
@@ -908,6 +915,11 @@ assoc_go:
 ; cluster HINT safe: a cluster means nothing on a disk that has been swapped,
 ; so the hint is only ever a place to look.
 ; -----------------------------------------------------------------------------
+; assoc_try_ix: the same, with the `shl bx, 1 / mov ax, [assoc_clus+bx]` its
+; callers spelt at the call (kernel size pass 14: it falls into the body)
+assoc_try_ix:
+    shl bx, 1
+    mov ax, [assoc_clus+bx]
 assoc_try:
     call kentc_di               ; KENT: push ax..di
     call assoc_go               ; QUIET (SPEC.md 18.9): the question here is
@@ -1000,9 +1012,7 @@ assoc_tryvol:
     mov bx, di
     cmp [assoc_drv+bx], dl      ; ...and if it knows this program, the place
     jne .fold                   ; it names
-    shl bx, 1
-    mov ax, [assoc_clus+bx]
-    call assoc_try
+    call assoc_try_ix
     jnc .out
 .fold:
     mov bl, 1                   ; ...then APPS, which is a built-in's own
@@ -1068,8 +1078,8 @@ assoc_sweep:
 .ord:                           ; end. CL counts; DL is the VOLUME, 0 and 1
     cmp dl, [assoc_ddrv]        ; swapped: B: BEFORE A:, because on the
     je .volnext                 ; machine this runs on A: is the system disk
-    mov bl, dl                  ; and B: the apps disk
-    call dsk_vol_row_x          ; a FREE row is skipped for the TIME, not for
+    call dsk_vol_row_dl         ; and B: the apps disk
+                                ; a FREE row is skipped for the TIME, not for
     jc .volnext                 ; correctness: mounting one fails anyway, but
                                 ; that failure is the BIOS's retries and on a
                                 ; 4.77MHz machine those are seconds
@@ -1154,9 +1164,7 @@ assoc_locate:
     mov dl, [assoc_drv+bx]
     cmp dl, 0xFF
     je .rung2
-    shl bx, 1
-    mov ax, [assoc_clus+bx]
-    call assoc_try
+    call assoc_try_ix
     jnc .found
 
     ; --- rung 2: the document's own directory -----------------------------
@@ -1702,8 +1710,7 @@ assoc_app_new:
 .take:
     mov si, assoc_stemb
     mov di, bx
-    mov cx, 8
-    call dsk_ncopy              ; disk.inc's counted copy (SPEC.md 4), which
+    call dsk_ncopy8             ; disk.inc's counted copy (SPEC.md 4), which
     mov bl, al                  ; preserves every register - CX is still 8
     call assoc_glyph_di         ; for the glyph below
 .zap:
@@ -2229,8 +2236,7 @@ asc_merge_ext:
 ; seed's walk and asc_slot_of each spelled it out (kernel size pass 5).
 asc_stem_in:
     mov di, assoc_stemb
-    mov cx, 8
-    call assoc_stage
+    call assoc_stage8
     mov si, assoc_stemb
     ret
 
@@ -2313,8 +2319,8 @@ asc_take_x:
     push es
     push ax                     ; the store row: assoc_stem_of answers in DI
     call assoc_stem_of          ; and assoc_app_of in AL, so it cannot stay
-    mov si, di                  ; where it is
-    call assoc_app_of           ; AL = the slot, CF=1 = no association, so
+    call assoc_app_di           ; where it is
+                                ; AL = the slot, CF=1 = no association, so
     pop cx                      ; there is nothing to point at the glyph.
                                 ; OF and not GET: a store hit is EVERY package
                                 ; a listing shows, and creating here spent a
@@ -2438,13 +2444,20 @@ asc_s_name: db 'ASSOC   DAT'    ; the RAW 8.3 form: this walks directory
 ; asc_reloc - the compactor moved the cache (SPEC.md 66.2). ONE WORD: every
 ; reader loads ES from [asc_seg] immediately before a short in-memory burst,
 ; and the only disk read that targets the cache is the one that FILLS it,
-; which dsk_xfer pins for the duration (SPEC.md 66.3 rule 5).
+; which dsk_xfer pins for the duration (SPEC.md 66.3 rule 5). On kern_mega;
+; everywhere else [asc_seg] is a mem_rr_tab ROW (memory.inc, kernel size pass
+; 14) and this name is the walk's `ret` - exact, because asc_use's one exit
+; zeroes the word BEFORE it frees the claim, which lives one call.
+%ifdef KERN_MEGA
 asc_reloc:
     cmp bx, [asc_seg]
     jne .out
     mov [asc_seg], dx
 .out:
     ret
+%else
+asc_reloc   equ mem_rr_none
+%endif
 
 asc_seg:  dw 0                  ; the claim, 0 = none (refused, or not yet)
 asc_n:    dw 0                  ; app rows in it, 0 = no usable cache
