@@ -601,6 +601,8 @@ sk_claim:
     push dx
     cmp word [sk_seg], 0
     jne .have                       ; a second attach must not claim twice
+    call OSAPI_MEM_AVAIL            ; AX = the largest free run, which bounds
+    mov [sk_lrun], ax               ; every rung below (sk_try)
     mov bx, [sk_want]               ; the user's rung, if there is one
     or bx, bx
     jz .auto
@@ -679,41 +681,48 @@ sk_release:
 ;
 ; [eth_users] is a bit per instance slot, set by any verb that slot makes
 ; (eth_user) and cleared by the kernel's NETV_GONE (eth_v_gone). The pool is
-; claimed the first time a slot is seen and again, lazily, whenever a socket
-; needs a ring and there is none (sk_ring_get) - and given back when no slot
-; is left AND no ring is out (sk_idle). Both halves are needed: a call from
+; claimed when a socket needs a ring and there is none (sk_ring_get), or a
+; package listens (eth_user) - and given back when no slot is left AND no
+; ring is out (sk_idle). Both halves are needed: a call from
 ; an ENTRY PROC carries slot 0xFF (inst_caller has no callback to read), so a
 ; socket can exist with nobody counted, and its ring alone keeps the pool.
 ;
-; A CLAIM FROM A WORKER IS LEGAL AND MAY REFUSE: since NO-PINNING K8 the
-; allocator compacts and sheds only on the UI task, and plain first fit
-; anywhere else (SPEC.md 66.3.1) - sbl_v_grant claims the same way. That is
-; why a slot's FIRST verb claims too: it is usually net_find's NETV_STATE, on
-; the UI task, where a compaction is allowed to make the room.
+; A CLAIM INSIDE A VERB MAY NOT MOVE ANYTHING. A worker's claim is plain
+; first fit anyway (SPEC.md 66.3.1, sbl_v_grant's shape), but a UI-task
+; caller's would compact, and the caller may be holding a claim's segment in
+; a register across the verb - DOS's NETV_RECV target is one. So sk_try never
+; asks for more than the largest free run (sk_lrun): a smaller rung rather
+; than a moved heap.
 ; =============================================================================
 
-; --- eth_user - BH = the calling instance's slot: it is using the network ---
-; out: nothing; every register and the flags preserved
+; --- eth_user - BH = the calling instance's slot, BL = the verb ------------
+; out: nothing; every register preserved, the flags NOT (its one caller
+;      tests none after it)
+;
+; The slot is COUNTED on any verb. The pool is CLAIMED here only for
+; NETV_LISTEN, a listener being the one socket that holds no ring of its own
+; and whose first ring is otherwise taken inside some later verb's pump; every
+; other socket claims in sk_ring_get as it opens. The RAW verbs never need a
+; ring at all, and DOS calls them from its own tick.
 eth_user:
-    pushf
     push ax
     push cx
     mov [eth_cslot], bh         ; who opens a socket in this verb (sk_alloc)
     cmp bh, 16                  ; 0xFF, or a slot the mask cannot hold: not
-    jae .out                    ; counted, which only means not COUNTED
+    jae .lst                    ; counted, which only means not COUNTED
     mov cl, bh
     mov ax, 1
     shl ax, cl
-    test [eth_users], ax
-    jnz .out                    ; seen before: nothing to do, and no claim to
-    or  [eth_users], ax         ; retry on every verb after a refusal
+    or  [eth_users], ax
+.lst:
+    cmp bl, NETV_LISTEN
+    jne .out
     cmp word [sk_seg], 0
     jne .out
     call sk_claim               ; a refusal is not this verb's failure: the
-.out:                           ; socket that needs a ring will ask again
+.out:                           ; first socket that needs a ring asks again
     pop cx
     pop ax
-    popf
     ret
 
 ; --- sk_idle - give the pool back if nobody is using it ----------------------
@@ -762,10 +771,8 @@ eth_v_gone:
     mov bx, 1
     shl bx, cl
     not bx
-    and [eth_users], bx
-    cmp byte [eth_up], 0
-    je  .out                    ; no card: no socket and no pool
-    call eth_claim
+    and [eth_users], bx         ; (no card: every socket is free and there
+    call eth_claim              ; is no pool, so the walk below does nothing)
     jc  .out
     mov ah, al                  ; AH = the slot, AL walks the sockets
     xor al, al
@@ -851,12 +858,11 @@ sk_reclaim:
     call sk_busy
     jc  .no
     cmp word [sk_seg], 0        ; NOTHING HELD (72.13.4): the new request is
-    je  .idle                   ; simply what the next claim will ask for
+    je  .idle                   ; simply what the next claim will ask for,
+                                ; and sk_busy's CF = 0 is the answer
     call sk_release             ; and the ladder always ends at the floor,
     call sk_claim               ; which is the 6KB we have just handed back -
-    ret                         ; so this cannot leave the driver with none
-.idle:
-    clc
+.idle:                          ; so this cannot leave the driver with none
     ret
 .no:
     stc
@@ -949,6 +955,15 @@ sk_try:
     add ax, 1023
     mov cl, 10
     shr ax, cl                      ; AX = KB
+    cmp ax, [sk_lrun]               ; **NEVER MORE THAN FITS AS IT STANDS**
+    ja  .no                         ; (SPEC.md 72.13.4): this runs inside a
+                                    ; package's verb now, and a claim that
+                                    ; needed a compaction would move claims
+                                    ; the caller is holding in a register -
+                                    ; DOS's NETV_RECV target, its arena under
+                                    ; a running program. A rung that fits the
+                                    ; largest run is first fit and moves
+                                    ; nothing; a smaller rung is the price
     call OSAPI_MEM_CLAIM_HI         ; out DX = the base segment. FROM THE TOP
                                     ; (SPEC.md 50.3.2), because it is long-lived
                                     ; and driver-owned and belongs at the same
