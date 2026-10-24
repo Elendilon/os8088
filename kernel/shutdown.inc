@@ -34,6 +34,15 @@ modc_e_shutdown:
     mov al, 0x0C               ; FDC enabled, both floppy motors off
     out dx, al
     sti
+%ifdef VID_EXT
+    cmp byte [vid_kind], VID_VESA   ; A VESA DESKTOP (SPEC.md 120.4): its renderer
+    jne .vga                    ; went with drv_shutdown_x above, and nothing the
+    mov byte [vid_kind], VID_VGA    ; kernel draws can reach a packed mode - so
+    call vid_apply              ; the card's own mode 12h: the VGA's geometry
+.vga:                           ; and depth first (THIS image's vid_apply, the
+                                ; panel's - the line below centres on
+                                ; [vid_cw]), then the mode set below
+%endif
     mov bp, vid_setmode
     call sd_disp                ; clear the display and reset planar state
     mov ax, [vid_cw]

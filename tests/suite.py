@@ -5256,6 +5256,17 @@ SOAK = [
         "by name, vesa's reason",
         needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/os8088.img", "build/apps.img", "build/vesa.img")),
+    Row("vesashut", "soak", py("tests/vesashut.py"), 40.0,
+        "Shut Down on a VESA desktop draws its turn-off screen (SPEC.md "
+        "120.4, 12.3.2): drv_shutdown_x detaches VESA.DRV first, so the "
+        "screen is put back on the card's own mode 12h - [vid_kind] VID_VGA "
+        "and its geometry - before the mode set and the sentence. Asserts a "
+        "640x480 screen, vid_kind 0 / vid_planes 4 and the sentence's white "
+        "pixels. Broken on purpose (the arm out of kernel/shutdown.inc) the "
+        "card stays at 1024x768 and the row fails. QEMU by name, vesa's "
+        "reason",
+        needs=("qemu", "nasm"),
+        wants=("build/os8088.img", "build/apps.img", "build/vesa.img")),
     Row("vesablitd", "soak", py("tests/vesablitd.py"), 90.0,
         "A package at the display's depth (SPEC.md 120.7, 106.27): "
         "build/vesablitd.img is vesa.img plus an AUTOSTRT link to CITY.PCX "
