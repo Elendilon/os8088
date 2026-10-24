@@ -87,7 +87,7 @@ def slots_at_rest(m, eq, where):
                      "%s" % (where, got.hex()))
 
 
-def fixture(folder, name, extd, extend_saved):
+def fixture(folder, name, extd, extend_saved, vm_ext=False):
     files = [os88build.at("build/ctrl.drv")]
     if extd:
         files.append(os88build.at("build/extd.drv"))
@@ -101,8 +101,16 @@ def fixture(folder, name, extd, extend_saved):
         d = folder / name
         d.mkdir()
         cfg = d / "system.cfg"          # the basename IS the 8.3 name
+        #
+        # ...and on a kernel with SPEC.md 120's external renderer (VID_EXT,
+        # kern_big) the record is ver 3 with a FOURTH byte, the packed
+        # display's mode class (driver.inc's CFG_VE, 0 = Auto): a ver-2
+        # record stops matching there and the defaults stand, which is the
+        # Single boot this arm reported as a kernel defect from SPEC.md
+        # 120.2.3 until kernel size pass 14 (ksp14/reach.md)
+        vm = bytes([3, 4, 0xFF, 1, 0, 0]) if vm_ext else bytes([2, 3, 0xFF, 1, 0])
         cfg.write_bytes(b"O88CFG\0\0" + (3).to_bytes(2, "little")
-                        + b"VM" + bytes([2, 3, 0xFF, 1, 0]) + b"\0\0")
+                        + b"VM" + vm + b"\0\0")
         files.append(str(cfg))
     image = folder / (name + ".img")
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", str(image),
@@ -218,9 +226,10 @@ def main():
         print("B: the panel's Extend with no EXTD.DRV")
         arm_b(fixture(t, "b", False, False), eq, fails)
         print("C: a boot with Extend saved")
-        arm_boot(fixture(t, "c", True, True), eq, fails, "C", True)
+        vx = "CFG_VE" in eq             # a VID_EXT kernel's 'VM' is ver 3
+        arm_boot(fixture(t, "c", True, True, vx), eq, fails, "C", True)
         print("D: a boot with Extend saved and no EXTD.DRV")
-        arm_boot(fixture(t, "d", False, True), eq, fails, "D", False)
+        arm_boot(fixture(t, "d", False, True, vx), eq, fails, "D", False)
     print()
     for f in fails:
         print("extdmod: FAIL: " + f)
