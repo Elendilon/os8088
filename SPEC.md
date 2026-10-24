@@ -71057,9 +71057,12 @@ while `clk_probe` runs — `clk_tb_*` (every rung's read lands there first and
 menu bar's line buffer**, not beside it. The two lifetimes cannot meet, in
 both directions: every reference to every one of those names is in
 `clock.inc`'s `.ovlw`, which `drv_boot`'s first mount overwrites, and
-`clk_str`'s only writer is `clk_fmt`, whose two callers are `menu_draw_clock`
-and `toast_gapend` — neither reachable before `menu_init`, a hundred lines of
-`kmain` after `OVWCALL clk_init`. Not one instruction changes: every access
+`clk_str`'s only writer is `clk_fmt` - whose callers are the menu bar's
+composition, `toast_place` and `menu_sound`, none reachable before `menu_init`,
+a hundred lines of `kmain` after `OVWCALL clk_init` - and, since kernel size
+pass 14, `menu_trunc`, whose truncated menu item is `menu_tbuf`, an `equ` of
+`clk_str` too: written and read inside one `menu_drop` item draw under the gfx
+lock, where no composition can run. Not one instruction changes: every access
 was already an absolute DS-relative `[clk_tb_x]`. `CLK_PROBE_SPAN` is
 asserted against `clk_str`'s size at assembly time, which is what makes
 §37's 25-byte figure load-bearing rather than a comment.
@@ -217964,13 +217967,13 @@ the display cannot be suspended out from under the desktop.
 | `fsx_capstab` (§53) | VESA's row is VGA's (`0x01EF`): it is the same card, and a bracket's `int 10h` mode set is legal from any VBE mode. `fsx_leave` restores through `vid_setmode`'s arm. **Without the row the table was indexed past its end by kind 4** |
 | `OSAPI_FSX_CAPS`'s DL (§53.4) | **`VID_VGA`**, not 4: the kind that names the BIOS modes a bracket may set, which is what every package asks it for - Gorillas read 4 as "neither VGA nor CGA", took the native surface and drew planar onto the packed desktop. The depth is `OSAPI_VIDEO`'s and `OSAPI_WM_DISPLAY`'s DH |
 | `OSAPI_FSX_SURF` (§53.7.1) | **refused, CF = 1, on a VESA display with no foreign mode up** (`[fsx_cur]` = FFh): the desktop's own surface is packed pixels and a same-mode caller writes planar VGA. With a foreign mode set the surface is that mode's, as before |
-| the disk widget (§12.8) | `fpg_finish` whitens the text band over the part of its span past `MENU_BCMAX` composed cells: a 1024-wide bar puts the widget beyond the composer's reach, so `menu_draw_bar` repainted none of it and the icon and trough stayed up after every transfer |
+| the disk widget (§12.8) and the clock | **`MENU_BCMAX` is sized for the widest primary there is** - 123 cells under `VID_EXT`, `(1024 - 8 - MENU_TXT_X0) / 8`, where it was Hercules' 85 - so a 1024-wide bar's widget and clock are composed cells like any other bar's and the composition's opaque run is their erase (`fpg_hide` whitened the band past cell 85 itself until kernel size pass 14). The 85 was a **defect**, not only a reach: a 1024 bar's clock field starts at cell 98, so every composition wrote the clock, its padding and the toast strip up to 34 cells past `menu_bcell`'s 86 bytes - over `[menu_bn]`..`[menu_blast]` in the middle of the pass, whose bytes the emit then lettered as glyphs where the widget had been (`tests/vesa.py`'s *chrome still on the bar*, failing at the pass's base), and on into the `.bss` after them, which happened to be a scratch buffer until that pass gave it back and the About cell's name read `  10:54`. +38 bytes of `.bss` on `kern_big`/`kern_emu`; `kern_small` and `kern_mega` have no `VID_EXT` and keep 85 |
 | `vid_text` (§39.20), shutdown, reboot | `int 10h AX=0003h`, unchanged: a VBE card returns to text from any mode |
 | `vid_blank`/`vid_unblank` | the colour arms; a VESA primary is a VGA to them |
 | the extended desktop (§39.19) | **refused while VESA is primary**: `ext_extend_b` (EXTD.DRV) answers CF = 1, Single, on a VESA primary. The second card's 1bpp geometry beside an 8bpp one is a straddle arithmetic (§39.14.7) this cycle does not take |
 | the screen saver (§79) and blanker (§64) | draw through the hooked primitives; `SAVER.DRV`'s own VRAM writes, if any, are a plan story |
 | the splash (§15) | runs before `drv_boot`, on VGA, always |
-| `desk_rowcalc` zones, dock, menu bar, clock cell | read `[vid_w]`/`[vid_h]`/`[vid_pw]`; a 1024-wide bar has more room and the same cells |
+| `desk_rowcalc` zones, dock, menu bar, clock cell | read `[vid_w]`/`[vid_h]`/`[vid_pw]`; a 1024-wide bar has more room and the same cells - `MENU_BCMAX` of them, sized for it (row above) |
 
 ### 120.6 The Display page
 

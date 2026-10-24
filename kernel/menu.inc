@@ -186,10 +186,26 @@ MENU_TITLE_PAD equ 16           ; per-title cell padding (8px each side)
 ; the name cell's own edges.
 MENU_TXT_X0 equ 32              ; the menus segment's left edge (8-aligned,
                                 ; and clear of MENU_SYS_XR = 29)
+%ifdef VID_EXT
+MENU_BCMAX  equ (1024 - 8 - MENU_TXT_X0) / 8    ; cells on the bar, worst
+                                ; case: VESA.DRV's widest primary is 1024
+                                ; (SPEC.md 120.2.2, VX_XMAX), so 123 cells.
+                                ; IT WAS 720's 85 HERE TOO, and a 1024 bar's
+                                ; clock field starts at cell 98: every
+                                ; composition wrote the clock, its padding and
+                                ; the strip up to 34 cells PAST menu_bcell -
+                                ; over [menu_bn] .. [menu_blast] mid-pass (the
+                                ; widget's leftovers, tests/vesa.py's "chrome
+                                ; still on the bar") and into what followed
+                                ; it. Found by kernel size pass 14 when the
+                                ; .bss after the buffer changed and the About
+                                ; cell's name read "  10:54" (SPEC.md 120.5)
+%else
 MENU_BCMAX  equ (720 - 8 - MENU_TXT_X0) / 8 ; cells on the bar, worst case:
                                 ; Hercules is 720 wide and the margin is 8, so
                                 ; the menus, the widget and the clock are 85
                                 ; cells between them (SPEC.md 12.9)
+%endif
 
 MENU_TEXT_Y equ 6               ; title text row (8px glyphs in a 19px bar)
 MENU_LOGO_Y equ 4               ; logo glyph top row (11px tall)

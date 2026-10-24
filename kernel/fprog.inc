@@ -264,32 +264,12 @@ fpg_hide:
 %ifdef OS88_SNDCARD
     call fpg_ring               ; the icon's head above the text band, its
                                 ; foot and the box below it
-%ifdef VID_EXT
-                                ; --- and the TEXT BAND too, where no cell can
-                                ; reach it (SPEC.md 120.5): menu_bar_text
-                                ; composes at most MENU_BCMAX cells, and a
-                                ; 1024-wide bar puts the widget past them, so
-                                ; the run would repaint none of it and the
-                                ; icon's middle and the trough stayed up after
-                                ; every transfer. A 640- or 720-wide bar sits
-                                ; inside the cap, and this is a compare and a
-                                ; jump there. AX/CX are still the span (gfx_fill
-                                ; is "clobbers: flags"), BH/DH are 0 and the pen
-                                ; is the ground, all from fpg_ring - so x1 is
-                                ; banked rather than asked of fpg_span twice
-    push ax
-    cmp ax, MENU_TXT_X0 + MENU_BCMAX * 8    ; the first x past the composed
-    jae .band                   ; cells
-    mov ax, MENU_TXT_X0 + MENU_BCMAX * 8
-.band:
-    cmp ax, cx
-    ja .nband
-    mov bl, MENU_TEXT_Y
-    mov dl, MENU_TEXT_Y + 7
-    call gfx_fill               ; (the ground is still thm_bg's)
-.nband:
-    pop ax                      ; AX/CX = the whole span, for menu_inval
-%endif
+                                ; (A 1024-wide VESA bar's widget used to sit
+                                ; past the composed cells, so the text band
+                                ; was whitened here too; MENU_BCMAX is sized
+                                ; for that bar now and the composition's own
+                                ; run erases it, as on every other bar:
+                                ; kernel size pass 14, SPEC.md 120.5)
     jmp menu_inval              ; **THE TEXT BAND IS THE COMPOSITION'S** - its
                                 ; opaque run is the erase, and forgetting the
                                 ; cells is what makes it run
