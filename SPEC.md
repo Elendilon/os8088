@@ -1743,7 +1743,7 @@ in the tree.
   refuses — never at zero, which is a far call to the divide-by-zero vector.
 - **There is no `MOD_NENT`: each module's slot block is exactly its own
   entry count long.** Each module declares `X_NENT` beside its header
-  (`CP_NENT` 8 on `kern_big` and 6 on `kern_small`, plus one with
+  (`CP_NENT` 10 on `kern_big` and 6 on `kern_small`, plus one with
   `DOCK_OPT` and one with `OS88_SHORTCUTS`; `FM_NENT` 4, `CLO_NENT` 2,
   `HB_NENT` 7, `DK_NENT` 2, `EXT_NENT` 7, `FCP_NENT` 4, `FD_NENT` 7), and
   kernel.asm's `MODFP` macro, below every module's `%include`, emits that
@@ -98032,6 +98032,13 @@ The caller is the **resident** driver, necessarily: the fence resolves a
 `drv_tab` row from the calling segment, and a driver's second image (§52.11,
 §62.9.9) has no row. A page living in an overlay therefore asks through its
 resident half and is called back through it, which is what `RAMDISK.DRV` does.
+
+**The cell's BODY is `CTRL.DRV`'s** (`modc_e_dlg`, entry `CPE_DLG`; kernel size
+pass 14). It can only succeed with the panel's window up, and a panel up is
+that image loaded, so the resident cell is `jmp far [CPFP + CPE_DLG*4]` and
+with no image the slot is `mod_gone`'s CF = 1, registers kept - the answer the
+body gave there. The slot never loads the image, so nothing new needs the
+system disk; `drv_dlg_done_x`, a kernel window's completion, stays resident.
 
 ## 52. HDD.DRV — the hard-disk driver (drivers/hdd/)
 
