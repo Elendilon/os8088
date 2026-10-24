@@ -115,7 +115,7 @@ def build_disk():
     body[1:1] = ['NN;NRCOST;ER2C1', 'NN;NBARC;ER2C1']   # both name A2
     open(src, "wb").write('\r\n'.join(body).encode('latin-1'))
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", DISK, "--size",
-                    "360", "build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL", src],
+                    "360", "build/sheet.o88", src],
                    check=True, stdout=subprocess.DEVNULL)
 
 

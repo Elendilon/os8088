@@ -3,15 +3,15 @@
 
     python3 tests/unit/t_chxthunk.py
 
-apps/os88chartovl.inc's ch_xthunk is how CHART.OVL and MACRO.OVL reach
+apps/os88chartovl.inc's ch_xthunk is how the chart module and the macro module reach
 resident code: `call far [sh_v_*]` (SHOUT) lands in a CHX shim, and the
 thunk swaps the stacked CS for a TAG naming the calling module, so the far
 return goes to wherever that module has moved to (NO-PINNING P1b). It has
-ONE compare: a CS that is not CHART.OVL's is taken as MACRO.OVL's, on the
+ONE compare: a CS that is not the chart module's is taken as the macro module's, on the
 promise that "every vector is called from module code".
 
 A vector called from `.text` breaks that promise silently. The region's CS
-is tagged as MACRO.OVL, and the far return lands in MACRO.OVL's segment at
+is tagged as the macro module, and the far return lands in the macro module's segment at
 a `.text` offset - past the module's end, in bytes that execute as an
 endless push loop. `sh_new` did exactly that with `SHOUT sh_colw_clear`,
 and File > New swept task 0's stack and stopped the machine on the death
@@ -87,7 +87,7 @@ def main():
     for b in bad:
         print("   " + b)
     check(not bad, "no .text code calls through a module vector",
-          "ch_xthunk would tag the region's CS as MACRO.OVL's and the far "
+          "ch_xthunk would tag the region's CS as the macro module's and the far "
           "return would land in that module - make it a near call",
           got=len(bad), want=0)
     done("chxthunk")

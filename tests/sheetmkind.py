@@ -126,8 +126,7 @@ def main():
                if isinstance(host.get((r, 0)), tuple) else None)
               for r in range(6)]
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", DISK, "--size",
-                    "360", "build/sheet.o88", "build/CHART.OVL",
-                    "build/MACRO.OVL"] + [os.path.join(WORK, n) for n in files],
+                    "360", "build/sheet.o88"] + [os.path.join(WORK, n) for n in files],
                    check=True, stdout=subprocess.DEVNULL)
     S = os88sym.linear
     saved = {}

@@ -4,7 +4,9 @@
     make && make build/sheetovl360.img && python3 tests/sheetovlmove.py
 
 WHAT IT IS ABOUT (docs/plans/NO-PINNING-PLAN.md item P1b). SHEET loads two
-code modules into heap claims, CHART.OVL (52KB) and MACRO.OVL (28KB), and
+code modules into heap claims - the chart module (52KB) and the macro module
+(28KB), CHART.OVL and MACRO.OVL until they became parts of SHEET.O88
+(SPEC.md 82.16.12) - and
 both were PINNED for the program's whole life - up to 80KB of wall - because
 a module reaches resident code with `call far`, which leaves the MODULE'S OWN
 CS on the stack for the return, and a resident routine (or a kernel slot the
@@ -144,8 +146,10 @@ def main():
     os88fixture.need(DISK)
     SH = pkg_syms("apps/sheet/sheet.asm")
     build = os.path.join(HERE, "..", "build")
-    chart = open(os.path.join(build, "CHART.OVL"), "rb").read()
-    macro = open(os.path.join(build, "MACRO.OVL"), "rb").read()
+    # the raw cuts os88pkg.py packed as SHEET.O88's parts 0 and 1 (82.16.12):
+    # op_fetch expands each onto its claim's base, so these are its bytes
+    chart = open(os.path.join(build, "sheet.chart.bin"), "rb").read()
+    macro = open(os.path.join(build, "sheet.macro.bin"), "rb").read()
     bad = 0
 
     with os88marty.launch("build/os8088-360.img", apps=DISK,

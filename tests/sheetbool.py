@@ -130,7 +130,7 @@ def build_disk():
     for n, data in FILES.items():
         open(os.path.join(WORK, n), "wb").write(data)
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", DISK, "--size",
-                    "360", "build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL"]
+                    "360", "build/sheet.o88"]
                    + [os.path.join(WORK, n) for n in FILES],
                    check=True, stdout=subprocess.DEVNULL)
 

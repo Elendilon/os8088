@@ -74,7 +74,7 @@ def build_disk():
     src = os.path.join(WORK, "SIDE.BIF")
     open(src, "wb").write(biff3())
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", DISK, "--size",
-                    "360", "build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL", src],
+                    "360", "build/sheet.o88", src],
                    check=True, stdout=subprocess.DEVNULL)
 
 

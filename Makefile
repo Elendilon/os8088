@@ -6798,48 +6798,41 @@ $(DOSNETSTAMP): | $(BUILD)
 $(BUILD)/sheet.bin: apps/sheet/sheet.asm apps/os88api.inc \
                     apps/os88ui.inc apps/os88line.inc apps/os88text.inc \
                     apps/os88chart.inc apps/os88chartbss.inc \
-                    apps/os88chartovl.inc apps/os88fp.inc apps/os88dec.inc | $(BUILD)
+                    apps/os88chartovl.inc apps/os88fp.inc apps/os88dec.inc \
+                    apps/os88parts.inc apps/os88partsbody.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ apps/sheet/sheet.asm
 	@echo "sheet:  $(call FILESIZE,$@) bytes"
 
 
-# SHEET carries the chart module OUT (82.16): os88ovl.py cuts .modc off the
-# end at the image size the header already records, leaving the resident half
-# for os88pkg.py and CHART.OVL beside it.
+# SHEET.O88 IS A PARTED PACKAGE (82.16.12, SPEC.md 20.12): os88ovl.py cuts
+# .modc - the chart and file-format module - off the end at the image size the
+# header already records, and .modm - the macro module - at its SHMACRO2 mark,
+# exactly as it always did; the two cuts are then the package's OWN parts 0
+# and 1, lazy and compressed, rather than CHART.OVL and MACRO.OVL beside it.
+# A user browsing the folder used to find two files that were not programs,
+# and a copy of SHEET.O88 alone was a spreadsheet with no charts, no file
+# formats and no macros.
 #
-# PACKED, both halves (SPEC.md 20.13.5, 73.14.1, 81.113). The trimmed package
-# goes through $(OS88PKGB) on the last line below, and CHART.OVL and MACRO.OVL
-# ship from $(CC_OVLZ) - CC_OVLZ_RULE further down packs them, as it does
-# SCRIBE.OVL - because ch_ovneed reads with OSAPI_FILE_READ, which expands a
-# packed file into a claim sized from the UNPACKED cut. The raw cuts written
-# here are what the CH_OVKB and SH_M2KB checks below hold, and no disk names
-# them (tests/unit/t_pkgzrules.py).
+# The cuts are named sheet.chart.bin and sheet.macro.bin, NOT *.OVL, so that
+# nothing shipping can pick one up by the old name - tests/unit/t_noovl.py
+# fails any shipped image that carries an .OVL beside a package. Their claims
+# are the parts' own lengths (op_fetch), so the CH_OVKB check that used to sit
+# here is gone; the macro module's claim tail is zeros IN the part, asserted
+# by sheet.asm, and a part over 64KB less a sector is os88pkg.py's refusal.
 #
-# ...AND THE CLAIM IS CHECKED HERE TOO, in upstream's SCRIBE shape. ch_ovneed
-# reads CH_OVKB*1024 bytes into a claim of that size, and a module that
-# outgrew it would load TRUNCATED and fail only when a verb past the cut was
-# called. tools/os88ovlchk.py's CLAIMS table already holds CHART.OVL to
-# CH_OVKB and its row is in the fast tier, so a full `make` was never blind
-# to it; this is for `make build/sheet.o88` on its own, which runs no tier.
+# ONE recipe makes the cuts and the package, because they are one operation
+# (word.o88's rule says what a rule per half cost). $(OS88PKGB) packs the
+# image with LZB when it pays, and the parts are OP_COMP whatever PKGZ says.
 $(BUILD)/sheet.o88: $(BUILD)/sheet.bin tools/os88ovl.py tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
-	python3 tools/os88ovl.py $(BUILD)/sheet.bin -o $(BUILD)/CHART.OVL \
-		--trim $(BUILD)/sheet.trim.bin --second $(BUILD)/MACRO.OVL
-	@ovkb=$$(sed -n 's/^CH_OVKB *equ *\([0-9]*\).*/\1/p' apps/os88chartovl.inc); \
-	 have=$$(wc -c < $(BUILD)/CHART.OVL); cap=$$((ovkb * 1024)); \
-	 if [ $$have -gt $$cap ]; then \
-	   echo "CHART.OVL is $$have bytes; CH_OVKB reserves $$cap - raise it" >&2; \
-	   exit 1; fi; \
-	 echo "CHART.OVL: $$have of $$cap bytes claimed (CH_OVKB=$$ovkb)"
-	@m2kb=$$(sed -n 's/^SH_M2KB *equ *\([0-9]*\).*/\1/p' apps/sheet/sheet.asm); \
-	 have=$$(wc -c < $(BUILD)/MACRO.OVL); cap=$$((m2kb * 1024)); \
-	 if [ $$have -gt $$cap ]; then \
-	   echo "MACRO.OVL is $$have bytes; SH_M2KB reserves $$cap - raise it" >&2; \
-	   exit 1; fi; \
-	 echo "MACRO.OVL: $$have of $$cap bytes claimed (SH_M2KB=$$m2kb); the rest is the text files' tail (81.91.1)"
-	$(OS88PKGB) $(BUILD)/sheet.trim.bin -o $@
+	python3 tools/os88ovl.py $(BUILD)/sheet.bin -o $(BUILD)/sheet.chart.bin \
+		--trim $(BUILD)/sheet.trim.bin --second $(BUILD)/sheet.macro.bin
+	$(OS88PKGB) $(BUILD)/sheet.trim.bin -o $@ \
+		--part $(BUILD)/sheet.chart.bin --part $(BUILD)/sheet.macro.bin
 
-$(BUILD)/CHART.OVL: $(BUILD)/sheet.o88 ;
-$(BUILD)/MACRO.OVL: $(BUILD)/sheet.o88 ;
+# ...and the two cuts are askable by name, word.o88's way: they fall out of
+# the recipe above, so without this line `make $(BUILD)/sheet.chart.bin` has
+# no rule at all.
+$(BUILD)/sheet.chart.bin $(BUILD)/sheet.macro.bin: $(BUILD)/sheet.o88 ;
 
 
 # FPTEST: the self-test for apps/os88fp.inc, the software IEEE-754 double.
@@ -9189,17 +9182,16 @@ $(BUILD)/sheetmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/sheet.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/sheet.o88
 
-# ...and SHEET WITH its two code modules, for tests/sheetovlmove.py (SPEC.md
-# 82.16.11): the row moves CHART.OVL out from under its own call chain, so the
-# modules have to load - sheetmove360 leaves them off on purpose, its row
-# counting five declared claims. NOTE PAD owns the floor here rather than
-# HEAPFRAG, whose comb holds half the arena and leaves SHEET's ~200KB no room.
-# The raw cuts, not the packed ones: the row finds each module by its bytes.
+# ...and SHEET with NOTE PAD, for tests/sheetovlmove.py (SPEC.md 82.16.11):
+# the row moves the chart module out from under its own call chain. NOTE PAD
+# owns the floor here rather than HEAPFRAG, whose comb holds half the arena and
+# leaves SHEET's ~200KB no room. The modules are parts of SHEET.O88 (82.16.12)
+# and load from it; the row finds each by the bytes of its raw cut
+# (build/sheet.chart.bin, build/sheet.macro.bin).
 $(BUILD)/sheetovl360.img: $(BUILD)/notepad.o88 $(BUILD)/sheet.o88 \
-                          $(BUILD)/CHART.OVL $(BUILD)/MACRO.OVL \
                           tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/notepad.o88 \
-		$(BUILD)/sheet.o88 $(BUILD)/CHART.OVL $(BUILD)/MACRO.OVL
+		$(BUILD)/sheet.o88
 
 # ...and the three editors' disk, for tests/editmove.py (SPEC.md 66.5.7). One
 # image for all three because each run needs heapfrag plus exactly ONE app -
@@ -9496,14 +9488,6 @@ $(BUILD)/filetest-frag.img: $(BUILD)/filetest.o88 $(BUILD)/big.dat tools/os88dis
 #    precedent (SPEC.md 61, 68.5, and 73.12 names the disk and the machine):
 #    its own floppy, all four geometries, built only when asked for.
 include apps/cc/Makefile.inc
-
-# SHEET'S TWO MODULES, PACKED - and the call sits HERE rather than beside
-# sheet.o88's recipe above because CC_OVLZ_RULE is defined by the include on
-# the line before this one. A `$(call)` on an undefined macro expands to
-# NOTHING and emits no rule, silently, so the packed copies would simply not
-# exist and t_pkgzrules would report the unpacked cut instead.
-$(eval $(call CC_OVLZ_RULE,CHART.OVL))
-$(eval $(call CC_OVLZ_RULE,MACRO.OVL))
 
 # The one thing the default build says about C, and it says it only when there
 # is something to say. A guard nobody types is a guard that does not run
@@ -13809,7 +13793,7 @@ budget-check: $(BUILD)/kernel.bin small emu
 SMALLOMIT := $(BUILD)/browser.o88 $(BUILD)/ftpd.o88 $(BUILD)/telnet.o88 \
              $(BUILD)/thewire.o88 $(BUILD)/wirechat.o88 \
              $(BUILD)/tracker.o88 \
-             $(BUILD)/audio.o88 $(BUILD)/mixer.o88 $(BUILD)/sheet.o88 $(CC_OVLZ)/CHART.OVL $(CC_OVLZ)/MACRO.OVL \
+             $(BUILD)/audio.o88 $(BUILD)/mixer.o88 $(BUILD)/sheet.o88 \
              $(BUILD)/video.o88 \
              $(BUILD)/midirack.o88 $(BUILD)/pixel.o88 $(BUILD)/rlapply.o88 \
              $(BUILD)/xtmp3.o88
@@ -15318,7 +15302,7 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 \
-              $(CC_OVLZ)/CHART.OVL $(CC_OVLZ)/MACRO.OVL $(BUILD)/telnet.o88 \
+              $(BUILD)/telnet.o88 \
               $(BUILD)/wirechat.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88 \
               $(BUILD)/video.o88 $(BUILD)/midirack.o88 $(BUILD)/pixel.o88 \
@@ -15911,7 +15895,6 @@ APPS := $(APPS_TOOLS) $(APPS_GAMES) $(APPS_DATA) $(APPS_SYS) $(APPS_DOS) \
 #     Mixer, Timer and Bounce go as main has it, and Missile to games360.img.
 #     A row that needs one of those four builds a disk of its own.
 APPS_TOOLS_360 := $(filter-out $(BUILD)/sheet.o88 $(BUILD)/chart.o88 \
-                    $(CC_OVLZ)/CHART.OVL $(CC_OVLZ)/MACRO.OVL \
                     $(BUILD)/midirack.o88 $(BUILD)/pixel.o88 \
                     $(BUILD)/piano.o88 $(BUILD)/wirechat.o88 \
                     $(BUILD)/mixer.o88 $(BUILD)/timer.o88 \
@@ -15985,7 +15968,7 @@ APPSARGS720 := $(filter-out $(MIDISONGARGS) $(LOGOVIDARG) \
                  GAMES:$(RDG_SHIP) MEDIA:$(RDG_DEMO) \
                  $(addprefix GAMES:,$(DM_SHIP)),$(APPSARGS))
 # ...AND THE VIDEO SAMPLE GOES, which is 101 of this geometry's 713 clusters -
-# the single largest thing on the disk, bigger than SHEET and CHART.OVL
+# the single largest thing on the disk, bigger than SHEET and its chart module
 # together. SHEET's two modules put this disk at 714 of 713, and the PLAYER
 # stays while the MOVIE goes: SPEC.md 24.4's own shape one geometry up -
 # BEVERLY.MOD rides a media disk of its own at 360KB for exactly this reason -
@@ -16174,7 +16157,6 @@ $(MEDIAIMG360): $(MEDIA_DISK_DATA) $(LOGOVID) $(BUILD)/midirack.o88 \
 # media, and `make pixeldisk` carries the whole gallery.
 OFFICE_PKGS := $(BUILD)/artful.o88 $(BUILD)/calc.o88 $(BUILD)/chart.o88 \
                $(BUILD)/fontview.o88 $(BUILD)/paint.o88 $(BUILD)/sheet.o88 \
-               $(CC_OVLZ)/CHART.OVL $(CC_OVLZ)/MACRO.OVL \
                $(BUILD)/texpad.o88 $(BUILD)/word.o88 $(BUILD)/pixel.o88
 #
 # SYSTEM/FONTS RIDES HERE AT 360KB (SPEC.md 24.3.1.5): the 360KB system disk
@@ -17059,7 +17041,6 @@ imager:
 COMBO_DROP := $(BUILD)/artful.o88 $(BUILD)/texpad.o88 \
               $(BUILD)/tracker.o88 \
               $(BUILD)/sheet.o88 $(BUILD)/chart.o88 \
-              $(CC_OVLZ)/CHART.OVL $(CC_OVLZ)/MACRO.OVL \
               $(BUILD)/pxstein.o88 $(DM_SHIP) $(BUILD)/isotron.o88 \
               $(BUILD)/wirechat.o88 $(BUILD)/xtmp3.o88
 COMBO_TOOLS := $(filter-out $(COMBO_DROP),$(APPS_TOOLS))

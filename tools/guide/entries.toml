@@ -314,18 +314,6 @@ kind = "program"
 summary = "Opens a spreadsheet file, draws a chart from a column of its numbers, and can save the chart as a BMP."
 short = "Charts from spreadsheet data"
 
-["CHART.OVL"]
-title = "Sheet charts and files"
-kind = "data"
-summary = "Part of Sheet, read when Sheet starts: its dialogs, its charts, its file formats and many of its functions. Keep it beside SHEET.O88."
-short = "Sheet's chart and file module"
-
-["MACRO.OVL"]
-title = "Sheet macros"
-kind = "data"
-summary = "Part of Sheet that runs its macros, read when Sheet starts. Keep it beside SHEET.O88."
-short = "Sheet's macro module"
-
 ["PAINT.O88"]
 title = "Paint"
 kind = "program"
