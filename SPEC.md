@@ -63216,8 +63216,9 @@ page:
 | figure | with `[tm_hion]` (both kernels) |
 |---|---|
 | RAM | conventional + `[tm_hitot]` (the BIOS's extended KB) in MB |
-| System | `tm_sysk` + `[tm_hisys]` (+ `IVT+BIOS` when folded) + `SK_KCLAIM` |
-| memory view System SIZE | `tm_sysk` + `[tm_hisys]`, its items naming every owner (§28.4.10) and then the span above 1MB as a heading - `HMA` on kern_big, `Above 1MB` on kern_mega - with what is in it under it (§28.4.13), so the rows still sum |
+| System | `tm_sysk` + `[tm_hisys]` - `[tm_hifix]` + `SK_KCLAIM` (+ `IVT+BIOS` and `[tm_hifix]` when folded, §28.4.14) |
+| System HMA (§28.4.14) | `[tm_hifix]`: the span between 1MB and the pool - `System>1MB` on kern_mega |
+| memory view System SIZE | `tm_sysk` + every non-program group, its items naming every owner (§28.4.10); `IVT+BIOS` and `System HMA` are rows of their own beside it (§28.4.13, §28.4.14), so the rows still sum |
 | a program, both pages | its region and conventional claims, plus `tm_slotxkb`'s blocks above 1MB (its `OSAPI_XMEM_ALLOC` blocks, and on kern_mega its `OS88_HIGHMEM` claims) |
 | the summary line, kern_mega in protected mode only | ONE pair, `Ram u.uu/t.ttM` - used (RAM's, as above) over total (conventional + `[tm_hitot]`) in MB to two decimals, truncated - and ONE bar (KERN-MEGA-PLAN 14.70.2) |
 
@@ -63337,7 +63338,9 @@ switched at the header's left end, until each showed what the other hid):
 
 | row | at | opens into |
 |---|---|---|
+| `IVT+BIOS` at 0000 | column 0, an ITEM (§28.4.14) | - |
 | `System`, its total and the gray square | column 0 | its items, and one group per owner ONE LEVEL IN - `Kernel`, each driver, each built-in - each opening into its claims at the claim indent |
+| `System HMA` (`System>1MB` on kern_mega), its total | column 0, only when the system holds RAM between 1MB and the pool (§28.4.14) | what is in that span (§28.4.13) |
 | `Programs` and the programs' total | column 0, a HEADING: no marker, never a column's last row, not a click target | - |
 | each package, its square | column 0, under the heading | its claims and its blocks above 1MB |
 | a blank row | **with DETAIL on only**: what DETAIL adds is set off from the programs | - |
@@ -63352,8 +63355,8 @@ take columns from their names, and the total is the one figure the SYSTEM
 view had that the tree would otherwise not.
 
 **DETAIL is for whoever is debugging, and the default view adds up.** With
-every group closed and DETAIL off, the SIZE column - System, and each program
-- sums to Ram's used half, and that plus AVAIL is Ram's total: every figure
+every group closed and DETAIL off, the SIZE column - IVT+BIOS, System, System
+HMA (§28.4.14), and each program - sums to Ram's used half, and that plus AVAIL is Ram's total: every figure
 is *what is in use that the user cannot have*. Purgeable is in none of them -
 not in Ram's used half (§28.4.1), and counted AS available by AVAIL - so as a
 row it added up to nothing on the screen, which is why it went behind DETAIL
@@ -63361,15 +63364,13 @@ with the 640K-1MB rows, which are not RAM at all. Measured on kern_big VGA
 with the Calculator open: `RAM 120/640K`, `System 102K` + `Programs 18K`,
 `AVAIL 520K`; DETAIL adds `Purgeable 116K`.
 
-System's items (`tm_sysitems`): `IVT+BIOS` at 0000 (§28.4.8), `Code+data`
-(the kernel's span, no address), `Stacks` and `FAT snap`; then the
-`Kernel` group (its pool blocks and tagged claims), one group per driver, and
-one per built-in (a Disk window, named by its folder - `APPS`), each opening
-into its claims; and LAST the span above 1MB as a heading with its contents
-under it (§28.4.13) - on kern_mega the fixed areas by name, `HMA (DOS)`,
-`GDT`, `LDT+IDT`, `Kernel code`, `Padding`, off `OSAPI_XMEM_WALK`'s markers
-(§28.4.11); on kern_big `.cold`, each driver in the HMA and what is free. The
-rows still sum: System's figure is the sum of exactly these.
+System's items (`tm_sysitems`): `Code+data` (the kernel's span, no
+address), `Stacks` and `FAT snap`; then the `Kernel` group (its pool blocks
+and tagged claims), one group per driver, and one per built-in (a Disk
+window, named by its folder - `APPS`), each opening into its claims. The rows
+still sum: System's figure is the sum of exactly these. `IVT+BIOS` and the
+span above 1MB were System's items too, and are rows of their own now
+(§28.4.14).
 
 **`+ALL` opens every group and `-ALL` closes them** - the switch says what a
 click will do, and reads `-ALL` once everything is open by any route.
@@ -63489,24 +63490,24 @@ system sum and `tm_himax` skip F0h-F7h, and a block's group is flagged
 conventional row. No kernel byte moved; the walk, the bank and `xm_hwalk`
 are XMEM.DRV's, and nothing changes on a machine whose tail did not install.
 
-**The tree**: the span is a HEADING one level into System - the Programs
-heading's row-kind, no marker, not a click target - and it is System's LAST
-item, so nothing after it reads as inside it:
+**The tree**: the span is a GROUP of its own at column 0, `System HMA`,
+after System and before the Programs heading (§28.4.14 moved it out of
+System, where it was a heading one level in):
 
 ```
--System          155K
- IVT+BIOS 0000     3K
+IVT+BIOS 0000      3K
+-System           88K
  ...
  -SOUND.DRV       24K      conventional claims, when it has any
   DrvBuf  96C0    16K HELD
   DrvBuf  94C0     8K HELD
- HMA              64K      kern_big; `Above 1MB` on kern_mega
-   Kernel code    40K
-  -SOUND.DRV      11K      its HMA blocks: a group two columns in (tm_grp2)
-   DrvImg F400    11K HELD
-  +HDD.DRV         4K
-  +NET.DRV         5K
-   Free            4K      the span less every row above it
+-System HMA       64K      kern_big; `System>1MB` on kern_mega
+ Kernel code      40K
+ -SOUND.DRV       11K      its HMA blocks: a group one column in (tm_grp1)
+  DrvImg F400     11K HELD
+ +HDD.DRV          4K
+ +NET.DRV          5K
+ Free              4K      the span less every row above it
 Programs          ...
 ```
 
@@ -63530,6 +63531,49 @@ is that driver's, by `tm_drvgid`, which reads the header there too.
 the 3KB claim it already took; COLDHMA.SYS +0 (the two bytes were zeros).
 `taskmgr.o88`'s image 9,954 -> 10,646 bytes, which is this section and
 §28.4.4.1's thumb drag together.
+
+### 28.4.14 `IVT+BIOS` and `System HMA` are rows of their own, on both pages
+
+The owner's ask: *what is taking up my conventional memory* should be
+readable off either page, and the two pages should agree about it. They did
+not: the process list (page 1) had `IVT+BIOS` as a row OUTSIDE System while
+the memory page (page 2) listed it as System's first item, and both pages
+billed System's span above 1MB - the HMA on kern_big - to System, page 2 as a
+heading inside the group. So System's figure on either page mixed
+conventional KB with KB above 1MB, and the user could not tell from it what
+was using the 640K.
+
+Both pages now list the same three system rows, in the same order:
+
+| row | page 1 (`tm_rows`) | page 2 (`tm_rows_mem`) |
+|---|---|---|
+| `IVT+BIOS` | logical row 0, as before | the list's first row, an item at column 0 with ADDR 0000 |
+| `System` | logical row 1: the kernel below 640K, its heap claims and its blocks in the POOL above 1MB, less the span below the pool | the group: `tm_sysk` and every non-program group (`tm_systot`); its items are Code+data, Stacks, FAT snap, Kernel, the drivers and the built-ins |
+| `System HMA` | after System's built-ins, so it closes System's indented rows: no state, no CPU, `[tm_hifix]` KB | a group at column 0 after System, `[tm_hifix]` KB, opening into §28.4.13's contents - its items one level in and each HMA driver a group one level in (`tm_grp1`; `tm_grp2` is gone) |
+
+`System HMA` is drawn only when `[tm_hifix]` is non-zero - the system keeps
+RAM between 1MB and the pool's base, which needs `[tm_hion]` - so a machine
+with no HMA in use shows neither the row nor the group. On kern_mega the span
+is the descriptor tables and `.cold` over the DOS trip's HMA, and the name
+says so: `System>1MB` (`tm_hmanam`). The group's open bit is `TMG_HMA`, the
+id `TMG_PROG` held unused since 14.70.3, so no group id moved and none was
+needed.
+
+**A short screen folds both rows into System** (`tm_pshort`): where the
+process list cannot show every row - a CGA - System carries `IVT+BIOS` and
+the span above 1MB as it always did, and the list keeps all its slots. The
+row count `tm_pshort` tests is `TM_PROWS` (now `TM_ROWS + 2` with a memory
+view) less one when there is no span to show.
+
+**The rows still sum.** Page 1: IVT+BIOS + System + System HMA + every
+program is the RAM line's used figure, as IVT+BIOS + System + every program
+was. Page 2: with every group closed and DETAIL off, IVT+BIOS + System +
+System HMA + Programs is RAM's used half - the same terms, moved from inside
+System's figure to beside it.
+
+**What it cost**: no kernel byte; `taskmgr.o88`'s image 10,646 -> 10,763
+bytes, and its bss +1 (`tm_ord`'s marker entry and `[tm_hmarow]`). The small
+build (§28.12) has no memory view and no row above 1MB, and is byte-identical.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 
