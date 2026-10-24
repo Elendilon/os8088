@@ -435,6 +435,14 @@ all 145 hot routines instruction-identical at even shifts. +436 bytes of
 image. Row `rdgmove`. The parts carve (core + view, 128KB) stays pinned until
 RealDMG opts into A8's `OP_ONMOVE`, which needs a hook for `rdg_viewseg`,
 `rdg_coreseg`, `S_VIEW`, `S_DISP`, `BTAB[0]` and a cache flush.
+A3 (`5ffb4f99`): ten claims in seven packages move - Browser's four,
+FTPD's stage, Chart's canvas, Frotz's scrollback, save staging and transcript,
+Dot Delirium's board picture, the Desk Clock's face cache and Telnet's Zmodem
+staging - each pinned only across its own file call. Rows `pkgmove-browser`,
+`-ftpd`, `-chart`, `-dotdel`, `-deskclock`, `editmove-frotz`. Left pinned with
+a reason in HEAP-CLAIMS: the bucket C transients, The Wire (needs a QEMU way to
+post a compaction and pins around `OSAPI_PKG_START`/`FILE_WRITE`), PiXEL (with
+its XMS work), DOS's DIR listing (an audit of `dsh_*`).
 
 **In flight in agent worktrees (branches off `no-pinning`, NOT merged):**
 - C4: LEMMINGS' claims movable (range-translating `os88_onmove`)
