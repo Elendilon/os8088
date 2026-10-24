@@ -17724,8 +17724,9 @@ which dispatches another package's paint proc.
 Storage: `wm_wins` (MAX_WIN × WIN_SIZE, .bss), z-order byte array
 `wm_zord` (window indices, index 0 = backmost) + `wm_zn` count. Those
 three must stay contiguous and in that order — wm_init zeroes them as one
-`rep stosb` run, which starts at the nest stack `wm_pkgd`/`wm_pkgs` (§66.6.1)
-and runs through `wm_clreq`/`wm_clask` (§75.2). After it sits `wm_owner`
+`rep stosb` run, which starts at `wm_zrun` - the nest stack `wm_pkgd`/`wm_pkgs`
+on kern_big (§66.6.1), `wm_wins` itself on kern_small, which has no nest
+(§66.6.3.2) - and runs through `wm_clreq`/`wm_clask` (§75.2). After it sits `wm_owner`
 (MAX_WIN bytes, **not** part of the zero run): the instance index (§29) owning each window slot,
 0xFF = unowned; wm_init fills it with 0xFF separately. Writers:
 `inst_bind_win` at instance creation, `wm_destroy` (resets the destroyed
@@ -115129,7 +115130,20 @@ runs (on the UI task, §66.3.1) while some worker is inside some image, and
 then the compaction achieves less once - never corruption. The exact form (a
 word per task naming its image) was built and measured at 148 resident bytes
 against this one's 42, and refused for that. `tests/tnest.py` is the gate.
-kern_small has no compactor and is byte-identical.
+
+**The count is the HIGH BYTE of the depth's word** (kernel size pass 14):
+`[wm_pkgd]` and `[wm_tcnt]` are adjacent bytes, depth low, so `mem_in_nest`'s
+one load bounded against `WM_PKGD_MAX` answers both "deeper than the stack
+records" and "another task is inside an image" - and the push indexes the
+stack by the LOW byte alone, so a level the UI task enters while a worker's
+count stands is still recorded (`tests/tnest.py` assertion 7). 255 calls in
+flight on other tasks is past what twelve workers can make.
+
+**kern_small has no nest at all.** Its one reader is `mem_in_nest`, which is
+the compactor's, so on the kernel with no compactor the stack was written and
+never read: `wm_nest_pushd`/`wm_nest_pop`, their far entries, `wm_pkgcall`'s
+two calls and the 18 bytes of `.bss` are `OS88_COMPACT` (kernel size pass 14,
+74 resident bytes).
 
 #### 66.6.4 …and the one claim a CHIP points into
 

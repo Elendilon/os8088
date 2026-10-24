@@ -1454,9 +1454,12 @@ fmv_icorefs:
                                 ; apiece. It re-reads rather than skipping,
                                 ; because ico_demote cleared [ico_n] and
                                 ; SPEC.md 54.7.4's guard is a compare on it
+%endif
+    xor bx, bx                  ; (dsk_dest_x's offset below, and the zero the
+%ifdef OS88_ASSOC               ; store takes: kernel size pass 14, -1)
     cmp byte [di+FS_DIRTY], FSD_ICONS   ; ...AND THE READ MAY HAVE SHED THE
     jne .owes                   ; STORE ITSELF (SPEC.md 25.9.5.2): asc_use's
-    mov byte [di+FS_DIRTY], 0   ; 5KB claim compacts, the compactor dissolves
+    mov [di+FS_DIRTY], bl       ; 5KB claim compacts, the compactor dissolves
 .owes:                          ; the TRIV icon store, and ico_demote marks
                                 ; every Disk window FSD_ICONS - THIS one too.
                                 ; The two passes below resolve against the
@@ -1469,7 +1472,7 @@ fmv_icorefs:
                                 ; FSD_CACHE is stronger and is left alone
 %endif
     mov dx, [di+FS_VSEG]        ; ...and ONLY NOW, re-read (see the header)
-    call dsk_dest_b0
+    call dsk_dest_x             ; (BX is 0 already, from above)
     mov bp, [di+FS_N]
     call dsk_icopass
 %ifdef OS88_ASSOC
