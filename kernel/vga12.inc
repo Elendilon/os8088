@@ -2307,6 +2307,15 @@ gfx_blit4:
                                 ; word fetch (PERFORMANCE.md Part 7)
 %endif
 %endif
+%ifdef COLD_SLIDE
+; ===== THE VGA RUNG, from here to gfx_blit_run (docs/plans/MOVABLE-COLD-PLAN.md
+; 2): the span writer, the planar decoder and gfx_blitp's body are code only a
+; VGA or an EGA runs, so on kern_big they live in `.vga` - inside KERNEL_SEG's
+; window, so every call here is the near call it always was - and a machine
+; with neither card slides `.cold` over them at boot. Every way in from
+; outside the rung is in tests/vgarefs.txt with the test that guards it.
+section .vga
+%endif
 %ifdef GFX_VGA
 
 ; -----------------------------------------------------------------------------
@@ -2582,8 +2591,17 @@ vga_blit_prow:
                                 ; row - and back on at the end, because the
                                 ; next row may be a run's again
 
-    mov ax, VGABUF_SEG          ; ovlchk: DS = VGABUF_SEG
-vga_pr_bufw equ $ - 2           ; (its immediate is also mem_floor_ax's word)
+%ifdef COLD_SLIDE
+    mov ax, [rom_vgabw]         ; ovlchk: DS = VGABUF_SEG
+                                ; ...out of a `.text` WORD: this body is in the
+                                ; VGA rung, and mem_floor_ax reads that word on
+                                ; machines that dropped the rung (kernel.asm's
+                                ; rom_vgabw, MOVABLE-COLD-PLAN 2)
+.segld:                         ; (AX = the segment here: tests/rombig.py
+%else                           ; breaks on it)
+    mov ax, VGABUF_SEG          ; (the bank is annotated once, on the arm above:
+vga_pr_bufw equ $ - 2           ; os88ovlchk reads source, not %ifdef)
+%endif
     mov ds, ax                  ; DS = the four plane rows (the table is .lowbss, via ss:); ES is
                                 ; still the caller's source. THE BARE
                                 ; REFERENCE IS THE .vgabuf ONE FROM HERE TO
@@ -2677,6 +2695,7 @@ vga_pr_bufw equ $ - 2           ; (its immediate is also mem_floor_ax's word)
     pop ds                      ; ovlchk: DS restored
     jmp kret_bp
 %endif
+section .text
 
 ; -----------------------------------------------------------------------------
 ; gfx_blitp - a block that is ALREADY FRAMEBUFFER BYTES, copied to the screen
@@ -2730,6 +2749,24 @@ vga_pr_bufw equ $ - 2           ; (its immediate is also mem_floor_ax's word)
 ; compare a row and no caller has to clamp.
 ; -----------------------------------------------------------------------------
 gfx_blitp:
+%ifdef COLD_SLIDE
+%ifdef GFX_PLANE
+    test byte [vid_avail], VID_A_VGA | VID_A_EGA ; THE DOOR (MOVABLE-COLD-PLAN
+    jnz .vga                    ; 2): the body is in the VGA rung, and a
+    stc                         ; machine with neither card has dropped it -
+    ret                         ; and would refuse below anyway, having no
+.vga:                           ; display with four planes. A VGA machine pays
+    jmp gfx_blitp_v             ; a test and a jump, ~6 us on a 4.77 MHz 8088
+; ...and the far call the body makes into `.cold`, which the rung may not name:
+; a word in `.vga` naming COLD_SEG is one the slide's list does not hold, and
+; tools/os88cfx.py refuses the build over it (MOVABLE-COLD-PLAN 2)
+gfx_bpwalk_t:
+    call COLD_SEG:gfx_bpwalk
+    ret
+section .vga
+gfx_blitp_v:
+%endif
+%endif
 %ifndef GFX_PLANE
     stc                         ; A SLOT THAT EXISTS IN ONE BUILD AND NOT
     ret                         ; ANOTHER IS WORSE THAN A REFUSAL (the debug
@@ -2790,7 +2827,11 @@ gfx_blitp:
     or di, 0x8000               ; how THE PROBE this asks first gets past
     call gfx_blitp              ; here: every refusal, for the whole rect,
     jc .walked                  ; region aside
+%ifdef COLD_SLIDE
+    call gfx_bpwalk_t           ; (the rung names no `.cold` segment: its shim)
+%else
     call COLD_SEG:gfx_bpwalk
+%endif
 .walked:
     jmp .pops                   ; PAST the hook's teardown, not to .out: this
                                 ; call took no hook, and the probe and the
@@ -3154,6 +3195,7 @@ vga_prow_emit:
     pop bp
     ret
 %endif
+section .text                   ; ===== the end of the VGA rung's first run
 
 ; -----------------------------------------------------------------------------
 ; gfx_blit_run - emit one coalesced run (module-internal to gfx_blit4)
@@ -3209,14 +3251,25 @@ gfx_vline:
 ; that does not): the XOR arm's ALU function and 0Fh Set/Reset value - which
 ; is all vga_set_xor added to vga_set_color, and it had no other caller - and
 ; the clipped-away exit, which pays a near jmp to reach .done.
+%macro VGA_SR_STUBS 0            ; (written once, expanded HERE or, with the
 vga_sr_xor:
     mov ax, 0x1803              ; GC3: rotate 0, function = XOR
     out dx, ax
     mov ah, [vga_xorm]          ; ...and the Set/Reset value is the mask -
                                 ; 0Fh, all planes, but for a themed menu bar
+%ifdef COLD_SLIDE
+    jmp short vga_solid_rect_v.arm
+vga_sr_dq:
+    jmp vga_solid_rect_v.done
+%else
     jmp short vga_solid_rect.arm
 vga_sr_dq:
     jmp vga_solid_rect.done
+%endif
+%endmacro                       ; body in the VGA rung, there - still above the
+%ifndef COLD_SLIDE               ; entry, the body's locals taking its name)
+    VGA_SR_STUBS
+%endif
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3271,6 +3324,12 @@ vga_solid_rect:
                                 ; both callers above - and returns to OURS.
                                 ; ENTERED WITH VXMONO's FLAGS: both callers
                                 ; test the depth on the way in
+%ifdef COLD_SLIDE
+    jmp vga_solid_rect_v        ; THE BODY IS THE VGA RUNG'S (MOVABLE-COLD-PLAN
+section .vga                    ; 2): VXMONO and VIDEXTF above are its door. A
+    VGA_SR_STUBS                ; jump on VGA's busiest fill, ~15 clocks of a
+vga_solid_rect_v:               ; 2,405-cycle floor, +0.6% PREDICTED
+%endif
     push ax
     push bx
     push cx
@@ -3355,6 +3414,7 @@ vga_solid_rect:
     pop bx
     pop ax
     ret
+section .text
 %endif
 
 ; =============================================================================
@@ -3628,6 +3688,11 @@ gfx_fill_gray_d:
 gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray has
     VIDEXTM VX_GRAY, sw_fill_gray ; 1bpp? then the software renderer IS
                                 ; ...and a packed display's (SPEC.md 120.3)
+%ifdef COLD_SLIDE
+    jmp gfx_fill_gray_raw_v ; the body is the VGA rung's (MOVABLE-COLD-PLAN
+section .vga                    ; 2): VIDEXTM above is its door, and on a
+gfx_fill_gray_raw_v:     ; machine with neither card never falls here
+%endif
     push ax
     push bx
     push cx
@@ -3703,6 +3768,7 @@ gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray ha
     pop bx
     pop ax
     ret
+section .text
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -3783,6 +3849,11 @@ gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
     VIDEXTM VX_PAT, sw_fill_pat ; 1bpp? then the software renderer IS
                                 ; ...and a packed display's (SPEC.md 120.3):
                                 ; the eight bytes at [gfx_pat], unstaged
+%ifdef COLD_SLIDE
+    jmp gfx_fill_pat_raw_v ; the body is the VGA rung's (MOVABLE-COLD-PLAN
+section .vga                    ; 2): VIDEXTM above is its door, and on a
+gfx_fill_pat_raw_v:      ; machine with neither card never falls here
+%endif
     push ax
     push bx
     push cx
@@ -3829,9 +3900,17 @@ gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
     dec si
     jnz .irow
 .reset:                         ; vga_solid_rect's teardown, as gfx_fill_gray's
+%ifdef COLD_SLIDE                ; (spelled out per arm: the stack checker,
+    jmp vga_solid_rect_v.reset  ; tools/stkbalance.py reads source)
+%else
     jmp vga_solid_rect.reset
+%endif
 .done:
+%ifdef COLD_SLIDE
+    jmp vga_solid_rect_v.done
+%else
     jmp vga_solid_rect.done
+%endif
 
 ; ...and ONE masked edge column of [gfx_rrows] rows at ES:DI, the Bit Mask
 ; already set - the left and the right were this loop written out twice (size
@@ -3852,6 +3931,7 @@ gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
     dec si
     jnz .crow
     ret
+section .text
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -4125,6 +4205,11 @@ vga_save_vram:                              ; only renderer gfx_save has
                                 ; target, so one "plane" of sw_xfer is it
                                 ; ...and a packed display's save is the
                                 ; driver's, in [vga_pn]'s terms (SPEC.md 120.4)
+%ifdef COLD_SLIDE
+    jmp vga_save_vram_v    ; the body is the VGA rung's (MOVABLE-COLD-PLAN
+section .vga                    ; 2): VIDEXTM above is its door, and on a
+vga_save_vram_v:         ; machine with neither card never falls here
+%endif
     push ax
     push bx
     push cx
@@ -4169,6 +4254,7 @@ vga_save_vram:                              ; only renderer gfx_save has
     pop bx
     pop ax
     ret
+section .text
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -4381,6 +4467,11 @@ gfx_restore:
 vga_restore_vram:                              ; only renderer gfx_restore has
     VIDEXTM VX_RESTORE, sw_restore ; see vga_save_vram
                                 ; ...and the driver's, [gfx_sub_*] honoured
+%ifdef COLD_SLIDE
+    jmp vga_restore_vram_v ; the body is the VGA rung's (MOVABLE-COLD-PLAN
+section .vga                    ; 2): VIDEXTM above is its door, and on a
+vga_restore_vram_v:      ; machine with neither card never falls here
+%endif
     push ax
     push bx
     push cx
@@ -4438,6 +4529,7 @@ vga_restore_vram:                              ; only renderer gfx_restore has
     pop bx
     pop ax
     ret
+section .text
 %endif
 
 ; -----------------------------------------------------------------------------
@@ -4878,6 +4970,87 @@ gfx_unlock:
     ret
 
 ; -----------------------------------------------------------------------------
+%ifdef GFX_VGA
+; GFX_SCROLL_PLANAR - gfx_scroll's planar copy, written ONCE: expanded inline in
+; gfx_scroll where `.cold` cannot slide, and as gfx_scroll_v in the VGA rung
+; where it can (MOVABLE-COLD-PLAN 2). Its locals are whichever routine holds it
+%macro GFX_SCROLL_PLANAR 0
+    mov dx, 0x03CE              ; VRAM, via the latches
+    mov ax, 0x0105              ; GC5: write mode 1 - a movsb read fills the
+    out dx, ax                  ; latches, the write stores all four planes
+    mov ax, VGA_SEG
+    mov es, ax
+    ; --- THE LINEAR COPY, INLINE (size pass 10): it was vgas_lincopy, whose
+    ; only caller this is. No DS bank: every row puts DS back to CS, which is
+    ; what it was on entry - kernel code runs with DS = CS (size pass 9). Its
+    ; row countdown is [vgas_rows] itself, which nothing reads after the copy
+    ; (it was copied into a vgas_left first, for no reader)
+%ifdef SCROLL_ROWBASE           ; the reference form: two muls a row (SPEC 5.5.1)
+    mov bx, [vgas_ydst]
+.lr:
+    mov ax, bx
+    add ax, [vgas_sdy]
+    mul word [vid_stride]       ; AX = src row * stride (DX:AX, DX = 0)
+    add ax, [vgas_col]
+    mov si, ax
+    mov ax, bx
+    mul word [vid_stride]
+    add ax, [vgas_col]
+    mov di, ax
+    mov cx, [vgas_nb]
+    push es
+    pop ds                      ; DS = ES = the target for the movs
+    cld
+    rep movsb
+    KDS
+    add bx, [vgas_step]
+    dec word [vgas_rows]
+    jnz .lr
+%else
+    ; --- SPEC.md 5.5.1: the row address ADVANCES, so derive it once ----------
+    ; A linear framebuffer has one bank, so rowbase(y) is y * stride and the
+    ; two ends of the copy are a CONSTANT dy * stride apart - for any dy, with
+    ; no alignment precondition anywhere. Both products are taken here instead
+    ; of twice a row.
+    mov ax, [vgas_ydst]
+    mul word [vid_stride]
+    add ax, [vgas_col]
+    mov di, ax                  ; DI = the destination cursor
+    mov ax, [vgas_sdy]          ; the delta, ONCE. `mul` is unsigned and sdy is
+    mul word [vid_stride]       ; signed, and that is fine: only the low word
+    mov dx, ax                  ; is used, and a product mod 65536 does not
+                                ; care which sign the operand was read as -
+                                ; the same reason DI itself may wrap
+    mov bx, [vid_stride]        ; BX = the per-row step, in the walk's own
+    cmp word [vgas_step], 0     ; direction (down: bottom-up, so backwards)
+    jg .lfwd
+    neg bx
+.lfwd:
+    sub bx, [vgas_nb]           ; ...LESS what the rep movsb will already have
+                                ; added to DI. SPEC.md 5.7.1's rule, and the
+                                ; A/B caught its absence: a string op advances
+                                ; its pointer, and the reference form never had
+                                ; to care because it recomputed DI every row.
+                                ; Folded into the increment, so it is free
+    cld                         ; nothing in the loop touches DF
+.lr:
+    mov si, di
+    add si, dx
+    mov cx, [vgas_nb]
+    push es
+    pop ds                      ; DS = ES = the target for the movs
+    rep movsb
+    KDS
+    add di, bx
+    dec word [vgas_rows]
+    jnz .lr
+%endif
+    mov dx, 0x03CE
+    mov ax, 0x0005              ; write mode back to 0 (SPEC.md 1 rule 7)
+    out dx, ax
+%endmacro
+%endif
+
 ; -----------------------------------------------------------------------------
 ; gfx_scroll - vertical scroll blit (SPEC.md 5.5; API slot 0x018A)
 ;
@@ -4979,80 +5152,12 @@ gfx_scroll:
     je .mono
 %endif
 %ifdef GFX_VGA
-    mov dx, 0x03CE              ; VRAM, via the latches
-    mov ax, 0x0105              ; GC5: write mode 1 - a movsb read fills the
-    out dx, ax                  ; latches, the write stores all four planes
-    mov ax, VGA_SEG
-    mov es, ax
-    ; --- THE LINEAR COPY, INLINE (size pass 10): it was vgas_lincopy, whose
-    ; only caller this is. No DS bank: every row puts DS back to CS, which is
-    ; what it was on entry - kernel code runs with DS = CS (size pass 9). Its
-    ; row countdown is [vgas_rows] itself, which nothing reads after the copy
-    ; (it was copied into a vgas_left first, for no reader)
-%ifdef SCROLL_ROWBASE           ; the reference form: two muls a row (SPEC 5.5.1)
-    mov bx, [vgas_ydst]
-.lr:
-    mov ax, bx
-    add ax, [vgas_sdy]
-    mul word [vid_stride]       ; AX = src row * stride (DX:AX, DX = 0)
-    add ax, [vgas_col]
-    mov si, ax
-    mov ax, bx
-    mul word [vid_stride]
-    add ax, [vgas_col]
-    mov di, ax
-    mov cx, [vgas_nb]
-    push es
-    pop ds                      ; DS = ES = the target for the movs
-    cld
-    rep movsb
-    KDS
-    add bx, [vgas_step]
-    dec word [vgas_rows]
-    jnz .lr
-%else
-    ; --- SPEC.md 5.5.1: the row address ADVANCES, so derive it once ----------
-    ; A linear framebuffer has one bank, so rowbase(y) is y * stride and the
-    ; two ends of the copy are a CONSTANT dy * stride apart - for any dy, with
-    ; no alignment precondition anywhere. Both products are taken here instead
-    ; of twice a row.
-    mov ax, [vgas_ydst]
-    mul word [vid_stride]
-    add ax, [vgas_col]
-    mov di, ax                  ; DI = the destination cursor
-    mov ax, [vgas_sdy]          ; the delta, ONCE. `mul` is unsigned and sdy is
-    mul word [vid_stride]       ; signed, and that is fine: only the low word
-    mov dx, ax                  ; is used, and a product mod 65536 does not
-                                ; care which sign the operand was read as -
-                                ; the same reason DI itself may wrap
-    mov bx, [vid_stride]        ; BX = the per-row step, in the walk's own
-    cmp word [vgas_step], 0     ; direction (down: bottom-up, so backwards)
-    jg .lfwd
-    neg bx
-.lfwd:
-    sub bx, [vgas_nb]           ; ...LESS what the rep movsb will already have
-                                ; added to DI. SPEC.md 5.7.1's rule, and the
-                                ; A/B caught its absence: a string op advances
-                                ; its pointer, and the reference form never had
-                                ; to care because it recomputed DI every row.
-                                ; Folded into the increment, so it is free
-    cld                         ; nothing in the loop touches DF
-.lr:
-    mov si, di
-    add si, dx
-    mov cx, [vgas_nb]
-    push es
-    pop ds                      ; DS = ES = the target for the movs
-    rep movsb
-    KDS
-    add di, bx
-    dec word [vgas_rows]
-    jnz .lr
-%endif
-    mov dx, 0x03CE
-    mov ax, 0x0005              ; write mode back to 0 (SPEC.md 1 rule 7)
-    out dx, ax
+%ifdef COLD_SLIDE
+    jmp gfx_scroll_v            ; THE PLANAR COPY IS THE VGA RUNG'S (MOVABLE-
+%else                           ; COLD-PLAN 2), after this routine: the compare
+    GFX_SCROLL_PLANAR
     jmp short .ok
+%endif                          ; above is its door
 %endif
 %ifdef VID_EXT
 .vx:                            ; a packed display (SPEC.md 120.3.1): the six
@@ -5067,6 +5172,17 @@ gfx_scroll:
 .out:
     GFXDLEAVE                   ; ...and it banks CF, which is this routine's
     jmp kret_di
+
+%ifdef COLD_SLIDE
+section .vga
+; gfx_scroll_v - gfx_scroll's planar copy, in the VGA rung (MOVABLE-COLD-PLAN 2):
+; entered from gfx_scroll's [vid_planes] = 4 arm with the vgas_* geometry set,
+; and back to its .ok - GFX_SCROLL_PLANAR, the one body both builds expand
+gfx_scroll_v:
+    GFX_SCROLL_PLANAR
+    jmp gfx_scroll.ok
+section .text
+%endif
 
 ; -----------------------------------------------------------------------------
 ; vgas_bankcopy - the mono twin: per-row copies through gfx_rowbase, which

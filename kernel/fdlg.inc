@@ -264,8 +264,13 @@ fdx_go:                         ; ovlchk: builds its own far frame
     push bp
     mov bp, sp                  ; [bp+2] offset, [bp+4] segment, [bp+6] the
     push bx                     ; near return, [bp+8] the far return's offset
-    mov word [bp+4], COLD_SEG   ; and [bp+10] the call's own return, which
-    mov bx, cold_kretf          ; becomes the far return's CS
+%ifdef ROM_ADOPT                ; and [bp+10] the call's own return, which
+    push word [api_coldseg]     ; becomes the far return's CS. Where `.cold`
+    pop word [bp+4]             ; RUNS and not COLD_SEG: a module names it
+%else                           ; only as a far call's segment, which is what
+    mov word [bp+4], COLD_SEG   ; mod_cfix finds (MOVABLE-COLD-PLAN 4)
+%endif
+    mov bx, cold_kretf
 .t:
     mov [bp+6], bx
     mov bx, [bp+10]

@@ -604,6 +604,10 @@ cmz_tio:
     mov ds, si
     mov si, fm_ebuf
     CSDO mov [CSEG cmz_tsh], bx
+%ifdef ROM_ADOPT
+    push word [api_coldseg]     ; ...and the segment `.cold` runs at now
+    CSDO pop word [CSEG cmz_tsh + 2]
+%endif
 %ifdef KERN_MEGA
     mov bx, 120
 %else
@@ -3621,7 +3625,11 @@ cmz_otok:   dw 0                ; pass 2's WRITE_SEQ token (18.4.9): the
                                 ; WRITE that makes each file leaves it stale
 cmz_tfp:                        ; cmz_tio's far call: the shim...
 cmz_tsh:    dw 0
-            dw COLD_SEG         ; ...in the cold segment
+%ifdef ROM_ADOPT
+            dw 0                ; ...in the cold segment, WHEREVER IT RUNS:
+%else                           ; cmz_tio stores [api_coldseg] beside the shim,
+            dw COLD_SEG         ; because a module may name `.cold` only by a
+%endif                          ; far call's segment (mod_cfix)
 %endif
 cmz_utot:   dd 0                ; the bar's scale, both passes...
 cmz_done:   dd 0                ; ...and how far along it

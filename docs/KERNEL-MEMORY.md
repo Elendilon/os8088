@@ -983,8 +983,9 @@ assembled ahead of `boot/boot2.asm`, which is included at the foot.
 The overlay works because its code is transient. Most kernel code is not:
 the file manager has to be there whenever a window is clicked. `.cold` is a
 second code segment, resident for the whole session, that `KERN_CODE_MAX`
-cannot see — `COLD_PARA` is its size rounded to 512 with no slack, nothing is
-copied and nothing is reserved. It shares the overlay's contract exactly:
+cannot see — `COLD_PARA` is its size rounded to 512 with no slack (to the
+PARAGRAPH on a `LADDER_PACK` kernel, SPEC.md 2.10.9, where only `KERN_END`
+rounds to 512), nothing is copied and nothing is reserved. It shares the overlay's contract exactly:
 **CS = `COLD_SEG`, DS = `KERNEL_SEG`**, so every data reference in a cold
 module is unchanged because the data did not move. Its tenants and their
 sizes are the `.cold` column of the generated table and are stated nowhere
@@ -1022,6 +1023,29 @@ outside a cold module changed; SPEC.md §2.6.1 is where a far entry ends in
 through thunks rather than through the window record. A far call costs two
 extra bytes of stack per crossing; the cold modules are UI-task code, so that
 lands on task 0's 512 and not on a worker's slice.
+
+### `.cold` moves, and the VGA rung under it
+
+`.cold` names no segment of its own (SPEC.md 2.10.2), so it can run anywhere
+a copy of it can be put: in a 5150's ROM, in the HMA, and - on kern_big -
+**slid down over the VGA rung** (SPEC.md 2.10.9). The rung, `.vga`, is code
+only a VGA or an EGA runs, placed between LOW and `.cold` and INSIDE the
+kernel's 64KB window, so `.text` near-calls it as before. A machine with
+neither card slides `.cold` down over it at boot and the heap floor falls by
+it: 2,048 bytes at build 474. Three things follow for anybody spending
+memory here:
+
+- **The window is shared now.** `.text`, `.bss`, the FAT window, LOW and the
+  rung all have to sit inside one 64KB, because the rung is near-called;
+  `kernsize`'s `window` line is the headroom, and it is a tighter figure
+  than `KERN_CODE_MAX`'s.
+- **A VGA-only body belongs in `.vga`**, behind a run-time test that keeps
+  a machine with neither card out - `tests/vgarefs.txt` registers every way
+  in, and `%ifdef GFX_VGA` is not such a test (kern_big defines it on every
+  machine).
+- **The rung may not name `.cold`'s segment.** The slide re-points only the
+  words in the kernel's own list (`.cfx`), and `tools/os88cfx.py` refuses a
+  build with one in the rung; a `.text` shim makes the far call instead.
 
 ---
 

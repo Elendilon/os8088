@@ -79,7 +79,8 @@ def slots_at_rest(m, eq, where):
     the next time a window is put down, and it would not fault: the claim is
     still readable."""
     off = os88sym.syms()["mod_gone"]
-    want = off.to_bytes(2, "little") + eq["COLD_SEG"].to_bytes(2, "little")
+    # (where `.cold` RUNS - [api_coldseg], not COLD_SEG: on a machine with no VGA and no EGA it slid down at boot, docs/plans/MOVABLE-COLD-PLAN.md 2)
+    want = off.to_bytes(2, "little") + m.read(S("api_coldseg"), 2)
     base = S("EXFP")
     got = m.read(base, eq["EXT_NENT"] * 4)
     if got != want * eq["EXT_NENT"]:

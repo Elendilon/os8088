@@ -73,6 +73,8 @@ def main():
     with os88ui.boot("build/os8088-360.img",
                      apps="build/apps360.img") as ui:
         m = ui.m
+        # (where `.cold` RUNS - [api_coldseg], not COLD_SEG: on a machine with no VGA and no EGA it slid down at boot, docs/plans/MOVABLE-COLD-PLAN.md 2)
+        cold = int.from_bytes(m.read(lin("api_coldseg"), 2), "little")
 
         def w16(name, i=0):
             b = m.read(lin(name) + i, 2)

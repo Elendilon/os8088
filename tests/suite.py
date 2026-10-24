@@ -359,18 +359,36 @@ FAST = [
         "middle of .cold in a kernel ROM. Negative control: one byte of U30 "
         "wrong must read U30 BAD. SOAK: no package can reach it",
         needs=("marty", "nasm"), serial=True),
-    Row("hmacold", "soak", py("tests/hmacold.py"), 20.0,
+    Row("coldslide", "soak", py("tests/coldslide.py"), 35.0,
+        "docs/plans/MOVABLE-COLD-PLAN.md 2, SPEC.md 2.10.9: a machine with "
+        "neither a VGA nor an EGA gives kern_big's VGA rung back. A, a "
+        "Hercules 5150: kmain_o slid `.cold` down by VGA_PARA - "
+        "[api_coldseg] says so, the bytes at the new home are kernel.bin's "
+        "`.cold` to the byte, every listed `.text` word names the new "
+        "segment (checked against the two-assembly diff, not the list), "
+        "[mem_base] is MONO_FLOOR and the Task Manager's kernel row has both "
+        "rungs off it, and CTRL.DRV loaded after the move has every far "
+        "reference re-pointed by mod_cfix. B, the VGA XT: nothing moves - "
+        "the negative control, a slide there would run the planar renderer "
+        "out of `.cold`'s bytes. SOAK: the subject is the kernel's ladder on "
+        "two adapters",
+        needs=("marty", "nasm"), serial=True),
+    Row("hmacold", "soak", py("tests/hmacold.py"), 70.0,
         "docs/plans/HMA-PLAN.md: kern_big's .cold runs from the HMA on a "
         "286 or better, which hands the heap the whole cold rung. WHY QEMU: "
         "docs/TESTING.md's closed list, entry 1 - above 1MB is a 286 place "
         "and every MartyPC machine is an 8088. A, -m 128: XMEM.DRV reads "
         "COLDHMA.SYS and [api_coldseg] is FFFF, linear 0x100000 holds "
-        "kernel.bin's .cold, the floor is COLD_RAM + VGABUF_PARA with the "
+        "kernel.bin's .cold, the floor is COLD_RAM + VGABUF_PARA (rounded) with the "
         "decoder's word moved down, rom_mfp names FFFF, and CTRL.DRV - read "
         "AFTER the move - has every far reference re-pointed (read, not "
         "inferred). B, -m 1: no XMEM, nothing changes - the negative "
         "control. C: COLDHMA.SYS one byte of its .text hash away is refused "
-        "and is exactly B. SOAK: the subject is one driver's overlay",
+        "and is exactly B. D, -m 128 on a VIDEO=cga private tree: `.cold` "
+        "SLID over the VGA rung before XMEM.DRV rang (SPEC.md 2.10.9), and "
+        "COLDHMA.SYS still adopts it - its second `.text` hash, copied from "
+        "the slid home, the floor VGA_RAM rounded. 67s with the tree cold, "
+        "20s warm. SOAK: the subject is one driver's overlay",
         needs=("qemu", "nasm"),
         wants=("build/os8088.img", "build/apps.img", "build/coldhma.sys")),
     Row("hmadrv", "soak", py("tests/hmadrv.py"), 50.0,

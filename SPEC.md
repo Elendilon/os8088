@@ -3657,7 +3657,9 @@ through `[rom_mfp]` with AL = a `ROMF_*` function and BX = the module's
   ROM does not hold, and the read then runs as it always did;
 - then `mod_check` and `ROMF_FIX` as for a module read off the disk. The
   ROM keeps its copies as the build cut them, naming `COLD_RAM`, so one path
-  re-points both.
+  re-points both. **kern_small only since §2.10.9**: a `COLD_SLIDE` kernel
+  re-points its modules itself (`mod_cfix`), and its ROM carries no module
+  lists and answers no FIX.
 
 The ROM's tables are per ROW and not per image, because kern_big's settings
 core (`MOD_SETS`, §2.8.7) is a row over CTRL.DRV's image; the tool counts the
@@ -3885,6 +3887,136 @@ bytes; the three images and the double buffer are 23,712. A `.cold` that
 grows takes that slack first, and past it `tools/os88rom.py` refuses the
 build until `HMA_COLD_AT` comes down. On a machine with no HMA the shipped
 drivers load and run exactly as before.
+
+#### 2.10.9 Moving `.cold` by itself (`COLD_SLIDE`)
+
+**The contract for docs/plans/MOVABLE-COLD-PLAN.md.** §2.10.2 made `.cold`
+free to move by SEGMENT; what made a move expensive was outside it - the
+lists of words that name its segment rode with the destination (the ROM,
+COLDHMA.SYS), each mover checked them against the BUILT value, and a moved
+kernel's modules needed a resident fixer that only the ROM or the HMA could
+supply. `COLD_SLIDE` (kern_big and kern_emu; `NO_COLD_SLIDE` is the A/B)
+gives the kernel its own, so it can move `.cold` itself.
+
+- **Modules find their own words: `mod_cfix`** (mod.inc, `.cold`). A module
+  names `.cold` only as the SEGMENT HALF OF A FAR CALL OR JMP IMMEDIATE.
+  `mod_need` calls `mod_cfix` after `mod_check`, and when `[api_coldseg]` is
+  not `COLD_HOME` it scans the bytes the claim holds for COLD_HOME's low
+  byte, confirms the high byte and an opcode three bytes back that reads FA
+  once OR'd with 70h (9A, EA and six opcodes no module puts there), writes
+  `[api_coldseg]` and steps over the word. No table anywhere: the ROM and
+  COLDHMA.SYS carry no module lists and no FIX door for a `COLD_SLIDE`
+  kernel. **`tools/os88rom.py` PROVES it on every build** (`cfix_prove`):
+  for every module image and every segment `.cold` can be moved to - the
+  ROM's, the HMA's, every slide, and segments chosen to make a written word
+  read as the start of another - a Python model of the scan re-points
+  exactly the two-assembly diff's words. A module word that names `.cold`
+  any other way fails the build; such a word takes the segment from
+  `[api_coldseg]` at run time instead (`KGO_PAIR`, `fdx_go`, `fcpx_go`,
+  `cmz_tsh`, WIN95.DRV's `WN_COLD` token). +52 bytes of kern_big's `.cold`.
+  **kern_small keeps the ROM's lists and `ROMF_FIX`** (`RT_MODFIX`): it has
+  no slide, and §39.27.4 spends nothing there - its `.text` and `.cold` are
+  byte-identical to the kernel before this section.
+- **The kernel's own list: `.cfx`.** The words in `.text`, the window half
+  and the blob that name `.cold`'s segment (93 + 4 + 32 at build 470) are
+  stamped by `tools/os88cfx.py` into `cfx_tab`, `CFX_MAX` (256) bytes of
+  zeros in a section of its own straight after `.cold` in the FILE. The tool
+  re-assembles with kernel.asm's `COLD_CS` hook at two values and diffs, as
+  os88rom.py does, after each of the build's two passes; the passes must
+  pack the same bytes past `.boot2` (§2.9.13), so both are stamped. Stage
+  2's one read lands `.cfx` on the RAM just past the kernel, under the
+  blob's lift (§2.10.3), which nothing claims before `mem_unblob`; a guard
+  keeps it off the blob. **It costs no resident byte and no blob sector**:
+  the blob was the first home, and its 14th sector cost the 360KB and 720KB
+  disks a whole `int 13h` call each (`t_blobruns --sectors 14`). The format:
+  three groups (`.text`, `.ovl`, `.boot2`), each a stream of offset steps
+  from the last site - a byte 1-255, or 0 and a word - ended by a word of 0.
+  `tools/os88sym.py` compares its assembly with the stamped kernel through
+  `os88cfx.blank`.
+- **The HMA image is a delta mover.** `rom_patch` (kind 3) reads where
+  `.cold` runs now from `[api_coldseg]` (`RT_ACS`), checks every listed word
+  against THAT, copies `.cold` up from THAT, and re-points the `mod_fp`
+  slots that name it - so it still adopts a kernel that slid `.cold` before
+  XMEM.DRV attached. Its `.text` hash covers the listed words, which the
+  slide rewrites, so a sliding kernel's image carries TWO hashes
+  (`RT_SLIDES`, `RT_SLIDSEG`, `RT_HASHS`): one for `.text` with `.cold` at
+  `COLD_HOME` and one with every listed word saying `COLD_HOME - VGA_PARA`,
+  picked by `[api_coldseg]`, and any third value is refused. Leaving the
+  words out of the spans instead would cost a span per site, ~370 bytes the
+  kern_big ROM does not have. On a 286 with a CGA or a Hercules the floor
+  then falls to `VGA_RAM` rounded - the rung and both copies of `.cold` -
+  0EA0 on a `VIDEO=cga` kernel against 1820 with neither move;
+  `tests/hmacold.py` leg D is the gate. A ROM rings before anything moves
+  and checks against the built value as before.
+- **The top of the ladder is packed (`LADDER_PACK`, every `ROM_ADOPT`
+  kernel; `NO_LADDER_PACK` is the A/B).** The rungs were there for guard 6,
+  and guard 6 names the bases an `int 13h` transfer lands on - `KERNEL_SEG`,
+  `FAT_SEG`, `LOW_SEG`, `HEAP_SEG` and the claims. `COLD_RAM` and
+  `VGABUF_RAM` are not among them: `.cold` arrives inside stage 2's one read
+  of the file, and `.vgabuf` is CPU scratch. So LOW's top, `.cold` and
+  `.vgabuf` round to the PARAGRAPH, and `KERN_END` alone rounds to 512 -
+  one rounding where there were three. The image rung and the FAT window
+  stay whole, `FAT_SEG` and `LOW_SEG` sitting on them; kern_mega keeps its
+  rungs (`COLD_SEG` is a selector, a multiple of 8 paragraphs).
+  `mem_floor_ax` rounds every floor up to 32 paragraphs, because a ROM or
+  HMA floor lands on `COLD_RAM`, which is no longer a rung boundary: +6
+  bytes of `.cold` (the round-up and a `PARITY` byte for the disk path's hot
+  loops). `tools/kernsize.py` reports the packed top as one `top` rung
+  (`toppara`). At build 471 it is **-512 bytes of `KERN_SIZE` on both
+  kernels** (kern_big 97,792 -> 97,280, kern_small 60,928 -> 60,416), the
+  slack of two rungs.
+- **The VGA rung, `.vga` (`COLD_SLIDE`).** The code only a VGA or an EGA runs
+  - the planar blits and their decoder, the VGA bodies of the fills, the
+  save-under and the cursor, the VESA hook - is a section of its own between
+  LOW and `.cold`: `[image][FAT][LOW][VGA][COLD][VGABUF]`. Its `vstart` is its
+  offset from `KERNEL_SEG`, so it is INSIDE the kernel's 64KB window: `.text`
+  reaches it with the near calls it always used, its data is DS-near, and
+  nothing about the code changes. Where a body is an API slot, a `.text` door
+  tests `[vid_avail]` and refuses on a machine with neither card
+  (`gfx_blitp`), and a body the rung would otherwise fall into takes a `jmp`.
+  - **The slide.** On a machine whose `[vid_avail]` has neither
+    `VID_A_VGA` nor `VID_A_EGA` - fixed for its life, and known once
+    `vid_probe_avail` has run - `kmain_o` far-calls `cfx_slide` before
+    `mem_init_x`, unless a ROM already took `.cold`. It copies `.cold` down
+    by `VGA_PARA` paragraphs and adds the delta to every word `.cfx` lists;
+    `[api_coldseg]` is one of them. The routine rides in `.cfx` beside its
+    list (the blob had 78 bytes to spare and it needs ~100). ~105 ms on a
+    4.77 MHz 8088, ESTIMATED from the copy's length.
+  - **The floor** (`mem_floor_ax`): with neither card it is `VGA_RAM`, plus
+    `COLD_PARA` while `.cold` is in RAM (slid) - a segment past A000 is not
+    RAM - rounded up; `.vgabuf` is not counted. It also stores the kernel
+    row `osapi_sys_kb` reports (`SK_MONO_KB`). A VGA or EGA machine's floor
+    is what it was.
+  - **Three gates.** `tools/os88ovlchk.py` rule 2f: every reference from
+    outside the rung into it is in `tests/vgarefs.txt` with the RUN-TIME
+    test that keeps a machine with neither card out (`%ifdef GFX_VGA` is not
+    one - kern_big defines it everywhere). `tools/os88cfx.py`: no word in
+    `.vga` may name `.cold`'s segment, the slide's list not holding it (a
+    `.text` shim makes the call instead, `gfx_bpwalk_t`). And kernel.asm:
+    the rung's last byte must be a KERNEL_SEG offset - the binding form of
+    `KERN_CODE_MAX` now, which `kernsize`'s `window` line reports.
+  - **What is in it** (2,032 bytes at build 474): `vga_blit_span`, the
+    planar decoder (`vga_p4build`, `vga_blit_prow`, `vga_prow_emit`),
+    `gfx_blitp`'s body, the VGA bodies of `gfx_fill_gray_raw`,
+    `gfx_fill_pat_raw`, `vga_save_vram`, `vga_restore_vram` and
+    `vga_solid_rect` (with its two stubs), the pointer's planar half
+    (`cur_saveu`, `cur_rect`, `cur_draw`, `cur_restoreu`), `ico_core`'s planar
+    arm with `ico_pass`, and `gfx_scroll`'s planar copy. **What is not, and
+    why**: `vga_gc_reset` and `gfx_1bpp_on`/`off`, which `gfx_save`'s tail
+    and `wm_su_arm` call on every adapter; the VESA rows, which are tables
+    the driver machinery walks on every machine; and the planar arms inside
+    `font_char`, `gfx_points` and `gfx_blit4`, ~1.1KB where a `jmp` would
+    land on every call of the hottest paths there are.
+  - **Measured at build 474**: a machine with neither card keeps **95,232
+    bytes resident against 97,280** on a VGA or EGA machine - 2,048 back;
+    the kernel before this section was 97,792 everywhere less the 512 of
+    `.vgabuf` a mono machine already declined. What a VGA machine pays is
+    the doors and jumps (about a dozen near jumps, ~15 clocks each on the
+    calls that take them, the busiest being `vga_solid_rect`'s at +0.6% of a
+    fill, PREDICTED) and `.cold`'s +26 for the floor's mono arm.
+    `tests/coldslide.py` is the gate; `tools/os88marty.py`'s `sym()` follows
+    a slid `.cold`, so a row breaking on a `.cold` label on a CGA or a
+    Hercules lands where the code is.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
