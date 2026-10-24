@@ -162,6 +162,67 @@ kern_small nets -2 through item 11.
 kern_small's two ahead of `gfx_blit4` (the one item 10 had moved there, and
 viddet.inc's) likewise. Each pair goes together.
 
+### AFTER THE MERGE - `reach`'s cross-file items in this concept's files
+
+`kernel-size-14` (`5fc79571`, reach and files merged: kern_big 92,018) merged
+in at `84064932`; the merge reproduced the branch's -159 to the byte (91,859).
+Then the coordinator's list from `ksp14/reach.md`'s CROSS-FILE, measured
+against `kernel-size-14` with `os88rdiff` on all four kernels:
+
+| | `kernel-size-14` | tip | delta (this branch whole) |
+|---|---:|---:|---:|
+| **kern_big resident** | 92,018 | **91,776** | **-242** (`.text` -129, `.cold` -113) |
+| kern_big blob (13 sectors, 6,656) | 6,673 with the titles (over by 17) | **6,577** | 79 spare |
+| **kern_small resident** | 58,810 | **58,787** | **-23** |
+| **kern_emu resident** | 92,289 | **92,032** | **-257**; `KERN_SIZE` 98,304 both |
+| **kern_mega resident** | 102,319 | **102,132** | **-187** (`.text` -76, `.cold` -111) |
+| `CTRL.DRV` image + bss | | 14,770 + 164 | 15 KB claim, 426 spare |
+| `HIBER.DRV` image (unpadded) + bss | | ~6,750 + 594 | padded to 7,169 as before; 8 KB claim unchanged |
+
+### 12. `ovc_buf` is not blob bytes - 0 resident, blob -164 (kern_big, emu, mega)
+
+**Taken first, because the merge did not assemble without it**: reach's moves
+had left kern_big's blob 61 bytes and this branch's `DRV_TITLES` copy is 79,
+so the merged blob was 6,673 of 6,656. The SYSTEM.CFG file buffer was 164
+zero bytes inside the blob, read off the disk on every boot. It is now the
+paragraphs just PAST the blob - `ovc_buf equ BOOT2_PAD` - and `mem_init`
+reserves `BOOT2_RES` (the blob plus `CFG_FBUF` rounded to a paragraph) where it
+reserved `BOOT2_PAD` (kern_small, which has no `ovc_buf`, keeps the old
+line), and `mem_unblob` already gives back down to the floor. Nothing reads it
+before it is written: `%1_load`'s read or the shortcut stager fills it, and
+`%1_deser` is bounded by the count the read returned (read, `driver.inc`).
+Nothing else sits past the blob during the boot: the kernel's packed tail is
+read below `HEAP_SEG`, `.ovl` is claimed from the heap top after `mem_init`,
+and the first use (`drv_boot_x`) is after `mem_init`. Guard 5 (the 128KB boot)
+still sums `BOOT2_PAD`: by the time `ovc_buf` is written, stage 1's copy and
+its stack at the top of RAM are dead. ksp13 xfile's WANTS 3.
+
+### 13. `exf_sync` into CTRL.DRV and the blob - -46 / -46 / 0 / -46
+
+`EXF_SYNC prefix, hop` (`extmod.inc`): expanded as `cxf_sync` in CTRL.DRV's
+panel (two near calls in `cp_vid_click`, 5 -> 3 bytes each) and `bxf_sync` in
+the blob (`drv_boot_x`'s one call), each reaching `mod_need`/`mod_drop` through
+its image's own `KGO_PAIR` hop (`CPXC`, `BSWC`). Blob +~49, CTRL.DRV +~45.
+`extmod.inc` now has no resident bytes but the `EXTCALL` sites. SPEC.md
+39.19.6.1.
+
+### 14. `vgcf_boot` at its one call site in the blob - -21 / -21 / 0 / -21
+
+`drv_boot_x` tests `[drv_cfg+CFG_VGC]` and runs the core's `SC_OP_VGC` itself,
+`mod_need`/`mod_drop` through `bvs_cgo`. Same refusal: a core that cannot be
+read leaves `SETFP` on `mod_gone` and the machine boots grey. SPEC.md 39.28.
+
+### 15. Four far shims gone - -16 / -16 / 0 / -16
+
+`drvf_drv_release`, `drvf_drv_row`, `drvf_drv_unload` and `drvf_drv_load_at`
+had no resident caller: every caller is the blob (through `bvs_cgo`), CTRL.DRV's
+panel (`CPXC`) or HIBER.DRV, which gains a hop of its own (`KGO_PAIR hbg`,
+~54 image bytes, inside the padding that already makes its claim 8 KB).
+`DRV_ATTACH` takes the image's hop as its second argument. Each site is the
+five bytes the far call was; each call is ~300 clocks dearer, once per
+driver load, panel click or hibernate. kern_small's `cp_drvrow` keeps the
+refusing stub.
+
 ## REFUSED
 
 1. **`drv_cp_closed_x` as the routine's only entry** (-2): `OSAPI_DRV_USE`'s
@@ -194,6 +255,20 @@ viddet.inc's) likewise. Each pair goes together.
 10. **`OSAPI_MEM_SUBSEG`, `IMG_NAME`, `ARG_TEXT` inline on kern_small**: they
     share `mod_gone`, so there is no body to delete - speed only.
 11. **`hb_ok_x`'s VESA arm**: ten bytes and minimal (the vesa note agrees).
+12. **The other eight far shims of reach's list** (`drvf_drv_call`,
+    `drvf_drv_mounted`, `drvf_drv_vol_bank`/`_back`, `dskf_disk_read`/`_write`,
+    `dskf_dsk_vol_row`, `dkf_dsk_vol_fixed`, 32 bytes): each has a caller in
+    CTRL.DRV's SETTINGS CORE (`.modc`, a module of its own that os88ovlchk
+    refuses a call into the panel's hop from - tried for `drvf_drv_mounted`,
+    refused at the build), or in DISKOPS.DRV, FORMAT.DRV or STIKMENU.DRV,
+    none of which has a hop: ~54 image bytes per image for 4 to 12 resident.
+13. **HIBER.DRV-only `.bss`** (`hb_*`, ~19 bytes): the block is "part of the
+    image, which is the point" - what `hbm_perform` banks before the write is
+    what `hbm_wake` reads after the restore, and the wake reloads the module
+    fresh; `hb_susp`/`hb_drvmask` cross a DOS suspend's two loads and a
+    hibernate taken during one; `hb_sp` crosses the restore. `hb_down` (one
+    byte, the armed button) alone looks module-local, and is not worth a
+    proof on its own.
 
 ## WANTS THE OWNER
 
@@ -220,7 +295,7 @@ unfrozen interface touched (`OSAPI_IMG_NAME`) kept its contract.
 1. **Parity pads that cancel in pairs, kernel-wide** (the general pass, best
    at the CLOSE when the layout is final). A pad is a never-executed byte that
    puts the hot routines after it back at their pinned parity; two pads with
-   no hot routine between them, on the same arms, can both go. At this tip
+   no hot routine between them, on the same arms, can both go. At `519139f5`
    (`tools/os88rdiff.py`'s listings against `t_hotpar`'s list):
    * kern_big and kern_small, `.cold` between `gfx_blit1_x` and `dsk_xfer`:
      `memory.inc`'s pad at `mem_bytes_kb_x` (the compaction session's file)
@@ -268,6 +343,18 @@ installed), the tree not being edited: **23/23 ok** in 675s.
 | `xmcheck` | `xm_release_rec` on the KENT ladder (QEMU, XMS) | ok |
 | `rombig`, `romsmall` | `.cold`'s relocations for a ROM/HMA after every move | ok |
 | `buildmatrix` | every knob kernel still assembles (the blob grew) | ok |
+
+**After the merge and items 12-15**, a second pass the same way on the tip:
+**21/21 ok** in 756s - `bootstatus`, `bootfloor`, `blobruns`, `kzboot` (the
+blob 164 bytes shorter and `ovc_buf` past it; SYSTEM.CFG read at boot),
+`vgacolor` (Force Color at boot, item 14), `extdmod`, `dispzoom`, `dispthm`
+(EXTD.DRV through `cxf_sync`/`bxf_sync`, item 13), `hibernate`, `kdreturn`,
+`kdreturnm` (HIBER.DRV's new hop: the sweep's `drv_row`, `drv_unload` and
+`hdl_load`'s `drv_load_at`, item 15), `xmcheck`, `vesa`, `vesa8`, `usbmouse`
+(the blob's attach and refusal paths through `bvs_cgo`), `drvcall`,
+`drvscroll`, `install`, `hdauto` (the panel's `CPXC` sites), `rombig` (the new
+`COLD_SEG` sites in HIBER.DRV relocated for a ROM) and `buildmatrix` (every
+knob's blob).
 
 Equivalence where no row reaches: `osapi_img_name` in unicorn (TAKEN 6). The
 fast tier ran in every `make` (61/61 at each commit); `tools/stkbalance.py`
