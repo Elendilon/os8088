@@ -203779,6 +203779,11 @@ parked inside the part). Red: `px_pin` without its `op_pin` - the GIF part
 moved 3320 -> 2AA0 under the parked worker; `px_anseg` out of `px_mreloc` -
 the word stale; `op_lazymv` without its store - the row stale.
 
+**What it changed that is not a part**: with no part a barrier,
+`OSAPI_MEM_AVAIL` counts room the compactor makes by sliding the OLD master
+too, which put two compactions of a 302 KB master into a FAST OPEN's claims -
+106.8's *never by moving it* is the fix and the measurement.
+
 ### 106.6 Opening a file before there is a decoder (wave 1)
 
 File > Open runs the Standard File dialog (§38); a document launch (JPG,
@@ -203946,6 +203951,26 @@ while a picture decodes, never how a master is made (`pxdecode`). It costs
 52 bytes of image (41,299 -> 41,351), and the same FAST OPEN puts its first
 rows up in 2.84 s again, its whole open 45.54 s; the 1/1 open beside it is
 115.47 s, no slower.
+
+**...and never by MOVING it (NO-PINNING, 2026-10-24).** 106.5.1 made the code
+parts movable, and that changed the number above without touching a line of
+it: `OSAPI_MEM_AVAIL` is the run a compaction LEAVES, and with no part left
+pinned as a barrier the compaction it plans slides everything - the old
+master included. So the same FAST OPEN after the 1/1 open kept the 302 KB 1/1
+master again, on a 148 KB answer, and its claims then compacted three times,
+dragging that master 3 KB and then 35 KB (`px_mreloc` eight times, two parts
+with it): 2.7 s of `px_claims` on the 5150, the first rows 5.24 s against the
+ceiling's 4.80 (`pxbench`). The per-call part pins were measured and are not
+it - two `op_pin`s in the whole open. `px_claims` now PINS the old master
+(`px_prevmv`, AX = 0) while it decides and claims, and declares it movable
+again (`px_mreloc`) on the way out if it was kept, so the answer is the room
+AROUND it: the claims fit beside it as it stands, or it is freed first. A
+re-decode is excepted - its old master is the one SHOWN, and moving it may
+be the only way the finer one fits. Measured, the same session on the 5150:
+the FAST OPEN 48.89 s -> **44.90 s**, its first rows 5.24 -> **2.63 s**; the
+other VACATION.JPG opens unchanged (1/8 23.97 s, 1/2 44.77 s, 1/1 113.40 s).
++46 bytes of image (40,340 -> 40,386 of `.text`, a parity pad among them), no
+bss, and `tools/os88rdiff.py`: 777 routines identical, none at an odd shift.
 The windowed slideshow's hidden decode masks the shown picture's `HAVE`
 (106.21), so it never reaches this decision: px_claims still never frees the
 picture on the glass for a slide.
