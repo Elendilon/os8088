@@ -214,6 +214,11 @@ green); the pads are never executed.
    `VID_EXT`. A DEFECT FIX (below), so it changes behaviour on that path: it is
    put rather than taken.
 
+   **TAKEN at the owner's word** by the coordinator after the merge: kern_big
+   92,594 -> 92,598, as priced. The owner notes another session has reworked
+   heap compaction in parallel, so this row is to be REVIEWED when that work
+   and this pass merge.
+
 ## WANTS AN ABI BREAK
 
 None. `VX_ABI_VER` 4 -> 5 is the kernel <-> `VESA.DRV` private contract

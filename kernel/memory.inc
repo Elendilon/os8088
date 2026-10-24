@@ -2939,6 +2939,12 @@ mem_rr_tab:
                                     ; 76.14.14): cached while the panel is open,
                                     ; so a compaction can move it under us
 %endif
+%ifdef VID_EXT
+    MEM_RR_ONE vx_ep + 2            ; VESA.DRV's hook entry, a far pointer
+                                    ; into its image (kernel/vidext.inc, SPEC.md
+                                    ; 120.3.2): a moved image is otherwise
+                                    ; called at its OLD address
+%endif
     dw 0
     ; --- ES = LOW_SEG (SPEC.md 2.6) --------------------------------------
     MEM_RR_ROW menu_bar + MB_SEG, MENU_BARMAX, MB_ENTSZ  ; .lowbss (SPEC.md 12.2)
