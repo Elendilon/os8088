@@ -451,6 +451,17 @@ code - and the close hang is fixed (`rw_bmiss` tested `[rw_closing]` before
 1403.8 against 1403.7 switches a guest second; hot routines unshifted. Rows
 `rdgmove` (extended) and `rdgclose` (86Box, the bank-cache path), each red.
 RealDMG now has NO long-lived pinned claim.
+P1b (`758ea876`, SPEC.md 82.16.11): SHEET's two code modules, CHART.OVL
+(52KB) and MACRO.OVL (28KB), move. No module CS is left on a stack across a
+claim: module-to-resident calls go through an in-place thunk that stacks a
+TAG instead of the CS, MACRO-to-CHART goes through `ch_ovcall`, claim-capable
+kernel slots through resident stubs, and MACRO's own claim is pinned across
+its text-channel I/O. +438 image, +48 bss. **Measured cost per crossing, real
+work, MartyPC guest cycles**: recalc +0.47% / +0.73%, chart render +0.01%,
+macro loop +0.70% - under the 2% bar, so no leaf fast path was built. Rows
+`sheetovlmove`, `sheetxbench`. Found on the way, NOT this work's: a SYLK save
+of 60 rows came out truncated and formula text near 60 characters cut short,
+in both builds.
 
 **Kernel finding from A1b, not acted on (kernel bytes):** in a pass that
 moves a package's REGION, `mem_region_reloc` re-enters the restartable worker
