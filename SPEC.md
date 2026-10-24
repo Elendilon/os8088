@@ -98267,6 +98267,39 @@ CGA and Hercules. That is not a consolation prize for the missing colour: a
 value in a column is what the rest of the row already is, and §47 does not
 apply to it.
 
+#### 52.2.2.1 The State column is the install engine's
+
+**The window's rows say what a slot IS in the words the INSTALL wizard
+shows** (§52.10.4.2): `C: FAT16`, `FAT16, Too Big`, `Linux`, `Type 2Bh`,
+`Unpartitioned`, `Empty, No Room`, `FAT16, Wrong Geometry`, `C: FAT16,
+Booted From`. It had five words of its own, and `Unmountable` covered a
+foreign type and an over-ceiling FAT alike, where the engine names the type
+or gives the reason. `hd_tw_scan` runs the engine's per-slot pass
+(`hd_iw_scant`) on the table the window has just read - no second read - and
+`hd_tw_rowtext` letters `hd_iw_rowtdi`'s text after the slot number and size.
+
+**`Too Small` is cleared**: it is an install's floor (2 MB, `HIW_MINSEC`) and
+not a formatter's, so a 1 MB slot this window would format happily must not
+read as refused. `No Room` stays: a free slot with no space behind it cannot
+be formatted either. The section above is the record of the old words; the
+display test and the rule that nothing in this window is greyed are
+unchanged.
+
+**The buttons still ask `hd_tstate`**, now derived from the engine's facts:
+free (the table), booted-from (`HIS_LIVE`), a volume (`hd_ivol`), wrong
+geometry (the `Wrong Geometry` reason) and everything else used. `HTS_ALIEN`
+folded into `HTS_RAW`, since no button told the two apart. The engine's
+device and slot (`[hd_idev]`, `[hd_isel]`) are banked around the pass, so a
+wizard run waiting on its apps disk is left as it was.
+
+The columns moved one character each - `Slot Size  State`, the State at
+column 11 - so the engine's longest row (`C: FAT16, Wrong Geometry`, 24
+characters) fits the 300px window. It saved 12 bytes of the compressed file
+(12,796 -> 12,784, §52.10.4.4) - a mapping from the engine's facts to the
+button states is nearly as long as the predicates it replaced, so the win is
+the words and one scan rather than the bytes; `tests/hdmap.py` reads the
+column.
+
 #### 52.2.3 Confirm, and the order of the two commits
 
 **A destructive button asks first**, in the caption, by wanting the click
@@ -99370,8 +99403,9 @@ went, the wizard reading the caption only on `HDG_FAIL`, so a stop's default
 is *Disk error - the install stopped*; one copy of each repeated sentence, and
 three strings share their tails; and the partition-type names are the common
 five, inline after their type bytes. That took the file to **12,796 bytes,
-25 sectors** of the 360 KB system disk's 512-byte clusters - **4 bytes under
-the line**, so the next byte added to this image is a sector back.
+25 sectors** of the 360 KB system disk's 512-byte clusters, and §52.2.2.1's
+Format window on the engine's words to **12,784 - 16 bytes under the line**,
+so the next 17 bytes added to this image are a sector back.
 
 **What it cost and bought**, measured on the tree it landed on:
 `HDDTOOL.DRV`'s image **18,327 → 17,038 bytes (−1,289)**, its claim

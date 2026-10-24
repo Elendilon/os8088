@@ -149,10 +149,21 @@ HIW_KMAXKB   equ 96
 ; and the reason after a comma only when the verdict is no.
 ; -----------------------------------------------------------------------------
 hd_iw_scan:
-    call os88_ent
+    push ax
+    push di
     mov al, [hd_idev]
     call hd_dev_row
     call hd_part_load           ; the table, or a blank one if unreadable
+    call hd_iw_scant
+    pop di
+    pop ax
+    ret
+
+; hd_iw_scant - the same, on the table ALREADY in hd_mbr: DI = [hd_idev]'s
+; row. The Format window's entry (tool.inc's hd_tw_scan), which has just read
+; that table and must not pay a second int 13h for it
+hd_iw_scant:
+    call os88_ent
     xor cl, cl
 .slot:
     mov al, cl
@@ -402,16 +413,23 @@ hd_iact_ok:
 
 ; -----------------------------------------------------------------------------
 ; hd_iw_rowtext - slot [hd_irow]'s State column into hd_line (module
-; internal): [letter ': '] body [', ' reason], SPEC.md 52.10.4.2
+; internal): [letter ': '] body [', ' reason], SPEC.md 52.10.4.2 - and
+; hd_iw_rowtdi, the same at DI, for the Format window's rows (SPEC.md
+; 52.2.2.1), which say what a slot is in the same words
 ;
 ; THE STATE COLUMN AND NOTHING ELSE. It was the Install window's whole row -
 ; 'Slot 1', the size, then this - and since that window went (SPEC.md
-; 52.10.4.4) its one reader is hd_pv_slots, which hands the wizard the size
-; as a number (HDIS_SECS) and the slot as an index.
+; 52.10.4.4) its readers are hd_pv_slots, which hands the wizard the size as
+; a number (HDIS_SECS), and the Format window, which letters its own.
 ; -----------------------------------------------------------------------------
 hd_iw_rowtext:
+    push di                     ; the CALLER's DI comes back: os88_ent banks
+    mov di, hd_line             ; it below, after this store, so the ladder
+    call hd_iw_rowtdi           ; alone would hand back hd_line
+    pop di
+    ret
+hd_iw_rowtdi:                   ; ...or at DI: the Format window's row
     call os88_ent
-    mov di, hd_line
     mov bl, [hd_irow]
     xor bh, bh
     mov al, [bx+hd_ilet]        ; 'C: ' when it is on the desktop

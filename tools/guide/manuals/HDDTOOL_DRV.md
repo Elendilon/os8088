@@ -30,10 +30,14 @@ disk, then a button:
 
 ![Four partition slots, the first holding a 31MB FAT16 volume.](shot:hddtool-drv-format){right}
 
-A disk has four slots. Each shows its size and its state: `FAT16` or `FAT12`
-for a volume os8088 can use, `Not Formatted` for a free or empty slot,
-`Unmountable` for one that belongs to another system, `Wrong Geometry`, or
-`Booted From` for the volume the machine is running from. The bar under the
+A disk has four slots. Each shows its size and what is in it, in the same
+words as [[INSTALL.O88]]'s partition list: `FAT16` or `FAT12` for a volume
+os8088 can use, after its drive letter when it is mounted (`C: FAT16`);
+`Not Formatted` for a FAT slot with nothing in it; `Unpartitioned` for free
+space; the name of another system's partition, such as `Linux`, or its type
+number (`Type 2Bh`); and a reason after a comma when os8088 cannot use it,
+such as `Too Big`, `Wrong Geometry` or `Booted From` for the volume the
+machine is running from. The bar under the
 list is a map of the disk, and the line below it says how much space is
 free.
 

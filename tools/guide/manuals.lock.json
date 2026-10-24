@@ -502,17 +502,17 @@
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "a1bcc392",
-  "strings": "d0a86e795c1cacbc",
-  "why": "engine-side trims (State column only, window captions, common partition-type names); the page's level of detail is unchanged"
+  "stamped": "98a487a2",
+  "strings": "e6fb502f9e95b17d",
+  "why": "Format window rows use the install engine's State words (SPEC.md 52.2.2.1); page updated"
  },
  "HDD_DRV": {
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "a1bcc392",
-  "strings": "d0a86e795c1cacbc",
-  "why": "only two dead labels left hdcom.inc; nothing the page describes"
+  "stamped": "98a487a2",
+  "strings": "e6fb502f9e95b17d",
+  "why": "HDDTOOL.DRV-side change only; nothing the page describes"
  },
  "HELV_F88": {
   "sources": [],
