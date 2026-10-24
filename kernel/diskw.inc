@@ -607,8 +607,7 @@ dskw_gate:
     jmp short dskw_mounted.quit ; CF/AX = the driver's answer
 %endif                          ; OS88_REDIR
 dskw_gate83:
-    mov di, dskw_n83
-    call dskw_name83            ; SI -> the 11-byte raw name field
+    call dskw_name83n           ; SI -> the 11-byte raw name field
     jnc dskw_mounted.ret
     mov ax, FERR_NAME
     jmp short dskw_mounted.fail
@@ -627,6 +626,18 @@ dskw_mounted:
     inc sp                      ; `inc`
 .ret:
     ret
+
+; dsk_wr1_clba - DSK_WR1D dskw_clba: dsk_secbuf out to the data walk's cursor
+; (disk.inc's macro names it; its three sites are the mkdir's '.'/'..' sector,
+; its zeroed tail and dskw_wone's - kernel size pass 14, a jump per sector)
+dsk_wr1_clba:
+%ifdef OS88_BIGVOL
+    mov bx, dskw_clba
+    jmp dsk_wr1p_x
+%else
+    mov ax, [dskw_clba]
+    jmp dsk_wr1_x
+%endif
 
 %ifdef DSKW_WSEQ
 ; dws_gate - A HELD STREAM ENDS BEFORE ANY OTHER WRITE ON ITS VOLUME (SPEC.md
@@ -2564,6 +2575,7 @@ dskw_dbody_n83:                 ; dskw_n83 already filled (dskw_rmtree)
 %endif
     test byte [dskw_raw+DSK_R_ATTR], DSKW_PROT
     jz .live
+.protj:                         ; (dskw_nbody's refusal jumps here too)
     jmp dskw_wbody.prot         ; read-only, hidden, system, label or dir:
 .out:                           ; FERR_PROT
     ret
@@ -2600,8 +2612,7 @@ dskw_nbody:
 .fatn:
     push si
     mov si, di                  ; the new name first: parse it, then prove
-    mov di, dskw_n83            ; it is free
-    call dskw_name83
+    call dskw_name83n           ; it is free
     pop si
     jnc .named
 .badarg:                        ; (dskw_rtbody and dskw_wabody answer here too)
@@ -2631,8 +2642,9 @@ dskw_nbody:
     call dskw_imgro             ; a mounted image's file (SPEC.md 18.101.3)
 %endif
     test byte [dskw_raw+DSK_R_ATTR], DSKW_NPROT
-    jz .patch                   ; 0x0F, not 0x1F: a FOLDER may be renamed
-    jmp dskw_wbody.prot
+    jnz dskw_dbody_n83.protj    ; 0x0F, not 0x1F: a FOLDER may be renamed -
+                                ; and the refusal is the delete's own `jmp`,
+                                ; in short reach (kernel size pass 14, -3)
 .patch:
     push si
     mov si, dskw_n83b
@@ -2740,8 +2752,7 @@ dskw_stat_x:
     jmp short .out              ; (CF = 0 from the `jc`; xchg writes no flag)
 %endif
 .fat:
-    mov di, dskw_n83
-    call dskw_name83
+    call dskw_name83n
     jc .badname
     call dskw_find              ; ...which now leaves the 32 raw bytes in
     jc .fail                    ; dskw_raw itself (AX = FERR_* on failure)
@@ -4927,6 +4938,10 @@ dskw_now:
 ; wildcard or a byte outside 21h..7Eh is a rejection - and 0xE5 (the
 ; deleted mark) and "." / ".." cannot be spelled at all.
 ; -----------------------------------------------------------------------------
+; dskw_name83n: the same, with the `mov di, dskw_n83` its callers
+; spelt at the call (kernel size pass 14: it falls into the body)
+dskw_name83n:
+    mov di, dskw_n83
 dskw_name83:
     call kentc_di               ; KENT: push ax..di, so the exit is kretc_di's
                                 ; rung

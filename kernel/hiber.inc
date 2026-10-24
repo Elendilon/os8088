@@ -2800,8 +2800,8 @@ hbm_dosrun:
     call hbm_cb                         ; lives in APPS/ and not in the root
     jc .b2
     ; **THE NAME HAS TO BE IN KERNEL_SEG**, which is not what ES says: the
-    ; compare underneath is `dsk_streq`, and that reads DS:SI against DS:DI
-    ; (kernel/disk.inc) - so a name in the module's own image is read at that
+    ; lookup underneath parses it with `dskw_name83`, and that reads DS:SI
+    ; (kernel/diskw.inc) - so a name in the module's own image is read at that
     ; offset in the KERNEL's segment and matches nothing. `api_name` is the
     ; kernel's own 13-byte stage for exactly this question, it is exactly
     ; KDH_NAME's length, and it is free here: it is what the N cells copy a

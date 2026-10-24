@@ -3095,73 +3095,12 @@ drv_blob_of:
                                 ; already answers for a caller with no drv_tab
                                 ; row. The hard disk's Format and Install do
                                 ; NOT use it: they type their own names
-osapi_drv_dlg_x:
-    call kentc_di               ; KENT: push ax..di
-
-
-
-
-
-    cmp word [fdlg_win], 0      ; ...ALREADY UP, which is the header's third
-    jne .no                     ; refusal and fdlg_open_x's own gate asked one
-                                ; call earlier: a second request that got as
-                                ; far as the stores below would replace the
-                                ; first driver's arming and then be refused
-                                ; there, leaving the live dialog's commit with
-                                ; nothing to dispatch into (SPEC.md 51.11)
-    mov ah, al                  ; the MODE rides in AH across the fences: AL is
-    mov bx, es                  ; what drv_row_ix_of answers in
-    call drv_pub_seg            ; a published driver's, and nobody else's
-    jc .no
-    call drv_row_ix_of
-    jc .no
-    call drv_row_x              ; BX = the row this segment is running
-    mov [drv_dlg_mode], ah      ; NOTHING IS WRITTEN UNTIL BOTH FENCES PASS
-    mov [drv_dlg_cb], di        ; (SPEC.md 51.11): a refused caller used to
-                                ; disarm the dialog a driver already had up on
-                                ; its way to CF = 1, and any .O88 can reach
-                                ; this slot. The pre-emptive disarm that stood
-                                ; here is gone with it - the row is armed at
-                                ; .named and cleared at .disarm, and between
-                                ; the two nothing can dispatch: drv_dlg_done
-                                ; runs only for a dialog THIS routine opened,
-                                ; and the gate above says none is up
-    mov ax, [bx+DRVR_SEG]
-    mov [drv_dlg_seg], ax
-
-    mov di, drv_dlg_name        ; the default name is the CALLER'S data, so it
-    mov byte [di], 0            ; is staged here the way every N cell stages a
-    or si, si                   ; file name - fdlg_setname reads through DS
-    jz .named
-    mov cx, 12
-    call fm_ncpye               ; ES:SI (the driver's) -> DS:DI (ours), NUL
-.named:                         ; either way.  files.inc is `.cold` too
-    mov [drv_dlg_row], bx       ; ARMED LAST: until this store there is nothing
-                                ; for a commit to dispatch into
-    call cp_live                ; the panel: our page is inside its window
-    jc .disarm
-    mov bx, [di+I_WIN]
-    or bx, bx
-    jz .disarm
-    mov si, drv_dlg_name
-    cmp byte [si], 0
-    jne .go
-    xor si, si                  ; no default: SPEC.md 38.10's remembered name,
-.go:                            ; and NOT a kernel address holding an empty
-                                ; string, which fdlg_open cannot tell from one
-    mov di, drv_dlg_done_x      ; the COLD body: a kernel window's callback
-                                ; is dispatched into `.cold` (SPEC.md 2.6.3)
-    mov al, [drv_dlg_mode]
-    call fdlg_open_x            ; near - fdlg.inc is `.cold` too
-    jc .disarm                  ; ...and not taken is CF = 0, the answer
-.out:
-    jmp kretfc_di               ; FAR: the only entry is kernel.asm's
-                                ; `call COLD_SEG:osapi_drv_dlg_x` (SPEC.md 2.6.1)
-.disarm:
-    mov word [drv_dlg_row], 0
-.no:
-    stc
-    jmp short .out
+osapi_drv_dlg_x:                ; THE BODY IS CTRL.DRV's, modc_e_dlg (ctrl.inc,
+    jmp far [CPFP + CPE_DLG*4]  ; kernel size pass 14): it can only succeed
+                                ; with the panel's window up, and with no
+                                ; image the slot is mod_gone's CF = 1. FAR: the
+                                ; only entry is kernel.asm's api_rxc, and the
+                                ; body's (or mod_gone's) retf answers it
 
 ; -----------------------------------------------------------------------------
 ; drv_dlg_done - the dialog committed; hand the answer to the driver

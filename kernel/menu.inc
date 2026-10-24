@@ -450,6 +450,7 @@ menu_activate:
 menu_win_set:
     pushf
     mov [bx + W_MENUS], si
+.mine:                          ; (wm_about_set joins here with its own store)
     cmp bx, [menu_win]
     jne .out
     call menu_relayout          ; the active application's menus changed
@@ -1564,11 +1565,9 @@ menu_track:
     pop cx
     pop bx
     ret
-%ifdef KERN_BIG
-    db 0                        ; PARITY PAD, never executed (kernel size pass
-%endif                          ; 13): the Sticky Apps menu's cell left
-                                ; menu_popup .. ui_cmd - ui_task in it - at an
-                                ; odd shift on kern_big (tests/unit/t_hotpar.py)
+                                ; (kern_big's parity pad here cancelled
+                                ; instance.inc's before inst_minimize: kernel
+                                ; size pass 14, tests/unit/t_hotpar.py)
 
 ; -----------------------------------------------------------------------------
 ; menu_popup - drop a menu anywhere on screen and track it while a button
@@ -1725,12 +1724,22 @@ menu_setup:
 ; menu_reloc - the compactor moved the save-under (SPEC.md 66.2). One word,
 ; re-read at every use: menu_drop loads it to save, menu_undrop to restore, and
 ; nothing holds a pointer into it across the tracking loop's yields.
+;
+; ...ON kern_mega. Everywhere else [menu_sseg] is a mem_rr_tab ROW (memory.inc)
+; and this name is the shared `ret` (kernel size pass 14): the row is four
+; bytes against these eleven, and it is exact because the word is zeroed
+; before every free (here, stm_shut's) and by mem_shed_one's own protocol
+; (mem_pg_own), so it never holds a base that is not its own live claim.
+%ifdef KERN_MEGA
 menu_reloc:
     cmp bx, [menu_sseg]
     jne .out
     mov [menu_sseg], dx
 .out:
     ret
+%else
+menu_reloc  equ mem_rr_none
+%endif
 %endif                          ; OS88_COMPACT
 
 ; -----------------------------------------------------------------------------
