@@ -16977,7 +16977,12 @@ a rare cell is six bytes (§20.3).*
   down by one, so **class 3 and class 4 land on the SAME `drv_svc` slot** —
   harmless only for as long as class 3 is never published. A published class-3
   driver would overwrite `DRVC_NET`'s service table, which is precisely the
-  silent cross-class disconnection §51.2.1 exists to prevent.
+  silent cross-class disconnection §51.2.1 exists to prevent. (That is still
+  `kern_small`'s compaction. On the builds with a driver layer, `drv_svcix`
+  gives class 3 **no** copied table since kernel size pass 14, at the owner's
+  word that retired drivers are not run, so `drv_cls_svc_x` refuses it and the
+  Control Panel's close walk no longer reaches `ETHER.DRV`'s `DSV_CPCLOSE` a
+  second time through it.)
 - **Giving `DRVC_POINT` no `drv_svc` slot at all is worth 38 bytes of `.bss`
   and IS actionable — as its own change, with a gate.** The driver publishes
   only `DSV_NAME`, which the kernel reads **nowhere** (three matches in
