@@ -1725,8 +1725,7 @@ font_run_x:
     jne .vxslow                 ; text is disabled (the stipple is font_ink's):
     cmp byte [gfx_dis], 0       ; both take the pair, gfx_fill and font_str,
     jne .vxslow                 ; which the driver draws cell by cell
-    call vx_call
-    db VX_FONTRUN
+    VXCALL VX_FONTRUN
     jmp .out
 .vxslow:
     jmp .slow

@@ -16415,6 +16415,12 @@ build, so the canary stays on file sector 21. Measured at build 907, kern_emu
 against itself: **`.cold` -118, `.text` +0, `.boot2` +94** - 118 resident
 bytes back, and kern_big and kern_small byte-identical.
 
+**The extra sector is gone again since kernel size pass 14**, the other way
+round: kern_big's blob took the sector for `VESA.DRV`'s attach (§120.4), and
+kern_emu's - `vmm_boot_x` and `vx_boot_x` both - fits the same thirteen, so
+kern_emu is on kern_big's length and its `KSIG_OFF`, and only a knob build
+reads one more.
+
 #### 9.11.3 `VMMV_READ`, and the pump
 
 The image answers **one report a call, raw**:
@@ -217747,7 +217753,7 @@ Every planar drawing body in the kernel — the code that runs when
 
 ```
     VIDEXT n                    ; cmp byte [vid_ext], 0 / jz .planar
-                                ; call vx_go / db n / .planar:
+                                ; call far [vx_ep] / db n / .planar:
 ```
 
 `[vid_ext]` is a `.text` byte with a real initialiser (0: §39.12's reason,
@@ -217771,21 +217777,27 @@ far call and `VESA.DRV` keeps its state through CS, so that kernel has no
 `vesa_row` at all rather than one that faults on the first draw
 (KERN-MEGA-PLAN 14.67's second merge).
 
-There are three trampolines and every hook uses one of them:
+**The hook is the far call itself**, `call far [vx_ep]` with the selector
+byte after it, so the far return the call pushes IS the selector's address
+and there is no kernel trampoline between a hook and the driver (kernel size
+pass 14 took out the four there were - `vx_go`, `vx_call`, `vx_callf1` and an unused `vx_goc`, 118
+resident bytes and a shared scratch word each). **Bit 7 of the byte,
+`VX_CONT`, says where the driver goes back to**, and the driver points its
+far return there BEFORE the body runs, so nothing after the body touches a
+flag and its CF is the answer:
 
-- **`vx_go`** — for an arm at the TOP of a body, before any push: it turns
-  the stub's near return into a far pointer to the selector byte, far-calls
-  the driver, discards the pointer and `ret`s **to the primitive's caller**,
-  the driver having done the body's whole work. `pop word [m]` and `ret`
-  touch no flag, so a body's CF answer comes back out.
-- **`vx_call`** — for an arm INSIDE a frame whose epilogue the body still
-  owes (font_char's seven pushes and display nesting, `vid_setmode`'s
-  `spl_busy` count): the same call, and then execution continues after the
-  selector byte (`VIDEXTC n, done` jumps to the body's own exit).
-- **`vx_goc`** — a FAR entry for a body in `.cold` (`gfx_blit1_x`): the cold
-  stub is `call KERNEL_SEG:vx_goc / db n`, so the far return address on the
-  stack IS the selector pointer, and the exit is a `retf` to the cold body's
-  own far caller.
+- **clear** (`VIDEXT n`, `VXGO n`) — for an arm at the TOP of a body, before
+  any push: the driver returns to `vx_kret`, a kernel `ret` (`VXB_KRET`), which
+  pops the body's own return address - so the body returns **to its caller**,
+  the driver having done its whole work.
+- **set** (`VIDEXTC n, done`, `VXCALL n`) — for an arm INSIDE a frame whose
+  epilogue the body still owes (font_char's seven pushes and display nesting,
+  `vid_setmode`'s `spl_busy` count): execution continues after the selector
+  byte (`VIDEXTC n, done` jumps to the body's own exit).
+
+A body in `.cold` (`gfx_blit1_x`) cannot carry the byte, `.cold` holding no
+data (§2.6), so its stub far-calls `vx_b1` in `.text` - `VXCALL VX_BLIT1` and
+a `retf` back to it.
 
 The driver reads the selector byte through that far pointer with no register
 spent — every register is a parameter to some primitive (`gfx_blit4` uses all
@@ -217813,9 +217825,9 @@ numbers are `kernel/vxabi.inc`'s, shared as source with the driver):
 | 7 `VX_CURPUT` | `cur_put_1` | save under and draw the arrow at `cur_drawn_x/y` − the hot spot | S1 |
 | 8 `VX_CURGET` | `cur_get_1` | put the save-under back | S1 |
 | 9 `VX_CURMOVE` | `cur_move_1` | AX/BX = the new position: get, store, put | S1 |
-| 10 `VX_SETMODE` | `vid_setmode`'s arm (through `vx_call`) | `4F02h` with the chosen mode, the DAC's first sixteen at 8bpp | S1 |
-| 11 `VX_BLIT4` | `gfx_blit4` (through `vx_call`, to `.out`) | BX = y, the `gfx_blit_x/w/h/sv` cells, ES = the source segment, BP = its stride; two pixels a byte, high nibble leftmost; the driver clips both axes (the clip region's case took `.slow` above) | S2 |
-| 12 `VX_BLIT1` | `gfx_blit1_x` (cold) at `.ybot`, through **`vx_callf1`** - its own far entry, because `.cold` holds no data and the selector byte lives beside the entry in `.text` | AX/BX the clipped x/y, CX width, DX rows, ES:SI the band, BP its stride, the pen (`gfx_b1ink`/`gfx_b1pap`, set = ink) and `gfx_b1hm` (nonzero: ONE byte column, the mask's positions only). BEFORE `.pen`, whose port program would be wrong for a packed mode | S2 |
+| 10 `VX_SETMODE` | `vid_setmode`'s arm (`VXCALL`'s two lines) | `4F02h` with the chosen mode, the DAC's first sixteen at 8bpp | S1 |
+| 11 `VX_BLIT4` | `gfx_blit4` (`VIDEXTC`, to `.out`) | BX = y, the `gfx_blit_x/w/h/sv` cells, ES = the source segment, BP = its stride; two pixels a byte, high nibble leftmost; the driver clips both axes (the clip region's case took `.slow` above) | S2 |
+| 12 `VX_BLIT1` | `gfx_blit1_x` (cold) at `.ybot`, through **`vx_b1`** - a far entry in `.text`, because `.cold` holds no data and the selector byte lives there | AX/BX the clipped x/y, CX width, DX rows, ES:SI the band, BP its stride, the pen (`gfx_b1ink`/`gfx_b1pap`, set = ink) and `gfx_b1hm` (nonzero: ONE byte column, the mask's positions only). BEFORE `.pen`, whose port program would be wrong for a packed mode | S2 |
 | 13 `VX_SCROLL` | `gfx_scroll` at `.disp`, to `.ok` | the six `vgas_*` words: left byte column, bytes a row, signed dy, first destination row, step, rows; each row through a bounce buffer | S2 |
 | 14 `VX_SPANS` | `gfx_spans`, before its row base, to `.done` | AX = the first row (clipped), the `gfx_sp_*` list, `[gfx_color]` | S2 |
 | 15 `VX_FONTRUN` | `font_run`'s `.planar`, to `.out` | CX = x, DX = y, ES:SI the string, `font_rn_fg`/`bg`; **only with no region armed and the text not disabled** - either takes `.slow`, the pair, both halves the driver's, because the per-cell clip and the stipple are the kernel's. Leaves `[gfx_color]` at the foreground | S2 |
@@ -217838,27 +217850,32 @@ The driver is `DRVC_OVL` and publishes no `DSV_*` table. Its `DRVV_ATTACH`
 answers SI = a `VXS_*` table in its segment:
 
 ```
-VXS_ENT     dw  the near proc vx_go / vx_call / vx_goc far-call
+VXS_ENT     dw  the near proc every hook far-calls
 VXS_BPP     db  8 or 16 (a 15bpp mode draws as 16)
 VXS_X/Y     dw  the chosen mode's geometry
 VXS_MODE    dw  the VBE mode number
 ```
 
-Then one private verb, `VXV_INIT` (0x40), hands the driver `vx_blk` in SI —
-a kernel `.text` table of **pointers**, `vid_dbg_blk`'s idiom (§57.4): every
-word names state that already exists (`vid_tab` row 4, `gfx_color`,
-`vga_xorm`, `vga_pn`, `gfx_sub_st`, `font_seg`, `wm_clip_r0`, `wm_clip_cm`,
-`cur_tabp`, `cur_hx`, `cur_drawn_x`, the `ico_*` cells, `vid_kind`,
-`gfx_pat`, and `vx_ep` itself) and nothing is copied. The driver banks the
-kernel's segment and the pointers and **fills `vid_tab` row 4** from the
-chosen mode. `kernel/vxabi.inc` is the layout, shared as source with the
+Then one private verb, `VXV_INIT` (0x40), hands the driver `vx_blk` in DX:SI
+— a table of **pointers**, `vid_dbg_blk`'s idiom (§57.4): every word names
+state that already exists (`vid_tab` row 4, `gfx_color`, `vga_xorm`,
+`vga_pn`, `gfx_sub_st`, `font_seg`, `wm_clip_r0`, `wm_clip_cm`, `cur_tabp`,
+`cur_hx`, `cur_drawn_x`, the `ico_*` cells, `vid_kind`, `gfx_pat`, `vx_ep`
+itself, and the two kernel addresses `vx_kret` and `vx_null`). The driver
+banks the kernel's segment (ES) and COPIES the pointers, and **fills
+`vid_tab` row 4** from the chosen mode. The table lives in the boot blob
+beside `vx_boot_x`, its one sender, so it is given back with the blob (DX is
+the blob's segment). `kernel/vxabi.inc` is the layout, shared as source with the
 driver, and both ends assert their copy against it.
 
 `vx_ep` (dword, `.text`, initialised 0) and `vx_bpp` are armed by `vx_boot_x`
-from the attach answer; the driver's detach clears the segment half and the
-`VID_A_VESA` bit through the block. `vx_go`'s guard reads that segment half
-before every far call, so an image that has gone draws nothing rather than
-calling freed memory. **The ordering is the safety argument**: `[vid_ext]`
+from the attach answer; the driver's detach points `vx_ep` at the kernel's
+`vx_null` (`VXB_NULL`) and clears the `VID_A_VESA` bit through the block. A
+hook CAN fire after a detach - `drv_shutdown_x` detaches every driver while
+`[vid_kind]` is still `VID_VESA`, and the arrow, `cur_unlazy` and
+`vid_setmode` run before the machine leaves the GUI - so `vx_null` keeps the
+driver's exit protocol (on past a `VX_CONT` selector, back through `vx_kret`
+otherwise, CF = 0) and draws nothing, rather than a call into freed memory. **The ordering is the safety argument**: `[vid_ext]`
 can be 1 only while `[vid_kind]` is `VID_VESA`, which only `vid_switch`
 sets, and `vid_switch` admits kind 4 only once `VID_A_VESA` is lit — which
 `vx_boot_x` does after the attach and the init have both answered.
@@ -217914,11 +217931,11 @@ the loading screen is down, the blob's `vid_switch` is still aboard, the
 desktop's first paint is the first thing drawn in the new mode - and a
 package the autostart launches finds the display it will live on: it was
 called from kmain after `kmain_o` returned at first, and PiXEL, launched by
-a link, built its tables for the VGA a switch then took away. **It is
-`.cold`, not `.boot2`**: the blob
-measured 6,142 of 6,144 bytes when it was written, so these ~110 bytes are
-resident until the blob sheds a sector's worth (the plan's S8 names it). The
-reference into the blob is registered in `tests/ovlrefs.txt`.
+a link, built its tables for the VGA a switch then took away. **It is in
+the blob (`.boot2`)**, beside `vmm_boot_x`, with `vx_blk`: it was `.cold` while
+the blob measured 6,142 of 6,144 bytes, and kernel size pass 14 gave the blob
+its thirteenth sector to take both out of resident memory (178 bytes;
+`tests/unit/t_blobruns.py` prices the sector at no `int 13h` on any geometry).
 
 **Out**: the driver's detach is preceded by `vid_switch AL=VID_VGA`, by the
 one caller that can detach it — the Drivers page (`CTRL.DRV`, which holds

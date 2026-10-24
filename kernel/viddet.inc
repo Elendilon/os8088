@@ -635,15 +635,10 @@ vid_depth_set:
 %ifdef VID_EXT
     cmp al, VID_VESA            ; SPEC.md 120.4: colour ([vid_mono] = 0), the
     jne .notext                 ; DEPTH for a plane count, and the hook armed
-    mov ah, [vx_bpp]
-    xor al, al
-    mov [vid_mono], ax          ; one word store, as below
+    mov ah, [vx_bpp]            ; - the stores below, one word for the pair
+    xor al, al                  ; and the _w twin, as on every other kind
     mov byte [vid_ext], 1
-    mov al, ah
-    cbw
-    mov [vid_planes_w], ax
-    pop ax
-    ret
+    jmp short .st
 .notext:
     mov byte [vid_ext], 0       ; every other kind: the planar bodies run
 %endif
@@ -1093,12 +1088,13 @@ vid_setmode:
 %ifdef VID_EXT
     cmp al, VID_VESA            ; SPEC.md 120.4: the driver sets its VBE mode
     jne .notvx                  ; and loads the DAC's first sixteen; the
-    call vx_call                ; caller owes the repaint as on every kind.
-    db VX_SETMODE               ; vx_call COMES BACK HERE - the eight pushes
-    jmp .done                   ; and the spl_busy count above are still ours
-    db 0                        ; to undo, at .done. PARITY, never executed:
-.notvx:                         ; the arm is twelve bytes with it
-%endif                          ; (tests/unit/t_hotpar.py)
+    call far [vx_ep]            ; caller owes the repaint as on every kind.
+    db VX_SETMODE | VX_CONT     ; (VXCALL's two lines: vidext.inc is
+    jmp .done                   ; included after this file.) The driver COMES
+                                ; BACK HERE - the pushes and
+.notvx:                         ; the spl_busy count above are still ours to
+%endif                          ; undo, at .done. Twelve bytes, even
+                                ; (tests/unit/t_hotpar.py)
     cmp al, VID_HERC            ; AL is idle until `mov ax, 0x0010`, and
     je .herc                    ; `cmp reg,imm8` is 2 bytes where
 %ifdef GFX_VGA                  ; `cmp byte [mem],imm8` is 5

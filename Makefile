@@ -944,8 +944,11 @@ BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 # kern_big to TWELVE for the boot's copy of the adapter switch
 # (docs/plans/completed/ksp13/dispsw.md): 4608, memory sector 9, file sector
 # 9 + 12 = 21. kern_small stays at eleven and 5120 - the KERN_SMALL block
-# beside the knob's below takes the sector back off.
-KSIG_OFF := 4608
+# beside the knob's below takes the sector back off. Kernel size pass 14 took
+# kern_big to THIRTEEN for VESA.DRV's attach (docs/plans/completed/ksp14/
+# vesa.md): 4096, memory sector 8, file sector 8 + 13 = 21 - and kern_small's
+# block takes two sectors back off now, so it is still eleven and 5120.
+KSIG_OFF := 4096
 #
 # A PAYLOAD SHORTER THAN THE OFFSET DEFINES NO KSIG AT ALL, and that is the
 # whole of this line's second job. It used to answer 0, and a fabricated zero is
@@ -2092,25 +2095,23 @@ endif
 # may not (SPEC.md 2.5.3.3). KSIG_OFF moves one memory sector DOWN with it, so
 # the canary stays on FILE sector 21 - boot/boot2.asm's equ does the same
 # under KERN_KNOB, and the shipped literal above is what t_canary compares.
-# kern_emu takes the same sector (SPEC.md 9.11.2.1): it ships, but only an
-# emulator can boot it, and the room is vmm_boot_x's - in the blob rather than
-# resident `.cold`. kern_big and kern_small stay on the literal.
-ifneq ($(KERN_EMU),)
-BOOT2_XSEC := 1
-endif
+# kern_emu TOOK the same sector (SPEC.md 9.11.2.1) for vmm_boot_x until kernel
+# size pass 14 gave kern_big a thirteenth for VESA.DRV's attach: both fit
+# thirteen, so kern_emu is on the literal with kern_big now.
 ifneq ($(BOOT2_XSEC),)
 BOOT2_SECS := $(shell echo $$(( $(BOOT2_SECS) + 1 )))
 BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
 KSIG_OFF   := $(shell echo $$(( $(KSIG_OFF) - 512 )))
 endif
-# ...and kern_small ONE SECTOR SHORTER than the literal: kernel.asm's
+# ...and kern_small TWO SECTORS SHORTER than the literal: kernel.asm's
 # BOOT2_SMALLSEC. The twelfth sector is kern_big's boot copy of the adapter
-# switch, and kern_small has no drv_boot to carry one (kernel size pass 13), so
-# it keeps the eleven - and the 5120 - it had, file sector 21 either way.
+# switch and the thirteenth VESA.DRV's attach, and kern_small has no drv_boot to
+# carry either (kernel size passes 13 and 14), so it keeps the eleven - and the
+# 5120 - it had, file sector 21 either way.
 ifneq ($(KERN_SMALL),)
-BOOT2_SECS := $(shell echo $$(( $(BOOT2_SECS) - 1 )))
+BOOT2_SECS := $(shell echo $$(( $(BOOT2_SECS) - 2 )))
 BOOT2_PAD  := $(shell echo $$(( $(BOOT2_SECS) * 512 )))
-KSIG_OFF   := $(shell echo $$(( $(KSIG_OFF) + 512 )))
+KSIG_OFF   := $(shell echo $$(( $(KSIG_OFF) + 1024 )))
 endif
 
 # EVERY KNOB IN $(KNOBS) IS IN THIS STAMP TOO, and the seven that were not are

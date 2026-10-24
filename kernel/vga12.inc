@@ -1836,9 +1836,7 @@ gfx_blitd:
     cmp byte [vid_ext], 1
     jne .no
     call cur_unlazy             ; off the clip list (SPEC.md 11.3): 7.1.4
-    call vx_call
-    db VX_BLITD
-    ret
+    VXGO VX_BLITD               ; the driver's whole, back to our caller
 .no:
 %endif
     stc
@@ -3445,10 +3443,11 @@ gfx_spans:
     cmp byte [vid_ext], 0       ; a packed display (SPEC.md 120.3.1): AX is the
     jz .vxplanar                ; first row, clipped, and the gfx_sp_* cells
     CURUNLAZY                   ; the list - the hide is owed as below
-    call vx_call
-    db VX_SPANS
+    VXCALL VX_SPANS
     jmp .done
-.vxplanar:
+    db 0                        ; PARITY, never executed: the arm is even and
+.vxplanar:                      ; the hot routines after it keep their entry
+                                ; parity (tests/unit/t_hotpar.py)
 %endif
     call gfx_rowbase            ; the ONE row base this call computes
     mov [gfx_sp_row], ax
@@ -5624,7 +5623,7 @@ gfx_blit1_x:
 %ifdef VID_EXT
     cmp byte [vid_ext], 0       ; a packed display (SPEC.md 120.3.1): the band
     jz .vxplanar                ; is clipped and local, the pen and the head
-    call KERNEL_SEG:vx_callf1   ; mask are in the cells, and the driver puts
+    call KERNEL_SEG:vx_b1       ; mask are in the cells, and the driver puts
     jmp .done                   ; it down. BEFORE .pen, whose port program
                                 ; would be wrong for a packed mode; .done tears
                                 ; down nothing ([gfx_b1act] is 0). The hook is
