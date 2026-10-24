@@ -6935,8 +6935,9 @@ cw_thm_desk equ apic_thm_desk   ; THE CELL IS THE DOOR (size pass 13): the
                                 ; desktop's ground, once per damaged zone
 %endif
 %ifdef DOCK_OPT
-cw_dock_band:           call dock_band
-                       retf
+; (cw_dock_band went in kernel size pass 14: its three callers - DOCK_GEOM's
+; blob and CTRL.DRV copies and EXTD.DRV's fullscreen restore - reach
+; dock_band through their image's own hop)
 cw_gfx_clip_query:      call gfx_clip_query ; CLIPQF: shared region query
                     retf                    ; from .cold (SPEC.md 30.6.1)
 %endif

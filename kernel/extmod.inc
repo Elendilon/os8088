@@ -34,7 +34,7 @@
 ; routine's own near `ret` lands on cw_kretf - dockmod.inc's device, so the
 ; image costs no resident shim. The two kernel routines that are a pointer
 ; walk (vid_ctx_ptr, vid_kind_of) have a near copy here instead, and the ones
-; that have a resident far shim (cw_thm_desk, cw_dock_band,
+; that have a resident far shim (cw_thm_desk,
 ; cw_vid_ctx_capture, and cw_vid_disp_of for the one on OSAPI_WM_DISPLAY's
 ; path) or a cell of their own (apic_wm_top) are far-called through it, at
 ; the same five bytes as an EXK and without exk_go's work. os88ovlchk
@@ -272,7 +272,7 @@ ext_e_fsx:
                                 ; and leaving the flag is what SPEC.md 39.20's
                                 ; Restart then reads
     call ext_two                ; [fsx_vndisp] > 1 is 2, two at most
-    call KERNEL_SEG:cw_dock_band ; ...and the strip where the user put it (30.5)
+    EXK dock_band               ; ...and the strip where the user put it (30.5)
     pop ax
 .r: retf
 

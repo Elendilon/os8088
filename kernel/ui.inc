@@ -2532,11 +2532,9 @@ UI_LOC_N equ 2
 ; [ui_pcmd] lives in .text, not .bss: ui_task reads it on its first pass and
 ; -f bin gives .bss no image bytes (the dsk_cwd lesson, SPEC.md 1).
 ; -----------------------------------------------------------------------------
-ui_post_cmd:
-    mov [ui_pcmd], ax
-    inc byte [ui_post]          ; ...and SAY SO once (SPEC.md 13.13)
-    retf
-
+; (ui_post_cmd's one caller was STIKMENU.DRV's stm_pick, which writes its two
+; stores out now - kernel size pass 14. The contract above is unchanged: one
+; word store and one bump, drained by ui_task step 3 with nothing held.)
 ui_pcmd:    dw 0                ; posted CMD_*, 0 = none (see above)
 
 ; =============================================================================
