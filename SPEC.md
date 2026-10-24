@@ -131635,19 +131635,25 @@ released when the kernel's teardown says the instance has gone.
   `[eth_users]` on any verb. Every new socket records its slot in `SKO_OWN`.
   A listener's children inherit the listener's, not that of the caller whose
   verb happened to pump the SYN.
-- **When it is claimed.** Lazily in `sk_ring_get`, whenever a socket needs a
-  ring and there is no pool, and on `NETV_LISTEN`, a listener being the one
-  socket with no ring of its own. Not on any other verb: the RAW verbs never
-  need a ring, DOS calls them from its own tick, and `NETV_STATE` is asked by
-  packages that never connect. **A claim inside a verb may not move
-  anything.** A worker's claim is plain first fit anyway (§66.3.1, as
-  `sbl_v_grant`'s is). A UI-task caller's would compact, though, and the
-  caller may hold a claim's segment in a register across the verb: DOS's
-  `NETV_RECV` target, or its arena under a running program. The first build
-  claimed on any verb, and DOSPKT.COM's first `NETV_RAW` hung the machine
-  exactly that way. So `sk_try` never asks for more than the largest free
-  run (`sk_lrun`, read once per claim): it takes a smaller rung rather than
-  moving the heap. A refusal is the same "no ring" the socket reports today.
+- **When it is claimed.** On a slot's first verb, which is usually
+  `net_find`'s `NETV_STATE` as the package starts, so the pool exists before
+  the package can take the heap for itself. The exception is a first verb
+  that is one of the RAW ones: a DOS program on the card is a raw consumer
+  for its whole life and needs no ring, so it must not cost its arena 17KB.
+  The pool is also claimed lazily in `sk_ring_get`, whenever a socket needs a
+  ring and there is none. So a refusal is retried once per ring, never once
+  per verb. DOS's `DOSNET_CARD` test arm, which stands in for the cable, asks
+  `NETV_STATE` before its arena is taken, as NET.DRV holds its buffers from
+  load. Without that it read a largest free run of 0KB. **A claim inside a
+  verb may not move anything.** A worker's claim is plain first fit anyway
+  (§66.3.1, as `sbl_v_grant`'s is). A UI-task caller's would compact, though,
+  and the caller may hold a claim's segment in a register across the verb:
+  DOS's `NETV_RECV` target, or its arena under a running program. The first
+  build let a claim compact, and DOSPKT.COM's first `NETV_RAW` hung the
+  machine exactly that way. So `sk_try` never asks for more than the largest
+  free run (`sk_lrun`, read once per claim): it takes a smaller rung rather
+  than moving the heap. A refusal is the same "no ring" the socket reports
+  today.
 - **When it goes back.** When no slot's bit is set *and* no ring is out
   (`sk_idle`, from `sk_ring_put` and from teardown). Both halves are needed,
   because a call from an entry proc carries slot 0xFF (`inst_caller` has no
