@@ -8556,36 +8556,9 @@ dsk_copy_in_x:
 ; clobbers: flags
 ; -----------------------------------------------------------------------------
 
-; -----------------------------------------------------------------------------
-; dsk_streq - do the NUL strings at DS:SI and DS:DI match? (SPEC.md 4)
-; out: CF=0 = equal; every register preserved
-;
-; The `.cold` segment's string compare, beside its counted copy and for the
-; same reason: this file is the first `.cold` %include, so files.inc reaches
-; it with a backward near call. It was fdlg_streq, which is what kept the
-; others writing it out again. (dsk_find_name, another caller, had no caller
-; left of its own and went in size pass 10.)
-; -----------------------------------------------------------------------------
-dsk_streq:
-    push ax
-    push si
-    push di
-.c:
-    mov al, [si]
-    cmp al, [di]
-    jne .no
-    or al, al
-    jz .out                     ; equal to the NUL - and `or` cleared CF, so
-    inc si                      ; that IS the answer, with no `clc` arm
-    inc di
-    jmp short .c
-.no:
-    stc
-.out:
-    pop di
-    pop si
-    pop ax
-    ret
+; dsk_streq lived here, the .cold segment's NUL string compare; its last
+; caller was the Disk window's rename, which compares in line since kernel size
+; pass 14 (files.inc, fm_edit_commit's .ren).
 
 ; -----------------------------------------------------------------------------
 ; dsk_ncopy - CX bytes from DS:SI to DS:DI, one at a time (SPEC.md 4)

@@ -149,8 +149,9 @@ FCP_CBSZ    equ 19              ; op (1), drive (1), folder (2), type (2),
 ;             replaced, and NO resident thunk per routine: that was 35 of them,
 ;             140 bytes of kern_small's `.cold`, for routines only the image
 ;             ever called this way.
-;   (a TAIL jump out is written as an explicit %ifdef at each of its four
-;    sites, NOT as a fifth macro. It cannot stay a `jmp` on small - the
+;   (a TAIL jump out is written as an explicit %ifdef at each of its eight
+;    sites, NOT as a fifth macro - the four kernel size pass 14 added spell
+;    their kern_big arm FCPXJ, below, for os88ovlchk's sake. It cannot stay a `jmp` on small - the
 ;    routine it lands in ends in a NEAR `ret` and the image was entered by a
 ;    FAR call, so the return would pop two bytes of a four-byte frame - but
 ;    tools/stkbalance.py reads SOURCE and does not expand macros, so a macro
@@ -176,6 +177,15 @@ FCP_CBSZ    equ 19              ; op (1), drive (1), folder (2), type (2),
   %endmacro
   %macro FCPX 1
     call %1
+  %endmacro
+  ; FCPXJ - kern_big's TAIL jump out of a body (kernel size pass 14): the
+  ; `%else` arm of a site whose FCP_MOD arm is `FCPX x / ret`. A macro and not
+  ; a bare `jmp` because os88ovlchk files the whole file's bodies as `.modp`
+  ; (it cannot evaluate this %ifdef, above) and would read a near jump out of
+  ; the image; on kern_big this IS `.cold` and the jump is near. stkbalance
+  ; never walks it: the `ret` of the arm before it ends the path
+  %macro FCPXJ 1
+    jmp %1
   %endmacro
 %endif
 
@@ -339,10 +349,8 @@ fcp_ncopy   equ dsk_ncopy
 ; the next read. So the file manager sees exactly what it always saw, and a
 ; PACKAGE calling the door (SPEC.md 22.24) - which has no Disk window at all -
 ; no longer buys a remount per call for a listing nothing reads.
-fcp_unbatch:
-    mov byte [dskw_batch], 0
-    FCPX dskw_sync_x
-    ret
+; (fcp_unbatch's body is below fcp_stop, which falls into it - kernel size
+; pass 14)
 
 ; fcp_n13 - ...and the length THREE of its callers pass: an 8.3 display name
 ; (SPEC.md 19.1).  Leaves CX = 13 on return, exactly as `mov cx, 13` +
@@ -350,8 +358,12 @@ fcp_unbatch:
 ; reads CX after the copy.
 fcp_n13:
     mov cx, 13
+%ifdef FCP_MOD
     FCPX dsk_ncopy
     ret
+%else
+    FCPXJ dsk_ncopy                ; kern_big: a tail jump (size pass 14, -1)
+%endif
 
 ; fcp_x5 - the epilogue of the three bodies that bank BX..DI: fcp_paste,
 ; fcp_answer and fcp_door. Below them nothing banks those five at all - that
@@ -813,18 +825,26 @@ fcp_stop:
     FCPX mem_free_x             ; refuses a base that is not this owner's.
 .nobuf:                         ; It preserves AX, so AL survives it
     mov byte [fcp_busy], 0
-    call fcp_unbatch            ; the deferred remount is spent by the caller;
-                                ; the volume switches were quiet (SPEC.md
-                                ; 18.9), so the global snapshot may be this
-                                ; operation's debt - and the world is about to
-                                ; repaint. AFTER dskw_batch, which gates the
-                                ; sync it tail-calls; a no-op when nothing
-                                ; is owed. The Cut used to be spent HERE; it is
-                                ; spent where the clipboard is copied
-                                ; (fcp_paste), because this routine ends the
-                                ; door's operations too and those own no
+                                ; ...and INTO fcp_unbatch (it was a call and a
+                                ; ret): the deferred remount is spent by the
+                                ; caller; the volume switches were quiet
+                                ; (SPEC.md 18.9), so the global snapshot may be
+                                ; this operation's debt - and the world is
+                                ; about to repaint. AFTER dskw_batch, which
+                                ; gates the sync it tail-calls; a no-op when
+                                ; nothing is owed. The Cut used to be spent
+                                ; HERE; it is spent where the clipboard is
+                                ; copied (fcp_paste), because this routine ends
+                                ; the door's operations too and those own no
                                 ; clipboard to spend
+fcp_unbatch:
+    mov byte [dskw_batch], 0
+%ifdef FCP_MOD
+    FCPX dskw_sync_x
     ret
+%else
+    FCPXJ dskw_sync_x                ; kern_big: a tail jump (size pass 14, -1)
+%endif
 
 ; -----------------------------------------------------------------------------
 ; fcp_answer - resume a suspended paste (SPEC.md 22.3)
@@ -1379,12 +1399,18 @@ fcp_ensure:
     jne .fail                   ; a lookup that failed for another reason
     FCPX dskw_mkdir_x
     jc .fail
-    FCPX dskw_stat_x            ; the mount's own answer for where it landed,
-    ret                         ; and its CF is ours. A near call inside
-                                ; COLD_SEG on kern_big and a far one on
-                                ; kern_small, and either way the `ret` is what
-                                ; this routine's near caller unwinds. Legal
-                                ; because this routine pushes nothing of its own
+                                ; the mount's own answer for where it landed,
+                                ; and its CF is ours. A far call on kern_small,
+                                ; whose `ret` is what this routine's near
+                                ; caller unwinds, and a tail jump on kern_big.
+                                ; Legal because this routine pushes nothing of
+                                ; its own
+%ifdef FCP_MOD
+    FCPX dskw_stat_x
+    ret
+%else
+    FCPXJ dskw_stat_x                ; kern_big: a tail jump (size pass 14, -1)
+%endif
 .clash:
     mov ax, FERR_EXIST
 .fail:
@@ -1969,9 +1995,13 @@ fcp_srcdel:
     FCPX dskw_delete_x          ; ...and the callee's CF is this routine's
 .out:                           ; answer on both arms
     ret
-.tree:
-    FCPX dskw_rmtree            ; the folder AND everything under it (18.6)
+.tree:                          ; the folder AND everything under it (18.6)
+%ifdef FCP_MOD
+    FCPX dskw_rmtree
     ret
+%else
+    FCPXJ dskw_rmtree                ; kern_big: a tail jump (size pass 14, -1)
+%endif
 
 ; -----------------------------------------------------------------------------
 section .bss

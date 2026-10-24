@@ -6382,19 +6382,6 @@ fm_editkey:
 .pops:                          ; question - changed the listing or the mode
     jmp kretc_di                ; and still owes the whole window. `pop` does not touch flags, so CF survives to the caller
 
-; -----------------------------------------------------------------------------
-; fm_samename - is the typed name the one it already has? (SPEC.md 22.10)
-; in:  fm_ebuf, fm_onam
-; out: CF = 0 if identical - dsk_streq's polarity, which is the body it now
-;      IS. SI and DI are the ones it was GIVEN, so the caller's are gone; its
-;      one caller reloads both two instructions later
-;
-; Seeding the buffer took away the "nothing typed, so Enter cancels" exit -
-; the buffer is never empty now - and pressing Enter on an untouched prompt
-; would otherwise ask to rename a file to the name it has, which dskw_rename
-; answers with 'Name taken'. That reads as a refusal when it was a no-op.
-; Uppercase-exact: both sides are 19.1 display names, sanitized alike.
-; -----------------------------------------------------------------------------
     ; Mode 6's answers, AFTER the exit (size pass 8): the ladder's other
     ; targets are then nearer
 .swap:
@@ -6488,10 +6475,6 @@ fm_editkey:
                                 ; the swap prompt (SPEC.md 2.8.5) sits
                                 ; between here and .lineonly
 
-fm_samename:
-    mov si, fm_ebuf             ; ...which is dsk_streq with its two operands
-    mov di, fm_onam             ; hardwired, byte for byte (fdlg.inc)
-    jmp dsk_streq
 
 ; -----------------------------------------------------------------------------
 ; fm_hasdot - does the name being typed already carry a '.'? (internal)
@@ -6557,9 +6540,28 @@ fm_edit_commit:
     jmp short .verdict          ; (short since Format moved past the exit)
 .ren:
     call fm_extkeep             ; typed no extension? keep the old one (22.10)
-    call fm_samename            ; ...and a name that came back UNCHANGED is
-    jnc .done                   ; Enter on an untouched prompt, which used to
-                                ; be the empty buffer above and cancelled
+    ; ...and a name that came back UNCHANGED is Enter on an untouched
+    ; prompt, which used to be the empty buffer above and cancelled. Seeding
+    ; the buffer took that exit away - the buffer is never empty now - and
+    ; Enter on an untouched prompt would otherwise ask to rename a file to
+    ; the name it has, which dskw_rename answers with 'Name taken': a refusal
+    ; where it was a no-op. Uppercase-exact: both sides are 19.1 display
+    ; names, sanitized alike (SPEC.md 22.10). It was fm_samename jumping into
+    ; dsk_streq, written here at their one call (kernel size pass 14): AX is
+    ; spent by the rename below and SI and DI are reloaded for it, so the
+    ; compare banks nothing
+    mov si, fm_ebuf
+    mov di, fm_onam
+.samec:
+    mov al, [si]
+    cmp al, [di]
+    jne .renew                  ; they differ: rename
+    or al, al
+    jz .done                    ; equal to the NUL: nothing to do
+    inc si
+    inc di
+    jmp short .samec
+.renew:
     mov si, fm_onam             ; old name...
     mov di, fm_ebuf             ; ...new name; the eleven name bytes and
     call dskw_rename_x          ; nothing else move (SPEC.md 18.4)
