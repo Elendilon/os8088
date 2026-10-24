@@ -22079,7 +22079,7 @@ sites that already exist:
 | `menu_relayout` | recompute `[menu_set]`, `[menu_namep]` and the whole `menu_bar` from `[menu_win]`. Preserves all registers. |
 | `menu_win_set`  | in: BX = window ptr, SI = menu set ptr (0 = none) — stores `[bx+W_MENUS]` and relayouts if BX is the active window. The `OSAPI_MENU_SET` target (§20.3). Preserves every register **and the flags**: its intended call site sits between a package's `wm_create` and the `ret` that owes the loader that call's CF (§20.2). |
 | `menu_check`    | if `[menu_win]` names a window that is no longer visible, `menu_activate` on `wm_top` — the promoted window, or 0 for Locator when none is left. No-op while the owner is visible or already Locator. Preserves every register. Called only from `menu_draw_bar`, so it always runs under the gfx lock on the UI task. |
-| `menu_draw_bar` | draw the bar: `menu_check`, white field + black rule, every `menu_bar` cell's title (cell 0 = the logo glyph), then `menu_draw_clock`. Gfx lock held by caller. The app name is one of those cell titles whenever an application owns the bar (§12.7); the standalone label draw is Locator's alone, and is skipped when `[menu_abcell]` is non-zero so the name is never double-struck. |
+| `menu_draw_bar` | draw the bar: `menu_check`, white field + black rule, every `menu_bar` cell's title (cell 0 = the logo glyph), then the clock (`menu_bt_ent`, §12.9). Gfx lock held by caller. The app name is one of those cell titles whenever an application owns the bar (§12.7); the standalone label draw is Locator's alone, and is skipped when `[menu_abcell]` is non-zero so the name is never double-struck. |
 | `menu_track`    | in: CX = mousedown x. Runs the whole interaction while the button is held (caller holds gfx lock): highlight title (xor), drop the menu (gfx_save under it to the save-under claim, `[menu_sseg]:0`), track item highlight following `mouse_y`, on release restore save-under + unhighlight; **out AX = 0xFFFF if nothing was selected, else AH = bar cell index (0 = System), AL = item index within that cell**. Item cells are 16px tall, menu width = widest item + 16px padding. Only the bar-specific half is its own: the cell find, `menu_title_xor` and the (cell, item) pack. The drop itself is `menu_drop` (§12.4). |
 | `menu_drop`     | the tracker, anchored by variables so it serves both the bar and a context menu (§12.4). |
 | `menu_popup`    | drop a menu anywhere on screen, open while a button is held (§12.4). |
@@ -25374,7 +25374,7 @@ last menu title and the clock; nothing else in the bar can see it.
 
 | symbol            | contract                                                  |
 |-------------------|------------------------------------------------------------|
-| `menu_draw_clock` | in: nothing (gfx lock held by the caller). Composes the live clock (`clk_fmt`, §37) into the bar's own cells, right-aligned in the field by **leading spaces**, and letters only the cells that differ from what is on the glass — `menu_bar_clock`, §12.9 — then lets the speaker answer to it (§34.15). Preserves all registers. |
+| `menu_bar_clock` | in: nothing (gfx lock held by the caller). Composes the live clock (`clk_fmt`, §37) into the bar's own cells, right-aligned in the field by **leading spaces**, and letters only the cells that differ from what is on the glass (§12.9) — then lets the speaker answer to it (§34.15). Preserves all registers. It was `menu_draw_clock`, a call of this and a jump to `menu_sound`, until kernel size pass 14 put that jump in the composition's own entry, `menu_bt_ent`, which every composition but `menu_sound`'s goes through. |
 
 The field is `[vid_clk_hx]` to the bar's margin — or to the speaker's left
 edge while the speaker shows (§34.15) — both ends on cell boundaries, so it is
@@ -25387,7 +25387,8 @@ clock is never momentarily blank.
 
 **It is cells in the bar's one composition** (§12.9), and that is what
 prices a minute: the digit that changed, as one `font_run`. Measured on
-MartyPC, one `menu_draw_clock` at a minute rolling over, the whole call:
+MartyPC, one `menu_draw_clock` (now `menu_bar_clock`) at a minute rolling
+over, the whole call:
 
 | adapter | its own painter, all 25 cells | cells of the composition |
 |---|---|---|
@@ -27107,11 +27108,12 @@ path (§45), and `WF_SNAP` (§11.94) doing it for ordinary windows.
 
 | symbol | contract |
 |---|---|
-| `menu_force` | in: nothing. The bar was **painted over**: sets `[menu_bovr]` and `[menu_bdirty]`. The only path that reaches `menu_furniture`, and so the only one that erases anything. Preserves all registers. |
+| `menu_force` | in: nothing. The bar was **painted over**: sets `[menu_bovr]` and `[menu_bdirty]`. The only path that reaches the furniture (below), and so the only one that erases anything. Preserves all registers. |
 | `menu_inval` | in: AX = x1, CX = x2 (inclusive, absolute). Forgets what was drawn in that span of the bar's cells, rounded OUTWARD to whole cells and clamped to `MENU_BCMAX`; sets `[menu_bdirty]`. Preserves all registers. |
-| `menu_furniture` | in: nothing (gfx lock held). White-fills the bar's field, draws the black rule and the logo, forgets every cell. Preserves all registers. |
-| `menu_bar_text` | in: nothing (gfx lock held). Composes menus, clock and toast into `menu_bcell` and emits the runs that differ. Preserves all registers. |
-| `menu_bar_clock` | as `menu_bar_text`, past the menus: the clock and the toast strip only. |
+| `menu_furniture` | `menu_draw_bar`'s overdraw arm since kernel size pass 14 (its one caller; the name is kept here for the record): white-fills the bar's field, draws the black rule and the logo, forgets every cell. |
+| `menu_bar_text` | in: nothing (gfx lock held). Composes menus, clock and toast into `menu_bcell` and emits the runs that differ. Preserves all registers. `menu_sound`'s door: the composition alone. |
+| `menu_bar_clock` | as `menu_bar_text`, past the menus: the clock and the toast strip only - and then `menu_sound`. |
+| `menu_bt_ent` | `menu_draw_bar`'s door: CF = 1 the whole bar's cells, CF = 0 the clock's, then `menu_sound`. |
 
 #### The composition IS the diff
 
@@ -27354,7 +27356,7 @@ Loop forever:
    clk_tick has already kept time). Otherwise decide whether taking the
    gfx lock is worth it, because taking it blinks the cursor and that
    blink **is** the flicker the seconds setting exists to remove:
-   - bit 1 set → lock, `menu_draw_clock`, `cp_tick`, unlock.
+   - bit 1 set → lock, `menu_bar_clock`, `cp_tick`, unlock.
    - bit 1 clear (a second passed but the bar shows no seconds) → ask
      `cp_tick_due` (§31.5) whether a Date/Time page is on screen; only
      then lock, `cp_tick`, unlock. The panel's seconds field runs whatever
@@ -127801,9 +127803,11 @@ inverted run's colours were.
 
 **Under Dark those colours are exactly swapped, so the PLAIN run matches.**
 Bit 7 is then never masked off the cells it is set on, `font_char` indexes
-past the 95 glyphs it has, and the menu bar letters garbage. `[menu_binv]` is
+past the 95 glyphs it has, and the menu bar letters garbage. `[menu_binv]` was
 the fix: `menu_bar_text` already splits the span on that very bit, so it says
-so in a byte instead of leaving it to be recovered from the pens.
+so in a byte instead of leaving it to be recovered from the pens. Since kernel
+size pass 14 it says so in CF, which `menu_bemit` banks across its `font_run`
+with `pushf`: the same statement, without the byte.
 
 This is §18.7.3's `DV_CLASS` and §41.12.5's `drv_tab` range test for the third
 time — **a predicate that is a PROXY for the invariant it means to test,

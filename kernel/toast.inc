@@ -445,17 +445,13 @@ toast_place:
     mov [toast_scov], al        ; menu_ckend below asks it: the speaker SHOWS
     call toast_up               ; CF = 1: a strip is up and within its time
     jnc .out
-    mov si, toast_buf           ; the strip's width in cells: the message plus
-    call str_len                ; the one inverted space at its left
-    jcxz .out
-    inc cx
-    push cx
     call menu_ckend             ; AX = the field's end, speaker showing
-    push ax
-    call clk_fmt                ; CX = the clock's glyphs
-    pop ax
+    call clk_fmt                ; CX = the clock's glyphs (AX it keeps)
     sub ax, cx                  ; AX = the clock's first glyph
-    pop cx
+    mov si, toast_buf           ; the strip's width in cells: the message plus
+    call str_len                ; the one inverted space at its left (AX it
+    jcxz .out                   ; keeps too, so the two widths need no bank:
+    inc cx                      ; kernel size pass 14, 4 bytes)
     mov bx, [menu_bend]
     sub ax, bx                  ; the gap...
     jb .clk

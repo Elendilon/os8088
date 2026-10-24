@@ -217,8 +217,16 @@ fpg_bare:
 ; and fpg_finish's teardown when the operation ends.
 ;
 ; fpg_vis:  out CF = 1 yes; clobbers AX
-; fpg_show: clobbers AX, BX, CX, DX (SI preserved: fpg_step's argument)
+; fpg_show: out ZF = 0 the widget IS shown (FPG_SHOWN, tested at the exit, so
+;           fpg_bare's two callers that ask next read it straight off the
+;           flags - fpg_bare's `pop` and `ret` write none: pass 14, 5 bytes);
+;           clobbers AX, BX, CX, DX (SI preserved: fpg_step's argument)
 ; fpg_hide: clobbers AX, BX, CX, DX
+; fpg_ring: AX..CX above and below the text band, in the bar's ground: rows
+;           0..MENU_TEXT_Y-1 and MENU_TEXT_Y+8..MBAR_H-2. Leaves BH = DH = 0
+;           and the pen thm_bg's; clobbers BX, DX. fpg_hide's and the menu
+;           bar speaker's (menu_sound, SPEC.md 34.15) - each was these six
+;           instructions (kernel size pass 14)
 ; -----------------------------------------------------------------------------
 fpg_vis:
     test byte [fpg_on], 1       ; armed? (CF = 0 either way)
@@ -232,7 +240,7 @@ fpg_show:
     call fpg_vis
     jnc .r
     test byte [fpg_on], FPG_SHOWN
-    jnz .r
+    jnz .rz                     ; ZF = 0 already: shown
     or byte [fpg_on], FPG_SHOWN ; SET FIRST: the composition below reserves
     mov byte [menu_bdirty], 1   ; our cells only while this bit says so
     push si
@@ -246,18 +254,16 @@ fpg_show:
     call menu_inval             ; which, so they are 0 - the emit skips them -
     pop si                      ; and are lettered again when we leave
 .r:
+    test byte [fpg_on], FPG_SHOWN   ; the answer, in ZF
+.rz:
     ret
 
 fpg_hide:
     and byte [fpg_on], ~FPG_SHOWN & 0FFh
-    call thm_bg
-    call fpg_span               ; --- above the text band: the icon's head
-    xor bx, bx
-    mov dx, MENU_TEXT_Y - 1
-    call gfx_fill
-    mov bl, MENU_TEXT_Y + 8     ; --- and below it: its foot and the box.
-    mov dl, MBAR_H - 2          ; AX/CX are still the span and BH/DH 0:
-    call gfx_fill               ; gfx_fill is "clobbers: flags"
+    call fpg_span               ; AX = x1, CX = x2
+%ifdef OS88_SNDCARD
+    call fpg_ring               ; the icon's head above the text band, its
+                                ; foot and the box below it
 %ifdef VID_EXT
                                 ; --- and the TEXT BAND too, where no cell can
                                 ; reach it (SPEC.md 120.5): menu_bar_text
@@ -267,29 +273,44 @@ fpg_hide:
                                 ; icon's middle and the trough stayed up after
                                 ; every transfer. A 640- or 720-wide bar sits
                                 ; inside the cap, and this is a compare and a
-                                ; jump there
-    call fpg_span               ; AX = x1, CX = x2 again
+                                ; jump there. AX/CX are still the span (gfx_fill
+                                ; is "clobbers: flags"), BH/DH are 0 and the pen
+                                ; is the ground, all from fpg_ring - so x1 is
+                                ; banked rather than asked of fpg_span twice
+    push ax
     cmp ax, MENU_TXT_X0 + MENU_BCMAX * 8    ; the first x past the composed
     jae .band                   ; cells
     mov ax, MENU_TXT_X0 + MENU_BCMAX * 8
 .band:
     cmp ax, cx
     ja .nband
-    xor bh, bh
     mov bl, MENU_TEXT_Y
-    mov dx, MENU_TEXT_Y + 7
+    mov dl, MENU_TEXT_Y + 7
     call gfx_fill               ; (the ground is still thm_bg's)
 .nband:
-    call fpg_span               ; AX/CX = the whole span, for menu_inval
+    pop ax                      ; AX/CX = the whole span, for menu_inval
 %endif
     jmp menu_inval              ; **THE TEXT BAND IS THE COMPOSITION'S** - its
                                 ; opaque run is the erase, and forgetting the
                                 ; cells is what makes it run
+fpg_ring:
+%endif
+    call thm_bg
+    xor bx, bx                  ; --- above the text band: the icon's head
+    mov dx, MENU_TEXT_Y - 1
+    call gfx_fill
+    mov bl, MENU_TEXT_Y + 8     ; --- and below it: its foot and the box.
+    mov dl, MBAR_H - 2          ; AX/CX are still the span and BH/DH 0:
+%ifdef OS88_SNDCARD             ; gfx_fill is "clobbers: flags"
+    jmp gfx_fill
+%else
+    call gfx_fill               ; (kern_small: fpg_hide is the one caller,
+    jmp menu_inval              ; so it is written in place, as it was)
+%endif
 
 fpg_gbare:
     call fpg_bare               ; on the glass if it may be (the hand-back)
-    dw fpg_show
-    test byte [fpg_on], FPG_SHOWN
+    dw fpg_show                 ; ...ZF = 0 when it is (fpg_show's exit)
     jnz fpg_bare                ; ...then this painter, through no region
     pop bx                      ; ...else step past its inline word: a
     inc bx                      ; painter while a toast holds the bar draws
@@ -469,9 +490,8 @@ fpg_busy:
 %endif
     call fpg_bare               ; on the glass if a toast lets it be - the
     dw fpg_show                 ; hand-back when one's time ran out mid-
-                                ; operation (SPEC.md 12.8.7)
-    test byte [fpg_on], FPG_SHOWN
-    jz .out
+                                ; operation (SPEC.md 12.8.7). ZF = 1: it is
+    jz .out                     ; not (fpg_show's exit test)
     cmp word [fpg_total], 0
     jne .out                    ; a phase with a scale owns the trough
     cmp byte [fpg_pat], 0
@@ -1100,13 +1120,10 @@ fpg_finish:
     call fpg_hide
 .give:
     jmp menu_draw_bar           ; the cells back, as the ONE run that differs
-%ifdef KERN_SMALL
-    db 0                        ; PARITY PAD, never executed (after a `jmp`):
-                                ; fpg_bare (SPEC.md 12.8.6) is +37 on
-                                ; kern_small, which left ui_task and the 407
-                                ; routines after this file at an ODD shift
-                                ; (t_hotpar). kern_big's +36 is even already
-%endif
+                                ; (kern_small's PARITY PAD that stood here -
+                                ; fpg_bare's +37 had left ui_task odd - went
+                                ; at kernel size pass 14, whose -103 there is
+                                ; odd the other way: t_hotpar)
 
 ; -----------------------------------------------------------------------------
 ; fpg_span - the whole widget's horizontal extent, from the armed origin

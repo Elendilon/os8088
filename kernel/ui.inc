@@ -432,7 +432,7 @@ ui_task:
     mov [ui_click_t], ax        ; double-click detectors (SPEC 22, 26)
 
     call COLD_SEG:fdlg_grab_x   ; a modal file dialog swallows every press
-    jc .yj1               ; outside its own frame (SPEC.md 38.2).
+    jc .yj1                     ; outside its own frame (SPEC.md 38.2).
                                 ; AHEAD of every branch below - modality is
                                 ; not a window property, and a press on the
                                 ; menu bar must die as firmly as one on
@@ -482,25 +482,14 @@ ui_task:
 
 .clock_cell:                    ; speaker first, then the Date/Time cell
 %ifdef OS88_SNDCARD
-    cmp word [menu_mixcap], SND_CAP_MIXER
-    jne .date_cell              ; ...when it is showing: a toast can hide it
-    mov ax, cx
-    sub ax, [menu_mixx]         ; the field's right end (SPEC.md 34.15)
-    cmp ax, 24
-    jae .date_cell
-    mov cx, [menu_mixx]
-    push ds
-    pop es
-    mov di, ui_volume_bridge
-    mov bx, DRVC_SOUND*256 + SNDV_MIXPOP ; SNDV_MIXPOP, no graphics lock held
-    call drv_pkg_call_x
-    jmp .yj1
-.date_cell:
-%endif
+    call ui_clkcell             ; OUT OF LINE on kern_big (kernel size pass
+    jmp .yj1                    ; 14): its 43 bytes here put fdlg_grab_x's
+%else                           ; `jc .yj1` above out of a byte's reach, and
+                                ; a far conditional is five bytes on an 8086
     mov byte [cp_sel], CP_ITIME ; page (SPEC.md 31.5); no lock held here, so
     call COLD_SEG:cpf_cp_open   ; cp_open is app_launch with the module load
-    jmp .yj1              ; in front of it (SPEC.md 2.8.4) - and it owns
-                                ; the refusal, beep or toast, so there is
+    jmp .yj1                    ; in front of it (SPEC.md 2.8.4) - and it owns
+%endif                          ; the refusal, beep or toast, so there is
                                 ; nothing left here to say
 
 .on_desktop:
@@ -966,7 +955,7 @@ ui_task:
     call gfx_lock
     test bl, 2
     jz .clk_cp
-    call menu_draw_clock        ; the menu bar cell (SPEC.md 12.1)...
+    call menu_bar_clock         ; the menu bar cell (SPEC.md 12.1)...
 .clk_cp:
     call COLD_SEG:cpf_cp_tick   ; ...and an open Date/Time page (SPEC 31.5),
     call gfx_unlock             ; which is a no-op unless one is showing
@@ -3233,14 +3222,16 @@ section .text
 %ifdef OS88_SNDCARD
 ; SOUND.DRV's private modal bridge (SPEC.md 34.15): cursor refcounts and
 ; event draining stay with the kernel's owner. Driver never knows offsets.
+; in:  AL = 0 the popup is up (spend the freeze, show the arrow), 1 hide the
+;      arrow, 2 poll the pointer, 3 drain the modal mouse edges
+; out: AL = 2's buttons, CX/DX its x/y; DS preserved. ES, BX, SI, DI and BP
+;      are NOT - every routine called below preserves them, bar 3's DI, and
+;      volume_popup (drivers/sound/volume.inc), the one caller, holds nothing
+;      in any of them across a bridge call: kernel size pass 14 took the five
+;      pushes off (10 bytes). A second caller that needs one banks it itself
 ui_volume_bridge: dw ui_volume_service, KERNEL_SEG
 ui_volume_service:
     push ds
-    push es
-    push bx
-    push si
-    push di
-    push bp
     KDS
     KES
     cmp al, 1
@@ -3266,12 +3257,11 @@ ui_volume_service:
     call evq_drain
     jmp short .out
 .poll:
-    pushf
-    cli
-    mov cx, [mouse_x]
-    mov dx, [mouse_y]
-    mov al, [mouse_btn]
-    popf
+    pushf                       ; the three reads as one instant (an ISR
+    cli                         ; between them would pair one packet's x with
+    call osapi_mouse.live       ; the next's y): OSAPI_MOUSE's own tail is
+    popf                        ; exactly those three loads and a `ret`
+                                ; (pass 14: 8 bytes)
     cmp byte [cur_level], 0
     jl .out                    ; dismissal has already hidden the arrow
     cmp cx, [cur_drawn_x]
@@ -3282,13 +3272,30 @@ ui_volume_service:
     call cursor_hide
     call cursor_show
 .out:
-    pop bp
-    pop di
-    pop si
-    pop bx
-    pop es
     pop ds
     retf
-    times 2 db 0 ; PARITY: ui_task and the following hot routines keep their phase
+
+; ui_clkcell - a press in the clock's field (SPEC.md 12.1, 34.15): the speaker
+; at the field's right end when it is showing - a toast can hide it - and the
+; Control Panel's Date/Time page anywhere else. UI task, no lock held.
+; in: CX = the press's x;  clobbers AX, BX, CX, DX, SI, DI, ES
+ui_clkcell:
+    cmp byte [menu_mixcap+1], SND_CAP_MIXER >> 8    ; 0, 0200h or 0FFFFh:
+    jne .date                   ; the high byte says which
+    mov ax, cx
+    sub ax, [menu_mixx]         ; the field's right end (SPEC.md 34.15)
+    cmp ax, 24
+    jae .date
+    mov cx, [menu_mixx]
+    push ds
+    pop es
+    mov di, ui_volume_bridge
+    mov bx, DRVC_SOUND*256 + SNDV_MIXPOP ; SNDV_MIXPOP, no graphics lock held
+    jmp drv_pkg_call_x
+.date:
+    mov byte [cp_sel], CP_ITIME ; page (SPEC.md 31.5); no lock held here, so
+    call COLD_SEG:cpf_cp_open   ; cp_open is app_launch with the module load
+    ret                         ; in front of it (SPEC.md 2.8.4) - and it owns
+                                ; the refusal, beep or toast
 %endif
 section .text

@@ -1877,7 +1877,7 @@ clk_snapshot:
 ;      the hour 1..12 with NO leading zero and a trailing ' AM'/' PM'
 ; clobbers: nothing else
 ; Snapshots first, so the whole line is one instant. The width varies, which
-; is why menu_draw_clock right-aligns it in a fixed cell (SPEC.md 12.1).
+; is why menu_bar_clock right-aligns it in a fixed cell (SPEC.md 12.1).
 ; -----------------------------------------------------------------------------
 clk_fmt:
     push ax

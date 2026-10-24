@@ -331,18 +331,14 @@ menu_inval:
     push cx
     push dx
     mov byte [menu_bdirty], 1   ; ...so menu_draw_bar's text pass runs at all
-    sub ax, MENU_TXT_X0
-    jns .lo
-    xor ax, ax                  ; left of the segment: from its start
-.lo:
-    sub cx, MENU_TXT_X0
+    mov dx, cx                  ; x2, out of the way of menu_x2cell's CL
+    call menu_x2cell            ; AX = first cell, rounded DOWN - from the
+                                ; segment's start when x1 is left of it - and
+                                ; CL = 3 for the shift below
+    sub dx, MENU_TXT_X0
     js .out                     ; wholly left of it: nothing of ours
-    mov dx, cx
-    mov cl, 3
-    shr ax, cl                  ; AX = first cell, rounded DOWN
-    xchg ax, dx
-    shr ax, cl                  ; ...and the cell x2 lands IN, which is the
-    xchg ax, dx                 ; outward rounding at that end
+    shr dx, cl                  ; ...and the cell x2 lands IN, which is the
+                                ; outward rounding at that end (pass 14: 10)
     cmp ax, MENU_BCMAX
     jae .out
     cmp dx, MENU_BCMAX
@@ -815,7 +811,7 @@ menu_des:
 ; which only two things can do - a fullscreen window (SPEC.md 11.2) and a
 ; dropped menu whose save-under was refused - so wm_paint_all and menu_track
 ; set it rather than reason about it. The UI task's own clock step calls
-; menu_draw_clock direct - the clock's cells and nothing else - and it has
+; menu_bar_clock direct - the clock's cells and nothing else - and it has
 ; nothing to do with the Timer app (SPEC.md 14).
 ; -----------------------------------------------------------------------------
 menu_draw_bar:
@@ -846,66 +842,39 @@ menu_draw_bar:
 %ifdef REDRAWFULL
     call menu_force             ; REFERENCE BUILD: every bar redraw is a full
 %endif                          ; one, the behaviour this replaced
-    cmp byte [menu_bovr], 0     ; --- segment 1: the static furniture -------
-    je .txt                     ; only ever owed after an OVERDRAW
-    call menu_furniture
-    test byte [fpg_on], FPG_SHOWN   ; ...and that fill took SPEC.md 12.8's
-    jz .txt                     ; widget with it, which can be up across
-    call fpg_paint              ; a repaint at all. Its own pixels only - the
-                                ; cells are already ours, the text pass below
-                                ; keeps off them, and fpg_paint deliberately
-                                ; does not call back into this routine
-
-.txt:
-    mov al, 0                   ; --- the text: menus, clock and toast -----
-    xchg al, [menu_bdirty]      ; taken and cleared in one exchange (size
-    or al, al                   ; pass 10: 2 bytes; AX is banked above)
-    jz .clock
-    call menu_bar_text          ; the whole bar's cells (SPEC.md 12.9)...
+    shr byte [menu_bovr], 1     ; --- segment 1: the static furniture -------
+    jnc .txt                    ; only ever owed after an OVERDRAW. Taken and
+                                ; cleared in one instruction: [menu_bovr] is
+                                ; only ever 0 or 1 (menu_force's word store
+                                ; and the fullscreen guard above are its
+                                ; writers), so the shift leaves 0 and CF is
+                                ; the bit (kernel size pass 14: 6 bytes)
+                                ;
+                                ; **The only path in the machine that erases
+                                ; the menu bar**, and it is reached only from
+                                ; [menu_bovr] - somebody painted over us.
+                                ; Everything else that changes the bar changes
+                                ; TEXT, and text is put back by an opaque run
+                                ; that never blanks what it is replacing
+                                ; (SPEC.md 6.1/12.9). The two things drawn
+                                ; here are the two that cannot be recomputed
+                                ; from the owner: the rule along the bottom row
+                                ; and the 11x11 System logo. It was
+                                ; menu_furniture, a routine of its own with
+                                ; this as its one caller, and written here it
+                                ; needs none of the five pushes it made -
+                                ; kent_di banked them above (pass 14: 12)
 %ifdef OS88_SNDCARD
-    call menu_sound             ; ...and the speaker, which answers to them
-%endif
-    jmp short .out
-.clock:
-    call menu_draw_clock        ; ...or only the clock's, nothing else having
-.out:                           ; moved (SPEC.md 12.1)
-    jmp kret_di
-
-; -----------------------------------------------------------------------------
-; menu_furniture - the black rule and the logo glyph, after an overdraw
-; in:  nothing (caller holds the gfx lock)
-; out: nothing (all registers preserved)
-;
-; **The only path in the machine that erases the menu bar**, and it is
-; reached only from [menu_bovr] - somebody painted over us. Everything else
-; that changes the bar changes TEXT, and text is put back by an opaque run
-; that never blanks what it is replacing (SPEC.md 6.1/12.9).
-;
-; The two things drawn here are the two that cannot be recomputed from the
-; owner: the rule along the bottom row and the 11x11 System logo, both
-; identical in every application for the life of the machine. Drawing them
-; on every relayout cost 121 gfx_pixel calls and a full-width hline to put
-; back pixels that had not moved.
-; -----------------------------------------------------------------------------
-menu_furniture:
-    push ax
-    push bx
-    push cx
-    push dx
-    push di
-    mov byte [menu_bovr], 0
-%ifdef OS88_SNDCARD
-    mov word [menu_mixcap], 0FFFFh
-%endif
-
-    call thm_bg                
+    or word [menu_mixcap], -1   ; the speaker is lost with the field: 0FFFFh
+%endif                          ; = unknown, so menu_sound draws it again
+    call thm_bg
     xor ax, ax                  ; white field, rows 0..MBAR_H-2
     xor bx, bx
     mov cx, [vid_pwm1]
     mov dx, MBAR_H - 2
     call gfx_fill
 
-    call thm_ink                
+    call thm_ink
     xor ax, ax                  ; the black rule along the bottom
     mov bx, [vid_pwm1]
     mov dx, MBAR_H - 1
@@ -922,9 +891,25 @@ menu_furniture:
                                 ; loop and the store a second time (kernel size
                                 ; pass 10: 13 bytes) - the clock's cells
                                 ; with them, the clock being composed there
+    test byte [fpg_on], FPG_SHOWN   ; ...and that fill took SPEC.md 12.8's
+    jz .txt                     ; widget with it, which can be up across
+    call fpg_paint              ; a repaint at all. Its own pixels only - the
+                                ; cells are already ours, the text pass below
+                                ; keeps off them, and fpg_paint deliberately
+                                ; does not call back into this routine
 
-    pop di
-    jmp kret_dx
+.txt:
+    shr byte [menu_bdirty], 1   ; --- the text: menus, clock and toast -----
+                                ; taken and cleared in one instruction, as
+                                ; [menu_bovr] above (0 or 1 at every writer):
+                                ; CF = 1 the whole bar's cells (SPEC.md
+                                ; 12.9), CF = 0 only the clock's, nothing
+                                ; else having moved (SPEC.md 12.1) - and
+                                ; menu_bt_ent takes the choice in CF and ends
+                                ; in the speaker, which answers to either
+    call menu_bt_ent
+.out:
+    jmp kret_di
 
 ; -----------------------------------------------------------------------------
 ; menu_bar_text  - the whole bar's text: compose it, diff it, emit what moved
@@ -960,46 +945,59 @@ menu_furniture:
 ;
 ; menu_bar_clock is the same routine entered past the menus, for the UI
 ; task's clock tick and for a menu_draw_bar with nothing dirty: the menus'
-; cells are already right, so what is left to compare is 25 cells.
+; cells are already right, so what is left to compare is 25 cells. A minute
+; rolling over is the digit that changed, lettered by one font_run - measured
+; on a 4.77MHz 5150 with a CGA, 40,791 cycles when the clock was its own
+; painter and re-lettered all 25 cells, 20,111 composed here.
+;
+; FOUR DOORS AND ONE CHOICE, carried in CF (kernel size pass 14):
+;   menu_bar_clock  CF = 0, then menu_bt_ent        - the UI task's tick
+;   menu_bt_ent     CF as given, then the speaker   - menu_draw_bar's
+;   menu_bar_text   CF = 1, the composition alone   - menu_sound's
+;   menu_bt_raw     CF as given, the composition alone
+; Every composition but menu_sound's own is followed by menu_sound (SPEC.md
+; 34.15), whose picture and geometry answer to what was just composed - so
+; that is said once, here, where it was said at both callers and again in a
+; menu_draw_clock of its own. menu_sound's own re-composition goes through
+; menu_bar_text and so does NOT come back round: it is the one place the
+; geometry has just been decided.
 ; -----------------------------------------------------------------------------
 menu_bar_clock:
-    call kent_di                ; = push ax/bx/cx/dx/si/di
-    push es
-    stc                         ; CF = 1: past the menus
-    jmp short menu_bt_go
+    clc                         ; CF = 0: past the menus
+menu_bt_ent:
+%ifdef OS88_SNDCARD
+    call menu_bt_raw
+    jmp menu_sound
 menu_bar_text:
-    call kent_di
+    stc                         ; CF = 1: the menus too
+menu_bt_raw:
+%endif
+    call kent_di                ; = push ax/bx/cx/dx/si/di (flags untouched)
     push es
-    clc
-menu_bt_go:
     pushf                       ; ...the choice, across the prologue
 
-    call fpg_vis                ; --- is SPEC.md 12.8's widget on the bar?
-    sbb dx, dx                  ; DX = -1 it may be, 0 a toast outranks it
-    test byte [fpg_on], FPG_SHOWN   ; (SPEC.md 12.8.7) - and the cells are
-    jz .nores                   ; reserved only while its pixels are there
-    or dx, dx
-    jnz .res
+    test byte [fpg_on], FPG_SHOWN   ; --- is SPEC.md 12.8's widget on the
+    jz .nores                   ; bar? The cells are reserved only while its
+    call fpg_vis                ; pixels are there (SPEC.md 12.8.7) and a
+    mov dx, FPG_CELLS           ; toast has not outranked it - `mov` leaves
+    jc .res                     ; fpg_vis's CF for the jump (pass 14: 4)
     call fpg_hide               ; a toast just outranked it: take it down
 .nores:                         ; (the rows outside the text band; the band
     xor dx, dx                  ; is this composition's), and its cells are
 .res:                           ; the menus' and the clock's again
     mov ax, [vid_clk_hx]        ; the clock field's first cell - both ends
-    sub ax, MENU_TXT_X0         ; are 8-aligned by construction
-    mov cl, 3
-    shr ax, cl
+    call menu_x2cell            ; are 8-aligned by construction
     mov [menu_bc0], ax
-    and dx, FPG_CELLS
     sub ax, dx                  ; the widget sits against the clock: its
     mov [menu_bn], ax           ; cells come off the menus' end
     mov [menu_blim], ax
 
     xor di, di                  ; DI = cell index, 0 = x MENU_TXT_X0
     mov [menu_blast], di        ; SEEDED: a maximum (menu_bput), read only
-    lea ax, [di-1]              ; when [menu_bfirst] says something differed
-    mov [menu_bfirst], ax       ; ...and [menu_bfirst] = 0FFFFh
+    or word [menu_bfirst], -1   ; when [menu_bfirst] says something differed
+                                ; ...and [menu_bfirst] = 0FFFFh (imm8: 1)
     popf
-    jc .clock
+    jnc .clock
 
     mov bx, [menu_abcell]       ; --- the application's name ----------------
     or bx, bx                   ; a CELL when the application declared an
@@ -1028,25 +1026,25 @@ menu_bt_go:
     jmp short .cell
 
 .tail:
-    lea ax, [di+1]              ; --- WHERE THE MENUS END (SPEC.md 59.9). DI is
-    cmp ax, [menu_bn]           ; one past the last GLYPH, and a title's pen is
-    jbe .bend                   ; MB_XL + 8 with MENU_TITLE_PAD split 8px each
-    mov ax, [menu_bn]           ; side - so that cell is still inside the last
-.bend:                          ; menu's BOX and the one after it is the first
-    mov [menu_bend], ax         ; that no menu owns
-
-    mov ax, [menu_bn]           ; spaces to the menus' end: this is what erases
-    call menu_bpadc             ; the menus of the app that just went away
+    mov ax, [menu_bn]           ; --- WHERE THE MENUS END (SPEC.md 59.9). DI is
+    lea bx, [di+1]              ; one past the last GLYPH, and a title's pen is
+    cmp bx, ax                  ; MB_XL + 8 with MENU_TITLE_PAD split 8px each
+    jbe .bend                   ; side - so that cell is still inside the last
+    mov bx, ax                  ; menu's BOX and the one after it is the first
+.bend:                          ; that no menu owns. BX is free here (the cell
+    mov [menu_bend], bx         ; walk is done) and AX is the pad's bound
+                                ; below as it stands (pass 14: 2 bytes)
+    call menu_bpadc             ; spaces to the menus' end: this is what erases
+                                ; the menus of the app that just went away
 
 .clock:
     call toast_place            ; --- where the strip goes, FIRST: it decides
                                 ; whether the speaker shows, and so where the
     call menu_ckend             ; clock's field ends (SPEC.md 34.15)
-    mov [menu_blim], ax
-    xchg ax, dx                 ; DX = the field's end cell
-    call clk_fmt                ; SI = the line, CX = its glyphs (18..24)
-    mov ax, dx
-    sub ax, cx                  ; AX = the cell its first glyph lands in
+    mov [menu_blim], ax         ; AX = the field's end cell...
+    call clk_fmt                ; SI = the line, CX = its glyphs (18..24) -
+    sub ax, cx                  ; and AX kept: the cell its first glyph lands
+                                ; in (clk_fmt banks AX: pass 14, 3 bytes)
     mov di, [menu_bc0]
     call menu_bpadc             ; the leading spaces, which are the erase of a
 .cg:                            ; longer line that went before
@@ -1057,17 +1055,15 @@ menu_bt_go:
     mov cx, [toast_scn]         ; --- and the toast strip over it, if one is
     jcxz .diff                  ; up and within its time (SPEC.md 59.9)
     mov di, [toast_scell]
-    mov al, ' ' | 0x80
-    call menu_bput              ; the gap cell: menu_bemit white-fills its left
-    dec cx                      ; 4px after the run (SPEC.md 59.8.1)
-    jcxz .cut
     mov si, toast_buf
-.sch:
-    lodsb                       ; **BIT 7 SET ON EVERY CELL** (SPEC.md 59.2):
+    mov al, ' '                 ; the gap cell FIRST, into the loop past its
+    jmp short .sput             ; load: [toast_scn] counts it, and menu_bemit
+.sch:                           ; white-fills its left 4px after the run
+    lodsb                       ; (SPEC.md 59.8.1). Pass 14: 4 bytes
+.sput:                          ; **BIT 7 SET ON EVERY CELL** (SPEC.md 59.2):
     or al, 0x80                 ; a cell whose CHARACTER did not change but
     call menu_bput              ; whose HIGHLIGHT did has to read as a
     loop .sch                   ; difference. menu_bemit masks it off to draw
-.cut:
     cmp byte [toast_scov], 0    ; ...and over the CLOCK, the cells after it are
     je .diff                    ; blanked to the end of the word they cut into,
 .cw:                            ; so no fragment of the date is left standing
@@ -1081,8 +1077,9 @@ menu_bt_go:
 
 .diff:
     mov bx, [menu_bfirst]       ; --- emit the span(s) that moved -------------
-    cmp bx, 0FFFFh
-    je .out                     ; nothing on the bar changed: no pixels
+    inc bx                      ; 0FFFFh: nothing on the bar changed, no
+    jz .out                     ; pixels (the inc and dec are a byte under
+    dec bx                      ; the compare's imm8)
     mov dx, [menu_blast]
 
 .piece:                         ; the span is split wherever the inversion
@@ -1108,9 +1105,11 @@ menu_bt_go:
     push si                     ; piece's first cell
     dec si
     mov dx, si
-    mov [menu_binv], al         ; SPEC.md 76.3: the STRIP, SAID rather than
-    or al, al                   ; inferred
-    jz .pnorm
+    add al, al                  ; SPEC.md 76.3: the STRIP, SAID rather than
+    jnc .pnorm                  ; inferred - AL is 0 or 80h, so CF = 1 is the
+                                ; inverted piece, and it rides in CF into
+                                ; menu_bemit: thm_rpair and thm_pair are a
+                                ; `mov` and an `xchg`, which write no flag
     call thm_rpair              ; INVERSE VIDEO, the one distinction that
     jmp short .pgo              ; survives SPEC.md 39.4's reduction intact
 .pnorm:
@@ -1128,7 +1127,8 @@ menu_bt_go:
 
 ; -----------------------------------------------------------------------------
 ; menu_bemit - letter cells BX..DX of the menus segment in one font_run
-; in:  BX = first cell, DX = last cell (inclusive), AL = ink, AH = background
+; in:  BX = first cell, DX = last cell (inclusive), AL = ink, AH = background,
+;      CF = 1 the run is the toast strip's (inverted), 0 it is not
 ; out: nothing (all registers preserved)
 ;
 ; Split back out of menu_bar_text when SPEC.md 59.9 put the toast strip in the
@@ -1141,30 +1141,32 @@ menu_bt_go:
 ; **BIT 7 IN A CELL IS THE INVERSION FLAG AND NOT A CHARACTER** (SPEC.md 59.2),
 ; so it is masked off across the run before the glyphs are drawn and put back
 ; after - without the mask font_char indexes past the 95 glyphs it has. That is
-; exact rather than approximate: a run arriving here with CWHITE ink is wholly
-; inside the strip by construction, its caller having split the span on that
-; very bit, so every cell in it carries the bit and every cell in it gets it
-; back.
+; exact rather than approximate: an inverted run is wholly inside the strip by
+; construction, its caller having split the span on that very bit, so every
+; cell in it carries the bit and every cell in it gets it back.
+;
+; **IS THIS THE INVERTED RUN is SAID, in CF** (SPEC.md 76.3). It used to be
+; `cmp di, CWHITE` - the run's own colours read as a proxy for the answer,
+; which the Dark theme swaps: the PLAIN run then matches, bit 7 is never masked
+; off, and font_char indexes past the 95 glyphs it has. Then it was a byte in
+; .text, menu_binv, written by the caller and read three times here; it is the
+; caller's carry now, banked across font_run with `pushf` (kernel size pass
+; 14: 17 bytes with the byte and its store). The popf restores the entry's IF
+; and DF with it, which are what they were - this runs with neither changed.
 ; -----------------------------------------------------------------------------
-menu_binv:  db 0                ; SPEC.md 76.3: menu_bar_text says whether the
-                                ; piece it is handing over is the inverted one
 menu_bemit:
-    call kent_di                ; = push ax/bx/cx/dx/si/di
+    call kent_di                ; = push ax/bx/cx/dx/si/di (flags untouched)
 
     mov di, ax                  ; the colours, out of the way of the x
     mov si, dx                  ; arithmetic below
     mov al, [menu_bcell+1+si]   ; (the +1 in the displacement, not an `inc`:
     mov byte [menu_bcell+1+si], 0   ; SI is reloaded below either way)
     push ax                     ; AL = the banked byte
+    pushf                       ; CF = the answer, past font_run
     push bx
     push dx
 
-    cmp byte [menu_binv], 0     ; IS THIS THE INVERTED RUN? (SPEC.md 76.3) It
-    je .go                      ; used to be `cmp di, CWHITE` - the run's own
-                                ; colours read as a proxy for the answer, which
-                                ; the Dark theme swaps: the PLAIN run then
-                                ; matches, bit 7 is never masked off, and
-                                ; font_char indexes past the 95 glyphs it has
+    jnc .go                     ; plain: nothing to mask
     mov si, bx
 .m:
     and byte [menu_bcell+si], 0x7F
@@ -1172,36 +1174,38 @@ menu_bemit:
     cmp si, dx
     jbe .m
 .go:
-    mov ax, bx
-    mov cl, 3
-    shl ax, cl
-    add ax, MENU_TXT_X0
-    mov cx, ax                  ; CX = the run's x (8-aligned, so font_run
-    mov si, menu_bcell          ; takes its single-pass path on mono)
-    add si, bx
+%if MENU_TXT_X0 % 8
+  %error "menu_bemit's x is (cell + MENU_TXT_X0/8) * 8: the segment must start on a cell"
+%endif
+    lea ax, [bx + MENU_TXT_X0 / 8]  ; CX = the run's x, (cell + X0/8) * 8
+    mov cl, 3                   ; (8-aligned, so font_run takes its
+    shl ax, cl                  ; single-pass path on mono)
+    xchg ax, cx
+    lea si, [bx + menu_bcell]
     mov dx, MENU_TEXT_Y
     mov ax, di
     call font_run
 
-    cmp byte [menu_binv], 0     ; the STRIP: take its first cell's left 4px
-    je .nogap                   ; back to the ground, so the gap home pads
-    cmp bx, [toast_scell]       ; - ITS first cell, not the first of a run
-    jne .nogap                  ; that began inside it because only the
+    pop dx
+    pop bx
+    popf
+    jnc .rb                     ; plain: nothing to put back either
+    cmp bx, [toast_scell]       ; the STRIP: take its first cell's left 4px
+    jne .nogap                  ; back to the ground, so the gap home pads
+                                ; - ITS first cell, not the first of a run
+                                ; that began inside it because only the
                                 ; message's tail changed
-    mov ax, cx                  ; as the clock home does (SPEC.md 59.8.1).
-    add cx, 3                   ; Drawn and then half-erased rather than
-                                ; composed as two halves, because menu_bcell
-    push bx                     ; is a record of CELLS and half a cell is not
-    call thm_bg                
+    push bx                     ; as the clock home does (SPEC.md 59.8.1).
+    push dx                     ; Drawn and then half-erased rather than
+    mov ax, cx                  ; composed as two halves, because menu_bcell
+    add cx, 3                   ; is a record of CELLS and half a cell is not
+    call thm_bg
     mov bx, MENU_TEXT_Y
     mov dx, MENU_TEXT_Y + 7
     call gfx_fill
-    pop bx
-.nogap:
     pop dx
     pop bx
-    cmp byte [menu_binv], 0
-    je .rb
+.nogap:
     mov si, bx
 .s:
     or byte [menu_bcell+si], 0x80
@@ -1267,12 +1271,7 @@ menu_bent:
 menu_bpad:
     push ax
     push cx
-    sub ax, MENU_TXT_X0
-    jns .c
-    xor ax, ax                  ; left of the segment: nothing to pad
-.c:
-    mov cl, 3
-    shr ax, cl
+    call menu_x2cell            ; left of the segment: nothing to pad
     call menu_bpadc
     pop cx
     pop ax
@@ -1376,25 +1375,6 @@ menu_bput:
     ret
 
 ; -----------------------------------------------------------------------------
-; menu_draw_clock - bring the clock's cells up to date (SPEC.md 12.1)
-; in:  nothing (caller holds the gfx lock)
-; out: nothing (all registers preserved)
-;
-; The clock is composed into the bar's own cells (menu_bar_text, SPEC.md 12.9),
-; so a minute rolling over is the digit that changed, lettered by one font_run
-; - measured on a 4.77MHz 5150 with a CGA, 40,791 cycles when this field
-; was its own painter and re-lettered all 25 cells, 20,111 now. Then
-; the speaker, whose picture and geometry answer to what was just composed.
-; -----------------------------------------------------------------------------
-menu_draw_clock:
-    call menu_bar_clock
-%ifdef OS88_SNDCARD
-    jmp menu_sound
-%else
-    ret
-%endif
-
-; -----------------------------------------------------------------------------
 ; menu_ckend - the cell the clock's field ends at (SPEC.md 12.9, 34.15)
 ; out: AX = that cell, counted from MENU_TXT_X0
 ; clobbers: CX (the shift count), flags
@@ -1408,13 +1388,27 @@ menu_ckend:
     mov ax, [vid_wm8]
 %ifdef OS88_SNDCARD
     cmp byte [toast_scov], 0
-    jne .p
-    test word [drv_svc+DSV_CAPS], SND_CAP_MIXER
-    jz .p
+    jne menu_x2cell
+    test byte [drv_svc+DSV_CAPS+1], SND_CAP_MIXER >> 8  ; the byte that
+    jz menu_x2cell              ; holds the bit (pass 14: 1)
     sub ax, 24
-.p:
-%endif
+%endif                          ; ...FALLS INTO menu_x2cell
+
+; -----------------------------------------------------------------------------
+; menu_x2cell - absolute bar x -> menu_bcell index (SPEC.md 12.9)
+; in:  AX = x;  out: AX = (x - MENU_TXT_X0) / 8, 0 for an x left of the
+;      segment;  clobbers: CL (left 3, which menu_inval spends), flags
+;
+; Five copies of `sub ax, MENU_TXT_X0 / mov cl, 3 / shr ax, cl` were the
+; composition's x arithmetic (kernel size pass 14: menu_bpad, menu_inval,
+; menu_ckend and menu_bar_text's prologue). The clamp is menu_bpad's and
+; menu_inval's; the other two never pass an x left of the segment.
+; -----------------------------------------------------------------------------
+menu_x2cell:
     sub ax, MENU_TXT_X0
+    jns .c
+    xor ax, ax
+.c:
     mov cl, 3
     shr ax, cl
     ret
@@ -2635,19 +2629,14 @@ section .text
 ; speaker. A toast that missed the gap hides the speaker instead. The driver owns the picture: no idle
 ; port reads or icon blits, only a capability, geometry or need change.
 menu_sound:
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
-    push bp
-    push es
+    call kent_di                ; = push ax/bx/cx/dx/si/di - and with BP and
+    push bp                     ; ES that is kret_es's run exactly (kernel
+    push es                     ; size pass 14: 9 bytes against eight pops)
     mov ax, [vid_pw]
     sub ax, 8 + MENU_CLK_W + 6
     and ax, 0FFF8h             ; the clock's field with no speaker
-    mov dx, [drv_svc+DSV_CAPS]
-    and dx, SND_CAP_MIXER
+    mov dx, SND_CAP_MIXER       ; the immediate in the 3-byte `mov` and the
+    and dx, [drv_svc+DSV_CAPS]  ; word in the `and` (pass 14: 1)
     jz .origin
     add ax, MENU_CLK_W - 16    ; the speaker: the field's last 24 pixels.
     mov [menu_mixx], ax         ; Through AX and back, one byte under BX's
@@ -2673,18 +2662,17 @@ menu_sound:
                                 ; of menus and clock alike (SPEC.md 12.9)
     or dx, dx
     jnz .store
-    cmp word [menu_mixcap], SND_CAP_MIXER
-    jne .store
-    call thm_bg                 ; the speaker went: erase its picture ABOVE
-    mov ax, [menu_mixx]         ; and BELOW the text band - the band is the
-    mov cx, ax                  ; composition's, which has just lettered the
-    add cx, 23                  ; clock or the strip over it
-    mov bx, 2
-    mov dx, MENU_TEXT_Y - 1
-    call gfx_fill
-    mov bl, MENU_TEXT_Y + 8
-    mov dl, 17
-    call gfx_fill
+    cmp byte [menu_mixcap+1], SND_CAP_MIXER >> 8  ; 0, 0200h or 0FFFFh: the
+    jne .store                  ; high byte says which (pass 14: 1)
+    mov ax, [menu_mixx]         ; the speaker went: erase its picture ABOVE
+    mov cx, ax                  ; and BELOW the text band - the band is the
+    add cx, 23                  ; composition's, which has just lettered the
+    call fpg_ring               ; clock or the strip over it. fpg_ring's rows
+                                ; are the whole field's, 0..MBAR_H-2, where
+                                ; the picture is rows 2..17: the four more are
+                                ; the bar's own ground under no other painter
+                                ; at these columns, so they are written with
+                                ; the colour they already hold (pass 14: 16)
     xor dx, dx
 .store:
     mov [menu_mixcap], dx
@@ -2702,15 +2690,7 @@ menu_sound:
     pop es
     call drv_pkg_call_x
 .out:
-    pop es
-    pop bp
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es                 ; pops es, bp, di, si, dx, cx, bx, ax
 menu_mixcap: dw 0FFFFh
 menu_mixx:   dw 0
 %endif
