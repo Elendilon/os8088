@@ -15009,6 +15009,44 @@ SOAK = [
         "FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidclmove", "soak", py("tests/vidclmove.py", "--arm",
+                                  "resident"), 25.0,
+        "SPEC.md 98.3.19.2, NO-PINNING A6: a session PAUSED on the desktop "
+        "holds claims that MOVE. A RESIDENT file played from KEY 1 in its "
+        "window on the Hercules 5150, a click back to the desktop, a "
+        "hole-maker's block freed under it and a compaction posted from "
+        "outside: the key's record (vp_rclm) declared to vp_smove, MOVED, "
+        "[vp_rclm] and [vp_ring] naming it and its bytes intact; Play goes "
+        "on in the window, the hold after it the host's decode, all 90 "
+        "frames; and after the end the key's record is GIVEN BACK - it "
+        "leaked at every such play before, held in [vp_ring] alone. VERIFIED "
+        "RED: vp_smove a bare ret (3: the words stale); the store into "
+        "[vp_rclm] taken out (1 and 6: undeclared, still held)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/os8088-360.img", "build/video.o88")),
+    Row("vidclmovely", "soak", py("tests/vidclmove.py", "--arm", "layer"),
+        45.0,
+        "SPEC.md 98.3.19.2, 98.1.9: vidclmove's LAYER - a layered Life clip "
+        "played IN PLACE on MartyPC's 8088 with the Lo-tech EMS board, so "
+        "the layer's slots are a claim of their own ([vp_lyseg], vp_lyown); "
+        "paused on the desktop it and the ring MOVE, every word live, bytes "
+        "intact, and Play goes on: the hold after the move is the LAYERED "
+        "decode (one the base alone does not draw), 47 records drawn, none "
+        "left out, all 60 frames. VERIFIED RED: vp_smove a bare ret (3, and "
+        "5 by 2,716 bytes); vp_smov's layer line taken out (1: undeclared)",
+        needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=300,
+        wants=("build/emstest.img", "build/video.o88")),
+    Row("vidclmovediag", "soak", py("tests/vidclmove.py", "--arm", "diag"),
+        20.0,
+        "SPEC.md 98.3.19.2, 98.3.22: vidclmove's PROFILE - VIDEOD "
+        "(build/videodiag.o88) on the Hercules 5150, a streamed clip paused "
+        "on the desktop: the profile's claim ([vp_prseg], claimed first, "
+        "under the ring) and the ring MOVE, and after Play goes on to the "
+        "end the VPPROFn.DAT it writes to B: holds all 90 frames, every slot "
+        "timed - the ones after the move written into the moved claim. "
+        "VERIFIED RED: vp_smove a bare ret (3: the words stale)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/os8088-360.img", "build/videodiag.o88")),
     Row("vencbundle", "soak", py("tests/vencbundle.py"), 10.0,
         "SPEC.md 98.2.13: `make vencbundle`'s zip, unpacked OUTSIDE the "
         "tree and used from there - whole and deterministic, it encodes, "
