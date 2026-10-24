@@ -57,8 +57,8 @@
 %endmacro
 
 %macro VIDEXT 1
-    cmp byte [vid_planes], 4    ; VX_PACKED: a packed display's depth is 8 or
-    jbe %%planar                ; 16, every other kind's 4 or 1
+    cmp byte [vid_planes], 4    ; a packed display's depth is 8 or 16, every
+    jbe %%planar                ; other kind's 4 or 1
     VXGO %1                     ; twelve bytes, so the hot routines after a
 %%planar:                       ; hook keep their entry parity
 %endmacro                       ; (tests/unit/t_hotpar.py)

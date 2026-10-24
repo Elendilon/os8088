@@ -793,13 +793,15 @@ vid_apply:
                                 ; w - 8 - MENU_CLK_W - 6, floored to a glyph
     and ax, 0FFF8h              ; cell: the bar's segments are cell ranges
     mov [vid_clk_hx], ax        ; the union once a second display is extended -
-                                ; 1152 on a 1360px desktop, which is CELL 144
-                                ; of a menu_bcell holding MENU_BCMAX = 62. The
+                                ; 1152 on a 1360px desktop, which is CELL 144,
+                                ; past menu_bcell's MENU_BCMAX cells (menu.inc
+                                ; sizes it for the widest PRIMARY bar). The
                                 ; overrun wrecks whatever follows it in .bss
                                 ; and the machine dies somewhere else entirely,
                                 ; with a stack pointer outside .lowbss. The
-                                ; primary's 640 gives cell 54, inside the
-                                ; buffer, which is the number this always meant
+                                ; primary's own width keeps the clock inside
+                                ; the buffer, which is the number this always
+                                ; meant
 
     mov ax, [vid_bmask]         ; gfx_prevrow's test: the bank number lives in
     mov cl, 13                  ; DI's bits 13..14, so the address mask is the
