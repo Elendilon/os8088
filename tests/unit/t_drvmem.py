@@ -83,7 +83,7 @@ ROWS = [
     ("EMS", "DRVM_EMS", "DRVM_IMG_EMS", "ems.drv"),
     # SPEC.md 119's CDROM.DRV: DRVC_CD, after EMS on both big builds
     ("CD-ROM", "DRVM_CD", "DRVM_IMG_CD", "cdrom.drv"),
-    # SPEC.md 121's HTTPFS.DRV: DRVC_HTTP, after the CD-ROM on both big builds
+    # SPEC.md 122's HTTPFS.DRV: DRVC_HTTP, after the CD-ROM on both big builds
     ("HTTP Drive", "DRVM_HTTP", "DRVM_IMG_HTTP", "httpfs.drv"),
     # SPEC.md 120's VESA.DRV: the second DRVC_OVL row, LAST on both big
     # builds, with a SYSTEM.CFG bit (8) and a Drivers-page price like the rest
@@ -268,7 +268,7 @@ def main():
         # ...nor does CDROM.DRV (SPEC.md 119): its sector buffer, TOC and
         # handle cache are its bss, inside the image's claim
         "DRVM_CD": s["DRVM_IMG_CD"],
-        # HTTPFS.DRV (SPEC.md 121): its image, and the index it holds while
+        # HTTPFS.DRV (SPEC.md 122): its image, and the index it holds while
         # a drive is mounted - the largest HF_MAXREC allows, one claim
         "DRVM_HTTP": s["DRVM_IMG_HTTP"] + s["HF_IDXKB"],
         # ...nor does VESA.DRV (SPEC.md 120): its probe buffers, mode table

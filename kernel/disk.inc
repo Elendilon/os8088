@@ -3219,7 +3219,7 @@ dsk_vol_add:
                                 ; row whose proof-mount said 'Not a disk
                                 ; image' - SPEC.md 18.101)
     cmp al, DRVC_FILE2          ; (every file class - SPEC.md 62.9.19, and
-    jae .kindfile               ; DRVC_CD and DRVC_HTTP past it, 119.1, 121.1)
+    jae .kindfile               ; DRVC_CD and DRVC_HTTP past it, 119.1, 122.1)
     cmp al, DRVC_FILE           ; DRVC_FILE driver answers questions about
     jne .kindpub                ; FILES (SPEC.md 62.9), so its volume has no
 .kindfile:

@@ -35,7 +35,7 @@
 ; =============================================================================
 
 %include "os88api.inc"
-%include "hfpkg.inc"                ; HTTPFS.DRV's package door (SPEC.md 121.4)
+%include "hfpkg.inc"                ; HTTPFS.DRV's package door (SPEC.md 122.4)
 %include "netpkg.inc"               ; ...and the socket verbs, for the check
 
 %ifndef IN_REL                      ; the release, OS88VER.TXT's first line, and

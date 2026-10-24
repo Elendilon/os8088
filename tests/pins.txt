@@ -333,6 +333,20 @@ X apps/imgtest/imgtest.asm @it_entry     # ...the same instrument's source claim
                                          # grown per case for the same one test
                                          # run, never on a user's machine
 
+C apps/browser/brcopyselection.inc br_copyseg  # Copy Selection's text buffer,
+                                         # claimed, handed to OSAPI_CLIP_PUT and
+                                         # freed inside br_copyselection
+C apps/xtmp3/x3pars.inc x3p_pseg         # the front end's probe scratch,
+                                         # claimed and freed inside x3p_probe
+D apps/xtmp3/x3eng.inc x3_xseg           # the external ring a DSP 3.00+ plays
+                                         # by auto-init DMA (OSAPI_MEM_CLAIM_DMA_HI,
+                                         # SPEC.md 121.6), freed at the play's stop
+X apps/browser/browser.asm @br_claim     # a CLAIM WRAPPER this scan cannot see
+                                         # through (it unpins the page claims after
+                                         # the call, SPEC.md 71.14.1): every caller
+                                         # stores DX in a word br_reloc names and
+                                         # declares it with br_movable at once
+
 # --- packages: bucket N - pinned with no valid reason yet (the backlog) --------
 
 N apps/pixelstein/pxstein.asm op:PX_PART_ART  # the 37KB art masters: the loader
@@ -344,3 +358,19 @@ N apps/pixelstein/pxstein.asm op:PX_PART_LEV  # the 10KB levels, behind the same
                                          # fence (6.5)
 N apps/pixelstein/pxstein.asm pxl_sseg   # the 60KB sprite set, behind the same
                                          # fence (6.5)
+N apps/browser/brdownload.inc br_dl_partpaint+2  # the Download Manager's
+                                         # lazy part: far-called, and Copy
+                                         # Selection claims under that far call, so
+                                         # op_movable's rule (SPEC.md 20.12.12)
+                                         # refuses it; held while the manager is up
+N apps/xtmp3/x3eng.inc @x3_fetchhome     # XTMP3's lazy decoder parts (SPEC.md
+                                         # 121.3), arrived at the merge of main's
+                                         # #304 and not yet audited for NO-PINNING
+N apps/xtmp3/x3eng.inc ap_la_seg         # XTMP3's 32KB look-ahead ring, a
+                                         # track's life (121.10); unaudited, as above
+N apps/xtmp3/x3eng.inc x3_open+X3O_SEG+si  # CAPS' work segments in the open
+                                         # record (121.10); unaudited, as above
+N apps/xtmp3/x3hold.inc x3h_base         # the MP3 held in memory for a live play
+                                         # (121.6.1); unaudited, as above
+N apps/xtmp3/xtmp3.asm op:carve          # the decoder parts' carve, for the
+                                         # program's life (121.3); unaudited

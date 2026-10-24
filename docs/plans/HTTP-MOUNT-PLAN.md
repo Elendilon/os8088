@@ -1,6 +1,6 @@
 # HTTP-MOUNT — a read-only drive served over HTTP
 
-**WAVES 0-5 BUILT - SPEC.md 121 is the contract now and this file is the design
+**WAVES 0-5 BUILT - SPEC.md 122 is the contract now and this file is the design
 record.** What is still open is section 8 and the measurement in wave 0. The ask: *"We currently mount drives from images and
 over parallel. To prepare for network system upgrades and to use in general,
 make a plan for read only http drive mounting. An address would be given, and
@@ -364,7 +364,7 @@ is its broken arm.
 
 **Section 6 item 2's remedies, as built:** resolve-once is ETHER.DRV's
 one-entry name cache (SPEC.md 72.5.1) and keep-alive is HTTPFS.DRV's
-(SPEC.md 121.2.1), both with no kernel byte. Full-capacity read-at answers
+(SPEC.md 122.2.1), both with no kernel byte. Full-capacity read-at answers
 were looked at and NOT built: the kernel already asks a copy in 65,024-byte
 chunks, and the small reads are a 512-byte peek and an 8-byte sniff each
 followed by the whole file, which a kept connection makes one round trip.
@@ -398,7 +398,7 @@ The fast tier failed at this base on `volsig` (`network360.img` and
 re-rolled by every commit, and is fixed on this branch by SPEC.md 18.8.2.2:
 every shipped disk now signs in a slot of its own.
 
-**Size round 1 (2026-10-22), SPEC.md 121.5 and 121.6.** The Control Panel
+**Size round 1 (2026-10-22), SPEC.md 122.5 and 122.6.** The Control Panel
 page is its own image, `HTTPPAGE.DRV`, `RAMPAGE.DRV`'s shape, reaching the
 drive through the package door (two new verbs, `HFV_URL` and `HFV_SAVE`):
 

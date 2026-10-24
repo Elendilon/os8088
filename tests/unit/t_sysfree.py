@@ -44,7 +44,7 @@ CRITICAL = [
     ("AUTOSTRT\\*.LNK", 50, "a second autostart link"),
     ("ASSOC.DAT", 2048, "the association cache's write-back (SPEC.md 54.7.6)"),
     ("ETHER.CFG", 20, "the Ethernet page's address (SPEC.md 72)"),
-    ("HTTPDRV.CFG", 64, "the HTTP drive's address (SPEC.md 121.5)"),
+    ("HTTPDRV.CFG", 64, "the HTTP drive's address (SPEC.md 122.5)"),
 ]
 
 

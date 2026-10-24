@@ -1,9 +1,9 @@
 ; =============================================================================
 ; hfnet.inc - the address, and ONE HTTP GET over the socket verbs (SPEC.md
-; 121.2)
+; 122.2)
 ;
 ; The Wire's profile (SPEC.md 92.4) plus `Range:` and a KEPT connection
-; (121.2.1): HTTP/1.0 with `Connection: keep-alive`, no chunked decoding, no
+; (122.2.1): HTTP/1.0 with `Connection: keep-alive`, no chunked decoding, no
 ; redirects. The
 ; socket verbs are netpkg.inc's, behind OSAPI_DRV_CALL to whichever class
 ; apps/os88sock.inc's net_find answers - the card first, then the cable - so
@@ -13,7 +13,7 @@
 ; bounded by the system tick and not a loop count: HF_IDLE ticks with nothing
 ; arriving is a timeout, whatever the CPU. A file verb runs on the UI task with
 ; the gfx lock held, so this bound IS the longest a dead server can freeze the
-; machine (SPEC.md 121.2).
+; machine (SPEC.md 122.2).
 ;
 ; THE READER IS ONE KB OF STAGING (hf_rbuf). Header lines are read a byte at a
 ; time out of it; a body is copied out of it in runs. ES on the way into every
@@ -552,7 +552,7 @@ hf_get:
     call hf_ultoa
 .nop:
     mov ax, 0x0A0D              ; the Host line's end - and no User-Agent:
-    stosw                       ; HTTP/1.0 asks none (SPEC.md 121.2)
+    stosw                       ; HTTP/1.0 asks none (SPEC.md 122.2)
     cmp byte [hf_rng], 0
     je .norng
     mov si, hf_s_rng            ; Range: bytes=<lo>-<lo+n-1>
@@ -578,7 +578,7 @@ hf_get:
     sub cx, hf_rbuf
     pop es
     mov [hf_reqn], cx
-    ; --- A KEPT CONNECTION, if the last GET left one (SPEC.md 121.2.1) ------
+    ; --- A KEPT CONNECTION, if the last GET left one (SPEC.md 122.2.1) ------
     ; Up, and with nothing unread on it: a byte waiting there now would be
     ; read as the start of THIS reply. Anything else is dropped and a fresh
     ; one opened, which is all a server's idle close costs.
@@ -735,7 +735,7 @@ hf_urlch:
 
 ; -----------------------------------------------------------------------------
 ; hf_body - [hf_left] bytes of body to [hf_bseg]:[hf_boff], after skipping
-;           [hf_skip] (a server that ignored Range:, SPEC.md 121.4)
+;           [hf_skip] (a server that ignored Range:, SPEC.md 122.4)
 ; out: CF=0; CF=1 and AX = an HFE_*. [hf_prog] = 1 steps the progress bar
 ; clobbers: AX, CX
 ; -----------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 ; =============================================================================
 ; os8088 - HTTPPAGE.DRV
 ;
-; HTTPFS.DRV's OTHER half (SPEC.md 121.5): its Control Panel page. It is read
+; HTTPFS.DRV's OTHER half (SPEC.md 122.5): its Control Panel page. It is read
 ; off the boot volume the first time somebody selects `Web Drive` in the
 ; panel's list, and its memory goes back when the panel closes - RAMPAGE.DRV's
 ; shape (SPEC.md 62.9.9), so a drive that is live costs nothing for a page

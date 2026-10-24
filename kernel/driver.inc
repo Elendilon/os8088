@@ -65,7 +65,7 @@ DRV_MAX     equ 10 + DRV_VX     ; rows in drv_tab. The FIFTH is SPEC.md 72's
                                 ; is kern_big's seventh, EMS.DRV (SPEC.md 107)
                                 ; and the NINTH its eighth, CDROM.DRV (SPEC.md
                                 ; 119), and the TENTH its ninth, HTTPFS.DRV
-                                ; (SPEC.md 121)
+                                ; (SPEC.md 122)
 %elifdef KERN_BIG
 DRV_MAX     equ 9 + DRV_VX      ; ...and kern_big stops at HTTPFS.DRV (SPEC.md
                                 ; 121), after CDROM.DRV (SPEC.md 119), after
@@ -197,7 +197,7 @@ DRVC_CD     equ 9               ; the THIRD file-redirector class (SPEC.md
                                 ; DRVC_FILE2 because a class number is ABI; it
                                 ; KEEPS A COPY of its table, like class 8
 DRVC_HTTP   equ 10              ; the FOURTH file-redirector class (SPEC.md
-                                ; 121.1): HTTPFS.DRV's, a read-only volume
+                                ; 122.1): HTTPFS.DRV's, a read-only volume
                                 ; whose files are fetched over HTTP. Its own
                                 ; class and not DRVC_FILE's because the cable
                                 ; is one of the two transports it runs over,
@@ -1041,7 +1041,7 @@ BOOT2_RES   equ BOOT2_PAD + ((CFG_FBUF + 511) / 512) * 512
 %elifdef KERN_BIG
     db 0, 1, 4, 2, 3, 6, 7, 8, 10 ; sound, hdd, ether, ramdisk, net,
                                 ; usbmouse, ems, cd-rom (bit 8 on both:
-                                ; SPEC.md 119.1), http (bit 10, 121.1)
+                                ; SPEC.md 119.1), http (bit 10, 122.1)
                                 ; - BIT 6 ON BOTH BUILDS, row 5 here and
                                 ; row 6 there: bit 5 is the absolute mouse's
                                 ; even on a build that has no such row (SPEC.md
@@ -1159,7 +1159,7 @@ drv_f_ems:   db 'EMS.DRV', 0     ; SPEC.md 107's expanded memory: kern_big's
                                 ; for the reason the USB mouse's line gives
 drv_f_cd:    db 'CDROM.DRV', 0   ; SPEC.md 119's CD-ROM, kern_big's for the
                                 ; same reason
-drv_f_http:  db 'HTTPFS.DRV', 0  ; SPEC.md 121's HTTP drive, likewise
+drv_f_http:  db 'HTTPFS.DRV', 0  ; SPEC.md 122's HTTP drive, likewise
 drv_f_usbm:  db 'USBMOUSE.DRV', 0 ; SPEC.md 9.12's CH375 mouse. kern_big's and
                                 ; not kern_small's: the whole driver mechanism
                                 ; is OS88_DRIVERS already, and a 128KB machine
@@ -1264,7 +1264,7 @@ drv_fptr8:   dw PKG_DISP        ; class 8 (DRVC_FILE2, SPEC.md 62.9.19) -
 drv_fseg8:   dw 0               ; kern_big's, the build with a ninth row
 drv_fptr9:   dw PKG_DISP        ; class 9 (DRVC_CD, SPEC.md 119.1)
 drv_fseg9:   dw 0
-drv_fptr10:  dw PKG_DISP        ; class 10 (DRVC_HTTP, SPEC.md 121.1)
+drv_fptr10:  dw PKG_DISP        ; class 10 (DRVC_HTTP, SPEC.md 122.1)
 drv_fseg10:  dw 0
 
 ; drv_svcix - per class, from class 1: which drv_svc copy is its, as
@@ -1486,7 +1486,7 @@ usbm_row:                       ; ...a label for tests/usbmouse.py, which finds
     db DRVE_OK
     db 0
     dw PKG_DISP, 0              ; row 8 (row 9 on kern_emu): HTTPFS.DRV, a
-    dw drv_f_http, DRVT_HTTP   ; read-only drive over HTTP (SPEC.md 121)
+    dw drv_f_http, DRVT_HTTP   ; read-only drive over HTTP (SPEC.md 122)
     dw 0, 0
     db DRVC_HTTP
     db 0                        ; NOT wanted by default (SPEC.md 51.3), like
@@ -1565,8 +1565,10 @@ DRVM_PLUS    equ 0x8000         ; "...and the store you size on its own page",
                                 ; RD_MAXKB is 16,384 - a column showing that
                                 ; would be arithmetic rather than advice
 
-DRVM_IMG_SND equ 11             ; ceil(build/sound.drv   / 1024) - t_drvmem
-                                ; (as LOADED: 10 held with a mixer, 7 without - SPEC.md 34.15.1)
+DRVM_IMG_SND equ 12             ; ceil(build/sound.drv   / 1024) - t_drvmem
+                                ; (as LOADED it holds less: DRV_H_KEEP hands
+                                ; the tail back, with a mixer or without -
+                                ; SPEC.md 34.15.1)
 DRVM_IMG_HDD equ 4              ; ceil(build/hdd.drv     / 1024)   checks
 DRVM_IMG_ETH equ 17             ; ceil(build/ether.drv   / 1024)   every one
 DRVM_IMG_RAM equ 6              ; ceil(build/ramdisk.drv / 1024)   of these

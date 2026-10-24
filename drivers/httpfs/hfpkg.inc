@@ -1,5 +1,5 @@
 ; =============================================================================
-; hfpkg.inc - HTTPFS.DRV's package door (SPEC.md 121.4), behind OSAPI_DRV_CALL
+; hfpkg.inc - HTTPFS.DRV's package door (SPEC.md 122.4), behind OSAPI_DRV_CALL
 ;
 ; Included by the driver and by any package that mounts an address itself - an
 ; installer pointing the drive at a release, a test. The netpkg.inc/cdpkg.inc
@@ -47,7 +47,7 @@ HFV_MAX      equ 6
 
 HF_URLMAX    equ 96             ; an address, NUL included
 
-; --- HTTPPAGE.DRV, the page's own image (SPEC.md 121.5) ----------------------
+; --- HTTPPAGE.DRV, the page's own image (SPEC.md 122.5) ----------------------
 ; Not a door: the verbs the resident's six Control Panel thunks send the page
 ; image, in AL, every other register exactly as the kernel handed them over.
 HFP_ABI      equ 1              ; the overlay header's +10; a page built

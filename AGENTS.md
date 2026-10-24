@@ -721,7 +721,11 @@ song, a module and a WAV for each; an XT cannot read a 1.44MB disk), `xt-midirac
 §105.11: `xt-sound`'s XT plus a standalone MPU-401, and `386-sound`'s 386
 whose SB16 carries one, each sending MIDI to 86Box's FluidSynth with the
 GeneralUser GS soundfont `make midibank` fetches, and each with `make
-midirackdisk`'s floppy - player, wavetable bank, songs - in B:), `xt-wire`,
+midirackdisk`'s floppy - player, wavetable bank, songs - in B:),
+`xt-xtmp3`, `286-xtmp3`, `386-xtmp3`, `486-xtmp3` and `pentium-xtmp3`
+(XTMP3's ladder, SPEC.md §121.11.5: the tree's sound machines booting `make
+xtmp3field`'s disks, whose `\AUTOSTRT` opens the `-DX3REPORT` build on one
+track and writes `X3REPORT.TXT`, which `tools/x3field.py` reads back), `xt-wire`,
 `286`, `286-525`,
 `286-sound`, `286-victory` (the owner's Packard Bell Victory 286 as near as 86Box comes - vm/286's board at 16 MHz, 4MB and a Paradise PVGA1A - whose RealDMG logs read like the Victory's own, REALDMG-SPEC section 14.1), `286-realdmg` (an mr286 with RealDMG's hard disk - the whole install and your cartridges, `make realdmghd GBROMS=<dir>`, REALDMG-SPEC section 19), `286-mega` (kern_mega's mr286, booting `make mega`'s `mega.img` with `megaapps.img` in B:), `286-mega-cdrom` and `386-mega-cdrom` (kern_mega with an ATAPI CD-ROM holding an audio disc, `make megacdtest`'s disks - the mr286 and a 25 MHz 386DX, KERN-MEGA-PLAN 14.68), the eight `286-525-*` application machines (`-z`, `-word`,
 `-cword`, `-runcpm`, `-c64`, `-weave`, `-loom`, `-all` — `vm/286-525` with a
@@ -866,6 +870,17 @@ every adapter gets a face — is `.claude/skills/retro-face`
 (`/retro-face <app> [mockups]`), whose `LESSONS.md` is what CDRack (SPEC.md
 §119.6) learned.
 
+## Shared agent skills
+
+The maintained skills live in `.claude/skills/`; `.agents/skills/` links to
+those same directories for Codex discovery. Claude Code uses `/skill-name`,
+Codex CLI/IDE uses `$skill-name`. Read
+[docs/AGENT-SKILLS.md](docs/AGENT-SKILLS.md) when running a skill: it maps the
+host's tools and explains how native agents follow the shared workflow scripts
+when `Workflow` is unavailable. Keep the skill's lessons, independent review
+stages, authorization gates and final test pass on either host. `vga-face`
+remains manual-only, with matching policy in its `agents/openai.yaml`.
+
 ## Building an app or game in waves
 
 Use WireFleet's delivery workflow for new applications and games, unless the
@@ -935,7 +950,7 @@ user gives a different workflow. The worked example is
   one pass. Transparent text is a **closed list of six cases** (§6.6.2) and
   `tests/textsites.txt` is the ratchet: a new call site fails the build until it
   is registered with a reason, and the count can only go down. **The sweep is
-  finished** (§6.6.5): the registry stands at 55 sites in 20 files, every one
+  finished** (§6.6.5): the registry stands at 70 sites in 21 files, every one
   with a reason, so a new transparent call is now an argument to win rather
   than a queue to join.
 - **Three adapters, one binary (§39).** `SCREEN_W`/`SCREEN_H`/`ROW_BYTES` are

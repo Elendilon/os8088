@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The HTTP drive's host side (SPEC.md 121): publish a tree, check it, serve it.
+"""The HTTP drive's host side (SPEC.md 122): publish a tree, check it, serve it.
 
     python3 tools/os88httpdrv.py export SRC OUTDIR   # SRC: a folder or a FAT12 .img
     python3 tools/os88httpdrv.py check  OUTDIR       # validate OS88.IDX against the tree
@@ -11,7 +11,7 @@ source is a .img, to the PC that will serve - Python 3 and nothing else.
 
 HTTP HAS NO DIRECTORY LISTING, so a server that is to look like a drive carries
 one file the drive reads first: `OS88.IDX`, the whole tree's names, sizes and
-folders in 18-byte records (SPEC.md 121.3). Everything else is a plain static
+folders in 18-byte records (SPEC.md 122.3). Everything else is a plain static
 tree of 8.3 names, and any web server that can send a file can serve it -
 `Range:` is used when the server honours it and is not required.
 
@@ -52,13 +52,13 @@ IDX_NAME = "OS88.IDX"
 IDX_MAGIC = b"OS88IDX\0"
 IDX_HDR = 16
 IDX_REC = 18
-HF_MAXREC = 896                 # HTTPFS.DRV's: one 16 KB claim (SPEC.md 121.3)
+HF_MAXREC = 896                 # HTTPFS.DRV's: one 16 KB claim (SPEC.md 122.3)
 A_DIR = 0x10
 A_KEEP = 0x07                   # read-only, hidden, system: what FIND reports
 # The characters an EXPORT names a file with: FAT's own short-name set less
 # lower case. What HTTPFS.DRV ACCEPTS in an index is wider - any printable
 # byte, ' '..'~', the range the kernel's listing sanitizer passes (SPEC.md
-# 19.1, 121.3) - and NAME_PRINT is that rule, which index_parse applies.
+# 19.1, 122.3) - and NAME_PRINT is that rule, which index_parse applies.
 NAME_OK = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$%'-_@~`!(){}^#&")
 NAME_PRINT = set(range(0x20, 0x7F))
 
@@ -73,7 +73,7 @@ def listing_cap():
     it - and 64 when the kernel's source is not beside this file.
 
     kern_big's and not kern_small's: the HTTP drive is a driver, and only
-    kern_big has a driver layer (SPEC.md 121.1). The fallback matters
+    kern_big has a driver layer (SPEC.md 122.1). The fallback matters
     because this tool is meant to be COPIED OFF the tree onto whatever PC
     serves the files, where there is no kernel/ to read - and falling back
     to kern_small's 32 refused the stock 360KB system disk's 35-entry root,
@@ -333,7 +333,7 @@ def check(out):
 # --- serve ---------------------------------------------------------------------
 class Handler(http.server.SimpleHTTPRequestHandler):
     """Static files with Range, one log line a request - and the connection
-    KEPT when the client asks (HTTPFS.DRV does, SPEC.md 121.2.1): http.server
+    KEPT when the client asks (HTTPFS.DRV does, SPEC.md 122.2.1): http.server
     honours `Connection: keep-alive` only at protocol HTTP/1.1, and closes an
     idle one after `timeout` seconds, as a real server does."""
     protocol_version = "HTTP/1.1"
@@ -372,7 +372,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Accept-Ranges", "bytes")
         if not self.close_connection:   # a 1.0 client's connection is kept
             # only when the reply SAYS so (RFC 7230 6.3), and HTTPFS.DRV asks
-            # in 1.0 and reads nothing else (SPEC.md 121.2.1). http.server
+            # in 1.0 and reads nothing else (SPEC.md 122.2.1). http.server
             # keeps it on the request's word and does not answer in kind
             self.send_header("Connection", "keep-alive")
         self.end_headers()

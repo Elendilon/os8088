@@ -1,5 +1,5 @@
 ; =============================================================================
-; os8088 - HTTPFS.DRV (SPEC.md 121)
+; os8088 - HTTPFS.DRV (SPEC.md 122)
 ;
 ; A read-only drive whose files are fetched over HTTP. The fourth file
 ; redirector (DRVC_HTTP = 10) beside the cable, the RAM disk and the CD-ROM:
@@ -64,7 +64,7 @@ hf_svc:
   %error "httpfs: the service table is not DSV_SIZE bytes"
 %endif
 
-; --- the FSV_* table DSV_FS points at (SPEC.md 62.9.1, 121.4) ----------------
+; --- the FSV_* table DSV_FS points at (SPEC.md 62.9.1, 122.4) ----------------
 hf_fsv:
 %ifdef HFTRACE                  ; a gate's diagnostic build, never shipped:
     dw hft_0, hft_2, hft_4, hft_6   ; every verb through hf_trace (below)
@@ -123,7 +123,7 @@ hf_attach:
 ; -----------------------------------------------------------------------------
 ; DRVV_READY - the remembered address, mounted LAZILY: the volume is added
 ; and nothing is fetched until the drive is opened, so a dead server or a
-; missing card costs the boot no time at all (SPEC.md 121.1)
+; missing card costs the boot no time at all (SPEC.md 122.1)
 ; -----------------------------------------------------------------------------
 hf_ready:
     push ax

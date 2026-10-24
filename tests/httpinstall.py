@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""An install whose SOURCE is the HTTP drive (SPEC.md 121, 62.9.17.1).
+"""An install whose SOURCE is the HTTP drive (SPEC.md 122, 62.9.17.1).
 
     python3 tests/httpinstall.py [--noattr]
 

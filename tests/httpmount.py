@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""httpmount - SPEC.md 121.7: HTTPFS.DRV mounts a web server as a drive.
+"""httpmount - SPEC.md 122.7: HTTPFS.DRV mounts a web server as a drive.
 
     make httpmounttest && python3 tests/httpmount.py
 
@@ -15,25 +15,25 @@ naming http://10.0.2.2:8095/fix/ with bit 0 set, so the drive is on the
 desktop before the first paint, LAZY: nothing is fetched until it is opened.
 
   1. The row is loaded, a volume registered, and the server has seen NO
-     request yet (SPEC.md 121.5: the boot fetches nothing).
+     request yet (SPEC.md 122.5: the boot fetches nothing).
   2. The drive's zone opens it: ONE request, for OS88.IDX, and the root
      lists what os88httpdrv.index_parse lists - names, folders, packages,
      and `A#B.TXT`, whose `#` must go on the wire as %23.
   3. DOCS, DOCS\\DEEP and `..` twice come back with NO further request: a
-     listing is answered out of the index (SPEC.md 121.3).
+     listing is answered out of the index (SPEC.md 122.3).
   4. MINES.O88 launches off the drive (FSV_READ, one GET, and the loader's
      parts path).
   5. BIG.BIN - 100,001 bytes, over 64 KB and odd - copied to B: with Edit >
      Copy and Edit > Paste is the reference's bytes (FSV_READAT with Range:).
   6. ...and BIG2.BIN, the same with the server IGNORING Range: (a 200 for
-     every read-at: the offset drained, SPEC.md 121.4) - the same bytes.
+     every read-at: the offset drained, SPEC.md 122.4) - the same bytes.
   7. A write is refused: Edit > Paste of BIG.BIN onto the HTTP drive asks
      to replace the one there, and the yes ends in FERR_WPROT - the delete
      and the write are refused by the driver, in FAT's words.
   8. PACKED.TXT, a 'CZ' file served as it is stored, opens in Note Pad as
      its UNPACKED text: no hint exists on a redirected volume, so this is the
      read's own sniff (SPEC.md 20.14.6.1) - why the host tool serves a
-     release's bytes unexpanded (SPEC.md 121.7).
+     release's bytes unexpanded (SPEC.md 122.7).
 
 `--name` runs the same legs with the address http://localhost:8095/fix/,
 which QEMU's slirp resolves through the host to 127.0.0.1 - this server. N:
@@ -43,7 +43,7 @@ later connection (SPEC.md 72.5.1).
 
 Break on purpose: drop the `[hf_skip]` load in hf_xfer's 200 arm and leg 6
 reads the file's FIRST bytes for every chunk. (A 206's start is taken on
-trust since size round 2, SPEC.md 121.4 - leg 5 is what a range-honouring
+trust since size round 2, SPEC.md 122.4 - leg 5 is what a range-honouring
 server delivers.)
 """
 import atexit

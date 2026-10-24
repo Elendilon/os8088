@@ -1,5 +1,5 @@
 ; =============================================================================
-; hfidx.inc - the index, and the volume's FSV_* verbs (SPEC.md 121.3, 121.4)
+; hfidx.inc - the index, and the volume's FSV_* verbs (SPEC.md 122.3, 122.4)
 ;
 ; HTTP has no directory listing, so the server carries one: OS88.IDX at the
 ; prefix, fetched ONCE into a heap claim and every listing answered from it.
@@ -533,7 +533,7 @@ hf_dfree:
 ; -----------------------------------------------------------------------------
 ; FSV_CHDIR - AX = a folder's handle, 0 = the root. out: CF=0, DX = its
 ;             parent's handle; CF=1 and AX = a FERR_*. THE ROOT FETCHES THE
-;             INDEX: it is what every mount asks first (SPEC.md 121.1)
+;             INDEX: it is what every mount asks first (SPEC.md 122.1)
 ; -----------------------------------------------------------------------------
 hf_chdir:
     push bx
@@ -570,7 +570,7 @@ hf_list:
     call hf_stage
     test byte [hf_ent+24], 0x06 ; hidden or system: a FAT listing leaves it
     jnz .skip                   ; out (dsk_synth), so the drive does too -
-                                ; FSV_ENUM still answers it (SPEC.md 121.4)
+                                ; FSV_ENUM still answers it (SPEC.md 122.4)
     mov si, hf_ent              ; ES:SI - the X stub makes ES our DS
     push ax
     push cx
@@ -835,7 +835,7 @@ hf_rdout:
 ;      FERR_IO, DX = 0, the reason in [hf_err]. clobbers: BX, CX, SI, DI
 ;
 ; A 206 must carry the length asked; where it starts is taken on trust - a
-; server that honours Range: at all honours its start (SPEC.md 121.4). A
+; server that honours Range: at all honours its start (SPEC.md 122.4). A
 ; server that answers 200 has IGNORED the range: the body is the whole file -
 ; its length checked against the index's - so the offset is DRAINED, and the
 ; connection is kept only if the read took the body to its end. Correct on any

@@ -69,6 +69,14 @@
 1 apps/cdrack/cdrack.asm           # thirteen buttons through one record with its OWN
                                    # painter (SPEC.md 119.6.4): cr_regrey draws them,
                                    # os88ui_btnup fires them
+1 apps/xtmp3/xtmp3.asm             # the five transport keys and OPEN through one
+                                   # record with its OWN painter (SPEC.md 121.8):
+                                   # x3_regrey draws them, os88ui_btnup fires them
+1 apps/xtmp3/x3conv.inc            # the decode-first dialog's Cancel / Decode and
+                                   # Play / batch switch, the progress window's
+                                   # Cancel, Decoded Files' Delete / Close: one
+                                   # record (x3c_btrec), x3c_bset draws them,
+                                   # os88ui_btnup fires them (SPEC.md 121.7)
 1 apps/timer/timer.asm             # Start/Stop/Reset through the record (SPEC.md
                                    # 111.2): ONE loop in tm_flags, which the painter
                                    # (all three) and a Start or Stop that traded pens
@@ -137,6 +145,7 @@
 1 apps/pixel/pxui.inc              # every PiXEL control, through px_btn; SDK arm/track/release
 2 kernel/shutdown.inc              # modal confirmation; release inside the armed control - ONE per kernel, as ctrl.inc's
 5 apps/wireball/wbfront.inc        # splash play/help/sound controls; SDK init installs press/drag/release, launch only on release
+1 apps/browser/brdownload.inc     # Cancel/Close control; SDK arm/track/release and action only on button-up
 1 apps/wirefleet/wfvideo.inc      # deployment controls; SDK init installs press/drag/release, shared model predicates refuse disabled actions
 1 apps/wirefleet/wfcolor.inc      # the colour face's controls (SPEC.md 114.10): the same record, OS88UI_OWN painted by os88flat.inc's flat_btn; SDK arm/track/release
 1 apps/syscheck/ui.inc          # System Check's Scan/Details/Save Report/Clean Up/Quit through one record (SPEC.md 118.6); SDK init installs press/drag/release

@@ -1,6 +1,6 @@
 ; =============================================================================
 ; hfpage.inc - HTTPFS.DRV's half of its Control Panel page, and its remembered
-; address (SPEC.md 121.5)
+; address (SPEC.md 122.5)
 ;
 ; THE PAGE IS HTTPPAGE.DRV (httppage.asm), RAMPAGE.DRV's shape (SPEC.md
 ; 62.9.9): read off the boot volume's root by the first PAINT, freed when the

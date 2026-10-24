@@ -464,6 +464,109 @@ FAST = [
         wants=("build/os8088.img", "build/coldhma.sys", "build/kdos/DOS.O88",
                "build/recorder.o88", "build/DOSHELLO.COM",
                "build/DOSHMA.COM")),
+    Row("x3xttab", "fast", py("tools/x3xttab.py", "--selfcheck"), 0.25,
+        "XTMP3's XT table packs (SPEC.md 121.10, docs/xtmp3/XT-STUDY.md): "
+        "every product row, encoder table, byte-split table and requantiser "
+        "row is rebuilt by the EXACT integer recurrence the 8088 runs at "
+        "OPEN and compared entry for entry with its direct formula - odd "
+        "symmetry, a word's range, the ties-toward-zero encoder walk, the "
+        "split pair reconstructing x * c within one LSB over the proven "
+        "range, the 64 KiB segment layout - and the integer generator input "
+        "is what --derive's formulas round to. Negative controls prove the "
+        "checks can fail (an unbiased row, c16 + 1, a ties-up walk, and a "
+        "mirrored error a plain word sum cannot see but fl32 must). Host "
+        "only, standard library, so FAST: the generator is the one source "
+        "of the bytes phase 2's x3xt.asm expands"),
+    Row("x3xtdesign", "soak", py("tools/x3xtstudy.py", "--check-design"), 8.0,
+        "the XT study's chosen design (docs/xtmp3/XT-STUDY.md) against "
+        "tools/x3xttab.py's literals: the code maps, the 8- and 4-term tap "
+        "sets and every table the generator writes are re-derived from the "
+        "study's training material and must equal the bytes the quality "
+        "figures were measured on, entry for entry. Soak because it "
+        "rebuilds the corpus with numpy (seconds, not a fast row)",
+        needs=("numpy",)),
+    Row("xtmp3eng", "soak", py("tests/xtmp3eng.py"), 1200.0,
+        "XTMP3's engine (SPEC.md 121.5-121.7, docs/xtmp3/ENGINE.md) over the "
+        "STUB backend (`make xtmp3stub`: a tone whose cost a rung is set by "
+        "X3STUB.CFG), on QEMU because what is asserted is behaviour: the "
+        "ladder on five machines (capable stays Original; middling Half or "
+        "Quarter; slower Quarter; an XT-class one Decode first; a hopeless "
+        "one bounded in time), a mid-track slowdown stepping down ONCE and "
+        "never back, and an underrun at 4x kept while two in a window step, Decode first end to end (the drive dialog, the Save "
+        "dialog, the WAV's fields and length on the host, the cache reused "
+        "with no granule decoded), Esc cancelling and deleting only its "
+        "temp, a disk filled mid-write, stale and incomplete caches "
+        "refused, no fixed disk, two writable volumes, a finished WAV "
+        "through the SB16 with no decoder resident, pause/resume - and, on "
+        "the SHIPPED package with the real XT part, XT Standard's working "
+        "set (X3S_PEAK) at or under SPEC.md 121.10's 400,000 bytes - "
+        "converting (its part fetched ONCE: the probe's OPEN reused with a "
+        "RESET) and live on an SB16 (the 16 KB grant, a 4 KB gulp) - and on 8, 16 and "
+        "32 KB-cluster fixed disks (x3_plan's single stage; XT Standard "
+        "refused by name on 32 KB, XT Fast converting there), every WAV "
+        "byte-exact to tools/x3simxt.py. Then the paths no leg had taken: a "
+        "source changed DURING a conversion, Decoded Files deleting only "
+        "XTMP3's own WAV, an approved batch over two tracks, a read-only "
+        "fixed volume (a CD through CDROM.DRV), an lz4-packed MP3 refused "
+        "by name, the queue's probe across a 32 KB cluster's end, and the "
+        "finished file's actual bytes reaching a Covox (QEMU's trace of "
+        "the LPT data port; its pcspk renders no PWM). And the package's "
+        "parts fetched from its launch folder with the song on another "
+        "drive (offvol) and in another folder of the same one (offdir), "
+        "live and converting, a queued song whose probe was not had "
+        "given its title when idle (qagain), and a finished WAV in a third "
+        "folder played to its last byte, then again through the cache "
+        "(wavdirs)",
+        needs=("qemu", "nasm", "mtools", "numpy"), serial=True,
+        timeout=2700,
+        wants=("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
+               "build/xtmp3.bin", "build/os8088.img",
+               "build/mixercfg/SYSTEM.CFG", "build/mbr.bin",
+               "build/boothd.bin", "build/kernel.sys")),
+    Row("xtmp3live", "soak", py("tests/xtmp3live.py"), 300.0,
+        "XTMP3 with its REAL decoders end to end on QEMU's SB16 (SPEC.md "
+        "121.3-121.7, docs/xtmp3/ENGINE.md), the card captured by the wav "
+        "audiodev at the STREAM's own rate and held SAMPLE FOR SAMPLE to "
+        "tools/x3sim.py: Original on 44.1 kHz and 22.05 kHz stereo as "
+        "16-bit stereo (the channels distinct), Half by override, 8-bit "
+        "stereo on an SB16 with no 16-bit DMA and 8-bit mono on a DSP 2.01 "
+        "(labelled DEVICE, through the documented conversion and the mono "
+        "downmix) - the XT part never fetched under Original (x3_nfetch, "
+        "and the STANDARD part's map holds no XT label or table bytes); a "
+        "live seek, whose output after X3_PREROLL frames is x3sim's from the "
+        "offset the engine aimed at, and identical to an uninterrupted "
+        "decode; and XT Standard decoded first to a hard disk, the WAV "
+        "byte-exact to tools/x3simxt.py, played on the card with no decoder "
+        "resident and seeked directly",
+        needs=("qemu", "nasm", "mtools", "numpy"), serial=True, timeout=900,
+        wants=("build/xtmp3.o88", "build/xtmp3.bin", "build/os8088.img",
+               "build/mixercfg/SYSTEM.CFG", "build/mbr.bin",
+               "build/boothd.bin", "build/kernel.sys", "build/x3stdp.bin",
+               "build/XTGEN.BIN")),
+    Row("xtmp3xt", "soak", py("tests/xtmp3xt.py"), 660.0,
+        "XTMP3 END TO END on MartyPC's 4.77 MHz XT (SPEC.md 121.5-121.11, "
+        "docs/xtmp3/FIELD.md): the SHIPPED package and its real FRONT and XT "
+        "parts on os8088_xt_vga_hdd_sb (a 5160 with a VGA, an XT-IDE disk "
+        "and a DSP 2.01), driven by `advance` so every stamp is a guest "
+        "cycle and every IP sample is uniform in guest cycles. AFTERHRS.MP3 "
+        "(11 kHz mono): Auto calibrates (each probe's fetch, OPEN and probe "
+        "timed), finds no live rung and asks for a drive, then XT Standard "
+        "converts; XT Fast and XT Speech by Q; C128.MP3 (44.1 kHz stereo) "
+        "converts on Quarter, no XT rung being playable on that DSP. Each "
+        "WAV read off the VHD must equal tools/x3simxt.py's (or x3sim.py's "
+        "STANDARD model's) PCM after the trim BIT FOR BIT, X3S_PEAK x 1024 "
+        "must stay <= 400,000, and the finished WAV's play must reach no "
+        "GRANULE and no underrun; the knob and the needles are timed. The "
+        "spk leg converts on tests/apspk.py's card-less 5150 and plays the "
+        "finished WAV through the speaker bracket: port 42h's first 800 "
+        "writes must be tools/os88spkfx.py's counts for the WAV's own bytes, "
+        "with no GRANULE reached and the kernel left clean. Broken on "
+        "purpose (--expect fast on the std leg) it FAILS at the first "
+        "differing byte",
+        needs=("marty", "nasm", "mtools", "numpy"), timeout=2400,
+        wants=("build/xtmp3.o88", "build/xtmp3.bin", "build/x3xt.bin",
+               "build/x3front.bin", "build/sound.drv", "build/mbr.bin",
+               "build/boothd.bin", "build/kernel.sys")),
     Row("romtool", "fast", py("tools/os88rom.py", "--selfcheck"), 0.3,
         "docs/plans/ROM-PLAN.md 1.3: the ROM image builder re-derives its own "
         "invariants - 55 AA and a 32KB declaration (40KB would send the "
@@ -2572,7 +2675,7 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/cdromtest.img", "build/cdfix.iso", "build/cdrom.bin")),
     Row("httpdrvtool", "soak", py("tools/os88httpdrv.py", "--selfcheck"), 2.0,
-        "SPEC.md 121.3/121.7: the HTTP drive's host tool - OS88.IDX written and "
+        "SPEC.md 122.3/122.7: the HTTP drive's host tool - OS88.IDX written and "
         "read back, every rule HTTPFS.DRV's hf_valid applies broken on purpose "
         "and refused (magic, length, count, a parent that is not below its "
         "child, a name byte past the font), and the test server's Range: answered 206 "
@@ -2588,7 +2691,7 @@ SOAK = [
         wants=("build/httpmount.img", "build/httpfs.bin", "build/ether.bin",
                "build/mines.o88")),
     Row("httpinstall", "soak", py("tests/httpinstall.py"), 35.0,
-        "SPEC.md 62.9.17.1 and 121.3: an Install whose SOURCE is the HTTP "
+        "SPEC.md 62.9.17.1 and 122.3: an Install whose SOURCE is the HTTP "
         "drive, onto an IDE disk that already holds a hidden + system "
         "KERNEL.SYS (keeping files) - the field's upgrade, by starting "
         "INSTALL.O88 OFF the HTTP drive (the wizard's source is where it "
@@ -2623,7 +2726,7 @@ SOAK = [
                "build/httpfs.bin", "build/mbr.bin", "build/boothd.bin",
                "build/kernel.sys", "build/readme.txt")),
     Row("httpmount", "soak", py("tests/httpmount.py"), 105.0,
-        "SPEC.md 121: HTTPFS.DRV on QEMU's NE2000, against tools/"
+        "SPEC.md 122: HTTPFS.DRV on QEMU's NE2000, against tools/"
         "os88httpdrv.py's own server serving a fixture tree on the host. The "
         "drive is on the desktop at boot with NO request made; opening it is "
         "one GET (OS88.IDX) and walking folders is none; MINES.O88 launches "
@@ -8500,6 +8603,15 @@ SOAK = [
         "page parses and RENDERS, and the location bar holds the file's URL",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
+    Row("brarena", "soak", py("tests/brarena.py"), 180.0,
+        "BROWSER-MEMORY-ROADMAP: a local 3,000-line page grows the Browser's "
+        "line-index arena past 16 KiB in QEMU, without NE2000 traffic",
+        needs=("qemu",), serial=True, builds=True,
+        wants=("build/brtest360.img",)),
+    Row("brcapacity", "soak", py("tests/brcapacity.py"), 45.0,
+        "BROWSER-MEMORY-ROADMAP: a 200 KiB local source crosses the formatted "
+        "floor, then honors the conventional-memory reserve",
+        needs=("qemu",), serial=True, builds=True),
     Row("brclick", "soak", py("tests/brclick.py"), 40.0,
         "SPEC.md 71: the PAGE takes the mouse - links parse in order and "
         "underline, a click on a form field focuses it, the submit button "
@@ -8535,7 +8647,8 @@ SOAK = [
         "align=center/middle/right move the cell's text, and password, file "
         "and textarea controls read `[unsupported]` with their contents kept "
         "off the page - read out of the document and the line table on "
-        "TORTURE.HTM, the way brtable reads its rows",
+        "TORTURE.HTM, the way brtable reads its rows; `<pre>` keeps leading "
+        "spaces verbatim",
         needs=("marty",), serial=True,
         wants=("build/brtest360.img",)),
     Row("brtoolbar", "soak", py("tests/brtoolbar.py"), 20.0,
@@ -17126,12 +17239,42 @@ SOAK = [
         "speaker colors/clock position, 30KB save-under, exact restore and cleanup",
         needs=("qemu", "nasm"), timeout=600,
         wants=("build/mixervesa.img", "build/mixplay.img")),
+    Row("sndfmt", "soak", py("tests/sndfmt.py"), 45.0,
+        "SPEC.md 34.5.5 on QEMU's SB16 (DSP 4.05, DMA 5): SND_CAP_STEREO and "
+        "SND_CAP_PCM16 published; verb 11's refusals (an unknown bit 7, a "
+        "format on a linear open 7, 4,500 Hz 2, an odd 16-bit ring 7); then "
+        "16-bit stereo, 8-bit stereo and 16-bit mono rings played from an "
+        "\\AUTOSTRT start, each opened, still playing at its end and at its "
+        "byte rate by verb 9 - and the card's own output, captured at "
+        "22,050 Hz stereo, carrying the right tone on the right side with no "
+        "crosstalk, the -35 dBFS 16-bit channel 45 dB clear of its residual",
+        needs=("qemu", "nasm"), timeout=300,
+        wants=("build/sndfmtsys.img", "build/sndfmt.img")),
+    Row("sndfmtmarty", "soak", py("tests/sndfmt.py", "--marty"), 60.0,
+        "SPEC.md 34.5.5's refusal machine: MartyPC's DSP 2.01 publishes "
+        "neither new caps bit, verb 11 answers 2 for every format and 7 for "
+        "an unknown bit, and a refused verb 11 holds nothing - the same "
+        "opens then succeed as 8-bit mono",
+        needs=("marty", "nasm"), timeout=600,
+        wants=("build/mixer360.img", "build/sndfmt360.img")),
     Row("mixerhost", "soak", py("tests/mixermodel.py"), 2.0,
         "SPEC.md 34.15: the shipped mixer assembly against independent Creative "
         "register maps, all percentages and asymmetric stereo, refusals before "
         "writes, absent/stuck bus, IF and SS != DS, detach restoration and a "
         "deliberately wrong register that must fail",
         needs=("nasm", "unicorn")),
+    Row("sbirq5", "soak", py("tests/sbirq5.py"), 3.0,
+        "SPEC.md 34.5.6: SOUND.DRV REFUSES a Sound Blaster on IRQ 5 when IRQ 5 "
+        "is TAKEN on an XT - OSAPI_CPU_INFO's CPU_8086 tier and int 0Dh hooked "
+        "below the system ROM, as an ST-506 disk card's C800h ROM does - so a "
+        "card there never plays one block and falls silent. sbl_f_irqdisc "
+        "and sbl_irq5_taken, cut out of sb.inc as they ship (picomem.py's "
+        "sbslice), run under unicorn on an SB16 whose mixer names the line: "
+        "refused with one toast on an 8088, once a session; accepted on IRQ 5 "
+        "when the vector is the BIOS's own dummy and on a 286 or 386 (the negative "
+        "controls), and on IRQ 7 beside a taken 5. With the refusal broken "
+        "(sbl_irq5_taken always CF=0) 2 checks FAIL",
+        needs=("unicorn", "nasm")),
     Row("picomem", "soak", py("tests/picomem.py"), 10.0,
         "SPEC.md 34.10.1, 72.2: the driver code a PicoMEM talks to, AS IT "
         "SHIPS, under unicorn against a model of the card written from its "
@@ -17182,6 +17325,39 @@ SOAK = [
         "find is a row nobody runs.",
         needs=("qemu",), serial=True, builds=True,
         wants=("build/brtest360.img",)),
+    Row("brdownload", "soak", py("tests/brdownload.py"), 180.0,
+        "SPEC.md 71.20: Save Link As streams a 32 KiB unknown-length binary "
+        "response through the NE2000 into cluster-aligned disk writes; the "
+        "test confirms no total is invented and compares the saved FAT file "
+        "byte-for-byte. QEMU is required for ETHER.DRV.",
+        needs=("qemu",), serial=True, builds=True,
+        wants=("build/browser.o88",)),
+    Row("brdownload-length", "soak",
+        py("tests/brdownload.py", "--content-length"), 180.0,
+        "SPEC.md 71.20: the same 32 KiB Save Link As transfer with a declared "
+        "Content-Length, checking the displayed total and exact saved bytes.",
+        needs=("qemu",), serial=True, builds=True,
+        wants=("build/browser.o88",)),
+    Row("brdownload-auto", "soak",
+        py("tests/brdownload.py", "--automatic"), 180.0,
+        "SPEC.md 71.20: an ordinary click on a non-rendered file URL opens the "
+        "existing Save dialog automatically before the byte-exact download.",
+        needs=("qemu",), serial=True, builds=True,
+        wants=("build/browser.o88",)),
+    Row("brmem", "soak", py("tests/brmem.py"), 40.0,
+        "SPEC.md 71.18: a deterministic 40 KB page over the NE2000 grows the "
+        "source and document claims within the recorded 20% free-heap reserve, "
+        "then Note Pad must still open. QEMU is required for the NIC, not for "
+        "timing. This is separate from ethernet because a regular fetch never "
+        "crosses the old 32 KB source limit.",
+        needs=("qemu",), serial=True, builds=True,
+        wants=("build/brtest360.img",)),
+    Row("brcapacity-fixtures", "fast", py("tests/brcapacity.py", "--fixtures"), 0.2,
+        "SPEC.md 71.18.1: the manual 96 KiB source/document, 2,200-row, "
+        "400-link, doubled-form and aggregate-frameset pages have the exact "
+        "sizes and counts the Browser capacity gate expects. builds=True only "
+        "because the registry reads tests/brcapacity.py for `make`; the "
+        "--fixtures mode runs no make and no QEMU.", builds=True),
     Row("netcoexist", "soak", py("tests/netcoexist.py"), 20.0,
         "SPEC.md 72.9.1 and 34.13.1: a network card and an MPU-401 in one "
         "machine. The field lost its network the moment an MPU was added: "
@@ -17490,6 +17666,72 @@ SOAK = [
         "76.14.13, 76.14.14). Forced EGA/CGA variants remain available through "
         "script options.",
         needs=("qemu", "nasm", "pil"), serial=True),
+    Row("x3model", "soak", py("tools/x3sim.py", "--check"), 0.8,
+        "XTMP3's numerics (SPEC.md 121.4) in under a second: the 37 committed "
+        "fixtures against FIXTURES.txt's SHA-256s, the STANDARD table blob "
+        "against the formula each table comes from (tools/x3tables.py "
+        "--selfcheck: every Huffman codeword through its lookup table, the "
+        "pow43 rounding, the 32-bit bounds the merged IMDCT and the window "
+        "rely on, two generations byte-identical), and the integer model's "
+        "PCM for five cases against tests/xtmp3/X3SIM.txt - the bytes "
+        "x3std.asm must reproduce, so a model change that moves them is a "
+        "change to the port's contract and has to be written down with "
+        "`--golden`. SOAK and not fast: it is one package's",
+        needs=("numpy",)),
+    Row("x3golden", "soak", py("tools/x3sim.py", "--check-all"), 55.0,
+        "x3model's golden check over all 141 cases - every decodable fixture "
+        "at divisors 1, 2 and 4, and every stereo one downmixed at 1 and 4 "
+        "(SPEC.md 121.4): the whole of the port's bit-exact target, "
+        "recomputed",
+        needs=("numpy",)),
+    Row("x3xtexact", "soak", py("tests/x3xtbench/x3xtbench.py", "--nobuild"), 25.0,
+        "XTMP3's XT backend is BIT-EXACT (SPEC.md 121.4, docs/xtmp3/XT.md): "
+        "tests/x3bench's mechanism with the XT part in the STANDARD part's "
+        "place - a raw disk booted in QEMU runs the SHIPPING front end "
+        "(x3pars.inc and build/x3front.bin) into build/x3xt.bin through its "
+        "header's vectors, a 384-byte worker stack, and every one of "
+        "tests/xtmp3/X3XT.txt's 51 cases (14 fixtures, the four profiles) "
+        "must hash, measure and clip as tools/x3simxt.py does",
+        needs=("qemu", "nasm", "numpy"),
+        wants=("build/x3front.bin", "build/x3xt.bin")),
+    Row("x3xtunit", "soak", py("tests/x3xtunit.py"), 60.0,
+        "the XT part on the host in Unicorn, against x3gran.inc and "
+        "tools/x3simxt.py: CAPS and OPEN on every profile with each expanded "
+        "table byte-identical to tools/x3xtgen.py's, every X3E_ refusal, a "
+        "damaged XTGEN.BIN and an unbiased recurrence caught by the Fletcher "
+        "check, the S16 format and the gain; four fixtures and synthetic "
+        "split-path records bit-exact granule by granule, every call keeping "
+        "its registers, DF and IF within 64 bytes of stack",
+        needs=("unicorn", "nasm", "numpy")),
+    Row("x3xtgolden", "soak", py("tools/x3simxt.py", "--check", "--all"), 50.0,
+        "the XT model (tools/x3simxt.py) against all 51 of tests/xtmp3/"
+        "X3XT.txt's golden lines and tools/x3xtgen.py's numpy cross-check: "
+        "a change that moves them is a change to the XT part's contract",
+        needs=("numpy",)),
+    Row("x3compare", "soak", py("tools/x3sim.py", "--compare"), 75.0,
+        "XTMP3's STANDARD integer model against `lame --decode` (mpglib) on "
+        "every fixture at the source rate - RMS <= 4 LSB, peak <= 32 LSB, "
+        "SNR >= 60 dB above -40 dBFS (docs/xtmp3/NUMERICS.md 4) - and against "
+        "its own float reference at divisors 2 and 4 and for the mono "
+        "downmix; every malformed fixture ends "
+        "in its documented refusal or recovery with no exception, and the "
+        "garbage, tag and VBRI variants decode to the clean stream's PCM "
+        "exactly. SKIPS without LAME",
+        needs=("numpy", "lame")),
+    Row("x3stdexact", "soak", py("tests/x3bench/x3bench.py", "--nobuild"), 90.0,
+        "XTMP3's decoder ON A REAL x86 (SPEC.md 121.3, 121.4): "
+        "tests/x3bench/x3bench.asm boots bare on QEMU with the SHIPPING "
+        "x3pars.inc %included and the package's two parts, build/x3front.bin "
+        "and build/x3stdp.bin, far-called through their verbs on a 384-byte "
+        "stack, and feeds them through an X3R ring a small chunk at a time. "
+        "The front end's open and every granule record of all 37 fixtures "
+        "against x3sim's own granule_spectra, quarter_exponents and "
+        "stereo_plan; then all 141 golden cases of tests/xtmp3/X3SIM.txt - "
+        "PCM SHA-256, clip and saturation counts - and 16 HOSTILE cases (six "
+        "fixtures with every global_gain raised by 24, decoded by x3sim "
+        "here) that saturate in every stage that can, so each out-of-line "
+        "clamp is held to the model too. Needs `make` to have built the parts",
+        needs=("qemu", "nasm", "numpy")),
 ]
 
 

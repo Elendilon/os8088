@@ -40,7 +40,7 @@ and the decisions taken while costing it:
 
 | need | what does it today |
 |---|---|
-| a drive over HTTP | `HTTPFS.DRV` (SPEC.md 121), and its package door `HFV_*` (121.4) |
+| a drive over HTTP | `HTTPFS.DRV` (SPEC.md 122), and its package door `HFV_*` (122.4) |
 | bringing a driver up from a package | `OSAPI_DRV_USE`'s `DRVU_UP` (117.3) - the Drivers page's tick |
 | is an Ethernet card up | `OSAPI_DRV_CLASSK` with `DRVC_NET` |
 | the install | `HDDTOOL.DRV`'s engine through `HDI_GO` (117.4). Its source is **the volume the bank left the machine on** if it carries `KERNEL.SYS` (`hd_isrc_ck`), so standing on the HTTP drive's root is the whole of choosing it |
