@@ -685,7 +685,7 @@ ui_drag_size:
     mov [di+W_X], ax
 .snapped:
     EXK wm_kind_bank
-    EXK wm_sz_notify            ; TOLD EVEN IF THE BOX DID NOT MOVE: the ADAPTER
+    WM_SZNOTE EXK               ; TOLD EVEN IF THE BOX DID NOT MOVE: the ADAPTER
                                 ; did, and half the tree caches facts about it
                                 ; (SPEC.md 11.98). wm_refit has always done this
                                 ; and the drag path never did. IT IS INSIDE THE

@@ -5047,17 +5047,14 @@ kmain_o:
     pop bx
     pop ax
 %endif
-%ifdef KERN_SMALL
-    mov di, mod_fp              ; mod_init, WRITTEN OUT IN THE BLOB on the
-    mov cx, MOD_NSLOT           ; kernel whose blob has the room (kernel size
-.modinit:                       ; pass 13: 10 resident bytes of `.cold` for 20
-    mov word [di], mod_gone     ; of blob). The segment is the cold one by
-    mov word [di+2], COLD_SEG   ; NAME - a blob word tools/os88rom.py moves
-    add di, 4                   ; with it - where mod_disarm, running in
-    loop .modinit               ; `.cold`, takes it from CS
-%else
-    call COLD_SEG:mod_init_x
-%endif
+    mov di, mod_fp              ; mod_init, WRITTEN OUT IN THE BLOB (kernel
+    mov cx, MOD_NSLOT           ; size pass 13 on kern_small, pass 14 on
+.modinit:                       ; kern_big once its blob had the room: 10
+    mov word [di], mod_gone     ; resident bytes of `.cold` for 15 of blob).
+    mov word [di+2], COLD_SEG   ; The segment is the cold one by NAME - a blob
+    add di, 4                   ; word tools/os88rom.py moves with it - where
+    loop .modinit               ; mod_disarm, running in `.cold`, takes it
+                                ; from CS
                                 ; on-demand modules (SPEC.md 2.8): point every
                                 ; entry slot at mod_gone. `-f bin` zeroes no
                                 ; .bss, so until this runs those slots hold

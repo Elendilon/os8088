@@ -25224,7 +25224,10 @@ now its only caller** — which is the one event it was ever right for: the
 adapter changed under a window nobody has touched, so putting it back where it
 was before a clamp moved it is the whole of §39.11.2.1. The two share a tail,
 so "preference proposes, display clamps, floor lifts" is still composed in one
-place.
+place. (Since kernel size pass 14 the replay is written out in `wm_refit`
+itself - its one caller is a macro expanded only in `CTRL.DRV` and the boot
+blob - and reaches `wm_nat_take_wh`, `wm_pref_now` and `wm_fit` through the
+image's hop.)
 
 **The general rule is the one §39.16.4.2 states from the other side**: the
 kernel decides a window's size; a *user* decides where it is. A cell that
@@ -73319,8 +73322,12 @@ expanded a third time, into EXTD.DRV (`ext_`). 399 resident bytes for a
 twelfth blob sector that costs no `int 13h` on any geometry (`t_blobruns`);
 kern_small keeps eleven. What stays resident is what something outside the
 panel, the boot and EXTD.DRV reaches: `wm_su_drop_all` (`OSAPI_THM_SET`),
-`vid_dual_ok` (`fsx_page`), `vid_ctx_capture` and `wm_pref_take`/
-`wm_apply_size` (every window that is sized).
+`vid_dual_ok` (`fsx_page`), `vid_ctx_capture` and `wm_pref_take` (every
+window that is sized). Kernel size pass 14 took the rest of that walk: nothing
+resident reached `vid_apply`, `wm_apply_size` or `wm_sz_notify` either, so the
+first is written once and expanded in the blob, `CTRL.DRV` and `EXTD.DRV`
+(§39.3.1) and the other two are written out at their callers - `wm_refit`'s
+two expansions and EXTD.DRV's `ui_drag_size`.
 
 #### 39.11.2.1 …and back again — the natural bank
 

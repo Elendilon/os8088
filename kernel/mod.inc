@@ -813,7 +813,7 @@ mod_disarm:
     nop                         ; PARITY PAD, never executed: dsk_xfer,
                                 ; dsk_runcap, dsk_next_clus_x are hot below
 .slot:                          ; a CALLED loop, not a fall-through:
-    mov word [di], mod_gone     ; mod_init_x enters here with its own DI/CX
+    mov word [di], mod_gone     ; (kmain_o's blob loop is this, written out)
     COLDSEG_TO word [di+2]      ; mod_gone is .cold's own (ROM-PLAN 3.2)
     add di, 4
     loop .slot
@@ -901,22 +901,8 @@ mod_drop:
 ; 0. mod_need cannot be trusted to be the only door, because a thunk with the
 ; test written the wrong way round still assembles.
 ; -----------------------------------------------------------------------------
-%ifndef KERN_SMALL              ; (kern_small writes it out in the blob, kmain_o)
-mod_init_x:
-    mov di, mod_fp              ; ONE PASS over the whole array. The row walk
-    mov cx, MOD_NSLOT           ; existed only to reach mod_fp - mod_disarm
-    call mod_disarm.slot        ; turned each row straight back into
-    retf                        ; &mod_fp[id] through mod_fpr - and the three
-                                ; blocks are contiguous by construction.
-                                ;
-                                ; ...and NO `mov word [bx+MODR_SEG], 0`: that
-                                ; wrote zero over zero. mod_tab is in .text
-                                ; (see its declaration) as a real `dw 0`
-                                ; initialiser, re-read out of KERNEL.SYS on
-                                ; every boot, and this routine's ONE caller is
-                                ; kmain - Chip > Restart being `int 19h`, the
-                                ; BIOS bootstrap, which re-loads the image.
-%endif
+; (mod_init_x is gone: kmain_o writes its loop out in the blob on every
+; kernel - kernel size pass 13 on kern_small, pass 14 on kern_big)
 
 section .cold                   ; the far entry, for kmain
 
