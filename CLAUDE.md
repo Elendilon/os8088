@@ -296,8 +296,12 @@ make test-soak   #   ENFORCED budget — the runner FAILS fast over 30s and
                  #     OS? Boots to a desktop on both 1bpp adapters and on
                  #     VGA, builds and boots kern_small on its 128KB floor
                  #     machine, checks the mouse and the keyboard, and builds
-                 #     a C package. **5 rows**, and the 180s ceiling is a
-                 #     target for four lanes on an ordinary box. What it no
+                 #     a C package. **10 rows** - those five, and the
+                 #     ratchets the owner put there: `megahigh`, `sysfree`,
+                 #     `guidelock-full`, and the PIN ratchet's two halves,
+                 #     `pins` and `pinsrt` (docs/plans/NO-PINNING-PLAN.md
+                 #     4.1). The 180s ceiling is a target for four lanes
+                 #     on an ordinary box. What it no
                  #     longer carries is the 99-knob build matrix, which is
                  #     `soak -k 'buildmatrix'` now: a knob is an instrument,
                  #     and knob rot is not the OS being broken

@@ -1921,6 +1921,37 @@ FULL = [
         "and not fast because the owner asked for it there; host-side, "
         "0.03s measured",
         needs=()),
+    Row("pins", "full", py("tests/unit/t_pins.py"), 5.5,
+        "docs/plans/NO-PINNING-PLAN.md 4, at the owner's word ('a full tier "
+        "test to ratchet pins'): every heap-claim site in apps/, drivers/ "
+        "and kernel/ - OSAPI_MEM_CLAIM*, os88_mem_claim, the parts "
+        "standard's op_load/op_fetch, the kernel's mem_claim family - "
+        "declares itself movable or has a line in tests/pins.txt with its "
+        "bucket (M module, D device armed, C in use right now; B, S, X, N) "
+        "and a reason. Keyed by (file, the word the segment is stored to), "
+        "following DX through local branches, register copies, push/pop, "
+        "package-local claim and declaration thunks and table walks. One "
+        "way: a line whose claim now declares, or whose key no longer "
+        "claims, fails; a C line must name its call or bracket and a D line "
+        "its device. Red, all tried: dotdel's one declaration deleted, "
+        "assoc.inc's mem_movable_x deleted, cword's os88_mem_movable(.., 1) "
+        "made 0, a stale line and a vanished key added. Host-side, 4.1s "
+        "measured; FULL and not fast because the owner asked for it there",
+        needs=()),
+    Row("pinsrt", "full", py("tests/pinsrt.py", "--quiet"), 22.0,
+        "...and its RUNTIME half: the shipped 360KB pair booted on MartyPC, "
+        "Paint, TeXpad (PAPER.TEX) and the Browser (BROWSER.HTM) opened, "
+        "and every live mem_tab record at that QUIET desktop is movable, "
+        "purgeable, a kernel tag tests/pins.txt names with a bucket that can "
+        "be live there (M, B, X, N - a C or D claim still held is a call "
+        "that did not give it back, and a B claim must be top-down), a "
+        "region t_movable answers for, or a package claim its directory's "
+        "long-lived lines excuse. It sees what the source scan cannot: a "
+        "claim made by a path the scan does not follow. Red, both tried: a "
+        "Paint claim's MC_RLOC zeroed before the read (--red rloc), and a "
+        "claim retagged MEM_K_ICO_UNUSED and pinned (--red tag). 17.4s "
+        "measured",
+        needs=("marty",), serial=True),
     Row("bootsmoke", "full", py("tests/bootsmoke.py"), 20.0,
         "does it still reach a desktop on both 1bpp adapters - the widest "
         "reach per second of any test here",

@@ -275,6 +275,98 @@ host-side, so cheap:
   transfer, and not in the nest. This catches pins the source scan cannot
   see.
 
+### 4.1 BUILT: `tests/pins.txt`, `t_pins` and `pinsrt` (both FULL tier)
+
+**The registry** is `tests/pins.txt`, one line per pinned claim:
+`<bucket> <file> <key>  # <reason>`. The buckets are the three of 0 - **M**,
+**D**, **C** - and four more: **B** a boot ceiling claim (2.2's finding:
+top-down, before the first frame, never freed), **S** shed by design (6.2,
+6.4; a kernel `MEM_P_*` claim needs no line at all), **X** another reason of
+60 characters or more, and **N**, *no valid reason yet*. N is the backlog
+and the gate prints its count, so it can only be seen going down.
+
+**The host half, `tests/unit/t_pins.py`**, finds every claim site -
+`OSAPI_MEM_CLAIM*`/`OSAPI_MEM_HUGE`, C's `os88_mem_claim`/`os88_mem_huge`,
+the parts standard's `op_load` (a carve, when a part is eager and the package
+is not a re-home loader) and `op_fetch`, a C package's `CC_HAS_PARTS` carve,
+and the kernel's `mem_claim` family including its macro and trampoline
+spellings (`FCPX mem_claim_dma_x`, `mov bp, mem_claim_hi_x` + `wm_cbd`) - and
+asks whether a declaration reaches it.
+
+**THE KEY IS (FILE, the WORD the claim's segment is stored to)** - a kernel
+claim's TAG instead, a C lvalue (`func:var` for a local), a parts row
+(`op:carve`, `op:PART`), or `@routine` when nothing names it. It was chosen
+after reading a few dozen sites in asm and C, because it is the identity the
+relocation procs already use: `np_reloc` compares BX with `[np_dseg]`,
+`wd_rltab` and `rw_mtab` are tables of those words, `os88_onmove` re-points C
+globals by name. A claim is DECLARED when a declaration has DX from that word,
+or is reached from the claim with DX still holding it. Getting there honestly
+took more than a grep, and every step was a false PIN found in the tree:
+DX is followed through the routine's own branches (`jnc .got`), register
+copies and `xchg` (`hf_tseg` -> `hf_iseg`, MIDIRack's `mov bp, dx` /
+`mov dx, es`), `push`/`pop` (Paint's clipboard, MACRO.OVL's load), `op_seg`'s
+AX for a lazy part, and the other arm of an `%if` is skipped; package-local
+claim THUNKS (`vp_mclaim`, `trk_claimsel`, `rc_oft_claim` in C) move the site
+to their callers and declaration thunks (`vp_mmovz`, `pt_movable`,
+`fmv_movable`) count at theirs; table walks (`wd_rltab`, `rw_mtab`,
+`lem_cltab[]`) declare every word in the table; a claim stored to two words
+(`[vp_ring]` and `[vp_rclm]`) is declared if either is; and a parts row's
+`op_movable` is matched to the fetch by its part number. Files no package
+includes - PiXEL's separately assembled parts (`pxedit.asm`, `pxgif.asm`...)
+- are scanned with their whole directory as the scope, which is how four
+PiXEL pins that a per-package walk could not see came in.
+
+**The trade-off, stated.** Word identity can give a FALSE GREEN in one shape:
+a package that declares a word for one claim and stores a different,
+undeclared claim to the same word elsewhere. Two guards narrow it - a
+declaration whose proc comes from a REGISTER (`sc_m_mem`'s CX, which may be 0)
+counts as no declaration, and a function-local C variable is declared only by
+an `os88_mem_movable` BEFORE its next assignment (c64kbd's `seg` is Copy's
+staging in one arm and Paste's queue in the next). It gives FALSE PINS where
+DX comes from somewhere it cannot follow; those fail loudly in the diff and a
+plainer spelling or a line fixes them. The runtime half is the backstop for
+both.
+
+**The runtime half, `tests/pinsrt.py`**, boots the shipped 360KB pair on
+MartyPC, opens Paint, `PAPER.TEX` (TeXpad) and `BROWSER.HTM` (the Browser) at
+a QUIET desktop (5 #11), and reads `mem_tab`: every record is movable,
+purgeable, a kernel tag `pins.txt` names with a bucket that can be LIVE there
+(M, B, X, N - a C or D claim still held is a call that did not give it back,
+and a B claim must be top-down), a region `t_movable` answers for, or a
+package claim its directory's long-lived (N, X, B) lines excuse. 17.4s.
+
+**The red runs, all taken**: Dot Delirium's one declaration deleted (fails
+naming `apps/dotdel/ddlay.inc dd_bdseg`), `assoc.inc`'s `mem_movable_x`
+deleted (`kernel/assoc.inc MEM_K_ASC`), CWORD's `os88_mem_movable(cw_u_seg,
+1)` made 0, a line for a claim that declares and one for a key that no longer
+claims; a C line naming no call and a kernel pin with no HEAP-CLAIMS row
+failed on the seeding itself. `pinsrt --red rloc` zeroes a Paint claim's
+`MC_RLOC` before the read and `--red tag` retags one `MEM_K_ICO_UNUSED`; both
+fail naming the owner.
+
+**The seed**: 279 claim sites under 237 keys; 121 keys declared, 116 pinned,
+3 of them purgeable kernel caches with no line. The registry: **C 67, D 10,
+N 29, X 4, M 1, B 1, S 1.** Every N line is in `docs/HEAP-CLAIMS.md` too. **The
+N lines are the owner's findings** - pinned today with no reason the rule
+accepts:
+
+- kernel: `MEM_K_COPY` (held across a suspended overwrite question - K4b),
+  `MEM_K_MTBL` (K3, deferred as niche), and **a new one, the Sticky Apps
+  panel's second save-under** (`[stm_sseg2]`, `stikmenu.inc`), held while the
+  panel is open with no proc - and tagged `MEM_K_MOD` though it is no module;
+- the A6 remainder - the session-long rings nobody declares between plays:
+  Audio's look-ahead and speaker rings, Tracker's speaker ring, WireFleet's
+  PCM ring (claimed at ENTRY), MIDIRack's song, wavetable bank and mix claim,
+  and four Video Player claims `vp_smtab` does not reach (`vp_ldseg`,
+  `vp_lyseg`, `vp_prseg`, the session's key-record arm);
+- SHEET's 32KB staging (held for the session; a pin/unpin pair retires it);
+- The Wire's catalog and transfer claims (A3 left them: no NIC on MartyPC);
+- PiXEL: the flat file, the work claims of `pxmaster`, `pxedit`, `pxgif` and
+  `pxwrite`, an animation's frames, and its OP_SEG CODE parts (`px_pfetch`),
+  the C overlay's shape that a thunk fixed in wave 0;
+- PIXELSTEIN's art, levels and sprites, behind 6.5's fence;
+- DOS's own parts carve (never opted into `OP_ONMOVE`).
+
 ## 5. The adversarial review (2026-10-23) and what it changed
 
 An independent reviewer was asked to find what the plan would BREAK, LEMMINGS'
