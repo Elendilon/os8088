@@ -784,10 +784,10 @@ fmv_iofs:
     ret
 
 ; -----------------------------------------------------------------------------
-; fmv_viofs - where they start inside the ACTING WINDOW'S OWN CACHE (22.6.1)
-; in:  nothing ([fm_vp] published, which fm_layout does for every painter)
-; out: BX = the slot-relative offset
-; clobbers: BX (the output), flags
+; fmv_viofs - where they start inside the ACTING WINDOW'S OWN CACHE (22.6.1):
+; BX = the slot-relative offset, off [fm_vp]. Written in fmv_get_dir, its one
+; caller, since kernel size pass 14 - the reasoning stays here, with the
+; assertion it explains
 ;
 ; fmv_iofs above answers for the GLOBAL snapshot, whose shape IS [dsk_nmax] -
 ; and that is the volume mounted LAST, which is not this window's after
@@ -802,15 +802,6 @@ fmv_iofs:
 %if ((DSK_NENT * DSK_DE_STRIDE) & 0xFF)
 %error "FS_IOFH holds an icon base in ONE byte: DSK_NENT*DSK_DE_STRIDE must be a multiple of 256. It is 1,536 at a stride of 24 and was 2,048 at 32 - a stride that is not a multiple of 8 breaks it"
 %endif
-fmv_viofs:
-    push si
-    mov si, [fm_vp]
-    mov bh, [si+FS_IOFH]
-    xor bl, bl
-    pop si
-    or bh, bh
-    jz fmv_iofs                 ; no cache: the global's, for the reason above
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fmv_get_dir - stage one entry out of THIS window's cache
@@ -922,8 +913,17 @@ fmv_get_icon:
     push cx
     push dx                     ; (no SI: it is the output)
     push di
-    call fmv_viofs              ; THIS WINDOW'S index, not the global's - the
-    add ax, bx                  ; one place the two can differ (22.6.1), and
+    ; fmv_viofs, written at its one call (kernel size pass 14 - SI is this
+    ; routine's output, so it needs no bank here)
+    mov si, [fm_vp]
+    mov bh, [si+FS_IOFH]
+    xor bl, bl
+    or bh, bh
+    jnz .viofs
+    call fmv_iofs               ; no cache: the global's, for the reason above
+.viofs:
+    add ax, bx                  ; THIS WINDOW'S index, not the global's - the
+                                ; one place the two can differ (22.6.1), and
 %if FV_ICOIX                    ; the whole of its icon region now
     add ax, FV_ICOIX
 %endif
@@ -1214,32 +1214,18 @@ fmv_fit:
     mov [di+FS_VSEG], dx        ; path (SPEC.md 50.3)
     mov byte [di+FS_VKB], VIEW_KB
 %ifndef KERN_SMALL
-    call fmv_movable            ; purgeable on kern_small, so never movable
+    ; ...and DECLARED RELOCATABLE (SPEC.md 66.5.6) - purgeable on kern_small,
+    ; so never movable there. It was fmv_movable, which banked AX, BX and the
+    ; flags for this one caller; AX is kretc_di's to restore, .out rewrites
+    ; BX, and nothing that calls fmv_fit reads a flag (kernel size pass 14)
+    call fmv_owner              ; BX = the owning instance slot, which is what
+    mov ax, fm_reloc            ; the claim was made under (DX = the claim)
+    call mem_movable_x
 %endif
 .out:
     mov bx, [di+FS_VSEG]        ; fm_vseg is what every reader looks at, and
     mov [fm_vseg], bx           ; this may just have changed it
     jmp kretc_di
-
-%ifndef KERN_SMALL
-; -----------------------------------------------------------------------------
-; fmv_movable - declare the view cache at DX relocatable (SPEC.md 66.5.6)
-; in:  DX = the claim, DI = the state block that owns it
-; out: nothing; every register and the flags preserved
-; -----------------------------------------------------------------------------
-fmv_movable:
-    pushf
-    push ax
-    push bx
-    call fmv_owner              ; BX = the owning instance slot, which is what
-    mov ax, fm_reloc            ; the claim was made under
-    call mem_movable_x
-    pop bx
-    pop ax
-    popf
-    ret
-
-%endif                          ; KERN_SMALL: nothing declares a purgeable claim
 
 ; -----------------------------------------------------------------------------
 ; fmv_owner - who owns this window's listing cache (internal)
@@ -3155,7 +3141,16 @@ fm_btn1:
     jne .ndef                   ; which FDH_SEL's edge test reads (SPEC.md
     mov [fdlg_gdis], di         ; 38.8)
 .ndef:
-    call fm_isdown              ; ZF = 1: this is the one being held
+    ; IS IT THE ONE DRAWN PRESSED, IN THIS WINDOW? TWO tests, because there
+    ; can be four Disk windows (SPEC.md 22) and the byte is one: without the
+    ; second, a press in one window would draw the same button pressed in
+    ; every other one that happened to repaint - which a damage repaint behind
+    ; a drag can easily do. (It was fm_isdown, written here at its one call -
+    ; kernel size pass 14: BX is reloaded below, so it needs no bank)
+    mov bx, [fm_vp]
+    cmp bx, [fm_dvp]
+    jne .draw
+    cmp al, [fm_dbtn]
     jne .draw
     or di, OS88UI_DOWN
 .draw:
@@ -3163,27 +3158,6 @@ fm_btn1:
     call os88ui_kbtn
 .out:
     jmp kretc_di
-
-; -----------------------------------------------------------------------------
-; fm_isdown - is button AL the one drawn pressed, in THIS window?
-; in:  AL = a button id; [fm_vp] is the acting window's state block
-; out: ZF = 1 if it is; every register preserved
-;
-; TWO tests, because there can be four Disk windows (SPEC.md 22) and the byte
-; is one. Without the second, a press in one window would draw the same button
-; pressed in every other one that happened to repaint - which a damage repaint
-; behind a drag can easily do.
-; -----------------------------------------------------------------------------
-fm_isdown:
-    push bx
-    mov bx, [fm_vp]
-    cmp bx, [fm_dvp]
-    jne .out                    ; ZF = 0 from the compare, and AL is not even
-                                ; looked at
-    cmp al, [fm_dbtn]
-.out:
-    pop bx
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_setdown - AL becomes the button drawn pressed (0 = none), and it DRAWS
@@ -4741,30 +4715,6 @@ fm_settitle:
 .out:
     jmp kretc_di
 
-; -----------------------------------------------------------------------------
-; fm_title_flush - spend a pending retitle on the screen
-; in:  nothing ([fm_tdirty]); caller HOLDS the gfx lock
-; out: nothing (all registers preserved)
-;
-; Called from the one place that repaints a Disk window under the lock -
-; fm_repaint - and from nowhere else; files_poster was the second and is
-; retired (SPEC.md 22.17). W_TITLE already points
-; at the bytes fm_settitle rewrote, so wm_title_set is told to leave it alone
-; (AX = 0) and just correct the strip.
-; -----------------------------------------------------------------------------
-fm_title_flush:
-    push ax
-    push bx
-    mov bx, [fm_tdirty]
-    or bx, bx
-    jz .out
-    mov word [fm_tdirty], 0
-    xor ax, ax
-    call KERNEL_SEG:cw_wm_title_set
-.out:
-    pop bx
-    pop ax
-    ret
 section .text                   ; DATA, so back to the kernel segment: cold code
                                 ; reads it through DS (SPEC.md 2.6)
 
@@ -7516,8 +7466,18 @@ fm_repaint:
                                 ; a strip made current says nothing about the
                                 ; rest
 
-    call fm_title_flush
-
+    ; A PENDING RETITLE, spent on the screen first (it was fm_title_flush,
+    ; written at its one call - kernel size pass 14; AX and BX are dead until
+    ; fm_cfill clobbers them, so its bank goes too). W_TITLE already points
+    ; at the bytes fm_settitle rewrote, so wm_title_set is told to leave it
+    ; alone (AX = 0) and just correct the strip
+    mov bx, [fm_tdirty]
+    or bx, bx
+    jz .titled
+    xor ax, ax                  ; (the zero is the store's too)
+    mov [fm_tdirty], ax
+    call KERNEL_SEG:cw_wm_title_set
+.titled:
     call fm_cfill               ; white-fill content (the Note Pad idiom)
 
     mov bx, si
@@ -7527,33 +7487,6 @@ fm_repaint:
 .done:
     jmp kretc_di
 
-; -----------------------------------------------------------------------------
-; fm_nfiles - the header's count: this window's listing minus its parent link
-; in:  the fm_l* mirrors, [fm_vp]/[fm_vseg] published (fm_layout has run)
-; out: AX = entries the user would call files
-; clobbers: AX (the output), flags
-;
-; Asked of the LISTING rather than derived from FS_CWD, because those two can
-; disagree for exactly one mount: dsk_up_open gives an unreadable '..' the
-; root as its target rather than dropping the row (SPEC.md 19.5), and a
-; window can also be showing a cache taken before it moved. One staged entry
-; per paint is cheaper than a mirror that could be wrong.
-; -----------------------------------------------------------------------------
-fm_nfiles:
-    push si
-    mov ax, [fm_lnf]
-    or ax, ax
-    jz .out                     ; an empty listing has no entry 0 to stage
-    push ax
-    xor ax, ax
-    call fmv_get_dir            ; is entry 0 the parent link, or a real one?
-    cmp word [si+16], 3
-    pop ax
-    jne .out
-    dec ax
-.out:
-    pop si
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_draw_icon16 - one entry's 16x16 icon, with the generic fallback
@@ -7686,8 +7619,27 @@ fm_draw_core:
     je .badhdr
     mov si, fm_s_colsp
     call fm_scat
-    call fm_nfiles              ; the listing MINUS its parent link (19.5):
-    call fm_utoa                ; '..' is a way out, not a file
+    ; THE COUNT: this window's listing MINUS its parent link (19.5) - '..' is
+    ; a way out, not a file. Asked of the LISTING rather than derived from
+    ; FS_CWD, because those two can disagree for exactly one mount:
+    ; dsk_up_open gives an unreadable '..' the root as its target rather than
+    ; dropping the row (SPEC.md 19.5), and a window can also be showing a
+    ; cache taken before it moved. One staged entry per paint is cheaper than
+    ; a mirror that could be wrong. (It was fm_nfiles, written at its one call
+    ; - kernel size pass 14 - and SI is reloaded two lines below, so its bank
+    ; goes too)
+    mov ax, [fm_lnf]
+    or ax, ax
+    jz .nfiles                  ; an empty listing has no entry 0 to stage
+    push ax
+    xor ax, ax
+    call fmv_get_dir            ; is entry 0 the parent link, or a real one?
+    cmp word [si+16], 3
+    pop ax
+    jne .nfiles
+    dec ax
+.nfiles:                        ; AX = entries the user would call files
+    call fm_utoa
     xchg dx, ax                 ; DX = the count (fm_utoa keeps AX; fm_scat
     mov si, fm_s_files          ; spends AL), DX free until the pen below
     call fm_scat
@@ -8870,7 +8822,21 @@ fm_scrollpaint:
     call fm_draw_lrows
 
 .thumb:
-    call fm_sb_thumb            ; the only part of the bar a scroll moves
+    ; THE THUMB, and nothing else on the bar: the only part of it a scroll
+    ; moves (it was fm_sb_thumb, written at its one call - kernel size pass
+    ; 14: AX..DX are dead here, so its AX/BX bank goes too). The thumb's
+    ; HEIGHT is fit*track/total, which no scroll changes - so a scroll
+    ; TRANSLATES it, and the frame, the two rules, the two arrow glyphs and
+    ; all of the track it did not cover are exactly where they were: three
+    ; calls instead of the bar's sixteen. The new thumb is drawn BEFORE the
+    ; strip it vacated is greyed, which is SPEC.md 42.7.1's ordering: for the
+    ; width of one fill the thumb is briefly doubled, and a doubled thumb
+    ; reads as movement where an absent one reads as a blink. A step too
+    ; small to move it draws nothing at all.
+    call fm_sbset               ; the block already holds the NEW scroll
+    mov ax, [fm_lscr]
+    sub ax, [fm_sdlt]           ; ...and this is where it was
+    call os88ui_sbmove
     call fm_more_mark           ; ...the fringe, which a scroll is exactly what
                                 ; changes - the blit band stops at fm_by2 and
                                 ; the exposed-row fill at fm_listb-1, so these
@@ -8894,33 +8860,6 @@ fm_row16:
     add ax, [fm_by1]
     ret
 
-; -----------------------------------------------------------------------------
-; fm_sb_thumb - move the scroll-bar thumb, and draw nothing else on the bar
-; in:  fm_layout run, [fm_lscr] the new scroll, [fm_sdlt] the delta that got
-;      it there; gfx lock held
-; out: nothing
-; clobbers: AX, BX, CX, DX - its one caller reaches it with nothing live
-;
-; The thumb's HEIGHT is fit*track/total, which no scroll changes - so a scroll
-; TRANSLATES it, and the frame, the two rules, the two arrow glyphs and all
-; of the track it did not cover are exactly where they were. Three calls
-; instead of the bar's sixteen.
-;
-; The new thumb is drawn BEFORE the strip it vacated is greyed, which is
-; SPEC.md 42.7.1's ordering: for the width of one fill the thumb is briefly
-; doubled, and a doubled thumb reads as movement where an absent one reads as
-; a blink. A step too small to move it draws nothing at all.
-; -----------------------------------------------------------------------------
-fm_sb_thumb:
-    push ax
-    push bx
-    call fm_sbset               ; the block already holds the NEW scroll
-    mov ax, [fm_lscr]
-    sub ax, [fm_sdlt]           ; ...and this is where it was
-    call os88ui_sbmove
-    pop bx
-    pop ax
-    ret
 
 ; -----------------------------------------------------------------------------
 ; fm_draw_status - stage and draw JUST the status line

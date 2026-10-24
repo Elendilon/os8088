@@ -1309,9 +1309,12 @@ assoc_run_x:
     mov dx, [dsk_cwd]           ; no poster - a package's own request - so the
     mov al, [disk_drive]        ; volume the machine is on IS the home
 .located:
-    mov [assoc_ddrv], al        ; ...banked once, whichever rung answered
-    mov [assoc_dclus], dx
-    mov byte [assoc_dead], 0    ; every volume may be asked, once (assoc_go) -
+    cbw                         ; ...banked once, whichever rung answered,
+    mov [assoc_ddrv], ax        ; and AH = 0 into assoc_dead, the byte after
+                                ; (a volume is < DVOL_MAX, so `cbw` is the
+                                ; zero - one byte, and what keeps dsk_xfer
+                                ; behind this on an EVEN shift, t_hotpar):
+    mov [assoc_dclus], dx       ; every volume may be asked, once (assoc_go) -
                                 ; ONCE A RUN and not once a locate, so an
                                 ; empty drive the search below found empty is
                                 ; not asked again by the locate after it
@@ -1540,7 +1543,12 @@ assoc_doc    equ assoc_dblk     ; 13: the pending document's 8.3 name
 assoc_dclus  equ assoc_dblk+13  ; ...and where it lives: directory cluster
 assoc_ddrv   equ assoc_dblk+15  ; ...and volume
 assoc_dead:  resb 1             ; volumes whose mount failed in this locate,
-                                ; one bit each (assoc_go)
+                                ; one bit each (assoc_go). The byte after
+                                ; assoc_ddrv: assoc_run_x clears it as the
+                                ; high half of that store
+%if assoc_dead - assoc_ddrv != 1
+  %error "assoc_run_x stores assoc_ddrv and clears assoc_dead as one word"
+%endif
 assoc_pwin:  resw 1             ; the posting Disk window's STATE BLOCK, not
                                 ; its window record - FS_DRV/FS_CWD are read
                                 ; off it (SPEC.md 54.9.1), as ld_pwin is

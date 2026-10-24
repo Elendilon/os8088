@@ -1013,52 +1013,18 @@ desk_rect_ax:                   ; ...and the arithmetic alone, for a caller
     ret
 
 ; -----------------------------------------------------------------------------
-; desk_zone_label - a zone's caption
-; in:  AL = zone index
-; out: ES:SI -> a NUL string
-; clobbers: ES, SI (the outputs), flags
-;
-; A volume's row names itself or is derived as 'A:' (SPEC.md 26.4); the
-; service item's was copied in at registration (26.7); a shortcut's is read
-; IN PLACE, out of its claim row (26.8.1) - which is why the answer is a far
-; pointer, and why every reader of it takes ES:SI.
-; -----------------------------------------------------------------------------
-desk_zone_label:
-    push ax
-    push bx
-    push ds
-    pop es
-%ifndef KERN_SMALL
-    cmp al, DESK_SVZ
-    jb .vol
-    mov si, desk_svc_cap
-  %ifdef OS88_SHORTCUTS
-    je .out
-    call sc_row                 ; ES:BX = the record
-    lea si, [bx+SC_R_CAP]
-  %endif
-    jmp short .out
-.vol:
-%endif
-    mov bl, al
-    call dsk_vol_slot_x
-    lea si, [bx+DV_LBL]
-    cmp byte [si], 0
-    jne .out                    ; the row named itself
-    mov si, desk_lbl_gen        ; the DRIVE LETTER, built in place (SPEC.md
-    add al, 'A'                 ; 26.4) - 'A:', as every other surface in this
-    mov [si], al                ; OS writes a drive
-.out:
-    pop bx
-    pop ax
-    ret
-
-; -----------------------------------------------------------------------------
 ; desk_caprect - a zone's caption and the white rect that HUGS it (SPEC.md 26.4)
 ; in:  AL = a shown zone
 ; out: AX = x1, BX = y1, CX = x2, DX = y2 of the white rect; ES:SI -> the
 ;      caption. The pen is (AX + DESK_ZOVER, BX + 2).
 ; clobbers: AX, BX, CX, DX, SI, ES (the outputs), flags
+;
+; THE CAPTION first, in line (it was desk_zone_label, a routine with this one
+; caller - kernel size pass 14: its AX/BX bank was this routine's own, -8). A
+; volume's row names itself or is derived as 'A:' (SPEC.md 26.4); the service
+; item's was copied in at registration (26.7); a shortcut's is read IN PLACE,
+; out of its claim row (26.8.1) - which is why the answer is a far pointer,
+; and why every reader of it takes ES:SI.
 ;
 ; Measured at paint for every kind, centred UNDER THE PICTURE. One routine
 ; draws it and one highlight inverts it, so the two cannot disagree about
@@ -1074,8 +1040,30 @@ desk_zone_label:
 ; -----------------------------------------------------------------------------
 desk_caprect:
     push bp
-    push ax
-    call desk_zone_label        ; ES:SI -> it
+    push ax                     ; (AL is spent by the letter below)
+    push ds
+    pop es
+%ifndef KERN_SMALL
+    cmp al, DESK_SVZ
+    jb .vol
+    mov si, desk_svc_cap
+  %ifdef OS88_SHORTCUTS
+    je .lbl
+    call sc_row                 ; ES:BX = the record
+    lea si, [bx+SC_R_CAP]
+  %endif
+    jmp short .lbl
+.vol:
+%endif
+    mov bl, al
+    call dsk_vol_slot_x
+    lea si, [bx+DV_LBL]
+    cmp byte [si], 0
+    jne .lbl                    ; the row named itself
+    mov si, desk_lbl_gen        ; the DRIVE LETTER, built in place (SPEC.md
+    add al, 'A'                 ; 26.4) - 'A:', as every other surface in this
+    mov [si], al                ; OS writes a drive
+.lbl:                           ; ES:SI -> the caption
     mov bp, font_width_x
     call ct_cw_mem_disp         ; AX = its width
 %ifdef OS88_SHORTCUTS
@@ -2291,7 +2279,7 @@ section .text                   ; DATA, so back to the kernel segment (SPEC.md
                                 ; them and moved the lot into .cold - where DS
                                 ; still names KERNEL_SEG, so desk_pico read as
                                 ; garbage and the comment below came true
-desk_lbl_gen db "A:", 0         ; scratch for desk_zone_label's derived form:
+desk_lbl_gen db "A:", 0         ; scratch for desk_caprect's derived caption:
                                 ; a volume with no label of its own is named
                                 ; from its index, in place
 

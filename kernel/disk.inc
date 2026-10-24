@@ -2427,7 +2427,7 @@ dsk_vol_row_x:
 ; SYSTEM.CFG and load HDD.DRV off the very volume the driver would otherwise
 ; have been needed to reach.
 ;
-; The label is left EMPTY so desk_zone_label derives one from the index, which
+; The label is left EMPTY so desk_caprect derives one from the index, which
 ; is the same courtesy dsk_vol_add extends a driver: the drive letter is the
 ; kernel's to assign (SPEC.md 52.4) and this row has no more right to name
 ; itself than a driver's does.
@@ -2867,7 +2867,7 @@ dsk_flop_add_x:
     mov byte [bx+DV_FLAGS], 1   ; shown on the desktop - the caller only calls
                                 ; for a drive the equipment word claims
     mov byte [bx+DV_LBL], 0     ; ...and NAMED by the kernel, not here: an
-                                ; empty label is what makes desk_zone_label
+                                ; empty label is what makes desk_caprect
                                 ; derive 'Disk C' from the index, the same
                                 ; courtesy dsk_vol_add extends a driver
     mov byte [bx+DV_KIND], DVK_BIOS ; published LAST, dsk_vol_add's discipline
@@ -3174,7 +3174,7 @@ dsk_vol_add:
     lea di, [bx+DV_LBL]         ; the label is INLINE, so this is the copy
     mov cx, 7                   ; and there is nothing to point at
     or si, si
-    jz .named                   ; no label: desk_zone_label derives 'Disk X'
+    jz .named                   ; no label: desk_caprect derives 'Disk X'
 .copy:
     mov ah, [es:si]
     mov [di], ah

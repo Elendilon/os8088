@@ -19708,8 +19708,8 @@ A hidden window and a fullscreen one (§11.2, which has no title bar) both
 return having drawn nothing, so a caller need not test either.
 
 **The file manager is the reference consumer.** `fm_settitle` writes the 16
-bytes and banks the window in `[fm_tdirty]`; `fm_title_flush` spends it, and
-only `fm_repaint` calls that, under the lock (`files_poster` was the second
+bytes and banks the window in `[fm_tdirty]`; `fm_title_flush` spends it (written
+in `fm_repaint` since kernel size pass 14), and only `fm_repaint` calls that, under the lock (`files_poster` was the second
 caller and is retired, §22.17). It is
 deferred, and it is a **pointer rather than a flag**, because `fm_settitle`'s
 callers are a mixed set: `fm_go`, `fm_mount` and `fm_view` hold the lock,
@@ -28956,7 +28956,8 @@ the way, and `kern_small` is untouched throughout: the whole gesture is
 `KERN_BIG`'s, because `W_ONDRAG` is.
 
 **One redundancy is known and left.** On a commit the element has already moved
-the thumb, and `fm_scroll_by` then reaches `fm_sb_thumb`, which moves it again
+the thumb, and `fm_scroll_by` then reaches `fm_sb_thumb` (written in
+`fm_scrollpaint` since kernel size pass 14), which moves it again
 from where `[fm_lscr]` says it was. The picture is right either way — the
 second move draws the thumb where it already is and greys a band that is
 already grey — and it costs three drawing calls, ~2.3 ms on the target machine,
@@ -34386,7 +34387,7 @@ into whatever claims that memory next.
 #### 18.7.1 What the letters mean
 
 The letter is the ROW INDEX and nothing else — six sites do `add al, 'A'`
-(`desk_zone_label`, `dsk_bootltr`, `fdlg`, and three in `files.inc`), so the
+(`desk_caprect`, `dsk_bootltr`, `fdlg`, and three in `files.inc`), so the
 whole of the lettering policy is *which row a volume is given*. There is no
 letter field, nothing persisted moves, and no display code knows this section
 exists. §18.7.4 is that policy's one rule beyond "the first free row".
@@ -41829,7 +41830,8 @@ property:
 
 Three consequences worth stating:
 
-- **The header says "N files" without the link.** `fm_nfiles` asks the
+- **The header says "N files" without the link.** `fm_nfiles` (written in the
+  header's composer since kernel size pass 14) asks the
   listing — is entry 0 type 3? — rather than deriving it from `FS_CWD`,
   because those two can disagree: a `..` whose on-disk link is unreadable
   gets **cluster 0, the root**, rather than no row at all, so the user is
@@ -51290,7 +51292,8 @@ that offset — the low byte is always zero, because the offset is `nmax × 32`
 and both caps are multiples of 8, and `files.inc` asserts that at assembly
 time rather than trusting it. It is written by `fmv_store`, which is already
 "THE ONE PLACE A WINDOW'S LISTING IS REPLACED" (§22.14) and therefore the one
-place that knows the shape it has just written; `fmv_viofs` reads it.
+place that knows the shape it has just written; `fmv_viofs` reads it (in line in
+`fmv_get_dir`, its one caller, since kernel size pass 14).
 `fmv_iofs` still answers for the **global** snapshot and still has exactly
 the two callers that mean the global: `fmv_store`, which is copying it, and
 `fmv_copy_in`'s no-cache fallback, which is reading it. A window with no
@@ -51804,7 +51807,7 @@ sake (§22.4), so it has one to give.
 **The down state is TWO words, not one byte**, and that is the trap this
 window has that the Control Panel does not: there can be **four** Disk
 windows. `[fm_dbtn]` is which button and `[fm_dvp]` is whose, and `fm_isdown`
-asks both — without the second, a damage repaint of a *different* Disk window
+(written at its one call since kernel size pass 14) asks both — without the second, a damage repaint of a *different* Disk window
 behind the drag draws the same button pressed in a window nobody has touched.
 
 **The edges are installed in `fm_kinit`**, because `W_ONMOUSEUP` and
@@ -55973,8 +55976,8 @@ driver's string went with the notice.
 and every routine in `desk.inc` is asked about a zone INDEX and never about a
 drive, so it selects, highlights, repaints under a dragged window, moves when
 dragged and packs into the next free cell exactly as a disk does. What is its
-own is three arms: `desk_live` (`[desk_svc_seg]` non-zero), `desk_zone_label`
-and `desk_draw_zone`.
+own is three arms: `desk_live` (`[desk_svc_seg]` non-zero), `desk_caprect`'s
+caption (it was `desk_zone_label`) and `desk_draw_zone`.
 
 **It is visible when a driver has registered one** (`[desk_svc_seg]` is its
 segment, and 0 is the whole of what a machine without such a driver tests)
