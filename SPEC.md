@@ -56342,6 +56342,31 @@ the ordering is still the design. A window filled at a different `[dsk_nmax]` sh
 (§22.6.1) is handed back rather than repaired, and falls through to the
 re-list.
 
+##### 25.9.5.2 The repair's own read can shed the store, and must not owe itself the repair
+
+**`asc_use`'s claim is an ordinary one and the store is `MEM_PG_TRIV`**, so
+when the arena is short the claim that loads `ASSOC.DAT` compacts, the
+compactor dissolves the icon store (§50.6.4's ladder, working as designed),
+and `ico_demote` marks every Disk window `FSD_ICONS` — **the window being
+repaired included**, because a shed's references can dangle anywhere. The
+repair then finishes: its two passes run against the store as it stands
+*after* the shed, so this window's references are right. But the mark stood,
+`fm_owed` had set `[fm_fchk]`, and the next `ui_task` pass repaired the same
+window again. Its paint had re-made the store in between (`ico_need`, lazily),
+the repair's claim shed it again, and the loop never ended: **the UI task
+never went idle** with an arena of 5–10 KB free — room for the 5 KB cache or
+the 5 KB store, never both. `tests/regwork.py` hung there on every kernel
+since §25.9.5, at its raise of the Disk window after `FILLER` took the arena
+down to 8 KB; it read as a compaction that never finished, because the
+compactor ran twice a pass for ever.
+
+So `fmv_icorefs` clears this window's own `FSD_ICONS` after `asc_use` and
+before the passes that pay it. Only `FSD_ICONS`: `FSD_CACHE` is the stronger
+debt (a shed of the window's LISTING) and is left for the re-list. Every other
+window keeps its mark and is repaired when it comes to the front, once. Ten
+bytes of `.cold`, resident, inside `%ifdef OS88_ASSOC`, so `kern_small` is
+unchanged.
+
 #### 25.9.1 Why a WINDOW can now read it, which is what made it possible
 
 A background Disk window holds a listing the global snapshot may have replaced,
@@ -171237,6 +171262,18 @@ which pushes eight registers, and reported `MCB SMASHED` against a DOS that
 was behaving. Playroom pushes at most three words of its own before its calls,
 which is what fits in the header's reserved bytes; the row matches that by
 spending no push at all in the window it measures.
+
+**And no hardware interrupt may spend one either, so the window runs with
+`IF` = 0.** An ISR runs on the stack it interrupts: the IBM ROM's `int 08h`
+pushes DS, AX and DX under the CPU's three words and os8088's `sch_isr` nine
+registers, so a TICK landing between the shrink and snapshot B writes the
+header on a real DOS and on this one alike. The row went red one soak run in
+a few dozen with `B 00 0010 2600` — SI (`MCB_AT`), BX (`AH=30h`'s 0) and DX,
+`sch_isr`'s frame to the word, which a build holding the window open for half
+a second reproduces on every run. With interrupts off the only frames that
+can reach the header are the ones each `INT 21h` builds, which is the
+question: the gate's `iret` hands the probe's FLAGS back, and the handlers
+may `sti` on DOS's stack as they always have.
 
 ##### 96.7.2.2 What it costs is DEPTH, and the number that bounds it is 510
 

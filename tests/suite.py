@@ -6595,7 +6595,11 @@ SOAK = [
         "the window it measures spends NO push of its own - the counter is a "
         "memory cell - and the stack moves somewhere safe before the first "
         "`putc`, whose eight pushes would otherwise smash the header this row "
-        "is watching and go red on a DOS that is behaving. SHRINK.COM runs "
+        "is watching and go red on a DOS that is behaving. **AND THE WINDOW "
+        "RUNS WITH IF = 0**: a timer tick there puts sch_isr's frame (a real "
+        "ROM's int 08h too) on the header, and the row went red one run in a "
+        "few dozen with `B 00 0010 2600` - SI, BX and DX to the word - until "
+        "SPEC.md 96.7.2.1 closed it. SHRINK.COM runs "
         "under a real IBM DOS 3.30 unchanged, which is where `MCB INTACT` "
         "comes from.",
         needs=("marty",), serial=True,
