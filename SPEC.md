@@ -46549,7 +46549,7 @@ of image for the three routines plus its hook.
 | PIXELSTEIN's levels and art masters | lazy, fetched by the LOADER | **pinned, blocked**: the re-home re-owns them to the slot (§20.12.10.5), and `mem_find_own`'s fence wants the claim owned by the CALLER's segment, so the program cannot declare them (§97.9.2) |
 | **Pixel's code parts 0-8** | lazy `OP_SEG` | **MOVABLE** (§106.5.1): `OP_ONMOVE px_mreloc`, and a part is PINNED exactly while the UI task or the worker stands in it - a mask a task, set by `px_pin` and cleared by `px_unpin` around every far call, so the worker parked at `OSAPI_TASK_ALIVE` inside a decoder keeps its part still |
 | REALDMG | carve: the core (far-called code) and the 64 KB view; the recompiler | NO-PINNING A1's, performance-bound and left to it: the carve is code the dispatch loop runs in |
-| DOS's trace part | carve (`OP_ZERO`) | an instrument build nothing ships (§96.29.1) |
+| DOS's trace part | carve (`OP_ZERO`) | an instrument build nothing ships (§96.29.1) - and **MOVABLE** at the prompt since NO-PINNING 2, pinned while a program runs (§96.29.1.2) |
 | Clear Skies' streams, MIDIRack's faces, Excitebike's packs, RealDMG's recompiler | `OP_SELF` | read by the package into claims of its own, each answered where it is claimed |
 
 ## 20.13 COMPRESSION — flags bits 3 and 4, and one slot
@@ -113718,14 +113718,126 @@ Why no copy of their segments survives a move:
   (`zi_script_putc`), and `zi_script_flush`'s whole-file write pins it
   (`zi_scrpin`).
 
-Frotz's worker is NOT restartable and declares no `OSAPI_MEM_PARKSAFE`
-(§66.5.9.1), so its claims move only while it is parked inside
-`OSAPI_TASK_ALIVE` - at `zx_worker`'s loop top or inside `zi_yield` - and at
-both every one of these ES loads has already been undone; a running worker
-pins all of them (`inst_seg_parked`). +92 bytes of image. `editmove-frotz`
+Frotz's worker declares no `OSAPI_MEM_PARKSAFE` (§66.5.9.1), so its claims
+move only while it is parked inside `OSAPI_TASK_ALIVE` - at `zx_worker`'s
+loop top or inside `zi_yield` - and at both every one of these ES loads has
+already been undone; a running worker pins all of them (`inst_seg_parked`).
+(Its REGION moves at the same two points since §66.5.9.3.) +92 bytes of image. `editmove-frotz`
 is the gate: all five one-word claims move on `zmove360.img`, contents
 hashed, and the story still answers a command after; red with the three new
 words left out of the table (all three stale).
+
+#### 66.5.9.3 ...and the worker gives itself back: the region moves (NO-PINNING P2)
+
+**Frotz hires a worker, so its region was pinned for the program's whole life
+(§66.6.2)** - the one package `tests/movable.txt` exempted for a reason that
+was about the program and not about the work. It declares now:
+`OS88_WORKER_RESTARTABLE_NOKEEP zx_restart` in `zf_hire`, after
+`OSAPI_TASK_SPAWN`. **Zero kernel bytes, nothing per Z-instruction**, +37
+bytes of `FROTZ.O88`'s image (23,320 -> 23,357; the save fixes at the end of
+this section are +7 more), `.bss` +0 (`[zx_rsm]` is a byte of `ZEXEC_SLACK`
+that was free).
+
+**Where it can be restarted is a closed list, and §66.5.9.1 is why.** Frotz is
+not park-safe, so the kernel parks its worker only inside
+`OSAPI_TASK_ALIVE` - and the rebuild (§66.6.2) re-enters at the declared
+offset with DS = CS = the new segment, ES = `KERNEL_SEG`, DX = the instance
+and every other register zero, which is `zx_worker`'s own entry. There are
+eight `ALIVE` calls: `zx_worker`'s loop top, and seven waits that all go
+through `zi_yield` - `@read`, `@read_char`, `@save` (0OP and `EXT:0`),
+`@restore` (0OP and `EXT:1`), `@restart`, `@verify`'s chunk walk, and
+`[MORE]`.
+
+**RE-EXECUTING THE OPCODE IS LOSSY, so it is not the design.** Its operand
+decode pops the Z-stack for a variable-0 operand; each waiting handler has
+already spilled the PC to its store/branch byte; and what it printed is on the
+glass - `@read`'s echo, the save prompt. A restart at the loop top is the one
+place re-entry is plain, the PC being spilled between instructions.
+
+**What works is RESUMING THE WAIT, from state that was never on the stack.**
+One byte, `[zx_rsm]`, names the wait (`ZXR_READ` ... `ZXR_VERIFY`): `zx_park`
+writes it before the handler spills the PC and drops the lock, `zx_relock`
+clears it after the lock is back, so at every point the worker can park it
+names the wait it is in. `zx_restart` then either falls into `zx_worker`
+(`[zx_rsm]` = 0) or takes a row of `zx_rsmtab` - the wait's resume entry and
+the handler's `.post` - pushes the handler's `.post` as the wait's return and
+`zx_rsmret` as the handler's, and jumps:
+
+| wait | resume entry | what it does NOT redo |
+|---|---|---|
+| `@read` | `zi_readline_rsm` | the set-up: buffers, cap and the line typed so far are bss, and re-running it would zero `[zi_linen]` under an echo already on the glass |
+| `@read_char` | `zi_readchar_rsm` | the harness marker |
+| `@save`, `@restart` | `zi_request_rsm` | the post: `[zf_req]`/`[zf_reqres]` are read AS THEY STAND, answered or not, so no second request and no second prompt; `zi_save`'s and `zi_restart`'s own tails after the wait are pops |
+| `@restore` | `zi_restore_rsm` | ...and its seven pushes rebuilt, so the parse and apply run exactly as if the frame had survived |
+| `@verify` | `zx_verify_rsm` | nothing - it re-runs from the start, being pure |
+
+Each resume entry rebuilds exactly the frame its routine pops; the handler's
+`.post` re-takes the lock, clears `[zx_rsm]` and reloads the PC from bss; and
+its `ret` lands on `zx_rsmret`, which is what `zx_run` does after an
+instruction - spill, unlock - and then the loop top. The burst it was in is
+forfeit, and that is all a restart costs. `@save` and `@restore` share one
+body each across their 0OP and EXT forms (the EXT form is v4's 0/1 store), so
+there are six rows and not eight. `@restart` gained the `zx_spill` the others
+had: a refusal can now arrive through `zx_restart`, which has no ES:SI of the
+handler's to hand back.
+
+**`[MORE]` WITHDRAWS THE DECLARATION** (`OSAPI_TASK_RESTARTABLE` AX = 0) for
+the length of its wait and puts it back after the key. Under that wait is the
+text decoder's place in a string and whatever printed it, on the stack, and a
+restart re-runs the instruction in flight: measured with the withdrawal taken
+out, the region moved under the prompt and the window gained a line the story
+never printed. So the region stays pinned while `[MORE]` is up - a missed
+move, never a lost one. A `mem_avail` plan taken while the worker is mid-burst
+can read HIGH if it reaches `[MORE]` before it parks - the K9 shape (a
+compaction achieves less, once), and rare.
+
+**The STORY moves under `[MORE]`, and that is fine.** The region is pinned
+there; the story claim is not, and `tests/zrestart.py` measured it sliding
+(`2f40` -> `2380`) with the prompt up. The frames under `zw_morewait` pop a
+story ES that no longer points at the story - `zw_putc`, `zt_putc` - but no
+frame between them and `zx_run` addresses the story through ES afterwards:
+the decoder reads by story address (`zm_gw`), every printing handler returns
+to `zx_run`, which loads ES from `[zf_pcseg]` before the next instruction, and
+`@read`'s handler reloads the PC from bss after `zi_readline`. `@save`'s did
+NOT - it branched or stored through `zi_save`'s popped ES - and does now
+(`zx_load` in the shared `.post`), which is the one stale-ES path the audit
+found. **And `zf_reloc` shifts `[zx_seglim]`** with `[zf_pcseg]`: it is
+`zx_step`'s upper bound for the PC's segment, derived from the story's base,
+and a story slid UP by the descending pass left the bound where the story
+used to end.
+
+**`tests/zrestart.py` (`zrestart`) is the gate**, on `build/zrestart360.img` (a
+story of its own, `tests/frotz/zrestart.inf`, one command per wait, and ten
+Calculators opened first so a region above Frotz's can be closed per move).
+Every wait is stopped in and the region moved: `@read` with `ope` typed and
+`n door` after (the story parses `open door`), `@read_char`, all three
+requests both before RETURN and after the UI task answered with the worker
+held parked, and `@verify` stopped at a breakpoint in its walk. Each leg's
+dynamic memory, `[zf_sp]`, Z-stack and window transcript match a second boot
+that plays the same keys and moves nothing, and the two saves are the only
+files written. **Verified red**: the declaration pointed at plain
+`zx_worker` (`@read` resumes at its store byte and the story never sees
+`open door`; `@save`'s store byte is executed as an opcode and the story
+halts), and the `[MORE]` withdrawal taken out (the region moves under the
+prompt and the transcript differs from the no-move boot).
+
+**The gate found that `@save`/`@restore` had never worked**, three defects
+from the day Frotz shipped, each hiding the next: `zexec.inc`'s frame had
+`ZXF_STORE` at 6 and `ZXF_NLOC` at 7 where `zio.inc`'s Quetzal code reads the
+pair as one word with the locals count LOW, so every save walked an
+evaluation stack of -255 words and wrote a file of zeros (`ZXF_*` swapped, 0
+bytes); `zi_save` parked the `Stks` length's offset in the FORM length's word,
+so the FORM length stayed 0 and `Stks` claimed to run past the end of the
+image (the line deleted); and `zi_rstks` read a frame's locals before its
+evaluation-stack count, where Quetzal - and `zi_wframe` - write the count
+first, so `@restore` failed after copying dynamic memory, or restored wrong
+locals. The dummy frame is now written 0/0 as Frotz writes it, its 0x10
+"discard" bit being what the real Frotz refuses a save over: a save written
+here now loads in `dfrotz -L` and carries on. What is left: the args byte is
+the argument COUNT where Quetzal wants a MASK (a round trip here is exact, a
+foreign save's `@check_arg_count` would read wrong), and `@verify` sums the
+story AS IT STANDS rather than the file, so it answers "bad" once a story has
+written its dynamic memory.
 
 ### 66.5.10 The drivers, and the claim a callback cannot reach
 
@@ -135330,7 +135442,7 @@ count:
 |---|---|---|
 | `sh_cellseg`  | 32KB | the cell array above |
 | `sh_txtseg`   | 8KB  | the formula/note text arena |
-| `sh_stgseg`   | 32KB | file I/O staging, and the row/column shift |
+| `sh_stgseg`   | 32KB | file I/O staging, and the row/column shift (movable; pinned only across each file call, §81.2.1) |
 | `sh_bordseg`  | 4KB  | the border table (5-byte records) |
 | `sh_noteseg`  | 4KB  | the note table (6-byte records) |
 | `sh_chartseg` | 19KB | the live chart window's offscreen canvas (§82) |
@@ -135353,6 +135465,47 @@ the same way. That is a stated cost rather than a hidden one — a compacting
 arena means every `formula_off` in the cell array has to be rewritten in
 lockstep, which is the same class of invalidation the array's own insert
 shifting already makes dangerous, and 8KB is a great many formulas.
+
+#### 81.2.1 Every data claim moves, and the staging is pinned only across a file call (NO-PINNING 1)
+
+The six data claims are declared with one relocation proc, `sh_reloc`, which
+walks a TABLE of the words naming them (`sh_segw`) and patches every word
+equal to the old base, `os88chart.inc`'s borrowed copies (`ch_srcseg`,
+`ch_stgseg`, `ch_srcseg2`) included. The staging was the last one: it is the
+`ES:BX` of every `OSAPI_FILE_READ`/`WRITE` the package makes from its data,
+and §66.3 rule 5's transfer pin covers each transfer and not the directory
+walk between them, so it stayed undeclared - 32KB of wall for the session.
+
+**It moves now, and is pinned for exactly the file call** - §66.5.7.1's pair,
+in ONE place. Every such call is `SHK file_read` / `SHK file_write` from a
+module or `CH_FWRITE` from the BMP export, and every one of those reaches
+the kernel through the two resident stubs `sh_k_file_read` /
+`sh_k_file_write`, so `sh_stgpin` (`OSAPI_MEM_MOVABLE` AX = 0) before the
+call and `sh_stgunpin` (AX = `sh_reloc`) after it cover thirteen call sites
+and every one written later. Both preserve the flags: the CF beside them is
+the file call's verdict. **+41 bytes of image, no bss**, nothing on a
+keystroke, a recalc or a draw.
+
+The audit behind "only the file call": every other use of the staging loads
+its segment from `[sh_stgseg]` and holds it in a register across no call
+that can claim - the sort, the row/column shift, Copy's tab-separated
+block (whose `OSAPI_CLIP_PUT` publishes its own source through
+`[mem_pinseg]`, §66.3 rule 5), Paste's `OSAPI_CLIP_GET`, the chart's arrays,
+Undo's swap and the menu bar's `OSAPI_GFX_SAVE`/`REST` - and the two modules
+are claimed at the entry proc and never again, so their lazy loaders' claims
+are not reached while a staging segment is live.
+
+`tests/sheetmove.py` 3b moves it under heapfrag's recipe and checks the word
+and the bytes followed; `--leg rt` (`sheetmove-rt`) stops INSIDE a save's
+and a load's file call and reads the staging's `MC_RLOC` there (0), and
+saves and reloads a workbook after the staging moved. Red, each taken: the
+write's `call sh_stgpin` removed (MC_RLOC 0x0070 inside the write), and
+`sh_stgseg` dropped from `sh_segw` (the word goes stale already at the entry
+proc, whose later claims compact on a fragmented heap). What it could NOT
+show, and says so: a compaction INSIDE the call - on a 360KB FAT12 volume
+neither call makes a claim at all (the read-ahead window is claimed at the
+mount, and there is no FAT window), so the in-call reading is the pin's
+gate.
 
 ### 81.3 Formulas — a text grammar, re-parsed on demand
 
@@ -147678,8 +147831,9 @@ cycles a formula, ~28 crossings at the counted price.
 `ch_ovcall` → `SHM_IDOPEN` → `SHK wm_show` → `ch_xthunk` → `OSAPI_WM_SHOW` →
 `wm_raise` → `wm_su_take`'s `mem_claim`; the row inflates that claim to one KB
 past the largest run, so only a compaction grants it, with a claim record owned
-by Note Pad placed between SHEET's data (whose staging buffer is a pinned wall)
-and its modules as the hole. Both modules move (`5c00 -> 44c0`, `6900 ->
+by Note Pad placed between SHEET's data (whose staging buffer was a pinned
+wall when the row was written; §81.2.1 made it movable, and the placed hole
+still sits above all six) and its modules as the hole. Both modules move (`5c00 -> 44c0`, `6900 ->
 51c0`), the module's IP read off the stack is watched at BOTH homes, and the
 return lands at the new one; the old homes are poisoned with HLT. **Red** with
 `CHX` put back to `call routine / retf`: the return is caught at the OLD home
@@ -171344,6 +171498,47 @@ go in front of the ring, so the lowest entry index is 18,432 and the existing
 test is correct again. Zero bytes, no code, and the same arithmetic the bss
 arm got for free. `RDSUM.COM`'s open now reads `AX=3D00 … axout=0002 CF=1` —
 DOS error 2, file not found — where before it read `FFFF`.
+
+##### 96.29.1.2 The trace part MOVES at the prompt and is pinned while a program runs (NO-PINNING 2)
+
+The part is a claim held for the window's life, and it was born pinned like
+every claim - 35KB of wall. It opts into §20.12.12's `OP_ONMOVE`:
+`dos_entry` declares the carve with `op_movable` once both words are banked,
+and the hook, `dos_trmove`, asks `op_seg` for them again. **Those two words
+are the whole of what names the part**: `[dos_trseg]` (the host's - and
+`tools/os88dosdbg.py` reads it afresh at every poll, so the reader follows a
+move too) and `[dos_m33seg]` (the core's copy, §96.10.3). Every routine that
+touches the part - `dos_trace`, `dos_tr_result`, `dos_int33`'s buckets, the
+callback count and `dos_trace_dump` - loads `ES` from one of them on entry,
+and **no program is ever handed a pointer into it**: it is data, not code,
+no vector names it, and a program's far pointers name its arena, the PSP and
+the core, never this.
+
+**It is pinned for the stretch a DOS PROGRAM RUNS**, which is the owner's
+bucket C and not a nicety: from `dos_run`'s `.ready` - the image is in the
+arena and the fsx bracket is next - to the end of `dos_trace_dump`. Inside
+the bracket the program's INT 21h calls write the ring through `ES` and reach
+the kernel's file calls on the UI task, which is the task that compacts
+(§66.3.1); and the dump's `OSAPI_FILE_WRITE` takes `ES:BX` INTO the part
+(§66.5.7.1). The refusal paths that never reached `.ready` pin it again
+around the dump, and `op_movable` after the dump declares it again on every
+path. So it moves at the PROMPT - which is when the user opens something
+else, and when DOS's own posted pass (§96.35) sizes the next arena: that
+pass now packs the part with the region instead of building around it.
+
+**The shipped package is untouched.** Every line is inside `%ifdef
+DOSTRACE`; the plain, the parted (`-DDOSKPART -DDOS_EXTCORE`) and kern_mega's
+arms all assemble byte-identical, and the trace build is +130 bytes of
+image. The shipped `DOS.O88` has no parts carve at runtime to declare: the
+loader's carve becomes the REGION at the re-home (§20.12.10.5, declared with
+`OS88_REGION_MOVABLE`), the core part is fetched, copied and dropped inside
+one call, and `kern_dos`'s part is never read into a claim at all.
+
+`tests/dostrmove.py` is the gate: a DOSTRACE package on a private disk,
+opened at its prompt with a hole above it, a compaction posted from
+outside, both words checked against the carve's new base, then DOSHELLO.COM
+run at the prompt - the carve's `MC_RLOC` read 0 from inside the program's
+own INT 21h - and the trace it wrote read back out of the NEW part.
 
 #### 96.32 THE WINDOW'S SETTLED SHAPE: a top bar, a console band, one setup area
 
@@ -197184,6 +197379,47 @@ own (`vp_tmono`'s scratch). **The poster is movable** once it is made
 stays pinned: the sound's ring (`MC_DMA`, which the kernel never moves -
 66.3), a LIVE session's claims (its worker decodes out of them on the
 desktop), and a claim for the length of a read into it (66.3 rule 5).
+
+**The rest of the session's claims joined it (NO-PINNING A6, 2026-10-24)**,
+so a session paused on the desktop holds no wall at all but the card's ring:
+- **A RESIDENT play's key record** - the claim a play from a key reads its
+  record into (`vp_sstart`'s resident arm) - is stored in `[vp_rclm]` as
+  well as `[vp_ring]`, as `vp_fseek`'s always was, and moves as the ring
+  does. Stored in `[vp_ring]` alone it was not only pinned: `vp_sfree` gives
+  back `[vp_rclm]`, so **every resident play from a key LEAKED it** - 17 KB
+  a play for an 80 x 200 noise key - from the day THE GAP gave the ring a
+  claim word of its own until this.
+- **THE LAYER's own claim** (`[vp_lyseg]`, a play in place: `vp_lyown`, 98.1.9)
+  is in `vp_smov`, and `vp_smove` asks for it FIRST: a flip's `[vp_lyseg]` is
+  derived, strictly inside the ring's claim, so it is no claim's base before
+  the ring's arm moves it and may equal the old base after. Its words are
+  read at each use (`vp_lyslseg`, `vp_lybounce`, `vp_lymir`, `vp_lypos`), and
+  every one of those runs inside a bracket or at the session's start.
+- **VPDIAG's profile** (`[vp_prseg]`, 98.3.22) is in both, and `vp_prend` pins
+  it for its last stretch, the `OSAPI_FILE_WRITE` that holds `ES:BX` on it
+  (66.5.7.1) - it is freed at the end, so nothing re-declares it.
+- **A pause that banks** (98.3.18.4: `vp_pstep`, a chunk a timer tick) reads
+  into the ring's claim - the copying bank's bounce, or in place the bounce
+  placed at THE GAP - and the kernel holds `ES:BX` there across its own
+  claims, which `[mem_pinseg]` covers a transfer at a time and not between
+  them (66.5.7.1). So the session is pinned for the chunk and declared again
+  after it: two `vp_smov` calls a chunk, against a chunk's disk read.
+
+A RESIDENT block's own claim was never a pin: `vp_ldblk` claims it under a
+scratch word, `vp_rload` hands it back as `[vp_rblk]`/`[vp_rablk]` and
+declares it there once it is loaded and walked (98.1.7.4) - pinned only
+inside that call, across the reads into it. **What it cost the play: nothing
+a frame.** The four routines changed (`vp_pstep`, `vp_sstart`, `vp_smov`,
+`vp_smove`) run at a session's edges, a bracket's edges, a paused chunk and
+a compaction; every one of the 392 routines a play runs is instruction-
+identical at an even shift in all four arms (`tools/os88rdiff.py
+--hot-file apps/video/rdiffhot.txt`, shipped, `VP_DIAG`, `VP_DIAG
+VP_RDLOG`, `PKG_MEGA`), and vidplay's clip played full screen on MartyPC's
+Hercules 5150, a breakpoint either side of every frame, costs 5,623,594
+guest cycles before and 5,623,600 after - 135 of 151 frames identical to the
+cycle and the other sixteen within 56 cycles of it either way, which is the
+refresh and the interrupts landing at another phase, run to run. +46 bytes
+of image, none of bss. `tests/vidclmove.py` is the gate, an arm a claim.
 
 ##### 98.3.19.3 The poster IS the keeper, at the video's own size
 

@@ -2845,6 +2845,22 @@ SOAK = [
         "`look` after. Red with the three new words left out of zf_rltab "
         "(all three stale). 27s measured",
         needs=("marty",), serial=True, wants=("build/zmove360.img",)),
+    Row("zrestart", "soak", py("tests/zrestart.py"), 165.0,
+        "NO-PINNING P2 (SPEC.md 66.5.9.3): Frotz's worker RESTARTS and its "
+        "REGION moves. tests/frotz/zrestart.inf puts every park site behind "
+        "a command; the row stops the worker in each - the burst loop, "
+        "@read with half a line typed, @read_char, @save/@restore/@restart "
+        "both before RETURN and after the UI task answered with the worker "
+        "held parked, @verify at a breakpoint in its walk - and moves the "
+        "region (a Calculator closed above it per move); [MORE] must PIN "
+        "(restart word 0, no move). Every leg's dynamic memory, [zf_sp], "
+        "Z-stack and window transcript equal a second boot that moves "
+        "nothing; two save files and no third. VERIFIED RED: declaration "
+        "pointed at plain zx_worker (@read never sees 'open door'; @save's "
+        "store byte runs as an opcode and the story halts), and [MORE]'s "
+        "withdrawal taken out (the region moves under the prompt and the "
+        "transcript gains a line). 163s measured, two boots",
+        needs=("marty",), serial=True, wants=("build/zrestart360.img",)),
     Row("pkgmove-wireflet", "soak",
         py("tests/pkgmove.py", "--app", "wirefleet", "--disk",
            "games360.img", "--open", "B:/WIREFLET.O88", "--word",
@@ -5971,14 +5987,30 @@ SOAK = [
         "undeclared holder in the tree - six claims at its entry proc, ~99KB, "
         "pinned for the session - which made SPEC.md 66.5.10.2's 'the arena "
         "below the top now has no barrier in it at all' false the moment a "
-        "sheet opened. Five are declared now; sh_stgseg is the ES:BX of all "
-        "seven of the package's file calls and stays pinned, and this asserts "
-        "THAT too, because 'we meant to leave that one' and 'we forgot that "
-        "one' are the same picture. paintmove's recipe. VERIFIED TO FAIL: "
-        "drop sh_cellseg from sh_reloc's table and check 3 reads STALE while "
-        "check 4's repaint differs over 24 rows of the grid",
+        "sheet opened. All six are declared now: the staging, every file "
+        "call's ES:BX, joined them in NO-PINNING 1 (SPEC.md 81.2.1) and 3b "
+        "asserts it moved and its word followed. paintmove's recipe. VERIFIED "
+        "TO FAIL: drop sh_cellseg from sh_reloc's table and check 3 reads "
+        "STALE while check 4's repaint differs over 24 rows of the grid; drop "
+        "sh_stgseg from it and the row fails at the entry proc ('[sh_stgseg] "
+        "= 6140 is not a claim Sheet holds'); sh_reloc a bare ret fails the "
+        "same way on sh_cellseg",
         needs=("marty",), serial=True,
         wants=("build/sheetmove360.img",)),
+    Row("sheetmove-rt", "soak", py("tests/sheetmove.py", "--leg", "rt"), 45.0,
+        "NO-PINNING 1 (SPEC.md 81.2.1): SHEET's 32KB staging MOVES and is "
+        "pinned only across each OSAPI_FILE_READ/WRITE (sh_stgpin in the two "
+        "resident stubs every file call goes through). sheetovlmove's disk "
+        "and arrangement (Note Pad owns the floor, both modules load), a "
+        "compaction posted from outside slides the staging down, then a Save "
+        "As SLK and an Open are each STOPPED INSIDE their file call and the "
+        "staging's MC_RLOC read there must be 0; the saved file is parsed on "
+        "the host and the reload fills an emptied cell store. VERIFIED TO "
+        "FAIL: the write's `call sh_stgpin` removed reads MC_RLOC 112 inside "
+        "the write (check 3). It cannot force a compaction INSIDE the call on "
+        "this disk - neither call claims at all - and says so per run",
+        needs=("marty",), serial=True,
+        wants=("build/sheetovl360.img",)),
     Row("sheetovlmove", "soak", py("tests/sheetovlmove.py"), 35.0,
         "NO-PINNING P1b (SPEC.md 82.16.11): SHEET's CHART.OVL MOVES out from "
         "under its own call chain and the return lands in the new home. F5 is "
@@ -7289,6 +7321,22 @@ SOAK = [
         "kernel's own solve picks 32K (18.95.5), so Auto and 32K read the "
         "same figure for a TRUE reason. VERIFIED red on the shipped build. ",
         needs=("marty",), serial=True),
+    Row("dostrmove", "soak", py("tests/dostrmove.py"), 25.0,
+        "NO-PINNING 2 (SPEC.md 96.29.1.2): the DOSTRACE build's 35KB trace "
+        "part - DOS.O88's only parts carve, and one the shipped package never "
+        "makes - MOVES at the prompt through the parts standard's OP_ONMOVE "
+        "(dos_trmove re-asks op_seg for [dos_trseg] and the core's "
+        "[dos_m33seg]) and is PINNED from dos_run's .ready to the end of the "
+        "dump. Its own disk in build/dostrmove/ (the DOSTRACE package "
+        "assembled there, beside DOSHELLO.COM and Note Pad): Note Pad takes "
+        "the ceiling, DOS lands under it, Note Pad closes, a posted pass "
+        "moves the carve up; both words must name the new carve, the carve's "
+        "MC_RLOC must read 0 WHILE DOSHELLO runs and non-zero after, and the "
+        "trace must be in the NEW part. VERIFIED TO FAIL: dos_trmove a bare "
+        "ret -> 3 (both words at the old base) and 6 (no AH=30h in the new "
+        "part); the .ready pin removed -> 4 (MC_RLOC 3C86 while it runs)",
+        needs=("marty",), serial=True,
+        wants=("build/DOSHELLO.COM", "build/notepad.o88")),
     Row("dosarena", "soak", py("tests/dosarena.py"), 30.0,
         "THE DOS ARENA'S UNMOUNT-AND-COMPACT (SPEC.md 96.35, 51.11.1, 66.4.3): "
         "SOUND.DRV is ~14KB at the TOP of the heap and DOS unmounts it, "
@@ -15022,6 +15070,44 @@ SOAK = [
         "FAILS",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidclmove", "soak", py("tests/vidclmove.py", "--arm",
+                                  "resident"), 25.0,
+        "SPEC.md 98.3.19.2, NO-PINNING A6: a session PAUSED on the desktop "
+        "holds claims that MOVE. A RESIDENT file played from KEY 1 in its "
+        "window on the Hercules 5150, a click back to the desktop, a "
+        "hole-maker's block freed under it and a compaction posted from "
+        "outside: the key's record (vp_rclm) declared to vp_smove, MOVED, "
+        "[vp_rclm] and [vp_ring] naming it and its bytes intact; Play goes "
+        "on in the window, the hold after it the host's decode, all 90 "
+        "frames; and after the end the key's record is GIVEN BACK - it "
+        "leaked at every such play before, held in [vp_ring] alone. VERIFIED "
+        "RED: vp_smove a bare ret (3: the words stale); the store into "
+        "[vp_rclm] taken out (1 and 6: undeclared, still held)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/os8088-360.img", "build/video.o88")),
+    Row("vidclmovely", "soak", py("tests/vidclmove.py", "--arm", "layer"),
+        45.0,
+        "SPEC.md 98.3.19.2, 98.1.9: vidclmove's LAYER - a layered Life clip "
+        "played IN PLACE on MartyPC's 8088 with the Lo-tech EMS board, so "
+        "the layer's slots are a claim of their own ([vp_lyseg], vp_lyown); "
+        "paused on the desktop it and the ring MOVE, every word live, bytes "
+        "intact, and Play goes on: the hold after the move is the LAYERED "
+        "decode (one the base alone does not draw), 47 records drawn, none "
+        "left out, all 60 frames. VERIFIED RED: vp_smove a bare ret (3, and "
+        "5 by 2,716 bytes); vp_smov's layer line taken out (1: undeclared)",
+        needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=300,
+        wants=("build/emstest.img", "build/video.o88")),
+    Row("vidclmovediag", "soak", py("tests/vidclmove.py", "--arm", "diag"),
+        20.0,
+        "SPEC.md 98.3.19.2, 98.3.22: vidclmove's PROFILE - VIDEOD "
+        "(build/videodiag.o88) on the Hercules 5150, a streamed clip paused "
+        "on the desktop: the profile's claim ([vp_prseg], claimed first, "
+        "under the ring) and the ring MOVE, and after Play goes on to the "
+        "end the VPPROFn.DAT it writes to B: holds all 90 frames, every slot "
+        "timed - the ones after the move written into the moved claim. "
+        "VERIFIED RED: vp_smove a bare ret (3: the words stale)",
+        needs=("marty", "nasm"), serial=True, timeout=300,
+        wants=("build/os8088-360.img", "build/videodiag.o88")),
     Row("vencbundle", "soak", py("tests/vencbundle.py"), 10.0,
         "SPEC.md 98.2.13: `make vencbundle`'s zip, unpacked OUTSIDE the "
         "tree and used from there - whole and deterministic, it encodes, "
