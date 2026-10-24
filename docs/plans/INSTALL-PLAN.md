@@ -182,7 +182,11 @@ wizard (SPEC.md 52.10.4.4).
       State words out of the wizard's slot records; `httpinstall` starts
       `INSTALL.O88` off the HTTP drive; `instrest` retired with the window,
       its glyph apparatus kept as `tests/glyphread.py`.
-- [ ] Final pass: soak `install`, `instdeep`, `instkeep`, `inststate`,
-      `instcross`, `instimg`, `instassoc`, `hdboot`, `knobhd`, `bigvol`,
-      `hdmap`, `hdsize`, `hmadrv`, `httpinstall`, `netinst`, `fddpark`;
-      then `make test-full`.
+- [x] Final pass (2026-10-24): soak `install`, `instdeep`, `instkeep`,
+      `inststate`, `instcross`, `instimg`, `instassoc`, `hdboot`, `knobhd`,
+      `bigvol`, `hdmap`, `hdsize`, `hmadrv`, `httpinstall`, `netinst`,
+      `fddpark`, `hddcp`, `hdauto` - 16 of 18 first time; `httpinstall`
+      and `netinst` failed on the test changes themselves (a deleted helper
+      `netinst` imports, and a Disk-window walk QEMU could not time), fixed
+      and re-run green, `httpinstall --noattr` still red on KERNEL.SYS.
+      `make test-full` 71 passed.
