@@ -258,7 +258,8 @@ vx_boot_x:
     cmp word [bx+DRVR_SEG], 0
     je .out
 %ifndef VX_DEBUG_KEEP           ; a debugging define, never a build knob: with
-    call COLD_SEG:drvf_drv_release  ; it the refused image stays loaded, so its
+    call bvs_cgo  ; it the refused image stays loaded, so its
+    dw drv_release              ; (the blob's hop: drvf_drv_release went)
 %endif                          ; probe buffers and mode table can be read out
                                 ; of the guest (how the BX contract was caught)
 .out:

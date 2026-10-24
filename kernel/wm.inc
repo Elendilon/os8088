@@ -2012,9 +2012,12 @@ wm_apply_out:                   ; NOT a local label: wm_apply_pf sits between
 ; in:  BX = window ptr, AX = near ptr in the window's OWN segment, 0 to clear
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+; KERN_MEGA's ALONE, as wm_onclose: cell 0x0196 is this store everywhere else.
+%ifdef KERN_MEGA
 wm_onmouseup:
     mov [bx+W_ONMOUSEUP], ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; OSAPI_WM_ONCLICK - install (or clear) a window's CONTENT CLICK handler
@@ -2051,18 +2054,22 @@ wm_onmouseup:
 ; past. Two words is two contracts a package opts into one at a time.
 ; -----------------------------------------------------------------------------
 %ifdef KERN_BIG
-wm_ondrag:
-    mov [bx+W_ONDRAG], ax
-    ret
+%ifdef KERN_MEGA                ; kern_mega's ALONE: on kern_big and kern_emu
+wm_ondrag:                      ; cell 0x0334 IS this store (an INLINE cell,
+    mov [bx+W_ONDRAG], ax       ; kernel size pass 14), and the panel's one
+    ret                         ; kernel call writes it in place (cp_kinit)
+%endif
 
 ; -----------------------------------------------------------------------------
 ; wm_ontimer - install (or clear) a window's timer handler (SPEC.md 13.9)
 ; in:  BX = window ptr, AX = near ptr in the window's OWN segment, 0 to clear
 ; out: nothing (all registers preserved)
 ; -----------------------------------------------------------------------------
+%ifdef KERN_MEGA                ; ...and so is this one: cell 0x0342
 wm_ontimer:
     mov [bx+W_ONTIMER], ax
     ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; wm_timer - arm this window's one-shot timer (SPEC.md 13.9)
@@ -2137,9 +2144,13 @@ wm_timer:
 ; by wm_init, because unlike every other side table here this one is read for
 ; a window that never installed anything.
 ; -----------------------------------------------------------------------------
+; KERN_MEGA's ALONE: every other kernel's cell 0x0362 IS this store (an INLINE
+; cell, kernel size pass 14), and the one kernel caller writes it in place.
+%ifdef KERN_MEGA
 wm_onclose:
     mov [bx+W_ONCL], ax         ; (and the FLAGS, which the other installers
     ret                         ; keep: a `mov` touches none)
+%endif
 
 ; -----------------------------------------------------------------------------
 ; wm_clh_slot - SI -> this window's close-negotiator word (module internal)
@@ -2311,7 +2322,8 @@ wm_close_pass:
     test byte [bx+W_FLAGS], 1   ; still a live record? A minimized window is
     jz .done                    ; closable, so this is bit 0 and not bit 1
     xor ax, ax                  ; retire the negotiator: the request IS its
-    call wm_onclose             ; answer (see wm_close_req)
+    mov [bx+W_ONCL], ax         ; answer (see wm_close_req) - wm_onclose's
+                                ; store, written here (kernel size pass 14)
     call app_close_win
 .done:
     call gfx_unlock

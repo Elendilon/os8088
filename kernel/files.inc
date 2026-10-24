@@ -2301,11 +2301,10 @@ fm_s_free:    db '   Free ', 0      ; carries both figures (SPEC.md 22.7)
 %if fm_s_free - fm_s_size != 6
   %error "fm_draw_status reaches fm_s_free as the string after fm_s_size"
 %endif
-%ifdef KERN_BIG
-fm_s_root     equ drv_t_ram + 4 ; window title at the root - 'Disk', 0, the
-%else                           ; tail of the RAM disk's 'Ram Disk' (driver.inc,
-fm_s_root:    db 'Disk', 0      ; .text, a kern_big row) - kernel size pass 13
-%endif
+fm_s_root:    db 'Disk', 0      ; window title at the root. kern_big's was the
+                                ; tail of the RAM disk's resident 'Ram Disk'
+                                ; (kernel size pass 13) until pass 14 took the
+                                ; drivers' titles out of resident (driver.inc)
 fm_s_rootf:   db 'Root '        ; (the context menu's 'Root Folder' is this
 fm_s_folder:  db 'Folder', 0    ; with five bytes in front) ...and in a
                                 ; folder we arrived at from

@@ -1013,18 +1013,14 @@ vid_depth_set:
     pop ax
     ret
 %endmacro
-%ifndef KERN_SMALL              ; (PARITY, the nop below - the copy
-    nop                         ; left `.text` in an ODD total, kernel size
-%endif                          ; pass 14; kern_small's own nop went with its
-                                ; resident copy and its `jmp`, an even 200)
-                                ; pass 14) PARITY, never executed (kernel size pass
-                                ; 13): kern_small's planar residue came out of this
-                                ; file in an ODD total, and gfx_rowbase,
-                                ; gfx_nextrow and gfx_blit4 below would
-                                ; otherwise sit at an odd shift against the
-                                ; base - one of seven such bytes on that
-                                ; kernel, each placed where a run of hot code
-                                ; begins (PERFORMANCE.md Part 7)
+    nop                         ; PARITY, never executed, on every kernel
+                                ; (PERFORMANCE.md Part 7, tests/unit/t_hotpar.py):
+                                ; kern_big's vid_apply copy left `.text` in an
+                                ; ODD total (kernel size pass 14); kern_small's
+                                ; pass-13 pad here went with its resident copy
+                                ; and came back when pass 14's api work freed an
+                                ; odd byte ahead of it - ahead of gfx_rowbase,
+                                ; gfx_nextrow and gfx_blit4 either way
 
 ; -----------------------------------------------------------------------------
 ; vid_6845_prog - write R0..R11 of the mono card's CRTC from a 12-byte table

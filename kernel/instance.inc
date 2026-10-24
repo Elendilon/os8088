@@ -871,8 +871,6 @@ inst_rel_rec:
 
 ; -----------------------------------------------------------------------------
 ; inst_of_win - find the instance owning a window
-; PARITY: serial's teardown call adds three bytes before the UI hot entry.
-    db 0
 ; in:  BX = window ptr (record-aligned)
 ; out: CF = 0, DI = instance record ptr; CF = 1 if the window is unowned
 ;      (DI undefined). BX preserved.
@@ -2063,12 +2061,13 @@ inst_pkg_spawn:
     pop dx
     pop cx
     pop bx
-    ret
-    nop                         ; PARITY PAD, never executed: the class mask
-                                ; above is one byte longer than the bit-7
-                                ; shift it replaced, and ui_task and the hot
-                                ; routines after it keep the parity t_hotpar
-                                ; measured them at
+    ret                         ; (the class mask above is one byte longer
+                                ; than the bit-7 shift it replaced, and
+                                ; serial's teardown call in inst_rel_rec three:
+                                ; the two are an even four together, so
+                                ; ui_task keeps the parity t_hotpar pins
+                                ; without the pad each once carried - kernel
+                                ; size pass 14)
 
 ; -----------------------------------------------------------------------------
 ; inst_pkg_alive - the worker's liveness check, and its only way to die

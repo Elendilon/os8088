@@ -2038,8 +2038,10 @@ exactly as a driver's is, `cp_item_name` being the one place both are asked
 for, and the page heading - which is the same string - is drawn once by
 `cp_item_paint` rather than by each page. `kern_big` −119 `.text`, `kern_small`
 −75, for +6 of `CTRL.DRV` net of the eight heading blocks it deleted;
-`'Sound'` alone is resident still, as `drv_t_sound`, because `drv_tab` names
-the class by it. The same pass moved the rest of what only the image reads:
+`'Sound'` alone stayed resident, as `drv_t_sound`, because `drv_tab` named
+the class by it - until kernel size pass 14 took every row's title out of
+resident (§51.3.3: a row's `DRVR_TITLE` is an offset into a table CTRL.DRV
+and the boot blob each carry). The same pass moved the rest of what only the image reads:
 the loader's `DRVE_*` sentences and `drv_errstr` (−173 on `kern_big`, −27 on
 `kern_small`, staged by `drv_errstg` with `DRVE_DISK`'s drive letter copied
 out of the resident, boot-stamped `cp_s_nodrv`), the Date/Time field table
@@ -3970,7 +3972,7 @@ VIEW_KB       equ 3          ; each window's cache, claimed when it opens
 | `kernel/desk.inc`   | desktop drive icons: detect, paint, click/open (§26)    |
 | `kernel/dock.inc`   | basic bottom Dock, shared state, advanced-module dispatch and lifetime (§30) |
 | `kernel/dockmod.inc` | optional DOCK.DRV: placement, auto-hide, advanced painting and input (§30.5–30.6) |
-| `kernel/extmod.inc` | EXTD.DRV, `kern_big` only: the extended desktop's placement policy — bringing display 1 up, landing and the straddle fit, which display a window is on, the fsx bracket's collapse, and the second display's arms that run on a user's action (its ground, the zoom and fullscreen boxes, a drag's floor, fsx caps) — prefix `ext_`/`exk_`; the resident half is `exf_sync` in **`.cold`** and the `EXTCALL` sites (§39.19.6) |
+| `kernel/extmod.inc` | EXTD.DRV, `kern_big` only: the extended desktop's placement policy — bringing display 1 up, landing and the straddle fit, which display a window is on, the fsx bracket's collapse, and the second display's arms that run on a user's action (its ground, the zoom and fullscreen boxes, a drag's floor, fsx caps) — prefix `ext_`/`exk_`; the resident half is the `EXTCALL` sites alone since kernel size pass 14 (`exf_sync` is the `EXF_SYNC` macro, expanded in CTRL.DRV and the blob, §39.19.6.1) |
 | `kernel/winmod.inc` | WIN95.DRV, `kern_big` only: the Windows theme's chrome — the title bar with its three buttons on the right, which button a point is on, a held button's rect, the size grip and the pull-down that stays open on a click — prefix `wn_`/`wnx_`/`wnk_`; the resident half is `thv`, its five `jmp far` doors and `thf_apply` in **`.cold`** (§76.14) |
 | `kernel/deskmod.inc` | DESK.DRV, `kern_big` only: the desk layer's code that runs only where a widget exists — `OSAPI_WM_DESK`'s MAKE, DRAG and RELEASE, the hover edge's body, a desk window's show and the widget's key arm — prefix `dkd_`; the resident half is `osapi_wm_desk_x`'s QUERY thunk and `desk_need` in **`.cold`** (which load it - `desk_need` is also the loader's step 5's, for an `OS88_F_DESK` package, and keeps an open `drv_vol` bracket's pair) and the slot calls in `cur_shape_pass`, `wm_show_b` and `fdlg_top_x` (§11.103.10) |
 | `kernel/stikmenu.inc` | STIKMENU.DRV, `kern_big` only: Locator's Sticky Apps menu (§110.12) — the scan of every reachable `STIKAPPS\`, the card reader, the panel's composer and tracker, and the posted pick's launch, close, hide, show and arrange — prefix `stm_`/`smn_`; the resident half is `stm_track_x` and `stm_act_x` in **`.cold`** (load, track, drop; the posted act, drop), `menu_track`'s test for the item-less kernel cell and `ui_cmd`'s `CMD_STIK` |
@@ -16399,8 +16401,9 @@ again - which is `.boot2`'s definition (§2.5.3.3), and it is where
 `xm_boot_x`, the same shape for `XMEM.DRV`, already was. It shipped in `.cold`
 instead, resident for the life of the machine, only because the blob was full
 when it was written. It is in the blob now, reached from `kmain_o` with
-`BLOBCALL`, its edges out far (`drvf_drv_call`, `drvf_drv_release`,
-`ovw_mou_lockon`) and its exit a `retf`.
+`BLOBCALL`, its edges out far (`drvf_drv_call`, `drv_release` through the
+blob's `bvs_cgo` hop since kernel size pass 14, `ovw_mou_lockon`) and its exit
+a `retf`.
 
 **`kern_emu`'s blob is ELEVEN sectors to make the room, and kern_big's stays
 ten.** The body is 94 bytes in the blob (the near calls it had in `.cold`
@@ -32820,9 +32823,10 @@ step; the feature is worth having and it is not worth that.
 
 Two consequences follow from living there and neither is optional. **The
 overlay may not reach its own data through DS** (§2.5), so the buffer and the
-three strings are read `cs:` — and the string the *driver* supplies is a
-`.text` one read through DS, which is why there are two walkers (`spl_mcs` /
-`spl_mds`) rather than one, and why `spl_mdraw` calls **`font_run_x`**, the
+three strings are read `cs:` — and so, since kernel size pass 14, is the
+driver row's title, which is the blob's own copy of `DRV_TITLES` (§51.3.3)
+rather than a `.text` string read through DS; the second walker that DS read
+needed (`spl_mds`) went with it. `spl_mdraw` calls **`font_run_x`**, the
 `ES:SI` entry, rather than `font_run`. And **no entry takes a pointer across
 the boundary**: a caller in `.cold` naming a label in `.ovl` would assemble and
 would be a cross-address-space reference `os88ovlchk` cannot see, so the two
@@ -42991,6 +42995,36 @@ The fifteen, each with the access `t_api_abi`'s INLINE ledger checks it for:
 | `OSAPI_WM_ONRESIZE` | `mov [cs:bx+W_ONSZ], ax` |
 | `OSAPI_WM_ONWAKE` | `mov [cs:bx+W_ONWK], ax` |
 | `OSAPI_WM_ONRCLICK` | `mov [cs:bx+W_ONRC], ax` |
+| `OSAPI_WM_ONMOUSEUP` | `mov [word cs:bx+W_ONMOUSEUP], ax` — kernel size pass 14, off kern_mega |
+| `OSAPI_WM_ONCLOSE` | `mov [word cs:bx+W_ONCL], ax` — kernel size pass 14, off kern_mega |
+| `OSAPI_WM_ONDRAG` | `mov [cs:bx+W_ONDRAG], ax` / `clc` — kern_big and kern_emu (pass 14) |
+| `OSAPI_WM_ONTIMER` | `mov [cs:bx+W_ONTIMER], ax` / `clc` — kern_big and kern_emu (pass 14) |
+
+**Kernel size pass 14 added two and a FOURTH SHAPE.** `OSAPI_WM_ONMOUSEUP`
+and `OSAPI_WM_ONCLOSE` were rule 1's named exceptions below: each had ONE
+kernel caller (`cp_kinit`, `ui_task`'s close request), and that caller now
+writes the store itself - three bytes, where its `call` was three - so the
+routine has no caller but its cell and the cell became it (−4 each). They use
+the word displacement for six bytes, as `OSAPI_WM_ONWHEEL` does.
+`OSAPI_WM_ONDRAG` and `OSAPI_WM_ONTIMER` went the same way on kern_big (§13.8.2,
+§13.9): their routine was the store behind a `wm_*_c` shim that adds the
+`clc` the big build answers with, so the cell is the store and the `clc` -
+`t_api_abi` accepts a `clc` before the `retf` as it accepts `cbw` - and the
+body, the shim and the Control Panel's one kernel call go (−19 with the store
+`cp_kinit` writes in place). kern_small's three cells still share its refusing
+`stc / ret`, and `OSAPI_WM_TIMER`'s routine is more than a store and keeps its
+shim. kern_mega keeps all four as rare cells and their bodies: its cell cannot store through CS,
+and a `MEGA_ICWB` stub is eleven bytes for a four-byte body. **And three
+cells are inline with NO memory access at all** - kern_mega's protected-mode
+questions, which every other kernel answers in registers: `OSAPI_XMEM_SEL`
+(`0x04B3`) and `OSAPI_XMEM_RUN` (`0x04CB`) are `mov ax, 1 / cmp al, 2 / retf`
+(AX = 1, CF = 1 - "no protected mode here", `OSAPI_XREFUSE`), and
+`OSAPI_MEM_CODESEL` (`0x04B9`) is `mov ax, dx / cmp ax, 1 / retf` (the segment
+is its own code selector in real mode; CF iff DX = 0). Their six-byte `.text`
+bodies were reached by nothing else (−12 kern_big and kern_emu, −6 kern_small,
+whose `XMEM_SEL` borrowed `xm_copy`). There is no operand to name, so
+`t_api_abi`'s ledger for them is **FIXED**: the six bytes themselves, on the
+kernel it reads; on kern_mega they are rare cells to bodies of their own.
 
 Their old routine names (`osapi_get_ticks`, `evq_pending`, `menu_owner`,
 `cpu_info`, `wm_onwake` and the rest) survive in prose elsewhere in this
@@ -43006,8 +43040,9 @@ silently:
    contract: `hiber.inc`'s `HB_API_COLOR` far-calls `apic_osapi_set_color`
    and gets exactly what it got before. A body with a second caller stays a
    body.
-   `wm_onmouseup`, `wm_onclose`, `clip_size` and `wm_clip_clear` are
-   exactly that shape and have kernel callers, so they are not inline.
+   `clip_size` and `wm_clip_clear` are exactly that shape and have
+   kernel callers, so they are not inline (`wm_onmouseup` and `wm_onclose`
+   were too, until pass 14 wrote their one caller each in place, above).
 2. **Its data is reached through CS**, never DS: DS is the CALLER's inside
    the cell. Only KERNEL_SEG data qualifies — `.text` or `.bss`, the two
    sections a `cs:` offset names — never `.lowbss` or a `.cold` variable.
@@ -76270,8 +76305,11 @@ refused both times, naming the line.
 
 ##### 39.19.6.1 Lifetime: pinned while extended, dropped on the way back to Single
 
-One resident routine, **`exf_sync`** (`.cold`, far, 46 bytes), reconciles the
-image with `[vid_dmode]`, `dkf_apply`'s shape: Extend → `mod_need(MOD_EXT)`,
+One routine, **`exf_sync`**, reconciles the image with `[vid_dmode]` - since
+kernel size pass 14 NOT resident: it is the `EXF_SYNC` macro (extmod.inc),
+expanded as `cxf_sync` in CTRL.DRV and `bxf_sync` in the boot blob, its two
+kernel calls through each image's own `KGO_PAIR` hop (−46 resident, it was 46
+bytes of far `.cold`) - `dkf_apply`'s shape: Extend → `mod_need(MOD_EXT)`,
 and a refusal puts `[vid_dmode]` back to Single and answers CF = 1; Single →
 `mod_drop`, but **only once `[vid_ndisp]` ≤ 1** — the drop waits for the
 collapse, which is the invariant kept by construction rather than by care.
@@ -79063,7 +79101,8 @@ overlay, which dies at `mem_unblob` and costs nothing resident. It is 113
 bytes, and the overlay had 25 left on `kern_big` and **19 on `kern_emu`**,
 whose VMware probe also lives there; a key costs it 10 bytes on its own
 (the `_keys` row and `CFG_FBUF`'s growth). So the overlay makes one far call
-and nothing else, and `vgcf_boot` — 28 bytes of `.cold`, resident — tests
+and nothing else, and `vgcf_boot` — 28 bytes of `.cold`, resident (in the
+boot blob, at its one call site in `drv_boot_x`, since kernel size pass 14) — tests
 the byte, reads the core with `mod_need MOD_SETS`, runs `SC_OP_VGC` through
 its one slot and drops it again. **The core is read only on a machine whose
 box is ticked**, so every other machine pays the 28 bytes and no disk time;
@@ -96997,6 +97036,24 @@ machine with a disk pays it without being asked. `drv_sniff` is **3.4 ms** in
 total on a disk-less GLaBIOS 5150, the OPL2 probe included. The plan put the
 autoload at 0.2-0.4 s and priced only the read
 (docs/plans/completed/HDD-AUTOLOAD-PLAN.md).
+
+### 51.3.3 A row's TITLE is not resident
+
+A `drv_tab` row's display name - 'Sound', 'Hard Drive', 'USB Mouse' - has
+exactly two readers, and neither is resident: the loading screen's `Loading
+Driver n/N (Title)` (§15.6, `drv_boot_x` in the blob) and the Drivers page
+(`cp_drv_paint` and `cp_drv_mempar`, in `CTRL.DRV`). So since kernel size
+pass 14 the names are not in `.text` at all: `driver.inc`'s `DRV_TITLES`
+macro is ONE block of them, expanded twice - beside `drv_memk` in CTRL.DRV's
+image, read `cs:` and staged through `cp_stage` like every image string, and
+beside `drv_boot_x` in the blob, read `cs:` by `spl_mcs` - and a row's
+`DRVR_TITLE` is an OFFSET into it (`DRVT_*`), the same in both copies because
+they are one macro. −77 resident on kern_big, −92 on kern_emu (its absolute
+mouse's name), +100 of `CTRL.DRV` (its 15 KB claim holds it) and +79 of a blob
+that is given back at `mem_unblob`. Two short strings that were tails of the
+resident titles - `fdlg_s_drive`'s `Drive` and the Disk window's root title
+`Disk` - carry their own bytes again. `ss_row` and `xm_row` still point
+`DRVR_TITLE` at their file names: nothing walks them for a title.
 
 ### 51.4 Unloading, and why detach comes first
 

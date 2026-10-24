@@ -21,7 +21,7 @@
 ;
 ; THE INVARIANT: [vid_ndisp] > 1 only while this image is mounted. The one
 ; routine that makes it 2 is ext_extend_b below (and vid_fsx_leave, also
-; here, restoring it), so it cannot happen without the image; and exf_sync
+; here, restoring it), so it cannot happen without the image; and EXF_SYNC
 ; drops the image only once the relayout has put [vid_ndisp] back to 1. Every
 ; kernel caller therefore either sits behind a [vid_ndisp] test it already
 ; had, or is content with mod_gone's CF = 1, registers preserved, as the
@@ -42,9 +42,8 @@
 ; `.modx`).
 ; =============================================================================
 %ifdef KERN_BIG
-section .cold
 ; -----------------------------------------------------------------------------
-; exf_sync - EXTD.DRV follows [vid_dmode] (far)
+; EXF_SYNC prefix, CALLMAC - EXTD.DRV follows [vid_dmode] (near, `%1_sync`)
 ; in:  [vid_dmode], [vid_ndisp]
 ; out: CF = 1 Extend was asked for and the image could not be had - no system
 ;      disk, no heap, a stamp - and [vid_dmode] is Single again, so the caller
@@ -57,31 +56,39 @@ section .cold
 ; boot settings reader calls it once, after SYSTEM.CFG's two arrangement bytes
 ; are stored and before the adapter switch that can extend (driver.inc
 ; drv_boot_x); a refusal there is Single, with the file left as it is.
+;
+; WRITTEN ONCE AND EXPANDED WHERE ITS CALLERS ARE (kernel size pass 14): it was
+; `exf_sync`, a resident `.cold` far body, and its three callers are CTRL.DRV's
+; arrangement row (`cxf_sync`, ctrl.inc) and the blob's drv_boot_x (`bxf_sync`,
+; driver.inc). %2 is the image's far hop into `.cold` (CPXC, BSWC) for the two
+; kernel routines it calls, mod_need and mod_drop - pass 13's DRV_ATTACH shape.
 ; -----------------------------------------------------------------------------
-exf_sync:
+%macro EXF_SYNC 2
+%1_sync:
     push ax
     mov al, MOD_EXT
     cmp byte [vid_dmode], 0
-    jne .need
+    jne %%need
     cmp byte [vid_ndisp], 1
-    ja .out                     ; CF = 0: still extended, drop after relayout
-    call mod_drop               ; (a drop of an empty row is a no-op)
+    ja %%out                    ; CF = 0: still extended, drop after relayout
+    %2 mod_drop                 ; (a drop of an empty row is a no-op)
     clc
-    jmp short .out
-.need:
+    jmp short %%out
+%%need:
     mov ah, [vid_avail]         ; ...but only on a machine that can EVER pair:
     not ah                      ; vid_dual_ok's fixed half, HERC and VGA|CGA -
     test ah, VID_A_HERC | VID_A_CGA ; a VGA sets the CGA bit unprobed
-    jnz .out                    ; (vid_probe_avail), so HERC|CGA is the same
+    jnz %%out                   ; (vid_probe_avail), so HERC|CGA is the same
                                 ; test. CF = 0 (test clears it) and [vid_dmode]
                                 ; kept: a SYSTEM.CFG carried from a dual
                                 ; machine costs this one no read and no claim
-    call mod_need
-    jnc .out
+    %2 mod_need
+    jnc %%out
     mov byte [vid_dmode], 0     ; MOV keeps mod_need's CF = 1
-.out:
+%%out:
     pop ax
-    retf
+    ret
+%endmacro
 
 section .modx
 ; EXK name - far-call the KERNEL routine `name` (a near proc in .text) from the
