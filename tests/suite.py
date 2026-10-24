@@ -1921,6 +1921,16 @@ FULL = [
         "and not fast because the owner asked for it there; host-side, "
         "0.03s measured",
         needs=()),
+    Row("chxthunk", "soak", py("tests/unit/t_chxthunk.py"), 4.0,
+        "No .text code in SHEET calls through a module vector (SHOUT / "
+        "call far [sh_v_|ch_v_]): ch_xthunk takes any CS that is not "
+        "CHART.OVL's for MACRO.OVL's, so a resident caller's far return "
+        "lands in MACRO.OVL at a .text offset and the machine dies on the "
+        "death panel - sh_new's SHOUT sh_colw_clear did, on File > New. "
+        "Sections are nasm's map, not a walk's guess; red with that SHOUT "
+        "put back. Soak, not fast: it is about one package; host-side, "
+        "3.9s measured",
+        needs=()),
     Row("pins", "full", py("tests/unit/t_pins.py"), 5.5,
         "docs/plans/NO-PINNING-PLAN.md 4, at the owner's word ('a full tier "
         "test to ratchet pins'): every heap-claim site in apps/, drivers/ "
