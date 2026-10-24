@@ -368,17 +368,23 @@ mou_errt    dw -MOU_ERRQ, -MOU_ERRQ ; ...[ticks] at each port's last framing
 ; every task stack in the machine is the trade, and it is not close.
 ; -----------------------------------------------------------------------------
 %ifndef NO_MOUPRIV
-%ifdef VID_EXT
-MOU_PSTK    equ 256             ; ...AND TWICE THAT WITH THE EXTERNAL RENDERER
-                                ; (SPEC.md 120.3.3): the driver draws the arrow
-                                ; from this stack and a VBE window switch is an
-                                ; `int 10h`, whose BIOS frame the 54-byte chain
-                                ; never had to hold. 128 bytes of .lowbss,
-                                ; kern_big alone
-%else
 MOU_PSTK    equ 128             ; 2.4x the 54 the chain measures on the deepest
-%endif
-                                ; adapter. Nothing can interrupt this stack -
+                                ; adapter - and WITH the external renderer too,
+                                ; though there the driver draws the arrow from
+                                ; this stack and a VBE window switch is an
+                                ; `int 10h`, whose BIOS frame the 54-byte chain
+                                ; never had to hold (SPEC.md 120.3.3). It was
+                                ; 256 under VID_EXT for that, 128 bytes of
+                                ; .lowbss on every kern_big; since kernel size
+                                ; pass 14 vid_rowtab lies directly under it,
+                                ; and the row table is read by nothing while
+                                ; [vid_ext] is 1 - every body that would use a
+                                ; row is hooked - so a packed display's arrow
+                                ; may run on into those 696 bytes, which
+                                ; vid_apply rebuilds whole when the desktop
+                                ; leaves VID_VESA (AFTER vid_depth_set clears
+                                ; [vid_ext], so no deep ISR can follow it).
+                                ; Every other kind stays inside the 128. Nothing can interrupt this stack -
                                 ; the ISR holds IF=0 throughout - so 54 is the
                                 ; whole answer and not a sample, and the margin
                                 ; is against a future cur_move rather than
@@ -6224,9 +6230,19 @@ resb (2 - (($-$$) % 2)) % 2     ; even, so SP is even across the swap. `alignb`
                                 ; spelled out - NASM refuses the macro form
                                 ; against this nobits section (sch_stacks'
                                 ; declaration carries the same note)
+%ifdef VID_ROWTAB_MOU
+vid_rowtab  resw VID_ROWTAB     ; viddet.inc's row table, declared HERE so the
+                                ; stack below runs on into it on a packed
+                                ; display (MOU_PSTK's note)
+%endif
 mou_pstack  resb MOU_PSTK       ; the mouse ISR's own stack (MOUPRIV_ENTER).
                                 ; .lowbss and not .bss: SS is LOW_SEG for every
                                 ; task and the swap moves SP alone
+%ifdef VID_ROWTAB_MOU
+%if mou_pstack - vid_rowtab != VID_ROWTAB * 2
+  %error "vid_rowtab must lie directly under mou_pstack: a packed display's arrow runs on into it (SPEC.md 120.3.3)"
+%endif
+%endif
 section .bss
 mou_psave   resw 1              ; the task's SP across it, reached through CS at
                                 ; entry because DS is not ours yet

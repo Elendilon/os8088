@@ -449,7 +449,14 @@ VID_ROWTAB  equ 128
 vid_rowmax  dw 0
 
 section .lowbss                 ; LOW_SEG (SPEC.md 2.1), and not .bss - 696
-vid_rowtab  resw VID_ROWTAB     ; bytes in the image rung would cross a step
+%ifdef VID_EXT                  ; bytes in the image rung would cross a step
+ %ifndef NO_MOUPRIV             ; ...and with the external renderer and the
+  %define VID_ROWTAB_MOU        ; mouse ISR's private stack, mouse.inc declares
+ %endif                         ; it, directly UNDER that stack (SPEC.md
+%endif                          ; 120.3.3): a packed display reads no row of it
+%ifndef VID_ROWTAB_MOU
+vid_rowtab  resw VID_ROWTAB
+%endif
 
 section .text                   ; AND spend KERN_CODE_MAX, which is the guard
                                 ; that cannot be raised. Here it costs one

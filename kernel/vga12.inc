@@ -2802,12 +2802,6 @@ gfx_blitp:
     stc                         ; the same reason: the guard is INSIDE the
 .exit:                          ; geometry's own push and one is outstanding
     jmp .out
-%ifdef VID_EXT
-    db 0                        ; PARITY, never executed (between a jmp and a
-                                ; jump target): VIDEXTR's seven bytes above
-                                ; are even with it, and font_run keeps its
-                                ; entry parity (tests/unit/t_hotpar.py)
-%endif
 .clipok:
     test al, 7
     jz .xal                     ; x off the byte grid - refused, but for a
@@ -2862,12 +2856,21 @@ gfx_blitp:
     ; OUTSIDE the %endif rather than inside it: GFX_PLANE implies KERN_BIG
     ; today, so both spellings assemble, and this one stays right if that ever
     ; stops being true.
+%ifdef VID_EXT
+    cmp byte [vid_planes], 4    ; FOUR PLANES OR NOTHING: a 1bpp display is 1
+    jne .no                     ; and a packed one its depth, 8 or 16, and both
+                                ; refuse (SPEC.md 120.3.1) - the source is a
+                                ; plane layout neither display has, and Paint
+                                ; keeps its gfx_blit4 fallback for exactly this
+                                ; answer. vid_depth_set writes the three bytes
+                                ; together, so this is [vid_mono] = 0 and
+                                ; [vid_ext] = 0 in one compare (kernel size
+                                ; pass 14: VIDEXTR's seven bytes and a parity
+                                ; pad, -8)
+%else
     cmp byte [vid_mono], 0
     jne .no
-    VIDEXTR .no                 ; ...and a packed display refuses too (SPEC.md
-                                ; 120.3.1): the source is a plane layout this
-                                ; display does not have, and Paint keeps its
-                                ; gfx_blit4 fallback for exactly this answer
+%endif
     ; --- the geometry, once for the whole block. (The first version of this
     ; shifted with `mov cl, 3` and then popped x into CX - a count destroyed by
     ; the value it was going to shift, which made the block one byte too wide

@@ -217890,11 +217890,19 @@ arms of `cur_put_1` and `cur_move_1`, and the driver owns the cycle: it keeps
 its own save-under (two 16x16 cells at 2 bytes a pixel, 1 KB of bss), reads
 the arrow's masks through `cur_tabp` and the position through
 `cur_drawn_x`/`y`, and writes the new position back. A window switch inside
-the arrow's cycle is an `int 10h` on the mouse ISR's stack, so **`MOU_PSTK`
-is 256 bytes under `VID_EXT`** (128 on every other build, §9.10): the BIOS's
-own frame is what the 54-byte chain never had to hold. A private stack in the
-driver was the first design and was refused — two tasks preempted inside one
-`int 10h` would share it.
+the arrow's cycle is an `int 10h` on the mouse ISR's stack, whose BIOS frame
+the 54-byte chain never had to hold. **`MOU_PSTK` stays 128 and the row table
+lies directly under it**: `vid_rowtab` (§39.3.1, 696 bytes) is declared
+immediately below `mou_pstack` under `VID_EXT`, asserted adjacent, and nothing
+reads a row of it while `[vid_ext]` is 1 - every body that would use one is
+hooked - so a packed display's arrow may run on into it, 824 bytes in all.
+`vid_apply` rebuilds the whole table when the desktop leaves `VID_VESA`, after
+`vid_depth_set` has cleared `[vid_ext]`, so no deep ISR can follow the
+rebuild; every other kind stays inside the 128. (It was a 256-byte stack
+under `VID_EXT` until kernel size pass 14: 128 bytes of `.lowbss` on every
+kern_big, most of which never runs a VBE.) A private stack in the driver was
+the first design and was refused — two tasks preempted inside one `int 10h`
+would share it.
 
 ### 120.4 Switching in, and out
 
