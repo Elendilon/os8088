@@ -382,56 +382,35 @@ def hd_install(q, hdd_seg, hdimg, want):
     file copies read into the tool's own heap image - so this is the whole of
     the split's crossing, run from the pool. Asserted off the disk: the
     installer's SYSTEM folder, with the driver and its tool in it."""
-    import hashlib
     import instdeep
     hd = {"syms": drv_syms("hdd"), "base": (hdd_seg << 4) + ORG}
     click, x0, y0, tseg = open_hd_page(q, hd)
     if not tseg:
         want(False, "the Hard Disk page loaded HDDTOOL.DRV for Install")
         return
+    import instwiz
     known = {w.i for w in os88geom.windows(q, S)}
     click(x0 + instdeep.CP_RX + instdeep.HDP_B2X + instdeep.HDP_BW2 // 2,
           y0 + instdeep.HDP_BY + instdeep.HDP_BH // 2)
     box = {}
 
-    def opened():
-        new = [w for w in os88geom.windows(q, S) if w.i not in known]
+    def opened():                   # Install starts the wizard (SPEC.md
+        new = [w for w in os88geom.windows(q, S)    # 52.10.4.4): a posted
+               if w.i not in known and w.visible]   # launch off the boot disk
         if new:
             box["w"] = new[0]
         return bool(new)
-    if not os88qemu.acted(q, opened, secs=30, what="the installer window"):
-        want(False, "Install opened the installer window")
+    if not os88qemu.acted(q, opened, secs=60, what="the wizard"):
+        want(False, "Install started the INSTALL.O88 wizard")
         return
-    iw = box["w"]
-    ix, iy = iw.x + 1, iw.y + TITLE_H
-    bx = ix + instdeep.HIW_B0X + instdeep.HIW_BW0 // 2
-    by = iy + instdeep.HIW_BY + instdeep.HIW_BH // 2
-    click(bx, by)                               # Install: arms
-    os88qemu.ui_done(q, S, cap=2)               # (was pace(2): the arming)
-    click(bx, by)                               # Install: goes
+    wz = instwiz.qemu(q, S, click, box["w"])
+    wz.run(limit=300.0)             # its log's end IS the install's end
 
     def tree():
         try:
             return instdeep.partition(hdimg).tree()
         except SystemExit:
             return {}
-    digest = lambda: hashlib.sha1(open(hdimg, "rb").read()).digest()
-    if not os88qemu.acted(q, lambda: "SYSTEM" in tree(), secs=300,
-                          what="the installer's SYSTEM folder"):
-        want(False, "the install wrote SYSTEM/ on C: (%s)" % sorted(tree()))
-        return
-    # THE COPY HOLDS THE GFX LOCK for its whole run, so the UI going idle is
-    # the install's end and the drive's own quiet after it is 3 x 1 guest s
-    # of proof, not 8 x 2 (tests/instdeep.py's run_install, the same rule);
-    # a UI that never idles in the cap keeps the old proof
-    idle = os88qemu.ui_done(q, S, cap=300)
-    n, gap = (3, 1) if idle else (8, 2)
-    last, still = digest(), 0
-    while still < n:                            # the drive going quiet
-        os88qemu.pace(q, gap)
-        d = digest()
-        still = still + 1 if d == last else 0
-        last = d
     t = tree()
     got = [p for p in ("KERNEL.SYS", "HDD.DRV", "HDDTOOL.DRV", "COLDHMA.SYS",
                        "SYSTEM/TASKMGR.O88") if p in t]

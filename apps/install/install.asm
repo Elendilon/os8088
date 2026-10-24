@@ -13,12 +13,13 @@
 ;   OSAPI_DRV_USE (SPEC.md 117.3)  the Drivers page's tick - CTRL.DRV's own
 ;                                  cdl_load - which brings HDD.DRV up, and
 ;                                  at the end gives its tool back
-;   HDD.DRV's HDV_TOOL (117.4)     HDDTOOL.DRV's Install window, driven from
+;   HDD.DRV's HDV_TOOL (117.4)     HDDTOOL.DRV's install engine, driven from
 ;                                  here: its device table, its State column,
 ;                                  its hd_inst_step
 ;
-; So a fix to the installer is a fix to both faces, and an install made from
-; either is the same bytes on the disk.
+; This is the ONLY face that engine has. The Control Panel's Install button
+; starts this package (SPEC.md 52.10.4); HDDTOOL.DRV carried a dialog of its
+; own as well until it was the same stage machine twice.
 ;
 ; ONE WINDOW, PAGES IN IT. in_build sets what a page shows - a heading, up to
 ; IN_NL lines, a radio group, three buttons - and in_paint draws it. A page
@@ -949,7 +950,7 @@ in_devlabel:
 
 ; -----------------------------------------------------------------------------
 ; in_slotlabel - BX = a slot: 'Slot 1  31 MB  C: FAT16' (the State column is
-; the Install window's own words, HDIS_TEXT) into its item buffer; greyed
+; the engine's own words, HDIS_TEXT) into its item buffer; greyed
 ; unless an install may take it (HDS_OK, or HDS_LIVE kept). Keeps BX
 ; -----------------------------------------------------------------------------
 in_slotlabel:
@@ -1636,10 +1637,10 @@ in_toslot:
     jc .refused
     mov al, P_SLOT
     jmp in_go
-.refused:                           ; the tool would not come in, or the
-    push di                         ; Control Panel's Install window is open
-    mov byte [in_page], P_DRIVE     ; and owns the engine's state: say so on
-    push si                         ; the drive page's hint line
+.refused:                           ; the tool would not come in, or (an
+    push di                         ; OLDER HDDTOOL.DRV's) Install window is
+    mov byte [in_page], P_DRIVE     ; open and owns the engine's state: say so
+    push si                         ; on the drive page's hint line
     call in_build
     pop si
     pop di
@@ -1657,8 +1658,9 @@ in_scan:
     mov di, in_s_notool2
     jc .bad
     mov di, in_s_cpopen
-    cmp al, 0xFD
-    je .bad
+    cmp al, 0xFD                    ; only a tool built before SPEC.md 52.10.4
+    je .bad                         ; lost its window answers this - an upgrade
+                                    ; booted from C: reaches C:'s HDDTOOL.DRV
     mov [in_eslot], al              ; the engine's own pick, 0FFh none
     call in_probe                   ; in_osmask: which carry KERNEL.SYS
     ; --- the default: os8088 found on a usable slot, else the engine's ---

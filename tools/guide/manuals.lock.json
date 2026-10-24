@@ -502,17 +502,17 @@
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "ddaef50f",
-  "strings": "caf4859056bcb91b",
-  "why": "The engine gained INSTALL's log hook (SPEC.md 117.4.1); the Control Panel's Install window and the pages' words are unchanged"
+  "stamped": "98a487a2",
+  "strings": "e6fb502f9e95b17d",
+  "why": "Format window rows use the install engine's State words (SPEC.md 52.2.2.1); page updated"
  },
  "HDD_DRV": {
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "ddaef50f",
-  "strings": "caf4859056bcb91b",
-  "why": "The engine gained INSTALL's log hook (SPEC.md 117.4.1); the Control Panel's Install window and the pages' words are unchanged"
+  "stamped": "98a487a2",
+  "strings": "e6fb502f9e95b17d",
+  "why": "HDDTOOL.DRV-side change only; nothing the page describes"
  },
  "HELV_F88": {
   "sources": [],

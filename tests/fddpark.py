@@ -161,11 +161,11 @@ def leg(defines, label, image=None, apps=None):
         dirty = show("after a Disk window read B:", st3(m))
 
         # THE RESTART. The BYTE and not the menu: ui_reboot_post's whole job is
-        # to set it (SPEC.md 20.10), the installer's Restart sets it to exactly
+        # to set it (SPEC.md 20.10), the install wizard's Restart sets it to exactly
         # this value, and ui_task spends it at the top of its next pass with
-        # nothing held. tests/instrest.py owns the click; this row owns the
-        # tail, and driving it from the byte keeps a menu's item order out of
-        # an FDC test.
+        # nothing held. tests/netinst.py presses the wizard's Restart; this
+        # row owns the tail, and driving it from the byte keeps a menu's item
+        # order out of an FDC test.
         # 18.100's park now ENDS in the int 19h, so on the default arm the
         # GUI's last instruction is dsk_rb_go in .cold; NOFDDPARK=1 keeps
         # ui_rb_go in .text.

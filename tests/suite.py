@@ -2537,7 +2537,10 @@ SOAK = [
     Row("httpinstall", "soak", py("tests/httpinstall.py"), 35.0,
         "SPEC.md 62.9.17.1 and 121.3: an Install whose SOURCE is the HTTP "
         "drive, onto an IDE disk that already holds a hidden + system "
-        "KERNEL.SYS (keeping files) - the field's upgrade. The 360KB system "
+        "KERNEL.SYS (keeping files) - the field's upgrade, by starting "
+        "INSTALL.O88 OFF the HTTP drive (the wizard's source is where it "
+        "was started, 117.10.5; 52.10.4.4 took the Control Panel's window "
+        "that read the current volume instead). The 360KB system "
         "disk is served with its attributes in OS88.IDX plus a marker only "
         "the served tree has; the MBR commits, the marker arrives, and every "
         "root file is on C: with its bytes, KERNEL.SYS and the drivers hidden "
@@ -11351,24 +11354,19 @@ SOAK = [
         "LOW_SEG's, so the sum covered nothing on both sides and a damaged "
         "image resumed. MartyPC.",
         needs=("marty",), serial=True, timeout=1500),
-    Row("instrest", "soak", py("tests/instrest.py"), 90.0,
-        "SPEC.md 52.10.6.1: the installer's ACTION BUTTON reads Install and "
-        "then Restart, there is no third button, and clicking it at the end "
-        "restarts the machine. The caption is read out of the framebuffer "
-        "against the kernel's own glyph table. It ERASES the VHD.",
-        needs=("marty",), serial=True, timeout=1200),
     Row("inststate", "soak", py("tests/inststate.py"), 90.0,
         "SPEC.md 52.10.4.2: the installer's State column says what each slot "
         "IS - `C: FAT16` for a mounted volume, a foreign type by name, "
         "`Not Formatted`, `Unpartitioned`, and the reason after a comma when "
-        "the verdict is no. Three VHDs with slots 2-4 rewritten before boot, "
-        "every row read out of the framebuffer against the kernel's glyph "
-        "table (instrest's apparatus). Opens the installer and writes "
-        "nothing. Measured 132s for the three boots, serially.",
+        "the verdict is no. Three VHDs with slots 2-4 rewritten before boot; "
+        "the Control Panel's Install starts the wizard (52.10.4.4) and each "
+        "slot's words are read out of the wizard's HDI_SLOTS records on its "
+        "partition page. Writes nothing. Measured 132s for the three boots, "
+        "serially, before the wizard - not re-taken.",
         needs=("marty",), serial=True, timeout=900),
     Row("install", "soak", py("tests/install.py"), 400.0,
-        "SPEC.md 117: the INSTALL WIZARD drives the Control Panel's own "
-        "engine. On MartyPC's XT-IDE XT it launches A:\\INSTALL.O88, walks "
+        "SPEC.md 117: the INSTALL WIZARD, the install engine's only face "
+        "(52.10.4.4). On MartyPC's XT-IDE XT it launches A:\\INSTALL.O88, walks "
         "every page by its own buttons (reading the page out of the "
         "package's memory after each click), picks ERASE over DOS with the "
         "Down key, installs both disks - with the progress widget required ON "
@@ -11396,10 +11394,11 @@ SOAK = [
         "the hard disk. mtools plants SYS.IMG and APPS.IMG, each with a "
         "marker only it carries, in MartyPC's DOS partition; a floppy install "
         "keeps them; then C: boots with a blank in A: and nothing in B:, both "
-        "images are double-clicked into drives and Install runs onto C: "
-        "keeping files. Both markers must arrive and C: must boot. `--from` "
-        "a system disk built before 52.10.17 is the break: no system disk "
-        "is found and the commit never comes. Measured 143s.",
+        "images are double-clicked into drives and the wizard installs onto "
+        "C: keeping files, ending on Done with no apps-disk question. Both "
+        "markers must arrive and C: must boot. `--from` a system disk built "
+        "before 52.10.17 is the break: no system disk is found and the "
+        "wizard stops. Measured 143s before the wizard - not re-taken.",
         needs=("marty", "mtools"), serial=True, timeout=1500),
     Row("instcross", "soak", py("tests/instcross.py"), 160.0,
         "SPEC.md 52.10.16: an install ACROSS BUILDS from a machine booted off "
@@ -11409,7 +11408,9 @@ SOAK = [
         "C:'s and not the new disk's. Stock install; boot C: and offer a knob "
         "disk with its BOOTHD.SYS hidden (refused, nothing written); offer the "
         "real one (the knob tree's own sector lands); boot the knob kernel "
-        "from C:. `--break` gives the knob disk the stock sector, which is "
+        "from C:. The installs are the wizard's, started by the Control "
+        "Panel's Install (52.10.4.4), and the refusal is its Stopped page. "
+        "`--break` gives the knob disk the stock sector, which is "
         "what the old installer wrote, and must fail. It ERASES the VHD and "
         "builds knobhd's knob tree.",
         needs=("marty",), serial=True, timeout=2400),

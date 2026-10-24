@@ -63365,8 +63365,9 @@ page:
 | figure | with `[tm_hion]` (both kernels) |
 |---|---|
 | RAM | conventional + `[tm_hitot]` (the BIOS's extended KB) in MB |
-| System | `tm_sysk` + `[tm_hisys]` (+ `IVT+BIOS` when folded) + `SK_KCLAIM` |
-| memory view System SIZE | `tm_sysk` + `[tm_hisys]`, its items naming every owner (§28.4.10) and then the span above 1MB as a heading - `HMA` on kern_big, `Above 1MB` on kern_mega - with what is in it under it (§28.4.13), so the rows still sum |
+| System | `tm_sysk` + `[tm_hisys]` - `[tm_hifix]` + `SK_KCLAIM` (+ `IVT+BIOS` and `[tm_hifix]` when folded, §28.4.14) |
+| System HMA (§28.4.14) | `[tm_hifix]`: the span between 1MB and the pool - `System>1MB` on kern_mega |
+| memory view System SIZE | `tm_sysk` + every non-program group, its items naming every owner (§28.4.10); `IVT+BIOS` and `System HMA` are rows of their own beside it (§28.4.13, §28.4.14), so the rows still sum |
 | a program, both pages | its region and conventional claims, plus `tm_slotxkb`'s blocks above 1MB (its `OSAPI_XMEM_ALLOC` blocks, and on kern_mega its `OS88_HIGHMEM` claims) |
 | the summary line, kern_mega in protected mode only | ONE pair, `Ram u.uu/t.ttM` - used (RAM's, as above) over total (conventional + `[tm_hitot]`) in MB to two decimals, truncated - and ONE bar (KERN-MEGA-PLAN 14.70.2) |
 
@@ -63486,7 +63487,9 @@ switched at the header's left end, until each showed what the other hid):
 
 | row | at | opens into |
 |---|---|---|
+| `IVT+BIOS` at 0000 | column 0, an ITEM (§28.4.14) | - |
 | `System`, its total and the gray square | column 0 | its items, and one group per owner ONE LEVEL IN - `Kernel`, each driver, each built-in - each opening into its claims at the claim indent |
+| `System HMA` (`System>1MB` on kern_mega), its total | column 0, only when the system holds RAM between 1MB and the pool (§28.4.14) | what is in that span (§28.4.13) |
 | `Programs` and the programs' total | column 0, a HEADING: no marker, never a column's last row, not a click target | - |
 | each package, its square | column 0, under the heading | its claims and its blocks above 1MB |
 | a blank row | **with DETAIL on only**: what DETAIL adds is set off from the programs | - |
@@ -63501,8 +63504,8 @@ take columns from their names, and the total is the one figure the SYSTEM
 view had that the tree would otherwise not.
 
 **DETAIL is for whoever is debugging, and the default view adds up.** With
-every group closed and DETAIL off, the SIZE column - System, and each program
-- sums to Ram's used half, and that plus AVAIL is Ram's total: every figure
+every group closed and DETAIL off, the SIZE column - IVT+BIOS, System, System
+HMA (§28.4.14), and each program - sums to Ram's used half, and that plus AVAIL is Ram's total: every figure
 is *what is in use that the user cannot have*. Purgeable is in none of them -
 not in Ram's used half (§28.4.1), and counted AS available by AVAIL - so as a
 row it added up to nothing on the screen, which is why it went behind DETAIL
@@ -63510,15 +63513,13 @@ with the 640K-1MB rows, which are not RAM at all. Measured on kern_big VGA
 with the Calculator open: `RAM 120/640K`, `System 102K` + `Programs 18K`,
 `AVAIL 520K`; DETAIL adds `Purgeable 116K`.
 
-System's items (`tm_sysitems`): `IVT+BIOS` at 0000 (§28.4.8), `Code+data`
-(the kernel's span, no address), `Stacks` and `FAT snap`; then the
-`Kernel` group (its pool blocks and tagged claims), one group per driver, and
-one per built-in (a Disk window, named by its folder - `APPS`), each opening
-into its claims; and LAST the span above 1MB as a heading with its contents
-under it (§28.4.13) - on kern_mega the fixed areas by name, `HMA (DOS)`,
-`GDT`, `LDT+IDT`, `Kernel code`, `Padding`, off `OSAPI_XMEM_WALK`'s markers
-(§28.4.11); on kern_big `.cold`, each driver in the HMA and what is free. The
-rows still sum: System's figure is the sum of exactly these.
+System's items (`tm_sysitems`): `Code+data` (the kernel's span, no
+address), `Stacks` and `FAT snap`; then the `Kernel` group (its pool blocks
+and tagged claims), one group per driver, and one per built-in (a Disk
+window, named by its folder - `APPS`), each opening into its claims. The rows
+still sum: System's figure is the sum of exactly these. `IVT+BIOS` and the
+span above 1MB were System's items too, and are rows of their own now
+(§28.4.14).
 
 **`+ALL` opens every group and `-ALL` closes them** - the switch says what a
 click will do, and reads `-ALL` once everything is open by any route.
@@ -63638,24 +63639,24 @@ system sum and `tm_himax` skip F0h-F7h, and a block's group is flagged
 conventional row. No kernel byte moved; the walk, the bank and `xm_hwalk`
 are XMEM.DRV's, and nothing changes on a machine whose tail did not install.
 
-**The tree**: the span is a HEADING one level into System - the Programs
-heading's row-kind, no marker, not a click target - and it is System's LAST
-item, so nothing after it reads as inside it:
+**The tree**: the span is a GROUP of its own at column 0, `System HMA`,
+after System and before the Programs heading (§28.4.14 moved it out of
+System, where it was a heading one level in):
 
 ```
--System          155K
- IVT+BIOS 0000     3K
+IVT+BIOS 0000      3K
+-System           88K
  ...
  -SOUND.DRV       24K      conventional claims, when it has any
   DrvBuf  96C0    16K HELD
   DrvBuf  94C0     8K HELD
- HMA              64K      kern_big; `Above 1MB` on kern_mega
-   Kernel code    40K
-  -SOUND.DRV      11K      its HMA blocks: a group two columns in (tm_grp2)
-   DrvImg F400    11K HELD
-  +HDD.DRV         4K
-  +NET.DRV         5K
-   Free            4K      the span less every row above it
+-System HMA       64K      kern_big; `System>1MB` on kern_mega
+ Kernel code      40K
+ -SOUND.DRV       11K      its HMA blocks: a group one column in (tm_grp1)
+  DrvImg F400     11K HELD
+ +HDD.DRV          4K
+ +NET.DRV          5K
+ Free              4K      the span less every row above it
 Programs          ...
 ```
 
@@ -63679,6 +63680,49 @@ is that driver's, by `tm_drvgid`, which reads the header there too.
 the 3KB claim it already took; COLDHMA.SYS +0 (the two bytes were zeros).
 `taskmgr.o88`'s image 9,954 -> 10,646 bytes, which is this section and
 §28.4.4.1's thumb drag together.
+
+### 28.4.14 `IVT+BIOS` and `System HMA` are rows of their own, on both pages
+
+The owner's ask: *what is taking up my conventional memory* should be
+readable off either page, and the two pages should agree about it. They did
+not: the process list (page 1) had `IVT+BIOS` as a row OUTSIDE System while
+the memory page (page 2) listed it as System's first item, and both pages
+billed System's span above 1MB - the HMA on kern_big - to System, page 2 as a
+heading inside the group. So System's figure on either page mixed
+conventional KB with KB above 1MB, and the user could not tell from it what
+was using the 640K.
+
+Both pages now list the same three system rows, in the same order:
+
+| row | page 1 (`tm_rows`) | page 2 (`tm_rows_mem`) |
+|---|---|---|
+| `IVT+BIOS` | logical row 0, as before | the list's first row, an item at column 0 with ADDR 0000 |
+| `System` | logical row 1: the kernel below 640K, its heap claims and its blocks in the POOL above 1MB, less the span below the pool | the group: `tm_sysk` and every non-program group (`tm_systot`); its items are Code+data, Stacks, FAT snap, Kernel, the drivers and the built-ins |
+| `System HMA` | after System's built-ins, so it closes System's indented rows: no state, no CPU, `[tm_hifix]` KB | a group at column 0 after System, `[tm_hifix]` KB, opening into §28.4.13's contents - its items one level in and each HMA driver a group one level in (`tm_grp1`; `tm_grp2` is gone) |
+
+`System HMA` is drawn only when `[tm_hifix]` is non-zero - the system keeps
+RAM between 1MB and the pool's base, which needs `[tm_hion]` - so a machine
+with no HMA in use shows neither the row nor the group. On kern_mega the span
+is the descriptor tables and `.cold` over the DOS trip's HMA, and the name
+says so: `System>1MB` (`tm_hmanam`). The group's open bit is `TMG_HMA`, the
+id `TMG_PROG` held unused since 14.70.3, so no group id moved and none was
+needed.
+
+**A short screen folds both rows into System** (`tm_pshort`): where the
+process list cannot show every row - a CGA - System carries `IVT+BIOS` and
+the span above 1MB as it always did, and the list keeps all its slots. The
+row count `tm_pshort` tests is `TM_PROWS` (now `TM_ROWS + 2` with a memory
+view) less one when there is no span to show.
+
+**The rows still sum.** Page 1: IVT+BIOS + System + System HMA + every
+program is the RAM line's used figure, as IVT+BIOS + System + every program
+was. Page 2: with every group closed and DETAIL off, IVT+BIOS + System +
+System HMA + Programs is RAM's used half - the same terms, moved from inside
+System's figure to beside it.
+
+**What it cost**: no kernel byte; `taskmgr.o88`'s image 10,646 -> 10,763
+bytes, and its bss +1 (`tm_ord`'s marker entry and `[tm_hmarow]`). The small
+build (§28.12) has no memory view and no row above 1MB, and is byte-identical.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 
@@ -98494,6 +98538,39 @@ CGA and Hercules. That is not a consolation prize for the missing colour: a
 value in a column is what the rest of the row already is, and §47 does not
 apply to it.
 
+#### 52.2.2.1 The State column is the install engine's
+
+**The window's rows say what a slot IS in the words the INSTALL wizard
+shows** (§52.10.4.2): `C: FAT16`, `FAT16, Too Big`, `Linux`, `Type 2Bh`,
+`Unpartitioned`, `Empty, No Room`, `FAT16, Wrong Geometry`, `C: FAT16,
+Booted From`. It had five words of its own, and `Unmountable` covered a
+foreign type and an over-ceiling FAT alike, where the engine names the type
+or gives the reason. `hd_tw_scan` runs the engine's per-slot pass
+(`hd_iw_scant`) on the table the window has just read - no second read - and
+`hd_tw_rowtext` letters `hd_iw_rowtdi`'s text after the slot number and size.
+
+**`Too Small` is cleared**: it is an install's floor (2 MB, `HIW_MINSEC`) and
+not a formatter's, so a 1 MB slot this window would format happily must not
+read as refused. `No Room` stays: a free slot with no space behind it cannot
+be formatted either. The section above is the record of the old words; the
+display test and the rule that nothing in this window is greyed are
+unchanged.
+
+**The buttons still ask `hd_tstate`**, now derived from the engine's facts:
+free (the table), booted-from (`HIS_LIVE`), a volume (`hd_ivol`), wrong
+geometry (the `Wrong Geometry` reason) and everything else used. `HTS_ALIEN`
+folded into `HTS_RAW`, since no button told the two apart. The engine's
+device and slot (`[hd_idev]`, `[hd_isel]`) are banked around the pass, so a
+wizard run waiting on its apps disk is left as it was.
+
+The columns moved one character each - `Slot Size  State`, the State at
+column 11 - so the engine's longest row (`C: FAT16, Wrong Geometry`, 24
+characters) fits the 300px window. It saved 12 bytes of the compressed file
+(12,796 -> 12,784, §52.10.4.4) - a mapping from the engine's facts to the
+button states is nearly as long as the predicates it replaced, so the win is
+the words and one scan rather than the bytes; `tests/hdmap.py` reads the
+column.
+
 #### 52.2.3 Confirm, and the order of the two commits
 
 **A destructive button asks first**, in the caption, by wanting the click
@@ -98896,14 +98973,14 @@ byte.
 ### 52.4 The page, and mounting
 
 The Control Panel page (§31.9) is a device list, the C/H/S editor and **three**
-buttons — Format, which opens §52.2's tool; Install, which opens §52.10.4's;
-and Mount — in 27 characters by 13 rows. Greying follows §47: one predicate
+buttons — Format, which opens §52.2's tool; Install, which starts the
+`INSTALL.O88` wizard (§52.10.4.4, §117); and Mount — in 27 characters by 13 rows. Greying follows §47: one predicate
 (`hd_btn_ok`) shared by the greying, the click refusal and the caption, and it
 tests only facts already known — is there a device, is its geometry usable —
 never "try it and see".
 
 **The row reads Format, Install, Mount, evenly spaced.** The two that open a
-window are together at the left and the one that acts on the spot is at the
+window (Install's is the wizard's now) are together at the left and the one that acts on the spot is at the
 right end; Mount used to sit between them, which put the two destructive
 buttons either side of the harmless one. The gaps are equal now as well:
 64px, 64 and 72 wide (Mount is the wider box because it says `Unmount`) at
@@ -99385,7 +99462,8 @@ The order is forced and each step is the next one's precondition:
    disk that simply is not bootable yet, which is the same discipline
    §52.3's formatter follows in writing its boot sector last.
 
-**Only usable partitions are offered.** The dialog lists a slot when it is
+**Only usable partitions are offered.** The wizard (§52.10.4.4) lists a slot
+when it is
 mounted, writable and large enough; a slot that is `Unmountable`, foreign or
 too small is shown with the reason rather than hidden, on §47 rule 3's terms
 — the honest test is whether it would work, and saying *why not* is worth
@@ -99509,7 +99587,7 @@ So the column is now `[letter ': '] body [', ' reason]`:
 | anything FAT under `HIW_MINSEC` | `…, Too Small` | refused |
 | a free slot with room behind it | `Unpartitioned` | fine — the install makes the entry |
 | a free slot with none | `Empty, No Room` | refused |
-| a foreign type | its name — `Extended`, `NTFS/HPFS`, `FAT32`, `Linux`, `Linux Swap`, `Linux LVM`, `BSD`, `XENIX`, `Unix`, `OS/2 Boot`, `CP/M-86`, `NetWare`, `GPT Disk`, `EFI System`, `Hidden FAT` — or `Type nnh` | refused |
+| a foreign type | its name — `Extended`, `NTFS/HPFS`, `FAT32`, `Linux`, `Linux Swap` — or `Type nnh` (§52.10.4.4 trimmed the list to the common five for a sector of the 360 KB system disk) | refused |
 | a table that would not read | `Unreadable` | refused, where it used to read free and offer Install |
 
 **The letter comes from two owners and is asked of both.** The kernel's
@@ -99558,6 +99636,71 @@ another drive, or on this one before it was repartitioned. `hd_iw_scan` keeps
 the carried slot whenever it is usable, and on a blank disk every slot is, so
 a fresh drive could open on Slot 4 and be installed there. It starts at 0 now
 and the scan moves it to the first usable slot, exactly as before.
+
+#### 52.10.4.4 ONE installer: the Install button starts the wizard
+
+**There is one face on the install engine and it is `INSTALL.O88` (§117).**
+`HDDTOOL.DRV` used to carry an Install window of its own — four slot rows, an
+Erase box, an action button that read `Install`, `Copy Apps` and `Restart` —
+beside the engine the wizard drives through `HDT_PKG` (§117.4). Two faces on
+one stage machine, the second of them 1.4 KB of a tool every hard-disk machine
+loads, and a one-run-at-a-time rule between them (the `0FDh` answer, and
+*Close the Install window first*). The window is gone; §52.10.6 and
+§52.10.6.1 are the design record of a dialog that no longer exists.
+
+**The Control Panel page's Install button STARTS THE WIZARD** — the file
+`INSTALL.O88` in the ROOT of the volume the machine booted from
+(`OSAPI_VOL_SYS`), which is where §117.6 ships it: the system floppy, and on
+an installed machine C:. Its greying is unchanged (`hd_btn_ok`: a device with
+a usable geometry), because the wizard asks every other question itself.
+
+**It is POSTED, not called**, for `OSAPI_PKG_START`'s rule (§21.5): the slot
+wants the UI task with the gfx lock FREE, and a Control Panel click holds it.
+A driver cannot reach the kernel's own posting (`inst_launch_post`,
+`ui_post_cmd`); what it can reach is a WAKE, and a wake needs a window. So
+`hd_inst_post` creates one that is **never shown** and posts it a wake;
+`hd_lwake`, on the UI task with the lock free, destroys it, stands in the
+boot volume's root with `OSAPI_FILE_GOTO_QM`, starts the wizard, and stands
+back where it was. A wizard that cannot be started says so in a toast,
+`Cannot start INSTALL.O88`. While the launch window exists `HDT_BUSY`
+answers busy, so the Control Panel cannot free the image between the post
+and the wake, and `HDT_SHUT` destroys it if the wake never came.
+
+**And then what only the window's face had needed came out of the engine
+too**: `hd_iw_rowtext` builds the State column alone (the slot number and
+size in front of it were the window's columns, and `hd_pv_slots` skipped
+them - the wizard has `HDIS_SECS`); the success captions and *Copying...*
+went, the wizard reading the caption only on `HDG_FAIL`, so a stop's default
+is *Disk error - the install stopped*; one copy of each repeated sentence, and
+three strings share their tails; and the partition-type names are the common
+five, inline after their type bytes. That took the file to **12,796 bytes,
+25 sectors** of the 360 KB system disk's 512-byte clusters, and §52.2.2.1's
+Format window on the engine's words to **12,784 - 16 bytes under the line**,
+so the next 17 bytes added to this image are a sector back.
+
+**What it cost and bought**, measured on the tree it landed on:
+`HDDTOOL.DRV`'s image **18,327 → 17,038 bytes (−1,289)**, its claim
+(`HDTOOL_KB`) **18 → 17 KB**, and the compressed file on every system disk
+**14,100 → 13,130 bytes** — **14 clusters to 13** on a 360 KB floppy. That is
+~1,490 bytes of window, check box, drawing layer, captions and the
+two-faces bookkeeping out, ~195 of launcher in (`hd_inst_post` through its
+two strings is a 188-byte span), and the sector buffers' alignment pad
+moving 195 → 199. `HDD.DRV` changes only in the `HDTOOL_KB` it
+claims with, and `INSTALL.O88` is byte-identical.
+
+**Where the wizard is started is its floppy source** (§117.10.5's
+`in_home`), and that is the one behaviour that moved. The window took its
+source from wherever the user stood (§51.5.2's bank); the button starts the
+wizard from the boot volume, so the engine's own search runs as before - the
+boot volume where it is a floppy, every floppy and mounted image after it,
+never the destination. A source the search passes over by KIND, a mounted
+network drive above all (§62.9.17.1, `hd_iapps_cand`), is reached the way a
+user reaches any program on it: open `INSTALL.O88` there. `tests/httpinstall.py`
+is that case.
+
+**An older tool can still answer `0FDh`.** An upgrade booted from C: reaches
+C:'s `HDDTOOL.DRV` (§52.10.16), which may predate this; the wizard keeps its
+`0FDh` refusal for that machine and a new tool never sends it.
 
 ### 52.10.5 A disk already in the machine is not asked for
 
@@ -99701,6 +99844,10 @@ quiet inside the loop, full at the edge.
 
 ### 52.10.6 Restart, and a dialog that stops flashing
 
+**SUPERSEDED by §52.10.4.4**: the Install window this section and §52.10.6.1
+describe is gone, and Restart is the wizard's (§117.1). They stay as the
+record of why it read the way it did.
+
 Two things, and they are one change because they are the same window.
 
 **Restart.** The install ends with a bootable volume and a user who has to
@@ -99818,7 +99965,9 @@ the same heap and occupies the same clusters, and the 56 are slack for
 whoever comes next rather than a saving anything can see today. Nothing
 shipped shrank; do not quote this as a smaller driver.
 
-**`tests/instrest.py` is the gate**, on `os8088_xt_hdd`. It reads the caption
+**`tests/instrest.py` was the gate** (retired with the window, §52.10.4.4;
+its glyph apparatus lives on as `tests/glyphread.py`), on `os8088_xt_hdd`. It
+read the caption
 rather than counting pixels: the kernel's own glyph table comes out of the
 guest, the expected string is rendered from it on the host, and that bitmap
 is searched for inside the button's rect — so a blank, greyed or wrong-string
@@ -217636,12 +217785,13 @@ step, reached through two doors that exist for this package:
 |---|---|---|
 | switch the driver on | `cdl_load` in `CTRL.DRV` (§51.3), through `OSAPI_DRV_USE` (§117.3) | Drivers page, tick *Hard drives* |
 | find the drives | `HDD.DRV`'s probe at attach and its device table (§52.1), read through `HDI_DEVS` | Hard Drive page's drive rows |
-| what each partition is | `hd_iw_scan`/`hd_iw_slot` in `HDDTOOL.DRV` (§52.10.4.2), read through `HDI_SLOTS` — the State column's own words | the Install window's four rows |
-| the install itself | `hd_inst_step` and everything under it (§52.10.4–52.10.17), through `HDI_GO` and `HDI_APPS` | Install, then Install again to confirm, then Copy Apps |
-| restart | `OSAPI_REBOOT` with AL = 1, the Install window's own (§52.10.6.1) | Restart |
+| what each partition is | `hd_iw_scan`/`hd_iw_slot` in `HDDTOOL.DRV` (§52.10.4.2), read through `HDI_SLOTS` — the State column's own words | — |
+| the install itself | `hd_inst_step` and everything under it (§52.10.4–52.10.17), through `HDI_GO` and `HDI_APPS` | — |
+| restart | `OSAPI_REBOOT` with AL = 1 (§52.10.6.1) | — |
 
-So a fix to the installer is a fix to both faces, an install made from either
-is the same bytes on the disk, and nothing in §52.10's long list of closed
+**The wizard is the ONLY face that engine has** (§52.10.4.4): the Control
+Panel's Install button starts this package, and the Install window that was
+the engine's second face is gone. So nothing in §52.10's long list of closed
 defects can come back through a second copy of the walk. WEAVE-SPEC §1.2's
 rule — *what two programs share they share as source, never as a copy* — is
 met here by not even sharing the source: there is one image, and the wizard is
@@ -217814,7 +217964,7 @@ preserves every register but AX.
 | `CL` | verb | in | out |
 |---|---|---|---|
 | 0 | `HDI_DEVS` | ES:DI = `HD_MAXDEV` (4) × `HDIV_SIZE` | AL = devices; one `HDIV_*` record each |
-| 1 | `HDI_SLOTS` | DL = a device; ES:DI = 4 × `HDIS_SIZE` | AL = the slot the Install window would select (0..3), `0FFh` none would do, `0FEh` no such device or its geometry is unknown, `0FDh` the Install window is open; one `HDIS_*` record a slot |
+| 1 | `HDI_SLOTS` | DL = a device; ES:DI = 4 × `HDIS_SIZE` | AL = the slot the engine would pick (0..3), `0FFh` none would do, `0FEh` no such device or its geometry is unknown — and `0FDh` only from a tool built before §52.10.4.4, while its Install window is open; one `HDIS_*` record a slot |
 | 2 | `HDI_GO` | DL = device, DH = slot, CH = bit 0 erase / keep, bits 7..1 the SOURCE volume + 1 or 0 for the engine's own (117.10.5); ES:DI = an `HDIB_*` block (`HDIB_SIZE`, 91 bytes) | AL = an `HDG_*` stage, and the engine's caption at `HDIB_CAP` |
 | 3 | `HDI_APPS` | ES:DI = an `HDIB_*` block | as `HDI_GO` |
 | 4 | `HDI_QUIT` | — | abandons a run waiting on its apps disk; AL = 0 |
@@ -217840,22 +217990,16 @@ disk still boots is in the caption too: the system phase commits at its end,
 §52.10.10), `HDG_APPS` (2, the system part is on and bootable; insert the apps
 disk and send `HDI_APPS`), `HDG_DONE` (3).
 
-**`HDI_GO` is the Install window's two clicks in one.** It rescans the device
-exactly as opening that window does (§52.10.4.3 — the slot is the caller's and
-the table is fresh), refuses with `HDG_FAIL` and the window's own greyed-button
-caption whatever `hd_iact_ok` would grey (§47 rule 2: one predicate), forces
-*erase* over a slot with nothing to keep as the Erase box's greying does
-(§52.10.15), and then runs `hd_inst_step` from `HII_ARMED`: the confirm is the
+**`HDI_GO` is the arm and the go in one.** It rescans the device (§52.10.4.3
+— the slot is the caller's and the table is fresh), refuses with `HDG_FAIL`
+whatever `hd_iact_ok` refuses, forces *erase* over a slot with nothing to
+keep (§52.10.15), and then runs `hd_inst_step` from `HII_ARMED`: the confirm is the
 wizard's Confirm page, not a second click.
 
-**One engine, two faces, one run at a time.** While the Control Panel's
-Install window is on screen the `HDI_*` install verbs refuse (`HDG_FAIL`,
-*The Control Panel's installer is open*), and opening that window resets the
-stage as it always has. **A run waiting on its apps disk pins the tool**:
+**A run waiting on its apps disk pins the tool**:
 `HDT_BUSY` answers busy at `HII_SYSDONE`, so neither a Control Panel close nor
 `DRVU_DONE` can free the image under a run that still holds `ASSOC.DAT`'s
-writer (§54.7.6.4); `HDI_QUIT`, or the Install window being closed, puts the
-stage back to idle.
+writer (§54.7.6.4); `HDI_QUIT` puts the stage back to idle.
 
 #### 117.4.1 The log — `HDIB_LOG`
 
@@ -217888,10 +218032,9 @@ drive`; `Writing ASSOC.DAT`; `Copied 40 files, 512 KB`. A stop is NOT a
 line of the engine's: the verb returns, and the caption is the wizard's to
 add, which it does (`Stopped: <caption>`).
 
-**Without a proc nothing changes**, which is the Control Panel's path: every
-log site is one compare of `hd_ilogp` and a branch, and `hd_pv_out` clears
-the proc at the end of each verb, so a run from the Install window can never
-reach a package's code. The hook is live only between a verb's entry and its
+**Without a proc nothing changes**: every log site is one compare of
+`hd_ilogp` and a branch, and `hd_pv_out` clears the proc at the end of each
+verb, so no later run can reach a package's code. The hook is live only between a verb's entry and its
 answer.
 
 **What it costs the copy on an XT**: a line is one opaque 40-cell run (~36 ms)

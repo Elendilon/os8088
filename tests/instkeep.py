@@ -162,8 +162,7 @@ def main():
     with M.launch("build/os8088-360.img", apps="build/apps360.img",
                   machine=ID.MACHINE, run_dir=run_dir, boot=False) as m:
         m.run(); M.kernel_up(m)       # a state gate: every act is a click
-        mo, ix, iy = ID.open_installer(m)
-        ID.run_install(m, mo, ix, iy)           # the box as it defaults: KEEP
+        ID.run_install(m, ID.open_installer(m))           # the box as it defaults: KEEP
     bad = check(vhd)
     if bad:
         sys.exit("instkeep: " + "; ".join(bad))
@@ -186,8 +185,7 @@ def main():
         boot_c(m, "after the kept install")
         m.run()                                 # advance() left it paused
         M.settle(m)
-        mo, ix, iy = ID.open_installer(m)
-        ID.run_install(m, mo, ix, iy)
+        ID.run_install(m, ID.open_installer(m))
     if open(vhd, "rb").read(512)[400] != 0:
         sys.exit("instkeep: the in-place upgrade never committed its MBR")
     bad = check(vhd)
