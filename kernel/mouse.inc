@@ -378,12 +378,13 @@ MOU_PSTK    equ 128             ; 2.4x the 54 the chain measures on the deepest
                                 ; .lowbss on every kern_big; since kernel size
                                 ; pass 14 vid_rowtab lies directly under it,
                                 ; and the row table is read by nothing while
-                                ; [vid_ext] is 1 - every body that would use a
-                                ; row is hooked - so a packed display's arrow
-                                ; may run on into those 696 bytes, which
-                                ; vid_apply rebuilds whole when the desktop
-                                ; leaves VID_VESA (AFTER vid_depth_set clears
-                                ; [vid_ext], so no deep ISR can follow it).
+                                ; the display is packed - every body that
+                                ; would use a row is hooked - so a packed
+                                ; display's arrow may run on into those 696
+                                ; bytes, which vid_apply rebuilds whole when
+                                ; the desktop leaves VID_VESA (AFTER
+                                ; vid_depth_set has put [vid_planes] back to 4
+                                ; or 1, so no deep ISR can follow it).
                                 ; Every other kind stays inside the 128. Nothing can interrupt this stack -
                                 ; the ISR holds IF=0 throughout - so 54 is the
                                 ; whole answer and not a sample, and the margin
@@ -4242,10 +4243,10 @@ cur_vis:
 ; -----------------------------------------------------------------------------
 cur_put_1:
 %ifdef GFX_VGA                  ; ...AND ONLY A KERNEL WITH A VGA HAS A SIDE TO
-    cmp byte [vid_mono], 0      ; DISPATCH TO: kern_small's [vid_kind] is a
-    jne cur_put_mono            ; CGA or a Hercules for the life of the machine
-    VIDEXT VX_CURPUT            ; a packed display: the driver's whole cycle
-                                ; (SPEC.md 120.3.3) - save under and draw
+    VIDEXTM VX_CURPUT, cur_put_mono ; DISPATCH TO: kern_small's [vid_kind] is
+                                ; a CGA or a Hercules for the life of the
+                                ; machine. A packed display: the driver's whole
+                                ; cycle (SPEC.md 120.3.3) - save under and draw
     call cur_geom               ; (SPEC.md 39.27.1), so [vid_mono] is 1 before
     call cur_saveu              ; the first arrow is drawn and the planar half
     jmp cur_draw                ; was never reached there. The label FALLS
@@ -4322,9 +4323,9 @@ cur_put_mono:
 
 cur_get_1:
 %ifdef GFX_VGA                  ; cur_put_1's reason: the planar half and its
-    cmp byte [vid_mono], 0      ; dispatch are a VGA kernel's alone, and on
-    jne cur_get_mono            ; kern_small this falls into cur_get_mono
-    VIDEXT VX_CURGET            ; a packed display: the driver puts back what
+    VIDEXTM VX_CURGET, cur_get_mono ; dispatch are a VGA kernel's alone, and
+                                ; on kern_small this falls into cur_get_mono.
+                                ; A packed display: the driver puts back what
                                 ; its own put banked (SPEC.md 120.3.3)
     ; fall through to cur_restoreu
 
@@ -5233,10 +5234,10 @@ cur_move:
 cur_move_1:
     CURLOG 'm'                  ; ...from HERE (cur_drawn is still the old one)
 %ifdef GFX_VGA                  ; cur_put_1's reason: kern_small falls straight
-    cmp byte [vid_mono], 0      ; into cur_move_mono, every move a compare
-    jne cur_move_mono           ; and a taken jump cheaper
-    VIDEXT VX_CURMOVE           ; a packed display: AX/BX = the new position,
-                                ; the driver restores, stores, saves and draws
+    VIDEXTM VX_CURMOVE, cur_move_mono, pad ; into cur_move_mono, every move a
+                                ; compare and a taken jump cheaper. A packed
+                                ; display: AX/BX = the new position, the
+                                ; driver restores, stores, saves and draws
     mov [cur_drawn_x], ax       ; planar: the save is four planes through Read
     mov [cur_drawn_y], bx       ; Map Select and cannot take a background from
     call cur_restoreu           ; a buffer, so it stays erase-then-draw. The

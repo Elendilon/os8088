@@ -13,7 +13,8 @@ honest in three ways:
      that forgot its VIDEXT would otherwise program the VGA's ports on a
      packed mode and draw nothing anyone can diagnose;
   2. every selector kernel/vxabi.inc names is EMITTED exactly once in the
-     kernel (`VIDEXT n`, `VIDEXTC n, exit`, `VXGO n`, `VXCALL n`), so
+     kernel (`VIDEXT n`, `VIDEXTC n, exit`, `VIDEXTM n, mono`, `VXGO n`,
+     `VXCALL n`), so
      the driver's table and the kernel's hooks cannot drift;
   3. the driver's jump table has one body per selector and none of them is
      the refusal stub, so a selector the driver stopped answering is a build
@@ -33,7 +34,7 @@ from harness import check, done                           # noqa: E402
 REG = os.path.join(ROOT, "tests", "vidext.txt")
 SITE = re.compile(r"^\s*(cmp byte \[vid_mono\], 0|mov [a-d][lh], \[vid_mono\]"
                   r"|cmp byte \[vid_planes\], 1)(\s|$)")
-HOOK = re.compile(r"^\s*(VIDEXT|VIDEXTC|VIDEXTR|VXGO|VXCALL)\s+(\S+)")
+HOOK = re.compile(r"^\s*(VIDEXT|VIDEXTC|VIDEXTM|VIDEXTR|VXGO|VXCALL)\s+(\S+)")
 SEL = re.compile(r"^(VX_[A-Z0-9]+)\s+equ\s+(\d+)")
 
 

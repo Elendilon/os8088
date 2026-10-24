@@ -340,20 +340,6 @@ vid_planes  db 4                ; 4 or 1 - or the DEPTH, 8 or 16, on VID_VESA
 vid_planes_w dw 4               ; the same, where a word is wanted. A planar
 %endif                          ; kernel's alone (kernel size pass 13: see
                                 ; vid_depth_set)
-%ifdef VID_EXT
-vid_ext     db 0                ; 1 = [vid_kind] is VID_VESA and every planar
-                                ; body far-calls the driver (SPEC.md 120.3).
-                                ; Derived from the kind in vid_depth_set, as
-                                ; [vid_mono] is, so a per-display swap carries
-                                ; it. .text, initialised, splash-resident with
-                                ; the rest of this block - and AFTER the _w
-                                ; twin, which must follow its byte
-            db 0                ; PARITY: kmain's five-byte call to vx_boot_x
-                                ; plus this file's hooks are odd, and this
-                                ; puts gfx_blit4 and everything after it back
-                                ; on the entry parity tests/unit/t_hotpar.py
-                                ; pins
-%endif
 
 ; Hercules has no BIOS mode, so vid_setmode programs the 6845 itself.
 ; R0..R11 for 720x348: 45 char clocks of 16 px across, 87 rows of 4 scan
@@ -643,11 +629,9 @@ vid_depth_set:
     cmp al, VID_VESA            ; SPEC.md 120.4: colour ([vid_mono] = 0), the
     jne .notext                 ; DEPTH for a plane count, and the hook armed
     mov ah, [vx_bpp]            ; - the stores below, one word for the pair
-    xor al, al                  ; and the _w twin, as on every other kind
-    mov byte [vid_ext], 1
-    jmp short .st
+    xor al, al                  ; and the _w twin, as on every other kind. A
+    jmp short .st               ; depth above 4 IS the hook's test (vidext.inc)
 .notext:
-    mov byte [vid_ext], 0       ; every other kind: the planar bodies run
 %endif
 %ifdef GFX_VGA                  ; **ZF IS THE ANSWER AND IT SURVIVES TO THE
     cmp al, VID_VGA             ; `jne` BELOW**. WITHOUT A VGA RENDERER THERE

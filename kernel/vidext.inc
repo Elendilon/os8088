@@ -31,7 +31,12 @@
 ;            VIDEXT's (back to the body's caller), VXCALL VIDEXTC's (on past
 ;            the selector byte)
 ;
-; Each costs an XT one compare and one taken short jump, GFXDISP's price. The
+; Each costs an XT one compare and one taken short jump, GFXDISP's price -
+; `cmp byte [vid_planes], 4 / jbe`, because the depth IS the kind's answer:
+; vid_depth_set publishes the bpp, 8 or 16, as [vid_planes] on VID_VESA and
+; 4 or 1 on every other kind, all three bytes in one word store with
+; [vid_mono]. (A byte of its own, [vid_ext], said the same thing until kernel
+; size pass 14, for two stores in vid_depth_set and a byte of .text.) The
 ; hook is the far call ITSELF, `call far [vx_ep]`, with the selector byte
 ; after it (SPEC.md 120.3.1): the far return the call pushes IS the
 ; selector's address, so no register carries it - every register is a
@@ -52,16 +57,32 @@
 %endmacro
 
 %macro VIDEXT 1
-    cmp byte [vid_ext], 0
-    jz %%planar
+    cmp byte [vid_planes], 4    ; VX_PACKED: a packed display's depth is 8 or
+    jbe %%planar                ; 16, every other kind's 4 or 1
     VXGO %1                     ; twelve bytes, so the hot routines after a
 %%planar:                       ; hook keep their entry parity
 %endmacro                       ; (tests/unit/t_hotpar.py)
 
+; VIDEXTM n, mono - the planar body's WHOLE dispatch in one compare: 1bpp to
+;            `mono`, a packed display to the driver (VIDEXT's), planar on.
+;            [vid_planes] is 1, 4 or the depth, so `cmp [vid_mono], 0 / jne
+;            mono` and VIDEXT's compare are one compare and two jumps - five
+;            bytes a site, and a planar body a compare faster
+%macro VIDEXTM 2-3
+    cmp byte [vid_planes], 4
+    jb %2                       ; 1bpp
+    je %%planar                 ; planar
+    VXGO %1                     ; packed: the driver's, back to our caller
+%if %0 > 2
+    db 0                        ; PARITY, never executed (the driver returns
+%endif                          ; to our caller): a third argument asks for it
+%%planar:                       ; where the hot routines after a site would
+%endmacro                       ; otherwise move to an odd shift
+
 %macro VIDEXTC 2
 %%planar0:
-    cmp byte [vid_ext], 0
-    jz %%planar
+    cmp byte [vid_planes], 4
+    jbe %%planar
     VXCALL %1
     jmp %2
 %if ($ - %%planar0) & 1
@@ -71,8 +92,8 @@
 %endmacro                       ; parity (tests/unit/t_hotpar.py)
 
 %macro VIDEXTR 1
-    cmp byte [vid_ext], 0
-    jne %1
+    cmp byte [vid_planes], 4
+    ja %1
 %endmacro
 
 ; .text with real initialisers: -f bin zeroes nothing
@@ -281,6 +302,10 @@ section .text
 
 %else                           ; no external renderer in this build
 %macro VX_LAYOUT_ASSERT 0
+%endmacro
+%macro VIDEXTM 2-3              ; ...so the dispatch is the 1bpp test alone,
+    cmp byte [vid_mono], 0      ; byte for byte the two lines VIDEXTM stands
+    jne %2                      ; for on kern_big
 %endmacro
 %macro VIDEXT 1
 %endmacro

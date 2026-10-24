@@ -217752,15 +217752,16 @@ Every planar drawing body in the kernel — the code that runs when
 `[vid_mono]` is 0 — opens with:
 
 ```
-    VIDEXT n                    ; cmp byte [vid_ext], 0 / jz .planar
+    VIDEXT n                    ; cmp byte [vid_planes], 4 / jbe .planar
                                 ; call far [vx_ep] / db n / .planar:
 ```
 
-`[vid_ext]` is a `.text` byte with a real initialiser (0: §39.12's reason,
-`-f bin` zeroes nothing), set to 1 by `vid_apply` when `[vid_kind]` is
-`VID_VESA` and cleared otherwise — it is derived from the kind exactly as
-`[vid_mono]` is, in `vid_depth_set`, so the per-display swap of §39.12
-carries it for free. **The macro sits BELOW `GFXCLIP` and `GFXDISP`**
+**The test is the depth**: `vid_depth_set` publishes the bpp, 8 or 16, as
+`[vid_planes]` when `[vid_kind]` is `VID_VESA`, and 4 or 1 on every other
+kind - in the same word store as `[vid_mono]`, so the per-display swap of
+§39.12 carries it for free and the two can never disagree. A depth above 4
+IS a packed display. (A `.text` byte of its own, `[vid_ext]`, said the same
+thing until kernel size pass 14, for two stores in `vid_depth_set`.) **The macro sits BELOW `GFXCLIP` and `GFXDISP`**
 (§39.14.1): by the time a body runs, the rect is one clipped fragment in
 display-local coordinates, so the driver draws unclipped rectangles and knows
 nothing of regions, displays or the cursor's lazy hide. It sits **at the
@@ -217875,8 +217876,8 @@ hook CAN fire after a detach - `drv_shutdown_x` detaches every driver while
 `[vid_kind]` is still `VID_VESA`, and the arrow, `cur_unlazy` and
 `vid_setmode` run before the machine leaves the GUI - so `vx_null` keeps the
 driver's exit protocol (on past a `VX_CONT` selector, back through `vx_kret`
-otherwise, CF = 0) and draws nothing, rather than a call into freed memory. **The ordering is the safety argument**: `[vid_ext]`
-can be 1 only while `[vid_kind]` is `VID_VESA`, which only `vid_switch`
+otherwise, CF = 0) and draws nothing, rather than a call into freed memory. **The ordering is the safety argument**: `[vid_planes]`
+can be above 4 only while `[vid_kind]` is `VID_VESA`, which only `vid_switch`
 sets, and `vid_switch` admits kind 4 only once `VID_A_VESA` is lit — which
 `vx_boot_x` does after the attach and the init have both answered.
 
@@ -217894,10 +217895,10 @@ the arrow's cycle is an `int 10h` on the mouse ISR's stack, whose BIOS frame
 the 54-byte chain never had to hold. **`MOU_PSTK` stays 128 and the row table
 lies directly under it**: `vid_rowtab` (§39.3.1, 696 bytes) is declared
 immediately below `mou_pstack` under `VID_EXT`, asserted adjacent, and nothing
-reads a row of it while `[vid_ext]` is 1 - every body that would use one is
+reads a row of it while the display is packed - every body that would use one is
 hooked - so a packed display's arrow may run on into it, 824 bytes in all.
 `vid_apply` rebuilds the whole table when the desktop leaves `VID_VESA`, after
-`vid_depth_set` has cleared `[vid_ext]`, so no deep ISR can follow the
+`vid_depth_set` has put `[vid_planes]` back to 4 or 1, so no deep ISR can follow the
 rebuild; every other kind stays inside the 128. (It was a 256-byte stack
 under `VID_EXT` until kernel size pass 14: 128 bytes of `.lowbss` on every
 kern_big, most of which never runs a VBE.) A private stack in the driver was
@@ -217914,7 +217915,8 @@ by `DRV_ATTACH`'s class step alone. The order inside is §39.11.2's:
 BytesPerScanLine, `bmask`/`bshift`/`wrapbit`/`wrapfix` 0, `rowadd` = stride,
 `cw`/`ch` = X/Y — then `vid_setmode`, whose `VID_VESA` arm is selector 17,
 then `desk_rowcalc` and `wm_refit`. `vid_depth_set` publishes `[vid_mono]`
-= 0, `[vid_planes]` = **the bpp** (8 or 16) and `[vid_ext]` = 1.
+= 0 and `[vid_planes]` = **the bpp** (8 or 16), which is also what arms
+every hook.
 
 **`[vid_planes]` carries the depth, and that is the generalisation the
 save-under sizes already made.** Every buffer the kernel sizes for a
@@ -218083,7 +218085,7 @@ QEMU's standard VGA carries a VBE 2.0/3.0 BIOS, so `-vga std` — the default
 which is the negative control for free. `make vesatest` writes
 `build/vesa.img`, a 360KB system disk whose `SYSTEM.CFG` already wants
 `VESA.DRV` (`ethertest`'s shape, on 1.44MB), and `tests/vesa.py` boots it:
-`[vid_kind]` 4, `[vid_ext]` 1, `[vid_cw]`/`[vid_ch]` 1024/768,
+`[vid_kind]` 4, `[vid_cw]`/`[vid_ch]` 1024/768,
 `[vid_planes]` 16, a clean `vesa_row`; then a 1024x768 screendump with the
 menu bar's band and the dock's band painted and the desktop's 50% dither
 present (S1). S2 adds a window opened through a double-click and a menu

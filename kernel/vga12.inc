@@ -1833,8 +1833,8 @@ vga_b4out:
 ; -----------------------------------------------------------------------------
 gfx_blitd:
 %ifdef VID_EXT
-    cmp byte [vid_ext], 1
-    jne .no
+    cmp byte [vid_planes], 4    ; a packed display (vidext.inc's VIDEXT)
+    jbe .no
     call cur_unlazy             ; off the clip list (SPEC.md 11.3): 7.1.4
     VXGO VX_BLITD               ; the driver's whole, back to our caller
 .no:
@@ -2862,11 +2862,10 @@ gfx_blitp:
                                 ; refuse (SPEC.md 120.3.1) - the source is a
                                 ; plane layout neither display has, and Paint
                                 ; keeps its gfx_blit4 fallback for exactly this
-                                ; answer. vid_depth_set writes the three bytes
-                                ; together, so this is [vid_mono] = 0 and
-                                ; [vid_ext] = 0 in one compare (kernel size
-                                ; pass 14: VIDEXTR's seven bytes and a parity
-                                ; pad, -8)
+                                ; answer. vid_depth_set writes the bytes
+                                ; together, so this is "not 1bpp" and "not
+                                ; packed" in one compare (kernel size pass 14:
+                                ; VIDEXTR's seven bytes and a parity pad, -8)
 %else
     cmp byte [vid_mono], 0
     jne .no
@@ -3443,8 +3442,8 @@ gfx_spans:
 .rows:
     mov [gfx_sp_y], ax
 %ifdef VID_EXT
-    cmp byte [vid_ext], 0       ; a packed display (SPEC.md 120.3.1): AX is the
-    jz .vxplanar                ; first row, clipped, and the gfx_sp_* cells
+    cmp byte [vid_planes], 4    ; a packed display (SPEC.md 120.3.1): AX is the
+    jbe .vxplanar                ; first row, clipped, and the gfx_sp_* cells
     CURUNLAZY                   ; the list - the hide is owed as below
     VXCALL VX_SPANS
     jmp .done
@@ -3611,9 +3610,8 @@ gfx_fill_gray_d:
     NOVGA_ARM gfx_fill_gray_raw, sw_fill_gray
 %else                           ; renderer is not a branch - it is the
 gfx_fill_gray_raw:                              ; only renderer gfx_fill_gray has
-    cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
-    jne sw_fill_gray
-    VIDEXT VX_GRAY              ; ...and a packed display's (SPEC.md 120.3)
+    VIDEXTM VX_GRAY, sw_fill_gray ; 1bpp? then the software renderer IS
+                                ; ...and a packed display's (SPEC.md 120.3)
     push ax
     push bx
     push cx
@@ -3766,9 +3764,8 @@ gfx_fill_pat_d:
     NOVGA_ARM gfx_fill_pat_raw, sw_fill_pat
 %else                           ; renderer is not a branch - it is the
 gfx_fill_pat_raw:                              ; only renderer gfx_fill_pat has
-    cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
-    jne sw_fill_pat
-    VIDEXT VX_PAT               ; ...and a packed display's (SPEC.md 120.3):
+    VIDEXTM VX_PAT, sw_fill_pat ; 1bpp? then the software renderer IS
+                                ; ...and a packed display's (SPEC.md 120.3):
                                 ; the eight bytes at [gfx_pat], unstaged
     push ax
     push bx
@@ -4108,10 +4105,10 @@ gfx_sr_tail:                    ; (gfx_restore's tail too - size pass 10)
     NOVGA_ARM vga_save_vram, sw_save
 %else                           ; renderer is not a branch - it is the
 vga_save_vram:                              ; only renderer gfx_save has
-    cmp byte [vid_mono], 0      ; the cursor's save-under, from inside IRQ4:
-    jne sw_save                 ; on mono the framebuffer IS the renderer's
+    VIDEXTM VX_SAVE, sw_save    ; the cursor's save-under, from inside IRQ4:
+                                ; on mono the framebuffer IS the renderer's
                                 ; target, so one "plane" of sw_xfer is it
-    VIDEXT VX_SAVE              ; ...and a packed display's save is the
+                                ; ...and a packed display's save is the
                                 ; driver's, in [vga_pn]'s terms (SPEC.md 120.4)
     push ax
     push bx
@@ -4367,9 +4364,8 @@ gfx_restore:
     NOVGA_ARM vga_restore_vram, sw_restore
 %else                           ; renderer is not a branch - it is the
 vga_restore_vram:                              ; only renderer gfx_restore has
-    cmp byte [vid_mono], 0      ; see vga_save_vram
-    jne sw_restore
-    VIDEXT VX_RESTORE           ; ...and the driver's, [gfx_sub_*] honoured
+    VIDEXTM VX_RESTORE, sw_restore ; see vga_save_vram
+                                ; ...and the driver's, [gfx_sub_*] honoured
     push ax
     push bx
     push cx
@@ -5624,8 +5620,8 @@ gfx_blit1_x:
     sub dx, bx
 .ybot:
 %ifdef VID_EXT
-    cmp byte [vid_ext], 0       ; a packed display (SPEC.md 120.3.1): the band
-    jz .vxplanar                ; is clipped and local, the pen and the head
+    cmp byte [vid_planes], 4    ; a packed display (SPEC.md 120.3.1): the band
+    jbe .vxplanar                ; is clipped and local, the pen and the head
     call KERNEL_SEG:vx_b1       ; mask are in the cells, and the driver puts
     jmp .done                   ; it down. BEFORE .pen, whose port program
                                 ; would be wrong for a packed mode; .done tears

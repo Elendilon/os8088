@@ -1719,8 +1719,8 @@ font_run_x:
 .planar:
 %ifdef VID_EXT
 .vxp0:
-    cmp byte [vid_ext], 0       ; SPEC.md 120.3: a packed display's run is the
-    jz .plok                    ; driver's ONE PASS - unless a region is armed
+    cmp byte [vid_planes], 4    ; SPEC.md 120.3: a packed display's run is the
+    jbe .plok                    ; driver's ONE PASS - unless a region is armed
     CLIPQ                       ; (the per-cell test is the kernel's) or the
     jne .vxslow                 ; text is disabled (the stipple is font_ink's):
     cmp byte [gfx_dis], 0       ; both take the pair, gfx_fill and font_str,
