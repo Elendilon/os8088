@@ -2354,7 +2354,13 @@ SOAK = [
         "a ~3s transient no polling rate worth having catches; plus that the "
         "first app is STILL THERE, which is kernel/loader.inc's own opening "
         "promise and the thing a refusal that took the running app down "
-        "with it would break. MartyPC on a GLaBIOS 256KB machine, because a "
+        "with it would break. SINCE NO-PINNING C3 (WEAVE-SPEC 1.2.6) THE "
+        "SECOND REGION FITS: the first instance's claims move, the compactor "
+        "packs them, and it is the second instance's own overlay that cannot "
+        "be had - so the row accepts either shape, the loader's LD_ENOMEM "
+        "with no window or the runtime's W_ST_ERR window holding no bundle, "
+        "and says which (this machine takes the second). MartyPC on a "
+        "GLaBIOS 256KB machine, because a "
         "machine wanting IBM's ROM cannot boot in this tree; `make "
         "xt-weave-256` is the same question on 86Box and is manual evidence "
         "only (docs/TESTING.md). 90s is 46s measured over three consecutive "
@@ -2667,6 +2673,121 @@ SOAK = [
         "mounted - B: is asked before A: (SPEC.md 54.4.2.2; was D A B). "
         "VERIFIED RED on the kernel before each fix.",
         needs=("marty",)),
+    Row("pkgmove-texpad", "soak",
+        py("tests/pkgmove.py", "--app", "texpad", "--first",
+           "B:/APPS/NOTEPAD.O88", "--open", "B:/MEDIA/PAPER.TEX",
+           "--word", "tp_srcseg"), 25.0,
+        "NO-PINNING A3: TeXPad's source claim MOVES. tests/pkgmove.py is the "
+        "generic gate for a package's movable claims: Note Pad opens first so "
+        "its claims become a hole under TeXPad's, a compaction is posted from "
+        "outside at the TRIVIAL rank, and every named word must follow, its "
+        "bytes survive and the window redraw the same. Measured: tp_srcseg "
+        "2300 -> 22c0, the region 9340 -> 9840; red with tp_srcreloc a bare "
+        "ret (stale word, a different picture). 19s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("pkgmove-browser", "soak",
+        py("tests/pkgmove.py", "--app", "browser", "--machine",
+           "os8088_xt_vga", "--first", "B:/APPS/NOTEPAD.O88", "--open",
+           "B:/MEDIA/BROWSER.HTM", "--word", "br_srcseg", "--word",
+           "br_docseg", "--word", "br_lseg", "--word", "br_lnkseg"), 30.0,
+        "NO-PINNING A3 (SPEC.md 71.14.1): the Browser's four page claims - "
+        "source, document, line table, link arena - MOVE, each named by one "
+        "word. A file load (no NIC needed: the worker idles at BN_IDLE and "
+        "parks at OSAPI_TASK_ALIVE). On a VGA XT because on CGA the Browser "
+        "is allowed over the dock and Note Pad's tile cannot be reached. "
+        "Measured: 3760/3f60/4f20/5120 -> 2420/2c20/3be0/3de0; red with "
+        "br_reloc a bare ret (all four stale). 25s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("pkgmove-ftpd", "soak",
+        py("tests/pkgmove.py", "--app", "ftpd", "--first",
+           "B:/APPS/NOTEPAD.O88", "--open", "B:/APPS/FTPD.O88", "--word",
+           "fd_bigseg"), 22.0,
+        "NO-PINNING A3 (SPEC.md 77.51.1): FTPD's 32KB STOR/RETR stage, "
+        "claimed by the entry proc with or without a card, MOVES. MartyPC "
+        "has no NIC, so this moves the idle server's stage; the worker and "
+        "file-call arms (fd_stgpin) are argued in 77.51.1. Measured: "
+        "fd_bigseg 2780 -> 2400; red with fd_reloc a bare ret (stale word). "
+        "17s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("pkgmove-chart", "soak",
+        py("tests/pkgmove.py", "--app", "chart",
+           "--disk", "office360.img",
+           "--first", "B:/ARTFUL.O88", "--open", "B:/CHART.O88",
+           "--word", "ct_chartseg"), 20.0,
+        "NO-PINNING A3 (SPEC.md 82.14.1): Chart's 19KB canvas MOVES "
+        "(ArtfulType opens first so its claims leave a hole under it). "
+        "Measured: ct_chartseg 24c0 -> 2380; red with ct_reloc a bare ret "
+        "(stale word, a different picture). 15s measured",
+        needs=("marty",), serial=True, wants=("build/office360.img",)),
+    Row("pkgmove-dotdel", "soak",
+        py("tests/pkgmove.py", "--app", "dotdel",
+           "--disk", "games360.img",
+           "--first", "B:/DOTDEL.O88", "--open", "B:/DOTDEL.O88",
+           "--word", "dd_bdseg", "--animated", "--hide"), 90.0,
+        "NO-PINNING A3 (SPEC.md 93.3.4.6): Dot Delirium's board picture "
+        "MOVES. A first instance's claims leave the hole; the target is "
+        "HIDDEN for the pass (--hide), because its worker draws flat out "
+        "and was measured never reaching OSAPI_TASK_ALIVE inside "
+        "INST_PARKW while it shows, and the window must keep animating "
+        "after (--animated). Measured: dd_bdseg 2640 -> 2380 and the region "
+        "9380 -> 99c0 (a restartable worker); red with dd_bdreloc a bare "
+        "ret (stale word). ~70s measured",
+        needs=("marty",), serial=True, wants=("build/games360.img",)),
+    Row("pkgmove-deskclock", "soak",
+        py("tests/pkgmove.py", "--app", "deskclok", "--first",
+           "B:/APPS/NOTEPAD.O88", "--open", "A:/STIKAPPS/DESKCLOK.O88",
+           "--word", "dk_cseg"), 30.0,
+        "NO-PINNING A3 (SPEC.md 110.14.10): the Desk Clock's face cache "
+        "MOVES. The redraw check masks the windows above it, the clock "
+        "being on the desk layer under every window. Measured: dk_cseg "
+        "2300 -> 22c0; red with dk_creloc a bare ret (a different picture). "
+        "21s measured",
+        needs=("marty",), serial=True, wants=("build/apps360.img",)),
+    Row("editmove-frotz", "soak", py("tests/editmove.py", "--app", "frotz"),
+        40.0,
+        "SPEC.md 66.5.9 and NO-PINNING A3 (66.5.9.2): a running story's "
+        "claims MOVE - the story (and its live PC and running delta), the "
+        "Z-stack, and since A3 the scrollback, the save staging and the "
+        "transcript, which sat under the scrollback and walled it in. All "
+        "five words move, contents hashed, and the story still answers "
+        "`look` after. Red with the three new words left out of zf_rltab "
+        "(all three stale). 27s measured",
+        needs=("marty",), serial=True, wants=("build/zmove360.img",)),
+    Row("pkgmove-wireflet", "soak",
+        py("tests/pkgmove.py", "--app", "wirefleet", "--disk",
+           "games360.img", "--open", "B:/WIREFLET.O88", "--word",
+           "wf_fxseg", "--word", "wf_fxpseg", "--machine", "os8088_xt_vga"),
+        35.0,
+        "NO-PINNING A8: the PARTS STANDARD'S opt-in (SPEC.md 20.12.12) on its "
+        "first adopter. WireFleet's stamp bank is a lazy part declared with "
+        "op_movable (the library's op_lazymv stores the row, the package's "
+        "OP_ONMOVE hook wf_partsmv re-reads op_seg), and the planar copy is "
+        "a claim of its own (wf_fxpmv); VGA so the planar copy exists. Both "
+        "move under a posted compaction (wf_fxseg 24e0 -> 23a0, wf_fxpseg "
+        "2860 -> 2720), bytes and picture unchanged. Red with both procs a "
+        "bare ret (stale words). 30s measured",
+        needs=("marty",), serial=True, wants=("build/games360.img",)),
+    Row("pkgmove-1942", "soak",
+        py("tests/pkgmove.py", "--app", "1942", "--disk",
+           "1942-360.img", "--open", "B:/1942.O88", "--word",
+           "n_canvas", "--machine", "os8088_xt_vga"), 20.0,
+        "NO-PINNING A4: 1942's 64 KB canvas MOVES on the desktop (SPEC.md "
+        "101.2.1) - n_canvasmv, and pinned around OSAPI_FSX_RUN. 24e0 -> "
+        "23a0 under a posted compaction, the splash redrawn the same. Red "
+        "with n_canvasmv a bare ret (stale word, a different picture). 14s "
+        "measured",
+        needs=("marty",), serial=True, wants=("build/1942-360.img",)),
+    Row("pkgmove-isotron", "soak",
+        py("tests/pkgmove.py", "--app", "isotron", "--disk",
+           "games360.img", "--open", "B:/ISOTRON.O88", "--word",
+           "it_cseg", "--word", "it_seg", "--machine", "os8088_xt_vga"),
+        25.0,
+        "NO-PINNING A4: isoTron's canvas (63 KB) and work claim (30 KB) MOVE "
+        "on the desktop (SPEC.md 108.8.1) - it_claimmv, both pinned around "
+        "OSAPI_FSX_RUN - with its restartable worker parked: 24e0 -> 23a0 "
+        "and 34a0 -> 3360, the title redrawn the same. Red with it_claimmv a "
+        "bare ret (both words stale, a different picture). 19s measured",
+        needs=("marty",), serial=True, wants=("build/games360.img",)),
     Row("tymove", "soak", py("tests/tymove.py"), 15.0,
         "NO-PINNING A7: apps/os88type.inc's claims MOVE - an open face "
         "(TF_CLAIM = TF_SEG, [ty_curseg] its copy) and the pre-shifted table "
@@ -3120,6 +3241,25 @@ SOAK = [
         "memory, so 86Box's. SOAK: one package, and 86Box's",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088.img")),
+    Row("rdgmove", "soak", py("tests/rdgmove.py"), 85.0,
+        "NO-PINNING A1: REALDMG's claims MOVE while a game runs "
+        "(docs/REALDMG-SPEC.md section 14.4). GBBANK8.GB (tools/gbours.py, "
+        "ours: gbbank.asm at 8 banks with 32KB of RAM, 16 checked switches a "
+        "frame) checks every bank switch by its bytes and by code run from "
+        "4000-7FFF, recompiled; a compaction is posted from outside at the "
+        "TRIVIAL rank and the frames, the damage memory, the recompiler's "
+        "claim, the ROM, the RAM and (the Static leg) the profile must move, "
+        "every word and the core's copies - S_ROMSEG, the bank table, S_ROMX, "
+        "S_RAMSEG, S_PRFSEG, S_JITSEGA/HSEG, S_JITVEC - follow, the cache be "
+        "flushed (its chains are `jmp far` with the segment in their bytes), "
+        "the ROM's bytes survive and the cartridge run on with not one wrong "
+        "bank - and Static's table be preloaded again. Two legs, a boot each. "
+        "RED both ways (--red, a ret poked into the running package): "
+        "rw_mreloc bare stops the machine and the cartridge counts wrong "
+        "banks; rw_mjit bare leaves the core on the old cache and the game "
+        "stops dead. 66-72s measured",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-720.img")),
     Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 10.0,
         "REALDMG's speaker asked for 131,072 Hz (docs/REALDMG-SPEC.md section "
         "17) on 86Box's 286: GBTONE.GB ends with square channel 1 at x = 7FFh, "
@@ -5481,6 +5621,30 @@ SOAK = [
         "inst_seg_parked with chosen registers and puts everything back. 7.6s "
         "measured; all six go red with the push's `jne .count` taken out",
         needs=("marty",), serial=True),
+    Row("lemmove", "soak", py("tests/lemmove.py"), 121.0,
+        "LEMMINGS' KEPT LEVEL MOVES AND PLAYS ON (SPEC.md 116.6.2, "
+        "docs/plans/NO-PINNING-PLAN.md C4): the ~250-330 KB of claims a "
+        "level kept by 'f' holds are MOVABLE on the desktop and PINNED "
+        "around the launch, and os88_onmove (lemblit.inc) range-translates "
+        "eighteen words. MartyPC on BOTH claim sets - the 5150 Hercules "
+        "(world + shadow) and the VGA XT (T planes): play Fun 2, pause, "
+        "snapshot, keep, FORCE a compaction by writing [mem_cpq] (the "
+        "posted pass, rank 0xFC drops the icon store and a raise cache "
+        "under the claims), then nine assertions - pinned in the bracket, "
+        "movable kept, moved with lem_cl_* following, contents hashed, the "
+        "derived LEMMAIN segments' offsets kept, the raster's words, the "
+        "resumed paused picture identical to the pixel, pinned again, and "
+        "150 iterations later the mechanics (80 lemming records, counts, "
+        "mask and object map) equal to a CONTROL leg played from the "
+        "snapshot with no suspend and no move. Prints mem_compact's cost "
+        "(G1): 848 ms for 252 KB on Hercules, 1,066 ms for 329 KB on VGA. "
+        "RUN RED: lem_anseg dropped from the proc's table fails 5 (its "
+        "offset inside LEMMAIN 556 -> 1388) and 7 (238 px of garbage "
+        "lemmings); --nomove is the A/B and fails 3 alone. 121s MEASURED "
+        "(both arms, one os88test run). Needs `cc` and the fetched data "
+        "(wants= builds the disk, or the row SKIPS)",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/lemmings360.img",)),
     Row("cmemmove", "soak", py("tests/cmemmove.py"), 60.0,
         "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "
@@ -5493,6 +5657,86 @@ SOAK = [
         "[ch_seg] stale and the move count at 0. Needs `cc`",
         needs=("marty", "cc"), serial=True,
         wants=("build/cmemmove360.img",)),
+    Row("rcmove", "soak", py("tests/rcmove.py"), 120.0,
+        "RUNCPM'S 64KB Z80 CLAIM MOVES and the machine keeps running "
+        "(SPEC.md 74.3.2, docs/plans/NO-PINNING-PLAN.md C3): cmemmove's "
+        "recipe with the CCP at its A> prompt - MC_RLOC set, the claim at a "
+        "new base, rc_zseg AND rc_z.seg both following it, the 64KB hashed "
+        "equal at both bases, and `xyzzy` typed afterwards answered XYZZY? "
+        "by the CCP running in the moved claim. 30s is its passing run "
+        "MEASURED here (25.5s wall). VERIFIED RED: os88_onmove leaving "
+        "rc_z.seg stale fails 3 (rc_z.seg 55c0, claim at 4e80) and 5 (no "
+        "XYZZY? in 120 guest seconds). Needs `cc` and the RunCPM fetch",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/rcmove360.img",)),
+    Row("c64move", "soak", py("tests/emumove.py", "--pkg", "c64"), 30.0,
+        "THE C64'S 64KB RAM AND ITS PARTS CARVE MOVE and the 6510 keeps "
+        "running (C64-SPEC 3.1.1, SPEC.md 73.14.2.1's CC_ONMOVE_PARTS): Note "
+        "Pad, C64, then heapfrag; Note Pad closed and heapfrag's key-driven "
+        "region pass posted, which moves the RAM down, the region and the "
+        "ROM+overlay carve up. Asserts both MC_RLOCs, c64_m.ramseg on the new "
+        "claim, c64_m.romseg and cc_ovseg at the same distance above op_base, "
+        "the ROM's first and last 16 bytes at the new romseg, c64_chr_seg on "
+        "one of the two claims, and the cycle counter moving with no JAM. It "
+        "does not wait for READY. (~280 guest seconds on an 8088). 30s is its "
+        "passing run MEASURED here (~18-26s wall). VERIFIED RED: os88_onmove "
+        "not storing os88_part_seg's answer into c64_m.romseg fails 3 and 4. "
+        "Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/c64move360.img",)),
+    Row("weavemove", "soak", py("tests/weavemove.py", "--pkg", "weave"),
+        45.0,
+        "WEAVE-SPEC 1.2.6 (NO-PINNING C3, Weave): every WEAVE claim MOVES and "
+        "every COPY follows - c64move's layout with two instances, SHEET.WAB "
+        "(bundle, VM, grid) and PONG.WAB (bundle, VM, canvas, canvas core). "
+        "Asserts MC_RLOC on each, that each instance moved, that every word "
+        "names a live claim and every copy agrees with its word "
+        "(wvm_vmseg/wvm_bseg/wfx_gseg, wvm_ourds = the REGION, the core's "
+        "WSS_CVSEG/WSS_BSEG, the parts row's zkb and wcv_vec = the core), "
+        "that the bundle claim is still the .WAB and the core still "
+        "WEAVE.WSM, that both windows redraw the same; then PONG is SERVED "
+        "(a WJS handler and start() through the moved words), the worker "
+        "plays, the core is now PINNED (the worker parks in it) - and SHEET "
+        "closes and a pass posted from outside moves PONG's bundle UNDER THE "
+        "RUNNING WORKER, which plays on. 45s for a measured 30-40s. VERIFIED "
+        "RED: os88_onmove emptied fails 1 (heapfrag's own pass already moved "
+        "the claims and the words did not follow); CC_ONMOVE_REGION taken out "
+        "fails 3 (wvm_ourds left on the old region) and 6 (start() never "
+        "reaches the worker) - the region move was a live defect before "
+        "this row. Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/weavemove360.img",)),
+    Row("loommove", "soak", py("tests/weavemove.py", "--pkg", "loom"), 55.0,
+        "WEAVE-SPEC 1.2.6 (NO-PINNING C3, Loom): LOOM's source claim, "
+        "Preview's two pack claims and the preview module (part 0) MOVE: "
+        "c64move's layout with LOOM opening PONG.WML and View > Preview up. "
+        "Asserts MC_RLOC on all four, that they moved and every word is live, "
+        "that the parts row's zkb and lpv_vec follow lm_pvseg, that the "
+        "claims still hold PONG.WML, PONG.WAB and LOOM.WPV's code, that the "
+        "Preview pane - a far call through the moved vector over the moved "
+        "output claim - redraws the same; then View > Edit gives Preview's "
+        "claims back, a typed character lands in the moved source claim and "
+        "^S saves it, the claim movable again after the write's pin; then a "
+        "Pack from the Preview pane leaks neither of Preview's claims (it "
+        "reused their words and leaked 112KB; red with lm_pack's "
+        "lm_prev_off() taken out). 55s for a measured 38s. VERIFIED RED: os88_onmove emptied fails 1 "
+        "(heapfrag's own pass moved the claims, the words did not follow) "
+        "and the machine stops answering. Needs `cc`",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/weavemove360.img",)),
+    Row("a2move", "soak", py("tests/emumove.py", "--pkg", "apple2"), 30.0,
+        "c64move's layout one machine along (APPLE2-SPEC 3.1.1): the Apple "
+        "II's 49KB RAM moves down and its ROM-only carve up - the carve's "
+        "proc is crt0's cc_partsmv proper, the overlay being lazy, so this "
+        "is the only row that runs that path. Asserts both MC_RLOCs, "
+        "a2_m.ramseg on the new claim, a2_m.romseg following the carve, the "
+        "ROM's first and last kept 16 bytes at the new romseg, and the 6502 "
+        "not jammed and at more than one PC after the pass. 30s is its "
+        "passing run MEASURED here (19.7s wall). VERIFIED RED: os88_onmove "
+        "not re-reading a2_m.romseg fails 3, 4 and 6. Needs `cc` and the "
+        "Apple II ROM fetch",
+        needs=("marty", "cc"), serial=True,
+        wants=("build/a2move360.img",)),
     Row("gfxpoints", "soak", py("tests/gfxpoints.py"), 20.0,
         "SPEC.md 5.6.9: gfx_points draws the SAME pixels as a gfx_pixel loop. "
         "The slot exists to REPLACE that loop, so the only claim worth gating "
@@ -8216,7 +8460,10 @@ SOAK = [
     Row("tank", "soak", py("tests/tank.py"), 30.0,
         "SPEC.md 85: TANK ATTACK draws, ADVANCES, and does not flash - the ink"
         "on the glass per DISPLAYED frame, whose floor against its median is"
-        "the whole question a foreign-mode raster is built to answer",
+        "the whole question a foreign-mode raster is built to answer. Its "
+        "last leg leaves the bracket with F and asserts the 32 KB shadow went "
+        "with it (SPEC.md 85.3.5.2, NO-PINNING A4): red with tk_shfree's call "
+        "taken out. 19s measured",
         needs=("marty",), serial=True),
     Row("tankaim", "soak", py("tests/tankaim.py"), 30.0,
         "SPEC.md 85.6.5's aim assist and its reticle: no bearing is unreachable"
@@ -12191,6 +12438,11 @@ SOAK = [
         "compaction and more after: a frame count alone passes a worker that "
         "was never parked). Broken on purpose with the proc's table cut to one row "
         "the worker far-calls the old driver and no frame is ever drawn. "
+        "LEG 8 (NO-PINNING A4, SPEC.md 97.9.2): the 16 KB shadow is DECLARED "
+        "movable and [px_shseg]/[px_dseg] name a live claim after - red with "
+        "the declaration taken out. On this layout the shadow sits right above "
+        "the loader's pinned sprite set and does not move, so the proc itself "
+        "is proved by reading (two words). 13s measured. "
         "Needs `make pxsmove`.",
         needs=("marty",), serial=True, wants=("build/pxsmove360.img",)),
     Row("appdata", "soak", py("tests/appdata.py"), 50.0,

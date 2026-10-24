@@ -3510,7 +3510,67 @@ br_srcclaim:
     call OSAPI_MEM_CLAIM
     jc .out
     mov [br_srcseg], dx
+    jmp short br_movable            ; ...AND IT MOVES (NO-PINNING A3)
 .out:
+    ret
+
+; -----------------------------------------------------------------------------
+; br_movable - declare the claim at DX movable (NO-PINNING A3, SPEC.md 71.14.1)
+; in:  DX = one of the four page claims, just stored in its word
+; out: CF = 0. AX, DX and the other registers preserved.
+;
+; ALL FOUR PAGE CLAIMS MOVE - the source, the document, the line table and the
+; link arena - and br_reloc is the whole of it, because each is named by ONE
+; word and nothing else holds its segment between two uses:
+;   * the UI task loads ES from the word for one parse, one layout or one band
+;     and claims nothing while holding it - the only claiming calls on that
+;     task are br_srcclaim/br_claimpage/br_claimrest/br_frameclaim, which
+;     STORE the word, and the file read and write, which br_srcpin pins round;
+;   * the WORKER (br_take, br_finish's parse) loads ES from the word each pass,
+;     and a running worker pins every claim of ours (inst_seg_parked). It
+;     parks only inside OSAPI_TASK_ALIVE at the top of br_worker, where
+;     br_nstep has returned and holds nothing - no OSAPI_MEM_PARKSAFE;
+;   * NO SOCKET BUFFER IS ONE OF THESE (SPEC.md 72): every NETV_* verb is given
+;     br_rxb/br_reqb in our own segment, and br_take copies out of br_rxb.
+; -----------------------------------------------------------------------------
+br_movable:
+    push ax
+    mov ax, br_reloc
+    call OSAPI_MEM_MOVABLE
+    pop ax
+    clc
+    ret
+
+; br_reloc - a page claim moved (SPEC.md 66.2): BX = where it was, DX = where
+; it is now. Every word that can name one is tested - three in a row and the
+; link arena.
+br_reloc:
+    mov si, br_srcseg
+    call .one
+    call .one
+    call .one
+    mov si, br_lnkseg
+.one:
+    cmp [si], bx
+    jne .n
+    mov [si], dx
+.n:
+    inc si
+    inc si
+    ret
+
+; br_srcpin - AX = 0 PINS the source claim, AX = br_reloc lets it move again.
+; Around a FILE_READ or FILE_WRITE whose ES:BX it is: the kernel holds that
+; pointer across claims of its own before its transfer pin applies (SPEC.md
+; 66.3 rule 5), so the claim is bucket C for the call. Preserves every
+; register and the flags.
+br_srcpin:
+    pushf
+    push dx
+    mov dx, [br_srcseg]
+    call OSAPI_MEM_MOVABLE
+    pop dx
+    popf
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3559,11 +3619,12 @@ br_claimpage:
     call OSAPI_MEM_CLAIM
     jc .fail
     mov [br_docseg], dx
+    call br_movable
     mov ax, BR_LINEKB               ; line table
     call OSAPI_MEM_CLAIM
     jc .fail
     mov [br_lseg], dx
-    clc
+    call br_movable                 ; (CF = 0)
     jmp short .out
 .fail:
     call br_free_all
@@ -3590,7 +3651,10 @@ br_claimrest:
     jnc .lok
     xor dx, dx                      ; no arena: no segment and no capacity
     xor bx, bx
+    jmp short .lnone
 .lok:
+    call br_movable
+.lnone:
     mov [br_lnkseg], dx
 %if BR_LINKKB > 63
 %error "br_claimrest makes the link capacity KB << 10 in one word"
@@ -3767,9 +3831,13 @@ br_saved:
     mov es, [br_srcseg]
     xor bx, bx
     mov cx, [br_srclen]
+    xor ax, ax
+    call br_srcpin                  ; pinned for the write (br_srcpin's header)
     xor dx, dx                      ; **DX IS AN ARGUMENT** and the count is
     call OSAPI_FILE_WRITE           ; 32-bit: a 16-bit one here writes whatever
-    jc .failed                      ; was in DX as the high word
+    mov ax, br_reloc                ; was in DX as the high word
+    call br_srcpin                  ; ...and free to move again, CF kept
+    jc .failed
     mov si, br_s_saved
     mov al, BN_DONE                 ; ...and it FINISHED, which is not the same
     jmp short .say                  ; as it failed
@@ -3907,8 +3975,14 @@ br_load:
     mov ax, 1024
     mul cx
     mov cx, ax                      ; capacity = what we actually claimed
+    xor ax, ax
+    call br_srcpin                  ; pinned for the read (br_srcpin's header)
     xor dx, dx
     call OSAPI_FILE_READ
+    push ax
+    mov ax, br_reloc                ; ...and free to move again, CF kept. ES
+    call br_srcpin                  ; stays the source for br_parse below:
+    pop ax                          ; nothing between here and it claims
     jc .fail
     or dx, dx
     jnz .fail                       ; over 64KB: FERR_BIG should have caught it

@@ -715,6 +715,8 @@ zi_dlg_save:
     mov byte [zf_reqres], ZRES_FAIL
     cmp word [zi_savseg], 0
     je .done
+    xor ax, ax
+    call zi_savpin                  ; pinned for the write (zi_savpin's header)
     push es
     mov es, [zi_savseg]
     xor bx, bx
@@ -723,6 +725,8 @@ zi_dlg_save:
     mov si, zi_name
     call OSAPI_FILE_WRITE           ; out CF=0 AX=0, else AX = FERR_*
     pop es
+    mov ax, zf_reloc                ; ...and free to move again, CF kept
+    call zi_savpin
     jc .failed
     mov byte [zf_reqres], ZRES_OK
     jmp short .done
@@ -754,12 +758,18 @@ zi_dlg_restore:
     ja .toobig
 .fits:
     mov cx, ax
+    xor ax, ax
+    call zi_savpin                  ; pinned for the read (zi_savpin's header)
     push es
     mov es, [zi_savseg]
     xor bx, bx
     mov si, zi_name
     call OSAPI_FILE_READ            ; DX:CX = capacity in, DX:AX = size out
     pop es
+    push ax
+    mov ax, zf_reloc                ; ...and free to move again, CF kept
+    call zi_savpin
+    pop ax
     jc .failed
     mov [zi_savlen_l], ax
     mov [zi_savlen_h], dx
@@ -889,6 +899,12 @@ zi_load:
     call OSAPI_MEM_CLAIM
     jc .nosave
     mov [zi_savseg], dx
+    mov ax, zf_reloc            ; ...AND IT MOVES (NO-PINNING A3): the worker
+    call OSAPI_MEM_MOVABLE      ; stages into it and parses out of it with ES
+                                ; loaded from the word and gives ES back to
+                                ; the story before zi_request's wait, and the
+                                ; UI task pins it round its file call
+                                ; (zi_savpin)
     jmp short .undo
 .nosave:
     mov word [zi_savkb], 0
@@ -1030,17 +1046,20 @@ zf_reloc:
 .nopc:
     pop ax
     ret
-.stack:
-    cmp bx, [zf_stkseg]
-    jne .undo
-    mov [zf_stkseg], dx
+.stack:                         ; EVERY OTHER CLAIM IS ONE WORD, so a table:
+    mov si, zf_rltab            ; the Z-stack and the undo snapshot (66.5.9),
+.w:                             ; and since NO-PINNING A3 the scrollback, the
+    mov di, [si]                ; save staging and the transcript (66.5.9.2)
+    inc si
+    inc si
+    cmp [di], bx
+    jne .n
+    mov [di], dx
+.n:
+    cmp si, zf_rltab_end
+    jb .w
     ret
-.undo:
-    cmp bx, [zi_undoseg]
-    jne .out
-    mov [zi_undoseg], dx
-.out:
-    ret
+
 
 ; -----------------------------------------------------------------------------
 ; zi_free_all - UI task: hand every claim back
@@ -2368,6 +2387,32 @@ ZI_SCRKB    equ 16                  ; 16,384 characters - about 250 lines of
 %define zi_scrlen  (os88_image_end + ZIO_SLACK + 80)  ; word: bytes buffered
 %define zi_scrfull (os88_image_end + ZIO_SLACK + 82)  ; byte: it filled up
 
+; (zf_reloc's table and the two pins sit HERE, below zi_scrseg's %define: a
+; %define expands at its use, but NASM reads this file top to bottom.)
+zf_rltab:
+    dw zf_stkseg, zi_undoseg, zw_sbseg, zi_savseg, zi_scrseg
+zf_rltab_end:
+
+; zi_savpin / zi_scrpin - AX = 0 PINS the save staging / the transcript, AX =
+; zf_reloc lets it move again (NO-PINNING A3). Around the UI task's
+; OSAPI_FILE_READ/WRITE whose ES:BX it is: the kernel holds that pointer
+; across claims of its own before its transfer pin applies (SPEC.md 66.3 rule
+; 5), so the claim is bucket C for the call. Preserve every register and the
+; flags.
+zi_savpin:
+    push dx
+    mov dx, [zi_savseg]
+    jmp short zi_pinb
+zi_scrpin:
+    push dx
+    mov dx, [zi_scrseg]
+zi_pinb:
+    pushf
+    call OSAPI_MEM_MOVABLE
+    popf
+    pop dx
+    ret
+
 ; -----------------------------------------------------------------------------
 ; zi_script_open - claim the transcript buffer (UI TASK)
 ; in:  nothing; out: CF=1 refused - which is normal and not fatal
@@ -2382,6 +2427,10 @@ zi_script_open:
     call OSAPI_MEM_CLAIM
     jc .no
     mov [zi_scrseg], dx
+    mov ax, zf_reloc                ; ...AND IT MOVES (NO-PINNING A3): the
+    call OSAPI_MEM_MOVABLE          ; worker loads it per character
+                                    ; (zi_script_putc) and the flush pins it
+                                    ; round its write (zi_scrpin)
 .ok:
     xor ax, ax                      ; (CF = 0)
     mov [zi_scrlen], ax
@@ -2497,12 +2546,16 @@ zi_script_flush:
     jz .out
     cmp word [zi_scrseg], 0
     je .out
+    xor ax, ax
+    call zi_scrpin                  ; pinned for the write (zi_savpin's header)
     mov es, [zi_scrseg]
     xor bx, bx
     xor dx, dx                      ; DX:CX = the count; DX is an INPUT here
     mov si, zi_scrname
     call OSAPI_FILE_WRITE           ; creates or REPLACES - so it has to be
                                     ; the whole transcript every time
+    mov ax, zf_reloc
+    call zi_scrpin                  ; ...and free to move again
 .out:
     pop es                          ; back to KERNEL_SEG for the caller's
     jmp zf_pop5                 ; [es:bx+W_*] reads

@@ -6236,7 +6236,7 @@ $(BUILD)/realdmg.bin: apps/realdmg/realdmg.asm apps/realdmg/rdgdefs.inc \
                       $(BUILD)/rdgcore.inc \
                       apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
                       apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
-                      apps/realdmg/rwfm.inc drivers/sound/sndpkg.inc \
+                      apps/realdmg/rwfm.inc apps/realdmg/rwmove.inc drivers/sound/sndpkg.inc \
                       apps/os88data.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/realdmg/ -I drivers/sound/ -I $(BUILD)/ -l $(BUILD)/realdmg.lst \
 		-o $@ apps/realdmg/realdmg.asm
@@ -10195,6 +10195,17 @@ $(BUILD)/runcpm360.img: $(RUNCPMDEPS)
 	$(call RUNCPMIMG,$@,360)
 	@python3 tools/os88disk.py --verify $@
 
+# ...and the same 360KB disk with HEAPFRAG beside the package, for
+# tests/rcmove.py (SPEC.md 74.3.2): cmemmove360's recipe - heapfrag owns the
+# floor, RUNCPM lands above it, heapfrag's second run forces the pass that
+# moves the 64KB Z80 claim while the machine sits at its A> prompt. Its own
+# image because the listing is sorted by name (SPEC.md 19.4) and the row
+# names both packages; HEAPFRAG.O88 is an extra ROOT file the A\0 fill is
+# priced around ($(3) of RUNCPMIMG). On demand: nothing ships it.
+$(BUILD)/rcmove360.img: $(RUNCPMDEPS) $(BUILD)/heapfrag.o88
+	$(call RUNCPMIMG,$@,360,$(BUILD)/heapfrag.o88)
+	@python3 tools/os88disk.py --verify $@
+
 # THE CORE GATES (SPEC.md 71, docs/plans/completed/RUNCPM-PORT-PLAN.md wave 2). `make rczex`
 # is the plan's: boot build/runcpm.img in QEMU, launch RUNCPM, load ZEXDOC
 # through the debug key and read the terminal rows off screendumps until
@@ -10335,6 +10346,18 @@ $(BUILD)/c64120.img: $(C64DISK)
 
 $(BUILD)/c64360.img: $(C64DISK)
 	$(call C64IMG,$@,360)
+	@python3 tools/os88disk.py --verify $@
+
+# ...and C64 beside HEAPFRAG and NOTEPAD, for tests/emumove.py (C64-SPEC
+# 3.1.1): cmemmove's recipe for the 64KB RAM, plus a region-sized hole ABOVE
+# the parts carve - Note Pad's, opened before C64 and closed after - so the
+# pass moves the carve too (SPEC.md 73.14.2.1's CC_ONMOVE_PARTS). All at the
+# root - the row names them and the ROM is a part - and on demand: nothing
+# ships it.
+$(BUILD)/c64move360.img: $(BUILD)/heapfrag.o88 $(BUILD)/c64.o88 \
+                         $(BUILD)/notepad.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
+		$(BUILD)/c64.o88 $(BUILD)/notepad.o88
 	@python3 tools/os88disk.py --verify $@
 
 # THE COMPOSER'S BENCH (C64-SPEC §14.5, 9.7). The package's own
@@ -10540,6 +10563,14 @@ $(BUILD)/apple2120.img: $(APPLE2DISK)
 
 $(BUILD)/apple2360.img: $(APPLE2DISK)
 	$(call APPLE2IMG,$@,360)
+	@python3 tools/os88disk.py --verify $@
+
+# ...and the Apple II beside HEAPFRAG and NOTEPAD, for tests/emumove.py
+# --pkg apple2 (APPLE2-SPEC 3.1.1): c64move360's layout one machine along.
+$(BUILD)/a2move360.img: $(BUILD)/heapfrag.o88 $(BUILD)/apple2.o88 \
+                        $(BUILD)/notepad.o88 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
+		$(BUILD)/apple2.o88 $(BUILD)/notepad.o88
 	@python3 tools/os88disk.py --verify $@
 
 # THE COMPOSER'S BENCH (APPLE2-SPEC section 16.6, 7.9). The package's own
@@ -11195,6 +11226,22 @@ $(BUILD)/loom120.img: $(LOOMDISK) tools/os88disk.py
 $(BUILD)/loom360.img: $(LOOMDISK) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 --folder SYSTEM/APPDATA \
 		--dir-slots LOOM=32 $(WEAVEFOLDER) $(LOOMFOLDER)
+	@python3 tools/os88disk.py --verify $@
+
+# THE FAMILY'S MOVE GATES' DISK (WEAVE-SPEC 1.2.6; tests/weavemove.py,
+# `soak -k weavemove -k loommove`): c64move360's layout - Note Pad for the
+# ceiling and a floor document, the package under test, heapfrag LAST so its
+# pinned blocks wall nothing - with both packages and what each opens, all at
+# the root: PONG.WAB and SHEET.WAB for WEAVE, PONG's three sources for LOOM.
+# On demand; a prerequisite of nothing.
+$(BUILD)/weavemove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/notepad.o88 \
+                           $(WEAVEDISK) $(WEAVELOOM) $(LOOMSRCS) \
+                           tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 --folder SYSTEM/APPDATA \
+		$(BUILD)/heapfrag.o88 $(BUILD)/notepad.o88 $(BUILD)/weave.o88 \
+		$(BUILD)/PONG.WAB $(BUILD)/SHEET.WAB $(WEAVELOOM) \
+		apps/weave/demos/pong.wml apps/weave/demos/pong.wjs \
+		apps/weave/demos/pong.wsp
 	@python3 tools/os88disk.py --verify $@
 
 

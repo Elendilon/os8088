@@ -219,6 +219,29 @@ CC_OVDEPTH  equ 32
 ; thunk's retf, the relocation proc - IS that row word.
   %define cc_ovseg (cc_ovrow + OP_R_ZKB)
 %endif
+; CC_ONMOVE_PARTS - THE PARTS CARVE MOVES TOO (SPEC.md 73.14.2.1, docs/plans/
+; NO-PINNING-PLAN.md C2). A carve holding MORE than the module alone - C64's
+; and the Apple II's ROM - holds parts whose segments the program read with
+; os88_part_seg() and may have kept, and nothing could tell it they moved, so
+; it stayed pinned. With this define the package ASSERTS that its os88_onmove()
+; re-reads os88_part_seg() for every part segment it keeps (and translates any
+; copy of one it made): cc_entry then declares the carve movable after
+; os88_main() returns, and the carve's proc calls os88_onmove(was, now) with
+; the carve's two bases once op_base is the new one. Opt-in, so a package that
+; does not define it assembles byte for byte as it did.
+%ifdef CC_ONMOVE_REGION
+  %ifndef CC_HAS_ONMOVE
+    %fatal "CC_ONMOVE_REGION without CC_HAS_ONMOVE: os88_onmove is how the program is told its region moved"
+  %endif
+%endif
+%ifdef CC_ONMOVE_PARTS
+  %ifndef CC_HAS_ONMOVE
+    %fatal "CC_ONMOVE_PARTS without CC_HAS_ONMOVE: os88_onmove is how the program is told its parts moved"
+  %endif
+  %ifndef CC_HAS_PARTS
+    %fatal "CC_ONMOVE_PARTS without CC_HAS_PARTS: there is no carve to move"
+  %endif
+%endif
 
 ; --- the layout, pinned by SPEC.md 73.2 ---------------------------------------
 cpu 8086
@@ -442,9 +465,18 @@ cc_entry:
                                     ; and refuse - silently, see below
     mov ax, cc_regreloc
     call OSAPI_MEM_MOVABLE          ; a refusal is not worth reporting: it can
-    pop dx                          ; only mean the region is not ours, which
-    pop bx                          ; cannot happen from here, and the cost is
-    pop ax                          ; a compaction that achieves less
+                                    ; only mean the region is not ours, which
+                                    ; cannot happen from here, and the cost is
+                                    ; a compaction that achieves less
+%ifdef CC_ONMOVE_PARTS
+    mov dx, [op_base]               ; ...AND THE PARTS CARVE (SPEC.md
+    mov ax, cc_partsmv              ; 73.14.2.1), AFTER os88_main: the part
+    call OSAPI_MEM_MOVABLE          ; segments the C keeps are banked by now,
+%endif                              ; and its os88_onmove re-reads them. No
+                                    ; carve (op_base 0) matches no claim
+    pop dx
+    pop bx
+    pop ax
 .noreg:
     pop es
     pop di
@@ -1533,7 +1565,21 @@ section .text
 ; vectors from [cc_ovseg], which a region move does not touch, so it costs a
 ; few stores and is right either way.
 ; -----------------------------------------------------------------------------
-%ifdef CC_HAS_OVL
+%ifdef CC_ONMOVE_REGION
+; CC_ONMOVE_REGION - ...AND THE PROGRAM IS TOLD (docs/plans/NO-PINNING-PLAN.md,
+; WEAVE-SPEC 1.2.6). A package whose ASSEMBLY banks its own data segment - the
+; WJS VM's wvm_ourds, the DS a slice puts back for a native - holds a word that
+; names the region, and nothing above puts it right: mem_region_reloc fixes
+; the kernel's words and cc_ovbind the overlay's. With this define the region's
+; proc calls os88_onmove(was, now) as well, AFTER the vectors, so the C (or an
+; asm helper it calls) can translate every banked copy at move time instead of
+; re-reading DS at every entry. Opt-in: without it this assembles as before.
+cc_regreloc:
+  %ifdef CC_HAS_OVL
+    call cc_ovbind
+  %endif
+    jmp cc_onmove                   ; every register preserved, BX/DX passed
+%elifdef CC_HAS_OVL
 cc_regreloc equ cc_ovbind
 %else
 cc_regreloc:
@@ -1783,10 +1829,11 @@ cc_ovinit:
     ; and the vectors, which cc_ovcarve re-stamps. Declared AFTER the bind:
     ; the vectors must name where the module is before anything may move it.
     ;
-    ; ONE PART ONLY, for now: with more rows the carve holds parts whose
-    ; segments a program may have read through os88_part_seg and kept, and
-    ; nothing would tell it they moved. docs/plans/NO-PINNING-PLAN.md item
-    ; C2 is the work that lifts this.
+    ; ONE PART ONLY here: with more rows the carve holds parts whose
+    ; segments a program may have read through os88_part_seg and kept, so
+    ; it moves only when the package says CC_ONMOVE_PARTS - and then
+    ; cc_entry declares it, after os88_main, with this same proc
+    ; (docs/plans/NO-PINNING-PLAN.md item C2).
     mov dx, [op_base]
     mov ax, cc_ovcarve
     call OSAPI_MEM_MOVABLE          ; a refusal leaves it pinned: no unwind
@@ -1798,11 +1845,17 @@ cc_ovinit:
   %endif
     ret
   %ifdef CC_OVL_EAGER
-    %if OS88_PART_N == 1
+    %assign CC_OVCARVE (OS88_PART_N == 1)
+    %ifdef CC_ONMOVE_PARTS
+      %assign CC_OVCARVE 1
+    %endif
+    %if CC_OVCARVE
 ; cc_ovcarve - the eager carve's RELOCATION PROC (SPEC.md 66.2): BX = where it
 ; was, DX = where it is. Re-derives the module's segment through op_seg - the
 ; slack in front of it is the read's, and op_seg is the one place that knows
-; it - and re-stamps the vectors. Every register preserved.
+; it - and re-stamps the vectors. With CC_ONMOVE_PARTS it then tells the C,
+; through cc_onmove with the same BX/DX, so the program re-reads the other
+; parts' segments (op_base is already the new one). Every register preserved.
 cc_ovcarve:
     mov [op_base], dx
     push ax
@@ -1810,8 +1863,28 @@ cc_ovcarve:
     call op_seg                     ; AX only, and touches no heap
     mov [cc_ovseg], ax
     pop ax
+      %ifdef CC_ONMOVE_PARTS
+    call cc_ovbind                  ; the vectors first: the C may call a
+    jmp cc_onmove                   ; module function after it returns
+      %else
     jmp cc_ovbind
+      %endif
     %endif
+  %endif
+%endif
+%ifdef CC_ONMOVE_PARTS
+; cc_partsmv - THE PARTS CARVE'S RELOCATION PROC, declared by cc_entry after
+; os88_main (SPEC.md 73.14.2.1): op_base is the one word every op_seg answer
+; is arithmetic on, so storing it is the whole of the runtime's half, and the
+; program's half - every part segment it banked - is its os88_onmove's, told
+; with the carve's own two bases. An eager overlay's carve is cc_ovcarve,
+; which re-stamps the module's vectors as well.
+  %ifdef CC_OVL_EAGER
+cc_partsmv equ cc_ovcarve
+  %else
+cc_partsmv:
+    mov [op_base], dx
+    jmp cc_onmove                   ; every register preserved, BX/DX passed
   %endif
 %endif
 %define CC_THUNK_GATED              ; THE API BRIDGE, here and not at the top:

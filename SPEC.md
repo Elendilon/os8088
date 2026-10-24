@@ -46491,7 +46491,68 @@ paragraph OFFSETS (`PXH_GEN`, `PXH_BT`, §97.9) for it to turn into segments
 itself. The cost and the measurements are docs/plans/KERN-MEGA-PLAN.md 14.44
 and 14.48.
 
-### 20.13 COMPRESSION — flags bits 3 and 4, and one slot
+##### 20.12.12 The parts' claims may MOVE, when the package says so (NO-PINNING A8)
+
+The carve and every fetched lazy part are claims, and they were born pinned
+like every claim (§66.2): *"every part's segment is arithmetic on this
+base"* is a reason to put one word right, not a reason to stay a wall. The
+standard cannot declare them for you, because the copies that matter are the
+PACKAGE's - a segment it banked from `op_seg`, a CS on a stack under a far
+call into an `OP_SEG` part - so the door is OPT-IN:
+
+    %define OP_ONMOVE my_partsmv      ; before os88parts.inc
+    ...
+    mov al, MY_PART                   ; fetched, its segment banked
+    call op_movable                   ; or AL = OP_CARVE for the carve
+    ...
+    my_partsmv:                       ; BX = was, DX = now
+        mov al, MY_PART
+        call op_seg
+        mov [my_seg], ax
+        ret
+
+- **`op_movable`** declares part AL's claim with the standard's own proc:
+  `op_carvemv` for `OP_CARVE`, which stores `[op_base]` (op_seg derives every
+  eager part from it - the head slack and R are offsets, not segments), and
+  `op_lazymv` for a FETCHED lazy row, which finds the row whose banked
+  segment is the one that moved and stores the new one there. Both then jump
+  to the package's hook with `BX`/`DX` intact, under a relocation proc's own
+  rules (§66.3), so the hook's whole job is to ask `op_seg` again for what it
+  banked. A part with no claim of its own - eager, unfetched, an empty carve
+  - answers CF = 1.
+- **`op_pin`** is the same call with `AX = 0` (§66.2's HLock), for a stretch
+  in which the package holds a part's segment across something that can
+  claim: a file call into it, an fsx bracket.
+- **op_fetch does not declare.** §66.3 rule 5's ordering: declare after the
+  part is in place and its segment banked. `OSAPI_MEM_REGROW` keeps a
+  declaration and `op_drop`'s free ends it.
+- **What the package asserts by defining `OP_ONMOVE`**, and nothing can check
+  it: no copy of the segment survives a call that can claim except in words
+  its hook re-reads. For an `OP_SEG` part that includes the far call's CS on
+  the stack, so code you far-call is declared only if nothing under that far
+  call ever claims.
+
+Without the define the body assembles **byte for byte** as before: every
+`*.o88` that includes the standard and does not opt in was compared against
+the tree before this section, identical. The cost to an adopter is ~75 bytes
+of image for the three routines plus its hook.
+
+**The audit (2026-10-23), every user of the standard:**
+
+| user | carve / lazy claims | verdict |
+|---|---|---|
+| WORD, SCRIBE, DOS, Clear Skies, PIXELSTEIN loaders | carve | it becomes the program's REGION at the re-home (§20.12.10.5), declared there by the program; the loader's carve is `[ld_base]` until then, which pins it anyway |
+| C packages (CWORD, C64, APPLE2, RUNCPM, LEMMINGS, COVL) | carve, overlay | crt0's own door: `cc_ovcarve` and `CC_ONMOVE_PARTS` (§73.14.2.1) |
+| **WireFleet** | lazy: the stamp bank | **MOVABLE**, the first adopter: `op_movable` after `wf_fx_need` banks `[wf_fxseg]`, `wf_partsmv` re-reads it (§114.11). `tests/pkgmove.py` is the gate (`pkgmove-wireflet`) |
+| DrMarco, Excitebike's splash, Pixel's colour face, the Video Player's block decoder | lazy | already declared by hand, each with a proc storing the row's word |
+| 1942's banks, scenes and effects; WireFleet's samples | lazy | fetched and dropped inside one bracket or one call: bucket C (§101.2.1, §114.11) |
+| PIXELSTEIN's levels and art masters | lazy, fetched by the LOADER | **pinned, blocked**: the re-home re-owns them to the slot (§20.12.10.5), and `mem_find_own`'s fence wants the claim owned by the CALLER's segment, so the program cannot declare them (§97.9.2) |
+| Pixel's code parts 0-8 | lazy `OP_SEG` | not adopted: its WORKER far-calls into them (`px_wcall`), and a park inside a part is a CS on a stack |
+| REALDMG | carve: the core (far-called code) and the 64 KB view; the recompiler | NO-PINNING A1's, performance-bound and left to it: the carve is code the dispatch loop runs in |
+| DOS's trace part | carve (`OP_ZERO`) | an instrument build nothing ships (§96.29.1) |
+| Clear Skies' streams, MIDIRack's faces, Excitebike's packs, RealDMG's recompiler | `OP_SELF` | read by the package into claims of its own, each answered where it is claimed |
+
+## 20.13 COMPRESSION — flags bits 3 and 4, and one slot
 
 **A file may be compressed and the kernel expands it on the way in.**
 docs/plans/O88-COMPRESSION-PLAN.md is the design record — what it costs, what it
@@ -113595,8 +113656,9 @@ design rather than luck.** `zm_pcaddr` turns the live `ES:SI` back into a
 20-bit **story address**, so every return address in every frame on the
 Z-stack, every object pointer and every packed address is relative to the base
 and survives a move untouched. The Z-stack and the undo snapshot are one word
-each; the save staging buffer, the transcript, the picture buffer and the
-`.mg1` probe stay pinned, being file-operation targets or transients.
+each; the picture buffer and the `.mg1` probe stay pinned, being
+transients. The save staging buffer, the transcript and the scrollback were
+pinned too, and move since §66.5.9.2.
 
 #### 66.5.9.1 It cannot declare `OSAPI_MEM_PARKSAFE`, and does not need to
 
@@ -113629,6 +113691,41 @@ compactions; a boolean would repair the first and lose the rest.
 
 Cost in the ordinary pass: one word read and a compare. The repair path runs
 only when the story actually moved.
+
+#### 66.5.9.2 ...and the three claims that sat under the scrollback (NO-PINNING A3)
+
+**The scrollback** (`ZW_SBKB` 24KB, `zwin.inc`) was outside `zf_reloc` and
+pinned by default, and declaring it alone bought nothing: measured, it sat
+directly on the **save staging** claim (`[zi_savseg]`, dynamic memory + the
+Z-stack + 1KB - 19KB for the test story) and the **transcript** (`ZI_SCRKB`
+16KB, `[zi_scrseg]`), both session-lived and both pinned as "file-operation
+targets", so it could never slide. All three move now. Each is ONE word and
+`zf_reloc`'s tail is a table of them (`zf_rltab`: the Z-stack, the undo
+snapshot and these three).
+
+Why no copy of their segments survives a move:
+
+- **The scrollback** is reached through `zw_lineptr`, `zw_headptr` and
+  `zw_upptr`, which load ES from the word; each caller copies one record or
+  draws one row and puts ES back, and none claims, touches a file or reaches
+  `zi_yield`/`OSAPI_TASK_ALIVE` while holding it.
+- **The save staging** is filled by the worker (`zi_save`) and parsed by it
+  (`zi_restore`) with ES loaded from the word, and `zi_save` gives ES back to
+  the story BEFORE `zi_request`'s wait - the one park point either reaches.
+  The UI task's write and read of it (`zi_dlg_save`, `zi_dlg_restore`) pin it
+  for the call (`zi_savpin`; §66.3 rule 5's reason, bucket C).
+- **The transcript** is loaded per character by the worker
+  (`zi_script_putc`), and `zi_script_flush`'s whole-file write pins it
+  (`zi_scrpin`).
+
+Frotz's worker is NOT restartable and declares no `OSAPI_MEM_PARKSAFE`
+(§66.5.9.1), so its claims move only while it is parked inside
+`OSAPI_TASK_ALIVE` - at `zx_worker`'s loop top or inside `zi_yield` - and at
+both every one of these ES loads has already been undone; a running worker
+pins all of them (`inst_seg_parked`). +92 bytes of image. `editmove-frotz`
+is the gate: all five one-word claims move on `zmove360.img`, contents
+hashed, and the story still answers a command after; red with the three new
+words left out of the table (all three stale).
 
 ### 66.5.10 The drivers, and the claim a callback cannot reach
 
@@ -121169,11 +121266,19 @@ every Telnet window that is not downloading** (§70.11.6).
   reason: a reconnect that zeroed it would leak the claim rather than free it.
   A window closed mid-transfer needs nothing — the kernel frees an instance's
   claims with it (§50.3).
-- **It is PINNED**, by not declaring it (§66), and that is the honest answer
-  rather than an audit nobody did: `tz_store` loads ES from `[tz_sseg]` on the
-  worker, and this package is not `OSAPI_MEM_PARKSAFE`, so a move could land
-  between the load and the store. Pinned for one transfer is eight kilobytes
-  standing still for as long as a download takes.
+- **It MOVES** (NO-PINNING A3), declared at the claim with `tz_sreloc`, one
+  word. It was pinned on the reasoning that `tz_store` loads ES from
+  `[tz_sseg]` on the worker and the package is not `OSAPI_MEM_PARKSAFE`, so a
+  move could land between the load and the store - and that is the case the
+  kernel already excludes: a RUNNING worker pins every claim of its package
+  (`inst_seg_parked`), and a worker that is not `OSAPI_MEM_PARKSAFE` parks only
+  inside `OSAPI_TASK_ALIVE`, which this one reaches at the top of its loop with
+  nothing held. The UI task's one use is `tz_commit`'s write out of it, which
+  `tz_spin` pins for the call (§66.3 rule 5, bucket C). So eight kilobytes no
+  longer stand still for as long as a download takes. +44 bytes of image;
+  there is no move gate - the claim exists only during a Zmodem transfer,
+  which needs a NIC and so QEMU (§70.12) - and the argument above is the whole
+  of it.
 
 **The worker fills one half while the UI task writes the other.** When the half
 in flight has not been collected and the other is full, **the worker simply
@@ -122513,6 +122618,37 @@ What a page holds while it is on screen, `eth.htm` (442 bytes) off the wire:
 109KB before, **16KB** after (source 1, document `2 x 1 + 4` = 6, lines 8,
 links 1) - and the peak DURING a fetch is the 32KB source alone. A file load
 saves only the link arena's difference, its other three sizes being unchanged.
+
+#### 71.14.1 ...and all four of them MOVE (NO-PINNING A3)
+
+The four page claims were born pinned (§66.2) and declared nothing, so a page
+on screen was up to ~109KB of wall in the middle of the heap. **Each is named
+by ONE word** - `[br_srcseg]`, `[br_docseg]`, `[br_lseg]`, `[br_lnkseg]` -
+and every use loads that word into ES for one parse, one layout or one band,
+so `br_reloc` is a compare and a store per word and nothing else. `br_movable`
+declares each where it is claimed (`br_srcclaim`, `br_claimpage`,
+`br_claimrest`); `OSAPI_MEM_REGROW` keeps a declaration (§50.3.1), so the
+fetch's cut-back and the frameset's re-grow need nothing.
+
+Why no other copy of a segment survives a move:
+
+- **The UI task** claims nothing while it holds one. Its only claiming calls
+  are the four claim routines, which STORE the word, and the file read
+  (`br_load`) and write (`br_saved`), whose ES:BX is the source: `br_srcpin`
+  pins it for the length of each (bucket C, the kernel holding that pointer
+  across claims of its own before its transfer pin applies - §66.3 rule 5).
+- **The worker** loads the word each pass (`br_take`, `br_finish`'s parse), and
+  a RUNNING worker pins every claim of ours (`inst_seg_parked`). It parks only
+  inside `OSAPI_TASK_ALIVE` at the top of `br_worker`, where `br_nstep` has
+  returned and holds nothing; there is no `OSAPI_MEM_PARKSAFE`.
+- **No socket buffer is one of these** (§72): every `NETV_*` verb is handed
+  `br_rxb` or `br_reqb` in the package's own segment, `br_take` copies out of
+  `br_rxb`, and `ETHER.DRV`'s send and receive copy synchronously, keeping no
+  pointer past the call.
+
++86 bytes of image. `pkgmove-browser` is the gate (a file load on a VGA XT,
+Note Pad opened first so its claims leave a hole under the page's), red with
+`br_reloc` a bare `ret`.
 
 ### 71.15 Bounded compatibility for retro pages
 
@@ -125637,11 +125773,48 @@ the image.
 |---|---|---|
 | when it is read | at launch, by `op_load` in `cc_entry`, in the same carve read as every other eager part - right behind the image the kernel just read | the first time an `ovl_*` function is called, by `op_fetch` from `cc_ovneed` - §73.14's on-demand load, out of the package's own file |
 | the claim | the parts CARVE, top-down (`op_claim`, §20.12.10.8) | a claim of its own, through `op_fetch`'s door (bottom-up), shrunk to the part |
-| movable | **yes, while the carve holds the module alone** (`OS88_PART_N` = 1): `cc_ovcarve` re-derives the module's segment through `op_seg` and re-stamps the vectors. It was PINNED for a cycle (LEMMINGS' wave 4, §116.6) because a module function calling ANOTHER was `call far [cc_ovm_*]`, which left the module's own CS on the stack for a plain `retf`, so a claim that compacted under such a call moved the carve under a live return - LEMMINGS claims ~329 KB three such frames deep (`ovl_launch` → `ovl_level_load` → `ovl_claim_all`). **That call goes through `cc_ovmthunk` now** (`tools/cc8086.py` emits `mov bx, cc_ovm_*` / `call far [cc_ovvmm]`): the CS comes off, the return offset goes to `cc_ovthunk`'s stash and the `retf` is rebuilt from `[cc_ovcs]`, so no stack holds the module's CS on either crossing and the pin is gone (docs/plans/NO-PINNING-PLAN.md). A carve with MORE rows stays pinned until the program can be told its parts moved (that plan's C2). `tests/ovlhigh.py` asserts `MC_RLOC` ≠ 0 | yes, from the moment it is bound (`cc_ovreloc`) - safe under a module-to-module call for the same reason |
+| movable | **yes, while the carve holds the module alone** (`OS88_PART_N` = 1): `cc_ovcarve` re-derives the module's segment through `op_seg` and re-stamps the vectors. It was PINNED for a cycle (LEMMINGS' wave 4, §116.6) because a module function calling ANOTHER was `call far [cc_ovm_*]`, which left the module's own CS on the stack for a plain `retf`, so a claim that compacted under such a call moved the carve under a live return - LEMMINGS claims ~329 KB three such frames deep (`ovl_launch` → `ovl_level_load` → `ovl_claim_all`). **That call goes through `cc_ovmthunk` now** (`tools/cc8086.py` emits `mov bx, cc_ovm_*` / `call far [cc_ovvmm]`): the CS comes off, the return offset goes to `cc_ovthunk`'s stash and the `retf` is rebuilt from `[cc_ovcs]`, so no stack holds the module's CS on either crossing and the pin is gone (docs/plans/NO-PINNING-PLAN.md). A carve with MORE rows moves when the package says `CC_ONMOVE_PARTS` (below), which C64 (ROM + module) and the Apple II (ROM, its overlay lazy) both do. `tests/ovlhigh.py` asserts `MC_RLOC` ≠ 0 | yes, from the moment it is bound (`cc_ovreloc`) - safe under a module-to-module call for the same reason |
 | where `[cc_ovseg]` lives | a word of the runtime's bss, written once by `cc_ovinit` | **the row's own `zkb`**: `op_fetch` banks the claim's base there and `op_seg` reads it there, so `cc_ovseg` is `%define`d to that word and the relocation proc's one store keeps the binder, `op_seg`, `op_drop` and the thunk's `retf` in step - there is no second copy to forget |
 | `cc_ovneed` | the worker gate and nothing else | the worker gate, the row's `OP_FETCHED`, then the HOME BRACKET and `op_fetch` |
 | a refusal | the LAUNCH refuses, with the parts standard's toast (`Not enough memory`, `Cannot read my parts`, ...), and no window whose every menu says no ever opens | the CALL refuses with `op_fetch`'s toast, `AX` = 0 and the call skipped, as §73.14's refusal always was |
 | resident code, CWORD measured | +1,100 image bytes over the file form | +924 |
+
+**A carve holding MORE than the module moves too, when the package says so
+- `CC_ONMOVE_PARTS`** (docs/plans/NO-PINNING-PLAN.md C2). Such a carve holds
+parts whose segments the C read with `os88_part_seg()` and may have kept -
+C64's and the Apple II's ROM in `romseg` - and crt0 cannot know whether it
+did, so without the define it stays pinned. The define (with `CC_HAS_ONMOVE`
+and `CC_HAS_PARTS`, or the build stops) is the package's ASSERTION that its
+`os88_onmove(was, now)` re-reads `os88_part_seg()` for every part segment it
+keeps and translates any copy it made. `cc_entry` then declares the carve
+movable AFTER `os88_main` returns - every claim made, every copy banked - with
+the proc `cc_partsmv`: on an eager overlay that is `cc_ovcarve`, which
+re-derives and re-stamps the module and then calls `os88_onmove` with the
+carve's two bases; otherwise it stores `op_base` and calls it. `op_seg` is
+arithmetic on `op_base` and touches no heap, so the C may ask it from inside
+the proc, and asking on EVERY call - whichever claim moved - is the simple
+correct handler (`c64.c`, `apple2.c`). Opt-in, so every package that does not
+define it assembles byte for byte as before (CWORD, PACCMAN, WEAVE, LOOM,
+LEMMINGS, CHELLO, COVL, CCSMOKE all `cmp` equal). `tests/emumove.py` moves
+both kinds on MartyPC: `--pkg c64` through `cc_ovcarve`, `--pkg apple2`
+through `cc_partsmv` proper (C64-SPEC 3.1.1, APPLE2-SPEC 3.1.1).
+
+**And a package can be told of its REGION's move - `CC_ONMOVE_REGION`**
+(docs/plans/NO-PINNING-PLAN.md C3, WEAVE-SPEC 1.2.6). `cc_entry` declares
+every C package's region movable (§66.6.1.1) with `cc_regreloc`, which is a
+`ret` - or `cc_ovbind` where there is an overlay - because the C names its own
+region with no word at all: its statics move with it. That stops being true
+the moment the package's ASSEMBLY banks its own data segment, and WEAVE's WJS
+VM does: `wvm.inc` keeps DS in `wvm_ourds` so a slice, whose DS is the VM
+claim, can hand a native the package's segment back - and a region move left
+it naming where the region WAS, so the next native ran its C against stale
+memory (`soak -k weavemove` goes red without the define: `start()` never
+reaches the canvas worker). With the define (which needs `CC_HAS_ONMOVE`, or
+the build stops) `cc_regreloc` calls `cc_ovbind` when there is an overlay and
+then `cc_onmove`, so `os88_onmove(was, now)` is called with the region's two
+bases as well and translates the banked copy at move time; no entry point
+has to re-read DS. Opt-in, so every package that does not define it
+assembles byte for byte as before.
 
 **The home bracket is the lazy arm's, and it closes a hole the file form
 had.** `op_fetch` reads the part out of `op_name` - the package's own file -
@@ -126968,7 +127141,8 @@ a part is sector-aligned, so the file was **26,702 bytes, 53 sectors** - one
 more than the three files it replaced on the 512-byte-cluster geometries
 (2,048 bytes is four sectors plain, and LZ4 takes it only to 1,762, still four
 once padded) - and a carve holding the package's own part beside the module
-stays PINNED (§73.14.2.1: crt0 cannot know the C banked no segment), where
+stayed PINNED (§73.14.2.1: crt0 cannot know the C banked no segment - until
+`CC_ONMOVE_PARTS`, which lets a package say so), where
 the `RUNCPM.OVL` claim it replaced was movable. Inside the module it is one
 LZ4 stream with the code (6,726 -> **4,916**), no row and no padding, and the
 carve is the overlay ALONE as far as crt0 can see, so `cc_ovcarve` declared it
@@ -127015,6 +127189,60 @@ On the four `make runcpmdisk` floppies the root loses two entries and the
 `apps/runcpm/hosttest/rcuitest.c` models the part: one claim at launch, the
 CCP at the part's segment and never read as a file (a read of the name fails
 the harness), and its disk-without-the-CCP scene is gone with the case.
+
+#### 74.3.2 The Z80's 64KB and the open files MOVE
+
+**Every claim RunCPM holds for longer than one call is movable** (§66.2,
+docs/plans/NO-PINNING-PLAN.md C3). Until this the Z80's 64KB and the
+open-file table's buffers - up to eight more claims of up to 64KB each,
+held while a CP/M program has a file open - were born pinned and stayed
+pinned, a wall in the middle of the arena for the whole session. The shim
+says `CC_HAS_ONMOVE` and `os88_onmove` (`runcpm.c`) puts right every word
+that names one, and only those words:
+
+| claim | the words that name it | declared |
+|---|---|---|
+| the Z80's 64KB | `rc_zseg`, and `rc_z.seg` - the copy `rcz80.inc` and `rcmem.inc` load DS/ES from | in `os88_main`, after `rc_z.seg` is set and `AUTOEXEC.TXT`'s read into it is done |
+| an open file's buffer | `o->seg`, its row of `rc_oft` (`rcfs.c`) | at the end of `rc_oft_get`, once the whole-file read into it is done |
+| the parts carve (module + CCP) | `[cc_ovseg]`, the vectors, `op_base` - the runtime's (§73.14.2.1) | by crt0, a one-row carve |
+
+**THE CORE IS UNTOUCHED, and that is the whole performance argument.**
+`rc_run` loads DS from `rc_z.seg` at its door, every slice, and holds it only
+until it returns; it runs on the UI task, the only task that compacts or
+sheds (§66.3.1), and nothing inside it claims - so a move lands BETWEEN two
+slices and never inside one, and the proc does all its work at move time.
+The movers in `rcmem.inc` read `rc_z.seg` per call. `tools/os88rdiff.py`
+over the two builds reads **every routine of `rcz80.inc`, `rcmem.inc` and
+`rcband.inc` instruction-identical at an EVEN shift** (388 of them): the
+shim's one-byte parity pad ahead of the core keeps it at the parity it was
+measured at however the compiled C above it grows, because an odd shift
+re-prices every word fetch on a 16-bit bus (PERFORMANCE.md Part 7).
+
+**A file call into a movable claim pins it for the call** (§66.5.7.1's
+`np_dmov` pair): the debug loader's two `.COM` reads into the TPA
+(`rc_zmov(0)` .. `rc_zmov(1)`, both paths) and a flush's whole-file write
+out of `o->seg`. A buffer is declared only AFTER its read, so the load needs
+no pair. `os88_mem_regrow` (a file growing a record at a time) carries
+`MC_RLOC` through all three of its paths and moves nothing else (§66.7), so
+`o->seg = s` stays the one store it was.
+
+**The close worker changes nothing here.** It is hired only on main.c's
+exit, is `os88_task_restartable`, and holds no claim's segment - and while
+it RUNS `inst_seg_parked` pins the package's claims anyway.
+
+**Gated three ways.** `rcfstest` refuses a file call handed a movable claim
+and asserts a freshly opened file's buffer is declared (green; verified red
+with the declaration taken out); `rcuitest` refuses a read into the movable
+Z80 claim (verified red with the loader's pin taken out), asserts the launch
+declares it and that `os88_onmove` follows it into both words; and
+`tests/rcmove.py` moves it on MartyPC under a machine sitting at `A>` -
+`55c0 -> 4e80`, both words following and the 64KB hashing equal at both
+bases - and types `xyzzy` into the CCP afterwards, which answers `XYZZY?`
+from the moved claim (`soak -k rcmove`, 26 s). Red with `os88_onmove`
+leaving `rc_z.seg` stale: the CCP never answers.
+
+**Cost:** image +224 bytes (31,030 -> 31,254), bss +0, the module part +18;
+the file 26,941 -> 26,950, no sector.
 
 ### 74.4 What is present and greyed, and what is absent
 
@@ -132428,6 +132656,32 @@ stage is a heap claim and the plain door puts our own segment in ES over it:
 keeps `fd_stage`: its rows are composed in our segment.
 
 What it costs: `ftpd.o88`'s image **+46 bytes** (14,670 -> 14,716).
+
+#### 77.51.1 ...and the 32 KB stage MOVES (NO-PINNING A3)
+
+The stage was born pinned, its comment fearing that *"a movable one could be
+relocated at a park point with the driver holding its segment"*. The driver
+holds none: `ETHER.DRV`'s `NETV_SEND` and `NETV_RECV` copy into or out of the
+caller's ES and return, keeping no pointer past the call (`eth_v_send`,
+`eth_v_recv`). So it is declared with `fd_reloc` - one word, `[fd_bigseg]`
+(and `[fd_stg2]` should `FD_STG2` ever come back) - and every reader goes
+through `fd_fillp`/`fd_commp`, which hand back DX:AX for ONE call and keep it
+nowhere. What stops a move while the stage is in use:
+
+- **the worker**, filling it from a socket or sending it to one, is RUNNING,
+  and a running worker pins every claim of ours (`inst_seg_parked`). It parks
+  only inside `OSAPI_TASK_ALIVE` at the top of `fd_worker`, where `fd_step`
+  has returned and holds nothing (no `OSAPI_MEM_PARKSAFE`);
+- **the UI task's file call** - `fd_do_read`'s read into it, `fd_do_write`'s
+  write or append out of it - is bracketed by `fd_stgpin` (bucket C: the kernel
+  holds that ES:BX across claims of its own before its transfer pin applies,
+  §66.3 rule 5).
+
+Between those - a transfer waiting on the wire or on the user, or the server
+standing idle with the stage held since the entry proc - 32 KB is no longer a
+wall. +62 bytes of image. `pkgmove-ftpd` moves it on MartyPC (the entry proc
+claims it with or without a card), red with `fd_reloc` a bare `ret`; the
+worker and file arms are argued here, MartyPC having no NIC.
 
 ### 77.52 Apps size pass 2 - the shipped file
 
@@ -146535,6 +146789,21 @@ Data > Column (§82.12) reads it again; the export used to copy the Save
 dialog's answer over it, so a column choice after an export parsed `CHART.BMP`
 as SYLK and said *No data in that column.* The export name is staged in
 `ct_ntxt`, `ct_esatof`'s scratch, which no read is using at that moment.
+
+#### 82.14.1 ...and the canvas MOVES (NO-PINNING A3)
+
+The canvas was born pinned (§66.2) and declared nothing, so an open Chart was
+19KB of wall for as long as it was open. It is declared at the end of the
+entry proc with `ct_reloc`: `[ct_chartseg]` is the one word naming it, and
+`ch_prep`'s borrowed copy in `[ch_stgseg]` (re-stored at every render) is put
+right as well, `sh_reloc`'s rule for a borrowed copy (§66.1). Every use loads
+ES from the word for one blit, one render or one flip, Chart hires no worker,
+and nothing it calls while holding ES claims - except the export's
+`OSAPI_FILE_WRITE`, whose ES:BX the canvas is, and `ct_pin` pins it for that
+call (§66.3 rule 5, bucket C). The read's staging claim stays undeclared: it
+lives inside one callback and is a file read's target throughout. +59 bytes of
+image. `pkgmove-chart` is the gate, red with `ct_reloc` a bare `ret`.
+
 ### 82.18 Keeping Chart in step with what Sheet writes
 
 Sheet grew four stages of value model while Chart's readers stood still, and
@@ -148641,6 +148910,24 @@ than only its size.
 buys is 14KB of the claim, so `tests/unit/t_appsmall.py` weighs this package on
 **image + bss + claim** — 63,688 bytes against 50,327 — and reads a **21%**
 saving. A small build measured on the region alone would fail its own gate.
+
+#### 85.3.5.2 The shadow goes with the bracket (NO-PINNING A4)
+
+The shipped arm's 32 KB claim was taken at the first Play and held for the
+instance, so a TANK on the desktop was a 32 KB wall in the heap the whole
+session (docs/plans/NO-PINNING-PLAN.md 2.5) for a buffer no desktop path
+reads: the attract window draws through its own walk buffers in the bss, the
+shadow and the template are zeroed at every bracket entry (`tk_clearall`),
+and nothing else names `[tk_shseg]` or `[tk_tmseg]`. So `tk_fsx_main` frees
+both on its way out (`tk_shfree`, the template's own claim too on kern_mega,
+§85.3.10) - Clear Skies' shape (§88.10.9) - and the next Play claims again.
+That is bucket C, not a declaration: inside the bracket ES holds the shadow
+across every span, so its honest pin is the bracket's own length. +38 bytes
+of image, one claim and one free per Play, nothing per frame. **`APP_SMALL`
+keeps the claim for the instance**: the 128 KB machine has no compactor, so
+holding it costs nothing there, and freeing it could let a later Play be
+refused by a heap the user has since filled. `tests/tank.py` leaves the
+bracket at its end and asserts `[tk_shseg]` is 0.
 
 #### 85.3.8.1 The template's ridge is redrawn at the TEMPLATE's heading
 
@@ -166335,6 +166622,21 @@ was a defect once:
   `dd_bdkb_calc` for more and refuses harder. `[dd_nomem]` is set on
   `dd_fit_claim`'s arm and cleared on `dd_layout`'s, and `dd_draw_toosmall`
   letters *Not enough memory.* on it.
+
+##### 93.3.4.6 ...and the picture MOVES (NO-PINNING A3)
+
+The board picture (4KB windowed on a CGA, up to 27KB) was born pinned and held
+for the life of the instance, so a game left open was a wall. `dd_fit_claim`
+declares it with `dd_bdreloc` when it first claims it, and a regrow keeps the
+declaration (§50.3.1). `[dd_bdseg]` is the one word naming it; every reader -
+`dd_bd_hrun`, `dd_bd_wipe`, the band copy, the wall blit - loads it for one
+run, band or blit and claims nothing while holding it. The worker draws its
+frames through it, and a running worker pins every claim of ours
+(`inst_seg_parked`); it parks only inside `OSAPI_TASK_ALIVE` at the top of
+`dd_worker`, after `dd_render` has returned. Inside the fsx bracket the worker
+is frozen and nothing compacts but `dd_fit_claim`'s own claim, which holds no
+copy, and no file is ever read into the picture or written from it. +19 bytes
+of image. `pkgmove-dotdel` is the gate, red with `dd_bdreloc` a bare `ret`.
 
 #### 93.4.1 `W_ONRESIZE`, and why the window is not resizable
 
@@ -185887,6 +186189,34 @@ it - the 2 KB the Disk window's open adds to both arms is left out:
 | **256 KB 8088, Flat** (carve, levels, shadow) | **86 KB** | **77 KB** (-10.5%) |
 | **640 KB 8088, everything** (+ art 37, sprites 60) | **264 KB** | **254 KB** (-3.8%) |
 
+#### 97.9.2 The shadow moves on the desktop; the loader's claims do not (NO-PINNING A4)
+
+**The shadow (`[px_shseg]`, 9 or 16 KB) is MOVABLE** outside a bracket and
+pinned inside one. It is the program's own claim and two words name it,
+`[px_shseg]` and `[px_dseg]` while the window's backend composes into it, and
+`px_shmv` puts both right. Nothing else carries it - the compiled scalers and
+the draw queue take DS/ES from `[px_dseg]` at each pass, and part 1's three
+segment words (`PXG_QTEX`, `PXG_QSPR`, `PXG_QDS`) name other claims. It can
+move only with the worker PARKED in `OSAPI_TASK_ALIVE`, outside its compose
+(a running worker pins the package's claims, §66.3), and every UI-task reader
+loads the word where it uses it and claims nothing while it holds it.
+`px_go_fsx` pins it for the bracket (LEMMINGS' shape, §116.6.2), where Mode X
+points `[px_dseg]` at VRAM and the shadow backends keep it in ES across the
+kernel's calls. +50 bytes of part 0, nothing per frame. `tests/pxsmove.py`
+asserts it is declared and that both words name a live claim after the move.
+
+**The levels (10 KB), the art masters (37 KB) and the sprite set (60 KB) stay
+PINNED**, and the reason is the fence, not the code: the LOADER claims and
+fetches them, the re-home re-owns them to the slot (§20.12.10.5), and
+`mem_find_own` matches `MC_OWN` against the CALLER's segment (or a region
+whose base is the caller) - so `OSAPI_MEM_MOVABLE` from the program answers
+CF = 1, and the loader cannot declare them either, its proc offset dying with
+its region. What would unblock them is a kernel fence that also accepts
+`MC_OWN` = the caller's own instance slot (a few bytes in `mem_find_own`, and
+a proc in part 0 storing PXH_LEV / PXH_ART / PXH_SPR and `PXG_QSPR`). Up to
+107 KB of a 640 KB Textured launch sits behind that one compare. The loader's
+reserve (`PXL_RESKB`) is claimed and freed around `op_load`: bucket C.
+
 ### 97.10 Tests and instruments
 
 | row | tier | asserts |
@@ -199006,6 +199336,21 @@ Generated sprite/palette JSON beside the binaries supports independent tests.
 Source-selection stamps ensure switching between cartridge and original art
 rebuilds the matching package and disks.
 
+#### 101.2.1 The canvas moves on the desktop, and is pinned for the bracket (NO-PINNING A4)
+
+The desktop holds one claim of 1942's: the 64 KB canvas, claimed at entry and
+used there for the splash's band cache. It is declared movable right after
+the claim (`n_canvasmv`, one store: every reader loads `[n_canvas]` where it
+uses it, and the one claim the desktop side makes with the canvas in hand -
+`n_frontload`'s kern_mega scratch - reloads it after). `n_launch` PINS it
+around `OSAPI_FSX_RUN` and declares it again after, because inside the
+bracket ES holds it while the scenes, the banks and the ring are claimed.
+Everything else is bucket C or D and claimed inside the bracket: the sprite
+banks and scenes (`n_loadgfx`/`n_dropgfx`, `op_fetch` and `op_drop`), and the
+13 KB PCM ring (`n_audio_open`/`n_audio_close`), D while the card is armed on
+it and freed with the bracket. +38 bytes of image. `pkgmove-1942` is the
+gate.
+
 ### 101.3 Gameplay and validation
 
 Arrows move; Space/Z fires; X rolls; P pauses; M toggles sound; C selects
@@ -206492,7 +206837,7 @@ where the model's `bot_input` does.
   offers the window's display nothing - both re-read at every paint (a drag
   is one), so the items answer for the display the window is on (§47,
   §53.7.1).
-- **Two claims**, `OSAPI_MEM_CLAIM`, pinned (§66's default). **The canvas**
+- **Two claims**, `OSAPI_MEM_CLAIM`, movable on the desktop since §108.8.1. **The canvas**
   (`it_cseg`, 63 KB) is a segment of its own, 64,000 bytes, one byte a pixel
   (§108.9.1 says why). **The work claim** (`it_seg`, 30 KB):
 
@@ -206549,6 +206894,21 @@ where the model's `bot_input` does.
   `build/isotron.o88` rather than drive the last build's game through this
   build's offsets (which wave 2 did once, and read a debug view as a garbled
   3D picture).
+
+#### 108.8.1 Both claims MOVE on the desktop (NO-PINNING A4)
+
+The canvas (63 KB) and the work claim (30 KB) are a 93 KB wall for as long as
+the window is open, and both are now movable outside the bracket: `it_entry`
+declares them once they are filled (`it_claimmv`, one proc for both, storing
+whichever of `[it_cseg]`/`[it_seg]` named the base that moved), and
+`it_fs_go` pins both around `OSAPI_FSX_RUN` and declares them again after.
+Nothing else can be stale: the row bases (`it_xcol`) are offsets in the bss,
+the worker loads both words at each wake and holds them only inside its own
+pass, a running worker pins the package's claims (§66.3), and the move lands
+only while it waits in `OSAPI_TASK_ALIVE`, the kernel restarting it at
+`it_worker` (`OS88_WORKER_RESTARTABLE`). No callback claims while it holds
+either. +60 bytes of image, nothing per step or frame. `pkgmove-isotron` is
+the gate.
 
 ### 108.9 The canvas (wave 2)
 
@@ -211834,6 +212194,21 @@ the clock back after a reset - and the `herc` leg (`deskclockherc`), the Red
 LED face on one plane. `t_stik` (fast) holds the payload and the bss fields to
 the host tool and walks every system image for `STIKAPPS/DESKCLOK.O88`.
 
+#### 110.14.10 The face cache MOVES (NO-PINNING A3)
+
+The face's static layer (§110.14.4) is a claim sized to the face, held for as
+long as the clock is open, and it was born pinned (§66.2). `dk_cbuild`
+declares it with `dk_creloc` when it claims it. `[dk_cseg]` names it, and the
+composer's `[ck_bseg]` borrows it for `dk_cbuild` alone - `ck_ourband` puts
+DS back at the end of the build and at every `ck_setband` - and the proc puts
+the borrowed copy right as well, `sh_reloc`'s rule for one (§66.1). Every use
+loads it for one build or one slab copy (`dk_ccard`'s `mov ds`) and claims
+nothing while holding it; there is no worker on the shipped arm (kern_small's
+`stik_worker` touches no claim) and no file call. The settings window's tall
+band (`[dk_sbseg]`, `dk_stall`) stays undeclared: it is claimed and freed
+inside one paint. +32 bytes of image. `pkgmove-deskclock` is the gate, red
+with `dk_creloc` a bare `ret`.
+
 ### 110.15 The Sticky App library: one copy, in `DESK.DRV`
 
 **The owner's decision (2026-10-17)**, on docs/plans/completed/STIKLIB-PLAN.md:
@@ -213392,6 +213767,17 @@ claim on a Sound Blaster route only. On disk:
 713, and WireFleet is **off `apps360.img`** - that curated disk was 354 of
 354 (§24.6.1's rule, dated 2026-10-20 in the Makefile); `games360.img`
 carries it with every other game.
+
+**Both stamp claims MOVE** (NO-PINNING A8, §20.12.12). The bank is the
+parts standard's first opted-in lazy part: `wf_fx_need` calls `op_movable`
+once `[wf_fxseg]` is banked, and the hook `wf_partsmv` asks `op_seg` again.
+The planar copy declares `wf_fxpmv`, one store into `[wf_fxpseg]`, once it is
+filled. Every reader loads either word into ES or DS for a burst of moves and
+calls nothing inside it, the worker only wakes the UI task, and the link's
+rate hook reads neither. +111 bytes of image, taken out of the 512-byte
+alignment pad in front of `wf_savebuf`, so image + bss is still 65,024. The
+samples need nothing: fetched, copied into the ring and dropped inside
+`wf_pcm_open`. `pkgmove-wireflet` is the gate.
 
 ## 115. Desktop serial lease (`kernel/serial.inc`, `SERIAL.DRV`)
 
@@ -215299,6 +215685,79 @@ costs nothing to have, and keeping it is what lets an object or a crater be
 put back by a copy rather than by drawing terrain again. A machine too small
 for its adapter's figure (329, 283 or 252 KB) is refused **before any I/O**
 with that arithmetic on the glass, which is WEAVE-SPEC §1.4's precedent.
+
+#### 116.6.2 The claims MOVE while the desktop holds them
+
+**A level kept on the desktop used to be a wall.** 'f' keeps a level, and so
+does the window's postview (`LEM_X_DONE`). Either way the claims above, 252
+to 329 KB, stayed claimed with nothing of LEMMINGS running, and every one of
+them was PINNED (§66.2's default). The arena could not close over them: a
+user with a level kept could see 300 KB free and still be refused a 200 KB
+picture. Under docs/plans/NO-PINNING-PLAN.md's policy, a claim may be pinned
+only while the program is using it. These are now movable whenever the
+desktop holds them.
+
+**Pinned exactly for the launch, and nowhere else.** `os88_onwake()` wraps
+`ovl_launch()` in `ovl_cl_movable(0)` before and `ovl_cl_movable(1)` after.
+`ovl_cl_movable` calls `os88_mem_movable` on each live claim, and pinning is
+§66.2's `AX = 0`. The launch is the only path that touches the claims: the
+level's read, the bracket, play, and the next level's read inside it. In
+there a local or a register holds a claim's segment across a call that can
+claim. The band reads go through `ovl_parts_read(…, seg, …)`, and a file read
+can take a sector cache (§66.3 rule 5). So pinning across the launch is the
+policy's bucket C, and it costs the frame path nothing. Inside the bracket,
+workers are frozen and only the UI task compacts (§66.3.1), which is
+LEMMINGS' own task, so pinned is the right answer there anyway. The
+alternative was to declare the claims once and re-read every segment at
+each use. That would have added a load to every raster call and been
+fragile in the read loops, so it was refused.
+
+**The proc, and what it has to put right.** `os88_onmove` (`CC_HAS_ONMOVE`)
+is written in assembly in `lemblit.inc`, beside seven of the words it
+patches. A move must fix every segment word kept between calls that lies
+inside the block. That means the claim's own word plus every word derived
+from it by base + offset. One table names eighteen words:
+
+| words | set by | read by |
+|---|---|---|
+| `lem_cl_mask`, `_bank`, `_main`, `_world`, `_shadow`, `_rec`, `_t` | `ovl_claim_all` | everything |
+| `lem_anseg`, `lem_mkseg`, `lem_ptseg`: LEMMAIN items 3, 4 and 10, segments **inside** `lem_cl_main` | `ovl_types`, once per level load | every frame (`lem_anim_at`, `lem_mask_at`, the spray) |
+| `lem_far_seg`, the out-parameter `ovl_far`/`lem_far_add` answer through | per use | per use |
+| `lb_world`, `lb_shadow`, `lb_t`, `lb_wp0`, `lb_wp3`, `lm_seg`, `lo_seg` | the raster's `*_setup` | every draw and probe |
+
+The proc first finds which claim moved: the one of the seven whose word
+equals `was`. It takes that claim's EXACT size from `lem_cl_kb[]`, where the
+world's size is the adapter's (63 or 32 KB) and is written where the world is
+claimed. Then every listed word in `[was, was + KB * 64)` moves by
+`now − was`. A derived segment is base + off/16 with off inside its claim, so
+it lies in exactly one claim's range. A 0 (no spray, no world on VGA, no T on
+the 1bpp cards) lies in none. A word set and used within one call
+(`lbp_seg`, `lp_fseg`) needs no entry, because nothing in a draw can compact.
+**A new segment word kept across a launch belongs in that table**, or a move
+leaves it naming whatever took the block's place.
+
+**What it costs.** The package grew 234 resident bytes (image 31,782 →
+32,016) and 82 module bytes, with bss unchanged. That covers the proc and
+its table, `cc_onmove` and the `os88_mem_movable` thunk, `lem_cltab` and
+`lem_cl_kb`, and two calls in `os88_onwake`. Not one instruction was added
+to the frame. The move itself is `mem_compact`'s copy, measured by
+`tests/lemmove.py` on a 4.77 MHz 8088:
+
+| machine | LEMMINGS' claims moved | the whole pass |
+|---|---:|---:|
+| 5150, Hercules | 252 KB | 4,048,301 cycles = **848 ms** |
+| XT, VGA | 329 KB | 5,087,663 cycles = **1,066 ms** |
+
+Task switching is paused for that pass. It happens only when a claim cannot
+be met without it, which is the case the move exists to serve.
+
+`tests/lemmove.py` (soak) is the gate on both claim sets. It forces the
+compaction by writing `[mem_cpq]`, the posted request of §66.4.3. It then
+asserts that the claims moved with their contents intact and every derived
+word kept its offset. It also asserts that the resumed, paused picture is
+the same to the pixel, and that 150 iterations later the mechanics equal a
+control leg played from a snapshot with no move. Dropping `lem_anseg` from
+the table turns it red with 238 pixels of garbage lemmings.
 
 ### 116.7 The frame arithmetic, and the XT
 

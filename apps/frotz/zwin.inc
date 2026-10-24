@@ -2787,6 +2787,17 @@ zw_sbtrans:
 ; A refusal is a normal path (SPEC.md 50.3 rule 2): Frotz falls back to a
 ; window with no history rather than declining to run the story. It asks for
 ; ZW_SBKB, settles for ZW_SBKB2, and takes neither as fatal.
+;
+; THE CLAIM MOVES (NO-PINNING A3, SPEC.md 66.5.9.2). [zw_sbseg] is the one word
+; naming it: zw_lineptr, zw_headptr and zw_upptr load it into ES and every
+; caller copies one record (zw_commit, zw_upputc) or draws one row from it,
+; then puts ES back - none claims, frees, touches a file or reaches zi_yield
+; or OSAPI_TASK_ALIVE while holding it. That is what makes it safe at the
+; worker's park points too: Frotz's worker is NOT restartable and parks inside
+; ALIVE (zx_worker's loop top and zi_yield), and at both every scrollback ES
+; has already been popped; between parks a RUNNING worker pins every claim of
+; ours (inst_seg_parked). The UI task's readers (zw_paint, the scroll keys)
+; draw and claim nothing.
 ; =============================================================================
 zw_setup:
     push ax
@@ -2847,6 +2858,9 @@ zw_setup:
     xor di, di
     cld
     rep stosw
+    mov dx, [zw_sbseg]              ; ...AND IT MOVES (NO-PINNING A3):
+    mov ax, zf_reloc                ; zf_reloc's table, see the header
+    call OSAPI_MEM_MOVABLE
     clc
     jmp short .out
 .none:
