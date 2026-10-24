@@ -3173,6 +3173,25 @@ SOAK = [
         "memory, so 86Box's. SOAK: one package, and 86Box's",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088.img")),
+    Row("rdgmove", "soak", py("tests/rdgmove.py"), 85.0,
+        "NO-PINNING A1: REALDMG's claims MOVE while a game runs "
+        "(docs/REALDMG-SPEC.md section 14.4). GBBANK8.GB (tools/gbours.py, "
+        "ours: gbbank.asm at 8 banks with 32KB of RAM, 16 checked switches a "
+        "frame) checks every bank switch by its bytes and by code run from "
+        "4000-7FFF, recompiled; a compaction is posted from outside at the "
+        "TRIVIAL rank and the frames, the damage memory, the recompiler's "
+        "claim, the ROM, the RAM and (the Static leg) the profile must move, "
+        "every word and the core's copies - S_ROMSEG, the bank table, S_ROMX, "
+        "S_RAMSEG, S_PRFSEG, S_JITSEGA/HSEG, S_JITVEC - follow, the cache be "
+        "flushed (its chains are `jmp far` with the segment in their bytes), "
+        "the ROM's bytes survive and the cartridge run on with not one wrong "
+        "bank - and Static's table be preloaded again. Two legs, a boot each. "
+        "RED both ways (--red, a ret poked into the running package): "
+        "rw_mreloc bare stops the machine and the cartridge counts wrong "
+        "banks; rw_mjit bare leaves the core on the old cache and the game "
+        "stops dead. 66-72s measured",
+        needs=("marty", "nasm", "rgbds"),
+        wants=("build/realdmg.o88", "build/os8088-720.img")),
     Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 10.0,
         "REALDMG's speaker asked for 131,072 Hz (docs/REALDMG-SPEC.md section "
         "17) on 86Box's 286: GBTONE.GB ends with square channel 1 at x = 7FFh, "

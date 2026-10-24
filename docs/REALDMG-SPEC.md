@@ -1547,6 +1547,78 @@ is the slow way to play and nothing else said so.
   and a restarted worker (SPEC.md 66.6.2) finds the byte clear and does
   not wait again.
 
+### 14.4 The claims move (docs/plans/NO-PINNING-PLAN.md A1)
+
+Every long-lived claim of the package is declared movable (SPEC.md 66.2)
+with one relocation proc, `rw_mreloc` (`apps/realdmg/rwmove.inc`), and **all
+of the work is done when the compactor calls it**: the core, the
+recompiler's part and every routine a frame runs through are byte for byte
+what they were, and none of them reads a base it did not read before. The
+owner's constraint was that RealDMG may not lose speed for this, and it
+does not (below).
+
+| claim | the words it puts right |
+|---|---|
+| the frames (`[rw_pseg]`, 17KB) | `[rw_pseg]`, and `[rw_fseg]`, 720 paragraphs into it |
+| the damage memory (`[rdg_dmgseg]`) | the one word |
+| the cartridge, one claim (`[rw_romseg]`, up to 256KB) | `S_ROMSEG`, every bank of `RDG_BTAB` whose bank lies in it (a bank's word is the segment whose 4000h is its first byte), and `S_ROMX` by the same test |
+| the bank cache's slots (`[rw_slotseg]`, 10.3) | `RDG_BTAB` and `S_ROMX`, the same walk over the slots' length |
+| cartridge RAM (`[rw_ramseg]`, 10.1) | `S_RAMSEG` |
+| Static's profile (`[rw_prfseg]`, 16.8) | `S_PRFSEG` |
+| the recompiler's claim (`[rw_jitseg]`: cache, block table, its own code) | the four far doors `rw_jinit`..`rw_jdisp`, then - if the core was running over it - a FLUSH, below |
+| the cache's second 64KB (`[rw_jit2seg]`, 16.2.1) | the flush, if the core was using it |
+| the log's records (`[rw_logseg]`, 14.1) and a replay's buttons (`[rw_rpseg]`, 10.5) | the one word each |
+
+- **WHEN it can run.** A package's data claim moves only with its worker
+  PARKED (SPEC.md 66.3.1, `inst_seg_parked`), and this worker parks at
+  `OSAPI_TASK_ALIVE` - the top of its loop, the machine between two
+  `rdg_run`s and its state in the state block, no register holding
+  anything - or in `rw_ntcwait`, before the first frame. In full screen the
+  machine is the UI task's own between two frames, and the bracket's only
+  claiming calls are the file calls below. `rw_bmiss`'s `OSAPI_TASK_ALIVE`
+  is reached only once the window is closing, when the UI task is in the
+  close negotiator and nothing compacts.
+- **The recompiler's code cannot be put right in place, so it is
+  flushed.** A chain into the other cache segment is a `jmp far` with the
+  segment in its bytes (16.2.1), the core's own holes carry such chains
+  (16.2.2), and only a chain into an OLDER tier is logged (16.2.3) - there
+  is no list of the sites. `rw_mjit` runs `rt_init` over the claims where
+  they are now (the segments, `S_JITVEC`, the tails, a flush: no block and no
+  chain is left naming the old place) and puts back what it found: the
+  interpreter's dispatch sites if the recompiler was off, and for Static a
+  FIXED table that would stay empty goes dynamic at once and
+  `[rw_seg2q]` has the worker preload it again at its next turn (`rw_jiton`).
+  It is a re-warm, like a recycle (16.2.3), once per move of the cache and
+  never per instruction.
+- **Pinned around anything that holds a segment across a claim**
+  (`rw_mpin`, SPEC.md 66.3 rule 5's shape): every file call goes through
+  `rw_fgo`, which pins every claim in the table, and `rw_fback`, which lets
+  them all move again; the load pins them all for its length (`rw_load`,
+  `[rw_mhold]`, which also holds back the declarations of the claims it is
+  still making); `rw_logwrite` pins the records before it takes their word
+  away. Bucket C, for the length of the call.
+- **Still pinned:** the parts carve - the core and the view, `op_load`'s,
+  docs/plans/NO-PINNING-PLAN.md A8 - and the log's TEXT, claimed and freed
+  inside one `rw_logwrite`.
+- **The speed, MEASURED** on MartyPC, GBBANK8 built never to halt so the
+  8088 is the core's every cycle: **1,414.3 bank switches a guest second
+  against 1,414.4** on the VGA XT and **1,404.3 against 1,404.3** on the
+  5150 Hercules, base against this; `tests/gbdemo.py` 1.000 of real time on
+  both writers either way. `tools/os88rdiff.py --hot` says every routine of
+  `rdgsys.inc`, `rdgppu.inc`, `rwfsx.inc`, the worker and the frame is
+  instruction-identical and at an EVEN shift (two `nop`s, one in
+  `rw_entry` and one in `rw_logwrite`, keep the parity), and the core and
+  recompiler parts are not rebuilt at all. Cost: **+436 bytes of image, +1
+  of bss**, no kernel byte.
+- **The gate** is `tests/rdgmove.py` (soak `rdgmove`): GBBANK8.GB checks
+  every bank switch by its bytes and by code run from 4000-7FFF while all
+  of the claims above but the slots, the log's and the replay's move under
+  it, dynamic and Static. Red runs: a `ret` over `rw_mreloc` stops the
+  machine (and the cartridge itself counts wrong banks); one over `rw_mjit`
+  leaves the core on the old cache segment, whose stale flush lands in the
+  ROM's new place, and the game stops dead. The slots cannot move on
+  MartyPC, which has no memory above 1MB for the bank cache to need.
+
 ## 15. Full screen
 
 Machine > Full Screen runs the machine **on the UI task inside an
