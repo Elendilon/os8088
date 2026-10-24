@@ -2038,8 +2038,10 @@ exactly as a driver's is, `cp_item_name` being the one place both are asked
 for, and the page heading - which is the same string - is drawn once by
 `cp_item_paint` rather than by each page. `kern_big` −119 `.text`, `kern_small`
 −75, for +6 of `CTRL.DRV` net of the eight heading blocks it deleted;
-`'Sound'` alone is resident still, as `drv_t_sound`, because `drv_tab` names
-the class by it. The same pass moved the rest of what only the image reads:
+`'Sound'` alone stayed resident, as `drv_t_sound`, because `drv_tab` named
+the class by it - until kernel size pass 14 took every row's title out of
+resident (§51.3.3: a row's `DRVR_TITLE` is an offset into a table CTRL.DRV
+and the boot blob each carry). The same pass moved the rest of what only the image reads:
 the loader's `DRVE_*` sentences and `drv_errstr` (−173 on `kern_big`, −27 on
 `kern_small`, staged by `drv_errstg` with `DRVE_DISK`'s drive letter copied
 out of the resident, boot-stamped `cp_s_nodrv`), the Date/Time field table
@@ -32811,9 +32813,10 @@ step; the feature is worth having and it is not worth that.
 
 Two consequences follow from living there and neither is optional. **The
 overlay may not reach its own data through DS** (§2.5), so the buffer and the
-three strings are read `cs:` — and the string the *driver* supplies is a
-`.text` one read through DS, which is why there are two walkers (`spl_mcs` /
-`spl_mds`) rather than one, and why `spl_mdraw` calls **`font_run_x`**, the
+three strings are read `cs:` — and so, since kernel size pass 14, is the
+driver row's title, which is the blob's own copy of `DRV_TITLES` (§51.3.3)
+rather than a `.text` string read through DS; the second walker that DS read
+needed (`spl_mds`) went with it. `spl_mdraw` calls **`font_run_x`**, the
 `ES:SI` entry, rather than `font_run`. And **no entry takes a pointer across
 the boundary**: a caller in `.cold` naming a label in `.ovl` would assemble and
 would be a cross-address-space reference `os88ovlchk` cannot see, so the two
@@ -42981,6 +42984,27 @@ The fifteen, each with the access `t_api_abi`'s INLINE ledger checks it for:
 | `OSAPI_WM_ONRESIZE` | `mov [cs:bx+W_ONSZ], ax` |
 | `OSAPI_WM_ONWAKE` | `mov [cs:bx+W_ONWK], ax` |
 | `OSAPI_WM_ONRCLICK` | `mov [cs:bx+W_ONRC], ax` |
+| `OSAPI_WM_ONMOUSEUP` | `mov [word cs:bx+W_ONMOUSEUP], ax` — kernel size pass 14, off kern_mega |
+| `OSAPI_WM_ONCLOSE` | `mov [word cs:bx+W_ONCL], ax` — kernel size pass 14, off kern_mega |
+
+**Kernel size pass 14 added two and a FOURTH SHAPE.** `OSAPI_WM_ONMOUSEUP`
+and `OSAPI_WM_ONCLOSE` were rule 1's named exceptions below: each had ONE
+kernel caller (`cp_kinit`, `ui_task`'s close request), and that caller now
+writes the store itself - three bytes, where its `call` was three - so the
+routine has no caller but its cell and the cell became it (−4 each). They use
+the word displacement for six bytes, as `OSAPI_WM_ONWHEEL` does. kern_mega
+keeps both as rare cells and their bodies: its cell cannot store through CS,
+and a `MEGA_ICWB` stub is eleven bytes for a four-byte body. **And three
+cells are inline with NO memory access at all** - kern_mega's protected-mode
+questions, which every other kernel answers in registers: `OSAPI_XMEM_SEL`
+(`0x04B3`) and `OSAPI_XMEM_RUN` (`0x04CB`) are `mov ax, 1 / cmp al, 2 / retf`
+(AX = 1, CF = 1 - "no protected mode here", `OSAPI_XREFUSE`), and
+`OSAPI_MEM_CODESEL` (`0x04B9`) is `mov ax, dx / cmp ax, 1 / retf` (the segment
+is its own code selector in real mode; CF iff DX = 0). Their six-byte `.text`
+bodies were reached by nothing else (−12 kern_big and kern_emu, −6 kern_small,
+whose `XMEM_SEL` borrowed `xm_copy`). There is no operand to name, so
+`t_api_abi`'s ledger for them is **FIXED**: the six bytes themselves, on the
+kernel it reads; on kern_mega they are rare cells to bodies of their own.
 
 Their old routine names (`osapi_get_ticks`, `evq_pending`, `menu_owner`,
 `cpu_info`, `wm_onwake` and the rest) survive in prose elsewhere in this
@@ -42996,8 +43020,9 @@ silently:
    contract: `hiber.inc`'s `HB_API_COLOR` far-calls `apic_osapi_set_color`
    and gets exactly what it got before. A body with a second caller stays a
    body.
-   `wm_onmouseup`, `wm_onclose`, `clip_size` and `wm_clip_clear` are
-   exactly that shape and have kernel callers, so they are not inline.
+   `clip_size` and `wm_clip_clear` are exactly that shape and have
+   kernel callers, so they are not inline (`wm_onmouseup` and `wm_onclose`
+   were too, until pass 14 wrote their one caller each in place, above).
 2. **Its data is reached through CS**, never DS: DS is the CALLER's inside
    the cell. Only KERNEL_SEG data qualifies — `.text` or `.bss`, the two
    sections a `cs:` offset names — never `.lowbss` or a `.cold` variable.
@@ -96958,6 +96983,24 @@ machine with a disk pays it without being asked. `drv_sniff` is **3.4 ms** in
 total on a disk-less GLaBIOS 5150, the OPL2 probe included. The plan put the
 autoload at 0.2-0.4 s and priced only the read
 (docs/plans/completed/HDD-AUTOLOAD-PLAN.md).
+
+### 51.3.3 A row's TITLE is not resident
+
+A `drv_tab` row's display name - 'Sound', 'Hard Drive', 'USB Mouse' - has
+exactly two readers, and neither is resident: the loading screen's `Loading
+Driver n/N (Title)` (§15.6, `drv_boot_x` in the blob) and the Drivers page
+(`cp_drv_paint` and `cp_drv_mempar`, in `CTRL.DRV`). So since kernel size
+pass 14 the names are not in `.text` at all: `driver.inc`'s `DRV_TITLES`
+macro is ONE block of them, expanded twice - beside `drv_memk` in CTRL.DRV's
+image, read `cs:` and staged through `cp_stage` like every image string, and
+beside `drv_boot_x` in the blob, read `cs:` by `spl_mcs` - and a row's
+`DRVR_TITLE` is an OFFSET into it (`DRVT_*`), the same in both copies because
+they are one macro. −77 resident on kern_big, −92 on kern_emu (its absolute
+mouse's name), +100 of `CTRL.DRV` (its 15 KB claim holds it) and +79 of a blob
+that is given back at `mem_unblob`. Two short strings that were tails of the
+resident titles - `fdlg_s_drive`'s `Drive` and the Disk window's root title
+`Disk` - carry their own bytes again. `ss_row` and `xm_row` still point
+`DRVR_TITLE` at their file names: nothing walks them for a title.
 
 ### 51.4 Unloading, and why detach comes first
 

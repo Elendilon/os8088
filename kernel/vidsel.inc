@@ -635,15 +635,16 @@ vid_reboot:
 ; the bar was the only thing a Hercules or a CGA ever saw.
 ;
 ; **The overlay may not reach its own data through DS** (SPEC.md 2.5), so the
-; buffer and the three strings below are read `cs:` - and the string the
-; DRIVER supplies is a .text one read through DS, which is why there are two
-; walkers (spl_mcs / spl_mds) rather than one.
+; buffer and the three strings below are read `cs:` - and so is a driver
+; row's title, which is the blob's own copy of DRV_TITLES (driver.inc) since
+; kernel size pass 14 took the titles out of resident. One walker (spl_mcs);
+; the second, spl_mds, read a .text title through DS and went with it.
 ;
 ; **No entry takes a pointer across the boundary.** A caller in .cold naming
 ; a label in this section would assemble and would be a cross-address-space
 ; reference os88ovlchk cannot see, so the two literal lines are zero-argument
-; entries of their own and the only pointer that ever crosses is DS:SI, which
-; is a kernel string by contract.
+; entries of their own, and the title's pointer comes from drv_boot_x - which
+; is in this section too.
 ;
 ; The gfx lock is not held, exactly as spl_paint does not hold it: nothing
 ; else in the machine draws yet. The UI task does not exist, the cursor is not
@@ -707,7 +708,7 @@ ovl_spl_msg_fdd:                ; 'Looking for Drives' - SPEC.md 18.97's TRACK
     pop si
     retf
 
-ovl_spl_msg_drv:                ; AL = ordinal, AH = total, DS:SI = DRVR_TITLE
+ovl_spl_msg_drv:                ; AL = ordinal, AH = total, CS:SI = the title
     call spl_msg_drv            ; ...and near too - see above
     ret
 
@@ -736,7 +737,7 @@ spl_msg_cs:
 ; -----------------------------------------------------------------------------
 ; spl_msg_drv - 'Loading Driver n/N (Title)'
 ; in:  AL = the 1-based ordinal, AH = how many are being loaded,
-;      DS:SI -> the row's DRVR_TITLE string
+;      CS:SI -> the row's title, in the blob's own DRV_TITLES (driver.inc)
 ; -----------------------------------------------------------------------------
 spl_msg_drv:
     pushf
@@ -760,7 +761,8 @@ spl_msg_drv:
     call spl_mput
     mov al, '('
     call spl_mput
-    call spl_mds                ; the title, through DS - it is a .text string
+    call spl_mcs                ; the title - the blob's own copy, through CS
+                                ; (kernel size pass 14: no title is resident)
     mov al, ')'
     call spl_mput
     call spl_mend
@@ -801,18 +803,6 @@ spl_mcs:                        ; CS:SI ASCIIZ -> the line (one of ours)
 .next:
     mov al, [cs:si]
     inc si
-    or al, al
-    jz .out
-    call spl_mput
-    jmp short .next
-.out:
-    pop ax
-    ret
-
-spl_mds:                        ; DS:SI ASCIIZ -> the line (a kernel string)
-    push ax
-.next:
-    lodsb
     or al, al
     jz .out
     call spl_mput

@@ -327,9 +327,12 @@ cp_kinit:
     xor ax, ax
     call COLD_SEG:os88ui_arm_f
 %endif
-    mov ax, cpf_cp_onup         ; a COLD offset (SPEC.md 2.6.3)
-    call wm_onmouseup           ; .text calling .text: apps.inc's kind table
-%ifdef KERN_BIG                 ; is resident and so is this proc
+    mov word [bx+W_ONMOUSEUP], cpf_cp_onup ; a COLD offset (SPEC.md 2.6.3):
+                                ; wm_onmouseup's store, written here - the
+                                ; routine is kern_mega's alone since cell
+                                ; 0x0196 became it (kernel size pass 14).
+                                ; apps.inc's kind table is resident and so
+%ifdef KERN_BIG                 ; is this proc
     mov ax, cpf_cp_ondrag
     call wm_ondrag
 %endif
@@ -1142,6 +1145,18 @@ DOCK_GEOM cpd
 %endif
 section .cold                   ; ...and the two that stay resident
 
+; CP_LIVE - CF = 0 a Control Panel is open, DI = its record; spends AL. The
+; question is driver.inc's cp_live on the build that has one (kernel size
+; pass 14), and the seven bytes it is everywhere else
+%macro CP_LIVE 0
+%ifdef OS88_DRIVERS
+    call cp_live
+%else
+    mov al, KIND_CTRL
+    call KERNEL_SEG:cw_inst_find_kind
+%endif
+%endmacro
+
 ; -----------------------------------------------------------------------------
 ; cp_tick_due_x - is a live Date/Time page showing?
 ;
@@ -1157,8 +1172,7 @@ cp_tick_due_x:
     mov al, [cp_sel]
     xor al, CP_ITIME            ; ...and `xor` leaves CF = 0, so every "no"
     jnz .out                    ; below can go straight to .out
-    mov al, KIND_CTRL
-    call KERNEL_SEG:cw_inst_find_kind         ; CF = 1: no live Control Panel
+    CP_LIVE                     ; CF = 1: no live Control Panel
     cmc
     jnc .out
     mov bx, [di+I_WIN]
@@ -6193,7 +6207,9 @@ cp_drv_paint:
     call cp_drvrow              ; BX = the drv_tab row
     cmp word [bx+DRVR_FILE], 0
     je .next                        ; an empty table row draws nothing
-    mov si, [bx+DRVR_TITLE]
+    mov si, [bx+DRVR_TITLE]         ; an offset into DRV_TITLES, in THIS
+    add si, drvt_base               ; image (kernel size pass 14) - staged,
+    call cp_stage                   ; as any image string font_run is handed
     pop ax
     push ax                         ; AX = the row index again
     push bx
@@ -6375,9 +6391,10 @@ cp_drv_mempar:
     cmp word [bx+DRVR_FILE], 0
     je .next                    ; an empty row names nothing and costs nothing
     mov si, [bx+DRVR_TITLE]
+    add si, drvt_base           ; (DRV_TITLES, this image's: `cs:`)
     xor cx, cx
 .name:
-    cmp byte [si], 0            ; the font is a fixed 8x8 (font_width), so a
+    cmp byte [cs:si], 0         ; the font is a fixed 8x8 (font_width), so a
     je .named                   ; length IS a width and there is no thunk to
     inc si                      ; reach for
     inc cx
@@ -7263,8 +7280,9 @@ CP_ITEMS  equ (cp_items_end - cp_items) / CP_ISTRIDE
 ; The list names. Each is ALSO its page's heading, which cp_item_paint draws
 ; before it dispatches (SPEC.md 31.9) - so one string, one reader, and it
 ; lives in the image beside its only reader. 'Sound' is here a SECOND time:
-; driver.inc's drv_t_sound is the resident copy drv_tab names its row by, and
-; a string in an image may be copied rather than shared (SPEC.md 2.8.6).
+; driver.inc's DRV_TITLES carries the copy drv_tab's row names (drvt_sound,
+; in this same image since kernel size pass 14), and a string in an image may
+; be copied rather than shared (SPEC.md 2.8.6).
 CPS cp_s_sched, 'Scheduler'
 CPS cp_s_time,  'Date/Time'
 %ifdef OS88_DRIVERS
@@ -7565,12 +7583,17 @@ cpf_shutdown:
     jc .out
     call far [CPFP + CPE_SHUTDOWN*4]
     push di
+%ifdef OS88_DRIVERS
+    call cp_unpin               ; cancellation must not pin the image, unless
+%else                           ; an open panel still owns it (driver.inc)
     mov al, KIND_CTRL
     call KERNEL_SEG:cw_inst_find_kind
-    pop di
-    jnc .out                   ; an open panel still owns CTRL.DRV
+    jnc .kept                  ; an open panel still owns CTRL.DRV
     mov al, MOD_CTRL
     call mod_drop              ; cancellation must not pin the image
+.kept:
+%endif
+    pop di
 .out:
     retf
 

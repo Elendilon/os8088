@@ -1093,33 +1093,29 @@ DRV_NBLOB   equ ($ - drv_blob_map) / DRV_BLOBE
 ; below have to be right on a machine with no settings file at all.
 ; =============================================================================
 
+; THE ROWS' TITLES ARE NOT HERE (kernel size pass 14): a title has two
+; readers, the boot's 'Loading Driver n/N (Title)' in the blob and the Drivers
+; page in CTRL.DRV, and neither is resident - so each carries the table
+; (DRV_TITLES, below) and a row's DRVR_TITLE is an OFFSET into it, the same
+; in both because they are one macro. 77 resident bytes on kern_big, 92 on
+; kern_emu, against the same bytes in a blob that is given back and a module
+; the Drivers page already needs.
 drv_f_sound: db 'SOUND.DRV', 0
-drv_t_sound: db 'Sound', 0      ; the Control Panel's Sound page is named for
-                                ; the class, so its heading is this row's
-                                ; title to the byte - the panel's own copy is
-                                ; in CTRL.DRV's image (ctrl.inc, cp_s_snd)
 drv_f_hdd:   db 'HDD.DRV', 0
-drv_t_hdd:   db 'Hard '         ; TWO LABELS OVER ONE `db`, and the second of
-fdlg_s_drive: db 'Drive', 0     ; them belongs to fdlg.inc - the Standard File
-                                ; dialog's Drive button. Nothing may be
-                                ; inserted between these two lines; the tail
-                                ; is here rather than there because this is
-                                ; the longer string, and both are .text =
-                                ; KERNEL_SEG so the offset means the same
-                                ; thing in each
+fdlg_s_drive: db 'Drive', 0     ; the Standard File dialog's Drive button - it
+                                ; was the tail of 'Hard Drive', whose head is
+                                ; in DRV_TITLES now
                                 ; DEBUG.DRV's pair went with its row, and the
                                 ; monitor itself is gone now too (SPEC.md 58):
                                 ; nothing in the kernel named it and nothing
                                 ; shipped it
 drv_f_net:   db 'NET.DRV', 0
-drv_t_net:   db 'os88net', 0
 %ifdef KERN_BIG
 drv_f_ram:   db 'RAMDISK.DRV', 0
-drv_t_ram:   db 'Ram Disk', 0   ; ...whose 'Disk', 0 is files.inc's fm_s_root
 %endif
 %ifdef KERN_EMU
 drv_f_vmm:   db 'VMMOUSE.DRV', 0 ; SPEC.md 9.11's absolute pointer, kern_emu
-drv_t_vmm:   db 'Absolute mouse', 0  ; ALONE (SPEC.md 9.11.7) - 27 bytes that
+                                ; ALONE (SPEC.md 9.11.7) - 27 bytes that
                                 ; kern_big was paying for a row it no longer
                                 ; has. kern_small never saw them either way:
                                 ; the whole of this block is inside
@@ -1133,22 +1129,62 @@ drv_t_vmm:   db 'Absolute mouse', 0  ; ALONE (SPEC.md 9.11.7) - 27 bytes that
 %ifdef KERN_BIG
 %ifdef VID_EXT
 drv_f_vesa:  db 'VESA.DRV', 0    ; SPEC.md 120's packed-pixel display: kern_big's
-drv_t_vesa:  db 'VESA Display', 0 ; and kern_emu's, never kern_small's
+                                ; and kern_emu's, never kern_small's
 %endif
 drv_f_ems:   db 'EMS.DRV', 0     ; SPEC.md 107's expanded memory: kern_big's
-drv_t_ems:   db 'EMS', 0         ; for the reason the USB mouse's line gives
+                                ; for the reason the USB mouse's line gives
 drv_f_cd:    db 'CDROM.DRV', 0   ; SPEC.md 119's CD-ROM, kern_big's for the
-drv_t_cd:    db 'CD-ROM', 0      ; same reason
+                                ; same reason
 drv_f_http:  db 'HTTPFS.DRV', 0  ; SPEC.md 121's HTTP drive, likewise
-drv_t_http:  db 'HTTP Drive', 0
 drv_f_usbm:  db 'USBMOUSE.DRV', 0 ; SPEC.md 9.12's CH375 mouse. kern_big's and
-drv_t_usbm:  db 'USB Mouse', 0  ; not kern_small's: the whole driver mechanism
+                                ; not kern_small's: the whole driver mechanism
                                 ; is OS88_DRIVERS already, and a 128KB machine
                                 ; with a CH375 has no disk that carries the file
 %endif
 drv_f_eth:   db 'ETHER.DRV', 0   ; ...and the card's, on BOTH builds: the store
-drv_t_eth:   db 'Ethernet', 0    ; a RAM disk is made of is what kern_small has
+                                ; a RAM disk is made of is what kern_small has
                                 ; none of, and a network card is not
+
+; DRV_TITLES - every row's display name, as ONE block whose offsets are the
+; rows' DRVR_TITLE (DRVT_*, below). Expanded TWICE and nowhere resident: in
+; CTRL.DRV's image beside drv_memk (the Drivers page, `cs:` and cp_stage), and
+; in the blob beside drv_boot_x (the loading screen's 'Loading Driver n/N
+; (Title)', spl_mcs). One macro, so the two copies cannot disagree about an
+; offset. The Control Panel's Sound page heading is the class's name and so
+; this row's title to the byte - the panel's own copy is cp_s_snd.
+%macro DRV_TITLES 1
+%1_base:
+%1_sound:   db 'Sound', 0
+%1_hdd:     db 'Hard Drive', 0
+%1_net:     db 'os88net', 0
+%1_ram:     db 'Ram Disk', 0
+%ifdef KERN_EMU
+%1_vmm:     db 'Absolute mouse', 0
+%endif
+%ifdef VID_EXT
+%1_vesa:    db 'VESA Display', 0
+%endif
+%1_ems:     db 'EMS', 0
+%1_cd:      db 'CD-ROM', 0
+%1_http:    db 'HTTP Drive', 0
+%1_usbm:    db 'USB Mouse', 0
+%1_eth:     db 'Ethernet', 0
+%endmacro
+DRVT_SOUND  equ drvt_sound - drvt_base  ; (CTRL.DRV's copy names them)
+DRVT_HDD    equ drvt_hdd - drvt_base
+DRVT_NET    equ drvt_net - drvt_base
+DRVT_RAM    equ drvt_ram - drvt_base
+%ifdef KERN_EMU
+DRVT_VMM    equ drvt_vmm - drvt_base
+%endif
+%ifdef VID_EXT
+DRVT_VESA   equ drvt_vesa - drvt_base
+%endif
+DRVT_EMS    equ drvt_ems - drvt_base
+DRVT_CD     equ drvt_cd - drvt_base
+DRVT_HTTP   equ drvt_http - drvt_base
+DRVT_USBM   equ drvt_usbm - drvt_base
+DRVT_ETH    equ drvt_eth - drvt_base
 
 ; The published drivers' dispatchers, as FAR POINTERS - ONE PAIR PER CLASS.
 ; Adjacent and in this order because together they ARE the dword
@@ -1227,7 +1263,7 @@ drv_sysname: db 'KERNEL.SYS', 0 ; what makes a disk THE system disk (19.6): the
 
 drv_tab:
     dw PKG_DISP, 0              ; row 0: the sound driver (SPEC.md 34/51.4)
-    dw drv_f_sound, drv_t_sound
+    dw drv_f_sound, DRVT_SOUND
     dw 0, 0
     db DRVC_SOUND
     db 0                        ; NOT wanted by default, exactly like the disk
@@ -1250,7 +1286,7 @@ drv_tab:
     db 0
 
     dw PKG_DISP, 0              ; row 1: the hard-disk driver (SPEC.md 51.8)
-    dw drv_f_hdd, drv_t_hdd
+    dw drv_f_hdd, DRVT_HDD
     dw 0, 0
     db DRVC_DISK
     db 0                        ; NOT wanted by default, unlike sound. This
@@ -1263,7 +1299,7 @@ drv_tab:
     db 0
 
     dw PKG_DISP, 0              ; row 2: the Ethernet card (SPEC.md 72).
-    dw drv_f_eth, drv_t_eth     ; BROUGHT FORWARD from the end of the table
+    dw drv_f_eth, DRVT_ETH     ; BROUGHT FORWARD from the end of the table
     dw 0, 0                     ; (SPEC.md 31.1: the page shows four rows
                                 ; without scrolling, so the four most-used
                                 ; drivers go in them) - and drv_cfgbit is what
@@ -1288,7 +1324,7 @@ drv_tab:
                                 ; On kern_small the parallel link below takes
                                 ; index 3 and DRV_MAX is 4
     dw PKG_DISP, 0              ; row 3: the RAM disk (SPEC.md 62.9), which is
-    dw drv_f_ram, drv_t_ram     ; the FILE REDIRECTOR'S HARNESS as much as it
+    dw drv_f_ram, DRVT_RAM     ; the FILE REDIRECTOR'S HARNESS as much as it
     dw 0, 0                     ; is software: a DRVC_FILE volume backed by no
     db DRVC_FILE2               ; hardware at all, so every branch site the
     db 0                        ; redirector added to the kernel runs on a
@@ -1337,7 +1373,7 @@ drv_tab:
 %endif
 
     dw PKG_DISP, 0              ; row 4: the parallel link (docs/plans/completed/NET-PLAN.md).
-    dw drv_f_net, drv_t_net     ; LAST, because it is the least used of the
+    dw drv_f_net, DRVT_NET     ; LAST, because it is the least used of the
     dw 0, 0                     ; five and the page shows four (SPEC.md 31.1);
     db DRVC_FILE                ; it keeps bit 3, which is where appending put
                                 ; it (drv_cfgbit).
@@ -1357,7 +1393,7 @@ drv_tab:
 %ifdef KERN_EMU
 vmm_row:                        ; row 5: the VMware absolute pointer (SPEC.md
     dw PKG_DISP, 0              ; 9.11) - THE ONE DRVC_OVL ROW IN drv_tab, and
-    dw drv_f_vmm, drv_t_vmm     ; the combination is deliberate. DRVC_OVL means
+    dw drv_f_vmm, DRVT_VMM     ; the combination is deliberate. DRVC_OVL means
     dw 0, 0                     ; it takes no publication slot, so DRVC_MAX
     db DRVC_OVL                 ; stays 5: a class is how a PACKAGE finds a
                                 ; driver (SPEC.md 51.2.1) and the kernel is
@@ -1396,7 +1432,7 @@ vmm_row:                        ; row 5: the VMware absolute pointer (SPEC.md
 usbm_row:                       ; ...a label for tests/usbmouse.py, which finds
                                 ; the driver's segment here
     dw PKG_DISP, 0              ; row 5 (row 6 on kern_emu, after the absolute
-    dw drv_f_usbm, drv_t_usbm   ; mouse): the CH375 USB mouse (SPEC.md 9.12).
+    dw drv_f_usbm, DRVT_USBM   ; mouse): the CH375 USB mouse (SPEC.md 9.12).
     dw 0, 0                     ; DRVC_POINT - a real class, because its
     db DRVC_POINT               ; worker needs drv_task's publication fence
     db 0                        ; NOT wanted by default (SPEC.md 51.3): attach
@@ -1406,7 +1442,7 @@ usbm_row:                       ; ...a label for tests/usbmouse.py, which finds
     db DRVE_OK
     db 0
     dw PKG_DISP, 0              ; row 6 (row 7 on kern_emu): EMS.DRV, a LIM
-    dw drv_f_ems, drv_t_ems     ; EMS board's page registers (SPEC.md 107)
+    dw drv_f_ems, DRVT_EMS     ; EMS board's page registers (SPEC.md 107)
     dw 0, 0
     db DRVC_EMS
     db 0                        ; NOT wanted by default: its probe writes I/O
@@ -1414,7 +1450,7 @@ usbm_row:                       ; ...a label for tests/usbmouse.py, which finds
     db DRVE_OK
     db 0
     dw PKG_DISP, 0              ; row 7 (row 8 on kern_emu): CDROM.DRV, an
-    dw drv_f_cd, drv_t_cd       ; ATAPI CD-ROM (SPEC.md 119)
+    dw drv_f_cd, DRVT_CD       ; ATAPI CD-ROM (SPEC.md 119)
     dw 0, 0
     db DRVC_CD
     db 0                        ; NOT wanted by default (SPEC.md 51.3): attach
@@ -1423,7 +1459,7 @@ usbm_row:                       ; ...a label for tests/usbmouse.py, which finds
     db DRVE_OK
     db 0
     dw PKG_DISP, 0              ; row 8 (row 9 on kern_emu): HTTPFS.DRV, a
-    dw drv_f_http, drv_t_http   ; read-only drive over HTTP (SPEC.md 121)
+    dw drv_f_http, DRVT_HTTP   ; read-only drive over HTTP (SPEC.md 121)
     dw 0, 0
     db DRVC_HTTP
     db 0                        ; NOT wanted by default (SPEC.md 51.3), like
@@ -1434,7 +1470,7 @@ usbm_row:                       ; ...a label for tests/usbmouse.py, which finds
 %ifdef VID_EXT
 vesa_row:                       ; ...a label for vx_boot_x (vidext.inc) and
     dw PKG_DISP, 0              ; tests/vesa.py. Row 9 (10 on kern_emu):
-    dw drv_f_vesa, drv_t_vesa   ; VESA.DRV, the packed-pixel display's renderer
+    dw drv_f_vesa, DRVT_VESA   ; VESA.DRV, the packed-pixel display's renderer
     dw 0, 0                     ; (SPEC.md 120). DRVC_OVL WITH A ROW, the
     db DRVC_OVL                 ; absolute mouse's shape and for its reason:
                                 ; the kernel is its only caller (vx_ep) so no
@@ -1596,6 +1632,7 @@ drv_memk:                       ; one word per drv_tab row, in the same order
 %if ($ - drv_memk) / 2 != DRV_MAX
   %error "drv_memk has drifted from drv_tab: one word per row, same order"
 %endif
+    DRV_TITLES drvt             ; ...and the rows' names, for the same page
 section .text
 
 ; --- ...AND THE OTHER QUESTION A CLASS CAN BE ASKED (SPEC.md 51.12.1) -------
@@ -2022,16 +2059,12 @@ osapi_drv_use_x:
     call far [CPFP + CPE_DRVUP*4]   ; CF, AX = the row's DRVE_*
     pushf
     push ax
-    call drv_use_panel
-    jnc .kept                   ; an open panel still owns CTRL.DRV
-    mov al, MOD_CTRL
-    call mod_drop
-.kept:
+    call cp_unpin               ; ...unless an open panel still owns CTRL.DRV
     pop ax
     popf
     jmp short .out
 .done:
-    call drv_use_panel
+    call cp_live
     jnc .ok
     call drv_cp_closed          ; the panel close's own notifier, near
 .ok:
@@ -2056,10 +2089,20 @@ osapi_drv_use_x:
     mov [bp+12], ax             ; is [bp][di][si][dx][cx][bx][ax] - and the
     jmp kretfc_bp               ; ladder pops it back with CF untouched
 
-; drv_use_panel - CF = 0 a Control Panel is open. Spends AL and DI
-drv_use_panel:
+; cp_unpin - give CTRL.DRV back unless an open Control Panel still owns it:
+; cpf_shutdown's tail and OSAPI_DRV_USE's UP, written once. Spends AL, DI and
+; the flags. cp_live - CF = 0 a Control Panel is open, DI = its instance
+; record; spends AL. FIVE sites asked that question in seven bytes each; it is
+; three now (kernel size pass 14: they were drv_use_panel and four copies)
+cp_unpin:
+    call cp_live
+    jnc cp_live.ret             ; an open panel still owns the image
+    mov al, MOD_CTRL
+    jmp mod_drop
+cp_live:
     mov al, KIND_CTRL
     call KERNEL_SEG:cw_inst_find_kind
+.ret:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -3089,8 +3132,7 @@ osapi_drv_dlg_x:
 .named:                         ; either way.  files.inc is `.cold` too
     mov [drv_dlg_row], bx       ; ARMED LAST: until this store there is nothing
                                 ; for a commit to dispatch into
-    mov al, KIND_CTRL
-    call KERNEL_SEG:cw_inst_find_kind ; the panel: our page is inside its window
+    call cp_live                ; the panel: our page is inside its window
     jc .disarm
     mov bx, [di+I_WIN]
     or bx, bx
@@ -5660,8 +5702,9 @@ drv_boot_x:
     inc dl                      ; ...and NAME it, before the sectors start
     mov al, dl
     mov ah, dh
-    mov si, [bx+DRVR_TITLE]
-    call ovl_spl_msg_drv
+    mov si, [bx+DRVR_TITLE]     ; an offset into the blob's own copy of
+    add si, bdt_base            ; DRV_TITLES - the title is not resident
+    call ovl_spl_msg_drv        ; (kernel size pass 14)
 %ifdef DRV_DIAG
     mov [ddg_row], cl
     mov byte [ddg_step], 0
@@ -5785,6 +5828,8 @@ DOCK_APPLY bdk, BSWK, BSWC, bvw
 %endif
 KGO_PAIR bvs
 %endif
+DRV_TITLES bdt                  ; the rows' names, for drv_boot_x's 'Loading
+                                ; Driver n/N (Title)' - the blob's own copy
 
 section .modu                   ; ...and for the Drivers and Sound pages, in
 DRV_ATTACH cdl                  ; CTRL.DRV's panel half: cp_drv_click and
@@ -6590,11 +6635,10 @@ drv_e1_l:     db 'A:', 0        ; disk.inc's DRVE_DISK error string points at
                                 ; this, and that table is not the driver
                                 ; layer's (SPEC.md 52.10.3)
 fdlg_s_drive: db 'Drive', 0     ; the Standard File dialog's own button
-                                ; caption. On kern_big it is the tail of
-                                ; drv_t_hdd's 'Hard Drive' and costs nothing;
-                                ; with that string gone it needs six bytes of
-                                ; its own, and they belong to fdlg.inc rather
-                                ; than here - see SPEC.md 38.3
+                                ; caption, six bytes of its own on both builds
+                                ; now (kern_big's was the tail of a resident
+                                ; 'Hard Drive' until kernel size pass 14 took
+                                ; the titles out) - see SPEC.md 38.3
 
 section .cold
 %endif                          ; OS88_DRIVERS

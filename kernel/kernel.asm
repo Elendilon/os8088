@@ -2023,6 +2023,19 @@ dbg_reg_at:                     ; 0060:000E - THE DEBUG REGISTRY (SPEC.md 57)
     times %$len - ($ - %$start) db 0    ; SPEC.md 20.3): the same two
     %pop                                ; assertions, nothing emitted
 %endmacro
+; OSAPI_XREFUSE - kern_mega's protected-mode cells answered on every other
+; kernel, INLINE: AX = 1, CF = 1, every other register kept - the refusal
+; OSAPI_XMEM_SEL (0x04B3) and OSAPI_XMEM_RUN (0x04CB) publish for "no
+; protected mode here". It was a six-byte .text body behind two rare cells;
+; the cell IS that body now, and is faster for it (kernel size pass 14).
+; Six bytes: `cmp al, 2` borrows exactly as `stc` sets CF, and is the length
+; the cell already has. tests/unit/t_api_abi.py's FIXED ledger holds the bytes.
+%macro OSAPI_XREFUSE 0
+    OSAPI_ICELL 6
+    mov ax, 1
+    cmp al, 2
+    OSAPI_IEND
+%endmacro
 
 ; ---- CLC_OR_STC .label: THE CF-RETURN TAIL IN TWO BYTES (size pass 9) -------
 ; The tree's commonest exit is
@@ -2198,7 +2211,13 @@ api_gfx_blit4:                    ; (named: SPEC.md 5.4.1.5's walk far-calls it)
                                   ;          table nothing where an append
                                   ;          would have been eight bytes
 apic_wm_onmouseup:
+%ifdef KERN_MEGA
     OSAPI_RSLOT wm_onmouseup       ; 0x0196 - BX = window, AX = a near proc in
+%else                             ; (INLINE off kern_mega, OSAPI_WM_ONWHEEL's
+    OSAPI_ICELL 6                 ; word displacement for the cell's six
+    mov [word cs:bx+W_ONMOUSEUP], ax ; bytes; kern_mega's store needs the data
+    OSAPI_IEND                    ; alias, so it keeps the rare cell and its
+%endif                            ; body - kernel size pass 14)
                                   ;          YOUR segment (0 clears it): the
                                   ;          release half of a content click
                                   ;          (SPEC.md 13.7). Call it after
@@ -2987,7 +3006,13 @@ apic_wm_wake:                     ; mem_cpq_run_x's door to the wake (SPEC.md
                                   ;          package called one and got the
                                   ;          other. Sort the %defines by address
                                   ;          after every merge from main
+%ifdef KERN_MEGA
     OSAPI_RSLOT wm_onclose         ; 0x0362 - BX = window, AX = a near proc in
+%else                             ; (INLINE off kern_mega, as 0x0196 above -
+    OSAPI_ICELL 6                 ; kernel size pass 14)
+    mov [word cs:bx+W_ONCL], ax   ; 0x0362 - BX = window, AX = a near proc in
+    OSAPI_IEND
+%endif
                                   ;          YOUR segment (0 clears it): the
                                   ;          CLOSE NEGOTIATOR (SPEC.md 75.1).
                                   ;          Called SI = your window, on the UI
@@ -3679,18 +3704,28 @@ apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
                                   ;          display (VID_VESA): the sixteen
                                   ;          colours through BLIT4 are the
                                   ;          fallback
+%ifdef KERN_MEGA
     OSAPI_RSLOT osapi_xmem_sel    ; 0x04B3 - DX:AX = an address inside an
+%else
+    OSAPI_XREFUSE                 ; 0x04B3 - DX:AX = an address inside an
+%endif
                                   ;          OSAPI_XMEM_ALLOC block you own, CX
                                   ;          = bytes (0 = 64KB) -> AX = a DATA
                                   ;          selector over exactly that window
                                   ;          (KERN-MEGA-PLAN 12.2). kern_mega in
                                   ;          protected mode only; CF=1, AX = 1
                                   ;          on every other kernel
+%ifdef KERN_MEGA
     OSAPI_RSLOT osapi_mem_codesel ; 0x04B9 - DX = a claim's segment (or
-                                  ;          selector) -> AX = the selector to
-                                  ;          far call code in it: the segment
-                                  ;          itself in real mode, its LDT code
-                                  ;          alias on kern_mega. CF=1 = none
+%else
+    OSAPI_ICELL 6                 ; 0x04B9 - DX = a claim's segment (or
+    mov ax, dx                    ;          selector) -> AX = the selector to
+    cmp ax, 1                     ;          far call code in it: the segment
+    OSAPI_IEND                    ;          itself in real mode, its LDT code
+%endif                            ;          alias on kern_mega. CF=1 = none:
+                                  ;          INLINE off kern_mega, where the
+                                  ;          answer is DX and the compare's
+                                  ;          borrow (kernel size pass 14)
     OSAPI_RSLOT osapi_xmem_walk   ; 0x04BF - ES:DI = CX records of 6 bytes ->
                                   ;          AX = the extended pool's blocks
                                   ;          written, each {KB offset, KB,
@@ -3703,7 +3738,11 @@ apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
                                   ;          the step to its next 64KB (1000h
                                   ;          conventional, 8 a run above 1MB on
                                   ;          kern_mega, KERN-MEGA-PLAN 14.1)
+%ifdef KERN_MEGA
     OSAPI_RSLOT osapi_xmem_run    ; 0x04CB - DX:AX = an OSAPI_XMEM_ALLOC block
+%else
+    OSAPI_XREFUSE                 ; 0x04CB - DX:AX = an OSAPI_XMEM_ALLOC block
+%endif
                                   ;          of yours -> DX = a run of DATA
                                   ;          selectors, one every 32KB and each
                                   ;          a 64KB window, CX = their step (8)
@@ -5452,14 +5491,10 @@ kmain:
 ; THE PROTECTED-MODE ROUTE TO ADDRESS EXTENDED MEMORY IN PLACE, where real
 ; mode has LOADALL (apps/os88la.inc) and unreal mode (apps/os88ub.inc). Ask
 ; OSAPI_CPU_INFO's CPU_F_PM first and take whichever route the bit names.
-%ifdef KERN_SMALL
-osapi_xmem_sel equ xm_copy      ; kern_small: no extended memory, and its
-                                ; xm_copy is AX = 1, CF = 1 with every other
-                                ; register kept - this refusal to the byte, as
-                                ; osapi_fsx_spk already borrows it (snd.inc)
-%else
-osapi_xmem_sel:
+; EVERY KERNEL BUT kern_mega answers it IN THE CELL (OSAPI_XREFUSE, kernel
+; size pass 14), so the body below is kern_mega's alone.
 %ifdef KERN_MEGA
+osapi_xmem_sel:
     cmp byte [mega_on], 0
     je .no
     push bx
@@ -5468,7 +5503,6 @@ osapi_xmem_sel:
     pop bx
     ret
 .no:
-%endif
     mov ax, 1
     cmp al, 2                   ; CF = 1 - and SIX bytes where `stc` is five,
     ret                         ; which keeps every hot routine after this on
@@ -5487,15 +5521,13 @@ osapi_xmem_sel:
 ; THE IN-PLACE READ OF A STORE OF RECORDS, where OSAPI_XMEM_SEL's one window
 ; re-aimed per read cannot serve an ISR and OSAPI_MEM_HUGE's 64KB windows cut
 ; a record that straddles one in two (the Video Player's hold and bank)
-%ifdef KERN_MEGA
+%ifdef KERN_MEGA                ; (every other kernel: OSAPI_XREFUSE, the cell)
 osapi_xmem_run:                 ; (eleven bytes of .text: the segment binds
     push bx                     ; on kern_mega, so the [mega_on] test and the
     call xm_ownbl               ; rest are .cold's)
     call COLD_SEG:mega_xmrunf
     pop bx
     ret
-%else
-osapi_xmem_run equ osapi_xmem_sel ; its refusal, AX = 1 and CF = 1 (above)
 %endif
 
 ; ---- osapi_mem_subseg - API slot 0x04D1 (KERN-MEGA-PLAN 14.44) -------------
@@ -5551,7 +5583,11 @@ osapi_img_name:                 ; (api_rsc's far body: DS = KDATA)
     push cx
     push si
     or bx, bx
+%ifdef KERN_MEGA
     jnz .hi
+%else
+    jnz .no                     ; BX = 1 names kern_mega's pool, and only it
+%endif
     or ax, ax                   ; a row not loaded holds segment 0
     jz .no
     mov si, drv_tab + DRVR_SEG
@@ -5570,17 +5606,17 @@ osapi_img_name:                 ; (api_rsc's far body: DS = KDATA)
     je .drv
 %endif
     mov si, mod_tab + MODR_SEG
-.m:
+    mov cx, (mod_tab_end - mod_tab) / MODR_SIZE ; (a count: a byte under the
+.m:                             ; end compare - kernel size pass 14)
     cmp [si], ax
     je .mod
     add si, MODR_SIZE
-    cmp si, mod_tab_end
-    jb .m
+    loop .m
 .no:
     stc
     jmp short .out
-.hi:
 %ifdef KERN_MEGA
+.hi:
     cmp byte [mega_on], 0
     je .no
     push ax
@@ -5592,16 +5628,15 @@ osapi_img_name:                 ; (api_rsc's far body: DS = KDATA)
     jmp short .mod
 .hino:
     pop ax
-%endif
     jmp short .no
-.drv:
-    mov si, [si+DRVR_FILE-DRVR_SEG]
+%endif
+.mod:                           ; SI is the row's segment word either way, and
+    mov al, 1                   ; the name's pointer is the word after it in a
+    jmp short .name             ; drv_tab row and a mod_tab row alike (asserted
+.drv:                           ; below), so one load serves both
     mov al, 0
-    jmp short .copy
-.mod:
-    mov si, [si+MODR_FILE-MODR_SEG]
-    mov al, 1
-.copy:
+.name:
+    mov si, [si+DRVR_FILE-DRVR_SEG]
     push di
 .c:
     mov cl, [si]
@@ -5647,7 +5682,10 @@ osapi_xmem_walk:
     call MEGA_SEL_CODE:mega_xmwalkf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
     ret
 %elifndef KERN_BIG
-osapi_xmem_walk equ osapi_xmem_sel ; its refusal, AX = 1 and CF = 1 (above)
+osapi_xmem_walk equ xm_copy     ; kern_small: no extended memory, and its
+                                ; xm_copy is AX = 1, CF = 1 with every other
+                                ; register kept - this refusal to the byte, as
+                                ; osapi_fsx_spk already borrows it (snd.inc)
 %endif                          ; (kern_big's is XMEM.DRV's table, xmem.inc)
 
 ; ---- osapi_mem_codesel - API slot 0x04B9 (KERN-MEGA-PLAN 12.2, 10.3 item 51)
@@ -5658,17 +5696,19 @@ osapi_xmem_walk equ osapi_xmem_sel ; its refusal, AX = 1 and CF = 1 (above)
 ;      512-byte grid or a data-only selector in protected mode)
 ; apps/os88api.inc's OS88_CODESEL is this slot's fast path for a claim below
 ; 1MB; a claim that may be anywhere asks the slot.
-osapi_mem_codesel:
+; Every kernel but kern_mega answers it IN THE CELL - `mov ax, dx / cmp ax, 1`
+; (kernel size pass 14) - so the body is kern_mega's alone.
 %ifdef KERN_MEGA
+osapi_mem_codesel:
     cmp byte [mega_on], 0
     je .rm
     call MEGA_SEL_CODE:mega_codeself ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
     ret
 .rm:
-%endif
     mov ax, dx
     cmp ax, 1                   ; CF = 1 iff DX = 0
     ret
+%endif
 
 ; ---- osapi_rand - seed = seed*25173 + 13849; out: AX = new seed --------------
 osapi_rand:
@@ -7736,6 +7776,11 @@ COLD_START equ BOOT2_PAD + (COLD_RAM - KERNEL_SEG) * 16 ; after the gap
 COLD_START equ BOOT2_PAD + ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 512
 %endif
 
+%ifdef KERN_BIG                 ; osapi_img_name: one load names a driver
+%if DRVR_FILE - DRVR_SEG != MODR_FILE - MODR_SEG || (mod_tab_end - mod_tab) % MODR_SIZE
+  %error "osapi_img_name: one load names a driver row's file and a module row's, and mod_tab is whole rows"
+%endif                          ; row's file and a module row's (size pass 14)
+%endif
 VX_LAYOUT_ASSERT                ; vidext.inc's adjacency claims (SPEC.md 120.3.2),
                                 ; here because every cell they name is declared
                                 ; by now

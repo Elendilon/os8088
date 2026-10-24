@@ -942,11 +942,6 @@ mem_claim_1:
                                 ; two again. Re-measure it after any change to
                                 ; this routine's length: a trampoline only pays
                                 ; while it is itself in short reach.
-    nop                         ; PARITY: never executed - the range test
-                                ; above is one byte longer than the shift's
-                                ; CF it replaced, and dsk_xfer and the hot
-                                ; disk routines after this in .cold must keep
-                                ; their measured parity (t_hotpar)
 .hi:
     mov dx, [mem_top]           ; the highest base that still fits
     sub dx, ax
@@ -4539,11 +4534,12 @@ mmf_osapi_mem_huge:
     xor cx, cx                  ; no head: no 64KB page constraint
     call osapi_mem_claim_dma_x
     mov cx, 0x1000              ; OS88_HUGE_INCR (mov leaves CF)
-    retf
-    nop                         ; PARITY: never executed - this cell's body is
-                                ; odd on every kernel, and dsk_xfer and the hot
-                                ; disk routines after it in .cold must stay on
-                                ; an even address (t_hotpar)
+    retf                        ; (ODD on every kernel, and so is mem_claim_1's
+                                ; range test above: the two cancel, and
+                                ; dsk_xfer and the hot disk routines after
+                                ; them in .cold keep their measured parity
+                                ; without the two never-executed pads each
+                                ; once carried - kernel size pass 14, t_hotpar)
 
 ; -----------------------------------------------------------------------------
 ; osapi_mem_free - in: DX = segment, ES = the caller's segment

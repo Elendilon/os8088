@@ -505,11 +505,9 @@ xm_caps:
 ; -----------------------------------------------------------------------------
 osapi_xmem_walk:
     call xm_have
-    jne .go
-    mov ax, 1
-    stc
-    ret
-.go:
+    mov ax, 1                   ; the refusal's AX, set either way: AX is no
+    je xm_alloc.stc             ; input, and the walk writes its own (size
+                                ; pass 14: xm_free's two-byte `stc / ret`)
     push bp
     push dx
     mov dx, es                  ; xm_dsp hands the image ES = KERNEL_SEG, so
@@ -714,11 +712,8 @@ xm_copy:
 ; slot and this will never free it. Claim from a callback (SPEC.md 41.5.1).
 ; -----------------------------------------------------------------------------
 xm_release_rec:
-    push ax
-    push bx
-    push cx
-    push bp
-    push es
+    call kent_bp                ; KENT: push ax..bp (the teardown's, once per
+    push es                     ; instance: kernel size pass 14, -4)
     call inst_idx               ; AL = the instance slot, ONCE for the two
     push ax                     ; releases below (the driver eats AX)
     KES                         ; FIRST, AND ON EVERY MACHINE: the instance's
@@ -736,12 +731,7 @@ xm_release_rec:
     mov bp, [xm_svc+XMV_RELINST]
     call xm_dsp                 ; (sets its own ES)
 .out:
-    pop es
-    pop bp
-    pop cx
-    pop bx
-    pop ax
-    ret
+    jmp kret_es
 
 section .bss
 
