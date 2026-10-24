@@ -12567,6 +12567,13 @@ OS88_PARTS_BEGIN 1
   OS88_PART OP_ASSET, OP_ZERO | OP_OPT, DOS_TRACE_KB
 OS88_PARTS_END
 
+%endif
+%endif                              ; DOS_EXTCORE
+
+%ifdef DOSTRACE
+%ifdef OP_ONMOVE
+; (HOST code, so outside the core span above: it reads [dos_trseg], a host
+; bss cell, which SPEC.md 96.44.2 forbids a core proc to name)
 ; dos_trmove - THE TRACE PART MOVED (SPEC.md 96.29.1.2, NO-PINNING 2). The
 ; standard's op_carvemv has already stored [op_base]; BX = was, DX = now,
 ; under a relocation proc's rules (66.3). Two words were banked from op_seg
@@ -12583,7 +12590,7 @@ dos_trmove:
     mov [dos_m33seg], ax
     ret
 %endif
-%endif                              ; DOS_EXTCORE
+%endif
 
 ; -----------------------------------------------------------------------------
 ; kern_dos, AS A PART (docs/plans/KERN-DOS-PLAN.md §4.1)
