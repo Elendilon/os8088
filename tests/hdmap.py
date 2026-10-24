@@ -44,7 +44,7 @@ sys.path.insert(0, "tools")
 sys.path.insert(0, "tests")
 import os88marty as M                                       # noqa: E402
 import instdeep as ID                                       # noqa: E402
-import instrest as IR                                       # noqa: E402
+import glyphread as IR                                      # noqa: E402
 import bigvol as BV                                         # noqa: E402
 import hdsize as HS                                         # noqa: E402
 

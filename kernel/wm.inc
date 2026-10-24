@@ -1408,7 +1408,7 @@ wm_create:
     cmp si, DRV_HMA_SEG             ; ...and a DRIVER in the HMA has its
     jb .heapseg                     ; dispatcher DRV_HMA_ORG further on
     mov ah, DRV_HMA_ORG >> 8        ; (docs/plans/HMA-PLAN.md 5): HDD.DRV's
-.heapseg:                           ; Install window is one
+.heapseg:                           ; page windows are one
     mov [bx+W_DISP], ax
 %if PKG_DISP >> 8
   %error "wm_create builds the HMA's dispatcher by writing AH alone"

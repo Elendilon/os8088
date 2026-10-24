@@ -132,6 +132,15 @@ UNREGISTERED = {
     "trklog.inc": "tracker's logging build, %included by apps/tracker",
     "trkscrl.inc": "tracker's scroll-gate build, %included by apps/tracker",
     "npbench.inc": "a benchmark body, %included",
+    "instwiz.py": "INSTALL.O88's wizard driven by a row (SPEC.md 117, "
+                  "52.10.4.4) - its page numbers and geometry off the "
+                  "source and the package's map, on MartyPC and QEMU - "
+                  "imported by every row that installs; library, not a test",
+    "glyphread.py": "text read off the 1bpp glass against the kernel's own "
+                    "glyph table - tests/instrest.py's apparatus, kept when "
+                    "that row went with the Install window (SPEC.md "
+                    "52.10.4.4); imported by inststate's neighbours bigvol, "
+                    "hdmap and hdsize; library, not a test",
     "glass.py": "reading SHEET's grid off the 1bpp screen - its lines, and "
                 "a cell's text by the kernel's own glyphs - for the gates "
                 "whose subject is what is drawn (SPEC.md 81.54, 81.55); "

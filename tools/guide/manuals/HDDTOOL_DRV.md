@@ -1,10 +1,10 @@
 # Hard disk tool
 
 `HDDTOOL.DRV` is everything you see of a hard disk in the Control Panel:
-the **Hard Drive** page, the **Format** window that partitions and formats
-the disk, and the **Install** window that puts os8088 on it so the machine
-can start from the hard disk. It is read off the system disk when you open
-that page, and put away when you close the Control Panel.
+the **Hard Drive** page and the **Format** window that partitions and formats
+the disk. It also does the copying when [[INSTALL.O88]] puts os8088 on the
+disk so the machine can start from it. It is read off the system disk when
+you open that page, and put away when you close the Control Panel.
 
 ![The Control Panel's Hard Drive page, showing a 31MB disk.](shot:hddtool-drv-page)
 
@@ -22,7 +22,7 @@ in the **C**, **H** and **S** boxes. A disk whose shape is unknown says
 disk, then a button:
 
 - **Format** opens the Format window.
-- **Install** opens the Install window.
+- **Install** starts [[INSTALL.O88]], the installer, from the system disk.
 - **Mount** gives each usable partition a drive letter and a desktop icon
   (C:, D: and on). It reads **Unmount** while they are mounted.
 
@@ -47,28 +47,22 @@ free.
 
 Each volume can be up to 32MB.
 
-## The Install window
+## Installing
 
-![Choosing where to install os8088.](shot:hddtool-drv-install){left}
+**Install** starts [[INSTALL.O88]] from the disk the machine started from.
+It walks you through the install a page at a time: the disk, the partition,
+whether to keep the files already on it, then the copy. Its own page tells
+the whole story.
 
-Pick a partition and click **Install**. Leave **Erase the partition first**
-clear to keep the files already on it, or tick it to start with an empty
-volume. The window asks you to click **Install** again to confirm, then
-copies the system disk (`Copying - this takes a few minutes`). Next it asks
-for the apps disk and the button reads **Copy Apps**. When everything is
-copied it says `Done - remove the floppy, Restart`, and the button reads
-**Restart**. From then on the machine starts from the hard disk.
-
-On a machine with one floppy drive you swap disks when asked. Taking the
-system disk out after its copy is safe.
-
-[[INSTALL.O88]], in the root of the system disk, does the same install one
-page at a time, and switches the hard disk driver on for you first.
+To install from another drive, such as a network drive or a mounted disk
+image, open `INSTALL.O88` on that drive instead: it copies from wherever it
+was started.
 
 ## Why it is a separate file
 
-`HDD.DRV` stays in memory as long as the disk is in use, but the page and its
-windows are only needed while you are setting the disk up. Keeping them in
+`HDD.DRV` stays in memory as long as the disk is in use, but the page, its
+window and the install's copying are only needed while you are setting the
+disk up. Keeping them in
 their own file leaves that memory free. If the system disk cannot be read
 when you open the page, it says `Need the system disk`.
 

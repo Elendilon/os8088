@@ -8,17 +8,16 @@ machine with a network card, straight from the os8088 website.
 It walks you through one page at a time: it asks where to install from,
 switches the hard disk driver on, finds the disks, asks which partition to
 use and whether to keep its files, and then copies the system and the
-programs. It does the same
-work as the **Install** window on the Control Panel's Hard Drive page
-([[HDDTOOL.DRV]]), and it leaves the disk the same way.
+programs. The copying itself is done by [[HDDTOOL.DRV]].
 
 ![The first page, on a machine with no network card: the floppy disks are the source.](shot:install-welcome)
 
 ## Starting Install
 
-Double-click **INSTALL.O88** in the root of the system disk. It is also in
-the root of a hard disk that Install has set up, which is where you start
-an upgrade from.
+Double-click **INSTALL.O88** in the root of the system disk, or click
+**Install** on the Control Panel's Hard Drive page, which starts it from the
+disk the machine started from. It is also in the root of a hard disk that
+Install has set up, which is where you start an upgrade from.
 
 Install needs a hard disk, and either the system disk and the apps disk or a
 network connection: the Ethernet driver ([[ETHER.DRV]]) loaded with a working
@@ -40,8 +39,7 @@ disk until you click **Install** on the last of the four steps.
 
 ![Step 2: the partitions of a 31 MB disk, and what is on each.](shot:install-slot)
 
-The partition list uses the same words as the Control Panel's Install
-window. `C: FAT16` is a volume you can see on the desktop as C:,
+`C: FAT16` is a volume you can see on the desktop as C:,
 `Unpartitioned` is free space Install will make a partition of, and
 `Booted From` is the volume the machine is running from. A partition Install
 cannot use is greyed, and its line says why. The line under the list tells

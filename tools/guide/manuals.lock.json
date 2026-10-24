@@ -502,17 +502,17 @@
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "ddaef50f",
-  "strings": "caf4859056bcb91b",
-  "why": "The engine gained INSTALL's log hook (SPEC.md 117.4.1); the Control Panel's Install window and the pages' words are unchanged"
+  "stamped": "26a6303",
+  "strings": "d786a00636fb0957",
+  "why": "Install window removed (SPEC.md 52.10.4.4): the button starts INSTALL.O88; Install section rewritten to point at it, its screenshot dropped"
  },
  "HDD_DRV": {
   "sources": [
    "drivers/hdd"
   ],
-  "stamped": "ddaef50f",
-  "strings": "caf4859056bcb91b",
-  "why": "The engine gained INSTALL's log hook (SPEC.md 117.4.1); the Control Panel's Install window and the pages' words are unchanged"
+  "stamped": "26a6303",
+  "strings": "d786a00636fb0957",
+  "why": "Install row: it starts INSTALL.O88 now (SPEC.md 52.10.4.4); the rest of drivers/hdd's change is HDDTOOL.DRV's"
  },
  "HELV_F88": {
   "sources": [],

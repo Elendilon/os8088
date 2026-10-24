@@ -811,7 +811,7 @@ hd_tw_up:
 hd_tw_drag:
     call os88_ent
     mov bx, hd_tdown
-hd_xdrag:                       ; (the installer's too: BX = its block)
+
     call os88ui_armed           ; PEEK: the arm is the release's to spend
     or ax, ax
     jz .done

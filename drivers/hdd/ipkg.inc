@@ -7,19 +7,16 @@
 ; OSAPI_DRV_USE's DRVU_CALL, so the instance stamp is the machine's and every
 ; name the engine writes resolves where the engine stood (SPEC.md 51.2.3).
 ;
-; **NOTHING HERE INSTALLS ANYTHING.** Every verb sets the Install window's own
-; state - [hd_idev], [hd_isel], [hd_iwipe], [hd_iw_st] - and calls the Install
-; window's own routines: hd_iw_scan for what the slots are, hd_iact_ok for
-; whether one may be taken, hd_inst_step for the install. Their drawing goes
-; through hd_iorg, which draws nothing when that window is not on screen, so
-; the engine was already headless and this file is a second caller of it and
-; not a second copy (SPEC.md 117).
+; **NOTHING HERE INSTALLS ANYTHING.** Every verb sets the engine's state -
+; [hd_idev], [hd_isel], [hd_iwipe], [hd_iw_st] - and calls inst.inc's
+; routines: hd_iw_scan for what the slots are, hd_iact_ok for whether one may
+; be taken, hd_inst_step for the install. These verbs are the engine's ONLY
+; caller: the Install window that was its other face is gone, and the Control
+; Panel's Install button starts the wizard instead (SPEC.md 52.10.4).
 ;
-; ONE RUN AT A TIME. While the Install window is VISIBLE it owns that state,
-; so the verbs that would move it refuse; and a run of OURS that has reached
-; the apps-disk prompt holds ASSOC.DAT's writer (SPEC.md 54.7.6.4), so
-; hd_tbusy answers busy for it ([hd_ipkg]) - a Control Panel close cannot free
-; this image under a run that is half done.
+; A run that has reached the apps-disk prompt (HII_SYSDONE) holds ASSOC.DAT's
+; writer (SPEC.md 54.7.6.4), so hd_tbusy answers busy for it - a Control
+; Panel close cannot free this image under a run that is half done.
 ;
 ; Every verb: in DS = ours, ES = the package's; out CF = 0 and AL = the
 ; answer; every other register preserved.
@@ -34,8 +31,6 @@
 %if HDIS_TEXTSZ < 25
   %error "HDIS_TEXT must hold the State column's longest row (24) and its NUL"
 %endif
-
-hd_ipkg:     db 0               ; 1 = the run at HII_SYSDONE is a PACKAGE's
 
 ; -----------------------------------------------------------------------------
 ; hd_pkgv - HDT_PKG's dispatcher
@@ -55,15 +50,6 @@ hd_pkgv:
     stc                         ; a verb from a newer package than this tool
     ret
 
-; hd_pv_win - CF = 0 = the Install window is ON SCREEN, and owns the state.
-; Preserves every register (hd_iorg answers in DI/BP)
-hd_pv_win:
-    push di
-    push bp
-    call hd_iorg
-    pop bp
-    pop di
-    ret
 
 ; -----------------------------------------------------------------------------
 ; hd_pv_devs - HDI_DEVS: ES:DI = 4 HDIV_* records. out AL = how many
@@ -114,20 +100,17 @@ hd_pv_devs:
 
 ; -----------------------------------------------------------------------------
 ; hd_pv_slots - HDI_SLOTS: DL = a device; ES:DI = 4 HDIS_* records.
-; out AL = the slot the Install window would select, 0FFh none would do,
-;      0FEh no such device / no geometry, 0FDh the Install window is open
+; out AL = the slot the engine would pick, 0FFh none would do,
+;      0FEh no such device / no geometry
 ; -----------------------------------------------------------------------------
 hd_pv_slots:
     push bx
     push cx
     push si
     push di
-    mov al, 0xFD
-    call hd_pv_win
-    jnc .out                    ; the window owns hd_idev and the scan
     call hd_pv_dev              ; CF = 1 = AL = 0FEh
     jc .out
-    mov [hd_idev], dl           ; ...exactly as hd_iw_open binds them
+    mov [hd_idev], dl           ; ...bound for hd_iw_scan
     mov byte [hd_isel], 0
     call hd_iw_scan
     xor cx, cx                  ; CL = the slot
@@ -148,7 +131,7 @@ hd_pv_slots:
     mov ax, [bx+hd_isecs+2]
     mov [es:di+HDIS_SECS+2], ax
     mov [hd_irow], cl
-    call hd_iw_rowtext          ; the Install window's row, into hd_line...
+    call hd_iw_rowtext          ; the slot's row, into hd_line...
     push cx
     push di
     mov si, hd_line + HIW_STATEC    ; ...and its State column is ours
@@ -223,16 +206,13 @@ hd_pv_go:
     shr ch, 1                   ; ...CH = the source + 1: NAMED, so the
     dec ch                      ; engine neither guesses it nor looks for an
     mov [hd_isrcx], ch          ; apps disk (SPEC.md 117.10.5); 0FFh = as ever
-    call hd_pv_win
-    jnc hd_pv_busy              ; the Install window owns the state
     mov word [hd_imsg], hd_s_ibad
     cmp dh, 4
     jae .fail
     call hd_pv_dev
     jc .fail
     call hd_ia_rel              ; an earlier run abandoned at its apps prompt
-    mov byte [hd_ipkg], 0
-    mov [hd_idev], dl           ; the Install window's open, with the slot
+    mov [hd_idev], dl           ; the device, and the slot
     mov [hd_isel], dh           ; the CALLER's: a fresh table, as 52.10.4.3
     call hd_iw_scan             ; requires - and the scan may move the pick,
     mov [hd_isel], dh           ; so it is put back after it
@@ -243,16 +223,14 @@ hd_pv_go:
     mov cl, 1                   ; nothing to keep: the Erase box is SET AND
 .wipe:                          ; GREYED there (52.10.15), so erase it is
     mov [hd_iwipe], cl
-    mov byte [hd_iw_st], HII_IDLE
-    call hd_iact_ok             ; the Install button's ONE predicate (47 rule
-    jc .fail                    ; 2): what it greys, this refuses
+    call hd_iact_ok             ; may that slot be taken, as asked
+    jc .fail
     mov byte [hd_iautod], 0xFF  ; a fresh run asks the machine again
     mov byte [hd_iw_st], HII_ARMED  ; the wizard's Confirm page WAS the confirm
     call hd_inst_step
     jmp short hd_pv_stage
 .fail:
     mov byte [hd_iw_st], HII_IDLE
-    mov byte [hd_ipkg], 0
     jmp short hd_pv_stage
 
 ; -----------------------------------------------------------------------------
@@ -268,37 +246,22 @@ hd_pv_apps:
     push bp
     push es
     call hd_il_arm
-    call hd_pv_win
-    jnc hd_pv_busy
     mov word [hd_imsg], hd_s_pvnone
     cmp byte [hd_iw_st], HII_SYSDONE
     jne .fail                   ; nothing waiting: the tool was reloaded
-    cmp byte [hd_ipkg], 0       ; ...or the run is the Install window's
-    je .fail
     call hd_inst_step
     jmp short hd_pv_stage
 .fail:
     mov byte [hd_iw_st], HII_IDLE
-    mov byte [hd_ipkg], 0
                                 ; ...and on into hd_pv_stage
 
 ; hd_pv_stage - the two install verbs' common tail: AL = the stage the engine
-; is in, [hd_ipkg] set when that stage is a run of OURS waiting on its apps
-; disk, [hd_imsg] to ES:DI. Pops what both verbs pushed.
+; is in, [hd_imsg] to ES:DI. Pops what both verbs pushed.
 hd_pv_stage:
     mov al, [hd_iw_st]
-    cmp al, HII_SYSDONE
-    jne .cap
-    mov byte [hd_ipkg], 1
-.cap:
     mov si, [hd_imsg]
     jmp short hd_pv_out
 
-; hd_pv_busy - the Install window is on screen: refuse and touch NOTHING of
-; its state - not the stage, not [hd_imsg], which is its caption
-hd_pv_busy:
-    xor al, al                  ; HDG_FAIL
-    mov si, hd_s_pvwin
 hd_pv_out:
     mov bp, sp                  ; THE CALLER'S ES:DI, off the verb's frame:
     mov es, [ss:bp]             ; the engine reads files and claims buffers
@@ -328,23 +291,18 @@ hd_pv_out:
 
 ; -----------------------------------------------------------------------------
 ; hd_pv_quit - HDI_QUIT: abandon OUR run at its apps prompt. The system part
-; has committed and stays (SPEC.md 52.10.10). A run that is the Install
-; window's is left alone. out AL = 0
+; has committed and stays (SPEC.md 52.10.10). out AL = 0
 ; -----------------------------------------------------------------------------
 hd_pv_quit:
-    cmp byte [hd_ipkg], 0
-    je .out
-    call hd_pv_win
-    jnc .out                    ; the window took the run over: it is its own
+    cmp byte [hd_iw_st], HII_SYSDONE
+    jne .out
     call hd_ia_rel
     mov byte [hd_iw_st], HII_IDLE
-    mov byte [hd_ipkg], 0
 .out:
     xor al, al
     clc
     ret
 
-hd_s_pvwin:  db 'Close the Install window first', 0
 hd_s_pvnone: db 'Nothing to continue - install again', 0
 
 ; =============================================================================
@@ -353,8 +311,7 @@ hd_s_pvnone: db 'Nothing to continue - install again', 0
 ; drawn after the answer would be a line drawn after everything.
 ;
 ; Every entry keeps every register, and every entry is one compare and a
-; branch when nobody asked: the Control Panel's Install window runs the same
-; engine and never arms this (hd_pv_out disarms it at the end of each verb).
+; branch when nobody asked (hd_pv_out disarms it at the end of each verb).
 ; =============================================================================
 hd_ilogp:    dw 0               ; the package's log proc, 0 = none
 hd_ilogf:    dw PKG_DISP, 0     ; ...reached at its dispatcher (SPEC.md 20.2)

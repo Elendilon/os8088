@@ -3102,8 +3102,8 @@ HDV_TOOL     equ 3              ; THE INSTALLER (SPEC.md 117.4): CL = an HDI_*
                                 ; machine's file walk, and through the plain
                                 ; door every name it writes resolves in YOUR
                                 ; folder instead (SPEC.md 51.2.3). It is
-                                ; HDDTOOL.DRV's own engine - the Control
-                                ; Panel's Install window's - read off the
+                                ; HDDTOOL.DRV's own engine - the only
+                                ; installer there is - read off the
                                 ; system volume on first use. CF=1 = the tool
                                 ; could not be reached (no system disk, no
                                 ; heap, another vintage) or the verb is not
@@ -3113,9 +3113,12 @@ HDV_TOOL     equ 3              ; THE INSTALLER (SPEC.md 117.4): CL = an HDI_*
                                 ; whole floppies under the frozen interface
 HDI_DEVS     equ 0              ; ES:DI = 4 * HDIV_SIZE. out AL = devices
 HDI_SLOTS    equ 1              ; DL = a device, ES:DI = 4 * HDIS_SIZE. out
-                                ; AL = the slot the Install window would
-                                ; select, 0FFh none would do, 0FEh no such
-                                ; device or its geometry is unknown
+                                ; AL = the slot the engine would pick,
+                                ; 0FFh none would do, 0FEh no such
+                                ; device or its geometry is unknown - and
+                                ; 0FDh from a tool built before SPEC.md
+                                ; 52.10.4 lost its Install window, while
+                                ; that window is open
 HDI_GO       equ 2              ; DL = device, DH = slot, CH = bit 0 1 erase /
                                 ; 0 keep the files, bits 7..1 the SOURCE volume
                                 ; + 1 (0 = the engine's own: the bank, then the
@@ -3123,7 +3126,7 @@ HDI_GO       equ 2              ; DL = device, DH = slot, CH = bit 0 1 erase /
                                 ; the apps (SPEC.md 117.10.5); ES:DI = an
                                 ; HDIB_* block. out AL =
                                 ; an HDG_* and the engine's caption at HDIB_CAP.
-                                ; The Install window's two clicks in one
+                                ; The arm and the go in one
 HDI_APPS     equ 3              ; ES:DI = an HDIB_* block: the apps phase, once
                                 ; HDI_GO answered HDG_APPS. out as HDI_GO
 HDI_QUIT     equ 4              ; abandon a run waiting on its apps disk (its
@@ -3152,7 +3155,7 @@ HDIS_LET     equ 2              ; db: the letter it is mounted as, or 0
 HDIS_TYPE    equ 3              ; db: the partition table's type byte
 HDIS_SECS    equ 4              ; dd: its length (a free slot: what an install
                                 ; would make of it)
-HDIS_TEXT    equ 8              ; 26 bytes: the Install window's State column,
+HDIS_TEXT    equ 8              ; 26 bytes: the engine's State column,
                                 ; NUL-ended ('C: FAT16', 'Unpartitioned', ...)
 HDIS_TEXTSZ  equ 26
 HDIS_SIZE    equ 34

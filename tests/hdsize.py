@@ -44,7 +44,7 @@ sys.path.insert(0, "tests")
 import os88marty as M                                       # noqa: E402
 from os88mouse import Mouse                                 # noqa: E402
 import instdeep as ID                                       # noqa: E402
-import instrest as IR                                       # noqa: E402
+import glyphread as IR                                      # noqa: E402
 import bigvol as BV                                         # noqa: E402
 
 SECTOR = 512

@@ -98669,14 +98669,14 @@ byte.
 ### 52.4 The page, and mounting
 
 The Control Panel page (§31.9) is a device list, the C/H/S editor and **three**
-buttons — Format, which opens §52.2's tool; Install, which opens §52.10.4's;
-and Mount — in 27 characters by 13 rows. Greying follows §47: one predicate
+buttons — Format, which opens §52.2's tool; Install, which starts the
+`INSTALL.O88` wizard (§52.10.4.4, §117); and Mount — in 27 characters by 13 rows. Greying follows §47: one predicate
 (`hd_btn_ok`) shared by the greying, the click refusal and the caption, and it
 tests only facts already known — is there a device, is its geometry usable —
 never "try it and see".
 
 **The row reads Format, Install, Mount, evenly spaced.** The two that open a
-window are together at the left and the one that acts on the spot is at the
+window (Install's is the wizard's now) are together at the left and the one that acts on the spot is at the
 right end; Mount used to sit between them, which put the two destructive
 buttons either side of the harmless one. The gaps are equal now as well:
 64px, 64 and 72 wide (Mount is the wider box because it says `Unmount`) at
@@ -99158,7 +99158,8 @@ The order is forced and each step is the next one's precondition:
    disk that simply is not bootable yet, which is the same discipline
    §52.3's formatter follows in writing its boot sector last.
 
-**Only usable partitions are offered.** The dialog lists a slot when it is
+**Only usable partitions are offered.** The wizard (§52.10.4.4) lists a slot
+when it is
 mounted, writable and large enough; a slot that is `Unmountable`, foreign or
 too small is shown with the reason rather than hidden, on §47 rule 3's terms
 — the honest test is whether it would work, and saying *why not* is worth
@@ -99332,6 +99333,49 @@ the carried slot whenever it is usable, and on a blank disk every slot is, so
 a fresh drive could open on Slot 4 and be installed there. It starts at 0 now
 and the scan moves it to the first usable slot, exactly as before.
 
+#### 52.10.4.4 ONE installer: the Install button starts the wizard
+
+**There is one face on the install engine and it is `INSTALL.O88` (§117).**
+`HDDTOOL.DRV` used to carry an Install window of its own — four slot rows, an
+Erase box, an action button that read `Install`, `Copy Apps` and `Restart` —
+beside the engine the wizard drives through `HDT_PKG` (§117.4). Two faces on
+one stage machine, the second of them 1.4 KB of a tool every hard-disk machine
+loads, and a one-run-at-a-time rule between them (the `0FDh` answer, and
+*Close the Install window first*). The window is gone; §52.10.6 and
+§52.10.6.1 are the design record of a dialog that no longer exists.
+
+**The Control Panel page's Install button STARTS THE WIZARD** — the file
+`INSTALL.O88` in the ROOT of the volume the machine booted from
+(`OSAPI_VOL_SYS`), which is where §117.6 ships it: the system floppy, and on
+an installed machine C:. Its greying is unchanged (`hd_btn_ok`: a device with
+a usable geometry), because the wizard asks every other question itself.
+
+**It is POSTED, not called**, for `OSAPI_PKG_START`'s rule (§21.5): the slot
+wants the UI task with the gfx lock FREE, and a Control Panel click holds it.
+A driver cannot reach the kernel's own posting (`inst_launch_post`,
+`ui_post_cmd`); what it can reach is a WAKE, and a wake needs a window. So
+`hd_inst_post` creates one that is **never shown** and posts it a wake;
+`hd_lwake`, on the UI task with the lock free, destroys it, stands in the
+boot volume's root with `OSAPI_FILE_GOTO_QM`, starts the wizard, and stands
+back where it was. A wizard that cannot be started says so in a toast,
+`Cannot start INSTALL.O88`. While the launch window exists `HDT_BUSY`
+answers busy, so the Control Panel cannot free the image between the post
+and the wake, and `HDT_SHUT` destroys it if the wake never came.
+
+**What it cost and bought**, measured on the tree it landed on:
+`HDDTOOL.DRV`'s image **18,327 → 17,038 bytes (−1,289)**, its claim
+(`HDTOOL_KB`) **18 → 17 KB**, and the compressed file on every system disk
+**14,100 → 13,130 bytes** — **14 clusters to 13** on a 360 KB floppy. That is
+~1,490 bytes of window, check box, drawing layer, captions and the
+two-faces bookkeeping out, ~195 of launcher in (`hd_inst_post` through its
+two strings is a 188-byte span), and the sector buffers' alignment pad
+moving 195 → 199. `HDD.DRV` changes only in the `HDTOOL_KB` it
+claims with, and `INSTALL.O88` is byte-identical.
+
+**An older tool can still answer `0FDh`.** An upgrade booted from C: reaches
+C:'s `HDDTOOL.DRV` (§52.10.16), which may predate this; the wizard keeps its
+`0FDh` refusal for that machine and a new tool never sends it.
+
 ### 52.10.5 A disk already in the machine is not asked for
 
 The swap prompt is right on the machine this project is calibrated against
@@ -99474,6 +99518,10 @@ quiet inside the loop, full at the edge.
 
 ### 52.10.6 Restart, and a dialog that stops flashing
 
+**SUPERSEDED by §52.10.4.4**: the Install window this section and §52.10.6.1
+describe is gone, and Restart is the wizard's (§117.1). They stay as the
+record of why it read the way it did.
+
 Two things, and they are one change because they are the same window.
 
 **Restart.** The install ends with a bootable volume and a user who has to
@@ -99591,7 +99639,9 @@ the same heap and occupies the same clusters, and the 56 are slack for
 whoever comes next rather than a saving anything can see today. Nothing
 shipped shrank; do not quote this as a smaller driver.
 
-**`tests/instrest.py` is the gate**, on `os8088_xt_hdd`. It reads the caption
+**`tests/instrest.py` was the gate** (retired with the window, §52.10.4.4;
+its glyph apparatus lives on as `tests/glyphread.py`), on `os8088_xt_hdd`. It
+read the caption
 rather than counting pixels: the kernel's own glyph table comes out of the
 guest, the expected string is rendered from it on the host, and that bitmap
 is searched for inside the button's rect — so a blank, greyed or wrong-string
@@ -216219,12 +216269,13 @@ step, reached through two doors that exist for this package:
 |---|---|---|
 | switch the driver on | `cdl_load` in `CTRL.DRV` (§51.3), through `OSAPI_DRV_USE` (§117.3) | Drivers page, tick *Hard drives* |
 | find the drives | `HDD.DRV`'s probe at attach and its device table (§52.1), read through `HDI_DEVS` | Hard Drive page's drive rows |
-| what each partition is | `hd_iw_scan`/`hd_iw_slot` in `HDDTOOL.DRV` (§52.10.4.2), read through `HDI_SLOTS` — the State column's own words | the Install window's four rows |
-| the install itself | `hd_inst_step` and everything under it (§52.10.4–52.10.17), through `HDI_GO` and `HDI_APPS` | Install, then Install again to confirm, then Copy Apps |
-| restart | `OSAPI_REBOOT` with AL = 1, the Install window's own (§52.10.6.1) | Restart |
+| what each partition is | `hd_iw_scan`/`hd_iw_slot` in `HDDTOOL.DRV` (§52.10.4.2), read through `HDI_SLOTS` — the State column's own words | — |
+| the install itself | `hd_inst_step` and everything under it (§52.10.4–52.10.17), through `HDI_GO` and `HDI_APPS` | — |
+| restart | `OSAPI_REBOOT` with AL = 1 (§52.10.6.1) | — |
 
-So a fix to the installer is a fix to both faces, an install made from either
-is the same bytes on the disk, and nothing in §52.10's long list of closed
+**The wizard is the ONLY face that engine has** (§52.10.4.4): the Control
+Panel's Install button starts this package, and the Install window that was
+the engine's second face is gone. So nothing in §52.10's long list of closed
 defects can come back through a second copy of the walk. WEAVE-SPEC §1.2's
 rule — *what two programs share they share as source, never as a copy* — is
 met here by not even sharing the source: there is one image, and the wizard is
@@ -216397,7 +216448,7 @@ preserves every register but AX.
 | `CL` | verb | in | out |
 |---|---|---|---|
 | 0 | `HDI_DEVS` | ES:DI = `HD_MAXDEV` (4) × `HDIV_SIZE` | AL = devices; one `HDIV_*` record each |
-| 1 | `HDI_SLOTS` | DL = a device; ES:DI = 4 × `HDIS_SIZE` | AL = the slot the Install window would select (0..3), `0FFh` none would do, `0FEh` no such device or its geometry is unknown, `0FDh` the Install window is open; one `HDIS_*` record a slot |
+| 1 | `HDI_SLOTS` | DL = a device; ES:DI = 4 × `HDIS_SIZE` | AL = the slot the engine would pick (0..3), `0FFh` none would do, `0FEh` no such device or its geometry is unknown — and `0FDh` only from a tool built before §52.10.4.4, while its Install window is open; one `HDIS_*` record a slot |
 | 2 | `HDI_GO` | DL = device, DH = slot, CH = bit 0 erase / keep, bits 7..1 the SOURCE volume + 1 or 0 for the engine's own (117.10.5); ES:DI = an `HDIB_*` block (`HDIB_SIZE`, 91 bytes) | AL = an `HDG_*` stage, and the engine's caption at `HDIB_CAP` |
 | 3 | `HDI_APPS` | ES:DI = an `HDIB_*` block | as `HDI_GO` |
 | 4 | `HDI_QUIT` | — | abandons a run waiting on its apps disk; AL = 0 |
@@ -216423,22 +216474,16 @@ disk still boots is in the caption too: the system phase commits at its end,
 §52.10.10), `HDG_APPS` (2, the system part is on and bootable; insert the apps
 disk and send `HDI_APPS`), `HDG_DONE` (3).
 
-**`HDI_GO` is the Install window's two clicks in one.** It rescans the device
-exactly as opening that window does (§52.10.4.3 — the slot is the caller's and
-the table is fresh), refuses with `HDG_FAIL` and the window's own greyed-button
-caption whatever `hd_iact_ok` would grey (§47 rule 2: one predicate), forces
-*erase* over a slot with nothing to keep as the Erase box's greying does
-(§52.10.15), and then runs `hd_inst_step` from `HII_ARMED`: the confirm is the
+**`HDI_GO` is the arm and the go in one.** It rescans the device (§52.10.4.3
+— the slot is the caller's and the table is fresh), refuses with `HDG_FAIL`
+whatever `hd_iact_ok` refuses, forces *erase* over a slot with nothing to
+keep (§52.10.15), and then runs `hd_inst_step` from `HII_ARMED`: the confirm is the
 wizard's Confirm page, not a second click.
 
-**One engine, two faces, one run at a time.** While the Control Panel's
-Install window is on screen the `HDI_*` install verbs refuse (`HDG_FAIL`,
-*The Control Panel's installer is open*), and opening that window resets the
-stage as it always has. **A run waiting on its apps disk pins the tool**:
+**A run waiting on its apps disk pins the tool**:
 `HDT_BUSY` answers busy at `HII_SYSDONE`, so neither a Control Panel close nor
 `DRVU_DONE` can free the image under a run that still holds `ASSOC.DAT`'s
-writer (§54.7.6.4); `HDI_QUIT`, or the Install window being closed, puts the
-stage back to idle.
+writer (§54.7.6.4); `HDI_QUIT` puts the stage back to idle.
 
 #### 117.4.1 The log — `HDIB_LOG`
 
@@ -216471,10 +216516,9 @@ drive`; `Writing ASSOC.DAT`; `Copied 40 files, 512 KB`. A stop is NOT a
 line of the engine's: the verb returns, and the caption is the wizard's to
 add, which it does (`Stopped: <caption>`).
 
-**Without a proc nothing changes**, which is the Control Panel's path: every
-log site is one compare of `hd_ilogp` and a branch, and `hd_pv_out` clears
-the proc at the end of each verb, so a run from the Install window can never
-reach a package's code. The hook is live only between a verb's entry and its
+**Without a proc nothing changes**: every log site is one compare of
+`hd_ilogp` and a branch, and `hd_pv_out` clears the proc at the end of each
+verb, so no later run can reach a package's code. The hook is live only between a verb's entry and its
 answer.
 
 **What it costs the copy on an XT**: a line is one opaque 40-cell run (~36 ms)
