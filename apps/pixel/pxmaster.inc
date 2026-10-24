@@ -413,6 +413,11 @@ px_claims:
     push cx
     push dx
     push si
+    xor ax, ax                      ; THE OLD MASTER IS NOT MOVED TO MAKE
+    call px_prevmv                  ; ROOM BESIDE IT (SPEC.md 106.8): pinned
+                                    ; while this decides, so the avail below
+                                    ; is the room AROUND it and keeping it
+                                    ; never costs a compaction that drags it
     call px_scfloor                 ; a JPEG's floor (SPEC.md 106.19)
 .again:
     call OSAPI_MEM_AVAIL            ; AX = largest run, BX = total, KB
@@ -537,11 +542,44 @@ px_claims:
     mov ax, PXD_MEM
     stc
 .out:
+    push ax                         ; (AX and CF are the answer)
+    mov ax, px_mreloc               ; kept: it moves again from here
+    call px_prevmv
+    pop ax
     pop si
     pop dx
     pop cx
     pop bx
     ret
+
+; px_prevmv - AX = 0: the master a plain open would keep for a cancel
+; ([px_prev]) PINNED; AX = px_mreloc: movable again. Nothing for a re-decode
+; ([px_keepv]), whose old master is the one SHOWN and may have to move for
+; the finer one to fit, or when none is held. Why (SPEC.md 106.8): with the
+; code parts movable (106.5.1) OSAPI_MEM_AVAIL counts the room a compaction
+; makes by sliding the old master too, so px_keepok kept a 302 KB 1/1 master
+; beside a fast open's 1/2 claims and two compactions dragged it 3 K and then
+; 35 K - 2.7 s of an 8088 in px_claims, the first rows 4.4 -> 6.5 s. Freeing
+; it is free; moving it is ~3 ms a KB. Preserves all, the flags included
+px_prevmv:
+    pushf
+    push dx
+    cmp byte [px_keepv], 0
+    jne .x
+    cmp byte [px_prev + PXR_HAVE], 0
+    je .x
+    mov dx, [px_prev + PXR_MSEG]
+    or dx, dx
+    jz .x
+    call OSAPI_MEM_MOVABLE          ; (refused: it stays as it was)
+.x:
+    pop dx
+    popf
+    ret
+    nop                             ; PARITY PAD, never executed: what is
+                                    ; added above is an odd count, and the
+                                    ; emitter, the quantiser and the renderer
+                                    ; below keep their even shift (os88rdiff)
 
 ; px_capavl - AX/BX = OSAPI_MEM_AVAIL's answers into [px_avl] [px_avt], the
 ; largest run cut to [px_mcap] when a test has set one (tests/pxdecode.py's
