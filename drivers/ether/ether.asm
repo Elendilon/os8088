@@ -171,10 +171,10 @@ eth_attach:
     call ne_probe
     jc  .try
 .found:
-    call sk_claim               ; THE RINGS, before the card can deliver into
-    jc  .none                   ; them (SPEC.md 72.13). A card with no buffers
-    call ne_init                ; cannot serve a socket, so this is the one
-    mov byte [eth_up], 1        ; memory failure that refuses the attach.
+    call ne_init                ; NO RINGS YET (SPEC.md 72.13.4): the pool is
+    mov byte [eth_up], 1        ; claimed when a package first speaks to us,
+                                ; so a card nobody uses costs no heap and
+                                ; memory can no longer refuse the attach
     push dx                     ; THE FIRST EPHEMERAL PORT, from the clock
     call OSAPI_CLK_GET          ; (SPEC.md 72.5.2): every boot used to start
     mov cl, ah                  ; at 49153, and a NAT that outlives the guest
@@ -210,10 +210,7 @@ eth_attach:
     pop ax
     clc
     ret
-.none:                          ; ...and the card being real with the memory
-                                ; not is the same refusal: the Drivers page
-                                ; reports one either way, and a stack with no
-                                ; window is not a stack. Nothing is put back:
+.none:                          ; no card answered. Nothing is put back:
                                 ; a refused attach is handed straight back to
                                 ; the heap, so [eth_base] and [eth_up] are
                                 ; never read again
@@ -244,10 +241,11 @@ eth_ready:
     cmp byte [eth_up], 0
     je  .out
     call eth_cfg_load           ; a MANUAL address the user set and the panel
-    pushf                       ; remembered (SPEC.md 72.7) needs no server
-    call eth_buf_apply          ; ...and the socket buffer rung it remembered
-    popf                        ; too, which is a setting and not an address:
-    jnc .out                    ; it is wanted on every path out of the load
+    jnc .out                    ; remembered (SPEC.md 72.7) needs no server.
+                                ; The buffer rung it remembered is just
+                                ; [sk_want] now: no ring is held until a
+                                ; package asks (SPEC.md 72.13.4), and the
+                                ; claim reads it then
     cmp byte [dhcp_st], DH_BOUND
     je  .out                    ; ...and neither does a baked-in one
     call eth_dhcp_wait
@@ -415,6 +413,8 @@ eth_pkg:
                                 ; touches neither the card nor [eth_useg]
                                 ; (SPEC.md 20.11.1). NETV_STATE is NOT in that
                                 ; company - eth_v_state pumps the ring
+    cmp bl, NETV_GONE
+    je  .gone                   ; the KERNEL's teardown (SPEC.md 72.13.4)
     call eth_claim              ; **THE CARD IS ONE CARD** (SPEC.md 72.2.2)
     jc  .busy
     mov [eth_useg], es
@@ -432,6 +432,10 @@ eth_pkg:
     mov ax, NETE_NOLINK
     jmp short .err
 .up:
+    call eth_user               ; BH = the caller's INSTANCE (drv_pkg_call_x
+                                ; puts it there for this class): it is using
+                                ; the network now, and the pool is held for
+                                ; it (SPEC.md 72.13.4)
     xor bh, bh
     shl bx, 1
     PROF_B PF_VERB              ; the whole verb, so a profile can say how much
@@ -463,8 +467,20 @@ eth_pkg:
     pop di
     pop si
     pop bx
-    pop es
-    ret
+    mov bh, DRVC_NET            ; ...and the CLASS back in BH where the slot
+    pop es                      ; came in, so the BX a package called with is
+    ret                         ; the BX it gets (a `mov` writes no flag)
+.gone:
+    mov si, es                  ; ES = KERNEL_SEG is what says the kernel is
+    cmp si, KERNEL_SEG          ; asking: a package's call always has its own
+    jne .notk                   ; segment there (the X stub), so a package
+    call eth_v_gone             ; naming this verb is refused as any other
+    clc                         ; above NETV_MAX is - and without .err's
+    jmp short .pop              ; path, which drops a card lock not taken
+.notk:
+    mov ax, NETE_VERB
+    stc
+    jmp short .pop
 .ident:
     call eth_v_ident
     jmp short .pop

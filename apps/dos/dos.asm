@@ -15972,6 +15972,17 @@ dos_pkt_bufs:
     call dn_init                    ; ...and THEN the translation's own start,
                                     ; which copies the two MACs in and needs
                                     ; the claim to exist (SPEC.md 96.26.6)
+%ifdef DOSNET_CARD
+    mov bh, DRVC_NET                ; **AND THE CARD'S RING POOL, NOW** (SPEC.md
+    mov bl, NETV_STATE              ; 72.13.4): ETHER.DRV claims it at a
+    call OSAPI_DRV_CALL             ; package's first non-raw verb, and the
+                                    ; translation makes its first only once
+                                    ; the program runs - in an arena that has
+                                    ; taken the heap. NET.DRV, the wire this
+                                    ; arm stands in for, holds its buffers
+                                    ; from load, so this is the cable's
+                                    ; precondition made true on the card
+%endif
 .decl:
     ; --- **AND IT MAY MOVE** (SPEC.md 66.2, 96.23.7.2) ---------------------
     ; A claim is born PINNED, and this one is taken BEFORE the floor, before

@@ -728,6 +728,11 @@ xm_release_rec:
                                 ; AX and BX for this verb; it is HERE and not
                                 ; in inst_rel_rec because this has the fourth
                                 ; caller, ld_unreserve's abort sweep
+    push ax
+    KES                         ; ...AND THE NETWORK CARD'S, the same shape
+    mov bx, DRVC_NET * 256 + NETV_GONE ; (SPEC.md 72.13.4): ETHER.DRV drops the
+    call drv_pkg_call_x         ; instance's sockets and, if it was the last
+    pop ax                      ; instance using it, gives its ring pool back
     call xm_have
     je .out                     ; no overlay, so no table and nothing to free
     mov bp, [xm_svc+XMV_RELINST]
