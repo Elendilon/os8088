@@ -2862,13 +2862,12 @@ drv_cp_closed:
 
     mov cl, 1                   ; classes are 1..DRVC_MAX
 .cls:
-    mov al, cl
-    call drv_cls_svc_x            ; DI = that class's copied table
+    mov al, cl                  ; (and still the class at drv_cp_call_x: the
+    call drv_cls_svc_x          ; walk banks AX) DI = that class's copied table
     jc .next
-    mov bp, [di+DSV_CPCLOSE]
-    or bp, bp
-    jz .next                    ; no driver, or one that does not want telling
-    mov al, cl
+    mov bp, [di+DSV_CPCLOSE]    ; 0 = no driver, or one that does not want
+                                ; telling - which drv_cp_call_x refuses itself,
+                                ; first thing (kernel size pass 14, -6)
     xor di, di                  ; the page ABI's pane origin means nothing
     xor dx, dx                  ; here, and a driver must not read it
     call drv_cp_call_x

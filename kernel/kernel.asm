@@ -5923,6 +5923,7 @@ osapi_file_goto_q:
 .out:                           ; it; on the CF=1 arm AX is dsk_goto's FERR_*
     pop dx
     pop bx
+.ret:                           ; (GOTO_QM's refusal returns here too)
     ret
 
 ; ---- osapi_file_goto_qm - the quiet stand that MOVES THE INSTANCE (74.1) -----
@@ -5940,10 +5941,8 @@ osapi_file_goto_q:
 ; preserves the flags, so GOTO_Q's CF answer is the answer.
 osapi_file_goto_qm:
     call osapi_file_goto_q
-    jc .out
-    jmp inst_vol_mark
-.out:
-    ret
+    jc osapi_file_goto_q.ret    ; (a `ret` of its own was one more byte -
+    jmp inst_vol_mark           ; kernel size pass 14)
 
 ; ---- osapi_video - the screen the program actually got (SPEC.md 39.2) --------
 ; out: AX = width, BX = height, CX = first row the dock owns (so the usable
@@ -5997,10 +5996,12 @@ osapi_video:
                                 ; fact vid_depth_set stores as a word, so the
                                 ; two cannot disagree (kernel size pass 13: it
                                 ; was a compare on [vid_mono] and two moves)
-%ifdef KERN_BIG
-    db 0                        ; PARITY PAD, never executed (kernel size pass
-%endif                          ; 13): gfx_blit4, font_run, the ISRs and the
-                                ; scheduler back at an even shift on kern_big
+%ifdef KERN_SMALL
+    db 0                        ; PARITY PAD, never executed: kern_big's since
+%endif                          ; kernel size pass 13, kern_small's since pass
+                                ; 14 shared GOTO_QM's `ret` above - gfx_blit4,
+                                ; font_run, the ISRs and the scheduler at the
+                                ; parity t_hotpar pins, on both kernels
 
 osapi_seed:  dw 0                ; PRNG state (inline data: .bss takes no init)
 
