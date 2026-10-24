@@ -2247,11 +2247,15 @@ dsk_xfer:
     mov [dsk_ioerr], al         ; SAYS so, int 13h's SECTOR NOT FOUND, where
                                 ; [dsk_ioerr] was the last transfer's (kernel
     pop es                      ; size pass 12, 0 bytes: the write refusal's
-.ijf:                           ; store is this one now)
-%ifdef OS88_COMPACT
+    stc                         ; store is this one now) - a REFUSAL, for:
+.ijf:                           ; BOTH EXITS, CF = 1 failed and CF = 0 done:
     pop word [mem_pinimg]       ; the pin back as we found it (pop writes no
-%endif                          ; flag, and .fail sets its own)
-    jmp .fail
+    jc .fail                    ; flag). One pop and not one per exit, and the
+    jmp .out                    ; done one is short from here where it was not
+                                ; from the loop's foot (kernel size pass 14,
+                                ; -3: 19 cycles more on a done transfer, which
+                                ; is a run of whole int 13h calls). OS88_IMG
+                                ; is kern_big's alone, so the pin always is
 .ihit:
     mov al, [dsk_op]            ; IMG_FLG is a mask of the int 13h functions
     test [es:IMG_FLG], al       ; this image REFUSES: IMGF_RO is bit 0, set
@@ -2286,15 +2290,13 @@ dsk_xfer:
     add bx, cx                  ; buffer, so count < 128
     or si, si
     jnz .ipiece
-%ifdef OS88_COMPACT
-    pop word [mem_pinimg]       ; (pop writes no flag: CF = 0 survives it)
-%endif
-    jmp .out                    ; CF = 0 off the `or`, and .success's one test
+    jmp short .ijf              ; CF = 0 off the `or`, and .success's one test
                                 ; - [dsk_bnc_si] - is 0 by the note above, so
                                 ; it is skipped rather than taken
-%ifdef OS88_COMPACT
-    nop                         ; PARITY PAD, never executed: K2's pin moved
-%endif                          ; dsk_runcap by an odd amount (t_hotpar.py)
+    nop                         ; PARITY PAD, never executed: the exits above
+                                ; are 3 bytes shorter, and dsk_runcap and
+                                ; dsk_next_clus_x keep an EVEN shift
+                                ; (t_hotpar.py)
 
 ; dsk_img_swap - disk_drive/disk_spt/disk_heads <-> the first five bytes of
 ; the image claim at DX. CF preserved - mov, xchg, push, pop, dec and jns
@@ -9370,9 +9372,12 @@ ico_reloc:
 ; the start of each, and while an operation or a transfer holds the segment
 ; [mem_pinimg] keeps it still, so this is the whole of the move.
 ; -----------------------------------------------------------------------------
-img_reloc:                      ; (SI is ours to spend: mem_reloc_call banks
-    mov si, dsk_vtab + IMG_DVSEG    ; every register, SPEC.md 66.3 rule 1)
-.r:                             ; THE CLASS ALONE, dsk_vol_rmv's test: a live
+img_reloc:                      ; (SI and CX are ours to spend:
+    mov si, dsk_vtab + IMG_DVSEG    ; mem_reloc_call banks every register,
+    mov cx, DVOL_MAX            ; SPEC.md 66.3 rule 1 - so a `loop` and not a
+.r:                             ; bound, -1, and the parity pad that was here
+                                ; goes with it: kernel size pass 14)
+                                ; THE CLASS ALONE, dsk_vol_rmv's test: a live
     cmp byte [si+DV_CLASS-IMG_DVSEG], DRVC_IMG  ; row of any other kind never
     jne .n                      ; carries it, and a FREE row that does names a
     cmp [si], bx                ; freed claim - re-pointing it is harmless
@@ -9380,11 +9385,8 @@ img_reloc:                      ; (SI is ours to spend: mem_reloc_call banks
     mov [si], dx
 .n:
     add si, DV_SIZE
-    cmp si, dsk_vtab + IMG_DVSEG + DVOL_MAX*DV_SIZE
-    jb .r
+    loop .r
     ret
-    nop                         ; PARITY PAD, never executed: the 414 routines
-                                ; after this one keep an EVEN shift
 %endif
 %endif
 

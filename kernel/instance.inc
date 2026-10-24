@@ -708,7 +708,7 @@ inst_seg_parked:
     ; nothing and the `pop di` below puts back.)
     push bx
 %ifdef OS88_COMPACT
-    cmp word [wm_tcnt], 0       ; A PACKAGE WORKER INSIDE A DRIVER VERB (K9):
+    cmp byte [wm_tcnt], 0       ; A PACKAGE WORKER INSIDE A DRIVER VERB (K9):
     jne .svcbusy                ; ETHER.DRV's run on FTPD's, Telnet's and the
 %endif                          ; Browser's workers, which hold its pool in ES
     mov bx, sch_tasks           ; mid-copy - and are no TF_SERVICE task

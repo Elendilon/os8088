@@ -2097,11 +2097,10 @@ mem_is_region:
 mem_in_nest:
     push cx
     push di
-    cmp word [wm_tcnt], 0       ; ANOTHER TASK is inside SOME image (K9):
-    jne .yes                    ; pin them all while it lasts
-    mov cx, [wm_pkgd]
-    cmp cx, WM_PKGD_MAX
-    ja .yes                     ; deeper than wm_pkgs records: pin everything
+    mov cx, [wm_pkgd]           ; [wm_tcnt] IS THE HIGH BYTE (wm.inc), so
+    cmp cx, WM_PKGD_MAX         ; this one bound pins everything both when the
+    ja .yes                     ; UI task is deeper than wm_pkgs records and
+                                ; while ANOTHER TASK is inside SOME image (K9)
     mov di, wm_pkgs
     jcxz .no                    ; nothing is being called at all
 .s:
@@ -2170,12 +2169,18 @@ mem_fatw_dirty:
 %ifdef OS88_COMPACT
 ; -----------------------------------------------------------------------------
 mem_in_xfer:                    ; TWO WORDS (docs/plans/NO-PINNING-PLAN.md
-    push ax                     ; K2): [mem_pinseg], the transfer's
-    push bx                     ; destination, and [mem_pinimg], a mounted
-    push di                     ; image's run table while the kernel holds
-    mov di, mem_pinseg          ; its segment across disk calls - a nested
-.w:                             ; transfer re-points the first and leaves
-    mov ax, [di]                ; the second alone. Adjacent, asserted below
+    push ax                     ; K2): [mem_pinimg], a mounted image's run
+    push bx                     ; table while the kernel holds its segment
+    mov ax, [mem_pinimg]        ; across disk calls, and [mem_pinseg], the
+    cmp ax, [ss:si+MC_SEG]      ; transfer's destination - a nested transfer
+    stc                         ; re-points the second and leaves the first
+    je .out                     ; alone. THE IMAGE'S IS A BASE, so it is an
+                                ; EQUAL compare and not a range: every writer
+                                ; stores IMG_DVSEG or the claim clo_mseg names,
+                                ; which is the claim's own MC_SEG, and 0 (none)
+                                ; is no live record's base (kernel size pass
+                                ; 14: it was this walk's second word, -3)
+    mov ax, [mem_pinseg]
     or ax, ax
     jz .no
     cmp ax, [ss:si+MC_SEG]
@@ -2185,13 +2190,8 @@ mem_in_xfer:                    ; TWO WORDS (docs/plans/NO-PINNING-PLAN.md
     cmp ax, bx
     jb .out                     ; inside - and `jb` is CF = 1, the answer
 .no:
-    inc di
-    inc di
-    cmp di, mem_pinimg + 2      ; CF = 1 while a word is left to ask...
-    jb .w
-    clc                         ; (...and the `jae` fell through on CF = 0)
+    clc
 .out:
-    pop di
     pop bx
     pop ax
     ret
@@ -5372,7 +5372,7 @@ mem_pinseg:  resw 1             ; a segment a disk transfer is reading into, so
 mem_pinimg:  resw 1             ; ...and a MOUNTED IMAGE's run table while the
                                 ; kernel holds its segment: the image arm of
                                 ; dsk_xfer across the host's transfer, and
-                                ; DISKOPS.DRV's mount and unmount across their
+                                ; DISKOPS.DRV's unmount and eject across their
                                 ; own disk calls. Bucket C of NO-PINNING-PLAN:
                                 ; in use right now. 0 = none
 mem_cp_key:  resw 1             ; the compaction walk's cursor: the ORIGINAL
@@ -5380,9 +5380,6 @@ mem_cp_key:  resw 1             ; the compaction walk's cursor: the ORIGINAL
                                 ; rather than a stack slot because BOTH passes
                                 ; use it and the run rewrites the bases it is
                                 ; walking - see mem_cp_plan
-%if mem_pinimg != mem_pinseg + 2
-  %error "mem_in_xfer walks mem_pinseg and mem_pinimg as two ADJACENT words"
-%endif
 %endif                          ; OS88_COMPACT: mem_pinseg's ONLY reader is
                                 ; mem_in_xfer and mem_cp_key's is the walk, so
                                 ; both go with it - and so do the writes, in
