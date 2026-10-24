@@ -4335,7 +4335,12 @@ cur_get_1:
                                 ; on kern_small this falls into cur_get_mono.
                                 ; A packed display: the driver puts back what
                                 ; its own put banked (SPEC.md 120.3.3)
+%ifdef COLD_SLIDE
+    jmp cur_restoreu            ; THE PLANAR HALF IS THE VGA RUNG'S (MOVABLE-
+section .vga                    ; COLD-PLAN 2): VIDEXTM above is the door, and
+%else                           ; a planar get is one taken jump dearer
     ; fall through to cur_restoreu
+%endif
 
 ; -----------------------------------------------------------------------------
 ; cur_restoreu - write cur_save back under (cur_drawn_x, cur_drawn_y).
@@ -4367,6 +4372,7 @@ cur_restoreu:
     pop word [vga_pn]           ; ...and the caller's arm is its own again
     pop es
     ret
+section .text
 %endif                          ; GFX_VGA: cur_get_1's dispatch and the restore
 
 ; -----------------------------------------------------------------------------
@@ -4404,6 +4410,9 @@ cur_get_mono:
     ret
 
 %ifdef GFX_VGA                  ; the planar save and its rect: a VGA kernel's
+%ifdef COLD_SLIDE                ; (and the VGA rung's, MOVABLE-COLD-PLAN 2:
+section .vga                    ; cur_put_1 and cur_move_1 reach them through
+%endif                          ; VIDEXTM's planar arm alone)
 ; -----------------------------------------------------------------------------
 ; cur_saveu - copy the cell under (cur_drawn_x, cur_drawn_y) into cur_save via
 ;             vga_save_vram. vga_save_vram clips the rect at the screen edges
@@ -4450,6 +4459,7 @@ cur_rect:
     mov dx, bx
     add dx, CUR_GH-1
     ret
+section .text
 %endif                          ; GFX_VGA
 
 ; -----------------------------------------------------------------------------
@@ -5491,6 +5501,9 @@ cur_mvbg:
 
 %ifdef GFX_VGA                  ; ...and the PLANAR draw, whose only callers are
                                 ; the two planar arms above (kernel size pass 13)
+%ifdef COLD_SLIDE                ; - so it is the VGA rung's (MOVABLE-COLD-PLAN 2)
+section .vga
+%endif
 ; -----------------------------------------------------------------------------
 ; cur_draw - paint the arrow at (cur_drawn_x, cur_drawn_y) on a PLANAR screen:
 ;            white pass with the cur_and outline mask, black pass with the
@@ -5550,6 +5563,11 @@ cur_draw:
     out dx, ax
 .done:
     ret
+section .text
+%ifdef COLD_SLIDE
+    nop                         ; PARITY, never executed (it follows the `ret`
+%endif                          ; above cur_draw): kern_small's reason below,
+                                ; the body having left `.text` for the rung
 %else
     nop                         ; PARITY, never executed (kernel size pass 13):
                                 ; cur_draw's odd 105 would put sch_isr and

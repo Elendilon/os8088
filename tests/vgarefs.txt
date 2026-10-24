@@ -38,3 +38,24 @@ vga_blit_prow   gfx_blit4's planar arm: the decoder's handover is armed only the
 
 # --- the doors (vga12.inc) ----------------------------------------------------
 gfx_blitp_v     gfx_blitp's door: [vid_avail] & (VID_A_VGA | VID_A_EGA), else CF = 1
+
+# --- VIDEXTM's planar arm (vga12.inc, vidext.inc) ----------------------------
+# VIDEXTM sends [vid_planes] < 4 to the software renderer and > 4 to the
+# VESA driver, and falls through only on 4 - a planar display, which a machine
+# with neither card does not have. The body behind it is the rung's
+gfx_fill_gray_raw_v   VIDEXTM VX_GRAY: [vid_planes] = 4
+gfx_fill_pat_raw_v    VIDEXTM VX_PAT: [vid_planes] = 4
+vga_save_vram_v       VIDEXTM VX_SAVE: [vid_planes] = 4 (the cursor's IRQ4 path too)
+vga_restore_vram_v    VIDEXTM VX_RESTORE: [vid_planes] = 4
+vga_solid_rect_v      VXMONO in both callers (gfx_fill_raw, gfx_xor_fill_raw) and VIDEXTF: [vid_planes] = 4
+
+# --- the pointer's planar half (mouse.inc), from IRQ3/IRQ4 -------------------
+# cur_put_1, cur_get_1 and cur_move_1 each open with VIDEXTM, and only its
+# planar fall-through calls these
+cur_saveu             cur_put_1 / cur_move_1: VIDEXTM VX_CURPUT / VX_CURMOVE, [vid_planes] = 4
+cur_draw              cur_put_1 / cur_move_1: VIDEXTM VX_CURPUT / VX_CURMOVE, [vid_planes] = 4
+cur_restoreu          cur_get_1 / cur_move_1: VIDEXTM VX_CURGET / VX_CURMOVE, [vid_planes] = 4
+
+# --- icons (icons.inc) --------------------------------------------------------
+ico_core_v            ico_core: VIDEXTM VX_ICON, [vid_planes] = 4
+gfx_scroll_v          gfx_scroll: [vid_planes] = 4 (below 4 is the mono copy, above it the driver)

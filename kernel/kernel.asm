@@ -1211,7 +1211,11 @@ KIMG_PARA   equ ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 32   ; image + scratch
 VGA_RAM     equ LOW_SEG + LOW_PARA
 VGA_VSTART  equ (VGA_RAM - KERNEL_SEG) * 16
 VGA_START   equ BOOT2_PAD + VGA_VSTART   ; in the file, after the zero gap
-VGA_PARA    equ (VGA_SIZE + 15) / 16
+%ifdef LADDER_PACK
+VGA_PARA    equ (VGA_SIZE + 15) / 16      ; to the paragraph (MOVABLE-COLD-PLAN 5)
+%else
+VGA_PARA    equ ((VGA_SIZE + 511) / 512) * 32 ; ...or a rung like the others
+%endif
 COLD_RAM    equ VGA_RAM + VGA_PARA
 %else
 COLD_RAM    equ LOW_SEG + LOW_PARA      ; ROM_COLD: the cold rung sits UNDER
