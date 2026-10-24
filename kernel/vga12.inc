@@ -3230,9 +3230,11 @@ gfx_fill_raw:
                                 ; THROUGH below is what a VGA build takes, and
                                 ; there is nothing here to fall into any more
 %else
-    cmp byte [vid_mono], 0      ; 1bpp? then the software renderer IS
-    jne sw_fill                 ; the renderer - and the flag store is BELOW
+    VXMONO sw_fill              ; 1bpp? then the software renderer IS
+                                ; the renderer - and the flag store is BELOW
     mov byte [vga_xorm], 0      ; this jump, so the 1bpp arm is byte-identical
+                                ; (and `mov` writes no flag: vga_solid_rect's
+                                ; VIDEXTF reads the compare's)
 
 ; -----------------------------------------------------------------------------
 ; vga_solid_rect - the VGA rect body, for gfx_fill_raw AND gfx_xor_fill_raw
@@ -3257,9 +3259,11 @@ gfx_fill_raw:
 ; The 1bpp arm pays nothing.
 ; -----------------------------------------------------------------------------
 vga_solid_rect:
-    VIDEXT VX_FILL              ; a packed display (SPEC.md 120.3): the driver
+    VIDEXTF VX_FILL             ; a packed display (SPEC.md 120.3): the driver
                                 ; fills - or XORs, [vga_xorm] being set by
-                                ; both callers above - and returns to OURS
+                                ; both callers above - and returns to OURS.
+                                ; ENTERED WITH VXMONO's FLAGS: both callers
+                                ; test the depth on the way in
     push ax
     push bx
     push cx
@@ -3441,24 +3445,29 @@ gfx_spans:
     mov [gfx_sp_n], bx
 .rows:
     mov [gfx_sp_y], ax
-%ifdef VID_EXT
-    cmp byte [vid_planes], 4    ; a packed display (SPEC.md 120.3.1): AX is the
-    jbe .vxplanar                ; first row, clipped, and the gfx_sp_* cells
-    CURUNLAZY                   ; the list - the hide is owed as below
-    VXCALL VX_SPANS
-    jmp .done
-    db 0                        ; PARITY, never executed: the arm is even and
-.vxplanar:                      ; the hot routines after it keep their entry
-                                ; parity (tests/unit/t_hotpar.py)
-%endif
     call gfx_rowbase            ; the ONE row base this call computes
     mov [gfx_sp_row], ax
     CURUNLAZY                   ; unclipped, so this may write any pixel on
 %ifndef GFX_VGA
     jmp sw_spans                ; no VGA: softgfx.inc's row loop is the loop
 %else
+%ifdef VID_EXT
+    cmp byte [vid_planes], 4    ; the screen and a hide is owed (7.1.4)
+    jb sw_spans                 ; 1bpp: softgfx.inc's row loop, then .done
+    je .vga                     ; planar; and a PACKED display (SPEC.md
+    mov ax, [gfx_sp_y]          ; 120.3.1) is the driver's: AX = the first
+    VXCALL VX_SPANS             ; row, clipped, and the gfx_sp_* cells the
+    jmp .done                   ; list. (The row base above is computed for
+                                ; it and not used - a packed display reads no
+                                ; row - which is the price of one compare
+                                ; deciding all three, kernel size pass 14)
+    db 0                        ; PARITY, never executed: font_run and the hot
+                                ; routines after it keep their entry parity
+                                ; (tests/unit/t_hotpar.py)
+%else
     cmp byte [vid_mono], 0      ; the screen and a hide is owed (7.1.4)
     jne sw_spans                ; 1bpp: softgfx.inc's row loop, then .done
+%endif
 .vga:
     mov dx, VGA_GC              ; THE LIST'S, not the row's - four OUTs and a
     mov ah, [gfx_color]         ; GC reset hoisted out of every span but one.
@@ -4042,9 +4051,8 @@ vga_xor_fill_vram:
                                 ; NOT redundant: this label is entered
                                 ; directly by menu.inc, so it owes its own
                                 ; adapter check
-    cmp byte [vid_mono], 0
-    jne .sw
-    mov [vga_xorm], al          ; the MASK, never 0 - the body is
+    VXMONO .sw                  ; ...whose flags vga_solid_rect's VIDEXTF
+    mov [vga_xorm], al          ; reads: the MASK, never 0 - the body is
     pop ax                      ; gfx_fill_raw's, which is the same 155 bytes
     jmp vga_solid_rect          ; with two differences
 .sw:

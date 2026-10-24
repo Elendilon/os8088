@@ -34,7 +34,7 @@ from harness import check, done                           # noqa: E402
 REG = os.path.join(ROOT, "tests", "vidext.txt")
 SITE = re.compile(r"^\s*(cmp byte \[vid_mono\], 0|mov [a-d][lh], \[vid_mono\]"
                   r"|cmp byte \[vid_planes\], 1)(\s|$)")
-HOOK = re.compile(r"^\s*(VIDEXT|VIDEXTC|VIDEXTM|VIDEXTR|VXGO|VXCALL)\s+(\S+)")
+HOOK = re.compile(r"^\s*(VIDEXT|VIDEXTC|VIDEXTF|VIDEXTM|VIDEXTR|VXGO|VXCALL)\s+(\S+)")
 SEL = re.compile(r"^(VX_[A-Z0-9]+)\s+equ\s+(\d+)")
 
 

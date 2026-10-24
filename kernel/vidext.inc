@@ -79,6 +79,21 @@
 %%planar:                       ; where the hot routines after a site would
 %endmacro                       ; otherwise move to an odd shift
 
+; VIDEXTF n - VIDEXTM split across an entry: VXMONO's compare and 1bpp jump
+;            in the CALLER, this at the body's head, entered with those flags
+;            (only `mov`, `pop` and `jmp` between). vga_solid_rect's, whose two
+;            callers each owe the 1bpp test anyway
+%macro VXMONO 1
+    cmp byte [vid_planes], 4
+    jb %1                       ; 1bpp
+%endmacro
+%macro VIDEXTF 1
+    je %%planar                 ; planar
+    VXGO %1                     ; packed: the driver's, back to our caller
+    db 0                        ; PARITY, never executed: the five bytes
+%%planar:                       ; this saves would move every hot routine
+%endmacro                       ; after it to an odd shift
+
 %macro VIDEXTC 2
 %%planar0:
     cmp byte [vid_planes], 4
@@ -302,6 +317,12 @@ section .text
 
 %else                           ; no external renderer in this build
 %macro VX_LAYOUT_ASSERT 0
+%endmacro
+%macro VXMONO 1
+    cmp byte [vid_mono], 0
+    jne %1
+%endmacro
+%macro VIDEXTF 1
 %endmacro
 %macro VIDEXTM 2-3              ; ...so the dispatch is the 1bpp test alone,
     cmp byte [vid_mono], 0      ; byte for byte the two lines VIDEXTM stands

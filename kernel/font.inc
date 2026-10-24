@@ -1204,7 +1204,10 @@ font_run_x:
                                 ; the tighter of the two by design, and 6.1.11
                                 ; is +262 bytes of .text
 %endif
-%ifdef KERN_BIG
+%ifdef VID_EXT
+    cmp byte [vid_planes], 4    ; 4 planes or a packed depth: .planar, whose
+    jae .planar                 ; `je` reads these flags (SPEC.md 120.3.1)
+%elifdef KERN_BIG
     cmp byte [vid_mono], 0
     je .planar                  ; SPEC.md 6.1.10: mode 12h has a single-store
 %endif                          ; prologue of its own. kern_small does not
@@ -1718,9 +1721,10 @@ font_run_x:
 ; a routine.
 .planar:
 %ifdef VID_EXT
-.vxp0:
-    cmp byte [vid_planes], 4    ; SPEC.md 120.3: a packed display's run is the
-    jbe .plok                    ; driver's ONE PASS - unless a region is armed
+.vxp0:                          ; (ENTERED BY THE ONE `jae` above, whose
+    je .plok                    ; compare this reads.) SPEC.md 120.3: a packed
+                                ; display's run is the driver's ONE PASS -
+                                ; unless a region is armed
     CLIPQ                       ; (the per-cell test is the kernel's) or the
     jne .vxslow                 ; text is disabled (the stipple is font_ink's):
     cmp byte [gfx_dis], 0       ; both take the pair, gfx_fill and font_str,
