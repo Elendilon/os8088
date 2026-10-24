@@ -282,8 +282,10 @@ rw_bfill:
 
 ; rw_bmiss - rdgsys's rdg_setbank: BX = a bank x 2 with no segment in the
 ; table, DS = the view. The UI task fetches it now; the worker asks the UI
-; task to and yields until the table has it - or, if the window is closing,
-; ends at OSAPI_TASK_ALIVE, which a closed window never returns from. A
+; task to and yields until the table has it - or, if the window is closing
+; and the bank has not come, asks OSAPI_TASK_ALIVE, which a closed window
+; never returns from (while rw_onclose waits for us it serves the bank, so the
+; frame finishes and the worker leaves the machine as the close needs). A
 ; yield and not a tick's sleep: the wake makes the UI task runnable at once,
 ; so a fetch is a switch there and back and the copy, where a sleep made every
 ; one a whole tick - 18 a second at most, which a game moving among one bank
@@ -304,16 +306,16 @@ rw_bmiss:
     pop bx
 .w:
     call OSAPI_TASK_YIELD
-    cmp byte [cs:rw_closing], 0
-    jne .gone
-    cmp word [cs:rw_bankreq], 0
-    jne .w
+    cmp word [cs:rw_bankreq], 0     ; served: the frame goes on - and FIRST,
+    je .in                          ;   closing or not: rw_onclose serves us
+    cmp byte [cs:rw_closing], 0     ;   (rw_bserve) while it waits for
+    je .w                           ;   [rw_incore] to fall, which only the
+    mov bx, [cs:rw_win]             ;   frame's end can do. Testing closing
+    call OSAPI_TASK_ALIVE           ;   first looped here for ever, and the
+    jmp short .w                    ;   close with it (REALDMG-SPEC 10.3)
+.in:
     pop ax
     ret
-.gone:
-    mov bx, [cs:rw_win]
-    call OSAPI_TASK_ALIVE
-    jmp short .w
 .ui:
     call rw_bfetch
     pop ax
