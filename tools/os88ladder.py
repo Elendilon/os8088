@@ -749,7 +749,7 @@ STAGES = [
                            "hb_probe_x", "thm_set"])),
     dict(id="autostart", short="autostart", title="The loading screen ends, and Autostart runs",
          moved="nothing on this disk - a program's memory for each shortcut in AUTOSTRT",
-         take=dict(phases=["spl_finish", "as_boot"])),
+         take=dict(phases=["spl_finish", "vx_boot_x", "as_boot"])),
     dict(id="unblob", short="space back", title="The loader's space is given back",
          moved="{blobkb} returned to the pool, and the pool packed down onto it",
          focus=["free*"],
@@ -1816,6 +1816,13 @@ NOTES = {
         'The bar to 100% and the screen handed back, and the animation '
         'stops. The desktop drawn shortly covers every pixel of it, so '
         'the loading screen needs no erasing.',
+    'vx_boot_x':
+        'Attach the VESA display driver, if the settings file asked for '
+        'it, and switch the desktop onto it - after the loading screen '
+        'has stopped, so the mode change wipes nothing the first paint '
+        'is not about to cover, and before Autostart, so a program it '
+        'opens finds the display it will live on. From the loader, so '
+        'it costs no permanent memory.',
     'as_boot':
         "AUTOSTART: open every shortcut in the boot disk's AUTOSTRT "
         'folder, exactly as a double-click would. It runs only now, '
@@ -1907,6 +1914,7 @@ TITLES = {
     "hb_probe_x": "Is there a hibernation to resume?",
     "thm_set": "Resolve the colour scheme",
     "spl_finish": "Finish the loading screen",
+    "vx_boot_x": "Attach the VESA display",
     "as_boot": "Autostart",
     "mem_unblob_x": "Give the loader's space back",
     "ui_lcall": "Draw the desktop",

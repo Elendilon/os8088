@@ -340,20 +340,6 @@ vid_planes  db 4                ; 4 or 1 - or the DEPTH, 8 or 16, on VID_VESA
 vid_planes_w dw 4               ; the same, where a word is wanted. A planar
 %endif                          ; kernel's alone (kernel size pass 13: see
                                 ; vid_depth_set)
-%ifdef VID_EXT
-vid_ext     db 0                ; 1 = [vid_kind] is VID_VESA and every planar
-                                ; body far-calls the driver (SPEC.md 120.3).
-                                ; Derived from the kind in vid_depth_set, as
-                                ; [vid_mono] is, so a per-display swap carries
-                                ; it. .text, initialised, splash-resident with
-                                ; the rest of this block - and AFTER the _w
-                                ; twin, which must follow its byte
-            db 0                ; PARITY: kmain's five-byte call to vx_boot_x
-                                ; plus this file's hooks are odd, and this
-                                ; puts gfx_blit4 and everything after it back
-                                ; on the entry parity tests/unit/t_hotpar.py
-                                ; pins
-%endif
 
 ; Hercules has no BIOS mode, so vid_setmode programs the 6845 itself.
 ; R0..R11 for 720x348: 45 char clocks of 16 px across, 87 rows of 4 scan
@@ -449,7 +435,14 @@ VID_ROWTAB  equ 128
 vid_rowmax  dw 0
 
 section .lowbss                 ; LOW_SEG (SPEC.md 2.1), and not .bss - 696
-vid_rowtab  resw VID_ROWTAB     ; bytes in the image rung would cross a step
+%ifdef VID_EXT                  ; bytes in the image rung would cross a step
+ %ifndef NO_MOUPRIV             ; ...and with the external renderer and the
+  %define VID_ROWTAB_MOU        ; mouse ISR's private stack, mouse.inc declares
+ %endif                         ; it, directly UNDER that stack (SPEC.md
+%endif                          ; 120.3.3): a packed display reads no row of it
+%ifndef VID_ROWTAB_MOU
+vid_rowtab  resw VID_ROWTAB
+%endif
 
 section .text                   ; AND spend KERN_CODE_MAX, which is the guard
                                 ; that cannot be raised. Here it costs one
@@ -635,17 +628,10 @@ vid_depth_set:
 %ifdef VID_EXT
     cmp al, VID_VESA            ; SPEC.md 120.4: colour ([vid_mono] = 0), the
     jne .notext                 ; DEPTH for a plane count, and the hook armed
-    mov ah, [vx_bpp]
-    xor al, al
-    mov [vid_mono], ax          ; one word store, as below
-    mov byte [vid_ext], 1
-    mov al, ah
-    cbw
-    mov [vid_planes_w], ax
-    pop ax
-    ret
+    mov ah, [vx_bpp]            ; - the stores below, one word for the pair
+    xor al, al                  ; and the _w twin, as on every other kind. A
+    jmp short .st               ; depth above 4 IS the hook's test (vidext.inc)
 .notext:
-    mov byte [vid_ext], 0       ; every other kind: the planar bodies run
 %endif
 %ifdef GFX_VGA                  ; **ZF IS THE ANSWER AND IT SURVIVES TO THE
     cmp al, VID_VGA             ; `jne` BELOW**. WITHOUT A VGA RENDERER THERE
@@ -807,13 +793,15 @@ vid_apply:
                                 ; w - 8 - MENU_CLK_W - 6, floored to a glyph
     and ax, 0FFF8h              ; cell: the bar's segments are cell ranges
     mov [vid_clk_hx], ax        ; the union once a second display is extended -
-                                ; 1152 on a 1360px desktop, which is CELL 144
-                                ; of a menu_bcell holding MENU_BCMAX = 62. The
+                                ; 1152 on a 1360px desktop, which is CELL 144,
+                                ; past menu_bcell's MENU_BCMAX cells (menu.inc
+                                ; sizes it for the widest PRIMARY bar). The
                                 ; overrun wrecks whatever follows it in .bss
                                 ; and the machine dies somewhere else entirely,
                                 ; with a stack pointer outside .lowbss. The
-                                ; primary's 640 gives cell 54, inside the
-                                ; buffer, which is the number this always meant
+                                ; primary's own width keeps the clock inside
+                                ; the buffer, which is the number this always
+                                ; meant
 
     mov ax, [vid_bmask]         ; gfx_prevrow's test: the bank number lives in
     mov cl, 13                  ; DI's bits 13..14, so the address mask is the
@@ -1093,12 +1081,13 @@ vid_setmode:
 %ifdef VID_EXT
     cmp al, VID_VESA            ; SPEC.md 120.4: the driver sets its VBE mode
     jne .notvx                  ; and loads the DAC's first sixteen; the
-    call vx_call                ; caller owes the repaint as on every kind.
-    db VX_SETMODE               ; vx_call COMES BACK HERE - the eight pushes
-    jmp .done                   ; and the spl_busy count above are still ours
-    db 0                        ; to undo, at .done. PARITY, never executed:
-.notvx:                         ; the arm is twelve bytes with it
-%endif                          ; (tests/unit/t_hotpar.py)
+    call far [vx_ep]            ; caller owes the repaint as on every kind.
+    db VX_SETMODE | VX_CONT     ; (VXCALL's two lines: vidext.inc is
+    jmp .done                   ; included after this file.) The driver COMES
+                                ; BACK HERE - the pushes and
+.notvx:                         ; the spl_busy count above are still ours to
+%endif                          ; undo, at .done. Twelve bytes, even
+                                ; (tests/unit/t_hotpar.py)
     cmp al, VID_HERC            ; AL is idle until `mov ax, 0x0010`, and
     je .herc                    ; `cmp reg,imm8` is 2 bytes where
 %ifdef GFX_VGA                  ; `cmp byte [mem],imm8` is 5

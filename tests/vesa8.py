@@ -16,10 +16,10 @@ under it is not a 4.77 MHz 8088, and the pixels are what is asserted.
 WHAT IT ASSERTS, after [vid_kind] settles on VID_VESA (4):
 
   vid_kind    4            vx_boot_x attached the image and bvs_switch took it
-  vid_ext     1            every planar body far-calls the driver (120.3)
   vid_cw/ch   1024 x 768   the mode Auto chose on this card (120.2.3)
   vid_planes  16           the DEPTH, which is what the save-under sizers
-                           multiply by (120.4)
+                           multiply by (120.4) - and what every planar
+                           body's hook tests, above 4 (120.3.1)
   vesa_row    DRVR_SEG != 0, DRVR_ERR == 0
 
 then a 1024 x 768 screendump: the menu bar's band at the top is not black
@@ -190,9 +190,6 @@ def main():
                          % (kind, VID_VESA, seg, err))
             raise SystemExit("\n".join(fails))
 
-        ext = byte(q, "vid_ext")
-        if ext != 1:
-            fails.append("vid_ext %d, want 1" % ext)
         w, h = word(q, "vid_cw"), word(q, "vid_ch")
         if (w, h) != (WANT_W, WANT_H):
             fails.append("vid_cw x vid_ch %d x %d, want %d x %d (Auto on QEMU's "

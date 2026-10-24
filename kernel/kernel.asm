@@ -1510,19 +1510,27 @@ XM_MAX_BLKS equ 8               ; the pool's fixed block table, entries: a
 ; drv_boot, no second display - so it STAYS at eleven, and its KSIG_OFF at
 ; 5120: BOOT2_SMALLSEC takes the sector back off, and the Makefile does the
 ; same in the block that reads this line. The literal stays kern_big's.
+; THIRTEEN since kernel size pass 14 (docs/plans/completed/ksp14/vesa.md): the
+; thirteenth is VESA.DRV's attach (vx_boot_x) and the block of kernel pointers
+; it hands over (vx_blk), which were resident `.cold` and `.text` for want of
+; blob room - the vmm_boot_x story again. kern_emu's extra sector went with it:
+; its blob was a sector longer for vmm_boot_x alone, and both fit thirteen. So
+; it is kern_big's length now, and only a knob build takes the extra sector.
+; kern_small still has neither, so it stays at ELEVEN (BOOT2_SMALLSEC is two),
+; and t_blobruns priced the thirteenth at no int 13h on any geometry - it puts
+; stage 2's kernel read on 360KB and 720KB back to the eleven calls its
+; ratchet names, from the twelve the base had grown to.
 %ifdef KERN_KNOB
-  %define BOOT2_KNOBSEC 1
-%elifdef KERN_EMU
   %define BOOT2_KNOBSEC 1
 %else
   %define BOOT2_KNOBSEC 0
 %endif
 %ifdef KERN_SMALL
-  %define BOOT2_SMALLSEC 1
+  %define BOOT2_SMALLSEC 2
 %else
   %define BOOT2_SMALLSEC 0
 %endif
-BOOT2_SECS  equ 12 + BOOT2_KNOBSEC - BOOT2_SMALLSEC ; sectors stage 1 reads before it jumps - the
+BOOT2_SECS  equ 13 + BOOT2_KNOBSEC - BOOT2_SMALLSEC ; sectors stage 1 reads before it jumps - the
                                 ; loader, its screen and the blob half of
                                 ; the boot overlay, one section to BOOT2_PAD.
                                 ; THE TOTAL IS THIS, so
@@ -5249,7 +5257,7 @@ kmain_o:
                                 ; kmain releases the blob as soon as this
                                 ; returns
 %ifdef VID_EXT
-    call COLD_SEG:vx_boot_x     ; ...and VESA.DRV, if SYSTEM.CFG asked for it
+    BLOBCALL vx_boot_x          ; ...and VESA.DRV, if SYSTEM.CFG asked for it
                                 ; (SPEC.md 120.4): a DRVC_OVL row drv_boot_x
                                 ; read and stopped at, attached here and the
                                 ; desktop switched onto it through the blob's
