@@ -131576,10 +131576,10 @@ diagnosis, it is a second guess stacked on the first.
 So the Control Panel page grew a **third button**, and the button is the
 readout:
 
-- Its caption is the **live** ring size - `Buf 1K` / `Buf 4K` / `Buf 8K`, or
-  `Buf --` when the claim was refused outright and every socket verb is
-  refusing with it. Not the request: a machine that could not fund what was
-  asked says so here, and it is the only place it says it.
+- Its caption is the **live** ring size - `Buf 1K` / `Buf 4K` / `Buf 8K` -
+  while the pool is held. Not the request: a machine that could not fund what
+  was asked says so here, and it is the only place it says it. With no pool
+  held (§72.13.4) it shows the request instead, `Buf --` being auto.
 - Clicking it walks the **request** - auto, 1K, 4K, 8K, auto - and re-claims
   on the spot, so the caption after the click is what the heap actually gave.
   Asking for 8K on a machine that has not got it reads `Buf 4K` immediately
@@ -131597,12 +131597,10 @@ short file would lose that to gain a setting the very same file is about to
 be rewritten with. A version that is a *prefix* of this one is not unknown,
 it is short.
 
-It is applied at `DRVV_READY` and not at attach, and the ordering is forced:
-`sk_claim` has to run at `DRVV_ATTACH` because a card with no rings cannot be
-brought up at all, and `ETHER.CFG` cannot be read that early - the volume the
-driver booted from is not mounted yet. So the ladder's automatic answer is
-taken first and `eth_buf_apply` replaces it at READY, before any package has
-had the chance to open a socket. `sk_reclaim` is a free and a claim rather
+It used to be applied at `DRVV_READY` by an `eth_buf_apply` that re-claimed
+the pool attach had taken. Since §72.13.4 attach takes no pool, so the stored
+choice is simply `[sk_want]` and the first claim reads it; a click with no
+pool held changes the request and claims nothing. `sk_reclaim` is a free and a claim rather
 than an `OSAPI_MEM_REGROW`: the rung changes the sizes *and* the shifts, so
 every ring's contents would be at the wrong offsets inside a block that
 merely moved - and `sk_busy` has just said there is nothing in them.
@@ -131620,6 +131618,52 @@ An explicit request skips the quarter test on purpose. A user who has opened
 the Control Panel and pressed the button until it says `8K` has said
 something about their machine that the arithmetic does not know; the claim
 itself is still what can refuse, and the caption is still what reports it.
+
+#### 72.13.4 The pool is held while a package is using the network
+
+The pool was claimed at attach and held to detach: 6KB at the floor, 11KB on
+an NE1000 (§72.13.3's card ceiling puts it at the middle rung) and 17KB on an
+NE2000, for the whole session, on a machine where nothing ever opened a
+socket. **Nothing outside a socket reads a ring** - ARP, ICMP, DHCP and DNS
+run on the driver's own frame buffers - so that heap bought nothing until a
+package connected. It is now SOUND.DRV's shape: claimed when asked for,
+released when the kernel's teardown says the instance has gone.
+
+- **Who is using it.** `drv_pkg_call_x` hands `DRVC_NET` the caller's
+  instance slot in BH, as it does `DRVC_EMS` (§107.1), and `ETHER.DRV` puts
+  the class back before it returns. `eth_user` sets the slot's bit in
+  `[eth_users]` on any verb. Every new socket records its slot in `SKO_OWN`.
+  A listener's children inherit the listener's, not that of the caller whose
+  verb happened to pump the SYN.
+- **When it is claimed.** The first verb from a slot not yet counted (usually
+  `net_find`'s `NETV_STATE` on the UI task, where the allocator may compact),
+  and lazily in `sk_ring_get` whenever a socket needs a ring and there is no
+  pool. A claim from a worker is legal: since NO-PINNING K8 it is plain first
+  fit (§66.3.1), as `sbl_v_grant`'s is, so it may refuse. The refusal is
+  then the same "no ring" the socket reports today. Retries are bounded: once
+  per new slot and once per ring wanted, never once per verb.
+- **When it goes back.** When no slot's bit is set *and* no ring is out
+  (`sk_idle`, from `sk_ring_put` and from teardown). Both halves are needed,
+  because a call from an entry proc carries slot 0xFF (`inst_caller` has no
+  callback to read), so a socket can exist with nobody counted, and its
+  ring alone keeps the pool.
+- **Teardown.** `xm_release_rec`, the §29.4 teardown that already sends
+  `EMSV_GONE`, sends `NETV_GONE` (0x42) with AL = the slot and ES =
+  `KERNEL_SEG`. A package cannot spell that, since its ES is always its own.
+  `eth_v_gone` clears the bit and, if the card is free, resets every socket
+  the instance never closed, as a process exit would. Sockets it did close
+  are left for TCP to finish while anybody is still pumping the card. Once
+  nobody is, nothing ever will, so they are forgotten silently (their FIN is
+  already sent) and the pool is released. A card held by another task's verb
+  means somebody is using the network, so nothing is raced.
+
+What it costs: `kern_big` gains the class compare and the teardown call
+(`kern_small` has no driver layer and is unchanged). `ETHER.DRV` gains the
+bookkeeping and loses `eth_buf_apply`. The time cost is one claim per first
+network session: usually milliseconds, and up to a compaction (§66.4) when the
+heap is fragmented and the claim is on the UI task. Memory can no longer
+refuse the attach, so a machine short of heap now loads the driver and
+refuses at the first connect instead.
 
 ### 72.14 A TIME-WAIT slot is free enough when there is nothing else
 

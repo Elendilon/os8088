@@ -171,6 +171,11 @@ sk_txoff:   dw SK_RXCAP0 + SK_NLEAN * SK_LEANRX  ; where the TX rings start: it 
 sk_want:    dw 0                ; the RX size the user ASKED for, 0 = auto
 
 %ifndef ETH_NOEMIT
+eth_users:  dw 0                ; a bit per instance slot using the network:
+                                ; the pool is held while any is set, or while
+                                ; any ring is out (SPEC.md 72.13.4)
+eth_cslot:  db 0xFF             ; the slot inside the current verb, which
+                                ; sk_alloc stamps on a new socket
 sk_tab:     times NET_SOCKS * SK_SZ db 0
 eth_rxh:    times 4 db 0        ; the card's own four-byte receive header
 eth_rxb:    times NE_FRAME + 4 db 0

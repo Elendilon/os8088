@@ -206,6 +206,12 @@ DRVC_HTTP   equ 10              ; the FOURTH file-redirector class (SPEC.md
 EMSV_GONE   equ 8               ; ...and the one EMS verb the kernel sends:
                                 ; an instance is torn down (SPEC.md 107.1,
                                 ; xm_release_rec). Mirrored from os88api.inc
+NETV_GONE   equ 0x42            ; ...and the one NET verb it sends, for the
+                                ; same reason: ETHER.DRV holds its ring pool
+                                ; while an instance that has spoken to it
+                                ; lives (SPEC.md 72.13.4). Clear of every
+                                ; door's own verbs, WZV_PAINT and DRV_ICONV.
+                                ; Mirrored from drivers/net/netpkg.inc
 %ifdef OS88_DRIVERS
 DRVC_MAX    equ 10              ; classes, and so publication slots
 %else
@@ -6360,12 +6366,15 @@ drv_pkg_call_x:
     jz .none                    ; nothing attached, or attached and not yet
                                 ; published (SPEC.md 51.2.1)
     cmp bh, DRVC_EMS            ; WHO IS ASKING (SPEC.md 107.1): EMS keys its
-    jne .who                    ; pages on the caller's INSTANCE, a package's
-    push dx                     ; segment being free to move (66). BH is its
-    call inst_caller            ; class, which the driver knows already, so it
-    mov bh, dh                  ; carries the slot instead - and EMS.DRV puts
-    pop dx                      ; the class back before it returns, so the BX
-.who:                           ; a package called with is the BX it gets
+    je  .slot                   ; pages on the caller's INSTANCE, a package's
+    cmp bh, DRVC_NET            ; segment being free to move (66), and
+    jne .who                    ; ETHER.DRV keys its ring pool's lifetime on
+.slot:                          ; it (SPEC.md 72.13.4). BH is the class,
+    push dx                     ; which the driver knows already, so it
+    call inst_caller            ; carries the slot instead - and both drivers
+    mov bh, dh                  ; put the class back before they return, so
+    pop dx                      ; the BX a package called with is the BX it
+.who:                           ; gets
     mov ds, ax                  ; DS = the driver's segment, so DI can go back
     pop ax                      ; the caller's AX
     pop di                      ; ...and the caller's DI, which a verb taking

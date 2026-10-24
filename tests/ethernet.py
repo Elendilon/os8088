@@ -15,16 +15,14 @@ timing here means anything. So every assertion below is about BEHAVIOUR and
 none is about speed. There is no number in this file for PERFORMANCE.md to
 want off the 5150, which is the honest position rather than a limitation.
 
-SIX ASSERTIONS, and they climb the stack.
+EIGHT ASSERTIONS, and they climb the stack.
 
 1. THE CARD. A base was found, a station address came out of the PROM, and it
    is a plausible one - not all zero, not all ones, not multicast.
 
-1b. THE RINGS. `sk_seg` is non-zero and the ladder landed on its TOP rung
-   (SPEC.md 72.13.2). This machine has the whole heap free when the driver
-   attaches, so anything lower is the ladder failing and not the machine
-   refusing - and the field spent a round unable to tell those apart, because
-   nothing anywhere said which rung had been taken.
+1b. NO RINGS YET. `sk_seg` and `eth_users` are 0 with the card up and no
+   package open: the pool is claimed when a package first speaks to the driver
+   (SPEC.md 72.13.4), not at attach.
 
 2. THE ADDRESS. `dhcp_st` is DH_BOUND and `eth_ip` is 10.0.2.15, the gateway
    10.0.2.2 and the name server 10.0.2.3 - all three read out of the driver's
@@ -40,6 +38,16 @@ SIX ASSERTIONS, and they climb the stack.
 4. THE PAGE RENDERS. `br_nstate` is BN_DONE and `br_nlines` is non-zero, read
    out of the browser's bss - so the bytes reached br_parse and br_layout and
    the application is not reporting a failure over a page that drew.
+
+4b. THE RINGS, with the browser open: `sk_seg` is non-zero, the ladder
+   landed on its TOP rung (SPEC.md 72.13.2) and the pool is movable and was
+   claimed top-down. A 640KB machine with one package open has far more than
+   four times the ceiling free, so anything lower is the ladder failing and
+   not the machine refusing.
+
+4c. ...AND THEY GO BACK. Closing the browser, the only package that spoke to
+   the driver, frees the pool: the kernel's teardown sends NETV_GONE, and
+   `sk_seg`, `eth_users` and the mem_tab record are all gone.
 
 5. NOT ONE BYTE OF THE BROWSER IS ABOUT ETHERNET. The `.o88` under test is the
    one `make` builds for the shipped floppy, and the only thing it was told is
@@ -463,6 +471,9 @@ def main():
         def dip(name):
             return m.readseg(seg, syms[name], 4)
 
+        def users():                # 72.13.4's mask, 0 on a driver without
+            return dw("eth_users") if "eth_users" in syms else 0
+
         # DRVR_SEG IS ARMED BEFORE THE IMAGE IS EVEN READ (drv_load: the claim
         # goes into the row so that drv_call works during attach), so the poll
         # above can catch the row a whole floppy read and a bus sweep ahead of
@@ -482,61 +493,16 @@ def main():
             fails.append("the station address %s is MULTICAST, so it is not a "
                          "station address" % mac.hex())
 
-        # --- 1b. THE RINGS, AND WHICH RUNG THE LADDER LANDED ON ------------
-        # SPEC.md 72.13.2. The rung was chosen in silence and the field could
-        # only GUESS which one it got - which is how a change that did nothing
-        # and a change that never ran look the same. This machine has a whole
-        # heap free at attach, so the ceiling is the only right answer, and a
-        # floor here is the ladder failing rather than the machine refusing.
-        skseg, rxcap, txcap = dw("sk_seg"), dw("sk_rxcap"), dw("sk_txcap")
-        say("rings at %04X, rx %d tx %d" % (skseg, rxcap, txcap))
-        if not skseg:
-            fails.append("sk_seg is 0: the rings were never claimed, so every "
-                         "socket verb is refusing")
-        if rxcap != SK_RXMAX:
-            fails.append("the receive ring is %d and not %d on a machine with "
-                         "the heap empty at attach: the ladder stepped down "
-                         "for a reason that is not memory (SPEC.md 72.13.2)"
-                         % (rxcap, SK_RXMAX))
-        if txcap != SK_TXMAX:
-            fails.append("the send ring is %d and not %d: the TX size follows "
-                         "the RX rung and these two have come apart"
-                         % (txcap, SK_TXMAX))
-
-        # --- 1c. ...AND THE POOL DECLARED ITSELF MOVABLE (SPEC.md 66.4.1) --
-        # docs/plans/HEAP-UNPIN-PLAN.md 5.1. This is the largest single block
-        # in 2.0's wall - 14KB of driver furniture claimed from the top and
-        # pinned there for the session - and it was pinned by a comment
-        # ("the card's own descriptors point into these rings and it DMAs into
-        # them") that is false for an NE2000: the 8390's DMA engines are
-        # internal, the host side is `in al, dx` / `stosb`, and this driver
-        # hooks no vector at all.
-        #
-        # IT IS READ FROM mem_tab AND NOT FROM THE DRIVER, because that is the
-        # only place a REFUSED declaration shows. mem_movable's fence is
-        # "yours, or not at all", so a wrong owner returns CF=1, writes no
-        # MC_RLOC, and looks identical from inside the driver - which is
-        # exactly how SPEC.md 66.5.6.2's silent refusal went unnoticed for a
-        # release.
-        pool = [c for c in claims(m, S) if c[0] == skseg]
-        if len(pool) != 1:
-            fails.append("no claim in mem_tab starts at sk_seg %04X, so the "
-                         "rings are not where the driver says they are"
-                         % skseg)
-        else:
-            base_, para_, own_, dma_, rloc_, hi_ = pool[0]
-            say("pool claim %04X %dKB owner %04X%s%s"
-                % (base_, para_ // 64, own_,
-                   " MOVABLE" if rloc_ else " PINNED",
-                   " HI" if hi_ else " low"))
-            if not rloc_:
-                fails.append("the socket pool's MC_RLOC is 0: the "
-                             "OSAPI_MEM_MOVABLE call in sk_claim was REFUSED "
-                             "and the driver cannot tell (SPEC.md 66.5.6.2)")
-            if not hi_:
-                fails.append("the socket pool's MC_DMA_HI is 0: it came in "
-                             "through the low door, so SPEC.md 66.4.1's "
-                             "descending pass will never reach it")
+        # --- 1b. NO RINGS UNTIL A PACKAGE ASKS (SPEC.md 72.13.4) ----------
+        # The pool used to be claimed at attach and held for the session; it
+        # is claimed now when a package first speaks to the driver. The card
+        # is up and DHCP is running here with no package open, so the pool
+        # must not exist yet: a driver that went back to claiming at attach
+        # fails HERE, with the session's 17KB named.
+        if dw("sk_seg") or users():
+            fails.append("sk_seg %04X / eth_users %04X with no package open: "
+                         "the rings were claimed at attach and not on demand "
+                         "(SPEC.md 72.13.4)" % (dw("sk_seg"), users()))
 
         os88qemu.acted(m, lambda: db("dhcp_st") == DH_BOUND, secs=24,
                        what="DHCP bound", poll=0.3)     # DHCP_WAIT: 110 ticks
@@ -616,6 +582,99 @@ def main():
         if dw("eth_novw"):
             fails.append("%d ring overrun(s): the pump is not keeping up"
                          % dw("eth_novw"))
+
+        # --- 4b. THE RINGS, AND WHICH RUNG THE LADDER LANDED ON ------------
+        # SPEC.md 72.13.2. The rung was chosen in silence and the field could
+        # only GUESS which one it got - which is how a change that did nothing
+        # and a change that never ran look the same. The browser asked for the
+        # pool (72.13.4) on a 640KB machine with one package open, so a
+        # quarter of the free heap is far above the ceiling and the ceiling
+        # is the only right answer: a floor here is the ladder failing rather
+        # than the machine refusing. The browser's connection has closed, so
+        # what holds the pool now is the INSTANCE, not a ring.
+        skseg, rxcap, txcap = dw("sk_seg"), dw("sk_rxcap"), dw("sk_txcap")
+        say("rings at %04X, rx %d tx %d" % (skseg, rxcap, txcap))
+        if not skseg:
+            fails.append("sk_seg is 0 with the browser open: the pool was "
+                         "never claimed, or was given back while a package "
+                         "that has spoken to the driver still lives "
+                         "(SPEC.md 72.13.4)")
+        if not users():
+            fails.append("eth_users is 0 with the browser open: its verbs "
+                         "were not counted, so the pool rests on a ring alone")
+        if rxcap != SK_RXMAX:
+            fails.append("the receive ring is %d and not %d on a machine with "
+                         "the heap empty at attach: the ladder stepped down "
+                         "for a reason that is not memory (SPEC.md 72.13.2)"
+                         % (rxcap, SK_RXMAX))
+        if txcap != SK_TXMAX:
+            fails.append("the send ring is %d and not %d: the TX size follows "
+                         "the RX rung and these two have come apart"
+                         % (txcap, SK_TXMAX))
+
+        # --- 1c. ...AND THE POOL DECLARED ITSELF MOVABLE (SPEC.md 66.4.1) --
+        # docs/plans/HEAP-UNPIN-PLAN.md 5.1. This is the largest single block
+        # in 2.0's wall - 14KB of driver furniture claimed from the top and
+        # pinned there for the session - and it was pinned by a comment
+        # ("the card's own descriptors point into these rings and it DMAs into
+        # them") that is false for an NE2000: the 8390's DMA engines are
+        # internal, the host side is `in al, dx` / `stosb`, and this driver
+        # hooks no vector at all.
+        #
+        # IT IS READ FROM mem_tab AND NOT FROM THE DRIVER, because that is the
+        # only place a REFUSED declaration shows. mem_movable's fence is
+        # "yours, or not at all", so a wrong owner returns CF=1, writes no
+        # MC_RLOC, and looks identical from inside the driver - which is
+        # exactly how SPEC.md 66.5.6.2's silent refusal went unnoticed for a
+        # release.
+        pool = [c for c in claims(m, S) if c[0] == skseg]
+        if len(pool) != 1:
+            fails.append("no claim in mem_tab starts at sk_seg %04X, so the "
+                         "rings are not where the driver says they are"
+                         % skseg)
+        else:
+            base_, para_, own_, dma_, rloc_, hi_ = pool[0]
+            say("pool claim %04X %dKB owner %04X%s%s"
+                % (base_, para_ // 64, own_,
+                   " MOVABLE" if rloc_ else " PINNED",
+                   " HI" if hi_ else " low"))
+            if not rloc_:
+                fails.append("the socket pool's MC_RLOC is 0: the "
+                             "OSAPI_MEM_MOVABLE call in sk_claim was REFUSED "
+                             "and the driver cannot tell (SPEC.md 66.5.6.2)")
+            if not hi_:
+                fails.append("the socket pool's MC_DMA_HI is 0: it came in "
+                             "through the low door, so SPEC.md 66.4.1's "
+                             "descending pass will never reach it")
+
+        # --- 4c. ...AND THEY GO BACK WITH THE LAST PACKAGE (72.13.4) --------
+        # The kernel's teardown sends NETV_GONE; the browser was the only
+        # instance that spoke to the driver, so its close must free the pool
+        # - the bit, the word and the mem_tab record all three. A kernel that
+        # stopped sending GONE, or a driver that ignored it, keeps 17KB for
+        # the session and fails here.
+        bx_, by_ = dispcp.win_rect(m, S, bw)[:2]
+        cx_, cy_ = os88geom.close_xy(bx_, by_)
+        for _ in (1, 2):
+            Mouse().click(cx_, cy_)
+            if os88qemu.acted(m, lambda: bw not in dispcp.win_list(m, S,
+                                                                   False),
+                              secs=10, what="the browser to close", poll=0.4):
+                break
+        os88qemu.acted(m, lambda: dw("sk_seg") == 0, secs=10,
+                       what="the pool to be released", poll=0.4)
+        say("after close: sk_seg %04X, eth_users %04X"
+            % (dw("sk_seg"), users()))
+        if bw in dispcp.win_list(m, S, False):
+            fails.append("the browser did not close, so the release below "
+                         "was never asked for")
+        elif dw("sk_seg") or users():
+            fails.append("sk_seg %04X / eth_users %04X after the last network "
+                         "package closed: the pool was not given back "
+                         "(SPEC.md 72.13.4)" % (dw("sk_seg"), users()))
+        elif skseg and [c for c in claims(m, S) if c[0] == skseg]:
+            fails.append("a claim still starts at the old pool %04X: the "
+                         "driver forgot the pool without freeing it" % skseg)
 
         if a.shot:
             subprocess.run(["python3", "tools/shot.py", SOCK, a.shot],
