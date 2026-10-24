@@ -48,6 +48,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [os.path.join(ROOT, "tools"), os.path.join(ROOT, "tests")]
 import dispapps                                         # noqa: E402
 import dispcp                                           # noqa: E402
+import os88build                                        # noqa: E402
 import os88geom                                         # noqa: E402
 import os88marty                                        # noqa: E402
 import os88mouse                                        # noqa: E402
@@ -132,13 +133,13 @@ def main():
             if "=" in spec:             # a GIF's association is Paint's, so
                 spec, name = spec.split("=", 1)     # PiXEL is handed one as a
                 d, path = spec.split(":", 1)        # .PNG - it SNIFFS what it
-                tmp = os.path.join("build", "pkgmove-scratch")  # reads
-                os.makedirs(tmp, exist_ok=True)
-                dst = os.path.join(tmp, name)
+                lit = os.path.join("build", "pkgmove-scratch", name)  # reads
+                dst = os88build.at(lit)         # the RUN'S tree, which is
+                os.makedirs(os.path.dirname(dst), exist_ok=True)  # where
                 if not os.path.exists(dst) or open(dst, "rb").read() != \
-                        open(path, "rb").read():
+                        open(path, "rb").read():    # scratch_disk will look
                     open(dst, "wb").write(open(path, "rb").read())
-                spec = d + ":" + dst
+                spec = d + ":" + lit
             files.append(spec)
         a.disk = os88marty.scratch_disk(a.disk, "build/%s.o88" % a.app,
                                         *files)
