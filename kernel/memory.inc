@@ -642,6 +642,24 @@ mem_unblob_x:
 ; memf_mem_floor_ax); mem_unblob_x still near-calls it from `.cold`.
 
 mem_floor_ax:
+%ifdef COLD_SLIDE
+    ; NEITHER A VGA NOR AN EGA (docs/plans/MOVABLE-COLD-PLAN.md 2): the VGA
+    ; rung is dead, so the floor starts on it - past `.cold` too when kmain_o
+    ; slid it down onto the rung, and on the rung itself when `.cold` left RAM
+    ; for a ROM or the HMA (a segment past A000 is not RAM at all). `.vgabuf`
+    ; is the VGA's alone, so it is not counted either
+    test byte [vid_avail], VID_A_VGA | VID_A_EGA
+    jnz .planar
+%if VGABUF_PARA
+    mov byte [vga_skkern], KERN_KB - SK_MONO_KB ; ...and the kernel row
+%endif                          ; osapi_sys_kb reports with it: both rungs
+    mov ax, VGA_RAM
+    cmp byte [api_coldseg + 1], 0xA0
+    jae .round
+    add ax, COLD_PARA
+    jmp short .round
+.planar:
+%endif
 %ifdef ROM_COLD
     ; `.cold` FOUND IN ROM OR THE HMA (docs/plans/ROM-PLAN.md 3.4.2): its RAM
     ; rung, the top one under `.vgabuf`, holds a copy nothing calls any more,
@@ -660,20 +678,15 @@ mem_floor_ax:
 %endif
 %if VGABUF_PARA
     test byte [vid_avail], VID_A_VGA
-    jz .out
+    jz .round
     add ax, VGABUF_PARA
-.out:
 %endif
+.round:
 %ifdef LADDER_PACK
     add ax, 31                  ; ...and onto a 512-byte boundary: the rungs
     and al, 0xE0                ; under the floor are paragraphs now, and a
 %endif                          ; heap base is an int 13h target (guard 6,
     ret                         ; MOVABLE-COLD-PLAN 5)
-%ifdef LADDER_PACK
-    nop                         ; PARITY: never executed. The round-up is five
-%endif                          ; bytes, and the disk path's hot loops after
-                                ; this file were measured at an even shift
-                                ; (tests/unit/t_hotpar.py)
 
 ; -----------------------------------------------------------------------------
 ; mem_claim / mem_claim_hi / mem_claim_dma - claim a block of the heap
@@ -5168,6 +5181,11 @@ osapi_sys_kb_x:
     je .kram                    ; was refused and nothing can run it
     sub ax, SK_MEGA_KB          ; (KERN-MEGA-SEGMENTS-PLAN 3.3)
 .kram:
+%elifdef COLD_SLIDE
+    cmp byte [api_coldseg + 1], 0xA0 ; ...and the cold rung, when a ROM or the
+    jb .kram                    ; HMA runs `.cold`: a segment past A000 is not
+    sub ax, SK_COLD_KB          ; RAM. Not "is it home?" - a slide moves it
+.kram:                          ; and keeps it in RAM (MOVABLE-COLD-PLAN 2)
 %elifdef ROM_COLD
     cmp byte [api_coldseg + 1], COLD_HOME_HI ; ...and the cold rung, when the
     je .kram                            ; ROM runs `.cold` (ROM-PLAN 3.4.2)

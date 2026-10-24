@@ -2307,6 +2307,15 @@ gfx_blit4:
                                 ; word fetch (PERFORMANCE.md Part 7)
 %endif
 %endif
+%ifdef COLD_SLIDE
+; ===== THE VGA RUNG, from here to gfx_blit_run (docs/plans/MOVABLE-COLD-PLAN.md
+; 2): the span writer, the planar decoder and gfx_blitp's body are code only a
+; VGA or an EGA runs, so on kern_big they live in `.vga` - inside KERNEL_SEG's
+; window, so every call here is the near call it always was - and a machine
+; with neither card slides `.cold` over them at boot. Every way in from
+; outside the rung is in tests/vgarefs.txt with the test that guards it.
+section .vga
+%endif
 %ifdef GFX_VGA
 
 ; -----------------------------------------------------------------------------
@@ -2582,8 +2591,16 @@ vga_blit_prow:
                                 ; row - and back on at the end, because the
                                 ; next row may be a run's again
 
-    mov ax, VGABUF_SEG          ; ovlchk: DS = VGABUF_SEG
-vga_pr_bufw equ $ - 2           ; (its immediate is also mem_floor_ax's word)
+%ifdef COLD_SLIDE
+    mov ax, [rom_vgabw]         ; ovlchk: DS = VGABUF_SEG
+                                ; ...out of a `.text` WORD: this body is in the
+                                ; VGA rung, and mem_floor_ax reads that word on
+                                ; machines that dropped the rung (kernel.asm's
+                                ; rom_vgabw, MOVABLE-COLD-PLAN 2)
+%else
+    mov ax, VGABUF_SEG          ; (the bank is annotated once, on the arm above:
+vga_pr_bufw equ $ - 2           ; os88ovlchk reads source, not %ifdef)
+%endif
     mov ds, ax                  ; DS = the four plane rows (the table is .lowbss, via ss:); ES is
                                 ; still the caller's source. THE BARE
                                 ; REFERENCE IS THE .vgabuf ONE FROM HERE TO
@@ -2677,6 +2694,7 @@ vga_pr_bufw equ $ - 2           ; (its immediate is also mem_floor_ax's word)
     pop ds                      ; ovlchk: DS restored
     jmp kret_bp
 %endif
+section .text
 
 ; -----------------------------------------------------------------------------
 ; gfx_blitp - a block that is ALREADY FRAMEBUFFER BYTES, copied to the screen
@@ -2730,6 +2748,24 @@ vga_pr_bufw equ $ - 2           ; (its immediate is also mem_floor_ax's word)
 ; compare a row and no caller has to clamp.
 ; -----------------------------------------------------------------------------
 gfx_blitp:
+%ifdef COLD_SLIDE
+%ifdef GFX_PLANE
+    test byte [vid_avail], VID_A_VGA | VID_A_EGA ; THE DOOR (MOVABLE-COLD-PLAN
+    jnz .vga                    ; 2): the body is in the VGA rung, and a
+    stc                         ; machine with neither card has dropped it -
+    ret                         ; and would refuse below anyway, having no
+.vga:                           ; display with four planes. A VGA machine pays
+    jmp gfx_blitp_v             ; a test and a jump, ~6 us on a 4.77 MHz 8088
+; ...and the far call the body makes into `.cold`, which the rung may not name:
+; a word in `.vga` naming COLD_SEG is one the slide's list does not hold, and
+; tools/os88cfx.py refuses the build over it (MOVABLE-COLD-PLAN 2)
+gfx_bpwalk_t:
+    call COLD_SEG:gfx_bpwalk
+    ret
+section .vga
+gfx_blitp_v:
+%endif
+%endif
 %ifndef GFX_PLANE
     stc                         ; A SLOT THAT EXISTS IN ONE BUILD AND NOT
     ret                         ; ANOTHER IS WORSE THAN A REFUSAL (the debug
@@ -2790,7 +2826,11 @@ gfx_blitp:
     or di, 0x8000               ; how THE PROBE this asks first gets past
     call gfx_blitp              ; here: every refusal, for the whole rect,
     jc .walked                  ; region aside
+%ifdef COLD_SLIDE
+    call gfx_bpwalk_t           ; (the rung names no `.cold` segment: its shim)
+%else
     call COLD_SEG:gfx_bpwalk
+%endif
 .walked:
     jmp .pops                   ; PAST the hook's teardown, not to .out: this
                                 ; call took no hook, and the probe and the
@@ -3154,6 +3194,14 @@ vga_prow_emit:
     pop bp
     ret
 %endif
+section .text                   ; ===== the end of the VGA rung's first run
+%ifdef COLD_SLIDE
+    nop                         ; PARITY, never executed (it follows
+%endif                          ; gfx_bpwalk_t's `ret`): the rung took an EVEN
+                                ; number of bytes out of `.text` less the door,
+                                ; and font_run, cur_move, both mouse ISRs and
+                                ; kbm_isr were measured at the other parity
+                                ; (tests/unit/t_hotpar.py)
 
 ; -----------------------------------------------------------------------------
 ; gfx_blit_run - emit one coalesced run (module-internal to gfx_blit4)

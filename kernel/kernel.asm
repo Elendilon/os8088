@@ -257,7 +257,9 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; .text: in .cold, a module or the blob, CS is something else.
 %macro KDS 0
  %ifnidni __?SECT?__, [section .text]
-  %error "KDS outside .text: CS is not the kernel's there"
+  %ifnidni __?SECT?__, [section .vga] ; (the VGA rung is KERNEL_SEG's too)
+   %error "KDS outside .text: CS is not the kernel's there"
+  %endif
  %endif
  %ifdef KERN_MEGA
     mov ds, [cs:k_dsel]
@@ -273,7 +275,9 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; KDS's reason; .cold has KDATAR_C, which reads a .lowbss flag instead.
 %macro KSEGR 1
  %ifnidni __?SECT?__, [section .text]
-  %error "KSEGR outside .text: CS is not the kernel's there"
+  %ifnidni __?SECT?__, [section .vga] ; (the VGA rung is KERNEL_SEG's too)
+   %error "KSEGR outside .text: CS is not the kernel's there"
+  %endif
  %endif
  %ifdef KERN_MEGA
     mov %1, [cs:k_dsel]
@@ -283,7 +287,9 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endmacro
 %macro KDATAR 1
  %ifnidni __?SECT?__, [section .text]
-  %error "KDATAR outside .text: use KDATAR_C in .cold"
+  %ifnidni __?SECT?__, [section .vga]
+   %error "KDATAR outside .text: use KDATAR_C in .cold"
+  %endif
  %endif
  %ifdef KERN_MEGA
     mov %1, [cs:k_dsel]
@@ -345,6 +351,9 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
  %endif
  %ifidni __?SECT?__, [section .cold]
   %error "PUSH_CSDATA in .cold: the kernel's CS is not an image's"
+ %endif
+ %ifidni __?SECT?__, [section .vga]
+  %error "PUSH_CSDATA in .vga: the kernel's CS is not an image's"
  %endif
     push cs
  %ifdef KERN_MEGA
@@ -462,7 +471,9 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endmacro
 %macro KES 0
  %ifnidni __?SECT?__, [section .text]
-  %error "KES outside .text: CS is not the kernel's there"
+  %ifnidni __?SECT?__, [section .vga] ; (the VGA rung is KERNEL_SEG's too)
+   %error "KES outside .text: CS is not the kernel's there"
+  %endif
  %endif
  %ifdef KERN_MEGA
     mov es, [cs:k_dsel]
@@ -1189,6 +1200,20 @@ VIEW_KB     equ 2               ; each cache: 1,536 bytes of entries and 64 of
 ; constant like 0x0300 or 0x2A00, and nothing said why that mattered.
 KIMG_PARA   equ ((KTEXT_SIZE + KBSS_SIZE + 511) / 512) * 32   ; image + scratch
 %ifdef ROM_COLD
+%ifdef COLD_SLIDE
+; THE VGA RUNG (docs/plans/MOVABLE-COLD-PLAN.md 2): `.vga`, the code only a
+; VGA or an EGA runs, between LOW and `.cold`. It is INSIDE KERNEL_SEG's 64KB
+; window - its labels are KERNEL_SEG offsets (vstart) - so `.text` reaches it
+; with plain near calls and its data is DS-near, exactly as if it were still
+; in `.text`. On a machine with neither card kmain_o slides `.cold` down over
+; it (cfx_slide) and the heap floor falls by the rung; on a machine with
+; either, nothing moves at all. The window guard is at `vga_end`.
+VGA_RAM     equ LOW_SEG + LOW_PARA
+VGA_VSTART  equ (VGA_RAM - KERNEL_SEG) * 16
+VGA_START   equ BOOT2_PAD + VGA_VSTART   ; in the file, after the zero gap
+VGA_PARA    equ (VGA_SIZE + 15) / 16
+COLD_RAM    equ VGA_RAM + VGA_PARA
+%else
 COLD_RAM    equ LOW_SEG + LOW_PARA      ; ROM_COLD: the cold rung sits UNDER
                                 ; `.vgabuf`, so a machine whose `.cold` is in
                                 ; ROM drops the heap floor straight onto it
@@ -1196,6 +1221,7 @@ COLD_RAM    equ LOW_SEG + LOW_PARA      ; ROM_COLD: the cold rung sits UNDER
                                 ; follows: `.cold` is read after the zero gap
                                 ; the FAT window and `.lowbss` leave, which
                                 ; LZ4 packs to nothing
+%endif
 %else
 COLD_RAM    equ KERNEL_SEG + KIMG_PARA
 %endif
@@ -1658,6 +1684,7 @@ section .text    start=BOOT2_PAD vstart=0
 section .cold    start=COLD_START vstart=COLD_VSTART
 %ifdef COLD_SLIDE               ; the kernel's own list of the words naming
 section .cfx     start=CFX_START vstart=0 ; `.cold` (MOVABLE-COLD-PLAN 4)
+section .vga     start=VGA_START vstart=VGA_VSTART ; ...and the VGA rung (2)
 %endif
 %ifdef KERN_MEGA                ; kern_mega's own segment: protected-mode code
 section .mega    start=MEGA_START vstart=0 ; under MEGA_SEL_CODE and nothing
@@ -4120,7 +4147,12 @@ rom_mfp:    dw rom_none, KERNEL_SEG
 ; and its immediate is read in place; a kernel with no decoder has this
 ; (kernel size pass 12: 4 bytes for the 10 of a compare and a subtraction)
 %if VGABUF_PARA
+ %ifdef COLD_SLIDE                ; ...and when the decoder is in the VGA rung
+rom_vgabw0: dw VGABUF_SEG       ; (MOVABLE-COLD-PLAN 2) the word is `.text`'s
+rom_vgabw   equ rom_vgabw0      ; own, which the decoder loads: mem_floor_ax
+ %else                           ; reads it on a machine that dropped the rung
 rom_vgabw   equ vga_pr_bufw
+ %endif
 %else
 rom_vgabw0: dw VGABUF_SEG       ; (a name of its own: tools/os88rom.py reads
 rom_vgabw   equ rom_vgabw0      ; data labels off the source, both arms, and
@@ -5134,6 +5166,23 @@ kmain_o:
                                 ; is the earliest it can run; it claims nothing
                                 ; and draws nothing, so the second monitor comes
                                 ; up scanning our raster and black
+%endif
+%ifdef COLD_SLIDE
+    ; THE SLIDE (docs/plans/MOVABLE-COLD-PLAN.md 2): a machine with neither a
+    ; VGA nor an EGA can never run the VGA rung - [vid_avail] is fixed for the
+    ; life of the machine, and is known as of vid_probe_avail above - so
+    ; `.cold` moves down over it and the heap floor (mem_init_x, next) falls
+    ; by the rung. Only from home: a ROM that adopted the kernel has taken
+    ; `.cold` out of RAM already, and its floor falls past both rungs anyway.
+    ; HERE because nothing has stored `.cold`'s segment yet that the kernel's
+    ; own list does not hold (mod_fp is filled below, from a listed word), and
+    ; nothing claims the RAM `.cfx` landed on until mem_unblob
+    test byte [vid_avail], VID_A_VGA | VID_A_EGA
+    jnz .noslide
+    cmp word [api_coldseg], COLD_HOME
+    jne .noslide
+    call CFX_RAM:cfx_slide      ; (in `.cfx`, beside its list: transient)
+.noslide:
 %endif
     MARKW 11
     OVBCALL   mem_init_x         ; the claim heap (SPEC.md 50): int 12h, the
@@ -7908,6 +7957,20 @@ section .cold
 cold_end:
 COLD_SIZE equ cold_end - $$
 %ifdef COLD_SLIDE
+section .vga
+vga_end:
+VGA_SIZE equ vga_end - $$
+; THE RUNG MUST STAY IN KERNEL_SEG'S WINDOW: `.text` near-calls it and its
+; data is DS-near, so its last byte has to be a 16-bit offset. It is the
+; binding form of KERN_CODE_MAX now - `.text`, `.bss`, the FAT window and LOW
+; all sit under it (MOVABLE-COLD-PLAN 3)
+%if VGA_VSTART + VGA_SIZE > 0x10000
+  %error "the VGA rung runs past KERNEL_SEG's 64KB window - it is reached by near calls (MOVABLE-COLD-PLAN 2)"
+%endif
+%if COLD_START < VGA_START + VGA_SIZE
+  %error "`.vga` and `.cold` overlap in the file"
+%endif
+section .cold
 ; --- .cfx: THE KERNEL'S OWN LIST of the words outside `.cold` that name its
 ; segment - in `.text`, the window half and the blob - which the slide
 ; re-points (docs/plans/MOVABLE-COLD-PLAN.md 4). ZEROS AS ASSEMBLED:
@@ -7923,9 +7986,90 @@ CFX_MAX     equ 256
 CFX_START   equ (COLD_START + COLD_SIZE + 15) & ~15  ; on a paragraph...
 CFX_RAM     equ KERNEL_SEG + (CFX_START - BOOT2_PAD) / 16 ; ...so a segment
 section .cfx
+; -----------------------------------------------------------------------------
+; cfx_slide - move `.cold` down over the VGA rung (MOVABLE-COLD-PLAN 2, 4)
+; in:  far-called from kmain_o (CS = CFX_RAM: this is `.cfx`, transient like
+;      the list beside it), DS = KERNEL_SEG, `.cold` at home, `.cfx` stamped
+; out: `.cold` runs at COLD_SEG - VGA_PARA, and every word outside it that
+;      named its segment - [api_coldseg] among them - names the new one;
+;      every register preserved
+;
+; IN `.cfx` AND NOT THE BLOB: the blob had 78 bytes and this needs ~100, so it
+; rides beside its own list in the RAM nothing claims until mem_unblob.
+; ~105 ms on a 4.77 MHz 8088, the `rep movsw` of `.cold` (ESTIMATED off
+; PERFORMANCE.md Set 117.2's 13.3 cycles a byte). Downward and overlapping,
+; so DF = 0 copies it correctly. The list is read where stage 2 left it,
+; above the kernel, which the copy - going DOWN - cannot reach.
+; -----------------------------------------------------------------------------
+cfx_slide:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    mov bp, [spl_fseg]          ; the blob's segment, for its own group
+    mov ax, COLD_RAM
+    mov ds, ax
+    mov ax, COLD_RAM - VGA_PARA
+    mov es, ax
+    xor si, si
+    xor di, di
+    mov cx, (COLD_SIZE + 1) / 2
+    cld
+    rep movsw
+    mov ax, CFX_RAM
+    mov ds, ax                  ; DS:SI = cfx_tab, the three groups in order
+    mov si, cfx_tab
+    mov dx, -VGA_PARA           ; what every listed word gains
+    mov ax, KERNEL_SEG          ; `.text`...
+    call cfx_grp
+    mov ax, FAT_SEG             ; ...the window half...
+    call cfx_grp
+    mov ax, bp                  ; ...and this blob
+    call cfx_grp
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf
+
+; cfx_grp - one group of cfx_tab: AX = its segment, DS:SI = its stream, DX =
+; the delta. A byte 1-255 is the step to the next word, a 0 is followed by the
+; step as a word, and a word of 0 ends it (tools/os88cfx.py's format). Leaves
+; SI past the group; clobbers AX, BX, ES
+cfx_grp:
+    mov es, ax
+    xor bx, bx
+.n:
+    lodsb
+    or al, al
+    jz .w
+    xor ah, ah
+    jmp short .a
+.w:
+    lodsw
+    or ax, ax
+    jz .done
+.a:
+    add bx, ax
+    add [es:bx], dx
+    jmp short .n
+.done:
+    ret
 cfx_tab:    times CFX_MAX db 0
 cfx_tab_end:
-%if (CFX_RAM * 16 + CFX_MAX) > BLOB_SEG_AT * 16
+cfx_end:
+CFX_SIZE    equ cfx_end - $$
+%if (CFX_RAM * 16 + CFX_SIZE) > BLOB_SEG_AT * 16
   %error "`.cfx` lands on stage 2's blob - raise BLOB_LIFT (MOVABLE-COLD-PLAN 4)"
 %endif
 section .cold
@@ -8010,7 +8154,7 @@ OVL_SIZE equ ovl_end - $$     ; `$$` is 0 here: `.ovl` has a vstart of its
 MEGA_START   equ COLD_START + COLD_PARA * 16 ; `.mega` on its rung, over the
 MODC_START   equ MEGA_START + MEGA_SIZE ; cold one - the file's last section
 %elifdef COLD_SLIDE
-MODC_START   equ CFX_START + CFX_MAX ; `.cfx` is the file's last section
+MODC_START   equ CFX_START + CFX_SIZE ; `.cfx` is the file's last section
 %elifdef ROM_COLD
 MODC_START   equ COLD_START + COLD_SIZE ; `.cold` is the file's last section
 %else
@@ -8390,6 +8534,13 @@ SK_VGAB_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - VGABUF_PARA * 16)
 ; 3.4.2). On VGA the decoder's buffers move into it, so the `.vgabuf` rung is
 ; what stays reserved - the two subtractions are independent.
 SK_COLD_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - COLD_PARA * 16)
+%ifdef COLD_SLIDE
+; ...and what a machine with NEITHER a VGA NOR an EGA gives back: the VGA rung
+; and `.vgabuf`, from the same boundary, to mem_floor_ax's answer for it with
+; `.cold` slid down (MOVABLE-COLD-PLAN 2)
+MONO_FLOOR equ ((VGA_RAM + COLD_PARA + 31) / 32) * 32
+SK_MONO_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - (KERN_END - MONO_FLOOR) * 16)
+%endif
 %ifdef KERN_MEGA                ; kern_mega gives back `.cold`'s and `.mega`'s
 SK_HIK_KB  equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - (COLD_PARA + MEGA_PARA) * 16)
 SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
@@ -8433,6 +8584,13 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
  %else
   %assign KS_TOPP   0
  %endif
+ %ifdef COLD_SLIDE                ; ...and the VGA rung in it (2)
+  %assign KS_VGA    VGA_SIZE
+  %assign KS_VGARS  VGA_RAM
+ %else
+  %assign KS_VGA    0
+  %assign KS_VGARS  0
+ %endif
   %assign KS_SIZE   KERN_SIZE
   %assign KS_BUDGET KERN_BUDGET
   %assign KS_GRACE  KERN_GRACE
@@ -8449,7 +8607,7 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
                                  ; that names one guard teaches everybody to
                                  ; steer by it, and for a while the one it
                                  ; named was the looser of the two
-  %warning ks: text=KS_TEXT bss=KS_BSS cold=KS_COLD lowbss=KS_LOW vgabuf=KS_VGAB ovl=KS_OVL boot2=KS_BOOT2 stk0=KS_STK0 imgpara=KS_IMGP coldpara=KS_COLDP fatpara=KS_FATP lowpara=KS_LOWP vgabufpara=KS_VGABP ksize=KS_SIZE budget=KS_BUDGET codemax=KS_CODEM kend=KS_END kseg=KS_KSEG colds=KS_COLDS fats=KS_FATS lows=KS_LOWS vgas=KS_VGAS blobseg=KS_BLOB minramkb=KS_MINRAM bootmax=KS_BOOTMX grace=KS_GRACE toppara=KS_TOPP
+  %warning ks: text=KS_TEXT bss=KS_BSS cold=KS_COLD lowbss=KS_LOW vgabuf=KS_VGAB ovl=KS_OVL boot2=KS_BOOT2 stk0=KS_STK0 imgpara=KS_IMGP coldpara=KS_COLDP fatpara=KS_FATP lowpara=KS_LOWP vgabufpara=KS_VGABP ksize=KS_SIZE budget=KS_BUDGET codemax=KS_CODEM kend=KS_END kseg=KS_KSEG colds=KS_COLDS fats=KS_FATS lows=KS_LOWS vgas=KS_VGAS blobseg=KS_BLOB minramkb=KS_MINRAM bootmax=KS_BOOTMX grace=KS_GRACE toppara=KS_TOPP vga=KS_VGA vgars=KS_VGARS
   %ifdef KERN_MEGA              ; ...and kern_mega's own rung, on a line of
     %assign KS_MEGA  MEGA_SIZE  ; its own (tools/kernsize.py's `mega`
     %assign KS_MSCR  MEGA_SCR_OFF + MPS_SIZE - MEGA_SIZE ; variant): `.mega`,

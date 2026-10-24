@@ -3954,6 +3954,36 @@ gives the kernel its own, so it can move `.cold` itself.
   (`toppara`). At build 471 it is **-512 bytes of `KERN_SIZE` on both
   kernels** (kern_big 97,792 -> 97,280, kern_small 60,928 -> 60,416), the
   slack of two rungs.
+- **The VGA rung, `.vga` (`COLD_SLIDE`).** The code only a VGA or an EGA runs
+  - the planar blits and their decoder, the VGA bodies of the fills, the
+  save-under and the cursor, the VESA hook - is a section of its own between
+  LOW and `.cold`: `[image][FAT][LOW][VGA][COLD][VGABUF]`. Its `vstart` is its
+  offset from `KERNEL_SEG`, so it is INSIDE the kernel's 64KB window: `.text`
+  reaches it with the near calls it always used, its data is DS-near, and
+  nothing about the code changes. Where a body is an API slot, a `.text` door
+  tests `[vid_avail]` and refuses on a machine with neither card
+  (`gfx_blitp`), and a body the rung would otherwise fall into takes a `jmp`.
+  - **The slide.** On a machine whose `[vid_avail]` has neither
+    `VID_A_VGA` nor `VID_A_EGA` - fixed for its life, and known once
+    `vid_probe_avail` has run - `kmain_o` far-calls `cfx_slide` before
+    `mem_init_x`, unless a ROM already took `.cold`. It copies `.cold` down
+    by `VGA_PARA` paragraphs and adds the delta to every word `.cfx` lists;
+    `[api_coldseg]` is one of them. The routine rides in `.cfx` beside its
+    list (the blob had 78 bytes to spare and it needs ~100). ~105 ms on a
+    4.77 MHz 8088, ESTIMATED from the copy's length.
+  - **The floor** (`mem_floor_ax`): with neither card it is `VGA_RAM`, plus
+    `COLD_PARA` while `.cold` is in RAM (slid) - a segment past A000 is not
+    RAM - rounded up; `.vgabuf` is not counted. It also stores the kernel
+    row `osapi_sys_kb` reports (`SK_MONO_KB`). A VGA or EGA machine's floor
+    is what it was.
+  - **Three gates.** `tools/os88ovlchk.py` rule 2f: every reference from
+    outside the rung into it is in `tests/vgarefs.txt` with the RUN-TIME
+    test that keeps a machine with neither card out (`%ifdef GFX_VGA` is not
+    one - kern_big defines it everywhere). `tools/os88cfx.py`: no word in
+    `.vga` may name `.cold`'s segment, the slide's list not holding it (a
+    `.text` shim makes the call instead, `gfx_bpwalk_t`). And kernel.asm:
+    the rung's last byte must be a KERNEL_SEG offset - the binding form of
+    `KERN_CODE_MAX` now, which `kernsize`'s `window` line reports.
 
 ## 3. Global constants (defined once in kernel.asm, used everywhere)
 
