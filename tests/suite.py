@@ -4650,7 +4650,12 @@ SOAK = [
         "filler's T takes the rest and the card's Play and the speaker's are "
         "REFUSED with their messages, nothing open or held; the filler "
         "closed, both play again. Red with the card's ring kept at Stop, "
-        "with the grant fallback out, and with either speaker-ring free out",
+        "with the grant fallback out, and with either speaker-ring free out. "
+        "Since NO-PINNING A6 the song is MOVABLE (105.10.1) and packs down, "
+        "leaving the filler's 8 KB as one run that cannot hold a grant's "
+        "pool and its double buffer both, so the row pins the song from "
+        "outside (MC_RLOC = 0) for the fill and the grant leg - the wall the "
+        "leg is about - and declares it again after",
         needs=("marty", "nasm"), serial=True,
         wants=("build/os8088-720.img", "build/midirack.o88",
                "build/filler.o88")),
