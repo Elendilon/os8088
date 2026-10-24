@@ -43,6 +43,8 @@
                                         ;   one that is the Color's alone)
     OS88_ASSOC16_END
 
+%define OP_ONMOVE rw_partsmv          ; the carve MOVES (SPEC.md 20.12.12,
+                                        ;   rwmove.inc)
 %include "os88parts.inc"
 
 RW_CONT_W       equ 160
