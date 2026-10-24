@@ -1197,7 +1197,7 @@ ext_kapply_eq:
     ret
 ext_kapply:
     mov [vid_kind], al
-    EXK vid_apply
+    call ext_apply              ; (this image's own: VID_APPLY, below)
     ret
 ext_two:
     mov word [vid_ndisp], 2     ; ndisp = 2, cur = 0: one word (vidsel.inc)
@@ -1209,6 +1209,7 @@ ext_two:
 ; pass 13, KSW_SECT in kernel.asm)
 VSW_EQUIP ext
 VSW_UNION ext, EXK
+VID_APPLY ext, EXK              ; (viddet.inc: the panel, the boot and this)
 
 %ifdef SEAMCUT
 ; -----------------------------------------------------------------------------

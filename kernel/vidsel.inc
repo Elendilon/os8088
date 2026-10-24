@@ -1105,7 +1105,11 @@ section .text
 
     mov [vid_kind], al          ; 2. republish the geometry
     call %1 %+ _equip           ; (this image's own: VSW_EQUIP)
-    %2 vid_apply
+%ifdef KERN_SMALL
+    %2 vid_apply                ; (resident on kern_small)
+%else
+    call %1 %+ _apply           ; (this image's own: viddet.inc's VID_APPLY)
+%endif
     %2 vid_setmode
 
 %ifdef KERN_BIG
@@ -1152,6 +1156,9 @@ section .text
 %endmacro
 section .modu                   ; the Display page's Set Primary (KSW_SECT)
 VSW_SWITCH vid, KSWK, wm
+%ifndef KERN_SMALL
+VID_APPLY vid, KSWK             ; ...and vid_apply, which only the panel, the
+%endif                          ; boot and EXTD.DRV reach (viddet.inc)
 section .text
 
 ; =============================================================================
@@ -2139,7 +2146,7 @@ vid_dual_ok:
                                 ; display, and display 0 current (vid_cur is
                                 ; the byte after, the %error beside them)
     mov [vid_kind], ah          ; (a no-op unless a caller moved it)
-    %2 vid_apply                ; republishes the chrome extent AND re-homes
+    call %1 %+ _apply           ; republishes the chrome extent AND re-homes
 .cap:
     xor al, al                  ; the pointer onto display 0 - which is what
     %2 vid_ctx_capture          ; a shrinking desktop owes it

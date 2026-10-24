@@ -72640,6 +72640,18 @@ change — every caller of `vid_apply`: `vid_switch`, `vid_disp_init`, and the f
 anyway — and a 9.2 s boot does not notice 15 ms; it is written down because
 that is only true while somebody has checked.
 
+**On kern_big no resident code calls `vid_apply` at all** (kernel size pass
+14), so it is written ONCE as `viddet.inc`'s `VID_APPLY` macro and expanded
+where its callers are, §51's `DRV_ATTACH` shape: `bvs_apply` in the boot blob
+(the splash's first tick, `vid_init` and the blob's own `vid_switch` /
+`vid_disp_init`), `vid_apply` in `CTRL.DRV` (Set Primary and the arrangement)
+and `ext_apply` in `EXTD.DRV` (the fullscreen bracket's restore of an extended
+desktop). An image's copy writes `gfx_nextrow`'s three instructions out - its
+operands are `[cs:]` - and pops its own frame; the blob's reaches
+`vid_depth_set` through `spw_near`, the one door the first tick has aboard.
+kern_small keeps the single resident copy, byte for byte: its panel image has
+no room for one.
+
 **It does not run on a §39.12 display swap, and must not.** `vid_ctx_act` sits
 under a drawing primitive whose whole floor is ~756 us; a rebuild there is 23.6
 ms, thirty-one times the primitive it is inside. That is why the swap turns the
