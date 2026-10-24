@@ -389,6 +389,23 @@ since A3 also edits `zio.inc` and `zwin.inc`. Its gate is one leg per park
 site (described in the audit), with red runs for a declaration pointed at
 plain `zx_worker` and for the [MORE] withdrawal removed.
 
+**6.6 BUILT (SPEC.md 66.5.9.3).** As designed, and smaller: **+37 bytes of
+FROTZ.O88, zero kernel bytes, nothing per instruction, `.bss` +0** (the
+estimate was 200-250; `@save` and `@restore` each share one body and one
+resume row across their 0OP and EXT forms, and `zx_park`/`zx_relock` replace
+the push-lock-pop pairs they wrapped). `tests/movable.txt`'s last `worker`
+line is gone. `zrestart` (`tests/zrestart.py`) stops the worker in all eight
+park sites, moves the region in each but `[MORE]`, and holds every leg's
+dynamic memory, `[zf_sp]`, Z-stack and transcript to a boot that moves
+nothing; red with the declaration pointed at plain `zx_worker` and with the
+`[MORE]` withdrawal taken out. Two things the audit did not have: `@save`'s
+handler branched through `zi_save`'s popped ES after a wait the story can
+move across, so it reloads the PC from bss now; and `zf_reloc` shifts
+`[zx_seglim]`, `zx_step`'s bound for the PC's segment. **And the gate found
+`@save`/`@restore` had never worked** - three defects since Frotz shipped, +7
+bytes between them, fixed here because the gate could not run without them
+(SPEC.md 66.5.9.3's last paragraph).
+
 ### 6.5 PIXELSTEIN's re-homed claims need the fence widened (a kernel-byte decision)
 
 A4 made PIXELSTEIN's shadow movable (`px_shmv`), but its levels (10 KB), art

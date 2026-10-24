@@ -113718,14 +113718,126 @@ Why no copy of their segments survives a move:
   (`zi_script_putc`), and `zi_script_flush`'s whole-file write pins it
   (`zi_scrpin`).
 
-Frotz's worker is NOT restartable and declares no `OSAPI_MEM_PARKSAFE`
-(§66.5.9.1), so its claims move only while it is parked inside
-`OSAPI_TASK_ALIVE` - at `zx_worker`'s loop top or inside `zi_yield` - and at
-both every one of these ES loads has already been undone; a running worker
-pins all of them (`inst_seg_parked`). +92 bytes of image. `editmove-frotz`
+Frotz's worker declares no `OSAPI_MEM_PARKSAFE` (§66.5.9.1), so its claims
+move only while it is parked inside `OSAPI_TASK_ALIVE` - at `zx_worker`'s
+loop top or inside `zi_yield` - and at both every one of these ES loads has
+already been undone; a running worker pins all of them (`inst_seg_parked`).
+(Its REGION moves at the same two points since §66.5.9.3.) +92 bytes of image. `editmove-frotz`
 is the gate: all five one-word claims move on `zmove360.img`, contents
 hashed, and the story still answers a command after; red with the three new
 words left out of the table (all three stale).
+
+#### 66.5.9.3 ...and the worker gives itself back: the region moves (NO-PINNING P2)
+
+**Frotz hires a worker, so its region was pinned for the program's whole life
+(§66.6.2)** - the one package `tests/movable.txt` exempted for a reason that
+was about the program and not about the work. It declares now:
+`OS88_WORKER_RESTARTABLE_NOKEEP zx_restart` in `zf_hire`, after
+`OSAPI_TASK_SPAWN`. **Zero kernel bytes, nothing per Z-instruction**, +37
+bytes of `FROTZ.O88`'s image (23,320 -> 23,357; the save fixes at the end of
+this section are +7 more), `.bss` +0 (`[zx_rsm]` is a byte of `ZEXEC_SLACK`
+that was free).
+
+**Where it can be restarted is a closed list, and §66.5.9.1 is why.** Frotz is
+not park-safe, so the kernel parks its worker only inside
+`OSAPI_TASK_ALIVE` - and the rebuild (§66.6.2) re-enters at the declared
+offset with DS = CS = the new segment, ES = `KERNEL_SEG`, DX = the instance
+and every other register zero, which is `zx_worker`'s own entry. There are
+eight `ALIVE` calls: `zx_worker`'s loop top, and seven waits that all go
+through `zi_yield` - `@read`, `@read_char`, `@save` (0OP and `EXT:0`),
+`@restore` (0OP and `EXT:1`), `@restart`, `@verify`'s chunk walk, and
+`[MORE]`.
+
+**RE-EXECUTING THE OPCODE IS LOSSY, so it is not the design.** Its operand
+decode pops the Z-stack for a variable-0 operand; each waiting handler has
+already spilled the PC to its store/branch byte; and what it printed is on the
+glass - `@read`'s echo, the save prompt. A restart at the loop top is the one
+place re-entry is plain, the PC being spilled between instructions.
+
+**What works is RESUMING THE WAIT, from state that was never on the stack.**
+One byte, `[zx_rsm]`, names the wait (`ZXR_READ` ... `ZXR_VERIFY`): `zx_park`
+writes it before the handler spills the PC and drops the lock, `zx_relock`
+clears it after the lock is back, so at every point the worker can park it
+names the wait it is in. `zx_restart` then either falls into `zx_worker`
+(`[zx_rsm]` = 0) or takes a row of `zx_rsmtab` - the wait's resume entry and
+the handler's `.post` - pushes the handler's `.post` as the wait's return and
+`zx_rsmret` as the handler's, and jumps:
+
+| wait | resume entry | what it does NOT redo |
+|---|---|---|
+| `@read` | `zi_readline_rsm` | the set-up: buffers, cap and the line typed so far are bss, and re-running it would zero `[zi_linen]` under an echo already on the glass |
+| `@read_char` | `zi_readchar_rsm` | the harness marker |
+| `@save`, `@restart` | `zi_request_rsm` | the post: `[zf_req]`/`[zf_reqres]` are read AS THEY STAND, answered or not, so no second request and no second prompt; `zi_save`'s and `zi_restart`'s own tails after the wait are pops |
+| `@restore` | `zi_restore_rsm` | ...and its seven pushes rebuilt, so the parse and apply run exactly as if the frame had survived |
+| `@verify` | `zx_verify_rsm` | nothing - it re-runs from the start, being pure |
+
+Each resume entry rebuilds exactly the frame its routine pops; the handler's
+`.post` re-takes the lock, clears `[zx_rsm]` and reloads the PC from bss; and
+its `ret` lands on `zx_rsmret`, which is what `zx_run` does after an
+instruction - spill, unlock - and then the loop top. The burst it was in is
+forfeit, and that is all a restart costs. `@save` and `@restore` share one
+body each across their 0OP and EXT forms (the EXT form is v4's 0/1 store), so
+there are six rows and not eight. `@restart` gained the `zx_spill` the others
+had: a refusal can now arrive through `zx_restart`, which has no ES:SI of the
+handler's to hand back.
+
+**`[MORE]` WITHDRAWS THE DECLARATION** (`OSAPI_TASK_RESTARTABLE` AX = 0) for
+the length of its wait and puts it back after the key. Under that wait is the
+text decoder's place in a string and whatever printed it, on the stack, and a
+restart re-runs the instruction in flight: measured with the withdrawal taken
+out, the region moved under the prompt and the window gained a line the story
+never printed. So the region stays pinned while `[MORE]` is up - a missed
+move, never a lost one. A `mem_avail` plan taken while the worker is mid-burst
+can read HIGH if it reaches `[MORE]` before it parks - the K9 shape (a
+compaction achieves less, once), and rare.
+
+**The STORY moves under `[MORE]`, and that is fine.** The region is pinned
+there; the story claim is not, and `tests/zrestart.py` measured it sliding
+(`2f40` -> `2380`) with the prompt up. The frames under `zw_morewait` pop a
+story ES that no longer points at the story - `zw_putc`, `zt_putc` - but no
+frame between them and `zx_run` addresses the story through ES afterwards:
+the decoder reads by story address (`zm_gw`), every printing handler returns
+to `zx_run`, which loads ES from `[zf_pcseg]` before the next instruction, and
+`@read`'s handler reloads the PC from bss after `zi_readline`. `@save`'s did
+NOT - it branched or stored through `zi_save`'s popped ES - and does now
+(`zx_load` in the shared `.post`), which is the one stale-ES path the audit
+found. **And `zf_reloc` shifts `[zx_seglim]`** with `[zf_pcseg]`: it is
+`zx_step`'s upper bound for the PC's segment, derived from the story's base,
+and a story slid UP by the descending pass left the bound where the story
+used to end.
+
+**`tests/zrestart.py` (`zrestart`) is the gate**, on `build/zrestart360.img` (a
+story of its own, `tests/frotz/zrestart.inf`, one command per wait, and ten
+Calculators opened first so a region above Frotz's can be closed per move).
+Every wait is stopped in and the region moved: `@read` with `ope` typed and
+`n door` after (the story parses `open door`), `@read_char`, all three
+requests both before RETURN and after the UI task answered with the worker
+held parked, and `@verify` stopped at a breakpoint in its walk. Each leg's
+dynamic memory, `[zf_sp]`, Z-stack and window transcript match a second boot
+that plays the same keys and moves nothing, and the two saves are the only
+files written. **Verified red**: the declaration pointed at plain
+`zx_worker` (`@read` resumes at its store byte and the story never sees
+`open door`; `@save`'s store byte is executed as an opcode and the story
+halts), and the `[MORE]` withdrawal taken out (the region moves under the
+prompt and the transcript differs from the no-move boot).
+
+**The gate found that `@save`/`@restore` had never worked**, three defects
+from the day Frotz shipped, each hiding the next: `zexec.inc`'s frame had
+`ZXF_STORE` at 6 and `ZXF_NLOC` at 7 where `zio.inc`'s Quetzal code reads the
+pair as one word with the locals count LOW, so every save walked an
+evaluation stack of -255 words and wrote a file of zeros (`ZXF_*` swapped, 0
+bytes); `zi_save` parked the `Stks` length's offset in the FORM length's word,
+so the FORM length stayed 0 and `Stks` claimed to run past the end of the
+image (the line deleted); and `zi_rstks` read a frame's locals before its
+evaluation-stack count, where Quetzal - and `zi_wframe` - write the count
+first, so `@restore` failed after copying dynamic memory, or restored wrong
+locals. The dummy frame is now written 0/0 as Frotz writes it, its 0x10
+"discard" bit being what the real Frotz refuses a save over: a save written
+here now loads in `dfrotz -L` and carries on. What is left: the args byte is
+the argument COUNT where Quetzal wants a MASK (a round trip here is exact, a
+foreign save's `@check_arg_count` would read wrong), and `@verify` sums the
+story AS IT STANDS rather than the file, so it answers "bad" once a story has
+written its dynamic memory.
 
 ### 66.5.10 The drivers, and the claim a callback cannot reach
 

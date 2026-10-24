@@ -281,7 +281,8 @@ relocation proc is very nearly always a `ret` and `OS88_REGION_MOVABLE` emits
 one. What actually decides a region is the *worker*.
 
 **43 of 46 packages declare, and the three that do not are a list rather than a
-shrug** — §66.6.1.1's ratchet, `tests/unit/t_movable.py`, `tests/movable.txt`.
+shrug** (and since NO-PINNING P2 no package that hires a worker is exempt from
+restarting it: Frotz's `worker` line was the last) — §66.6.1.1's ratchet, `tests/unit/t_movable.py`, `tests/movable.txt`.
 It was 42 of 44 when the ratchet landed; the two added are the four-piece
 `DOS.O88`'s halves (§96.44.5), and the third exemption is its loader.
 The table below names the ones with something to say; everything not in it
@@ -300,7 +301,7 @@ declares the bare form and moves on `I_TASK == 0xFF`.
 | **every C package** | — | **MOVABLE** | `crt0.asm` declares it at entry; `cc_regreloc` is `cc_ovbind` where there is an overlay, because its `.res` loop writes the live `CS` into the return vectors and inside a relocation proc that CS is the new base |
 | **CWORD**, **RUNCPM** | 60.8 / 56.6KB | **+ RESTARTABLE** | `os88_task_restartable(1)` after the spawn takes; both workers are `for(;;)` polls over statics |
 | ArtfulType, Fractal, ModPlug, Note Pad | | **MOVABLE, NOT restartable** | the four that declare `OSAPI_MEM_PARKSAFE` and still hire a worker (Tracker declares both — it is park-safe *and* restartable, and §66.4.3.3 is what that cost). Park-safe lets the kernel stop the worker while it is blocked in `gfx_lock` — anywhere in its loop, including halfway through a frame or a mixed buffer — so the honest declaration is a *window* around `OSAPI_TASK_ALIVE`, not a blanket. Registered `worker` in `tests/movable.txt` |
-| **Frotz** | | **MOVABLE, NOT restartable** | not for the park-safe reason: it has **two** park points and one is inside the Z-machine's own execute loop (`zexec.inc`), so a restart restarts the STORY — the interpreter's position is its call chain and not a static |
+| **Frotz** | 23.4KB | **MOVABLE + RESTARTABLE** | since NO-PINNING P2 (§66.5.9.3). It is NOT park-safe, so it parks only inside `OSAPI_TASK_ALIVE` - the burst loop's top and seven waits - and re-executing the opcode in flight there is LOSSY, so `zx_restart` RESUMES THE WAIT instead: `[zx_rsm]` names it, and each wait's resume entry rebuilds the frame its routine pops and takes `[zi_linen]`, `[zf_req]`/`[zf_reqres]` and the rest as they stand in bss. `[MORE]` withdraws the declaration while it is up (the decoder's place is on the stack), so the region is pinned for that wait alone. `zrestart` is the gate, every wait with the region moved against a boot that moved nothing |
 | Arkanoid, Cyclone, Dot Delirium, Missile, Pac-Man, TameGram, Task Manager, Telnet, The Wire, WIREFRAME | | **MOVABLE + RESTARTABLE** | the ten converted in one pass, and they are one argument: none declares `OSAPI_MEM_PARKSAFE`, so the only park point is `OSAPI_TASK_ALIVE`, each has exactly one and it is at the top of the outer loop, and every byte that outlives a pass is a static. Six of them open `GET_TICKS; mov [x_due], ax` above that loop, so the restart *re-seeds* the frame deadline |
 | **PACCMAN** | | **MOVABLE + RESTARTABLE** | the C one of that set, and the one a grep missed: its worker is hired from `os88_paint`. The single automatic crossing its park (`due`) is re-seeded by the restarted entry, which is `cc_worker` and not `os88_worker` — the SDK names the offset so a C author cannot pick the wrong one |
 | Calculator, Chart, Font View, Hello, Mines, Paint, Piano, Recorder, Solitaire, TexPad, and the rest | | **MOVABLE** | no worker, nothing of their own to fix: the bare form, moving on `I_TASK == 0xFF` alone |

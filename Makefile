@@ -8932,6 +8932,23 @@ $(BUILD)/zmove360.img: $(BUILD)/heapfrag.o88 $(BUILD)/frotz.o88 \
 	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/heapfrag.o88 \
 		$(BUILD)/frotz.o88 $(BUILD)/zt/ZOPS.Z5
 
+# ...and the worker RESTART's (SPEC.md 66.5.9.3, tests/zrestart.py). The story
+# is tests/frotz/zrestart.inf, one command per park site, compiled here for
+# the reason above. CALC.O88 is the hole-maker: a region is claimed top-down,
+# so the instances opened before the story sit ABOVE Frotz's region, and
+# closing one leaves the hole a posted compaction packs it up into - one
+# instance per move, there being no way to put a hole above a region that has
+# already reached the ceiling. ZRS.Z5 rather than ZRESTART.Z5: 8.3.
+$(BUILD)/zt/ZRS.Z5: tests/frotz/zrestart.inf
+	@mkdir -p $(BUILD)/zt
+	@$(INFORMCHK)
+	$(INFORM) -v5 $< $@
+
+$(BUILD)/zrestart360.img: $(BUILD)/calc.o88 $(BUILD)/frotz.o88 \
+                          $(BUILD)/zt/ZRS.Z5 tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 360 $(BUILD)/calc.o88 \
+		$(BUILD)/frotz.o88 $(BUILD)/zt/ZRS.Z5
+
 $(BUILD)/filetest.bin: tests/filetest/filetest.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/filetest/filetest.asm
 	@echo "filetest: $(call FILESIZE,$@) bytes"

@@ -2753,6 +2753,22 @@ SOAK = [
         "`look` after. Red with the three new words left out of zf_rltab "
         "(all three stale). 27s measured",
         needs=("marty",), serial=True, wants=("build/zmove360.img",)),
+    Row("zrestart", "soak", py("tests/zrestart.py"), 165.0,
+        "NO-PINNING P2 (SPEC.md 66.5.9.3): Frotz's worker RESTARTS and its "
+        "REGION moves. tests/frotz/zrestart.inf puts every park site behind "
+        "a command; the row stops the worker in each - the burst loop, "
+        "@read with half a line typed, @read_char, @save/@restore/@restart "
+        "both before RETURN and after the UI task answered with the worker "
+        "held parked, @verify at a breakpoint in its walk - and moves the "
+        "region (a Calculator closed above it per move); [MORE] must PIN "
+        "(restart word 0, no move). Every leg's dynamic memory, [zf_sp], "
+        "Z-stack and window transcript equal a second boot that moves "
+        "nothing; two save files and no third. VERIFIED RED: declaration "
+        "pointed at plain zx_worker (@read never sees 'open door'; @save's "
+        "store byte runs as an opcode and the story halts), and [MORE]'s "
+        "withdrawal taken out (the region moves under the prompt and the "
+        "transcript gains a line). 163s measured, two boots",
+        needs=("marty",), serial=True, wants=("build/zrestart360.img",)),
     Row("pkgmove-wireflet", "soak",
         py("tests/pkgmove.py", "--app", "wirefleet", "--disk",
            "games360.img", "--open", "B:/WIREFLET.O88", "--word",
