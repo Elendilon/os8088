@@ -97,7 +97,7 @@ KERNEL 0x0060  FAT 0x0c60  LOW 0x0d80  COLD 0x0f00  VGABUF 0x1840  HEAP 0x1860
 ```
 
 `(0x0F00 - 0x0060) * 16 = 59,904`. The window `KERNEL_SEG` reaches ends at
-65,536. MONO-RECLAIM-PLAN §3 assumed a rung of its own was outside that
+65,536. MONO-RECLAIM-PLAN section 3 assumed a rung of its own was outside that
 window. A rung placed right above LOW is inside it.
 
 **Proposed ladder:**
@@ -115,16 +115,16 @@ window. A rung placed right above LOW is inside it.
 - **Its data**: VGA-only `.bss` (57 bytes, 96 with VESA) goes in a nobits
   tail of the rung, DS-near like the rest. `.vgabuf` stays where it is,
   already dropped on a machine with no VGA (`mem_floor_ax`).
-- **It holds** the VGA-only bodies from vga12.inc (MONO-RECLAIM-PLAN §1.1's
+- **It holds** the VGA-only bodies from vga12.inc (MONO-RECLAIM-PLAN section 1.1's
   table), the planar decoder, and the VESA hook (`vidext.inc`, a VGA
   superset).
 - **What stays in `.text`** is every DOOR, meaning the `[vid_mono]` /
   `[vid_planes]` test that decides between renderers, and every body BOTH
-  renderers share (`vga_rect_setup`, `vga_xor_fill_vram`'s entry; MONO-
-  RECLAIM-PLAN §1.1 found two of those by building, not by name).
+  renderers share (`vga_rect_setup`, `vga_xor_fill_vram`'s entry; MONO-RECLAIM-PLAN
+  section 1.1 found two of those by building, not by name).
 
 **The one cycle it costs.** `gfx_fill_raw` FALLS THROUGH into
-`vga_solid_rect` (MONO-RECLAIM-PLAN §1.2). With the body in the rung, the
+`vga_solid_rect` (MONO-RECLAIM-PLAN section 1.2). With the body in the rung, the
 VGA arm becomes one near `jmp`: about 15 clocks (~3 us) per fill, on VGA
 machines only, against a fill's ~756 us fixed part. The mono arm is
 byte-identical. Every other entry is already a `call` or a `jmp`.
@@ -158,7 +158,7 @@ the HMA install is a delta mover (wave 1), because on a 286 with CGA or
 Hercules the slide may already have happened.
 
 **The gate the plan cannot ship without.** Once the rung is dropped, a call
-into it on a mono machine runs `.cold`'s bytes. MONO-RECLAIM-PLAN §3 already
+into it on a mono machine runs `.cold`'s bytes. MONO-RECLAIM-PLAN section 3 already
 names the tool: a `tests/vgarefs.txt` in the shape of `tools/os88ovlchk.py`
 and `tests/ovlrefs.txt`. It lists every reference into `.vga` from outside
 it and says which `.text` door guards each one. A new caller then fails the
@@ -177,7 +177,7 @@ build until somebody argues it in.
 | the VESA hook (`NOVIDEXT`) | 330 | 39 | 26 | 0 | 0 |
 
 The `.cold` share stays where it is: it runs with CS = `COLD_SEG` and cannot
-move into a near rung. The inline dispatch stays too: MONO-RECLAIM-PLAN §2.2
+move into a near rung. The inline dispatch stays too: MONO-RECLAIM-PLAN section 2.2
 estimated ~220 bytes of it on `kern_small`. **So the rung is ~3.2-3.4KB.**
 `.vgabuf` is already given back today, so it is not part of the gain.
 
@@ -205,7 +205,7 @@ state, `mod_need`'s loop, the `jmp`). §5's packed top removes the rounding.
 - **~105 ms of boot** on a mono machine with no ROM. Nothing on any other
   machine.
 - **Blob room** for the mover and its list, perhaps one sector (~24 ms in
-  the run, no extra `int 13h`, MONO-RECLAIM-PLAN §3).
+  the run, no extra `int 13h`, MONO-RECLAIM-PLAN section 3).
 
 ## 4. Waves
 
@@ -238,7 +238,7 @@ Small, and it is where §5 lands if taken.
 
 **Wave 3 - the `.vga` rung.** Move the bodies (§2), write the
 `tests/vgarefs.txt` gate first so the move is checked as it is made, then
-the slide. The order follows MONO-RECLAIM-PLAN §8: the build that fails to
+the slide. The order follows MONO-RECLAIM-PLAN section 8: the build that fails to
 assemble is the only classification that cannot be fooled by a name.
 
 **Gates and rows to name** (run in the final pass, not per wave):
