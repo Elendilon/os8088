@@ -687,6 +687,10 @@ mem_floor_ax:
     and al, 0xE0                ; under the floor are paragraphs now, and a
 %endif                          ; heap base is an int 13h target (guard 6,
     ret                         ; MOVABLE-COLD-PLAN 5)
+%ifdef KERN_SMALL
+    nop                         ; PARITY PAD, never executed: the round-up is
+%endif                          ; five bytes, and dsk_xfer, dsk_runcap and
+                                ; dsk_next_clus_x sit past it in `.cold`
 
 ; -----------------------------------------------------------------------------
 ; mem_claim / mem_claim_hi / mem_claim_dma - claim a block of the heap
