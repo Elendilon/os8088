@@ -307,8 +307,18 @@ def item_menus(fl):
     assert fl.b("xb_cur") == 1, "Up flips the mode"
     fl.key("ArrowDown", settle=.3)
     assert fl.b("xb_cur") == 0, "Down flips it back"
-    fl.key("Enter")
+    # ONE PRESS, ONE SCREEN (flow.inc xb_rdkey): an Enter held past the typematic
+    # delay repeats, and no repeat may be the course screen's Enter. A soak caught
+    # the mode screen's Enter starting a race when a key-up arrived late: the course
+    # screen's bounded wait for the release (40 frames) ran out and its own key read
+    # took a repeat. pace(.6) is ~2.7 GUEST seconds of hold - the late key-up, and
+    # a long hold, which a fix that only drains the repeats queued so far does not
+    # survive. Broken on purpose (the old xb_flush), state reaches 3 every time
+    fl.key("Enter", hold=.6)
     fl.wait_state(ST_TRACK)
+    M.guest_sleep(fl.m, .5)
+    assert fl.state() == ST_TRACK, ("a held Enter went past the course list",
+                                    fl.state())
     n = 5
     for _ in range(n + 2):                          # past the end: it stops on the last course
         fl.key("ArrowDown", settle=.2)

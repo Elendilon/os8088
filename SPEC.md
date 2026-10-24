@@ -14436,6 +14436,43 @@ it is recorded because the next author to say "it lands in the padding" needs
 to know the padding is spent. Nothing is added to the per-interrupt path
 except that one `mov`, and `mou_lockon` runs once in the life of a machine.
 
+### 9.5.6 A port reporting line errors cannot win the contest
+
+A null-modem game (WireBall §109, WireFleet §114) talks at 2400 baud 8N1 and
+the mouse ports listen at 1200 7N1. A machine that boots, or sits unsettled,
+while its peer is already sending receives that stream as a sequence of
+mangled bytes, and some of those bytes have exactly a mouse packet's shape: a
+byte with bit 6 set and two without. On a machine with ONE serial port
+`[mou_need]` is 1, so the first such triple settled the contest on the cable:
+the pointer moved on cable bytes, and the keyboard mouse retired for the
+session (§9.6.1.1). Reported off two Compaq Portable IIIs, and modelled with
+an 8250 receiver against WireBall's own frames: the one-port machine settles
+within the first frame, in 2 to 10 received bytes.
+
+The tell is the receiver's own: that stream is 28 to 94% framing errors, and a
+mouse at its own rate makes none. So the ISR's port scan stamps `[ticks]` into
+`[bx+mou_errt]` whenever LSR reports a framing error or a break (bits 3 and
+4), and `mou_claim` will not add a packet to a port's run, and
+zeroes it, while that port's last error is under `MOU_ERRQ` = 36 ticks
+(~2 s) old. A cable that keeps talking keeps its port out of the contest; a
+mouse that glitches once while being plugged in is delayed by two seconds and
+no more. A stamp rather than a block until the next reset edge, because the
+hot-plug poller stands down once a port has identified (§9.4.1) and a block
+would then be permanent. Only the unsettled contest is gated: a settled
+mouse's packets are untouched. A peer at the SAME rate makes no errors and is
+not caught by this; nothing on this system sends at 1200. Overrun (bit 1)
+is deliberately NOT counted: it says our ISR was late, not what the device is,
+and a busy boot could otherwise hold a real mouse back. Parity (bit 2) cannot
+occur, the ports running without it.
+
+Cost: 34 bytes of `.text` on both kernels - the 4-byte table, 12 in the ISR's
+scan and 18 in `mou_claim`, both even so the hot code behind them keeps its
+parity (`tests/unit/t_hotpar.py`). `tests/mouerrq.py` is the gate: a BREAK on
+a one-port QEMU machine's cable, then a well-formed packet, must not settle
+the contest; the same packet two seconds later must. MartyPC reports no
+framing errors, so it carries only the gate's half: a stamped port's mouse
+cannot win inside the window and wins after it.
+
 ### 9.5.4 The WHEEL mouse's fourth byte, and why the contest could never be won
 
 docs/FIELD-NOTES.md 44's second reading, and the actual defect behind the
@@ -63013,6 +63050,29 @@ would need a second walk to act on it. It survives a page switch, because
 coming back to where you were is the better behaviour and the clamp is what
 keeps it honest.
 
+#### 28.4.4.1 The thumb is DRAGGED, at rate 0 on an 8088
+
+The list's thumb was inert until now - a press on it paged toward where it
+lay - on an argument that held only half the question: a scroll here is a
+LIST REPAINT (~20 rows of text, ~450 ms on the target machine), so a view that
+followed the hand would be seconds behind it. That prices a FOLLOWING view.
+§13.10.5.4's rate 0 is the other answer, and the one Note Pad already ships:
+the thumb follows the hand (`os88ui_sbmove`, one bar's drawing per row of
+travel) and the list is repainted ONCE, at the release - a page-down's cost
+for a jump of any length. A 286 or better follows at 2 ticks
+(`TM_SBRATE286`, Note Pad's figure), resolved by `os88ui_sbrate`.
+
+- `tm_hscroll` grabs on `OS88UI_SBTHUMB` (`os88ui_sbgrab`); `tm_ondrag`
+  (W_ONDRAG) and `tm_onup` (W_ONMOUSEUP) hand what `os88ui_sbtrack` /
+  `os88ui_sbdrop` say the view is owed to `tm_hscroll.set`, the wheel's own
+  entry, so the end stops and the moved-or-not test are one body.
+- `tm_hsbset` runs `os88ui_sbfix`, so the twice-a-second refresh draws the
+  thumb where the HAND is during a drag rather than snapping it back.
+- `.set`'s moved-or-not test compares against `[tm_htop]` before the move,
+  not the block's pos, which is the hand's during a drag.
+- A kernel with no tracking edge (`OSAPI_WM_ONDRAG` answers CF = 1) sets
+  `[tm_nodrag]` and the thumb pages as it did.
+
 ### 28.4.5 A raise cache is filed under the package that owns the WINDOW
 
 `MEM_P_WSAVE + slot` is a **kernel** tag (§11.96.3), so `tm_hmatch`'s System
@@ -63226,7 +63286,7 @@ page:
 |---|---|
 | RAM | conventional + `[tm_hitot]` (the BIOS's extended KB) in MB |
 | System | `tm_sysk` + `[tm_hisys]` (+ `IVT+BIOS` when folded) + `SK_KCLAIM` |
-| memory view System SIZE | `tm_sysk` + `[tm_hisys]`, its items naming the fixed areas above 1MB and every owner there (§28.4.10) - or one `Above 1MB` row carrying the span where the walk has no markers - so the rows still sum |
+| memory view System SIZE | `tm_sysk` + `[tm_hisys]`, its items naming every owner (§28.4.10) and then the span above 1MB as a heading - `HMA` on kern_big, `Above 1MB` on kern_mega - with what is in it under it (§28.4.13), so the rows still sum |
 | a program, both pages | its region and conventional claims, plus `tm_slotxkb`'s blocks above 1MB (its `OSAPI_XMEM_ALLOC` blocks, and on kern_mega its `OS88_HIGHMEM` claims) |
 | the summary line, kern_mega in protected mode only | ONE pair, `Ram u.uu/t.ttM` - used (RAM's, as above) over total (conventional + `[tm_hitot]`) in MB to two decimals, truncated - and ONE bar (KERN-MEGA-PLAN 14.70.2) |
 
@@ -63246,7 +63306,7 @@ Measured on 86Box: the mr286 (4MB, kern_mega) reads `RAM 0.3/3.6M`, System
 343K of which 267K is above 1MB; an AMI 286 with 2MB on kern_big reads
 `RAM 0.1/1.6M`, System 122K of which 64K is the HMA, `XMS 0/960K`. The same
 board at 1MB reports no extended memory at all, and the page shows none.
-The `Above 1MB` row (or the fixed areas that replace it, §28.4.10) is drawn
+The span's heading and its rows (§28.4.13) are drawn
 only with `[tm_hion]`; the list scrolls, so it costs no other row.
 
 ### 28.4.9 `640K-1MB`: the memory view's read-only map of what is not RAM
@@ -63371,12 +63431,13 @@ with the Calculator open: `RAM 120/640K`, `System 102K` + `Programs 18K`,
 `AVAIL 520K`; DETAIL adds `Purgeable 116K`.
 
 System's items (`tm_sysitems`): `IVT+BIOS` at 0000 (§28.4.8), `Code+data`
-(the kernel's span, no address), `Stacks` and `FAT snap`; above 1MB on
-kern_mega the fixed areas by name - `HMA (DOS)`, `GDT`, `LDT+IDT`, `Kernel
-code`, `Padding` - off `OSAPI_XMEM_WALK`'s markers (§28.4.11), or one
-`Above 1MB` row where the walk has none to give (kern_big's HMA); then the
+(the kernel's span, no address), `Stacks` and `FAT snap`; then the
 `Kernel` group (its pool blocks and tagged claims), one group per driver, and
-one per built-in (a Disk window, named by its folder - `APPS`), each opening into its claims. The
+one per built-in (a Disk window, named by its folder - `APPS`), each opening
+into its claims; and LAST the span above 1MB as a heading with its contents
+under it (§28.4.13) - on kern_mega the fixed areas by name, `HMA (DOS)`,
+`GDT`, `LDT+IDT`, `Kernel code`, `Padding`, off `OSAPI_XMEM_WALK`'s markers
+(§28.4.11); on kern_big `.cold`, each driver in the HMA and what is free. The
 rows still sum: System's figure is the sum of exactly these.
 
 **`+ALL` opens every group and `-ALL` closes them** - the switch says what a
@@ -63433,7 +63494,8 @@ additively (§20.2.0.1: no `PKG_FMT` bump, `tools/abi.lock.json` refreshed):
   row shift.
 
 The Task Manager asks with BX = `XMW_FIXED` and keeps `[tm_hifix]`, so a
-kernel that answers no markers still reads as one `Above 1MB` row. Cost:
+kernel that answers no markers still reads as the span's heading alone
+(§28.4.13). Cost:
 kern_mega `.mega` 14,460 → 14,609 (+149 bytes), `.text` +0; kern_big and
 kern_small byte-identical (the build number aside).
 
@@ -63467,6 +63529,76 @@ HDDTOOL) is in no kernel table and answers CF = 1; its header's own name at
 no rung crossed; kern_small the cell's 6; kern_mega the same plus
 `mega_imgnf` above 1MB. `taskmgr.o88`'s image 9,595 -> 9,866 bytes, which
 is the DETAIL sign and blank row too.
+
+### 28.4.13 System's span above 1MB is a HEADING: `HMA` on kern_big
+
+**The defect**: on a 286 or better kern_big runs SOUND.DRV, HDD.DRV and
+NET.DRV from the HMA (§2.10.8), where an image is no heap claim and
+`OSAPI_MEM_HMA`'s buffers are none either - so a driver there held nothing
+the page could see, its group totalled 0 and was not drawn, and the 64KB
+were one `Above 1MB` row with nothing under it. Worse, a heap claim such a
+driver DID make (its fallback buffer) is owned by its HMA segment, F400-F9FF,
+where no claim is based, so `tm_hdrv` missed it and filed it under `Kernel`.
+
+**The data**: XMEM.DRV already loads the HMA's tail, so it banks two words of
+its `rom_id` when the install succeeds - +12, `hb_tab`'s offset, and +16,
+now `HB_HI` (where `.cold` begins, the pool's top; it was eight zero KEY
+bytes in the HMA kind) - and its `XMV_WALK` answers BX = `XMW_FIXED`, which
+it used to ignore, with the HMA's contents in front of the pool's blocks:
+
+| owner | record |
+|---|---|
+| `XMW_HMAK` (F5h) | `.cold` and the tail: `XMW_OFF` FFFFh, `XMW_KB` 64 less `HB_HI`'s whole KB |
+| `XMW_HMAI` (F6h) | a driver's image: `XMW_OFF` the segment it runs at, `XMW_KB` its bytes rounded UP, `XMW_CLS` its class off its own header |
+| `XMW_HMAB` (F7h) | a buffer a driver took there, the same fields, class off its OWNER's header |
+
+All of it is inside the span `[tm_hifix]` already counts, so `tm_hikb`'s
+system sum and `tm_himax` skip F0h-F7h, and a block's group is flagged
+`TMG_HMAF` (40h): past `TMG_N`, so it is in no group total and no
+conventional row. No kernel byte moved; the walk, the bank and `xm_hwalk`
+are XMEM.DRV's, and nothing changes on a machine whose tail did not install.
+
+**The tree**: the span is a HEADING one level into System - the Programs
+heading's row-kind, no marker, not a click target - and it is System's LAST
+item, so nothing after it reads as inside it:
+
+```
+-System          155K
+ IVT+BIOS 0000     3K
+ ...
+ -SOUND.DRV       24K      conventional claims, when it has any
+  DrvBuf  96C0    16K HELD
+  DrvBuf  94C0     8K HELD
+ HMA              64K      kern_big; `Above 1MB` on kern_mega
+   Kernel code    40K
+  -SOUND.DRV      11K      its HMA blocks: a group two columns in (tm_grp2)
+   DrvImg F400    11K HELD
+  +HDD.DRV         4K
+  +NET.DRV         5K
+   Free            4K      the span less every row above it
+Programs          ...
+```
+
+(Measured under QEMU with SOUND, HDD and NET wanted and Recorder playing:
+the pool's 4K free could not hold SOUND.DRV's 8KB double buffer, so it and
+the 16KB ring went to the heap - and read under `Kernel` before this.)
+
+A driver with blocks in the HMA AND heap claims appears twice, once per side,
+and shares ONE group bit: the group ids are the 32 bits of `[tm_exp]` and
+none is free, so opening one opens both. Each row is its own side's total.
+On kern_mega the heading reads `Above 1MB` and its five fixed areas
+(§28.4.11) are its items, which tile it, so there is no `Free` row; a kernel
+that names nothing in the span shows the heading alone.
+
+`tm_cgidof` now finds the driver whose heap claim is owned by an HMA segment:
+an owner at or above `DRV_HMA_SEG` whose header at `DRV_HMA_ORG` says `O8`
+is that driver's, by `tm_drvgid`, which reads the header there too.
+
+**What it cost**: no kernel byte on any build. XMEM.DRV's image 2,098 ->
+2,239 bytes (+141: `xm_hwalk`, the two banked words and the BX test), inside
+the 3KB claim it already took; COLDHMA.SYS +0 (the two bytes were zeros).
+`taskmgr.o88`'s image 9,954 -> 10,646 bytes, which is this section and
+§28.4.4.1's thumb drag together.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 
@@ -64250,6 +64382,37 @@ picture: the cache word cannot be read (§11.96.18.1), a forced repaint cannot
 be a reference while anything else is up, and what is left to assert is the
 **calls**.
 
+#### 28.11.3 A paint the WORKER did not make forgets the quiet key
+
+`tm_quiet`'s key (§28.6.1) is recorded by the worker's own paint and by
+nothing else. Every other draw of the two quiet pages - `tm_paint` as
+`W_PAINT`, and the page turn in `tm_click` - draws from the last **sample**,
+and leaves the recorded key describing an older glass than the one it just
+made. That is an **ABA**, and it is not hypothetical:
+
+1. the Disk window opens; its listing claim moves the table to state **B**
+   and the page shows `RAM 114K` - drawn by a `W_PAINT`, so the key still
+   says **A**;
+2. a zoomed window covers the Task Manager wholly, so every worker paint is
+   refused at `OSAPI_WM_CLIP_SET` and records nothing;
+3. the Disk window closes under the cover (table back to **A**), and the
+   uncover's `W_PAINT` draws the sample it has - still **B**, `RAM 114K`;
+4. `tm_quiet` compares **A** with the **A** recorded before step 1 and
+   answers *nothing moved* - **for ever**, over a page reading two KB more
+   than the machine is using.
+
+`tests/tmground.py`'s PIXELS leg found it as `72 subpixels` (the `RAM`,
+`HEAP`, `AVAIL`, `MAX RUN` and `System` figures): whether step 1's paint was
+the worker's or the kernel's is the phase of `TM_SLOW`'s two-second cadence
+against the harness, which a kernel three bytes longer moved, and which host
+load moves as well (7 of 8 runs at four-wide on four cores).
+
+`tm_promise` - which both of those callers already call last - stores **0**
+there first. No hash answers 0 (`tm_qpeek`'s never-zero rule), so the next
+due interval walks and `tm_update` draws only the elements whose OWN keys
+moved: nothing at all when the glass was current, which is §28.6's measured
+quiet refresh. **+6 package bytes, no kernel byte.**
+
 ### 28.12 `APP_SMALL` — the small build of this package
 
 Note Pad's §27.16, applied here, and the rules there hold unchanged: one
@@ -64267,7 +64430,7 @@ the pages themselves:
 
 | flag | off in `APP_SMALL` | what goes with it |
 |---|---|---|
-| `TMF_HEAP` | the heap page (§28.4), the memory page's groups since §28.4.10 | the per-claim rows and their `TYPE`/`TIER` decode, the groups and the two header switches, the `AVAIL` line (`tm_hsnap`'s `OSAPI_MEM_AVAIL` pair), the scroll bar (§13.10) and `TM_SHOWN`'s share of `tm_rowck` |
+| `TMF_HEAP` | the heap page (§28.4), the memory page's groups since §28.4.10 | the per-claim rows and their `TYPE`/`TIER` decode, the groups and the two header switches, the 640K–1MB rows (`tm_romscan`), the `AVAIL` line (`tm_hsnap`'s `OSAPI_MEM_AVAIL` pair), the scroll bar (§13.10) and `TM_SHOWN`'s share of `tm_rowck` |
 | `TMF_MEM` | the memory view (§28) | the conventional-memory map, the XMS bar, the `NAME/ADDR/SIZE/HEAP` re-columning, the legend squares and their textures (the claim swatch beside the RAM line's HEAP pair among them; the pair itself stays) — and the whole of §28.6/§28.8/§28.11's quiet-page machinery, which exists for these two pages and for nothing else |
 
 **The ladder is ORDERED and the guard says so.** The heap page borrows the
@@ -64290,11 +64453,17 @@ worth a byte of `.text` here and `tools/os88pkgsize.py` prints the sum:
 | arm | image | bss | claim | vs. full |
 |---|---|---|---|---|
 | full (shipped) | 7,589 | 1,698 | **9,287** | — |
-| `TMF_HEAP` off | 6,300 | 1,586 | 7,886 | −1,401 (15.1%) |
+| `TMF_HEAP` off | 5,356 | 2,054 | 7,410 | −4,926 (39.9%) against the full arm's 9,929 + 2,407 = 12,336 *(as of the §28.4.10 merge)* |
 | both off (`APP_SMALL`) | 3,641 | 1,313 | **4,954** | −4,333 (46.7%) |
 
 (As of §28.12.3; §28.12.2's pass left the small arm at 4,400 of image; the first pass left them at 8,223 / 6,970 / 4,980 of
-image against 1,707 / 1,581 / 1,317 of bss.)
+image against 1,707 / 1,581 / 1,317 of bss. The `TMF_HEAP` row is re-measured
+after §28.4.10 merged the heap page into the memory page and left its list
+reachable under `TMF_MEM` alone, so the middle rung stopped assembling: the
+list - groups, claim rows, the 640K-1MB rows, the `AVAIL` line, the header's
+switches and the scroll bar - is `TMF_HEAP`'s again, and that rung is the
+memory page ENDING at the XMS line. Its bss grew with the pool walk the summary
+line reads (`tm_xw`), not with the list.)
 
 The first size pass on the package (it had only ever been moved, never
 trimmed) took the full arm from 9,245 + 2,269 = 11,514 to the row above and
@@ -182313,10 +182482,24 @@ from sending anything more from EITHER device. Five places, four rules:
   there for the whole program. Bochs, the pointer moving over every launch:
   `KBTRIP entry 64=31` (OBF, AUX) and no key, 6 trips of 12. Now, with a PS/2
   pointer live: IRQ12 masked, `0xD4 0xF5` (reporting off, as POST leaves it),
-  its `0xFA` read behind any queued packet (64 bytes at most), then
-  `mouse_unhook`, then every AUX byte still in the buffer read and dropped
-  (a keyboard byte is left for `int 09h`). The wake's `0xF4` turns reporting
-  back on, so nothing on the return changes for it. 0 of 12 after.
+  its `0xFA` read behind any queued packet (256 bytes at most), every AUX
+  byte still coming read and dropped until 4,096 polls in a row bring none
+  (`hbm_p2drop`), then `mouse_unhook`, then `hbm_p2drop` again (a keyboard
+  byte is left for `int 09h` both times). The wake's `0xF4` turns reporting
+  back on, so nothing on the return changes for it. 0 of 12 after. The drop
+  BEFORE the unhook is docs/plans/KERN-MEGA-PLAN.md 14.62.1: `mouse_unhook`'s
+  command-byte write must not meet an AUX byte in the buffer, because Bochs
+  then raises IRQ1 for it and the AUX byte's read never lowers that line -
+  so the DOS program got no keyboard edge at all (`nokey 64=11`), or read
+  the stale data register as its first key (`key 4300`).
+* **On kern_mega, an IRQ1 takes only a keyboard byte that is there**
+  (`kbm_isr`, under `KERN_MEGA`). `mega_k09`, the ROM half it chains to,
+  reads port 60h without asking, so an IRQ1 whose byte a poll already took
+  read the data register's STALE byte - in Bochs, the command byte 43h that
+  `mega_d8042get` had just polled for, stored as F9 and read by the next DOS
+  program as `4300` (14.62.1). Status bit 0 clear, or bit 5 set (an AUX byte
+  is no scan code), and the ISR sends its EOI and leaves; it asks before the
+  `.peek` below it, which clears OBF.
 * **The wake collects the device's `0xFA` to its `0xF4`** with IRQ12 still
   masked (`hbm_wake` `.nowz`). It was left for the ISR - and step 4's `int 10h`
   follows at once, which on a 286 is a CPU reset whose BIOS can re-initialise
@@ -182357,6 +182540,11 @@ HIBER.DRV and every hunk is inside `KERN_BIG` or `KERN_MEGA`.
 `tests/megakbtrip.py` is the row: Bochs with an IntelliMouse, ten round trips
 of `tests/dostrap/kbtrip.asm` with the pointer moving across each launch, a key
 asserted INSIDE the program, the return, and the pointer moving after it.
+14.62.1's two added +17 bytes to HIBER.DRV on both kernels (`hbm_p2drop`,
+inside the same padded images; packed +16 and +13) and +8 to kern_mega's
+`.text` (`kbm_isr`'s test); kern_big's and kern_small's `kernel.bin` are
+byte-identical, and kern_mega's `.mega` moves by one immediate - the
+offset of `mpk_stub` in HIBER.DRV, which `mega_dstubup` names.
 
 #### 96.45.3 The pointer STARTS in the middle, and ours started at the origin
 
@@ -196918,6 +197106,18 @@ arrived:
   back, the next play - is out of memory even where the loader never ran.
   (The timer does not fire inside a bracket, whose main loop is one
   callback.)
+- **ahead of that, while the stream is PAST the hold's end** (`vp_xlag`):
+  a play started before the loader got that far - from the first frame
+  after key 0, or a seek - reads every chunk beyond a gap, and `vp_xput`
+  keeps none of them. So where the bracket's reader has nothing to read
+  (the ring has no room) it takes the loader's next chunk, as the timer
+  would, until the hold reaches the stream and `vp_xput` carries it on - a
+  play started at any point of the load returns with the hold whole. The
+  bracket has the heap, so the chunk is read through a BOUNCE slot the
+  ring's claim keeps for it, the bank's (98.3.18.2, `vp_bbnc`): a claim
+  made while a hold is still filling is one slot longer (`vp_bncq`). Not
+  under the speaker's clock (98.3.18.5); a step that put nothing up is not
+  asked again that play. +124 bytes of the package.
 
 A short read is the file's end, and sets `[vp_xfull]`: only then is a range
 that runs past `[vp_xhave]` the file's end rather than the disk's business.
@@ -197018,7 +197218,9 @@ loading the file to its end, the card's line drawn from the timer.
 `vidxmsnox` (`-m 1`) is the NEGATIVE CONTROL: no hold, the play off the
 disk, and after the same swap the same key REFUSED. Broken on purpose -
 `vp_xput` out of `vp_fill`, the hold short at the play's end (163,840 of
-973,312); `vp_xrdat` out of `vp_rdat`, the key refused - `vidxms` FAILS.
+973,312); `vp_xlag` out of the bracket's loop, short too (32,768: the play
+starts past key 0, beyond the one chunk then held); `vp_xrdat` out of
+`vp_rdat`, the key refused - `vidxms` FAILS.
 
 ###### 98.3.18.1.1 A wake that only fed the ring paints nothing
 
@@ -200572,10 +200774,17 @@ bracket opens on a TITLE, not on a race: `xb_game` is the state machine and
 results, 5 game over, 6 best times, 7 attract. Every screen is drawn as TILES
 (`xb_puts`: the compiled font, a run of byte moves a glyph; on the VGA the ink is
 the map mask of a palette slot, on the CGA there is one ink) over a black screen and
-every one begins with `xb_flush`, which empties the typed keys and waits (bounded, 40
-frames) for the Enter that brought it there to be let go of, BEFORE it draws, so a key
+every one begins with `xb_flush`, which empties the typed keys BEFORE it draws, so a key
 typed while a screen is being drawn is kept. A screen waits with `xb_getkey`: one
 `FSXW_FRAME` (an 18 ms sleep, not a spin) and the typed key, `CF` = Alt+Enter.
+**One press of Enter is one screen however long it is held**: every typed key - the
+menus' and the race's - comes through `xb_rdkey`, which takes an Enter once per PRESS
+(`[xb_enth]` is set when one is taken and cleared when `OSAPI_KEY_DOWN` reads Enter up)
+and throws away every Enter typed in between, which is the held key's typematic
+repeats. It replaced a bounded wait (40 frames) in `xb_flush` for the release, which a
+hold longer than the bound ran straight through: the course screen took a repeat and
+the mode screen's one press started a race. Being a level read it is advice (SPEC.md
+67.11.1) - a break lost inside an interrupts-off window costs one extra press.
 `xb_menu_begin` hands the card back from a race (VGA: the line-compare split off,
 the start address home, write mode 0 with every plane and the bit mask open, two
 frames for the start address to latch; CGA: the start address home) and paints the
@@ -209045,7 +209254,8 @@ First to 11 wins, without a win-by-two requirement.
 
 ### 109.1 Port lifetime
 
-Serial play borrows the BIOS-advertised standard COM1/COM2 UARTs only inside
+Serial play borrows the BIOS-advertised standard COM1/COM2 UARTs (3F8h and
+2F8h, listed in any of the four BIOS COM slots, §115.1) only inside
 the exclusive bracket, where all other tasks are frozen. It saves each UART's
 LCR, IER, divisor and MCR, masks IRQ3/IRQ4 (the mouse ISR scans both UARTs),
 and polls at 2400 baud, 8N1, without hardware flow control. Presence is tested
@@ -213385,6 +213595,25 @@ the row fills the window by INJECTION (`tests/wcprobe.py`): a reply §113.2.3
 would send is written into `wc_resp` and handed to the UI task as the worker
 would hand it.
 
+**A flush does not restore the grow box**, because nothing it draws reaches
+it: the status bar's band stops `WC_GROWC` cells short of the corner, and
+every other region ends at or above the input row. Both flush paths
+(`wc_cbflush` and the wake's) called `OSAPI_WM_GROW` after every change, and
+`wm_grow_paint` FILLS the square white before framing it - the
+erase-and-letter flash in one corner, three or four times a gesture, which
+§27.2.1 took out of Note Pad for the same reason. A full paint (`wc_repaint`,
+and the kernel's own after `W_PAINT`) still restores it: that is the path
+whose ground fill covers the corner. `tests/wcdraw.py` counts the package's
+`OSAPI_WM_GROW` calls apart from its drawing calls and holds every gesture at
+ZERO. The same defect is what made its identity INTERMITTENT on the VGA: a
+capture that landed inside a restore read a half-drawn grow box, on either
+side of the comparison. The other thing that legitimately changes between the
+two captures is the header's CLOCK, so the identity starts only with 30
+guest seconds left in the kernel's minute (`clk_min`/`clk_sec`), waiting for
+the turn and for `wc_clkm` to show it otherwise, and with the activity lamp
+out and nothing dirty - and fails by name if the minute still turned. -18
+bytes of image (22,186 -> 22,168).
+
 #### 113.5.2 The themes
 
 Five, picked from the **Theme** menu (§113.6.4) and kept in `WIRECHAT.CFG`
@@ -214296,7 +214525,9 @@ Open, ignored for the other verbs. Every operation is bound to the calling
 instance. A winning serial mouse's port is never eligible. Until the mouse
 contest is settled, Open decides per port (§115.1.1) and otherwise refuses
 with a distinct error; the caller tells the user to name the port or move
-the mouse. Nonstandard or unadvertised bases are refused.
+the mouse. Nonstandard or unadvertised bases are refused: COM1 is 3F8h and
+COM2 is 2F8h whichever BIOS COM slot (0040:0000-0006) lists them, because a
+Compaq lists them in its SETUP's order rather than IBM's.
 
 | AL | verb | arguments and result |
 |---|---|---|
@@ -214334,7 +214565,10 @@ Close; the contest resumes there afterwards. All of it is in `SERIAL.DRV`:
 no resident byte. A settled contest ignores bit 7.
 
 Refusals are AX=1 busy/wrong owner, 2 mouse not settled, 3 mouse port,
-4 absent/unsupported port, 5 invalid caller/buffer, 8 module unavailable.
+4 absent/unsupported port (BL not 1 or 2, or the boot probe found no UART
+there, §9.5), 5 invalid caller/buffer, 8 module unavailable, and 9 the
+UART is there but no BIOS COM slot lists its base. 4 and 9 are told apart
+because a user can fix 9 in the machine's SETUP and cannot fix 4 at all.
 The buffer is 0 RX head, 1 RX tail, 2 sticky error bits, 3 TX head, 4 TX tail,
 5..260 RX bytes, 261..516 TX bytes. Each 256-byte ring holds at most 255
 bytes. Original LSR error bits 1–4 are sticky at byte 2; bit 7 is RX overflow.

@@ -379,6 +379,9 @@ xm_walk:
     pushf
     cli
     cld
+    cmp bx, XMW_FIXED           ; ...and the HMA's contents first, when the
+    jne .l                      ; Task Manager asks for the fixed areas
+    call xm_hwalk               ; (SPEC.md 28.4.13)
 .l:
     jcxz .done
     cmp word [si+XB_KB], 0
@@ -405,6 +408,101 @@ xm_walk:
     pop si
     pop cx
     clc
+    ret
+
+; -----------------------------------------------------------------------------
+; xm_hwalk - the HMA's contents as walk records (SPEC.md 28.4.13): one for the
+;            kernel's `.cold` and the tail's resident half, then one per live
+;            block of the tail's pool (boot/osrom.asm's hb_tab)
+; in:  ES:DI = room for CX records, AX = written so far, IF = 0, DF = 0
+; out: ES:DI, CX and AX advanced past what it wrote; the rest kept
+;
+; A block's record: XMW_OFF = the segment it is addressed by (SEG:DRV_HMA_ORG,
+; F400-F9FF), XMW_KB its bytes rounded UP, XMW_OWN XMW_HMAI for a driver's
+; image (its owner is its own segment) or XMW_HMAB for its buffer, XMW_CLS
+; the owning driver's DRVC_* off its header. `.cold`'s is XMW_HMAK, at FFFF.
+; Nothing is written with no tail installed - the HMA is then one span the
+; caller already knows the size of.
+; -----------------------------------------------------------------------------
+DRV_HMA_ORG     equ 0xC000      ; MIRRORED: kernel/kernel.asm's
+XMW_FIXED       equ 0x4658      ; MIRRORED: apps/os88api.inc's walk records
+XMW_HMAK        equ 0xF5
+XMW_HMAI        equ 0xF6
+XMW_HMAB        equ 0xF7
+XM_HB_N         equ 8           ; boot/osrom.asm's HB_N: 6-byte records of
+                                ; base (0 = free), bytes, owner
+xm_hwalk:
+    cmp word [xm_hbtab], 0
+    je .ret
+    jcxz .ret
+    push bx
+    push dx
+    push si
+    push bp
+    push ds
+    mov bp, ax
+    mov ax, 0xFFFF              ; `.cold` and the tail: FFFF, and every KB from
+    stosw                       ; the pool's top to the HMA's end
+    mov al, [xm_hbhi+1]
+    shr al, 1
+    shr al, 1                   ; KB below it...
+    neg al
+    add al, 64                  ; ...and the 64 less them
+    xor ah, ah
+    stosw
+    mov ax, XMW_HMAK
+    stosw
+    inc bp
+    dec cx
+    mov si, [xm_hbtab]
+    mov bx, XM_HB_N
+    mov ax, 0xFFFF
+    mov ds, ax                  ; DS = the HMA, where the table is
+.b:
+    jcxz .bd
+    mov ax, [si]                ; a base, 0 = free
+    or ax, ax
+    jz .bn
+    push cx
+    mov cl, 4
+    shr ax, cl
+    add ax, 0xFFFF - (DRV_HMA_ORG >> 4)
+    mov dx, ax                  ; DX = the segment it runs at (hb_seg)
+    stosw
+    mov ax, [si+2]              ; bytes, at most a 16KB driver image
+    add ax, 1023
+    mov cl, 10
+    shr ax, cl
+    stosw
+    pop cx
+    push ds
+    mov ds, [si+4]              ; the owner: a driver's image segment
+    mov ah, 0
+    cmp word [DRV_HMA_ORG], 0x384F  ; 'O8': its header, and the class in it
+    jne .nc
+    mov ah, [DRV_HMA_ORG+3]
+.nc:
+    pop ds
+    mov al, XMW_HMAI
+    cmp dx, [si+4]              ; its own segment owns it: the image
+    je .img
+    mov al, XMW_HMAB
+.img:
+    stosw
+    inc bp
+    dec cx
+.bn:
+    add si, 6
+    dec bx
+    jnz .b
+.bd:
+    mov ax, bp
+    pop ds
+    pop bp
+    pop si
+    pop dx
+    pop bx
+.ret:
     ret
 
 
@@ -1307,6 +1405,11 @@ xm_feat:        db 0            ; CPU_F_* - what actually VERIFIED. This image
                                 ; AH keeps meaning what it always meant. Its
                                 ; CPU_F_A20 is also xm_attach's once-per-image
                                 ; test, so NOTHING may clear that bit
+xm_hbtab:       dw 0            ; the HMA's block table, FFFF:this - COLDHMA.SYS
+                                ; rom_id's +12, banked by xm_hma when the tail
+                                ; installed; 0 = no tail, so nothing to name
+xm_hbhi:        dw 0            ; ...and its +16, where `.cold` begins: the
+                                ; pool is below it (SPEC.md 28.4.13)
 
 
 ; -----------------------------------------------------------------------------
@@ -1629,7 +1732,12 @@ xm_hma:
     mov [xm_hma_fp+2], dx
     mov ax, [es:24]             ; ...and its entry
     mov [xm_hma_fp], ax
-    call far [xm_hma_fp]        ; CF is its answer and nobody needs it
+    call far [xm_hma_fp]        ; CF is its answer, and every register is
+    jc .free                    ; kept: ES is still the file. INSTALLED: bank
+    mov ax, [es:12]             ; where the block table and `.cold` are, so the
+    mov [xm_hbtab], ax          ; walk can name the HMA's contents (SPEC.md
+    mov ax, [es:16]             ; 28.4.13)
+    mov [xm_hbhi], ax
 .free:
     pop dx
     call OSAPI_MEM_FREE

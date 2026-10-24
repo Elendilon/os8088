@@ -811,6 +811,30 @@ hbm_kbak:
     pop cx
     ret
 
+; hbm_p2drop - every AUX byte the 8042 holds or is still being sent, read and
+; dropped until 0x1000 polls in a row bring none (KERN-MEGA-PLAN 14.62.1); a
+; keyboard byte is left for int 09h. 64 restarts at most: past those it is a
+; device that never stopped, and the quiet count simply runs out. AX clobbered
+hbm_p2drop:
+    push cx
+    push dx
+    mov dl, 64
+.r:
+    mov cx, 0x1000
+.l:
+    in  al, 0x64
+    and al, 0x21
+    cmp al, 0x21
+    jne .n
+    in  al, 0x60
+    dec dl
+    jnz .r                      ; a byte came: the quiet starts again
+.n:
+    loop .l
+    pop dx
+    pop cx
+    ret
+
 ; hbm_kstrand - a byte the 8042 holds that NO INTERRUPT WILL EVER TAKE, read
 ; and dropped (KERN-MEGA-PLAN 14.62). The controller has one output buffer for
 ; both devices and holds IRQ1 or IRQ12 high while a byte waits in it, so a
@@ -3156,12 +3180,19 @@ hbm_dosrun:
     mov bp, mou_p2dw
     call hbm_kd
     mov cx, 256                 ; bounded: a real device has one packet in
-.p2f5:                          ; flight; Bochs's mouse queues more, and 64
-                                ; let a long move's tail reach the program as a
-                                ; key (megakbtrip trip 1: `key 4300`)
+.p2f5:                          ; flight; Bochs's mouse queues more
     call hbm_p2rd
     cmp al, 0xFA
     loopne .p2f5
+    ; ...and whatever the device still sends behind that 0xFA dropped while
+    ; its clock runs, so that mouse_unhook's command-byte write never meets
+    ; an AUX byte in the buffer (KERN-MEGA-PLAN 14.62.1). Bochs's 0xFA
+    ; overtakes the packet bytes its mouse has queued, and a command-byte
+    ; write made with IRQ12's enable off and an AUX byte waiting makes Bochs
+    ; raise IRQ1 - whose line the AUX byte's read then never lowers, so the
+    ; keyboard sends no edge for the whole DOS program (`nokey 64=11`), or,
+    ; read as a key, the stale 43h: `key 4300`
+    call hbm_p2drop
 .p2q:
 %endif
     mov bp, mouse_unhook
@@ -3171,15 +3202,7 @@ hbm_dosrun:
     ; (a keyboard byte is left for int 09h: IRQ1 is open)
     cmp byte [cpu_tier], CPU_8086   ; an XT's 64h is no 8042 (9.9.2)
     je .p2d
-    mov cx, 0x1000
-.p2dr:
-    in  al, 0x64
-    and al, 0x21
-    cmp al, 0x21
-    jne .p2dn
-    in  al, 0x60
-.p2dn:
-    loop .p2dr
+    call hbm_p2drop
 .p2d:
 %endif
     mov bp, snd_unhook

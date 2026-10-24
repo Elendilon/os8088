@@ -95,7 +95,7 @@ def clip(tmp, secs, mem, bks=False):
     src = os.path.join(tmp, "life.mkv")
     subprocess.run(
         ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
-         "life=s=400x200:mold=10:r=15:ratio=0.4:death_color=#000000:"
+         "life=s=400x200:mold=10:r=15:ratio=0.4:seed=5088:death_color=#000000:"
          "life_color=#ffffff,trim=duration=%d" % secs, "-c:v", "ffv1", src],
         check=True)
     out = os.path.join(tmp, "LAY.V88")

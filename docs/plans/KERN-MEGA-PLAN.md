@@ -9485,6 +9485,84 @@ stray `2` on the seventh. Also covering: `megap2hiber`, `megahiber`,
   that expected it reporting with nobody having said so would see nothing,
   which is what POST would have given it.
 
+#### 14.62.1 `KBTRIP key 4300`: an IRQ1 with nothing in the buffer (2026-10-23)
+
+The soak ran `megakbtrip` at 95c64e0f and trip 10 of 10 read `KBTRIP entry
+64=10 / ready / key 4300` - the program's first key F9, nobody having pressed
+one; alone the row was 20 of 20. 43h cannot start a PS/2 packet, so the
+brief's guess was an AUX byte that outlived the 0xF5 and the drain. It was
+not: **43h is the 8042's COMMAND BYTE** (translate, system, both interrupt
+enables), and no AUX byte was ever read as a key.
+
+**How it was found.** Two Bochs instances, the row at `--trips 40`, Bochs's
+own keyboard log on (`debug: action=ignore, keyboard=report`) and the log's
+offset marked at each trip. Unfixed: 3 `4300`s in 34 trips (the row's rate
+under a soak's load, about 1 in 11 here against the soak's 1 in 30), and the
+log of each says the same thing: `mega_d8042get` writes 20h and reads 43h;
+the 0xF5's 0xFA is read; `mouse_unhook` sends A7 and writes the command byte
+61h **with an AUX byte in the buffer**; `hbm_dosrun`'s drain reads it; then
+two reads of port 60h **with the buffer empty** - `kbm_isr`'s peek and
+`mega_k09` - which return the data register's last KEYBOARD value: 43h. F9
+went into 40:1E, the DOS program's int 16h read it first, and the program
+had already exited when the harness pressed `k`.
+
+**Two Bochs behaviours feed it, and one kernel gap takes it.**
+
+- (a) **Bochs's 0xFA overtakes its mouse's queue** (`controller_enQ` puts
+  the ACK straight in the output buffer while the packet bytes wait in the
+  mouse's own), so the 0xF5 wait stops with the packet's tail still to come
+  and one of its bytes lands before the A7. And **a command-byte write with
+  IRQ12's enable off and an AUX byte waiting raises IRQ1** (keyboard.cc's
+  `else if (allow_irq1 && outb)`). The AUX byte's read lowers IRQ12 only, so
+  IRQ1's line STAYS HIGH: the IRQ1 is delivered with the buffer empty, and
+  no keyboard byte after it makes an edge until something polls one out.
+  All three unfixed failures were this, to the trip: a command-byte write
+  followed by an AUX read in exactly the failing trips (2 of 19 writes, 1 of
+  19), none in the passing ones.
+- (b) **The 20h's answer raises IRQ1 too** - correctly, on any 8042 - and
+  Bochs's PIC, once it has signalled INTR, delivers the vector at the next
+  IF = 1 even though the read lowered the line and cleared IRR. With the
+  keyboard timer firing inside `mega_d8042get`'s 14-instruction poll that
+  is the same stale read at `mega_dosparkf`'s `popf`; seen once in 7 trips
+  with (a) fixed.
+- **`mega_k09` reads port 60h without asking** whether a byte is there, and
+  a stale data register is whatever was read last. The tick's watchdog
+  (14.64) already counted on the opposite - *"a tick that misjudges a byte
+  merely delivers it early: its ISR finds the buffer empty after"* - and on
+  this kernel the ISR could not find that out.
+
+**Built**, at the two layers:
+
+| where | what | kernel |
+|---|---|---|
+| `hbm_dosrun` step 6 | after the 0xF5's 0xFA, `hbm_p2drop`: every AUX byte still coming dropped until 4,096 polls in a row bring none (64 restarts at most), BEFORE `mouse_unhook`; the post-A7 drain is the same routine | both (HIBER.DRV) |
+| `kbm_isr`, under `KERN_MEGA` | port 64h asked before anything reads 60h (the `.peek` clears OBF): bit 0 clear or bit 5 set and it sends its EOI and leaves | kern_mega (`.text`) |
+
+Either alone was measured and is not enough, which is why both are there.
+With only the ISR test, (a) still left IRQ1's line high in Bochs, and the
+same trips came back `nokey 64=11` - a keyboard byte with no edge - 9 times
+in 80, the 5 in the logged run each on a command-byte write that met an AUX
+byte. With only the drain, (b) gave one `4300` in 7 trips. With both: **138
+of 138 trips read `k` first** over four 40-trip runs on two displays beside
+the soak (40, 40, 40, and 18 before a run lost two typed letters to the
+harness flake below), and in the logged run none of the 42 command-byte
+writes met an AUX byte.
+
+**Cost**: HIBER.DRV +17 bytes of code on both kernels (packed +16 and +13,
+the padded images 7,169 and 10,241 unchanged); kern_mega `.text` +8, so
+`tools/os88megaseg.py`'s overhead 4,011 -> 4,019 of the 4,029 allowed.
+kern_big's and kern_small's `kernel.bin` are byte-identical (cmp, one
+commit); kern_mega's `.mega` changes by one immediate, the offset of
+`mpk_stub` in HIBER.DRV that `mega_dstubup` names.
+
+**The row**: `tests/megakbtrip.py` types the command in lower case now and
+gives a trip that never HANDED OVER (no new `kern_mega: parked`) one more
+launch. Under a soak's load (a load average of 20 to 30 on four cores)
+Bochs's GUI hands it X events in batches, and its keyboard's internal queue
+holds 16: `KBTRIP` batched whole is 24 scan codes and came back `KBTRP`, then
+`kbtrip` behind its BackSpaces came back `TRIP`, and once trip 1's
+double-click landed off the row. A dead keyboard fails the second launch too.
+
 ### 14.63 Field: the mouse dies when it MOVES DURING THE LIVE RESUME (2026-10-21)
 
 The owner, on the Victory 286 at 343124b2 (14.62's fix): the mouse froze on

@@ -327,6 +327,10 @@ mou_masks   dw MOU_L4, MOU_L3   ; ...the line its base says it drives, which is
                                 ; what to HOOK and never what to retire. READ
                                 ; AS BYTES ONLY: mou_b1 lives in the high bytes
 mou_isrs    dw mou_isr, mou_isr3    ; ...and the stub that vector points at
+MOU_ERRQ    equ 36              ; ~2 s: a port with a line error this recently
+                                ; may not add to its run (SPEC.md 9.5.6)
+mou_errt    dw -MOU_ERRQ, -MOU_ERRQ ; ...[ticks] at each port's last framing
+                                ; error or break; born "long ago"
 
 
 ; -----------------------------------------------------------------------------
@@ -1169,6 +1173,14 @@ mou_claim:
     push ax
     cmp byte [mou_seen], 0
     jne .out                    ; settled, and never revisited
+    mov ax, [ticks]             ; a line error on this port in the last
+    sub ax, [bx+mou_errt]       ; MOU_ERRQ ticks (SPEC.md 9.5.6): a cable's
+    cmp ax, MOU_ERRQ            ; stream at another baud rate decodes as
+    jae .count                  ; packets now and then - on a ONE-port
+    mov [bx+mou_run], ah        ; machine, where one packet settles, within
+    jmp short .out              ; its first frame. AH is 0 here (AX < 36).
+                                ; Wrap-safe, like [ticks]. 18 bytes, EVEN
+.count:
     inc byte [bx+mou_run]
     mov al, [bx+mou_need]       ; 1 where the probe found one port, MOU_LOCKN
     cmp byte [bx+mou_run], al   ; where it found two - and 1 again on a port
@@ -2806,6 +2818,21 @@ kbm_isr:
 %ifdef KBD_DIAG
     call kbg_pre                ; KBDDIAG=1 (SPEC.md 9.8.1): the 8042's status
 %endif                          ; and the BIOS buffer, before anything reads
+%ifdef KERN_MEGA
+    ; ONLY A KEYBOARD BYTE THAT IS THERE (KERN-MEGA-PLAN 14.62.1). mega_k09,
+    ; this kernel's ROM half, reads port 60h unconditionally, and an IRQ1
+    ; whose byte a POLL already took reads the data register's STALE byte.
+    ; The DOS handoff polls with IRQ1 open at the PIC (mega_d8042get's 20h,
+    ; hbm_dosrun's drain), Bochs delivered such an IRQ1 once in ~30 launches,
+    ; and the stale byte was the command byte, 43h: F9 in 40:1E, so the DOS
+    ; program's first key read `4300`. An AUX byte (status bit 5) is no scan
+    ; code either. Asked HERE, before the peek below clears OBF; neither case
+    ; is a key, so EOI and leave the buffer as it is
+    in  al, 0x64
+    and al, 0x21                ; OBF, and not the AUX device's
+    cmp al, 0x01
+    jne .selfchain
+%endif
     call sch_wake_ui            ; A KEYSTROKE WAKES THE UI TASK (SPEC.md
                                 ; 8.1.2.2). Here at the head and not after the
                                 ; chain below, because the chain is a `jmp far`
@@ -3504,10 +3531,19 @@ mou_isr_body:
     in  al, dx                  ; LSR: is anything waiting here?
 %ifdef MOU_DIAG
     push ax                     ; SPEC.md 9.4.6.5: ...and the error bits, which
-    and al, 0x1E                ; are read here and NOWHERE else in this kernel
+    and al, 0x1E                ; are kept here (9.5.6 stamps them just below)
     or  [bx+mdb_err], al        ; - a mouse at the wrong line rate is framing
     pop ax                      ; errors and no packets, and looks from every
 %endif                          ; other counter exactly like silence
+    test al, 0x18               ; framing error or break (SPEC.md 9.5.6):
+    jz .clean                   ; a byte at the WRONG RATE - a null-modem
+    mov cx, [ticks]             ; peer's 2400 into our 1200 - and no mouse,
+    mov [bx+mou_errt], cx       ; which at its own rate makes none. CX is
+.clean:                         ; free here (mou_byte spends it anyway).
+                                ; mou_claim will not count this port until
+                                ; it has been clean for MOU_ERRQ. 12 bytes,
+                                ; EVEN, so the hot code after it keeps its
+                                ; parity (tests/unit/t_hotpar.py)
     test al, 0x01
     jz .next
     sub dx, 5

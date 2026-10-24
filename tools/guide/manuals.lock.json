@@ -1082,9 +1082,9 @@
   "sources": [
    "apps/taskmgr"
   ],
-  "stamped": "5b1feb3f",
-  "strings": "41fa08640852a6a6",
-  "why": "rewrote the memory pages as the one memory page (tree of groups, +DETAIL, +ALL, AVAIL/MAX RUN incl. above 1MB, named drivers and modules); dropped the third page's shot; 12K to open"
+  "stamped": "c1bf8532",
+  "strings": "90d344db69cb7124",
+  "why": "e4bddd9e (HMA holdings named, the list's thumb dragged) and this branch (kern_mega's DescTbl row, the quiet key forgotten after a non-worker paint, the TMF_MEM rung): the type table is 'some of the types you will see', HIGH already says above 1MB, and 'use its scroll bar' covers the thumb - nothing a first-time writer would word differently"
  },
  "TELNET_O88": {
   "sources": [
@@ -1288,9 +1288,9 @@
   "sources": [
    "apps/wirefleet"
   ],
-  "stamped": "ae722338",
-  "strings": "d75cf6c6c06c7437",
-  "why": "90792af7 adds wf_btnplace, the button record's layout proc run before each hit test: an internal fix below the page's level of detail, nothing a user reads changes"
+  "stamped": "18b1ddbe",
+  "strings": "7567de0a93fbbb38",
+  "why": "f9ed8cc4/9217a5c5 change wflink.inc's refusal handling and three status messages (a port the BIOS does not list, a UART the OS did not find, retry on an older SERIAL.DRV); the page quotes no message and describes the Link menu and the automatic search at a level these do not change - rare-case messages, no words needed"
  },
  "WORD": {
   "sources": [],

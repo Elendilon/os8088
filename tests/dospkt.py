@@ -129,6 +129,12 @@ def main():
         # MTCPDIR= puts DHCP.EXE in front of it alphabetically (SPEC.md 19.4
         # sorts by name), so the row launched the wrong program and reported
         # it as the packet driver never being found.
+        # THE DESKTOP, NOT THE DRIVER. drv_boot_x fills ETHER.DRV's row
+        # during the loading screen and desk_rowcalc lays the zones out AFTER
+        # it (kernel.asm's kmain), so a row that is there says nothing about
+        # B:'s zone - a loaded box landed in that window and open_drive read
+        # "no desktop zone". Drive B's zone is the condition, as dosxlat's.
+        xmcheck.wait_desktop(q.sock, "dospkt")
         dispcp.open_drive(m, mouse, eth.S, eth.settle, "B")
         wins = dispcp.win_list(m, eth.S)
         wx, wy = dispcp.win_rect(m, eth.S, wins[-1])[:2]

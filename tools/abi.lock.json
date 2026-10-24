@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "c727df0cd99ae05d1a740eb14581271243781aef5fbf52a4788c656ed05f6ba3",
+  "fingerprint": "10c42a6dc84de9cdfddf7887590affc10cb6ef38a186d6b4303de7e7d11da237",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "8a1fa51adc1d5fb021ba7c6c9d0e696df5cc8e03536de15560b710d5f8738ba4",
+  "fingerprint": "cb2da1b8468a75b9cdd324ff08b207a353b9e03d653dbbaaae93018c0f01bb37",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -966,6 +966,48 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "elendilon-next (main #299 squash + elendilon): OSAPI_IMG_NAME and OSAPI_ARG_TEXT, which have never shipped on main, move up past main's OSAPI_GFX_BLITD to 0x04D7/0x04DD; DQ_MAXREC 10 -> 11 for kern_emu's eleventh row (HTTPFS.DRV beside VESA.DRV); both suspend-sweep-kept, so older buffers stay safe",
+   "to": 11
+  },
+  {
+   "fingerprint": "e795883cf944ed5d3a6cd9f50a65cf8e34f22b58a6b972990cc954e01497262f",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_SERIAL: refusal 9 = a UART no BIOS COM slot lists, split from 4 (SPEC.md 115.1); old callers unchanged",
+   "to": 10
+  },
+  {
+   "fingerprint": "3657e5029f46b904773021944fbe6b194861e175608b6b14825ad2b22058509e",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_SERIAL: refusal 9 = a UART no BIOS COM slot lists, split from 4 (SPEC.md 115.1); old callers unchanged",
+   "to": 11
+  },
+  {
+   "fingerprint": "2f7c91493636933cbda58fff94a970b7ba6f35b48a3558577e5de52f5eb5edfe",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_XMEM_WALK: kern_big names the HMA's contents under XMW_FIXED (XMW_HMAK/HMAI/HMAB), additive",
+   "to": 10
+  },
+  {
+   "fingerprint": "1bf777a93bde9f1ca5ac89b0512729670e5912413db590189daf5b77e0c99bbc",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_XMEM_WALK: kern_big names the HMA's contents under XMW_FIXED (XMW_HMAK/HMAI/HMAB), additive",
+   "to": 11
+  },
+  {
+   "fingerprint": "cb2da1b8468a75b9cdd324ff08b207a353b9e03d653dbbaaae93018c0f01bb37",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "merge soak-run: MEM_K_MTBL (0xFF13) mirrored into apps/os88api.inc; a constant added, nothing built before changes",
+   "to": 10
+  },
+  {
+   "fingerprint": "10c42a6dc84de9cdfddf7887590affc10cb6ef38a186d6b4303de7e7d11da237",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "merge soak-run: MEM_K_MTBL (0xFF13) mirrored into apps/os88api.inc; a constant added, nothing built before changes",
    "to": 11
   }
  ]

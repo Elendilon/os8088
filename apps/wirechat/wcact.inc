@@ -125,9 +125,11 @@ wc_onwake:
     jz .unlock
     call OSAPI_WM_CLIP_SET
     jc .unlock
-    call wc_flush
-    mov bx, [wc_win]
-    call OSAPI_WM_GROW                  ; a self-initiated repaint ends with it
+    call wc_flush                       ; and NO OSAPI_WM_GROW: nothing a
+                                        ; flush draws reaches the grow box,
+                                        ; and restoring it anyway was a white
+                                        ; fill and three frames in the corner
+                                        ; on every change (SPEC.md 113.5.1)
 .unlock:
     call OSAPI_GFX_UNLOCK
 .out:
@@ -362,9 +364,7 @@ wc_cbflush:
     mov bx, [wc_win]
     call OSAPI_WM_CLIP_SET
     jc .out
-    call wc_flush
-    mov bx, [wc_win]
-    call OSAPI_WM_GROW
+    call wc_flush                       ; ...and no OSAPI_WM_GROW, as above
 .out:
     ret
 

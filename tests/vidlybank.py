@@ -61,7 +61,7 @@ SKIP = 77
 
 
 SRC = ["-f", "lavfi", "-i",
-       "life=s=640x200:mold=10:r=15:ratio=0.4:death_color=#000000:"
+       "life=s=640x200:mold=10:r=15:ratio=0.4:seed=5088:death_color=#000000:"
        "life_color=#ffffff,trim=duration=6", "-c:v", "ffv1"]
 ENC = ["--quiet", "--preset", "cga", "--profile", "5150-st225", "--audio",
        "none", "--fps", "15", "--disk", "12000", "--reserve", "32",
@@ -78,8 +78,8 @@ def clip(tmp):
         subprocess.run([sys.executable, "tools/os88venc.py", src, out] + ENC,
                        check=True)
     # THE ENCODE ONCE PER INPUT (os88fixture.cached), as vidlysplit's. The
-    # life source has no seed, so a miss draws a fresh board and a hit
-    # replays the cached one - every assertion is relative to the file read
+    # life source is SEEDED (unseeded, ffmpeg draws a fresh board each run),
+    # and every assertion is relative to the file read either way
     os88fixture.cached(out, ("vidlybank", SRC, ENC), make, tools=("ffmpeg",))
     vid.verify_v88(out)
     return out

@@ -523,19 +523,29 @@ def main():
         # seconds a press on from the frame on the glass, to the last key at
         # or before - whose super-packet is in the bank, so the ring is
         # handed the bank's chunk under it and nothing is read again. The
-        # target is read off the player in the half second before it seeks
+        # target is read off the player with the seek's wait HELD
+        # ([vp_skwt], vidfskeys' shape) and the key let go: a QEMU Right
+        # mostly arrives as TWO presses, and read between them the count was
+        # 1 while the player went on to the second's key - the hold armed at
+        # a key the play then started past, and it ran to its end (on any
+        # player: 3 runs in 8 before vp_xlag, 1 in 8 after)
         q.hmp("stop")
         xlo0, cnt1 = rd("vp_xlo"), rw("vp_xcnt")
+        qpoke(q, [(base + syms["vp_skwt"], b"\xF0")])
         q.hmp("cont")
         q.hmp("sendkey right")
         wait(lambda: rb("vo_skp") == 1, "the seek's press", 10)
+        os88qemu.pace(q, 1.0)           # (the key up, every repeat counted)
         q.hmp("stop")
+        if rb("vo_skp") != 1:
+            sys.exit("vidbank: the seek was made with its wait held")
         skn = struct.unpack("<h", q.read(base + syms["vp_skn"], 2))[0]
         skb = rw("vp_skb")
         to = min(skb + skn * 5 * int(FPS), NF - 1)
         kf = [k for k in rd88.keys if k[0] <= to][-1]
         stop = next((k[0] for k in rd88.keys if k[0] > kf[0]), NF - 1)
-        qpoke(q, [(base + syms["vp_stopat"], struct.pack("<H", stop))])
+        qpoke(q, [(base + syms["vp_stopat"], struct.pack("<H", stop)),
+                  (base + syms["vp_skwt"], b"\x09")])    # (VP_SKWAIT)
         q.hmp("cont")
         inbank = xlo0 <= kf[3] < xlo0 + cnt1 * CHUNK
         print("   the seek: %d press(es) from frame %d -> key %d, its "
@@ -546,6 +556,9 @@ def main():
             bad.append("key %d is not inside the bank - the seek leg "
                        "proves nothing" % kf[0])
         hold_at(stop, "after the seek", 120)
+        if rw("vp_base") != kf[0] + 1:  # (the play goes on past its key)
+            bad.append("the seek landed at frame %d, not key %d"
+                       % (rw("vp_base") - 1, kf[0]))
         check(stop)
         print("   seeks the bank answered: %d" % rw("vp_bskn"))
         if rw("vp_bskn") != 1:

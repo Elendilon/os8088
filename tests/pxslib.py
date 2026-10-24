@@ -473,6 +473,64 @@ class Game:
         self.force_all_poke()
         self.m.run()
 
+    # --- STILL GLASS: frames counted by where the worker IS, not by a count --
+    # wait_frames counts px_frames from a mark read at the poke, so a frame
+    # already IN FLIGHT when the poke lands answers the wait: the poke's own
+    # frame is still to come, and a picture read then is the pose before it
+    # - or TORN, half one frame's present and half the next. With the sim
+    # running a guard's step owes a frame every few seconds, which is how
+    # tests/pxs160.py read a windowed Textured Full view (7,425 RGB bytes)
+    # and a C160 one (666) as "differing" one run in two while the renderer
+    # drew both pictures correctly. These two stop the guest at the worker's
+    # own frame boundaries instead, so a poke lands BETWEEN frames and a
+    # read sees a present that FINISHED with nothing owed.
+    OWED = ("px_pend", "px_force", "px_dirty", "px_cardd", "px_mapd",
+            "px_hudd", "px_mapfa", "px_demoreq")     # px_frame_begin's reads
+
+    def owed(self):
+        """The px_frame_begin flags still set (and a floor still to load)."""
+        out = [n for n in self.OWED if self.byte(n)]
+        if self.byte("px_levnext") != 0xFF:
+            out.append("px_levnext")
+        return out
+
+    def hold(self, limit=60.0):
+        """Stop the guest at the entry to px_frame_begin - BETWEEN two frames,
+        nothing composing or presenting - and leave it STOPPED, breakpoints
+        cleared. Pokes made now are the next frame's whole input."""
+        m = self.m
+        m.bp_exec(self.addr("px_frame_begin"))
+        m.run()
+        r = m.wait_stop(limit)
+        m.bp_exec()
+        if r is None:
+            raise os88marty.MartyError("px_frame_begin was not reached in %.0f "
+                                       "guest-budget seconds" % limit)
+
+    def drawn(self, limit=60.0):
+        """From a STOPPED guest with work poked: run frame by frame (a stop at
+        every px_frame_end, which is after the present) until a frame ends
+        with NOTHING owed - so every poke has been taken by a frame that is
+        now wholly on the glass, and nothing has been owed since. Left
+        STOPPED there, breakpoints cleared: the glass is that frame, and a
+        poke made now is the next frame's (px_frame_end, then the loop's
+        steps, then px_frame_begin). Answers the frames it took."""
+        m = self.m
+        m.bp_exec(self.addr("px_frame_end"))
+        n = 0
+        try:
+            while True:
+                m.run()
+                if m.wait_stop(limit) is None:
+                    raise os88marty.MartyError(
+                        "no frame ended in %.0f guest-budget seconds (owed: %s)"
+                        % (limit, ", ".join(self.owed()) or "nothing"))
+                n += 1
+                if not self.owed():
+                    return n
+        finally:
+            m.bp_exec()
+
     def ticks(self):
         """The BIOS tick count (0040:006C), the clock the steps are owed by."""
         return int.from_bytes(self.m.read(0x46C, 4), "little")
