@@ -635,15 +635,24 @@ vid_depth_set:
 %ifdef VID_EXT
     cmp al, VID_VESA            ; SPEC.md 120.4: colour ([vid_mono] = 0), the
     jne .notext                 ; DEPTH for a plane count, and the hook armed
-    mov ah, [vx_bpp]
-    xor al, al
-    mov [vid_mono], ax          ; one word store, as below
     mov byte [vid_ext], 1
-    mov al, ah
-    cbw
-    mov [vid_planes_w], ax
-    pop ax
-    ret
+    mov ah, [vx_bpp]            ; AL = 0 -> [vid_mono], AH = the depth ->
+    xor al, al                  ; [vid_planes], and `.st` below widens it
+    jmp short .st               ; into [vid_planes_w]. THROUGH THE SAME TWO
+                                ; STORES and not a copy of them: SPEC.md 39.26
+                                ; rests on the pair having ONE writer, and
+                                ; tests/unit/t_invariants.py counts it. The
+                                ; VESA arm first shipped with its own pair
+                                ; (#295) - the same word store, so the pairing
+                                ; held, but a second site is the shape a later
+                                ; edit splits without anything erroring.
+                                ; VID_EXT is kern_big's alone, so GFX_VGA and
+                                ; `.st` are always assembled with it.
+    nop                         ; PARITY PAD, never executed: folding the arm
+                                ; into `.st` took 9 bytes out of a routine in
+                                ; front of every hot path tests/unit/t_hotpar.py
+                                ; pins, and an ODD cut moves them all onto the
+                                ; wrong side of the 16-bit bus. 8 keeps them.
 .notext:
     mov byte [vid_ext], 0       ; every other kind: the planar bodies run
 %endif
