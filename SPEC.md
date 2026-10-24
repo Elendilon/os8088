@@ -131635,13 +131635,19 @@ released when the kernel's teardown says the instance has gone.
   `[eth_users]` on any verb. Every new socket records its slot in `SKO_OWN`.
   A listener's children inherit the listener's, not that of the caller whose
   verb happened to pump the SYN.
-- **When it is claimed.** The first verb from a slot not yet counted (usually
-  `net_find`'s `NETV_STATE` on the UI task, where the allocator may compact),
-  and lazily in `sk_ring_get` whenever a socket needs a ring and there is no
-  pool. A claim from a worker is legal: since NO-PINNING K8 it is plain first
-  fit (§66.3.1), as `sbl_v_grant`'s is, so it may refuse. The refusal is
-  then the same "no ring" the socket reports today. Retries are bounded: once
-  per new slot and once per ring wanted, never once per verb.
+- **When it is claimed.** Lazily in `sk_ring_get`, whenever a socket needs a
+  ring and there is no pool, and on `NETV_LISTEN`, a listener being the one
+  socket with no ring of its own. Not on any other verb: the RAW verbs never
+  need a ring, DOS calls them from its own tick, and `NETV_STATE` is asked by
+  packages that never connect. **A claim inside a verb may not move
+  anything.** A worker's claim is plain first fit anyway (§66.3.1, as
+  `sbl_v_grant`'s is). A UI-task caller's would compact, though, and the
+  caller may hold a claim's segment in a register across the verb: DOS's
+  `NETV_RECV` target, or its arena under a running program. The first build
+  claimed on any verb, and DOSPKT.COM's first `NETV_RAW` hung the machine
+  exactly that way. So `sk_try` never asks for more than the largest free
+  run (`sk_lrun`, read once per claim): it takes a smaller rung rather than
+  moving the heap. A refusal is the same "no ring" the socket reports today.
 - **When it goes back.** When no slot's bit is set *and* no ring is out
   (`sk_idle`, from `sk_ring_put` and from teardown). Both halves are needed,
   because a call from an entry proc carries slot 0xFF (`inst_caller` has no
@@ -131660,8 +131666,8 @@ released when the kernel's teardown says the instance has gone.
 What it costs: `kern_big` gains the class compare and the teardown call
 (`kern_small` has no driver layer and is unchanged). `ETHER.DRV` gains the
 bookkeeping and loses `eth_buf_apply`. The time cost is one claim per first
-network session: usually milliseconds, and up to a compaction (§66.4) when the
-heap is fragmented and the claim is on the UI task. Memory can no longer
+network session, a walk of the claim table and never a compaction. On a
+fragmented heap the price is a smaller rung, not a moved heap. Memory can no longer
 refuse the attach, so a machine short of heap now loads the driver and
 refuses at the first connect instead.
 

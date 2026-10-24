@@ -681,8 +681,9 @@ sk_release:
 ;
 ; [eth_users] is a bit per instance slot, set by any verb that slot makes
 ; (eth_user) and cleared by the kernel's NETV_GONE (eth_v_gone). The pool is
-; claimed when a socket needs a ring and there is none (sk_ring_get), or a
-; package listens (eth_user) - and given back when no slot is left AND no
+; claimed by a slot's first non-raw verb (eth_user) and again, lazily,
+; whenever a socket needs a ring and there is none (sk_ring_get) - and given
+; back when no slot is left AND no
 ; ring is out (sk_idle). Both halves are needed: a call from
 ; an ENTRY PROC carries slot 0xFF (inst_caller has no callback to read), so a
 ; socket can exist with nobody counted, and its ring alone keeps the pool.
@@ -699,24 +700,28 @@ sk_release:
 ; out: nothing; every register preserved, the flags NOT (its one caller
 ;      tests none after it)
 ;
-; The slot is COUNTED on any verb. The pool is CLAIMED here only for
-; NETV_LISTEN, a listener being the one socket that holds no ring of its own
-; and whose first ring is otherwise taken inside some later verb's pump; every
-; other socket claims in sk_ring_get as it opens. The RAW verbs never need a
-; ring at all, and DOS calls them from its own tick.
+; The slot is COUNTED on any verb, and its FIRST verb claims the pool -
+; usually net_find's NETV_STATE as the package starts, so the pool exists
+; before the package can take the heap for itself - unless that verb is one
+; of the RAW ones, which never need a ring: a DOS program on the card is a
+; raw consumer for its whole life and must not cost its arena 17KB. Once a
+; slot is counted no verb of its claims again; a socket that finds no pool
+; claims in sk_ring_get, so a refusal is retried once per ring and never
+; once per verb.
 eth_user:
     push ax
     push cx
     mov [eth_cslot], bh         ; who opens a socket in this verb (sk_alloc)
     cmp bh, 16                  ; 0xFF, or a slot the mask cannot hold: not
-    jae .lst                    ; counted, which only means not COUNTED
+    jae .out                    ; counted, which only means not COUNTED
     mov cl, bh
     mov ax, 1
     shl ax, cl
+    test [eth_users], ax
+    jnz .out                    ; seen before
     or  [eth_users], ax
-.lst:
-    cmp bl, NETV_LISTEN
-    jne .out
+    cmp bl, NETV_RAW            ; NETV_RAW, RAWTX and RAWRX are the last
+    jae .out                    ; three verbs (netpkg.inc)
     cmp word [sk_seg], 0
     jne .out
     call sk_claim               ; a refusal is not this verb's failure: the
@@ -724,6 +729,10 @@ eth_user:
     pop cx
     pop ax
     ret
+
+%if NETV_RAW + 2 != NETV_MAX || NETV_RAWRX != NETV_MAX
+  %error "eth_user takes every verb from NETV_RAW up as a raw one"
+%endif
 
 ; --- sk_idle - give the pool back if nobody is using it ----------------------
 ; out: nothing; every register and the flags preserved
