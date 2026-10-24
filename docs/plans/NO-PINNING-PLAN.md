@@ -368,7 +368,11 @@ accepts:
   `pxwrite`, an animation's frames, and its OP_SEG CODE parts (`px_pfetch`),
   the C overlay's shape that a thunk fixed in wave 0;
 - PIXELSTEIN's art, levels and sprites, behind 6.5's fence;
-- DOS's own parts carve (never opted into `OP_ONMOVE`).
+- ~~DOS's own parts carve~~ **BUILT (NO-PINNING 2, SPEC.md 96.29.1.2)**: it
+  exists only in the `DOSTRACE` instrument build (the shipped `DOS.O88` has
+  no carve at runtime - its loader's carve IS the region). It opts into
+  `OP_ONMOVE` (`dos_trmove`), moves at the prompt and is pinned from the
+  program's start to its `TRACE.LOG`; shipped arms byte-identical; `dostrmove`.
 
 ## 5. The adversarial review (2026-10-23) and what it changed
 

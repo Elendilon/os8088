@@ -7244,6 +7244,22 @@ SOAK = [
         "kernel's own solve picks 32K (18.95.5), so Auto and 32K read the "
         "same figure for a TRUE reason. VERIFIED red on the shipped build. ",
         needs=("marty",), serial=True),
+    Row("dostrmove", "soak", py("tests/dostrmove.py"), 60.0,
+        "NO-PINNING 2 (SPEC.md 96.29.1.2): the DOSTRACE build's 35KB trace "
+        "part - DOS.O88's only parts carve, and one the shipped package never "
+        "makes - MOVES at the prompt through the parts standard's OP_ONMOVE "
+        "(dos_trmove re-asks op_seg for [dos_trseg] and the core's "
+        "[dos_m33seg]) and is PINNED from dos_run's .ready to the end of the "
+        "dump. Its own disk in build/dostrmove/ (the DOSTRACE package "
+        "assembled there, beside DOSHELLO.COM and Note Pad): Note Pad takes "
+        "the ceiling, DOS lands under it, Note Pad closes, a posted pass "
+        "moves the carve up; both words must name the new carve, the carve's "
+        "MC_RLOC must read 0 WHILE DOSHELLO runs and non-zero after, and the "
+        "trace must be in the NEW part. VERIFIED TO FAIL: dos_trmove a bare "
+        "ret -> 3 (both words at the old base) and 6 (no AH=30h in the new "
+        "part); the .ready pin removed -> 4 (MC_RLOC 3C86 while it runs)",
+        needs=("marty",), serial=True,
+        wants=("build/DOSHELLO.COM", "build/notepad.o88")),
     Row("dosarena", "soak", py("tests/dosarena.py"), 30.0,
         "THE DOS ARENA'S UNMOUNT-AND-COMPACT (SPEC.md 96.35, 51.11.1, 66.4.3): "
         "SOUND.DRV is ~14KB at the TOP of the heap and DOS unmounts it, "

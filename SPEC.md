@@ -46549,7 +46549,7 @@ of image for the three routines plus its hook.
 | PIXELSTEIN's levels and art masters | lazy, fetched by the LOADER | **pinned, blocked**: the re-home re-owns them to the slot (§20.12.10.5), and `mem_find_own`'s fence wants the claim owned by the CALLER's segment, so the program cannot declare them (§97.9.2) |
 | Pixel's code parts 0-8 | lazy `OP_SEG` | not adopted: its WORKER far-calls into them (`px_wcall`), and a park inside a part is a CS on a stack |
 | REALDMG | carve: the core (far-called code) and the 64 KB view; the recompiler | NO-PINNING A1's, performance-bound and left to it: the carve is code the dispatch loop runs in |
-| DOS's trace part | carve (`OP_ZERO`) | an instrument build nothing ships (§96.29.1) |
+| DOS's trace part | carve (`OP_ZERO`) | an instrument build nothing ships (§96.29.1) - and **MOVABLE** at the prompt since NO-PINNING 2, pinned while a program runs (§96.29.1.2) |
 | Clear Skies' streams, MIDIRack's faces, Excitebike's packs, RealDMG's recompiler | `OP_SELF` | read by the package into claims of its own, each answered where it is claimed |
 
 ## 20.13 COMPRESSION — flags bits 3 and 4, and one slot
@@ -171353,6 +171353,47 @@ go in front of the ring, so the lowest entry index is 18,432 and the existing
 test is correct again. Zero bytes, no code, and the same arithmetic the bss
 arm got for free. `RDSUM.COM`'s open now reads `AX=3D00 … axout=0002 CF=1` —
 DOS error 2, file not found — where before it read `FFFF`.
+
+##### 96.29.1.2 The trace part MOVES at the prompt and is pinned while a program runs (NO-PINNING 2)
+
+The part is a claim held for the window's life, and it was born pinned like
+every claim - 35KB of wall. It opts into §20.12.12's `OP_ONMOVE`:
+`dos_entry` declares the carve with `op_movable` once both words are banked,
+and the hook, `dos_trmove`, asks `op_seg` for them again. **Those two words
+are the whole of what names the part**: `[dos_trseg]` (the host's - and
+`tools/os88dosdbg.py` reads it afresh at every poll, so the reader follows a
+move too) and `[dos_m33seg]` (the core's copy, §96.10.3). Every routine that
+touches the part - `dos_trace`, `dos_tr_result`, `dos_int33`'s buckets, the
+callback count and `dos_trace_dump` - loads `ES` from one of them on entry,
+and **no program is ever handed a pointer into it**: it is data, not code,
+no vector names it, and a program's far pointers name its arena, the PSP and
+the core, never this.
+
+**It is pinned for the stretch a DOS PROGRAM RUNS**, which is the owner's
+bucket C and not a nicety: from `dos_run`'s `.ready` - the image is in the
+arena and the fsx bracket is next - to the end of `dos_trace_dump`. Inside
+the bracket the program's INT 21h calls write the ring through `ES` and reach
+the kernel's file calls on the UI task, which is the task that compacts
+(§66.3.1); and the dump's `OSAPI_FILE_WRITE` takes `ES:BX` INTO the part
+(§66.5.7.1). The refusal paths that never reached `.ready` pin it again
+around the dump, and `op_movable` after the dump declares it again on every
+path. So it moves at the PROMPT - which is when the user opens something
+else, and when DOS's own posted pass (§96.35) sizes the next arena: that
+pass now packs the part with the region instead of building around it.
+
+**The shipped package is untouched.** Every line is inside `%ifdef
+DOSTRACE`; the plain, the parted (`-DDOSKPART -DDOS_EXTCORE`) and kern_mega's
+arms all assemble byte-identical, and the trace build is +130 bytes of
+image. The shipped `DOS.O88` has no parts carve at runtime to declare: the
+loader's carve becomes the REGION at the re-home (§20.12.10.5, declared with
+`OS88_REGION_MOVABLE`), the core part is fetched, copied and dropped inside
+one call, and `kern_dos`'s part is never read into a claim at all.
+
+`tests/dostrmove.py` is the gate: a DOSTRACE package on a private disk,
+opened at its prompt with a hole above it, a compaction posted from
+outside, both words checked against the carve's new base, then DOSHELLO.COM
+run at the prompt - the carve's `MC_RLOC` read 0 from inside the program's
+own INT 21h - and the trace it wrote read back out of the NEW part.
 
 #### 96.32 THE WINDOW'S SETTLED SHAPE: a top bar, a console band, one setup area
 

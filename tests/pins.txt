@@ -333,9 +333,6 @@ N apps/pixelstein/pxstein.asm op:PX_PART_LEV  # the 10KB levels, behind the same
                                          # fence (6.5)
 N apps/pixelstein/pxstein.asm pxl_sseg   # the 60KB sprite set, behind the same
                                          # fence (6.5)
-N apps/dos/dos.asm op:carve              # DOS's own parts carve: its segments are
-                                         # banked ([dos_trseg], [dos_m33seg]) and
-                                         # it never opted into OP_ONMOVE (A8)
 N apps/audio/apengine.inc ap_la_seg      # the 32KB look-ahead ring, claimed once
                                          # and held for the instance's life
 N apps/audio/apspk.inc aps_rseg          # the speaker ring, claimed once for the
