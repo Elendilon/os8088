@@ -954,12 +954,23 @@ zw_morewait:
 .nodraw:
     mov [zw_style], bl
     call OSAPI_GFX_UNLOCK
+    xor ax, ax                      ; NOT RESTARTABLE WHILE THIS IS UP
+    call OSAPI_TASK_RESTARTABLE     ; (SPEC.md 66.5.9.3): every other wait is
+                                    ; resumed by zexec.inc's zx_restart, but
+                                    ; under this one is the text decoder's
+                                    ; place in a string and whatever printed
+                                    ; it, on the stack - re-running that
+                                    ; duplicates the line. So the region stays
+                                    ; pinned while the prompt is up: a missed
+                                    ; move, never a lost one
 .wait:
     call zi_getkey                  ; CF=1 = the ring is empty
     jnc .got
     call zi_yield                   ; OSAPI_TASK_ALIVE + a yield
     jmp short .wait
 .got:
+    mov ax, zx_restart              ; ...and restartable again
+    call OSAPI_TASK_RESTARTABLE
     call OSAPI_GFX_LOCK
     call zw_bounds                  ; the window may have been dragged
     jc .done

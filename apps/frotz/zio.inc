@@ -1040,6 +1040,9 @@ zf_reloc:
     mov ax, dx
     sub ax, bx                      ; AX = the paragraph delta
     add [zf_sdelta], ax
+    add [zx_seglim], ax             ; zx_step's upper bound follows the story
+                                    ; (zbss.inc); before zx_boot it is a value
+                                    ; zx_boot overwrites, so adding is harmless
     cmp word [zf_pcseg], 0          ; 0 = no PC yet: a story claimed but not
     je .nopc                        ; booted, and zx_boot writes it shortly.
     add [zf_pcseg], ax              ; Adding to 0 would invent an address
@@ -1195,6 +1198,10 @@ zi_isterm:
 ; turn of the wait goes through zi_yield, so the close box still works while a
 ; story is sitting at a "press any key" prompt.
 ; =============================================================================
+zi_readchar_rsm:                    ; zexec.inc's zx_restart: this frame and
+    push ax                         ; the wait, nothing else - [zi_want] is
+    push ax                         ; still ZIW_CHAR, and the harness marker
+    jmp short zi_readchar.wait      ; is not owed twice
 zi_readchar:
     push bx
     push es                         ; the PC's segment; see zi_yield
@@ -1247,6 +1254,14 @@ zi_readchar:
 ; bytes land. Text is reduced to lower case in both, which the Standard asks
 ; for so the story can print the command back tidily.
 ; =============================================================================
+zi_readline_rsm:                    ; zexec.inc's zx_restart: the frame and
+    push ax                         ; the wait, NOT the set-up below - the
+    push ax                         ; story's buffers, the cap and the line
+    push ax                         ; typed so far are all in bss and still
+    push ax                         ; right, and re-running the set-up would
+    push ax                         ; zero [zi_linen] under an echo already
+    push ax                         ; on the glass
+    jmp short zi_readline.wait
 zi_readline:
     push bx
     push cx
@@ -1423,6 +1438,10 @@ zi_commit:
 ; delivers the keypress is the thing that raises the dialog. Cancelling means
 ; pressing RETURN again.
 ; -----------------------------------------------------------------------------
+zi_request_rsm:                     ; zexec.inc's zx_restart: back into the
+    push ax                         ; wait with [zf_req]/[zf_reqres] AS THEY
+    push ax                         ; STAND - answered or not. Nothing is
+    jmp short zi_request.wait       ; posted again and no second prompt drawn
 zi_request:
     push ax
     push si
@@ -1547,8 +1566,14 @@ zi_save:
     mov si, zi_id_stks
     mov cx, 4
     rep movsb
-    mov [zi_fixup+2-2], di          ; (see the patch below; kept in a word)
-    push di
+    push di                         ; where the Stks length goes, ON THE
+                                    ; STACK. It went into [zi_fixup] as well,
+                                    ; which is the FORM length's - so the
+                                    ; back-patch below wrote the FORM length
+                                    ; over this chunk's and left FORM's 0, and
+                                    ; zi_parse then found a Stks body running
+                                    ; past the end of the image, skipped it,
+                                    ; and @restore answered 0 with no reason
     xor ax, ax
     xor dx, dx
     call zi_wd
@@ -1729,6 +1754,11 @@ zi_wframe:
     call zi_zsw                     ; AL = nlocals, AH = store variable
     mov dl, al
     and al, 0Fh
+    cmp word [zi_cur], 0            ; THE DUMMY FRAME (zx_boot's, at 0) is
+    jne .real                       ; written 0/0 as Frotz writes it: its 0x10
+    xor ax, ax                      ; "discard" bit is what the real Frotz
+    jmp short .stores               ; refuses a save over ("Error reading save
+.real:                              ; file"), and nothing ever returns into it
     cmp ah, 0FFh
     jne .stores
     or al, 10h
@@ -1782,6 +1812,19 @@ zi_wwords:
 .done:
     ret
 
+; zi_restore_rsm - zexec.inc's zx_restart: zi_restore's own seven pushes, the
+; wait, and then its parse and apply exactly as if the frame had survived
+zi_restore_rsm:
+    push ax
+    push ax
+    push ax
+    push ax
+    push ax
+    push ax
+    push ax
+    call zi_request_rsm
+    jmp zi_restore.post
+
 ; =============================================================================
 ; zi_restore - worker: @restore
 ; out: CF = 0 restored, and the new PC is in [zf_pcseg]/[zf_pcoff] for the
@@ -1809,6 +1852,7 @@ zi_restore:
     je .refuse
     mov al, ZREQ_RESTORE
     call zi_request
+.post:                              ; zi_restore_rsm lands here
     jc .refuse
     mov es, [zi_savseg]
     call zi_parse
@@ -2092,13 +2136,19 @@ zi_rstks:
     call zi_zsp
     mov [zi_cur], di
     mov [zf_fp], di
-    ; locals, then the evaluation stack
+    ; THE EVALUATION-STACK COUNT COMES FIRST, then the locals, then the
+    ; stack (Quetzal 4.11, and zi_wframe writes it so). This read the locals
+    ; first, so a frame's first local was taken for... nothing - the count
+    ; was read from its LAST local - and @restore failed outright ("That save
+    ; is for another story", with dynamic memory ALREADY copied) whenever the
+    ; last local was not small, and restored wrong locals when it was
+    call zi_rw                      ; the evaluation-stack word count
+    push ax
     mov bx, di
     add bx, ZI_FR_SIZE
-    call zi_rwords
+    call zi_rwords                  ; CX = the locals
+    pop cx
     jc .over
-    call zi_rw                      ; the evaluation-stack word count
-    mov cx, ax
     call zi_rwords
     jc .over
     mov [zf_sp], bx
