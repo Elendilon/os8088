@@ -6942,7 +6942,7 @@ fm_dgdrop:
     cmp word [fcp_lcnt], 0      ; a LIST dropped on one of its OWN folders,
     je .have                    ; in the window it came from: refused here,
     push bx                     ; because the list would run every entry
-    call fmv_winof_vp           ;before that one and then stop on it
+    call fmv_winof_vp           ; before that one and then stop on it
                                 ; (SPEC.md 22.27). BX = the hit window
     cmp bx, [fm_dgwin]
     pop bx

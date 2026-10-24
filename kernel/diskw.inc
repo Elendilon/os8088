@@ -627,6 +627,18 @@ dskw_mounted:
 .ret:
     ret
 
+; dsk_wr1_clba - DSK_WR1D dskw_clba: dsk_secbuf out to the data walk's cursor
+; (disk.inc's macro names it; its three sites are the mkdir's '.'/'..' sector,
+; its zeroed tail and dskw_wone's - kernel size pass 14, a jump per sector)
+dsk_wr1_clba:
+%ifdef OS88_BIGVOL
+    mov bx, dskw_clba
+    jmp dsk_wr1p_x
+%else
+    mov ax, [dskw_clba]
+    jmp dsk_wr1_x
+%endif
+
 %ifdef DSKW_WSEQ
 ; dws_gate - A HELD STREAM ENDS BEFORE ANY OTHER WRITE ON ITS VOLUME (SPEC.md
 ; 18.4.9) - a delete of its temporary, a rename, anything - so the FAT and the

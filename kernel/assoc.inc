@@ -1078,7 +1078,7 @@ assoc_sweep:
 .ord:                           ; end. CL counts; DL is the VOLUME, 0 and 1
     cmp dl, [assoc_ddrv]        ; swapped: B: BEFORE A:, because on the
     je .volnext                 ; machine this runs on A: is the system disk
-    call dsk_vol_row_dl         ;and B: the apps disk
+    call dsk_vol_row_dl         ; and B: the apps disk
                                 ; a FREE row is skipped for the TIME, not for
     jc .volnext                 ; correctness: mounting one fails anyway, but
                                 ; that failure is the BIOS's retries and on a

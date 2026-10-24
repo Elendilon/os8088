@@ -120,7 +120,10 @@ DSK_B_HEADS  equ 26              ; BPB_NumHeads (word)
   %endif
 %endmacro
 %macro DSK_WR1D 1               ; ...and out of it
-  %ifdef OS88_BIGVOL
+  %ifidni %1, dskw_clba
+    call dsk_wr1_clba           ; three sites name the data walk's cursor: its
+                                ; load is diskw.inc's, once (kernel size pass 14)
+  %elifdef OS88_BIGVOL
     mov bx, %1
     call dsk_wr1p_x
   %else

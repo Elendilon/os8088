@@ -1110,7 +1110,7 @@ ld_hisi:
     je .out
     test byte [es:LD_H_CLASS], 0x80     ; OS88_HIGH
     jz .out
-    call ld_slot_rec            ;ld_slot answers off DI, the RECORD - which
+    call ld_slot_rec            ; ld_slot answers off DI, the RECORD - which
                                 ; it is not at ld_start's head; step 7 sets DI
                                 ; itself. BX = the slot
     mov dl, bl
@@ -1508,7 +1508,7 @@ ld_start:
     ; ld_say_status to record the verdict without saying it. A toast raised
     ; by anybody else during the launch is not ours and is overwritten as
     ; before.
-    call ld_slot_rec            ;BL = the reserved slot's index. ld_slot is
+    call ld_slot_rec            ; BL = the reserved slot's index. ld_slot is
                                 ; that arithmetic, near and `.cold` like this
                                 ; - inst_idx is the same body in `.text` and a
                                 ; shim to it would cost 5 of those; a third
