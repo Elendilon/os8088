@@ -51,6 +51,10 @@ mix_speaker:
     db 0FFh,3Bh,0FFh, 0FFh,0BFh,0FFh, 0FFh,0FFh,0FFh, 0FFh,0FFh,0FFh
 
 ; CX=bar x, ES:DI=kernel's far bridge. No lock on entry/return.
+; The bridge (ui.inc's ui_volume_service) preserves DS and nothing else but
+; what a verb returns (2: AL buttons, CX/DX position): nothing here holds a
+; register across a bridge call, which is what let the kernel stop banking
+; ES/BX/SI/DI/BP for it (kernel size pass 14).
 volume_popup:
     push ax
     push bx

@@ -22079,7 +22079,7 @@ sites that already exist:
 | `menu_relayout` | recompute `[menu_set]`, `[menu_namep]` and the whole `menu_bar` from `[menu_win]`. Preserves all registers. |
 | `menu_win_set`  | in: BX = window ptr, SI = menu set ptr (0 = none) — stores `[bx+W_MENUS]` and relayouts if BX is the active window. The `OSAPI_MENU_SET` target (§20.3). Preserves every register **and the flags**: its intended call site sits between a package's `wm_create` and the `ret` that owes the loader that call's CF (§20.2). |
 | `menu_check`    | if `[menu_win]` names a window that is no longer visible, `menu_activate` on `wm_top` — the promoted window, or 0 for Locator when none is left. No-op while the owner is visible or already Locator. Preserves every register. Called only from `menu_draw_bar`, so it always runs under the gfx lock on the UI task. |
-| `menu_draw_bar` | draw the bar: `menu_check`, white field + black rule, every `menu_bar` cell's title (cell 0 = the logo glyph), then `menu_draw_clock`. Gfx lock held by caller. The app name is one of those cell titles whenever an application owns the bar (§12.7); the standalone label draw is Locator's alone, and is skipped when `[menu_abcell]` is non-zero so the name is never double-struck. |
+| `menu_draw_bar` | draw the bar: `menu_check`, white field + black rule, every `menu_bar` cell's title (cell 0 = the logo glyph), then the clock (`menu_bt_ent`, §12.9). Gfx lock held by caller. The app name is one of those cell titles whenever an application owns the bar (§12.7); the standalone label draw is Locator's alone, and is skipped when `[menu_abcell]` is non-zero so the name is never double-struck. |
 | `menu_track`    | in: CX = mousedown x. Runs the whole interaction while the button is held (caller holds gfx lock): highlight title (xor), drop the menu (gfx_save under it to the save-under claim, `[menu_sseg]:0`), track item highlight following `mouse_y`, on release restore save-under + unhighlight; **out AX = 0xFFFF if nothing was selected, else AH = bar cell index (0 = System), AL = item index within that cell**. Item cells are 16px tall, menu width = widest item + 16px padding. Only the bar-specific half is its own: the cell find, `menu_title_xor` and the (cell, item) pack. The drop itself is `menu_drop` (§12.4). |
 | `menu_drop`     | the tracker, anchored by variables so it serves both the bar and a context menu (§12.4). |
 | `menu_popup`    | drop a menu anywhere on screen, open while a button is held (§12.4). |
@@ -25374,7 +25374,7 @@ last menu title and the clock; nothing else in the bar can see it.
 
 | symbol            | contract                                                  |
 |-------------------|------------------------------------------------------------|
-| `menu_draw_clock` | in: nothing (gfx lock held by the caller). Composes the live clock (`clk_fmt`, §37) into the bar's own cells, right-aligned in the field by **leading spaces**, and letters only the cells that differ from what is on the glass — `menu_bar_clock`, §12.9 — then lets the speaker answer to it (§34.15). Preserves all registers. |
+| `menu_bar_clock` | in: nothing (gfx lock held by the caller). Composes the live clock (`clk_fmt`, §37) into the bar's own cells, right-aligned in the field by **leading spaces**, and letters only the cells that differ from what is on the glass (§12.9) — then lets the speaker answer to it (§34.15). Preserves all registers. It was `menu_draw_clock`, a call of this and a jump to `menu_sound`, until kernel size pass 14 put that jump in the composition's own entry, `menu_bt_ent`, which every composition but `menu_sound`'s goes through. |
 
 The field is `[vid_clk_hx]` to the bar's margin — or to the speaker's left
 edge while the speaker shows (§34.15) — both ends on cell boundaries, so it is
@@ -25387,7 +25387,8 @@ clock is never momentarily blank.
 
 **It is cells in the bar's one composition** (§12.9), and that is what
 prices a minute: the digit that changed, as one `font_run`. Measured on
-MartyPC, one `menu_draw_clock` at a minute rolling over, the whole call:
+MartyPC, one `menu_draw_clock` (now `menu_bar_clock`) at a minute rolling
+over, the whole call:
 
 | adapter | its own painter, all 25 cells | cells of the composition |
 |---|---|---|
@@ -26421,8 +26422,8 @@ record of the glass, and the widget is composed into no buffer at all, so the
 diff cannot arbitrate between two painters on one strip).
 
 So `menu_bar_text` takes `FPG_CELLS` off `[menu_bn]` while `[fpg_on]` is set.
-`menu_bput` already drops a cell at or past that bound without advancing `DI`,
-and `menu_bpadc` already clamps to it (§59.7), so one subtraction is the whole
+`menu_bput` already drops a cell at or past that bound (advancing `DI` since
+§59.7.2), and `menu_bpadc` cannot pad past it (§59.7), so one subtraction is the whole
 of it — and it subsumes `toast_place`'s own copy of the same reservation
 (§59.9.2), which was the only reader that needed one while the widget's life
 was an operation. The cells come back when `fpg_finish` clears the flag and
@@ -27107,11 +27108,12 @@ path (§45), and `WF_SNAP` (§11.94) doing it for ordinary windows.
 
 | symbol | contract |
 |---|---|
-| `menu_force` | in: nothing. The bar was **painted over**: sets `[menu_bovr]` and `[menu_bdirty]`. The only path that reaches `menu_furniture`, and so the only one that erases anything. Preserves all registers. |
+| `menu_force` | in: nothing. The bar was **painted over**: sets `[menu_bovr]` and `[menu_bdirty]`. The only path that reaches the furniture (below), and so the only one that erases anything. Preserves all registers. |
 | `menu_inval` | in: AX = x1, CX = x2 (inclusive, absolute). Forgets what was drawn in that span of the bar's cells, rounded OUTWARD to whole cells and clamped to `MENU_BCMAX`; sets `[menu_bdirty]`. Preserves all registers. |
-| `menu_furniture` | in: nothing (gfx lock held). White-fills the bar's field, draws the black rule and the logo, forgets every cell. Preserves all registers. |
-| `menu_bar_text` | in: nothing (gfx lock held). Composes menus, clock and toast into `menu_bcell` and emits the runs that differ. Preserves all registers. |
-| `menu_bar_clock` | as `menu_bar_text`, past the menus: the clock and the toast strip only. |
+| `menu_furniture` | `menu_draw_bar`'s overdraw arm since kernel size pass 14 (its one caller; the name is kept here for the record): white-fills the bar's field, draws the black rule and the logo, forgets every cell. |
+| `menu_bar_text` | in: nothing (gfx lock held). Composes menus, clock and toast into `menu_bcell` and emits the runs that differ. Preserves all registers. `menu_sound`'s door: the composition alone. |
+| `menu_bar_clock` | as `menu_bar_text`, past the menus: the clock and the toast strip only - and then `menu_sound`. |
+| `menu_bt_ent` | `menu_draw_bar`'s door: CF = 1 the whole bar's cells, CF = 0 the clock's, then `menu_sound`. |
 
 #### The composition IS the diff
 
@@ -27354,7 +27356,7 @@ Loop forever:
    clk_tick has already kept time). Otherwise decide whether taking the
    gfx lock is worth it, because taking it blinks the cursor and that
    blink **is** the flicker the seconds setting exists to remove:
-   - bit 1 set → lock, `menu_draw_clock`, `cp_tick`, unlock.
+   - bit 1 set → lock, `menu_bar_clock`, `cp_tick`, unlock.
    - bit 1 clear (a second passed but the bar shows no seconds) → ask
      `cp_tick_due` (§31.5) whether a Date/Time page is on screen; only
      then lock, `cp_tick`, unlock. The panel's seconds field runs whatever
@@ -71055,9 +71057,12 @@ while `clk_probe` runs — `clk_tb_*` (every rung's read lands there first and
 menu bar's line buffer**, not beside it. The two lifetimes cannot meet, in
 both directions: every reference to every one of those names is in
 `clock.inc`'s `.ovlw`, which `drv_boot`'s first mount overwrites, and
-`clk_str`'s only writer is `clk_fmt`, whose two callers are `menu_draw_clock`
-and `toast_gapend` — neither reachable before `menu_init`, a hundred lines of
-`kmain` after `OVWCALL clk_init`. Not one instruction changes: every access
+`clk_str`'s only writer is `clk_fmt` - whose callers are the menu bar's
+composition, `toast_place` and `menu_sound`, none reachable before `menu_init`,
+a hundred lines of `kmain` after `OVWCALL clk_init` - and, since kernel size
+pass 14, `menu_trunc`, whose truncated menu item is `menu_tbuf`, an `equ` of
+`clk_str` too: written and read inside one `menu_drop` item draw under the gfx
+lock, where no composition can run. Not one instruction changes: every access
 was already an absolute DS-relative `[clk_tb_x]`. `CLK_PROBE_SPAN` is
 asserted against `clk_str`'s size at assembly time, which is what makes
 §37's 25-byte figure load-bearing rather than a comment.
@@ -105723,6 +105728,21 @@ not a bounded loop**, and the original clamp did not make it one — it made the
 *first* value safe. The difference is invisible in a single-threaded reading
 of the routine, which is exactly how it survived §59.7's fix and its test.
 
+#### 59.7.2 The drop advances, so nothing has a terminator to lose
+
+Both guards above are the same answer to one fact - `menu_bput` dropped a cell
+at or past the bound **without advancing `DI`** - asked again at every caller
+that loops. Kernel size pass 14 changed the fact instead: a dropped cell
+advances `DI` like a stored one, so `menu_bpadc` ends at its own target
+whatever `[menu_blim]` does meanwhile, and the clamp and its per-cell re-read
+are gone (7 bytes). No other caller reads a `DI` the change could move:
+`menu_bstr` stops at the bound by its own compare, the menus' end
+`[menu_bend]` is the lesser of `DI + 1` and `[menu_bn]` (and every cell below
+the bound is composed before the first drop can happen), and the clock, the
+strip and the blanking after it each reset `DI` or count their cells. What
+`menu_bcell` records - and so every pixel - is what it was. The livelock
+§59.7.1 describes is not guarded against any more; it cannot be written.
+
 ### 59.8 It covers the clock, never a menu — and only the cells it needs
 
 The strip borrowed the right end of the **menus** segment (§59.1), where
@@ -127801,9 +127821,11 @@ inverted run's colours were.
 
 **Under Dark those colours are exactly swapped, so the PLAIN run matches.**
 Bit 7 is then never masked off the cells it is set on, `font_char` indexes
-past the 95 glyphs it has, and the menu bar letters garbage. `[menu_binv]` is
+past the 95 glyphs it has, and the menu bar letters garbage. `[menu_binv]` was
 the fix: `menu_bar_text` already splits the span on that very bit, so it says
-so in a byte instead of leaving it to be recovered from the pens.
+so in a byte instead of leaving it to be recovered from the pens. Since kernel
+size pass 14 it says so in CF, which `menu_bemit` banks across its `font_run`
+with `pushf`: the same statement, without the byte.
 
 This is §18.7.3's `DV_CLASS` and §41.12.5's `drv_tab` range test for the third
 time — **a predicate that is a PROXY for the invariant it means to test,
@@ -217945,13 +217967,13 @@ the display cannot be suspended out from under the desktop.
 | `fsx_capstab` (§53) | VESA's row is VGA's (`0x01EF`): it is the same card, and a bracket's `int 10h` mode set is legal from any VBE mode. `fsx_leave` restores through `vid_setmode`'s arm. **Without the row the table was indexed past its end by kind 4** |
 | `OSAPI_FSX_CAPS`'s DL (§53.4) | **`VID_VGA`**, not 4: the kind that names the BIOS modes a bracket may set, which is what every package asks it for - Gorillas read 4 as "neither VGA nor CGA", took the native surface and drew planar onto the packed desktop. The depth is `OSAPI_VIDEO`'s and `OSAPI_WM_DISPLAY`'s DH |
 | `OSAPI_FSX_SURF` (§53.7.1) | **refused, CF = 1, on a VESA display with no foreign mode up** (`[fsx_cur]` = FFh): the desktop's own surface is packed pixels and a same-mode caller writes planar VGA. With a foreign mode set the surface is that mode's, as before |
-| the disk widget (§12.8) | `fpg_finish` whitens the text band over the part of its span past `MENU_BCMAX` composed cells: a 1024-wide bar puts the widget beyond the composer's reach, so `menu_draw_bar` repainted none of it and the icon and trough stayed up after every transfer |
+| the disk widget (§12.8) and the clock | **`MENU_BCMAX` is sized for the widest primary there is** - 123 cells under `VID_EXT`, `(1024 - 8 - MENU_TXT_X0) / 8`, where it was Hercules' 85 - so a 1024-wide bar's widget and clock are composed cells like any other bar's and the composition's opaque run is their erase (`fpg_hide` whitened the band past cell 85 itself until kernel size pass 14). The 85 was a **defect**, not only a reach: a 1024 bar's clock field starts at cell 98, so every composition wrote the clock, its padding and the toast strip up to 34 cells past `menu_bcell`'s 86 bytes - over `[menu_bn]`..`[menu_blast]` in the middle of the pass, whose bytes the emit then lettered as glyphs where the widget had been (`tests/vesa.py`'s *chrome still on the bar*, failing at the pass's base), and on into the `.bss` after them, which happened to be a scratch buffer until that pass gave it back and the About cell's name read `  10:54`. +38 bytes of `.bss` on `kern_big`/`kern_emu`; `kern_small` and `kern_mega` have no `VID_EXT` and keep 85 |
 | `vid_text` (§39.20), shutdown, reboot | `int 10h AX=0003h`, unchanged: a VBE card returns to text from any mode |
 | `vid_blank`/`vid_unblank` | the colour arms; a VESA primary is a VGA to them |
 | the extended desktop (§39.19) | **refused while VESA is primary**: `ext_extend_b` (EXTD.DRV) answers CF = 1, Single, on a VESA primary. The second card's 1bpp geometry beside an 8bpp one is a straddle arithmetic (§39.14.7) this cycle does not take |
 | the screen saver (§79) and blanker (§64) | draw through the hooked primitives; `SAVER.DRV`'s own VRAM writes, if any, are a plan story |
 | the splash (§15) | runs before `drv_boot`, on VGA, always |
-| `desk_rowcalc` zones, dock, menu bar, clock cell | read `[vid_w]`/`[vid_h]`/`[vid_pw]`; a 1024-wide bar has more room and the same cells |
+| `desk_rowcalc` zones, dock, menu bar, clock cell | read `[vid_w]`/`[vid_h]`/`[vid_pw]`; a 1024-wide bar has more room and the same cells - `MENU_BCMAX` of them, sized for it (row above) |
 
 ### 120.6 The Display page
 

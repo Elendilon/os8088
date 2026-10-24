@@ -353,21 +353,28 @@ toast_now:
                                 ; glass
     mov al, [gfx_color]         ; the caller is mid-callback: its pen and its
     push ax                     ; clip region are ITS, and the bar is inside
-    push word [wm_clip_n]       ; no window's region ever - drawn through an
-    xor ax, ax                  ; armed one the strip's cells would be dropped
-    mov [wm_clip_n], ax         ; on the glass while menu_bcell records them
-                                ; composed, and no later pass would repair it
-    call toast_arm
-    call menu_draw_bar
+    push bx                     ; no window's region ever - drawn through an
+    call fpg_bare               ; armed one the strip's cells would be dropped
+    dw toast_ad                 ; on the glass while menu_bcell records them
+                                ; composed, and no later pass would repair it.
+                                ; fpg_bare banks the region, clears it, runs
+                                ; the painter and puts it back: the three
+                                ; steps this wrote out itself (kernel size
+                                ; pass 14: 6 bytes; fpg_bare spends BX).
+                                ; Done now because the idle pass that would
                                 ; carry it to VRAM does not come until the
                                 ; operation this announces is over (SPEC.md
                                 ; 32) - fpg_begin's reasoning exactly
-    pop word [wm_clip_n]
+    pop bx
     pop ax
     mov [gfx_color], al
 .outa:
     pop ax
     ret
+
+toast_ad:                       ; toast_now's painter: arm, then the bar
+    call toast_arm
+    jmp menu_draw_bar
 
 ; -----------------------------------------------------------------------------
 ; toast_arm - spend [toast_want]: the strip goes up
@@ -445,17 +452,13 @@ toast_place:
     mov [toast_scov], al        ; menu_ckend below asks it: the speaker SHOWS
     call toast_up               ; CF = 1: a strip is up and within its time
     jnc .out
-    mov si, toast_buf           ; the strip's width in cells: the message plus
-    call str_len                ; the one inverted space at its left
-    jcxz .out
-    inc cx
-    push cx
     call menu_ckend             ; AX = the field's end, speaker showing
-    push ax
-    call clk_fmt                ; CX = the clock's glyphs
-    pop ax
+    call clk_fmt                ; CX = the clock's glyphs (AX it keeps)
     sub ax, cx                  ; AX = the clock's first glyph
-    pop cx
+    mov si, toast_buf           ; the strip's width in cells: the message plus
+    call str_len                ; the one inverted space at its left (AX it
+    jcxz .out                   ; keeps too, so the two widths need no bank:
+    inc cx                      ; kernel size pass 14, 4 bytes)
     mov bx, [menu_bend]
     sub ax, bx                  ; the gap...
     jb .clk
@@ -486,9 +489,9 @@ toast_place:
 ; ticks - die.
 ; -----------------------------------------------------------------------------
 toast_up:
-    cmp byte [toast_on], 1      ; CF = 1 when it is 0
-    cmc
-    jnc .r
+    test byte [toast_on], 1     ; CF = 0 either way; [toast_on] is 0 or 1 at
+    jz .r                       ; every writer, so 0 is "not up" (a byte under
+                                ; the compare and its cmc: kernel size pass 14)
     mov ax, [ticks]
     sub ax, [toast_die]
     rol ah, 1                   ; CF = the sign: still to come
