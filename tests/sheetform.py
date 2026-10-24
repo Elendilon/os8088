@@ -58,7 +58,8 @@ import sheetfmt as SF                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheetform"                # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetform.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetform.img")        # the run's tree, so a soak lane finds it
 NAME = "FORM.SLK"
 DATA = (311, 45)
 ITEM = lambda x, i: (x + 17, 57 + 12 * i + 2)

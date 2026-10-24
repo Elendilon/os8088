@@ -48,7 +48,8 @@ from os88geom import WIN_SIZE, W_SEG                            # noqa: E402
 from paintmove import pkg_syms                                  # noqa: E402
 
 WORK = "build/sheetmkind"               # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetmkind.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetmkind.img")        # the run's tree, so a soak lane finds it
 OPEN_ITEM = (SF.FILE_MENU[0] + 15, 59 + 11)     # sheetxl2's own
 OPTIONS = (370, 45)                             # its menu: Formulas is a
                                                 # box in Display... (81.106)

@@ -40,7 +40,8 @@ import sheetfmt as SF                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheetcolw"                # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetcolw.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetcolw.img")        # the run's tree, so a soak lane finds it
 # No 'l' and no 'I' in what is read: this BIOS face draws the two alike but
 # for their top row, and a glyph's top row lies under its cell's line
 CELLS = {(0, 0): 'A wider heading spanning', (0, 2): 123456.0,

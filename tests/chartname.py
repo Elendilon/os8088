@@ -56,7 +56,8 @@ import os88sheetfmt as F                                     # noqa: E402
 from harness import check, done                              # noqa: E402
 from paintmove import pkg_syms                               # noqa: E402
 
-DISK = "build/chartname.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/chartname.img")        # the run's tree, so a soak lane finds it
 DOC = "NAMED.SLK"
 NAME = "PICK"
 # column A (X1) and column B (X2); NOT proportional - see the header

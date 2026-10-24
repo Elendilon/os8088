@@ -67,7 +67,8 @@ import sheetfmt as SF                                        # noqa: E402
 import sheetfin as FN                                        # noqa: E402
 
 WORK = "build/sheeteval"                # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheeteval.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheeteval.img")        # the run's tree, so a soak lane finds it
 WRONG = -999.0
 # A4 is a LOGICAL constant - SYLK's quoted K, which SHEET reads as the logical
 # since 81.51 - and A5 a label, for the fold rules below

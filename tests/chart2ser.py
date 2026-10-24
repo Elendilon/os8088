@@ -50,7 +50,8 @@ import os88sheetfmt as F                                     # noqa: E402
 from harness import check, done                              # noqa: E402
 from paintmove import pkg_syms                               # noqa: E402
 
-DISK = "build/chart2ser.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/chart2ser.img")        # the run's tree, so a soak lane finds it
 THREE, DEMOTE, ONE = "THREE.SLK", "DEMOTE.SLK", "ONE.SLK"
 
 # Three columns whose RANGES differ by a decade, so check 5 has something to

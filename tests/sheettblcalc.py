@@ -74,7 +74,8 @@ from paintmove import pkg_syms                                # noqa: E402
 from os88geom import WIN_SIZE, W_SEG                          # noqa: E402
 
 WORK = "build/sheettblcalc"
-DISK = "build/sheettblcalc.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheettblcalc.img")        # the run's tree, so a soak lane finds it
 NAME = "SHIN.SLK"
 
 # B1:D3, one input table, COLUMN input cell A1. A1 is absent, as 81.114.4's

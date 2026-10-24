@@ -64,7 +64,8 @@ import sheetfmt as SF                                        # noqa: E402
 from paintmove import pkg_syms                               # noqa: E402
 
 WORK = "build/sheetsize"
-DISK = "build/sheetsize.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetsize.img")        # the run's tree, so a soak lane finds it
 NAME = "SIZE.SLK"
 SB_H = 16                               # sheet.asm: SH_SB_H
 

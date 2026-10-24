@@ -38,7 +38,8 @@ from harness import check, done                              # noqa: E402
 import sheetfmt as SF                                        # noqa: E402
 
 WORK = "build/sheettitle"
-DISK = "build/sheettitle.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheettitle.img")        # the run's tree, so a soak lane finds it
 NAME = "LEDGER.SLK"
 TITLE_H = 18
 

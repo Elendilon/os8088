@@ -33,7 +33,8 @@ from os88geom import WIN_SIZE, W_SEG                            # noqa: E402
 from paintmove import pkg_syms                                  # noqa: E402
 
 WORK = "build/sheetstatus"
-DISK = "build/sheetstatus.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetstatus.img")        # the run's tree, so a soak lane finds it
 NAME = "STAT.SLK"
 SB_H, DIVX, INDX = 16, 96, 88          # sheet.asm: SH_SB_H, SH_SB_DIVX, right-88
 

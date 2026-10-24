@@ -13883,7 +13883,7 @@ sh_s_fd_cancel: db 'Cancel', 0
 ; = 2 rows, 5/6 retired) - sh_fdlg_open copies the
 ; matching entry into [sh_fdlg_count], which sh_fdlg_paint/sh_fdlg_onclick
 ; loop and hit-test against instead of the fixed SH_FDLG_NITEMS.
-sh_fdlg_counts: dw 4, 4, 4, 2, 2, 0, 0, 3, 4, 3, 2, 7, 6, 5, 4, 2, 6
+sh_fdlg_counts: dw 4, 4, 4, 2, 2, 0, 0, 3, 3, 4, 2, 7, 6, 5, 4, 2, 6
 
 ; 81.114.8: Options > Calculation's three MODES, in Excel's own order, and
 ; the dialog row after them that is this app's folded-in Calculate Now.
@@ -21580,7 +21580,13 @@ sh_new:
     mov word [sh_nbord], 0           ; the discarded document's borders and
     mov word [sh_ntbl], 0            ; 81.114.7: ...and its TABLES
     mov word [sh_nnote], 0           ; notes go with it - a note record holds
-    SHOUT sh_colw_clear                ; ...and every column's width (81.56)
+    call sh_colw_clear                 ; ...and every column's width (81.56).
+                                     ; NEAR, never SHOUT: this is .text, and
+                                     ; ch_xthunk takes a caller CS that is not
+                                     ; CHART.OVL's for MACRO.OVL's, so the
+                                     ; far return landed in that module at a
+                                     ; .text offset - File > New hung the
+                                     ; machine (NO-PINNING P1b's tag)
     mov word [sh_nnames], 0          ; ...and its NAMES, which used to survive
                                      ; into the next document and go on
                                      ; pointing at cells no longer there

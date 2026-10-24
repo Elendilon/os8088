@@ -38,7 +38,8 @@ import sheetfmt as SF                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheetundo"                # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetundo.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetundo.img")        # the run's tree, so a soak lane finds it
 CELLS = {(0, 0): 1.0, (1, 0): 2.0, (0, 1): 'x'}
 EDIT = (123, 45)
 ITEM = lambda i: (140, 57 + 12 * i + 2)     # the Edit menu's rows, measured

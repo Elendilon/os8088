@@ -706,3 +706,37 @@ read-ahead buffer), **K6b** (`MEM_P_FATW`, the FAT caches) and **K6c**
 with K6a, and they are NOT size-pass items. The size pass is left with one
 row: **K4b**, `MEM_K_COPY`, the clipboard copy buffer (~17 bytes), the only
 non-purgeable claim of the four.
+
+## 8. The whole soak (2026-10-24) and what it found
+
+Run once on `no-pinning` after the merge of `elendilon`, at the owner's word.
+Every failure was classified and fixed or handed off, most of them not this
+branch's: `regwork`, `invariants`, `dosshrink`, `deskcaltask`, `pxshud`,
+`megaovl`, `extdmod`, `vblkemu`, `vidxms`, `loommove`, `netinst`'s wants, and
+WireFleet back under `APP_MAX_SIZE`. `vesa` is fixed on `kernel-size-14`
+(`e1e7cebf`, which `no-pinning` also needs) and `blobruns` is left to that
+size pass. A scoped re-run of the 30 non-Sheet rows was 30/30.
+
+~62 Sheet and Chart rows failed on one harness defect: each wrote its scratch
+disk to a relative `build/` path that a soak lane then looked for in the frozen
+tree. They go through `os88build.at` now (`2d17a014`), and the scoped re-run
+was 66/67. The one left, `sheettitle`, was a REAL DEFECT and this branch's:
+
+- **File > New hung the machine** (`26b5c16b`). P1b's `ch_xthunk` takes any
+  caller CS that is not CHART.OVL's for MACRO.OVL's, and `sh_new` - resident
+  code - did `SHOUT sh_colw_clear`. Its far return was rebuilt into MACRO.OVL
+  at a `.text` offset, past the module's end, where the bytes run as an
+  endless push loop; task 0's stack was swept and the machine stopped on the
+  death panel. It is a near call now, and `chxthunk` (soak) refuses a vector
+  call from `.text` off nasm's own map - `os88ovlchk`'s package walk folds
+  every section but `.modc` into `.text` and could not see it. It reached
+  `elendilon` with the earlier merge.
+- `sh_fdlg_counts` had New and Calculation swapped since #289: New painted a
+  fourth row out of the bytes after its table, and Calculate Now could not
+  be shown or picked.
+
+Not fixed, recorded: `sch_diepanel`'s line reads as a stipple on VGA (the
+text strings are not legible; only the hex is), and on the base kernel it was
+not visible at all.
+
+`test-full` after the last fix: 73/73.

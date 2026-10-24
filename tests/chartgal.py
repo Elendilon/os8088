@@ -62,7 +62,8 @@ import os88sheetfmt as F                                     # noqa: E402
 from harness import check, done                              # noqa: E402
 from paintmove import pkg_syms                               # noqa: E402
 
-DISK = "build/chartgal.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/chartgal.img")        # the run's tree, so a soak lane finds it
 DOC = "GAL.SLK"
 # Two columns, because Scatter and Combination need a second series (82.8).
 COLA = [10.0, 20.0, 30.0, 40.0]

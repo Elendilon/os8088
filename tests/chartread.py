@@ -78,7 +78,8 @@ import os88sheetfmt as F                                     # noqa: E402
 from harness import check, done                              # noqa: E402
 from paintmove import pkg_syms                               # noqa: E402
 
-DISK = "build/chartread.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/chartread.img")        # the run's tree, so a soak lane finds it
 SLK, DIF, BIF = "READ.SLK", "READ.DIF", "READ.BIF"
 NAME = "PICK"
 # Column A is what Automatic charts - the LOWEST column (82.12) - so these are

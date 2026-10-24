@@ -32,7 +32,8 @@ import sheetfmt as SF                                        # noqa: E402
 
 
 WORK = "build/sheetminfo"               # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetminfo.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetminfo.img")        # the run's tree, so a soak lane finds it
 NAME = "INFO.SLK"
 MACRO = (435, 45)                       # sheetmacro's own, unchanged
 RUN = (MACRO[0] + 17, 57 + 12 + 2)

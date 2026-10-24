@@ -55,7 +55,8 @@ import sheetfmt as SF                                        # noqa: E402
 import glass                                                 # noqa: E402
 
 WORK = "build/sheetdb"                  # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetdb.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetdb.img")        # the run's tree, so a soak lane finds it
 NAME = "DBASE.SLK"
 DATA = (311, 45)                        # the Data menu's own screen position
 ITEM = lambda x, i: (x + 17, 57 + 12 * i + 2)  # and a dropdown item's, both

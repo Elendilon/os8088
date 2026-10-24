@@ -38,7 +38,8 @@ import sheetfmt as SF                                        # noqa: E402
 
 
 WORK = "build/sheetmmenu"               # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetmmenu.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetmmenu.img")        # the run's tree, so a soak lane finds it
 NAME = "MENU.SLK"
 MACRO = (435, 45)
 RUN = (MACRO[0] + 17, 57 + 12 + 2)

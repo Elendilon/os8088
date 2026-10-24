@@ -38,7 +38,8 @@ from os88geom import WIN_SIZE, W_SEG                            # noqa: E402
 from paintmove import pkg_syms                                  # noqa: E402
 
 WORK = "build/sheetrefcyc"
-DISK = "build/sheetrefcyc.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetrefcyc.img")        # the run's tree, so a soak lane finds it
 FORMULA = (123 + 24 + 36, 45)           # sheetundo's Edit centre, + half
                                         # of Edit's cell and half of Formula's
 REF_ROW = 2                             # SH_FI_REF

@@ -34,7 +34,8 @@ from os88geom import WIN_SIZE, W_SEG                            # noqa: E402
 from paintmove import pkg_syms                                  # noqa: E402
 
 WORK = "build/sheetmsep"
-DISK = "build/sheetmsep.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetmsep.img")        # the run's tree, so a soak lane finds it
 NAME = "SEP.SLK"
 TITLES = ["File", "Edit", "Formula", "Format", "Data", "Options", "Macro"]
 # the rows a line FOLLOWS, per menu - sheet.asm's sh_msep, restated as the

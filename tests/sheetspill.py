@@ -39,7 +39,8 @@ import sheetfmt as SF                                        # noqa: E402
 from glass import grid, ink                                  # noqa: E402
 
 WORK = "build/sheetspill"               # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetspill.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetspill.img")        # the run's tree, so a soak lane finds it
 CELLS = {
     (0, 0): 'Spill across three cells',
     (1, 0): 'Blocked by the number',

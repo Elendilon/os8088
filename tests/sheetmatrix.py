@@ -39,7 +39,8 @@ from harness import check, done                              # noqa: E402
 import sheetfmt as SF                                        # noqa: E402
 
 WORK = "build/sheetmatrix"              # this row's own paths (WRITING-TESTS 5.5)
-DISK = "build/sheetmatrix.img"
+import os88build                                         # noqa: E402
+DISK = os88build.at("build/sheetmatrix.img")        # the run's tree, so a soak lane finds it
 NAME = "MATRIX.SLK"
 
 DATA = {
