@@ -2180,15 +2180,45 @@ OS88_HUGE_INCR      equ 0x1000
                                  ;          and goes with it
                                  ; SEG_FREE DX = a window or a SEG_SUB
                                  ;          selector -> given back early
+                                 ; SEG_SUBC as SEG_SUB, but a CODE/DATA
+                                 ;          PAIR: DX = the data half, the
+                                 ;          code half at DX - 8, so code past
+                                 ;          a claim's first 64KB has a CS.
+                                 ;          Inside a claim or a pool block
+                                 ;          only; it moves and goes with it
+                                 ; SEG_BWIN DX = a selector of yours based in
+                                 ;          a claim or a pool block -> DX = a
+                                 ;          new BOUND WINDOW over that block,
+                                 ;          aimed at that base. Yours until
+                                 ;          SEG_FREE or your end; it moves
+                                 ;          and goes with the block
+                                 ; SEG_AIM  DX = a bound window, CX:AX = a
+                                 ;          BYTE offset into its block (32
+                                 ;          bits) -> DX = the same window
+                                 ;          re-aimed there, AX = 0: 64KB of
+                                 ;          reach, or to the block's end.
+                                 ;          CF=1 on a real-mode kernel, where
+                                 ;          your own sum is the answer. THE
+                                 ;          ONE VERB LEGAL IN AN FSXF_RATE
+                                 ;          HOOK: no lock, no wait, IF never
+                                 ;          set, ~40 bytes of stack with the
+                                 ;          cell's frame
                                  ; out CF=0 and the answer; CF=1 refused (no
-                                 ; LDT entry free, or SEG_REAL's none).
-                                 ; Every other register kept. UI-task or
-                                 ; worker context; not from an ISR
+                                 ; LDT entry free, or SEG_REAL's none),
+                                 ; AX = the reason: 1 no LDT entry or window
+                                 ; row, 2 the null selector, 3 in no block,
+                                 ; 4 not a bound window of yours, 5 past the
+                                 ; block's end. Every other register kept.
+                                 ; UI-task or worker context, and SEG_AIM
+                                 ; from a rate hook too; not from an ISR
 SEG_LIN     equ 0
 SEG_REAL    equ 1
 SEG_WIN     equ 2
 SEG_SUB     equ 3
 SEG_FREE    equ 4
+SEG_SUBC    equ 5
+SEG_BWIN    equ 6
+SEG_AIM     equ 7
 
 ; OSAPI_IMG_NAME - WHICH driver or module an image is (KERN-MEGA-PLAN 14.70.3).
 ; A class names a driver only when it has one, and a module's header names

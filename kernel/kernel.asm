@@ -5753,6 +5753,15 @@ osapi_arg_text_x equ mod_gone   ; no links on kern_small, so no parameter
 ;            CX = paragraphs (0 = to its end, 64KB at most) -> DX = a data
 ;            selector based there
 ;   SEG_FREE DX = a window or a selector SEG_SUB made -> freed
+;   SEG_SUBC as SEG_SUB, a CODE/DATA pair: DX = the data half, the code half
+;            DX - 8 (KERN-MEGA-MEMORY-PLAN 8.1, RealDMG's recompiler)
+;   SEG_BWIN DX = a selector of yours based in a block (a claim, a pool
+;            block) -> DX = a BOUND window over that block, re-aimed by:
+;   SEG_AIM  DX = a bound window, CX:AX = a byte offset into its block ->
+;            DX = the window re-aimed there, AX = 0, the offset to use in
+;            it. Legal in an FSXF_RATE hook (KERN-MEGA-MEMORY-PLAN 9.1, the
+;            Video Player's BIGSP). CF = 1 on a real-mode kernel, where the
+;            caller's own sum is the answer
 ; THE REAL-MODE ANSWER IS THE CALLER'S OWN ARITHMETIC - DX x 16, DX, DX + AX
 ; - so a package converted to these verbs runs unchanged on every kernel
 ; and needs no CPU_F_PM test; only kern_mega in protected mode, where a
@@ -5762,6 +5771,9 @@ SEG_REAL    equ 1               ; mirror (tests/unit/t_mirror.py holds the
 SEG_WIN     equ 2               ; two together)
 SEG_SUB     equ 3
 SEG_FREE    equ 4
+SEG_SUBC    equ 5
+SEG_BWIN    equ 6
+SEG_AIM     equ 7
 section .cold
 osapi_seg:                      ; (api_rxc's far body: DS = KDATA)
 %ifdef KERN_MEGA
@@ -5773,10 +5785,14 @@ osapi_seg:                      ; (api_rxc's far body: DS = KDATA)
 %endif
     cmp bl, SEG_SUB
     je .sub
-    ja .fr
-    cmp bl, SEG_LIN
-    jne .ok                     ; SEG_REAL, SEG_WIN: the value is the answer
-    push cx
+    cmp bl, SEG_SUBC
+    je .sub                     ; ...a pair's data half: the same sum
+    cmp bl, SEG_BWIN
+    ja .no                      ; SEG_AIM is protected mode's alone - a real-
+    cmp bl, SEG_LIN             ; mode caller's own sum is its answer - and
+                                ; an unknown verb is refused
+    jne .ok                     ; SEG_REAL, SEG_WIN, SEG_BWIN: the value is
+    push cx                     ; the answer, and SEG_FREE has nothing to free
     mov ax, dx
     mov cl, 4
     shl ax, cl
@@ -5790,18 +5806,11 @@ osapi_seg:                      ; (api_rxc's far body: DS = KDATA)
     add dx, ax
     clc
     retf
-.fr:
-    cmp bl, SEG_FREE            ; nothing to free: CF = 0; an unknown verb
-    jne .no                     ; is refused
-    clc
-    retf
 .no:
     stc
-    retf
-    nop                         ; PARITY PAD, never executed: the body is
-                                ; odd, and dsk_xfer, dsk_runcap,
+    retf                        ; (an EVEN body: dsk_xfer, dsk_runcap,
                                 ; dsk_next_clus_x and gfx_blit1_x after it
-                                ; in `.cold` keep their measured parity
+                                ; in `.cold` keep their measured parity)
 section .text
 
 ; ---- osapi_img_name - API slot 0x04D7 (KERN-MEGA-PLAN 14.70.3) -------------

@@ -1031,6 +1031,31 @@ rows. Nothing is recorded as built that was not.
   second kilobyte, `mov es, dx` with DX = the next pair's selector + 40h.
   The kernel handed it the right selectors (a trace of every pair made,
   freed and moved confirmed it). It joins the package waves' list.
+- **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
+  `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to
+  reopen the end state:
+  - **8.1, RealDMG's code name past a claim's first 64KB: `SEG_SUBC`** - a
+    SUB that is a code/data pair, the code half at DX - 8, based in a pool
+    block or a conventional claim, rebased and freed with it. The recompiler's
+    part and each extra tier are one call each; `MEM_OWNER_MAX` is untouched.
+  - **9.1, the Video Player's hook-legal window: `SEG_BWIN` + `SEG_AIM`** - a
+    fresh window bound to the caller's block, and a re-aim to a 32-bit byte
+    offset that takes no lock, never sets IF and costs ~40 bytes of stack
+    with the cell's frame (SPEC.md 53.2.2 names the exception). One window
+    serves a whole play, so the LDT holds one entry for it. A block holding
+    one moves with the rate hook held off (`MX_FWIN`), as 9.1 asked, and an
+    aim after a move reads the block's current base.
+  - On the way: a SUB in a CONVENTIONAL claim is now tied to the block as a
+    pool one is (5.1's rebase and free cover it), instead of a window; and
+    freeing an LDT entry clears any `mega_wtab` row naming it, so a window
+    that went with its block is not freed again at its owner's end.
+  - Cost: kern_big and kern_small +0 (the real-mode body grew by exactly the
+    parity pad it no longer needs; `SEG_AIM` refuses in real mode, its only
+    callers being kern_mega arms whose real-mode path already does the sum);
+    kern_mega `.cold` +30, `.mega` +485. MEGAXM checks all three (steps 57
+    to 5C, and 13 and 14 in real mode) and goes red with the re-aim's offset
+    ignored (`MEGAXM: bad 5A`); its step 0D now expects the region's code
+    half at DS - 8.
 
 ---
 

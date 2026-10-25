@@ -96998,11 +96998,17 @@ verb:
 | `SEG_WIN` 2 | DX = a physical PARAGRAPH, CX = bytes (0 = 64KB), AX = a window of the caller's to re-aim, or 0 | DX = a data selector over it |
 | `SEG_SUB` 3 | DX = a segment or selector of the caller's, AX = a paragraph offset, CX = paragraphs (0 = to its end, 64KB at most) | DX = a data selector based there |
 | `SEG_FREE` 4 | DX = a window | given back |
+| `SEG_SUBC` 5 | as `SEG_SUB` | DX = the DATA half of a code/data PAIR based there, the CODE half at DX - 8 |
+| `SEG_BWIN` 6 | DX = a selector of the caller's based in a claim or a pool block | DX = a new BOUND window over that block, aimed at that base |
+| `SEG_AIM` 7 | DX = a bound window, CX:AX = a BYTE offset into its block | DX = the same window re-aimed there, AX = 0; legal in an `FSXF_RATE` hook |
 
 **Every real-mode kernel answers what the caller's own arithmetic was** -
-`DX x 16`, `DX`, `DX`, `DX + AX` - in a dozen bytes of `.cold`, so a package
-converted to the cell runs unchanged on kern_big and kern_small, needs no
-`CPU_F_PM` test, and costs nothing there but the call.
+`DX x 16`, `DX`, `DX`, `DX + AX` (`SEG_SUB` and `SEG_SUBC` alike), `DX` for
+`SEG_BWIN` - in a few dozen bytes of `.cold`, so a package converted to the
+cell runs unchanged on kern_big and kern_small, needs no `CPU_F_PM` test, and
+costs nothing there but the call. `SEG_AIM` alone is refused there (CF = 1):
+its only callers are kern_mega package arms, whose real-mode path already
+does the sum, so its arithmetic is not carried on every machine.
 
 On kern_mega in protected mode (`mega_segf`, `.mega`):
 
@@ -97012,22 +97018,50 @@ On kern_mega in protected mode (`mega_segf`, `.mega`):
   (`mx_relall`, which an instance's teardown and a driver's release already
   run), `SEG_FREE` sooner. Re-aiming one is the `OSAPI_XMEM_SEL` rule: a
   segment register holding it keeps the old window until it is reloaded.
-- A **SUB** inside a pool block is a descriptor BASED IN THE BLOCK: the
-  compactor rebases it with the block (`mx_desc`), and the block's free takes
-  it (`mx_dfree`, for a program's or a driver's claim; a region's own are
-  `OSAPI_MEM_SUBSEG`'s and freed by the region's teardown). Anywhere else - a
-  claim or a region below 1MB - it is a window, 64KB of reach at most, which
-  is what `segment + AX` reached.
+- A **SUB** inside a pool block or a conventional claim (§50.6.12) is a
+  descriptor BASED IN THE BLOCK: the compactor rebases it with the block
+  (`mx_desc`, `mega_mpmovef`), and the block's free takes it (`mx_dfree` for
+  a program's or a driver's pool claim, `mega_mpfreef` for a conventional
+  one; a region's own are `OSAPI_MEM_SUBSEG`'s and freed by the region's
+  teardown). Anywhere else - a ROM, a frame buffer - it is a window, 64KB of
+  reach at most, which is what `segment + AX` reached. **`SEG_SUBC`** is the
+  same with a CODE half at DX - 8 (allocated as a pair), so code past a
+  claim's first 64KB has a CS - RealDMG's recompiler part and its extra cache
+  tiers (docs/plans/KERN-MEGA-MEMORY-PLAN.md 8.1); it is a block's or
+  nothing (CF = 1, AX = 3). A block's free takes both halves.
+- A **BOUND window** (`SEG_BWIN`) is a fresh descriptor - never a match, so
+  re-aiming it moves nobody else's - based in a claim or a pool block and
+  recorded in `mega_wtab` under the caller, its row's byte 3 marking it
+  bound. **`SEG_AIM`** re-aims it to a 32-bit byte offset into the block,
+  found afresh from the window's current base each call (so a move between
+  two aims is followed), its reach 64KB or to the block's end, and is the
+  ONE kernel call legal in an `FSXF_RATE` hook (§53.2.2): IF is never set,
+  nothing is locked or waited on, and the whole call is about 40 bytes of
+  the caller's stack, the cell's own frame included. A pool block holding a
+  bound window moves with the rate hook held off for each piece
+  (`MX_FWIN`, `mx_cpflags`), as an `OSAPI_XMEM_RUN` block does. It is what
+  the Video Player's BIGSP super-packets read through in place
+  (docs/plans/KERN-MEGA-MEMORY-PLAN.md 9.1): one window, one re-aim a
+  record. Refusals 4 (not a bound window of the caller's) and 5 (at or past
+  the block's end).
+- **Freeing an entry clears any window row naming it** (`mega_ldt_free`), so
+  a window that went with its block cannot be freed a second time at its
+  owner's end, after the entry is somebody else's.
 - The same base and reach asked again answer the SAME selector, a window or
   a SUB alike, so a caller that asks once per access holds one entry.
 - Refusals: CF = 1, AX = 1 when no LDT entry or no `mega_wtab` row is free,
-  2 for the null selector.
+  2 for the null selector, 3 not in a block (`SEG_SUBC`, `SEG_BWIN`), 4 not a
+  bound window of the caller's and 5 past its block's end (`SEG_AIM`).
 
 Cost: every kernel `.text` +6 (the cell); `.cold` +40 on kern_big, +39 on
 kern_small (the real-mode body and its parity pad); kern_mega `.cold` +68,
 `.mega` +900 (the body, the window table's helpers and `mx_dfree`),
-`.lowbss` +128. `tests/megaxmove.py`'s MEGAXM checks every verb in protected
-mode, and the SUB's real-mode sum on any other kernel.
+`.lowbss` +128. The three later verbs cost kern_big and kern_small nothing
+(the body grew by exactly the parity pad it no longer needs) and kern_mega
+`.cold` +30, `.mega` +485. `tests/megaxmove.py`'s MEGAXM checks every verb
+in protected mode - `SEG_AIM` reading a known byte through the re-aimed
+window, and refused past the block's end - and the SUB's and the SUBC's
+real-mode sum and `SEG_AIM`'s refusal on any other kernel.
 
 #### 50.6.12 kern_mega: every claim is a selector (KERN-MEGA-MEMORY-PLAN MC7.4)
 
@@ -102912,7 +102946,10 @@ tick), as `wm_pkgcall` would call it: through the package's dispatcher, with
 - **The stack is whichever the IRQ0 interrupted**: task 0's, or a slice of
   the kept worker or a `TF_SERVICE` driver (§53.2). A hook's own depth is
   billed to every one of them, so it is **48 bytes at most**.
-- **It may call nothing in the kernel.**
+- **It may call nothing in the kernel** - but one verb: kern_mega's
+  `OSAPI_SEG` `SEG_AIM` (§50.6.11), which re-aims a bound window over the
+  package's own block, takes no lock, never sets IF and is about 40 bytes of
+  that stack with the cell's frame (docs/plans/KERN-MEGA-MEMORY-PLAN.md 9.1).
 
 **The hook is skipped, and the period counted for the next call**, when it
 would be unsafe to run it: the previous call has not returned; the IRQ0

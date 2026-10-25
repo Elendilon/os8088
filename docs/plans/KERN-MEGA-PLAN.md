@@ -10729,7 +10729,9 @@ waits on the kern_mega RAM work in progress in another session.
   each - the protocol is in SPEC.md 34.10.1, read off the ROM's
   disassembly, so it wants the card to check against.
 - [ ] **LASTX's copying bank** (above): a per-record re-aimed window, or a
-  finer `OSAPI_XMEM_RUN` step, would let BIGSP decode in place.
+  finer `OSAPI_XMEM_RUN` step, would let BIGSP decode in place. **The window
+  exists now** (KERN-MEGA-MEMORY-PLAN 9.1, SPEC.md 50.6.11: `SEG_BWIN` and
+  the hook-legal `SEG_AIM`); what is left is the Video Player's own change.
 
 ### 14.74 The memory consolidation round (2026-10-25) - now its own plan
 

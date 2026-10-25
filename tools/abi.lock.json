@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "a58c69b62a367c2a1b7fe61fede83599ff230eabdc0910c60a8b822b47518b93",
+  "fingerprint": "4ef8b8ac9193497a57210cae2ab644ebdf6c154ea624f611a1efcefbc08e41f9",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "b7e236b01c23c3a477cd8a0ffcc4f69aa9be41db14578917a93fd9eb6ae810a6",
+  "fingerprint": "05665d120013aa3e2ea49bb205f12a22847509b2e17f8573a1e224eefed1c727",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1120,6 +1120,34 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_SEG (0x04E3): a cell at the table's end, the doors KERN-MEGA-MEMORY-PLAN MC7 needs; nothing built before stops running",
+   "to": 11
+  },
+  {
+   "fingerprint": "0a2d23f2fe985227391b995c3df42450d6cccd0f6222e4ae099c14da065f88a2",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_SEG: three verbs added - SEG_SUBC (a code/data pair inside a block), SEG_BWIN and SEG_AIM (a bound window a rate hook re-aims); additive, KERN-MEGA-MEMORY-PLAN 8.1 and 9.1",
+   "to": 10
+  },
+  {
+   "fingerprint": "1ee2ce06037416b1b084841999235bde8949715989f685b105ebd9cb6478060c",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_SEG: three verbs added - SEG_SUBC (a code/data pair inside a block), SEG_BWIN and SEG_AIM (a bound window a rate hook re-aims); additive, KERN-MEGA-MEMORY-PLAN 8.1 and 9.1",
+   "to": 11
+  },
+  {
+   "fingerprint": "05665d120013aa3e2ea49bb205f12a22847509b2e17f8573a1e224eefed1c727",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_SEG: SEG_AIM refuses on a real-mode kernel (the caller's own sum); additive",
+   "to": 10
+  },
+  {
+   "fingerprint": "4ef8b8ac9193497a57210cae2ab644ebdf6c154ea624f611a1efcefbc08e41f9",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_SEG: SEG_AIM refuses on a real-mode kernel (the caller's own sum); additive",
    "to": 11
   }
  ]

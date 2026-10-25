@@ -31,8 +31,13 @@
 ;                              one chunk into the block read through, no
 ;                              REAL segment for it, a WINDOW over the BIOS
 ;                              ROM's date and its LINEAR base F0000h, the
-;                              window freed - and on a real-mode kernel the
-;                              SUB is the caller's own segment + AX
+;                              window freed; SEG_SUBC's pair over chunk 1
+;                              and its code half at DX - 8; a BOUND window
+;                              (SEG_BWIN) aimed at chunk 2's byte 100 by
+;                              SEG_AIM, refused 5 past the block's end, and
+;                              freed - and on a real-mode kernel the SUB and
+;                              the SUBC are the caller's own segment + AX
+;                              and SEG_AIM is refused
 ;   MEGAXM: move OOOO PPPP     (protected mode) THE BLOCK MOVED, and is read
 ;                              back through the SAME token (KERN-MEGA-MEMORY-
 ;                              PLAN MC3): a 64KB filler taken first lies
@@ -308,6 +313,20 @@ mz_sel:
     add ax, 0x10
     cmp ax, dx
     jne .wrong
+    mov dx, ds                  ; ...SEG_SUBC the same sum...
+    mov ax, 0x10
+    mov bl, SEG_SUBC
+    call OSAPI_SEG
+    mov cl, 0x13
+    jc .refused
+    mov ax, ds
+    add ax, 0x10
+    cmp ax, dx
+    jne .wrong
+    mov bl, SEG_AIM             ; ...and SEG_AIM refused: the caller's own
+    call OSAPI_SEG              ; sum is the answer in real mode
+    mov cl, 0x14
+    jnc .wrong
     jmp .say
 .pm:
     mov ax, [mz_base]           ; --- the whole block, 64KB, in place
@@ -354,14 +373,12 @@ mz_sel:
     jnc .wrong
     cmp ax, 2
     jne .wrong
-    mov dx, ds                  ; --- CODESEL: our region's segment is its
-    call OSAPI_MEM_CODESEL      ; LDT code alias...
-    mov cl, 0x0D
+    mov dx, ds                  ; --- CODESEL: our region is its claim's
+    call OSAPI_MEM_CODESEL      ; pair, so its code half is DS - 8 (KERN-
+    mov cl, 0x0D                ; MEGA-MEMORY-PLAN MC7.4)...
     jc .refused
     mov dx, ds
-    shr dx, 1
-    shr dx, 1
-    or dl, 4
+    sub dx, 8
     cmp ax, dx
     jne .wrong
     mov dx, [mz_xsel]           ; ...and a data-only selector has none
@@ -407,6 +424,60 @@ mz_sel:
     mov bl, SEG_FREE
     call OSAPI_SEG
     mov cl, 0x56
+    jc .refused
+    mov dx, [mz_xsel]           ; --- SEG_SUBC: chunk 1 as a CODE/DATA pair
+    mov ax, MZ_CHUNK / 16       ; (KERN-MEGA-MEMORY-PLAN 8.1)...
+    xor cx, cx
+    mov bl, SEG_SUBC
+    call OSAPI_SEG
+    mov cl, 0x57
+    jc .refused
+    mov es, dx
+    cmp byte [es:100], (1 + 7*100) & 0xFF
+    jne .wrong
+    push dx                     ; ...whose code half is DX - 8
+    call OSAPI_MEM_CODESEL
+    pop dx
+    mov cl, 0x58
+    jc .refused
+    sub dx, 8
+    cmp ax, dx
+    jne .wrong
+    push ds
+    pop es
+    mov dx, [mz_xsel]           ; --- SEG_BWIN: a window bound to the block
+    mov bl, SEG_BWIN            ; (KERN-MEGA-MEMORY-PLAN 9.1)...
+    call OSAPI_SEG
+    mov cl, 0x59
+    jc .refused
+    mov [mz_win], dx
+    mov ax, 2 * MZ_CHUNK + 100  ; ...SEG_AIM at chunk 2's byte 100
+    xor cx, cx
+    mov bl, SEG_AIM
+    call OSAPI_SEG
+    mov cl, 0x5A
+    jc .refused
+    cmp dx, [mz_win]            ; the same window
+    jne .wrong
+    or ax, ax
+    jnz .wrong
+    mov es, dx
+    cmp byte [es:0], (2 + 7*100) & 0xFF
+    jne .wrong
+    push ds
+    pop es
+    xor ax, ax                  ; ...and past the block's 64KB: refused, 5
+    mov cx, 1
+    mov bl, SEG_AIM
+    call OSAPI_SEG
+    mov cl, 0x5B
+    jnc .wrong
+    cmp ax, 5
+    jne .wrong
+    mov dx, [mz_win]
+    mov bl, SEG_FREE
+    call OSAPI_SEG
+    mov cl, 0x5C
     jc .refused
 .say:
     mov si, mz_s_sel
@@ -864,7 +935,7 @@ mz_s_at:    db 'MEGAXM: at ', 0
 mz_s_i13:   db 'MEGAXM: i13 ok', 0
 mz_s_move:  db 'MEGAXM: move ', 0
 
-    OS88_BSS 18 + MZ_CHUNK
+    OS88_BSS 20 + MZ_CHUNK
     OS88_IMAGE_END
 
 mz_base     equ os88_image_end + 0
@@ -874,3 +945,4 @@ mz_xsel2    equ os88_image_end + 10
 mz_diff     equ os88_image_end + 12
 mz_fill4    equ os88_image_end + 14 ; dword: the filler's token, 0 = none
 mz_buf      equ os88_image_end + 18
+mz_win      equ os88_image_end + 18 + MZ_CHUNK ; SEG_BWIN's window
