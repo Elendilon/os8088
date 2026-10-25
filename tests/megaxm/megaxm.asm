@@ -27,6 +27,12 @@
 ;                              is in it too (step 2D-2F): the hint stamp
 ;                              must read the file's byte 0 and not one past
 ;                              the window (KERN-MEGA-PLAN 14.27)
+;                              ...and OSAPI_SEG (SPEC.md 50.6.11): a SUB
+;                              one chunk into the block read through, no
+;                              REAL segment for it, a WINDOW over the BIOS
+;                              ROM's date and its LINEAR base F0000h, the
+;                              window freed - and on a real-mode kernel the
+;                              SUB is the caller's own segment + AX
 ;   MEGAXM: move OOOO PPPP     (protected mode) THE BLOCK MOVED, and is read
 ;                              back through the SAME token (KERN-MEGA-MEMORY-
 ;                              PLAN MC3): a 64KB filler taken first lies
@@ -293,6 +299,15 @@ mz_sel:
     mov dx, ds
     cmp ax, dx                  ; the segment itself
     jne .wrong
+    mov ax, 0x10                ; OSAPI_SEG answers the caller's own sum
+    mov bl, SEG_SUB             ; on a real-mode kernel (SPEC.md 50.6.11)
+    call OSAPI_SEG
+    mov cl, 0x12
+    jc .refused
+    mov ax, ds
+    add ax, 0x10
+    cmp ax, dx
+    jne .wrong
     jmp .say
 .pm:
     mov ax, [mz_base]           ; --- the whole block, 64KB, in place
@@ -353,6 +368,46 @@ mz_sel:
     call OSAPI_MEM_CODESEL
     mov cl, 0x0E
     jnc .wrong
+    mov dx, [mz_xsel]           ; --- OSAPI_SEG (SPEC.md 50.6.11): a SUB
+    mov ax, MZ_CHUNK / 16       ; one chunk into the block, so chunk 1's
+    xor cx, cx                  ; byte i is (1 + 7i) & 0xFF
+    mov bl, SEG_SUB
+    call OSAPI_SEG
+    mov cl, 0x50
+    jc .refused
+    mov es, dx
+    mov cl, 0x51
+    cmp byte [es:100], (1 + 7*100) & 0xFF
+    jne .wrong
+    mov bl, SEG_REAL            ; ...above 1MB: no real segment
+    call OSAPI_SEG
+    mov cl, 0x52
+    jnc .wrong
+    xor ax, ax                  ; a WINDOW over the BIOS ROM: F000:FFF5 is
+    mov dx, 0xF000              ; its date, MM/DD/YY
+    xor cx, cx
+    mov bl, SEG_WIN
+    call OSAPI_SEG
+    mov cl, 0x53
+    jc .refused
+    mov es, dx
+    mov cl, 0x54
+    cmp byte [es:0xFFF7], '/'
+    jne .wrong
+    mov bl, SEG_LIN             ; ...whose base is F0000h
+    call OSAPI_SEG
+    mov cl, 0x55
+    cmp dx, 0x000F
+    jne .wrong
+    or ax, ax
+    jnz .wrong
+    mov dx, es
+    push ds
+    pop es                      ; (ES off the window before it goes)
+    mov bl, SEG_FREE
+    call OSAPI_SEG
+    mov cl, 0x56
+    jc .refused
 .say:
     mov si, mz_s_sel
     call mz_say

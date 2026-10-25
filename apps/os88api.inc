@@ -2140,6 +2140,55 @@ OS88_HUGE_INCR      equ 0x1000
                                  ; not change). CF=1 and EVERY register kept:
                                  ; use your segment + AX. Any context.
 
+; OSAPI_SEG - SEGMENTS AND SELECTORS, without arithmetic (SPEC.md 50.6.11,
+; KERN-MEGA-MEMORY-PLAN MC7). On kern_mega in protected mode a segment value is
+; a SELECTOR: adding paragraphs to it, shifting it into a linear address or
+; writing it into hardware all go wrong. Ask this cell instead. Every
+; real-mode kernel answers exactly what your own arithmetic was - DX x 16, DX,
+; DX + AX - so the same code runs everywhere with no CPU_F_PM test.
+%define OSAPI_SEG           KERNEL_SEG:0x04E3   ; BL = the verb:
+                                 ; SEG_LIN  DX = a segment or selector ->
+                                 ;          DX:AX = its LINEAR base (for the
+                                 ;          8237, a DMA page check, anything
+                                 ;          physical)
+                                 ; SEG_REAL DX = a segment or selector ->
+                                 ;          DX = a REAL-MODE segment with the
+                                 ;          same base, for a vector or a ROM
+                                 ;          that runs in real mode; CF=1
+                                 ;          there is none (above 1MB, or not
+                                 ;          on a paragraph)
+                                 ; SEG_WIN  DX = a physical PARAGRAPH (a ROM,
+                                 ;          a frame buffer, an EMS frame),
+                                 ;          CX = bytes (0 = 64KB), AX = a
+                                 ;          window of yours to re-aim, or 0
+                                 ;          for a new one -> DX = a DATA
+                                 ;          selector over it. Yours until
+                                 ;          SEG_FREE or your instance ends; a
+                                 ;          segment register holding a
+                                 ;          re-aimed one keeps the old window
+                                 ;          until it is reloaded
+                                 ; SEG_SUB  DX = a segment or selector of
+                                 ;          yours (a claim, your region),
+                                 ;          AX = a PARAGRAPH offset into it,
+                                 ;          CX = paragraphs (0 = to its end,
+                                 ;          64KB at most) -> DX = a DATA
+                                 ;          selector based there - "my
+                                 ;          segment + AX". The same window
+                                 ;          asked again answers the same
+                                 ;          selector; it moves with the claim
+                                 ;          and goes with it
+                                 ; SEG_FREE DX = a window or a SEG_SUB
+                                 ;          selector -> given back early
+                                 ; out CF=0 and the answer; CF=1 refused (no
+                                 ; LDT entry free, or SEG_REAL's none).
+                                 ; Every other register kept. UI-task or
+                                 ; worker context; not from an ISR
+SEG_LIN     equ 0
+SEG_REAL    equ 1
+SEG_WIN     equ 2
+SEG_SUB     equ 3
+SEG_FREE    equ 4
+
 ; OSAPI_IMG_NAME - WHICH driver or module an image is (KERN-MEGA-PLAN 14.70.3).
 ; A class names a driver only when it has one, and a module's header names
 ; nothing, so the Task Manager could list a `DrvImg` or a `ModImg` and not say

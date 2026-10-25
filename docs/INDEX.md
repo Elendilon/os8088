@@ -209,6 +209,7 @@ Read first: [§2 Memory map](../SPEC.md#2-memory-map); [§41 xmem.inc — memory
 | `0x0425` | `OSAPI_MEM_FLOOR` | AL = the level; preserves every register and the flags... |
 | `0x04B9` | `OSAPI_MEM_CODESEL` | DX = the segment (or selector) a claim of yours is named by... |
 | `0x04D1` | `OSAPI_MEM_SUBSEG` | AX = a PARAGRAPH offset into your OWN region (from your DS, which must be your region's), BL bit 0 = you will FAR CALL code there, BL bit 1 = CX is... |
+| `0x04E3` | `OSAPI_SEG` | BL = the verb: SEG_LIN DX = a segment or selector -> DX:AX = its LINEAR base (for the 8237, a DMA page check, anything physical) SEG_REAL DX = a... |
 | `0x04D7` | `OSAPI_IMG_NAME` | AX = the segment an image is loaded at - the base of a MEM_K_DRV or MEM_K_MOD claim - with BX = 0... |
 | `0x0216` | `OSAPI_CLAIM_SNAPSHOT` | ES:DI = a CLAIM_SNAPSHOT_SIZE buffer; out AX = MEM_MAX... |
 | `0x021C` | `OSAPI_SYS_KB` | ES:DI = a SYSKB_SIZE buffer; every register preserved... |

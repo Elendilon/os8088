@@ -3896,7 +3896,15 @@ apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
                                   ;          CF=1 none; CF=0 with DX:SI the NUL
                                   ;          text, valid in the entry proc.
                                   ;          kern_small refuses
-osapi_table_end:                  ; 0x04E3 today (0x04DD before OSAPI_ARG_TEXT,
+    OSAPI_RCXCELL osapi_seg       ; 0x04E3 - BL = a SEG_* verb: a segment's or
+                                  ;          selector's linear base, its real
+                                  ;          segment, a window over physical
+                                  ;          memory, a selector inside a claim
+                                  ;          (KERN-MEGA-MEMORY-PLAN MC7). Every
+                                  ;          real-mode kernel answers what the
+                                  ;          caller's own arithmetic would
+osapi_table_end:                  ; 0x04E9 today (0x04E3 before OSAPI_SEG,
+                                  ; 0x04DD before OSAPI_ARG_TEXT,
                                   ; 0x04D7 before OSAPI_IMG_NAME,
                                   ; 0x04D1 before OSAPI_MEM_SUBSEG,
                                   ; 0x04CB before OSAPI_XMEM_RUN,
@@ -3937,8 +3945,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 44*8 + 11*7 + 115*6 + 6*3 + 6 + 12*5 + 4*6 + 8
-%error "os8088 API jump table must be exactly 0x04D3 bytes: 44 SLOT (8), 11 XCELL (7), 115 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
+%if OSAPI_TABLE_LEN != 44*8 + 11*7 + 116*6 + 6*3 + 6 + 12*5 + 4*6 + 8
+%error "os8088 API jump table must be exactly 0x04D9 bytes: 44 SLOT (8), 11 XCELL (7), 116 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
 %endif
 
 %ifdef KERN_MEGA
@@ -5713,6 +5721,69 @@ osapi_mem_subseg equ mod_gone   ; `stc / retf`: CF = 1, every register kept
 %ifndef OS88_SHORTCUTS
 osapi_arg_text_x equ mod_gone   ; no links on kern_small, so no parameter
 %endif                          ; (SPEC.md 26.10.7): CF = 1
+
+; ---- osapi_seg - API slot 0x04E3 (KERN-MEGA-MEMORY-PLAN MC7) ----------------
+; BL = the verb, the X cell's ES = the caller's DS (SPEC.md 50.6.11):
+;   SEG_LIN  DX = a segment or selector -> DX:AX = its linear base
+;   SEG_REAL DX = a segment or selector -> DX = a real-mode segment with the
+;            same base; CF = 1 there is none (above 1MB, off the 16-byte grid)
+;   SEG_WIN  DX = a physical PARAGRAPH, CX = bytes (0 = 64KB), AX = a window
+;            of yours to re-aim or 0 -> DX = a data selector over it, yours
+;            until SEG_FREE or your end
+;   SEG_SUB  DX = a segment or selector of yours, AX = a paragraph offset,
+;            CX = paragraphs (0 = to its end, 64KB at most) -> DX = a data
+;            selector based there
+;   SEG_FREE DX = a window or a selector SEG_SUB made -> freed
+; THE REAL-MODE ANSWER IS THE CALLER'S OWN ARITHMETIC - DX x 16, DX, DX + AX
+; - so a package converted to these verbs runs unchanged on every kernel
+; and needs no CPU_F_PM test; only kern_mega in protected mode, where a
+; segment value is a selector and names a descriptor, does more
+SEG_LIN     equ 0               ; OSAPI_SEG's verbs - apps/os88api.inc's
+SEG_REAL    equ 1               ; mirror (tests/unit/t_mirror.py holds the
+SEG_WIN     equ 2               ; two together)
+SEG_SUB     equ 3
+SEG_FREE    equ 4
+section .cold
+osapi_seg:                      ; (api_rxc's far body: DS = KDATA)
+%ifdef KERN_MEGA
+    cmp byte [mega_on], 0
+    je .rm
+    call MEGA_SEL_CODE:mega_segf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
+    retf
+.rm:
+%endif
+    cmp bl, SEG_SUB
+    je .sub
+    ja .fr
+    cmp bl, SEG_LIN
+    jne .ok                     ; SEG_REAL, SEG_WIN: the value is the answer
+    push cx
+    mov ax, dx
+    mov cl, 4
+    shl ax, cl
+    mov cl, 12
+    shr dx, cl                  ; DX:AX = DX x 16
+    pop cx
+.ok:
+    clc
+    retf
+.sub:
+    add dx, ax
+    clc
+    retf
+.fr:
+    cmp bl, SEG_FREE            ; nothing to free: CF = 0; an unknown verb
+    jne .no                     ; is refused
+    clc
+    retf
+.no:
+    stc
+    retf
+    nop                         ; PARITY PAD, never executed: the body is
+                                ; odd, and dsk_xfer, dsk_runcap,
+                                ; dsk_next_clus_x and gfx_blit1_x after it
+                                ; in `.cold` keep their measured parity
+section .text
 
 ; ---- osapi_img_name - API slot 0x04D7 (KERN-MEGA-PLAN 14.70.3) -------------
 ; in:  AX = the segment a driver's or module's image is loaded at - what the

@@ -6522,6 +6522,21 @@ mx_relall:
     add si, MX_BLKSZ
     cmp si, mx_tab_end
     jb .scan
+    mov si, mega_wtab               ; ...and the owner's OSAPI_SEG windows
+.w:                                 ; (mega_segf, KERN-MEGA-MEMORY-PLAN MC7)
+    cmp word [ss:si], 0
+    je .wn
+    cmp [ss:si+2], al
+    jne .wn
+    push ax
+    mov ax, [ss:si]
+    call mega_ldt_free
+    pop ax
+    mov word [ss:si], 0
+.wn:
+    add si, 4
+    cmp si, mega_wtab_end
+    jb .w
     popf
     pop si
     ret
@@ -6572,6 +6587,76 @@ mx_unsel:
     loop .l
 .none:
     pop cx
+    pop ax
+    call mx_dfree                   ; ...and its OSAPI_SEG SUB selectors
+    ret
+
+; mx_dfree - SI = an mx_tab entry: when it is a PROGRAM's or a DRIVER's claim
+; (a slot, 0A0h-0DFh or FFh: not a region, an image or the kernel's own, whose
+; selectors are freed by their own owners), every allocator DATA descriptor
+; still present whose base lies inside the block is free - OSAPI_SEG's SUB
+; selectors, which are tied to the block and recorded nowhere else
+; (KERN-MEGA-MEMORY-PLAN MC7). Clobbers nothing
+mx_dfree:
+    push ax
+    mov al, [ss:si+MX_OWN]
+    cmp al, 0xFF
+    je .go
+    cmp al, 0x80
+    jb .go
+    cmp al, 0xA0
+    jb .o
+    cmp al, 0xE0
+    jae .o
+.go:
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    mov ax, [ss:si+MX_OFF]
+    call mx_kblin
+    mov cx, ax
+    mov bx, dx                      ; BX:CX = the block's base
+    mov ax, [ss:si+MX_OFF]
+    add ax, [ss:si+MX_KB]
+    call mx_kblin                   ; DX:AX = its end
+    push ax
+    mov ax, MEGA_SEL_LDTD
+    mov es, ax
+    pop ax
+    mov di, MEGA_LDT_FREE0 * 8
+.d:
+    cmp byte [es:di+5], 0
+    je .dn
+    test byte [es:di+5], 0x08       ; data only: a code entry is a pair's
+    jnz .dn
+    cmp [es:di+4], bl               ; base >= the block's?
+    jb .dn
+    ja .ge
+    cmp [es:di+2], cx
+    jb .dn
+.ge:
+    cmp [es:di+4], dl               ; ...and below its end?
+    ja .dn
+    jb .in
+    cmp [es:di+2], ax
+    jae .dn
+.in:
+    push ax
+    lea ax, [di+4]
+    call mega_ldt_free
+    pop ax
+.dn:
+    add di, 8
+    cmp di, MEGA_LDT_N * 8
+    jb .d
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+.o:
     pop ax
     ret
 ; ...and the FAR doors into .text for mega_hugef and mx_compactf (.cold)
@@ -9495,6 +9580,417 @@ mega_imghifree:
     pop ax
     retf
 
+; -----------------------------------------------------------------------------
+; mega_segf - FAR: OSAPI_SEG's body in protected mode (SPEC.md 50.6.11,
+; KERN-MEGA-MEMORY-PLAN MC7). BL = the verb, ES = the caller's DS, DS = KDATA.
+; Every register but the answer kept.
+;   SEG_LIN   the descriptor's base (mega_selbase)
+;   SEG_REAL  the base as a real-mode segment, when it is one
+;   SEG_WIN   a selector over a physical range, owned by the caller and
+;             recorded in mega_wtab, so its end (mx_relall) frees it
+;   SEG_SUB   a selector at a paragraph inside one of the caller's segments:
+;             inside a POOL BLOCK it is a descriptor based in the block, which
+;             the compactor rebases (mx_desc) and the block's free takes with
+;             it (mx_dfree); anywhere else - a conventional claim, a region
+;             below 1MB - it is a window (above), a 64KB reach at most, which
+;             is what the segment + AX it replaces reached
+;   SEG_FREE  a window back early; a block's selector goes with its block
+; A window or a SUB asked again with the same base and reach answers the same
+; selector, so a caller that asks per access holds one entry, not many
+; -----------------------------------------------------------------------------
+section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
+mega_segf:
+    cmp bl, SEG_LIN
+    je .lin
+    cmp bl, SEG_REAL
+    je .real
+    cmp bl, SEG_WIN
+    je .win
+    cmp bl, SEG_SUB
+    je .sub
+    cmp bl, SEG_FREE
+    je .free
+    stc
+    retf
+.lin:
+    push cx
+    mov ax, dx
+    call mega_selbase               ; DX:AX = its base (CF = 1 the null one)
+    pop cx
+    retf
+.real:
+    push ax
+    push cx
+    push dx
+    mov ax, dx
+    call mega_selbase
+    jc .rno
+    test al, 0x0F
+    jnz .rno                        ; off the 16-byte grid
+    cmp dl, 0x0F
+    ja .rno                         ; at or above 1MB
+    shr ax, 4
+    shl dl, 4
+    or ah, dl                       ; AX = the segment
+    pop dx
+    mov dx, ax
+    pop cx
+    pop ax
+    clc
+    retf
+.rno:
+    pop dx
+    pop cx
+    pop ax
+    stc
+    retf
+.win:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov si, ax                      ; SI = the window to re-aim, or 0
+    mov ax, dx
+    mov dx, ax
+    shl ax, 4
+    shr dx, 12                      ; DX:AX = the paragraph's linear address
+    dec cx                          ; the limit (0 - 1 = 64KB)
+    call mega_segown                ; BL = the caller's owner byte
+    call mega_wfind                 ; DI = a window of the caller's
+    jmp short .wput
+.sub:
+    push ax
+    push bx
+    push cx
+    push si
+    push di
+    mov si, ax                      ; SI = the paragraph offset
+    mov di, cx                      ; DI = paragraphs, 0 = to the end
+    mov ax, dx
+    call mega_selbase               ; DX:AX = the segment's base
+    jc .sno
+    push si
+    shl si, 4                       ; + paragraphs x 16
+    add ax, si
+    pop si
+    adc dl, 0
+    shr si, 12
+    add dx, si                      ; DX:AX = the window's base
+    mov cx, di                      ; CX = its reach in bytes - 1: the asked
+    dec cx                          ; paragraphs, or 64KB
+    cmp cx, 0x0FFF
+    jae .s64
+    shl cx, 4
+    add cx, 15
+    jmp short .sblk
+.s64:
+    mov cx, 0xFFFF
+.sblk:
+    call mega_sblk                  ; inside a pool block: clipped to its end,
+    jc .snb                         ; CF = 0 - a descriptor of the block's
+    mov bl, 0x92
+    call mega_dfind                 ; one already over it?
+    jnc .sok
+    call mega_ldt_alloc             ; AX = a new one
+    jnc .sok
+    mov ax, 1                       ; no LDT entry free
+    jmp short .sno1
+.sok:
+    mov dx, ax
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    clc
+    retf
+.snb:
+    xor si, si                      ; anywhere else: a window of the caller's
+    call mega_segown
+    call mega_wfind
+.wput:                              ; DX:AX = the base, CX = the limit, BL =
+    call mega_wset                  ; the owner, SI = a window to re-aim or 0,
+    jc .sno1                        ; DI = a match or 0 -> AX = the selector
+    mov dx, ax
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    clc
+    retf
+.sno:
+    mov ax, 2                       ; (the null selector)
+.sno1:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    add sp, 2                       ; the caller's AX: the reason instead
+    stc
+    retf
+.free:
+    push di
+    call mega_wslot                 ; DI = DX's row in mega_wtab
+    jc .fo                          ; not a window: a block's goes with it
+    push ax
+    mov ax, dx
+    call mega_ldt_free
+    pop ax
+    mov word [ss:di], 0
+.fo:
+    pop di
+    clc
+    retf
+
+; mega_segown - ES = the caller's DS -> BL = the owner a window is recorded
+; under: its instance slot (mx_relinst's), 0C0h | its drv_tab row (a
+; driver's, drv_release's mx_relallf), or FFh (nobody's to end - SEG_FREE
+; only). Clobbers nothing else
+mega_segown:
+    call mega_slotof                ; BL = the slot
+    jnc .o
+    push ax
+    push bx
+    mov bx, es
+    call COLD_SEG:drv_row_ixf       ; AL = the row
+    pop bx
+    mov bl, 0xFF
+    jc .p
+    or al, 0xC0
+    mov bl, al
+.p:
+    pop ax
+.o:
+    ret
+
+; mega_wfind - DX:AX = a base, CX = a limit, BL = an owner -> DI = that
+; owner's window already over exactly that, or 0. Clobbers nothing else
+mega_wfind:
+    push si
+    push es
+    push ax
+    mov ax, MEGA_SEL_LDTD
+    mov es, ax
+    pop ax
+    mov si, mega_wtab
+.l:
+    mov di, [ss:si]
+    or di, di
+    jz .n
+    cmp [ss:si+2], bl
+    jne .n
+    and di, 0xFFF8
+    cmp [es:di+2], ax
+    jne .n
+    cmp [es:di+4], dl
+    jne .n
+    cmp [es:di], cx
+    jne .n
+    mov di, [ss:si]                 ; the selector
+    jmp short .o
+.n:
+    add si, 4
+    cmp si, mega_wtab_end
+    jb .l
+    xor di, di
+.o:
+    pop es
+    pop si
+    ret
+
+; mega_wset - DX:AX = a base, CX = a limit, BL = the owner, SI = the
+; caller's window to re-aim (0 = none), DI = a match (0 = none) -> CF = 0 and
+; AX = the selector: the match; else SI re-aimed when it is the owner's
+; window; else a new entry and a row of mega_wtab. CF = 1, AX = 1 no LDT
+; entry or no row. Clobbers DI, SI
+mega_wset:
+    or di, di
+    jz .nm
+    mov ax, di
+    clc
+    ret
+.nm:
+    or si, si
+    jz .new
+    push dx
+    mov dx, si
+    call mega_wslot                 ; DI = SI's row
+    pop dx
+    jc .new
+    cmp [ss:di+2], bl
+    jne .new                        ; not the caller's own
+    push es
+    push di
+    push ax
+    mov ax, MEGA_SEL_LDTD
+    mov es, ax
+    pop ax
+    mov di, si
+    and di, 0xFFF8
+    pushf
+    cli
+    mov [es:di], cx                 ; RE-AIMED: limit and base
+    mov [es:di+2], ax
+    mov [es:di+4], dl
+    popf
+    pop di
+    pop es
+    mov ax, si
+    clc
+    ret
+.new:
+    mov si, mega_wtab               ; a free row first...
+.r:
+    cmp word [ss:si], 0
+    je .rf
+    add si, 4
+    cmp si, mega_wtab_end
+    jb .r
+    mov ax, 1                       ; none
+    stc
+    ret
+.rf:
+    push bx
+    mov bl, 0x92
+    call mega_ldt_alloc             ; ...then the entry
+    pop bx
+    jnc .ok
+    mov ax, 1
+    ret
+.ok:
+    mov [ss:si], ax
+    mov [ss:si+2], bl
+    clc
+    ret
+
+; mega_wslot - DX = a selector -> CF = 0 and DI = its row in mega_wtab;
+; CF = 1 it is no window. Clobbers nothing else
+mega_wslot:
+    mov di, mega_wtab
+.l:
+    cmp [ss:di], dx
+    je .o                           ; (CF = 0)
+    add di, 4
+    cmp di, mega_wtab_end
+    jb .l
+    stc
+.o:
+    ret
+
+; mega_sblk - DX:AX = a base, CX = a limit -> CF = 0 when the base lies in a
+; POOL BLOCK, CX clipped so the reach ends at the block's end; CF = 1 not in
+; one. Clobbers nothing else
+mega_sblk:
+    push ax
+    push bx
+    push dx
+    push si
+    cmp dx, MEGA_XPOOL >> 16
+    jb .no
+    push cx
+    mov bx, ax
+    mov si, dx                      ; SI:BX = the base
+    call mx_rel                     ; AX = its KB from the pool's base
+    pop cx
+    jc .no
+    push cx
+    call mx_inblk                   ; SI = the block's entry
+    pop cx
+    jc .no
+    mov ax, [ss:si+MX_OFF]
+    add ax, [ss:si+MX_KB]
+    call mx_kblin                   ; DX:AX = the block's end
+    pop si
+    push si
+    push di
+    mov di, sp
+    mov di, [ss:di+4]               ; the base's high word, as pushed
+    sub ax, bx
+    sbb dx, di                      ; DX:AX = bytes from the base to the end
+    pop di
+    or dx, dx
+    jnz .yes                        ; 64KB or more: CX stands
+    dec ax
+    cmp cx, ax
+    jbe .yes
+    mov cx, ax                      ; clipped at the block's end
+.yes:
+    clc
+    jmp short .o
+.no:
+    stc
+.o:
+    pop si
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; mx_inblk - AX = a KB from the pool's base -> CF = 0 and SI = the live block
+; that holds it; CF = 1 none. Clobbers nothing else
+mx_inblk:
+    push cx
+    mov si, mx_tab
+.l:
+    cmp word [ss:si+MX_KB], 0
+    je .n
+    mov cx, [ss:si+MX_OFF]
+    cmp ax, cx
+    jb .n
+    add cx, [ss:si+MX_KB]
+    cmp ax, cx
+    jb .o                           ; (CF = 1 there: inverted below)
+.n:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .l
+    pop cx
+    stc
+    ret
+.o:
+    pop cx
+    clc
+    ret
+
+; mega_dfind - DX:AX = a base, CX = a limit, BL = an access byte -> CF = 0
+; and AX = an allocator descriptor already exactly that; CF = 1 none, AX
+; kept. Clobbers nothing else
+mega_dfind:
+    push di
+    push es
+    push ax
+    mov ax, MEGA_SEL_LDTD
+    mov es, ax
+    pop ax
+    mov di, MEGA_LDT_FREE0 * 8
+.l:
+    push ax
+    mov al, [es:di+5]
+    and al, 0xFE                    ; (the CPU sets the ACCESSED bit)
+    cmp al, bl
+    pop ax
+    jne .n
+    cmp [es:di+2], ax
+    jne .n
+    cmp [es:di+4], dl
+    jne .n
+    cmp [es:di], cx
+    jne .n
+    lea ax, [di+4]
+    clc
+    jmp short .o
+.n:
+    add di, 8
+    cmp di, MEGA_LDT_N * 8
+    jb .l
+    stc
+.o:
+    pop es
+    pop di
+    ret
+
 ; mega_dklibf - FAR (DESK.DRV's LIB, 11.103.10): AX = DESK.DRV's code
 ; selector when its image is ABOVE 1MB, CX = the library's offset in it, DX =
 ; the library's bytes -> CF = 0 and DX = a code selector whose base is the
@@ -9824,6 +10320,9 @@ mega_fkslot resb 1                  ; ...and slot + 1, 0 = none being closed
 mega_fkn    resb 1                  ; faults in it (0 = none ever)
 mega_fktm   resb 1                  ; 1 = its toast is owed
 mega_seg0   resw 1                  ; MEGA_SEG0's word for code outside .text
+MEGA_WTN    equ 32                  ; OSAPI_SEG's windows (mega_segf): a row
+mega_wtab   resb MEGA_WTN * 4       ; each, the selector and its owner byte,
+mega_wtab_end equ mega_wtab + MEGA_WTN * 4 ; 0 a free row (KERN-MEGA-MEMORY-PLAN MC7)
 mx_tab      resb MX_NBLK * MX_BLKSZ ; THE POOL'S BLOCK TABLE (KERN-MEGA-PLAN
 mx_tab_end  equ mx_tab + MX_NBLK * MX_BLKSZ ; 14.49): in LOW_SEG beside mem_tab,
                                     ; read through SS (SPEC.md 2.1: SS is

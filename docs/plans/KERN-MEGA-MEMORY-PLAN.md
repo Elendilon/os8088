@@ -567,6 +567,36 @@ a hot 8088 path, it is measured (MartyPC, guest cycles): no slower and it
 is one shared path; slower and it is a `PKG_MEGA` arm built onto kern_mega's
 own disks (SPEC.md 20.18), the shipped build keeping its loop.
 
+#### MC7.3 The order of work
+
+Packages and drivers convert BEFORE the kernel stops handing out identity
+segments, so each conversion is checked on today's kernel and every kernel
+keeps working at each step:
+
+1. **The doors**, on every kernel (new cells at the table's end, no
+   `PKG_FMT` bump): the LINEAR base of a segment or selector (`seg*16` on a
+   real-mode kernel); a selector over a PHYSICAL paragraph range (the
+   paragraph itself on a real-mode kernel); a selector's REAL segment; and
+   `OSAPI_MEM_SUBSEG` answering for a CLAIM and for a conventional region,
+   a BIASED base allowed (the ROM banks). Each with its real-mode answer, so
+   a converted package needs no `CPU_F_PM` test for it.
+2. **The shared layers**: the parts library, the REHOME macro, `crt0`'s
+   overlay binder, `os88type`, `os88xgap`, `os88con`.
+3. **The drivers** (SOUND, HDD, RAMDISK, HTTPFS, EMS, USBMOUSE; the three
+   overlays' far pointers).
+4. **The packages**: the six exempts, the big-claim arms (Paint, Frotz,
+   Tracker, ModPlug, MIDIRack, the Video Player), the ROM biases, the
+   framebuffer immediates, the scans. `tests/megahigh.txt` empties.
+5. **The kernel flips**: every claim a selector from `mem_claim_1`, pairs
+   for everything CS-able, the TI predicate, the compactor's linear copy and
+   rebase, the file layer's linear DMA authority and 64KB split, the
+   DISKOPS cloner and compressor, the LZ decoder, the video/font/ROM
+   selectors and the boot captures at the switch.
+6. **The tables**: the scratch selectors into reserved LDT entries, the
+   static aliases gone, the LDT all allocator from 2K and growing, the GDT
+   cut at `.cold`'s selector. A missed site is a `#GP` past the limit,
+   reported at its instruction (KERN-MEGA-PLAN 14.42).
+
 ### MC4 - the HMA is RAM; the hibernate is the way out (D4, D5)
 
 - The HMA's record is unpinned; after MC3 it is the bottom 64K of the free run
@@ -854,3 +884,24 @@ rows. Nothing is recorded as built that was not.
 - Rows named: `megaxmove` (new), `megaown`, `megashed`, `megavidbig`,
   `megavidv2`, `megaovl`, `megarehome`, `megahiber`, `megap2hiber`,
   `megadosp`, `tmowner` (soak); `megahigh` (full).
+
+### MC7 as built, step by step
+
+- **Step 1, the doors (2026-10-25) - DONE.** One cell, `OSAPI_SEG` (`0x04E3`,
+  SPEC.md 50.6.11), five verbs in BL rather than four cells, because a cell
+  is six bytes of every kernel's `.text`: `SEG_LIN`, `SEG_REAL`, `SEG_WIN`,
+  `SEG_SUB`, `SEG_FREE`. Every real-mode kernel answers the caller's own
+  arithmetic. On kern_mega a window is recorded per owner in `mega_wtab`
+  and freed by `mx_relall`; a SUB inside a pool block is based in it, so it
+  moves with it and `mx_dfree` takes it with a claim's free. Checked by
+  MEGAXM under Bochs (the `megaxmove` row): a SUB read through, no real
+  segment above 1MB, a ROM window reading the BIOS date, its linear base,
+  the free. Cost: `.text` +6 everywhere, `.cold` +40/+39/+68, `.mega` +900,
+  `.lowbss` +128. **Open for later steps:** the 1MB machine has no pool, so
+  no `mx_relinst` runs there and its windows would not be freed at an
+  instance's end - the teardown hook has to move when step 5 gives
+  conventional claims selectors. `OSAPI_MEM_HUGE` gets a 16KB step (the
+  Video Player's and RealDMG's rolling windows) in step 5. MEGAXM's
+  `OSAPI_MEM_CODESEL` check asserts the static alias `(DS >> 2) | 4`, which
+  step 6 retires.
+

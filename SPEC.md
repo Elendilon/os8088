@@ -43111,9 +43111,10 @@ kern_mega's doors follow them, moved up past `main`'s cells at the two
 `0x04BF` and `OSAPI_MEM_HUGE` at `0x04C5`, a 110th and a 111th,
 `OSAPI_XMEM_RUN` at `0x04CB` a 112th and `OSAPI_MEM_SUBSEG` at `0x04D1` a
 113th - 1,223 bytes - then `OSAPI_IMG_NAME` (§28.4.12) at `0x04D7` a 114th
-and `OSAPI_ARG_TEXT` (§26.10.7) at `0x04DD` a 115th, **1,235 bytes**, which
+and `OSAPI_ARG_TEXT` (§26.10.7) at `0x04DD` a 115th, 1,235 bytes, and
+`OSAPI_SEG` (§50.6.11) at `0x04E3` a 116th, **1,241 bytes**, which
 is what `kernel.asm`'s length guard asserts from the counts.
-`osapi_table_end` is `0x04E3`.
+`osapi_table_end` is `0x04E9`.
 Those counts are the tree it landed on, not a contract; `t_api_abi` prints
 the span it walked.
 
@@ -96932,6 +96933,55 @@ pinned, so it reads AVAIL less the HMA's share.
 through its first token, by copy, in place, by the file layer and by a
 package's own int 13h. Cost: kern_mega `.cold` +15, `.mega` +112, `.text` +0;
 kern_big and kern_small byte-identical; the Task Manager -12 bytes of image.
+
+#### 50.6.11 `OSAPI_SEG`: segments and selectors without arithmetic (KERN-MEGA-MEMORY-PLAN MC7)
+
+On kern_mega in protected mode a segment value is a SELECTOR: it names a
+descriptor, so adding paragraphs to it names some other descriptor, shifting
+it into a linear address gives nonsense, and writing it into a vector a ROM
+will run in real mode, or into the 8237, hands that code a number that is not
+an address. Until KERN-MEGA-MEMORY-PLAN MC7 the identity GDT made most of that
+work anyway; MC7 cuts the GDT at the kernel's own segments, so every such
+site converts to one cell, `OSAPI_SEG` (`0x04E3`, a rare RCX cell), BL the
+verb:
+
+| verb | in | out |
+|---|---|---|
+| `SEG_LIN` 0 | DX = a segment or selector | DX:AX = its LINEAR base |
+| `SEG_REAL` 1 | DX = a segment or selector | DX = a real-mode segment with the same base; CF = 1 none (above 1MB, off the 16-byte grid) |
+| `SEG_WIN` 2 | DX = a physical PARAGRAPH, CX = bytes (0 = 64KB), AX = a window of the caller's to re-aim, or 0 | DX = a data selector over it |
+| `SEG_SUB` 3 | DX = a segment or selector of the caller's, AX = a paragraph offset, CX = paragraphs (0 = to its end, 64KB at most) | DX = a data selector based there |
+| `SEG_FREE` 4 | DX = a window | given back |
+
+**Every real-mode kernel answers what the caller's own arithmetic was** -
+`DX x 16`, `DX`, `DX`, `DX + AX` - in a dozen bytes of `.cold`, so a package
+converted to the cell runs unchanged on kern_big and kern_small, needs no
+`CPU_F_PM` test, and costs nothing there but the call.
+
+On kern_mega in protected mode (`mega_segf`, `.mega`):
+
+- A **window** is a descriptor the caller owns, recorded in `mega_wtab` (32
+  rows of selector and owner byte, `.lowbss`): the instance's slot, or
+  `0C0h | row` for a driver, or FFh for neither. The owner's end frees it
+  (`mx_relall`, which an instance's teardown and a driver's release already
+  run), `SEG_FREE` sooner. Re-aiming one is the `OSAPI_XMEM_SEL` rule: a
+  segment register holding it keeps the old window until it is reloaded.
+- A **SUB** inside a pool block is a descriptor BASED IN THE BLOCK: the
+  compactor rebases it with the block (`mx_desc`), and the block's free takes
+  it (`mx_dfree`, for a program's or a driver's claim; a region's own are
+  `OSAPI_MEM_SUBSEG`'s and freed by the region's teardown). Anywhere else - a
+  claim or a region below 1MB - it is a window, 64KB of reach at most, which
+  is what `segment + AX` reached.
+- The same base and reach asked again answer the SAME selector, a window or
+  a SUB alike, so a caller that asks once per access holds one entry.
+- Refusals: CF = 1, AX = 1 when no LDT entry or no `mega_wtab` row is free,
+  2 for the null selector.
+
+Cost: every kernel `.text` +6 (the cell); `.cold` +40 on kern_big, +39 on
+kern_small (the real-mode body and its parity pad); kern_mega `.cold` +68,
+`.mega` +900 (the body, the window table's helpers and `mx_dfree`),
+`.lowbss` +128. `tests/megaxmove.py`'s MEGAXM checks every verb in protected
+mode, and the SUB's real-mode sum on any other kernel.
 
 ### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s
 
