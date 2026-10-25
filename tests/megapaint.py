@@ -10,7 +10,9 @@ table Paint built for a canvas over 64KB - a segment per 128-byte granule,
 canvas into SEG_SUB windows 32KB apart instead (and the undo image the same
 way, through windows of its own), pt_orowset and pt_srowset read through the
 same windows, pt_cvmove looks every row up rather than stepping granules,
-and Save Bmp writes in 32KB pieces. Boots kern_mega under Bochs at 16MB with
+and Save Bmp writes the whole canvas in ONE OSAPI_FILE_WRITE, which the file
+layer carries past the selector's 64KB by stepping its window (dskw_hicarry,
+KERN-MEGA-MEMORY-PLAN MC7). Boots kern_mega under Bochs at 16MB with
 a 580x380 four-bit BMP on C: (111KB, so the staging claim is over 64KB too)
 and B: the kern_mega apps disk, and:
 
@@ -34,9 +36,10 @@ Broken on purpose (docs/WRITING-TESTS.md 1), all three seen when the row was
 written: the parent commit, whose row table is granules on a selector, has
 Paint closed as the BMP opens (`kern_mega CLOSED PAINT 0D`); pt_uwinof
 answering the canvas's own window fails 3 (the undo copies the canvas onto
-itself); and Save Bmp as one OSAPI_FILE_WRITE fails 7, the file holding the
-canvas's DIB header again at offset 65,536 - the file layer moves only the
-offset of a selector buffer, so a write past its 64KB limit wraps.
+itself); and the kernel without dskw_hicarry fails 7, the file DIFFERENT
+from byte 65,536 - the canvas's DIB header written again there, because the
+file layer moved only the offset of a selector buffer and wrapped at its
+64KB limit (seen red on the kernel before the fix).
 """
 import os
 import shutil
@@ -261,6 +264,14 @@ def picture(pt, rows, w, planar, xs, ys):
                for y in ys for x in xs)
 
 
+
+def firstdiff(a, b):
+    """the first offset where A and B differ (the shorter's end if none)"""
+    for i, (x, y) in enumerate(zip(a, b)):
+        if x != y:
+            return i
+    return min(len(a), len(b))
+
 def main():
     keep = "--keep" in sys.argv
     for p in ("build/mega.img", "build/megaapps.img", "build/megarun.o88",
@@ -408,7 +419,8 @@ def main():
                  f[off:] == saved, "7. Save Bmp wrote the canvas: %dx%d, %d "
                  "bytes of pixels, %s" % (w_, h_, len(f) - off,
                                           "identical" if f[off:] == saved
-                                          else "DIFFERENT"))
+                                          else "DIFFERENT from file byte %d"
+                                          % (off + firstdiff(f[off:], saved))))
         except Exception as e:      # noqa: BLE001
             want(False, "7. the saved file: %s" % e)
         print("megapaint: %.0fs under Bochs" % (time.time() - t0))

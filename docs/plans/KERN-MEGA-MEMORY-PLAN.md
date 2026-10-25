@@ -1554,10 +1554,9 @@ rows. Nothing is recorded as built that was not.
   through `pt_uwinof` behind `[pt_pmw]`), `pt_orowset`/`pt_srowset` read
   through them, `pt_cvmove` looks each row up (`.pmrow`), and the band cap
   is a layout fact (`[pt_brmax4]`), which takes a `div` out of every
-  `pt_blit_1`. Save Bmp writes 32KB pieces under protected mode because one
-  `OSAPI_FILE_WRITE` of 64KB or more from a selector WRAPS at its limit -
-  a kernel defect (`dskw_hiseg`/`dskw_norm`'s `.hi` moves only the
-  offset), open below. MEASURED on MartyPC `os8088_xt_vga`, per call:
+  `pt_blit_1`. Save Bmp is one `OSAPI_FILE_WRITE` again: the agent's
+  first build wrote 32KB pieces around the kernel defect below, and the
+  fix took that out of Paint. MEASURED on MartyPC `os8088_xt_vga`, per call:
   `pt_ucopy` -218 to -332 cycles a row, `pt_uswap_row` 0, `pt_blit_1` -143
   to -504, `pt_layout` -15%, `pt_resize` -2.7%. Image +464, bss +39 (the
   small arm +67) - shared on the owner's choice A, no slower anywhere on
@@ -1566,9 +1565,18 @@ rows. Nothing is recorded as built that was not.
   byte; red on the base build (`kern_mega CLOSED PAINT`), on undo through
   the canvas's window, and on a one-call save. Not run: the planar format
   under kern_mega (Bochs gave a packed canvas).
-  **OPEN (kernel): `OSAPI_FILE_WRITE` of 64KB or more from an LDT selector
-  wraps at the selector's limit** - found by Paint's save, worked around
-  there, to be fixed in the file layer's selector arm.
+  **FIXED (kernel): a file transfer of 64KB or more through an LDT
+  selector wrapped at the selector's limit** - found by Paint's save (a
+  115KB Save Bmp wrote its DIB header again at 65,536). The selector arm
+  moved only the OFFSET; now `dskw_hicarry` steps the transfer's selector
+  ([dskw_wseg], the advancing copy, not the caller's banked [dskw_seg]) a
+  whole 64KB on by `SEG_SUB` when a run's offset carries out, and
+  `dskw_hifix` steps it to the offset's paragraph before a sector or the
+  tail would cross the end, where `dskw_one`'s copy would have faulted. A
+  SUB is tied to the caller's block, so it moves and frees with it.
+  kern_mega `.text` +~70; kern_big and kern_small untouched (every line
+  under `%ifdef KERN_MEGA`). `megapaint` 7 is the gate: one-call save,
+  identical; DIFFERENT from byte 65,536 on the kernel before.
   **Frotz (2026-10-25) - DONE, one shared path, no `PKG_MEGA` arm.** The
   story claim is walked by 32KB PAGE: `zm_pages` builds `[zf_stab]` at
   load, one `SEG_SUB` per page (a 64KB data selector on kern_mega, the

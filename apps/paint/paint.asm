@@ -189,7 +189,7 @@
                                     ; of 64KB or less is addressed flat, and a
                                     ; bigger canvas through 32KB-spaced SEG_SUB
                                     ; windows - pt_layout's .win, pt_orowset,
-                                    ; pt_srowset, pt_uwinof, pt_pmwrite
+                                    ; pt_srowset, pt_uwinof
 
 ; --- embedded 16x16 icon (SPEC.md 20.2, flags bit 0) ---------------------------
 ; A painter's palette: the thumb notch bottom-left, four dabs of paint. The
@@ -2070,80 +2070,6 @@ pt_subwin:
     pop ax
 .out:
     ret
-
-%ifndef APP_SMALL
-; -----------------------------------------------------------------------------
-; pt_pmwrite - Save Bmp's write, for a canvas of 64KB or more under kern_mega
-; in:  SI = the name, DX:CX = the file's length; out: as OSAPI_FILE_WRITE (CF,
-;      AX); preserves every other register but ES
-;
-; ONE OSAPI_FILE_WRITE OF THE WHOLE CANVAS IS WHAT EVERY REAL-MODE KERNEL
-; TAKES (SPEC.md 18.4.1: the destination advances by segment), and under
-; kern_mega's protected mode the canvas is a selector whose limit is 64KB: the
-; file layer moves only the offset there, so everything past 64KB came out of
-; the START of the canvas again - measured, the saved file held the DIB header
-; at offset 65,536 (KERN-MEGA-MEMORY-PLAN MC7; tests/megapaint.py's 7). So it
-; is written here in 32KB pieces, each through the window pt_layout lays the
-; canvas out in (pt_subwin): the first with OSAPI_FILE_WRITE, which creates
-; the file, the rest with OSAPI_FILE_APPEND, whose rule - the size so far a
-; whole number of clusters - 32KB meets on any volume this kernel mounts.
-; Only ever reached with a selector in [pt_base], so a real-mode kernel never
-; runs it and still makes its one call.
-; -----------------------------------------------------------------------------
-pt_pmwrite:
-    push bx
-    push cx
-    push dx
-    push di
-    push bp
-    mov di, cx                      ; DX:DI = the bytes still to write
-    xor bp, bp                      ; BP = the window, k
-.k:
-    mov ax, bp
-    push dx
-    mov dx, [pt_base]
-    call pt_subwin
-    mov es, dx                      ; ES:0 = byte k * 32KB of the file
-    or dx, dx
-    pop dx
-    jz .nowin                       ; no LDT entry: refused, not handed to
-    xor bx, bx                      ; the kernel as the null selector
-    mov cx, 0x8000
-    or dx, dx
-    jnz .n
-    cmp di, cx
-    jae .n
-    mov cx, di                      ; ...the last piece is what is left
-.n:
-    sub di, cx
-    sbb dx, 0
-    push dx
-    or bp, bp
-    jnz .app
-    xor dx, dx
-    call OSAPI_FILE_WRITE           ; creates or replaces, with piece 0
-    jmp short .did
-.app:
-    call OSAPI_FILE_APPEND
-.did:
-    pop dx                          ; (CF and the FERR_* in AX survive it)
-    jc .out
-    inc bp
-    mov ax, di
-    or ax, dx                       ; CF = 0, and AX = 0 at the end
-    jnz .k
-    jmp short .out
-.nowin:
-    mov ax, FERR_IO
-    stc
-.out:
-    pop bp
-    pop di
-    pop dx
-    pop cx
-    pop bx
-    ret
-%endif
 
 ; -----------------------------------------------------------------------------
 ; pt_topacked - turn a four-plane canvas back into nibbles (SPEC.md 42.13.1)
@@ -13950,17 +13876,10 @@ pt_save:
     mov ax, [pt_base]               ; 66.5.7.1): the kernel holds ES:BX into
     mov es, ax                      ; the canvas for the whole call
     xor bx, bx                      ; ES:BX = the DIB, header and all
-%ifndef APP_SMALL                   ; (whose canvas never reaches 64KB)
-    test al, 4                      ; a SELECTOR - kern_mega in protected
-    jz .one                         ; mode - and 64KB or more: pt_pmwrite
-    or dx, dx
-    jz .one
-    call pt_pmwrite
-    jmp short .wr
-.one:
-%endif
-    call OSAPI_FILE_WRITE           ; SI is still the name
-.wr:
+    call OSAPI_FILE_WRITE           ; SI is still the name - in one call
+                                    ; past 64KB on kern_mega too, whose file
+                                    ; layer steps a selector buffer's window
+                                    ; (dskw_hicarry, KERN-MEGA-MEMORY-PLAN MC7)
     call pt_unpin                   ; ...and movable again, CF untouched
     jnc .wrote
     call pt_ferr
