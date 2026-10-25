@@ -8428,7 +8428,8 @@ SOAK = [
         "container; the 190 declared keeps the ~4x headroom the 150 this row "
         "shipped with had, because the declaration is read on slower boxes "
         "than the one that takes it.",
-        needs=("marty",), serial=True),
+        needs=("marty",), serial=True,
+        wants=("build/apps360.img", "build/piano.o88")),
     Row("dosopen", "soak", py("tests/dosopen.py"), 60.0,
         "A .O88 BY PATH, WITH A DOCUMENT, AND `OPEN` (SPEC.md 96.33.21, "
         "96.33.22) - three things the DOS prompt could not do and ONE kernel "

@@ -1030,19 +1030,21 @@ br_bmservice:
     cmp byte [br_bmopwork], 1
     jne .remove
     cmp byte [br_bmsaved], 0
-    jne .restore
-    call br_bmaddmem
+    jne .saved                      ; already in the file: it IS saved, and
+    call br_bmaddmem                ; the request's "Saving..." must not stand
     jc .failed
     call br_bmwrite
     jc .failed
+.saved:
     mov word [br_nmsg], br_s_bmsaved
     jmp .success
 .remove:
     cmp byte [br_bmsaved], 0
-    je .restore
+    je .removed                     ; not in the file: it IS removed
     call br_bmremove
     call br_bmwrite
     jc .failed
+.removed:
     mov word [br_nmsg], br_s_bmremoved
 .success:
     mov byte [br_nstate], BN_DONE

@@ -119,26 +119,32 @@ def manager_rect(m, pseg, sy, S):
     raise RuntimeError("Download Manager window pointer is not in wm_wins")
 
 
+# ONE PATH FOR THE IMAGE THIS ROW WRITES AND READS BACK: os88build.at()'s,
+# handed to `make test` as TESTAPPS. It was written at the literal build/ path
+# and read back through at(), which in a soak is the run's frozen tree - so
+# DOWNLOAD.BIN was looked for in an image the row had never written. And the
+# row no longer deletes ether360.img first: it deleted the TREE's copy (and so
+# failed netcoexist, a later row that reads it), and `make ethertest` rebuilds
+# build/'s whenever `make -B browsertest` has made it stale anyway.
 def main():
     if SHOTDIR:
         os.makedirs(SHOTDIR, exist_ok=True)
     subprocess.run(["make", "-B", "browsertest"], check=True,
                    stdout=subprocess.DEVNULL)
-    if os.path.exists(os88build.at("build/ether360.img")):
-        os.remove(os88build.at("build/ether360.img"))
     subprocess.run(["make", "ethertest"], check=True,
                    stdout=subprocess.DEVNULL)
+    dlimg = os88build.at("build/brdownload360.img")
     subprocess.run(["python3", "tools/os88disk.py", "-o",
-                    "build/brdownload360.img", "--size", "360",
+                    dlimg, "--size", "360",
                     "--folder", "SYSTEM/APPDATA", "build/browser.o88"],
                    check=True, stdout=subprocess.DEVNULL)
-    for filename in (os88build.at("build/qmp.sock"),
-                     os88build.at("build/qemu.pid")):
+    for filename in ("build/qmp.sock",
+                     "build/qemu.pid"):
         if os.path.exists(filename):
             os.remove(filename)
     ethernet.os88qemu.own()
     subprocess.run(["make", "test", "ETHER=1", "TESTIMG=build/ether360.img",
-                    "TESTAPPS=build/brdownload360.img"], check=True,
+                    "TESTAPPS=" + dlimg], check=True,
                    stdout=subprocess.DEVNULL)
 
     server = Server()

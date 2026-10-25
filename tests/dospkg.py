@@ -55,6 +55,7 @@ import dosmap                                                  # noqa: E402
 import os88geom                                                # noqa: E402
 import os88marty                                               # noqa: E402
 import os88ui                                                  # noqa: E402
+import os88fixture                                             # noqa: E402
 
 SYS = "build/os8088-360.img"
 APPS = "build/apps360.img"
@@ -74,7 +75,11 @@ def main():
     if fails:
         return 1
 
-    with os88ui.boot(SYS, apps=APPS, machine="os8088_5150_herc_gla") as ui:
+    # PIANO.O88 left apps360.img (SPEC.md 24.6.1) and step 1b types a bare
+    # `PIANO`: the shipped disk plus it, on a disk of this run's own, as
+    # tests/dosopen.py has it
+    apps = os88fixture.apps360_plus("APPS:build/piano.o88", tag="dospkg")
+    with os88ui.boot(SYS, apps=apps, machine="os8088_5150_herc_gla") as ui:
         m = ui.m
         if not ui.path(DOSPKG):
             fail("could not launch DOS")
