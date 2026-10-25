@@ -7995,7 +7995,7 @@ $(BUILD)/browser.part.bin: $(BUILD)/browser.bin \
 
 $(BUILD)/browser.o88: $(BUILD)/browser.bin $(BUILD)/browser.part.bin \
                       tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
-	$(OS88PKG) $(BUILD)/browser.bin -o $@ \
+	$(OS88PKGB) $(BUILD)/browser.bin -o $@ \
 	        --part $(BUILD)/browser.part.bin --part-compress lz4
 
 # ...and the REFERENCE build, which letters every history row where the

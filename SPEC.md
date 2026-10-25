@@ -71010,7 +71010,13 @@ The attach-only bodies are defined as macros (`MPU_ONCE`, `CVX_ONCE`,
 refuses verbs 7–12 with `SNDE_NOMIX` when `[mix_kind]` is 0 (verb 11's CF = 1
 is then "not on the speaker", which is true), and `snd_detach` tests it
 before `mix_detach` - which is why `mix_kind` is the core's byte and not
-`MIX_STATE`'s, and why the verbs themselves no longer test it. Below
+`MIX_STATE`'s, and why the verbs themselves no longer test it. The THIRD door
+is an SB Pro's stereo stream (§34.5.5): `sbl_pro_st` reads and writes mixer
+0Eh, and it is reached only by a stream verb 11 accepted as stereo - which
+it does only against `SND_CAP_STEREO`, and `snd_sb_pub` publishes that to a
+DSP 3.xx only when `[mix_kind]` is 2. `sbl_stop_stream`'s write puts 0Eh back
+behind `[sbl_pst]`, which nothing but `sbl_pro_st` sets. So the guard is the
+caps word, read once at attach, and not a test at the call. Below
 `snd_keepmix` only `snd_entry` names a label past it. Both rules are layout
 rules that assemble cleanly when broken, so `tests/unit/t_sndonce.py` reads
 them off the assembler's listing; its first run found `snd_detach` calling

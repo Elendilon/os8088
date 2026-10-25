@@ -20,8 +20,9 @@ the rest. This reads the assembler's own listing and refuses:
      snd_entry - the attach, which runs before the shrink and is the one
      place allowed to call the probes;
   2. any reference from below snd_keep to a label in [snd_keep,
-     snd_keepmix) outside snd_pkg's verb table and snd_detach's guarded
-     call - the two doors SPEC.md 34.15.1 names, both behind [mix_kind].
+     snd_keepmix) outside snd_pkg's verb table, snd_detach's guarded
+     call and an SB Pro stereo stream's two - the doors SPEC.md 34.15.1
+     names, every one behind [mix_kind].
 
 Break it on purpose: `call opl_probe` in snd_tier fails (1), and a new `call
 mix_get` anywhere in sb.inc fails (2).
@@ -38,7 +39,13 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88drvsym                                       # noqa: E402
 
 ATTACH = {"snd_entry"}                  # rule 1's one door
-MIXDOORS = {"snd_ptab", "snd_detach"}   # rule 2's two, behind [mix_kind]
+# rule 2's doors, behind [mix_kind]: snd_pkg's verb table and snd_detach
+# test it at the call; an SB Pro STEREO stream tests it at attach instead -
+# sbl_pro_st runs only for a stream verb 11 took as stereo, which needs
+# SND_CAP_STEREO, which snd_sb_pub grants a DSP 3.xx only with [mix_kind] = 2,
+# and sbl_stop_stream's restore is behind [sbl_pst], which only sbl_pro_st
+# sets (SPEC.md 34.15.1)
+MIXDOORS = {"snd_ptab", "snd_detach", "sbl_pro_st", "sbl_stop_stream"}
 LST = re.compile(r"^\s*\d+\s+([0-9A-F]{8})\s+\S")
 LABEL = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):")
 IDENT = re.compile(r"(?<![.\w])([A-Za-z_][A-Za-z0-9_]*)")
