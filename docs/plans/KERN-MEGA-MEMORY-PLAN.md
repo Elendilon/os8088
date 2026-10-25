@@ -1444,6 +1444,14 @@ rows. Nothing is recorded as built that was not.
      ring, layer, plane and EMS addressing by granule, TI-bit tests, and
      the windowed play's framebuffer constants. Slot and plane selectors
      cached once, `SEG_WIN` for the frame. (The shipped build refuses.)
+     **This branch's own agent has it** (an earlier line here said the
+     `mega-video` session had taken it - withdrawn, 2026-10-25): `mega-video`
+     waits for this conversion to commit and builds BIGSP in place (9.1) on
+     top of it. A first fault at `f3e558c0`, for whoever is converting:
+     `vp_thpic`'s poster unpack adds 128-byte granules to `[vp_rdseg]`
+     (`Video Pl 0D at 1184:1454` on opening any `.V88`). And the conventional
+     ring has the same shape throughout: `[vp_ring]` + 2,048 paragraphs a
+     slot, where the ring above 1MB (`[vp_rhi]`) is `[vp_ring]` + 8 a slot.
   5. **XT-MP3** - the hold's load and refill, the conversion stage,
      `x3xt`'s generator segment; and `x3xt`'s CS writes if that backend can
      run on a 286.
@@ -1483,6 +1491,17 @@ rows. Nothing is recorded as built that was not.
       and Scribe's undo, RealDMG's and the PiXEL parts' (`PXSW`) are a
       COST and not a defect, listed for the speed pass. DOS needs nothing:
       kern_mega's arm runs its program in `kern_dos`, in real mode.
+      **RealDMG, both builds, is TAKEN by the `mega-dmg` session
+      (2026-10-25) - this branch's agents leave it alone.** `mega-dmg` has
+      merged this branch at `f3e558c0` and converts RealDMG there: the JIT
+      part and the extra cache tiers through `SEG_SUBC` (8.1), the bank
+      table, RAM banks, slot cache, frame carve and the one-claim
+      cartridge's biased bases (8.2), and the static recompiler's host
+      (`rwaot.inc`, from `realdmg-fullstatic`) with them. It lands on
+      `elendilon`, and this branch gets it at its next merge from there.
+      A first fault at `f3e558c0`, for the record: `rw_jpart` loads ES with
+      cache A's selector + 1000h (`CLOSED REALDMG 0D at 11AC:0778 err
+      2224`), so nothing past the cartridge's load runs today.
   Each converts on every kernel where the XT loop is no slower, or as a
   `PKG_MEGA` arm where it measures slower (MC7.2's answer).
   **Taken (2026-10-25, batch 1):** C64 and Apple II (the three bank fetch
@@ -1599,6 +1618,9 @@ rows. Nothing is recorded as built that was not.
 ---
 
 ## 8. Addendum from `mega-dmg`: what RealDMG needs from this round (2026-10-25)
+
+**The conversion itself is taken by `mega-dmg`** (7, the package wave's
+item 11): leave RealDMG to that session.
 
 A note from the RealDMG session, for MC7's step 4 (the six exempts) and
 step 5. It describes RealDMG as it stands on `elendilon` at `1f013feb`,
