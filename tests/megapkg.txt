@@ -38,10 +38,23 @@ drivers/hdd/hdxms.inc 1         # HDD.DRV's fill straight into XMS refused
     # refusal every build needs - HDD.DRV is one driver on every kernel's
     # disk - and ~10 bytes
 drivers/ramdisk/rdstore.inc 1   # RAMDISK.DRV's paragraph fold (rd_fold)
-    # skipped for a pool selector ONLY under CPU_F_PM: on a real-mode kernel
-    # a segment of that VALUE is an ordinary paragraph, and an unfolded one
-    # wraps a transfer over 64KB to the START of the caller's segment with
-    # CF=0. A correctness test every build needs, ~10 bytes with its bank
+    # in the units the segment's value allows ONLY under CPU_F_PM: whole
+    # 128-byte granules for an identity selector, none for an LDT one
+    # (KERN-MEGA-MEMORY-PLAN MC8). On a real-mode kernel a segment of that
+    # VALUE is an ordinary paragraph, and an unfolded one wraps a transfer
+    # over 64KB to the START of the caller's segment with CF=0. A correctness
+    # test every build needs, ~10 bytes with its bank
+drivers/net/net.asm 1           # NET.DRV's net_norm, the same rule as
+    # rd_fold's (KERN-MEGA-MEMORY-PLAN MC8, KERN-MEGA-PLAN 14.69): its
+    # one-paragraph fold built a segment off kern_mega's grid. Real mode
+    # folds paragraphs exactly as before; the test and its bank are ~25
+    # bytes of the image, and NET.DRV is one driver for every kernel
+drivers/usbmouse/usbmouse.asm 1 # USBMOUSE.DRV's PicoMEM path refused
+    # under protected mode (um_pmattach): the card's int 33h callback is a
+    # real-mode far call into this image, which kern_mega cannot carry back
+    # into protected mode, so attaching would hand the BIOS a vector that
+    # faults on the first move (KERN-MEGA-MEMORY-PLAN MC7). A correctness
+    # refusal - the CH375 path is untouched - and ~8 bytes
 
 # --- trivial: one far call through a code alias -----------------------------
 
@@ -73,13 +86,17 @@ apps/realdmg/realdmg.asm 1      # rw_csel: the core's, the recompiler's
     # REALDMG.O88 on disk, the S_*CS indirection the arm would need anyway
 apps/loom/lmpv.inc 1            # LOOM's preview module far-called through
     # its code alias, OS88_CODESEL; LOOM rides its own disk, no apps disk
-apps/pixelstein/pxgame.asm 2    # px_hseg: OSAPI_MEM_SUBSEG and its code
+apps/pixelstein/pxgame.asm 3    # px_hseg: OSAPI_MEM_SUBSEG and its code
     # twin, with the paragraph sum as the CF=1 fallback every real-mode
-    # kernel takes - PIXELSTEIN 3D's re-homed program addressing its own parts
+    # kernel takes - and the test that refuses the part instead under
+    # protected mode, where CF=1 means a full LDT and the sum names another
+    # descriptor (KERN-MEGA-MEMORY-PLAN MC7) - PIXELSTEIN 3D's re-homed program addressing its own parts
     # (KERN-MEGA-PLAN 14.48). ~40 bytes; the program is on the games disks
-apps/skies/skies.asm 1          # cs_xpand's OSAPI_MEM_SUBSEG, ~25 bytes,
+apps/skies/skies.asm 2          # cs_xpand's OSAPI_MEM_SUBSEG, ~25 bytes,
     # with the granule-aligned sum as the CF=1 path every real-mode kernel
-    # takes (KERN-MEGA-PLAN 14.44). Gating it would take OS88_HIGH off the
+    # takes (KERN-MEGA-PLAN 14.44), and ~10 more refusing the art instead
+    # under protected mode, where CF=1 means a full LDT and the sum names
+    # another descriptor (KERN-MEGA-MEMORY-PLAN MC7). Gating it would take OS88_HIGH off the
     # shipped header with it, for 25 bytes
 apps/taskmgr/taskmgr.asm 1      # the Task Manager telling the truth about
     # kern_mega's memory: under CPU_F_PM extended memory is RAM and a region

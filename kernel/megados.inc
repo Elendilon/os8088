@@ -212,16 +212,20 @@ MPS_SIZE    equ MPS_HC + MPK_C_END - MPK_GDT
 ; mega_dsave - THE TABLE BYTES THE SUM CANNOT COVER (KERN-MEGA-DOS-PLAN 10.4's
 ; lesser items), banked in the header at the snapshot and put back by the
 ; stub's copy list before it loads the kernel's tables: GDT entries 1-5 and 7
-; (0 is W7's anchor, 6 is ODD's, written per use), 1FF8h-1FFDh (the sum stops
-; short of XA and XB, which it moves itself, on a 64-byte line) and IDT gates
-; 20h-21h (mega_ivt_sync rebuilds from 22h). {dd linear, dw bytes, dw at}
-mega_dsave  dd MEGA_GDT_LIN + 0x08
+; (0 is W7's anchor, 6 is ODD's, written per use), K5 to LDTD (the sum stops
+; short of XA and XB, which it moves itself, on a 64-byte line - the GDT's
+; last, MEGA_GDT_SCR's placing) and IDT gates 20h-21h (mega_ivt_sync rebuilds
+; from 22h), whose place mega_tset writes into mega_dsidt: the IDT follows the
+; LDT, whose size is the machine's (MC7's step 6). {dd from the TABLES' base -
+; [mega_tbllin], which moves with the machine since KERN-MEGA-MEMORY-PLAN
+; MC2 - dw bytes, dw at}
+mega_dsave  dd 0x08
             dw 0x28, MPK_SAVE + 0x08
-            dd MEGA_GDT_LIN + 0x38
+            dd 0x38
             dw 0x08, MPK_SAVE + 0x38
-            dd MEGA_GDT_LIN + 0xFFC0
+            dd MEGA_SEL_K5
             dw 0x30, MPK_SAVE + 0x40
-            dd MEGA_IDT_LIN + 0x100
+mega_dsidt  dd 0
             dw 0x10, MPK_SAVE + 0x70
 mega_dsave_end:
 %if (mega_dsave_end - mega_dsave) / 8 != MPK_PCPY
@@ -336,13 +340,29 @@ mega_dosclaimf:
     mov cl, 6
     shr dx, cl
     pop cx
-    mov bl, 0xFF                    ; the kernel's own
-    jmp mx_alloc
+    mov bx, MX_KOWN                 ; the kernel's own, outranking every
+    call mx_alloc                   ; cache - and PINNED: the park and the
+    jc .ao                          ; arena are named by their LINEAR base
+    push ax                         ; for the trip, and every other block
+    push cx                         ; moves (KERN-MEGA-MEMORY-PLAN MC3)
+    push dx
+    push si
+    call mx_find                    ; SI = its entry
+    jc .ap
+    or byte [ss:si+MX_FL], MX_FPIN
+.ap:
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    clc
+.ao:
+    ret
 
 ; mega_dosfreef - both claims back (far; after the trip). Clobbers nothing
 mega_dosfreef:
     pusha
-    mov bl, 0xFF
+    mov bl, MX_KOWN
     mov ax, [mega_dpbase]
     mov dx, [mega_dpbase+2]
     mov cx, ax
@@ -518,8 +538,8 @@ mega_dacc:
     mov ax, MEGA_SEL_WIN            ; the GDT, as data
     mov cx, MEGA_GDT_N
     call .one
-    mov ax, MEGA_SEL_LDTD           ; ...and the LDT
-    mov cx, MEGA_LDT_N
+    mov ax, MEGA_SEL_LDTD           ; ...and the LDT (the GDT again, under it,
+    mov cx, [mega_ldtn]             ; which costs a pass and changes nothing)
     call .one
     pop es
     ret
@@ -657,28 +677,31 @@ mega_dosparkf:
     call mega_dreg_add
 .noplace:
     xor cx, cx                      ; the GDT less entries 0-7 (WIN and ODD
-    mov bx, (0x1FFE * 8 - 0x40) / 64 ; move) and 1FFEh-1FFFh (the copy's XA
-    mov ax, (MEGA_GDT_LIN + 0x40) & 0xFFFF  ; and XB, which this very sum uses)
-    mov dx, MEGA_GDT_LIN >> 16
-    call mega_dreg_add
-    mov bx, MEGA_LDT_N * 8 / 64     ; the LDT
-    mov ax, MEGA_LDT_LIN & 0xFFFF
-    mov dx, MEGA_LDT_LIN >> 16
-    call mega_dreg_add
+    mov bx, (MEGA_SEL_K5 - 0x40) / 64 ; move) and its last line, K5 to XB
+    mov ax, 0x40                    ; (banked, and the copy's XA and XB, which
+    call .tbl                       ; this very sum uses). AX = the offset in
+                                    ; the tables' block
+    mov bx, [mega_ldtend]           ; the LDT's own entries, past the GDT it
+    sub bx, MEGA_LDT_FREE0 * 8      ; sits on (MC7's step 6): whole lines,
+    shr bx, 6                       ; mega_layoutf's rounding
+    mov ax, MEGA_LDT_FREE0 * 8
+    call .tbl
     mov bx, 4                       ; the IDT, less the gates mega_ivt_sync
-    mov ax, MEGA_IDT_LIN & 0xFFFF   ; rebuilds (22h-27h, 70h-77h): the drivers'
-    call mega_dreg_add              ; detach rewrites those after this, and
+    mov ax, [mega_ldtend]           ; rebuilds (22h-27h, 70h-77h): the drivers'
+    call .tbl                       ; detach rewrites those after this, and
     mov bx, 9                       ; mega_dwake rebuilds them from the IVT
-    mov ax, (MEGA_IDT_LIN + 0x28 * 8) & 0xFFFF
-    call mega_dreg_add
+    mov ax, [mega_ldtend]
+    add ax, 0x28 * 8
+    call .tbl
     mov bx, 17
-    mov ax, (MEGA_IDT_LIN + 0x78 * 8) & 0xFFFF
-    call mega_dreg_add
+    mov ax, [mega_ldtend]
+    add ax, 0x78 * 8
+    call .tbl
     cmp byte [mega_coldhi], 0       ; `.cold` and `.mega`, above 1MB: one
     je .nocold                      ; region, the gap between them with it
-    mov bx, (MEGA_HI_LIN + MEGA_SIZE - MEGA_COLD_LIN) / 64
-    mov ax, MEGA_COLD_LIN & 0xFFFF
-    mov dx, MEGA_COLD_LIN >> 16
+    mov bx, (COLD_PARA * 16 + MEGA_SIZE) / 64
+    mov ax, [mega_coldlin]
+    mov dx, [mega_coldlin+2]
     call mega_dreg_add
 .nocold:
     mov si, mx_tab                  ; every block the pool has given out,
@@ -686,6 +709,8 @@ mega_dosparkf:
     mov ax, [ss:si+MX_KB]
     or ax, ax
     jz .mxn
+    cmp byte [ss:si+MX_OWN], XMW_HMA ; ...and the HMA: DOS's during the trip,
+    je .mxn                         ; the session's nothing (MC2)
     mov bx, 16
     mul bx
     mov bx, ax
@@ -733,6 +758,8 @@ mega_dosparkf:
 .sv:
     mov ax, [si]                    ; {from: the bank, to: the table}
     mov dx, [si+2]
+    add ax, [mega_tbllin]
+    adc dx, [mega_tbllin+2]
     mov [mega_xsrc], ax
     mov [mega_xsrc+2], dx
     mov [es:di+4], ax
@@ -995,6 +1022,11 @@ mega_dosparkf:
     shl dx, cl
     or ax, dx
     ret
+.tbl:                               ; AX = an offset into the tables' block,
+    xor dx, dx                      ; under 64KB: that place onto the list
+    add ax, [mega_tbllin]           ; (BX lines, CX = 0)           ; where mega_layoutf put the block
+    adc dx, [mega_tbllin+2]         ; (KERN-MEGA-MEMORY-PLAN MC2)
+    jmp mega_dreg_add
 
 ; mega_dsumall - the sum over the scratch's list, through MEGA_SEL_XA. out DX:AX =
 ; s2:s1. Clobbers BX CX SI DI BP
@@ -1275,6 +1307,23 @@ mega_dstubup:
     mov [mega_xdst], ax
     mov [mega_xdst+2], dx
     mov cx, (mpk_stub_end - mpk_stub + 1) & 0xFFFE
+    call KERNEL_SEG:mega_lincopyf
+    xor dx, dx                      ; ...its GDTR and IDTR, THIS boot's: the
+    mov ax, KERNEL_SEG << 4         ; tables move with the machine since
+    add ax, mega_gdtr               ; KERN-MEGA-MEMORY-PLAN MC2, so the stub
+    adc dx, 0                       ; checks the cells against what staged it
+    mov [mega_xsrc], ax
+    mov [mega_xsrc+2], dx
+    mov ax, [mega_dpbase]
+    mov dx, [mega_dpbase+2]
+    add ax, mpk_tabs - mpk_stub
+    adc dx, 0
+    mov [mega_xdst], ax
+    mov [mega_xdst+2], dx
+%if mega_idtr - mega_gdtr != 6
+ %error "mega_dstubup copies GDTR and IDTR as one 12-byte run"
+%endif
+    mov cx, 12
     call KERNEL_SEG:mega_lincopyf
     push es                         ; ...and the list, magic and counts first,
     push word MEGA_SEL_PSCR         ; in front of it in the scratch
@@ -1852,9 +1901,11 @@ mega_wrprobe:
     mov bp, sp
     sub sp, 64                      ; [bp-48] int 15h AH=87h's descriptors,
                                     ; [bp-64] 16 bytes of buffer
-    mov ax, MEGA_GDT_LIN & 0xFFFF   ; the anchor
-    mov dx, MEGA_GDT_LIN >> 16
-    mov cx, 4
+    call COLD_SEG:mega_layoutf      ; WHERE THIS MACHINE'S TABLES GO, which is
+    jc .out                         ; where the parked session put them - a
+    mov ax, [mega_tbllin]           ; pure function of the BIOS's answer
+    mov dx, [mega_tbllin+2]         ; (KERN-MEGA-MEMORY-PLAN MC2); none above
+    mov cx, 4                       ; 1MB, no park. The anchor: GDT entry 0
     xor bx, bx                      ; BL = 0: read
     call .mv
     jc .out
@@ -1873,8 +1924,8 @@ mega_wrprobe:
     cld
     rep stosw
     pop di
-    mov ax, MEGA_GDT_LIN & 0xFFFF
-    mov dx, MEGA_GDT_LIN >> 16
+    mov ax, [mega_tbllin]
+    mov dx, [mega_tbllin+2]
     mov cx, 4
     mov bl, 1                       ; BL = 1: write
     call .mv

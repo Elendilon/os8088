@@ -1,5 +1,9 @@
 # `kern_mega` — a 286+ protected-mode kernel
 
+**Current round (2026-10-25): memory consolidation,
+`docs/plans/KERN-MEGA-MEMORY-PLAN.md`** (14.74 is its pointer). The status line
+below is the file's first and is kept as written.
+
 **Status: M1 IS UNDER WAY, AND kern_mega BOOTS INTO 286 PROTECTED MODE ON QEMU** (section 10.1) - plus 2.4.1's CS-write ratchet (2026-10-17, branch `protected-mode`,
 cut from `elendilon` at `c783a6a`). The owner asked what a 286+ protected-mode
 build would take: one with room for the kernel to grow to 512KB, though
@@ -10238,7 +10242,7 @@ Not run here; tests/unit/t_megagrid.py scopes to `apps/` and could take
 Three items 14.68 found and did not take, written down as work rather than
 left in its prose. The owner asked for each to be carried here.
 
-- [ ] **RAMDISK.DRV and NET.DRV fold paragraphs into a segment.**
+- [ ] **RAMDISK.DRV and NET.DRV fold paragraphs into a segment.** (KERN-MEGA-MEMORY-PLAN MC8)
   `rd_fold` (drivers/ramdisk/) and `net_norm` (drivers/net/) fold a
   conventional buffer's offset into its segment by paragraphs - the shape
   14.68's item 1 was in `CDROM.DRV`, which faulted the machine on its first
@@ -10250,7 +10254,7 @@ left in its prose. The owner asked for each to be carried here.
   The fix is 14.68's: walk the offset, or fold in whole 128-byte granules
   (`dskw_norm`'s kern_mega arm). `tests/unit/t_megagrid.py` scans `apps/`
   only; taking `drivers/` too is what keeps the next one out.
-- [ ] **`CDROM.DRV` above 1MB.** It runs on kern_mega now but loads LOW -
+- [ ] **`CDROM.DRV` above 1MB.** (KERN-MEGA-MEMORY-PLAN MC8) It runs on kern_mega now but loads LOW -
   9 KB of conventional memory - because nobody has run it high. To take it
   there: declare `OS88_DRV_HIGHOK` (drivers/os88drv.inc, item 82); check its
   sector buffer and packet, which live in its own image and reach
@@ -10259,7 +10263,7 @@ left in its prose. The owner asked for each to be carried here.
   BIOS or a DMA engine (it does PIO, `rep insw`); then extend `megacdrom` to
   assert the driver's image base is above 1MB while CDRack plays and copies.
   `OS88_DRV_HICLAIM` is not wanted: it makes no claims.
-- [ ] **Autostarted packages run low.** `\AUTOSTRT`'s walk (`as_boot`,
+- [ ] **Autostarted packages run low.** (KERN-MEGA-MEMORY-PLAN MC8) `\AUTOSTRT`'s walk (`as_boot`,
   SPEC.md 26.10) runs before `mega_enter`, so every autostarted package
   starts in real mode, in conventional memory, whatever `OS88_HIGH` says -
   `megacdtest`'s autostarted CDRack sits at `9640h` while the same package
@@ -10290,7 +10294,7 @@ and IDT (18K), `.cold` and `.mega` (about 58K), about 50K of padding up to
 the pool's 64KB-aligned base (`MEGA_XPOOL`, 0x140000), and about 118K of
 pool blocks owned C0h and up.
 
-- [ ] **Purgeable is not implemented on kern_mega.** Item 84 moved the
+- [ ] **Purgeable is not implemented on kern_mega.** (KERN-MEGA-MEMORY-PLAN MC1) Item 84 moved the
   kernel's caches into the pool (the window save-unders, up to 63K each, the
   menu save-under, the icon store, the file list, the clipboard) and item 86
   the FAT windows, and its own words are *"A pool block has no `mem_tab`
@@ -10305,7 +10309,7 @@ pool blocks owned C0h and up.
   `mx_alloc` sheds flagged kernel blocks before it refuses; the Task Manager
   excludes them from System as it does on kern_big.
 - [ ] **The GDT is a 1:1 table sized for every possible segment, and almost
-  none of it is used.** Selector = segment value, so the GDT's size is set
+  none of it is used.** (KERN-MEGA-MEMORY-PLAN MC7) Selector = segment value, so the GDT's size is set
   by the HIGHEST segment anything loads (the scratch selectors at FFD0-FFF8,
   the ROM font at F000), not by how many are used. **Measured** under Bochs,
   kern_mega at this tree with SOUND and HDD up and Calculator, Mines, Note
@@ -10321,7 +10325,7 @@ pool blocks owned C0h and up.
   change is the work to cost: every place that turns a segment value into a
   selector by identity (and `mega_oddsegf`'s window, which already handles a
   segment that is not a multiple of 8 dynamically, is the model).
-- [ ] **The LDT can start small and grow.** 2,048 entries (16K): 1,280 are
+- [ ] **The LDT can start small and grow.** (KERN-MEGA-MEMORY-PLAN MC7) 2,048 entries (16K): 1,280 are
   a STATIC code alias for every 512 bytes of conventional memory (index =
   segment / 32, which is how a CS with bit 2 set names its image), the rest
   dynamic; **31 accessed** in the same run. Regrowable by claiming a bigger
@@ -10329,13 +10333,13 @@ pool blocks owned C0h and up.
   GDT's identity entries would. The owner: *"LDT regrowable: seems good."*
 - [x] **The IDT stays 2K.** Every vector can be reflected to the BIOS or to
   a DOS program. *"IDT is fine."*
-- [ ] **The HMA is RAM.** It has to be free at 1MB only while DOS uses it,
+- [ ] **The HMA is RAM.** (KERN-MEGA-MEMORY-PLAN MC4) It has to be free at 1MB only while DOS uses it,
   so it is pool like any other until then, and the trip into DOS saves what
   is in it and the return restores it to the same linear addresses (a pool
   block is named by its linear base, 13.4) - what the park already does for
   conventional memory. The owner prefers this to parking droppable caches
   there, which would cost a program 64K, and on a 1MB machine that matters.
-- [ ] **The padding.** About 50K between `.mega`'s end (~0x133600) and
+- [ ] **The padding.** (KERN-MEGA-MEMORY-PLAN MC2) About 50K between `.mega`'s end (~0x133600) and
   `MEGA_XPOOL`, there only because the pool's arithmetic wants a base whose
   low word is 0. Pack the fixed area and start the pool on a finer
   boundary, or put a fixed structure in the gap.
@@ -10480,7 +10484,7 @@ The merged page landed (`b6c4a1ed`, `2cd6ddc7`). Open:
   computes `Unrep.` from the same ROM figures it prints. One real defect was
   fixed on the way (`tm_romscan` trusted a length byte reaching past F000).
   Retake it on this build.
-- [ ] Purgeable on kern_mega (14.70.1): until then the kernel's caches above
+- [ ] Purgeable on kern_mega (14.70.1, KERN-MEGA-MEMORY-PLAN MC1): until then the kernel's caches above
   1MB show under `Kernel`, not `Purgeable`.
 
 ### 14.71 The upstream PR's review: four kern_mega defects, fixed (2026-10-22)
@@ -10725,4 +10729,29 @@ waits on the kern_mega RAM work in progress in another session.
   each - the protocol is in SPEC.md 34.10.1, read off the ROM's
   disassembly, so it wants the card to check against.
 - [ ] **LASTX's copying bank** (above): a per-record re-aimed window, or a
-  finer `OSAPI_XMEM_RUN` step, would let BIGSP decode in place.
+  finer `OSAPI_XMEM_RUN` step, would let BIGSP decode in place. **The window
+  exists now** (KERN-MEGA-MEMORY-PLAN 9.1, SPEC.md 50.6.11: `SEG_BWIN` and
+  the hook-legal `SEG_AIM`); what is left is the Video Player's own change.
+
+### 14.74 The memory consolidation round (2026-10-25) - now its own plan
+
+**`docs/plans/KERN-MEGA-MEMORY-PLAN.md` is the authority for this round**:
+the goal, the facts it rests on, every owner decision and assumption, the
+waves (MC1-MC9, taken in the order MC1, MC8, MC2, MC3, MC7, MC4, MC5) and
+what each came to as built.
+
+How it was arrived at, in three rounds with the owner on 2026-10-25:
+
+1. **The open items collected.** 14.70.1's five (purgeable, the GDT, the LDT,
+   the HMA, the padding), 14.69's three, and 14.53/14.60's register of what
+   still goes low.
+2. **The owner's additions.** The fixed area and every claim from the top of
+   RAM, so the HMA fills nearly last. One claim able to take all free memory,
+   bridged across the 640K-1MB hole. The conventional reserve was measured
+   (KERN-MEGA-MEMORY-PLAN 2: 53K worst case, so 64K, one run), and that
+   measurement found that a kern_mega hibernate refuses with the pool full.
+3. **Convert everything.** The owner's answer that every program is in this
+   repository turned the GDT from a table that grows with "older style"
+   programs into a fixed ~4K one. The order was left to the plan.
+
+The boxes in 14.69, 14.70.1 and 14.70.3 point at their waves there.

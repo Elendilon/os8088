@@ -480,6 +480,13 @@ kern_mega build. The map is the instrument here.
 
 ### 5.1 The extended-memory map during the bracket
 
+**This map is the layout before docs/plans/KERN-MEGA-MEMORY-PLAN.md MC2.**
+Since MC2 the pool runs from 100000h with the HMA as its first block (pinned,
+skipped by the park), and the GDT, LDT, IDT, `.cold` and `.mega` are at the
+TOP of extended memory where `mega_layoutf` puts them; the park saves them
+from there (`[mega_tbllin]`, `[mega_coldlin]`). The rows' owners and
+protections are unchanged.
+
 | linear | what | whose | protected by |
 |---|---|---|---|
 | 100000h-10FFEFh | the HMA | free on kern_mega (`kernel/kernel.asm:698`; `MEGA_GDT_LIN` sits above it on purpose). `kern_dos`'s from wave 4 | - |
@@ -526,8 +533,12 @@ protected mode, LOADALL or unreal mode on its own. Real mode cannot stop any
 of those. The sum catches them.
 
 **Placement.** A raw allocator takes memory either top-down from the CMOS size
-or bottom-up from 1MB. With the tables fixed at 110000h, the kernel's state is
-at the bottom whatever is decided. Putting the park directly above `.cold` and
+or bottom-up from 1MB. Since docs/plans/KERN-MEGA-MEMORY-PLAN.md MC2 the
+tables and the code are at the TOP of extended memory and the pool runs from
+1MB, so a top-down raw allocator meets the kernel's state first and a
+bottom-up one meets the HMA and then the pool's lowest blocks. (Before MC2,
+with the tables fixed at 110000h, the kernel's state was at the bottom
+whatever was decided, and the rest of this paragraph was written then.) Putting the park directly above `.cold` and
 the arena at the top means a top-down raw allocator eats the arena (the
 program's own XMS clients suffer, the session survives) and a bottom-up one
 eats the kernel (the sum catches it). Neither can be ruled out from the

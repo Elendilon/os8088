@@ -82,7 +82,8 @@ SECTION_SEG = {".text": "KERNEL_SEG", ".bss": "KERNEL_SEG",
                # its RUNG, which is where it is until mega_enter copies it
                # above 1MB with `.cold` and where it stays on a machine with
                # too little extended memory. After the switch it runs under
-               # MEGA_SEL_CODE at MEGA_HI_LIN, which no real-mode linear
+               # MEGA_SEL_CODE at the code area mega_layoutf placed (mega_coldlin
+               # + COLD_PARA * 16, KERN-MEGA-MEMORY-PLAN MC2), which no real-mode linear
                # address names - the same caveat `.cold` carries there
                ".mega": "MEGA_RAM",
                # ...and the on-demand modules (SPEC.md 2.8), which have NO

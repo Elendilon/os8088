@@ -66,7 +66,7 @@ PROGS = (("dos.o88", os.path.join(BUILD, "megak", "kdos", "DOS.O88"), "DOS",
          ("pxstein.o88", os.path.join(BUILD, "pxstein.o88"), "Pixelstein 3D",
           True))
 I_RECSZ, INST_MAX = 32, 12
-MX_BLKSZ, MX_NBLK = 8, 96        # kernel/mega.inc (KERN-MEGA-PLAN 14.49)
+MX_BLKSZ, MX_NBLK = 10, 96       # kernel/mega.inc (KERN-MEGA-PLAN 14.49; 10 since KERN-MEGA-MEMORY-PLAN MC1)
 MC_SIZE, MEM_MAX = 10, 32
 LOW_LIN = 0x0E60 * 16           # LOW_SEG on kern_mega (kernsize's ladder),
                                 # only if SS cannot be read off the machine

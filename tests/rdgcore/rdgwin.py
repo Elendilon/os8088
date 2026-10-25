@@ -313,7 +313,8 @@ def main():
 def boot(o):
     name = o.keep or "rdgwin%d" % os.getpid()
     tmp = tempfile.mkdtemp(prefix="rdgwin")
-    gb = os.path.join(tmp, "GAME.GB")
+    gb = os.path.join(tmp, os.environ.get("RDGWIN_GBNAME", "GAME.GB"))   # (a precompiled
+                                                # package names its own ROM)
     with open(o.rom, "rb") as f, open(gb, "wb") as g:
         g.write(f.read())
     disk = os.path.join(tmp, "rdg144.img")

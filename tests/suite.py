@@ -3439,6 +3439,36 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
+    Row("gbaot", "soak", py("tests/gbaot.py"), 370.0,
+        "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
+        "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
+        "its entries with no play, by RealDMG's own translator run under "
+        "Unicorn (tools/gbaot/aothost.asm), then run beside the interpreter "
+        "with gbprof's buttons - every frame's registers, time, events, skips "
+        "and 8000-FFFF identical, or for Blargg's and gbflags' the words on "
+        "the link port. 15 ROMs: GBDEMO, the tools/gbprof ROMs (read-modify-"
+        "writes, POPs from ROM, HBlank events, 64 banks of code), cpu_instrs, "
+        "instr_timing, mem_timing, halt_bug and dmg-acid2. TWO NEGATIVE "
+        "CONTROLS: GBRMW's most-entered block broken must differ, and GBFLAGS "
+        "translated with RT_DEADBUG must change its sum. WHY UNICORN: the "
+        "translation is the host's, and the check is counted, not timed. "
+        "SOAK: one package's recompiler",
+        needs=("nasm", "unicorn", "rgbds"), timeout=900),
+    Row("gbaotpkg", "soak", py("tests/gbaotpkg.py"), 93.0,
+        "A PRECOMPILED CARTRIDGE ON THE MACHINE (docs/REALDMG-SPEC.md 20.10): "
+        "tools/gbaot.py translates and packages GBPOP.GB as GBPOP.O88 - the "
+        "RDG_AOT build of realdmg.asm with the code images as parts - and "
+        "MartyPC's 5150 opens the PACKAGE, which opens its ROM by itself. "
+        "The machine must be the precompiled one (S_JITON, S_JITFIX, nothing "
+        "translated), EVERY IMAGE CLAIMED READ, and the worker found running in "
+        "the code images - on a volume of 4KB CLUSTERS, a hard disk's, because "
+        "OSAPI_FILE_READ_AT reads whole clusters only and the first package's "
+        "reads were all refused there (the owner's 286 ran it interpreted). A "
+        "second leg runs the package with the ROM INSIDE it (--embed, "
+        "REALDMG-SPEC 20.13) and nothing beside it. The frame rate is reported "
+        "against REALDMG.O88's own recompiler. Verified red twice: rw_aoton out "
+        "of rw_jiton, and the bounce reading 512 bytes a call. SOAK: one package",
+        needs=("nasm", "unicorn", "rgbds", "marty"), timeout=900),
     Row("gbacid", "soak", py("tests/rdgcore/rdgacid.py"), 3.0,
         "REALDMG's renderer (apps/realdmg/rdgppu.inc, docs/REALDMG-SPEC.md "
         "section 13) against dmg-acid2's reference picture, all 23,040 pixels: "
@@ -15874,6 +15904,61 @@ SOAK = [
         wants=("build/megacdtest.img", "build/megaapps.img",
                "build/cdaudio.cue", "build/cdrack.bin", "build/mixer.bin",
                "build/cdrom.bin", "build/sound.bin")),
+    Row("megacz", "soak", py("tests/megacz.py"), 150.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7.6: File > Compress and "
+        "Uncompress on kern_mega, on 86Box's 286 (vm/286-mega). DISKOPS.DRV "
+        "keeps its paragraph arithmetic and loads every segment register "
+        "through its stream's own scratch selector (KSEG, MEGA_SEL_K0-K5). "
+        "BIG1.TXT (packs under 64KB), BIG2.TXT (past 64KB, both segments "
+        "slide) and BIG3.TXT (streamed) are compressed byte for byte as "
+        "os88lz.lzb_compress_machine writes them, then uncompressed back to "
+        "the originals in a second boot, which also saves the Control "
+        "Panel's Reads -> Cylinder and so runs CTRL.DRV's cpc_fdtest; a "
+        "third boot clones A: onto B: and B: must be A: bar the serial; no "
+        "exception is charged to a loaded image. Red with KSEG a plain "
+        "`mov`: every packed file wrong from 32KB on and Uncompress says "
+        "`Disk error`; red with cpc_fdtest unconverted: an exception and a "
+        "save that never ends; red with clo_span's buffer slide unconverted: "
+        "the clone never ends and 1,330 sectors differ. 150s is 134 measured",
+        needs=("86box",),
+        wants=("build/mega.img",)),
+    Row("megasweep", "soak", py("tests/megasweep.py"), 120.0,
+        "KERN-MEGA-MEMORY-PLAN MC7: every package the shipped disks carry "
+        "OPENS under kern_mega (Bochs, 16MB, the kern_mega arm where one is "
+        "built and kern_mega's own DOS.O88), each started through MEGARUN "
+        "and left to run; any kern_mega CLOSED or FAULT line, a refusal or "
+        "a package never started fails it. 49 packages in six parallel "
+        "boots. Red with op_sub's sum put back (WORD closed at its first "
+        "load); vga_blit_prow on [rom_vgabw] faults the kernel at SOLITAIR. "
+        "120s is 94 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/apps.img")),
+    Row("megatbl", "soak", py("tests/megatbl.py"), 45.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7's step 6: kern_mega's "
+        "tables sized per machine. Under Bochs at 1, 4 and 16MB: the GDTR's "
+        "limit is the identity map up to COLD_SEG and the scratches "
+        "(MEGA_GDT_N x 8 - 1) and not one entry more, the LDT sits on the "
+        "GDT with MEGA_LDT_FREE0 + 512 + one entry per 16KB of extended "
+        "memory, the IDT after it, the block's KB printed (11, 12, 18 - 82 "
+        "before), and B:'s Disk window and the Task Manager open with no "
+        "fault. Red with mega_gdtr's limit put back to 64KB (1 on every "
+        "machine) and with the Task Manager's EBDA read a bare `mov es, cx` "
+        "(4: kern_mega CLOSED TaskMgr). 45s is 37 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megaapps.img")),
+    Row("megashed", "soak", py("tests/megashed.py"), 30.0,
+        "SPEC.md 50.6.8, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC1: a kernel "
+        "cache ABOVE 1MB is purgeable. Bochs at 16MB: B:'s Disk window and the "
+        "About box put the icon store, a FAT window and a raise cache in the "
+        "pool beside the boot's read-ahead store, the debugger covers every "
+        "free KB with pinned records, and the Control Panel's CTRL.DRV must "
+        "still go above 1MB - which it can only do by shedding the TRIV "
+        "caches, leaving the MED and HIGH ones standing. The failing case is "
+        "mx_alloc without its `call mx_shed`: CTRL.DRV stays low and nothing "
+        "is shed. 30s is 14 measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
+               "build/mbr.bin")),
     Row("megarehome", "soak", py("tests/megarehome.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.44, 14.48, SPEC.md 20.12.10.9: a "
         "RE-HOMED program whose own header says OS88_HIGH runs above 1MB on "
@@ -16002,17 +16087,33 @@ SOAK = [
         "docs/plans/KERN-MEGA-PLAN.md 14.15's open item, 14.46: on kern_mega "
         "the extended pool's compaction moves a package's OWN region while "
         "that package is the caller. Under Bochs at 2MB, MEGAHOLE holds "
-        "three 60KB pool claims and closes itself, leaving a hole under "
+        "three 60KB pool claims and closes itself, leaving a hole above "
         "MEGAOWN's region; MEGAOWN fills the pool, frees every other block "
         "and claims 64KB from its own wake handler. Its region must be at a "
-        "lower offset after the claim, every block's stamps and its own bss "
+        "HIGHER offset after the claim (every claim from the top and the "
+        "pool packed UP since KERN-MEGA-MEMORY-PLAN MC3), every block's "
+        "stamps and its own bss "
         "and code must read back, and a second callback must say the same. "
-        "The failing case is mx_compactf pinning a package region, which "
+        "The failing case is mx_canmove pinning a package region, which "
         "leaves it where it was. 50s is 39 measured (Bochs waits on "
         "kernel state, docs/BOCHS.md)",
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megahole.o88", "build/megaown.o88")),
+    Row("megaxmove", "soak", py("tests/megaxmove.py"), 25.0,
+        "SPEC.md 50.6.10, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC3: on "
+        "kern_mega an OSAPI_XMEM_ALLOC block MOVES and is read back through "
+        "the token it was given. Under Bochs at 4MB, tests/megaxm's MEGAXM "
+        "takes a 64KB filler and then its block under it, writes sixteen "
+        "patterns, frees the filler and claims every free KB the pool has - "
+        "which fits only once the pool is packed up, lifting the block into "
+        "the hole - then reads every chunk back through the original token, "
+        "in place through OSAPI_XMEM_SEL, through the file layer and through "
+        "a package's own int 13h. The failing case is mx_canmove pinning "
+        "token blocks (MEGAXM: no 42). 25s is 16 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megaxm.o88")),
     Row("megaovl", "soak", py("tests/megaovl.py"), 90.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.46: on kern_mega a C package's "
         "OVERLAY is moved by a compaction and then used. Under Bochs, "

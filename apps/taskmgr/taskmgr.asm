@@ -1376,11 +1376,12 @@ tm_s_urom:  db 'ROM', 0
 tm_s_ubios: db 'BIOS', 0
 tm_s_unrep: db 'Unrep.', 0
 
-; ...and the fixed areas kern_mega keeps between 1MB and its pool, which the
-; walk names when it is asked to (OSAPI_XMEM_WALK, BX = XMW_FIXED): records of
-; TMX_NREC bytes indexed by the owner byte less XMW_HMA. The HMA is the DOS
-; trip's (KERN-MEGA-PLAN 2.7) and the padding is the pool's 64KB alignment;
-; KERN-MEGA-PLAN 14.70.1 is what would make both of them RAM again.
+; ...and the fixed areas kern_mega keeps outside its pool, which the walk
+; names when it is asked to (OSAPI_XMEM_WALK, BX = XMW_FIXED): records of
+; TMX_NREC bytes indexed by the owner byte less XMW_HMA. Since
+; KERN-MEGA-MEMORY-PLAN MC2 the tables and the code are at the TOP of RAM, the
+; HMA is the pool's first block (the DOS trip's, KERN-MEGA-PLAN 2.7) and there
+; is no padding; 'Padding' stays for the SDK's XMW_PAD.
 TMX_NREC    equ 12
 tm_xnames:  db 'HMA (DOS)', 0, 0, 0
             db 'GDT', 0, 0, 0, 0, 0, 0, 0, 0, 0
@@ -1420,6 +1421,8 @@ tm_s_tdimg: db 'DrvImg', 0      ; FDh: a driver's image, moved above 1MB
 tm_s_thicl: db 'HiClaim', 0     ; 0A0h | slot: an OS88_HIGHMEM claim
 tm_s_tkern: db 'Kernel', 0      ; FEh, the kernel's own; FFh, a cell called
                                 ; outside any instance
+tm_s_tcach: db 'Cache', 0       ; FEh with a purge level in XMW_CLS: a kernel
+                                ; cache above 1MB (KERN-MEGA-MEMORY-PLAN MC1)
 %endif
 
 %ifdef TMF_HEAP
@@ -3413,13 +3416,15 @@ tm_cap_avl:
 
 ; -----------------------------------------------------------------------------
 ; tm_himax - AX = the largest run ONE claim above 1MB can get: the pool as
-; mx_alloc leaves it after mx_compactf, worked out from the walk in tm_xw
+; mx_alloc leaves it after a pack, worked out from the walk in tm_xw
 ; (tm_hikb, kern_mega in protected mode). The kernel's own walk, replayed: the
 ; blocks in ascending order of where they are, a cursor following them, a
-; MOVABLE one (mx_canmove: 80h-DFh, a program's or driver's, and FDh, a
-; driver's image) sliding down to it and a PINNED one raising it past itself -
-; so every free run left is under a pinned block or above the last block. The
-; fixed areas' records (XMW_HMA..XMW_PAD, under the pool's base) are skipped.
+; MOVABLE one sliding down to it and a PINNED one raising it past itself -
+; so every free run left is under a pinned block or above the last block.
+; Since KERN-MEGA-MEMORY-PLAN MC3 every block moves but the HMA (mx_canmove;
+; the kernel packs UP, which leaves the same runs), so MAX RUN = AVAIL. The
+; fixed areas' records (XMW_GDT..XMW_PAD, past the pool's end) are skipped;
+; the HMA's is a PINNED block at the pool's base (KERN-MEGA-MEMORY-PLAN MC2).
 ; in:  tm_xw/[tm_xwn], [tm_kb+SK_XMS] = the pool's KB
 ; out: AX = KB
 ; clobbers: nothing else (flags)
@@ -3442,7 +3447,7 @@ tm_himax:
 .scan:
     jcxz .got
     cmp byte [si+XMW_OWN], XMW_HMA
-    jb .cand
+    jbe .cand                   ; (the HMA is the pool's first 64KB, pinned)
     cmp byte [si+XMW_OWN], XMW_HMAB
     jbe .sn                     ; a fixed area: not in the pool
 .cand:
@@ -3461,13 +3466,8 @@ tm_himax:
     jz .end
     mov bx, ax                  ; the next visit is past this block
     inc bx
-    mov cl, [di+XMW_OWN]
-    cmp cl, TMX_DRVIMG
-    je .mov
-    cmp cl, 0x80
-    jb .pin
-    cmp cl, 0xE0
-    jb .mov
+    cmp byte [di+XMW_OWN], XMW_HMA
+    jne .mov                    ; every block moves but the HMA (MC3)
 .pin:
     mov cx, ax
     sub cx, bp
@@ -3983,15 +3983,27 @@ tm_romscan:
     push bx
     push cx
     push dx
+    push si
     push es
     mov dx, 0xC000
     xor bx, bx
+    xor si, si                  ; SI = the window, 0 until there is one
 .l:
     cmp dx, 0xF000
     jae .out
     cmp bl, TM_UMAX
     jae .out
+    push dx                     ; ES = THE PARAGRAPH, through one window the
+    push bx                     ; kernel re-aims at each step (OSAPI_SEG's
+    mov ax, si                  ; SEG_WIN): on kern_mega a ROM's paragraph is
+    mov cx, 16                  ; no selector (KERN-MEGA-MEMORY-PLAN MC7), and
+    mov bl, SEG_WIN             ; every other kernel answers the paragraph
+    call OSAPI_SEG              ; itself
+    pop bx
+    jc .nowin
+    mov si, dx
     mov es, dx
+    pop dx
     mov cx, 0x80                ; the next 2K by default
     cmp word [es:0], 0xAA55
     jne .n
@@ -4028,9 +4040,18 @@ tm_romscan:
 .n:
     add dx, cx
     jmp short .l
+.nowin:
+    pop dx                      ; no window: the scan stops where it is
 .out:
     mov [tm_umn], bl
+    or si, si
+    jz .nofree
+    mov dx, si                  ; ...and the window back
+    mov bl, SEG_FREE
+    call OSAPI_SEG
+.nofree:
     pop es
+    pop si
     pop dx
     pop cx
     pop bx
@@ -4634,7 +4655,10 @@ tm_drvgid:
     jne .h                      ; read at 0)
     mov di, DRV_HMA_ORG
 .h:
-    mov es, bx
+    push ax
+    mov ax, bx
+    call tm_pwes                ; ES = over the image's PARAGRAPH (MC7)
+    pop ax
     cmp word [es:di], 0x384F    ; 'O8', the driver header's magic
     jne .own
     mov al, [es:di+3]           ; DRV_H_CLASS
@@ -4649,6 +4673,29 @@ tm_drvgid:
 .o:
     pop di
     pop es
+    ret
+
+; tm_pwes - ES = a window over physical PARAGRAPH AX, 64KB, for a header the
+; snapshot names by its paragraph: under kern_mega a paragraph is no
+; selector (KERN-MEGA-MEMORY-PLAN MC7), so OSAPI_SEG's SEG_WIN makes one and
+; it is re-aimed per use, the one window held for the instance; every
+; real-mode kernel answers the paragraph itself. Every other register kept
+tm_pwes:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx, ax
+    mov ax, [tm_pwin]           ; the window to re-aim, 0 = a new one
+    xor cx, cx
+    mov bl, SEG_WIN
+    call OSAPI_SEG
+    mov [tm_pwin], dx
+    mov es, dx
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; tm_ogid - BX = a CLASS-LESS driver image's key - its segment, or AH = 1 its
@@ -4740,7 +4787,14 @@ tm_xgidof:
     cmp bl, 0C0h
     je .drv
     cmp al, TMX_KERN
-    jae .kern
+    jb .ns
+    jne .kern
+    mov al, [si+XMW_CLS]        ; a kernel CACHE above 1MB carries its purge
+    cmp al, MEM_PG_MIN          ; level there (KERN-MEGA-MEMORY-PLAN MC1):
+    jb .kern                    ; reclaimable, so Purgeable's, as its
+    mov al, TMG_PURGE           ; conventional twin is
+    jmp short .o
+.ns:
     and al, 1Fh                 ; slot, 80h | slot, 0A0h | slot
     cmp al, INST_MAX
     jae .kern
@@ -5273,7 +5327,7 @@ tm_drvnam:
     or bx, bx
     jnz .drvs                   ; above 1MB and unnamed: no header to read
     push es
-    mov es, ax
+    call tm_pwes                ; ES = over the image's PARAGRAPH (MC7)
     cmp word [es:0], 0x384F     ; 'O8': a driver header, whose name is at +16
     jne .hno
     mov di, tm_nbuf
@@ -5616,6 +5670,11 @@ tm_xrow:
     push si
     cmp al, TMX_KERN            ; the kernel's: on kern_mega every MODULE is
     jne .nk                     ; one of these, named by its file (14.70.3)
+    cmp byte [si+XMW_CLS], MEM_PG_MIN
+    jb .km                      ; ...and a CACHE carries its level (MC1)
+    mov si, tm_s_tcach
+    jmp short .t
+.km:
     push bx
     mov ax, [si+XMW_OFF]
     mov bx, 1
@@ -5677,10 +5736,12 @@ tm_xrow:
     call tm_kcol
     mov byte [di], ' '
     inc di
-    push si
-    mov si, tm_s_hheld
-    call tm_copy
-    pop si
+    mov ah, [si+XMW_CLS]        ; a kernel cache's level is its TIER, as a
+    cmp byte [si+XMW_OWN], TMX_KERN ; conventional cache's high byte is; every
+    je .tier                    ; other block is HELD
+    mov ah, 0
+.tier:
+    call tm_htier
     call tm_mrow_close
     pop di
     pop si
@@ -7397,17 +7458,37 @@ tm_ebda:
     cmp cx, ax
     pop ax
     jne .out
-    mov es, cx                  ; (a multiple of 64 paragraphs: on kern_mega's
-    mov bl, [es:0]              ; identity grid too) - its size, KB
+    push dx                     ; ITS FIRST BYTE, through a window the kernel
+    push ax                     ; makes over the paragraph (OSAPI_SEG's
+    mov dx, cx                  ; SEG_WIN): on kern_mega a paragraph past the
+    xor ax, ax                  ; kernel's own is no selector at all (KERN-
+    mov cx, 16                  ; MEGA-MEMORY-PLAN MC7), and every other
+    mov bl, SEG_WIN             ; kernel answers the paragraph itself
+    call OSAPI_SEG
+    jc .nowin
+    mov es, dx
+    mov bl, [es:0]              ; its size, KB
+    xor bh, bh
+    push bx
+    mov bl, SEG_FREE            ; ...and the window back
+    call OSAPI_SEG
+    pop bx
+    pop ax
+    pop dx
     mov cx, 640
     sub cx, ax                  ; no bigger than the gap to 640K
     cmp bx, cx
     jbe .out
+.none:
     xor bx, bx
 .out:
     pop es
     pop cx
     ret
+.nowin:
+    pop ax
+    pop dx
+    jmp short .none
 
 ; -----------------------------------------------------------------------------
 ; tm_cpucol - the CPU column: share right-aligned in 3, then '%', then the
@@ -7557,11 +7638,14 @@ tm_copyn:
 ; -----------------------------------------------------------------------------
 ; tm_hikb - RAM above 1MB (KERN-MEGA-PLAN 13.6, SPEC.md 28.4.8), and whose
 ; in:  [tm_kb] (tm_getkb)
-; out: [tm_hitot] = KB above 1MB in all: the pool and, under its base, the
-;      kernel's tables and its .cold; [tm_hiused] = KB of it in use;
-;      [tm_hifix] = the KB under the pool's base; the pool's blocks in tm_xw
-;      ([tm_xwn] of them, for tm_slotxkb and the list), led on kern_mega by a
-;      record per fixed area under the base (XMW_HMA..XMW_PAD)
+; out: [tm_hitot] = KB above 1MB in all: the pool and what the kernel keeps
+;      outside it - kern_big's HMA under the pool's base, kern_mega's tables
+;      and code above its top (KERN-MEGA-MEMORY-PLAN MC2); [tm_hiused] = KB
+;      of it in use; [tm_hifix] = the KB the System HMA row states: those
+;      fixed areas, and on kern_mega the HMA, which is the pool's own first
+;      block since MC2; [tm_hisys] = the system's share of it all; the pool's
+;      blocks in tm_xw ([tm_xwn] of them, for tm_slotxkb and the list), led on
+;      kern_mega by a record per fixed area (XMW_GDT..XMW_KCODE)
 ; clobbers: nothing (flags only)
 ; -----------------------------------------------------------------------------
 tm_hikb:
@@ -7571,14 +7655,50 @@ tm_hikb:
     push dx
     push di
     push es
+    push ds
+    pop es
+    mov di, tm_xw
+    mov cx, TM_XWN
+    mov bx, XMW_FIXED           ; NAMED, on a kernel that names it: kern_mega
+    call OSAPI_XMEM_WALK        ; puts a record per fixed area in front of the
+    jnc .walked                 ; blocks (KERN-MEGA-PLAN 14.70.2) and every
+    xor ax, ax                  ; other kernel ignores BX
+.walked:
+    mov [tm_xwn], ax
+    xchg ax, cx                 ; CX = records
+    mov di, tm_xw
+    xor bx, bx                  ; BX = the fixed areas ABOVE the pool (MC2):
+    xor dx, dx                  ; not in its KB. DX = the HMA's pool block
+.fx:
+    jcxz .fxd
+    mov al, [di+XMW_OWN]
+    cmp al, XMW_HMA
+    jne .fx1
+    add dx, [di+XMW_KB]
+    jmp short .fxn
+.fx1:
+    cmp al, XMW_GDT
+    jb .fxn
+    cmp al, XMW_PAD
+    ja .fxn
+    add bx, [di+XMW_KB]
+.fxn:
+    add di, XMW_SIZE
+    dec cx
+    jmp short .fx
+.fxd:
+    push dx                     ; (the HMA's block, for [tm_hifix])
+    push bx
     call OSAPI_XMEM_CAPS        ; AX = free, DX:CX = the pool's linear base
     sub dx, 0x10                ; ...less 1MB: the kernel's own, below it
-    mov bx, cx
+    mov bx, cx                  ; (kern_big's HMA; 0 on kern_mega)
     mov cl, 10
     shr bx, cl
     mov cl, 6
     shl dx, cl
     or dx, bx                   ; DX = KB between 1MB and the pool
+    pop bx
+    add dx, bx                  ; ...and above its top: DX = outside the pool
     mov bx, [tm_kb+SK_XMS]
     sub bx, ax
     add bx, dx
@@ -7598,27 +7718,19 @@ tm_hikb:
     jbe .usd
     mov [tm_hiused], bx
 .usd:
-    mov [tm_hifix], dx          ; the span under the pool, which the list's
+    pop ax
+    add ax, dx
+    mov [tm_hifix], ax          ; the System HMA row's KB, which the list's
                                 ; System itemises (tm_sysitems)
-    push ds
-    pop es
-    mov di, tm_xw
-    mov cx, TM_XWN
-    mov bx, XMW_FIXED           ; ...and NAMED, on a kernel that names it:
-    call OSAPI_XMEM_WALK        ; kern_mega puts a record per fixed area in
-    jnc .walked                 ; front of the blocks (KERN-MEGA-PLAN 14.70.2)
-    xor ax, ax                  ; and every other kernel ignores BX
-.walked:
-    mov [tm_xwn], ax
-    mov cx, ax                  ; the SYSTEM's share above 1MB: everything
-    mov di, tm_xw               ; under the pool's base (DX, the kernel's
-.sys:                           ; tables and .cold) and every block the
-    jcxz .sysd                  ; kernel or a driver owns - owner C0h and up
-    mov al, [di+XMW_OWN]        ; (SPEC.md 28.4.8): the top of RAM is RAM
-    cmp al, 0xC0                ; here, so what holds it is billed for it
-    jb .sysn
+    mov cx, [tm_xwn]            ; the SYSTEM's share above 1MB: everything
+    mov di, tm_xw               ; outside the pool (DX) and every block the
+.sys:                           ; kernel or a driver owns - owner C0h and up
+    jcxz .sysd                  ; (SPEC.md 28.4.8): the top of RAM is RAM
+    mov al, [di+XMW_OWN]        ; here, so what holds it is billed for it -
+    cmp al, 0xC0                ; the HMA among them on kern_mega, a pool
+    jb .sysn                    ; block since MC2
     cmp al, XMW_HMA             ; ...but NOT a fixed area's record, which is
-    jb .sysa                    ; a name for KB already in DX
+    jbe .sysa                   ; a name for KB already in DX
     cmp al, XMW_HMAB            ; (and kern_big's HMA contents, 28.4.13)
     jbe .sysn
 .sysa:
@@ -8196,7 +8308,8 @@ TM_NOVL     equ 1 + 16 - TMD_NCLS   ; class-less images with a group each:
 tm_onum     equ tm_nbuf + 13    ; byte: how many tm_ogid found this paint
 tm_ohi      equ tm_onum + 1     ; TM_NOVL bytes: 1 = the key is a pool offset
 tm_okey     equ tm_ohi + TM_NOVL    ; TM_NOVL words: each image's key
-TM_BSS_TOTAL equ tm_okey + TM_NOVL * 2 - os88_image_end
+tm_pwin     equ tm_okey + TM_NOVL * 2   ; tm_pwes's window, 0 = none yet
+TM_BSS_TOTAL equ tm_pwin + 2 - os88_image_end
 %else                           ; ...and with no list, no groups: the chain
 TM_BSS_TOTAL equ tm_hifix + 2 - os88_image_end  ; ends at the pool's
 %endif                          ; numbers, which the summary line still reads

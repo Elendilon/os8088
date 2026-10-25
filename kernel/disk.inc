@@ -2357,14 +2357,21 @@ dsk_runcap:
     jae .hma                    ; (docs/plans/HMA-PLAN.md 5) - below
 %endif
 %ifdef KERN_MEGA
-    test al, 4                  ; AN LDT SELECTOR IS NOT A SEGMENT: a window
-    jnz .hma                    ; above 1MB (OSAPI_XMEM_SEL, a package placed
-%endif                          ; high) or a code alias - the page math below
-                                ; means nothing on it, and the ROM's int 13h
-                                ; cannot reach the first kind at all. 0 bounces
-                                ; it a sector at a time through dsk_secbuf
+    cmp byte [mega_on], 0       ; IN PROTECTED MODE A SELECTOR IS NOT A
+    je .seg                     ; SEGMENT: the page math is on its
+                                ; descriptor's BASE - the scratch ones the
+                                ; file doors load (ODD, SLD) and every
+    call MEGA_SEL_CODE:mega_selbasef ; claim's value in protected mode
+    cmp dx, 0x0F                ; (KERN-MEGA-MEMORY-PLAN MC7.4). Above 1MB (a
+    ja .hma                     ; window, a pool claim) the ROM's int 13h
+    jmp short .lin              ; cannot reach it at all: 0 bounces it
+.seg:
+%endif
     mov cl, 4                   ; the carry out of this is the page number,
     shl ax, cl                  ; which is exactly what we do not want
+%ifdef KERN_MEGA
+.lin:
+%endif
     add ax, bx
     neg ax                      ; bytes to the next 64KB page, 17 bits wide:
     cmc                         ; CF = 1 only when page-aligned (the whole
@@ -3444,29 +3451,19 @@ osapi_vol_fence:
     mov bx, es
     or bx, bx
     jz .no
-%ifdef KERN_MEGA                ; THE CALLER'S DS MAY BE ITS CODE ALIAS on
-    test bl, 4                  ; kern_mega, (S >> 2) | 4, and the published
-    jz .data                    ; segment is the DATA one: HDDTOOL.DRV calls
-    cmp bx, MEGA_LDT_FREE0 * 8  ; (a driver ABOVE 1MB, item 82: a pair's
-    jb .alias                   ; DATA half is published as it is, and its
-    push ax                     ; CODE half's data is + 8)
-    mov ax, bx
-    call MEGA_SEL_CODE:mega_cs2dsf
-    jc .pdata
-    xchg ax, bx
-.pdata:
-    pop ax
-    jmp short .data
-.alias:
-    and bl, 0xF8                ; the resident with DS = the `push cs` its
-    shl bx, 1                   ; HDT_INIT was handed, and a DS write converts
-    shl bx, 1                   ; it only when one faults (mega_gpw). A call
-.data:                          ; with no write before it - HSV_UNMOUNT's -
-%endif                          ; was refused here, silently: the volume kept
-                                ; its row, its icon and its letter, so the
-                                ; next mount of the same partition came up as
-                                ; D: (KERN-MEGA-PLAN 10.3 item 26). The alias
-                                ; IS the image, so it is mega_cs2ds's rule
+%ifdef KERN_MEGA                ; THE CALLER'S DS MAY BE ITS CODE HALF on
+    test bl, 4                  ; kern_mega, and the published segment is the
+    jz .data                    ; DATA one: HDDTOOL.DRV calls the resident
+    push ax                     ; with DS = the `push cs` its HDT_INIT was
+    mov ax, bx                  ; handed, and a DS write converts it only when
+    call MEGA_SEL_CODE:mega_cs2dsf ; one faults (mega_gpw). A call with no
+    jc .pdata                   ; write before it - HSV_UNMOUNT's - was
+    xchg ax, bx                 ; refused here, silently: the volume kept its
+.pdata:                         ; row, its icon and its letter, so the next
+    pop ax                      ; mount of the same partition came up as D:
+.data:                          ; (KERN-MEGA-PLAN 10.3 item 26). Every image
+%endif                          ; is a pair (KERN-MEGA-MEMORY-PLAN MC7.4): its
+                                ; code half's data is + 8, mega_cs2ds's rule
     mov al, 1                   ; WALK the classes rather than naming one. It
 .cls:                           ; tested [drv_fseg2] alone - the DISK class -
     call drv_cls_fp_x             ; which is a fence that only one kind of
@@ -7077,7 +7074,10 @@ dsk_rah_wanthi:
     mov cx, DSK_RAH_SECS * 512
     mul cx                      ; AX = the store's bytes (<= 32,256: DX = 0)
     xchg ax, cx
-    call MEGA_SEL_CODE:mega_hiclaimf ; AX = its selector
+    push bx
+    mov bx, MEM_P_DIRW          ; its tag: purgeable, as the conventional
+    call MEGA_SEL_CODE:mega_hiclaimf ; store is (AX = its selector)
+    pop bx                      ; (KERN-MEGA-MEMORY-PLAN MC1)
     jc .no
     call dsk_rah_land
     jnc .got

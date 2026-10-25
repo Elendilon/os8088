@@ -6325,6 +6325,17 @@ $(BUILD)/realdmg.o88: $(BUILD)/realdmg.bin $(BUILD)/rdgcore0.bin $(BUILD)/rdgcor
 	$(OS88PKG) $(BUILD)/realdmg.bin -o $@ --part $(BUILD)/rdgcore0.bin \
 		--part $(BUILD)/rdgcore1.bin --part $(BUILD)/rdgjitp.bin --part-compress lz4
 
+# THE GAME BOY PRECOMPILER, PACKED (docs/REALDMG-SPEC.md 20.12), ON DEMAND:
+# tools/gbaot.py's window and everything it imports, with the binaries it
+# would assemble prebuilt in gbaot-bin/, for someone with no os8088 tree -
+# `make vencbundle`'s shape. Needs nasm here and Unicorn there.
+.PHONY: gbaotbundle
+gbaotbundle: $(BUILD)/os8088-gbaot.zip
+$(BUILD)/os8088-gbaot.zip: tools/gbaotbundle.py tools/gbaotgui.py tools/gbaot.py \
+                           tools/gbaot/aothost.asm $(wildcard apps/realdmg/*.inc apps/realdmg/*.asm apps/realdmg/*.py) \
+                           tools/gbstatic.py tools/os88pkg.py tools/os88lz.py tools/os88disk.py
+	python3 tools/gbaotbundle.py $@ --build $(BUILD)
+
 # THE REALDMG DISK (docs/REALDMG-SPEC.md section 18, docs/plans/REALDMG-PLAN.md
 # wave 8), ON DEMAND: REALDMG.O88, its README and GBDEMO.GB - the demo written
 # for the 5150, OURS, assembled by tools/gbours.py with tools/gbclock.py's
@@ -6570,8 +6581,8 @@ $(BUILD)/XTGEN.BIN: $(X3XTGENDEPS) | $(BUILD)
 	python3 tools/x3xtgen.py --xtgen $@
 
 $(BUILD)/x3xt.bin: apps/xtmp3/x3xt.asm apps/xtmp3/x3gran.inc $(BUILD)/x3xtk.inc \
-                   $(BUILD)/XTGEN.BIN | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/xtmp3/ -I $(BUILD)/ -o $@ apps/xtmp3/x3xt.asm
+                   $(BUILD)/XTGEN.BIN apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/xtmp3/ -I apps/ -I $(BUILD)/ -o $@ apps/xtmp3/x3xt.asm
 	python3 tools/x3xtgen.py --seal $@
 	@echo "x3xt:   $(call FILESIZE,$@) bytes"
 

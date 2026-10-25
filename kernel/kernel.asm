@@ -330,6 +330,105 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     mov %1, [ss:mega_seg0]
  %endif
 %endmacro
+; VSEG reg, seg - a FRAME BUFFER's or a ROM's segment, for a segment register:
+; the constant itself on every kernel but kern_mega, which reads it from the
+; word mega_vfixall sets at the switch to the selector it made over that
+; segment - the GDT stops mapping every segment to itself (KERN-MEGA-MEMORY-
+; PLAN MC7.4), and A000h is GDT entry 1400h. THROUGH CS, and the words are the
+; image's own: the splash draws from IRQ0 inside the ROM's int 13h, on the
+; ROM's stack, so neither SS nor a `.lowbss` word set by kmain can be trusted
+; there. `.text` and `.vga` only, which share the kernel's segment. Two bytes
+; more a site on kern_mega and none anywhere else. Every register but reg kept
+%macro VSEG 2
+%ifdef KERN_MEGA
+ %ifnidni __?SECT?__, [section .text]
+  %ifnidni __?SECT?__, [section .vga]
+   %error "VSEG outside .text and .vga"
+  %endif
+ %endif
+ %if (%2) == 0xA000
+    mov %1, [cs:k_vsa]
+ %elif (%2) == 0xB000
+    mov %1, [cs:k_vsb]
+ %elif (%2) == 0xB800
+    mov %1, [cs:k_vsc]
+ %elif (%2) == 0xF000
+    mov %1, [cs:k_vsf]
+ %else
+    mov %1, %2                  ; (a HERCSEG= test build's heap segment)
+ %endif
+%else
+    mov %1, %2
+%endif
+%endmacro
+; KSEG sreg, src, slot - load sreg with the REAL paragraph src (a register
+; other than DI, or memory): on kern_mega through the scratch selector slot
+; (MEGA_SEL_K0..K5, mega_kaimf) - one slot per stream the code keeps live -
+; and a plain `mov` everywhere else. KPARA - AX = the real paragraph of the
+; segment in AX (a K scratch's base on kern_mega, AX itself elsewhere), for
+; arithmetic on a register KSEG loaded (KERN-MEGA-MEMORY-PLAN MC7.6)
+%macro KSEG 3
+%ifdef KERN_MEGA
+    push ax
+    push di
+    mov ax, %2
+    mov di, %3
+    call COLD_SEG:mega_kaimf
+    mov %1, ax
+    pop di
+    pop ax
+%else
+    mov %1, %2
+%endif
+%endmacro
+%macro KPARA 0
+%ifdef KERN_MEGA
+    call KERNEL_SEG:mega_s2segf
+%endif
+%endmacro
+
+; DSKW_LD sreg, mem - a file door's segment word ([dskw_seg], [dskw_wseg])
+; into a segment register: the selector itself on the selector arm, and on
+; the segment arm a selector over that paragraph through the doors' own
+; scratch, MEGA_SEL_FD (mega_kaimf: the paragraph itself in real mode) -
+; never the identity GDT, which step 6 of KERN-MEGA-MEMORY-PLAN MC7 cut. Its
+; own scratch and not MEGA_SEL_ODD, which the decoder and the loader re-aim
+; inside a transfer. kern_mega only; every register but sreg kept, FLAGS
+; included. DSKW_WSEG sreg - DSKW_LD of [dskw_wseg]
+%macro DSKW_LD 2
+    push ax
+    pushf
+    mov ax, %2
+    cmp byte [dskw_hi], 0
+    jne %%sel
+    push di
+    mov di, MEGA_SEL_FD
+    call COLD_SEG:mega_kaimf
+    pop di
+%%sel:
+    popf
+    mov %1, ax
+    pop ax
+%endmacro
+%macro DSKW_WSEG 1
+    DSKW_LD %1, [dskw_wseg]
+%endmacro
+; MEGA_ISHI reg - CF = 0 when the value in reg (not AX) is a POOL SELECTOR -
+; an allocator LDT selector whose descriptor's base is at or above 1MB - and
+; CF = 1 for anything else, including every value in real mode. It replaces
+; `test xl, 4` as "above 1MB": once every conventional claim is a selector
+; too (KERN-MEGA-MEMORY-PLAN MC7.4) the TI bit says nothing about where the
+; memory is. DS = the kernel's. Every register kept
+%macro MEGA_ISHI 1
+    push ax
+    mov ax, %1
+    cmp byte [mega_on], 0
+    stc
+    je %%n
+    call MEGA_SEL_CODE:mega_ishif
+%%n:
+    pop ax
+%endmacro
 ; PUSH_CSDATA / CSDO / CSEG - an on-demand MODULE (or the boot overlay) using
 ; its OWN image as data, which real mode spells through CS: `push cs / pop es`
 ; for the image's buffer, `mov [cs:var], reg` for its variables. In kern_mega's
@@ -420,13 +519,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
  %endif
     je %%rm                     ; mega_enter, calls drivers and AUTOSTART
     test byte [ss:bp+2], 4      ; packages too, and a segment is its own
-    jnz %%pair                  ; code segment there. AN LDT SELECTOR is a
-    shr word [ss:bp+2], 1       ; package placed ABOVE 1MB: its pair's DATA
-    shr word [ss:bp+2], 1       ; half, whose code half is the entry below
-    or byte [ss:bp+2], 4        ; (KERN-MEGA-PLAN 13.3 step 4)
-    jmp short %%rm
-%%pair:
-    sub word [ss:bp+2], 8
+    jz %%rm                     ; code segment there. Every image is a PAIR
+    sub word [ss:bp+2], 8       ; (KERN-MEGA-MEMORY-PLAN MC7.4): its DATA
+                                ; half's code half is the entry below. A GDT
+                                ; selector is no image's and is left alone
 %%rm:
     popf
     pop bp
@@ -3896,7 +3992,15 @@ apic_thm_desk:                    ; (cw_thm_desk's door, size pass 13)
                                   ;          CF=1 none; CF=0 with DX:SI the NUL
                                   ;          text, valid in the entry proc.
                                   ;          kern_small refuses
-osapi_table_end:                  ; 0x04E3 today (0x04DD before OSAPI_ARG_TEXT,
+    OSAPI_RCXCELL osapi_seg       ; 0x04E3 - BL = a SEG_* verb: a segment's or
+                                  ;          selector's linear base, its real
+                                  ;          segment, a window over physical
+                                  ;          memory, a selector inside a claim
+                                  ;          (KERN-MEGA-MEMORY-PLAN MC7). Every
+                                  ;          real-mode kernel answers what the
+                                  ;          caller's own arithmetic would
+osapi_table_end:                  ; 0x04E9 today (0x04E3 before OSAPI_SEG,
+                                  ; 0x04DD before OSAPI_ARG_TEXT,
                                   ; 0x04D7 before OSAPI_IMG_NAME,
                                   ; 0x04D1 before OSAPI_MEM_SUBSEG,
                                   ; 0x04CB before OSAPI_XMEM_RUN,
@@ -3937,8 +4041,8 @@ OSAPI_TABLE_LEN equ osapi_table_end - osapi_table
 %if OSAPI_TABLE_OFF != 0x0010
 %error "os8088 API jump table must start at offset 0x0010"
 %endif
-%if OSAPI_TABLE_LEN != 44*8 + 11*7 + 115*6 + 6*3 + 6 + 12*5 + 4*6 + 8
-%error "os8088 API jump table must be exactly 0x04D3 bytes: 44 SLOT (8), 11 XCELL (7), 115 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
+%if OSAPI_TABLE_LEN != 44*8 + 11*7 + 116*6 + 6*3 + 6 + 12*5 + 4*6 + 8
+%error "os8088 API jump table must be exactly 0x04D9 bytes: 44 SLOT (8), 11 XCELL (7), 116 rare (6), 6 JCELL (3), 1 FCELL (6), 17 ICELL (12 of 5, 4 of 6 - OSAPI_WM_ONWHEEL's for parity, SPEC.md 13.18 - 1 of 8 - OSAPI_THM_SET, SPEC.md 76.14.14)"
 %endif
 
 %ifdef KERN_MEGA
@@ -4158,7 +4262,10 @@ rom_mfp:    dw rom_none, KERNEL_SEG
  %ifdef COLD_SLIDE                ; ...and when the decoder is in the VGA rung
 rom_vgabw0: dw VGABUF_SEG       ; (MOVABLE-COLD-PLAN 2) the word is `.text`'s
 rom_vgabw   equ rom_vgabw0      ; own, which the decoder loads: mem_floor_ax
- %else                           ; reads it on a machine that dropped the rung
+ %elifdef KERN_MEGA               ; reads it on a machine that dropped the rung
+rom_vgabw0: dw VGABUF_SEG       ; kern_mega: the floor's word alone, the
+rom_vgabw   equ rom_vgabw0      ; decoder loading [mega_vbsel] (mega.inc)
+ %else
 rom_vgabw   equ vga_pr_bufw
  %endif
 %else
@@ -5455,11 +5562,13 @@ kmain_o:
                                 ; this ran after kmain_o)
 %endif
 %ifdef OS88_SHORTCUTS
+%ifndef KERN_MEGA               ; (kern_mega walks it after mega_enter: kmain)
     BLOBCALL as_boot            ; ...AUTOSTART, the one thing after it (SPEC.md
                                 ; 26.10.5): it LAUNCHES, and a launch must not
                                 ; race the loading screen's IRQ0 frames, which
                                 ; spl_finish has just stopped. Still the blob's,
                                 ; so still no resident byte
+%endif
 %endif
 
     retf
@@ -5604,9 +5713,17 @@ kmain:
     call mega_enter             ; 286 protected mode from here on, or - on a
                                 ; machine M1 cannot drive - real mode exactly
                                 ; as it is (docs/plans/KERN-MEGA-PLAN.md 10)
+    call COLD_SEG:mem_xlatf     ; ...every claim named by its SELECTOR from
+                                ; here on (KERN-MEGA-MEMORY-PLAN MC7.4)...
     call COLD_SEG:drv_hiboot_f  ; ...and the boot's drivers above 1MB, now
                                 ; that there is a pool (item 82)...
     call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)
+%ifdef OS88_SHORTCUTS
+    call COLD_SEG:as_bootc      ; ...and AUTOSTART last, so a package it opens
+                                ; is placed as one opened by hand would be -
+                                ; above 1MB when it says OS88_HIGH
+                                ; (KERN-MEGA-MEMORY-PLAN MC8)
+%endif
 %endif
     jmp ui_task                 ; task 0 becomes the UI task; never returns
 
@@ -5681,9 +5798,10 @@ osapi_xmem_run:                 ; (eleven bytes of .text: the segment binds
 ;      limit runs to the region's end or 64KB, whichever is first, its CODE
 ;      twin at DX - 8 when bit 0 asked for one; the same selector again for
 ;      the same paragraph, freed with the region and moved with it. CF = 1,
-;      every register kept: you are not above 1MB, so your segment + AX is
-;      the answer - every kernel but kern_mega, and kern_mega for a region in
-;      conventional memory, an offset past the region, or no LDT entry
+;      every register kept: your segment + AX is the answer - every kernel
+;      but kern_mega, and kern_mega in real mode, for an offset past the
+;      region, or no LDT entry (a conventional region is a selector too in
+;      protected mode, KERN-MEGA-MEMORY-PLAN MC7.4)
 ; THE ONE PIECE OF SEGMENT ARITHMETIC A RE-HOMED PROGRAM CANNOT DO ITSELF: a
 ; selector names its base, so "my segment + N" has no meaning above 1MB.
 ; Clear Skies' cs_xpand is the first caller (SPEC.md 88), Pixelstein's GEN
@@ -5705,6 +5823,85 @@ osapi_mem_subseg equ mod_gone   ; `stc / retf`: CF = 1, every register kept
 %ifndef OS88_SHORTCUTS
 osapi_arg_text_x equ mod_gone   ; no links on kern_small, so no parameter
 %endif                          ; (SPEC.md 26.10.7): CF = 1
+
+; ---- osapi_seg - API slot 0x04E3 (KERN-MEGA-MEMORY-PLAN MC7) ----------------
+; BL = the verb, the X cell's ES = the caller's DS (SPEC.md 50.6.11):
+;   SEG_LIN  DX = a segment or selector -> DX:AX = its linear base
+;   SEG_REAL DX = a segment or selector -> DX = a real-mode segment with the
+;            same base; CF = 1 there is none (above 1MB, off the 16-byte grid)
+;   SEG_WIN  DX = a physical PARAGRAPH, CX = bytes (0 = 64KB), AX = a window
+;            of yours to re-aim or 0 -> DX = a data selector over it, yours
+;            until SEG_FREE or your end
+;   SEG_SUB  DX = a segment or selector of yours, AX = a paragraph offset,
+;            CX = paragraphs (0 = to its end, 64KB at most) -> DX = a data
+;            selector based there
+;   SEG_FREE DX = a window or a selector SEG_SUB made -> freed
+;   SEG_SUBC as SEG_SUB, a CODE/DATA pair: DX = the data half, the code half
+;            DX - 8 (KERN-MEGA-MEMORY-PLAN 8.1, RealDMG's recompiler)
+;   SEG_BWIN DX = a selector of yours based in a block (a claim, a pool
+;            block) -> DX = a BOUND window over that block, re-aimed by:
+;   SEG_AIM  DX = a bound window, CX:AX = a byte offset into its block ->
+;            DX = the window re-aimed there, AX = 0, the offset to use in
+;            it. Legal in an FSXF_RATE hook (KERN-MEGA-MEMORY-PLAN 9.1, the
+;            Video Player's BIGSP). CF = 1 on a real-mode kernel, where the
+;            caller's own sum is the answer
+;   SEG_AT   DX = a segment or selector, AX = a paragraph offset, CX = a
+;            window of yours to re-aim or 0 -> DX = that window aimed at DX's
+;            base + AX paragraphs, 64KB, CF = 0 - and DX = 0, CF = 0 when no
+;            LDT entry is free. CF = 1 on a real-mode kernel, every register
+;            kept: DX + AX is the answer there (the parts standard's op_at,
+;            KERN-MEGA-MEMORY-PLAN MC7)
+; THE REAL-MODE ANSWER IS THE CALLER'S OWN ARITHMETIC - DX x 16, DX, DX + AX
+; - so a package converted to these verbs runs unchanged on every kernel
+; and needs no CPU_F_PM test; only kern_mega in protected mode, where a
+; segment value is a selector and names a descriptor, does more
+SEG_LIN     equ 0               ; OSAPI_SEG's verbs - apps/os88api.inc's
+SEG_REAL    equ 1               ; mirror (tests/unit/t_mirror.py holds the
+SEG_WIN     equ 2               ; two together)
+SEG_SUB     equ 3
+SEG_FREE    equ 4
+SEG_SUBC    equ 5
+SEG_BWIN    equ 6
+SEG_AIM     equ 7
+SEG_AT      equ 8               ; (refused below: protected mode's alone)
+section .cold
+osapi_seg:                      ; (api_rxc's far body: DS = KDATA)
+%ifdef KERN_MEGA
+    cmp byte [mega_on], 0
+    je .rm
+    call MEGA_SEL_CODE:mega_segf ; (`.mega`: KERN-MEGA-SEGMENTS-PLAN)
+    retf
+.rm:
+%endif
+    cmp bl, SEG_SUB
+    je .sub
+    cmp bl, SEG_SUBC
+    je .sub                     ; ...a pair's data half: the same sum
+    cmp bl, SEG_BWIN
+    ja .no                      ; SEG_AIM is protected mode's alone - a real-
+    cmp bl, SEG_LIN             ; mode caller's own sum is its answer - and
+                                ; an unknown verb is refused
+    jne .ok                     ; SEG_REAL, SEG_WIN, SEG_BWIN: the value is
+    push cx                     ; the answer, and SEG_FREE has nothing to free
+    mov ax, dx
+    mov cl, 4
+    shl ax, cl
+    mov cl, 12
+    shr dx, cl                  ; DX:AX = DX x 16
+    pop cx
+.ok:
+    clc
+    retf
+.sub:
+    add dx, ax
+    clc
+    retf
+.no:
+    stc
+    retf                        ; (an EVEN body: dsk_xfer, dsk_runcap,
+                                ; dsk_next_clus_x and gfx_blit1_x after it
+                                ; in `.cold` keep their measured parity)
+section .text
 
 ; ---- osapi_img_name - API slot 0x04D7 (KERN-MEGA-PLAN 14.70.3) -------------
 ; in:  AX = the segment a driver's or module's image is loaded at - what the
@@ -5812,8 +6009,8 @@ osapi_img_name equ mod_gone     ; `stc / retf`: CF = 1, every register kept
 ;      called outside any instance. The class byte is 0 but for a driver's
 ;      block on kern_mega, where it is the driver's DRVC_* (KERN-MEGA-PLAN
 ;      14.70.2). With BX = XMW_FIXED kern_mega first writes a record per
-;      fixed area between 1MB and the pool - owner XMW_HMA..XMW_PAD, offset
-;      negative - which tile that span. On kern_big the pool is XMEM.DRV's
+;      fixed area at the top of RAM - owner XMW_GDT..XMW_KCODE, offset past
+;      the pool's KB (SPEC.md 50.6.9). On kern_big the pool is XMEM.DRV's
 ;      and the walk is its table's (xmem.inc, SPEC.md 28.4.8): owner a slot
 ;      or FFh, BX ignored. CF = 1, AX = 1 no pool: kern_small, kern_mega in
 ;      real mode, and a kern_big machine with no store
@@ -8095,11 +8292,11 @@ MEGA_SIZE equ mega_end - $$
  %if DRVR_SIZE != 16
   %error "kern_mega: mega_xmcls shifts a drv_tab row index by 4"
  %endif
- %if (MEGA_COLD_LIN | MEGA_XPOOL) & 1023
-  %error "kern_mega: mega_xmfix's records are whole KB - `.cold` and the pool start on a KB"
+ %if MEGA_XPOOL & 0xFFFF
+  %error "kern_mega: the pool's base must have a low word of 0 - every `add dx, MEGA_XPOOL >> 16` rests on it"
  %endif
- %if MEGA_HI_LIN + MEGA_SCR_OFF + MPS_SIZE > MEGA_XPOOL
-  %error "kern_mega: `.cold` and `.mega` no longer fit between the IDT and the XMEM pool (mega.inc) - raise MEGA_XPOOL by 64KB"
+ %if MEGA_CODE_KB > 255
+  %error "kern_mega: mega_xmwalk writes the code's KB in a byte (BL) - `.cold`, `.mega` and the park's scratch have passed 255KB"
  %endif
  %if MEGA_FKINST != INST_MAX || MEGA_FKMSG != TOAST_MAX + 1
   %error "mega.inc's MEGA_FKINST / MEGA_FKMSG mirror INST_MAX / TOAST_MAX + 1 (KERN-MEGA-PLAN 14.42)"

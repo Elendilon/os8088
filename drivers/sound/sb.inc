@@ -825,10 +825,9 @@ sbl_go_on:
 ; (`push cs / pop ds`'s value: a heap claim is 512-aligned, so bit 2 is clear,
 ; and an image COLDHMA placed in the HMA - F400h and up, PARAGRAPH-granular, so
 ; bit 2 is anything - is caught first by the F000h test); on kern_mega CS is
-; the image's read-only LDT code alias (S >> 2) | 4 and the data segment is
-; (CS & ~7) << 2 (mega_cs2ds's rule for an image below A000h) - or, for an
-; image placed ABOVE 1MB (OS88_DRV_HIGHOK, KERN-MEGA-PLAN item 82), CS is an
-; allocator pair's code half and the data half is CS + 8. DERIVED
+; the CODE half of the image's allocator pair, wherever it lies, and the data
+; half is CS + 8 (KERN-MEGA-MEMORY-PLAN MC7.4; until MC7 an image below 1MB
+; ran through a static LDT alias, (S >> 2) | 4, which is gone). DERIVED
 ; and never banked: the compactor may move a hooked, idle image and rewrite the
 ; IRQ vectors to follow it (SPEC.md 66.6.3.1) without telling the driver, so a
 ; segment banked at the hook would send the next block's ISR into freed memory
@@ -839,16 +838,9 @@ sbl_go_on:
     jae %%rm                    ; a selector - kern_mega's stop below 4000h
     test %2, 4
     jz %%rm
-    cmp %1, 0x2800              ; MEGA_LDT_FREE0 * 8: an image ABOVE 1MB
-    jb %%alias                  ; (KERN-MEGA-PLAN item 82) runs in an
-    add %1, 8                   ; allocator PAIR, whose data half is the code
-    jmp short %%rm              ; half + 8
-%%alias:
-    and %2, 0xF8
-    shl %1, 1
-    shl %1, 1
-%%rm:
-    mov ds, %1
+    add %1, 8                   ; kern_mega: every image runs in an allocator
+%%rm:                           ; PAIR, whose data half is the code half + 8
+    mov ds, %1                  ; (KERN-MEGA-MEMORY-PLAN MC7.4)
 %endmacro
 
 sbl_isr:
@@ -3146,13 +3138,13 @@ sbl_dma_get:
 .got:
     mov [sbl_seg], dx
     mov [sbl_sbase], ax         ; ...and every CPU access is from AX on
+    push bx
     push ax
-    mov ax, dx                  ; ...and the two words the base decides: the
-    mov cl, 4                   ; buffer's offset inside its 64KB physical
-    shl ax, cl                  ; page (the low 16 bits of base x 16)...
-    mov cl, 12                  ; ...and which page that is
-    shr dx, cl
-    pop cx
+    mov bl, SEG_LIN             ; ...and the two words the base decides: the
+    call OSAPI_SEG              ; buffer's offset inside its 64KB physical
+    pop cx                      ; page (the low 16 bits of base x 16) and
+    pop bx                      ; which page that is - asked, because under
+                                ; kern_mega DX is a selector (MC7)
     add ax, cx                  ; ...from the block's first offset, which
     adc dl, 0                   ; carries into the page above 1MB
     mov [sbl_dmaoff], ax
@@ -3196,12 +3188,11 @@ sbl_dma_put:
 ; -----------------------------------------------------------------------------
 sbl_ring_phys:
     push cx
-    mov ax, [sbl_rseg]
-    mov dx, ax
-    mov cl, 4
-    shl ax, cl                  ; the pool's base, low 16 bits...
-    mov cl, 12
-    shr dx, cl                  ; ...and its page
+    push bx
+    mov dx, [sbl_rseg]
+    mov bl, SEG_LIN             ; the pool's base, low 16 bits and its page:
+    call OSAPI_SEG              ; asked, a selector under kern_mega (MC7)
+    pop bx
     add ax, si                  ; + the ring's offset in the pool, carrying
     adc dl, 0                   ; into the page
     push ax

@@ -4167,10 +4167,9 @@ drv_release:
                                 ; that is where it ran - CF = 0 then, which
                                 ; leaves no claim to free
 %ifdef KERN_MEGA
-    test dl, 4                  ; an image ABOVE 1MB (drv_hi): its pool block
-    jz .lowimg                  ; and its selector pair go back, there being
-    cmp dx, MEGA_LDT_FREE0 * 8  ; no claim
-    jb .lowimg
+    MEGA_ISHI dx                ; an image ABOVE 1MB (drv_hi): its pool block
+    jc .lowimg                  ; and its selector pair go back, there being
+                                ; no claim
     xchg ax, dx
     call MEGA_SEL_CODE:mega_drvhifree
     xchg ax, dx
@@ -4276,8 +4275,8 @@ drv_hiboot_f:
     mov dx, [bx+DRVR_SEG]
     or dx, dx
     jz .n
-    test dl, 4
-    jnz .n                      ; already above 1MB
+    MEGA_ISHI dx
+    jnc .n                      ; already above 1MB
     cmp word [bx+DRVR_KB], 0
     je .n                       ; not a heap claim
     mov es, dx
@@ -6130,6 +6129,13 @@ cpc_fdtest:
     call COLD_SEG:mmf_mem_claim ; DX = the claim
     jc .out
     mov si, dx                  ; SI = the claim, for the free
+%ifdef KERN_MEGA
+    mov ax, dx                  ; kern_mega: the page arithmetic below is on
+    call KERNEL_SEG:mega_s2segf ; the claim's real PARAGRAPH (a selector in
+    cmp ax, 0xFFFF              ; protected mode), and every segment register
+    je .free                    ; is loaded through a scratch selector
+    mov dx, ax                  ; (KSEG, KERN-MEGA-MEMORY-PLAN MC7.6)
+%endif
     mov bp, [disk_spt]
     mov cl, 5
     shl bp, cl                  ; BP = T, a track in paragraphs
@@ -6151,7 +6157,7 @@ cpc_fdtest:
     add dx, bx                  ; the track buffer after the cylinder
 .read:
     inc byte [dsk_rah_busy]
-    mov es, di
+    KSEG es, di, MEGA_SEL_K0    ; (kern_mega: the cylinder through K0)
     xor bx, bx
     mov byte [dsk_ioerr], 0     ; written only by a FAILED int 13h, so it is
                                 ; how a crossing that ERRORS is seen at all:
@@ -6177,7 +6183,7 @@ cpc_fdtest:
     jc .done                    ; no answer: the pick stands
     cmp byte [dsk_ioerr], 0
     jne .no                     ; it answered by falling back: no crossing
-    mov es, dx                  ; ES:0 = the track buffer
+    KSEG es, dx, MEGA_SEL_K1    ; ES:0 = the track buffer (kern_mega: K1)
     mov cx, [disk_spt]
     CSDO mov byte [CSEG cp_fdn], 2
 .trk:
@@ -6187,7 +6193,7 @@ cpc_fdtest:
     push si
     push di
     push ds
-    mov ds, di                  ; DS:0 = this track's half of the cylinder run
+    KSEG ds, di, MEGA_SEL_K0    ; DS:0 = this track's half of the cylinder run
     xor si, si
     xor di, di
     mov ch, cl
@@ -6209,6 +6215,9 @@ cpc_fdtest:
     CSDO mov byte [CSEG cp_fdno], 1 ; as 0, which is what Auto means there
 .done:
     dec byte [dsk_rah_busy]
+%ifdef KERN_MEGA
+.free:
+%endif
     mov dx, si
     mov bx, MEM_K_MOD
     call COLD_SEG:mmf_mem_free

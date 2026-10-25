@@ -563,8 +563,9 @@ hb_pick1:                       ; is volume CL one? out: CF = 0 and AL = CL
 ; the bar dropped the System menu.
 ; -----------------------------------------------------------------------------
 %ifdef KERN_MEGA
-HB_XMIN_KB equ (MPK_HDR + 512 + MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN + 1023) / 1024
-%endif                          ; the header, the section's head, the tables
+HB_XMIN_KB equ (MPK_HDR + 512 + 1023) / 1024
+%endif                          ; the header and the section's head, beside
+                                ; the tables' [mega_tblkb] (MC7's step 6)
 hb_ok_x:
     push bx
     push cx                     ; ...and these two, for the reason above
@@ -584,6 +585,7 @@ hb_ok_x:
     mov cl, 6                   ; PLAN 8, wave W5) - but a resume stages the
     shr ax, cl                  ; WHOLE picture in the pool, so a pool smaller
     add ax, HB_XMIN_KB          ; than conventional memory and the tables is
+    add ax, [mega_tblkb]
     mov bx, menu_s_hibernr      ; a refusal hbm_xplan is certain to make: a
     cmp ax, [xm_kb]             ; 1MB AT (10.5 lesser). A FACT, never a
     ja .set                     ; guess: it greys only what must refuse
@@ -3811,18 +3813,25 @@ hbm_xplan:
     push es
     call hbm_pses               ; the list is the park's scratch's
     mov di, MPS_REG             ; run 0: the GDT, the LDT and the IDT, which
-    mov word [es:di+4], MEGA_GDT_LIN & 0xFFFF  ; are one range. `.cold`'s copy
-    mov word [es:di+6], MEGA_GDT_LIN >> 16     ; is not in it: a code selector,
-    mov word [es:di+8], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) & 0xFFFF
-    mov word [es:di+10], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) >> 16
-    mov word [mega_hbxl], (512 + MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) & 0xFFFF
-    mov word [mega_hbxl + 2], (512 + MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) >> 16
+    mov ax, [mega_tbllin]       ; are one block, wherever mega_layoutf put it
+    mov [es:di+4], ax           ; (KERN-MEGA-MEMORY-PLAN MC2). `.cold`'s copy
+    mov ax, [mega_tbllin + 2]   ; is not in it: a code selector,
+    mov [es:di+6], ax
+    mov ax, [mega_ldtend]       ; ...its bytes: the GDT with the LDT on it,
+    add ax, MEGA_IDT_SIZE       ; and the IDT (MC7's step 6)
+    mov [es:di+8], ax
+    mov word [es:di+10], 0
+    add ax, 512
+    mov [mega_hbxl], ax
+    mov word [mega_hbxl + 2], 0
     add di, MPK_CPYSZ           ; so KERNEL.SYS's bytes, as a boot makes them
     mov si, mx_tab
 .mx:
     mov ax, [ss:si+MX_KB]          ; every block the pool has given out, the
     or ax, ax                   ; kernel's own among them (track 1's modules
-    jz .next                    ; and caches: hbm_wake flushes the caches)
+    jz .next                    ; and caches: hbm_wake flushes the caches) -
+    cmp byte [ss:si+MX_OWN], XMW_HMA ; but the HMA, which holds nothing of
+    je .next                    ; the session's (KERN-MEGA-MEMORY-PLAN MC2)
     mov dx, ax
     mov cl, 10
     shl ax, cl
@@ -4178,14 +4187,18 @@ hbm_xruns:
     pop es
     ret
 .go:
-    mov si, MPS_REG
-    cmp word [es:si+4], MEGA_GDT_LIN & 0xFFFF
+    mov si, MPS_REG             ; run 0 is the tables, where THIS boot put
+    mov ax, [mega_tbllin]       ; them (MC2): a machine whose layout differs
+    cmp [es:si+4], ax           ; - other RAM, or an image from before MC2 -
+    jne .no                     ; is refused here, before anything is read
+    mov ax, [mega_tbllin + 2]
+    cmp [es:si+6], ax
     jne .no
-    cmp word [es:si+6], MEGA_GDT_LIN >> 16
+    mov ax, [mega_ldtend]       ; ...and its size, this machine's (MC7's
+    add ax, MEGA_IDT_SIZE       ; step 6): an image of other tables is
+    cmp [es:si+8], ax           ; refused, before MC7 or not
     jne .no
-    cmp word [es:si+8], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) & 0xFFFF
-    jne .no
-    cmp word [es:si+10], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) >> 16
+    cmp word [es:si+10], 0
     jne .no
     mov cx, [mega_dncpy]
 .r:
@@ -4260,8 +4273,10 @@ hbm_xclaim:
     pushf
     cli
     mov [ss:di+MX_OFF], bx
-    mov byte [ss:di+MX_OWN], MX_KOWN
+    mov word [ss:di+MX_OWN], MX_KOWN | (MX_FPIN << 8) ; PINNED (MC3): the
+                                ; stub copies out of it by linear address
     mov word [ss:di+MX_SEL], 0
+    mov word [ss:di+MX_AUX], 0
     mov [ss:di+MX_KB], ax          ; ...last: a non-zero size is the claim
     popf
     pop ax

@@ -385,6 +385,10 @@ hf_run:
     shr ax, cl                  ; S = L / HF_N
     or ax, ax
     jz .toosmall
+    cmp ax, 64                  ; ...64KB at most, one segment's reach, so
+    jbe .s64                    ; hf_fill walks a block by its offset alone
+    mov ax, 64
+.s64:
     mov [hf_s], ax
     call hf_pass
 
@@ -398,7 +402,8 @@ hf_run:
     mov bx, di
     shl bx, 1
     mov [bx+hf_base], dx
-    mov [bx+hf_base0], dx       ; ...and where it STARTED, for check 9
+    call hf_para
+    mov [bx+hf_base0], ax       ; ...and where it STARTED, for check 9
     inc di
     cmp di, HF_N
     jb .claim
@@ -562,7 +567,7 @@ hf_run:
 .pinned:
     mov bx, [hf_pin]
     shl bx, 1
-    mov ax, [bx+hf_base]
+    call hf_para
     cmp ax, [bx+hf_base0]
     jne .pinmoved
     call hf_pass
@@ -582,7 +587,7 @@ hf_run:
     shl bx, 1
     cmp word [bx+hf_base], 0
     je .mnext
-    mov ax, [bx+hf_base]
+    call hf_para
     cmp ax, [bx+hf_base0]
     je .mnext
     inc cx
@@ -599,8 +604,18 @@ hf_run:
     call hf_fail
 
     ; --- 11. the holder was TOLD, once per move, and never about a stranger ---
+    ; ...UNDER kern_mega's PROTECTED MODE the holder is told NOTHING: every
+    ; holder holds a selector, which a move rebases and does not change, so
+    ; no proc is called and the count must be 0 (KERN-MEGA-MEMORY-PLAN MC7.4)
 .rel:
     mov cx, [hf_nmoved]
+    push ax
+    call OSAPI_CPU_INFO         ; AH = the flags
+    test ah, CPU_F_PM
+    pop ax
+    jz .relrm
+    xor cx, cx
+.relrm:
     cmp cx, [hf_nrel]
     jne .relbad
     cmp word [hf_nbad], 0
@@ -644,7 +659,8 @@ hf_run:
     mov bx, di                  ; hf_fill, hf_check and hf_reloc all reach it
     shl bx, 1                   ; unchanged
     mov [bx+hf_base], dx
-    mov [bx+hf_base0], dx
+    call hf_para
+    mov [bx+hf_base0], ax
     mov ax, hf_reloc
     call OSAPI_MEM_MOVABLE      ; DX is still its base
     jc .ceilnob
@@ -665,7 +681,7 @@ hf_run:
     pop word [hf_s]
     jc .ceilbad
     mov bx, HF_N*2
-    mov ax, [bx+hf_base]
+    call hf_para
     cmp ax, [bx+hf_base0]       ; ...and it went UP, which is the direction
     jbe .ceilbad                ; this whole pass exists to establish
     call hf_pass
@@ -728,7 +744,8 @@ hf_run:
     mov bx, di
     shl bx, 1
     mov [bx+hf_base], dx
-    mov [bx+hf_base0], dx
+    call hf_para
+    mov [bx+hf_base0], ax
     mov ax, hf_reloc
     call OSAPI_MEM_MOVABLE      ; DX is still its base
     jc .dmabad
@@ -749,7 +766,7 @@ hf_run:
     pop word [hf_s]
     jc .dmabad
     mov bx, HF_N*2
-    mov ax, [bx+hf_base]
+    call hf_para
     cmp ax, [bx+hf_base0]
     je .dmabad                  ; it did not move: the run proves nothing
     and ax, 0x0FFF              ; paragraphs into its 64KB physical page...
@@ -878,6 +895,32 @@ hf_run:
 ; contents inside it, and a pattern with no block term would pass two blocks
 ; swapped.
 ; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; hf_para - BX = a slot's word offset -> AX = the PARAGRAPH its block is at
+; NOW (OSAPI_SEG's SEG_LIN, SPEC.md 50.6.11): the segment itself on a real-mode
+; kernel, where hf_reloc keeps hf_base current - and the block's base under
+; kern_mega's protected mode, where hf_base holds a SELECTOR that does not
+; change when the block moves and no proc is called (KERN-MEGA-MEMORY-PLAN
+; MC7.4). hf_base0 is kept in the same terms, so checks 9, 10, 13 and 14 ask
+; "did the block move" on either. Every other register kept
+; -----------------------------------------------------------------------------
+hf_para:
+    push bx
+    push cx
+    push dx
+    mov dx, [bx+hf_base]
+    mov bl, SEG_LIN
+    call OSAPI_SEG
+    mov cl, 4
+    shr ax, cl
+    mov cl, 12
+    shl dx, cl
+    or ax, dx
+    pop dx
+    pop cx
+    pop bx
+    ret
+
 hf_fill:
     push ax
     push bx
@@ -896,12 +939,12 @@ hf_fill:
     mov bx, ax                  ; BX = the block term
     xor si, si                  ; SI = the running word index
     mov cx, [hf_s]              ; CX = kilobytes left
-.kb:
-    mov es, dx
-    xor di, di
-    push cx
-    mov cx, 512                 ; 512 words = 1KB
-.w:
+    mov es, dx                  ; ONE segment for the block, the OFFSET
+    xor di, di                  ; walking it: a block is 64KB at most
+.kb:                            ; (hf_s), and under kern_mega's protected
+    push cx                     ; mode its value is a SELECTOR, to which
+    mov cx, 512                 ; adding a kilobyte names some other
+.w:                             ; descriptor (KERN-MEGA-MEMORY-PLAN MC7.4)
     mov ax, si
     add ax, bx
     cld
@@ -909,7 +952,6 @@ hf_fill:
     inc si
     loop .w
     pop cx
-    add dx, 64                  ; ...and the base steps a kilobyte
     loop .kb
     pop es
     pop di
@@ -937,9 +979,9 @@ hf_check:
     mov bx, ax
     xor si, si
     mov cx, [hf_s]
-.kb:
-    mov es, dx
+    mov es, dx                  ; (hf_fill's walk: the offset moves)
     xor di, di
+.kb:
     push cx
     mov cx, 512
 .w:
@@ -951,7 +993,6 @@ hf_check:
     inc si
     loop .w
     pop cx
-    add dx, 64
     loop .kb
     pop es
     pop di

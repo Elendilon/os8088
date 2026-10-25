@@ -2382,7 +2382,7 @@ vga_blit_span:
     mov ah, [gfx_color]
     xor al, al                  ; GC0: Set/Reset = this run's colour
     out dx, ax
-    mov ax, VGA_SEG
+    VSEG ax, VGA_SEG
     mov es, ax                  ; ...and only NOW is ES not the source
     or si, si
     jnz .multi
@@ -2591,8 +2591,13 @@ vga_blit_prow:
                                 ; row - and back on at the end, because the
                                 ; next row may be a run's again
 
-%ifdef COLD_SLIDE
-    mov ax, [rom_vgabw]         ; ovlchk: DS = VGABUF_SEG
+%ifdef KERN_MEGA
+    mov ax, [mega_vbsel]        ; ovlchk: DS = VGABUF_SEG
+                                ; ...a selector over it once the switch has
+                                ; moved it past the identity map (mega_vbaimf)
+.segld:
+%elifdef COLD_SLIDE              ; (annotated once, on the arm above)
+    mov ax, [rom_vgabw]
                                 ; ...out of a `.text` WORD: this body is in the
                                 ; VGA rung, and mem_floor_ax reads that word on
                                 ; machines that dropped the rung (kernel.asm's
@@ -2997,7 +3002,7 @@ gfx_blitp_v:
     push ax                     ; the block's first framebuffer byte
     mov bp, [vid_stride]
     sub bp, [ss:vga_pr_n]       ; BP = a row's framebuffer advance past it
-    mov ax, VGA_SEG
+    VSEG ax, VGA_SEG
     mov es, ax
     mov ds, [ss:vga_pr_sg]      ; DS:SI the caller's planes, from here on
     cld
@@ -3134,7 +3139,7 @@ vga_prow_emit:
                                 ; it for its own `repe scasb`, which is luck
                                 ; rather than a contract, and gfx_blitp did not
                                 ; clear it at all
-    mov ax, VGA_SEG
+    VSEG ax, VGA_SEG
     mov es, ax
     mov bh, 1                   ; BH = the plane's Map Mask bit
 .pl:
@@ -3349,7 +3354,7 @@ vga_solid_rect_v:               ; 2,405-cycle floor, +0.6% PREDICTED
     out dx, ax
     mov ax, 0x0F01              ; GC1: enable Set/Reset on all planes
     out dx, ax
-    mov ax, VGA_SEG
+    VSEG ax, VGA_SEG
     mov es, ax
     mov ax, [vga_m8l]           ; left edge column (whole rect if 1 byte
     out dx, ax                  ; wide): AL = 8, AH = the mask, one word
@@ -3542,7 +3547,7 @@ gfx_spans:
     out dx, ax                  ; banked AX and DX itself, and it was the last
     mov ax, 0x0F01              ; caller of vga_set_color, whose own push/pop
     out dx, ax                  ; pair was all the call bought. GC1: enable
-    mov ax, VGA_SEG
+    VSEG ax, VGA_SEG
     mov [gfx_sp_fb], ax         ; gfx_sp_next puts ES back to this
     mov es, ax
 .vrow:
@@ -3707,7 +3712,7 @@ gfx_fill_gray_raw_v:     ; machine with neither card never falls here
     jz .parity
     mov bl, 0x55
 .parity:
-    mov ax, VGA_SEG
+    VSEG ax, VGA_SEG
     mov es, ax
     mov dx, VGA_GC
     mov ax, [vga_m8l]           ; left edge column: AL = 8, AH = the mask
@@ -3864,7 +3869,7 @@ gfx_fill_pat_raw_v:      ; machine with neither card never falls here
     call gfx_rect_setup
     jc .done
     call gfx_pat_stage          ; gfx_patbuf <- the 8 bytes at [gfx_pat]
-    mov ax, VGA_SEG
+    VSEG ax, VGA_SEG
     mov es, ax
     mov dx, VGA_GC
     mov ax, [vga_m8l]           ; left edge column: AL = 8, AH = the mask
@@ -4230,7 +4235,7 @@ vga_save_vram_v:         ; machine with neither card never falls here
     mov bp, [gfx_rspan]
     inc bp                      ; bp = bytes per row
     push ds
-    mov ax, VGA_SEG
+    VSEG ax, VGA_SEG
     mov ds, ax                  ; movsb source = VRAM
 .row:
     mov cx, bp
@@ -4500,7 +4505,7 @@ vga_restore_vram_v:      ; machine with neither card never falls here
     push es
     push es
     pop ds                      ; movsb source = caller's buffer
-    mov ax, VGA_SEG
+    VSEG ax, VGA_SEG
     mov es, ax                  ; movsb dest = VRAM
 .row:
     mov cx, bp
@@ -4978,7 +4983,7 @@ gfx_unlock:
     mov dx, 0x03CE              ; VRAM, via the latches
     mov ax, 0x0105              ; GC5: write mode 1 - a movsb read fills the
     out dx, ax                  ; latches, the write stores all four planes
-    mov ax, VGA_SEG
+    VSEG ax, VGA_SEG
     mov es, ax
     ; --- THE LINEAR COPY, INLINE (size pass 10): it was vgas_lincopy, whose
     ; only caller this is. No DS bank: every row puts DS back to CS, which is
