@@ -44,7 +44,8 @@ installs the two dozen packages itself (the same gating as
 `OS88_86BOX` and `OS88_86BOX_ROMS` point the driver at a binary and ROM set
 somewhere else.
 
-The two patches, both inert unless asked for:
+The patches - the first two inert unless asked for, the third a CORRECTION
+of the CPU model:
 
 - **`01-fault-log.patch`** - with `OS88_FAULTLOG=1` (the driver always sets
   it), every exception the CPU raises is printed to stderr *before it is
@@ -57,6 +58,16 @@ The two patches, both inert unless asked for:
   `"stopped":"debugger"` having run nothing. Now it stops only with
   `OS88_GDBWAIT=1` (`launch --gdb-wait`), and it binds loopback rather than
   every interface.
+- **`03-cs-exec-check.patch`** - a far JMP or CALL (and `loadcs`) through a
+  DATA descriptor raises #GP(selector), as an 80286 does. Upstream tests the
+  descriptor's S bit and then treats ANY non-system segment as code, so a
+  far transfer through a data selector simply worked - and kern_mega's most
+  common completed fault (`mega_gpfix`, a package far-jumping into a claim
+  by its identity segment) cost NOTHING here. That made this machine BLIND
+  to a whole class of kern_mega slowness: RealDMG's base build ran Kirby's
+  Dream Land at 101.5% of real time on `286-mega` while Bochs counted ~35,000
+  of those faults a second (docs/REALDMG-SPEC.md section 16.2.4). Bochs
+  always had the check; `pmoderetf` and `pmodeiret` had it here already.
 
 ## Use
 

@@ -1,7 +1,7 @@
 # `kern_mega` — a 286+ protected-mode kernel
 
 **Current round (2026-10-25): memory consolidation,
-`docs/plans/KERN-MEGA-MEMORY-PLAN.md`** (14.72 is its pointer). The status line
+`docs/plans/KERN-MEGA-MEMORY-PLAN.md`** (14.74 is its pointer). The status line
 below is the file's first and is kept as written.
 
 **Status: M1 IS UNDER WAY, AND kern_mega BOOTS INTO 286 PROTECTED MODE ON QEMU** (section 10.1) - plus 2.4.1's CS-write ratchet (2026-10-17, branch `protected-mode`,
@@ -10551,7 +10551,187 @@ its string. The rows are `megahiber` and `megap2hiber` (the hibernate),
 four defects has a row of its own, the first two needing 63 pool blocks or a
 512-byte-cluster disk and the last an NMI in a window of a few clocks.
 
-### 14.72 The memory consolidation round (2026-10-25) - now its own plan
+### 14.72 RealDMG on kern_mega: no fault in its core, and its cartridge in place (2026-10-25)
+
+The owner: *"RealDmg runs slow on kern mega. Find out why, and what is
+needed to fix it."* It was `mega_gpfix` and `mega_gpw` in RealDMG's hottest
+paths - every entry into its core, every recompiled block's entry and every
+chain far-jumped through a claim's DATA segment, and the recompiler patched
+its links through CS: 2,107,507 completed faults in a minute of Kirby's Dream
+Land's attract under Bochs, and **35.9% of real time** walking on the mr286.
+Worse than slow: the core runs on the Game Boy's own stack, so each fault's
+frame was pushed into the game's memory, and cpu_instrs looped in test 01.
+The package now names every segment it jumps to by its code selector
+(`OSAPI_MEM_CODESEL`, the segment itself in real mode) and writes code only
+through data segments: 96 faults, none in the core, and 101.2%. **What made
+it invisible**: 86Box's 286 did not fault a far jump through a data selector
+at all, so this machine class read 101.5% for the base build -
+`tools/86box/patches/03-cs-exec-check.patch` fixes the instrument, and any
+earlier 86Box reading of a kern_mega package that far-calls a claim by its
+identity segment was taken with the fault free.
+
+The second half of the ask - *"claim and directly use much more ram, allowing
+full recompiler caches instead of needing to thrash, or copy banks from
+xms"* - is RealDMG's arm in `$(MEGAPKGS)` (14.66): under `CPU_F_PM` the
+cartridge's banks live in one `OSAPI_XMEM_ALLOC` block and are addressed IN
+PLACE through `OSAPI_XMEM_RUN`'s selectors, so nothing is fetched and the
+heap goes to both 64KB cache segments and the 64KB block table, for every
+game. It costs two KB of pool a KB of cartridge, the run's 32KB stride; a
+16KB run (one argument to `mega_xmrunf`) would halve that and is not taken.
+What it does NOT do is put the recompiler's own CACHE above 1MB: a cache
+segment is entered as code, and a pool block has no code view
+(`mega_codesel` refuses a lone data selector), so more than two cache tiers
+above 1MB wants a code twin for a pool claim - kernel work, `.mega`, and the
+next step if the two 64KB tiers ever thrash on a game. docs/REALDMG-SPEC.md
+16.2.4 and 10.3.1 are the contract, docs/reports/REALDMG-MEGA-2026-10-25.md
+the record, `tests/rdgmega.py` the row (both builds, Bochs).
+
+**They do thrash** (the owner, on Kirby's Dream Land and in time Super Mario
+Land), and the kernel step above waits for the protected-mode memory work
+on its own branch, so the arm takes what it can WITHOUT the kernel
+(REALDMG-SPEC 16.2.5): the block table moves into a pool block behind
+`OSAPI_XMEM_RUN`'s selector - it is only ever data - and the conventional
+memory the cartridge and the table left becomes more 64KB cache tiers, the
+round robin running over a table of them in the state block (`rt_more`, up
+to five). On a 640KB machine that is **two extra, four cache segments where
+there were two** (docs/reports/REALDMG-MEGA-TIERS-2026-10-25.md). The same
+table is where tiers above 1MB go once a pool claim has a code twin: each
+is a data segment and a code selector already.
+
+### 14.73 The Video Player on a BIOS-served disk: four causes, one each layer (2026-10-25)
+
+**Reported**: the Video Player is still slow on kern_mega - sometimes it
+pauses, sometimes it plays longer than the video lasts - where every VGA
+demo plays at full speed on kern_big, under 86Box and on the Victory 286
+alike. 14.36 and 14.56 had left it there: *"T69 plays better but still
+stutters, and runs behind real time"*.
+
+**Reproduced in 86Box** on the Victory's own profile (`vm/286-victory`:
+ami286, 16 MHz, 4MB, PVGA1A) with an SB16 and the VGA demo disk on a
+**PC/XT XT-IDE** at 300h, a 1996 5,400 rpm drive - an option ROM's disk,
+which HDD.DRV's rung 1 cannot pair (it probes 1F0h/170h only), so every
+read is a reflected `int 13h` and a CPU reset, as on the Victory's PicoMEM.
+`vm/286-video` does NOT reproduce it: the mr286's on-board IDE is rung 1's,
+so no read there is ever reflected (0 resets across a whole play), and T69
+plays at 25 fps on kern_mega as it always did. The disks were the demo
+disk's recipe with kern_mega's kernel, modules and package arms put in
+(kern_mega booted from C:), and the same with kern_big's, five videos each.
+
+Four causes, each measured, each fixed where it lives:
+
+1. **The card's clock lost every block a reflection swallowed** (SOUND.DRV,
+   SPEC.md 34.5.2.1). A reflected call masks the kernel's lines, IRQ5
+   among them; a block end inside it latches the same edge as the next, and
+   the direct ISR counted one block an IRQ. ~10 blocks of 512 bytes a second
+   went uncounted while the auto-init card played them: `SND_EXT_CONS` ran
+   at 16.9 KB/s against 22,050, the picture paced on it ran ~20% slow with
+   it - the owner's "more ticks than the video" - and the producer wrote the
+   ring behind where the chip really was, so no underrun was ever counted.
+   The ISR now counts the whole blocks the 8237 passed (`sbl_dleft`, the
+   count verb 9 already read). After it: `due` advances exactly 50 frames
+   every 2 s. It is a driver change on every kernel: a card whose IRQs are
+   never lost reads one block an IRQ as before, and a count that does not
+   move is ignored.
+2. **The landing buffers straddled 64KB pages** (the player's mega arm,
+   SPEC.md 98.3.18.17). `dsk_runcap` cuts a transfer at a page edge, and the
+   straddling sector then goes through the sector cache as a fill of its
+   own: DISKCNT=1's `dsk_dbg_trc` read 55 + 9 sectors a chunk for T69 and
+   63 + 1 for LASTX where kern_big read 64. The bounce and the ring are now
+   claimed with a page-safe head (`vp_rclaim`: with no gap the first 64KB,
+   so every slot is on the page grid; else slot 0 and the slack), and a
+   copying bank's ring that cannot have one gives up a slot for it
+   (`vp_rclk1`). T69: 25.1 calls a second of 31.6 sectors before, 13.6 of
+   59.9 after - kern_big's 12.4 of 60.4. LASTX: 21.4 calls a second, 11.3.
+3. **Back-to-back reflections starved the rate hook outright** (the
+   kernel, SPEC.md 53.2.2). Every IRQ0 inside a reflection is the ROM's;
+   `mega_rfclk` already owed the periods to the hook, but the hook ran only
+   at the next kernel IRQ0 - which the reader's next read, a few
+   milliseconds later, almost always swallowed too. Sampled every 20 ms: the
+   hook still for 760 ms at a stretch while `int 13h` after `int 13h` ran,
+   no frame drawn, no sound queued, the card running dry. A paired profile
+   said the same thing from the other side: over one 10 s window kern_mega
+   READ 420 KB/s and drew 21.3 fps where kern_big read 378 and drew 25.2 -
+   the per-byte and per-frame costs equal, the reader simply winning every
+   time. Where a real-mode kernel's hook interrupts the same read and
+   decodes through it, `mega_svc_back` now calls `sch_rhook` when a service
+   reflection comes back with periods owed under `FSXF_RATE` - a read later,
+   the same work and the same priority. The longest the hook waits is one
+   reflection (5-6 periods here, against 46).
+4. **An option ROM's IRQ line was masked for every reflected service**
+   (the kernel, `mega_rmaskf`). A PicoMEM's multiplexer is one: its line
+   carries every block its Sound Blaster plays (SPEC.md 34.10.1) and its
+   disk is one of the services reflected, so on the Victory the card was
+   given nothing to play for the length of each read, and its sample
+   clock's IRQs were dropped. A line whose IDT gate is a reflecting stub
+   (`mega_irv`, which `mega_irqrom` builds only where the IVT named an
+   option ROM) now stays open through a service reflection: the ROM's
+   handler runs there as it does under kern_big, and the SB's own line
+   stays masked, which is what the multiplexer reads before it raises a
+   software `int`. The gate and not the vector's value is the test, because
+   an IVT cell can hold a driver's SELECTOR (IVT 25h held SOUND.DRV's 280Ch
+   here) and a selector can be any number. **Run on an AHA-1542B** (its
+   ROM hooks IRQ 11, IVT 73h = D800:020A, which the reflection masked):
+   T69 off the SCSI disk at 25 fps, 0 late, 0 pauses - but the base kernel
+   read it too, so that ROM does not need its IRQ inside a read and the run
+   is a no-regression check, not the positive one. The PicoMEM on the
+   Victory is.
+
+Measured on the Victory profile, 60 s from Play, frames drawn at 64 s
+(the base is `origin/elendilon` at 8eac6506, the same disk recipe):
+
+| video | kern_mega before | kern_mega after | kern_big |
+|---|---|---|---|
+| 02 T69 (bank in place) | 1,209 | **1,505**, 0 pauses | 1,493 |
+| 04 MECH2 (BIGSP) | 778 | **892**, 0 | 892 |
+| 05 LASTX (BIGSP) | 1,051, 12 pauses | **1,273**, 1 | 1,278 |
+| 01 BCRRT (Mode X, flipped) | 1,327 | **1,407**, 0 | 1,388 |
+| 08 WILLY (Live) | 828 | **844**, 0 | 844 |
+
+T69 played to its end: 1,838 frames in 72.0 s from the first frame, the
+video's own length (kern_big 72.0), **0 pauses and 5 late** (kern_big 63),
+the reader's lead never under 30 chunks. LASTX to its end: on time, 13
+pauses, all where its 2.6 MB bank runs dry at the encoder's burst (76-84 s);
+kern_big none. That is a kern_mega limit and is left: BIGSP's 38-63 KB
+records fit no 64 KB selector window from a 32 KB step (14.58), so under
+protected mode it plays through the COPYING bank - a 32 KB copy down a chunk
+on top of the copy up, ~5% of the machine that kern_big's LOADALL in place
+does not spend (a paired profile: 9.6% copying against 5.5%).
+
+What was tried and taken back: a player-side hold that gave the hook a
+period after each read and the picture priority while behind
+(`vp_pmhold`). It took T69 to 25 fps on its own, but cost the reader its
+lead - 77 chunks to 2 by mid-play, then 35 pauses - and with item 3 in the
+kernel it measured identical without it (0 pauses, 4 late), so it is gone.
+
+**What it cost**: kern_mega `.mega` 14,698 -> 14,783 (+85: the hook's call
+and the open ROM lines), `.text` + `.bss` +0; kern_big and kern_small
+byte-identical (every kernel line is `kernel/mega.inc`'s, `cmp`'d against
+the base). SOUND.DRV's image 11,941 -> 12,045 (+104, still a 12KB claim) -
+on every kernel's disks, the one change here that is not kern_mega's. The
+Video Player's mega arm 60,758 -> 60,874 (+116); the shipped `video.bin`
+byte-identical, and `tools/os88rdiff.py --hot-file apps/video/rdiffhot.txt
+-D PKG_MEGA` finds all 402 hot routines identical at an even shift.
+
+**The owner on 86Box** (2026-10-25, their mr286: 16 MHz, 4MB, OTI-067,
+SB16, kern_mega installed on a 512MB IDE disk at 1996 5,400 rpm): **T69 now
+plays smooth.** LASTX toasted *Low memory*, paused once while the toast was
+up, and not at the end. The Victory runs it closer to the line and is not
+expected to have the room for the copying bank's two copies a chunk - which
+is the open item below about reading BIGSP's large records in place, and
+waits on the kern_mega RAM work in progress in another session.
+
+**Open**:
+- [ ] **The Victory**: T69 and LASTX on the PicoMEM, against kern_big on
+  the same machine. Item 4 is the one no emulator here can show.
+- [ ] **The PicoMEM's IRQ reflections themselves** (14.31: 61 a second at
+  3.3 ms, ~20% of the machine) are untouched. Servicing its multiplexer's
+  DMA-copy requests natively in protected mode would take the CPU reset off
+  each - the protocol is in SPEC.md 34.10.1, read off the ROM's
+  disassembly, so it wants the card to check against.
+- [ ] **LASTX's copying bank** (above): a per-record re-aimed window, or a
+  finer `OSAPI_XMEM_RUN` step, would let BIGSP decode in place.
+
+### 14.74 The memory consolidation round (2026-10-25) - now its own plan
 
 **`docs/plans/KERN-MEGA-MEMORY-PLAN.md` is the authority for this round**:
 the goal, the facts it rests on, every owner decision and assumption, the

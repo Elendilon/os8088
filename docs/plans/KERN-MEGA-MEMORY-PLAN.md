@@ -4,7 +4,7 @@
 cut from `elendilon` at `8eac6506`, 2026-10-25). This file is the authority for
 the round: the goal, what is true of the tree today, every decision the owner
 took and the assumptions under them, the waves in the order they are taken, and
-what each wave came to as it is built. `docs/plans/KERN-MEGA-PLAN.md` 14.72 is
+what each wave came to as it is built. `docs/plans/KERN-MEGA-PLAN.md` 14.74 is
 the short pointer to it and records how the round was arrived at.
 
 A bare "14.nn" below is a section of KERN-MEGA-PLAN.md; a bare "§" is SPEC.md.

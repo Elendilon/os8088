@@ -6301,13 +6301,14 @@ $(BUILD)/rdgtmpl.bin: $(BUILD)/rdgcore.bin apps/realdmg/rdgtmpl.py apps/realdmg/
 	python3 apps/realdmg/rdgtmpl.py $(BUILD)/rdgcore.bin $(BUILD)/rdgtmpl.bin $(BUILD)/rdgcore.inc
 $(BUILD)/rdgcore.inc: $(BUILD)/rdgtmpl.bin ;
 
-$(BUILD)/realdmg.bin: apps/realdmg/realdmg.asm apps/realdmg/rdgdefs.inc \
-                      apps/realdmg/rdgsys.inc apps/realdmg/rdgppu.inc apps/realdmg/rwfsx.inc apps/realdmg/rwkeys.inc \
-                      $(BUILD)/rdgcore.inc \
-                      apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
-                      apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
-                      apps/realdmg/rwfm.inc apps/realdmg/rwmove.inc drivers/sound/sndpkg.inc \
-                      apps/os88data.inc | $(BUILD)
+REALDMG_SRC := apps/realdmg/realdmg.asm apps/realdmg/rdgdefs.inc \
+               apps/realdmg/rdgsys.inc apps/realdmg/rdgppu.inc apps/realdmg/rwfsx.inc apps/realdmg/rwkeys.inc \
+               $(BUILD)/rdgcore.inc \
+               apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
+               apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
+               apps/realdmg/rwfm.inc apps/realdmg/rwmove.inc drivers/sound/sndpkg.inc \
+               apps/os88data.inc
+$(BUILD)/realdmg.bin: $(REALDMG_SRC) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/realdmg/ -I drivers/sound/ -I $(BUILD)/ -l $(BUILD)/realdmg.lst \
 		-o $@ apps/realdmg/realdmg.asm
 	@echo "realdmg: $(call FILESIZE,$@) bytes"
@@ -6323,6 +6324,17 @@ $(BUILD)/realdmg.o88: $(BUILD)/realdmg.bin $(BUILD)/rdgcore0.bin $(BUILD)/rdgcor
                       $(BUILD)/rdgjitp.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/realdmg.bin -o $@ --part $(BUILD)/rdgcore0.bin \
 		--part $(BUILD)/rdgcore1.bin --part $(BUILD)/rdgjitp.bin --part-compress lz4
+
+# THE GAME BOY PRECOMPILER, PACKED (docs/REALDMG-SPEC.md 20.12), ON DEMAND:
+# tools/gbaot.py's window and everything it imports, with the binaries it
+# would assemble prebuilt in gbaot-bin/, for someone with no os8088 tree -
+# `make vencbundle`'s shape. Needs nasm here and Unicorn there.
+.PHONY: gbaotbundle
+gbaotbundle: $(BUILD)/os8088-gbaot.zip
+$(BUILD)/os8088-gbaot.zip: tools/gbaotbundle.py tools/gbaotgui.py tools/gbaot.py \
+                           tools/gbaot/aothost.asm $(wildcard apps/realdmg/*.inc apps/realdmg/*.asm apps/realdmg/*.py) \
+                           tools/gbstatic.py tools/os88pkg.py tools/os88lz.py tools/os88disk.py
+	python3 tools/gbaotbundle.py $@ --build $(BUILD)
 
 # THE REALDMG DISK (docs/REALDMG-SPEC.md section 18, docs/plans/REALDMG-PLAN.md
 # wave 8), ON DEMAND: REALDMG.O88, its README and GBDEMO.GB - the demo written
@@ -13315,7 +13327,8 @@ realdmghd: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 # every tools/ module it imports or runs (tools/os88vbundle.py COMPUTES the
 # list, so it cannot go stale), VIDEO.O88 and a README, in one folder of one
 # deterministic zip. On demand; unpacked anywhere it encodes and makes disks,
-# its hard disks BOOTING off the kernel and drivers it carries in boot/.
+# its hard disks BOOTING off the kernel and drivers it carries in boot/,
+# and GUIDE.HTML, the user's guide, with its pictures in guide/.
 # `soak -k vencbundle` unpacks it outside the tree and uses it there.
 .PHONY: vencbundle
 vencbundle: $(BUILD)/os8088-encoder.zip
@@ -13323,7 +13336,10 @@ vencbundle: $(BUILD)/os8088-encoder.zip
 # window's HD_BOOT and HD_WANT, which os88vbundle.py reads out of it
 VENCBOOT := $(addprefix $(BUILD)/,kernel.sys boothd.bin mbr.bin hdd.drv \
                                   ctrl.drv sound.drv hiber.drv)
-$(BUILD)/os8088-encoder.zip: $(BUILD)/video.o88 $(VENCBOOT) tools/os88vbundle.py $(wildcard tools/os88*.py)
+# ...and the user's guide, docs/encoder-guide/GUIDE.HTML and the guide/
+# pictures it names (os88vbundle.py reads the list off the page)
+$(BUILD)/os8088-encoder.zip: $(BUILD)/video.o88 $(VENCBOOT) tools/os88vbundle.py $(wildcard tools/os88*.py) \
+	$(wildcard docs/encoder-guide/GUIDE.HTML docs/encoder-guide/guide/*)
 	python3 tools/os88vbundle.py $@ --player $(BUILD)/video.o88 --boot $(BUILD)
 
 # ...and the one that shows a FACE rather than timing one: it draws the same
@@ -14452,7 +14468,8 @@ MEGADIR := $(BUILD)/megak
 MEGAAPPDIR := $(MEGADIR)/apps
 MEGAPKGS := $(MEGAAPPDIR)/video.o88 $(MEGAAPPDIR)/audio.o88 \
             $(MEGAAPPDIR)/tracker.o88 $(MEGAAPPDIR)/midirack.o88 \
-            $(MEGAAPPDIR)/pixel.o88 $(MEGAAPPDIR)/xtmp3.o88
+            $(MEGAAPPDIR)/pixel.o88 $(MEGAAPPDIR)/xtmp3.o88 \
+            $(MEGAAPPDIR)/realdmg.o88
 MEGABASE = $(patsubst $(MEGAAPPDIR)/%,$(BUILD)/%,$(MEGAPKGS))
 # ...and the substitution, ONE IDIOM for every list a kern_mega disk names
 # (SMALLSUB's): the mega arm of any package that has one, everything else as
@@ -14536,6 +14553,26 @@ $(MEGAAPPDIR)/xtmp3.bin: $(XTMP3_SRC) apps/os88mega.inc | $(BUILD)
 	@echo "xtmp3 (PKG_MEGA): $(call FILESIZE,$@) bytes"
 $(MEGAAPPDIR)/xtmp3.o88: $(MEGAAPPDIR)/xtmp3.bin $(X3PARTS) tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(MEGAAPPDIR)/xtmp3.bin -o $@ $(X3PARTARGS) --part-compress lz4
+
+# RealDMG's arm (docs/REALDMG-SPEC.md section 10.3.1): under CPU_F_PM a
+# cartridge's banks live above 1MB and are addressed IN PLACE through
+# OSAPI_XMEM_RUN's selectors, so none is copied down and the heap goes to the
+# recompiler's cache segments - two, and the extra tiers past them its own
+# recompiler part takes (REALDMG-SPEC 16.2.5, -DRDG_XTIER; the core's parts
+# are the shipped build's)
+$(MEGAAPPDIR)/rdgjitp.bin: apps/realdmg/rdgjitp.asm apps/realdmg/rdgjit.inc apps/realdmg/rdgdefs.inc \
+                          $(BUILD)/rdgtmpl.bin $(BUILD)/rdgcore.inc | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/realdmg/ -I $(BUILD)/ -DRDG_XTIER -o $@ apps/realdmg/rdgjitp.asm
+$(MEGAAPPDIR)/realdmg.bin: $(REALDMG_SRC) | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/realdmg/ -I drivers/sound/ -I $(BUILD)/ \
+	    -DPKG_MEGA -l $(MEGAAPPDIR)/realdmg.lst -o $@ apps/realdmg/realdmg.asm
+	@echo "realdmg (PKG_MEGA): $(call FILESIZE,$@) bytes"
+$(MEGAAPPDIR)/realdmg.o88: $(MEGAAPPDIR)/realdmg.bin $(BUILD)/rdgcore0.bin $(BUILD)/rdgcore1.bin \
+                           $(MEGAAPPDIR)/rdgjitp.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(MEGAAPPDIR)/realdmg.bin -o $@ --part $(BUILD)/rdgcore0.bin \
+		--part $(BUILD)/rdgcore1.bin --part $(MEGAAPPDIR)/rdgjitp.bin --part-compress lz4
 
 megapkgs: $(MEGAPKGS) $(patsubst $(MEGAAPPDIR)/%,$(BUILD)/%,$(MEGAPKGS))
 	@python3 tests/unit/t_megapkg.py --sizes

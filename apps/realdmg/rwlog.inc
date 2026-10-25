@@ -225,8 +225,8 @@ rw_dscanhk:
     push ax
     push dx
     push ds
-    push cs
-    pop ds
+    mov ds, [cs:rw_dsel]            ; (not CS: a write through it is
+                                    ;   kern_mega's #GP, REALDMG-SPEC 16.2.4)
     call rw_clk
     mov [rw_tscan], ax
     mov [rw_tscan + 2], dx

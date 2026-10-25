@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/megaconvres.py - what kern_mega's KERNEL claims in conventional memory when the pool above
 1MB has nothing left - the reserve a whole-memory claim must leave
-(KERN-MEGA-PLAN 14.72, MC5). One-off measurement, not a suite row.
+(KERN-MEGA-MEMORY-PLAN 2, MC5). One-off measurement, not a suite row.
 
 Boots kern_mega under Bochs (16MB, SB16, SOUND.DRV + HDD.DRV, off C: with the
 system files so HIBER.DRV can write there), reads mem_tab/mx_tab, then FILLS
@@ -13,7 +13,7 @@ every non-program conventional claim.
     MEGS=4 python3 tools/megaconvres.py          # the owner's 4MB example
     python3 tools/megaconvres.py --nofill        # the same, pool left free
 
-KERN-MEGA-PLAN 14.72.5 is what it read. Output in build/convres/.
+KERN-MEGA-MEMORY-PLAN 2 is what it read. Output in build/convres/.
 """
 import os
 import shutil
