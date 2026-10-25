@@ -151,8 +151,8 @@ def boot(tmp, prog):
             break
         time.sleep(0.2)
     xmcheck.wait_desktop(q.sock, "hmadosret")
-    floors = (EQ["HEAP_SEG"],                  # (rounded: SPEC.md 2.10.9)
-              (EQ["COLD_RAM"] + EQ["VGABUF_PARA"] + 31) // 32 * 32)
+    floors = (EQ["HEAP_SEG"],                  # (rounded: SPEC.md 2.10.9,
+              (EQ["COLD_RAM"] + EQ["VGABUF_PARA"] + 31) // 32 * 32)  # hmadrv's)
     if not os88qemu.acted(q, lambda: u16(q.read(S("mem_base"), 2)) in floors,
                           secs=120, what="the blob to be given back"):
         raise SystemExit("hmadosret: the boot never finished")
@@ -317,7 +317,10 @@ def main():
                     sys.exit("hmadosret: `.cold` is not in the HMA - "
                              "tests/hmacold.py's premise")
                 row0 = hmadrv.rows(q)["HDD"]
-                if not 0xF200 <= row0["seg"] < 0xF800:
+                org = EQ["DRV_HMA_ORG"]     # hmadrv's range: F401-F9FF at
+                lo = 0xFFFF - (org - 0x10) // 16     # C000 (it was F200-F7FF
+                hi = 0xFFFF - (org - EQ["HMA_COLD_AT"]) // 16   # at E000)
+                if not lo <= row0["seg"] <= hi:
                     sys.exit("hmadosret: HDD.DRV is not in the pool (%04X) - "
                              "tests/hmadrv.py's premise" % row0["seg"])
                 hma0 = {o: q.read(HMA + o, 64) for o in offs}

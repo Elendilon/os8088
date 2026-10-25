@@ -1687,7 +1687,11 @@ MEMC_POST   equ 1                ; AH: post - BX = a window of YOURS, AL = the
                                  ; and DX*16+AX is its 24-bit physical address
                                  ; for a DMA controller (one 64KB page: the
                                  ; HMA crosses none). AX = 0, DX = a block's
-                                 ; segment: give it back. CF=1: no HMA here,
+                                 ; segment: give it back. AX = MEMHMA_KEEP |
+                                 ; bytes (drivers/os88drv.inc): your OWN
+                                 ; image in the pool cut to them - what your
+                                 ; DRV_H_KEEP says, where the kernel's shrink
+                                 ; has no claim to cut. CF=1: no HMA here,
                                  ; none left, or you are not a LOADED DRIVER -
                                  ; the only callers it serves. Not movable,
                                  ; not purgeable, not in a hibernate's image:

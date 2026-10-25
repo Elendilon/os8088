@@ -3962,13 +3962,10 @@ $(BUILD)/rlapply.o88: $(BUILD)/rlapply.bin tools/os88pkg.py $(PKGZSTAMP)
 # disk's own inputs, since the image depends on SYSCHECK.O88 (SPEC.md 118.2.1).
 # t_sysman holds it to every built system disk. $(DRIVERS360) and not
 # $(DRIVERS): the manifest is what EVERY geometry carries (118.2), and the
-# 360KB disk leaves CDROM.DRV off (SPEC.md 119.6.7).
-#
-# The PREREQUISITES are $(DRIVERS), every file the recipe reads: the ones
-# 360KB leaves off are read too, as --optional rows, and with $(DRIVERS360)
-# here a change to COLDHMA.SYS alone (any `.cold` byte) left a manifest whose
-# COLDHMA.SYS row t_sysman then failed on the other three geometries.
-$(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) \
+# 360KB disk leaves CDROM.DRV off (SPEC.md 119.6.7). The files it leaves off
+# are still PREREQUISITES: the recipe reads them as --optional rows, so a
+# rebuilt XMEM.DRV or COLDHMA.SYS left the manifest describing the old one.
+$(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS360) $(SYS360OMITDRV) $(SYSAPPS) $(STIKAPPS) \
                            apps/syscheck/retired.txt tools/os88sysman.py \
                            tools/os88drv.py tools/os88mod.py tools/os88lz.py | $(BUILD)
 	python3 tools/os88sysman.py --kernel $(KERNFILE) \
@@ -13318,7 +13315,8 @@ realdmghd: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 # every tools/ module it imports or runs (tools/os88vbundle.py COMPUTES the
 # list, so it cannot go stale), VIDEO.O88 and a README, in one folder of one
 # deterministic zip. On demand; unpacked anywhere it encodes and makes disks,
-# its hard disks BOOTING off the kernel and drivers it carries in boot/.
+# its hard disks BOOTING off the kernel and drivers it carries in boot/,
+# and GUIDE.HTML, the user's guide, with its pictures in guide/.
 # `soak -k vencbundle` unpacks it outside the tree and uses it there.
 .PHONY: vencbundle
 vencbundle: $(BUILD)/os8088-encoder.zip
@@ -13326,7 +13324,10 @@ vencbundle: $(BUILD)/os8088-encoder.zip
 # window's HD_BOOT and HD_WANT, which os88vbundle.py reads out of it
 VENCBOOT := $(addprefix $(BUILD)/,kernel.sys boothd.bin mbr.bin hdd.drv \
                                   ctrl.drv sound.drv hiber.drv)
-$(BUILD)/os8088-encoder.zip: $(BUILD)/video.o88 $(VENCBOOT) tools/os88vbundle.py $(wildcard tools/os88*.py)
+# ...and the user's guide, docs/encoder-guide/GUIDE.HTML and the guide/
+# pictures it names (os88vbundle.py reads the list off the page)
+$(BUILD)/os8088-encoder.zip: $(BUILD)/video.o88 $(VENCBOOT) tools/os88vbundle.py $(wildcard tools/os88*.py) \
+	$(wildcard docs/encoder-guide/GUIDE.HTML docs/encoder-guide/guide/*)
 	python3 tools/os88vbundle.py $@ --player $(BUILD)/video.o88 --boot $(BUILD)
 
 # ...and the one that shows a FACE rather than timing one: it draws the same

@@ -63940,11 +63940,12 @@ were one `Above 1MB` row with nothing under it. Worse, a heap claim such a
 driver DID make (its fallback buffer) is owned by its HMA segment, F400-F9FF,
 where no claim is based, so `tm_hdrv` missed it and filed it under `Kernel`.
 
-**The data**: XMEM.DRV already loads the HMA's tail, so it banks two words of
-its `rom_id` when the install succeeds - +12, `hb_tab`'s offset, and +16,
-now `HB_HI` (where `.cold` begins, the pool's top; it was eight zero KEY
-bytes in the HMA kind) - and its `XMV_WALK` answers BX = `XMW_FIXED`, which
-it used to ignore, with the HMA's contents in front of the pool's blocks:
+**The data**: XMEM.DRV's `XMV_WALK` answers BX = `XMW_FIXED`, which it used
+to ignore, with the HMA's contents in front of the pool's blocks - and the
+HMA half is the TAIL's own walk of the table it keeps (§28.4.13.1):
+XMEM.DRV already loads the tail, so it banks one word of its `rom_id` when
+the install succeeds, +28, the door's offset at FFFF, and far-calls
+`ROMF_HWALK` (10) there. The records are:
 
 | owner | record |
 |---|---|
@@ -63955,8 +63956,9 @@ it used to ignore, with the HMA's contents in front of the pool's blocks:
 All of it is inside the span `[tm_hifix]` already counts, so `tm_hikb`'s
 system sum and `tm_himax` skip F0h-F7h, and a block's group is flagged
 `TMG_HMAF` (40h): past `TMG_N`, so it is in no group total and no
-conventional row. No kernel byte moved; the walk, the bank and `xm_hwalk`
-are XMEM.DRV's, and nothing changes on a machine whose tail did not install.
+conventional row. No kernel byte moved, and nothing changes on a machine
+whose tail did not install: the door's offset is then 0 and XMEM.DRV writes
+its own blocks alone.
 
 **The tree**: the span is a GROUP of its own at column 0, `System HMA`,
 after System and before the Programs heading (§28.4.14 moved it out of
@@ -63999,6 +64001,32 @@ is that driver's, by `tm_drvgid`, which reads the header there too.
 the 3KB claim it already took; COLDHMA.SYS +0 (the two bytes were zeros).
 `taskmgr.o88`'s image 9,954 -> 10,646 bytes, which is this section and
 §28.4.4.1's thumb drag together.
+
+### 28.4.13.1 The HMA's walk is the tail's, not XMEM.DRV's
+
+It shipped as `xm_hwalk`, 128 bytes of XMEM.DRV reading the tail's
+`hb_tab` through DS = FFFF off two banked `rom_id` words (+12 the table,
++16 `HB_HI`). That was the wrong side of the line: XMEM.DRV's image is a
+heap claim of whole KB on every 286 and 386, and the walk is of a table the
+tail owns, in the HMA, where its bytes cost no conventional memory at all.
+So it is `boot/osrom.asm`'s `hb_walk` now, behind `ROMF_HWALK` at the tail's
+own door (`rom_modfix`, which `rom_hma` serves): ES:DI = room for CX
+records, IF = 0 - out AX = the HMA's records, DI and CX past them, the frame
+being `rom_hma`'s, as `ROMF_HCLAIM` writes DX. `rom_id` +28 carries the
+door's offset in the HMA kind (it was reserved zeros); +12 and +16 stay
+for a reader. `ROMF_HWALK` is XMEM.DRV's to ask and never the kernel's,
+which carries the equate only because `os88rom.py --selfcheck` holds the
+two lists equal.
+
+**What it cost**: XMEM.DRV's image 2,239 -> 2,121 bytes; COLDHMA.SYS's
+resident half 1,929 -> 2,043 bytes of the HMA, leaving 1,349 above it
+(`.cold`'s growth there is bound sooner by the ROM window, 422 spare); the
+file 2,841 -> 2,955, inside XMEM.DRV's 4KB attach-time read. No kernel byte:
+`kernel.bin` is byte-identical. `tests/xmhwalk.py` (soak) runs the shipped
+pair under unicorn against a model of this section's records, and was
+checked once against `xm_hwalk` on the same tables, seven cases, record for
+record. With the two moves beside it the image is 2,042 and the claim is
+2KB again (§41.12.6).
 
 ### 28.4.14 `IVT+BIOS` and `System HMA` are rows of their own, on both pages
 
@@ -80634,6 +80662,44 @@ is §18.7.3's `DV_CLASS` again — a structure that was one-of-a-kind by
 accident rather than by design — and it will recur the next time the kernel
 owns a driver-shaped record outside the table.
 
+#### 41.12.6 Back inside 2KB (2026-10-25)
+
+The claim is `mem_bytes_kb_x` of the image, and the image had drifted to
+**2,239 bytes - a 3KB claim**, 833 of its third KB unused, on every 286 and
+386 with memory above 1MB: §41.13's LOADALL took 1,156 -> 2,021, §41.15
+2,041, `XMV_WALK` (§41.16) 2,098 - the crossing - and §28.4.13's HMA walk
+2,239. Three moves bring it to **2,042**, 6 bytes inside 2KB, no kernel byte
+and no behaviour change:
+
+| move | image |
+|---|---:|
+| the HMA walk is the tail's (§28.4.13.1) | -118 |
+| LOADALL's 102-byte save of the API cells SHARES the AH=87h descriptor block | -31 |
+| `la_borrow` writes its fields as ONE walk of SI (`apps/os88la.inc`) | -45 |
+| two error ladders skip with `db 3Dh` (`cmp ax, imm16`) | -3 |
+
+**The shared block is safe because the two are never live at once**: the
+save holds bytes only inside one `la_borrow`..`la_restore` cli window,
+`xm_bios` zeroes and fills all 48 bytes before every `int 15h`, and no copy
+runs one transport inside the other. Its yield is not 48 because of the
+rule that makes the scratch free at all: the image is the resident code
+plus the LARGER of the attach-only code and the scratch over it. The scratch
+was 256 against 225 bytes of code under it, so 31 were padding and that is
+what went; it is 208 now, and the code is the bound. **That rule is also why
+attach-only code outside the region buys nothing by moving in**: there are
+208 bytes of state to lay over spent code and 225 of spent code already
+under them, so `xm_lainit` and `xm_ltrip`, 228 bytes that run once on a
+286, stay resident - they need the zeroed scratch while they run.
+
+**The single walk** relies on `la_msw` through `la_esv` being consecutive -
+`LA_DATA` lays them out so, XMEM.DRV's equs too - and `LA_ORDER`, invoked by
+both, fails the assembly when they are not. It is 45 bytes off every
+includer: the Video Player and VIDDISK as well. `tests/xmla.py` checks the
+table field by field, and could not see three of the fields until this
+round: unicorn starts with MSW, IDTR and GDTR all ZERO, so a field the
+borrow never wrote read back equal to the reference. It seeds them now, and
+an IDT left unwritten fails it.
+
 ### 41.13 Tier 1 copies by LOADALL (2026-10-15)
 
 **On a 286, `XMV_COPY` moves its bytes with the 286's LOADALL instead of
@@ -80720,8 +80786,8 @@ A caller then places by `(conventional - extended) mod 2G = G`, claiming 2G
 more and starting up to 2G - 1 bytes in. Twelve copies, ~40 ms on a 286:
 once an instance.
 
-**A package's, not the store's.** XMEM.DRV has 21 bytes of its 2 KB claim
-left, so measuring there is a KB of every 286 and 386's heap plus a new cell;
+**A package's, not the store's.** XMEM.DRV had 21 bytes of its 2 KB claim
+left then (6 now, §41.12.6), so measuring there is a KB of every 286 and 386's heap plus a new cell;
 in the include it costs no resident byte and no ABI, and it is the os88la.inc
 shape - written once, assembled by each caller. The Video Player is the first
 (98.3.18.12).
@@ -97215,6 +97281,67 @@ and kern_small, which loads no driver that writes it, does not assemble it.
 The rules for the driver are the ones for any memory it gives away: put what
 may be dropped LAST, its zeroed state after its code, and let every way into
 it be guarded by a byte BEFORE the offset.
+
+#### 51.1.3.1 ...and in the HMA's pool, the driver cuts its own block
+
+A driver placed in the HMA's pool (§2.10.8) holds no claim, so the kernel's
+shrink above passes it by (`DRVR_KB` 0) - and SOUND.DRV kept all 11,924
+bytes up there where the heap gave back 4.5KB of them. The pool is the
+TAIL's, so the cut is too: `OSAPI_MEM_HMA` with AX = `MEMHMA_KEEP` (8000h) |
+bytes reaches `ROMF_HCLAIM` unchanged (the kernel passes AX through as CX),
+and the tail cuts the block that runs at the caller's segment AND is owned by
+it - its image - to those bytes, paragraph-rounded, never growing it and
+never to nothing. CF = 1 when the image is in the heap, which is the kernel's
+case, and from a tail older than the form, which refused any CX over
+`HB_MAX`: either way the driver keeps what it has. **No kernel byte.**
+
+SOUND.DRV asks it at the end of its attach, with its `DRV_H_KEEP` figure less
+`$$` (`strict word`, so the org-0 and org-`DRV_HMA_ORG` assemblies stay
+byte-parallel for the relocation diff).
+
+**A cut must not strand its own reload, so the pool fills from two ends.** A
+hibernate sweeps SOUND.DRV and loads it again with HDD.DRV and NET.DRV still
+in the pool (§87.4 step 1, §87.6 step 6), and so does the Drivers page - and
+a reload needs the WHOLE image before its attach can cut it. With every block
+lowest-first, HDD.DRV sat on the cut's bytes and the reload found a
+10,928-byte gap for an 11,952-byte image: SOUND.DRV fell to the heap for the
+rest of the session, measured by `tests/hmahiber.py`. So:
+
+- an image whose driver declares **`OS88_DRV_FOOT`** (`drivers/os88drv.inc`,
+  no byte: a symbol `tools/os88rom.py` reads off its org-`DRV_HMA_ORG` map,
+  bit 15 of its record's relocation count) is placed **lowest-first**;
+- every other image, and **every buffer**, **highest-first**.
+
+The cut is then the foot of the ONE free run between the two stacks, and a
+dropped SOUND.DRV frees its whole length where it was: a reload lands at the
+base the boot gave it and the pool's records are the boot's again. The pool
+(24,560 bytes), read off the tail's table under QEMU -m 128 with SOUND, HDD
+and NET wanted - an AdLib for the no-mixer arm, an SB16 for the other:
+
+| machine | SOUND.DRV, at 0010 | HDD + NET, at the top | one free run | its 8KB double buffer |
+|---|---:|---:|---:|---|
+| no mixer | 7,376 | 8,272 | **8,912** | **in the pool** (was the heap) |
+| a mixer (CT1335 up) | 10,928 | 8,272 | 5,360 | the heap, as before |
+
+Before either change the image held 11,952 on both, the free run was 4,336,
+and the buffer went to the heap wherever all three were wanted. A reload
+fails only once the top stack has grown past 24,560 - 11,952 = 12,608 bytes;
+the three drivers are 8,272 of it. `tests/hmapool.py` drives the shipped tail
+through boot, buffer, drop and reload under unicorn, both arms, and goes red
+with `OS88_DRV_FOOT` taken out or with one end only.
+
+**And on a 286** (`tests/hma286.py`, 86Box's mr286 with an IDE disk): the
+same layout to the byte on a Sound Blaster v2.0 - no mixer, which QEMU's
+SB16 cannot be - and RECORDER's demo played with the double buffer at
+FFFF:1FB0, the 8237 on page 10h reading above 1MB, every half the demo's and
+the block given back; on an SB Pro 2 the cut is `snd_keepmix` and the buffer
+the heap's. The same run has XMEM.DRV's LOADALL transport verify at attach
+(§41.12.6's borrow, on a CPU that has the instruction), and nothing faults
+outside the BIOS's own AH=87h.
+
+**What it cost**: no kernel byte (`kernel.bin` byte-identical). COLDHMA.SYS's
+resident half 2,043 -> 2,153 bytes of the HMA (the cut 66, the second end 44;
+1,239 spare above it), SOUND.DRV +17.
 
 ### 51.2 The contract
 
@@ -196027,6 +196154,21 @@ and a README.
   read out of `os88vencgui.py` so the two lists cannot drift, and
   `boot_dir` looks there after `build/`. Its hard disks boot, as the
   tree's do; they were the formatted, unbootable kind. ~95 KB of zip.
+- **...and the user's GUIDE** (the owner, 2026-10-25: the tooltips say what
+  a setting IS, and a new user cannot tell from them WHEN to use it).
+  `GUIDE.HTML` beside the tool, its screenshots in `guide/` so the folder's
+  top level stays the tool's: what every *Made for* target looks like, the
+  budget every setting is about, each tab's settings with when and why to
+  change them, disks, recipes and a troubleshooting table. Its source is
+  `docs/encoder-guide/`, and its pictures are the window itself under Xvfb
+  and real `.V88` frames drawn by the window's own `render`, of a clip made
+  from three of PiXEL's original sample pictures - all of them made again
+  by `tools/os88vguide.py`, so a change to the window is one command from
+  a guide that shows it (the frames come out byte-identical run to run).
+  **The pictures are
+  COMPUTED like the modules** (`guide_files`): the page is read and every
+  `guide/` file it names ships - one it names that is missing stops the
+  build, one it no longer names stays out. It takes the zip to ~1.7 MB.
 - **It is deterministic**: entries in sorted order, every timestamp
   1980-01-01. The same tree makes the same bytes.
 - **It needs, on the user's side**, Python 3 with Tk, numpy, Pillow, and

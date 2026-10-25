@@ -245,9 +245,10 @@ LINEAR address (`0xfef1d` with `cs 0xf000`), not an offset.
   86Box has never been measured against it here. A number off `step` is
   emulated milliseconds of 86Box's machine. docs/TESTING.md's rule stands: a
   disk number lands on the 5150.
-- **Not in a gating tier.** Five soak rows launch 86Box (`gbreplay`,
-  `gbbank`, `gbhifreq`, `megacdrom`, and `rdgspeed286`, which needs the
-  owner's cartridges); `needs=("86box",)` skips them on a box without the
+- **Not in a gating tier.** Six soak rows launch 86Box (`gbreplay`,
+  `gbbank`, `gbhifreq`, `megacdrom`, `hma286` - XMEM.DRV's LOADALL and the
+  HMA's pool on vm/286-hma, through an os88ui adapter in the row that other
+  rows can lift - and `rdgspeed286`, which needs the owner's cartridges); `needs=("86box",)` skips them on a box without the
   build, since nothing in `make` builds 86Box.
 - **Host-timed devices are not deterministic**, even held: networking and some
   sound paths run on host threads (upstream's *Determinism notes*).
