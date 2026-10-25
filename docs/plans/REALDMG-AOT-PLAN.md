@@ -112,6 +112,8 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   | Kirby, Victory, precompiled, 8 slots first | 1 of 4 | 17% | 10% |
   | Kirby, Victory, precompiled, images first + filter | 2 of 4 | 100% | 95% |
   | SML, 640 KB 8088, precompiled (title, no counters) | 2 of 3 | 11.9 fps | - |
+  | Looney Tunes (.gb), Victory, REALDMG.O88 | - | 98.8% | 75% (translating) |
+  | Looney Tunes (.gb), Victory, precompiled + counters | some of 7 | 100% | 99% |
 
   The 17% was two defects, both fixed (REALDMG-SPEC 20.9, 20.10): the plan
   traded images for slots, and every interpreted jump searched the list.
