@@ -1,5 +1,9 @@
 # `kern_mega` — a 286+ protected-mode kernel
 
+**Current round (2026-10-25): memory consolidation, 14.72** - the open
+memory items collected, ordered MC1-MC7, nothing yet built. The status line
+below is the file's first and is kept as written.
+
 **Status: M1 IS UNDER WAY, AND kern_mega BOOTS INTO 286 PROTECTED MODE ON QEMU** (section 10.1) - plus 2.4.1's CS-write ratchet (2026-10-17, branch `protected-mode`,
 cut from `elendilon` at `c783a6a`). The owner asked what a 286+ protected-mode
 build would take: one with room for the kernel to grow to 512KB, though
@@ -10238,7 +10242,7 @@ Not run here; tests/unit/t_megagrid.py scopes to `apps/` and could take
 Three items 14.68 found and did not take, written down as work rather than
 left in its prose. The owner asked for each to be carried here.
 
-- [ ] **RAMDISK.DRV and NET.DRV fold paragraphs into a segment.**
+- [ ] **RAMDISK.DRV and NET.DRV fold paragraphs into a segment.** (14.72 MC6)
   `rd_fold` (drivers/ramdisk/) and `net_norm` (drivers/net/) fold a
   conventional buffer's offset into its segment by paragraphs - the shape
   14.68's item 1 was in `CDROM.DRV`, which faulted the machine on its first
@@ -10250,7 +10254,7 @@ left in its prose. The owner asked for each to be carried here.
   The fix is 14.68's: walk the offset, or fold in whole 128-byte granules
   (`dskw_norm`'s kern_mega arm). `tests/unit/t_megagrid.py` scans `apps/`
   only; taking `drivers/` too is what keeps the next one out.
-- [ ] **`CDROM.DRV` above 1MB.** It runs on kern_mega now but loads LOW -
+- [ ] **`CDROM.DRV` above 1MB.** (14.72 MC6) It runs on kern_mega now but loads LOW -
   9 KB of conventional memory - because nobody has run it high. To take it
   there: declare `OS88_DRV_HIGHOK` (drivers/os88drv.inc, item 82); check its
   sector buffer and packet, which live in its own image and reach
@@ -10259,7 +10263,7 @@ left in its prose. The owner asked for each to be carried here.
   BIOS or a DMA engine (it does PIO, `rep insw`); then extend `megacdrom` to
   assert the driver's image base is above 1MB while CDRack plays and copies.
   `OS88_DRV_HICLAIM` is not wanted: it makes no claims.
-- [ ] **Autostarted packages run low.** `\AUTOSTRT`'s walk (`as_boot`,
+- [ ] **Autostarted packages run low.** (14.72 MC6) `\AUTOSTRT`'s walk (`as_boot`,
   SPEC.md 26.10) runs before `mega_enter`, so every autostarted package
   starts in real mode, in conventional memory, whatever `OS88_HIGH` says -
   `megacdtest`'s autostarted CDRack sits at `9640h` while the same package
@@ -10290,7 +10294,7 @@ and IDT (18K), `.cold` and `.mega` (about 58K), about 50K of padding up to
 the pool's 64KB-aligned base (`MEGA_XPOOL`, 0x140000), and about 118K of
 pool blocks owned C0h and up.
 
-- [ ] **Purgeable is not implemented on kern_mega.** Item 84 moved the
+- [ ] **Purgeable is not implemented on kern_mega.** (14.72 MC1) Item 84 moved the
   kernel's caches into the pool (the window save-unders, up to 63K each, the
   menu save-under, the icon store, the file list, the clipboard) and item 86
   the FAT windows, and its own words are *"A pool block has no `mem_tab`
@@ -10305,7 +10309,7 @@ pool blocks owned C0h and up.
   `mx_alloc` sheds flagged kernel blocks before it refuses; the Task Manager
   excludes them from System as it does on kern_big.
 - [ ] **The GDT is a 1:1 table sized for every possible segment, and almost
-  none of it is used.** Selector = segment value, so the GDT's size is set
+  none of it is used.** (14.72 MC5) Selector = segment value, so the GDT's size is set
   by the HIGHEST segment anything loads (the scratch selectors at FFD0-FFF8,
   the ROM font at F000), not by how many are used. **Measured** under Bochs,
   kern_mega at this tree with SOUND and HDD up and Calculator, Mines, Note
@@ -10321,7 +10325,7 @@ pool blocks owned C0h and up.
   change is the work to cost: every place that turns a segment value into a
   selector by identity (and `mega_oddsegf`'s window, which already handles a
   segment that is not a multiple of 8 dynamically, is the model).
-- [ ] **The LDT can start small and grow.** 2,048 entries (16K): 1,280 are
+- [ ] **The LDT can start small and grow.** (14.72 MC4) 2,048 entries (16K): 1,280 are
   a STATIC code alias for every 512 bytes of conventional memory (index =
   segment / 32, which is how a CS with bit 2 set names its image), the rest
   dynamic; **31 accessed** in the same run. Regrowable by claiming a bigger
@@ -10329,13 +10333,13 @@ pool blocks owned C0h and up.
   GDT's identity entries would. The owner: *"LDT regrowable: seems good."*
 - [x] **The IDT stays 2K.** Every vector can be reflected to the BIOS or to
   a DOS program. *"IDT is fine."*
-- [ ] **The HMA is RAM.** It has to be free at 1MB only while DOS uses it,
+- [ ] **The HMA is RAM.** (14.72 MC3) It has to be free at 1MB only while DOS uses it,
   so it is pool like any other until then, and the trip into DOS saves what
   is in it and the return restores it to the same linear addresses (a pool
   block is named by its linear base, 13.4) - what the park already does for
   conventional memory. The owner prefers this to parking droppable caches
   there, which would cost a program 64K, and on a 1MB machine that matters.
-- [ ] **The padding.** About 50K between `.mega`'s end (~0x133600) and
+- [ ] **The padding.** (14.72 MC2) About 50K between `.mega`'s end (~0x133600) and
   `MEGA_XPOOL`, there only because the pool's arithmetic wants a base whose
   low word is 0. Pack the fixed area and start the pool on a finer
   boundary, or put a fixed structure in the gap.
@@ -10480,7 +10484,7 @@ The merged page landed (`b6c4a1ed`, `2cd6ddc7`). Open:
   computes `Unrep.` from the same ROM figures it prints. One real defect was
   fixed on the way (`tm_romscan` trusted a length byte reaching past F000).
   Retake it on this build.
-- [ ] Purgeable on kern_mega (14.70.1): until then the kernel's caches above
+- [ ] Purgeable on kern_mega (14.70.1, 14.72 MC1): until then the kernel's caches above
   1MB show under `Kernel`, not `Purgeable`.
 
 ### 14.71 The upstream PR's review: four kern_mega defects, fixed (2026-10-22)
@@ -10546,3 +10550,210 @@ its string. The rows are `megahiber` and `megap2hiber` (the hibernate),
 `megaflt` (the fault handler) and `megapiclose` (the reflection); none of the
 four defects has a row of its own, the first two needing 63 pool blocks or a
 512-byte-cluster disk and the last an NMI in a window of a few clocks.
+
+### 14.72 The memory consolidation round: what is open, and the order to take it in (2026-10-25)
+
+The owner's read of the Victory's Task Manager (14.70) was that kern_mega
+spends extended memory it does not need. This section collects every box
+still open about that, from 14.53, 14.60, 14.69 and 14.70, and puts them in an
+order. It is a PLAN: nothing here is built, and every byte figure is the
+reading 14.70.1 and 14.70.2 took under Bochs, or an ESTIMATE where it says so.
+The waves are named **MC1-MC7** so they cannot be confused with the
+milestones M1-M6 or with another plan's W-waves. Branch
+`claude/protected-mode-memory-consolidation-k1kjao`, cut from `elendilon` at
+`8eac6506`.
+
+#### 14.72.1 What is open
+
+**The fixed area.** Between 1MB and the pool's base, kern_mega reserves
+about 256K before a program can claim a byte (14.70.2's SYSTEM view, Bochs):
+
+| area | today | can it come back | box |
+|---|---|---|---|
+| HMA | 64K, kept free for DOS's real-mode half | yes: pool until a DOS trip, saved and restored around it | 14.70.1 *The HMA is RAM* |
+| GDT | 64K, 8,192 entries, **106 accessed** | partly: ~24K by capping it at the heap top (estimate); the owner's 4-8K needs the identity map gone, which is an ABI question | 14.70.1 *The GDT is a 1:1 table* |
+| LDT | 16K, 2,048 entries, **31 accessed** | mostly: ~14K if the 1,280 static code aliases become allocated and the table grows on demand (estimate) | 14.70.1 *The LDT can start small* |
+| IDT | 2K | no, by the owner's word | 14.70.1, done |
+| `.cold`, `.mega`, the park's scratch | ~58K | no: this is the kernel's code | - |
+| padding up to `MEGA_XPOOL` | ~50K | yes, all of it | 14.70.1 *The padding* |
+
+**The pool.** The kernel's caches above 1MB (the window save-unders at up to
+63K each, the menu save-under, the icon store, the file list, the clipboard,
+the FAT windows) are pool blocks with no purge tier: billed to System and
+never shed, so a program's claim can be refused with caches standing that
+kern_big would have dropped (14.70.1 *Purgeable is not implemented*, and
+14.70.3's last box, the Task Manager's `Purgeable` group). ETHER.DRV's ~34K,
+the largest single item in the owner's 118K, has since been made claimed on
+demand and freed with the last network program (`c3914f7e`, SPEC.md
+72.13.4), so it is no longer standing on an idle machine.
+
+**What still goes low.** These are a different problem, conventional memory
+used where extended would do, and are listed so the round's boundary is
+explicit: 14.69's three (RAMDISK.DRV's and NET.DRV's paragraph folds,
+`CDROM.DRV` above 1MB, autostarted packages running low), 14.53's claim table
+(the C64 and Apple II ROM carve, the CWORD and RunCPM overlay carve, the face
+cache), and 14.60's register (the DMA rings and its 16MB lead, BIGSP read in
+place, the claims over 64KB, `mx_tab`).
+
+#### 14.72.2 The order, and why
+
+Four facts decide it.
+
+1. **Purgeable stands alone.** It touches the pool's table and the shed and
+   nothing in the fixed area, and it is the only item that gives a refused
+   program its memory back TODAY, on every machine.
+2. **The pool's base is the foundation of everything in the fixed area.**
+   While the pool starts at `MEGA_XPOOL` (0x140000), a smaller GDT or LDT or a
+   free HMA leaves a hole BELOW the pool that nothing can claim, so each of
+   those items would buy nothing until the pool reaches down to it. And the
+   cheapest way to end the padding is the same change: start the pool AT 1MB,
+   which is 64KB-aligned and so keeps every `add dx, MEGA_XPOOL >> 16` exactly
+   as it is, and put the fixed areas in `mx_tab` as pinned records. `mega_xmfix`
+   already describes them as records for the Task Manager; they become real
+   ones. The padding then is pool the day this lands, and every later wave
+   just shrinks or frees a record.
+3. **The HMA is the biggest single item and its mechanism already exists.**
+   The park already saves conventional memory to extended memory and puts it
+   back at the same addresses (KERN-MEGA-DOS-PLAN 10.6); the HMA is 64K more
+   of the same.
+4. **The GDT is last because it carries a question.** The cheap half, a GDT
+   capped at the top of conventional memory, needs a census of every load of a
+   segment from A000h up before it can even be estimated properly. The half
+   that reaches the owner's 4-8K means a conventional segment value stops
+   being its own selector, which every package that does paragraph arithmetic
+   relies on. That is the owner's decision, and it should be put to them with
+   the census in hand rather than guessed at.
+
+So: **MC1 purgeable, MC2 the pool from 1MB, MC3 the HMA, MC4 the LDT, MC5 the
+GDT**, then **MC6**, the three small items of 14.69, which are cheap and
+independent and can go in at any point the owner prefers, and **MC7**, the
+larger "still low" register, which is a round of its own.
+
+#### 14.72.3 The waves
+
+- [ ] **MC1 - purgeable pool blocks** (14.70.1, 14.70.3).
+  - `mega_hiclaimf` records the cache's TAG in the block. An `mx_tab` record
+    is 8 bytes and full; `MX_SEL` is `OSAPI_XMEM_SEL`'s window and is never
+    used by an `MX_KOWN` block, so it can carry the tag there, behind a
+    `MX_FL` bit (`MX_FPURGE`) that says so, at no table growth. To confirm
+    while building: that no `MX_KOWN` path reads `MX_SEL`.
+  - `mx_alloc`'s refusal path (`.norun`, before the compaction it already
+    tries) sheds the cheapest purgeable block strictly below the claimant's
+    rank, by `mem_rank_bh`, and retries. The owner is told first through
+    `mem_pg_forget` with the tag, which already knows the FAT window's and the
+    icon store's extra naming words. Then the block and its LDT selector go
+    back (`mega_hifreef`). kern_big's rule carries over unchanged: a cache
+    never sheds a more valuable cache, and never the FAT window being written
+    (`mem_fatw_dirty`).
+  - `OSAPI_XMEM_WALK` reports the bit, and the Task Manager puts those blocks
+    under `Purgeable` instead of `Kernel`. That is 14.70.3's last box.
+  - Cost: `.mega` bytes, ESTIMATED ~60-90; kern_big and kern_small
+    byte-identical.
+  - Rows: `megaown`, `tmowner`, `megahigh`, and a new row. Fill the pool with
+    raise caches, ask for a claim that only fits with them gone, and assert
+    that it succeeds and that the caches were shed. Break it by leaving out
+    the shed and watch the row go red.
+- [ ] **MC2 - the pool from 1MB; the padding is RAM** (14.70.1 *The
+  padding*).
+  - `MEGA_XPOOL` becomes 0x100000. `mega_xminit` writes the HMA, the GDT, the
+    LDT and IDT, and `.cold`/`.mega`/the park's scratch (up to `MEGA_KEND_KB`)
+    as pinned records under the F0h-F4h marker owners `mx_canmove` already
+    skips. The HMA's record stays pinned until MC3.
+  - `mega_xmwalk`'s `XMW_FIXED` arm reads those records instead of
+    `mega_xmfix`'s constants, so the Task Manager's `Padding` row goes away by
+    itself.
+  - To check: every `MEGA_XPOOL` site in `mega.inc` and `hiber.inc` (the
+    hibernate's section format names the pool base, so an image written by the
+    old kernel must be REFUSED, not misread); `mega_coldup`'s and
+    `mega_enter`'s minimum-memory compares (192K); the 15,360K cap; the XMS
+    door's view of the pool during a DOS trip (KERN-MEGA-DOS-PLAN 6); and the
+    five records taking five of `MX_NBLK`'s 96 entries (14.49 sized the table
+    with no margin for them, so 96 may want to be 101).
+  - Buys ~50K.
+  - Rows: `megahigh`, `megahiber`, `megap2hiber`, `megadosp`, `megarehome`,
+    `tmowner`.
+- [ ] **MC3 - the HMA is RAM** (14.70.1 *The HMA is RAM*).
+  - The HMA's record is unpinned, so it is pool. A DOS trip that needs the
+    HMA (always, since `kern_dos` or DOS's own HMA use expects it free)
+    saves the blocks standing in [1MB, 1MB+64K) into extended memory with the
+    rest of the park, and the return puts them back at the same linear
+    addresses. A pool block is named by its linear base (13.4), so nothing
+    that holds a selector notices.
+  - Questions for the build: whether `mx_alloc` should place packages there
+    LAST (the top-down kernel blocks never reach it on a machine with any
+    room, and a package block there is the one the park must copy); what the
+    trip does when the park has no room for 64K more (refuse, as it refuses
+    today when conventional memory will not fit); the hibernate and the
+    Ctrl-Alt-Del park survival (W7) with blocks in the HMA; and "Load DOS in
+    the HMA" (14.25).
+  - Buys 64K, and on a 1MB machine (384K extended) that is a sixth of the
+    pool.
+  - Rows: `megadosp`, `megakbtrip`, `megahiber`, `megap2hiber`, `megatrap0`,
+    and a new row with a block placed in the HMA before a DOS trip, its bytes
+    compared after the return.
+- [ ] **MC4 - an LDT that starts small and grows** (14.70.1 *The LDT can
+  start small*).
+  - Census first: every site that builds a code alias by identity
+    (`(S >> 2) | 4`) and every site that converts one back
+    (`mega_cs2ds`, `mega_cs2dsw`, `mega_dsimg`, `mega_csdata`, the
+    `MEGA_LDT_FREE0` compares, 24 in `mega.inc` and ten elsewhere).
+  - The design to cost: a conventional image's code alias is ALLOCATED when
+    the image is (a package region, a part's carve, a driver, a module, an
+    overlay) and freed with it, and the reverse reads the descriptor's base,
+    since for conventional memory the data segment IS base / 16. The LDT is
+    then all allocator, starts at 2K, and regrows by claiming a block twice
+    the size, copying, rewriting GDT entry 18h and reloading LDTR. The
+    alias-narrowing walk in `mega_cs2dsw` gets simpler, because an alias
+    nothing allocated simply is not present.
+  - `mega_ldtlin` is already a variable (`mega_tlowf` moves it), so the
+    hibernate and the park already ask where the LDT is.
+  - Buys ~14K, ESTIMATED.
+  - Rows: `megaflt`, `megaovl`, `megarehome`, `megahiber`, `megap2hiber`,
+    `megatrap0`, and a new row that opens programs until the LDT must grow.
+- [ ] **MC5 - the GDT** (14.70.1 *The GDT is a 1:1 table*).
+  - **Phase A, after a census:**
+    - Every load of an identity selector from A000h up. That covers the
+      video segments behind `[vid_*]`, the ROM font at F000, the Task
+      Manager's ROM scan (78 of the 106 accessed entries, `tm_romscan`),
+      any EMS page frame, and any package that writes A000h or B800h itself
+      inside an fsx bracket instead of taking `FSI_*`'s segment.
+    - The kernel's scratch and code selectors at FFD0h-FFF8h, which sit at
+      the top only because those ROM segments are never loaded.
+  - With those moved to allocated selectors, or for rare loads fixed up the
+    way `mega_oddsegf` already serves an off-grid segment, the GDT ends at
+    the top of conventional memory: ~5,136 entries, ~40K. Buys ~24K,
+    ESTIMATED until the census says what traps.
+  - **Phase B, the owner's call, not to be built on assumption:** 4-8K
+    means a conventional segment is no longer its own selector. The package
+    ABI hands packages segment values they do arithmetic on, and that is why
+    13.6's unclean packages run low at all. Price it from the census and put
+    it to the owner with phase A's figure beside it.
+  - Rows: `megagrid`, `megapkg`, `megaflt`, `megavidbig`, `megavidv2`,
+    `tmowner`, and the adapters' boots under `make mega` (VGA, and Hercules
+    and CGA through `vm/286-mega`).
+- [ ] **MC6 - 14.69's three, small and independent.**
+  - RAMDISK.DRV's `rd_fold` and NET.DRV's `net_norm` stop folding
+    paragraphs into a kern_mega selector. That is a correctness fix, but it
+    is what lets those drivers run high at all. `t_megagrid` is taken over
+    `drivers/` so the next one fails the build.
+  - `CDROM.DRV` declares `OS88_DRV_HIGHOK` and `megacdrom` asserts its base
+    is above 1MB: 9K of conventional memory back.
+  - `\AUTOSTRT` is walked after `mega_enter` on kern_mega, so an
+    `OS88_HIGH` package it opens is placed high like one opened by hand.
+  - Rows: `megagrid`, `megacdrom`, and `autostart` under `make mega`.
+- [ ] **MC7 - what still goes low** (14.53, 14.60). A round of its own and
+  not ordered here beyond its first step:
+  - Check 14.60's lead first, that an AT's 8237 page register makes an 8-bit
+    DMA ring above 1MB legal on every kern_mega machine. If it holds, the
+    rings, `SOUND.DRV`'s pool and the 32KB bounce all move. If it does not,
+    the rest of the register stands as written.
+  - BIGSP in place stays with the Video Player round (14.60).
+  - `mx_tab` stays low by the owner's deferral (14.51).
+
+**The whole round, if MC1-MC5 phase A land as estimated:** about 150K of the
+fixed area's 256K comes back to programs (50 + 64 + 14 + 24), plus whatever
+caches are standing when a claim needs them. `.mega` grows by the waves'
+code, against `tests/megaseg.txt`'s allowance (3,456 of 4,029 used at
+14.71). Per the Testing section of CLAUDE.md, each wave verifies on the host
+and NAMES its rows; the deduplicated union of the rows above runs once, after
+the last wave, with `test-full`.
