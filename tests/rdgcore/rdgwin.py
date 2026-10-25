@@ -268,6 +268,9 @@ def main():
     ap.add_argument("--shot", default="")
     ap.add_argument("--attach", default="", help="measure a machine --keep left running")
     ap.add_argument("--press", default="", help="keys to tap first, e.g. return")
+    ap.add_argument("--replay", default="", metavar="SS1,RP1",
+                    help="a save state and its replay, put beside the game as "
+                         "slot 1: --press w3000,f7 plays it")
     ap.add_argument("--fs", action="store_true", help="Machine > Full Screen first")
     ap.add_argument("--mem", type=int, help="the machine's RAM in KB, for the VM's own")
     ap.add_argument("--nojit", action="store_true", help="CPU > Interpreter first")
@@ -324,6 +327,12 @@ def boot(o):
         with open(cfg, "wb") as g:
             g.write(b"RD\x01\x01")
         extra.append("SYSTEM/APPDATA:" + cfg)
+    for i, src in enumerate((getattr(o, "replay", "") or "").split(",")[:2]):
+        if src:                                 # --replay: a save state and its
+            dst = os.path.join(tmp, "GAME." + ("SS1", "RP1")[i])  # replay,
+            with open(src, "rb") as f, open(dst, "wb") as g:      #   beside the
+                g.write(f.read())               #   game as its slot 1 (F7)
+            extra.append(dst)
     extra += [p for p in os.environ.get("RDGWIN_EXTRA", "").split(os.pathsep) if p]  # (more
                                                 # files on the B: disk: a second game)
     os88box.subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
@@ -435,6 +444,7 @@ def measure(b, o):
         f0, t0 = frames(b, view), b.cmd("info").get("ms")
         j0 = jitstat(b, view)
         rcy0 = int.from_bytes(b.memr(view*16 + 0x482F, 2), "little")     # S_JITRCY
+        bk0 = bankstat(b, seg)
         e0 = int.from_bytes(b.memr(view*16 + 0x408A, 2), "little")     # S_EVCOUNT
         if o.persec:                            # a second at a time
             per, fp = [], f0
@@ -479,7 +489,8 @@ def measure(b, o):
                 npre, "fixed" if fx else "NOT fixed"))
         bk = bankstat(b, seg)
         print("rdgwin: cartridge %s" % ("in one claim" if bk is None else
-              "in the bank cache, %d slots, %d banks fetched" % bk))
+              "in the bank cache, %d slots, %d banks fetched (%d in the span)"
+              % (bk + (((bk[1] - bk0[1]) & 0xFFFF) if bk0 else bk[1],))))
         if o.shot:
             b.shot(o.shot)
         if o.profile:

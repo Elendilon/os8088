@@ -58,6 +58,30 @@ was cache A + cache B + the core's holes (~140KB of code); after, it is
 play to say: the F1 overlay's flush count, and `[S_JITRCY]` in the view,
 are the readings.
 
+### 3.1 The owner's replay: the first level and its miniboss
+
+The owner recorded a flyover of the first level and the first miniboss
+(slot 1's state and `KIRBY.RP1`, 4,047 frames) and reported it thrashing "a
+couple of times on big, some of it bank thrashing". Played back on 86Box
+`286-mega` with `tests/rdgcore/rdgwin.py --replay SS1,RP1 --press w3000,f7
+--secs 70`, the three builds side by side:
+
+| build | blocks translated | bytes of code | tier switches | recycles | banks fetched |
+|---|---:|---:|---:|---:|---:|
+| shipped, Cache: 128K (the bank cache, 8 slots) | 991 | ~137KB | 2 | 0 | 7 |
+| arm, base | 979 | ~134KB | 2 | 0 | 0 |
+| arm, after | 991 | ~137KB | 2 | 0 | 0 |
+
+The play fills cache A, the core's holes and about half of cache B. The
+three tiers hold 162,036 bytes between them (57,584 a cache segment, 46,868
+in the core's holes, off the templates' free ranges), so the base arm is at
+84% at the miniboss and recycles a little further on; after, the same play
+uses 49% of 277,204. Every second after the state's load runs at the Game
+Boy's rate on all three. (The after run's first second reads 3,583%: the
+state's load set the frame counter inside that second, so its 148% overall is
+not a speed.) The bank fetches, 7 in the span, are all the shipped build's -
+the arm reads no bank at all.
+
 ## 4. Cost
 
 | artefact | base | after |
