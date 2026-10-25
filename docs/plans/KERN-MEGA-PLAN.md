@@ -10626,17 +10626,18 @@ Five facts decide it.
    (KERN-MEGA-DOS-PLAN 10.6) saves whatever stands there for a DOS trip, and
    usually nothing will.
 4. **The whole-memory claim is the goal, so it comes as soon as the layout
-   allows it**, ahead of the LDT and GDT, which between them return ~38K
-   (estimate) of a 4MB machine.
-5. **The GDT is last because it carries a question.** Its cheap half, a GDT
-   capped at the top of conventional memory, needs a census of every load of
-   a segment from A000h up. The half that reaches the owner's 4-8K means a
-   conventional segment stops being its own selector, and packages do
-   arithmetic on those values. That is the owner's decision, put to them with
-   the census in hand.
+   allows it**, ahead of the LDT and GDT.
+5. **The GDT comes last because it builds on the others.** It is a pool
+   block that grows and shrinks (MC2, MC3), and it relies on conventional
+   claims being split into those that need an identity selector and those
+   that do not; the bridge's conventional piece (MC5) is the first claim of
+   the second kind. Its size is 56K of every machine, though, and on a 1MB
+   machine that is 15% of the pool. If the 1MB machine comes first, MC7 can
+   move up to follow MC3, at the cost of building the identity split before
+   the bridge needs it.
 
-So: **MC1 purgeable, MC2 the fixed area to the top, MC3 every claim
-top-down, MC4 the HMA, MC5 one claim for all of it, MC6 the LDT, MC7 the
+So: **MC1 purgeable, MC2 the fixed area to the top, MC3 the no-pinning
+pass and every claim top-down, MC4 the HMA, MC5 one claim for all of it, MC6 the LDT, MC7 the
 GDT**, then **MC8**, the three small items of 14.69 (independent, any time
 the owner prefers), and **MC9**, the "still low" register, a round of its own.
 
@@ -10698,41 +10699,46 @@ the owner prefers), and **MC9**, the "still low" register, a round of its own.
     until MC6 and MC7.
   - Rows: `megahigh`, `megahiber`, `megap2hiber`, `megadosp`, `megakbtrip`,
     `megarehome`, `megapiclose` (the 286 reset path), `tmowner`.
-- [ ] **MC3 - every claim top-down, pinned blocks against the top**
-  (14.72.4).
-  - `mx_alloc` places every owner from the top. Below the fixed zone the
-    pool holds, in order: PINNED blocks (`MX_KOWN`, and the packages'
-    `OSAPI_XMEM_ALLOC` slots, which are named by linear base), then MOVABLE
-    blocks (package regions and claims, huge claims, driver images), then
-    the free run down to 1MB.
-  - Two rules keep it that way:
-    - **Compaction packs UP.** Movable blocks slide toward the pinned zone,
-      leaving the free run at the bottom. `mx_packupf` (14.49) is already
-      that pass. `mx_compactf`, which packs DOWN, is what `.norun` calls
-      today and is the one that goes.
-    - **A pinned block is placed at the boundary, never below a movable
-      one.** It takes a hole inside the pinned zone first, which is where a
-      dropped module left one. Failing that, the movable blocks slide down
-      by its size (the same copy loop, run the other way) and it takes the
-      room that opens. A pinned block placed in the free run's lowest hole
-      would wall that run for its whole life, which is today's slot problem
-      moved, not removed.
-  - The direction split of 13.4.1 is retired. Its reason was that the
-    kernel's long-lived blocks and the packages' short-lived ones should not
-    wall each other in; the pinned/movable split does the same job by what
-    a block CAN do, not by who owns it.
-  - Build questions:
-    - Does a purgeable cache (MC1) count as movable? Its holder names it by
-      selector alone, so a descriptor rebase moves it. Otherwise it stays
-      pinned and is shed when it is in the way.
-    - What does packing cost on the 286 measured in 14.38.5 / 14.48.3? A
-      claim that forces a pack copies every movable block below the pinned
-      zone once.
-  - Rows: `megaown`, `megavidbig` (huge claims), `megaovl`, `megarehome`,
-    `megahigh`, `tmowner` (MAX RUN must equal AVAIL after a pack), and a new
-    row. Open and close programs in an order that leaves a pinned slot
-    behind, then assert the free memory is one run.
-- [ ] **MC4 - the HMA is RAM** (14.70.1 *The HMA is RAM*).
+- [ ] **MC3 - kern_mega's no-pinning pass, and every claim top-down**
+  (14.72.4, 14.72.6).
+  - **The pass first.** kern_big's conventional claims are movable now but
+    for three exceptions: a module while the user is in its action, a block
+    open for a DMA write, and a block in use at this instant
+    (docs/plans/NO-PINNING-PLAN.md). The pool has never had that pass. What
+    pins a pool block today is `mx_canmove` saying no, and the census of
+    who it says no to:
+    - **`OSAPI_XMEM_ALLOC` blocks.** The token a package holds is the
+      block's linear base. On kern_mega nothing reads a token IN PLACE: the
+      two readers that do (`os88la.inc`'s LOADALL, `os88ub.inc`'s moment of
+      protected mode) are real-mode tricks, and the Video Player takes
+      `OSAPI_XMEM_RUN`'s selectors under `[vp_pm]` instead. So every use of
+      a token goes through a kernel cell (COPY, SEL, RUN, FREE), and the
+      kernel can translate. A block keeps the TOKEN it was given, a range in
+      a token space of its own, and its physical base moves underneath. An
+      `mx_tab` record gains the token base, 8 -> 10 bytes, 192 more bytes of
+      LOW_SEG for 96 records. Census to take: any package doing arithmetic
+      on a token beyond its own block's range.
+    - **The kernel's cache blocks (`MX_KOWN`).** Each one is named by its
+      holder's selector alone, so a move is a copy and a descriptor rebase,
+      13.1's argument. If MC1's shed is the better answer for a cache in the
+      way, the cache is shed rather than moved.
+    - **Modules.** Pinned while their action runs, as on kern_big. One that
+      no frame is inside moves like a cache.
+    - **What stays pinned:** a module in use and nothing else. There is no
+      DMA into the pool (MC9 may change that).
+  - **Then the direction.** `mx_alloc` places every owner from the top, and
+    compaction packs UP against the fixed zone (`mx_packupf`, 14.49, is that
+    pass; `mx_compactf`, which packs down, is what `.norun` calls today and
+    goes). The free memory is then one run from 1MB up. The pinned set is
+    the modules in use, each of which goes away when its action ends, so
+    13.4.1's direction split has nothing left to do.
+  - Rows: `megaown`, `megavidbig` (huge claims), `megavidv2`, `megaovl`,
+    `megarehome`, `megahigh`, `megahiber`, `tmowner` (MAX RUN must equal
+    AVAIL after a pack), and a new row. Hold an `XMEM_ALLOC` block, force a
+    pack that moves it, and read the package's bytes back through the same
+    token.
+- [ ] **MC4 - the HMA is RAM, and the hibernate is the way out when there
+  is no room to park** (14.70.1 *The HMA is RAM*, 14.72.4, 14.72.5).
   - The HMA's record is unpinned. After MC3 it is the bottom 64K of the free
     run, so it fills only when everything above it is in use: nearly last,
     just before conventional memory.
@@ -10740,59 +10746,80 @@ the owner prefers), and **MC9**, the "still low" register, a round of its own.
     the park, and the return puts them back at the same linear addresses. A
     pool block is named by its linear base (13.4), so no selector holder
     notices.
-  - If the park has no room for them, the trip refuses, as it refuses today
-    when conventional memory will not fit. MC5 makes that reachable: one
-    program holding all of memory blocks DOS trips while it runs (14.72.4's
-    question 3).
-  - To check: the hibernate and the Ctrl-Alt-Del park survival (W7) with
-    blocks in the HMA, and "Load DOS in the HMA" (14.25).
+  - **When the park has no room** (a program holds everything, MC5), the
+    trip offers to HIBERNATE instead, by the owner's answer. That is not
+    free today, and 14.72.5 says why: **a kern_mega hibernate REFUSES when
+    the pool is full**, measured. Its resume reads the WHOLE image file into
+    one free block above 1MB (`hbm_xplan`, *"whether a resume could place
+    all of it in one block beside it"*), and on a machine whose memory is
+    all held, that block cannot exist. So this wave carries a resume that
+    STREAMS:
+    - The extended runs are read straight to their final linear addresses
+      a chunk at a time, through the 32KB bounce the write side already
+      uses.
+    - Conventional memory goes last, through a stub in the text framebuffer
+      and an extent list, which is SPEC.md 87.5's shape on kern_big.
+    - What makes it possible is MC2: the resuming boot's fixed zone lands
+      exactly where the image's did, on the same machine with the same RAM.
+      The boot then has to take NOTHING from the pool before the resume,
+      its own caches staying conventional until the image is in.
+  - Two costs to say out loud:
+    - **The image is the size of the memory in use.** On the 4MB example
+      that is ~3.9MB. The hibernate already checks the volume's room; on a
+      machine whose disk lacks it the fallback refuses too, with that
+      reason.
+    - **Time.** On a 4MB machine the write and the resume move ~4MB each,
+      through `int 13h` or HDD.DRV. Measure it on `vm/286-mega` in the wave.
+  - To check: the Ctrl-Alt-Del park survival (W7) with blocks in the HMA,
+    and "Load DOS in the HMA" (14.25).
   - Buys 64K, and on a 1MB machine (384K extended) that is a sixth of the
     pool.
   - Rows: `megadosp`, `megakbtrip`, `megahiber`, `megap2hiber`, `megatrap0`,
-    and a new row. Place a block in the HMA before a DOS trip and compare its
-    bytes after the return.
-- [ ] **MC5 - one claim for all of it** (14.72.4).
+    and two new rows:
+    - a block placed in the HMA before a DOS trip, its bytes compared after
+      the return;
+    - a DOS trip with the pool held full, which must offer the hibernate,
+      take it and resume.
+- [ ] **MC5 - one claim for all of it** (14.72.4, 14.72.5).
   - **An exact answer to "how much".** A refused claim is destructive: it
     sheds caches and then may still refuse (REGION-SELF-COMPACT-PLAN 5.1.1).
     So a program that wants everything must ask first and be told the truth:
-    pool free + purgeable below its rank, which after MC3's pack is one run;
-    with the bridge below, plus conventional free less the reserve. This is
-    a new answer of `OSAPI_MEM_HUGE` (AX = 0 asks, AX comes back the KB it
-    would grant) or a cell of its own; the ABI decides which, under 20.2.0.1.
-  - **The bridge: one claim across conventional and extended memory.**
-    640K-1MB is the adapter hole, so no contiguous claim spans it. A huge
-    claim does not need to be contiguous, though: it is a RUN OF SELECTORS,
-    each a 64KB window, and each window's base is the kernel's choice. So the
-    run's selectors can cover a pool piece and then a conventional piece,
-    and the package walks it by CX exactly as it walks any huge claim. Only
-    each 64KB window has to be physically contiguous.
+    pool free + purgeable below its rank, which after MC3's pack is one run,
+    plus conventional free less the reserve. This is a new answer of
+    `OSAPI_MEM_HUGE` (AX = 0 asks, AX comes back the KB it would grant) or a
+    cell of its own; the ABI decides which, under 20.2.0.1.
+  - **The bridge, BY DEFAULT (the owner's answer).** 640K-1MB is the
+    adapter hole, so no contiguous claim spans it. A huge claim does not
+    need to be contiguous, though: it is a RUN OF SELECTORS, each a 64KB
+    window, and each window's base is the kernel's choice. So whenever the
+    pool alone is short, a plain huge claim comes back as a pool piece and a
+    conventional piece under one run, and the package walks it by CX
+    exactly as it walks any huge claim. Only each 64KB window has to be
+    physically contiguous.
     - The FIRST piece must be cut to a whole number of 64KB windows, so the
       kernel puts first the piece whose remainder is smaller. The waste is
       under 64K in either order.
     - Each piece is ONE record: a pool block and a conventional record. The
-      conventional one is movable under the conventional compactor, through
-      a kernel relocation proc that re-bases its share of the run's
-      descriptors.
+      conventional one is placed top-down under LDT selectors (it never needs
+      an identity selector, which matters to MC7), and it is movable
+      under the conventional compactor through a kernel relocation proc
+      that re-bases its share of the run's descriptors.
     - The 32KB-step form (`MX_FH32`, the Video Player's ring) overlaps its
       windows, so a window would straddle the hole. It is never bridged.
     - The callers today are `apps/video/video.asm` (32KB-step, so unchanged)
-      and the C SDK's `os88_mem_huge`, so the census is small. Whether a
-      plain huge claim may come back bridged by default is 14.72.4's
-      question 2.
-  - **A conventional reserve.** Some memory must stay conventional however
-    much a program wants: the read-ahead landing, the reflection's bounce,
-    the DMA doors, a re-homed program's carve, and a DOS trip's arena. The
-    whole-memory answer stops short of a reserve the kernel keeps for them.
-    Its size is measured in the wave and set by the owner (14.72.4's
-    question 1).
-  - Without the bridge the goal is already met as two claims: an
-    `OS88_HIGHMEM` huge claim for the pool, then a huge claim with CX = 1000h
-    for conventional memory, which every kernel has.
+      and the C SDK's `os88_mem_huge`. The census is of those, and of
+      anything a C package does with a huge claim's segment besides
+      stepping it by CX.
+  - **The conventional reserve: 64K** (14.72.5 is the measurement and the
+    reasoning). The whole-memory answer leaves that much of conventional
+    memory free, as one run at the BOTTOM of the free space, which is where
+    MC7 puts identity claims.
   - Rows: a new one on a 4MB machine (Bochs, and `vm/286-mega` for the 286).
     Ask, claim exactly the answer, write and read a pattern through every
-    window including the seam, free it, and ask again; the answer must
-    equal the free figure the Task Manager shows. Plus `megavidbig` and
-    `megavidv2`, which must see no change.
+    window including the seam, then with the claim held open the Control
+    Panel and hibernate. Free it and ask again; the answer must equal the
+    free figure the Task Manager shows. Plus `megavidbig` and `megavidv2`,
+    which must see no change.
 - [ ] **MC6 - an LDT that starts small and grows** (14.70.1 *The LDT can
   start small*).
   - Census first: every site that builds a code alias by identity
@@ -10815,27 +10842,47 @@ the owner prefers), and **MC9**, the "still low" register, a round of its own.
   - Buys ~14K, ESTIMATED.
   - Rows: `megaflt`, `megaovl`, `megarehome`, `megahiber`, `megap2hiber`,
     `megatrap0`, and a new row that opens programs until the LDT must grow.
-- [ ] **MC7 - the GDT** (14.70.1 *The GDT is a 1:1 table*).
-  - **Phase A, after a census:**
-    - Every load of an identity selector from A000h up. That covers the
-      video segments behind `[vid_*]`, the ROM font at F000, the Task
-      Manager's ROM scan (78 of the 106 accessed entries, `tm_romscan`),
-      any EMS page frame, and any package that writes A000h or B800h itself
-      inside an fsx bracket instead of taking `FSI_*`'s segment.
-    - The kernel's scratch and code selectors at FFD0h-FFF8h, which sit at
-      the top only because those ROM segments are never loaded.
-  - With those moved to allocated selectors, or for rare loads fixed up the
-    way `mega_oddsegf` already serves an off-grid segment, the GDT ends at
-    the top of conventional memory: ~5,136 entries, ~40K. Buys ~24K,
-    ESTIMATED until the census says what traps.
-  - **Phase B, the owner's call, not to be built on assumption:** 4-8K
-    means a conventional segment is no longer its own selector. The package
-    ABI hands packages segment values they do arithmetic on, and that is why
-    13.6's unclean packages run low at all. Price it from the census and put
-    it to the owner with phase A's figure beside it.
+- [ ] **MC7 - a GDT the size of what is used** (14.70.1 *The GDT is a 1:1
+  table*; 14.72.6 is the owner's decision and the repercussions).
+  - **Why 64K today.** A conventional segment is its own selector, so the
+    GDT must reach the highest segment anything loads: the ROM at F000, the
+    scratch selectors at FFD0h-FFF8h, the video segments, and every
+    paragraph of conventional memory up to 9FFFh. 14.70.1 measured 106
+    entries used out of 8,192.
+  - **The design: identity only where it is needed, and only as far up as
+    it is used.**
+    - The kernel's low area keeps its identity selectors. That is segment 0
+      to the heap floor, 1060h on this build: 524 entries, 4.2K.
+    - The scratch and code selectors at FFD0h-FFF8h move into the LDT (they
+      are written through `MEGA_SEL_WIN` today; `MEGA_SEL_LDTD` reaches the
+      LDT the same way), so nothing pins the GDT's top.
+    - Video, the ROM font, the Task Manager's ROM scan, any EMS page frame:
+      allocated selectors, or for a rare load a fixup in the shape of
+      `mega_oddsegf`. The census of every load from A000h up decides which.
+    - **Conventional claims split by what their holder does with the value.**
+      - A claim whose holder is declared clean (an `OS88_HIGHMEM` package,
+        a bridged piece, a kernel cache that is only ever a segment
+        register) gets an LDT selector and is placed top-down. It never
+        touches the GDT.
+      - Everything else keeps an identity selector and is placed BOTTOM-UP
+        from the floor, and the GDT grows to cover the highest one in use.
+        "Everything else" is the default, because it is the safe answer:
+        packages that do paragraph arithmetic, drivers' conventional claims,
+        the kernel's buffers that reach the BIOS or DMA, re-homed carves,
+        DOS.O88's arena.
+    - The GDT is a pool block (MC2, MC3). It grows by claiming a bigger
+      block, copying and `lgdt`, and shrinks by lowering the limit and
+      giving the tail back. At boot it is sized to cover the floor plus the
+      reserve (MC5's 64K): ~1,036 entries, ~8K.
+  - **What it buys:** 64K -> ~8K on a quiet machine, 56K of every kern_mega
+    machine's pool, and on a 1MB machine (384K extended) that is 15% of the
+    pool. A big unclean conventional user grows it back toward ~40K for as
+    long as it runs (14.72.6, repercussion 1).
   - Rows: `megagrid`, `megapkg`, `megaflt`, `megavidbig`, `megavidv2`,
-    `tmowner`, and the adapters' boots under `make mega` (VGA, and Hercules
-    and CGA through `vm/286-mega`).
+    `megarehome`, `megadosp`, `megahiber`, `tmowner`, and the adapters' boots
+    under `make mega` (VGA, and Hercules and CGA through `vm/286-mega`). A new
+    row starts DOS.O88 and PiXEL, asserts the GDT grew, closes them and
+    asserts it shrank.
 - [ ] **MC8 - 14.69's three, small and independent.**
   - RAMDISK.DRV's `rd_fold` and NET.DRV's `net_norm` stop folding
     paragraphs into a kern_mega selector. That is a correctness fix, but it
@@ -10855,15 +10902,15 @@ the owner prefers), and **MC9**, the "still low" register, a round of its own.
   - BIGSP in place stays with the Video Player round (14.60).
   - `mx_tab` stays low by the owner's deferral (14.51).
 
-**The whole round, if MC1-MC7 phase A land as estimated:** about 150K of the
-fixed area's 256K comes back to programs (50 + 64 + 14 + 24), plus whatever
-caches are standing when a claim needs them, and every free byte can be had
-by one claim. `.mega` grows by the waves' code, against
-`tests/megaseg.txt`'s allowance (3,456 of 4,029 used at 14.71), which MC2,
-MC3 and MC5 may well exhaust; raising it is the owner's call and not a
-build fix. Per the Testing section of CLAUDE.md, each wave verifies on the
-host and NAMES its rows; the deduplicated union of the rows above runs once,
-after the last wave, with `test-full`.
+**The whole round, if MC1-MC7 land as estimated:** about 190K of the fixed
+area's 256K comes back to programs (50 padding + 64 HMA + 14 LDT + 56 GDT),
+plus whatever caches are standing when a claim needs them, and every free
+byte but the 64K reserve can be had by one claim. `.mega` grows by the
+waves' code, against `tests/megaseg.txt`'s allowance (3,456 of 4,029 used
+at 14.71), which MC2-MC5 and MC7 will exhaust; raising it is the owner's
+call and not a build fix. Per the Testing section of CLAUDE.md, each wave
+verifies on the host and NAMES its rows; the deduplicated union of the
+rows above runs once, after the last wave, with `test-full`.
 
 #### 14.72.4 The owner's two additions (2026-10-25)
 
@@ -10875,10 +10922,11 @@ after the last wave, with `test-full`.
    MC3, and it is the right shape. One free run that ends at 1MB is the
    only layout in which the HMA is reached last, a hole the tables give back
    joins the free memory, and a pinned block stops walling it. The one
-   thing it needs that the owner's sentence does not say is the
-   pinned/movable rule in MC3. With "everything top-down" alone, a pinned
-   block placed late lands below the movable ones and walls the run as
-   badly as today's slots do.
+   thing it needs that the owner's sentence does not say is what MC3 calls
+   the no-pinning pass. With "everything top-down" alone, a block that
+   cannot move, placed late, lands below the movable ones and walls the run
+   as badly as today's `XMEM_ALLOC` blocks do; the pass leaves almost nothing
+   that cannot move.
 2. *"On a 4MB system that gives 3.3MB above 1MB, a single claim could take
    all of the 3.3MB the system isn't using, and then all of the 640K the
    system isn't using in a second claim (or if we can bridge the two into
@@ -10890,16 +10938,116 @@ after the last wave, with `test-full`.
    after), SOUND.DRV and HDD.DRV (~16K) and an open Task Manager leave about
    3.28MB for one claim.
 
-**Questions for the owner:**
+**Questions for the owner**, all answered in 14.72.6.
 
-1. **The conventional reserve.** How much conventional memory may a
-   whole-memory claim NOT take? The wave measures what the kernel's
-   low-only transients actually use; the owner sets the figure.
-2. **Bridging by default?** A plain huge claim would come back bridged
-   whenever the pool alone is short, invisibly to a package that walks by
-   CX as the ABI says. The alternative is an opt-in bit. Default-on is
-   recommended after the census of `os88_mem_huge`'s callers.
-3. **A DOS trip while one program holds everything.** The park has nowhere
-   to save the HMA, so the trip refuses. Is that acceptable, or should the
-   park fall back to 14.43's save-to-disk?
-4. Still open from the first pass: GDT phase B (MC7), and when MC8 goes in.
+#### 14.72.5 Measured: what the kernel needs in conventional memory when a program holds everything (2026-10-25)
+
+The owner's question 1 asked for a measured reserve. Taken once, because it
+decides a design (the Testing rule's exception), under Bochs 2.7 on this
+branch at `543827bd`. The machine was kern_mega with SOUND.DRV and HDD.DRV
+mounted, an SB16, booted off C: with the system files beside it so
+HIBER.DRV can write there, and `build/megaapps.img` in B:. The script is
+`tools/megaconvres.py`. It is NOT a suite row; MC5's row is the one that
+keeps the reserve honest.
+
+**How.** After the desktop came up, every free KB of the pool was covered
+by pinned `mx_tab` records written through the debugger: a program holding
+all of extended memory, as MC5 will allow. Then ordinary actions, sampling
+`mem_tab` every few tens of milliseconds for every claim not owned by an
+instance. Two machines: 16MB (pool 15,104K) and 4MB (pool 2,816K, the
+owner's example). Both read the same.
+
+| action, pool full | kernel claims in conventional memory | total |
+|---|---|---|
+| idle desktop | `P_RAHB` 5K (the read-ahead landing: the bounce every reflected disk transfer uses) | 5K |
+| open B:, then a folder | + `P_FATW` 5K (B:'s FAT window), `P_ICO` 5K (the icon store) | 15K |
+| open the Control Panel | + `K_MOD` 15K (CTRL.DRV), `P_WSAVE` 30K (its raise cache) | 60K |
+| System > Hibernate (dialog) | + `K_MOD` 11K (HIBER.DRV), a second `P_WSAVE` 22K | 93K |
+| Hibernate | **REFUSED** with the pool full; completes in ~20 s with the same machine unfilled | - |
+| a file copy (by reading `fcp_claim`) | `K_COPY`: whatever is free up to 64K, never less than 3K or one cluster | 3K+ |
+| the hibernate's write (by reading `hbm_xbounce`) | `K_HIB` 32K, page-safe, claimed after the picture | 32K |
+
+With the pool free, the same session's kernel claims in conventional
+memory are `P_RAHB` alone, 5K: everything else goes above 1MB.
+
+**What the table says.**
+
+- **The raise caches are most of it and none of it is needed.** `P_WSAVE`
+  is TRIV, the cheapest level. A whole-memory claim outranks it, so it is
+  shed, and a window then raises by repainting instead of from a copy.
+  The icon store is TRIV too. They are not reserved.
+- **The rest is needed to do anything at all.** After a whole-memory claim
+  sheds the caches, the next disk access re-claims the landing and a FAT
+  window, 10K. Opening the Control Panel needs CTRL.DRV, 15K. The
+  hibernate, which is the owner's way out when the park has no room
+  (question 3), needs HIBER.DRV (11K) and its 32KB bounce together.
+- **The worst case that must work is the hibernate: 5 + 5 + 11 + 32 =
+  53K.** The Control Panel path is 25K.
+
+**Recommendation: reserve 64K, one run.** The reasoning is 53K plus the
+64KB DMA page, not a round number. Every conventional claim is page-safe,
+so the 32KB bounce must sit inside one 64KB page. 64K is the smallest run
+in which a page-safe 32K block AND the other 21K are guaranteed to fit
+wherever the run happens to lie: a 64K run straddles at most one page
+boundary, one side of it is at least 32K, and the remaining 32K holds the
+21K. A 53K run can fail that: with the boundary near its middle, neither
+side holds 32K. The copy buffer takes what is left, and runs with less.
+
+What it does NOT cover, on purpose:
+
+- **Launching another program.** It has no pool to run in anyway.
+- **Mounting a driver mid-session.** It refuses with its usual reason.
+- **The holding program's own DMA ring.** It should claim that before
+  asking for everything; MC5's note to package authors says so.
+
+**A smaller option, if 64K is too much:** 32K covers the Control Panel path
+(25K) and not the hibernate. Taking the hibernate under 32K means a smaller
+bounce, and `HBX_CHUNK` is also the image file's chunk, so that is a format
+change and a slower hibernate. Not recommended.
+
+**The finding beside the measurement: a kern_mega hibernate cannot run with
+the pool full.** It is by design. `hbm_xplan` refuses unless a resume could
+read the whole file into one free block above 1MB, and when a program holds
+everything there is no such block. That is why MC4 now carries a streaming
+resume. Also measured on the way: with the placeholder block standing for
+15MB of a held pool, the hibernate set out to write all 15MB. The image is
+the size of the memory in use, which on a big machine is a big file.
+
+#### 14.72.6 The owner's answers (2026-10-25)
+
+1. **The reserve:** measure it and recommend. 14.72.5: **64K**, one run, at
+   the bottom of the free conventional space.
+2. **Bridge by default.** MC5 says so.
+3. **A DOS trip with nowhere to park falls back to the hibernate** (*"it
+   works so why not let the user do it?"*). It does not work in that state
+   today (14.72.5), so MC4 carries the streaming resume that makes it.
+4. **The GDT is shrunk to what is used, not 64K**, *"even more for a 1MB
+   total RAM system. If this has bad repercussions let me know what and
+   we'll decide."* MC7 is the design. Its repercussions:
+   1. **The GDT grows with the biggest unclean conventional user.** A
+      program that keeps identity selectors (DOS.O88's arena, PiXEL, a
+      re-homed Word or Scribe carve) is placed bottom-up from the floor and
+      the GDT reaches its top, so DOS.O88 with a 400K arena takes the GDT
+      back to ~30K for as long as it runs. It shrinks again after.
+   2. **Growing needs pool room.** With a whole-memory claim held, the GDT
+      cannot grow, so an identity claim refuses even where conventional
+      memory has room. The GDT's boot size covers the floor and the 64K
+      reserve, so the kernel's own needs never hit this; a second unclean
+      program launched beside a whole-memory claim does, with an "out of
+      memory" that is literally true.
+   3. **A wild segment load now faults.** A package that computes a
+      segment past its own claim used to read whatever was there; above
+      the GDT's limit it is a `#GP`, reported, and the package is closed
+      (14.42). That is a defect being found rather than caused, but it can
+      show up in the field as a package that "worked before".
+   4. **Segments from A000h up** (video, ROM font, the Task Manager's ROM
+      scan, EMS frames, any package that writes A000h or B800h itself) go
+      through allocated selectors or a fixup. A fixup on a hot path is
+      slow, so the census must find every hot one and convert it.
+   5. **Hibernate and park formats** carry the GDT's size; images from
+      before are refused.
+   6. **Bytes**: `.mega` grows, and with MC2-MC5 it will pass
+      `tests/megaseg.txt`'s allowance (the owner's call to raise it).
+
+   None of these looks bad enough to stop for. 1 and 3 are the ones a user
+   could notice, and 3 is a defect surfacing.
