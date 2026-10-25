@@ -1679,9 +1679,11 @@ rows. Nothing is recorded as built that was not.
   back through the replayer, the card's capture music and not noise, red
   with the packages before (`CLOSED TRACKER 0D`, `CLOSED MIDIRack 0D`);
   `trackmove`'s new 5b, red with the window loop out of `trk_reloc`.
-  **OPEN, not this change: SOUND.DRV answers MIDIRack's stream open with 2
-  under kern_mega on Bochs**, the synth as well as the wavetable and on the
-  packages before too, so MIDIRack has not been heard on kern_mega.
+  **Was OPEN here, and is CLOSED by THE STREAM DOOR above:** SOUND.DRV
+  answered MIDIRack's stream open with 2 under kern_mega on Bochs, the synth
+  as well as the wavetable, and with the packages from before this change
+  too. It was the kernel's door and not the driver. `megamod`'s mrsb leg
+  now hears the synth.
   **LEMMINGS (2026-10-25) - DONE (item 3), one shared path.** Its 96KB
   style bank and 125KB T claim are reached through windows made once at
   the claim by a new C SDK call, `os88_seg_sub` (OSAPI_SEG's SEG_SUB;

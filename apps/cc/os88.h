@@ -1040,9 +1040,9 @@ int os88_snd_tone(int hz, int ticks, int prio);  /* hz 0 = off, ticks 0 = until
  * A _seg base MUST BE 512-BYTE ALIGNED (SPEC.md 2.1.1: every disk-visible
  * base is): a claim's own base is (the kernel's guard 6b - KB-granular
  * blocks from a 512-aligned heap), and so is any offset into it that is a
- * multiple of 0x200 (seg + 0x20, + 0x40, ...; on kern_mega an OS88_HIGHMEM
- * package's claim is a selector and takes no arithmetic at all - use the
- * _segoff forms below) - but seg + 0x10 is NOT, and
+ * multiple of 0x200 (seg + 0x20, + 0x40, ...; under kern_mega's protected
+ * mode EVERY claim is a selector and takes no arithmetic at all - use the
+ * _segoff forms below, or os88_seg_sub) - but seg + 0x10 is NOT, and
  * int 13h answers a run that then straddles a 64KB physical page with
  * error 09h on real hardware, which QEMU never shows. Read to an aligned
  * offset and move the bytes yourself if they must sit elsewhere (SPEC.md
@@ -1221,7 +1221,10 @@ unsigned os88_mem_regrow(unsigned seg, int kb);  /* 0 = refused and the old
  * first segment or selector; os88_mem_huge_step() is what to add to it for
  * each 64KB - 0x1000 on a real-mode kernel, 8 under kern_mega's protected
  * mode, where every claim is a run of selectors. base + k * step is the one
- * segment arithmetic a claim allows, and only a huge claim allows it */
+ * segment arithmetic a claim allows, and only a huge claim allows it.
+ * Never pass kb = 0: that is OSAPI_MEM_HUGE's ASK (KERN-MEGA-MEMORY-PLAN
+ * MC5), which answers in AX and claims nothing, and this wrapper returns DX,
+ * so on kern_mega it would hand back a value that is no claim */
 unsigned os88_mem_huge(int kb);
 unsigned os88_mem_huge_step(void);
 /* os88_seg_para - the PARAGRAPH under a segment or selector below 1MB:
