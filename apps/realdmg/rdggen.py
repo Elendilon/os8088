@@ -2476,16 +2476,19 @@ cnt_cph:
 """,
     0x45: """
 ; tr_lpes's last: DX = CS, an extra tier's code selector (REALDMG-SPEC
-; 16.2.5) - all RT_XMAX of the pairs, as one past S_JITXN names its own
-; segment as rightly - or CS itself, for any other host
+; 16.2.5) - the pairs up to the table's zero (rt_init clears it; one past
+; S_JITXN names its own segment as rightly) - or CS itself, for any other
+; host, which stops at the first entry
 tr_lpx:
     mov bx,S_JITXT
 .x:
+    cmp word [ss:bx],0
+    je .no
     cmp dx,[ss:bx+2]
     je .xh
     add bx,4
-    cmp bx,S_JITXT + RT_XMAX * 4
-    jb .x
+    jmp short .x
+.no:
     mov es,dx
     jmp tr_lpok
 .xh:

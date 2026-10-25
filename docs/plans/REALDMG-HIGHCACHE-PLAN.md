@@ -1,6 +1,13 @@
 # REALDMG-HIGHCACHE-PLAN - the recompiler's cache segments above 1MB on kern_mega
 
-**Status: PLAN, nothing built** (written 2026-10-25 on `mega-dmg`). It
+**Status: R1 to R4 BUILT (REALDMG-SPEC 16.2.6); R5 waits on the kernel**
+(written 2026-10-25 on `mega-dmg`, built the same day). K1 was supplied by
+the memory round as `SEG_SUBC`; R2 took one `OSAPI_XMEM_ALLOC` block rather
+than an `OSAPI_MEM_HUGE` claim, so it needed neither MC5 nor a claim
+record; the setting is the arm's Machine > Cache: All. R5, freeing the
+cache before a hibernate, needs a package-visible hibernate notice
+(KERN-MEGA-MEMORY-PLAN 8.4) and is the one step left. The rest of this
+file is the plan as written. It
 follows REALDMG-SPEC 16.2.5, which is built: kern_mega's arm of RealDMG
 runs its round robin over a TABLE of cache tiers and fills that table from
 conventional memory. This plan fills it from extended memory instead. It

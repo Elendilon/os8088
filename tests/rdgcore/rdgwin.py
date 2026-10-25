@@ -90,14 +90,14 @@ def find1(b):
     for o in range(0, len(mem) - 32, 16):
         if mem[o:o+2] == b"O8" and mem[o+16:o+23] == b"REALDMG":
             v = int.from_bytes(mem[o+vo:o+vo+2], "little")
-            if v and int.from_bytes(b.memr(v*16 + 0x4012, 2), "little") == v:
+            if v and int.from_bytes(b.memr(b.lin(v) + 0x4012, 2), "little") == v:
                 core = int.from_bytes(mem[o+vo+2:o+vo+4], "little")
                 return (0x10000 + o) >> 4, v, core
     raise SystemExit("rdgwin: no running REALDMG with a view found")
 
 
 def frames(b, view):
-    return int.from_bytes(b.memr(view*16 + 0x403E, 2), "little")
+    return int.from_bytes(b.memr(b.lin(view) + 0x403E, 2), "little")
 
 
 def bss_off(name):
@@ -124,7 +124,7 @@ def bankstat(b, seg):
 
 def jitstat(b, view):
     """S_JITFL, S_JITNB and S_JITSEG (rdgdefs.inc): flushes, blocks, the cache"""
-    m = b.memr(view*16 + 0x40C8, 8)
+    m = b.memr(b.lin(view) + 0x40C8, 8)
     return tuple(int.from_bytes(m[k:k+2], "little") for k in (0, 2, 4, 6))
 
 
@@ -135,7 +135,7 @@ def overlay(b, seg):
 
 def profile(b, seg, core, n, view=0):
     import os88sym
-    jit = int.from_bytes(b.memr(view * 16 + 0x40CC, 2), "little") if view else 0
+    jit = int.from_bytes(b.memr(b.lin(view) + 0x40CC, 2), "little") if view else 0
     psyms = rdgprof.labels(LST)
     pk = [o for o, _ in psyms]
     csyms = rdgprof.labels(CORELST) if os.path.exists(CORELST) else []
@@ -194,19 +194,19 @@ def profile(b, seg, core, n, view=0):
         elif seg*16 <= ip < seg*16 + size:
             k = bisect.bisect_right(pk, ip - seg*16) - 1
             hits["pkg " + (psyms[k][1] if k >= 0 else "?")] += 1
-        elif jit and jit*16 <= ip < jit*16 + 0x10000 and ((ip - jit*16) >> 8) in tails:
-            k = bisect.bisect_right(ck, ip - jit*16) - 1  # the core's tails, copied
+        elif jit and b.lin(jit) <= ip < b.lin(jit) + 0x10000 and ((ip - b.lin(jit)) >> 8) in tails:
+            k = bisect.bisect_right(ck, ip - b.lin(jit)) - 1  # the core's tails, copied
             hits["tail " + (csyms[k][1] if ck and k >= 0 else "?")] += 1
-        elif jit and jit*16 <= ip < jit*16 + 0x10000:
+        elif jit and b.lin(jit) <= ip < b.lin(jit) + 0x10000:
             hits["jit code"] += 1
-            jips.append(ip - jit*16)
-        elif core*16 <= ip < core*16 + 0x10000:
-            k = bisect.bisect_right(ck, ip - core*16) - 1
-            hits["core " + (csyms[k][1] if ck and k >= 0 else "%02X" % ((ip - core*16) >> 8))] += 1
+            jips.append(ip - b.lin(jit))
+        elif b.lin(core) <= ip < b.lin(core) + 0x10000:
+            k = bisect.bisect_right(ck, ip - b.lin(core)) - 1
+            hits["core " + (csyms[k][1] if ck and k >= 0 else "%02X" % ((ip - b.lin(core)) >> 8))] += 1
             pc = r["esi"] & 0xFFFF                  # SI: the Game Boy's PC
             where["ROM0" if pc < 0x4000 else "ROMX" if pc < 0x8000 else
                   "HRAM" if pc >= 0xFF80 else "RAM"] += 1
-            bk = b.memr(view * 16 + 0x4035, 1)[0] if 0x4000 <= pc < 0x8000 else None
+            bk = b.memr(b.lin(view) + 0x4035, 1)[0] if 0x4000 <= pc < 0x8000 else None
             wpc["%s%04X" % ("%02X:" % bk if bk is not None else "", pc & 0xFFF0)] += 1
         elif ip >= 0xF0000:
             hits["BIOS"] += 1
@@ -241,7 +241,7 @@ def profile(b, seg, core, n, view=0):
             for k, (o, pc, bk) in enumerate(blocks):
                 if "%02X:%04X" % (bk, pc) == k0:
                     end = offs[k + 1] if k + 1 < len(offs) else o + 512
-                    code = b.memr(jit * 16 + o, min(end - o, 1024))
+                    code = b.memr(b.lin(jit) + o, min(end - o, 1024))
                     tmp = os.path.join(ROOT, "build", "realdmg", "rdgwin.dump")
                     open(tmp, "wb").write(code)
                     dis = subprocess.run(["ndisasm", "-b16", "-o", str(o), tmp],
@@ -480,9 +480,9 @@ def measure(b, o):
         b.cmd("step 2000")
         f0, t0 = frames(b, view), b.cmd("info").get("ms")
         j0 = jitstat(b, view)
-        rcy0 = int.from_bytes(b.memr(view*16 + 0x482F, 2), "little")     # S_JITRCY
+        rcy0 = int.from_bytes(b.memr(b.lin(view) + 0x482F, 2), "little")     # S_JITRCY
         bk0 = bankstat(b, seg)
-        e0 = int.from_bytes(b.memr(view*16 + 0x408A, 2), "little")     # S_EVCOUNT
+        e0 = int.from_bytes(b.memr(b.lin(view) + 0x408A, 2), "little")     # S_EVCOUNT
         if o.persec:                            # a second at a time
             per, fp = [], f0
             ovo = bss_off("rw_ovltxt")          # ...and the F1 line, as the
@@ -495,7 +495,7 @@ def measure(b, o):
                 ov = b.memr(seg*16 + ovo, 16).split(b"\0")[0].decode("latin-1") \
                     if ovo is not None else "?"
                 rows.append((per[-1], ov,
-                             int.from_bytes(b.memr(view*16 + 0x482F, 2), "little"),
+                             int.from_bytes(b.memr(b.lin(view) + 0x482F, 2), "little"),
                              bankstat(b, seg)))
             print("rdgwin: each second, %% of real time: %s; least %.0f%%, most %.0f%%" % (
                 " ".join("%.0f" % p for p in per), min(per), max(per)))
@@ -508,7 +508,7 @@ def measure(b, o):
             b.cmd("step %d" % int(o.secs * 1000))
         f1, t1 = frames(b, view), b.cmd("info").get("ms")
         j1 = jitstat(b, view)
-        e1 = int.from_bytes(b.memr(view*16 + 0x408A, 2), "little")
+        e1 = int.from_bytes(b.memr(b.lin(view) + 0x408A, 2), "little")
         ov = overlay(b, seg)
         secs = (t1 - t0) / 1000.0
         n = (f1 - f0) & 0xFFFF
@@ -522,16 +522,16 @@ def measure(b, o):
         print("rdgwin: recompiler %s - %d blocks translated (%d bytes each), %d flushes in the span"
               % ("on" if j1[2] else "off", nb, ((j1[3] - j0[3]) & 0xFFFF) * 16 // max(nb, 1),
                  (j1[0] - j0[0]) & 0xFFFF))
-        sb = b.memr(view*16 + 0x4812, 2)                        # S_JITSEGB, S_JITSW
+        sb = b.memr(b.lin(view) + 0x4812, 2)                        # S_JITSEGB, S_JITSW
         if int.from_bytes(sb, "little"):
             print("rdgwin: a second cache segment (REALDMG-SPEC 16.2.1), %d moves into it "
-                  "so far" % int.from_bytes(b.memr(view*16 + 0x4816, 2), "little"))
-        xn = b.memr(view*16 + 0x48BF, 1)[0]                      # S_JITXN
-        rcy1 = int.from_bytes(b.memr(view*16 + 0x482F, 2), "little")
+                  "so far" % int.from_bytes(b.memr(b.lin(view) + 0x4816, 2), "little"))
+        xn = b.memr(b.lin(view) + 0x48BF, 1)[0]                      # S_JITXN
+        rcy1 = int.from_bytes(b.memr(b.lin(view) + 0x482F, 2), "little")
         print("rdgwin: %d extra cache tiers (REALDMG-SPEC 16.2.5); %d tiers recycled in the "
               "span, %d so far" % (xn, (rcy1 - rcy0) & 0xFFFF, rcy1))
         if o.static is not None:
-            fx = b.memr(view*16 + 0x40F6, 1)[0]                  # S_JITFIX
+            fx = b.memr(b.lin(view) + 0x40F6, 1)[0]                  # S_JITFIX
             npo = bss_off("rw_npre")
             npre = int.from_bytes(b.memr(seg*16 + npo, 2), "little") if npo else -1
             print("rdgwin: Static - %d blocks preloaded, table %s" % (

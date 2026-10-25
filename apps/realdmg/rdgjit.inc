@@ -119,7 +119,22 @@ rt_init:
     mov [S_JITSEGB],cx
     mov [S_JITHSEG],bx
 %ifdef RDG_XTIER
-    mov byte [S_JITXN],0            ; (the extra tiers: rt_more's, after)
+    mov byte [S_JITXN],0            ; (the extra tiers: rt_more's, after -
+    push ax                         ;   the table cleared to its terminator,
+    push cx                         ;   so no stale pair is found by tr_lpx
+    push di                         ;   or rt_xlat)
+    push es
+    push ds
+    pop es
+    mov di,S_JITXT
+    mov cx,RT_XMAX * 2 + 2
+    xor ax,ax
+    cld
+    rep stosw
+    pop es
+    pop di
+    pop cx
+    pop ax
 %endif
     mov [S_HMASK],dl
     push es
@@ -195,6 +210,7 @@ rt_more:
     mov [S_JITXT+bx],ax
     mov [S_JITXT+bx+2],dx
     call rt_init.tails
+    mov word [es:0FFF0h],0          ; (not written: no generation, R1)
     clc
 .r:
     pop es
@@ -279,6 +295,21 @@ rt_flush:
     jb .g                           ;   nothing, every link forgotten with
     mov word [S_JITGNX],0           ;   the table - 16.2.3)
 .g:
+%ifdef RDG_XTIER
+    mov cl,[S_JITXN]                ; every tier's generation 0: none is
+    add cl,3                        ;   written since this flush (R1 - a
+.z:                                 ;   tier is written when it is not 0)
+    dec cl
+    mov al,cl
+    call rt_tseg
+    or ax,ax
+    jz .zn
+    mov es,ax
+    mov word [es:0FFF0h],0
+.zn:
+    or cl,cl
+    jnz .z
+%endif
     mov ax,[S_JITSEGA]
     mov byte [S_JITTIER],0
     mov byte [S_JITUSED],1
@@ -1659,10 +1690,18 @@ rt_room:
     call rt_tseg                    ; AX = its segment, 0: none
     or ax,ax
     jz .nt                          ; (tier 0 always has one)
+%ifdef RDG_XTIER
+    push es                         ; written since the flush: its
+    mov es,ax                       ;   generation, which rt_flush zeroed
+    cmp word [es:0FFF0h],0          ;   (R1 - any count of tiers, where a
+    pop es                          ;   bit a tier held eight)
+    je .fresh
+%else
     mov ch,1
     shl ch,cl
     test [S_JITUSED],ch
     jz .fresh
+%endif
     cmp cl,[S_JITTIER]              ; written before: the OLDEST, so it
     je .flush                       ;   goes - but a preload or a fixed
     mov dl,[S_JITPRE]               ;   table stops at a full cache (16.8),
@@ -1678,7 +1717,9 @@ rt_room:
     inc word [S_JITRCY]
     inc word [S_JITFL]
 .fresh:
+%ifndef RDG_XTIER
     or [S_JITUSED],ch
+%endif
     mov [S_JITTIER],cl
     pop cx
     inc word [S_JITSW]

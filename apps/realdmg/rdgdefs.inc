@@ -110,10 +110,14 @@ S_JITCS         equ 0x48E6          ; word: ...and S_JITSEG's (rt_tier)
 ; THE EXTRA TIERS (REALDMG-SPEC 16.2.5): cache segments past the second, tier
 ; 3 on - a host's (rt_more, a package part built RDG_XTIER), 0 of them for any
 ; other. Each is its DATA segment and its CODE selector (0: the same), and
-; RT_XMAX of them at most: S_JITUSED is a byte, a bit a tier
+; RT_XMAX of them at most, the table ending in a ZERO data word that the
+; core's tr_lpx stops at (a host with none scans one entry). A tier written
+; since the last flush is one whose generation word at FFF0h is not 0
+; (rt_flush zeroes them, RDG_XTIER's part) - S_JITUSED's byte, a bit a tier,
+; is what every other build still keeps (REALDMG-HIGHCACHE-PLAN R1)
 S_JITXN         equ 0x48BF          ; byte: how many
-S_JITXT         equ 0x48C0          ; RT_XMAX x 4: data, code
-RT_XMAX         equ 5               ;   (to 48D4; room to 48E0 for seven)
+S_JITXT         equ 0x7120          ; RT_XMAX x 4: data, code (7120-71FB),
+RT_XMAX         equ 55              ;   and 71FC its terminator, always 0
 RDG_DVMM         equ 0x48E8          ; byte: rdgppu's - the plane the VGA map
                                     ;   mask holds (ppu_dvga), FFh unknown
 RDG_BWST         equ 0x48E9          ; byte: rdgppu's - VGA's two-shades
@@ -142,7 +146,8 @@ RDG_BTAB         equ 0x6800          ; 512 words: a ROM bank's segment, or 0
 RDG_BUSE         equ 0x6C00          ; 512 words: the frame (S_FRAMES) it was
                                     ;   last switched to, the cache's
                                     ;   eviction (REALDMG-SPEC 10.3)
-                                    ; (7000-711F: rdgppu.inc's PPU_LSCR)
+                                    ; (7000-711F: rdgppu.inc's PPU_LSCR;
+                                    ;   7120-71FF: S_JITXT, below)
 JIT_HASH        equ 0x0000          ; 16,384, in a SEGMENT OF ITS OWN
                                     ;   (S_JITHSEG): the block table (tr_enter,
                                     ;   REALDMG-SPEC 16.3). The cache's 64KB

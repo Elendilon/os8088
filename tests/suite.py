@@ -16148,7 +16148,9 @@ SOAK = [
         "16.2.5's EXTRA TIERS: the arm rebuilt RT_SQUEEZE (~0.5KB a "
         "cache segment) must pass recycling at least once per tier, extra "
         "ones among them, each a SEG_SUBC pair - red with tr_lpx writing "
-        "through CS",
+        "through CS. And 16.2.6: every arm leg's extra tiers are one "
+        "extended-pool block, based above 1MB 64KB apart, and cache B is "
+        "above 1MB (OS88_HIGHMEM)",
         needs=("bochs", "nasm")),
     Row("pxsmega", "soak", py("tests/pxsmega.py"), 100.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.50: PIXELSTEIN 3D PLAYED on kern_mega "

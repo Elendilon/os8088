@@ -276,6 +276,18 @@ class Box(object):
             a = self._syms[name] = self.ksym(name)
         return a
 
+    def lin(self, seg):
+        """A segment's LINEAR base - or, on kern_mega (a megak map), an LDT
+        selector's, read out of its descriptor at [mega_ldtlin] (KERN-MEGA-
+        MEMORY-PLAN MC7: every claim is a selector there, so `seg * 16` is
+        some other memory). A real-mode kernel's segment may have bit 2 set
+        like any number, which is why the kernel decides and not the bit."""
+        if not (seg & 4 and "megak" in (self.kmap() or "")):
+            return seg * 16
+        ldt = self.memr(self.sym("mega_ldtlin"), 4)
+        d = self.memr(int.from_bytes(ldt, "little") + (seg & ~7), 8)
+        return d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24
+
     def word(self, name):
         b = self.memr(self.sym(name), 2)
         return b[0] | b[1] << 8

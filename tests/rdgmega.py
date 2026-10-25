@@ -43,17 +43,21 @@ asks OSAPI_SEG for every "claim + N" it uses:
 
   * ARM - its banks above 1MB in place (REALDMG-SPEC section 10.3.1), which
     it must say: bank 1's word in the bank table is a selector whose BASE is
-    at or above 1MB;
+    at or above 1MB. Every arm leg also asserts 16.2.6: at least one extra
+    tier, every one based above 1MB and 64KB apart (one pool block), and
+    cache B above 1MB (the arm declares OS88_HIGHMEM);
   * ONECLAIM - the arm built again here with RW_NOXPLAN (never shipped), so
     the cartridge goes in ONE conventional claim as on a machine with no
     extended memory, and its banks are SEG_SUB windows into it (rw_pmfill):
     bank 1's base below 1MB;
   * SQUEEZED - the arm built again here with RT_SQUEEZE (its image and its
-    recompiler part, -DRDG_XTIER -DRT_SQUEEZE - never shipped), so every
-    cache segment is 1KB and the core's holes sixteen, and cpu_instrs
+    recompiler part, -DRDG_XTIER -DRT_SQUEEZE - never shipped) and two
+    extra tiers rather than five (RW_XDEF=2: 0.5KB a tier, more of them
+    hold the whole test and the turn hardly comes round), so every
+    cache segment is 0.5KB and the core's holes sixteen, and cpu_instrs
     recycles round every tier, the EXTRA tiers kern_mega's arm takes out of
-    the heap the cartridge left (REALDMG-SPEC section 16.2.5) among them -
-    each a SEG_SUBC pair in the second segment's claim. It must pass, with
+    the extended pool (REALDMG-SPEC section 16.2.6) among them - each a
+    SEG_SUBC pair in one pool block. It must pass, with
     at least one extra tier, and RECYCLE at least as many times as there
     are tiers: the first turn fills them fresh, so that many recycles is
     every tier, each extra one among them, written, recycled with its links
@@ -112,14 +116,21 @@ def label_off(lst, name):
 S_BTAB1 = 0x6800 + 2             # RDG_BTAB's bank 1
 S_JITRCY = 0x482F
 S_JITXN = 0x48BF
-S_JITXT = 0x48C0
-RT_XMAX = 5
+S_JITXT = 0x7120                # (REALDMG-HIGHCACHE-PLAN R1: 55 of them)
+RT_XMAX = 55
 
 
 def lin(box, sel):
     """A segment's or a selector's LINEAR base (MC7: every claim is an LDT
     selector under kern_mega's protected mode)."""
     return box.sel_base(sel) if sel & 4 else sel * 16
+
+
+def a_pkg(pkg):
+    """True for --pkg's package, which is reported and not held to the
+    tier assertions (it may be from before them)"""
+    return os.path.basename(os.path.dirname(pkg)) not in (
+        "apps", "rdgone", "rdgsqz")
 
 
 def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
@@ -139,6 +150,7 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
     t0 = time.time()
     box = os88bochs.Box(out, [], bimg=disk, btype="1_44", build=t.dir)
     fails, text, bank1, b1lin, xn, rcy = [], "", 0, 0, 0, 0
+    xlin, blin = [], 0
     try:
         if not box.wait_for("kern_mega: protected mode", 300):
             return ["%s: kern_mega never reached protected mode" % name]
@@ -203,6 +215,11 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
                     coded.add(w)
                     if not w & 4:
                         coded.add((w >> 2) | 4)
+            segb = int.from_bytes(box.read(vb + S_JITSEGB, 2), "little")
+            blin = lin(box, segb) if segb else 0
+            for i in range(min(xn, RT_XMAX)):   # each extra tier's base
+                w = int.from_bytes(box.read(vb + S_JITXT + 4 * i, 2), "little")
+                xlin.append(lin(box, w) if w else 0)
             bank1 = int.from_bytes(box.read(vb + S_BTAB1, 2), "little")
             b1lin = lin(box, bank1) if bank1 else 0
     finally:
@@ -223,8 +240,11 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
           "(linear %06X)" % (name, " ".join("%04X" % c for c in sorted(coded)),
                              bank1, b1lin))
     print("rdgmega: %s: serial %r" % (name, " ".join(text.split())))
-    print("rdgmega: %s: %d extra cache tiers, %d tiers recycled"
-          % (name, xn, rcy))
+    print("rdgmega: %s: cache B at linear %06X" % (name, blin))
+    print("rdgmega: %s: %d extra cache tiers%s, %d tiers recycled"
+          % (name, xn, (" at " + " ".join("%06X" % x for x in xlin[:4]) +
+                        (" ..." if len(xlin) > 4 else "")) if xlin else "",
+             rcy))
     print("rdgmega: %s: %d traps after the launch - %d the region's and the "
           "kernel's, %d the core's or a cache's; %.0fs under Bochs"
           % (name, len(traps), len(region), len(other), time.time() - t0))
@@ -249,6 +269,20 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
     if where == "one" and not 0 < b1lin < 0x100000:
         fails.append("the one-claim arm's bank 1 is at %04X (linear %06X), "
                      "not in a conventional claim" % (bank1, b1lin))
+    # REALDMG-HIGHCACHE-PLAN R2 (REALDMG-SPEC 16.2.6): the extra tiers are
+    # 64KB windows of ONE extended-pool block - every one based at or above
+    # 1MB, 64KB apart - and an arm with the pool behind it has some
+    if where != "refuse" and not a_pkg(pkg) and xn < 1:
+        fails.append("no extra cache tier was taken from the pool")
+    if where != "refuse" and not a_pkg(pkg) and blin < 0x100000:
+        fails.append("cache B is at %06X, below 1MB: the arm declares "
+                     "OS88_HIGHMEM and its 64KB claims go to the pool" % blin)
+    if any(x < 0x100000 for x in xlin):
+        fails.append("an extra tier is based below 1MB: %s"
+                     % " ".join("%06X" % x for x in xlin))
+    if any(b - a != 0x10000 for a, b in zip(xlin, xlin[1:])):
+        fails.append("the extra tiers are not 64KB apart in one block: %s"
+                     % " ".join("%06X" % x for x in xlin))
     if squeeze and xn < 1:
         fails.append("no extra cache tier was claimed (REALDMG-SPEC 16.2.5)")
     if squeeze and rcy < 3 + xn:
@@ -257,12 +291,12 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
     return ["%s: %s" % (name, f) for f in fails]
 
 
-def variant(t, sub, define):
-    """the arm built again with DEFINE (RT_SQUEEZE, RW_NOXPLAN), into the
+def variant(t, sub, *defines):
+    """the arm built again with DEFINES (RT_SQUEEZE, RW_NOXPLAN), into the
     private tree"""
     d = os.path.join(t.dir, sub)
     os.makedirs(d, exist_ok=True)
-    nasm = ["nasm", "-f", "bin", "-w+error", "-D" + define]
+    nasm = ["nasm", "-f", "bin", "-w+error"] + ["-D" + x for x in defines]
     subprocess.check_call(nasm + [
         "-I", "apps/", "-I", "apps/realdmg/", "-I", "drivers/sound/",
         "-I", t.dir + "/", "-DPKG_MEGA", "-l", os.path.join(d, "realdmg.lst"),
@@ -312,7 +346,8 @@ def main():
             legs.append(("oneclaim",) + variant(t, "rdgone", "RW_NOXPLAN")
                         + ("one",))
         if not a.leg or "squeezed" in a.leg:
-            legs.append(("squeezed",) + variant(t, "rdgsqz", "RT_SQUEEZE")
+            legs.append(("squeezed",) + variant(t, "rdgsqz", "RT_SQUEEZE",
+                                             "RW_XDEF=2")
                         + ("high",))
         if a.leg:
             legs = [l for l in legs if l[0] in a.leg]

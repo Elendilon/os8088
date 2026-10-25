@@ -2555,6 +2555,70 @@ tier 3 on, in the same turn (0, the core's holes, 2, 3, 4... 0 again).
   runs (10.3.2).
 - **MEASURED** (86Box `286-mega`, 640KB conventional): see
   docs/reports/REALDMG-MEGA-TIERS-2026-10-25.md.
+- **SUPERSEDED under `CPU_F_PM` by 16.2.6**: the tiers are a pool block
+  there and cache B is not grown; what this section says of the core's side
+  (`rt_more`, the turn, `tr_lpx`) still holds, with the table moved.
+
+### 16.2.6 The extra tiers in the extended pool: kern_mega's arm
+
+docs/plans/REALDMG-HIGHCACHE-PLAN.md, R1 to R4, built on 16.2.5 and 10.3.2.
+**Under `CPU_F_PM` the extra tiers come out of the EXTENDED POOL, not the
+heap**, and the arm's claims of 64KB or less may go there too
+(`OS88_HIGHMEM`): the cartridge, the block table, cache B and every extra
+tier are above 1MB, and what is left in conventional memory is the parts
+carve (the core and the view) and cache A with the recompiler's part.
+
+- **The tiers are one pool block** (`rw_jitxget`): k x 64KB from
+  `OSAPI_XMEM_ALLOC`, one `OSAPI_XMEM_SEL` selector over its start, and a
+  `SEG_SUBC` pair a tier at n x 64KB from it (`rw_jitxset`, 10.3.2). No
+  claim record is spent (the block is the pool's; `MEM_OWNER_MAX` was why
+  16.2.5 grew cache B), cache B is a plain 64KB claim again, and freeing
+  the block (`rw_jitxfree`) takes the selector and every pair with it.
+- **How many**: `RW_XDEF` = 5 by default; **Machine > Cache: All** (the
+  arm's name for the item the shipped build calls Cache: 128K, the same bit
+  of REALDMG.CFG: every cache the machine affords - both 64KB segments in
+  real mode, the pool's tiers under `CPU_F_PM`) or **Static** (whose preload
+  stops at a full cache, 16.8) take up to `RT_XMAX` = 55. Either way the
+  pool keeps a quarter of what it has, `RW_XPRESKB` = 256KB at least, for
+  what runs beside. A setting changed during a game is the next game's.
+- **The table grows** (R1): `S_JITXT` is 55 pairs at 7120h-71FBh, the view's
+  free run after `PPU_LSCR`, with a ZERO word at 71FCh that the core's
+  `tr_lpx` stops at - so a host with no extra tiers (the shipped build, the
+  bare harness) scans one entry where it scanned five. `rt_init` clears it,
+  so no stale pair is found after a game closes.
+- **"Written since the flush" is a generation** (R1): a tier's word at FFF0h
+  is its generation (16.2.3), `rt_flush` zeroes every tier's and `rt_tier`
+  gives the one it enters a new one, so a tier is used when its word is not
+  0. `S_JITUSED`'s byte, a bit a tier, could count eight; the arm's part
+  (`RDG_XTIER`) uses the words, every other build keeps the byte.
+- **Cache B's code name** (16.2.4): `OS88_HIGHMEM` puts B in the pool as a
+  LONE data selector, which `OSAPI_MEM_CODESEL` refuses; `rw_csel` then asks
+  `SEG_SUBC` for a pair over it and answers the code half - a far jump
+  through B's data selector would be a #GP per transfer.
+- **A kernel defect it works round**: kern_mega's `OSAPI_FILE_READ` of a
+  whole 65,536-byte file into a 64KB claim in the pool fails ("read
+  failed"); 32KB into a 32KB one reads (measured on the memory branch at
+  `f068399f`, after its 64KB window-stepping fix). A cartridge in ONE claim
+  of exactly 64KB would land there now, so under `CPU_F_PM` the arm claims
+  it a KB larger, which keeps it conventional. Cartridge RAM (33KB at most)
+  and the profile read fine. The kernel is the place to fix it; the line
+  comes out when it is.
+- **A move** (R3): a pool block moves by rebase, so its tiers' selectors
+  stay right and the cache is not flushed. (Before, a conventional cache
+  segment's move ran `rt_init` and forgot every block.)
+- **What it does not do yet** (R5): a hibernate writes the pool block into
+  its image like any other - correct, 64KB a tier. Freeing it first and
+  taking it again after needs a package-visible hibernate notice the kernel
+  does not have (KERN-MEGA-MEMORY-PLAN 8.4). The link log (124 entries in
+  cache A, 16.2.3) is unchanged: a full log refuses a link, which is a
+  lookup per execution and not an error, and nothing has filled it yet.
+- **MEASURED** (docs/reports/REALDMG-HIGHCACHE-2026-10-25.md): Bochs,
+  `tests/rdgmega.py`, cpu_instrs passes under the recompiler with five pool
+  tiers based at F69000h.. 64KB apart and cache B at FB9000h, no trap in the
+  core or a cache; the owner's Kirby's Dream Land replay on 86Box `286-mega`
+  runs at **98.0%** of real time with no tier recycled, where the shipped
+  build on kern_big, Cache: 128K, reads 91.2% and recycles a tier at the
+  miniboss (52% for a second).
 
 ### 16.3 Blocks and tr_enter
 

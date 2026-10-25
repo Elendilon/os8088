@@ -41,9 +41,11 @@ rw_mtab:        dw rw_pseg, rdg_dmgseg, rw_jitseg, rw_jit2seg, rw_romseg
                 dw rw_slotseg, rw_ramseg, rw_prfseg, rw_logseg, rw_rpseg
                 dw 0
 %ifdef PKG_MEGA
-rw_jitx:        times RT_XMAX dw 0  ; the arm's extra cache tiers, or 0: the
-rw_jitxk:       db 0                ;   second segment's claim past its first
-%endif                              ;   64KB, [rw_jitxk] of them (16.2.5)
+rw_jitx:        times RT_XMAX dw 0  ; the arm's extra cache tiers' data
+rw_jitxk:       db 0                ;   halves, or 0, [rw_jitxk] of them:
+                                    ;   SEG_SUBC pairs in one pool block
+                                    ;   (rw_jitxget, REALDMG-SPEC 16.2.6)
+%endif
 
 ; rw_mpin - every claim of ours PINNED (OSAPI_MEM_MOVABLE AX = 0): around a
 ; call that can claim while one of their segments is in a register - a file
@@ -207,12 +209,10 @@ rw_mreloc:
     je rw_mjit
     ret
 .n7:
-    cmp bx, [rw_jit2seg]            ; ...and its second 64KB, with the arm's
-    jne .r                          ;   extra tiers in the same claim (16.2.5)
-    mov [rw_jit2seg], dx
-%ifdef PKG_MEGA
-    call rw_jitxset
-%endif
+    cmp bx, [rw_jit2seg]            ; ...and its second 64KB (the arm's
+    jne .r                          ;   extra tiers are a pool block's now,
+    mov [rw_jit2seg], dx            ;   rebased and not ours to put right,
+                                    ;   16.2.6)
     cmp [es:S_JITSEGB], bx
     jne .r
     ; on into rw_mjit
