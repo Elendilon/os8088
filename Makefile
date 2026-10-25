@@ -16898,7 +16898,13 @@ print-%:
 # list the live image would be built from - which is the whole point: PART A
 # is the half that must fail on the day a package is added, and `make usb`
 # needs the C toolchain and three fetches that a plain clone has none of.
-$(BUILD)/livepayload.txt: Makefile | $(BUILD)
+#
+# The recipe RUNS on every make, and the cmp keeps the file's mtime when the
+# list is unchanged. The Makefile alone is not its input: KERN_SMALL empties
+# $(SYSOPTIONAL), so a `make KERN_SMALL=1` left a list without CDRACK.O88
+# that the next plain `make` kept and t_livefull then failed.
+.PHONY: livepayload-force
+$(BUILD)/livepayload.txt: Makefile livepayload-force | $(BUILD)
 	@{ printf 'LIVEARGS %s\n' $(LIVEARGS); \
 	   printf 'ALLAPPSARGS %s\n' $(ALLAPPSARGS); \
 	   printf 'LIVESYSARGS %s\n' $(LIVESYSARGS); \
