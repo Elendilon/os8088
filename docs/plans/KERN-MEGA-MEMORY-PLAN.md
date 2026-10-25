@@ -1544,6 +1544,24 @@ rows. Nothing is recorded as built that was not.
   PIXELSTEIN's part answers 0, which degrades exactly as a refused part
   does (the bodies run from the image, no byte textures). ~10 bytes each,
   registered in `tests/megapkg.txt` as fail-safes.
+  **LEMMINGS (2026-10-25) - DONE (item 3), one shared path.** Its 96KB
+  style bank and 125KB T claim are reached through windows made once at
+  the claim by a new C SDK call, `os88_seg_sub` (OSAPI_SEG's SEG_SUB;
+  `seg + para` on every real-mode kernel): three over the bank (0, 32KB,
+  64KB) - `ovl_far` picks one by the offset's 32KB and answers a 16-bit
+  offset, and `lem_far_add` no longer renormalises - and four over T's
+  planes, which the raster reads from `_lem_tpl` by index in place of `T +
+  k*LEM_TPLANE`. The bank's second part and the special picture's pieces
+  go through the same windows, and `os88_onmove`'s table names them for a
+  real-mode move. MEASURED on MartyPC's XT: the quiet frame rate unchanged
+  at 3.75 fps, the compose and the preview picture slightly faster,
+  `lembench` equal or one tick faster. +94 image, +166 overlay, +14 bss;
+  the 360KB disk keeps its 53 levels with 48 bytes to spare (a hostile-
+  bank range check came out to make that, so a bad bank reads past its
+  claim in real mode as before, and is closed by the selector's limit on
+  kern_mega). Row `lemmega` (Bochs): Fun 1, a nuke and Fun 22's special
+  picture with no CLOSED or FAULT, red with either old sum put back. Not
+  run: CGA and Hercules under kern_mega, 86Box, the 720KB/360KB sets.
   **Paint (2026-10-25) - DONE, one shared path.** A canvas over 64KB under
   protected mode is laid out in `SEG_SUB` windows at fixed 32KB offsets
   (`pt_layout`'s `.win`): a row at file offset O is window O >> 15 at O &
