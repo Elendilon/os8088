@@ -2771,6 +2771,75 @@ def quiesce(m, read, guest=0.5, stable=2, budget=30.0,
         prog.check()
 
 
+HEAP_STEP = 20000               # cycles an advance while a compaction runs
+HEAP_MOST = 2000                # ...and how many: ~8.4 guest seconds
+
+
+def heap_read(m, read, what="a heap snapshot"):
+    """Answer `read(m)` off a guest that is PAUSED and NOT COMPACTING.
+
+        base, val = os88marty.heap_read(m, lambda mm: (seg(mm), byte(mm)))
+
+    **A HEAP ADDRESS AND THE BYTES IT NAMES ARE TWO READS**, and the guest
+    runs between them. A region, a driver image and every movable claim MOVE
+    under the compactor (SPEC.md 66) at any arena claim, so a row that takes
+    a segment out of one table and then reads through it can be told the old
+    base and handed whatever the move left there - a heap block copied down
+    is not scrubbed, so the stale read decodes as plausible rubbish rather
+    than as an error. How often that window is hit is a property of the BOX:
+    every debug round trip is longer on a loaded host and the guest runs on
+    across it, so a row that passed alone read a torn pair in a four-lane
+    soak (call5's `[dos_exit]` read 161 through a base the move had just
+    retired; dosest found SOUND.DRV's claim "nowhere").
+
+    So the guest is stopped for the whole of `read`, and `[mem_cp_busy]` -
+    up for the entire pass, copies and relocation procs alike - must be clear
+    first: a stop that lands mid-pass is stepped on in HEAP_STEP-cycle
+    advances until the pass is over. A kernel with no compactor has no such
+    word and is read at once. The guest resumes only if it was running.
+
+    Inside a bp_trace block the pump owns the stops and a pause from here
+    would take them from it, so there the snapshot is taken running and
+    repeated until two agree with the compactor idle either side - weaker,
+    but never a torn pair the caller is told is consistent.
+    """
+    busy = getattr(m, "_heap_busy_sym", False)
+    if busy is False:
+        try:
+            busy = m.sym("mem_cp_busy")
+        except (Exception, SystemExit):                     # noqa: BLE001
+            busy = None
+        m._heap_busy_sym = busy
+
+    def idle():
+        return busy is None or not m.read(busy, 1)[0]
+
+    if getattr(m, "_pumping", 0):
+        prog = _Progress(m, what, 30.0)
+        last = object()
+        while True:
+            if idle():
+                cur = read(m)
+                if idle() and cur == last:
+                    return cur
+                last = cur
+            prog.check()
+            time.sleep(0.01)
+    was = m.status().get("state") == "running"
+    m.pause()
+    try:
+        for _ in range(HEAP_MOST):
+            if idle():
+                return read(m)
+            m.advance(cycles=HEAP_STEP)
+        raise MartyError("%s: the heap compactor was still running after %d "
+                         "guest cycles ([mem_cp_busy] never cleared)"
+                         % (what, HEAP_MOST * HEAP_STEP))
+    finally:
+        if was:
+            m.run()
+
+
 BIOS_KBUF = 0x41A               # 0040:001A/001C - the BIOS key ring's head, tail
 UI_T_STATE = 0                  # kernel/sched.inc: T_STATE, and task 0 IS ui_task
 UI_ASLEEP = 2                   # ...whose value 2 means "sleeping"

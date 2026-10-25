@@ -65,15 +65,22 @@ def leg_window(machine):
             fail("could not open DOS.O88 off the system disk")
         M.settle(m)
         dm = dosmap.package()
-        m.write((dosmap.instance(m) << 4) + dm["dos_exit"], bytes([0xEE]))
+        # THE REGION MOVES at the arena claim, so its base is asked per read
+        # (dosmap) - and the base and the byte it names are read off ONE
+        # paused, compactor-idle guest (os88marty.heap_read). Asked running,
+        # the pair tore under load: the base a move had just retired, and the
+        # program's own arena under it, read as exit code 161.
+        M.heap_read(m, lambda mm: mm.write(
+            (dosmap.instance(mm) << 4) + dm["dos_exit"], bytes([0xEE])))
         m.type_text("B:\n")
         M.settle(m)
         m.type_text("CALL5.COM\n")
         code = [0xEE]
 
-        def ran(mm):                # the region MOVES at the arena claim, so
-            base = dosmap.instance(mm) << 4     # it is asked per read (dosmap)
-            code[0] = mm.read(base + dm["dos_exit"], 1)[0]
+        def ran(mm):
+            code[0] = M.heap_read(mm, lambda g: g.read(
+                (dosmap.instance(g) << 4) + dm["dos_exit"], 1)[0],
+                "[dos_exit]")
             return code[0] != 0xEE
         try:                        # GUEST time: `limit` is idle-box seconds
             M.until(m, ran, "CALL5.COM to exit", poll=0.5, limit=120.0)
