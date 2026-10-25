@@ -196018,6 +196018,21 @@ and a README.
   read out of `os88vencgui.py` so the two lists cannot drift, and
   `boot_dir` looks there after `build/`. Its hard disks boot, as the
   tree's do; they were the formatted, unbootable kind. ~95 KB of zip.
+- **...and the user's GUIDE** (the owner, 2026-10-25: the tooltips say what
+  a setting IS, and a new user cannot tell from them WHEN to use it).
+  `GUIDE.HTML` beside the tool, its screenshots in `guide/` so the folder's
+  top level stays the tool's: what every *Made for* target looks like, the
+  budget every setting is about, each tab's settings with when and why to
+  change them, disks, recipes and a troubleshooting table. Its source is
+  `docs/encoder-guide/`, and its pictures are the window itself under Xvfb
+  and real `.V88` frames drawn by the window's own `render`, of a clip made
+  from three of PiXEL's original sample pictures - all of them made again
+  by `tools/os88vguide.py`, so a change to the window is one command from
+  a guide that shows it (the frames come out byte-identical run to run).
+  **The pictures are
+  COMPUTED like the modules** (`guide_files`): the page is read and every
+  `guide/` file it names ships - one it names that is missing stops the
+  build, one it no longer names stays out. It takes the zip to ~1.7 MB.
 - **It is deterministic**: entries in sorted order, every timestamp
   1980-01-01. The same tree makes the same bytes.
 - **It needs, on the user's side**, Python 3 with Tk, numpy, Pillow, and
