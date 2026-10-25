@@ -4471,7 +4471,9 @@ mem_sum_kb:
 ; osapi_mem_hma - OSAPI_MEM_HMA: a DRIVER's buffer in the HMA (SPEC.md 2.10.8,
 ;                 docs/plans/HMA-PLAN.md 5)
 ; in:  AX = bytes, 1..8,192 -> a block; AX = 0 and DX = a block's segment ->
-;      give it back. ES = the caller's DS (an X cell), which must be a loaded
+;      give it back; AX = MEMHMA_KEEP | bytes -> the caller's own image in
+;      the pool cut to them (the tail's, passed through: SPEC.md 51.1.3.1).
+;      ES = the caller's DS (an X cell), which must be a loaded
 ;      driver's: drv_release gives back every block a driver forgot, and
 ;      nothing does that for a package
 ; out: a block: CF = 0, DX = its segment and AX = its first OFFSET - which is

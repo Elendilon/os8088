@@ -135,3 +135,17 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
 - [ ] Not built: the RAM idiom (W0), a state with cartridge RAM as a heat
   source, and a 286 speed figure with the 100% cap lifted (both packages
   already hold the Game Boy's own speed on the Victory).
+
+### After W4 - the field and the merge
+
+- [x] The owner's 286 (Packard Bell Victory, 4MB, `.cold` in the HMA):
+  Kirby's Dream Land `P1/4` and Super Mario Land `P3/3`, "the best it has
+  ever played". Two field defects found on the way and fixed (REALDMG-SPEC
+  20.10): image reads refused on a hard disk's clusters, and four images
+  starving the bank cache (13,705 banks fetched in 100 s).
+- [x] The ROM inside the package (REALDMG-SPEC 20.13), under 1MB.
+- [x] Merged with the kern_mega RealDMG work: the shipped REALDMG.O88 and its
+  kern_mega arm are byte-identical to elendilon's; the precompiled gates
+  pass on the merged core.
+- [ ] kern_mega's arm (REALDMG-SPEC 20.14): today it refuses there, cleanly.
+- [ ] Optimisation for Looney Tunes and the rest: next.

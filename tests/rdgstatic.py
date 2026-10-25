@@ -36,7 +36,7 @@ times over, fill both:
   second segment twice and so flushed both (the DONE line's "seg2", and
   "flushes" past rt_init's own), which is where code crosses between them;
 - THE NEGATIVE CONTROL: the translator's check that a target is in the
-  segment being written (rt_exit's `cmp dx,[S_JITSEG] / jne`) made two NOPs,
+  segment being written (rt_exit's `cmp dx,[S_JITCS] / jne`) made two NOPs,
   so an exit is written as a near jump into the other segment's offsets.
   cpu_instrs must then NOT pass.
 
@@ -85,8 +85,10 @@ def rom_path(name):
                                     "--path", name], text=True).strip()
 
 
-# rt_exit's same-segment check: cmp dx,[S_JITSEG] / jne - S_JITSEG is 40CCh
-SEGCHK = bytes.fromhex("3B16CC4075")
+# rt_exit's same-segment check: cmp dx,[S_JITCS] / jne - S_JITCS is 48E6h,
+# the code selector of the segment being written (REALDMG-SPEC 16.2.4; the
+# segment itself in the harness, which has no code selectors)
+SEGCHK = bytes.fromhex("3B16E64875")
 
 
 def run(rom, frames, core, host, jit="static", seg2=False, small=False, squeeze=None):

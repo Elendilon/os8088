@@ -54,6 +54,9 @@
                                 ; (SPEC.md 34.12)
 
 OS88_DRIVER 'Sound', DRVC_SOUND, snd_entry
+OS88_DRV_FOOT                   ; it cuts its HMA block at attach (the
+                                ; MEMHMA_KEEP call below), so the tail puts
+                                ; it at the pool's foot (SPEC.md 51.1.3.1)
 
 OPL_NCH     equ 18              ; channels the allocator knows: an OPL3's
                                 ; two banks of nine, of which an OPL2 has
@@ -374,6 +377,15 @@ snd_entry:
     mov [DRV_H_KEEP], ax        ; Settled HERE and only here: mix_probe runs
                                 ; at attach alone, so a tier change cannot
                                 ; bring a mixer into existence
+    sub ax, strict word $$      ; ...and IN THE HMA, where there is no claim
+    or ah, MEMHMA_KEEP >> 8     ; to shrink, the pool block is cut the same
+    call OSAPI_MEM_HMA          ; (SPEC.md 51.1.3.1) - before HDD.DRV and
+                                ; NET.DRV are placed above it, so the freed
+                                ; run is the pool's free middle, not a hole.
+                                ; CF = 1 in the heap: the kernel's shrink.
+                                ; STRICT WORD: `$$` is 0 at org 0 and C000 at
+                                ; DRV_HMA_ORG, and the two assemblies must be
+                                ; byte-parallel for the relocation diff
 .ready:
     mov si, snd_services
     clc

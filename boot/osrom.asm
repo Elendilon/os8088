@@ -70,6 +70,12 @@ ROMF_HCLAIM     equ 5           ; 5): the drivers and the blocks under `.cold`.
 ROMF_HDROP      equ 7           ; A ROM is never asked any of them - the
 ROMF_HRESET     equ 8           ; kernel's drv_hma_door asks only the HMA's
 ROMF_HTAB       equ 9           ; (...and a hibernate asks where hb_tab is)
+ROMF_HWALK      equ 10          ; ...and XMEM.DRV's walk, the HMA's contents
+                                ; as OSAPI_XMEM_WALK records: XMEM.DRV's
+                                ; equate (MIRRORED there), not the kernel's
+XMW_HMAK        equ 0xF5        ; MIRRORED: apps/os88api.inc's walk owners -
+XMW_HMAI        equ 0xF6        ; `.cold` and the tail, a driver's image in
+XMW_HMAB        equ 0xF7        ; the pool, and a buffer a driver took there
 ROM_MODHB       equ 4           ; MOD_H_BUILD: the build word of a module's
                                 ; header and of mod_hdrt (RT_HDRT), which
                                 ; kernel/mod.inc pins at +4 with an %error
@@ -116,7 +122,12 @@ rom_id:
 %else                           ; tool places the file so it is a paragraph
     dw 0                        ; +26 reserved      past `.cold`
 %endif
+%if ROM_KIND == ROM_KIND_HMA
+    dw rom_modfix               ; +28 the door's offset at FFFF once the tail
+    times 2 db 0                ; is installed, which XMEM.DRV banks to far-
+%else                           ; call ROMF_HWALK (SPEC.md 28.4.13)
     times 4 db 0                ; +28 reserved
+%endif
 %if $ - rom_id != 32
   %error "rom_id must be 32 bytes - the kernel's probe reads it at fixed offsets"
 %endif
@@ -817,7 +828,7 @@ rom_pkg:
 ; OSAPI_MEM_HMA). Every block is addressed the same way - a segment of its own
 ; and offsets from HB_ORG - because nothing above 1MB is reachable at offset 0:
 ; FFFF:x is linear 0xFFFF0 + x, so a block at base b is C:HB_ORG with
-; C = 0xFFFF - (HB_ORG - b)/16, which puts every C in F200-F7xx. That is the
+; C = 0xFFFF - (HB_ORG - b)/16, which puts every C in F401-F9FF (HB_ORG C000). That is the
 ; reason the pool is UNDER `.cold`: above it, C would be FBxx-FFxx, which is
 ; the heap's owner tags, and a claim a driver made would read as purgeable.
 ;
@@ -884,6 +895,8 @@ rom_hma:
     je hb_claim
     cmp al, ROMF_HDROP
     je hb_drop
+    cmp al, ROMF_HWALK
+    je hb_walk
     cmp al, ROMF_HRESET
     jne hb_no
     push cs                     ; HRESET: the whole table zero, which is
@@ -900,6 +913,96 @@ hb_htab:                        ; HTAB: SI = hb_tab, which is AX out; DX
     mov word [bp+12], HB_N * 6
     mov ax, si
     jmp hb_yesax
+
+; hb_walk - ROMF_HWALK, XMEM.DRV's OSAPI_XMEM_WALK with BX = XMW_FIXED
+; (SPEC.md 28.4.13): ES:DI = room for CX records of 6 bytes, IF = 0. One for
+; `.cold` and this tail - segment FFFF, the KB from the pool's top to the HMA's
+; end - then one per live block: XMW_OFF the segment it runs at, XMW_KB its
+; bytes rounded UP, XMW_OWN XMW_HMAI for a driver's image (its owner is its
+; own segment) or XMW_HMAB a buffer, XMW_CLS the owning driver's DRVC_* off
+; its header. Out AX = the records written, DI and CX advanced past them (the
+; frame's, as hb_claim writes DX). It was XMEM.DRV's own xm_hwalk, 128 bytes
+; of every 286's heap; here it is in the HMA and reads the table it walks
+hb_walk:                        ; SI = hb_tab
+    xor bp, bp                  ; BP = records written
+    jcxz .done
+    mov ax, 0xFFFF
+    stosw
+    mov ax, 64 - (HB_HI >> 10)
+    stosw
+    mov ax, XMW_HMAK
+    stosw
+    inc bp
+    dec cx
+.b:
+    jcxz .done
+    mov ax, [cs:si]             ; a base, 0 = free
+    or ax, ax
+    jz .n
+    call hb_seg
+    mov dx, ax                  ; DX = the segment it runs at
+    stosw
+    mov ax, [cs:si+2]           ; bytes, at most HB_MAX: +1023 cannot carry
+    add ax, 1023
+    mov al, ah
+    shr al, 1
+    shr al, 1                   ; AL = KB, at most 16
+    cbw
+    stosw
+    mov ds, [cs:si+4]           ; the owner: a driver's image segment
+    mov ah, 0
+    cmp word [HB_ORG], 0x384F   ; 'O8': its header, and the class in it
+    jne .nc
+    mov ah, [HB_ORG+3]
+.nc:
+    mov al, XMW_HMAI
+    cmp dx, [cs:si+4]           ; its own segment owns it: the image
+    je .img
+    mov al, XMW_HMAB
+.img:
+    stosw
+    inc bp
+    dec cx
+.n:
+    add si, 6
+    cmp si, hb_tab_end
+    jb .b
+.done:
+    xchg ax, bp                 ; AX = the count...
+    mov bp, sp
+    mov [bp+6], di              ; ...and the saved DI and CX advanced
+    mov [bp+12], cx
+    jmp hb_yesax
+
+; hb_keep - HCLAIM with CX = 8000h | bytes (OSAPI_MEM_HMA's MEMHMA_KEEP):
+; the caller's OWN IMAGE - the block that runs at BX and BX owns - cut to
+; that many bytes, paragraph-rounded, the rest a free run (SPEC.md 51.1.3's
+; DRV_H_KEEP, in the HMA, where the kernel's shrink has no claim to cut).
+; Never a growth and never to nothing. SI = hb_tab
+hb_keep:
+    and ch, 0x7F
+    add cx, 15
+    and cl, 0xF0
+    jcxz .no
+.r:
+    cmp word [cs:si], 0
+    je .n
+    mov ax, [cs:si]
+    call hb_seg
+    cmp ax, bx                  ; the block BX runs at...
+    jne .n
+    cmp [cs:si+4], bx           ; ...and owns: its image
+    jne .n
+    cmp cx, [cs:si+2]
+    ja hb_no                    ; a keep past the end is no keep
+    mov [cs:si+2], cx
+    jmp hb_yes
+.n:
+    add si, 6
+    cmp si, hb_tab_end
+    jb .r
+.no:
+    jmp hb_no
 
 hb_free:                        ; SI = hb_tab
     cmp word [cs:si], 0
@@ -933,9 +1036,12 @@ hb_drop:                        ; SI = hb_tab
 
 hb_claim:
     jcxz hb_free                ; CX = 0: DX's block back (SI = hb_tab)
+    test ch, 0x80
+    jnz hb_keep                 ; CX = 8000h | bytes: BX's image cut to them
     cmp cx, HB_MAX
     ja hb_no
-    call hb_alloc               ; AX = base, DI = its record
+    mov bp, sp                  ; a BUFFER: highest-first (BP <> 0), so it
+    call hb_alloc               ; never stands where a foot image regrows
     jc hb_no
     call hb_seg                 ; AX = the segment...
     mov bp, sp
@@ -998,6 +1104,9 @@ hb_place:
     mov cx, [cs:si+4]           ; CX = image + bss: what is copied
     xor bx, bx                  ; no owner yet: it is the image's own segment,
     push si                     ; known once the base is
+    mov bp, [cs:si+8]           ; ...and WHICH END: bit 15 of the relocation
+    and bp, 0x8000              ; count is OS88_DRV_FOOT's, lowest-first;
+    xor bp, 0x8000              ; every other image highest-first (BP <> 0)
     call hb_alloc
     pop si                      ; (the table: hb_alloc walks with SI)
     jc hb_no
@@ -1020,6 +1129,7 @@ hb_place:
     pop di
     jne .bad
     mov cx, [cs:si+8]           ; THE RELOCATION: CX bytes of the stream gain
+    and ch, 0x7F                ; (bit 15 is the foot flag, above)
     mov si, [cs:si+6]           ; HB_ORG's high byte, each a delta from the
     mov bp, bx                  ; last (0 = an absolute word follows)
     jcxz .placed
@@ -1047,8 +1157,19 @@ hb_place:
     mov word [cs:di], 0         ; the block back: nothing was installed
     jmp hb_no
 
-; hb_alloc - CX = bytes, BX = owner -> CF = 0, AX = base, DI = its record;
-; CF = 1 no record or no room. Lowest fit, paragraph-rounded. Clobbers DX, SI
+; hb_alloc - CX = bytes, BX = owner, BP = 0 lowest fit / BP <> 0 highest fit
+; -> CF = 0, AX = base, DI = its record; CF = 1 no record or no room.
+; Paragraph-rounded. Clobbers DX, SI.
+;
+; TWO ENDS, AND THAT IS THE FRAGMENTATION RULE (SPEC.md 51.1.3.1): an image
+; that cuts itself after attach (OS88_DRV_FOOT, SOUND.DRV) goes lowest-first
+; and everything else - other images, every buffer - highest-first. The cut
+; then frees the foot of the ONE free run between the two stacks, and when
+; that driver is swept and reloaded (a hibernate, the Drivers page) its whole
+; length is free again where it was: the pool comes back as the boot left it.
+; Both walks are first fit from their end: a candidate that overlaps a block
+; moves just past it (up) or just under it (down) and every record is looked
+; at again, so the candidate only ever moves one way and the walk ends
 hb_alloc:
     push cx
     add cx, 15
@@ -1062,8 +1183,12 @@ hb_alloc:
     cmp di, hb_tab_end
     jb .rec
     jmp .no
-.room:                          ; ...and the lowest base that overlaps nothing
+.room:                          ; ...and a base that overlaps nothing
     mov ax, HB_LO
+    or bp, bp
+    jz .scan
+    mov ax, HB_HI               ; (CX <= HB_MAX < HB_HI: no borrow)
+    sub ax, cx
 .scan:
     mov si, hb_tab
 .each:
@@ -1077,13 +1202,22 @@ hb_alloc:
     add dx, cx                  ; DX = our end
     cmp [cs:si], dx
     jae .next                   ; it starts past us
-    mov ax, [cs:si]             ; overlap: try just past it, and look again
+    or bp, bp                   ; overlap:
+    jnz .down
+    mov ax, [cs:si]             ; ...up: just past it
     add ax, [cs:si+2]
+    jmp .scan
+.down:
+    mov ax, [cs:si]             ; ...down: just under it
+    sub ax, cx
+    jb .no
     jmp .scan
 .next:
     add si, 6
     cmp si, hb_tab_end
     jb .each
+    cmp ax, HB_LO
+    jb .no
     mov dx, ax
     add dx, cx
     jc .no

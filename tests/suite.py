@@ -15981,6 +15981,22 @@ SOAK = [
         "kern_mega FAULT. Red with the `push cs / pop ds` put back "
         "(ECHO 62, DIR 87, TYPE 802). 80s is 56 measured alone, 73 in three lanes",
         needs=("bochs", "nasm")),
+    Row("rdgmega", "soak", py("tests/rdgmega.py"), 360.0,
+        "docs/REALDMG-SPEC.md section 16.2.4: RealDMG's RECOMPILER on kern_mega, "
+        "right and with no #GP in the core. The core and the cache entered "
+        "and chained through their DATA segments and the links were patched "
+        "through CS, each a completed #GP whose frame landed on the core's "
+        "SP - the Game Boy's own stack: cpu_instrs took 87,703 traps and "
+        "looped in test 01, Kirby's attract two million a minute. "
+        "MEGATRAP=1's census (a private tree) under Bochs, B: holding "
+        "REALDMG.O88 and cpu_instrs (getgbtest's): it must pass all eleven "
+        "under the recompiler, read off the link port's bytes in the view, "
+        "with no trap charged to the core or a cache segment and none a "
+        "kern_mega FAULT. Red with the base's REALDMG.O88 (--pkg). Its third "
+        "leg is 16.2.5's EXTRA TIERS: the arm rebuilt RT_SQUEEZE (~0.5KB a "
+        "cache segment) must pass recycling at least once per tier, extra "
+        "ones among them - red with tr_lpx writing through CS",
+        needs=("bochs", "nasm")),
     Row("pxsmega", "soak", py("tests/pxsmega.py"), 100.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.50: PIXELSTEIN 3D PLAYED on kern_mega "
         "with no #GP fixup - megatrap0 counts a launch, and the game's cost "
@@ -17388,9 +17404,61 @@ SOAK = [
         "32 KB, must land exactly with the API cells, registers and DS/ES as "
         "they were and 16 KB a borrow; a CPU that traps 0F 05, a BIOS that "
         "corrupts a word and a cache that does not take must each leave "
-        "[xm_lall] 0. Broken on purpose: an offset mask of 7 refuses at "
-        "attach, an SP two out fails every table",
+        "[xm_lall] 0. The CPU's MSW, IDTR and GDTR are SEEDED first - "
+        "unicorn starts them at zero, which a field the borrow never wrote "
+        "equals. Broken on purpose: an offset mask of 7 refuses at "
+        "attach, an SP two out fails every table, an IDT left unwritten "
+        "fails every table",
         needs=("nasm", "unicorn")),
+    Row("xmhwalk", "soak", py("tests/xmhwalk.py"), 0.5,
+        "SPEC.md 28.4.13: OSAPI_XMEM_WALK's names for the HMA - XMEM.DRV's "
+        "xm_walk far-calling the HMA tail's own walk (boot/osrom.asm's "
+        "hb_walk, ROMF_HWALK) through the door banked off COLDHMA.SYS's "
+        "rom_id +28. The SHIPPED build/xmem.bin and build/coldhma.sys under "
+        "unicorn, the tail whole at FFFF:its TAIL_AT, a block table, driver "
+        "headers and XMEM.DRV's own table written in: every record held to "
+        "the contract's model - order, segment, KB rounded up, image against "
+        "buffer, the owner's class - with room for none, one and part, BX "
+        "not asking and no tail, and every register, IF, DF and the bytes "
+        "either side of the room kept. Broken on purpose: KB truncated, and "
+        "image/buffer inverted, each fail",
+        needs=("nasm", "unicorn"),
+        wants=("build/xmem.bin", "build/coldhma.sys")),
+    Row("hmapool", "soak", py("tests/hmapool.py"), 0.5,
+        "SPEC.md 51.1.3.1: the HMA's pool keeps its order across a reload. "
+        "SOUND.DRV cuts its block at attach (MEMHMA_KEEP) and a reload - a "
+        "hibernate's sweep, the Drivers page - needs the whole image again, "
+        "so the tail places an OS88_DRV_FOOT image lowest-first and every "
+        "other block highest-first. The SHIPPED build/coldhma.sys under "
+        "unicorn, its door driven as the kernel does with the shipped "
+        "SOUND/HDD/NET images: SOUND at the foot and cut, HDD and NET at the "
+        "top, the 8KB buffer in the pool with no mixer and refused with one, "
+        "and SOUND dropped and placed again at its boot base, the table the "
+        "boot's. Broken on purpose: OS88_DRV_FOOT taken out, and hb_alloc "
+        "lowest-first only - each strands the reload",
+        needs=("unicorn",),
+        wants=("build/coldhma.sys", "build/sound.drv", "build/hdd.drv",
+               "build/net.drv", "build/sound.hma.bin")),
+    Row("hma286", "soak", py("tests/hma286.py"), 25.0,
+        "SPEC.md 41.12.6, 41.13 and 51.1.3.1 on a REAL 286: 86Box's, whose "
+        "CPU runs LOADALL and whose Sound Blaster v2.0 has no mixer - the "
+        "two things QEMU (386-class, an SB16) cannot be. vm/286-hma, the "
+        "owner's mr286 at 16 MHz with 4MB, an IDE disk and the card, boots "
+        "hmadrv's fixture (SOUND, HDD and NET wanted): `.cold` in the HMA, "
+        "XMEM.DRV in a 2KB claim with its LOADALL transport VERIFIED at "
+        "attach through apps/os88la.inc's borrow, SOUND.DRV cut to snd_keep "
+        "at the pool's foot with HDD and NET at its top, and RECORDER's demo "
+        "played with the 8KB double buffer in the pool - 8237 page 10h, the "
+        "card's DMA reading above 1MB - its halves the demo's, the stream "
+        "played out and the block given back; then the same on an SB Pro 2 "
+        "(a mixer): cut to snd_keepmix and the buffer in the heap. No "
+        "exception outside the BIOS's own AH=87h. Broken on purpose: "
+        "OS88_DRV_FOOT taken out fails the layout on both arms, the "
+        "MEMHMA_KEEP call taken out fails the cut and the buffer",
+        needs=("86box",),
+        wants=("build/os8088.img", "build/coldhma.sys", "build/recorder.o88",
+               "build/mbr.bin", "build/boothd.bin", "build/kernel.sys",
+               "build/sound.hma.bin", "build/xmem.bin")),
     Row("ethernet", "soak", py("tests/ethernet.py"), 40.0,
         "SPEC.md 72.9: ETHER.DRV up before the first paint off a SYSTEM.CFG "
         "that asks for it, DHCP bound to slirp's address, and the browser "
