@@ -14,7 +14,9 @@
 ; "Passed" or "Failed" on the link port, as Blargg's ROMs do. Irq does the
 ; same for a store through (HL) that requests an interrupt, which a store
 ; that guards itself (rdggen.self_guard) must leave its block for, and
-; HramCode rewrites a routine in HRAM once it has been translated.
+; HramCode rewrites a routine in HRAM once it has been translated. Rows,
+; Copies and Fills hold the loop idioms (add_ff, cpy_ff, fill_ff) to the
+; same loops closed by JP NZ.
 
 SECTION "timer", ROM0[$50]
     push af                                 ; the timer interrupt: counts
@@ -47,12 +49,15 @@ Start:
     ld [$C025], a                           ; copies that parted
     ld [$C031], a                           ; ...and their count
     ld [$C026], a                           ; PPU waits that parted
+    ld [$C027], a                           ; fills that parted
+    ld [$C033], a                           ; ...and their count
     call HramCode
     call Waits
     ld b, 128                               ; (each case 32 times: translated)
 .copies:
     push bc
     call Copies
+    call Fills
     pop bc
     dec b
     jr nz, .copies
@@ -107,6 +112,10 @@ Start:
     ld a, [$C026]
     or a
     ld hl, FailWait
+    jr nz, .print
+    ld a, [$C027]
+    or a
+    ld hl, FailFill
     jr nz, .print
     ld hl, Passed
 .print:
@@ -330,6 +339,148 @@ Copies:
 .bad:
     ld a, 1
     ld [$C025], a
+    ret
+
+; LD (HL+),A / DEC B (or C) / JR NZ - the recompiler's fill_ff - against the
+; same loop closed by JP NZ, which it does not take: A, F, HL, DE, BC and
+; what the fill left in C100-C1FF and FFC0-FFD3 must agree. Counts 1-16 and
+; 256 (0) into WRAM and HRAM, the carry set and clear, and a range from FF7C
+; across I/O into HRAM, which fill_ff must decline (its stores are io_wr's)
+Fills:
+    ld a, [$C033]
+    inc a
+    ld [$C033], a
+    call Fill
+    call FSetup
+    call FI
+    call Save
+    ld hl, $C050                            ; to C040: the reference's room
+    ld de, $C040
+    ld c, 10
+.mv:
+    ld a, [hl+]
+    ld [de], a
+    inc de
+    dec c
+    jr nz, .mv
+    call Fill
+    call FSetup
+    call FR
+    call Save
+    ld hl, $C040
+    ld de, $C050
+    ld c, 10
+.cmp:
+    ld a, [de]
+    cp [hl]
+    jr nz, .bad
+    inc hl
+    inc de
+    dec c
+    jr nz, .cmp
+    ret
+.bad:
+    ld a, 1
+    ld [$C027], a
+    ret
+
+; HL, B or C the count and the other a constant, DE a constant, E the
+; value; [$C034] 0 the count in B, 1 in C
+FSetup:
+    ld a, [$C033]
+    ld c, a
+    and 15
+    inc a
+    ld b, a                                 ; 1-16
+    xor a
+    ld [$C034], a
+    ld a, c
+    and 3
+    jr z, .w
+    dec a
+    jr z, .h
+    dec a
+    jr z, .z
+    ld hl, $FF7C                            ; 3: into I/O, then HRAM: 5-12
+    ld a, b
+    and 7
+    add a, 5
+    ld b, a
+    jr .v
+.w:
+    ld hl, $C110                            ; 0: WRAM
+    jr .v
+.h:
+    ld hl, $FFC2                            ; 1: HRAM, to FFD1 at most
+    jr .v
+.z:
+    ld a, c                                 ; 2: 256 passes over C100-C1FF,
+    and 63                                  ;   or 1-16 to its end
+    jr nz, .z2
+    ld b, a
+    ld hl, $C100
+    jr .v
+.z2:
+    ld hl, $C1E0
+.v:
+    ld a, c
+    xor $A5
+    ld e, a                                 ; E = the value
+    ld d, $5A
+    bit 2, c
+    jr z, .b
+    ld a, 1
+    ld [$C034], a
+    ld c, b                                 ; the count in C, B a constant
+    ld b, $37
+    ret
+.b:
+    ld c, $59                               ; the count in B, C a constant
+    ret
+
+FI:
+    ld a, [$C034]
+    or a
+    jr nz, FIC
+FIB:
+    ld a, [$C033]
+    rra                                     ; C = the count's bit 0
+    ld a, e
+.l:
+    ld [hl+], a
+    dec b
+    jr nz, .l
+    ret
+FIC:
+    ld a, [$C033]
+    rra
+    ld a, e
+.l:
+    ld [hl+], a
+    dec c
+    jr nz, .l
+    ret
+FR:
+    ld a, [$C034]
+    or a
+    jr nz, FRC
+FRB:
+    ld a, [$C033]
+    rra
+    ld a, e
+.l:
+    ld [hl+], a
+    dec b
+    jp nz, .l
+    ret
+FRC:
+    ld a, [$C033]
+    rra
+    ld a, e
+.l:
+    ld [hl+], a
+    dec c
+    jp nz, .l
     ret
 
 ; HL, DE, B and C for the case, [$C032] the loop (0 HL to DE), C the
@@ -666,5 +817,7 @@ FailRows:
     db "Failed: a map-row loop parted", 10, 0
 FailCopy:
     db "Failed: a copy loop parted", 10, 0
+FailFill:
+    db "Failed: a fill loop parted", 10, 0
 FailWait:
     db "Failed: a wait on the PPU parted", 10, 0

@@ -2348,8 +2348,12 @@ rt_jrt:
     mov bx,[RT_IX]
     cmp bx,2
     jb .noadd
-    cmp byte [JIT_BUF+bx-2],19h
+    mov al,[JIT_BUF+bx-2]           ; ADD HL,DE - or LD (HL+),A, a fill
+    cmp al,19h                      ;   (fill_ff, REALDMG-SPEC 16.6)
+    je .ad1
+    cmp al,22h
     jne .noadd
+.ad1:
     mov dl,[JIT_BUF+bx-1]
     cmp dl,05h
     je .add
@@ -2359,6 +2363,9 @@ rt_jrt:
     jmp short .noadd
 .add:
     mov bx,RDGC_ADD_FF
+    cmp al,19h
+    je .ff
+    mov bx,RDGC_FILL_FF
     jmp .ff
 .noadd:
     cmp dx,0FFFAh                   ; -6, a JR NZ after a copy's four (cpy_ff,

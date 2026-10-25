@@ -2163,6 +2163,87 @@ EXTRA += [("CB %02X of RAM" % b, rmw_lines(b, True), 2) for b in RMW_CB]
 # --- tails after a TAIL page's CB handler: the translator copies a tail -----
 # --- page whole, so its CB half's room is as reachable as its main half's --
 CBTAILS = {
+    0x7F: """
+; fill_ff: LD (HL+),A / DEC r / JR NZ,-4, a fill - the OAM buffer cleared
+; every frame (Metroid II's 0376 and Super Mario Land 2's 0322, B = A0h; the
+; rest of it in Wario Land's 11EB) - in one step when the budget covers it
+; and the range lies wholly where a translated store writes memory directly,
+; 8000-FEFF or FF80-FFFE (REALDMG-SPEC 16.6). SI = the loop's head, DL = its
+; DEC (05h B, 0Dh C), the JR NZ about to be taken and its 3 M-cycles not
+; charged. From here r more passes: 3 + 3r + 3(r - 1) + 2 = 6r + 2
+; M-cycles; [HL .. HL + r - 1] = A, HL += r, r = 0, and DEC's flags for
+; 1 -> 0 (Z, N; H clear; C kept). Anything else goes on at [S_RET].
+fill_ff:
+    mov dh,ch
+    cmp dl,05h
+    je .go
+    mov dh,cl
+    cmp dl,0Dh
+    je .go
+.no:
+    xor dl,dl                   ; (the taken JR's way: DL 0, as a template
+    jmp word [ss:S_RET]         ;   leaves it, for a dispatch after it)
+.go:
+    mov [ss:S_TMP],dl           ; (the DEC, for the register to zero)
+    mov dl,dh
+    xor dh,dh
+    mov [ss:S_TMP2],dx          ; r
+    mov [ss:S_TMP4],dx
+    shl dx,1
+    add dx,[ss:S_TMP4]
+    shl dx,1
+    add dx,2                    ; 6r + 2
+    cmp bp,dx
+    jl .no
+    mov [ss:S_TMP4],dx
+    mov dx,bx                   ; HL's range: 8000-FEFF...
+    cmp dh,80h
+    jb .no
+    cmp dx,0FF80h
+    jae .h
+    cmp dh,0FFh
+    je .no
+    add dx,[ss:S_TMP2]
+    cmp dx,0FF00h
+    ja .no
+    jmp fill_go
+.h:
+    add dx,[ss:S_TMP2]          ; ...or FF80-FFFE (FFFF is IE)
+    jc .no
+    jmp fill_go
+""",
+    0x7D: """
+; fill_ff's other half (page 7F's CB half): the fill itself
+fill_go:
+    mov dl,bh                   ; a range starting in VRAM: the damage scan
+    sub dl,80h                  ;   compares it all, these stores marking
+    cmp dl,20h                  ;   no block (vr_wr), as cpy_ff's
+    jae .nv
+    mov byte [ss:RDG_VALL],1
+.nv:
+    sub bp,[ss:S_TMP4]
+    mov [ss:S_TMP4],di          ; (DE)
+    mov [ss:S_TMP6],cx
+    mov dx,ss
+    mov es,dx                   ; (ES is every helper's to load)
+    mov di,bx
+    mov cx,[ss:S_TMP2]
+    rep stosb                   ; A, r times
+    mov bx,di                   ; HL += r
+    mov di,[ss:S_TMP4]
+    mov cx,[ss:S_TMP6]
+    and ah,RDGF_C               ; F as DEC's template leaves it for 1 -> 0:
+    or ah,RDGF_Z|RDGF_N|06h     ;   LAHF's PF (the parity of 0) and bit 1
+    add si,4                    ;   too, so the AF word is the one the loop
+    xor dl,dl                   ;   would have stored (past the loop; DX for
+    cmp byte [ss:S_TMP],05h     ;   tr_enter's dispatch)
+    jne .c
+    xor ch,ch
+    jmp tr_enter
+.c:
+    xor cl,cl
+    jmp tr_enter
+""",
     0x47: """
 ; cnt_ff's CP (HL) / JR NZ,-3: with HL on LY (FF44h) it waits for line A -
 ; Donkey Kong Land's form, which the compatibility sweep found at 12% of

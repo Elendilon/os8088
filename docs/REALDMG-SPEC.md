@@ -2580,6 +2580,27 @@ otherwise:
   directly; `REP MOVSB` forward, so an overlap smears as the loop does.
   10r + 2 M-cycles.
 
+- **`fill_ff`**: `LD (HL+),A / DEC B` (or `C`) `/ JR NZ,-4`, a fill - the
+  shape a cartridge clears its OAM buffer with every frame (Metroid II's
+  0376 and Super Mario Land 2's 0322 after `LD B,A0h`; Wario Land's 11EB
+  the rest of it; Pokemon Yellow's 0088, and its 1679 nested under a
+  `DEC B`). Only when HL's range lies wholly in 8000-FEFF or FF80-FFFE,
+  where a translated store writes memory itself; a range starting in VRAM
+  sets `RDG_VALL`, as `cpy_ff`'s. `REP STOSB`, then HL += r, r = 0 and F
+  exactly as DEC's template leaves it for 1 -> 0 - Z and N, and LAHF's
+  PF and bit 1 too (66h with C kept), so the AF word matches the loop's
+  and `gbaot check` against the interpreter stays exact; its first build
+  set only Z and N and parted from it at Pokemon Yellow's frame 350 with
+  nothing a game can see changed. 6r + 2 M-cycles, as `add_ff`'s. Two
+  CB-half tail slots, pages 7Fh and 7Dh (`fill_ff`, `fill_go`): no new
+  tail page, so no image grows. Across 23 cartridges of the owner's the
+  shape is 0-34% of the instructions run on the harness's script; the
+  x86 instructions a frame, frames 600-800, fall 23% in Metroid II and 25%
+  in Super Mario Land 2 (6% in Super Mario Land 3), and every one of the
+  six that run it most is still identical to the interpreter over 1,500
+  frames. `gbrmw.asm`'s `Fills` is the gate - counts 1-16 and 256, WRAM
+  and HRAM, the carry set and clear, and a range from FF7C across I/O that
+  must be declined - and it fails with HL left unadvanced.
 - **`stat_ff`**: a wait on the PPU - `LDH A,(41h) / AND 3` or `BIT 1,A`
   `/ JR NZ,-6` (HBlank, or HBlank or VBlank; Super Mario Land's ~20 a frame
   before a VRAM write) and `LDH A,(44h) / CP n / JR NZ,-6` (line n). LY and
@@ -2608,7 +2629,7 @@ The CPU alone on `286-victory` (`rdgbench.py`): Super Mario Land 6.55 ms a
 frame without any, 6.32 with `add_ff`, 6.22 with `cpy_ff` and 6.13 with
 `stat_ff` - its reads themselves (`io_rd`, `io_lcd`) are what is left of
 the waits.
-`tools/gbprof/gbrmw.asm` runs the first two against the same loop closed by
+`tools/gbprof/gbrmw.asm` runs the first three against the same loop closed by
 `JP NZ`, which no idiom takes, and the waits from ROM against a copy in
 WRAM, which is never translated, each after a HALT on VBlank so both start
 in step; it fails when any tail is broken (the last ADD's carry dropped; A
