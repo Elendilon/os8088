@@ -1700,6 +1700,14 @@ rows. Nothing is recorded as built that was not.
   kern_mega). Row `lemmega` (Bochs): Fun 1, a nuke and Fun 22's special
   picture with no CLOSED or FAULT, red with either old sum put back. Not
   run: CGA and Hercules under kern_mega, 86Box, the 720KB/360KB sets.
+  **And it now DECLARES (2026-10-25):** `CC_STACK_CLASS OS88_HIGH |
+  OS88_HIGHMEM`, and its two `tests/megahigh.txt` lines are gone. The first
+  line's whole reason was that it had never been run on kern_mega. The
+  second line's reason was the four sums the conversion removed. `lemmega`
+  now asserts the region is above 1MB (FD3C00h on its 16MB machine) and
+  plays all three stages there. The bank and T stay conventional, being over
+  64KB, so their windows read the same as before. The class byte is the only
+  byte that changed, and only the on-demand Lemmings disks carry it.
   **Paint (2026-10-25) - DONE, one shared path.** A canvas over 64KB under
   protected mode is laid out in `SEG_SUB` windows at fixed 32KB offsets
   (`pt_layout`'s `.win`): a row at file offset O is window O >> 15 at O &
