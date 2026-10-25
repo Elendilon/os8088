@@ -18,3 +18,9 @@
 #     run on kern_mega, and a file driver is handed the caller's buffer)
 1 drivers/hdd/hdxms.inc  # hd_xa_a20's DS = FFFFh: the A20 probe of the 386 XMS staging, reached only from hd_xa_arm, which refuses under CPU_F_PM before it (`test ah, CPU_F_PM / jnz .pm`, KERN-MEGA-PLAN 14.16) - real mode only
 1 drivers/xmem/xmem.asm  # xm_a20_probe's DS = HMA_SEG (FFFFh): XMEM.DRV is kept off kern_mega altogether (xm_sniff, kernel/xmem.inc 217 - the kernel serves the cells itself in protected mode), so this only ever runs in real mode
+
+# --- KERN-MEGA-MEMORY-PLAN MC7: since every claim is a selector the grid is
+#     no longer what makes a sum safe - no sum on a selector is - so a site
+#     that aims a WINDOW at a paragraph (OSAPI_SEG's SEG_AT) is not a segment
+#     built at all, and its paragraph need not be on any grid
+1 apps/xtmp3/x3hold.inc  # x3_rseq's .conv: the hold's paragraph and an offset under 16, loaded through x3h_at's SEG_AT window - a window aimed at RAM under kern_mega, the sum only on a real-mode kernel (where any paragraph is a segment)
