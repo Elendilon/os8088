@@ -128,8 +128,14 @@ def capture(path):
 # clipped (measured: every value of a DSP 2.01 capture is in this table, and
 # its inverse gives back x3sim's bytes exactly), so an 8-bit stream's capture
 # is read back into the bytes the CARD was given and held to those
+# - and QEMU 8 widens it to (u - 127) x 256 (measured on 8.2.2: every value
+# of a DSP 2.01 capture a multiple of 256, and that inverse gives back
+# x3sim's bytes exactly). The two tables share ONE value, 0, and it is 127 in
+# both, so one table reads a capture from either engine
 U8WIDE = np.clip((np.arange(256) - 127) * 257, -32768, 32767)
-U8BACK = {int(U8WIDE[u]): u for u in range(256)}
+U8WIDE8 = np.clip((np.arange(256) - 127) * 256, -32768, 32767)
+U8BACK = {int(U8WIDE8[u]): u for u in range(256)}
+U8BACK.update({int(U8WIDE[u]): u for u in range(256)})
 
 
 def as_u8(cap):
