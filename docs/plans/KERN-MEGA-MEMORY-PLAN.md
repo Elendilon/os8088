@@ -1420,6 +1420,16 @@ rows. Nothing is recorded as built that was not.
   without `VID_EXT` (SPEC.md 120.3), so it has no VESA row and never loads
   `VESA.DRV`; item 8's "A000h and its VBE pointers" was an entry for a
   driver that cannot meet the kernel.
+  **Skies' and PIXELSTEIN's SUBSEG fallbacks** (item 9's "edge"): since
+  MC7.4 `OSAPI_MEM_SUBSEG` answers a conventional region's pair too, so
+  under protected mode CF = 1 means only a FULL LDT - and both programs'
+  CF = 1 arm adds paragraphs to their own DS, which there names ANOTHER
+  descriptor, somebody else's memory. A write through it is corruption
+  rather than a fault. Both refuse instead: Skies' art band is reported
+  missing (`cs_xpand` CF = 1, which both callers already handle) and
+  PIXELSTEIN's part answers 0, which degrades exactly as a refused part
+  does (the bodies run from the image, no byte textures). ~10 bytes each,
+  registered in `tests/megapkg.txt` as fail-safes.
 
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to
