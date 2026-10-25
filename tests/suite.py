@@ -16096,6 +16096,23 @@ SOAK = [
         needs=("bochs",),
         wants=("build/megak/apps/video.o88", "build/vblk.bin",
                "build/vblkpm.bin", "build/megak/apps/video.bin")),
+    Row("megavidring", "soak", py("tests/megavidring.py"), 110.0,
+        "KERN-MEGA-MEMORY-PLAN MC7: the Video Player's kern_mega arm on a "
+        "1MB machine, where every claim is CONVENTIONAL and an LDT selector "
+        "and the arm names a claim's parts through OSAPI_SEG (the ring's "
+        "slots, a planar image's planes, the layer's slots, a resident "
+        "block's records) instead of the 8-paragraph grid step 6 cut. Bochs "
+        "at 1MB, four clips at once, each opened from B: and played to the "
+        "end: lin80 with PCM8 on the speaker in the WINDOW, a vga4 clip "
+        "FULL SCREEN, a vga clip with a LAYER (key 0's verdict poked in, "
+        "tests/vidlyplay.py's way) and a RESIDENT Live clip. Every frame "
+        "drawn, the layer's records drawn and none missed, no kern_mega "
+        "CLOSED or FAULT. Red with --pkg VIDEO.O88 from 41475cad (before "
+        "the conversion): every leg CLOSED, #GP at a record's grid sum. "
+        "110s is 85 measured, encoding the three Life clips included",
+        needs=("bochs", "ffmpeg"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megak/apps/video.o88")),
     Row("pxmega", "soak", py("tests/pxmega.py"), 90.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.40: PiXEL USED on kern_mega with no "
         "#GP fixup - megatrap0 counts what a launch costs, and a decoder's "
