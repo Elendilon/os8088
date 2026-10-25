@@ -857,6 +857,30 @@ tr_miss:
     mov word [ss:S_RET],tr_back
     mov [ss:S_RETFAR+2],cs       ; rdgsys comes back to THIS copy
     jmp far [ss:S_JITVEC]
+; tr_lpes - tr_lpatch's: ES = the site's tier, CS, as DATA (REALDMG-SPEC
+; 16.2.4) - the pair whose code selector CS is, or CS itself for a host with
+; no code selectors (its pairs 0, or each one value) - and back. It is not
+; a word in the tier: a host that builds code at one place and runs it at
+; another (the full static recompiler's) would carry it over stale
+tr_lpes:
+    mov dx,cs
+    cmp dx,[ss:S_JITCSA]
+    jne .b
+    mov es,[ss:S_JITSEGA]
+    jmp tr_lpok
+.b:
+    cmp dx,[ss:S_JITCSB]
+    jne .c
+    mov es,[ss:S_JITSEGB]
+    jmp tr_lpok
+.c:
+    cmp dx,[ss:S_DISP+2]
+    jne .d
+    mov es,[ss:S_COREDS]
+    jmp tr_lpok
+.d:
+    mov es,dx
+    jmp tr_lpok
 """,
     0x42: """
 ; tr_link: tr_enter for an exit that may be CHAINED (REALDMG-SPEC 16.4). DX =
@@ -931,12 +955,11 @@ tr_off:                         ; tr_enter with no translator: the
     jmp dx
 ; tr_ljmp: tr_lpatch's and tr_rpatch's jump, at CS:BX, to the block
 ; [S_JITOUT]: jmp near in the same cache segment, jmp far in the other
-; (16.2.1) - and on to it. The bytes are written through ES, the tier's DATA
-; segment at its own RDG_TDSEG, never through CS: on kern_mega a write
-; through a code selector is a #GP, and its frame lands on SP - the Game
+; (16.2.1) - and on to it. ES = the site's tier as DATA (tr_lpatch's .ok):
+; the bytes are written through it, never through CS - on kern_mega a write
+; through a code selector is a #GP, and its frame lands on SP, the Game
 ; Boy's stack, in its own memory (REALDMG-SPEC 16.2.4)
 tr_ljmp:
-    mov es,[cs:RDG_TDSEG]
     mov dx,cs
     cmp dx,[ss:S_JITOUT+2]
     mov dx,[ss:S_JITOUT]
@@ -965,19 +988,20 @@ tr_lpatch:
     jae .ok                     ;   the site's - the same tier, or a newer
     mov bx,[ss:S_JITLN]         ; into an OLDER one: logged, so that the
     cmp bx,1F0h                 ;   recycling of it undoes the link
-    jae .no                     ;   (rt_unlink), or not made when the
+    jae tr_lpno                 ;   (rt_unlink), or not made when the
     add word [ss:S_JITLN],4     ;   log is full
     mov es,[ss:S_JITSEGA]
     mov dx,[ss:S_LINK]
     mov [es:bx+0FE00h],dx       ; RT_LOG: the site, and its segment
     mov [es:bx+0FE02h],cs
 .ok:
+    jmp tr_lpes                 ; ES = the site's tier as DATA (slot 41's)
+tr_lpok:
     mov bx,[ss:S_LINK]
     cmp byte [cs:bx],81h        ; a RET's site: cmp si,PC (rt_ret)
     je tr_rpatch
     cmp si,4000h                ; bank 0: the six bytes, the jump
     jb tr_ljmp
-    mov es,[cs:RDG_TDSEG]       ; (written as data: tr_ljmp's note)
     mov word [es:bx],8036h      ; a bank: cmp byte [ss:S_BANK],B / jne +5
     mov byte [es:bx+2],3Eh      ;   (onto the exit's own jmp tr_enter) /
     mov word [es:bx+3],S_BANK   ;   the jump, near or far
@@ -986,7 +1010,7 @@ tr_lpatch:
     mov word [es:bx+6],0575h
     add bx,8
     jmp tr_ljmp
-.no:                            ; (not chained: the lookup each time)
+tr_lpno:                        ; (not chained: the lookup each time)
     jmp tr_lgo
 """,
     0x49: """
@@ -1469,8 +1493,8 @@ cnt_ff:
 ; displacement 19 less, a jmp far's as it was), and PC and BLOCK become the
 ; first's, its bank check this block's bank - or a jmp short over it, for a
 ; block in bank 0 - and its jump near or far (tr_ljmp, 16.2.1)
-tr_rpatch:
-    mov es,[cs:RDG_TDSEG]       ; (written as data: tr_ljmp's note)
+tr_rpatch:                      ; (ES = the site's tier as data, tr_ljmp's
+                                ;   note)
     mov dx,[es:bx+2]
     mov [es:bx+21],dx
     mov dx,[es:bx+6]

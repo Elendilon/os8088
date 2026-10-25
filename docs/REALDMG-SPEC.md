@@ -2243,7 +2243,7 @@ selector, and every one **written through** as its data segment:
 |---|---|
 | `S_DISP+2`, `S_RESVEC+2`, `S_RETFAR+2` (the core) | `S_COREDS` (the core) |
 | `S_JITCSA`, `S_JITCSB`, `S_JITCS` | `S_JITSEGA`, `S_JITSEGB`, `S_JITSEG` |
-| `S_JITOUT+2`, a block table entry's +6, every `jmp far` a chain writes, the link log's segment | each tier's `RDG_TDSEG` (FFF2h, beside its generation at FFF0h) |
+| `S_JITOUT+2`, a block table entry's +6, every `jmp far` a chain writes, the link log's segment | |
 | the package's four doors into the recompiler's part (`rw_jdset`) | `rw_jpseg` |
 
 - **Who converts**: the HOST, with `rdg_csel` (rdgsys.inc, `RDG_CSEL`): the
@@ -2263,14 +2263,19 @@ selector, and every one **written through** as its data segment:
   table's +6, `rt_forget`'s compare, `rt_unlink`'s log (logged as the code
   selector a chain names, written back through the data segment).
 - **The link patches** (`tr_ljmp`, `tr_lpatch`, `tr_rpatch`) wrote the site
-  through CS, which is where the site is. They load ES from `[cs:RDG_TDSEG]` -
-  the tier's own data segment, which `rt_init` stamps into every tier - and
-  write through ES: one instruction more each, no stack, no state block walk.
+  through CS, which is where the site is. All three are entered through
+  `tr_lpatch`'s `.ok`, which takes ES = the site's tier as data once
+  (`tr_lpes`, in slot 41's spare room: CS against the three pairs, or CS
+  itself when none matches - a host with no code selectors), and they write
+  through ES. It is not a word kept in each tier, which was built first: the
+  static recompiler builds its code at one place and loads it at another
+  (section 20), so a word in the segment arrived stale and its run-time
+  links were written into the wrong memory - GBFLAGS' sum went wrong on the
+  merge.
 - **A move**: `rw_reloc` re-stamps the four vectors into the region by the
   code selector of where it was against where it is (on kern_mega the
   region's alias changes with it), and `rw_partsmv` the core's far vectors
-  the same way, after its walk; a cache move re-runs `rt_init`, which
-  re-stamps `RDG_TDSEG`.
+  the same way, after its walk; a cache move re-runs `rt_init`.
 - **What the package still writes through CS** is the host's once-a-session
   bookkeeping (`rdg_init`'s two words, the lossy picture's patch,
   `rdg_lpatch`, once per toggle): each a #GP on kern_mega, on the host's own

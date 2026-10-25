@@ -112,8 +112,7 @@ rt_init:
     mov [S_HMASK],dl
     push es
     mov es,[S_COREDS]               ; the core's masks, which the copies
-    mov [es:RDG_TDSEG],es           ;   below take with them - and its data
-    mov [es:RDGC_TR_HM0],dl          ;   segment, for its patches (16.2.4)
+    mov [es:RDGC_TR_HM0],dl          ;   below take with them
     mov [es:RDGC_TR_HM1],dl
     mov [es:RDGC_TR_HM2],dl
     pop es
@@ -145,7 +144,6 @@ rt_init:
     ret
 .tails:                             ; into AX's segment
     mov es,ax
-    mov [es:RDG_TDSEG],ax           ; (its data segment, for its patches)
     mov bx,[cs:rt_tab + RT_HTAIL]       ; the tail slots
     mov dx,[cs:rt_tab + RT_HTAIL + 2]
 .slot:

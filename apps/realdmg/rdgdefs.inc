@@ -94,10 +94,6 @@ S_COREDS        equ 0x48E0          ; word: the core's DATA segment (S_DISP+2
 S_JITCSA        equ 0x48E2          ; word: S_JITSEGA's code selector...
 S_JITCSB        equ 0x48E4          ; word: ...S_JITSEGB's, or 0...
 S_JITCS         equ 0x48E6          ; word: ...and S_JITSEG's (rt_tier)
-RDG_TDSEG        equ 0FFF2h          ; word in EACH TIER (a cache segment, the
-                                    ;   core) beside its generation at FFF0h:
-                                    ;   its own DATA segment, which a patch
-                                    ;   through CS loads into ES (rt_init)
 RDG_DVMM         equ 0x48E8          ; byte: rdgppu's - the plane the VGA map
                                     ;   mask holds (ppu_dvga), FFh unknown
 RDG_BWST         equ 0x48E9          ; byte: rdgppu's - VGA's two-shades
