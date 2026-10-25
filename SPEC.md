@@ -69020,6 +69020,45 @@ from `[sbl_sbase]` (0 for a heap claim) and its 8237 address is DX × 16 +
 `[sbl_sbase]` as 24 bits - page 10h, which the AT's eight-bit page register
 carries and an XT's never meets. `sbl_dma_put` gives it back the same way.
 
+#### 34.5.2.1 A direct ring counts the blocks the 8237 passed, not the IRQs
+
+**The block IRQ is an EDGE, and a block that ends while the line is masked
+latches the same edge as the next one.** The direct ISR added one `[sbl_half]`
+to `[sbl_consumed]` per interrupt, so every block end that fell inside a
+masked stretch was a block the card PLAYED and the counter never saw - and
+the card is auto-init, so it went on playing. kern_mega masks every kernel
+line for the length of a reflected BIOS call (`mega_svc`, KERN-MEGA-PLAN
+2.2), and a BIOS-served hard disk - a PicoMEM's, an XT-IDE's option ROM -
+holds the CPU for tens of milliseconds a read, so on that machine the count
+fell steadily behind the card: the Video Player, whose picture is paced on
+`SND_EXT_CONS` (SPEC.md 98.3.1), played **slow and in sync with a clock that
+was wrong**, and the producer wrote the ring behind where the chip really
+was. KERN-MEGA-PLAN 14.73 is the measurement.
+
+So the direct ISR asks the 8237 how far it has got (`sbl_dleft`, the count
+read verb 9 already made): the offset it reads next, against consumed's own
+offset, rounded DOWN to whole blocks, is what was played - one block when
+nothing was lost, three after a stretch that swallowed two. Three guards:
+
+- **a count that has not moved since the last IRQ** (`[sbl_dpos]`, the
+  offset banked each time, 0 at verb 0) is no count at all, and the IRQ adds
+  one block as before - a card whose 8237 registers say nothing is played the
+  way it always was;
+- **an offset half the ring or more past consumed's** is BEHIND it, not ahead
+  (a count read before the copy that advances it - a PicoMEM 1.x's
+  multiplexer writes channel 1's count back after each 128-byte copy,
+  §34.10.1), and adds nothing; **zero whole blocks** adds nothing either, and
+  the next IRQ's count takes them;
+- **consumed past the total** - `total − consumed` more than the ring, which
+  is negative: the chip played through the end of what was fed while the
+  line was masked (a whole ring fed is verb 1's bound and is not this) -
+  stops consumed at the total and takes the underrun contract: what it
+  played past it was stale, and the next count takes the gap back up once
+  the stream resumes.
+
+The double-buffered path is unchanged: its halves are swapped by the ISR, so a
+lost IRQ there is a lost half-swap and not a miscount.
+
 #### 34.5.3 An external ring, and ADPCM4 (the Video Player)
 
 **A ring in the PACKAGE'S OWN claim**, opened with `SND_OPENF_RING +
@@ -102658,6 +102697,22 @@ instruction**: a byte the entry proc sets when it is ready is enough.
 
 `fsx_wait`'s `FSXW_FRAME` (§53.5.1) waits for the next IRQ0, which under
 `FSXF_RATE` is the next rate period.
+
+**On kern_mega a REFLECTED BIOS service runs the hook when it returns**
+(`mega_svc_back`, docs/plans/KERN-MEGA-PLAN.md 14.73). Under protected mode
+a BIOS call goes to real mode and back (`mega_svc`), and every IRQ0 that
+falls inside it is the ROM's: `mega_rfclk` already counts those periods into
+`[sch_rpend]`, so none is lost, but no hook ran at them - where a real-mode
+kernel's hook interrupts the same `int 13h` and works through it. A caller
+that issues reads back to back then starved the hook outright, because the
+next tick fell inside the next reflection: the Video Player on a disk its
+BIOS serves went ~0.8 s at a time with no frame drawn and no sound queued.
+So when a service reflection (not an option ROM's IRQ) comes back with
+periods owed under `FSXF_RATE`, `sch_rhook` is called there, before the
+caller resumes - the place a real-mode kernel's hook would have run, a read
+later. Its three skip rules decide as they do from `sch_isr`; a reflection
+made inside the ROM's tick chain, or with the hook already running, leaves
+the periods for the next IRQ0. ~15 bytes of `.mega`, kern_mega only.
 
 **It costs ~145 bytes of `.text` and 9 of `.bss`, `kern_big` only** (it
 shipped at ~180 and 11; kernel size pass 5):
@@ -200617,6 +200672,23 @@ holds it: docs/plans/KERN-MEGA-PLAN.md 14.41 is the record. The package says
 `vp_rdat` refuses a read that would need a second call into an LDT
 selector (one 64 KB window, one call); with the sector reads every
 kern_mega volume takes a key's read is one call.
+
+**Each landing is inside one 64 KB physical page** (KERN-MEGA-PLAN 14.73):
+the bounce is claimed with a 32 KB head (`OSAPI_MEM_CLAIM_DMA`, CX = 32),
+and a conventional ring - the bank in place reads every chunk into its
+first slot - with its first slot and the gap's slack as the head
+(`vp_rclaim`). The kernel cuts a transfer at a page's edge (`dsk_runcap`,
+§18.91), and the straddling sector then went through the sector cache as a
+fill of its own, so a chunk landing across one was THREE `int 13h` - on a
+BIOS-served disk three reflections, each a CPU reset on a 286 - where one
+does. Measured on 86Box's ami286 with an XT-IDE ROM's disk: 25.1 calls a
+second of 31.6 sectors before, 13.6 of 59.9 after, the same as kern_big's
+12.4 of 60.4. With no gap the ring's head is its first 64 KB, so every slot is
+on the page grid; a copying bank's ring, sized to what conventional memory
+has, gives up one slot for a page-safe claim (`vp_rclk1`: LASTX 21.4 calls a
+second, then 11.3). Either claim falls back to the plain one when no
+page-safe run is free. The PKG_MEGA arm alone; the shipped `video.bin` is
+byte-identical.
 
 #### 98.3.22 The play's profile: every frame timed on the machine (2026-10-15)
 
