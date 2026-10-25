@@ -202506,7 +202506,13 @@ typed while a screen is being drawn is kept. A screen waits with `xb_getkey`: on
 menus' and the race's - comes through `xb_rdkey`, which takes an Enter once per PRESS
 (`[xb_enth]` is set when one is taken and cleared when `OSAPI_KEY_DOWN` reads Enter up)
 and throws away every Enter typed in between, which is the held key's typematic
-repeats. It replaced a bounded wait (40 frames) in `xb_flush` for the release, which a
+repeats - **including the ones still in the BIOS buffer when the release is seen**:
+a repeat and the break after it can both land inside one 18 ms frame, and that
+repeat's Enter then waited behind a key that already read up and was taken as a new
+press (6 of 24 release points, 5 ms apart across the typematic period, ran the
+course screen into a race; `excitebikeflow` red one arm in four or five). A key that
+reads up cannot have been pressed again since, so the Enters at the buffer's head at
+that moment are discarded with it. It replaced a bounded wait (40 frames) in `xb_flush` for the release, which a
 hold longer than the bound ran straight through: the course screen took a repeat and
 the mode screen's one press started a race. Being a level read it is advice (SPEC.md
 67.11.1) - a break lost inside an interrupts-off window costs one extra press.
