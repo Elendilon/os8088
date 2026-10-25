@@ -1748,7 +1748,7 @@ rw_jit2get:
 ; free, taken from free memory alone (floor 0: no cache is shed for them).
 ; They are the SECOND SEGMENT'S OWN CLAIM grown (OSAPI_MEM_REGROW) to 1 + k
 ; segments, so they cost no claim record: a package holds MEM_OWNER_MAX = 8
-; and a game already holds six, which a claim per tier ran out of - Machine
+; and a game already holds five, which a claim per tier ran out of - Machine
 ; > Log and then F7 was "Replay: no room" with 91KB free. The second
 ; segment first, and nothing without the first. On the UI task; rw_rtinit
 ; hands them to the core. Every register kept

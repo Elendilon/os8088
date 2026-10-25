@@ -2399,8 +2399,8 @@ tier 3 on, in the same turn (0, the core's holes, 2, 3, 4... 0 again).
   them, with the floor at 0: free memory only, no cache shed for them.
   - **One claim and not one a tier, because a claim RECORD is the scarce
     thing**: a package holds `MEM_OWNER_MAX` = 8, a game in the arm holds
-    six after its load, and the first build's claim per tier took it to
-    seven - so Machine > Log took the eighth, and F7's replay was refused
+    five after its load, and the first build's claim per tier (two extra
+    tiers on a 640KB machine) took it to seven - so Machine > Log took the eighth, and F7's replay was refused
     as "Replay: no room" with 91KB free, compacting and shedding the
     read-ahead on the way (`mem_claim`'s refusal path). Grown, the arm holds
     exactly the records the base did.
