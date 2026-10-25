@@ -2018,6 +2018,16 @@ fn snapshot(server: &mut DebugServer) -> Value {
         // Drop everything that would make two processes fight over one
         // socket, then block. Nothing here touches the machine, so the state
         // is frozen exactly as it was at the moment of the fork.
+        //
+        // ...and every WRITE end of a holder pipe, its own and each earlier
+        // snapshot's. holder_loop exits on EOF, and a pipe reaches EOF only
+        // when every write end is closed: a holder still holding one never
+        // saw its parent go, and outlived it for hours (fourteen of them
+        // after one soak, each with its run directory already deleted).
+        unsafe { libc::close(wr) };
+        for s in server.snaps.drain(..) {
+            unsafe { libc::close(s.fd) };
+        }
         server.detach_for_holder();
         holder_loop(server, rd);
         // holder_loop returns only when this process has been told to become

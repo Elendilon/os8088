@@ -2047,6 +2047,14 @@ FULL = [
         "so it cannot answer this tier's question. It is what a change to "
         "tools/os88marty.py runs",
         needs=("marty",), serial=True),
+    Row("martyfork", "soak", py("tests/martyfork.py"), 8.0,
+        "a fork snapshot's HOLDER processes end with the emulator that made "
+        "them. They exit on their pipe's EOF and used to keep its write end "
+        "open, so fourteen idle holders outlived one soak by hours, invisible "
+        "to reap(). Two restores and an unrestored snapshot, then close(): "
+        "nothing of this process's may be left. Red with a MartyPC built "
+        "before debug_server.rs closed the holder's write ends (2 survivors)",
+        needs=("marty",), wants=("build/os8088-360.img", "build/apps360.img")),
     Row("guidelock-full", "full", py("tests/unit/t_guidelock.py"), 2.1,
         "the fast tier's `guidelock` row with teeth, at the owner's word: a "
         "merge of major work must not leave a page describing text the "
