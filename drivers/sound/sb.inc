@@ -3138,13 +3138,13 @@ sbl_dma_get:
 .got:
     mov [sbl_seg], dx
     mov [sbl_sbase], ax         ; ...and every CPU access is from AX on
+    push bx
     push ax
-    mov ax, dx                  ; ...and the two words the base decides: the
-    mov cl, 4                   ; buffer's offset inside its 64KB physical
-    shl ax, cl                  ; page (the low 16 bits of base x 16)...
-    mov cl, 12                  ; ...and which page that is
-    shr dx, cl
-    pop cx
+    mov bl, SEG_LIN             ; ...and the two words the base decides: the
+    call OSAPI_SEG              ; buffer's offset inside its 64KB physical
+    pop cx                      ; page (the low 16 bits of base x 16) and
+    pop bx                      ; which page that is - asked, because under
+                                ; kern_mega DX is a selector (MC7)
     add ax, cx                  ; ...from the block's first offset, which
     adc dl, 0                   ; carries into the page above 1MB
     mov [sbl_dmaoff], ax
@@ -3188,12 +3188,11 @@ sbl_dma_put:
 ; -----------------------------------------------------------------------------
 sbl_ring_phys:
     push cx
-    mov ax, [sbl_rseg]
-    mov dx, ax
-    mov cl, 4
-    shl ax, cl                  ; the pool's base, low 16 bits...
-    mov cl, 12
-    shr dx, cl                  ; ...and its page
+    push bx
+    mov dx, [sbl_rseg]
+    mov bl, SEG_LIN             ; the pool's base, low 16 bits and its page:
+    call OSAPI_SEG              ; asked, a selector under kern_mega (MC7)
+    pop bx
     add ax, si                  ; + the ring's offset in the pool, carrying
     adc dl, 0                   ; into the page
     push ax

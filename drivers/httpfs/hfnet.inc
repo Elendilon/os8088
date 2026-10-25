@@ -802,9 +802,14 @@ hf_run:
     ret
 
 ; hf_bnorm - [hf_bseg]:[hf_boff] with the offset under 128, in whole 128-byte
-; granules: cd_bnorm's rule and reason (kern_mega's identity selectors,
-; SPEC.md 119.3.4). clobbers: nothing
+; granules: cd_bnorm's rule and reason (SPEC.md 119.3.4). Not under
+; kern_mega's protected mode, where every buffer is a selector and a sum on
+; one names some other descriptor: its offset walks, the kernel having
+; handed it over with the read inside its 64KB (KERN-MEGA-MEMORY-PLAN MC7).
+; clobbers: nothing
 hf_bnorm:
+    test byte [hf_cpuf], CPU_F_PM
+    jnz .out
     push ax
     push cx
     mov ax, [hf_boff]
@@ -815,6 +820,7 @@ hf_bnorm:
     and word [hf_boff], 127
     pop cx
     pop ax
+.out:
     ret
 
 hf_s_get:   db 'GET ', 0

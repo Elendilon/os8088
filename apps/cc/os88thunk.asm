@@ -2096,6 +2096,24 @@ _os88_mem_huge_step:
     ret
 %endif
 
+; unsigned os88_seg_para(unsigned seg) - the paragraph under a segment or
+; selector below 1MB: OSAPI_SEG's SEG_LIN, shifted (KERN-MEGA-MEMORY-PLAN
+; MC7). The segment itself on every real-mode kernel
+CC_GATE _os88_seg_para
+%ifdef CC_U__os88_seg_para
+_os88_seg_para:
+    mov bx, sp                      ; no frame: one argument
+    mov dx, [ss:bx+2]
+    mov bl, SEG_LIN
+    call OSAPI_SEG                  ; DX:AX = its linear base
+    mov cl, 4
+    shr ax, cl
+    mov cl, 12
+    shl dx, cl
+    or ax, dx
+    ret
+%endif
+
 ; int os88_mem_free(unsigned seg) - DX = a segment you were given.
 CC_GATE _os88_mem_free
 %ifdef CC_U__os88_mem_free

@@ -15922,6 +15922,17 @@ SOAK = [
         "the clone never ends and 1,330 sectors differ. 150s is 134 measured",
         needs=("86box",),
         wants=("build/mega.img",)),
+    Row("megasweep", "soak", py("tests/megasweep.py"), 120.0,
+        "KERN-MEGA-MEMORY-PLAN MC7: every package the shipped disks carry "
+        "OPENS under kern_mega (Bochs, 16MB, the kern_mega arm where one is "
+        "built and kern_mega's own DOS.O88), each started through MEGARUN "
+        "and left to run; any kern_mega CLOSED or FAULT line, a refusal or "
+        "a package never started fails it. 49 packages in six parallel "
+        "boots. Red with op_sub's sum put back (WORD closed at its first "
+        "load); vga_blit_prow on [rom_vgabw] faults the kernel at SOLITAIR. "
+        "120s is 94 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/apps.img")),
     Row("megatbl", "soak", py("tests/megatbl.py"), 45.0,
         "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7's step 6: kern_mega's "
         "tables sized per machine. Under Bochs at 1, 4 and 16MB: the GDTR's "

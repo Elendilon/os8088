@@ -1327,6 +1327,84 @@ rows. Nothing is recorded as built that was not.
   - Re-swept: all twelve run; kern_big and kern_small byte-identical with a
     clean build of the same commit.
 
+- **The package wave's census, retaken (2026-10-25)** - MC7.1's census was
+  never written down site by site, and step 5 has since made every claim a
+  selector, so it was retaken against this tree: four read-only passes, and
+  `tests/megasweep.py` (every shipped package OPENS, 49 of them) as the
+  floor under it. What OPENS is not what WORKS: the sites below break when
+  a package loads a document, a module, a story or a song. **The work list,
+  ranked:**
+  1. **Frotz** - a story over 64KB: `zm_map`/`zm_addr`/`zm_norm`/
+     `zm_pcaddr`, the `zx_seglim` order compares and the checksum walk test
+     the TI bit for "≤64KB" and step granules. A table of `SEG_SUB`
+     selectors per 32KB at load; the PC's page an index.
+  2. **Paint** - a canvas over 64KB: `pt_layout`'s row table, the undo's
+     `undelta`, `pt_mstep`/`pt_cvmove`/`pt_orowset`/`pt_srowset`. The row
+     table by 64KB windows (HUGE step), a `SEG_SUB` for a row on a seam.
+  3. **Lemmings** (C) - its 96KB bank and 125KB T-claim: `ovl_far`,
+     `lem_far_add`, the plane loads in `lemblit`/`lemsprite` (a per-byte
+     loop) - four plane selectors made once - and its reloc. Needs C
+     wrappers for `OSAPI_SEG`, which the SDK does not have.
+  4. **The Video Player's kern_mega arm** - written for the identity map:
+     ring, layer, plane and EMS addressing by granule, TI-bit tests, and
+     the windowed play's framebuffer constants. Slot and plane selectors
+     cached once, `SEG_WIN` for the frame. (The shipped build refuses.)
+  5. **XT-MP3** - the hold's load and refill, the conversion stage,
+     `x3xt`'s generator segment; and `x3xt`'s CS writes if that backend can
+     run on a 286.
+  6. **Tracker** (both builds; the shipped one has no selector arm at all),
+     **ModPlug** (modules over 62KB), **MIDIRack** (bank over 64KB, per
+     note-on) - per-sample `SEG_SUB`s and 64-pattern windows; the "re-claim
+     at 65KB, conventional by contract" premise goes.
+  7. **C64 and Apple II** - the ROM bias (`romseg - N`, a base BELOW a
+     block, hot) has no door; the launch compares `romseg < N` and Apple
+     II's regrow size are wrong too. Screenshot-confirmed: C64's CPU JAMs.
+  8. **Drivers**: SOUND's 8237 address from `seg * 16` (own ring and a
+     package's external one) -> `SEG_LIN`; HDD's run cap the same;
+     RAMDISK's arena over 64KB -> a bound window; HTTPFS's `hf_bnorm`
+     without a guard; EMS's frame walk and the frame it hands out; VESA's
+     A000h and its VBE pointers; USBMOUSE's real-mode int 33h (a design
+     question: refuse it under protected mode, or a callback stub).
+  9. Small: Gorillas' and Excitebike's framebuffer constants (FSI_SEG is
+     already in hand), Excitebike's own part fetch, Pixelstein's `px_hrel`
+     sum, WireFleet's pin of `cs` (the code half: `ds`), Skies' SUBSEG
+     fallback, Audio's and `os88pcm.inc`'s writes through CS (per sample:
+     a #GP the kernel completes, each), artful's.
+  10. Docs: `os88.h`'s three passages and `OS88_HUGE_INCR`'s comment still
+      say only an OS88_HIGHMEM claim is a selector, and `os88drv.inc`'s
+      HIGHOK/HICLAIM text.
+  11. From the fourth pass: **PiXEL** (both builds: every master row and the
+      decoders' work carves by granule - the flat arm, a rewrite of its
+      addressing), **RealDMG's shipped build** (the bank table, RAM banks,
+      the slot cache, the frame carve and the JIT part's layout; the
+      `PKG_MEGA` arm covers only the bank store and the table), the
+      **Browser** (its document, line and source arenas over 64KB by
+      `>> 4` sums, its EMS frame, and four far vectors through `op_seg`),
+      **Redline** (F000h, C000h-EFFFh and the frame paragraphs, and a
+      PicoMEM paragraph), the **Task Manager**'s two reads of a driver's
+      header by its physical paragraph, Sheet's row-height table, and
+      `os88xgap.inc`'s/`os88con.inc`'s one line each. Writes through CS - a
+      #GP the kernel completes per store - in Sheet's two modules, Word's
+      and Scribe's undo, RealDMG's and the PiXEL parts' (`PXSW`) are a
+      COST and not a defect, listed for the speed pass. DOS needs nothing:
+      kern_mega's arm runs its program in `kern_dos`, in real mode.
+  Each converts on every kernel where the XT loop is no slower, or as a
+  `PKG_MEGA` arm where it measures slower (MC7.2's answer).
+  **Taken (2026-10-25, batch 1):** C64 and Apple II (the three bank fetch
+  segments and the one made at `c64_run`'s/`a2_run`'s door from the ROM
+  part's linear base, a window under kern_mega and the sum elsewhere - so
+  `ROMBIAS` is one load and the XT's fetch rebias got CHEAPER; Apple II's
+  regrow through a new SDK call, `os88_seg_para`; both boot to their
+  prompts under Bochs), SOUND's two 8237 producers and HDD's run cap
+  (`SEG_LIN`), HTTPFS's fold (none under protected mode), Gorillas' and
+  Excitebike's frame constants (`FSI_SEG`), Excitebike's own part fetch
+  (which `op_read`'s new unit had broken on EVERY kernel - the one direct
+  caller of `op_read` outside the standard), Sheet's `ch_xthunk` (it
+  compared the caller's CS with the module's DATA selector and so tagged
+  every chart-module callback as the macro module's), `os88type.inc`'s
+  alignment check (every face refused under kern_mega - Word's, Scribe's
+  and FontView's type), WireFleet's pin.
+
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to
   reopen the end state:

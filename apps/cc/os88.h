@@ -1224,6 +1224,12 @@ unsigned os88_mem_regrow(unsigned seg, int kb);  /* 0 = refused and the old
  * allows; 0x1000 is only the conventional step */
 unsigned os88_mem_huge(int kb);
 unsigned os88_mem_huge_step(void);
+/* os88_seg_para - the PARAGRAPH under a segment or selector below 1MB:
+ * the segment itself on every real-mode kernel, and under kern_mega, where
+ * every claim is a selector (KERN-MEGA-MEMORY-PLAN MC7), its descriptor's
+ * base / 16. A distance between two claims or parts, in paragraphs, is a
+ * difference of two of these and never of the values themselves */
+unsigned os88_seg_para(unsigned seg);
 unsigned os88_mem_largest_kb(void);
 unsigned os88_mem_total_kb(void);
 

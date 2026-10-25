@@ -98,9 +98,13 @@ ch_xthunk:                          ; [sp]: the CHX word, the module's IP, CS
     push ax
     mov bp, sp                      ; +6 slot, +8 &word, +10 IP, +12 CS
     mov ax, [bp+12]
-    cmp ax, [cs:ch_ovseg]           ; CS, not DS: the thunk is the REGION's,
-    mov ax, ch_ovseg                ; DS is whatever the caller left. The TAG
-                                    ; is the word naming the module
+    cmp ax, [cs:ch_ovfar+2]         ; CS, not DS: the thunk is the REGION's,
+    mov ax, ch_ovfar+2              ; DS is whatever the caller left. The TAG
+                                    ; is the word naming the module's CODE -
+                                    ; the far vector's half, which under
+                                    ; kern_mega is op_cseg's and not
+                                    ; ch_ovseg's data (MC7), and is what the
+                                    ; caller's CS is and .back's retf wants
     je .tag
 %ifdef CH_OV2SEG
     mov ax, CH_OV2SEG               ; ...and the only other caller there is
