@@ -879,8 +879,7 @@ tr_lpes:
     mov es,[ss:S_COREDS]
     jmp tr_lpok
 .d:
-    mov es,dx
-    jmp tr_lpok
+    jmp tr_lpx                  ; ...or an extra tier's (slot 45's CB half)
 """,
     0x42: """
 ; tr_link: tr_enter for an exit that may be CHAINED (REALDMG-SPEC 16.4). DX =
@@ -2171,6 +2170,24 @@ cnt_cph:
     jmp stat_ff
 .no:
     jmp word [ss:S_RET]
+""",
+    0x45: """
+; tr_lpes's last: DX = CS, an extra tier's code selector (REALDMG-SPEC
+; 16.2.5) - all RT_XMAX of the pairs, as one past S_JITXN names its own
+; segment as rightly - or CS itself, for any other host
+tr_lpx:
+    mov bx,S_JITXT
+.x:
+    cmp dx,[ss:bx+2]
+    je .xh
+    add bx,4
+    cmp bx,S_JITXT + RT_XMAX * 4
+    jb .x
+    mov es,dx
+    jmp tr_lpok
+.xh:
+    mov es,[ss:bx]
+    jmp tr_lpok
 """,
     0x41: """
 ; POP's slow path, SP below C000h (REALDMG-SPEC 5): DX = the word at SP and

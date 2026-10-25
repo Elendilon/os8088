@@ -109,6 +109,9 @@ rt_init:
     mov [S_JITSEGA],ax
     mov [S_JITSEGB],cx
     mov [S_JITHSEG],bx
+%ifdef RDG_XTIER
+    mov byte [S_JITXN],0            ; (the extra tiers: rt_more's, after)
+%endif
     mov [S_HMASK],dl
     push es
     mov es,[S_COREDS]               ; the core's masks, which the copies
@@ -158,6 +161,42 @@ rt_init:
     dec dx
     jnz .slot
     ret
+
+%ifdef RDG_XTIER
+; rt_more - DS = the view, after rt_init: AX = one more 64KB cache segment,
+; DX its code selector or 0 (REALDMG-SPEC 16.2.5) - tier 3, 4... in the turn
+; rt_room takes them, after the second - the core's tails copied into it.
+; CF = 1: RT_XMAX already, and nothing done. Keeps every register
+rt_more:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov bl,[S_JITXN]
+    cmp bl,RT_XMAX
+    cmc
+    jc .r
+    inc byte [S_JITXN]
+    xor bh,bh
+    shl bx,1
+    shl bx,1
+    mov [S_JITXT+bx],ax
+    mov [S_JITXT+bx+2],dx
+    call rt_init.tails
+    clc
+.r:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
 
 ; rt_resume - DS = the view: the recompiler back on over the cache it had
 ; when it was turned off (the package's rw_jitoff), nothing forgotten - the
@@ -364,8 +403,29 @@ rt_tseg:
 .r:
     ret
 .b:
+%ifdef RDG_XTIER
+    cmp al,2
+    jne .x
+%endif
     mov ax,[S_JITSEGB]
     ret
+%ifdef RDG_XTIER
+.x:                                 ; 3 on: rt_more's (16.2.5)
+    sub al,3
+    cmp al,[S_JITXN]
+    jae .none
+    push bx
+    mov bl,al
+    xor bh,bh
+    shl bx,1
+    shl bx,1
+    mov ax,[S_JITXT+bx]
+    pop bx
+    ret
+.none:
+    xor ax,ax
+    ret
+%endif
 
 ; rt_d2c - DS = the view, AX = a tier's DATA segment: AX = its CODE selector
 ; (REALDMG-SPEC 16.2.4) - a cache segment's or the core's, off the three
@@ -399,6 +459,20 @@ rt_xlat:                            ; BX = 0 data to code, 2 code to data
     add si,4
     cmp si,rt_pairs + 12
     jb .l
+%ifdef RDG_XTIER
+    mov si,S_JITXT - 4              ; ...and the extra tiers' pairs, in the
+.x:                                 ;   view (16.2.5): any, the stale past
+    add si,4                        ;   S_JITXN as right as the rest - a
+    cmp si,S_JITXT + RT_XMAX * 4    ;   code selector names its segment
+    jae .r
+    cmp ax,[si+bx]
+    jne .x
+    xor bx,2
+    mov di,[si+bx]
+    or di,di
+    jz .r
+    mov ax,di
+%endif
 .r:
     pop di
     pop si
@@ -1432,7 +1506,13 @@ rt_room:
     mov cl,[S_JITTIER]              ;   turn: 0, the core's holes, 2, 0...
 .nt:                                ;   over those there are
     inc cl
+%ifdef RDG_XTIER
+    mov al,[S_JITXN]                ; (and rt_more's after them, 16.2.5)
+    add al,3
+    cmp cl,al
+%else
     cmp cl,3
+%endif
     jb .t
     xor cl,cl
 .t:

@@ -595,7 +595,8 @@ cartridge in one claim, and no bank is ever fetched (`rw_xplan`,
   and gives it back - so the recompiler always gets **both 64KB cache
   segments** (16.2.1) and the 64KB block table (16.3): `rw_jit2more` and
   `rw_jit2claim` ask for the second segment under `CPU_F_PM` whatever the
-  profile says.
+  profile says - and, past those two, the EXTRA tiers out of what the heap
+  has left once the game's own claims are in (16.2.5).
 - **When it does not**: real mode (the arm runs on every kernel and plans as
   the shipped build does), a pool shorter than twice the cartridge, more
   than `RW_XROMMAX_KB`, or no run of free LDT entries that long (the load
@@ -2345,6 +2346,54 @@ selector, and every one **written through** as its data segment:
   is the row.
 - **Cost**: REALDMG.O88 +115 bytes on disk (the image +128, the recompiler's
   part +120, uncompressed), a line in tests/megapkg.txt.
+
+### 16.2.5 Extra tiers: kern_mega's arm
+
+Two 64KB cache segments and the core's holes are what the heap could give
+the recompiler beside a cartridge in conventional memory. kern_mega's arm
+keeps the cartridge above 1MB (10.3.1), and both segments still THRASH on
+Kirby's Dream Land - its code is more than two segments and the holes hold,
+so 16.2.3's round robin recycles a tier every few seconds of play, and Super
+Mario Land a level or two in. So the arm takes **more tiers out of the heap
+that the cartridge no longer uses**: 64KB cache segments past the second,
+tier 3 on, in the same turn (0, the core's holes, 2, 3, 4... 0 again).
+
+- **The state block names them**: `[S_JITXN]` how many, and `S_JITXT`'s
+  pairs, each a tier's DATA segment and its CODE selector (16.2.4; 0 for
+  "the same"). `RT_XMAX` is 5: `[S_JITUSED]` is a byte, a bit a tier, and
+  eight tiers is as many as 640KB holds anyway. A host adds one with
+  `rt_more` (AX the segment, DX its code selector, after `rt_init`, which
+  sets the count to 0), and it is entered with the tails copied into it as
+  `rt_init` copies them into the first two.
+- **Only the arm's part has it**: `rt_more`, `rt_tseg`'s tiers past 2, the
+  turn's count and `rt_d2c`'s pairs past the three are assembled with
+  `RDG_XTIER`, and only `$(MEGAAPPDIR)/rdgjitp.bin` is built with it
+  (`-DRDG_XTIER`, a fifth door `rw_jmore` at 40). The shipped part, the
+  shipped image and the bare harness are unchanged: the harness has 20
+  bytes to spare under its core and cannot afford the table. The one piece
+  every build carries is the core's: `tr_lpes` (16.2.4) looks for CS among
+  the extra pairs too (`tr_lpx`, in slot 45's spare CB half), 0 of them
+  matching for any other host, so CS itself is what it writes through.
+- **The block table goes above 1MB first** (`rw_jtx`): it is only ever
+  DATA - every reader loads ES from `[S_JITHSEG]` and indexes it from 0 -
+  so the arm puts its 64KB in a block of the extended pool and names it by
+  `OSAPI_XMEM_RUN`'s first selector, whose window is the whole block. The
+  cache's claim is then the cache and the recompiler's part alone, and the
+  64KB it no longer holds is one more tier. Made once and kept for the
+  instance (a cache claimed again takes the same table); real mode or a
+  short pool, and the table is in the claim as before.
+- **The claims** (`rw_jitxget`): after the cartridge is planned in place
+  (`[rw_bcache]` 2) and loaded, and after everything else of the game's -
+  its RAM, its profile - so they take what is LEFT. Each is a 64KB claim
+  while the largest free run is 64KB and **`RW_XRESKB` = 32KB** stays free
+  beside it, with the floor at 0: free memory only, no cache shed for
+  them. They go back when the game does (`rw_unload`), when CPU >
+  Interpreter gives the cache back (`rw_jfree`), and with the instance.
+  The way back to the recompiler claims them again (`rw_jitprep`).
+- **A move** of one flushes, as one of the first two does (`rw_mreloc`'s
+  `.n8`, `rw_mjit`: `rt_init` and `rt_more` over them all again).
+- **MEASURED** (86Box `286-mega`, 640KB conventional): see
+  docs/reports/REALDMG-MEGA-TIERS-2026-10-25.md.
 
 ### 16.3 Blocks and tr_enter
 

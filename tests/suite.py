@@ -15951,7 +15951,7 @@ SOAK = [
         "kern_mega FAULT. Red with the `push cs / pop ds` put back "
         "(ECHO 62, DIR 87, TYPE 802). 80s is 56 measured alone, 73 in three lanes",
         needs=("bochs", "nasm")),
-    Row("rdgmega", "soak", py("tests/rdgmega.py"), 240.0,
+    Row("rdgmega", "soak", py("tests/rdgmega.py"), 360.0,
         "docs/REALDMG-SPEC.md section 16.2.4: RealDMG's RECOMPILER on kern_mega, "
         "right and with no #GP in the core. The core and the cache entered "
         "and chained through their DATA segments and the links were patched "
@@ -15962,7 +15962,10 @@ SOAK = [
         "REALDMG.O88 and cpu_instrs (getgbtest's): it must pass all eleven "
         "under the recompiler, read off the link port's bytes in the view, "
         "with no trap charged to the core or a cache segment and none a "
-        "kern_mega FAULT. Red with the base's REALDMG.O88 (--pkg)",
+        "kern_mega FAULT. Red with the base's REALDMG.O88 (--pkg). Its third "
+        "leg is 16.2.5's EXTRA TIERS: the arm rebuilt RT_SQUEEZE (~0.5KB a "
+        "cache segment) must pass recycling at least once per tier, extra "
+        "ones among them - red with tr_lpx writing through CS",
         needs=("bochs", "nasm")),
     Row("pxsmega", "soak", py("tests/pxsmega.py"), 100.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.50: PIXELSTEIN 3D PLAYED on kern_mega "

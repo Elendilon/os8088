@@ -38,7 +38,18 @@
 ; rw_romseg is the view itself when the cartridge is the bank cache's, and
 ; the view is not ours to declare)
 rw_mtab:        dw rw_pseg, rdg_dmgseg, rw_jitseg, rw_jit2seg, rw_romseg
-                dw rw_slotseg, rw_ramseg, rw_prfseg, rw_logseg, rw_rpseg, 0
+                dw rw_slotseg, rw_ramseg, rw_prfseg, rw_logseg, rw_rpseg
+%ifdef PKG_MEGA
+%assign rw_i 0                      ; (the arm's extra tiers, 16.2.5)
+%rep RT_XMAX
+                dw rw_jitx + rw_i * 2
+%assign rw_i rw_i + 1
+%endrep
+%endif
+                dw 0
+%ifdef PKG_MEGA
+rw_jitx:        times RT_XMAX dw 0  ; the arm's extra cache tiers, or 0
+%endif                              ;   (rw_jitxget, 16.2.5)
 
 ; rw_mpin - every claim of ours PINNED (OSAPI_MEM_MOVABLE AX = 0): around a
 ; call that can claim while one of their segments is in a register - a file
@@ -196,10 +207,39 @@ rw_mreloc:
     ret
 .n7:
     cmp bx, [rw_jit2seg]            ; ...and its second 64KB
+%ifdef PKG_MEGA
+    jne .n8
+%else
     jne .r
+%endif
     mov [rw_jit2seg], dx
     cmp [es:S_JITSEGB], bx
     jne .r
+%ifdef PKG_MEGA
+    jmp short rw_mjit
+.n8:
+    mov si, rw_jitx                 ; ...and the arm's extra tiers (16.2.5):
+.x:                                 ;   the core running over one, flushed
+    cmp bx, [si]                    ;   as either of the first two
+    je .xm
+    inc si
+    inc si
+    cmp si, rw_jitx + RT_XMAX * 2
+    jb .x
+    ret
+.xm:
+    mov [si], dx
+    mov cl, [es:S_JITXN]
+    xor ch, ch
+    jcxz .r
+    mov si, S_JITXT
+.xv:
+    cmp [es:si], bx
+    je rw_mjit
+    add si, 4
+    loop .xv
+    ret
+%endif
     ; on into rw_mjit
 
 ; rw_mjit - a cache segment the core was translating into moved: rt_init

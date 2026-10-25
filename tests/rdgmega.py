@@ -39,6 +39,18 @@ banks are above 1MB in place (REALDMG-SPEC section 10.3.1) - and which must
 say so: its bank 1 in the bank table is a selector, the shipped build's a
 segment.
 
+And a third leg, SQUEEZED: the arm built again here with RT_SQUEEZE (its
+image and its recompiler part, -DRDG_XTIER -DRT_SQUEEZE - never shipped), so
+every cache segment is 1KB and the core's holes sixteen, and cpu_instrs
+recycles round every tier, the EXTRA tiers kern_mega's arm takes out of the
+heap the cartridge left (REALDMG-SPEC section 16.2.5) among them. It must
+pass, with at least one extra tier, and RECYCLE at least as many times as
+there are tiers: the first turn fills them fresh, so that many recycles is
+every tier, each extra one among them, written, recycled with its links
+undone, and written again - a link written into an extra tier through the
+wrong segment, or a tier the turn skipped, is a failure and not a slow
+second.
+
 THE FAILING CASE (docs/WRITING-TESTS.md 1): `--pkg` with the REALDMG.O88
 from before 16.2.4 (the base of this change) - measured red when this was
 written: tens of thousands of traps charged to the core and the cache, and
@@ -83,9 +95,13 @@ def label_off(lst, name):
 
 
 S_BTAB1 = 0x6800 + 2             # RDG_BTAB's bank 1
+S_JITRCY = 0x482F
+S_JITXN = 0x48BF
+S_JITXT = 0x48C0
+RT_XMAX = 5
 
 
-def leg(t, out, name, pkg, lst, rom, inplace):
+def leg(t, out, name, pkg, lst, rom, inplace, squeeze=False):
     """One boot: PKG with cpu_instrs on B:, under the recompiler. -> fails"""
     os.makedirs(out)
     shutil.copy(pkg, os.path.join(out, "REALDMG.O88"))
@@ -99,7 +115,7 @@ def leg(t, out, name, pkg, lst, rom, inplace):
                     "REALDMG:" + gb], check=True, stdout=subprocess.DEVNULL)
     t0 = time.time()
     box = os88bochs.Box(out, [], bimg=disk, btype="1_44", build=t.dir)
-    fails, text, bank1 = [], "", 0
+    fails, text, bank1, xn, rcy = [], "", 0, 0, 0
     try:
         if not box.wait_for("kern_mega: protected mode", 300):
             return ["%s: kern_mega never reached protected mode" % name]
@@ -141,7 +157,11 @@ def leg(t, out, name, pkg, lst, rom, inplace):
         # identity alias, (S >> 2) | 4, which is what a package from before
         # 16.2.4 (--pkg) ran its core at, its view naming only data segments
         if view is not None and not fails:
-            for off in (S_DISP + 2, S_JITCSA, S_JITCSB, S_JITSEGA, S_JITSEGB):
+            xn = box.read(view * 16 + S_JITXN, 1)[0]
+            rcy = int.from_bytes(box.read(view * 16 + S_JITRCY, 2), "little")
+            for off in (S_DISP + 2, S_JITCSA, S_JITCSB, S_JITSEGA, S_JITSEGB) + \
+                    tuple(S_JITXT + 4 * i + k for i in range(min(xn, RT_XMAX))
+                          for k in (0, 2)):
                 w = int.from_bytes(box.read(view * 16 + off, 2), "little")
                 if w:
                     coded.add(w)
@@ -165,6 +185,8 @@ def leg(t, out, name, pkg, lst, rom, inplace):
     print("rdgmega: %s: the core and the caches run at %s; bank 1 at %04X"
           % (name, " ".join("%04X" % c for c in sorted(coded)), bank1))
     print("rdgmega: %s: serial %r" % (name, " ".join(text.split())))
+    print("rdgmega: %s: %d extra cache tiers, %d tiers recycled"
+          % (name, xn, rcy))
     print("rdgmega: %s: %d traps after the launch - %d the region's and the "
           "kernel's, %d the core's or a cache's; %.0fs under Bochs"
           % (name, len(traps), len(region), len(other), time.time() - t0))
@@ -186,15 +208,46 @@ def leg(t, out, name, pkg, lst, rom, inplace):
     if inplace and not bank1 & 4:
         fails.append("the arm's bank 1 is at %04X, a heap segment: the "
                      "banks were not put in place" % bank1)
+    if squeeze and xn < 1:
+        fails.append("no extra cache tier was claimed (REALDMG-SPEC 16.2.5)")
+    if squeeze and rcy < 3 + xn:
+        fails.append("%d tiers recycled, fewer than the %d tiers there are"
+                     % (rcy, 3 + xn))
     if not inplace and bank1 & 4:
         fails.append("the shipped build's bank 1 is at %04X, a selector"
                      % bank1)
     return ["%s: %s" % (name, f) for f in fails]
 
 
+def squeezed(t):
+    """the arm built again with RT_SQUEEZE, into the private tree"""
+    d = os.path.join(t.dir, "rdgsqz")
+    os.makedirs(d, exist_ok=True)
+    nasm = ["nasm", "-f", "bin", "-w+error", "-DRT_SQUEEZE"]
+    subprocess.check_call(nasm + [
+        "-I", "apps/", "-I", "apps/realdmg/", "-I", "drivers/sound/",
+        "-I", t.dir + "/", "-DPKG_MEGA", "-l", os.path.join(d, "realdmg.lst"),
+        "-o", os.path.join(d, "realdmg.bin"), "apps/realdmg/realdmg.asm"],
+        cwd=ROOT)
+    subprocess.check_call(nasm + [
+        "-I", "apps/realdmg/", "-I", t.dir + "/", "-DRDG_XTIER",
+        "-o", os.path.join(d, "rdgjitp.bin"), "apps/realdmg/rdgjitp.asm"],
+        cwd=ROOT)
+    o88 = os.path.join(d, "realdmg.o88")
+    subprocess.check_call([
+        sys.executable, os.path.join(ROOT, "tools", "os88pkg.py"),
+        os.path.join(d, "realdmg.bin"), "-o", o88,
+        "--part", t.img("rdgcore0.bin"), "--part", t.img("rdgcore1.bin"),
+        "--part", os.path.join(d, "rdgjitp.bin")], cwd=ROOT,
+        stdout=subprocess.DEVNULL)
+    return o88, os.path.join(d, "realdmg.lst")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--leg", choices=("shipped", "arm", "squeezed"),
+                    action="append", help="run only these legs")
     ap.add_argument("--pkg", help="run this REALDMG.O88 alone (the one "
                     "before a change) - reports, does not gate")
     a = ap.parse_args()
@@ -205,7 +258,7 @@ def main():
     rom = os.path.join(getgbtest.DEST, "cpu_instrs", "cpu_instrs.gb")
     t = os88build.tree("MEGATRAP=1", targets=(
         "mega.img", "megarun.o88", "mbr.bin", "realdmg.o88",
-        "megak/apps/realdmg.o88"))
+        "megak/apps/realdmg.o88", "rdgcore0.bin", "rdgcore1.bin"))
     out = os.path.join(t.dir, "rdgmega")
     shutil.rmtree(out, ignore_errors=True)
     shipped = (t.img("realdmg.o88"), t.img("realdmg.lst"))
@@ -215,9 +268,14 @@ def main():
         legs = [("shipped", shipped[0], shipped[1], False),
                 ("arm", t.img("megak/apps/realdmg.o88"),
                  t.img("megak/apps/realdmg.lst"), True)]
+        if not a.leg or "squeezed" in a.leg:
+            legs.append(("squeezed",) + squeezed(t) + (True,))
+        if a.leg:
+            legs = [l for l in legs if l[0] in a.leg]
     fails = []
     for name, pkg, lst, inplace in legs:
-        fails += leg(t, os.path.join(out, name), name, pkg, lst, rom, inplace)
+        fails += leg(t, os.path.join(out, name), name, pkg, lst, rom, inplace,
+                     squeeze=name == "squeezed")
     if a.pkg:
         for f in fails:
             print("would FAIL: " + f)

@@ -14542,16 +14542,22 @@ $(MEGAAPPDIR)/xtmp3.o88: $(MEGAAPPDIR)/xtmp3.bin $(X3PARTS) tools/os88pkg.py $(P
 # RealDMG's arm (docs/REALDMG-SPEC.md section 10.3.1): under CPU_F_PM a
 # cartridge's banks live above 1MB and are addressed IN PLACE through
 # OSAPI_XMEM_RUN's selectors, so none is copied down and the heap goes to the
-# recompiler's two cache segments. Its parts are the shipped build's
+# recompiler's cache segments - two, and the extra tiers past them its own
+# recompiler part takes (REALDMG-SPEC 16.2.5, -DRDG_XTIER; the core's parts
+# are the shipped build's)
+$(MEGAAPPDIR)/rdgjitp.bin: apps/realdmg/rdgjitp.asm apps/realdmg/rdgjit.inc apps/realdmg/rdgdefs.inc \
+                          $(BUILD)/rdgtmpl.bin $(BUILD)/rdgcore.inc | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/realdmg/ -I $(BUILD)/ -DRDG_XTIER -o $@ apps/realdmg/rdgjitp.asm
 $(MEGAAPPDIR)/realdmg.bin: $(REALDMG_SRC) | $(BUILD)
 	@mkdir -p $(MEGAAPPDIR)
 	$(NASM) -f bin -w+error -I apps/ -I apps/realdmg/ -I drivers/sound/ -I $(BUILD)/ \
 	    -DPKG_MEGA -l $(MEGAAPPDIR)/realdmg.lst -o $@ apps/realdmg/realdmg.asm
 	@echo "realdmg (PKG_MEGA): $(call FILESIZE,$@) bytes"
 $(MEGAAPPDIR)/realdmg.o88: $(MEGAAPPDIR)/realdmg.bin $(BUILD)/rdgcore0.bin $(BUILD)/rdgcore1.bin \
-                           $(BUILD)/rdgjitp.bin tools/os88pkg.py $(PKGZSTAMP)
+                           $(MEGAAPPDIR)/rdgjitp.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(MEGAAPPDIR)/realdmg.bin -o $@ --part $(BUILD)/rdgcore0.bin \
-		--part $(BUILD)/rdgcore1.bin --part $(BUILD)/rdgjitp.bin --part-compress lz4
+		--part $(BUILD)/rdgcore1.bin --part $(MEGAAPPDIR)/rdgjitp.bin --part-compress lz4
 
 megapkgs: $(MEGAPKGS) $(patsubst $(MEGAAPPDIR)/%,$(BUILD)/%,$(MEGAPKGS))
 	@python3 tests/unit/t_megapkg.py --sizes

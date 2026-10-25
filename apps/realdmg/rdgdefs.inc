@@ -94,6 +94,13 @@ S_COREDS        equ 0x48E0          ; word: the core's DATA segment (S_DISP+2
 S_JITCSA        equ 0x48E2          ; word: S_JITSEGA's code selector...
 S_JITCSB        equ 0x48E4          ; word: ...S_JITSEGB's, or 0...
 S_JITCS         equ 0x48E6          ; word: ...and S_JITSEG's (rt_tier)
+; THE EXTRA TIERS (REALDMG-SPEC 16.2.5): cache segments past the second, tier
+; 3 on - a host's (rt_more, a package part built RDG_XTIER), 0 of them for any
+; other. Each is its DATA segment and its CODE selector (0: the same), and
+; RT_XMAX of them at most: S_JITUSED is a byte, a bit a tier
+S_JITXN         equ 0x48BF          ; byte: how many
+S_JITXT         equ 0x48C0          ; RT_XMAX x 4: data, code
+RT_XMAX         equ 5               ;   (to 48D4; room to 48E0 for seven)
 RDG_DVMM         equ 0x48E8          ; byte: rdgppu's - the plane the VGA map
                                     ;   mask holds (ppu_dvga), FFh unknown
 RDG_BWST         equ 0x48E9          ; byte: rdgppu's - VGA's two-shades

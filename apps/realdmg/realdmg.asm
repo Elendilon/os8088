@@ -90,6 +90,13 @@ RW_JIT2N        equ 900             ; a profile this many blocks or more
                                     ;   the first holds ~600 of Kirby's
                                     ;   Dream Land's (REALDMG-SPEC 16.2.1)
                                     ;   and the core's holes ~350 more
+%ifndef RW_SQZLIM
+RW_SQZLIM       equ 0210h           ; RT_SQUEEZE's (tests/rdgmega.py): where a
+%endif                              ;   cache segment's code ends
+RW_XRESKB       equ 32              ; kern_mega's arm: free memory its extra
+                                    ;   cache tiers leave (rw_jitxget,
+                                    ;   REALDMG-SPEC 16.2.5) - a profile, a
+                                    ;   file dialog, a small program beside
                                     ;   (16.2.2) - Kirby's 765 fit in the
                                     ;   two, translated with no flush
 RW_PRFKB        equ 9               ;   the count (REALDMG-SPEC 16.8)
@@ -474,6 +481,7 @@ rw_dsel         dw 0                ; our DATA segment, for code entered
 %ifdef PKG_MEGA
 rw_pm           db 0                ; CPU_F_PM at entry: kern_mega's arm
 rw_xsel         dw 0                ; the bank run's first selector
+rw_jtsel        dw 0                ; the block table's selector, or 0 (rw_jtx)
                                     ;   (OSAPI_XMEM_RUN, REALDMG-SPEC 10.3.1)
 %endif
 
@@ -713,6 +721,9 @@ rw_load0:
     call rw_dmgclaim
     call rw_ramsetup
     call rw_prfload
+%ifdef PKG_MEGA
+    call rw_jitxget                 ; (the extra tiers: what is left, 16.2.5)
+%endif
     call rw_start
     call rw_spdgame                 ; its Speed and Sound, if it has them
     call rw_fmopen                  ; the FM chip, if there is one for us
@@ -884,6 +895,12 @@ rw_jitsegs:
     mov ax, [cs:rw_jitseg]
     mov bx, ax
     add bh, 10h
+%ifdef PKG_MEGA
+    cmp word [cs:rw_jtsel], 0       ; (the arm's table, above 1MB)
+    je .c
+    mov bx, [cs:rw_jtsel]
+.c:
+%endif
     mov cx, [cs:rw_jit2seg]
     mov dl, [cs:rw_hmask]
     ret
@@ -903,7 +920,28 @@ rw_rtinit:
     call rw_csel
     mov [S_JITCSB], ax
     pop ax
+%ifdef RT_SQUEEZE                   ; (tests/rdgmega.py's squeezed arm only,
+    mov word [S_JITLIM], RW_SQZLIM  ;   never shipped: every tier ~0.5KB, so
+%endif                              ;   a test ROM recycles round them all)
     call far [cs:rw_jinit]
+%ifdef PKG_MEGA
+    push si                         ; ...and the extra tiers (16.2.5)
+    mov si, rw_jitx
+.x:
+    mov ax, [cs:si]
+    or ax, ax
+    jz .xn
+    call rw_csel
+    mov dx, ax
+    mov ax, [cs:si]
+    call far [cs:rw_jmore]
+.xn:
+    inc si
+    inc si
+    cmp si, rw_jitx + RT_XMAX * 2
+    jb .x
+    pop si
+%endif
     pop dx
     pop cx
     pop bx
@@ -1003,6 +1041,18 @@ rw_jitclaim:
 rw_jitget:                          ; (CF = 1: none, a game running too)
     cmp word [rw_jitseg], 0
     jne .r
+%ifdef PKG_MEGA
+    call rw_jtx                     ; kern_mega's arm: the table above 1MB,
+    jc .conv                        ;   the claim the cache and the part
+    call rw_jpkb                    ;   alone (16.2.5)
+    add ax, 64
+    mov byte [rw_hmask], JIT_HMMAX
+    call OSAPI_MEM_CLAIM
+    mov bx, 1000h
+    jnc .got
+    jmp short .r
+.conv:
+%endif
     call rw_jpkb                    ; AX = the recompiler's own KB, its part
     push ax                         ;   read into the claim's tail (16.9)
     add ax, 64 + JIT_HASHN * 8 / 1024 ; the cache and its block table: 64KB
@@ -1032,6 +1082,48 @@ rw_jitget:                          ; (CF = 1: none, a game running too)
 .nopart:                            ; the part could not be read: no
     call OSAPI_MEM_FREE             ;   recompiler, as with no memory
     jmp short .r
+
+%ifdef PKG_MEGA
+; rw_jtx - kern_mega's arm: the recompiler's 64KB block table in a block of
+; the extended pool, [rw_jtsel] the data selector it is read through
+; (OSAPI_XMEM_RUN's first: the 64KB window at its start) - the table is
+; only ever data, ES at offset 0 (REALDMG-SPEC 16.2.5). Kept once made: a
+; cache claimed again takes the same table. CF = 1: real mode or no room,
+; and the table goes in the claim as before. Keeps every register but AX
+rw_jtx:
+    cmp byte [rw_pm], 0
+    je .no
+    cmp word [rw_jtsel], 0
+    jne .yes
+    push cx
+    push dx
+    xor ax, ax                      ; DX:AX = 64KB
+    mov dx, 1
+    call OSAPI_XMEM_ALLOC
+    jc .nox
+    push ax
+    push dx
+    call OSAPI_XMEM_RUN             ; DX = the first selector
+    jc .nor
+    mov [rw_jtsel], dx
+    pop dx
+    pop ax
+    pop dx
+    pop cx
+.yes:
+    clc
+    ret
+.nor:
+    pop dx
+    pop ax
+    call OSAPI_XMEM_FREE
+.nox:
+    pop dx
+    pop cx
+.no:
+    stc
+    ret
+%endif
 
 ; rw_jpkb - AX = the KB the recompiler's part takes in its claim: its
 ; expanded length, and a sector over for the stream read beneath its end
@@ -1135,6 +1227,9 @@ rw_jdset:
     mov [rw_jres + 2], ax
     mov [rw_jpre + 2], ax
     mov [rw_jdisp + 2], ax
+%ifdef PKG_MEGA
+    mov [rw_jmore + 2], ax
+%endif
     pop ax
     ret
 
@@ -1144,6 +1239,9 @@ rw_jinit        dw 0, 0             ; rt_init
 rw_jres         dw 10, 0            ; rt_resume
 rw_jpre         dw 20, 0            ; rt_preload, AX = the count
 rw_jdisp        dw 30, 0            ; rt_dispatch, AL as its
+%ifdef PKG_MEGA
+rw_jmore        dw 40, 0            ; rt_more, AX and DX as its (the arm's
+%endif                              ;   part is built RDG_XTIER, 16.2.5)
 
 ; rw_jdoff - DS = the view: the interpreter's control transfers DISPATCH
 ; again (rdgjit.inc's rt_dispatch with AL = 0), which an 8088 needs without
@@ -1199,6 +1297,12 @@ rw_jitprep:
     je .ok
     push ax
     call rw_jitget
+%ifdef PKG_MEGA
+    jc .nx
+    call rw_jitxget                 ; (and the arm's extra tiers, 16.2.5)
+    clc
+.nx:
+%endif
     pop ax
     jc .room
     cmp al, 3
@@ -1246,6 +1350,9 @@ rw_jfree:
     mov [S_JITSEGA], ax             ;   nothing
     mov [S_JITSEGB], ax
     pop ds
+%ifdef PKG_MEGA
+    call rw_jitxfree
+%endif
     xor dx, dx
     xchg dx, [rw_jit2seg]
     or dx, dx
@@ -1630,6 +1737,79 @@ rw_jit2get:
     mov [rw_jit2seg], dx
 .r:
     ret
+
+%ifdef PKG_MEGA
+; rw_jitxget - kern_mega's arm, the cartridge above 1MB (10.3.1): the
+; recompiler's EXTRA tiers (REALDMG-SPEC 16.2.5) - 64KB cache segments past
+; the second, as many as RT_XMAX and the heap allow while RW_XRESKB stays
+; free, taken from free memory alone (floor 0: no cache is shed for them).
+; The second segment first, and nothing without the first. On the UI task;
+; rw_rtinit hands them to the core. Every register kept
+rw_jitxget:
+    cmp byte [rw_pm], 0
+    je .r0
+    cmp byte [rw_bcache], 2         ; (the cartridge out of the heap: a bank
+    jne .r0                         ;   cache's slots want what is left)
+    call rw_jit2get
+    cmp word [rw_jit2seg], 0
+    je .r0
+    push ax
+    push bx
+    push dx
+    push si
+    mov al, 0                       ; free memory only
+    call OSAPI_MEM_FLOOR
+    mov si, rw_jitx
+.l:
+    cmp word [si], 0
+    jne .n
+    call OSAPI_MEM_AVAIL            ; AX = the largest run, BX = all of it
+    cmp ax, 64
+    jb .x
+    sub bx, 64
+    jc .x
+    cmp bx, RW_XRESKB
+    jb .x
+    mov ax, 64
+    call OSAPI_MEM_CLAIM            ; DX = its segment (the state block
+    jc .x                           ;   names it: rw_mreloc, rwmove.inc)
+    mov [si], dx
+.n:
+    inc si
+    inc si
+    cmp si, rw_jitx + RT_XMAX * 2
+    jb .l
+.x:
+    mov al, MEM_LVL_TOP
+    call OSAPI_MEM_FLOOR
+    pop si
+    pop dx
+    pop bx
+    pop ax
+.r0:
+    ret
+
+; rw_jitxfree - ...and back, every one (a game closed, the interpreter's
+; cache given back). Every register kept
+rw_jitxfree:
+    push dx
+    push si
+    mov si, rw_jitx
+.l:
+    xor dx, dx
+    xchg dx, [si]
+    or dx, dx
+    jz .n
+    call OSAPI_MEM_FREE
+.n:
+    inc si
+    inc si
+    cmp si, rw_jitx + RT_XMAX * 2
+    jb .l
+    pop si
+    pop dx
+    ret
+%endif
 
 ; rw_cfgload - REALDMG.CFG out of SYSTEM\APPDATA at the start: the
 ; settings, or none of them for a file that is not ours
@@ -2022,6 +2202,9 @@ rw_unload:
     jz .seg2
     call OSAPI_MEM_FREE
 .seg2:
+%ifdef PKG_MEGA
+    call rw_jitxfree                ; (the extra tiers: the next game's load
+%endif                              ;   takes what its ROM leaves, 16.2.5)
     cmp byte [rw_big], 0            ; the cache's second segment, unless
     jne .x                          ;   Cache: 128K keeps it for every game
     xor dx, dx

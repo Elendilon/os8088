@@ -10582,3 +10582,15 @@ next step if the two 64KB tiers ever thrash on a game. docs/REALDMG-SPEC.md
 16.2.4 and 10.3.1 are the contract, docs/reports/REALDMG-MEGA-2026-10-25.md
 the record, `tests/rdgmega.py` the row (both builds, Bochs).
 
+**They do thrash** (the owner, on Kirby's Dream Land and in time Super Mario
+Land), and the kernel step above waits for the protected-mode memory work
+on its own branch, so the arm takes what it can WITHOUT the kernel
+(REALDMG-SPEC 16.2.5): the block table moves into a pool block behind
+`OSAPI_XMEM_RUN`'s selector - it is only ever data - and the conventional
+memory the cartridge and the table left becomes more 64KB cache tiers, the
+round robin running over a table of them in the state block (`rt_more`, up
+to five). On a 640KB machine that is **two extra, four cache segments where
+there were two** (docs/reports/REALDMG-MEGA-TIERS-2026-10-25.md). The same
+table is where tiers above 1MB go once a pool claim has a code twin: each
+is a data segment and a code selector already.
+

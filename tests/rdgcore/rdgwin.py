@@ -434,6 +434,7 @@ def measure(b, o):
         b.cmd("step 2000")
         f0, t0 = frames(b, view), b.cmd("info").get("ms")
         j0 = jitstat(b, view)
+        rcy0 = int.from_bytes(b.memr(view*16 + 0x482F, 2), "little")     # S_JITRCY
         e0 = int.from_bytes(b.memr(view*16 + 0x408A, 2), "little")     # S_EVCOUNT
         if o.persec:                            # a second at a time
             per, fp = [], f0
@@ -466,6 +467,10 @@ def measure(b, o):
         if int.from_bytes(sb, "little"):
             print("rdgwin: a second cache segment (REALDMG-SPEC 16.2.1), %d moves into it "
                   "so far" % int.from_bytes(b.memr(view*16 + 0x4816, 2), "little"))
+        xn = b.memr(view*16 + 0x48BF, 1)[0]                      # S_JITXN
+        rcy1 = int.from_bytes(b.memr(view*16 + 0x482F, 2), "little")
+        print("rdgwin: %d extra cache tiers (REALDMG-SPEC 16.2.5); %d tiers recycled in the "
+              "span, %d so far" % (xn, (rcy1 - rcy0) & 0xFFFF, rcy1))
         if o.static is not None:
             fx = b.memr(view*16 + 0x40F6, 1)[0]                  # S_JITFIX
             npo = bss_off("rw_npre")
