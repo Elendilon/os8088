@@ -1125,3 +1125,131 @@ hibernate" makes the image the size of what is in use. Drivers have
 - **`tests/rdgcore/rdgwin.py --vm 286-mega`** (86Box), for speed.
 - **`tools/rdglog.py`**, which compares a field log with an emulator log of
   the same replay.
+
+---
+
+## 9. Addendum from `mega-video`: what the Video Player needs from this round (2026-10-25)
+
+A note from the Video Player session. It describes the player as it stands
+on `elendilon` at `08a25018`, which this branch has not merged yet:
+KERN-MEGA-PLAN 14.73 there (*the Video Player on a BIOS-served disk*) fixed
+four causes of pauses and over-long plays on kern_mega. The owner has asked
+that the next step - **BIGSP super-packets read in place above 1MB** - wait
+for this round. 5's MC9 already says "BIGSP in place stays with the Video
+Player round". This section is what that round will need from this one, so
+the end state does not have to be reopened for it.
+
+### 9.1 The ask: a window the rate hook can re-aim, anywhere in a pool block
+
+**Where things stand.** On kern_mega the player decodes in place from an
+`OSAPI_XMEM_ALLOC` block - the file held whole, or the bank - through
+`OSAPI_XMEM_RUN`'s run: a window every 32KB, each 64KB long. `vp_xmk`
+picks window `offset >> 15` at `offset & 7FFFh`. That covers any record of
+32KB or less. A BIGSP super-packet is up to **127 sectors (63.5KB)**, and
+most of them, 38-63KB, run off their window. So `vp_pmbigq` refuses in
+place, and a BIGSP file under protected mode copies its records through
+the conventional ring instead. That is LASTX's ~5% (14.73), and it needs
+room the Victory 286 runs short of.
+
+**Why a run cannot fix it.** A run of step S holds every record up to
+64KB - S. Holding 63.5KB needs a 512-byte step: on a 3MB hold that is 6,144
+LDT entries, 48KB of LDT. That is exactly the usage this round exists to
+remove.
+
+**Why `OSAPI_SEG` as specified cannot fix it either.**
+
+- The decode runs in the player's `FSXF_RATE` hook (`vp_hook`, at IRQ0), and
+  §53.2.2 forbids kernel calls there. `vp_xmk` is reached from that decode.
+- `SEG_SUB` takes a 16-bit paragraph offset (1MB of reach), and a held file
+  can be larger.
+- `SEG_SUB` has no re-aim. Asked for a new base each record, it would hold
+  one LDT entry per distinct record until the block is freed - thousands in
+  a play.
+- `SEG_WIN` re-aims, but it takes a physical PARAGRAPH, so it cannot name
+  memory above 1MB.
+
+**What would do it.** A small number of windows (2-4) over the caller's own
+pool block. The caller re-aims one to a **32-bit offset into the block**,
+64KB of reach, **legal inside the rate hook**: IF = 0, no lock, nothing
+that yields, inside §53.2.2's 48 bytes of stack, the cell's own frame
+included. It is one descriptor's base rewritten (three bytes), checked
+against the owner and the block's end. The shape is yours to choose:
+
+- a re-aim verb on `OSAPI_SEG` that takes an existing SUB;
+- a hook-safe form of `OSAPI_XMEM_SEL`;
+- a rolling form of `OSAPI_XMEM_RUN`.
+
+The contract the player needs is:
+
+- an offset in, a selector out (or the same selector re-aimed);
+- callable from the hook;
+- no LDT entry per call.
+
+One re-aim per BIGSP record is about one per frame at 25 fps.
+
+**Moves.** D2 makes these blocks movable. The windows must be rebased with
+the block (`mx_desc`, as a SUB is today), and an offset re-aim must use the
+block's CURRENT base. A piece must also never be copied while the hook can
+read it: either the hook is held off for each piece, the rule
+`OSAPI_MEM_HUGE`'s 32KB form already has (§50.3.5), or a block with a live
+window does not move. Either works for the player.
+
+### 9.2 What must stay true, for the paths 14.73 fixed
+
+- **`OSAPI_XMEM_RUN`'s selectors stay CONSECUTIVE** (selector + 8k). The hook
+  computes them without calling the kernel (`vp_xmk`: window x 8 +
+  `[vp_xrun]`). T69 and MECH2 play in place through this (the XMS bank in
+  place, `[vp_einp]` 2), and step 6's LDT-as-allocator must still hand out a
+  run.
+- **DMA-door claims stay page-safe for their whole life.** The player claims
+  through `OSAPI_MEM_CLAIM_DMA`:
+  - the ring's bounce (`vp_rhtry`, CX = 32);
+  - the ring's 64KB or 32KB+ head (`vp_rclaim`, `vp_rclk1`);
+  - the ring's slots.
+
+  14.73's second cause was a bounce that straddled a 64KB page. Every chunk
+  then cost extra `int 13h` staging calls through `dsk_rah`. 7.4 lets every
+  claim move "but a DMA claim with a head". The player needs these claims to
+  be ones that stay put - or that only ever move to page-safe spots - and to
+  stay direct transfers for `dsk_runcap` (5.2's base arithmetic already does
+  that for conventional selectors).
+- **Two kern_mega kernel fixes arrive with the merge, and step 6 must keep
+  them working**:
+  - `mega_svc_back` runs `sch_rhook` (through `mega_tcall`) when a
+    reflection returns with `[sch_rpend]` owed (§53.2.2's kern_mega
+    paragraph).
+  - `mega_rmaskf` leaves an option ROM's IRQ unmasked during a service
+    reflection. It recognises one by its IDT GATE: selector `MEGA_SEL_CODE`,
+    offset within 14 x 6 of `mega_irv`. It does not read the IVT, because an
+    IVT cell can hold a selector. If the GDT cut moves `MEGA_SEL_CODE` or the
+    reflection stubs, that test must follow them.
+- **SOUND.DRV's direct ring** (SPEC 34.5.2.1 on `elendilon`) now counts blocks
+  from the 8237's position (`sbl_dleft`). It does offset arithmetic inside
+  the ring and no segment arithmetic, so it adds nothing to the census. The
+  external ring the player hands over is still a segment today, and is in
+  7.1's "five packages" item.
+- **Claim count.** The player's ring is a head plus slots, alongside the
+  bounce and its own region. Nothing in this round should lower
+  `MEM_OWNER_MAX`.
+
+### 9.3 How to check the player after the flip
+
+14.73's method, on 86Box `286-victory` with an XT-IDE ROM disk (BIOS-served,
+the case that paused) and an SB16:
+
+- Build `make mega`, put the VGA demo videos on a VHD, and play each one
+  while counting frames drawn by 64 s.
+- 14.73's table is the bar. At `08a25018`:
+
+  | video | frames by 64 s | full play |
+  |---|---|---|
+  | T69 | 1,505 | all 1,838 in 72 s, 0 pauses |
+  | MECH2 | 892 | |
+  | LASTX | 1,273 | |
+  | BCRRT | 1,407 | |
+  | WILLY | 844 | |
+
+- The rows are `megavidbig` and `megavidv2`, which 5 already names.
+
+Once 9.1 exists, the Video Player round can delete `vp_pmbigq`'s refusal
+and the copying bank's PM arm (`vp_rclk1`), and LASTX goes in place.
