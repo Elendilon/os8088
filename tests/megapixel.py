@@ -3,7 +3,12 @@
 kern_mega's protected mode (docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7, SPEC.md
 106.8 and 50.6.11).
 
-    make && make mega && python3 tests/megapixel.py [--keep]
+    make && make mega && python3 tests/megapixel.py [--keep] [--shipped]
+
+    --shipped   B: holds the SHIPPED PIXEL.O88 (build/pixel.o88) instead of
+                the kern_mega arm: the same checks, its parts' stores
+                through CS completed by the kernel one #GP at a time (SPEC.md
+                20.18 - correct and slower, which is what the arm is for)
 
 Under kern_mega every claim is ONE LDT selector with a 64KB limit, so the
 paragraph arithmetic PiXEL addressed its claims with - a master row at
@@ -40,9 +45,10 @@ own. Boots kern_mega under Bochs at its default memory with B: holding
   6. no `kern_mega CLOSED` and no `kern_mega FAULT` line, at any step.
 
 THE FAILING CASES (docs/WRITING-TESTS.md 1), each tried when this was
-written: the parent commit closes PiXEL on the first open; px_mrow's old
-`MSEG + (O >> 7 << 3)` put back fails 1 (CLOSED at the first master row);
-pe_rot90's carry left unpatched under protected mode fails 2.
+written: on the parent commit PiXEL opens NOTHING (its disk claims' 512-byte
+test read a selector's bits and refused every one, so the record stays
+empty and every step after fails); px_mrow's old `MSEG + (O >> 7 << 3)` put
+back fails 1; pe_rot90's carry left unpatched under protected mode fails 2.
 """
 import os
 import shutil
@@ -150,20 +156,19 @@ def bmp_rows(b):
 class Pixel(object):
     """PiXEL's state, read through its own descriptor (OS88_HIGH)."""
 
-    def __init__(self, box):
+    def __init__(self, box, pkg):
         self.box = box
         self.map = os88sym._parse_map(os.path.join(ROOT, "build",
                                                    "pixel.map"))[0]
         # the map is build/pixel.bin's, and the guest runs `make mega`'s
         # PIXEL.O88 - the same package with the arm's parts: refuse a map
         # of another build rather than read its bss at the wrong offsets
-        o88 = open(os.path.join(ROOT, "build", "megak", "apps",
-                                "pixel.o88"), "rb").read(12)
+        o88 = open(pkg, "rb").read(12)
         pbin = open(os.path.join(ROOT, "build", "pixel.bin"), "rb").read(12)
         if o88[8:12] != pbin[8:12]:
-            sys.exit("megapixel: build/megak/apps/pixel.o88 is not "
-                     "build/pixel.bin's package (image and bss %r, %r) - "
-                     "`make mega` first" % (o88[8:12], pbin[8:12]))
+            sys.exit("megapixel: %s is not build/pixel.bin's package "
+                     "(image and bss %r, %r) - `make mega` first"
+                     % (pkg, o88[8:12], pbin[8:12]))
 
     def read(self, label, n, plus=0):
         return self.box.pkg_read("PiXEL", self.map[label] + plus, n)
@@ -209,6 +214,9 @@ class Pixel(object):
 
 def main():
     keep = "--keep" in sys.argv
+    pkg = (os.path.join(ROOT, "build", "pixel.o88") if "--shipped" in
+           sys.argv else os.path.join(ROOT, "build", "megak", "apps",
+                                      "pixel.o88"))
     out = os.path.join(ROOT, "build", "megapixel")
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
@@ -216,8 +224,7 @@ def main():
     fixture(big)
     disk = os.path.join(out, "pics.img")
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"),
-                    "-o", disk, "--size", "1440",
-                    os.path.join(ROOT, "build", "megak", "apps", "pixel.o88"),
+                    "-o", disk, "--size", "1440", pkg,
                     big] + [os.path.join(ROOT, "apps", "pixel", "samples", s)
                             for s in ("BALLOONS.PNG", "CAT.GIF") + WALK],
                    check=True, stdout=subprocess.DEVNULL)
@@ -225,7 +232,7 @@ def main():
     box = os88bochs.Box(out, [], bimg=disk, btype="1_44",
                         display=os.environ.get("OS88_BOCHS_DISPLAY")
                         or os88bochs.take_display())
-    px = Pixel(box)
+    px = Pixel(box, pkg)
 
     def settle(what, secs=600):
         box.ui_done(what, secs=secs)
@@ -292,17 +299,19 @@ def main():
         want(r["MSEG"] & 4 != 0, "the master's claim is an LDT selector "
              "(%04X)" % r["MSEG"])
         bad = [y for y in range(min(BH, len(rows))) if rows[y] != exp[y]]
-        want(not bad, "the master is the file's indices (%d rows wrong, "
-             "first %s)" % (len(bad), bad[:3]))
-        mwc = px.read("px_mwc", MWT_WIN + 64)
-        key = struct.unpack_from("<H", mwc, MWT_KEY)[0]
-        wins = struct.unpack_from("<32H", mwc, MWT_WIN)
-        nwin = (r["MKB"] + 31) // 32
-        want(key == r["MSEG"], "px_mwc is made of the shown master (%04X, "
-             "%04X)" % (key, r["MSEG"]))
-        wb = [px.lin(w) - base for w in wins[:nwin]]
-        want(nwin >= 8 and wb == [32768 * k for k in range(nwin)],
-             "its %d windows are 32KB apart in the claim (%s)" % (nwin, wb))
+        want(len(rows) == BH and not bad, "the master is the file's indices "
+             "(%d rows, %d wrong, first %s)" % (len(rows), len(bad), bad[:3]))
+        if want("px_mwc" in px.map, "PiXEL has its window tables (px_mwc)"):
+            mwc = px.read("px_mwc", MWT_WIN + 64)
+            key = struct.unpack_from("<H", mwc, MWT_KEY)[0]
+            wins = struct.unpack_from("<32H", mwc, MWT_WIN)
+            nwin = (r["MKB"] + 31) // 32
+            want(key == r["MSEG"], "px_mwc is made of the shown master "
+                 "(%04X, %04X)" % (key, r["MSEG"]))
+            wb = [px.lin(w) - base for w in wins[:nwin]]
+            want(nwin >= 8 and wb == [32768 * k for k in range(nwin)],
+                 "its %d windows are 32KB apart in the claim (%s)"
+                 % (nwin, wb))
         tail = ((BW * BH + 15) // 16 + 7) // 8 * 8 * 16
         cnt = struct.unpack("<256I", box.read(base + tail, 1024))
         hist = [0] * 256

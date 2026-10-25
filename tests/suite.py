@@ -16186,6 +16186,14 @@ SOAK = [
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megak/apps/pixel.o88",
                "build/megarun.o88", "build/mbr.bin", "build/pixel.bin")),
+    Row("megapixelship", "soak", py("tests/megapixel.py", "--shipped"), 90.0,
+        "megapixel with the SHIPPED PIXEL.O88 on B: in place of the kern_mega "
+        "arm (SPEC.md 20.18: the shipped build must be correct on kern_mega, "
+        "its parts' stores through CS completed one #GP at a time): every "
+        "megapixel check, byte for byte. 90s is 51 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/pixel.o88", "build/megarun.o88",
+               "build/mbr.bin", "build/pixel.bin")),
     Row("megadosp", "soak", py("tests/megadosp.py"), 80.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.54: the windowed DOS's PROMPT "
         "on kern_mega with no #GP fixup per character printed - dos_hk_tty "
