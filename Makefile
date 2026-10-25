@@ -228,6 +228,10 @@ VMXTCOVOX := $(CURDIR)/vm/xt-covox
 VMXTWIRE := $(CURDIR)/vm/xt-wire
 VM286SND := $(CURDIR)/vm/286-sound
 VM286VID := $(CURDIR)/vm/286-video
+# ...and the three machines `make viddemo`'s hard disks are built for, one per
+# adapter - the owner's own: the mr286 for VGA's IDE disk, a 5150 on the
+# 10/27/82 ROM with an ST11R for CGA's and Hercules'
+VMVIDDEMO := $(CURDIR)/vm/viddemo-
 VM286RDG := $(CURDIR)/vm/286-realdmg
 VM386SND := $(CURDIR)/vm/386-sound
 VM386CD  := $(CURDIR)/vm/386-cdrom
@@ -2256,7 +2260,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
-        286-sound 286-video 286-realdmg 286-victory 386-sound 486 486-video 486-vesa 486-vesa-desk pentium \
+        286-sound 286-video viddemo-vga viddemo-cga viddemo-herc 286-realdmg 286-victory 386-sound 486 486-video 486-vesa 486-vesa-desk pentium \
         bench field combo combo144 combo720 stackprobe trklog trkscrl npbench clicktest marty \
         comscan lptlink calcref \
         fonts fontsheets fontlist \
@@ -17894,6 +17898,17 @@ xt-wire: $(BUILD)/ether360.img $(BUILD)/wiredata360.img
 	@test -f $(BUILD)/VIDENC-VGA-286.VHD || { echo "286-video: needs $(BUILD)/VIDENC-VGA-286.VHD - make videnchd VIDENC=<dir with vga/>"; exit 1; }
 	@$(UNPROTECT) $(VM286VID)/86box.cfg
 	$(BOX) -P $(VM286VID) -N
+
+# The Video Player's demo disks on the machines they were made for, one per
+# adapter: `make viddemo` builds VIDDEMO-<ADAPTER>-{IDE,ST11R}.VHD and each
+# profile boots its own with no floppy in A:. The mr286 (VGA) needs its CMOS
+# to name a user type of 1024/16/63; the 5150s keep none
+viddemo-vga: $(BUILD)/VIDDEMO-VGA-IDE.VHD
+	$(BOX) -P $(VMVIDDEMO)vga -N
+viddemo-cga: $(BUILD)/VIDDEMO-CGA-ST11R.VHD
+	$(BOX) -P $(VMVIDDEMO)cga -N
+viddemo-herc: $(BUILD)/VIDDEMO-HERC-ST11R.VHD
+	$(BOX) -P $(VMVIDDEMO)herc -N
 
 # ...and that 286 with RealDMG's hard disk (docs/REALDMG-SPEC.md section 18):
 # the whole install, REALDMG/ and your cartridges in GAMEBOY/, booted off the
