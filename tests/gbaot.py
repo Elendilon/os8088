@@ -37,7 +37,8 @@ import gbaot  # noqa: E402
 import gbstatic  # noqa: E402
 
 BUILD = os.path.join(ROOT, "build")
-OURS = ["gbrmw", "gbpop", "gbhblank", "gbbank", "gbsave", "gbjoy", "gbpad", "gbtone", "gbflags"]
+OURS = ["gbrmw", "gbpop", "gbhblank", "gbbank", "gbsave", "gbjoy", "gbpad", "gbtone", "gbflags",
+        "gbseam", "gbseam2"]
 # (label, ROM, frames, compare the link port's words rather than frames)
 SUITE = [
     ("GBDEMO", "apps/realdmg/GBDEMO.GB", 1500, False),
@@ -50,6 +51,8 @@ SUITE = [
     ("GBPAD", "gbpad", 600, False),
     ("GBTONE", "gbtone", 600, False),
     ("GBFLAGS (sum)", "gbflags", 3000, True),
+    ("GBSEAM (across 3FFF)", "gbseam", 600, True),
+    ("GBSEAM2 (on at 4000)", "gbseam2", 600, True),
     ("cpu_instrs", "cpu_instrs/cpu_instrs.gb", 4000, True),
     ("instr_timing", "instr_timing/instr_timing.gb", 600, True),
     ("mem_timing", "mem_timing/mem_timing.gb", 1500, False),

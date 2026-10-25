@@ -292,6 +292,9 @@ def gen_main(op):
     hi, lo = op >> 4, op & 15
     if op == 0xDD:                                  # the dispatch stub's slot
         return s
+    if op == 0xD3:                                  # the bank seam's trap,
+        s.a("jmp seam_trap")                        #   REALDMG-SPEC 3.1
+        return s
     if op in INVALID:
         s.a(f"""
 mov byte [ss:S_BADOP],{op}
@@ -752,6 +755,45 @@ def gen_cb(op):
 # --- the shared tails, placed after a main half with room: an invalid -----
 # --- opcode's, or a short handler's (idle_tst follows PUSH HL) --------------
 TAILS = {
+    0x5B: """
+; seam_trap: op_D3, the byte the view holds where code cannot be fetched from
+; it (REALDMG-SPEC 3.1). The view's 0000-3FFF is bank 0 and its 4000 the
+; state block, so code run on past 3FFF reads rdgsys's data: 4000 is the
+; trap while the core runs (S_AF's byte, rdg_resume), and so is an
+; instruction across 3FFF (rdg_seaminit). SI = the trap's address + 1
+seam_trap:
+    mov dx,ds
+    cmp dx,[ss:S_VIEW]
+    jne .bad                    ; (a real D3, in 4000-7FFF)
+    cmp si,4001h
+    jb .in
+    cmp si,8000h
+    ja .bad
+    mov byte [4000h],0D3h       ; run on into 4000-7FFF: the bank's, from
+    dec si                      ;   where it got to (and the trap back)
+    mov ds,[ss:S_ROMX]
+    xor dl,dl
+    DISPATCH
+.in:
+    cmp si,[ss:S_SEAMPC]
+    jne .bad
+    mov ds,[ss:S_ROMX]          ; the instruction across 3FFF: the bank's
+    mov dx,[4000h]              ;   4000-4001 where its operand reads them,
+    mov ds,[ss:S_VIEW]          ;   a trap where it ends - and it, as the
+    mov [4000h],dx              ;   ROM has it, with SI past its opcode
+    mov [ss:S_SEAMSV],bx
+    mov bx,[ss:S_SEAMEND]
+    mov byte [bx],0D3h
+    mov bx,[ss:S_SEAMSV]
+    mov dh,[ss:S_SEAMOP]
+    xor dl,dl
+    jmp dx
+.bad:
+    mov byte [ss:S_BADOP],0D3h
+    mov byte [ss:S_EXIT],RDGX_BADOP
+    dec si
+    jmp far [ss:S_EVVEC]
+""",
     0x0B: """
 ; vr_new: vr_wr's block BX marked for the first time - and its PAIR (block
 ; / 2) put on RDG_VLIST, so the damage scan visits what was written and does

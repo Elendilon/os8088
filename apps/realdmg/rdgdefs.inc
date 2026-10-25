@@ -38,6 +38,11 @@ RDG_VLMAX        equ 64              ;   the first time since the damage scan
                                     ;   (REALDMG-SPEC 13.2.2); full, it sweeps
 RDG_SERBUF       equ 0x4700          ; 256: bytes the game sent on its link port
 RDG_SNAP         equ 0x4800          ; 16: LCDC..WX as the frame began (4.4)
+S_SEAMPC         equ 0x4B90          ; word: an instruction across 3FFF's
+                                    ;   PC + 1, or 0 (REALDMG-SPEC 3.1)...
+S_SEAMEND        equ 0x4B92          ; word: ...where it ends, 4001 or 4002
+S_SEAMSV         equ 0x4B94          ; word: seam_trap's BX
+S_SEAMOP         equ 0x4B96          ; byte: its opcode, as the ROM has it
 S_JITSEGA       equ 0x4810          ; word: the cache's first segment, and
 S_JITSEGB       equ 0x4812          ;   its second or 0 (REALDMG-SPEC 16.2.1):
                                     ;   S_JITSEG is the one being written

@@ -1097,6 +1097,13 @@ rt_translate:
     jc .restart
     mov ax,[RT_IX]
     add ax,[RT_PC0]
+    cmp word [RT_CNT],0             ; nothing fits before 4000h (an
+    jne .fn                         ;   instruction at 3FFE across it,
+    call rt_movsi                   ;   REALDMG-SPEC 3.1): the interpreter
+    mov ax,RDGC_TR_INT              ;   takes it, where a block that exits
+    call rt_jmp                     ;   to its own start would spin
+    jmp short .done
+.fn:
 %ifdef RT_AOTSTOP
     call rt_flushbp                     ; a cut - where another block begins,
     push ax                             ;   or RT_MAXI's - is NOT a branch, and

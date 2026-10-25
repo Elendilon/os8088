@@ -25,7 +25,8 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import gbclock  # noqa: E402
 
 # a ROM assembled out of ANOTHER's source: its source and rgbasm's defines
-VARIANTS = {"gbbank8": ("gbbank", ["-DNBITS=3", "-DPERFRAME=16"])}
+VARIANTS = {"gbbank8": ("gbbank", ["-DNBITS=3", "-DPERFRAME=16"]),
+            "gbseam2": ("gbseam", ["-DSEAMKIND=2"])}
 
 # name: the rgbfix arguments past the title (the cartridge's header)
 ROMS = {
@@ -39,6 +40,8 @@ ROMS = {
     "gbrmw": [],
     "gbflags": [],                          # (generated: tools/gbprof/gbflags.py)
     "gblazy": [],                           # (generated: tools/gbprof/gblazy.py)
+    "gbseam": ["-m", "0x01"],               # code across 3FFF into the bank
+    "gbseam2": ["-m", "0x01"],              #   (gbcpu.py, REALDMG-SPEC 3.1)
     "gbjoy": [],                            # the joypad interrupt (gbheader.py)
     "gbfm": [],                             # all four channels (gbfm.py)
     "gbpop": ["-m", "0x01"],                # POPs out of a ROM bank (gbcpu.py)
