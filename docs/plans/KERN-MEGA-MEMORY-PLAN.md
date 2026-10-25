@@ -1579,6 +1579,47 @@ rows. Nothing is recorded as built that was not.
   PIXELSTEIN's part answers 0, which degrades exactly as a refused part
   does (the bodies run from the image, no byte textures). ~10 bytes each,
   registered in `tests/megapkg.txt` as fail-safes.
+  **THE BROWSER (2026-10-25) - DONE, one shared path.** Its document,
+  source and EMS-frame sums are gone on kern_mega: `br_docmap` reads the
+  document through one bound window (`SEG_BWIN` + `SEG_AIM`) aimed at the
+  16KiB page holding the byte and re-aimed only when the page changes - the
+  EMS arm's own contract, so no caller changed - and `[br_docfar]`
+  (`[br_docems]` OR CPU_F_PM) keeps the 8088's single test where it was.
+  The parser's window (`br_srcat`) and the worker's receive (`br_take`)
+  each have a bound window of their own; a line record is an OFFSET in the
+  line table's one segment (62KiB cap), so no sum on any kernel; the EMS
+  spill copies address the frame by offset and the conventional side by
+  `SEG_AT`, and restore DS without `push cs`; windows go back before their
+  claim is regrown or freed (`SEG_FREE` does not ask whose an entry is);
+  the Download Manager part's vectors take `op_cseg`'s code selector; and
+  the Browser declares `OS88_HIGH | OS88_HIGHMEM`, retiring
+  `tests/megahigh.txt`'s two Browser lines. MEASURED on MartyPC's XT:
+  `br_layout` -0.19%, a painted line -37 cycles, `br_parse` within a
+  tick's noise. Image +366. Row `brmega` (Bochs): a 78KB page off B: and
+  over HTTP and a 3,000-line page with every claim above 1MB, red with
+  either sum restored and on the Browser before. Not run: the EMS paths
+  (no EMS board in Bochs), the Download Manager on kern_mega. Found in
+  passing and NOT this change: `brdownload*` hang or refuse depending only
+  on code layout (the Browser before, plus 280 bytes of NOPs, hangs in
+  kernel `.bss` the same way) - a latent defect for its own round.
+  **THE STREAM DOOR (2026-10-25) - DONE, a kernel defect and not
+  SOUND.DRV's.** The 2 "SOUND.DRV answers MIDIRack's stream open with" came
+  from `osapi_snd_stream`'s `KERN_MEGA` block (kernel/snd.inc), which
+  refused an external ring (verb 0 or 4 with `SND_OPENF_EXT`) whose DI had
+  TI set at or past `MEGA_LDT_FREE0` - "a pool selector, above 1MB", one of
+  MC7.4's TI tests missed in its sweep. Since 5.2 every claim is such a
+  selector, so MIDIRack's conventional `OSAPI_MEM_CLAIM_DMA_HI` ring was
+  refused for the synth and the wavetable alike, while Tracker and
+  ModPlug, whose rings are grants from the driver's own pool, never reached
+  it. The door now asks the descriptor's base (`mega_selbasef`) and
+  refuses only at or above 1MB, in protected mode only. +13 bytes of
+  kern_mega; kern_big and kern_small byte-identical. `megamod`'s mr and
+  mrarm legs assert the open on the external ring, the block IRQ's count
+  moving and the capture being music, a new mrsb leg the synth output; all
+  red with the old door. Its sibling in `drv_fs_call` (RAMDISK.DRV,
+  NET.DRV) is the same test and is RIGHT to stay: it sends every claim's
+  buffer through `drv_fs_hi`'s 512-byte bounce, because those redirectors'
+  arithmetic reaches one 64KB window - a speed item for later, not a fault.
   **TRACKER, MODPLUG and MIDIRACK (2026-10-25) - DONE (item 6), one shared
   path, no `PKG_MEGA` arm.** A module or bank past 64KB is reached through
   `SEG_SUB` windows made once at load (a real-mode kernel answers the sum
