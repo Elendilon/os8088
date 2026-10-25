@@ -68,7 +68,7 @@ couple of times on big, some of it bank thrashing". Played back on 86Box
 
 | build | blocks translated | bytes of code | tier switches | recycles | banks fetched |
 |---|---:|---:|---:|---:|---:|
-| shipped, Cache: 128K (the bank cache, 8 slots) | 991 | ~137KB | 2 | 0 | 7 |
+| shipped, Cache: 128K, ON KERN_MEGA (the bank cache, 8 slots) | 991 | ~137KB | 2 | 0 | 7 |
 | arm, base | 979 | ~134KB | 2 | 0 | 0 |
 | arm, after | 991 | ~137KB | 2 | 0 | 0 |
 
@@ -81,6 +81,50 @@ Boy's rate on all three. (The after run's first second reads 3,583%: the
 state's load set the frame counter inside that second, so its 148% overall is
 not a speed.) The bank fetches, 7 in the span, are all the shipped build's -
 the arm reads no bank at all.
+
+(The owner's "big" was the shipped build on KERN_BIG, not this row's
+kern_mega: 3.2 is that run.)
+
+### 3.2 The same replay, logged, on the owner's two kernels
+
+The owner reported, on the same mr286: the shipped build on **kern_big** with
+Cache: 128K *"would slow down to ~30% speed for ~2 seconds, twice"*; the arm
+on **kern_mega** *"mostly 100%, but speeding up, then slowing down"*, 80-115%
+in fall-behind-catch-up bursts, 5-7 fps on the F1 line in the long flying
+section. Taken here with Machine > Log on before F7, read with
+`tools/rdglog.py KBIG.LOG KMEGA.LOG`, which lines the two up at PLAY+:
+
+| from PLAY+ | kern_big, shipped, 128K | kern_mega, the arm |
+|---|---|---|
+| mean speed, seconds under 70% / under 90% / over 105% | 89%; 6 / 34 / 7 | 97%; 2 / 9 / 11 |
+| the long flying section (seconds 13-49) | 76-93%, owed pinned at 30, 3-4 fps drawn | 88-111%, owed 12-30 and catching up, 3-7 fps drawn |
+| slowdowns | second 11 (47%) and 57-59 (47-55%) | second 11 (27%) |
+| what 57-59 is | a tier recycled (`fl` 1) and 48, 71 and 198 blocks translated again | - |
+| banks fetched in the replay | 0 | 0 |
+| the replay's 4,047 frames took | 76 s | 69 s |
+
+Both of the owner's readings are reproduced: kern_big's second slowdown is
+recompiler thrash (its three tiers are 162KB, and the play needs more by
+then), and kern_mega's bursts are the flying section at the machine's
+limit - the Game Boy's milliseconds are ~650-740 a second there and the
+drawing's ~170-280, so a second that draws a few more lines falls behind
+and the next catches up. Second 11 is the same moment on both and is not a
+cache event (no flush, no fetch): a scene's change the machine cannot do
+at full rate either way. The kern_big log's Game Boy milliseconds run
+~40-80 higher a second through the flying section, where its bank cache
+looks a bank up on every switch and the arm's banks are in place - the
+likely reason it never catches up there, not yet measured as such.
+
+### 3.3 A defect the logged run found, fixed
+
+With the log on, the arm's F7 said **"Replay: no room" with 91KB free**:
+`MEM_OWNER_MAX` is 8 claims a package, and the first build took one claim
+per extra tier - seven after the load, the log's the eighth, the replay's
+refused (compacting and shedding the read-ahead on the way, as a refused
+claim does). The extra tiers are now cache B's own claim grown with
+`OSAPI_MEM_REGROW` (REALDMG-SPEC 16.2.5), so the arm holds the records the
+base did; the same steps play the replay, and `tests/rdgmega.py`'s legs pass
+on it.
 
 ## 4. Cost
 
