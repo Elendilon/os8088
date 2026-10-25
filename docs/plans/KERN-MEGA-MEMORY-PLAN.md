@@ -597,6 +597,60 @@ keeps working at each step:
    cut at `.cold`'s selector. A missed site is a `#GP` past the limit,
    reported at its instruction (KERN-MEGA-PLAN 14.42).
 
+#### MC7.4 Step 5's design: the kernel stops handing out identity segments
+
+**Taken before the packages** (a change of 7.3's order, for a reason): a
+package converted against today's kernel is only checked against the
+identity map, which hides exactly the mistakes a conversion can make. With
+the kernel flipped first, every converted package is booted against the end
+state as it lands. Packages not yet converted break on the branch meanwhile;
+nothing ships between waves (0, rule 1).
+
+- **A pair for every conventional claim.** `mem_claim_1`'s publish asks
+  `.mega` for a code/data pair over the new block (16 bytes of LDT); the
+  DATA selector is the claim's value, the CODE half is data - 8 for EVERY
+  claim, so `OSAPI_MEM_CODESEL` and every relocation proc that converts
+  without calling the kernel (`cc_ovbind`) can rely on the rule. The
+  selector lives in a PARALLEL table, `mem_sel[MEM_MAX]` in `.lowbss`,
+  indexed like `mem_tab`: `MC_SIZE` is in the claim snapshot's ABI and does
+  not change. `MC_SEG`/`MC_PARA` stay physical; the allocator's bookkeeping
+  (~95 lines) does not change.
+- **Moves are rebases.** In protected mode the compactor copies a claim
+  linearly (`mega_lincopy`, 32KB pieces, interrupts on between) and rebases
+  every LDT descriptor based in the old block (the pool's `mx_desc` rule) -
+  the pair, and any `SEG_SUB` selector inside. No relocation proc is called
+  and none is needed: every holder holds a selector. So EVERY claim may move
+  but a DMA claim with a head (a card may be reading it), one in an `int
+  13h` transfer (`mem_in_xfer`), and one whose holder is mid-copy under
+  `[sch_lock]`.
+- **The switch translates.** At `mega_enter`, every live record gets its
+  pair, and then the relocation protocol already in the tree runs ONCE per
+  record with BX = its physical segment and DX = its new selector:
+  `mem_rr_tab`'s rows (window records, instance pointers, driver rows, the
+  disk layer's words, menu bars, ...) and every kernel holder's proc
+  (`dsk_rah_reloc`, `ico_reloc`, `sc_reloc`, `asc_reloc`, `fm_reloc`, ...)
+  rewrite their words exactly as they do for a move. What that protocol
+  does not cover is listed by the census (`font_seg`, `bnd_seg`, the video
+  words) and translated beside it. The IVT rows stay REAL: they are what a
+  real-mode BIOS and the DOS trip read.
+- **Lookups by value** (`mem_find_own`, `mem_owner_of_x`, `mem_is_region`,
+  `mem_in_xfer`, `mem_fatw_dirty`) compare `mem_sel` in protected mode.
+- **The TI tests** (about twenty) become an explicit question - "is this a
+  pool block's?" by its descriptor's base - at each site.
+- **Images**: a package region, a driver image and a module are pairs from
+  the claim itself, so `MEGA_CSELTOP`'s pair arm, `mega_frame_cs`,
+  `mem_reloc_call`'s alias and `mega_codesel` already do the right thing,
+  and every `(S >> 2) | 4` arm is dead (step 6 deletes them). Moving one
+  high (`ld_hi`, `drv_hi`, `mod_hi`) copies from a selector.
+- **Sub-steps, each booting to a desktop**: (5.1) the pairs made, recorded,
+  freed and rebased, while callers still receive the physical segment;
+  (5.2) callers receive the selector, the lookups and TI tests converted,
+  the switch's translation; (5.3) the images; (5.4) video, font and ROM;
+  (5.5) the file layer's linear DMA authority, 64KB split and file drivers
+  handed selectors; (5.6) DISKOPS's cloner and compressor, the LZ decoder,
+  `cpc_fdtest`; (5.7) `OSAPI_MEM_HUGE`'s conventional arm as a selector run,
+  with a 16KB step beside 32 and 64.
+
 ### MC4 - the HMA is RAM; the hibernate is the way out (D4, D5)
 
 - The HMA's record is unpinned; after MC3 it is the bottom 64K of the free run
@@ -904,4 +958,17 @@ rows. Nothing is recorded as built that was not.
   Video Player's and RealDMG's rolling windows) in step 5. MEGAXM's
   `OSAPI_MEM_CODESEL` check asserts the static alias `(DS >> 2) | 4`, which
   step 6 retires.
+- **Step 5.1, a pair for every conventional claim (2026-10-25) - DONE.**
+  `mem_sel` (`.lowbss`, one word per `mem_tab` record) holds each claim's
+  DATA selector, the CODE half at - 8. `mega_mpnewf` makes it at
+  `mem_claim_1`'s publish (no pair, no claim) and `mega_mpall` at the switch
+  for every claim real mode made; `mega_mpfreef` frees it with the record
+  (`mem_free_x`, `mem_free_owner_x`, the shed, the compactor's drop) and
+  every allocator data descriptor based in the block with it;
+  `mega_mpmovef` rebases every descriptor based in a block the compactor or
+  a regrow moved; `mega_mpsyncf` re-aims the pair when a regrow or a
+  re-home's trim changes the block. Callers still receive the physical
+  segment (5.2 changes that). Checked under Bochs at 4MB and 1MB (where
+  every claim is conventional): every live record's pair matches its block,
+  through a Disk window, the Task Manager and the Control Panel.
 

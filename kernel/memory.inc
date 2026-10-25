@@ -119,6 +119,20 @@ MC_RLOC  equ 8                  ; word: the RELOCATION HANDLE (SPEC.md 66).
                                 ; sample segments off its module base, none of
                                 ; which a poke at [trk_modseg] reaches
 MC_SIZE  equ 10
+%ifdef KERN_MEGA                ; A RECORD'S PAIR (KERN-MEGA-MEMORY-PLAN MC7.4):
+%if MEM_MAX != MEGA_MSELN
+  %error "mega.inc's mem_sel has MEGA_MSELN slots, one per mem_tab record"
+%endif
+%macro MEM_MP 1                 ; SI = the record -> mega_mp*f's step for it,
+    cmp byte [mega_on], 0       ; in protected mode only (every register kept)
+    je %%n
+    call MEGA_SEL_CODE:%1
+%%n:
+%endmacro
+%else
+%macro MEM_MP 1
+%endmacro
+%endif
 MC_DMA_HI   equ 0x8000          ; MC_DMA bit 15: the top-down door
 MC_DMA_HEAD equ 0x7FFF          ; ...and the mask every reader of the head takes
 
@@ -1067,6 +1081,16 @@ mem_claim_1:
     xor ax, ax                  ; ...and MC_RLOC = 0: PINNED until the holder
     stosw                       ; says otherwise (SPEC.md 66.2). A record is
     pop es                      ; REUSED - freeing is one store to MC_SEG - so
+%ifdef KERN_MEGA
+    cmp byte [mega_on], 0       ; PROTECTED MODE: the record's pair (KERN-
+    je .mpok                    ; MEGA-MEMORY-PLAN MC7.4), and no claim
+    lea si, [di - MC_SIZE]      ; without one
+    call MEGA_SEL_CODE:mega_mpnewf
+    jnc .mpok
+    mov word [ss:si+MC_SEG], 0
+    jmp short .fail
+.mpok:
+%endif
                                 ; a stale handle here would let the compactor
                                 ; move a new tenant's block and then call the
                                 ; PREVIOUS tenant's proc to tell it about it.
@@ -1258,6 +1282,11 @@ mem_shed_one:
     call mem_pg_forget          ; the owner is told BEFORE the block goes, so
                                 ; there is no window in which the word names
                                 ; memory somebody else already holds
+%ifdef KERN_MEGA
+    xchg si, di
+    MEM_MP mega_mpfreef
+    xchg si, di
+%endif
     mov word [ss:di+MC_SEG], 0
 .none:
     popf
@@ -2668,6 +2697,11 @@ mem_cp_walk:
     pop si
     mov bx, [ss:si+MC_SEG]      ; BX = where it WAS, for the notification
     mov [ss:si+MC_SEG], di      ; the map follows the bytes...
+%ifdef KERN_MEGA
+    xchg ax, bx                 ; ...and its pair and SUBs with them
+    MEM_MP mega_mpmovef         ; (KERN-MEGA-MEMORY-PLAN MC7.4)
+    xchg ax, bx
+%endif
     mov dx, di                  ; ...and the holder follows the map (BX = old
     call mem_reloc_call         ; base, DX = new)
     popf                        ; ...and IF back, whatever it was
@@ -2714,6 +2748,7 @@ mem_cp_walk:
     mov bx, [ss:si+MC_OWN]      ; BEFORE the record goes - mem_shed_one's
     call mem_pg_forget          ; order, for its reason - and BX, the FILL
     pop bx                      ; POINT, does not move
+    MEM_MP mega_mpfreef
     mov word [ss:si+MC_SEG], 0
 .count2:
     inc dx
@@ -3896,6 +3931,7 @@ mem_free_x:
 %endif                          ; ...and kern_small has no walk to be inside
     call mem_find_own
     jc .busy
+    MEM_MP mega_mpfreef
     mov word [ss:si+MC_SEG], 0     ; the record IS the allocator (SPEC.md 50.3)
 .ok:                            ; ...and mem_movable_x's two exits, below, are
     popf                        ; these: the same fence under the same IF = 0
@@ -4035,9 +4071,16 @@ mem_regrow:
     pop ax
     mov [ss:si+MC_SEG], cx         ; the record follows the bytes; MC_DMA is
                                    ; already right - it never changed
+%ifdef KERN_MEGA
+    xchg ax, dx                 ; (the old base: its SUBs follow the bytes)
+    MEM_MP mega_mpmovef
+    xchg ax, dx
+%endif
     mov dx, cx                  ; ...and the caller is told where it went
 .set:                           ; (all three paths: the new length)
     mov [ss:si+MC_PARA], ax
+    MEM_MP mega_mpsyncf         ; (its pair's window, KERN-MEGA-MEMORY-PLAN
+                                ; MC7.4)
     popf
     clc
     jmp short .out
@@ -4108,6 +4151,7 @@ mem_free_owner_x:
     jc .done
     cmp [ss:si+MC_OWN], bx
     jne .scan
+    MEM_MP mega_mpfreef
     mov word [ss:si+MC_SEG], 0
     jmp short .scan
 .done:
@@ -4174,12 +4218,14 @@ mem_reown_x:
     add [ss:si+MC_SEG], ax      ; the head slack goes back to the heap, so the
     sub [ss:si+MC_PARA], ax     ; base IS the segment the program runs in
     cmp [ss:si+MC_PARA], cx     ; ...AND THE TAIL past what the loader said
-    jbe .whole                  ; the program keeps (SPEC.md 20.12.10.5):
+    jbe .wsync                  ; the program keeps (SPEC.md 20.12.10.5):
     mov [ss:si+MC_PARA], cx     ; 0xFFFF keeps it whole, which is every
                                 ; loader that did not say. A free run is the
                                 ; gap between two claims, so a shorter claim
                                 ; IS the free - it merges with whatever run
                                 ; stood above it the way any free does
+.wsync:
+    MEM_MP mega_mpsyncf         ; (its pair's window: MC7.4)
 .whole:
     pop ax
     jmp short .scan

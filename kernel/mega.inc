@@ -9991,6 +9991,297 @@ mega_dfind:
     pop di
     ret
 
+; -----------------------------------------------------------------------------
+; A CONVENTIONAL CLAIM'S PAIR (KERN-MEGA-MEMORY-PLAN MC7.4). In protected mode
+; every mem_tab record has a code/data pair over its block, the DATA selector
+; in mem_sel at the record's index and the CODE half at data - 8 for every
+; claim. These keep the pair in step with the record: made at the publish and
+; at the switch, re-aimed when the record's base or length changes, freed
+; with the record, rebased when the compactor moves the block. Each is FAR
+; (memory.inc is `.cold`), DS = KDATA, SI = the record, and keeps every
+; register; the callers test [mega_on] first
+; -----------------------------------------------------------------------------
+
+; mega_mpix - SI = a mem_tab record -> BX = its mem_sel slot's offset.
+; Clobbers nothing else
+mega_mpix:
+    push ax
+    push dx
+    mov ax, si
+    sub ax, mem_tab
+    xor dx, dx
+    mov bx, MC_SIZE
+    div bx                          ; AX = the record's index
+    shl ax, 1
+    add ax, mem_sel
+    xchg ax, bx
+    pop dx
+    pop ax
+    ret
+
+; mega_mpbase - SI = a record -> DX:AX = its base, CX = its limit (64KB at
+; most: a block over 64KB is reached in windows, step 5.7). Clobbers nothing
+; else
+mega_mpbase:
+    mov ax, [ss:si+MC_SEG]
+    mov dx, ax
+    shl ax, 4
+    shr dx, 12
+    mov cx, [ss:si+MC_PARA]
+    cmp cx, 0x1000
+    jb .l
+    mov cx, 0x1000
+.l:
+    shl cx, 4
+    dec cx                          ; (0x1000 paragraphs: 0xFFFF)
+    ret
+
+; mega_mpnewf - FAR: a pair for record SI -> CF = 0 made (or there already);
+; CF = 1 no two adjacent LDT entries free, nothing changed
+mega_mpnewf:
+    push ax
+    push bx
+    push cx
+    push dx
+    call mega_mpix                  ; BX = the slot
+    cmp word [ss:bx], 0
+    jne .ok                         ; (one already: the switch's pass)
+    push bx
+    call mega_mpbase
+    call mega_ldt_alloc2            ; AX = the code half
+    pop bx
+    jc .o
+    add ax, 8
+    mov [ss:bx], ax                 ; the DATA half is the claim's value
+.ok:
+    clc
+.o:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf
+
+; mega_mpsyncf - FAR: record SI's base or length changed -> its pair is
+; re-aimed at the block as it is now (a regrow, a re-home's trim)
+mega_mpsyncf:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push es
+    call mega_mpix
+    mov di, [ss:bx]
+    or di, di
+    jz .o
+    call mega_mpbase
+    push ax
+    mov ax, MEGA_SEL_LDTD
+    mov es, ax
+    pop ax
+    and di, 0xFFF8
+    pushf
+    cli
+    mov [es:di], cx                 ; the data half...
+    mov [es:di+2], ax
+    mov [es:di+4], dl
+    mov [es:di-8], cx               ; ...and the code half, the same window
+    mov [es:di-8+2], ax
+    mov [es:di-8+4], dl
+    popf
+.o:
+    pop es
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf
+
+; mega_mpfreef - FAR: record SI is going -> its pair is free, and so is every
+; other allocator DATA descriptor based in its block (OSAPI_SEG's SUBs, which
+; go with their claim as a pool block's do: mx_dfree's rule)
+mega_mpfreef:
+    push ax
+    push bx
+    push cx
+    push dx
+    call mega_mpix
+    xor ax, ax
+    xchg ax, [ss:bx]                ; the slot is empty from here
+    or ax, ax
+    jz .o
+    push ax
+    sub ax, 8
+    call mega_ldt_free              ; the code half...
+    pop ax
+    call mega_ldt_free              ; ...and the data half
+    mov ax, [ss:si+MC_SEG]
+    mov cx, [ss:si+MC_PARA]
+    call mega_cdfree                ; ...and any SUB inside it
+.o:
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf
+
+; mega_mpmovef - FAR: the compactor moved record SI's block from paragraph AX
+; to the record's MC_SEG now -> every allocator descriptor based in the OLD
+; block is rebased by the move, the pair and any SUB alike (mx_desc's rule for
+; a pool block). One pass with interrupts off: the copy before it is done
+mega_mpmovef:
+    push ax
+    push bx
+    push cx
+    push dx
+    push di
+    push bp
+    push es
+    mov cx, [ss:si+MC_PARA]         ; CX = paragraphs
+    mov bx, [ss:si+MC_SEG]
+    sub bx, ax                      ; BX = the move in paragraphs, signed
+    mov bp, bx
+    sar bp, 12
+    shl bx, 4                       ; BP:BX = the move in bytes, signed
+    mov dx, ax
+    shl ax, 4
+    shr dx, 12                      ; DL:AX = the old base
+    push ax
+    mov ax, MEGA_SEL_LDTD
+    mov es, ax
+    pop ax
+    mov di, MEGA_LDT_FREE0 * 8
+    pushf
+    cli
+.d:
+    cmp byte [es:di+5], 0
+    je .n
+    call mega_cdin                  ; based in [DL:AX, + CX paragraphs)?
+    jc .n
+    add [es:di+2], bx
+    push bx
+    mov bx, bp
+    adc [es:di+4], bl
+    pop bx
+.n:
+    add di, 8
+    cmp di, MEGA_LDT_N * 8
+    jb .d
+    popf
+    pop es
+    pop bp
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf
+
+; mega_mpall - at the switch (mega_pmtail): mem_sel emptied (`.lowbss` is
+; not zeroed at boot), then a pair for every claim real mode made. Clobbers
+; nothing
+mega_mpall:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    push ss
+    pop es
+    mov di, mem_sel
+    mov cx, MEGA_MSELN
+    xor ax, ax
+    cld
+    rep stosw
+    mov si, mem_tab
+.l:
+    cmp word [ss:si+MC_SEG], 0
+    je .n
+    call MEGA_SEL_CODE:mega_mpnewf
+.n:
+    add si, MC_SIZE
+    cmp si, mem_tab + MEM_MAX * MC_SIZE
+    jb .l
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    ret
+
+; mega_cdin - ES:DI = a present descriptor, DL:AX = a block's base, CX = its
+; paragraphs -> CF = 0 the descriptor's base lies in the block; CF = 1 not.
+; Clobbers nothing
+mega_cdin:
+    push ax
+    push bx
+    push dx
+    mov bx, [es:di+2]
+    mov dh, [es:di+4]               ; DH:BX = the descriptor's base
+    sub bx, ax
+    sbb dh, dl                      ; DH:BX = its offset into the block
+    jc .no                          ; below it
+    push cx
+    mov ax, cx
+    mov dl, ah
+    shr dl, 4
+    shl ax, 4                       ; DL:AX = the block's bytes
+    pop cx
+    cmp dh, dl
+    ja .no
+    jb .yes
+    cmp bx, ax
+    jae .no
+.yes:
+    clc
+    jmp short .o
+.no:
+    stc
+.o:
+    pop dx
+    pop bx
+    pop ax
+    ret
+
+; mega_cdfree - AX = a block's paragraph, CX = its paragraphs -> every
+; allocator DATA descriptor still present and based in it is free. Clobbers
+; nothing
+mega_cdfree:
+    push ax
+    push dx
+    push di
+    push es
+    mov dx, ax
+    shl ax, 4
+    shr dx, 12                      ; DL:AX = the base
+    push ax
+    mov ax, MEGA_SEL_LDTD
+    mov es, ax
+    pop ax
+    mov di, MEGA_LDT_FREE0 * 8
+.d:
+    cmp byte [es:di+5], 0
+    je .n
+    test byte [es:di+5], 0x08       ; data only
+    jnz .n
+    call mega_cdin
+    jc .n
+    push ax
+    lea ax, [di+4]
+    call mega_ldt_free
+    pop ax
+.n:
+    add di, 8
+    cmp di, MEGA_LDT_N * 8
+    jb .d
+    pop es
+    pop di
+    pop dx
+    pop ax
+    ret
+
 ; mega_dklibf - FAR (DESK.DRV's LIB, 11.103.10): AX = DESK.DRV's code
 ; selector when its image is ABOVE 1MB, CX = the library's offset in it, DX =
 ; the library's bytes -> CF = 0 and DX = a code selector whose base is the
@@ -10093,6 +10384,7 @@ mega_pmtail:
     call mega_frames_fix
     call mega_mods_fix
     call mega_xminit                ; the XMEM pool behind the cells
+    call mega_mpall                 ; ...and every claim's pair (MC7.4)
 
     ; --- the ROM's halves, in the chains the ISRs already make ---------------
     mov word [sch_old08], mega_t08  ; THROUGH MEGA_SEL_CODE: both live in
@@ -10320,6 +10612,10 @@ mega_fkslot resb 1                  ; ...and slot + 1, 0 = none being closed
 mega_fkn    resb 1                  ; faults in it (0 = none ever)
 mega_fktm   resb 1                  ; 1 = its toast is owed
 mega_seg0   resw 1                  ; MEGA_SEG0's word for code outside .text
+MEGA_MSELN  equ 32                  ; mem_tab's MEM_MAX (memory.inc checks)
+mem_sel     resw MEGA_MSELN         ; a conventional claim's DATA selector,
+                                    ; by mem_tab index, 0 = none (its CODE
+                                    ; half is - 8): KERN-MEGA-MEMORY-PLAN MC7.4
 MEGA_WTN    equ 32                  ; OSAPI_SEG's windows (mega_segf): a row
 mega_wtab   resb MEGA_WTN * 4       ; each, the selector and its owner byte,
 mega_wtab_end equ mega_wtab + MEGA_WTN * 4 ; 0 a free row (KERN-MEGA-MEMORY-PLAN MC7)
