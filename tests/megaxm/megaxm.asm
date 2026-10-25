@@ -27,6 +27,17 @@
 ;                              is in it too (step 2D-2F): the hint stamp
 ;                              must read the file's byte 0 and not one past
 ;                              the window (KERN-MEGA-PLAN 14.27)
+;   MEGAXM: move OOOO PPPP     (protected mode) THE BLOCK MOVED, and is read
+;                              back through the SAME token (KERN-MEGA-MEMORY-
+;                              PLAN MC3): a 64KB filler taken first lies
+;                              above it, so freeing the filler leaves a hole
+;                              there, and a claim of every free KB the pool
+;                              has (OSAPI_XMEM_CAPS) fits only once the pool
+;                              is packed UP - which lifts the block into the
+;                              hole. OOOO and PPPP are its KB from the pool's
+;                              base before and after (OSAPI_XMEM_WALK); every
+;                              chunk below is read AFTER the move, through the
+;                              token the block was first given
 ;   MEGAXM: i13 ok             (protected mode) int 13h issued by the PACKAGE
 ;                              into a buffer above 1MB (KERN-MEGA-PLAN 14.1
 ;                              answer 11, mega_hibnc): drive A's track 0,
@@ -34,7 +45,8 @@
 ;                              read into the block at an odd offset and
 ;                              compared with the same sectors read low, then
 ;                              written back from the block and read again
-;   MEGAXM: ok | bad NN | no NN    the verdict, or the step that refused
+;   MEGAXM: ok | bad NN | no NN AAAA   the verdict, or the step that
+;                              refused and the AX its cell answered
 ;
 ; It was written for kern_mega's own pool (docs/plans/KERN-MEGA-PLAN.md 12.2,
 ; mega.inc's mx_*), and runs on any kernel with a store: tier 0 answers caps 0
@@ -58,6 +70,17 @@ mz_entry:
     call mz_nl
     or ax, ax
     jz .done
+    call OSAPI_CPU_INFO         ; protected mode: a 64KB FILLER first, so the
+    test ah, CPU_F_PM           ; block below lies under it (claims come from
+    jz .nofill                  ; the top) - mz_move frees it for a hole
+    xor ax, ax
+    mov dx, 1
+    call OSAPI_XMEM_ALLOC
+    mov cl, 0x40
+    jc .no
+    mov [mz_fill4], ax
+    mov [mz_fill4+2], dx
+.nofill:
     xor ax, ax                  ; DX:AX = 64KB
     mov dx, 1
     call OSAPI_XMEM_ALLOC
@@ -83,6 +106,9 @@ mz_entry:
     inc bx
     cmp bx, MZ_N
     jb .out
+    call mz_move                ; (protected mode) the block MOVES first
+    jc .no
+    jnz .bad
     ; --- in, and compare -------------------------------------------------
     xor bx, bx
 .in:
@@ -123,12 +149,19 @@ mz_entry:
     call mz_say
     call mz_nl
     jmp short .done
-.no:                            ; CL = the step that refused
-    mov si, mz_s_no
-    jmp short .code
+.no:                            ; CL = the step that refused, AX the
+    mov si, mz_s_no             ; cell's own answer
+    call mz_say
+    xchg ax, cx
+    call mz_hex2
+    mov al, ' '
+    out 0xE9, al
+    xchg ax, cx
+    call mz_hex4
+    call mz_nl
+    jmp short .done
 .bad:
     mov si, mz_s_bad
-.code:
     call mz_say
     mov al, cl
     call mz_hex2
@@ -137,6 +170,100 @@ mz_entry:
     pop di
     pop si
     stc                         ; no window: the instance ends here
+    ret
+
+; mz_move - (protected mode, and only when the filler was taken) the block
+; moved by a pack (KERN-MEGA-MEMORY-PLAN MC3): the filler above it freed, a
+; claim of every free KB the pool has taken and freed, the block's place
+; walked before and after. out: CF = 0, ZF = 1 it moved UP; CF = 1 a cell
+; refused (CL = the step); ZF = 0 it did not move (CL = the step)
+mz_move:
+    push ax
+    push dx
+    push si
+    mov ax, [mz_fill4]
+    mov dx, [mz_fill4+2]
+    mov cx, ax
+    or cx, dx
+    jz .ok                      ; (real mode: nothing to do)
+    call OSAPI_XMEM_FREE
+    mov cl, 0x41
+    jc .out
+    call mz_woff                ; AX = the block's KB, before
+    mov si, ax
+    call OSAPI_XMEM_CAPS        ; AX = every free KB
+    mov dx, ax                  ; DX:AX = AX x 1024
+    mov cl, 6
+    shr dx, cl
+    mov cl, 10
+    shl ax, cl
+    call OSAPI_XMEM_ALLOC       ; ...which fits only once the pool is packed
+    mov cl, 0x42
+    jc .out
+    call OSAPI_XMEM_FREE
+    mov cl, 0x43
+    jc .out
+    call mz_woff                ; AX = after
+    push si
+    mov si, mz_s_move
+    call mz_say
+    pop si
+    xchg ax, si
+    call mz_hex4
+    mov al, ' '
+    out 0xE9, al
+    xchg ax, si
+    call mz_hex4
+    call mz_nl
+    mov cl, 0x44
+    cmp ax, si
+    ja .ok
+    or cl, cl                   ; ZF = 0: it did not move up (CF = 0)
+    jmp short .out
+.ok:
+    xor cl, cl                  ; ZF = 1, CF = 0
+.out:
+    pop si
+    pop dx
+    pop ax
+    ret
+
+; mz_woff - AX = the KB from the pool's base of this package's one 64KB
+; OSAPI_XMEM_ALLOC block (FFFFh none), off OSAPI_XMEM_WALK into mz_buf.
+; Clobbers nothing else
+mz_woff:
+    push bx
+    push cx
+    push si
+    push di
+    push es
+    push ds
+    pop es
+    mov di, mz_buf
+    mov cx, MZ_CHUNK / XMW_SIZE
+    xor bx, bx
+    call OSAPI_XMEM_WALK        ; AX = records
+    xchg ax, cx
+    mov si, mz_buf
+    mov ax, 0xFFFF
+.l:
+    jcxz .o
+    cmp byte [si+XMW_OWN], 0x80
+    jae .n                      ; an instance's OSAPI_XMEM_ALLOC block...
+    cmp word [si+XMW_KB], 64
+    jne .n                      ; ...of 64KB: ours
+    mov ax, [si+XMW_OFF]
+    jmp short .o
+.n:
+    add si, XMW_SIZE
+    dec cx
+    jmp short .l
+.o:
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop bx
     ret
 
 ; mz_sel - the two cells of KERN-MEGA-PLAN 12.2 against the block the copy
@@ -680,8 +807,9 @@ mz_s_tmp:   db 'MEGAXM.TMP', 0
 mz_s_big:   db 'ZBIG.TXT', 0
 mz_s_at:    db 'MEGAXM: at ', 0
 mz_s_i13:   db 'MEGAXM: i13 ok', 0
+mz_s_move:  db 'MEGAXM: move ', 0
 
-    OS88_BSS 14 + MZ_CHUNK
+    OS88_BSS 18 + MZ_CHUNK
     OS88_IMAGE_END
 
 mz_base     equ os88_image_end + 0
@@ -689,4 +817,5 @@ mz_xsel     equ os88_image_end + 4
 mz_base2    equ os88_image_end + 6
 mz_xsel2    equ os88_image_end + 10
 mz_diff     equ os88_image_end + 12
-mz_buf      equ os88_image_end + 14
+mz_fill4    equ os88_image_end + 14 ; dword: the filler's token, 0 = none
+mz_buf      equ os88_image_end + 18

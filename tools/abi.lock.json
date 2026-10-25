@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "10823f928b835f4ebf074d95a5f3e741a2867361d0043844475f77c66cc0ccd7",
+  "fingerprint": "7cbbe903a0e3779d72c8232f2753cc10b07490b5e202208c626d88b8b8ac6cd6",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "e175ad5c52383dc3a59a5a02a196091407724184dff035bd09bc88bb13bebde6",
+  "fingerprint": "ab3a940d5a47343ad21e67bda4873930ccadf6cffcc101206c4c6194fd16693c",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1092,6 +1092,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "XMW_FIXED's records describe kern_mega's fixed areas at the top of RAM (SPEC.md 50.6.9): a comment, no cell moved",
+   "to": 11
+  },
+  {
+   "fingerprint": "ab3a940d5a47343ad21e67bda4873930ccadf6cffcc101206c4c6194fd16693c",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_XMEM_ALLOC answers a TOKEN; on kern_mega in protected mode it is not the block's base (SPEC.md 50.6.10): a comment, no cell moved",
+   "to": 10
+  },
+  {
+   "fingerprint": "7cbbe903a0e3779d72c8232f2753cc10b07490b5e202208c626d88b8b8ac6cd6",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_XMEM_ALLOC answers a TOKEN; on kern_mega in protected mode it is not the block's base (SPEC.md 50.6.10): a comment, no cell moved",
    "to": 11
   }
  ]

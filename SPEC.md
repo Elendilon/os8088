@@ -96879,6 +96879,60 @@ it, refused otherwise (§87.9).
 Cost: kern_mega `.text` +32, `.cold` +117, `.mega` +110; kern_big and
 kern_small byte-identical; the Task Manager +48 bytes of image.
 
+#### 50.6.10 kern_mega: nothing in the pool is pinned, and every claim comes from the top (KERN-MEGA-MEMORY-PLAN MC3)
+
+**Every block moves** (`mx_canmove`) but two: the HMA, the pool's first 64K,
+until KERN-MEGA-MEMORY-PLAN MC4 makes it RAM, and a block marked `MX_FPIN`
+(an `MX_FL` bit) because something holds its LINEAR address - the DOS trip's
+park and arena, and a hibernate resume's staging block, each for the moment
+it exists. What used to stay put and moves now:
+
+- **an `OSAPI_XMEM_ALLOC` block**, an instance's (its slot) or one taken
+  outside any instance (FFh: `RAMDISK.DRV`'s store, DISKOPS's staging). Its
+  answer is a TOKEN (below);
+- **the kernel's own blocks** (`MX_KOWN`): the caches of §50.6.8 and the
+  modules above 1MB, a running module included - all of them are named by
+  SELECTOR, and the compactor already rebases every LDT descriptor whose base
+  is in a block it moves (KERN-MEGA-PLAN 14.37), so a far return or a pop
+  reloads a moved block's base. That is the same argument a package's own
+  region moving while it is the caller has stood on since 14.46.
+
+**The token.** A package names an `OSAPI_XMEM_ALLOC` block by the 32-bit
+number the cell answered, adds offsets to it and hands it back to
+`OSAPI_XMEM_COPY`, `_SEL`, `_RUN` and `_FREE`. It was the block's linear base,
+so the block could not move. It is a token now: a KB range of its own,
+`MX_AUX`, chosen where the block is when it is taken (so the two agree until
+the block first moves, `mx_tokfit`) and never overlapping another live
+token's. Every cell finds the block by the token (`mx_key`) and goes to where
+it is now (`mx_tophys`). A token is never 0 (it is at least 100000h), and a
+copy is checked against the block's KB-rounded size, as before - the two
+things packages lean on. A census of every caller found none that reads a
+token in place under protected mode: LOADALL (`os88la.inc`) and unreal mode
+(`os88ub.inc`) are real-mode techniques, gated off under `CPU_F_PM` (the
+Video Player's `[vp_pm]`, `HDD.DRV`'s `HDV_ARM` refusal), and `XMEM.DRV`
+does not load on kern_mega. The Video Player's DRAM-interleave gap
+(`apps/os88xgap.inc`) reads a token's low bits as physical and is now a
+guess - it picks an offset inside the block, so it can cost speed and never
+correctness. A block with an `OSAPI_XMEM_RUN` run is moved the way an
+`MX_FH32` claim is (KERN-MEGA-PLAN 14.49): cut every 64KB with the package's
+`FSXF_RATE` hook held off, every one of its windows crossing a cut
+(`mx_cpflags`).
+
+**Every claim from the top.** `mx_alloc` places every owner first fit
+DOWNWARD from the pool's top, where it placed only the kernel's and the
+drivers' images before; and when no run fits it packs the pool UP
+(`mx_packupf`, against the fixed area or a pinned block) and tries once more,
+for every owner, before it sheds a cache. So the free KB are one run from the
+HMA's end up to the lowest block, and the HMA is reached last. `mx_compactf`
+(the pack DOWN) stays as `OSAPI_MEM_REGROW`'s, which wants the free KB above
+one claim. The Task Manager's MAX RUN replays the pack with only the HMA
+pinned, so it reads AVAIL less the HMA's share.
+
+`tests/megaxmove.py` is the gate: a block moved by the pack and read back
+through its first token, by copy, in place, by the file layer and by a
+package's own int 13h. Cost: kern_mega `.cold` +15, `.mega` +112, `.text` +0;
+kern_big and kern_small byte-identical; the Task Manager -12 bytes of image.
+
 ### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s
 
 **`kern_small` cannot load a `.DRV` of any kind.** The `%ifdef OS88_DRIVERS`

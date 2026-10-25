@@ -164,7 +164,7 @@ def main():
             for (o, kb), k in zip(gaps, free):
                 e = mxa + k * MX_BLKSZ
                 cmds += ["setpmem 0x%x 2 0x%x" % (e, o),
-                         "setpmem 0x%x 2 0x%x" % (e + 4, 0xFF),
+                         "setpmem 0x%x 2 0x%x" % (e + 4, 0x08FE),
                          "setpmem 0x%x 2 0" % (e + 6),
                          "setpmem 0x%x 2 0" % (e + 8),
                          "setpmem 0x%x 2 0x%x" % (e + 2, kb)]

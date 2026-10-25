@@ -213,7 +213,7 @@ Read first: [§2 Memory map](../SPEC.md#2-memory-map); [§41 xmem.inc — memory
 | `0x0216` | `OSAPI_CLAIM_SNAPSHOT` | ES:DI = a CLAIM_SNAPSHOT_SIZE buffer; out AX = MEM_MAX... |
 | `0x021C` | `OSAPI_SYS_KB` | ES:DI = a SYSKB_SIZE buffer; every register preserved... |
 | `0x015A` | `OSAPI_XMEM_CAPS` | no inputs; out AX = extended- memory KB the pool can still hand out (0 = none, and the three below will all refuse), DX:CX = the pool's 32-bit linear... |
-| `0x0160` | `OSAPI_XMEM_ALLOC` | DX:AX = bytes wanted, rounded up to 1KB; out CF=0 and DX:AX = the block's 32-bit linear base (opaque... |
+| `0x0160` | `OSAPI_XMEM_ALLOC` | DX:AX = bytes wanted, rounded up to 1KB; out CF=0 and DX:AX = the block's TOKEN, never 0 (opaque... |
 | `0x0166` | `OSAPI_XMEM_FREE` | DX:AX = a base YOU own; out CF=0 freed (and merged with the neighbouring free runs), CF=1 not a base or not yours. |
 | `0x016C` | `OSAPI_XMEM_COPY` | ES:SI = the conventional end, DX:AX = the 32-bit linear extended end, CX = bytes (EVEN, and <= 32768... |
 | `0x04BF` | `OSAPI_XMEM_WALK` | ES:DI = room for CX records of XMW_SIZE bytes; out CF=0 and AX = the extended pool's blocks written, each XMW_OFF (KB from the pool's base, which... |

@@ -3416,12 +3416,13 @@ tm_cap_avl:
 
 ; -----------------------------------------------------------------------------
 ; tm_himax - AX = the largest run ONE claim above 1MB can get: the pool as
-; mx_alloc leaves it after mx_compactf, worked out from the walk in tm_xw
+; mx_alloc leaves it after a pack, worked out from the walk in tm_xw
 ; (tm_hikb, kern_mega in protected mode). The kernel's own walk, replayed: the
 ; blocks in ascending order of where they are, a cursor following them, a
-; MOVABLE one (mx_canmove: 80h-DFh, a program's or driver's, and FDh, a
-; driver's image) sliding down to it and a PINNED one raising it past itself -
-; so every free run left is under a pinned block or above the last block. The
+; MOVABLE one sliding down to it and a PINNED one raising it past itself -
+; so every free run left is under a pinned block or above the last block.
+; Since KERN-MEGA-MEMORY-PLAN MC3 every block moves but the HMA (mx_canmove;
+; the kernel packs UP, which leaves the same runs), so MAX RUN = AVAIL. The
 ; fixed areas' records (XMW_GDT..XMW_PAD, past the pool's end) are skipped;
 ; the HMA's is a PINNED block at the pool's base (KERN-MEGA-MEMORY-PLAN MC2).
 ; in:  tm_xw/[tm_xwn], [tm_kb+SK_XMS] = the pool's KB
@@ -3465,13 +3466,8 @@ tm_himax:
     jz .end
     mov bx, ax                  ; the next visit is past this block
     inc bx
-    mov cl, [di+XMW_OWN]
-    cmp cl, TMX_DRVIMG
-    je .mov
-    cmp cl, 0x80
-    jb .pin
-    cmp cl, 0xE0
-    jb .mov
+    cmp byte [di+XMW_OWN], XMW_HMA
+    jne .mov                    ; every block moves but the HMA (MC3)
 .pin:
     mov cx, ax
     sub cx, bp

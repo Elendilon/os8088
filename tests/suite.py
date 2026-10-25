@@ -15999,17 +15999,33 @@ SOAK = [
         "docs/plans/KERN-MEGA-PLAN.md 14.15's open item, 14.46: on kern_mega "
         "the extended pool's compaction moves a package's OWN region while "
         "that package is the caller. Under Bochs at 2MB, MEGAHOLE holds "
-        "three 60KB pool claims and closes itself, leaving a hole under "
+        "three 60KB pool claims and closes itself, leaving a hole above "
         "MEGAOWN's region; MEGAOWN fills the pool, frees every other block "
         "and claims 64KB from its own wake handler. Its region must be at a "
-        "lower offset after the claim, every block's stamps and its own bss "
+        "HIGHER offset after the claim (every claim from the top and the "
+        "pool packed UP since KERN-MEGA-MEMORY-PLAN MC3), every block's "
+        "stamps and its own bss "
         "and code must read back, and a second callback must say the same. "
-        "The failing case is mx_compactf pinning a package region, which "
+        "The failing case is mx_canmove pinning a package region, which "
         "leaves it where it was. 50s is 39 measured (Bochs waits on "
         "kernel state, docs/BOCHS.md)",
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megahole.o88", "build/megaown.o88")),
+    Row("megaxmove", "soak", py("tests/megaxmove.py"), 25.0,
+        "SPEC.md 50.6.10, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC3: on "
+        "kern_mega an OSAPI_XMEM_ALLOC block MOVES and is read back through "
+        "the token it was given. Under Bochs at 4MB, tests/megaxm's MEGAXM "
+        "takes a 64KB filler and then its block under it, writes sixteen "
+        "patterns, frees the filler and claims every free KB the pool has - "
+        "which fits only once the pool is packed up, lifting the block into "
+        "the hole - then reads every chunk back through the original token, "
+        "in place through OSAPI_XMEM_SEL, through the file layer and through "
+        "a package's own int 13h. The failing case is mx_canmove pinning "
+        "token blocks (MEGAXM: no 42). 25s is 16 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megaxm.o88")),
     Row("megaovl", "soak", py("tests/megaovl.py"), 90.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.46: on kern_mega a C package's "
         "OVERLAY is moved by a compaction and then used. Under Bochs, "

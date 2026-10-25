@@ -681,3 +681,61 @@ rows. Nothing is recorded as built that was not.
   `megadosp`, `megakbtrip`, `megarehome`, `megapiclose`, `megacdrom`,
   `tmowner` (soak).
 
+
+### MC3 as built (2026-10-25) - DONE
+
+- **`mx_canmove`: every block moves but the HMA and an `MX_FPIN` one.**
+  - `MX_FPIN` (an `MX_FL` bit) marks a block whose LINEAR address something
+    holds: the DOS trip's park and arena (now owner `MX_KOWN` instead of FFh,
+    pinned by `mega_dosclaimf`'s `.alloc`) and a hibernate resume's staging
+    block. Both live only for the moment they are used.
+  - **A deviation from 5's MC3, in the direction of the goal.** The plan
+    pinned a module while its action runs, kern_big's rule. On kern_mega
+    that rule is not needed: a module above 1MB is named only by SELECTORS
+    (its pair, `dkv`/`thv`'s far pointers, `mega_dklibf`'s lone selector),
+    the compactor rebases every LDT descriptor in a block it moves, and a far
+    return or a pop reloads the base. That is the same argument a package's
+    own code region moving while it is the caller has stood on since
+    KERN-MEGA-PLAN 14.46 (`megaown`). So nothing is pinned for being in use;
+    MC5's "nothing pinned but a module in use" is met with room to spare.
+- **The token** (`MX_AUX` for owners 00h-7Fh and FFh, `mx_istok`):
+  - chosen at the take where the block is (`mx_tokfit`), so the two agree
+    until the first move; never overlapping a live token; never 0;
+  - every cell finds the block by it and goes to where it is now: `mx_free`
+    and `mx_chk` through `mx_key`, `mx_copy` and `mega_xmsel` through
+    `mx_tophys`, `mega_xmrunf` (`.cold`) inline;
+  - the census (a subagent read every caller) found nothing that reads a
+    token in place under protected mode, so A3 holds. Its list of what the
+    kernel must keep true - never 0:0, bounds on the KB-rounded size, FFh
+    blocks from driver context, XMEM_RUN blocks moved with care - is met;
+  - the Video Player's DRAM-interleave gap (`os88xgap.inc`) reads a token's
+    low bits as physical: now a guess, speed only, never correctness.
+- **A defect found by the new row, kept as its red case.** `mx_tophys`
+  subtracts a SIGNED distance, and a block that moved UP leaves a borrow in
+  CF; `mx_chk` handed that back as "not your block" (`MEGAXM: no 03 0002`).
+  It ends in `clc` now.
+- **An `OSAPI_XMEM_RUN` block** moves like an `MX_FH32` claim: cut every
+  64KB with the package's rate hook held (`mx_cpflags`).
+- **Top-down for every owner**: `mx_alloc`'s bottom-up arm is gone; a miss
+  packs UP (`mx_packupf` from KB 0) and retries, for every owner, before the
+  shed. `mx_compactf` stays for `OSAPI_MEM_REGROW`'s `.hpack`.
+- **The Task Manager**: `tm_himax` replays the pack with only the HMA
+  pinned.
+- **Tests:**
+  - `tests/megaxmove.py`, a new soak row: MEGAXM (tests/megaxm) gained a
+    MOVE step - a 64KB filler above its block, freed, then a claim of every
+    free KB - and reads every chunk back through the first token. Seen:
+    `MEGAXM: move 0AA7 0AE7` and `MEGAXM: ok` at 4MB, 16 s under Bochs; red
+    with token blocks pinned (`MEGAXM: no 42`). The row writes the packed
+    `ZBIG.TXT` MEGAXM's file leg reads, which KERN-MEGA-PLAN 14.70 left to a
+    hand-passed `--put`.
+  - `megaown` asserts its region moves UP now (MEGAHOLE's hole is above it).
+  - `megashed` and `tools/megaconvres.py` cover the pool with `MX_KOWN` +
+    `MX_FPIN` blocks, so the pack leaves their cover where it is.
+- **Bytes:** kern_mega `.cold` +15, `.mega` +112, `.text` +0 (shared window
+  3,750 unchanged); kern_big and kern_small byte-identical with a clean
+  build of the same commit; the Task Manager -12 bytes of image.
+- SPEC.md 50.6.10 is the contract.
+- Rows named: `megaxmove` (new), `megaown`, `megashed`, `megavidbig`,
+  `megavidv2`, `megaovl`, `megarehome`, `megahiber`, `megap2hiber`,
+  `megadosp`, `tmowner` (soak); `megahigh` (full).

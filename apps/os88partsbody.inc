@@ -1087,9 +1087,12 @@ op_xload:
     ret
 
 ; -----------------------------------------------------------------------------
-; op_lin - the 32-bit LINEAR base of part AL, when it went above 1MB
+; op_lin - the OSAPI_XMEM_ALLOC TOKEN of part AL, when it went above 1MB:
+;      the block's token plus the part's offset, for OSAPI_XMEM_COPY. It is
+;      the part's linear base on a real-mode kernel and NOT on kern_mega in
+;      protected mode, where the block moves (SPEC.md 50.6.10)
 ; in:  AL = the part index
-; out: DX:AX = its linear base, 0:0 = it is not up there (which is every
+; out: DX:AX = its token, 0:0 = it is not up there (which is every
 ;      tier-0 machine, and then op_seg answers instead)
 ; clobbers: AX, DX (the outputs), flags
 ; -----------------------------------------------------------------------------

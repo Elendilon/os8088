@@ -338,13 +338,29 @@ mega_dosclaimf:
     mov cl, 6
     shr dx, cl
     pop cx
-    mov bl, 0xFF                    ; the kernel's own
-    jmp mx_alloc
+    mov bx, MX_KOWN                 ; the kernel's own, outranking every
+    call mx_alloc                   ; cache - and PINNED: the park and the
+    jc .ao                          ; arena are named by their LINEAR base
+    push ax                         ; for the trip, and every other block
+    push cx                         ; moves (KERN-MEGA-MEMORY-PLAN MC3)
+    push dx
+    push si
+    call mx_find                    ; SI = its entry
+    jc .ap
+    or byte [ss:si+MX_FL], MX_FPIN
+.ap:
+    pop si
+    pop dx
+    pop cx
+    pop ax
+    clc
+.ao:
+    ret
 
 ; mega_dosfreef - both claims back (far; after the trip). Clobbers nothing
 mega_dosfreef:
     pusha
-    mov bl, 0xFF
+    mov bl, MX_KOWN
     mov ax, [mega_dpbase]
     mov dx, [mega_dpbase+2]
     mov cx, ax

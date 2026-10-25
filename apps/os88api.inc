@@ -1989,6 +1989,11 @@ MEMC_POST   equ 1                ; AH: post - BX = a window of YOURS, AL = the
 ; 98.3.18.14). Those two includes are the whole of the exception, each behind
 ; a check against OSAPI_XMEM_COPY, and os88ub.inc's `cpu 386` island is the
 ; one a package may assemble (SPEC.md 1 rule 1). Everything else still copies.
+; ON kern_mega IN PROTECTED MODE THE TOKEN IS NOT AN ADDRESS AT ALL (SPEC.md
+; 50.6.10): the block MOVES, and every cell finds it by the token and goes to
+; where it is now. Token + an offset inside the block, handed back to a cell,
+; is all a token is for there - both readers above are real-mode techniques
+; and are gated off under CPU_F_PM.
 ;
 ; BRANCH ON THE CAPS, NEVER ON THE TIER. OSAPI_XMEM_CAPS returning 0 KB is the
 ; only answer that means "do not try", and it is the answer on a 386 whose A20
@@ -2565,8 +2570,12 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; free block-table entries. Any context.
 %define OSAPI_XMEM_ALLOC    KERNEL_SEG:0x0160   ; DX:AX = bytes wanted, rounded
                                  ; up to 1KB; out CF=0 and DX:AX = the block's
-                                 ; 32-bit linear base (opaque - hand it back to
-                                 ; COPY and FREE, never dereference it), else
+                                 ; TOKEN, never 0 (opaque - hand it, plus an
+                                 ; offset inside the block, back to COPY, SEL,
+                                 ; RUN and FREE, never dereference it; it is
+                                 ; the linear base on every real-mode kernel
+                                 ; and NOT on kern_mega in protected mode,
+                                 ; where the block moves, SPEC.md 50.6.10), else
                                  ; CF=1 and AX = 0 no store / 1 no free table
                                  ; entry / 2 no contiguous run that big. The
                                  ; block is stamped with YOUR instance and

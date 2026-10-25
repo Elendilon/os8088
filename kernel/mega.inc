@@ -4956,7 +4956,10 @@ mega_mxat:
 ;      Every other register kept
 ; The run is the block's MX_SEL with bit 0 set (an RPL nobody hands out):
 ; mx_unsel frees (KB + 31) / 32 entries for it, and mega_xmsel refuses to
-; re-aim it. An XMEM block never moves, so the bases stay right
+; re-aim it. The block MOVES (KERN-MEGA-MEMORY-PLAN MC3): DX:AX is its token,
+; the run is made where the block is, and the compactor rebases every
+; descriptor of it with the block, cut every 64KB with the package's rate
+; hook held off (mx_cpflags) since every one of its windows crosses a cut
 ; -----------------------------------------------------------------------------
 mega_xmrunf:
     push bx
@@ -4987,10 +4990,10 @@ mega_xmrunf:
 .f:
     cmp word [ss:di+MX_KB], 0
     je .fn
-    cmp [ss:di+MX_OFF], ax
-    jne .fn
     cmp [ss:di+MX_OWN], bl
-    je .fs
+    jne .fn
+    cmp [ss:di+MX_AUX], ax          ; its TOKEN (MC3): OSAPI_XMEM_RUN is the
+    je .fs                          ; cell's alone, so the owner is one
 .fn:
     add di, MX_BLKSZ
     cmp di, mx_tab_end
@@ -5001,6 +5004,11 @@ mega_xmrunf:
     je .fs1
     jmp .not                        ; (a selector already: one view a block)
 .fs1:
+    mov si, [ss:di+MX_OFF]          ; DX:SI = where the block is now
+    mov dx, si
+    shl si, 10
+    shr dx, 6
+    add dx, MEGA_XPOOL >> 16
     mov bp, [ss:di+MX_KB]              ; BP = KB
     mov cx, bp
     add cx, 31
@@ -6168,7 +6176,15 @@ MX_FPURGE   equ 4                   ; MX_FL: a kernel CACHE (MX_KOWN) the next
                                     ; and its one selector in MX_SEL
                                     ; (KERN-MEGA-MEMORY-PLAN MC1)
 MX_AUX      equ 8                   ; word: an MX_FPURGE block's MEM_P_* tag,
-                                    ; whose high byte is its purge level
+                                    ; whose high byte is its purge level - or
+                                    ; a TOKEN block's token, in KB from the
+                                    ; pool's base (mx_istok, KERN-MEGA-MEMORY-
+                                    ; PLAN MC3)
+MX_FPIN     equ 8                   ; MX_FL: PINNED - something holds its
+                                    ; LINEAR address (the DOS trip's park and
+                                    ; arena, the hibernate's resume staging),
+                                    ; so the compactor leaves it where it is.
+                                    ; Every other block but the HMA moves (MC3)
 MX_NBLK     equ 96                  ; entries (KERN-MEGA-PLAN 14.49): every
                                     ; pool claim, region, driver image and
                                     ; kernel block is one. Nine programs and
@@ -6241,9 +6257,9 @@ mx_alloc:
                                     ; 14.37) - interrupts stay on
     add ax, 1023
     adc dx, 0
-    jc .norun
+    jc .nr
     call mx_tokb
-    jc .norun
+    jc .nr                          ; (64MB or more: no pack can make it)
     xchg ax, cx                     ; CX = KB wanted
     or cx, cx
     jnz .slot
@@ -6256,51 +6272,11 @@ mx_alloc:
     jae .full
     cmp word [ss:di+MX_KB], 0
     jne .fscan
-    xor bp, bp                      ; the candidate, KB from the base
-    cmp bl, MX_KOWN                 ; the kernel's OWN blocks come from the
-    je .top                         ; TOP (KERN-MEGA-PLAN 13.4.1), and so do
-    cmp bl, MX_KDRV                 ; drivers' images, which the compactor
-    je .top                         ; moves down like any claim (14.37)
-.restart:
-    mov dx, bp
-    add dx, cx
-    jc .norun
-    cmp dx, [xm_kb]
-    ja .norun
-    mov si, mx_tab
-.scan:
-    mov ax, [ss:si+MX_KB]
-    or ax, ax
-    jz .snext
-    add ax, [ss:si+MX_OFF]
-    cmp bp, ax
-    jae .snext
-    cmp [ss:si+MX_OFF], dx
-    jae .snext
-    xchg bp, ax
-    jmp short .restart
-.snext:
-    add si, MX_BLKSZ
-    cmp si, mx_tab_end
-    jb .scan
-.take:
-    pushf
-    cli
-    mov word [ss:di+MX_SEL], 0
-    mov word [ss:di+MX_AUX], 0
-    mov [ss:di+MX_OFF], bp
-    mov [ss:di+MX_KB], cx
-    mov bh, 0
-    mov [ss:di+MX_OWN], bx             ; ...and MX_FL clear
-    popf
-    mov ax, bp
-    mov dx, bp
-    mov cl, 10
-    shl ax, cl
-    mov cl, 6
-    shr dx, cl
-    add dx, MEGA_XPOOL >> 16
-    jmp short .out
+                                    ; EVERY CLAIM FROM THE TOP (KERN-MEGA-
+                                    ; MEMORY-PLAN MC3, D1): free memory is
+                                    ; then one run from the pool's base up,
+                                    ; and the HMA - its first 64KB - is
+                                    ; reached last
 .top:                               ; first fit DOWNWARD: the candidate
     mov bp, [xm_kb]                 ; ends at the pool's top, and an overlap
     sub bp, cx                      ; moves it to end where that block
@@ -6326,16 +6302,36 @@ mx_alloc:
     add si, MX_BLKSZ
     cmp si, mx_tab_end
     jb .tscan
-    jmp short .take
+    xor ax, ax                      ; AX = MX_AUX: 0, or a TOKEN block's
+    call mx_istok                   ; token (an OSAPI_XMEM_ALLOC block, MC3):
+    jne .take                       ; a range no live token overlaps, first
+    call mx_tokfit                  ; tried where the block IS - so it is the
+    jc .norun                       ; block's base until the block moves
+.take:
+    pushf
+    cli
+    mov word [ss:di+MX_SEL], 0
+    mov [ss:di+MX_AUX], ax
+    mov [ss:di+MX_OFF], bp
+    mov [ss:di+MX_KB], cx
+    mov bh, 0
+    mov [ss:di+MX_OWN], bx             ; ...and MX_FL clear
+    popf
+    call mx_istok                   ; a token block is NAMED by its token,
+    jne .phys                       ; everything else by where it is
+    mov bp, ax
+.phys:
+    mov ax, bp
+    call mx_kblin                   ; DX:AX = the name, linear
+    jmp short .out
 .norun:
-    cmp bl, MX_KOWN                 ; NO RUN, BUT THE POOL MAY HOLD IT IN
-    je .shed                        ; PIECES (KERN-MEGA-PLAN 14.15): pack the
-    cmp byte [mega_cpry], 0         ; movable blocks down once and try again.
-    jne .shed                       ; The kernel's own blocks are the top's
-    mov byte [mega_cpry], 1         ; and never need it
-    call MEGA_SEL_CODE:mx_compactf
-    xor bp, bp
-    jmp .restart                    ; (CX the KB, DI the free entry: both kept)
+    cmp byte [mega_cpry], 0         ; NO RUN, BUT THE POOL MAY HOLD IT IN
+    jne .shed                       ; PIECES (KERN-MEGA-PLAN 14.15): pack the
+    mov byte [mega_cpry], 1         ; movable blocks UP once - against the
+    xor ax, ax                      ; fixed area or a pinned block, so every
+    call MEGA_SEL_CODE:mx_packupf   ; free KB below them is one run (MC3) -
+    jmp .top                        ; and try again (CX the KB, DI the free
+                                    ; entry: both kept)
 .shed:                              ; ...THEN A CACHE THE CLAIMANT OUTRANKS
     call mx_shed                    ; GOES (KERN-MEGA-MEMORY-PLAN MC1), and
     jc .nr                          ; the whole walk runs again - a compaction
@@ -6377,6 +6373,99 @@ mx_shed:
     pop bx
     ret
 
+; -----------------------------------------------------------------------------
+; THE TOKEN (KERN-MEGA-MEMORY-PLAN MC3). An OSAPI_XMEM_ALLOC block is the one
+; kind a package names by a NUMBER rather than a selector - DX:AX, which it
+; adds offsets to and hands back to OSAPI_XMEM_COPY, _SEL, _RUN and _FREE. It
+; used to be the block's linear base, so the block could never move. It is a
+; TOKEN now: a KB range of its own in MX_AUX, chosen where the block is when
+; it is taken (so the two agree until it first moves) and never overlapping
+; another live token, and every cell finds the block by it and translates to
+; where the block is NOW. No package reads a token in place on kern_mega
+; (LOADALL and unreal mode are real-mode techniques, gated off under
+; CPU_F_PM), so the number is all it ever was to them.
+; -----------------------------------------------------------------------------
+
+; mx_istok - BL = an owner -> ZF = 1 its blocks are named by TOKEN: a slot
+; (00h-7Fh, an instance's OSAPI_XMEM_ALLOC) or FFh (the cell called outside
+; any instance - a driver's store). Clobbers nothing
+mx_istok:
+    cmp bl, 0xFF
+    je .o
+    test bl, 0x80
+.o:
+    ret
+
+; mx_key - SI = an entry, BL = its owner -> AX = the KB it is NAMED by: its
+; token's for a token owner, where it is for every other. Clobbers nothing else
+mx_key:
+    mov ax, [ss:si+MX_OFF]
+    call mx_istok
+    jne .o
+    mov ax, [ss:si+MX_AUX]
+.o:
+    ret
+
+; mx_tophys - SI = an entry, BL = its owner, DX:AX = a linear address in the
+; block's NAME -> DX:AX = the same byte where the block is now, CF = 0 (a
+; block that moved UP subtracts a negative distance, whose borrow is not an
+; answer). Clobbers nothing else
+mx_tophys:
+    call mx_istok
+    jne .o
+    push bx
+    push cx
+    mov bx, [ss:si+MX_AUX]
+    sub bx, [ss:si+MX_OFF]          ; KB the name is above the block, signed
+    mov cx, bx
+    shl bx, 10
+    sar cx, 6                       ; CX:BX = bytes
+    sub ax, bx
+    sbb dx, cx
+    pop cx
+    pop bx
+.o:
+    clc
+    ret
+
+; mx_tokfit - for mx_alloc: CX = KB, BP = where the block will be -> CF = 0
+; and AX = a token KB whose CX KB no live token block overlaps, the first
+; tried being BP; CF = 1 none under 64MB. Clobbers nothing else
+mx_tokfit:
+    push bx
+    push dx
+    push si
+    mov ax, bp
+.re:
+    mov dx, ax
+    add dx, cx                      ; DX = the range's end
+    jc .o
+    mov si, mx_tab
+.l:
+    cmp word [ss:si+MX_KB], 0
+    je .n
+    mov bl, [ss:si+MX_OWN]
+    call mx_istok
+    jne .n
+    mov bx, [ss:si+MX_AUX]
+    cmp bx, dx
+    jae .n                          ; starts at or past our end
+    add bx, [ss:si+MX_KB]
+    cmp bx, ax
+    jbe .n                          ; ends at or before our start
+    xchg ax, bx                     ; overlaps: try just past it
+    jmp short .re
+.n:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .l
+    clc
+.o:
+    pop si
+    pop dx
+    pop bx
+    ret
+
 mx_free:
     push ax
     push cx
@@ -6392,9 +6481,12 @@ mx_free:
 .scan:
     cmp word [ss:si+MX_KB], 0
     je .next
-    cmp [ss:si+MX_OFF], ax
-    jne .next
     cmp [ss:si+MX_OWN], bl
+    jne .next
+    xchg ax, cx
+    call mx_key                     ; AX = what it is named by (MC3)
+    xchg ax, cx
+    cmp cx, ax
     jne .next
     call mx_unsel                   ; its OSAPI_XMEM_SEL selector goes too
     mov word [ss:si+MX_KB], 0
@@ -6558,7 +6650,11 @@ mega_xmsel:
     je .next
     cmp [ss:di+MX_OWN], bl
     jne .next
-    mov dx, [ss:di+MX_OFF]
+    mov dx, [ss:di+MX_OFF]          ; where it is - or, for a token block,
+    call mx_istok                   ; what it is NAMED (MC3)
+    jne .k
+    mov dx, [ss:di+MX_AUX]
+.k:
     cmp dx, si
     ja .next                        ; the block starts after the window...
     add dx, [ss:di+MX_KB]
@@ -6573,7 +6669,9 @@ mega_xmsel:
     jmp short .fail
 .found:
     mov ax, [mxs_lo]
-    mov dx, [mxs_hi]                ; DX:AX = the descriptor's base
+    mov dx, [mxs_hi]                ; DX:AX = the descriptor's base, where
+    mov si, di                      ; the block is now
+    call mx_tophys
     mov cx, [mxs_len]
     dec cx                          ; ...and its limit (0 - 1 = 64KB)
     mov si, [ss:di+MX_SEL]
@@ -6706,14 +6804,16 @@ mx_tokb:
 .out:
     ret
 
-; DX:AX = linear, CX = bytes, BL = the caller -> CF = 0 inside one of its
-; blocks. Clobbers nothing
+; DX:AX = linear - a NAME: a token block's token, every other block's place
+; (mx_istok, MC3) - CX = bytes, BL = the caller -> CF = 0 inside one of its
+; blocks, and DX:AX = where those bytes are NOW (mx_tophys); CF = 1 not, and
+; DX:AX kept. Clobbers nothing else
 mx_chk:
-    push ax
     push cx
-    push dx
     push si
     push di
+    push ax
+    push dx
     mov di, ax
     and di, 0x03FF
     add di, cx
@@ -6730,24 +6830,32 @@ mx_chk:
     jne .next
     cmp word [ss:si+MX_KB], 0
     je .next
-    mov cx, [ss:si+MX_OFF]
+    push ax
+    call mx_key                     ; AX = the KB it is named by
+    xchg ax, cx
+    pop ax
     cmp cx, ax
     ja .next
     add cx, [ss:si+MX_KB]
     cmp cx, di
-    jae .out
+    jae .found
 .next:
     add si, MX_BLKSZ
     cmp si, mx_tab_end
     jb .scan
 .no:
+    pop dx
+    pop ax
     stc
+    jmp short .out
+.found:
+    pop dx
+    pop ax
+    call mx_tophys                  ; (CF = 0: mx_tophys keeps it)
 .out:
     pop di
     pop si
-    pop dx
     pop cx
-    pop ax
     ret
 
 ; mx_copy - ES:SI = the kernel's XMC_ block. out CF = 0 done; CF = 1 and AX
@@ -6769,9 +6877,10 @@ mx_copy:
     mov ax, [es:si+XMC_EXT]
     mov dx, [es:si+XMC_EXT+2]
     mov bl, [es:si+XMC_INST]
-    call mx_chk
-    mov ax, 2
-    jc .fail
+    call mx_chk                     ; DX:AX = where the block's bytes are now:
+    jc .notmine                     ; the extended end is a TOKEN (MC3)
+    push dx
+    push ax
     mov ax, [es:si+XMC_CONV]        ; the conventional end: below 1MB...
     mov dx, [es:si+XMC_CONV+2]
     cmp dx, 0x10
@@ -6780,13 +6889,19 @@ mx_copy:
     or bl, 0x80                     ; above it: its region (OS88_HIGH)...
     call mx_chk
     jnc .lowend
-    or bl, 0xA0                     ; ...or a claim (OS88_HIGHMEM)
-    call mx_chk
-    mov bx, 3
-    jc .failbx
+    or bl, 0xA0                     ; ...or a claim (OS88_HIGHMEM), each a
+    call mx_chk                     ; place: the kernel took it off the
+    jnc .lowend                     ; caller's selector a moment ago
+    pop ax
+    pop ax
+    mov ax, 3
+    jmp short .fail
+.notmine:
+    mov ax, 2
+    jmp short .fail
 .lowend:
-    mov di, [es:si+XMC_EXT]
-    mov bx, [es:si+XMC_EXT+2]
+    pop di                          ; BX:DI = the extended end
+    pop bx
     cmp byte [es:si+XMC_DIR], 0
     jne .in
     mov [mega_xsrc], ax             ; out: conventional -> extended
@@ -6803,8 +6918,6 @@ mx_copy:
     call KERNEL_SEG:mega_lincopyf
     clc
     jmp short .out
-.failbx:
-    mov ax, bx
 .fail:
     stc
 .out:
@@ -7834,18 +7947,17 @@ mega_layoutf:
     ret
 
 ; -----------------------------------------------------------------------------
-; mx_compactf - FAR (mx_alloc's no-run arm): PACK THE POOL'S MOVABLE BLOCKS
+; mx_compactf - FAR (OSAPI_MEM_REGROW's .hpack): PACK THE POOL'S MOVABLE BLOCKS
 ; DOWN (KERN-MEGA-PLAN 14.1 answer 12, 14.15), so the free KB they were
 ; splitting become one run. The blocks are taken in ascending order of where
 ; they are; a cursor follows them, a PINNED block raises it past itself, and
 ; a MOVABLE one slides down to it - always into free space, every block below
 ; having been placed already. What moves is what nothing names by ADDRESS,
-; OF ANY SIZE (KERN-MEGA-PLAN 14.37): a package region (80h | slot), a
-; program's claim (0A0h | slot) and a driver's (0C0h | row) - an
-; OSAPI_MEM_HUGE run among them - and a driver's image (MX_KDRV). The
-; kernel's own (MX_KOWN, at the top) and OSAPI_XMEM_ALLOC's (a slot: the
-; package holds its LINEAR address, which os88ub.inc and os88la.inc read in
-; place) stay where they are. A block MOVES WITH NO RELOCATION PROC: its selectors are
+; OF ANY SIZE (KERN-MEGA-PLAN 14.37) - which since KERN-MEGA-MEMORY-PLAN MC3
+; is every block but the HMA and an MX_FPIN one (mx_canmove): OSAPI_XMEM_ALLOC
+; blocks are named by a token the cells translate, and the kernel's own by
+; selector. mx_alloc packs UP (mx_packupf) since MC3; this is .hpack's, which
+; wants the free KB directly above one claim. A block MOVES WITH NO RELOCATION PROC: its selectors are
 ; stable and only their descriptors' bases change - every present LDT
 ; descriptor whose base is inside it is rebased - and a segment register that
 ; holds one picks the new base up at its next load. Every holder outside this
@@ -8122,11 +8234,18 @@ mx_cpflags:
     mov al, MX_CPRISE
 .h:
     test byte [ss:di+MX_FL], MX_FH32
-    jz .o
+    jz .run
     cmp byte [ss:di+MX_OWN], 0xA0
     jb .o
     cmp byte [ss:di+MX_OWN], 0xC0
     jae .o
+    jmp short .hold
+.run:                               ; ...and a package's OSAPI_XMEM_RUN block,
+    test byte [ss:di+MX_SEL], 1     ; the same shape - a 64KB window every
+    jz .o                           ; 32KB - since such a block moves too
+    cmp byte [ss:di+MX_OWN], 0x80   ; (KERN-MEGA-MEMORY-PLAN MC3)
+    jae .o
+.hold:
     cmp word [spk_seg], 0
     jne .o
     or al, MX_CPHOLD
@@ -8223,21 +8342,20 @@ mx_lcchk:
 %endif
 
 ; mx_canmove - DI = an mx_tab entry: ZF = 1 the compactor may move it, OF ANY
-; SIZE (14.37) - a driver's image (MX_KDRV), a package region (80h | slot), a
-; program's claim (0A0h | slot) or a driver's (0C0h | row). Clobbers AL
+; SIZE (14.37). EVERY BLOCK MOVES (KERN-MEGA-MEMORY-PLAN MC3, D2) but the HMA
+; (until MC4) and one marked MX_FPIN: a program's region, claims and
+; OSAPI_XMEM_ALLOC blocks (named by token), a driver's image, claims and
+; store, and the kernel's caches and modules - all named by SELECTOR, and a
+; module running is no exception, a far return reloading its CS from the
+; rebased descriptor. Clobbers AL
 mx_canmove:
     mov al, [ss:di+MX_OWN]
-    cmp al, MX_KDRV
-    je .o
-    cmp al, 0x80
-    jb .no
-    cmp al, 0xE0
-    jae .no
-    cmp al, al
-    ret
+    cmp al, XMW_HMA
+    je .no
+    test byte [ss:di+MX_FL], MX_FPIN
+    ret                             ; (ZF = 1: not pinned)
 .no:
-    cmp al, MX_KDRV                 ; (not equal: ZF = 0)
-.o:
+    or al, al                       ; (F0h: ZF = 0)
     ret
 
 ; mx_packupf - FAR (OSAPI_MEM_REGROW's last try, KERN-MEGA-PLAN 14.49): AX =

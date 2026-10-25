@@ -4266,7 +4266,8 @@ hbm_xclaim:
     pushf
     cli
     mov [ss:di+MX_OFF], bx
-    mov word [ss:di+MX_OWN], MX_KOWN ; (MX_FL clear: pinned, no purge)
+    mov word [ss:di+MX_OWN], MX_KOWN | (MX_FPIN << 8) ; PINNED (MC3): the
+                                ; stub copies out of it by linear address
     mov word [ss:di+MX_SEL], 0
     mov word [ss:di+MX_AUX], 0
     mov [ss:di+MX_KB], ax          ; ...last: a non-zero size is the claim
