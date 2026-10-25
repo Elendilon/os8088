@@ -5715,9 +5715,10 @@ osapi_xmem_run:                 ; (eleven bytes of .text: the segment binds
 ;      limit runs to the region's end or 64KB, whichever is first, its CODE
 ;      twin at DX - 8 when bit 0 asked for one; the same selector again for
 ;      the same paragraph, freed with the region and moved with it. CF = 1,
-;      every register kept: you are not above 1MB, so your segment + AX is
-;      the answer - every kernel but kern_mega, and kern_mega for a region in
-;      conventional memory, an offset past the region, or no LDT entry
+;      every register kept: your segment + AX is the answer - every kernel
+;      but kern_mega, and kern_mega in real mode, for an offset past the
+;      region, or no LDT entry (a conventional region is a selector too in
+;      protected mode, KERN-MEGA-MEMORY-PLAN MC7.4)
 ; THE ONE PIECE OF SEGMENT ARITHMETIC A RE-HOMED PROGRAM CANNOT DO ITSELF: a
 ; selector names its base, so "my segment + N" has no meaning above 1MB.
 ; Clear Skies' cs_xpand is the first caller (SPEC.md 88), Pixelstein's GEN

@@ -2117,8 +2117,9 @@ OS88_HUGE_INCR      equ 0x1000
 ; An OS88_HIGH program's DS is a selector there (KERN-MEGA-PLAN 13.3, 14.44),
 ; and a selector names a BASE: adding paragraphs to it names some other
 ; descriptor. Ask this cell instead, and on CF = 1 do the sum yourself -
-; which is every kernel but kern_mega, and kern_mega whenever your region is
-; in conventional memory, so the fallback is the code you had.
+; which is every kernel but kern_mega, and kern_mega in real mode, so the
+; fallback is the code you had. In protected mode a region in conventional
+; memory is a selector too and is answered (KERN-MEGA-MEMORY-PLAN MC7.4).
 %define OSAPI_MEM_SUBSEG    KERNEL_SEG:0x04D1   ; AX = a PARAGRAPH offset into
                                  ; your OWN region (from your DS, which must
                                  ; be your region's), BL bit 0 = you will FAR

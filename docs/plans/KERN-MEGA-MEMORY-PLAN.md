@@ -1013,6 +1013,24 @@ rows. Nothing is recorded as built that was not.
   buffer a sector at a time. Rows named for the final pass: `megaown`,
   `megaxmove`, `megashed`, `megaxm`, `megahigh`, `megaovl`, `megarehome`,
   `megahiber`, `megadosp`, `drvmove` on kern_mega.
+- **Step 5.3, the images (2026-10-25) - DONE.** A package region, a driver
+  image and a module are pairs from the claim itself, so the pair arms of
+  `MEGA_CSELTOP`, `mega_frame_cs`, `mem_reloc_call`, `mega_codesel`,
+  `mega_cs2ds`, `mega_dsimg` and the fault handler's `.pairq` already did
+  the right thing; the modules' arming was 5.2's. What was left is
+  `OSAPI_MEM_SUBSEG` (SPEC.md 50.3.6): it answered only a region placed
+  above 1MB, and a conventional region is a selector now too, so the
+  caller's fallback sum named some other descriptor. `mega_rgnconv` finds
+  the region's claim by its selector and the rest of the body is shared;
+  `mega_cdfree` frees a claim's code twins as well as its data
+  descriptors, which is what a SUBSEG code window inside a conventional
+  region needs at the free. Cost: `.mega` +48. **Found on the way, and a
+  package's to fix rather than the kernel's:** HEAPFRAG (tests/heapfrag)
+  walks each block it claimed by adding 40h paragraphs to the SEGMENT a
+  kilobyte at a time - under Bochs on the 1MB machine it faults on the
+  second kilobyte, `mov es, dx` with DX = the next pair's selector + 40h.
+  The kernel handed it the right selectors (a trace of every pair made,
+  freed and moved confirmed it). It joins the package waves' list.
 
 ---
 

@@ -9478,7 +9478,8 @@ mega_rgnsubfree:
 ; distinct paragraph it asks for, and every one of them is freed with the
 ; region (mega_rgnsubfree). They move with it too: mx_cpmove rebases every
 ; descriptor whose base is inside a block it moves. CF = 1, every register
-; kept, when ES is not a package region placed above 1MB, the paragraph is
+; kept, when ES is not a package's region (above 1MB or, since KERN-MEGA-
+; MEMORY-PLAN MC7.4, a conventional claim's pair), the paragraph is
 ; at or past its end, or no LDT entry is free - and the caller's answer then
 ; is its own segment + AX, which is right wherever the region is in real
 ; memory. DS = KDATA
@@ -9498,9 +9499,15 @@ mega_subsegf:
     jc .no
     or bl, 0x80
     call mega_rgnblk                ; SI = its block, DX:AX = its base
-    jc .no
+    jc .conv
     mov cx, [ss:si+MX_KB]
     shl cx, 6                       ; the block in paragraphs (under 1MB)
+    jmp short .sz
+.conv:
+    mov ax, es                      ; ...or a CONVENTIONAL region, named by
+    call mega_rgnconv               ; its claim's pair (KERN-MEGA-MEMORY-
+    jc .no                          ; PLAN MC7.4): CX, DX:AX the same
+.sz:
     sub cx, bp
     jbe .no                         ; at or past its end
     test bh, 2                      ; BL bit 1: the caller's CX is the
@@ -9576,6 +9583,36 @@ mega_subsegf:
     popa
     clc
     retf
+
+; mega_rgnconv - AX = a conventional claim's DATA selector -> CF = 0, CX =
+; its paragraphs and DX:AX = its base; CF = 1 no claim is named by it.
+; Clobbers nothing else
+mega_rgnconv:
+    push bx
+    push si
+    mov si, mem_tab
+    mov bx, mem_sel
+.l:
+    cmp [ss:bx], ax
+    je .f
+    add si, MC_SIZE
+    inc bx
+    inc bx
+    cmp bx, mem_sel + MEGA_MSELN * 2
+    jb .l
+    stc
+    jmp short .o
+.f:
+    mov cx, [ss:si+MC_PARA]
+    mov ax, [ss:si+MC_SEG]
+    mov dx, ax
+    shl ax, 4
+    shr dx, 12
+    clc
+.o:
+    pop si
+    pop bx
+    ret
 
 ; mega_drvhifree - FAR (drv_release): AX = a driver image drv_hi placed ->
 ; its block and pair are free. Clobbers nothing
@@ -10297,7 +10334,7 @@ mega_cdin:
     ret
 
 ; mega_cdfree - AX = a block's paragraph, CX = its paragraphs -> every
-; allocator DATA descriptor still present and based in it is free. Clobbers
+; allocator descriptor still present and based in it, data or code, is free. Clobbers
 ; nothing
 mega_cdfree:
     push ax
@@ -10315,9 +10352,7 @@ mega_cdfree:
 .d:
     cmp byte [es:di+5], 0
     je .n
-    test byte [es:di+5], 0x08       ; data only
-    jnz .n
-    call mega_cdin
+    call mega_cdin                  ; data or code: a SUBSEG twin too
     jc .n
     push ax
     lea ax, [di+4]

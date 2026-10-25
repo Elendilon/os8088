@@ -95788,15 +95788,22 @@ kernel answers the sum (0x04D1, appended - additive, no `PKG_FMT`; 0x04BD until 
   into one interrupts-off copy.
 - CF = 1, **every register kept**: use your segment + AX. That is the whole
   cell on kern_big and kern_small (`mod_gone`), and on kern_mega in real
-  mode, for a region in conventional memory, an offset at or past the
-  region's end, or no LDT entry free - so a caller's fallback is the code it
-  already had, and it is right wherever the region really is.
+  mode, for an offset at or past the region's end, or no LDT entry free - so
+  a caller's fallback is the code it already had, and it is right wherever
+  the region really is.
+- **A region in CONVENTIONAL memory is answered too** since
+  docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7.4: in protected mode every claim
+  is named by its pair's DATA selector (§50.6.12), so the sum is as wrong
+  below 1MB as above it. The block is the region's claim (`mega_rgnconv`
+  finds it by its selector).
 
 The selectors live and die with the region: `mega_pkghifree` frees every LDT
 descriptor whose base is inside the block (`mega_rgnsubfree`) besides the
 pair itself, and `mx_cpmove` already rebases every descriptor inside a block
-it moves, so a compaction moves them too. Any context. The cost is
-docs/plans/KERN-MEGA-PLAN.md 14.44.
+it moves, so a compaction moves them too. A conventional region's go with
+its claim (`mega_mpfreef`, data and code alike) and move with it
+(`mega_mpmovef`). Any context. The cost is docs/plans/KERN-MEGA-PLAN.md
+14.44.
 
 ### 50.3.2 …and the top-down doors a driver never had
 
@@ -96982,6 +96989,43 @@ kern_small (the real-mode body and its parity pad); kern_mega `.cold` +68,
 `.mega` +900 (the body, the window table's helpers and `mx_dfree`),
 `.lowbss` +128. `tests/megaxmove.py`'s MEGAXM checks every verb in protected
 mode, and the SUB's real-mode sum on any other kernel.
+
+#### 50.6.12 kern_mega: every claim is a selector (KERN-MEGA-MEMORY-PLAN MC7.4)
+
+In protected mode a CONVENTIONAL claim is named the way a pool claim always
+was - by a selector - and not by its segment:
+
+- **A pair per claim.** `mem_claim_1`'s publish makes a code/data pair over
+  the block (`mega_mpnewf`); the DATA selector is the claim's value and the
+  CODE half is data - 8, for every claim, so `OSAPI_MEM_CODESEL` and any
+  converter that does not call the kernel can rely on the rule. It lives in
+  `mem_sel`, a table parallel to `mem_tab` (`MC_SIZE` is the claim
+  snapshot's ABI and does not change); `MC_SEG` and `MC_PARA` stay physical,
+  and the allocator's bookkeeping with them. No pair, no claim. A pair's
+  limit is 64KB at most: a longer claim is reached through `OSAPI_MEM_SUBSEG`
+  or `OSAPI_SEG`'s `SEG_SUB`.
+- **Lookups by value** (`mem_find_own`, `mem_owner_of_x`, `mem_is_region`,
+  `mem_can_move`, `mem_fatw_dirty`, `mem_in_xfer`) compare the selector
+  (`mem_val`).
+- **A move is a rebase.** The compactor and a regrow move the bytes and
+  rebase every allocator descriptor based in the old block (`mega_mpmovef`) -
+  the pair, a SUB, a `OSAPI_MEM_SUBSEG` twin. No relocation proc is called:
+  every holder holds a selector, which did not change. A free takes every
+  descriptor based in the block with the pair (`mega_mpfreef`).
+- **The switch translates** (`mem_xlatf`, straight after `mega_enter`): every
+  claim real mode made runs the relocation protocol once, BX = its segment
+  and DX = its selector, so each holder - `mem_region_reloc`'s rows, the
+  IRQ vectors and the IDT through them, and the holder's own proc where one
+  is declared - holds the selector from then on. The boot's modules are
+  named by their claim's pair by `mega_mods_fix`.
+- **"Above 1MB" is asked, not read off the TI bit** (`MEGA_ISHI`,
+  `mega_ishif`): an allocator selector whose descriptor's base is at or above
+  1MB. Every claim is an LDT selector now, so the bit says nothing about
+  where the memory is.
+- `dsk_runcap` does its DMA-page arithmetic on a selector's base: a
+  conventional claim is a direct transfer and only memory above 1MB bounces.
+
+kern_big and kern_small are byte-identical; it is kern_mega's alone.
 
 ### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s
 
