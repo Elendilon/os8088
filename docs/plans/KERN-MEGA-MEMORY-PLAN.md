@@ -1544,6 +1544,31 @@ rows. Nothing is recorded as built that was not.
   PIXELSTEIN's part answers 0, which degrades exactly as a refused part
   does (the bodies run from the image, no byte textures). ~10 bytes each,
   registered in `tests/megapkg.txt` as fail-safes.
+  **TRACKER, MODPLUG and MIDIRACK (2026-10-25) - DONE (item 6), one shared
+  path, no `PKG_MEGA` arm.** A module or bank past 64KB is reached through
+  `SEG_SUB` windows made once at load (a real-mode kernel answers the sum
+  they replace). Tracker and ModPlug: four pattern windows of 64 patterns
+  each (`mp_pwin`; pattern p is window p >> 6 at 60 + 1024 x (p & 63)) and
+  one SUB per PLAYABLE sample at start >> 4 - at most 35 LDT entries an
+  instance, none for an unplayable sample, freed with the claim; a refused
+  SUB refuses the load as "Out of memory". MIDIRack: a window every 32KB of
+  the bank, 64KB long, a note playing from window A >> 15 at A & 7FFFh
+  within it, and a guard freeing a voice whose sample ends at or before it
+  starts (a lying bank). The "re-claim at 65KB, conventional by contract"
+  arms (`trk_claimsel`, `mpp_claimsel`, the bit-2 tests, `mwt_lim`) are
+  deleted. `mp_patseg` returns the cell offset in a register now: with a
+  per-pattern offset, the word the UI task and the worker shared would have
+  handed one of them the other's pattern. MEASURED on MartyPC (guest
+  cycles, medians): Tracker's row read 5,859 -> 5,859, ModPlug's 5,929 ->
+  5,876, MIDIRack's note-on 9,429.5 -> 9,284.5; the mixer loops are byte
+  for byte unchanged. Images +88 / +5 / +132. Rows: `megamod` (Bochs, an
+  SB16): every window's base against the file, three pattern windows read
+  back through the replayer, the card's capture music and not noise, red
+  with the packages before (`CLOSED TRACKER 0D`, `CLOSED MIDIRack 0D`);
+  `trackmove`'s new 5b, red with the window loop out of `trk_reloc`.
+  **OPEN, not this change: SOUND.DRV answers MIDIRack's stream open with 2
+  under kern_mega on Bochs**, the synth as well as the wavetable and on the
+  packages before too, so MIDIRack has not been heard on kern_mega.
   **LEMMINGS (2026-10-25) - DONE (item 3), one shared path.** Its 96KB
   style bank and 125KB T claim are reached through windows made once at
   the claim by a new C SDK call, `os88_seg_sub` (OSAPI_SEG's SEG_SUB;
