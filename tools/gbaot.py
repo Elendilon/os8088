@@ -844,9 +844,13 @@ def load_heat(paths):
         for k, n in h["blocks"].items():
             key, pc = k.split(":")
             hb[(int(pc, 16), int(key, 16))] += n
-        for k in h["misses"]:
+        for k, n in h["misses"].items():
             key, pc = (int(x, 16) for x in k.split(":"))
             extra.add((0 if key == 0xFF else key, pc))
+            hb[(pc, key)] += n             # ...and its entries are the block's: a
+                                           #   miss counted only as a miss was
+                                           #   placed COLD, and interpreted again
+                                           #   wherever its image was not loaded
     return dict(hb), extra
 
 
@@ -879,7 +883,8 @@ def cmd_build(a):
     heat = None
     if a.heat:
         heat, more = load_heat(a.heat)
-        extra = set(extra) | more
+        found, extra = walk(rom, set(extra) | more)   # (from them: leaders keeps
+                                                       #   only what the walk found)
         print("gbaot: heat from %d file(s): %d blocks counted, %d more block starts" % (
             len(a.heat), len(heat), len(more)))
     lead = leaders(rom, found, extra, side=a.side)
@@ -1119,8 +1124,9 @@ def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check
             heat, more = load_heat(paths)
             log("gbaot: %d blocks counted, %d more block starts; translating again, the "
                 "hottest first" % (len(heat), len(more)))
-            lead = leaders(rom, found, set(extra) | more)
-            img = translate(build, rom, lead, log=log, heat=heat)
+            found, extra = walk(rom, set(extra) | more)   # the misses WALKED: a
+            lead = leaders(rom, found, extra)               #   start the walk never
+            img = translate(build, rom, lead, log=log, heat=heat)   # found is dropped
         d1 = os.path.join(work, "final")
         save(img, d1, rom)
         package(build, load(d1), rom, out, romname, log=log, embed=embed)
