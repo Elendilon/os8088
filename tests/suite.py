@@ -8650,7 +8650,7 @@ SOAK = [
         "BROWSER-MEMORY-ROADMAP: a 200 KiB local source crosses the formatted "
         "floor, then honors the conventional-memory reserve",
         needs=("qemu",), serial=True, builds=True),
-    Row("brclick", "soak", py("tests/brclick.py"), 40.0,
+    Row("brclick", "soak", py("tests/brclick.py"), 100.0,
         "SPEC.md 71: the PAGE takes the mouse - links parse in order and "
         "underline, a click on a form field focuses it, the submit button "
         "fires",

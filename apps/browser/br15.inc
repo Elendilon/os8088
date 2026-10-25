@@ -1281,6 +1281,13 @@ br_sourcetoggle:
     jmp .layout
 .rendered:
     mov byte [br_viewsrc], 0
+    mov byte [br_parse_started], 0  ; A FRESH PARSE, not a resume: br_parse
+    mov byte [br_parse_final], 1    ; resumes at the saved source cursor when
+                                    ; this is set, and that cursor is at the
+                                    ; END - so Close Source re-parsed nothing
+                                    ; and left the raw-source projection as
+                                    ; the document, with every form and link
+                                    ; record pointing into it
     call br_parse
 .layout:
     mov word [br_cols], 0
