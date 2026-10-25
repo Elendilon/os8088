@@ -183,5 +183,20 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   the branch reads. Kept in x86 form through a loop and made AH only on its
   exit, that last is ~5 instructions a pass. Not started: it is the shared
   flag model, and the gates are cpu_instrs, the 15 ROMs and both arms.
-- [ ] The RAM idiom (W0): HRAM's DMA routine is 9,518 of the stretch's
-  13,053 misses (FF:FFE9), interpreted.
+- [x] HRAM's routines precompiled, guarded (REALDMG-SPEC 20.5). FF:FFE9 was
+  not the DMA routine - whose wait `cnt_ff` already collapses (8.1) - but
+  Looney Tunes' `LD (DE),A / RET` thunk inside the object loop. The owner's
+  replay (the first half of level 1), Victory, 60 s: REALDMG.O88 71.3%,
+  precompiled counted on it 85.2%, with HRAM 88.3%.
+- Measured for round 2, the harness's exact block counts over three games
+  (Looney Tunes on the owner's replay, Kirby on the owner's, SML on the
+  script): conditional transfers are 14.9 / 15.3 / 15.8% of the
+  instructions run, and 84 / 63 / 92% of them come straight after an ALU,
+  INC or DEC (`CP n` first, then `AND A`, `DEC B`) - generic. What the
+  translator could take out of such a pair under the rule that F is exact
+  wherever an interrupt can land (16.1.2) is the branch's `sahf`, one
+  instruction of ~10, for 3-6 bytes of code a pair: about 1%. The bigger
+  saving - no `lahf`/fix-up at all when both successors overwrite F - is
+  refused by that same rule, since an interrupt is taken at the branch and
+  its handler may PUSH AF. Copy loops are NOT generic: 16.5% of Looney
+  Tunes' instructions, 2.6% of SML's, 0.3% of Kirby's.
