@@ -2580,6 +2580,56 @@ otherwise:
   directly; `REP MOVSB` forward, so an overlap smears as the loop does.
   10r + 2 M-cycles.
 
+- **`fill_ff`**: `LD (HL+),A / DEC B` (or `C`) `/ JR NZ,-4`, a fill - the
+  shape a cartridge clears its OAM buffer with every frame (Metroid II's
+  0376 and Super Mario Land 2's 0322 after `LD B,A0h`; Wario Land's 11EB
+  the rest of it; Pokemon Yellow's 0088, and its 1679 nested under a
+  `DEC B`). Only when HL's range lies wholly in 8000-FEFF or FF80-FFFE,
+  where a translated store writes memory itself; a range starting in VRAM
+  sets `RDG_VALL`, as `cpy_ff`'s. `REP STOSB`, then HL += r, r = 0 and F
+  exactly as DEC's template leaves it for 1 -> 0 - Z and N, and LAHF's
+  PF and bit 1 too (66h with C kept), so the AF word matches the loop's
+  and `gbaot check` against the interpreter stays exact; its first build
+  set only Z and N and parted from it at Pokemon Yellow's frame 350 with
+  nothing a game can see changed. 6r + 2 M-cycles, as `add_ff`'s. Two
+  CB-half tail slots, pages 7Fh and 7Dh (`fill_ff`, `fill_go`): no new
+  tail page, so no image grows. Across 23 cartridges of the owner's the
+  shape is 0-34% of the instructions run on the harness's script; the
+  x86 instructions a frame, frames 600-800, fall 23% in Metroid II and 25%
+  in Super Mario Land 2 (6% in Super Mario Land 3), and every one of the
+  six that run it most is still identical to the interpreter over 1,500
+  frames. `gbrmw.asm`'s `Fills` is the gate - counts 1-16 and 256, WRAM
+  and HRAM, the carry set and clear, and a range from FF7C across I/O that
+  must be declined - and it fails with HL left unadvanced.
+- **`w16_ff`**: a 16-bit countdown closed by `LD A,r / OR r / JR NZ` - five
+  shapes that unrelated cartridges share byte for byte, a library's:
+  the delay `NOP` x3 `/ DEC DE / LD A,D / OR E` (Donkey Kong Land, Link's
+  Awakening, Pokemon Red, Wario Land II: 75 points of instructions summed
+  over seven of the owner's games), the copy `LD A,(HL+) / LD (DE),A /
+  INC DE / DEC BC / LD A,B / OR C` (Link's Awakening 42.9% of its
+  instructions, Tetris 7.8%) and three fills, `XOR A`, `LD A,D` or `LD
+  A,E` `/ LD (HL+),A / DEC BC / LD A,B / OR C` (or `LD A,C / OR B`). A
+  16-bit count outruns the budget - an 8KB clear is ~82,000 M-cycles
+  against a frame's 17,556 - so it is taken IN PIECES rather than all or
+  nothing: with P a pass's M-cycles (10, the copy 13), P x k carry the loop
+  k passes on to its next taken JR, every event check between saw BP at or
+  above BP - P x k, and with that not negative the k passes are the loop's
+  own and the JR follows as usual; all n passes, P x n + 2, leave past it.
+  The stores must lie where a translated store writes memory itself, as
+  `fill_ff`'s; the copy's source there or in one 16KB half of 0000-7FFF,
+  bank 0 from the view and 4000-7FFF from `S_ROMX`. A and F as the OR's
+  template leaves them (Z alone). Eight CB-half tail slots (pages 40h,
+  42h-44h, 48h, 49h, 52h, 64h): no image grows. The NOP delay is the loop
+  the interpreter and translated code take events in differently
+  (section 20.6), so its gate is translated against translated: eight of
+  the owner's games are identical over 1,500 frames, the idioms' images
+  against images made before them. x86 instructions a frame, frames
+  300-800 of the script: Link's Awakening -13%, Tetris -9%, Donkey Kong
+  Land -3.5%, Pokemon Red -2%. `gbrmw.asm`'s `W16s` holds all five shapes
+  to their `JP NZ` twins, at counts 1-16 and at 2,048 (2,000 for the
+  delay), more than a frame's budget, so the pieces are what is tested,
+  copies from bank 0 and from 4000, and a fill from FF7C across I/O to
+  decline; it fails with HL left unadvanced after a copy.
 - **`stat_ff`**: a wait on the PPU - `LDH A,(41h) / AND 3` or `BIT 1,A`
   `/ JR NZ,-6` (HBlank, or HBlank or VBlank; Super Mario Land's ~20 a frame
   before a VRAM write) and `LDH A,(44h) / CP n / JR NZ,-6` (line n). LY and
@@ -2608,7 +2658,7 @@ The CPU alone on `286-victory` (`rdgbench.py`): Super Mario Land 6.55 ms a
 frame without any, 6.32 with `add_ff`, 6.22 with `cpy_ff` and 6.13 with
 `stat_ff` - its reads themselves (`io_rd`, `io_lcd`) are what is left of
 the waits.
-`tools/gbprof/gbrmw.asm` runs the first two against the same loop closed by
+`tools/gbprof/gbrmw.asm` runs the first four against the same loop closed by
 `JP NZ`, which no idiom takes, and the waits from ROM against a copy in
 WRAM, which is never translated, each after a HALT on VBlank so both start
 in step; it fails when any tail is broken (the last ADD's carry dropped; A
@@ -3139,6 +3189,27 @@ LD H,(HL) / LD L,A / JP HL` dispatch, read at its constant base: words while
 they are code addresses in the same region, until the code they point at
 begins. It is repeated until it finds nothing new.
 
+**Every bank, while it fits.** A call into 4000-7FFF from bank 0 that no
+constant decides is walked in every bank, and on a big cartridge that walks
+data as code across the whole ROM - Pokemon Crystal came to 33,256 block
+starts, Wario Land II (GBC) 47,441, Zelda DX 45,287, against the profile's
+8,192. So when every bank gives more than `WALK_STARTS` (8,192) the walk
+takes the banks some constant bank write names instead, and what is left is
+found by the counters' misses (20.11): what the game ran, walked from. A
+cartridge that fitted before walks exactly as before - Kirby's Dream Land,
+Super Mario Land and both Looney Tunes are byte for byte the images they
+were. A JR that the walk follows back past 0000h is data too, and stops it
+(Super Mario Land 2's walk put 112 negative PCs in the profile). Starts past
+8,192 are offered to the translator a round at a time, the heaviest first,
+and the images stop at `HOST_MAX` (11: what the harness's layout holds under
+10000h) with the coldest blocks left to the interpreter. Of 23 cartridges
+the owner supplied, 21 then build, and every one matches the interpreter
+frame for frame over 1,500 frames of the script (Pokemon Gold, Yellow and
+Crystal and Kirby's Dream Land 2 were compared with the interpreter itself,
+the dynamic recompiler leaving it on the first two at frames 2 and 4). The
+other two, Prehistorik Man and a bad dump of Super Mario Bros. Deluxe, stop
+the harness under the interpreter too.
+
 `leaders` is where a block may begin: the entries, every branch target, the
 instruction after a conditional transfer or a CALL/RST (a return lands
 there), and the jump tables' words.
@@ -3172,6 +3243,18 @@ Two rules make a cut invisible:
 `RT_AOTSTOP` is the host's alone. The package's and the harness's
 translator assemble exactly as before it.
 
+**No block starts on an instruction that runs past its region** (3FFFh for
+ROM0, 7FFFh for a bank): `gbaot.fits` refuses it as an entry, and it is
+interpreted. `rt_translate` copies the region's bytes only, so such a block
+holds NO instruction and falls through to its own PC, and the host prelinks
+that exit to the block itself. The recompiler's own exits go through the
+dispatcher and get away with it; a precompiled machine spins for ever.
+Looney Tunes (GBC) has a `JP NZ` at 3FFE whose high byte is the switched-in
+bank's: the walk reaches it by falling through, a heat run's miss made it a
+block start, and the heat-promoted package hung after frame 3,000 of the
+harness's script where the unpromoted one stayed identical for 6,000.
+`tests/gbaot.py` builds that shape and asserts the refusal.
+
 ### 20.4 Rounds and groups
 
 `translate` gives the driver two cache segments a round. The first round
@@ -3201,7 +3284,29 @@ The driver's mode 3 is the precompiled machine:
   two is never logged nor refused (16.2.3);
 - `S_JITFIX` 1, `S_JITPRE` 2, and the resume through `tr_enter`;
 - `S_JITVEC` on `h_jitstub`, which answers every request with no block:
-  nothing is translated at all, not even HRAM's code, which is interpreted.
+  nothing is translated at run time.
+
+**HRAM's routines are precompiled too, from a heat run** (`tools/gbaot.py`'s
+counters, 20.11). HRAM is RAM, but every game keeps code there - the OAM DMA
+routine, and Looney Tunes' `LD (DE),A / RET` thunk that a `RST 10` reaches
+twenty times a frame inside its object loop - and the recompiler has always
+translated it behind a guard (16.3). A heat run's HRAM misses are kept with
+HRAM's 128 bytes as the miss found them; the promoted build writes the
+hottest one's into the translation machine's HRAM (`translate(hram=)`) and
+makes each such PC a block keyed as bank 0's, as `tr_hram` looks it up.
+Every entry runs the block's guard, its bytes against HRAM as it is now,
+and in the host's build a guard that differs goes to the INTERPRETER
+(`RDGC_TR_INT`) and not to `tr_stale`: under a fixed table `tr_stale` would
+clear the slot - or its neighbour - that the PC hashes to, which may be
+another block's. So HRAM code that a game rewrites, or that the snapshot
+caught half-copied, is interpreted as before; nothing is ever wrong, only
+sometimes not faster. `rt_preone` takes FF80-FFFE in that build alone, and
+HRAM PCs are kept out of ROM0's block-start bitmap. Looney Tunes (GBC) on
+the owner's replay, 86Box's Victory, 60 s: 85.2% -> **88.3%**, the
+interpreter's share 9.6% -> 5.4% with no HRAM left in it, and the misses
+`rdg_aotmiss` answers 26 a frame -> 6. `tests/gbaot.py`'s GBRMW leg is the
+gate: its routine is translated, then rewritten, and the leg goes red with
+the guard's compares taken out.
 
 ### 20.6 The gate
 
@@ -3325,12 +3430,27 @@ The table is laid out for 64 rows, the most a part table holds, and the
 host sets the count.
 
 **The load** (`rw_load`), in the order the memory is worth:
-1. the **HOT** images - the meta's count (59), the first so many that with
-   the core hold 99% of what the counters ran (20.11);
-2. the ROM, section 10's plan, with **eight** slots as its least, then
-   four, then a hot image given back - and the plan takes up to every bank
-   there is;
-3. the **COLD** images, in what the ROM and the cartridge's RAM left.
+1. **EVERY** image, hot ones first - the meta's count (59) is the first so
+   many that with the core hold 99% of what the counters ran (20.11) - from
+   the CEILING (`OSAPI_MEM_CLAIM_HI`): an image is a CS that never moves;
+2. the ROM, section 10's plan, with **eight** slots as its least: COLD
+   images go back one at a time until eight fit, then four slots, then a hot
+   image - and the plan takes every KB left, up to every bank there is;
+3. any image given back, again, in what the ROM and the cartridge's RAM
+   left.
+
+For steps 1 and 2 the load's hold on our claims (rwmove.inc) is let go
+(`rw_aloose`, `rw_atight` after the slots' claim): nothing holds one of our
+segments in a register there, and the plan's `OSAPI_MEM_AVAIL` and the
+slots' one claim must see the frame buffers and the damage memory as the
+movable claims they are. Held, they stood mid-heap where the window's caches
+had put them, and on 86Box's Victory (580K heap, the owner's) Looney Tunes
+(GBC) found no 152KB run beside three images and kept **1 of 8 beside 9
+slots** it fetched 6 banks into, 13% of the machine in the interpreter. Let
+go, the claims compact and it keeps **2 of 8 beside 10 slots**, with 32K
+over: the most eight slots leave. The order before this put the cold images
+last, and the plan had taken every KB for slots by then - so a precompiled
+cartridge whose cold code mattered had none of it.
 
 It took two field runs to get there. The first package asked the plan for
 eight slots before it would give an image back, as REALDMG.O88 does, and
@@ -3358,7 +3478,7 @@ memory of the package's. Then the far jumps are given their
 segments (the meta's relocations), the tokens in the table and the list made
 segments, and the machine attached as aothost.asm's mode 3 does it
 (`rw_aoton`): fixed table, the list searched on a miss, nothing translated.
-The CPU menu has one mode, *Precompiled*, and the speed line says `PRE`.
+The CPU menu has one mode, *Precompiled*, and the F1 line ends in ` Pn/m` (above) where it says ` JIT`.
 
 **An image the heap cannot hold stays on the disk and what it held is
 interpreted** - running beats stopping. Its list entries get offset 0, which

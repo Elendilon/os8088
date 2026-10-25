@@ -129,6 +129,18 @@ summary = "Spreads the desktop across two monitors so windows can be moved from 
 short = "Desktop across two monitors"
 needs = "Two display cards, such as a VGA or CGA beside a Hercules"
 
+["FDLG.DRV"]
+title = "File chooser"
+kind = "system"
+summary = "The Open and Save As chooser programs show, loaded when one asks for it. On the system disks for 128 KB machines."
+short = "Open and Save As chooser"
+
+["FILECP.DRV"]
+title = "Copy and paste files"
+kind = "system"
+summary = "Cut, Copy, Paste and Paste Into for files in a Disk window, loaded when you use them. On the system disks for 128 KB machines."
+short = "Cut, copy and paste files"
+
 ["FORMAT.DRV"]
 title = "Disk formatter"
 kind = "system"

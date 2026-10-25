@@ -300,9 +300,12 @@ rw_ahdr:
     ret
 
 ; rw_aclaim - AL = images: a 64KB claim for each code image below that not
-; claimed yet, while the heap has one - the hot ones before the ROM's plan,
-; the rest after it. Once they are read (rw_aread) they are the session's
-; and this does nothing
+; claimed yet, while the heap has one - all of them before the ROM's plan,
+; any the plan gave back after it. Once they are read (rw_aread) they are
+; the session's and this does nothing. FROM THE CEILING: an image is a CS
+; that never moves, which is what the high door is for (SPEC.md 50.3.2) -
+; claimed from the bottom, Looney Tunes' first image landed mid-heap and the
+; bank cache's one claim then had no 152KB run beside two more of them
 rw_aclaim:
     cmp byte [rw_afix], 0
     jne .r
@@ -313,7 +316,7 @@ rw_aclaim:
     jae .r
     push ax
     mov ax, 64
-    call OSAPI_MEM_CLAIM            ; DX = its segment
+    call OSAPI_MEM_CLAIM_HI         ; DX = its segment
     pop ax
     jc .r
     mov bl, [rw_anseg]
@@ -323,6 +326,36 @@ rw_aclaim:
     inc byte [rw_anseg]
     jmp short .l
 .r:
+    ret
+
+; rw_aloose - the load's hold let go (rw_load pins every claim of ours):
+; from the images' claims to the slots' (rw_bload) nothing holds one of our
+; segments in a register, and the plan's OSAPI_MEM_AVAIL and the claim after
+; it must see our small claims as the movable ones they are. Held, the frame
+; buffers and the damage memory stood mid-heap where the window's caches had
+; put them, and Looney Tunes' 8 slots found no 152KB run beside 3 images
+; that would have fitted once compacted. The carve stays pinned (rw_mdecl).
+; rw_atight takes the hold again; both keep every register and flag
+rw_aloose:
+    pushf
+    cmp byte [rw_aunh], 0
+    jne .r
+    mov byte [rw_aunh], 1
+    dec byte [rw_mhold]
+    call rw_mfree
+.r:
+    popf
+    ret
+
+rw_atight:
+    pushf
+    cmp byte [rw_aunh], 0
+    je .r
+    mov byte [rw_aunh], 0
+    inc byte [rw_mhold]
+    call rw_mpin
+.r:
+    popf
     ret
 
 ; rw_adrop - the ROM's plan did not fit: the last image claimed given back.

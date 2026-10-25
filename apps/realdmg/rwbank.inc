@@ -158,7 +158,10 @@ rw_bload:
     mov cl, 4
     shl ax, cl
     call OSAPI_MEM_CLAIM            ; DX = the slots (the bank table names
-    jc .room                        ;   them: rw_mreloc, rwmove.inc)
+%ifdef RDG_AOT                      ;   them: rw_mreloc, rwmove.inc)
+    call rw_atight                  ; (the claim compacted what it had to)
+%endif
+    jc .room
     mov [rw_slotseg], dx
     mov ax, [rw_romkb]
     sub ax, 16

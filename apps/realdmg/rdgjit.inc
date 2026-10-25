@@ -838,7 +838,14 @@ rt_preone:
     mov si,[es:bx]
     mov dl,[es:bx+2]
     cmp si,8000h
+%ifdef RT_AOTSTOP                       ; (the full static recompiler's host:
+    jb .rom                             ;   an HRAM PC too, from the HRAM the
+    cmp si,0FF80h                       ;   host put there, guarded -
+    jb .no                              ;   REALDMG-SPEC 20.5)
+.rom:
+%else
     jae .no
+%endif
     mov ax,[S_BANK]                 ; the bank as it is, put back after
     push ax
     push word [S_ROMX]
@@ -1338,7 +1345,11 @@ rt_guard:
     mov dx,di                       ; the stale way: mov si,PC / jmp tr_stale
     mov ax,[RT_PC0]
     call rt_movsi
-    mov ax,RDGC_TR_STALE
+%ifdef RT_AOTSTOP
+    mov ax,RDGC_TR_INT              ; (a FIXED table: tr_stale would forget
+%else                               ;   the slot's - or its neighbour's -
+    mov ax,RDGC_TR_STALE            ;   entry, which may be another block's;
+%endif                              ;   the interpreter, every time, 20.5)
     call rt_jmp
     mov [RT_ENT],di
     xor bx,bx
@@ -2330,6 +2341,58 @@ rt_jrt:
     call rt_jmp
     jmp .plain                      ; FALLBACK: the taken JR as usual
 .nocnt:
+    cmp byte [RT_OP],20h            ; -8 or -7, a JR NZ closing a 16-bit
+    jne .now                        ;   countdown's LD A,r / OR r: the
+    mov bx,[RT_IX]                  ;   delay, copy and fill (w16_ff,
+    cmp dx,0FFF8h                   ;   REALDMG-SPEC 16.6), AH the shape
+    je .w8
+    cmp dx,0FFF9h
+    jne .now
+    cmp bx,5
+    jb .now
+    cmp word [JIT_BUF+bx-4],0B22h   ; LD (HL+),A / DEC BC
+    jne .now
+    mov al,[JIT_BUF+bx-5]
+    cmp word [JIT_BUF+bx-2],0B178h  ; LD A,B / OR C
+    je .w7
+    cmp word [JIT_BUF+bx-2],0B079h  ; LD A,C / OR B
+    jne .now
+    cmp al,7Bh                      ; ...after LD A,E
+    mov ah,5
+    je .w
+    jmp short .now
+.w7:
+    cmp al,0AFh                     ; ...after XOR A
+    mov ah,3
+    je .w
+    cmp al,7Ah                      ; ...after LD A,D
+    mov ah,4
+    je .w
+    jmp short .now
+.w8:
+    cmp bx,6
+    jb .now
+    cmp word [JIT_BUF+bx-2],0B37Ah  ; NOP x3 / DEC DE / LD A,D / OR E
+    jne .w82
+    cmp word [JIT_BUF+bx-4],1B00h
+    jne .now
+    cmp word [JIT_BUF+bx-6],0000h
+    jne .now
+    mov ah,1
+    jmp short .w
+.w82:
+    cmp word [JIT_BUF+bx-2],0B178h  ; LD A,(HL+) / LD (DE),A / INC DE /
+    jne .now                        ;   DEC BC / LD A,B / OR C
+    cmp word [JIT_BUF+bx-4],0B13h
+    jne .now
+    cmp word [JIT_BUF+bx-6],122Ah
+    jne .now
+    mov ah,2
+.w:
+    mov dl,ah                       ; (DL alone: w16_ff reads no DH)
+    mov bx,RDGC_W16_FF
+    jmp .ff
+.now:
     cmp dx,0FFFCh                   ; -4, a JR NZ after ADD HL,DE / DEC B
     jne .noadd                      ;   or C: a map row stepped through
     cmp byte [RT_OP],20h            ;   (add_ff, REALDMG-SPEC 16.6)
@@ -2337,8 +2400,12 @@ rt_jrt:
     mov bx,[RT_IX]
     cmp bx,2
     jb .noadd
-    cmp byte [JIT_BUF+bx-2],19h
+    mov al,[JIT_BUF+bx-2]           ; ADD HL,DE - or LD (HL+),A, a fill
+    cmp al,19h                      ;   (fill_ff, REALDMG-SPEC 16.6)
+    je .ad1
+    cmp al,22h
     jne .noadd
+.ad1:
     mov dl,[JIT_BUF+bx-1]
     cmp dl,05h
     je .add
@@ -2348,6 +2415,9 @@ rt_jrt:
     jmp short .noadd
 .add:
     mov bx,RDGC_ADD_FF
+    cmp al,19h
+    je .ff
+    mov bx,RDGC_FILL_FF
     jmp .ff
 .noadd:
     cmp dx,0FFFAh                   ; -6, a JR NZ after a copy's four (cpy_ff,

@@ -148,4 +148,73 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   kern_mega arm are byte-identical to elendilon's; the precompiled gates
   pass on the merged core.
 - [ ] kern_mega's arm (REALDMG-SPEC 20.14): today it refuses there, cleanly.
-- [ ] Optimisation for Looney Tunes and the rest: next.
+- [ ] kern_mega's arm is ON HOLD at the owner's word until the mega memory
+  rework lands; it and that rework are both "how kern_mega does memory".
+- [x] Speed, round 1 (86Box `286-victory`, 580K heap, Looney Tunes (GBC)
+  holding Right through the stretch at 20-38 s that saturates both arms;
+  `tests/rdgcore/rdgwin.py --profile` now charges samples to the
+  precompiled images and their blocks):
+
+  | | images | 25 s | 40 s |
+  |---|---|---|---|
+  | REALDMG.O88 | - | 89.3% (23% at worst) | - |
+  | precompiled, as shipped | 1 of 8 | 97.2% | - |
+  | ...images claimed first, from the ceiling, the load's hold let go | 2 of 8 | 95.5% | 91.5% |
+  | ...the misses walked, their heat their blocks', counted on the stretch | 2 of 8 | - | 92.5% |
+
+  The seconds inside the stretch move by +-15 points between two runs of
+  one package, so the image fix is NOT a measured speed-up here: this
+  scene's hot code was in image 0 all along. What it buys is the cold
+  code a different scene runs, which the stretch does not exercise.
+
+  Found and fixed on the way (REALDMG-SPEC 20.3, 20.10, 20.11): the plan
+  gave every KB to bank slots before a cold image; two of our own claims
+  held mid-heap split the slots' run; a block at FF:3FFE across the bank
+  boundary that a miss made a start HUNG the promoted build after frame
+  3,000 (the packages sent before it carry that block); a miss's entries
+  never reached its block, and a miss the first walk had not reached was
+  dropped. Kirby on the owner's replay keeps 99.5% (10 slots, 4 fetched).
+- [ ] Speed, round 2 - the translator, shared with REALDMG.O88. The stretch
+  is the game's object loop at FF:3E44/3E52 (32 bytes to HRAM and back with
+  `LD (FF00+C)`, eight objects a pass): 17% of the machine on BOTH arms,
+  ~22 x86 instructions a pass of 5 Game Boy ones. What carries it: the
+  `LD A,(HL+)` region compares, the HRAM store's guard, and the flags'
+  `sahf / dec / lahf / or ah,20h / sahf` round trip on every DEC whose Z
+  the branch reads. Kept in x86 form through a loop and made AH only on its
+  exit, that last is ~5 instructions a pass. Not started: it is the shared
+  flag model, and the gates are cpu_instrs, the 15 ROMs and both arms.
+- [x] HRAM's routines precompiled, guarded (REALDMG-SPEC 20.5). FF:FFE9 was
+  not the DMA routine - whose wait `cnt_ff` already collapses (8.1) - but
+  Looney Tunes' `LD (DE),A / RET` thunk inside the object loop. The owner's
+  replay (the first half of level 1), Victory, 60 s: REALDMG.O88 71.3%,
+  precompiled counted on it 85.2%, with HRAM 88.3%.
+- Measured for round 2, the harness's exact block counts over three games
+  (Looney Tunes on the owner's replay, Kirby on the owner's, SML on the
+  script): conditional transfers are 14.9 / 15.3 / 15.8% of the
+  instructions run, and 84 / 63 / 92% of them come straight after an ALU,
+  INC or DEC (`CP n` first, then `AND A`, `DEC B`) - generic. What the
+  translator could take out of such a pair under the rule that F is exact
+  wherever an interrupt can land (16.1.2) is the branch's `sahf`, one
+  instruction of ~10, for 3-6 bytes of code a pair: about 1%. The bigger
+  saving - no `lahf`/fix-up at all when both successors overwrite F - is
+  refused by that same rule, since an interrupt is taken at the branch and
+  its handler may PUSH AF. Copy loops are NOT generic: 16.5% of Looney
+  Tunes' instructions, 2.6% of SML's, 0.3% of Kirby's.
+- [x] Speed, round 3 - two more loop idioms, generic, in BOTH arms
+  (REALDMG-SPEC 16.6). Fourteen more cartridges were surveyed for loop
+  shapes before anything was written, and the two that recur are a byte
+  FILL (`LD (HL+),A / DEC r / JR NZ`) and a 16-bit COUNTDOWN (`DEC BC` or
+  `DEC DE`, then `LD A,B / OR C / JR NZ`) whose body is a delay, a copy
+  or a fill. `fill_ff` and `w16_ff` take each in one step, `w16_ff` in
+  PIECES - k passes to the next taken branch, charged exactly - so a
+  65,536-pass delay is never a stall. x86 instructions a frame, the
+  harness's exact count: Metroid II -23%, SML2 -25%, SML3 -6% (fill);
+  Zelda LA -13%, Tetris -9%, DKL -3.5%, Pokemon Red -2% (w16). Both live
+  in the core's tail pages, so neither costs a precompiled image a byte.
+  GBRMW grew a case for each, and its verdict is now checked against the
+  interpreter separately from the frames, which a NOP delay legitimately
+  moves (SPEC 20.6). Measured and NOT built: reordering the memory
+  checks (~1.5%) and denser image code (~60% of block bytes are outside
+  templates, ~4% to win). The survey precompiled 21 of 23 cartridges;
+  on the way it found the DYNAMIC recompiler diverging from the
+  interpreter on Pokemon Gold (frame 2) and Yellow (frame 4), still open.

@@ -366,7 +366,9 @@ rw_aromkb       equ rw_aemb + 1     ; word: its KB...
 rw_arombase     equ rw_aromkb + 2   ; dword: ...and its byte offset in the
                                     ;   package's file
 rw_aebank       equ rw_arombase + 4 ; word: rw_bread's next bank out of it
-rw_bssend       equ rw_aebank + 2
+rw_aunh         equ rw_aebank + 2   ; byte: the load's hold is let go for
+                                    ;   the plan (rw_aloose)
+rw_bssend       equ rw_aunh + 1
 %else
 rw_bssend       equ rw_mhold + 1
 %endif
@@ -695,20 +697,28 @@ rw_load0:
 .sized:
     mov [rw_romkb], dx
 %ifdef RDG_AOT
-    call rw_dmgclaim                ; the damage memory and the HOT code
-    mov al, [rw_ahot]               ;   images FIRST (the meta's: the ones
-    call rw_aclaim                  ;   the counters ran in), then the ROM in
-    mov byte [rw_slotmin], RW_SLOTWANT ; what is left, then the COLD images
-.aplan:                             ;   in what that leaves (rw_aread). A
-    call rw_plan                    ;   slot short is a bank fetched off XMS
-    jnc .planned                    ;   every time the game swings to it -
-    cmp byte [rw_slotmin], 4        ;   Kirby with 4 images beside 5 slots
-    je .adrop                       ;   fetched 130 banks a second on the
-    mov byte [rw_slotmin], 4        ;   owner's Victory - and a cold image's
-    jmp short .aplan                ;   code is under 1% of the play. Eight
-.adrop:                             ;   slots, then four, then a hot image
+    call rw_dmgclaim                ; the damage memory and EVERY code
+    call rw_aloose                  ;   (our claims movable for the plan)
+    mov al, [rw_ans]                ;   image FIRST, the hot ones leading
+    call rw_aclaim                  ;   (the meta's: the ones the counters
+    mov byte [rw_slotmin], RW_SLOTWANT ;   ran in), then the ROM in what is
+.aplan:                             ;   left. A slot short is a bank
+    call rw_plan                    ;   fetched off XMS every time the game
+    jnc .planned                    ;   swings to it - Kirby with 4 images
+    mov al, [rw_anseg]              ;   beside 5 slots fetched 130 banks a
+    cmp al, [rw_ahot]               ;   second on the owner's Victory - so
+    jbe .aslot                      ;   cold images go back until eight
+    call rw_adrop                   ;   slots fit; and a slot more than
+    jmp short .aplan                ;   eight is worth less than an image,
+.aslot:                             ;   whose code is otherwise
+    cmp byte [rw_slotmin], 4        ;   INTERPRETED: the plan took every
+    je .adrop                       ;   free KB for slots once, and Looney
+    mov byte [rw_slotmin], 4        ;   Tunes kept 1 image of 8 beside 9
+    jmp short .aplan                ;   slots it fetched 6 banks into.
+.adrop:                             ;   Then four slots, then a hot image
     call rw_adrop                   ;   given back (REALDMG-SPEC 20.10)
     jnc .aplan
+    call rw_atight
     jmp .say
 %endif
     call rw_dmgclaim                ; the damage memory and the recompiler's
@@ -769,10 +779,13 @@ rw_load0:
 .planned:
     cmp byte [rw_bcache], 0
     je .one
-    call rw_bload
+    call rw_bload                   ; (rw_atight, after its slots' claim)
     jc .say
     jmp .loaded
 .one:
+%ifdef RDG_AOT
+    call rw_atight
+%endif
     mov ax, [rw_romkb]              ; whole 16KB banks first: the probe answers
     and ax, 0FFF0h                  ;   a KB over an exact size (SPEC.md
     jnz .claim                      ;   20.14.6.3), and on a 1MB 286 Kirby's

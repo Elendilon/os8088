@@ -388,6 +388,15 @@ make vencbundle #   every apps disk and plays `.V88` files, made on the host
                 #   `vencbundle` zips the encoder, the tools it runs and
                 #   VIDEO.O88 for someone with no os8088 tree (§98.2.13).
                 #   Both on demand
+make czbundle   # the FILE SPLITTER for someone with no os8088 tree
+make toolszip   #   (SPEC.md 20.14, 20.17): os88czgui.py, os88cz.py and
+                #   OS88CZ.COM in build/os8088-cz.zip. `toolszip` is the
+                #   release's FIRMWARE AND UTILITIES zip, build/os8088-tools.zip
+                #   (tools/os88toolszip.py): firmware/picomem1/, the kern_big,
+                #   kern_small and socket-check ROMs cut against THIS tree
+                #   (`make rom`, `socketrom`), the encoder, Game Boy precompiler (GBSTATIC/)
+                #   and splitter bundles as built, the Browser's proxy and the
+                #   two DOS tools. Both on demand
 make netbench   # THE STACK'S PROFILER (SPEC.md 72.15): NETBENCH.O88 beside
                 #   FTPD.O88 on one disk, in all three geometries. ETHER.DRV
                 #   brackets its own ten stages with the PIT and this is the
@@ -727,7 +736,7 @@ midirackdisk`'s floppy - player, wavetable bank, songs - in B:),
 xtmp3field`'s disks, whose `\AUTOSTRT` opens the `-DX3REPORT` build on one
 track and writes `X3REPORT.TXT`, which `tools/x3field.py` reads back), `xt-wire`,
 `286`, `286-525`,
-`286-sound`, `286-victory` (the owner's Packard Bell Victory 286 as near as 86Box comes - vm/286's board at 16 MHz, 4MB and a Paradise PVGA1A - whose RealDMG logs read like the Victory's own, REALDMG-SPEC section 14.1), `286-realdmg` (an mr286 with RealDMG's hard disk - the whole install and your cartridges, `make realdmghd GBROMS=<dir>`, REALDMG-SPEC section 19), `286-mega` (kern_mega's mr286, booting `make mega`'s `mega.img` with `megaapps.img` in B:), `286-mega-cdrom` and `386-mega-cdrom` (kern_mega with an ATAPI CD-ROM holding an audio disc, `make megacdtest`'s disks - the mr286 and a 25 MHz 386DX, KERN-MEGA-PLAN 14.68), `286-hma` (that mr286 with a Sound Blaster v2.0 - 86Box's has no mixer - and an IDE disk: `tests/hma286.py`'s machine, which builds its own disks and has no make target; it is where XMEM.DRV's LOADALL and the HMA pool's SOUND.DRV cut run on a real 286, SPEC.md 41.12.6 and 51.1.3.1), the eight `286-525-*` application machines (`-z`, `-word`,
+`286-sound`, `286-victory` (the owner's Packard Bell Victory 286 as near as 86Box comes - vm/286's board at 16 MHz, 4MB and a Paradise PVGA1A - whose RealDMG logs read like the Victory's own, REALDMG-SPEC section 14.1), `viddemo-vga`, `viddemo-cga` and `viddemo-herc` (the Video Player's demo hard disks, `make viddemo`, on the machines they were made for - the owner's mr286 for VGA's IDE disk, a 5150 with an ST11R for CGA's and Hercules'; each profile names its VHD by bare file name and carries its CMOS in a tracked `nvr-seed/`, and `make viddemozip` packs the three as `build/os8088-videos.zip`, folders a user drops into 86Box's machine directory), `286-realdmg` (an mr286 with RealDMG's hard disk - the whole install and your cartridges, `make realdmghd GBROMS=<dir>`, REALDMG-SPEC section 19), `286-mega` (kern_mega's mr286, booting `make mega`'s `mega.img` with `megaapps.img` in B:), `286-mega-cdrom` and `386-mega-cdrom` (kern_mega with an ATAPI CD-ROM holding an audio disc, `make megacdtest`'s disks - the mr286 and a 25 MHz 386DX, KERN-MEGA-PLAN 14.68), `286-hma` (that mr286 with a Sound Blaster v2.0 - 86Box's has no mixer - and an IDE disk: `tests/hma286.py`'s machine, which builds its own disks and has no make target; it is where XMEM.DRV's LOADALL and the HMA pool's SOUND.DRV cut run on a real 286, SPEC.md 41.12.6 and 51.1.3.1), the eight `286-525-*` application machines (`-z`, `-word`,
 `-cword`, `-runcpm`, `-c64`, `-weave`, `-loom`, `-all` — `vm/286-525` with a
 1.2MB app disk in B: instead of the apps floppy, and the only machines in the
 tree that read that geometry at all: a 1.2MB drive wants the AT's 500 kbps
@@ -1306,8 +1315,15 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Fourteen images, not nine.** The system and apps disks in four geometries
-each, plus SIX more that exist at 360KB alone. `build/media360.img` —
+**Seventeen images, not nine.** The system and apps disks in four geometries
+each, plus SIX more that exist at 360KB alone and ONE at 720KB alone -
+`build/more720.img`, the 720KB apps disk's other half (SPEC.md 24.7), carrying
+what that disk had to leave off - and the 128KB machine's two system disks,
+`build/small360.img` and `build/small720.img` (kern_small, SPEC.md 24.5.7),
+which `all` builds through `make small`'s sub-make. The small 720KB disk is
+NOT the standard format: kern_small's two-sector FAT window refuses a
+standard 720KB FAT, so it takes 2KB clusters, and that machine reads no other
+720KB disk. `build/media360.img` —
 `BEVERLY.MOD` is data rather than software and was 114 of a 360KB disk's 354
 clusters before packages were compressed, so at that geometry it rides a disk
 of its own (§24.4). **It is not on `apps360.img` as well any more, and cannot
