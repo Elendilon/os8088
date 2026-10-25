@@ -985,6 +985,13 @@ px_worker:
     ; it may not (the decode's place in the file is the stack's), and the
     ; window is withdrawn before any work
     OS88_WORKER_RESTARTABLE px_worker
+    push ds                         ; PARKED HOLDING NOTHING (MC7): a job
+    pop es                          ; leaves ES on a window of a claim the
+                                    ; UI task frees while we sleep - the
+                                    ; ring's slot, a work claim's buffer -
+                                    ; and under kern_mega a selector freed
+                                    ; with its claim is a #GP at the resume
+                                    ; (the kernel completes it: slow, once)
     mov bx, [px_win]
     call OSAPI_TASK_ALIVE           ; the close box ends us here
     push ax
@@ -998,6 +1005,8 @@ px_worker:
     jmp short .top
 .run:
     call px_wjob                    ; AL = the answer
+    push ds                         ; (ES off the job's windows BEFORE the
+    pop es                          ; UI task is told: it frees them)
     mov [px_wres], al
     mov byte [px_job], JOB_NONE     ; LAST
     call px_wake

@@ -217,7 +217,8 @@ def main():
     pkg = (os.path.join(ROOT, "build", "pixel.o88") if "--shipped" in
            sys.argv else os.path.join(ROOT, "build", "megak", "apps",
                                       "pixel.o88"))
-    out = os.path.join(ROOT, "build", "megapixel")
+    out = os.path.join(ROOT, "build", "megapixel" +
+                       ("-ship" if "--shipped" in sys.argv else ""))
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     big = os.path.join(out, "DEEP.BMP")
