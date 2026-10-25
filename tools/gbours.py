@@ -38,6 +38,7 @@ ROMS = {
                                             #   (tests/rdgmove.py's claims)
     "gbrmw": [],
     "gbflags": [],                          # (generated: tools/gbprof/gbflags.py)
+    "gblazy": [],                           # (generated: tools/gbprof/gblazy.py)
     "gbjoy": [],                            # the joypad interrupt (gbheader.py)
     "gbfm": [],                             # all four channels (gbfm.py)
     "gbpop": ["-m", "0x01"],                # POPs out of a ROM bank (gbcpu.py)

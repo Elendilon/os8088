@@ -70,6 +70,15 @@ RT_PEND         equ JIT_BUF + 98h   ; word: M-cycles of PURE templates not yet
 RT_LOOP         equ JIT_BUF + 0A0h  ; 16: a spin-wait's body, for rt_idle
 RT_P0           equ JIT_BUF + 0B0h  ; word: RT_PEND as rt_ctl found it, each
                                     ;   arm's own (rt_subbp, rt_pend0)
+RT_TDI          equ JIT_BUF + 0B2h  ; word: DI before the last template
+RT_LZ           equ JIT_BUF + 0B4h  ; byte: a lazy DEC's taken arm to write
+RT_LZR          equ JIT_BUF + 0B5h  ; byte: its dec r's ModRM (C8h + r)
+RT_LZD          equ JIT_BUF + 0B6h  ; byte: ...and its not-taken arm
+RT_TOP          equ JIT_BUF + 0B7h  ; byte: the last template's opcode
+RT_HTB          equ JIT_BUF + 0B8h  ; 6: its F fix-up after LAHF, cut off
+RT_HTL          equ JIT_BUF + 0BEh  ; byte: ...its length (rt_hoist)
+RT_BARE         equ JIT_BUF + 0E0h  ; 16: a bit an instruction's place in
+                                    ;   JIT_BUF, its template without F
 
 RT_HFREE        equ RDGT_HFREE       ; the table's free ranges: offset, count
 RT_CFREE        equ RDGT_CFREE       ; ...the CORE's holes, the second tier
@@ -973,10 +982,21 @@ rt_translate:
     call rt_room
     jc .restart
     mov [RT_START],di
+    push di                         ; (no instruction without F yet)
+    push es
+    push ds
+    pop es
+    mov di,RT_BARE
+    xor ax,ax
+    mov cx,8
+    rep stosw
+    pop es
+    pop di
     mov word [RT_IX],0
     mov word [RT_CNT],0
     mov word [RT_PEND],0
     mov byte [RT_GLEN],0
+    mov byte [RT_HTL],0
 .next:
     mov bx,[RT_IX]
     cmp word [RT_CNT],RT_MAXI
@@ -1006,13 +1026,26 @@ rt_translate:
     jmp short .tm
 .nf:
     call rt_deadf                   ; INC/DEC r, ADD HL,rr: without F when
-.tm:                                ;   the next instruction overwrites it
+    or ah,ah                        ;   the next instruction overwrites it
+    jz .tm
+    push ax                         ; (and so marked, for rt_lazy)
+    push cx
+    push bx
+    call rt_barebit
+    or [bx],al
+    pop bx
+    pop cx
+    pop ax
+.tm:
     shl ax,1
     xchg ax,si
     mov si,[cs:rt_tab + si]
     or si,si
     jz .ctl
     mov [RT_REC],si
+    mov [RT_TDI],di
+    mov al,[RT_OP]
+    mov [RT_TOP],al
     call rt_tmpl
     jc .restart
     inc word [RT_CNT]
@@ -1195,33 +1228,7 @@ rt_deadf:
     jc .live                            ;   may PUSH AF)
 %endif
     push cx
-    mov al,[JIT_BUF+bx]
-    xor ah,ah
-    mov si,ax
-    mov ch,[cs:rt_tab + RDGT_FLG + si]
-    cmp al,0CBh
-    jne .m
-    mov al,[JIT_BUF+bx+1]           ; a CB op: its record 256 on, and its
-    inc ah                          ;   masks the group's rule - RL and RR
-    mov si,ax                       ;   read C, the shifts and rotates
-    mov ch,0                        ;   write all four, BIT Z, N and H
-    cmp al,80h
-    jae .m
-    mov ch,7
-    cmp al,40h
-    jae .m
-    mov ch,0Fh
-    cmp al,10h
-    jb .m
-    cmp al,20h
-    jae .m
-    mov ch,8Fh
-.m:
-    mov cl,ch
-    shr cl,1
-    shr cl,1
-    shr cl,1
-    shr cl,1
+    call rt_fmask
     and cl,dh                       ; it reads one: live
 %ifndef RT_DEADBUG                  ; (tests/gbcpu.py's control: what reads
     jnz .livec                      ;   a flag, ADC or RLA, not seen to)
@@ -1254,6 +1261,52 @@ rt_deadf:
     pop dx
 .r0:
     pop ax
+    ret
+
+; rt_fmask - the instruction at JIT_BUF+BX: SI = its record's index, CH =
+; what it writes (low nibble) and reads (high), CL = what it reads. A CB op's
+; record is 256 on, and its masks the group's rule - RL and RR read C, the
+; shifts and rotates write all four, BIT Z, N and H. AX lost
+rt_fmask:
+    mov al,[JIT_BUF+bx]
+    xor ah,ah
+    mov si,ax
+    mov ch,[cs:rt_tab + RDGT_FLG + si]
+    cmp al,0CBh
+    jne .m
+    mov al,[JIT_BUF+bx+1]
+    inc ah
+    mov si,ax
+    mov ch,0
+    cmp al,80h
+    jae .m
+    mov ch,7
+    cmp al,40h
+    jae .m
+    mov ch,0Fh
+    cmp al,10h
+    jb .m
+    cmp al,20h
+    jae .m
+    mov ch,8Fh
+.m:
+    mov cl,ch
+    shr cl,1
+    shr cl,1
+    shr cl,1
+    shr cl,1
+    ret
+
+; rt_barebit - BX = an instruction's place in JIT_BUF: BX = its byte of
+; RT_BARE, AL = its bit. CL lost
+rt_barebit:
+    mov cl,bl
+    and cl,7
+    mov al,1
+    shl al,cl
+    mov cl,3
+    shr bx,cl
+    add bx,RT_BARE
     ret
 
 ; rt_nofx - AX = a main opcode: CF = 0 and AX = the record of it without F
@@ -1986,12 +2039,8 @@ rt_exit:
     push ax                         ;   on that need one set it themselves
     call rt_movsi
 .ev2:
-    mov ax,0FF36h                   ; jmp far [ss:S_EVVEC]
-    stosw
-    mov al,2Eh
-    stosb
-    mov ax,S_EVVEC
-    stosw
+    mov ax,RDGC_TR_EVFAR            ; jmp tr_evfar: jmp far [ss:S_EVVEC]
+    call rt_jmp
     pop ax
     pop dx
     pop bx
@@ -2104,8 +2153,11 @@ rt_ctl:
     mov ax,RDGC_TR_INT
     jmp rt_jmp
 .cond:                              ; SAHF and the Jcc that skips: BX = its
-    mov al,9Eh                      ;   displacement's place
+    call rt_hoist                   ;   displacement's place - or no SAHF,
+    jnc .cj                         ;   the flags the instruction before
+    mov al,9Eh                      ;   left (rt_hoist)
     stosb
+.cj:
     mov bl,[RT_OP]
     mov cl,3
     shr bl,cl
@@ -2117,12 +2169,26 @@ rt_ctl:
     call rt_jrt
     ret
 .jrcc:
+    call rt_lazy                    ; a countdown closing its own block:
+    jc .jrn                         ;   dec r and the Jcc on its ZF
+    mov al,RT_SKIP_NZ
+    call rt_skip
+    jmp short .jrb
+.jrn:
     call .cond
+.jrb:
     push bx
+    call rt_htail
     lea ax,[si+2]
     call rt_jrt
     pop bx
     call rt_land
+    call rt_htail2
+    cmp byte [RT_LZD],0             ; ...and its fall-through's F
+    je .jrf
+    mov byte [RT_LZD],0
+    call rt_lzmat
+.jrf:
     call rt_pend0                   ; (the other arm's pending too)
     mov al,2
     call rt_subbp
@@ -2136,12 +2202,14 @@ rt_ctl:
 .jpcc:
     call .cond
     push bx
+    call rt_htail
     mov al,4
     call rt_subbp
     mov ax,[RT_IMM]
     call rt_exit
     pop bx
     call rt_land
+    call rt_htail2
     call rt_pend0                   ; (the other arm's pending too)
     mov al,3
     call rt_subbp
@@ -2157,6 +2225,7 @@ rt_ctl:
 .callcc:
     call .cond
     push bx
+    call rt_htail
     lea ax,[si+3]
     call rt_push
     mov al,6
@@ -2165,6 +2234,7 @@ rt_ctl:
     call rt_exit
     pop bx
     call rt_land
+    call rt_htail2
     call rt_pend0                   ; (the other arm's pending too)
     mov al,3
     call rt_subbp
@@ -2176,10 +2246,12 @@ rt_ctl:
 .retcc:
     call .cond
     push bx
+    call rt_htail
     mov al,5
     call rt_ret
     pop bx
     call rt_land
+    call rt_htail2
     call rt_pend0                   ; (the other arm's pending too)
     mov al,2
     call rt_subbp
@@ -2276,16 +2348,223 @@ rt_retds:
     stosw
     mov ax,RDGC_TR_ENTER
     call rt_jmp
-    mov ax,0FF36h
-    stosw
-    mov al,2Eh
-    stosb
-    mov ax,S_EVVEC
-    stosw
-    ret
+    mov ax,RDGC_TR_EVFAR
+    jmp rt_jmp
 
 ; rt_jrt - a taken JR whose next PC is AX: its target from [RT_IMM]'s low
 ; byte, and a spin-wait to it skipped as the interpreter skips one
+; -----------------------------------------------------------------------------
+; rt_lazy - the control transfer is a JR NZ at SI back to its own block's
+; start, after DEC r (B, C, H, L or A): a countdown loop (REALDMG-SPEC
+; 16.1.3). CF = 0 and the DEC's template (sahf / dec r / lahf / or ah,20h)
+; rewritten as the bare dec r, RT_LZ and RT_LZD set, when nothing from the
+; block's start to the DEC reads the Z, N or H that leaves stale in AH, and
+; nothing that may leave the block or take an interrupt runs before all
+; three are written again. CF = 1 otherwise, nothing written. Keeps SI
+; -----------------------------------------------------------------------------
+rt_lazy:
+    cmp byte [RT_OP],20h
+    jne .no
+    cmp word [RT_PC0],8000h         ; (HRAM: entered through its guard)
+    jae .no
+    mov al,[RT_IMM]
+    cbw
+    add ax,si
+    inc ax
+    inc ax
+    cmp ax,[RT_PC0]
+    jne .no
+    cmp word [RT_IX],0
+    je .no
+    mov ax,di                       ; the last template DEC B, C, H, L or
+    sub ax,[RT_TDI]                 ;   A's, as written: nothing else is
+    cmp ax,7                        ;   these seven bytes (D's and E's go
+    jne .no                         ;   through DX, and (HL)'s to memory)
+    mov bx,[RT_TDI]
+    cmp word [es:bx],0FE9Eh         ; sahf / dec r
+    jne .no
+    cmp word [es:bx+3],809Fh        ; lahf / or ah,20h
+    jne .no
+    cmp word [es:bx+5],20CCh
+    jne .no
+    mov al,[es:bx+2]
+    mov [RT_LZR],al
+    push si
+    xor bx,bx
+    mov dh,7                        ; DH = Z, N, H: stale from the 2nd pass
+.s:
+    mov ax,[RT_IX]
+    dec ax
+    cmp bx,ax
+    je .ok
+    ja .f
+    call rt_fmask
+    and cl,dh                       ; it reads a stale one
+    jnz .f
+    shl si,1
+    mov si,[cs:rt_tab + si]
+    or si,si
+    jz .f
+    or dh,dh                        ; a store or a way out while one is
+    jz .w                           ;   stale
+    test byte [cs:rt_tab + si + 4],1+2+4+16+64
+    jnz .f
+.w:
+    push bx                         ; ...and what it writes, unless it was
+    call rt_barebit                 ;   written without F (RT_BARE)
+    test [bx],al
+    pop bx
+    jnz .nx
+    and ch,0Fh
+    not ch
+    and dh,ch
+.nx:
+    mov al,[cs:rt_tab + si + 3]
+    cbw
+    add bx,ax
+    jmp .s
+.ok:
+    pop si
+    mov di,[RT_TDI]                 ; the DEC again, bare
+    mov al,0FEh
+    mov ah,[RT_LZR]
+    stosw
+    mov byte [RT_LZ],1
+    mov byte [RT_LZD],1
+    clc
+    ret
+.f:
+    pop si
+.no:
+    stc
+    ret
+
+; -----------------------------------------------------------------------------
+; rt_hoist - a conditional transfer's Z or C straight from the x86 flags the
+; instruction before it left (REALDMG-SPEC 16.1.4): the ALU on A and INC/DEC
+; r, whose ZF and CF ARE the Game Boy's Z and C at their LAHF. CF = 0 and what
+; follows that LAHF - its or/and fix-up of AH, 0 to 6 bytes - cut off into
+; RT_HTB/RT_HTL for each arm to write (rt_htail); CF = 1, nothing done.
+; Keeps SI
+; -----------------------------------------------------------------------------
+rt_hoist:
+    cmp word [RT_IX],0
+    je .no
+    mov al,[RT_TOP]
+    cmp al,0C0h
+    jae .imm
+    cmp al,80h
+    jae .yes
+    cmp al,40h
+    jae .no
+    mov ah,al                       ; INC/DEC r, but (HL)'s (a store after)
+    and ah,6
+    cmp ah,4
+    jne .no
+    cmp al,34h
+    je .no
+    cmp al,35h
+    je .no
+    jmp short .yes
+.imm:
+    and al,0C7h                     ; ADD A,n ... CP n
+    cmp al,0C6h
+    jne .no
+.yes:
+    mov bx,di
+    dec bx
+    xor cx,cx
+.l:
+    cmp bx,[RT_TDI]
+    jb .no
+    cmp byte [es:bx],9Fh            ; LAHF
+    je .got
+    cmp cl,6
+    jae .no
+    dec bx                          ; ...after or ah,n / and ah,n alone
+    dec bx
+    cmp byte [es:bx],80h
+    jne .no
+    mov al,[es:bx+1]
+    cmp al,0CCh
+    je .t
+    cmp al,0E4h
+    jne .no
+.t:
+    add cl,3
+    dec bx
+    jmp short .l
+.got:
+    mov [RT_HTL],cl
+    inc bx
+    mov di,bx                       ; the fix-up, off the template...
+    push si
+    push ds
+    push es
+    push ds
+    push es
+    pop ds
+    pop es
+    mov si,bx
+    mov di,RT_HTB
+    rep movsb                       ; ...into RT_HTB
+    pop es
+    pop ds
+    pop si
+    mov di,bx
+    clc
+    ret
+.no:
+    stc
+    ret
+
+; rt_htail - the cut fix-up at ES:DI, for an arm; rt_htail2 the same for the
+; second arm, which ends it. Every register kept
+rt_htail2:
+    call rt_htail
+    mov byte [RT_HTL],0
+    ret
+rt_htail:
+    push cx
+    push si
+    mov cl,[RT_HTL]
+    xor ch,ch
+    mov si,RT_HTB
+    rep movsb
+    pop si
+    pop cx
+    ret
+
+; rt_lzpre - a lazy DEC's F, if rt_jrt is to write anything but its own
+; taken arm: rt_lzmat, and RT_LZ cleared. Every register kept
+rt_lzpre:
+    cmp byte [RT_LZ],0
+    je .r
+    mov byte [RT_LZ],0
+    call rt_lzmat
+.r:
+    ret
+
+; rt_lzmat - the DEC's F as its template makes it, from AH's C and the
+; register: inc r / sahf / dec r / lahf / or ah,20h. Every register kept
+rt_lzmat:
+    push ax
+    mov ah,[RT_LZR]
+    sub ah,8
+    mov al,0FEh
+    stosw
+    mov al,9Eh
+    stosb
+    mov al,0FEh
+    mov ah,[RT_LZR]
+    stosw
+    mov ax,809Fh
+    stosw
+    mov ax,20CCh
+    stosw
+    pop ax
+    ret
+
 rt_jrt:
     mov dl,[RT_IMM]
     mov dh,dl
@@ -2319,6 +2598,7 @@ rt_jrt:
 .cnt:
     mov bx,RDGC_CNT_FF
 .ff:                                ; BX = the tail, DX what it is told
+    call rt_lzpre                   ; (a lazy DEC's F made first)
     call rt_flushbp                 ; (it reads BP: charged first)
     mov al,0BEh                     ; mov si,T
     stosb
@@ -2468,6 +2748,7 @@ rt_jrt:
     call rt_idle
     cmp byte [RT_IDLE],0
     je .plain
+    call rt_lzpre                   ; (a lazy DEC's F made first)
     cmp byte [RT_IDLE],1
     je .yes
     ; HL's: only while HL is WRAM or HRAM (rdggen's idle_hl)
@@ -2510,10 +2791,39 @@ rt_jrt:
     mov ax,RDGC_IDLE_YES
     jmp rt_jmp
 .plain:
+    cmp byte [RT_LZ],0
+    jne .lzp
     mov al,3
     call rt_subbp
     mov ax,[RT_T]
     jmp rt_exit
+.lzp:                               ; a lazy DEC's taken arm (16.1.3): back
+    mov byte [RT_LZ],0              ;   to the block's own start while BP
+    mov al,3                        ;   holds, F made only for the event
+    call rt_subbp
+    mov ax,[RT_START]
+    sub ax,di
+    dec ax
+    dec ax
+    cmp ax,-128
+    jl .lzn
+    mov ah,al                       ; jns START
+    mov al,79h
+    stosw
+    jmp short .lze
+.lzn:
+    mov ax,0378h                    ; js +3 / jmp near START
+    stosw
+    mov ax,[RT_START]
+    call rt_jmp
+.lze:
+%ifndef RT_LAZYBUG                  ; (tests/gbcpu.py's control: the event
+    call rt_lzmat                   ;   taken with F stale)
+%endif
+    mov ax,[RT_T]
+    call rt_movsi
+    mov ax,RDGC_TR_EVFAR
+    jmp rt_jmp
 
 ; -----------------------------------------------------------------------------
 ; rt_idle - is the loop from [RT_T] to the JR at [RT_T]+len a spin-wait?

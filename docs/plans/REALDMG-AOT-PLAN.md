@@ -174,15 +174,15 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   3,000 (the packages sent before it carry that block); a miss's entries
   never reached its block, and a miss the first walk had not reached was
   dropped. Kirby on the owner's replay keeps 99.5% (10 slots, 4 fetched).
-- [ ] Speed, round 2 - the translator, shared with REALDMG.O88. The stretch
+- [x] Speed, round 2 - the translator, shared with REALDMG.O88. The stretch
   is the game's object loop at FF:3E44/3E52 (32 bytes to HRAM and back with
   `LD (FF00+C)`, eight objects a pass): 17% of the machine on BOTH arms,
   ~22 x86 instructions a pass of 5 Game Boy ones. What carries it: the
   `LD A,(HL+)` region compares, the HRAM store's guard, and the flags'
   `sahf / dec / lahf / or ah,20h / sahf` round trip on every DEC whose Z
   the branch reads. Kept in x86 form through a loop and made AH only on its
-  exit, that last is ~5 instructions a pass. Not started: it is the shared
-  flag model, and the gates are cpu_instrs, the 15 ROMs and both arms.
+  exit, that last is ~5 instructions a pass. Built in round 4 below, for
+  one of the two loops: the other stores before anything writes F.
 - [x] HRAM's routines precompiled, guarded (REALDMG-SPEC 20.5). FF:FFE9 was
   not the DMA routine - whose wait `cnt_ff` already collapses (8.1) - but
   Looney Tunes' `LD (DE),A / RET` thunk inside the object loop. The owner's
@@ -218,3 +218,20 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   templates, ~4% to win). The survey precompiled 21 of 23 cartridges;
   on the way it found the DYNAMIC recompiler diverging from the
   interpreter on Pokemon Gold (frame 2) and Yellow (frame 4), still open.
+- [x] Speed, round 4 - round 2's flag round trip and round 3's three
+  measured leftovers, all in the translator and so in both arms
+  (REALDMG-SPEC 16.1.3, 16.1.4). A countdown loop closing its own block
+  writes its DEC bare and makes F only at its exits and its event; every
+  other conditional transfer after the ALU or INC/DEC r branches on the
+  8086's flags with no SAHF; a read's region check is one TEST shorter;
+  and an exit's event way is a near jump to one shared `jmp far`. 8086
+  instructions a frame -0.7% to -6.1% over twelve cartridges, the
+  precompiled code 2.3-3.7% smaller, and every one of them, both arms,
+  1,500 frames identical state for state to the tree before. Looney Tunes
+  on the owner's replay -3.7%. `gbcpu`'s new leg holds the loops to the
+  interpreter under a timer interrupt landing at their JR. Two things the
+  rounds found that are NOT this work's: both Looney Tunes, Donkey Kong
+  Land and Pokemon Red part from the interpreter at frames 1178, 1178, 5
+  and 2 at the tree before this round as well (the NOP-delay timing, 20.6,
+  the likeliest reading), so the cross-check here is against the tree
+  before rather than the interpreter.
