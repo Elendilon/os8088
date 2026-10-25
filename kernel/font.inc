@@ -627,7 +627,7 @@ font_char:
 
     mov ch, [wm_clip_rn]        ; row counter: the rows the region allows,
                                 ; 8 whenever it is not cutting this cell
-    mov ax, VGA_SEG             ; ...and DS = the FRAMEBUFFER for the loop, so
+    VSEG ax, VGA_SEG            ; ...and DS = the FRAMEBUFFER for the loop, so
     mov ds, ax                  ; its four latch accesses carry no override:
                                 ; nothing below reads a kernel word but the
                                 ; column mask, through CS

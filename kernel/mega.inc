@@ -10648,6 +10648,151 @@ mega_mpall:
     pop ax
     ret
 
+; mega_useg - AX = a real-mode segment at or above A000h (a frame buffer, a
+; ROM) -> AX = the kernel's data selector over its 64KB, CF = 0: made the
+; first time and the same one after (mega_ustab) - what the identity GDT used
+; to answer for it before MC7.4 cut it. CF = 1, AX kept, when no LDT entry or
+; row is free. Clobbers nothing else
+mega_useg:
+    push bx
+    push cx
+    push dx
+    push si
+    mov si, mega_ustab
+.l:
+    cmp [ss:si], ax
+    je .hit
+    cmp word [ss:si], 0
+    je .new
+    add si, 4
+    cmp si, mega_ustab_end
+    jb .l
+    stc
+    jmp short .o
+.new:
+    mov bx, ax
+    mov dx, ax
+    shl ax, 4
+    shr dx, 12                      ; DX:AX = its base
+    mov cx, 0xFFFF
+    push bx
+    mov bl, 0x92
+    call mega_ldt_alloc
+    pop bx
+    jc .no
+    mov [ss:si], bx
+    mov [ss:si+2], ax
+    clc
+    jmp short .o
+.no:
+    mov ax, bx
+    jmp short .o
+.hit:
+    mov ax, [ss:si+2]
+    clc
+.o:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; mega_vword - DI = a kernel word that names a SEGMENT (DS = KDATA): a frame
+; buffer's or a ROM's becomes mega_useg's selector over it, a claim's base its
+; pair's data half (mega_p2d), anything else stays. Clobbers nothing
+mega_vword:
+    push ax
+    push dx
+    mov ax, [di]
+    cmp ax, 0xA000
+    jb .lo
+    call mega_useg
+    jc .o
+    mov [di], ax
+    jmp short .o
+.lo:
+    mov dx, ax
+    call mega_p2d
+    jc .o
+    mov [di], dx
+.o:
+    pop dx
+    pop ax
+    ret
+
+; mega_vfixall - at the switch (mega_pmtail), after mega_mpall: VSEG's four
+; words become selectors, and so does every segment the video and font layers
+; hold - vid_tab's column, the live block's three, each display context's
+; three, the full-screen modes' rows and the glyph table's (KERN-MEGA-MEMORY-
+; PLAN MC7.4). Clobbers nothing
+mega_vfixall:
+    push ax
+    push cx
+    push di
+    push es
+    push ss
+    pop es
+    mov di, mega_ustab              ; (`.lowbss` is not zeroed at boot)
+    mov cx, MEGA_USTN * 2
+    xor ax, ax
+    cld
+    rep stosw
+    pop es
+    mov ax, VGA_SEG
+    call mega_useg
+    mov [k_vsa], ax
+    mov ax, 0xB000
+    call mega_useg
+    mov [k_vsb], ax
+    mov ax, 0xB800
+    call mega_useg
+    mov [k_vsc], ax
+    mov ax, 0xF000
+    call mega_useg
+    mov [k_vsf], ax
+%ifdef GFX_VGA
+    mov di, vid_tab
+%else
+    mov di, vid_tab + VID_REC       ; (row 0 is no row on a build with no
+%endif                              ; VGA renderer: viddet.inc)
+.t:
+    call mega_vword
+    add di, VID_REC
+    cmp di, vid_tab_end
+    jb .t
+    mov di, vid_seg
+    call mega_vword
+    mov di, vid_rseg
+    call mega_vword
+    mov di, vid_tseg
+    call mega_vword
+    mov di, vid_ctx
+    mov cx, VID_NDISP_MAX
+.c:
+    call mega_vword
+    add di, vid_rseg - vid_seg
+    call mega_vword
+    add di, vid_tseg - vid_rseg
+    call mega_vword
+    add di, VID_CTX_SZ - (vid_tseg - vid_seg)
+    loop .c
+    mov di, fsx_mtab
+    mov cx, FSXM_COUNT
+.f:
+    call mega_vword
+    add di, FSXR_SIZE
+    loop .f
+    mov di, font_seg
+    call mega_vword
+%ifdef BANDCOMP
+    mov di, bnd_seg
+    call mega_vword
+%endif
+    pop di
+    pop cx
+    pop ax
+    ret
+
 ; mega_cdin - ES:DI = a present descriptor, DL:AX = a block's base, CX = its
 ; paragraphs -> CF = 0 the descriptor's base lies in the block; CF = 1 not.
 ; Clobbers nothing
@@ -10820,6 +10965,7 @@ mega_pmtail:
     call mega_xminit                ; the XMEM pool behind the cells
     call mega_mpall                 ; ...and every claim's pair (MC7.4)
     call mega_mods_fix              ; ...which the modules are named by
+    call mega_vfixall               ; ...and the frame buffers, ROMs and font
 
     ; --- the ROM's halves, in the chains the ISRs already make ---------------
     mov word [sch_old08], mega_t08  ; THROUGH MEGA_SEL_CODE: both live in
@@ -11047,6 +11193,9 @@ mega_fkslot resb 1                  ; ...and slot + 1, 0 = none being closed
 mega_fkn    resb 1                  ; faults in it (0 = none ever)
 mega_fktm   resb 1                  ; 1 = its toast is owed
 mega_seg0   resw 1                  ; MEGA_SEG0's word for code outside .text
+MEGA_USTN   equ 8                   ; mega_useg's selectors over real segments
+mega_ustab  resw MEGA_USTN * 2      ; at or above A000h: {segment, selector}
+mega_ustab_end equ mega_ustab + MEGA_USTN * 4 ; a row, 0 a free one
 MEGA_MSELN  equ 32                  ; mem_tab's MEM_MAX (memory.inc checks)
 mem_sel     resw MEGA_MSELN         ; a conventional claim's DATA selector,
                                     ; by mem_tab index, 0 = none (its CODE

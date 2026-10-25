@@ -1031,6 +1031,42 @@ rows. Nothing is recorded as built that was not.
   second kilobyte, `mov es, dx` with DX = the next pair's selector + 40h.
   The kernel handed it the right selectors (a trace of every pair made,
   freed and moved confirmed it). It joins the package waves' list.
+- **Step 5.4, video, font and ROM (2026-10-25) - DONE.** The identity GDT is
+  what made `mov ax, 0A000h / mov es, ax` work in protected mode, and A000h is
+  GDT entry 1400h - 40KB into a table step 6 cuts at ~4K. So at the switch
+  `mega_vfixall` (after `mega_mpall`) makes one data selector per real
+  segment at or above A000h that the kernel holds (`mega_useg`, cached in
+  `mega_ustab`: A000h, B000h, B800h, F000h, and an option ROM's if the font
+  is there) and translates every such word: `vid_tab`'s column, the live
+  block's `vid_seg`/`vid_rseg`/`vid_tseg`, each display context's three,
+  the full-screen modes' rows (`fsx_mtab`) and `font_seg` - and a claim's
+  base among them to its pair (`mega_p2d`: `bnd_seg` under `BANDCOMP`, a
+  copied font). **The fourteen immediates** in the renderers, the font and
+  icon painters, `vid_setmode`, `vid_mono_text` and the full-screen clear
+  became `VSEG reg, seg`: the constant itself on every other kernel, and on
+  kern_mega a word read through CS (`k_vsa`..`k_vsf`) the switch sets to
+  the selector - one byte a site. **The trap, found by bisecting a boot
+  that triple-faulted before the switch:** the words first lived in
+  `.lowbss` and were read through SS, and the loader draws its splash
+  through `vid_setmode` on ITS stack (SS = 97E0h) before kmain - and from
+  IRQ0 inside the ROM's `int 13h` on the ROM's; then in `mega.inc`'s
+  `.text`, which is not in memory yet while the image is still arriving.
+  They sit beside `vid_tab` now, which that early code already reads, and
+  `VSEG` refuses to assemble outside `.text` and `.vga`. The five sites in
+  `.boot2` stay immediates: the blob runs in real mode only and is freed
+  before the switch. The Hercules text row's B800h -> B000h edit is a WORD
+  store on kern_mega (a selector's high byte is not the segment's).
+  Checked under Bochs at 4MB and 1MB: the desktop, a Disk window, the Task
+  Manager and the Control Panel drawn through `vid_seg` = a selector, the
+  font through F000h's. Cost: kern_mega shared window +27, `.mega` +246;
+  kern_big and kern_small byte-identical with a clean build of the same
+  commit. **Not covered, and named for their waves:** the hibernate's
+  `font_seg` test (`hiber.inc`, `cmp ax, 0xA000` to tell a ROM font from a
+  heap copy - MC4), a return to real mode that draws (none today: the
+  service reflection does not, and the DOS trip and the hibernate come
+  back into protected mode), the `STKDIAG` knob's F000h, and the drivers'
+  and packages' own frame-buffer and ROM immediates (their waves).
+
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to
   reopen the end state:

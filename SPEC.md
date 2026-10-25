@@ -97097,6 +97097,12 @@ was - by a selector - and not by its segment:
   where the memory is.
 - `dsk_runcap` does its DMA-page arithmetic on a selector's base: a
   conventional claim is a direct transfer and only memory above 1MB bounces.
+- **Frame buffers and ROMs too** (`mega_vfixall`): every real segment at or
+  above A000h the kernel holds - the video tables, each display's context,
+  the full-screen modes' rows, `font_seg` - becomes one data selector over
+  its 64KB (`mega_useg`), and the renderers' immediates read it through
+  `VSEG` (one word per segment, in the head of `.text`, which the loader's
+  splash already reaches before kmain).
 
 kern_big and kern_small are byte-identical; it is kern_mega's alone.
 

@@ -330,6 +330,37 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     mov %1, [ss:mega_seg0]
  %endif
 %endmacro
+; VSEG reg, seg - a FRAME BUFFER's or a ROM's segment, for a segment register:
+; the constant itself on every kernel but kern_mega, which reads it from the
+; word mega_vfixall sets at the switch to the selector it made over that
+; segment - the GDT stops mapping every segment to itself (KERN-MEGA-MEMORY-
+; PLAN MC7.4), and A000h is GDT entry 1400h. THROUGH CS, and the words are the
+; image's own: the splash draws from IRQ0 inside the ROM's int 13h, on the
+; ROM's stack, so neither SS nor a `.lowbss` word set by kmain can be trusted
+; there. `.text` and `.vga` only, which share the kernel's segment. Two bytes
+; more a site on kern_mega and none anywhere else. Every register but reg kept
+%macro VSEG 2
+%ifdef KERN_MEGA
+ %ifnidni __?SECT?__, [section .text]
+  %ifnidni __?SECT?__, [section .vga]
+   %error "VSEG outside .text and .vga"
+  %endif
+ %endif
+ %if (%2) == 0xA000
+    mov %1, [cs:k_vsa]
+ %elif (%2) == 0xB000
+    mov %1, [cs:k_vsb]
+ %elif (%2) == 0xB800
+    mov %1, [cs:k_vsc]
+ %elif (%2) == 0xF000
+    mov %1, [cs:k_vsf]
+ %else
+    mov %1, %2                  ; (a HERCSEG= test build's heap segment)
+ %endif
+%else
+    mov %1, %2
+%endif
+%endmacro
 ; MEGA_ISHI reg - CF = 0 when the value in reg (not AX) is a POOL SELECTOR -
 ; an allocator LDT selector whose descriptor's base is at or above 1MB - and
 ; CF = 1 for anything else, including every value in real mode. It replaces
