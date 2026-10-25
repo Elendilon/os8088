@@ -2341,6 +2341,59 @@ rt_jrt:
     call rt_jmp
     jmp .plain                      ; FALLBACK: the taken JR as usual
 .nocnt:
+    cmp byte [RT_OP],20h            ; -8 or -7, a JR NZ closing a 16-bit
+    jne .now                        ;   countdown's LD A,r / OR r: the
+    mov bx,[RT_IX]                  ;   delay, copy and fill (w16_ff,
+    cmp dx,0FFF8h                   ;   REALDMG-SPEC 16.6), AH the shape
+    je .w8
+    cmp dx,0FFF9h
+    jne .now
+    cmp bx,5
+    jb .now
+    cmp word [JIT_BUF+bx-4],0B22h   ; LD (HL+),A / DEC BC
+    jne .now
+    mov al,[JIT_BUF+bx-5]
+    cmp word [JIT_BUF+bx-2],0B178h  ; LD A,B / OR C
+    je .w7
+    cmp word [JIT_BUF+bx-2],0B079h  ; LD A,C / OR B
+    jne .now
+    cmp al,7Bh                      ; ...after LD A,E
+    mov ah,5
+    je .w
+    jmp short .now
+.w7:
+    cmp al,0AFh                     ; ...after XOR A
+    mov ah,3
+    je .w
+    cmp al,7Ah                      ; ...after LD A,D
+    mov ah,4
+    je .w
+    jmp short .now
+.w8:
+    cmp bx,6
+    jb .now
+    cmp word [JIT_BUF+bx-2],0B37Ah  ; NOP x3 / DEC DE / LD A,D / OR E
+    jne .w82
+    cmp word [JIT_BUF+bx-4],1B00h
+    jne .now
+    cmp word [JIT_BUF+bx-6],0000h
+    jne .now
+    mov ah,1
+    jmp short .w
+.w82:
+    cmp word [JIT_BUF+bx-2],0B178h  ; LD A,(HL+) / LD (DE),A / INC DE /
+    jne .now                        ;   DEC BC / LD A,B / OR C
+    cmp word [JIT_BUF+bx-4],0B13h
+    jne .now
+    cmp word [JIT_BUF+bx-6],122Ah
+    jne .now
+    mov ah,2
+.w:
+    mov dl,ah
+    xor dh,dh
+    mov bx,RDGC_W16_FF
+    jmp .ff
+.now:
     cmp dx,0FFFCh                   ; -4, a JR NZ after ADD HL,DE / DEC B
     jne .noadd                      ;   or C: a map row stepped through
     cmp byte [RT_OP],20h            ;   (add_ff, REALDMG-SPEC 16.6)

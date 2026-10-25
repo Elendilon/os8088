@@ -2601,6 +2601,35 @@ otherwise:
   frames. `gbrmw.asm`'s `Fills` is the gate - counts 1-16 and 256, WRAM
   and HRAM, the carry set and clear, and a range from FF7C across I/O that
   must be declined - and it fails with HL left unadvanced.
+- **`w16_ff`**: a 16-bit countdown closed by `LD A,r / OR r / JR NZ` - five
+  shapes that unrelated cartridges share byte for byte, a library's:
+  the delay `NOP` x3 `/ DEC DE / LD A,D / OR E` (Donkey Kong Land, Link's
+  Awakening, Pokemon Red, Wario Land II: 75 points of instructions summed
+  over seven of the owner's games), the copy `LD A,(HL+) / LD (DE),A /
+  INC DE / DEC BC / LD A,B / OR C` (Link's Awakening 42.9% of its
+  instructions, Tetris 7.8%) and three fills, `XOR A`, `LD A,D` or `LD
+  A,E` `/ LD (HL+),A / DEC BC / LD A,B / OR C` (or `LD A,C / OR B`). A
+  16-bit count outruns the budget - an 8KB clear is ~82,000 M-cycles
+  against a frame's 17,556 - so it is taken IN PIECES rather than all or
+  nothing: with P a pass's M-cycles (10, the copy 13), P x k carry the loop
+  k passes on to its next taken JR, every event check between saw BP at or
+  above BP - P x k, and with that not negative the k passes are the loop's
+  own and the JR follows as usual; all n passes, P x n + 2, leave past it.
+  The stores must lie where a translated store writes memory itself, as
+  `fill_ff`'s; the copy's source there or in one 16KB half of 0000-7FFF,
+  bank 0 from the view and 4000-7FFF from `S_ROMX`. A and F as the OR's
+  template leaves them (Z alone). Eight CB-half tail slots (pages 40h,
+  42h-44h, 48h, 49h, 52h, 64h): no image grows. The NOP delay is the loop
+  the interpreter and translated code take events in differently
+  (section 20.6), so its gate is translated against translated: eight of
+  the owner's games are identical over 1,500 frames, the idioms' images
+  against images made before them. x86 instructions a frame, frames
+  300-800 of the script: Link's Awakening -13%, Tetris -9%, Donkey Kong
+  Land -3.5%, Pokemon Red -2%. `gbrmw.asm`'s `W16s` holds all five shapes
+  to their `JP NZ` twins, at counts 1-16 and at 2,048 (2,000 for the
+  delay), more than a frame's budget, so the pieces are what is tested,
+  copies from bank 0 and from 4000, and a fill from FF7C across I/O to
+  decline; it fails with HL left unadvanced after a copy.
 - **`stat_ff`**: a wait on the PPU - `LDH A,(41h) / AND 3` or `BIT 1,A`
   `/ JR NZ,-6` (HBlank, or HBlank or VBlank; Super Mario Land's ~20 a frame
   before a VRAM write) and `LDH A,(44h) / CP n / JR NZ,-6` (line n). LY and
@@ -2629,7 +2658,7 @@ The CPU alone on `286-victory` (`rdgbench.py`): Super Mario Land 6.55 ms a
 frame without any, 6.32 with `add_ff`, 6.22 with `cpy_ff` and 6.13 with
 `stat_ff` - its reads themselves (`io_rd`, `io_lcd`) are what is left of
 the waits.
-`tools/gbprof/gbrmw.asm` runs the first three against the same loop closed by
+`tools/gbprof/gbrmw.asm` runs the first four against the same loop closed by
 `JP NZ`, which no idiom takes, and the waits from ROM against a copy in
 WRAM, which is never translated, each after a HALT on VBlank so both start
 in step; it fails when any tail is broken (the last ADD's carry dropped; A

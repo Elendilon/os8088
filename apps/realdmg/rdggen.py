@@ -2163,6 +2163,221 @@ EXTRA += [("CB %02X of RAM" % b, rmw_lines(b, True), 2) for b in RMW_CB]
 # --- tails after a TAIL page's CB handler: the translator copies a tail -----
 # --- page whole, so its CB half's room is as reachable as its main half's --
 CBTAILS = {
+    0x40: """
+; w16_ff: a 16-bit countdown closed by LD A,r / OR r / JR NZ - the delay,
+; copy and fill that cartridges carry from one library (REALDMG-SPEC 16.6).
+; Shapes: 1 NOP x3 / DEC DE / LD A,D / OR E (P 10); 2 LD A,(HL+) / LD (DE),A
+; / INC DE / DEC BC / LD A,B / OR C (13); 3, 4, 5 XOR A, LD A,D or LD A,E /
+; LD (HL+),A / DEC BC / LD A,B / OR C (or LD A,C / OR B) (10). SI = the
+; head, DL = the shape, the JR NZ about to be taken and its 3 M-cycles not
+; charged; n = the count left, not 0. P x k M-cycles carry the loop k passes
+; to its next taken JR, and every event check between saw BP at or above
+; BP - P x k: with that not negative the k passes are the loop's own and
+; the JR as usual follows ([S_RET]); all n, P x n + 2, leave past the loop
+w16_ff:
+    mov [ss:S_TMP],dl           ; the shape
+    mov [ss:S_TMP6],ax          ; (A and F: DIV and MUL take AX)
+    mov ax,di                   ; n: DE for the delay, BC for the rest
+    cmp dl,1
+    je .n
+    mov ax,cx
+.n:
+    mov [ss:S_TMP2],ax
+    mov ax,13                   ; P
+    cmp dl,2
+    je .p
+    mov ax,10
+.p:
+    mov [ss:S_TMP4],ax
+    jmp w16_div
+""",
+    0x48: """
+; w16_ff's second slot: how many passes the budget takes
+w16_div:
+    mov ax,bp
+    or ax,ax
+    jle w16_no
+    xor dx,dx
+    div word [ss:S_TMP4]        ; AX = BP div P, DX = BP mod P
+    cmp ax,[ss:S_TMP2]          ; all n when P x n + 2 <= BP
+    ja .full
+    jb .part
+    cmp dx,2
+    jae .full
+.part:
+    mov dx,[ss:S_TMP2]          ; else k <= n - 1: the JR is taken
+    dec dx
+    cmp ax,dx
+    jbe .k
+    mov ax,dx
+.k:
+    or ax,ax
+    jz w16_no
+    mov byte [ss:S_TMP+1],0
+    jmp w16_go
+.full:
+    mov ax,[ss:S_TMP2]
+    mov byte [ss:S_TMP+1],1
+    jmp w16_go
+w16_no:
+    mov ax,[ss:S_TMP6]
+    xor dl,dl                   ; (the taken JR's way: DL 0)
+    jmp word [ss:S_RET]
+""",
+    0x42: """
+; w16_ff's third slot: AX = k. The stores must lie where translated code
+; takes memory itself, 8000-FEFF or FF80-FFFE, or the loop runs as it was
+w16_go:
+    mov [ss:S_TMP2],ax          ; k
+    cmp byte [ss:S_TMP],1
+    je .t
+    mov dx,bx                   ; the stores: DE for the copy, HL a fill
+    cmp byte [ss:S_TMP],2
+    jne .d
+    mov dx,di
+.d:
+    cmp dh,80h
+    jb w16_no
+    cmp dh,0A0h                 ; starting in VRAM: the damage scan
+    jae .nv                     ;   compares it all, these stores marking
+    mov byte [ss:RDG_VALL],1    ;   no block (vr_wr), as cpy_ff's
+.nv:
+    cmp dx,0FF80h
+    jae .dh
+    cmp dh,0FFh
+    je w16_no
+    add dx,ax
+    jc w16_no
+    cmp dx,0FF00h
+    ja w16_no
+    jmp w16_src
+.dh:
+    add dx,ax
+    jc w16_no
+    jmp w16_src
+.t:
+    jmp w16_tm
+""",
+    0x49: """
+; w16_ff's fourth slot: a copy's source, HL, in one region - 8000-FEFF,
+; FF80-FFFE, or one 16KB half of 0000-7FFF (bank 0, or the bank at S_ROMX)
+w16_src:
+    cmp byte [ss:S_TMP],2
+    jne w16_tm
+    mov dx,bx
+    cmp dx,0FF80h
+    jae .sh
+    cmp dh,0FFh
+    je .no
+    cmp dh,80h
+    jae .sr
+    add dx,ax
+    jc .no
+    dec dx
+    xor dh,bh
+    test dh,0C0h
+    jnz .no
+    jmp short w16_tm
+.sr:
+    add dx,ax
+    jc .no
+    cmp dx,0FF00h
+    ja .no
+    jmp short w16_tm
+.sh:
+    add dx,ax
+    jnc w16_tm
+.no:
+    jmp w16_no
+w16_tm:
+    mul word [ss:S_TMP4]        ; AX = P x k, off BP (+ 2 leaving)
+    cmp byte [ss:S_TMP+1],0
+    je .c
+    add ax,2
+.c:
+    sub bp,ax
+    jmp w16_mv
+""",
+    0x43: """
+; w16_ff's fifth slot: the k passes, the registers as the loop leaves them
+; at its k-th JR (or past it)
+w16_mv:
+    mov dx,[ss:S_TMP2]          ; k
+    cmp byte [ss:S_TMP],1
+    jne .mem
+    sub di,dx                   ; the delay: DE -= k
+    mov ax,di
+    or al,ah                    ; A = D | E
+    jmp w16_end
+.mem:
+    sub cx,dx                   ; BC -= k
+    mov [ss:S_TMP4],si          ; (the loop's head)
+    mov [ss:S_TMP6],cx
+    mov cx,dx                   ; CX = k
+    mov dx,ss
+    mov es,dx
+    cmp byte [ss:S_TMP],2
+    jne w16_fill
+    jmp w16_cpy
+""",
+    0x52: """
+; w16_ff's sixth slot: a copy's bytes, from the view or the bank at S_ROMX
+w16_cpy:
+    mov ds,dx
+    cmp bh,40h
+    jb .src
+    cmp bh,80h
+    jae .src
+    mov ds,[ss:S_ROMX]
+.src:
+    mov si,bx
+    rep movsb                   ; forward, a byte at a time, as the loop
+    mov bx,si                   ; HL and DE += k
+    jmp w16_rest
+""",
+    0x44: """
+; w16_ff's seventh slot: a fill's stores, then BC, SI and A
+w16_fill:
+    mov ax,di                   ; the value: E, D or 0
+    cmp byte [ss:S_TMP],5
+    je .v
+    mov al,ah
+    cmp byte [ss:S_TMP],4
+    je .v
+    xor al,al
+.v:
+    mov [ss:S_TMP2],di          ; (DE)
+    mov di,bx
+    rep stosb
+    mov bx,di                   ; HL += k
+    mov di,[ss:S_TMP2]
+w16_rest:
+    mov cx,[ss:S_TMP6]          ; BC, k on
+    mov si,[ss:S_TMP4]
+    mov al,ch
+    or al,cl                    ; A = B | C
+    jmp w16_end
+""",
+    0x64: """
+; w16_ff's last slot: F as the OR's template leaves it (Z alone), then on
+w16_end:
+    mov ah,0
+    or al,al
+    jnz .f
+    mov ah,40h
+.f:
+    xor dl,dl
+    cmp byte [ss:S_TMP+1],0
+    jne .out
+    jmp word [ss:S_RET]         ; k passes: on to the JR, as the loop
+.out:
+    add si,7                    ; all n: past the loop, 8 bytes or 7
+    cmp byte [ss:S_TMP],3
+    jae .o7
+    inc si
+.o7:
+    jmp tr_enter
+""",
     0x7F: """
 ; fill_ff: LD (HL+),A / DEC r / JR NZ,-4, a fill - the OAM buffer cleared
 ; every frame (Metroid II's 0376 and Super Mario Land 2's 0322, B = A0h; the
