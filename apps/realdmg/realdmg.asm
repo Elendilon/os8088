@@ -762,8 +762,13 @@ rw_load0:
     mov dx, [rw_romseg]
     call OSAPI_MEM_FREE
 .rdfail0:
+%ifdef RDG_AOT
+    call rw_anoname                 ; (a precompiled cartridge: the file it
+    jmp short .say                  ;   opens, named - REALDMG-SPEC 20.10)
+%else
     mov si, rw_s_read
     jmp short .say
+%endif
 .room:
     mov si, rw_s_room
 .say:
@@ -4278,6 +4283,7 @@ rw_s_read:      db 'REALDMG: read failed', 0
 %ifdef RDG_AOT
 rw_s_other:     db 'REALDMG: not this game', 0
 rw_s_ameta:     db 'REALDMG: bad precompile', 0
+rw_s_ano:       db 'REALDMG: no ', 0
 %endif
 rw_s_noram:     db 'REALDMG: no room for RAM', 0
 rw_s_nosave:    db 'REALDMG: save failed', 0

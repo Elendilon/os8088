@@ -3111,7 +3111,11 @@ package: realdmg.asm assembled as `RDG_AOT` (one image for every cartridge,
 is NOT in it: it sits beside the package, and the package, opened with no
 document, opens the ROM it was made from (the meta's name, in the
 package's own folder). A ROM whose header (0134h-014Fh) is not the one it
-was made from is refused: *not this game*.
+was made from is refused: *not this game*. When the ROM is not there under
+that name the toast says the name it looked for - `REALDMG: no SML.GB` -
+where it said *read failed* (the owner's first run: every package, ROMs
+beside them under their own names). *Machine > Load Game...* opens the
+cartridge under any name, the header being what is checked.
 
 The parts (realdmg.asm's table, laid out for `RWA_MAX` = 14 images; the
 host sets the count):

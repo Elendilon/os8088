@@ -126,6 +126,40 @@ rw_aname:
     pop es
     ret
 
+; rw_anoname - the ROM could not be read: SI = 'REALDMG: no NAME.GB', the
+; name it looked for, in rw_stmsg - most often the file is not beside the
+; package under that name, and "read failed" did not say which
+rw_anoname:
+    push ax
+    push cx
+    push di
+    push ds
+    pop es
+    mov si, rw_s_ano
+    mov di, rw_stmsg
+.c:
+    lodsb
+    or al, al
+    jz .n
+    stosb
+    jmp short .c
+.n:
+    mov si, rw_name
+    mov cx, 12
+.m:
+    lodsb
+    stosb
+    or al, al
+    jz .x
+    loop .m
+    mov byte [di], 0
+.x:
+    mov si, rw_stmsg
+    pop di
+    pop cx
+    pop ax
+    ret
+
 ; rw_ahdr - ES = the cartridge's bank 0 (rw_hdrchk's): ZF = 1 when its
 ; header is the one the package was made from, else SI = why. Every other
 ; register kept
