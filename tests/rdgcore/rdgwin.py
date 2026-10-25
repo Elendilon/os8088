@@ -410,6 +410,9 @@ def measure(b, o):
                                                 # turned it on itself), from
             find(b)                             #   the game's start (it is off
             machine_item(b, CPU_PROFILE, MENU_CPU)  # by default) - once it has
+        if o.log and o.replay:                  # (a replay's log on BEFORE F7,
+            find(b)                             #   so its PLAY+ is a record's)
+            machine_item(b, ITEM_LOG)
         press(b, o)                             #   loaded: a click during the
                                                 #   load's read is lost
         if o.nojit:
@@ -427,7 +430,7 @@ def measure(b, o):
             press(b, o)
         for _ in range(o.ilace):
             machine_item(b, ITEM_ILACE, MENU_SCREEN)
-        if o.log:
+        if o.log and not o.replay:
             machine_item(b, ITEM_LOG)          # Log: Off -> on
         if o.fs:
             b.to(*MENU_MACHINE)
@@ -449,13 +452,25 @@ def measure(b, o):
         e0 = int.from_bytes(b.memr(view*16 + 0x408A, 2), "little")     # S_EVCOUNT
         if o.persec:                            # a second at a time
             per, fp = [], f0
+            ovo = bss_off("rw_ovltxt")          # ...and the F1 line, as the
+            rows = []                           #   glass shows it each second
             for _ in range(int(o.secs)):
                 b.cmd("step 1000")
                 f = frames(b, view)
                 per.append(100.0 * ((f - fp) & 0xFFFF) / GB_HZ)
                 fp = f
+                ov = b.memr(seg*16 + ovo, 16).split(b"\0")[0].decode("latin-1") \
+                    if ovo is not None else "?"
+                rows.append((per[-1], ov,
+                             int.from_bytes(b.memr(view*16 + 0x482F, 2), "little"),
+                             bankstat(b, seg)))
             print("rdgwin: each second, %% of real time: %s; least %.0f%%, most %.0f%%" % (
                 " ".join("%.0f" % p for p in per), min(per), max(per)))
+            print("rdgwin: second  frames%  F1 line            recycled  banks")
+            for i, (p, ov, rc, bk) in enumerate(rows):
+                print("rdgwin: %6d  %6.0f%%  %-18s  %8d  %5s" % (
+                    i + 1, p, ov, (rc - rcy0) & 0xFFFF,
+                    "-" if bk is None else ((bk[1] - bk0[1]) & 0xFFFF) if bk0 else bk[1]))
         else:
             b.cmd("step %d" % int(o.secs * 1000))
         f1, t1 = frames(b, view), b.cmd("info").get("ms")

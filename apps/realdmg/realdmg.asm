@@ -1888,75 +1888,113 @@ rw_jit2get:
 ; recompiler's EXTRA tiers (REALDMG-SPEC 16.2.5) - 64KB cache segments past
 ; the second, as many as RT_XMAX and the heap allow while RW_XRESKB stays
 ; free, taken from free memory alone (floor 0: no cache is shed for them).
-; The second segment first, and nothing without the first. On the UI task;
-; rw_rtinit hands them to the core. Every register kept
+; They are the SECOND SEGMENT'S OWN CLAIM grown (OSAPI_MEM_REGROW) to 1 + k
+; segments, so they cost no claim record: a package holds MEM_OWNER_MAX = 8
+; and a game already holds six, which a claim per tier ran out of - Machine
+; > Log and then F7 was "Replay: no room" with 91KB free. The second
+; segment first, and nothing without the first. On the UI task; rw_rtinit
+; hands them to the core. Every register kept
 rw_jitxget:
     cmp byte [rw_pm], 0
     je .r0
     cmp byte [rw_bcache], 2         ; (the cartridge out of the heap: a bank
     jne .r0                         ;   cache's slots want what is left)
+    cmp byte [rw_jitxk], 0
+    jne .r0                         ; (grown already)
     call rw_jit2get
     cmp word [rw_jit2seg], 0
     je .r0
     push ax
     push bx
+    push cx
     push dx
-    push si
     mov al, 0                       ; free memory only
     call OSAPI_MEM_FLOOR
-    mov si, rw_jitx
-.l:
-    cmp word [si], 0
-    jne .n
-    call OSAPI_MEM_AVAIL            ; AX = the largest run, BX = all of it
-    cmp ax, 64
-    jb .x
-    sub bx, 64
-    jc .x
-    cmp bx, RW_XRESKB
-    jb .x
-    mov ax, 64
-    call OSAPI_MEM_CLAIM            ; DX = its segment (the state block
-    jc .x                           ;   names it: rw_mreloc, rwmove.inc)
-    mov [si], dx
-    cmp byte [rw_mhold], 0          ; free to move from here (rw_mfree's
-    jne .n                          ;   rule: not while a load holds them;
-    mov ax, rw_mreloc               ;   its rw_mfree declares it then, off
-    call OSAPI_MEM_MOVABLE          ;   rw_mtab)
-.n:
-    inc si
-    inc si
-    cmp si, rw_jitx + RT_XMAX * 2
-    jb .l
+    call OSAPI_MEM_AVAIL            ; BX = KB free, all of it
+    mov ax, bx
+    sub ax, RW_XRESKB
+    jbe .x
+    mov cl, 6                       ; tiers it pays for, 64KB each
+    shr ax, cl
+    cmp ax, RT_XMAX
+    jbe .k
+    mov ax, RT_XMAX
+.k:
+    mov cx, ax
+    jcxz .x
+.try:
+    mov ax, cx                      ; (1 + k) x 64KB, k from the most down:
+    inc ax                          ;   in place it needs only the extra, and
+    xchg al, ah                     ;   moved a run that long
+    shr ax, 1
+    shr ax, 1
+    mov dx, [rw_jit2seg]
+    call OSAPI_MEM_REGROW           ; DX = the claim's base now
+    jnc .got
+    loop .try
+    jmp short .x
+.got:
+    mov [rw_jit2seg], dx
+    mov [rw_jitxk], cl
+    call rw_jitxset
 .x:
     mov al, MEM_LVL_TOP
     call OSAPI_MEM_FLOOR
-    pop si
     pop dx
+    pop cx
     pop bx
     pop ax
 .r0:
     ret
 
-; rw_jitxfree - ...and back, every one (a game closed, the interpreter's
-; cache given back). Every register kept
-rw_jitxfree:
-    push dx
+; rw_jitxset - the extra tiers' segments off the second's claim: [rw_jitxk]
+; of them at its segment + 1000h, + 2000h... and the rest 0. Every register
+; kept but the flags (rw_mreloc's, in the allocator, too)
+rw_jitxset:
+    push ax
+    push cx
     push si
+    mov ax, [rw_jit2seg]
+    mov cl, [rw_jitxk]
+    xor ch, ch
     mov si, rw_jitx
 .l:
-    xor dx, dx
-    xchg dx, [si]
-    or dx, dx
-    jz .n
-    call OSAPI_MEM_FREE
+    add ah, 10h
+    cmp si, rw_jitx + RT_XMAX * 2
+    jae .r
+    mov word [si], 0
+    jcxz .n
+    mov [si], ax
+    dec cx
 .n:
     inc si
     inc si
-    cmp si, rw_jitx + RT_XMAX * 2
-    jb .l
+    jmp short .l
+.r:
     pop si
+    pop cx
+    pop ax
+    ret
+
+; rw_jitxfree - ...and back: the second segment's claim shrunk to its one
+; 64KB again, in place (a game closed, the interpreter's cache given back).
+; Every register kept
+rw_jitxfree:
+    cmp byte [rw_jitxk], 0
+    je .r
+    mov byte [rw_jitxk], 0
+    push ax
+    push dx
+    mov dx, [rw_jit2seg]
+    or dx, dx
+    jz .z
+    mov ax, 64
+    call OSAPI_MEM_REGROW           ; (a shrink: in place, always)
+.z:
+    call rw_jitxset
     pop dx
+    pop ax
+.r:
     ret
 %endif
 

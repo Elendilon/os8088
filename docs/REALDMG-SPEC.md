@@ -1450,6 +1450,15 @@ on a machine with no debugger.
   a second. Only the UI task writes (SPEC.md 20.6 rule 7). Nothing
   recorded, nothing written.
 
+`tools/rdglog.py` reads one log, or two lined up at their PLAY+, in the F1
+line's terms - each second's speed and frames drawn beside the Game Boy's
+and the drawing's milliseconds, the frames owed, blocks, flushes and banks -
+with a summary of the seconds under 70% and 90% and over 105%: a field
+machine's log and an emulator's of the same replay (10.5) compare second
+for second (docs/reports/REALDMG-MEGA-TIERS-2026-10-25.md 3.2).
+`tests/rdgcore/rdgwin.py --replay SS1,RP1 --press w3000,f7 --log OUT`
+takes one on an 86Box machine, the log on before F7.
+
 `tests/gblog.py` takes two logs over the demo, one through the menu and
 one at the close, with a pause inside the first. It reads both on the
 host: the names, the head, PAUSE and GO, and the speed.
@@ -2384,14 +2393,25 @@ tier 3 on, in the same turn (0, the core's holes, 2, 3, 4... 0 again).
   short pool, and the table is in the claim as before.
 - **The claims** (`rw_jitxget`): after the cartridge is planned in place
   (`[rw_bcache]` 2) and loaded, and after everything else of the game's -
-  its RAM, its profile - so they take what is LEFT. Each is a 64KB claim
-  while the largest free run is 64KB and **`RW_XRESKB` = 32KB** stays free
-  beside it, with the floor at 0: free memory only, no cache shed for
-  them. They go back when the game does (`rw_unload`), when CPU >
-  Interpreter gives the cache back (`rw_jfree`), and with the instance.
-  The way back to the recompiler claims them again (`rw_jitprep`).
-- **A move** of one flushes, as one of the first two does (`rw_mreloc`'s
-  `.n8`, `rw_mjit`: `rt_init` and `rt_more` over them all again).
+  its RAM, its profile - so they take what is LEFT. They are **cache B's own
+  claim grown** (`OSAPI_MEM_REGROW`) to 1 + k segments, the extra tiers at
+  B + 1000h, B + 2000h..., while **`RW_XRESKB` = 32KB** stays free beside
+  them, with the floor at 0: free memory only, no cache shed for them.
+  - **One claim and not one a tier, because a claim RECORD is the scarce
+    thing**: a package holds `MEM_OWNER_MAX` = 8, a game in the arm holds
+    six after its load, and the first build's claim per tier took it to
+    seven - so Machine > Log took the eighth, and F7's replay was refused
+    as "Replay: no room" with 91KB free, compacting and shedding the
+    read-ahead on the way (`mem_claim`'s refusal path). Grown, the arm holds
+    exactly the records the base did.
+  - They go back when the game does (`rw_unload`) and when CPU >
+    Interpreter gives the cache back (`rw_jfree`) - B shrunk to 64KB in
+    place (`rw_jitxfree`) - and with the instance. The way back to the
+    recompiler grows it again (`rw_jitprep`).
+- **A move** of B moves them with it: `rw_mreloc` puts their segments
+  right off B's new base (`rw_jitxset`) and, the core running over B,
+  flushes as before (`rw_mjit`: `rt_init` and `rt_more` over them all
+  again).
 - **MEASURED** (86Box `286-mega`, 640KB conventional): see
   docs/reports/REALDMG-MEGA-TIERS-2026-10-25.md.
 
