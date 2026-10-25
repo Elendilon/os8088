@@ -4,7 +4,9 @@
     make && make build/sheetovl360.img && python3 tests/sheetovlmove.py
 
 WHAT IT IS ABOUT (docs/plans/NO-PINNING-PLAN.md item P1b). SHEET loads two
-code modules into heap claims, CHART.OVL (52KB) and MACRO.OVL (28KB), and
+code modules into heap claims - the chart module (52KB) and the macro module
+(28KB), CHART.OVL and MACRO.OVL until they became parts of SHEET.O88
+(SPEC.md 82.16.12) - and
 both were PINNED for the program's whole life - up to 80KB of wall - because
 a module reaches resident code with `call far`, which leaves the MODULE'S OWN
 CS on the stack for the return, and a resident routine (or a kernel slot the
@@ -144,8 +146,10 @@ def main():
     os88fixture.need(DISK)
     SH = pkg_syms("apps/sheet/sheet.asm")
     build = os.path.join(HERE, "..", "build")
-    chart = open(os.path.join(build, "CHART.OVL"), "rb").read()
-    macro = open(os.path.join(build, "MACRO.OVL"), "rb").read()
+    # the raw cuts os88pkg.py packed as SHEET.O88's parts 0 and 1 (82.16.12):
+    # op_fetch expands each onto its claim's base, so these are its bytes
+    chart = open(os.path.join(build, "sheet.chart.bin"), "rb").read()
+    macro = open(os.path.join(build, "sheet.macro.bin"), "rb").read()
     bad = 0
 
     with os88marty.launch("build/os8088-360.img", apps=DISK,
@@ -286,7 +290,7 @@ def main():
             return 1
 
         # --- F5: stop on the bank's claim, inflate it; watch the return ----
-        take = S("wm_su_take")
+        take = m.sym("wm_su_take")
         tag, back = SH["ch_ovseg"], SH["ch_xthunk.back"]
         homes = {c0[0]: ("CHART.OVL", c0[1]), m0[0]: ("MACRO.OVL", m0[1])}
         bps = ["mem_claim", "mem_reloc_call"]
@@ -311,7 +315,7 @@ def main():
                          "NEW" if landed[0] == new_c else
                          "OLD" if landed[0] == c0[0] else "??"))
                 m.bp_exec(*bps)
-            elif at == S("mem_claim") and not forced:
+            elif at == m.sym("mem_claim") and not forced:
                 ret = r["cs"] * 16 + u16(m.read(r["ss"] * 16 + r["sp"], 2))
                 if take < ret < take + 0x200:
                     stack = m.read(r["ss"] * 16 + r["sp"], 1024)
@@ -324,7 +328,7 @@ def main():
                           "the module's frame: %s"
                           % (r["ax"], kb, "IP %04x under %s" % frame[1:]
                              if frame else "NOT FOUND"))
-            elif at == S("mem_reloc_call") and r["bx"] in homes:
+            elif at == m.sym("mem_reloc_call") and r["bx"] in homes:
                 name, para = homes[r["bx"]]
                 n = poison(m, S, r["bx"], r["dx"], para)
                 poisoned += n

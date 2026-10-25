@@ -62,8 +62,7 @@ def build_disk():
     open(doc, "wb").write(F.write_sylk({(0, 0): 1.0}))
     open(junk, "wb").write(F.write_sylk({(0, 0): 9.0}))
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", DISK,
-                    "--size", "360", "APPS:build/sheet.o88",
-                    "APPS:build/CHART.OVL", "APPS:build/MACRO.OVL", "APPS:" + doc, junk],
+                    "--size", "360", "APPS:build/sheet.o88", "APPS:" + doc, junk],
                    check=True, stdout=subprocess.DEVNULL)
 
 

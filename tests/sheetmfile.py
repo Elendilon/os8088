@@ -97,7 +97,7 @@ def build_disk():
     big = os.path.join(WORK, "BIG.TXT")
     open(big, "wb").write(b"x" * 8000)   # over a channel's 7,392 (81.94)
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", DISK, "--size",
-                    "360", "build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL", src, inp, big],
+                    "360", "build/sheet.o88", src, inp, big],
                    check=True, stdout=subprocess.DEVNULL)
 
 

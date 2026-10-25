@@ -554,6 +554,19 @@ def main():
         print("Sheet at %04x holds %s"
               % (sh_seg, ["%04x/%dKB%s" % (b, p // 64, "*" if r else "")
                           for b, p, _, r in before]))
+        # SHEET'S TWO CODE MODULES ARE PARTS OF SHEET.O88 since SPEC.md
+        # 82.16.12, so this disk can no longer leave them off: whichever the
+        # heap had room for is loaded with the package. They are
+        # sheetovlmove's subject and not this row's - its six are the DATA
+        # claims - so a module's claim is set aside here, by the words that
+        # name it ([ch_ovseg], [sh_m2far+2])
+        SH = pkg_syms("apps/sheet/sheet.asm")
+        mods = set(u16(m.read(sh_seg * 16 + SH[n] + o, 2))
+                   for n, o in (("ch_ovseg", 0), ("sh_m2far", 2))) - {0}
+        if mods:
+            print("Sheet's modules (parts, 82.16.12) at %s - not counted"
+                  % ["%04x" % b for b in sorted(mods)])
+        before = [c for c in before if c[0] not in mods]
         ndecl = sum(1 for _, _, _, r in before if r)
         if ndecl != len(MOVABLE):
             print("FAIL: Sheet declared %d claims movable and this row expects "
@@ -568,8 +581,6 @@ def main():
         os88marty.settle(m)
         m.key("Enter")
         os88marty.settle(m)
-
-        SH = pkg_syms("apps/sheet/sheet.asm")
 
         def sword(name):
             return u16(m.read(sh_seg * 16 + SH[name], 2))

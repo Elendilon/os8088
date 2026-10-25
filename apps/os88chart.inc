@@ -3,7 +3,7 @@
 ;
 ; THIS FILE IS A MODULE IN SHEET ONLY (82.16). Under CH_OVERLAY - which only
 ; sheet.asm defines - everything below sits in `section .modc vstart=0`, is cut
-; out by tools/os88ovl.py, ships as CHART.OVL beside the package, and is
+; out by tools/os88ovl.py, ships as the chart module beside the package, and is
 ; far-called through the dispatcher at its offset 0. chart.asm defines neither
 ; CH_ symbol and assembles the whole file straight into `.text`.
 ;
@@ -224,7 +224,7 @@ ch_m_bmpwrite:
 
 ; The BMP header template and palette are the module's only DATA the resident
 ; half reads: SHEET's entry proc copies all 118 bytes into the chart buffer
-; once, long before CHART.OVL is loaded (82.16). So they stay RESIDENT in both
+; once, long before the chart module is loaded (82.16). So they stay RESIDENT in both
 ; builds - a module-relative address handed to resident code copies whatever
 ; happens to sit at that offset in the package, which is a wrong BMP header
 ; and no error anywhere.

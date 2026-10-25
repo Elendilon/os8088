@@ -956,9 +956,9 @@
   "sources": [
    "apps/sheet"
   ],
-  "stamped": "6d53446d",
-  "strings": "854ef1a2afd44837",
-  "why": "rewritten for Sheet 2.1 against apps/sheet/sheet.asm: menus, shortcut table, Undo/Redo, Paste Special/Link, Data database commands, Series, Table, Parse, Justify, Options Display/Workspace/Freeze/Protect, per-row/column sizes, recorder, six file formats, CHART.OVL/MACRO.OVL; no capture run"
+  "stamped": "87489ca5",
+  "strings": "287a4709f7de66e1",
+  "why": "Sheet 2.1's two modules are parts of SHEET.O88 now (SPEC.md 82.16.12): the page says Sheet is one file, the refusal reads Not enough memory., and CHART.OVL/MACRO.OVL are gone from the page and entries.toml"
  },
  "SHEET_WAB": {
   "sources": [],

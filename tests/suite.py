@@ -2083,11 +2083,27 @@ FULL = [
         "and not fast because the owner asked for it there; host-side, "
         "0.03s measured",
         needs=()),
+    Row("noovl", "full", py("tests/unit/t_noovl.py"), 0.1,
+        "at the owner's word (SPEC.md 19.11): no shipped disk carries an "
+        ".OVL beside a package - a program is one file, and anything it "
+        "needs besides its image is a PART of it (SPEC.md 20.12). SHEET's "
+        "CHART.OVL and MACRO.OVL arrived on the apps disks after the round "
+        "that took every other overlay inside its package, and are parts of "
+        "SHEET.O88 now (82.16.12). Two halves: every folder of every FAT12 "
+        "floppy under build/ walked by its own reader (the 14 shipped "
+        "images required, on-demand ones when built, the tests/cfsx sidecar "
+        "fixture exempt), and the Makefile, where an .OVL may only be a cut, "
+        "a --part, its askable-by-name rule or a C overlay declared `part` - "
+        "so an on-demand disk `all` never builds is covered too. Red, both "
+        "tried: a 100-byte CHART.OVL added to office360's root, and the "
+        "pre-82.16.12 Makefile (13 lines named). FULL and not fast because "
+        "the owner asked for it there; host-side, 0.06s measured",
+        needs=()),
     Row("chxthunk", "soak", py("tests/unit/t_chxthunk.py"), 4.0,
         "No .text code in SHEET calls through a module vector (SHOUT / "
         "call far [sh_v_|ch_v_]): ch_xthunk takes any CS that is not "
-        "CHART.OVL's for MACRO.OVL's, so a resident caller's far return "
-        "lands in MACRO.OVL at a .text offset and the machine dies on the "
+        "the chart module's for the macro module's, so a resident caller's far return "
+        "lands in the macro module at a .text offset and the machine dies on the "
         "death panel - sh_new's SHOUT sh_colw_clear did, on File > New. "
         "Sections are nasm's map, not a walk's guess; red with that SHOUT "
         "put back. Soak, not fast: it is about one package; host-side, "
@@ -6283,7 +6299,7 @@ SOAK = [
         needs=("marty",), serial=True,
         wants=("build/sheetovl360.img",)),
     Row("sheetovlmove", "soak", py("tests/sheetovlmove.py"), 35.0,
-        "NO-PINNING P1b (SPEC.md 82.16.11): SHEET's CHART.OVL MOVES out from "
+        "NO-PINNING P1b (SPEC.md 82.16.11): SHEET's chart module MOVES out from "
         "under its own call chain and the return lands in the new home. F5 is "
         "ch_ovcall -> SHM_IDOPEN -> SHK wm_show -> ch_xthunk -> OSAPI_WM_SHOW "
         "-> wm_su_take's mem_claim, which the row inflates to one KB past the "
@@ -6294,7 +6310,8 @@ SOAK = [
         "back to `call routine / retf`: the return lands at the OLD home "
         "5c00:2559 and Esc never closes the dialog; 35s measured",
         needs=("marty",), serial=True,
-        wants=("build/sheetovl360.img", "build/CHART.OVL", "build/MACRO.OVL")),
+        wants=("build/sheetovl360.img", "build/sheet.chart.bin",
+               "build/sheet.macro.bin")),
     Row("sheetxbench", "soak", py("tests/sheetxbench.py"), 280.0,
         "What ch_xthunk (SPEC.md 82.16.11) costs SHEET on real work, in "
         "MartyPC guest cycles on a 5150: F9's recalc+draw (sh_drawall), "
@@ -6308,7 +6325,7 @@ SOAK = [
         "with a wrong host value (13 of 240 'wrong' while 60 rows overran the "
         "SYLK staging buffer); ~4.5 min measured",
         needs=("marty",), serial=True,
-        wants=("build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL",
+        wants=("build/sheet.o88",
                "build/os8088-360.img")),
     Row("sheetbtn", "soak", py("tests/sheetbtn.py"), 40.0,
         "A stale button record must not answer a REUSED window slot "
@@ -16485,7 +16502,7 @@ SOAK = [
         "and that check PASSED on its own mutation because 0, 14, 18 and 19 "
         "are four distinct values",
         needs=("marty",), serial=True,
-        wants=("build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL",
+        wants=("build/sheet.o88",
                "build/os8088-360.img")),
     Row("sheettbl2", "soak", py("tests/sheettbl2.py"), 520.0,
         "SPEC.md 81.114.7: a Data > Table is PROTECTED and clears "
@@ -16512,7 +16529,7 @@ SOAK = [
         "and the guest's own rects, so an inserted item cannot silently aim "
         "it at a live neighbour the way index 8 did to three rows",
         needs=("marty",), serial=True,
-        wants=("build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL",
+        wants=("build/sheet.o88",
                "build/os8088-360.img")),
     Row("sheettblbiff", "soak", py("tests/sheettblbiff.py"), 520.0,
         "SPEC.md 81.114.10: a Data > Table survives SAVE AND LOAD. Until "
@@ -16537,7 +16554,7 @@ SOAK = [
         "noticed the formula would not decode is satisfied by any corrupt "
         "array at all",
         needs=("marty",), serial=True,
-        wants=("build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL",
+        wants=("build/sheet.o88",
                "build/os8088-360.img")),
     Row("sheettblshift", "soak", py("tests/sheettblshift.py"), 560.0,
         "SPEC.md 81.114.9: a Data > Table's stored RECTANGLE follows the "
@@ -16562,7 +16579,7 @@ SOAK = [
         "line - the message is asserted too, because a table silently "
         "ceasing to be one is found out about much later",
         needs=("marty",), serial=True,
-        wants=("build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL",
+        wants=("build/sheet.o88",
                "build/os8088-360.img")),
     Row("sheettblcalc", "soak", py("tests/sheettblcalc.py"), 520.0,
         "SPEC.md 81.114.8: a Data > Table RECALCULATES, and Excel's three "
@@ -16592,7 +16609,7 @@ SOAK = [
         "where a cell appearing at those coordinates on Sheet 1 can only "
         "have been written by this walk",
         needs=("marty",), serial=True,
-        wants=("build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL",
+        wants=("build/sheet.o88",
                "build/os8088-360.img")),
     Row("sheetsize", "soak", py("tests/sheetsize.py"), 400.0,
         "SPEC.md 81.112: SHEET's window RESIZES and its grid re-lays itself "
@@ -16605,7 +16622,7 @@ SOAK = [
         "old one, because every count can be right while the layout is "
         "still drawn at the width the window ASKED for",
         needs=("marty",), serial=True,
-        wants=("build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL",
+        wants=("build/sheet.o88",
                "build/os8088-360.img")),
     Row("sheetmkind", "soak", py("tests/sheetmkind.py"), 400.0,
         "SPEC.md 81.97: the reader half - a host-written BIFF2 macro sheet "
@@ -16731,7 +16748,7 @@ SOAK = [
         "SPEC.md 81.62: all 48 text, information and transcendental "
         "functions, each evaluated from a formula cached with a wrong value "
         "and read back from SHEET's SYLK save - the gate the move of the "
-        "three families into CHART.OVL was checked against, on both builds",
+        "three families into the chart module was checked against, on both builds",
         needs=("marty",), serial=True),
     Row("sheetmacro", "soak", py("tests/sheetmacro.py"), 400.0,
         "SPEC.md 81.63: the macro language - FOR/NEXT nested and stepping "
@@ -16779,7 +16796,7 @@ SOAK = [
         "computed by SHEET and checked against the host's own arithmetic. "
         "Every formula is authored with a WRONG cached value, so a pass means "
         "SHEET recalculated rather than echoed. Written as the gate for moving "
-        "the family into CHART.OVL, and its first two runs found what the "
+        "the family into the chart module, and its first two runs found what the "
         "move did not cause: a Save wrote the STALE value of every formula "
         "off the glass (81.48), and MIRR discounted from the wrong period - "
         "which SPEC's own reference table had done too",
@@ -16827,7 +16844,7 @@ SOAK = [
         needs=("marty",), serial=True),
     Row("sheetform", "soak", py("tests/sheetform.py"), 450.0,
         "SPEC.md 81.71.5: Data > Form - one record at a time, the sixth "
-        "dialog engine and the first one that lives in CHART.OVL behind "
+        "dialog engine and the first one that lives in the chart module behind "
         "resident thunks, so this gates that arrangement as much as the "
         "feature. The counter and the fields moving together, a field typed "
         "over reaching the CELL, New growing DATABASE, and Close putting the "

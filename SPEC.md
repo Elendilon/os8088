@@ -42727,6 +42727,26 @@ collision has been impossible since the fork landed.
 its PART A sweeps `apps/` and fails the build when a directory there reaches
 no payload list.
 
+### 19.11 A program is one file — no `.OVL` beside a package
+
+Every program a shipped disk carries is **one `.O88`**. Code a package
+far-calls and data it reads are PARTS of that file (§20.12), never files in
+the folder beside it: a user browsing `APPS` sees programs and nothing else,
+and a copy of the package is a copy of the whole program. It is the rule the
+"parts inside" round applied to every overlay in the tree (WORD §68.10,
+SCRIBE §95.8.8, the C SDK's `part` mode §73.14.2, C64, RUNCPM, WEAVE, LOOM),
+and SHEET's two modules, which arrived later, are its latest case (§82.16.12).
+
+`tests/unit/t_noovl.py` is the gate, in the full tier at the owner's word. It
+walks every folder of every FAT12 floppy under `build/` - the fourteen images
+`all` builds are required, the on-demand ones checked when they have been
+built - and fails a folder holding an `.OVL` beside an `.O88`; and it reads
+the Makefile, where an `.OVL` may only be a cut (`os88ovl.py -o`), a
+`--part`, the cut's askable-by-name rule, or a C package's overlay declared
+`part`, so a disk `all` never builds cannot carry one either. The one
+exemption is `tests/cfsx`, the C SDK's sidecar mode's own fixture, which
+ships nowhere.
+
 ## 20. Loadable programs — the .o88 package format
 
 ### 20.1 A package owns a segment, and its region is a heap claim
@@ -149010,7 +149030,8 @@ report differently, and only one of them uses this at all. In SHEET:
 
 - `CHM_bmp_write` already had a CF contract, so the export's existing error
   path covers it with no new code.
-- `CHM_draw` sets the status bar to `CHART.OVL not found.`
+- `CHM_draw` sets the status bar to `Not enough memory.` (it was `CHART.OVL
+  not found.` while the module was a file, §82.16.12)
 - `CHM_scale` has no return contract; the `CHM_draw` that follows it reports.
 
 `sh_chart_render` **owns `[sh_msg]`** for this reason. Its caller used to set
@@ -149025,14 +149046,12 @@ spreadsheet whose numbers are all still there.
 every formula door reaches `ch_ovneed`, and a repaint must not re-claim 51KB
 and search the disk once per visible cell.
 
-**A module from another build is a failure too.** Both `.OVL`s are separate
-files, so a file copy can pair a new `SHEET.O88` with an old module — which
-reads the package's bss at stale offsets and returns through a vector table
-laid out for another build. Each module carries `crt0.asm`'s pair (§73.14),
-its own length and `os88_image_end`: `CHART.OVL` at +3, after a `jmp near`,
-and `MACRO.OVL` at +10, after its `SHMACRO2` mark. `ch_ovneed` and
-`sh_m2need` free the claim and refuse when either word disagrees with the
-assembled value.
+**A module from another build WAS a failure too, and cannot happen now.**
+While both modules were `.OVL` files beside the package, a file copy could
+pair a new `SHEET.O88` with an old module, so each carried `crt0.asm`'s pair
+(§73.14) - its length and `os88_image_end` - and the loaders refused a
+mismatch. Since §82.16.12 they are parts of the one file, a module and an
+image from two builds cannot meet, and the stamps and their checks are gone.
 
 #### 82.16.6 SHEET is full, and the tail is where the room is
 
@@ -149402,6 +149421,55 @@ still sits above all six) and its modules as the hole. Both modules move (`5c00 
 return lands at the new one; the old homes are poisoned with HLT. **Red** with
 `CHX` put back to `call routine / retf`: the return is caught at the OLD home
 `5c00:2559`, the UI task halts in the poison, and Esc never closes the dialog.
+
+#### 82.16.12 Both modules are PARTS of `SHEET.O88`, not files beside it
+
+The chart module (`.modc`) and the macro module (`.modm`) shipped as
+`CHART.OVL` and `MACRO.OVL` in the folder beside `SHEET.O88` - two files a
+user browsing `APPS` saw as programs and could not run, and that a copy of
+`SHEET.O88` alone left behind, giving a spreadsheet with no charts, no file
+formats and no macros. They are now **parts 0 and 1 of `SHEET.O88`** under
+the parts standard (§20.12): `OS88_F_PARTS` in the header, a two-row table,
+each row `OP_SEG | OP_LAZY | OP_COMP`. Nothing about the modules' code
+changed: `tools/os88ovl.py` cuts them out of `sheet.bin` exactly as before,
+and `os88pkg.py` appends them to the file, LZ4-packed, rather than the
+Makefile writing them out beside it.
+
+- **Lazy, one claim each, fetched where they were read.** `ch_ovneed` and
+  `sh_m2need` go to the folder the package was launched from, as before, and
+  call `op_fetch`, which claims, reads and expands the part in one call
+  (§20.12.4). A part is one claim, as a file was, so `MEM_OWNER_MAX` (§50)
+  sees the same count.
+- **The claims are the parts' own lengths.** `op_fetch` sizes a claim from
+  the row, so `CH_OVKB` - the 52KB claim the chart module was read into,
+  checked against the file twice - is gone; the 64KB wall it was growing
+  towards is `os88pkg.py`'s `OP_PARTMAX`. The macro module's claim has a
+  TAIL (§81.91.1's text-file buffers), so `sheet.asm` pads `.modm` to
+  `SH_M2KB` KB with zeros, which packed cost 36 bytes, and a module that
+  outgrows it fails the build where it is written.
+- **A refusal is still silent.** `op_fetch` toasts its own refusals, and the
+  entry proc asks for both modules on every launch, so each loader asks
+  `op_lazyok` first - a question that costs nothing and says nothing - and a
+  heap too small for a module is what it always was: the status bar's
+  `Not enough memory.` when the feature is used (§82.16.5). A disk that will
+  not read is still toasted, by the standard.
+- **They still move** (§82.16.11). `op_movable` declares each with the
+  standard's own proc, which puts the row right and jumps to `sh_partmv`, the
+  package's `OP_ONMOVE` hook; that updates `ch_ovseg`/`ch_ovfar` through
+  `ch_ovreloc` and `sh_m2far`. `sh_m2pin`/`sh_m2unpin` are `op_pin` and
+  `op_movable` around a channel transfer, as they were `OSAPI_MEM_MOVABLE`.
+- **The build stamps are gone** (§82.16.5): one file cannot hold two builds.
+- **The parts standard's bss comes first** (`OP_BSS`, 102 bytes), so the
+  `ch_*` block is no longer at bss offset 0 - which only mattered while one
+  module binary was meant to serve CHART too, and §82.16.1 already says it
+  cannot.
+
+What it cost, measured: the resident image **53,558 -> 54,617** (+1,059: the
+standard's lazy surface less the two loaders' claim, read and stamp code) and
+the bss +102, leaving image + bss at 64,104 of `APP_MAX_SIZE`'s 65,024; and
+**89,659 bytes in three files -> 91,120 in one**, the parts starting on their
+own sectors. `tests/unit/t_noovl.py` (full tier) fails any shipped image
+that carries an `.OVL` beside a package again (§19.11).
 
 ### 82.19 Apps size pass 2: the shipped file
 

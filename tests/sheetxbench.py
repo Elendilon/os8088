@@ -39,8 +39,9 @@ in K2 is the host's after every run; the cycles are REPORTED, not gated.
 
 MEASURED (SPEC.md 82.16.11), base no-pinning 1b933ed4 -> P1b, medians of 3:
 recalc +0.47%, save +0.73%, chart +0.01%, macro +0.70%.
---pkg/--src run it against another build of SHEET (sheet.o88, CHART.OVL,
-MACRO.OVL in DIR, and the apps/ tree its symbols come from).
+--pkg/--src run it against another build of SHEET (sheet.o88 in DIR - with
+CHART.OVL and MACRO.OVL beside it in a tree before SPEC.md 82.16.12 - and the
+apps/ tree its symbols come from).
 """
 import argparse
 import math
@@ -119,10 +120,16 @@ def build_disk(pkg):
     src = os.path.join(WORK, NAME)
     open(src, "wb").write('\r\n'.join(body).encode('latin-1'))
     disk = os.path.join(WORK, "bench.img")
+    # CHART.OVL and MACRO.OVL ride along only from a tree that still has them:
+    # since SPEC.md 82.16.12 both modules are parts of SHEET.O88, and an A/B
+    # against a commit before that needs its two files beside it
+    tree = os88build.at(pkg)
+    files = [os.path.join(tree, n) for n in ("sheet.o88", "CHART.OVL",
+                                             "MACRO.OVL")]
+    files = [f for f in files if f.endswith(".o88") or os.path.exists(f)]
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", disk, "--size",
-                    "360"] + [os.path.join(os88build.at(pkg), n) for n in
-                              ("sheet.o88", "CHART.OVL", "MACRO.OVL")]
-                   + [src], check=True, stdout=subprocess.DEVNULL)
+                    "360"] + files + [src], check=True,
+                   stdout=subprocess.DEVNULL)
     return disk
 
 

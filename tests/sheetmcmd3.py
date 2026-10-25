@@ -84,7 +84,7 @@ def build_disk():
     junk = os.path.join(WORK, "JUNK.TXT")
     open(junk, "wb").write(b"junk\r\n")
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", DISK, "--size",
-                    "360", "build/sheet.o88", "build/CHART.OVL", "build/MACRO.OVL", src, other,
+                    "360", "build/sheet.o88", src, other,
                     junk], check=True, stdout=subprocess.DEVNULL)
 
 

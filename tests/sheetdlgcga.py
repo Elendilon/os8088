@@ -75,8 +75,7 @@ def main():
     open(src, "wb").write(F.write_sylk({(0, 0): 'Name', (0, 1): 'Qty',
                                         (1, 0): 'a', (1, 1): 1.0}))
     subprocess.run([sys.executable, "tools/os88disk.py", "-o", DISK, "--size",
-                    "360", "build/sheet.o88", "build/CHART.OVL",
-                    "build/MACRO.OVL", src], check=True,
+                    "360", "build/sheet.o88", src], check=True,
                    stdout=subprocess.DEVNULL)
     S = os88sym.linear
     got = []

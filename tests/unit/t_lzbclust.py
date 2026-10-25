@@ -73,10 +73,21 @@ def clusters(n, size):
     return (n + size - 1) // size
 
 
+# A parted package's --part arguments, in table order, as its Makefile rule
+# passes them: a re-pack without them is refused by os88pkg.py, and the
+# shipped file's size includes them, so LZB and LZ4 are compared like for like.
+# SHEET's two modules are parts since SPEC.md 82.16.12.
+PARTS = {"sheet": ("sheet.chart.bin", "sheet.macro.bin")}
+
+
 def pack(binp, fmt, tmp):
     out = os.path.join(tmp, os.path.basename(binp) + "." + fmt)
+    stem = os.path.basename(binp).split(".")[0]
+    parts = []
+    for f in PARTS.get(stem, ()):
+        parts += ["--part", os.path.join(os.path.dirname(binp), f)]
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88pkg.py"),
-                        binp, "-o", out, "--compress-if=" + fmt],
+                        binp, "-o", out, "--compress-if=" + fmt] + parts,
                        capture_output=True, text=True)
     if r.returncode or not os.path.exists(out):
         return None, (r.stderr or r.stdout).strip().splitlines()[-1:]
@@ -90,8 +101,8 @@ def check_list(names, tmp):
         binp = os.path.join(BUILD, name + ".bin")
         # (the SAME input the Makefile packs: a package whose overlays
         # tools/os88ovl.py splits off ships `<name>.trim.bin`, the image
-        # without them - Sheet 2.1's CHART.OVL and MACRO.OVL - and the whole
-        # .bin's image field is not that file's size)
+        # without them - Sheet 2.1's two modules, its PARTS now (PARTS above)
+        # - and the whole .bin's image field is not that file's size)
         trim = os.path.join(BUILD, name + ".trim.bin")
         if os.path.exists(trim):
             binp = trim
