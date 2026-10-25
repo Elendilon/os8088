@@ -89,7 +89,6 @@ def main():
             fail("double-clicking A:/APPS/DOS.O88 opened no window")
         M.settle(m)
         dm = dosmap.package()
-        ps = dosmap.instance(m)
 
         def pb():
             return dosmap.instance(m) << 4
@@ -106,7 +105,7 @@ def main():
                      "the page has never been painted (SPEC.md 96.36.3)" % raw)
 
         # --- 1: the FIRST paint against a recompute that changes nothing -----
-        mo.click(*dosmap.centre(m, ps, dm, "dos_erect"))
+        mo.click(*dosmap.centre(m, dosmap.instance(m), dm, "dos_erect"))
         M.settle(m)
         if m.read(pb() + dm["dos_page"], 1)[0] != dm["DOS_PAGE_SET"]:
             fail("the bar's button did not reach the Setup page")
@@ -143,7 +142,20 @@ def main():
         # image is owned by MEM_K_DRV and based at the driver's segment, and
         # everything the driver claimed for itself carries that segment as its
         # owner word (SPEC.md 50.2's `mov bx, es`).
-        raw = bytes(m.read(m.sym("mem_tab"), 32 * os88geom.MC_SIZE))
+        #
+        # AND THE DRIVER'S SEGMENT IS ASKED HERE, beside the table, never
+        # banked from the boot: a driver image MOVES under the compactor
+        # (HEAP-UNPIN-PLAN) and opening DOS is an arena claim, so the segment
+        # read before the window opened can name a place SOUND.DRV has left -
+        # and the table, the row and the page's word are read off ONE paused,
+        # compactor-idle guest (os88marty.heap_read), so a pass caught midway
+        # cannot hand this the table at one base and drv_tab at the other.
+        def snapshot(mm):
+            seg = struct.unpack("<H", mm.read(mm.sym("drv_tab")
+                                              + os88geom.DRVR_SEG, 2))[0]
+            tab = bytes(mm.read(mm.sym("mem_tab"), 32 * os88geom.MC_SIZE))
+            return seg, tab, word("dos_msnk")
+        snd, raw, msnk = M.heap_read(m, snapshot, "SOUND.DRV's claims")
         para = 0
         for i in range(32):
             r = raw[i * os88geom.MC_SIZE:(i + 1) * os88geom.MC_SIZE]
@@ -153,7 +165,6 @@ def main():
             if own == snd or (own == os88geom.MEM_K_DRV and base == snd):
                 para += sz
         held = para >> 6
-        msnk = word("dos_msnk")
         if not held:
             fail("SOUND.DRV is at %04X and the claim table has nothing owned "
                  "by it or based there - either the driver is gone or this "

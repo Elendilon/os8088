@@ -502,11 +502,27 @@ class Mouse:
         while self.ticks() - self._last_edge <= DBL_TICKS:
             time.sleep(0.01)
 
-    def _edge(self, down, tries=60, resend=20, btn=1):
+    # WHAT ONE BUTTON EDGE IS GIVEN, in GUEST seconds, and how far apart its
+    # re-sends are. Both were HOST quantities - 60 polls of `where()` plus a
+    # 20 ms sleep, with a re-send every 20 polls - so the same edge bought the
+    # guest ~6 seconds and three packets spread across them on an idle box,
+    # and on a loaded one three packets bunched into a guest second or less.
+    # What drops a packet is the GUEST not reading the 8250 in time (no FIFO:
+    # a byte arriving before the last is read overruns it), and that is a
+    # property of what the guest is doing - RealDMG's core runs with
+    # interrupts off a budget at a time - so it is the guest's clock that has
+    # to spread the attempts. rdgmove's `ui.close(calc)` lost its press in a
+    # four-lane soak and passed alone. The re-send spacing is ten packet
+    # times, so a re-send is never queued on top of one still being clocked
+    # out; a press that lands first time costs exactly what it did.
+    EDGE_GUEST = BUSY
+    EDGE_RESEND = 0.25
+
+    def _edge(self, down, tries=None, resend=None, btn=1):
         """One button edge, PROVEN: send the packet, then wait until the
         published mouse_btn agrees. A packet clocked into the UART while the
-        previous one is still in flight is simply dropped, and the only
-        difference a caller can see is that the guest did nothing.
+        guest is not servicing it is simply lost, and the only difference a
+        caller can see is that the guest did nothing.
 
         AND A DROPPED PACKET IS RE-SENT RATHER THAN WAITED FOR, which is what
         the paragraph above asks for and this routine did not do: it sent once
@@ -520,25 +536,42 @@ class Mouse:
         a retry - and the loop still requires the guest's own published
         mouse_btn to agree before it returns, so a re-send cannot turn a
         genuinely stuck button into a pass.
+
+        BOTH THE BUDGET AND THE RE-SEND SPACING ARE GUEST TIME (EDGE_GUEST,
+        EDGE_RESEND above): `tries` is the budget in units of the old 20 ms
+        poll's worth of an idle box and `resend` is ignored - kept so a caller
+        that names them still runs.
         """
         want = btn if down else 0
+        budget = self.EDGE_GUEST if tries is None else tries * 0.1
         seen = []
-        for i in range(tries):
-            if i % resend == 0:
+        c0 = sent = None
+        i = 0
+        while True:
+            c = int(self.m.status().get("cycles", 0))
+            if c0 is None:
+                c0 = c
+            if sent is None or (c - sent) / os88marty.GUEST_HZ >= self.EDGE_RESEND:
                 self.m.mouse(0, 0, l=down and btn == 1, r=down and btn == 2)
+                sent = c
             if (self.where()[2] & btn) == want:
                 self._last_edge = self.ticks()   # ...for _sep above
                 return
+            if (c - c0) / os88marty.GUEST_HZ >= budget:
+                break
             # ...and the raise below blames the UART, which is the wrong
             # answer for a guest that is not executing at all.
             if i % 4 == 3:
                 _alive(self.m, seen, "the button edge to be decoded")
+            i += 1
             time.sleep(0.02)
         raise MartyError(
-            "the %s %s was never decoded (mouse_btn = %02x). The 1200-baud "
-            "UART drops a packet sent while the previous one is in flight."
+            "the %s %s was never decoded across %.1f GUEST seconds with the "
+            "packet re-sent every %.2f (mouse_btn = %02x) - the guest is "
+            "running, so it is not servicing the 1200-baud UART at all."
             % ("right" if btn == 2 else "left",
-               "press" if down else "release", self.where()[2]))
+               "press" if down else "release", budget, self.EDGE_RESEND,
+               self.where()[2]))
 
     # A DOUBLE-CLICK'S TWO PRESSES ARE SPACED IN GUEST CYCLES, NOT HOST ROUND
     # TRIPS. `_edge` proves an edge by polling the guest while it runs freely,
