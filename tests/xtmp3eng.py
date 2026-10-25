@@ -796,6 +796,17 @@ def leg_slowdown():
             r.done()
 
 
+def drive_dialog(r, what="the drive dialog", secs=90):
+    """the decode-first dialog UP: its WINDOW, not its mode. x3c_begin sets
+    MD_CHOOSE first and only then scans the fixed volumes (x3c_vscan: each
+    one's root and its free space, which on a 140 MB FAT16 disk is long) and
+    opens the window - so a wait on the mode read x3c_nv 0 and x3c_vf
+    unfilled (xtclu/32k in the soak: 'lists C: and D: - 0', '[1, 0]'), and
+    an Enter sent then reached no dialog"""
+    return r.until(lambda: r.st()["md"] == MD_CHOOSE and
+                   r.b("x3c_dmode") == 1 and r.w("x3c_dwin"), what, secs, 0.2)
+
+
 def save_dialog(r):
     """the drive dialog's Enter has asked for the SAVE dialog: wait until it
     is up (fdlg_win). A fixed 2.5 s let the next Enter land before it was,
@@ -807,7 +818,7 @@ def save_dialog(r):
 
 def conv_flow(r, leg, expect_dialog=True):
     """the drive dialog's Enter, the Save dialog's Enter, the conversion"""
-    r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 60, 0.2)
+    drive_dialog(r, secs=60)
     check(leg, "the drive dialog is up", r.st()["state"] == ST_CHOOSE)
     r.key("ret")
     save_dialog(r)
@@ -883,7 +894,7 @@ def leg_cancel():
         if not check(leg, "XTMP3 opens", r.open_file("B", name,
                                                       floppy_listing([name]))):
             return
-        r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 90)
+        drive_dialog(r)
         r.key("ret")
         save_dialog(r)
         r.key("ret")
@@ -1028,7 +1039,7 @@ def leg_novol():
         if not check(leg, "XTMP3 opens", r.open_file("B", name,
                                                       floppy_listing([name]))):
             return
-        r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 90)
+        drive_dialog(r)
         check(leg, "no volume listed", r.b("x3c_nv") == 0)
         r.key("ret")
         time.sleep(2)
@@ -1053,7 +1064,7 @@ def leg_twovol():
     try:
         if not check(leg, "XTMP3 opens", r.open_file("B", name, lst)):
             return
-        r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 90)
+        drive_dialog(r)
         check(leg, "two hard drives listed, C: and D:", r.b("x3c_nv") == 2 and
               list(r.rd("x3c_vv", 2)) == [2, 3], str(list(r.rd("x3c_vv", 2))))
         r.key("down")
@@ -1079,7 +1090,7 @@ def leg_twovol():
         if not check(leg, "XTMP3 opens on the long one",
                      r.open_file("B", "HUGE.MP3", lst)):
             return
-        r.until(lambda: r.st()["md"] == MD_CHOOSE, "its dialog", 90)
+        drive_dialog(r, "its dialog")
         vf = list(r.rd("x3c_vf", 2))
         check(leg, "D: is 'too little room' for it, C: is not",
               bool(vf[1] & 2) and not vf[0] & 2, str(vf))
@@ -1156,8 +1167,7 @@ def leg_xtpeak():
         if not check(leg, "XTMP3 opens", r.open_file("C", NEON,
                                                       hd_listing([NEON]))):
             return
-        r.until(lambda: r.st()["md"] == MD_CHOOSE, "the decode-first dialog",
-                90, 0.2)
+        drive_dialog(r, "the decode-first dialog")
         r.key("esc")
         r.until(lambda: r.st()["md"] == MD_IDLE, "the dialog's cancel", 20)
         r.override_to(Q_XTSTD)        # Q: AUTO, ORIGINAL ... XT STANDARD
@@ -1248,7 +1258,7 @@ def xt_wav_check(leg, r, img, wav, src, profile, clu):
 
 def clu_convert(r, leg):
     """the drive dialog: D: chosen, Decode and Play, the Save dialog's name"""
-    r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 90, 0.2)
+    drive_dialog(r)
     check(leg, "the drive dialog lists C: and D:", r.b("x3c_nv") == 2,
           "%d" % r.b("x3c_nv"))
     r.key("down")
@@ -1272,15 +1282,13 @@ def leg_xtclu():
             if not check(leg, "XTMP3 opens", r.open_file(
                     "C", src, hd_listing([src]))):
                 continue
-            r.until(lambda: r.st()["md"] == MD_CHOOSE, "Auto's dialog", 90,
-                    0.2)
+            drive_dialog(r, "Auto's dialog")
             r.key("esc")
             r.until(lambda: r.st()["md"] == MD_IDLE, "the cancel", 20)
             r.override_to(Q_XTSTD)
             r.key("d")
             if clu == 32768:                # GREYED IN THE DIALOG for XT
-                r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive "
-                        "dialog", 90, 0.2)  # Standard, which cannot hold a
+                drive_dialog(r)             # Standard, which cannot hold a
                 vf = list(r.rd("x3c_vf", 2))    # 32 KB cluster's stage
                 check(leg, "XT STANDARD: D: greyed '32 KB clusters' in the "
                       "drive dialog, C: not", bool(vf[1] & 4) and
@@ -1318,10 +1326,8 @@ def leg_xtclu():
                 r.close()
                 xt_wav_check(leg, r, r.hds[1], wav, src, "std", clu)
             else:
-                r.key("q")                  # XT FAST
-                time.sleep(0.4)
-                check(leg, "the override is XT FAST",
-                      r.rd("x3_st", 3)[2] == Q_XTFAST)
+                check(leg, "the override is XT FAST",   # (by state, as
+                      r.override_to(Q_XTFAST))          # override_to says)
                 r.key("d")
                 clu_convert(r, leg)
                 s = r.st()
@@ -1376,7 +1382,7 @@ def leg_chgsrc():
         if not check(leg, "XTMP3 opens", r.open_file("B", name,
                                                       floppy_listing([name]))):
             return
-        r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 90)
+        drive_dialog(r)
         r.key("ret")
         save_dialog(r)
         r.key("ret")
@@ -1503,7 +1509,7 @@ def leg_batch():
     try:
         if not check(leg, "XTMP3 opens on the first", r.open_file("B", a, lst)):
             return
-        r.until(lambda: r.st()["md"] == MD_CHOOSE, "its dialog", 90)
+        drive_dialog(r, "its dialog")
         r.key("esc")
         r.until(lambda: r.st()["md"] == MD_IDLE, "the cancel", 20)
         if not check(leg, "File > Add to Queue", r.menu_pick("File", 1)):
@@ -1518,7 +1524,7 @@ def leg_batch():
         r.until(lambda: r.b("x3_qn") == 2, "the queue of two", 20)
         check(leg, "two tracks queued", r.b("x3_qn") == 2, str(r.b("x3_qn")))
         r.key("spc")                        # the first, played: its dialog
-        r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 90)
+        drive_dialog(r)
         r.key("q")                          # 'Queue too: Yes'
         time.sleep(0.8)
         check(leg, "'Queue too: Yes'", r.b("x3c_bqueue") == 1)
@@ -1575,7 +1581,7 @@ def leg_rovol():
         if not check(leg, "XTMP3 opens", r.open_file("B", name,
                                                       floppy_listing([name]))):
             return
-        r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 90)
+        drive_dialog(r)
         # ...and its LIST, which the dialog fills after the mode flips
         r.until(lambda: r.b("x3c_nv") >= 2, "the drive dialog's volumes",
                 15, 0.1)
