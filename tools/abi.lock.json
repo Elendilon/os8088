@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "152833002b519c8ad7ae9acd7800c6b18c947cd16b00ef27ca6110932454465c",
+  "fingerprint": "4ac67b2a27d9686ffc6507d63dfa1c11011089dcd2749208daaff405570fe63b",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "efc429ec1fc929ce523b5a82a3008e52f8c9e303fa2d04d7862b46895b62a03c",
+  "fingerprint": "24c51fd83d8f846cfd12e914af31f2becc4ba8ebdc707fb8b21d46b9afe97e93",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1064,6 +1064,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OS88_DRV_FOOT (drivers/os88drv.inc): a zero-byte declaration that a driver cuts its HMA block, read by tools/os88rom.py off its map - additive (SPEC.md 51.1.3.1)",
+   "to": 11
+  },
+  {
+   "fingerprint": "24c51fd83d8f846cfd12e914af31f2becc4ba8ebdc707fb8b21d46b9afe97e93",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_XMEM_WALK: XMW_CLS carries a kernel cache's purge level on kern_mega (SPEC.md 50.6.8, KERN-MEGA-MEMORY-PLAN MC1) - a contract clarified, additive",
+   "to": 10
+  },
+  {
+   "fingerprint": "4ac67b2a27d9686ffc6507d63dfa1c11011089dcd2749208daaff405570fe63b",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_XMEM_WALK: XMW_CLS carries a kernel cache's purge level on kern_mega (SPEC.md 50.6.8, KERN-MEGA-MEMORY-PLAN MC1) - a contract clarified, additive",
    "to": 11
   }
  ]

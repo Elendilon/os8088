@@ -6122,7 +6122,7 @@ mega_coldup:
 ; is); only the transport differs. Entered by xm_dsp's kern_mega arm with DS
 ; = KDATA and ES = KDATA, which is what the overlay was handed too
 ; -----------------------------------------------------------------------------
-MX_BLKSZ    equ 8
+MX_BLKSZ    equ 10
 MX_OFF      equ 0                   ; word: KB from the pool base
 MX_KB       equ 2                   ; word: size in KB, 0 = a free entry
 MX_OWN      equ 4                   ; byte: the instance (0xFF the kernel)
@@ -6138,6 +6138,12 @@ MX_FH32     equ 2                   ; ...with MX_FHUGE: a window every 32KB,
 MX_SEL      equ 6                  ; word: OSAPI_XMEM_SEL's selector over a
                                     ; window of this block, 0 = none - freed
                                     ; with the block (mx_free, mx_relall)
+MX_FPURGE   equ 4                   ; MX_FL: a kernel CACHE (MX_KOWN) the next
+                                    ; claim may take back, its tag in MX_AUX
+                                    ; and its one selector in MX_SEL
+                                    ; (KERN-MEGA-MEMORY-PLAN MC1)
+MX_AUX      equ 8                   ; word: an MX_FPURGE block's MEM_P_* tag,
+                                    ; whose high byte is its purge level
 MX_NBLK     equ 96                  ; entries (KERN-MEGA-PLAN 14.49): every
                                     ; pool claim, region, driver image and
                                     ; kernel block is one. Nine programs and
@@ -6257,6 +6263,7 @@ mx_alloc:
     pushf
     cli
     mov word [ss:di+MX_SEL], 0
+    mov word [ss:di+MX_AUX], 0
     mov [ss:di+MX_OFF], bp
     mov [ss:di+MX_KB], cx
     mov bh, 0
@@ -6298,17 +6305,24 @@ mx_alloc:
     jmp short .take
 .norun:
     cmp bl, MX_KOWN                 ; NO RUN, BUT THE POOL MAY HOLD IT IN
-    je .nr                          ; PIECES (KERN-MEGA-PLAN 14.15): pack the
+    je .shed                        ; PIECES (KERN-MEGA-PLAN 14.15): pack the
     cmp byte [mega_cpry], 0         ; movable blocks down once and try again.
-    jne .nr                         ; The kernel's own blocks are the top's
+    jne .shed                       ; The kernel's own blocks are the top's
     mov byte [mega_cpry], 1         ; and never need it
     call MEGA_SEL_CODE:mx_compactf
     xor bp, bp
     jmp .restart                    ; (CX the KB, DI the free entry: both kept)
+.shed:                              ; ...THEN A CACHE THE CLAIMANT OUTRANKS
+    call mx_shed                    ; GOES (KERN-MEGA-MEMORY-PLAN MC1), and
+    jc .nr                          ; the whole walk runs again - a compaction
+    mov byte [mega_cpry], 0         ; included, the hole being new
+    jmp .slot
 .nr:
     mov al, 2
     jmp short .fail
 .full:
+    call mx_shed                    ; no free ENTRY: a cache's frees one
+    jnc .slot
     mov al, 1
 .fail:
     cbw
@@ -6320,6 +6334,22 @@ mx_alloc:
     pop di
     pop si
     pop cx
+    pop bx
+    ret
+
+; mx_shed - for mx_alloc's two refusals: the cheapest purgeable cache above
+; 1MB that the claimant outranks goes (mx_shedf, `.cold`, mem_shed_one's rule
+; for the pool). BL = the claimant's owner; for MX_KOWN, BH = its level (a
+; cache tag's high byte, else below MEM_PG_MIN); every other owner is a
+; program's or a driver's and outranks every cache. CF = 0 one went, CF = 1
+; none may. Clobbers nothing else
+mx_shed:
+    push bx
+    cmp bl, MX_KOWN
+    je .k
+    mov bh, 0xFF                    ; MEM_LVL_TOP's byte
+.k:
+    call COLD_SEG:mx_shedf
     pop bx
     ret
 
@@ -6956,38 +6986,70 @@ mega_ldt_free:
     pop di
     ret
 
-; mega_hiclaim - CX = bytes (1..65535) -> CF = 0 and AX = a DATA selector
-; over that many bytes above 1MB, all of them the caller's; CF = 1 and nothing
-; taken (no pool, the pool full, no LDT entry). DS = KDATA. Clobbers nothing
-; else. mega_hiclaimf is the same for a FAR caller (.cold)
+; mega_hiclaim - CX = bytes (1..65535), BX = the claim's MEM_* tag -> CF = 0
+; and AX = a DATA selector over that many bytes above 1MB, all of them the
+; caller's; CF = 1 and nothing taken (no pool, the pool full, no LDT entry).
+; DS = KDATA. Clobbers nothing else. mega_hiclaimf is the same for a FAR
+; caller (.cold).
+;
+; THE TAG IS KEPT (KERN-MEGA-MEMORY-PLAN MC1). A purgeable tag (MEM_P_*, its
+; high byte MEM_PG_MIN..MEM_PG_MAX) marks the block MX_FPURGE with the tag in
+; MX_AUX, so the next claim it is cheaper than can take it back (mx_shedf),
+; and it is also the RANK this claim sheds with - a cache never sheds one
+; worth more. The selector is the block's own (MX_SEL, mega_xmsel), so
+; mx_free gives both back. Any other tag is the kernel's to hold: pinned,
+; and outranking every cache
 mega_hiclaim:
     push bx
     push cx
     push dx
+    push si
     cmp word [xm_kb], 0
     je .no                          ; no pool: the machine refused it, or the
-    mov ax, cx                      ; switch never happened
-    xor dx, dx
+    mov si, bx                      ; switch never happened. SI = the tag
+    cmp bh, MEM_PG_MIN
+    jb .top
+    cmp bh, MEM_PG_MAX
+    jbe .lv                         ; BH = its level...
+.top:
+    mov bh, 0                       ; ...or below every one: the top rank
+.lv:
     mov bl, MX_KOWN
+    mov ax, cx
+    xor dx, dx
     call mx_alloc                   ; DX:AX = its linear base
     jc .no
-    dec cx                          ; the limit
     push dx
     push ax
-    mov bl, 0x92
-    call mega_ldt_alloc             ; AX = the selector
-    jnc .got
-    pop ax                          ; no entry: the block goes back
+    call mega_xmsel                 ; AX = the selector, in its MX_SEL (BL is
+    pop cx                          ; MX_KOWN still: the owner it scans for)
     pop dx
-    mov bl, MX_KOWN
+    jnc .got
+    xchg ax, cx                     ; no entry: the block goes back
     call mx_free
 .no:
     stc
     jmp short .out
 .got:
-    pop dx                          ; (pops keep CF = 0)
-    pop dx
+    push ax
+    xchg ax, cx                     ; DX:AX = the base again
+    mov bx, si
+    cmp bh, MEM_PG_MIN
+    jb .pin
+    cmp bh, MEM_PG_MAX
+    ja .pin
+    push si
+    mov bl, MX_KOWN
+    call mx_find                    ; SI = its entry
+    pop bx                          ; BX = the tag
+    jc .pin
+    mov [ss:si+MX_AUX], bx
+    or byte [ss:si+MX_FL], MX_FPURGE
+.pin:
+    pop ax
+    clc
 .out:
+    pop si
     pop dx
     pop cx
     pop bx
@@ -6995,6 +7057,27 @@ mega_hiclaim:
 mega_hiclaimf:
     call mega_hiclaim
     retf
+
+; mx_find - DX:AX = a block's linear base, BL = its owner -> SI = its mx_tab
+; entry, CF = 0; CF = 1 there is none. Clobbers AX, CL, DX
+mx_find:
+    call mx_rel                     ; AX = its KB from the pool's base
+    jc .o
+    mov si, mx_tab
+.l:
+    cmp word [ss:si+MX_KB], 0
+    je .n
+    cmp [ss:si+MX_OFF], ax
+    jne .n
+    cmp [ss:si+MX_OWN], bl
+    je .o                           ; (CF = 0: equal)
+.n:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .l
+    stc
+.o:
+    ret
 
 ; mega_hiclaim2 - mega_hiclaim for CODE: CX = bytes -> CF = 0, AX = the code
 ; selector of a pair (mega_ldt_alloc2) over that many bytes above 1MB, and DX:BX
@@ -7006,7 +7089,7 @@ mega_hiclaim2:
     push cx
     mov ax, cx
     xor dx, dx
-    mov bl, MX_KOWN
+    mov bx, MX_KOWN                 ; (BH = 0: code outranks every cache)
     call mx_alloc                   ; DX:AX = the base
     pop cx
     jc .no
@@ -7240,6 +7323,12 @@ mega_xmwalk:
 mega_xmcls:
     push bx
     mov ah, 0
+    cmp al, MX_KOWN                 ; A KERNEL CACHE says its purge level
+    jne .ncache                     ; (KERN-MEGA-MEMORY-PLAN MC1), the byte
+    test byte [ss:si+MX_FL], MX_FPURGE ; that is 0 for every other kernel
+    jz .ncache                      ; block
+    mov ah, [ss:si+MX_AUX+1]
+.ncache:
     mov bl, al
     and bl, 0xE0
     cmp bl, 0xC0

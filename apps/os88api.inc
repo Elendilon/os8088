@@ -2600,7 +2600,9 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; MORE THINGS (KERN-MEGA-PLAN 14.70.2): a
                                  ; driver's block (FDh, or 0C0h | row) carries
                                  ; its DRVC_* class at XMW_CLS, 0 when its row
-                                 ; is not drv_tab's; and BX = XMW_FIXED asks
+                                 ; is not drv_tab's, and a kernel CACHE (FEh)
+                                 ; its purge level FBh-FEh there (SPEC.md
+                                 ; 50.6.8); and BX = XMW_FIXED asks
                                  ; for the fixed areas between 1MB and the
                                  ; pool too, as records IN FRONT of the blocks
                                  ; owned XMW_HMA..XMW_PAD, their XMW_OFF

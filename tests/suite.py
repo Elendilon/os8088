@@ -15874,6 +15874,19 @@ SOAK = [
         wants=("build/megacdtest.img", "build/megaapps.img",
                "build/cdaudio.cue", "build/cdrack.bin", "build/mixer.bin",
                "build/cdrom.bin", "build/sound.bin")),
+    Row("megashed", "soak", py("tests/megashed.py"), 30.0,
+        "SPEC.md 50.6.8, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC1: a kernel "
+        "cache ABOVE 1MB is purgeable. Bochs at 16MB: B:'s Disk window and the "
+        "About box put the icon store, a FAT window and a raise cache in the "
+        "pool beside the boot's read-ahead store, the debugger covers every "
+        "free KB with pinned records, and the Control Panel's CTRL.DRV must "
+        "still go above 1MB - which it can only do by shedding the TRIV "
+        "caches, leaving the MED and HIGH ones standing. The failing case is "
+        "mx_alloc without its `call mx_shed`: CTRL.DRV stays low and nothing "
+        "is shed. 30s is 14 measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
+               "build/mbr.bin")),
     Row("megarehome", "soak", py("tests/megarehome.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.44, 14.48, SPEC.md 20.12.10.9: a "
         "RE-HOMED program whose own header says OS88_HIGH runs above 1MB on "

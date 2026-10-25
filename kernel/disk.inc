@@ -7077,7 +7077,10 @@ dsk_rah_wanthi:
     mov cx, DSK_RAH_SECS * 512
     mul cx                      ; AX = the store's bytes (<= 32,256: DX = 0)
     xchg ax, cx
-    call MEGA_SEL_CODE:mega_hiclaimf ; AX = its selector
+    push bx
+    mov bx, MEM_P_DIRW          ; its tag: purgeable, as the conventional
+    call MEGA_SEL_CODE:mega_hiclaimf ; store is (AX = its selector)
+    pop bx                      ; (KERN-MEGA-MEMORY-PLAN MC1)
     jc .no
     call dsk_rah_land
     jnc .got

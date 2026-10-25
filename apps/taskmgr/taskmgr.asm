@@ -1420,6 +1420,8 @@ tm_s_tdimg: db 'DrvImg', 0      ; FDh: a driver's image, moved above 1MB
 tm_s_thicl: db 'HiClaim', 0     ; 0A0h | slot: an OS88_HIGHMEM claim
 tm_s_tkern: db 'Kernel', 0      ; FEh, the kernel's own; FFh, a cell called
                                 ; outside any instance
+tm_s_tcach: db 'Cache', 0       ; FEh with a purge level in XMW_CLS: a kernel
+                                ; cache above 1MB (KERN-MEGA-MEMORY-PLAN MC1)
 %endif
 
 %ifdef TMF_HEAP
@@ -4740,7 +4742,14 @@ tm_xgidof:
     cmp bl, 0C0h
     je .drv
     cmp al, TMX_KERN
-    jae .kern
+    jb .ns
+    jne .kern
+    mov al, [si+XMW_CLS]        ; a kernel CACHE above 1MB carries its purge
+    cmp al, MEM_PG_MIN          ; level there (KERN-MEGA-MEMORY-PLAN MC1):
+    jb .kern                    ; reclaimable, so Purgeable's, as its
+    mov al, TMG_PURGE           ; conventional twin is
+    jmp short .o
+.ns:
     and al, 1Fh                 ; slot, 80h | slot, 0A0h | slot
     cmp al, INST_MAX
     jae .kern
@@ -5616,6 +5625,11 @@ tm_xrow:
     push si
     cmp al, TMX_KERN            ; the kernel's: on kern_mega every MODULE is
     jne .nk                     ; one of these, named by its file (14.70.3)
+    cmp byte [si+XMW_CLS], MEM_PG_MIN
+    jb .km                      ; ...and a CACHE carries its level (MC1)
+    mov si, tm_s_tcach
+    jmp short .t
+.km:
     push bx
     mov ax, [si+XMW_OFF]
     mov bx, 1
@@ -5677,10 +5691,12 @@ tm_xrow:
     call tm_kcol
     mov byte [di], ' '
     inc di
-    push si
-    mov si, tm_s_hheld
-    call tm_copy
-    pop si
+    mov ah, [si+XMW_CLS]        ; a kernel cache's level is its TIER, as a
+    cmp byte [si+XMW_OWN], TMX_KERN ; conventional cache's high byte is; every
+    je .tier                    ; other block is HELD
+    mov ah, 0
+.tier:
+    call tm_htier
     call tm_mrow_close
     pop di
     pop si

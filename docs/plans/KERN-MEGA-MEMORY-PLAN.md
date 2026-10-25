@@ -501,4 +501,39 @@ Each wave records here what it came to: the bytes (`.mega`, `.cold`, `.text`,
 the megaseg overhead), what it measured and on what, what it found, and its
 rows. Nothing is recorded as built that was not.
 
-*(nothing yet)*
+### MC1 as built (2026-10-25) - DONE
+
+- **The record grew a word, shared with MC3.** `MX_BLKSZ` 8 -> 10, the new
+  `MX_AUX` (offset 8) holding a cache's tag; MC3's token will use the same
+  word for an `OSAPI_XMEM_ALLOC` block, the two never applying to one block.
+  `MX_FPURGE` (4) is the `MX_FL` bit. `.lowbss` +192 bytes for 96 records.
+- **`mega_hiclaim` takes the tag in BX** and gets the block's selector
+  through `mega_xmsel`, so it lives in `MX_SEL` and `mx_free` frees both. A
+  purgeable tag marks the entry; any other is pinned. Callers: `mem_claim_x`'s
+  kern_mega arm (BX was already the tag), `mem_hicaches_f` (`MEM_P_ICO`) and
+  `dsk_rah_wanthi`, which passed the read-ahead's WIDTH in BX and now passes
+  `MEM_P_DIRW` - so the 32K store at the pool's top is now a HIGH cache, as
+  its conventional twin always was. `mega_hiclaim2` (module pairs) passes
+  BH = 0, the top rank.
+- **The shed** is `mx_shedf` in `memory.inc` (`.cold`, `%ifdef KERN_MEGA`),
+  beside `mem_shed_one`, using `mem_rank_bh` and `mem_pg_forget` unchanged.
+  `mx_alloc` calls it (through `mx_shed`, which sets the rank: BH for
+  `MX_KOWN`, the top for everyone else) at `.norun` after the compaction it
+  already tried, and at `.full`, and on success runs the whole walk again
+  with the compaction re-armed.
+- **The walk** writes the level at `XMW_CLS` for such a block (owner FEh) -
+  additive, `abi.lock.json` refreshed with no bump. The Task Manager files it
+  under `Purgeable` as TYPE `Cache` with that TIER (+36 bytes of image).
+  Seen under Bochs: `Purgeable 77K` = the conventional read-ahead landing
+  (5K, HIGH), the read-ahead store (32K, HIGH), B:'s FAT window (5K, MED),
+  the icon store (5K, TRIV) and the About box's raise cache (30K, TRIV); the
+  `Kernel` group, which used to hold the 32K, is gone from the list.
+- **Bytes:** kern_mega `.mega` 14,698 -> 14,837 (+139), `.cold` 42,207 ->
+  42,332 (+125), `.text`/`.bss` +0 (megaseg overhead 3,714, unchanged);
+  kern_big and kern_small byte-identical at one commit.
+- **Row: `megashed`** (soak, Bochs, 14 s): caches standing, every free KB
+  covered, the Control Panel opened; CTRL.DRV must go above 1MB, shedding
+  the icon store and the raise cache (both TRIV) and leaving the FAT window
+  and the read-ahead store. Green; and red with `call mx_shed` taken out
+  (CTRL.DRV stays low, nothing shed) - verified.
+- SPEC.md 50.6.8 is the contract; 28.4.11's cell table names the byte.

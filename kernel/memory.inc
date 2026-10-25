@@ -1334,6 +1334,80 @@ mem_pg_forget:
     popf
     ret
 
+%ifdef KERN_MEGA
+; -----------------------------------------------------------------------------
+; mx_shedf - FAR, from mx_alloc's refusals (`.mega`, mx_shed): mem_shed_one's
+; rule for the POOL above 1MB (KERN-MEGA-MEMORY-PLAN MC1), whose blocks have
+; no mem_tab record. The cheapest kernel cache (MX_KOWN with MX_FPURGE, its
+; tag in MX_AUX) strictly below the claimant's rank is forgotten - its owner
+; told first, through the same mem_pg_forget, so no word ever names freed
+; memory - and its block and selector freed (mx_free, whose mx_unsel takes
+; MX_SEL). Never the FAT window part-way through a write (mem_fatw_dirty's
+; test, against the selector the window lives under).
+; in:  BH = the claimant's rank byte (mem_rank_bh's input: a cache tag's high
+;      byte, anything else the top). DS = KDATA, under mx_alloc's [sch_lock]
+; out: CF = 0 one was shed, CF = 1 there was nothing it may take
+; clobbers: nothing else
+; -----------------------------------------------------------------------------
+mx_shedf:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    pushf
+    cli
+    call mem_rank_bh            ; AL = the rank a cache must be below
+    xor di, di                  ; DI = the cheapest so far, 0 = none
+    mov si, mx_tab
+.scan:
+    cmp word [ss:si+MX_KB], 0
+    je .n
+    cmp byte [ss:si+MX_OWN], MX_KOWN
+    jne .n
+    test byte [ss:si+MX_FL], MX_FPURGE
+    jz .n
+    mov dl, [ss:si+MX_AUX+1]    ; its level
+    cmp dl, al
+    jae .n                      ; at or above the best so far
+    cmp word [dsk_fatd0], 0xFFFF
+    je .take                    ; nothing is dirty anywhere
+    mov bx, [ss:si+MX_SEL]
+    cmp bx, [dsk_fatseg]
+    je .n                       ; ...and this is the window it is dirty in
+.take:
+    mov al, dl
+    mov di, si
+.n:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .scan
+    or di, di
+    jz .none
+    mov bx, [ss:di+MX_AUX]
+    call mem_pg_forget          ; the owner first
+    mov ax, [ss:di+MX_OFF]      ; DX:AX = the block's linear base
+    mov dx, ax
+    mov cl, 10
+    shl ax, cl
+    mov cl, 6
+    shr dx, cl
+    add dx, MEGA_XPOOL >> 16
+    mov bl, MX_KOWN
+    call MEGA_SEL_CODE:mx_freef ; the block, and its selector with it
+.none:
+    popf
+    cmp di, 1                   ; CF = 1 exactly when nothing went
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    retf
+%endif
+
 ; -----------------------------------------------------------------------------
 ; mem_next - SI = the next LIVE record of mem_tab after SI (module internal)
 ; in:  SI = a record, or MEM_FIRST to start a walk from the top of the table

@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88bochs as ob  # noqa: E402
 
 MC_SIZE, MEM_MAX = 10, 32
-MX_BLKSZ, MX_NBLK = 8, 96
+MX_BLKSZ, MX_NBLK = 10, 96       # kernel/mega.inc (10 since KERN-MEGA-MEMORY-PLAN MC1)
 INST_MAX = 12
 NAMES = {0xFF03: "K_DRV", 0xFF04: "K_COPY", 0xFB02: "P_MSAVE",
          0xFB01: "P_ICO", 0xFF06: "K_ASC", 0xFF08: "K_MOD", 0xFF09: "K_CLONE",
@@ -166,6 +166,7 @@ def main():
                 cmds += ["setpmem 0x%x 2 0x%x" % (e, o),
                          "setpmem 0x%x 2 0x%x" % (e + 4, 0xFF),
                          "setpmem 0x%x 2 0" % (e + 6),
+                         "setpmem 0x%x 2 0" % (e + 8),
                          "setpmem 0x%x 2 0x%x" % (e + 2, kb)]
             box.dbg(cmds)
             print("filled %d gap(s): %s KB" % (len(gaps),
