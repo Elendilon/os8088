@@ -219428,6 +219428,22 @@ whole - the install's copy of it is still sized by the index (117.10.2).
 The window is up before the request, saying *Looking for a newer os8088 on
 the network...*, so a slow server is a sentence rather than a frozen screen.
 
+**WHAT COUNTS AS AN ANSWER** is a reply whose status is exactly `200` *and*
+whose body opens with eight digits (`in_vparse`, the release line of
+117.10.1). Anything else - a `404`, a redirect, an error page served with a
+`200`, a reply cut short, no reply in the ten seconds - is `NET_FAIL`,
+*no answer*, and the floppy row stays the default. It was reported as
+*Network: release HTTP/1.1, newer* off a server that had no tree yet
+(os8088.com answering its own `404` page, 8,821 bytes, keep-alive): both
+checks above refused that reply correctly, and `in_netck` then stored the
+WRONG refusal - it loaded `NET_FAIL` into `BL` before calling `in_vget`,
+which spends `BL` on its socket verbs, so the answer saved was the last
+`NETV_*` code: `NETV_RECV` (5, `NET_NEW`) when the buffer filled, and
+`NETV_STATUS` (3, `NET_OLD`) when a short reply ended. The row then printed
+`in_vbuf`'s first eight bytes, which were the status line's `HTTP/1.1`. The
+fix is the one `mov` moved below the call, no byte added; `tests/netinstbad.py`
+is the gate, with one leg per kind of non-answer.
+
 #### 117.10.4 The first page chooses the source
 
 The Welcome page (and the upgrade page it became on a hard-disk boot) is

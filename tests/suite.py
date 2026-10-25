@@ -2760,6 +2760,20 @@ SOAK = [
                "build/os8088.img", "build/apps.img",
                "build/httpfs.bin", "build/mbr.bin", "build/boothd.bin",
                "build/kernel.sys", "build/readme.txt")),
+    Row("netinstbad", "soak", py("tests/netinstbad.py"), 40.0,
+        "SPEC.md 117.10.3: INSTALL's release check against a server with NO "
+        "release, one boot per answer at 10.0.2.2:8096 - Cloudflare's 404 "
+        "(1.5KB of headers, an 8,821-byte HTML body, keep-alive, held open), "
+        "a 200 whose body is an HTML page, a 301, a bare 'HTTP/1.1 200' and "
+        "a 404 with a release-shaped body must each read NET_FAIL with the "
+        "floppy row the default; a real release served last must read "
+        "NET_NEW. Red with in_netck's `mov bl, NET_FAIL` back above `call "
+        "in_vget` (the owner's 'release HTTP/1.1, newer': four legs), with "
+        "in_vparse's .bad answering anything else (html200), and with "
+        "in_vget's status check taken out (rel404)",
+        needs=("qemu", "nasm", "mtools"), serial=True, timeout=300,
+        wants=("build/httpmount.img", "build/install-gate.o88",
+               "build/apps.img")),
     Row("httpmount", "soak", py("tests/httpmount.py"), 105.0,
         "SPEC.md 122: HTTPFS.DRV on QEMU's NE2000, against tools/"
         "os88httpdrv.py's own server serving a fixture tree on the host. The "
