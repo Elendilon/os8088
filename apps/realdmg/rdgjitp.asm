@@ -16,6 +16,8 @@ bits 16
 org 0
 
 %include "rdgdefs.inc"
+%define RDG_CSEL                        ; (the code selectors' pairs: rt_d2c,
+                                        ;   REALDMG-SPEC 16.2.4)
 
 ; --- the entries: far, each `call` and `retf` (offsets fixed: RWJ_* in
 ; realdmg.asm) --------------------------------------------------------------
