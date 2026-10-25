@@ -1482,6 +1482,17 @@ rows. Nothing is recorded as built that was not.
       and Scribe's undo, RealDMG's and the PiXEL parts' (`PXSW`) are a
       COST and not a defect, listed for the speed pass. DOS needs nothing:
       kern_mega's arm runs its program in `kern_dos`, in real mode.
+      **RealDMG, both builds, is TAKEN by the `mega-dmg` session
+      (2026-10-25) - this branch's agents leave it alone.** `mega-dmg` has
+      merged this branch at `f3e558c0` and converts RealDMG there: the JIT
+      part and the extra cache tiers through `SEG_SUBC` (8.1), the bank
+      table, RAM banks, slot cache, frame carve and the one-claim
+      cartridge's biased bases (8.2), and the static recompiler's host
+      (`rwaot.inc`, from `realdmg-fullstatic`) with them. It lands on
+      `elendilon`, and this branch gets it at its next merge from there.
+      A first fault at `f3e558c0`, for the record: `rw_jpart` loads ES with
+      cache A's selector + 1000h (`CLOSED REALDMG 0D at 11AC:0778 err
+      2224`), so nothing past the cartridge's load runs today.
   Each converts on every kernel where the XT loop is no slower, or as a
   `PKG_MEGA` arm where it measures slower (MC7.2's answer).
   **Taken (2026-10-25, batch 1):** C64 and Apple II (the three bank fetch
@@ -1573,6 +1584,9 @@ rows. Nothing is recorded as built that was not.
 ---
 
 ## 8. Addendum from `mega-dmg`: what RealDMG needs from this round (2026-10-25)
+
+**The conversion itself is taken by `mega-dmg`** (7, the package wave's
+item 11): leave RealDMG to that session.
 
 A note from the RealDMG session, for MC7's step 4 (the six exempts) and
 step 5. It describes RealDMG as it stands on `elendilon` at `1f013feb`,
