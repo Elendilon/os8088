@@ -330,6 +330,22 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     mov %1, [ss:mega_seg0]
  %endif
 %endmacro
+; MEGA_ISHI reg - CF = 0 when the value in reg (not AX) is a POOL SELECTOR -
+; an allocator LDT selector whose descriptor's base is at or above 1MB - and
+; CF = 1 for anything else, including every value in real mode. It replaces
+; `test xl, 4` as "above 1MB": once every conventional claim is a selector
+; too (KERN-MEGA-MEMORY-PLAN MC7.4) the TI bit says nothing about where the
+; memory is. DS = the kernel's. Every register kept
+%macro MEGA_ISHI 1
+    push ax
+    mov ax, %1
+    cmp byte [mega_on], 0
+    stc
+    je %%n
+    call MEGA_SEL_CODE:mega_ishif
+%%n:
+    pop ax
+%endmacro
 ; PUSH_CSDATA / CSDO / CSEG - an on-demand MODULE (or the boot overlay) using
 ; its OWN image as data, which real mode spells through CS: `push cs / pop es`
 ; for the image's buffer, `mov [cs:var], reg` for its variables. In kern_mega's
@@ -5614,6 +5630,8 @@ kmain:
     call mega_enter             ; 286 protected mode from here on, or - on a
                                 ; machine M1 cannot drive - real mode exactly
                                 ; as it is (docs/plans/KERN-MEGA-PLAN.md 10)
+    call COLD_SEG:mem_xlatf     ; ...every claim named by its SELECTOR from
+                                ; here on (KERN-MEGA-MEMORY-PLAN MC7.4)...
     call COLD_SEG:drv_hiboot_f  ; ...and the boot's drivers above 1MB, now
                                 ; that there is a pool (item 82)...
     call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)

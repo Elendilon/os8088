@@ -4167,10 +4167,9 @@ drv_release:
                                 ; that is where it ran - CF = 0 then, which
                                 ; leaves no claim to free
 %ifdef KERN_MEGA
-    test dl, 4                  ; an image ABOVE 1MB (drv_hi): its pool block
-    jz .lowimg                  ; and its selector pair go back, there being
-    cmp dx, MEGA_LDT_FREE0 * 8  ; no claim
-    jb .lowimg
+    MEGA_ISHI dx                ; an image ABOVE 1MB (drv_hi): its pool block
+    jc .lowimg                  ; and its selector pair go back, there being
+                                ; no claim
     xchg ax, dx
     call MEGA_SEL_CODE:mega_drvhifree
     xchg ax, dx
@@ -4276,8 +4275,8 @@ drv_hiboot_f:
     mov dx, [bx+DRVR_SEG]
     or dx, dx
     jz .n
-    test dl, 4
-    jnz .n                      ; already above 1MB
+    MEGA_ISHI dx
+    jnc .n                      ; already above 1MB
     cmp word [bx+DRVR_KB], 0
     je .n                       ; not a heap claim
     mov es, dx

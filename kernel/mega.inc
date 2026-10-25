@@ -4216,10 +4216,12 @@ mega_csdata:                        ; the word under the return address - the
 
 
 ; mega_mods_fix - the module slots the BOOT armed hold a real-mode segment
-; (mod_check stores the CODE alias only once mega_pm is set), so every loaded
-; module's block is converted here: a slot naming its image's segment becomes
-; that image's LDT code alias. A disarmed slot (mod_gone, KERNEL_SEG) is
-; already right. mod_fpr's arithmetic, inline: that one is `.cold`.
+; (mod_check stores the CODE half only once mega_pm is set), so every loaded
+; module is converted here, after mega_mpall has made its claim's pair
+; (KERN-MEGA-MEMORY-PLAN MC7.4): MODR_SEG becomes the pair's DATA selector and
+; a slot naming its image's segment the pair's CODE half, data - 8. A
+; disarmed slot (mod_gone, KERNEL_SEG) is already right. mod_fpr's
+; arithmetic, inline: that one is `.cold`.
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_mods_fix:
     push ax
@@ -4232,12 +4234,11 @@ mega_mods_fix:
     cmp bx, mod_tab_end
     jae .done
     mov ax, [bx+MODR_SEG]
-    or ax, ax
-    jz .n
     mov dx, ax
-    shr dx, 1
-    shr dx, 1
-    or dl, 4                        ; DX = its code alias
+    call mega_p2d                   ; DX = its claim's data selector
+    jc .n
+    mov [bx+MODR_SEG], dx
+    sub dx, 8                       ; DX = its code half
     mov di, bx
     shr di, 1
     mov cx, [di + mod_fpt + 2 - (MOD_TAB_OFF >> 1)]
@@ -4270,24 +4271,51 @@ mega_mods_fix:
     pop ax
     ret
 
-; DI = a table of CX far pointers: every segment that is neither the kernel's
-; code segment nor .cold's - so a module image's, 512-aligned - becomes its
-; LDT code alias. Clobbers AX, CX, DI, flags.
+; DI = a table of CX far pointers: every segment that is a claim's base - a
+; module image's - becomes that claim's CODE half. Clobbers AX, CX, DI, flags.
 mega_vfix:
-    mov ax, [di+2]
-    cmp ax, KERNEL_SEG
-    je .k
-    cmp ax, COLD_SEG
-    je .k
-    test ax, 31
-    jnz .k
-    shr ax, 1
-    shr ax, 1
-    or al, 4
-    mov [di+2], ax
+    push dx
+.l:
+    mov dx, [di+2]
+    call mega_p2d
+    jc .k
+    sub dx, 8
+    mov [di+2], dx
 .k:
     add di, 4
-    loop mega_vfix
+    loop .l
+    pop dx
+    ret
+
+; mega_p2d - DX = a real-mode segment -> DX = the DATA selector of the live
+; claim based there, CF = 0; CF = 1 (DX kept) none is. At the switch, for a
+; word real mode wrote (KERN-MEGA-MEMORY-PLAN MC7.4). Clobbers nothing else
+mega_p2d:
+    push bx
+    push si
+    or dx, dx
+    jz .no
+    mov si, mem_tab
+    mov bx, mem_sel
+.l:
+    cmp [ss:si+MC_SEG], dx
+    je .f
+    add si, MC_SIZE
+    inc bx
+    inc bx
+    cmp si, mem_tab + MEM_MAX * MC_SIZE
+    jb .l
+.no:
+    stc
+    jmp short .o
+.f:
+    cmp word [ss:bx], 0
+    je .no
+    mov dx, [ss:bx]
+    clc
+.o:
+    pop si
+    pop bx
     ret
 
 ; mega_s2segf - mega_s2seg for a FAR caller (.cold): AX = a selector in, the
@@ -7379,10 +7407,10 @@ mega_modhif:
     mov [mega_xdst], bx
     mov [mega_xdst+2], dx
     push ax
-    mov ax, bp
-    mov dx, bp
-    shl ax, 4
-    shr dx, 12
+    mov ax, bp                      ; the source's base, off its
+    push cx                         ; DESCRIPTOR: a selector since KERN-MEGA-
+    call mega_selbase               ; MEMORY-PLAN MC7.4 (an identity segment
+    pop cx                          ; reads N x 16 there all the same)
     mov [mega_xsrc], ax
     mov [mega_xsrc+2], dx
     inc byte [sch_lock]
@@ -9215,10 +9243,10 @@ mega_imghuge:
     jmp short .out
 .got:
     push ax
-    mov ax, bp
-    mov dx, bp
-    shl ax, 4
-    shr dx, 12
+    mov ax, bp                      ; the source's base, off its
+    push cx                         ; DESCRIPTOR: a selector since KERN-MEGA-
+    call mega_selbase               ; MEMORY-PLAN MC7.4 (an identity segment
+    pop cx                          ; reads N x 16 there all the same)
     mov [mega_xsrc], ax
     mov [mega_xsrc+2], dx
 .c:
@@ -9310,10 +9338,10 @@ mega_imghif:
     jmp short .out
 .got:
     push ax
-    mov ax, bp
-    mov dx, bp
-    shl ax, 4
-    shr dx, 12
+    mov ax, bp                      ; the source's base, off its
+    push cx                         ; DESCRIPTOR: a selector since KERN-MEGA-
+    call mega_selbase               ; MEMORY-PLAN MC7.4 (an identity segment
+    pop cx                          ; reads N x 16 there all the same)
     mov [mega_xsrc], ax
     mov [mega_xsrc+2], dx
     or cx, cx
@@ -10002,6 +10030,29 @@ mega_dfind:
 ; register; the callers test [mega_on] first
 ; -----------------------------------------------------------------------------
 
+; mega_ishif - FAR (MEGA_ISHI): AX = a value -> CF = 0 it is a POOL selector,
+; an allocator LDT selector whose base is at or above 1MB; CF = 1 anything
+; else. Clobbers AX
+mega_ishif:
+    push cx
+    push dx
+    test al, 4
+    jz .no
+    cmp ax, MEGA_LDT_FREE0 * 8
+    jb .no
+    call mega_selbase               ; DX:AX = its base
+    jc .no
+    cmp dl, MEGA_XPOOL >> 16
+    jb .no
+    clc
+    jmp short .o
+.no:
+    stc
+.o:
+    pop dx
+    pop cx
+    retf
+
 ; mega_mpix - SI = a mem_tab record -> BX = its mem_sel slot's offset.
 ; Clobbers nothing else
 mega_mpix:
@@ -10382,9 +10433,9 @@ section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 ; and the string-restart measurement. FAR, from mega_enter
 mega_pmtail:
     call mega_frames_fix
-    call mega_mods_fix
     call mega_xminit                ; the XMEM pool behind the cells
     call mega_mpall                 ; ...and every claim's pair (MC7.4)
+    call mega_mods_fix              ; ...which the modules are named by
 
     ; --- the ROM's halves, in the chains the ISRs already make ---------------
     mov word [sch_old08], mega_t08  ; THROUGH MEGA_SEL_CODE: both live in

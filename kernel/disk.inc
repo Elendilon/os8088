@@ -2357,14 +2357,19 @@ dsk_runcap:
     jae .hma                    ; (docs/plans/HMA-PLAN.md 5) - below
 %endif
 %ifdef KERN_MEGA
-    test al, 4                  ; AN LDT SELECTOR IS NOT A SEGMENT: a window
-    jnz .hma                    ; above 1MB (OSAPI_XMEM_SEL, a package placed
-%endif                          ; high) or a code alias - the page math below
-                                ; means nothing on it, and the ROM's int 13h
-                                ; cannot reach the first kind at all. 0 bounces
-                                ; it a sector at a time through dsk_secbuf
+    test al, 4                  ; AN LDT SELECTOR IS NOT A SEGMENT: the page
+    jz .seg                     ; math is on its descriptor's BASE - every
+    call MEGA_SEL_CODE:mega_selbasef ; claim's value in protected mode
+    cmp dx, 0x0F                ; (KERN-MEGA-MEMORY-PLAN MC7.4). Above 1MB (a
+    ja .hma                     ; window, a pool claim) the ROM's int 13h
+    jmp short .lin              ; cannot reach it at all: 0 bounces it
+.seg:
+%endif
     mov cl, 4                   ; the carry out of this is the page number,
     shl ax, cl                  ; which is exactly what we do not want
+%ifdef KERN_MEGA
+.lin:
+%endif
     add ax, bx
     neg ax                      ; bytes to the next 64KB page, 17 bits wide:
     cmc                         ; CF = 1 only when page-aligned (the whole

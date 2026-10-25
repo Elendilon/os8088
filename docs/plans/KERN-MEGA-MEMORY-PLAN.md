@@ -972,3 +972,44 @@ rows. Nothing is recorded as built that was not.
   every claim is conventional): every live record's pair matches its block,
   through a Disk window, the Task Manager and the Control Panel.
 
+- **Step 5.2, callers receive the selector (2026-10-25) - DONE.** In
+  protected mode `mem_claim_1` answers a claim's DATA selector, and every
+  lookup by value (`mem_find_own`, `mem_owner_of_x`, `mem_is_region`,
+  `mem_can_move`, `mem_fatw_dirty`, `mem_in_xfer`) compares `mem_val` -
+  `mem_sel` in protected mode, `MC_SEG` otherwise; `mem_in_xfer`'s pinned
+  transfer is a selector too and is tested by its descriptor's base.
+  `mem_regrow` keeps the caller's value and does its arithmetic on the base.
+  A compactor move in protected mode is a REBASE and calls no relocation
+  proc, every holder holding a selector. **The switch translates**
+  (`mem_xlatf`, `.cold`, straight after `mega_enter`): every live record
+  whose base and selector differ runs the relocation protocol once, BX = the
+  base and DX = the selector - the holder's proc where one is declared and
+  the kernel's half (`mem_region_reloc`'s rows, the IRQ vectors and the IDT
+  through them) for every record. The TI-bit tests that meant "above 1MB"
+  became `MEGA_ISHI` (`mega_ishif`: an allocator selector whose base is at
+  or above 1MB) in `memory.inc`, `loader.inc`, `mod.inc` and `driver.inc`;
+  the ones that mean "any LDT selector" stay (the disk layer's bounce and
+  `.drvhi`, `drv_fs_call`'s redirector bounce, the LZ decoder's 64KB
+  refusal) until 5.5 and 5.6 hand those paths selectors properly.
+  `dsk_runcap` does its DMA-page arithmetic on a selector's BASE, so a
+  conventional claim is a direct transfer and only memory above 1MB
+  bounces - which is also what keeps the read-ahead landing, itself a
+  selector now, from bouncing into itself. **Modules (5.3's first piece,
+  taken here because the boot needs it):** `mega_mods_fix` runs after
+  `mega_mpall` and names each boot-loaded module by its claim's pair -
+  `MODR_SEG` the data selector, its slots and the `dkv`/`thv` tables the
+  code half, found by `mega_p2d` - and `mod_check`, `mod_hi`, `mod_hiboot`
+  arm and re-arm with data - 8; DESK.DRV's library selector is freed with a
+  conventional image too. The loader's compressed-package path converts the
+  region's selector to its real segment before adding the prefix
+  (`mega_s2segf`). Checked under Bochs at 4MB and 1MB: the desktop, a Disk
+  window, the Task Manager (running from a selector region on the 1MB
+  machine) and the Control Panel, every pair matching its block, and a scan
+  of the kernel's `.bss` and `.lowbss` finding no word still holding a
+  claim's physical base. Cost: kern_mega `.cold` +400, `.mega` +51, shared
+  window +4; kern_big and kern_small byte-identical with a clean build of
+  the same commit. **Known slow until 5.5:** a hard-disk volume served by a
+  driver (`.drvhi`) and a redirector (`drv_fs_hi`) still move a selector
+  buffer a sector at a time. Rows named for the final pass: `megaown`,
+  `megaxmove`, `megashed`, `megaxm`, `megahigh`, `megaovl`, `megarehome`,
+  `megahiber`, `megadosp`, `drvmove` on kern_mega.

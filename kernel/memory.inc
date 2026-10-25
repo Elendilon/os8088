@@ -129,8 +129,21 @@ MC_SIZE  equ 10
     call MEGA_SEL_CODE:%1
 %%n:
 %endmacro
+%macro MEM_VAL 1                ; SI = a live record -> %1 = the value its
+%ifidni %1, ax                  ; holders hold: its DATA selector in protected
+    call mem_val                ; mode (mem_sel), its base otherwise
+%else
+    push ax
+    call mem_val
+    mov %1, ax
+    pop ax
+%endif
+%endmacro
 %else
 %macro MEM_MP 1
+%endmacro
+%macro MEM_VAL 1
+    mov %1, [ss:si+MC_SEG]
 %endmacro
 %endif
 MC_DMA_HI   equ 0x8000          ; MC_DMA bit 15: the top-down door
@@ -1086,7 +1099,13 @@ mem_claim_1:
     je .mpok                    ; MEGA-MEMORY-PLAN MC7.4), and no claim
     lea si, [di - MC_SIZE]      ; without one
     call MEGA_SEL_CODE:mega_mpnewf
-    jnc .mpok
+    jc .mpno
+    push ax                     ; THE CLAIM'S VALUE IS ITS SELECTOR: every
+    call mem_val                ; holder names it by the pair's data half
+    mov dx, ax                  ; from here on, and a move is a rebase
+    pop ax
+    jmp short .mpok
+.mpno:
     mov word [ss:si+MC_SEG], 0
     jmp short .fail
 .mpok:
@@ -1890,7 +1909,7 @@ mem_can_move:
     ; them - so what it cannot know from its own tables is the only thing worth
     ; asking, and each of these three ASKS rather than trusting a driver to
     ; have remembered:
-    mov bx, [ss:si+MC_SEG]
+    MEM_VAL bx                  ; (the selector in protected mode, MC7.4)
     call mem_in_nest         ; 1. a frame is standing in it right now
     jc .pin
     cmp byte [drv_wcnt], 0      ; 2. ...or ANY driver worker exists at all -
@@ -2035,7 +2054,7 @@ mem_is_region:
                                 ; zeroes it anyway
     test byte [di+I_KIND], KIND_PKG
     jz .out                     ; not a package: CF is 0 off the test
-    mov ax, [ss:si+MC_SEG]
+    MEM_VAL ax                  ; (the selector in protected mode, MC7.4)
     sub ax, [di+I_SPTR]
     neg ax                      ; CF = 1 unless the two were EQUAL...
     cmc                         ; ...so this is CF = 1 exactly when they were
@@ -2287,8 +2306,16 @@ mem_fatw_dirty:
     push ax
     cmp word [dsk_fatd0], 0xFFFF
     je .no                      ; nothing is dirty anywhere
+%ifdef KERN_MEGA
+    push bx
+    MEM_VAL bx
+    mov ax, [dsk_fatseg]
+    cmp ax, bx                  ; ...and is THIS the window it is dirty in?
+    pop bx
+%else
     mov ax, [dsk_fatseg]
     cmp ax, [ss:si+MC_SEG]      ; ...and is THIS the window it is dirty in?
+%endif
     je .yes
 .no:
     CLC_OR_STC .yes             ; CF = 0 clean, or (.yes) CF = 1 dirty here
@@ -2300,8 +2327,14 @@ mem_fatw_dirty:
 mem_in_xfer:                    ; TWO WORDS (docs/plans/NO-PINNING-PLAN.md
     push ax                     ; K2): [mem_pinimg], a mounted image's run
     push bx                     ; table while the kernel holds its segment
+%ifdef KERN_MEGA
+    MEM_VAL bx                  ; (the selector in protected mode, MC7.4)
+    mov ax, [mem_pinimg]
+    cmp ax, bx
+%else
     mov ax, [mem_pinimg]        ; across disk calls, and [mem_pinseg], the
     cmp ax, [ss:si+MC_SEG]      ; transfer's destination - a nested transfer
+%endif
     stc                         ; re-points the second and leaves the first
     je .out                     ; alone. THE IMAGE'S IS A BASE, so it is an
                                 ; EQUAL compare and not a range: every writer
@@ -2312,6 +2345,27 @@ mem_in_xfer:                    ; TWO WORDS (docs/plans/NO-PINNING-PLAN.md
     mov ax, [mem_pinseg]
     or ax, ax
     jz .no
+%ifdef KERN_MEGA
+    cmp byte [mega_on], 0       ; PROTECTED MODE: [mem_pinseg] is a selector
+    je .pseg                    ; (a claim's, a SUB, a window), so the test is
+    push dx                     ; on its descriptor's BASE, as a paragraph
+    call MEGA_SEL_CODE:mega_selbasef
+    cmp dx, 0x0F
+    ja .pno                     ; above 1MB: no conventional claim's
+    push cx
+    mov cl, 4                   ; the paragraph it lies in
+    shr ax, cl
+    mov cl, 12
+    shl dx, cl
+    or ax, dx
+    pop cx
+    pop dx
+    jmp short .pseg
+.pno:
+    pop dx
+    jmp short .no
+.pseg:
+%endif
     cmp ax, [ss:si+MC_SEG]
     jb .no
     mov bx, [ss:si+MC_SEG]
@@ -2701,9 +2755,14 @@ mem_cp_walk:
     xchg ax, bx                 ; ...and its pair and SUBs with them
     MEM_MP mega_mpmovef         ; (KERN-MEGA-MEMORY-PLAN MC7.4)
     xchg ax, bx
-%endif
+    cmp byte [mega_on], 0       ; ...and in protected mode NOBODY is told:
+    jne .moved                  ; every holder holds the selector, which the
+%endif                          ; rebase has just aimed at the new bytes
     mov dx, di                  ; ...and the holder follows the map (BX = old
     call mem_reloc_call         ; base, DX = new)
+%ifdef KERN_MEGA
+.moved:
+%endif
     popf                        ; ...and IF back, whatever it was
 .count:
     inc dx
@@ -3206,6 +3265,52 @@ mem_hitag:
     clc
     ret
 
+;-----------------------------------------------------------------------------
+; mem_xlatf - FAR, once, straight after mega_enter (KERN-MEGA-MEMORY-PLAN
+; MC7.4): every claim the boot made in real mode is named by its PHYSICAL base,
+; and from here on its value is its pair's DATA selector. So each live record
+; whose two differ runs the relocation protocol once, exactly as a move does -
+; BX = the base it was named by, DX = the selector - which re-points every row
+; mem_region_reloc walks (driver rows, the class fast paths, the claim owners,
+; the IRQ vectors and through them the IDT) and calls the holder's own proc
+; where the record declares one. A pinned record (MC_RLOC = 0) gets the
+; kernel's half only: nothing else was told it could ever change. Real mode
+; (a machine mega_enter could not drive): nothing to do. Clobbers nothing
+; -----------------------------------------------------------------------------
+mem_xlatf:
+    cmp byte [mega_on], 0
+    je .ret
+    push ax
+    push bx
+    push dx
+    push si
+    push bp
+    mov si, MEM_FIRST
+.l:
+    call mem_next
+    jc .done
+    call mem_val                ; AX = the selector
+    mov bx, [ss:si+MC_SEG]
+    cmp ax, bx
+    je .l
+    xchg ax, dx                 ; BX = the base, DX = the selector
+    cmp word [ss:si+MC_RLOC], 0
+    je .kern
+    call mem_reloc_call         ; both halves, as the compactor's move
+    jmp short .l
+.kern:
+    mov bp, mem_region_reloc    ; the kernel's half alone
+    call KERNEL_SEG:cw_mem_disp
+    jmp short .l
+.done:
+    pop bp
+    pop si
+    pop dx
+    pop bx
+    pop ax
+.ret:
+    retf
+
 ; -----------------------------------------------------------------------------
 ; mem_hicaches_f - FAR, once, after mega_enter: the caches the boot claimed in
 ; real mode, up now that there is a pool (item 84). The window save-unders
@@ -3232,8 +3337,8 @@ mem_hicaches_f:
     mov dx, [si]
     or dx, dx
     jz .done
-    test dl, 4
-    jnz .done                   ; already above 1MB
+    MEGA_ISHI dx
+    jnc .done                   ; already above 1MB
     push si
     push bx
     mov bx, MEM_P_ICO
@@ -3437,7 +3542,7 @@ mem_reloc_call:
                                 ; mem_cp_run has already re-based - and I_SPTR,
                                 ; which the kernel's half above has just put
                                 ; right - so the two agree at the NEW base
-    mov ax, [ss:si+MC_SEG]      ; ...AT ITS NEW BASE, which mem_cp_run wrote
+    MEM_VAL ax                  ; ...AT ITS NEW BASE, which mem_cp_run wrote
                                 ; before calling this. The old one is BX and
                                 ; there is nothing there any more. PKG_DISP is
                                 ; a fixed offset in the program's image and the
@@ -3874,12 +3979,43 @@ mem_bigrun:
 ; mem_movable, mem_regrow's own find, and mem_own_drv - which did NOT have the
 ; first test and now does.
 ; -----------------------------------------------------------------------------
+%ifdef KERN_MEGA
+; mem_val - SI = a live record -> AX = the value its holders hold: in protected
+; mode its DATA selector (mem_sel, KERN-MEGA-MEMORY-PLAN MC7.4), else its base.
+; Clobbers nothing else
+mem_val:
+    mov ax, [ss:si+MC_SEG]
+    cmp byte [mega_on], 0
+    je .o
+    push bx
+    push dx
+    mov ax, si
+    sub ax, mem_tab
+    xor dx, dx
+    mov bx, MC_SIZE
+    div bx
+    shl ax, 1
+    xchg ax, bx
+    mov ax, [ss:bx+mem_sel]
+    pop dx
+    pop bx
+.o:
+    ret
+%endif
+
 mem_find_own:
     mov si, MEM_FIRST
 .scan:
     call mem_next               ; (skipping free records, which could match
     jc .out                     ; a DX of 0) - CF = 1: no such claim
+%ifdef KERN_MEGA
+    push ax
+    MEM_VAL ax                  ; (the selector in protected mode, MC7.4)
+    cmp ax, dx
+    pop ax
+%else
     cmp [ss:si+MC_SEG], dx
+%endif
     jne .scan
     cmp [ss:si+MC_OWN], bx
     je .out                     ; equal, so CF is already 0
@@ -3908,10 +4044,8 @@ mem_find_own:
 ; -----------------------------------------------------------------------------
 mem_free_x:
 %ifdef KERN_MEGA
-    test dl, 4                  ; a kernel cache mem_claim_x put above 1MB
-    jz .conv                    ; (item 84): its block and selector go back
-    cmp dx, MEGA_LDT_FREE0 * 8
-    jb .conv
+    MEGA_ISHI dx                ; a kernel cache mem_claim_x put above 1MB
+    jc .conv                    ; (item 84): its block and selector go back
     call mem_hitag
     jc .conv                    ; (not one of those tags: refused below, as
     push ax                     ; any unknown segment is)
@@ -4027,6 +4161,10 @@ mem_regrow:
 
     call mem_find_own           ; it must be a base, and yours
     jc .fail
+%ifdef KERN_MEGA
+    mov [ss:mem_rgv], dx        ; the VALUE the caller named it by, which is
+    mov dx, [ss:si+MC_SEG]      ; what it gets back; the arithmetic below is
+%endif                          ; on the base (a selector in protected mode)
     cmp ax, [ss:si+MC_PARA]
     jbe .set                    ; 1. shrink or level: the tail is free now
 
@@ -4072,15 +4210,20 @@ mem_regrow:
     mov [ss:si+MC_SEG], cx         ; the record follows the bytes; MC_DMA is
                                    ; already right - it never changed
 %ifdef KERN_MEGA
-    xchg ax, dx                 ; (the old base: its SUBs follow the bytes)
-    MEM_MP mega_mpmovef
-    xchg ax, dx
+    xchg ax, dx                 ; protected mode: the pair and any SUB based
+    MEM_MP mega_mpmovef         ; in the OLD block follow the bytes (AX = the
+    xchg ax, dx                 ; old base, MC7.4)
 %endif
     mov dx, cx                  ; ...and the caller is told where it went
 .set:                           ; (all three paths: the new length)
     mov [ss:si+MC_PARA], ax
-    MEM_MP mega_mpsyncf         ; (its pair's window, KERN-MEGA-MEMORY-PLAN
-                                ; MC7.4)
+%ifdef KERN_MEGA
+    MEM_MP mega_mpsyncf         ; (its pair's window, MC7.4) - and in
+    cmp byte [mega_on], 0       ; protected mode the caller keeps the VALUE
+    je .setr                    ; it named the claim by: a selector does not
+    mov dx, [ss:mem_rgv]        ; change when its bytes move
+.setr:
+%endif
     popf
     clc
     jmp short .out
@@ -4254,9 +4397,12 @@ mem_free_rec_x:
     mov bx, [di+I_SPTR]         ; ...and a package's with its segment, which
     call mem_free_owner_x       ; is what it could name itself by
 %ifdef KERN_MEGA
-    test byte [di+I_SPTR], 4    ; ...and a region ABOVE 1MB is no claim at
-    jz .done                    ; all: its pair and pool block go back
-    push ax                     ; (KERN-MEGA-PLAN 13.3 step 4)
+    push dx
+    mov dx, [di+I_SPTR]         ; ...and a region ABOVE 1MB is no claim at
+    MEGA_ISHI dx                ; all: its pair and pool block go back
+    pop dx                      ; (KERN-MEGA-PLAN 13.3 step 4)
+    jc .done
+    push ax
     push dx
     call ld_slot
     mov dl, bl
@@ -4732,10 +4878,8 @@ mmf_osapi_mem_huge:
 ; -----------------------------------------------------------------------------
 mmf_osapi_mem_free:             ; (the cell's far entry, as mmf_osapi_mem_claim)
 %ifdef KERN_MEGA
-    test dl, 4                  ; a pool SELECTOR (mega_claimhf): its block
-    jz .conv                    ; and the selector go back together
-    cmp dx, MEGA_LDT_FREE0 * 8
-    jb .conv
+    MEGA_ISHI dx                ; a pool SELECTOR (mega_claimhf): its block
+    jc .conv                    ; and the selector go back together
     jmp COLD_SEG:mega_claimfreef  ; (its retf is this cell's)
 .conv:
 %endif
@@ -4766,10 +4910,8 @@ mmf_osapi_mem_free:             ; (the cell's far entry, as mmf_osapi_mem_claim)
 ; -----------------------------------------------------------------------------
 osapi_mem_regrow_x:
 %ifdef KERN_MEGA
-    test dl, 4                  ; a pool SELECTOR (mega_claimhf, OS88_HIGHMEM):
-    jz .conv                    ; resized in the pool, the selector kept...
-    cmp dx, MEGA_LDT_FREE0 * 8
-    jb .conv
+    MEGA_ISHI dx                ; a pool SELECTOR (mega_claimhf, OS88_HIGHMEM):
+    jc .conv                    ; resized in the pool, the selector kept...
     call COLD_SEG:mega_claimregrowf
     jc .move
     retf
@@ -4848,8 +4990,19 @@ osapi_mem_movable_x:
     test dl, 4                  ; kern_mega: a package declares its REGION
     jz .seg                     ; with DX = CS (OS88_REGION_MOVABLE), which
     cmp dx, MEGA_LDT_FREE0 * 8  ; (a POOL PAIR's code half is a region placed
-    jae .hi                     ; above 1MB, which never moves: CF = 1, as a
-    and dl, 0xF8                ; region's declaration may always answer)
+    jb .alias                   ; above 1MB, which never moves: CF = 1, as a
+    MEGA_ISHI dx                ; region's declaration may always answer)
+    jnc .hi
+    push ax                     ; ...and a CONVENTIONAL pair's (KERN-MEGA-
+    mov ax, dx                  ; MEMORY-PLAN MC7.4): a code half names the
+    call MEGA_SEL_CODE:mega_cs2dsf ; claim by its data twin, which is the
+    jc .cdat                    ; value its record holds
+    mov dx, ax
+.cdat:
+    pop ax
+    jmp short .seg
+.alias:
+    and dl, 0xF8
                                 ; is the region's LDT CODE alias, (S >> 2) |
     shl dx, 1                   ; 4 - never a claim's base, so every shipped
     shl dx, 1                   ; package's region stayed pinned. The alias
@@ -5163,7 +5316,14 @@ mem_owner_of_x:
 .scan:
     call mem_next               ; the walk every other reader of the map takes,
     jc .out                     ; and it SKIPS FREE RECORDS - so a BX of 0 is
+%ifdef KERN_MEGA
+    push ax
+    MEM_VAL ax                  ; (the selector in protected mode, MC7.4)
+    cmp ax, bx
+    pop ax
+%else
     cmp [ss:si+MC_SEG], bx      ; "no claim starts there", as the header says,
+%endif
     jne .scan                   ; where the counted loop this was matched the
     mov bx, [ss:si+MC_OWN]      ; first free record and answered its stale
 .out:                           ; owner (size pass 10). `jne` falls out with
@@ -5421,6 +5581,9 @@ section .lowbss                 ; LOW_SEG (SPEC.md 2.1). The claim map is
                                 ; the kernel's own 64KB segment - which since
                                 ; hard-disk support is the binding guard
 mem_tab:  resb MEM_MAX * MC_SIZE  ; the claim map (layout above)
+%ifdef KERN_MEGA
+mem_rgv   resw 1                ; mem_regrow's caller's value (MC7.4)
+%endif
 %ifdef OS88_COMPACT
 mem_fptr: resw 2                  ; mem_reloc_call's staged far pointer. HERE
                                   ; and not in .bss because DS is the HOLDER's

@@ -255,8 +255,8 @@ ld_unreserve:
     jz .out
     call mem_free_owner_x
 %ifdef KERN_MEGA
-    test byte [ld_base], 4      ; a region placed ABOVE 1MB (ld_hi): its
-    jz .lo                      ; pair and pool block
+    MEGA_ISHI [ld_base]         ; a region placed ABOVE 1MB (ld_hi): its
+    jc .lo                      ; pair and pool block
     push ax
     push dx
     call ld_slot
@@ -1033,6 +1033,11 @@ ld_run_body_x:
     mov ax, bx
     shr ax, cl                  ; the prefix in PARAGRAPHS...
     mov cx, es
+%ifdef KERN_MEGA
+    xchg ax, cx                 ; (the region is its pair's DATA selector in
+    call KERNEL_SEG:mega_s2segf ; protected mode, KERN-MEGA-MEMORY-PLAN MC7.4:
+    xchg ax, cx                 ; its real segment, a conventional claim's)
+%endif
     add ax, cx                  ; ...is where the body's segment starts
 %ifdef KERN_MEGA
     call KERNEL_SEG:mega_oddsegf ; off the identity grid: a selector for it
@@ -1691,8 +1696,8 @@ ld_start:
                                 ; and must not go with it. AX is still
                                 ; [ld_rehome]: both calls preserve it
 %ifdef KERN_MEGA
-    test dl, 4                  ; A LOADER PLACED ABOVE 1MB (ld_hi) is a pool
-    jz .rhlo                    ; block and a code/data pair, not a mem_tab
+    MEGA_ISHI dx                ; A LOADER PLACED ABOVE 1MB (ld_hi) is a pool
+    jc .rhlo                    ; block and a code/data pair, not a mem_tab
     push ax                     ; record: mem_free_x would find nothing, the
     mov ax, dx                  ; carry was never read, and the block and two
     mov dl, bl                  ; LDT entries leaked on every launch until
@@ -2178,8 +2183,8 @@ osapi_pkg_rehome_x:
     or dx, dx                   ; a segment of 0 is the heap's own "no claim"
     jz .no                      ; and can never be a part's base
 %ifdef KERN_MEGA
-    test dl, 4                  ; kern_mega: a pool selector (an OS88_HIGHMEM
-    jnz .no                     ; claim) has no code half and no heap record,
+    MEGA_ISHI dx                ; kern_mega: a pool selector (an OS88_HIGHMEM
+    jnc .no                     ; claim) has no code half and no heap record,
 %endif                          ; and the re-home runs code at its base
     mov [ld_rehome], dx
     mov [ld_rehsz], ax          ; 0 = the KEEP form, and then...
