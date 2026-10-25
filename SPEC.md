@@ -200658,6 +200658,23 @@ holds it: docs/plans/KERN-MEGA-PLAN.md 14.41 is the record. The package says
 selector (one 64 KB window, one call); with the sector reads every
 kern_mega volume takes a key's read is one call.
 
+**Each landing is inside one 64 KB physical page** (KERN-MEGA-PLAN 14.72):
+the bounce is claimed with a 32 KB head (`OSAPI_MEM_CLAIM_DMA`, CX = 32),
+and a conventional ring - the bank in place reads every chunk into its
+first slot - with its first slot and the gap's slack as the head
+(`vp_rclaim`). The kernel cuts a transfer at a page's edge (`dsk_runcap`,
+§18.91), and the straddling sector then went through the sector cache as a
+fill of its own, so a chunk landing across one was THREE `int 13h` - on a
+BIOS-served disk three reflections, each a CPU reset on a 286 - where one
+does. Measured on 86Box's ami286 with an XT-IDE ROM's disk: 25.1 calls a
+second of 31.6 sectors before, 13.6 of 59.9 after, the same as kern_big's
+12.4 of 60.4. With no gap the ring's head is its first 64 KB, so every slot is
+on the page grid; a copying bank's ring, sized to what conventional memory
+has, gives up one slot for a page-safe claim (`vp_rclk1`: LASTX 21.4 calls a
+second, then 11.3). Either claim falls back to the plain one when no
+page-safe run is free. The PKG_MEGA arm alone; the shipped `video.bin` is
+byte-identical.
+
 #### 98.3.22 The play's profile: every frame timed on the machine (2026-10-15)
 
 **A `VPDIAG=1` player times every frame it draws and saves the times**, so

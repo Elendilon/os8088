@@ -11383,7 +11383,15 @@ vp_sstart:
     add ax, [vp_lymkb]
     inc byte [vp_lymx]
 .rmx:
+%ifdef PKG_MEGA
+    call vp_rclaim                  ; ITS SLOTS INSIDE 64 KB PAGES (14.72)...
+    jnc .rgot
+    call vp_rclk1                   ; ...or so, a slot fewer...
+    jnc .rgot
+    call vp_mclaim                  ; ...or anywhere, as before
+%else
     call vp_mclaim
+%endif
     jnc .rgot
     sub ax, bx                      ; no room for the slack: without it
     xor bx, bx
@@ -13640,8 +13648,20 @@ vp_rhtry:
     shl ax, cl                      ; (slots) x 32 KB
     mov cx, ax
     mov ax, VP_CHUNK / 1024         ; THE BOUNCE, conventional, first
+%ifdef PKG_MEGA
+    push cx                         ; ...and INSIDE ONE 64 KB PAGE: the kernel
+    mov cx, ax                      ; cuts a run at a page's edge (dsk_runcap),
+    call OSAPI_MEM_CLAIM_DMA        ; so a straddling bounce made every chunk
+    pop cx                          ; TWO int 13h calls - on a BIOS-served disk
+    jnc .bok                        ; two reflections, a 286's CPU reset each
+    call vp_mclaim                  ; (KERN-MEGA-PLAN 14.72). Anywhere, as
+    jc .no                          ; before, when no page-safe run is free
+    nop                             ; (the decode after this at the parity it
+.bok:                               ; had - tools/os88rdiff.py --hot)
+%else
     call vp_mclaim
     jc .no
+%endif
     mov [vp_dbnc], dx
     mov ax, cx
     mov bx, 0x8000                  ; a window every 32 KB
@@ -21860,6 +21880,70 @@ vp_mfree:                           ; OSAPI_MEM_FREE
     call OSAPI_MEM_FREE
     ret
 %ifdef PKG_MEGA
+; vp_rclaim - the RING's claim (AX = KB, BX = the gap's slack in KB) with its
+; slots inside 64 KB physical pages: CF=0 DX = it, CF=1 the heap has no such
+; run. The kernel cuts a read at a page's edge (dsk_runcap), the straddling
+; sector then staged through the sector cache as a fill of its own, so a
+; slot across one was two or three int 13h a chunk - on a BIOS-served disk
+; as many reflections, each a 286's CPU reset (KERN-MEGA-PLAN 14.72). With
+; no gap the head is the first 64 KB: the ring then starts on a page and
+; every 32 KB slot is inside one. With a gap the slots are G off that grid
+; on purpose (98.3.18.12), and the head is slot 0 and the slack - the slot
+; the bank in place reads every chunk into, and every EVEN one with it,
+; which is where the copying bank's bounce sits when K + the mirror is even.
+; Every other register kept
+vp_rclaim:
+    push cx
+    mov cx, 64
+    or bx, bx
+    jnz .s0                         ; (a gap: slot 0 and the slack)
+    cmp ax, cx
+    jb .s0
+    call OSAPI_MEM_CLAIM_DMA        ; every slot on the page grid...
+    jnc .r
+.s0:
+    mov cx, bx                      ; ...or slot 0 at least
+    add cx, VP_CHUNK / 1024
+    cmp cx, ax
+    jbe .h
+    mov cx, ax
+.h:
+    call OSAPI_MEM_CLAIM_DMA
+.r:
+    pop cx
+    ret
+
+; vp_rclk1 - vp_rclaim one slot fewer, for a COPYING BANK's ring, whose
+; claim is sized to what conventional memory has and so finds no page-safe
+; run of it: the bank is that play's burst buffer and the ring a few chunks
+; past it, so a slot is worth less than two int 13h every chunk. [vp_k] and
+; [vp_kr] follow it. AX = KB, BX = the slack; CF=0 DX = the ring, CF=1 not
+; taken (AX as it was). Every other register kept
+vp_rclk1:
+    cmp byte [vp_xbank], 0
+    je .no
+    cmp byte [vp_einp], 0           ; (in place the ring is the least one
+    jne .no                         ; already)
+    cmp byte [vp_xip], 0
+    jne .no
+    push cx
+    mov cx, [vp_msl]
+    inc cx
+    inc cx
+    cmp [vp_k], cx                  ; ...and the least one must be left
+    pop cx
+    jb .no
+    sub ax, VP_CHUNK / 1024
+    call vp_rclaim
+    jc .back
+    dec word [vp_k]
+    dec word [vp_kr]
+    ret
+.back:
+    add ax, VP_CHUNK / 1024
+.no:
+    stc
+    ret
 vp_mclaim:                          ; OSAPI_MEM_CLAIM, IN CONVENTIONAL MEMORY:
     push cx                         ; the DMA door with no head IS the plain
     xor cx, cx                      ; claim (os88api.inc), and OS88_HIGHMEM
