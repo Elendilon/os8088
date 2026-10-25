@@ -121,6 +121,10 @@ xg_gap:
     mov dx, es                      ; the scratch back (ES = 0 when it was
     or dx, dx                       ; refused: OSAPI_MEM_CLAIM answers DX = 0)
     jz .nf
+%ifdef PKG_MEGA
+    push ds                         ; (ES off it for the call: in protected
+    pop es                          ; mode its selector goes with it, and the
+%endif                              ; cell's pop es would be a #GP - MC7)
     call OSAPI_MEM_FREE
 .nf:
     popf
