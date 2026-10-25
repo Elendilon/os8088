@@ -498,10 +498,12 @@ hd_raw:
     mov ax, es
     cmp ah, 0xF0                ; OUR OWN BUFFER, IN THE HMA (SPEC.md 2.10.8):
     jae .bounce                 ; hd_mbr is in this image, and hd_bios_run
-    test al, 4                  ; ...or ABOVE 1MB (kern_mega's selector pair,
-    jz .go                      ; KERN-MEGA-PLAN item 82: 2800h and up), where
-    cmp ax, 0x2800              ; a reflected int 13h is refused 09h
-    jae .bounce
+    test al, 4                  ; ...or ANY kern_mega selector pair (KERN-
+    jnz .bounce                 ; MEGA-MEMORY-PLAN MC7.4): above 1MB a
+                                ; reflected int 13h is refused 09h, and below
+                                ; it the image's paragraph is no longer what
+                                ; it is named by. A real-mode image is 512-
+                                ; aligned, so bit 2 is clear there
 .go:
     call hd_xfer                ; refuses it there. Every other caller's
     pop ax                      ; buffer is in the heap

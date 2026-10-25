@@ -212,18 +212,20 @@ MPS_SIZE    equ MPS_HC + MPK_C_END - MPK_GDT
 ; mega_dsave - THE TABLE BYTES THE SUM CANNOT COVER (KERN-MEGA-DOS-PLAN 10.4's
 ; lesser items), banked in the header at the snapshot and put back by the
 ; stub's copy list before it loads the kernel's tables: GDT entries 1-5 and 7
-; (0 is W7's anchor, 6 is ODD's, written per use), 1FF8h-1FFDh (the sum stops
-; short of XA and XB, which it moves itself, on a 64-byte line) and IDT gates
-; 20h-21h (mega_ivt_sync rebuilds from 22h). {dd from the TABLES' base -
+; (0 is W7's anchor, 6 is ODD's, written per use), K5 to LDTD (the sum stops
+; short of XA and XB, which it moves itself, on a 64-byte line - the GDT's
+; last, MEGA_GDT_SCR's placing) and IDT gates 20h-21h (mega_ivt_sync rebuilds
+; from 22h), whose place mega_tset writes into mega_dsidt: the IDT follows the
+; LDT, whose size is the machine's (MC7's step 6). {dd from the TABLES' base -
 ; [mega_tbllin], which moves with the machine since KERN-MEGA-MEMORY-PLAN
 ; MC2 - dw bytes, dw at}
 mega_dsave  dd 0x08
             dw 0x28, MPK_SAVE + 0x08
             dd 0x38
             dw 0x08, MPK_SAVE + 0x38
-            dd 0xFFC0
+            dd MEGA_SEL_K5
             dw 0x30, MPK_SAVE + 0x40
-            dd MEGA_IDT_OFF + 0x100
+mega_dsidt  dd 0
             dw 0x10, MPK_SAVE + 0x70
 mega_dsave_end:
 %if (mega_dsave_end - mega_dsave) / 8 != MPK_PCPY
@@ -536,8 +538,8 @@ mega_dacc:
     mov ax, MEGA_SEL_WIN            ; the GDT, as data
     mov cx, MEGA_GDT_N
     call .one
-    mov ax, MEGA_SEL_LDTD           ; ...and the LDT
-    mov cx, MEGA_LDT_N
+    mov ax, MEGA_SEL_LDTD           ; ...and the LDT (the GDT again, under it,
+    mov cx, [mega_ldtn]             ; which costs a pass and changes nothing)
     call .one
     pop es
     ret
@@ -675,21 +677,26 @@ mega_dosparkf:
     call mega_dreg_add
 .noplace:
     xor cx, cx                      ; the GDT less entries 0-7 (WIN and ODD
-    mov bx, (0x1FFE * 8 - 0x40) / 64 ; move) and 1FFEh-1FFFh (the copy's XA
-    mov ax, 0x40                    ; and XB, which this very sum uses)
-    call .tbl                       ; (AX = the offset in the tables' block)
-    mov bx, MEGA_LDT_N * 8 / 64     ; the LDT
-    mov ax, MEGA_LDT_OFF >> 4
-    call .tblp
+    mov bx, (MEGA_SEL_K5 - 0x40) / 64 ; move) and its last line, K5 to XB
+    mov ax, 0x40                    ; (banked, and the copy's XA and XB, which
+    call .tbl                       ; this very sum uses). AX = the offset in
+                                    ; the tables' block
+    mov bx, [mega_ldtend]           ; the LDT's own entries, past the GDT it
+    sub bx, MEGA_LDT_FREE0 * 8      ; sits on (MC7's step 6): whole lines,
+    shr bx, 6                       ; mega_layoutf's rounding
+    mov ax, MEGA_LDT_FREE0 * 8
+    call .tbl
     mov bx, 4                       ; the IDT, less the gates mega_ivt_sync
-    mov ax, MEGA_IDT_OFF >> 4       ; rebuilds (22h-27h, 70h-77h): the drivers'
-    call .tblp                      ; detach rewrites those after this, and
+    mov ax, [mega_ldtend]           ; rebuilds (22h-27h, 70h-77h): the drivers'
+    call .tbl                       ; detach rewrites those after this, and
     mov bx, 9                       ; mega_dwake rebuilds them from the IVT
-    mov ax, (MEGA_IDT_OFF + 0x28 * 8) >> 4
-    call .tblp
+    mov ax, [mega_ldtend]
+    add ax, 0x28 * 8
+    call .tbl
     mov bx, 17
-    mov ax, (MEGA_IDT_OFF + 0x78 * 8) >> 4
-    call .tblp
+    mov ax, [mega_ldtend]
+    add ax, 0x78 * 8
+    call .tbl
     cmp byte [mega_coldhi], 0       ; `.cold` and `.mega`, above 1MB: one
     je .nocold                      ; region, the gap between them with it
     mov bx, (COLD_PARA * 16 + MEGA_SIZE) / 64
@@ -1017,17 +1024,7 @@ mega_dosparkf:
     ret
 .tbl:                               ; AX = an offset into the tables' block,
     xor dx, dx                      ; under 64KB: that place onto the list
-    jmp short .tbl2                 ; (BX lines, CX = 0)
-.tblp:                              ; ...the same in PARAGRAPHS: the LDT and
-    push cx                         ; the IDT are 64KB in and past
-    mov dx, ax
-    mov cl, 4
-    shl ax, cl
-    mov cl, 12
-    shr dx, cl
-    pop cx
-.tbl2:
-    add ax, [mega_tbllin]           ; where mega_layoutf put the block
+    add ax, [mega_tbllin]           ; (BX lines, CX = 0)           ; where mega_layoutf put the block
     adc dx, [mega_tbllin+2]         ; (KERN-MEGA-MEMORY-PLAN MC2)
     jmp mega_dreg_add
 

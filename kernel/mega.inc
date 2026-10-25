@@ -62,51 +62,91 @@
 
 %ifdef KERN_MEGA
 
-; THE TABLES ARE ONE BLOCK OF MEGA_TBL_SIZE: the GDT at its base, the LDT
-; MEGA_LDT_OFF in, the IDT MEGA_IDT_OFF in - above 1MB at the TOP of extended
-; memory, under `.cold` and `.mega` (mega_layoutf, KERN-MEGA-MEMORY-PLAN MC2),
-; or in conventional memory on a machine too small for that (mega_tlowf).
-; WHERE is [mega_tbllin]; nothing names a linear address of its own any more
-MEGA_LDT_OFF    equ 0x10000         ; the LDT, 64KB in
-MEGA_IDT_OFF    equ 0x14000         ; the IDT, 80KB in
-MEGA_TBL_SIZE   equ MEGA_IDT_OFF + 256 * 8 ; 82KB
-MEGA_TBL_KB     equ (MEGA_TBL_SIZE + 1023) / 1024
+; THE TABLES ARE ONE BLOCK, SIZED PER MACHINE (KERN-MEGA-MEMORY-PLAN MC7.4's
+; step 6): the GDT at its base, the LDT ON TOP OF IT - the LDT's base is the
+; GDT's, so its entries below MEGA_LDT_FREE0 are the GDT's own and its
+; allocator starts right after them, wasting no entry - and the IDT after the
+; LDT's last entry. [mega_ldtn] is the LDT's entries (the GDT's included) and
+; [mega_tblkb] the block's KB, both a pure function of [mega_extkb]
+; (mega_layoutf), so every boot of one machine lays it out the same and a
+; park's anchor is where the next boot looks. Above 1MB at the TOP of
+; extended memory under `.cold` and `.mega` (MC2), or in conventional memory
+; on a machine too small for that (mega_tlowf). WHERE is [mega_tbllin].
+;
+; THE GDT IS THE IDENTITY MAP UP TO `.cold`'s SEGMENT AND NO FURTHER: entry S/8
+; has base S x 16 for every segment the kernel itself loads (KERNEL_SEG, the
+; FAT window, LOW_SEG, the BDA, COLD_SEG, re-aimed when `.cold` goes above
+; 1MB). Every claim, region, image, frame buffer and ROM is an LDT selector
+; (MC7.4), so a segment loaded past the GDT's limit is a #GP at the
+; instruction - a missed conversion reported where it is, never memory read
+; through whatever identity entry happened to sit there.
+MEGA_IDT_SIZE   equ 256 * 8
 MEGA_HMA_KB     equ 64              ; the HMA, the pool's first 64KB, kept for
                                     ; the DOS trip's real-mode half (2.7)
-MEGA_GDT_N      equ 8192            ; the CPU's maximum: 64KB
-MEGA_LDT_N      equ 2048            ; 1MB / 512 bytes: 16KB
-MEGA_LDT_FREE0  equ 1280            ; M3's allocator (mega_ldt_alloc) owns the
+MEGA_GDT_ID     equ (COLD_SEG >> 3) + 1 ; the identity entries
+MEGA_GDT_SCR    equ ((MEGA_GDT_ID + 12) & ~7) + 3 ; the scratches after them,
+                                    ; placed so their last LINE (64 bytes) is
+                                    ; K5..XB exactly: the DOS park sums the GDT
+                                    ; in lines and banks that one apart, XA and
+                                    ; XB being the copy's own (megados.inc's
+                                    ; mega_dsave); the entries between are 0
+MEGA_GDT_N      equ MEGA_GDT_SCR + 13   ; ...and the GDT's limit
+MEGA_LDT_FREE0  equ MEGA_GDT_N      ; the LDT's allocator (mega_ldt_alloc): its
+                                    ; first entry is the first past the GDT's.
+                                    ; Every identity selector is below it, so a
+                                    ; TI-and-range test still tells a kernel
+                                    ; segment from an allocator selector
+MEGA_LDT_BASE   equ 512             ; allocator entries every machine gets...
+MEGA_LDT_PER16  equ 1               ; ...and one more per 16KB of extended
+                                    ; memory: OSAPI_MEM_HUGE's finest step over
+                                    ; all of it, beside the pairs, SUBs, windows
+                                    ; and the video selectors
+MEGA_LDT_MAX    equ 8192            ; the CPU's
 %if (FAT_SEG & 4) && FAT_SEG >= MEGA_LDT_FREE0 * 8
   %error "FAT_SEG reads as a pool selector: a FAT window above 1MB could equal it (KERN-MEGA-PLAN item 86)"
 %endif
-                                    ; entries from here up: as aliases they
-                                    ; would be segments A000-FFE0, where no
-                                    ; image lives (KERN-MEGA-PLAN 13.3)
-MEGA_SEL_K0     equ 0xFF98          ; data, base moved per use: SIX scratches
-MEGA_SEL_K1     equ 0xFFA0          ; a kernel MODULE aims at the real
-MEGA_SEL_K2     equ 0xFFA8          ; paragraphs its own arithmetic makes -
-MEGA_SEL_K3     equ 0xFFB0          ; one per stream it keeps live, so no
-MEGA_SEL_K4     equ 0xFFB8          ; stream's aim moves another's (KSEG,
-MEGA_SEL_K5     equ 0xFFC0          ; DISKOPS.DRV; KERN-MEGA-MEMORY-PLAN MC7.6).
-                                    ; GDT entries 1FF3h-1FF8h, the identity
-                                    ; selectors of ROM segments FF98-FFC0,
-                                    ; which nothing loads (MEGA_SEL_BACK's
-                                    ; argument)
-MEGA_SEL_BACK   equ 0xFFC8          ; data, base moved per use: an LZ match's
-                                    ; source 64KB behind the output, whose ES
-                                    ; is MEGA_SEL_ODD and whose input DS is
-                                    ; MEGA_SEL_SLD (mega_backf, lz.inc) - GDT
-                                    ; entry 1FF9h, ROM segment FFC8's identity
-                                    ; selector, which nothing loads
-MEGA_SEL_SLD    equ 0xFFE0          ; data, base moved per use: mega_slidef's
-                                    ; scratch, GDT entry 1FFCh - the identity
-                                    ; selector of ROM segment FFE0, which
-                                    ; nothing loads (MEGA_SEL_LDTD's argument)
-MEGA_SEL_LDTD   equ 0xFFE8          ; data, base [mega_ldtlin]: the LDT, for the
-                                    ; allocator. GDT entry 1FFDh, the identity
-                                    ; selector of segment FFE8 - the top of the
-                                    ; BIOS ROM, which nothing loads as a
-                                    ; segment (MEGA_SEL_XA's argument)
+%if (MEGA_GDT_SCR + 5) % 8
+  %error "the scratches' last line is not K5..XB (mega_dsave)"
+%endif
+%if FAT_SEG >= COLD_SEG || LOW_SEG >= COLD_SEG
+  %error "the identity map stops at COLD_SEG: the FAT window and LOW_SEG must be below it"
+%endif
+MEGA_SEL_FD     equ (MEGA_GDT_SCR - 1) * 8  ; data, base moved per use: the
+                                    ; file doors' segment arm (DSKW_LD) - in
+                                    ; the padding before the block, so the
+                                    ; park's line stays K5..XB
+%if MEGA_GDT_SCR - 1 < MEGA_GDT_ID
+  %error "MEGA_SEL_FD has no padding entry to sit in"
+%endif
+MEGA_SEL_K0     equ (MEGA_GDT_SCR + 0) * 8  ; data, base moved per use: SIX
+MEGA_SEL_K1     equ (MEGA_GDT_SCR + 1) * 8  ; scratches a kernel MODULE aims at
+MEGA_SEL_K2     equ (MEGA_GDT_SCR + 2) * 8  ; the real paragraphs its own
+MEGA_SEL_K3     equ (MEGA_GDT_SCR + 3) * 8  ; arithmetic makes - one per stream
+MEGA_SEL_K4     equ (MEGA_GDT_SCR + 4) * 8  ; it keeps live, so no stream's aim
+MEGA_SEL_K5     equ (MEGA_GDT_SCR + 5) * 8  ; moves another's (KSEG, DISKOPS.DRV;
+                                    ; KERN-MEGA-MEMORY-PLAN MC7.6)
+MEGA_SEL_BACK   equ (MEGA_GDT_SCR + 6) * 8  ; data, base moved per use: an LZ
+                                    ; match's source 64KB behind the output,
+                                    ; whose ES is MEGA_SEL_ODD and whose input
+                                    ; DS is MEGA_SEL_SLD (mega_backf, lz.inc).
+                                    ; K0..BACK ASCEND: mega_slidef slides any
+                                    ; of them onto itself by that range
+MEGA_SEL_PSCR   equ (MEGA_GDT_SCR + 7) * 8  ; data, 64KB: THE PARK'S SCRATCH,
+                                    ; the tail of `.mega`'s rung at
+                                    ; MEGA_SCR_OFF (megados.inc's MPS_*;
+                                    ; KERN-MEGA-PLAN 14.45), and banked by the
+                                    ; park with the rest of its line
+MEGA_SEL_CODE   equ (MEGA_GDT_SCR + 8) * 8  ; `.mega`'s CS. NOT the identity of
+                                    ; its own rung, as COLD_SEG is of its: that
+                                    ; rung is heap after the switch, and a claim
+                                    ; based there would be handed a CODE
+                                    ; selector (KERN-MEGA-SEGMENTS-PLAN 3.1)
+MEGA_SEL_SLD    equ (MEGA_GDT_SCR + 9) * 8  ; data, base moved per use:
+                                    ; mega_slidef's scratch
+MEGA_SEL_LDTD   equ (MEGA_GDT_SCR + 10) * 8 ; data, base [mega_ldtlin]: the LDT,
+                                    ; for the allocator
+MEGA_SEL_XA     equ (MEGA_GDT_SCR + 11) * 8 ; scratch: a linear copy's source
+MEGA_SEL_XB     equ (MEGA_GDT_SCR + 12) * 8 ; ...and its destination
 
 MEGA_SEL_LOW0   equ 0x08            ; data, base 0: the IVT and the BDA, for
                                     ; code that used ES = 0 (selector 0 is NULL)
@@ -175,7 +215,11 @@ mega_gdtr   dw MEGA_GDT_N*8 - 1     ; the real tables, aimed by mega_tset:
             dw 0, 0                 ; at the top of extended memory or in
 mega_idtr   dw 256*8 - 1            ; the conventional claim mega_tlowf takes
             dw 0, 0
-mega_ldtlin dd 0                    ; the LDT's linear base
+mega_ldtlin dd 0                    ; the LDT's linear base: the GDT's
+mega_ldtn   dw 0                    ; the LDT's entries, the GDT's included,
+mega_ldtend dw 0                    ; ...that in bytes (the scans' end), and
+mega_tblkb  dw 0                    ; the block's KB - mega_layoutf's (MC7's
+                                    ; step 6)
 mega_tbllin dd 0                    ; THE TABLES' BLOCK: the GDT's base (MC2)
 mega_coldlin dd 0                   ; `.cold` above 1MB, when [mega_codehi]
 mega_fixkb  dw 0                    ; KB from 1MB to the lowest fixed byte
@@ -254,6 +298,8 @@ mega_enter:
 .gdt:
     cmp bx, 8
     jb .gspecial
+    cmp bx, MEGA_GDT_ID             ; past `.cold`'s entry: the scratches (and
+    jae .gz                         ; the padding before them), aimed per use
     mov ax, 0xFFFF                  ; IDENTITY: base BX x 128
     stosw
     mov ax, bx
@@ -300,42 +346,14 @@ mega_enter:
     cmp bx, MEGA_GDT_N
     jb .gdt
 
-    ; --- the LDT and the IDT, through WIN moved to [mega_ldtlin] -------------
-    mov ax, [mega_ldtlin]
-    mov [mega_bwin+2], ax
-    mov al, [mega_ldtlin+2]
-    mov [mega_bwin+4], al
-    mov ax, MEGA_SEL_WIN            ; reload ES: the cache holds the old base
-    mov es, ax
-    xor di, di
-    xor bx, bx
-.ldt:
-    cmp bx, MEGA_LDT_FREE0          ; the allocator's range starts FREE: an
-    jb .lalias                      ; access byte of 0 is "not present", and
-    xor ax, ax                      ; is what mega_ldt_alloc looks for
-    stosw
-    stosw
-    stosw
-    stosw
-    jmp short .lnext
-.lalias:
-    mov ax, 0xFFFF                  ; CODE: base BX x 512
-    stosw
-    mov ax, bx
-    shl ax, 9
-    stosw
-    mov ax, bx
-    shr ax, 7
-    mov ah, 0x9A
-    stosw
+    ; --- the LDT's allocator, FREE, straight after the GDT: the LDT's base is
+    ; the GDT's (MC7.4's step 6), so DI is already its first entry. An access
+    ; byte of 0 is "not present", which mega_ldt_alloc looks for. Then the IDT
+    mov cx, [mega_ldtn]
+    sub cx, MEGA_LDT_FREE0
+    shl cx, 2                       ; (words)
     xor ax, ax
-    stosw
-.lnext:
-    inc bx
-    cmp bx, MEGA_LDT_N
-    jb .ldt
-
-    mov di, MEGA_IDT_OFF - MEGA_LDT_OFF
+    rep stosw
     call mega_idt_build             ; ES:DI = the IDT, 256 gates
 
     ; --- the real tables -------------------------------------------------------
@@ -363,7 +381,9 @@ mega_enter:
     mov ax, MEGA_SEL_WIN            ; the LDT as DATA, for its allocator: a
     mov es, ax                      ; descriptor of exactly the table, so
     mov di, MEGA_SEL_LDTD           ; nothing written through it can reach
-    mov word [es:di], MEGA_LDT_N*8 - 1 ; the IDT or `.cold` beyond it
+    mov ax, [mega_ldtend]           ; the IDT or `.cold` beyond it
+    dec ax
+    mov [es:di], ax
     mov ax, [mega_ldtlin]
     mov [es:di+2], ax
     mov al, [mega_ldtlin+2]
@@ -389,8 +409,8 @@ section .text
 ; services; 20h-27h are IRQ0-7, taken from IVT 08h-0Fh; everything else is
 ; taken from the IVT entry of the same number. An IVT entry whose segment is
 ; the kernel's becomes a gate to the same offset in the same segment (0x0060
-; or COLD_SEG are code selectors); a 512-aligned heap segment becomes its LDT
-; code alias; anything else - the ROM - becomes the EOI stub for an IRQ and
+; or COLD_SEG are code selectors); a heap image's segment becomes its pair's
+; code half; anything else - the ROM - becomes the EOI stub for an IRQ and
 ; the fault reporter for a software interrupt, which nothing here should make.
 ; -----------------------------------------------------------------------------
 mega_idt_build:
@@ -472,8 +492,15 @@ mega_idt_gate:
 .seg:
     test cx, 31
     jnz .rom
-    shr cx, 2                       ; a heap image: its LDT code alias
-    or cx, 4
+    cmp word [k_dsel], KERNEL_SEG   ; A HEAP IMAGE: its pair's CODE half
+    je .rom                         ; (KERN-MEGA-MEMORY-PLAN MC7.4). The
+    push dx                         ; switch's own build has no pairs yet and
+    mov dx, cx                      ; leaves it to mega_pmtail's mega_ivt_sync,
+    call MEGA_SEL_CODE:mega_p2df    ; which runs once mega_mpall has made them
+    mov cx, dx
+    pop dx
+    jc .rom
+    sub cx, 8
     jmp .put
 .rom:
     call mega_irqrom                ; an OPTION ROM's IRQ: reflected (DX)
@@ -2793,16 +2820,22 @@ mega_svc_back:
 .nospk2:
     call mega_rfclk                 ; the IRQ0s the ROM took meanwhile
     mov ax, [ss:bp+0]               ; ES back: its own selector if the BIOS
-    cmp ax, [mega_res]              ; left it alone, the identity selector it
-    jne .esnew                      ; now is if it did not
-    mov ax, [mega_ses]
+    cmp ax, [mega_res]              ; left it alone, and a selector for the
+    jne .esnew                      ; real segment it handed back if it did
+    mov ax, [mega_ses]              ; not (mega_rseg)
+    jmp short .esput
 .esnew:
+    call mega_rseg
+.esput:
     mov [ss:bp+0], ax
     mov ax, [ss:bp+2]
     cmp ax, [mega_rds]
     jne .dsnew
     mov ax, [mega_sds]
+    jmp short .dsput
 .dsnew:
+    call mega_rseg
+.dsput:
     mov [ss:bp+2], ax
     cmp byte [mega_irqr], 0         ; an IRQ: the interrupted code's flags
     jne .irqx                       ; are its own, not the ROM's answer
@@ -3150,24 +3183,27 @@ mega_oddsegf:
                                     ; run in real mode wrote a descriptor into
                                     ; the IVT and handed back 0030h, so the
                                     ; driver landed on the API table
+    cmp ax, MEGA_GDT_ID * 8         ; past the GDT's identity map (MC7's step
+    jae .odd                        ; 6): no selector of its own
     test al, 7
     jz .grid
+.odd:
     push di
     push es
-    push ax
+    push dx
+    mov dx, ax
+    shl ax, 4                       ; base 15:0...
+    shr dx, 12                      ; ...and 23:16
+    mov dh, 0x92
     mov di, MEGA_SEL_WIN            ; the GDT itself, as data
     mov es, di
     mov di, MEGA_SEL_ODD
-    mov word [es:di], 0xFFFF
-    shl ax, 4
-    mov [es:di+2], ax
-    pop ax
-    push ax
-    shr ax, 12
-    mov ah, 0x92
-    mov [es:di+4], ax
+    cli                             ; one descriptor, written whole (mega_gdtaim's
+    mov word [es:di], 0xFFFF        ; reason): the entry's FLAGS come back at
+    mov [es:di+2], ax               ; .grid's popf
+    mov [es:di+4], dx
     mov word [es:di+6], 0
-    pop ax
+    pop dx
     mov ax, MEGA_SEL_ODD
     pop es
     pop di
@@ -3197,14 +3233,10 @@ mega_frame_cs:
     cmp ax, KERNEL_SEG
     je .out
     test al, 4
-    jnz .pair
-    shr ax, 2                       ; a package's: its LDT code alias
-    or al, 4
-.out:
+    jz .out                         ; (a GDT selector is no package's)
+    sub ax, 8                       ; a package's region: its pair's code half
+.out:                               ; (KERN-MEGA-MEMORY-PLAN MC7.4)
     ret
-.pair:
-    sub ax, 8                       ; ...or, placed above 1MB, its pair's
-    ret                             ; code half (KERN-MEGA-PLAN 13.3 step 4)
 
 ; mega_frames_fix - every live task but the running one was suspended in real
 ; mode, so its saved DS and ES may say KERNEL_SEG, which is CODE now: a store
@@ -3439,16 +3471,15 @@ mega_gpfix:
 .nottarget:
     popf
     jmp mega_report
-.alias:                             ; AX = DI's code selector: the image's
-    mov ax, di                      ; LDT alias, or a pair's code half for a
-    test al, 4                      ; package placed ABOVE 1MB
-    jnz .apair
-    shr ax, 2
-    or al, 4
-    ret
-.apair:
+.alias:                             ; AX = DI's code selector: its pair's
+    mov ax, di                      ; code half - every image is a pair since
+    test al, 4                      ; KERN-MEGA-MEMORY-PLAN MC7.4, and the
+    jz .anone                       ; static aliases went with MC7's step 6
     sub ax, 8
     ret
+.anone:                             ; a GDT selector: no image's, reported
+    mov sp, bp
+    jmp mega_report
 .pairq:                             ; A PACKAGE PLACED ABOVE 1MB (KERN-MEGA-
     test al, 3                      ; PLAN 13.3 step 4) far-transferring
     jnz mega_report                 ; through its own DS: the error code is
@@ -3466,7 +3497,7 @@ mega_gpfix:
 .stale:                             ; A FREED SELECTOR POPPED BACK: a claim's
     test al, 4                      ; (an LDT one only - a GDT index read as
     jz mega_report                  ; an LDT one ran off its alias and faulted
-    cmp ax, MEGA_LDT_N * 8          ; in here, KERN-MEGA-PLAN 14.14)
+    cmp ax, [ss:mega_ldte]          ; in here, KERN-MEGA-PLAN 14.14)
     jae mega_report
     and ax, 0xFFF8                  ; (OS88_HIGHMEM) or a window's, given back
     cmp ax, MEGA_LDT_FREE0 * 8      ; while DS or ES still held it - which
@@ -3778,56 +3809,18 @@ mega_gpw:
 
 ; mega_cs2dsw - mega_cs2ds for a selector a WRITE is about to go through: DS
 ; or ES in mega_gpw's no-prefix arm (KERN-MEGA-PLAN 10.3 items 59 and 63).
-; The LDT holds a code alias for EVERY 512-byte base below A000, so a segment
-; built by one-paragraph arithmetic - 1234h, bit 2 set and RPL 0 - loads as
-; the alias of 48C0h and mega_cs2ds would complete the write THERE. So an
-; alias below the allocator's range is converted only when its segment lies
-; inside a live heap claim (every image is one: a package's region and its
-; parts' carve, a driver, a module, an overlay); anything else is CF = 1 and
-; mega_gpw reports the fault. The image that is running - DS or ES equal to
-; the faulting CS, `push cs / pop ds` - is a loaded image by construction and
-; skips the walk, so the common case costs one compare. It narrows and does
-; not close: an alias that lands inside ANOTHER live claim is still converted.
-; Clobbers flags; AX as mega_cs2ds.
-mega_cs2dsw:
-    cmp ax, [ss:bp+26]              ; the faulting code's own CS
-    je mega_cs2ds
-    test al, 4
-    jz mega_cs2ds                   ; the GDT's: KERNEL_SEG or nothing
-    cmp ax, MEGA_LDT_FREE0 * 8
-    jae mega_cs2ds                  ; the allocator's: its own table says
-    call mega_cs2ds                 ; AX = S (an alias always converts)
-    push cx
-    push dx
-    push si
-    push es
-    mov si, LOW_SEG                 ; the claim map is in .lowbss: through
-    mov es, si                      ; LOW_SEG, and not SS, which is whatever
-    mov si, mem_tab                 ; stack the fault arrived on
-    mov cx, MEM_MAX
-.w:
-    mov dx, ax
-    cmp word [es:si+MC_SEG], 0      ; a free record
-    je .nx
-    sub dx, [es:si+MC_SEG]
-    jb .nx                          ; below this claim
-    cmp dx, [es:si+MC_PARA]
-    jb .out                         ; inside it: CF = 1 from the compare...
-.nx:
-    add si, MC_SIZE
-    loop .w
-    clc                             ; ...so the senses are swapped once,
-.out:                               ; below: in no claim -> CF = 1
-    cmc
-    pop es
-    pop si
-    pop dx
-    pop cx
-    ret
+; It walked the claim map once, because the LDT held a code alias for every
+; 512-byte base below A000 and a segment built by one-paragraph arithmetic
+; loaded as the alias of some other base. Those aliases went with MC7's step
+; 6 (KERN-MEGA-MEMORY-PLAN): an LDT selector below the allocator's range is
+; the GDT's own entry now, which mega_cs2ds refuses, so the two are one.
+mega_cs2dsw equ mega_cs2ds
 
-; AX = a CODE selector -> AX = the DATA segment with its base, CF = 0; CF = 1
-; for anything else (a data selector, the null one, .cold's code). The LDT is
-; nothing but the 512-aligned images' code aliases, (S >> 2) | 4.
+; AX = a CODE selector -> AX = the DATA selector with its base, CF = 0; CF = 1
+; for anything else (a data selector, the null one, .cold's code). An image's
+; code selector is the CODE half of its pair, whose data is at + 8
+; (KERN-MEGA-MEMORY-PLAN MC7.4); below the allocator's range the LDT is the
+; GDT it sits on, and nothing there is an image's (MC7's step 6).
 mega_cs2dsf:                        ; ...for a FAR caller (.cold)
     call mega_cs2ds
     retf
@@ -3842,12 +3835,8 @@ mega_cs2ds:
 .ldt:
     and al, 0xF8
     cmp ax, MEGA_LDT_FREE0 * 8      ; the allocator's: the CODE half of a
-    jae .alloc                      ; pair has its data at + 8, and anything
-    shl ax, 2                       ; else there is not an image's
-    clc
-    ret
-.alloc:
-    or al, 4
+    jb .no                          ; pair has its data at + 8, and anything
+    or al, 4                        ; else there is not an image's
     jmp mega_ldt2ds
 .no:
     stc
@@ -3935,9 +3924,9 @@ mega_db:
 ; compared against the copy taken at the last sync (64 bytes) and the gates
 ; rebuilt only on a difference, so the common case is one REPE CMPSW. A
 ; vector a driver stamped with its own CS holds a PROTECTED-MODE selector -
-; the image's LDT code alias - which real mode cannot use and the next
-; reflection would jump through, so it is written back as the segment
-; ((alias & ~7) << 2) first, and the gate builder turns it into the alias.
+; its pair's code half - which real mode cannot use and the next reflection
+; would jump through, so it is written back as the image's segment (its
+; descriptor's base) first, and the gate builder turns that into the pair.
 ; mega_ivt_syncf is the far door, for a kernel site that writes a vector
 ; through MEGA_SEG0 (which does not trap).
 ; -----------------------------------------------------------------------------
@@ -4037,12 +4026,12 @@ mega_ivt_sync:
     and dl, 7
     cmp dl, 4                       ; TI = 1, RPL 0: an LDT selector...
     jne .fn
-    cmp ax, MEGA_LDT_FREE0 * 8      ; (an alias, not the allocator's)
-    jae .fn
-    and al, 0xF8                    ; ...the image it is the alias of
-    shl ax, 1
-    shl ax, 1
-    mov [es:si+2], ax
+    cmp ax, MEGA_LDT_FREE0 * 8      ; ...the allocator's - a pair's half a
+    jb .fn                          ; driver stamped with its own CS
+    call KERNEL_SEG:mega_s2segf     ; ...whose image is the segment real mode
+    cmp ax, 0xFFFF                  ; wants (above 1MB there is none: left
+    je .fn                          ; for the gate, the IRQ masked across a
+    mov [es:si+2], ax               ; reflection)
 .fn:
     add si, 4
     loop .fx
@@ -4305,8 +4294,9 @@ mega_sdtmp  db 0
 ; CSDO (kernel/kernel.asm). FAR, and called from the image: the CS a far call
 ; pushes IS the caller's, so it is read off the return address rather than
 ; passed. In real mode that CS is the segment itself; in protected mode it is
-; the LDT code alias (S >> 2) | 4, so S = (CS & ~7) << 2. FLAGS and every
-; register but the answer preserved.
+; the CODE half of the image's pair, whose data is + 8 (KERN-MEGA-MEMORY-PLAN
+; MC7.4) - or the kernel's own CS, whose data is MEGA_SEL_KDATA. FLAGS and
+; every register but the answer preserved.
 ; -----------------------------------------------------------------------------
 mega_dsimg:                         ; out: DS = the caller's image, as data
     push bp
@@ -4317,9 +4307,9 @@ mega_dsimg:                         ; out: DS = the caller's image, as data
     cmp word [cs:k_dsel], KERNEL_SEG
     je .rm
     and al, 0xF8
-    cmp ax, MEGA_LDT_FREE0 * 8      ; an image above 1MB: a CODE/DATA PAIR
-    jae .pair                       ; from the allocator, data = code + 8
-    shl ax, 2
+    cmp ax, MEGA_LDT_FREE0 * 8      ; an image: a CODE/DATA PAIR from the
+    jae .pair                       ; allocator, data = code + 8
+    mov ax, MEGA_SEL_KDATA          ; ...or the kernel's own CS
 .rm:
     mov ds, ax
     pop ax
@@ -4342,8 +4332,8 @@ mega_csdata:                        ; the word under the return address - the
     je .rm
     and byte [ss:bp+6], 0xF8
     cmp word [ss:bp+6], MEGA_LDT_FREE0 * 8
-    jae .pair                       ; above 1MB: the pair's data half
-    shl word [ss:bp+6], 2
+    jae .pair                       ; an image: the pair's data half...
+    mov word [ss:bp+6], MEGA_SEL_KDATA ; ...or the kernel's own data
 .rm:
     popf
     pop bp
@@ -4479,18 +4469,14 @@ mega_s2seg:
     jz .ret                         ; the null selector: 0, as it was
     test al, 4
     jz .gdt
-    and al, 0xF8                    ; LDT: entry i is base i x 512, always -
-    cmp ax, MEGA_LDT_FREE0 * 8      ; below the allocator's range, whose
-    jae .ldtd                       ; descriptors are read like the GDT's
-    shl ax, 2
-.ret:
-    ret
-.ldtd:
-    push es
-    push bx
+    push es                         ; LDT: its descriptor, through LDTD (the
+    push bx                         ; GDT's own entries below the allocator's
+    and al, 0xF8                    ; range, MC7's step 6)
     mov bx, ax
     mov ax, MEGA_SEL_LDTD
     jmp short .rd
+.ret:
+    ret
 .gdt:
     push es
     push bx
@@ -5162,7 +5148,7 @@ mega_hgchk:
     push cx
     push di
 .l:
-    cmp di, MEGA_LDT_N * 8
+    cmp di, [ss:mega_ldte]
     jae .no
     cmp byte [es:di+5], 0
     jne .no
@@ -5187,7 +5173,7 @@ mega_hgfree:
     call mega_hgchk
     jnc .r
     add di, 8                       ; past the taken one
-    cmp di, MEGA_LDT_N * 8
+    cmp di, [ss:mega_ldte]
     jb .s
     stc
 .r:
@@ -5358,7 +5344,7 @@ mega_xmrunf:
     push di
     push cx
 .fr:
-    cmp di, MEGA_LDT_N * 8
+    cmp di, [ss:mega_ldte]
     jae .full
     cmp byte [es:di+5], 0
     jne .taken
@@ -6225,23 +6211,14 @@ mega_fdtype:
     ret
 
 ; mega_selbase - AX = a selector -> DX:AX = its 24-bit base, CF = 1 for the
-; null one. The LDT is i x 512 by construction; the GDT is read
+; null one. Every descriptor is read: the LDT through LDTD (the GDT's own
+; entries below the allocator's range since MC7's step 6), the GDT through WIN
 mega_selbase:
     or ax, ax
     jz .no
     test al, 4
     jz .gdt
     and al, 0xF8
-    cmp ax, MEGA_LDT_FREE0 * 8      ; the allocator's: read its descriptor
-    jae .ldtd
-    mov dx, ax
-    mov cl, 10
-    shr dx, cl
-    mov cl, 6
-    shl ax, cl
-    clc
-    ret
-.ldtd:
     push es
     push bx
     mov bx, ax
@@ -6322,14 +6299,11 @@ mega_fddir  db 0                    ; the CCR read: bit 7 the change line
 ;     reset, no LOADALL. Every package that uses those cells gets the memory
 ;     with no change (12.2's table).
 ;
-; THE TWO SCRATCH DESCRIPTORS are GDT entries 1FFEh and 1FFFh, the identity
-; selectors for segments FFF0 and FFF8 - the top of the BIOS ROM, which
-; nothing loads as a segment (the ROM is reached at F000). They are written
-; through MEGA_SEL_WIN, as mega_oddsegf writes its own, and are only ever
-; held for the length of one copy under the switch lock.
+; THE TWO SCRATCH DESCRIPTORS are MEGA_SEL_XA and MEGA_SEL_XB, the GDT's last
+; two entries. They are written through MEGA_SEL_WIN, as mega_oddsegf writes
+; its own, and are only ever held for the length of one copy under the
+; switch lock.
 ; =============================================================================
-MEGA_SEL_XA equ 0xFFF0              ; scratch: the copy's source
-MEGA_SEL_XB equ 0xFFF8              ; scratch: the copy's destination
 MEGA_XPOOL  equ 0x100000            ; the pool: from 1MB up to the fixed
                                     ; area mega_layoutf puts at the TOP of
                                     ; extended memory (KERN-MEGA-MEMORY-PLAN
@@ -6338,21 +6312,6 @@ MEGA_XPOOL  equ 0x100000            ; the pool: from 1MB up to the fixed
                                     ; `add dx, MEGA_XPOOL >> 16` rests on.
                                     ; (0x140000 until MC2: `.cold`, `.mega`
                                     ; and ~50KB of padding sat under it)
-MEGA_SEL_CODE equ 0xFFD8            ; `.mega`'s CS: GDT entry 1FFBh, the
-                                    ; identity selector of ROM segment FFD8,
-                                    ; which nothing loads (MEGA_SEL_LDTD's
-                                    ; argument). NOT the identity of its own
-                                    ; rung, as COLD_SEG is of its: that rung is
-                                    ; heap after the switch, and a claim based
-                                    ; there would be handed a CODE selector
-                                    ; (KERN-MEGA-SEGMENTS-PLAN 3.1)
-MEGA_SEL_PSCR equ 0xFFD0            ; data, 64KB: THE PARK'S SCRATCH, the tail
-                                    ; of `.mega`'s rung at MEGA_SCR_OFF
-                                    ; (megados.inc's MPS_*; KERN-MEGA-PLAN
-                                    ; 14.45). GDT entry 1FFAh, the identity of
-                                    ; ROM segment FFD0 - the same argument as
-                                    ; MEGA_SEL_CODE's - and among the entries
-                                    ; the park banks (mega_dsave's 1FF8h-1FFDh)
 MEGA_SCR_OFF equ (MEGA_SIZE + 15) & ~15 ; ...its offset from `.mega`'s base
 
 ; mega_xdesc - BX = a GDT selector, DX:AX = a 24-bit base -> a 64KB data
@@ -6994,7 +6953,7 @@ mx_dfree:
     pop ax
 .dn:
     add di, 8
-    cmp di, MEGA_LDT_N * 8
+    cmp di, [ss:mega_ldte]
     jb .d
     pop es
     pop di
@@ -7146,35 +7105,22 @@ mega_xmsel:
 ; -----------------------------------------------------------------------------
 ; mega_codesel - OSAPI_MEM_CODESEL's body in protected mode: DX = a segment or
 ; selector naming a claim -> CF = 0 and AX = the selector to far call code in
-; it; CF = 1 there is none. An identity segment on the 512-byte grid below
-; A000 is its LDT alias (S >> 2) | 4 - OS88_CODESEL's arithmetic, the fast
-; path; an alias, or the CODE half of an allocator pair, is itself; the DATA
-; half of a pair is its code twin (- 8). Anything else - off the grid, the
-; allocator's lone data selectors (the read-ahead store, OSAPI_XMEM_SEL's
-; windows) - has no code view and is refused rather than guessed at.
-; Clobbers nothing else
+; it; CF = 1 there is none. The CODE half of an allocator pair is itself, and
+; the DATA half its code twin (- 8): every claim is a pair (KERN-MEGA-MEMORY-
+; PLAN MC7.4), and the static code aliases (S >> 2) | 4 went with MC7's step
+; 6. Anything else - a GDT segment, the allocator's lone data selectors (the
+; read-ahead store, OSAPI_XMEM_SEL's windows) - has no code view and is
+; refused rather than guessed at. Clobbers nothing else
 ; -----------------------------------------------------------------------------
 mega_codesel:
     mov ax, dx
     test al, 4
-    jnz .ldt
-    test al, 31
-    jnz .no                         ; off the grid: no alias exists
-    cmp ax, 0xA000
-    jae .no                         ; ...nor above the images (the allocator's)
-    or ax, ax
-    jz .no
-    shr ax, 1
-    shr ax, 1
-    or al, 4
-    clc
-    ret
-.ldt:
+    jz .no                          ; the GDT's: no claim's
     test al, 3
     jnz .no                         ; RPL 0 only
     cmp ax, MEGA_LDT_FREE0 * 8
-    jb .yes                         ; an image's alias already
-    cmp ax, MEGA_LDT_N * 8
+    jb .no                          ; below the allocator's: the GDT's own
+    cmp ax, [ss:mega_ldte]
     jae .no
     push bx
     push es
@@ -7401,7 +7347,7 @@ mega_ldt_alloc:
     cmp byte [es:di+5], 0
     je .got
     add di, 8
-    cmp di, MEGA_LDT_N * 8
+    cmp di, [ss:mega_ldte]
     jb .scan
     popf
     stc
@@ -7442,7 +7388,7 @@ mega_ldt_alloc2:
     je .got
 .next:
     add di, 8
-    cmp di, (MEGA_LDT_N - 1) * 8
+    cmp di, [ss:mega_ldtl]
     jb .scan
     popf
     stc
@@ -7486,7 +7432,7 @@ mega_ldt2ds:
     and bx, 0xFFF8
     test byte [es:bx+5], 0x08       ; the access byte's EXECUTABLE bit
     jz .no
-    cmp bx, (MEGA_LDT_N - 1) * 8    ; the last entry has no twin
+    cmp bx, [ss:mega_ldtl]    ; the last entry has no twin
     jae .no
     push ax
     mov al, [es:bx+8+5]
@@ -7853,16 +7799,16 @@ mega_xmwalk:
     cmp word [mega_tbllin+2], 0x10  ; where mega_layoutf put them (MC2): the
     jb .fxc                         ; tables only when they are above 1MB
     mov si, [mega_fixkb]            ; (mega_tlowf's are conventional), the
-    mov bx, (XMW_GDT << 8) | 64     ; HMA not here - it is the pool's own
-    call .rec                       ; first block - and no padding, there
-    add si, 64                      ; being none
-    mov bx, (XMW_LDT << 8) | (MEGA_TBL_KB - 64)
-    call .rec
+    mov bx, [mega_tblkb]            ; HMA not here - it is the pool's own
+    or bh, XMW_GDT                  ; first block - and no padding, there
+    call .rec                       ; being none. ONE record: the LDT sits on
+                                    ; the GDT since MC7's step 6
+
 .fxc:
     cmp byte [mega_codehi], 0
     je .fxe
     mov si, [mega_fixkb]
-    add si, MEGA_TBL_KB
+    add si, [mega_tblkb]
     mov bx, (XMW_KCODE << 8) | MEGA_CODE_KB
     call .rec
 .fxe:
@@ -8261,19 +8207,19 @@ mega_a20t:                          ; CF = 1 the gate is SHUT. Complement
 ; mega_tlowf - FAR, in REAL MODE from mega_enter (.cold is still conventional
 ; then): kern_mega's three tables in CONVENTIONAL memory, for a machine whose
 ; extended memory cannot hold them (KERN-MEGA-PLAN 14.1 answer 16, 14.17).
-; 82KB claimed top-down and pinned (MEM_K_MTBL), laid out exactly as above 1MB
-; - the GDT at its base, the LDT 64KB in, the IDT 80KB in - and every base
+; [mega_tblkb] claimed top-down and pinned (MEM_K_MTBL), laid out exactly as
+; above 1MB - the GDT at its base, the LDT on it, the IDT after - and every base
 ; the switch reads (the bootstrap's window, GDTR, IDTR, the LDT's descriptor
 ; and its alias, the IDT's alias) aimed at it. No pool and `.cold` stays low:
 ; mega_xminit and mega_coldup already refuse a machine this small.
-; out: CF = 0 placed; CF = 1 the heap had no 82KB, nothing changed
+; out: CF = 0 placed; CF = 1 the heap had no room for it, nothing changed
 ; -----------------------------------------------------------------------------
 mega_tlowf:
     push ax
     push bx
     push dx
     push bp
-    mov ax, 82
+    mov ax, [mega_tblkb]            ; (mega_layoutf sized it, refusing)
     mov bx, MEM_K_MTBL
     mov bp, mem_claim_hi_x          ; TOP-DOWN, pinned
     call COLD_SEG:wm_cbd            ; DX = the block
@@ -8291,12 +8237,12 @@ mega_tlowf:
     retf
 
 ; -----------------------------------------------------------------------------
-; mega_tset - DX:AX = where the tables' block goes (MEGA_TBL_SIZE: the GDT at
-; DX:AX, the LDT MEGA_LDT_OFF in, the IDT MEGA_IDT_OFF in) -> every word the
+; mega_tset - DX:AX = where the tables' block goes ([mega_tblkb]: the GDT at
+; DX:AX and the LDT on top of it, the IDT [mega_ldtend] in) -> every word the
 ; switch and the kernel read a table's place from aimed there: the
-; bootstrap's window, GDTR, IDTR, [mega_tbllin], [mega_ldtlin] and the LDT's
-; and the IDT's descriptors. Real mode (mega_gatef, before the switch).
-; Clobbers nothing
+; bootstrap's window, GDTR, IDTR, [mega_tbllin], [mega_ldtlin], the LDT's and
+; the IDT's descriptors and the DOS park's IDT line (mega_dsidt). Real mode
+; (mega_gatef, before the switch). Clobbers nothing
 ; -----------------------------------------------------------------------------
 mega_tset:
     push ax
@@ -8307,12 +8253,21 @@ mega_tset:
     mov [mega_bwin+4], dl
     mov [mega_gdtr+2], ax
     mov [mega_gdtr+4], dx
-    add dx, MEGA_LDT_OFF >> 16      ; the LDT, 64KB in
-    mov [mega_ldtlin], ax
+    mov [mega_ldtlin], ax           ; the LDT: the same base
     mov [mega_ldtlin+2], dx
     mov [mega_ldtd+2], ax
     mov [mega_ldtd+4], dl
-    add ax, MEGA_IDT_OFF - MEGA_LDT_OFF ; the IDT, 16KB after that
+    push ax
+    mov ax, [mega_ldtend]
+    mov [ss:mega_ldte], ax          ; ...the scans' end, where any DS reads it
+    sub ax, 8                       ; - HERE and not in mega_layoutf, whose
+    mov [ss:mega_ldtl], ax          ; boot-blob caller (mega_wrprobe) runs on
+    add ax, 7                       ; the loader's stack, not LOW_SEG
+    mov [mega_ldtd], ax             ; ...its limit, the allocator's last byte
+    add ax, 0x101
+    mov [mega_dsidt], ax            ; the park's line of gates 20h-21h
+    pop ax
+    add ax, [mega_ldtend]           ; the IDT, past the LDT's last entry
     adc dx, 0
     mov [mega_idtr+2], ax
     mov [mega_idtr+4], dx
@@ -8351,7 +8306,20 @@ mega_layoutf:
     mov ax, 15360
 .e:
     mov [mega_fixkb], ax
-    cmp ax, MEGA_HMA_KB + MEGA_TBL_KB + MEGA_CODE_KB
+    push ax                         ; THE TABLES' SIZE, off the same KB: the
+    shr ax, 4                       ; GDT, MEGA_LDT_BASE allocator entries and
+    add ax, MEGA_LDT_FREE0 + MEGA_LDT_BASE + 7 ; one per 16KB of extended
+    and ax, ~7                      ; memory, in whole 64-byte lines (the
+    mov [mega_ldtn], ax             ; DOS park sums lines), then the IDT
+    shl ax, 3
+    mov [mega_ldtend], ax
+    add ax, MEGA_IDT_SIZE + 1023
+    shr ax, 10
+    mov [mega_tblkb], ax
+    pop ax
+    mov dx, [mega_tblkb]
+    add dx, MEGA_HMA_KB + MEGA_CODE_KB
+    cmp ax, dx
     jb .nocode
     sub ax, MEGA_CODE_KB            ; the code at the very top...
     mov byte [mega_codehi], 1
@@ -8362,10 +8330,12 @@ mega_layoutf:
     pop ax
     jmp short .tbl
 .nocode:
-    cmp ax, MEGA_HMA_KB + MEGA_TBL_KB
+    mov dx, [mega_tblkb]
+    add dx, MEGA_HMA_KB
+    cmp ax, dx
     jb .no
 .tbl:
-    sub ax, MEGA_TBL_KB             ; ...the tables under it...
+    sub ax, [mega_tblkb]            ; ...the tables under it...
     mov [mega_fixkb], ax            ; ...and the pool under them
     call .lin
     mov [mega_tbllin], ax
@@ -8595,7 +8565,7 @@ mx_cpmove:
     mov ax, MEGA_SEL_LDTD           ; --- this piece's descriptors -------
     mov es, ax
     mov si, MEGA_LDT_FREE0 * 8
-    mov cx, MEGA_LDT_N * 8
+    mov cx, [ss:mega_ldte]
     mov dx, bx
     add dx, [bp+0]                  ; (never past its end, mx_pcut's rule:
     call mx_desc                    ; the next block's descriptors start there)
@@ -9052,7 +9022,7 @@ mx_xcut:
     ja .x                           ; ...past the cut: it crosses
 .n:
     add si, 8
-    cmp si, MEGA_LDT_N * 8
+    cmp si, [ss:mega_ldte]
     jb .l
     clc
     ret
@@ -9825,7 +9795,7 @@ mega_rgnsubfree:
     call mega_ldt_free
 .dn:
     add si, 8
-    cmp si, MEGA_LDT_N * 8
+    cmp si, [ss:mega_ldte]
     jb .d
     clc
 .out:
@@ -9921,7 +9891,7 @@ mega_subsegf:
     je .hit                         ; one over that base already
 .sn:
     add di, 8
-    cmp di, MEGA_LDT_N * 8
+    cmp di, [ss:mega_ldte]
     jb .s
     cmp bl, 0x92
     jne .nc
@@ -10702,7 +10672,7 @@ mega_dfind:
     jmp short .o
 .n:
     add di, 8
-    cmp di, MEGA_LDT_N * 8
+    cmp di, [ss:mega_ldte]
     jb .l
     stc
 .o:
@@ -10909,7 +10879,7 @@ mega_mpmovef:
     pop bx
 .n:
     add di, 8
-    cmp di, MEGA_LDT_N * 8
+    cmp di, [ss:mega_ldte]
     jb .d
     popf
     pop es
@@ -10952,6 +10922,31 @@ mega_mpall:
     pop cx
     pop ax
     ret
+
+; mega_rseg - AX = a REAL-MODE segment the BIOS handed back in ES or DS (a
+; parameter table at F000h, a buffer) -> AX = a selector for it: itself on
+; the GDT's identity map, a claim's base its pair's data half, anything else
+; mega_useg's selector over its 64KB (KERN-MEGA-MEMORY-PLAN MC7's step 6: the
+; identity map stops at `.cold`, so the segment alone loads nothing). AX
+; kept when there is none, and the load faults where it is. Clobbers nothing
+; else
+mega_rseg:
+    cmp ax, MEGA_GDT_ID * 8
+    jae .u
+    test al, 7
+    jz .r                           ; the identity map's (0 is the null one)
+.u:
+    push dx
+    mov dx, ax
+    call mega_p2d
+    jc .nu
+    mov ax, dx
+    pop dx
+.r:
+    ret
+.nu:
+    pop dx
+    jmp mega_useg
 
 ; mega_useg - AX = a real-mode segment at or above A000h (a frame buffer, a
 ; ROM) -> AX = the kernel's data selector over its 64KB, CF = 0: made the
@@ -11159,7 +11154,7 @@ mega_cdfree:
     pop ax
 .n:
     add di, 8
-    cmp di, MEGA_LDT_N * 8
+    cmp di, [ss:mega_ldte]
     jb .d
     pop es
     pop di
@@ -11245,12 +11240,12 @@ mega_idtd   dw 256*8 - 1, 0         ; the IDT as DATA (GDT entry 7), for
             db 0, 0x92                          ; mega_ivt_sync (mega_tset)
             dw 0
 mega_ldtd:                          ; the LDT's descriptor (GDT entry 3)
-    dw MEGA_LDT_N*8 - 1, 0          ; (its base: mega_tset)
+    dw 0, 0                         ; (its base and limit: mega_tset)
     db 0, 0x82
     dw 0
 mega_mrm    db "kern_mega: ", 0     ; ...the debug port's line is the toast's
 mega_t86    db "real mode: 8086-class CPU", 0
-mega_tmem   db "real mode: no 82KB for kern_mega's tables", 0
+mega_tmem   db "real mode: no room for kern_mega's tables", 0
 mega_ta20   db "real mode: A20 will not open", 0
 mega_ttask  db "real mode: a task predates it", 0
 %ifdef MEGA_DIAG                    ; the field build names the way BACK
@@ -11521,6 +11516,9 @@ mx_tab_end  equ mx_tab + MX_NBLK * MX_BLKSZ ; 14.49): in LOW_SEG beside mem_tab,
 mega_pm     resb 1                  ; 1 = protected mode, for .cold (KDATAR_C):
                                     ; .lowbss is zeroed, which is the right
                                     ; answer before mega_enter
+mega_ldte   resw 1                  ; [mega_ldtend] where any DS reads it: the
+mega_ldtl   resw 1                  ; allocator scans' end, and that less one
+                                    ; entry (mega_layoutf, MC7's step 6)
 section .text
 cpu 8086
 %endif

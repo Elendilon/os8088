@@ -97141,6 +97141,18 @@ was - by a selector - and not by its segment:
   aimed with interrupts off, so an ISR that reloads one never reads half a
   descriptor.
 
+- **The tables are sized per machine** (MC7's step 6). The GDT is the
+  identity map up to `.cold`'s segment (`MEGA_GDT_ID` entries) and thirteen
+  scratches after it, and NOTHING ELSE: a segment past it is a #GP at the
+  instruction. The LDT's base is the GDT's, so its allocator starts at
+  `MEGA_LDT_FREE0`, the first entry past the GDT, and there are no static
+  code aliases any more - an image's code is its pair's code half
+  (`OS88_CODESEL` is `value - 8` under `CPU_F_PM`). `[mega_ldtn]` is
+  `MEGA_LDT_FREE0 + 512` plus one entry per 16KB of extended memory, the
+  IDT follows the LDT, and the block is `[mega_tblkb]` KB - 11 on a 1MB
+  machine where it was 82. A real segment the BIOS hands back across a
+  reflection becomes a selector on the way out (`mega_rseg`).
+
 kern_big and kern_small are byte-identical; it is kern_mega's alone.
 
 ### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s

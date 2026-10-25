@@ -1208,6 +1208,73 @@ rows. Nothing is recorded as built that was not.
   - Cost: kern_mega only; kern_big and kern_small byte-identical with a
     clean build of the same commit.
 
+- **Step 6, the tables (2026-10-25) - DONE, with one change of mechanism:
+  the LDT does not GROW, it is SIZED per machine.** The 82KB block (a 64KB
+  identity GDT, a 16KB LDT with 1,280 static code aliases, the IDT) is now
+  ~11KB on a 1MB machine and ~12KB at 4MB:
+  - **The GDT is the identity map up to `.cold`'s segment and no further**
+    (`MEGA_GDT_ID` = COLD_SEG/8 + 1, 520 entries on today's kern_mega), then
+    padding and the thirteen scratches (K0-K5, BACK, PSCR, CODE, SLD, LDTD,
+    XA, XB) placed so their last 64-byte line is K5..XB - the line the DOS
+    park banks apart, as it banked 1FF8h-1FFDh. A segment loaded past the
+    limit is a #GP at the instruction, which is what found the sites below.
+  - **The LDT sits ON the GDT**: its base is the GDT's, so its entries below
+    `MEGA_LDT_FREE0` are the GDT's own and the allocator starts at the first
+    entry past them - no entry is wasted, and every `MEGA_LDT_FREE0 * 8` test
+    still tells an identity segment from an allocator selector. The 1,280
+    static aliases `(S >> 2) | 4` are GONE, and every arm that made or read
+    one with them: `mega_codesel`, `mega_cs2ds`/`cs2dsw` (whose claim-map
+    walk existed only for aliases), `mega_selbase`, `mega_s2seg`,
+    `MEGA_CSELTOP`, `mega_frame_cs`, `mega_dsimg`/`csdata`, the IDT builder
+    (a heap image's IVT segment is its pair's code half, made once
+    `mega_mpall` has run), `mega_ivt_sync`'s row fix (a pair a driver
+    stamped is written back as its image's real segment), the far-transfer
+    fixer, `osapi_vol_fence`, `osapi_mem_movable_x`, `mem_reloc_call`,
+    DESK.DRV's library selector, and the SDK's `OS88_CODESEL`, which is
+    `value - 8` under CPU_F_PM now (the ABI lock moved without a bump: a
+    no-op on every real-mode kernel).
+  - **Sized, not grown.** The plan asked for an LDT that starts at 2K and
+    grows. What shipped is sized once, at the switch, from `[mega_extkb]`:
+    `MEGA_LDT_FREE0 + 512 + one entry per 16KB of extended memory` (to 15MB),
+    in whole lines. Two reasons, and neither changes an end goal:
+    `mega_layoutf` must stay a pure function of the machine (a park's anchor
+    is where the next boot looks, and a resume finds the tables where its
+    image had them), and the bound is computable - the finest
+    `OSAPI_MEM_HUGE` step over all of extended memory, beside 512 entries
+    for pairs, SUBs, windows and video selectors, which is what 768 static
+    allocator entries had held. 1MB: 1,056 entries, 11KB; 4MB: 1,248, 12KB;
+    16MB: 2,016, 18KB.
+  - `mega_oddsegf` answers ODD for any paragraph past the identity map;
+    scratches are written with interrupts off; the reflection's way back
+    turns a real segment the BIOS handed back in ES or DS (a parameter
+    table at F000h) into a selector (`mega_rseg`: a claim's pair, else
+    `mega_useg`'s). Hibernate's table run and the DOS park's sums take the
+    machine's sizes; an image of other tables is refused.
+  - **The file doors' segment arm gets a scratch of its own,
+    `MEGA_SEL_FD`** (`DSKW_LD`, which `DSKW_WSEG` now is), in the padding
+    before the scratch block: `dskw_czstamp` and WRITE_AT's inside arm
+    loaded `[dskw_seg]` as a segment, which the identity map had answered
+    (megacz's Compress found the first), and MEGA_SEL_ODD is the decoder's
+    and the loader's, re-aimed inside a transfer.
+  - **Found by the cut, outside the kernel**: SOUND.DRV's ISR and HDD.DRV's
+    own-buffer bounce both tested "above 1MB" as `selector >= 2800h`, which
+    has been every conventional claim since 5.2 - SOUND.DRV takes the pair's
+    data half (+ 8) for any selector now and HDD.DRV bounces any selector;
+    the Task Manager's EBDA read and option-ROM scan loaded raw paragraphs
+    and go through `OSAPI_SEG`'s `SEG_WIN` (the paragraph itself on every
+    real-mode kernel). Its memory views still read claim headers by the
+    snapshot's physical paragraph - the Task Manager's own conversion, in
+    the package wave.
+  - A defect of this step found by its own row: `mega_layoutf` is also
+    called from the boot blob's `mega_wrprobe`, on the loader's stack, so
+    the allocator's scan bound is written in `mega_tset` and not there.
+  - **`tests/megatbl.py` is the row** (Bochs at 1, 4 and 16MB): the GDTR's
+    limit, the LDT on the GDT with this machine's entries, the IDT after it,
+    the block's KB printed, and B:'s Disk window and the Task Manager with
+    no fault. `megaxmove` and `megacz` pass on the cut.
+  - Cost: kern_big and kern_small byte-identical; kern_mega smaller in code
+    (the alias arms) and ~70KB smaller in RAM on every machine.
+
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to
   reopen the end state:

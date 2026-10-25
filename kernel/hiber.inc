@@ -563,8 +563,9 @@ hb_pick1:                       ; is volume CL one? out: CF = 0 and AL = CL
 ; the bar dropped the System menu.
 ; -----------------------------------------------------------------------------
 %ifdef KERN_MEGA
-HB_XMIN_KB equ (MPK_HDR + 512 + MEGA_TBL_SIZE + 1023) / 1024
-%endif                          ; the header, the section's head, the tables
+HB_XMIN_KB equ (MPK_HDR + 512 + 1023) / 1024
+%endif                          ; the header and the section's head, beside
+                                ; the tables' [mega_tblkb] (MC7's step 6)
 hb_ok_x:
     push bx
     push cx                     ; ...and these two, for the reason above
@@ -584,6 +585,7 @@ hb_ok_x:
     mov cl, 6                   ; PLAN 8, wave W5) - but a resume stages the
     shr ax, cl                  ; WHOLE picture in the pool, so a pool smaller
     add ax, HB_XMIN_KB          ; than conventional memory and the tables is
+    add ax, [mega_tblkb]
     mov bx, menu_s_hibernr      ; a refusal hbm_xplan is certain to make: a
     cmp ax, [xm_kb]             ; 1MB AT (10.5 lesser). A FACT, never a
     ja .set                     ; guess: it greys only what must refuse
@@ -3815,10 +3817,13 @@ hbm_xplan:
     mov [es:di+4], ax           ; (KERN-MEGA-MEMORY-PLAN MC2). `.cold`'s copy
     mov ax, [mega_tbllin + 2]   ; is not in it: a code selector,
     mov [es:di+6], ax
-    mov word [es:di+8], MEGA_TBL_SIZE & 0xFFFF
-    mov word [es:di+10], MEGA_TBL_SIZE >> 16
-    mov word [mega_hbxl], (512 + MEGA_TBL_SIZE) & 0xFFFF
-    mov word [mega_hbxl + 2], (512 + MEGA_TBL_SIZE) >> 16
+    mov ax, [mega_ldtend]       ; ...its bytes: the GDT with the LDT on it,
+    add ax, MEGA_IDT_SIZE       ; and the IDT (MC7's step 6)
+    mov [es:di+8], ax
+    mov word [es:di+10], 0
+    add ax, 512
+    mov [mega_hbxl], ax
+    mov word [mega_hbxl + 2], 0
     add di, MPK_CPYSZ           ; so KERNEL.SYS's bytes, as a boot makes them
     mov si, mx_tab
 .mx:
@@ -4189,9 +4194,11 @@ hbm_xruns:
     mov ax, [mega_tbllin + 2]
     cmp [es:si+6], ax
     jne .no
-    cmp word [es:si+8], MEGA_TBL_SIZE & 0xFFFF
+    mov ax, [mega_ldtend]       ; ...and its size, this machine's (MC7's
+    add ax, MEGA_IDT_SIZE       ; step 6): an image of other tables is
+    cmp [es:si+8], ax           ; refused, before MC7 or not
     jne .no
-    cmp word [es:si+10], MEGA_TBL_SIZE >> 16
+    cmp word [es:si+10], 0
     jne .no
     mov cx, [mega_dncpy]
 .r:

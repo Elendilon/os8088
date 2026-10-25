@@ -15922,6 +15922,19 @@ SOAK = [
         "the clone never ends and 1,330 sectors differ. 150s is 134 measured",
         needs=("86box",),
         wants=("build/mega.img",)),
+    Row("megatbl", "soak", py("tests/megatbl.py"), 45.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7's step 6: kern_mega's "
+        "tables sized per machine. Under Bochs at 1, 4 and 16MB: the GDTR's "
+        "limit is the identity map up to COLD_SEG and the scratches "
+        "(MEGA_GDT_N x 8 - 1) and not one entry more, the LDT sits on the "
+        "GDT with MEGA_LDT_FREE0 + 512 + one entry per 16KB of extended "
+        "memory, the IDT after it, the block's KB printed (11, 12, 18 - 82 "
+        "before), and B:'s Disk window and the Task Manager open with no "
+        "fault. Red with mega_gdtr's limit put back to 64KB (1 on every "
+        "machine) and with the Task Manager's EBDA read a bare `mov es, cx` "
+        "(4: kern_mega CLOSED TaskMgr). 45s is 37 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megaapps.img")),
     Row("megashed", "soak", py("tests/megashed.py"), 30.0,
         "SPEC.md 50.6.8, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC1: a kernel "
         "cache ABOVE 1MB is purgeable. Bochs at 16MB: B:'s Disk window and the "

@@ -361,11 +361,6 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     mov %1, %2
 %endif
 %endmacro
-; DSKW_WSEG sreg - the file doors' [dskw_wseg] into a segment register: the
-; selector itself on the selector arm, and on the segment arm a selector over
-; that paragraph (mega_oddsegf: the paragraph itself in real mode) - never the
-; identity GDT, which step 6 of KERN-MEGA-MEMORY-PLAN MC7 cuts. kern_mega
-; only; every register but sreg kept, FLAGS included
 ; KSEG sreg, src, slot - load sreg with the REAL paragraph src (a register
 ; other than DI, or memory): on kern_mega through the scratch selector slot
 ; (MEGA_SEL_K0..K5, mega_kaimf) - one slot per stream the code keeps live -
@@ -392,17 +387,31 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 %endif
 %endmacro
 
-%macro DSKW_WSEG 1
+; DSKW_LD sreg, mem - a file door's segment word ([dskw_seg], [dskw_wseg])
+; into a segment register: the selector itself on the selector arm, and on
+; the segment arm a selector over that paragraph through the doors' own
+; scratch, MEGA_SEL_FD (mega_kaimf: the paragraph itself in real mode) -
+; never the identity GDT, which step 6 of KERN-MEGA-MEMORY-PLAN MC7 cut. Its
+; own scratch and not MEGA_SEL_ODD, which the decoder and the loader re-aim
+; inside a transfer. kern_mega only; every register but sreg kept, FLAGS
+; included. DSKW_WSEG sreg - DSKW_LD of [dskw_wseg]
+%macro DSKW_LD 2
     push ax
     pushf
-    mov ax, [dskw_wseg]
+    mov ax, %2
     cmp byte [dskw_hi], 0
     jne %%sel
-    call KERNEL_SEG:mega_oddsegf
+    push di
+    mov di, MEGA_SEL_FD
+    call COLD_SEG:mega_kaimf
+    pop di
 %%sel:
     popf
     mov %1, ax
     pop ax
+%endmacro
+%macro DSKW_WSEG 1
+    DSKW_LD %1, [dskw_wseg]
 %endmacro
 ; MEGA_ISHI reg - CF = 0 when the value in reg (not AX) is a POOL SELECTOR -
 ; an allocator LDT selector whose descriptor's base is at or above 1MB - and
@@ -510,13 +519,10 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
  %endif
     je %%rm                     ; mega_enter, calls drivers and AUTOSTART
     test byte [ss:bp+2], 4      ; packages too, and a segment is its own
-    jnz %%pair                  ; code segment there. AN LDT SELECTOR is a
-    shr word [ss:bp+2], 1       ; package placed ABOVE 1MB: its pair's DATA
-    shr word [ss:bp+2], 1       ; half, whose code half is the entry below
-    or byte [ss:bp+2], 4        ; (KERN-MEGA-PLAN 13.3 step 4)
-    jmp short %%rm
-%%pair:
-    sub word [ss:bp+2], 8
+    jz %%rm                     ; code segment there. Every image is a PAIR
+    sub word [ss:bp+2], 8       ; (KERN-MEGA-MEMORY-PLAN MC7.4): its DATA
+                                ; half's code half is the entry below. A GDT
+                                ; selector is no image's and is left alone
 %%rm:
     popf
     pop bp

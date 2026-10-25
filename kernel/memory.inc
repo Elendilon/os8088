@@ -3587,21 +3587,14 @@ mem_reloc_call:
 %ifdef KERN_MEGA
     cmp ax, KERNEL_SEG          ; kern_mega: the KERNEL's proc runs under CS
     jne .mpkg                   ; 0x0060 with DS the data alias (0x0060 being
-    KDATAR_C ax                 ; code); a PACKAGE's with DS its identity
-    mov ds, ax                  ; selector and CS its LDT code alias
-    jmp short .mgo              ; (kernel/mega.inc). FLAGS are nobody's here
-.mpkg:
+    KDATAR_C ax                 ; code); a PACKAGE's with DS its pair's DATA
+    mov ds, ax                  ; selector and CS the CODE half below it
+    jmp short .mgo              ; (KERN-MEGA-MEMORY-PLAN MC7.4). FLAGS are
+.mpkg:                          ; nobody's here
     mov ds, ax
     cmp byte [ss:mega_pm], 0    ; ...and in REAL MODE (a compaction during
     je .mgo                     ; the boot) the segment is its own code
-    test al, 4                  ; A PACKAGE PLACED ABOVE 1MB owns the claim
-    jz .mshr                    ; by its pair's DATA selector, whose code
-    sub word [ss:mem_fptr+2], 8 ; half is the entry below (KERN-MEGA-PLAN
-    jmp short .mgo              ; 13.3 step 4)
-.mshr:
-    shr word [ss:mem_fptr+2], 1
-    shr word [ss:mem_fptr+2], 1
-    or byte [ss:mem_fptr+2], 4
+    sub word [ss:mem_fptr+2], 8
 .mgo:
 %else
     mov ds, ax                  ; from the same register, and differ only in
@@ -5011,26 +5004,18 @@ osapi_mem_movable_x:
     push dx
     test dl, 4                  ; kern_mega: a package declares its REGION
     jz .seg                     ; with DX = CS (OS88_REGION_MOVABLE), which
-    cmp dx, MEGA_LDT_FREE0 * 8  ; (a POOL PAIR's code half is a region placed
-    jb .alias                   ; above 1MB, which never moves: CF = 1, as a
-    MEGA_ISHI dx                ; region's declaration may always answer)
-    jnc .hi
-    push ax                     ; ...and a CONVENTIONAL pair's (KERN-MEGA-
-    mov ax, dx                  ; MEMORY-PLAN MC7.4): a code half names the
-    call MEGA_SEL_CODE:mega_cs2dsf ; claim by its data twin, which is the
-    jc .cdat                    ; value its record holds
+    MEGA_ISHI dx                ; is its pair's CODE half: above 1MB a region
+    jnc .hi                     ; never moves (CF = 1, as a region's
+    push ax                     ; declaration may always answer), and a
+    mov ax, dx                  ; conventional one names the claim by its
+    call MEGA_SEL_CODE:mega_cs2dsf ; data twin, the value its record holds
+    jc .cdat                    ; (KERN-MEGA-MEMORY-PLAN MC7.4)
     mov dx, ax
 .cdat:
     pop ax
-    jmp short .seg
-.alias:
-    and dl, 0xF8
-                                ; is the region's LDT CODE alias, (S >> 2) |
-    shl dx, 1                   ; 4 - never a claim's base, so every shipped
-    shl dx, 1                   ; package's region stayed pinned. The alias
-.seg:                           ; IS the image: mega_cs2ds's rule, and what
-%endif                          ; mega_gpw does for a CS in DS (KERN-MEGA-PLAN
-    call mem_own                ; 10.3 item 48)
+.seg:
+%endif
+    call mem_own
     jc .out                     ; CF = 1 already
     call mem_movable_x
 %ifdef KERN_MEGA

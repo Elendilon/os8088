@@ -188,7 +188,7 @@ def faults(b):
     for line in open(os.path.join(b.run, "stderr.log"), errors="replace"):
         m = os88box.FAULT.search(line)
         if m and int(m.group(2), 16) < 0xF000 and \
-                int(m.group(2), 16) not in (0x0060, 0x0028, 0xFFD8):
+                int(m.group(2), 16) not in (0x0060, 0x0028, MC.MEGA_CODE):
             out.append(line.strip())
     return out
 

@@ -1222,7 +1222,7 @@ cc_ovneed:
     mov di, ax                      ; worse trade than four instructions
     xor cx, cx                      ; the DMA door with no head: conventional
     call OSAPI_MEM_CLAIM_DMA_HI     ; on kern_mega for an OS88_HIGHMEM package
-                                    ; too, OS88_CODESEL shifting this segment
+                                    ; too, OS88_CODESEL converting this value
                                     ; (KERN-MEGA-PLAN 14.12).
                                     ; AX = KB; out DX = the segment. FROM THE
                                     ; TOP (SPEC.md 50.3.2), because this

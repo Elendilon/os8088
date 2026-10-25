@@ -3983,15 +3983,27 @@ tm_romscan:
     push bx
     push cx
     push dx
+    push si
     push es
     mov dx, 0xC000
     xor bx, bx
+    xor si, si                  ; SI = the window, 0 until there is one
 .l:
     cmp dx, 0xF000
     jae .out
     cmp bl, TM_UMAX
     jae .out
+    push dx                     ; ES = THE PARAGRAPH, through one window the
+    push bx                     ; kernel re-aims at each step (OSAPI_SEG's
+    mov ax, si                  ; SEG_WIN): on kern_mega a ROM's paragraph is
+    mov cx, 16                  ; no selector (KERN-MEGA-MEMORY-PLAN MC7), and
+    mov bl, SEG_WIN             ; every other kernel answers the paragraph
+    call OSAPI_SEG              ; itself
+    pop bx
+    jc .nowin
+    mov si, dx
     mov es, dx
+    pop dx
     mov cx, 0x80                ; the next 2K by default
     cmp word [es:0], 0xAA55
     jne .n
@@ -4028,9 +4040,18 @@ tm_romscan:
 .n:
     add dx, cx
     jmp short .l
+.nowin:
+    pop dx                      ; no window: the scan stops where it is
 .out:
     mov [tm_umn], bl
+    or si, si
+    jz .nofree
+    mov dx, si                  ; ...and the window back
+    mov bl, SEG_FREE
+    call OSAPI_SEG
+.nofree:
     pop es
+    pop si
     pop dx
     pop cx
     pop bx
@@ -7411,17 +7432,37 @@ tm_ebda:
     cmp cx, ax
     pop ax
     jne .out
-    mov es, cx                  ; (a multiple of 64 paragraphs: on kern_mega's
-    mov bl, [es:0]              ; identity grid too) - its size, KB
+    push dx                     ; ITS FIRST BYTE, through a window the kernel
+    push ax                     ; makes over the paragraph (OSAPI_SEG's
+    mov dx, cx                  ; SEG_WIN): on kern_mega a paragraph past the
+    xor ax, ax                  ; kernel's own is no selector at all (KERN-
+    mov cx, 16                  ; MEGA-MEMORY-PLAN MC7), and every other
+    mov bl, SEG_WIN             ; kernel answers the paragraph itself
+    call OSAPI_SEG
+    jc .nowin
+    mov es, dx
+    mov bl, [es:0]              ; its size, KB
+    xor bh, bh
+    push bx
+    mov bl, SEG_FREE            ; ...and the window back
+    call OSAPI_SEG
+    pop bx
+    pop ax
+    pop dx
     mov cx, 640
     sub cx, ax                  ; no bigger than the gap to 640K
     cmp bx, cx
     jbe .out
+.none:
     xor bx, bx
 .out:
     pop es
     pop cx
     ret
+.nowin:
+    pop ax
+    pop dx
+    jmp short .none
 
 ; -----------------------------------------------------------------------------
 ; tm_cpucol - the CPU column: share right-aligned in 3, then '%', then the

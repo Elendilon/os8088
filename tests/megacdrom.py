@@ -76,7 +76,28 @@ import os88ui                                                 # noqa: E402
 CD_ROW = 7                      # drv_tab's CDROM.DRV row (kern_big's, and
 DRVR_SIZE, DRVR_SEG = 16, 2     #   so kern_mega's)
 WIN_SIZE, W_SEG, W_FLAGS = 74, 22, 0
-POOL0 = 0x2800                  # MEGA_LDT_FREE0 * 8: a pool selector
+
+
+def _mega_equates():
+    """kern_mega's own constants, off its map (os88sym against build/megak)"""
+    import os88sym
+    was = os.environ.get("OS88_BUILD")
+    os.environ["OS88_BUILD"] = os.path.join(ROOT, "build", "megak")
+    try:
+        return os88sym.equates(("KERN_MEGA",))
+    finally:
+        if was is None:
+            os.environ.pop("OS88_BUILD", None)
+        else:
+            os.environ["OS88_BUILD"] = was
+
+
+_MEQ = _mega_equates()
+POOL0 = _MEQ["MEGA_LDT_FREE0"] * 8  # the allocator's first selector: an LDT
+                                # one at or past it is a claim's (KERN-MEGA-
+                                # MEMORY-PLAN MC7: no longer a fixed 2800h)
+MEGA_CODE = _MEQ["MEGA_SEL_CODE"]   # `.mega`'s CS, whose own faults (the
+                                # string-restart calibration) are by design
 CDS_PLAYING = 1
 SND_CAP_MIXER = 0x0200          # drivers/sound/sndpkg.inc (SPEC.md 34.15)
 CLOSE_BOX = (19, 36)            # CDRack's, where its template opens it
@@ -127,13 +148,13 @@ def high(b, have):
 
 
 def image_faults(run):
-    """Exceptions charged to anything but the kernel (0060, 0028, FFD8) or
-    the BIOS (F000 and up)"""
+    """Exceptions charged to anything but the kernel (0060, 0028, `.mega`'s
+    MEGA_SEL_CODE) or the BIOS (F000 and up)"""
     bad = []
     for line in open(os.path.join(run, "stderr.log"), errors="replace"):
         m = os88box.FAULT.search(line)
         if m and int(m.group(2), 16) < 0xF000 and \
-                int(m.group(2), 16) not in (0x0060, 0x0028, 0xFFD8):
+                int(m.group(2), 16) not in (0x0060, 0x0028, MEGA_CODE):
             bad.append(line.strip())
     return bad
 

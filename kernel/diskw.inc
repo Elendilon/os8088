@@ -3871,7 +3871,11 @@ dskw_wabody:
     ; --- INSIDE: the transfer, into clusters the file has -----------------
     mov dx, [dskw_rem]          ; sectors; the walk arms the widget itself
     mov bx, [dskw_src]
+%ifdef KERN_MEGA
+    DSKW_LD es, [dskw_seg]
+%else
     mov es, [dskw_seg]
+%endif
     call dsk_write_chain_x
     jc .jio                     ; a media error, mapped as one: 03h is
     jmp short .size             ; FERR_WPROT here as on every other write path
@@ -4140,7 +4144,11 @@ dskw_czstamp:
     cmp word [dskw_len], DSK_CZ_HDR ; only this kernel's READ path that caps
     jbe .out                    ; there (SPEC.md 20.14.2), and a hint written
 .look:                          ; now outlives the cap
+%ifdef KERN_MEGA
+    DSKW_LD es, [dskw_seg]
+%else
     mov es, [dskw_seg]
+%endif
 %ifndef KERN_MEGA
     mov bx, [dskw_src]
 %else

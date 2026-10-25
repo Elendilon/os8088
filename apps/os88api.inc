@@ -2052,14 +2052,15 @@ CPU_F_PM            equ 0x10     ; SEGMENTS ARE SELECTORS: kern_mega is in
                                  ; reason rather than faulting
 ;
 ; --- reaching CODE in a claim: the selector to far call it through ----------
-; (docs/plans/KERN-MEGA-PLAN.md 2.4, 3.2, M4.) A heap claim is 512-aligned, so
-; its segment S is TWO selectors under CPU_F_PM: S itself, a writable DATA
-; segment (the identity map), and (S >> 2) | 4, an exact CODE alias in the LDT.
-; A far call, far jump or retf THROUGH S loads a data selector into CS, which
-; is #GP: kern_mega completes it (mega_gpfix) and it works, at the price of a
-; fault per transfer. A package that far-calls code it put in a claim - an
-; overlay, an OP_SEG part, a code buffer - converts the segment ONCE, where it
-; builds the vector, with this:
+; (docs/plans/KERN-MEGA-PLAN.md 2.4, 3.2, M4; KERN-MEGA-MEMORY-PLAN MC7.4.)
+; Under CPU_F_PM every claim is a PAIR of LDT selectors: the value the kernel
+; hands back is the DATA half, writable, and the entry below it - that value
+; less 8 - is a CODE selector over the same bytes. A far call, far jump or
+; retf THROUGH the data half loads a data selector into CS, which is #GP:
+; kern_mega completes it (mega_gpfix) and it works, at the price of a fault
+; per transfer. A package that far-calls code it put in a claim - an overlay,
+; an OP_SEG part, a code buffer - converts the value ONCE, where it builds
+; the vector, with this:
 ;
 ;     call OSAPI_CPU_INFO          ; once, at entry: bank AH somewhere
 ;     mov [my_cpuf], ah
@@ -2068,37 +2069,34 @@ CPU_F_PM            equ 0x10     ; SEGMENTS ARE SELECTORS: kern_mega is in
 ;     OS88_CODESEL ax, byte [my_cpuf]
 ;     mov [my_vec+2], ax           ; far call [my_vec] is now fault-free
 ;
-; %1 is the 16-bit general register holding the segment, converted in place;
+; %1 is the 16-bit general register holding the value, converted in place;
 ; %2 is a byte operand holding OSAPI_CPU_INFO's AH (memory, or AH/BL/... ).
 ; Without CPU_F_PM it is the segment unchanged, so ONE BINARY IS RIGHT ON EVERY
 ; KERNEL. Two things it is NOT: it is not for DATA - read and write a claim
-; through the segment itself, always, because the alias is read-only - and it
-; is not for a segment off the 512-byte grid, for which no alias exists (an
-; image's own CS is already its alias, so `mov ax, cs` needs nothing). It does
-; not touch 0, so a refused 0 should be tested before it rather than after:
-; 0 converts to 4.
+; through the value itself, always, because the code half is read-only - and
+; it is not for an OSAPI_MEM_SUBSEG answer or a window, which are data alone
+; (OSAPI_MEM_SUBSEG's BL bit 0 asks for a code twin there). An image's own CS
+; is already its code half, so `mov ax, cs` needs nothing. It does not test
+; 0, so a refused 0 should be tested before it rather than after.
 ;
-; THE MACRO IS THE FAST PATH; THE SLOT BELOW IS THE ANSWER. The arithmetic is
-; right for a claim BELOW 1MB on the identity map, which is every claim a
-; package holds today. A claim the kernel may one day place above 1MB is named
-; by an LDT selector the shift cannot convert, so code that cannot know where
-; its claim is - or that takes a selector from somewhere else - asks
-; OSAPI_MEM_CODESEL instead, which is right for both.
+; THE MACRO IS THE FAST PATH; THE SLOT BELOW IS THE ANSWER for a value whose
+; kind the code cannot know (a selector from somewhere else): OSAPI_MEM_CODESEL
+; refuses what has no code view rather than guessing. Until KERN-MEGA-MEMORY-
+; PLAN MC7 the macro was `(S >> 2) | 4`, a static LDT alias of an identity
+; segment; the aliases and the identity map above `.cold` are gone.
 %define OSAPI_MEM_CODESEL   KERNEL_SEG:0x04B9   ; DX = the segment (or
                                  ; selector) a claim of yours is named by; out
                                  ; CF=0 and AX = the selector to FAR CALL code
                                  ; in it: DX itself on a real-mode kernel, its
-                                 ; LDT code alias under CPU_F_PM (and a pair's
-                                 ; code half above 1MB). CF=1 none: DX = 0, or
-                                 ; under CPU_F_PM a segment off the 512-byte
-                                 ; grid or a selector that is data only (an
-                                 ; OSAPI_XMEM_SEL window). Any context.
+                                 ; pair's code half under CPU_F_PM. CF=1 none:
+                                 ; DX = 0, or under CPU_F_PM anything that is
+                                 ; not a claim's (a selector that is data
+                                 ; only, an OSAPI_XMEM_SEL window). Any
+                                 ; context.
 %macro OS88_CODESEL 2
     test %2, CPU_F_PM
     jz %%real
-    shr %1, 1
-    shr %1, 1
-    or %1, 4
+    sub %1, 8
 %%real:
 %endmacro
 ;
