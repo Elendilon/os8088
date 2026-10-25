@@ -10325,7 +10325,7 @@ pool blocks owned C0h and up.
   change is the work to cost: every place that turns a segment value into a
   selector by identity (and `mega_oddsegf`'s window, which already handles a
   segment that is not a multiple of 8 dynamically, is the model).
-- [ ] **The LDT can start small and grow.** (14.72 MC6) 2,048 entries (16K): 1,280 are
+- [ ] **The LDT can start small and grow.** (14.72 MC7) 2,048 entries (16K): 1,280 are
   a STATIC code alias for every 512 bytes of conventional memory (index =
   segment / 32, which is how a CS with bit 2 set names its image), the rest
   dynamic; **31 accessed** in the same run. Regrowable by claiming a bigger
@@ -10610,36 +10610,37 @@ it walls the free run in. Bochs at 16MB read AVAIL 15.26M against MAX RUN
 
 #### 14.72.2 The order, and why
 
-Five facts decide it.
+The owner left the order to this plan (14.72.7), with one constraint: the
+whole round ships together, the 1MB machine included, so the order is by
+dependency and risk, not by which machine benefits first. The waves keep
+the numbers they were given; this is the sequence:
 
-1. **Purgeable stands alone.** It touches the pool's table and the shed and
-   nothing in the layout. It is also a precondition of the owner's goal
-   (14.72.4): memory "the system isn't using" includes every cache.
-2. **The layout comes before any table shrinks.** While the fixed area sits
-   below the pool, a smaller GDT or LDT or a free HMA leaves a hole nothing can
-   claim. With the fixed area at the TOP and every claim taken top-down, the
-   free memory is one run from 1MB up, and anything the fixed area gives back
-   joins it.
-3. **The HMA then needs almost nothing.** It is the bottom 64K of that run,
-   reached only once everything above it is in use, which is the "nearly
-   last, just before conventional" order the owner asked for. The park
-   (KERN-MEGA-DOS-PLAN 10.6) saves whatever stands there for a DOS trip, and
-   usually nothing will.
-4. **The whole-memory claim is the goal, so it comes as soon as the layout
-   allows it**, ahead of the LDT and GDT.
-5. **The GDT comes last because it builds on the others.** It is a pool
-   block that grows and shrinks (MC2, MC3), and it relies on conventional
-   claims being split into those that need an identity selector and those
-   that do not; the bridge's conventional piece (MC5) is the first claim of
-   the second kind. Its size is 56K of every machine, though, and on a 1MB
-   machine that is 15% of the pool. If the 1MB machine comes first, MC7 can
-   move up to follow MC3, at the cost of building the identity split before
-   the bridge needs it.
+**MC1, MC8, MC2, MC3, MC7, MC4, MC5**, then MC9 if it is taken.
 
-So: **MC1 purgeable, MC2 the fixed area to the top, MC3 the no-pinning
-pass and every claim top-down, MC4 the HMA, MC5 one claim for all of it, MC6 the LDT, MC7 the
-GDT**, then **MC8**, the three small items of 14.69 (independent, any time
-the owner prefers), and **MC9**, the "still low" register, a round of its own.
+1. **MC1, purgeable,** first. It stands alone, it is small, and every later
+   figure counts on caches being sheddable.
+2. **MC8, 14.69's three,** next. They are small, and two of them
+   (RAMDISK.DRV's and NET.DRV's paragraph folds) are the first items of
+   MC7's census anyway.
+3. **MC2, the fixed area to the top,** before anything that shrinks it.
+   While the fixed area sits below the pool, a table that shrinks leaves a
+   hole nothing can claim.
+4. **MC3, the no-pinning pass and every claim top-down.** After it, free
+   memory is one run from 1MB up.
+5. **MC7, selectors everywhere,** before the hibernate and the
+   whole-memory claim, for two reasons:
+   - It changes what a claim IS on kern_mega (a selector, movable by
+     rebase), and MC4 and MC5 are both built on claims.
+   - It changes the tables the hibernate saves. Doing it first means the
+     hibernate's format changes in MC2 and is then reworked once, in MC4,
+     on the final layout, rather than twice.
+6. **MC4, the HMA and the streaming resume,** on the final layout.
+7. **MC5, one claim for all of it,** last, because it is the goal and every
+   wave before it is something it needs: caches that shed, one free run,
+   claims that move, the HMA in the pool, and a way out when a held machine
+   is asked to visit DOS.
+8. **MC9, what still goes low,** is a round of its own and not part of
+   this one unless the owner says so.
 
 #### 14.72.3 The waves
 
@@ -10695,8 +10696,8 @@ the owner prefers), and **MC9**, the "still low" register, a round of its own.
     state, and one that goes bottom-up from 1MB reaches free pool and the
     HMA (which is `kern_dos`'s during a trip). The sum catches either, as it
     does today. Update that section when MC2 lands.
-  - Buys ~50K: the padding. The ~140K the fixed zone still holds stays put
-    until MC6 and MC7.
+  - Buys ~50K: the padding. The ~140K the fixed zone still holds is cut
+    to ~66K by MC7.
   - Rows: `megahigh`, `megahiber`, `megap2hiber`, `megadosp`, `megakbtrip`,
     `megarehome`, `megapiclose` (the 286 reset path), `tmowner`.
 - [ ] **MC3 - kern_mega's no-pinning pass, and every claim top-down**
@@ -10800,8 +10801,8 @@ the owner prefers), and **MC9**, the "still low" register, a round of its own.
       kernel puts first the piece whose remainder is smaller. The waste is
       under 64K in either order.
     - Each piece is ONE record: a pool block and a conventional record. The
-      conventional one is placed top-down under LDT selectors (it never needs
-      an identity selector, which matters to MC7), and it is movable
+      conventional one is placed top-down under LDT selectors, like every
+      claim after MC7, and it is movable
       under the conventional compactor through a kernel relocation proc
       that re-bases its share of the run's descriptors.
     - The 32KB-step form (`MX_FH32`, the Video Player's ring) overlaps its
@@ -10811,78 +10812,115 @@ the owner prefers), and **MC9**, the "still low" register, a round of its own.
       anything a C package does with a huge claim's segment besides
       stepping it by CX.
   - **The conventional reserve: 64K** (14.72.5 is the measurement and the
-    reasoning). The whole-memory answer leaves that much of conventional
-    memory free, as one run at the BOTTOM of the free space, which is where
-    MC7 puts identity claims.
+    reasoning; the owner accepted it). The whole-memory answer leaves that
+    much of conventional memory free, as one run.
   - Rows: a new one on a 4MB machine (Bochs, and `vm/286-mega` for the 286).
     Ask, claim exactly the answer, write and read a pattern through every
     window including the seam, then with the claim held open the Control
     Panel and hibernate. Free it and ask again; the answer must equal the
     free figure the Task Manager shows. Plus `megavidbig` and `megavidv2`,
     which must see no change.
-- [ ] **MC6 - an LDT that starts small and grows** (14.70.1 *The LDT can
-  start small*).
-  - Census first: every site that builds a code alias by identity
-    (`(S >> 2) | 4`) and every site that converts one back
-    (`mega_cs2ds`, `mega_cs2dsw`, `mega_dsimg`, `mega_csdata`, the
-    `MEGA_LDT_FREE0` compares, 24 in `mega.inc` and ten elsewhere).
-  - The design to cost: a conventional image's code alias is ALLOCATED when
-    the image is (a package region, a part's carve, a driver, a module, an
-    overlay) and freed with it, and the reverse reads the descriptor's base,
-    since for conventional memory the data segment IS base / 16. The LDT is
-    then all allocator, starts at 2K, and regrows by claiming a bigger pinned
-    block (MC3 places it at the boundary), copying, rewriting GDT entry 18h
-    and reloading LDTR. The alias-narrowing walk in `mega_cs2dsw` gets
-    simpler, because an alias nothing allocated is simply not present.
-  - `mega_ldtlin` is already a variable (`mega_tlowf` moves it), so the
-    hibernate and the park already ask where the LDT is.
-  - A whole-memory claim (MC5) on a 16MB machine takes ~240 selectors, or
-    ~480 in the 32KB-step form, so the LDT must be able to grow that far on
-    demand.
-  - Buys ~14K, ESTIMATED.
-  - Rows: `megaflt`, `megaovl`, `megarehome`, `megahiber`, `megap2hiber`,
-    `megatrap0`, and a new row that opens programs until the LDT must grow.
-- [ ] **MC7 - a GDT the size of what is used** (14.70.1 *The GDT is a 1:1
-  table*; 14.72.6 is the owner's decision and the repercussions).
-  - **Why 64K today.** A conventional segment is its own selector, so the
-    GDT must reach the highest segment anything loads: the ROM at F000, the
-    scratch selectors at FFD0h-FFF8h, the video segments, and every
-    paragraph of conventional memory up to 9FFFh. 14.70.1 measured 106
-    entries used out of 8,192.
-  - **The design: identity only where it is needed, and only as far up as
-    it is used.**
-    - The kernel's low area keeps its identity selectors. That is segment 0
-      to the heap floor, 1060h on this build: 524 entries, 4.2K.
-    - The scratch and code selectors at FFD0h-FFF8h move into the LDT (they
-      are written through `MEGA_SEL_WIN` today; `MEGA_SEL_LDTD` reaches the
-      LDT the same way), so nothing pins the GDT's top.
-    - Video, the ROM font, the Task Manager's ROM scan, any EMS page frame:
-      allocated selectors, or for a rare load a fixup in the shape of
-      `mega_oddsegf`. The census of every load from A000h up decides which.
-    - **Conventional claims split by what their holder does with the value.**
-      - A claim whose holder is declared clean (an `OS88_HIGHMEM` package,
-        a bridged piece, a kernel cache that is only ever a segment
-        register) gets an LDT selector and is placed top-down. It never
-        touches the GDT.
-      - Everything else keeps an identity selector and is placed BOTTOM-UP
-        from the floor, and the GDT grows to cover the highest one in use.
-        "Everything else" is the default, because it is the safe answer:
-        packages that do paragraph arithmetic, drivers' conventional claims,
-        the kernel's buffers that reach the BIOS or DMA, re-homed carves,
-        DOS.O88's arena.
-    - The GDT is a pool block (MC2, MC3). It grows by claiming a bigger
-      block, copying and `lgdt`, and shrinks by lowering the limit and
-      giving the tail back. At boot it is sized to cover the floor plus the
-      reserve (MC5's 64K): ~1,036 entries, ~8K.
-  - **What it buys:** 64K -> ~8K on a quiet machine, 56K of every kern_mega
-    machine's pool, and on a 1MB machine (384K extended) that is 15% of the
-    pool. A big unclean conventional user grows it back toward ~40K for as
-    long as it runs (14.72.6, repercussion 1).
-  - Rows: `megagrid`, `megapkg`, `megaflt`, `megavidbig`, `megavidv2`,
-    `megarehome`, `megadosp`, `megahiber`, `tmowner`, and the adapters' boots
-    under `make mega` (VGA, and Hercules and CGA through `vm/286-mega`). A new
-    row starts DOS.O88 and PiXEL, asserts the GDT grew, closes them and
-    asserts it shrank.
+- [x] **MC6 - an LDT that starts small and grows** - MERGED INTO MC7 (the
+  owner's answer of 14.72.7): the static code aliases are the LDT's half of
+  the same identity map, and they go together.
+- [ ] **MC7 - selectors everywhere above the floor; a GDT of ~4K and an LDT
+  that grows** (14.70.1 *The GDT is a 1:1 table* and *The LDT can start
+  small*; 14.72.6 and 14.72.7 are the owner's decisions).
+  - **Why 64K + 16K today.** A conventional segment is its own selector
+    (3.1), so the GDT must reach the highest segment anything loads (the ROM
+    at F000, the scratch selectors at FFD0h-FFF8h, video, and every paragraph
+    up to 9FFFh), and the LDT keeps a static code alias for every 512 bytes
+    of conventional memory (index = segment / 32). 14.70.1 measured 106 GDT
+    entries and 31 LDT entries used.
+  - **The end state (the owner: convert everything, no "older style"
+    holders):** identity selectors survive only from segment 0 up to the
+    heap floor (1060h on this build): the IVT window, the BDA, the kernel's
+    image and LOW_SEG's stacks, the segments whose values are constants.
+    **The GDT is that, ~525 entries, ~4.2K, a fixed size, with no grow or
+    shrink machinery.** Every claim, region, carve, overlay, module and
+    driver image above the floor gets LDT selectors allocated with it and
+    freed with it, wherever in conventional or extended memory it lies. The
+    LDT is all allocator, starts at 2K and grows on demand (a bigger pinned
+    block, a copy, GDT entry 18h rewritten, `lldt`). `mega_ldtlin` is
+    already a variable.
+  - **It also simplifies two other waves.** A conventional claim named by
+    an LDT selector moves by a copy and a descriptor rebase, with no
+    relocation proc (13.1's argument, now below 1MB too), which is MC3's
+    no-pinning pass extended to conventional memory for free. And MC5's
+    bridge piece is just another such claim.
+  - **Step 1, the census.** Every site that loads a paragraph ABOVE the
+    floor into a segment register in protected mode, or hands one to
+    something that will. Every program-side item below is code in this
+    repo: the windowed DOS is refused on kern_mega (KERN-MEGA-DOS-PLAN 2.1),
+    so third-party DOS programs only ever run in real mode, in the trip, and
+    real mode does not read the GDT.
+    - **Packages:** the six `tests/megahigh.txt` still exempts, each for the
+      reason written there:
+      - Sheet: its CS stamped into two module vector tables, and far calls
+        into claims.
+      - RealDMG: CS-stamped far pointers, paragraph arithmetic on bank
+        claims, writes through CS.
+      - Browser: retained claim segments, unverified.
+      - XTMP3: paragraph arithmetic on its look-ahead claim.
+      - PiXEL: paragraph arithmetic on every claim.
+      - Lemmings: paragraph arithmetic, never run on kern_mega.
+
+      Each converts the way 14.40-14.52 converted the others: offsets
+      inside 64KB selectors, `OSAPI_MEM_SUBSEG`, `OSAPI_MEM_HUGE`'s step,
+      `OSAPI_MEM_CODESEL` for code in a claim. After it `tests/megahigh.txt`
+      is EMPTY, and the gate (`t_megahigh`) refuses any new line, so the
+      rule cannot erode.
+    - **Claims outside that gate:** the doors 14.52.4 listed as staying
+      conventional (DMA rings, the C64 and Apple II ROM carve, the CWORD and
+      RunCPM overlay carve, `os88type.inc`'s face cache) and the re-homers'
+      parts carves. Each still lives in conventional memory where it must,
+      but is named by an LDT selector. A holder that programs the 8237 needs
+      the PHYSICAL address, which it computes from the segment today: the
+      DMA doors answer the linear base beside the selector (an ABI addition,
+      20.2.0.1).
+    - **Drivers:** the seven without `OS88_DRV_HIGHOK` (CDROM, HDDTOOL,
+      HTTPFS, HTTPPAGE, RAMPAGE, USBMOUSE, VESA; VMMOUSE is kern_emu's, the
+      kernel serves XMEM.DRV's cells itself on kern_mega, and OS88NET under
+      `drivers/net/` is a DOS program) and every driver's own claims. RAMDISK.DRV's and NET.DRV's paragraph folds
+      are MC8. USBMOUSE.DRV's hook runs in REAL mode on the ROM's call, which
+      does not touch the GDT; its protected-mode side holds a selector like
+      any other.
+    - **The kernel:** 2.3's survey counted 230 segment-register loads. The
+      ones that matter here are those that load a HEAP paragraph rather
+      than a constant: the compactor's moves (`memory.inc`), `dskw_norm`'s
+      kern_mega arm (it folds in 128-byte GRANULES, which IS the identity
+      map; a selector takes `dskw_hiseg`'s path instead, as a buffer above
+      1MB does today), the loader's region and carve, `mod_check`'s
+      `(S >> 2) | 4` alias, the hibernate's conventional picture (written in
+      chunks from identity segments n x 800h, `hbm_xwconv`), and `mem_claim`'s
+      own answer (a selector on kern_mega for every claimant). Reflected BIOS
+      calls convert with `mega_s2segf`, which reads a descriptor's base and
+      needs no identity map. The kernel's caches already run as pool
+      selectors (`mem_hitag`'s list), which is the proof the pattern holds.
+    - **From A000h up:** video behind `[vid_*]`, the ROM font, the Task
+      Manager's ROM scan, EMS page frames, any package that writes A000h or
+      B800h itself in an fsx bracket. Allocated selectors; a hot one must be
+      converted rather than fixed up.
+    - **The kernel's scratch and code selectors at FFD0h-FFF8h:** into the
+      LDT, written through `MEGA_SEL_LDTD` instead of `MEGA_SEL_WIN`.
+  - **Step 2:** packages and drivers, one at a time, each run on Bochs.
+    **Step 3:** the kernel. **Step 4:** cut the GDT's limit to the floor and
+    drop the LDT's static aliases. Step 4 is where a missed site shows up, as
+    a `#GP` on a selector past the limit: reported, the package closed
+    (14.42), at the instruction that did it.
+  - **What it buys:** ~60K of GDT and ~14K of LDT on every kern_mega
+    machine. On a 1MB machine (384K extended) that is a fifth of the pool.
+  - **Repercussions** (14.72.6 4, as revised by 14.72.7): a wild segment
+    load faults instead of reading whatever is there (a latent defect
+    surfacing); old hibernate images are refused (accepted); and the census
+    is the cost.
+  - Rows: `megagrid`, `megapkg`, `megahigh` (now with an empty exemption
+    list), `megaflt`, `megaovl`, `megarehome`, `megavidbig`, `megavidv2`,
+    `megadosp`, `megahiber`, `megap2hiber`, `megatrap0`, `tmowner`, the six
+    converted packages' own rows run under `make mega`, and the adapters'
+    boots (VGA, and Hercules and CGA through `vm/286-mega`). A new row opens
+    programs until the LDT must grow, and asserts the GDT's limit is the
+    floor's.
 - [ ] **MC8 - 14.69's three, small and independent.**
   - RAMDISK.DRV's `rd_fold` and NET.DRV's `net_norm` stop folding
     paragraphs into a kern_mega selector. That is a correctness fix, but it
@@ -10902,15 +10940,14 @@ the owner prefers), and **MC9**, the "still low" register, a round of its own.
   - BIGSP in place stays with the Video Player round (14.60).
   - `mx_tab` stays low by the owner's deferral (14.51).
 
-**The whole round, if MC1-MC7 land as estimated:** about 190K of the fixed
-area's 256K comes back to programs (50 padding + 64 HMA + 14 LDT + 56 GDT),
-plus whatever caches are standing when a claim needs them, and every free
-byte but the 64K reserve can be had by one claim. `.mega` grows by the
-waves' code, against `tests/megaseg.txt`'s allowance (3,456 of 4,029 used
-at 14.71), which MC2-MC5 and MC7 will exhaust; raising it is the owner's
-call and not a build fix. Per the Testing section of CLAUDE.md, each wave
-verifies on the host and NAMES its rows; the deduplicated union of the
-rows above runs once, after the last wave, with `test-full`.
+**The whole round, if it lands as estimated:** about 200K of the fixed
+area's 256K comes back to programs: 50K of padding, 64K of HMA, ~60K of
+GDT and ~14K of LDT. Whatever caches are standing come back when a claim
+needs them, and every free byte but the 64K reserve can be had by one
+claim. Where the round's code goes, and what that costs, is 14.72.7. Per
+the Testing section of CLAUDE.md, each wave verifies on the host and NAMES
+its rows; the deduplicated union of the rows above runs once, after the
+last wave, with `test-full`.
 
 #### 14.72.4 The owner's two additions (2026-10-25)
 
@@ -10934,11 +10971,11 @@ rows above runs once, after the last wave, with `test-full`.
    and nothing new in the ABI but the exact query. The bridge is possible
    because a huge claim is a run of selectors and not a span of memory; it
    costs under 64K at the seam and does not apply to the 32KB-step form.
-   On the Victory's 3,456K, the fixed zone (~140K until MC6 and MC7, ~100K
-   after), SOUND.DRV and HDD.DRV (~16K) and an open Task Manager leave about
+   On the Victory's 3,456K, the fixed zone (~140K today, ~66K after
+   MC7), SOUND.DRV and HDD.DRV (~16K) and an open Task Manager leave about
    3.28MB for one claim.
 
-**Questions for the owner**, all answered in 14.72.6.
+**Questions for the owner**, all answered in 14.72.6 and 14.72.7.
 
 #### 14.72.5 Measured: what the kernel needs in conventional memory when a program holds everything (2026-10-25)
 
@@ -11051,3 +11088,71 @@ the size of the memory in use, which on a big machine is a big file.
 
    None of these looks bad enough to stop for. 1 and 3 are the ones a user
    could notice, and 3 is a defect surfacing.
+
+#### 14.72.7 The owner's third round of answers, and where the round's code goes (2026-10-25)
+
+1. **The 64K reserve: accepted.**
+2. **The streaming resume as the fallback: accepted.**
+3. **The GDT: *"can we convert all programs so there are no 'older style'
+   ones? We control every piece of code ever written for the OS in this
+   repo."*** Yes, and the end state is better than 14.72.6's.
+   - With nothing left that needs a conventional segment to be its own
+     selector above the heap floor, there is no identity zone to grow, so
+     the GDT is a FIXED ~4.2K (segment 0 to the floor) with no machinery at
+     all. MC7 is rewritten that way, and MC6 is merged into it, because the
+     LDT's static code aliases are the same identity map's other half.
+   - The one population that is not ours, third-party DOS programs, never
+     runs in protected mode: the windowed DOS is refused on kern_mega and a
+     DOS program runs in real mode in the trip, where the GDT is not read.
+   - The work moves from "the GDT grows with older programs" to a census:
+     six exempt packages, the claims made through other doors, seven
+     drivers, and the kernel's own loads of heap paragraphs (MC7's step 1).
+   - 14.72.6's repercussions 1 and 2 (the GDT growing with an unclean
+     program, and refusing to grow beside a held machine) are gone.
+     Repercussion 3 (a wild segment load faults) stays, and is a defect
+     found. Repercussion 4 is part of the census.
+   - `tests/megahigh.txt` ends EMPTY and refuses new lines, which is what
+     keeps "no older style" true afterwards.
+4. **Old hibernate images refused: accepted.**
+5. **Order:** the owner's to leave to this plan. 14.72.2 is the pick: MC1,
+   MC8, MC2, MC3, MC7, MC4, MC5, and the whole round before any of it
+   ships, the 1MB machine included.
+
+**The goal is to shrink usage, so code bytes count too.** On kern_mega
+every byte of `.mega` and `.cold` is resident above 1MB from boot, and
+every byte of `.text` is resident in conventional memory. The round has to
+buy far more than it spends. ESTIMATED: the waves' code is a few KB,
+against ~200K returned.
+
+**Is there room? Yes, except in one place, and that place is a policy
+number rather than a wall** (`tools/os88megaseg.py` at this branch):
+
+| where kern_mega code can go | used | room | notes |
+|---|---|---|---|
+| `.mega`, kern_mega's own segment | 14,698 | ~50K of its 64K | protected mode only; the natural home for all of this round's logic |
+| its slot above 1MB, up to `MEGA_XPOOL` | 58,678 with `.cold` and the scratch | 51,914 | goes away with MC2: the fixed zone is placed from the top and sized by what is in it |
+| `.cold` under `%ifdef KERN_MEGA` | 42,207 | ~23K of its 64K | resident above 1MB on kern_mega; kern_big's `.cold` never sees it |
+| the SHARED 64K window, `.text` + `.bss` | 52,188 | 13,348 physically | **the `tests/megaseg.txt` allowance: 3,714 of 4,029 used, 315 bytes left** |
+
+The last row is the only one that binds, and only because of what it
+protects. Every byte kern_mega adds to the shared window is a byte kern_big
+can never grow by, so the allowance only rises for code that has to run in
+real mode or be reached from a shared routine. This round's logic all goes
+in `.mega`. What it needs in the shared window is the HOOKS: a far call
+into `.mega` (5 bytes) wherever a shared routine must do something
+different on kern_mega. MC7 has the most:
+- `memory.inc`'s claim, free and compactor;
+- the file layer's fold;
+- the loader;
+- `mod_check`;
+- the hibernate's picture, which is `.cold` and so not in the window.
+
+ESTIMATED at 300-800 bytes of hooks across the round, so the 315 is
+probably not enough. **The plan is to make the room before asking for it:**
+2,456 bytes of `mega.inc` still sit in `.text`, and the part of that which
+never runs in real mode moves to `.mega`, the way 14.45 moved 1,378 bytes.
+The reflection's real-mode half, the 286 reset landing and the trip's drop
+must stay. A raise is asked for only if that falls short, with the figure
+measured at the time. A hook can also go in `.cold` where its caller is
+`.cold`, at no window cost, which the hibernate's and several of the loader's
+are.
