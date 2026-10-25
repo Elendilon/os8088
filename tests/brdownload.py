@@ -192,6 +192,14 @@ def main():
         page_history_count = int.from_bytes(m.readseg(
             pseg, sy["br_histn"], 2), "little")
 
+        # ...AND THE LAYOUT FINISHED (brcapacity's lesson, one page along):
+        # state 6 is the fetch's, and the line table is still being built
+        # behind it - a starved guest was read with the page in and no line
+        # holding the link yet (docs/plans/SOAK-PARALLEL.md 17.5)
+        ethernet.os88qemu.quiesce(
+            m, lambda: (word(m, pseg, sy["br_nlines"]),
+                        word(m, pseg, sy["br_doclen"])),
+            secs=0.5, stable=3, what="the page's layout")
         # Locate the anchor from the Browser's formatted marker and line table.
         doclen = word(m, pseg, sy["br_doclen"])
         docseg = word(m, pseg, sy["br_docseg"])

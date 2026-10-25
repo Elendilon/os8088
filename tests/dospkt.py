@@ -95,6 +95,12 @@ def main():
         def drvseg():
             return eth.u16(m.read(eth.S("drv_tab") + eth.ETH_ROW * eth.DRVR_SZ
                                   + eth.DRVR_SEG, 2))
+        # THE BOOT FIRST (os88qemu.kernel_up): drv_tab is .bss, and until
+        # stage 2 has expanded the packed kernel those bytes are the LZ4
+        # stream - a non-zero JUNK word satisfied this poll at 0.7 s and the
+        # row reported "never attached" off the cleared one (SOAK-PARALLEL
+        # 17.5)
+        os88qemu.kernel_up(m, eth.S, secs=120)
         os88qemu.acted(m, lambda: drvseg() != 0, secs=60,
                        what="ETHER.DRV's drv_tab row", poll=0.4)
         seg = drvseg()

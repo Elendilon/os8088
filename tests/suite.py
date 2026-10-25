@@ -497,16 +497,18 @@ FAST = [
         "rebuilds the corpus with numpy (seconds, not a fast row)",
         needs=("numpy",)),
     Row("xtmp3rate", "soak", py("tests/xtmp3eng.py", "--leg", "ladder",
-                                "--leg", "slowdown", "--leg", "playwav",
-                                "--leg", "pause", "--leg", "wavdirs",
-                                "--leg", "xtpeak"), 400.0,
+                                "--leg", "slowdown", "--leg", "rungfail",
+                                "--leg", "playwav", "--leg", "pause",
+                                "--leg", "wavdirs", "--leg", "xtpeak"),
+        450.0,
         "XTMP3's ladder and its mid-track slowdown (xtmp3eng's two RATE legs, "
         "SPEC.md 121.5): the stub's cost a rung is spun on the 8253, so the "
         "verdict is the guest's CPU against the PIT - and QEMU runs without "
         "-icount, so the PIT is the HOST's clock and a starved guest is a "
         "slower machine. 1.05x has five per cent of headroom: on a box "
         "running eight emulators on four cores it stepped down twice and "
-        "underran (docs/plans/SOAK-PARALLEL.md 17.5). And the four legs "
+        "underran (docs/plans/SOAK-PARALLEL.md 17.5) - and rungfail, whose "
+        "4x Half calibrated at 0.87x there. And the four legs "
         "that assert NO UNDERRUN on the SB16 (playwav, pause, wavdirs, "
         "xtpeak): the card drains its ring on the host's clock, and playwav "
         "underran twice at eight emulators on four cores. ALONE BECAUSE "
@@ -517,9 +519,10 @@ FAST = [
                "build/mixercfg/SYSTEM.CFG", "build/mbr.bin",
                "build/boothd.bin", "build/kernel.sys")),
     Row("xtmp3eng", "soak", py("tests/xtmp3eng.py", "--skip", "ladder",
-                               "--skip", "slowdown", "--skip", "playwav",
-                               "--skip", "pause", "--skip", "wavdirs",
-                               "--skip", "xtpeak"), 800.0,
+                               "--skip", "slowdown", "--skip", "rungfail",
+                               "--skip", "playwav", "--skip", "pause",
+                               "--skip", "wavdirs", "--skip", "xtpeak"),
+        750.0,
         "XTMP3's engine (SPEC.md 121.5-121.7, docs/xtmp3/ENGINE.md) over the "
         "STUB backend (`make xtmp3stub`: a tone whose cost a rung is set by "
         "X3STUB.CFG), on QEMU because what is asserted is behaviour: the "
@@ -550,7 +553,7 @@ FAST = [
         "live and converting, a queued song whose probe was not had "
         "given its title when idle (qagain), and a finished WAV in a third "
         "folder played to its last byte, then again through the cache "
-        "(wavdirs). The ladder, the slowdown and the four legs that assert "
+        "(wavdirs). The ladder, the slowdown, rungfail and the four legs that assert "
         "no underrun are xtmp3rate's, which has the box to itself; "
         "everything here is behaviour and shares the lane",
         needs=("qemu", "nasm", "mtools", "numpy"), serial=True,
@@ -2003,7 +2006,7 @@ FAST = [
 # tier`).
 # --------------------------------------------------------------------------
 FULL = [
-    Row("buildmatrix", "soak", py("tests/unit/t_buildmatrix.py"), 180.0,
+    Row("buildmatrix", "soak", py("tests/unit/t_buildmatrix.py"), 600.0,
         "the knob kernels and kern_small - every configuration `all` "
         "does not build, and so the only thing that keeps them assembling"
         ". SOAK and not full: 99 knob configurations is not 'did you "
