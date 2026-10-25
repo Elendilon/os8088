@@ -2763,7 +2763,24 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; the last piece (KERN-MEGA-PLAN 14.49): no
                                  ; code of yours runs while a window is half
                                  ; moved, unless a sample ISR is open - then
-                                 ; in one step with interrupts off
+                                 ; in one step with interrupts off.
+                                 ; AX = 0 ASKS rather than claims (KERN-MEGA-
+                                 ; MEMORY-PLAN MC5): out CF=0, AX = the most
+                                 ; KB one claim of this cell can be given now,
+                                 ; nothing claimed - claim exactly that and it
+                                 ; is had. kern_big and kern_small answer
+                                 ; CF=1 (a 0KB claim, refused): ask
+                                 ; OSAPI_MEM_AVAIL there.
+                                 ; On kern_mega in protected mode the answer
+                                 ; may be a BRIDGE - the pool's best run in
+                                 ; whole 64KB windows, then conventional
+                                 ; memory, under ONE run stepped by 8 - which
+                                 ; a 64KB step's claim gets when neither the
+                                 ; pool nor the heap alone holds it. A bridge
+                                 ; always leaves the heap 64KB, does not
+                                 ; REGROW (CF=1), moves piece by piece like
+                                 ; any claim, and OSAPI_MEM_FREE of its DX
+                                 ; frees both pieces
 XMW_OFF     equ 0
 XMW_KB      equ 2
 XMW_OWN     equ 4

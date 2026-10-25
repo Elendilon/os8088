@@ -14338,6 +14338,13 @@ $(BUILD)/megaxm.bin: tests/megaxm/megaxm.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megaxm/megaxm.asm
 $(BUILD)/megaxm.o88: $(BUILD)/megaxm.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megaxm.bin -o $@
+# MEGAHUGE (tests/megahuge): ONE CLAIM FOR ALL OF IT (KERN-MEGA-MEMORY-PLAN
+# MC5) - OSAPI_MEM_HUGE's query, a claim of its answer bridged across the
+# pool and the heap, a pattern through every window, the free, the query again
+$(BUILD)/megahuge.bin: tests/megahuge/megahuge.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megahuge/megahuge.asm
+$(BUILD)/megahuge.o88: $(BUILD)/megahuge.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/megahuge.bin -o $@
 # MEGAI13 (tests/megai13): forty REFLECTED int 13h reads back to back, for the
 # pointer to move through (KERN-MEGA-PLAN 14.1 answer 18, 14.9); and a 1.44MB
 # floppy carrying it, for a B: drive

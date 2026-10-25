@@ -1779,6 +1779,84 @@ rows. Nothing is recorded as built that was not.
     ignored (`MEGAXM: bad 5A`); its step 0D now expects the region's code
     half at DS - 8.
 
+
+### MC5 as built (2026-10-25) - DONE
+
+- **The ask is `OSAPI_MEM_HUGE` with AX = 0**, so no new cell: a 0KB claim
+  was already a refusal on every kernel, so a package asking can tell an old
+  kernel from a new one by CF alone. kern_mega answers CF = 0 and AX = the
+  most one claim of the cell can be: the conventional heap's largest claim
+  (`mem_avail_lvl_x` at the top rank), the pool's (`mx_maxrun`), or the
+  bridge's, whichever is largest (`mega_hugeqf`). In real mode it is the heap's
+  alone. kern_big and kern_small answer CF = 1, as before, and the SDK says to
+  ask `OSAPI_MEM_AVAIL` there. `PKG_FMT` and `DRV_VER` are unchanged: the
+  contract was clarified, and nothing built before stops running.
+- **`mx_maxrun` is exact for the pack `mx_alloc` makes.** That pack moves every
+  movable block up against the pinned block above it and sheds every cache a
+  program outranks. So each stretch between two pinned blocks, above
+  `[mega_mxflr]`, offers its length less the movable non-cache KB that start
+  in it. The answer is the best stretch.
+- **The bridge (D7) is tried only when neither piece alone can take the
+  claim**, after `mega_hugef` and the conventional claim have both refused.
+  The plan said the kernel would put first the piece with the smaller
+  remainder. As built, the **pool piece always comes first, cut to whole 64KB
+  windows**, and the heap piece takes the rest. The heap piece's last window
+  ends where the claim ends, so nothing is lost at the seam.
+  - The heap piece is claimed first. A compaction may take time over it, and
+    nothing is held yet.
+  - The pool block and the run of selectors are then made in one step under
+    `sch_lock`.
+  - A 32KB-step or 16KB-step ask (`BX` = 8000h or 4000h) is never bridged,
+    because their windows overlap.
+- **Each piece is the record it would be alone, so each moves and is freed
+  alone.**
+  - The pool block's windows are its own `MX_SEL` run. Its KB is a whole
+    number of windows, so `mx_unsel` frees exactly those.
+  - The heap piece's windows follow the pool's in the same run but are based
+    inside the heap piece. So `mega_mpmovef` rebases them when it moves and
+    `mega_mpfreef`'s `mega_cdfree` frees them with it. That is the rule
+    MC7.4 already gave a conventional claim's SUBs, and no new code was
+    needed for it.
+  - The pool record carries `MX_FBRIDGE` (40h) and names the heap piece's
+    selector in `MX_AUX`. `OSAPI_MEM_FREE` of the run's first selector frees
+    the pool block and then the heap piece (`[mega_bfpart]`, set by
+    `mega_claimfreef` on every free). An instance's teardown frees each piece
+    as its own record.
+  - A bridge does not regrow: `mega_claimregrowf` refuses `MX_FBRIDGE`.
+- **The reserve (D8):** a bridge leaves the heap `MEGA_RESKB` = 64KB, one
+  run. Its heap piece is taken only when the heap's largest claim, less 64KB,
+  still holds it. The query answers by the same rule.
+- **One defect found on the way:** `mega_mxat` matches a block by its base
+  AND its owner. The bridge called it with BL overwritten by the windows'
+  KB, so the lookup missed, and `MX_SEL` and the flags were written one record
+  past `mx_tab`. The fix is one `mov bl, [mega_bfown]`. Without it no record
+  carries the run's selector, so `OSAPI_MEM_FREE` of it would refuse and the
+  bridge would stand until teardown. That is read from the code: the run
+  that found the defect had faulted earlier, on a bug in the instrument
+  itself, which stored CX after its own `mov cl, 3`.
+- **Cost, kern_mega against the tree before:** `.text` +12, `.cold` +458,
+  `.mega` +173, its scratch +3: 646 bytes in all. The cold rung has 12 bytes
+  left (470 before), and the megaseg overhead is 3,779 of the 4,029 allowed.
+  kern_big and kern_small: the code is all `%ifdef KERN_MEGA`, and kern_big's
+  sections read the same before and after.
+- **Row: `megahuge`.** Bochs, 4MB, tests/megahuge's MEGAHUGE started by
+  MEGARUN.
+  - It asks (3,450K, against a pool of 2,997K, so the answer is a bridge),
+    claims exactly that (step 8), and checks that the first window is at
+    10C000h and the last at 81000h, under 1MB.
+  - It writes a pattern through all 54 windows, the seam included, reads it
+    back, frees, and asks again for the same 3,450K.
+  - 16 seconds.
+  - It is red on the tree before: `MEGAHUGE: no 01`, the 0KB claim refused.
+    Verified.
+- **Not done, of what MC5's row list asked:**
+  - holding the claim open across the Control Panel and a hibernate;
+  - `vm/286-mega`;
+  - comparing the answer with the Task Manager's free figure.
+  `megavidbig` and `megavidv2` are the Video Player's rows, which the
+  `mega-video` session now owns. They go in the final pass only if that
+  session has not changed them.
+
 ---
 
 ## 8. Addendum from `mega-dmg`: what RealDMG needs from this round (2026-10-25)

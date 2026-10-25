@@ -16295,6 +16295,19 @@ SOAK = [
         "60s is 16 measured",
         needs=("bochs",),
         wants=("build/mega.img",)),
+    Row("megahuge", "soak", py("tests/megahuge.py"), 60.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC5: ONE CLAIM FOR ALL OF IT. "
+        "OSAPI_MEM_HUGE with AX = 0 asks the most one claim can be; on a "
+        "4MB Bochs machine that is a BRIDGE - the pool's best run in whole "
+        "64KB windows, then the conventional heap less its 64KB reserve, "
+        "under one run of selectors. MEGAHUGE claims exactly the answer, "
+        "writes a pattern through every window (the seam included), reads "
+        "it back, frees, and asks again. Asserts the answer exceeds the "
+        "pool, step 8, first window above 1MB and last below, `ok`, and "
+        "the same answer after the free. Red on the tree before: the query "
+        "is a 0KB claim and refuses (`MEGAHUGE: no 01`). 60s is 16 measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megahuge.o88", "build/megarun.o88")),
     Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.61, 14.62: the keyboard INSIDE a "
         "DOS program and the keyboard and pointer after it, over ten round "
