@@ -70,6 +70,7 @@ units the kernel compares, so the check is the kernel's rather than a guess
 about host timing. Too slow, or an edge that never arrived, RAISES.
 """
 import argparse
+import contextlib
 import os
 import sys
 import time
@@ -591,24 +592,42 @@ class Mouse:
                                     # a packet still in flight (see `_edge`)
     DBL_TRIES = 240                 # ~1 guest second an edge before it is lost
 
-    def _gedge(self, down, btn=1):
+    @staticmethod
+    def _service(traces, st):
+        """Hand a breakpoint stop met while stepping to the bp_trace that
+        armed it (the one that knows the address, else the innermost) - the
+        record its pump would have made had it been allowed to run."""
+        flat = ((st.get("cs", 0) << 4) + st.get("ip", 0)) & 0xFFFFF
+        own = [t for t in traces if flat in t._by_addr] or traces[-1:]
+        own[0].service(st)
+
+    def _gedge(self, down, btn=1, traces=()):
         """`_edge`, with the guest PAUSED and advanced by cycles between polls.
 
         The same proof - the published mouse_btn agrees - and the same
         idempotent re-send, but no guest time passes that the loop did not
-        hand out itself.
+        hand out itself. Inside bp_trace blocks (`traces`, held - see
+        dblclick) a breakpoint stop is recorded for its trace and stepped
+        past; outside one it is a mistake and raises. The budget is CYCLES,
+        so a stop that cuts an advance short does not spend a whole try.
         """
         want = btn if down else 0
-        for i in range(self.DBL_TRIES):
-            if i % self.DBL_RESEND == 0:
+        spent, since = 0, None
+        while spent < self.DBL_TRIES * self.DBL_STEP:
+            if since is None or since >= self.DBL_RESEND * self.DBL_STEP:
                 self.m.mouse(0, 0, l=down and btn == 1, r=down and btn == 2)
+                since = 0
             st = self.m.advance(cycles=self.DBL_STEP)
+            n = int(st.get("advanced_cycles", self.DBL_STEP))
+            spent, since = spent + n, since + n
             if st.get("state") == "breakpoint":
-                raise MartyError(
-                    "a breakpoint stopped the guest inside a double-click at "
-                    "%04X:%04X - arm it inside a bp_trace block, whose pump "
-                    "services it, or after the gesture"
-                    % (st.get("cs", 0), st.get("ip", 0)))
+                if not traces:
+                    raise MartyError(
+                        "a breakpoint stopped the guest inside a double-click "
+                        "at %04X:%04X - arm it inside a bp_trace block, whose "
+                        "stops the gesture records, or after the gesture"
+                        % (st.get("cs", 0), st.get("ip", 0)))
+                self._service(traces, st)
             if (self.where()[2] & btn) == want:
                 self._last_edge = self.ticks()
                 return
@@ -663,28 +682,37 @@ class Mouse:
         self._sep()                     # ...the FIRST press is separated from
                                         # whatever came before; the second is
                                         # deliberately not (see _sep)
-        if getattr(self.m, "_pumping", 0):
-            # A bp_trace pump resumes breakpoint stops from its own thread,
-            # and a paused guest would take its stops away from it. Inside a
-            # pump the edges run free, as they always did.
-            self._edge(True)
-            t1 = self.ticks()
-            self._edge(False)
-            self._edge(True)
-            t2 = self.ticks()
-            self._edge(False)
-        else:
-            was = self.m.status().get("state")
-            self.m.pause()
+        # INSIDE A bp_trace BLOCK THE PRESSES ARE STEPPED TOO. They used to
+        # run free there, because the block's pump resumes breakpoint stops
+        # from its own thread and a paused guest would have taken its stops
+        # away from it - which left the span between the presses a quantity
+        # of the BOX again: one more status round trip per poll (212b6e42)
+        # moved int0sweep's spans from a mode of 3 ticks to 4-5 with a tail at
+        # 8, and int0sweep and assocsweep then read 9 and failed on a loaded
+        # box. So the gesture HOLDS each pump (BpTrace.hold) for its few
+        # dozen advances and records any stop it meets itself.
+        traces = list(getattr(self.m, "_traces", ()))
+        with contextlib.ExitStack() as held:
+            for tr in traces:
+                held.enter_context(tr.hold())
+            st = self.m.status()
+            was = st.get("state")
+            if was == "breakpoint" and traces:
+                # a stop no pump has seen yet (a pass records AND resumes
+                # under the lock it is held by): record it, and the first
+                # advance steps past it, as the pump's `run` would have
+                self._service(traces, st)
+            else:
+                self.m.pause()
             try:
-                self._gedge(True)
+                self._gedge(True, traces=traces)
                 t1 = self.ticks()
-                self._gedge(False)
-                self._gedge(True)
+                self._gedge(False, traces=traces)
+                self._gedge(True, traces=traces)
                 t2 = self.ticks()
-                self._gedge(False)
+                self._gedge(False, traces=traces)
             finally:
-                if was == "running":
+                if was == "running" or traces:
                     self.m.go()
         span = (t2 - t1) & 0xFFFFFFFF
         if span >= DBL_TICKS:
