@@ -3082,15 +3082,21 @@ SOAK = [
            "--scratch", "PICS:apps/pixel/samples/BOUNCE.GIF=BOUNCE.PNG",
            "--disk", "pxmovegif1.img", "--open", "B:/PICS/BOUNCE.PNG",
            "--idle", "px_busy", "--animated", "--busy", "px_anjob",
-           "--still", "op_table+24", "--still", "px_anseg"), 70.0,
+           "--busy", "px_pwm", "--still", "op_table+24", "--still",
+           "px_anseg"), 70.0,
         "NO-PINNING (SPEC.md 106.5.1): the PIN half. An animation PLAYING - "
         "px_anjob set, the worker parked at OSAPI_TASK_ALIVE INSIDE the GIF "
         "part between frames - and a compaction posted: the part and the "
         "animation claim must read PINNED and unmoved (--still) and the "
-        "window keep animating after. Red with px_pin's op_pin taken out: "
-        "the part MOVED 3320 -> 2aa0 under the parked worker, which is the "
-        "C overlay's CS-on-a-stack defect (NO-PINNING-PLAN wave 0). 66s "
-        "measured in a soak lane",
+        "window keep animating after. PINNED IS READ AT mem_compact's "
+        ".plan, the guest stopped there with the worker PARKED and px_pwm "
+        "naming the part - read after the compaction it sampled the "
+        "animation's phase (the worker steps out between passes) and went "
+        "red 6 runs in 16 in four lanes on parts that never moved. Red with "
+        "px_pin's op_pin taken out: MOVABLE at the plan, and the part MOVED "
+        "2be0 -> 2360 under the parked worker (3320 -> 2aa0 when first "
+        "written), which is the C overlay's CS-on-a-stack defect "
+        "(NO-PINNING-PLAN wave 0). 66s measured in a soak lane",
         needs=("marty",), serial=True,
         wants=("build/pixel.o88", "build/os8088-360.img")),
     Row("pkgmove-deskclock", "soak",

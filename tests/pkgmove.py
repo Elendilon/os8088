@@ -30,10 +30,12 @@ FOR A PACKAGE WHOSE CLAIMS ARE NOT ALL OF THE STORY (PiXEL, SPEC.md 106.5.1):
   --scratch DIR:FILE[=NAME]  the B: floppy built with build/<app>.o88 and these
   --idle WORD                a byte of the package's that reads 0 when nothing
                              runs - a quiet claim table is not a finished job
-  --busy WORD                ...and one that must read non-zero at the post
+  --busy WORD                ...and one that must read non-zero at the plan
   --still WORD               a claim the package STANDS IN (a code part its
-                             parked worker is inside): must read pinned and
-                             unmoved - the half that catches a CS on a stack
+                             parked worker is inside): must read pinned at
+                             every plan made with the worker PARKED and every
+                             --busy byte non-zero, and unmoved - the half that
+                             catches a CS on a stack
   --tuck                     minimize the --first window, when it covers the
                              drive's zone
 A --word may be an expression over the map's labels (`op_table+32`: part 2's
@@ -98,11 +100,13 @@ def main():
     ap.add_argument("--still", action="append", default=[],
                     help="a word naming a claim the package is STANDING IN "
                     "when the compaction runs - a code part its parked "
-                    "worker is inside: it must read pinned and unmoved")
+                    "worker is inside: it must read pinned at the compactor's "
+                    "plan, and unmoved")
     ap.add_argument("--busy", action="append", default=[],
                     help="a byte of the package's that must read non-zero "
-                    "as the compaction is posted - PiXEL's px_anjob, the "
-                    "worker inside the GIF part for a pass")
+                    "at the compactor's plan, with the worker parked, for "
+                    "the --still check to apply there - PiXEL's px_anjob "
+                    "(a pass running) and px_pwm (the worker's part mask)")
     ap.add_argument("--tuck", action="store_true",
                     help="minimize the --first window to its dock tile "
                     "before the target is opened: one that covers the "
@@ -302,17 +306,82 @@ def main():
             os88marty.until(m, lambda _: not shown(), "the target hidden",
                             limit=20)
             os88marty.pace(m, 1.0)
-        for z in a.busy:               # ...and it IS standing in it now
-            v = m.read(pseg() * 16 + addr(z), 1)[0]
-            print("  0 %s = %d as the compaction is posted" % (z, v))
-            if not v:
-                fails.append("%s is 0: nothing was running in the package, "
-                             "so the --still check proves nothing" % z)
-        m.write(S("mem_cpq_lvl"), bytes([0xFC]))
-        m.write(S("mem_cpq"), bytes([wptr & 0xFF, wptr >> 8]))
-        os88marty.until(m, lambda _: u16(m.read(S("mem_cpq"), 2)) == 0,
-                        "the posted compaction", poll=0.2, limit=30)
-        os88marty.ui_done(m)
+        def post():
+            m.write(S("mem_cpq_lvl"), bytes([0xFC]))
+            m.write(S("mem_cpq"), bytes([wptr & 0xFF, wptr >> 8]))
+            os88marty.until(m, lambda _: u16(m.read(S("mem_cpq"), 2)) == 0,
+                            "the posted compaction", poll=0.2, limit=30)
+            os88marty.ui_done(m)
+
+        # --still IS JUDGED AT THE PLAN, NOT AFTER IT. What pins a code part
+        # is a task STANDING in it (px_pin/px_unpin), and that changes while
+        # the package runs: PiXEL's worker is inside the GIF part for a whole
+        # pass and outside it between two, so a read of MC_RLOC after the
+        # compaction sampled the animation's phase at a HOST-timed moment -
+        # "op_table+24 stood still 2be0 -> 2be0 NOT PINNED" from a part that
+        # never moved, read in the gap after a pass. So mem_compact's .plan,
+        # where mem_cp_plan decides what may move with sch_lock held, is
+        # broken on, and there the package's worker is asked whether it is
+        # PARKED (sch_parked: it can only park at OSAPI_TASK_ALIVE, which a
+        # GIF pass calls inside the part) with every --busy byte non-zero -
+        # PiXEL's px_pwm being the part mask px_pin sets. At such a plan every
+        # --still claim must be pinned, and across that compaction unmoved. A
+        # compaction that never found the package standing in it proves
+        # nothing either way, so it is posted again, a few times, and then
+        # that is the failure.
+        def at_plan(mm, rec):
+            seg = pseg()
+            inst = mm.read(S("wm_owner") + win, 1)[0]
+            task = 0xFF if inst == 0xFF else mm.read(
+                S("inst_tab") + inst * os88geom.I_RECSZ + os88geom.I_TASK,
+                1)[0]
+            parked = task != 0xFF and mm.read(S("sch_parked") + task, 1)[0]
+            busy = {z: mm.read(seg * 16 + addr(z), 1)[0] for z in a.busy}
+            hd = claims(mm)
+            st = {}
+            for k in a.still:
+                c = u16(mm.read(seg * 16 + addr(k), 2))
+                st[k] = (c, c in hd and not hd[c][1])
+            return {"task": task, "parked": bool(parked), "busy": busy,
+                    "st": st}
+
+        standing = []
+        if not a.still:
+            post()
+        for attempt in range(1, 6 if a.still else 1):
+            s0 = stills(pseg())
+            for z in a.busy:
+                print("  0 %s = %d as compaction %d is posted" % (
+                    z, m.read(pseg() * 16 + addr(z), 1)[0], attempt))
+            with os88marty.bp_trace(m, "mem_compact.plan",
+                                    on_hit=at_plan) as tr:
+                post()
+            for p in [h["hit"] for h in tr.hits if "hit" in h]:
+                stand = p["parked"] and all(p["busy"].values())
+                print("    plan: worker task %s %s, %s; %s" % (
+                    "%d" % p["task"] if p["task"] != 0xFF else "none",
+                    "PARKED" if p["parked"] else "running",
+                    " ".join("%s=%02x" % kv for kv in p["busy"].items()),
+                    "  ".join("%s %04x %s" % (k, c, "pinned" if pin
+                                              else "movable")
+                              for k, (c, pin) in p["st"].items())))
+                if stand:
+                    standing.append(p)
+            if standing:
+                break
+            print("  0 compaction %d never found the worker standing in "
+                  "the package%s" % (attempt, ": posted again" if attempt < 5
+                                     else ""))
+        if a.still and not standing:
+            fails.append("no compaction in 5 found the package standing in "
+                         "%s (parked, %s non-zero): the --still check proves "
+                         "nothing" % ("/".join(a.still), "/".join(a.busy)))
+        for k in a.still:
+            loose = [p["st"][k][0] for p in standing if not p["st"][k][1]]
+            if loose:
+                fails.append("%s = %04x was MOVABLE at %d of %d plans made "
+                             "with the package standing in it"
+                             % (k, loose[0], len(loose), len(standing)))
         if a.hide:
             mo.click(*os88geom.tile_xy(m, win, S))
             os88marty.until(m, lambda _: shown(), "the target raised",
@@ -323,10 +392,13 @@ def main():
         w1 = words(seg1)
         held = claims(m)
         s1 = stills(seg1)               # ...and what must NOT have moved: a
-        for k in a.still:               # claim the package stands in, pinned
-            ok = s1[k] == s0[k] and s1[k] in held and not held[s1[k]][1]
-            print("  0 %s stood still  %04x -> %04x %s" % (
-                k, s0[k], s1[k], "pinned" if ok else "NOT PINNED / MOVED"))
+        for k in a.still:               # claim the package stood in (pinned
+            pins = [p["st"][k][1] for p in standing]    # at every such plan)
+            ok = s1[k] == s0[k] and s1[k] in held and pins and all(pins)
+            print("  0 %s stood still  %04x -> %04x %s (%s now)" % (
+                k, s0[k], s1[k], "pinned at %d plan(s)" % len(pins) if ok
+                else "NOT PINNED / MOVED", "movable" if s1[k] in held and
+                held[s1[k]][1] else "pinned"))  # (the phase: not asserted)
             if not ok:
                 fails.append("%s moved or was movable while the package "
                              "stood in it" % k)
