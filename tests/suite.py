@@ -16267,6 +16267,17 @@ SOAK = [
         "the pattern",
         needs=("bochs",),
         wants=("build/mega.img",)),
+    Row("megadosroom", "soak", py("tests/megadosroom.py"), 60.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md D5: a DOS trip with NO ROOM "
+        "for a park (a 2MB machine, every free KB of the pool held by "
+        "pinned records) writes HIBERNAT.IMG instead, runs the program with "
+        "no park, reboots at its exit (kern_dos's W6 route) and the boot "
+        "resumes the image unasked through the streaming resume. Asserts no "
+        "park line, KBTRIP's key, `kern_mega: resumed` and the filler back. "
+        "Red on the tree before: the trip refuses and KBTRIP never starts. "
+        "60s is 16 measured",
+        needs=("bochs",),
+        wants=("build/mega.img",)),
     Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.61, 14.62: the keyboard INSIDE a "
         "DOS program and the keyboard and pointer after it, over ten round "

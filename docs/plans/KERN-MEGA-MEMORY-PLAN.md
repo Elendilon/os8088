@@ -794,11 +794,22 @@ reset in the ROM, 64 sectors a call at most. The stub's tail rests on
   never happens. Both under Bochs, a 386: a 286's reset drop and its `int
   15h AH=87h` are the DOS trip's own and have run there, but this route
   has not, and wants 86Box's `286-mega`.
-- Not built: D5's own route, a DOS trip with no room for a park offering
-  the hibernate. The stub is ready for it (it needs only `kern_dos`
-  -DKD_MEGA to stage it, as `kd_resume` does kern_big's), but nothing asks
-  for it yet: `mega_dosclaimf` shrinks the park to `MPK_MIN_KB` and leaves
-  the rest in place, so a trip refuses only below 128KB of pool.
+- **D5 is built** (the same day): a DOS trip whose park claim fails - under
+  `MPK_MIN_KB` of pool to be had - takes kern_big's route when there is a
+  fixed disk: `hbm_dosrun` writes HIBERNAT.IMG (HBP_DOS) through the W5
+  writer, `mega_dosgo` hands over with NO park (the stage under
+  `[mem_top]`, the program the whole machine, no park header or W7 anchor
+  written - those would have gone to linear 0), and at the program's exit
+  `kern_dos -DKD_MEGA`'s `kd_resume` declines - a kern_mega image is
+  `megares.inc`'s, not `hbstub`'s - so W6's reboot runs and the boot
+  resumes the image with no question, through the streaming resume. A
+  machine with no fixed disk still refuses with nothing torn down. Row
+  `megadosroom` (Bochs, 2MB, every free KB of the pool held): no park line,
+  KBTRIP's key, `kern_mega: resumed`, the DOS window showing the exit code
+  posted into the restored session; red on the tree before (the trip
+  refuses, KBTRIP never starts). A live resume from `kern_dos` (no reboot)
+  would need `megares.inc` staged from there - not built; the reboot is
+  W6's route and it works.
 
 ### MC5 - one claim for all of it (D6, D7, D8)
 

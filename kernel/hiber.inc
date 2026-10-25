@@ -2945,7 +2945,18 @@ hbm_dosrun:
     jmp short .held
 .nosave:
     call MEGA_SEL_CODE:mega_dosclaimf
+    jnc .parked
+    ; --- NO ROOM FOR A PARK: THE IMAGE INSTEAD (KERN-MEGA-MEMORY-PLAN D5) ---
+    ; kern_big's route: HIBERNAT.IMG holds the session, the program gets the
+    ; machine with no park at all, and at its exit kern_dos reboots (W6 - its
+    ; kd_resume does not read a kern_mega image) and the boot resumes the
+    ; image with no question (HBP_DOS), through the streaming resume (MC4.1
+    ; (b)), which needs no room either. A machine with no fixed disk still
+    ; refuses here, with nothing torn down
+    call COLD_SEG:hb_pick_x
     jc .b7
+    jmp .kbimg
+.parked:
     CSDO mov byte [CSEG hbm_dosheld], 1
     call hbm_vbn
     mov si, hb_drvmask
@@ -3018,8 +3029,12 @@ hbm_dosrun:
     ; ROM's handler every tick, and the stub restores the IVT alone and never
     ; file sector 2 - so it is still counting when we come back. A PAIR with
     ; the ten bytes above, and banked in the same breath for that reason.
+%ifdef KERN_MEGA
+    MEGA_SEG0 es                ; (segment 0 is the NULL selector there)
+%else
     xor ax, ax
     mov es, ax
+%endif
     mov ax, [es:0x046C]
     mov [cs:bx+KDL_TICK], ax
     mov ax, [es:0x046E]

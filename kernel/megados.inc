@@ -1183,6 +1183,11 @@ mega_dosgo:
     mov ax, 0xB000
 .dstg:
     mov [mega_dstg], ax
+    mov ax, [mega_dpbase]           ; NO PARK (KERN-MEGA-MEMORY-PLAN D5: the
+    or ax, [mega_dpbase+2]          ; image holds the session): the stage
+    jnz .park                       ; under [mem_top], the program the whole
+    mov byte [mega_drmode], 1       ; machine, and no park header, name or
+.park:                              ; anchor written at linear 0 below
     mov di, KDS_LB                  ; --- the staged block's kern_mega tail ---
     mov ax, [mega_dxbase]
     mov [es:di+KDL_XBASE], ax
@@ -1232,6 +1237,11 @@ mega_dosgo:
     mov [es:di+KDL_STAGE], es
 
     ; --- the header's GDT and cells, and the program's name -------------------
+    mov ax, [mega_dpbase]
+    or ax, [mega_dpbase+2]
+    jnz .hdr
+    jmp .ivt                        ; (no park: none of it)
+.hdr:
     mov ax, mega_dwake
     call mega_dhcfill
     lea si, [di+MPK_LBNAME]         ; the name, spaces past its NUL
@@ -1268,6 +1278,7 @@ mega_dosgo:
     call KERNEL_SEG:mega_lincopyf
     pop es
     mov di, KDS_LB
+.ivt:
 
     ; --- the IVT's tick and keyboard: the BIOS's, for kern_dos ---------------
     ; mouse_unhook and the kernel's tail put mega's BCODE halves there
@@ -1287,7 +1298,11 @@ mega_dosgo:
     ; --- W7: THE ANCHOR, where a warm reset's boot looks first --------------
     ; GDT entry 0, which the CPU never reads, and outside the sum (the GDT's
     ; first line is not in it): a magic and the park's base. mega_dwake
-    ; clears it on the way home and mega_wrprobe on the way in
+    ; clears it on the way home and mega_wrprobe on the way in. Not with no
+    ; park: the boot's own resume finds the image instead
+    mov ax, [mega_dpbase]
+    or ax, [mega_dpbase+2]
+    jz .noanchor
     push es
     mov ax, MEGA_SEL_WIN
     mov es, ax
@@ -1298,6 +1313,7 @@ mega_dosgo:
     mov ax, [mega_dpbase+2]
     mov [es:6], ax
     pop es
+.noanchor:
 
     ; --- the masks kern_dos is handed: hbm_handover's -------------------------
     in al, 0x21
