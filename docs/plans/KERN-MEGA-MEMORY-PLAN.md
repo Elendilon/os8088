@@ -1435,12 +1435,14 @@ rows. Nothing is recorded as built that was not.
      ring, layer, plane and EMS addressing by granule, TI-bit tests, and
      the windowed play's framebuffer constants. Slot and plane selectors
      cached once, `SEG_WIN` for the frame. (The shipped build refuses.)
-     **TAKEN by the `mega-video` session (2026-10-25)**, with BIGSP in
-     place (9.1) since both rewrite the same addressing: do not convert
-     `apps/video/` here, it lands from `mega-video`. First fault at this
-     branch's `f3e558c0`: `vp_thpic`'s poster unpack adds 128-byte granules
-     to `[vp_rdseg]` (`Video Pl 0D at 1184:1454` on opening any `.V88`).
-     Any kernel ask it turns up is written into section 9 first.
+     **This branch's own agent has it** (an earlier line here said the
+     `mega-video` session had taken it - withdrawn, 2026-10-25): `mega-video`
+     waits for this conversion to commit and builds BIGSP in place (9.1) on
+     top of it. A first fault at `f3e558c0`, for whoever is converting:
+     `vp_thpic`'s poster unpack adds 128-byte granules to `[vp_rdseg]`
+     (`Video Pl 0D at 1184:1454` on opening any `.V88`). And the conventional
+     ring has the same shape throughout: `[vp_ring]` + 2,048 paragraphs a
+     slot, where the ring above 1MB (`[vp_rhi]`) is `[vp_ring]` + 8 a slot.
   5. **XT-MP3** - the hold's load and refill, the conversion stage,
      `x3xt`'s generator segment; and `x3xt`'s CS writes if that backend can
      run on a 286.
