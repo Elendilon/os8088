@@ -79,7 +79,17 @@ S_JITRCY        equ 0x482F          ; word: tiers recycled (stat; each one a
                                     ;   flush in S_JITFL as well)
 S_JITLN         equ 0x4831          ; word: the link log's bytes used (16.2.3):
                                     ;   4 an entry, RT_LOGB at most
-RDG_FREE         equ 0x4833          ; the rest of the window is unassigned,
+; a PRECOMPILED cartridge's (REALDMG-SPEC 20.9): the table's misses go to
+; S_AOTVEC, which looks them up in the host's sorted list
+S_AOTVEC        equ 0x4834          ; dword: rdg_aotmiss
+S_AOTINT        equ 0x4838          ; dword: the core's tr_int, for a miss
+S_AOTLSEG       equ 0x483C          ; word: the list's segment
+S_AOTLN         equ 0x483E          ; word: its entries, 8 bytes each
+S_AOTLO         equ 0x4840          ; word: rdg_aotmiss's scratch - the
+S_AOTHI         equ 0x4842          ;   search's bounds, its middle and
+S_AOTMID        equ 0x4844          ;   the bank key it looks for (the
+S_AOTKEY        equ 0x4846          ;   core keeps no stack to push on)
+RDG_FREE         equ 0x4847          ; the rest of the window is unassigned,
                                     ; but for rdgppu.inc's 4900-66FF and:
 S_SQ3           equ 0x48F0          ; 8: the WAVE channel as the FM chip plays
                                     ;   it (REALDMG-SPEC 17.1) - S_SQ1's

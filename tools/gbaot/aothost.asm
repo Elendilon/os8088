@@ -59,6 +59,8 @@ p_bank      dw 0                        ; 2Ah  the bank asked for, x 2 (reason 1
 p_bmp       dw 0                        ; 2Ch  the block starts' bitmap (RT_AOTBMP)
 p_sern      dw 0                        ; 2Eh  bytes sent on the link port
 p_serbuf    dw ser_buf                  ; 30h  ...and where they are
+p_list      dw 0                        ; 32h  the table's overflow list (mode 3)
+p_listn     dw 0                        ; 34h  ...its entries
     times 40h-($-$$) db 0
 
 ; the stops: the host takes the machine at the INT 3 and puts it back at the
@@ -127,6 +129,9 @@ h_init:
     mov word [S_JITEND],0               ; no room: rt_room is never reached,
     mov al,1                            ;   but say so
     call rt_dispatch
+    mov ax,[cs:p_list]                  ; the table's misses: the host's list
+    mov cx,[cs:p_listn]
+    call rdg_aotattach
 .done:
     STOP 0
     jmp short $
@@ -209,6 +214,7 @@ SER_LEN     equ 1024
 ser_buf     times SER_LEN db 0
 
 %include "rdgsys.inc"
+%include "rdgaot.inc"
 RT_AOTBMP       equ 2Ch                 ; p_bmp: rdgjit.inc's rt_aotstop
 %define RT_AOTSTOP
 %include "rdgjit.inc"

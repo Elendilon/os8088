@@ -149,7 +149,7 @@ INC = os.path.join(ROOT, "apps", "realdmg")
 
 def symbols(build):
     v = {}
-    for ln in open(os.path.join(build, "rdgcore.inc")):
+    for ln in open(os.path.join(aotdir(build), "rdgcore.inc")):
         p = ln.split()
         if len(p) == 3 and p[1] == "equ":
             v[p[0]] = int(p[2], 0)
@@ -163,19 +163,40 @@ def symbols(build):
     return v
 
 
+def aotdir(build):
+    return os.path.join(build, "gbaot")
+
+
 def prerequisites(build, defines=()):
-    """build/aothost.bin, assembled when its sources moved - with `defines`
-    (an instrument's: RT_DEADBUG, the negative control) a file of its own"""
-    need = [os.path.join(build, f) for f in ("rdgcore.bin", "rdgtmpl.bin", "rdgcore.inc")]
-    if not all(os.path.exists(f) for f in need):
-        subprocess.check_call(["make", "-s", "BUILD=" + build, os.path.join(build, "rdgtmpl.bin")],
-                              cwd=ROOT)
-    drv = os.path.join(build, "aothost%s.bin" % "".join("-" + d for d in defines))
+    """The PRECOMPILED core (rdggen.py's, assembled with RDG_AOTCORE: a fixed
+    table's miss goes to the host's sorted list first, REALDMG-SPEC 20.9),
+    its templates and offsets, and aothost.bin over them - all in
+    build/gbaot/, rebuilt when a source moved. With `defines` (an
+    instrument's: RT_DEADBUG, the negative control) a driver of its own."""
+    d = aotdir(build)
+    os.makedirs(d, exist_ok=True)
+    gen = os.path.join(INC, "rdggen.py")
+    tmpl = os.path.join(INC, "rdgtmpl.py")
+    asm, core = os.path.join(d, "rdgcore.asm"), os.path.join(d, "rdgcore.bin")
+    tbin, tinc = os.path.join(d, "rdgtmpl.bin"), os.path.join(d, "rdgcore.inc")
+
+    def stale(out, *deps):
+        return not os.path.exists(out) or any(os.path.getmtime(x) > os.path.getmtime(out) for x in deps)
+    defs = os.path.join(INC, "rdgdefs.inc")
+    if stale(asm, gen, defs):
+        subprocess.check_call([sys.executable, gen, asm])
+    if stale(core, asm, defs):
+        subprocess.check_call(["nasm", "-f", "bin", "-w+error", "-DRDG_AOTCORE", "-I", INC + "/",
+                               "-o", core, asm])
+    if stale(tbin, core, tmpl, gen) or stale(tinc, core, tmpl, gen):
+        subprocess.check_call([sys.executable, tmpl, core, tbin, tinc])
+    drv = os.path.join(d, "aothost%s.bin" % "".join("-" + x for x in defines))
     src = os.path.join(ROOT, "tools", "gbaot", "aothost.asm")
-    deps = [src] + [os.path.join(INC, f) for f in ("rdgsys.inc", "rdgjit.inc", "rdgdefs.inc")] + need
-    if not os.path.exists(drv) or any(os.path.getmtime(d) > os.path.getmtime(drv) for d in deps):
-        subprocess.check_call(["nasm", "-f", "bin", "-w+error", "-I", INC + "/", "-I", build + "/"]
-                              + ["-D" + d for d in defines] + ["-o", drv, src])
+    deps = [src, tbin, tinc] + [os.path.join(INC, f) for f in
+                                ("rdgsys.inc", "rdgjit.inc", "rdgdefs.inc", "rdgaot.inc")]
+    if stale(drv, *deps):
+        subprocess.check_call(["nasm", "-f", "bin", "-w+error", "-I", INC + "/", "-I", d + "/"]
+                              + ["-D" + x for x in defines] + ["-o", drv, src])
     return drv
 
 
@@ -186,12 +207,13 @@ class Machine:
         from unicorn import Uc, UC_ARCH_X86, UC_MODE_16, UC_HOOK_INTR
         from unicorn import x86_const as X
         self.X = X
+        drv = open(prerequisites(build, defines), "rb").read()
         self.sym = symbols(build)
         self.rom = rom
         self.u = Uc(UC_ARCH_X86, UC_MODE_16)
         self.u.mem_map(0, 0x110000)
-        self.u.mem_write(DRV_SEG * 16, open(prerequisites(build, defines), "rb").read())
-        self.core_bin = open(os.path.join(build, "rdgcore.bin"), "rb").read()
+        self.u.mem_write(DRV_SEG * 16, drv)
+        self.core_bin = open(os.path.join(aotdir(build), "rdgcore.bin"), "rb").read()
         self.u.hook_add(UC_HOOK_INTR, self._intr)
         self.slots = []                   # (segment of the 16KB slot, bank or None)
         self.prefer = None                # the banks rdg_init's fill maps first
@@ -357,7 +379,7 @@ def slot_of(pc, key, hmask):
     return ((bh << 8) | bl) * 8
 
 
-def translate(build, rom, entries, hmask=31, log=print, defines=()):
+def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7):
     """Every entry (bank, pc) translated, in rounds of two cache segments
     (the first round also fills the core's holes), the code's banks mapped a
     group at a time when they do not all fit. Returns the image."""
@@ -397,7 +419,7 @@ def translate(build, rom, entries, hmask=31, log=print, defines=()):
     live = {CORE: 0, SEGA: 1, SEGB: 2}     # the segments being written: image n
     blocks = {}                            # (pc, key) -> (image segment n, offset)
     dropped = set()
-    rnd, cont = 0, False
+    rnd, cont, cleared = 0, False, False
     for gi, group in enumerate(groups):
         if gi:
             for sl in m.slots:             # the last group's banks out
@@ -442,19 +464,34 @@ def translate(build, rom, entries, hmask=31, log=print, defines=()):
                 segs[idx] = m.r(sg, 0, 0x10000)
             log("gbaot: round %d: %d blocks translated (%d left)" % (rnd, got, len(todo)))
             rnd += 1
-            if not got:
-                # nothing more goes in: what is left had no slot (the slot and
-                # its neighbour hold blocks) - those PCs are the interpreter's
-                dropped |= set(todo)
-                if fresh:
-                    segs = segs[:-2]       # this round wrote nothing
-                cont = False
+            if not todo:
+                cleared = False
+                cont = True                # room left: the next group goes on here
+                continue
+            # what is left went unmade for one of two reasons: the segments
+            # filled, or its slot and the slot's neighbour hold blocks. The
+            # table is only the translator's bookkeeping here - the host keeps
+            # every block it made and builds the machine's table itself
+            # (finish) - so a collision empties it and the round goes again
+            # in the same segments; a full cache takes fresh ones
+            def free(k):
+                e = slot_of(k[0], k[1], hmask)
+                return not (struct.unpack_from("<H", table, e + 4)[0] and
+                            struct.unpack_from("<H", table, (e ^ 8) + 4)[0])
+            if any(free(k) for k in todo):
+                cleared, cont = False, False   # full: fresh segments
+                if not got and fresh:
+                    dropped |= set(todo)   # (fresh and still nothing: should not)
+                    break
+                continue
+            if cleared and not got:
+                dropped |= set(todo)       # (should not happen)
                 break
-            cont = not todo                # room left: the next group goes on here
+            m.w(HASH, 0, bytes((hmask + 1) * 256 * 8))
+            cleared, cont = True, True
     used_imgs = {n for n, _ in blocks.values()} | {0}
     while segs and (segs[-1] is None or len(segs) - 1 not in used_imgs):
         segs.pop()
-    table = m.r(HASH, 0, (hmask + 1) * 256 * 8)
     tails = {p << 8 for p in tailpages(build)}
     used = 0
     core0 = m.core_bin
@@ -466,12 +503,121 @@ def translate(build, rom, entries, hmask=31, log=print, defines=()):
             if o in tails or o >= 0xFE00:
                 continue
             used += sum(1 for x in sg[o:o + 256] if x)
-    return {"segs": segs, "table": table, "blocks": blocks, "dropped": sorted(dropped),
-            "hmask": hmask, "entries": n, "code_bytes": used}
+    img = {"segs": segs, "blocks": blocks, "dropped": sorted(dropped), "entries": n,
+           "code_bytes": used}
+    finish(img, m.sym, rom, keyed, rhm)
+    return img
+
+
+def priorities(rom, keyed):
+    """The order block starts claim the machine's table in: where a lookup
+    is likeliest to come from first - the vectors, then the places a RET
+    lands (the instruction after a CALL or RST), then the jump tables'
+    words, then the rest - and what does not fit goes to the sorted list"""
+    def rank(k):
+        pc, key = k
+        b = 0 if key == 0xFF else key
+        if pc < 0x68 and pc % 8 == 0:
+            return 0
+        prev3 = rom.byte(b, pc - 3)
+        prev1 = rom.byte(b, pc - 1)
+        if prev3 == 0xCD or prev3 in G.CALLCC or prev1 in G.RSTS:
+            return 1
+        return 2
+    return sorted(keyed, key=lambda k: (rank(k), k[1], k[0]))
+
+
+def finish(img, sym, rom, keyed, rhm):
+    """The machine's half of an image, made by the host:
+      - the TABLE it runs with, (rhm + 1) x 256 entries, every block start
+        placed by priority in its slot or the slot's neighbour (tr_ekey's
+        two places), the rest in the LIST, sorted (rdgaot.inc);
+      - every segment's three table masks (tr_hm0-2, rt_init's) made rhm;
+      - every exit PRE-LINKED, as tr_link would on its first run - which
+        also means a block the table could not hold costs a search only
+        where the machine dispatches for itself (a RET, JP HL, a resume);
+      - the far jumps among them as RELOCATIONS, image and offset, for the
+        loader to give the segment;
+      - one generation in every segment's FFF0h (16.2.3)."""
+    blocks, segs = img["blocks"], [bytearray(x) for x in img["segs"]]
+    table = bytearray((rhm + 1) * 256 * 8)
+    listed = []
+    for pc, key in priorities(rom, [k for k in keyed if k in blocks]):
+        n, off = blocks[(pc, key)]
+        e = slot_of(pc, key, rhm)
+        for e2 in (e, e ^ 8):
+            if not struct.unpack_from("<H", table, e2 + 4)[0]:
+                struct.pack_into("<HBBHH", table, e2, pc, key, 0, off, TOKEN + n)
+                break
+        else:
+            listed.append((key, pc, off, n))
+    lst = bytearray()
+    for key, pc, off, n in sorted(listed):
+        lst += struct.pack("<HBBHH", pc, key, 0, off, TOKEN + n)
+    for sg in segs:
+        for name in ("RDGC_TR_HM0", "RDGC_TR_HM1", "RDGC_TR_HM2"):
+            sg[sym[name]] = rhm
+        struct.pack_into("<H", sg, 0xFFF0, 1)
+    # pre-linking: an exit's site is `mov dx,SITE / jmp tr_lsite`, SITE its
+    # own offset, then mov si,T at SITE + 6 (bank 0) or after seven spare
+    # bytes at SITE + 13 (4000-7FFF) - rdgjit.inc's rt_exit
+    lsite, sbank = sym["RDGC_TR_LSITE"], sym["S_BANK"]
+    by_pc = collections.defaultdict(list)
+    for (pc, key), v in blocks.items():
+        by_pc[pc].append((key, v))
+    import bisect
+    starts = collections.defaultdict(list)  # image -> sorted (offset, key):
+    for (pc, key), (n, off) in blocks.items():   # a site belongs to the
+        starts[n].append((off, key))       #   nearest block start below it
+    for v in starts.values():
+        v.sort()
+    relocs, linked, lazy = [], 0, 0
+    for n, sg in enumerate(segs):
+        i = sg.find(b"\xBA")
+        while i != -1 and i < 0xFFF0:
+            if (struct.unpack_from("<H", sg, i + 1)[0] == i and sg[i + 3] == 0xE9
+                    and (i + 6 + struct.unpack_from("<h", sg, i + 4)[0]) & 0xFFFF == lsite):
+                if sg[i + 6] == 0xBE:
+                    t, at, bank = struct.unpack_from("<H", sg, i + 7)[0], i, None
+                else:
+                    t, at = struct.unpack_from("<H", sg, i + 14)[0], i + 8
+                    k = bisect.bisect_right(starts[n], (i, 0x100)) - 1
+                    src = starts[n][k][1] if k >= 0 else 0xFF
+                    if src != 0xFF:          # a bank's code: the same bank (a
+                        bank = src           #   switch leaves the block)
+                    else:                    # bank 0's: the one bank that has it
+                        cand = [kv for kv in by_pc.get(t, []) if kv[0] != 0xFF]
+                        bank = cand[0][0] if len(cand) == 1 else -1
+                tgt = None
+                if t < 0x4000:
+                    tgt = blocks.get((t, 0xFF))
+                elif bank is not None and bank >= 0:
+                    tgt = blocks.get((t, bank))
+                if tgt is None:
+                    lazy += 1               # left for tr_link to make at run time
+                else:
+                    if at != i:             # cmp byte [ss:S_BANK],B / jne +5
+                        sg[i:i + 3] = b"\x36\x80\x3E"
+                        struct.pack_into("<H", sg, i + 3, sbank)
+                        sg[i + 5] = bank
+                        sg[i + 6:i + 8] = b"\x75\x05"
+                    tn, toff = tgt
+                    if tn == n:
+                        sg[at] = 0xE9
+                        struct.pack_into("<H", sg, at + 1, (toff - (at + 3)) & 0xFFFF)
+                    else:
+                        sg[at] = 0xEA
+                        struct.pack_into("<HH", sg, at + 1, toff, TOKEN + tn)
+                        relocs.append((n, at + 3, tn))
+                    linked += 1
+            i = sg.find(b"\xBA", i + 1)
+    img["segs"] = [bytes(x) for x in segs]
+    img.update(table=bytes(table), list=bytes(lst), relocs=relocs, hmask=rhm,
+               linked=linked, lazy=lazy, listed=len(listed))
 
 
 def tailpages(build):
-    t = open(os.path.join(build, "rdgtmpl.bin"), "rb").read()
+    t = open(os.path.join(aotdir(build), "rdgtmpl.bin"), "rb").read()
     sym = symbols(build)
     o, n = struct.unpack_from("<HH", t, sym["RDGT_HTAIL"])
     return list(t[o:o + n])
@@ -479,11 +625,17 @@ def tailpages(build):
 
 def save(img, out, rom):
     os.makedirs(out, exist_ok=True)
+    for f in os.listdir(out):
+        if f.startswith("seg") and f.endswith(".bin"):
+            os.remove(os.path.join(out, f))
     for i, seg in enumerate(img["segs"]):
         open(os.path.join(out, "seg%02d.bin" % i), "wb").write(seg)
     open(os.path.join(out, "table.bin"), "wb").write(img["table"])
+    open(os.path.join(out, "list.bin"), "wb").write(img["list"])
     meta = {"segs": len(img["segs"]), "hmask": img["hmask"], "entries": img["entries"],
-            "blocks": len(img["blocks"]), "dropped": ["%02X:%04X" % (k, p) for p, k in img["dropped"]],
+            "blocks": len(img["blocks"]), "listed": img["listed"], "linked": img["linked"],
+            "lazy": img["lazy"], "relocs": img["relocs"], "code_bytes": img["code_bytes"],
+            "dropped": ["%02X:%04X" % (k, p) for p, k in img["dropped"]],
             "rom_sha256": hashlib.sha256(rom.d).hexdigest(), "header": rom.d[0x134:0x150].hex()}
     json.dump(meta, open(os.path.join(out, "aot.json"), "w"), indent=1)
 
@@ -492,6 +644,7 @@ def load(out):
     meta = json.load(open(os.path.join(out, "aot.json")))
     segs = [open(os.path.join(out, "seg%02d.bin" % i), "rb").read() for i in range(meta["segs"])]
     table = open(os.path.join(out, "table.bin"), "rb").read()
+    meta["list"] = open(os.path.join(out, "list.bin"), "rb").read()
     return meta, segs, table
 
 
@@ -505,34 +658,41 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=()):
     if mode == 3:
         meta, segs, table = img
         seg_at = [CORE] + [0x4000 + 0x1000 * i for i in range(len(segs) - 1)]
+        LIST = seg_at[-1] + 0x1000 if len(segs) > 1 else 0x4000
+        segs = [bytearray(x) for x in segs]
+        for n, at, tn in meta["relocs"]:   # the far jumps' segments
+            struct.pack_into("<H", segs[n], at, seg_at[tn])
         for i in range(1, len(segs)):
             m.w(seg_at[i], 0, segs[i])
-        t = bytearray(table)
-        for e in range(0, len(t), 8):
-            seg = struct.unpack_from("<H", t, e + 6)[0]
-            if seg >= TOKEN and struct.unpack_from("<H", t, e + 4)[0]:
-                struct.pack_into("<H", t, e + 6, seg_at[seg - TOKEN])
-        # one generation for every segment: a link between two is never
-        # logged, never refused (REALDMG-SPEC 16.2.3)
-        for i, sg in enumerate(seg_at):
-            if i:
-                m.w16(sg, 0xFFF0, 1)
+
+        def reseg(b):
+            t = bytearray(b)
+            for e in range(0, len(t), 8):
+                seg = struct.unpack_from("<H", t, e + 6)[0]
+                if seg >= TOKEN and struct.unpack_from("<H", t, e + 4)[0]:
+                    struct.pack_into("<H", t, e + 6, seg_at[seg - TOKEN])
+            return t
+        t = reseg(table)
+        lst = reseg(meta["list"])
         m.w(HASH, 0, t)
-        romseg = seg_at[-1] + 0x1000
+        m.w(LIST, 0, lst)
+        m.p(0x32, LIST)
+        m.p(0x34, len(lst) // 8)
+        romseg = LIST + (len(lst) + 15) // 16 + 1
         m.set_slots(romseg + 0x400, MEM_END // 16)
         m.init(3, VIEW, CORE, HASH, seg_at[1] if len(seg_at) > 1 else CORE, 0, romseg,
-               hmask=meta["hmask"], core_image=segs[0])
-        m.w16(CORE, 0xFFF0, 1)
+               hmask=meta["hmask"], core_image=bytes(segs[0]))
         if prove:                          # count what runs in the code segments:
             from unicorn import UC_HOOK_BLOCK  # the core's own handlers are
             m.ran = collections.Counter()   #   outside the holes the code is in
             code_ranges = [(sg * 16, sg * 16 + 0x10000) for sg in seg_at[1:]]
 
             entries = {}                    # a block's entry, linear -> its key
-            for e in range(0, len(t), 8):
-                pc, key, cnt, off, seg = struct.unpack_from("<HBBHH", t, e)
-                if off:
-                    entries[seg * 16 + off] = (pc, key)
+            for tb in (t, lst):
+                for e in range(0, len(tb), 8):
+                    pc, key, cnt, off, seg = struct.unpack_from("<HBBHH", tb, e)
+                    if off:
+                        entries[seg * 16 + off] = (pc, key)
 
             def blk(uc, addr, size, ud):
                 m.ran["code"] += 1
@@ -568,13 +728,15 @@ def cmd_build(a):
     found, extra = walk(rom)
     lead = leaders(rom, found, extra, side=a.side)
     print("gbaot: %d instructions, %d block starts" % (len(found), len(lead)))
-    img = translate(a.build, rom, lead, hmask=a.hmask)
+    img = translate(a.build, rom, lead, hmask=a.hmask, rhm=a.table // 2 - 1)
     save(img, a.out, rom)
     code = sum(len(s) for s in img["segs"])
     print("gbaot: %d blocks in %d segments (the core and %d more), %d dropped; %d code bytes, "
-          "%.1f a Game Boy instruction found; written to %s" % (
+          "%.1f a Game Boy instruction found; table %dKB with %d in the list; %d exits linked, "
+          "%d left to link; written to %s" % (
               len(img["blocks"]), len(img["segs"]), len(img["segs"]) - 1, len(img["dropped"]),
-              img["code_bytes"], img["code_bytes"] / max(1, len(found)), a.out))
+              img["code_bytes"], img["code_bytes"] / max(1, len(found)),
+              len(img["table"]) // 1024, img["listed"], img["linked"], img["lazy"], a.out))
 
 
 ARMS = {"interp": 0, "dyn": 1, "aot": 3}
@@ -649,7 +811,9 @@ def main():
     b = sub.add_parser("build")
     b.add_argument("rom")
     b.add_argument("-o", "--out", required=True)
-    b.add_argument("--hmask", type=int, default=31)
+    b.add_argument("--hmask", type=int, default=31, help="the TRANSLATOR's table mask")
+    b.add_argument("--table", type=int, default=16, choices=(16, 32, 64),
+                   help="KB of the table the machine runs with")
     b.add_argument("--side", action="store_true", help="a block at every resume point too")
     k = sub.add_parser("check")
     k.add_argument("rom")

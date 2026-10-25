@@ -3050,6 +3050,49 @@ broken and GBFLAGS.GB translated with `RT_DEADBUG`.
 
 ### 20.8 Not built
 
-The package that loads a precompiled cartridge, the table's shrink, the
-compact grade and the counters are docs/plans/REALDMG-AOT-PLAN.md's waves 2
-to 4.
+The package that loads a precompiled cartridge and the counters are
+docs/plans/REALDMG-AOT-PLAN.md's waves 3 and 4. The compact grade waits on
+wave 3's measurement of the heap a package really has.
+
+### 20.9 The table, the list and the links
+
+A precompiled cartridge runs with the **16KB table** (`S_HMASK` 7, 2,048
+entries) rather than the 64KB one the translator writes, and loses nothing:
+- **The table holds the hottest blocks.** The host places every block in
+  its slot or the slot's neighbour (`tr_ekey`'s two places, 16.3) by
+  priority - where a lookup is likeliest to come from first: the vectors,
+  then the places a RET lands (after a CALL or RST), then the rest - and
+  what does not fit goes in **the list**: the same 8-byte entries, sorted by
+  bank key and then PC, in a segment of their own.
+- **A miss under a fixed table looks there.** The core built with
+  `RDG_AOTCORE` (rdggen.py, slot 48h's `tr_new2`) far-jumps through
+  `S_AOTVEC` when `S_JITFIX` is set; `rdg_aotmiss` (rdgaot.inc) binary-
+  searches the list with its bounds in the view, since SP is the Game
+  Boy's, and goes into the block as `tr_go` would or into the interpreter
+  as `tr_kint` would. `rdg_aotattach` is the whole set-up. The stock core
+  is byte for byte what it was.
+- **Every exit is linked on the host.** An exit is `mov dx,SITE / jmp
+  tr_lsite`; the host does what `tr_link` would on the first run, so a
+  listed block costs a search only where the machine dispatches for itself
+  (a RET, `JP HL`, a resume). Bank 0's site becomes a direct `jmp`; a
+  switchable bank's becomes `cmp byte [ss:S_BANK],B / jne +5 / jmp`, B the
+  bank of the block it is in (a bank's code stays in its bank) or, from bank
+  0, the one bank that has the target. A target in another image is a far
+  jump, and its segment word is a **relocation** (image, offset, target
+  image) for the loader. The few exits whose bank cannot be named are left
+  to `tr_link` at run time.
+- **Each image's three mask bytes** (`RDGC_TR_HM0`-`2`, rt_init's) are 7,
+  and its generation word at FFF0h is 1.
+
+Measured on the owner's cartridges (not committed), every one still the
+same machine as its reference for 3,000 frames:
+
+| game | blocks | code | images | listed | linked | left |
+|---|---|---|---|---|---|---|
+| Super Mario Land | 1,899 | 169 KB | core + 3 | 420 | 2,211 | 6 |
+| Kirby's Dream Land | 3,151 | 235 KB | core + 4 | 1,305 | 3,792 | 29 |
+| Looney Tunes (.gb) | 4,061 | 376 KB | core + 7 | 2,106 | 5,665 | 21 |
+| Looney Tunes (.gbc) | 4,649 | 420 KB | core + 8 | 2,655 | 6,319 | 49 |
+
+Nothing is dropped any more: W1's drops were the 64KB table's collisions,
+which the list absorbs.

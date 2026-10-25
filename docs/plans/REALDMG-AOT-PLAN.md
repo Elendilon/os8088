@@ -72,13 +72,17 @@ The full form is ~20 bytes a Game Boy instruction, which is the study's
 prediction confirmed. What decides the fit is the SEGMENTS: on top of the
 code, each holds 7.4 KB of tails and the gaps rounding leaves.
 
-- [ ] The table: 64 KB -> a small hash plus a sorted list the miss path
-  searches (the drops go too).
+- [x] The table: 64 KB -> 16 KB plus a sorted list the miss path searches,
+  and every exit linked on the host (REALDMG-SPEC 20.9). No block is
+  dropped; the four games are still identical for 3,000 frames.
 - [ ] The cut's exit: carry on into the next block's entry, with no exit at
   all, when it is translated next.
 - [ ] The resume through a CONTINUATION (study 4.3).
 - [ ] Decide: does Looney Tunes fit at full speed on XMS? If not, the
-  compact grade.
+  compact grade. MOVED to W3: it is decided by the heap the package really
+  has on the machine, which W3 measures.
+- Measured and LEFT: the cut's exits are ~256 (SML) to ~398 (Kirby) blocks,
+  5-8 KB of code - the continuation is worth less than the measurement.
 
 ### W3 - `GAME.O88`
 
