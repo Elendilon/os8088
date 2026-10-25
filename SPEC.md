@@ -69020,6 +69020,45 @@ from `[sbl_sbase]` (0 for a heap claim) and its 8237 address is DX × 16 +
 `[sbl_sbase]` as 24 bits - page 10h, which the AT's eight-bit page register
 carries and an XT's never meets. `sbl_dma_put` gives it back the same way.
 
+#### 34.5.2.1 A direct ring counts the blocks the 8237 passed, not the IRQs
+
+**The block IRQ is an EDGE, and a block that ends while the line is masked
+latches the same edge as the next one.** The direct ISR added one `[sbl_half]`
+to `[sbl_consumed]` per interrupt, so every block end that fell inside a
+masked stretch was a block the card PLAYED and the counter never saw - and
+the card is auto-init, so it went on playing. kern_mega masks every kernel
+line for the length of a reflected BIOS call (`mega_svc`, KERN-MEGA-PLAN
+2.2), and a BIOS-served hard disk - a PicoMEM's, an XT-IDE's option ROM -
+holds the CPU for tens of milliseconds a read, so on that machine the count
+fell steadily behind the card: the Video Player, whose picture is paced on
+`SND_EXT_CONS` (SPEC.md 98.3.1), played **slow and in sync with a clock that
+was wrong**, and the producer wrote the ring behind where the chip really
+was. KERN-MEGA-PLAN 14.72 is the measurement.
+
+So the direct ISR asks the 8237 how far it has got (`sbl_dleft`, the count
+read verb 9 already made): the offset it reads next, against consumed's own
+offset, rounded DOWN to whole blocks, is what was played - one block when
+nothing was lost, three after a stretch that swallowed two. Three guards:
+
+- **a count that has not moved since the last IRQ** (`[sbl_dpos]`, the
+  offset banked each time, 0 at verb 0) is no count at all, and the IRQ adds
+  one block as before - a card whose 8237 registers say nothing is played the
+  way it always was;
+- **an offset half the ring or more past consumed's** is BEHIND it, not ahead
+  (a count read before the copy that advances it - a PicoMEM 1.x's
+  multiplexer writes channel 1's count back after each 128-byte copy,
+  §34.10.1), and adds nothing; **zero whole blocks** adds nothing either, and
+  the next IRQ's count takes them;
+- **consumed past the total** - `total − consumed` more than the ring, which
+  is negative: the chip played through the end of what was fed while the
+  line was masked (a whole ring fed is verb 1's bound and is not this) -
+  stops consumed at the total and takes the underrun contract: what it
+  played past it was stale, and the next count takes the gap back up once
+  the stream resumes.
+
+The double-buffered path is unchanged: its halves are swapped by the ISR, so a
+lost IRQ there is a lost half-swap and not a miscount.
+
 #### 34.5.3 An external ring, and ADPCM4 (the Video Player)
 
 **A ring in the PACKAGE'S OWN claim**, opened with `SND_OPENF_RING +
