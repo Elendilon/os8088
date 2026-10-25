@@ -10661,6 +10661,14 @@ Video Player's mega arm 60,758 -> 60,874 (+116); the shipped `video.bin`
 byte-identical, and `tools/os88rdiff.py --hot-file apps/video/rdiffhot.txt
 -D PKG_MEGA` finds all 402 hot routines identical at an even shift.
 
+**The owner on 86Box** (2026-10-25, their mr286: 16 MHz, 4MB, OTI-067,
+SB16, kern_mega installed on a 512MB IDE disk at 1996 5,400 rpm): **T69 now
+plays smooth.** LASTX toasted *Low memory*, paused once while the toast was
+up, and not at the end. The Victory runs it closer to the line and is not
+expected to have the room for the copying bank's two copies a chunk - which
+is the open item below about reading BIGSP's large records in place, and
+waits on the kern_mega RAM work in progress in another session.
+
 **Open**:
 - [ ] **The Victory**: T69 and LASTX on the PicoMEM, against kern_big on
   the same machine. Item 4 is the one no emulator here can show.
