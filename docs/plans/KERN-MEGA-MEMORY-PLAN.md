@@ -558,6 +558,15 @@ Work common to both proceeds while the owner decides: the growable LDT,
 the scratch selectors into the LDT, the doors, the video/font/ROM selectors
 at the switch, the kernel's own conversion, and the drivers.
 
+**The owner's answer (2026-10-25): (A).** (B) nets a saving everywhere -
+nothing on a desktop holding no big claim, ~64K with Paint's 150KB canvas,
+~42K with a 508KB story - but it gives memory back exactly when a big
+document is open, and the goal is to shrink usage. (A) costs work, not RAM.
+**How (A) is taken:** every site is converted. Where a conversion reshapes
+a hot 8088 path, it is measured (MartyPC, guest cycles): no slower and it
+is one shared path; slower and it is a `PKG_MEGA` arm built onto kern_mega's
+own disks (SPEC.md 20.18), the shipped build keeping its loop.
+
 ### MC4 - the HMA is RAM; the hibernate is the way out (D4, D5)
 
 - The HMA's record is unpinned; after MC3 it is the bottom 64K of the free run
