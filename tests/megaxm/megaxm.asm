@@ -504,6 +504,49 @@ mz_sel:
     mov cl, 0x5E
     cmp byte [es:0x4000], 0xC3
     jne .wrong
+    mov es, [mz_huge]           ; ...a PACKED file of 90,000 bytes read into
+    xor bx, bx                  ; it, past one window, decoded on the file
+    mov dx, 1                   ; doors' segment arm (KERN-MEGA-MEMORY-PLAN
+    mov cx, 0x8000              ; MC7.4): capacity 96KB
+    mov si, mz_s_huge
+    call OSAPI_FILE_READ
+    mov cl, 0x61
+    jc .refused
+    mov cl, 0x62
+    cmp dx, 1                   ; 90,000 = 1:5F90h
+    jne .wrong
+    cmp ax, 0x5F90
+    jne .wrong
+    mov cl, 0x63
+    cmp byte [es:0], 'A'        ; byte 0 through window 0...
+    jne .wrong
+    mov ax, [mz_huge]           ; ...byte 70,000 through window 4 (64KB on),
+    add ax, 4 * 8               ; at 70,000 - 65,536 = 1170h: 'A' + 70,000
+    mov es, ax                  ; mod 26 = 'I'
+    mov cl, 0x64
+    cmp byte [es:0x1170], 'I'
+    jne .wrong
+    mov ax, [mz_huge]           ; ...and every byte from 64KB to the end
+    add ax, 4 * 8               ; through window 4: 'A' + i mod 26, i from
+    mov es, ax                  ; 65,536 ('O')
+    xor di, di
+    mov al, 'A' + 65536 % 26
+    mov cx, 90000 - 65536
+.hb:
+    cmp [es:di], al
+    jne .hbad
+    inc di
+    inc al
+    cmp al, 'Z' + 1
+    jb .hbn
+    mov al, 'A'
+.hbn:
+    loop .hb
+    jmp short .hok
+.hbad:
+    mov cl, 0x65
+    jmp .wrong
+.hok:
     push ds
     pop es
     mov dx, [mz_huge]           ; ...and it goes back by its first selector
@@ -962,6 +1005,7 @@ mz_s_code:  db ' code ', 0
 mz_s_file:  db 'MEGAXM: file ', 0
 mz_s_tmp:   db 'MEGAXM.TMP', 0
 mz_s_big:   db 'ZBIG.TXT', 0
+mz_s_huge:  db 'ZHUGE.TXT', 0
 mz_s_at:    db 'MEGAXM: at ', 0
 mz_s_i13:   db 'MEGAXM: i13 ok', 0
 mz_s_move:  db 'MEGAXM: move ', 0

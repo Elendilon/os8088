@@ -361,6 +361,23 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     mov %1, %2
 %endif
 %endmacro
+; DSKW_WSEG sreg - the file doors' [dskw_wseg] into a segment register: the
+; selector itself on the selector arm, and on the segment arm a selector over
+; that paragraph (mega_oddsegf: the paragraph itself in real mode) - never the
+; identity GDT, which step 6 of KERN-MEGA-MEMORY-PLAN MC7 cuts. kern_mega
+; only; every register but sreg kept, FLAGS included
+%macro DSKW_WSEG 1
+    push ax
+    pushf
+    mov ax, [dskw_wseg]
+    cmp byte [dskw_hi], 0
+    jne %%sel
+    call KERNEL_SEG:mega_oddsegf
+%%sel:
+    popf
+    mov %1, ax
+    pop ax
+%endmacro
 ; MEGA_ISHI reg - CF = 0 when the value in reg (not AX) is a POOL SELECTOR -
 ; an allocator LDT selector whose descriptor's base is at or above 1MB - and
 ; CF = 1 for anything else, including every value in real mode. It replaces

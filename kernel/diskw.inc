@@ -1804,7 +1804,11 @@ dskw_flushrun:
 %else
     mov ax, [dskw_rlba]
 %endif
+%ifdef KERN_MEGA
+    DSKW_WSEG es
+%else
     mov es, [dskw_wseg]
+%endif
     mov bx, [dskw_src]
     cmp byte [dskw_fop], 0      ; in: AX=LBA, CX=count, ES:BX
     je .rd
@@ -2034,19 +2038,35 @@ dskw_rbody:
     mov cx, [dskw_seg]          ; where the expansion LANDS, banked before R
     mov [dskw_czseg], cx        ; goes into [dskw_seg]
 %ifdef KERN_MEGA
-    cmp byte [dskw_hi], 0       ; ABOVE 1MB the buffer is one selector of at
-    je .czlo                    ; most 64KB: R is an OFFSET in it and the
-    or dx, dx                   ; packed bytes land there; a stream that
-    jnz .czbad                  ; would cross the window is refused. R = 0
-    or ax, ax                   ; is a PLAIN file, whose [dskw_uz] was never
-    jz .czhip                   ; written and whose size the capacity bounds
-    cmp word [dskw_uzhi], 0
-    jne .czbad
+    cmp byte [dskw_hi], 0       ; ON THE SELECTOR ARM the buffer is one
+    je .czlo                    ; selector of at most 64KB: R is an OFFSET in
+    or dx, dx                   ; it and the packed bytes land there; a
+    jnz .czfb                   ; stream that would cross the window goes
+    or ax, ax                   ; to the segment arm below 1MB and is refused
+    jz .czhpl                   ; above it. R = 0 is a PLAIN file, whose
+    cmp word [dskw_uzhi], 0     ; [dskw_uz] was never written and whose size
+    jne .czfb                   ; the capacity bounds
+    jmp short .czhip
+.czhpl:                         ; A PLAIN file must fit the window from the
+    push ax                     ; offset too: the selector arm walks the
+    mov ax, [dskw_src]          ; OFFSET, which would wrap onto the bytes
+    add ax, [dskw_len]          ; already read (KERN-MEGA-MEMORY-PLAN MC7.4)
+    pop ax
+    jc .czfb
+    cmp word [dskw_lenhi], 0
+    jne .czfb
 .czhip:
     add [dskw_src], ax          ; R on from the caller's offset (0 for a
     mov ax, [dskw_src]          ; packed file, checked above) - and banked,
     mov [dskw_czsrc], ax        ; for dskw_czexp to find them by after the
     jmp .czsized                ; read has moved [dskw_src] past them
+.czfb:
+    call dskw_tolo              ; a conventional claim decodes as it always
+    jnc .czfbl                  ; did, by paragraph - its registers loaded
+    jmp .czbad                  ; through scratch selectors (KERN-MEGA-MEMORY-
+.czfbl:                         ; PLAN MC7.4)
+    mov cx, [dskw_seg]
+    mov [dskw_czseg], cx
 .czlo:
     push ax                     ; kern_mega: the expansion LANDS at an exact
     mov ax, [dskw_src]          ; paragraph (lz wants DI = 0), which may be
@@ -2356,10 +2376,18 @@ dskw_czexp:
     mov ds, [dskw_seg]          ; packed bytes are where they were banked -
     jmp short .czsi             ; read at [dskw_src], the header was past the
 .czlds:                         ; file and every packed file read into a high
-%endif                          ; claim was refused (KERN-MEGA-PLAN 14.20)
+                                ; claim was refused (KERN-MEGA-PLAN 14.20)
+    mov si, [dskw_src]          ; ...and the segment arm's packed bytes are
+    push ax                     ; a PARAGRAPH, loaded through MEGA_SEL_SLD in
+    mov ax, [dskw_seg]          ; protected mode - the output holds the ODD
+    call COLD_SEG:mega_sldsegf  ; scratch (KERN-MEGA-MEMORY-PLAN MC7.4)
+    mov ds, ax
+    pop ax
+%else
     lds si, [dskw_src]          ; ...and DS:SI = the packed bytes, where
                                 ; dskw_rdata put them - one load, the two
                                 ; words being adjacent for it
+%endif
 %ifdef KERN_MEGA
 .czsi:
 %endif
@@ -2424,6 +2452,47 @@ dskw_norm:
     ret
 
 %ifdef KERN_MEGA
+; -----------------------------------------------------------------------------
+; dskw_tolo - (kern_mega) a selector buffer BELOW 1MB onto the segment arm:
+; [dskw_seg]:[dskw_src] become its real paragraph and an offset of 0..15, and
+; [dskw_hi] = 0 - for the one thing the selector arm cannot do, a packed
+; stream past its 64KB window, which the decoder walks by paragraph. The arm's
+; segment registers are loaded through scratch selectors (DSKW_WSEG, the
+; decoder's mega_sldsegf, oddseg), never through the identity GDT that step 6
+; cuts. CF = 1, nothing changed, when the base is at or above 1MB. Every
+; register kept
+; -----------------------------------------------------------------------------
+dskw_tolo:
+    push ax
+    push cx
+    push dx
+    mov ax, [dskw_seg]
+    call MEGA_SEL_CODE:mega_selbasef ; DX:AX = its base
+    jc .o
+    add ax, [dskw_src]
+    adc dx, 0                       ; ...the buffer's
+    cmp dx, 0x0F
+    ja .no                          ; above 1MB: no paragraph names it
+    mov cx, ax
+    and cx, 15
+    mov [dskw_src], cx
+    mov cl, 4
+    shr ax, cl
+    mov cl, 12
+    shl dx, cl
+    or ax, dx
+    mov [dskw_seg], ax
+    mov byte [dskw_hi], 0
+    clc
+    jmp short .o
+.no:
+    stc
+.o:
+    pop dx
+    pop cx
+    pop ax
+    ret
+
 ; -----------------------------------------------------------------------------
 ; dskw_subsrc - a COMPRESSED read into a selector at a paragraph offset
 ; (KERN-MEGA-MEMORY-PLAN MC7.4): the decoder wants its output at offset 0,
@@ -4901,7 +4970,11 @@ dskw_wone:
     mov dx, 512
     sub dx, cx                  ; DX = bytes to zero after the copy
     mov si, [dskw_src]          ; (read through the KERNEL's DS, before...)
+%ifdef KERN_MEGA
+    DSKW_WSEG ds                ; ...DS:SI = the caller's bytes
+%else
     mov ds, [dskw_wseg]         ; ...DS:SI = the caller's bytes
+%endif
     push ss
     pop es
     mov di, dsk_secbuf
@@ -4926,7 +4999,11 @@ dskw_rone:
     jc .out
     push si
     push cx
+%ifdef KERN_MEGA
+    DSKW_WSEG es                ; ES:DI = the caller's destination
+%else
     mov es, [dskw_wseg]         ; ES:DI = the caller's destination
+%endif
     mov di, [dskw_src]
     push ds
     push ss

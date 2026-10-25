@@ -2357,8 +2357,10 @@ dsk_runcap:
     jae .hma                    ; (docs/plans/HMA-PLAN.md 5) - below
 %endif
 %ifdef KERN_MEGA
-    test al, 4                  ; AN LDT SELECTOR IS NOT A SEGMENT: the page
-    jz .seg                     ; math is on its descriptor's BASE - every
+    cmp byte [mega_on], 0       ; IN PROTECTED MODE A SELECTOR IS NOT A
+    je .seg                     ; SEGMENT: the page math is on its
+                                ; descriptor's BASE - the scratch ones the
+                                ; file doors load (ODD, SLD) and every
     call MEGA_SEL_CODE:mega_selbasef ; claim's value in protected mode
     cmp dx, 0x0F                ; (KERN-MEGA-MEMORY-PLAN MC7.4). Above 1MB (a
     ja .hma                     ; window, a pool claim) the ROM's int 13h

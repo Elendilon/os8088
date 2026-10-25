@@ -82,6 +82,12 @@ MEGA_LDT_FREE0  equ 1280            ; M3's allocator (mega_ldt_alloc) owns the
                                     ; entries from here up: as aliases they
                                     ; would be segments A000-FFE0, where no
                                     ; image lives (KERN-MEGA-PLAN 13.3)
+MEGA_SEL_BACK   equ 0xFFC8          ; data, base moved per use: an LZ match's
+                                    ; source 64KB behind the output, whose ES
+                                    ; is MEGA_SEL_ODD and whose input DS is
+                                    ; MEGA_SEL_SLD (mega_backf, lz.inc) - GDT
+                                    ; entry 1FF9h, ROM segment FFC8's identity
+                                    ; selector, which nothing loads
 MEGA_SEL_SLD    equ 0xFFE0          ; data, base moved per use: mega_slidef's
                                     ; scratch, GDT entry 1FFCh - the identity
                                     ; selector of ROM segment FFE0, which
@@ -2965,17 +2971,22 @@ mega_r286:
 ; -----------------------------------------------------------------------------
 mega_slidef:
     pushf
-    test al, 4
-    jnz .desc
-    add ax, dx
-    popf
-    retf
-.desc:
+    cmp word [cs:k_dsel], KERNEL_SEG ; REAL MODE: a segment, and the sum is
+    jne .desc                       ; the answer - asked first, since a real
+    add ax, dx                      ; segment can carry bit 2. In protected
+    popf                            ; mode EVERY selector slides by its
+    retf                            ; descriptor, the scratch ones (ODD, SLD)
+.desc:                              ; included (KERN-MEGA-MEMORY-PLAN MC7.4)
     push bx
     push cx
     push dx
     push di
     push es
+    mov di, MEGA_SEL_SLD            ; the scratch it lands on: SLD, but an LZ
+    cmp ax, MEGA_SEL_BACK           ; MATCH's source slides onto its own, BACK
+    jne .sld                        ; - SLD is the decoder's INPUT, which the
+    mov di, ax                      ; match has on the stack (lz_match)
+.sld:
     mov bx, dx                      ; BX = paragraphs
     call MEGA_SEL_CODE:mega_selbasef               ; DX:AX = the base (CL spent)
     mov cx, bx
@@ -2983,15 +2994,16 @@ mega_slidef:
     shr bx, 12
     add ax, cx
     adc dx, bx                      ; DX:AX = the base, slid
-    mov di, MEGA_SEL_WIN            ; the GDT itself, as data
-    mov es, di
-    mov di, MEGA_SEL_SLD
+    push ax
+    mov ax, MEGA_SEL_WIN            ; the GDT itself, as data
+    mov es, ax
+    pop ax
     mov word [es:di], 0xFFFF
     mov [es:di+2], ax
     mov dh, 0x92
     mov [es:di+4], dx
     mov word [es:di+6], 0
-    mov ax, MEGA_SEL_SLD
+    mov ax, di
     pop es
     pop di
     pop dx
@@ -2999,6 +3011,89 @@ mega_slidef:
     pop bx
     popf
     retf
+
+; -----------------------------------------------------------------------------
+; mega_backf - FAR: AX = a data selector or segment -> AX = one for the same
+; memory 64KB BACK (lz_match's source when a match reaches over a 64KB
+; boundary of the output): the difference in real mode, and in protected mode
+; MEGA_SEL_BACK aimed at the base less 64KB - the output's ES being the ODD
+; scratch and the input's DS the SLD one, a match wants a third. Every other
+; register and FLAGS kept
+; mega_bkaimf - FAR: AX = a data selector -> AX = MEGA_SEL_BACK over the SAME
+; memory in protected mode, AX unchanged in real mode: an LZ match whose source
+; may slide, or that sits on the ODD scratch the output's bump re-aims, is
+; read through a scratch nothing else moves (lz_match). Every other register
+; and FLAGS kept
+; mega_sldsegf - FAR: AX = a REAL segment -> AX = a data selector over it:
+; itself in real mode, MEGA_SEL_SLD in protected mode (the LZ decoder's input
+; when the file doors read a packed stream onto the segment arm, whose output
+; holds MEGA_SEL_ODD - KERN-MEGA-MEMORY-PLAN MC7.4). Every other register and
+; FLAGS kept
+; -----------------------------------------------------------------------------
+section .cold
+mega_bkaimf:
+    pushf
+    cmp byte [ss:mega_pm], 0
+    je .rm
+    push dx
+    push di
+    call MEGA_SEL_CODE:mega_selbasef ; DX:AX = the base, unmoved
+    jmp short mega_backf.aim
+.rm:
+    popf
+    retf
+mega_backf:
+    pushf
+    cmp byte [ss:mega_pm], 0
+    jne .pm
+    sub ax, 0x1000
+    popf
+    retf
+.pm:
+    push dx
+    push di
+    call MEGA_SEL_CODE:mega_selbasef ; DX:AX = the base
+    dec dx                          ; ...64KB back
+.aim:
+    mov di, MEGA_SEL_BACK
+    call mega_gdtaim
+    pop di
+    pop dx
+    popf
+    retf
+mega_sldsegf:
+    pushf
+    cmp byte [ss:mega_pm], 0
+    je .rm
+    push dx
+    push di
+    mov dx, ax
+    shl ax, 4
+    shr dx, 12                      ; DX:AX = its base
+    mov di, MEGA_SEL_SLD
+    call mega_gdtaim
+    pop di
+    pop dx
+.rm:
+    popf
+    retf
+; mega_gdtaim - DI = a GDT scratch selector, DX:AX = a base -> that entry a
+; 64KB data descriptor there, AX = the selector. Clobbers DX
+mega_gdtaim:
+    push es
+    push ax
+    mov ax, MEGA_SEL_WIN            ; the GDT itself, as data
+    mov es, ax
+    pop ax
+    mov word [es:di], 0xFFFF
+    mov [es:di+2], ax
+    mov dh, 0x92
+    mov [es:di+4], dx
+    mov word [es:di+6], 0
+    mov ax, di
+    pop es
+    ret
+section .text
 
 ; -----------------------------------------------------------------------------
 ; mega_oddsegf - a selector for ANY paragraph (far; KERN-MEGA-PLAN 3.1)

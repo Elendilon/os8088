@@ -1121,6 +1121,39 @@ rows. Nothing is recorded as built that was not.
   regrown past its first 64KB below 1MB - a conventional huge claim that
   grows is a package-wave question if one turns up.
 
+- **Step 5.6's first half, the LZ decoder and a packed file past one
+  window (2026-10-25) - DONE.** After 5.5 a packed file larger than 64KB read
+  into a CONVENTIONAL claim had nowhere to go: the selector arm holds one
+  window and refuses a stream that crosses it, and the decoder walks its
+  input and output by PARAGRAPH. Now:
+  - **`dskw_tolo` puts such a read back on the segment arm** - the buffer's
+    real paragraph and an offset of 0..15 - when the base is under 1MB (above
+    it the refusal stands, nothing names it by paragraph), and a plain file
+    that would wrap the window from its offset takes the same road. Every
+    segment register that arm loads goes through a scratch selector:
+    `DSKW_WSEG` for the transfer and both staging loops, `mega_oddsegf` for
+    the output, `mega_sldsegf` (MEGA_SEL_SLD) for the decoder's input.
+  - **The decoder slides by descriptor, never by sum, in protected mode**:
+    `lz_at` and `lz_copy` through `mega_slidef`, which now asks real mode
+    first and otherwise slides EVERY selector by its base (the scratch ones
+    included); a match reaching back over a 64KB boundary of the output
+    through a third scratch, MEGA_SEL_BACK (`mega_backf`).
+  - **The defect the row found**: a match's source that SLIDES re-aimed
+    MEGA_SEL_SLD - the very selector the decoder's input was held in - so
+    the `pop ds` after the match reloaded the wrong base and the raw tail
+    came out 16 bytes off (`MEGAXM: bad 65`). A match source that may slide,
+    or that sits on the ODD scratch the output's own bump re-aims, is now
+    read through MEGA_SEL_BACK (`mega_bkaimf`), and `mega_slidef` slides
+    BACK onto itself. The cost is one compare per match on kern_mega only.
+  - MEGAXM checks it (steps 61-65: a 90,000-byte lz4 file read into a
+    conventional `OSAPI_MEM_HUGE` run and compared byte for byte from 64KB
+    to the end through window 4) and goes red with the fallback refused
+    (`MEGAXM: no 61`). Cost: kern_mega shared window +12, `.cold` +297;
+    kern_big and kern_small byte-identical with a clean build of the same
+    commit.
+  - Still to come in 5.6: DISKOPS's cloner and compressor (`compress.inc`,
+    `cmz_*`, `clo_*`) and `cpc_fdtest` (CTRL.DRV).
+
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to
   reopen the end state:

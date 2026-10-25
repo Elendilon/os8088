@@ -59,9 +59,19 @@ def main():
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88lz.py"),
                     "--wrap", zbig, "--fmt", "lz4", raw], check=True,
                    capture_output=True)
+    # ...and its HUGE leg reads RUN\ZHUGE.TXT, 90,000 bytes of the same, into
+    # an OSAPI_MEM_HUGE run below 1MB: past one selector's 64KB, so the file
+    # doors decode it on the segment arm (KERN-MEGA-MEMORY-PLAN MC7.4)
+    rawh = os.path.join(out, "zhuge.raw")
+    with open(rawh, "wb") as f:
+        f.write(bytes(65 + i % 26 for i in range(90000)))
+    zhuge = os.path.join(out, "ZHUGE.TXT")
+    subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88lz.py"),
+                    "--wrap", zhuge, "--fmt", "lz4", rawh], check=True,
+                   capture_output=True)
     os88bochs.MEGS = 4
     box = os88bochs.Box(out, [os.path.join(ROOT, p) for p in PKGS],
-                        put=["RUN:" + zbig])
+                        put=["RUN:" + zbig, "RUN:" + zhuge])
     fails = []
     lines = []
     try:
