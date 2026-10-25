@@ -6581,8 +6581,8 @@ $(BUILD)/XTGEN.BIN: $(X3XTGENDEPS) | $(BUILD)
 	python3 tools/x3xtgen.py --xtgen $@
 
 $(BUILD)/x3xt.bin: apps/xtmp3/x3xt.asm apps/xtmp3/x3gran.inc $(BUILD)/x3xtk.inc \
-                   $(BUILD)/XTGEN.BIN | $(BUILD)
-	$(NASM) -f bin -w+error -I apps/xtmp3/ -I $(BUILD)/ -o $@ apps/xtmp3/x3xt.asm
+                   $(BUILD)/XTGEN.BIN apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/xtmp3/ -I apps/ -I $(BUILD)/ -o $@ apps/xtmp3/x3xt.asm
 	python3 tools/x3xtgen.py --seal $@
 	@echo "x3xt:   $(call FILESIZE,$@) bytes"
 
