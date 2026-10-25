@@ -3454,7 +3454,7 @@ SOAK = [
         "translation is the host's, and the check is counted, not timed. "
         "SOAK: one package's recompiler",
         needs=("nasm", "unicorn", "rgbds"), timeout=900),
-    Row("gbaotpkg", "soak", py("tests/gbaotpkg.py"), 150.0,
+    Row("gbaotpkg", "soak", py("tests/gbaotpkg.py"), 93.0,
         "A PRECOMPILED CARTRIDGE ON THE MACHINE (docs/REALDMG-SPEC.md 20.10): "
         "tools/gbaot.py translates and packages GBPOP.GB as GBPOP.O88 - the "
         "RDG_AOT build of realdmg.asm with the code images as parts - and "
