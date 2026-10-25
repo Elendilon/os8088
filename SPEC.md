@@ -54163,10 +54163,10 @@ disk's entries `A_ARCH` (§19.6 locks down the *system* disk only), so it
 copies, and the user is meant to copy it. Nesting it is what §24's folder
 paths exist for, and it is the first and so far only shipped use of them.
 
-### 24.3 CORE PACKAGES — six programs ride the system disk too
+### 24.3 CORE PACKAGES — seven programs ride the system disk too
 
-Six packages are **core**: `NOTEPAD.O88`, `FONTVIEW.O88`, `PAINT.O88`,
-`BROWSER.O88`, `TELNET.O88` and `MINES.O88`. They ship on the three shipped
+Seven packages are **core**: `NOTEPAD.O88`, `FONTVIEW.O88`, `PAINT.O88`,
+`BROWSER.O88`, `TELNET.O88`, `MINES.O88` and, since §24.3.2, `REDLINE.O88`. They ship on the three shipped
 **system** disks in addition to the apps disks, each in the folder it already
 occupies over there — `APPS/` for the first five, `GAMES/` for Mines. **A
 second copy, never a move:** the roomier apps disks carry every package there
@@ -54667,6 +54667,24 @@ geometry.
 `os8088-360.img` and present at util360's root. `tests/instdeep.py`, which
 installs from the 360KB pair, no longer expects `SYSTEM/DOS/`.
 
+#### 24.3.2 REDLINE joins the system disks — the second system-only core package
+
+`REDLINE.O88` (§103) is in `APPS/` on the 1.44 MB, 1.2 MB and 720 KB system
+disks, and like `FONTVIEW.O88` it is on **no** apps disk at those geometries:
+`CORE_SYSONLY` names it. A benchmark's question is *what is this machine*, and
+the disk every machine boots is the one sure to be in a drive; before this it
+rode only its own disks, the everything set and `util360.img`, so at the three
+roomier geometries the shipped pair did not carry it at all. 28 KB, measured
+against the free space each system disk had (82 of 713 clusters at 720 KB, far
+more at the other two) and held to `t_sysfree`'s floor.
+
+Two disks leave it off. **The 360 KB system disk** (`SYS360OMIT`):
+`util360.img` carries it there beside System Check (§24.3.1.7). **kern_mega's
+system disks** (`MEGACOREOMIT`): REDLINE's inventory pass rewrites its own
+code (§103.2) and it has never been run under kern_mega's selectors, so it
+stays off them until somebody has. The everything set and the live media take
+it through `CORE_SYSONLY`, as they take `FONTVIEW.O88`.
+
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 
 `build/media360.img` is a data floppy carrying `MEDIA/BEVERLY.MOD` and
@@ -55087,6 +55105,39 @@ this — the arena is 52.5KB and TeXPad's region alone is ~25KB. The disk being
 full of programs is not a claim that they run at once; it is a claim that the
 user can *choose* one without swapping floppies.
 
+#### 24.5.7 …and a 720 KB small system disk beside the 360 KB one
+
+`make small` writes `build/small720.img` too: kern_small and the same whole
+payload as `small.img`, on the 720 KB geometry, for the 128 KB machine whose
+drive is a 3.5" double-density one. It boots through the 360 KB disk's boot
+sector — 9 sectors a track and two heads, which is all stage 1 knows of a
+geometry, as the big build's `os8088-720.img` does — and its `KERNEL.SYS`
+starts at LBA 12 exactly as `small360.img`'s does, so every sector of the
+kernel crosses a head where it does there and §18.93.1's canary holds
+unchanged. 183 of 357 clusters.
+
+**It is NOT the standard 720 KB format, and cannot be.** kern_small's FAT
+window is two sectors (`DSK_FAT_SECS`, §2.5.3), and §18.2 rule 10 refuses a
+floppy whose FAT is larger - so a standard 720 KB disk, whose FAT is three
+sectors, is one kern_small does not mount at all, and the small disks are
+written `--fatcap 2`: 2 KB clusters at 720 KB, as `small.img` takes 4 KB ones
+at 1.44 MB. The disk is consistent and self-contained, which is what a
+one-drive 128 KB machine needs, but a 128 KB machine with a 720 KB drive
+reads no OTHER 720 KB disk - not `apps720.img`, not `more720.img`, not a DOS
+disk. `t_image` names the cluster size it must have (its `CLUSTERS`), the way
+it names `os8088-360.img`'s. Only the 360 KB small disk is the standard shape.
+
+**SHIPPED since 2026-10-25**: `small360.img` and `small720.img` are in
+`$(SHIPIMGS)`, so `all` builds them through `make small`'s one sub-make and
+every gate that walks the shipped set reads them - `t_image` against
+`build/smallk/kernel.sys` (and without `BOOTHD.SYS`, kern_small having no
+hard-disk install), `t_canary`, `t_blobruns` (two blob calls and seven
+kernel calls on both), `t_sysfree`, `t_diskverify`, `t_noovl`, `t_retired`,
+`t_volsig` and `t_ascplace`. `small.img` stays on demand: its canary word
+does not cross a head (`t_canary`'s `crosses` answers no for it), and the
+release carries the 128 KB machine at 360 KB and 720 KB. `osrom-small`
+(§2.10) pairs with these two disks.
+
 ### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
 
 `build/office360.img`, `build/network360.img`, `build/games360.img`,
@@ -55387,6 +55438,36 @@ what the `WORD.OVL` comment two lines above says, and it was right there.
 The 360KB set is **seven disks** now — system, apps, media, office, network,
 games and emu — and docs/FIELD-MACHINES.md's standing rule for the
 `Elendilon/os8088` fork sends all seven.
+
+### 24.7 THE SECOND 720KB APPS DISK — `more720.img`
+
+The 720 KB apps disk ran out the way §24.6's 360 KB one did, and was answered
+one package at a time: PiXEL (§106.7, 2026-10-02), DrMarco (2026-10-04),
+eight of MIDIRack's ten songs (§105.10), the demo video (2026-10-20), XTMP3
+(§121.12) and RealDMG with its cartridge all came off it, each with a note
+that a third primary 720 KB disk was meant to carry what the pair leaves off.
+**`more720.img` is that disk**, in `$(SHIPIMGS)` beside the pair, and its
+contents are DERIVED from those omissions rather than listed again:
+
+| Folder | Carries |
+|---|---|
+| `APPS/` | `PIXEL.O88`; `MIDIRACK.O88`, a second copy |
+| `GAMES/` | `REALDMG.O88`, `DRMARCO.O88` |
+| `MEDIA/` | `GBDEMO.GB` (packed), `OS8088.V88`, and in `MIDI/` the eight songs `apps720.img` does not carry |
+| `SYSTEM/APPDATA/` | empty, §19.9 |
+
+It has the apps disk's folders and not a category disk's root (§24.6) because
+it is the apps disk's other half: a user swaps it into B: for the same kind of
+thing. **MIDIRack rides it a second time** — `media360.img`'s shape at 360 KB
+— because the 720 KB system disk does not carry the player, and a `.MID` on a
+volume with no player opens nothing until the apps disk has been mounted. The
+demo video needs no such copy: `VIDEO.O88` is in the system disk's `APPS/`.
+368 of 713 clusters at its first build.
+
+**XTMP3 is not on it yet** and rides `make xtmp3disk`'s 720 KB floppy until
+the owner places it; its player and three songs are about 250 clusters, which
+fit. §24.6.1 binds this disk too: which package rides which 720 KB disk is a
+decision with a date on it, expected to be reordered.
 
 ## 25. icons.inc — icon format, draw routine, built-in library
 
@@ -69216,6 +69297,45 @@ Up there it is DX:`DRV_HMA_ORG`, never DX:0, so every CPU access to it is
 from `[sbl_sbase]` (0 for a heap claim) and its 8237 address is DX × 16 +
 `[sbl_sbase]` as 24 bits - page 10h, which the AT's eight-bit page register
 carries and an XT's never meets. `sbl_dma_put` gives it back the same way.
+
+#### 34.5.2.1 A direct ring counts the blocks the 8237 passed, not the IRQs
+
+**The block IRQ is an EDGE, and a block that ends while the line is masked
+latches the same edge as the next one.** The direct ISR added one `[sbl_half]`
+to `[sbl_consumed]` per interrupt, so every block end that fell inside a
+masked stretch was a block the card PLAYED and the counter never saw - and
+the card is auto-init, so it went on playing. kern_mega masks every kernel
+line for the length of a reflected BIOS call (`mega_svc`, KERN-MEGA-PLAN
+2.2), and a BIOS-served hard disk - a PicoMEM's, an XT-IDE's option ROM -
+holds the CPU for tens of milliseconds a read, so on that machine the count
+fell steadily behind the card: the Video Player, whose picture is paced on
+`SND_EXT_CONS` (SPEC.md 98.3.1), played **slow and in sync with a clock that
+was wrong**, and the producer wrote the ring behind where the chip really
+was. KERN-MEGA-PLAN 14.73 is the measurement.
+
+So the direct ISR asks the 8237 how far it has got (`sbl_dleft`, the count
+read verb 9 already made): the offset it reads next, against consumed's own
+offset, rounded DOWN to whole blocks, is what was played - one block when
+nothing was lost, three after a stretch that swallowed two. Three guards:
+
+- **a count that has not moved since the last IRQ** (`[sbl_dpos]`, the
+  offset banked each time, 0 at verb 0) is no count at all, and the IRQ adds
+  one block as before - a card whose 8237 registers say nothing is played the
+  way it always was;
+- **an offset half the ring or more past consumed's** is BEHIND it, not ahead
+  (a count read before the copy that advances it - a PicoMEM 1.x's
+  multiplexer writes channel 1's count back after each 128-byte copy,
+  §34.10.1), and adds nothing; **zero whole blocks** adds nothing either, and
+  the next IRQ's count takes them;
+- **consumed past the total** - `total − consumed` more than the ring, which
+  is negative: the chip played through the end of what was fed while the
+  line was masked (a whole ring fed is verb 1's bound and is not this) -
+  stops consumed at the total and takes the underrun contract: what it
+  played past it was stale, and the next count takes the gap back up once
+  the stream resumes.
+
+The double-buffered path is unchanged: its halves are swapped by the ISR, so a
+lost IRQ there is a lost half-swap and not a miscount.
 
 #### 34.5.3 An external ring, and ADPCM4 (the Video Player)
 
@@ -102861,6 +102981,22 @@ instruction**: a byte the entry proc sets when it is ready is enough.
 
 `fsx_wait`'s `FSXW_FRAME` (§53.5.1) waits for the next IRQ0, which under
 `FSXF_RATE` is the next rate period.
+
+**On kern_mega a REFLECTED BIOS service runs the hook when it returns**
+(`mega_svc_back`, docs/plans/KERN-MEGA-PLAN.md 14.73). Under protected mode
+a BIOS call goes to real mode and back (`mega_svc`), and every IRQ0 that
+falls inside it is the ROM's: `mega_rfclk` already counts those periods into
+`[sch_rpend]`, so none is lost, but no hook ran at them - where a real-mode
+kernel's hook interrupts the same `int 13h` and works through it. A caller
+that issues reads back to back then starved the hook outright, because the
+next tick fell inside the next reflection: the Video Player on a disk its
+BIOS serves went ~0.8 s at a time with no frame drawn and no sound queued.
+So when a service reflection (not an option ROM's IRQ) comes back with
+periods owed under `FSXF_RATE`, `sch_rhook` is called there, before the
+caller resumes - the place a real-mode kernel's hook would have run, a read
+later. Its three skip rules decide as they do from `sch_isr`; a reflection
+made inside the ROM's tick chain, or with the hook already running, leaves
+the periods for the next IRQ0. ~15 bytes of `.mega`, kern_mega only.
 
 **It costs ~145 bytes of `.text` and 9 of `.bss`, `kern_big` only** (it
 shipped at ~180 and 11; kernel size pass 5):
@@ -200821,6 +200957,23 @@ holds it: docs/plans/KERN-MEGA-PLAN.md 14.41 is the record. The package says
 selector (one 64 KB window, one call); with the sector reads every
 kern_mega volume takes a key's read is one call.
 
+**Each landing is inside one 64 KB physical page** (KERN-MEGA-PLAN 14.73):
+the bounce is claimed with a 32 KB head (`OSAPI_MEM_CLAIM_DMA`, CX = 32),
+and a conventional ring - the bank in place reads every chunk into its
+first slot - with its first slot and the gap's slack as the head
+(`vp_rclaim`). The kernel cuts a transfer at a page's edge (`dsk_runcap`,
+§18.91), and the straddling sector then went through the sector cache as a
+fill of its own, so a chunk landing across one was THREE `int 13h` - on a
+BIOS-served disk three reflections, each a CPU reset on a 286 - where one
+does. Measured on 86Box's ami286 with an XT-IDE ROM's disk: 25.1 calls a
+second of 31.6 sectors before, 13.6 of 59.9 after, the same as kern_big's
+12.4 of 60.4. With no gap the ring's head is its first 64 KB, so every slot is
+on the page grid; a copying bank's ring, sized to what conventional memory
+has, gives up one slot for a page-safe claim (`vp_rclk1`: LASTX 21.4 calls a
+second, then 11.3). Either claim falls back to the plain one when no
+page-safe run is free. The PKG_MEGA arm alone; the shipped `video.bin` is
+byte-identical.
+
 #### 98.3.22 The play's profile: every frame timed on the machine (2026-10-15)
 
 **A `VPDIAG=1` player times every frame it draws and saves the times**, so
@@ -203525,7 +203678,9 @@ the sprites 8,590 -> 8,485 (KERN-MEGA-PLAN 14.21 has the CGA and Hercules rows).
 
 REDLINE.O88 is an on-demand native benchmark and inventory package. `make redline`
 builds it; `make redlinedisk` builds dedicated FAT12 media in all four geometries.
-The everything application set carries it in APPS/. No resident kernel bytes.
+The everything application set carries it in APPS/, so do the 1.44MB, 1.2MB and
+720KB system disks (a core package, §24.3.2), and `util360.img` at 360KB. No
+resident kernel bytes.
 
 ### 103.1 Measurements and interface
 
@@ -222371,7 +222526,7 @@ third-party audio in them.
   timeout; with a refill asked for as soon as a 4 KB gulp fits (§121.6), 0.
   The motor is the inference; the A/B is one run each.
 - **The 720KB disks** carry XTMP3 only on `make xtmp3disk`; whether it rides
-  the third primary 720KB disk is the owner's call.
+  the third primary 720KB disk, `more720.img` (§24.7), is the owner's call.
 - **Not re-run on the shipped build**: of the 86Box matrix, round 3 re-ran
   the 386 on AFTERHRS and the 486 on C128; the other eight rows are round
   2's (d5e53fea), measured before the probe started after the face's

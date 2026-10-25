@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""The full static recompiler's gate (REALDMG-SPEC section 20, tools/gbaot.py).
+
+    python3 tests/gbaot.py [-k NAME]
+
+Every ROM below is translated WHOLE on the host - walked from its entries,
+no play - by RealDMG's own translator (tools/gbaot/aothost.asm under
+Unicorn), and then run beside the interpreter with the same buttons
+pressed. The two must agree on every frame: the registers, "now", the events
+and the M-cycles skipped, and 8000-FFFF. A ROM that reports on its link port
+(Blargg's, gbflags' sum) is held to what it says instead, because where an
+interrupt lands differs between any two of RealDMG's arms there - the
+interpreter's NOP checks for an event and translated code's does not - and
+only its verdict is the ROM's.
+
+The ROMs are ours (tools/gbprof, built by tools/gbours.py with the pinned
+rgbds) and the test suites tools/getgbtest.py fetches at pinned SHA-256s.
+None is committed, and no commercial game is used: those are the owner's
+field measurement (docs/reports/REALDMG-FULLSTATIC-2026-10-25.md).
+
+TWO NEGATIVE CONTROLS, both of which must go red:
+  - the most-entered block of GBRMW.GB with its first byte changed: the
+    check must see the precompiled code at all;
+  - GBFLAGS.GB translated by a driver built with RT_DEADBUG (a flag's read
+    unseen by the dead-flags lookahead, REALDMG-SPEC 16.1.2): its sum must
+    differ from the interpreter's, so the gate sees a translator defect.
+"""
+import argparse
+import os
+import sys
+import tempfile
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import gbaot  # noqa: E402
+import gbstatic  # noqa: E402
+
+BUILD = os.path.join(ROOT, "build")
+OURS = ["gbrmw", "gbpop", "gbhblank", "gbbank", "gbsave", "gbjoy", "gbpad", "gbtone", "gbflags"]
+# (label, ROM, frames, compare the link port's words rather than frames)
+SUITE = [
+    ("GBDEMO", "apps/realdmg/GBDEMO.GB", 1500, False),
+    ("GBRMW", "gbrmw", 1500, "dyn"),     # (the recompiler's machine: below)
+    ("GBPOP", "gbpop", 1500, False),
+    ("GBHBLANK", "gbhblank", 1500, False),
+    ("GBBANK (64 banks of code)", "gbbank", 1500, False),
+    ("GBSAVE", "gbsave", 600, False),
+    ("GBJOY", "gbjoy", 600, False),
+    ("GBPAD", "gbpad", 600, False),
+    ("GBTONE", "gbtone", 600, False),
+    ("GBFLAGS (sum)", "gbflags", 3000, True),
+    ("cpu_instrs", "cpu_instrs/cpu_instrs.gb", 4000, True),
+    ("instr_timing", "instr_timing/instr_timing.gb", 600, True),
+    ("mem_timing", "mem_timing/mem_timing.gb", 1500, False),
+    ("halt_bug", "halt_bug.gb", 1500, False),
+    ("dmg-acid2", "dmg-acid2/dmg-acid2.gb", 1500, False),
+]
+
+
+def rom_path(name, built):
+    if name.endswith((".GB", ".gb")) and "/" in name and name.startswith("apps/"):
+        return os.path.join(ROOT, name)
+    if name in built:
+        return built[name]
+    import getgbtest
+    return os.path.join(getgbtest.DEST, name)
+
+
+# HRAM's routines made blocks from what a heat run found there (REALDMG-SPEC
+# 20.5): GBRMW rewrites its HRAM routine once it is running, so its guard
+# must fail and the interpreter take the new bytes - and before that it
+# passes. No other ROM of ours, nor any test suite here, runs code in HRAM
+HRAMLEG = ("GBRMW",)
+
+
+def hram_leg(rom, found, extra, out, frames, ref="interp"):
+    import json
+    h = gbaot.heat_run(BUILD, rom, gbaot.load(out), frames, log=lambda *x: None)
+    path = out + "-heat.json"
+    json.dump(h, open(path, "w"))
+    hram = {}
+    heat, more = gbaot.load_heat([path], hram)
+    if not hram:
+        return False, "no HRAM PC went to the interpreter: the leg tests nothing"
+    f2, e2 = gbaot.walk(rom, set(extra) | more)
+    img = gbaot.translate(BUILD, rom, gbaot.leaders(rom, f2, e2), log=lambda *x: None,
+                          heat=heat, hram=hram)
+    made = sorted(pc for pc, key in img["blocks"] if pc >= 0xFF80)
+    if not made:
+        return False, "%d HRAM PCs counted and none translated" % len(hram)
+    out2 = out + "-hram"
+    gbaot.save(img, out2, rom)
+    ok, what = gbaot.compare(BUILD, rom, gbaot.load(out2), frames, ref=ref)
+    return ok, "%d HRAM blocks (%s); %s" % (len(made), " ".join("%04X" % p for p in made), what)
+
+
+def straddle():
+    """A block start whose first instruction runs past 3FFFh is the
+    interpreter's (gbaot.fits): Looney Tunes' JP NZ at 3FFE, its high byte
+    the switched-in bank's, came in as a miss and spun the machine for ever.
+    A 32KB ROM that falls from BIT 6,A at 3FFC into it, the miss named as a
+    seed: the walk finds it, and no entry may be made there"""
+    d = bytearray(0x8000)
+    d[0x100:0x103] = b"\xC3\xFC\x3F"          # JP 3FFC
+    d[0x3FFC:0x4000] = b"\xCB\x77\xC2\x81"    # BIT 6,A / JP NZ,xx81 (xx at 4000)
+    d[0x4000] = 0x01
+    rom = gbstatic.Rom(bytes(d))
+    found, extra = gbaot.walk(rom, {(0, 0x3FFE)})
+    lead = gbaot.leaders(rom, found, extra)
+    if (0, 0x3FFE) not in found:
+        return "the walk did not find the straddling instruction: the check tests nothing"
+    if (0, 0x3FFE) in lead:
+        return "a block start at 3FFE, whose JP's high byte is at 4000h"
+    return None
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("-k", help="only the rows whose label contains this")
+    a = ap.parse_args()
+    import subprocess
+    subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "getgbtest.py")])
+    import gbours
+    built = {n: gbours.build(n) for n in OURS}
+    work = tempfile.mkdtemp(prefix="gbaot-")
+    bad = 0
+    t0 = time.time()
+    why = straddle()
+    print("gbaot: a block across 3FFFh: %s" % ("FAIL: " + why if why else "refused, ok"))
+    bad += why is not None
+    for label, name, frames, serial in SUITE:
+        if a.k and a.k not in label:
+            continue
+        path = rom_path(name, built)
+        rom = gbstatic.Rom(open(path, "rb").read())
+        found, extra = gbaot.walk(rom)
+        img = gbaot.translate(BUILD, rom, gbaot.leaders(rom, found, extra), log=lambda *x: None)
+        out = os.path.join(work, label.split()[0])
+        gbaot.save(img, out, rom)
+        # GBRMW's W16s run the NOP delay (w16_ff, REALDMG-SPEC 16.6), where
+        # the interpreter takes events at instructions translated code does
+        # not (20.6): its frames are held to the dynamic recompiler's, which
+        # shares the idioms' tails, and its own verdict - every idiom
+        # against its JP NZ twin - to the interpreter's, below
+        ref = serial if isinstance(serial, str) else "interp"
+        serial = serial is True
+        ok, what = gbaot.compare(BUILD, rom, gbaot.load(out), frames, ref=ref, serial=serial)
+        if ok and not serial and " 0 precompiled blocks" in " " + what.split("; ", 1)[-1]:
+            ok, what = False, "the precompiled code never ran: " + what
+        print("%-4s %-28s %d blocks, %d code bytes; %s" % ("ok" if ok else "FAIL", label,
+              len(img["blocks"]), img["code_bytes"], what))
+        bad += not ok
+        if label == "GBRMW":
+            ok, what = gbaot.compare(BUILD, rom, gbaot.load(out), 2000, serial=True)
+            ok = ok and "Passed" in what
+            print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "GBRMW's verdict", what))
+            bad += not ok
+        if label == "GBRMW" and not a.k:
+            (pc, key), n = gbaot.hottest(BUILD, rom, gbaot.load(out))
+            which = "%02X:%04X" % (key, pc)
+            ok, what = gbaot.compare(BUILD, rom, gbaot.broken(gbaot.load(out), which), frames,
+                                     ref=ref)
+            print("%-4s %-28s %s" % ("FAIL" if ok else "ok", "control: %s broken" % which,
+                                     "passed - the gate cannot go red" if ok else what + ", as it must"))
+            bad += ok
+        if label in HRAMLEG:
+            ok, what = hram_leg(rom, found, extra, out, frames, ref)
+            print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "%s, HRAM counted" % label, what))
+            bad += not ok
+        if label.startswith("GBFLAGS") and not a.k:
+            img2 = gbaot.translate(BUILD, rom, gbaot.leaders(rom, found, extra),
+                                   log=lambda *x: None, defines=("RT_DEADBUG",))
+            out2 = out + "-deadbug"
+            gbaot.save(img2, out2, rom)
+            ok, what = gbaot.compare(BUILD, rom, gbaot.load(out2), frames, serial=True)
+            print("%-4s %-28s %s" % ("FAIL" if ok else "ok", "control: RT_DEADBUG",
+                                     "passed - the gate cannot go red" if ok else what + ", as it must"))
+            bad += ok
+    print("gbaot: %s in %.0fs" % ("PASS" if not bad else "%d FAILED" % bad, time.time() - t0))
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

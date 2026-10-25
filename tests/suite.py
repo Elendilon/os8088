@@ -1170,7 +1170,7 @@ FAST = [
         "SOAK and not fast: it wants four floppies `make all` does not "
         "build, which is what `wants=` below is - a fast row may not build "
         "at all",
-        wants=("build/small360.img", "build/small.img",
+        wants=("build/small360.img", "build/small720.img", "build/small.img",
                "build/smallapps360.img", "build/smallapps.img")),
     Row("lzbclust", "soak", py("tests/unit/t_lzbclust.py"), 1.2,
         "SPEC.md 20.13.5's rule for LZBPKGS: a package ships LZB only while "
@@ -3498,6 +3498,11 @@ SOAK = [
         "generated sequences, the recompiler's dead flags (REALDMG-SPEC "
         "16.1.2): their sum with it must be the interpreter's, and its "
         "control (RT_DEADBUG, a flag's read unseen) must make them differ. And "
+        "tools/gbprof/gblazy.py's countdown loops, whose DEC r the recompiler "
+        "leaves without F (REALDMG-SPEC 16.1.3), with a timer interrupt landing "
+        "at their JR: the F its handler pushes and the AF each loop leaves must "
+        "be the interpreter's, and its control (RT_LAZYBUG, the event taken "
+        "with F stale) must make them differ. And "
         "tools/gbprof/gbpop.asm, POPs out of a ROM bank as Pokemon's VBlank "
         "copy does (pop_slow, REALDMG-SPEC 5), interpreted and translated, "
         "with POP BC's branch to it taken out as the control. WHY QEMU: a correctness gate, and QEMU counts work "
@@ -3520,6 +3525,36 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
+    Row("gbaot", "soak", py("tests/gbaot.py"), 370.0,
+        "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
+        "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
+        "its entries with no play, by RealDMG's own translator run under "
+        "Unicorn (tools/gbaot/aothost.asm), then run beside the interpreter "
+        "with gbprof's buttons - every frame's registers, time, events, skips "
+        "and 8000-FFFF identical, or for Blargg's and gbflags' the words on "
+        "the link port. 15 ROMs: GBDEMO, the tools/gbprof ROMs (read-modify-"
+        "writes, POPs from ROM, HBlank events, 64 banks of code), cpu_instrs, "
+        "instr_timing, mem_timing, halt_bug and dmg-acid2. TWO NEGATIVE "
+        "CONTROLS: GBRMW's most-entered block broken must differ, and GBFLAGS "
+        "translated with RT_DEADBUG must change its sum. WHY UNICORN: the "
+        "translation is the host's, and the check is counted, not timed. "
+        "SOAK: one package's recompiler",
+        needs=("nasm", "unicorn", "rgbds"), timeout=900),
+    Row("gbaotpkg", "soak", py("tests/gbaotpkg.py"), 93.0,
+        "A PRECOMPILED CARTRIDGE ON THE MACHINE (docs/REALDMG-SPEC.md 20.10): "
+        "tools/gbaot.py translates and packages GBPOP.GB as GBPOP.O88 - the "
+        "RDG_AOT build of realdmg.asm with the code images as parts - and "
+        "MartyPC's 5150 opens the PACKAGE, which opens its ROM by itself. "
+        "The machine must be the precompiled one (S_JITON, S_JITFIX, nothing "
+        "translated), EVERY IMAGE CLAIMED READ, and the worker found running in "
+        "the code images - on a volume of 4KB CLUSTERS, a hard disk's, because "
+        "OSAPI_FILE_READ_AT reads whole clusters only and the first package's "
+        "reads were all refused there (the owner's 286 ran it interpreted). A "
+        "second leg runs the package with the ROM INSIDE it (--embed, "
+        "REALDMG-SPEC 20.13) and nothing beside it. The frame rate is reported "
+        "against REALDMG.O88's own recompiler. Verified red twice: rw_aoton out "
+        "of rw_jiton, and the bounce reading 512 bytes a call. SOAK: one package",
+        needs=("nasm", "unicorn", "rgbds", "marty"), timeout=900),
     Row("gbacid", "soak", py("tests/rdgcore/rdgacid.py"), 3.0,
         "REALDMG's renderer (apps/realdmg/rdgppu.inc, docs/REALDMG-SPEC.md "
         "section 13) against dmg-acid2's reference picture, all 23,040 pixels: "
@@ -16040,6 +16075,22 @@ SOAK = [
         "two .stale fixups its buffer's free costs a command, and none a "
         "kern_mega FAULT. Red with the `push cs / pop ds` put back "
         "(ECHO 62, DIR 87, TYPE 802). 80s is 56 measured alone, 73 in three lanes",
+        needs=("bochs", "nasm")),
+    Row("rdgmega", "soak", py("tests/rdgmega.py"), 360.0,
+        "docs/REALDMG-SPEC.md section 16.2.4: RealDMG's RECOMPILER on kern_mega, "
+        "right and with no #GP in the core. The core and the cache entered "
+        "and chained through their DATA segments and the links were patched "
+        "through CS, each a completed #GP whose frame landed on the core's "
+        "SP - the Game Boy's own stack: cpu_instrs took 87,703 traps and "
+        "looped in test 01, Kirby's attract two million a minute. "
+        "MEGATRAP=1's census (a private tree) under Bochs, B: holding "
+        "REALDMG.O88 and cpu_instrs (getgbtest's): it must pass all eleven "
+        "under the recompiler, read off the link port's bytes in the view, "
+        "with no trap charged to the core or a cache segment and none a "
+        "kern_mega FAULT. Red with the base's REALDMG.O88 (--pkg). Its third "
+        "leg is 16.2.5's EXTRA TIERS: the arm rebuilt RT_SQUEEZE (~0.5KB a "
+        "cache segment) must pass recycling at least once per tier, extra "
+        "ones among them - red with tr_lpx writing through CS",
         needs=("bochs", "nasm")),
     Row("pxsmega", "soak", py("tests/pxsmega.py"), 100.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.50: PIXELSTEIN 3D PLAYED on kern_mega "

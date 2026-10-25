@@ -73,6 +73,10 @@ DECHL_NOP = "3500:8A3446FFE2"
 # whose sum must be the interpreter's. Its control does not see that an
 # instruction reads a flag (ADC's carry, RLA's, DAA's) before it writes it.
 FLAGS_ROM = "gbflags"
+# tools/gbprof/gblazy.py: the countdown loops whose DEC r is left without F
+# (REALDMG-SPEC 16.1.3), a timer interrupt landing at their JR. Its control
+# takes that event with F stale.
+LAZY_ROM = "gblazy"
 # tools/gbprof/gbpop.asm: POPs out of a ROM bank, SP in 4000-7FFF, as
 # Pokemon's VBlank copy reads tiles (pop_slow, REALDMG-SPEC 5). Its control
 # takes POP BC's JB out (C104h), so BC pops from the view's rdgsys half again.
@@ -181,6 +185,22 @@ def main():
         rdgimg.build_host(out)
         ok = broke == want
         print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: reads unseen",
+                                 "passed - the gate cannot go red" if ok
+                                 else "%s, as it must not be" % broke))
+        bad += ok
+    if not a.k or a.k in "lazy loops":
+        import gbours
+        rom = gbours.build(LAZY_ROM)
+        want = run_sum(rom, core, host, False)
+        got = run_sum(rom, core, host, True)
+        ok = want is not None and got == want
+        print("%-4s %-24s %s" % ("ok" if ok else "FAIL", "lazy loops",
+                                 "%s, interpreted %s" % (got, want)))
+        bad += not ok
+        broke = run_sum(rom, core, rdgimg.build_host(out, ["RT_LAZYBUG"]), True)
+        rdgimg.build_host(out)
+        ok = broke == want
+        print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: event F stale",
                                  "passed - the gate cannot go red" if ok
                                  else "%s, as it must not be" % broke))
         bad += ok

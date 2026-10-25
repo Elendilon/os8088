@@ -526,6 +526,15 @@ make vencbundle #   every apps disk and plays `.V88` files, made on the host
                 #   `vencbundle` zips the encoder, the tools it runs and
                 #   VIDEO.O88 for someone with no os8088 tree (§98.2.13).
                 #   Both on demand
+make czbundle   # the FILE SPLITTER for someone with no os8088 tree
+make toolszip   #   (SPEC.md 20.14, 20.17): os88czgui.py, os88cz.py and
+                #   OS88CZ.COM in build/os8088-cz.zip. `toolszip` is the
+                #   release's FIRMWARE AND UTILITIES zip, build/os8088-tools.zip
+                #   (tools/os88toolszip.py): firmware/picomem1/, the kern_big,
+                #   kern_small and socket-check ROMs cut against THIS tree
+                #   (`make rom`, `socketrom`), the encoder, Game Boy precompiler (GBSTATIC/)
+                #   and splitter bundles as built, the Browser's proxy and the
+                #   two DOS tools. Both on demand
 make netbench   # THE STACK'S PROFILER (SPEC.md 72.15): NETBENCH.O88 beside
                 #   FTPD.O88 on one disk, in all three geometries. ETHER.DRV
                 #   brackets its own ten stages with the PIT and this is the
@@ -742,7 +751,7 @@ make mega     # KERN_MEGA, the 286+ protected-mode kernel (docs/plans/
               #   mega120.img, its system disks - AND, since 14.66, its APPS
               #   disks build/megaapps.img and megaapps120.img: the shipped
               #   apps disk with every package's kern_mega ARM substituted
-              #   ($(MEGAPKGS): VIDEO, AUDIO, TRACKER, MIDIRACK, PIXEL), each
+              #   ($(MEGAPKGS): VIDEO, AUDIO, TRACKER, MIDIRACK, PIXEL, XTMP3, REALDMG), each
               #   the same source built -DPKG_MEGA into build/megak/apps/.
               #   Pair mega.img with megaapps.img, not with build/apps.img:
               #   the shipped Video Player REFUSES under protected mode and
@@ -927,7 +936,7 @@ midirackdisk`'s floppy - player, wavetable bank, songs - in B:),
 xtmp3field`'s disks, whose `\AUTOSTRT` opens the `-DX3REPORT` build on one
 track and writes `X3REPORT.TXT`, which `tools/x3field.py` reads back), `xt-wire`,
 `286`, `286-525`,
-`286-sound`, `286-victory` (the owner's Packard Bell Victory 286 as near as 86Box comes - vm/286's board at 16 MHz, 4MB and a Paradise PVGA1A - whose RealDMG logs read like the Victory's own, REALDMG-SPEC section 14.1), `286-video` (the owner's mr286 with the Video Player's VGA disk on IDE, `make videnchd`), `286-realdmg` (that mr286 with RealDMG's hard disk - the whole install and your cartridges, `make realdmghd GBROMS=<dir>`, REALDMG-SPEC section 19), `286-mega` (kern_mega's mr286, booting `make mega`'s `mega.img` with `megaapps.img` in B:), `286-mega-cdrom` and `386-mega-cdrom` (kern_mega with an ATAPI CD-ROM holding an audio disc, `make megacdtest`'s disks - the mr286 and a 25 MHz 386DX, KERN-MEGA-PLAN 14.68), `286-hma` (that mr286 with a Sound Blaster v2.0 - 86Box's has no mixer - and an IDE disk: `tests/hma286.py`'s machine, which builds its own disks and has no make target; it is where XMEM.DRV's LOADALL and the HMA pool's SOUND.DRV cut run on a real 286, SPEC.md 41.12.6 and 51.1.3.1), the eight `286-525-*` application machines (`-z`, `-word`,
+`286-sound`, `286-victory` (the owner's Packard Bell Victory 286 as near as 86Box comes - vm/286's board at 16 MHz, 4MB and a Paradise PVGA1A - whose RealDMG logs read like the Victory's own, REALDMG-SPEC section 14.1), `286-video` (the owner's mr286 with the Video Player's VGA disk on IDE, `make videnchd`), `viddemo-vga`, `viddemo-cga` and `viddemo-herc` (the Video Player's demo hard disks, `make viddemo`, on the machines they were made for - the owner's mr286 for VGA's IDE disk, a 5150 with an ST11R for CGA's and Hercules'; each profile names its VHD by bare file name and carries its CMOS in a tracked `nvr-seed/`, and `make viddemozip` packs the three as `build/os8088-videos.zip`, folders a user drops into 86Box's machine directory), `286-realdmg` (that mr286 with RealDMG's hard disk - the whole install and your cartridges, `make realdmghd GBROMS=<dir>`, REALDMG-SPEC section 19), `286-mega` (kern_mega's mr286, booting `make mega`'s `mega.img` with `megaapps.img` in B:), `286-mega-cdrom` and `386-mega-cdrom` (kern_mega with an ATAPI CD-ROM holding an audio disc, `make megacdtest`'s disks - the mr286 and a 25 MHz 386DX, KERN-MEGA-PLAN 14.68), `286-hma` (that mr286 with a Sound Blaster v2.0 - 86Box's has no mixer - and an IDE disk: `tests/hma286.py`'s machine, which builds its own disks and has no make target; it is where XMEM.DRV's LOADALL and the HMA pool's SOUND.DRV cut run on a real 286, SPEC.md 41.12.6 and 51.1.3.1), the eight `286-525-*` application machines (`-z`, `-word`,
 `-cword`, `-runcpm`, `-c64`, `-weave`, `-loom`, `-all` — `vm/286-525` with a
 1.2MB app disk in B: instead of the apps floppy, and the only machines in the
 tree that read that geometry at all: a 1.2MB drive wants the AT's 500 kbps
@@ -1819,8 +1828,15 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Fourteen images, not nine.** The system and apps disks in four geometries
-each, plus SIX more that exist at 360KB alone. `build/media360.img` — `BEVERLY.MOD` is data rather than software and
+**Seventeen images, not nine.** The system and apps disks in four geometries
+each, plus SIX more that exist at 360KB alone and ONE at 720KB alone -
+`build/more720.img`, the 720KB apps disk's other half (SPEC.md 24.7), carrying
+what that disk had to leave off - and the 128KB machine's two system disks,
+`build/small360.img` and `build/small720.img` (kern_small, SPEC.md 24.5.7),
+which `all` builds through `make small`'s sub-make. The small 720KB disk is
+NOT the standard format: kern_small's two-sector FAT window refuses a
+standard 720KB FAT, so it takes 2KB clusters, and that machine reads no other
+720KB disk. `build/media360.img` — `BEVERLY.MOD` is data rather than software and
 was 114 of a 360KB disk's 354 clusters before packages were compressed, so at
 that geometry it rides a disk of its own (§24.4). **It is not on `apps360.img`
 as well any more, and cannot be**: lz4-packed it is 42 clusters and that disk
@@ -1979,16 +1995,17 @@ repository", which is where the branch already lives, and do nothing.
 
 ### 3. SEND the 360KB set and the two 1.44MB main disks after every commit, without being asked
 
-**All TEN of them**: the eight 360KB images `build/os8088-360.img`,
+**All ELEVEN of them**: the nine 360KB images `build/os8088-360.img`,
 `build/apps360.img`, `build/media360.img`, `build/office360.img`,
-`build/network360.img`, `build/games360.img`, `build/emu360.img` and
-`build/util360.img`, plus the two 1.44MB main disks, `build/os8088.img`
-(system) and `build/apps.img` (apps). The owner wants the full set
+`build/network360.img`, `build/games360.img`, `build/emu360.img`,
+`build/util360.img` and `build/small360.img`, plus the two 1.44MB main disks,
+`build/os8088.img` (system) and `build/apps.img` (apps). The owner wants the full set
 every time rather than a judgement about which disks a change could reach.
 The 360KB part is exactly the 360KB images `all` builds: system, apps, the
-module's own disk (§24.4) and the five category disks (§24.6). It was three
-until the category disks landed, six until `emu360` did, seven until
-`util360` did, and it will grow
+module's own disk (§24.4), the five category disks (§24.6) and the 128KB
+machine's system disk (§24.5.7). It was three until the category disks
+landed, six until `emu360` did, seven until `util360` did, eight until
+`small360` did, and it will grow
 again — **`$(SHIPIMGS)` in the Makefile is the
 list**, filtered to the 360KB ones. Do NOT reach for `ls build/*360*.img`:
 that also catches `c64360`, `weave360`, `loom360` and `wire360`, which are
@@ -1997,12 +2014,12 @@ The 1.44MB pair is those two files and no others: the 720KB and 1.2MB
 geometries are not sent.
 
 **The exception: send them only when the commit could change the CONTENT of
-one of those ten disks.** A commit that cannot - documentation, notes, a plan,
+one of those eleven disks.** A commit that cannot - documentation, notes, a plan,
 a test or harness file, a host tool that writes no shipped byte - sends
 nothing. The build number does not count: it is the commit count (SPEC.md
 §14.2), so every commit moves three bytes of `.text` in every image, and an
 image that differs only by that is not a change to its content. When the
-commit does reach one disk, the rule above stands and all ten go. Which tools
+commit does reach one disk, the rule above stands and all eleven go. Which tools
 write shipped bytes, and so are NOT in the exception, is fork rule 6's list
 (`os88disk.py`, `os88pkg.py`, `os88drv.py`, `os88mini.py`, `buildnum.py`).
 

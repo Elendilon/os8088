@@ -79,8 +79,45 @@ S_JITRCY        equ 0x482F          ; word: tiers recycled (stat; each one a
                                     ;   flush in S_JITFL as well)
 S_JITLN         equ 0x4831          ; word: the link log's bytes used (16.2.3):
                                     ;   4 an entry, RT_LOGB at most
-RDG_FREE         equ 0x4833          ; the rest of the window is unassigned,
+; a PRECOMPILED cartridge's (REALDMG-SPEC 20.9): the table's misses go to
+; S_AOTVEC, which looks them up in the host's sorted list
+S_AOTVEC        equ 0x4834          ; dword: rdg_aotmiss
+S_AOTINT        equ 0x4838          ; dword: the core's tr_int, for a miss
+S_AOTLSEG       equ 0x483C          ; word: the list's segment
+S_AOTLN         equ 0x483E          ; word: its entries, 8 bytes each
+S_AOTLO         equ 0x4840          ; word: rdg_aotmiss's scratch - the
+S_AOTHI         equ 0x4842          ;   search's bounds, its middle and
+S_AOTMID        equ 0x4844          ;   the bank key it looks for (the
+S_AOTKEY        equ 0x4846          ;   core keeps no stack to push on)
+S_AOTFSEG       equ 0x4847          ; word: the list's filter, 8KB: a bit
+                                    ;   per hash of (PC, key), set for every
+                                    ;   listed block (rdgaot.inc)
+RDG_FREE         equ 0x4849          ; the rest of the window is unassigned,
                                     ; but for rdgppu.inc's 4900-66FF and:
+; CODE SELECTORS (REALDMG-SPEC 16.2.4): a segment the core or the recompiler
+; JUMPS to is named by the selector a far jump may load - the segment itself
+; on a real-mode kernel, its code alias on kern_mega, where a far jump
+; through the data segment is a #GP the kernel completes, one a transfer.
+; What WRITES code (the translator, the tails' copies, the patches) takes the
+; data segment. S_DISP+2, S_RESVEC+2, S_RETFAR+2, S_JITOUT+2, the block
+; table's +6 and every chain hold code selectors; S_JITSEGA, S_JITSEGB and
+; S_JITSEG stay data
+S_COREDS        equ 0x48E0          ; word: the core's DATA segment (S_DISP+2
+                                    ;   is its code selector)
+S_JITCSA        equ 0x48E2          ; word: S_JITSEGA's code selector...
+S_JITCSB        equ 0x48E4          ; word: ...S_JITSEGB's, or 0...
+S_JITCS         equ 0x48E6          ; word: ...and S_JITSEG's (rt_tier)
+; THE EXTRA TIERS (REALDMG-SPEC 16.2.5): cache segments past the second, tier
+; 3 on - a host's (rt_more, a package part built RDG_XTIER), 0 of them for any
+; other. Each is its DATA segment and its CODE selector (0: the same), and
+; RT_XMAX of them at most: S_JITUSED is a byte, a bit a tier
+S_JITXN         equ 0x48BF          ; byte: how many
+S_JITXT         equ 0x48C0          ; RT_XMAX x 4: data, code
+RT_XMAX         equ 5               ;   (to 48D4; room to 48E0 for seven)
+RDG_DVMM         equ 0x48E8          ; byte: rdgppu's - the plane the VGA map
+                                    ;   mask holds (ppu_dvga), FFh unknown
+RDG_BWST         equ 0x48E9          ; byte: rdgppu's - VGA's two-shades
+                                    ;   writer left the buffer's bit 0 stale
 S_SQ3           equ 0x48F0          ; 8: the WAVE channel as the FM chip plays
                                     ;   it (REALDMG-SPEC 17.1) - S_SQ1's
                                     ;   layout, its volume NR32's code and no

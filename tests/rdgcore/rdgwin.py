@@ -34,6 +34,7 @@ import bisect
 import collections
 import os
 import re
+import struct
 import sys
 import tempfile
 
@@ -153,6 +154,28 @@ def profile(b, seg, core, n, view=0):
             lin.append((a, nm))
     lin.sort()
     lk = [a for a, _ in lin]
+    imgs = {}                                   # a precompiled package's code
+    if "realdmgaot" in LST:                     #   images (REALDMG-SPEC 20.10)
+        import gbaotpkg
+        aoff = gbaotpkg.equ_off(LST, "rw_aseg")
+        bss = b.memr(seg * 16 + aoff, 2 * 14 + 1)
+        imgs = {int.from_bytes(bss[2*i:2*i+2], "little"): i for i in range(14)}
+        imgs.pop(0, None)
+        def w(o):
+            return int.from_bytes(bss[o:o + 2], "little")
+        bss = b.memr(seg * 16 + aoff, 48)
+        tseg, lseg, ln = w(35), w(39), w(41)     # rw_atseg, rw_alseg, rw_aln
+        ents = b.memr(tseg * 16, 0x4000) + (b.memr(lseg * 16, ln * 8) if lseg else b"")
+        ablk = collections.defaultdict(list)    # image segment -> (offset, key, PC)
+        for k in range(0, len(ents) - 7, 8):
+            pc, key, _, off, sg = struct.unpack_from("<HBBHH", ents, k)
+            if off and sg in imgs:
+                ablk[sg].append((off, key, pc))
+        for v in ablk.values():
+            v.sort()
+        print("profile: %d code images in memory (of %d claimed): %s" % (
+            len(imgs), bss[28], " ".join("%04X" % s for s in sorted(imgs))))
+    aper = collections.Counter()
     hits = collections.Counter()
     where = collections.Counter()
     wpc = collections.Counter()
@@ -161,7 +184,14 @@ def profile(b, seg, core, n, view=0):
         b.cmd("step 1")
         r = b.cmd("regs")
         ip = r["cs_base"] + (r["eip"] & 0xFFFF)
-        if seg*16 <= ip < seg*16 + size:
+        if (r["cs_base"] >> 4) in imgs:
+            sg = r["cs_base"] >> 4
+            hits["aot img%d" % imgs[sg]] += 1
+            v = ablk.get(sg, [])
+            k = bisect.bisect_right(v, (r["eip"] & 0xFFFF, 256, 0)) - 1
+            if k >= 0:
+                aper["%02X:%04X" % (v[k][1], v[k][2])] += 1
+        elif seg*16 <= ip < seg*16 + size:
             k = bisect.bisect_right(pk, ip - seg*16) - 1
             hits["pkg " + (psyms[k][1] if k >= 0 else "?")] += 1
         elif jit and jit*16 <= ip < jit*16 + 0x10000 and ((ip - jit*16) >> 8) in tails:
@@ -220,6 +250,9 @@ def profile(b, seg, core, n, view=0):
                     print("block %s at %04X, %d bytes:" % (k0, o, len(code)))
                     for ln in dis.splitlines():
                         print("%4s %s" % (cnt.get(int(ln[:8], 16), ""), ln))
+    if aper:
+        print("precompiled samples by block (key:PC), of %d: " % sum(aper.values()) + "  ".join(
+            "%s %.1f%%" % (k, 100.0 * v / sum(aper.values())) for k, v in aper.most_common(20)))
     if where:
         print("core samples by the Game Boy PC (SI): " + "  ".join(
             "%s %.1f%%" % (k, 100.0*v/sum(where.values())) for k, v in where.most_common()))
@@ -268,6 +301,9 @@ def main():
     ap.add_argument("--shot", default="")
     ap.add_argument("--attach", default="", help="measure a machine --keep left running")
     ap.add_argument("--press", default="", help="keys to tap first, e.g. return")
+    ap.add_argument("--replay", default="", metavar="SS1,RP1",
+                    help="a save state and its replay, put beside the game as "
+                         "slot 1: --press w3000,f7 plays it")
     ap.add_argument("--fs", action="store_true", help="Machine > Full Screen first")
     ap.add_argument("--mem", type=int, help="the machine's RAM in KB, for the VM's own")
     ap.add_argument("--nojit", action="store_true", help="CPU > Interpreter first")
@@ -310,7 +346,8 @@ def main():
 def boot(o):
     name = o.keep or "rdgwin%d" % os.getpid()
     tmp = tempfile.mkdtemp(prefix="rdgwin")
-    gb = os.path.join(tmp, "GAME.GB")
+    gb = os.path.join(tmp, os.environ.get("RDGWIN_GBNAME", "GAME.GB"))   # (a precompiled
+                                                # package names its own ROM)
     with open(o.rom, "rb") as f, open(gb, "wb") as g:
         g.write(f.read())
     disk = os.path.join(tmp, "rdg144.img")
@@ -324,18 +361,32 @@ def boot(o):
         with open(cfg, "wb") as g:
             g.write(b"RD\x01\x01")
         extra.append("SYSTEM/APPDATA:" + cfg)
+    for i, src in enumerate((getattr(o, "replay", "") or "").split(",")[:2]):
+        if src:                                 # --replay: a save state and its
+            dst = os.path.join(tmp, "GAME." + ("SS1", "RP1")[i])  # replay,
+            with open(src, "rb") as f, open(dst, "wb") as g:      #   beside the
+                g.write(f.read())               #   game as its slot 1 (F7)
+            extra.append(dst)
     extra += [p for p in os.environ.get("RDGWIN_EXTRA", "").split(os.pathsep) if p]  # (more
                                                 # files on the B: disk: a second game)
     os88box.subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
                             "--size", "1440", os.environ.get("RDGWIN_O88", os.path.join(ROOT, "build", "realdmg.o88")), gb]
                            + extra, check=True, stdout=os88box.subprocess.DEVNULL)
+    # RDGWIN_A: another system disk - build/mega.img for kern_mega, whose
+    # kernel map os88box takes from build/megak/ for a disk named mega*
+    # (REALDMG-SPEC section 16.2.4's measurement, on vm/286-mega)
+    a = os.environ.get("RDGWIN_A", os.path.join(ROOT, "build", "os8088.img"))
     b = os88box.launch(o.vm, name=name, hold=True, fresh=True, mem=o.mem,
-                       a=os.path.join(ROOT, "build", "os8088.img"), b=disk,
+                       a=a, b=disk,
                        temp=not o.keep, turbo=getattr(o, "quick", False))
     # THE BOOT IS GATED ON THE KERNEL'S STATE (os88box.Box.kernel_up): the
     # ami286's fresh CMOS stops in setup and is answered on the way. It was
     # 60 emulated s of polled steps plus a fixed 20 whatever the boot took,
-    # against a desktop up at ~22 (SOAK-SPEED round 3)
+    # against a desktop up at ~22 (SOAK-SPEED round 3). The mr286's MR BIOS
+    # (vm/286-mega*) wants its floppy page set instead, megacdrom's way
+    if "mega" in o.vm:
+        import megacdrom
+        megacdrom.mr_setup(b)
     b.kernel_up(prompts=BIOS_PROMPTS)
     wins = len(windows(b))
     b.to(*DRIVE_B)
@@ -392,6 +443,9 @@ def measure(b, o):
                                                 # turned it on itself), from
             find(b)                             #   the game's start (it is off
             machine_item(b, CPU_PROFILE, MENU_CPU)  # by default) - once it has
+        if o.log and o.replay:                  # (a replay's log on BEFORE F7,
+            find(b)                             #   so its PLAY+ is a record's)
+            machine_item(b, ITEM_LOG)
         press(b, o)                             #   loaded: a click during the
                                                 #   load's read is lost
         if o.nojit:
@@ -409,7 +463,7 @@ def measure(b, o):
             press(b, o)
         for _ in range(o.ilace):
             machine_item(b, ITEM_ILACE, MENU_SCREEN)
-        if o.log:
+        if o.log and not o.replay:
             machine_item(b, ITEM_LOG)          # Log: Off -> on
         if o.fs:
             b.to(*MENU_MACHINE)
@@ -426,16 +480,30 @@ def measure(b, o):
         b.cmd("step 2000")
         f0, t0 = frames(b, view), b.cmd("info").get("ms")
         j0 = jitstat(b, view)
+        rcy0 = int.from_bytes(b.memr(view*16 + 0x482F, 2), "little")     # S_JITRCY
+        bk0 = bankstat(b, seg)
         e0 = int.from_bytes(b.memr(view*16 + 0x408A, 2), "little")     # S_EVCOUNT
         if o.persec:                            # a second at a time
             per, fp = [], f0
+            ovo = bss_off("rw_ovltxt")          # ...and the F1 line, as the
+            rows = []                           #   glass shows it each second
             for _ in range(int(o.secs)):
                 b.cmd("step 1000")
                 f = frames(b, view)
                 per.append(100.0 * ((f - fp) & 0xFFFF) / GB_HZ)
                 fp = f
+                ov = b.memr(seg*16 + ovo, 16).split(b"\0")[0].decode("latin-1") \
+                    if ovo is not None else "?"
+                rows.append((per[-1], ov,
+                             int.from_bytes(b.memr(view*16 + 0x482F, 2), "little"),
+                             bankstat(b, seg)))
             print("rdgwin: each second, %% of real time: %s; least %.0f%%, most %.0f%%" % (
                 " ".join("%.0f" % p for p in per), min(per), max(per)))
+            print("rdgwin: second  frames%  F1 line            recycled  banks")
+            for i, (p, ov, rc, bk) in enumerate(rows):
+                print("rdgwin: %6d  %6.0f%%  %-18s  %8d  %5s" % (
+                    i + 1, p, ov, (rc - rcy0) & 0xFFFF,
+                    "-" if bk is None else ((bk[1] - bk0[1]) & 0xFFFF) if bk0 else bk[1]))
         else:
             b.cmd("step %d" % int(o.secs * 1000))
         f1, t1 = frames(b, view), b.cmd("info").get("ms")
@@ -458,6 +526,10 @@ def measure(b, o):
         if int.from_bytes(sb, "little"):
             print("rdgwin: a second cache segment (REALDMG-SPEC 16.2.1), %d moves into it "
                   "so far" % int.from_bytes(b.memr(view*16 + 0x4816, 2), "little"))
+        xn = b.memr(view*16 + 0x48BF, 1)[0]                      # S_JITXN
+        rcy1 = int.from_bytes(b.memr(view*16 + 0x482F, 2), "little")
+        print("rdgwin: %d extra cache tiers (REALDMG-SPEC 16.2.5); %d tiers recycled in the "
+              "span, %d so far" % (xn, (rcy1 - rcy0) & 0xFFFF, rcy1))
         if o.static is not None:
             fx = b.memr(view*16 + 0x40F6, 1)[0]                  # S_JITFIX
             npo = bss_off("rw_npre")
@@ -466,7 +538,8 @@ def measure(b, o):
                 npre, "fixed" if fx else "NOT fixed"))
         bk = bankstat(b, seg)
         print("rdgwin: cartridge %s" % ("in one claim" if bk is None else
-              "in the bank cache, %d slots, %d banks fetched" % bk))
+              "in the bank cache, %d slots, %d banks fetched (%d in the span)"
+              % (bk + (((bk[1] - bk0[1]) & 0xFFFF) if bk0 else bk[1],))))
         if o.shot:
             b.shot(o.shot)
         if o.profile:
