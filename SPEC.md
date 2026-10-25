@@ -97194,6 +97194,15 @@ the three drivers are 8,272 of it. `tests/hmapool.py` drives the shipped tail
 through boot, buffer, drop and reload under unicorn, both arms, and goes red
 with `OS88_DRV_FOOT` taken out or with one end only.
 
+**And on a 286** (`tests/hma286.py`, 86Box's mr286 with an IDE disk): the
+same layout to the byte on a Sound Blaster v2.0 - no mixer, which QEMU's
+SB16 cannot be - and RECORDER's demo played with the double buffer at
+FFFF:1FB0, the 8237 on page 10h reading above 1MB, every half the demo's and
+the block given back; on an SB Pro 2 the cut is `snd_keepmix` and the buffer
+the heap's. The same run has XMEM.DRV's LOADALL transport verify at attach
+(§41.12.6's borrow, on a CPU that has the instruction), and nothing faults
+outside the BIOS's own AH=87h.
+
 **What it cost**: no kernel byte (`kernel.bin` byte-identical). COLDHMA.SYS's
 resident half 2,043 -> 2,153 bytes of the HMA (the cut 66, the second end 44;
 1,239 spare above it), SOUND.DRV +17.
