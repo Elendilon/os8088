@@ -3962,8 +3962,10 @@ $(BUILD)/rlapply.o88: $(BUILD)/rlapply.bin tools/os88pkg.py $(PKGZSTAMP)
 # disk's own inputs, since the image depends on SYSCHECK.O88 (SPEC.md 118.2.1).
 # t_sysman holds it to every built system disk. $(DRIVERS360) and not
 # $(DRIVERS): the manifest is what EVERY geometry carries (118.2), and the
-# 360KB disk leaves CDROM.DRV off (SPEC.md 119.6.7).
-$(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS360) $(SYSAPPS) $(STIKAPPS) \
+# 360KB disk leaves CDROM.DRV off (SPEC.md 119.6.7). The files it leaves off
+# are still PREREQUISITES: the recipe reads them as --optional rows, so a
+# rebuilt XMEM.DRV or COLDHMA.SYS left the manifest describing the old one.
+$(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS360) $(SYS360OMITDRV) $(SYSAPPS) $(STIKAPPS) \
                            apps/syscheck/retired.txt tools/os88sysman.py \
                            tools/os88drv.py tools/os88mod.py tools/os88lz.py | $(BUILD)
 	python3 tools/os88sysman.py --kernel $(KERNFILE) \

@@ -151,7 +151,8 @@ def boot(tmp, prog):
             break
         time.sleep(0.2)
     xmcheck.wait_desktop(q.sock, "hmadosret")
-    floors = (EQ["HEAP_SEG"], EQ["COLD_RAM"] + EQ["VGABUF_PARA"])
+    floors = (EQ["HEAP_SEG"],                  # (rounded: SPEC.md 2.10.9,
+              (EQ["COLD_RAM"] + EQ["VGABUF_PARA"] + 31) // 32 * 32)  # hmadrv's)
     if not os88qemu.acted(q, lambda: u16(q.read(S("mem_base"), 2)) in floors,
                           secs=120, what="the blob to be given back"):
         raise SystemExit("hmadosret: the boot never finished")

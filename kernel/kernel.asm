@@ -841,6 +841,10 @@ ROMF_HDROP  equ 7               ; DX = an owner: every block it holds;
 ROMF_HRESET equ 8               ; every block (a resume with no pool to restore)
 ROMF_HTAB   equ 9               ; -> DX:AX = the block table, CX = its bytes
                                 ; (a hibernate's copy, SPEC.md 87.4 step 3b)
+ROMF_HWALK  equ 10              ; ES:DI = room for CX OSAPI_XMEM_WALK records
+                                ; -> AX = the HMA's, DI and CX past them.
+                                ; XMEM.DRV's to ask, never the kernel's: its
+                                ; XMV_WALK with BX = XMW_FIXED (SPEC.md 28.4.13)
 HMA_SEG     equ 0xFFFF          ; [api_coldseg] when `.cold` is in the HMA
 DRV_HMA_ORG equ 0xC000          ; a block in the HMA is SEG:DRV_HMA_ORG, never
                                 ; SEG:0 - nothing above 1MB has an offset 0 -

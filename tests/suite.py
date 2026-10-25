@@ -17358,9 +17358,26 @@ SOAK = [
         "32 KB, must land exactly with the API cells, registers and DS/ES as "
         "they were and 16 KB a borrow; a CPU that traps 0F 05, a BIOS that "
         "corrupts a word and a cache that does not take must each leave "
-        "[xm_lall] 0. Broken on purpose: an offset mask of 7 refuses at "
-        "attach, an SP two out fails every table",
+        "[xm_lall] 0. The CPU's MSW, IDTR and GDTR are SEEDED first - "
+        "unicorn starts them at zero, which a field the borrow never wrote "
+        "equals. Broken on purpose: an offset mask of 7 refuses at "
+        "attach, an SP two out fails every table, an IDT left unwritten "
+        "fails every table",
         needs=("nasm", "unicorn")),
+    Row("xmhwalk", "soak", py("tests/xmhwalk.py"), 0.5,
+        "SPEC.md 28.4.13: OSAPI_XMEM_WALK's names for the HMA - XMEM.DRV's "
+        "xm_walk far-calling the HMA tail's own walk (boot/osrom.asm's "
+        "hb_walk, ROMF_HWALK) through the door banked off COLDHMA.SYS's "
+        "rom_id +28. The SHIPPED build/xmem.bin and build/coldhma.sys under "
+        "unicorn, the tail whole at FFFF:its TAIL_AT, a block table, driver "
+        "headers and XMEM.DRV's own table written in: every record held to "
+        "the contract's model - order, segment, KB rounded up, image against "
+        "buffer, the owner's class - with room for none, one and part, BX "
+        "not asking and no tail, and every register, IF, DF and the bytes "
+        "either side of the room kept. Broken on purpose: KB truncated, and "
+        "image/buffer inverted, each fail",
+        needs=("nasm", "unicorn"),
+        wants=("build/xmem.bin", "build/coldhma.sys")),
     Row("ethernet", "soak", py("tests/ethernet.py"), 40.0,
         "SPEC.md 72.9: ETHER.DRV up before the first paint off a SYSTEM.CFG "
         "that asks for it, DHCP bound to slirp's address, and the browser "

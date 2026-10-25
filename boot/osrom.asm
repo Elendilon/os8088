@@ -70,6 +70,12 @@ ROMF_HCLAIM     equ 5           ; 5): the drivers and the blocks under `.cold`.
 ROMF_HDROP      equ 7           ; A ROM is never asked any of them - the
 ROMF_HRESET     equ 8           ; kernel's drv_hma_door asks only the HMA's
 ROMF_HTAB       equ 9           ; (...and a hibernate asks where hb_tab is)
+ROMF_HWALK      equ 10          ; ...and XMEM.DRV's walk, the HMA's contents
+                                ; as OSAPI_XMEM_WALK records: XMEM.DRV's
+                                ; equate (MIRRORED there), not the kernel's
+XMW_HMAK        equ 0xF5        ; MIRRORED: apps/os88api.inc's walk owners -
+XMW_HMAI        equ 0xF6        ; `.cold` and the tail, a driver's image in
+XMW_HMAB        equ 0xF7        ; the pool, and a buffer a driver took there
 ROM_MODHB       equ 4           ; MOD_H_BUILD: the build word of a module's
                                 ; header and of mod_hdrt (RT_HDRT), which
                                 ; kernel/mod.inc pins at +4 with an %error
@@ -116,7 +122,12 @@ rom_id:
 %else                           ; tool places the file so it is a paragraph
     dw 0                        ; +26 reserved      past `.cold`
 %endif
+%if ROM_KIND == ROM_KIND_HMA
+    dw rom_modfix               ; +28 the door's offset at FFFF once the tail
+    times 2 db 0                ; is installed, which XMEM.DRV banks to far-
+%else                           ; call ROMF_HWALK (SPEC.md 28.4.13)
     times 4 db 0                ; +28 reserved
+%endif
 %if $ - rom_id != 32
   %error "rom_id must be 32 bytes - the kernel's probe reads it at fixed offsets"
 %endif
@@ -884,6 +895,8 @@ rom_hma:
     je hb_claim
     cmp al, ROMF_HDROP
     je hb_drop
+    cmp al, ROMF_HWALK
+    je hb_walk
     cmp al, ROMF_HRESET
     jne hb_no
     push cs                     ; HRESET: the whole table zero, which is
@@ -899,6 +912,66 @@ hb_htab:                        ; HTAB: SI = hb_tab, which is AX out; DX
     mov [bp+10], cs             ; writes its DX
     mov word [bp+12], HB_N * 6
     mov ax, si
+    jmp hb_yesax
+
+; hb_walk - ROMF_HWALK, XMEM.DRV's OSAPI_XMEM_WALK with BX = XMW_FIXED
+; (SPEC.md 28.4.13): ES:DI = room for CX records of 6 bytes, IF = 0. One for
+; `.cold` and this tail - segment FFFF, the KB from the pool's top to the HMA's
+; end - then one per live block: XMW_OFF the segment it runs at, XMW_KB its
+; bytes rounded UP, XMW_OWN XMW_HMAI for a driver's image (its owner is its
+; own segment) or XMW_HMAB a buffer, XMW_CLS the owning driver's DRVC_* off
+; its header. Out AX = the records written, DI and CX advanced past them (the
+; frame's, as hb_claim writes DX). It was XMEM.DRV's own xm_hwalk, 128 bytes
+; of every 286's heap; here it is in the HMA and reads the table it walks
+hb_walk:                        ; SI = hb_tab
+    xor bp, bp                  ; BP = records written
+    jcxz .done
+    mov ax, 0xFFFF
+    stosw
+    mov ax, 64 - (HB_HI >> 10)
+    stosw
+    mov ax, XMW_HMAK
+    stosw
+    inc bp
+    dec cx
+.b:
+    jcxz .done
+    mov ax, [cs:si]             ; a base, 0 = free
+    or ax, ax
+    jz .n
+    call hb_seg
+    mov dx, ax                  ; DX = the segment it runs at
+    stosw
+    mov ax, [cs:si+2]           ; bytes, at most HB_MAX: +1023 cannot carry
+    add ax, 1023
+    mov al, ah
+    shr al, 1
+    shr al, 1                   ; AL = KB, at most 16
+    cbw
+    stosw
+    mov ds, [cs:si+4]           ; the owner: a driver's image segment
+    mov ah, 0
+    cmp word [HB_ORG], 0x384F   ; 'O8': its header, and the class in it
+    jne .nc
+    mov ah, [HB_ORG+3]
+.nc:
+    mov al, XMW_HMAI
+    cmp dx, [cs:si+4]           ; its own segment owns it: the image
+    je .img
+    mov al, XMW_HMAB
+.img:
+    stosw
+    inc bp
+    dec cx
+.n:
+    add si, 6
+    cmp si, hb_tab_end
+    jb .b
+.done:
+    xchg ax, bp                 ; AX = the count...
+    mov bp, sp
+    mov [bp+6], di              ; ...and the saved DI and CX advanced
+    mov [bp+12], cx
     jmp hb_yesax
 
 hb_free:                        ; SI = hb_tab
