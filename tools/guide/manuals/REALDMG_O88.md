@@ -184,6 +184,33 @@ translated again. It is kept for every game after. Turned on during a game,
 it starts at once when there is room, or with the next game when there is
 not.
 
+## Precompiled games
+
+A game can also come as a program of its own: a package such as
+**LOONEY.O88**, made on another computer by translating the whole cartridge
+ahead of time. It is RealDMG with that game's program already in the PC's
+own instructions, so nothing is translated while you play, and it is the
+fastest way to run that game.
+
+Put the package in a folder with its cartridge, under the cartridge's name
+the package was made with. Double-click the package and the game starts. If
+the cartridge is not there, RealDMG says **REALDMG: no** and the name it
+looked for, such as **REALDMG: no LOONEY.GB**. Some packages carry the
+cartridge inside them and need nothing beside them.
+
+**Machine > Load Game...** opens the cartridge under any name, but only the
+game the package was made for: any other cartridge is refused with
+**REALDMG: not this game**.
+
+The CPU menu of a precompiled game has one way to run it, **Precompiled**,
+and the Speed settings. The speed line ends in **P** and two numbers, such
+as **P2/8**: how many parts of the translated program are in memory, out
+of how many there are. A machine with less memory free keeps fewer of them,
+and the game runs the rest without translating, more slowly. Closing other
+programs before starting the game leaves it more room.
+
+The saves, save states, replays and log work as they do in RealDMG.
+
 ## Sound
 
 With a Sound Blaster or an AdLib, [[SOUND.DRV]] loaded, and the Control Panel
@@ -332,6 +359,7 @@ window.
 | `NAME.SS1` to `NAME.SS9` | beside the game | Save states, one for each slot |
 | `NAME.RP1` to `NAME.RP9` | beside the game | Replays, one for each slot |
 | `NAME.RDP` | beside the game | The game's profile, for the Static Recompiler |
+| `NAME.O88` | beside the game | A precompiled game. Double-click it to play |
 | `XXXXXXnn.LOG` | beside REALDMG.O88 | The log |
 | `REALDMG.CFG` | in `SYSTEM\APPDATA` on RealDMG's own disk | Your keys, the Cache setting, and each game's Speed and Sound |
 
@@ -359,6 +387,9 @@ that is not write-protected and has some room.
   not have the memory free. Close other programs, or choose CPU >
   Interpreter to give the recompiler's memory back, and load the game
   again.
+- A precompiled game does not run on the protected-mode build of os8088
+  for the 286 and later: it says **PRE: not on kern_mega**. **REALDMG: bad
+  precompile** means the package itself is damaged: copy it again.
 - If a game stops on an instruction a Game Boy does not have, the window
   says **The game stopped: an invalid opcode**. Machine > Reset starts it
   again.

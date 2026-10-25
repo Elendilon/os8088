@@ -3478,7 +3478,7 @@ memory of the package's. Then the far jumps are given their
 segments (the meta's relocations), the tokens in the table and the list made
 segments, and the machine attached as aothost.asm's mode 3 does it
 (`rw_aoton`): fixed table, the list searched on a miss, nothing translated.
-The CPU menu has one mode, *Precompiled*, and the speed line says `PRE`.
+The CPU menu has one mode, *Precompiled*, and the F1 line ends in ` Pn/m` (above) where it says ` JIT`.
 
 **An image the heap cannot hold stays on the disk and what it held is
 interpreted** - running beats stopping. Its list entries get offset 0, which

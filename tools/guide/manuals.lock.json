@@ -880,9 +880,9 @@
   "sources": [
    "apps/realdmg"
   ],
-  "stamped": "733366a8",
-  "strings": "10f31f0bf0c53ba4",
-  "why": "no-pinning A1/A1b: claims and the parts carve movable, rw_bmiss close-hang fix - internal, no user-visible text changed; page checked (memory/XMS/Interpreter paragraphs still accurate)"
+  "stamped": "a42f0d4f",
+  "strings": "6261802908aeb9b8",
+  "why": "Read the diff since 733366a8: the precompiled package is the user-visible part (its own program, the ROM beside or inside it, CPU > Precompiled, the F1 line's Pn/m, four toasts) and has a section, a file row and two Good-to-know lines. fill_ff/w16_ff, the kern_mega arm's tiers and the image load order are below the page's detail"
  },
  "REDLINE_O88": {
   "sources": [

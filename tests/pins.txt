@@ -190,6 +190,10 @@ C apps/frotz/zpic.inc zp_pseg            # the .mg1 probe buffer, claimed and fr
                                          # inside one call
 C apps/realdmg/rwlog.inc @rw_logwrite    # the log's text, composed and written
                                          # inside one command (REALDMG-SPEC 14.4)
+C apps/realdmg/rwaot.inc rw_abseg        # a precompiled package's cluster bounce,
+                                         # a claim of its own only when a cluster
+                                         # passes 16KB: claimed and freed inside
+                                         # rw_acopy's call, the file read's target
 C apps/recorder/recorder.asm @rc_do_play # the speaker play buffer, held for one
                                          # PCM_EXCL play and freed on every way out
                                          # of the call
@@ -346,6 +350,20 @@ X apps/browser/browser.asm @br_claim     # a CLAIM WRAPPER this scan cannot see
                                          # the call, SPEC.md 71.14.1): every caller
                                          # stores DX in a word br_reloc names and
                                          # declares it with br_movable at once
+X apps/video/video.asm @vp_rclaim        # a CLAIM WRAPPER this scan cannot see
+                                         # through (its first claim's `jnc` jumps
+                                         # past the second to the shared ret):
+                                         # kern_mega's ring, every caller storing
+                                         # DX in vp_rclm, which vp_smtab declares
+X apps/realdmg/rwaot.inc rw_aseg+bx      # a precompiled cartridge's CODE IMAGES,
+                                         # each a CS the worker runs in: its frame
+                                         # holds one at every pre-emption, which
+                                         # pins it however it is declared (SPEC.md
+                                         # 66.6.2), and the images' far jumps name
+                                         # each other's and the core's segments.
+                                         # Claimed from the CEILING, as a driver
+                                         # image is, so they stack under each
+                                         # other and wall nothing (REALDMG-SPEC 20.10)
 
 # --- packages: bucket N - pinned with no valid reason yet (the backlog) --------
 
