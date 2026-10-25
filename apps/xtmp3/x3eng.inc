@@ -1527,7 +1527,12 @@ x3_la_free:
     jz .out
     call OSAPI_MEM_FREE
     mov word [ap_la_seg], 0
-.out:
+    and byte [x3_req], ~X3R_READ    ; A GULP ASKED FOR THIS RING IS SPENT
+.out:                               ; with it: the worker is parked (every
+                                    ; caller), and a wake still queued behind a
+                                    ; Stop would read the gulp into segment 0 -
+                                    ; the IVT (xtmp3eng's qagain: a live Stop
+                                    ; with a gulp pending, the machine dead)
     pop dx
     ret
 

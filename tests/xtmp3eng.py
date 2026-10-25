@@ -812,8 +812,16 @@ def conv_flow(r, leg, expect_dialog=True):
     r.key("ret")
     save_dialog(r)
     r.key("ret")
-    r.until(lambda: r.st()["md"] not in (MD_CHOOSE, MD_CONV), "the end of "
-            "the conversion", 240, 0.3)
+    conv_end(r, "the end of the conversion")
+
+
+def conv_end(r, what, secs=240):
+    """the conversion over AND what it hands to begun: x3c_ended puts x3_md
+    back to IDLE before x3_file_play's disk reads, with the state still
+    DECODE, and only the play makes it FILE (or ERROR). Waiting on md alone
+    returned in that window and read 'state 3 md 0' (covox, in the soak)"""
+    r.until(lambda: (r.st()["md"] not in (MD_CHOOSE, MD_CONV) and
+                     r.st()["state"] != ST_DECODE), what, secs, 0.3)
 
 
 def leg_conv():
@@ -1053,8 +1061,7 @@ def leg_twovol():
         r.key("ret")
         save_dialog(r)
         r.key("ret")
-        r.until(lambda: r.st()["md"] not in (MD_CHOOSE, MD_CONV), "the end",
-                240, 0.3)
+        conv_end(r, "the end")
         check(leg, "converted and playing", r.st()["state"] == ST_FILE)
         check(leg, "the destination was D:", r.b("x3c_dvol") == 3)
         r.key("esc")
@@ -1249,8 +1256,7 @@ def clu_convert(r, leg):
     r.key("ret")
     save_dialog(r)
     r.key("ret")
-    r.until(lambda: r.st()["md"] not in (MD_CHOOSE, MD_CONV), "the end of "
-            "the conversion", 240, 0.3)
+    conv_end(r, "the end of the conversion")
 
 
 def leg_xtclu():
@@ -1442,8 +1448,13 @@ def leg_dfdel():
             if not check(leg, "XTMP3 opens (boot 2)", r2.open_file(
                     "B", name, floppy_listing([name]))):
                 return
-            r2.until(lambda: r2.st()["md"] in (MD_SPK, MD_IDLE) and
-                     r2.st()["state"] != ST_CHECK, "the cache's play", 60)
+            # THE PLAY ITSELF, waited for: md IDLE and state IDLE are also
+            # how the window opens, before the cache is even looked at, so
+            # this returned at once, the Esc met nothing, the bracket began
+            # under the Decoded Files window and took its Enter as 'back to
+            # the desktop, paused' - no alert ever asked (dfdel, 'timed out
+            # waiting for the alert')
+            r2.until(lambda: r2.st()["md"] == MD_SPK, "the cache's play", 60)
             r2.key("esc")
             r2.until(lambda: r2.st()["md"] == MD_IDLE, "the stop", 30)
             for k, what in ((0, "AFTERHRS.WAV, XTMP3's"),
@@ -1514,8 +1525,7 @@ def leg_batch():
         r.key("ret")
         save_dialog(r)
         r.key("ret")
-        r.until(lambda: r.st()["md"] not in (MD_CHOOSE, MD_CONV),
-                "the first conversion", 240, 0.3)
+        conv_end(r, "the first conversion")
         check(leg, "the first plays", r.st()["state"] == ST_FILE)
         asked = []
 
