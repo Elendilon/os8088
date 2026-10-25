@@ -112,6 +112,17 @@ def main():
         os88qemu.acted(
             m, lambda: word(38) > 0 and dword(doclen_lo, doclen_hi) > 0,
             secs=120, what="196 KiB page parse/layout")
+        # ...and then until the LAYOUT HAS FINISHED. The condition above holds
+        # from the first line laid out, and QEMU reads guest memory between
+        # any two instructions: with heap enough to hold the whole formatted
+        # page, the line table is what runs out, and br_layout sets br_trunc
+        # and cuts br_doclen only at its own end - so a sample taken at the
+        # first line read 204,744 formatted bytes, 404 lines and no cut, which
+        # is the layout half way through and not the defect it looked like.
+        os88qemu.quiesce(
+            m, lambda: (word(38), dword(doclen_lo, doclen_hi),
+                        byte(symbol("br_trunc"))),
+            what="the 196 KiB page's layout")
         doclen = dword(doclen_lo, doclen_hi)
         srclen = dword(srclen_lo, srclen_hi)
         truncated = byte(symbol("br_trunc"))
