@@ -3213,7 +3213,29 @@ The driver's mode 3 is the precompiled machine:
   two is never logged nor refused (16.2.3);
 - `S_JITFIX` 1, `S_JITPRE` 2, and the resume through `tr_enter`;
 - `S_JITVEC` on `h_jitstub`, which answers every request with no block:
-  nothing is translated at all, not even HRAM's code, which is interpreted.
+  nothing is translated at run time.
+
+**HRAM's routines are precompiled too, from a heat run** (`tools/gbaot.py`'s
+counters, 20.11). HRAM is RAM, but every game keeps code there - the OAM DMA
+routine, and Looney Tunes' `LD (DE),A / RET` thunk that a `RST 10` reaches
+twenty times a frame inside its object loop - and the recompiler has always
+translated it behind a guard (16.3). A heat run's HRAM misses are kept with
+HRAM's 128 bytes as the miss found them; the promoted build writes the
+hottest one's into the translation machine's HRAM (`translate(hram=)`) and
+makes each such PC a block keyed as bank 0's, as `tr_hram` looks it up.
+Every entry runs the block's guard, its bytes against HRAM as it is now,
+and in the host's build a guard that differs goes to the INTERPRETER
+(`RDGC_TR_INT`) and not to `tr_stale`: under a fixed table `tr_stale` would
+clear the slot - or its neighbour - that the PC hashes to, which may be
+another block's. So HRAM code that a game rewrites, or that the snapshot
+caught half-copied, is interpreted as before; nothing is ever wrong, only
+sometimes not faster. `rt_preone` takes FF80-FFFE in that build alone, and
+HRAM PCs are kept out of ROM0's block-start bitmap. Looney Tunes (GBC) on
+the owner's replay, 86Box's Victory, 60 s: 85.2% -> **88.3%**, the
+interpreter's share 9.6% -> 5.4% with no HRAM left in it, and the misses
+`rdg_aotmiss` answers 26 a frame -> 6. `tests/gbaot.py`'s GBRMW leg is the
+gate: its routine is translated, then rewritten, and the leg goes red with
+the guard's compares taken out.
 
 ### 20.6 The gate
 

@@ -67,6 +67,34 @@ def rom_path(name, built):
     return os.path.join(getgbtest.DEST, name)
 
 
+# HRAM's routines made blocks from what a heat run found there (REALDMG-SPEC
+# 20.5): GBRMW rewrites its HRAM routine once it is running, so its guard
+# must fail and the interpreter take the new bytes - and before that it
+# passes. No other ROM of ours, nor any test suite here, runs code in HRAM
+HRAMLEG = ("GBRMW",)
+
+
+def hram_leg(rom, found, extra, out, frames):
+    import json
+    h = gbaot.heat_run(BUILD, rom, gbaot.load(out), frames, log=lambda *x: None)
+    path = out + "-heat.json"
+    json.dump(h, open(path, "w"))
+    hram = {}
+    heat, more = gbaot.load_heat([path], hram)
+    if not hram:
+        return False, "no HRAM PC went to the interpreter: the leg tests nothing"
+    f2, e2 = gbaot.walk(rom, set(extra) | more)
+    img = gbaot.translate(BUILD, rom, gbaot.leaders(rom, f2, e2), log=lambda *x: None,
+                          heat=heat, hram=hram)
+    made = sorted(pc for pc, key in img["blocks"] if pc >= 0xFF80)
+    if not made:
+        return False, "%d HRAM PCs counted and none translated" % len(hram)
+    out2 = out + "-hram"
+    gbaot.save(img, out2, rom)
+    ok, what = gbaot.compare(BUILD, rom, gbaot.load(out2), frames)
+    return ok, "%d HRAM blocks (%s); %s" % (len(made), " ".join("%04X" % p for p in made), what)
+
+
 def straddle():
     """A block start whose first instruction runs past 3FFFh is the
     interpreter's (gbaot.fits): Looney Tunes' JP NZ at 3FFE, its high byte
@@ -123,6 +151,10 @@ def main():
             print("%-4s %-28s %s" % ("FAIL" if ok else "ok", "control: %s broken" % which,
                                      "passed - the gate cannot go red" if ok else what + ", as it must"))
             bad += ok
+        if label in HRAMLEG:
+            ok, what = hram_leg(rom, found, extra, out, frames)
+            print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "%s, HRAM counted" % label, what))
+            bad += not ok
         if label.startswith("GBFLAGS") and not a.k:
             img2 = gbaot.translate(BUILD, rom, gbaot.leaders(rom, found, extra),
                                    log=lambda *x: None, defines=("RT_DEADBUG",))

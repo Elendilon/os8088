@@ -838,7 +838,14 @@ rt_preone:
     mov si,[es:bx]
     mov dl,[es:bx+2]
     cmp si,8000h
+%ifdef RT_AOTSTOP                       ; (the full static recompiler's host:
+    jb .rom                             ;   an HRAM PC too, from the HRAM the
+    cmp si,0FF80h                       ;   host put there, guarded -
+    jb .no                              ;   REALDMG-SPEC 20.5)
+.rom:
+%else
     jae .no
+%endif
     mov ax,[S_BANK]                 ; the bank as it is, put back after
     push ax
     push word [S_ROMX]
@@ -1338,7 +1345,11 @@ rt_guard:
     mov dx,di                       ; the stale way: mov si,PC / jmp tr_stale
     mov ax,[RT_PC0]
     call rt_movsi
-    mov ax,RDGC_TR_STALE
+%ifdef RT_AOTSTOP
+    mov ax,RDGC_TR_INT              ; (a FIXED table: tr_stale would forget
+%else                               ;   the slot's - or its neighbour's -
+    mov ax,RDGC_TR_STALE            ;   entry, which may be another block's;
+%endif                              ;   the interpreter, every time, 20.5)
     call rt_jmp
     mov [RT_ENT],di
     xor bx,bx
