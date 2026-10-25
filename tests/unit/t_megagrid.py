@@ -7,17 +7,21 @@ this is the gate (docs/plans/KERN-MEGA-PLAN.md 10.3 items 59 and 63, 14.39).
 
 In real mode any paragraph is a segment, so a far pointer is normalised with
 `and si, 15` and the rest folded into the segment, and a walk steps the
-segment by one paragraph. Under kern_mega's protected mode only a MULTIPLE OF
-EIGHT paragraphs is an identity selector (KERN-MEGA-PLAN 3.1): a value with
-RPL bits set faults, and one with bit 2 set loads an LDT code ALIAS of a
-different address - readable, so reads come from the wrong memory without a
-fault, and a write is either reported (14.39's guard) or, inside another
-claim, completed there. Paint's staged BMP rows, PiXEL's work buffers and the
-Video Player's record walk all shipped like that. The SDK rule is: normalise
-to EIGHT paragraphs - `and si, 127` with the offset's >> 7 << 3 folded in -
-never one. Nothing in an emulator flags the real-mode spelling until the
-segment it builds happens to be off the grid, so the static count is the
-guard, t_seg0.py's shape.
+segment by one paragraph. Under kern_mega's protected mode that was first
+wrong only OFF the 8-paragraph grid (KERN-MEGA-PLAN 3.1: a multiple of eight
+was an identity selector, anything else faulted or loaded an LDT alias of
+other memory), and the rule this gate was written for was "normalise to
+EIGHT paragraphs". SINCE KERN-MEGA-MEMORY-PLAN MC7 THAT RULE IS WITHDRAWN:
+the GDT's identity map stops at the kernel's own segments, every claim and
+region is an LDT selector, and NO sum on one is right, on the grid or off it
+- a package reaches a paragraph through OSAPI_SEG (SEG_SUB, SEG_AT, SEG_LIN;
+SPEC.md 50.6.11), which answers the caller's own sum on every real-mode
+kernel. The gate is kept because the three shapes below are still the
+commonest way to build a segment by hand, and each one is wrong under
+protected mode whatever its grid; it cannot see a sum on the grid (`add ax,
+0x1000`), which megasweep and the per-package rows are for. Nothing in an
+emulator flags the real-mode spelling until the segment it builds is loaded,
+so the static count is the guard, t_seg0.py's shape.
 
 SCOPE: every driver under drivers/ (KERN-MEGA-MEMORY-PLAN MC8), and the
 packages that DECLARE OS88_HIGH (an OS88_HEADER or a C package's

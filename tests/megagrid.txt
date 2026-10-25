@@ -4,11 +4,13 @@
 #
 #   <sites> <path>  # <reason>
 #
-# Under kern_mega's protected mode only a multiple of 8 paragraphs is an
-# identity selector, so a segment built by one-paragraph arithmetic faults or
-# loads an LDT alias of other memory. A file here may not GROW, and a count
-# that falls must be lowered in the same commit. The SDK rule is apps/
-# os88api.inc's: normalise to EIGHT paragraphs (`and si, 127`), never one.
+# Under kern_mega's protected mode a segment built by one-paragraph
+# arithmetic faults or loads an LDT alias of other memory. A file here may
+# not GROW, and a count that falls must be lowered in the same commit. The
+# old SDK rule - normalise to EIGHT paragraphs, `and si, 127` - is WITHDRAWN
+# since KERN-MEGA-MEMORY-PLAN MC7: every claim is an LDT selector and no sum
+# on one is right, so a paragraph is reached through OSAPI_SEG (SEG_SUB,
+# SEG_AT, SEG_LIN), which answers the sum itself on every real-mode kernel.
 
 # --- kern_mega's DOS.O88 says OS88_HIGH (KERN-MEGA-PLAN 14.44), which brings
 #     apps/dos/ into scope: its five sites are NOT in the part that says it
