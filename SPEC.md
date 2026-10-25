@@ -102698,6 +102698,22 @@ instruction**: a byte the entry proc sets when it is ready is enough.
 `fsx_wait`'s `FSXW_FRAME` (§53.5.1) waits for the next IRQ0, which under
 `FSXF_RATE` is the next rate period.
 
+**On kern_mega a REFLECTED BIOS service runs the hook when it returns**
+(`mega_svc_back`, docs/plans/KERN-MEGA-PLAN.md 14.72). Under protected mode
+a BIOS call goes to real mode and back (`mega_svc`), and every IRQ0 that
+falls inside it is the ROM's: `mega_rfclk` already counts those periods into
+`[sch_rpend]`, so none is lost, but no hook ran at them - where a real-mode
+kernel's hook interrupts the same `int 13h` and works through it. A caller
+that issues reads back to back then starved the hook outright, because the
+next tick fell inside the next reflection: the Video Player on a disk its
+BIOS serves went ~0.8 s at a time with no frame drawn and no sound queued.
+So when a service reflection (not an option ROM's IRQ) comes back with
+periods owed under `FSXF_RATE`, `sch_rhook` is called there, before the
+caller resumes - the place a real-mode kernel's hook would have run, a read
+later. Its three skip rules decide as they do from `sch_isr`; a reflection
+made inside the ROM's tick chain, or with the hook already running, leaves
+the periods for the next IRQ0. ~15 bytes of `.mega`, kern_mega only.
+
 **It costs ~145 bytes of `.text` and 9 of `.bss`, `kern_big` only** (it
 shipped at ~180 and 11; kernel size pass 5):
 - `sch_rhook` is 53. `[sch_chbusy]`, `[sch_rbusy]` and `[sch_lock]` sit in

@@ -2783,9 +2783,20 @@ mega_svc_back:
     and word [ss:bp+28], ~0x08D5
     or [ss:bp+28], ax
     cmp byte [mega_fdpend], 0       ; a native floppy fallback: did the BIOS
-    je .out                         ; do what it could not? (mega_fdjudge)
+    je .rh                          ; do what it could not? (mega_fdjudge)
     call mega_fdjudge
-.out:
+.rh:
+    cmp word [sch_rpend], 0         ; THE PERIODS THE ROM TOOK, TO THE HOOK
+    je .out                         ; NOW (KERN-MEGA-PLAN 14.72): every IRQ0
+    cmp byte [sch_fast], SCH_RATE   ; that fell in the call was the ROM's, so
+    jne .out                        ; an FSXF_RATE hook (SPEC.md 53.2.2) ran
+    pusha                           ; at none of them - where a real-mode
+    mov bp, sch_rhook               ; kernel's runs through the same read. A
+    call KERNEL_SEG:mega_tcall      ; caller that chained reads back to back
+    popa                            ; starved it outright: the next tick fell
+.out:                               ; in the next reflection. sch_rhook's
+                                    ; own guards (busy, the ROM's chain, a
+                                    ; stack not a task's) still decide
     pop es
     pop ds
     popa
@@ -4531,7 +4542,10 @@ mega_bhex2:
 ; The line stays masked when the mouse has not settled, when a DRIVER feeds
 ; it (its ISR may be an image above 1MB), when the vector is not the kernel's
 ; (a thief the theft repair has not been synced from), and for int 10h - the
-; arrow must not draw in the middle of a mode set or a font load.
+; arrow must not draw in the middle of a mode set or a font load. A line whose
+; real-mode vector is an OPTION ROM's is left open as well, on every service
+; (KERN-MEGA-PLAN 14.72): a PicoMEM's multiplexer copies its Sound Blaster's
+; blocks there, and its disk is one of those services.
 ; in: BP = mega_svc's frame, DS = KDATA. out: BX. Clobbers AX
 ; -----------------------------------------------------------------------------
 section .cold
@@ -4575,6 +4589,36 @@ mega_rmaskf:
 .k:
     pop es
 .out:
+    push es                         ; ...AND EVERY LINE AN OPTION ROM OWNS
+    push dx                         ; (KERN-MEGA-PLAN 14.72): its handler is
+    push si                         ; real-mode code in a ROM, which runs in
+    mov ax, MEGA_SEL_IDT            ; the reflection as it is - and a
+    mov es, ax                      ; PicoMEM's multiplexer (SPEC.md 34.10.1)
+    mov si, 0x20*8                  ; is how its Sound Blaster's every block
+    mov dx, 1                       ; is copied, and how its sample clock's
+.rl:                                ; IRQs arrive: masked for a whole
+    test bx, dx                     ; reflected int 13h - its own disk's -
+    jz .rn                          ; the card played nothing it was not
+    cmp word [es:si+2], MEGA_SEL_CODE   ; given and dropped the block IRQs.
+    jne .rn                         ; THE KERNEL'S OWN VERDICT, not the
+    mov ax, [es:si]                 ; vector's value: an IVT cell can hold
+    sub ax, mega_irv                ; a SELECTOR (a driver's ISR, any value
+    cmp ax, 14*6                    ; at all), so the test is the line's
+    jae .rn                         ; gate - a reflecting stub (mega_irv),
+    not dx                          ; which mega_irqrom builds only where the
+    and bx, dx                      ; IVT cell named an option ROM. The SB's
+    not dx                          ; own line stays masked, and that bit is
+.rn:                                ; what the multiplexer reads before it
+    add si, 8                       ; raises a software int
+    cmp dx, 0x80                    ; (the master's last: the slave's gates
+    jne .rs                         ; are at 70h)
+    mov si, 0x70*8
+.rs:
+    shl dx, 1
+    jnz .rl
+    pop si
+    pop dx
+    pop es
     mov [mega_rmask], bx
     retf
 
