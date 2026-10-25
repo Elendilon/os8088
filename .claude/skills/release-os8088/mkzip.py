@@ -37,7 +37,8 @@ SPEC.md 19's 1.2MB disk, plus the 360KB-only media disk, the five
 360KB-only category disks of SPEC.md 24.6 -- office, network, games, emu and
 util, of which office is at that geometry the ONLY published home of the
 spreadsheet and the chart viewer -- and the 720KB geometry's second apps disk,
-more720.img, SPEC.md 24.7), and so is the emulator system disk (`make emu`, SPEC.md 9.11.7),
+more720.img, SPEC.md 24.7, and the 128KB machine's small360.img and
+small720.img, SPEC.md 24.5.7), and so is the emulator system disk (`make emu`, SPEC.md 9.11.7),
 which needs nothing a bare `make` does not and so is required too: it is the
 kern_emu kernel with VMMOUSE.DRV and a SYSTEM.CFG that turns it on, and it
 pairs with the SHIPPED apps.img, so it adds one image and no software disk.
@@ -104,6 +105,14 @@ carries what apps720.img leaves off. Boot os8088-720.img in drive A as usual,
 and put either software disk in drive B. There are no versions in the other
 sizes: at 1.44MB and 1.2MB everything on it is already on the software disk,
 and at 360KB the extra disks above carry it."""),
+
+    ("small", "A machine with as little as 128KB of memory", """\
+These system disks carry a smaller kernel and every program that runs in
+128KB, all on the one disk, so a machine with one drive needs nothing else.
+Boot one in drive A in place of the system disk for your size. The 720KB disk
+is formatted with larger clusters than a standard one, because the small
+kernel reads only a two-sector FAT; for the same reason a machine running it
+reads standard 360KB disks but no other 720KB disk."""),
 
     ("emu", "In an emulator or virtual machine: the pointer without a grab", """\
 emu.img is a system disk for running os8088 in an emulator or a virtual
@@ -234,6 +243,10 @@ ITEMS = [
      "cable link and the split-file tool, OS88NET.COM and OS88CZ.COM, in "
      "SYSTEM\\DOS.",
      [("util360.img", "360KB", "")]),
+
+    ("small", "128KB system disk", True,
+     "The small kernel with every program that fits a 128KB machine.",
+     [("small360.img", "360KB", ""), ("small720.img", "720KB", "")]),
 
     ("x720", "Second software disk, 720KB", True,
      "PiXEL, MIDIRack with the eight songs the first disk has no room for, "

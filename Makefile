@@ -100,6 +100,12 @@ UTILIMG360    := $(BUILD)/util360.img
 # ...and the 720KB geometry's SECOND apps disk (SPEC.md 24.7): what the 720KB
 # apps disk had to leave off, on a disk of its own beside it
 MOREIMG720    := $(BUILD)/more720.img
+# ...and the 128KB machine's two system disks (SPEC.md 24.5.7), kern_small
+# and its whole payload, SHIPPED since 2026-10-25: `make small` was on demand
+# while the kernel was not ready to release, and it is. The 1.44MB small.img
+# stays on demand - the release carries the 128KB machine at 360KB and 720KB
+SMALLIMG360   := $(BUILD)/small360.img
+SMALLIMG720   := $(BUILD)/small720.img
 
 # ...and all thirteen in one list, because it appeared in FOUR places (`all`
 # and the three tiers) and each of those had to be edited by hand the first
@@ -109,7 +115,8 @@ MOREIMG720    := $(BUILD)/more720.img
 SHIPIMGS := $(IMG) $(IMG120) $(IMG720) $(IMG360) \
             $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
             $(MEDIAIMG360) $(OFFICEIMG360) $(NETWORKIMG360) $(GAMESIMG360) \
-            $(EMUIMG360) $(UTILIMG360) $(MOREIMG720)
+            $(EMUIMG360) $(UTILIMG360) $(MOREIMG720) \
+            $(SMALLIMG360) $(SMALLIMG720)
 
 # ...and each of them SIGNS IN A SLOT OF ITS OWN (SPEC.md 18.8.2.2): os88disk.py
 # reads this list (tools/os88ship.py) and steers every member's boot-sector
@@ -2794,7 +2801,11 @@ endif
 # ...and this tests the KNOBS, not $(VIDDEF), and NAMES them: the banner used
 # to be a row of blank assignments, which says no more than the alarm itself.
 # Both halves of that were the same bug and $(KNOBS) is where it is explained.
-ifneq ($(KNOBS),)
+# KERN_SMALL ALONE raises no alarm: it is the SHIPPED small-machine kernel
+# (SPEC.md 24.5.7), which `all` builds in its own sub-make, so the banner's
+# "rebuild with a plain make before cutting a release" would be wrong on every
+# plain `make`. Any other knob beside it still names both.
+ifneq ($(filter-out KERN_SMALL=%,$(KNOBS)),)
 	@echo "  *** BUILT WITH A KNOB: $(KNOBS)"
 	@echo "  *** It boots that way on every machine. Rebuild with a plain   ***"
 	@echo "  *** \`make\` before testing detection or cutting a release.      ***"
@@ -4806,7 +4817,8 @@ $(BUILD)/os88net.com: drivers/net/os88sfx.asm $(BUILD)/os88net.lz \
 
 # A package-list edit must repack even when its files predate the image.
 $(IMG) $(IMG120) $(IMG720) $(IMG360) \
-$(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) $(MOREIMG720): Makefile
+$(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) $(MOREIMG720) \
+$(SMALLIMG360) $(SMALLIMG720): Makefile
 
 $(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSOPTIONAL) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \

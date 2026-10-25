@@ -54917,11 +54917,29 @@ sector — 9 sectors a track and two heads, which is all stage 1 knows of a
 geometry, as the big build's `os8088-720.img` does — and its `KERNEL.SYS`
 starts at LBA 12 exactly as `small360.img`'s does, so every sector of the
 kernel crosses a head where it does there and §18.93.1's canary holds
-unchanged. 183 of 357 clusters (2 KB, `--fatcap 2`, as `small.img`).
-`t_smallreq` and `t_stik` read it beside the other two; it is on demand
-like them and in no `$(SHIPIMGS)`. A release carries the 360 KB and 720 KB
-small system disks as its 128 KB machine's set, and `osrom-small` (§2.10)
-pairs with them.
+unchanged. 183 of 357 clusters.
+
+**It is NOT the standard 720 KB format, and cannot be.** kern_small's FAT
+window is two sectors (`DSK_FAT_SECS`, §2.5.3), and §18.2 rule 10 refuses a
+floppy whose FAT is larger - so a standard 720 KB disk, whose FAT is three
+sectors, is one kern_small does not mount at all, and the small disks are
+written `--fatcap 2`: 2 KB clusters at 720 KB, as `small.img` takes 4 KB ones
+at 1.44 MB. The disk is consistent and self-contained, which is what a
+one-drive 128 KB machine needs, but a 128 KB machine with a 720 KB drive
+reads no OTHER 720 KB disk - not `apps720.img`, not `more720.img`, not a DOS
+disk. `t_image` names the cluster size it must have (its `CLUSTERS`), the way
+it names `os8088-360.img`'s. Only the 360 KB small disk is the standard shape.
+
+**SHIPPED since 2026-10-25**: `small360.img` and `small720.img` are in
+`$(SHIPIMGS)`, so `all` builds them through `make small`'s one sub-make and
+every gate that walks the shipped set reads them - `t_image` against
+`build/smallk/kernel.sys` (and without `BOOTHD.SYS`, kern_small having no
+hard-disk install), `t_canary`, `t_blobruns` (two blob calls and seven
+kernel calls on both), `t_sysfree`, `t_diskverify`, `t_noovl`, `t_retired`,
+`t_volsig` and `t_ascplace`. `small.img` stays on demand: its canary word
+does not cross a head (`t_canary`'s `crosses` answers no for it), and the
+release carries the 128 KB machine at 360 KB and 720 KB. `osrom-small`
+(§2.10) pairs with these two disks.
 
 ### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
 

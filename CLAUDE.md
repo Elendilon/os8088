@@ -1828,10 +1828,15 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Fifteen images, not nine.** The system and apps disks in four geometries
+**Seventeen images, not nine.** The system and apps disks in four geometries
 each, plus SIX more that exist at 360KB alone and ONE at 720KB alone -
 `build/more720.img`, the 720KB apps disk's other half (SPEC.md 24.7), carrying
-what that disk had to leave off. `build/media360.img` — `BEVERLY.MOD` is data rather than software and
+what that disk had to leave off - and the 128KB machine's two system disks,
+`build/small360.img` and `build/small720.img` (kern_small, SPEC.md 24.5.7),
+which `all` builds through `make small`'s sub-make. The small 720KB disk is
+NOT the standard format: kern_small's two-sector FAT window refuses a
+standard 720KB FAT, so it takes 2KB clusters, and that machine reads no other
+720KB disk. `build/media360.img` — `BEVERLY.MOD` is data rather than software and
 was 114 of a 360KB disk's 354 clusters before packages were compressed, so at
 that geometry it rides a disk of its own (§24.4). **It is not on `apps360.img`
 as well any more, and cannot be**: lz4-packed it is 42 clusters and that disk
@@ -1990,16 +1995,17 @@ repository", which is where the branch already lives, and do nothing.
 
 ### 3. SEND the 360KB set and the two 1.44MB main disks after every commit, without being asked
 
-**All TEN of them**: the eight 360KB images `build/os8088-360.img`,
+**All ELEVEN of them**: the nine 360KB images `build/os8088-360.img`,
 `build/apps360.img`, `build/media360.img`, `build/office360.img`,
-`build/network360.img`, `build/games360.img`, `build/emu360.img` and
-`build/util360.img`, plus the two 1.44MB main disks, `build/os8088.img`
-(system) and `build/apps.img` (apps). The owner wants the full set
+`build/network360.img`, `build/games360.img`, `build/emu360.img`,
+`build/util360.img` and `build/small360.img`, plus the two 1.44MB main disks,
+`build/os8088.img` (system) and `build/apps.img` (apps). The owner wants the full set
 every time rather than a judgement about which disks a change could reach.
 The 360KB part is exactly the 360KB images `all` builds: system, apps, the
-module's own disk (§24.4) and the five category disks (§24.6). It was three
-until the category disks landed, six until `emu360` did, seven until
-`util360` did, and it will grow
+module's own disk (§24.4), the five category disks (§24.6) and the 128KB
+machine's system disk (§24.5.7). It was three until the category disks
+landed, six until `emu360` did, seven until `util360` did, eight until
+`small360` did, and it will grow
 again — **`$(SHIPIMGS)` in the Makefile is the
 list**, filtered to the 360KB ones. Do NOT reach for `ls build/*360*.img`:
 that also catches `c64360`, `weave360`, `loom360` and `wire360`, which are
@@ -2008,12 +2014,12 @@ The 1.44MB pair is those two files and no others: the 720KB and 1.2MB
 geometries are not sent.
 
 **The exception: send them only when the commit could change the CONTENT of
-one of those ten disks.** A commit that cannot - documentation, notes, a plan,
+one of those eleven disks.** A commit that cannot - documentation, notes, a plan,
 a test or harness file, a host tool that writes no shipped byte - sends
 nothing. The build number does not count: it is the commit count (SPEC.md
 §14.2), so every commit moves three bytes of `.text` in every image, and an
 image that differs only by that is not a change to its content. When the
-commit does reach one disk, the rule above stands and all ten go. Which tools
+commit does reach one disk, the rule above stands and all eleven go. Which tools
 write shipped bytes, and so are NOT in the exception, is fork rule 6's list
 (`os88disk.py`, `os88pkg.py`, `os88drv.py`, `os88mini.py`, `buildnum.py`).
 

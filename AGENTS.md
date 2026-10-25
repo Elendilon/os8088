@@ -1315,10 +1315,15 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Fifteen images, not nine.** The system and apps disks in four geometries
+**Seventeen images, not nine.** The system and apps disks in four geometries
 each, plus SIX more that exist at 360KB alone and ONE at 720KB alone -
 `build/more720.img`, the 720KB apps disk's other half (SPEC.md 24.7), carrying
-what that disk had to leave off. `build/media360.img` —
+what that disk had to leave off - and the 128KB machine's two system disks,
+`build/small360.img` and `build/small720.img` (kern_small, SPEC.md 24.5.7),
+which `all` builds through `make small`'s sub-make. The small 720KB disk is
+NOT the standard format: kern_small's two-sector FAT window refuses a
+standard 720KB FAT, so it takes 2KB clusters, and that machine reads no other
+720KB disk. `build/media360.img` —
 `BEVERLY.MOD` is data rather than software and was 114 of a 360KB disk's 354
 clusters before packages were compressed, so at that geometry it rides a disk
 of its own (§24.4). **It is not on `apps360.img` as well any more, and cannot
