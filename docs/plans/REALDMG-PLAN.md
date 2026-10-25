@@ -1101,6 +1101,12 @@ speed. Its two hard parts are known from that report: computed jumps
 (`JP HL`, jump tables) need the interpreter as a fallback, and a cartridge
 is larger than any cache, so it wants the tiers of 16.2.3 or a format the
 recompiler pages in by bank.
+**Studied 2026-10-25** (docs/reports/REALDMG-FULLSTATIC-2026-10-25.md):
+feasible per game with a host tool; the interpreter leaves the hot path but
+stays as a cold fallback for RAM code and unresolved computed jumps, and the
+options are a complete host-made profile for today's Static, a per-game
+`GAME.O88` built from emitted assembly, or a precompiled file the package
+loads.
 
 ### The scroll round - research, the field probe, and the plan (2026-10-21)
 
