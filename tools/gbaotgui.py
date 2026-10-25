@@ -50,6 +50,7 @@ def main():
     root.rowconfigure(0, weight=1)
     rom, out, name = tk.StringVar(), tk.StringVar(), tk.StringVar()
     frames, check, disk = tk.IntVar(value=3000), tk.IntVar(value=0), tk.StringVar(value="none")
+    embed = tk.IntVar(value=1)
     reps = []
 
     def pick_rom():
@@ -105,6 +106,9 @@ def main():
     ttk.Spinbox(f, from_=0, to=20000, increment=500, textvariable=check,
                 width=8).grid(row=r, column=1, sticky="w")
     r += 1
+    ttk.Checkbutton(f, text="Put the ROM inside the package (one file)",
+                    variable=embed).grid(row=r, column=1, sticky="w")
+    r += 1
     ttk.Label(f, text="...and a floppy").grid(row=r, column=0, sticky="w")
     ttk.Combobox(f, textvariable=disk, values=[s for s, _ in SIZES], state="readonly",
                  width=10).grid(row=r, column=1, sticky="w")
@@ -137,7 +141,7 @@ def main():
         try:
             import gbaot
             gbaot.make(os.path.join(gbaot.ROOT, "build"), a["rom"], a["out"], a["name"],
-                       a["frames"], a["reps"], a["check"], log=say)
+                       a["frames"], a["reps"], a["check"], log=say, embed=a["embed"])
             if a["disk"]:
                 import shutil
                 import tempfile
@@ -145,11 +149,14 @@ def main():
                 gb = os.path.join(t, a["name"])
                 shutil.copy(a["rom"], gb)
                 img = os.path.splitext(a["out"])[0] + "-%d.img" % a["disk"]
-                floppy(img, a["disk"], [a["out"], gb])
+                floppy(img, a["disk"], [a["out"]] + ([] if a["embed"] else [gb]))
                 shutil.rmtree(t)
                 say("floppy: %s - put it in B: beside an os8088 system disk" % img)
-            say("DONE: %s. Copy it and %s to one folder of an os8088 disk and "
-                "double-click the package." % (a["out"], a["name"]))
+            if a["embed"]:
+                say("DONE: %s. Copy it to an os8088 disk and double-click it." % a["out"])
+            else:
+                say("DONE: %s. Copy it and %s to one folder of an os8088 disk and "
+                    "double-click the package." % (a["out"], a["name"]))
         except SystemExit as e:
             say("STOPPED: %s" % e)
         except Exception:
@@ -162,7 +169,7 @@ def main():
             return
         a = {"rom": rom.get(), "out": out.get(), "name": name.get().upper(),
              "frames": frames.get(), "reps": list(reps), "check": check.get(),
-             "disk": dict(SIZES)[disk.get()]}
+             "disk": dict(SIZES)[disk.get()], "embed": bool(embed.get())}
         go.configure(state="disabled")
         say("making %s from %s..." % (a["out"], a["rom"]))
         threading.Thread(target=work, args=(a,), daemon=True).start()

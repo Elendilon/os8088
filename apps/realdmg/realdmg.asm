@@ -104,7 +104,9 @@ RW_PRFKB        equ 9               ;   the count (REALDMG-SPEC 16.8)
 RWA_MAX         equ 14              ; code images past the core, at most
 RWA_TABLE       equ 3               ; the parts: the block table (16KB)...
 RWA_META        equ 4               ; ...the meta and the list (rwaot.inc)...
-RWA_CODE        equ 5               ; ...and each image's two halves from here
+RWA_CODE        equ 5               ; ...and each image's two halves from here,
+RWA_ROWS        equ 64              ;   then the ROM's pieces if it is in the
+                                    ;   package; the most rows a table has
 %endif
 
 ; --- the bss: the standard's words first, then ours --------------------------
@@ -327,7 +329,8 @@ rw_aseg         equ rw_mhold + 1    ; RWA_MAX words: each code image's claim,
 rw_anseg        equ rw_aseg + RWA_MAX * 2 ; byte: images claimed
 rw_afix         equ rw_anseg + 1    ; byte: the images are read and put right
 rw_ans          equ rw_afix + 1     ; byte: images the meta names
-rw_ahm          equ rw_ans + 1      ; byte: the block table's mask
+rw_ahot         equ rw_ans + 1      ; byte: ...of them the HOT ones, first
+rw_ahm          equ rw_ahot + 1     ; byte: the block table's mask
 rw_acore        equ rw_ahm + 1      ; word: the core's segment (part 0)
 rw_atseg        equ rw_acore + 2    ; word: the block table's (part 3)
 rw_amseg        equ rw_atseg + 2    ; word: the meta's (part 4)...
@@ -336,7 +339,22 @@ rw_aln          equ rw_alseg + 2    ; word: ...and its entries
 rw_asega        equ rw_aln + 2      ; word: the first code image there is,
                                     ;   or the core (S_JITSEGA)
 rw_afseg        equ rw_asega + 2    ; word: the list's filter, in the meta
-rw_bssend       equ rw_afseg + 2
+rw_arow         equ rw_afseg + 2    ; word: rw_apart's row...
+rw_awant        equ rw_arow + 2     ; word: ...bytes still to come...
+rw_adst         equ rw_awant + 2    ; word: ...where they go...
+rw_askip        equ rw_adst + 2     ; word: ...bytes of the chunk before them
+rw_apos         equ rw_askip + 2    ; dword: ...the chunk's file offset
+rw_aclb         equ rw_apos + 4     ; word: bytes a cluster
+rw_abseg        equ rw_aclb + 2     ; word: the bounce...
+rw_abcap        equ rw_abseg + 2    ; word: ...its bytes
+rw_abown        equ rw_abcap + 2    ; byte: ...it is a claim of ours
+rw_aemb         equ rw_abown + 1    ; byte: this load is the ROM in the
+                                    ;   package (rw_aname, REALDMG-SPEC 20.13)
+rw_aromkb       equ rw_aemb + 1     ; word: its KB...
+rw_arombase     equ rw_aromkb + 2   ; dword: ...and its byte offset in the
+                                    ;   package's file
+rw_aebank       equ rw_arombase + 4 ; word: rw_bread's next bank out of it
+rw_bssend       equ rw_aebank + 2
 %else
 rw_bssend       equ rw_mhold + 1
 %endif
@@ -552,6 +570,9 @@ rw_open:
 
 ; rw_opened - the dialog's completion: DI = the name, DX:CX = its size
 rw_opened:
+%ifdef RDG_AOT
+    mov byte [rw_aemb], 0           ; (Load Game: a file, whatever is inside)
+%endif
     push si
     mov si, di                      ; copy the kernel's name now
     mov di, rw_name
@@ -586,6 +607,13 @@ rw_load:
     jmp rw_mfree
 rw_load0:
     push si
+%ifdef RDG_AOT
+    cmp byte [rw_aemb], 0           ; THE ROM IN THE PACKAGE (REALDMG-SPEC
+    je .file                        ;   20.13): its size is the meta's, and
+    mov dx, [rw_aromkb]             ;   no file is asked
+    jmp short .sized
+.file:
+%endif
     push ds
     pop es
     xor bx, bx
@@ -598,18 +626,24 @@ rw_load0:
     jne .rdfail0
     cmp dx, 32
     jb .notrom
+.sized:
     mov [rw_romkb], dx
 %ifdef RDG_AOT
-    call rw_dmgclaim                ; the damage memory and the code images
-    call rw_aclaim                  ;   FIRST, then the ROM in what is left,
-    mov byte [rw_slotmin], 4        ;   in four slots at least - an image
-.aplan:                             ;   given back each time it does not
-    call rw_plan                    ;   fit (REALDMG-SPEC 20.10). AN IMAGE
-    jnc .planned                    ;   IS WORTH MORE THAN A SLOT: what it
-    call rw_adrop                   ;   does not hold is interpreted, where
-    jnc .aplan                      ;   a slot short is a bank fetched off
-    jmp .say                        ;   XMS (Kirby on the Victory: 1 image
-                                    ;   of 4 beside 11 slots ran at 17%)
+    call rw_dmgclaim                ; the damage memory and the HOT code
+    mov al, [rw_ahot]               ;   images FIRST (the meta's: the ones
+    call rw_aclaim                  ;   the counters ran in), then the ROM in
+    mov byte [rw_slotmin], RW_SLOTWANT ; what is left, then the COLD images
+.aplan:                             ;   in what that leaves (rw_aread). A
+    call rw_plan                    ;   slot short is a bank fetched off XMS
+    jnc .planned                    ;   every time the game swings to it -
+    cmp byte [rw_slotmin], 4        ;   Kirby with 4 images beside 5 slots
+    je .adrop                       ;   fetched 130 banks a second on the
+    mov byte [rw_slotmin], 4        ;   owner's Victory - and a cold image's
+    jmp short .aplan                ;   code is under 1% of the play. Eight
+.adrop:                             ;   slots, then four, then a hot image
+    call rw_adrop                   ;   given back (REALDMG-SPEC 20.10)
+    jnc .aplan
+    jmp .say
 %endif
     call rw_dmgclaim                ; the damage memory and the recompiler's
     call rw_jitclaim                ;   cache FIRST: what the ROM's read
@@ -690,6 +724,14 @@ rw_load0:
     jmp short .claim                ;   without it
 .got:
     mov [rw_romseg], dx
+%ifdef RDG_AOT
+    cmp byte [rw_aemb], 0
+    je .gotf
+    call rw_aromrd                  ; out of the package: DX:AX = the bytes
+    jc .rdfail
+    jmp .read
+.gotf:
+%endif
     mov es, dx
     xor bx, bx
     push ax
@@ -728,13 +770,15 @@ rw_load0:
     pop es
     jc .refuse1
 .loaded:
-%ifdef RDG_AOT
-    call rw_aread                   ; the images read and put right, once
-%endif
     call rw_jitclaim
     call rw_dmgclaim
     call rw_ramsetup
     call rw_prfload
+%ifdef RDG_AOT
+    mov al, [rw_ans]                ; the cold images, in what the ROM and
+    call rw_aclaim                  ;   the cartridge's RAM left
+    call rw_aread                   ; the images read and put right, once
+%endif
     call rw_start
     call rw_spdgame                 ; its Speed and Sound, if it has them
     call rw_fmopen                  ; the FM chip, if there is one for us
@@ -2756,10 +2800,11 @@ rw_stat:
     or al, al
     jz .rec
     dec di
-    mov si, rw_s_jit
 %ifdef RDG_AOT
-    mov si, rw_s_pre                ; " PRE": a precompiled cartridge's
+    call rw_apre                    ; " Pn/m": a precompiled cartridge's,
+    jmp short .rec                  ;   its images in memory of all of them
 %endif
+    mov si, rw_s_jit
     cmp byte [rw_jitmode], 3        ; " AOT": Static's
     jne .cj
     mov si, rw_s_aot
@@ -4128,7 +4173,7 @@ rw_tpl:
     OS88_MENUSET rw_menus, rw_ttl, rw_oncmd
         OS88_MENU rw_m_mach, rw_i_mach, 10
         OS88_MENU rw_m_scr, rw_i_scr, RW_SCRN
-        OS88_MENU rw_m_cpu, rw_i_cpu, 11
+        OS88_MENU rw_m_cpu, rw_i_cpu, RW_CPUN
         OS88_MENU rw_m_st, rw_i_st, 11
     OS88_MENUSET_END rw_menus
 
@@ -4182,6 +4227,8 @@ RW_CJOFF        equ 0               ; (no item chooses a mode: item 0 is
 RW_CPRF         equ 0FEh            ;   greyed, and these two are none)
 RW_CBIG         equ 0FFh
 RW_CSPD         equ 2
+RW_CPUN         equ 6               ; (the items: a count of its own, or the
+                                    ;   menu reads five words past the list)
 %else
 rw_i_cpu:       dw rw_it_jon, rw_it_jst, rw_it_joff + 1, rw_it_sep
                 dw rw_it_prf, rw_it_big, rw_it_sep, rw_it_spd0 + 1
@@ -4192,6 +4239,7 @@ RW_CJOFF        equ 2
 RW_CPRF         equ 4               ;   ...Profile for Static and the cache,
 RW_CBIG         equ 5
 RW_CSPD         equ 7               ;   and Speed's four)
+RW_CPUN         equ 11
 %endif
 rw_m_st:        db 'Save State', 0
 rw_i_st:        dw rw_it_slot1 + 1, rw_it_slot2 + 1, rw_it_slot3 + 1
@@ -4263,9 +4311,6 @@ rw_spdtab:      dw 256, 230, 192, 128   ; Speed, 256ths of the Game Boy's
 rw_s_fps:       db 'fps', 0
 rw_s_jit:       db ' JIT', 0
 rw_s_aot:       db ' AOT', 0
-%ifdef RDG_AOT
-rw_s_pre:       db ' PRE', 0
-%endif
 rw_s_open1:     db 'Machine > Load Game', 0
 rw_s_open2:     db 'a Game Boy .GB', 0
 rw_s_stop1:     db 'The game stopped:', 0
@@ -4333,15 +4378,15 @@ rw_jdtab:                               ; (rw_jdoff's, from rdgcore.inc)
 ; in the carve, and every code image is two OP_SELF halves rw_aread reads
 ; into a claim of its own. The table is laid out for RWA_MAX images and
 ; tools/gbaot.py's `package` sets the count to the images there are
-OS88_PARTS_BEGIN RWA_CODE + 2 * RWA_MAX
+OS88_PARTS_BEGIN RWA_ROWS
     OS88_PART OP_SEG, OP_COMP                   ; 0  the core's first half
     OS88_PART OP_ASSET, OP_COMP                 ; 1  ...and its second
     OS88_PART OP_ASSET, OP_ZERO, 64             ; 2  the view
     OS88_PART OP_ASSET, OP_COMP                 ; 3  the block table
     OS88_PART OP_ASSET, OP_COMP                 ; 4  the meta and the list
-%rep 2 * RWA_MAX
-    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_SELF ; 5..  the code images
-%endrep
+%rep RWA_ROWS - RWA_CODE
+    OS88_PART OP_SEG, OP_LAZY | OP_COMP | OP_SELF ; 5..  the code images,
+%endrep                                         ;   then the ROM's 32KB pieces
 OS88_PARTS_END
 %else
 OS88_PARTS_BEGIN 4

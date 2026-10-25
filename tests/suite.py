@@ -3454,16 +3454,21 @@ SOAK = [
         "translation is the host's, and the check is counted, not timed. "
         "SOAK: one package's recompiler",
         needs=("nasm", "unicorn", "rgbds"), timeout=900),
-    Row("gbaotpkg", "soak", py("tests/gbaotpkg.py"), 67.0,
+    Row("gbaotpkg", "soak", py("tests/gbaotpkg.py"), 150.0,
         "A PRECOMPILED CARTRIDGE ON THE MACHINE (docs/REALDMG-SPEC.md 20.10): "
         "tools/gbaot.py translates and packages GBPOP.GB as GBPOP.O88 - the "
         "RDG_AOT build of realdmg.asm with the code images as parts - and "
         "MartyPC's 5150 opens the PACKAGE, which opens its ROM by itself. "
         "The machine must be the precompiled one (S_JITON, S_JITFIX, nothing "
-        "translated) and the worker must be found running in the code images; "
-        "the frame rate is reported against REALDMG.O88's own recompiler. "
-        "Verified red with rw_aoton taken out of rw_jiton. SOAK: one package",
-        needs=("nasm", "unicorn", "rgbds", "marty"), timeout=600),
+        "translated), EVERY IMAGE CLAIMED READ, and the worker found running in "
+        "the code images - on a volume of 4KB CLUSTERS, a hard disk's, because "
+        "OSAPI_FILE_READ_AT reads whole clusters only and the first package's "
+        "reads were all refused there (the owner's 286 ran it interpreted). A "
+        "second leg runs the package with the ROM INSIDE it (--embed, "
+        "REALDMG-SPEC 20.13) and nothing beside it. The frame rate is reported "
+        "against REALDMG.O88's own recompiler. Verified red twice: rw_aoton out "
+        "of rw_jiton, and the bounce reading 512 bytes a call. SOAK: one package",
+        needs=("nasm", "unicorn", "rgbds", "marty"), timeout=900),
     Row("gbacid", "soak", py("tests/rdgcore/rdgacid.py"), 3.0,
         "REALDMG's renderer (apps/realdmg/rdgppu.inc, docs/REALDMG-SPEC.md "
         "section 13) against dmg-acid2's reference picture, all 23,040 pixels: "

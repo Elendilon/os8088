@@ -643,8 +643,22 @@ def finish(img, sym, rom, keyed, rhm, heat=None):
                     linked += 1
             i = sg.find(b"\xBA", i + 1)
     img["segs"] = [bytes(x) for x in segs]
+    # THE HOT IMAGES: the first so many that, with the core, hold 99% of the
+    # counted entries - claimed before the ROM's bank cache, the rest after
+    # it (REALDMG-SPEC 20.10). With no counters, all of them
+    hot = len(segs) - 1
+    if heat:
+        per = collections.Counter()
+        for k, n in heat.items():
+            if k in blocks:
+                per[blocks[k][0]] += n
+        tot, cum, hot = sum(per.values()) or 1, per[0], 0
+        while cum < 0.99 * tot and hot < len(segs) - 1:
+            hot += 1
+            cum += per[hot]
+        hot = max(hot, 1) if len(segs) > 1 else 0
     img.update(table=bytes(table), list=bytes(lst), relocs=relocs, hmask=rhm,
-               linked=linked, lazy=lazy, listed=len(listed))
+               linked=linked, lazy=lazy, listed=len(listed), hot=hot)
 
 
 def tailpages(build):
@@ -666,6 +680,7 @@ def save(img, out, rom):
     meta = {"segs": len(img["segs"]), "hmask": img["hmask"], "entries": img["entries"],
             "blocks": len(img["blocks"]), "listed": img["listed"], "linked": img["linked"],
             "lazy": img["lazy"], "relocs": img["relocs"], "code_bytes": img["code_bytes"],
+            "hot": img.get("hot", len(img["segs"]) - 1),
             "dropped": ["%02X:%04X" % (k, p) for p, k in img["dropped"]],
             "rom_sha256": hashlib.sha256(rom.d).hexdigest(), "header": rom.d[0x134:0x150].hex()}
     json.dump(meta, open(os.path.join(out, "aot.json"), "w"), indent=1)
@@ -894,21 +909,24 @@ def degrade(build, img, keep):
         sg[site + 3] = 0xE9
         struct.pack_into("<H", sg, site + 4, (lsite - (site + 6)) & 0xFFFF)
 
-    def empty(b):
+    def empty(b, tab):
         t = bytearray(b)
         for e in range(0, len(t), 8):
             seg = struct.unpack_from("<H", t, e + 6)[0]
             if seg >= TOKEN and seg - TOKEN > keep:
                 struct.pack_into("<H", t, e + 4, 0)
+                if tab:                    # out of every lookup's reach
+                    struct.pack_into("<HB", t, e, 0x8000, 0)
         return bytes(t)
-    meta = dict(meta, relocs=relocs, list=empty(meta["list"]), segs=keep + 1)
-    return meta, [bytes(x) for x in segs], empty(table)
+    meta = dict(meta, relocs=relocs, list=empty(meta["list"], False), segs=keep + 1)
+    return meta, [bytes(x) for x in segs], empty(table, True)
 
 
 # --- the package: GAME.O88 (REALDMG-SPEC 20.10) ------------------------------
 
 AOT_MAX = 14                       # realdmg.asm's RWA_MAX
 AOT_CODE = 5                       # ...and RWA_CODE
+AOT_ROWS = 64                      # ...and RWA_ROWS: the table's rows
 
 
 def aot_image(build):
@@ -939,37 +957,49 @@ def rom_name(path):
     return b
 
 
-def package(build, img, rom, out, romname, image=None, log=print):
-    """GAME.O88: the RDG_AOT image with the parts set to this cartridge's"""
+def package(build, img, rom, out, romname, image=None, log=print, embed=False):
+    """GAME.O88: the RDG_AOT image with the parts set to this cartridge's -
+    and with `embed`, the ROM itself as plain 32KB parts after the code
+    images, which the package reads out of its own file (REALDMG-SPEC 20.13)"""
     meta, segs, table = img
     nseg = len(segs) - 1
     if nseg > AOT_MAX:
         raise SystemExit("gbaot: %d code images; the package holds %d" % (nseg, AOT_MAX))
+    romrows = len(rom.d) // 0x8000 if embed else 0
+    if embed and (len(rom.d) % 0x8000 or AOT_CODE + 2 * nseg + romrows > AOT_ROWS):
+        raise SystemExit("gbaot: a %d KB ROM with %d code images does not fit the package's "
+                         "%d parts; make it without --embed" % (len(rom.d) // 1024, nseg, AOT_ROWS))
     import os88lz
     b = bytearray(open(image or aot_image(build), "rb").read())
     at = b.find(b"O88PARTS")
     rows = at + 10
-    b[at + 8] = AOT_CODE + 2 * nseg            # the rows there are
+    b[at + 8] = AOT_CODE + 2 * nseg + romrows  # the rows there are
     lst = meta["list"]
     rel = b"".join(struct.pack("<BBH", n, tn | (0x80 if form else 0), site)
                    for n, site, tn, form in meta["relocs"])
-    loff = (58 + len(rel) + 15) & ~15
+    loff = (62 + len(rel) + 15) & ~15
     hdr = struct.pack("<6sBBHHH", b"RDAOT1", nseg, meta["hmask"], len(lst) // 8,
                       len(meta["relocs"]), loff)
     hdr += bytes.fromhex(meta["header"]) + romname.encode().ljust(13, b"\0")[:13]
     foff = (loff + len(lst) + 15) & ~15
-    hdr = hdr.ljust(56, b"\0") + struct.pack("<H", foff) + rel
+    hdr = hdr.ljust(56, b"\0") + struct.pack("<HBBH", foff,
+                                             AOT_CODE + 2 * nseg if embed else 0,
+                                             meta.get("hot", nseg),
+                                             len(rom.d) // 1024 if embed else 0) + rel
     metap = (hdr.ljust(loff, b"\0") + lst).ljust(foff, b"\0") + bytes(0x2000)
     parts = [segs[0][:0x8000], segs[0][0x8000:], table, metap]
     for sg in segs[1:]:
         parts += [sg[:0x8000], sg[0x8000:]]
-    filed = [0, 1, 3, 4] + list(range(AOT_CODE, AOT_CODE + 2 * nseg))
+    plain = set()
+    for i in range(romrows):               # the ROM: plain, so its pieces lie
+        parts.append(rom.d[i * 0x8000:(i + 1) * 0x8000])   # back to back
+        plain.add(AOT_CODE + 2 * nseg + i)
+    filed = [0, 1, 3, 4] + list(range(AOT_CODE, AOT_CODE + 2 * nseg + romrows))
     work = tempfile.mkdtemp(prefix="gbaotpkg-")
     paths = []
     for row, body in zip(filed, parts):
-        z = os88lz.compress(body, os88lz.LZ4)
-        if len(z) >= len(body):                # a half that does not pack
-            b[rows + 8 * row + 1] &= ~16       #   goes plain (OP_COMP off)
+        if row in plain or len(os88lz.compress(body, os88lz.LZ4)) >= len(body):
+            b[rows + 8 * row + 1] &= ~16       # plain: OP_COMP off
         p = os.path.join(work, "part%02d.bin" % row)
         open(p, "wb").write(body)
         paths.append(p)
@@ -984,10 +1014,16 @@ def package(build, img, rom, out, romname, image=None, log=print):
         raise SystemExit(r.stdout + r.stderr)
     shutil.rmtree(work)
     size = os.path.getsize(out)
+    if size >= 1 << 20:                    # PKG_FILE_HI (SPEC.md 19.1): the
+        os.remove(out)                     #   mount types no package file of
+        raise SystemExit(                  #   1MB or more as one
+            "gbaot: %s would be %d bytes; a package file is under 1MB (SPEC.md 19.1)%s" % (
+                out, size, " - make it without --embed, the ROM beside it" if embed else ""))
     carve = 64 + 16 + (len(metap) + 1023) // 1024 + 64
-    log("gbaot: %s, %d bytes: the core and %d code images (%d KB of heap each), the table, "
-        "%d listed, %d relocations; the carve is %d KB with the view; it opens %s beside it" % (
-            out, size, nseg, 65, len(lst) // 8, len(meta["relocs"]), carve, romname))
+    log("gbaot: %s, %d bytes: the core and %d code images (64 KB of heap each, %d of them "
+        "hot), the table, %d listed, %d relocations; the carve is %d KB with the view; %s" % (
+            out, size, nseg, meta.get("hot", nseg), len(lst) // 8, len(meta["relocs"]), carve,
+            "the ROM is inside it" if embed else "it opens %s beside it" % romname))
     return size
 
 
@@ -1037,7 +1073,7 @@ def compare(build, rom, img, frames, ref="interp", arm="aot", serial=False, defi
 
 
 def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check=0,
-         log=print):
+         log=print, embed=False):
     """GAME.O88 from a ROM in one go: the walk, the translation, a run of it
     with the harness's script (and any replays, from their save states) for
     the counters, the translation again with the hottest blocks first and
@@ -1076,7 +1112,7 @@ def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check
             img = translate(build, rom, lead, log=log, heat=heat)
         d1 = os.path.join(work, "final")
         save(img, d1, rom)
-        package(build, load(d1), rom, out, romname, log=log)
+        package(build, load(d1), rom, out, romname, log=log, embed=embed)
         if check:
             log("gbaot: checking %d frames beside the interpreter..." % check)
             ok, what = compare(build, rom, load(d1), check, log=log)
@@ -1095,7 +1131,7 @@ def cmd_make(a):
         if not ss:
             raise SystemExit("gbaot: --replay NAME.RPn,NAME.SSn: a replay and the state it starts from")
         reps.append((rp, ss))
-    make(a.build, a.rom, a.out, a.romname, a.frames, reps, a.check)
+    make(a.build, a.rom, a.out, a.romname, a.frames, reps, a.check, embed=a.embed)
 
 
 def cmd_package(a):
@@ -1103,7 +1139,7 @@ def cmd_package(a):
     img = load(a.dir)
     if img[0]["rom_sha256"] != hashlib.sha256(rom.d).hexdigest():
         raise SystemExit("gbaot: %s was not built from %s" % (a.dir, a.rom))
-    package(a.build, img, rom, a.out, a.romname or rom_name(a.rom))
+    package(a.build, img, rom, a.out, a.romname or rom_name(a.rom), embed=a.embed)
 
 
 def cmd_check(a):
@@ -1170,11 +1206,14 @@ def main():
                     help="a replay RealDMG recorded and the save state it starts from")
     mk.add_argument("--check", type=int, default=0, metavar="FRAMES",
                     help="then run that many frames beside the interpreter")
+    mk.add_argument("--embed", action="store_true",
+                    help="the ROM inside the package: one file, no ROM beside it")
     p = sub.add_parser("package", help="GAME.O88 from a built directory")
     p.add_argument("rom")
     p.add_argument("dir")
     p.add_argument("-o", "--out", required=True)
     p.add_argument("--romname", help="the 8.3 name it opens beside it (default: the ROM's)")
+    p.add_argument("--embed", action="store_true", help="the ROM inside the package")
     a = ap.parse_args()
     a.frames_given = "-n" in sys.argv or "--frames" in sys.argv
     return {"cover": cmd_cover, "heat": cmd_heat, "make": cmd_make, "build": cmd_build, "check": cmd_check,

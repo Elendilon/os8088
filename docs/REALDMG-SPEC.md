@@ -3126,25 +3126,55 @@ host sets the count):
 | 2 | the view | the carve's scratch |
 | 3 | the block table, 16KB, its segment words tokens F000h + n | the carve |
 | 4 | the meta (rwaot.inc's header) and the list | the carve |
-| 5.. | each code image's two 32KB halves, `OP_SELF` | a 65KB claim each |
+| 5.. | each code image's two 32KB halves, `OP_SELF` | a 64KB claim each |
+| then | with `--embed`, the ROM in plain 32KB pieces (20.13) | the ROM's claim or the bank cache |
 
-**The load** (`rw_load`): the code images are claimed FIRST, then the ROM
-is planned in what is left (section 10's plan) with FOUR slots as its least,
-and an image is given back each time the plan does not fit. **An image is
-worth more than a slot**: what an image would have held is interpreted,
-where a slot short is a bank fetched off XMS. The first package asked the
-plan for eight first, as REALDMG.O88 does, and on the Victory Kirby's
-Dream Land kept 1 image of 4 beside 11 slots and ran at 17%; with four it
-keeps 2 beside 6 and runs at 100%. The
-images are read from the package's folder, the far jumps given their
+The table is laid out for 64 rows, the most a part table holds, and the
+host sets the count.
+
+**The load** (`rw_load`), in the order the memory is worth:
+1. the **HOT** images - the meta's count (59), the first so many that with
+   the core hold 99% of what the counters ran (20.11);
+2. the ROM, section 10's plan, with **eight** slots as its least, then
+   four, then a hot image given back - and the plan takes up to every bank
+   there is;
+3. the **COLD** images, in what the ROM and the cartridge's RAM left.
+
+It took two field runs to get there. The first package asked the plan for
+eight slots before it would give an image back, as REALDMG.O88 does, and
+on 86Box's Victory Kirby kept 1 image of 4 beside 11 slots and ran at 17%
+(the list search, before its filter, was most of that). Images-first with
+four slots fixed the emulator, and on the OWNER'S Victory it was the wrong
+trade the other way: 4 images left a 115K heap, the bank cache 5 slots for
+Kirby's 16 banks, and the log reads **13,705 banks fetched in a hundred
+seconds** - a 16KB copy off XMS 80 to 150 times a second - where
+REALDMG.O88's 197K heap had 10 slots and fetched 5. With the owner's own
+replay in its counters, the core and image 1 hold 99.45% of Kirby's play,
+so images 2 to 4 are worth less than any slot.
+
+The images are read from the package's folder **in whole clusters**:
+`OSAPI_FILE_READ_AT` refuses an offset or a length that is not a cluster
+multiple, and a part starts on a 512-byte boundary, so `rw_acopy` reads a
+chunk of whole clusters at a time into a bounce (the frame buffers' claim,
+idle while a game loads) and copies out the part's own bytes. The first
+package read in place: a floppy's cluster is 512 bytes, so every emulator run
+was clean, and on the owner's hard disk every image was refused and the game
+was interpreted at a third of the recompiler's speed. `tests/gbaotpkg.py`
+runs on a volume of 4KB clusters for that reason, and asserts every image
+claimed is read. The F1 line says it on the glass: ` P3/4`, the images in
+memory of the package's. Then the far jumps are given their
 segments (the meta's relocations), the tokens in the table and the list made
 segments, and the machine attached as aothost.asm's mode 3 does it
 (`rw_aoton`): fixed table, the list searched on a miss, nothing translated.
 The CPU menu has one mode, *Precompiled*, and the speed line says `PRE`.
 
 **An image the heap cannot hold stays on the disk and what it held is
-interpreted** - running beats stopping. Its entries get offset 0, which
-`rdg_aotmiss` and `tr_enter` both read as no block, and every far jump into
+interpreted** - running beats stopping. Its list entries get offset 0, which
+`rdg_aotmiss` reads as no block; its TABLE entries get offset 0 and the key
+PC 8000h, which no lookup asks (RAM below HRAM is never looked up) - an entry
+that still matched would read to `tr_enter` as a block being COUNTED, and
+past `RDG_JITHOT` every entry would ask the translator's door, the host's
+stack and back, for nothing. Every far jump into
 it is put back to the exit it was before the host linked it (`mov
 dx,SITE / jmp tr_lsite`), which `tr_link` finds nothing behind. The images
 are claimed in the order the host wrote them, so what goes is the last.
@@ -3154,6 +3184,16 @@ interpreter at 0 and 1 images, 1,500 frames.
 
 **The carve is pinned** (rwmove.inc): the images' far jumps name the
 core. So is every image claim. The package's region still moves.
+
+**What an interpreted PC costs here.** The core's control transfers look for
+translated code, so every interpreted jump is a table lookup, `tr_new2` and
+the filter before the interpreter dispatches - ~55 instructions against the
+~10 of a jump, so a tight interpreted loop runs at about a fifth of the
+plain interpreter (GBPOP with its one image refused: 0.59 frames a second on
+the 5150 against 11.8). It is paid only by code that is not in an image -
+the walk's misses, RAM, and what a small heap left on the disk, which the
+counters (20.11) make the cold code. NOT CHANGED: turning the lookup off
+would cost the code that is in the images.
 
 `tests/gbaotpkg.py` is the row: it packages our GBRMW.GB, boots MartyPC's
 5150 with the package, the ROM and REALDMG.O88, opens the package, and
@@ -3181,6 +3221,16 @@ the host's run of the same machine, so it costs the 8088 nothing.
 - **adds the misses as block starts**: a PC the walk did not find but the
   machine ran (a resume point, an indirect target).
 
+The replay is the owner's own play, and it is what the script cannot be:
+Kirby's 4,047-frame KIRBY.RP1 from KIRBY.SS1 put the block entries of that
+play in the images as follows (the same blocks, three builds):
+
+| Kirby, the owner's replay | core | image 1 | 2 | 3 | 4 |
+|---|---|---|---|---|---|
+| walk order | 3.7% | 23.2% | 42.5% | 26.4% | 4.3% |
+| the script's counters | 2.1% | 87.9% | 7.6% | 2.0% | 0.4% |
+| the script's and the replay's | 2.6% | 96.8% | 0.4% | 0.0% | 0.1% |
+
 Measured on the owner's cartridges, the harness's script, every build still
 identical to the interpreter (3,000 frames, at 3 images and at 1):
 
@@ -3205,3 +3255,26 @@ templates and offsets, the host driver and the RDG_AOT image. gbaot.py finds
 bundle needs Python and `pip install unicorn` and no assembler. It was run
 unpacked outside the tree: GBPOP.GB to GBPOP.O88, its counters, and 300
 frames identical to the interpreter.
+
+### 20.13 The ROM inside the package
+
+`gbaot.py make ... --embed` (and `package --embed`, the window's tick)
+appends the ROM after the code images as PLAIN 32KB parts - plain so that,
+being whole sectors, they lie back to back in the file, and one offset finds
+any bank. The meta says where (58: the first piece's row, 60: the ROM's KB);
+the table's count includes them. **A package file is under 1MB**
+(`PKG_FILE_HI`, SPEC.md 19.1: the mount types nothing bigger as a package),
+so a 1 MB cartridge - Looney Tunes' .gbc, 1,344,512 bytes embedded - cannot
+be inside its package, and the host refuses it there and says to leave the
+ROM beside it. Within that, a ROM is a row a 32KB, and the table's 64 rows
+are the other bound.
+
+Opened with no document, such a package loads from ITSELF: `rw_aname`
+names the package's own file, the size probe is skipped (the meta's), and
+both of section 10's loads read through `rw_acopy` - the one claim a bank at
+a time (`rw_aromrd`), the bank cache's `rw_bread` bank after bank
+(`rw_aebread`). Its `.SAV`, states and replays take the package's name.
+*Load Game...* still opens a ROM file, which must be the same cartridge.
+
+`tests/gbaotpkg.py`'s second leg is a package with the ROM inside and
+nothing beside it, on the same 4KB-cluster volume.

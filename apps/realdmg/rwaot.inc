@@ -9,7 +9,7 @@
 ; its holes, 2 the view, 3 the block table (16KB, the tokens F000h + n in its
 ; segment words), 4 the meta with the list after it, and from 5 each code
 ; image's two 32KB halves, which are OP_SELF: rw_aread reads them into a
-; claim of 65KB each (the read lands up to 1,022 bytes past a half's end).
+; claim of 64KB each, through a bounce (rw_apart).
 ;
 ; THE META, part 4:
 ;   0   'RDAOT1'
@@ -20,7 +20,13 @@
 ;   42  the ROM's file name, NUL-terminated (13 bytes)
 ;   56  dw the list's filter's offset, a multiple of 16 (8KB of zeros:
 ;       rdg_aotattach builds it)
-;   58  the relocations, 4 bytes each: db the image the far jump is in (0 the
+;   58  db the first row of the ROM's pieces, 0 for none (REALDMG-SPEC
+;       20.13): 32KB each, plain, so they lie back to back in the file
+;   59  db the HOT images - the first so many hold what the counters ran
+;       (REALDMG-SPEC 20.11), and they are claimed before the ROM, the rest
+;       after it; 0 = all of them
+;   60  dw the ROM's KB
+;   62  the relocations, 4 bytes each: db the image the far jump is in (0 the
 ;       core), db the image it jumps to | 80h when the site is a switchable
 ;       bank's (`cmp byte [ss:S_BANK],B / jne +5` first, the jump 8 bytes on),
 ;       dw the site: the `mov dx,SITE` the host linked over
@@ -39,7 +45,7 @@
 ; =============================================================================
 
 RWA_TOKEN       equ 0F000h          ; a segment word the loader has to give
-RWA_RELOCS      equ 58
+RWA_RELOCS      equ 62
 
 ; rw_ameta - at the entry, after op_load: the meta checked against the table
 ; it came with, and every segment the run needs banked. CF = 1: it is not one
@@ -70,8 +76,28 @@ rw_ameta:
     ja .bad1
     mov [rw_ans], al
     xor ah, ah                      ; the table the package was made with:
-    shl ax, 1                       ;   two rows an image
+    shl ax, 1                       ;   two rows an image...
     add ax, RWA_CODE
+    mov dl, [es:59]                 ; (the hot ones: all of them, unsaid)
+    mov dh, [rw_ans]
+    or dl, dl
+    jz .hall
+    cmp dl, dh
+    jbe .hset
+.hall:
+    mov dl, dh
+.hset:
+    mov [rw_ahot], dl
+    mov dx, [es:60]                 ; ...and a row a 32KB of the ROM in it
+    mov [rw_aromkb], dx
+    cmp byte [es:58], 0
+    je .nor
+    cmp [es:58], al                 ; (where they begin: past the images)
+    jne .bad1
+    mov cl, 5
+    shr dx, cl
+    add ax, dx
+.nor:
     cmp al, [op_t_n]
     jne .bad1
     mov al, [es:7]
@@ -105,9 +131,30 @@ rw_ameta:
 rw_aname:
     push es
     mov es, [rw_amseg]
+    cmp byte [es:58], 0             ; THE ROM IN THE PACKAGE: the file is
+    je .side                        ;   our own, at the first piece's offset
+    mov bl, [es:58]
+    xor bh, bh
+    mov cl, 3
+    shl bx, cl
+    mov ax, [op_table + OP_T_ROWS + bx + OP_R_OFF]
+    mov dx, ax
+    mov cl, 9
+    shl ax, cl
+    mov cl, 7
+    shr dx, cl
+    mov [rw_arombase], ax
+    mov [rw_arombase + 2], dx
+    mov byte [rw_aemb], 1
+    push ds
+    pop es
+    mov si, op_name
+    jmp short .cp
+.side:
     cmp byte [es:42], 0
     je .r
     mov si, 42
+.cp:
     mov di, rw_name
     mov cx, 13
 .c:
@@ -160,6 +207,79 @@ rw_anoname:
     pop ax
     ret
 
+; rw_aromrd - the ROM in the package into [rw_romseg]'s claim, a bank at a
+; time (rw_load's one claim). CF = 1: it could not be; else DX:AX = its bytes
+rw_aromrd:
+    push bx
+    push cx
+    push si
+    push di
+    push bp
+    push es
+    xor bx, bx                      ; BX = the bank
+    mov bp, [rw_romseg]
+.b:
+    mov ax, bx
+    push bx
+    call rw_aebank1                 ; bank BX to BP:0
+    pop bx
+    jc .x
+    add bp, 400h
+    inc bx
+    mov ax, [rw_aromkb]
+    mov cl, 4
+    shr ax, cl
+    cmp bx, ax
+    jb .b
+    mov ax, [rw_aromkb]             ; DX:AX = KB x 1024
+    mov cx, 1024
+    mul cx
+    clc
+.x:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+
+; rw_aebread - rw_bread's (rwbank.inc) for the ROM in the package: its next
+; bank into DX:0000, the banks in order from 0. CF = 1 unless it all came
+rw_aebread:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push es
+    mov bp, dx
+    mov ax, [rw_aebank]
+    inc word [rw_aebank]
+    call rw_aebank1
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+; rw_aebank1 - AX = a bank: its 16KB out of the package to BP:0. CF = 1: it
+; could not be. Clobbers AX-DI and ES
+rw_aebank1:
+    mov cx, 16384
+    mul cx                          ; DX:AX = its offset in the ROM
+    add ax, [rw_arombase]
+    adc dx, [rw_arombase + 2]
+    mov word [rw_awant], 16384
+    mov word [rw_adst], 0
+    jmp rw_acopy
+
 ; rw_ahdr - ES = the cartridge's bank 0 (rw_hdrchk's): ZF = 1 when its
 ; header is the one the package was made from, else SI = why. Every other
 ; register kept
@@ -179,18 +299,22 @@ rw_ahdr:
     pop cx
     ret
 
-; rw_aclaim - at the load, before the ROM's plan: a 65KB claim for each code
-; image not claimed yet, while the heap has one. Once they are read
-; (rw_aread) they are the session's and this does nothing
+; rw_aclaim - AL = images: a 64KB claim for each code image below that not
+; claimed yet, while the heap has one - the hot ones before the ROM's plan,
+; the rest after it. Once they are read (rw_aread) they are the session's
+; and this does nothing
 rw_aclaim:
     cmp byte [rw_afix], 0
     jne .r
+    mov ah, al
 .l:
     mov al, [rw_anseg]
-    cmp al, [rw_ans]
+    cmp al, ah
     jae .r
-    mov ax, 65
+    push ax
+    mov ax, 64
     call OSAPI_MEM_CLAIM            ; DX = its segment
+    pop ax
     jc .r
     mov bl, [rw_anseg]
     xor bh, bh
@@ -271,8 +395,18 @@ rw_aread:
     ret
 
 ; rw_apart - AL = a row, BP = where it goes: the part read there, packed or
-; plain (rw_jpart's read, for any row). CF = 1: it could not be. Every
-; register but the flags kept; the folder is the package's (rw_fgo)
+; plain. CF = 1: it could not be. Every register but the flags kept; the
+; folder is the package's (rw_fgo).
+;
+; THE READ IS CLUSTER-ALIGNED, THROUGH A BOUNCE (rw_abounce): OSAPI_FILE_READ_AT
+; refuses an offset or a capacity that is not a whole number of CLUSTERS, and
+; a part starts on a 512-byte boundary. On a floppy a cluster is 512 bytes, so
+; the first package read in place and every emulator run was clean; on a hard
+; disk every image was refused and interpreted - the owner's 286 ran at a
+; third of the recompiler's speed. So the stream is read a chunk of whole
+; clusters at a time into the bounce and only its own bytes are copied to
+; BP:R, which also means nothing lands past the part and the image's claim
+; is 64KB, not 65.
 rw_apart:
     push ax
     push bx
@@ -286,49 +420,42 @@ rw_apart:
     mov cl, 3
     shl ax, cl
     add si, ax                      ; SI = the row
-    mov es, bp
+    mov [rw_arow], si
     mov bx, [si + OP_R_LEN]         ; BX = what it is in memory
-    mov cx, bx                      ; (plain: read where it goes)
+    mov cx, bx                      ; (plain: copied where it goes)
     xor di, di
     test byte [si + OP_R_FLAG], OP_COMP
     jz .rd
     mov cx, [si + OP_R_ZKB]         ; CX = the packed bytes
-    sub bx, cx                      ; BX = R, a sector boundary: where the
-    jbe .no                         ;   stream is read, up from where it
-    add bx, 511                     ;   expands to
-    and bx, ~511
+    sub bx, cx                      ; BX = R: the stream sits at the top,
+    jbe .no                         ;   exactly, and expands down to 0
     mov di, bx
 .rd:
-    push si
+    mov [rw_awant], cx
+    mov [rw_adst], di
+    mov si, [rw_arow]
     mov ax, [si + OP_R_OFF]         ; DX:AX = the part's byte offset
     mov dx, ax
-    push cx
     mov cl, 9
     shl ax, cl
     mov cl, 7
     shr dx, cl
-    pop cx
-    push cx
-    add cx, 511
-    and cx, ~511                    ; whole sectors
-    mov bx, di
-    mov si, op_name
-    call OSAPI_FILE_READ_AT         ; DX:AX = the bytes delivered
-    pop cx
-    pop si
+    call rw_acopy
     jc .no
-    cmp ax, cx
-    jb .no
+    mov si, [rw_arow]
     test byte [si + OP_R_FLAG], OP_COMP
     jz .ok
-    mov dx, [si + OP_R_LEN]
+    mov cx, [si + OP_R_ZKB]         ; CX = the packed bytes
+    mov dx, [si + OP_R_LEN]         ; DX = what they expand to
+    mov si, dx
+    sub si, cx                      ; SI = R
     mov al, [op_table + OP_T_FMT]
     xor ah, ah
-    mov si, di                      ; DS:SI = the stream, ES:0 its output
     xor bx, bx
     xor di, di
+    mov es, bp
     push ds
-    mov ds, bp
+    mov ds, bp                      ; DS:SI = the stream, ES:0 its output
     call OSAPI_DECOMP
     pop ds
     jc .no
@@ -345,6 +472,119 @@ rw_apart:
     pop cx
     pop bx
     pop ax
+    ret
+
+; rw_acopy - DX:AX = a byte offset in the package's own file (op_name, in
+; the current folder): [rw_awant] bytes from there to BP:[rw_adst], read a
+; chunk of whole clusters at a time into the bounce. CF = 1: they could not
+; be. Clobbers AX-DI and ES; [rw_awant] and [rw_adst] are spent
+rw_acopy:
+    push ax
+    push dx
+    call op_clbget                  ; AX = bytes a cluster
+    mov [rw_aclb], ax
+    pop dx
+    pop ax
+    jc .no
+    call rw_abounce                 ; [rw_abseg], [rw_abcap]
+    jc .no
+    mov bx, [rw_aclb]
+    dec bx
+    mov cx, ax
+    and cx, bx                      ; CX = how far past a cluster's start
+    mov [rw_askip], cx
+    not bx
+    and ax, bx                      ; DX:AX = that cluster's
+    mov [rw_apos], ax
+    mov [rw_apos + 2], dx
+.chunk:
+    mov es, [rw_abseg]
+    xor bx, bx
+    mov cx, [rw_abcap]
+    mov ax, [rw_apos]
+    mov dx, [rw_apos + 2]
+    mov si, op_name
+    call OSAPI_FILE_READ_AT         ; DX:AX = the bytes delivered
+    jc .nob
+    sub ax, [rw_askip]              ; AX = this chunk's bytes of the part
+    jbe .nob
+    cmp ax, [rw_awant]
+    jbe .take
+    mov ax, [rw_awant]
+.take:
+    mov cx, ax
+    push ds
+    mov si, [rw_askip]
+    mov di, [rw_adst]
+    mov es, bp
+    mov ds, [rw_abseg]
+    cld
+    rep movsb
+    pop ds
+    add [rw_adst], ax
+    sub [rw_awant], ax
+    mov word [rw_askip], 0
+    mov ax, [rw_abcap]
+    add [rw_apos], ax
+    adc word [rw_apos + 2], 0
+    cmp word [rw_awant], 0
+    jne .chunk
+    call rw_abfree
+    clc
+    ret
+.nob:
+    call rw_abfree
+.no:
+    stc
+    ret
+
+; rw_abounce - a bounce for rw_apart's reads: [rw_abseg] and [rw_abcap], a
+; whole number of clusters. The frame buffers' claim ([rw_pseg], 17,280
+; bytes, idle while a game loads) when a cluster is 16KB or less; else a
+; claim of one cluster of its own, given back by rw_abfree. CF = 1: none
+rw_abounce:
+    push ax
+    push dx
+    mov byte [rw_abown], 0
+    mov ax, [rw_aclb]
+    cmp ax, 16384
+    ja .own
+    mov ax, [rw_pseg]
+    or ax, ax
+    jz .own
+    mov [rw_abseg], ax
+    mov word [rw_abcap], 16384      ; (a multiple of every cluster to 16KB)
+    clc
+    jmp short .r
+.own:
+    mov ax, [rw_aclb]
+    mov [rw_abcap], ax
+    mov dl, ah                      ; KB = bytes / 1024
+    shr dl, 1
+    shr dl, 1
+    mov al, dl
+    xor ah, ah
+    call OSAPI_MEM_CLAIM            ; DX = its segment
+    jc .r
+    mov [rw_abseg], dx
+    mov byte [rw_abown], 1
+.r:
+    pop dx
+    pop ax
+    ret
+
+; rw_abfree - the bounce given back, if it was a claim of its own. Flags kept
+rw_abfree:
+    pushf
+    cmp byte [rw_abown], 0
+    je .r
+    push dx
+    mov dx, [rw_abseg]
+    call OSAPI_MEM_FREE
+    pop dx
+    mov byte [rw_abown], 0
+.r:
+    popf
     ret
 
 ; rw_aimg - AL = an image, 0 the core: AX = its segment, or 0 when it is
@@ -419,9 +659,11 @@ rw_afixup:
     xor ch, ch
     inc cx
     xchg cl, ch                     ; CX = x 256
+    mov dl, 1                       ; (the table's: emptied out of reach)
     call .ents
     mov es, [rw_alseg]              ; ...and the list
     mov cx, [rw_aln]
+    xor dl, dl                      ; (the list's: kept in its order)
     call .ents
     mov bx, 1                       ; S_JITSEGA: the first image here, or
 .sa:                                ;   the core
@@ -452,8 +694,15 @@ rw_afixup:
     call rw_aimg
     or ax, ax
     jnz .es
-    mov [es:di + 4], ax             ; not here: offset 0, interpreted
-    jmp short .en
+    mov [es:di + 4], ax             ; not here: offset 0, interpreted -
+    or dl, dl                       ;   and a TABLE entry is given a key no
+    jz .en                          ;   lookup asks, PC 8000h (RAM below
+    mov word [es:di], 8000h         ;   HRAM, never looked up): one that
+    mov byte [es:di + 2], 0         ;   still matched would read as a block
+    jmp short .en                   ;   being COUNTED, and past RDG_JITHOT
+                                    ;   every entry asked the translator's
+                                    ;   door - the host's stack and back -
+                                    ;   for nothing: 20x the interpreter
 .es:
     mov [es:di + 6], ax
 .en:
@@ -521,6 +770,53 @@ rw_jdon:
     pop si
     pop cx
     pop bx
+    ret
+
+; rw_apre - the F1 line's tail at ES:DI: ' Pn/m', the code images in memory
+; against the meta's, NUL-terminated - how a photograph of the glass says
+; whether the package is running its own code. Keeps all but DI
+rw_apre:
+    push ax
+    push bx
+    push cx
+    mov al, ' '
+    stosb
+    mov al, 'P'
+    stosb
+    xor cx, cx
+    xor bx, bx
+.l:
+    cmp bl, [rw_anseg]
+    jae .d
+    push bx
+    shl bx, 1
+    cmp word [rw_aseg + bx], 0
+    pop bx
+    je .n
+    inc cx
+.n:
+    inc bx
+    jmp short .l
+.d:
+    mov al, cl
+    call .hex
+    mov al, '/'
+    stosb
+    mov al, [rw_ans]
+    call .hex
+    xor al, al
+    stosb
+    pop cx
+    pop bx
+    pop ax
+    ret
+.hex:
+    add al, '0'
+    cmp al, '9'
+    jbe .h
+    add al, 'A' - '9' - 1
+.h:
+    stosb
     ret
 
 ; the translator's door: nothing is translated, so a block asked for is the

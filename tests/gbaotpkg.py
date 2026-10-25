@@ -9,8 +9,12 @@ REALDMG.O88, and opens the PACKAGE - no document: it opens the ROM it was
 made from by itself. Then:
 
   * the machine is the precompiled one: S_JITON and S_JITFIX set, nothing
-    translated (S_JITNBR 0), and the worker found running IN THE CODE
-    IMAGES when it is sampled - the core alone is the interpreter;
+    translated (S_JITNBR 0), EVERY IMAGE CLAIMED READ - on a volume of 4KB
+    clusters, a hard disk's, where the first package's reads were all
+    refused - and the worker found running IN THE CODE IMAGES when it is
+    sampled (the core alone is the interpreter);
+  * and the same with the ROM INSIDE the package (--embed, REALDMG-SPEC
+    20.13), opened with nothing beside it;
   * the game's frames a guest second, against REALDMG.O88's own recompiler
     on the same ROM, reported.
 
@@ -74,6 +78,45 @@ def started(m, name, viewoff):
     return None, None
 
 
+def leg(m_args, disk, stem, nseg, lst, viewoff, asegoff, fails, label):
+    """open B:/STEM.O88 and read what the package made of it: (seg, view,
+    images claimed, images in memory, samples in them of 200), or None"""
+    with os88ui.boot(*m_args[0], apps=disk, machine=m_args[1]) as ui:
+        m = ui.m
+        ui.path("B:/%s.O88" % stem)
+        seg, view = started(m, b"REALDMG", viewoff)
+        if not view:
+            fails.append("%s: the package never started its game" % label)
+            return None
+        on, fix = m.read(view * 16 + S_JITON, 1)[0], m.read(view * 16 + S_JITFIX, 1)[0]
+        bss = m.read(seg * 16 + asegoff, 2 * 14 + 1)
+        claimed = bss[28]
+        images = [int.from_bytes(bss[2 * i:2 * i + 2], "little") for i in range(nseg)]
+        here = [x for x in images if x]
+        inimg = 0
+        for _ in range(200):
+            m.pause()
+            cs = m.regs()["cs"]
+            m.run()
+            inimg += cs in here
+            M.guest_sleep(m, 0.02)
+        fps = rate(m, view, 10)
+        nbr = rd16(m, view * 16 + S_JITNBR)
+        print("gbaotpkg %s: S_JITON %d S_JITFIX %d, %d translated; %d of %d images claimed are "
+              "in memory; %d of 200 samples in them; %.2f frames a guest second" % (
+                  label, on, fix, nbr, len(here), claimed, inimg, fps))
+        if not (on == 1 and fix == 1):
+            fails.append("%s: not the precompiled machine (S_JITON %d, S_JITFIX %d)" % (label, on, fix))
+        if nbr:
+            fails.append("%s: %d blocks were translated while running" % (label, nbr))
+        if len(here) != claimed:
+            fails.append("%s: %d images claimed and only %d read - a read the volume refused "
+                         "(REALDMG-SPEC 20.10: whole clusters)" % (label, claimed, len(here)))
+        if here and not inimg:
+            fails.append("%s: the worker was never found in the code images" % label)
+        return fps
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--rom")
@@ -103,50 +146,32 @@ def main():
     subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
                            "--size", "720", os.path.join(ROOT, "build", "realdmg.o88"), pkg, gb],
                           stdout=subprocess.DEVNULL)
+    epkg = os.path.join(tmp, "EMB.O88")       # ...and with the ROM inside it
+    gbaot.package(os.path.join(ROOT, "build"), gbaot.load(d), rom, epkg, romname, embed=True)
+    # THE VOLUME HAS 4KB CLUSTERS: OSAPI_FILE_READ_AT reads whole clusters
+    # only, a part starts on a 512-byte boundary, and the first package read
+    # in place - every floppy here clean, every hard disk interpreted
+    disk = os.path.join(tmp, "apps.img")
+    subprocess.check_call([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
+                           "--size", "720", "--spc", "8", os.path.join(ROOT, "build", "realdmg.o88"),
+                           pkg, gb, epkg], stdout=subprocess.DEVNULL)
     lst = os.path.join(ROOT, "build", "gbaot", "realdmgaot.lst")
     viewoff = gbwindow.label_off(lst, "rdg_viewseg")
     asegoff = equ_off(lst, "rw_aseg")
     fails = []
-    with os88ui.boot(os.path.join(ROOT, "build", "os8088-720.img"), apps=disk,
-                     machine=a.machine) as ui:
-        m = ui.m
-        ui.path("B:/%s.O88" % stem)
-        seg, view = started(m, b"REALDMG", viewoff)
-        if not view:
-            print("FAIL gbaotpkg: the package never started its game")
-            return 1
-        on, fix = m.read(view * 16 + S_JITON, 1)[0], m.read(view * 16 + S_JITFIX, 1)[0]
-        nseg = img and len(img["segs"]) - 1
-        images = [rd16(m, seg * 16 + asegoff + 2 * i) for i in range(nseg)]
-        inimg = total = 0
-        for _ in range(200):
-            m.pause()
-            cs = m.regs()["cs"]
-            m.run()
-            total += 1
-            inimg += cs in images
-            M.guest_sleep(m, 0.02)
-        aot = rate(m, view, a.secs)
-        nbr = rd16(m, view * 16 + S_JITNBR)
-        print("gbaotpkg: %s - %d code images at %s; S_JITON %d S_JITFIX %d, %d translated; "
-              "%d of %d samples in the images; %.2f frames a guest second" % (
-                  stem + ".O88", nseg, " ".join("%04X" % x for x in images), on, fix, nbr,
-                  inimg, total, aot))
-        if not (on == 1 and fix == 1):
-            fails.append("the machine is not the precompiled one (S_JITON %d, S_JITFIX %d)" % (on, fix))
-        if nbr:
-            fails.append("%d blocks were translated while running" % nbr)
-        if nseg and not inimg:
-            fails.append("the worker was never found in the code images")
+    nseg = len(img["segs"]) - 1
+    margs = ((os.path.join(ROOT, "build", "os8088-720.img"),), a.machine)
+    aot = leg(margs, disk, stem, nseg, lst, viewoff, asegoff, fails, "the ROM beside it")
+    leg(margs, disk, "EMB", nseg, lst, viewoff, asegoff, fails, "the ROM inside it")
     with os88ui.boot(os.path.join(ROOT, "build", "os8088-720.img"), apps=disk,
                      machine=a.machine) as ui:
         m = ui.m
         ui.path("B:/" + romname)
         viewoff0 = gbwindow.label_off(os.path.join(ROOT, "build", "realdmg.lst"), "rdg_viewseg")
         seg, view = started(m, b"REALDMG", viewoff0)
-        if view:
+        if view and aot:
             M.guest_sleep(m, 10)
-            dyn = rate(m, view, a.secs)
+            dyn = rate(m, view, 10)
             print("gbaotpkg: REALDMG.O88 on %s: %.2f frames a guest second (precompiled %.2f, x%.2f)"
                   % (romname, dyn, aot, aot / dyn if dyn else 0))
     if a.keep:
