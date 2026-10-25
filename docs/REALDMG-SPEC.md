@@ -2253,7 +2253,11 @@ selector, and every one **written through** as its data segment:
   changes a byte the core runs. The host sets `S_JITCSA`/`S_JITCSB` before
   `rt_init`; 0 means "the data segment itself", which is what a host without
   code selectors leaves (`rdg_init` zeroes the view) - the bare harness and
-  the static recompiler's host (section 20) take that path unchanged.
+  the static recompiler's host (section 20) take that path unchanged. It is
+  read as 0 at every look (`rt_d2c`) rather than filled in once: a host that
+  moves `S_JITSEGA` on without `rt_init` - the static recompiler's `h_round`
+  does, a round at a time - would otherwise name the last round's segment
+  in every table entry, and GBFLAGS' sum is the row that said so.
 - **The recompiler converts by table**: `rt_d2c` and `rt_c2d` map between a
   tier's two names off the state block (three tiers, three pairs), for the
   table's +6, `rt_forget`'s compare, `rt_unlink`'s log (logged as the code

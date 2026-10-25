@@ -90,7 +90,9 @@ rt_tab:
 ; 16KB. The core's three `and bh,mask` take it before the tails are copied.
 ; [S_JITCSA] and [S_JITCSB] are the host's, set before the call: the code
 ; selectors of AX and CX (REALDMG-SPEC 16.2.4), or 0 for "the same" - which a
-; host without code selectors leaves them, rdg_init having zeroed the view.
+; host without code selectors leaves them, rdg_init having zeroed the view,
+; and which rt_d2c reads as such at every look (a host that moves
+; S_JITSEGA without rt_init, as the static recompiler's does, stays right).
 ; The core's helper tails copied into
 ; each at their own
 ; offsets, the cache empty, and the core's two doors pointed at it -
@@ -108,15 +110,6 @@ rt_init:
     mov [S_JITSEGB],cx
     mov [S_JITHSEG],bx
     mov [S_HMASK],dl
-    cmp word [S_JITCSA],0           ; (the code selectors: 0 is the data
-    jne .csa                        ;   segment itself)
-    mov [S_JITCSA],ax
-.csa:
-    jcxz .csb
-    cmp word [S_JITCSB],0
-    jne .csb
-    mov [S_JITCSB],cx
-.csb:
     push es
     mov es,[S_COREDS]               ; the core's masks, which the copies
     mov [es:RDG_TDSEG],es           ;   below take with them - and its data
@@ -125,7 +118,7 @@ rt_init:
     mov [es:RDGC_TR_HM2],dl
     pop es
     push ax
-    mov ax,[S_JITCSA]
+    call rt_d2c                     ; (cache A's code selector)
     mov [S_JITOUT+2],ax
     pop ax
     mov word [S_JITVEC],rdg_jit
@@ -380,10 +373,13 @@ rt_tseg:
 
 ; rt_d2c - DS = the view, AX = a tier's DATA segment: AX = its CODE selector
 ; (REALDMG-SPEC 16.2.4) - a cache segment's, or the core's - or AX itself,
-; for anything else. Keeps every register but AX
+; for anything else, and for a cache segment whose code selector the host
+; left 0. Keeps every register but AX
 rt_d2c:
     cmp ax,[S_JITSEGA]
     jne .core
+    cmp word [S_JITCSA],0
+    je .r
     mov ax,[S_JITCSA]
     ret
 .core:
@@ -394,6 +390,8 @@ rt_d2c:
 .b:
     cmp ax,[S_JITSEGB]
     jne .r
+    cmp word [S_JITCSB],0
+    je .r
     mov ax,[S_JITCSB]
 .r:
     ret
