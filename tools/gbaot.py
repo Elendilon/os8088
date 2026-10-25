@@ -92,16 +92,33 @@ def jump_tables(rom, found):
     return out
 
 
+WALK_STARTS = 8192                 # block starts a walk may fan out to
+
+
 def walk(rom, seeds=()):
-    """The cartridge's code: (found {(bank, pc): op}, extra seeds used)."""
-    extra = set(seeds)
-    for _ in range(6):
-        found, _, _, _ = G.discover(rom, extra, True)
-        new = jump_tables(rom, found) - extra
-        if not new:
-            break
-        extra |= new
-    return found, extra
+    """The cartridge's code: (found {(bank, pc): op}, extra seeds used).
+
+    A call from bank 0 into 4000-7FFF that no constant decides the bank of is
+    walked in EVERY bank - right for a cartridge of a few banks, and on a
+    big one it walks data as code across the whole ROM: Pokemon Crystal
+    33,256 block starts, Wario Land II 47,441, nearly all of them not code.
+    So when every bank gives more than WALK_STARTS, it is walked in the banks
+    some constant bank write names instead, and the heat run's misses -
+    what the game really ran - are walked from (REALDMG-SPEC 20.2)."""
+    def go(fan):
+        extra = set(seeds)
+        for _ in range(6):
+            found, _, _, _ = G.discover(rom, extra, True, fanout=fan)
+            new = jump_tables(rom, found) - extra
+            if not new:
+                break
+            extra |= new
+        return found, extra
+    found, extra = go(None)
+    if len(leaders(rom, found, extra)) <= WALK_STARTS:
+        return found, extra
+    f0, _ = go([])
+    return go(sorted({b for b, pc in f0 if pc >= 0x4000}))
 
 
 def leaders(rom, found, extra, side=False):
@@ -434,10 +451,8 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
     keyed += [(pc, 0xFF) for pc in sorted(hram or {})]
     n = len(keyed)
     mask = 1
-    while mask < n:
-        mask <<= 1
-    if mask > 8192:
-        raise SystemExit("gbaot: %d block starts: the profile holds 8,192 here" % n)
+    while mask < n and mask < 8192:        # (the profile holds 8,192: more
+        mask <<= 1                         #   are offered a round at a time)
     import math
 
     def weight(k):                         # rt_preload's order: heaviest first
@@ -485,13 +500,17 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
         todo = {k: None for k in keyed if (k[1] == 0xFF and gi == 0) or k[1] in gset}
         while todo:
             prf = bytearray(mask * 4)
-            for i, (pc, key) in enumerate(todo):
+            offered = sorted(todo, key=lambda k: -weight(k))[:mask]
+            for i, (pc, key) in enumerate(offered):
                 struct.pack_into("<HBB", prf, i * 4, pc, key, weight((pc, key)))
             m.w(PRF, 0, prf)
             fresh = False
             if cont:
                 m.enter(E_CONT)            # on where the last round stopped
             elif rnd:
+                if len(segs) + 1 > HOST_MAX:   # the images are full: the
+                    dropped |= set(todo)       #   coldest are interpreted
+                    break
                 m.w(SEGA, 0, bytes(0x10000))
                 m.w(SEGB, 0, bytes(0x10000))
                 m.enter(E_ROUND)
@@ -529,6 +548,9 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
                 e = slot_of(k[0], k[1], hmask)
                 return not (struct.unpack_from("<H", table, e + 4)[0] and
                             struct.unpack_from("<H", table, (e ^ 8) + 4)[0])
+            if len(offered) < len(todo) and got:   # (more to offer: on, here)
+                cleared, cont = False, True
+                continue
             if any(free(k) for k in todo):
                 cleared, cont = False, False   # full: fresh segments
                 if not got and fresh:
@@ -968,6 +990,9 @@ def degrade(build, img, keep):
 # --- the package: GAME.O88 (REALDMG-SPEC 20.10) ------------------------------
 
 AOT_MAX = 14                       # realdmg.asm's RWA_MAX
+HOST_MAX = 11                      # ...and what run_arm's layout holds: image i
+                                   #   at 4000h + 1000h x i, the list and its
+                                   #   filter after the last, all under 10000h
 AOT_CODE = 5                       # ...and RWA_CODE
 AOT_ROWS = 64                      # ...and RWA_ROWS: the table's rows
 

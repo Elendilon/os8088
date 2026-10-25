@@ -3139,6 +3139,27 @@ LD H,(HL) / LD L,A / JP HL` dispatch, read at its constant base: words while
 they are code addresses in the same region, until the code they point at
 begins. It is repeated until it finds nothing new.
 
+**Every bank, while it fits.** A call into 4000-7FFF from bank 0 that no
+constant decides is walked in every bank, and on a big cartridge that walks
+data as code across the whole ROM - Pokemon Crystal came to 33,256 block
+starts, Wario Land II (GBC) 47,441, Zelda DX 45,287, against the profile's
+8,192. So when every bank gives more than `WALK_STARTS` (8,192) the walk
+takes the banks some constant bank write names instead, and what is left is
+found by the counters' misses (20.11): what the game ran, walked from. A
+cartridge that fitted before walks exactly as before - Kirby's Dream Land,
+Super Mario Land and both Looney Tunes are byte for byte the images they
+were. A JR that the walk follows back past 0000h is data too, and stops it
+(Super Mario Land 2's walk put 112 negative PCs in the profile). Starts past
+8,192 are offered to the translator a round at a time, the heaviest first,
+and the images stop at `HOST_MAX` (11: what the harness's layout holds under
+10000h) with the coldest blocks left to the interpreter. Of 23 cartridges
+the owner supplied, 21 then build, and every one matches the interpreter
+frame for frame over 1,500 frames of the script (Pokemon Gold, Yellow and
+Crystal and Kirby's Dream Land 2 were compared with the interpreter itself,
+the dynamic recompiler leaving it on the first two at frames 2 and 4). The
+other two, Prehistorik Man and a bad dump of Super Mario Bros. Deluxe, stop
+the harness under the interpreter too.
+
 `leaders` is where a block may begin: the entries, every branch target, the
 instruction after a conditional transfer or a CALL/RST (a return lands
 there), and the jump tables' words.
