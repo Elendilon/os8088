@@ -6540,10 +6540,12 @@ mega_xminit:
     pop cx
     mov ax, [mega_fixkb]            ; the pool: from 1MB to the fixed area
     cmp ax, MEGA_HMA_KB             ; (mega_layoutf, KERN-MEGA-MEMORY-PLAN
-    jbe .none                       ; MC2) - and nothing past the HMA, none
-    mov word [ss:mx_tab+MX_OFF], 0  ; THE HMA, its first 64KB: pinned under
-    mov word [ss:mx_tab+MX_OWN], XMW_HMA ; its walk marker until the DOS trip
-    mov word [ss:mx_tab+MX_KB], MEGA_HMA_KB ; saves what stands there (MC4)
+    jbe .none                       ; MC2) - and nothing past the HMA, none.
+                                    ; THE HMA IS POOL (MC4): its first 64KB,
+                                    ; reached last by every top-down claim;
+                                    ; a DOS trip keeps its own claims above
+                                    ; it ([mega_mxflr]) and saves what stands
+                                    ; there with the park
     mov word [xm_svc+XMV_CAPS], mx_caps
     mov word [xm_svc+XMV_ALLOC], mx_alloc
     mov word [xm_svc+XMV_FREE], mx_free
@@ -6609,6 +6611,8 @@ mx_alloc:
     sub bp, cx                      ; moves it to end where that block
     jc .norun                       ; starts - strictly falling, so it ends
 .trestart:
+    cmp bp, [mega_mxflr]            ; nothing under the FLOOR: a DOS trip's
+    jb .norun                       ; own claims stay out of the HMA (MC4)
     mov dx, bp
     add dx, cx
     mov si, mx_tab
@@ -6655,7 +6659,7 @@ mx_alloc:
     cmp byte [mega_cpry], 0         ; NO RUN, BUT THE POOL MAY HOLD IT IN
     jne .shed                       ; PIECES (KERN-MEGA-PLAN 14.15): pack the
     mov byte [mega_cpry], 1         ; movable blocks UP once - against the
-    xor ax, ax                      ; fixed area or a pinned block, so every
+    mov ax, [mega_mxflr]            ; fixed area or a pinned block, so every
     call MEGA_SEL_CODE:mx_packupf   ; free KB below them is one run (MC3) -
     jmp .top                        ; and try again (CX the KB, DI the free
                                     ; entry: both kept)
@@ -7814,8 +7818,8 @@ mega_modvfixf:
 ; blocks as records of their own: the GDT, the LDT and IDT, and `.cold` with
 ; `.mega`, from where mega_layoutf put them at the top of extended memory
 ; (KERN-MEGA-MEMORY-PLAN MC2). The HMA is not among them since MC2: it is the
-; pool's own first 64KB, a pinned block owned XMW_HMA, and the walk lists it
-; with the others. There is no padding any more to name
+; pool's own first 64KB, and since MC4 ordinary pool, so what stands there is
+; listed as the blocks it is. There is no padding any more to name
 mega_xmwalk:
     push cx
     push dx
@@ -8823,21 +8827,15 @@ mx_lcchk:
 %endif
 
 ; mx_canmove - DI = an mx_tab entry: ZF = 1 the compactor may move it, OF ANY
-; SIZE (14.37). EVERY BLOCK MOVES (KERN-MEGA-MEMORY-PLAN MC3, D2) but the HMA
-; (until MC4) and one marked MX_FPIN: a program's region, claims and
+; SIZE (14.37). EVERY BLOCK MOVES (KERN-MEGA-MEMORY-PLAN MC3, D2) but one
+; marked MX_FPIN (the HMA's own record went with MC4): a program's region, claims and
 ; OSAPI_XMEM_ALLOC blocks (named by token), a driver's image, claims and
 ; store, and the kernel's caches and modules - all named by SELECTOR, and a
 ; module running is no exception, a far return reloading its CS from the
 ; rebased descriptor. Clobbers AL
 mx_canmove:
-    mov al, [ss:di+MX_OWN]
-    cmp al, XMW_HMA
-    je .no
     test byte [ss:di+MX_FL], MX_FPIN
     ret                             ; (ZF = 1: not pinned)
-.no:
-    or al, al                       ; (F0h: ZF = 0)
-    ret
 
 ; mx_packupf - FAR (OSAPI_MEM_REGROW's last try, KERN-MEGA-PLAN 14.49): AX =
 ; a floor, KB from the pool base. Every MOVABLE block at or above it slides
@@ -11297,6 +11295,10 @@ mega_coldhi db 0                    ; 1: `.cold` runs above 1MB
 mega_mfree  db 0                    ; 1: `.mega`'s rung is heap and `.mega` is
                                     ; NOT there - protected mode was refused
 mega_cpry   db 0                    ; 1: mx_alloc has compacted once this call
+mega_mxflr  dw 0                    ; mx_alloc's floor, KB from the pool's
+                                    ; base: 64 while a DOS trip claims its park
+                                    ; and arena (the HMA is kern_dos's then),
+                                    ; 0 otherwise (KERN-MEGA-MEMORY-PLAN MC4)
 
 mega_infault db 0
 mega_fbuf   db " kern_mega FAULT vv err eeee at cccc:iiii sp ssss - reboot "

@@ -670,6 +670,92 @@ nothing ships between waves (0, rule 1).
   new: a block in the HMA across a DOS trip, compared after; a DOS trip with
   the pool held full, which offers the hibernate, takes it and resumes.
 
+#### MC4.1 The design, as decided (2026-10-25)
+
+Read off the tree after MC7's kernel steps. Two halves, built in this order.
+
+**(a) The HMA is pool.** `mega_xminit` stops writing the pinned `XMW_HMA`
+record, so the pool's first 64KB is ordinary memory that MC3's top-down
+placement reaches last. What still needs the HMA is the DOS trip alone
+(`kern_dos` runs there since KERN-MEGA-DOS-PLAN W4), so:
+
+- `mx_alloc` takes a FLOOR, `[mega_mxflr]` KB from the pool's base (0
+  outside a trip): no placement under it, and its pack (`mx_packupf`) starts
+  there, so nothing under it moves and nothing new lands in the HMA.
+- `mega_dosclaimf` raises the floor to 64 for the park's and the arena's
+  claims and drops it after; if any block stands in the HMA at that moment,
+  the park is claimed 64KB larger.
+- `mega_dosparkf` copies [1MB, 1MB+64K) into that tail at the snapshot, sums
+  it with the park's image, and lists ONE copy back for the stub, which makes
+  its copies before it restores conventional memory (megapark.inc's `.xcopy`,
+  the W5 list). A pool block across the HMA's end is summed only above it:
+  what is below is `kern_dos`'s during the trip and the copy's after.
+- Nothing else names the HMA: the hibernate's run list and `mx_canmove` drop
+  their `XMW_HMA` tests, the Task Manager's (`tm_himax`) are dead and harmless.
+
+**(b) The resume streams.** Today's resume (1.6) reads the whole file into
+one staging block above 1MB clear of every run the image had and every block
+the fresh boot holds, and refuses when there is none - which is exactly the
+case D5 exists for (the pool held full). No staging place can exist then: the
+image's runs cover the pool and its conventional picture is ~600K that can
+only land in conventional memory, last. So the resume leaves protected mode:
+
+- The fresh kernel reads the section's head (as today), checks the runs
+  against this machine's layout (`hbm_xruns`, A5), walks the file's EXTENTS
+  (SPEC.md 87.5's `hbm_extents`, bounded by `HS_XMAX`; more is a refusal with
+  the fresh session intact), stages them, the run list and the image's GDTR,
+  IDTR and wake address in the text page as DATA, and leaves protected mode
+  by the DOS handover's own route (`mega_dosgo`'s tail: the 8259 back at 08h,
+  CR0 on a 386, the shutdown-0Ah reset on a 286).
+- A REAL-MODE stub then does all of it with the BIOS: the section first,
+  sector runs through a conventional bounce and `int 15h AH=87h` to each
+  run's linear address (the tables, run 0, included - nothing reads them in
+  real mode, A2), summing as it goes; then the conventional picture by the
+  extents, kern_big's `hbstub.inc` loop; the IVT last.
+- **Bochs will not fetch an instruction from the text framebuffer**
+  (megados.inc's `mega_hbgof` note), so this stub does NOT run there, as
+  kern_big's does: it runs from a few KB of CONVENTIONAL memory, whose
+  image sectors it lands in the text page as data and puts back last, from a
+  256-byte tail at 0000:0500 - the half of file sector 2 that no kernel owns
+  and no resume restores (SPEC.md 87.5). That tail opens A20, loads the
+  image's GDTR and IDTR, sets PE and far-jumps to `mega_hbwake`, which now
+  puts the 8259 back at 20h (`mega_pic_pmf`, as `mega_dwake` does).
+- **A sum that disagrees can no longer be a refusal**: the fresh session is
+  gone by the time the last sector is read. It is the park stub's answer
+  instead - a sentence, a key and a restart. A read error is the same
+  (kern_big's stub already says so). Every refusal BEFORE the drop (no
+  image, a layout that differs, too many extents, a volume the BIOS cannot
+  reach) still leaves the fresh session running.
+- The same stub serves D5's route: a DOS trip with no room for a park
+  writes the hibernate instead (kern_big's route), and `kern_dos` -DKD_MEGA
+  takes `kd_resume`'s path with this stub at the program's exit.
+
+Costs said out loud: the image is the size of the memory in use and the
+resume moves it all through the BIOS; on a 286 each `int 15h AH=87h` is a CPU
+reset in the ROM, 64 sectors a call at most. The stub's tail rests on
+0000:0500-05FF being nobody's on every kern_mega machine, which is SPEC.md
+87.5's own assumption for kern_big.
+
+#### MC4 (a) as built (2026-10-25) - DONE
+
+- As 4.1 (a) says, with two findings on the way.
+- **Two MC7 step-6 regressions on the DOS and resume paths**, found by the
+  new row and fixed with it: `hbm_stageseg` loaded B800h/B000h - no
+  selector since the identity map stopped at the kernel - so every DOS
+  trip faulted the kernel after the park (`[k_vsc]`/`[k_vsb]` now, and
+  `mega_dosgo` banks the REAL segment for `mega_dropr`); and `FONT_PICK`
+  read the planar ROM as F000h in `hbm_wake`, which runs after every trip
+  and every resume (`FONT_F000`, `[k_vsf]` on kern_mega, and the heap copy
+  told from a ROM by `mega_s2segf`). `megakbtrip`, `megadosp` and
+  `megahiber` all cross both and had not run since step 6.
+- Cost: kern_mega `.text`/`.bss` +4 (`[mega_mxflr]`, `[mega_dhkb]`,
+  `[mega_dhfree]` less the HMA record's code), `.mega` +~170; kern_big and
+  kern_small byte-identical (`kernel.sys` and `HIBER.DRV` compared at one
+  commit).
+- Row: `megahma` (Bochs, 14s): a 16KB pinned block with a pattern at the
+  pool's base across one KBTRIP trip. Red with `[mega_dhkb]` held at 0:
+  64 of 64 dwords overwritten by `kern_dos`.
+
 ### MC5 - one claim for all of it (D6, D7, D8)
 
 - **The exact answer:** pool free + purgeable below the caller's rank (one run

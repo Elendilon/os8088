@@ -3573,10 +3573,17 @@ hbm_handover:
 ; hbm_stageseg - out: ES = the text framebuffer the stub will run in
 hbm_stageseg:
     push ax
+%ifdef KERN_MEGA
+    mov ax, [k_vsc]             ; the SELECTOR over it: since KERN-MEGA-
+    cmp byte [vid_kind], VID_HERC ; MEMORY-PLAN MC7's step 6 the GDT maps
+    jne .set                    ; no segment to itself past the kernel's
+    mov ax, [k_vsb]             ; own (mega_vfixall made these at the switch)
+%else
     mov ax, 0xB800
     cmp byte [vid_kind], VID_HERC
     jne .set
     mov ax, 0xB000
+%endif
 .set:
     mov es, ax
     pop ax
@@ -3829,9 +3836,8 @@ hbm_xplan:
 .mx:
     mov ax, [ss:si+MX_KB]          ; every block the pool has given out, the
     or ax, ax                   ; kernel's own among them (track 1's modules
-    jz .next                    ; and caches: hbm_wake flushes the caches) -
-    cmp byte [ss:si+MX_OWN], XMW_HMA ; but the HMA, which holds nothing of
-    je .next                    ; the session's (KERN-MEGA-MEMORY-PLAN MC2)
+    jz .next                    ; and caches: hbm_wake flushes the caches),
+                                ; the HMA's too since it is pool (MC4)
     mov dx, ax
     mov cl, 10
     shl ax, cl
@@ -5092,8 +5098,14 @@ hbm_wake:
     ;     it - every register below is reloaded before it is read.
     FONT_PICK hbf               ; DX:BP = this machine's fastest table
     mov ax, [font_seg]
+%ifdef KERN_MEGA
+    call KERNEL_SEG:mega_s2segf ; a selector there: the paragraph it names
+%endif                          ; (MC7), which is what tells the two apart
     cmp ax, 0xA000              ; a ROM (C000 up) or the image's heap copy
     jae .fptr
+%ifdef KERN_MEGA
+    mov ax, [font_seg]          ; (the selector again, for the copy)
+%endif
     push ds
     mov es, ax
     mov ds, dx

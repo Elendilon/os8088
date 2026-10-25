@@ -16159,6 +16159,18 @@ SOAK = [
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/mines.o88")),
+    Row("megahma", "soak", py("tests/megahma.py"), 180.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC4.1 (a): the HMA is ordinary "
+        "pool on kern_mega, and a block standing there survives a DOS trip "
+        "- kern_dos runs in the HMA for the program's length, so the trip "
+        "claims its park and arena above it ([mega_mxflr]) and saves the "
+        "HMA in the park's tail, copied back by the park stub. Bochs: a "
+        "16KB pinned record written at the pool's base with a pattern, one "
+        "KBTRIP trip, the pattern and the record compared after. The "
+        "failing case: [mega_dhkb] left 0 and kern_dos's image overwrites "
+        "the pattern",
+        needs=("bochs",),
+        wants=("build/mega.img",)),
     Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.61, 14.62: the keyboard INSIDE a "
         "DOS program and the keyboard and pointer after it, over ten round "
