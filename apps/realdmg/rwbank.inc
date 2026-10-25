@@ -174,6 +174,9 @@ rw_bload:
     jc .noxms
     mov [rw_xbase], ax
     mov [rw_xbase + 2], dx
+%ifdef RDG_AOT
+    mov word [rw_aebank], 0         ; (the ROM in the package: from bank 0)
+%endif
     mov di, rw_bcur                 ; the read's cursor, from offset 0
     mov cx, FSEQ_SIZE / 2
     xor ax, ax
@@ -309,6 +312,12 @@ rw_bload:
 
 ; rw_bread - the file's next 16KB into DX:0000. CF = 1 unless it all came
 rw_bread:
+%ifdef RDG_AOT
+    cmp byte [rw_aemb], 0           ; the ROM in the package: bank n at its
+    je .f                           ;   offset (rwaot.inc)
+    jmp rw_aebread
+.f:
+%endif
     push es
     push ds
     pop es

@@ -1145,9 +1145,13 @@ tr_new2:
     jmp tr_go
 .both:                          ; in neither: a FIXED table takes no
     cmp byte [ss:S_JITFIX],0    ;   slot but for HRAM, the miss is the
-    je .free                    ;   interpreter's (REALDMG-SPEC 16.8)
+%ifdef RDG_AOTCORE                  ;   interpreter's (REALDMG-SPEC 16.8) -
+    jne .aot                    ;   or, PRECOMPILED, every miss is the
+%else                               ;   host's sorted list's first, HRAM's
+    je .free                    ;   too (REALDMG-SPEC 20.9)
     test si,si
     jns .keep
+%endif
 .free:                          ; else the one to give way is a
     cmp word [es:bx+JIT_HASH+4],0   ; counting entry before a
     jne .tn                     ;   translated one, of two counting the colder
@@ -1177,6 +1181,10 @@ tr_new2:
     mov [es:bx+JIT_HASH+4],dx
 .keep:
     jmp tr_kint
+%ifdef RDG_AOTCORE
+.aot:
+    jmp far [ss:S_AOTVEC]
+%endif
 """,
     0x7F: """
 ; add_ff: ADD HL,DE / DEC r / JR NZ,-4 - a row of a background map stepped

@@ -3439,6 +3439,36 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
+    Row("gbaot", "soak", py("tests/gbaot.py"), 370.0,
+        "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
+        "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
+        "its entries with no play, by RealDMG's own translator run under "
+        "Unicorn (tools/gbaot/aothost.asm), then run beside the interpreter "
+        "with gbprof's buttons - every frame's registers, time, events, skips "
+        "and 8000-FFFF identical, or for Blargg's and gbflags' the words on "
+        "the link port. 15 ROMs: GBDEMO, the tools/gbprof ROMs (read-modify-"
+        "writes, POPs from ROM, HBlank events, 64 banks of code), cpu_instrs, "
+        "instr_timing, mem_timing, halt_bug and dmg-acid2. TWO NEGATIVE "
+        "CONTROLS: GBRMW's most-entered block broken must differ, and GBFLAGS "
+        "translated with RT_DEADBUG must change its sum. WHY UNICORN: the "
+        "translation is the host's, and the check is counted, not timed. "
+        "SOAK: one package's recompiler",
+        needs=("nasm", "unicorn", "rgbds"), timeout=900),
+    Row("gbaotpkg", "soak", py("tests/gbaotpkg.py"), 93.0,
+        "A PRECOMPILED CARTRIDGE ON THE MACHINE (docs/REALDMG-SPEC.md 20.10): "
+        "tools/gbaot.py translates and packages GBPOP.GB as GBPOP.O88 - the "
+        "RDG_AOT build of realdmg.asm with the code images as parts - and "
+        "MartyPC's 5150 opens the PACKAGE, which opens its ROM by itself. "
+        "The machine must be the precompiled one (S_JITON, S_JITFIX, nothing "
+        "translated), EVERY IMAGE CLAIMED READ, and the worker found running in "
+        "the code images - on a volume of 4KB CLUSTERS, a hard disk's, because "
+        "OSAPI_FILE_READ_AT reads whole clusters only and the first package's "
+        "reads were all refused there (the owner's 286 ran it interpreted). A "
+        "second leg runs the package with the ROM INSIDE it (--embed, "
+        "REALDMG-SPEC 20.13) and nothing beside it. The frame rate is reported "
+        "against REALDMG.O88's own recompiler. Verified red twice: rw_aoton out "
+        "of rw_jiton, and the bounce reading 512 bytes a call. SOAK: one package",
+        needs=("nasm", "unicorn", "rgbds", "marty"), timeout=900),
     Row("gbacid", "soak", py("tests/rdgcore/rdgacid.py"), 3.0,
         "REALDMG's renderer (apps/realdmg/rdgppu.inc, docs/REALDMG-SPEC.md "
         "section 13) against dmg-acid2's reference picture, all 23,040 pixels: "

@@ -91,11 +91,18 @@ rw_mdecl:
     call OSAPI_MEM_MOVABLE
     jmp short .l
 .r:
+%ifdef RDG_AOT
+    mov al, OP_CARVE                ; A PRECOMPILED CARTRIDGE'S CARVE STAYS:
+    jmp short .pin                  ;   its images jump far into the core's
+                                    ;   holes, the segment in their bytes
+                                    ;   (REALDMG-SPEC 20.10)
+%else
     or ax, ax                       ; ...and the parts carve, the core and
     mov al, OP_CARVE                ;   the view (os88parts.inc's own proc,
     jz .pin                         ;   then rw_partsmv)
     call op_movable
     jmp short .x
+%endif
 .pin:
     call op_pin
 .x:
