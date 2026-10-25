@@ -1404,6 +1404,22 @@ rows. Nothing is recorded as built that was not.
   every chart-module callback as the macro module's), `os88type.inc`'s
   alignment check (every face refused under kern_mega - Word's, Scribe's
   and FontView's type), WireFleet's pin.
+  **Taken (2026-10-25, batch 2):** the Task Manager's two driver-header
+  reads (a window over the paragraph, kept), Redline's F000h, option-ROM
+  and frame paragraphs (`cs_win`/`cs_f000`, in `csrows.inc` so RLAPPLY
+  shares them), EMS's frame walk and the frame it hands out (the paragraph
+  kept beside a window), RAMDISK's arena over 64KB (`rd_at`, `SEG_AT`),
+  `os88con.inc`'s F000h, XT-MP3's hold refill (`x3h_at`), its conversion
+  stage (`SEG_SUB`) and its XT generator, Sheet's row-height table, and
+  Audio's and `os88pcm.inc`'s stores through CS (now through DS, so the
+  per-sample #GP is gone). **USBMOUSE** refuses its PicoMEM path under
+  protected mode (`um_pmattach`): the card's int 33h callback is a
+  real-mode far call into the image, and kern_mega has no real-to-protected
+  callback, so the CH375 path is the one it keeps - a design question this
+  round leaves as a refusal. **VESA needs nothing**: kern_mega builds
+  without `VID_EXT` (SPEC.md 120.3), so it has no VESA row and never loads
+  `VESA.DRV`; item 8's "A000h and its VBE pointers" was an entry for a
+  driver that cannot meet the kernel.
 
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to

@@ -328,6 +328,14 @@ um_attach:
 ; line it finds still hooked exactly as masked as it found it.
 ; -----------------------------------------------------------------------------
 um_pmattach:
+    call OSAPI_CPU_INFO         ; NOT UNDER kern_mega's PROTECTED MODE: the
+    test ah, CPU_F_PM           ; card's handler runs in REAL mode there (the
+    jnz .no                     ; kernel reflects its IRQ to the ROM), and its
+                                ; int 33h would reach a vector that can only
+                                ; name this image as a real segment and code
+                                ; that calls the kernel - which has no
+                                ; real-mode-to-protected-mode callback yet
+                                ; (KERN-MEGA-MEMORY-PLAN MC7's open list)
     mov dx, 0x2A3
     pushf
     cli                         ; the ramp is stateful: nobody between reads
