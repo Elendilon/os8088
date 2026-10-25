@@ -1013,3 +1013,115 @@ rows. Nothing is recorded as built that was not.
   buffer a sector at a time. Rows named for the final pass: `megaown`,
   `megaxmove`, `megashed`, `megaxm`, `megahigh`, `megaovl`, `megarehome`,
   `megahiber`, `megadosp`, `drvmove` on kern_mega.
+
+---
+
+## 8. Addendum from `mega-dmg`: what RealDMG needs from this round (2026-10-25)
+
+A note from the RealDMG session, for MC7's step 4 (the six exempts) and
+step 5. It describes RealDMG as it stands on `elendilon` at `1f013feb`,
+which this branch has not merged yet: `mega-dmg` added code selectors
+(REALDMG-SPEC 16.2.4), the cartridge in place above 1MB (10.3.1), more
+cache tiers (16.2.5) and kern_mega's own build of the package
+(`$(MEGAPKGS)`, `PKG_MEGA`). The longer design is
+`docs/plans/REALDMG-HIGHCACHE-PLAN.md` on `elendilon`. Nothing here asks
+the round to change course; 7.4's "a pair for every conventional claim,
+code = data - 8" already answers most of it.
+
+### 8.1 Code RealDMG enters, and where it is
+
+RealDMG far-jumps into, and only writes code through, a DATA name, and asks
+`OSAPI_MEM_CODESEL` for the code name of each (16.2.4). The code is in four
+places:
+
+| what | where | needs |
+|---|---|---|
+| the core | a part of the parts carve (`op_seg`) | the carve's conversion (7.3 step 2); its code name through `OSAPI_MEM_CODESEL` |
+| cache A, 64KB | the first 64KB of its claim | the claim's own pair |
+| **the recompiler's part**, ~21KB | **inside cache A's claim, past 64KB** (`rw_jpseg` = the claim + 1000h + the table's paragraphs; + 1000h exactly on kern_mega, where the table is in the pool) | **a code name for a range PAST a claim's first 64KB** |
+| cache B and **the extra tiers** | cache B's claim, **grown with `OSAPI_MEM_REGROW` to 1 + k x 64KB** (k up to 5), the tiers at B + 1000h, + 2000h... (`rw_jitxset`) | **a code name for each 64KB window past the first** |
+
+**The ask (the only kernel one):** a code twin for a range inside a claim -
+`SEG_SUB` with a code form (a pair, code = data - 8, the 7.4 rule), or
+`OSAPI_MEM_CODESEL` answering a `SEG_SUB` selector by making its twin. The
+pair over a claim stops at 64KB (`mega_mpbase`'s limit), and a lone data
+selector has no code view (`mega_codesel` refuses it), so without one of
+these the part and the extra tiers have no CS on the end-state kernel.
+`OSAPI_MEM_HUGE`'s windows want the same, for the plan's tiers above 1MB.
+With it RealDMG converts its own way: SUB the part and each tier, ask each
+for its code name, and keep everything else as it is.
+
+**Not the alternative:** splitting the part and the tiers into claims of
+their own would take RealDMG past **`MEM_OWNER_MAX` = 8**. A game on kern_mega
+holds five claims after its load (the frames 17K, 15K, cache A, cache B and
+the carve; read off `mem_tab` on 86Box), and Machine > Log, a replay (F7)
+and Machine > Profile each take one more. 16.2.5's first build took a claim
+per extra tier, seven after the load, and its replay was refused - "Replay:
+no room" with 91KB free. Growing B's claim is how it stays at five. If the round raises the cap on
+kern_mega, say so and that route opens too.
+
+### 8.2 RealDMG's segment arithmetic, for the census
+
+Beyond the code above, every site where RealDMG makes a segment by
+arithmetic. All of them are inside one claim, and each is a `SEG_SUB` or an
+offset after the flip:
+
+- **Cartridge RAM**: `S_RAMSEG` + bank x 200h (`rdg_rambank`, rdgsys.inc),
+  at most 128KB in one claim.
+- **The bank cache's slots**: `rw_slotseg` + slot x 400h (rwbank.inc). On
+  kern_mega's build this is only taken when the pool is too short for the
+  cartridge in place.
+- **A cartridge in one claim** (one that fits the heap, the shipped build on
+  every kernel): the bank table names, for bank n, the segment whose 4000h
+  is the bank's first byte - a BIASED base, the claim + (n - 1) x 400h.
+  This is the ROM-bias case 7.2 lists (Apple II, C64).
+- **The block table**: cache A's claim + 1000h in conventional memory. On
+  kern_mega's build it is an extended block behind `OSAPI_XMEM_RUN`'s first
+  selector (`rw_jtx`), so that arm has no arithmetic there.
+- **The frames**: `rw_fseg` = `rw_pseg` + a paragraph offset (one 17KB claim).
+- **The view and the core**: through the parts library (`op_seg`), 7.3 step 2.
+
+Already selector-safe on kern_mega, needing nothing:
+
+- the cartridge in place (`OSAPI_XMEM_RUN`'s selectors in the bank table);
+- the link patches (they write through the data name, `tr_lpes`/`tr_lpx`);
+- `rw_partsmv`, which skips a word with bit 2 set;
+- `rw_reloc`, which re-stamps by code name.
+
+`XMEM_ALLOC` tokens (the cartridge's, the table's) only go back to
+`XMEM_RUN` and `XMEM_FREE`, so A3 holds.
+
+### 8.3 What changes for RealDMG under 7.4
+
+- **Moves become rebases, and that is better for RealDMG.** A cache move
+  re-ran `rt_init` (a flush) through `rw_mreloc`; with no proc called, the
+  translated code, its `jmp far` chains and the block table all stay valid.
+  Its relocation procs go quiet on kern_mega and stay for the other kernels.
+- **The recompiler converts data to code by a TABLE** (`rt_d2c`, the view's
+  `S_JITCSA`/`S_JITCSB`/`S_JITXT`, filled from `OSAPI_MEM_CODESEL`), never by
+  "- 8". So it works on either rule and needs no change for the pair layout.
+- **Writes through CS that remain**: `rdg_init`'s two words and the lossy
+  picture's `rdg_lpatch`, about 90 completed #GPs a session on the host's
+  own stack (16.2.4). They are harmless, but the end state would count them.
+
+### 8.4 An open question the round may want anyway
+
+**A package-visible hibernate notice.** RealDMG's cache is regenerable. A
+large cache in the pool should be FREED before a hibernate and claimed again
+after, rather than written into the image. MC4's "the trip offers a
+hibernate" makes the image the size of what is in use. Drivers have
+`hbm_detach`/`hbm_reload`; packages have nothing.
+
+### 8.5 How to check RealDMG after the flip
+
+- **`tests/rdgmega.py`** (Bochs, `MEGATRAP=1`, about 4 minutes), three legs,
+  each running blargg's `cpu_instrs` under the recompiler:
+  - the shipped build;
+  - kern_mega's build;
+  - kern_mega's build squeezed to ~0.5KB a tier, so it recycles through
+    every tier, the extra ones included.
+  
+  It fails on a trap charged to the core or a cache's code name.
+- **`tests/rdgcore/rdgwin.py --vm 286-mega`** (86Box), for speed.
+- **`tools/rdglog.py`**, which compares a field log with an emulator log of
+  the same replay.
