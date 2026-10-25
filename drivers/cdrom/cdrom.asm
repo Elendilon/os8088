@@ -21,6 +21,12 @@
 ; package door, where it is the CALLING PACKAGE's (SPEC.md 20.11).
 ; =============================================================================
 
+%define OS88_DRV_HIGHOK          ; kern_mega may run this image above 1MB
+                                ; (KERN-MEGA-MEMORY-PLAN MC8): no arithmetic
+                                ; on its own CS or DS, PIO only - nothing of
+                                ; ours reaches a BIOS or a DMA engine - and
+                                ; cd_bnorm leaves an LDT selector's offset
+                                ; unfolded
 %include "os88drv.inc"
 %include "cdpkg.inc"
 
@@ -115,7 +121,8 @@ cd_attach:
     push dx
     cmp word [cd_base], 0
     jne .twice                  ; attached already: touch nothing (51.2.2)
-    call OSAPI_CPU_INFO         ; AL = the tier
+    call OSAPI_CPU_INFO         ; AL = the tier, AH the flags
+    mov [cd_cpuf], ah           ; (cd_bnorm: CPU_F_PM)
     cmp al, CPU_286
     jb .no                      ; a 16-bit data port on an 8-bit bus loses
                                 ; every high byte (SPEC.md 52.1, 119.2)
@@ -249,6 +256,7 @@ cd_toc:     times CD_TOCSZ db 0 ; READ TOC's answer, raw
 cd_sbuf:    times 2048 db 0
 
 ; --- the volume (cdiso.inc) --------------------------------------------------
+cd_cpuf:    db 0                ; OSAPI_CPU_INFO's AH, banked at attach
 cd_cwd:     dw 0                ; the folder we stand in: its handle...
 cd_cwdlba:  dw 0, 0             ; ...extent...
 cd_cwdlen:  dw 0, 0             ; ...and length

@@ -57707,6 +57707,19 @@ marker moves into a third, and a walk for a name that is not there
 in that root would cost the same. Measured before the rebase, on the 360KB
 disk with the folder: 13,817 ms, `as_boot` 456 ms after a 10-cylinder seek.
 
+##### 26.10.5.1 On kern_mega the walk is after the switch to protected mode
+
+kern_mega walks `\AUTOSTRT` LAST in `kmain`, after `mega_enter` and after
+the boot's drivers and caches go above 1MB (docs/plans/KERN-MEGA-MEMORY-PLAN.md
+MC8). From the blob it ran in real mode, so every package it started was
+loaded into conventional memory whatever its header said, and one with a
+worker made `mega_tasks_ok` refuse protected mode for the session. The walk
+is one macro body, `AS_WALK`: `as_boot` in the blob on every other kernel
+(unchanged), `as_bootc` in `.cold` on kern_mega - written with no data and no
+CS idiom there (the folder name and the skip toast are immediate stores, the
+find's answer a stack frame popped before any open). If protected mode is
+refused the same walk runs in real mode, as before.
+
 #### 26.10.6 A package that asks to be started: `apps/os88link.inc`
 
 `OS88_LINK label, volume, kind, 'path'` lays down a record in the package's

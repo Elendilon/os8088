@@ -13,3 +13,8 @@
 # --- kern_mega's DOS.O88 says OS88_HIGH (KERN-MEGA-PLAN 14.44), which brings
 #     apps/dos/ into scope: its five sites are NOT in the part that says it
 5 apps/dos/dos.asm  # dos_mcb_split, dos_mcb_join and dos_mcb_resize - the DOS arena's MCB chain, inside %ifndef DOS_EXTCORE: the program part (dosp.bin) is assembled -DDOS_EXTCORE and does not contain it, and the core that does (doscore.asm, part 1) runs it on the DOS program's arena under kern_dos in REAL mode, after the trip has left protected mode - never on a segment of its own
+
+# --- drivers/ is in scope since KERN-MEGA-MEMORY-PLAN MC8 (every driver can
+#     run on kern_mega, and a file driver is handed the caller's buffer)
+1 drivers/hdd/hdxms.inc  # hd_xa_a20's DS = FFFFh: the A20 probe of the 386 XMS staging, reached only from hd_xa_arm, which refuses under CPU_F_PM before it (`test ah, CPU_F_PM / jnz .pm`, KERN-MEGA-PLAN 14.16) - real mode only
+1 drivers/xmem/xmem.asm  # xm_a20_probe's DS = HMA_SEG (FFFFh): XMEM.DRV is kept off kern_mega altogether (xm_sniff, kernel/xmem.inc 217 - the kernel serves the cells itself in protected mode), so this only ever runs in real mode

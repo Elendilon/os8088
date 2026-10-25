@@ -5455,11 +5455,13 @@ kmain_o:
                                 ; this ran after kmain_o)
 %endif
 %ifdef OS88_SHORTCUTS
+%ifndef KERN_MEGA               ; (kern_mega walks it after mega_enter: kmain)
     BLOBCALL as_boot            ; ...AUTOSTART, the one thing after it (SPEC.md
                                 ; 26.10.5): it LAUNCHES, and a launch must not
                                 ; race the loading screen's IRQ0 frames, which
                                 ; spl_finish has just stopped. Still the blob's,
                                 ; so still no resident byte
+%endif
 %endif
 
     retf
@@ -5607,6 +5609,12 @@ kmain:
     call COLD_SEG:drv_hiboot_f  ; ...and the boot's drivers above 1MB, now
                                 ; that there is a pool (item 82)...
     call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)
+%ifdef OS88_SHORTCUTS
+    call COLD_SEG:as_bootc      ; ...and AUTOSTART last, so a package it opens
+                                ; is placed as one opened by hand would be -
+                                ; above 1MB when it says OS88_HIGH
+                                ; (KERN-MEGA-MEMORY-PLAN MC8)
+%endif
 %endif
     jmp ui_task                 ; task 0 becomes the UI task; never returns
 

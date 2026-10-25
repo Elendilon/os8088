@@ -873,26 +873,30 @@ rd_free_ext:
     pop bx
     ret
 
-; rd_fold - [rd_bufs]:[rd_bufo] normalised to an offset under 16 - unless the
-; segment is a kern_mega pool SELECTOR (CPU_F_PM banked at attach, and 2800h
-; and up with bit 2 set: this image placed above 1MB, KERN-MEGA-PLAN item 82),
-; whose base is no paragraph, and then the offset carries on inside it. The
-; only such buffer is the seed's, read out of this image and far under 64KB.
-; On a real-mode kernel the same VALUE is an ordinary paragraph - a packed
-; file's destination is any one (SPEC.md 18.4.1) - so it folds, always, as
-; rd_io's wrap guard needs. Clobbers AX, CL
+; rd_fold - [rd_bufs]:[rd_bufo] normalised, so a transfer longer than 64KB
+; never carries off the end of a segment - in the units the segment's VALUE
+; allows (KERN-MEGA-MEMORY-PLAN MC8). On a real-mode kernel any paragraph is a
+; segment, so the paragraphs fold into it and the offset is left under 16, as
+; rd_io's wrap guard needs. Under kern_mega's protected mode (CPU_F_PM, banked
+; at attach) a GDT selector is the IDENTITY map's (KERN-MEGA-PLAN 3.1), one
+; entry per 128 bytes, so only whole 128-byte GRANULES fold - a paragraph fold
+; built a segment off that grid, a #GP or SILENTLY an LDT alias of other
+; memory (14.19, 14.68) - and an LDT selector (TI set) has a base that is no
+; paragraph at all, so its offset just walks: the kernel hands such a buffer
+; over with the transfer inside its 64KB. Clobbers AX, CL
 rd_fold:
-    mov ax, [rd_bufs]
-    test byte [rd_cpuf], CPU_F_PM
-    jz .fold
-    test al, 4
-    jz .fold
-    cmp ax, 0x2800
-    jae .out
-.fold:
     mov ax, [rd_bufo]
     mov cl, 4
-    shr ax, cl
+    shr ax, cl                  ; AX = the offset's paragraphs
+    test byte [rd_cpuf], CPU_F_PM
+    jz .fold
+    test byte [rd_bufs], 4
+    jnz .out                    ; an LDT selector: the offset walks
+    and al, 0xF8                ; an identity selector: whole granules
+    add [rd_bufs], ax
+    and word [rd_bufo], 127
+    ret
+.fold:
     add [rd_bufs], ax
     and word [rd_bufo], 15
 .out:

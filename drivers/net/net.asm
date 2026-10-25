@@ -250,6 +250,8 @@ net_entry:
 ; fail - the Control Panel page, and DRVV_READY's one attempt below.
 ; -----------------------------------------------------------------------------
 net_attach:
+    call OSAPI_CPU_INFO         ; AH = the flags, for net_norm: CPU_F_PM is
+    mov [net_cpuf], ah          ; the one fact a segment's VALUE cannot give
     call lpl_scan
     call net_pick               ; CF=0 and [lp_base] set if any port answered
     jc  .none
@@ -1114,8 +1116,31 @@ net_mark:
     xor bx, bx
 ; net_norm - fold DI's paragraph part into ES, leaving DI at 0..15. ONE body
 ; for both directions: the read walks a destination and the write a source,
-; and the arithmetic does not know which
+; and the arithmetic does not know which. Under kern_mega's protected mode
+; (CPU_F_PM, banked at attach) the units are the segment's (KERN-MEGA-MEMORY-
+; PLAN MC8, rd_fold's rule): a GDT selector is the identity map's, so whole
+; 128-byte GRANULES fold and DI stays under 128 - a paragraph fold built a
+; segment off that grid, a #GP or silently an LDT alias of other memory
+; (KERN-MEGA-PLAN 14.69) - and an LDT selector's offset just walks, the
+; kernel handing it over with the transfer inside its 64KB
 net_norm:
+    test byte [net_cpuf], CPU_F_PM
+    jz .fold
+    mov ax, es
+    test al, 4
+    jnz .r                      ; an LDT selector: the offset walks
+    push cx
+    mov ax, di
+    mov cl, 4
+    shr ax, cl
+    and al, 0xF8                ; an identity selector: whole granules
+    mov cx, es
+    add cx, ax
+    mov es, cx
+    pop cx
+    and di, 127
+    ret
+.fold:
     push cx
     mov ax, di
     mov cl, 4
@@ -1300,6 +1325,7 @@ net_cap:    dd 0                ; what we told the far side we could take - or,
 net_len:    dd 0                ; ...and what it says it is sending
 net_bseg:   dw 0                ; the buffer, which walks a segment at a time
 net_boff:   dw 0                ; - see net_norm
+net_cpuf:   db 0                ; OSAPI_CPU_INFO's AH, banked at attach
 
 ; --- THE ABORT FRAME (net_fgate / net_pkg, netsock.inc) -----------------------
 ; One of each, because only the holder of [net_busy] is ever inside a gate.

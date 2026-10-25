@@ -18,10 +18,14 @@ one at attach (SPEC.md 119.2).
 vm/286-mega-cdrom (the owner's mr286 with an IDE CD-ROM on the secondary
 channel holding build/cdaudio.cue) boots build/megacdtest.img from a fresh
 CMOS, which the row sets up itself (MR BIOS's floppy page). The disk wants
-SOUND.DRV and CDROM.DRV and autostarts CDRack - in REAL mode, before
-mega_enter, so that copy is low and the row closes it.
+SOUND.DRV and CDROM.DRV and autostarts CDRack - which since
+KERN-MEGA-MEMORY-PLAN MC8 is walked AFTER mega_enter, so that copy is ABOVE
+1MB as well (it was low, at 9640h, while the walk ran in real mode); the row
+checks it and closes it.
 
-  1. CDROM.DRV is loaded and found the drive (drv_tab's row, cd_base 170h).
+  1. CDROM.DRV is loaded and found the drive (drv_tab's row, cd_base 170h),
+     and its image is ABOVE 1MB: it says OS88_DRV_HIGHOK since
+     KERN-MEGA-MEMORY-PLAN MC8, so the switch moved it into the pool.
   2. CDRack started again in PROTECTED mode from A:\\SYSTEM lands ABOVE 1MB:
      its window's W_SEG is an LDT selector of the pool, whose descriptor's
      base is past 100000h (OS88_HIGH, KERN-MEGA-PLAN 13.3 step 4).
@@ -208,14 +212,29 @@ def steps(b, a, cr, mx, cd, snd, bad):
         b.ui_done(cap_ms=10000)
         row = b.memr(b.ksym("drv_tab") + CD_ROW * DRVR_SIZE, DRVR_SIZE)
         seg = struct.unpack_from("<H", row, DRVR_SEG)[0]
-        port = struct.unpack("<H", b.memr(seg * 16 + cd["cd_base"], 2))[0] \
-            if seg and not seg & 4 and not a.cdrom else 0
-        print("   1. CDROM.DRV at %04Xh, task file %s" % (
-            seg, "%03Xh" % port if not a.cdrom else "(not this build's map)"))
+        img = base_of(b, seg) if seg & 4 else seg * 16
+        port = struct.unpack("<H", b.memr(img + cd["cd_base"], 2))[0] \
+            if seg and not a.cdrom else 0
+        print("   1. CDROM.DRV at %04Xh (image at %06Xh), task file %s" % (
+            seg, img,
+            "%03Xh" % port if not a.cdrom else "(not this build's map)"))
         if not seg or (port != 0x170 and not a.cdrom):
             bad.append("1. CDROM.DRV is not loaded, or did not find the "
                        "secondary master")
+        if seg and not a.cdrom and (not seg & 4 or img < 0x100000):
+            bad.append("1. CDROM.DRV runs in conventional memory at %06Xh: "
+                       "it says OS88_DRV_HIGHOK (docs/plans/KERN-MEGA-MEMORY-"
+                       "PLAN.md MC8), so its image belongs above 1MB" % img)
         low = windows(b)
+        auto = [s for s in low if s & 4 and s >= POOL0
+                and base_of(b, s) >= 0x100000]
+        print("   1. the autostarted CDRack: %s" % (
+            " ".join("%04X at %06Xh" % (s, base_of(b, s)) for s in auto)
+            or "not above 1MB"))
+        if not auto:
+            bad.append("1. the AUTOSTARTED CDRack is not above 1MB: AUTOSTART "
+                       "must be walked after mega_enter (KERN-MEGA-MEMORY-"
+                       "PLAN MC8)")
         b.to(*CLOSE_BOX); b.click(); b.ui_done(cap_ms=3000)
         have = windows(b)
         b.to(*SYS_CDRACK); b.click(2)           # (bounded by the old 15 s)

@@ -1520,7 +1520,12 @@ cd_bytes:
 ; reaches this - the folded offset plus a CD_RUN read still cannot carry
 ; -----------------------------------------------------------------------------
 cd_bnorm:
-    push ax
+    test byte [cd_cpuf], CPU_F_PM
+    jz .fold
+    test byte [cd_bseg], 4      ; ...and an LDT selector has a base that is no
+    jnz .out                    ; paragraph at all: its offset walks, the
+.fold:                          ; kernel handing it over with the read inside
+    push ax                     ; its 64KB (KERN-MEGA-MEMORY-PLAN MC8)
     push cx
     mov ax, [cd_boff]
     mov cl, 4
@@ -1530,4 +1535,5 @@ cd_bnorm:
     and word [cd_boff], 127
     pop cx
     pop ax
+.out:
     ret

@@ -37,8 +37,8 @@
 ; =============================================================================
 
 %define OS88_DRV_HIGHOK          ; kern_mega may run this image above 1MB
-                                ; (KERN-MEGA-PLAN item 82): rd_fold leaves a
-                                ; selector's offset unfolded
+                                ; (KERN-MEGA-PLAN item 82): rd_fold leaves an
+                                ; LDT selector's offset unfolded
 %include "os88drv.inc"
 %include "rdpkg.inc"            ; the package ABI - the same file the PACKAGE
                                 ; includes, so the two ends cannot drift

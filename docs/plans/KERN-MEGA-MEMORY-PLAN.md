@@ -425,6 +425,15 @@ must stay byte-identical except where a wave says why not.
     itself in an fsx bracket: allocated selectors; a hot path converted, not
     fixed up.
   - **The scratch and code selectors at FFD0h-FFF8h** - into the LDT.
+  - **Claims made in real mode before the switch** (MC8's finding 3): every
+    boot-time claim holds a real segment in a kernel word, and is given its
+    selector AT the switch, holder by holder (`mem_hicaches_f`,
+    `drv_hiboot_f` are the pattern).
+  - **File drivers get the selector itself** (MC8's finding 1):
+    `drv_fs_hi`'s 512-byte bounce is retired and the kernel splits a
+    transfer at the selector's 64KB limit. RAMDISK.DRV, NET.DRV and
+    CDROM.DRV already walk an LDT selector's offset (MC8); HTTPFS is
+    checked in the census.
 - **Step 2** packages and drivers, **step 3** the kernel, **step 4** cut the
   GDT's limit to the floor and drop the static aliases; a missed site then
   shows as a `#GP` past the limit, reported at the instruction (14.42).
@@ -537,3 +546,71 @@ rows. Nothing is recorded as built that was not.
   and the read-ahead store. Green; and red with `call mx_shed` taken out
   (CTRL.DRV stays low, nothing shed) - verified.
 - SPEC.md 50.6.8 is the contract; 28.4.11's cell table names the byte.
+
+### MC8 as built (2026-10-25) - DONE
+
+- **The folds, in the units a segment's value allows.** RAMDISK.DRV's
+  `rd_fold`, NET.DRV's `net_norm` and CDROM.DRV's `cd_bnorm` now share one
+  rule:
+  - real mode folds paragraphs, exactly as before;
+  - under `CPU_F_PM` an IDENTITY (GDT) selector folds whole 128-byte
+    granules, the kernel's own `dskw_norm` rule;
+  - an LDT selector does not fold at all - its offset walks.
+
+  The LDT arm is not reachable today, because the kernel bounces any selector
+  buffer through `drv_fs_hi` 512 bytes a call. It is in place for MC7, which
+  hands drivers selectors directly. NET.DRV banks `OSAPI_CPU_INFO` at attach
+  (`net_cpuf`), as RAMDISK.DRV already did, and so does CDROM.DRV
+  (`cd_cpuf`).
+- **CDROM.DRV says `OS88_DRV_HIGHOK`** (no arithmetic on its own CS or DS, PIO
+  only). Seen under Bochs on `make megacdtest`'s disk: `kern_mega: above 1MB:
+  CD-ROM`.
+- **`t_megagrid` scans every driver**, not only the packages that declare
+  `OS88_HIGH`. It flagged two A20 probes, both real-mode-only, registered with
+  their reasons. NET.DRV's `CPU_F_PM` test is registered in
+  `tests/megapkg.txt` (a correctness test every build needs, ~25 bytes).
+- **AUTOSTART is walked after `mega_enter`.**
+  - The walk is ONE macro body (`AS_WALK`, `kernel/desksc.inc`) assembled as
+    `as_boot` in the blob on every other kernel and as `as_bootc` in `.cold`
+    on kern_mega. `kmain` calls the latter last, after the drivers and caches
+    go up.
+  - The kern_mega arm holds no data and no CS idiom (`.cold`'s rules 1 and
+    2): the folder's name and the skip toast are immediate stores, and the
+    find's answer is a 24-byte STACK frame popped before anything opens.
+  - Seen under Bochs: the autostarted CDRack's segment is `284Ch`, a pool
+    selector, where it was `9640h` in conventional memory.
+  - A finding on the way: `mega_tasks_ok` REFUSED protected mode for the
+    whole session when an autostarted package had a worker running. A walk
+    after the switch cannot cause that.
+- **Bytes:**
+  - kern_mega `.cold` +221 (the walk; `.mega` unchanged), shared window +4
+    (the call; megaseg overhead 3,718 of 4,029);
+  - kern_big and kern_small byte-identical with a clean build of the same
+    commit;
+  - RAMDISK.DRV, NET.DRV and CDROM.DRV each a few bytes larger.
+- **A method note.** A stash-and-rebuild comparison was WRONG here: make
+  keeps generated files (the packed kernel's defines) from the dirtier
+  build, so the stashed "baseline" mixed two trees and showed a 1-byte
+  difference in stage 2 that a clean build does not have. Byte-identity is
+  checked against a clean worktree of the same commit from now on.
+- **For MC7, found here:**
+  1. Once every buffer is an LDT selector, keeping `drv_fs_hi`'s 512-byte
+     bounce would make every file-driver transfer 512 bytes a call - over the
+     LapLink cable a large slowdown. MC7 hands file drivers the selector
+     directly and SPLITS a transfer at the selector's 64KB limit. The drivers
+     are ready for that now.
+  2. `mega_tasks_ok`'s premise (real-mode frames from before the switch)
+     remains for anything else that runs before `mega_enter`.
+  3. **Every claim made in real mode before the switch** (the FAT windows,
+     the read-ahead landing, the icon store, the shortcuts table, the
+     ASSOC.DAT cache, drivers' claims, the settings buffer) holds a real
+     SEGMENT in a kernel word. Once the GDT stops covering the heap they
+     must be given selectors AT the switch, holder by holder:
+     `mem_hicaches_f` and `drv_hiboot_f` are the pattern, and MC7's census
+     has to list every one.
+- Rows named: `megagrid`, `megapkg`, `cswrite` (fast); `megacdrom` (86Box,
+  now asserting both the driver and the autostarted CDRack above 1MB);
+  `rdmove`, `rdup`, `rdpreserve`, `rdxms`, `rdcz`, `rdicon`, `rdmount`,
+  `netcoexist`, `netpromise`, `netinst`, `cdrom`, `cdromsim`, `cdromempty`,
+  `autostart` (the drivers' and the walk's real-mode paths).
+
