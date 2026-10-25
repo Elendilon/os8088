@@ -15,6 +15,9 @@ The config is the contract: every image key (`*_fn`, `cdrom_*_image_path`)
 must be a BARE file name - 86Box resolves one against the machine's own
 folder - and the file must be in --from. Anything else is refused, because
 a path that works in this tree is a path to nowhere on someone else's disk.
+So is a remembered window (`window_remember`, `window_coordinates`): it is a
+place on the screen of whoever saved the config, and without one 86Box puts
+the window's title bar off the top of the screen.
 The zip is deterministic (fixed timestamps, sorted entries), like every
 other artefact `make` writes.
 """
@@ -32,6 +35,13 @@ def images(cfg):
     for line in open(cfg, encoding="utf-8"):
         k, _, v = line.partition("=")
         k, v = k.strip(), v.strip()
+        # A remembered window is a position on the screen of whoever saved
+        # the config, and with no coordinates 86Box puts the CLIENT area at
+        # 0,0 - the title bar off the top of the screen, and the window
+        # unmovable. A shipped machine lets the window manager place it.
+        if k in ("window_remember", "window_coordinates") and v not in ("", "0"):
+            raise SystemExit("os88vmzip: %s: %s = %s; a shipped machine does not "
+                             "remember a window position" % (cfg, k, v))
         if not v or "image_history" in k:
             continue
         if not (k.endswith("_fn") or (k.startswith("cdrom_") and k.endswith("_image_path"))):
