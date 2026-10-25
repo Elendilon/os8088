@@ -6132,6 +6132,26 @@ SOAK = [
         wants=("build/mega.img", "build/megak/kernel.map",
                "build/megarun.o88", "build/lemmings.o88",
                "build/lemmings.img")),
+    Row("x3mega", "soak", py("tests/x3mega.py"), 60.0,
+        "XT-MP3 UNDER kern_mega WITH OS88_HIGHMEM DECLARED (KERN-MEGA-MEMORY-"
+        "PLAN MC7, SPEC.md 121): its claims of 64KB or less are LDT selectors "
+        "over pool blocks above 1MB, where adding paragraphs to one names "
+        "another descriptor - and it did twice, the Decode First stage cut "
+        "out of the look-ahead claim and the conventional hold's reads, both "
+        "converted (SEG_SUB, x3h_at's SEG_AT). Bochs at 16MB with an SB16, "
+        "the kern_mega arm and an MP3 on B:. play: region and look-ahead "
+        "claim above 1MB, Auto plays live on the card out of an XMS hold. "
+        "conv: XMEM_CAPS answered 0 for the open, so the hold is a 30 KB "
+        "claim above 1MB read through a window based inside it; XT Standard "
+        "Decode First onto C:: the stage a selector exactly x3_lasz + 2,560 "
+        "into the claim, the WAV x3simxt's to the byte, then played. No "
+        "kern_mega CLOSED or FAULT. RUN RED: the stage's old sum (CLOSED "
+        "XTMP3 0D at the first write out of it) and x3h_at's sum (CLOSED at "
+        "the hold's first read past +0). 60s is 49 measured",
+        needs=("bochs", "mtools", "numpy"),
+        wants=("build/mega.img", "build/megak/kernel.map",
+               "build/megarun.o88", "build/megak/apps/xtmp3.o88",
+               "build/megak/apps/xtmp3.map")),
     Row("cmemmove", "soak", py("tests/cmemmove.py"), 60.0,
         "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "

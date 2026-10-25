@@ -222210,6 +222210,18 @@ The XT part banks its work segments in its resident half (`x3x_wseg`,
 after the shrink. That is why the header grew a verb and the seal moved
 from 18 to 20 (`tools/x3xtgen.py --seal`).
 
+**On kern_mega the claims may be above 1MB too** (`OS88_HIGHMEM`, since
+2026-10-25; KERN-MEGA-MEMORY-PLAN MC7). There a claim of 64KB or less is
+an LDT selector over a pool block above 1MB, so nothing names a place
+inside a claim by adding paragraphs to it: the stage is an `OSAPI_SEG`
+`SEG_SUB` of the look-ahead claim, made once a conversion and freed with
+the claim, and a conventional hold is read and copied through `x3h_at`'s
+`SEG_AT` window, re-aimed per use. A move there is a rebase that calls no
+proc (§50.6.12), so `x3_rmove`'s delta is a real-mode kernel's alone. The
+work segments, the probe's scratch and the speaker ring are only ever
+loaded whole; the parts and the external ring are the DMA door's,
+conventional by contract. `x3mega` is the gate.
+
 ### 121.11 Measured (shipped, on emulators; real hardware and listening are TBD)
 
 Speeds are audio seconds a wall second ("x real"). Nothing is claimed real
@@ -222406,6 +222418,7 @@ has run XTMP3.
 | `xtmp3live` | soak, QEMU | the REAL decoders end to end on the SB16, the card's capture held to x3sim sample for sample: Original at 44.1 and 22.05 kHz, Half, 8-bit stereo and mono as the DEVICE's, a seek, and XT Standard's WAV byte-exact to x3simxt (§121.6, §121.9) |
 | `xtmp3xt` | soak, MartyPC | the shipped package end to end on a 4.77 MHz XT: every conversion's WAV bit-exact to the models off the VHD, the 400,000-byte conversion peak, a finished WAV's play with no GRANULE and no underrun, and (the `spk` leg, a card-less 5150) the finished WAV through the PC speaker: port 42h's first 800 writes are `tools/os88spkfx.py`'s counts for its bytes (§121.11.5) |
 | `sndfmt`, `sndfmtmarty` | soak | SOUND.DRV's 16-bit and stereo streams (§34.5.5) |
+| `x3mega` | soak, Bochs | the kern_mega arm with `OS88_HIGHMEM` declared: the region, the look-ahead claim, a 30 KB conventional hold and the Decode First stage all above 1MB; a live play on the SB16, and an XT Standard WAV byte-exact to x3simxt out of the stage (§121.10.1) |
 
 MartyPC confirmed both parts bit-exact on an 8088 core as well (eight
 STANDARD cases, twelve XT ones).

@@ -1710,6 +1710,32 @@ rows. Nothing is recorded as built that was not.
   plays all three stages there. The bank and T stay conventional, being over
   64KB, so their windows read the same as before. The class byte is the only
   byte that changed, and only the on-demand Lemmings disks carry it.
+  **XT-MP3 declares OS88_HIGHMEM (2026-10-25).** Batch 2 converted its two
+  sums (the stage a `SEG_SUB`, the conventional hold's reads `x3h_at`'s
+  `SEG_AT`), and the audit of the rest found nothing more to convert: the
+  backend's work segments, the queue probe's scratch, the look-ahead and the
+  speaker ring are loaded whole (the ring and its PCM are offsets in the
+  look-ahead claim's first 64KB, the stage its SUB), the parts and the
+  external ring come
+  through the DMA door, conventional by contract, and `x3_rmove`'s `add
+  [x3c_sseg]` never runs here, a move being a rebase that calls no proc
+  (SPEC.md 50.6.12). Its only BIOS call is `int 16h`, with no buffer. So the
+  class byte says `OS88_HIGH | OS88_HIGHMEM` in both builds, and its
+  `tests/megahigh.txt` line is gone. Byte 15 (80h -> C0h) is the only byte
+  that changed in either image. Row `x3mega` (Bochs, 16MB, SB16, the arm) has
+  two legs. `play`: the region and the look-ahead claim above 1MB, and Auto
+  plays NEONDRV live on the card out of an XMS hold. `conv`: the kernel's
+  `OSAPI_XMEM_CAPS` cell is patched to answer 0 while the track opens, so
+  the hold is a 30 KB conventional claim above 1MB with `x3h_at`'s window
+  based inside it. Then a forced XT Standard runs Decode First onto C:. The
+  stage is an LDT selector exactly `x3_lasz` + 2,560 bytes into the
+  look-ahead claim, and the WAV is x3simxt's to the byte. No CLOSED or
+  FAULT, ~50 s. Each old sum put back is red: `CLOSED XTMP3 0D` at the first
+  stage write and at the hold's first read past +0. Not exercised: the
+  speaker and Covox (the card is present), the XT backend's speed (Bochs is
+  a 386), the shipped build's own image under kern_mega (its claim code is
+  the arm's byte for byte), a 32 KB-cluster volume (whose claim passes
+  64KB and is conventional), and a pool compaction under a running play.
   **Paint (2026-10-25) - DONE, one shared path.** A canvas over 64KB under
   protected mode is laid out in `SEG_SUB` windows at fixed 32KB offsets
   (`pt_layout`'s `.win`): a row at file offset O is window O >> 15 at O &
