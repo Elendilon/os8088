@@ -81,6 +81,52 @@ A data access tests the address (section 5.2): the view takes every address
 directly but 4000-7FFF (ROMX) and FF00-FF7F (registers), and a write to
 0000-7FFF is a cartridge register write.
 
+### 3.1 The seam: code that runs on from bank 0 into the bank
+
+Code is fetched through DS:SI, and DS is chosen for SI only where SI is SET:
+a jump, a call, a return, an interrupt, `tr_int` and `rdg_resume`. Code that
+runs on from 0000-3FFF into 4000-7FFF without one - an instruction at 3FFE or
+3FFF whose operand is the bank's first byte, or one ending at 3FFF and the
+next opcode at 4000 - would read the VIEW's 4000, which is rdgsys's state
+block, not the bank. Looney Tunes does: `JP NZ,nn` at 3FFE, nn's high byte
+the bank's, and on into the bank's 4001 when it is not taken. Interpreted it
+ran the state block as code and stopped on an invalid opcode at 4003; the
+recompiler wrote a block of NO instructions at 3FFE (nothing fits before
+4000h) that exited to itself.
+
+**It costs nothing where code does not cross**: the core is diverted by a
+TRAP, op_D3 (an opcode the SM83 does not have), `seam_trap` in its tails.
+
+- **4000 is the trap while the core runs.** It is S_AF's low byte, the
+  saved A, which means nothing until the core stops: `rdg_resume` (and the
+  trace's return) write D3 there after loading AX. Fetched from the view at
+  4000-7FFF, the trap puts it back, takes DS = ROMX and dispatches the same
+  SI again.
+- **An instruction across 3FFF is the trap in the view's copy of bank 0**
+  (`rdg_seaminit`, at `rdg_init`): one at 3FFE of 3 bytes, or at 3FFF of 2
+  or 3 that is not a JR, and only where the bytes before it cannot be an
+  instruction reaching into it (`rdg_ilen`). Its opcode is kept
+  (`S_SEAMOP`); fetched, the trap copies the bank's 4000-4001 into the
+  view's 4000-4001, writes D3 where the instruction ends (`S_SEAMEND`, 4001
+  or 4002 - S_AF's and S_BC's bytes, as idle while the core runs), and runs
+  the instruction as the ROM has it. Taken, it is a jump that sets DS; not,
+  it runs on into the trap and the bank. It is DS = the view throughout and
+  no segment is computed, so it is the same on kern_mega's selectors.
+- **The recompiler gives such a PC to the interpreter**: a block that would
+  hold no instruction ends in `mov si,PC / jmp tr_int` (`rt_translate`'s
+  fall-through), where it exited to its own start.
+
+What it does not cover, and costs where it does: a READ of the patched byte
+as data reads D3 - the one ROM in 26 surveyed with an instruction across
+3FFF is Looney Tunes, and it does not; a JR whose operand is at 4000 is not
+patched (its target is relative to a PC the seam moves); and a JR from bank
+0 into 4001-7FFF lands on the state block as before (`setds` is not on a
+JR's path, and putting it there would cost every JR). `gbcpu`'s "bank seam"
+leg is `tools/gbprof/gbseam.asm` - CALL NZ across 3FFF into four banks,
+taken and not, and (`gbseam2`) INC D at 3FFF on into 4000 - interpreted and
+translated, its control the harness without the trap (`RDG_NOSEAM`);
+`gbaot` runs both precompiled.
+
 ## 4. Dispatch and the core's layout
 
 The core is one 64KB segment. **The handler for opcode X is at X x 256, and
