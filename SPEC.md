@@ -97120,6 +97120,26 @@ was - by a selector - and not by its segment:
   its 64KB (`mega_useg`), and the renderers' immediates read it through
   `VSEG` (one word per segment, in the head of `.text`, which the loader's
   splash already reaches before kmain).
+- **The file doors take a packed stream past one window** (MC7.4's 5.6): a
+  read into a selector below 1MB that a packed stream, or a plain file from
+  its offset, would carry past the selector's 64KB goes onto the segment arm
+  at the buffer's real paragraph (`dskw_tolo`), every segment register that
+  arm loads going through a scratch selector. The LZ decoder slides by
+  descriptor (`mega_slidef`), a match 64KB behind the output through
+  `MEGA_SEL_BACK`, and a match source that may slide never re-aims the
+  input's `MEGA_SEL_SLD`.
+- **A kernel module that does PARAGRAPH arithmetic keeps it** (MC7.6):
+  DISKOPS.DRV's compressor, join and cloner and CTRL.DRV's `cpc_fdtest` hold
+  their claims' REAL paragraphs (`clo_kpara` on the way in, `clo_kfree` on
+  the way out - the claims are pinned, so the paragraph stays true) and load
+  every segment register through a scratch of its own STREAM, `KSEG sreg,
+  paragraph, MEGA_SEL_Kn` (six, `MEGA_SEL_K0`-`K5`), so one stream's aim
+  never moves another's; a slide re-aims the stream's own scratch
+  (`mega_slidef`, signed). A scratch the image hands the file doors is
+  turned back into its paragraph there (`dskw_hiseg`'s GDT arm), so a write
+  past 64KB walks the segment arm as it does on kern_big. A scratch is
+  aimed with interrupts off, so an ISR that reloads one never reads half a
+  descriptor.
 
 kern_big and kern_small are byte-identical; it is kern_mega's alone.
 

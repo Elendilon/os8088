@@ -366,6 +366,32 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; that paragraph (mega_oddsegf: the paragraph itself in real mode) - never the
 ; identity GDT, which step 6 of KERN-MEGA-MEMORY-PLAN MC7 cuts. kern_mega
 ; only; every register but sreg kept, FLAGS included
+; KSEG sreg, src, slot - load sreg with the REAL paragraph src (a register
+; other than DI, or memory): on kern_mega through the scratch selector slot
+; (MEGA_SEL_K0..K5, mega_kaimf) - one slot per stream the code keeps live -
+; and a plain `mov` everywhere else. KPARA - AX = the real paragraph of the
+; segment in AX (a K scratch's base on kern_mega, AX itself elsewhere), for
+; arithmetic on a register KSEG loaded (KERN-MEGA-MEMORY-PLAN MC7.6)
+%macro KSEG 3
+%ifdef KERN_MEGA
+    push ax
+    push di
+    mov ax, %2
+    mov di, %3
+    call COLD_SEG:mega_kaimf
+    mov %1, ax
+    pop di
+    pop ax
+%else
+    mov %1, %2
+%endif
+%endmacro
+%macro KPARA 0
+%ifdef KERN_MEGA
+    call KERNEL_SEG:mega_s2segf
+%endif
+%endmacro
+
 %macro DSKW_WSEG 1
     push ax
     pushf

@@ -15904,6 +15904,24 @@ SOAK = [
         wants=("build/megacdtest.img", "build/megaapps.img",
                "build/cdaudio.cue", "build/cdrack.bin", "build/mixer.bin",
                "build/cdrom.bin", "build/sound.bin")),
+    Row("megacz", "soak", py("tests/megacz.py"), 150.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7.6: File > Compress and "
+        "Uncompress on kern_mega, on 86Box's 286 (vm/286-mega). DISKOPS.DRV "
+        "keeps its paragraph arithmetic and loads every segment register "
+        "through its stream's own scratch selector (KSEG, MEGA_SEL_K0-K5). "
+        "BIG1.TXT (packs under 64KB), BIG2.TXT (past 64KB, both segments "
+        "slide) and BIG3.TXT (streamed) are compressed byte for byte as "
+        "os88lz.lzb_compress_machine writes them, then uncompressed back to "
+        "the originals in a second boot, which also saves the Control "
+        "Panel's Reads -> Cylinder and so runs CTRL.DRV's cpc_fdtest; a "
+        "third boot clones A: onto B: and B: must be A: bar the serial; no "
+        "exception is charged to a loaded image. Red with KSEG a plain "
+        "`mov`: every packed file wrong from 32KB on and Uncompress says "
+        "`Disk error`; red with cpc_fdtest unconverted: an exception and a "
+        "save that never ends; red with clo_span's buffer slide unconverted: "
+        "the clone never ends and 1,330 sectors differ. 150s is 134 measured",
+        needs=("86box",),
+        wants=("build/mega.img",)),
     Row("megashed", "soak", py("tests/megashed.py"), 30.0,
         "SPEC.md 50.6.8, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC1: a kernel "
         "cache ABOVE 1MB is purgeable. Bochs at 16MB: B:'s Disk window and the "

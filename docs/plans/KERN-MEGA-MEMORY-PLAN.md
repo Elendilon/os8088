@@ -1151,8 +1151,62 @@ rows. Nothing is recorded as built that was not.
     (`MEGAXM: no 61`). Cost: kern_mega shared window +12, `.cold` +297;
     kern_big and kern_small byte-identical with a clean build of the same
     commit.
-  - Still to come in 5.6: DISKOPS's cloner and compressor (`compress.inc`,
-    `cmz_*`, `clo_*`) and `cpc_fdtest` (CTRL.DRV).
+  - The second half is the next entry.
+
+- **Step 5.6's second half, the modules that do paragraph arithmetic
+  (2026-10-25) - DONE, as "MC7.6".** DISKOPS.DRV's compressor, its join and
+  the cloner, and CTRL.DRV's `cpc_fdtest`, all walk their claims as REAL
+  paragraphs - 16KB slides, a 512-byte rounding of a DMA buffer, a buffer
+  placed on a 64KB page by hand, `ES - 1:8` for a header in front of a
+  window - and since 5.2 a claim's value is an LDT selector, on which that
+  arithmetic names other descriptors. They had never run under protected
+  mode since (the row below found the compressor's first fault on its first
+  call). Converting each site to windows and offsets would have reshaped
+  ~100 loads in 7,000 lines of a parse that runs at ~1,600 cycles a byte;
+  what was done instead keeps every line of arithmetic:
+  - **The claims are held as paragraphs** (`clo_kpara` after the claim,
+    `clo_kfree` on the way back, `mega_p2df` turning a paragraph back into
+    its selector for `mem_free`). They are PINNED - none of the image's
+    claims declares a proc - so a paragraph stays true for the claim's life,
+    which is also the reason the conversion is safe.
+  - **Every segment register is loaded through a scratch of its own
+    STREAM**: `KSEG sreg, paragraph, MEGA_SEL_Kn`, six of them (`MEGA_SEL_K0`
+    to `K5`, GDT entries 1FF3h-1FF8h until step 6 moves every scratch into
+    the LDT). The compressor's source is K0, its output K1, head[]/prev[] K2
+    (aimed ONCE per pack and loaded by selector at every probe and fill, the
+    one hot load), temporary views K3, the claim's base K4 and the second
+    claim K5; the join's window K0 and output K1; the cloner's header K4 and
+    staging buffer K5; `cpc_fdtest`'s cylinder K0 and track K1. One stream
+    per scratch is the whole safety argument: an aim never moves a selector
+    another live register or stack copy is holding.
+  - **A slide re-aims the stream's own scratch** (`mega_slidef`, which now
+    slides a K scratch onto itself, signed - a header's view steps BACK a
+    granule) and `KPARA` reads a scratch's paragraph back for the arithmetic
+    that starts from a live register. A scratch handed to the file doors
+    becomes its paragraph there (`dskw_hiseg`'s GDT arm), so a 160KB write
+    walks the segment arm exactly as on kern_big, and a scratch is written
+    with interrupts off (`mega_gdtaim`), so an ISR's reload never reads half
+    a descriptor.
+  - **One defect found on the way that predates the round**: `cmz_trk0/1`
+    (the pointer-tracking flag around the parse) stored to `[cur_inxfer]`
+    through `KERNEL_SEG`, which in protected mode is the kernel's CODE
+    selector - `mega_gpw` completed every one of those writes and logged it,
+    2,074 times in one Compress. It takes the data selector (`KDATAR_M`)
+    now.
+  - **`tests/megacz.py` is the row** (86Box's 286, `vm/286-mega`, three
+    boots): Compress BIG1.TXT (packs under 64KB), BIG2.TXT (past 64KB, both
+    sides slide) and BIG3.TXT (STREAMED), each byte for byte what
+    `os88lz.lzb_compress_machine` writes; Uncompress all three back; the
+    Control Panel's Reads -> Cylinder saved, which runs `cpc_fdtest`; Clone
+    Disk A: -> B:, every sector bar the serial; and no exception charged to
+    a loaded image in any boot. Red with KSEG a plain `mov` (every packed
+    file wrong from 32KB on, Uncompress says `Disk error`) and red with
+    `cpc_fdtest` unconverted (an exception, and the save never finishes).
+  - Not reached by the row: the cloner's same-drive path through XMS
+    staging (`clo_xms`, its own `CLO_XCOPY` door), Write Img, and the join
+    of a split set; all three are the same loads under the same rule.
+  - Cost: kern_mega only; kern_big and kern_small byte-identical with a
+    clean build of the same commit.
 
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to

@@ -82,6 +82,16 @@ MEGA_LDT_FREE0  equ 1280            ; M3's allocator (mega_ldt_alloc) owns the
                                     ; entries from here up: as aliases they
                                     ; would be segments A000-FFE0, where no
                                     ; image lives (KERN-MEGA-PLAN 13.3)
+MEGA_SEL_K0     equ 0xFF98          ; data, base moved per use: SIX scratches
+MEGA_SEL_K1     equ 0xFFA0          ; a kernel MODULE aims at the real
+MEGA_SEL_K2     equ 0xFFA8          ; paragraphs its own arithmetic makes -
+MEGA_SEL_K3     equ 0xFFB0          ; one per stream it keeps live, so no
+MEGA_SEL_K4     equ 0xFFB8          ; stream's aim moves another's (KSEG,
+MEGA_SEL_K5     equ 0xFFC0          ; DISKOPS.DRV; KERN-MEGA-MEMORY-PLAN MC7.6).
+                                    ; GDT entries 1FF3h-1FF8h, the identity
+                                    ; selectors of ROM segments FF98-FFC0,
+                                    ; which nothing loads (MEGA_SEL_BACK's
+                                    ; argument)
 MEGA_SEL_BACK   equ 0xFFC8          ; data, base moved per use: an LZ match's
                                     ; source 64KB behind the output, whose ES
                                     ; is MEGA_SEL_ODD and whose input DS is
@@ -2983,26 +2993,31 @@ mega_slidef:
     push di
     push es
     mov di, MEGA_SEL_SLD            ; the scratch it lands on: SLD, but an LZ
-    cmp ax, MEGA_SEL_BACK           ; MATCH's source slides onto its own, BACK
-    jne .sld                        ; - SLD is the decoder's INPUT, which the
-    mov di, ax                      ; match has on the stack (lz_match)
+    cmp ax, MEGA_SEL_K0             ; MATCH's source slides onto its own, BACK
+    jb .sld                         ; - SLD is the decoder's INPUT, which the
+    cmp ax, MEGA_SEL_BACK           ; match has on the stack (lz_match) - and
+    ja .sld                         ; a module's K scratch onto ITSELF, its
+    mov di, ax                      ; stream's own (KSEG)
 .sld:
-    mov bx, dx                      ; BX = paragraphs
-    call MEGA_SEL_CODE:mega_selbasef               ; DX:AX = the base (CL spent)
-    mov cx, bx
+    mov bx, dx                      ; BX = paragraphs, SIGNED: a module steps
+    call MEGA_SEL_CODE:mega_selbasef ; back a granule too (DX:AX = the base,
+    mov cx, bx                      ; CL spent)
     shl cx, 4
-    shr bx, 12
+    sar bx, 12
     add ax, cx
     adc dx, bx                      ; DX:AX = the base, slid
     push ax
     mov ax, MEGA_SEL_WIN            ; the GDT itself, as data
     mov es, ax
     pop ax
+    pushf
+    cli                             ; (mega_gdtaim's reason)
     mov word [es:di], 0xFFFF
     mov [es:di+2], ax
     mov dh, 0x92
     mov [es:di+4], dx
     mov word [es:di+6], 0
+    popf
     mov ax, di
     pop es
     pop di
@@ -3085,14 +3100,33 @@ mega_gdtaim:
     mov ax, MEGA_SEL_WIN            ; the GDT itself, as data
     mov es, ax
     pop ax
-    mov word [es:di], 0xFFFF
-    mov [es:di+2], ax
+    pushf                           ; one descriptor, written whole: an ISR
+    cli                             ; that reloads this selector mid-write
+    mov word [es:di], 0xFFFF        ; (its push/pop of DS) would read half of
+    mov [es:di+2], ax               ; each base
     mov dh, 0x92
     mov [es:di+4], dx
     mov word [es:di+6], 0
+    popf
     mov ax, di
     pop es
     ret
+; mega_kaimf - FAR: AX = a REAL paragraph, DI = one of MEGA_SEL_K0..K5 -> AX
+; = that scratch aimed there in protected mode; AX unchanged in real mode.
+; Every other register and FLAGS kept (KSEG, kernel.asm)
+mega_kaimf:
+    pushf
+    cmp byte [ss:mega_pm], 0
+    je .rm
+    push dx
+    mov dx, ax
+    shl ax, 4
+    shr dx, 12                      ; DX:AX = its base
+    call mega_gdtaim
+    pop dx
+.rm:
+    popf
+    retf
 section .text
 
 ; -----------------------------------------------------------------------------
@@ -11334,6 +11368,9 @@ mega_fd13f:
     retf
 mega_selbasef:
     call mega_selbase
+    retf
+mega_p2df:
+    call mega_p2d
     retf
 mx_relallm:
     call mx_relall
