@@ -742,7 +742,7 @@ make mega     # KERN_MEGA, the 286+ protected-mode kernel (docs/plans/
               #   mega120.img, its system disks - AND, since 14.66, its APPS
               #   disks build/megaapps.img and megaapps120.img: the shipped
               #   apps disk with every package's kern_mega ARM substituted
-              #   ($(MEGAPKGS): VIDEO, AUDIO, TRACKER, MIDIRACK, PIXEL), each
+              #   ($(MEGAPKGS): VIDEO, AUDIO, TRACKER, MIDIRACK, PIXEL, XTMP3, REALDMG), each
               #   the same source built -DPKG_MEGA into build/megak/apps/.
               #   Pair mega.img with megaapps.img, not with build/apps.img:
               #   the shipped Video Player REFUSES under protected mode and

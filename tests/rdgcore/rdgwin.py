@@ -329,13 +329,21 @@ def boot(o):
     os88box.subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
                             "--size", "1440", os.environ.get("RDGWIN_O88", os.path.join(ROOT, "build", "realdmg.o88")), gb]
                            + extra, check=True, stdout=os88box.subprocess.DEVNULL)
+    # RDGWIN_A: another system disk - build/mega.img for kern_mega, whose
+    # kernel map os88box takes from build/megak/ for a disk named mega*
+    # (REALDMG-SPEC section 16.2.4's measurement, on vm/286-mega)
+    a = os.environ.get("RDGWIN_A", os.path.join(ROOT, "build", "os8088.img"))
     b = os88box.launch(o.vm, name=name, hold=True, fresh=True, mem=o.mem,
-                       a=os.path.join(ROOT, "build", "os8088.img"), b=disk,
+                       a=a, b=disk,
                        temp=not o.keep, turbo=getattr(o, "quick", False))
     # THE BOOT IS GATED ON THE KERNEL'S STATE (os88box.Box.kernel_up): the
     # ami286's fresh CMOS stops in setup and is answered on the way. It was
     # 60 emulated s of polled steps plus a fixed 20 whatever the boot took,
-    # against a desktop up at ~22 (SOAK-SPEED round 3)
+    # against a desktop up at ~22 (SOAK-SPEED round 3). The mr286's MR BIOS
+    # (vm/286-mega*) wants its floppy page set instead, megacdrom's way
+    if "mega" in o.vm:
+        import megacdrom
+        megacdrom.mr_setup(b)
     b.kernel_up(prompts=BIOS_PROMPTS)
     wins = len(windows(b))
     b.to(*DRIVE_B)

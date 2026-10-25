@@ -2334,8 +2334,15 @@ selector, and every one **written through** as its data segment:
   **96**, every one at init or a lossy toggle and none in the core. The
   interpreter alone passed before, by luck: its only trap was the core's
   entry, one an event, whose frame landed below an SP that test 01 never
-  reads. The demo cartridge went from 29,273 traps in 30 seconds to 140.
-  `tests/rdgmega.py` is the row.
+  reads. The demo cartridge went from 29,273 traps in 30 seconds to 140,
+  Kirby's Dream Land's attract from 2,107,507 a minute to 96. **On 86Box's
+  `286-mega`** (the owner's mr286, 16 MHz) Kirby's Dream Land walking ran
+  at **35.9% of real time, drawing 8 frames a second, and runs at 101.2%,
+  drawing 30** - once 86Box faults where a 286 does: upstream's lets a far
+  jump through a DATA selector load CS, so the base build read 101.5% there
+  too until `tools/86box/patches/03-cs-exec-check.patch` (docs/86BOX.md).
+  docs/reports/REALDMG-MEGA-2026-10-25.md has the record. `tests/rdgmega.py`
+  is the row.
 - **Cost**: REALDMG.O88 +115 bytes on disk (the image +128, the recompiler's
   part +120, uncompressed), a line in tests/megapkg.txt.
 

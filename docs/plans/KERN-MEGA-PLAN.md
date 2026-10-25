@@ -10546,3 +10546,39 @@ its string. The rows are `megahiber` and `megap2hiber` (the hibernate),
 `megaflt` (the fault handler) and `megapiclose` (the reflection); none of the
 four defects has a row of its own, the first two needing 63 pool blocks or a
 512-byte-cluster disk and the last an NMI in a window of a few clocks.
+
+### 14.72 RealDMG on kern_mega: no fault in its core, and its cartridge in place (2026-10-25)
+
+The owner: *"RealDmg runs slow on kern mega. Find out why, and what is
+needed to fix it."* It was `mega_gpfix` and `mega_gpw` in RealDMG's hottest
+paths - every entry into its core, every recompiled block's entry and every
+chain far-jumped through a claim's DATA segment, and the recompiler patched
+its links through CS: 2,107,507 completed faults in a minute of Kirby's Dream
+Land's attract under Bochs, and **35.9% of real time** walking on the mr286.
+Worse than slow: the core runs on the Game Boy's own stack, so each fault's
+frame was pushed into the game's memory, and cpu_instrs looped in test 01.
+The package now names every segment it jumps to by its code selector
+(`OSAPI_MEM_CODESEL`, the segment itself in real mode) and writes code only
+through data segments: 96 faults, none in the core, and 101.2%. **What made
+it invisible**: 86Box's 286 did not fault a far jump through a data selector
+at all, so this machine class read 101.5% for the base build -
+`tools/86box/patches/03-cs-exec-check.patch` fixes the instrument, and any
+earlier 86Box reading of a kern_mega package that far-calls a claim by its
+identity segment was taken with the fault free.
+
+The second half of the ask - *"claim and directly use much more ram, allowing
+full recompiler caches instead of needing to thrash, or copy banks from
+xms"* - is RealDMG's arm in `$(MEGAPKGS)` (14.66): under `CPU_F_PM` the
+cartridge's banks live in one `OSAPI_XMEM_ALLOC` block and are addressed IN
+PLACE through `OSAPI_XMEM_RUN`'s selectors, so nothing is fetched and the
+heap goes to both 64KB cache segments and the 64KB block table, for every
+game. It costs two KB of pool a KB of cartridge, the run's 32KB stride; a
+16KB run (one argument to `mega_xmrunf`) would halve that and is not taken.
+What it does NOT do is put the recompiler's own CACHE above 1MB: a cache
+segment is entered as code, and a pool block has no code view
+(`mega_codesel` refuses a lone data selector), so more than two cache tiers
+above 1MB wants a code twin for a pool claim - kernel work, `.mega`, and the
+next step if the two 64KB tiers ever thrash on a game. docs/REALDMG-SPEC.md
+16.2.4 and 10.3.1 are the contract, docs/reports/REALDMG-MEGA-2026-10-25.md
+the record, `tests/rdgmega.py` the row (both builds, Bochs).
+
