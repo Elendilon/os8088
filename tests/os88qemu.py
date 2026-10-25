@@ -221,6 +221,38 @@ def acted(m, cond, secs=6.0, what=None, poll=0.05):
         time.sleep(poll)
 
 
+def key(m, qcode, secs=10.0):
+    """ONE KEY, as a keyboard sends it: the press, and the release only once
+    the ROM has STORED the press - the BIOS buffer's tail (0040:001C) moved.
+
+    HMP's `sendkey` queues the release a fixed 100 ms of HOST time after the
+    press. A guest the host starves for longer than that - a loaded box -
+    finds BOTH bytes waiting at its first IRQ1, and QEMU's 8042 loads the
+    next queued byte the moment port 60h is read. So when SPEC.md 9.7's
+    key-state map is armed, `kbm_isr`'s peek takes the press and the ROM
+    reads the release: the keystroke is gone - two IRQ1s and nothing in the
+    BIOS buffer (vidxiphdhold, the Video Player arming the map for
+    Alt+Enter; 1 run in 4 at four lanes). A real keyboard cannot do that: it
+    holds its next byte until the controller has been read and its clock
+    released, about a millisecond. This is that pacing, on the guest's
+    clock. QEMU's own IRQ count is NOT the signal - it counts the line being
+    RAISED, which is the byte being queued, not the guest taking it.
+
+    For a key the ROM stores nothing for (a shift key) the tail never moves,
+    so that wait is bounded by `secs` of guest time and the release goes
+    anyway; answers whether the tail moved."""
+    import xmcheck
+    ev = {"type": "key", "data": {"down": True,
+                                  "key": {"type": "qcode", "data": qcode}}}
+    t0 = m.read(0x41C, 2)
+    xmcheck.qmp_exec(m.sock, "input-send-event", {"events": [ev]})
+    took = acted(m, lambda: m.read(0x41C, 2) != t0, secs=secs,
+                 what="the ROM to store %s's press" % qcode, poll=0.005)
+    ev["data"]["down"] = False
+    xmcheck.qmp_exec(m.sock, "input-send-event", {"events": [ev]})
+    return took
+
+
 def pace(m, secs, poll=0.02):
     """Spend `secs` of GUEST time - the wait for a pause with nothing to wait
     on (a gesture's spacing, a program left to run, a NEGATIVE case's "and

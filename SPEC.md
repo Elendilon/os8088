@@ -15356,6 +15356,17 @@ Five things are load-bearing:
   answer after arming is always "up"**, and a key already held when the map
   arms is not seen until it is pressed again. Neither can latch anything
   wrong — a break code clears a bit that is already clear.
+  **QEMU's 8042 REFUTES the peek when a second byte is queued** (measured in
+  the soak, `vidxiphdhold`): QEMU loads the next byte the moment port 60h is
+  read, so a press and its release waiting together at one IRQ1 lose the
+  press to the peek - two IRQ1s, nothing in the BIOS buffer. A real 8042
+  cannot be made to do it, because the keyboard sends its next byte only
+  after the controller is read and its clock released (~1 ms); an emulated
+  or SMM-emulated one may. The harness paces keys the way a keyboard does
+  (`tests/os88qemu.py`'s `key`). The kernel-side fix - taking the scancode
+  from the AT BIOS's own `int 15h AH=4Fh` intercept instead of peeking where
+  the ROM offers it - is open, and is an owner's decision: it hooks a vector
+  every handoff would have to give back.
 - **The map is cleared at the arm, not at boot.** `.bss` arrives zeroed by the
   accident §2.5 describes, and a bit stuck *on* here is a key an application
   believes is held for the rest of the session. Nine bytes make the initial

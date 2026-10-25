@@ -115,6 +115,34 @@ def qmp(sock, *cmds):
     return out + "\n" if out else ""
 
 
+def qmp_exec(sock, execute, arguments=None):
+    """ONE raw QMP command - for the few that are not HMP's, such as
+    `input-send-event`, which can send a key's press and its release apart
+    where HMP's `sendkey` sends both. On the kept connection when there is
+    one; a refusal is the same SystemExit as `qmp`'s."""
+    t = os.path.join(ROOT, "tools")
+    if t not in sys.path:
+        sys.path.insert(0, t)
+    import qmp as qmpc
+    obj = {"execute": execute}
+    if arguments is not None:
+        obj["arguments"] = arguments
+    c = _KEEP.get(sock)
+    if c is None and sock in _WANT:
+        c = _KEEP[sock] = qmpc.Client(sock)
+    if c is not None:
+        r = c.send(obj)
+    else:
+        c = qmpc.Client(sock)
+        try:
+            r = c.send(obj)
+        finally:
+            c.close()
+    if "error" in r:
+        raise SystemExit("xmcheck: qmp %s failed: %r" % (execute, r["error"]))
+    return r.get("return")
+
+
 _KEEP = {}
 _WANT = set()
 
