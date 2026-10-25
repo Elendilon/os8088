@@ -67,6 +67,26 @@ def rom_path(name, built):
     return os.path.join(getgbtest.DEST, name)
 
 
+def straddle():
+    """A block start whose first instruction runs past 3FFFh is the
+    interpreter's (gbaot.fits): Looney Tunes' JP NZ at 3FFE, its high byte
+    the switched-in bank's, came in as a miss and spun the machine for ever.
+    A 32KB ROM that falls from BIT 6,A at 3FFC into it, the miss named as a
+    seed: the walk finds it, and no entry may be made there"""
+    d = bytearray(0x8000)
+    d[0x100:0x103] = b"\xC3\xFC\x3F"          # JP 3FFC
+    d[0x3FFC:0x4000] = b"\xCB\x77\xC2\x81"    # BIT 6,A / JP NZ,xx81 (xx at 4000)
+    d[0x4000] = 0x01
+    rom = gbstatic.Rom(bytes(d))
+    found, extra = gbaot.walk(rom, {(0, 0x3FFE)})
+    lead = gbaot.leaders(rom, found, extra)
+    if (0, 0x3FFE) not in found:
+        return "the walk did not find the straddling instruction: the check tests nothing"
+    if (0, 0x3FFE) in lead:
+        return "a block start at 3FFE, whose JP's high byte is at 4000h"
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("-k", help="only the rows whose label contains this")
@@ -78,6 +98,9 @@ def main():
     work = tempfile.mkdtemp(prefix="gbaot-")
     bad = 0
     t0 = time.time()
+    why = straddle()
+    print("gbaot: a block across 3FFFh: %s" % ("FAIL: " + why if why else "refused, ok"))
+    bad += why is not None
     for label, name, frames, serial in SUITE:
         if a.k and a.k not in label:
             continue

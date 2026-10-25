@@ -3172,6 +3172,18 @@ Two rules make a cut invisible:
 `RT_AOTSTOP` is the host's alone. The package's and the harness's
 translator assemble exactly as before it.
 
+**No block starts on an instruction that runs past its region** (3FFFh for
+ROM0, 7FFFh for a bank): `gbaot.fits` refuses it as an entry, and it is
+interpreted. `rt_translate` copies the region's bytes only, so such a block
+holds NO instruction and falls through to its own PC, and the host prelinks
+that exit to the block itself. The recompiler's own exits go through the
+dispatcher and get away with it; a precompiled machine spins for ever.
+Looney Tunes (GBC) has a `JP NZ` at 3FFE whose high byte is the switched-in
+bank's: the walk reaches it by falling through, a heat run's miss made it a
+block start, and the heat-promoted package hung after frame 3,000 of the
+harness's script where the unpromoted one stayed identical for 6,000.
+`tests/gbaot.py` builds that shape and asserts the refusal.
+
 ### 20.4 Rounds and groups
 
 `translate` gives the driver two cache segments a round. The first round
@@ -3325,12 +3337,27 @@ The table is laid out for 64 rows, the most a part table holds, and the
 host sets the count.
 
 **The load** (`rw_load`), in the order the memory is worth:
-1. the **HOT** images - the meta's count (59), the first so many that with
-   the core hold 99% of what the counters ran (20.11);
-2. the ROM, section 10's plan, with **eight** slots as its least, then
-   four, then a hot image given back - and the plan takes up to every bank
-   there is;
-3. the **COLD** images, in what the ROM and the cartridge's RAM left.
+1. **EVERY** image, hot ones first - the meta's count (59) is the first so
+   many that with the core hold 99% of what the counters ran (20.11) - from
+   the CEILING (`OSAPI_MEM_CLAIM_HI`): an image is a CS that never moves;
+2. the ROM, section 10's plan, with **eight** slots as its least: COLD
+   images go back one at a time until eight fit, then four slots, then a hot
+   image - and the plan takes every KB left, up to every bank there is;
+3. any image given back, again, in what the ROM and the cartridge's RAM
+   left.
+
+For steps 1 and 2 the load's hold on our claims (rwmove.inc) is let go
+(`rw_aloose`, `rw_atight` after the slots' claim): nothing holds one of our
+segments in a register there, and the plan's `OSAPI_MEM_AVAIL` and the
+slots' one claim must see the frame buffers and the damage memory as the
+movable claims they are. Held, they stood mid-heap where the window's caches
+had put them, and on 86Box's Victory (580K heap, the owner's) Looney Tunes
+(GBC) found no 152KB run beside three images and kept **1 of 8 beside 9
+slots** it fetched 6 banks into, 13% of the machine in the interpreter. Let
+go, the claims compact and it keeps **2 of 8 beside 10 slots**, with 32K
+over: the most eight slots leave. The order before this put the cold images
+last, and the plan had taken every KB for slots by then - so a precompiled
+cartridge whose cold code mattered had none of it.
 
 It took two field runs to get there. The first package asked the plan for
 eight slots before it would give an image back, as REALDMG.O88 does, and

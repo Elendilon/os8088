@@ -140,11 +140,22 @@ def leaders(rom, found, extra, side=False):
     for b, pc in lead:
         if b is None:                    # bank 0 into 4000-7FFF of no known bank:
             for bb in range(1, rom.banks):   # every bank the walk found it in
-                if (bb, pc) in found:
+                if (bb, pc) in found and fits(found, bb, pc):
                     out.add((bb, pc))
-        elif (b, pc) in found and pc < 0x8000:
+        elif (b, pc) in found and pc < 0x8000 and fits(found, b, pc):
             out.add((b, pc))
     return out
+
+
+def fits(found, b, pc):
+    """the block's first instruction inside its own region: one whose bytes
+    run past 3FFFh or 7FFFh is the interpreter's. rt_translate copies the
+    region's bytes only, so it emits NO instruction there and a fall exit to
+    its own PC, which the host prelinks to itself - Looney Tunes' JP NZ at
+    3FFE, whose high byte is the switched-in bank's, put there by a miss,
+    spun the machine for ever (REALDMG-SPEC 20.3)"""
+    op = found[(b, pc)]
+    return pc + (2 if op == 0xCB else G.LEN[op]) <= (0x4000 if pc < 0x4000 else 0x8000)
 
 
 # --- the machine ------------------------------------------------------------
