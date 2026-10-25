@@ -510,9 +510,7 @@ def leg_xtfile():
                 "Auto's decision", 60, 0.1)
         r.key("s")
         r.until(lambda: r.st()["md"] == E.MD_IDLE, "the stop", 20, 0.1)
-        for _ in range(E.Q_XTSTD):
-            r.key("q")
-            time.sleep(0.3)
+        r.override_to(E.Q_XTSTD)
         check(leg, "the override is XT STANDARD",
               r.rd("x3_st", 3)[2] == E.Q_XTSTD)
         nf0 = r.nfetch()

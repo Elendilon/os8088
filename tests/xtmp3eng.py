@@ -295,8 +295,25 @@ class Rig(object):
     def hmp(self, *c):
         return xmcheck.qmp(self.sock, *c)
 
+    def override_to(self, want, limit=16):
+        """Q until the quality override READS `want` (x3_st's third byte),
+        each press waited for: a count of presses, slept between, left the
+        override wherever a press the app took late put it, and the Decode
+        First that followed asked for another rung or nothing at all
+        ('state 3 md 0' in the soak)"""
+        for _ in range(limit):
+            was = self.rd("x3_st", 3)[2]
+            if was == want:
+                return True
+            self.key("q")
+            self.until(lambda: self.rd("x3_st", 3)[2] != was,
+                       "the override to step", 5, 0.05)
+        return self.rd("x3_st", 3)[2] == want
+
     def key(self, k):
-        self.hmp("sendkey " + k)
+        os88qemu.key(self, k)       # the press, then the release once the ROM
+                                    # stored it: sendkey's pair can arrive
+                                    # together and lose the press (os88qemu.key)
 
     def ticks(self):
         return struct.unpack("<H", self.read(0x46C, 2))[0]
@@ -364,11 +381,11 @@ class Rig(object):
     def open_file(self, drive, name, listing):
         """double-click drive's zone, then NAME's row in its Disk window:
         LISTING is the window's visible order (folders first, then names)"""
-        xmcheck.dblclick(self.sock, ICON_X, DRIVE_Y[drive])
+        os88qemu.mouse_dblclick(self, S, self.hmp, ICON_X, DRIVE_Y[drive])
         time.sleep(2.5)
         y = ROW_Y0 + ROW_H * listing.index(name)
         for _ in range(3):
-            xmcheck.dblclick(self.sock, ROW_X, y)
+            os88qemu.mouse_dblclick(self, S, self.hmp, ROW_X, y)
             if self.until(lambda: self.x3seg() is not None, "XTMP3's window",
                           20):
                 self.seg = self.x3seg()
@@ -384,36 +401,54 @@ class Rig(object):
         over QMP)"""
         def w(name):
             return struct.unpack("<H", self.read(S(name), 2))[0]
-        n = w("menu_nbar")
-        raw = self.read(S("menu_bar"), n * geom.MB_ENTSZ)
-        cell = None
-        for i in range(n):
-            b = i * geom.MB_ENTSZ
-            tp = struct.unpack_from("<H", raw, b + geom.MB_TITLE)[0]
-            sg = struct.unpack_from("<H", raw, b + geom.MB_SEG)[0]
-            if tp and sg:
-                t = self.read((sg << 4) + tp, 12).split(b"\0")[0]
-                if t.decode("latin-1") == title:
-                    cell = (struct.unpack_from("<H", raw, b + geom.MB_XL)[0],
-                            struct.unpack_from("<H", raw, b + geom.MB_XR)[0])
-        if cell is None:
+
+        def find():
+            n = w("menu_nbar")
+            raw = self.read(S("menu_bar"), n * geom.MB_ENTSZ)
+            for i in range(n):
+                b = i * geom.MB_ENTSZ
+                tp = struct.unpack_from("<H", raw, b + geom.MB_TITLE)[0]
+                sg = struct.unpack_from("<H", raw, b + geom.MB_SEG)[0]
+                if tp and sg:
+                    t = self.read((sg << 4) + tp, 12).split(b"\0")[0]
+                    if t.decode("latin-1") == title:
+                        return (struct.unpack_from("<H", raw, b + geom.MB_XL)[0],
+                                struct.unpack_from("<H", raw, b + geom.MB_XR)[0])
+            return None
+        # THE TITLE IS WAITED FOR, not read once: open_file returns when
+        # XTMP3's WINDOW exists, and its menus reach the bar when that window
+        # comes to the front - a moment later, and on a loaded box late
+        # enough that a pick made at once found no "File" (dfdel, offdir and
+        # wavdirs in the soak, a different set each run)
+        box = []
+        if not self.until(lambda: box.append(find()) or box[-1], "the %s "
+                          "menu on the bar" % title, 10, 0.1):
             return False
+        cell = box[-1]
         x = (cell[0] + cell[1]) // 2
-        xmcheck.goto(self.sock, x, 6)
-        self.hmp("mouse_button 1")
-        if not self.until(lambda: w("menu_y1") and
-                          self.read(S("menu_dropd"), 1)[0], "the pull-down",
-                          10, 0.1):
-            self.hmp("mouse_button 0")
+        # CLOSED LOOP (os88qemu.mouse_to/mouse_button): every move and both
+        # edges confirmed against the kernel's mouse_x/mouse_y/mouse_btn.
+        # tools/mouse.py dead-reckons QEMU's serial mouse, and a packet lost
+        # or merged on a loaded box put the press beside the title - "the
+        # pull-down" never came - or the release on the wrong item
+        hmp = self.hmp
+        try:
+            os88qemu.mouse_to(self, S, hmp, x, 6)
+            os88qemu.mouse_button(self, S, hmp, 1)
+            if not self.until(lambda: w("menu_y1") and
+                              self.read(S("menu_dropd"), 1)[0],
+                              "the pull-down", 10, 0.1):
+                os88qemu.mouse_button(self, S, hmp, 0)
+                return False
+            iy = (w("menu_y1") + 1 + item * geom.MENU_ITEM_H
+                  + geom.MENU_ITEM_H // 2)
+            os88qemu.mouse_to(self, S, hmp, x, iy, btn=1)
+            ok = self.until(lambda: w("menu_sel") == item, "item %d" % item,
+                            10, 0.1)
+            os88qemu.mouse_button(self, S, hmp, 0)
+        except os88qemu.MouseError as e:
+            print("     (%s)" % e)
             return False
-        iy = w("menu_y1") + 1 + item * geom.MENU_ITEM_H + geom.MENU_ITEM_H // 2
-        subprocess.run([sys.executable, os.path.join(ROOT, "tools",
-                                                     "mouse.py"), self.sock,
-                        "move", "0", str(iy - 6)], capture_output=True,
-                       cwd=ROOT)
-        ok = self.until(lambda: w("menu_sel") == item, "item %d" % item, 10,
-                        0.1)
-        self.hmp("mouse_button 0")
         return ok
 
     def alert_button(self, k):
@@ -421,6 +456,15 @@ class Rig(object):
         of its two clicked, at os88ui_arect's own formula"""
         aw, ah, bw, bg, by, bh = 288, 92, 72, 12, 46, 13
         n = S("wm_wins")
+
+        def up():                       # WAITED FOR: the press that asks
+            for i in range(geom.MAX_WIN):   # opens it a pass later, and on
+                rec = self.read(n + i * geom.WIN_SIZE, geom.WIN_SIZE)  # a
+                fl, _x, _y, ww, hh = struct.unpack_from("<HHHHH", rec, 0)
+                if fl & 2 and aw <= ww <= aw + 2 and hh == ah:  # loaded box
+                    return True             # a fixed sleep missed it
+            return False
+        self.until(up, "the alert", 15, 0.1)
         for i in range(geom.MAX_WIN):
             rec = self.read(n + i * geom.WIN_SIZE, geom.WIN_SIZE)
             fl, x, y, ww, hh = struct.unpack_from("<HHHHH", rec, 0)
@@ -428,7 +472,11 @@ class Rig(object):
                 left = x + (ww - (2 * (bw + bg) - bg)) // 2
                 bx = left + k * (bw + bg) + bw // 2
                 byy = y + geom.TITLE_H + by + bh // 2
-                xmcheck.click(self.sock, bx, byy)
+                try:                    # closed loop, as menu_pick
+                    os88qemu.mouse_click(self, S, self.hmp, bx, byy)
+                except os88qemu.MouseError as e:
+                    print("     (%s)" % e)
+                    return False
                 return True
         wins = []
         for i in range(geom.MAX_WIN):
@@ -748,12 +796,21 @@ def leg_slowdown():
             r.done()
 
 
+def save_dialog(r):
+    """the drive dialog's Enter has asked for the SAVE dialog: wait until it
+    is up (fdlg_win). A fixed 2.5 s let the next Enter land before it was,
+    on a loaded box, and the conversion never started (xtmp3eng in the
+    soak: 'state 3 md 0')"""
+    r.until(lambda: struct.unpack("<H", r.read(S("fdlg_win"), 2))[0],
+            "the Save dialog", 30, 0.1)
+
+
 def conv_flow(r, leg, expect_dialog=True):
     """the drive dialog's Enter, the Save dialog's Enter, the conversion"""
     r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 60, 0.2)
     check(leg, "the drive dialog is up", r.st()["state"] == ST_CHOOSE)
     r.key("ret")
-    time.sleep(2.5)
+    save_dialog(r)
     r.key("ret")
     r.until(lambda: r.st()["md"] not in (MD_CHOOSE, MD_CONV), "the end of "
             "the conversion", 240, 0.3)
@@ -820,7 +877,7 @@ def leg_cancel():
             return
         r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 90)
         r.key("ret")
-        time.sleep(2.5)
+        save_dialog(r)
         r.key("ret")
         r.until(lambda: r.st()["md"] == MD_CONV and r.st()["pct"] > 3,
                 "the conversion under way", 60)
@@ -994,7 +1051,7 @@ def leg_twovol():
         r.key("down")
         time.sleep(1)
         r.key("ret")
-        time.sleep(2.5)
+        save_dialog(r)
         r.key("ret")
         r.until(lambda: r.st()["md"] not in (MD_CHOOSE, MD_CONV), "the end",
                 240, 0.3)
@@ -1096,9 +1153,7 @@ def leg_xtpeak():
                 90, 0.2)
         r.key("esc")
         r.until(lambda: r.st()["md"] == MD_IDLE, "the dialog's cancel", 20)
-        for _ in range(Q_XTSTD):        # Q: AUTO, ORIGINAL ... XT STANDARD
-            r.key("q")
-            time.sleep(0.4)
+        r.override_to(Q_XTSTD)        # Q: AUTO, ORIGINAL ... XT STANDARD
         check(leg, "the override is XT STANDARD",
               r.rd("x3_st", 3)[2] == Q_XTSTD, QNAME[r.rd("x3_st", 3)[2]])
         r.key("d")
@@ -1130,9 +1185,7 @@ def leg_xtpeak():
                 "Auto's decision", 90, 0.2)
         r.key("s")
         r.until(lambda: r.st()["md"] == MD_IDLE, "the stop", 20)
-        for _ in range(Q_XTSTD):
-            r.key("q")
-            time.sleep(0.4)
+        r.override_to(Q_XTSTD)
         r.key("spc")
         r.until(lambda: r.st()["md"] == MD_LIVE, "XT STANDARD live", 60, 0.2)
         s = r.st()
@@ -1194,7 +1247,7 @@ def clu_convert(r, leg):
     r.key("down")
     time.sleep(1)
     r.key("ret")
-    time.sleep(2.5)
+    save_dialog(r)
     r.key("ret")
     r.until(lambda: r.st()["md"] not in (MD_CHOOSE, MD_CONV), "the end of "
             "the conversion", 240, 0.3)
@@ -1217,9 +1270,7 @@ def leg_xtclu():
                     0.2)
             r.key("esc")
             r.until(lambda: r.st()["md"] == MD_IDLE, "the cancel", 20)
-            for _ in range(Q_XTSTD):
-                r.key("q")
-                time.sleep(0.4)
+            r.override_to(Q_XTSTD)
             r.key("d")
             if clu == 32768:                # GREYED IN THE DIALOG for XT
                 r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive "
@@ -1321,7 +1372,7 @@ def leg_chgsrc():
             return
         r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 90)
         r.key("ret")
-        time.sleep(2.5)
+        save_dialog(r)
         r.key("ret")
         r.until(lambda: r.st()["md"] == MD_CONV and r.st()["pct"] > 10,
                 "the conversion under way", 90)
@@ -1451,7 +1502,7 @@ def leg_batch():
         wp = struct.unpack("<H", r.read(S("fdlg_win"), 2))[0]
         wx, wy = struct.unpack("<HH", r.read(geom.KERNEL_SEG * 16 + wp + 2, 4))
         time.sleep(1.5)                     # its listing: B:, as the Disk
-        xmcheck.dblclick(r.sock, wx + 70,   # window lists it, the second MP3
+        os88qemu.mouse_dblclick(r, S, r.hmp, wx + 70,   # window lists it, the second MP3
                          wy + 47 + 16 * lst.index(b))
         r.until(lambda: r.b("x3_qn") == 2, "the queue of two", 20)
         check(leg, "two tracks queued", r.b("x3_qn") == 2, str(r.b("x3_qn")))
@@ -1461,7 +1512,7 @@ def leg_batch():
         time.sleep(0.8)
         check(leg, "'Queue too: Yes'", r.b("x3c_bqueue") == 1)
         r.key("ret")
-        time.sleep(2.5)
+        save_dialog(r)
         r.key("ret")
         r.until(lambda: r.st()["md"] not in (MD_CHOOSE, MD_CONV),
                 "the first conversion", 240, 0.3)
@@ -1515,6 +1566,9 @@ def leg_rovol():
                                                       floppy_listing([name]))):
             return
         r.until(lambda: r.st()["md"] == MD_CHOOSE, "the drive dialog", 90)
+        # ...and its LIST, which the dialog fills after the mode flips
+        r.until(lambda: r.b("x3c_nv") >= 2, "the drive dialog's volumes",
+                15, 0.1)
         nv = r.b("x3c_nv")
         vv, vf = list(r.rd("x3c_vv", nv)), list(r.rd("x3c_vf", nv))
         print("     volumes %s flags %s" % (["%c:" % (65 + v) for v in vv], vf))
@@ -1818,9 +1872,8 @@ def leg_offvol():
               "fetches %s" % nf)
         r.key("s")                          # then XT STANDARD, forced, and
         r.until(lambda: r.st()["md"] == MD_IDLE, "the stop", 20)
-        for _ in range(Q_XTSTD):            # Decode First onto C: - the XT
-            r.key("q")                      # part fetched from B: as well
-            time.sleep(0.4)
+        r.override_to(Q_XTSTD)          # Decode First onto C: - the XT
+                                        # part fetched from B: as well
         r.key("d")
         conv_flow(r, leg)
         s = r.st()
@@ -1857,7 +1910,7 @@ def leg_qagain():
         wp = struct.unpack("<H", r.read(S("fdlg_win"), 2))[0]
         wx, wy = struct.unpack("<HH", r.read(geom.KERNEL_SEG * 16 + wp + 2, 4))
         time.sleep(1.5)
-        xmcheck.dblclick(r.sock, wx + 70, wy + 47 + 16 * lst.index(b))
+        os88qemu.mouse_dblclick(r, S, r.hmp, wx + 70, wy + 47 + 16 * lst.index(b))
         r.until(lambda: r.b("x3_qn") == 2, "the queue of two", 20)
         def row():                          # entry 1 (xtmp3.asm's QE_*: 60
             raw = r.rd("x3_q", 2 * 60)[60:]  # bytes, flags 18, title 19)
@@ -1868,7 +1921,8 @@ def leg_qagain():
               r.st()["md"] == MD_LIVE and t == "NIGHTSIG" and fl & 0x40,
               "md %d '%s' flags %02x" % (r.st()["md"], t, fl))
         r.key("s")
-        r.until(lambda: row()[0] != "NIGHTSIG", "the title, idle", 20, 0.2)
+        r.until(lambda: r.st()["md"] == MD_IDLE, "the stop", 30)
+        r.until(lambda: row()[0] != "NIGHTSIG", "the title, idle", 60, 0.2)
         t, fl = row()
         check(leg, "idle: asked again, the tag's title", t == "NIGHT SIGNALS"
               and not fl & 0x40, "'%s' flags %02x" % (t, fl))
@@ -1900,7 +1954,7 @@ def leg_offdir():
         wp = struct.unpack("<H", r.read(S("fdlg_win"), 2))[0]
         wx, wy = struct.unpack("<HH", r.read(geom.KERNEL_SEG * 16 + wp + 2, 4))
         time.sleep(1.5)
-        xmcheck.dblclick(r.sock, wx + 70, wy + 47 + 16)  # '..', then the song
+        os88qemu.mouse_dblclick(r, S, r.hmp, wx + 70, wy + 47 + 16)  # '..', then the song
         r.until(lambda: r.b("x3_qn") == 1, "the queue of one", 20)
         if not check(leg, "C:\\MEDIA\\%s queued" % NEON, r.b("x3_qn") == 1):
             return
@@ -1917,9 +1971,9 @@ def leg_offdir():
                   s["md"], QNAME[s["qual"]], r.errtext(), nf))
         r.key("s")                          # the XT part: its fetch does not
         r.until(lambda: r.st()["md"] == MD_IDLE, "the stop", 20)
-        for _ in range(Q_XTSTD):            # follow the carve's read, so the
-            r.key("q")                      # file is found by NAME (the
-            time.sleep(0.4)                 # owner's case: 'Needs 330 KB')
+        r.override_to(Q_XTSTD)          # follow the carve's read, so the
+                                        # file is found by NAME (the
+                                        # owner's case: 'Needs 330 KB')
         r.key("d")
         conv_flow(r, leg)
         s = r.st()
@@ -1965,12 +2019,12 @@ def leg_wavdirs():
                   s["state"], played(), dlen(), s["under"], s["elap"],
                   s["total"], r.errtext()))
     try:
-        xmcheck.dblclick(r.sock, ICON_X, DRIVE_Y["C"])
+        os88qemu.mouse_dblclick(r, S, r.hmp, ICON_X, DRIVE_Y["C"])
         time.sleep(2.5)
-        xmcheck.dblclick(r.sock, ROW_X, ROW_Y0 + ROW_H * 2)    # XTMP3
+        os88qemu.mouse_dblclick(r, S, r.hmp, ROW_X, ROW_Y0 + ROW_H * 2)    # XTMP3
         time.sleep(2.5)
         for _ in range(3):                  # '..', X3STUB.CFG, XTMP3.O88
-            xmcheck.dblclick(r.sock, ROW_X, ROW_Y0 + ROW_H * 2)
+            os88qemu.mouse_dblclick(r, S, r.hmp, ROW_X, ROW_Y0 + ROW_H * 2)
             if r.until(lambda: r.x3seg() is not None, "XTMP3's window", 20):
                 r.seg = r.x3seg()
                 break
@@ -1983,15 +2037,13 @@ def leg_wavdirs():
         wp = struct.unpack("<H", r.read(S("fdlg_win"), 2))[0]
         wx, wy = struct.unpack("<HH", r.read(geom.KERNEL_SEG * 16 + wp + 2, 4))
         time.sleep(1.5)                     # C:\MEDIA: '..', the song
-        xmcheck.dblclick(r.sock, wx + 70, wy + 47 + 16)
+        os88qemu.mouse_dblclick(r, S, r.hmp, wx + 70, wy + 47 + 16)
         r.until(lambda: r.b("x3_qn") == 1, "the queue of one", 20)
         r.key("spc")
         r.until(lambda: r.st()["md"] == MD_LIVE, "live", 60, 0.2)
         r.key("s")
         r.until(lambda: r.st()["md"] == MD_IDLE, "the stop", 20)
-        for _ in range(Q_XTSTD):
-            r.key("q")
-            time.sleep(0.4)
+        r.override_to(Q_XTSTD)
         r.key("d")
         conv_flow(r, leg)                   # the Save dialog stands in C:\
         s = r.st()
