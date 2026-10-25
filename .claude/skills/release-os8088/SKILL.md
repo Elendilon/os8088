@@ -199,10 +199,12 @@ ls -l build/os8088.img build/os8088-120.img build/os8088-720.img \
       build/apps.img build/apps120.img build/apps720.img build/apps360.img \
       build/media360.img \
       build/office360.img build/network360.img build/games360.img \
+      build/emu360.img build/util360.img build/more720.img \
+      build/small360.img build/small720.img \
       build/emu.img
 ```
 
-All thirteen must exist -- step 3a refuses to pack without them.
+All eighteen must exist -- step 3a refuses to pack without them.
 
 **And the published tree** INSTALL upgrades from (SPEC.md 117.10.2):
 
@@ -299,7 +301,7 @@ make viddemo                          # VIDDEMO-*-ST11R.VHD -- the Video
 ```
 
 Offer these, do not assume them. If `tools/setup-cc.sh` cannot run -- no
-network, no host toolchain -- **release the thirteen and say which on-demand disks
+network, no host toolchain -- **release the eighteen and say which on-demand disks
 were skipped**, and know that step 4d then cannot refresh the Docs disk guide,
 which reads every image it lists or none; they are a convenience, and a release that waits on one is a
 release that does not happen. `mkzip.py` prints the ones it did not find, so

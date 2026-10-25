@@ -97,6 +97,15 @@ NETWORKIMG360 := $(BUILD)/network360.img
 GAMESIMG360   := $(BUILD)/games360.img
 EMUIMG360     := $(BUILD)/emu360.img
 UTILIMG360    := $(BUILD)/util360.img
+# ...and the 720KB geometry's SECOND apps disk (SPEC.md 24.7): what the 720KB
+# apps disk had to leave off, on a disk of its own beside it
+MOREIMG720    := $(BUILD)/more720.img
+# ...and the 128KB machine's two system disks (SPEC.md 24.5.7), kern_small
+# and its whole payload, SHIPPED since 2026-10-25: `make small` was on demand
+# while the kernel was not ready to release, and it is. The 1.44MB small.img
+# stays on demand - the release carries the 128KB machine at 360KB and 720KB
+SMALLIMG360   := $(BUILD)/small360.img
+SMALLIMG720   := $(BUILD)/small720.img
 
 # ...and all thirteen in one list, because it appeared in FOUR places (`all`
 # and the three tiers) and each of those had to be edited by hand the first
@@ -106,7 +115,8 @@ UTILIMG360    := $(BUILD)/util360.img
 SHIPIMGS := $(IMG) $(IMG120) $(IMG720) $(IMG360) \
             $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
             $(MEDIAIMG360) $(OFFICEIMG360) $(NETWORKIMG360) $(GAMESIMG360) \
-            $(EMUIMG360) $(UTILIMG360)
+            $(EMUIMG360) $(UTILIMG360) $(MOREIMG720) \
+            $(SMALLIMG360) $(SMALLIMG720)
 
 # ...and each of them SIGNS IN A SLOT OF ITS OWN (SPEC.md 18.8.2.2): os88disk.py
 # reads this list (tools/os88ship.py) and steers every member's boot-sector
@@ -228,6 +238,10 @@ VMXTCOVOX := $(CURDIR)/vm/xt-covox
 VMXTWIRE := $(CURDIR)/vm/xt-wire
 VM286SND := $(CURDIR)/vm/286-sound
 VM286VID := $(CURDIR)/vm/286-video
+# ...and the three machines `make viddemo`'s hard disks are built for, one per
+# adapter - the owner's own: the mr286 for VGA's IDE disk, a 5150 on the
+# 10/27/82 ROM with an ST11R for CGA's and Hercules'
+VMVIDDEMO := $(CURDIR)/vm/viddemo-
 VM286RDG := $(CURDIR)/vm/286-realdmg
 VM386SND := $(CURDIR)/vm/386-sound
 VM386CD  := $(CURDIR)/vm/386-cdrom
@@ -2256,7 +2270,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
-        286-sound 286-video 286-realdmg 286-victory 386-sound 486 486-video 486-vesa 486-vesa-desk pentium \
+        286-sound 286-video viddemo-vga viddemo-cga viddemo-herc viddemozip 286-realdmg 286-victory 386-sound 486 486-video 486-vesa 486-vesa-desk pentium \
         bench field combo combo144 combo720 stackprobe trklog trkscrl npbench clicktest marty \
         comscan lptlink calcref \
         fonts fontsheets fontlist \
@@ -2787,7 +2801,11 @@ endif
 # ...and this tests the KNOBS, not $(VIDDEF), and NAMES them: the banner used
 # to be a row of blank assignments, which says no more than the alarm itself.
 # Both halves of that were the same bug and $(KNOBS) is where it is explained.
-ifneq ($(KNOBS),)
+# KERN_SMALL ALONE raises no alarm: it is the SHIPPED small-machine kernel
+# (SPEC.md 24.5.7), which `all` builds in its own sub-make, so the banner's
+# "rebuild with a plain make before cutting a release" would be wrong on every
+# plain `make`. Any other knob beside it still names both.
+ifneq ($(filter-out KERN_SMALL=%,$(KNOBS)),)
 	@echo "  *** BUILT WITH A KNOB: $(KNOBS)"
 	@echo "  *** It boots that way on every machine. Rebuild with a plain   ***"
 	@echo "  *** \`make\` before testing detection or cutting a release.      ***"
@@ -3588,8 +3606,14 @@ APPSYSARGS := $(addprefix SYSTEM:,$(APPSYS))
 # was already lying in build/, which reads exactly like a stale package rather
 # than like a missing dependency. The guard that keeps these on the apps disk
 # too is down beside APPS_TOOLS, where both lists exist.
+# REDLINE is the seventh (SPEC.md 24.3.2) and, like FONTVIEW, rides the system
+# disks ALONE ($(CORE_SYSONLY)): a benchmark answers "what is this machine",
+# and the disk every machine boots is the one sure to be in a drive. The 360KB
+# system disk leaves it off ($(SYS360OMIT)) - util360.img carries it there -
+# and kern_mega's disks leave it off too ($(MEGACOREOMIT)).
 CORE_TOOLS := $(BUILD)/browser.o88 $(BUILD)/fontview.o88 \
-              $(BUILD)/notepad.o88 $(BUILD)/paint.o88 $(BUILD)/telnet.o88
+              $(BUILD)/notepad.o88 $(BUILD)/paint.o88 $(BUILD)/telnet.o88 \
+              $(BUILD)/redline.o88
 CORE_GAMES := $(BUILD)/mines.o88
 COREAPPS := $(CORE_TOOLS) $(CORE_GAMES)
 COREAPPSARGS := $(addprefix APPS:,$(CORE_TOOLS)) \
@@ -3894,8 +3918,12 @@ SYSDOCRAW := $(BUILD)/readme-plain.txt
 # would list a folder that is no longer here. apps/os88type.inc's ty_gofonts
 # looks on the program's OWN volume when the system disk has no SYSTEM/FONTS,
 # which is what makes office360's copy the one those programs find.
+#
+# **AND REDLINE NEVER WENT ON IT** (SPEC.md 24.3.2): the benchmark joined the
+# core set for the three roomier system disks, and at 360KB it rides
+# util360.img beside System Check (24.3.1.7) instead.
 SYS360OMIT := $(BUILD)/browser.o88 $(BUILD)/telnet.o88 $(BUILD)/mines.o88 \
-              $(BUILD)/paint.o88 $(BUILD)/fontview.o88
+              $(BUILD)/paint.o88 $(BUILD)/fontview.o88 $(BUILD)/redline.o88
 CORE_TOOLS360 := $(filter-out $(SYS360OMIT),$(CORE_TOOLS))
 CORE_GAMES360 := $(filter-out $(SYS360OMIT),$(CORE_GAMES))
 COREAPPS360 := $(CORE_TOOLS360) $(CORE_GAMES360)
@@ -4789,7 +4817,8 @@ $(BUILD)/os88net.com: drivers/net/os88sfx.asm $(BUILD)/os88net.lz \
 
 # A package-list edit must repack even when its files predate the image.
 $(IMG) $(IMG120) $(IMG720) $(IMG360) \
-$(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360): Makefile
+$(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) $(MOREIMG720) \
+$(SMALLIMG360) $(SMALLIMG720): Makefile
 
 $(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSOPTIONAL) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
@@ -6335,6 +6364,31 @@ $(BUILD)/os8088-gbaot.zip: tools/gbaotbundle.py tools/gbaotgui.py tools/gbaot.py
                            tools/gbaot/aothost.asm $(wildcard apps/realdmg/*.inc apps/realdmg/*.asm apps/realdmg/*.py) \
                            tools/gbstatic.py tools/os88pkg.py tools/os88lz.py tools/os88disk.py
 	python3 tools/gbaotbundle.py $@ --build $(BUILD)
+
+# THE FILE SPLITTER, PACKED (SPEC.md 20.14, 20.17), ON DEMAND: os88czgui.py,
+# os88cz.py, what they import and OS88CZ.COM in build/os8088-cz.zip, for
+# someone with no os8088 tree - gbaotbundle's shape, standard library only
+.PHONY: czbundle
+czbundle: $(BUILD)/os8088-cz.zip
+$(BUILD)/os8088-cz.zip: tools/os88czbundle.py tools/os88czgui.py tools/os88cz.py \
+                        tools/os88drop.py tools/os88lz.py tools/os88vbundle.py \
+                        $(BUILD)/os88cz.com
+	python3 tools/os88czbundle.py $@ --dos $(BUILD)/os88cz.com
+
+# THE FIRMWARE AND UTILITIES ZIP, ON DEMAND (tools/os88toolszip.py): the
+# release's other archive - firmware/picomem1/, the kern_big, kern_small and
+# socket-check ROMs (`make rom-big rom-small socketrom`, cut against THIS
+# tree's kernels, so build it from the tree whose disks it ships beside), the
+# encoder, the Game Boy precompiler (as GBSTATIC/) and the splitter bundles
+# as built, the Browser's proxy and the two DOS tools
+.PHONY: toolszip
+toolszip: $(BUILD)/os8088-encoder.zip $(BUILD)/os8088-gbaot.zip $(BUILD)/os8088-cz.zip \
+          rom-big rom-small socketrom $(BUILD)/os88cz.com $(BUILD)/os88net.com \
+          tools/os88toolszip.py tools/os88proxy.py tools/os88proxygui.py tools/htmsim.py
+	python3 tools/os88toolszip.py $(BUILD)/os8088-tools.zip \
+		--encoder $(BUILD)/os8088-encoder.zip --gbstatic $(BUILD)/os8088-gbaot.zip \
+		--cz $(BUILD)/os8088-cz.zip --rom $(BUILD)/rom --picomem firmware/picomem1 \
+		--dos $(BUILD)/os88cz.com $(BUILD)/os88net.com
 
 # THE REALDMG DISK (docs/REALDMG-SPEC.md section 18, docs/plans/REALDMG-PLAN.md
 # wave 8), ON DEMAND: REALDMG.O88, its README and GBDEMO.GB - the demo written
@@ -13729,7 +13783,7 @@ rom-small: $(BUILD)/small360.img $(SMALLAPPDIR)/taskmgr.o88
 # inside it still reads the per-target KMODDIR.
 SMALLDRIVERS = $(KMODS)
 
-small: $(BUILD)/small360.img $(BUILD)/small.img
+small: $(BUILD)/small360.img $(BUILD)/small720.img $(BUILD)/small.img
 	@python3 tools/kernsplit.py $(SMALLDIR)/kernel.bin $(BUILD)/kernel.bin
 
 # THE BUDGETS AT AN UPSTREAM MERGE OR A RELEASE (kernel/kernel.asm, at
@@ -14208,6 +14262,22 @@ $(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) $(SMALLSTIKAPPS) $(SMALLP
 	@echo "small: $@ - kern_small on 360KB. Pair it with"
 	@echo "       build/smallapps360.img (\`make smallapps\`)"
 
+# ...and on 720KB (SPEC.md 24.5.7): the 128KB machine's other drive. The
+# 360KB disk's boot sector (9 spt, 2 heads - it never counts cylinders, the
+# big build's own 720KB disk takes it the same way) and the FULL payload, as
+# the 1.44MB disk carries: 713 clusters hold what the 360KB disk had to trim
+$(BUILD)/small720.img: KMODDIR := $(SMALLDIR)
+
+$(BUILD)/small720.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) $(SMALLSTIKAPPS) $(SMALLPKGS) \
+                       $$(SMALLTOOLS) $$(SMALLGAMES) $$(SMALLDATA) \
+                       $(SYSDOC) tools/os88disk.py | smallsub
+	python3 tools/os88disk.py --fatcap 2 --kern-small -o $@ --size 720 \
+		--boot $(SMALLDIR)/boot360.bin --kernel $(SMALLDIR)/$(KERNNAME) \
+		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) $(SMALLSTIKARGS) \
+		$(SMALLAPPSARGS) $(addprefix GAMES:,$(SMALLGAMES)) \
+		$(addprefix MEDIA:,$(SMALLDATA)) \
+		$(SYSDOC) $(MEDIAFOLDER) $(APPDATAFOLDER)
+
 # its kernel is $(SMALLDIR)'s, so its modules are too
 $(BUILD)/small.img: KMODDIR := $(SMALLDIR)
 
@@ -14488,7 +14558,10 @@ MEGASYSAPPSARGS = $(addprefix SYSTEM:,$(call MEGASUB,$(SYSAPPS)))
 # need: the merge that brought them put them on kern_big's disks only, and
 # kern_mega is the kernel that runs on machines with a CD-ROM drive in them
 MEGASYSOPTARGS = $(addprefix SYSTEM:,$(call MEGASUB,$(SYSOPTIONAL)))
-MEGACOREARGS = $(addprefix APPS:,$(call MEGASUB,$(CORE_TOOLS))) \
+# ...less REDLINE (SPEC.md 24.3.2): its inventory pass rewrites its own code
+# (103.2) and it has never been run under kern_mega's selectors
+MEGACOREOMIT := $(BUILD)/redline.o88
+MEGACOREARGS = $(addprefix APPS:,$(call MEGASUB,$(filter-out $(MEGACOREOMIT),$(CORE_TOOLS)))) \
                $(addprefix GAMES:,$(call MEGASUB,$(CORE_GAMES)))
 
 $(MEGAAPPDIR)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
@@ -15455,7 +15528,9 @@ APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88 $(BUILD)/gorillas.o88 \
 # make can act on; taking a package off the apps disks means adding it here,
 # and putting one back means taking it out, so neither can be done by
 # accident and neither weakens the rule for anything else.
-CORE_SYSONLY := $(BUILD)/fontview.o88
+# REDLINE.O88 is the second (SPEC.md 24.3.2): it was never on an apps disk at
+# 1.44MB, 1.2MB or 720KB, and the system disks are where it went.
+CORE_SYSONLY := $(BUILD)/fontview.o88 $(BUILD)/redline.o88
 
 # ...and a guard on the guard: a name in $(CORE_SYSONLY) that is not core at
 # all is an exception excusing nothing, which is how an exception list rots.
@@ -15994,7 +16069,8 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # 2026-10-22, KERN-MEGA-PLAN 14.67): OS8088.V88 is 101 clusters, data rather
 # than software, and the Video Player plays any .V88 the user brings. It is
 # meant for a third primary 720KB disk, content not yet decided, which is to
-# carry what the 720KB system and apps disks leave off.
+# carry what the 720KB system and apps disks leave off - more720.img (SPEC.md
+# 24.7), which carries it.
 # ...AND XTMP3 IS NOT ON IT (SPEC.md 121.12, 24.6.1's rule, dated 2026-10-22):
 # the disk had 36 of 713 clusters free and the player is 97 of them before a
 # single song. `make xtmp3disk`'s 720KB floppy carries it with all three demo
@@ -16103,6 +16179,30 @@ $(BUILD)/megaapps120.img: $(MEGAPKGS) $(MEGAAPPS120) $(LOGOVID) tools/os88disk.p
 
 $(APPSIMG720): $(APPS720) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 $(APPSARGS720)
+
+# THE SECOND 720KB APPS DISK (SPEC.md 24.7, the owner's of 2026-10-25): the
+# "third primary 720KB disk" the notes above APPS720 kept promising, carrying
+# what the 720KB apps disk left off and DERIVED from those decisions rather
+# than listed again - PiXEL, RealDMG and its cartridge, DrMarco, the demo
+# video and the MIDIRack songs past APPS720's two. The same folders as the
+# apps disk (APPS/, GAMES/, MEDIA/), because it is the apps disk's other half
+# and not a category disk; its own ASSOC.DAT is warm for the packages it
+# carries. MIDIRACK.O88 rides here AGAIN, a second copy beside its songs -
+# media360.img's shape - because the 720KB system disk does not carry it, and
+# a .MID on a disk with no player opens nothing until the apps disk has been
+# mounted. XTMP3 is NOT on it yet: `make xtmp3disk` carries it at 720KB until
+# the owner places it (24.7's note). The order of what goes where is expected
+# to change - 24.6.1's rule, a decision with a date on it.
+MORE720_SONGS := $(filter-out $(MIDISONGS720),$(MIDISONGS))
+MORE720 := $(BUILD)/pixel.o88 $(BUILD)/midirack.o88 $(RDG_SHIP) $(DM_SHIP) $(RDG_DEMO) $(LOGOVID) \
+           $(MORE720_SONGS)
+MOREARGS720 := APPS:$(BUILD)/pixel.o88 APPS:$(BUILD)/midirack.o88 \
+               $(addprefix GAMES:,$(RDG_SHIP) $(DM_SHIP)) \
+               MEDIA:$(RDG_DEMO) $(LOGOVIDARG) \
+               $(addprefix MEDIA/MIDI:,$(MORE720_SONGS)) \
+               $(APPDATAFOLDER)
+$(MOREIMG720): $(MORE720) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(MOREARGS720)
 
 $(APPSIMG360): $(APPS360) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(APPSARGS360)
@@ -16516,7 +16616,7 @@ N1942SCENES = $(if $(strip $(N1942_ROM)),WORLD.V42 WORLD.C42,SEA.V42 REEF.V42 PO
 # rides GAMES\ in the set below rather than a folder of its own.
 N1942PARTS = $(addprefix $(BUILD)/,1942V.GFX 1942VX.GFX 1942L.GFX 1942C.GFX 1942CX.GFX 1942.SFX $(N1942SCENES))
 N1942LIVE := $(BUILD)/1942.o88
-ALLAPPSFILES := $(BUILD)/redline.o88 $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUILD)/frotz.o88 \
+ALLAPPSFILES := $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUILD)/frotz.o88 \
                 $(BUILD)/MIDIRACK.BNK \
                 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC \
                 $(CWORDDISK) \
@@ -16539,7 +16639,7 @@ ALLAPPS := $(ALLAPPSFILES) $(BUILD)/runcpm-src.stamp tools/getruncpm.py
 # volume's ASSOC.DAT (54.7.1). The LOOM=32 directory slots below are priced
 # by os88allapps.py like every other entry.
 
-ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
+ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
                                  $(BUILD)/frotz.o88 \
                                  $(BUILD)/MIDIRACK.BNK) \
                $(addprefix GAMES:,$(APPS_GAMES) $(RDG_SHIP) $(N1942LIVE)) \
@@ -17894,6 +17994,33 @@ xt-wire: $(BUILD)/ether360.img $(BUILD)/wiredata360.img
 	@test -f $(BUILD)/VIDENC-VGA-286.VHD || { echo "286-video: needs $(BUILD)/VIDENC-VGA-286.VHD - make videnchd VIDENC=<dir with vga/>"; exit 1; }
 	@$(UNPROTECT) $(VM286VID)/86box.cfg
 	$(BOX) -P $(VM286VID) -N
+
+# The Video Player's demo disks on the machines they were made for, one per
+# adapter: `make viddemo` builds VIDDEMO-<ADAPTER>-{IDE,ST11R}.VHD and each
+# profile boots its own with no floppy in A:. A profile is written to be
+# SHIPPED: its 86box.cfg names the disk by bare file name, which 86Box finds
+# beside the config, and its CMOS lives in nvr-seed/ - tracked, because
+# vm/*/nvr/ is the running machine's and gitignored. The mr286's seed names
+# drive type 47 = 1024/16/63 and two floppies, so it boots without setup.
+# Launching here links the disk in and seeds nvr/ once; `make viddemozip`
+# is the same three folders as a zip a user drops into 86Box's machine
+# directory (tools/os88vmzip.py)
+define viddemo_vm
+viddemo-$(1): $(BUILD)/$(2)
+	@mkdir -p $(VMVIDDEMO)$(1)/nvr
+	@cp -n $(VMVIDDEMO)$(1)/nvr-seed/* $(VMVIDDEMO)$(1)/nvr/
+	ln -sf $$(abspath $$<) $(VMVIDDEMO)$(1)/$(2)
+	$$(BOX) -P $(VMVIDDEMO)$(1) -N
+endef
+$(eval $(call viddemo_vm,vga,VIDDEMO-VGA-IDE.VHD))
+$(eval $(call viddemo_vm,cga,VIDDEMO-CGA-ST11R.VHD))
+$(eval $(call viddemo_vm,herc,VIDDEMO-HERC-ST11R.VHD))
+
+.PHONY: viddemozip
+viddemozip: $(VIDDEMO_IMGS) tools/os88vmzip.py apps/video/demo/86BOX.TXT
+	python3 tools/os88vmzip.py -o $(BUILD)/os8088-videos.zip --top os8088-videos \
+		--from $(BUILD) --readme apps/video/demo/86BOX.TXT \
+		$(addprefix vm/viddemo-,$(VIDDEMO_ADAPTERS))
 
 # ...and that 286 with RealDMG's hard disk (docs/REALDMG-SPEC.md section 18):
 # the whole install, REALDMG/ and your cartridges in GAMEBOY/, booted off the
