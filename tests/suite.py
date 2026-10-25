@@ -3048,10 +3048,13 @@ SOAK = [
     Row("pkgmove-deskclock", "soak",
         py("tests/pkgmove.py", "--app", "deskclok", "--first",
            "B:/APPS/NOTEPAD.O88", "--open", "A:/STIKAPPS/DESKCLOK.O88",
-           "--word", "dk_cseg"), 30.0,
+           "--word", "dk_cseg", "--clock", "30"), 30.0,
         "NO-PINNING A3 (SPEC.md 110.14.10): the Desk Clock's face cache "
         "MOVES. The redraw check masks the windows above it, the clock "
-        "being on the desk layer under every window. Measured: dk_cseg "
+        "being on the desk layer under every window; the pointer is parked "
+        "off it and the dial is put at the start of a half minute (--clock "
+        "30) first, each of which made the pictures differ 1 run in 3 with "
+        "the move correct. Measured: dk_cseg "
         "2300 -> 22c0; red with dk_creloc a bare ret (a different picture). "
         "21s measured",
         needs=("marty",), serial=True, wants=("build/apps360.img",)),

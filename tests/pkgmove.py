@@ -124,6 +124,14 @@ def main():
                     "so check 5 cannot compare two pictures: it requires the "
                     "window to KEEP CHANGING after the move instead, which a "
                     "worker that faulted on a stale word stops doing")
+    ap.add_argument("--clock", type=int, default=0, metavar="SECS",
+                    help="the window draws the guest's CLOCK, whose picture "
+                    "steps every SECS guest seconds (the Desk Clock's dial: "
+                    "30, the minute hand stepping at :00 and :30, SPEC.md "
+                    "110.14.2): check 5's two pictures are taken inside ONE "
+                    "such step - the clock is put at its start first - and "
+                    "a pair that still straddles one is reported as that, "
+                    "not as a redraw that differs")
     a = ap.parse_args()
     if "/" not in a.disk:
         a.disk = os.path.join("build", a.disk)
@@ -245,6 +253,33 @@ def main():
             fails.append("not declared: %s" % sorted(set(w0) - set(decl)))
         x, y, w, h = dispcp.win_rect(m, S, win)
 
+        # THE POINTER LEAVES THE WINDOW FIRST. It is a software cursor drawn
+        # into the same framebuffer check 5 compares, and a gesture above can
+        # leave it inside the target - closing --first's window puts it on
+        # that window's close box, which is over the Desk Clock - where a
+        # repaint may catch it lit in one picture and hidden in the other:
+        # "redraws the same NO" on a window that redrew perfectly
+        # (23 differing pixels, all of them the arrow).
+        W, H = m.fbuf()[:2]
+        for px, py in ((W - 2, H - 2), (1, H - 2), (W - 2, 12), (1, 12)):
+            if not (x - 16 <= px < x + w and y - 16 <= py < y + h):
+                mo.to(px, py)
+                break
+
+        def clock():
+            c = m.read(S("clk_sec"), 3)
+            return c[2], c[1], c[0] // a.clock
+        if a.clock:
+            # ...AND A CLOCK'S PICTURE STEPS ON ITS OWN. The two pictures
+            # were 4 guest seconds apart (00:01:01 and 00:01:05 measured), so
+            # wherever the session's own pace put them, one run in a few
+            # straddled a half minute and the dial's minute hand moved
+            # between them. The clock is put at the start of its step instead:
+            # [clk_sec] alone, which only the UI task writes (kernel/clock.inc)
+            # and the Desk Clock reads at its next beat and at the repaint.
+            m.write(S("clk_sec"), bytes([m.read(S("clk_sec"), 1)[0]
+                                         // a.clock * a.clock]))
+
         def repaint():
             m.write(S("cp_dirty"), b"\x01")
             os88marty.ui_done(m)
@@ -255,6 +290,7 @@ def main():
             return m.fbuf()
 
         shot0 = repaint()
+        tick0 = clock() if a.clock else None
         wptr = os88geom.winptr(m, win, S)
 
         def shown():
@@ -322,6 +358,11 @@ def main():
         if bad:
             fails.append("contents changed: %s" % bad)
         shot1 = repaint()
+        if a.clock and clock() != tick0:
+            fails.append("the clock stepped between the two pictures "
+                         "(%02d:%02d step %d -> %02d:%02d step %d): check 5 "
+                         "compared two times, not two redraws"
+                         % (tick0 + clock()))
         W = shot0[0]
         # ...and ONLY the target's own pixels: a window ABOVE it in the
         # z-order repaints its own way (a Disk window's selection over a Desk
