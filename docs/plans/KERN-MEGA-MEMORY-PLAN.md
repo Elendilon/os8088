@@ -1525,6 +1525,31 @@ rows. Nothing is recorded as built that was not.
   PIXELSTEIN's part answers 0, which degrades exactly as a refused part
   does (the bodies run from the image, no byte textures). ~10 bytes each,
   registered in `tests/megapkg.txt` as fail-safes.
+  **Paint (2026-10-25) - DONE, one shared path.** A canvas over 64KB under
+  protected mode is laid out in `SEG_SUB` windows at fixed 32KB offsets
+  (`pt_layout`'s `.win`): a row at file offset O is window O >> 15 at O &
+  7FFFh, and fixed offsets make a re-layout (a resize's two passes, a load)
+  ask for the same windows and get the same selectors, so the LDT does not
+  grow per resize. The undo image has windows of its own over the same
+  offsets (`pt_uwins`; `pt_ucopy`, `pt_uswap_row` and `pt_urowset` map
+  through `pt_uwinof` behind `[pt_pmw]`), `pt_orowset`/`pt_srowset` read
+  through them, `pt_cvmove` looks each row up (`.pmrow`), and the band cap
+  is a layout fact (`[pt_brmax4]`), which takes a `div` out of every
+  `pt_blit_1`. Save Bmp writes 32KB pieces under protected mode because one
+  `OSAPI_FILE_WRITE` of 64KB or more from a selector WRAPS at its limit -
+  a kernel defect (`dskw_hiseg`/`dskw_norm`'s `.hi` moves only the
+  offset), open below. MEASURED on MartyPC `os8088_xt_vga`, per call:
+  `pt_ucopy` -218 to -332 cycles a row, `pt_uswap_row` 0, `pt_blit_1` -143
+  to -504, `pt_layout` -15%, `pt_resize` -2.7%. Image +464, bss +39 (the
+  small arm +67) - shared on the owner's choice A, no slower anywhere on
+  the XT. Row `megapaint` (Bochs): a 580x380 BMP opened, maximized to
+  590x390 across 4 windows, strokes, undo/redo, Save Bmp read back to the
+  byte; red on the base build (`kern_mega CLOSED PAINT`), on undo through
+  the canvas's window, and on a one-call save. Not run: the planar format
+  under kern_mega (Bochs gave a packed canvas).
+  **OPEN (kernel): `OSAPI_FILE_WRITE` of 64KB or more from an LDT selector
+  wraps at the selector's limit** - found by Paint's save, worked around
+  there, to be fixed in the file layer's selector arm.
   **Frotz (2026-10-25) - DONE, one shared path, no `PKG_MEGA` arm.** The
   story claim is walked by 32KB PAGE: `zm_pages` builds `[zf_stab]` at
   load, one `SEG_SUB` per page (a 64KB data selector on kern_mega, the
