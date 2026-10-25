@@ -1668,6 +1668,13 @@ mem_bcut:
 ;             Preserves every register; the caller owns the overlap argument
 ;             above, and this is where BOTH of its answers land.
 mem_bpara:
+%ifdef KERN_MEGA
+    cmp byte [mega_on], 0       ; PROTECTED MODE: the same chunk, linearly -
+    je .rm                      ; a paragraph is not a selector (KERN-MEGA-
+    call MEGA_SEL_CODE:mega_bparaf ; MEMORY-PLAN MC7.4)
+    ret
+.rm:
+%endif
     push cx
     push si
     push di

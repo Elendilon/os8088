@@ -1968,6 +1968,9 @@ dskw_rbody:
     mov dh, 0                           ; has drifted from it, and it is caught
     mov [dskw_uz], ax                   ; below: R = U - P BORROWS, and a
     mov [dskw_uzhi], dx                 ; borrowed R is past the megabyte
+%ifdef KERN_MEGA
+    call dskw_subsrc                    ; (a selector at a paragraph offset)
+%endif
     cmp word [dskw_src], 0
     jne .czjae                          ; a compressed file expands into a
                                         ; (CF=0 out of a compare with 0, so
@@ -2422,23 +2425,72 @@ dskw_norm:
 
 %ifdef KERN_MEGA
 ; -----------------------------------------------------------------------------
+; dskw_subsrc - a COMPRESSED read into a selector at a paragraph offset
+; (KERN-MEGA-MEMORY-PLAN MC7.4): the decoder wants its output at offset 0,
+; which the identity arm got by moving the segment, so the selector arm asks
+; OSAPI_SEG for a SUB based at that paragraph - tied to the caller's claim,
+; freed and moved with it, the same one for the same offset next time - and
+; reads at its offset 0. Any other offset, or no SUB, is left for the
+; refusal below it. Every register kept
+; -----------------------------------------------------------------------------
+dskw_subsrc:
+    cmp byte [dskw_hi], 0
+    je .o
+    push ax
+    mov ax, [dskw_src]
+    or ax, ax
+    jz .p
+    test al, 15
+    jnz .p
+    push bx
+    push cx
+    push dx
+    mov cl, 4
+    shr ax, cl                  ; AX = the paragraph offset
+    mov dx, [dskw_seg]
+    xor cx, cx                  ; to its end, 64KB at most
+    mov bl, SEG_SUB
+    call MEGA_SEL_CODE:mega_segf
+    jc .q
+    mov [dskw_seg], dx
+    mov word [dskw_src], 0
+.q:
+    pop dx
+    pop cx
+    pop bx
+.p:
+    pop ax
+.o:
+    ret
+
+; -----------------------------------------------------------------------------
 ; dskw_hiseg - the doors' segment for the caller's buffer (KERN-MEGA-PLAN 13.3
-; step 4): AX = ES as the caller held it -> AX = the segment it stands for,
-; [dskw_hi] = 0 - or, for a selector whose base is ABOVE 1MB (an OSAPI_XMEM_SEL
-; window, a package placed high), the selector itself and [dskw_hi] = 1, so the
-; body moves the OFFSET and never does arithmetic on it. Nothing else touched
+; step 4): AX = ES as the caller held it -> for an ALLOCATOR selector - every
+; claim's since KERN-MEGA-MEMORY-PLAN MC7.4, below 1MB or above it, an
+; OSAPI_XMEM_SEL window, a package placed high - the selector itself and
+; [dskw_hi] = 1, so the body moves the OFFSET and never does arithmetic on it,
+; and dsk_runcap splits a run at a DMA page from the selector's base; for one
+; of the kernel's own segments, the real segment it stands for and [dskw_hi] =
+; 0 (the arm whose granules are identity selectors), or FFFF's arm above 1MB.
+; Nothing else touched
 ; -----------------------------------------------------------------------------
 dskw_hiseg:
-    mov byte [dskw_hi], 0
+    mov byte [dskw_hi], 1
+    test al, 4                  ; AN ALLOCATOR SELECTOR, wherever its base:
+    jz .gdt                     ; every claim is one in protected mode (KERN-
+    cmp ax, MEGA_LDT_FREE0 * 8  ; MEGA-MEMORY-PLAN MC7.4), and only the
+    jae .sel                    ; kernel's own segments are on the identity
+.gdt:                           ; grid that the real-segment arm walks
     push ax
     call KERNEL_SEG:mega_s2segf
     cmp ax, 0xFFFF              ; mega_s2seg's answer for a base past 1MB
     jne .lo
     pop ax
-    mov byte [dskw_hi], 1
+.sel:
     ret
 .lo:
     add sp, 2
+    mov byte [dskw_hi], 0
     ret
 %endif
 

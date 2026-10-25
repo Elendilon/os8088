@@ -8439,6 +8439,42 @@ mx_cpflags:
 mx_lcopyf:
     call mx_lcopy
     retf
+
+; mega_bparaf - FAR (mem_bpara in protected mode, KERN-MEGA-MEMORY-PLAN
+; MC7.4): AX paragraphs (1..64, a compactor chunk) from paragraph SI to
+; paragraph DI, LINEARLY - the conventional claims' compactor named both by
+; segment, which is the identity GDT step 6 cuts. DX != 0 copies from the
+; last word, for a move up that overlaps itself. IF = 0 for the chunk, which
+; is mega_lincopy's rule for its scratch pair. Every register kept
+mega_bparaf:
+    pusha
+    pushf
+    cli
+    mov bp, dx                      ; BP = the direction
+    mov cx, ax
+    shl cx, 4                       ; CX = bytes
+    mov ax, si
+    mov dx, ax
+    shl ax, 4
+    shr dx, 12
+    mov [mega_xsrc], ax
+    mov [mega_xsrc+2], dx
+    mov ax, di
+    mov dx, ax
+    shl ax, 4
+    shr dx, 12
+    mov [mega_xdst], ax
+    mov [mega_xdst+2], dx
+    or bp, bp
+    jz .f
+    call mx_lcopyb
+    jmp short .o
+.f:
+    call mx_lcopy
+.o:
+    popf
+    popa
+    retf
 mx_lcopyb:
     stc
     jmp short mx_lcopy.go

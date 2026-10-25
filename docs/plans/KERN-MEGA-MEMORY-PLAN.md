@@ -1067,6 +1067,43 @@ rows. Nothing is recorded as built that was not.
   back into protected mode), the `STKDIAG` knob's F000h, and the drivers'
   and packages' own frame-buffer and ROM immediates (their waves).
 
+- **Step 5.5's first half, the file doors and the compactor's copy
+  (2026-10-25) - DONE.** Both still turned a claim into a REAL segment and
+  loaded it, which is the identity GDT step 6 cuts:
+  - **`dskw_hiseg` sends every allocator selector down the selector arm**,
+    below 1MB as well as above it: the body moves the OFFSET and never does
+    arithmetic on the selector, and `dsk_runcap` (5.2) splits a run at a DMA
+    page from the selector's base, so a conventional buffer is still a
+    direct transfer. Only the kernel's own segments, which stay on the
+    identity grid, take the real-segment arm. A PACKED file read into a
+    selector at a paragraph offset gets a SUB based there (`dskw_subsrc`,
+    tied to the claim) where the old arm moved the segment; offset 0 and
+    every refusal are as they were.
+  - **`mem_bpara` copies linearly in protected mode** (`mega_bparaf`: the
+    chunk through `mx_lcopy`/`mx_lcopyb` with interrupts off, which is
+    `mega_lincopy`'s rule for its scratch pair), forwards or from the top
+    as the overlap needs.
+  - **HEAPFRAG converted** (tests/heapfrag): a block is walked by its offset
+    under one segment (64KB at most, `hf_s` capped there), and "did it move"
+    compares the block's PARAGRAPH through `OSAPI_SEG`'s `SEG_LIN`
+    (`hf_para`) rather than the value, which under protected mode is a
+    selector that a move rebases and does not change; check 11 expects the
+    holder to be told nothing under `CPU_F_PM`. **17 of its 18 checks pass**
+    under Bochs on the 1MB kern_mega, where every claim is conventional and
+    selector-named - 8 (every surviving word read back after the moves), 10
+    (blocks moved) and 13 (the ceiling packs up and its contents survive)
+    among them. **Check 14 fails there, and it is OPEN**: its "one KB more
+    than the largest run" claim is granted out of a 52KB run at 7C40h
+    without the page-constrained block moving, so on this layout the
+    check's premise does not hold - a placement question to settle in the
+    final pass, not a selector one (a trace of every pair made and moved
+    showed no stale selector).
+  - Cost: kern_mega `.cold` +81, `.mega` +59; kern_big and kern_small
+    byte-identical with a clean build of the same commit.
+  - Still to come in 5.5: the redirectors (`drv_fs_hi`) and a driver-served
+    disk (`.drvhi`) still move a selector buffer a sector at a time - correct
+    after the cut, slow until the drivers take selectors (their wave).
+
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to
   reopen the end state:
