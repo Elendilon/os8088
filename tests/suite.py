@@ -16038,22 +16038,25 @@ SOAK = [
         "its I_SPTR comes back a conventional segment. 60s is 41 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
-    Row("megamod", "soak", py("tests/megamod.py"), 160.0,
+    Row("megamod", "soak", py("tests/megamod.py"), 220.0,
         "KERN-MEGA-MEMORY-PLAN MC7: a module and a wavetable bank over 64KB "
         "under kern_mega, where every claim is an LDT selector and the "
         "players' old `blobseg + N` granule sums name other descriptors. "
-        "Bochs with an SB16, six legs: the shipped Tracker and its kern_mega "
+        "Bochs with an SB16, seven legs: the shipped Tracker and its kern_mega "
         "arm on BEVERLY.MOD (samples to 113KB), the shipped Tracker on a "
         "generated 130-pattern module whose orders read all three pattern "
         "windows (each pattern's row-0 volume read back against the pattern "
         "the replayer says it is on), ModPlug (`make modplug`) through its "
-        "chooser, and MIDIRack shipped and arm on a bank padded so its "
-        "samples sit past 120KB. Every SEG_SUB window's descriptor base is "
-        "checked against the file, no kern_mega FAULT/CLOSED may be logged, "
-        "and the card's capture must be music, not noise (MIDIRack's stream "
-        "is refused by SOUND.DRV on Bochs before and after this change: "
-        "SKIP for its card only). Red with the pre-MC7 packages (--pkg, "
-        "--src): CLOSED TRACKER 0D and CLOSED MIDIRack 0D. 146s measured",
+        "chooser, MIDIRack shipped and arm on a bank padded so its "
+        "samples sit past 120KB, and the shipped MIDIRack's synth output. "
+        "Every SEG_SUB window's descriptor base is checked against the file, "
+        "no kern_mega FAULT/CLOSED may be logged, MIDIRack's stream must open "
+        "on its external ring and the card's consumed count there move, and "
+        "the card's capture must be music, not noise. Red with the pre-MC7 "
+        "packages (--pkg, --src): CLOSED TRACKER 0D and CLOSED MIDIRack 0D; "
+        "and red on the mr legs with the kernel whose stream door tested an "
+        "external ring's TI bit for 'above 1MB' (SOUND.DRV said 2). 203s "
+        "measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/tracker.o88", "build/midirack.o88",

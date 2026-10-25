@@ -33,7 +33,9 @@ and this row plays each one on kern_mega under Bochs with a Sound Blaster 16:
           B:\\MEDIA\\MIDI, the wavetable chosen and Space pressed: the bank
           read with no fault, a window every 32KB based where it says, and
           the pre-roll's note-ons placed through a late window
-  mrarm   the kern_mega ARM's MIDIRACK.O88 the same way
+  mrsb    the shipped MIDIRACK.O88 on its SYNTH output (MR_OUT_SB) - the same
+          external ring, no bank: the card's half only
+  mrarm   the kern_mega ARM's MIDIRACK.O88 the same way as mr
 
 Every pattern and sample window is checked EXACTLY - its descriptor's base,
 out of the LDT, against the blob's plus the offset the file says.
@@ -44,17 +46,20 @@ AUDIBLE for most of the play (50 ms blocks above an RMS floor) and NOT NOISE
 noise reads ~0.56 and these modules ~0.01). Bochs's SB16 drains its DMA
 faster than the rate it is programmed for (`dmatimer`), so the replayer runs
 ~10x the music's tempo here: the capture is music, but not in time. The
-MIDIRack legs hear nothing: SOUND.DRV answers MIDIRack's stream open with 2
-under kern_mega on Bochs - the synth output as well as the wavetable, and the
-build from before this change as well as this one - so those legs say SKIP
-for the card and assert everything up to it.
+MIDIRack legs read the same capture, and before it that the card's stream
+OPENED on MIDIRack's external ring and that the block IRQ's consumed count
+in that ring moves - a song that plays out inside the listen (the fast DMA
+again) is a stop with the list's end as its reason, and passes.
 
 THE FAILING CASE (docs/WRITING-TESTS.md 1): the packages from before this
 change (`--pkg TRACKER=old.o88`) - the shipped Tracker's granule sum lands
 on a descriptor that is not the module's and the first row reads a #GP: the
 leg fails on `kern_mega CLOSED TRACKER 0D`. The same for MIDIRack (`--src`
 names the tree an old build came from, for its symbols): `kern_mega CLOSED
-MIDIRack 0D` at Space. Verified when the row was written.
+MIDIRack 0D` at Space. Verified when the row was written. And the KERNEL
+from before the stream door asked the descriptor's base (kern_mega's
+osapi_snd_stream tested DI's TI bit, which every claim has since MC7.4):
+the mr legs fail on `the card's stream open ... (SOUND.DRV said 2)`.
 
 It reads build/ (wants=) and writes only under build/bochs-megamod/.
 """
@@ -90,6 +95,9 @@ ROW0_Y, ROW_X, ROW_H = 123, 170, 16
 # set) and the record size; the channel 0 record is the table's first
 MP_VOL, MP_CHSZ = 22, 40
 MR_OUT_WT = 6
+MR_OUT_SB = 3                   # MR_OUT_SB: the synth, mixed for the card
+MRB_RL = 16384                  # MIDIRack's external ring (apps/midirack/
+                                # mrout.inc); SND_EXT_CONS is the word at +2
 
 
 def want(cond, what):
@@ -461,7 +469,32 @@ def leg_modplug(leg, out, pkg, mapsyms):
     check_audio(leg, d)
 
 
-def leg_midirack(leg, out, pkg, mapsyms, bank):
+def wt_windows(leg, box, t, base):
+    """the wavetable bank's windows, exact, and the pre-roll's note-ons
+    placed through them"""
+    nwin = int.from_bytes(t.rd("mwt_nwin", 2, base), "little") // 2
+    kb = int.from_bytes(t.rd("mr_bankkb", 2, base), "little")
+    b0 = box.sel_base(int.from_bytes(t.rd("mwt_bseg", 2, base), "little"))
+    wins = t.rd("mwt_win", 2 * nwin, base)
+    wsel = [wins[2 * i] | wins[2 * i + 1] << 8 for i in range(nwin)]
+    at = [box.sel_base(x) - b0 for x in wsel]
+    want(nwin == (kb + 31) // 32 and at == [32768 * i for i in
+                                              range(nwin)],
+         "%s: a window every 32KB of the %dKB bank, based where it says "
+         "(%s)" % (leg, kb, " ".join("+%X" % x for x in at)))
+    # the voices the pre-roll started: each one's segment is a window
+    # (mwt_place), and with the padded bank a late one
+    vs = t.rd("mwt_sseg", 32, base)
+    used = sorted(set(wsel.index(v) for v in
+                      (vs[2 * i] | vs[2 * i + 1] << 8 for i in range(16))
+                      if v in wsel))
+    want(used and max(used) >= (3 if kb > 120 else 0),
+         "%s: the note-ons placed their samples through window(s) %s"
+         % (leg, used))
+
+
+def leg_midirack(leg, out, pkg, mapsyms, bank, mro=None):
+    mro = MR_OUT_WT if mro is None else mro
     box, d = boot(leg, out, ["APPS:" + pkg, "APPS:" + bank,
                              "MEDIA/MIDI:" + os.path.join(
                                  ROOT, "apps", "midirack", "songs",
@@ -482,7 +515,7 @@ def leg_midirack(leg, out, pkg, mapsyms, bank):
         if not want(t.b("mr_hasbank") == 1, "%s: the bank beside it (%d KB)"
                     % (leg, int.from_bytes(t.rd("mr_bankkb", 2), "little"))):
             return
-        t.put("mr_want", MR_OUT_WT)
+        t.put("mr_want", mro)
         box.key("space")
         # THE BANK IS READ, ITS WINDOWS MADE AND THE PRE-ROLL MIXED before
         # the card is asked for the stream (mrb_start): mwt_load, mwt_wins,
@@ -490,48 +523,52 @@ def leg_midirack(leg, out, pkg, mapsyms, bank):
         # the samples through the windows - so all of it has run by the time
         # [mrb_open] or [mrb_err] says what the card answered
         box.until(lambda: bad_lines(box) or t.b("mrb_open") == 1 or
-                  t.b("mrb_err"), "the wavetable's stream", 180, poll=0.5)
+                  t.b("mrb_err"), "the card's stream", 180, poll=0.5)
         b = bad_lines(box)
         if not want(not b, "%s: the bank read and the pre-roll mixed, no "
                     "fault%s" % (leg, "".join(" | " + l for l in b[:2]))):
             return
         base = t.base()
-        nwin = int.from_bytes(t.rd("mwt_nwin", 2, base), "little") // 2
-        kb = int.from_bytes(t.rd("mr_bankkb", 2, base), "little")
-        b0 = box.sel_base(int.from_bytes(t.rd("mwt_bseg", 2, base), "little"))
-        wins = t.rd("mwt_win", 2 * nwin, base)
-        wsel = [wins[2 * i] | wins[2 * i + 1] << 8 for i in range(nwin)]
-        at = [box.sel_base(x) - b0 for x in wsel]
-        want(nwin == (kb + 31) // 32 and at == [32768 * i for i in
-                                                  range(nwin)],
-             "%s: a window every 32KB of the %dKB bank, based where it says "
-             "(%s)" % (leg, kb, " ".join("+%X" % x for x in at)))
-        # the voices the pre-roll started: each one's segment is a window
-        # (mwt_place), and with the padded bank a late one
-        vs = t.rd("mwt_sseg", 32, base)
-        used = sorted(set(wsel.index(v) for v in
-                          (vs[2 * i] | vs[2 * i + 1] << 8 for i in range(16))
-                          if v in wsel))
-        want(used and max(used) >= (3 if kb > 120 else 0),
-             "%s: the note-ons placed their samples through window(s) %s"
-             % (leg, used))
-        err = t.b("mrb_err")
-        if t.b("mrb_open") != 1:
-            # NOT THIS ROW'S DEFECT, and said rather than failed: under
-            # kern_mega on Bochs's SB16, SOUND.DRV answers MIDIRack's stream
-            # open with 2 on the SYNTH output as well as the wavetable, and
-            # did before KERN-MEGA-MEMORY-PLAN MC7's package wave (the pre-MC7
-            # arm reads the same) - so the card's half of this leg is what
-            # waits on that fix
-            want(err == 2, "%s: the card's stream open, or SOUND.DRV's "
-                 "known answer 2 (it said %d)" % (leg, err))
-            print("   SKIP %s: SOUND.DRV refused the stream (2): the wavetable "
-                  "is not heard on this machine" % leg)
-            return "noaudio"
-        bad = listen(box, lambda: True if t.b("mr_state") == 1 else
-                     "the song stopped", "%s: the play" % leg, PLAY)
-        want(bad is None, "%s: %.0f s of the wavetable, no fault%s" %
-             (leg, PLAY, "" if bad is None else " | " + bad))
+        if mro == MR_OUT_WT:
+            wt_windows(leg, box, t, base)
+        # THE CARD'S HALF: the stream opened on MIDIRack's EXTERNAL ring (a
+        # conventional OSAPI_MEM_CLAIM_DMA_HI claim, an LDT selector under
+        # kern_mega) - which the kernel's stream door refused with 2 while
+        # it tested the selector's TI bit for "above 1MB" (MC7.4) - on the
+        # synth (MR_OUT_SB) as well as the wavetable
+        if not want(t.b("mrb_open") == 1 and t.b("mrb_grant") == 0,
+                    "%s: the card's stream open on the external ring "
+                    "(SOUND.DRV said %d, grant ring %d)"
+                    % (leg, t.b("mrb_err"), t.b("mrb_grant"))):
+            return
+        rbase = box.sel_base(int.from_bytes(t.rd("mrb_seg", 2, base),
+                                            "little"))
+        cons = lambda: int.from_bytes(box.read(rbase + MRB_RL + 2, 2),
+                                      "little")
+        c0 = cons()
+        time.sleep(1.0)
+        c1 = cons()
+        want(c1 != c0, "%s: the card consuming the ring - the block IRQ's "
+             "count at +%X moved %d -> %d" % (leg, MRB_RL + 2, c0, c1))
+        # Bochs's SB16 drains its DMA ~10x fast (the module above), so the
+        # song can play out inside the listen: a stop with the list's end
+        # as the reason is the song ENDING, anything else is not
+        endmsg = t.s["mr_s_endlist"]
+        ended = []
+
+        def playing():
+            if t.b("mr_state") == 1:
+                return True
+            m = int.from_bytes(t.rd("mr_msg", 2, base), "little")
+            if t.b("mr_state") == 0 and m == endmsg:
+                ended.append(1)
+                return True
+            return "the song stopped (state %d, msg %04X)" % (
+                t.b("mr_state"), m)
+        bad = listen(box, playing, "%s: the play" % leg, PLAY)
+        want(bad is None, "%s: %.0f s of the song, no fault%s%s" %
+             (leg, PLAY, " (the song played to its end)" if ended else "",
+              "" if bad is None else " | " + bad))
         box.shot(os.path.join(d, "play.png"))
     finally:
         try:
@@ -562,7 +599,8 @@ def main():
     for p in a.pkg:
         k, v = p.split("=", 1)
         pk[k.upper()] = v
-    legs = a.leg or ["trk", "wide", "trkarm", "mpp", "mr", "mrarm"]
+    legs = a.leg or ["trk", "wide", "trkarm", "mpp", "mr", "mrsb",
+                     "mrarm"]
     for f in ("build/mega.img", "build/megarun.o88", "build/mbr.bin"):
         if not os.path.exists(os.path.join(ROOT, f)):
             sys.exit("megamod: %s is not built (make mega megarun)" % f)
@@ -609,6 +647,9 @@ def main():
                 elif leg == "mr":
                     leg_midirack(leg, out, stage("MIDIRACK", "MIDIRACK.O88"),
                                  pkg_map(*mr), bank)
+                elif leg == "mrsb":
+                    leg_midirack(leg, out, stage("MIDIRACK", "MIDIRACK.O88"),
+                                 pkg_map(*mr), bank, mro=MR_OUT_SB)
                 elif leg == "mrarm":
                     leg_midirack(leg, out, stage("MRARM", "MIDIRACK.O88"),
                                  pkg_map(*mr, defines=("PKG_MEGA",)), bank)
