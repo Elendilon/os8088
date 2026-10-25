@@ -4655,7 +4655,10 @@ tm_drvgid:
     jne .h                      ; read at 0)
     mov di, DRV_HMA_ORG
 .h:
-    mov es, bx
+    push ax
+    mov ax, bx
+    call tm_pwes                ; ES = over the image's PARAGRAPH (MC7)
+    pop ax
     cmp word [es:di], 0x384F    ; 'O8', the driver header's magic
     jne .own
     mov al, [es:di+3]           ; DRV_H_CLASS
@@ -4670,6 +4673,29 @@ tm_drvgid:
 .o:
     pop di
     pop es
+    ret
+
+; tm_pwes - ES = a window over physical PARAGRAPH AX, 64KB, for a header the
+; snapshot names by its paragraph: under kern_mega a paragraph is no
+; selector (KERN-MEGA-MEMORY-PLAN MC7), so OSAPI_SEG's SEG_WIN makes one and
+; it is re-aimed per use, the one window held for the instance; every
+; real-mode kernel answers the paragraph itself. Every other register kept
+tm_pwes:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov dx, ax
+    mov ax, [tm_pwin]           ; the window to re-aim, 0 = a new one
+    xor cx, cx
+    mov bl, SEG_WIN
+    call OSAPI_SEG
+    mov [tm_pwin], dx
+    mov es, dx
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; tm_ogid - BX = a CLASS-LESS driver image's key - its segment, or AH = 1 its
@@ -5301,7 +5327,7 @@ tm_drvnam:
     or bx, bx
     jnz .drvs                   ; above 1MB and unnamed: no header to read
     push es
-    mov es, ax
+    call tm_pwes                ; ES = over the image's PARAGRAPH (MC7)
     cmp word [es:0], 0x384F     ; 'O8': a driver header, whose name is at +16
     jne .hno
     mov di, tm_nbuf
@@ -8282,7 +8308,8 @@ TM_NOVL     equ 1 + 16 - TMD_NCLS   ; class-less images with a group each:
 tm_onum     equ tm_nbuf + 13    ; byte: how many tm_ogid found this paint
 tm_ohi      equ tm_onum + 1     ; TM_NOVL bytes: 1 = the key is a pool offset
 tm_okey     equ tm_ohi + TM_NOVL    ; TM_NOVL words: each image's key
-TM_BSS_TOTAL equ tm_okey + TM_NOVL * 2 - os88_image_end
+tm_pwin     equ tm_okey + TM_NOVL * 2   ; tm_pwes's window, 0 = none yet
+TM_BSS_TOTAL equ tm_pwin + 2 - os88_image_end
 %else                           ; ...and with no list, no groups: the chain
 TM_BSS_TOTAL equ tm_hifix + 2 - os88_image_end  ; ends at the pool's
 %endif                          ; numbers, which the summary line still reads

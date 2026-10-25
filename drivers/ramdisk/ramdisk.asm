@@ -563,6 +563,8 @@ rd_dtab:    dw 0                ; the DIRECTORY AND CHAIN TABLE's claim
                                 ; the rows were 2,304 bytes every loaded driver
                                 ; paid for with nothing mounted. THESE THREE
                                 ; ARE ADJACENT for rd_reloc, which walks them
+rd_wa:      dw 0                ; rd_at's windows: rd_ext_seg's and
+rd_wb:      dw 0                ; rd_blk_out's, 0 = not made yet
 rd_xbase:   dw 0, 0             ; the extended block's 32-bit linear base
 rd_sext:    dw RD_NOEXT         ; which extent the bounce is holding
 rd_xerr:    db 0                ; ONE operation's verdict: the extended store

@@ -100,14 +100,15 @@ em_attach:
     mov word [em_bases], 0x264  ; 264h's, asked twice. CF=1 = none loaded
 .any:
     mov bx, 0x4000
-    mov ax, 0xF000
-    mov es, ax
+    mov word [em_frame], 0xF000
 .frame:                         ; the frames E000h, D000h, C000h in that order
-    mov ax, es
+    mov ax, [em_frame]
     sub ah, 0x10
     cmp ah, 0xC0
     jb em_none
-    mov es, ax
+    mov [em_frame], ax          ; [em_frame] the PARAGRAPH, and ES a window
+    call em_fsel                ; over it: under kern_mega a paragraph is no
+    mov es, dx                  ; selector (KERN-MEGA-MEMORY-PLAN MC7)
     xor di, di                  ; AN OPTION ROM anywhere in the frame (the
 .rom:                           ; BIOS's own scan, a 2 KB step): somebody
     cmp word [es:di], EM_ROMSIG ; else's, and NO PORT is written for it
@@ -178,7 +179,6 @@ em_attach:
     cmp cx, EM_MINPG
     jb .base
     mov [em_port], dx
-    mov [em_frame], es
     mov [em_npg], cx
     xor ax, ax                  ; pages 0..3 into the four quarters, so the
 .map:                           ; frame reads as the board and nothing else
@@ -242,7 +242,7 @@ em_caps:
     dec di
     dec di
     jns .c
-    mov dx, [em_frame]
+    call em_fsel                ; DX = the frame, as a segment
     xor si, si                  ; the free quarters, bit q for quarter q
     mov di, 3
 .q:
@@ -448,7 +448,7 @@ em_fr:
     mov [di], bh
 .n:
     jnz .t
-    mov dx, [em_frame]
+    call em_fsel                ; DX = the frame, as a segment
     mov cx, [em_port]
     mov si, 1                   ; the CONSECUTIVE family: base + q
     xor ax, ax                  ; ...and a page's value is its number. CF = 0
@@ -480,7 +480,29 @@ em_svc_end  equ em_door + 2     ; (OS88_DRIVER's +15 table length: DSV_SIZE)
 ; =============================================================================
     OS88_STATE
 em_port:    dw 0                ; quarter 0's register
-em_frame:   dw 0                ; the frame's segment
+em_frame:   dw 0                ; the frame's PARAGRAPH
+em_fwin:    dw 0                ; ...and em_fsel's window over it
+
+; em_fsel - DX = the frame as a segment: a 64KB window over [em_frame]'s
+; paragraph, re-aimed each time it is asked (OSAPI_SEG's SEG_WIN) - under
+; kern_mega a paragraph past the kernel's own is no selector, and a driver
+; attached at boot has run in real mode before the switch, so it is asked
+; for at the moment it is handed out (KERN-MEGA-MEMORY-PLAN MC7). Every
+; real-mode kernel answers the paragraph itself. Every other register kept
+em_fsel:
+    push ax
+    push bx
+    push cx
+    mov dx, [em_frame]
+    mov ax, [em_fwin]           ; the window to re-aim, 0 = a new one
+    xor cx, cx
+    mov bl, SEG_WIN
+    call OSAPI_SEG
+    mov [em_fwin], dx
+    pop cx
+    pop bx
+    pop ax
+    ret
 em_npg:     dw 0                ; the board's pages
 em_qown:    times 4 db 0        ; per quarter: its holder (XOR EM_SLOTX), 0 =
                                 ; nobody

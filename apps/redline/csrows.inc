@@ -289,7 +289,7 @@ cs_fingerprint:
     push si
     push di
     push es
-    mov ax, 0xF000
+    call cs_f000                    ; (a window over it, MC7)
     mov es, ax
     mov dx, 0xFFFF                  ; the CRC
     mov cl, 4

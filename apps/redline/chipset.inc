@@ -91,6 +91,8 @@ cs_pmseg:   dw 0
 cs_nroms:   dw 0
 cs_roms:    times CS_NROMS * 3 dw 0 ; segment, KB, ns
 cs_tseg:    dw 0                    ; the read body's source
+cs_twin:    dw 0                    ; cs_measure's window (cs_win), 0 = none
+cs_fwin:    dw 0                    ; ...and the BIOS's, F000h (cs_f000)
 cs_toff:    dw 0
 cs_ram:     dw 0                    ; the RAM twin's counts
 cs_lcur:    dw 0                    ; the line being composed: its write ptr
@@ -1786,6 +1788,42 @@ cs_decf:
     pop ax
     ret
 
+; cs_win - AX = a physical PARAGRAPH (a frame, a ROM, a card's buffer), BX
+; -> a window word: AX = a 64KB window over it, re-aimed (OSAPI_SEG's
+; SEG_WIN): under kern_mega a paragraph past the kernel's own is no selector
+; (KERN-MEGA-MEMORY-PLAN MC7), and every real-mode kernel answers the
+; paragraph itself. 0 stays 0. Every other register kept. NOT from inside a
+; cli window: it is a kernel call
+cs_win:
+    or ax, ax
+    jz .z
+    push bx
+    push cx
+    push dx
+    mov dx, ax
+    mov ax, [bx]                    ; the window to re-aim, 0 = a new one
+    push bx
+    xor cx, cx
+    mov bl, SEG_WIN
+    call OSAPI_SEG
+    pop bx
+    mov [bx], dx
+    xchg ax, dx
+    pop dx
+    pop cx
+    pop bx
+.z:
+    ret
+
+; cs_f000 - AX = the BIOS's 64KB, F000h, through its own window (cs_win's)
+cs_f000:
+    push bx
+    mov ax, 0xF000
+    mov bx, cs_fwin
+    call cs_win
+    pop bx
+    ret
+
 ; cs_scrseg - AX = the screen's segment
 cs_scrseg:
     push bx
@@ -1901,6 +1939,8 @@ cs_measure:
     call cs_ptime
     mov [cs_ram], ax
     call cs_scrseg
+    mov bx, cs_twin
+    call cs_win                     ; (a window over it: MC7)
     xor bx, bx
     call cs_time
     mov [cs_nsscr], ax
@@ -1910,6 +1950,8 @@ cs_measure:
     call cs_pmfind
     jc .roms
     mov ax, [cs_pmseg]
+    mov bx, cs_twin
+    call cs_win
     mov bx, 0x5000                  ; its disk transfer buffer
     call cs_time
     mov [cs_nspm], ax
@@ -1920,7 +1962,11 @@ cs_measure:
 .scan:
     cmp ax, 0xF000
     jae .done
+    push ax
+    mov bx, cs_twin
+    call cs_win                     ; ES = a window over the paragraph (MC7)
     mov es, ax
+    pop ax
     cmp word [es:0], 0xAA55
     jne .step
     mov cx, [cs_nroms]
@@ -1933,6 +1979,7 @@ cs_measure:
     shr bx, 1
     mov [si + 2], bx                ; ...as KB
     push ax
+    mov ax, es                      ; (the window over it)
     xor bx, bx
     call cs_time
     mov [si + 4], ax
@@ -2980,7 +3027,7 @@ cs_btscan:
     jne .seg                        ; PC's ROM keeps it: the whole 64 KB is
     mov si, 0xE000                  ; most of a second at 4.77 MHz
 .seg:
-    mov ax, 0xF000
+    call cs_f000
     mov ds, ax                      ; DS = the BIOS; ES:DI ours
 .scan:
     cmp si, 0xFFF0

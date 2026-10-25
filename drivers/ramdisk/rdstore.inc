@@ -339,6 +339,36 @@ rd_ext_clear:
     ret
 
 ; -----------------------------------------------------------------------------
+; rd_at - AX paragraphs into the conventional arena, as a segment for NOW
+; in:  AX = paragraphs, BX -> rd_wa or rd_wb; out: AX = the segment
+; clobbers: AX (the output), flags
+;
+; THE SUM [rd_arena] + AX, asked of the kernel first (OSAPI_SEG's SEG_AT,
+; apps/os88partsbody.inc's op_at): under kern_mega the arena is a selector
+; and a sum on it names some other descriptor, so a window is re-aimed there
+; instead (KERN-MEGA-MEMORY-PLAN MC7); every real-mode kernel refuses the
+; verb with every register kept, and the sum is the answer. Two windows,
+; because a Preserve holds an extent's and a chunk's at once
+; -----------------------------------------------------------------------------
+rd_at:
+    push cx
+    push dx
+    mov dx, [rd_arena]
+    mov cx, [bx]                ; the window to re-aim, 0 = a new one
+    push bx
+    mov bl, SEG_AT
+    call OSAPI_SEG
+    pop bx
+    jnc .w
+    add dx, ax                  ; refused: a real-mode kernel's sum
+.w:
+    mov [bx], dx
+    xchg ax, dx
+    pop dx
+    pop cx
+    ret
+
+; -----------------------------------------------------------------------------
 ; rd_ext_seg - a segment through which extent AX can be read and written
 ; in:  AX = an extent index
 ; out: AX = the segment; offset 0 is the extent's first byte
@@ -355,8 +385,11 @@ rd_ext_seg:
     push cx
     push dx
     mul word [rd_extpara]       ; DX:AX, and the product is bounded by the
-    add ax, [rd_arena]          ; conventional heap - a store big enough to
-    pop dx                      ; carry DX is one no 640KB machine can claim
+    push bx                     ; conventional heap - a store big enough to
+    mov bx, rd_wa               ; carry DX is one no 640KB machine can claim
+    call rd_at
+    pop bx
+    pop dx
     pop cx
     ret
 .xms:
