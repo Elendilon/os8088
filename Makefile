@@ -13315,7 +13315,8 @@ realdmghd: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 # every tools/ module it imports or runs (tools/os88vbundle.py COMPUTES the
 # list, so it cannot go stale), VIDEO.O88 and a README, in one folder of one
 # deterministic zip. On demand; unpacked anywhere it encodes and makes disks,
-# its hard disks BOOTING off the kernel and drivers it carries in boot/.
+# its hard disks BOOTING off the kernel and drivers it carries in boot/,
+# and GUIDE.HTML, the user's guide, with its pictures in guide/.
 # `soak -k vencbundle` unpacks it outside the tree and uses it there.
 .PHONY: vencbundle
 vencbundle: $(BUILD)/os8088-encoder.zip
@@ -13323,7 +13324,10 @@ vencbundle: $(BUILD)/os8088-encoder.zip
 # window's HD_BOOT and HD_WANT, which os88vbundle.py reads out of it
 VENCBOOT := $(addprefix $(BUILD)/,kernel.sys boothd.bin mbr.bin hdd.drv \
                                   ctrl.drv sound.drv hiber.drv)
-$(BUILD)/os8088-encoder.zip: $(BUILD)/video.o88 $(VENCBOOT) tools/os88vbundle.py $(wildcard tools/os88*.py)
+# ...and the user's guide, docs/encoder-guide/GUIDE.HTML and the guide/
+# pictures it names (os88vbundle.py reads the list off the page)
+$(BUILD)/os8088-encoder.zip: $(BUILD)/video.o88 $(VENCBOOT) tools/os88vbundle.py $(wildcard tools/os88*.py) \
+	$(wildcard docs/encoder-guide/GUIDE.HTML docs/encoder-guide/guide/*)
 	python3 tools/os88vbundle.py $@ --player $(BUILD)/video.o88 --boot $(BUILD)
 
 # ...and the one that shows a FACE rather than timing one: it draws the same
