@@ -1590,6 +1590,32 @@ rows. Nothing is recorded as built that was not.
   PIXELSTEIN's part answers 0, which degrades exactly as a refused part
   does (the bodies run from the image, no byte textures). ~10 bytes each,
   registered in `tests/megapkg.txt` as fail-safes.
+  **THE VIDEO PLAYER (2026-10-25) - DONE (item 4), the kern_mega arm
+  only; the shipped build is byte-identical.** The arm's 8-paragraph grid
+  (KERN-MEGA-PLAN 14.16) named a claim's parts by sums, which step 6 made
+  invalid: opening any `.V88` closed the player at `vp_kpic`/`vp_thpic`.
+  Structures inside a claim get a `SEG_SUB` each, made with the claim: the
+  ring's slots (`vp_rsmk` -> `[vp_rsel]`, `vp_addr` patched to `vp_paddr`
+  for every protected-mode ring), the layer's slots, mirror and bounce
+  (`vp_lymk`), a planar image's planes (`vp_plmk`/`vp_plset`) - so the rate
+  hook reads tables and calls nothing. Walks in the UI task or a worker
+  re-aim `SEG_AT` windows (`vp_at`); in the hook, a record past its slot's
+  64KB window (BIGSP's, a seam key) and a resident play's records go
+  through bound windows aimed by `SEG_AIM` (`vp_pmbig`, `vp_rres`,
+  `vp_raud`), a resident block's positions being paragraph offsets into it.
+  The desktop frame buffer is a `SEG_WIN` window and the gap's placement
+  asks `SEG_LIN`. One new defect TYPE: freeing a claim with ES inside it is
+  a #GP at the X cell's own `pop es`, so `vp_mfree` moves ES off the claim
+  first. Cost: the arm +866 bytes, 615 left under `APP_MAX_SIZE` - BIGSP in
+  place will be tight; no kernel byte. Rows: `megavidbig`, `megavidv2` (0
+  fixups on every step) and the new `megavidring` (1MB, every claim
+  conventional: lin80 with speaker PCM, vga4 full screen, a layered clip, a
+  resident Live clip, each to its last frame; red with the arm before).
+  Still open and the `mega-video` session's: BIGSP in place (`vp_pmbigq`,
+  buildable on `SEG_BWIN`/`SEG_AIM` now), EMS under protected mode, 86Box.
+  Found in passing, not MC7's: a Mode X clip with a page pool and keys in
+  parts says *"That keyframe could not be read"* (`vp_knrd` against
+  `R_KMAX`) on kern_big too.
   **THE BROWSER (2026-10-25) - DONE, one shared path.** Its document,
   source and EMS-frame sums are gone on kern_mega: `br_docmap` reads the
   document through one bound window (`SEG_BWIN` + `SEG_AIM`) aimed at the
