@@ -3057,6 +3057,33 @@ SOAK = [
         "withdrawal taken out (the region moves under the prompt and the "
         "transcript gains a line). 163s measured, two boots",
         needs=("marty",), serial=True, wants=("build/zrestart360.img",)),
+    Row("zbig", "soak", py("tests/zbig.py", "-q"), 60.0,
+        "KERN-MEGA-MEMORY-PLAN MC7: Frotz walks a story by 32KB PAGE "
+        "through a table of OSAPI_SEG SEG_SUB answers (apps/frotz/zmem.inc), "
+        "which is the claim's segment plus the page on the XT - this row is "
+        "that table on a real-mode kernel. tests/frotz/zbiggen.py's 148KB v5 "
+        "story on MartyPC: @verify of the whole file, `go` (calls into every "
+        "page through loops straddling every boundary), `text` (stream 3 "
+        "decodes out of the top pages), `go`; the transcript must be the "
+        "generator's own model, line for line, and each command's guest "
+        "cycles are printed (--pkg OLD.o88 is the A/B: 140.70M against "
+        "141.84M for `go`). Red with zx_jrel's page step taken out: `go` "
+        "never comes back to its prompt. 57s measured",
+        needs=("marty",), serial=True,
+        wants=("build/frotz.o88", "build/zt/ZBIG.Z5")),
+    Row("megafrotz", "soak", py("tests/megafrotz.py"), 30.0,
+        "KERN-MEGA-MEMORY-PLAN MC7: a story past 256KB on kern_mega in "
+        "protected mode, where the story claim is an LDT selector and each "
+        "32KB page a SEG_SUB selector. Bochs, tests/frotz/zbiggen.py's 282KB "
+        "v8 story (nine pages) on B: beside FROTZ.O88, opened by its "
+        "association: no kern_mega FAULT, no halt, and VERIFY/go/text/go "
+        "exactly the generator's model. Red with FROTZ.O88 from before the "
+        "page table (--pkg): VERIFY bad, then 'bad routine header - the "
+        "story has stopped' on the first `go` - every address past 64KB "
+        "read out of the first 64KB. 22s measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/frotz.o88", "build/zt/ZBIG.Z8")),
     Row("pkgmove-wireflet", "soak",
         py("tests/pkgmove.py", "--app", "wirefleet", "--disk",
            "games360.img", "--open", "B:/WIREFLET.O88", "--word",
