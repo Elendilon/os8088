@@ -17671,6 +17671,21 @@ SOAK = [
         "crosses the old 32 KB source limit.",
         needs=("qemu",), serial=True, builds=True,
         wants=("build/brtest360.img",)),
+    Row("brmega", "soak", py("tests/brmega.py"), 60.0,
+        "KERN-MEGA-MEMORY-PLAN MC7, SPEC.md 71.18: the Browser's document, "
+        "line table and source past 64KB under kern_mega, where every claim "
+        "is a selector and br_docmap's, the parser's and the receive's "
+        "paragraph sums are bound windows (SEG_BWIN/SEG_AIM). Bochs at 16MB "
+        "with an NE2000: tools/brmemory.py's DOCWIDE.HTM (78,380 bytes, both "
+        "arenas past the seam) off B: and again over HTTP, then a 3,000-line "
+        "page whose claims all sit above 1MB (OS88_HIGH/OS88_HIGHMEM, the "
+        "region too) - the stream's tail and the line table read out by "
+        "their descriptors, End painting the last lines, no CLOSED/FAULT. "
+        "Red with br_docmap taking the sum (CLOSED BROWSER 0D) - as the "
+        "pre-MC7 Browser is - and with br_take's (leg 2). 48s measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megak/kernel.map", "build/browser.o88",
+               "build/megarun.o88")),
     Row("brcapacity-fixtures", "fast", py("tests/brcapacity.py", "--fixtures"), 0.2,
         "SPEC.md 71.18.1: the manual 96 KiB source/document, 2,200-row, "
         "400-link, doubled-form and aggregate-frameset pages have the exact "
