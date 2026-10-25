@@ -170,6 +170,7 @@ Row("lzmod", "soak", py("tests/lzmod.py"), 30.0,
 | `serial` | it drives an emulator; implied by `needs=("marty",)`, say it for QEMU |
 | `builds` | it runs `make` in `build/`. **You almost certainly do not want this** (§5) |
 | `alone` | its ANSWER needs the cores - a rate or a frames-per-second (§4.1) |
+| `locks` | a named HOST resource it cannot share - `("port:8090",)` for a QEMU row whose fixture server the guest reaches at a fixed 10.0.2.2 port. The lane never runs two rows holding one name at once; nothing else about the row is serialised (§9.1) |
 | `timeout` | defaults to `max(60, 4 x secs + 30)`; raise it for a row whose shape is slow, never to cover a wait |
 
 ---
@@ -184,10 +185,19 @@ nothing). Include a private tree's build if the row makes one (~40s cold).
 
 ### 4.1 `alone` is about cores, not the tree
 
-Only a row whose assertion is a RATE needs the machine to itself (`saverate`,
-`deskbench`, `uilat`, `curdisk`). Guest cycle counts, `disk()` counts and
-pixel comparisons are exact at any load, because they are counted. If your row
-needs `alone` and does not measure a rate, it has a host-clock wait (§7).
+Only a row whose assertion is a RATE OF THE HOST needs the machine to itself.
+Guest cycle counts, `disk()` counts and pixel comparisons are exact at any
+load, because they are counted - so a MartyPC frame rate in guest cycles is
+NOT one (the Excitebike perf rows shared the lane once their script feed
+stopped racing the guest, docs/plans/SOAK-PARALLEL.md 17.5). If your row needs
+`alone` and does not measure a host rate, it has a host-clock wait (§7).
+
+**On QEMU the guest's clock IS the host's** (no `-icount`): the PIT and the
+BIOS tick follow wall time, so a guest starved of CPU is a slower machine. A
+QEMU row whose answer is the guest's speed against its own clock - a bench
+that picks a quality rung, a ladder with five per cent of headroom - is the
+one honest `alone` on QEMU (`xtmp3rate`, `vidbankspk*`). Everything else on
+QEMU shares the lane.
 
 ### 4.2 Where a row's time goes, and cutting it
 
@@ -467,10 +477,28 @@ wait on guest memory, a closed-loop pointer - spelled for that emulator:
 | emulator | harness | notes |
 |---|---|---|
 | MartyPC | `tools/os88marty.py`, `tools/os88ui.py` | `m.planes()` reads VGA planes straight off the card; `m.batch()` sends several commands in one round trip |
-| QEMU | `tests/os88qemu.py` | `Private(...)` / `launch_test(...)` give a private QEMU with its own socket - **never `make test`**, which builds in `build/`. Waits are `acted` / `ui_done` / `quiesce` on guest ticks; the mouse is `mouse_to` / `mouse_click` / `Mouse(...)`, closed-loop on `mouse_x`/`mouse_btn`; `xmcheck.keep(sock)` holds one QMP connection |
+| QEMU | `tests/os88qemu.py` | `make_test("ETHER=1", "TESTIMG=...")` is `make test`'s machine with a private socket, pidfile and disk COPIES, and `Private(...)` / `launch_test(...)` are the older spellings of the same - **never `make test`, and never a fixed `build/*.sock`** (§9.1). An image you READ BACK goes in `os88qemu.scratch(...)` first and is booted in place. Waits are `acted` / `ui_done` / `quiesce` on guest ticks; the mouse is `mouse_to` / `mouse_click` / `Mouse(...)`, closed-loop on `mouse_x`/`mouse_btn`; keys are `key(m, qcode)` / `type_text(sock, text)`, CONFIRMED - HMP `sendkey` loses a key to a starved guest; `xmcheck.keep(sock)` holds one QMP connection |
 | 86Box | `tools/os88box.py` (docs/86BOX.md) | `Box.kernel_up(prompts=)`, `ui_done(cap_ms=)`, `until(...)`, `launch(turbo=True)` where floppy timing is not the subject (not on kern_mega) |
 | Bochs | `tools/os88bochs.py` (docs/BOCHS.md) | a debugger read is ~20 ms, so every sleep becomes a wait: `Box.up()`, `ui_done`, `pkg_read`; inside a fullscreen bracket gate on `in_fsx()`. `Box(display=take_display())` for parallel machines |
 | Unicorn | per row | a per-instruction Python hook is usually the whole row's cost: hook an address range, not every instruction |
+
+### 9.1 A QEMU row shares the lane, so nothing in it may be shared
+
+The runner puts a QEMU row in the same concurrent lane as the MartyPC rows
+(docs/plans/SOAK-PARALLEL.md 17), and hands it `$OS88_QEMU_DIR`; everything
+`tests/os88qemu.py` makes - `RUNDIR`, `SOCK`, `PIDFILE`, `paths()`,
+`workdir()` - lives there, and a timeout sweeps only that directory. So:
+
+- **The socket and pidfile are `os88qemu.SOCK`/`PIDFILE` or `paths()`**,
+  never `build/qmp.sock` or a `build/<row>.sock`.
+- **A shared image is copied or booted `snapshot=on`.** Two QEMUs on one
+  writable `build/apps.img` is `Failed to get "write" lock` for the second.
+- **A fixed host port is a `locks=("port:N",)`** on the row and a
+  `os88qemu.lease_port(N)` before the bind. A slirp guest reaches the host at
+  10.0.2.2:N, the port is in the fixture's disks, and `guestfwd` is refused on
+  the gateway - so it cannot be made private, only taken in turn. A row whose
+  GUEST dials a port (dospkt's segment to 8099) holds it too, even with no
+  server of its own: another row's server would answer.
 
 ---
 

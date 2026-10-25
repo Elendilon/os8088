@@ -455,9 +455,24 @@ def leg_seek():
               E.QNAME[s["qual"]])
         r.key("dot")                    # forward ten seconds: to the ninth
         r.until(lambda: r.st()["elap"] >= 9, "the seek", 10, 0.05)
-        time.sleep(0.5)                 # (the clock re-opens at the target
-        e = r.st()["elap"]              # frame's first sample, 8.986 s: 0:08
-        tf, off = r.w("x3_tframe"), r.dword("x3_rsoff")     # for 14 ms)
+        # (the clock re-opens at the target frame's first sample, 8.986 s:
+        # 0:08 for 14 ms of the STREAM.) That was a host `time.sleep(0.5)`
+        # past the transient, and a starved guest can spend more than half a
+        # host second in it - the row then read 0:08 under load and passed
+        # alone (docs/plans/SOAK-PARALLEL.md 17.5). So: until the display
+        # reads the SAME second on two readings a guest tick apart, which is
+        # past a 14 ms transient on any box, and then judge that second
+        prev = [None]
+
+        def steady():
+            e = r.st()["elap"]
+            os88qemu.pace(r, 0.06)
+            same = e == r.st()["elap"] and e == prev[0]
+            prev[0] = e
+            return same
+        r.until(steady, "the seek's clock to settle", 10, 0.0)
+        e = r.st()["elap"]
+        tf, off = r.w("x3_tframe"), r.dword("x3_rsoff")
         check(leg, "the seek went to 0:09 (ten seconds on, the clamp)",
               e == 9, "elapsed %d" % e)
         r.until(lambda: r.st()["state"] == E.ST_DONE, "the end", 60, 0.25)

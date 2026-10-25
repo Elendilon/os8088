@@ -93,6 +93,23 @@ machine.  It is not forced any more.  `os88marty.launch` gives every instance
 its own port, its own run directory and its own disks (docs/MARTYPC-DEBUG.md),
 so `--marty-jobs N` widens that lane to N.
 
+QEMU ROWS SHARE IT TOO (docs/plans/SOAK-PARALLEL.md 17).  Sixty of them ran
+one at a time for the MartyPC lane's old reason - one socket, build/qmp.sock,
+one pidfile, build/qemu.pid, and the shared images booted in place - and the
+fix is MartyPC's: tests/os88qemu.py gives every process a directory of its own
+(RUNDIR, under the $OS88_QEMU_DIR this runner hands each QEMU row), and
+`os88qemu.make_test(...)` is `make test` with a private socket, pidfile and
+disk copies.  A timed-out row's sweep is over THAT directory, never
+build/*.pid, so it cannot kill a neighbour's machine.
+
+The one thing a QEMU row cannot make private is a fixed HOST PORT: a slirp
+guest reaches the host at 10.0.2.2:<port>, the port is baked into fixtures,
+and `guestfwd` is refused on the gateway.  So a row declares it -
+`Row(locks=("port:8090",))` - and the lane never runs two rows holding one
+name at once, picking another row meanwhile rather than parking a lane on the
+wait (`_locked_lane`).  tests/os88qemu.py's `lease_port` is the cross-runner
+half: another checkout's soak serving the same port is waited for.
+
 WHAT STILL RUNS ALONE, and it is no longer about the emulator.  TWO flags,
 and they are different claims:
 
@@ -422,7 +439,27 @@ def _tree_cpu(root):
         return None
 
 
-def _communicate(p, timeout, cpus=1, cpu_seen=True):
+def _qemu_cpu(qdir, seen):
+    """CPU seconds of the QEMUs a row launched, found by the pidfiles in its
+    own directory (OS88_QEMU_DIR). They daemonize - reparented to init, out
+    of the row's process tree - so `_tree_cpu` never sees them; and an
+    instance that has EXITED is reaped by init and its time is gone, so
+    `seen` keeps the last reading of every pid and the total never falls."""
+    import glob
+    hz = os.sysconf("SC_CLK_TCK")
+    for pf in glob.glob(os.path.join(qdir, "**", "*.pid"), recursive=True):
+        try:
+            pid = int(open(pf).read().strip())
+            raw = open("/proc/%d/stat" % pid).read()
+        except (OSError, ValueError):
+            continue
+        f = raw[raw.rindex(")") + 2:].split()
+        seen[pid] = max(seen.get(pid, 0.0),
+                        sum(int(x) for x in f[11:13]) / float(hz))
+    return sum(seen.values())
+
+
+def _communicate(p, timeout, cpus=1, cpu_seen=True, qdir=None):
     """Popen.communicate, but REAPED WITH wait4 so the row's CPU is kept.
 
     communicate() waits for the child itself and the kernel's rusage for it
@@ -439,7 +476,22 @@ def _communicate(p, timeout, cpus=1, cpu_seen=True):
 
     `cpu_seen` False - a QEMU row, whose emulator daemonizes out of the tree -
     bounds the row by `timeout` in wall seconds alone (see WALL_BACKSTOP).
+    UNLESS `qdir` names the row's own QEMU directory (docs/plans/
+    SOAK-PARALLEL.md 17.6): then its emulators' CPU is found by their
+    pidfiles and charged with the row's, so a QEMU row in a wide lane is
+    bounded by the work it did like every other row - it used to time out at
+    150 wall seconds having done 40 seconds of work, on a box running
+    eight emulators on four cores.
     """
+    qseen = {}
+
+    def spent_cpu():
+        t = _tree_cpu(p.pid)
+        if t is None or qdir is None:
+            return t
+        return t + _qemu_cpu(qdir, qseen)
+    if qdir is not None and _tree_cpu(p.pid) is not None:
+        cpu_seen = True
     import threading
     bufs = {"o": [], "e": []}
 
@@ -470,7 +522,7 @@ def _communicate(p, timeout, cpus=1, cpu_seen=True):
                 return None
             n += 1
             if cpu and limit is not None and n % 50 == 0:
-                spent = _tree_cpu(p.pid)
+                spent = spent_cpu()
                 if spent is None:
                     cpu, wall = False, blind    # unmeasurable: wall it is
                 elif spent > limit:
@@ -496,12 +548,13 @@ def _communicate(p, timeout, cpus=1, cpu_seen=True):
             got = reap(None)
     status, ru = got
     p.returncode = os.waitstatus_to_exitcode(status)
+    qcpu = _qemu_cpu(qdir, qseen) if qdir is not None else 0.0
     for t in ts:
         t.join()
     p.stdout.close()
     p.stderr.close()
     return ("".join(bufs["o"]), "".join(bufs["e"]),
-            ru.ru_utime + ru.ru_stime, timed_out)
+            ru.ru_utime + ru.ru_stime + qcpu, timed_out)
 
 
 def charge(results, par, ser, conc, j, mj):
@@ -594,7 +647,7 @@ def _bochs_free(n):
         _BOCHS_FREE.append(n)
 
 
-def run_row(row, caps, strict, verbose, unbuilt=()):
+def run_row(row, caps, strict, verbose, unbuilt=(), shared=False):
     missing = set(row.needs) - caps
     if missing and not strict:
         return Result(row, True, True, 0.0, "", "needs " + ",".join(sorted(missing)))
@@ -616,6 +669,20 @@ def run_row(row, caps, strict, verbose, unbuilt=()):
     env = None
     if disp is not None:
         env = dict(os.environ, OS88_BOCHS_DISPLAY=":%d" % disp)
+    # **A QEMU ROW GETS A DIRECTORY OF ITS OWN** (docs/plans/SOAK-PARALLEL.md
+    # 17), which tests/os88qemu.py puts every socket, pidfile and disk copy
+    # the row's emulators use inside - so a timeout below sweeps exactly this
+    # row's machines and nobody else's, which matters the moment rows share a
+    # lane. In the system temp dir and short, because a Unix socket path is
+    # capped at 108 bytes.
+    qdir = None
+    if "qemu" in row.needs:
+        import tempfile
+        # (/tmp by name: the row's own $TMPDIR is build/tmp/, set above,
+        # and a worktree's spends most of the 108 bytes on its own)
+        qdir = tempfile.mkdtemp(prefix="os88q-%s-" % row.name[:16],
+                                dir="/tmp")
+        env = dict(env or os.environ, OS88_QEMU_DIR=qdir)
     q9 = os88build.qemu9() if "qemu9" in row.needs else None
     if q9:                              # the rows launch QEMU BY NAME
         env = dict(env or os.environ)
@@ -629,7 +696,8 @@ def run_row(row, caps, strict, verbose, unbuilt=()):
                           "could not run")
         so, se, cpu, timed_out = _communicate(p, row.timeout,
                                               getattr(row, "cpus", 1),
-                                              "qemu" not in row.needs)
+                                              "qemu" not in row.needs,
+                                              qdir=qdir)
     finally:
         if disp is not None:
             _bochs_free(disp)
@@ -639,12 +707,81 @@ def run_row(row, caps, strict, verbose, unbuilt=()):
     if timed_out:
         ok, reason = False, "TIMEOUT after %ds" % row.timeout
         if "qemu" in row.needs:
-            out += _sweep_qemu()
+            out += _sweep_qemu(qdir, legacy=not shared)
+    if qdir:
+        _sweep_qemu(qdir, legacy=False)     # (a clean exit left none: cheap)
+        shutil.rmtree(qdir, ignore_errors=True)
     return Result(row, ok, False, time.time() - t0, out, reason, cpu)
 
 
-def _sweep_qemu():
+def _locked_lane(rows, width, run):
+    """Run `rows` `width` at a time, never two holding one `Row.locks` name.
+
+    A ThreadPoolExecutor with every row submitted would hand a lane to a row
+    whose port is held and leave it parked on the lease for the length of the
+    other row - so the pick is made HERE, from the rows whose locks are free,
+    in registry order. A row with no locks is never held back, so a lane with
+    none of them behaves exactly as the pool did. Yields results as they
+    finish, on the caller's thread.
+    """
+    import queue
+    cond = threading.Condition()
+    pending = list(rows)
+    held = set()
+    out = queue.Queue()
+
+    def worker():
+        while True:
+            with cond:
+                while True:
+                    if not pending:
+                        return
+                    free = [r for r in pending
+                            if not held & set(getattr(r, "locks", ()))]
+                    # LONGEST FIRST, and a LOCK GROUP by what it has left:
+                    # the rows sharing a port run end to end whatever this
+                    # does, so the group is the lane's critical path and
+                    # wants to start first, and among the rest the longest
+                    # declaration first is the classic makespan rule (a
+                    # 1,200 s row picked last is a 1,200 s tail)
+                    left = {}
+                    for p in pending:
+                        for lk in getattr(p, "locks", ()):
+                            left[lk] = left.get(lk, 0.0) + p.secs
+                    pick = max(free, key=lambda r: (
+                        max([left[lk] for lk in getattr(r, "locks", ())]
+                            or [0.0]), r.secs), default=None)
+                    if pick is not None:
+                        pending.remove(pick)
+                        held.update(getattr(pick, "locks", ()))
+                        break
+                    cond.wait()
+            try:
+                res = run(pick)
+            except Exception as e:                      # noqa: BLE001
+                res = Result(pick, False, False, 0.0, repr(e), "runner error")
+            with cond:
+                held.difference_update(getattr(pick, "locks", ()))
+                cond.notify_all()
+            out.put(res)
+
+    ts = [threading.Thread(target=worker, daemon=True)
+          for _ in range(max(1, width))]
+    for t in ts:
+        t.start()
+    for _ in rows:
+        yield out.get()
+    for t in ts:
+        t.join()
+
+
+def _sweep_qemu(qdir=None, legacy=True):
     """Stop every QEMU a timed-out row can have left, by PIDFILE.
+
+    `qdir` is the row's own directory (OS88_QEMU_DIR): every pidfile under it
+    is that row's. `legacy` adds build/*.pid, the launchers that still spell
+    their pidfile into the shared tree - and it is OFF for a row in the shared
+    lane, where build/*.pid could be any row's.
 
     The belt under the braces above: a row killed after ignoring SIGTERM ran
     no atexit either. Every launcher in tests/ daemonizes with `-pidfile
@@ -656,8 +793,16 @@ def _sweep_qemu():
     import glob
     import os88qemu
     swept = []
-    for pf in sorted(glob.glob(os.path.join(ROOT, "build", "*.pid"))):
-        sock = os88qemu.SOCK if pf == os88qemu.PIDFILE else None
+    pids = []
+    if qdir:
+        pids += sorted(glob.glob(os.path.join(qdir, "**", "*.pid"),
+                                 recursive=True))
+    if legacy:
+        pids += sorted(glob.glob(os.path.join(ROOT, "build", "*.pid")))
+    for pf in pids:
+        # (the one legacy pair: `make test`'s, whose socket is beside it)
+        sock = os.path.join(ROOT, "build", "qmp.sock") \
+            if pf == os.path.join(ROOT, "build", "qemu.pid") else ""
         os88qemu.kill(pf, sock)
         swept.append(os.path.basename(pf))
     return ("\nos88test: swept %s after the timeout\n" % ", ".join(swept)
@@ -997,8 +1142,15 @@ def main():
     # emulator row that does not build can share the machine with another,
     # because every instance has its own port, directory and disks now.
     mj = max(1, a.mj)
+    # QEMU ROWS SHARE THE LANE NOW (docs/plans/SOAK-PARALLEL.md 17): every
+    # launcher in tests/ takes a socket, pidfile and disk copies of its own
+    # (tests/os88qemu.py RUNDIR), so the one thing that kept 60 of them in
+    # the one-at-a-time lane - build/qmp.sock - is gone. A row that serves a
+    # fixed host port declares it in `locks=`, and the lane never runs two
+    # rows holding one name at once.
     conc = [r for r in ser
-            if mj > 1 and "marty" in r.needs and not r.builds and not r.alone]
+            if mj > 1 and ("marty" in r.needs or "qemu" in r.needs)
+            and not r.builds and not r.alone]
     ser = [r for r in ser if r not in conc]
     if conc:
         print("os88test: %d emulator row(s) in a lane of %d; %d run alone"
@@ -1061,13 +1213,10 @@ def main():
     # halfway through rewriting build/kernel.bin is exactly what an emulator
     # row must not be reading.
     if conc:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=mj) as ex:
-            futs = {ex.submit(run_row, r, caps, a.strict, a.verbose, unbuilt): r
-                    for r in conc}
-            for f in concurrent.futures.as_completed(futs):
-                res = f.result()
-                results.append(res)
-                report(res)
+        for res in _locked_lane(conc, mj, lambda r: run_row(
+                r, caps, a.strict, a.verbose, unbuilt, shared=True)):
+            results.append(res)
+            report(res)
 
     wall = time.time() - t0
     failed = [r for r in results if not r.ok]

@@ -58,6 +58,11 @@ import os88geom                                        # noqa: E402
 from ethernet import (Qemu, ether_syms, u16, dotted, S, Mouse,  # noqa: E402
                       type_url)
 import os88qemu                                              # noqa: E402
+import os88fixture                                           # noqa: E402
+import shutil                                                # noqa: E402
+
+# THE row's system disk, across all its boots (`boot`)
+IMG = os.path.join(os88qemu.RUNDIR, "ether360.img")
 import os88build                                       # noqa: E402
 
 # the Control Panel's own geometry, as tests/ethernet.py reads it
@@ -83,29 +88,18 @@ def say(*a):
 
 
 def boot():
-    if os.path.exists("build/qemu.pid"):
-        try:
-            pid = int(open("build/qemu.pid").read().strip())
-            os.kill(pid, 15)
-            os88qemu.gone(pid)
-        except (OSError, ValueError):
-            pass
-    for f in ("build/qmp.sock", "build/qemu.pid"):
-        if os.path.exists(f):
-            os.remove(f)
-    # `make test` DAEMONISES the emulator, so it outlives this script
-    # unless somebody kills it - and the somebody is us (os88qemu).
-    os88qemu.own()
-    r = subprocess.run(["make", "test", "ETHER=1",
-                        "TESTIMG=build/ether360.img"],
-                       capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("ethcfg: make test failed:\n" + r.stdout + r.stderr)
+    """The machine, private (tests/os88qemu.py make_test): its own socket and
+    pidfile, and THIS ROW'S copy of ether360.img booted in place - the one
+    the settings below are written to and read back from across reboots,
+    while the built image is never touched (docs/plans/SOAK-PARALLEL.md 17).
+    """
+    os88qemu.kill()                     # the previous boot's, if any
+    os88qemu.make_test("ETHER=1", "TESTIMG=" + IMG)
     return Qemu()
 
 
 def qmp(*cmds):
-    subprocess.run(["python3", "tools/qmp.py", "build/qmp.sock"] + list(cmds),
+    subprocess.run(["python3", "tools/qmp.py", os88qemu.SOCK] + list(cmds),
                    check=True, capture_output=True)
 
 
@@ -151,13 +145,13 @@ def setup_wins(m):
 
 def open_cp(m):
     """Chip menu -> Control Panel, and wait for its window."""
-    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock",
+    subprocess.run(["python3", "tools/mouse.py", os88qemu.SOCK,
                     "down", "8", "8"], check=True, capture_output=True)
     os88qemu.pace(m, 0.4)
-    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock",
+    subprocess.run(["python3", "tools/mouse.py", os88qemu.SOCK,
                     "to", "8", "40"], check=True, capture_output=True)
     os88qemu.pace(m, 0.4)
-    subprocess.run(["python3", "tools/mouse.py", "build/qmp.sock", "up"],
+    subprocess.run(["python3", "tools/mouse.py", os88qemu.SOCK, "up"],
                    check=True, capture_output=True)
     if os88qemu.acted(m, lambda: find_cp(m) is not None, secs=15,
                       what="the Control Panel window", poll=0.25):
@@ -181,7 +175,7 @@ def quit_and_wait(m):
     """quit, and have QEMU GONE before the image is reused - a host wait on
     a host thing, by the process table."""
     try:
-        pid = int(open("build/qemu.pid").read().strip())
+        pid = int(open(os88qemu.PIDFILE).read().strip())
     except (OSError, ValueError):
         pid = None
     m.quit()
@@ -195,13 +189,13 @@ def main():
     a = ap.parse_args()
     fails = []
 
-    # A FRESH IMAGE, for the reason tests/ethernet.py rebuilds one: QEMU mounts
-    # it writable and this test's whole subject is a file the guest writes.
-    if os.path.exists(os88build.at("build/ether360.img")):
-        os.remove("build/ether360.img")
-    r = subprocess.run(["make", "ethertest"], capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("ethcfg: make ethertest failed:\n" + r.stdout + r.stderr)
+    # A FRESH IMAGE OF ITS OWN: QEMU mounts it writable and this test's whole
+    # subject is a file the guest writes. It used to delete and `make` the
+    # shared build/ether360.img for that, under every row beside it; a copy
+    # in this process's directory is fresher still, and the built image is
+    # this row's `wants=` (docs/plans/SOAK-PARALLEL.md 17).
+    os88fixture.need("build/ether360.img")
+    shutil.copyfile(os88build.at("build/ether360.img"), IMG)
 
     syms = ether_syms()
     m, mo = boot(), Mouse()
@@ -255,7 +249,7 @@ def main():
     type_url(NEWIP)
     os88qemu.pace(m, 1)
     if a.shot:
-        subprocess.run(["python3", "tools/shot.py", "build/qmp.sock", a.shot],
+        subprocess.run(["python3", "tools/shot.py", os88qemu.SOCK, a.shot],
                        check=True)
         say("wrote %s" % a.shot)
 

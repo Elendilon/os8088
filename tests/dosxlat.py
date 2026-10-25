@@ -89,6 +89,7 @@ class Listener(object):
         self.got = []
         self.s = socket.socket()
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        os88qemu.lease_port(PORT)       # (SOAK-PARALLEL.md 17.3)
         self.s.bind(("0.0.0.0", PORT))
         self.s.listen(4)
         self.t = threading.Thread(target=self._run)

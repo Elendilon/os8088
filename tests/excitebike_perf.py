@@ -321,13 +321,27 @@ def lap_run(g, tag, course, script, mute, log=True):
         m.pause()                                 # (the machine was paused here; the lap starts from its own trace)
 
         def done():
-            feed(m)
             return g.b("xb_tpause") == 1 or tr.overflowed
         g.put("xb_tpause", 0)
-        # every mark is a LOGGING breakpoint: the server notes the cycle count and the guest
-        # never stops, so the lap runs at the emulator's own speed (the pumped trace stopped
-        # seven times a frame and ran it at half that)
-        with M.bp_trace(m, *[g.a(n) for n in names], log=log,
+        # every mark but ONE is a LOGGING breakpoint: the server notes the cycle count and the
+        # guest never stops, so the lap runs at the emulator's own speed (the pumped trace
+        # stopped seven times a frame and ran it at half that).
+        #
+        # **THE FRAME MARK STOPS, AND THE FEED HAPPENS THERE** (docs/plans/SOAK-PARALLEL.md
+        # 17.5). The feed used to run from the body while the guest ran free, so the script
+        # ring stayed ahead of the game only for as long as the HOST did: 256 steps is about a
+        # host second of a MartyPC running at 3.4x, and a loaded box that delayed the body's
+        # next poll by more than that failed the assertion above - "the harness fell behind"
+        # - which is a row that fails under contention for a reason that has nothing to do
+        # with the frame rate it measures. A frame takes at most XB_STEPS_MAX steps, so a
+        # feed at EVERY frame keeps the ring ahead by construction, on any box; the stop costs
+        # the guest no cycle (the debug server's breakpoints are free in guest time), only a
+        # little host time a frame.
+        logged = [g.a(n) for n in names if n != "xb_presented"] if log else log
+
+        def on_frame(mm, rec):
+            feed(mm)
+        with M.bp_trace(m, *[g.a(n) for n in names], log=logged, on_hit=on_frame,
                         cap=len(script) * 8 + 8000) as tr:
             tr.until(done, "the lap", limit=900)
         assert not tr.overflowed, "the trace buffer overflowed"

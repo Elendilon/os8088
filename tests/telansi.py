@@ -82,9 +82,10 @@ import os88bbs                                             # noqa: E402
 import os88qemu                                            # noqa: E402
 import os88sym                                             # noqa: E402
 import os88build                                       # noqa: E402
+import os88fixture                                    # noqa: E402
 
 S = os88sym.linear
-SOCK = os.path.join(ROOT, "build", "qmp.sock")
+SOCK = os88qemu.SOCK            # THIS PROCESS'S (SOAK-PARALLEL.md 17)
 PORT = 8094                     # NOT 8090 (tests/ethernet.py) and NOT 8092
                                 # (tests/thewire.py): the three gates may be
                                 # run side by side, and a bound port is a gate
@@ -276,16 +277,12 @@ SENDKEY = {".": "dot", ":": "shift-semicolon", "-": "minus", "/": "slash"}
 
 
 def typetext(text):
-    cmds = []
+    """every keystroke confirmed (os88qemu.type_text): HMP sendkey lost a
+    character to a starved guest - '10..2.2:8094' (SOAK-PARALLEL.md 17.5)"""
     for ch in text:
-        if ch.isalnum():
-            cmds.append("sendkey " + (ch.lower() if ch.isalpha() else ch))
-        elif ch in SENDKEY:
-            cmds.append("sendkey " + SENDKEY[ch])
-        else:
+        if not (ch.isalnum() or ch in SENDKEY):
             sys.exit("telansi: no sendkey mapping for %r" % ch)
-        cmds.append("gsleep 0.06")      # the guest's time (tools/qmp.py)
-    qmp(*cmds)
+    os88qemu.type_text(SOCK, text)
 
 
 # -----------------------------------------------------------------------------
@@ -341,18 +338,15 @@ def main():
     a = ap.parse_args()
     fails = []
 
-    # **THE SYSTEM IMAGE IS REBUILT, NOT CHECKED.** QEMU mounts it WRITABLE and
-    # the OS writes to it, so staleness is not the hazard here - a dirty image
-    # is - and `make` cannot see the difference, because the guest's write
-    # leaves the image NEWER than everything it was built from.
-    for img in ("build/telnetsys.img", "build/telnetdata.img"):
-        p = os.path.join(ROOT, img)
-        if os.path.exists(p):
-            os.remove(p)
-    r = subprocess.run(["make", "telnettest"], capture_output=True, text=True,
-                       cwd=ROOT)
-    if r.returncode:
-        sys.exit("telansi: make telnettest failed:\n" + r.stdout + r.stderr)
+    # **THE IMAGES ARE COPIES, NOT REBUILT.** QEMU mounts them WRITABLE and
+    # the OS writes to them, so the hazard is a dirty image rather than a
+    # stale one - which this used to answer by deleting both built images and
+    # running `make telnettest` under every row beside it. They are this row's
+    # `wants=` now and os88qemu.make_test boots a private copy of each
+    # (docs/plans/SOAK-PARALLEL.md 17), so no image the next row reads is
+    # ever dirtied. The fixed PORT is the one shared thing, leased.
+    os88fixture.need("build/telnetsys.img", "build/telnetdata.img")
+    os88qemu.lease_port(PORT)
 
     sy = te_syms()
     for n in ("con_scr", "te_state", "te_soff", "te_zon", "te_zat", "te_obin",
@@ -372,25 +366,10 @@ def main():
             sys.exit("telansi: no %s - run `python3 tools/ansifix.py`" % p)
         streams[name] = open(p, "rb").read()
 
-    # A SURVIVOR KEEPS THE SOCKET, so the new machine cannot bind and every
-    # read below would come from the OLD one - which reads as a change that
-    # did nothing. Kill it by PID out of the pidfile and never with a pattern
-    # that names the emulator, which matches the killing shell's own line.
-    os88qemu.kill()
-    if not a.keep:
-        # `own()` registers an atexit teardown, which is what stops a FAILED
-        # row leaving its emulator running for the next one to trip over
-        # (tests/os88qemu.py). --keep is the one case that wants the opposite,
-        # and skipping the registration is the only way to get it: the handler
-        # fires on the way out whatever `m.quit()` does or does not do. With
-        # --keep the guest is then the CALLER's to kill.
-        os88qemu.own()
-    r = subprocess.run(["make", "test", "ETHER=1",
-                        "TESTIMG=build/telnetsys.img",
-                        "TESTAPPS=build/telnetdata.img"],
-                       capture_output=True, text=True, cwd=ROOT)
-    if r.returncode:
-        sys.exit("telansi: make test failed:\n" + r.stdout + r.stderr)
+    # A PRIVATE MACHINE (tests/os88qemu.py make_test): its own socket and
+    # pidfile, so no survivor of an earlier run can be answering on it
+    os88qemu.make_test("ETHER=1", "TESTIMG=build/telnetsys.img",
+                       "TESTAPPS=build/telnetdata.img")
 
     m = Qemu()
     mo = Mouse()

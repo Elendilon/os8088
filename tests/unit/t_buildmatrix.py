@@ -94,6 +94,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import os88build                                          # noqa: E402
+import os88fixture                                        # noqa: E402
 from harness import check, done                           # noqa: E402
 
 
@@ -618,12 +619,19 @@ def main():
     # built these already and this is then a no-op; asking for them by name is
     # what stops a row dying with "No rule to make target build/paint.o88" on a
     # tree where it has not.
-    r = subprocess.run(["make", "-j%d" % a.j, "build/associco.inc"], cwd=ROOT,
-                       capture_output=True, text=True, timeout=600)
-    check(r.returncode == 0, "the shared packages and associco.inc are present",
+    #
+    # DECLARED, NOT BUILT HERE (docs/plans/SOAK-PARALLEL.md 17.4): it was a
+    # `make -j build/associco.inc` in the SHARED tree, which under a frozen
+    # soak rebuilt the operator's build/ while every row read the run's own -
+    # and the ICODIR above already points at the run's. The row's `wants=`
+    # has the runner build it into the right tree before any row starts, and
+    # standalone os88fixture builds it here as before.
+    os88fixture.need("build/associco.inc")
+    check(os.path.exists(os88build.at("build/associco.inc")),
+          "the shared packages and associco.inc are present",
           "every row that does not touch a package build takes these from "
           "build/ instead of rebuilding four byte-identical packages of its own",
-          got="\n".join((r.stdout + r.stderr).strip().splitlines()[-6:]), want="exit 0")
+          got="absent", want="present")
 
     sizes = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=a.j) as ex:

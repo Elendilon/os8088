@@ -91,9 +91,10 @@ import dispcp                                              # noqa: E402
 import os88qemu                                            # noqa: E402
 import os88sym                                             # noqa: E402
 import os88build                                           # noqa: E402
+import os88fixture                                         # noqa: E402
 
 S = os88sym.linear
-SOCK = os.path.join(ROOT, "build", "qmp.sock")
+SOCK = os88qemu.SOCK            # THIS PROCESS'S (SOAK-PARALLEL.md 17)
 PORT = 8093                     # NOT 8090 (ethernet.py), 8092 (thewire.py) or
                                 # 8094 (telansi.py): the gates may run side by
                                 # side, and a bound port is a gate reading the
@@ -456,16 +457,12 @@ KEYMAP = {" ": "spc", ".": "dot", ",": "comma", "!": "shift-1", "?": "shift-slas
 
 
 def typetext(text):
-    cmds = []
+    """every keystroke confirmed (os88qemu.type_text): HMP sendkey loses a
+    character to a starved guest (docs/plans/SOAK-PARALLEL.md 17.5)"""
     for ch in text:
-        if ch.isalpha():
-            cmds.append("sendkey " + ("shift-" + ch.lower() if ch.isupper() else ch))
-        elif ch.isdigit():
-            cmds.append("sendkey " + ch)
-        else:
-            cmds.append("sendkey " + KEYMAP[ch])
-        cmds.append("gsleep 0.05")
-    tool("qmp.py", *cmds)
+        if not (ch.isalnum() or ch in KEYMAP):
+            raise KeyError(ch)
+    os88qemu.type_text(SOCK, text, gap=0.05)
 
 
 def wc_syms():
@@ -499,15 +496,14 @@ def main():
         if not ok:
             fails.append(what)
 
-    # THE IMAGES ARE REBUILT, NOT CHECKED (telansi.py's reason): QEMU mounts
-    # them writable, and this gate's own assertion 11 writes B:.
-    for img in ("build/telnetsys.img", "build/wirechatdata.img"):
-        p = os.path.join(ROOT, img)
-        if os.path.exists(p):
-            os.remove(p)
-    r = subprocess.run(["make", "wirechattest"], capture_output=True, text=True, cwd=ROOT)
-    if r.returncode:
-        sys.exit("wirechat: make wirechattest failed:\n" + r.stdout + r.stderr)
+    # THE IMAGES ARE FRESH COPIES, NOT REBUILT: QEMU mounts them writable,
+    # and this gate's own assertion 11 writes B: and reads it back. The built
+    # images are this row's `wants=`; the system disk is copied by make_test
+    # and the data disk into this process's directory, booted there and read
+    # back from there - where this deleted both built images and ran `make
+    # wirechattest` under every row beside it (docs/plans/SOAK-PARALLEL.md 17).
+    os88fixture.need("build/telnetsys.img", "build/wirechatdata.img")
+    datimg = os88qemu.scratch("build/wirechatdata.img")
     sy = wc_syms()
 
     # --- the fixture, seeded --------------------------------------------------
@@ -515,18 +511,13 @@ def main():
     HUB.post(0, "RetroAmy", "Hercules. Looking sharp in mono.")
     HUB.post(0, "Daniel", "Anyone up for WireBall?")
     HUB.post(1, "Bot", "Room one, message one.")
+    os88qemu.lease_port(PORT)           # (SOAK-PARALLEL.md 17.3)
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     srv.daemon_threads = True
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
-    os88qemu.kill()
-    if not a.keep:
-        os88qemu.own()
-    r = subprocess.run(["make", "test", "ETHER=1", "TESTIMG=build/telnetsys.img",
-                        "TESTAPPS=build/wirechatdata.img"],
-                       capture_output=True, text=True, cwd=ROOT)
-    if r.returncode:
-        sys.exit("wirechat: make test failed:\n" + r.stdout + r.stderr)
+    os88qemu.make_test("ETHER=1", "TESTIMG=build/telnetsys.img",
+                       "TESTAPPS=" + datimg)
 
     m = Qemu()
     mo = Mouse()
@@ -732,7 +723,7 @@ def main():
         srv.shutdown()
 
     if not a.keep:
-        files = fat12_files(os.path.join(ROOT, "build", "wirechatdata.img"))
+        files = fat12_files(datimg)
         cfg = files.get("SYSTEM/APPDATA/WIRECHAT.CFG", b"(no file)").decode("latin1")
         check("notify 0" in cfg and "friend Alin" in cfg and "nick Tester" in cfg
               and "code 0b5e-c0de-42" in cfg,

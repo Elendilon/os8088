@@ -64,7 +64,8 @@ import shot as SH                                       # noqa: E402
 
 S = os88sym.linear
 IMG = os.path.join(ROOT, "build", "lemmings.img")
-SCRATCH = os.path.join(ROOT, "build", "lemsoak.img")
+# THIS PROCESS'S scratch (tests/os88qemu.py RUNDIR), never build/lemsoak.img
+SCRATCH = os.path.join(Q.RUNDIR, "lemsoak.img")
 
 # the world is the dump's rows 0..319 in mode 0Dh (200 lines doubled to 400):
 # game rows 0..159; the panel is 320..399
@@ -154,11 +155,12 @@ def main():
               "lemmingsdisk`")
         return 0
     shutil.copyfile(IMG, SCRATCH)
-    tmp = os.path.join(ROOT, "build", "lemsoak.ppm")
+    tmp = os.path.join(Q.RUNDIR, "lemsoak.ppm")
 
-    os88qemu.own()                  # the teardown: make test daemonises QEMU
-    subprocess.run(["make", "test", "TESTAPPS=build/lemsoak.img"], cwd=ROOT,
-                   check=True, stdout=subprocess.DEVNULL)
+    # a PRIVATE machine (os88qemu.make_test): its own socket and pidfile, a
+    # copy of the system disk, and SCRATCH - already this run's - in place
+    # (docs/plans/SOAK-PARALLEL.md 17)
+    os88qemu.make_test("TESTAPPS=" + SCRATCH)
     m = E.Qemu()
     mo = E.Mouse()
     try:
@@ -196,7 +198,12 @@ def main():
         wait_for(m, tmp, lambda w, h, p: (w, h) == (640, 400), 120,
                  "the level (mode 0Dh)")
         Q.pace(m, 4)                    # the lemmings out of the trap door
-        m.hmp("sendkey f11")            # PAUSED: the world cannot move
+        # PAUSED: the world cannot move. A CONFIRMED key (os88qemu.key) and
+        # not HMP sendkey, whose release follows 100 ms of HOST time later:
+        # a starved guest took both at one IRQ1, the pause never happened,
+        # and the lemmings walking read as a save-under defect - 1,248
+        # pixels at eight emulators on four cores (SOAK-PARALLEL.md 17.5)
+        Q.key(m, "f11", secs=1.0)
         Q.pace(m, 1)
 
         # --- 4. the pointer leaves the world, and nothing stays ----------
@@ -247,7 +254,7 @@ def main():
                  "world (carried finding A)" % (diff, ys[0], ys[-1]))
 
         # --- 5. Esc: the postview in 12h ---------------------------------
-        m.hmp("sendkey f11")
+        Q.key(m, "f11", secs=1.0)
         Q.pace(m, 0.5)
         m.hmp("sendkey esc")
         wait_for(m, tmp, top_black, 30, "the postview (mode 12h)")

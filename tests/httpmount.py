@@ -161,6 +161,7 @@ def dns_stub(log):
     import socket
     sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sk.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    os88qemu.lease_port(53)     # a fixed host port (SOAK-PARALLEL.md 17.3)
     sk.bind(("127.0.0.1", 53))
 
     def run():
@@ -194,6 +195,9 @@ def server(root, log):
             log.add((fmt % a) + " [%s] port %d" % (self.headers.get("Range", ""),
                                                     self.client_address[1]))
     h = lambda *a, **k: H(*a, directory=root, **k)            # noqa: E731
+    # the guest reaches this at 10.0.2.2:PORT, baked into HTTPDRV.CFG - the
+    # one shared thing left, so it is LEASED (SOAK-PARALLEL.md 17.3)
+    os88qemu.lease_port(PORT)
     httpd = os88httpdrv.Server(("127.0.0.1", PORT), h)
     httpd.ranges = True
     threading.Thread(target=httpd.serve_forever, daemon=True).start()

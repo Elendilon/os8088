@@ -138,10 +138,11 @@ class Row:
     """One registered test."""
 
     __slots__ = ("name", "tier", "cmd", "secs", "needs", "serial", "why",
-                 "timeout", "builds", "alone", "wants", "cpus")
+                 "timeout", "builds", "alone", "wants", "cpus", "locks")
 
     def __init__(self, name, tier, cmd, secs, why, needs=(), serial=False,
-                 timeout=None, builds=False, alone=False, wants=(), cpus=1):
+                 timeout=None, builds=False, alone=False, wants=(), cpus=1,
+                 locks=()):
         self.name, self.tier, self.cmd = name, tier, cmd
         self.secs, self.why = secs, why
         self.needs = tuple(needs)
@@ -205,6 +206,16 @@ class Row:
         # the 690 CPU seconds of a 165-second row in 378 of wall and were
         # killed. Both figures are divided back out by this.
         self.cpus = cpus
+        # LOCKS: a named HOST resource the row cannot share with another row
+        # holding the same name - today only `port:<n>`, a fixed host port a
+        # QEMU row's fixture server binds because the guest reaches it at
+        # 10.0.2.2:<n> and that address is baked into its disks
+        # (docs/plans/SOAK-PARALLEL.md 17.3). It is NOT `alone`: the row shares
+        # the cores and the tree with everything, and only waits for the one
+        # other row on its port - and the runner picks another row meanwhile
+        # rather than parking a lane on the wait. tests/os88qemu.py's
+        # `lease_port` is the cross-runner half (another checkout's soak).
+        self.locks = tuple(locks)
         # A generous default: the point of the per-row timeout is to stop a
         # hung emulator eating the tier, not to police a slow machine.
         self.timeout = timeout or max(60, int(secs * 4) + 30)
@@ -485,7 +496,23 @@ FAST = [
         "figures were measured on, entry for entry. Soak because it "
         "rebuilds the corpus with numpy (seconds, not a fast row)",
         needs=("numpy",)),
-    Row("xtmp3eng", "soak", py("tests/xtmp3eng.py"), 1200.0,
+    Row("xtmp3rate", "soak", py("tests/xtmp3eng.py", "--leg", "ladder",
+                                "--leg", "slowdown"), 200.0,
+        "XTMP3's ladder and its mid-track slowdown (xtmp3eng's two RATE legs, "
+        "SPEC.md 121.5): the stub's cost a rung is spun on the 8253, so the "
+        "verdict is the guest's CPU against the PIT - and QEMU runs without "
+        "-icount, so the PIT is the HOST's clock and a starved guest is a "
+        "slower machine. 1.05x has five per cent of headroom: on a box "
+        "running eight emulators on four cores it stepped down twice and "
+        "underran (docs/plans/SOAK-PARALLEL.md 17.5). ALONE BECAUSE THE "
+        "ANSWER IS A HOST RATE; -icount is what would end that",
+        needs=("qemu", "nasm", "mtools", "numpy"), serial=True, alone=True,
+        wants=("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
+               "build/xtmp3.bin", "build/os8088.img",
+               "build/mixercfg/SYSTEM.CFG", "build/mbr.bin",
+               "build/boothd.bin", "build/kernel.sys")),
+    Row("xtmp3eng", "soak", py("tests/xtmp3eng.py", "--skip", "ladder",
+                               "--skip", "slowdown"), 1000.0,
         "XTMP3's engine (SPEC.md 121.5-121.7, docs/xtmp3/ENGINE.md) over the "
         "STUB backend (`make xtmp3stub`: a tone whose cost a rung is set by "
         "X3STUB.CFG), on QEMU because what is asserted is behaviour: the "
@@ -516,7 +543,8 @@ FAST = [
         "live and converting, a queued song whose probe was not had "
         "given its title when idle (qagain), and a finished WAV in a third "
         "folder played to its last byte, then again through the cache "
-        "(wavdirs)",
+        "(wavdirs). The ladder and the slowdown are xtmp3rate's, which has "
+        "the box to itself; everything here is behaviour and shares the lane",
         needs=("qemu", "nasm", "mtools", "numpy"), serial=True,
         timeout=2700,
         wants=("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
@@ -1974,7 +2002,12 @@ FULL = [
         "obviously break the OS' - a knob is an instrument, the shipped "
         "kernel is built by `make` and kern_small by small128's own private "
         "tree - and at 143s it is four fifths of the whole tier budget on "
-        "its own. It is what a change to a knob runs", builds=True, cpus=4),
+        "its own. It is what a change to a knob runs. ALONE AND NOT builds "
+        "(SOAK-PARALLEL.md 17.4): every knob builds into a private "
+        "build/bm-<name>/, and the one shared-tree make it had (associco.inc) "
+        "is a `wants=` now - but it runs itself at -j4, so it saturates the "
+        "box on its own and sharing it buys no wall clock",
+        serial=True, alone=True, cpus=4, wants=("build/associco.inc",)),
     Row("bmshare", "soak", py("tests/unit/t_bmshare.py"), 20.0,
         "...and that the three variables it builds them WITH change no byte. "
         "ICODIR/NOOVLCHK/NOKERNSIZE each take work out of a knob build - the "
@@ -2223,7 +2256,8 @@ FULL = [
         "its own two disks, and it DELETES them first - QEMU mounts B: "
         "writable and the write assertion would otherwise find last run's "
         "files already there",
-        needs=("qemu",), serial=True, builds=True, wants=("build/hello.o88", "build/mines.o88", "build/mseg.o88")),
+        needs=("qemu",), serial=True, wants=("build/hello.o88", "build/mines.o88", "build/mseg.o88", "build/thewire360.img", "build/thewiredata.img"),
+        locks=("port:8092",)),
     Row("stk0water", "soak", py("tests/stk0water.py"), 20.0,
         "how deep TASK 0's stack has actually been (SPEC.md 15.1). That "
         "section says `redo the fill probe before lowering either` and the "
@@ -2732,7 +2766,8 @@ SOAK = [
         "connections. Red (six lookups) with dns_cached's answer ignored",
         needs=("qemu", "nasm"), serial=True, timeout=600,
         wants=("build/httpmount.img", "build/httpfs.bin", "build/ether.bin",
-               "build/mines.o88")),
+               "build/mines.o88"),
+        locks=("port:8095", "port:53")),
     Row("httpinstall", "soak", py("tests/httpinstall.py"), 35.0,
         "SPEC.md 62.9.17.1 and 122.3: an Install whose SOURCE is the HTTP "
         "drive, onto an IDE disk that already holds a hidden + system "
@@ -2748,7 +2783,8 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/httpmount.img", "build/os8088-360.img",
                "build/httpfs.bin", "build/mbr.bin", "build/boothd.bin",
-               "build/kernel.sys", "build/readme.txt")),
+               "build/kernel.sys", "build/readme.txt"),
+        locks=("port:8097",)),
     Row("netinst", "soak", py("tests/netinst.py"), 120.0,
         "SPEC.md 117.10 and 26.10.7: INSTALL over the network. A published "
         "tree (os88nettree.py's, release 99991231) at 10.0.2.2:8096/net/: "
@@ -2767,7 +2803,8 @@ SOAK = [
                # naming it here failed every soak prewarm)
                "build/os8088.img", "build/apps.img",
                "build/httpfs.bin", "build/mbr.bin", "build/boothd.bin",
-               "build/kernel.sys", "build/readme.txt")),
+               "build/kernel.sys", "build/readme.txt"),
+        locks=("port:8096", "port:8095")),
     Row("netinstbad", "soak", py("tests/netinstbad.py"), 40.0,
         "SPEC.md 117.10.3: INSTALL's release check against a server with NO "
         "release, one boot per answer at 10.0.2.2:8096 - Cloudflare's 404 "
@@ -2781,7 +2818,8 @@ SOAK = [
         "in_vget's status check taken out (rel404)",
         needs=("qemu", "nasm", "mtools"), serial=True, timeout=300,
         wants=("build/httpmount.img", "build/install-gate.o88",
-               "build/apps.img")),
+               "build/apps.img"),
+        locks=("port:8096", "port:8095")),
     Row("httpmount", "soak", py("tests/httpmount.py"), 105.0,
         "SPEC.md 122: HTTPFS.DRV on QEMU's NE2000, against tools/"
         "os88httpdrv.py's own server serving a fixture tree on the host. The "
@@ -2794,7 +2832,8 @@ SOAK = [
         "system file is left out of the listing as on a FAT disk (62.9.17.1). "
         "Red with the 200 arm's offset skip taken out (leg 6)",
         needs=("qemu", "nasm"), serial=True, timeout=600,
-        wants=("build/httpmount.img", "build/httpfs.bin", "build/mines.o88")),
+        wants=("build/httpmount.img", "build/httpfs.bin", "build/mines.o88"),
+        locks=("port:8095",)),
     Row("cdromsim", "soak", py("tests/cdrom.py", "--sim"), 10.0,
         "SPEC.md 119.3.5/119.6 on QEMU, whose drive holds no audio: the "
         "gate's CDROM.DRV (-DCDSIM_AUDIO) gives the one-track disc three "
@@ -4635,7 +4674,7 @@ SOAK = [
         "compare, the start-address flip, the palette and the write-mode-2 "
         "sprites, pixel for pixel against the reference renderer. Shells out "
         "to `make test`, so it cannot share the tree",
-        needs=("qemu", "nasm"), serial=True, builds=True, timeout=300,
+        needs=("qemu", "nasm"), serial=True, timeout=300,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikeperf", "soak", py("tests/excitebike_perf.py", "--scroll", "--governor"), 80.0,
         "EXCITEBIKE wave 2 frame rate on MartyPC's 4.77 MHz XT (SPEC.md 102.6, "
@@ -4647,7 +4686,7 @@ SOAK = [
         "governor test: a busy loop injected into one frame raises n within "
         "that frame and n comes back after exactly 64 quiet frames. A RATE, so "
         "it wants the machine to itself",
-        needs=("marty", "nasm"), alone=True, timeout=600,
+        needs=("marty", "nasm"), timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikeref", "soak", py("tests/excitebike_ref.py"), 480.0,
         "EXCITEBIKE wave 3, the rider simulation on MartyPC (SPEC.md 102.3, 102.6): "
@@ -4675,7 +4714,7 @@ SOAK = [
         "(27.3 Hz), p99 <= 262,144, the simulation <= 4,500 clk a step by the "
         "xm_s0/xm_s1 counter, and the rider reaches the finish. A RATE, so it "
         "wants the machine to itself",
-        needs=("marty", "nasm"), alone=True, timeout=900,
+        needs=("marty", "nasm"), timeout=900,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikeflow", "soak", py("tests/excitebike_flow.py", "--flow"), 210.0,
         "EXCITEBIKE wave 4, the game around the race (SPEC.md 102.4, 102.6) on VGA and CGA, "
@@ -4726,7 +4765,7 @@ SOAK = [
         "clock is sampled at the seams of the back ends: a frame over one sub-tick between samples "
         "lost a sub-tick and the game ran at half speed). --mute is the A/B. A "
         "RATE, so it wants the machine to itself",
-        needs=("marty", "nasm"), alone=True, timeout=1200,
+        needs=("marty", "nasm"), timeout=1200,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikevideoherc", "soak", py("tests/excitebike_video.py", "--adapter", "herc"), 130.0,
         "EXCITEBIKE wave 6, the HERCULES on MartyPC's 5150 with the card (SPEC.md 102.7): the whole pixel gate "
@@ -4761,14 +4800,14 @@ SOAK = [
         "mean period <= 174,763 (measured 94,895 = 50.3 Hz: one CRT frame of 94.7k), sprite draw + erase "
         "<= 15,000 a frame (13.4k; a rewrite 24.1k, fenced at 26,000) - and the governor test. A RATE, so "
         "it wants the machine to itself",
-        needs=("marty", "nasm"), alone=True, timeout=600,
+        needs=("marty", "nasm"), timeout=600,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikelapherc", "soak", py("tests/excitebike_perf.py", "--herc", "--lap"), 50.0,
         "EXCITEBIKE wave 6 ACCEPTANCE (plan gate G6, PERFORMANCE.md Set 152): Selection A at turbo over a "
         "whole course on the Hercules, the reference rider feeding the steps, sound on. Hard gates: mean "
         "period <= 262,144 clk (18.2 Hz; measured 94,871 = 50.3 Hz), p99 <= 349,525, the simulation <= 4,500 "
-        "a step, the rider reaches the finish. A RATE, so it wants the machine to itself",
-        needs=("marty", "nasm"), alone=True, timeout=900,
+        "a step, the rider reaches the finish. A RATE - of the GUEST's cycle counter, which no host load can move, so it shares the lane (docs/plans/SOAK-PARALLEL.md 17.5; the lap's feed now runs at a stopping frame mark rather than racing a free-running guest)",
+        needs=("marty", "nasm"), timeout=900,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikeselfbherc", "soak", py("tests/excitebike_perf.py", "--herc", "--selfb"), 70.0,
         "EXCITEBIKE wave 6 Selection B on the Hercules (PERFORMANCE.md Set 152): the rider and TWO "
@@ -4777,7 +4816,7 @@ SOAK = [
         "the compiled poses and 252.8-263.3k with them alone - the runner once read 263,286 and failed it - "
         "until the neighbour rule of SPEC.md 102.7.3) and p99 <= 349,525. A RATE, so it wants the machine "
         "to itself",
-        needs=("marty", "nasm"), alone=True, timeout=1200,
+        needs=("marty", "nasm"), timeout=1200,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikeaudio", "soak", py("tests/excitebike_audio.py", "--speaker"), 70.0,
         "EXCITEBIKE wave 5, the sound on the machine every XT is (SPEC.md 102.5): MartyPC, VGA, no card. "
@@ -4809,11 +4848,12 @@ SOAK = [
         "held at four speeds by the guest's own routines is heard at the table's Hz an octave up "
         "(within 3%), in order; the title song's lead is heard note for note, folded up, in order. "
         "The plan's `make test-snd` (QEMU's speaker capture) has no way into a game's fullscreen "
-        "bracket from a script, so the capture is MartyPC's. serial=True, alone=True (wave 7): it heard 3 of the engine's "
-        "4 tones (the first, 440 Hz, missing) in BOTH parallel soak runs and passed alone every time and beside two other "
-        "emulators; `alone` alone does not leave the parallel lane (tools/os88test.py: only `serial` does), so it is both, "
-        "and runs in the one-at-a-time lane after the rest",
-        needs=("marty", "nasm"), serial=True, alone=True, timeout=900,
+        "bracket from a script, so the capture is MartyPC's. It ran ALONE from wave 7, having heard 3 of the engine's "
+        "4 tones (the first, 440 Hz, missing) in both parallel soak runs of the day - and the capture is GUEST "
+        "time (the debug server drains the speaker per emulated batch), so what moved was a segmentation the "
+        "row has since stopped depending on (it searches every segment after the boot beep). It shares the lane "
+        "again and passed there beside eight emulators on four cores (docs/plans/SOAK-PARALLEL.md 17.5)",
+        needs=("marty", "nasm"), serial=True, timeout=900,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikegeomhost", "soak", py("tests/excitebike_geom.py", "--host"), 4.0,
         "EXCITEBIKE wave 7 (SPEC.md 102.8.2), no emulator: all four standalone floppies (1.44MB, 720KB, "
@@ -4865,7 +4905,7 @@ SOAK = [
         "of the frames, and the plan's 4,000 is NOT met as a p99 of the whole), never two driver calls in "
         "one frame, and the period is the same muted and on (fence +1,000). A RATE, so it wants the "
         "machine to itself",
-        needs=("marty", "nasm"), alone=True, timeout=2400,
+        needs=("marty", "nasm"), timeout=2400,
         wants=("build/excitebike360.img", "build/os8088-360.img")),
     Row("excitebikeload", "soak", py("tests/excitebike_load.py"), 50.0,
         "EXCITEBIKE launch-to-title load time on MartyPC's 4.77 MHz XT (PERFORMANCE.md Set 153): "
@@ -5729,15 +5769,17 @@ SOAK = [
         "the machine it was made for) says this machine is not twice as "
         "fast: the play is MUTED for the bank, from frame 0 (no key to time: "
         "the bank wins) and from key 1 (the bench times it), the card's "
-        "reason 3 and the bank XMS's",
-        needs=("qemu", "nasm"), serial=True, timeout=400,
+        "reason 3 and the bank XMS's."
+        " ALONE BECAUSE THE ANSWER IS A HOST RATE (docs/plans/SOAK-PARALLEL.md 17.5): the bench times key 1's decode on the PIT, which without -icount is QEMU's HOST clock, so a starved guest benches as a slower machine - at eight emulators on four cores it timed nothing and muted, in both arms",
+        needs=("qemu", "nasm"), serial=True, alone=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidbankspkfast", "soak", py("tests/vidbank.py", "--arm",
                                      "spkfast"), 20.0,
         "SPEC.md 98.3.18.9: the same file with a yardstick far slower than "
         "this machine - the bench passes it twice over and the SPEAKER "
-        "stays, the bank idle under it as 98.3.18.5 has it",
-        needs=("qemu", "nasm"), serial=True, timeout=400,
+        "stays, the bank idle under it as 98.3.18.5 has it."
+        " ALONE BECAUSE THE ANSWER IS A HOST RATE (docs/plans/SOAK-PARALLEL.md 17.5): the bench times key 1's decode on the PIT, which without -icount is QEMU's HOST clock, so a starved guest benches as a slower machine - at eight emulators on four cores it timed nothing and muted, in both arms",
+        needs=("qemu", "nasm"), serial=True, alone=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidclose", "soak", py("tests/vidclose.py"), 50.0,
         "SPEC.md 98.3.18.10: THE CLOSE BOX ON A LOAD STILL RUNNING, on QEMU "
@@ -5885,7 +5927,8 @@ SOAK = [
         "posting of the cell the item leaves (SPEC.md 26.9), and the bug they guard - an icon left on the glass after its "
         "driver has gone - is invisible to every assertion about state. QEMU "
         "by name: MartyPC has no network card of any kind",
-        needs=("qemu", "nasm"), serial=True, timeout=420, builds=True),
+        needs=("qemu", "nasm"), serial=True, timeout=420,
+        wants=("build/os8088.img", "build/ether360.img", "build/apps.img")),
     Row("pkgrun", "soak", py("tests/pkgrun.py"), 40.0,
         "OSAPI_PKG_START (SPEC.md 21.5): the loader's back half with the disk "
         "read replaced by a copy, which is how the Wire runs a package it "
@@ -7957,7 +8000,8 @@ SOAK = [
         "box ticked and 442/400 with it cleared, 42 short in both arms, "
         "against 405/405 and 441/441 after.",
         needs=("qemu",), serial=True,
-        wants=("build/ether360.img", "build/dospkt360.img")),
+        wants=("build/ether360.img", "build/dospkt360.img"),
+        locks=("port:8099",)),
     Row("dospkt", "soak", py("tests/dospkt.py"), 20.0,
         "THE PACKET DRIVER, OVER A REAL CARD (SPEC.md 96.23, 72.22) - wave 4 "
         "of DOS-EXEC-PLAN.md, and the row that says a DOS program can reach "
@@ -7980,7 +8024,8 @@ SOAK = [
         "this repository and is not needed: MTCPDIR=<dir> puts its own "
         "programs on the disk beside ours.",
         needs=("qemu",), serial=True,
-        wants=("build/ether360.img", "build/dospkt360.img")),
+        wants=("build/ether360.img", "build/dospkt360.img"),
+        locks=("port:8099",)),
     Row("fsclass", "soak", py("tests/fsclass.py"), 50.0,
         "SPEC.md 62.9.19: the RAM disk and the parallel cable attached AT "
         "ONCE. Both were DRVC_FILE, a class is one publication slot, and the "
@@ -8078,7 +8123,8 @@ SOAK = [
         "silently. BREAK IT: put dn_pump's counter back in CL and the data "
         "assertions fire; take dn_tcp_in's .unknown arm out and the log "
         "gains a trailing 14.",
-        needs=("qemu",), serial=True, timeout=240),
+        needs=("qemu",), serial=True, timeout=240,
+        locks=("port:8099",)),
     Row("pathcost", "soak", py("tests/pathcost.py"), 30.0,
         "OSAPI_FILE_PATH, AND WHAT IT COSTS (SPEC.md 19.2.4). The slot exists "
         "because dsk_find drops the on-disk dot links, so no package can walk "
@@ -8666,12 +8712,13 @@ SOAK = [
     Row("brarena", "soak", py("tests/brarena.py"), 180.0,
         "BROWSER-MEMORY-ROADMAP: a local 3,000-line page grows the Browser's "
         "line-index arena past 16 KiB in QEMU, without NE2000 traffic",
-        needs=("qemu",), serial=True, builds=True,
+        needs=("qemu",), serial=True,
         wants=("build/brtest360.img",)),
     Row("brcapacity", "soak", py("tests/brcapacity.py"), 45.0,
         "BROWSER-MEMORY-ROADMAP: a 200 KiB local source crosses the formatted "
         "floor, then honors the conventional-memory reserve",
-        needs=("qemu",), serial=True, builds=True),
+        needs=("qemu",), serial=True,
+        wants=("build/browser.o88",)),
     Row("brclick", "soak", py("tests/brclick.py"), 100.0,
         "SPEC.md 71: the PAGE takes the mouse - links parse in order and "
         "underline, a click on a form field focuses it, the submit button "
@@ -10019,7 +10066,7 @@ SOAK = [
         "SYSTEM.CFG alone must force nothing; and on the 5150 with KSIG "
         "broken so the canary FAILS (it must stay off), witnessed by the same "
         "patch on the Auto disk reading boot_cylrun 0",
-        needs=("marty", "qemu"), serial=True, builds=True),
+        needs=("marty", "qemu"), serial=True),
     Row("dispreboot", "soak", py("tests/dispreboot.py"), 60.0,
         "WHO WRITES ui_rebootq? (docs/plans/completed/DUAL-DISPLAY-VGA.md 8(11))",
         needs=("marty",), serial=True),
@@ -13215,7 +13262,7 @@ SOAK = [
         "a rung the plan cannot price. The numbers are reported for "
         "docs/reports/, never asserted against (tests/tank.py's rule). Needs "
         "`make bench`; --machine picks the adapter",
-        needs=("marty", "nasm"), serial=True, alone=True,
+        needs=("marty", "nasm"), serial=True,
         wants=("build/bench360.img",)),
     Row("viddisk", "soak", py("tests/viddisk.py"), 52.0,
         "docs/plans/VIDEO-PLAN.md wave 0 (b): what streaming a 12.6 MB file "
@@ -17233,7 +17280,9 @@ SOAK = [
         "view marked, an A from another room marking that room and saying "
         "who, and Tab completing @ret to @RetroAmy off the roster. QEMU by "
         "name: MartyPC has no network card (SPEC.md 72.9).",
-        needs=("qemu",), serial=True, builds=True),
+        needs=("qemu",), serial=True,
+        wants=("build/telnetsys.img", "build/wirechatdata.img"),
+        locks=("port:8093",)),
     Row("wcdraw", "soak", py("tests/wcdraw.py"), 40.0,
         "WireChat's redraw, priced in drawing calls (SPEC.md 113.5.1): every "
         "far call the PACKAGE makes into a drawing cell of the API table, "
@@ -17284,7 +17333,9 @@ SOAK = [
         "and full screen as a memcmp of con_scr against text VRAM. QEMU by "
         "name for tests/ethernet.py's reason: MartyPC has no NIC, so this "
         "package's receive path cannot be reached on it at all",
-        needs=("qemu",), serial=True, builds=True),
+        needs=("qemu",), serial=True,
+        wants=("build/telnetsys.img", "build/telnetdata.img"),
+        locks=("port:8094",)),
     Row("mixercga", "soak", py("tests/mixer.py", "--adapter", "cga"), 60.0,
         "SPEC.md 34.15: CGA volume gestures, exact save-under restore and cleanup, "
         "master-only popup and absent hardware, separate apps-disk Mixer and About",
@@ -17443,35 +17494,40 @@ SOAK = [
         "NIC of any kind. It was UNREGISTERED ('needs make ethertest and "
         "QEMU'), which is what needs= and wants= are for - a row nobody can "
         "find is a row nobody runs.",
-        needs=("qemu",), serial=True, builds=True,
-        wants=("build/brtest360.img",)),
+        needs=("qemu",), serial=True,
+        wants=("build/brtest360.img", "build/ether360.img", "build/browser.o88"),
+        locks=("port:8090",)),
     Row("brdownload", "soak", py("tests/brdownload.py"), 180.0,
         "SPEC.md 71.20: Save Link As streams a 32 KiB unknown-length binary "
         "response through the NE2000 into cluster-aligned disk writes; the "
         "test confirms no total is invented and compares the saved FAT file "
         "byte-for-byte. QEMU is required for ETHER.DRV.",
-        needs=("qemu",), serial=True, builds=True,
-        wants=("build/browser.o88",)),
+        needs=("qemu",), serial=True,
+        wants=("build/browser.o88", "build/ether360.img"),
+        locks=("port:8090",)),
     Row("brdownload-length", "soak",
         py("tests/brdownload.py", "--content-length"), 180.0,
         "SPEC.md 71.20: the same 32 KiB Save Link As transfer with a declared "
         "Content-Length, checking the displayed total and exact saved bytes.",
-        needs=("qemu",), serial=True, builds=True,
-        wants=("build/browser.o88",)),
+        needs=("qemu",), serial=True,
+        wants=("build/browser.o88", "build/ether360.img"),
+        locks=("port:8090",)),
     Row("brdownload-auto", "soak",
         py("tests/brdownload.py", "--automatic"), 180.0,
         "SPEC.md 71.20: an ordinary click on a non-rendered file URL opens the "
         "existing Save dialog automatically before the byte-exact download.",
-        needs=("qemu",), serial=True, builds=True,
-        wants=("build/browser.o88",)),
+        needs=("qemu",), serial=True,
+        wants=("build/browser.o88", "build/ether360.img"),
+        locks=("port:8090",)),
     Row("brmem", "soak", py("tests/brmem.py"), 40.0,
         "SPEC.md 71.18: a deterministic 40 KB page over the NE2000 grows the "
         "source and document claims within the recorded 20% free-heap reserve, "
         "then Note Pad must still open. QEMU is required for the NIC, not for "
         "timing. This is separate from ethernet because a regular fetch never "
         "crosses the old 32 KB source limit.",
-        needs=("qemu",), serial=True, builds=True,
-        wants=("build/brtest360.img",)),
+        needs=("qemu",), serial=True,
+        wants=("build/brtest360.img", "build/ether360.img", "build/browser.o88"),
+        locks=("port:8090",)),
     Row("brcapacity-fixtures", "fast", py("tests/brcapacity.py", "--fixtures"), 0.2,
         "SPEC.md 71.18.1: the manual 96 KiB source/document, 2,200-row, "
         "400-link, doubled-form and aggregate-frameset pages have the exact "
@@ -17517,7 +17573,8 @@ SOAK = [
         "11.94), so the template's 216 comes up 218 wide and the row said "
         "'Set Up opened no window' with the window on the screen. It "
         "matches the TITLE now.",
-        needs=("qemu",), serial=True, builds=True),
+        needs=("qemu",), serial=True,
+        wants=("build/ether360.img",)),
     Row("decfmt", "soak", py("tests/decfmt.py"), 1.0,
         "SPEC.md 20.5.2: apps/os88dec.inc, the decimal formatter Sheet, "
         "Chart, Telnet, Task Manager, Dot Delirium, Scribe and Tank share - "
@@ -17568,7 +17625,9 @@ SOAK = [
         "(CANFDX|CANOVIO, buffer size 0, and NOT CANFC32), the ZRPOS, the "
         "ZACKs, and the ZNAK that refuses the one deliberate ZBIN32 header. "
         "QEMU by name for tests/ethernet.py's reason: MartyPC has no NIC",
-        needs=("qemu",), serial=True, builds=True),
+        needs=("qemu",), serial=True,
+        wants=("build/telnetsys.img", "build/telnetdata.img"),
+        locks=("port:8098",)),
     Row("netpromise", "soak", py("tests/netpromise.py"), 40.0,
         "SPEC.md 70.7/77.47: Telnet and the FTP server promise per DEBT, not"
         "per session.",

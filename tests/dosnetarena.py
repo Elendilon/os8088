@@ -135,6 +135,10 @@ def main():
     import xmcheck
     import atexit
     import shutil
+    # dospkt.asm's segment goes to 10.0.2.2:8099, which is tests/dosxlat.py's
+    # listener: a dosxlat beside this row would ANSWER it, so the port is
+    # held for the run (SOAK-PARALLEL.md 17.3) and the row `locks=` it too
+    os88qemu.lease_port(8099)
     work = tempfile.mkdtemp(prefix="dpk-")      # short: a QMP socket path
     atexit.register(shutil.rmtree, work, True)  # (runs after q's close)
     q = os88qemu.Private(work, os88build.at(SYS), os88build.at(PKT),

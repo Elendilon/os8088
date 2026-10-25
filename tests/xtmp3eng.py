@@ -2100,6 +2100,11 @@ LEGS = {"ladder": leg_ladder, "slowdown": leg_slowdown, "conv": leg_conv,
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--leg", action="append", choices=sorted(LEGS))
+    # ...and the complement: the soak runs the two RATE legs (ladder,
+    # slowdown) as a row of their own that has the box to itself, and every
+    # other leg in the shared lane (docs/plans/SOAK-PARALLEL.md 17.5)
+    ap.add_argument("--skip", action="append", choices=sorted(LEGS),
+                    default=[])
     a = ap.parse_args()
     for f in ("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
               "build/xtmp3.bin", "build/os8088.img",
@@ -2108,7 +2113,7 @@ def main():
         if not os.path.exists(os88build.at(f)):
             sys.exit("xtmp3eng: no %s - make && make xtmp3stub "
                      "build/mixercfg/SYSTEM.CFG" % f)
-    for name in a.leg or list(LEGS):
+    for name in [n for n in (a.leg or list(LEGS)) if n not in a.skip]:
         print("xtmp3eng: %s" % name)
         LEGS[name]()
     if bad:
