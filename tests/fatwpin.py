@@ -339,13 +339,36 @@ def phase_shed(t):
               "mounts into FAT_SEG without demoting whoever holds it",
               got="dsk_fatwc[%d] = %04X" % (after.drive, after.wc[after.drive]),
               want="%04X (FAT_SEG)" % after.fat_seg)
-        check(after.fatw0 == 0xFFFF,
-              "shed: [dsk_fatw0] says nothing is resident",
-              "The second word the protocol does not carry. Left alone, "
-              "dsk_fat_window finds the sector it wants already resident and "
-              "returns without loading - and then every read and write goes "
-              "to a segment somebody else owns now",
-              got="%04X" % after.fatw0, want="FFFF")
+        # [dsk_fatw0] is the second word the protocol does not carry, and it
+        # may say one of TWO true things since SPEC.md 18.8.4.1. A shed
+        # inside mem_shed_one's cli DROPS the bytes and must say 0xFFFF;
+        # the compactor's walk (IF set - heapfrag's claim compacts before it
+        # sheds) CARRIES them into the pin and keeps the word. Either is
+        # right; what is wrong is a word that names a sector the pin does
+        # not hold, so the carried case is checked against the DISK.
+        carried = None
+        if after.fatw0 != 0xFFFF:
+            S = os88sym.linear
+            n = m.read(S("dsk_fatwn"), 1)[0]
+            got_fat = m.read(after.fat_seg * 16, n * 512)
+            img = open(t.img("heapfrag360.img"), "rb").read()
+            rsvd = int.from_bytes(img[14:16], "little")
+            at = (rsvd + after.fatw0) * 512
+            carried = got_fat == img[at:at + n * 512]
+            print("  carried        : %d sector(s) from FAT sector %d, %s"
+                  % (n, after.fatw0, "the disk's bytes" if carried
+                     else "NOT the disk's bytes"))
+        check(after.fatw0 == 0xFFFF or carried,
+              "shed: [dsk_fatw0] says nothing is resident, or the pin holds "
+              "exactly what it says",
+              "Left alone, dsk_fat_window finds the sector it wants already "
+              "resident and returns without loading - and then every read and "
+              "write goes to a segment somebody else owns now. 18.8.4.1's "
+              "carry keeps the word only because it copied those sectors "
+              "into FAT_SEG; a word kept without the copy is that defect",
+              got="fatw0 %04X, pin %s" % (after.fatw0, {None: "not checked",
+                  True: "matches the disk", False: "DIFFERS from the disk"}[carried]),
+              want="FFFF, or the pin holding the disk's FAT at fatw0")
         invariants(after, "shed, after", 0)
 
 

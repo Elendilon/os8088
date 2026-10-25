@@ -5683,6 +5683,17 @@ dsk_fatw_evict:
 ; It runs inside mem_shed_one's cli, so it is word stores and nothing else - no
 ; I/O, no claim, no flush. mem_fatw_dirty is what makes that safe: a window
 ; with FAT edits still in it never reaches here.
+;
+; **A COMPACTION CARRIES THE BYTES** (SPEC.md 18.8.4.1, kern_big). The
+; compactor's walk dissolves a cache it passes (66.10) with IF as its caller
+; had it - SET, under [sch_lock], the moves around it being tens of ms of
+; `rep movsw` already - so the cli that made 18.8.4 drop the contents is not
+; there, and the live window is copied into the pin before [dsk_fatseg] moves:
+; [dsk_fatwn] sectors, 3.1 ms for a 720KB disk's three, against the reload
+; that was 0.18-0.26 s of floppy on the next FAT access. IF is the test,
+; read off the flags: clear is mem_shed_one, and that path drops as before.
+; The claim's bytes are intact here - mem_pg_forget is called BEFORE its
+; record goes, and the walk moves nothing over it until after.
 ; -----------------------------------------------------------------------------
 dsk_fatw_demote:
     push ax
@@ -5698,8 +5709,43 @@ dsk_fatw_demote:
     jne .out                    ; BANKED: no other word ever named it
     call dsk_fatw_evict         ; LIVE: take the pin off whoever holds it -
     mov word [bx+DVOL_MAX*2], FAT_SEG   ; which is never this volume, its
-    call dsk_fatw_home                  ; record having just been cleared -
-.out:                                   ; and move in
+%ifdef OS88_COMPACT                     ; record having just been cleared -
+    pushf                               ; and move in, WITH ITS BYTES when IF
+    pop bx                              ; is set (18.8.4.1). BX is spent: the
+    test bh, 0x02                       ; record was its only use
+    jz .home                    ; IF = 0: mem_shed_one's cli - drop them.
+                                ; (Nothing resident is carried as it is:
+                                ; the bytes are moved and [dsk_fatw0] still
+                                ; says 0xFFFF, which costs ~3 ms and no test)
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    mov ch, [dsk_fatwn]         ; CX = the resident sectors x 256 words,
+    xor cl, cl                  ; read BEFORE DS moves (at most DSK_FAT_SECS)
+    mov bx, FAT_SEG
+    mov es, bx
+    mov ds, ax                  ; DS:SI the window going, ES:DI the pin
+    xor si, si
+    xor di, di
+    cld
+    rep movsw
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    mov word [dsk_fatseg], FAT_SEG  ; ...and only THEN does the live word name
+    pop bx                          ; the pin, [dsk_fatw0] kept as it stood.
+    pop ax                          ; Its own epilogue and not a `jmp short
+    ret                             ; .out`: one byte more keeps the arm EVEN,
+                                    ; so dsk_next_clus_x and the hot code
+                                    ; after it keep their parity (t_hotpar)
+.home:
+%endif
+    call dsk_fatw_home
+.out:
     pop bx
     pop ax
     ret
