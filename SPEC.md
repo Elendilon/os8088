@@ -38719,6 +38719,58 @@ FILL, against a ~400 ms `int 13h`.
 | a table for the solve instead of the divide-and-clamp ladder | the ladder is a `div` (7) and three compares (21). A table indexed by KB wants hundreds of entries; a range search over it is longer than 21 |
 | merging `dsk_rah_redo` into `osapi_dsk_cache_x` outright | a published slot preserves every register but its outputs, so the pushes stay: the saving is the `call`/`ret`, and it would put the drop out of reach of any second caller. The fall-through gets 12 bytes with neither cost |
 
+#### 18.95.10 …and a chunk that is being READ is not the one the round robin evicts
+
+`dsk_rah_fill` spends slots in a plain round robin, and a round robin evicts
+by AGE OF FILL: the chunk it takes next is the one filled longest ago, however
+often it has been read since. That is exactly wrong for the chunks a cache on
+this machine exists for. A program that reads by name re-walks the folder per
+call (`OSAPI_FILE_READ_AT`, docs/plans/DISK-CPU-PLAN.md), so the folder's
+sector and the root's are HIT on every open - and they are also the OLDEST
+fills, so the streaming fills of the file being opened march the cursor
+straight onto them. §18.95.1's gate keeps a whole-chunk request out; it cannot
+keep out the partial tracks at a run's tail or at a 64KB page cut, which a
+16KB-slot reader makes two or three of per slot.
+
+**Whether that cost anything was luck of phase**, and it was found as a
+regression with no disk code in its diff (`pxbench`: CITY.PCX opened after
+MOUNTAIN.BMP, first rows 2.28 s -> **3.59 s** on the 5150). Merge 5fc79571
+(kernel size pass 14's `reach` beside its `files`) moved the heap, the cache's
+claim came to rest at `1780` instead of `1840`, and its seventh slot stopped
+straddling the page at `2000` (§18.95.7.1), so the table was seven slots wide
+instead of six. Same fills, different cursor: the folder and root chunks now
+survived MOUNTAIN's last reads - so MOUNTAIN's open read two sectors fewer,
+its last physical read fell two seconds before its end, the motor timed out
+(§18.9.1) and CITY began with a quiet remount's boot sector read; and then
+CITY's first fills landed on those same two chunks and read them again, 0.38
+and 0.39 s. Both trees read about the same sectors in the end; the round robin
+decided which open paid.
+
+So a **HIT marks the chunk** (`RAH_HIT`, the record's spare byte beside
+`RAH_VOL`) and the pick **passes over a marked slot once**, clearing the mark -
+the second-chance clock. A fill's own copy-out is not a hit (the fill's word
+store of `RAH_VOL` zeroes the byte with it), so a read-ahead chunk nobody came
+back to is the one taken, and a marked one is taken on the next turn unless it
+is read again. Every slot spared clears its own mark, so the pick ends within
+one turn of the table; with the page-straddle skip beside it the walk is still
+bounded by twice the width. Nothing changes what is CACHED or when it is
+dropped - only which slot a fill spends - so the five rules above and every
+invalidation stand.
+
+Measured, the same `pxbench` session (`--sessions 1`). On the 5150: CITY.PCX's
+open **13.49 s -> 12.52 s**, its first rows **3.59 s -> 2.62-2.80 s** (and
+4.61-4.72 s on a tree whose build number alone differs, where the first paint
+also fell behind the next slot's read: the two re-reads are what put it
+there), MOUNTAIN.BMP 16.27 s -> 16.42 s (its first rows move 1.7-3.2 s run to
+run with the revolution, either way). On the XT with a VGA: CITY.PCX 17.14 s
+-> **15.88 s**, first rows 5.20 s -> **4.39 s**. BIG.BMP's session reads the
+same 33 `int 13h` in the same order on both trees. The 0.5 s CITY still pays over the six-slot tree is
+the remount's swap check, which is the honest cost of a motor that stopped and
+is what a person opening a second picture after looking at the first always
+pays. +19 bytes of `.cold`, resident, on both kernels (`kern_big` 37,567 ->
+37,586, `kern_small` 21,510 -> 21,529; no rung crossed, which is not the
+point).
+
 ### 18.96 Formatting a floppy — the mount's verdict, run backwards
 
 A disk that reads perfectly and is not a FAT12 volume had exactly one thing

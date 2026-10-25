@@ -3963,7 +3963,12 @@ $(BUILD)/rlapply.o88: $(BUILD)/rlapply.bin tools/os88pkg.py $(PKGZSTAMP)
 # t_sysman holds it to every built system disk. $(DRIVERS360) and not
 # $(DRIVERS): the manifest is what EVERY geometry carries (118.2), and the
 # 360KB disk leaves CDROM.DRV off (SPEC.md 119.6.7).
-$(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS360) $(SYSAPPS) $(STIKAPPS) \
+#
+# The PREREQUISITES are $(DRIVERS), every file the recipe reads: the ones
+# 360KB leaves off are read too, as --optional rows, and with $(DRIVERS360)
+# here a change to COLDHMA.SYS alone (any `.cold` byte) left a manifest whose
+# COLDHMA.SYS row t_sysman then failed on the other three geometries.
+$(BUILD)/syscheck_man.inc: $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(STIKAPPS) \
                            apps/syscheck/retired.txt tools/os88sysman.py \
                            tools/os88drv.py tools/os88mod.py tools/os88lz.py | $(BUILD)
 	python3 tools/os88sysman.py --kernel $(KERNFILE) \

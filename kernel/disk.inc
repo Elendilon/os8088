@@ -6364,7 +6364,15 @@ RAH_LBA equ 0                    ; one slot: the chunk's first LBA, how many
 RAH_N   equ 2                    ; sectors of it are here (0 = the slot says
 RAH_SIG equ 4                    ; nothing), and §18.8.1's key - the mount
 RAH_VOL equ 6                    ; signature and the volume index
+RAH_HIT equ 7                    ; ...and 1 when a READ has been served out of
+                                 ; it since it was filled or last spared: the
+                                 ; pick's second chance (SPEC.md 18.95.10).
+                                 ; The fill zeroes it with the VOL byte's word
+                                 ; store, so a fill's own copy-out is not a hit
 RAH_REC equ 9
+%if RAH_HIT != RAH_VOL + 1 || RAH_HIT >= RAH_REC
+%error "dsk_rah_fill clears RAH_HIT with the word store that writes RAH_VOL"
+%endif
 %if RAH_REC != DSK_RAH_SECS
 %error "dsk_rah_serve derives a slot's byte offset with ONE shift, which needs \
 the record stride and the chunk length to be the same number"
@@ -6504,7 +6512,9 @@ dsk_rah_serve:
     sub ax, [si+RAH_LBA]        ; AX = the sector's index inside the chunk
     jc .next                    ; below this chunk (the subtract wrapped)
     cmp ax, [si+RAH_N]
-    jb .copy                    ; ...and inside it: a HIT
+    jae .next                   ; ...and inside it: a HIT, which marks the
+    mov byte [si+RAH_HIT], 1    ; chunk as one the walk COMES BACK to, so the
+    jmp short .copy             ; round robin passes it over once (18.95.10)
 .next:
     add si, RAH_REC
     loop .slot
@@ -6648,7 +6658,13 @@ dsk_rah_fill:
     mov bx, ax
     add ax, dsk_rah_tab
     xchg ax, si                 ; SI = the slot's record (the output)
-    shl bx, cl                  ; ...and BX = its own run of the claim, RAH_REC
+    cmp byte [si+RAH_HIT], 0    ; **A CHUNK THAT HAS SERVED A READ SINCE ITS
+    je .take                    ; FILL IS SPARED ONCE** (SPEC.md 18.95.10): its
+    mov byte [si+RAH_HIT], 0    ; mark is spent and the pick moves on. Every
+    jmp short .pick             ; slot spared clears its own, so the walk ends
+                                ; within one turn of the table
+.take:
+    shl bx, cl                 ; ...and BX = its own run of the claim, RAH_REC
                                 ; == DSK_RAH_SECS making slot*512 it, with CL
                                 ; still the 9 the multiply was given
     pop dx                      ; DX = the chunk length again
@@ -6693,7 +6709,9 @@ dsk_rah_fill:
 %endif
     mov [si+RAH_N], dx          ; DX still holds the length: only now is the
     mov al, [disk_drive]        ; slot allowed to claim it has anything
-    mov [si+RAH_VOL], al
+    cbw                         ; AH = 0 (a volume index is under 80h)...
+    mov [si+RAH_VOL], ax        ; ...so one word store is VOL and a clear
+                                ; RAH_HIT: the fill's own copy-out is no hit
     mov ax, [dsk_sigcur]
     mov [si+RAH_SIG], ax        ; (CF = 0: the `jc .out` above, and a `mov`
 .out:                           ; keeps it)
