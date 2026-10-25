@@ -76,7 +76,6 @@ import os88ui                                                 # noqa: E402
 CD_ROW = 7                      # drv_tab's CDROM.DRV row (kern_big's, and
 DRVR_SIZE, DRVR_SEG = 16, 2     #   so kern_mega's)
 WIN_SIZE, W_SEG, W_FLAGS = 74, 22, 0
-LDT_LIN = 0x120000              # kernel/mega.inc MEGA_LDT_LIN
 POOL0 = 0x2800                  # MEGA_LDT_FREE0 * 8: a pool selector
 CDS_PLAYING = 1
 SND_CAP_MIXER = 0x0200          # drivers/sound/sndpkg.inc (SPEC.md 34.15)
@@ -115,7 +114,9 @@ def windows(b):
 
 def base_of(b, sel):
     """A pool selector's descriptor base, out of kern_mega's LDT"""
-    d = b.memr(LDT_LIN + (sel & ~7), 8)
+    l = struct.unpack("<I", b.memr(b.ksym("mega_ldtlin"), 4))[0]
+    d = b.memr(l + (sel & ~7), 8)       # the LDT's base is mega_layoutf's
+                                        # (KERN-MEGA-MEMORY-PLAN MC2)
     return d[2] | d[3] << 8 | d[4] << 16
 
 

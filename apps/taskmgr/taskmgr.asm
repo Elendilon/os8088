@@ -1376,11 +1376,12 @@ tm_s_urom:  db 'ROM', 0
 tm_s_ubios: db 'BIOS', 0
 tm_s_unrep: db 'Unrep.', 0
 
-; ...and the fixed areas kern_mega keeps between 1MB and its pool, which the
-; walk names when it is asked to (OSAPI_XMEM_WALK, BX = XMW_FIXED): records of
-; TMX_NREC bytes indexed by the owner byte less XMW_HMA. The HMA is the DOS
-; trip's (KERN-MEGA-PLAN 2.7) and the padding is the pool's 64KB alignment;
-; KERN-MEGA-PLAN 14.70.1 is what would make both of them RAM again.
+; ...and the fixed areas kern_mega keeps outside its pool, which the walk
+; names when it is asked to (OSAPI_XMEM_WALK, BX = XMW_FIXED): records of
+; TMX_NREC bytes indexed by the owner byte less XMW_HMA. Since
+; KERN-MEGA-MEMORY-PLAN MC2 the tables and the code are at the TOP of RAM, the
+; HMA is the pool's first block (the DOS trip's, KERN-MEGA-PLAN 2.7) and there
+; is no padding; 'Padding' stays for the SDK's XMW_PAD.
 TMX_NREC    equ 12
 tm_xnames:  db 'HMA (DOS)', 0, 0, 0
             db 'GDT', 0, 0, 0, 0, 0, 0, 0, 0, 0
@@ -3421,7 +3422,8 @@ tm_cap_avl:
 ; MOVABLE one (mx_canmove: 80h-DFh, a program's or driver's, and FDh, a
 ; driver's image) sliding down to it and a PINNED one raising it past itself -
 ; so every free run left is under a pinned block or above the last block. The
-; fixed areas' records (XMW_HMA..XMW_PAD, under the pool's base) are skipped.
+; fixed areas' records (XMW_GDT..XMW_PAD, past the pool's end) are skipped;
+; the HMA's is a PINNED block at the pool's base (KERN-MEGA-MEMORY-PLAN MC2).
 ; in:  tm_xw/[tm_xwn], [tm_kb+SK_XMS] = the pool's KB
 ; out: AX = KB
 ; clobbers: nothing else (flags)
@@ -3444,7 +3446,7 @@ tm_himax:
 .scan:
     jcxz .got
     cmp byte [si+XMW_OWN], XMW_HMA
-    jb .cand
+    jbe .cand                   ; (the HMA is the pool's first 64KB, pinned)
     cmp byte [si+XMW_OWN], XMW_HMAB
     jbe .sn                     ; a fixed area: not in the pool
 .cand:
@@ -7573,11 +7575,14 @@ tm_copyn:
 ; -----------------------------------------------------------------------------
 ; tm_hikb - RAM above 1MB (KERN-MEGA-PLAN 13.6, SPEC.md 28.4.8), and whose
 ; in:  [tm_kb] (tm_getkb)
-; out: [tm_hitot] = KB above 1MB in all: the pool and, under its base, the
-;      kernel's tables and its .cold; [tm_hiused] = KB of it in use;
-;      [tm_hifix] = the KB under the pool's base; the pool's blocks in tm_xw
-;      ([tm_xwn] of them, for tm_slotxkb and the list), led on kern_mega by a
-;      record per fixed area under the base (XMW_HMA..XMW_PAD)
+; out: [tm_hitot] = KB above 1MB in all: the pool and what the kernel keeps
+;      outside it - kern_big's HMA under the pool's base, kern_mega's tables
+;      and code above its top (KERN-MEGA-MEMORY-PLAN MC2); [tm_hiused] = KB
+;      of it in use; [tm_hifix] = the KB the System HMA row states: those
+;      fixed areas, and on kern_mega the HMA, which is the pool's own first
+;      block since MC2; [tm_hisys] = the system's share of it all; the pool's
+;      blocks in tm_xw ([tm_xwn] of them, for tm_slotxkb and the list), led on
+;      kern_mega by a record per fixed area (XMW_GDT..XMW_KCODE)
 ; clobbers: nothing (flags only)
 ; -----------------------------------------------------------------------------
 tm_hikb:
@@ -7587,14 +7592,50 @@ tm_hikb:
     push dx
     push di
     push es
+    push ds
+    pop es
+    mov di, tm_xw
+    mov cx, TM_XWN
+    mov bx, XMW_FIXED           ; NAMED, on a kernel that names it: kern_mega
+    call OSAPI_XMEM_WALK        ; puts a record per fixed area in front of the
+    jnc .walked                 ; blocks (KERN-MEGA-PLAN 14.70.2) and every
+    xor ax, ax                  ; other kernel ignores BX
+.walked:
+    mov [tm_xwn], ax
+    xchg ax, cx                 ; CX = records
+    mov di, tm_xw
+    xor bx, bx                  ; BX = the fixed areas ABOVE the pool (MC2):
+    xor dx, dx                  ; not in its KB. DX = the HMA's pool block
+.fx:
+    jcxz .fxd
+    mov al, [di+XMW_OWN]
+    cmp al, XMW_HMA
+    jne .fx1
+    add dx, [di+XMW_KB]
+    jmp short .fxn
+.fx1:
+    cmp al, XMW_GDT
+    jb .fxn
+    cmp al, XMW_PAD
+    ja .fxn
+    add bx, [di+XMW_KB]
+.fxn:
+    add di, XMW_SIZE
+    dec cx
+    jmp short .fx
+.fxd:
+    push dx                     ; (the HMA's block, for [tm_hifix])
+    push bx
     call OSAPI_XMEM_CAPS        ; AX = free, DX:CX = the pool's linear base
     sub dx, 0x10                ; ...less 1MB: the kernel's own, below it
-    mov bx, cx
+    mov bx, cx                  ; (kern_big's HMA; 0 on kern_mega)
     mov cl, 10
     shr bx, cl
     mov cl, 6
     shl dx, cl
     or dx, bx                   ; DX = KB between 1MB and the pool
+    pop bx
+    add dx, bx                  ; ...and above its top: DX = outside the pool
     mov bx, [tm_kb+SK_XMS]
     sub bx, ax
     add bx, dx
@@ -7614,27 +7655,19 @@ tm_hikb:
     jbe .usd
     mov [tm_hiused], bx
 .usd:
-    mov [tm_hifix], dx          ; the span under the pool, which the list's
+    pop ax
+    add ax, dx
+    mov [tm_hifix], ax          ; the System HMA row's KB, which the list's
                                 ; System itemises (tm_sysitems)
-    push ds
-    pop es
-    mov di, tm_xw
-    mov cx, TM_XWN
-    mov bx, XMW_FIXED           ; ...and NAMED, on a kernel that names it:
-    call OSAPI_XMEM_WALK        ; kern_mega puts a record per fixed area in
-    jnc .walked                 ; front of the blocks (KERN-MEGA-PLAN 14.70.2)
-    xor ax, ax                  ; and every other kernel ignores BX
-.walked:
-    mov [tm_xwn], ax
-    mov cx, ax                  ; the SYSTEM's share above 1MB: everything
-    mov di, tm_xw               ; under the pool's base (DX, the kernel's
-.sys:                           ; tables and .cold) and every block the
-    jcxz .sysd                  ; kernel or a driver owns - owner C0h and up
-    mov al, [di+XMW_OWN]        ; (SPEC.md 28.4.8): the top of RAM is RAM
-    cmp al, 0xC0                ; here, so what holds it is billed for it
-    jb .sysn
+    mov cx, [tm_xwn]            ; the SYSTEM's share above 1MB: everything
+    mov di, tm_xw               ; outside the pool (DX) and every block the
+.sys:                           ; kernel or a driver owns - owner C0h and up
+    jcxz .sysd                  ; (SPEC.md 28.4.8): the top of RAM is RAM
+    mov al, [di+XMW_OWN]        ; here, so what holds it is billed for it -
+    cmp al, 0xC0                ; the HMA among them on kern_mega, a pool
+    jb .sysn                    ; block since MC2
     cmp al, XMW_HMA             ; ...but NOT a fixed area's record, which is
-    jb .sysa                    ; a name for KB already in DX
+    jbe .sysa                   ; a name for KB already in DX
     cmp al, XMW_HMAB            ; (and kern_big's HMA contents, 28.4.13)
     jbe .sysn
 .sysa:

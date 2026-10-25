@@ -563,7 +563,7 @@ hb_pick1:                       ; is volume CL one? out: CF = 0 and AL = CL
 ; the bar dropped the System menu.
 ; -----------------------------------------------------------------------------
 %ifdef KERN_MEGA
-HB_XMIN_KB equ (MPK_HDR + 512 + MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN + 1023) / 1024
+HB_XMIN_KB equ (MPK_HDR + 512 + MEGA_TBL_SIZE + 1023) / 1024
 %endif                          ; the header, the section's head, the tables
 hb_ok_x:
     push bx
@@ -3811,18 +3811,22 @@ hbm_xplan:
     push es
     call hbm_pses               ; the list is the park's scratch's
     mov di, MPS_REG             ; run 0: the GDT, the LDT and the IDT, which
-    mov word [es:di+4], MEGA_GDT_LIN & 0xFFFF  ; are one range. `.cold`'s copy
-    mov word [es:di+6], MEGA_GDT_LIN >> 16     ; is not in it: a code selector,
-    mov word [es:di+8], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) & 0xFFFF
-    mov word [es:di+10], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) >> 16
-    mov word [mega_hbxl], (512 + MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) & 0xFFFF
-    mov word [mega_hbxl + 2], (512 + MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) >> 16
+    mov ax, [mega_tbllin]       ; are one block, wherever mega_layoutf put it
+    mov [es:di+4], ax           ; (KERN-MEGA-MEMORY-PLAN MC2). `.cold`'s copy
+    mov ax, [mega_tbllin + 2]   ; is not in it: a code selector,
+    mov [es:di+6], ax
+    mov word [es:di+8], MEGA_TBL_SIZE & 0xFFFF
+    mov word [es:di+10], MEGA_TBL_SIZE >> 16
+    mov word [mega_hbxl], (512 + MEGA_TBL_SIZE) & 0xFFFF
+    mov word [mega_hbxl + 2], (512 + MEGA_TBL_SIZE) >> 16
     add di, MPK_CPYSZ           ; so KERNEL.SYS's bytes, as a boot makes them
     mov si, mx_tab
 .mx:
     mov ax, [ss:si+MX_KB]          ; every block the pool has given out, the
     or ax, ax                   ; kernel's own among them (track 1's modules
-    jz .next                    ; and caches: hbm_wake flushes the caches)
+    jz .next                    ; and caches: hbm_wake flushes the caches) -
+    cmp byte [ss:si+MX_OWN], XMW_HMA ; but the HMA, which holds nothing of
+    je .next                    ; the session's (KERN-MEGA-MEMORY-PLAN MC2)
     mov dx, ax
     mov cl, 10
     shl ax, cl
@@ -4178,14 +4182,16 @@ hbm_xruns:
     pop es
     ret
 .go:
-    mov si, MPS_REG
-    cmp word [es:si+4], MEGA_GDT_LIN & 0xFFFF
+    mov si, MPS_REG             ; run 0 is the tables, where THIS boot put
+    mov ax, [mega_tbllin]       ; them (MC2): a machine whose layout differs
+    cmp [es:si+4], ax           ; - other RAM, or an image from before MC2 -
+    jne .no                     ; is refused here, before anything is read
+    mov ax, [mega_tbllin + 2]
+    cmp [es:si+6], ax
     jne .no
-    cmp word [es:si+6], MEGA_GDT_LIN >> 16
+    cmp word [es:si+8], MEGA_TBL_SIZE & 0xFFFF
     jne .no
-    cmp word [es:si+8], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) & 0xFFFF
-    jne .no
-    cmp word [es:si+10], (MEGA_IDT_LIN + 256 * 8 - MEGA_GDT_LIN) >> 16
+    cmp word [es:si+10], MEGA_TBL_SIZE >> 16
     jne .no
     mov cx, [mega_dncpy]
 .r:

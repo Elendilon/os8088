@@ -5820,8 +5820,8 @@ osapi_img_name equ mod_gone     ; `stc / retf`: CF = 1, every register kept
 ;      called outside any instance. The class byte is 0 but for a driver's
 ;      block on kern_mega, where it is the driver's DRVC_* (KERN-MEGA-PLAN
 ;      14.70.2). With BX = XMW_FIXED kern_mega first writes a record per
-;      fixed area between 1MB and the pool - owner XMW_HMA..XMW_PAD, offset
-;      negative - which tile that span. On kern_big the pool is XMEM.DRV's
+;      fixed area at the top of RAM - owner XMW_GDT..XMW_KCODE, offset past
+;      the pool's KB (SPEC.md 50.6.9). On kern_big the pool is XMEM.DRV's
 ;      and the walk is its table's (xmem.inc, SPEC.md 28.4.8): owner a slot
 ;      or FFh, BX ignored. CF = 1, AX = 1 no pool: kern_small, kern_mega in
 ;      real mode, and a kern_big machine with no store
@@ -8103,11 +8103,11 @@ MEGA_SIZE equ mega_end - $$
  %if DRVR_SIZE != 16
   %error "kern_mega: mega_xmcls shifts a drv_tab row index by 4"
  %endif
- %if (MEGA_COLD_LIN | MEGA_XPOOL) & 1023
-  %error "kern_mega: mega_xmfix's records are whole KB - `.cold` and the pool start on a KB"
+ %if MEGA_XPOOL & 0xFFFF
+  %error "kern_mega: the pool's base must have a low word of 0 - every `add dx, MEGA_XPOOL >> 16` rests on it"
  %endif
- %if MEGA_HI_LIN + MEGA_SCR_OFF + MPS_SIZE > MEGA_XPOOL
-  %error "kern_mega: `.cold` and `.mega` no longer fit between the IDT and the XMEM pool (mega.inc) - raise MEGA_XPOOL by 64KB"
+ %if MEGA_CODE_KB > 255
+  %error "kern_mega: mega_xmwalk writes the code's KB in a byte (BL) - `.cold`, `.mega` and the park's scratch have passed 255KB"
  %endif
  %if MEGA_FKINST != INST_MAX || MEGA_FKMSG != TOAST_MAX + 1
   %error "mega.inc's MEGA_FKINST / MEGA_FKMSG mirror INST_MAX / TOAST_MAX + 1 (KERN-MEGA-PLAN 14.42)"

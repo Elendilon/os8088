@@ -62,9 +62,17 @@
 
 %ifdef KERN_MEGA
 
-MEGA_GDT_LIN    equ 0x110000        ; above the HMA, which KERN-MEGA-PLAN 2.7
-MEGA_LDT_LIN    equ 0x120000        ; keeps free for DOS's real-mode
-MEGA_IDT_LIN    equ 0x124000        ; half
+; THE TABLES ARE ONE BLOCK OF MEGA_TBL_SIZE: the GDT at its base, the LDT
+; MEGA_LDT_OFF in, the IDT MEGA_IDT_OFF in - above 1MB at the TOP of extended
+; memory, under `.cold` and `.mega` (mega_layoutf, KERN-MEGA-MEMORY-PLAN MC2),
+; or in conventional memory on a machine too small for that (mega_tlowf).
+; WHERE is [mega_tbllin]; nothing names a linear address of its own any more
+MEGA_LDT_OFF    equ 0x10000         ; the LDT, 64KB in
+MEGA_IDT_OFF    equ 0x14000         ; the IDT, 80KB in
+MEGA_TBL_SIZE   equ MEGA_IDT_OFF + 256 * 8 ; 82KB
+MEGA_TBL_KB     equ (MEGA_TBL_SIZE + 1023) / 1024
+MEGA_HMA_KB     equ 64              ; the HMA, the pool's first 64KB, kept for
+                                    ; the DOS trip's real-mode half (2.7)
 MEGA_GDT_N      equ 8192            ; the CPU's maximum: 64KB
 MEGA_LDT_N      equ 2048            ; 1MB / 512 bytes: 16KB
 MEGA_LDT_FREE0  equ 1280            ; M3's allocator (mega_ldt_alloc) owns the
@@ -78,7 +86,7 @@ MEGA_SEL_SLD    equ 0xFFE0          ; data, base moved per use: mega_slidef's
                                     ; scratch, GDT entry 1FFCh - the identity
                                     ; selector of ROM segment FFE0, which
                                     ; nothing loads (MEGA_SEL_LDTD's argument)
-MEGA_SEL_LDTD   equ 0xFFE8          ; data, base MEGA_LDT_LIN: the LDT, for the
+MEGA_SEL_LDTD   equ 0xFFE8          ; data, base [mega_ldtlin]: the LDT, for the
                                     ; allocator. GDT entry 1FFDh, the identity
                                     ; selector of segment FFE8 - the top of the
                                     ; BIOS ROM, which nothing loads as a
@@ -95,7 +103,7 @@ MEGA_SEL_WIN    equ 0x20            ; data, a WINDOW whose base is moved to
 MEGA_SEL_ODD    equ 0x30            ; data, base moved per use: a selector for
                                     ; a segment OFF the 8-paragraph grid
                                     ; (mega_oddsegf)
-MEGA_SEL_IDT    equ 0x38            ; data, base MEGA_IDT_LIN: the IDT, for
+MEGA_SEL_IDT    equ 0x38            ; data, base the IDT's: the IDT, for
                                     ; mega_ivt_sync's rebuilt gates
 MEGA_SEL_BCODE  equ 0x28            ; code, base KERNEL_SEG x 16: the
                                     ; BOOTSTRAP's CS between the first lmsw
@@ -141,18 +149,22 @@ mega_bgdt:                          ; THE BOOTSTRAP GDT, six entries. Entry 0
     dw 0
     dw 0, 0, 0, 0                   ; 0x18 (the LDT, in the real GDT only)
 mega_bwin:
-    dw 0xFFFF, MEGA_GDT_LIN & 0xFFFF ; 0x20 WIN: data, base moved per table
-    db MEGA_GDT_LIN >> 16, 0x92
+    dw 0xFFFF, 0                    ; 0x20 WIN: data, base moved per table -
+    db 0, 0x92                      ; the GDT's first (mega_tset)
     dw 0
     dw 0xFFFF, KERNEL_SEG << 4      ; 0x28 BCODE: code, base 0x600
     db (KERNEL_SEG >> 12), 0x9A
     dw 0
-mega_gdtr   dw MEGA_GDT_N*8 - 1     ; the real tables
-            dw MEGA_GDT_LIN & 0xFFFF, MEGA_GDT_LIN >> 16
-mega_idtr   dw 256*8 - 1
-            dw MEGA_IDT_LIN & 0xFFFF, MEGA_IDT_LIN >> 16
-mega_ldtlin dd MEGA_LDT_LIN         ; the LDT's linear base: here, or in the
-                                    ; conventional claim mega_tlowf takes
+mega_gdtr   dw MEGA_GDT_N*8 - 1     ; the real tables, aimed by mega_tset:
+            dw 0, 0                 ; at the top of extended memory or in
+mega_idtr   dw 256*8 - 1            ; the conventional claim mega_tlowf takes
+            dw 0, 0
+mega_ldtlin dd 0                    ; the LDT's linear base
+mega_tbllin dd 0                    ; THE TABLES' BLOCK: the GDT's base (MC2)
+mega_coldlin dd 0                   ; `.cold` above 1MB, when [mega_codehi]
+mega_fixkb  dw 0                    ; KB from 1MB to the lowest fixed byte
+                                    ; above it: the pool's whole extent
+mega_codehi db 0                    ; 1: `.cold` and `.mega` fit above 1MB
 mega_rmidtr dw 0x03FF               ; real mode's: the IVT
             dw 0, 0
 mega_nullidt dw 0                   ; the 286's reset: an IDT that holds nothing
@@ -220,7 +232,7 @@ mega_enter:
     mov es, ax
     cld
 
-    ; --- the GDT, through WIN at MEGA_GDT_LIN ----------------------------------
+    ; --- the GDT, through WIN at [mega_tbllin] --------------------------------
     xor di, di
     xor bx, bx                      ; BX = the entry
 .gdt:
@@ -272,8 +284,8 @@ mega_enter:
     cmp bx, MEGA_GDT_N
     jb .gdt
 
-    ; --- the LDT and the IDT, through WIN moved to MEGA_LDT_LIN ---------------
-    mov ax, [mega_ldtlin]           ; (MEGA_LDT_LIN, or mega_tlowf's)
+    ; --- the LDT and the IDT, through WIN moved to [mega_ldtlin] -------------
+    mov ax, [mega_ldtlin]
     mov [mega_bwin+2], ax
     mov al, [mega_ldtlin+2]
     mov [mega_bwin+4], al
@@ -307,7 +319,7 @@ mega_enter:
     cmp bx, MEGA_LDT_N
     jb .ldt
 
-    mov di, MEGA_IDT_LIN - MEGA_LDT_LIN
+    mov di, MEGA_IDT_OFF - MEGA_LDT_OFF
     call mega_idt_build             ; ES:DI = the IDT, 256 gates
 
     ; --- the real tables -------------------------------------------------------
@@ -5979,16 +5991,14 @@ mega_fddir  db 0                    ; the CCR read: bit 7 the change line
 ; =============================================================================
 MEGA_SEL_XA equ 0xFFF0              ; scratch: the copy's source
 MEGA_SEL_XB equ 0xFFF8              ; scratch: the copy's destination
-MEGA_COLD_LIN equ 0x125000          ; `.cold`, above the IDT (0x124000+800h)
-MEGA_HI_LIN equ MEGA_COLD_LIN + COLD_PARA * 16 ; ...and `.mega` on top of it,
-                                    ; at its rung's distance, as in the ladder
-MEGA_XPOOL  equ 0x140000            ; the pool: 64KB-aligned, as XMEM.DRV's
-                                    ; arithmetic needs (its base's low word
-                                    ; is 0), and above `.cold` and `.mega`
-                                    ; (kernel.asm checks both fit, after their
-                                    ; sizes are known). 0x130000 until `.mega`:
-                                    ; 64KB of pool bought the room
-                                    ; (KERN-MEGA-SEGMENTS-PLAN 3.4)
+MEGA_XPOOL  equ 0x100000            ; the pool: from 1MB up to the fixed
+                                    ; area mega_layoutf puts at the TOP of
+                                    ; extended memory (KERN-MEGA-MEMORY-PLAN
+                                    ; MC2), the HMA its first, pinned, 64KB.
+                                    ; Its low word is 0, which every
+                                    ; `add dx, MEGA_XPOOL >> 16` rests on.
+                                    ; (0x140000 until MC2: `.cold`, `.mega`
+                                    ; and ~50KB of padding sat under it)
 MEGA_SEL_CODE equ 0xFFD8            ; `.mega`'s CS: GDT entry 1FFBh, the
                                     ; identity selector of ROM segment FFD8,
                                     ; which nothing loads (MEGA_SEL_LDTD's
@@ -6059,6 +6069,16 @@ mega_lincopy:
     call MEGA_SEL_CODE:mx_lcopyf
     ret
 
+; mega_hilin - DX:AX = `.mega`'s linear base above 1MB: `.cold`'s, at its
+; rung's distance, as in the ladder (MEGA_HI_LIN until KERN-MEGA-MEMORY-PLAN
+; MC2 made the fixed area move with the machine). Clobbers nothing else
+mega_hilin:
+    mov ax, [mega_coldlin]
+    mov dx, [mega_coldlin+2]
+    add ax, (COLD_PARA * 16) & 0xFFFF
+    adc dx, (COLD_PARA * 16) >> 16
+    ret
+
 ; -----------------------------------------------------------------------------
 ; mega_coldup - `.cold` and `.mega` above 1MB, and their rungs to the heap. In
 ; mega_enter, with the real tables loaded and nothing executing in either
@@ -6071,31 +6091,36 @@ mega_coldup:
     mov ax, (MEGA_RAM << 4) & 0xFFFF ; `.mega` where the boot put it...
     mov dx, MEGA_RAM >> 12
     call mega_mdesc
-    mov ax, [mega_extkb]
-    cmp ax, (MEGA_XPOOL - 0x100000) / 1024
-    jb .no                          ; (mega_enter already refused under 192)
+    cmp byte [mega_codehi], 0       ; mega_layoutf: no room at the top
+    je .no
     mov word [mega_xsrc], (COLD_RAM << 4) & 0xFFFF
     mov word [mega_xsrc+2], COLD_RAM >> 12
-    mov word [mega_xdst], MEGA_COLD_LIN & 0xFFFF
-    mov word [mega_xdst+2], MEGA_COLD_LIN >> 16
+    mov ax, [mega_coldlin]
+    mov dx, [mega_coldlin+2]
+    mov [mega_xdst], ax
+    mov [mega_xdst+2], dx
     mov cx, (COLD_SIZE + 1) & 0xFFFE
     call mega_lincopy
     mov word [mega_xsrc], (MEGA_RAM << 4) & 0xFFFF ; ...and `.mega`, a copy of
     mov word [mega_xsrc+2], MEGA_RAM >> 12 ; its own: the two can pass 64KB
-    mov word [mega_xdst], MEGA_HI_LIN & 0xFFFF
-    mov word [mega_xdst+2], MEGA_HI_LIN >> 16
+    call mega_hilin                 ; DX:AX = where it goes
+    mov [mega_xdst], ax
+    mov [mega_xdst+2], dx
     mov cx, (MEGA_SIZE + 1) & 0xFFFE
     call mega_lincopy
-    mov ax, MEGA_HI_LIN & 0xFFFF    ; ...whose descriptor follows it up
-    mov dx, MEGA_HI_LIN >> 16
+    call mega_hilin                 ; ...whose descriptor follows it up
     call mega_mdesc
     ; --- the descriptor: COLD_SEG:COLD_VSTART is the copy's first byte -----
     push es
     mov ax, MEGA_SEL_WIN
     mov es, ax
     mov di, COLD_SEG & 0xFFF8
-    mov word [es:di+2], (MEGA_COLD_LIN - COLD_VSTART) & 0xFFFF
-    mov byte [es:di+4], (MEGA_COLD_LIN - COLD_VSTART) >> 16
+    mov ax, [mega_coldlin]
+    mov dx, [mega_coldlin+2]
+    sub ax, COLD_VSTART & 0xFFFF
+    sbb dx, COLD_VSTART >> 16
+    mov [es:di+2], ax
+    mov [es:di+4], dl
     pop es
     ; --- ...and the rung: the decoder's buffers to its bottom, the floor
     ; onto it - [rom_vgabw] is both (mem_floor_ax, ROM-PLAN 3.4.2)
@@ -6170,13 +6195,12 @@ mega_xminit:
     pop es
     pop di
     pop cx
-    mov ax, [mega_extkb]
-    sub ax, (MEGA_XPOOL - 0x100000) / 1024
-    jbe .none
-    cmp ax, 15360 - (MEGA_XPOOL - 0x100000) / 1024
-    jbe .ok                         ; the 8237 and a 286 both stop at 16MB
-    mov ax, 15360 - (MEGA_XPOOL - 0x100000) / 1024
-.ok:
+    mov ax, [mega_fixkb]            ; the pool: from 1MB to the fixed area
+    cmp ax, MEGA_HMA_KB             ; (mega_layoutf, KERN-MEGA-MEMORY-PLAN
+    jbe .none                       ; MC2) - and nothing past the HMA, none
+    mov word [ss:mx_tab+MX_OFF], 0  ; THE HMA, its first 64KB: pinned under
+    mov word [ss:mx_tab+MX_OWN], XMW_HMA ; its walk marker until the DOS trip
+    mov word [ss:mx_tab+MX_KB], MEGA_HMA_KB ; saves what stands there (MC4)
     mov word [xm_svc+XMV_CAPS], mx_caps
     mov word [xm_svc+XMV_ALLOC], mx_alloc
     mov word [xm_svc+XMV_FREE], mx_free
@@ -7255,11 +7279,12 @@ mega_modvfixf:
 ; a caller that asks neither. A DRIVER's block - its image (MX_KDRV) or a
 ; claim of its (0C0h | row) - carries the driver's DRVC_* class in the byte
 ; that was always 0 (mega_xmcls), so a list can say WHICH driver holds what.
-; And BX = XMW_FIXED puts the five fixed areas between 1MB and MEGA_XPOOL in
-; front of the blocks as records of their own (mega_xmfix): the HMA the DOS
-; trip keeps, the GDT, the LDT and IDT, `.cold` and `.mega`, and the padding
-; up to the pool's 64KB-aligned base - which 14.70.1 is about making RAM. The
-; old answer to that span was one 'Above 1MB' figure; they tile it exactly
+; And BX = XMW_FIXED puts the fixed areas ABOVE the pool in front of the
+; blocks as records of their own: the GDT, the LDT and IDT, and `.cold` with
+; `.mega`, from where mega_layoutf put them at the top of extended memory
+; (KERN-MEGA-MEMORY-PLAN MC2). The HMA is not among them since MC2: it is the
+; pool's own first 64KB, a pinned block owned XMW_HMA, and the walk lists it
+; with the others. There is no padding any more to name
 mega_xmwalk:
     push cx
     push dx
@@ -7268,19 +7293,24 @@ mega_xmwalk:
     xor dx, dx                      ; DX = records written
     cmp bx, XMW_FIXED
     jne .pool
-    mov si, mega_xmfix              ; constants: `.mega` is readable code
-.fx:
-    jcxz .out
-    cs lodsw
-    stosw
-    cs lodsw
-    stosw
-    cs lodsw
-    stosw
-    inc dx
-    dec cx
-    cmp si, mega_xmfix_end
-    jb .fx
+    push bx                         ; THE FIXED AREAS ABOVE THE POOL, from
+    cmp word [mega_tbllin+2], 0x10  ; where mega_layoutf put them (MC2): the
+    jb .fxc                         ; tables only when they are above 1MB
+    mov si, [mega_fixkb]            ; (mega_tlowf's are conventional), the
+    mov bx, (XMW_GDT << 8) | 64     ; HMA not here - it is the pool's own
+    call .rec                       ; first block - and no padding, there
+    add si, 64                      ; being none
+    mov bx, (XMW_LDT << 8) | (MEGA_TBL_KB - 64)
+    call .rec
+.fxc:
+    cmp byte [mega_codehi], 0
+    je .fxe
+    mov si, [mega_fixkb]
+    add si, MEGA_TBL_KB
+    mov bx, (XMW_KCODE << 8) | MEGA_CODE_KB
+    call .rec
+.fxe:
+    pop bx
 .pool:
     mov si, mx_tab
     pushf
@@ -7311,6 +7341,21 @@ mega_xmwalk:
     pop dx
     pop cx
     clc
+    ret
+
+.rec:                               ; ES:DI = one fixed record: SI = its
+    jcxz .rx                        ; KB from 1MB, BL its KB, BH its owner
+    mov ax, si
+    stosw
+    mov al, bl
+    mov ah, 0
+    stosw
+    mov al, bh
+    mov ah, 0
+    stosw
+    inc dx
+    dec cx
+.rx:
     ret
 
 ; mega_xmcls - AL = the owner of the mx_tab entry at SS:SI -> AH = the
@@ -7376,31 +7421,17 @@ mega_xmcls:
     pop bx
     ret
 
-; mega_xmfix - the fixed areas between 1MB and the pool, as walk records:
-; {KB from the pool's base - negative, they are under it - KB, owner, 0}.
-; Constants, the whole of what XMW_FIXED costs past the six lines that copy
-; them. `.cold` and `.mega` are taken to the end of `.mega`'s scratch, which is
-; where the padding starts. (kernel.asm checks DRVR_SIZE for mega_xmcls, once
-; driver.inc has defined it)
+; THE FIXED AREAS' WALK OWNERS (OSAPI_XMEM_WALK, BX = XMW_FIXED): kern_mega's
+; records, from mega_layoutf's variables (KERN-MEGA-MEMORY-PLAN MC2) - the
+; tables and the code above the pool, and the HMA's as the pool's own first
+; block. (kernel.asm checks DRVR_SIZE for mega_xmcls, once driver.inc has
+; defined it)
 XMW_FIXED   equ 0x4658              ; MIRRORED in apps/os88api.inc
 XMW_HMA     equ 0xF0
 XMW_GDT     equ 0xF1
 XMW_LDT     equ 0xF2
 XMW_KCODE   equ 0xF3
-XMW_PAD     equ 0xF4
-MEGA_KEND_KB equ (MEGA_HI_LIN + MEGA_SCR_OFF + MPS_SIZE + 1023) / 1024
-mega_xmfix:
-    dw (0x100000 - MEGA_XPOOL) // 1024, (MEGA_GDT_LIN - 0x100000) / 1024
-    db XMW_HMA, 0
-    dw (MEGA_GDT_LIN - MEGA_XPOOL) // 1024, (MEGA_LDT_LIN - MEGA_GDT_LIN) / 1024
-    db XMW_GDT, 0
-    dw (MEGA_LDT_LIN - MEGA_XPOOL) // 1024, (MEGA_COLD_LIN - MEGA_LDT_LIN) / 1024
-    db XMW_LDT, 0
-    dw (MEGA_COLD_LIN - MEGA_XPOOL) // 1024, MEGA_KEND_KB - MEGA_COLD_LIN / 1024
-    db XMW_KCODE, 0
-    dw MEGA_KEND_KB - MEGA_XPOOL / 1024, MEGA_XPOOL / 1024 - MEGA_KEND_KB
-    db XMW_PAD, 0
-mega_xmfix_end:
+XMW_PAD     equ 0xF4                ; (none since MC2: kept for the SDK)
 
 ; mega_slotof - ES = a package's segment (its DS, as the X stub stamped it):
 ; BL = its instance slot, CF = 0; CF = 1 it is no package's. The region being
@@ -7522,8 +7553,13 @@ mega_gatef:
     call mega_a20                   ; (the tables' room is asked LAST: a claim
     mov dx, mega_ta20               ; made before a refusal would be left
     jc .refuse                      ; behind by it)
-    cmp word [mega_extkb], 192      ; the tables want 1MB + 64KB .. + 82KB...
-    jae .go
+    COLDCALL mega_layoutf           ; the tables at the TOP of extended
+    jc .tlow                        ; memory (KERN-MEGA-MEMORY-PLAN MC2)...
+    mov ax, [mega_tbllin]
+    mov dx, [mega_tbllin+2]
+    call mega_tset
+    jmp short .go
+.tlow:
     call COLD_SEG:mega_tlowf        ; ...or 82KB of conventional memory: no
     mov dx, mega_tmem               ; minimum beyond FITTING (answer 16)
     jnc .go
@@ -7689,21 +7725,7 @@ mega_tlowf:
     mov ax, dx                      ; DX:AX = its linear base
     shl ax, 4
     shr dx, 12
-    mov [mega_bwin+2], ax           ; the GDT
-    mov [mega_bwin+4], dl
-    mov [mega_gdtr+2], ax
-    mov [mega_gdtr+4], dx
-    add dl, 1                       ; the LDT, 64KB in
-    mov [mega_ldtlin], ax
-    mov [mega_ldtlin+2], dx
-    mov [mega_ldtd+2], ax
-    mov [mega_ldtd+4], dl
-    add ax, 0x4000                  ; the IDT, 16KB after that
-    adc dl, 0
-    mov [mega_idtr+2], ax
-    mov [mega_idtr+4], dx
-    mov [mega_idtd+2], ax
-    mov [mega_idtd+4], dl
+    call mega_tset
     clc
 .out:
     pop bp
@@ -7711,6 +7733,105 @@ mega_tlowf:
     pop bx
     pop ax
     retf
+
+; -----------------------------------------------------------------------------
+; mega_tset - DX:AX = where the tables' block goes (MEGA_TBL_SIZE: the GDT at
+; DX:AX, the LDT MEGA_LDT_OFF in, the IDT MEGA_IDT_OFF in) -> every word the
+; switch and the kernel read a table's place from aimed there: the
+; bootstrap's window, GDTR, IDTR, [mega_tbllin], [mega_ldtlin] and the LDT's
+; and the IDT's descriptors. Real mode (mega_gatef, before the switch).
+; Clobbers nothing
+; -----------------------------------------------------------------------------
+mega_tset:
+    push ax
+    push dx
+    mov [mega_tbllin], ax
+    mov [mega_tbllin+2], dx
+    mov [mega_bwin+2], ax           ; the GDT
+    mov [mega_bwin+4], dl
+    mov [mega_gdtr+2], ax
+    mov [mega_gdtr+4], dx
+    add dx, MEGA_LDT_OFF >> 16      ; the LDT, 64KB in
+    mov [mega_ldtlin], ax
+    mov [mega_ldtlin+2], dx
+    mov [mega_ldtd+2], ax
+    mov [mega_ldtd+4], dl
+    add ax, MEGA_IDT_OFF - MEGA_LDT_OFF ; the IDT, 16KB after that
+    adc dx, 0
+    mov [mega_idtr+2], ax
+    mov [mega_idtr+4], dx
+    mov [mega_idtd+2], ax
+    mov [mega_idtd+4], dl
+    pop dx
+    pop ax
+    ret
+
+; -----------------------------------------------------------------------------
+; mega_layoutf - FAR, real or protected mode: WHERE kern_mega's fixed area
+; goes above 1MB (KERN-MEGA-MEMORY-PLAN MC2) - from the TOP of extended
+; memory down: `.cold`, `.mega` and the park's scratch at the very top
+; (MEGA_CODE_KB), the tables' block (MEGA_TBL_KB) under them, and the pool
+; from 1MB up to there, the HMA its first 64KB. So free memory is one run that
+; ends at 1MB and the HMA is the last of it a claim reaches.
+;
+; A PURE FUNCTION OF [mega_extkb]: every boot of one machine computes the same
+; places, which is what lets the NEXT boot read a park's anchor in GDT entry 0
+; (mega_wrprobe, before anything is switched) and a resume find the tables
+; where its image had them.
+;
+; out: [mega_codehi] 1 when the code fits too (then [mega_coldlin] its base);
+;      CF = 0 the tables fit: [mega_tbllin] their base, [mega_fixkb] the KB
+;      from 1MB to it, the pool's extent; CF = 1 they do not - mega_tlowf's
+;      case - and [mega_fixkb] is all of extended memory. Clobbers nothing
+; -----------------------------------------------------------------------------
+MEGA_CODE_KB equ (COLD_PARA * 16 + MEGA_SCR_OFF + MPS_SIZE + 1023) / 1024
+mega_layoutf:
+    push ax
+    push dx
+    mov byte [mega_codehi], 0
+    mov ax, [mega_extkb]
+    cmp ax, 15360                   ; the 8237 and a 286 both stop at 16MB
+    jbe .e
+    mov ax, 15360
+.e:
+    mov [mega_fixkb], ax
+    cmp ax, MEGA_HMA_KB + MEGA_TBL_KB + MEGA_CODE_KB
+    jb .nocode
+    sub ax, MEGA_CODE_KB            ; the code at the very top...
+    mov byte [mega_codehi], 1
+    push ax
+    call .lin
+    mov [mega_coldlin], ax
+    mov [mega_coldlin+2], dx
+    pop ax
+    jmp short .tbl
+.nocode:
+    cmp ax, MEGA_HMA_KB + MEGA_TBL_KB
+    jb .no
+.tbl:
+    sub ax, MEGA_TBL_KB             ; ...the tables under it...
+    mov [mega_fixkb], ax            ; ...and the pool under them
+    call .lin
+    mov [mega_tbllin], ax
+    mov [mega_tbllin+2], dx
+    clc
+    jmp short .out
+.no:
+    stc
+.out:
+    pop dx
+    pop ax
+    retf
+.lin:                               ; AX = KB from 1MB -> DX:AX = its linear
+    push cx
+    mov dx, ax
+    mov cl, 10
+    shl ax, cl
+    mov cl, 6
+    shr dx, cl
+    add dx, 0x10
+    pop cx
+    ret
 
 ; -----------------------------------------------------------------------------
 ; mx_compactf - FAR (mx_alloc's no-run arm): PACK THE POOL'S MOVABLE BLOCKS
@@ -9330,12 +9451,12 @@ MEGA_FB_I   equ 37
 MEGA_FB_S   equ 45
 
 mega_zero8  dw 0, 0, 0, 0
-mega_idtd   dw 256*8 - 1, MEGA_IDT_LIN & 0xFFFF ; the IDT as DATA (GDT entry
-            db MEGA_IDT_LIN >> 16, 0x92         ; 7), for mega_ivt_sync
+mega_idtd   dw 256*8 - 1, 0         ; the IDT as DATA (GDT entry 7), for
+            db 0, 0x92                          ; mega_ivt_sync (mega_tset)
             dw 0
 mega_ldtd:                          ; the LDT's descriptor (GDT entry 3)
-    dw MEGA_LDT_N*8 - 1, MEGA_LDT_LIN & 0xFFFF
-    db MEGA_LDT_LIN >> 16, 0x82
+    dw MEGA_LDT_N*8 - 1, 0          ; (its base: mega_tset)
+    db 0, 0x82
     dw 0
 mega_mrm    db "kern_mega: ", 0     ; ...the debug port's line is the toast's
 mega_t86    db "real mode: 8086-class CPU", 0

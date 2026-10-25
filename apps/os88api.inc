@@ -2603,11 +2603,13 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; is not drv_tab's, and a kernel CACHE (FEh)
                                  ; its purge level FBh-FEh there (SPEC.md
                                  ; 50.6.8); and BX = XMW_FIXED asks
-                                 ; for the fixed areas between 1MB and the
-                                 ; pool too, as records IN FRONT of the blocks
-                                 ; owned XMW_HMA..XMW_PAD, their XMW_OFF
-                                 ; NEGATIVE (below the base) - they tile the
-                                 ; span exactly. ON kern_big with the HMA's
+                                 ; for kern_mega's fixed areas too, as
+                                 ; records IN FRONT of the blocks owned
+                                 ; XMW_GDT..XMW_KCODE, at the TOP of RAM:
+                                 ; XMW_OFF POSITIVE, past the pool's KB
+                                 ; (SPEC.md 50.6.9; the HMA is the pool's
+                                 ; first block, owner XMW_HMA, and XMW_PAD
+                                 ; is not written). ON kern_big with the HMA's
                                  ; tail installed, BX = XMW_FIXED puts the
                                  ; HMA's contents in front instead (SPEC.md
                                  ; 28.4.13): XMW_HMAK for `.cold` and the

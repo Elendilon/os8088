@@ -63,6 +63,10 @@ build at `8eac6506` unless a measurement says otherwise.
 
 ### 1.1 The layout above 1MB
 
+**This table is the layout the round STARTED from** (`8eac6506`). MC2
+replaced it: the tables and the code are at the top of RAM and the pool runs
+from 1MB - see *MC2 as built* in 7.
+
 | linear | what | size | source |
 |---|---|---|---|
 | 100000h | the HMA, kept free for DOS's real-mode half and `kern_dos` | 64K | KERN-MEGA-DOS-PLAN 7, 14.25 |
@@ -613,4 +617,67 @@ rows. Nothing is recorded as built that was not.
   `rdmove`, `rdup`, `rdpreserve`, `rdxms`, `rdcz`, `rdicon`, `rdmount`,
   `netcoexist`, `netpromise`, `netinst`, `cdrom`, `cdromsim`, `cdromempty`,
   `autostart` (the drivers' and the walk's real-mode paths).
+
+### MC2 as built (2026-10-25) - DONE
+
+- **The layout is a pure function of `mega_extkb`.** `mega_layoutf` (`.cold`,
+  far, no state) answers it, so the switch and the park's probe
+  (`mega_wrprobe`, which must find the anchor before anything else is known)
+  compute the same places:
+  - the top is 1MB + `[mega_extkb]`, capped at 16MB;
+  - the CODE area, `MEGA_CODE_KB` (`.cold`, `.mega` at its rung's distance,
+    the park's scratch), is the top KBs - 59K today;
+  - the TABLE block, `MEGA_TBL_SIZE` = 82KB (GDT 64K, LDT 16K at
+    `MEGA_LDT_OFF`, IDT 2K at `MEGA_IDT_OFF`), is under it, its GDT end
+    next to the pool, where MC7's shrinking leaves the room;
+  - the pool runs from `MEGA_XPOOL` = 100000h to the table block:
+    `[mega_fixkb]` KB, which `mega_xminit` takes as `xm_kb`.
+
+  Measured under Bochs: 16MB puts the tables at FDCC00h and the code at
+  FF1400h with a 15,219K pool; 2MB puts them at 1DCC00h/1F1400h with 883K.
+  The pool was 14,976K on 16MB before (the old base was 140000h, and 64K of
+  padding came with it).
+- **Every table address is a variable.** `mega_tset` (DX:AX = the block's
+  base) writes `mega_gdtr`, `mega_idtr`, `mega_ldtlin`, `mega_tbllin`, the
+  bootstrap window and the LDT/IDT descriptors in one place; the switch calls
+  it with `mega_layoutf`'s answer and `mega_tlowf` with its conventional
+  block's. `mega_coldup` reads `[mega_coldlin]` (`mega_hilin`, a `.text`
+  helper, adds `.mega`'s rung distance) and gives `.cold`'s descriptor base
+  coldlin - `COLD_VSTART`. `[mega_codehi]` says whether the code went up.
+- **The HMA is the pool's first block**, 64K pinned, owner `XMW_HMA` (F0h).
+  MC4 is what unpins it. The hibernate's run list and the DOS park's
+  "everything the pool gave out" both skip it: it holds nothing of the
+  session.
+- **`XMW_FIXED` names three areas above the pool** (GDT, LDT+IDT, kernel
+  code) at POSITIVE offsets from the base - KB past `xm_kb` - and no
+  padding; the HMA is listed as the block it is. `mega_xmfix`'s table is
+  gone; `XMW_PAD` stays in the SDK unused.
+- **The DOS park**: `mega_dsave`'s entries are offsets from the table
+  block's base and the dreg list adds `[mega_tbllin]` (`.tbl` for an
+  offset under 64K, `.tblp` for the IDT's, given in paragraphs); `.cold` and
+  `.mega` are saved from `[mega_coldlin]`. The parked stub's own copy of the
+  GDTR/IDTR (`mpk_tabs`) is patched at staging by `mega_dstubup`, 12 bytes
+  from `mega_gdtr`/`mega_idtr` (an assembly check holds the two adjacent).
+- **The hibernate** writes run 0 from `[mega_tbllin]`, `MEGA_TBL_SIZE` long,
+  and a restore REFUSES an image whose run 0 is not exactly that: an image
+  from before MC2, or from a machine with different RAM (D10).
+- **The Task Manager** reads the fixed areas as KB OUTSIDE the pool (above
+  its top now, where kern_big's are under its base), so RAM stays the whole
+  machine: `Ram 0.31/3.62M` on a 4MB Bochs machine, `System>1MB 205K` = HMA
+  64 + GDT 64 + LDT/IDT 18 + code 59. `tm_himax` treats the HMA's record as
+  the pinned block it is.
+- **Bytes:** kern_mega `.text` +32, `.cold` +117, `.mega` +110 (shared
+  window overhead 3,718 -> 3,750 of 4,029); `.boot2` +12 (the blob,
+  discarded); the Task Manager +48 of image; kern_big's `kernel.sys` and
+  kern_small's `kernel.bin` byte-identical with a clean build of the same
+  commit.
+- **A method note, second of its kind.** `make build/kernel.bin` alone is
+  PASS 1 of the packed kernel (SPEC.md 2.9.13): the blob carries placeholder
+  `KZ_*` defines, so it differs by a byte from a tree whose last build was a
+  full `make`. Compare `kernel.sys` after a full `make` in both trees.
+- **`tools/os88megaseg.py`** prints the code area against its 255K cap (a
+  KB byte in the walk's record), the second wall the old slot was.
+- Rows named: `megahigh` (full); `megashed`, `megahiber`, `megap2hiber`,
+  `megadosp`, `megakbtrip`, `megarehome`, `megapiclose`, `megacdrom`,
+  `tmowner` (soak).
 

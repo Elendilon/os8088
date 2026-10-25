@@ -63557,9 +63557,10 @@ its KB column and `tm_memcol_kb`/`tm_kcol` letter the figure.
 `tm_init` asks `OSAPI_XMEM_WALK` with CX = 0, which answers on kern_mega in
 protected mode and on kern_big with a store (`XMEM.DRV`'s table, overlay
 ABI 2's `XMV_WALK`), and sets `[tm_hion]`. `tm_hikb` then also sums
-`[tm_hisys]`: the KB between 1MB and the pool's base (kern_mega's descriptor
-tables and `.cold`; kern_big's HMA), plus every block whose owner is C0h or
-above (the kernel's FEh, a driver's, FFh outside any instance). Whatever holds
+`[tm_hisys]`: the KB the kernel keeps above 1MB OUTSIDE the pool (kern_big's
+HMA under the pool's base; kern_mega's descriptor tables and `.cold` above its
+top since §50.6.9), plus every block whose owner is C0h or above - kern_mega's
+HMA among them, a pool block since §50.6.9 (the kernel's FEh, a driver's, FFh outside any instance). Whatever holds
 RAM is billed for it. kern_big used to show only conventional memory, so a
 2MB machine read `RAM 108/640K` and its megabyte above was nowhere on the
 page:
@@ -63568,7 +63569,7 @@ page:
 |---|---|
 | RAM | conventional + `[tm_hitot]` (the BIOS's extended KB) in MB |
 | System | `tm_sysk` + `[tm_hisys]` - `[tm_hifix]` + `SK_KCLAIM` (+ `IVT+BIOS` and `[tm_hifix]` when folded, §28.4.14) |
-| System HMA (§28.4.14) | `[tm_hifix]`: the span between 1MB and the pool - `System>1MB` on kern_mega |
+| System HMA (§28.4.14) | `[tm_hifix]`: the KB the kernel keeps outside the pool (under its base on kern_big, above its top on kern_mega, §50.6.9) plus kern_mega's HMA block - `System>1MB` on kern_mega |
 | memory view System SIZE | `tm_sysk` + every non-program group, its items naming every owner (§28.4.10); `IVT+BIOS` and `System HMA` are rows of their own beside it (§28.4.13, §28.4.14), so the rows still sum |
 | a program, both pages | its region and conventional claims, plus `tm_slotxkb`'s blocks above 1MB (its `OSAPI_XMEM_ALLOC` blocks, and on kern_mega its `OS88_HIGHMEM` claims) |
 | the summary line, kern_mega in protected mode only | ONE pair, `Ram u.uu/t.ttM` - used (RAM's, as above) over total (conventional + `[tm_hitot]`) in MB to two decimals, truncated - and ONE bar (KERN-MEGA-PLAN 14.70.2) |
@@ -63768,13 +63769,15 @@ additively (§20.2.0.1: no `PKG_FMT` bump, `tools/abi.lock.json` refreshed):
   it is now the block's driver class: `0C0h | row` reads `drv_tab[row]`'s
   `DRVR_CLASS`, and `FDh` (`MX_KDRV`, an image) finds the `drv_tab` row whose
   `DRVR_SEG` selector's LDT base is the block's (`mega_xmcls`). 0 when none.
-- **BX = `XMW_FIXED`** makes kern_mega write five records ahead of the
-  blocks, from a table in `.mega` (`mega_xmfix`): the HMA kept for the DOS
-  trip, the GDT, the LDT and IDT, `.cold` + `.mega` (`MEGA_KEND_KB`), and the
-  padding to `MEGA_XPOOL` - offsets negative KB from the pool's base, so the
-  five tile that span exactly. Two assembly checks hold it there:
-  `MEGA_COLD_LIN` and `MEGA_XPOOL` on a KB, and `DRVR_SIZE` = 16 for the
-  row shift.
+- **BX = `XMW_FIXED`** makes kern_mega write records ahead of the blocks
+  for its fixed areas. **Since §50.6.9 there are three, ABOVE the pool**: the
+  GDT, the LDT and IDT, and `.cold` + `.mega` with the park's scratch, at
+  POSITIVE offsets - KB past `xm_kb` - computed from `[mega_fixkb]`
+  (`mega_xmwalk`'s `.rec`). The HMA is the pool's own first block, listed as
+  the block it is (owner `XMW_HMA`), and there is no padding (`XMW_PAD`
+  stays in the SDK unused). Until §50.6.9 there were five, from a table in
+  `.mega` (`mega_xmfix`), at NEGATIVE offsets tiling the span between 1MB and
+  the pool's base. `DRVR_SIZE` = 16 is still asserted for the row shift.
 
 The Task Manager asks with BX = `XMW_FIXED` and keeps `[tm_hifix]`, so a
 kernel that answers no markers still reads as the span's heading alone
@@ -63931,9 +63934,10 @@ Both pages now list the same three system rows, in the same order:
 | `System HMA` | after System's built-ins, so it closes System's indented rows: no state, no CPU, `[tm_hifix]` KB | a group at column 0 after System, `[tm_hifix]` KB, opening into §28.4.13's contents - its items one level in and each HMA driver a group one level in (`tm_grp1`; `tm_grp2` is gone) |
 
 `System HMA` is drawn only when `[tm_hifix]` is non-zero - the system keeps
-RAM between 1MB and the pool's base, which needs `[tm_hion]` - so a machine
+RAM above 1MB outside the pool, which needs `[tm_hion]` - so a machine
 with no HMA in use shows neither the row nor the group. On kern_mega the span
-is the descriptor tables and `.cold` over the DOS trip's HMA, and the name
+is the descriptor tables and `.cold` at the top of RAM and the DOS trip's HMA
+at the pool's base (§50.6.9), and the name
 says so: `System>1MB` (`tm_hmanam`). The group's open bit is `TMG_HMA`, the
 id `TMG_PROG` held unused since 14.70.3, so no group id moved and none was
 needed.
@@ -80716,7 +80720,7 @@ table's end and present on every kernel (docs/plans/KERN-MEGA-PLAN.md 12.2):
 |---|---|
 | `OSAPI_XMEM_SEL` **0x04B3** | DX:AX = an address inside an `OSAPI_XMEM_ALLOC` block the CALLER owns, CX = bytes (0 = 65,536). Out CF=0, AX = a **data selector** whose descriptor covers exactly that window: load it into DS or ES and address the block in place, with 16-bit code unchanged. **One selector per block**: a second call for the same block re-aims it, and a segment register already holding it keeps the old window until it is reloaded. It is freed with the block - `OSAPI_XMEM_FREE`, or the instance's teardown. CF=1 with AX = 1 where it is not available (every kernel but kern_mega in protected mode, and no free LDT entry) or 2 when the window is not inside a block the caller owns. UI-task context, like the four XMEM cells. `kern_small`'s cell is its `xm_copy`, which answers exactly that refusal |
 | `OSAPI_MEM_CODESEL` **0x04B9** | DX = the segment (or selector) naming a claim of the caller's. Out CF=0, AX = the selector to **far call code** in it: DX itself on a real-mode kernel; under `CPU_F_PM` the claim's LDT code alias `(S >> 2) | 4` for a segment on the 512-byte grid below A000, a code selector as it is, and the code half of an allocator pair for its data half. CF=1 when there is none: DX = 0, or under `CPU_F_PM` a segment off the grid or a data-only selector (an `OSAPI_XMEM_SEL` window). Any context. `apps/os88api.inc`'s `OS88_CODESEL` is its inline fast path for a claim below 1MB |
-| `OSAPI_XMEM_WALK` **0x04BF** | ES:DI = room for CX records of `XMW_SIZE` (6) bytes. Out CF=0, AX = the extended pool's live blocks written, each `XMW_OFF` (KB from the pool's base, which `OSAPI_XMEM_CAPS` answers in DX:CX), `XMW_KB` and `XMW_OWN`: an instance slot for an `OSAPI_XMEM_ALLOC` block, 80h \| slot for a package's REGION placed above 1MB (`OS88_HIGH`, docs/plans/KERN-MEGA-PLAN.md 13.3 step 4), 0A0h \| slot for a CLAIM it took there (`OS88_HIGHMEM`, KERN-MEGA-PLAN item 81), 0C0h \| row a driver's claim, FDh a driver's image, FEh the kernel's own (the read-ahead store, module pairs), FFh a cell called outside any instance. The record's sixth byte, `XMW_CLS`, is 0 except for a driver's block on kern_mega, where it is that driver's `DRVC_*` class off `drv_tab` (0 when no row matches) - so a reader names `SOUND.DRV` and not *a driver* - and for a kernel CACHE on kern_mega (owner FEh), where it is the cache's purge level, FBh-FEh: a block the next claim may take back (§50.6.8). **BX = `XMW_FIXED` (4658h, 'XF')** asks kern_mega for the fixed areas between 1MB and the pool's base as well: one record each IN FRONT of the blocks, owner `XMW_HMA` (F0h, the HMA kept for the DOS trip), `XMW_GDT`, `XMW_LDT` (the LDT and the IDT), `XMW_KCODE` (`.cold` and `.mega`) and `XMW_PAD` (the rest up to `MEGA_XPOOL`), each with a NEGATIVE `XMW_OFF` - KB below the base - so the five tile the span exactly (§28.4.10, KERN-MEGA-PLAN 14.70.2). Additive: every other kernel ignores BX and writes 0 at `XMW_CLS`. On kern_big with a store the pool is `XMEM.DRV`'s and the cell walks its table (overlay ABI 2's `XMV_WALK`, §28.4.8): owner a slot or FFh. CF=1, AX = 1 with no pool - kern_small, kern_mega in real mode, a kern_big machine without the overlay. The Task Manager's "RAM is RAM" reads it (KERN-MEGA-PLAN 13.6). Any context |
+| `OSAPI_XMEM_WALK` **0x04BF** | ES:DI = room for CX records of `XMW_SIZE` (6) bytes. Out CF=0, AX = the extended pool's live blocks written, each `XMW_OFF` (KB from the pool's base, which `OSAPI_XMEM_CAPS` answers in DX:CX), `XMW_KB` and `XMW_OWN`: an instance slot for an `OSAPI_XMEM_ALLOC` block, 80h \| slot for a package's REGION placed above 1MB (`OS88_HIGH`, docs/plans/KERN-MEGA-PLAN.md 13.3 step 4), 0A0h \| slot for a CLAIM it took there (`OS88_HIGHMEM`, KERN-MEGA-PLAN item 81), 0C0h \| row a driver's claim, FDh a driver's image, FEh the kernel's own (the read-ahead store, module pairs), FFh a cell called outside any instance. The record's sixth byte, `XMW_CLS`, is 0 except for a driver's block on kern_mega, where it is that driver's `DRVC_*` class off `drv_tab` (0 when no row matches) - so a reader names `SOUND.DRV` and not *a driver* - and for a kernel CACHE on kern_mega (owner FEh), where it is the cache's purge level, FBh-FEh: a block the next claim may take back (§50.6.8). **BX = `XMW_FIXED` (4658h, 'XF')** asks kern_mega for its fixed areas as well: one record each IN FRONT of the blocks, owner `XMW_GDT`, `XMW_LDT` (the LDT and the IDT) and `XMW_KCODE` (`.cold` and `.mega`), at POSITIVE `XMW_OFF`s past the pool's KB - they are at the top of RAM, above the pool (§50.6.9). The HMA (`XMW_HMA`, F0h) is the pool's first block and is walked as one; `XMW_PAD` is not written (§28.4.10, KERN-MEGA-PLAN 14.70.2). Additive: every other kernel ignores BX and writes 0 at `XMW_CLS`. On kern_big with a store the pool is `XMEM.DRV`'s and the cell walks its table (overlay ABI 2's `XMV_WALK`, §28.4.8): owner a slot or FFh. CF=1, AX = 1 with no pool - kern_small, kern_mega in real mode, a kern_big machine without the overlay. The Task Manager's "RAM is RAM" reads it (KERN-MEGA-PLAN 13.6). Any context |
 | `OSAPI_XMEM_RUN` **0x04CB** | DX:AX = the TOKEN of an `OSAPI_XMEM_ALLOC` block the caller owns (its base). Out CF=0, DX = the first of a **run of data selectors**, CX = the step between them (8): selector *k* is the 64KB window from 32KB x *k* into the block, the last ones cut at its end, so **any 32KB of the block lies wholly inside one window** - the one at (offset >> 15), at (offset & 7FFFh). What a reader of records of 32KB or less needs to read them in place from ANY context once made, where `OSAPI_XMEM_SEL`'s one window has to be re-aimed by the UI task per read and `OSAPI_MEM_HUGE`'s 64KB windows cut a record that straddles one in two. One view a block: a block with a run takes no `OSAPI_XMEM_SEL` and the reverse (AX = 2 either way). Freed with the block. CF=1, AX = 1 not available (every kernel but kern_mega in protected mode) or no run of free LDT entries, 2 not the base of a block the caller owns or it has a selector already. UI-task context. The Video Player's hold and bank (98.3.18.16) are its consumer; docs/plans/KERN-MEGA-PLAN.md 14.16 |
 | `OSAPI_MEM_HUGE` **0x04C5** | AX = KB (1..65535). Out CF=0: DX = the claim's first segment or selector and CX = the STEP to its next 64KB - a program walks by CX and never by a constant. CX = 1000h for a conventional claim on every kernel; CX = 8 on kern_mega in protected mode for an `OS88_HIGHMEM` package, whose claim is ONE pool block above 1MB under a run of consecutive LDT data selectors, a 64KB window each and the last ending at the claim's end (§50.3.5). CF=1 refused - above 1MB only when the pool's free KB are short, the compactor moving huge claims too (§50.3.5). Freed by `OSAPI_MEM_FREE` with that DX, and at the instance's teardown; `OSAPI_MEM_REGROW` takes the pool's to any size and answers its first selector NOW (KERN-MEGA-PLAN 14.37). Docs/plans/KERN-MEGA-PLAN.md 14.1 answers 6 and 7: an ADDITION, so `OSAPI_MEM_CLAIM` and `OS88_HUGE_INCR` mean what they always did. **BX = 8000h** asks for a window every 32KB instead, each 64KB long (`OSAPI_XMEM_RUN`'s shape on a claim that moves), answered BX = 0 when given and BX kept otherwise; such a claim does not regrow, and moves a 64KB piece at a time with the package's rate hook held off (§50.3.5, KERN-MEGA-PLAN 14.41, 14.49). Any context |
 
@@ -96838,6 +96842,42 @@ billed them to System. Now the pool follows §50.6.4 exactly:
 Cost: kern_mega `.mega` +139, `.cold` +125, `.text` +0 (the shared window's
 overhead unchanged), `.lowbss` +192; kern_big and kern_small byte-identical;
 the Task Manager +36 bytes of image.
+
+#### 50.6.9 kern_mega: the tables and the code at the TOP of RAM, the pool from 1MB (KERN-MEGA-MEMORY-PLAN MC2)
+
+kern_mega's fixed area above 1MB used to sit at the BOTTOM: the HMA, the GDT
+at 110000h, the LDT and IDT, `.cold` and `.mega`, padding to a pool base of
+140000h - 256K under the pool, ~50K of it padding. It is at the TOP now, and
+the pool starts at 1MB:
+
+| linear | what |
+|---|---|
+| 100000h | the pool (`MEGA_XPOOL`), `[mega_fixkb]` KB, offsets in KB from here; its first block is the HMA, 64K, pinned, owner `XMW_HMA` - DOS's during a trip and nothing of the session's, so the hibernate and the DOS park skip it |
+| `[mega_tbllin]` | the table block, `MEGA_TBL_SIZE` = 82K: the GDT (64K), the LDT at `MEGA_LDT_OFF` (16K), the IDT at `MEGA_IDT_OFF` (2K) |
+| `[mega_coldlin]` | `.cold`, then `.mega` at its rung's distance, then the park's scratch: `MEGA_CODE_KB`, capped at 255 by an assembly check (a KB byte in the walk's record) |
+| 1MB + `[mega_extkb]` (at most 16MB) | the top |
+
+**The layout is a pure function of `mega_extkb`.** `mega_layoutf` (`.cold`,
+far) answers it, and both the switch and the DOS park's write probe call it -
+the probe must find the parked anchor before any other state is known, and
+the same arithmetic on the same BIOS answer finds it. `mega_tset` writes
+every word that names the tables (`mega_gdtr`, `mega_idtr`, `mega_ldtlin`,
+`mega_tbllin`, the bootstrap window, the LDT and IDT descriptors) from one
+base, for the top-of-RAM block and for `mega_tlowf`'s conventional one alike;
+the parked stub's GDTR/IDTR copy is patched from the same two variables at
+staging (`mega_dstubup`). `.cold`'s descriptor base is `[mega_coldlin]` less
+`COLD_VSTART`.
+
+What it buys is RAM: the padding is gone and the HMA is a block of the pool,
+which is what lets KERN-MEGA-MEMORY-PLAN MC4 make it RAM. 16MB under Bochs:
+a 15,219K pool against 14,976K. And it puts the tables where shrinking them
+(MC7) leaves its room NEXT TO the pool. `OSAPI_XMEM_WALK`'s `XMW_FIXED`
+records follow (§28.4.11), the Task Manager reads them as KB outside the
+pool, and a hibernate image's run 0 is the table block where this boot put
+it, refused otherwise (§87.9).
+
+Cost: kern_mega `.text` +32, `.cold` +117, `.mega` +110; kern_big and
+kern_small byte-identical; the Task Manager +48 bytes of image.
 
 ### 51.0 NOT ON `kern_small` — the whole mechanism is `kern_big`'s
 
@@ -153869,7 +153909,9 @@ kern_big does.
 that the section can be APPENDED after it (§18.4.4). The section is a
 512-byte head — `'HIBX'`, the run count, the section's bytes, and each run's
 linear base and length — and then the runs: **run 0** is the GDT, the LDT and
-the IDT as one range (0x110000–0x124800; `.cold`'s copy is not in it, being a
+the IDT as one range (`[mega_tbllin]`, `MEGA_TBL_SIZE` long since §50.6.9,
+which a restore requires exactly - an image from before it, or from a machine
+whose RAM puts the tables elsewhere, is refused; `.cold`'s copy is not in it, being a
 code selector whose bytes are `KERNEL.SYS`'s), and every `mx_tab` block in
 use is one more. They go down through a 32KB conventional bounce claimed
 AFTER the picture, so the image does not hold it, and Fletcher's sums are

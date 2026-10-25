@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "4ac67b2a27d9686ffc6507d63dfa1c11011089dcd2749208daaff405570fe63b",
+  "fingerprint": "10823f928b835f4ebf074d95a5f3e741a2867361d0043844475f77c66cc0ccd7",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "24c51fd83d8f846cfd12e914af31f2becc4ba8ebdc707fb8b21d46b9afe97e93",
+  "fingerprint": "e175ad5c52383dc3a59a5a02a196091407724184dff035bd09bc88bb13bebde6",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1078,6 +1078,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_XMEM_WALK: XMW_CLS carries a kernel cache's purge level on kern_mega (SPEC.md 50.6.8, KERN-MEGA-MEMORY-PLAN MC1) - a contract clarified, additive",
+   "to": 11
+  },
+  {
+   "fingerprint": "e175ad5c52383dc3a59a5a02a196091407724184dff035bd09bc88bb13bebde6",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "XMW_FIXED's records describe kern_mega's fixed areas at the top of RAM (SPEC.md 50.6.9): a comment, no cell moved",
+   "to": 10
+  },
+  {
+   "fingerprint": "10823f928b835f4ebf074d95a5f3e741a2867361d0043844475f77c66cc0ccd7",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "XMW_FIXED's records describe kern_mega's fixed areas at the top of RAM (SPEC.md 50.6.9): a comment, no cell moved",
    "to": 11
   }
  ]
