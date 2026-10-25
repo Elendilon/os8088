@@ -1,7 +1,7 @@
 # `kern_mega` — a 286+ protected-mode kernel
 
 **Current round (2026-10-25): memory consolidation, 14.72** - the open
-memory items collected, ordered MC1-MC7, nothing yet built. The status line
+memory items collected, ordered MC1-MC9, nothing yet built. The status line
 below is the file's first and is kept as written.
 
 **Status: M1 IS UNDER WAY, AND kern_mega BOOTS INTO 286 PROTECTED MODE ON QEMU** (section 10.1) - plus 2.4.1's CS-write ratchet (2026-10-17, branch `protected-mode`,
@@ -10242,7 +10242,7 @@ Not run here; tests/unit/t_megagrid.py scopes to `apps/` and could take
 Three items 14.68 found and did not take, written down as work rather than
 left in its prose. The owner asked for each to be carried here.
 
-- [ ] **RAMDISK.DRV and NET.DRV fold paragraphs into a segment.** (14.72 MC6)
+- [ ] **RAMDISK.DRV and NET.DRV fold paragraphs into a segment.** (14.72 MC8)
   `rd_fold` (drivers/ramdisk/) and `net_norm` (drivers/net/) fold a
   conventional buffer's offset into its segment by paragraphs - the shape
   14.68's item 1 was in `CDROM.DRV`, which faulted the machine on its first
@@ -10254,7 +10254,7 @@ left in its prose. The owner asked for each to be carried here.
   The fix is 14.68's: walk the offset, or fold in whole 128-byte granules
   (`dskw_norm`'s kern_mega arm). `tests/unit/t_megagrid.py` scans `apps/`
   only; taking `drivers/` too is what keeps the next one out.
-- [ ] **`CDROM.DRV` above 1MB.** (14.72 MC6) It runs on kern_mega now but loads LOW -
+- [ ] **`CDROM.DRV` above 1MB.** (14.72 MC8) It runs on kern_mega now but loads LOW -
   9 KB of conventional memory - because nobody has run it high. To take it
   there: declare `OS88_DRV_HIGHOK` (drivers/os88drv.inc, item 82); check its
   sector buffer and packet, which live in its own image and reach
@@ -10263,7 +10263,7 @@ left in its prose. The owner asked for each to be carried here.
   BIOS or a DMA engine (it does PIO, `rep insw`); then extend `megacdrom` to
   assert the driver's image base is above 1MB while CDRack plays and copies.
   `OS88_DRV_HICLAIM` is not wanted: it makes no claims.
-- [ ] **Autostarted packages run low.** (14.72 MC6) `\AUTOSTRT`'s walk (`as_boot`,
+- [ ] **Autostarted packages run low.** (14.72 MC8) `\AUTOSTRT`'s walk (`as_boot`,
   SPEC.md 26.10) runs before `mega_enter`, so every autostarted package
   starts in real mode, in conventional memory, whatever `OS88_HIGH` says -
   `megacdtest`'s autostarted CDRack sits at `9640h` while the same package
@@ -10309,7 +10309,7 @@ pool blocks owned C0h and up.
   `mx_alloc` sheds flagged kernel blocks before it refuses; the Task Manager
   excludes them from System as it does on kern_big.
 - [ ] **The GDT is a 1:1 table sized for every possible segment, and almost
-  none of it is used.** (14.72 MC5) Selector = segment value, so the GDT's size is set
+  none of it is used.** (14.72 MC7) Selector = segment value, so the GDT's size is set
   by the HIGHEST segment anything loads (the scratch selectors at FFD0-FFF8,
   the ROM font at F000), not by how many are used. **Measured** under Bochs,
   kern_mega at this tree with SOUND and HDD up and Calculator, Mines, Note
@@ -10325,7 +10325,7 @@ pool blocks owned C0h and up.
   change is the work to cost: every place that turns a segment value into a
   selector by identity (and `mega_oddsegf`'s window, which already handles a
   segment that is not a multiple of 8 dynamically, is the model).
-- [ ] **The LDT can start small and grow.** (14.72 MC4) 2,048 entries (16K): 1,280 are
+- [ ] **The LDT can start small and grow.** (14.72 MC6) 2,048 entries (16K): 1,280 are
   a STATIC code alias for every 512 bytes of conventional memory (index =
   segment / 32, which is how a CS with bit 2 set names its image), the rest
   dynamic; **31 accessed** in the same run. Regrowable by claiming a bigger
@@ -10333,7 +10333,7 @@ pool blocks owned C0h and up.
   GDT's identity entries would. The owner: *"LDT regrowable: seems good."*
 - [x] **The IDT stays 2K.** Every vector can be reflected to the BIOS or to
   a DOS program. *"IDT is fine."*
-- [ ] **The HMA is RAM.** (14.72 MC3) It has to be free at 1MB only while DOS uses it,
+- [ ] **The HMA is RAM.** (14.72 MC4) It has to be free at 1MB only while DOS uses it,
   so it is pool like any other until then, and the trip into DOS saves what
   is in it and the return restores it to the same linear addresses (a pool
   block is named by its linear base, 13.4) - what the park already does for
@@ -10558,7 +10558,7 @@ spends extended memory it does not need. This section collects every box
 still open about that, from 14.53, 14.60, 14.69 and 14.70, and puts them in an
 order. It is a PLAN: nothing here is built, and every byte figure is the
 reading 14.70.1 and 14.70.2 took under Bochs, or an ESTIMATE where it says so.
-The waves are named **MC1-MC7** so they cannot be confused with the
+The waves are named **MC1-MC9** so they cannot be confused with the
 milestones M1-M6 or with another plan's W-waves. Branch
 `claude/protected-mode-memory-consolidation-k1kjao`, cut from `elendilon` at
 `8eac6506`.
@@ -10595,39 +10595,50 @@ explicit: 14.69's three (RAMDISK.DRV's and NET.DRV's paragraph folds,
 cache), and 14.60's register (the DMA rings and its 16MB lead, BIGSP read in
 place, the claims over 64KB, `mx_tab`).
 
+**Where things are today, which is not where the owner expected them**
+(14.72.4 is the owner's reply). The fixed area is at the BOTTOM of extended
+memory: the HMA at 1MB, the GDT at 110000h, the LDT at 120000h, the IDT at
+124000h, `.cold` from 125000h, then `.mega` and the park's scratch, then the
+padding up to `MEGA_XPOOL`. Inside the pool, placement goes BOTH ways
+(13.4.1): the kernel's blocks (`MX_KOWN`) and driver images (`MX_KDRV`) are
+taken from the top, and packages' regions and claims from the pool's base
+upward. So the free memory is a run in the MIDDLE, the HMA and the padding are
+never next to it, and a package's pinned `OSAPI_XMEM_ALLOC` block (named by
+its linear base, so it never moves) sits low among the package claims, where
+it walls the free run in. Bochs at 16MB read AVAIL 15.26M against MAX RUN
+14.70M (14.70.3): about 570K of free memory that no one claim could have.
+
 #### 14.72.2 The order, and why
 
-Four facts decide it.
+Five facts decide it.
 
 1. **Purgeable stands alone.** It touches the pool's table and the shed and
-   nothing in the fixed area, and it is the only item that gives a refused
-   program its memory back TODAY, on every machine.
-2. **The pool's base is the foundation of everything in the fixed area.**
-   While the pool starts at `MEGA_XPOOL` (0x140000), a smaller GDT or LDT or a
-   free HMA leaves a hole BELOW the pool that nothing can claim, so each of
-   those items would buy nothing until the pool reaches down to it. And the
-   cheapest way to end the padding is the same change: start the pool AT 1MB,
-   which is 64KB-aligned and so keeps every `add dx, MEGA_XPOOL >> 16` exactly
-   as it is, and put the fixed areas in `mx_tab` as pinned records. `mega_xmfix`
-   already describes them as records for the Task Manager; they become real
-   ones. The padding then is pool the day this lands, and every later wave
-   just shrinks or frees a record.
-3. **The HMA is the biggest single item and its mechanism already exists.**
-   The park already saves conventional memory to extended memory and puts it
-   back at the same addresses (KERN-MEGA-DOS-PLAN 10.6); the HMA is 64K more
-   of the same.
-4. **The GDT is last because it carries a question.** The cheap half, a GDT
-   capped at the top of conventional memory, needs a census of every load of a
-   segment from A000h up before it can even be estimated properly. The half
-   that reaches the owner's 4-8K means a conventional segment value stops
-   being its own selector, which every package that does paragraph arithmetic
-   relies on. That is the owner's decision, and it should be put to them with
-   the census in hand rather than guessed at.
+   nothing in the layout. It is also a precondition of the owner's goal
+   (14.72.4): memory "the system isn't using" includes every cache.
+2. **The layout comes before any table shrinks.** While the fixed area sits
+   below the pool, a smaller GDT or LDT or a free HMA leaves a hole nothing can
+   claim. With the fixed area at the TOP and every claim taken top-down, the
+   free memory is one run from 1MB up, and anything the fixed area gives back
+   joins it.
+3. **The HMA then needs almost nothing.** It is the bottom 64K of that run,
+   reached only once everything above it is in use, which is the "nearly
+   last, just before conventional" order the owner asked for. The park
+   (KERN-MEGA-DOS-PLAN 10.6) saves whatever stands there for a DOS trip, and
+   usually nothing will.
+4. **The whole-memory claim is the goal, so it comes as soon as the layout
+   allows it**, ahead of the LDT and GDT, which between them return ~38K
+   (estimate) of a 4MB machine.
+5. **The GDT is last because it carries a question.** Its cheap half, a GDT
+   capped at the top of conventional memory, needs a census of every load of
+   a segment from A000h up. The half that reaches the owner's 4-8K means a
+   conventional segment stops being its own selector, and packages do
+   arithmetic on those values. That is the owner's decision, put to them with
+   the census in hand.
 
-So: **MC1 purgeable, MC2 the pool from 1MB, MC3 the HMA, MC4 the LDT, MC5 the
-GDT**, then **MC6**, the three small items of 14.69, which are cheap and
-independent and can go in at any point the owner prefers, and **MC7**, the
-larger "still low" register, which is a round of its own.
+So: **MC1 purgeable, MC2 the fixed area to the top, MC3 every claim
+top-down, MC4 the HMA, MC5 one claim for all of it, MC6 the LDT, MC7 the
+GDT**, then **MC8**, the three small items of 14.69 (independent, any time
+the owner prefers), and **MC9**, the "still low" register, a round of its own.
 
 #### 14.72.3 The waves
 
@@ -10653,45 +10664,136 @@ larger "still low" register, which is a round of its own.
     raise caches, ask for a claim that only fits with them gone, and assert
     that it succeeds and that the caches were shed. Break it by leaving out
     the shed and watch the row go red.
-- [ ] **MC2 - the pool from 1MB; the padding is RAM** (14.70.1 *The
-  padding*).
-  - `MEGA_XPOOL` becomes 0x100000. `mega_xminit` writes the HMA, the GDT, the
-    LDT and IDT, and `.cold`/`.mega`/the park's scratch (up to `MEGA_KEND_KB`)
-    as pinned records under the F0h-F4h marker owners `mx_canmove` already
-    skips. The HMA's record stays pinned until MC3.
-  - `mega_xmwalk`'s `XMW_FIXED` arm reads those records instead of
-    `mega_xmfix`'s constants, so the Task Manager's `Padding` row goes away by
-    itself.
-  - To check: every `MEGA_XPOOL` site in `mega.inc` and `hiber.inc` (the
-    hibernate's section format names the pool base, so an image written by the
-    old kernel must be REFUSED, not misread); `mega_coldup`'s and
-    `mega_enter`'s minimum-memory compares (192K); the 15,360K cap; the XMS
-    door's view of the pool during a DOS trip (KERN-MEGA-DOS-PLAN 6); and the
-    five records taking five of `MX_NBLK`'s 96 entries (14.49 sized the table
-    with no margin for them, so 96 may want to be 101).
-  - Buys ~50K.
-  - Rows: `megahigh`, `megahiber`, `megap2hiber`, `megadosp`, `megarehome`,
-    `tmowner`.
-- [ ] **MC3 - the HMA is RAM** (14.70.1 *The HMA is RAM*).
-  - The HMA's record is unpinned, so it is pool. A DOS trip that needs the
-    HMA (always, since `kern_dos` or DOS's own HMA use expects it free)
-    saves the blocks standing in [1MB, 1MB+64K) into extended memory with the
-    rest of the park, and the return puts them back at the same linear
-    addresses. A pool block is named by its linear base (13.4), so nothing
-    that holds a selector notices.
-  - Questions for the build: whether `mx_alloc` should place packages there
-    LAST (the top-down kernel blocks never reach it on a machine with any
-    room, and a package block there is the one the park must copy); what the
-    trip does when the park has no room for 64K more (refuse, as it refuses
-    today when conventional memory will not fit); the hibernate and the
-    Ctrl-Alt-Del park survival (W7) with blocks in the HMA; and "Load DOS in
-    the HMA" (14.25).
+- [ ] **MC2 - the fixed area at the top of RAM; the pool from 1MB**
+  (14.70.1 *The padding*, and 14.72.4).
+  - The top is 1MB plus `[mega_extkb]`, capped at 16MB. `mega_enter` lays
+    the fixed area out downward from it, KB-granular: the IDT, the GDT, the
+    LDT, `.cold`, `.mega` and the park's scratch. The order within the zone
+    puts what later waves shrink (the LDT, then the GDT) at its BOTTOM edge,
+    next to the pool, so what they give back joins the free run.
+  - `MEGA_GDT_LIN`, `MEGA_LDT_LIN`, `MEGA_IDT_LIN`, `MEGA_COLD_LIN` and
+    `MEGA_HI_LIN` stop being constants. Most of what reads them already reads
+    a variable: `mega_gdtr`, `mega_idtr` and `mega_ldtlin` are words in
+    `.text` (the 286 reset path reloads from them), the tables are written
+    through `MEGA_SEL_WIN` with its base re-aimed, and `.cold`'s and `.mega`'s
+    descriptors are written at run time (`mega_coldup`, `mega_mdesc`). The
+    rest is the census: `kernel.asm`'s fit checks, `mega_xmfix`, the park's
+    linear addresses (`megados.inc`, `MEGA_SEL_PSCR`) and the hibernate.
+  - `MEGA_XPOOL` becomes 0x100000. That is 64KB-aligned, so every
+    `add dx, MEGA_XPOOL >> 16` stays as it is. `mega_xminit` writes the fixed
+    zone, and the HMA until MC4, as pinned records under the F0h-F4h marker
+    owners `mx_canmove` already skips. `mega_xmwalk`'s `XMW_FIXED` arm reads
+    those records instead of the constants, so the Task Manager's `Padding`
+    row goes away by itself.
+  - The hibernate's section names the pool base and the tables' places, so an
+    image written by the old kernel must be REFUSED, not misread. The six
+    records take six of `MX_NBLK`'s 96 entries, which 14.49 sized with no
+    margin for them.
+  - KERN-MEGA-DOS-PLAN 5.2's placement paragraph turns over. A raw DOS
+    allocator that goes top-down from the CMOS size now reaches the kernel's
+    state, and one that goes bottom-up from 1MB reaches free pool and the
+    HMA (which is `kern_dos`'s during a trip). The sum catches either, as it
+    does today. Update that section when MC2 lands.
+  - Buys ~50K: the padding. The ~140K the fixed zone still holds stays put
+    until MC6 and MC7.
+  - Rows: `megahigh`, `megahiber`, `megap2hiber`, `megadosp`, `megakbtrip`,
+    `megarehome`, `megapiclose` (the 286 reset path), `tmowner`.
+- [ ] **MC3 - every claim top-down, pinned blocks against the top**
+  (14.72.4).
+  - `mx_alloc` places every owner from the top. Below the fixed zone the
+    pool holds, in order: PINNED blocks (`MX_KOWN`, and the packages'
+    `OSAPI_XMEM_ALLOC` slots, which are named by linear base), then MOVABLE
+    blocks (package regions and claims, huge claims, driver images), then
+    the free run down to 1MB.
+  - Two rules keep it that way:
+    - **Compaction packs UP.** Movable blocks slide toward the pinned zone,
+      leaving the free run at the bottom. `mx_packupf` (14.49) is already
+      that pass. `mx_compactf`, which packs DOWN, is what `.norun` calls
+      today and is the one that goes.
+    - **A pinned block is placed at the boundary, never below a movable
+      one.** It takes a hole inside the pinned zone first, which is where a
+      dropped module left one. Failing that, the movable blocks slide down
+      by its size (the same copy loop, run the other way) and it takes the
+      room that opens. A pinned block placed in the free run's lowest hole
+      would wall that run for its whole life, which is today's slot problem
+      moved, not removed.
+  - The direction split of 13.4.1 is retired. Its reason was that the
+    kernel's long-lived blocks and the packages' short-lived ones should not
+    wall each other in; the pinned/movable split does the same job by what
+    a block CAN do, not by who owns it.
+  - Build questions:
+    - Does a purgeable cache (MC1) count as movable? Its holder names it by
+      selector alone, so a descriptor rebase moves it. Otherwise it stays
+      pinned and is shed when it is in the way.
+    - What does packing cost on the 286 measured in 14.38.5 / 14.48.3? A
+      claim that forces a pack copies every movable block below the pinned
+      zone once.
+  - Rows: `megaown`, `megavidbig` (huge claims), `megaovl`, `megarehome`,
+    `megahigh`, `tmowner` (MAX RUN must equal AVAIL after a pack), and a new
+    row. Open and close programs in an order that leaves a pinned slot
+    behind, then assert the free memory is one run.
+- [ ] **MC4 - the HMA is RAM** (14.70.1 *The HMA is RAM*).
+  - The HMA's record is unpinned. After MC3 it is the bottom 64K of the free
+    run, so it fills only when everything above it is in use: nearly last,
+    just before conventional memory.
+  - A DOS trip saves whatever blocks stand in [1MB, 1MB+64K) with the rest of
+    the park, and the return puts them back at the same linear addresses. A
+    pool block is named by its linear base (13.4), so no selector holder
+    notices.
+  - If the park has no room for them, the trip refuses, as it refuses today
+    when conventional memory will not fit. MC5 makes that reachable: one
+    program holding all of memory blocks DOS trips while it runs (14.72.4's
+    question 3).
+  - To check: the hibernate and the Ctrl-Alt-Del park survival (W7) with
+    blocks in the HMA, and "Load DOS in the HMA" (14.25).
   - Buys 64K, and on a 1MB machine (384K extended) that is a sixth of the
     pool.
   - Rows: `megadosp`, `megakbtrip`, `megahiber`, `megap2hiber`, `megatrap0`,
-    and a new row with a block placed in the HMA before a DOS trip, its bytes
-    compared after the return.
-- [ ] **MC4 - an LDT that starts small and grows** (14.70.1 *The LDT can
+    and a new row. Place a block in the HMA before a DOS trip and compare its
+    bytes after the return.
+- [ ] **MC5 - one claim for all of it** (14.72.4).
+  - **An exact answer to "how much".** A refused claim is destructive: it
+    sheds caches and then may still refuse (REGION-SELF-COMPACT-PLAN 5.1.1).
+    So a program that wants everything must ask first and be told the truth:
+    pool free + purgeable below its rank, which after MC3's pack is one run;
+    with the bridge below, plus conventional free less the reserve. This is
+    a new answer of `OSAPI_MEM_HUGE` (AX = 0 asks, AX comes back the KB it
+    would grant) or a cell of its own; the ABI decides which, under 20.2.0.1.
+  - **The bridge: one claim across conventional and extended memory.**
+    640K-1MB is the adapter hole, so no contiguous claim spans it. A huge
+    claim does not need to be contiguous, though: it is a RUN OF SELECTORS,
+    each a 64KB window, and each window's base is the kernel's choice. So the
+    run's selectors can cover a pool piece and then a conventional piece,
+    and the package walks it by CX exactly as it walks any huge claim. Only
+    each 64KB window has to be physically contiguous.
+    - The FIRST piece must be cut to a whole number of 64KB windows, so the
+      kernel puts first the piece whose remainder is smaller. The waste is
+      under 64K in either order.
+    - Each piece is ONE record: a pool block and a conventional record. The
+      conventional one is movable under the conventional compactor, through
+      a kernel relocation proc that re-bases its share of the run's
+      descriptors.
+    - The 32KB-step form (`MX_FH32`, the Video Player's ring) overlaps its
+      windows, so a window would straddle the hole. It is never bridged.
+    - The callers today are `apps/video/video.asm` (32KB-step, so unchanged)
+      and the C SDK's `os88_mem_huge`, so the census is small. Whether a
+      plain huge claim may come back bridged by default is 14.72.4's
+      question 2.
+  - **A conventional reserve.** Some memory must stay conventional however
+    much a program wants: the read-ahead landing, the reflection's bounce,
+    the DMA doors, a re-homed program's carve, and a DOS trip's arena. The
+    whole-memory answer stops short of a reserve the kernel keeps for them.
+    Its size is measured in the wave and set by the owner (14.72.4's
+    question 1).
+  - Without the bridge the goal is already met as two claims: an
+    `OS88_HIGHMEM` huge claim for the pool, then a huge claim with CX = 1000h
+    for conventional memory, which every kernel has.
+  - Rows: a new one on a 4MB machine (Bochs, and `vm/286-mega` for the 286).
+    Ask, claim exactly the answer, write and read a pattern through every
+    window including the seam, free it, and ask again; the answer must
+    equal the free figure the Task Manager shows. Plus `megavidbig` and
+    `megavidv2`, which must see no change.
+- [ ] **MC6 - an LDT that starts small and grows** (14.70.1 *The LDT can
   start small*).
   - Census first: every site that builds a code alias by identity
     (`(S >> 2) | 4`) and every site that converts one back
@@ -10701,16 +10803,19 @@ larger "still low" register, which is a round of its own.
     the image is (a package region, a part's carve, a driver, a module, an
     overlay) and freed with it, and the reverse reads the descriptor's base,
     since for conventional memory the data segment IS base / 16. The LDT is
-    then all allocator, starts at 2K, and regrows by claiming a block twice
-    the size, copying, rewriting GDT entry 18h and reloading LDTR. The
-    alias-narrowing walk in `mega_cs2dsw` gets simpler, because an alias
-    nothing allocated simply is not present.
+    then all allocator, starts at 2K, and regrows by claiming a bigger pinned
+    block (MC3 places it at the boundary), copying, rewriting GDT entry 18h
+    and reloading LDTR. The alias-narrowing walk in `mega_cs2dsw` gets
+    simpler, because an alias nothing allocated is simply not present.
   - `mega_ldtlin` is already a variable (`mega_tlowf` moves it), so the
     hibernate and the park already ask where the LDT is.
+  - A whole-memory claim (MC5) on a 16MB machine takes ~240 selectors, or
+    ~480 in the 32KB-step form, so the LDT must be able to grow that far on
+    demand.
   - Buys ~14K, ESTIMATED.
   - Rows: `megaflt`, `megaovl`, `megarehome`, `megahiber`, `megap2hiber`,
     `megatrap0`, and a new row that opens programs until the LDT must grow.
-- [ ] **MC5 - the GDT** (14.70.1 *The GDT is a 1:1 table*).
+- [ ] **MC7 - the GDT** (14.70.1 *The GDT is a 1:1 table*).
   - **Phase A, after a census:**
     - Every load of an identity selector from A000h up. That covers the
       video segments behind `[vid_*]`, the ROM font at F000, the Task
@@ -10731,7 +10836,7 @@ larger "still low" register, which is a round of its own.
   - Rows: `megagrid`, `megapkg`, `megaflt`, `megavidbig`, `megavidv2`,
     `tmowner`, and the adapters' boots under `make mega` (VGA, and Hercules
     and CGA through `vm/286-mega`).
-- [ ] **MC6 - 14.69's three, small and independent.**
+- [ ] **MC8 - 14.69's three, small and independent.**
   - RAMDISK.DRV's `rd_fold` and NET.DRV's `net_norm` stop folding
     paragraphs into a kern_mega selector. That is a correctness fix, but it
     is what lets those drivers run high at all. `t_megagrid` is taken over
@@ -10741,7 +10846,7 @@ larger "still low" register, which is a round of its own.
   - `\AUTOSTRT` is walked after `mega_enter` on kern_mega, so an
     `OS88_HIGH` package it opens is placed high like one opened by hand.
   - Rows: `megagrid`, `megacdrom`, and `autostart` under `make mega`.
-- [ ] **MC7 - what still goes low** (14.53, 14.60). A round of its own and
+- [ ] **MC9 - what still goes low** (14.53, 14.60). A round of its own and
   not ordered here beyond its first step:
   - Check 14.60's lead first, that an AT's 8237 page register makes an 8-bit
     DMA ring above 1MB legal on every kern_mega machine. If it holds, the
@@ -10750,10 +10855,51 @@ larger "still low" register, which is a round of its own.
   - BIGSP in place stays with the Video Player round (14.60).
   - `mx_tab` stays low by the owner's deferral (14.51).
 
-**The whole round, if MC1-MC5 phase A land as estimated:** about 150K of the
+**The whole round, if MC1-MC7 phase A land as estimated:** about 150K of the
 fixed area's 256K comes back to programs (50 + 64 + 14 + 24), plus whatever
-caches are standing when a claim needs them. `.mega` grows by the waves'
-code, against `tests/megaseg.txt`'s allowance (3,456 of 4,029 used at
-14.71). Per the Testing section of CLAUDE.md, each wave verifies on the host
-and NAMES its rows; the deduplicated union of the rows above runs once, after
-the last wave, with `test-full`.
+caches are standing when a claim needs them, and every free byte can be had
+by one claim. `.mega` grows by the waves' code, against
+`tests/megaseg.txt`'s allowance (3,456 of 4,029 used at 14.71), which MC2,
+MC3 and MC5 may well exhaust; raising it is the owner's call and not a
+build fix. Per the Testing section of CLAUDE.md, each wave verifies on the
+host and NAMES its rows; the deduplicated union of the rows above runs once,
+after the last wave, with `test-full`.
+
+#### 14.72.4 The owner's two additions (2026-10-25)
+
+1. *"I thought all of our static work (GDT, etc.) was at the top of RAM, and
+   all claims allocated from the top of RAM. If not then give me your
+   thoughts on actually doing that. It means HMA would fill only before conv
+   for claims (thus nearly last)."* It is not: the fixed area is at the
+   bottom and the pool splits directions (14.72.1). Doing it is MC2 and
+   MC3, and it is the right shape. One free run that ends at 1MB is the
+   only layout in which the HMA is reached last, a hole the tables give back
+   joins the free memory, and a pinned block stops walling it. The one
+   thing it needs that the owner's sentence does not say is the
+   pinned/movable rule in MC3. With "everything top-down" alone, a pinned
+   block placed late lands below the movable ones and walls the run as
+   badly as today's slots do.
+2. *"On a 4MB system that gives 3.3MB above 1MB, a single claim could take
+   all of the 3.3MB the system isn't using, and then all of the 640K the
+   system isn't using in a second claim (or if we can bridge the two into
+   one claim, all the better)."* MC5. The two-claim form needs MC1 and MC3
+   and nothing new in the ABI but the exact query. The bridge is possible
+   because a huge claim is a run of selectors and not a span of memory; it
+   costs under 64K at the seam and does not apply to the 32KB-step form.
+   On the Victory's 3,456K, the fixed zone (~140K until MC6 and MC7, ~100K
+   after), SOUND.DRV and HDD.DRV (~16K) and an open Task Manager leave about
+   3.28MB for one claim.
+
+**Questions for the owner:**
+
+1. **The conventional reserve.** How much conventional memory may a
+   whole-memory claim NOT take? The wave measures what the kernel's
+   low-only transients actually use; the owner sets the figure.
+2. **Bridging by default?** A plain huge claim would come back bridged
+   whenever the pool alone is short, invisibly to a package that walks by
+   CX as the ABI says. The alternative is an opt-in bit. Default-on is
+   recommended after the census of `os88_mem_huge`'s callers.
+3. **A DOS trip while one program holds everything.** The park has nowhere
+   to save the HMA, so the trip refuses. Is that acceptable, or should the
+   park fall back to 14.43's save-to-disk?
+4. Still open from the first pass: GDT phase B (MC7), and when MC8 goes in.
