@@ -27,10 +27,17 @@ link port out of the package's view (RDG_SERBUF, through rdg_viewseg off
 the package's listing) until it says "Passed all tests" or LIMIT runs out:
 
   * cpu_instrs must PASS - all eleven, under the recompiler;
-  * no trap may be charged to an image other than REALDMG's region: the core
-    and the cache segments take none (the region's own, at init and a lossy
-    toggle, are allowed up to REGION_ALLOW);
+  * no trap may come from the core or a cache segment - a trap whose CS is
+    one of the code selectors the view names for them (S_DISP+2, S_JITCSA,
+    S_JITCSB); the package's own, at init and a lossy toggle, and the
+    kernel's are allowed up to REGION_ALLOW;
   * and no kern_mega FAULT.
+
+It runs twice: the SHIPPED build, whose cartridge is in one claim, and
+kern_mega's ARM (`make mega`'s build/megak/apps/realdmg.o88, PKG_MEGA), whose
+banks are above 1MB in place (REALDMG-SPEC section 10.3.1) - and which must
+say so: its bank 1 in the bank table is a selector, the shipped build's a
+segment.
 
 THE FAILING CASE (docs/WRITING-TESTS.md 1): `--pkg` with the REALDMG.O88
 from before 16.2.4 (the base of this change) - measured red when this was
@@ -58,6 +65,12 @@ REGION_ALLOW = 200              # the region's own: rdg_init's two words, the
 RDG_STATE = 0x4000
 S_SERN = RDG_STATE + 0x64
 RDG_SERBUF = 0x4700
+S_DISP = RDG_STATE + 0x2C
+S_JITCSA = 0x48E2
+S_JITSEGA = 0x4810
+S_JITSEGB = 0x4812
+S_JITCSB = 0x48E4
+TRAP = re.compile(r"^T [0-9A-F]{4} ([0-9A-F]{4}):[0-9A-F]{4} ")
 
 
 def label_off(lst, name):
@@ -69,39 +82,27 @@ def label_off(lst, name):
     sys.exit("rdgmega: %s not in %s" % (name, lst))
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--keep", action="store_true")
-    ap.add_argument("--pkg", help="the REALDMG.O88 to run (default: the "
-                    "tree's)")
-    a = ap.parse_args()
-    subprocess.check_call([sys.executable,
-                           os.path.join(ROOT, "tools", "getgbtest.py")],
-                          stdout=subprocess.DEVNULL)
-    import getgbtest
-    rom = os.path.join(getgbtest.DEST, "cpu_instrs", "cpu_instrs.gb")
-    t = os88build.tree("MEGATRAP=1", targets=(
-        "mega.img", "megarun.o88", "mbr.bin", "realdmg.o88"))
-    out = os.path.join(t.dir, "rdgmega")
-    shutil.rmtree(out, ignore_errors=True)
+S_BTAB1 = 0x6800 + 2             # RDG_BTAB's bank 1
+
+
+def leg(t, out, name, pkg, lst, rom, inplace):
+    """One boot: PKG with cpu_instrs on B:, under the recompiler. -> fails"""
     os.makedirs(out)
-    pkg = os.path.join(out, "REALDMG.O88")
-    shutil.copy(a.pkg or t.img("realdmg.o88"), pkg)
+    shutil.copy(pkg, os.path.join(out, "REALDMG.O88"))
     gb = os.path.join(out, "CPUINSTR.GB")
     shutil.copy(rom, gb)
-    viewoff = label_off(os.path.join(t.dir, "realdmg.lst"), "rdg_viewseg")
+    viewoff = label_off(lst, "rdg_viewseg")
     disk = os.path.join(out, "rdgmega.img")
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"),
                     "-o", disk, "--size", "1440", "--folder", "SYSTEM/APPDATA",
-                    "REALDMG:" + pkg, "REALDMG:" + gb],
-                   check=True, stdout=subprocess.DEVNULL)
+                    "REALDMG:" + os.path.join(out, "REALDMG.O88"),
+                    "REALDMG:" + gb], check=True, stdout=subprocess.DEVNULL)
     t0 = time.time()
     box = os88bochs.Box(out, [], bimg=disk, btype="1_44", build=t.dir)
-    fails, text = [], ""
+    fails, text, bank1 = [], "", 0
     try:
         if not box.wait_for("kern_mega: protected mode", 300):
-            print("FAIL: kern_mega never reached protected mode")
-            return 1
+            return ["%s: kern_mega never reached protected mode" % name]
         box.up()
         box.capture()
         box.dbl(591, 105, "B:'s Disk window")
@@ -110,6 +111,7 @@ def main():
         box.dbl(160, 139, "the game to start", lock=False)   # CPUINSTR.GB
         end = time.time() + LIMIT
         view = None
+        coded = set()
         while time.time() < end:
             time.sleep(3)
             if any(l.startswith("kern_mega FAULT") for l in box.lines()):
@@ -122,12 +124,30 @@ def main():
                 if not view:
                     view = None
                     continue
-            n = box.read(view * 16 + S_SERN, 1)[0]
-            text = box.read(view * 16 + RDG_SERBUF, max(n, 1))[:n] \
-                .decode("latin-1")
+            try:
+                n = box.read(view * 16 + S_SERN, 1)[0]
+                text = box.read(view * 16 + RDG_SERBUF, max(n, 1))[:n] \
+                    .decode("latin-1")
+            except RuntimeError as e:   # a machine buried in fixups (the
+                fails.append("the debugger could not stop the machine: "
+                             "%s" % e)  #   failing case) answers late
+                break
             if "Passed" in text or "Failed" in text:
                 break
         box.shot(os.path.join(out, "end.png"))
+        # the core's and the cache segments' CODE selectors, as the view
+        # names them (REALDMG-SPEC section 16.2.4): what a trap in the core
+        # or in translated code would carry as its CS - and each segment's
+        # identity alias, (S >> 2) | 4, which is what a package from before
+        # 16.2.4 (--pkg) ran its core at, its view naming only data segments
+        if view is not None and not fails:
+            for off in (S_DISP + 2, S_JITCSA, S_JITCSB, S_JITSEGA, S_JITSEGB):
+                w = int.from_bytes(box.read(view * 16 + off, 2), "little")
+                if w:
+                    coded.add(w)
+                    if not w & 4:
+                        coded.add((w >> 2) | 4)
+            bank1 = int.from_bytes(box.read(view * 16 + S_BTAB1, 2), "little")
     finally:
         box.stop()
     with open(box.e9, "rb") as f:
@@ -136,24 +156,68 @@ def main():
     for l in tail:
         if l.startswith("kern_mega FAULT"):
             fails.append("a kern_mega FAULT: %s" % l)
-    traps = [l.split() for l in tail if l.startswith("T ")]
-    # T <err> <CS:IP> <image> <DS/ES...> <name>: the image is the 4th field
-    region = [x for x in traps if x[-1] == "REALDMG"]
-    other = [x for x in traps if x[-1] != "REALDMG"]
-    print("rdgmega: serial %r" % " ".join(text.split()))
-    print("rdgmega: %d traps after the launch - %d the region's, %d the "
-          "core's or a cache's; %.0fs under Bochs"
-          % (len(traps), len(region), len(other), time.time() - t0))
+    # T <err> <CS:IP> <image> ... - by the CS alone: the debugger's own
+    # lines can land in the middle of one (Bochs and E9 share the file)
+    traps = [(int(m.group(1), 16), l) for l in tail
+             for m in [TRAP.match(l)] if m]
+    other = [l for cs, l in traps if cs in coded]
+    region = [l for cs, l in traps if cs not in coded]
+    print("rdgmega: %s: the core and the caches run at %s; bank 1 at %04X"
+          % (name, " ".join("%04X" % c for c in sorted(coded)), bank1))
+    print("rdgmega: %s: serial %r" % (name, " ".join(text.split())))
+    print("rdgmega: %s: %d traps after the launch - %d the region's and the "
+          "kernel's, %d the core's or a cache's; %.0fs under Bochs"
+          % (name, len(traps), len(region), len(other), time.time() - t0))
+    if not coded:
+        fails.append("the view was never found: no code selector to charge")
     if "Passed all tests" not in text:
         fails.append("cpu_instrs did not pass under the recompiler in %ds "
                      "(its link port said %r)" % (LIMIT, text[-60:]))
     if other:
         fails.append("%d traps charged to the core or a cache segment, the "
                      "first `%s` (tools/megatraps.py %s)"
-                     % (len(other), " ".join(other[0]), box.e9))
+                     % (len(other), other[0], box.e9))
     if len(region) > REGION_ALLOW:
-        fails.append("%d traps charged to REALDMG's region (%d allowed)"
+        fails.append("%d traps outside the core and the caches (%d allowed)"
                      % (len(region), REGION_ALLOW))
+    # kern_mega's arm (REALDMG-SPEC section 10.3.1): the banks IN PLACE, so
+    # bank 1's table entry is a selector of OSAPI_XMEM_RUN's (bit 2, the
+    # LDT's) and never a heap segment; the shipped build's is a segment
+    if inplace and not bank1 & 4:
+        fails.append("the arm's bank 1 is at %04X, a heap segment: the "
+                     "banks were not put in place" % bank1)
+    if not inplace and bank1 & 4:
+        fails.append("the shipped build's bank 1 is at %04X, a selector"
+                     % bank1)
+    return ["%s: %s" % (name, f) for f in fails]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--pkg", help="run this REALDMG.O88 alone (the one "
+                    "before a change) - reports, does not gate")
+    a = ap.parse_args()
+    subprocess.check_call([sys.executable,
+                           os.path.join(ROOT, "tools", "getgbtest.py")],
+                          stdout=subprocess.DEVNULL)
+    import getgbtest
+    rom = os.path.join(getgbtest.DEST, "cpu_instrs", "cpu_instrs.gb")
+    t = os88build.tree("MEGATRAP=1", targets=(
+        "mega.img", "megarun.o88", "mbr.bin", "realdmg.o88",
+        "megak/apps/realdmg.o88"))
+    out = os.path.join(t.dir, "rdgmega")
+    shutil.rmtree(out, ignore_errors=True)
+    shipped = (t.img("realdmg.o88"), t.img("realdmg.lst"))
+    if a.pkg:
+        legs = [("given", a.pkg, shipped[1], False)]
+    else:
+        legs = [("shipped", shipped[0], shipped[1], False),
+                ("arm", t.img("megak/apps/realdmg.o88"),
+                 t.img("megak/apps/realdmg.lst"), True)]
+    fails = []
+    for name, pkg, lst, inplace in legs:
+        fails += leg(t, os.path.join(out, name), name, pkg, lst, rom, inplace)
     if a.pkg:
         for f in fails:
             print("would FAIL: " + f)

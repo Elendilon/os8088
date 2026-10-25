@@ -15951,7 +15951,7 @@ SOAK = [
         "kern_mega FAULT. Red with the `push cs / pop ds` put back "
         "(ECHO 62, DIR 87, TYPE 802). 80s is 56 measured alone, 73 in three lanes",
         needs=("bochs", "nasm")),
-    Row("rdgmega", "soak", py("tests/rdgmega.py"), 150.0,
+    Row("rdgmega", "soak", py("tests/rdgmega.py"), 240.0,
         "docs/REALDMG-SPEC.md section 16.2.4: RealDMG's RECOMPILER on kern_mega, "
         "right and with no #GP in the core. The core and the cache entered "
         "and chained through their DATA segments and the links were patched "

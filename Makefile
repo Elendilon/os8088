@@ -6301,13 +6301,14 @@ $(BUILD)/rdgtmpl.bin: $(BUILD)/rdgcore.bin apps/realdmg/rdgtmpl.py apps/realdmg/
 	python3 apps/realdmg/rdgtmpl.py $(BUILD)/rdgcore.bin $(BUILD)/rdgtmpl.bin $(BUILD)/rdgcore.inc
 $(BUILD)/rdgcore.inc: $(BUILD)/rdgtmpl.bin ;
 
-$(BUILD)/realdmg.bin: apps/realdmg/realdmg.asm apps/realdmg/rdgdefs.inc \
-                      apps/realdmg/rdgsys.inc apps/realdmg/rdgppu.inc apps/realdmg/rwfsx.inc apps/realdmg/rwkeys.inc \
-                      $(BUILD)/rdgcore.inc \
-                      apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
-                      apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
-                      apps/realdmg/rwfm.inc apps/realdmg/rwmove.inc drivers/sound/sndpkg.inc \
-                      apps/os88data.inc | $(BUILD)
+REALDMG_SRC := apps/realdmg/realdmg.asm apps/realdmg/rdgdefs.inc \
+               apps/realdmg/rdgsys.inc apps/realdmg/rdgppu.inc apps/realdmg/rwfsx.inc apps/realdmg/rwkeys.inc \
+               $(BUILD)/rdgcore.inc \
+               apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
+               apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
+               apps/realdmg/rwfm.inc apps/realdmg/rwmove.inc drivers/sound/sndpkg.inc \
+               apps/os88data.inc
+$(BUILD)/realdmg.bin: $(REALDMG_SRC) | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -I apps/realdmg/ -I drivers/sound/ -I $(BUILD)/ -l $(BUILD)/realdmg.lst \
 		-o $@ apps/realdmg/realdmg.asm
 	@echo "realdmg: $(call FILESIZE,$@) bytes"
@@ -14452,7 +14453,8 @@ MEGADIR := $(BUILD)/megak
 MEGAAPPDIR := $(MEGADIR)/apps
 MEGAPKGS := $(MEGAAPPDIR)/video.o88 $(MEGAAPPDIR)/audio.o88 \
             $(MEGAAPPDIR)/tracker.o88 $(MEGAAPPDIR)/midirack.o88 \
-            $(MEGAAPPDIR)/pixel.o88 $(MEGAAPPDIR)/xtmp3.o88
+            $(MEGAAPPDIR)/pixel.o88 $(MEGAAPPDIR)/xtmp3.o88 \
+            $(MEGAAPPDIR)/realdmg.o88
 MEGABASE = $(patsubst $(MEGAAPPDIR)/%,$(BUILD)/%,$(MEGAPKGS))
 # ...and the substitution, ONE IDIOM for every list a kern_mega disk names
 # (SMALLSUB's): the mega arm of any package that has one, everything else as
@@ -14536,6 +14538,20 @@ $(MEGAAPPDIR)/xtmp3.bin: $(XTMP3_SRC) apps/os88mega.inc | $(BUILD)
 	@echo "xtmp3 (PKG_MEGA): $(call FILESIZE,$@) bytes"
 $(MEGAAPPDIR)/xtmp3.o88: $(MEGAAPPDIR)/xtmp3.bin $(X3PARTS) tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(MEGAAPPDIR)/xtmp3.bin -o $@ $(X3PARTARGS) --part-compress lz4
+
+# RealDMG's arm (docs/REALDMG-SPEC.md section 10.3.1): under CPU_F_PM a
+# cartridge's banks live above 1MB and are addressed IN PLACE through
+# OSAPI_XMEM_RUN's selectors, so none is copied down and the heap goes to the
+# recompiler's two cache segments. Its parts are the shipped build's
+$(MEGAAPPDIR)/realdmg.bin: $(REALDMG_SRC) | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -I apps/realdmg/ -I drivers/sound/ -I $(BUILD)/ \
+	    -DPKG_MEGA -l $(MEGAAPPDIR)/realdmg.lst -o $@ apps/realdmg/realdmg.asm
+	@echo "realdmg (PKG_MEGA): $(call FILESIZE,$@) bytes"
+$(MEGAAPPDIR)/realdmg.o88: $(MEGAAPPDIR)/realdmg.bin $(BUILD)/rdgcore0.bin $(BUILD)/rdgcore1.bin \
+                           $(BUILD)/rdgjitp.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(MEGAAPPDIR)/realdmg.bin -o $@ --part $(BUILD)/rdgcore0.bin \
+		--part $(BUILD)/rdgcore1.bin --part $(BUILD)/rdgjitp.bin --part-compress lz4
 
 megapkgs: $(MEGAPKGS) $(patsubst $(MEGAAPPDIR)/%,$(BUILD)/%,$(MEGAPKGS))
 	@python3 tests/unit/t_megapkg.py --sizes

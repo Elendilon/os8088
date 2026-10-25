@@ -370,7 +370,13 @@ rw_entry:
     call OSAPI_WM_OWNBG             ; we paint every pixel of it
     OS88_REGION_MOVABLE rw_reloc
     mov [rw_dsel], ds               ; (our data, for code entered with DS
-    mov si, rw_menus                ;   not ours: rw_dscanhk)
+                                    ;   not ours: rw_dscanhk)
+%ifdef PKG_MEGA
+    call OSAPI_CPU_INFO             ; kern_mega's arm: under CPU_F_PM the
+    and ah, CPU_F_PM                ;   cartridge's banks are addressed in
+    mov [rw_pm], ah                 ;   place above 1MB (rwbank.inc,
+%endif                              ;   REALDMG-SPEC 10.3.1)
+    mov si, rw_menus
     call OSAPI_MENU_SET
     mov si, rw_about
     call OSAPI_ABOUT_SET
@@ -465,6 +471,11 @@ rw_csel:
 
 rw_dsel         dw 0                ; our DATA segment, for code entered
                                     ;   with DS somebody else's (rw_reloc)
+%ifdef PKG_MEGA
+rw_pm           db 0                ; CPU_F_PM at entry: kern_mega's arm
+rw_xsel         dw 0                ; the bank run's first selector
+                                    ;   (OSAPI_XMEM_RUN, REALDMG-SPEC 10.3.1)
+%endif
 
 ; =============================================================================
 ; Loading a game
@@ -1579,6 +1590,10 @@ rw_jit2claim:
     call OSAPI_MEM_FREE
     cmp byte [rw_big], 0            ; Machine > Cache: 128K asks for it
     jne rw_jit2get                  ;   whatever the profile says
+%ifdef PKG_MEGA
+    cmp byte [rw_pm], 0             ; ...and so does kern_mega's arm
+    jne rw_jit2get                  ;   (rw_jit2more)
+%endif
 .r:
     ret
 .got:
@@ -1597,6 +1612,10 @@ rw_jit2claim:
 rw_jit2more:
     cmp byte [rw_big], 0
     jne rw_jit2get
+%ifdef PKG_MEGA
+    cmp byte [rw_pm], 0             ; kern_mega's arm: the cartridge is out
+    jne rw_jit2get                  ;   of the heap (10.3.1), so the cache
+%endif                              ;   takes both segments, whatever game
     call rw_prfblocks
     cmp ax, RW_JIT2N
     jb rw_jit2get.r
@@ -1971,10 +1990,13 @@ rw_unload:
     je .one                         ;   slots, or its one claim
     mov ax, [rw_xbase]
     mov dx, [rw_xbase + 2]
-    call OSAPI_XMEM_FREE
+    call OSAPI_XMEM_FREE            ; (its run of selectors with it)
     xor dx, dx
     xchg dx, [rw_slotseg]
+    or dx, dx                       ; (none: the banks in place, 10.3.1)
+    jz .nsl
     call OSAPI_MEM_FREE
+.nsl:
     mov byte [rw_bcache], 0
     xor ax, ax
     mov [rdg_nres], ax               ; (rdgsys's: the next is whole unless

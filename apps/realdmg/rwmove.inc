@@ -298,8 +298,10 @@ rw_partsmv:
     inc si
     jmp short .tab
 .fix:                               ; ES:DI moves with the carve if it lay
-    mov dx, [es:di]                 ;   in it
-    sub dx, bx
+    mov dx, [es:di]                 ;   in it - unless it is a SELECTOR
+    test dl, 4                      ;   (bit 2, the LDT's: a heap segment is
+    jnz .r                          ;   a multiple of 32), a code alias or
+    sub dx, bx                      ;   kern_mega's banks in place (10.3.1)
     cmp dx, cx
     jae .r
     add [es:di], ax

@@ -570,6 +570,50 @@ bank is tested first now, so the frame finishes and the worker leaves the
 machine; `tests/rdgclose.py`'s close leg is the gate (red on the package
 before it: STILL OPEN after 20 s; green: closed in 0.2-0.8 emulated s).
 
+### 10.3.1 kern_mega: the banks in place above 1MB
+
+**On kern_mega the cartridge is not copied down at all.** kern_mega's arm of
+the package (`make mega`'s `build/megak/apps/realdmg.o88`, assembled with
+`PKG_MEGA`, SPEC.md 20.18; the shipped build runs the bank cache above as
+before, and is correct there since 16.2.4) plans, under `CPU_F_PM`, before
+anything else: when the pool has room (`OSAPI_XMEM_CAPS`), banks 1 on go into
+one `OSAPI_XMEM_ALLOC` block and **each is addressed in place through a
+selector of its own**, so a switch is a pointer change as it is for a
+cartridge in one claim, and no bank is ever fetched (`rw_xplan`,
+`[rw_bcache]` 2).
+
+- **The selectors are `OSAPI_XMEM_RUN`'s**: a data selector every 32KB of the
+  block, each a 64KB window. The core's ROMX is a segment whose 4000h is the
+  bank's first byte (section 3), so bank n goes at (n - 1) x 32KB + 16KB and
+  window n - 1, at (n - 1) x 32KB, has it at 4000h. The bank table names
+  window n - 1 for bank n (`rw_xfill`, rdgsys's `rdg_bfill`); bank 0 is the
+  view's own, as in the bank cache.
+- **What it costs is pool, not heap**: two KB of extended memory a KB of
+  cartridge, half of each window being the 16KB below its bank, and one LDT
+  entry a bank. The heap holds no bank and no slot - the load reads through
+  ONE 16KB slot (the bank cache's own load, `rw_bload`, at the wider stride)
+  and gives it back - so the recompiler always gets **both 64KB cache
+  segments** (16.2.1) and the 64KB block table (16.3): `rw_jit2more` and
+  `rw_jit2claim` ask for the second segment under `CPU_F_PM` whatever the
+  profile says.
+- **When it does not**: real mode (the arm runs on every kernel and plans as
+  the shipped build does), a pool shorter than twice the cartridge, more
+  than `RW_XROMMAX_KB`, or no run of free LDT entries that long (the load
+  then refuses with the room message rather than fall back). Each of those
+  goes to the bank cache or one claim as before.
+- **A move**: nothing to put right - a pool block never moves its selectors,
+  and the carve's walk (`rw_partsmv`) leaves a word with bit 2 set alone (a
+  heap segment is a multiple of 32; an LDT selector never is).
+- **MEASURED** (Bochs 2.7, 16MB, kern_mega with `MEGATRAP=1`, the attract
+  of each, 40 s): Kirby's Dream Land (256KB, 16 banks) and Looney Tunes
+  (1MB, 64 banks) in place, `[rw_nmiss]` 0, the second cache segment and
+  the 64KB table claimed, and no trap after the launch beyond the package's
+  own once-a-session writes (16.2.4).
+- **A cost the kernel could take away**: the 32KB stride is
+  `OSAPI_XMEM_RUN`'s. A run at 16KB - one more argument to that cell, in
+  `.mega` - would hold the cartridge once instead of twice; not taken, so
+  that this needs no kernel change.
+
 ### 10.4 Save states
 
 **Nine slots a game, `NAME.SS1` to `NAME.SS9` beside it** as its `.SAV` is
