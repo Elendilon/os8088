@@ -1349,6 +1349,9 @@ rw_jfree:
     mov [S_JITSEG], ax              ;   claims and starts again from
     mov [S_JITSEGA], ax             ;   nothing
     mov [S_JITSEGB], ax
+%ifdef PKG_MEGA
+    mov [S_JITXN], al               ; (and the extra tiers, freed below)
+%endif
     pop ds
 %ifdef PKG_MEGA
     call rw_jitxfree
@@ -1774,6 +1777,10 @@ rw_jitxget:
     call OSAPI_MEM_CLAIM            ; DX = its segment (the state block
     jc .x                           ;   names it: rw_mreloc, rwmove.inc)
     mov [si], dx
+    cmp byte [rw_mhold], 0          ; free to move from here (rw_mfree's
+    jne .n                          ;   rule: not while a load holds them;
+    mov ax, rw_mreloc               ;   its rw_mfree declares it then, off
+    call OSAPI_MEM_MOVABLE          ;   rw_mtab)
 .n:
     inc si
     inc si
@@ -2216,6 +2223,9 @@ rw_unload:
     push ds
     mov ds, [cs:rdg_viewseg]
     mov word [S_JITSEGB], 0         ; (rw_start's rt_init takes what there is)
+%ifdef PKG_MEGA
+    mov byte [S_JITXN], 0           ; (the extra tiers went with the game)
+%endif
     mov word [S_PRFSEG], 0
     pop ds
     mov byte [rw_fsq], 0
