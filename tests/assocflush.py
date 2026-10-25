@@ -16,9 +16,10 @@ FLOPPY the guest wrote (os88flush) and never off the kernel that wrote it:
              icon, glyph - and the same association rows.
   QUIET      ...browse B:\\APPS again: no second flush (the store holds every
              body now, so nothing is taken).
-  ONE FLUSH  the shipped cache plus ONE new package in B:\\ - and the flush's
-             own int 13h count against WRITE's, where SEVENTEEN were new. It
-             must not grow with what it found (54.7.6.2's whole point): the
+  ONE FLUSH  the shipped cache plus ONE new package in B:\\ - and the package
+             HEADERS the flush reads against WRITE's, where SEVENTEEN were new
+             (counted at dsk_peek_x, their one reader in a flush). They must
+             not grow with what it found (54.7.6.2's whole point): the
              harvest pays a read per package, the flush pays directories.
   REBOOT     a fresh boot off the floppy WRITE wrote: from B:\\MEDIA, before
              APPS is ever browsed, .TEX opens with TEXPAD and .HTM with
@@ -115,18 +116,30 @@ class Flushes(object):
         self.m = m
         self.a = m.sym("asc_flush")
         self.b = m.sym("asc_flush.drop")
+        # ...and the PACKAGE HEADERS it reads: FORMAT.DRV's asw_header is the
+        # one caller of the resident dsk_peek_x inside a flush (kernel/ascw.inc),
+        # so a stop there IS a package's header read, counted exactly
+        self.p = m.sym("dsk_peek_x")
+        self.peeks = None
         self.done = []
 
     def hit(self, mm, rec):
         if rec.get("addr") == self.a:
             mm.disk(reset=True)
+            self.peeks = 0
+        elif rec.get("addr") == self.p:
+            if self.peeks is not None:
+                self.peeks += 1
         elif rec.get("addr") == self.b:
             d = mm.disk()
             self.done.append(dict(reads=d["reads"], writes=d["writes"],
+                                  headers=self.peeks,
                                   cycles=rec.get("cycles")))
+            self.peeks = None
 
     def __enter__(self):
-        self.tr = os88marty.bp_trace(self.m, self.a, self.b, on_hit=self.hit)
+        self.tr = os88marty.bp_trace(self.m, self.a, self.b, self.p,
+                                     on_hit=self.hit)
         self.tr.__enter__()
         return self
 
@@ -259,18 +272,25 @@ def leg_one(bad, all_flush):
     if not w.done:
         return
     one = w.done[0]
-    print("   ONE FLUSH: one new -> %d reads %d writes; seventeen new -> "
-          "%d reads %d writes" % (one["reads"], one["writes"],
-                                  all_flush["reads"], all_flush["writes"]))
+    print("   ONE FLUSH: one new -> %d reads %d writes %d headers; seventeen "
+          "new -> %d reads %d writes %d headers"
+          % (one["reads"], one["writes"], one["headers"], all_flush["reads"],
+             all_flush["writes"], all_flush["headers"]))
     if len(w.done) != 1:
         bad.append("ONE FLUSH: %d flushes for one browse" % len(w.done))
-    # the 17-new flush may read the THREE built-in programs' headers (a slot
-    # and no record) and finds no old file; one more for slack. A flush that
-    # re-read the declaring packages it learned would be 5+ reads over
-    if all_flush["reads"] > one["reads"] + 4:
-        bad.append("ONE FLUSH: seventeen new packages cost %d reads against "
-                   "one's %d - the flush is reading packages again"
-                   % (all_flush["reads"], one["reads"]))
+    # THE PACKAGE HEADERS THE FLUSH READS, COUNTED - not its int 13h calls.
+    # The 17-new flush may read the THREE built-in programs' headers (a slot
+    # and no record); a flush that re-read the declaring packages it learned
+    # reads every one of them. This compared int 13h calls (17-new <= one + 4)
+    # and that is a proxy the SECTOR CACHE moves: SPEC.md 18.95.10's second
+    # chance spares FORMAT.DRV's own A: chunks once, so the round robin's
+    # B: fill at LBA 216 lands on B:'s root chunk instead and the flush's
+    # directory-entry write reads it again - 10 -> 11 calls with the same
+    # headers read, which failed this as "reading packages again".
+    if all_flush["headers"] > one["headers"] + 3:
+        bad.append("ONE FLUSH: seventeen new packages read %d package "
+                   "headers against one's %d - the flush is reading packages "
+                   "again" % (all_flush["headers"], one["headers"]))
     rows, _ = assoc_of(after)
     if b"MINES2  " not in rows:
         bad.append("ONE FLUSH: MINES2 not written")
