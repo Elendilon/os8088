@@ -212,6 +212,13 @@ class Qemu:
         raise RuntimeError("no QMP socket at %s" % path)
 
     def hmp(self, cmd):
+        # a plain `sendkey` is CONFIRMED (os88qemu.sendkey): HMP's release
+        # follows 100 ms of HOST time later and a starved guest lost the key
+        # (docs/plans/SOAK-PARALLEL.md 17.5)
+        k = re.match(r"^sendkey (\S+)$", cmd)
+        if k is not None:
+            os88qemu.sendkey(self.path, k.group(1))
+            return ""
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.connect(self.path)
         f = s.makefile("rw")
@@ -842,9 +849,18 @@ def main():
         # loops they replace allowed on an idle box.
         def drvseg():
             return u16(m.read(S("drv_tab") + ETH_ROW * DRVR_SZ + DRVR_SEG, 2))
+        # THE BOOT FIRST (os88qemu.kernel_up): the row's segment is armed
+        # before the image is read and the ceiling is packed at kmain's end,
+        # so one read mid-boot can be a segment the driver has left
+        # - and measured, the segment MOVES once more after the desktop is up
+        # (39040 -> 39296, 0.2 s after [spl_live] fell), so it is taken once
+        # it has held still for a guest second rather than the moment it is
+        # non-zero
+        os88qemu.kernel_up(m, S, secs=120)
         os88qemu.acted(m, lambda: drvseg() != 0, secs=60,
                        what="ETHER.DRV's drv_tab row", poll=0.4)
-        seg = drvseg()
+        seg = os88qemu.quiesce(m, drvseg, secs=0.5, stable=3,
+                               what="ETHER.DRV's segment")
         if not seg:
             m.quit()
             sys.exit("ethernet: ETHER.DRV never attached - no card was found "

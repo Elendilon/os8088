@@ -343,6 +343,28 @@ def _shift(sock, down):
             "type": "qcode", "data": "shift"}}}]})
 
 
+def sendkey(sock, spec, secs=1.0):
+    """HMP's `sendkey a-b-c` CONFIRMED: the modifiers down, `key` on the last
+    name (released only once the ROM has stored it, or after `secs` guest
+    seconds for a key it does not store), the modifiers up. HMP's own queues
+    the release 100 ms of HOST time after the press, which a starved guest
+    takes in the same IRQ1 as the press - a lost key (17.5). The names are
+    QEMU's qcodes, which are HMP's key names."""
+    import xmcheck
+    names = spec.split("-")
+    mods, last = names[:-1], names[-1]
+
+    def ev(name, down):
+        xmcheck.qmp_exec(sock, "input-send-event", {"events": [
+            {"type": "key", "data": {"down": down, "key": {
+                "type": "qcode", "data": name}}}]})
+    for n in mods:
+        ev(n, True)
+    key(_Sock(sock), last, secs=secs)
+    for n in reversed(mods):
+        ev(n, False)
+
+
 def type_text(sock, text, gap=0.06):
     """TYPE `text`, every keystroke CONFIRMED (`key`): the release goes only
     once the ROM has stored the press, and `gap` guest seconds follow each.
@@ -463,6 +485,34 @@ def ui_idle(m, sym):
         return False
     kb = m.read(0x41A, 4)
     return kb[0:2] == kb[2:4]
+
+
+def kernel_up(m, sym, secs=120.0, what="the kernel to reach the desktop"):
+    """tools/os88marty.py's `kernel_up` on QEMU: `desk_rows` and `menu_nbar`
+    written and `[spl_live]` = 0 (kmain's last act), the tick moving across
+    it, then `ui_done`. THE GATE BEFORE A DRIVER'S SEGMENT IS READ: a driver
+    row's segment is armed BEFORE its image is read, and mem_unblob packs the
+    ceiling at the end of kmain, so a segment taken mid-boot can be one the
+    image has left - and a starved guest is mid-boot for longer. Measured:
+    tests/ethernet.py under load read eth_mode 211 and dhcp_st 194 off a stale
+    segment for the whole row (docs/plans/SOAK-PARALLEL.md 17.5)."""
+    a = (sym("desk_rows"), sym("menu_nbar"), sym("spl_live"))
+    seen = [None]
+
+    def up():
+        if not (any(m.read(a[0], 2)) and any(m.read(a[1], 2))
+                and not m.read(a[2], 1)[0]):
+            seen[0] = None
+            return False
+        t = ticks(m)
+        if seen[0] is None:
+            seen[0] = t
+            return False
+        return t != seen[0]
+    ok = acted(m, up, secs=secs, what=what, poll=0.1)
+    if ok:
+        ui_done(m, sym, what=what)
+    return ok
 
 
 def ui_done(m, sym, cap=2.0, what=None):
@@ -704,10 +754,7 @@ class Mouse(object):
     def dblclick(self, x, y):
         """Both presses down ONE QMP connection, as xmcheck.dblclick: the
         detectors' 9-tick window is shorter than two confirmed clicks."""
-        mouse_to(self.m, self.sym, self.hmp, x, y)
-        self.hmp("mouse_button 1", "sleep 0.08", "mouse_button 0",
-                 "sleep 0.12", "mouse_button 1", "sleep 0.08",
-                 "mouse_button 0")
+        mouse_dblclick(self.m, self.sym, self.hmp, x, y)
         self._wait()
 
 
@@ -719,9 +766,20 @@ def mouse_dblclick(m, sym, hmp, x, y):
     mouse_to(m, sym, hmp, x, y)
     if mouse_where(m, sym)[2] & 3:
         mouse_button(m, sym, hmp, 0)
-    for _ in range(2):
-        mouse_button(m, sym, hmp, 1)
-        mouse_button(m, sym, hmp, 0)
+    # ALL FOUR EDGES IN ONE BURST, confirmed only at the end. They were each
+    # confirmed off mouse_btn, a round trip apiece, and on QEMU the guest's
+    # ticks are the host's: four round trips on a loaded box are more than
+    # the 9-tick window, and the double-click arrived as two clicks
+    # (vidclose: "the player did not open", docs/plans/SOAK-PARALLEL.md
+    # 17.5). msmouse queues a packet per edge and the UART delivers them
+    # back to back, so the presses are born a few milliseconds apart in the
+    # guest whatever the host is doing.
+    hmp("mouse_button 1", "mouse_button 0", "mouse_button 1",
+        "mouse_button 0")
+    c = Clock(m)
+    lim = to_ticks(PKT_SECS)
+    while (mouse_where(m, sym)[2] & 3 or c.step() < 2) and c.step() < lim:
+        time.sleep(0.005)
 
 
 def launch_test(tmp, sysimg="build/os8088.img", apps="build/apps.img",

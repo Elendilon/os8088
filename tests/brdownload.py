@@ -156,7 +156,14 @@ def main():
             m, lambda: int.from_bytes(
                 m.read(dr + ethernet.DRVR_SEG, 2), "little") != 0,
             secs=60, what="ETHER.DRV to attach", poll=0.4)
-        eseg = int.from_bytes(m.read(dr + ethernet.DRVR_SEG, 2), "little")
+        # ...TAKEN ONCE THE BOOT IS OVER AND IT HAS HELD STILL: the row's
+        # segment is armed before the image is read and moves once more
+        # after the desktop is up (os88qemu.kernel_up; tests/ethernet.py)
+        ethernet.os88qemu.kernel_up(m, S, secs=120)
+        eseg = ethernet.os88qemu.quiesce(
+            m, lambda: int.from_bytes(m.read(dr + ethernet.DRVR_SEG, 2),
+                                      "little"),
+            secs=0.5, stable=3, what="ETHER.DRV's segment")
         ethernet.os88qemu.acted(
             m, lambda: m.readseg(eseg, esy["dhcp_st"], 1)[0]
             == ethernet.DH_BOUND, secs=60, what="DHCP to bind", poll=0.4)

@@ -100,6 +100,7 @@ class LRig(E.Rig):
               "-pidfile", self.pidf]
         subprocess.run(a, check=True)
         self.pid = int(open(self.pidf).read().strip())
+        E._RIG[0] = self                # E.gpace paces on the rig that is up
         os88qemu.acted(self, lambda: os.path.exists(self.sock), secs=30,
                        what="the QMP socket")
         E.xmcheck.wait_desktop(self.sock, "xtmp3live")
@@ -273,7 +274,7 @@ def play_live(r, leg, name, qual=None):
         r.until(lambda: r.st()["md"] == E.MD_IDLE, "the stop", 20, 0.1)
         for _ in range(qual):
             r.key("q")
-            time.sleep(0.3)
+            E.gpace(0.3)
         check(leg, "the override is %s" % E.QNAME[qual],
               r.rd("x3_st", 3)[2] == qual, E.QNAME[r.rd("x3_st", 3)[2]])
         r.key("spc")
@@ -542,7 +543,7 @@ def leg_xtfile():
               0 < s["peak"] * 1024 <= 400000, "%d KB" % s["peak"])
         print("     peak %d KB, fetches %s -> %s" % (s["peak"], nf0,
                                                       r.nfetch()))
-        time.sleep(1.0)
+        E.gpace(1.0)
         r.key("dot")                    # a FINISHED file seeks directly
         r.until(lambda: r.st()["elap"] >= 9, "the seek", 10, 0.05)
         e = r.st()["elap"]

@@ -175,10 +175,15 @@ def main():
         disk = next(w for w in G.windows(m, S) if w.visible and
                     w.title == "LEMMINGS")
         dispcp.open_named(m, mo, S, E.settle, disk.x, disk.y, "LEMMINGS.O88")
-        Q.pace(m, 3)
-        if not any(w.visible and w.title == "Lemmings"
-                   for w in G.windows(m, S)):
+        # WAITED ON, not paced: a fixed 3 s was the whole budget for loading
+        # a C package off a floppy, and on QEMU the guest's seconds are the
+        # host's, so a starved guest did less of the load in them and the row
+        # failed with no window (docs/plans/SOAK-PARALLEL.md 17.5)
+        if not Q.acted(m, lambda: any(w.visible and w.title == "Lemmings"
+                                      for w in G.windows(m, S)),
+                       secs=60, what="the Lemmings window", poll=0.25):
             fail("no window called Lemmings after LEMMINGS.O88 was opened")
+        Q.pace(m, 1)
         print("lemmings: the launcher is up")
 
         # --- 2. Play: the preview in mode 12h ----------------------------

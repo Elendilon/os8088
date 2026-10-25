@@ -107,10 +107,17 @@ def qmp(*cmds):
 # window or the driver word the next line reads where there is one, and a
 # tick-counted pause of the old length where there is not.
 def drvseg(m):
-    """ETHER.DRV's segment out of drv_tab, once it is there (60 guest s)."""
+    """ETHER.DRV's segment out of drv_tab, once it is there (60 guest s) -
+    and only once the BOOT is over (os88qemu.kernel_up): the segment is armed
+    before the image is read and the ceiling packed at kmain's end, so a
+    mid-boot read can name a segment the driver has left."""
+    os88qemu.kernel_up(m, S, secs=120)
     os88qemu.acted(m, lambda: u16(m.read(S("drv_tab") + 2 * 16 + 2, 2)) != 0,
                    secs=60, what="ETHER.DRV's drv_tab row", poll=0.4)
-    return u16(m.read(S("drv_tab") + 2 * 16 + 2, 2))
+    # ...and HELD STILL: it moves once more after the desktop is up
+    return os88qemu.quiesce(
+        m, lambda: u16(m.read(S("drv_tab") + 2 * 16 + 2, 2)), secs=0.5,
+        stable=3, what="ETHER.DRV's segment")
 
 
 def find_cp(m):

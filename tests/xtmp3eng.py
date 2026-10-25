@@ -150,6 +150,23 @@ def pkgsym(name, stub=True):
 # -----------------------------------------------------------------------------
 # THE RIG: a private QEMU, its disks in a scratch folder under build/
 # -----------------------------------------------------------------------------
+
+# THE RIG RUNNING NOW, for `gpace`: every pause in this file was a host
+# `time.sleep`, which hands a starved guest less of the machine; they are
+# GUEST seconds now (os88qemu.pace), on whichever rig is up
+_RIG = [None]
+
+
+def gpace(secs):
+    r = _RIG[0]
+    try:
+        if r is not None and getattr(r, "pid", None):
+            os88qemu.pace(r, secs)
+            return
+    except Exception:                                       # noqa: BLE001
+        pass
+    time.sleep(secs)
+
 class Rig(object):
     def __init__(self, leg, sb=False, hd=(), floppy=(), xcfg=None, keep=None,
                  stub=True, extra=(), mach="pc,vmport=off", syscfg=None,
@@ -267,6 +284,7 @@ class Rig(object):
               "-pidfile", self.pidf]
         subprocess.run(a, check=True)
         self.pid = int(open(self.pidf).read().strip())
+        _RIG[0] = self                  # gpace paces on the rig that is up
         os88qemu.acted(self, lambda: os.path.exists(self.sock), secs=30,
                        what="the QMP socket")
         xmcheck.wait_desktop(self.sock, "xtmp3eng")
@@ -367,11 +385,23 @@ class Rig(object):
         return list(struct.unpack("<8H", self.rd("x3l_meas", 16)))
 
     def until(self, cond, what, secs=60.0, poll=0.25):
-        t = time.time()
-        while time.time() - t < secs:
+        """`cond()` within `secs` of the GUEST's clock (os88qemu's ticks).
+
+        It was `time.time()`, so a loaded box gave the guest less of every
+        budget, and at eight emulators on four cores `XTMP3's window` stopped
+        arriving inside its 20 host seconds (docs/plans/SOAK-PARALLEL.md
+        17.5). A guest whose clock stops still ends the wait, by the host."""
+        c = os88qemu.Clock(self)
+        lim = os88qemu.to_ticks(secs)
+        while True:
             try:
                 if cond():
                     return True
+            except Exception:                               # noqa: BLE001
+                pass
+            try:
+                if c.step() >= lim or c.stalled():
+                    break
             except Exception:                               # noqa: BLE001
                 pass
             time.sleep(poll)
@@ -382,7 +412,12 @@ class Rig(object):
         """double-click drive's zone, then NAME's row in its Disk window:
         LISTING is the window's visible order (folders first, then names)"""
         os88qemu.mouse_dblclick(self, S, self.hmp, ICON_X, DRIVE_Y[drive])
-        time.sleep(2.5)
+        # the Disk window OPENED, not 2.5 s passed: a starved guest was still
+        # reading the directory when the row's double-click arrived, and it
+        # landed on the desktop (docs/plans/SOAK-PARALLEL.md 17.5). The open
+        # runs in ui_task's handler, so the UI going idle is the window there
+        os88qemu.ui_done(self, S, cap=30.0, what="the drive's window")
+        gpace(0.5)
         y = ROW_Y0 + ROW_H * listing.index(name)
         for _ in range(3):
             os88qemu.mouse_dblclick(self, S, self.hmp, ROW_X, y)
@@ -1000,7 +1035,7 @@ def leg_stale():
                 check(leg, "an %s file is not reused: the dialog is asked"
                       % case, s["md"] == MD_CHOOSE, "md %d" % s["md"])
                 r2.key("esc")
-                time.sleep(1)
+                gpace(1)
             finally:
                 r2.close()
             dat = subprocess.run(["mcopy", "-n", "-i",
@@ -1042,7 +1077,7 @@ def leg_novol():
         drive_dialog(r)
         check(leg, "no volume listed", r.b("x3c_nv") == 0)
         r.key("ret")
-        time.sleep(2)
+        gpace(2)
         check(leg, "Enter does nothing (Decode and Play greyed)",
               r.st()["md"] == MD_CHOOSE and not r.b("x3c_savepend"))
         r.key("esc")
@@ -1068,7 +1103,7 @@ def leg_twovol():
         check(leg, "two hard drives listed, C: and D:", r.b("x3c_nv") == 2 and
               list(r.rd("x3c_vv", 2)) == [2, 3], str(list(r.rd("x3c_vv", 2))))
         r.key("down")
-        time.sleep(1)
+        gpace(1)
         r.key("ret")
         save_dialog(r)
         r.key("ret")
@@ -1095,9 +1130,9 @@ def leg_twovol():
         check(leg, "D: is 'too little room' for it, C: is not",
               bool(vf[1] & 2) and not vf[0] & 2, str(vf))
         r.key("down")                   # D: chosen...
-        time.sleep(1)
+        gpace(1)
         r.key("ret")                    # ...and Decode and Play refused
-        time.sleep(2)
+        gpace(2)
         check(leg, "Decode and Play is greyed on D:",
               r.st()["md"] == MD_CHOOSE and not r.b("x3c_savepend"))
     finally:
@@ -1220,7 +1255,7 @@ def leg_xtpeak():
         check(leg, "...and a gulp is X3_RDXT, 4 KB: one read the card's ring "
               "plays through (a read holds sch_lock)", r.w("x3_rdmax") == 4096,
               "%d" % r.w("x3_rdmax"))
-        time.sleep(3)
+        gpace(3)
         s = r.st()
         print("     live peak %d KB = %d bytes" % (s["peak"], s["peak"] * 1024))
         check(leg, "...no underrun", s["under"] == 0, "%d" % s["under"])
@@ -1262,7 +1297,7 @@ def clu_convert(r, leg):
     check(leg, "the drive dialog lists C: and D:", r.b("x3c_nv") == 2,
           "%d" % r.b("x3c_nv"))
     r.key("down")
-    time.sleep(1)
+    gpace(1)
     r.key("ret")
     save_dialog(r)
     r.key("ret")
@@ -1294,9 +1329,9 @@ def leg_xtclu():
                       "drive dialog, C: not", bool(vf[1] & 4) and
                       not vf[0] & 4, str(vf))
                 r.key("down")
-                time.sleep(1)
+                gpace(1)
                 r.key("ret")
-                time.sleep(2)
+                gpace(2)
                 check(leg, "...Decode and Play refuses it (Enter does "
                       "nothing)", r.st()["md"] == MD_CHOOSE and
                       not r.b("x3c_savepend"))
@@ -1473,12 +1508,12 @@ def leg_dfdel():
                 check(leg, "the list's first record is selected (%s)" % what,
                       sel == k, "x3c_fsel %d" % sel)
                 r2.key("ret")               # Enter: Delete (button 1)...
-                time.sleep(1.5)
+                gpace(1.5)
                 if not check(leg, "...asks first; Proceed", r2.alert_button(1)):
                     return
-                time.sleep(2.5)
+                gpace(2.5)
                 r2.key("esc")               # (the window: Close)
-                time.sleep(1)
+                gpace(1)
         finally:
             r2.close()
         names = r.mdir(hd0)
@@ -1518,7 +1553,7 @@ def leg_batch():
                 "the Open dialog", 20)
         wp = struct.unpack("<H", r.read(S("fdlg_win"), 2))[0]
         wx, wy = struct.unpack("<HH", r.read(geom.KERNEL_SEG * 16 + wp + 2, 4))
-        time.sleep(1.5)                     # its listing: B:, as the Disk
+        gpace(1.5)                     # its listing: B:, as the Disk
         os88qemu.mouse_dblclick(r, S, r.hmp, wx + 70,   # window lists it, the second MP3
                          wy + 47 + 16 * lst.index(b))
         r.until(lambda: r.b("x3_qn") == 2, "the queue of two", 20)
@@ -1526,7 +1561,7 @@ def leg_batch():
         r.key("spc")                        # the first, played: its dialog
         drive_dialog(r)
         r.key("q")                          # 'Queue too: Yes'
-        time.sleep(0.8)
+        gpace(0.8)
         check(leg, "'Queue too: Yes'", r.b("x3c_bqueue") == 1)
         r.key("ret")
         save_dialog(r)
@@ -1540,7 +1575,7 @@ def leg_batch():
             return s["state"] == ST_DONE or (   # and its STATE - the first
                 s["state"] == ST_FILE and s["cur"] == 1)   # track's FILE
         r.until(lambda: (asked.append(r.st()["md"]) or
-                         (second() and (time.sleep(0.6) or second()))),
+                         (second() and (gpace(0.6) or second()))),
                 "the second", 400, 0.3)
         s = r.st()
         check(leg, "the second converted and plays with NO dialog",
@@ -1594,9 +1629,9 @@ def leg_rovol():
         if ro:
             while r.b("x3c_vsel") != ro[0]:
                 r.key("down" if r.b("x3c_vsel") < ro[0] else "up")
-                time.sleep(0.5)
+                gpace(0.5)
             r.key("ret")
-            time.sleep(2)
+            gpace(2)
             check(leg, "Decode and Play is greyed on it (Enter does nothing)",
                   r.st()["md"] == MD_CHOOSE and not r.b("x3c_savepend"))
     finally:
@@ -1836,7 +1871,7 @@ def leg_pause():
         e1 = r.st()["elap"]
         check(leg, "Pause: PAUSED, the stream closed",
               r.st()["state"] == ST_PAUSED and not r.b("x3_sopen"))
-        time.sleep(2)
+        gpace(2)
         check(leg, "the clock stands", r.st()["elap"] == e1)
         r.key("spc")
         r.until(lambda: r.st()["md"] == MD_LIVE, "the resume", 10, 0.1)
@@ -1925,7 +1960,7 @@ def leg_qagain():
                 "the Open dialog", 20)
         wp = struct.unpack("<H", r.read(S("fdlg_win"), 2))[0]
         wx, wy = struct.unpack("<HH", r.read(geom.KERNEL_SEG * 16 + wp + 2, 4))
-        time.sleep(1.5)
+        gpace(1.5)
         os88qemu.mouse_dblclick(r, S, r.hmp, wx + 70, wy + 47 + 16 * lst.index(b))
         r.until(lambda: r.b("x3_qn") == 2, "the queue of two", 20)
         def row():                          # entry 1 (xtmp3.asm's QE_*: 60
@@ -1969,7 +2004,7 @@ def leg_offdir():
                 "the Open dialog", 20)
         wp = struct.unpack("<H", r.read(S("fdlg_win"), 2))[0]
         wx, wy = struct.unpack("<HH", r.read(geom.KERNEL_SEG * 16 + wp + 2, 4))
-        time.sleep(1.5)
+        gpace(1.5)
         os88qemu.mouse_dblclick(r, S, r.hmp, wx + 70, wy + 47 + 16)  # '..', then the song
         r.until(lambda: r.b("x3_qn") == 1, "the queue of one", 20)
         if not check(leg, "C:\\MEDIA\\%s queued" % NEON, r.b("x3_qn") == 1):
@@ -2036,9 +2071,9 @@ def leg_wavdirs():
                   s["total"], r.errtext()))
     try:
         os88qemu.mouse_dblclick(r, S, r.hmp, ICON_X, DRIVE_Y["C"])
-        time.sleep(2.5)
+        gpace(2.5)
         os88qemu.mouse_dblclick(r, S, r.hmp, ROW_X, ROW_Y0 + ROW_H * 2)    # XTMP3
-        time.sleep(2.5)
+        gpace(2.5)
         for _ in range(3):                  # '..', X3STUB.CFG, XTMP3.O88
             os88qemu.mouse_dblclick(r, S, r.hmp, ROW_X, ROW_Y0 + ROW_H * 2)
             if r.until(lambda: r.x3seg() is not None, "XTMP3's window", 20):
@@ -2052,7 +2087,7 @@ def leg_wavdirs():
                 "the Open dialog", 20)
         wp = struct.unpack("<H", r.read(S("fdlg_win"), 2))[0]
         wx, wy = struct.unpack("<HH", r.read(geom.KERNEL_SEG * 16 + wp + 2, 4))
-        time.sleep(1.5)                     # C:\MEDIA: '..', the song
+        gpace(1.5)                     # C:\MEDIA: '..', the song
         os88qemu.mouse_dblclick(r, S, r.hmp, wx + 70, wy + 47 + 16)
         r.until(lambda: r.b("x3_qn") == 1, "the queue of one", 20)
         r.key("spc")
@@ -2070,12 +2105,12 @@ def leg_wavdirs():
             return
         to_end("the finished WAV")
         r.key("q")                          # Auto again: the cache
-        time.sleep(0.4)
+        gpace(0.4)
         for _ in range(7):
             if r.rd("x3_st", 3)[2] == 0:
                 break
             r.key("q")
-            time.sleep(0.4)
+            gpace(0.4)
         r.key("spc")
         r.until(lambda: r.st()["md"] in (MD_FILE, MD_LIVE, MD_CHOOSE),
                 "the second play", 30, 0.2)
