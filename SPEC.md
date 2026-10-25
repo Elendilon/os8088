@@ -46456,7 +46456,12 @@ change.
 
 **A loader does not work the figure out: the parts standard does.**
 `OS88_REHOME` (`apps/os88parts.inc`) is the call in the keep form with `CX`
-taken from the table - it walks every row the CARVE holds (not a lazy row,
+taken from the table. It takes `AL` = the program part's INDEX (it took the
+part's segment in `DX` until KERN-MEGA-MEMORY-PLAN MC7: under kern_mega that
+is a selector and the ends below are a sum on it, so the walk runs in
+paragraphs into the carve, `op_seg`'s `OP_SUBV_RAW`, and asks `op_seg` for
+`DX` last; the kernel takes a selector there as the paragraph under it and
+runs the program in the trimmed carve's own). It walks every row the CARVE holds (not a lazy row,
 which is a claim of its own; not a refused optional or a row above 1MB, which
 `op_seg` answers 0 for), and keeps up to whichever of them ENDS highest: a
 filed row at `op_seg + ceil(len / 16)`, the unpacked length `op_unpack` laid
@@ -46897,6 +46902,41 @@ So the top-down carve is not a substitute for understanding that. It is the
 narrower, correct thing on its own merits: a claim that is going to be a
 region is claimed through the door a region uses, and then there is no hole
 to close.
+
+##### 20.12.13 kern_mega: the carve is a selector (KERN-MEGA-MEMORY-PLAN MC7)
+
+Under kern_mega's protected mode every claim is a selector (§50.6.12), and
+the standard did arithmetic on the carve's: every part's segment was
+`[op_base]` plus paragraphs, and the read, the unpack and the scratch fill
+walked segments. So the arithmetic stays and its UNIT changes - paragraphs
+into the carve - and the kernel is asked for the segment at the end of it:
+
+- **`op_seg`** answers through `OSAPI_SEG`'s `SEG_SUB` (§50.6.11): the sum on
+  every real-mode kernel, and on kern_mega a selector based in the carve,
+  the same one every time it is asked, moving with the carve and freed with
+  it. **`op_cseg`** asks `SEG_SUBC` for a carve part, so its code half is
+  `OS88_CODESEL`'s `- 8` as for any claim; a fetched lazy part is a claim of
+  its own and is that already. A refusal (no LDT entry) is 0, "not there".
+- **`OP_SUBV_RAW`** in `[op_subv]` makes `op_seg` answer the PARAGRAPHS into
+  the carve plus one (0 stays "not there") for a caller doing arithmetic on
+  the LAYOUT: `op_scrub`, a loader's own checks and `OS88_REHOME`, which
+  takes the program part's index (§20.12.10.5).
+- **The load-time walks** - `op_read`'s chunks, `op_unpack`'s landing and
+  stream, `op_scrub`'s 32KB passes, a fetch's stream and its move down -
+  hold paragraph offsets and load through `op_at`: `SEG_AT`, a window re-aimed
+  per use, and on every real-mode kernel the verb's refusal makes the answer
+  the sum. Two windows (`op_wa`, `op_wb`), because `op_unpack` holds two
+  pointers. They are aimed at RAM rather than tied to the claim, which is
+  safe because every claim the walks reach is pinned while they run.
+- `op_hilift` asks a claim's LINEAR base whether it is above 1MB; a selector
+  no longer says so.
+
+What it cost the shipped builds is bytes, not cycles: one far call per chunk
+of a load whose every chunk is a disk read, and three bytes of `OP_BSS`
+(`op_wb` and `[op_subv]`; `op_wa` took the unnamed word at `OP_BSS_AT + 76`).
+WireFleet, which sat at `APP_MAX_SIZE` with 46 bytes of slack, is the
+package that decided the shape: a `SEG_LIN` + `SEG_WIN` walker was 48 bytes,
+bound windows 164, and `op_at` is 21.
 
 #### 20.13.1 What stays in the clear, and why it is the whole design
 
@@ -97018,14 +97058,17 @@ verb:
 | `SEG_SUBC` 5 | as `SEG_SUB` | DX = the DATA half of a code/data PAIR based there, the CODE half at DX - 8 |
 | `SEG_BWIN` 6 | DX = a selector of the caller's based in a claim or a pool block | DX = a new BOUND window over that block, aimed at that base |
 | `SEG_AIM` 7 | DX = a bound window, CX:AX = a BYTE offset into its block | DX = the same window re-aimed there, AX = 0; legal in an `FSXF_RATE` hook |
+| `SEG_AT` 8 | DX = a segment or selector, AX = a paragraph offset, CX = a window of the caller's to re-aim, or 0 | DX = that window aimed at DX's base + AX paragraphs, 64KB; DX = 0 (CF = 0) when no LDT entry is free |
 
 **Every real-mode kernel answers what the caller's own arithmetic was** -
 `DX x 16`, `DX`, `DX`, `DX + AX` (`SEG_SUB` and `SEG_SUBC` alike), `DX` for
 `SEG_BWIN` - in a few dozen bytes of `.cold`, so a package converted to the
 cell runs unchanged on kern_big and kern_small, needs no `CPU_F_PM` test, and
-costs nothing there but the call. `SEG_AIM` alone is refused there (CF = 1):
-its only callers are kern_mega package arms, whose real-mode path already
-does the sum, so its arithmetic is not carried on every machine.
+costs nothing there but the call. `SEG_AIM` and `SEG_AT` are refused there
+(CF = 1, every register kept): `SEG_AIM`'s only callers are kern_mega
+package arms, whose real-mode path already does the sum, and `SEG_AT`'s
+caller does the sum ON the refusal - so neither's arithmetic is carried on
+every machine.
 
 On kern_mega in protected mode (`mega_segf`, `.mega`):
 
@@ -97061,6 +97104,14 @@ On kern_mega in protected mode (`mega_segf`, `.mega`):
   (docs/plans/KERN-MEGA-MEMORY-PLAN.md 9.1): one window, one re-aim a
   record. Refusals 4 (not a bound window of the caller's) and 5 (at or past
   the block's end).
+- **`SEG_AT`** is a window (above) aimed at a segment's base plus a
+  paragraph offset - `SEG_SUB`'s question with a window's answer: re-aimed
+  per use, not tied to the block and never matched against another window,
+  so two walks never share one. It is for a walk over a PINNED claim: the
+  parts standard's load-time walks (§20.12, `op_at`) hold two of them for
+  the whole instance, where a `SEG_SUB` per chunk would hold an entry per
+  chunk until the carve is freed. A refusal is the null selector with CF =
+  0, so CF = 1 means only "a real-mode kernel: the sum is yours".
 - **Freeing an entry clears any window row naming it** (`mega_ldt_free`), so
   a window that went with its block cannot be freed a second time at its
   owner's end, after the entry is somebody else's.

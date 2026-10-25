@@ -4342,6 +4342,10 @@ mem_free_owner_x:
                                     ; step 8a (SPEC.md 20.12.10.7)
 mem_reown_x:
     push si
+%ifdef KERN_MEGA
+    mov [mega_rhval], ax         ; kern_mega: AX may be a SELECTOR (op_seg's
+    KPARA                       ; SEG_SUB, MC7) - its paragraph for the sums,
+%endif                          ; and [mega_rhval] the trimmed claim's own name
     pushf
     cli                         ; the walk-and-write, one window, exactly as
                                 ; mem_free_owner_x's is: a claim published
@@ -4369,6 +4373,9 @@ mem_reown_x:
                                 ; stood above it the way any free does
 .wsync:
     MEM_MP mega_mpsyncf         ; (its pair's window: MC7.4)
+%ifdef KERN_MEGA
+    MEM_VAL [mega_rhval]         ; ...which is what the program is called now
+%endif
 .whole:
     pop ax
     jmp short .scan

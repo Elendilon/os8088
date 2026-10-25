@@ -118,6 +118,13 @@ MEGA_SEL_FD     equ (MEGA_GDT_SCR - 1) * 8  ; data, base moved per use: the
 %if MEGA_GDT_SCR - 1 < MEGA_GDT_ID
   %error "MEGA_SEL_FD has no padding entry to sit in"
 %endif
+MEGA_SEL_VB     equ (MEGA_GDT_SCR - 2) * 8  ; data: the planar decoder's buffer
+                                    ; ([rom_vgabw], vga_blit_prow's DS), which
+                                    ; the switch moves to COLD_RAM and MEGA_RAM -
+                                    ; rungs past the identity map (mega_vbaimf)
+%if MEGA_GDT_SCR - 2 < MEGA_GDT_ID
+  %error "MEGA_SEL_VB has no padding entry to sit in"
+%endif
 MEGA_SEL_K0     equ (MEGA_GDT_SCR + 0) * 8  ; data, base moved per use: SIX
 MEGA_SEL_K1     equ (MEGA_GDT_SCR + 1) * 8  ; scratches a kernel MODULE aims at
 MEGA_SEL_K2     equ (MEGA_GDT_SCR + 2) * 8  ; the real paragraphs its own
@@ -238,6 +245,13 @@ mega_sds    dw 0                    ; them, as the BIOS was given them, the
 mega_res    dw 0                    ; vector, the tick it started on and the
 mega_rds    dw 0                    ; IMRs it masked
 mega_t0     dw 0
+mega_vbsel  dw VGABUF_SEG           ; what vga_blit_prow loads for the planar
+                                    ; decoder's buffer: [rom_vgabw] in real
+                                    ; mode, MEGA_SEL_VB once mega_vbaimf has
+                                    ; aimed it (MC7's step 6)
+mega_rhval  dw 0                    ; mem_reown_x's answer to a re-home: the
+                                    ; trimmed carve's own selector, which the
+                                    ; program runs in (loader step 8a, MC7)
 mega_rv     db 0
 mega_imr1   db 0
 mega_imr2   db 0
@@ -392,6 +406,8 @@ mega_enter:
     mov word [es:di+6], 0
     push ds
     pop es
+    mov ax, [rom_vgabw]             ; the decoder's buffer, wherever it is,
+    call COLD_SEG:mega_vbaimf       ; through MEGA_SEL_VB from here on
     call mega_coldup                ; M3: `.cold` and `.mega` above 1MB, their
                                     ; rungs to the heap - FIRST, because
                                     ; everything after it is `.mega`'s
@@ -3144,6 +3160,19 @@ mega_gdtaim:
     mov ax, di
     pop es
     ret
+; mega_vbaimf - FAR: AX = the planar decoder's buffer's new PARAGRAPH ->
+; [rom_vgabw] = AX (mem_floor_ax's word) and [mega_vbsel] = MEGA_SEL_VB aimed
+; there, or AX itself in real mode. Every register and FLAGS kept
+mega_vbaimf:
+    push ax
+    push di
+    mov [rom_vgabw], ax
+    mov di, MEGA_SEL_VB
+    call COLD_SEG:mega_kaimf
+    mov [mega_vbsel], ax
+    pop di
+    pop ax
+    retf
 ; mega_kaimf - FAR: AX = a REAL paragraph, DI = one of MEGA_SEL_K0..K5 -> AX
 ; = that scratch aimed there in protected mode; AX unchanged in real mode.
 ; Every other register and FLAGS kept (KSEG, kernel.asm)
@@ -6422,8 +6451,8 @@ mega_coldup:
     pop es
     ; --- ...and the rung: the decoder's buffers to its bottom, the floor
     ; onto it - [rom_vgabw] is both (mem_floor_ax, ROM-PLAN 3.4.2)
-    mov word [rom_vgabw], COLD_RAM
     mov ax, COLD_RAM
+    call COLD_SEG:mega_vbaimf
 %if VGABUF_PARA
     test byte [vid_avail], VID_A_VGA
     jz .floor
@@ -8079,8 +8108,8 @@ mega_gatef:
     mov cx, 146
     call KERNEL_SEG:cw_toast_show
     pop es
-    mov word [rom_vgabw], MEGA_RAM  ; ...and `.mega`'s rung to the heap
-    mov ax, MEGA_RAM
+    mov ax, MEGA_RAM                ; ...and `.mega`'s rung to the heap
+    call COLD_SEG:mega_vbaimf
 %if VGABUF_PARA
     test byte [vid_avail], VID_A_VGA
     jz .mfloor
@@ -9294,10 +9323,17 @@ mega_claimregrowf:
     mov [ss:si+MX_SEL], bx             ; ...and the old one the scratch
     popf
     pop bx                          ; BL = the owner again
-    call mega_mxbase
-    call MEGA_SEL_CODE:mx_freef                    ; the old block, and the scratch selector
     pop ax
     pop dx                          ; DX:AX = the new block's base
+    push dx
+    push ax
+    mov cx, bp                      ; THE CALLER'S SELECTOR ONTO IT FIRST:
+    shl cx, 10                      ; freeing the old block frees every
+    call MEGA_SEL_CODE:mega_xmself  ; descriptor still based in it (mx_dfree),
+    call mega_mxbase                ; which until now was the caller's - the
+    call MEGA_SEL_CODE:mx_freef     ; old block, and the scratch selector
+    pop ax
+    pop dx
 .aim:
     mov cx, bp
     shl cx, 10
@@ -10020,10 +10056,46 @@ mega_segf:
     je .bwin
     cmp bl, SEG_AIM
     je .aimj
+    cmp bl, SEG_AT
+    je .at
     stc
     retf
 .aimj:
     jmp mega_segaim
+.at:                                ; SEG_AT: DX's base + AX paragraphs, a
+    push ax                         ; 64KB window, CX the caller's to re-aim -
+    push bx                         ; never matched against another window,
+    push cx                         ; so two walks never share one
+    push si
+    push di
+    mov si, cx                      ; SI = the window to re-aim, or 0
+    mov di, ax                      ; DI = the paragraphs
+    mov ax, dx
+    call mega_selbase               ; DX:AX = the segment's base
+    jc .atno
+    mov cx, di
+    shl di, 4
+    add ax, di
+    adc dl, 0
+    shr cx, 12
+    add dx, cx                      ; DX:AX = the window's base
+    mov cx, 0xFFFF
+    call mega_segown                ; BL = the caller's owner byte
+    xor di, di                      ; (no match)
+    call mega_wset                  ; AX = the window
+    jc .atno
+    xchg ax, dx
+    jmp short .atout
+.atno:
+    xor dx, dx                      ; none: the null selector, CF = 0
+.atout:
+    pop di
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    clc
+    retf
 .bwin:
     jmp mega_segbw
 .lin:

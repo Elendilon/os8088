@@ -2591,8 +2591,13 @@ vga_blit_prow:
                                 ; row - and back on at the end, because the
                                 ; next row may be a run's again
 
-%ifdef COLD_SLIDE
-    mov ax, [rom_vgabw]         ; ovlchk: DS = VGABUF_SEG
+%ifdef KERN_MEGA
+    mov ax, [mega_vbsel]        ; ovlchk: DS = VGABUF_SEG
+                                ; ...a selector over it once the switch has
+                                ; moved it past the identity map (mega_vbaimf)
+.segld:
+%elifdef COLD_SLIDE              ; (annotated once, on the arm above)
+    mov ax, [rom_vgabw]
                                 ; ...out of a `.text` WORD: this body is in the
                                 ; VGA rung, and mem_floor_ax reads that word on
                                 ; machines that dropped the rung (kernel.asm's

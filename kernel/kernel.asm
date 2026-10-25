@@ -4262,7 +4262,10 @@ rom_mfp:    dw rom_none, KERNEL_SEG
  %ifdef COLD_SLIDE                ; ...and when the decoder is in the VGA rung
 rom_vgabw0: dw VGABUF_SEG       ; (MOVABLE-COLD-PLAN 2) the word is `.text`'s
 rom_vgabw   equ rom_vgabw0      ; own, which the decoder loads: mem_floor_ax
- %else                           ; reads it on a machine that dropped the rung
+ %elifdef KERN_MEGA               ; reads it on a machine that dropped the rung
+rom_vgabw0: dw VGABUF_SEG       ; kern_mega: the floor's word alone, the
+rom_vgabw   equ rom_vgabw0      ; decoder loading [mega_vbsel] (mega.inc)
+ %else
 rom_vgabw   equ vga_pr_bufw
  %endif
 %else
@@ -5842,6 +5845,12 @@ osapi_arg_text_x equ mod_gone   ; no links on kern_small, so no parameter
 ;            it. Legal in an FSXF_RATE hook (KERN-MEGA-MEMORY-PLAN 9.1, the
 ;            Video Player's BIGSP). CF = 1 on a real-mode kernel, where the
 ;            caller's own sum is the answer
+;   SEG_AT   DX = a segment or selector, AX = a paragraph offset, CX = a
+;            window of yours to re-aim or 0 -> DX = that window aimed at DX's
+;            base + AX paragraphs, 64KB, CF = 0 - and DX = 0, CF = 0 when no
+;            LDT entry is free. CF = 1 on a real-mode kernel, every register
+;            kept: DX + AX is the answer there (the parts standard's op_at,
+;            KERN-MEGA-MEMORY-PLAN MC7)
 ; THE REAL-MODE ANSWER IS THE CALLER'S OWN ARITHMETIC - DX x 16, DX, DX + AX
 ; - so a package converted to these verbs runs unchanged on every kernel
 ; and needs no CPU_F_PM test; only kern_mega in protected mode, where a
@@ -5854,6 +5863,7 @@ SEG_FREE    equ 4
 SEG_SUBC    equ 5
 SEG_BWIN    equ 6
 SEG_AIM     equ 7
+SEG_AT      equ 8               ; (refused below: protected mode's alone)
 section .cold
 osapi_seg:                      ; (api_rxc's far body: DS = KDATA)
 %ifdef KERN_MEGA

@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "052e6bf9ad446cccb617fea95e78728da06c2f082b54729174e6c9398b016d8f",
+  "fingerprint": "0d4a4d0c2d1e38df5c2bde21797e902b817f02cd28bcfb5608d82de518f0507a",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "8718ddba83de4337e9f9bc24c6058e96b91f29ebfd6bdfe90efd54320aa4ad50",
+  "fingerprint": "53baf8fc25050b9ad9e3a961e7e0ef1f451a5ab9c633f9a82e317e062ec48861",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1176,6 +1176,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OS88_CODESEL is a pair's code half (value - 8) under CPU_F_PM: kern_mega's static LDT aliases and its identity map above .cold are gone (KERN-MEGA-MEMORY-PLAN MC7's step 6). A no-op on every real-mode kernel, so nothing built before stops running there",
+   "to": 11
+  },
+  {
+   "fingerprint": "53baf8fc25050b9ad9e3a961e7e0ef1f451a5ab9c633f9a82e317e062ec48861",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_SEG gains SEG_AT (verb 8, refused on every real-mode kernel): the parts standard's op_at, KERN-MEGA-MEMORY-PLAN MC7",
+   "to": 10
+  },
+  {
+   "fingerprint": "0d4a4d0c2d1e38df5c2bde21797e902b817f02cd28bcfb5608d82de518f0507a",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_SEG gains SEG_AT (verb 8, refused on every real-mode kernel): the parts standard's op_at, KERN-MEGA-MEMORY-PLAN MC7",
    "to": 11
   }
  ]

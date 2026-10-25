@@ -2201,6 +2201,18 @@ OS88_HUGE_INCR      equ 0x1000
                                  ;          HOOK: no lock, no wait, IF never
                                  ;          set, ~40 bytes of stack with the
                                  ;          cell's frame
+                                 ; SEG_AT   DX = a segment or selector, AX =
+                                 ;          a PARAGRAPH offset, CX = a window
+                                 ;          of yours to re-aim or 0 -> CF=0,
+                                 ;          DX = that window over DX's base
+                                 ;          + AX paragraphs, 64KB, re-aimed
+                                 ;          per use rather than tied to the
+                                 ;          block - DX = 0 when no LDT entry
+                                 ;          is free. CF=1 ON EVERY REAL-MODE
+                                 ;          KERNEL, every register kept: your
+                                 ;          sum DX + AX is the answer there.
+                                 ;          For a walk over a PINNED claim
+                                 ;          (os88partsbody.inc's op_at)
                                  ; out CF=0 and the answer; CF=1 refused (no
                                  ; LDT entry free, or SEG_REAL's none),
                                  ; AX = the reason: 1 no LDT entry or window
@@ -2217,6 +2229,7 @@ SEG_FREE    equ 4
 SEG_SUBC    equ 5
 SEG_BWIN    equ 6
 SEG_AIM     equ 7
+SEG_AT      equ 8
 
 ; OSAPI_IMG_NAME - WHICH driver or module an image is (KERN-MEGA-PLAN 14.70.3).
 ; A class names a driver only when it has one, and a module's header names

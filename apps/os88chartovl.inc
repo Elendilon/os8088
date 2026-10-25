@@ -265,8 +265,11 @@ ch_ovneed:
     mov al, CH_OVPART
     call op_seg                     ; AX = its claim's base
     mov [ch_ovseg], ax
-    mov word [ch_ovfar], 0          ; the dispatcher is at the part's 0
-    mov [ch_ovfar+2], ax
+    mov al, CH_OVPART
+    call op_cseg                    ; ...and its CODE half, the call's: under
+    mov word [ch_ovfar], 0          ; kern_mega a far call through the data
+    mov [ch_ovfar+2], ax            ; one is a #GP per call (MC7). The
+                                    ; dispatcher is at the part's 0
     mov al, CH_OVPART               ; READ: now it may move (82.16.11), the
     call op_movable                 ; standard's proc and the includer's hook
     pop es

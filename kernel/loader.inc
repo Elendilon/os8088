@@ -1680,6 +1680,9 @@ ld_start:
                                 ; where the carve's base goes (below) - and,
                                 ; on kern_big, CX what of it the program
                                 ; KEEPS, which is where its tail goes
+%ifdef KERN_MEGA
+    mov ax, [mega_rhval]        ; (kern_mega: the claim's own selector, the
+%endif                          ; caller's being a SUB inside it, MC7)
 
     ; --- and the LOADER'S OWN REGION, freed ---------------------------------
     xchg bx, dx                 ; ...AND BOTH WORDS ARE ALREADY IN HAND, the

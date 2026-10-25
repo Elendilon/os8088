@@ -1275,6 +1275,58 @@ rows. Nothing is recorded as built that was not.
   - Cost: kern_big and kern_small byte-identical; kern_mega smaller in code
     (the alias arms) and ~70KB smaller in RAM on every machine.
 
+- **Step 6's follow-ups, found by a sweep of every package (2026-10-25).**
+  `tools/os88bochs.py`'s sweep over every shipped package, the kern_mega
+  arm where one exists, at 16MB under Bochs: 37 opened clean, twelve were
+  closed for a #GP and two FAULTED THE KERNEL. The two are the cut's:
+  - **The planar decoder's buffer is not on the identity map.** The switch
+    moves it to `COLD_RAM` and then `MEGA_RAM` - rungs PAST `.cold`'s
+    segment - and `vga_blit_prow` loaded `[rom_vgabw]`, which on kern_mega
+    was its own immediate. Widening the map to `MEGA_RAM` would have been
+    ~2.7KB of GDT; instead a scratch of its own, `MEGA_SEL_VB`, in the
+    padding beside `MEGA_SEL_FD`, aimed by `mega_vbaimf` wherever the
+    switch puts the buffer, and `vga_blit_prow` loads `[mega_vbsel]` on
+    kern_mega (`rom_vgabw` a word of its own there, the floor's alone).
+    Solitaire's and WireBall's first blit; Paint's canvas the third check.
+  - **The parts standard does segment arithmetic on the carve**, which has
+    been a selector since 5.2, so every package with parts closed at its
+    first load (Scribe, Word, Skies, Pixelstein - its loaders - and
+    Sheet). Converted in `apps/os88partsbody.inc`, on every kernel and
+    with no `PKG_MEGA` arm: `op_seg` keeps its arithmetic in PARAGRAPHS
+    INTO THE CARVE and asks `OSAPI_SEG`'s `SEG_SUB` for the answer (the
+    sum on every real-mode kernel, a SUB selector tied to the carve on
+    kern_mega), `op_cseg` asks `SEG_SUBC` for a pair, and an
+    `OP_SUBV_RAW` mode answers the paragraphs themselves (plus one, so 0
+    stays "not there") for layout arithmetic - `op_scrub`, the loaders'
+    checks and `OS88_REHOME`, which now takes the program part's INDEX.
+    The load-time walks (`op_read`, `op_unpack`, `op_scrub`, `op_fetch`)
+    hold paragraph offsets and load through `op_at`: a new verb,
+    `SEG_AT`, re-aims one of two windows at a claim's base plus
+    paragraphs on kern_mega, and every real-mode kernel REFUSES it with
+    every register kept, so `op_at`'s fallback is the sum and kern_big
+    and kern_small carry no byte for it. Why a verb and not `SEG_LIN` +
+    `SEG_WIN` (48 bytes) or bound windows (164): WireFleet sat at
+    APP_MAX_SIZE with 46 bytes of slack, so the library's whole cost to
+    it had to fit there - it is 21 bytes for `op_at` and 3 of bss, the
+    unnamed word at `OP_BSS_AT + 76` holding `op_wa`. The kernel's half of
+    a re-home: `mem_reown_x` takes the SUB selector as its paragraph and
+    the loader runs the program in the trimmed carve's own selector
+    (`[mega_rhval]`). `crt0`'s overlay binder asks for its module as a
+    pair. Sheet's literal bss is +3.
+  - **Sheet** carved its note and table lists as the border claim plus
+    paragraphs: `SEG_SUB` now, which moves with the claim; its two modules'
+    far vectors take `op_cseg`'s code half rather than a data selector
+    (a #GP per call into a module otherwise).
+  - **A defect older than this round, found by Fractal**: an OS88_HIGHMEM
+    pool claim regrown into a NEW block (`mega_claimregrowf`'s `.copy`)
+    swapped the caller's selector onto the new block's entry but re-aimed it
+    only after freeing the old block - and freeing a block frees every
+    descriptor still based in it (`mx_dfree`), the caller's included. The
+    re-aim comes first now. Fractal's run cache doubling was the first
+    caller to reach it.
+  - Re-swept: all twelve run; kern_big and kern_small byte-identical with a
+    clean build of the same commit.
+
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to
   reopen the end state:
