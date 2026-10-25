@@ -1465,6 +1465,32 @@ hbm_findimg:
 ;      left at the root of [hb_vol]: a caller standing elsewhere brackets
 ;      this with drv_vol_bank/back.
 ; -----------------------------------------------------------------------------
+%ifdef KERN_MEGA
+; hbm_pses_x - ES = a window at the PHYSICAL paragraph CX: the kernel's
+; MEGA_SEL_XA re-aimed (mega_xdesc), since MC7.4 leaves no selector equal to
+; a conventional paragraph. hbm_psum's, a line at a time - the hibernate's
+; and the resume's sum, never a hot path. Every register but ES kept
+hbm_pses_x:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, cx
+    mov dx, cx
+    mov cl, 4
+    shl ax, cl
+    mov cl, 12
+    shr dx, cl
+    mov bx, MEGA_SEL_XA
+    call KERNEL_SEG:mega_xdescf
+    mov es, bx
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+%endif
 ; -----------------------------------------------------------------------------
 ; hbm_psum - the sparse sum over what the PROGRAMS hold (SPEC.md 87.4.1)
 ; in:  DS = KERNEL_SEG
@@ -1500,10 +1526,6 @@ hbm_psum:
     jcxz .next
     cmp cx, [mem_top]
     jae .next
-%ifdef KERN_MEGA
-    test cl, 4                  ; a selector: above 1MB
-    jnz .next
-%endif
     mov di, [ss:si+MC_OWN]
     cmp di, INST_MAX
     jae .next                   ; the kernel's, a driver's
@@ -1523,7 +1545,11 @@ hbm_psum:
 .line:
     cmp bx, 16
     jb .next                    ; a part line at the end is not sampled
+%ifdef KERN_MEGA
+    call hbm_pses_x             ; MC_SEG is the PHYSICAL paragraph on
+%else                           ; kern_mega too (MC7.4), and no selector
     mov es, cx
+%endif
     add ax, [es:bp]
     add dx, ax
     add bp, 34
@@ -3683,9 +3709,9 @@ hbm_xwconv:
     jz .fix
     push cx
     push ax
-    mov es, ax
-    call hbm_nimg
-    xor bx, bx
+    KSEG es, ax, MEGA_SEL_K4    ; a scratch aimed at the chunk: n x 800h is
+    call hbm_nimg               ; no selector since MC7's step 6 cut the
+    xor bx, bx                  ; GDT's identity map to the kernel's own
     mov cx, HBX_CHUNK
     call COLD_SEG:dwf_dskw_append
     pop ax
@@ -4002,14 +4028,13 @@ hbm_xbounce:
     call hbm_cb                 ; DX = its segment
     jc .out
     mov es, dx
-    mov ax, dx
-    mov cl, 4
-    shl ax, cl
+    push dx
+    mov ax, dx                  ; its LINEAR base off the descriptor: DX is
+    call MEGA_SEL_CODE:mega_selbasef ; a selector since MC7.4, not a paragraph
     mov [mega_hbbl], ax
-    mov ax, dx
-    mov cl, 12
-    shr ax, cl
-    mov [mega_hbbl + 2], ax
+    mov [mega_hbbl + 2], dx
+    pop dx
+    clc
 .out:
     ret
 

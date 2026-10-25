@@ -748,6 +748,15 @@ reset in the ROM, 64 sectors a call at most. The stub's tail rests on
   and every resume (`FONT_F000`, `[k_vsf]` on kern_mega, and the heap copy
   told from a ROM by `mega_s2segf`). `megakbtrip`, `megadosp` and
   `megahiber` all cross both and had not run since step 6.
+- **And three more on the hibernate's own path**, found by running
+  `megahiber` before building (b) on it: `hbm_psum` loaded each claim's
+  `MC_SEG` - the PHYSICAL paragraph, which MC7.4 keeps physical - into ES
+  (`hbm_pses_x` aims `MEGA_SEL_XA` there now); `hbm_xwconv` appended its
+  chunks from identity segments n x 800h (a `KSEG` scratch, K4); and
+  `hbm_xbounce` took the bounce's linear base as DX x 16 where DX is a
+  selector, which would have copied the extended section from the wrong
+  place without a fault (`mega_selbasef`). `megahiber`, `megap2hiber`,
+  `megakbtrip` (10/10) and `megadosp` all pass after.
 - Cost: kern_mega `.text`/`.bss` +4 (`[mega_mxflr]`, `[mega_dhkb]`,
   `[mega_dhfree]` less the HMA record's code), `.mega` +~170; kern_big and
   kern_small byte-identical (`kernel.sys` and `HIBER.DRV` compared at one
