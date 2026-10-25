@@ -87,7 +87,9 @@ ROW = (180, 128)
 
 def qmp(sock, *cmds):
     """tools/qmp.py's work, in process (a Python start a call was most of a
-    memory read's cost); a failure is the same SystemExit as before."""
+    memory read's cost); a failure is the same SystemExit as before. A plain
+    `sendkey` is CONFIRMED there (tools/qmp.py `key`, SOAK-PARALLEL.md 17.5).
+    """
     import traceback
     t = os.path.join(ROOT, "tools")
     if t not in sys.path:
@@ -173,6 +175,21 @@ def release(sock):
 
 
 def goto(sock, x, y):
+    """CLOSED LOOP when the kernel's pointer words can be read
+    (os88qemu.mouse_to: send the delta, wait for `mouse_x` to MOVE, repeat
+    until it is there), which is what a click needs to land on a row it
+    named. tools/mouse.py, the fallback, DEAD-RECKONS - it pins against the
+    clamp and walks back on host sleeps - and a guest starved past those
+    sleeps took a double-click somewhere else, after which the row timed out
+    waiting for a listing that was never asked for (rdxms, httpmountname,
+    docs/plans/SOAK-PARALLEL.md 17.5)."""
+    try:
+        import os88qemu
+        os88qemu.mouse_to(os88qemu._Sock(sock), sym,
+                          lambda *c: qmp(sock, *c), x, y)
+        return
+    except BaseException:               # noqa: BLE001 - no map, a kernel
+        pass                            # without the words: dead-reckon
     release(sock)
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mouse.py"), sock,
                     "to", str(x), str(y)], capture_output=True, cwd=ROOT)

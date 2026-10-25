@@ -58,6 +58,11 @@ VMPORT ?= off
 QEMUMACH := -machine pc,vmport=$(VMPORT)
 QEMU  := qemu-system-i386
 QMP_SOCK ?= build/qmp.sock
+# ...and its PIDFILE, a variable for the same reason: a second instance needs
+# a pair of its own. The suite does not launch through `make test` any more
+# (tests/os88qemu.py make_test, docs/plans/SOAK-PARALLEL.md 17) - this is for
+# two machines started by hand: `make test QMP_SOCK=/tmp/a.sock QEMU_PID=/tmp/a.pid`.
+QEMU_PID ?= build/qemu.pid
 BUILD := build
 IMG   := $(BUILD)/os8088.img
 # ...and the 1.2MB 5.25" HD pair (SPEC.md 19), which is the AT-class machine
@@ -17420,7 +17425,7 @@ endif
 test: $(TESTIMG) $(TESTAPPS) $(HDDIMG)
 	$(QEMU) $(QEMUMACH) -drive file=$(TESTIMG),format=raw,if=floppy -boot $(TESTBOOT) $(MOUSE) \
 		-drive file=$(TESTAPPS),format=raw,if=floppy,index=1 $(HDDDEV) \
-		-display none -qmp unix:$(QMP_SOCK),server,nowait -daemonize -pidfile build/qemu.pid \
+		-display none -qmp unix:$(QMP_SOCK),server,nowait -daemonize -pidfile $(QEMU_PID) \
 		$(CARDAUDIO) $(ADLIBDEV) $(SBDEV) $(DEVCARD) $(ETHERDEV)
 
 # `make test` plus audio capture (SPEC.md 34): the PC speaker renders into
@@ -17430,7 +17435,7 @@ test: $(TESTIMG) $(TESTAPPS) $(HDDIMG)
 test-snd: $(IMG) $(TESTAPPS)
 	$(QEMU) $(QEMUMACH) -drive file=$(IMG),format=raw,if=floppy -boot a $(MOUSE) \
 		-drive file=$(TESTAPPS),format=raw,if=floppy,index=1 \
-		-display none -qmp unix:$(QMP_SOCK),server,nowait -daemonize -pidfile build/qemu.pid \
+		-display none -qmp unix:$(QMP_SOCK),server,nowait -daemonize -pidfile $(QEMU_PID) \
 		-audiodev wav,id=snd,path=build/snd.wav -machine pcspk-audiodev=snd \
 		$(ADLIBDEV) $(SBDEV)
 

@@ -48,6 +48,7 @@ os.chdir(ROOT)
 import httpmount as HM                                        # noqa: E402
 import netinst as NI                                          # noqa: E402
 import os88build                                              # noqa: E402
+import os88qemu                                              # noqa: E402
 import xmcheck                                                # noqa: E402
 
 PORT = NI.PORT
@@ -113,6 +114,7 @@ class Server(object):
         self.gets = []
         self.s = socket.socket()
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        os88qemu.lease_port(PORT)       # (SOAK-PARALLEL.md 17.3)
         self.s.bind(("127.0.0.1", PORT))
         self.s.listen(4)
         threading.Thread(target=self.loop, daemon=True).start()
