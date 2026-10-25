@@ -16038,6 +16038,27 @@ SOAK = [
         "its I_SPTR comes back a conventional segment. 60s is 41 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
+    Row("megamod", "soak", py("tests/megamod.py"), 160.0,
+        "KERN-MEGA-MEMORY-PLAN MC7: a module and a wavetable bank over 64KB "
+        "under kern_mega, where every claim is an LDT selector and the "
+        "players' old `blobseg + N` granule sums name other descriptors. "
+        "Bochs with an SB16, six legs: the shipped Tracker and its kern_mega "
+        "arm on BEVERLY.MOD (samples to 113KB), the shipped Tracker on a "
+        "generated 130-pattern module whose orders read all three pattern "
+        "windows (each pattern's row-0 volume read back against the pattern "
+        "the replayer says it is on), ModPlug (`make modplug`) through its "
+        "chooser, and MIDIRack shipped and arm on a bank padded so its "
+        "samples sit past 120KB. Every SEG_SUB window's descriptor base is "
+        "checked against the file, no kern_mega FAULT/CLOSED may be logged, "
+        "and the card's capture must be music, not noise (MIDIRack's stream "
+        "is refused by SOUND.DRV on Bochs before and after this change: "
+        "SKIP for its card only). Red with the pre-MC7 packages (--pkg, "
+        "--src): CLOSED TRACKER 0D and CLOSED MIDIRack 0D. 146s measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/tracker.o88", "build/midirack.o88",
+               "build/modplug.o88", "build/megak/apps/tracker.o88",
+               "build/megak/apps/midirack.o88")),
     Row("megavidbig", "soak", py("tests/megavidbig.py"), 50.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.58: a BIGSP video (records past 32 "
         "KB, SPEC.md 98.1.4.1) played from XMS on kern_mega without a fault "

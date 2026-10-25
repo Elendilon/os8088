@@ -34,7 +34,9 @@ Nine assertions. Check 7 is the one no memory dump can make:
   2. `[trk_modseg]` CHANGED ADDRESS. Without it the rest is vacuous.
   3. The 116KB of module survived, hashed at the two addresses.
   4. `[mp_blobseg]` followed the claim.
-  5. All 31 `MS_SEG` sample bases followed, checked as deltas.
+  5. All 31 `MS_SEG` sample bases followed, checked as deltas - and the
+     pattern windows `mp_pwin` (KERN-MEGA-MEMORY-PLAN MC7), window 0 at the
+     blob + 64 paragraphs (MP_PSEG).
   6. All 4 channel `MP_SEG` followed.
   7. The replayer is STILL RUNNING afterwards - `mp_row` advances - which is
      the only check that says the worker came back from its park.
@@ -291,6 +293,12 @@ def main():
         ch0 = m.read(tk_seg * 16 + P["mp_chans"], MP_CHSZ * 4)
         ds0 = [(u16(smp0, i * MS_SZ + MS_SEG) - base) & 0xFFFF for i in range(31)]
         dc0 = [(u16(ch0, i * MP_CHSZ + MP_SEG) - base) & 0xFFFF for i in range(4)]
+        # THE PATTERN WINDOWS (KERN-MEGA-MEMORY-PLAN MC7): ceil(P / 64) SEG_SUBs
+        # of the blob, the claim plus a constant on this real-mode kernel - the
+        # ones the replayer reads, as deltas, like the sample bases
+        nwin = (tword("mp_npat") + 63) // 64
+        pw0 = m.read(tk_seg * 16 + P["mp_pwin"], 8)
+        dw0 = [(u16(pw0, 2 * i) - base) & 0xFFFF for i in range(nwin)]
         row0 = tword("mp_row")
         print("module md5 %s  blobseg %04x  row %d"
               % (h0[:12], tword("mp_blobseg"), row0))
@@ -401,6 +409,13 @@ def main():
         ds1 = [(u16(smp1, i * MS_SZ + MS_SEG) - nb) & 0xFFFF for i in range(31)]
         print("  5 31 sample bases     %s" % ("OK" if ds0 == ds1 else "STALE"))
         bad += ds0 != ds1
+        pw1 = m.read(tk_seg * 16 + P["mp_pwin"], 8)
+        dw1 = [(u16(pw1, 2 * i) - nb) & 0xFFFF for i in range(nwin)]
+        okw = dw0 == dw1 and dw0 and dw0[0] == 64
+        print("  5b %d pattern windows %s  (%s)"
+              % (nwin, "OK" if okw else "STALE",
+                 " ".join("+%04x" % d for d in dw1)))
+        bad += not okw
 
         # MP_SEG is LIVE STATE, not a constant: a playing module rewrites it
         # every time a channel starts a note, so comparing it across time is
