@@ -34,6 +34,7 @@ import bisect
 import collections
 import os
 import re
+import struct
 import sys
 import tempfile
 
@@ -153,6 +154,28 @@ def profile(b, seg, core, n, view=0):
             lin.append((a, nm))
     lin.sort()
     lk = [a for a, _ in lin]
+    imgs = {}                                   # a precompiled package's code
+    if "realdmgaot" in LST:                     #   images (REALDMG-SPEC 20.10)
+        import gbaotpkg
+        aoff = gbaotpkg.equ_off(LST, "rw_aseg")
+        bss = b.memr(seg * 16 + aoff, 2 * 14 + 1)
+        imgs = {int.from_bytes(bss[2*i:2*i+2], "little"): i for i in range(14)}
+        imgs.pop(0, None)
+        def w(o):
+            return int.from_bytes(bss[o:o + 2], "little")
+        bss = b.memr(seg * 16 + aoff, 48)
+        tseg, lseg, ln = w(35), w(39), w(41)     # rw_atseg, rw_alseg, rw_aln
+        ents = b.memr(tseg * 16, 0x4000) + (b.memr(lseg * 16, ln * 8) if lseg else b"")
+        ablk = collections.defaultdict(list)    # image segment -> (offset, key, PC)
+        for k in range(0, len(ents) - 7, 8):
+            pc, key, _, off, sg = struct.unpack_from("<HBBHH", ents, k)
+            if off and sg in imgs:
+                ablk[sg].append((off, key, pc))
+        for v in ablk.values():
+            v.sort()
+        print("profile: %d code images in memory (of %d claimed): %s" % (
+            len(imgs), bss[28], " ".join("%04X" % s for s in sorted(imgs))))
+    aper = collections.Counter()
     hits = collections.Counter()
     where = collections.Counter()
     wpc = collections.Counter()
@@ -161,7 +184,14 @@ def profile(b, seg, core, n, view=0):
         b.cmd("step 1")
         r = b.cmd("regs")
         ip = r["cs_base"] + (r["eip"] & 0xFFFF)
-        if seg*16 <= ip < seg*16 + size:
+        if (r["cs_base"] >> 4) in imgs:
+            sg = r["cs_base"] >> 4
+            hits["aot img%d" % imgs[sg]] += 1
+            v = ablk.get(sg, [])
+            k = bisect.bisect_right(v, (r["eip"] & 0xFFFF, 256, 0)) - 1
+            if k >= 0:
+                aper["%02X:%04X" % (v[k][1], v[k][2])] += 1
+        elif seg*16 <= ip < seg*16 + size:
             k = bisect.bisect_right(pk, ip - seg*16) - 1
             hits["pkg " + (psyms[k][1] if k >= 0 else "?")] += 1
         elif jit and jit*16 <= ip < jit*16 + 0x10000 and ((ip - jit*16) >> 8) in tails:
@@ -220,6 +250,9 @@ def profile(b, seg, core, n, view=0):
                     print("block %s at %04X, %d bytes:" % (k0, o, len(code)))
                     for ln in dis.splitlines():
                         print("%4s %s" % (cnt.get(int(ln[:8], 16), ""), ln))
+    if aper:
+        print("precompiled samples by block (key:PC), of %d: " % sum(aper.values()) + "  ".join(
+            "%s %.1f%%" % (k, 100.0 * v / sum(aper.values())) for k, v in aper.most_common(20)))
     if where:
         print("core samples by the Game Boy PC (SI): " + "  ".join(
             "%s %.1f%%" % (k, 100.0*v/sum(where.values())) for k, v in where.most_common()))

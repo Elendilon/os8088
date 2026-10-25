@@ -140,11 +140,22 @@ def leaders(rom, found, extra, side=False):
     for b, pc in lead:
         if b is None:                    # bank 0 into 4000-7FFF of no known bank:
             for bb in range(1, rom.banks):   # every bank the walk found it in
-                if (bb, pc) in found:
+                if (bb, pc) in found and fits(found, bb, pc):
                     out.add((bb, pc))
-        elif (b, pc) in found and pc < 0x8000:
+        elif (b, pc) in found and pc < 0x8000 and fits(found, b, pc):
             out.add((b, pc))
     return out
+
+
+def fits(found, b, pc):
+    """the block's first instruction inside its own region: one whose bytes
+    run past 3FFFh or 7FFFh is the interpreter's. rt_translate copies the
+    region's bytes only, so it emits NO instruction there and a fall exit to
+    its own PC, which the host prelinks to itself - Looney Tunes' JP NZ at
+    3FFE, whose high byte is the switched-in bank's, put there by a miss,
+    spun the machine for ever (REALDMG-SPEC 20.3)"""
+    op = found[(b, pc)]
+    return pc + (2 if op == 0xCB else G.LEN[op]) <= (0x4000 if pc < 0x4000 else 0x8000)
 
 
 # --- the machine ------------------------------------------------------------
@@ -399,14 +410,20 @@ def slot_of(pc, key, hmask):
     return ((bh << 8) | bl) * 8
 
 
-def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=None):
+def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=None,
+              hram=None):
     """Every entry (bank, pc) translated, in rounds of two cache segments
     (the first round also fills the core's holes), the code's banks mapped a
     group at a time when they do not all fit. Returns the image.
 
     With `heat` ({(pc, key): entries}, heat_run's) the hottest blocks are
     translated first - the first images hold them, and those are what a
-    small heap keeps - and claim the table first (REALDMG-SPEC 20.11)."""
+    small heap keeps - and claim the table first (REALDMG-SPEC 20.11).
+
+    With `hram` ({pc: HRAM's 128 bytes}, load_heat's) those PCs are made
+    blocks too, from HRAM as the hottest of them found it: each one GUARDED,
+    its bytes compared with HRAM as it is at every entry and the interpreter
+    taking it when they differ (REALDMG-SPEC 20.5)."""
     m = Machine(build, rom, defines)
     s = m.sym
     CORE, VIEW, HASH, PRF, SEGA, SEGB, ROMSEG = 0x1000, 0x2000, 0x3000, 0x4000, 0x5000, 0x6000, 0x7000
@@ -414,6 +431,7 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
     m.set_slots(0x7400, MEM_END // 16)
     m.prefer = sorted({b for b, pc in entries if pc >= 0x4000})
     keyed = [(pc, 0xFF if pc < 0x4000 else b) for b, pc in sorted(entries)]
+    keyed += [(pc, 0xFF) for pc in sorted(hram or {})]
     n = len(keyed)
     mask = 1
     while mask < n:
@@ -433,14 +451,17 @@ def translate(build, rom, entries, hmask=31, log=print, defines=(), rhm=7, heat=
         for i, k in enumerate(banks):
             bmp[k] = i + 1
         for pc, key in keyed:
-            if key != 0xFF and not bmp[key]:
-                continue
+            if pc >= 0x8000 or (key != 0xFF and not bmp[key]):
+                continue                   # (HRAM's: no bitmap, rt_aotstop's)
             base = 0x100 if key == 0xFF else 0x100 + 0x800 * bmp[key]
             o = pc & 0x3FFF
             bmp[base + (o >> 3)] |= 1 << (o & 7)
         m.w(BMP, 0, bmp.ljust(0x8000, b"\0"))
     m.p(P_BMP, BMP)
     m.init(2, VIEW, CORE, HASH, SEGA, SEGB, ROMSEG, prf=PRF, prfmask=mask - 1, hmask=hmask, noc=0)
+    if hram:                               # HRAM as the hottest routine's miss
+        top = max(hram, key=lambda pc: ((heat or {}).get((pc, 0xFF), 0), -pc))
+        m.w(VIEW, 0xFF80, hram[top])
     # the code's banks in groups that fit beside the translator: each group
     # mapped in turn, and only its entries (and bank 0's) offered
     width = min(len(m.slots), 14)          # (0x100 + 0x800 x 15 fits the 32KB)
@@ -756,11 +777,14 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=Non
                 from unicorn import UC_HOOK_CODE   # interpreter: the walk's misses
                 X = m.X
                 m.miss = collections.Counter()
+                m.hram = {}                 # an HRAM PC's routine, as HRAM held it
 
                 def miss(uc, addr, size, ud):
                     si = uc.reg_read(X.UC_X86_REG_SI)
                     dh = uc.reg_read(X.UC_X86_REG_DX) >> 8
                     m.miss[(si, dh)] += 1
+                    if si >= 0xFF80 and (si, dh) not in m.hram:
+                        m.hram[(si, dh)] = bytes(uc.mem_read(VIEW * 16 + 0xFF80, 0x80))
                 at = DRV_SEG * 16 + m.pr(P_AOTINT)
                 m.u.hook_add(UC_HOOK_CODE, miss, begin=at, end=at)
     else:
@@ -807,8 +831,10 @@ def heat_run(build, rom, img, frames, joy=None, state=None, log=print):
         if f and f % 500 == 0:
             log("gbaot: heat, frame %d" % f)
     blocks = {"%02X:%04X" % (kv[1], kv[0]): n for kv, n in m.ran.items() if isinstance(kv, tuple)}
-    misses = {"%02X:%04X" % (k, pc): n for (pc, k), n in m.miss.items() if pc < 0x8000}
-    return {"frames": frames, "blocks": blocks, "misses": misses}
+    misses = {"%02X:%04X" % (k, pc): n for (pc, k), n in m.miss.items()
+              if pc < 0x8000 or pc >= 0xFF80}
+    hram = {"%02X:%04X" % (k, pc): v.hex() for (pc, k), v in m.hram.items()}
+    return {"frames": frames, "blocks": blocks, "misses": misses, "hram": hram}
 
 
 # --- commands ---------------------------------------------------------------
@@ -824,18 +850,32 @@ def cmd_cover(a):
     print("  by bank: " + "  ".join("%02X: %d" % kv for kv in sorted(banks.items())))
 
 
-def load_heat(paths):
+def load_heat(paths, hram=None):
     """(block heat {(pc, key): n}, the misses as entries [(bank, pc)]) out of
-    one or more heat files (cmd_heat's), summed"""
+    one or more heat files (cmd_heat's), summed. An HRAM miss is no walk's
+    entry: it goes into `hram` instead ({pc: HRAM's 128 bytes as the miss
+    found them}), when one is passed, for translate to make it a guarded
+    block (REALDMG-SPEC 20.5)"""
     hb, extra = collections.Counter(), set()
     for p in paths:
         h = json.load(open(p))
         for k, n in h["blocks"].items():
             key, pc = k.split(":")
             hb[(int(pc, 16), int(key, 16))] += n
-        for k in h["misses"]:
+        for k, v in h.get("hram", {}).items():
+            pc = int(k.split(":")[1], 16)
+            if hram is not None and pc not in hram:
+                hram[pc] = bytes.fromhex(v)
+        for k, n in h["misses"].items():
             key, pc = (int(x, 16) for x in k.split(":"))
+            if pc >= 0xFF80:
+                hb[(pc, 0xFF)] += n
+                continue
             extra.add((0 if key == 0xFF else key, pc))
+            hb[(pc, key)] += n             # ...and its entries are the block's: a
+                                           #   miss counted only as a miss was
+                                           #   placed COLD, and interpreted again
+                                           #   wherever its image was not loaded
     return dict(hb), extra
 
 
@@ -867,13 +907,16 @@ def cmd_build(a):
     found, extra = walk(rom)
     heat = None
     if a.heat:
-        heat, more = load_heat(a.heat)
-        extra = set(extra) | more
-        print("gbaot: heat from %d file(s): %d blocks counted, %d more block starts" % (
-            len(a.heat), len(heat), len(more)))
+        hram = {}
+        heat, more = load_heat(a.heat, hram)
+        found, extra = walk(rom, set(extra) | more)   # (from them: leaders keeps
+                                                       #   only what the walk found)
+        print("gbaot: heat from %d file(s): %d blocks counted, %d more block starts, "
+              "%d in HRAM" % (len(a.heat), len(heat), len(more), len(hram)))
     lead = leaders(rom, found, extra, side=a.side)
     print("gbaot: %d instructions, %d block starts" % (len(found), len(lead)))
-    img = translate(a.build, rom, lead, hmask=a.hmask, rhm=a.table // 2 - 1, heat=heat)
+    img = translate(a.build, rom, lead, hmask=a.hmask, rhm=a.table // 2 - 1, heat=heat,
+                    hram=hram if a.heat else None)
     save(img, a.out, rom)
     code = sum(len(s) for s in img["segs"])
     print("gbaot: %d blocks in %d segments (the core and %d more), %d dropped; %d code bytes, "
@@ -1105,11 +1148,14 @@ def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check
             for i, h in enumerate(heats):
                 paths.append(os.path.join(work, "h%d.json" % i))
                 json.dump(h, open(paths[-1], "w"))
-            heat, more = load_heat(paths)
-            log("gbaot: %d blocks counted, %d more block starts; translating again, the "
-                "hottest first" % (len(heat), len(more)))
-            lead = leaders(rom, found, set(extra) | more)
-            img = translate(build, rom, lead, log=log, heat=heat)
+            hram = {}
+            heat, more = load_heat(paths, hram)
+            log("gbaot: %d blocks counted, %d more block starts, %d in HRAM; translating "
+                "again, the hottest first" % (len(heat), len(more), len(hram)))
+            found, extra = walk(rom, set(extra) | more)   # the misses WALKED: a
+            lead = leaders(rom, found, extra)               #   start the walk never
+            img = translate(build, rom, lead, log=log, heat=heat,   # found is dropped
+                            hram=hram)
         d1 = os.path.join(work, "final")
         save(img, d1, rom)
         package(build, load(d1), rom, out, romname, log=log, embed=embed)
