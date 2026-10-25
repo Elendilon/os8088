@@ -574,8 +574,8 @@ before it: STILL OPEN after 20 s; green: closed in 0.2-0.8 emulated s).
 
 **On kern_mega the cartridge is not copied down at all.** kern_mega's arm of
 the package (`make mega`'s `build/megak/apps/realdmg.o88`, assembled with
-`PKG_MEGA`, SPEC.md 20.18; the shipped build runs the bank cache above as
-before, and is correct there since 16.2.4) plans, under `CPU_F_PM`, before
+`PKG_MEGA`, SPEC.md 20.18; the shipped build REFUSES there since
+KERN-MEGA-MEMORY-PLAN MC7, 10.3.2) plans, under `CPU_F_PM`, before
 anything else: when the pool has room (`OSAPI_XMEM_CAPS`), banks 1 on go into
 one `OSAPI_XMEM_ALLOC` block and **each is addressed in place through a
 selector of its own**, so a switch is a pointer change as it is for a
@@ -603,8 +603,10 @@ cartridge in one claim, and no bank is ever fetched (`rw_xplan`,
   then refuses with the room message rather than fall back). Each of those
   goes to the bank cache or one claim as before.
 - **A move**: nothing to put right - a pool block never moves its selectors,
-  and the carve's walk (`rw_partsmv`) leaves a word with bit 2 set alone (a
-  heap segment is a multiple of 32; an LDT selector never is).
+  and under `CPU_F_PM` a move of any claim is a REBASE that calls no
+  relocation proc at all (MC7, 10.3.2); in real mode the carve's walk
+  (`rw_partsmv`) leaves a word with bit 2 set alone (a heap segment is a
+  multiple of 32; an LDT selector never is).
 - **MEASURED** (Bochs 2.7, 16MB, kern_mega with `MEGATRAP=1`, the attract
   of each, 40 s): Kirby's Dream Land (256KB, 16 banks) and Looney Tunes
   (1MB, 64 banks) in place, `[rw_nmiss]` 0, the second cache segment and
@@ -614,6 +616,57 @@ cartridge in one claim, and no bank is ever fetched (`rw_xplan`,
   `OSAPI_XMEM_RUN`'s. A run at 16KB - one more argument to that cell, in
   `.mega` - would hold the cartridge once instead of twice; not taken, so
   that this needs no kernel change.
+
+### 10.3.2 kern_mega after MC7: every "claim + N" asked, the shipped build refused
+
+**KERN-MEGA-MEMORY-PLAN MC7 made every claim a selector** under `CPU_F_PM`,
+conventional ones included: a code/data PAIR (the code half 8 below the data
+half the claim answers), the identity aliases `(S >> 2) | 4` gone, and a
+compactor move a REBASE that calls no relocation proc. A paragraph SUM on a
+claim's value names some other descriptor, and RealDMG was built of them -
+the first was `CLOSED REALDMG 0D at 11AC:0778 err 2224`, `rw_jpart`'s `mov
+es, bp` with BP the recompiler's claim + 1000h.
+
+- **The shipped build refuses there** (`OS88_MEGA_REFUSE` in `rw_entry`,
+  SPEC.md 20.18): "Use the MEGA apps disk", before anything is claimed. It
+  is +34 bytes, the play path at its old parity (two `nop`s, `os88rdiff`
+  says every run moved evenly); in return `rw_csel`'s `OSAPI_MEM_CODESEL`
+  is the arm's alone (on every kernel the shipped build runs on a segment
+  IS its code selector), and `tests/megapkg.txt` has no RealDMG line. The
+  precompiled build (20.14) refused already.
+- **The arm asks `OSAPI_SEG` instead** (`rw_sub` = `SEG_SUB`, `rw_subc` =
+  `SEG_SUBC` for code), which a real-mode kernel answers with the very sum,
+  so the arm on one is the old arithmetic and `rw_mreloc`'s procs still put
+  the sums right after a move:
+
+| the sum it was | what the arm holds now |
+|---|---|
+| the frames: `[rw_pseg]` + `RW_PBUF / 16` | `[rw_fseg]` a `SEG_SUB` |
+| the recompiler's part, claim + 1000h (+ the table) | a `SEG_SUBC` pair (`rw_jsegs`); `rw_csel` answers its code half, 8 below |
+| the block table at claim + 1000h, when the pool had no 64KB for it | a `SEG_SUB`, `[rw_jtsub]` (`rw_jitsegs`) |
+| the extra tiers, B + 1000h, + 2000h... (16.2.5) | a `SEG_SUBC` pair each (`rw_jitxset`) |
+| the core, `op_seg` 0 | `op_cseg` 0 (`OP_WANT_CSEG`): a pair, so the far vectors name its code half |
+| bank 0's table word, the view - 400h | a `SEG_SUB` on the carve (`rw_b0set`); `rdg_setbank`'s fallback reads the table's word rather than doing the sum |
+| a cartridge in ONE claim: bank n at claim + (n - 1) x 400h | a `SEG_SUB` a bank (`rw_pmfill`, through `rdg_nres` / `rdg_bfill`) |
+| cartridge RAM bank k at `S_RAMSEG` + k x 200h | an OFFSET into its one claim, k x 2000h (`rdg_rambank` answers ES:DI) - every build, the claim being 33KB at most |
+
+- **The bank cache is refused under `CPU_F_PM`**: its slot 0's word is 400h
+  BELOW the slots' claim (`rw_bfill`), a base no selector over the claim can
+  name. `rw_plan` goes to one claim when the banks cannot go in place
+  (10.3.1: a machine with no extended memory, or a pool shorter than twice
+  the cartridge), so on kern_mega a cartridge over `RW_ROMMAX_KB` needs the
+  pool.
+- **What it costs is LDT entries**: one a bank (in place, already; one claim,
+  now), a pair a tier and for the part, one each for the frames, the table
+  and bank 0's window. An extra tier's pair is based in B past its first
+  64KB, so a B shrunk (`rw_jitxfree`) and grown again somewhere else asks
+  new ones; the old go with B or with the instance.
+- **MEASURED** (Bochs 2.7, kern_mega with `MEGATRAP=1`, `tests/rdgmega.py`):
+  the shipped build refuses; the arm passes blargg's `cpu_instrs`, all
+  eleven, under the recompiler with its banks in place (bank 1's window
+  based at linear FB9000h) and, rebuilt `RW_NOXPLAN`, with the cartridge in
+  one conventional claim (051000h) - each with 0 traps charged to the core
+  or a cache and 94 of the package's own at init.
 
 ### 10.4 Save states
 
@@ -2281,7 +2334,9 @@ is in the tiers that stay.
 
 On kern_mega (docs/plans/KERN-MEGA-PLAN.md) a segment is a SELECTOR, and a
 claim's segment S is two of them: S itself, a writable DATA segment, and
-`(S >> 2) | 4`, its read-only CODE alias. A far jump through S loads a data
+its read-only CODE half - `(S >> 2) | 4` when this was written, S - 8 since
+KERN-MEGA-MEMORY-PLAN MC7, which also made every "claim + N" a selector of
+its own (10.3.2). A far jump through S loads a data
 selector into CS, which is a #GP; the kernel completes it (`mega_gpfix`), and
 a write through CS is a #GP it completes too (`mega_gpw`). Both are correct
 and both cost an exception, ~1,200 clocks on a 286 - and **inside the core
@@ -2354,7 +2409,9 @@ selector, and every one **written through** as its data segment:
   docs/reports/REALDMG-MEGA-2026-10-25.md has the record. `tests/rdgmega.py`
   is the row.
 - **Cost**: REALDMG.O88 +115 bytes on disk (the image +128, the recompiler's
-  part +120, uncompressed), a line in tests/megapkg.txt.
+  part +120, uncompressed). Since 10.3.2 the shipped build refuses on
+  kern_mega and `rw_csel`'s `OSAPI_MEM_CODESEL` is the arm's alone, so
+  tests/megapkg.txt carries no line for it.
 
 ### 16.2.5 Extra tiers: kern_mega's arm
 
@@ -2395,7 +2452,8 @@ tier 3 on, in the same turn (0, the core's holes, 2, 3, 4... 0 again).
   (`[rw_bcache]` 2) and loaded, and after everything else of the game's -
   its RAM, its profile - so they take what is LEFT. They are **cache B's own
   claim grown** (`OSAPI_MEM_REGROW`) to 1 + k segments, the extra tiers at
-  B + 1000h, B + 2000h..., while **`RW_XRESKB` = 32KB** stays free beside
+  B + 1000h, B + 2000h... (under `CPU_F_PM` a `SEG_SUBC` pair each, 10.3.2),
+  while **`RW_XRESKB` = 32KB** stays free beside
   them, with the floor at 0: free memory only, no cache shed for them.
   - **One claim and not one a tier, because a claim RECORD is the scarce
     thing**: a package holds `MEM_OWNER_MAX` = 8, a game in the arm holds
@@ -2408,10 +2466,11 @@ tier 3 on, in the same turn (0, the core's holes, 2, 3, 4... 0 again).
     Interpreter gives the cache back (`rw_jfree`) - B shrunk to 64KB in
     place (`rw_jitxfree`) - and with the instance. The way back to the
     recompiler grows it again (`rw_jitprep`).
-- **A move** of B moves them with it: `rw_mreloc` puts their segments
-  right off B's new base (`rw_jitxset`) and, the core running over B,
-  flushes as before (`rw_mjit`: `rt_init` and `rt_more` over them all
-  again).
+- **A move** of B moves them with it: in real mode `rw_mreloc` puts their
+  segments right off B's new base (`rw_jitxset`) and, the core running over
+  B, flushes as before (`rw_mjit`: `rt_init` and `rt_more` over them all
+  again); under `CPU_F_PM` the move rebases their selectors and nothing
+  runs (10.3.2).
 - **MEASURED** (86Box `286-mega`, 640KB conventional): see
   docs/reports/REALDMG-MEGA-TIERS-2026-10-25.md.
 

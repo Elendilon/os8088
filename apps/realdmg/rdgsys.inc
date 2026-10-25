@@ -1838,9 +1838,8 @@ rdg_ramout:
     call rdg_rtccap
     jmp short .r
 .bank:
-    call rdg_rambank                     ; ES = the bank
+    call rdg_rambank                     ; ES:DI = the bank
     mov si,0A000h
-    xor di,di
     mov cx,1000h
     cld
     rep movsw
@@ -1876,11 +1875,11 @@ rdg_ramin:
     jmp short .p
 .bank:
     call rdg_rambank
+    mov si,di
     push ds
     push es
     pop ds
     pop es
-    xor si,si
     mov di,0A000h
     mov cx,1000h
     rep movsw
@@ -1894,15 +1893,17 @@ rdg_ramin:
 .r:
     ret
 
-; rdg_rambank: AL = a bank, DS = view: ES = its 8KB in S_RAMSEG
+; rdg_rambank: AL = a bank, DS = view: ES:DI = its 8KB in S_RAMSEG - an
+; OFFSET into the one claim (32KB at most, and the clock's 1KB), never a sum
+; on its segment, which kern_mega makes a selector (REALDMG-SPEC 10.3.2)
 rdg_rambank:
     push ax
     push cx
-    and ax,0Fh
-    mov cl,9
-    shl ax,cl                           ; x 200h paragraphs
-    add ax,[S_RAMSEG]
-    mov es,ax
+    and ax,7
+    mov cl,13
+    shl ax,cl                           ; x 2000h bytes
+    mov di,ax
+    mov es,[S_RAMSEG]
     pop cx
     pop ax
     ret
@@ -2140,9 +2141,9 @@ rdg_setbank:
     or ax,ax
     jnz .in
 .none:
-    mov ax,[S_VIEW]                     ; (it could not: bank 0, not garbage)
-    sub ax,400h
-.in:
+    mov ax,[RDG_BTAB]                   ; (it could not: bank 0, not garbage -
+    nop                                 ;   the table's word, a selector where
+.in:                                    ;   the host made one; PARITY)
     pop bx
     mov [S_ROMX],ax
     mov dx,[S_PC]

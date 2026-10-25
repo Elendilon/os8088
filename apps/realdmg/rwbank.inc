@@ -55,6 +55,10 @@ rw_plan:
     jae .whole                      ; it all fits: one claim
 .cache:
     mov si, rw_s_big                ; (the refusal, should it come to one)
+%ifdef PKG_MEGA
+    cmp byte [rw_pm], 0             ; NO BANK CACHE UNDER CPU_F_PM: slot
+    jne .nocache                    ;   0's segment is 400h BELOW its claim
+%endif                              ;   (rw_bfill), which no selector names
     and cx, 0FFF0h                  ; whole banks: the probe answers a KB
     cmp cx, 32                      ;   over an exact size (SPEC.md
     jb .nocache                     ;   20.14.6.3), and the header says the
@@ -121,6 +125,10 @@ rw_plan:
 ; not here (real mode, one bank, or the pool short), the plan goes on as
 ; before. Keeps AX
 rw_xplan:
+%ifdef RW_NOXPLAN                   ; (tests/rdgmega.py's one-claim leg only,
+    stc                             ;   never shipped: the cartridge in one
+    ret                             ;   claim under CPU_F_PM, rw_pmfill's)
+%endif
     cmp byte [rw_pm], 0
     je .no
     mov cx, [rw_romkb]
@@ -387,6 +395,8 @@ rw_xfill:
     inc di
     inc di
     loop .f
+    mov ax, [cs:rw_b0]              ; ...and bank 0's, the view less 400h
+    mov [RDG_BTAB], ax              ;   as a selector (rw_b0set)
     pop di
     pop cx
     pop ax
@@ -394,6 +404,83 @@ rw_xfill:
 ; bank past the cartridge's end, as it does for a fetch that failed
 rw_xmiss:
     ret
+
+; rw_b0set - rw_start, kern_mega's arm under CPU_F_PM (REALDMG-SPEC
+; 10.3.2): the bank table's two words rdg_init cannot make, because each is
+; a SUM on a segment. Bank 0's ([rw_b0]) is the segment whose 4000h is the
+; view's 0000 - the view less 400h, inside the parts carve and below the
+; view's own selector, so a SEG_SUB on the carve; and a cartridge in ONE
+; claim has its banks 1 on at the claim + (n - 1) x 400h, which rw_pmfill
+; asks for at rdg_init's call (rdg_nres, rdg_bfill). The in-place arm's
+; rw_xfill takes [rw_b0] too. Every register kept
+rw_b0set:
+    cmp byte [rw_pm], 0
+    je .r
+    push ax
+    push dx
+    mov byte [op_subv], OP_SUBV_RAW ; AX = the view's paragraphs into the
+    mov al, 2                       ;   carve, plus one
+    call op_seg
+    mov byte [op_subv], 0
+    sub ax, 1 + 400h
+    mov dx, [op_base]
+    call rw_sub                     ; (none: 0, and bank 0 reads as garbage
+    jnc .b                          ;   - no LDT entry left at all)
+    xor dx, dx
+.b:
+    mov [rw_b0], dx
+    cmp byte [rw_bcache], 0
+    jne .x
+    mov word [rdg_nres], 1          ; one claim: the table is rw_pmfill's
+    mov word [rdg_bfill], rw_pmfill ;   (cleared again with the game)
+    mov word [rdg_bmiss], 0
+.x:
+    pop dx
+    pop ax
+.r:
+    ret
+
+; rw_pmfill - rdgsys's rdg_init for a cartridge in one claim under CPU_F_PM
+; (rw_b0set), its bank table just zeroed (DS = the view): bank 0's window and
+; every bank 1 on, a SEG_SUB at (n - 1) x 400h into the claim - asked with DS
+; ours, which the cell reads as the caller. A bank with no LDT entry stays 0:
+; rdg_setbank maps bank 0 for it, as for a fetch that failed
+rw_pmfill:
+    push ax
+    push cx
+    push dx
+    push di
+    push ds
+    push es
+    push ds
+    pop es                          ; ES = the view
+    mov ds, [cs:rw_dsel]
+    mov ax, [rw_b0]
+    mov [es:RDG_BTAB], ax
+    mov cx, [rw_banks]
+    dec cx
+    mov di, RDG_BTAB + 2
+    xor ax, ax
+.f:
+    mov dx, [rw_romseg]
+    call rw_sub
+    jnc .s
+    xor dx, dx
+.s:
+    mov [es:di], dx
+    inc di
+    inc di
+    add ax, 400h
+    loop .f
+    pop es
+    pop ds
+    pop di
+    pop dx
+    pop cx
+    pop ax
+    ret
+
+rw_b0           dw 0                ; bank 0's table word under CPU_F_PM
 %endif
 
 ; rw_bmiss - rdgsys's rdg_setbank: BX = a bank x 2 with no segment in the

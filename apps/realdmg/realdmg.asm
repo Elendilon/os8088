@@ -23,6 +23,8 @@
 %define RDG_LOSSY                       ; F10, F11: the lossy picture's toggles
                                         ;   (rdgppu.inc, REALDMG-SPEC 13.4)
 %include "os88api.inc"
+%include "os88mega.inc"                  ; the shipped build refuses under
+                                        ;   CPU_F_PM (REALDMG-SPEC 10.3.2)
 %include "sndpkg.inc"                   ; SOUND.DRV's FM verbs (rwfm.inc)
 
 %ifdef RDG_AOT
@@ -57,6 +59,9 @@
 
 %define OP_ONMOVE rw_partsmv          ; the carve MOVES (SPEC.md 20.12.12,
                                         ;   rwmove.inc)
+%ifdef PKG_MEGA
+%define OP_WANT_CSEG                    ; the core as a code/data PAIR under
+%endif                                  ;   CPU_F_PM (rw_start, 10.3.2)
 %include "os88parts.inc"
 
 RW_CONT_W       equ 160
@@ -393,6 +398,7 @@ rw_entry:
 .rmode:
     mov byte [rw_jitmode], 2        ; no recompiler: the code is the file's,
 %else                               ;   and what it lacks is interpreted
+    OS88_MEGA_REFUSE                ; (protected mode: the arm's, 10.3.2)
     mov byte [rw_jitmode], 1        ; Recompiler: On (REALDMG-SPEC 16.7)
 %endif
     call rw_cfgload
@@ -412,7 +418,13 @@ rw_entry:
     call OSAPI_MEM_CLAIM            ;   takes it, and rdg_render's after it
     jc .noroom
     mov [rw_pseg], dx
+%ifdef PKG_MEGA
+    mov ax, RW_PBUF / 16            ; a selector under CPU_F_PM, the sum
+    call rw_sub                     ;   elsewhere (10.3.2)
+    jc .noroom                      ;   (no LDT entry: the claim goes with us)
+%else
     add dx, RW_PBUF / 16
+%endif
     mov [rw_fseg], dx
     call rw_mfree                   ; ...and it moves (rwmove.inc)
     nop                             ; (PARITY: the play path at its old
@@ -550,16 +562,54 @@ rdg_putc:
 ; far jump through the data segment is a #GP the kernel completes, one per
 ; transfer: every entry into the core, every chain between the recompiler's
 ; segments. 0 stays 0. Every other register kept
+; - in kern_mega's ARM alone: the shipped build refuses under CPU_F_PM
+; (OS88_MEGA_REFUSE, 10.3.2), so on every kernel it runs on the segment IS
+; what a far jump loads, and AX comes back as it went in
 rdg_csel:
 rw_csel:
+%ifdef PKG_MEGA
     push dx
     mov dx, ax
     call OSAPI_MEM_CODESEL
     jnc .r
     mov ax, dx                      ; (none: the segment, completed per jump)
+    or ax, ax                       ; ...but the arm's code past a claim's
+    jz .r                           ;   base is a SEG_SUBC pair's data half
+    cmp byte [cs:rw_pm], 0          ;   (rw_subc, op_cseg), whose code half
+    je .r                           ;   is 8 below it (10.3.2)
+    sub ax, 8
 .r:
     pop dx
+%else
+    nop                             ; (PARITY: what follows at its old
+%endif                              ;   alignment - os88rdiff's --hot)
     ret
+
+%ifdef PKG_MEGA
+; rw_sub / rw_subc - kern_mega's arm: DX = a claim of ours (or a selector in
+; one), AX = paragraphs into it: DX = "the claim + AX" - OSAPI_SEG's SEG_SUB,
+; or SEG_SUBC's pair (its data half; rw_csel answers the code half 8 below)
+; for code. A real-mode kernel answers the sum, so one path serves both;
+; under CPU_F_PM the selector moves with the claim and goes with it (MC7,
+; REALDMG-SPEC 10.3.2). CF = 1 no LDT entry was free, DX kept. Every other
+; register kept
+rw_subc:
+    push bx
+    mov bl, SEG_SUBC
+    jmp short rw_sub.s
+rw_sub:
+    push bx
+    mov bl, SEG_SUB
+.s:
+    push ax
+    push cx
+    xor cx, cx                      ; to its end, 64KB at most
+    call OSAPI_SEG                  ; (CF = 1: AX the reason, popped)
+    pop cx
+    pop ax
+    pop bx
+    ret
+%endif
 
 rw_dsel         dw 0                ; our DATA segment, for code entered
                                     ;   with DS somebody else's (rw_reloc)
@@ -567,12 +617,21 @@ rw_dsel         dw 0                ; our DATA segment, for code entered
 rw_pm           db 0                ; CPU_F_PM at entry: kern_mega's arm
 rw_xsel         dw 0                ; the bank run's first selector
 rw_jtsel        dw 0                ; the block table's selector, or 0 (rw_jtx)
+rw_jtsub        dw 0                ; ...or in the claim under CPU_F_PM
                                     ;   (OSAPI_XMEM_RUN, REALDMG-SPEC 10.3.1)
 %endif
 
 ; =============================================================================
 ; Loading a game
 ; =============================================================================
+
+%macro RW_JSEGS 0                   ; (the arm's rw_jsegs; the shipped
+%ifdef PKG_MEGA                     ;   build's sum, as it was)
+    call rw_jsegs
+%else
+    add bx, dx
+%endif
+%endmacro
 
 ; rw_onwake - on the UI task, no lock held: a document we were launched with,
 ; or the core having stopped
@@ -754,7 +813,7 @@ rw_load0:
     call OSAPI_MEM_CLAIM            ;   the claim's end and its pointers at
     jc .nojit                       ;   the old place, and the slots were
     mov bx, 1000h + 400h            ;   claimed over it - a 1MB cartridge
-    add bx, dx                      ;   hung on its first frame, or ran the
+    RW_JSEGS                        ;   hung on its first frame, or ran the
     call rw_jpart                   ;   stack over (rw_jitget's fallback)
     jnc .jp16
     call OSAPI_MEM_FREE
@@ -997,7 +1056,16 @@ rw_start:
     call op_seg
     push ax
     xor al, al                      ; the core, both halves from here
+%ifdef PKG_MEGA
+    call op_cseg                    ; (a pair under CPU_F_PM: its data half
+    cmp byte [rw_pm], 0             ;   8 above, and rw_csel's answer 8
+    je .cs                          ;   below that, 10.3.2)
+    add ax, 8
+.cs:
+    call rw_b0set                   ; bank 0's window (rwbank.inc)
+%else
     call op_seg
+%endif
     mov bx, ax
     pop ax
     mov cx, [rw_romseg]
@@ -1040,6 +1108,40 @@ rw_jiton:                           ; (and Machine > Recompiler's way back in)
     pop ds
     ret
 
+%ifdef PKG_MEGA
+; rw_jsegs - DX = the recompiler's new claim, BX = paragraphs to its part:
+; BX = the part's segment - the sum, or under kern_mega's protected mode a
+; SEG_SUBC pair over it (rw_subc), and the block table's selector at 1000h
+; banked beside it for rw_jitsegs (REALDMG-SPEC 10.3.2). A pair refused (no
+; LDT entry) is a part that cannot be read: BX = 0, and rw_jpart says no.
+; Every register but BX kept
+rw_jsegs:
+    push ax
+    push dx
+    mov ax, bx
+    call rw_subc                    ; DX = the part's (the sum, real mode)
+    mov bx, dx
+    jnc .t
+    xor bx, bx
+.t:
+    pop dx
+    push dx
+    mov word [rw_jtsub], 0
+    cmp byte [rw_pm], 0             ; (real mode: rw_jitsegs' own sum, which
+    je .x                           ;   a move puts right)
+    mov ax, 1000h                   ; the table's, after the pair so a pair
+    call rw_sub                     ;   at the same base is not asked twice
+    jc .nt
+    mov [rw_jtsub], dx
+    jmp short .x
+.nt:
+    xor bx, bx                      ; (none: no recompiler either)
+.x:
+    pop dx
+    pop ax
+    ret
+%endif
+
 ; rw_jitsegs - AX = the recompiler's cache, BX = its block table: the 16KB
 ; after it in the one claim (rw_jitclaim); CX = its second 64KB, or 0; DL
 ; = the table's mask
@@ -1049,8 +1151,14 @@ rw_jitsegs:
     add bh, 10h
 %ifdef PKG_MEGA
     cmp word [cs:rw_jtsel], 0       ; (the arm's table, above 1MB)
-    je .c
+    je .t
     mov bx, [cs:rw_jtsel]
+.t:
+    cmp word [cs:rw_jtsub], 0       ; (...or in the claim, a selector under
+    je .c                           ;   CPU_F_PM: rw_jsegs)
+    cmp word [cs:rw_jtsel], 0
+    jne .c
+    mov bx, [cs:rw_jtsub]
 .c:
 %endif
     mov cx, [cs:rw_jit2seg]
@@ -1219,7 +1327,7 @@ rw_jitget:                          ; (CF = 1: none, a game running too)
     mov bx, 1000h + 400h            ;   names it: rw_mreloc, rwmove.inc)
     jc .r
 .got:
-    add bx, dx                      ; BX = the part's place, past the table
+    RW_JSEGS                        ; BX = the part's place, past the table
     call rw_jpart
     jc .nopart
     mov [rw_jitseg], dx
@@ -1301,6 +1409,13 @@ rw_jpkb:
 ; interpreter with the recompiler chosen - the apps disks keep REALDMG.O88 in
 ; GAMES and a cartridge is the user's, wherever they keep it
 rw_jpart:
+%ifdef PKG_MEGA
+    or bx, bx                       ; (rw_jsegs found no selector for it)
+    jnz .go
+    stc
+    ret
+.go:
+%endif
     push ax
     push bx
     push cx
@@ -1961,13 +2076,17 @@ rw_jitxget:
     ret
 
 ; rw_jitxset - the extra tiers' segments off the second's claim: [rw_jitxk]
-; of them at its segment + 1000h, + 2000h... and the rest 0. Every register
-; kept but the flags (rw_mreloc's, in the allocator, too)
+; of them at its segment + 1000h, + 2000h... and the rest 0 - under CPU_F_PM
+; a SEG_SUBC pair each (rw_subc: a tier is CODE, and a selector past the
+; claim's base is no sum, 10.3.2), a tier with no LDT entry left 0 and every
+; one after it. Every register kept but the flags (rw_mreloc's, in the
+; allocator, too: real mode, which is the sum alone)
 rw_jitxset:
     push ax
     push cx
+    push dx
     push si
-    mov ax, [rw_jit2seg]
+    xor ax, ax                      ; AX = paragraphs past the claim's base
     mov cl, [rw_jitxk]
     xor ch, ch
     mov si, rw_jitx
@@ -1977,7 +2096,18 @@ rw_jitxset:
     jae .r
     mov word [si], 0
     jcxz .n
-    mov [si], ax
+    mov dx, [rw_jit2seg]
+    cmp byte [rw_pm], 0
+    jne .pm
+    add dx, ax
+    jmp short .st
+.pm:
+    call rw_subc
+    jnc .st
+    xor cx, cx
+    jmp short .n
+.st:
+    mov [si], dx
     dec cx
 .n:
     inc si
@@ -1985,6 +2115,7 @@ rw_jitxset:
     jmp short .l
 .r:
     pop si
+    pop dx
     pop cx
     pop ax
     ret

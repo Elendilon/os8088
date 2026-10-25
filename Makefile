@@ -6333,7 +6333,7 @@ $(BUILD)/rdgcore.inc: $(BUILD)/rdgtmpl.bin ;
 REALDMG_SRC := apps/realdmg/realdmg.asm apps/realdmg/rdgdefs.inc \
                apps/realdmg/rdgsys.inc apps/realdmg/rdgppu.inc apps/realdmg/rwfsx.inc apps/realdmg/rwkeys.inc \
                $(BUILD)/rdgcore.inc \
-               apps/os88api.inc apps/os88ui.inc apps/os88parts.inc \
+               apps/os88api.inc apps/os88mega.inc apps/os88ui.inc apps/os88parts.inc \
                apps/os88partsbody.inc apps/os88alt.inc apps/os88pit.inc apps/realdmg/rwlog.inc apps/realdmg/rwbank.inc apps/realdmg/rwstate.inc apps/realdmg/rwreplay.inc \
                apps/realdmg/rwfm.inc apps/realdmg/rwmove.inc drivers/sound/sndpkg.inc \
                apps/os88data.inc

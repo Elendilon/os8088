@@ -9,6 +9,15 @@ waits on the kernel's memory consolidation round
 `claude/protected-mode-memory-consolidation-k1kjao`), because that round
 changes what a claim and a code selector ARE, and so does this.
 
+**Since then (2026-10-25):** that round's MC7 has landed and been merged into
+`mega-dmg`, and RealDMG's prerequisite conversion is BUILT - REALDMG-SPEC
+10.3.2: the arm asks `OSAPI_SEG` for every "claim + N" (the extra tiers
+already as `SEG_SUBC` pairs inside cache B's claim, which is K1's twin
+supplied by the kernel), and the shipped build refuses under `CPU_F_PM`.
+What is left of this plan is R2 onward: the tiers out of the POOL, and the
+`highmem` line in tests/megahigh.txt that the pool's no-regrow-past-64KB
+rule now holds in place. Sections 1 and 2 below are as written, before MC7.
+
 The owner's words: *"write up plans for being able to put the recompiler
 segments in protected/>1mb ram; we may still do it for completeness sake,
 and for being able to play even longer when ram there is abundant."*

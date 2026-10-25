@@ -61,16 +61,17 @@ highmem apps/sheet/sheet.asm    # FAR-CALLS CODE IN A CLAIM: its two module part
     # `call far [sh_m2far]` at (0, the claim's segment) - os88chartovl.inc's
     # ch_ovneed and sheet.asm's sh_m2need - which OS88_HIGHMEM's contract
     # rules out (apps/os88api.inc). Retired with the `high` line above.
-highmem apps/realdmg/realdmg.asm  # PARAGRAPH ARITHMETIC ON ITS CLAIMS: cartridge
-    # RAM banks at S_RAMSEG + bank x 200h (rdg_rambank, rdgsys.inc), the bank
-    # cache's slots at rw_slotseg + slot x 400h (rwbank.inc), the recompiler's
-    # block table at its cache's segment + 1000h and its part past the table
-    # (rw_jitsegs, rw_jitget), and the cache and part entered as CODE through
-    # OSAPI_MEM_CODESEL's identity alias, which a lone data selector above
-    # 1MB has none of. (Its link patches no longer write through CS -
-    # REALDMG-SPEC 16.2.4 - and kern_mega's arm keeps the cartridge itself
-    # above 1MB in place, 10.3.1.) Retired by addressing each claim at its own
-    # selector and a code twin for the cache segments.
+highmem apps/realdmg/realdmg.asm  # THE SECOND CACHE SEGMENT IS REGROWN PAST
+    # 64KB: kern_mega's arm (the $(MEGAPKGS) build this line is about)
+    # grows the recompiler's second 64KB claim with OSAPI_MEM_REGROW into
+    # its extra tiers (rw_jitxget, REALDMG-SPEC 16.2.5), and a 64KB claim
+    # OS88_HIGHMEM put in the pool is not regrown past its first 64KB
+    # (kernel/mega.inc) - the game would lose the tiers that are the arm's
+    # whole point. Its PARAGRAPH ARITHMETIC is gone (REALDMG-SPEC 10.3.2:
+    # every "claim + N" is OSAPI_SEG's SEG_SUB, SEG_SUBC for code, cartridge
+    # RAM an offset into its one claim), so what retires the line is
+    # docs/plans/REALDMG-HIGHCACHE-PLAN.md's pool tiers and one MEGATRAP run
+    # with the bit set (tests/rdgmega.py's shape).
 
 highmem apps/xtmp3/xtmp3.asm   # PARAGRAPH ARITHMETIC ON ITS LOOK-AHEAD CLAIM:
     # a Decode First's stage is a segment of its own, cut from the ring's claim
