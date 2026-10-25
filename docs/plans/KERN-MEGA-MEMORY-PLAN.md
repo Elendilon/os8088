@@ -1516,6 +1516,25 @@ rows. Nothing is recorded as built that was not.
   PIXELSTEIN's part answers 0, which degrades exactly as a refused part
   does (the bodies run from the image, no byte textures). ~10 bytes each,
   registered in `tests/megapkg.txt` as fail-safes.
+  **Frotz (2026-10-25) - DONE, one shared path, no `PKG_MEGA` arm.** The
+  story claim is walked by 32KB PAGE: `zm_pages` builds `[zf_stab]` at
+  load, one `SEG_SUB` per page (a 64KB data selector on kern_mega, the
+  claim's segment + 800h x k on every real-mode kernel; pages past the
+  claim hold the claim). The PC is a page INDEX `[zf_pcpg]` plus SI, so
+  `zm_map`/`zm_seek` index the table, `zm_norm` and `zx_jrel`'s backward
+  wrap step the index, `zm_pcaddr` is index x 32KB + SI, `zx_step`'s guard
+  is ES equal to its page's entry (no order compare; `zx_seglim` is gone),
+  `@verify` walks by page, and `zf_reloc` sums the table on a real-mode
+  move. `zp_place` (the `.PIX` archive, pinned) takes `SEG_AT` with the
+  sum as the real-mode answer. MEASURED on MartyPC, key to next prompt: a
+  148KB story's `go` 141.84M -> 140.70M cycles (-0.8%), `text` 382.95M ->
+  380.68M (-0.6%); a 34KB story -0.3 to -0.6%. +88 bytes of image, +36 of
+  bss. Under Bochs a 282KB v8 story plays to the generator's gold
+  (`megafrotz`); the build before printed VERIFY bad and halted on "bad
+  routine header". `tests/frotz/zbiggen.py` writes the fixture and its
+  gold, so `zbig` and `megafrotz` need neither the IF Archive nor dfrotz.
+  Not run: the shipped stories (the IF Archive is blocked from this box),
+  and a `.PIX` archive over 64KB on kern_mega.
 
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to
