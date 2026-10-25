@@ -2260,7 +2260,7 @@ KERNEL_INC := $(wildcard kernel/*.inc) apps/os88ui.inc boot/boot2.asm \
         xt-hercules xt-ega xt-multimon 286 286-525 386sx 386 386-xms 386-ps2 xt-sound xt-sound-1.44 xt-midirack 386-midirack xt-covox xt-wire \
         286-525-z 286-525-word 286-525-cword 286-525-runcpm 286-525-c64 \
         286-525-weave 286-525-loom 286-525-all \
-        286-sound 286-video viddemo-vga viddemo-cga viddemo-herc 286-realdmg 286-victory 386-sound 486 486-video 486-vesa 486-vesa-desk pentium \
+        286-sound 286-video viddemo-vga viddemo-cga viddemo-herc viddemozip 286-realdmg 286-victory 386-sound 486 486-video 486-vesa 486-vesa-desk pentium \
         bench field combo combo144 combo720 stackprobe trklog trkscrl npbench clicktest marty \
         comscan lptlink calcref \
         fonts fontsheets fontlist \
@@ -17901,14 +17901,30 @@ xt-wire: $(BUILD)/ether360.img $(BUILD)/wiredata360.img
 
 # The Video Player's demo disks on the machines they were made for, one per
 # adapter: `make viddemo` builds VIDDEMO-<ADAPTER>-{IDE,ST11R}.VHD and each
-# profile boots its own with no floppy in A:. The mr286 (VGA) needs its CMOS
-# to name a user type of 1024/16/63; the 5150s keep none
-viddemo-vga: $(BUILD)/VIDDEMO-VGA-IDE.VHD
-	$(BOX) -P $(VMVIDDEMO)vga -N
-viddemo-cga: $(BUILD)/VIDDEMO-CGA-ST11R.VHD
-	$(BOX) -P $(VMVIDDEMO)cga -N
-viddemo-herc: $(BUILD)/VIDDEMO-HERC-ST11R.VHD
-	$(BOX) -P $(VMVIDDEMO)herc -N
+# profile boots its own with no floppy in A:. A profile is written to be
+# SHIPPED: its 86box.cfg names the disk by bare file name, which 86Box finds
+# beside the config, and its CMOS lives in nvr-seed/ - tracked, because
+# vm/*/nvr/ is the running machine's and gitignored. The mr286's seed names
+# drive type 47 = 1024/16/63 and two floppies, so it boots without setup.
+# Launching here links the disk in and seeds nvr/ once; `make viddemozip`
+# is the same three folders as a zip a user drops into 86Box's machine
+# directory (tools/os88vmzip.py)
+define viddemo_vm
+viddemo-$(1): $(BUILD)/$(2)
+	@mkdir -p $(VMVIDDEMO)$(1)/nvr
+	@cp -n $(VMVIDDEMO)$(1)/nvr-seed/* $(VMVIDDEMO)$(1)/nvr/
+	ln -sf $$(abspath $$<) $(VMVIDDEMO)$(1)/$(2)
+	$$(BOX) -P $(VMVIDDEMO)$(1) -N
+endef
+$(eval $(call viddemo_vm,vga,VIDDEMO-VGA-IDE.VHD))
+$(eval $(call viddemo_vm,cga,VIDDEMO-CGA-ST11R.VHD))
+$(eval $(call viddemo_vm,herc,VIDDEMO-HERC-ST11R.VHD))
+
+.PHONY: viddemozip
+viddemozip: $(VIDDEMO_IMGS) tools/os88vmzip.py apps/video/demo/86BOX.TXT
+	python3 tools/os88vmzip.py -o $(BUILD)/os8088-videos.zip --top os8088-videos \
+		--from $(BUILD) --readme apps/video/demo/86BOX.TXT \
+		$(addprefix vm/viddemo-,$(VIDDEMO_ADAPTERS))
 
 # ...and that 286 with RealDMG's hard disk (docs/REALDMG-SPEC.md section 18):
 # the whole install, REALDMG/ and your cartridges in GAMEBOY/, booted off the
