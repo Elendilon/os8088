@@ -3411,9 +3411,14 @@ sh_rc_sides:
     jae .out                          ; (81.60) - the table has no column
     push es                           ; word for a column op to read
     mov es, [sh_noteseg]
-    mov cx, [es:SH_ROWH_N]
+    push ax
     mov dx, es
-    add dx, SH_ROWH_OFF / 16
+    mov ax, SH_ROWH_OFF / 16          ; the table, ASKED (OSAPI_SEG's SEG_SUB:
+    mov bl, SEG_SUB                   ; the sum on a real-mode kernel, and a
+    xor cx, cx                        ; selector in the claim under kern_mega,
+    call OSAPI_SEG                    ; where a sum on one names nothing - MC7)
+    pop ax
+    mov cx, [es:SH_ROWH_N]
     mov bx, SH_ROWH_REC
     call sh_rc_table
     mov [es:SH_ROWH_N], cx
