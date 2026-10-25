@@ -1131,7 +1131,7 @@ FAST = [
         "SOAK and not fast: it wants four floppies `make all` does not "
         "build, which is what `wants=` below is - a fast row may not build "
         "at all",
-        wants=("build/small360.img", "build/small.img",
+        wants=("build/small360.img", "build/small720.img", "build/small.img",
                "build/smallapps360.img", "build/smallapps.img")),
     Row("lzbclust", "soak", py("tests/unit/t_lzbclust.py"), 1.2,
         "SPEC.md 20.13.5's rule for LZBPKGS: a package ships LZB only while "

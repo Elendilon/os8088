@@ -6364,14 +6364,14 @@ $(BUILD)/os8088-cz.zip: tools/os88czbundle.py tools/os88czgui.py tools/os88cz.py
 	python3 tools/os88czbundle.py $@ --dos $(BUILD)/os88cz.com
 
 # THE FIRMWARE AND UTILITIES ZIP, ON DEMAND (tools/os88toolszip.py): the
-# release's other archive - firmware/picomem1/, the kern_big and socket-check
-# ROMs (`make rom-big socketrom`, cut against THIS tree's kernel, so build it
-# from the tree whose disks it ships beside), the encoder, the Game Boy
-# precompiler (as GBSTATIC/) and the splitter bundles as built, the Browser's
-# proxy and the two DOS tools
+# release's other archive - firmware/picomem1/, the kern_big, kern_small and
+# socket-check ROMs (`make rom-big rom-small socketrom`, cut against THIS
+# tree's kernels, so build it from the tree whose disks it ships beside), the
+# encoder, the Game Boy precompiler (as GBSTATIC/) and the splitter bundles
+# as built, the Browser's proxy and the two DOS tools
 .PHONY: toolszip
 toolszip: $(BUILD)/os8088-encoder.zip $(BUILD)/os8088-gbaot.zip $(BUILD)/os8088-cz.zip \
-          rom-big socketrom $(BUILD)/os88cz.com $(BUILD)/os88net.com \
+          rom-big rom-small socketrom $(BUILD)/os88cz.com $(BUILD)/os88net.com \
           tools/os88toolszip.py tools/os88proxy.py tools/os88proxygui.py tools/htmsim.py
 	python3 tools/os88toolszip.py $(BUILD)/os8088-tools.zip \
 		--encoder $(BUILD)/os8088-encoder.zip --gbstatic $(BUILD)/os8088-gbaot.zip \
@@ -13771,7 +13771,7 @@ rom-small: $(BUILD)/small360.img $(SMALLAPPDIR)/taskmgr.o88
 # inside it still reads the per-target KMODDIR.
 SMALLDRIVERS = $(KMODS)
 
-small: $(BUILD)/small360.img $(BUILD)/small.img
+small: $(BUILD)/small360.img $(BUILD)/small720.img $(BUILD)/small.img
 	@python3 tools/kernsplit.py $(SMALLDIR)/kernel.bin $(BUILD)/kernel.bin
 
 # THE BUDGETS AT AN UPSTREAM MERGE OR A RELEASE (kernel/kernel.asm, at
@@ -14249,6 +14249,22 @@ $(BUILD)/small360.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) $(SMALLSTIKAPPS) $(SMALLP
 		$(SYSDOC) $(MEDIAFOLDER) $(APPDATAFOLDER)
 	@echo "small: $@ - kern_small on 360KB. Pair it with"
 	@echo "       build/smallapps360.img (\`make smallapps\`)"
+
+# ...and on 720KB (SPEC.md 24.5.7): the 128KB machine's other drive. The
+# 360KB disk's boot sector (9 spt, 2 heads - it never counts cylinders, the
+# big build's own 720KB disk takes it the same way) and the FULL payload, as
+# the 1.44MB disk carries: 713 clusters hold what the 360KB disk had to trim
+$(BUILD)/small720.img: KMODDIR := $(SMALLDIR)
+
+$(BUILD)/small720.img: $(SMALLDRIVERS) $(SMALLSYSAPPS) $(SMALLSTIKAPPS) $(SMALLPKGS) \
+                       $$(SMALLTOOLS) $$(SMALLGAMES) $$(SMALLDATA) \
+                       $(SYSDOC) tools/os88disk.py | smallsub
+	python3 tools/os88disk.py --fatcap 2 --kern-small -o $@ --size 720 \
+		--boot $(SMALLDIR)/boot360.bin --kernel $(SMALLDIR)/$(KERNNAME) \
+		$(SMALLDRIVERS) $(SMALLMODS) $(SMALLSYSAPPSARGS) $(SMALLSTIKARGS) \
+		$(SMALLAPPSARGS) $(addprefix GAMES:,$(SMALLGAMES)) \
+		$(addprefix MEDIA:,$(SMALLDATA)) \
+		$(SYSDOC) $(MEDIAFOLDER) $(APPDATAFOLDER)
 
 # its kernel is $(SMALLDIR)'s, so its modules are too
 $(BUILD)/small.img: KMODDIR := $(SMALLDIR)

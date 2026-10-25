@@ -8,9 +8,9 @@ One folder, `os8088-tools/`:
 
   FIRMWARE/PICOMEM1/  firmware/picomem1/ as committed - the PicoMEM 1.x image
                       os8088 needs, its licence (GPL-2) and its source patch
-  FIRMWARE/ROM/       the kernel ROM for an IBM 5150's spare sockets, cut
-                      against THIS tree's kern_big (`make rom-big`), and the
-                      socket-check ROM (`make socketrom`)
+  FIRMWARE/ROM/       the kernel ROMs for an IBM 5150's spare sockets, cut
+                      against THIS tree's kernels (`make rom-big rom-small`),
+                      and the socket-check ROM (`make socketrom`)
   ENCODER/            `make vencbundle`'s folder - the video encoder
   GBSTATIC/           `make gbaotbundle`'s folder - the Game Boy precompiler
   CZ/                 `make czbundle`'s folder - the file splitter
@@ -20,8 +20,8 @@ One folder, `os8088-tools/`:
 
 The three bundles are taken AS BUILT, their own top folder renamed, so each
 keeps its own README and its own computed file list and this file restates
-none of them. The ROMs are the kern_big set only: osrom-small pairs with
-`make small`'s disks, which no release carries. The zip is DETERMINISTIC:
+none of them. osrom-big pairs with the release's ordinary system disks and
+osrom-small with its 128K-RAM ones (SPEC.md 24.5.7). The zip is DETERMINISTIC:
 sorted entries, every timestamp 1980-01-01.
 """
 import argparse
@@ -34,7 +34,7 @@ sys.path.insert(0, HERE)
 import os88vbundle  # noqa: E402
 
 TOP = "os8088-tools"
-ROMS = ("osrom-big", "osrom-socket")
+ROMS = ("osrom-big", "osrom-small", "osrom-socket")
 SOCKETS = ("U28", "U29", "U30", "U31", "U32")
 PROXY_ROOTS = ("os88proxygui.py", "os88proxy.py")
 
@@ -88,17 +88,23 @@ ROM_README = """os8088 IN ROM - IBM PC 5150
 
 An IBM PC 5150 has five 8 KB ROM sockets beside its BIOS, U28 to U32, at
 F4000-FDFFF: U28 is empty and U29-U32 hold Cassette BASIC. These files put
-part of os8088's kernel there, so it runs from ROM and leaves about 37 KB
-more memory free.
+part of os8088's kernel there, so it runs from ROM and leaves more memory
+free: about 37 KB with the ordinary kernel, 21 KB with the small one.
 
 THE FILES
   osrom-socket-U28.bin ... -U32.bin   the socket check: burn these FIRST. At
                                       power-on the machine prints
                                       "U28 ok ... U32 ok" if every chip and
                                       socket works. No os8088 in them.
-  osrom-big-U28.bin ... -U32.bin      os8088's kernel ROM, one file per socket
-  osrom-big.bin, osrom-socket.bin     the same 40 KB as one file, for a ROM
-                                      board or a programmer that wants it whole
+  osrom-big-U28.bin ... -U32.bin      os8088's kernel ROM, one file per
+                                      socket - for the ordinary system disks
+  osrom-small-U28.bin ... -U32.bin    the same for the small kernel - for the
+                                      system disks in 128K-RAM folders; it
+                                      also holds the file dialog, Cut/Copy/
+                                      Paste, the Control Panel, the
+                                      formatter and the Task Manager
+  osrom-big.bin, osrom-small.bin,     each set as one 40 KB file, for a ROM
+  osrom-socket.bin                    board or a programmer that wants it whole
 
 NEEDS
   An IBM PC 5150 with the 10/27/82 BIOS - the first one that looks for a
@@ -107,8 +113,9 @@ NEEDS
   adapter; a Motorola MCM68766 fits as it is.
 
 THIS ROM BELONGS TO THIS RELEASE
-  It is cut against the kernel on this release's system disks, and checks
-  that kernel byte for byte before it is used. With any other release's
+  Each is cut against the kernel on this release's system disks - big
+  for the ordinary ones, small for the 128K-RAM ones - and checks that
+  kernel byte for byte before it is used. With any other release's
   disks it is ignored and the machine boots exactly as it would without it.
   Burn the ROM from the same release as the disks you boot.
 """

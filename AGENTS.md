@@ -392,9 +392,9 @@ make czbundle   # the FILE SPLITTER for someone with no os8088 tree
 make toolszip   #   (SPEC.md 20.14, 20.17): os88czgui.py, os88cz.py and
                 #   OS88CZ.COM in build/os8088-cz.zip. `toolszip` is the
                 #   release's FIRMWARE AND UTILITIES zip, build/os8088-tools.zip
-                #   (tools/os88toolszip.py): firmware/picomem1/, the kern_big
-                #   and socket-check ROMs cut against THIS tree (`make rom-big
-                #   socketrom`), the encoder, Game Boy precompiler (GBSTATIC/)
+                #   (tools/os88toolszip.py): firmware/picomem1/, the kern_big,
+                #   kern_small and socket-check ROMs cut against THIS tree
+                #   (`make rom`, `socketrom`), the encoder, Game Boy precompiler (GBSTATIC/)
                 #   and splitter bundles as built, the Browser's proxy and the
                 #   two DOS tools. Both on demand
 make netbench   # THE STACK'S PROFILER (SPEC.md 72.15): NETBENCH.O88 beside

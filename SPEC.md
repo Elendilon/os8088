@@ -54908,6 +54908,21 @@ this — the arena is 52.5KB and TeXPad's region alone is ~25KB. The disk being
 full of programs is not a claim that they run at once; it is a claim that the
 user can *choose* one without swapping floppies.
 
+#### 24.5.7 …and a 720 KB small system disk beside the 360 KB one
+
+`make small` writes `build/small720.img` too: kern_small and the same whole
+payload as `small.img`, on the 720 KB geometry, for the 128 KB machine whose
+drive is a 3.5" double-density one. It boots through the 360 KB disk's boot
+sector — 9 sectors a track and two heads, which is all stage 1 knows of a
+geometry, as the big build's `os8088-720.img` does — and its `KERNEL.SYS`
+starts at LBA 12 exactly as `small360.img`'s does, so every sector of the
+kernel crosses a head where it does there and §18.93.1's canary holds
+unchanged. 183 of 357 clusters (2 KB, `--fatcap 2`, as `small.img`).
+`t_smallreq` and `t_stik` read it beside the other two; it is on demand
+like them and in no `$(SHIPIMGS)`. A release carries the 360 KB and 720 KB
+small system disks as its 128 KB machine's set, and `osrom-small` (§2.10)
+pairs with them.
+
 ### 24.6 THE CATEGORY DISKS — a floppy per subject, at 360KB alone
 
 `build/office360.img`, `build/network360.img`, `build/games360.img`,
