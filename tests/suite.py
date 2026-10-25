@@ -16167,6 +16167,25 @@ SOAK = [
         "put back to one paragraph (BOUNCE.GIF FAULTs on frame 0). 90s is "
         "65 measured: each step ends on the UI task done (Box.ui_done)",
         needs=("bochs", "nasm")),
+    Row("megapixel", "soak", py("tests/megapixel.py"), 90.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7: PiXEL's claims OVER 64KB "
+        "under kern_mega, where every claim is one 64KB LDT selector and a "
+        "paragraph sum names somebody else's descriptor. Under Bochs, B: "
+        "holding `make mega`'s PIXEL.O88: a 600x400 8-bit BMP (a 234 KB "
+        "master, eight windows) is opened and its master, read through the "
+        "claim's own descriptor, is the file's indices to the byte; px_mwc's "
+        "SEG_SUB windows are 32KB apart in that claim; the histogram's tail "
+        "holds the file's counts; Rotate turns it into a second master and "
+        "back (pe_rot90's 64KB carry, two windows on), each to the byte; "
+        "Save As writes OUT.BMP equal to the master; FLOWER.JPG (1/1), "
+        "HOUSE.PNG and ROOM.JPG (progressive, 1/4, and again at 1/8 through "
+        "the floor) are each tools/pixelsim.py's master byte for byte; no "
+        "CLOSED or FAULT line. Red on the parent commit, with px_mrow's old "
+        "sum put back and with pe_rot90's carry unpatched. 90s is 50 "
+        "measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megak/apps/pixel.o88",
+               "build/megarun.o88", "build/mbr.bin", "build/pixel.bin")),
     Row("megadosp", "soak", py("tests/megadosp.py"), 80.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.54: the windowed DOS's PROMPT "
         "on kern_mega with no #GP fixup per character printed - dos_hk_tty "
