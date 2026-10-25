@@ -2389,8 +2389,7 @@ rt_jrt:
     jne .now
     mov ah,2
 .w:
-    mov dl,ah
-    xor dh,dh
+    mov dl,ah                       ; (DL alone: w16_ff reads no DH)
     mov bx,RDGC_W16_FF
     jmp .ff
 .now:
