@@ -38789,12 +38789,14 @@ CITY's first fills landed on those same two chunks and read them again, 0.38
 and 0.39 s. Both trees read about the same sectors in the end; the round robin
 decided which open paid.
 
-So a **HIT marks the chunk** (`RAH_HIT`, the record's spare byte beside
+So a **VISIT marks the chunk** (`RAH_HIT`, the record's spare byte beside
 `RAH_VOL`) and the pick **passes over a marked slot once**, clearing the mark -
-the second-chance clock. A fill's own copy-out is not a hit (the fill's word
-store of `RAH_VOL` zeroes the byte with it), so a read-ahead chunk nobody came
-back to is the one taken, and a marked one is taken on the next turn unless it
-is read again. Every slot spared clears its own mark, so the pick ends within
+the second-chance clock. A visit is any read served out of the chunk that does
+not merely CONTINUE the chunk's previous read (§18.95.10.1 is the exact rule,
+and why it is not "any hit"). A fill's own copy-out is not a visit (the fill's
+word store of `RAH_VOL` zeroes the byte with it), so a read-ahead chunk nobody
+came back to is the one taken, and a marked one is taken on the next turn
+unless it is visited again. Every slot spared clears its own mark, so the pick ends within
 one turn of the table; with the page-straddle skip beside it the walk is still
 bounded by twice the width. Nothing changes what is CACHED or when it is
 dropped - only which slot a fill spends - so the five rules above and every
@@ -38813,6 +38815,71 @@ is what a person opening a second picture after looking at the first always
 pays. +19 bytes of `.cold`, resident, on both kernels (`kern_big` 37,567 ->
 37,586, `kern_small` 21,510 -> 21,529; no rung crossed, which is not the
 point).
+
+#### 18.95.10.1 …and a stream reading ON through a chunk is not coming back to it
+
+The first build marked on ANY read served out of the slot, and that is not the
+same thing. A stream reading on through a chunk it has just filled is served
+out of it from its second request on: the fill served the head, the next
+request starts at the next sector, and that sector is inside the chunk. So
+every chunk a package or module load streamed through took the second chance
+it was never meant to have. `assocflush` measured it: FORMAT.DRV's load reads
+A: LBA 318 for five sectors and then 323, so both A: chunks it touched were
+marked; when B:'s fill at LBA 216 came round, the round robin spared them and
+evicted B:'s root-directory chunk instead - which is the one the flush comes
+back to, for its directory-entry write. One more `int 13h`, 10 -> 11, ~0.4 s
+on the XT, with the same three package headers read either way.
+
+**The rule.** Each record keeps `RAH_END`, the chunk index just past its last
+read - the record's ninth byte, which the stride had spare (`RAH_REC` is 9
+because it is `DSK_RAH_SECS`, asserted). A hit that starts EXACTLY there is a
+stream continuing and marks nothing. Any other hit is a VISIT and marks: an
+earlier sector (a folder re-walked by the next by-name open), the same sector
+again (a one-sector folder, which every open re-walks and which is the case
+that matters most), or a jump forward across a gap (a mount reads B:'s FAT at
+LBA 1 and then its root at 7, in the one chunk the FAT read filled - two walks
+of one track). Every copy writes `RAH_END`, the fill's included, so the fill
+needs no store of its own and a stale value can never be compared: the hit
+path is the only reader, and a record has been copied from before it can hit.
+
+Two cheaper-looking rules were weighed and lost. ONE "next expected LBA" for
+the machine is wrong because a by-name read INTERLEAVES - folder sector, data,
+folder sector, data - so a global continuation test sees every data read after
+a directory read as a jump and marks the stream anyway; the test has to be per
+chunk. And "mark when the read starts at or before where the chunk's last read
+STARTED" was built first, at 4 bytes less, and cost `assocfind` a call (7 -> 8):
+it marks only going BACK, so the FAT-then-root chunk above went unmarked, was
+evicted before the root's second walk, and read again.
+
+Measured on MartyPC, `int 13h` reads as the floppy controller counts them, for
+three arms: **A** 138cc46e's cache (no second chance), **B** 2fb4a67a's (a hit
+marks), **C** this rule. Every arm read the same sectors in every workload.
+
+| workload | A | B | C |
+|---|---:|---:|---:|
+| `assocflush` WRITE: the flush, seventeen new packages | 10 | **11** | **10** |
+| `assocflush` ONE FLUSH: one new / REBOOT: `B:\APPS` | 6 / 6 | 6 / 6 | 6 / 6 |
+| `pxbench` 5150: MOUNTAIN.BMP, then CITY.PCX | 26, **17** | 26, 15 | 26, 15 |
+| ...CITY.PCX's first rows (ceiling 3.50 s) | **3.54-3.57 s** | 2.75 s | 2.74-2.79 s |
+| `pxbenchvga`: MOUNTAIN.BMP, then CITY.PCX | 26, 17 | 26, 15 | 26, 15 |
+| `pxbenchvga`: BIG.BMP (three runs each) | 48-52 | 46-53 | 48-52 |
+| `assocfind`: HELLO.ZZZ refused (three runs each) | 10 | 7 | 7 |
+| `czseq`: 640 KB in three parts, every read | 101 | 101 | 100 |
+| `ldcost` same-window / other-window launch | 1 / 2 | 1 / 2 | 1 / 2 |
+| `pathcost` first walk / second / six GOTO_QM | 0 / 0 / 1 | 0 / 0 / 1 | 0 / 0 / 1 |
+| `dosmedia`: a DIR with the motor stopped | 1 | 1 | 1 |
+| cold boot to the desktop (360 KB pair, 5150) | 18 | 18 | 18 |
+| ...then three folders, five launches, one by association | 38 | 38 | 38 |
+
+BIG.BMP's spread is the session's and not the cache's: B read 46, 53 and 52 on
+one kernel, the same 601 sectors each time, because where the UI task's wakes
+fall against the reader's slots moves which run a fill lands in. So C keeps
+2fb4a67a's whole win and gives back the call it cost. **+12 bytes of `.cold`,
+resident, on both kernels** (`kern_big` 37,632 -> 37,644, `kern_small` 21,529
+-> 21,541), so the second chance as a whole is 31 bytes over 138cc46e's cache.
+It touches no claim: what is cached, the width solve, a requester's command
+(§18.95.8), the purge and every invalidation are exactly as they were - only
+which slot a fill spends moves.
 
 ### 18.96 Formatting a floppy — the mount's verdict, run backwards
 

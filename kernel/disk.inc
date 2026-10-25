@@ -6410,14 +6410,24 @@ RAH_LBA equ 0                    ; one slot: the chunk's first LBA, how many
 RAH_N   equ 2                    ; sectors of it are here (0 = the slot says
 RAH_SIG equ 4                    ; nothing), and §18.8.1's key - the mount
 RAH_VOL equ 6                    ; signature and the volume index
-RAH_HIT equ 7                    ; ...and 1 when a READ has been served out of
-                                 ; it since it was filled or last spared: the
+RAH_HIT equ 7                    ; ...and 1 when a read has COME BACK to it
+                                 ; since it was filled or last spared: the
                                  ; pick's second chance (SPEC.md 18.95.10).
                                  ; The fill zeroes it with the VOL byte's word
                                  ; store, so a fill's own copy-out is not a hit
+RAH_END equ 8                    ; ...and the sector index just past the
+                                 ; chunk's LAST read. A read starting exactly
+                                 ; there is a stream moving on and marks
+                                 ; nothing; any other is a visit, which is what
+                                 ; RAH_HIT is for (18.95.10.1). Every copy
+                                 ; writes it, the fill's included, so it needs
+                                 ; no clearing of its own
 RAH_REC equ 9
 %if RAH_HIT != RAH_VOL + 1 || RAH_HIT >= RAH_REC
 %error "dsk_rah_fill clears RAH_HIT with the word store that writes RAH_VOL"
+%endif
+%if RAH_END != RAH_HIT + 1 || RAH_END >= RAH_REC
+%error "RAH_END is the record's ninth byte: the stride is fixed at DSK_RAH_SECS"
 %endif
 %if RAH_REC != DSK_RAH_SECS
 %error "dsk_rah_serve derives a slot's byte offset with ONE shift, which needs \
@@ -6558,9 +6568,13 @@ dsk_rah_serve:
     sub ax, [si+RAH_LBA]        ; AX = the sector's index inside the chunk
     jc .next                    ; below this chunk (the subtract wrapped)
     cmp ax, [si+RAH_N]
-    jae .next                   ; ...and inside it: a HIT, which marks the
-    mov byte [si+RAH_HIT], 1    ; chunk as one the walk COMES BACK to, so the
-    jmp short .copy             ; round robin passes it over once (18.95.10)
+    jae .next                   ; ...and inside it: a HIT
+    cmp al, [si+RAH_END]        ; EXACTLY where its last read ended is a stream
+    je .copy                    ; moving on - the fill served the head, this is
+    mov byte [si+RAH_HIT], 1    ; the next sector - and marks nothing. Anything
+    jmp short .copy             ; else is a VISIT - back, the same sector again
+                                ; or across a gap - so mark the chunk, and the
+                                ; round robin passes it over once (18.95.10.1)
 .next:
     add si, RAH_REC
     loop .slot
@@ -6584,6 +6598,9 @@ dsk_rah_serve:
     jbe .n
     mov di, dx                  ; ...and never more than were asked for
 .n:
+    mov cx, ax                  ; CX is the spent slot count: where this read
+    add cx, di                  ; ENDS, for the next one's test (a fill's
+    mov [si+RAH_END], cl        ; included - its next sector is the stream's)
     push di                     ; the answer, in sectors
     sub si, dsk_rah_tab         ; slot * RAH_REC, and RAH_REC == DSK_RAH_SECS
     add si, ax                  ; (asserted above), so one shift is
@@ -6704,7 +6721,7 @@ dsk_rah_fill:
     mov bx, ax
     add ax, dsk_rah_tab
     xchg ax, si                 ; SI = the slot's record (the output)
-    cmp byte [si+RAH_HIT], 0    ; **A CHUNK THAT HAS SERVED A READ SINCE ITS
+    cmp byte [si+RAH_HIT], 0    ; **A CHUNK A READ HAS COME BACK TO SINCE ITS
     je .take                    ; FILL IS SPARED ONCE** (SPEC.md 18.95.10): its
     mov byte [si+RAH_HIT], 0    ; mark is spent and the pick moves on. Every
     jmp short .pick             ; slot spared clears its own, so the walk ends
