@@ -14108,6 +14108,7 @@ br_s_bad:   db 'Cannot open page', 0
                                 ; so a package that draws no bar pays none of
                                 ; its bytes
 %define OS88UI_NOGLYPH          ; no check box or radio drawn here (SPEC.md 13.8.9)
+%define OS88UI_1BPP             ; OSAPI_SAVEU_1BPP: a greyed caption keeps its ink (SPEC.md 13.8.11)
 %include "os88ui.inc"           ; the standard button (SPEC.md 20.5.1)...
 %include "os88line.inc"         ; ...and the one-line field the bar is
 %include "br15.inc"              ; Browser 1.5 clipboard, context and bookmarks
