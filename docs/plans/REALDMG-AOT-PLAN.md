@@ -86,8 +86,21 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
 
 ### W3 - `GAME.O88`
 
-- [ ] `realdmg.asm`'s `RDG_AOT` arm: the parts, the load-time check, the
-  fallback, the miss log.
+- [x] `realdmg.asm`'s `RDG_AOT` arm and `gbaot.py package` (REALDMG-SPEC
+  20.10): the parts, the header check, the ROM opened from beside the
+  package, the images claimed before the ROM and given back to fit, and what
+  does not fit interpreted. `tests/gbaotpkg.py` on MartyPC's 5150, verified
+  red with the attach taken out.
+  - Measured, 640 KB 8088 (MartyPC, no input, the title screen): Super
+    Mario Land's package holds 2 of its 3 images and runs 11.9 game frames a
+    guest second against the stock recompiler's 12.9; the picture is half
+    the machine there (49% of the samples in the package's own code), the
+    precompiled images 26%.
+  - Found: a cartridge's code in WRAM is interpreted (GBRMW.GB's loop is at
+    C8xx: 9 frames a second against the recompiler's 29). Real games keep
+    only HRAM's OAM routine there; W0's RAM idiom is the answer if one
+    does not.
+- [ ] The miss log: MOVED to W4, beside the counters it is one of.
 - [ ] Measured on `286-victory` and a 640 KB 8088: memory, per-second speed,
   no translation.
 - [ ] `.o88`s of the owner's games for the owner to test.

@@ -3050,9 +3050,8 @@ broken and GBFLAGS.GB translated with `RT_DEADBUG`.
 
 ### 20.8 Not built
 
-The package that loads a precompiled cartridge and the counters are
-docs/plans/REALDMG-AOT-PLAN.md's waves 3 and 4. The compact grade waits on
-wave 3's measurement of the heap a package really has.
+The counters are docs/plans/REALDMG-AOT-PLAN.md's wave 4. The compact grade
+waits on wave 3's measurement of the heap a package really has.
 
 ### 20.9 The table, the list and the links
 
@@ -3096,3 +3095,52 @@ same machine as its reference for 3,000 frames:
 
 Nothing is dropped any more: W1's drops were the 64KB table's collisions,
 which the list absorbs.
+
+### 20.10 The package: GAME.O88
+
+`tools/gbaot.py package ROM DIR -o GAME.O88` writes one cartridge's
+package: realdmg.asm assembled as `RDG_AOT` (one image for every cartridge,
+`build/gbaot/realdmgaot.bin`) with its parts set to the cartridge's. The ROM
+is NOT in it: it sits beside the package, and the package, opened with no
+document, opens the ROM it was made from (the meta's name, in the
+package's own folder). A ROM whose header (0134h-014Fh) is not the one it
+was made from is refused: *not this game*.
+
+The parts (realdmg.asm's table, laid out for `RWA_MAX` = 14 images; the
+host sets the count):
+
+| row | what | where |
+|---|---|---|
+| 0, 1 | the core with the host's code in its holes | the carve |
+| 2 | the view | the carve's scratch |
+| 3 | the block table, 16KB, its segment words tokens F000h + n | the carve |
+| 4 | the meta (rwaot.inc's header) and the list | the carve |
+| 5.. | each code image's two 32KB halves, `OP_SELF` | a 65KB claim each |
+
+**The load** (`rw_load`): the code images are claimed FIRST, then the ROM
+is planned in what is left (section 10's plan, as before); an image is given
+back each time the plan does not fit, then the plan takes four slots. The
+images are read from the package's folder, the far jumps given their
+segments (the meta's relocations), the tokens in the table and the list made
+segments, and the machine attached as aothost.asm's mode 3 does it
+(`rw_aoton`): fixed table, the list searched on a miss, nothing translated.
+The CPU menu has one mode, *Precompiled*, and the speed line says `PRE`.
+
+**An image the heap cannot hold stays on the disk and what it held is
+interpreted** - running beats stopping. Its entries get offset 0, which
+`rdg_aotmiss` and `tr_enter` both read as no block, and every far jump into
+it is put back to the exit it was before the host linked it (`mov
+dx,SITE / jmp tr_lsite`), which `tr_link` finds nothing behind. The images
+are claimed in the order the host wrote them, so what goes is the last.
+`gbaot.py check --keep N` runs the harness with only N images by the same
+rules; Super Mario Land and Kirby's Dream Land are identical to the
+interpreter at 0 and 1 images, 1,500 frames.
+
+**The carve is pinned** (rwmove.inc): the images' far jumps name the
+core. So is every image claim. The package's region still moves.
+
+`tests/gbaotpkg.py` is the row: it packages our GBRMW.GB, boots MartyPC's
+5150 with the package, the ROM and REALDMG.O88, opens the package, and
+asserts the precompiled machine (`S_JITON`, `S_JITFIX`, nothing translated,
+the worker found in the code images), reporting the frame rate against
+REALDMG.O88's own recompiler on the same ROM.

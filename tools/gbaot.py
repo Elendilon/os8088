@@ -32,8 +32,10 @@ import hashlib
 import json
 import os
 import struct
+import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -608,7 +610,7 @@ def finish(img, sym, rom, keyed, rhm):
                     else:
                         sg[at] = 0xEA
                         struct.pack_into("<HH", sg, at + 1, toff, TOKEN + tn)
-                        relocs.append((n, at + 3, tn))
+                        relocs.append((n, i, tn, at != i))
                     linked += 1
             i = sg.find(b"\xBA", i + 1)
     img["segs"] = [bytes(x) for x in segs]
@@ -660,8 +662,8 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=()):
         seg_at = [CORE] + [0x4000 + 0x1000 * i for i in range(len(segs) - 1)]
         LIST = seg_at[-1] + 0x1000 if len(segs) > 1 else 0x4000
         segs = [bytearray(x) for x in segs]
-        for n, at, tn in meta["relocs"]:   # the far jumps' segments
-            struct.pack_into("<H", segs[n], at, seg_at[tn])
+        for n, site, tn, form in meta["relocs"]:   # the far jumps' segments
+            struct.pack_into("<H", segs[n], site + (8 if form else 0) + 3, seg_at[tn])
         for i in range(1, len(segs)):
             m.w(seg_at[i], 0, segs[i])
 
@@ -742,6 +744,123 @@ def cmd_build(a):
 ARMS = {"interp": 0, "dyn": 1, "aot": 3}
 
 
+def degrade(build, img, keep):
+    """`img` as the package runs it when the heap held only `keep` of its
+    code images past the core (rwaot.inc's rw_afixup, the same rules): an
+    entry into a missing image emptied, and a far jump into one put back to
+    the exit it was before the host linked it - `mov dx,SITE / jmp
+    tr_lsite` - for tr_link to find nothing behind at run time"""
+    meta, segs, table = img
+    lsite = symbols(build)["RDGC_TR_LSITE"]
+    segs = [bytearray(x) for x in segs[:keep + 1]]
+    relocs = []
+    for n, site, tn, form in meta["relocs"]:
+        if n > keep:
+            continue
+        if tn <= keep:
+            relocs.append((n, site, tn, form))
+            continue
+        sg = segs[n]
+        sg[site] = 0xBA
+        struct.pack_into("<H", sg, site + 1, site)
+        sg[site + 3] = 0xE9
+        struct.pack_into("<H", sg, site + 4, (lsite - (site + 6)) & 0xFFFF)
+
+    def empty(b):
+        t = bytearray(b)
+        for e in range(0, len(t), 8):
+            seg = struct.unpack_from("<H", t, e + 6)[0]
+            if seg >= TOKEN and seg - TOKEN > keep:
+                struct.pack_into("<H", t, e + 4, 0)
+        return bytes(t)
+    meta = dict(meta, relocs=relocs, list=empty(meta["list"]), segs=keep + 1)
+    return meta, [bytes(x) for x in segs], empty(table)
+
+
+# --- the package: GAME.O88 (REALDMG-SPEC 20.10) ------------------------------
+
+AOT_MAX = 14                       # realdmg.asm's RWA_MAX
+AOT_CODE = 5                       # ...and RWA_CODE
+
+
+def aot_image(build):
+    """realdmg.asm assembled as RDG_AOT, the one image every precompiled
+    cartridge is: build/gbaot/realdmgaot.bin"""
+    d = aotdir(build)
+    prerequisites(build)
+    out = os.path.join(d, "realdmgaot.bin")
+    srcs = [os.path.join(INC, f) for f in os.listdir(INC) if f.endswith((".asm", ".inc"))]
+    srcs += [os.path.join(ROOT, "apps", f) for f in os.listdir(os.path.join(ROOT, "apps"))
+             if f.endswith(".inc")]
+    if not os.path.exists(out) or any(os.path.getmtime(x) > os.path.getmtime(out) for x in srcs):
+        subprocess.check_call(["nasm", "-f", "bin", "-w+error", "-DRDG_AOT",
+                               "-I", os.path.join(ROOT, "apps") + "/", "-I", INC + "/",
+                               "-I", os.path.join(ROOT, "drivers", "sound") + "/",
+                               "-I", d + "/", "-l", os.path.join(d, "realdmgaot.lst"),
+                               "-o", out, os.path.join(INC, "realdmg.asm")])
+    return out
+
+
+def rom_name(path):
+    b = os.path.basename(path).upper()
+    stem, _, ext = b.rpartition(".") if "." in b else (b, "", "")
+    if not stem or len(stem) > 8 or len(ext) > 3 or any(c in stem + ext for c in ' "*+,/:;<=>?[]|'):
+        raise SystemExit("gbaot: %s is not an 8.3 name; give --romname" % b)
+    return b
+
+
+def package(build, img, rom, out, romname, image=None, log=print):
+    """GAME.O88: the RDG_AOT image with the parts set to this cartridge's"""
+    meta, segs, table = img
+    nseg = len(segs) - 1
+    if nseg > AOT_MAX:
+        raise SystemExit("gbaot: %d code images; the package holds %d" % (nseg, AOT_MAX))
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import os88lz
+    b = bytearray(open(image or aot_image(build), "rb").read())
+    at = b.find(b"O88PARTS")
+    rows = at + 10
+    b[at + 8] = AOT_CODE + 2 * nseg            # the rows there are
+    lst = meta["list"]
+    rel = b"".join(struct.pack("<BBH", n, tn | (0x80 if form else 0), site)
+                   for n, site, tn, form in meta["relocs"])
+    loff = (56 + len(rel) + 15) & ~15
+    hdr = struct.pack("<6sBBHHH", b"RDAOT1", nseg, meta["hmask"], len(lst) // 8,
+                      len(meta["relocs"]), loff)
+    hdr += bytes.fromhex(meta["header"]) + romname.encode().ljust(13, b"\0")[:13]
+    hdr = hdr.ljust(56, b"\0") + rel
+    metap = hdr.ljust(loff, b"\0") + lst
+    parts = [segs[0][:0x8000], segs[0][0x8000:], table, metap]
+    for sg in segs[1:]:
+        parts += [sg[:0x8000], sg[0x8000:]]
+    filed = [0, 1, 3, 4] + list(range(AOT_CODE, AOT_CODE + 2 * nseg))
+    work = tempfile.mkdtemp(prefix="gbaotpkg-")
+    paths = []
+    for row, body in zip(filed, parts):
+        z = os88lz.compress(body, os88lz.LZ4)
+        if len(z) >= len(body):                # a half that does not pack
+            b[rows + 8 * row + 1] &= ~16       #   goes plain (OP_COMP off)
+        p = os.path.join(work, "part%02d.bin" % row)
+        open(p, "wb").write(body)
+        paths.append(p)
+    binp = os.path.join(work, "game.bin")
+    open(binp, "wb").write(b)
+    cmd = [sys.executable, os.path.join(ROOT, "tools", "os88pkg.py"), "--compress-if=lz4",
+           binp, "-o", out, "--part-compress", "lz4"]
+    for p in paths:
+        cmd += ["--part", p]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode:
+        raise SystemExit(r.stdout + r.stderr)
+    shutil.rmtree(work)
+    size = os.path.getsize(out)
+    carve = 64 + 16 + (len(metap) + 1023) // 1024 + 64
+    log("gbaot: %s, %d bytes: the core and %d code images (%d KB of heap each), the table, "
+        "%d listed, %d relocations; the carve is %d KB with the view; it opens %s beside it" % (
+            out, size, nseg, 65, len(lst) // 8, len(meta["relocs"]), carve, romname))
+    return size
+
+
 def hottest(build, rom, img, frames=600):
     """The block entered most often in `frames` of the precompiled code"""
     for f, x, s1, m1 in run_arm(build, rom, 3, frames, img, prove=True):
@@ -787,9 +906,20 @@ def compare(build, rom, img, frames, ref="interp", arm="aot", serial=False, defi
         "while running" % (frames, arm, ref, ran, nbr)
 
 
+def cmd_package(a):
+    rom = G.Rom(open(a.rom, "rb").read())
+    img = load(a.dir)
+    if img[0]["rom_sha256"] != hashlib.sha256(rom.d).hexdigest():
+        raise SystemExit("gbaot: %s was not built from %s" % (a.dir, a.rom))
+    package(a.build, img, rom, a.out, a.romname or rom_name(a.rom))
+
+
 def cmd_check(a):
     rom = G.Rom(open(a.rom, "rb").read())
     img = load(a.dir)
+    if a.keep is not None:
+        img = degrade(a.build, img, a.keep)
+        print("gbaot: as the package runs with %d code images of %d" % (a.keep, len(load(a.dir)[1]) - 1))
     if a.break_hot:
         (pc, key), n = hottest(a.build, rom, img, min(a.frames, 600))
         a.break_block = "%02X:%04X" % (key, pc)
@@ -825,8 +955,16 @@ def main():
     k.add_argument("--arm", default="aot", choices=("interp", "dyn", "aot"))
     k.add_argument("--break-block", help="BB:PPPP: break this block on purpose (must go red)")
     k.add_argument("--break-hot", action="store_true", help="break the most entered block")
+    k.add_argument("--keep", type=int, help="only this many code images past the core, as the "
+                   "package runs when the heap holds no more")
+    p = sub.add_parser("package", help="GAME.O88 from a built directory")
+    p.add_argument("rom")
+    p.add_argument("dir")
+    p.add_argument("-o", "--out", required=True)
+    p.add_argument("--romname", help="the 8.3 name it opens beside it (default: the ROM's)")
     a = ap.parse_args()
-    return {"cover": cmd_cover, "build": cmd_build, "check": cmd_check}[a.cmd](a) or 0
+    return {"cover": cmd_cover, "build": cmd_build, "check": cmd_check,
+            "package": cmd_package}[a.cmd](a) or 0
 
 
 if __name__ == "__main__":

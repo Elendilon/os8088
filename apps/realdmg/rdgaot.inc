@@ -62,7 +62,9 @@ rdg_aotmiss:
     mov dl,[es:bx+2]
     cmp dl,[ss:S_AOTKEY]
     jne .no
-    les dx,[es:bx+4]                ; the block, as tr_go enters one
+    les dx,[es:bx+4]                ; the block, as tr_go enters one -
+    or dx,dx                        ;   unless its image was not loaded
+    jz .no                          ;   (REALDMG-SPEC 20.10: offset 0)
     mov [ss:S_JITOUT],dx
     mov [ss:S_JITOUT+2],es
     mov bx,[ss:S_SAVBX]

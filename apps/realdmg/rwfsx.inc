@@ -101,6 +101,13 @@ rw_mgrey:
 %endif
     ; CPU: the three modes marked by the one chosen, Profile for Static
     ; and the cache likewise; the speed chosen marked
+%ifdef RDG_AOT
+    mov al, 1                       ; (a precompiled cartridge's one mode)
+    mov si, rw_it_jaot
+    call rw_mark
+    mov di, rw_i_cpu + 2 * RW_CSPD
+    jmp short .cspd
+%endif
     mov cl, [rw_jitmode]
     mov di, rw_i_cpu
     mov si, rw_it_jon
@@ -123,6 +130,7 @@ rw_mgrey:
     inc si
     mov [rw_i_cpu + 2 * RW_CBIG], si
     mov di, rw_i_cpu + 2 * RW_CSPD  ; Speed's four, the one chosen marked
+.cspd:
     mov cl, [rw_speed]
     xor bx, bx
 .sp:
