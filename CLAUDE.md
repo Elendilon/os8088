@@ -526,6 +526,15 @@ make vencbundle #   every apps disk and plays `.V88` files, made on the host
                 #   `vencbundle` zips the encoder, the tools it runs and
                 #   VIDEO.O88 for someone with no os8088 tree (§98.2.13).
                 #   Both on demand
+make czbundle   # the FILE SPLITTER for someone with no os8088 tree
+make toolszip   #   (SPEC.md 20.14, 20.17): os88czgui.py, os88cz.py and
+                #   OS88CZ.COM in build/os8088-cz.zip. `toolszip` is the
+                #   release's FIRMWARE AND UTILITIES zip, build/os8088-tools.zip
+                #   (tools/os88toolszip.py): firmware/picomem1/, the kern_big
+                #   and socket-check ROMs cut against THIS tree (`make rom-big
+                #   socketrom`), the encoder, Game Boy precompiler (GBSTATIC/)
+                #   and splitter bundles as built, the Browser's proxy and the
+                #   two DOS tools. Both on demand
 make netbench   # THE STACK'S PROFILER (SPEC.md 72.15): NETBENCH.O88 beside
                 #   FTPD.O88 on one disk, in all three geometries. ETHER.DRV
                 #   brackets its own ten stages with the PIT and this is the

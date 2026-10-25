@@ -6353,6 +6353,31 @@ $(BUILD)/os8088-gbaot.zip: tools/gbaotbundle.py tools/gbaotgui.py tools/gbaot.py
                            tools/gbstatic.py tools/os88pkg.py tools/os88lz.py tools/os88disk.py
 	python3 tools/gbaotbundle.py $@ --build $(BUILD)
 
+# THE FILE SPLITTER, PACKED (SPEC.md 20.14, 20.17), ON DEMAND: os88czgui.py,
+# os88cz.py, what they import and OS88CZ.COM in build/os8088-cz.zip, for
+# someone with no os8088 tree - gbaotbundle's shape, standard library only
+.PHONY: czbundle
+czbundle: $(BUILD)/os8088-cz.zip
+$(BUILD)/os8088-cz.zip: tools/os88czbundle.py tools/os88czgui.py tools/os88cz.py \
+                        tools/os88drop.py tools/os88lz.py tools/os88vbundle.py \
+                        $(BUILD)/os88cz.com
+	python3 tools/os88czbundle.py $@ --dos $(BUILD)/os88cz.com
+
+# THE FIRMWARE AND UTILITIES ZIP, ON DEMAND (tools/os88toolszip.py): the
+# release's other archive - firmware/picomem1/, the kern_big and socket-check
+# ROMs (`make rom-big socketrom`, cut against THIS tree's kernel, so build it
+# from the tree whose disks it ships beside), the encoder, the Game Boy
+# precompiler (as GBSTATIC/) and the splitter bundles as built, the Browser's
+# proxy and the two DOS tools
+.PHONY: toolszip
+toolszip: $(BUILD)/os8088-encoder.zip $(BUILD)/os8088-gbaot.zip $(BUILD)/os8088-cz.zip \
+          rom-big socketrom $(BUILD)/os88cz.com $(BUILD)/os88net.com \
+          tools/os88toolszip.py tools/os88proxy.py tools/os88proxygui.py tools/htmsim.py
+	python3 tools/os88toolszip.py $(BUILD)/os8088-tools.zip \
+		--encoder $(BUILD)/os8088-encoder.zip --gbstatic $(BUILD)/os8088-gbaot.zip \
+		--cz $(BUILD)/os8088-cz.zip --rom $(BUILD)/rom --picomem firmware/picomem1 \
+		--dos $(BUILD)/os88cz.com $(BUILD)/os88net.com
+
 # THE REALDMG DISK (docs/REALDMG-SPEC.md section 18, docs/plans/REALDMG-PLAN.md
 # wave 8), ON DEMAND: REALDMG.O88, its README and GBDEMO.GB - the demo written
 # for the 5150, OURS, assembled by tools/gbours.py with tools/gbclock.py's
