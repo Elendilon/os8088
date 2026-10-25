@@ -41,7 +41,7 @@ OURS = ["gbrmw", "gbpop", "gbhblank", "gbbank", "gbsave", "gbjoy", "gbpad", "gbt
 # (label, ROM, frames, compare the link port's words rather than frames)
 SUITE = [
     ("GBDEMO", "apps/realdmg/GBDEMO.GB", 1500, False),
-    ("GBRMW", "gbrmw", 1500, False),
+    ("GBRMW", "gbrmw", 1500, "dyn"),     # (the recompiler's machine: below)
     ("GBPOP", "gbpop", 1500, False),
     ("GBHBLANK", "gbhblank", 1500, False),
     ("GBBANK (64 banks of code)", "gbbank", 1500, False),
@@ -74,7 +74,7 @@ def rom_path(name, built):
 HRAMLEG = ("GBRMW",)
 
 
-def hram_leg(rom, found, extra, out, frames):
+def hram_leg(rom, found, extra, out, frames, ref="interp"):
     import json
     h = gbaot.heat_run(BUILD, rom, gbaot.load(out), frames, log=lambda *x: None)
     path = out + "-heat.json"
@@ -91,7 +91,7 @@ def hram_leg(rom, found, extra, out, frames):
         return False, "%d HRAM PCs counted and none translated" % len(hram)
     out2 = out + "-hram"
     gbaot.save(img, out2, rom)
-    ok, what = gbaot.compare(BUILD, rom, gbaot.load(out2), frames)
+    ok, what = gbaot.compare(BUILD, rom, gbaot.load(out2), frames, ref=ref)
     return ok, "%d HRAM blocks (%s); %s" % (len(made), " ".join("%04X" % p for p in made), what)
 
 
@@ -138,21 +138,34 @@ def main():
         img = gbaot.translate(BUILD, rom, gbaot.leaders(rom, found, extra), log=lambda *x: None)
         out = os.path.join(work, label.split()[0])
         gbaot.save(img, out, rom)
-        ok, what = gbaot.compare(BUILD, rom, gbaot.load(out), frames, serial=serial)
+        # GBRMW's W16s run the NOP delay (w16_ff, REALDMG-SPEC 16.6), where
+        # the interpreter takes events at instructions translated code does
+        # not (20.6): its frames are held to the dynamic recompiler's, which
+        # shares the idioms' tails, and its own verdict - every idiom
+        # against its JP NZ twin - to the interpreter's, below
+        ref = serial if isinstance(serial, str) else "interp"
+        serial = serial is True
+        ok, what = gbaot.compare(BUILD, rom, gbaot.load(out), frames, ref=ref, serial=serial)
         if ok and not serial and " 0 precompiled blocks" in " " + what.split("; ", 1)[-1]:
             ok, what = False, "the precompiled code never ran: " + what
         print("%-4s %-28s %d blocks, %d code bytes; %s" % ("ok" if ok else "FAIL", label,
               len(img["blocks"]), img["code_bytes"], what))
         bad += not ok
+        if label == "GBRMW":
+            ok, what = gbaot.compare(BUILD, rom, gbaot.load(out), 2000, serial=True)
+            ok = ok and "Passed" in what
+            print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "GBRMW's verdict", what))
+            bad += not ok
         if label == "GBRMW" and not a.k:
             (pc, key), n = gbaot.hottest(BUILD, rom, gbaot.load(out))
             which = "%02X:%04X" % (key, pc)
-            ok, what = gbaot.compare(BUILD, rom, gbaot.broken(gbaot.load(out), which), frames)
+            ok, what = gbaot.compare(BUILD, rom, gbaot.broken(gbaot.load(out), which), frames,
+                                     ref=ref)
             print("%-4s %-28s %s" % ("FAIL" if ok else "ok", "control: %s broken" % which,
                                      "passed - the gate cannot go red" if ok else what + ", as it must"))
             bad += ok
         if label in HRAMLEG:
-            ok, what = hram_leg(rom, found, extra, out, frames)
+            ok, what = hram_leg(rom, found, extra, out, frames, ref)
             print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "%s, HRAM counted" % label, what))
             bad += not ok
         if label.startswith("GBFLAGS") and not a.k:

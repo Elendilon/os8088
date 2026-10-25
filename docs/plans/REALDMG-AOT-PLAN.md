@@ -200,3 +200,21 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   refused by that same rule, since an interrupt is taken at the branch and
   its handler may PUSH AF. Copy loops are NOT generic: 16.5% of Looney
   Tunes' instructions, 2.6% of SML's, 0.3% of Kirby's.
+- [x] Speed, round 3 - two more loop idioms, generic, in BOTH arms
+  (REALDMG-SPEC 16.6). Fourteen more cartridges were surveyed for loop
+  shapes before anything was written, and the two that recur are a byte
+  FILL (`LD (HL+),A / DEC r / JR NZ`) and a 16-bit COUNTDOWN (`DEC BC` or
+  `DEC DE`, then `LD A,B / OR C / JR NZ`) whose body is a delay, a copy
+  or a fill. `fill_ff` and `w16_ff` take each in one step, `w16_ff` in
+  PIECES - k passes to the next taken branch, charged exactly - so a
+  65,536-pass delay is never a stall. x86 instructions a frame, the
+  harness's exact count: Metroid II -23%, SML2 -25%, SML3 -6% (fill);
+  Zelda LA -13%, Tetris -9%, DKL -3.5%, Pokemon Red -2% (w16). Both live
+  in the core's tail pages, so neither costs a precompiled image a byte.
+  GBRMW grew a case for each, and its verdict is now checked against the
+  interpreter separately from the frames, which a NOP delay legitimately
+  moves (SPEC 20.6). Measured and NOT built: reordering the memory
+  checks (~1.5%) and denser image code (~60% of block bytes are outside
+  templates, ~4% to win). The survey precompiled 21 of 23 cartridges;
+  on the way it found the DYNAMIC recompiler diverging from the
+  interpreter on Pokemon Gold (frame 2) and Yellow (frame 4), still open.

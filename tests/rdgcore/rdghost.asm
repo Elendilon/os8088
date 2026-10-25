@@ -67,11 +67,17 @@ bits 16
 HOST_SEG        equ 0x0680
 HOST_STK        equ 0x6800
 %else
-HOST_SEG        equ 0x0760                  ; (35,328 bytes under the core: the
+HOST_SEG        equ 0x0740                  ; (35,840 bytes under the core: the
                                             ;   boot sector moves itself out of the
                                             ;   way first, BOOT_SEG, and the stack
-                                            ;   is HOST_STK's, under the harness)
-HOST_STK        equ 0x7600                  ; 0:7600 down, over FRAME_SEG's end
+                                            ;   is HOST_STK's, under the harness;
+                                            ;   512 lower for w16_ff's recognition
+                                            ;   in rdgjit.inc, REALDMG-SPEC 16.6.
+                                            ;   512-ALIGNED: `load` reads a sector
+                                            ;   a call, and one that straddles
+                                            ;   10000h is int 13h's error 09h)
+HOST_STK        equ 0x7400                  ; 0:7400 down, over FRAME_SEG's end
+                                            ;   (7080h: 896 bytes of stack)
 %endif
 BOOT_SEG        equ 0x2000                  ; the boot sector's copy, at 2000:7C00
                                             ;   (the view, not loaded from disk)
