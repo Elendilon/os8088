@@ -35386,6 +35386,14 @@ exactly as for a drop. A window with FAT edits in it never reaches here
 carried as it stands: the copy moves bytes nobody reads and `[dsk_fatw0]`
 still says `0xFFFF`.
 
+**WHAT is dissolved, and when, does not change**: `[mem_pg_rank]` and
+`mem_pg_cheap` decide that exactly as before, a claim a cheaper cache or no
+compaction satisfies never reaches here, the claim's record is freed in the
+same instruction, and `FAT_SEG` is the kernel's own window and not heap - so
+every claim sees the same arena and the same `OSAPI_MEM_AVAIL` it did (the
+heap map after BIG.BMP's open is the same claim for claim with the carry and
+without). Only the bytes of a window that was going anyway survive.
+
 It was found as a regression with no FAT code in it (`pxbenchvga`, BIG.BMP's
 first rows, §106.22): a picture's master claim compacts, the walk dissolves
 the live window of the volume the picture is on, and the decoder's first
@@ -206098,6 +206106,14 @@ face had pictures, the largest run beside the pictures is 298.5 KB, and
 a byte, and the one compaction left is the work claim's, ~14 ms of plan and
 no move. The block stays movable (`px_mreloc`); the descending pass packs it.
 13 bytes of `op_fetch` in the image, nothing else.
+
+**No memory changes hands.** The heap's total free is the same either way
+(347.5 KB at BIG.BMP's key), and `OSAPI_MEM_AVAIL` asked inside `px_claims`
+answers the same on both placements - 382 KB largest of 419 with the pictures
+held, 409 of 446 once `px_artroom` has dropped them. The one KB the shrink
+leaves between the pictures and the region is free, and the plan recovers it
+(the pictures are movable and the descending pass packs them up to the
+ceiling).
 
 With §18.8.4.1 beside it (the compaction that is left no longer costs a FAT
 re-read), BIG.BMP's first rows on the VGA XT read **3.36-3.49 s** over five
