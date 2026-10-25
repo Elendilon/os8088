@@ -200,10 +200,20 @@ def own(pidfile=None, sock=None):
 # `time.sleep` is a different amount of the machine at every load on the box.
 # What there is, is the BIOS tick count at 0040:006C: IRQ0 advances it at
 # 18.2 Hz, and only by running GUEST CODE (the ROM's int 08h, which the kernel
-# chains, SPEC.md 8.5) - so a tick that has moved is proof the guest ran, and
-# a budget counted in ticks is one a loaded box cannot shorten. It needs no
-# symbol, so it is the same address under the kernel, DOS and a bare
-# boot.
+# chains, SPEC.md 8.5) - so a tick that has moved is proof the guest ran.
+# It needs no symbol, so it is the same address under the kernel, DOS and a
+# bare boot.
+#
+# **BUT A TICK IS NOT A FIXED AMOUNT OF WORK HERE, and that is the
+# difference from MartyPC** (docs/plans/SOAK-PARALLEL.md 17.5). Without
+# `-icount` QEMU's PIT follows the HOST's clock, so a guest the host starves
+# runs fewer instructions per tick: a tick budget cannot be SHORTENED by load
+# the way a `time.sleep` is, but it buys less of the machine. So on QEMU a
+# budget is a CEILING on a wait for STATE (it ends the moment the state
+# arrives, and wants generous room), never a pause that something else is
+# assumed to have finished inside - that shape failed five rows at eight
+# emulators on four cores. And a row whose ANSWER is the guest's speed
+# against this clock is a host rate, and runs alone.
 #
 # `m` is any object with `read(linear, n)` - tests/ethernet.py's `Qemu`,
 # tests/telansi.py's, tests/trkscrl.py's `Qmp`: each opens QMP per command.
@@ -343,7 +353,7 @@ def _shift(sock, down):
             "type": "qcode", "data": "shift"}}}]})
 
 
-def sendkey(sock, spec, secs=1.0):
+def sendkey(sock, spec, secs=0.3):
     """HMP's `sendkey a-b-c` CONFIRMED: the modifiers down, `key` on the last
     name (released only once the ROM has stored it, or after `secs` guest
     seconds for a key it does not store), the modifiers up. HMP's own queues
@@ -774,8 +784,10 @@ def mouse_dblclick(m, sym, hmp, x, y):
     # 17.5). msmouse queues a packet per edge and the UART delivers them
     # back to back, so the presses are born a few milliseconds apart in the
     # guest whatever the host is doing.
-    hmp("mouse_button 1", "mouse_button 0", "mouse_button 1",
-        "mouse_button 0")
+    # (one command a call: some callers' `hmp` takes exactly one - trkscrl's
+    # and minesrc's did, and a four-argument call was a TypeError there)
+    for edge in (1, 0, 1, 0):
+        hmp("mouse_button %d" % edge)
     c = Clock(m)
     lim = to_ticks(PKT_SECS)
     while (mouse_where(m, sym)[2] & 3 or c.step() < 2) and c.step() < lim:

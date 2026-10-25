@@ -1783,11 +1783,11 @@ host's clock, and the fix is the row.
 | `excitebikeperf`, `-selfb`, `-perfherc`, `-selfbherc`, `pxsbench` | "A RATE, so it wants the machine to itself" | WRONG FLAG | the rate is MartyPC's cycle counter between frame marks, which no host load moves; nothing in them is host-timed. Shared the lane, passed at 8+ emulators on 4 cores |
 | `excitebikelap`, `-lapherc`, `-audiolap` | the same | TEST BUG | the reference rider's script is a 256-step ring the harness fed FROM THE BODY while the guest ran free, asserting it stayed ahead - about a host second of slack at MartyPC's 3.4x. The frame mark now STOPS and the feed runs there (a frame is at most `XB_STEPS_MAX` steps), so the ring is ahead by construction; the stop costs the guest no cycle |
 | `excitebikeaudiocap` | heard 3 of 4 engine tones in two parallel soaks | TEST BUG, already fixed | the capture is guest time (the debug server drains the speaker per emulated batch); the row had since stopped depending on the segmentation that moved. Shares the lane, passed under load |
-| `xtmp3eng` | `serial` | SPLIT | its two RATE legs (`ladder`, `slowdown`: the stub's cost is spun on the PIT, so the verdict is guest CPU against QEMU's HOST clock, and 1.05x has 5% headroom) are `xtmp3rate`, ALONE; the other 26 legs are behaviour and share the lane |
+| `xtmp3eng` | `serial` | SPLIT | its RATE legs are `xtmp3rate`, ALONE: `ladder` and `slowdown` (the stub's cost is spun on the PIT, so the verdict is guest CPU against QEMU's HOST clock, and 1.05x has 5% headroom), and the four that assert NO UNDERRUN on the SB16 (`playwav`, `pause`, `wavdirs`, `xtpeak` - the card drains its ring on the host's clock, and `playwav` underran under load). The other 22 legs are behaviour and share the lane. `xtmp3live` asserts no underrun too and stays in the lane on evidence: its decode has QEMU's whole headroom over an XT, and it never underran in four loaded runs - it is the row to move first if it ever does |
 | `vidbankspkbank`, `vidbankspkfast` | `serial` | LEGIT host rate | the player benches key 1's decode on the PIT, which without `-icount` is the host's clock; at eight emulators on four cores it timed nothing and muted. ALONE |
 
 So **the one-at-a-time lane is four rows**: `buildmatrix` (~540 s),
-`xtmp3rate` (~130 s) and the two speaker benches (~50 s) - about 720 s where
+`xtmp3rate` (~250 s) and the two speaker benches (~50 s) - about 840 s where
 it was 3,866.
 
 ### 17.2 What made QEMU shareable: MartyPC's answer, one emulator along
@@ -1862,8 +1862,9 @@ shared script), where it was 16 in the soak.
 Every converted row was run four wide with this box ALSO running another
 checkout's whole soak (four MartyPCs) and, for the last passes, two CPU hogs
 started and killed by PID - load averages of 11 to 18 on four cores, about
-twice the oversubscription a real soak runs at. Five rows failed there that
-had passed alone, and every one was a host-timed step:
+twice the oversubscription a real soak runs at. Rows that had passed alone
+failed there, a different handful each pass, and every one was a host-timed
+step:
 
 * **HMP `sendkey` loses a key to a starved guest** - its release follows the
   press by 100 ms of host time, and a guest that has not run in that window
@@ -1875,7 +1876,7 @@ had passed alone, and every one was a host-timed step:
   `xmcheck.qmp`, which is it in process) and by the four hand-rolled HMP
   clients (`ethernet`, `telansi`, `thewire`, `wirechat`'s `Qemu.hmp`, and
   `tools/heapmap.py`'s `Qmp`) - the press, then the release only once the
-  BIOS buffer's tail has moved, or after a guest second for a key the ROM
+  BIOS buffer's tail has moved, or after 0.3 guest seconds (inside the 500 ms typematic delay) for a key the ROM
   stores nothing for, modifiers held across it. `os88qemu.key` was that
   already, for one row; `type_text` is it for a string, and three copies
   of a typing loop are one.
@@ -1903,11 +1904,22 @@ had passed alone, and every one was a host-timed step:
 * **`xtmp3live`'s seek** read the clock after a host `time.sleep(0.5)` meant
   to clear a 14 ms transient; it waits for the same second on two readings a
   guest tick apart.
+* **A ceiling that was too low to be one.** `telansi` gave the Ctrl+]
+  bracket 5 guest seconds; it has 30, and ends the moment the byte is set.
 * **The Excitebike lap feed** (17.1).
 * **A QEMU row's wall-clock timeout** (17.2).
-* **`xtmp3eng`'s slowdown leg and the vidbank speaker benches** are the
+* **`xtmp3eng`'s rate legs and the vidbank speaker benches** are the
   honest kind: QEMU's guest clock is the host's, so a starved guest IS a
   slower machine (17.1).
+
+**The lesson under all of these is QEMU's and not MartyPC's**, and
+`tests/os88qemu.py`'s clock note says it now: without `-icount` a QEMU tick
+is the HOST's, so a tick budget cannot be shortened by load the way a
+`time.sleep` is - but it buys a starved guest less of the machine. On
+MartyPC a guest second is a fixed amount of work; on QEMU it is not. So on
+QEMU a budget is a generous CEILING on a wait for state, never a pause that
+something is assumed to have finished inside, and an answer that IS the
+guest's speed against that clock is a host rate.
 
 ### 17.6 What is left
 

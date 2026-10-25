@@ -831,8 +831,12 @@ def check_fullscreen(m, pseg, sy, shot, fails, press_connect, connected, quiet,
                      % drawn)
     qmp("sendkey ctrl-bracket_right")
     if "te_txm" in sy:                  # the bracket's own byte, then a
+        # 30 GUEST seconds, not 5: on QEMU those are the host's, and a guest
+        # starved of CPU does less of the mode set in each one - it missed
+        # 5 at eight emulators on four cores (SOAK-PARALLEL.md 17.5). It is a
+        # ceiling: the wait ends the moment the byte is set
         if os88qemu.acted(m, lambda: m.readseg(pseg, sy["te_txm"], 1)[0],
-                          secs=5, what="[te_txm]", poll=0.1):
+                          secs=30, what="[te_txm]", poll=0.1):
             os88qemu.pace(m, 1)         # ...second for the screen behind it
     else:
         os88qemu.ui_done(m, S, cap=3.0)
@@ -919,7 +923,7 @@ def check_fullscreen(m, pseg, sy, shot, fails, press_connect, connected, quiet,
     qmp("sendkey ctrl-bracket_right")
     if "te_txm" in sy:
         if os88qemu.acted(m, lambda: not m.readseg(pseg, sy["te_txm"], 1)[0],
-                          secs=5, what="[te_txm] clear", poll=0.1):
+                          secs=30, what="[te_txm] clear", poll=0.1):
             os88qemu.pace(m, 1)
     else:
         os88qemu.ui_done(m, S, cap=3.0)

@@ -843,17 +843,17 @@ def qemu_g1():
         # follows the press by 100 ms of HOST time, a starved guest took both
         # at one IRQ1, and the row stopped short of the race - "not in the
         # race" at eight emulators on four cores (SOAK-PARALLEL.md 17.5)
-        Q.key(m, "ret", secs=0.5)
+        Q.key(m, "ret", secs=0.3)
         Q.pace(m, 4)
         assert m.read(base + sym["xb_fs"], 1) == b"\x01", "QEMU did not enter the bracket"
         assert m.read(base + sym["xb_error"], 1) == b"\x00"
         # the game's own front end: Enter on the title, on the mode, on the course; then
         # the race's countdown, and `p` pauses it (xb_paused) so the display is static
         for _ in range(3):
-            Q.key(m, "ret", secs=0.5)
+            Q.key(m, "ret", secs=0.3)
             Q.pace(m, 2)
         assert m.read(base + sym["xb_state"], 1) == b"\x03", "not in the race"
-        Q.key(m, "p", secs=0.5)
+        Q.key(m, "p", secs=0.3)
         Q.pace(m, 1.2)
         assert m.read(base + sym["xb_paused"], 1) == b"\x01"
         path = os.path.join(os88qemu.RUNDIR, "vga-qemu.ppm")

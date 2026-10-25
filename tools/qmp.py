@@ -114,13 +114,14 @@ class Client(object):
             m = re.search(r":\s*0x([0-9a-fA-F]+)", r.get("return", ""))
             return int(m.group(1), 16) if m else None
 
-        def key(spec, secs=1.0):
+        def key(spec, secs=0.3):
             # A PLAIN `sendkey` IS CONFIRMED (docs/plans/SOAK-PARALLEL.md
             # 17.5): HMP's own queues the release 100 ms of HOST time after
             # the press, and a guest the host starved past that took both at
             # one IRQ1 and lost the key. So the press goes, then the release
             # only once the ROM has stored it - the BIOS buffer's tail at
-            # 0040:001C moved - or after `secs` guest seconds for a key the
+            # 0040:001C moved - or after `secs` guest seconds (under the
+            # 500 ms typematic delay) for a key the
             # ROM stores nothing for. Modifiers are held across the key.
             names = spec.split("-")
 

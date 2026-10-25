@@ -208,7 +208,7 @@ def main():
         # a starved guest took both at one IRQ1, the pause never happened,
         # and the lemmings walking read as a save-under defect - 1,248
         # pixels at eight emulators on four cores (SOAK-PARALLEL.md 17.5)
-        Q.key(m, "f11", secs=1.0)
+        Q.key(m, "f11", secs=0.3)
         Q.pace(m, 1)
 
         # --- 4. the pointer leaves the world, and nothing stays ----------
@@ -259,7 +259,7 @@ def main():
                  "world (carried finding A)" % (diff, ys[0], ys[-1]))
 
         # --- 5. Esc: the postview in 12h ---------------------------------
-        Q.key(m, "f11", secs=1.0)
+        Q.key(m, "f11", secs=0.3)
         Q.pace(m, 0.5)
         m.hmp("sendkey esc")
         wait_for(m, tmp, top_black, 30, "the postview (mode 12h)")
