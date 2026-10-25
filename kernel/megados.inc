@@ -1640,73 +1640,76 @@ mega_dkbup:
     ret
 
 ; -----------------------------------------------------------------------------
-; mega_hbgof - A HIBERNATE'S RESUME, the way out of the fresh kernel (W5; far,
-;              from HIBER.DRV's hbm_xres, PM, DS = KDATA). Does not return.
-; in:  ES = the text page (hbm_wake's staging cells are already in it);
-;      [mega_dpbase] the staging block, holding the image at MPK_HDR;
-;      [mega_dpkb] KB of conventional memory to put back; [mega_dncpy] and
-;      MPS_REG the copies the stub makes first (the tables, every pool
-;      block); [mega_dnreg] = 0
+; mega_hbgor - THE STREAMING RESUME's way out of the fresh kernel (KERN-MEGA-
+;              MEMORY-PLAN MC4.1 (b); far, from HIBER.DRV's hbm_xres, PM, DS =
+;              KDATA, the stage written into the text page). Does not return.
 ;
-; THE PARK STUB DOES THE WORK. A hibernate's resume and a park's return are
-; the same act - conventional memory and the kernel's state above 1MB put
-; back from a block above 1MB, and into the kernel's own tables - so the
-; fresh kernel reads the image into such a block with its own file layer and
-; then enters the stub in place, as kd_unpark does, on the stub's own GDT.
-; NEITHER CPU LEAVES PROTECTED MODE (KERN-MEGA-DOS-PLAN 8.3 planned a drop
-; into the real-mode resume stub; Bochs will not fetch from the framebuffer
-; that stub runs in, and a 286 would spend a reset on it).
+; THE DOS HANDOVER's route down, with a resume's payload: the IVT's tick and
+; keyboard back to the BIOS's, the keyboard and the mice masked for the
+; stub's run, and out through mega_dosgo_lo (CR0 on a 386, the shutdown-0Ah
+; reset on a 286) into mega_dropr - which, with [mega_drmode] = 1, copies the
+; stage to [mem_top] - 400h, its runs-park placement, and enters it there:
+; kernel/megares.inc, which reads the whole image back through the BIOS and
+; comes in at mega_hbwake.
 ; -----------------------------------------------------------------------------
-mega_hbgof:
-    ; STKBALANCE-OK: never returns - the far jump below is into the park stub, above 1MB
+section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
+mega_hbgor:
+    ; STKBALANCE-OK: never returns - out of protected mode and into the stub
     cli
+    mov ax, 0xB800                  ; the stage's REAL segment, for mega_dropr
+    cmp byte [vid_kind], VID_HERC
+    jne .stg
+    mov ax, 0xB000
+.stg:
+    mov [mega_dstg], ax
+    mov byte [mega_drmode], 1       ; ...placed under [mem_top]
+    push es
+    push word MEGA_SEL_LOW0
+    pop es
+    mov ax, [mega_old08]            ; the BIOS's tick and keyboard, for the
+    mov [es:0x08*4], ax             ; stub's int 13h and int 15h
+    mov ax, [mega_old08+2]
+    mov [es:0x08*4+2], ax
+    mov ax, [mega_old09]
+    mov [es:0x09*4], ax
+    mov ax, [mega_old09+2]
+    mov [es:0x09*4+2], ax
+    pop es
+    in al, 0x21                     ; the masks the stub runs under: the
+    or al, 0x1A                     ; disks' lines as they are, the keyboard
+    mov [mega_dkm1], al             ; and the mice off (hbm_handover's)
+    in al, 0xA1
+    or al, 0x10
+    mov [mega_dkm2], al
     mov al, 0xFF
     out 0x21, al
     out 0xA1, al
-    mov al, 0x8D                    ; NMI off: the stub writes the IDT
+    mov al, 0x8D                    ; NMI off across the switch
     out 0x70, al
-    mov bx, sp
-    mov ax, [ss:bx+2]               ; the caller's CS: the stub is in its image
-    call mega_dstubup
-    xor ax, ax
-    mov [mega_dsum], ax             ; no regions, so the sum is 0:0
-    mov [mega_dsum+2], ax
-    mov [mega_dout], ax
-    mov ax, mega_hbwake
-    call mega_dhcfill
-    mov ax, [mega_dpbase]
-    mov dx, [mega_dpbase+2]
-    add ax, MPK_GDT
-    adc dx, 0
-    mov [mega_hbgdtr+2], ax
-    mov [mega_hbgdtr+4], dx
-    lgdt [mega_hbgdtr]
-    xor bx, bx                      ; the stub's check, from this kernel's own
-    xor dx, dx                      ; cells: no sum, the KB and the block
-    mov cx, [mega_dpkb]
-    mov di, [mega_dpbase]
-    mov si, [mega_dpbase+2]
-    db 0xEA                         ; jmp far 08h:0 - the stub, above 1MB
-    dw 0, 0x08
+    jmp KERNEL_SEG:mega_dosgo_lo
 
 ; -----------------------------------------------------------------------------
-; mega_hbwake - THE HIBERNATED SESSION IS BACK (PM, the stub's far jump with
-;               the image's tables loaded, IF = 0, NMI off, every line masked)
-; The image's LDT and data, hbm_wake's stack, the masks banked at the write,
-; and on to the wake address the write stamped (hbm_wake, which takes it from
-; there exactly as on kern_big: SPEC.md 87.6). The 8259 is at 20h already -
-; this kernel never left protected mode - and the IDT is the image's own.
+; mega_hbwake - THE HIBERNATED SESSION IS BACK (PM, megares.inc's tail's far
+;               jump with the image's tables loaded, IF = 0, NMI off, every
+;               line masked)
+; The image's LDT and data, hbm_wake's stack, the 8259 back at 20h (the stub
+; ran in real mode, where mega_dropr had it at 08h), the masks banked at the
+; write, and on to the wake address the write stamped (hbm_wake, which takes
+; it from there exactly as on kern_big: SPEC.md 87.6). The IDT is the
+; image's own.
 ; -----------------------------------------------------------------------------
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_hbwake:
-    ; STKBALANCE-OK: entered on the stub's stack and left by a far jump into hbm_wake, which builds its own
+    ; STKBALANCE-OK: entered with no stack at all and left by a far jump into hbm_wake, which builds its own
     mov ax, MEGA_SEL_KDATA
     mov ds, ax
+    mov es, ax                      ; (ES held a real-mode segment)
     mov ax, MEGA_SEL_LDT
     lldt ax
     mov ax, LOW_SEG
     mov ss, ax
     mov sp, [hb_sp]
+    call KERNEL_SEG:mega_pic_pmf    ; 08h -> 20h
     ; THE PICTURE WAS TAKEN MID-WRITE, so three cells hold what was in
     ; flight then (SPEC.md 87.6's class: true of the machine that wrote the
     ; image, false of this one): a null-segment instruction being stepped

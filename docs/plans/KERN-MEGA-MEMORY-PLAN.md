@@ -765,6 +765,41 @@ reset in the ROM, 64 sectors a call at most. The stub's tail rests on
   pool's base across one KBTRIP trip. Red with `[mega_dhkb]` held at 0:
   64 of 64 dwords overwritten by `kern_dos`.
 
+#### MC4 (b) as built (2026-10-25) - DONE
+
+- As 4.1 (b) says. `kernel/megares.inc` is the stub (~700 bytes in
+  HIBER.DRV's `.modh`, nothing resident) and its 256-byte tail; `hbm_xres`
+  stages it, `mega_hbgor` leaves protected mode by `mega_dosgo_lo`, and
+  `mega_dropr` needed NOTHING new: its runs-park placement already puts the
+  16KB stage at `[mem_top]` - 400h and enters it. The stub's run list is the
+  section head's, its geometry `hbm_geom`'s, its extents `hbm_extat`'s over
+  the WHOLE file (the picture's chunks and the section), bounded by
+  `HS_XMAX` - a file in more runs than that is refused, `Hibernate:
+  fragmented`, with the fresh session intact.
+- **The text page is data only**, Bochs's rule: the stage's own 16KB are
+  the last 32 sectors of the picture and land in the text page, and the
+  tail swaps the stage's cells (0x400-0x4FF: HS_CLK and the rest
+  `hbm_wake` reads there) back into it as it copies those bytes home.
+- `mega_hbwake` puts the 8259 back at 20h (`mega_pic_pmf`) and ES on a
+  selector. Deleted: `hbm_xfit`, `hbm_xclaim`, `hbm_xunclm`, `hbm_xneed`,
+  `mega_hbgof`, and `hbm_xplan`'s room test - so the hibernate no longer
+  refuses a full pool, and the System menu greys it only on a machine with
+  no pool at all (it greyed a 1MB AT before).
+- kern_big and kern_small byte-identical (`kernel.sys`, `HIBER.DRV` and
+  kern_small's `kernel.bin` at one commit).
+- Rows: `megahiber` passes on the new route (`kern_mega: resumed`,
+  MEGAHIB's 64KB back); `megahibfull` (new) is the case itself - 847K of
+  pinned filler covering every free KB of a 950K pool, hibernated and
+  resumed, filler and MEGAHIB back - and on the tree before the hibernate
+  never happens. Both under Bochs, a 386: a 286's reset drop and its `int
+  15h AH=87h` are the DOS trip's own and have run there, but this route
+  has not, and wants 86Box's `286-mega`.
+- Not built: D5's own route, a DOS trip with no room for a park offering
+  the hibernate. The stub is ready for it (it needs only `kern_dos`
+  -DKD_MEGA to stage it, as `kd_resume` does kern_big's), but nothing asks
+  for it yet: `mega_dosclaimf` shrinks the park to `MPK_MIN_KB` and leaves
+  the rest in place, so a trip refuses only below 128KB of pool.
+
 ### MC5 - one claim for all of it (D6, D7, D8)
 
 - **The exact answer:** pool free + purgeable below the caller's rank (one run

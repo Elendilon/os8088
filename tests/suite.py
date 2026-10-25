@@ -16226,6 +16226,16 @@ SOAK = [
         "way. The failing case is that one write put back: 32,513. 80s is "
         "62 measured: the hibernate's end is its sentence on the text screen",
         needs=("bochs", "nasm")),
+    Row("megahibfull", "soak", py("tests/megahiber.py", "--full"), 60.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC4.1 (b): megahiber on a 2MB "
+        "machine with EVERY free KB of the pool covered by pinned records "
+        "before the hibernate. The resume used to stage the whole file in "
+        "one free block and refused here; it streams now (kernel/megares.inc, "
+        "real mode, every run straight to its place), so it must resume, "
+        "MEGAHIB's 64KB read back and the filler stand where it was. Red on "
+        "the tree before: the hibernate never happens (400s, no sentence). "
+        "60s is 23 measured",
+        needs=("bochs", "nasm")),
     Row("megap2hiber", "soak", py("tests/megap2hiber.py"), 30.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.57, SPEC.md 96.45.2.4: the PS/2 "
         "mouse after a hibernate's REBOOT-route resume on kern_mega. Bochs "

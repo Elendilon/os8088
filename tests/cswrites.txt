@@ -54,6 +54,7 @@
 # --- real mode by construction ----------------------------------------------
 1 4 kernel/mega.inc  # mega_svc's real-mode half and mega_r286, where a 286 comes back after its reset: DS = KERNEL_SEG while CR0.PE is clear, where it IS the segment; mega_capc, the capture stub an IRQ reflection installs in the IVT, which runs only in that real-mode window; and mega_strcal, which loads the CODE selector into ES ON PURPOSE so that its two probe writes fault (KERN-MEGA-PLAN 10.3 item 54.1) - neither one is ever made
 0 2 kernel/hbstub.inc  # the hibernate resume stub, staged in the text framebuffer and run with no kernel at all
+0 5 kernel/megares.inc  # kern_mega's streaming resume stub (KERN-MEGA-MEMORY-PLAN MC4.1 (b)): staged into the text page from HIBER.DRV and run in REAL MODE, at the top of conventional memory, with no kernel left at all
 0 1 kernel/disk.inc  # the boot overlay (.ovl): mount-time setup, before mega_enter
 13 1 kernel/spinner.inc  # the boot spinner's %macro state, drawn from IRQ0 inside int 13h (SPEC.md 15.3.8) during the boot
 37 3 kernel/splash.inc  # the loading screen's state, all of it in stage 2 (SPEC.md 2.9.4)
