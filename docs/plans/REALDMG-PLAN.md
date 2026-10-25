@@ -1106,7 +1106,11 @@ feasible per game with a host tool; the interpreter leaves the hot path but
 stays as a cold fallback for RAM code and unresolved computed jumps, and the
 options are a complete host-made profile for today's Static, a per-game
 `GAME.O88` built from emitted assembly, or a precompiled file the package
-loads.
+loads. The owner's answers the same day chose its section 11: every
+instruction the walk finds translated on the host in a COMPACT grade (no
+play, no profile, no slow form), hot code promoted from counters the game
+keeps, a per-game `GAME.O88` first because that is what fits a 256 KB
+cartridge in 640 KB.
 
 ### The scroll round - research, the field probe, and the plan (2026-10-21)
 

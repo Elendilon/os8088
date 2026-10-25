@@ -84,18 +84,17 @@ hot path completely. It cannot be removed from the machine in general.**
   bank. That turns "is coverage complete?" from a question into a log the
   host tool can read and rebuild from (idea 6.4).
 
-**Recommendation, in order** (section 7 has the waves):
-1. **B0 first, a measurement that costs no package byte.** A host tool
-   writes a COMPLETE `NAME.RDP` from walk plus trace, weighted by heat the
-   host can actually measure. Today's Static preloads it. That answers
-   whether completeness removes the transition stalls before anything is
-   built for it.
-2. **Then A.** A per-game `GAME.O88` built on the host from emitted
-   assembly, with today's interpreter demoted to a lazy fallback part that
-   normal play never reads. The strict build is its coverage instrument.
-3. **B (a precompiled file `REALDMG.O88` loads) only if the owner wants one
-   package rather than one per game.** It binds a data file to one build of
-   the templates (section 5.3).
+**The owner's answers (2026-10-25) choose the design, and section 11 is
+it.** In short:
+- Translate EVERYTHING the walk finds, on the host, in a COMPACT grade. There
+  is no play, no profile and no heat in it.
+- Promote hot code to full templates from counters the game keeps itself.
+- Ship it first as a per-game `GAME.O88`, because that is the shape that
+  fits a 256 KB cartridge in 640 KB.
+
+Sections 2 to 10 are the study the answers were given against, and section
+11 says where they changed it: 6.1's grading by heat is REFUSED by 3.1, and
+8's budget is corrected.
 
 ## 2. What "the interpreter" does in a recompiled run today
 
@@ -168,7 +167,7 @@ two that report's):
 
 **What a static build would have to make, MEASURED** on the two games
 (`aotcount`, a scratch script over gbstatic's walk and gbcover's trace;
-section 11). A *leader* is a place a block starts: an entry, a branch
+section 12). A *leader* is a place a block starts: an entry, a branch
 target, a fall-through or a jump table's word. The device translator also
 cuts a block at 40 instructions and at 4000h, so blocks are at least this
 many.
@@ -223,6 +222,31 @@ build/gbtest/<rom> --frames 4000`, 3,200 frames measured):
 - **The blargg suites cannot run "strict".** They copy the instruction under
   test into RAM. They stay the gate for the FALLBACK and for RealDMG
   itself, not for the static build's translated code (section 6).
+
+### 3.1 Heat cannot be found without play
+
+The hot set is a fifth of the code (section 3). The question for a build
+that must not need a session of play first is whether STATIC analysis can
+name it. Scored against the trace (MEASURED: `aotheat`, a scratch script
+over the walk alone, no traced seeds):
+
+| static guess at "hot" | Super Mario Land: code / busy time | Kirby's Dream Land: code / busy time |
+|---|---|---|
+| inner-loop bodies (a backward branch within 256 bytes) | 42% / 76% | 22% / 62% |
+| ...and the functions they call | 78% / 88% | 50% / 93% |
+| ...and three levels of calls | 98% / 97% | 74% / 95% |
+| interrupt handlers and three levels of calls | 14% / 13% | 94% / 99% |
+| **the trace's hot set, for reference** | **22% / 99.1%** | **10% / 99.9%** |
+
+- **No static guess covers 95% of the time with less than three quarters
+  of the code.** That is no better than translating everything.
+- **The worst guess differs by game.** Super Mario Land's frame runs
+  outside its interrupt handlers and Kirby's inside them, so a rule tuned
+  on one is wrong on the other.
+- **So a design that puts cold-graded code in a SLOW form makes an
+  unplayed level slow**, which is exactly the stall the owner's first
+  answer rules out. What a level that was never played runs must be fast
+  without heat. That is section 11.2.
 
 ## 4. The design problems, one by one
 
@@ -345,6 +369,85 @@ With the traced seeds and their over-count (section 3) the wholes are
 - **A ROMX bank's code is small**: 22 KB at most in two grades (Kirby's
   bank 5). So code paged with its bank (6.2) is a slot of 16 KB of ROM
   plus at most ~22 KB of code.
+
+### 4.6 What is stored twice
+
+The question (the owner's): can the ROM be compiled INTO the code, so its
+bytes are not held twice? MEASURED with a scratch copy of
+`tools/gbprof/gbcover.c` that also records every ROM byte read as DATA
+(not as an opcode or an operand), over the same 107 s:
+
+| | Super Mario Land (64 KB) | Kirby's Dream Land (256 KB) |
+|---|---|---|
+| code bytes the walk found | 14,657 (22.4%) | 24,011 (9.2%) |
+| ...of them read as data | 189, all in bank 2 at 5100h: data the walk misread as code | 0 |
+| code bytes that RAN | 8,215 (12.5%) | 2,894 (1.1%) |
+| ...of them read as data | **0** | **0** |
+| ROM bytes read as data | 11,359 (17.3%) | 12,784 (4.9%) |
+| touched neither way in 107 s | 60.6% | 86.0% (76,107 bytes of it 00h/FFh fill) |
+| code / data by bank | 0: 68/3; 2: 4/58; 3: 16/6 | 0: 74/0; 1: 15/0; 5: 24/10; 6: 31/1; data banks 2, 3, A: 30, 16, 13 |
+
+**What it means:**
+- **Only the code bytes are held twice**, 9-22% of the ROM. The bulk of the
+  memory is the translation's EXPANSION (section 4.5), not the copy.
+- **Data cannot become code.** A game reads its data through pointers it
+  computes at run time: tile copies, maps, text, music. The bytes must be
+  addressable where the game expects them.
+- **What CAN be compiled in is a read whose address is constant.** `LD
+  A,(nn)` into ROM, or `(HL)` where the block's constant propagation proves
+  HL (9-30% of pointer accesses, MEASURED 2026-10-20), is a constant: ROM
+  never changes. It becomes `mov al,imm` with no segment and no compare.
+  That is SPEED, not memory, because other code may read the same byte by
+  pointer.
+- **The inverse is possible and is where memory is won: code bytes the
+  game never reads can hold something else.** The ROM's copy must keep its
+  layout, but a byte nobody reads may hold anything:
+  - Bank 0 is 68-74% code, so **11-12 KB of the view's 0000-3FFF can hold
+    the static dispatcher's table** (4.3, ~16 KB).
+  - A ROMX bank's code bytes (Kirby's bank 6: 31%) can hold part of that
+    bank's own translated code, paged with it (6.2).
+  - **It is a claim per game, on evidence.** The trace's data-read map is
+    the evidence. A game that checksums its own ROM, or copies code from
+    ROM to RAM (the OAM DMA routine's source is read as data by
+    construction, so the map keeps it), would read garbage. The host tool
+    reuses only bytes no traced run read, and a build flag turns it off.
+  - **Worth up to the code share: ~15 KB of Super Mario Land and ~24 KB of
+    Kirby's Dream Land.** On a 640 KB machine that is the margin (11.4).
+- **The data side has its own lever.** 61-86% of the ROM was not touched in
+  107 s, and the ROM compresses: LZ4 (`tools/os88lz.py`) takes Super Mario
+  Land 64 -> 44 KB (69%) and Kirby's Dream Land 256 -> 165 KB (65%), with
+  data banks as low as 19% (Kirby's bank 1), 35% and 40% (MEASURED). A
+  bank kept packed is expanded into a slot when the game switches to it,
+  at the kernel decoder's 39.9 cycles a byte: ~140 ms for 16 KB on a 4.77
+  MHz 8088, ~20 ms on a 286 (PREDICTED). That is a pause at a level's load,
+  not during play, IF the play working set fits the unpacked slots. It is
+  a reserve, not the plan (11.4).
+
+### 4.7 Where a template's bytes are
+
+The 20.2 bytes an instruction is not spread evenly. MEASURED from
+`build/rdgtmpl.bin` (510 templates), each opcode's record length weighted
+by the walk's static mix and by the trace's busy mix:
+
+| | Super Mario Land static / busy | Kirby's Dream Land static / busy |
+|---|---|---|
+| control transfers (no template: the exit is written) | 19% / 24% of instructions | 22% / 19% |
+| mean template, the other instructions | 25.9 / 22.9 bytes | 24.8 / 19.6 bytes |
+| templates over 16 bytes | **43% / 42% of instructions** | **45% / 37%** |
+| ...their share of the template bytes | **84% / 81%** | **84% / 77%** |
+
+- **The fat is the MEMORY access.** `LD A,(HL)` is 38 bytes, `LD (HL),A` 59,
+  `INC (HL)` 78, `LD A,(nn)` 51 and `LDH (n),A` 60 (when n is not HRAM), and
+  each carries its region compares and its slow-path stub inline. `ADD A,B`
+  is 6 and `INC E` 11.
+- **The record lengths are before the translator's own savings** (the
+  shared `sub bp`, 16.1.1; dead flags, 16.1.2; the HRAM and WRAM forms
+  chosen by operand), which is how 25.9 becomes the 20.2 measured in the
+  cache.
+- **So a compact grade is one change, not a different design**: register
+  instructions keep their templates, and a memory access becomes its
+  operand set-up and a near `call` to ONE shared access routine per kind,
+  which holds the compares and the slow path. Section 11.2 prices it.
 
 ## 5. The options
 
@@ -473,6 +576,12 @@ runs none of a frame in normal play, so its speed buys nothing.
 
 ### 6.1 Two grades of CODE, by heat
 
+**REFUSED as written, by 3.1**: grading needs heat, heat needs play, and the
+owner's first answer is that no play may be needed. What survives is the
+compact form as the DEFAULT for all code, with heat only promoting (11.2,
+11.3). The text below is kept as it was written.
+
+
 - **Hot code gets templates**, ~20 bytes an instruction: what ran at least
   once every 20 frames, ~1,900 instructions on Super Mario Land.
 - **Cold code gets a compact form**: each Game Boy instruction becomes
@@ -552,6 +661,14 @@ runs none of a frame in normal play, so its speed buys nothing.
 
 ## 8. Memory, per option (PREDICTED)
 
+**CORRECTED in 11.4.** The ~449 KB "arena" this section compares against
+is what a package gets LESS its own region (KERN-DOS-PLAN 1.1: 449 arena +
+42 region on a 5150 with Hercules and a Sound Blaster). The like-for-like
+budget for a package's region plus its claims is **~491 KB, and ~523 KB
+when the 32 KB disk cache is shed**, which a failed claim does. Every
+"over" below is therefore ~42 KB too pessimistic.
+
+
 **The common rows:**
 - the package's region with no recompiler part, ~33 KB (REALDMG-SPEC 16.9);
 - the view, 64 KB;
@@ -605,18 +722,160 @@ Code is section 4.5's whole-cartridge figures.
   is the largest number in this file. It is still PREDICTED for any game we
   have not run.
 
-## 10. Questions for the owner
+## 10. Questions for the owner - ANSWERED 2026-10-25
 
-1. **What is the goal**: no stall (completeness), less memory, more speed,
-   or a game as its own icon on the desktop? Completeness alone is B0 and
-   maybe B; memory and the icon are A.
-2. **Is a cold fallback acceptable** (safe or compact grade), or is strict a
-   requirement? Strict means a game that misses a target stops rather than
-   slows.
-3. **Is one `.o88` per game, built from your ROMs and never shipped,** the
-   shape you want, against one `REALDMG.O88` and a data file per game?
+1. **The goal**: no stalls WITHOUT having to play the whole game first with
+   Profile for Static on. Second, fitting Kirby's Dream Land (or 256 KB in
+   general) on a 640 KB machine, in some way. Speed is a welcome side
+   benefit: even 5% helps.
+2. **The fallback**: be clever and minimise slowdowns, but **running is
+   better than stopping**. So the fallback ships, and strict is an
+   instrument only.
+3. **The shape**: either is acceptable, or both.
+4. **And a question back**: can the ROM banks be compiled into the code, so
+   data is not held twice? Section 4.6 answers it.
 
-## 11. Reproduce
+## 11. The design the answers choose
+
+### 11.1 What each answer rules in and out
+
+| answer | rules OUT | rules IN |
+|---|---|---|
+| no stall without playing first | B0 alone (its heat order needs a played trace to fit a cache too small for the game); 6.1's grading by heat (3.1) | a COMPLETE translation from the walk, made before the game runs, with no slow form for unplayed code |
+| 256 KB in 640 KB | full templates for the whole cartridge (246 KB of code); carrying today's 64 KB core, 21 KB translator part and 80-128 KB cache beside it | a compact grade; no core, no translator, no cache; the code-byte reuse of 4.6 |
+| running beats stopping | strict as the shipped shape | a small resident fallback, and RAM idioms translated ahead of time |
+| either shape | - | A first (it is the one that fits); B where memory allows, sharing the host translator |
+
+### 11.2 Complete and compact: everything translated, nothing slow
+
+**The default grade is COMPACT TEMPLATES for every instruction the walk
+finds.**
+- **Register instructions keep their full templates.** They are small
+  already (4.7).
+- **A memory access is its operand set-up and a near call to a shared
+  access routine** (`(HL)` read, `(HL)` write, `(BC)`/`(DE)`, `(nn)`,
+  `LDH`), which holds the region compares and the slow path once.
+- **HRAM and WRAM accesses by constant address stay one `MOV`**, as
+  `rdggen.EXTRA` already chooses (16.1).
+- **Exits are direct `jmp`s** (5.2), with the event check.
+
+**Its size, PREDICTED: ~7-9 bytes a Game Boy instruction.**
+- The 57% of instructions under 16 bytes average ~7.
+- The 43% of memory accesses become ~6-8.
+- The ~20% control transfers cost ~14 with their exits.
+- **Super Mario Land: 8,532 x 8 ≈ 67 KB. Kirby's Dream Land: 12,469 x 8 ≈
+  97 KB.** That is against 168 and 246 KB all-template, for the WHOLE
+  cartridge with no play.
+
+**Its speed, PREDICTED.** A near `call` and `ret` cost each memory access
+~43 clocks on an 8088 and ~20 on a 286. Over Super Mario Land's ~400
+busy memory accesses a frame, the frame costs **~8% more on a 286 and
+~18% more on an 8088** than full templates. That is still **~2x the
+interpreter** (16.10: 21.7 clocks a busy M-cycle translated against 51).
+- **So the floor anywhere in the game, played or not, is ~85-92% of
+  full-template speed**, never the interpreter's. That is the "minimise
+  slows" answer: a slow form exists only for code the walk did not find.
+
+### 11.3 Speed: promotion by counters the game keeps itself
+
+**Promotion is the only place heat enters, and it is optional.**
+- **Each compact block counts its entries**: a saturating byte beside the
+  block, `inc byte [cs:n]`, ~4 bytes and ~20-28 clocks a block entry on an
+  8088. A block averages ~4 Game Boy instructions (section 3), so it costs
+  ~2-3% of compact code and nothing in promoted code.
+- **At the window's close the package writes the counters**, `NAME.RDH`
+  beside the game, as it writes `.SAV`.
+- **The next host build reads them back** and gives the hot blocks full
+  templates and the whole-program extras (flags over the call graph,
+  superblocks, constant ROM reads compiled in; 4.6, 5.2).
+- **This is not Profile for Static, in the property that matters**:
+  without it the game already has no stall and no slow form. It only
+  recovers the last ~8-18% of speed on code that turned out hot. On top of
+  that come the dynamic machinery's 6.9% (`tr_link`, `tr_rpatch`,
+  `tr_ekey`, `tr_enter`, MEASURED 2026-10-20), which the static build
+  removes whether promoted or not. Promoted code against today's dynamic
+  recompiler in steady play is therefore **~5-10% faster** (PREDICTED), and
+  faster still in the seconds today's recompiler spends warming or
+  flushing.
+- **Promotion is capped by memory**: hot code is 1,300-1,900 instructions,
+  ~12 bytes each more than compact, so ~15-23 KB. The host tool spends only
+  what the target machine's budget leaves (11.4).
+- **Where memory allows (a 286 with room, shape B), promotion can also
+  happen ON THE MACHINE.** The dynamic translator upgrades a block whose
+  counter saturates, under a budget of at most one block a frame, while the
+  compact block keeps running meanwhile. A promotion never blocks the game,
+  so there is no stall by construction and no rebuild.
+
+### 11.4 256 KB in 640 KB
+
+The budget is ~491 KB, ~523 KB with the disk cache shed (8's correction).
+Kirby's Dream Land, PREDICTED, ROM in one claim, no XMS:
+
+| | KB |
+|---|---|
+| the package's region (the runtime, no recompiler part, REALDMG-SPEC 16.9) | 33 |
+| the view | 64 |
+| compact code for the whole cartridge (11.2) | 97 |
+| the dispatcher's table (4.3), ~16 KB, 12 of it in bank 0's code bytes (4.6) | 4 |
+| the ROM | 256 |
+| the frame buffers (the damage memory's 15 is given back for a ROM that wants it, as today) | 17 |
+| the fallback, a compact interpreter (5.4) | ~10 |
+| **total** | **~481** |
+
+- **It fits with ~10 KB to spare, or ~42 KB with the disk cache shed**, before
+  any promotion. 10-20 KB of promotion fits beside it on the shed figure.
+- **The margin is thin and is the first thing W2 measures.** The reserves,
+  in the order they cost the player:
+  1. The ROMX code-byte reuse of 4.6, ~12 KB more on Kirby's Dream Land.
+  2. Data banks kept LZ4-packed and expanded into a slot on a switch (4.6:
+     Kirby 256 -> 165 KB packed whole, banks 1, 7 and F at 19-40%). It
+     pays only while the play working set fits the slots, and it costs a
+     pause at a level's load, so it is opt-in per game.
+  3. A smaller runtime: Machine > Log and Replays as lazy parts.
+- **Super Mario Land** is ~33 + 64 + 67 + 4 + 64 + 17 + 10 = **~259 KB**,
+  against today's ~414, with room for full promotion.
+- **On an 8088 the fit is the same arithmetic.** What an 8088 does not get
+  is full speed: 11.2's compact floor and 11.3's promotion are fractions of
+  a rate that is already below real time on Kirby's Dream Land there.
+
+### 11.5 The fallback: running beats stopping
+
+- **Resident and compact**: a switch-style interpreter of ~8-10 KB with no
+  64 KB dispatch layout (5.4). It runs only what the walk did not find, and
+  each entry into it is counted into `NAME.RDH`. The next host build seeds
+  the walk with those PCs, which is 6.4's coverage loop without a strict
+  build in the user's hands.
+- **RAM code**: the OAM DMA routine is translated ahead of time from its ROM
+  source behind a byte guard (4.4). For both games handed over that is all
+  of it. Anything else from RAM goes to the fallback.
+- **Strict stays an instrument**: a build flag for us, never what ships.
+
+### 11.6 Both shapes, one translator
+
+- **A, `GAME.O88`**: the host tool writes assembly, `realdmg.asm`'s `%ifdef
+  RDG_AOT` arm `%include`s it, and the parts are the code, the ROM and the
+  view. It is the shape that fits 256 KB in 640 KB, so it comes first.
+- **B, `NAME.RDX` beside the game**: the same compact code as relocatable
+  segments `REALDMG.O88` loads, with on-machine promotion where there is
+  memory (11.3). It needs the package to stop loading the 64 KB core at
+  launch (the core becomes the lazy fallback), and it carries 5.3's
+  build-fingerprint rule. It is the shape for a machine with room, and a
+  second step.
+
+### 11.7 The waves, revised
+
+| wave | what | answers |
+|---|---|---|
+| **W0** | `tools/gbaot.py cover`: the walk, more jump-table rules, the RAM idioms; the trace and its data-read map optional, as evidence | coverage with NO play (Super Mario Land 99.88%, Kirby's Dream Land 100% MEASURED); the unresolved list; which code bytes are reusable |
+| **W1** | the compact grade, the shared access routines and the static dispatcher, emitted as assembly; one segment of a game of ours first | gate: events and skip checksum EQUAL to the interpreter's (REALDMG-SPEC 16.1); compact against full-template speed on `286-victory` and MartyPC (11.2's 8%/18% is the claim) |
+| **W2** | `GAME.O88`: the parts, the compact fallback, side entries, the single-steps (2.2), bank 0's code bytes holding the table | Super Mario Land and Kirby's Dream Land on a 640 KB 8088 and a 286 with no XMS: the 11.4 table MEASURED; no translation, no stall, fallback entries 0 in the scripted play |
+| **W3** | counters, `NAME.RDH`, promotion in the host build | the speed bonus over today's recompiler (11.3's 5-10% is the claim) |
+| **W4** | B: `NAME.RDX` and on-machine promotion, for machines with room | one package, no per-game build, no stall by construction |
+
+**The gates of section 7 stand**: equivalence, a negative control per idea,
+save-state interchange, and all of it on our own ROMs.
+
+## 12. Reproduce
 
 ```sh
 python3 tools/getgbtest.py                            # the test ROMs, pinned
@@ -629,8 +888,14 @@ python3 tools/gbstatic.py $OS88_GB_ROMS/SML.GB      # writes build/gbprof/SML.GB
 python3 tools/gbstatic.py $OS88_GB_ROMS/KIRBY.GB
 ```
 
-The per-bank, leader, return-site, side-entry and heat counts of sections
-3 and 4.5 came from a scratch script over the same two calls:
-`gbstatic.discover()` for the walk, `gbstatic.load_cov()` for the trace,
-"hot" = busy executions >= frames / 20. It is not committed. A wave-0 tool
-(section 7) would be its home.
+The figures of sections 3, 3.1, 4.5, 4.6 and 4.7 came from scratch scripts
+over the same two calls, none of them committed (W0, section 11.7, is
+their home):
+- `gbstatic.discover()` is the walk and `gbstatic.load_cov()` the trace;
+  "hot" means busy executions >= frames / 20.
+- The data-read map is `tools/gbprof/gbcover.c` with one more record, `D
+  offset length`, for every ROM byte read outside the instruction's own
+  three bytes.
+- The packed sizes are `tools/os88lz.lz4_compress()` per 16 KB bank.
+- The template lengths are `build/rdgtmpl.bin`'s records (`make
+  build/rdgtmpl.bin`).
