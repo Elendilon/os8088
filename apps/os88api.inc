@@ -2043,9 +2043,11 @@ CPU_F_PM            equ 0x10     ; SEGMENTS ARE SELECTORS: kern_mega is in
                                  ; other kernel, so a binary built before the
                                  ; bit reads 0 and keeps the real-mode
                                  ; behaviour it always had. When it is set:
-                                 ; segment arithmetic must stay on the
-                                 ; 8-paragraph grid (a value that is not a
-                                 ; multiple of 8 is not a valid selector), and
+                                 ; EVERY segment is a selector - a claim, a
+                                 ; region, a frame - so NO arithmetic on one:
+                                 ; ask OSAPI_SEG (SEG_SUB, SEG_AT, SEG_LIN) or
+                                 ; walk an OSAPI_MEM_HUGE claim by the step it
+                                 ; answers (KERN-MEGA-MEMORY-PLAN MC7), and
                                  ; LOADALL, unreal mode and int 15h AH=87h are
                                  ; refused by the CPU - a feature with no
                                  ; protected-mode route greys itself with the
@@ -2101,14 +2103,13 @@ CPU_F_PM            equ 0x10     ; SEGMENTS ARE SELECTORS: kern_mega is in
 %endmacro
 ;
 ; OS88_HUGE_INCR - the selector step between consecutive 64KB of ONE claim
-; (docs/plans/KERN-MEGA-PLAN.md 3.2, Windows' __AHINCR). In conventional memory
-; it is 0x1000 on every kernel, kern_mega's identity map included, which is why
-; nothing built before it needs it. Write `add seg, OS88_HUGE_INCR` where code
-; walks a claim past 64KB rather than the bare 0x1000, so the walk is findable.
-; A claim above 1MB is a run of consecutive LDT selectors and its step is 8:
-; that claim comes only from OSAPI_MEM_HUGE, which ANSWERS the step in CX -
-; so this constant keeps meaning exactly what it meant for every claim
-; OSAPI_MEM_CLAIM makes, and a program that wants more walks by CX.
+; (docs/plans/KERN-MEGA-PLAN.md 3.2, Windows' __AHINCR). It is 0x1000 on every
+; REAL-MODE kernel. Under kern_mega's protected mode EVERY claim is a selector
+; (KERN-MEGA-MEMORY-PLAN MC7), conventional ones included, and only an
+; OSAPI_MEM_HUGE claim is a run that can be stepped at all - by the CX it
+; ANSWERS (8 there). So walk a claim past 64KB by that CX, never by this
+; constant; it names the real-mode step and nothing more, kept so the old walks
+; are findable.
 OS88_HUGE_INCR      equ 0x1000
 ;
 ; OSAPI_MEM_SUBSEG - "my segment + N" for a program that may run ABOVE 1MB.

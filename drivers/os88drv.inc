@@ -715,7 +715,9 @@ DRV_VER equ 11
 ; (CS + 8). Say it only of a driver that does no PARAGRAPH arithmetic on its
 ; own CS or DS (derive DS from CS by the pair rule, as SOUND.DRV's SBL_DSCS
 ; does), never hands its own segment to a BIOS call or a DMA engine, and has
-; no code a ROM runs in real mode. Its claims stay conventional. It is bit 7
+; no code a ROM runs in real mode. Its claims stay conventional - and are
+; selectors under protected mode all the same, as every claim is there
+; (KERN-MEGA-MEMORY-PLAN MC7): no driver does arithmetic on one. It is bit 7
 ; of +15, which every kernel masks or clamps to its own table length, so the
 ; bit is invisible to a kernel that does not place drivers high.
 ; OS88_DRV_HICLAIM - %define it as well to say that the driver's own claims
