@@ -277,18 +277,15 @@ def main():
             os88qemu.gone(pid)
         except (OSError, ValueError):
             pass
-    for f in ("build/qmp.sock", "build/qemu.pid"):
-        if os.path.exists(f):
-            os.remove(f)
-    # `make test` DAEMONISES the emulator, so it outlives this script
-    # unless somebody kills it - and the somebody is us (os88qemu).
-    os88qemu.own()
-    r = subprocess.run(["make", "test", "ETHER=1",
-                        "TESTIMG=build/ether360.img",
-                        "TESTAPPS=build/brtest360.img"],
-                       capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("brnav: make test failed:\n" + r.stdout + r.stderr)
+    # The machine is PRIVATE (tests/os88qemu.py make_test): its own socket
+    # and pidfile, so nothing of build/qmp.sock is shared and ethernet.py's
+    # Mouse, which drives os88qemu.SOCK, drives this machine
+    # ...and the apps disk is a SCRATCH copy in this run's own directory,
+    # booted in place, because assertion 4 reads the guest's write back
+    global APPS
+    APPS = os88qemu.scratch("build/brtest360.img", "brnav-apps.img")
+    inst = os88qemu.make_test("ETHER=1", "TESTIMG=build/ether360.img",
+                              "TESTAPPS=" + APPS)
     m = Qemu()
 
     # EVERY WAIT IN THIS ROW IS ON THE GUEST'S CLOCK (tests/os88qemu.py): the
@@ -641,9 +638,11 @@ def main():
         fails.append("frogfind's home page has 3 links, %d parsed" % n)
     elif seg:
         arena = bytes(m.readseg(seg, 0, max(rw("br_lnkw"), 1)))
-        # the arena IS the index (br_follow): hrefs packed in link order,
-        # each ending at its NUL, so link N is the Nth string
-        hrefs = [h.decode("latin-1") for h in arena.split(b"\0")[:n]]
+        # LINK N IS WHERE br_lnkoff[N] SAYS, as br_follow reads it: Browser
+        # 1.6 packs each link's TARGET (`_blank`) and every #fragment
+        # NAME/ID into the same arena, so the Nth string is no longer link N
+        hrefs = [arena[u16(m.readseg(pseg, sy["br_lnkoff"] + 2 * i, 2)):]
+                 .split(b"\0", 1)[0].decode("latin-1") for i in range(n)]
         print("  hrefs: %r" % hrefs)
         if "about.php" not in hrefs:
             fails.append("the relative link is missing: %r" % hrefs)
@@ -915,14 +914,11 @@ def main():
 
     # QEMU has to have EXITED before its image is read on the host - a HOST
     # wait on a host thing, by the process table rather than a second's guess
-    try:
-        qpid = int(open("build/qemu.pid").read().strip())
-    except (OSError, ValueError):
-        qpid = None
+    qpid = inst.pid
     m.quit()
     if qpid:
         os88qemu.gone(qpid)
-    raw = open(os88build.at("build/brtest360.img"), "rb").read()
+    raw = open(APPS, "rb").read()
     if SAVED.encode() not in raw.replace(b".", b""):
         # the 8.3 directory entry is 'SAVED   HTM'
         if b"SAVED   HTM" not in raw:

@@ -346,11 +346,25 @@ class _Sock(object):
         return bytes(xmcheck.read_bytes(self.sock, linear, n))
 
 
-def _shift(sock, down):
+def _mod(sock, name, down, secs=0.3):
+    """A MODIFIER's edge, CONFIRMED like `key`'s press: sent, then the ROM's
+    shift-state byte (0040:0017) changing is waited for, at most `secs` of
+    guest time. A make code queued behind another at one IRQ1 is what the
+    kernel's 8042 peek loses on QEMU (SPEC.md 9.7, `key` above), and a shift
+    lost that way typed `http;;//` for `http://` into tests/brnav.py."""
     import xmcheck
+    m = _Sock(sock)
+    f0 = m.read(0x417, 1)
     xmcheck.qmp_exec(sock, "input-send-event", {"events": [
         {"type": "key", "data": {"down": down, "key": {
-            "type": "qcode", "data": "shift"}}}]})
+            "type": "qcode", "data": name}}}]})
+    return acted(m, lambda: m.read(0x417, 1) != f0, secs=secs,
+                 what="the ROM to see %s %s" % (name, "down" if down else "up"),
+                 poll=0.005)
+
+
+def _shift(sock, down):
+    _mod(sock, "shift", down)
 
 
 def sendkey(sock, spec, secs=0.3):
@@ -360,19 +374,13 @@ def sendkey(sock, spec, secs=0.3):
     the release 100 ms of HOST time after the press, which a starved guest
     takes in the same IRQ1 as the press - a lost key (17.5). The names are
     QEMU's qcodes, which are HMP's key names."""
-    import xmcheck
     names = spec.split("-")
     mods, last = names[:-1], names[-1]
-
-    def ev(name, down):
-        xmcheck.qmp_exec(sock, "input-send-event", {"events": [
-            {"type": "key", "data": {"down": down, "key": {
-                "type": "qcode", "data": name}}}]})
     for n in mods:
-        ev(n, True)
+        _mod(sock, n, True, secs)
     key(_Sock(sock), last, secs=secs)
     for n in reversed(mods):
-        ev(n, False)
+        _mod(sock, n, False, secs)
 
 
 def type_text(sock, text, gap=0.06):
@@ -876,8 +884,14 @@ def _killpid(pid):
 # ignored: a VIDEO= or RTC= is a KERNEL build, and ignoring it would boot the
 # wrong kernel and report on it.
 # -----------------------------------------------------------------------------
-_MT_KNOBS = {"TESTIMG", "TESTAPPS", "TESTHD", "ETHER", "ETHDUMP", "ADLIB",
+_MT_KNOBS = {"TESTIMG", "TESTAPPS", "TESTHD", "ETHER", "ETHFWD", "ETHDUMP", "ADLIB",
              "SB16", "NOCARD", "VMPORT", "MOUSEPORT"}
+
+
+# The Makefile's ETHFWD=1 forwards, kept equal to its FTPPASV by hand: the
+# server's passive ports are fixed in apps/ftpd, so these are too.
+ETHFWD_CTRL = 2121
+ETHFWD_PASV = tuple(range(2048, 2056))
 
 
 class Instance(object):
@@ -1007,7 +1021,17 @@ def make_test(*knobs, copy=True, extra=()):
         cmd += ["-audiodev", "none,id=devsnd", "-device",
                 "adlib,audiodev=devsnd"]
     if kv.get("ETHER"):
-        cmd += ["-netdev", "user,id=n0",
+        net = "user,id=n0"
+        if kv.get("ETHFWD"):
+            # The Makefile's ETHFWD=1: host 2121 -> guest 21 and the FTP
+            # server's whole passive range 1:1 (a PASV reply names the GUEST's
+            # port). Host ports cannot be private, so each is LEASED first and
+            # a second FTP row in any runner waits instead of colliding.
+            for port in (ETHFWD_CTRL,) + ETHFWD_PASV:
+                lease_port(port)
+            net += ",hostfwd=tcp::%d-:21" % ETHFWD_CTRL
+            net += "".join(",hostfwd=tcp::%d-:%d" % (p, p) for p in ETHFWD_PASV)
+        cmd += ["-netdev", net,
                 "-device", "ne2k_isa,netdev=n0,iobase=0x300,irq=3"]
         if kv.get("ETHDUMP"):
             cmd += ["-object", "filter-dump,id=fdump,netdev=n0,file=%s"

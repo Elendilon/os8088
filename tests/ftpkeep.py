@@ -57,7 +57,7 @@ import os88qemu                                        # noqa: E402
 import os88sym                                         # noqa: E402
 
 S = os88sym.linear
-SOCK = "build/qmp.sock"
+SOCK = os88qemu.SOCK
 HDIMG = "build/ftpkeep.img"
 AIMG, BIMG = "build/ftpkeepa.img", "build/ftpkeepb.img"
 STG = 8192
@@ -127,13 +127,13 @@ def boot():
     r = subprocess.run(["make", "ftpkeeptest"], capture_output=True, text=True)
     if r.returncode:
         sys.exit("ftpkeep: make ftpkeeptest failed:\n" + r.stdout + r.stderr)
-    os88qemu.kill()
-    os88qemu.own()
-    r = subprocess.run(["make", "test", "ETHER=1", "ETHFWD=1",
-                        "TESTHD=" + HDIMG, "TESTIMG=" + AIMG,
-                        "TESTAPPS=" + BIMG], capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("ftpkeep: make test failed:\n" + r.stdout + r.stderr)
+    # The machine is PRIVATE (tests/os88qemu.py make_test): its own socket
+    # and pidfile, so nothing of build/qmp.sock is shared and ethernet.py's
+    # Mouse, which drives os88qemu.SOCK, drives this machine
+    # The three images are this script's own (`make ftpkeeptest`) and the
+    # hard disk is READ BACK below, so they boot in place
+    os88qemu.make_test("ETHER=1", "ETHFWD=1", "TESTHD=" + HDIMG,
+                       "TESTIMG=" + AIMG, "TESTAPPS=" + BIMG, copy=False)
     m = eth.Qemu(SOCK)
     mo = eth.Mouse()
     ip = fd.wait_dhcp(m)

@@ -26,7 +26,7 @@ G = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(G)
 
 S = os88sym.linear
-SOCK = "build/qmp.sock"
+SOCK = os88qemu.SOCK
 
 
 def build(slow):
@@ -47,18 +47,11 @@ def boot():
             os88qemu.gone(pid)
         except (OSError, ValueError):
             pass
-    for f in ("build/qmp.sock", "build/qemu.pid"):
-        if os.path.exists(f):
-            os.remove(f)
-    # `make test` DAEMONISES the emulator, so it outlives this script
-    # unless somebody kills it - and the somebody is us (os88qemu).
-    os88qemu.own()
-    r = subprocess.run(["make", "test", "ETHER=1", "ETHFWD=1",
-                        "TESTIMG=build/ether360.img",
-                        "TESTAPPS=build/ftpapps.img"],
-                       capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("boot failed:\n" + r.stdout + r.stderr)
+    # The machine is PRIVATE (tests/os88qemu.py make_test): its own socket
+    # and pidfile, so nothing of build/qmp.sock is shared and ethernet.py's
+    # Mouse, which drives os88qemu.SOCK, drives this machine
+    os88qemu.make_test("ETHER=1", "ETHFWD=1", "TESTIMG=build/ether360.img",
+                       "TESTAPPS=build/ftpapps.img")
     return G.Qemu(SOCK), eth.Mouse()
 
 
