@@ -87,7 +87,11 @@ rt_tab:
 ; claim of the host's, BX the block table's, CX a second 64KB cache segment
 ; or 0 (REALDMG-SPEC 16.2.1) - 64KB too, since a template reaches every
 ; tail by a near jump - and DL the table's mask (S_HMASK): 31, 64KB, or 7,
-; 16KB. The core's three `and bh,mask` take it before the tails are copied. The core's helper tails copied into
+; 16KB. The core's three `and bh,mask` take it before the tails are copied.
+; [S_JITCSA] and [S_JITCSB] are the host's, set before the call: the code
+; selectors of AX and CX (REALDMG-SPEC 16.2.4), or 0 for "the same" - which a
+; host without code selectors leaves them, rdg_init having zeroed the view.
+; The core's helper tails copied into
 ; each at their own
 ; offsets, the cache empty, and the core's two doors pointed at it -
 ; tr_enter's miss at rdg_jit, and rdgsys's resume (after every event) at
@@ -104,13 +108,26 @@ rt_init:
     mov [S_JITSEGB],cx
     mov [S_JITHSEG],bx
     mov [S_HMASK],dl
+    cmp word [S_JITCSA],0           ; (the code selectors: 0 is the data
+    jne .csa                        ;   segment itself)
+    mov [S_JITCSA],ax
+.csa:
+    jcxz .csb
+    cmp word [S_JITCSB],0
+    jne .csb
+    mov [S_JITCSB],cx
+.csb:
     push es
-    mov es,[S_DISP+2]               ; the core's masks, which the copies
-    mov [es:RDGC_TR_HM0],dl          ;   below take with them
+    mov es,[S_COREDS]               ; the core's masks, which the copies
+    mov [es:RDG_TDSEG],es           ;   below take with them - and its data
+    mov [es:RDGC_TR_HM0],dl          ;   segment, for its patches (16.2.4)
     mov [es:RDGC_TR_HM1],dl
     mov [es:RDGC_TR_HM2],dl
     pop es
+    push ax
+    mov ax,[S_JITCSA]
     mov [S_JITOUT+2],ax
+    pop ax
     mov word [S_JITVEC],rdg_jit
     mov [S_JITVEC+2],cs
     mov word [S_RESVEC],RDGC_TR_ENTER
@@ -135,6 +152,7 @@ rt_init:
     ret
 .tails:                             ; into AX's segment
     mov es,ax
+    mov [es:RDG_TDSEG],ax           ; (its data segment, for its patches)
     mov bx,[cs:rt_tab + RT_HTAIL]       ; the tail slots
     mov dx,[cs:rt_tab + RT_HTAIL + 2]
 .slot:
@@ -144,7 +162,7 @@ rt_init:
     mov di,ax
     mov cx,128
     push ds
-    mov ds,[S_DISP+2]               ; the core
+    mov ds,[S_COREDS]               ; the core
     rep movsw
     pop ds
     inc bx
@@ -177,7 +195,7 @@ rt_dispatch:
     push cx
     push si
     push es
-    mov es,[S_DISP+2]               ; the core
+    mov es,[S_COREDS]               ; the core
     mov si,[cs:rt_tab + RT_HJD]
     mov cx,[cs:rt_tab + RT_HJD + 2]
 .s:
@@ -245,6 +263,10 @@ rt_tier:
     push si
     push es
     mov [S_JITSEG],ax
+    push ax
+    call rt_d2c
+    mov [S_JITCS],ax                ; (what a jump to it loads, 16.2.4)
+    pop ax
     mov es,ax                       ; its generation: the newest (16.2.3)
     inc word [S_JITGNX]
     mov si,[S_JITGNX]
@@ -349,11 +371,50 @@ rt_tseg:
     xor ax,ax
     cmp byte [S_JITNOC],0
     jne .r
-    mov ax,[S_DISP+2]               ; the core
+    mov ax,[S_COREDS]               ; the core
 .r:
     ret
 .b:
     mov ax,[S_JITSEGB]
+    ret
+
+; rt_d2c - DS = the view, AX = a tier's DATA segment: AX = its CODE selector
+; (REALDMG-SPEC 16.2.4) - a cache segment's, or the core's - or AX itself,
+; for anything else. Keeps every register but AX
+rt_d2c:
+    cmp ax,[S_JITSEGA]
+    jne .core
+    mov ax,[S_JITCSA]
+    ret
+.core:
+    cmp ax,[S_COREDS]
+    jne .b
+    mov ax,[S_DISP+2]
+    ret
+.b:
+    cmp ax,[S_JITSEGB]
+    jne .r
+    mov ax,[S_JITCSB]
+.r:
+    ret
+
+; rt_c2d - DS = the view, AX = a tier's CODE selector: AX = its DATA segment,
+; rt_d2c backwards. Keeps every register but AX
+rt_c2d:
+    cmp ax,[S_JITCSA]
+    jne .core
+    mov ax,[S_JITSEGA]
+    ret
+.core:
+    cmp ax,[S_DISP+2]
+    jne .b
+    mov ax,[S_COREDS]
+    ret
+.b:
+    cmp ax,[S_JITCSB]
+    jne .r
+    mov ax,[S_JITSEGB]
+.r:
     ret
 
 ; rt_unlink - AX = the segment of the tier being recycled (REALDMG-SPEC
@@ -374,8 +435,9 @@ rt_unlink:
     push di
     push ds
     push es
-    mov dx,ax                       ; DX = the tier going
-    mov cx,[S_JITLN]
+    call rt_d2c
+    mov dx,ax                       ; DX = the tier going, as the log and
+    mov cx,[S_JITLN]                ;   the far jumps name it: its CODE
     mov es,[S_JITSEGA]
     mov si,RT_LOG
     mov di,si
@@ -388,11 +450,16 @@ rt_unlink:
     add si,4
     cmp ax,dx
     je .l                           ; in the tier: gone with it
+    push ax                         ; (the site's code selector, logged)
+    call rt_c2d                     ; its bytes written through its DATA
+    push ds                         ;   segment (16.2.4)
     mov ds,ax
     call rt_undo
+    pop ds
+    pop ax
     jnc .l                          ; undone: dropped
     mov [es:di],bx
-    mov [es:di+2],ds                ; (rt_undo took AX)
+    mov [es:di+2],ax
     add di,4
     jmp short .l
 .e:
@@ -480,10 +547,13 @@ rt_undo:
 ; (REALDMG-SPEC 16.2.3) - its entry cleared, so its PC counts again from
 ; nothing. Links into it are undone first (rt_unlink). Keeps every register
 rt_forget:
+    push ax
     push bx
     push cx
     push di
     push es
+    call rt_d2c                     ; (the table names a block's CODE
+                                    ;   selector, 16.2.4)
     mov es,[S_JITHSEG]
     mov cl,[S_HMASK]                ; (mask + 1) x 256 entries of 8 bytes
     xor ch,ch
@@ -507,6 +577,7 @@ rt_forget:
     pop di
     pop cx
     pop bx
+    pop ax
     ret
 
 ; rt_gapend - AX = the end of a gap: [S_JITEND], 3 bytes short of it for
@@ -918,7 +989,8 @@ rt_translate:
     mov ax,[RT_ENT]
     mov [es:JIT_HASH+bx+4],ax
     mov [S_JITOUT],ax
-    mov ax,[S_JITSEG]               ; ...in the segment it was written in
+    mov ax,[S_JITCS]                ; ...in the segment it was written in,
+                                    ;   as a jump names it (16.2.4)
     mov [es:JIT_HASH+bx+6],ax
     mov [S_JITOUT+2],ax
     inc word [S_JITNB]
@@ -1724,7 +1796,7 @@ rt_exit:
     pop es
     or bx,bx
     jz .link
-    cmp dx,[S_JITSEG]               ; the other segment's: tr_link makes it
+    cmp dx,[S_JITCS]                ; the other segment's: tr_link makes it
     jne .link                       ;   a far jump (16.2.1)
     mov ax,0378h                    ; js +3 / jmp near the block
     stosw

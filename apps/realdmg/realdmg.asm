@@ -369,7 +369,8 @@ rw_entry:
     call OSAPI_WM_SNAP              ; content on the byte grid, for BLITP
     call OSAPI_WM_OWNBG             ; we paint every pixel of it
     OS88_REGION_MOVABLE rw_reloc
-    mov si, rw_menus
+    mov [rw_dsel], ds               ; (our data, for code entered with DS
+    mov si, rw_menus                ;   not ours: rw_dscanhk)
     call OSAPI_MENU_SET
     mov si, rw_about
     call OSAPI_ABOUT_SET
@@ -390,11 +391,22 @@ rw_entry:
 
 ; rw_reloc - OUR REGION MOVED (SPEC.md 66.6.1): BX = where it was, DX = where
 ; it is. rdgsys's own words moved with it; the state block in the view, which
-; did not, names our code segment in five vectors. The worker is parked at
-; OSAPI_TASK_ALIVE whenever this runs, never in the core.
+; did not, names our code segment in five vectors - by the selector a far
+; jump loads, which on kern_mega is the region's code alias and not BX or DX
+; (rw_csel, REALDMG-SPEC 16.2.4). The worker is parked at OSAPI_TASK_ALIVE
+; whenever this runs, never in the core.
 rw_reloc:
+    mov [rw_dsel], dx
     push ax
+    push bx
+    push dx
     push ds
+    mov ax, bx                      ; the old code selector and the new
+    call rw_csel
+    mov bx, ax
+    mov ax, dx
+    call rw_csel
+    mov dx, ax
     mov ax, [cs:rdg_viewseg]
     or ax, ax
     jz .r
@@ -425,12 +437,34 @@ rw_reloc:
     mov [S_JITVEC+2], dx
 .r:
     pop ds
+    pop dx
+    pop bx
     pop ax
     ret
 
 ; rdgsys asks its host for this: the link port's bytes go nowhere
 rdg_putc:
     ret
+
+; rw_csel (rdgsys's rdg_csel, RDG_CSEL) - AX = a segment of ours holding
+; code: AX = the selector a far jump to it loads (REALDMG-SPEC 16.2.4) - the
+; segment itself on a real-mode kernel, its code alias on kern_mega, where a
+; far jump through the data segment is a #GP the kernel completes, one per
+; transfer: every entry into the core, every chain between the recompiler's
+; segments. 0 stays 0. Every other register kept
+rdg_csel:
+rw_csel:
+    push dx
+    mov dx, ax
+    call OSAPI_MEM_CODESEL
+    jnc .r
+    mov ax, dx                      ; (none: the segment, completed per jump)
+.r:
+    pop dx
+    ret
+
+rw_dsel         dw 0                ; our DATA segment, for code entered
+                                    ;   with DS somebody else's (rw_reloc)
 
 ; =============================================================================
 ; Loading a game
@@ -851,6 +885,13 @@ rw_rtinit:
     push cx
     push dx
     call rw_jitsegs
+    push ax
+    call rw_csel                    ; the two cache segments' code
+    mov [S_JITCSA], ax              ;   selectors (REALDMG-SPEC 16.2.4)
+    mov ax, cx
+    call rw_csel
+    mov [S_JITCSB], ax
+    pop ax
     call far [cs:rw_jinit]
     pop dx
     pop cx
@@ -1055,10 +1096,8 @@ rw_jpart:
     call OSAPI_DECOMP
     pop ds
     jc .no
-    mov [rw_jinit + 2], bp
-    mov [rw_jres + 2], bp
-    mov [rw_jpre + 2], bp
-    mov [rw_jdisp + 2], bp
+    mov [rw_jpseg], bp
+    call rw_jdset
     clc
     jmp short .r
 .no:
@@ -1075,6 +1114,20 @@ rw_jpart:
     pop ax
     ret
 
+; rw_jdset - the recompiler's four doors at its part, [rw_jpseg], by the
+; selector a far call loads (rw_csel). DS = ours; every register kept
+rw_jdset:
+    push ax
+    mov ax, [rw_jpseg]
+    call rw_csel
+    mov [rw_jinit + 2], ax
+    mov [rw_jres + 2], ax
+    mov [rw_jpre + 2], ax
+    mov [rw_jdisp + 2], ax
+    pop ax
+    ret
+
+rw_jpseg        dw 0                ; the recompiler's part: its DATA segment
 ; the recompiler's four doors, far (rdgjitp.asm's entries): DS = the view
 rw_jinit        dw 0, 0             ; rt_init
 rw_jres         dw 10, 0            ; rt_resume
@@ -1091,7 +1144,7 @@ rw_jdoff:
     push cx
     push si
     push es
-    mov es, [S_DISP+2]              ; the core
+    mov es, [S_COREDS]              ; the core
     mov si, rw_jdtab
     mov cx, RDGC_JDN
 .s:
@@ -4187,6 +4240,7 @@ rw_ab5:         db 'Controls...', 0
 rw_ab7:         db 'F1 = speed', 0
 
 %include "rdgdefs.inc"
+%define RDG_CSEL                            ; (rw_csel: REALDMG-SPEC 16.2.4)
 %include "rdgsys.inc"
 %include "rdgppu.inc"
 %include "rwfsx.inc"

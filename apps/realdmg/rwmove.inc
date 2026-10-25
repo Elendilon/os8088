@@ -189,10 +189,8 @@ rw_mreloc:
     cmp bx, [rw_jitseg]             ; THE RECOMPILER'S CLAIM: its cache, its
     jne .n7                         ;   block table and its own code, whose
     mov [rw_jitseg], dx             ;   four doors are far pointers
-    add [rw_jinit + 2], ax
-    add [rw_jres + 2], ax
-    add [rw_jpre + 2], ax
-    add [rw_jdisp + 2], ax
+    add [rw_jpseg], ax
+    call rw_jdset                   ;   (by their code selector, 16.2.4)
     cmp [es:S_JITSEGA], bx          ; the core running over it: flushed
     je rw_mjit
     ret
@@ -247,6 +245,10 @@ rw_mjit:
 rw_partsmv:
     mov cx, [rdg_viewseg]           ; the old view: no game since the entry
     jcxz .r                         ;   proc, nothing banked yet
+    mov ax, [rdg_coreseg]           ; the core's old CODE selector, which
+    call rw_csel                    ;   the far vectors hold (16.2.4) - on a
+    mov [rw_pmcs], ax               ;   real-mode kernel the segment itself,
+                                    ;   which the walk below puts right
     add cx, 1000h                   ; CX = the carve's length, paragraphs: up
     sub cx, bx                      ;   to the old view's end (bank 0's word,
     mov ax, dx                      ;   the view less 400h, lies in the core
@@ -265,6 +267,24 @@ rw_partsmv:
     inc di
     cmp di, RDG_BTAB + 512 * 2
     jb .b
+    mov ax, [rdg_coreseg]           ; ...and on kern_mega the far vectors,
+    call rw_csel                    ;   which name the core's CODE selector
+    mov dx, [rw_pmcs]               ;   - a value no walk can move: what
+    cmp ax, dx                      ;   held the old one holds the new
+    je .cs
+    mov si, rw_pmcode
+.c:
+    mov di, [si]
+    or di, di
+    jz .cs
+    cmp [es:di], dx
+    jne .cn
+    mov [es:di], ax
+.cn:
+    inc si
+    inc si
+    jmp short .c
+.cs:
     cmp word [es:S_JITSEGA], 0      ; a recompiler that has run: flushed
     jne rw_mjit
 .r:
@@ -287,4 +307,6 @@ rw_partsmv:
 
 rw_pmtab:       dw rdg_viewseg, rdg_coreseg, rw_romseg, 0
 rw_pmview:      dw S_VIEW, S_DISP + 2, S_RESVEC + 2, S_RETFAR + 2, S_SAVDS
-                dw S_ROMX, S_ROMSEG, S_JITOUT + 2, 0
+                dw S_ROMX, S_ROMSEG, S_JITOUT + 2, S_COREDS, 0
+rw_pmcode:      dw S_DISP + 2, S_RESVEC + 2, S_RETFAR + 2, S_JITOUT + 2, 0
+rw_pmcs         dw 0                ; the core's code selector before a move

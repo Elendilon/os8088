@@ -931,22 +931,26 @@ tr_off:                         ; tr_enter with no translator: the
     jmp dx
 ; tr_ljmp: tr_lpatch's and tr_rpatch's jump, at CS:BX, to the block
 ; [S_JITOUT]: jmp near in the same cache segment, jmp far in the other
-; (16.2.1) - and on to it
+; (16.2.1) - and on to it. The bytes are written through ES, the tier's DATA
+; segment at its own RDG_TDSEG, never through CS: on kern_mega a write
+; through a code selector is a #GP, and its frame lands on SP - the Game
+; Boy's stack, in its own memory (REALDMG-SPEC 16.2.4)
 tr_ljmp:
+    mov es,[cs:RDG_TDSEG]
     mov dx,cs
     cmp dx,[ss:S_JITOUT+2]
     mov dx,[ss:S_JITOUT]
     jne .far
-    mov byte [cs:bx],0E9h
+    mov byte [es:bx],0E9h
     sub dx,bx
     sub dx,3
-    mov [cs:bx+1],dx
+    mov [es:bx+1],dx
     jmp short .go
 .far:
-    mov byte [cs:bx],0EAh
-    mov [cs:bx+1],dx
+    mov byte [es:bx],0EAh
+    mov [es:bx+1],dx
     mov dx,[ss:S_JITOUT+2]
-    mov [cs:bx+3],dx
+    mov [es:bx+3],dx
 .go:
 tr_lgo:
     mov bx,[ss:S_SAVBX]
@@ -973,12 +977,13 @@ tr_lpatch:
     je tr_rpatch
     cmp si,4000h                ; bank 0: the six bytes, the jump
     jb tr_ljmp
-    mov word [cs:bx],8036h      ; a bank: cmp byte [ss:S_BANK],B / jne +5
-    mov byte [cs:bx+2],3Eh      ;   (onto the exit's own jmp tr_enter) /
-    mov word [cs:bx+3],S_BANK   ;   the jump, near or far
+    mov es,[cs:RDG_TDSEG]       ; (written as data: tr_ljmp's note)
+    mov word [es:bx],8036h      ; a bank: cmp byte [ss:S_BANK],B / jne +5
+    mov byte [es:bx+2],3Eh      ;   (onto the exit's own jmp tr_enter) /
+    mov word [es:bx+3],S_BANK   ;   the jump, near or far
     mov dl,[ss:S_BANK]
-    mov [cs:bx+5],dl
-    mov word [cs:bx+6],0575h
+    mov [es:bx+5],dl
+    mov word [es:bx+6],0575h
     add bx,8
     jmp tr_ljmp
 .no:                            ; (not chained: the lookup each time)
@@ -1465,31 +1470,32 @@ cnt_ff:
 ; first's, its bank check this block's bank - or a jmp short over it, for a
 ; block in bank 0 - and its jump near or far (tr_ljmp, 16.2.1)
 tr_rpatch:
-    mov dx,[cs:bx+2]
-    mov [cs:bx+21],dx
-    mov dx,[cs:bx+6]
-    mov [cs:bx+25],dx
-    mov dl,[cs:bx+11]
-    mov [cs:bx+30],dl
-    mov dx,[cs:bx+14]
-    mov [cs:bx+33],dx
-    mov dx,[cs:bx+16]
-    mov [cs:bx+35],dx
-    mov dl,[cs:bx+18]
-    mov [cs:bx+37],dl
-    cmp byte [cs:bx+14],0E9h
+    mov es,[cs:RDG_TDSEG]       ; (written as data: tr_ljmp's note)
+    mov dx,[es:bx+2]
+    mov [es:bx+21],dx
+    mov dx,[es:bx+6]
+    mov [es:bx+25],dx
+    mov dl,[es:bx+11]
+    mov [es:bx+30],dl
+    mov dx,[es:bx+14]
+    mov [es:bx+33],dx
+    mov dx,[es:bx+16]
+    mov [es:bx+35],dx
+    mov dl,[es:bx+18]
+    mov [es:bx+37],dl
+    cmp byte [es:bx+14],0E9h
     jne .f
-    sub word [cs:bx+34],19
+    sub word [es:bx+34],19
 .f:
-    mov [cs:bx+2],si            ; cmp si,PC
+    mov [es:bx+2],si            ; cmp si,PC
     cmp si,4000h
     jae .bank
-    mov word [cs:bx+6],06EBh    ; jmp short +6, over the bank check
+    mov word [es:bx+6],06EBh    ; jmp short +6, over the bank check
     jmp short .blk
 .bank:
-    mov word [cs:bx+6],8036h    ; cmp byte [ss:S_BANK],B
+    mov word [es:bx+6],8036h    ; cmp byte [ss:S_BANK],B
     mov dl,[ss:S_BANK]
-    mov [cs:bx+11],dl
+    mov [es:bx+11],dl
 .blk:
     add bx,14
     jmp tr_ljmp

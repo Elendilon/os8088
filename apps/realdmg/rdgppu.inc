@@ -266,7 +266,9 @@ rdg_dvga         dw 0                    ; the host's: a changed line goes to VG
                                         ;   too, its two shade planes to planes
                                         ;   0 and 1 of this segment at 40 a
                                         ;   line (ppu_dvga), or 0
-rdg_dvmm         db 0                    ; ...the plane the map mask holds
+                                        ;   (the plane the map mask holds is
+                                        ;   RDG_DVMM, in the view: a write
+                                        ;   through CS is kern_mega's #GP)
 
 rdg_renderd:
     cmp word [cs:rdg_dmgseg],0
@@ -284,8 +286,8 @@ rdg_renderd:
     push ds
     push es
     cld
-    mov byte [cs:rdg_dvmm],0FFh          ; (the host's mask: not known)
     mov ds,[cs:rdg_viewseg]
+    mov byte [RDG_DVMM],0FFh             ; (the host's mask: not known)
     mov ax,es
     mov es,[cs:rdg_dmgseg]
     mov [es:RDG_DOUT],di
@@ -1350,9 +1352,9 @@ ppu_dvga:
     mov es,[cs:rdg_dvga]
     mov dx,3C4h
     mov si,[PPU_OSRC]
-    cmp byte [cs:rdg_dvmm],1
+    cmp byte [RDG_DVMM],1
     je .one
-    cmp byte [cs:rdg_dvmm],0
+    cmp byte [RDG_DVMM],0
     je .z
     mov ax,0102h
     out dx,ax
@@ -1365,7 +1367,7 @@ ppu_dvga:
     out dx,ax
     mov cl,10
     rep movsw
-    mov byte [cs:rdg_dvmm],1
+    mov byte [RDG_DVMM],1
     pop dx
     ret
 .one:
@@ -1378,7 +1380,7 @@ ppu_dvga:
     out dx,ax
     mov cl,10
     rep movsw
-    mov byte [cs:rdg_dvmm],0
+    mov byte [RDG_DVMM],0
     pop dx
     ret
 
@@ -2719,8 +2721,9 @@ rdg_csig         db 0                    ;   sprites are moved by, and the
 rdg_cmask        db 0F8h                 ; the step's: SCX AND this snaps it,
 rdg_cfine        db 7                    ;   AND this is what the sprites
                                         ;   take (rdg_lpatch, from the level)
-rdg_bwst         db 0                    ; TWO SHADES left the buffer's bit 0
-                                        ;   stale under VGA's own writer
+                                        ; (TWO SHADES left the buffer's bit 0
+                                        ;   stale under VGA's own writer:
+                                        ;   RDG_BWST, in the view)
 
 ; LHOOK site, length, bit, opcode (E8h call, E9h jmp), stub - and room for
 ; the site's original bytes, kept by rdg_lpatch's first call
@@ -2832,9 +2835,9 @@ rdg_lk_dscr:                            ; rdg_renderd's entry: a draw that
     mov byte [es:RDG_DSCR],0            ;   reads the buffer after VGA's own
     cmp word [cs:rdg_dvga],0            ;   writer left its bit 0 stale is
     jne .r                              ;   whole
-    cmp byte [cs:rdg_bwst],0
+    cmp byte [RDG_BWST],0
     je .r
-    mov byte [cs:rdg_bwst],0
+    mov byte [RDG_BWST],0
     mov byte [es:RDG_DFULL],1
 .r:
     ret
@@ -2866,7 +2869,7 @@ rdg_lk_dall:                            ; ...and written, as both planes
     add si,20h
     cmp word [cs:rdg_dvga],0
     je .both
-    mov byte [cs:rdg_bwst],1            ; VGA's own writer: plane 1 kept in
+    mov byte [RDG_BWST],1            ; VGA's own writer: plane 1 kept in
     add di,20                           ;   the buffer, written to planes 0
     mov cx,10                           ;   and 1 at once
     rep movsw
@@ -2900,11 +2903,11 @@ ppu_dvgabw:
     mov dx,3C4h
     mov si,[PPU_OSRC]
     add si,20h
-    cmp byte [cs:rdg_dvmm],3
+    cmp byte [RDG_DVMM],3
     je .b1
     mov ax,0302h
     out dx,ax
-    mov byte [cs:rdg_dvmm],3
+    mov byte [RDG_DVMM],3
 .b1:
     mov cx,10
     rep movsw

@@ -2223,6 +2223,69 @@ is in the tiers that stay.
   count and skip checksum as the unsqueezed run - the same game, frame for
   frame.
 
+### 16.2.4 Code selectors: kern_mega
+
+On kern_mega (docs/plans/KERN-MEGA-PLAN.md) a segment is a SELECTOR, and a
+claim's segment S is two of them: S itself, a writable DATA segment, and
+`(S >> 2) | 4`, its read-only CODE alias. A far jump through S loads a data
+selector into CS, which is a #GP; the kernel completes it (`mega_gpfix`), and
+a write through CS is a #GP it completes too (`mega_gpw`). Both are correct
+and both cost an exception, ~1,200 clocks on a 286 - and **inside the core
+each one is also WRONG**: the core runs with SS:SP the Game Boy's own stack
+(section 5.2), and an exception taken at ring 0 pushes its frame there, ~30
+bytes of the game's WRAM or HRAM below its SP. Interrupts are off in the core
+for exactly that reason; a fault is not an interrupt and IF does not stop it.
+
+So every segment the core or the recompiler **jumps to** is held as its code
+selector, and every one **written through** as its data segment:
+
+| held as the CODE selector | held as the DATA segment |
+|---|---|
+| `S_DISP+2`, `S_RESVEC+2`, `S_RETFAR+2` (the core) | `S_COREDS` (the core) |
+| `S_JITCSA`, `S_JITCSB`, `S_JITCS` | `S_JITSEGA`, `S_JITSEGB`, `S_JITSEG` |
+| `S_JITOUT+2`, a block table entry's +6, every `jmp far` a chain writes, the link log's segment | each tier's `RDG_TDSEG` (FFF2h, beside its generation at FFF0h) |
+| the package's four doors into the recompiler's part (`rw_jdset`) | `rw_jpseg` |
+
+- **Who converts**: the HOST, with `rdg_csel` (rdgsys.inc, `RDG_CSEL`): the
+  package's `rw_csel` asks `OSAPI_MEM_CODESEL`, which answers DX itself on a
+  real-mode kernel - so ONE binary is right on every kernel, and on kern_big,
+  kern_small and the bare harness every pair is one value and nothing here
+  changes a byte the core runs. The host sets `S_JITCSA`/`S_JITCSB` before
+  `rt_init`; 0 means "the data segment itself", which is what a host without
+  code selectors leaves (`rdg_init` zeroes the view) - the bare harness and
+  the static recompiler's host (section 20) take that path unchanged.
+- **The recompiler converts by table**: `rt_d2c` and `rt_c2d` map between a
+  tier's two names off the state block (three tiers, three pairs), for the
+  table's +6, `rt_forget`'s compare, `rt_unlink`'s log (logged as the code
+  selector a chain names, written back through the data segment).
+- **The link patches** (`tr_ljmp`, `tr_lpatch`, `tr_rpatch`) wrote the site
+  through CS, which is where the site is. They load ES from `[cs:RDG_TDSEG]` -
+  the tier's own data segment, which `rt_init` stamps into every tier - and
+  write through ES: one instruction more each, no stack, no state block walk.
+- **A move**: `rw_reloc` re-stamps the four vectors into the region by the
+  code selector of where it was against where it is (on kern_mega the
+  region's alias changes with it), and `rw_partsmv` the core's far vectors
+  the same way, after its walk; a cache move re-runs `rt_init`, which
+  re-stamps `RDG_TDSEG`.
+- **What the package still writes through CS** is the host's once-a-session
+  bookkeeping (`rdg_init`'s two words, the lossy picture's patch,
+  `rdg_lpatch`, once per toggle): each a #GP on kern_mega, on the host's own
+  stack, ~90 in a session. `rdg_dvmm` and `rdg_bwst`, which the VGA writer
+  wrote per LINE, live in the view as `RDG_DVMM` and `RDG_BWST`, and the
+  damage scan's hook reaches the package through `rw_dsel` and not
+  `push cs / pop ds`.
+- **MEASURED** (Bochs 2.7, kern_mega with `MEGATRAP=1`, the census of every
+  completed #GP): blargg's `cpu_instrs` under the recompiler took **87,703
+  traps** in its first ten seconds and then looped in test 01 for good - the
+  frames had corrupted the game's stack - and passes all eleven tests with
+  **96**, every one at init or a lossy toggle and none in the core. The
+  interpreter alone passed before, by luck: its only trap was the core's
+  entry, one an event, whose frame landed below an SP that test 01 never
+  reads. The demo cartridge went from 29,273 traps in 30 seconds to 140.
+  `tests/rdgmega.py` is the row.
+- **Cost**: REALDMG.O88 +115 bytes on disk (the image +128, the recompiler's
+  part +120, uncompressed), a line in tests/megapkg.txt.
+
 ### 16.3 Blocks and tr_enter
 
 A block is straight-line code from a PC to the first control transfer, at
