@@ -477,7 +477,7 @@ def _communicate(p, timeout, cpus=1, cpu_seen=True, qdir=None):
     `cpu_seen` False - a QEMU row, whose emulator daemonizes out of the tree -
     bounds the row by `timeout` in wall seconds alone (see WALL_BACKSTOP).
     UNLESS `qdir` names the row's own QEMU directory (docs/plans/
-    SOAK-PARALLEL.md 17.6): then its emulators' CPU is found by their
+    SOAK-PARALLEL.md 17.2): then its emulators' CPU is found by their
     pidfiles and charged with the row's, so a QEMU row in a wide lane is
     bounded by the work it did like every other row - it used to time out at
     150 wall seconds having done 40 seconds of work, on a box running

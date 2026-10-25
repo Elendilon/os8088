@@ -1893,7 +1893,17 @@ step:
   measured it moves once more 0.2 s AFTER the desktop is up
   (39040 -> 39296). `os88qemu.kernel_up` gates on the boot and the segment
   is taken once it has held still (`quiesce`), in `ethernet`, `ethcfg` and
-  `brdownload`.
+  `brdownload`. Earlier still is worse: `drv_tab` is `.bss`, and until stage
+  2 has expanded the packed kernel those bytes are the LZ4 stream - a junk
+  word satisfied `dosnetarena`'s poll and the row reported "never attached"
+  off the cleared one, in 0.7 s. The three DOS NIC rows gate on the boot too.
+* **A fetch is not a layout.** `brdownload` read the line table the moment
+  the page's state said loaded, and a starved guest had no line holding the
+  link yet; it waits for `br_nlines`/`br_doclen` to hold still
+  (`brcapacity` had already learned this).
+* **A raise is not finished when the window is frontmost.** `minesrc` case G
+  (red once before, in the 2026-09-21 soak) pressed again after 20 quiet
+  ticks; it waits for the UI to go idle.
 * **A fixed pause as a load's whole budget.** `lemmings` gave a C package
   three paced seconds to open its window; on QEMU those are the host's, so
   a starved guest did less of the load in them. It waits on the window.
@@ -1921,7 +1931,31 @@ QEMU a budget is a generous CEILING on a wait for state, never a pause that
 something is assumed to have finished inside, and an answer that IS the
 guest's speed against that clock is a host rate.
 
-### 17.6 What is left
+### 17.6 The runs, and what is still unconfirmed
+
+All four wide, all on a four-core box ALSO running another checkout's whole
+soak; "hogs" is two `python3 -c 'while 1: pass'` started and killed by PID.
+The rows are every `serial` QEMU soak row plus the nine former `alone=True`
+MartyPC rows; each pass ran the code as it stood, so the failures shrink as
+the fixes in 17.5 landed.
+
+| pass | load | rows | wall | passed | failed, and what each one was |
+|---|---|---|---|---|---|
+| 1 | soak only | 77 QEMU | 995 s | 70 | xtmp3live (seek sleep), vidbankspk x2 (host rate), vidlysplitbase (wall timeout), xtmp3eng (slowdown leg), lemmings (sendkey), telansi (sendkey) |
+| 2 | soak only | 43 (excitebike set + fixed rows) | 1,247 s | 41 | excitebikeg1 (sendkey); excitebikeflowherc (MartyPC, already concurrent - 17.7) |
+| 3 | + 2 hogs | 87 | 1,525 s | 80 | httpmountname (dead-reckoned click), brmem + ethcfg (driver segment), xtmp3eng (host waits), lemmings (window pause), rdxms (click), vidlybankcopy (sendkey) |
+| 4 | + 2 hogs | 87 | 1,414 s | 80 | vidbankspkfast (host rate), brdownload-length, telansi (5 s ceiling), httpinstall + vidclose + vidlysplituntimed (double-click split), xtmp3live (window) |
+| 5 | + 2 hogs | 87 | 1,309 s | 84 | xtmp3eng (playwav underrun), minesrc + trkscrl (a one-argument `hmp` the burst double-click called with four) |
+| 6 | + 2 hogs, + buildmatrix | 88 | 3,979 s | 84 | brdownload-auto (layout), dosnetarena (boot-time `.bss`), xtmp3eng (rungfail), minesrc (case G). buildmatrix passed, 2,445 s at load 16 against its 540 alone |
+
+**The fixes for pass 6's four failures are NOT confirmed under load** -
+they landed after it, and a seventh pass was stopped at the owner's word
+because the passes were slowing the soak beside them. The next full soak is
+their test. Nothing here has run at the soak's own width on an otherwise idle
+box, which is the condition the lane will actually see; every pass above was
+at roughly twice that oversubscription.
+
+### 17.7 What is left
 
 * **`-icount` for the QEMU rate rows.** `xtmp3rate` and `vidbankspk*` are
   alone because QEMU runs without it, and the experiment is cheap - a
