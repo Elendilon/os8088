@@ -35365,6 +35365,41 @@ only taken out of memory that is free without shedding anybody. What the
 number was defending is now defended by the tag: a machine that needs the room
 back takes it.
 
+#### 18.8.4.1 …but a COMPACTION carries the live window's bytes into the pin (`kern_big`)
+
+§18.8.4 drops the contents on the ground of WHERE the drop runs: inside
+`mem_shed_one`'s `cli`, where a 12 ms copy is a lost mouse byte and a half.
+That ground is true of the shed and of nothing else. The compactor's walk
+dissolves a cache it passes as well (§66.10) - every pass with a claim
+waiting does, a FAT window included - and it runs with IF as its caller had
+it, which is SET, under `[sch_lock]`, between block moves that are tens of
+milliseconds of `rep movsw` already. So `dsk_fatw_demote`'s live arm asks
+the FLAGS: IF clear is the shed and drops as before; IF set is the walk, and
+the window's `[dsk_fatwn]` sectors are copied into `FAT_SEG` before
+`[dsk_fatseg]` names it, with `[dsk_fatw0]` left as it stood. The bytes are
+intact at that instant - `mem_pg_forget` runs before the record goes, and a
+pass moves nothing over a dissolved block until after (an ascending pass
+moves only what is above it DOWN onto a fill point below it, a descending
+one the mirror) - and the pin's previous holder has been evicted first,
+exactly as for a drop. A window with FAT edits in it never reaches here
+(`mem_fatw_dirty`), so a carried window is a clean one. Nothing resident is
+carried as it stands: the copy moves bytes nobody reads and `[dsk_fatw0]`
+still says `0xFFFF`.
+
+It was found as a regression with no FAT code in it (`pxbenchvga`, BIG.BMP's
+first rows, §106.22): a picture's master claim compacts, the walk dissolves
+the live window of the volume the picture is on, and the decoder's first
+`dsk_next_clus` re-reads the FAT - on a 720 KB floppy, one `int 13h` filling
+§18.95's chunk from LBA 1, **0.18-0.26 s** in front of the first rows. It
+was free only while the sector cache still held that chunk, which is luck of
+which fills came between the boot mount and the claim (§18.95.10's round
+robin evicts a chunk nobody has HIT, and a FAT read through a live window is
+not a hit). A 720 KB disk's three sectors copy in ~3 ms; the largest window,
+`DSK_FAT_SECS` = 9, in ~8 ms. **46 bytes of `.cold`, resident, on `kern_big`
+(37,586 -> 37,632; the arm ends in its own epilogue, one byte longer than a
+jump to the shared one, so the hot code after it keeps its parity), `.text` and `.bss` unchanged; `kern_small` has no
+compactor and assembles byte for byte as before** (`OS88_COMPACT`).
+
 ### 18.8.5 A held stream's dirty FAT stays with its window across a hop (`kern_big`)
 
 The windows are per volume and the DIRTY RANGE is not: `[dsk_fatd0,
@@ -45738,7 +45773,31 @@ path handed `OSAPI_XMEM_FREE` an address that was never claimed. It is
 invisible on every 8088, where there is no store and the fallback runs
 instead. `tests/msegxms.py` is the row that says otherwise.
 
+#### 20.12.4.1 …and a lazy ASSET may be fetched from the CEILING (`OP_WANT_ASSETHI`)
+
+`op_fetch` claims through the low door (`OSAPI_MEM_CLAIM_DMA`, CX = 0), which
+is right for a code part: it is fetched for a job, dropped after it, and a
+compaction may slide it. A lazy `OP_ASSET` row a package HOLDS - data it
+keeps for the window's life and gives back only under pressure - is the
+claim §50.3.2 warns about in the SDK's own words, *"one long-lived data claim
+landing mid-heap permanently splits the space"*: every bottom-up claim made
+after it lands above it, so when it is given back its room is a hole UNDER
+them and the claim it was given back for still has to compact around them.
+
+`%define OP_WANT_ASSETHI` before `os88parts.inc` makes `op_fetch` claim a
+lazy `OP_ASSET` row through `OSAPI_MEM_CLAIM_DMA_HI` with CX = 0 - top-down
+on every kernel, `kern_mega` included (§50.3.2) - and every other row as
+before. Nothing else differs: the read lands R paragraphs up the claim and
+expands onto its base as it always did, and the shrink to `len` takes the
+tail, which for a ceiling claim is the top - so a part whose claim was
+rounded up leaves at most a KB free between it and the claim above it. The
+block is still born pinned; a package that declares it movable has it packed
+by §66.4.1's DESCENDING pass, towards the ceiling. Opt-in, and a package that
+does not define it assembles byte for byte as before (13 bytes of `op_fetch`
+when it does). PiXEL's face pictures are the one user (§106.16.1).
+
 #### 20.12.5 Identity is unchanged (binding)
+
 
 **The entry proc, every window, every callback and the worker task live in
 the PRIMARY segment.** A part holds code and data reached by far call and
@@ -205986,7 +206045,8 @@ waits on the count and then types finds PiXEL idle. A smaller
 picture opened later brings them back after its first rows, and a heap that
 still cannot spare them leaves the bevel. `[pxa_drop]` is set by the drop
 alone, so a machine whose ENTRY refused the pictures never re-asks. BIG.BMP
-reads 3.75 s with one compaction.
+read 3.75 s with one compaction - and 3.36-3.49 s since 106.16.1 put the
+pictures where their drop needs no compaction at all.
 
 **They were a sidecar file, `PIXEL.GFX`, beside the package** until
 §20.13.8 let a parted image be packed; the reason that kept them out
@@ -206019,6 +206079,44 @@ rows and the status bar 14, which leaves a middle band of about 235 rows
 need 146, and the column holds the Navigator (64 + its frame), the
 Histogram (56 + its frame) and all of Image Info's lines.
 
+### 106.16.1 …and the pictures are claimed from the CEILING, so giving them back costs nothing
+
+`px_artroom` drops the pictures so a master can have their room, and with
+them claimed bottom-up the room was in the wrong place. Part 9 is fetched at
+entry, so on the 640 KB VGA XT it landed at the bottom of the heap
+(`2460`, beside the caches) and the code parts and the view's 30 KB that
+came after it landed ABOVE it: dropping it left a 27 KB hole under them, and
+BIG.BMP's 302 KB master, which needed 302 against a largest run of 271, still
+compacted - 0.12 s of plans and 0.19 s moving 41 KB of PiXEL's own claims,
+in front of the first rows. Measured on the session `pxbenchvga` runs.
+
+So PiXEL defines `OP_WANT_ASSETHI` (§20.12.4.1) and part 9 - its one
+`OP_ASSET` row - is claimed top-down, under the instance's region at the
+ceiling (`8C40..9300`). Everything bottom-up lands where it did before the
+face had pictures, the largest run beside the pictures is 298.5 KB, and
+`px_artroom`'s drop joins their 27 KB to it: the master fits without moving
+a byte, and the one compaction left is the work claim's, ~14 ms of plan and
+no move. The block stays movable (`px_mreloc`); the descending pass packs it.
+13 bytes of `op_fetch` in the image, nothing else.
+
+With §18.8.4.1 beside it (the compaction that is left no longer costs a FAT
+re-read), BIG.BMP's first rows on the VGA XT read **3.36-3.49 s** over five
+runs, against **3.83-4.08 s** on the tree before (six runs, five of them
+over `pxbenchvga`'s 3.90 ceiling) - and the open as a whole 39.1-40.0 s
+against 40.3-40.5. What is left above 106.22's 2.95 s is not the decoder,
+which is the same 2.07 s from the plans to the first wake on both trees: it
+is the volume check. Those 2.95 s were taken with no pictures (the bench disk
+never carried the `PIXEL.GFX` sidecar) and with the head at cylinder 0,
+because the kernel of the day re-mounted the volume on the way back from
+fetching the BMP decoder part out of `PIXEL.O88` - a mount that §18.9.1's
+quiet switch no longer pays. So the decoder part's fetch leaves the head at
+the package's end of the disk (cylinder 42 on the bench's 720 KB disk), the
+motor stops, and BIG.BMP's open re-validates the volume with a boot-sector
+read that seeks 42 cylinders: 0.43-0.59 s against 0.03-0.16, which the
+first open no longer spends (6.0 s against 7.4 on the same disk). That seek
+is the honest cost of a stopped motor and a head that is somewhere else, and
+it is in the figure.
+
 ### 106.17 The speed wave: what an 8088 pays, before and after
 
 The package was made fast on the machine it is calibrated against: the 5150
@@ -206036,7 +206134,7 @@ image core as wave 2 left it.
 | open CITY.PCX, 320x240 8-bit RLE | 15.61 s | **12.78 s** | 21.64 s | **16.62 s** |
 | ...its first rows on the glass | 3.33 s | **2.69 s** | 6.99 s | **4.60 s** |
 | open a 640x480 8-bit BMP, 308 KB | 39.84 s | **35.23 s** | 47.61 s | **41.00 s** |
-| ...its first rows on the glass | 4.20 s | **1.52 s** (never reproduced: 106.18; **1.34 s** since 106.22) | 6.35 s | **4.49 s** (2.95 s since 106.22) |
+| ...its first rows on the glass | 4.20 s | **1.52 s** (never reproduced: 106.18; **1.34 s** since 106.22) | 6.35 s | **4.49 s** (2.95 s since 106.22; 3.36-3.49 s since 106.16.1, the remount's seek in it) |
 | zoom step, the canvas covered | 0.87 s | 0.87 s | 4.31 s | **3.71 s** (4.50 s since 106.21: the canvas taller by the filmstrip's 77 rows, 26 composer bands where it was 22) |
 | Fit, from there | 0.52 s | 0.46 s | 2.41 s | **1.95 s** |
 | pan step, an arrow | 0.29 s | 0.29 s | 0.56 s | 0.49 s |
