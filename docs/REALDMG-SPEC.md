@@ -2903,3 +2903,153 @@ The record is 27,407 bytes of package, 62,566 with its sidecars. The
 description's "near full speed" stands on 86Box's 286 figures (section
 16.6), not yet on the owner's iron. It is the field run's to confirm or to
 correct before the record is published.
+
+## 20. The full static recompiler: a cartridge translated whole, ahead of time
+
+**What is built:** `tools/gbaot.py` and `tools/gbaot/aothost.asm`, which
+translate a whole cartridge on the HOST with no play and no profile, and
+run the result beside the interpreter to prove it. The package that loads
+the result is section 20.8's and is not built yet. The plan and its stories
+are docs/plans/REALDMG-AOT-PLAN.md, and the study behind them is
+docs/reports/REALDMG-FULLSTATIC-2026-10-25.md.
+
+### 20.1 What it makes
+
+`python3 tools/gbaot.py build GAME.GB -o DIR` writes:
+
+| file | what it is |
+|---|---|
+| `seg00.bin` | the CORE (section 4), 64KB, with code translated into its holes (16.2.2) |
+| `seg01.bin` ... | 64KB cache segments (16.2), each with the helper tails at their own offsets and code in the free ranges |
+| `table.bin` | the block table (16.3), 64KB at mask 31, its segment words written as TOKENS: F000h + n names image n |
+| `aot.json` | the counts, the dropped entries, the cartridge header and the ROM's SHA-256 |
+
+A block in it is byte for byte what the machine's own translator would make
+from the same PC, because it IS that translator. `aothost.asm` assembles
+`rdgsys.inc` and `rdgjit.inc` as the package and the bare harness do, and
+`tools/gbaot.py` runs it under an 8086 emulator, Unicorn. Python hands the
+driver its segments and its profile in a parameter block at 10h, enters at
+one of five entries (0 init, 3 preload, 6 a new round, 9 a frame, 12 go on
+in the same segments), and takes the machine back at an `INT 3`: the end of
+the entry, or a bank the host serves (`rdg_nres`'s hooks, section 10.3).
+
+### 20.2 The walk: what is code, with no play
+
+`walk` is `tools/gbstatic.py`'s recursive descent:
+- from 0100h, the RST vectors and the interrupt vectors;
+- every direct JR, JP, CALL and RST;
+- the jump table behind an RST whose routine pops its return address;
+- the bank a constant `A` wrote to the MBC before a call into 4000-7FFF,
+  and every bank the code is found in when no constant decided it.
+
+To that `jump_tables` adds the `LD HL,table / ADD HL,BC / LD A,(HL+) /
+LD H,(HL) / LD L,A / JP HL` dispatch, read at its constant base: words while
+they are code addresses in the same region, until the code they point at
+begins. It is repeated until it finds nothing new.
+
+`leaders` is where a block may begin: the entries, every branch target, the
+instruction after a conditional transfer or a CALL/RST (a return lands
+there), and the jump tables' words.
+- **`--side` adds the instruction after a store that may reach IF, IE or
+  the MBC, and after EI**: the places an event can resume mid-block (16.5).
+  It is OFF: those resumes find no block and are interpreted to the next
+  branch, as the dynamic recompiler's are, and Super Mario Land's blocks
+  were 312 KB with them against 208 KB without.
+
+### 20.3 The cut: a block ends where another begins
+
+A block runs to its first control transfer (16.3). A branch target in the
+middle of straight-line code would then start a second block that copies the
+rest of the run. `aothost.asm` defines `RT_AOTSTOP`, and `rdgjit.inc`'s
+`rt_aotstop` reads the host's bitmap of block starts (at `[cs:RT_AOTBMP]`: a
+byte a bank key at 0, its index or 0, then 2KB bitmaps from 100h, index 0
+for 0000-3FFF). The translator ENDS a block before an instruction that is a
+block start, falling through to it. Super Mario Land: 208 KB of code, 24.3
+bytes a Game Boy instruction found, became 178 KB and 20.9.
+
+Two rules make a cut invisible:
+- **A cut checks for no event.** The interpreter checks only at a branch
+  (section 6), so the fall-through at a cut - and in an `RT_AOTSTOP` build
+  at `RT_MAXI`'s cut and at the end of the translator's buffer too - is
+  `cmp sp,sp` and then `rt_exit`, SF clear, so the event waits for the next
+  branch as it would interpreted. Without it the precompiled code took
+  Super Mario Land's interrupts at different instructions from frame 154.
+- **The dead-flags lookahead (16.1.2) stops at a cut**, which an event may
+  be taken after, and whose handler may PUSH AF.
+
+`RT_AOTSTOP` is the host's alone. The package's and the harness's
+translator assemble exactly as before it.
+
+### 20.4 Rounds and groups
+
+`translate` gives the driver two cache segments a round. The first round
+also fills the core's holes (tier 1). Each round:
+1. Python writes the profile (16.8) with every block start not yet
+   translated, weight 1.
+2. `rt_preload` translates until the segments are full.
+3. Python reads the table, renames the round's segments as tokens, takes
+   what went in off the profile, and reads the images out.
+4. A new round starts with two fresh segments (entry 6), unless the last
+   one ended with room left: then entry 12 goes on in the same segments.
+
+The code's banks are mapped a GROUP at a time, at most 14, which is what the
+bitmap holds in its 32KB. The ROM slots stop at segment 103FFh, because a
+bank is addressed as S_ROMX:4000h with S_ROMX the slot less 400h.
+
+**A start whose slot and neighbour both hold blocks is DROPPED** (16.3's
+two-way table): it is interpreted when it runs. Super Mario Land drops 25 of
+1,899, Kirby's Dream Land 251 of 3,151.
+
+### 20.5 Running it: mode 3
+
+The driver's mode 3 is the precompiled machine:
+- `rdg_init`;
+- the images at their segments, the tokens in the table made segments;
+- **every segment's generation word (FFF0h) the same**, so a link between
+  two is never logged nor refused (16.2.3);
+- `S_JITFIX` 1, `S_JITPRE` 2, and the resume through `tr_enter`;
+- `S_JITVEC` on `h_jitstub`, which answers every request with no block:
+  nothing is translated at all, not even HRAM's code, which is interpreted.
+
+### 20.6 The gate
+
+`python3 tools/gbaot.py check GAME.GB DIR` runs the cartridge twice with
+gbprof's platformer script pressed: the interpreter (`--ref`) and the
+precompiled code (`--arm`; `dyn` is the dynamic recompiler). Each frame,
+both must agree on:
+- the registers;
+- "now", `S_TNEXT - S_BP` (where a budget ended is not the game's);
+- `S_SKIPPED` and `S_EVCOUNT`;
+- 8000-FFFF.
+
+`--serial` compares what the game says on its link port instead. That is
+the only fair check of a ROM whose verdict is a sum (gbflags) or text
+(Blargg), because there any two of RealDMG's arms take interrupts at
+different instructions: the interpreter's NOP checks for an event and
+translated code's does not.
+
+`tests/gbaot.py` is the row: 15 ROMs, ours and the fetched suites, and two
+negative controls that must go red, the most-entered block of GBRMW.GB
+broken and GBFLAGS.GB translated with `RT_DEADBUG`.
+
+### 20.7 What the gate found in RealDMG itself
+
+- **The interpreter runs off the end of bank 0 wrongly.** Looney Tunes
+  executes `JP NZ,nn` at 3FFEh, whose `nn` ends at 4000h, and falls through
+  to 4001h in bank 1. The interpreter reads on through the view, where
+  4000-7FFF is rdgsys's own data (section 3), and executed a STOP there at
+  frame 1178 of the script. Translated code never crosses 4000h in a block
+  (16.3) and does what the cartridge says. NOT FIXED: the interpreter would
+  pay for it on every dispatch.
+- **The dynamic recompiler checks for an event at `RT_MAXI`'s cut**, where
+  the interpreter does not (20.3). So Looney Tunes' timer interrupt is taken
+  100 M-cycles earlier recompiled than interpreted, at frame 801 of the
+  script. It is not a defect as emulation, since the hardware would take it
+  earlier still, but it makes the recompiler and the interpreter different
+  machines. NOT CHANGED in the package's translator.
+
+### 20.8 Not built
+
+The package that loads a precompiled cartridge, the table's shrink, the
+compact grade and the counters are docs/plans/REALDMG-AOT-PLAN.md's waves 2
+to 4.

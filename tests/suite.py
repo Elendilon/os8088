@@ -3439,6 +3439,21 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
+    Row("gbaot", "soak", py("tests/gbaot.py"), 370.0,
+        "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
+        "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
+        "its entries with no play, by RealDMG's own translator run under "
+        "Unicorn (tools/gbaot/aothost.asm), then run beside the interpreter "
+        "with gbprof's buttons - every frame's registers, time, events, skips "
+        "and 8000-FFFF identical, or for Blargg's and gbflags' the words on "
+        "the link port. 15 ROMs: GBDEMO, the tools/gbprof ROMs (read-modify-"
+        "writes, POPs from ROM, HBlank events, 64 banks of code), cpu_instrs, "
+        "instr_timing, mem_timing, halt_bug and dmg-acid2. TWO NEGATIVE "
+        "CONTROLS: GBRMW's most-entered block broken must differ, and GBFLAGS "
+        "translated with RT_DEADBUG must change its sum. WHY UNICORN: the "
+        "translation is the host's, and the check is counted, not timed. "
+        "SOAK: one package's recompiler",
+        needs=("nasm", "unicorn", "rgbds"), timeout=900),
     Row("gbacid", "soak", py("tests/rdgcore/rdgacid.py"), 3.0,
         "REALDMG's renderer (apps/realdmg/rdgppu.inc, docs/REALDMG-SPEC.md "
         "section 13) against dmg-acid2's reference picture, all 23,040 pixels: "

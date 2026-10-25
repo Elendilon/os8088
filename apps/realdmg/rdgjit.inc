@@ -840,6 +840,13 @@ rt_translate:
     mov bx,[RT_IX]
     cmp word [RT_CNT],RT_MAXI
     jae .fall
+%ifdef RT_AOTSTOP                       ; (the full static recompiler's host,
+    cmp word [RT_CNT],0                 ;   tools/gbaot/aothost.asm: a block ends
+    je .nost                            ;   where another begins, falling through
+    call rt_aotstop                     ;   to it, so no code is translated
+    jc .fall                            ;   twice - REALDMG-SPEC 20.3)
+.nost:
+%endif
     lea ax,[bx+3]
     cmp ax,[RT_N]
     ja .fall
@@ -885,6 +892,15 @@ rt_translate:
     jc .restart
     mov ax,[RT_IX]
     add ax,[RT_PC0]
+%ifdef RT_AOTSTOP
+    call rt_flushbp                     ; a cut - where another block begins,
+    push ax                             ;   or RT_MAXI's - is NOT a branch, and
+    mov ax,0E439h                       ;   the interpreter checks for an event
+    stosw                               ;   only at one: on with SF clear, cmp
+    pop ax                              ;   sp,sp, so the event waits for the
+    call rt_exit                        ;   next branch as it would interpreted
+    jmp short .done                     ;   (REALDMG-SPEC 20.3)
+%endif
     cmp word [RT_PEND],0            ; on to the next PC, checking BP: the
     je .fo                          ;   flush's sub bp sets the sign itself
     call rt_flushbp
@@ -938,6 +954,61 @@ rt_translate:
 %endif
     ret
 
+%ifdef RT_AOTSTOP
+; rt_aotstop - BX = an instruction's place in JIT_BUF: CF = 1 when its PC is a
+; place the host says another block begins (REALDMG-SPEC 20.3). The host's
+; bitmap is the segment at [cs:RT_AOTBMP]: a byte a bank key at 0 (its
+; bitmap's index, 0 none), then 2KB bitmaps from 100h - index 0 is
+; 0000-3FFF's, index n a bank's 4000-7FFF. Keeps every register but the flags
+rt_aotstop:
+    push ax
+    push bx
+    push cx
+    push es
+    mov es,[cs:RT_AOTBMP]
+    mov ax,bx
+    add ax,[RT_PC0]                 ; AX = the PC
+    mov bx,100h
+    cmp ax,4000h
+    jb .b
+    cmp ax,8000h
+    jae .no
+    push ax
+    mov bl,[S_JITBK]
+    xor bh,bh
+    mov al,[es:bx]                  ; the bank's bitmap
+    xor ah,ah
+    or al,al
+    jz .nob
+    mov cl,11
+    shl ax,cl
+    add ax,100h
+    mov bx,ax
+    pop ax
+    and ah,3Fh
+.b:
+    mov cl,al
+    and cl,7
+    shr ax,1
+    shr ax,1
+    shr ax,1
+    add bx,ax
+    mov al,[es:bx]
+    shr al,cl
+    shr al,1                        ; CF = the bit
+    jmp short .r
+.nob:
+    pop ax
+.no:
+    clc
+.r:
+    pop es
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
+
 ; rt_deadf - AX = the main opcode at JIT_BUF+BX, whose own record it is: its
 ; record WITHOUT F (rdggen.nof_lines) when it has one and the instructions after
 ; it in this block overwrite every flag it writes before any of them reads
@@ -977,6 +1048,10 @@ rt_deadf:
     lea si,[bx+3]
     cmp si,[RT_N]
     ja .live
+%ifdef RT_AOTSTOP                       ; (a block's end the host cut: an event
+    call rt_aotstop                     ;   may be taken there, and its handler
+    jc .live                            ;   may PUSH AF)
+%endif
     push cx
     mov al,[JIT_BUF+bx]
     xor ah,ah
