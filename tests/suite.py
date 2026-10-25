@@ -15973,6 +15973,23 @@ SOAK = [
         "(4: kern_mega CLOSED TaskMgr). 45s is 37 measured",
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megaapps.img")),
+    Row("megapaint", "soak", py("tests/megapaint.py"), 45.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7: a Paint canvas OVER 64KB "
+        "under kern_mega, where every claim is a 64KB selector. Under Bochs "
+        "at 16MB: a 580x380 BMP (111KB) opens by association and the canvas "
+        "is the file's pixels (pt_srowset's windows), a maximize to 590x390 "
+        "lays the canvas out in LDT windows and carries the picture "
+        "(pt_cvmove), strokes down the whole height and across the top rows "
+        "land, Ctrl+Z / Ctrl+Z restore the canvas to the byte (the undo "
+        "image's windows), a restore and a maximize keep it, no CLOSED or "
+        "FAULT line, and Save Bmp's file on C: is the canvas to the byte. Red "
+        "on the parent commit (Paint CLOSED as the BMP opens), with "
+        "pt_uwinof answering the canvas's own window (3) and with Save Bmp "
+        "one OSAPI_FILE_WRITE (7: the file wraps at 64KB). 45s is 34 "
+        "measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
+               "build/mbr.bin", "build/paint.o88")),
     Row("megashed", "soak", py("tests/megashed.py"), 30.0,
         "SPEC.md 50.6.8, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC1: a kernel "
         "cache ABOVE 1MB is purgeable. Bochs at 16MB: B:'s Disk window and the "
