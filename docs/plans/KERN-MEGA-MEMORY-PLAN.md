@@ -2084,6 +2084,38 @@ hibernate" makes the image the size of what is in use. Drivers have
 - **`tools/rdglog.py`**, which compares a field log with an emulator log of
   the same replay.
 
+### 8.6 A defect RealDMG found: a whole 64KB file read into a 64KB pool claim (OPEN)
+
+**Not fixed as of `dc591db4`** (`kernel/diskw.inc` has not changed since
+`dcbffc9e`, and MC5 does not touch the file layer). Found on `mega-dmg` at
+`5a620b2f` (this branch merged at `f068399f`), REALDMG-SPEC 16.2.6:
+
+- **What fails**: `OSAPI_FILE_READ` of a 65,536-byte file, ES = a 64KB
+  `OS88_HIGHMEM` claim that went to the POOL (a lone data selector, limit
+  FFFFh), BX = 0, DX:CX = 1:0000 (the capacity, exactly the file). The call
+  returns CF = 1 with an error that is not `FERR_BIG` - RealDMG's
+  "read failed" - and the machine carries on, idle; nothing hangs or faults.
+- **What does not**: the same read with the claim a KB larger (65KB, so
+  conventional) succeeds; a 32,768-byte file into a 32KB pool claim
+  succeeds; `OSAPI_FILE_READ_SEQ` in 16KB pieces into a 16KB pool claim
+  succeeds. So it is the transfer that ENDS exactly at a pool selector's
+  64KB limit - the offset that carries to 0 after the last sector - and
+  `dcbffc9e`'s `dskw_hicarry`/`dskw_hifix` are where to look: stepping
+  `[dskw_wseg]` a whole 64KB on by `SEG_SUB` when the run's offset carries
+  asks for a window AT the block's end, which `mega_bclip` refuses (no
+  room past it), so a transfer that has nothing left to move fails anyway.
+  That is a reading of the code, not a trace.
+- **Repro**: `tests/rdgmega.py --leg oneclaim` with RealDMG's workaround
+  taken out (`apps/realdmg/realdmg.asm`, `rw_load0`'s `.claim`: the `cmp
+  ax, 64 / jne .c65 / inc ax` under `PKG_MEGA`) - blargg's `cpu_instrs` is
+  a 64KB ROM, and with `RW_NOXPLAN` its one claim is exactly 64KB. Red:
+  "the view was never found"; screenshots every 0.3 s after the
+  double-click show the toast.
+- **RealDMG works round it** by claiming a 64KB one-claim cartridge as 65KB
+  under `CPU_F_PM`, which keeps it conventional; that line comes out when
+  the kernel is fixed. Any other package reading a whole 64KB file into a
+  64KB `OS88_HIGHMEM` claim meets the same refusal.
+
 ---
 
 ## 9. Addendum from `mega-video`: what the Video Player needs from this round (2026-10-25)
