@@ -127,6 +127,25 @@ SND_RT_LPT   equ 4              ; Covox on LPT1 (+1 LPT2, +2 LPT3) - FM, no
                                 ; above SND_RT_SB in the ladder: test for the
                                 ; three BEFORE any `>= SND_RT_SB`
 
+; --- OSAPI_MEM_HMA's keep form (SPEC.md 51.1.3.1) -----------------------------
+MEMHMA_KEEP     equ 8000h       ; AX = MEMHMA_KEEP | bytes: a driver running
+                                ; from the HMA's pool cuts its OWN image to
+                                ; that many bytes - DRV_H_KEEP's figure, which
+                                ; the kernel applies to a heap claim and
+                                ; cannot to a pool block. CF = 1 when the
+                                ; image is not in the pool (or an older tail):
+                                ; nothing to do, the kernel's shrink has it
+
+; OS88_DRV_FOOT - say that this driver CUTS ITS OWN BLOCK in the HMA's pool at
+; attach (MEMHMA_KEEP), so the tail places it at the pool's FOOT, lowest-first,
+; where every other block goes highest-first: the cut is then the bottom of
+; the one free run, and a reload - a hibernate's sweep, the Drivers page -
+; finds the driver's whole length where it was (SPEC.md 51.1.3.1). No byte:
+; a symbol tools/os88rom.py reads off the driver's org-DRV_HMA_ORG map
+%macro OS88_DRV_FOOT 0
+os88_drv_foot equ 1
+%endmacro
+
 ; --- entry verbs (AL on the far call into your entry proc) -------------------
 ; --- the record OSAPI_DRV_SUSPEND fills from DRVV_HWINFO (SPEC.md 51.11.2) ---
 DQ_CLASS     equ 0              ; db: the DRVC_* this record is about

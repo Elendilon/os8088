@@ -97146,6 +97146,58 @@ The rules for the driver are the ones for any memory it gives away: put what
 may be dropped LAST, its zeroed state after its code, and let every way into
 it be guarded by a byte BEFORE the offset.
 
+#### 51.1.3.1 ...and in the HMA's pool, the driver cuts its own block
+
+A driver placed in the HMA's pool (§2.10.8) holds no claim, so the kernel's
+shrink above passes it by (`DRVR_KB` 0) - and SOUND.DRV kept all 11,924
+bytes up there where the heap gave back 4.5KB of them. The pool is the
+TAIL's, so the cut is too: `OSAPI_MEM_HMA` with AX = `MEMHMA_KEEP` (8000h) |
+bytes reaches `ROMF_HCLAIM` unchanged (the kernel passes AX through as CX),
+and the tail cuts the block that runs at the caller's segment AND is owned by
+it - its image - to those bytes, paragraph-rounded, never growing it and
+never to nothing. CF = 1 when the image is in the heap, which is the kernel's
+case, and from a tail older than the form, which refused any CX over
+`HB_MAX`: either way the driver keeps what it has. **No kernel byte.**
+
+SOUND.DRV asks it at the end of its attach, with its `DRV_H_KEEP` figure less
+`$$` (`strict word`, so the org-0 and org-`DRV_HMA_ORG` assemblies stay
+byte-parallel for the relocation diff).
+
+**A cut must not strand its own reload, so the pool fills from two ends.** A
+hibernate sweeps SOUND.DRV and loads it again with HDD.DRV and NET.DRV still
+in the pool (§87.4 step 1, §87.6 step 6), and so does the Drivers page - and
+a reload needs the WHOLE image before its attach can cut it. With every block
+lowest-first, HDD.DRV sat on the cut's bytes and the reload found a
+10,928-byte gap for an 11,952-byte image: SOUND.DRV fell to the heap for the
+rest of the session, measured by `tests/hmahiber.py`. So:
+
+- an image whose driver declares **`OS88_DRV_FOOT`** (`drivers/os88drv.inc`,
+  no byte: a symbol `tools/os88rom.py` reads off its org-`DRV_HMA_ORG` map,
+  bit 15 of its record's relocation count) is placed **lowest-first**;
+- every other image, and **every buffer**, **highest-first**.
+
+The cut is then the foot of the ONE free run between the two stacks, and a
+dropped SOUND.DRV frees its whole length where it was: a reload lands at the
+base the boot gave it and the pool's records are the boot's again. The pool
+(24,560 bytes), read off the tail's table under QEMU -m 128 with SOUND, HDD
+and NET wanted - an AdLib for the no-mixer arm, an SB16 for the other:
+
+| machine | SOUND.DRV, at 0010 | HDD + NET, at the top | one free run | its 8KB double buffer |
+|---|---:|---:|---:|---|
+| no mixer | 7,376 | 8,272 | **8,912** | **in the pool** (was the heap) |
+| a mixer (CT1335 up) | 10,928 | 8,272 | 5,360 | the heap, as before |
+
+Before either change the image held 11,952 on both, the free run was 4,336,
+and the buffer went to the heap wherever all three were wanted. A reload
+fails only once the top stack has grown past 24,560 - 11,952 = 12,608 bytes;
+the three drivers are 8,272 of it. `tests/hmapool.py` drives the shipped tail
+through boot, buffer, drop and reload under unicorn, both arms, and goes red
+with `OS88_DRV_FOOT` taken out or with one end only.
+
+**What it cost**: no kernel byte (`kernel.bin` byte-identical). COLDHMA.SYS's
+resident half 2,043 -> 2,153 bytes of the HMA (the cut 66, the second end 44;
+1,239 spare above it), SOUND.DRV +17.
+
 ### 51.2 The contract
 
 The entry proc is the only thing the kernel calls by offset; everything else

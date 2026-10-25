@@ -17378,6 +17378,21 @@ SOAK = [
         "image/buffer inverted, each fail",
         needs=("nasm", "unicorn"),
         wants=("build/xmem.bin", "build/coldhma.sys")),
+    Row("hmapool", "soak", py("tests/hmapool.py"), 0.5,
+        "SPEC.md 51.1.3.1: the HMA's pool keeps its order across a reload. "
+        "SOUND.DRV cuts its block at attach (MEMHMA_KEEP) and a reload - a "
+        "hibernate's sweep, the Drivers page - needs the whole image again, "
+        "so the tail places an OS88_DRV_FOOT image lowest-first and every "
+        "other block highest-first. The SHIPPED build/coldhma.sys under "
+        "unicorn, its door driven as the kernel does with the shipped "
+        "SOUND/HDD/NET images: SOUND at the foot and cut, HDD and NET at the "
+        "top, the 8KB buffer in the pool with no mixer and refused with one, "
+        "and SOUND dropped and placed again at its boot base, the table the "
+        "boot's. Broken on purpose: OS88_DRV_FOOT taken out, and hb_alloc "
+        "lowest-first only - each strands the reload",
+        needs=("unicorn",),
+        wants=("build/coldhma.sys", "build/sound.drv", "build/hdd.drv",
+               "build/net.drv", "build/sound.hma.bin")),
     Row("ethernet", "soak", py("tests/ethernet.py"), 40.0,
         "SPEC.md 72.9: ETHER.DRV up before the first paint off a SYSTEM.CFG "
         "that asks for it, DHCP bound to slirp's address, and the browser "

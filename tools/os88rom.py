@@ -791,7 +791,8 @@ def write_romtab(t, path, held=None, pkg=None, hdrv=(), drvorg=0):
     out.append("rt_hdrv:")
     for k, d in enumerate(hdrv):
         out.append(f"    dw 0x{d['hash']:04X}, {d['img']}, {d['total']}, "
-                   f"rt_hrel{k}, {len(d['rel'])}   ; {d['name']}")
+                   f"rt_hrel{k}, {len(d['rel']) | (0x8000 if d['foot'] else 0)}"
+                   f"   ; {d['name']}{', at the foot' if d['foot'] else ''}")
     out.append("rt_hdrv_end:")
     for k, d in enumerate(hdrv):
         out.append(f"rt_hrel{k}:")
@@ -1029,8 +1030,20 @@ def hma_driver(build, name, org):
     if bad:
         fail(f"{name}: the relocated image differs from its org-{org:#x} "
              f"assembly at {len(bad)} byte(s), first {bad[0]:#x}")
+    # AT THE POOL'S FOOT (SPEC.md 51.1.3.1): a driver that cuts its own block
+    # after attach says so with OS88_DRV_FOOT, which its org-`org` map names.
+    # Bit 15 of the record's relocation count carries it - a 16KB image has
+    # fewer than 32,768 bytes to move - and hb_place places it lowest-first
+    # where every other block goes highest-first, so its cut is the foot of
+    # the one free run and a reload finds its whole length again
+    mp = os.path.join(build, f"{name}.hma.map")
+    foot = os.path.exists(mp) and any(
+        ln.split()[-1:] == ["os88_drv_foot"] for ln in open(mp))
+    if len(rel) >= 0x8000:
+        fail(f"{name}: {len(rel):,} relocations - bit 15 of the count is "
+             f"the foot flag")
     return {"name": name.upper() + ".DRV", "hash": img_hash(img),
-            "img": len(img), "total": total, "rel": rel}
+            "img": len(img), "total": total, "rel": rel, "foot": foot}
 
 
 def build_hma(build, variant, drivers=(), org=0xC000):

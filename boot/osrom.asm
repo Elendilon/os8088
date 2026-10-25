@@ -828,7 +828,7 @@ rom_pkg:
 ; OSAPI_MEM_HMA). Every block is addressed the same way - a segment of its own
 ; and offsets from HB_ORG - because nothing above 1MB is reachable at offset 0:
 ; FFFF:x is linear 0xFFFF0 + x, so a block at base b is C:HB_ORG with
-; C = 0xFFFF - (HB_ORG - b)/16, which puts every C in F200-F7xx. That is the
+; C = 0xFFFF - (HB_ORG - b)/16, which puts every C in F401-F9FF (HB_ORG C000). That is the
 ; reason the pool is UNDER `.cold`: above it, C would be FBxx-FFxx, which is
 ; the heap's owner tags, and a claim a driver made would read as purgeable.
 ;
@@ -974,6 +974,36 @@ hb_walk:                        ; SI = hb_tab
     mov [bp+12], cx
     jmp hb_yesax
 
+; hb_keep - HCLAIM with CX = 8000h | bytes (OSAPI_MEM_HMA's MEMHMA_KEEP):
+; the caller's OWN IMAGE - the block that runs at BX and BX owns - cut to
+; that many bytes, paragraph-rounded, the rest a free run (SPEC.md 51.1.3's
+; DRV_H_KEEP, in the HMA, where the kernel's shrink has no claim to cut).
+; Never a growth and never to nothing. SI = hb_tab
+hb_keep:
+    and ch, 0x7F
+    add cx, 15
+    and cl, 0xF0
+    jcxz .no
+.r:
+    cmp word [cs:si], 0
+    je .n
+    mov ax, [cs:si]
+    call hb_seg
+    cmp ax, bx                  ; the block BX runs at...
+    jne .n
+    cmp [cs:si+4], bx           ; ...and owns: its image
+    jne .n
+    cmp cx, [cs:si+2]
+    ja hb_no                    ; a keep past the end is no keep
+    mov [cs:si+2], cx
+    jmp hb_yes
+.n:
+    add si, 6
+    cmp si, hb_tab_end
+    jb .r
+.no:
+    jmp hb_no
+
 hb_free:                        ; SI = hb_tab
     cmp word [cs:si], 0
     je .next
@@ -1006,9 +1036,12 @@ hb_drop:                        ; SI = hb_tab
 
 hb_claim:
     jcxz hb_free                ; CX = 0: DX's block back (SI = hb_tab)
+    test ch, 0x80
+    jnz hb_keep                 ; CX = 8000h | bytes: BX's image cut to them
     cmp cx, HB_MAX
     ja hb_no
-    call hb_alloc               ; AX = base, DI = its record
+    mov bp, sp                  ; a BUFFER: highest-first (BP <> 0), so it
+    call hb_alloc               ; never stands where a foot image regrows
     jc hb_no
     call hb_seg                 ; AX = the segment...
     mov bp, sp
@@ -1071,6 +1104,9 @@ hb_place:
     mov cx, [cs:si+4]           ; CX = image + bss: what is copied
     xor bx, bx                  ; no owner yet: it is the image's own segment,
     push si                     ; known once the base is
+    mov bp, [cs:si+8]           ; ...and WHICH END: bit 15 of the relocation
+    and bp, 0x8000              ; count is OS88_DRV_FOOT's, lowest-first;
+    xor bp, 0x8000              ; every other image highest-first (BP <> 0)
     call hb_alloc
     pop si                      ; (the table: hb_alloc walks with SI)
     jc hb_no
@@ -1093,6 +1129,7 @@ hb_place:
     pop di
     jne .bad
     mov cx, [cs:si+8]           ; THE RELOCATION: CX bytes of the stream gain
+    and ch, 0x7F                ; (bit 15 is the foot flag, above)
     mov si, [cs:si+6]           ; HB_ORG's high byte, each a delta from the
     mov bp, bx                  ; last (0 = an absolute word follows)
     jcxz .placed
@@ -1120,8 +1157,19 @@ hb_place:
     mov word [cs:di], 0         ; the block back: nothing was installed
     jmp hb_no
 
-; hb_alloc - CX = bytes, BX = owner -> CF = 0, AX = base, DI = its record;
-; CF = 1 no record or no room. Lowest fit, paragraph-rounded. Clobbers DX, SI
+; hb_alloc - CX = bytes, BX = owner, BP = 0 lowest fit / BP <> 0 highest fit
+; -> CF = 0, AX = base, DI = its record; CF = 1 no record or no room.
+; Paragraph-rounded. Clobbers DX, SI.
+;
+; TWO ENDS, AND THAT IS THE FRAGMENTATION RULE (SPEC.md 51.1.3.1): an image
+; that cuts itself after attach (OS88_DRV_FOOT, SOUND.DRV) goes lowest-first
+; and everything else - other images, every buffer - highest-first. The cut
+; then frees the foot of the ONE free run between the two stacks, and when
+; that driver is swept and reloaded (a hibernate, the Drivers page) its whole
+; length is free again where it was: the pool comes back as the boot left it.
+; Both walks are first fit from their end: a candidate that overlaps a block
+; moves just past it (up) or just under it (down) and every record is looked
+; at again, so the candidate only ever moves one way and the walk ends
 hb_alloc:
     push cx
     add cx, 15
@@ -1135,8 +1183,12 @@ hb_alloc:
     cmp di, hb_tab_end
     jb .rec
     jmp .no
-.room:                          ; ...and the lowest base that overlaps nothing
+.room:                          ; ...and a base that overlaps nothing
     mov ax, HB_LO
+    or bp, bp
+    jz .scan
+    mov ax, HB_HI               ; (CX <= HB_MAX < HB_HI: no borrow)
+    sub ax, cx
 .scan:
     mov si, hb_tab
 .each:
@@ -1150,13 +1202,22 @@ hb_alloc:
     add dx, cx                  ; DX = our end
     cmp [cs:si], dx
     jae .next                   ; it starts past us
-    mov ax, [cs:si]             ; overlap: try just past it, and look again
+    or bp, bp                   ; overlap:
+    jnz .down
+    mov ax, [cs:si]             ; ...up: just past it
     add ax, [cs:si+2]
+    jmp .scan
+.down:
+    mov ax, [cs:si]             ; ...down: just under it
+    sub ax, cx
+    jb .no
     jmp .scan
 .next:
     add si, 6
     cmp si, hb_tab_end
     jb .each
+    cmp ax, HB_LO
+    jb .no
     mov dx, ax
     add dx, cx
     jc .no
