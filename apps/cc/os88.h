@@ -1230,6 +1230,16 @@ unsigned os88_mem_huge_step(void);
  * base / 16. A distance between two claims or parts, in paragraphs, is a
  * difference of two of these and never of the values themselves */
 unsigned os88_seg_para(unsigned seg);
+/* os88_seg_sub - "seg + para" for a claim or region of yours, as a value that
+ * is right on EVERY kernel (OSAPI_SEG's SEG_SUB, SPEC.md 50.6.11): a DATA
+ * selector based `para` paragraphs in, `len` paragraphs long (0 = to the
+ * claim's end, 64KB at most). It is STABLE - the same arguments answer the
+ * same selector - and it moves and goes with the claim, so make a FIXED set
+ * once (one per 32KB of a big claim, one per plane) and keep them. 0 =
+ * refused, no LDT entry free. On every real-mode kernel it answers seg + para
+ * itself, so a value kept across a compaction there is a segment INSIDE the
+ * claim and a relocation proc moves it as it moves any derived segment. */
+unsigned os88_seg_sub(unsigned seg, unsigned para, unsigned len);
 unsigned os88_mem_largest_kb(void);
 unsigned os88_mem_total_kb(void);
 

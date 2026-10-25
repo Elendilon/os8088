@@ -6114,6 +6114,24 @@ SOAK = [
         "(wants= builds the disk, or the row SKIPS)",
         needs=("marty", "cc"), serial=True,
         wants=("build/lemmings360.img",)),
+    Row("lemmega", "soak", py("tests/lemmega.py"), 130.0,
+        "LEMMINGS PLAYED UNDER kern_mega (KERN-MEGA-MEMORY-PLAN MC7): every "
+        "claim is an LDT selector there, and the 96 KB style bank and the "
+        "125 KB T claim are reached through windows made once by "
+        "os88_seg_sub (three over the bank, four T planes) where the package "
+        "used to add paragraphs to a selector. Bochs at 16MB, LEMMINGS and "
+        "the 1.44MB disk's bands in C:\\RUN through MEGARUN: Fun 1 plays "
+        "(the iteration counter moves), the seven windows are distinct LDT "
+        "selectors based 32,000 / 32,768 bytes apart, the nuke (F12 twice: "
+        "the T-plane sync path) plays on, Fun 22's special picture plays, "
+        "and no kern_mega CLOSED or FAULT line. RUN RED: ovl_far's old "
+        "`base + (hi << 12) + (lo >> 4)` and T's planes as T + 2000 x k each "
+        "close LEMMINGS at the launch (CLOSED LEMMINGS 0D). 130s is 119 "
+        "measured",
+        needs=("bochs", "nasm", "cc"),
+        wants=("build/mega.img", "build/megak/kernel.map",
+               "build/megarun.o88", "build/lemmings.o88",
+               "build/lemmings.img")),
     Row("cmemmove", "soak", py("tests/cmemmove.py"), 60.0,
         "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "
