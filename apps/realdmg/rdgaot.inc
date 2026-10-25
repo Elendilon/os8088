@@ -22,6 +22,21 @@
 ; the view
 rdg_aotmiss:
     mov [ss:S_AOTKEY],dh
+    mov es,[ss:S_AOTFSEG]           ; THE FILTER FIRST: a PC with no block -
+    mov bx,si                       ;   one the walk did not find, a RAM PC,
+    xor bh,dh                       ;   an image that was not loaded - is
+    mov dl,bl                       ;   told in a dozen instructions, where
+    and dl,7                        ;   the search is eleven rounds of the
+    shr bx,1                        ;   list (the Victory: 45% of a 286 in
+    shr bx,1                        ;   here, before it)
+    shr bx,1
+    mov [ss:S_AOTMID],bx
+    mov bl,dl
+    xor bh,bh
+    mov dl,[cs:rdg_aotbits+bx]
+    mov bx,[ss:S_AOTMID]
+    test [es:bx],dl
+    jz .no
     mov es,[ss:S_AOTLSEG]
     mov word [ss:S_AOTLO],0
     mov bx,[ss:S_AOTLN]
@@ -73,16 +88,65 @@ rdg_aotmiss:
     mov bx,[ss:S_SAVBX]             ; the interpreter's, as tr_kint goes
     jmp far [ss:S_AOTINT]
 
-; rdg_aotattach - DS = the view: the list at AX (CX entries) attached, and
-; the core's misses pointed at rdg_aotmiss in THIS segment. Every register kept
+; rdg_aotattach - DS = the view: the list at AX (CX entries) attached with
+; its filter at BX (8KB, built here from the entries with a block: one whose
+; image was not loaded has offset 0), and the core's misses pointed at
+; rdg_aotmiss in THIS segment. Every register kept
 rdg_aotattach:
     push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
     mov [S_AOTLSEG],ax
     mov [S_AOTLN],cx
+    mov [S_AOTFSEG],bx
     mov word [S_AOTVEC],rdg_aotmiss
     mov [S_AOTVEC+2],cs
     mov word [S_AOTINT],RDGC_TR_INT
-    mov ax,[S_DISP+2]               ; the core
-    mov [S_AOTINT+2],ax
+    mov si,[S_DISP+2]               ; the core
+    mov [S_AOTINT+2],si
+    mov es,bx                       ; the filter: none...
+    xor di,di
+    mov si,cx
+    mov cx,4096
+    xor ax,ax
+    cld
+    rep stosw
+    mov cx,si                       ; ...then a bit for each listed block
+    jcxz .x
+    push ds
+    mov ds,[S_AOTLSEG]
+    xor si,si
+.b:
+    cmp word [si+4],0
+    je .n
+    mov bx,[si]                     ; h = PC ^ key << 8, as rdg_aotmiss
+    xor bh,[si+2]
+    mov dl,bl
+    and dl,7
+    shr bx,1
+    shr bx,1
+    shr bx,1
+    mov al,dl
+    xor ah,ah
+    mov di,ax
+    mov al,[cs:rdg_aotbits+di]
+    or [es:bx],al
+.n:
+    add si,8
+    loop .b
+    pop ds
+.x:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
     pop ax
     ret
+
+rdg_aotbits:    db 1, 2, 4, 8, 16, 32, 64, 128

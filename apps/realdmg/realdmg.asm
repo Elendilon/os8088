@@ -335,7 +335,8 @@ rw_alseg        equ rw_amseg + 2    ; word: ...the list's, inside it...
 rw_aln          equ rw_alseg + 2    ; word: ...and its entries
 rw_asega        equ rw_aln + 2      ; word: the first code image there is,
                                     ;   or the core (S_JITSEGA)
-rw_bssend       equ rw_asega + 2
+rw_afseg        equ rw_asega + 2    ; word: the list's filter, in the meta
+rw_bssend       equ rw_afseg + 2
 %else
 rw_bssend       equ rw_mhold + 1
 %endif
@@ -600,17 +601,15 @@ rw_load0:
     mov [rw_romkb], dx
 %ifdef RDG_AOT
     call rw_dmgclaim                ; the damage memory and the code images
-    call rw_aclaim                  ;   FIRST, then the ROM in what is left -
-    mov byte [rw_slotmin], RW_SLOTWANT ; an image given back each time it
-.aplan:                             ;   does not fit, and then four slots
-    call rw_plan                    ;   (REALDMG-SPEC 20.10)
-    jnc .planned
-    call rw_adrop
-    jnc .aplan
-    mov byte [rw_slotmin], 4
-    call rw_plan
-    jnc .planned
-    jmp .say
+    call rw_aclaim                  ;   FIRST, then the ROM in what is left,
+    mov byte [rw_slotmin], 4        ;   in four slots at least - an image
+.aplan:                             ;   given back each time it does not
+    call rw_plan                    ;   fit (REALDMG-SPEC 20.10). AN IMAGE
+    jnc .planned                    ;   IS WORTH MORE THAN A SLOT: what it
+    call rw_adrop                   ;   does not hold is interpreted, where
+    jnc .aplan                      ;   a slot short is a bank fetched off
+    jmp .say                        ;   XMS (Kirby on the Victory: 1 image
+                                    ;   of 4 beside 11 slots ran at 17%)
 %endif
     call rw_dmgclaim                ; the damage memory and the recompiler's
     call rw_jitclaim                ;   cache FIRST: what the ROM's read

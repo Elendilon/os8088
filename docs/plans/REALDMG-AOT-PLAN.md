@@ -101,12 +101,35 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
     only HRAM's OAM routine there; W0's RAM idiom is the answer if one
     does not.
 - [ ] The miss log: MOVED to W4, beside the counters it is one of.
-- [ ] Measured on `286-victory` and a 640 KB 8088: memory, per-second speed,
-  no translation.
-- [ ] `.o88`s of the owner's games for the owner to test.
+- [x] Measured on `286-victory` (86Box, holding Right in play, 30 s) and a
+  640 KB 8088 (MartyPC):
+
+  | | images kept | speed | worst second |
+  |---|---|---|---|
+  | SML, Victory, REALDMG.O88 | - | 100% | - |
+  | SML, Victory, precompiled | 3 of 3 | 100% | - |
+  | Kirby, Victory, REALDMG.O88 | - | 100% | 89% (warming up) |
+  | Kirby, Victory, precompiled, 8 slots first | 1 of 4 | 17% | 10% |
+  | Kirby, Victory, precompiled, images first + filter | 2 of 4 | 100% | 95% |
+  | SML, 640 KB 8088, precompiled (title, no counters) | 2 of 3 | 11.9 fps | - |
+
+  The 17% was two defects, both fixed (REALDMG-SPEC 20.9, 20.10): the plan
+  traded images for slots, and every interpreted jump searched the list.
+  On the Victory both packages hold 100%; the precompiled one translates
+  nothing, and its worst second is 95% where the recompiler's is 89%.
+- [x] `.o88`s of the owner's games for the owner to test (not committed).
 
 ### W4 - counters and the bundle
 
-- [ ] Per-block counters, `NAME.RDH`, promotion in the host build.
-- [ ] A bundle of the compiler scripts with an interface, in `make
-  vencbundle`'s shape.
+- [x] Per-block counters and promotion in the host build (REALDMG-SPEC
+  20.11): counted EXACTLY in the harness, over its script or a replay the
+  owner recorded, so nothing in the package counts and no NAME.RDH is
+  needed - the replay RealDMG already writes is the input. SML's hot code
+  went from four images to one.
+- [x] The miss log: the same run's ROM PCs that went to the interpreter,
+  added as block starts.
+- [x] `make gbaotbundle` (REALDMG-SPEC 20.12): the window, the tools and
+  the prebuilt binaries; needs Python and Unicorn only.
+- [ ] Not built: the RAM idiom (W0), a state with cartridge RAM as a heat
+  source, and a 286 speed figure with the 100% cap lifted (both packages
+  already hold the Game Boy's own speed on the Victory).

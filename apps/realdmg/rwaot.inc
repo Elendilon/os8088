@@ -18,7 +18,9 @@
 ;   12  dw the list's offset in the part, a multiple of 16
 ;   14  the cartridge's header, 0134h-014Fh (28 bytes)
 ;   42  the ROM's file name, NUL-terminated (13 bytes)
-;   56  the relocations, 4 bytes each: db the image the far jump is in (0 the
+;   56  dw the list's filter's offset, a multiple of 16 (8KB of zeros:
+;       rdg_aotattach builds it)
+;   58  the relocations, 4 bytes each: db the image the far jump is in (0 the
 ;       core), db the image it jumps to | 80h when the site is a switchable
 ;       bank's (`cmp byte [ss:S_BANK],B / jne +5` first, the jump 8 bytes on),
 ;       dw the site: the `mov dx,SITE` the host linked over
@@ -37,7 +39,7 @@
 ; =============================================================================
 
 RWA_TOKEN       equ 0F000h          ; a segment word the loader has to give
-RWA_RELOCS      equ 56
+RWA_RELOCS      equ 58
 
 ; rw_ameta - at the entry, after op_load: the meta checked against the table
 ; it came with, and every segment the run needs banked. CF = 1: it is not one
@@ -81,6 +83,11 @@ rw_ameta:
     shr ax, cl
     add ax, [rw_amseg]
     mov [rw_alseg], ax
+    mov ax, [es:56]
+    mov cl, 4
+    shr ax, cl
+    add ax, [rw_amseg]
+    mov [rw_afseg], ax
     pop es
     clc
     ret
@@ -449,7 +456,10 @@ rw_aoton:
     call rw_jdon
     mov ax, [cs:rw_alseg]
     mov cx, [cs:rw_aln]
+    push bx
+    mov bx, [cs:rw_afseg]
     call rdg_aotattach
+    pop bx
     pop cx
     pop ax
     ret

@@ -61,6 +61,10 @@ p_sern      dw 0                        ; 2Eh  bytes sent on the link port
 p_serbuf    dw ser_buf                  ; 30h  ...and where they are
 p_list      dw 0                        ; 32h  the table's overflow list (mode 3)
 p_listn     dw 0                        ; 34h  ...its entries
+p_aotint    dw rdg_aotmiss.no           ; 36h  where a miss goes to the
+                                        ;      interpreter (the heat's misses)
+p_stload    dw h_stload                 ; 38h  entered here: a save state
+p_filt      dw 0                        ; 3Ah  the list's filter (mode 3)
     times 40h-($-$$) db 0
 
 ; the stops: the host takes the machine at the INT 3 and puts it back at the
@@ -131,6 +135,7 @@ h_init:
     call rt_dispatch
     mov ax,[cs:p_list]                  ; the table's misses: the host's list
     mov cx,[cs:p_listn]
+    mov bx,[cs:p_filt]                  ;   and its filter
     call rdg_aotattach
 .done:
     STOP 0
@@ -178,6 +183,20 @@ h_cont:
     jmp short $
 
 ; h_frame - rdg_run until a frame (or the core stopped): p_out = RDGX_*
+; h_stload - a save state: the host has put the view's 8000-FFFF and the
+; record at RDG_STREC (rwstate.inc's file); p_out = 1 if it is not this
+; game's, else the machine is the state's (rdg_stapply)
+h_stload:
+    mov ds,[cs:p_view]
+    mov word [cs:p_out],1
+    call rdg_stcheck
+    jc .x
+    call rdg_stapply
+    mov word [cs:p_out],0
+.x:
+    STOP 0
+    jmp short $
+
 h_frame:
     mov ds,[cs:p_view]
 .r:

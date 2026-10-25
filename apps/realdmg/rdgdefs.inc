@@ -89,7 +89,10 @@ S_AOTLO         equ 0x4840          ; word: rdg_aotmiss's scratch - the
 S_AOTHI         equ 0x4842          ;   search's bounds, its middle and
 S_AOTMID        equ 0x4844          ;   the bank key it looks for (the
 S_AOTKEY        equ 0x4846          ;   core keeps no stack to push on)
-RDG_FREE         equ 0x4847          ; the rest of the window is unassigned,
+S_AOTFSEG       equ 0x4847          ; word: the list's filter, 8KB: a bit
+                                    ;   per hash of (PC, key), set for every
+                                    ;   listed block (rdgaot.inc)
+RDG_FREE         equ 0x4849          ; the rest of the window is unassigned,
                                     ; but for rdgppu.inc's 4900-66FF and:
 S_SQ3           equ 0x48F0          ; 8: the WAVE channel as the FM chip plays
                                     ;   it (REALDMG-SPEC 17.1) - S_SQ1's

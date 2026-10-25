@@ -3063,7 +3063,14 @@ entries) rather than the 64KB one the translator writes, and loses nothing:
   then the places a RET lands (after a CALL or RST), then the rest - and
   what does not fit goes in **the list**: the same 8-byte entries, sorted by
   bank key and then PC, in a segment of their own.
-- **A miss under a fixed table looks there.** The core built with
+- **A miss under a fixed table looks there - behind a filter.** A bit per
+  hash of (PC, key), `PC ^ key << 8`, 8KB at `S_AOTFSEG`, set for every
+  listed entry with a block; `rdg_aotattach` builds it, so an entry emptied
+  at load (20.10) clears too. A PC with no block - one the walk did not
+  find, a RAM PC, an image not loaded - costs a dozen instructions where the
+  search is eleven rounds: before the filter Kirby's interpreted code spent
+  45% of the Victory in `rdg_aotmiss`, after it 6% (and that is the listed
+  blocks found). The core built with
   `RDG_AOTCORE` (rdggen.py, slot 48h's `tr_new2`) far-jumps through
   `S_AOTVEC` when `S_JITFIX` is set; `rdg_aotmiss` (rdgaot.inc) binary-
   searches the list with its bounds in the view, since SP is the Game
@@ -3118,8 +3125,13 @@ host sets the count):
 | 5.. | each code image's two 32KB halves, `OP_SELF` | a 65KB claim each |
 
 **The load** (`rw_load`): the code images are claimed FIRST, then the ROM
-is planned in what is left (section 10's plan, as before); an image is given
-back each time the plan does not fit, then the plan takes four slots. The
+is planned in what is left (section 10's plan) with FOUR slots as its least,
+and an image is given back each time the plan does not fit. **An image is
+worth more than a slot**: what an image would have held is interpreted,
+where a slot short is a bank fetched off XMS. The first package asked the
+plan for eight first, as REALDMG.O88 does, and on the Victory Kirby's
+Dream Land kept 1 image of 4 beside 11 slots and ran at 17%; with four it
+keeps 2 beside 6 and runs at 100%. The
 images are read from the package's folder, the far jumps given their
 segments (the meta's relocations), the tokens in the table and the list made
 segments, and the machine attached as aothost.asm's mode 3 does it
@@ -3144,3 +3156,48 @@ core. So is every image claim. The package's region still moves.
 asserts the precompiled machine (`S_JITON`, `S_JITFIX`, nothing translated,
 the worker found in the code images), reporting the frame rate against
 REALDMG.O88's own recompiler on the same ROM.
+
+### 20.11 The counters: the hottest code first
+
+`gbaot.py heat ROM DIR -o H.json` runs the precompiled machine in the
+harness and counts, exactly, every entry of every block (Unicorn's block
+hook at each block's address) and every ROM PC sent to the interpreter
+(a hook on `rdg_aotmiss`'s way out): over the harness's own scripted play,
+or over a REPLAY RealDMG recorded (section 10.5) from the save state it
+starts from (`--replay NAME.RPn --state NAME.SSn`; a state with cartridge
+RAM past the window is not taken yet). Nothing in the package counts - it is
+the host's run of the same machine, so it costs the 8088 nothing.
+
+`build --heat H.json` (and `make`, which does both) then:
+- **translates the hottest first** - the profile's weight byte, which
+  `rt_preload` already orders by, is the count's log - so the first images
+  hold them, and the first images are what a small heap keeps;
+- **places the hottest in the table first**, ahead of section 20.9's
+  vector-and-return order;
+- **adds the misses as block starts**: a PC the walk did not find but the
+  machine ran (a resume point, an indirect target).
+
+Measured on the owner's cartridges, the harness's script, every build still
+identical to the interpreter (3,000 frames, at 3 images and at 1):
+
+| | in the core | image 1 | image 2 | image 3 |
+|---|---|---|---|---|
+| Super Mario Land, walk order | 10.9% | 31.3% | 40.4% | 17.4% |
+| ...with its counters | 0.1% | 99.9% | - | 0.0% |
+
+(shares of the 593,835 block entries in 1,500 frames). A 640 KB 8088 that
+holds two of SML's three images therefore runs all of its hot code
+precompiled.
+
+### 20.12 The bundle
+
+`make gbaotbundle` writes `build/os8088-gbaot.zip`, `make vencbundle`'s
+shape (tools/gbaotbundle.py): `os8088-gbaot/` with the window
+(tools/gbaotgui.py: a cartridge, optional replays, an optional check and an
+optional floppy, `make` on a thread), every tools/ module it imports, and in
+`gbaot-bin/` the binaries gbaot.py would assemble - the precompiled core, its
+templates and offsets, the host driver and the RDG_AOT image. gbaot.py finds
+`gbaot-bin/` beside itself when there is no `apps/realdmg/` above it, so the
+bundle needs Python and `pip install unicorn` and no assembler. It was run
+unpacked outside the tree: GBPOP.GB to GBPOP.O88, its counters, and 300
+frames identical to the interpreter.
