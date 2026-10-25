@@ -2067,6 +2067,88 @@ is translated, AF/BC/DE/HL folded after every pass into a sum. `gbcpu`'s
 "dead flags" leg wants the sum with the recompiler equal to the interpreter's,
 and its control (`RT_DEADBUG`: the read check removed) wants it to differ.
 
+### 16.1.3 Countdown loops: the DEC's F made where it is seen
+
+A JR NZ back to its own block's start straight after DEC r (B, C, H, L or
+A) is every countdown loop, and its flags cost more than its count: the
+DEC's template is `sahf / dec r / lahf / or ah,20h` and the branch `sahf /
+jz`, so a pass spends six instructions on F where the decision needs one.
+**`rt_lazy` writes the DEC bare and branches on its ZF**, and the taken arm
+goes back to the block's start itself - `sub bp,3 / jns START`, or `js` and
+a `jmp near` out of short range - not through an exit: four instructions
+where there were nine. F is made only on the two ways out, the
+fall-through and the event the interpreter takes at the branch, as `inc r
+/ sahf / dec r / lahf / or ah,20h` (`rt_lzmat`): the template's own result
+from AH's C, which is exact there (16.1.2's invariant), and the register.
+
+It is exact because nothing else can see the Z, N and H left stale. From
+the block's start to the DEC, `rt_lazy` refuses the loop at anything that
+reads one of them (PUSH AF, DAA, SCF's Z carried through) and - while one
+is still stale - at anything that may leave the block or take an
+interrupt: a store, a template that leaves, EI, what 16.1.2 stops at. A
+full writer of all three ends the danger; one written without F
+(`RT_BARE`, 16.1.2) writes nothing. Only code below 8000h: an HRAM block is
+entered through its guard. An idiom or a spin-wait at the same JR (16.6,
+section 8) is written as before, F made first (`rt_lzpre`). Looney Tunes'
+object loops are one of each: `LD A,(HL+) / LD (C),A / INC C / DEC B / JR
+NZ` is refused, its store before anything writes F, and `LD A,(C) / INC C
+/ LD (HL+),A / DEC B / JR NZ` is taken, INC C written in full before its
+store.
+
+`gbcpu`'s "lazy loops" leg (`tools/gbprof/gblazy.py`) runs 120 seeded
+loops of the shape - stores to HRAM and WRAM, a write to IF taking the
+interrupt inside the body, every writer and reader - under a timer
+interrupt every ~128 M-cycles, and wants the F its handler pushes and the
+AF each loop leaves equal to the interpreter's. Its control (`RT_LAZYBUG`,
+the event taken with F stale) must make them differ.
+
+### 16.1.4 A branch on the instruction's own flags
+
+A conditional transfer after the ALU on A or INC/DEC r reads Z or C, and
+those ARE the 8086's ZF and CF at the template's LAHF: ADD, SUB, CP and
+their carries, AND/OR/XOR's CF of 0, INC/DEC's CF from the SAHF before.
+**`rt_hoist` writes the Jcc right after that LAHF, with no SAHF**: the
+template's fix-up of AH after it (`or ah,20h`, `and ah,40h / or ah,10h`,
+none for ADD) is cut off and written at the head of both arms
+(`rt_htail`), so AH is exact on each. A Jcc of every kind - JR, JP, CALL
+and RET cc. Not RLCA and its kind, which leave ZF where it was, nor INC
+and DEC of (HL), whose store follows the LAHF.
+
+**A read's region check is `test bh,0C0h / jz / jns`** (`rdggen.read8`, the
+interpreter's and the templates'): 0000-3FFF and 4000-7FFF in one test,
+ZF and SF, where two compares and two jumps took them. A read of WRAM is
+five instructions where it was six, of ROMX three where it was four, and
+every read three bytes shorter; none is longer.
+
+**Every exit's event way is `mov si,T / jmp tr_evfar`**, a near jump to
+the `jmp far [ss:S_EVVEC]` at the end of `idle_yes`, which every
+segment's tails carry (16.2): two bytes an exit, paid for only by the event
+it takes. The precompiled images are 2.3-3.7% smaller for it.
+
+Measured with 16.1.3, the harness's exact count of 8086 instructions a
+frame over frames 100-600 of its script, each build's 1,500 frames
+IDENTICAL to the tree before them, state for state, translated (both
+arms):
+
+| | before | 16.1.3 | 16.1.3 and 16.1.4 | code bytes |
+|---|---|---|---|---|
+| Tetris | 6,075 | -4.0% | -6.1% | -2.9% |
+| Kirby's Dream Land | 26,361 | -0.1% | -2.7% | -3.7% |
+| Super Mario Land | 10,462 | 0 | -2.5% | -2.6% |
+| Metroid II | 12,443 | 0 | -2.3% | -3.5% |
+| Looney Tunes | 9,954 | 0 | -2.2% | -3.1% |
+| Super Mario Land 2 | 11,181 | 0 | -1.9% | -2.3% |
+| Looney Tunes (GBC) | 11,881 | 0 | -1.9% | -3.0% |
+| Zelda: Link's Awakening | 28,383 | 0 | -1.6% | -2.8% |
+| Donkey Kong Land | 29,553 | 0 | -1.5% | -3.1% |
+| Super Mario Land 3 | 23,917 | 0 | -1.0% | -2.3% |
+| Kirby's Dream Land 2 | 42,667 | 0 | -0.8% | -3.4% |
+| Pokemon Red | 34,684 | 0 | -0.7% | -3.4% |
+
+Looney Tunes (GBC) on the owner's replay, the first half of level 1,
+where the script's frames are its menus: 30,376 -> 30,098 with 16.1.3 and
+29,249 with both, -3.7%.
+
 ### 16.2 The cache
 
 The code goes into a 64KB segment of its own - and, when that is full, into

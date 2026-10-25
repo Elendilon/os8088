@@ -69,18 +69,17 @@ class Slot:
         M-cycle of the instruction the hardware reads in, counted from 0: a
         register read is answered as of then (REALDMG-SPEC section 6.2)."""
         g = self.tag()
-        if JIT:
+        if JIT:                                 # (TEST takes 0000-3FFF and
             self.a(f"""
-cmp bh,40h
-jb .{g}v
-cmp bh,80h
-jb .{g}s
+test bh,0C0h
+jz .{g}v
+jns .{g}s
 cmp bh,0FFh
 jne .{g}v
 cmp bl,80h
 jae .{g}v
 .{g}s:
-""")
+""")                                            #   4000-7FFF in one: ZF, SF)
             if at:                              # (rd_sw takes BP back by
                 self.a(f"""
 mov word [ss:S_RET],.{g}k
@@ -98,10 +97,9 @@ mov dh,[ss:bx]
 """)
             return
         self.a(f"""
-cmp bh,40h
-jb .{g}v
-cmp bh,80h
-jb .{g}s
+test bh,0C0h
+jz .{g}v
+jns .{g}s
 cmp bh,0FFh
 jne .{g}v
 cmp bl,80h
@@ -1938,7 +1936,8 @@ idle_yes:
     mov [ss:S_IDLEPC],si
     xor dl,dl
     sub bp,3
-    jmp far [ss:S_EVVEC]
+tr_evfar:                       ; (every exit's event way, SI set: a near
+    jmp far [ss:S_EVVEC]        ;   jump here is two bytes under this one)
 idle_no:
     mov [ss:S_IDLENO],si
     xor dl,dl
