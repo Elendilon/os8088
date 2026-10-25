@@ -943,6 +943,46 @@ left:
   table indexed by H, the "two page tables" of REALDMG-PLAN 4.2, is fewer
   bytes inline at a few clocks more. It wants measuring, not predicting.
 
+### 11.9 The owner's decisions, second round (2026-10-25)
+
+- **Primary targets**: full templates everywhere (11.8 item 1) on every
+  cartridge that fits, and **256 KB on a 286 with XMS**. Kirby's Dream Land
+  on a 640 KB machine with no XMS is NOT a primary target unless the
+  full-form shrink (11.8's last list) gets it there.
+- **The compact grade is an optional fallback for 256 KB in 640 KB**, and
+  the choice is made when the HOST TOOL runs:
+  - The tool knows the ROM, the code each form costs, and the machine it is
+    told to build for (`--target 640k`, `--target xms`). It picks full or
+    compact (with loops promoted) per build and prints the arithmetic.
+  - What it cannot know is the exact heap on the day: drivers mounted, the
+    disk cache. So the package checks the arithmetic again at the load and
+    refuses in a toast naming the shortfall, as RealDMG's load does today.
+  - **An option for later**: carry BOTH code forms as lazy parts of one
+    `GAME.O88` and pick at the load from `OSAPI_MEM_AVAIL` and
+    `OSAPI_XMEM_CAPS`. RAM holds one form and the disk holds both, so the
+    file roughly doubles in code.
+- **Counters are for speed, per game**, when that game's `NAME.RDH`
+  exists. They are never needed to avoid a stall or a slow form.
+- **Looney Tunes (1 MB, MBC5) is the next feasibility case**, the owner to
+  supply the dump. What the 2026-10-20 report already says of it: 13,825
+  instructions found, ~272 KB full-template, ~55 KB that ran every 20
+  frames, 8 of 64 banks in play, and 45 busy instructions a frame from RAM
+  (HRAM thunks, 4.4). PREDICTED: with XMS taking the ROM, the code alone
+  still does not fit conventional memory (33 + 64 + 272 + 16 + 128 + 17 +
+  10 ≈ 540 KB against ~523). So a 1 MB cartridge needs 6.2: **banked code
+  paged from XMS with its bank**, bank 0's code resident. That costs:
+  - a slot of 16 KB of ROM plus that bank's code;
+  - an exit into 4000-7FFF jumping far through a per-bank segment table,
+    where it compares `S_BANK` today;
+  - each slot's code reaching the helper tails, either by a copy per slot
+    or by far calls.
+  The per-bank code sizes decide whether a slot is 30 KB or 60, which is
+  why the dump is needed before anything else is said.
+- **Protected mode (kern_mega) is a future first-class target.** It
+  removes every memory limit in this file, but RealDMG runs there at ~20%
+  of its real-mode speed (the owner's observation). That is to be
+  understood before it is targeted.
+
 ## 12. Reproduce
 
 ```sh
