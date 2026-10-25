@@ -670,6 +670,136 @@ nothing ships between waves (0, rule 1).
   new: a block in the HMA across a DOS trip, compared after; a DOS trip with
   the pool held full, which offers the hibernate, takes it and resumes.
 
+#### MC4.1 The design, as decided (2026-10-25)
+
+Read off the tree after MC7's kernel steps. Two halves, built in this order.
+
+**(a) The HMA is pool.** `mega_xminit` stops writing the pinned `XMW_HMA`
+record, so the pool's first 64KB is ordinary memory that MC3's top-down
+placement reaches last. What still needs the HMA is the DOS trip alone
+(`kern_dos` runs there since KERN-MEGA-DOS-PLAN W4), so:
+
+- `mx_alloc` takes a FLOOR, `[mega_mxflr]` KB from the pool's base (0
+  outside a trip): no placement under it, and its pack (`mx_packupf`) starts
+  there, so nothing under it moves and nothing new lands in the HMA.
+- `mega_dosclaimf` raises the floor to 64 for the park's and the arena's
+  claims and drops it after; if any block stands in the HMA at that moment,
+  the park is claimed 64KB larger.
+- `mega_dosparkf` copies [1MB, 1MB+64K) into that tail at the snapshot, sums
+  it with the park's image, and lists ONE copy back for the stub, which makes
+  its copies before it restores conventional memory (megapark.inc's `.xcopy`,
+  the W5 list). A pool block across the HMA's end is summed only above it:
+  what is below is `kern_dos`'s during the trip and the copy's after.
+- Nothing else names the HMA: the hibernate's run list and `mx_canmove` drop
+  their `XMW_HMA` tests, the Task Manager's (`tm_himax`) are dead and harmless.
+
+**(b) The resume streams.** Today's resume (1.6) reads the whole file into
+one staging block above 1MB clear of every run the image had and every block
+the fresh boot holds, and refuses when there is none - which is exactly the
+case D5 exists for (the pool held full). No staging place can exist then: the
+image's runs cover the pool and its conventional picture is ~600K that can
+only land in conventional memory, last. So the resume leaves protected mode:
+
+- The fresh kernel reads the section's head (as today), checks the runs
+  against this machine's layout (`hbm_xruns`, A5), walks the file's EXTENTS
+  (SPEC.md 87.5's `hbm_extents`, bounded by `HS_XMAX`; more is a refusal with
+  the fresh session intact), stages them, the run list and the image's GDTR,
+  IDTR and wake address in the text page as DATA, and leaves protected mode
+  by the DOS handover's own route (`mega_dosgo`'s tail: the 8259 back at 08h,
+  CR0 on a 386, the shutdown-0Ah reset on a 286).
+- A REAL-MODE stub then does all of it with the BIOS: the section first,
+  sector runs through a conventional bounce and `int 15h AH=87h` to each
+  run's linear address (the tables, run 0, included - nothing reads them in
+  real mode, A2), summing as it goes; then the conventional picture by the
+  extents, kern_big's `hbstub.inc` loop; the IVT last.
+- **Bochs will not fetch an instruction from the text framebuffer**
+  (megados.inc's `mega_hbgof` note), so this stub does NOT run there, as
+  kern_big's does: it runs from a few KB of CONVENTIONAL memory, whose
+  image sectors it lands in the text page as data and puts back last, from a
+  256-byte tail at 0000:0500 - the half of file sector 2 that no kernel owns
+  and no resume restores (SPEC.md 87.5). That tail opens A20, loads the
+  image's GDTR and IDTR, sets PE and far-jumps to `mega_hbwake`, which now
+  puts the 8259 back at 20h (`mega_pic_pmf`, as `mega_dwake` does).
+- **A sum that disagrees can no longer be a refusal**: the fresh session is
+  gone by the time the last sector is read. It is the park stub's answer
+  instead - a sentence, a key and a restart. A read error is the same
+  (kern_big's stub already says so). Every refusal BEFORE the drop (no
+  image, a layout that differs, too many extents, a volume the BIOS cannot
+  reach) still leaves the fresh session running.
+- The same stub serves D5's route: a DOS trip with no room for a park
+  writes the hibernate instead (kern_big's route), and `kern_dos` -DKD_MEGA
+  takes `kd_resume`'s path with this stub at the program's exit.
+
+Costs said out loud: the image is the size of the memory in use and the
+resume moves it all through the BIOS; on a 286 each `int 15h AH=87h` is a CPU
+reset in the ROM, 64 sectors a call at most. The stub's tail rests on
+0000:0500-05FF being nobody's on every kern_mega machine, which is SPEC.md
+87.5's own assumption for kern_big.
+
+#### MC4 (a) as built (2026-10-25) - DONE
+
+- As 4.1 (a) says, with two findings on the way.
+- **Two MC7 step-6 regressions on the DOS and resume paths**, found by the
+  new row and fixed with it: `hbm_stageseg` loaded B800h/B000h - no
+  selector since the identity map stopped at the kernel - so every DOS
+  trip faulted the kernel after the park (`[k_vsc]`/`[k_vsb]` now, and
+  `mega_dosgo` banks the REAL segment for `mega_dropr`); and `FONT_PICK`
+  read the planar ROM as F000h in `hbm_wake`, which runs after every trip
+  and every resume (`FONT_F000`, `[k_vsf]` on kern_mega, and the heap copy
+  told from a ROM by `mega_s2segf`). `megakbtrip`, `megadosp` and
+  `megahiber` all cross both and had not run since step 6.
+- **And three more on the hibernate's own path**, found by running
+  `megahiber` before building (b) on it: `hbm_psum` loaded each claim's
+  `MC_SEG` - the PHYSICAL paragraph, which MC7.4 keeps physical - into ES
+  (`hbm_pses_x` aims `MEGA_SEL_XA` there now); `hbm_xwconv` appended its
+  chunks from identity segments n x 800h (a `KSEG` scratch, K4); and
+  `hbm_xbounce` took the bounce's linear base as DX x 16 where DX is a
+  selector, which would have copied the extended section from the wrong
+  place without a fault (`mega_selbasef`). `megahiber`, `megap2hiber`,
+  `megakbtrip` (10/10) and `megadosp` all pass after.
+- Cost: kern_mega `.text`/`.bss` +4 (`[mega_mxflr]`, `[mega_dhkb]`,
+  `[mega_dhfree]` less the HMA record's code), `.mega` +~170; kern_big and
+  kern_small byte-identical (`kernel.sys` and `HIBER.DRV` compared at one
+  commit).
+- Row: `megahma` (Bochs, 14s): a 16KB pinned block with a pattern at the
+  pool's base across one KBTRIP trip. Red with `[mega_dhkb]` held at 0:
+  64 of 64 dwords overwritten by `kern_dos`.
+
+#### MC4 (b) as built (2026-10-25) - DONE
+
+- As 4.1 (b) says. `kernel/megares.inc` is the stub (~700 bytes in
+  HIBER.DRV's `.modh`, nothing resident) and its 256-byte tail; `hbm_xres`
+  stages it, `mega_hbgor` leaves protected mode by `mega_dosgo_lo`, and
+  `mega_dropr` needed NOTHING new: its runs-park placement already puts the
+  16KB stage at `[mem_top]` - 400h and enters it. The stub's run list is the
+  section head's, its geometry `hbm_geom`'s, its extents `hbm_extat`'s over
+  the WHOLE file (the picture's chunks and the section), bounded by
+  `HS_XMAX` - a file in more runs than that is refused, `Hibernate:
+  fragmented`, with the fresh session intact.
+- **The text page is data only**, Bochs's rule: the stage's own 16KB are
+  the last 32 sectors of the picture and land in the text page, and the
+  tail swaps the stage's cells (0x400-0x4FF: HS_CLK and the rest
+  `hbm_wake` reads there) back into it as it copies those bytes home.
+- `mega_hbwake` puts the 8259 back at 20h (`mega_pic_pmf`) and ES on a
+  selector. Deleted: `hbm_xfit`, `hbm_xclaim`, `hbm_xunclm`, `hbm_xneed`,
+  `mega_hbgof`, and `hbm_xplan`'s room test - so the hibernate no longer
+  refuses a full pool, and the System menu greys it only on a machine with
+  no pool at all (it greyed a 1MB AT before).
+- kern_big and kern_small byte-identical (`kernel.sys`, `HIBER.DRV` and
+  kern_small's `kernel.bin` at one commit).
+- Rows: `megahiber` passes on the new route (`kern_mega: resumed`,
+  MEGAHIB's 64KB back); `megahibfull` (new) is the case itself - 847K of
+  pinned filler covering every free KB of a 950K pool, hibernated and
+  resumed, filler and MEGAHIB back - and on the tree before the hibernate
+  never happens. Both under Bochs, a 386: a 286's reset drop and its `int
+  15h AH=87h` are the DOS trip's own and have run there, but this route
+  has not, and wants 86Box's `286-mega`.
+- Not built: D5's own route, a DOS trip with no room for a park offering
+  the hibernate. The stub is ready for it (it needs only `kern_dos`
+  -DKD_MEGA to stage it, as `kd_resume` does kern_big's), but nothing asks
+  for it yet: `mega_dosclaimf` shrinks the park to `MPK_MIN_KB` and leaves
+  the rest in place, so a trip refuses only below 128KB of pool.
+
 ### MC5 - one claim for all of it (D6, D7, D8)
 
 - **The exact answer:** pool free + purgeable below the caller's rank (one run
@@ -1349,6 +1479,14 @@ rows. Nothing is recorded as built that was not.
      ring, layer, plane and EMS addressing by granule, TI-bit tests, and
      the windowed play's framebuffer constants. Slot and plane selectors
      cached once, `SEG_WIN` for the frame. (The shipped build refuses.)
+     **This branch's own agent has it** (an earlier line here said the
+     `mega-video` session had taken it - withdrawn, 2026-10-25): `mega-video`
+     waits for this conversion to commit and builds BIGSP in place (9.1) on
+     top of it. A first fault at `f3e558c0`, for whoever is converting:
+     `vp_thpic`'s poster unpack adds 128-byte granules to `[vp_rdseg]`
+     (`Video Pl 0D at 1184:1454` on opening any `.V88`). And the conventional
+     ring has the same shape throughout: `[vp_ring]` + 2,048 paragraphs a
+     slot, where the ring above 1MB (`[vp_rhi]`) is `[vp_ring]` + 8 a slot.
   5. **XT-MP3** - the hold's load and refill, the conversion stage,
      `x3xt`'s generator segment; and `x3xt`'s CS writes if that backend can
      run on a 286.
@@ -1388,6 +1526,17 @@ rows. Nothing is recorded as built that was not.
       and Scribe's undo, RealDMG's and the PiXEL parts' (`PXSW`) are a
       COST and not a defect, listed for the speed pass. DOS needs nothing:
       kern_mega's arm runs its program in `kern_dos`, in real mode.
+      **RealDMG, both builds, is TAKEN by the `mega-dmg` session
+      (2026-10-25) - this branch's agents leave it alone.** `mega-dmg` has
+      merged this branch at `f3e558c0` and converts RealDMG there: the JIT
+      part and the extra cache tiers through `SEG_SUBC` (8.1), the bank
+      table, RAM banks, slot cache, frame carve and the one-claim
+      cartridge's biased bases (8.2), and the static recompiler's host
+      (`rwaot.inc`, from `realdmg-fullstatic`) with them. It lands on
+      `elendilon`, and this branch gets it at its next merge from there.
+      A first fault at `f3e558c0`, for the record: `rw_jpart` loads ES with
+      cache A's selector + 1000h (`CLOSED REALDMG 0D at 11AC:0778 err
+      2224`), so nothing past the cartridge's load runs today.
   Each converts on every kernel where the XT loop is no slower, or as a
   `PKG_MEGA` arm where it measures slower (MC7.2's answer).
   **Taken (2026-10-25, batch 1):** C64 and Apple II (the three bank fetch
@@ -1430,6 +1579,142 @@ rows. Nothing is recorded as built that was not.
   PIXELSTEIN's part answers 0, which degrades exactly as a refused part
   does (the bodies run from the image, no byte textures). ~10 bytes each,
   registered in `tests/megapkg.txt` as fail-safes.
+  **THE BROWSER (2026-10-25) - DONE, one shared path.** Its document,
+  source and EMS-frame sums are gone on kern_mega: `br_docmap` reads the
+  document through one bound window (`SEG_BWIN` + `SEG_AIM`) aimed at the
+  16KiB page holding the byte and re-aimed only when the page changes - the
+  EMS arm's own contract, so no caller changed - and `[br_docfar]`
+  (`[br_docems]` OR CPU_F_PM) keeps the 8088's single test where it was.
+  The parser's window (`br_srcat`) and the worker's receive (`br_take`)
+  each have a bound window of their own; a line record is an OFFSET in the
+  line table's one segment (62KiB cap), so no sum on any kernel; the EMS
+  spill copies address the frame by offset and the conventional side by
+  `SEG_AT`, and restore DS without `push cs`; windows go back before their
+  claim is regrown or freed (`SEG_FREE` does not ask whose an entry is);
+  the Download Manager part's vectors take `op_cseg`'s code selector; and
+  the Browser declares `OS88_HIGH | OS88_HIGHMEM`, retiring
+  `tests/megahigh.txt`'s two Browser lines. MEASURED on MartyPC's XT:
+  `br_layout` -0.19%, a painted line -37 cycles, `br_parse` within a
+  tick's noise. Image +366. Row `brmega` (Bochs): a 78KB page off B: and
+  over HTTP and a 3,000-line page with every claim above 1MB, red with
+  either sum restored and on the Browser before. Not run: the EMS paths
+  (no EMS board in Bochs), the Download Manager on kern_mega. Found in
+  passing and NOT this change: `brdownload*` hang or refuse depending only
+  on code layout (the Browser before, plus 280 bytes of NOPs, hangs in
+  kernel `.bss` the same way) - a latent defect for its own round.
+  **THE STREAM DOOR (2026-10-25) - DONE, a kernel defect and not
+  SOUND.DRV's.** The 2 "SOUND.DRV answers MIDIRack's stream open with" came
+  from `osapi_snd_stream`'s `KERN_MEGA` block (kernel/snd.inc), which
+  refused an external ring (verb 0 or 4 with `SND_OPENF_EXT`) whose DI had
+  TI set at or past `MEGA_LDT_FREE0` - "a pool selector, above 1MB", one of
+  MC7.4's TI tests missed in its sweep. Since 5.2 every claim is such a
+  selector, so MIDIRack's conventional `OSAPI_MEM_CLAIM_DMA_HI` ring was
+  refused for the synth and the wavetable alike, while Tracker and
+  ModPlug, whose rings are grants from the driver's own pool, never reached
+  it. The door now asks the descriptor's base (`mega_selbasef`) and
+  refuses only at or above 1MB, in protected mode only. +13 bytes of
+  kern_mega; kern_big and kern_small byte-identical. `megamod`'s mr and
+  mrarm legs assert the open on the external ring, the block IRQ's count
+  moving and the capture being music, a new mrsb leg the synth output; all
+  red with the old door. Its sibling in `drv_fs_call` (RAMDISK.DRV,
+  NET.DRV) is the same test and is RIGHT to stay: it sends every claim's
+  buffer through `drv_fs_hi`'s 512-byte bounce, because those redirectors'
+  arithmetic reaches one 64KB window - a speed item for later, not a fault.
+  **TRACKER, MODPLUG and MIDIRACK (2026-10-25) - DONE (item 6), one shared
+  path, no `PKG_MEGA` arm.** A module or bank past 64KB is reached through
+  `SEG_SUB` windows made once at load (a real-mode kernel answers the sum
+  they replace). Tracker and ModPlug: four pattern windows of 64 patterns
+  each (`mp_pwin`; pattern p is window p >> 6 at 60 + 1024 x (p & 63)) and
+  one SUB per PLAYABLE sample at start >> 4 - at most 35 LDT entries an
+  instance, none for an unplayable sample, freed with the claim; a refused
+  SUB refuses the load as "Out of memory". MIDIRack: a window every 32KB of
+  the bank, 64KB long, a note playing from window A >> 15 at A & 7FFFh
+  within it, and a guard freeing a voice whose sample ends at or before it
+  starts (a lying bank). The "re-claim at 65KB, conventional by contract"
+  arms (`trk_claimsel`, `mpp_claimsel`, the bit-2 tests, `mwt_lim`) are
+  deleted. `mp_patseg` returns the cell offset in a register now: with a
+  per-pattern offset, the word the UI task and the worker shared would have
+  handed one of them the other's pattern. MEASURED on MartyPC (guest
+  cycles, medians): Tracker's row read 5,859 -> 5,859, ModPlug's 5,929 ->
+  5,876, MIDIRack's note-on 9,429.5 -> 9,284.5; the mixer loops are byte
+  for byte unchanged. Images +88 / +5 / +132. Rows: `megamod` (Bochs, an
+  SB16): every window's base against the file, three pattern windows read
+  back through the replayer, the card's capture music and not noise, red
+  with the packages before (`CLOSED TRACKER 0D`, `CLOSED MIDIRack 0D`);
+  `trackmove`'s new 5b, red with the window loop out of `trk_reloc`.
+  **OPEN, not this change: SOUND.DRV answers MIDIRack's stream open with 2
+  under kern_mega on Bochs**, the synth as well as the wavetable and on the
+  packages before too, so MIDIRack has not been heard on kern_mega.
+  **LEMMINGS (2026-10-25) - DONE (item 3), one shared path.** Its 96KB
+  style bank and 125KB T claim are reached through windows made once at
+  the claim by a new C SDK call, `os88_seg_sub` (OSAPI_SEG's SEG_SUB;
+  `seg + para` on every real-mode kernel): three over the bank (0, 32KB,
+  64KB) - `ovl_far` picks one by the offset's 32KB and answers a 16-bit
+  offset, and `lem_far_add` no longer renormalises - and four over T's
+  planes, which the raster reads from `_lem_tpl` by index in place of `T +
+  k*LEM_TPLANE`. The bank's second part and the special picture's pieces
+  go through the same windows, and `os88_onmove`'s table names them for a
+  real-mode move. MEASURED on MartyPC's XT: the quiet frame rate unchanged
+  at 3.75 fps, the compose and the preview picture slightly faster,
+  `lembench` equal or one tick faster. +94 image, +166 overlay, +14 bss;
+  the 360KB disk keeps its 53 levels with 48 bytes to spare (a hostile-
+  bank range check came out to make that, so a bad bank reads past its
+  claim in real mode as before, and is closed by the selector's limit on
+  kern_mega). Row `lemmega` (Bochs): Fun 1, a nuke and Fun 22's special
+  picture with no CLOSED or FAULT, red with either old sum put back. Not
+  run: CGA and Hercules under kern_mega, 86Box, the 720KB/360KB sets.
+  **Paint (2026-10-25) - DONE, one shared path.** A canvas over 64KB under
+  protected mode is laid out in `SEG_SUB` windows at fixed 32KB offsets
+  (`pt_layout`'s `.win`): a row at file offset O is window O >> 15 at O &
+  7FFFh, and fixed offsets make a re-layout (a resize's two passes, a load)
+  ask for the same windows and get the same selectors, so the LDT does not
+  grow per resize. The undo image has windows of its own over the same
+  offsets (`pt_uwins`; `pt_ucopy`, `pt_uswap_row` and `pt_urowset` map
+  through `pt_uwinof` behind `[pt_pmw]`), `pt_orowset`/`pt_srowset` read
+  through them, `pt_cvmove` looks each row up (`.pmrow`), and the band cap
+  is a layout fact (`[pt_brmax4]`), which takes a `div` out of every
+  `pt_blit_1`. Save Bmp is one `OSAPI_FILE_WRITE` again: the agent's
+  first build wrote 32KB pieces around the kernel defect below, and the
+  fix took that out of Paint. MEASURED on MartyPC `os8088_xt_vga`, per call:
+  `pt_ucopy` -218 to -332 cycles a row, `pt_uswap_row` 0, `pt_blit_1` -143
+  to -504, `pt_layout` -15%, `pt_resize` -2.7%. Image +464, bss +39 (the
+  small arm +67) - shared on the owner's choice A, no slower anywhere on
+  the XT. Row `megapaint` (Bochs): a 580x380 BMP opened, maximized to
+  590x390 across 4 windows, strokes, undo/redo, Save Bmp read back to the
+  byte; red on the base build (`kern_mega CLOSED PAINT`), on undo through
+  the canvas's window, and on a one-call save. Not run: the planar format
+  under kern_mega (Bochs gave a packed canvas).
+  **FIXED (kernel): a file transfer of 64KB or more through an LDT
+  selector wrapped at the selector's limit** - found by Paint's save (a
+  115KB Save Bmp wrote its DIB header again at 65,536). The selector arm
+  moved only the OFFSET; now `dskw_hicarry` steps the transfer's selector
+  ([dskw_wseg], the advancing copy, not the caller's banked [dskw_seg]) a
+  whole 64KB on by `SEG_SUB` when a run's offset carries out, and
+  `dskw_hifix` steps it to the offset's paragraph before a sector or the
+  tail would cross the end, where `dskw_one`'s copy would have faulted. A
+  SUB is tied to the caller's block, so it moves and frees with it.
+  kern_mega `.text` +~70; kern_big and kern_small untouched (every line
+  under `%ifdef KERN_MEGA`). `megapaint` 7 is the gate: one-call save,
+  identical; DIFFERENT from byte 65,536 on the kernel before.
+  **Frotz (2026-10-25) - DONE, one shared path, no `PKG_MEGA` arm.** The
+  story claim is walked by 32KB PAGE: `zm_pages` builds `[zf_stab]` at
+  load, one `SEG_SUB` per page (a 64KB data selector on kern_mega, the
+  claim's segment + 800h x k on every real-mode kernel; pages past the
+  claim hold the claim). The PC is a page INDEX `[zf_pcpg]` plus SI, so
+  `zm_map`/`zm_seek` index the table, `zm_norm` and `zx_jrel`'s backward
+  wrap step the index, `zm_pcaddr` is index x 32KB + SI, `zx_step`'s guard
+  is ES equal to its page's entry (no order compare; `zx_seglim` is gone),
+  `@verify` walks by page, and `zf_reloc` sums the table on a real-mode
+  move. `zp_place` (the `.PIX` archive, pinned) takes `SEG_AT` with the
+  sum as the real-mode answer. MEASURED on MartyPC, key to next prompt: a
+  148KB story's `go` 141.84M -> 140.70M cycles (-0.8%), `text` 382.95M ->
+  380.68M (-0.6%); a 34KB story -0.3 to -0.6%. +88 bytes of image, +36 of
+  bss. Under Bochs a 282KB v8 story plays to the generator's gold
+  (`megafrotz`); the build before printed VERIFY bad and halted on "bad
+  routine header". `tests/frotz/zbiggen.py` writes the fixture and its
+  gold, so `zbig` and `megafrotz` need neither the IF Archive nor dfrotz.
+  Not run: the shipped stories (the IF Archive is blocked from this box),
+  and a `.PIX` archive over 64KB on kern_mega.
 
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to
@@ -1460,6 +1745,9 @@ rows. Nothing is recorded as built that was not.
 ---
 
 ## 8. Addendum from `mega-dmg`: what RealDMG needs from this round (2026-10-25)
+
+**The conversion itself is taken by `mega-dmg`** (7, the package wave's
+item 11): leave RealDMG to that session.
 
 A note from the RealDMG session, for MC7's step 4 (the six exempts) and
 step 5. It describes RealDMG as it stands on `elendilon` at `1f013feb`,

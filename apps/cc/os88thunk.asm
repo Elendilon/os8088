@@ -2114,6 +2114,30 @@ _os88_seg_para:
     ret
 %endif
 
+; unsigned os88_seg_sub(unsigned seg, unsigned para, unsigned len) - "seg +
+; para" for a claim or region of yours: OSAPI_SEG's SEG_SUB (SPEC.md
+; 50.6.11), a DATA selector based `para` paragraphs in, `len` paragraphs long
+; (0 = to the claim's end, 64KB at most), STABLE (asked again, the same one),
+; moved and freed with the claim. 0 = refused (no LDT entry). The sum seg +
+; para on every real-mode kernel, which answers CF = 0 with exactly that
+CC_GATE _os88_seg_sub
+%ifdef CC_U__os88_seg_sub
+_os88_seg_sub:
+    push bp
+    mov bp, sp
+    mov dx, [bp+4]
+    mov ax, [bp+6]
+    mov cx, [bp+8]
+    mov bl, SEG_SUB
+    call OSAPI_SEG                  ; CF = 0: DX = the selector (or the sum)
+    mov ax, dx
+    jnc .o
+    xor ax, ax                      ; refused
+.o:
+    pop bp
+    ret
+%endif
+
 ; int os88_mem_free(unsigned seg) - DX = a segment you were given.
 CC_GATE _os88_mem_free
 %ifdef CC_U__os88_mem_free

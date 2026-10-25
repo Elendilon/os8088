@@ -1827,6 +1827,9 @@ dskw_flushrun:
     xor al, al
     shl ax, 1
     add [dskw_src], ax
+    jnc .out                    ; ...and a run that ENDED the window steps
+    call dskw_hicarry           ; the selector a whole 64KB on (CF: none)
+    jc .pop
     jmp short .out
 .seg:
 %endif
@@ -2289,6 +2292,9 @@ dskw_xclus:
     cmp byte [dskw_hi], 0
     je .stgseg
     add word [dskw_src], 512    ; above 1MB the OFFSET moves (dskw_runmax)
+    jnc .stgon
+    call dskw_hicarry
+    jc .ioerr
     jmp short .stgon
 .stgseg:
 %endif
@@ -2315,6 +2321,9 @@ dskw_xclus:
     jnz .advance
     call dskw_flushrun
     jc .ioerr
+%ifdef KERN_MEGA
+    call dskw_hifix             ; (the tail may not straddle a window's end)
+%endif
     mov cx, [dskw_tail]
     call dskw_one               ; the sector the whole-sector walk stopped at
     jc .ioerr
@@ -2533,6 +2542,59 @@ dskw_subsrc:
     ret
 
 ; -----------------------------------------------------------------------------
+; dskw_hifix / dskw_hicarry - THE SELECTOR ARM PAST 64KB (KERN-MEGA-MEMORY-
+; PLAN MC7). A selector reaches 64KB and the arm moves only the OFFSET, so a
+; transfer of 64KB or more wrapped onto its own first bytes - a 115KB Save
+; Bmp from Paint's canvas wrote its header again at 65,536 - and a sector
+; across the end would have faulted. So the selector itself moves on, by
+; OSAPI_SEG's SEG_SUB over the caller's block (a SUB tied to the block,
+; rebased and freed with it, the same one for the same place next time):
+; dskw_hicarry after an offset that carried out of 64KB, a whole window on;
+; dskw_hifix before a sector that would cross the end, to the offset's
+; paragraph. Only reached with [dskw_hi] = 1. CF = 1 (hicarry) there is no
+; SUB to be had; hifix leaves things as they were then. Every register kept
+; -----------------------------------------------------------------------------
+dskw_hifix:
+    cmp byte [dskw_hi], 0
+    je .o
+    cmp word [dskw_src], 0xFE00
+    jbe .o
+    push ax
+    push cx
+    mov ax, [dskw_src]
+    mov cl, 4
+    shr ax, cl                  ; the offset's paragraph...
+    call dskw_hisub
+    jc .p
+    and word [dskw_src], 15     ; ...and what is left of it
+.p:
+    pop cx
+    pop ax
+.o:
+    ret
+dskw_hicarry:
+    push ax
+    mov ax, 0x1000              ; a whole window on: the offset wrapped
+    call dskw_hisub             ; there already
+    pop ax
+    ret
+dskw_hisub:                     ; [dskw_wseg] - the ADVANCING segment the
+    push bx                     ; transfers load, not the caller's banked
+    push cx                     ; [dskw_seg] - = a SUB AX paragraphs on, CF
+    push dx
+    mov dx, [dskw_wseg]
+    xor cx, cx                  ; to its end, 64KB at most
+    mov bl, SEG_SUB
+    call MEGA_SEL_CODE:mega_segf
+    jc .n
+    mov [dskw_wseg], dx
+.n:
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; -----------------------------------------------------------------------------
 ; dskw_hiseg - the doors' segment for the caller's buffer (KERN-MEGA-PLAN 13.3
 ; step 4): AX = ES as the caller held it -> for an ALLOCATOR selector - every
 ; claim's since KERN-MEGA-MEMORY-PLAN MC7.4, below 1MB or above it, an
@@ -2620,6 +2682,7 @@ dskw_runmax:
     ret
 %ifdef KERN_MEGA
 .hi:
+    call dskw_hifix             ; no sector across the window's end
     mov ax, [dskw_src]
     neg ax                      ; bytes left before the offset wraps...
     jz .hfull                   ; (0: the whole 64KB)

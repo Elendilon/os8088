@@ -56,6 +56,20 @@ drivers/usbmouse/usbmouse.asm 1 # USBMOUSE.DRV's PicoMEM path refused
     # faults on the first move (KERN-MEGA-MEMORY-PLAN MC7). A correctness
     # refusal - the CH375 path is untouched - and ~8 bytes
 
+apps/browser/browser.asm 1      # THE BROWSER'S ARENAS AS SELECTORS
+    # (KERN-MEGA-MEMORY-PLAN MC7): br_entry banks CPU_F_PM in [br_mega] and
+    # [br_docfar], and on kern_mega br_docmap, the parser's br_srcat and the
+    # worker's br_take leave their paragraph sums for bound windows (SEG_BWIN
+    # + SEG_AIM), the EMS spill copies for SEG_AT (br_at). Without it the
+    # shipped Browser is CLOSED by kern_mega (`CLOSED BROWSER 0D`, br_docmap)
+    # on the first page it lays out - tests/brmega.py, red on the old build -
+    # and with it the region and its small claims run above 1MB (OS88_HIGH,
+    # OS88_HIGHMEM). An arm would leave the shipped build refusing to start.
+    # The 8088 pays nothing measurable: br_docmap's one test is the test it
+    # always made ([br_docfar] is [br_docems] OR kern_mega), a line record is
+    # an OFFSET now and so cheaper on every kernel, and the regrow/remap sites
+    # pay a compare. +366 bytes of image (48,035), +505 of BROWSER.O88 on disk
+
 # --- trivial: one far call through a code alias -----------------------------
 
 apps/1942/video.inc 2           # the compiled sprites' far-call selector:

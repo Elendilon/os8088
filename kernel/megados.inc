@@ -75,6 +75,7 @@ MPK_CMAX    equ MX_NBLK + 1     ; a hibernate's copies: the tables and every
                                 ; pool block
 MPK_PCPY    equ 4               ; a PARK's copies: the table bytes the sum's
                                 ; 64-byte lines cannot cover (mega_dsave)...
+MPK_HCPY    equ 1               ; ...the HMA's 64KB back (MC4)...
 MPK_RUNMAX  equ MEM_MAX + 1     ; ...and one per RUN IN USE past the first
                                 ; (mega_dmapb): [0, mem_base) and the claims
                                 ; can make no more runs than there are of them
@@ -82,8 +83,8 @@ MPK_SLACK   equ 16              ; KB a runs park is claimed over the count,
                                 ; for what is claimed between the claim and
                                 ; the snapshot (a refusal there is the prefix)
 MPK_SAVEL   equ 2               ; the banked table bytes' lines (MPK_SAVE)
-%if MPK_RMAX * 8 + (MPK_PCPY + MPK_RUNMAX) * MPK_CPYSZ >= MPK_CMAX * MPK_CPYSZ
-MPK_LIST    equ MPK_RMAX * 8 + (MPK_PCPY + MPK_RUNMAX) * MPK_CPYSZ ; the
+%if MPK_RMAX * 8 + (MPK_PCPY + MPK_HCPY + MPK_RUNMAX) * MPK_CPYSZ >= MPK_CMAX * MPK_CPYSZ
+MPK_LIST    equ MPK_RMAX * 8 + (MPK_PCPY + MPK_HCPY + MPK_RUNMAX) * MPK_CPYSZ ; the
 %else                           ; larger of the two lists: MPS_REG's bytes
 MPK_LIST    equ MPK_CMAX * MPK_CPYSZ
 %endif
@@ -183,6 +184,11 @@ mega_dikb   dw 0                    ; KB the park's image holds (P, or the runs)
 mega_dtkb   dw 0                    ; ...and conventional memory's, mapped
 mega_dpchk  dw 0, 0, 0              ; MPK_SAVE's first six: the KB and the base
 mega_dclkb  dw 0                    ; KB claimed for it
+mega_dhkb   dw 0                    ; ...and over that, the HMA's save: 64 when
+                                    ; a pool block stands in it at the claim,
+                                    ; else 0 (KERN-MEGA-MEMORY-PLAN MC4)
+mega_dhfree dw 0                    ; ...and the HMA's KB free then, which the
+                                    ; arena's first try leaves out
 MEGA_DMAPKB equ 768                 ; MPS_MAP's reach: past any conventional
                                     ; top - a bit a KB, set = in use
 mega_dnreg  dw 0                    ; the header's MPK_NREG...
@@ -264,6 +270,30 @@ mega_s_kbdos db "Use this disk's DOS.O88", 0 ; mega_pkgok's refusal
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_dosclaimf:
     pusha
+    mov word [mega_mxflr], MEGA_HMA_KB ; THE HMA IS kern_dos's FOR THE TRIP
+    mov word [mega_dhkb], 0         ; (MC4): neither claim may land in it,
+    mov bp, MEGA_HMA_KB             ; and what stands there now is saved
+    mov si, mx_tab                  ; with the park - 64KB more of it.
+.hma:                               ; Nothing new can stand there before
+    mov ax, [ss:si+MX_KB]           ; the snapshot: the floor keeps every
+    or ax, ax                       ; placement and pack above it. BP = the
+    jz .hman                        ; HMA's KB still free, which the arena
+    mov bx, [ss:si+MX_OFF]          ; cannot have either
+    cmp bx, MEGA_HMA_KB
+    jae .hman
+    mov word [mega_dhkb], MEGA_HMA_KB
+    add ax, bx                      ; its end, at most the HMA's
+    cmp ax, MEGA_HMA_KB
+    jbe .hme
+    mov ax, MEGA_HMA_KB
+.hme:
+    sub ax, bx
+    sub bp, ax
+.hman:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .hma
+    mov [mega_dhfree], bp
     call COLD_SEG:dsk_rah_dropf     ; the read-ahead store's KB to the park
     xor ax, ax                      ; first (it is re-taken at the next mount)
     mov [mega_dpbase], ax
@@ -287,6 +317,7 @@ mega_dosclaimf:
     mov [mega_dclkb], ax
     mov cx, ax
     add cx, MPK_HDR / 1024
+    add cx, [mega_dhkb]
     call .alloc
     jc .ptry
     mov byte [mega_drmode], 1
@@ -296,6 +327,7 @@ mega_dosclaimf:
     cmp cx, MPK_MIN_KB
     jb .no
     add cx, MPK_HDR / 1024
+    add cx, [mega_dhkb]
     call .alloc                     ; CX KB -> DX:AX, CF
     jnc .pgot
     sub word [mega_dpkb], 16
@@ -306,7 +338,11 @@ mega_dosclaimf:
 .pgot1:
     mov [mega_dpbase], ax
     mov [mega_dpbase+2], dx
-    call mx_caps                    ; AX = free KB
+    call mx_caps                    ; AX = free KB, less the HMA's (MC4)
+    sub ax, [mega_dhfree]
+    jnc .xf
+    xor ax, ax
+.xf:
     and al, 0xF0
 .xtry:
     cmp ax, 16
@@ -324,10 +360,12 @@ mega_dosclaimf:
     mov [mega_dxbase+2], dx
     mov [mega_dxkb], cx
 .ok:
+    mov word [mega_mxflr], 0        ; (the floor is the claims' alone)
     popa
     clc
     retf
 .no:
+    mov word [mega_mxflr], 0
     popa
     stc
     retf
@@ -655,6 +693,13 @@ mega_dosparkf:
     add ax, MPK_HDR
     adc dx, 0
     call mega_dreg_add
+    cmp word [mega_dhkb], 0         ; ...the HMA's save past the image's
+    je .nohsv                       ; claim, its 64KB in lines (MC4)
+    call mega_dhsave                ; DX:AX = where
+    mov bx, MEGA_HMA_KB * 16
+    xor cx, cx
+    call mega_dreg_add
+.nohsv:
     cmp byte [mega_drmode], 0       ; (a runs park leaves nothing in place:
     jne .noplace                    ; what it did not take is free)
     mov ax, [mem_top]               ; ...what was left IN PLACE, P .. the top
@@ -709,13 +754,19 @@ mega_dosparkf:
     mov ax, [ss:si+MX_KB]
     or ax, ax
     jz .mxn
-    cmp byte [ss:si+MX_OWN], XMW_HMA ; ...and the HMA: DOS's during the trip,
-    je .mxn                         ; the session's nothing (MC2)
+    mov di, [ss:si+MX_OFF]          ; ...ABOVE THE HMA: what stands in it is
+    cmp di, MEGA_HMA_KB             ; kern_dos's during the trip and the
+    jae .mxa                        ; HMA copy's after (MC4), so a block
+    add ax, di                      ; across its end is summed from 1MB+64K
+    sub ax, MEGA_HMA_KB
+    jbe .mxn
+    mov di, MEGA_HMA_KB
+.mxa:
     mov bx, 16
     mul bx
     mov bx, ax
     mov cx, dx
-    mov ax, [ss:si+MX_OFF]
+    mov ax, di
     mov dx, ax
     push cx
     mov cl, 10
@@ -857,6 +908,17 @@ mega_dosparkf:
     add di, MPK_CPYSZ
     jmp short .rs
 .norun:
+    cmp word [mega_dhkb], 0         ; --- ...and the HMA's 64KB back, last
+    je .nohcp                       ; (MC4): saved after the snapshot, with
+    call mega_dhsave                ; the runs, by the same loop
+    mov [es:di], ax
+    mov [es:di+2], dx
+    mov word [es:di+4], 0
+    mov word [es:di+6], 0x10        ; to 1MB
+    mov word [es:di+8], 0
+    mov word [es:di+10], 1          ; 64KB
+    inc word [mega_dncpy]
+.nohcp:
     pop es
 
     ; --- the header: the stub and the list ------------------------------------
@@ -911,9 +973,11 @@ mega_dosparkf:
     adc si, 0
     jmp short .copy
 .runs:                              ; --- a runs park's other runs, each to
-    cmp byte [mega_drmode], 0       ; where its copy will bring it back from
-    je .copied
-    push es                         ; (the list: the scratch's)
+    push es                         ; where its copy will bring it back from,
+                                    ; and the HMA's save (MC4): every copy
+                                    ; past mega_dsave's is one of those, and
+                                    ; a prefix park with no HMA has none
+                                    ; (the list: the scratch's)
     push word MEGA_SEL_PSCR
     pop es
     mov si, [mega_dnreg]
@@ -1028,6 +1092,19 @@ mega_dosparkf:
     adc dx, [mega_tbllin+2]         ; (KERN-MEGA-MEMORY-PLAN MC2)
     jmp mega_dreg_add
 
+; mega_dhsave - DX:AX = the HMA's save in the park: past the header and the
+; image's claim, [mega_dclkb] KB (MC4). Clobbers nothing else
+mega_dhsave:
+    push cx
+    mov ax, [mega_dclkb]
+    call mega_kblin
+    add ax, MPK_HDR
+    adc dx, 0
+    add ax, [mega_dpbase]
+    adc dx, [mega_dpbase+2]
+    pop cx
+    ret
+
 ; mega_dsumall - the sum over the scratch's list, through MEGA_SEL_XA. out DX:AX =
 ; s2:s1. Clobbers BX CX SI DI BP
 mega_dsumall:
@@ -1100,7 +1177,12 @@ section .text                   ; (KERN-MEGA-SEGMENTS-PLAN: back from .mega)
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_dosgo:
     cli
-    mov [mega_dstg], es
+    mov ax, 0xB800                  ; the stage's REAL segment, for
+    cmp byte [vid_kind], VID_HERC   ; mega_dropr in real mode: ES is the
+    jne .dstg                       ; selector over it (hbm_stageseg, MC7)
+    mov ax, 0xB000
+.dstg:
+    mov [mega_dstg], ax
     mov di, KDS_LB                  ; --- the staged block's kern_mega tail ---
     mov ax, [mega_dxbase]
     mov [es:di+KDL_XBASE], ax
@@ -1558,73 +1640,76 @@ mega_dkbup:
     ret
 
 ; -----------------------------------------------------------------------------
-; mega_hbgof - A HIBERNATE'S RESUME, the way out of the fresh kernel (W5; far,
-;              from HIBER.DRV's hbm_xres, PM, DS = KDATA). Does not return.
-; in:  ES = the text page (hbm_wake's staging cells are already in it);
-;      [mega_dpbase] the staging block, holding the image at MPK_HDR;
-;      [mega_dpkb] KB of conventional memory to put back; [mega_dncpy] and
-;      MPS_REG the copies the stub makes first (the tables, every pool
-;      block); [mega_dnreg] = 0
+; mega_hbgor - THE STREAMING RESUME's way out of the fresh kernel (KERN-MEGA-
+;              MEMORY-PLAN MC4.1 (b); far, from HIBER.DRV's hbm_xres, PM, DS =
+;              KDATA, the stage written into the text page). Does not return.
 ;
-; THE PARK STUB DOES THE WORK. A hibernate's resume and a park's return are
-; the same act - conventional memory and the kernel's state above 1MB put
-; back from a block above 1MB, and into the kernel's own tables - so the
-; fresh kernel reads the image into such a block with its own file layer and
-; then enters the stub in place, as kd_unpark does, on the stub's own GDT.
-; NEITHER CPU LEAVES PROTECTED MODE (KERN-MEGA-DOS-PLAN 8.3 planned a drop
-; into the real-mode resume stub; Bochs will not fetch from the framebuffer
-; that stub runs in, and a 286 would spend a reset on it).
+; THE DOS HANDOVER's route down, with a resume's payload: the IVT's tick and
+; keyboard back to the BIOS's, the keyboard and the mice masked for the
+; stub's run, and out through mega_dosgo_lo (CR0 on a 386, the shutdown-0Ah
+; reset on a 286) into mega_dropr - which, with [mega_drmode] = 1, copies the
+; stage to [mem_top] - 400h, its runs-park placement, and enters it there:
+; kernel/megares.inc, which reads the whole image back through the BIOS and
+; comes in at mega_hbwake.
 ; -----------------------------------------------------------------------------
-mega_hbgof:
-    ; STKBALANCE-OK: never returns - the far jump below is into the park stub, above 1MB
+section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
+mega_hbgor:
+    ; STKBALANCE-OK: never returns - out of protected mode and into the stub
     cli
+    mov ax, 0xB800                  ; the stage's REAL segment, for mega_dropr
+    cmp byte [vid_kind], VID_HERC
+    jne .stg
+    mov ax, 0xB000
+.stg:
+    mov [mega_dstg], ax
+    mov byte [mega_drmode], 1       ; ...placed under [mem_top]
+    push es
+    push word MEGA_SEL_LOW0
+    pop es
+    mov ax, [mega_old08]            ; the BIOS's tick and keyboard, for the
+    mov [es:0x08*4], ax             ; stub's int 13h and int 15h
+    mov ax, [mega_old08+2]
+    mov [es:0x08*4+2], ax
+    mov ax, [mega_old09]
+    mov [es:0x09*4], ax
+    mov ax, [mega_old09+2]
+    mov [es:0x09*4+2], ax
+    pop es
+    in al, 0x21                     ; the masks the stub runs under: the
+    or al, 0x1A                     ; disks' lines as they are, the keyboard
+    mov [mega_dkm1], al             ; and the mice off (hbm_handover's)
+    in al, 0xA1
+    or al, 0x10
+    mov [mega_dkm2], al
     mov al, 0xFF
     out 0x21, al
     out 0xA1, al
-    mov al, 0x8D                    ; NMI off: the stub writes the IDT
+    mov al, 0x8D                    ; NMI off across the switch
     out 0x70, al
-    mov bx, sp
-    mov ax, [ss:bx+2]               ; the caller's CS: the stub is in its image
-    call mega_dstubup
-    xor ax, ax
-    mov [mega_dsum], ax             ; no regions, so the sum is 0:0
-    mov [mega_dsum+2], ax
-    mov [mega_dout], ax
-    mov ax, mega_hbwake
-    call mega_dhcfill
-    mov ax, [mega_dpbase]
-    mov dx, [mega_dpbase+2]
-    add ax, MPK_GDT
-    adc dx, 0
-    mov [mega_hbgdtr+2], ax
-    mov [mega_hbgdtr+4], dx
-    lgdt [mega_hbgdtr]
-    xor bx, bx                      ; the stub's check, from this kernel's own
-    xor dx, dx                      ; cells: no sum, the KB and the block
-    mov cx, [mega_dpkb]
-    mov di, [mega_dpbase]
-    mov si, [mega_dpbase+2]
-    db 0xEA                         ; jmp far 08h:0 - the stub, above 1MB
-    dw 0, 0x08
+    jmp KERNEL_SEG:mega_dosgo_lo
 
 ; -----------------------------------------------------------------------------
-; mega_hbwake - THE HIBERNATED SESSION IS BACK (PM, the stub's far jump with
-;               the image's tables loaded, IF = 0, NMI off, every line masked)
-; The image's LDT and data, hbm_wake's stack, the masks banked at the write,
-; and on to the wake address the write stamped (hbm_wake, which takes it from
-; there exactly as on kern_big: SPEC.md 87.6). The 8259 is at 20h already -
-; this kernel never left protected mode - and the IDT is the image's own.
+; mega_hbwake - THE HIBERNATED SESSION IS BACK (PM, megares.inc's tail's far
+;               jump with the image's tables loaded, IF = 0, NMI off, every
+;               line masked)
+; The image's LDT and data, hbm_wake's stack, the 8259 back at 20h (the stub
+; ran in real mode, where mega_dropr had it at 08h), the masks banked at the
+; write, and on to the wake address the write stamped (hbm_wake, which takes
+; it from there exactly as on kern_big: SPEC.md 87.6). The IDT is the
+; image's own.
 ; -----------------------------------------------------------------------------
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
 mega_hbwake:
-    ; STKBALANCE-OK: entered on the stub's stack and left by a far jump into hbm_wake, which builds its own
+    ; STKBALANCE-OK: entered with no stack at all and left by a far jump into hbm_wake, which builds its own
     mov ax, MEGA_SEL_KDATA
     mov ds, ax
+    mov es, ax                      ; (ES held a real-mode segment)
     mov ax, MEGA_SEL_LDT
     lldt ax
     mov ax, LOW_SEG
     mov ss, ax
     mov sp, [hb_sp]
+    call KERNEL_SEG:mega_pic_pmf    ; 08h -> 20h
     ; THE PICTURE WAS TAKEN MID-WRITE, so three cells hold what was in
     ; flight then (SPEC.md 87.6's class: true of the machine that wrote the
     ; image, false of this one): a null-segment instruction being stepped
