@@ -929,6 +929,15 @@ class Marty:
           straight to `execseg`'s `off` arms an address 0x600 past the one
           you meant - a real address, in real code, that simply is not
           reached. Use `bp_exec()` below, or subtract `KERNEL_SEG << 4`.
+
+        And one way to see an `io` hit in the WRONG PLACE: the stop is
+        reported at the START of the next step, and an interrupt pending
+        when the I/O instruction ends is entered in between, so CS:IP can be
+        an ISR's first instruction with the I/O instruction's return address
+        only in the frame on SS:SP. The registers are still the I/O's (AL is
+        what an OUT wrote); a row that finds the port by reading the
+        instruction behind IP must also look through that frame, or it drops
+        the hit (tests/sndplay.py's `outs`).
         """
         return self.cmd(cmd="bp", list=bps)["count"]
 
