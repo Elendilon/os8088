@@ -23,7 +23,9 @@ own. Boots kern_mega under Bochs at its default memory with B: holding
 
   1. BALLOONS.PNG is opened by double-click (a BMP or a GIF is Paint's by
      association) and Space walks on through CAT.GIF to DEEP.BMP, an 8-bit 600x400 picture (a 234 KB
-     master, eight windows), decoded at 1/1: its master, read through the
+     master, eight windows), decoded at 1/1, with the VIEW claim (17-31KB)
+     above 1MB - PiXEL declares OS88_HIGHMEM, which retired its line in
+     tests/megahigh.txt (red without the bit: it sits at 058000h); its master, read through the
      claim's own descriptor, is the file's indices to the byte; the shown
      master's window table (px_mwc) is made of that claim, window k based
      32 KB x k in; and its histogram's tail holds the file's counts;
@@ -299,6 +301,12 @@ def main():
              "a 1/1 master of %dx%d (%r)" % (BW, BH, r))
         want(r["MSEG"] & 4 != 0, "the master's claim is an LDT selector "
              "(%04X)" % r["MSEG"])
+        vsel, wsel = px.word("px_vseg"), px.word("px_wbase")
+        vb, wb = px.lin(vsel), px.lin(wsel)
+        print("megapixel: view claim %04X at %06X, work claim %04X at %06X"
+              % (vsel, vb, wsel, wb), flush=True)
+        want(vb >= 0x100000, "the view claim (64KB or less) is above 1MB at "
+             "%06X: PiXEL declares OS88_HIGHMEM (tests/megahigh.txt)" % vb)
         bad = [y for y in range(min(BH, len(rows))) if rows[y] != exp[y]]
         want(len(rows) == BH and not bad, "the master is the file's indices "
              "(%d rows, %d wrong, first %s)" % (len(rows), len(bad), bad[:3]))

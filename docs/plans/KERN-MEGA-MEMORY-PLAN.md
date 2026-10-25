@@ -1736,6 +1736,50 @@ rows. Nothing is recorded as built that was not.
   a 386), the shipped build's own image under kern_mega (its claim code is
   the arm's byte for byte), a 32 KB-cluster volume (whose claim passes
   64KB and is conventional), and a pool compaction under a running play.
+  **PiXEL (2026-10-25) - DONE (item 11), one shared path, and it now
+  declares OS88_HIGHMEM.** The whole item is done, master rows and decoder
+  carves alike, so no flat arm was needed.
+  - **How a master is reached:** through a table of `SEG_SUB` windows 32KB
+    apart (`apps/pixel/pxrec.inc`: `px_mwc`, `px_mwp`, `px_mwd`). Row y is
+    window `O >> 15` at `O & 7FFFh`.
+  - **When the tables are made and checked:** once per claim, then checked at
+    every worker job, every UI part call and every composer pass. A
+    real-mode move re-bases them through `px_mreloc`.
+  - **The other carves:** the histogram tail, the work claim's sub-buffers,
+    the ring's second slot, the in-memory file's windows, the PNG
+    scanlines, the GIF animation row and the JPEG bounce are each a
+    `SEG_SUB`.
+  - **The DMA claim's alignment test:** `px_dmaclaim`'s 512-byte test reads
+    `SEG_LIN` now. It used to read the selector's bits, so on the parent
+    kernel PiXEL opened nothing.
+  - **Patched under protected mode, 8088 loops unchanged:** `pe_rot90`'s
+    64KB carry, and the progressive JPEG store's 1/4 and 1/8 arms (the 1/8
+    one through the `je`'s displacement) walk windows instead.
+  - **A master is held to 1MB.**
+  - **The parked worker drops ES.** That removes one #GP per PNG or GIF
+    open, which came from a window being freed under it.
+  - **Measured on MartyPC's 5150 (minimum cycles per call):**
+    - `px_mrow`: 395 -> 321
+    - `px_crow`: -62 and -68 a row
+    - `px_cset`: +75 a pass
+    - each table: about 4K per claim
+    - pxbench's zoom, pan and Fit: unchanged on CGA and VGA
+  - **Bytes:** image +474, bss +220, PIXEL.O88 +2 sectors. Parity pads keep
+    every unchanged routine at an even shift.
+  - **The declaration:** its `tests/megahigh.txt` line is retired, and
+    `OS88_HIGH | OS88_HIGHMEM` is the header.
+  - **Rows `megapixel` and `megapixelship` (Bochs)** check, byte for byte:
+    the DEEP.BMP master, its tail, both turns and Save As; and FLOWER, HOUSE
+    and ROOM at 1/4 and 1/8 against pixelsim. They also check that the view
+    claim (17-31KB) is above 1MB, at FBD000h. They go red:
+    - on the parent;
+    - with `px_mrow`'s old sum put back;
+    - with the carry left unpatched;
+    - without the HIGHMEM bit (the view claim at 058000h).
+  - **Left as a cost:** the shipped build's PXSW stores through CS, for the
+    speed pass. The arm stores them through `PXP_SELF`.
+  - **Not run:** non-VGA adapters under kern_mega, the XMS undo, and full
+    screen on kern_mega.
   **SHEET declares OS88_HIGH and OS88_HIGHMEM (2026-10-25)**, and its two
   `tests/megahigh.txt` lines are gone. Both reasons had been answered
   already: the far vectors into the chart and macro modules are built from

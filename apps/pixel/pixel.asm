@@ -29,7 +29,7 @@
 %include "pxsvc.inc"                ; ...and the parts' UI services
 %include "pxanim.inc"               ; a GIF that plays (106.25)
 
-    OS88_HEADER 'PiXEL', px_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_GLYPH | OS88_F_PARTS, OS88_HIGH
+    OS88_HEADER 'PiXEL', px_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_GLYPH | OS88_F_PARTS, OS88_HIGH | OS88_HIGHMEM
 
     OS88_ICON16
 %include "pxappico.inc"

@@ -205850,13 +205850,22 @@ the bytes read.
 
 **The MASTER is one heap claim of `mw x mh` bytes, one byte a pixel, an
 index into a 256-entry RGB palette** (768 bytes of PiXEL's bss). It may be
-larger than 64KB: row `y` is reached by segment arithmetic, `seg = base +
-(y*mw >> 4)`, `off = (y*mw) & 15`, so a row never straddles its segment
-(`mw` is at most 8,192). The claim is **movable** (§66): its relocation proc
-re-bases `[px_mseg]` and nothing else, because nothing else derives a segment
-from it between two reads — the worker re-reads it after every
-`OSAPI_TASK_ALIVE` and every row, and the renderer at every row. It is never
-the buffer of a file call, so §66.5.7.1 never pins it.
+larger than 64KB, up to 1MB: row `y` is at offset `O = y*mw` in it, reached
+through a table of WINDOWS made once per claim (`OSAPI_SEG`'s `SEG_SUB`, one
+every 32KB, each reaching 64KB or the claim's end) as window `O >> 15` at
+offset `O & 7FFFh`, so a row never straddles its window (`mw` is at most
+8,192). On a real-mode kernel a window is the sum `base + 800h*k`; under
+kern_mega's protected mode it is an LDT selector based inside the claim,
+where the old `base + (y*mw >> 4)` would have named somebody else's
+descriptor (KERN-MEGA-MEMORY-PLAN MC7). The tables are `px_mwc` (the shown
+master), `px_mwp` (the previous one) and `px_mwd` (an edit's destination),
+checked at every worker job, part call and composer pass. The claim is
+**movable** (§66): its relocation proc re-bases `[px_mseg]` and the windows
+made of it, and nothing else derives a segment from it between two reads -
+the worker re-reads it after every `OSAPI_TASK_ALIVE` and every row, and the
+renderer at every row. It is never the buffer of a file call, so §66.5.7.1
+never pins it. PiXEL declares `OS88_HIGH | OS88_HIGHMEM`, so on kern_mega its
+region and its claims of 64KB or less live above 1MB.
 
 **Three palette MODES**, chosen at the header by the source's kind:
 

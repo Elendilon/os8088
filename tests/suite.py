@@ -16018,7 +16018,7 @@ SOAK = [
         "load); vga_blit_prow on [rom_vgabw] faults the kernel at SOLITAIR. "
         "120s is 94 measured",
         needs=("bochs", "nasm"),
-        wants=("build/mega.img", "build/apps.img")),
+        wants=("build/mega.img", "build/megak/kernel.bin", "build/apps.img")),
     Row("megatbl", "soak", py("tests/megatbl.py"), 45.0,
         "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7's step 6: kern_mega's "
         "tables sized per machine. Under Bochs at 1, 4 and 16MB: the GDTR's "
