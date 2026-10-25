@@ -86,9 +86,12 @@ hot path completely. It cannot be removed from the machine in general.**
 
 **The owner's answers (2026-10-25) choose the design, and section 11 is
 it.** In short:
-- Translate EVERYTHING the walk finds, on the host, in a COMPACT grade. There
-  is no play, no profile and no heat in it.
-- Promote hot code to full templates from counters the game keeps itself.
+- Translate EVERYTHING the walk finds, on the host, before anyone plays.
+- Use FULL templates whenever the machine's memory holds them (11.8: every
+  64-128 KB cartridge on 640 KB, and 256 KB on a 286 with XMS).
+- Where it does not, use a COMPACT grade for everything, with the
+  memory left given to the walk's loops. There is no play, no profile and
+  no heat in either.
 - Ship it first as a per-game `GAME.O88`, because that is the shape that
   fits a 256 KB cartridge in 640 KB.
 
@@ -779,6 +782,10 @@ interpreter** (16.10: 21.7 clocks a busy M-cycle translated against 51).
 ### 11.3 Speed: promotion by counters the game keeps itself
 
 **Promotion is the only place heat enters, and it is optional.**
+**Demoted by 11.8**: grades exist only because RAM forces them, so the
+grade is chosen by the MEMORY BUDGET first and by static loop structure
+second. Counters are a last refinement for a game that is still short of
+memory after both.
 - **Each compact block counts its entries**: a saturating byte beside the
   block, `inc byte [cs:n]`, ~4 bytes and ~20-28 clocks a block entry on an
   8088. A block averages ~4 Game Boy instructions (section 3), so it costs
@@ -874,6 +881,67 @@ Kirby's Dream Land, PREDICTED, ROM in one claim, no XMS:
 
 **The gates of section 7 stand**: equivalence, a negative control per idea,
 save-state interchange, and all of it on our own ROMs.
+
+### 11.8 Is RAM the only reason for two grades? Yes
+
+**The owner's question**: this sounds like building a profile that is kept
+so the user need not play. Is memory the reason for hot and slow code?
+
+**Yes. Memory is the whole reason.** With room for it, every instruction
+the walk finds gets its FULL template and there is no heat, no profile and
+no promotion anywhere: complete, and at full speed, before anyone plays.
+The compact grade exists only where full templates for the whole cartridge
+do not fit. The arithmetic per machine (PREDICTED, 11.4's rows, bank 0's
+code bytes holding the dispatcher's table):
+
+| | full templates for EVERYTHING | budget | fits? |
+|---|---|---|---|
+| Super Mario Land, 640 KB, no XMS | 33 + 64 + 168 + 5 + 64 + 17 + 10 = **~361 KB** | ~491 | **yes, with ~130 KB to spare: no grades at all** |
+| Kirby's Dream Land, 640 KB, no XMS | 33 + 64 + 246 + 4 + 256 + 17 + 10 = ~630 KB | ~491 / ~523 shed | no, ~107-139 KB over |
+| Kirby's Dream Land, 286 with XMS, ROM in 8 bank slots (128 KB) | 33 + 64 + 246 + 4 + 128 + 17 + 10 = **~502 KB** | ~523 shed | **yes, just: no grades**. Code must be in conventional memory to run, so XMS takes only the ROM |
+| any of them on kern_mega (protected mode, docs/plans/KERN-MEGA-PLAN.md) | code and ROM anywhere in the megabytes | MBs | yes, no grades: an arm (SPEC.md 20.18), not a first step |
+
+**So "hot and slow" was the wrong framing, and the order of choice is:**
+1. **Full templates everywhere, whenever the target machine's budget
+   holds it.** This is the shipped answer for every 64-128 KB cartridge,
+   and for 256 KB on a 286 with XMS. There is no profile in it in any
+   sense.
+2. **When it does not fit, compact templates for everything** (11.2), and
+   the space left filled with full templates chosen by STATIC structure,
+   not by play. For Kirby's Dream Land on 640 KB with no XMS:
+   - the code budget is ~107 KB (~139 shed), and compact for everything
+     is ~97 KB;
+   - the headroom (~10-42 KB) promotes ~850-3,500 instructions at ~12
+     bytes each;
+   - the walk's inner-loop bodies are 2,766 instructions carrying **62% of
+     Kirby's Dream Land's time** (3.1, MEASURED), so on the shed budget
+     they all go full-template;
+   - the rest runs compact at ~85-92% of full-template speed (11.2,
+     PREDICTED).
+   Nothing in it needs play.
+3. **Counters (11.3) only for what is left**, and only for speed: the game
+   is already complete and has no slow form without them.
+
+**What "compact" costs, stated against today rather than against full
+templates.** Today's recompiler in steady play pays the dynamic
+machinery's 6.9% (lookups, links, the return cache) and nothing else, and
+it pays the interpreter and the translator whenever it meets new code. A
+compact build pays ~8% (286) to ~18% (8088) on memory accesses and none of
+the rest. So **compact everywhere is roughly level with today's
+recompiler in steady play on a 286, ~5-10% behind on an 8088, and far
+ahead in every second today spends warming, translating or flushing**
+(PREDICTED). It is never the slowdown the stall was.
+
+**What closes the gap without memory or play** is making the full template
+itself smaller at the same speed, which is the one open design question
+left:
+- **Region proofs** remove the compares outright where the walk proves the
+  pointer: 10% of Super Mario Land's pointer accesses and 30% of Kirby's
+  (MEASURED 2026-10-20).
+- **A shorter fast path**: the four compares of an `(HL)` access exist
+  because ROMX and FF00-FF7F are not where the view is. A 256-byte page
+  table indexed by H, the "two page tables" of REALDMG-PLAN 4.2, is fewer
+  bytes inline at a few clocks more. It wants measuring, not predicting.
 
 ## 12. Reproduce
 
