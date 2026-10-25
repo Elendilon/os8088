@@ -32,7 +32,9 @@ IMAGES = ["os8088.img", "os8088-120.img", "os8088-720.img", "os8088-360.img",
           # root-directory arithmetic they exercise is arithmetic no other
           # image in this list reaches.
           "office360.img", "network360.img", "games360.img", "emu360.img",
-          "util360.img"]
+          "util360.img",
+          # ...and the 720KB geometry's second apps disk (SPEC.md 24.7)
+          "more720.img"]
 
 
 def main():

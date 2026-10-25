@@ -1819,8 +1819,10 @@ checking all four. This is the rule for the on-demand APPLICATION floppies too
 `apple2disk`, `weavedisk`, `loomdisk`, `allapps` — which were three-geometry until 1.2MB
 reached them.
 
-**Fourteen images, not nine.** The system and apps disks in four geometries
-each, plus SIX more that exist at 360KB alone. `build/media360.img` — `BEVERLY.MOD` is data rather than software and
+**Fifteen images, not nine.** The system and apps disks in four geometries
+each, plus SIX more that exist at 360KB alone and ONE at 720KB alone -
+`build/more720.img`, the 720KB apps disk's other half (SPEC.md 24.7), carrying
+what that disk had to leave off. `build/media360.img` — `BEVERLY.MOD` is data rather than software and
 was 114 of a 360KB disk's 354 clusters before packages were compressed, so at
 that geometry it rides a disk of its own (§24.4). **It is not on `apps360.img`
 as well any more, and cannot be**: lz4-packed it is 42 clusters and that disk

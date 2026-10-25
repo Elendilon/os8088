@@ -55209,6 +55209,36 @@ The 360KB set is **seven disks** now — system, apps, media, office, network,
 games and emu — and docs/FIELD-MACHINES.md's standing rule for the
 `Elendilon/os8088` fork sends all seven.
 
+### 24.7 THE SECOND 720KB APPS DISK — `more720.img`
+
+The 720 KB apps disk ran out the way §24.6's 360 KB one did, and was answered
+one package at a time: PiXEL (§106.7, 2026-10-02), DrMarco (2026-10-04),
+eight of MIDIRack's ten songs (§105.10), the demo video (2026-10-20), XTMP3
+(§121.12) and RealDMG with its cartridge all came off it, each with a note
+that a third primary 720 KB disk was meant to carry what the pair leaves off.
+**`more720.img` is that disk**, in `$(SHIPIMGS)` beside the pair, and its
+contents are DERIVED from those omissions rather than listed again:
+
+| Folder | Carries |
+|---|---|
+| `APPS/` | `PIXEL.O88`; `MIDIRACK.O88`, a second copy |
+| `GAMES/` | `REALDMG.O88`, `DRMARCO.O88` |
+| `MEDIA/` | `GBDEMO.GB` (packed), `OS8088.V88`, and in `MIDI/` the eight songs `apps720.img` does not carry |
+| `SYSTEM/APPDATA/` | empty, §19.9 |
+
+It has the apps disk's folders and not a category disk's root (§24.6) because
+it is the apps disk's other half: a user swaps it into B: for the same kind of
+thing. **MIDIRack rides it a second time** — `media360.img`'s shape at 360 KB
+— because the 720 KB system disk does not carry the player, and a `.MID` on a
+volume with no player opens nothing until the apps disk has been mounted. The
+demo video needs no such copy: `VIDEO.O88` is in the system disk's `APPS/`.
+368 of 713 clusters at its first build.
+
+**XTMP3 is not on it yet** and rides `make xtmp3disk`'s 720 KB floppy until
+the owner places it; its player and three songs are about 250 clusters, which
+fit. §24.6.1 binds this disk too: which package rides which 720 KB disk is a
+decision with a date on it, expected to be reordered.
+
 ## 25. icons.inc — icon format, draw routine, built-in library
 
 1-bit icons with a mask, classic Mac style, drawn exactly like the mouse
@@ -222191,7 +222221,7 @@ third-party audio in them.
   timeout; with a refill asked for as soon as a 4 KB gulp fits (§121.6), 0.
   The motor is the inference; the A/B is one run each.
 - **The 720KB disks** carry XTMP3 only on `make xtmp3disk`; whether it rides
-  the third primary 720KB disk is the owner's call.
+  the third primary 720KB disk, `more720.img` (§24.7), is the owner's call.
 - **Not re-run on the shipped build**: of the 86Box matrix, round 3 re-ran
   the 386 on AFTERHRS and the 486 on C128; the other eight rows are round
   2's (d5e53fea), measured before the probe started after the face's

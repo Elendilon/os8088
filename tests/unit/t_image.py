@@ -103,7 +103,10 @@ DATA_IMAGES = ["apps.img", "apps120.img", "apps720.img", "apps360.img",
                # about a bootable volume - have nothing to say about them and
                # do not list them.
                "office360.img", "network360.img", "games360.img",
-               "emu360.img", "util360.img"]
+               "emu360.img", "util360.img",
+               # ...and the 720KB geometry's second apps disk (SPEC.md 24.7),
+               # a DATA image for the same reason
+               "more720.img"]
 
 
 class Vol:

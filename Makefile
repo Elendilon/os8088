@@ -97,6 +97,9 @@ NETWORKIMG360 := $(BUILD)/network360.img
 GAMESIMG360   := $(BUILD)/games360.img
 EMUIMG360     := $(BUILD)/emu360.img
 UTILIMG360    := $(BUILD)/util360.img
+# ...and the 720KB geometry's SECOND apps disk (SPEC.md 24.7): what the 720KB
+# apps disk had to leave off, on a disk of its own beside it
+MOREIMG720    := $(BUILD)/more720.img
 
 # ...and all thirteen in one list, because it appeared in FOUR places (`all`
 # and the three tiers) and each of those had to be edited by hand the first
@@ -106,7 +109,7 @@ UTILIMG360    := $(BUILD)/util360.img
 SHIPIMGS := $(IMG) $(IMG120) $(IMG720) $(IMG360) \
             $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
             $(MEDIAIMG360) $(OFFICEIMG360) $(NETWORKIMG360) $(GAMESIMG360) \
-            $(EMUIMG360) $(UTILIMG360)
+            $(EMUIMG360) $(UTILIMG360) $(MOREIMG720)
 
 # ...and each of them SIGNS IN A SLOT OF ITS OWN (SPEC.md 18.8.2.2): os88disk.py
 # reads this list (tools/os88ship.py) and steers every member's boot-sector
@@ -4803,7 +4806,7 @@ $(BUILD)/os88net.com: drivers/net/os88sfx.asm $(BUILD)/os88net.lz \
 
 # A package-list edit must repack even when its files predate the image.
 $(IMG) $(IMG120) $(IMG720) $(IMG360) \
-$(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360): Makefile
+$(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) $(MOREIMG720): Makefile
 
 $(IMG): $(BUILD)/boot.bin $(KERNFILE) $(DRIVERS) $(SYSAPPS) $(SYSOPTIONAL) $(STIKAPPS) $(SYSTOOLS) $(STIKNOTESTXT) $(SYSROOT) $(SYSINST) $(COREAPPS) $(SYSDOC) $(SYSLOGO) $(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 1440 \
@@ -16013,7 +16016,8 @@ APPSARGS := $(addprefix APPS:,$(APPS_TOOLS)) \
 # 2026-10-22, KERN-MEGA-PLAN 14.67): OS8088.V88 is 101 clusters, data rather
 # than software, and the Video Player plays any .V88 the user brings. It is
 # meant for a third primary 720KB disk, content not yet decided, which is to
-# carry what the 720KB system and apps disks leave off.
+# carry what the 720KB system and apps disks leave off - more720.img (SPEC.md
+# 24.7), which carries it.
 # ...AND XTMP3 IS NOT ON IT (SPEC.md 121.12, 24.6.1's rule, dated 2026-10-22):
 # the disk had 36 of 713 clusters free and the player is 97 of them before a
 # single song. `make xtmp3disk`'s 720KB floppy carries it with all three demo
@@ -16122,6 +16126,30 @@ $(BUILD)/megaapps120.img: $(MEGAPKGS) $(MEGAAPPS120) $(LOGOVID) tools/os88disk.p
 
 $(APPSIMG720): $(APPS720) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 $(APPSARGS720)
+
+# THE SECOND 720KB APPS DISK (SPEC.md 24.7, the owner's of 2026-10-25): the
+# "third primary 720KB disk" the notes above APPS720 kept promising, carrying
+# what the 720KB apps disk left off and DERIVED from those decisions rather
+# than listed again - PiXEL, RealDMG and its cartridge, DrMarco, the demo
+# video and the MIDIRack songs past APPS720's two. The same folders as the
+# apps disk (APPS/, GAMES/, MEDIA/), because it is the apps disk's other half
+# and not a category disk; its own ASSOC.DAT is warm for the packages it
+# carries. MIDIRACK.O88 rides here AGAIN, a second copy beside its songs -
+# media360.img's shape - because the 720KB system disk does not carry it, and
+# a .MID on a disk with no player opens nothing until the apps disk has been
+# mounted. XTMP3 is NOT on it yet: `make xtmp3disk` carries it at 720KB until
+# the owner places it (24.7's note). The order of what goes where is expected
+# to change - 24.6.1's rule, a decision with a date on it.
+MORE720_SONGS := $(filter-out $(MIDISONGS720),$(MIDISONGS))
+MORE720 := $(BUILD)/pixel.o88 $(BUILD)/midirack.o88 $(RDG_SHIP) $(DM_SHIP) $(RDG_DEMO) $(LOGOVID) \
+           $(MORE720_SONGS)
+MOREARGS720 := APPS:$(BUILD)/pixel.o88 APPS:$(BUILD)/midirack.o88 \
+               $(addprefix GAMES:,$(RDG_SHIP) $(DM_SHIP)) \
+               MEDIA:$(RDG_DEMO) $(LOGOVIDARG) \
+               $(addprefix MEDIA/MIDI:,$(MORE720_SONGS)) \
+               $(APPDATAFOLDER)
+$(MOREIMG720): $(MORE720) tools/os88disk.py
+	python3 tools/os88disk.py -o $@ --size 720 $(MOREARGS720)
 
 $(APPSIMG360): $(APPS360) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 360 $(APPSARGS360)
