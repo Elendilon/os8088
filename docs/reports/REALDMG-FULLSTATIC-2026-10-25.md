@@ -970,7 +970,10 @@ left:
   (HRAM thunks, 4.4). PREDICTED: with XMS taking the ROM, the code alone
   still does not fit conventional memory (33 + 64 + 272 + 16 + 128 + 17 +
   10 ≈ 540 KB against ~523). So a 1 MB cartridge needs 6.2: **banked code
-  paged from XMS with its bank**, bank 0's code resident. That costs:
+  paged from XMS with its bank**, bank 0's code resident. **WRONG on both
+  counts, MEASURED in 11.10**: the budget with the HMA is larger, the code
+  is larger (400 KB with the jump tables read), and paging does not help a
+  bank that is always mapped. That costs:
   - a slot of 16 KB of ROM plus that bank's code;
   - an exit into 4000-7FFF jumping far through a per-bank segment table,
     where it compares `S_BANK` today;
@@ -982,6 +985,99 @@ left:
   removes every memory limit in this file, but RealDMG runs there at ~20%
   of its real-mode speed (the owner's observation). That is to be
   understood before it is targeted.
+
+### 11.10 Looney Tunes, MEASURED, and the XMS budget with the HMA
+
+**The two dumps the owner supplied are two releases of ONE game, and both
+are genuine.** Both header checksums and both global checksums are right:
+
+| | `Looney Tunes (USA, Europe).gb` | `Looney Tunes (USA).gbc` |
+|---|---|---|
+| size, MBC | 128 KB, MBC1 (01h), 8 banks | 1 MB, MBC5 (19h), 64 banks |
+| 0143h | 00h, a Game Boy game | **80h: COLOUR-ENHANCED, runs on a Game Boy too**, so RealDMG runs it as one (REALDMG-SPEC 10) |
+| header title | `LOONEY TUNES` | `LOONEY TUNE` + game code `ALTE` |
+| banks holding anything but 00h/FFh | 8 of 8 | **19 of 64**: 45 banks are empty |
+| code by bank (walk, below) | 0, 1, 4, 7 | 0, 1, 4, 6, 7, 8, 0A, 0B, 0F |
+
+- **The code is the same program.** The walk stops at the same `JP HL`
+  sites at the same addresses (01:46EE, 01:7011, 04:7048, 07:4181), and
+  bank 7's 1,047 instructions are identical in count.
+- **The colour release adds colour data** in the banks the monochrome one
+  does not have.
+- **The 2026-10-20 report's "Looney Tunes (1 MB, MBC5)" is the `.gbc`**:
+  13,825 instructions, 97.8%, 45 busy a frame from RAM, all reproduced
+  here.
+
+**Coverage with no play, MEASURED** (`aotjt`, a scratch script: the walk
+plus 3's jump-table rule):
+- All six of its `JP HL` sites are the textbook dispatch: `ADD A / LD C,A /
+  LD B,0 / LD HL,table / ADD HL,BC / LD A,(HL+) / LD H,(HL) / LD L,A /
+  JP HL`.
+- Reading the table at the constant base finds **166 targets in two
+  rounds** and takes the miss from **2.17% to 0.30%** of busy execution on
+  the `.gbc` (3.36% to 0.33% on the `.gb`), with no play.
+- The rule adds 6,464 instructions. 1,162 of them ran, none starts on a
+  byte the game read as data, and the walk hit no invalid opcode. So they
+  are REAL code for things the 107 s did not reach, not data misread.
+- **What is left (0.30%) is not this idiom.** The coverage loop (11.5) is
+  for it.
+
+**RAM code**: 19 sites, 44.7 busy instructions a frame:
+- a dispatcher at C7E2h in WRAM (`LDH A,(n) / AND n / JP Z / CP n / JP Z /
+  JR / JP`), whose bytes are NOT a copy of any ROM sequence: the game
+  builds it;
+- `LD (BC),A / RET`-style thunks at FFE3-FFEDh;
+- the OAM DMA routine at FFF0h.
+- This is the game where the guarded translation of observed RAM code
+  (4.4) pays. If its bytes are not stable, the fallback runs ~1.8% of the
+  frame: slower, never stopped.
+
+**Code size** (MEASURED counts; PREDICTED bytes at 20.2 full, 8 compact):
+
+| bank | `.gbc` instructions | full | compact |
+|---|---|---|---|
+| 0 | 6,990 | 138 KB | 55 KB |
+| 1 | 8,401 | 166 KB | 66 KB |
+| 4 | 2,182 | 43 KB | 17 KB |
+| 6, 7, 8, 0A, 0B, 0F | 2,716 | 54 KB | 21 KB |
+| **whole cartridge** | **20,289** | **400 KB** | **159 KB** |
+
+The `.gb`: 18,341 instructions, 362 KB full, 143 KB compact.
+
+**The budget on a 286 with XMS is bigger than 11.4's, and the HMA is why**
+(the owner's correction):
+- XMEM.DRV moves `.cold` into the HMA at boot (docs/plans/HMA-PLAN.md),
+  ~37 KB on kern_big.
+- The drivers a 286 loads go into the pool under it rather than the heap:
+  SOUND 8 KB, HDD 4 KB, NET 5 KB (HMA-PLAN 5.6).
+- On 11.4's measured ~491 KB that makes **~536 KB, ~568 with the disk cache
+  shed** (PREDICTED, derived). A VGA machine keeps `.vga`'s rung where the
+  Hercules one measured slid it away, so read it as ~530; W2 measures it.
+
+**With XMS holding the ROM** (8 bank slots, 128 KB), PREDICTED:
+
+| | full templates | compact for everything |
+|---|---|---|
+| Kirby's Dream Land | 33 + 64 + 246 + 4 + 128 + 17 + 10 = **~502 KB: fits**, ~30 KB to spare | ~353 KB |
+| Looney Tunes `.gbc` | 33 + 64 + 400 + 8 + 128 + 17 + 10 = ~660 KB: **does not fit** | 33 + 64 + 159 + 8 + 128 + 17 + 10 = **~419 KB: fits**, ~110 KB to spare |
+| Looney Tunes `.gb` (128 KB, whole ROM resident or in XMS) | ~622 KB: does not fit | ~403 KB: fits |
+
+**What this changes:**
+- **11.9's prediction was wrong twice.** The "1 MB" is a 304 KB game in 64
+  banks, and its CODE is what is big. And paging code with its bank (6.2)
+  does not save it: bank 1 alone is 166 KB full and is mapped nearly all
+  the time (1,036 of its instructions are hot). Paging buys nothing for a
+  bank that never leaves.
+- **So Looney Tunes is the first game where the compact grade is the
+  answer and not the fallback**, on any real-mode machine: XMS cannot hold
+  code that runs.
+- **The ~110 KB left beside it is worth spending**: ~9,000 instructions of
+  full templates. That is the walk's loops (11.8) and, with a `NAME.RDH`,
+  the hot ones (11.3).
+- **This makes the full-form shrink (11.8's last list) the most valuable
+  open item.** A full form of ~12-13 bytes an instruction would fit Looney
+  Tunes whole at full speed on a 286 with XMS: 20,289 x 12.5 ≈ 248 KB, a
+  total of ~508.
 
 ## 12. Reproduce
 
