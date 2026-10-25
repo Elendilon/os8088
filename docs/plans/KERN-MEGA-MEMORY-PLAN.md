@@ -1104,6 +1104,23 @@ rows. Nothing is recorded as built that was not.
     disk (`.drvhi`) still move a selector buffer a sector at a time - correct
     after the cut, slow until the drivers take selectors (their wave).
 
+- **Step 5.7, `OSAPI_MEM_HUGE` below 1MB (2026-10-25) - DONE**, taken
+  before 5.6 because 5.2 had broken it: a conventional huge claim answered
+  its selector and CX = 1000h, and a selector + 1000h names some other
+  descriptor. `mega_hugec` remakes the claim's pair as the entry before a
+  RUN of data selectors over it - the run's first IS the claim's value, its
+  code half at - 8 as for every claim - and answers CX = 8; every window is
+  based in the block, so 5.1's rebase and free cover them with nothing
+  added. **The 16KB step** (BX = 4000h) is in both arms - the pool's as
+  `MX_FH16` with `MX_FH32`'s rules (not regrown, moved with the hook held) -
+  for the Video Player's and RealDMG's rolling windows. MEGAXM checks it
+  (steps 5D-5F: 96KB at a 16KB step below 1MB, a byte written through
+  window 5 read back through window 4 at + 4000h, the free) and goes red
+  with the windows filled at 64KB (`MEGAXM: bad 5E`). Cost: kern_mega
+  `.cold` +244, `.mega` +15; kern_big and kern_small byte-identical. Not
+  regrown past its first 64KB below 1MB - a conventional huge claim that
+  grows is a package-wave question if one turns up.
+
 - **The two asks of sections 8 and 9 (2026-10-25) - DONE, as three
   `OSAPI_SEG` verbs** (SPEC.md 50.6.11), taken now so neither round has to
   reopen the end state:

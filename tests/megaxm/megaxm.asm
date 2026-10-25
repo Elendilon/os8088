@@ -35,7 +35,10 @@
 ;                              and its code half at DX - 8; a BOUND window
 ;                              (SEG_BWIN) aimed at chunk 2's byte 100 by
 ;                              SEG_AIM, refused 5 past the block's end, and
-;                              freed - and on a real-mode kernel the SUB and
+;                              freed; an OSAPI_MEM_HUGE claim of 96KB BELOW
+;                              1MB as a run of selectors 16KB apart, a byte
+;                              read through two windows - and on a
+;                              real-mode kernel the SUB and
 ;                              the SUBC are the caller's own segment + AX
 ;                              and SEG_AIM is refused
 ;   MEGAXM: move OOOO PPPP     (protected mode) THE BLOCK MOVED, and is read
@@ -478,6 +481,34 @@ mz_sel:
     mov bl, SEG_FREE
     call OSAPI_SEG
     mov cl, 0x5C
+    jc .refused
+    mov ax, 96                  ; --- OSAPI_MEM_HUGE BELOW 1MB (this package
+    mov bx, 0x4000              ; is not OS88_HIGHMEM): a RUN of selectors,
+    call OSAPI_MEM_HUGE         ; a window every 16KB (KERN-MEGA-MEMORY-PLAN
+    mov ax, cx                  ; MC7.4)... (the step, before CL is ours)
+    mov cl, 0x5D
+    jc .refused
+    mov [mz_huge], dx
+    cmp ax, 8                   ; the step: a selector run's (5D)...
+    jne .wrong
+    mov cl, 0x60                ; ...and the 16KB ask met (60)
+    or bx, bx
+    jnz .wrong
+    mov ax, dx                  ; ...byte 0 of window 5 (80KB in)...
+    add ax, 5 * 8
+    mov es, ax
+    mov byte [es:0], 0xC3
+    mov ax, dx                  ; ...is byte 4000h of window 4 (64KB in)
+    add ax, 4 * 8
+    mov es, ax
+    mov cl, 0x5E
+    cmp byte [es:0x4000], 0xC3
+    jne .wrong
+    push ds
+    pop es
+    mov dx, [mz_huge]           ; ...and it goes back by its first selector
+    call OSAPI_MEM_FREE
+    mov cl, 0x5F
     jc .refused
 .say:
     mov si, mz_s_sel
@@ -935,7 +966,7 @@ mz_s_at:    db 'MEGAXM: at ', 0
 mz_s_i13:   db 'MEGAXM: i13 ok', 0
 mz_s_move:  db 'MEGAXM: move ', 0
 
-    OS88_BSS 20 + MZ_CHUNK
+    OS88_BSS 22 + MZ_CHUNK
     OS88_IMAGE_END
 
 mz_base     equ os88_image_end + 0
@@ -946,3 +977,4 @@ mz_diff     equ os88_image_end + 12
 mz_fill4    equ os88_image_end + 14 ; dword: the filler's token, 0 = none
 mz_buf      equ os88_image_end + 18
 mz_win      equ os88_image_end + 18 + MZ_CHUNK ; SEG_BWIN's window
+mz_huge     equ os88_image_end + 20 + MZ_CHUNK ; OSAPI_MEM_HUGE's run

@@ -2716,10 +2716,12 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; first segment or selector and CX = the step
                                  ; to its next 64KB - add CX to DX per 64KB,
                                  ; never a constant. CX = 1000h for a claim in
-                                 ; conventional memory, on every kernel; CX = 8
-                                 ; on kern_mega in protected mode for an
-                                 ; OS88_HIGHMEM package, whose claim is ONE
-                                 ; block above 1MB under a run of selectors,
+                                 ; conventional memory on a real-mode kernel;
+                                 ; CX = 8 on kern_mega in protected mode -
+                                 ; below 1MB too (KERN-MEGA-MEMORY-PLAN MC7.4),
+                                 ; and for an OS88_HIGHMEM package a claim
+                                 ; that is ONE block above 1MB under a run of
+                                 ; selectors,
                                  ; each a 64KB window (the last its claim's
                                  ; end) - a megabyte and more where the
                                  ; machine has it. CF=1 refused - above 1MB
@@ -2738,10 +2740,11 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; the claim's end - OSAPI_XMEM_RUN's shape on
                                  ; a claim that moves, so ANY 32KB of it is
                                  ; whole in the window at (offset >> 15), at
-                                 ; (offset & 7FFFh). Answered BX = 0 when that
-                                 ; is what you got; BX kept otherwise (a claim
-                                 ; in conventional memory, CX = 1000h, or a
-                                 ; kernel that has no such run). Such a claim
+                                 ; (offset & 7FFFh). BX = 4000h asks for a
+                                 ; window every 16KB, the same way. Answered
+                                 ; BX = 0 when that is what you got; BX kept
+                                 ; otherwise (CX = 1000h, or a kernel that has
+                                 ; no such run). Such a claim
                                  ; does not REGROW (CF=1, nothing changed),
                                  ; and the kernel moves it 64KB at a time
                                  ; with your FSXF_RATE hook held off until

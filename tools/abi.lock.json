@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "4ef8b8ac9193497a57210cae2ab644ebdf6c154ea624f611a1efcefbc08e41f9",
+  "fingerprint": "5d397d8206b080d0b00536f243004bad0aa3a13a7ff48375612583d968847be5",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "05665d120013aa3e2ea49bb205f12a22847509b2e17f8573a1e224eefed1c727",
+  "fingerprint": "13e3789b7fd61388c5c2c621a9e780d49e90f69b9d5207eb076a52d3851c0ee2",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1148,6 +1148,20 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_SEG: SEG_AIM refuses on a real-mode kernel (the caller's own sum); additive",
+   "to": 11
+  },
+  {
+   "fingerprint": "13e3789b7fd61388c5c2c621a9e780d49e90f69b9d5207eb076a52d3851c0ee2",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_HUGE: CX = 8 for a conventional claim on kern_mega in protected mode too, and BX = 4000h asks for a window every 16KB (KERN-MEGA-MEMORY-PLAN MC7.4); a program that walks by CX is unchanged",
+   "to": 10
+  },
+  {
+   "fingerprint": "5d397d8206b080d0b00536f243004bad0aa3a13a7ff48375612583d968847be5",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_HUGE: CX = 8 for a conventional claim on kern_mega in protected mode too, and BX = 4000h asks for a window every 16KB (KERN-MEGA-MEMORY-PLAN MC7.4); a program that walks by CX is unchanged",
    "to": 11
   }
  ]

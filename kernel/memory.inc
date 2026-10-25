@@ -4871,6 +4871,21 @@ mmf_osapi_mem_huge:
 %endif
     xor cx, cx                  ; no head: no 64KB page constraint
     call osapi_mem_claim_dma_x
+%ifdef KERN_MEGA
+    jc .hrm
+    cmp byte [mega_on], 0       ; PROTECTED MODE: the claim is a selector, so
+    je .hrm                     ; its next 64KB is a run's next one and not
+    call mega_hugec             ; + 1000h (KERN-MEGA-MEMORY-PLAN MC7.4)
+    jnc .hret
+    push bx                     ; no run: the claim goes back, refused
+    call mem_own
+    call mem_free_x
+    pop bx
+    stc
+.hret:
+    retf
+.hrm:
+%endif
     mov cx, 0x1000              ; OS88_HUGE_INCR (mov leaves CF)
     retf                        ; (ODD on every kernel, and so is mem_claim_1's
                                 ; range test above: the two cancel, and

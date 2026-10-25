@@ -4841,15 +4841,7 @@ mega_hugef:
     call MEGA_SEL_CODE:mx_allocf       ; DX:AX = the block's base
     jc .nol
     mov cx, bp
-    cmp si, 0x8000
-    je .c32
-    call mega_hgcnt                 ; CX = the selectors (<= 240: 15MB)
-    jmp short .cn
-.c32:
-    add cx, 31                      ; ...or one per 32KB (<= 480)
-    rcr cx, 1
-    shr cx, 4
-.cn:
+    call mega_hgcntx                ; CX = the selectors for SI's step
     mov di, MEGA_SEL_LDTD
     mov es, di
     pushf
@@ -4858,13 +4850,7 @@ mega_hugef:
     jc .full
     push bx
     mov bx, bp
-    cmp si, 0x8000
-    je .f32
-    call mega_hgfill
-    jmp short .fd
-.f32:
-    call mega_hgfill32
-.fd:
+    call mega_hgfillx               ; ...filled at SI's step
     pop bx
     popf
     lea bp, [di+4]                  ; BP = the first selector (TI = 1)
@@ -4874,8 +4860,14 @@ mega_hugef:
     mov dx, bp
     mov cx, 8
     cmp si, 0x8000
-    jne .ok
+    jne .n32
     or byte [ss:di+MX_FL], MX_FH32
+    jmp short .met
+.n32:
+    cmp si, 0x4000
+    jne .ok
+    or byte [ss:di+MX_FL], MX_FH16
+.met:
     mov bp, sp
     mov word [ss:bp+8], 0           ; the caller's BX: 0, the ask was met
 .ok:
@@ -4906,6 +4898,133 @@ mega_hgcnt:
     rcr cx, 1
     shr cx, 5
     ret
+
+; mega_hugec - OSAPI_MEM_HUGE's CONVENTIONAL arm in protected mode (KERN-MEGA-
+; MEMORY-PLAN MC7.4): DX = the claim osapi_mem_claim_dma_x has just made (its
+; pair's data selector), AX = its KB, BX = the ask (8000h a window every 32KB,
+; 4000h every 16KB, else every 64KB) -> CF = 0, DX = the first of a RUN of
+; data selectors over it, a 64KB window each (the last its end), CX = 8, BX =
+; 0 when a 32KB or 16KB step was asked and given; CF = 1 no run of LDT entries
+; was free (the caller gives the claim back). The pair is remade as the entry
+; BEFORE the run, so the run's first selector IS the claim's value - its code
+; half at - 8, as for every claim - and every window is based in the block:
+; mega_mpmovef rebases them with a move and mega_mpfreef frees them with it.
+; Not regrown past its first 64KB. Clobbers nothing else
+mega_hugec:
+    push ax
+    push bx
+    push si
+    push di
+    push bp
+    push es
+    mov si, bx                      ; SI = the ask
+    mov bp, ax                      ; BP = KB
+    mov bx, mem_sel
+.f:
+    cmp [ss:bx], dx
+    je .got
+    inc bx
+    inc bx
+    cmp bx, mem_sel + MEGA_MSELN * 2
+    jb .f
+    jmp .no
+.got:
+    push bx                         ; [the claim's mem_sel slot]
+    mov cx, bp
+    call mega_hgcntx                ; CX = the windows...
+    inc cx                          ; ...and the code half before them
+    push dx                         ; [the old data selector]
+    mov di, dx
+    and di, 0xFFF8
+    mov ax, MEGA_SEL_LDTD
+    mov es, ax
+    mov ax, [es:di+2]
+    mov dl, [es:di+4]
+    xor dh, dh                      ; DX:AX = the claim's base
+    pushf
+    cli                             ; the scan and the claim are one step
+    call mega_hgfree                ; DI = a run of CX free entries
+    jc .full
+    push bx
+    mov bx, 0xFFFF                  ; the code half: the first 64KB...
+    cmp bp, 64
+    jae .cl
+    mov bx, bp                      ; ...or the claim's end
+    shl bx, 10
+    dec bx
+.cl:
+    mov [es:di], bx
+    pop bx
+    mov [es:di+2], ax
+    mov [es:di+4], dl
+    mov byte [es:di+5], 0x9A
+    mov word [es:di+6], 0
+    add di, 8
+    dec cx
+    push bx
+    mov bx, bp
+    call mega_hgfillx               ; the windows, at SI's step
+    pop bx
+    popf
+    pop ax                          ; the old pair goes back
+    push ax
+    sub ax, 8
+    call MEGA_SEL_CODE:mega_ldt_freef
+    pop ax
+    call MEGA_SEL_CODE:mega_ldt_freef
+    pop bx                          ; the slot...
+    lea dx, [di+4]                  ; ...holds the run's first selector
+    mov [ss:bx], dx
+    mov cx, 8
+    cmp si, 0x8000
+    je .met
+    cmp si, 0x4000
+    jne .ok
+.met:
+    mov bp, sp
+    mov word [ss:bp+8], 0           ; the caller's BX: 0, the ask was met
+.ok:
+    clc
+    jmp short .o
+.full:
+    popf
+    pop dx
+    pop bx
+.no:
+    stc
+.o:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; mega_hgcntx - CX = KB, SI = the ask (8000h a window every 32KB, 4000h
+; every 16KB, else 64KB) -> CX = the run's selectors. Clobbers nothing else
+mega_hgcntx:
+    cmp si, 0x8000
+    je .c32
+    cmp si, 0x4000
+    jne mega_hgcnt
+    add cx, 15                      ; one per 16KB
+    rcr cx, 1
+    shr cx, 3
+    ret
+.c32:
+    add cx, 31                      ; ...or one per 32KB
+    rcr cx, 1
+    shr cx, 4
+    ret
+
+; mega_hgfillx - mega_hgfill at SI's step (mega_hgcntx's). Clobbers nothing
+mega_hgfillx:
+    cmp si, 0x8000
+    je mega_hgfill32
+    cmp si, 0x4000
+    je mega_hgfill16
+    jmp mega_hgfill
 
 ; mega_hgchk - ES = MEGA_SEL_LDTD, DI = an entry's offset, CX = a count ->
 ; CF = 0 the CX entries from DI are all free (DI and CX kept); CF = 1 one is
@@ -4950,6 +5069,10 @@ mega_hgfree:
 ; window each and the last ending at the claim's end. SI = 8000h: a window
 ; every 32KB from mega_hgfill32 instead, each still 64KB long (OSAPI_XMEM_RUN's
 ; shape, KERN-MEGA-PLAN 14.41). Clobbers nothing
+mega_hgfill16:
+    pusha
+    mov bp, 2
+    jmp short mega_hgfill.go
 mega_hgfill32:
     pusha
     mov bp, 1
@@ -4978,9 +5101,16 @@ mega_hgfill:
     sub bx, 64
     jmp short .nx
 .h32:
+    cmp bp, 1
+    jne .h16
     add ax, 0x8000                  ; ...or the next 32KB
     adc dl, 0
     sub bx, 32
+    jmp short .nx
+.h16:
+    add ax, 0x4000                  ; ...or the next 16KB
+    adc dl, 0
+    sub bx, 16
 .nx:
     add di, 8
     loop .fill
@@ -6257,6 +6387,10 @@ MX_FPIN     equ 8                   ; MX_FL: PINNED - something holds its
                                     ; arena, the hibernate's resume staging),
                                     ; so the compactor leaves it where it is.
                                     ; Every other block but the HMA moves (MC3)
+MX_FH16     equ 0x20                ; ...with MX_FHUGE: a window every 16KB,
+                                    ; each 64KB long (BX = 4000h asked it,
+                                    ; KERN-MEGA-MEMORY-PLAN MC7.4), MX_FH32's
+                                    ; rules otherwise
 MX_FWIN     equ 0x10                ; MX_FL: an OSAPI_SEG BOUND window lives in
                                     ; it (SEG_BWIN), which a rate hook may read
                                     ; through: it moves with the hook held off
@@ -6650,9 +6784,15 @@ mx_unsel:
     mov cx, [ss:si+MX_KB]          ; package's or a driver's. Every other block
                                 ; has the one selector it was given
     test byte [ss:si+MX_FL], MX_FH32   ; (or one per 32KB, KERN-MEGA-PLAN 14.41)
-    jz .h64
+    jz .h16
     add cx, 31
     shr cx, 5
+    jmp short .l
+.h16:
+    test byte [ss:si+MX_FL], MX_FH16   ; (or per 16KB, KERN-MEGA-MEMORY-PLAN
+    jz .h64                            ; MC7.4)
+    add cx, 15
+    shr cx, 4
     jmp short .l
 .h64:
     add cx, 63
@@ -8407,7 +8547,7 @@ mx_cpflags:
     jbe .h
     mov al, MX_CPRISE
 .h:
-    test byte [ss:di+MX_FL], MX_FH32
+    test byte [ss:di+MX_FL], MX_FH32 | MX_FH16
     jz .run
     cmp byte [ss:di+MX_OWN], 0xA0
     jb .o
@@ -9089,8 +9229,8 @@ mega_claimregrowf:
 ; A refusal (no KB, or no run of LDT entries) leaves MX_KB as it was, and
 ; the claim's bytes and run whole, wherever the pass left them
 .huge:
-    test byte [ss:si+MX_FL], MX_FH32   ; (windows 32KB apart: not regrown, 14.41)
-    jz .h64
+    test byte [ss:si+MX_FL], MX_FH32 | MX_FH16 ; (windows 32KB or 16KB
+    jz .h64                         ; apart: not regrown, 14.41)
     jmp .nol
 .h64:
     cmp bp, [ss:si+MX_KB]
