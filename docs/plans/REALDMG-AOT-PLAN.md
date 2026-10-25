@@ -148,4 +148,40 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   kern_mega arm are byte-identical to elendilon's; the precompiled gates
   pass on the merged core.
 - [ ] kern_mega's arm (REALDMG-SPEC 20.14): today it refuses there, cleanly.
-- [ ] Optimisation for Looney Tunes and the rest: next.
+- [ ] kern_mega's arm is ON HOLD at the owner's word until the mega memory
+  rework lands; it and that rework are both "how kern_mega does memory".
+- [x] Speed, round 1 (86Box `286-victory`, 580K heap, Looney Tunes (GBC)
+  holding Right through the stretch at 20-38 s that saturates both arms;
+  `tests/rdgcore/rdgwin.py --profile` now charges samples to the
+  precompiled images and their blocks):
+
+  | | images | 25 s | 40 s |
+  |---|---|---|---|
+  | REALDMG.O88 | - | 89.3% (23% at worst) | - |
+  | precompiled, as shipped | 1 of 8 | 97.2% | - |
+  | ...images claimed first, from the ceiling, the load's hold let go | 2 of 8 | 95.5% | 91.5% |
+  | ...the misses walked, their heat their blocks', counted on the stretch | 2 of 8 | - | 92.5% |
+
+  The seconds inside the stretch move by +-15 points between two runs of
+  one package, so the image fix is NOT a measured speed-up here: this
+  scene's hot code was in image 0 all along. What it buys is the cold
+  code a different scene runs, which the stretch does not exercise.
+
+  Found and fixed on the way (REALDMG-SPEC 20.3, 20.10, 20.11): the plan
+  gave every KB to bank slots before a cold image; two of our own claims
+  held mid-heap split the slots' run; a block at FF:3FFE across the bank
+  boundary that a miss made a start HUNG the promoted build after frame
+  3,000 (the packages sent before it carry that block); a miss's entries
+  never reached its block, and a miss the first walk had not reached was
+  dropped. Kirby on the owner's replay keeps 99.5% (10 slots, 4 fetched).
+- [ ] Speed, round 2 - the translator, shared with REALDMG.O88. The stretch
+  is the game's object loop at FF:3E44/3E52 (32 bytes to HRAM and back with
+  `LD (FF00+C)`, eight objects a pass): 17% of the machine on BOTH arms,
+  ~22 x86 instructions a pass of 5 Game Boy ones. What carries it: the
+  `LD A,(HL+)` region compares, the HRAM store's guard, and the flags'
+  `sahf / dec / lahf / or ah,20h / sahf` round trip on every DEC whose Z
+  the branch reads. Kept in x86 form through a loop and made AH only on its
+  exit, that last is ~5 instructions a pass. Not started: it is the shared
+  flag model, and the gates are cpu_instrs, the 15 ROMs and both arms.
+- [ ] The RAM idiom (W0): HRAM's DMA routine is 9,518 of the stretch's
+  13,053 misses (FF:FFE9), interpreted.
