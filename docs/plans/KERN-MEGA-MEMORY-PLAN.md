@@ -1736,6 +1736,38 @@ rows. Nothing is recorded as built that was not.
   a 386), the shipped build's own image under kern_mega (its claim code is
   the arm's byte for byte), a 32 KB-cluster volume (whose claim passes
   64KB and is conventional), and a pool compaction under a running play.
+  **SHEET declares OS88_HIGH and OS88_HIGHMEM (2026-10-25)**, and its two
+  `tests/megahigh.txt` lines are gone. Both reasons had been answered
+  already: the far vectors into the chart and macro modules are built from
+  `op_cseg` (the CODE half), the CS `ch_ovbind`/`sh_ovbind` stamp is the
+  region's own code half, `ch_xthunk` compares the code half (batch 1),
+  and the note/table carves and the row-height table are `SEG_SUB`
+  windows (batch 2). What the declaration still needed was a run and one
+  fix: the macro module's text channels (`FOPEN`...`FCLOSE`, 81.91) made
+  ES its own CS with `push cs / pop es` and handed that to
+  `OSAPI_FILE_READ`/`WRITE`, so the kernel's file read and the module's
+  `[es:]` stores went through a read-only code selector - completed by
+  `mega_gpw` one #GP each, a cost and not a defect. They take the part's
+  DATA half now, `[sh_m2dseg]` (set by `sh_m2need` from `op_seg`, kept by
+  `sh_partmv` on a real-mode move). The modules' claims are DMA-door claims
+  and stay conventional; the region and the five data claims go above
+  1MB. COST: image +12 (54,718 -> 54,730), bss +2 (9,490 -> 9,492), the
+  macro part +8 inside its fixed 28,672 bytes, `SHEET.O88` +4 on disk;
+  one shared path, no `PKG_MEGA` arm - the four `mov es, [sh_m2dseg]` are
+  outside any loop. Row `megasheet` (Bochs, MEGATRAP=1's census): the
+  region and claims above 1MB, a SYLK opened by double-click, Data > Chart
+  Column... drawn by the chart module, both vectors code halves, a macro
+  summing a FOR/NEXT and reading and writing a file through a channel,
+  no CLOSED or FAULT, and no #GP that is a far transfer or a store through
+  the macro module's code selector in DS/ES. Red with `op_seg` in
+  `ch_ovneed` or `ch_xthunk` comparing `ch_ovseg` (FAULT 0D at the
+  document's read), with `push cs / pop es` back (census only), and on the
+  parent's `SHEET.O88` (region at 090000). STILL PAID: 164 #GPs in that one
+  macro run, every one a `mov [cs:x], ...` in the macro module (none in
+  the chart module) - item 11's speed-pass entry, unchanged. Not
+  exercised under kern_mega: notes, row heights and Insert/Delete Row (the
+  `SEG_SUB` carves), Undo, the BIFF/DIF writers, Export Chart as BMP, the
+  dialog engines past Run, and any adapter but Bochs's VGA.
   **Paint (2026-10-25) - DONE, one shared path.** A canvas over 64KB under
   protected mode is laid out in `SEG_SUB` windows at fixed 32KB offsets
   (`pt_layout`'s `.win`): a row at file offset O is window O >> 15 at O &

@@ -6152,6 +6152,27 @@ SOAK = [
         wants=("build/mega.img", "build/megak/kernel.map",
                "build/megarun.o88", "build/megak/apps/xtmp3.o88",
                "build/megak/apps/xtmp3.map")),
+    Row("megasheet", "soak", py("tests/megasheet.py"), 80.0,
+        "SHEET ABOVE 1MB UNDER kern_mega (KERN-MEGA-MEMORY-PLAN MC7): it "
+        "far-calls code in two claims - the chart and macro modules, parts "
+        "of SHEET.O88 - and they call back through vectors stamped with the "
+        "region's CS, every one a selector pair there. MEGATRAP=1's census "
+        "(a private tree) under Bochs at 16MB, a SYLK document double-"
+        "clicked in C:\\DOCS: the region and its five data claims above "
+        "1MB (OS88_HIGH | OS88_HIGHMEM, which retired its two "
+        "tests/megahigh.txt lines), Data > Chart Column... drawn by the "
+        "chart module, both module vectors the CODE half of their pairs, a "
+        "macro run summing a FOR/NEXT and reading and writing a text file "
+        "through a channel in the macro module's claim (OUT.TXT read back "
+        "off C:), no CLOSED or FAULT, and no far transfer completed by "
+        "mega_gpfix and no store through the macro module's code selector "
+        "in DS/ES. RUN RED: ch_ovneed's vector from op_seg, or ch_xthunk "
+        "comparing the module's data selector, FAULT 0D at the document's "
+        "read; the channels' `push cs / pop es` put back works and fails "
+        "the census; the parent's SHEET.O88 runs at 090000. 80s is 27 "
+        "measured plus ~45 for the MEGATRAP tree the first time",
+        needs=("bochs", "nasm"),
+        wants=("build/sheet.o88",)),
     Row("cmemmove", "soak", py("tests/cmemmove.py"), 60.0,
         "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "
