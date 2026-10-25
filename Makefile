@@ -3592,8 +3592,14 @@ APPSYSARGS := $(addprefix SYSTEM:,$(APPSYS))
 # was already lying in build/, which reads exactly like a stale package rather
 # than like a missing dependency. The guard that keeps these on the apps disk
 # too is down beside APPS_TOOLS, where both lists exist.
+# REDLINE is the seventh (SPEC.md 24.3.2) and, like FONTVIEW, rides the system
+# disks ALONE ($(CORE_SYSONLY)): a benchmark answers "what is this machine",
+# and the disk every machine boots is the one sure to be in a drive. The 360KB
+# system disk leaves it off ($(SYS360OMIT)) - util360.img carries it there -
+# and kern_mega's disks leave it off too ($(MEGACOREOMIT)).
 CORE_TOOLS := $(BUILD)/browser.o88 $(BUILD)/fontview.o88 \
-              $(BUILD)/notepad.o88 $(BUILD)/paint.o88 $(BUILD)/telnet.o88
+              $(BUILD)/notepad.o88 $(BUILD)/paint.o88 $(BUILD)/telnet.o88 \
+              $(BUILD)/redline.o88
 CORE_GAMES := $(BUILD)/mines.o88
 COREAPPS := $(CORE_TOOLS) $(CORE_GAMES)
 COREAPPSARGS := $(addprefix APPS:,$(CORE_TOOLS)) \
@@ -3898,8 +3904,12 @@ SYSDOCRAW := $(BUILD)/readme-plain.txt
 # would list a folder that is no longer here. apps/os88type.inc's ty_gofonts
 # looks on the program's OWN volume when the system disk has no SYSTEM/FONTS,
 # which is what makes office360's copy the one those programs find.
+#
+# **AND REDLINE NEVER WENT ON IT** (SPEC.md 24.3.2): the benchmark joined the
+# core set for the three roomier system disks, and at 360KB it rides
+# util360.img beside System Check (24.3.1.7) instead.
 SYS360OMIT := $(BUILD)/browser.o88 $(BUILD)/telnet.o88 $(BUILD)/mines.o88 \
-              $(BUILD)/paint.o88 $(BUILD)/fontview.o88
+              $(BUILD)/paint.o88 $(BUILD)/fontview.o88 $(BUILD)/redline.o88
 CORE_TOOLS360 := $(filter-out $(SYS360OMIT),$(CORE_TOOLS))
 CORE_GAMES360 := $(filter-out $(SYS360OMIT),$(CORE_GAMES))
 COREAPPS360 := $(CORE_TOOLS360) $(CORE_GAMES360)
@@ -14492,7 +14502,10 @@ MEGASYSAPPSARGS = $(addprefix SYSTEM:,$(call MEGASUB,$(SYSAPPS)))
 # need: the merge that brought them put them on kern_big's disks only, and
 # kern_mega is the kernel that runs on machines with a CD-ROM drive in them
 MEGASYSOPTARGS = $(addprefix SYSTEM:,$(call MEGASUB,$(SYSOPTIONAL)))
-MEGACOREARGS = $(addprefix APPS:,$(call MEGASUB,$(CORE_TOOLS))) \
+# ...less REDLINE (SPEC.md 24.3.2): its inventory pass rewrites its own code
+# (103.2) and it has never been run under kern_mega's selectors
+MEGACOREOMIT := $(BUILD)/redline.o88
+MEGACOREARGS = $(addprefix APPS:,$(call MEGASUB,$(filter-out $(MEGACOREOMIT),$(CORE_TOOLS)))) \
                $(addprefix GAMES:,$(call MEGASUB,$(CORE_GAMES)))
 
 $(MEGAAPPDIR)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
@@ -15459,7 +15472,9 @@ APPS_GAMES_360 := $(filter-out $(BUILD)/pxstein.o88 $(BUILD)/gorillas.o88 \
 # make can act on; taking a package off the apps disks means adding it here,
 # and putting one back means taking it out, so neither can be done by
 # accident and neither weakens the rule for anything else.
-CORE_SYSONLY := $(BUILD)/fontview.o88
+# REDLINE.O88 is the second (SPEC.md 24.3.2): it was never on an apps disk at
+# 1.44MB, 1.2MB or 720KB, and the system disks are where it went.
+CORE_SYSONLY := $(BUILD)/fontview.o88 $(BUILD)/redline.o88
 
 # ...and a guard on the guard: a name in $(CORE_SYSONLY) that is not core at
 # all is an exception excusing nothing, which is how an exception list rots.
@@ -16520,7 +16535,7 @@ N1942SCENES = $(if $(strip $(N1942_ROM)),WORLD.V42 WORLD.C42,SEA.V42 REEF.V42 PO
 # rides GAMES\ in the set below rather than a folder of its own.
 N1942PARTS = $(addprefix $(BUILD)/,1942V.GFX 1942VX.GFX 1942L.GFX 1942C.GFX 1942CX.GFX 1942.SFX $(N1942SCENES))
 N1942LIVE := $(BUILD)/1942.o88
-ALLAPPSFILES := $(BUILD)/redline.o88 $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUILD)/frotz.o88 \
+ALLAPPSFILES := $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUILD)/frotz.o88 \
                 $(BUILD)/MIDIRACK.BNK \
                 $(BUILD)/word.o88 $(BUILD)/WELCOME.DOC \
                 $(CWORDDISK) \
@@ -16543,7 +16558,7 @@ ALLAPPS := $(ALLAPPSFILES) $(BUILD)/runcpm-src.stamp tools/getruncpm.py
 # volume's ASSOC.DAT (54.7.1). The LOOM=32 directory slots below are priced
 # by os88allapps.py like every other entry.
 
-ALLAPPSARGS := APPS:$(BUILD)/redline.o88 $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
+ALLAPPSARGS := $(addprefix APPS:,$(APPS_TOOLS) $(CORE_SYSONLY) \
                                  $(BUILD)/frotz.o88 \
                                  $(BUILD)/MIDIRACK.BNK) \
                $(addprefix GAMES:,$(APPS_GAMES) $(RDG_SHIP) $(N1942LIVE)) \

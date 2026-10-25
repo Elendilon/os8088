@@ -53966,10 +53966,10 @@ disk's entries `A_ARCH` (§19.6 locks down the *system* disk only), so it
 copies, and the user is meant to copy it. Nesting it is what §24's folder
 paths exist for, and it is the first and so far only shipped use of them.
 
-### 24.3 CORE PACKAGES — six programs ride the system disk too
+### 24.3 CORE PACKAGES — seven programs ride the system disk too
 
-Six packages are **core**: `NOTEPAD.O88`, `FONTVIEW.O88`, `PAINT.O88`,
-`BROWSER.O88`, `TELNET.O88` and `MINES.O88`. They ship on the three shipped
+Seven packages are **core**: `NOTEPAD.O88`, `FONTVIEW.O88`, `PAINT.O88`,
+`BROWSER.O88`, `TELNET.O88`, `MINES.O88` and, since §24.3.2, `REDLINE.O88`. They ship on the three shipped
 **system** disks in addition to the apps disks, each in the folder it already
 occupies over there — `APPS/` for the first five, `GAMES/` for Mines. **A
 second copy, never a move:** the roomier apps disks carry every package there
@@ -54469,6 +54469,24 @@ geometry.
 `tests/unit/t_sysman.py` holds both halves: System Check absent from
 `os8088-360.img` and present at util360's root. `tests/instdeep.py`, which
 installs from the 360KB pair, no longer expects `SYSTEM/DOS/`.
+
+#### 24.3.2 REDLINE joins the system disks — the second system-only core package
+
+`REDLINE.O88` (§103) is in `APPS/` on the 1.44 MB, 1.2 MB and 720 KB system
+disks, and like `FONTVIEW.O88` it is on **no** apps disk at those geometries:
+`CORE_SYSONLY` names it. A benchmark's question is *what is this machine*, and
+the disk every machine boots is the one sure to be in a drive; before this it
+rode only its own disks, the everything set and `util360.img`, so at the three
+roomier geometries the shipped pair did not carry it at all. 28 KB, measured
+against the free space each system disk had (82 of 713 clusters at 720 KB, far
+more at the other two) and held to `t_sysfree`'s floor.
+
+Two disks leave it off. **The 360 KB system disk** (`SYS360OMIT`):
+`util360.img` carries it there beside System Check (§24.3.1.7). **kern_mega's
+system disks** (`MEGACOREOMIT`): REDLINE's inventory pass rewrites its own
+code (§103.2) and it has never been run under kern_mega's selectors, so it
+stays off them until somebody has. The everything set and the live media take
+it through `CORE_SYSONLY`, as they take `FONTVIEW.O88`.
 
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 
@@ -203388,7 +203406,9 @@ the sprites 8,590 -> 8,485 (KERN-MEGA-PLAN 14.21 has the CGA and Hercules rows).
 
 REDLINE.O88 is an on-demand native benchmark and inventory package. `make redline`
 builds it; `make redlinedisk` builds dedicated FAT12 media in all four geometries.
-The everything application set carries it in APPS/. No resident kernel bytes.
+The everything application set carries it in APPS/, so do the 1.44MB, 1.2MB and
+720KB system disks (a core package, §24.3.2), and `util360.img` at 360KB. No
+resident kernel bytes.
 
 ### 103.1 Measurements and interface
 
