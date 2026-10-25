@@ -452,6 +452,112 @@ must stay byte-identical except where a wave says why not.
   under `make mega`, the adapters' boots; a new row that opens programs until
   the LDT grows and asserts the GDT's limit is the floor's.
 
+#### MC7.1 The census (2026-10-25)
+
+Five read-only passes over the tree at `331b47f7` (after MC3): the kernel in
+three slices, the packages with the C SDK, and the drivers. Each site was
+classed OPAQUE (only held and loaded: works once the value is a selector),
+ARITH (a segment made by arithmetic, compared by order, or turned into a
+linear address), REAL (handed to real-mode code or to hardware), CONST (an
+immediate segment at or above the floor) or IDENTITY (a segment used as a
+key). The findings that decide the design:
+
+- **The kernel's claim choke point is one routine.** `mem_claim_1`'s publish
+  (memory.inc) is where every conventional claim - about 45 kernel call
+  sites and every package and driver claim through `mmf_osapi_mem_claim*` -
+  gets its value. A selector allocated there, with the record keeping its
+  physical paragraph (MC_SEG/MC_PARA bookkeeping, ~95 lines, stays
+  physical), reaches every claimant at once. Four lookup helpers
+  (`mem_find_own`, `mem_owner_of_x`, `mem_is_region`, `mem_in_xfer`) carry
+  most of the identity compares.
+- **The TI bit is used as "above 1MB" at about twenty sites** (memory.inc
+  ×7, loader ×3, mod ×2, driver ×3, disk ×3, lz ×2, plus `dsk_runcap`).
+  Once every claim is an LDT selector they all misroute silently. One
+  predicate - "is this a pool block?", by base or by owner - replaces them.
+- **The code aliases already have a pair arm everywhere.** `MEGA_CSELTOP`,
+  `mega_frame_cs`, `mem_reloc_call`, `mega_cs2ds`/`dsimg`/`csdata` and
+  `mega_codesel` all handle a code/data pair (code = data - 8). Once every
+  CS-able claim is a pair, the `(S>>2)|4` arms are dead code. The 232
+  module `CSDO`/`PUSH_CSDATA` sites need nothing.
+- **The compactor's copy engine** (`mem_bcopy`) loads arbitrary paragraphs;
+  it becomes a linear copy plus a descriptor rebase (MC3's pool rule), and
+  the relocation protocol's kernel half (`mem_rr_tab`, the IVT rows, the
+  worker restart) becomes a no-op for selector holders.
+- **Video is one table.** `vid_tab`'s segment column feeds `vid_seg`,
+  `vid_rseg`, `vid_tseg` and the two `vid_ctx` records; twelve planar hot
+  paths load `VGA_SEG` as an immediate (`mov es, [vid_seg]` is a byte
+  shorter); `fsx_mtab` hands nine framebuffer segments to packages, and no
+  package does arithmetic on FSI_SEG (pages are reached by offset). The ROM
+  font is one word, `font_seg`, with four origins decided in real mode.
+- **The file layer**: `dsk_runcap` is the one DMA-page authority and must
+  work from a LINEAR base; `dskw_hiseg`'s low arm (a real segment loaded in
+  protected mode) retires, and the high arm needs a 64KB-limit split it
+  does not have today; `drv_fs_hi`'s 512-byte bounce retires once file
+  drivers take the selector (NET, RAMDISK, CDROM are ready; HTTPFS's
+  `hf_bnorm` is not). The DISKOPS cloner and compressor and the LZ decoder
+  step segments through claims over 64KB.
+- **Values captured in real mode and used after the switch**: the live FAT
+  window, `sc_seg`, `ico_seg` (over 63KB), `font_seg`, `vid_*`, `vid_ctx`,
+  `bnd_seg`, driver rows and their IVT halves, module tables, a boot
+  RAMDISK's claims, `em_frame`. `drv_hiboot_f`/`mem_hicaches_f` are the
+  pattern.
+- **Drivers** (one image ships to every kernel, so a kern_mega test costs
+  every disk): SOUND programs the 8237 from `seg*16` (its own ring and a
+  package's external ring), HDD caps a BIOS transfer by `seg*16`, RAMDISK's
+  conventional arena is over 64KB, HTTPFS folds unconditionally, EMS walks
+  C000h-F000h and hands out its frame, USBMOUSE must write a REAL segment
+  into IVT 33h. About 150-200 bytes, plus three kernel doors: the linear
+  base of a selector (`seg*16` elsewhere), a selector for a physical
+  paragraph (the paragraph elsewhere), and selector-to-real-segment.
+- **Packages: about 270 sites in about 30 packages and 4 shared layers.**
+  - The six registry exempts (Sheet ~10, RealDMG ~25 plus two whole
+    classes, Browser ~14, XT-MP3 7, PiXEL ~30, Lemmings 16).
+  - Packages that DECLARE both bits but keep claims over 64KB conventional
+    "by contract" and walk them in 128-byte granules, in HOT paths: Paint's
+    canvas, Frotz's story, Tracker's and ModPlug's modules, MIDIRack's
+    banks, the Video Player (all 31 of its claims through the DMA door on
+    purpose).
+  - The parts library (`op_seg`, `op_read`, `op_unpack`, `op_fetch`, the
+    REHOME macro) - 18 users - and the C SDK's `cc_ovbind`, both segment
+    arithmetic on a carve that may pass 64KB.
+  - ROM biases (Apple II, C64: a segment BELOW the ROM part, hot), static
+    `OS88_CODESEL` inside relocation procs that may not call the kernel,
+    framebuffer immediates (Video, Excitebike, Gorillas), ROM/EBDA scans
+    (Task Manager, Redline), `os88type`'s 512-byte alignment assert.
+  - Five packages hand an external DMA ring to SOUND.DRV as a segment.
+  - Lemmings cannot be run here (its data is fetched, not committed).
+
+#### MC7.2 The decision this needs (asked of the owner, 2026-10-25)
+
+The package half is the bulk, and most of it is ONE pattern: segment
+arithmetic in 128-byte granules INSIDE one claim, in hot paths shared by
+every kernel. Two ways to meet D9:
+
+- **(A) Convert each site** to OSAPI_MEM_HUGE windows, offsets or SUBSEG
+  calls. Zero run-time table cost. Thousands of lines across ~30 packages,
+  each a change on the 8088 too unless it is a `PKG_MEGA` arm (two code
+  paths to keep), and hot loops (Paint, Frotz, the mixers) change shape on
+  the machine the project is measured on.
+- **(B) A GRANULAR claim**: the kernel maps a claim with one LDT entry per
+  128 bytes, consecutive, so `selector + 8k` names granule k exactly as
+  `segment + 8k` does today - inside that claim and nowhere else. Every
+  granule-arithmetic site works unchanged on kern_mega and no package byte
+  changes on any other kernel. It costs 8 bytes of LDT per 128 bytes of
+  such a claim (6.25%) while the claim is held: Paint's 150KB VGA canvas
+  ~9.6KB, a 508KB Frotz story ~32KB, nothing at all on a desktop that holds
+  no big claim. The GDT is still ~4K and the LDT still starts at 2K.
+
+What (B) cannot express is converted either way: the ROM biases (a biased
+SUBSEG), CS writes (a writable alias), framebuffer immediates, DMA rings
+(the linear-base door), ROM scans, CODESEL inside relocation procs (the
+pair rule), the parts library's off-grid slack, and the exempts' remaining
+sites.
+
+**Recommendation: (B) for in-claim granule arithmetic, (A) for the rest.**
+Work common to both proceeds while the owner decides: the growable LDT,
+the scratch selectors into the LDT, the doors, the video/font/ROM selectors
+at the switch, the kernel's own conversion, and the drivers.
+
 ### MC4 - the HMA is RAM; the hibernate is the way out (D4, D5)
 
 - The HMA's record is unpinned; after MC3 it is the bottom 64K of the free run
