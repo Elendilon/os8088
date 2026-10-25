@@ -570,6 +570,51 @@ bank is tested first now, so the frame finishes and the worker leaves the
 machine; `tests/rdgclose.py`'s close leg is the gate (red on the package
 before it: STILL OPEN after 20 s; green: closed in 0.2-0.8 emulated s).
 
+### 10.3.1 kern_mega: the banks in place above 1MB
+
+**On kern_mega the cartridge is not copied down at all.** kern_mega's arm of
+the package (`make mega`'s `build/megak/apps/realdmg.o88`, assembled with
+`PKG_MEGA`, SPEC.md 20.18; the shipped build runs the bank cache above as
+before, and is correct there since 16.2.4) plans, under `CPU_F_PM`, before
+anything else: when the pool has room (`OSAPI_XMEM_CAPS`), banks 1 on go into
+one `OSAPI_XMEM_ALLOC` block and **each is addressed in place through a
+selector of its own**, so a switch is a pointer change as it is for a
+cartridge in one claim, and no bank is ever fetched (`rw_xplan`,
+`[rw_bcache]` 2).
+
+- **The selectors are `OSAPI_XMEM_RUN`'s**: a data selector every 32KB of the
+  block, each a 64KB window. The core's ROMX is a segment whose 4000h is the
+  bank's first byte (section 3), so bank n goes at (n - 1) x 32KB + 16KB and
+  window n - 1, at (n - 1) x 32KB, has it at 4000h. The bank table names
+  window n - 1 for bank n (`rw_xfill`, rdgsys's `rdg_bfill`); bank 0 is the
+  view's own, as in the bank cache.
+- **What it costs is pool, not heap**: two KB of extended memory a KB of
+  cartridge, half of each window being the 16KB below its bank, and one LDT
+  entry a bank. The heap holds no bank and no slot - the load reads through
+  ONE 16KB slot (the bank cache's own load, `rw_bload`, at the wider stride)
+  and gives it back - so the recompiler always gets **both 64KB cache
+  segments** (16.2.1) and the 64KB block table (16.3): `rw_jit2more` and
+  `rw_jit2claim` ask for the second segment under `CPU_F_PM` whatever the
+  profile says - and, past those two, the EXTRA tiers out of what the heap
+  has left once the game's own claims are in (16.2.5).
+- **When it does not**: real mode (the arm runs on every kernel and plans as
+  the shipped build does), a pool shorter than twice the cartridge, more
+  than `RW_XROMMAX_KB`, or no run of free LDT entries that long (the load
+  then refuses with the room message rather than fall back). Each of those
+  goes to the bank cache or one claim as before.
+- **A move**: nothing to put right - a pool block never moves its selectors,
+  and the carve's walk (`rw_partsmv`) leaves a word with bit 2 set alone (a
+  heap segment is a multiple of 32; an LDT selector never is).
+- **MEASURED** (Bochs 2.7, 16MB, kern_mega with `MEGATRAP=1`, the attract
+  of each, 40 s): Kirby's Dream Land (256KB, 16 banks) and Looney Tunes
+  (1MB, 64 banks) in place, `[rw_nmiss]` 0, the second cache segment and
+  the 64KB table claimed, and no trap after the launch beyond the package's
+  own once-a-session writes (16.2.4).
+- **A cost the kernel could take away**: the 32KB stride is
+  `OSAPI_XMEM_RUN`'s. A run at 16KB - one more argument to that cell, in
+  `.mega` - would hold the cartridge once instead of twice; not taken, so
+  that this needs no kernel change.
+
 ### 10.4 Save states
 
 **Nine slots a game, `NAME.SS1` to `NAME.SS9` beside it** as its `.SAV` is
@@ -2222,6 +2267,133 @@ is in the tiers that stay.
   with the second segment as a third tier, and end with the same event
   count and skip checksum as the unsqueezed run - the same game, frame for
   frame.
+
+### 16.2.4 Code selectors: kern_mega
+
+On kern_mega (docs/plans/KERN-MEGA-PLAN.md) a segment is a SELECTOR, and a
+claim's segment S is two of them: S itself, a writable DATA segment, and
+`(S >> 2) | 4`, its read-only CODE alias. A far jump through S loads a data
+selector into CS, which is a #GP; the kernel completes it (`mega_gpfix`), and
+a write through CS is a #GP it completes too (`mega_gpw`). Both are correct
+and both cost an exception, ~1,200 clocks on a 286 - and **inside the core
+each one is also WRONG**: the core runs with SS:SP the Game Boy's own stack
+(section 5.2), and an exception taken at ring 0 pushes its frame there, ~30
+bytes of the game's WRAM or HRAM below its SP. Interrupts are off in the core
+for exactly that reason; a fault is not an interrupt and IF does not stop it.
+
+So every segment the core or the recompiler **jumps to** is held as its code
+selector, and every one **written through** as its data segment:
+
+| held as the CODE selector | held as the DATA segment |
+|---|---|
+| `S_DISP+2`, `S_RESVEC+2`, `S_RETFAR+2` (the core) | `S_COREDS` (the core) |
+| `S_JITCSA`, `S_JITCSB`, `S_JITCS` | `S_JITSEGA`, `S_JITSEGB`, `S_JITSEG` |
+| `S_JITOUT+2`, a block table entry's +6, every `jmp far` a chain writes, the link log's segment | |
+| the package's four doors into the recompiler's part (`rw_jdset`) | `rw_jpseg` |
+
+- **Who converts**: the HOST, with `rdg_csel` (rdgsys.inc, `RDG_CSEL`): the
+  package's `rw_csel` asks `OSAPI_MEM_CODESEL`, which answers DX itself on a
+  real-mode kernel - so ONE binary is right on every kernel, and on kern_big,
+  kern_small and the bare harness every pair is one value and nothing here
+  changes a byte the core runs. The host sets `S_JITCSA`/`S_JITCSB` before
+  `rt_init`; 0 means "the data segment itself", which is what a host without
+  code selectors leaves (`rdg_init` zeroes the view) - the bare harness and
+  the static recompiler's host (section 20) take that path unchanged. It is
+  read as 0 at every look (`rt_d2c`) rather than filled in once: a host that
+  moves `S_JITSEGA` on without `rt_init` - the static recompiler's `h_round`
+  does, a round at a time - would otherwise name the last round's segment
+  in every table entry, and GBFLAGS' sum is the row that said so.
+- **The recompiler converts by table**: `rt_d2c` and `rt_c2d` map between a
+  tier's two names off the state block (three tiers, three pairs), for the
+  table's +6, `rt_forget`'s compare, `rt_unlink`'s log (logged as the code
+  selector a chain names, written back through the data segment).
+- **The link patches** (`tr_ljmp`, `tr_lpatch`, `tr_rpatch`) wrote the site
+  through CS, which is where the site is. All three are entered through
+  `tr_lpatch`'s `.ok`, which takes ES = the site's tier as data once
+  (`tr_lpes`, in slot 41's spare room: CS against the three pairs, or CS
+  itself when none matches - a host with no code selectors), and they write
+  through ES. It is not a word kept in each tier, which was built first: the
+  static recompiler builds its code at one place and loads it at another
+  (section 20), so a word in the segment arrived stale and its run-time
+  links were written into the wrong memory - GBFLAGS' sum went wrong on the
+  merge.
+- **A move**: `rw_reloc` re-stamps the four vectors into the region by the
+  code selector of where it was against where it is (on kern_mega the
+  region's alias changes with it), and `rw_partsmv` the core's far vectors
+  the same way, after its walk; a cache move re-runs `rt_init`.
+- **What the package still writes through CS** is the host's once-a-session
+  bookkeeping (`rdg_init`'s two words, the lossy picture's patch,
+  `rdg_lpatch`, once per toggle): each a #GP on kern_mega, on the host's own
+  stack, ~90 in a session. `rdg_dvmm` and `rdg_bwst`, which the VGA writer
+  wrote per LINE, live in the view as `RDG_DVMM` and `RDG_BWST`, and the
+  damage scan's hook reaches the package through `rw_dsel` and not
+  `push cs / pop ds`.
+- **MEASURED** (Bochs 2.7, kern_mega with `MEGATRAP=1`, the census of every
+  completed #GP): blargg's `cpu_instrs` under the recompiler took **87,703
+  traps** in its first ten seconds and then looped in test 01 for good - the
+  frames had corrupted the game's stack - and passes all eleven tests with
+  **96**, every one at init or a lossy toggle and none in the core. The
+  interpreter alone passed before, by luck: its only trap was the core's
+  entry, one an event, whose frame landed below an SP that test 01 never
+  reads. The demo cartridge went from 29,273 traps in 30 seconds to 140,
+  Kirby's Dream Land's attract from 2,107,507 a minute to 96. **On 86Box's
+  `286-mega`** (the owner's mr286, 16 MHz) Kirby's Dream Land walking ran
+  at **35.9% of real time, drawing 8 frames a second, and runs at 101.2%,
+  drawing 30** - once 86Box faults where a 286 does: upstream's lets a far
+  jump through a DATA selector load CS, so the base build read 101.5% there
+  too until `tools/86box/patches/03-cs-exec-check.patch` (docs/86BOX.md).
+  docs/reports/REALDMG-MEGA-2026-10-25.md has the record. `tests/rdgmega.py`
+  is the row.
+- **Cost**: REALDMG.O88 +115 bytes on disk (the image +128, the recompiler's
+  part +120, uncompressed), a line in tests/megapkg.txt.
+
+### 16.2.5 Extra tiers: kern_mega's arm
+
+Two 64KB cache segments and the core's holes are what the heap could give
+the recompiler beside a cartridge in conventional memory. kern_mega's arm
+keeps the cartridge above 1MB (10.3.1), and both segments still THRASH on
+Kirby's Dream Land - its code is more than two segments and the holes hold,
+so 16.2.3's round robin recycles a tier every few seconds of play, and Super
+Mario Land a level or two in. So the arm takes **more tiers out of the heap
+that the cartridge no longer uses**: 64KB cache segments past the second,
+tier 3 on, in the same turn (0, the core's holes, 2, 3, 4... 0 again).
+
+- **The state block names them**: `[S_JITXN]` how many, and `S_JITXT`'s
+  pairs, each a tier's DATA segment and its CODE selector (16.2.4; 0 for
+  "the same"). `RT_XMAX` is 5: `[S_JITUSED]` is a byte, a bit a tier, and
+  eight tiers is as many as 640KB holds anyway. A host adds one with
+  `rt_more` (AX the segment, DX its code selector, after `rt_init`, which
+  sets the count to 0), and it is entered with the tails copied into it as
+  `rt_init` copies them into the first two.
+- **Only the arm's part has it**: `rt_more`, `rt_tseg`'s tiers past 2, the
+  turn's count and `rt_d2c`'s pairs past the three are assembled with
+  `RDG_XTIER`, and only `$(MEGAAPPDIR)/rdgjitp.bin` is built with it
+  (`-DRDG_XTIER`, a fifth door `rw_jmore` at 40). The shipped part, the
+  shipped image and the bare harness are unchanged: the harness has 20
+  bytes to spare under its core and cannot afford the table. The one piece
+  every build carries is the core's: `tr_lpes` (16.2.4) looks for CS among
+  the extra pairs too (`tr_lpx`, in slot 45's spare CB half), 0 of them
+  matching for any other host, so CS itself is what it writes through.
+- **The block table goes above 1MB first** (`rw_jtx`): it is only ever
+  DATA - every reader loads ES from `[S_JITHSEG]` and indexes it from 0 -
+  so the arm puts its 64KB in a block of the extended pool and names it by
+  `OSAPI_XMEM_RUN`'s first selector, whose window is the whole block. The
+  cache's claim is then the cache and the recompiler's part alone, and the
+  64KB it no longer holds is one more tier. Made once and kept for the
+  instance (a cache claimed again takes the same table); real mode or a
+  short pool, and the table is in the claim as before.
+- **The claims** (`rw_jitxget`): after the cartridge is planned in place
+  (`[rw_bcache]` 2) and loaded, and after everything else of the game's -
+  its RAM, its profile - so they take what is LEFT. Each is a 64KB claim
+  while the largest free run is 64KB and **`RW_XRESKB` = 32KB** stays free
+  beside it, with the floor at 0: free memory only, no cache shed for
+  them. They go back when the game does (`rw_unload`), when CPU >
+  Interpreter gives the cache back (`rw_jfree`), and with the instance.
+  The way back to the recompiler claims them again (`rw_jitprep`).
+- **A move** of one flushes, as one of the first two does (`rw_mreloc`'s
+  `.n8`, `rw_mjit`: `rt_init` and `rt_more` over them all again).
+- **MEASURED** (86Box `286-mega`, 640KB conventional): see
+  docs/reports/REALDMG-MEGA-TIERS-2026-10-25.md.
 
 ### 16.3 Blocks and tr_enter
 

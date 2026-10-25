@@ -30,6 +30,12 @@
 ;               ready (a VBlank began), the budget ran out, or the game hit
 ;               an opcode the SM83 does not have or STOP.
 ;
+; A host that defines RDG_CSEL offers one near proc more, rdg_csel: AX = a
+; segment of code, out AX = the selector a far jump to it loads (the segment
+; itself on a real-mode kernel, its code alias on kern_mega - REALDMG-SPEC
+; 16.2.4), every other register kept. rdg_init asks it for the core's; a
+; host without it jumps through the core's segment as it always did.
+;
 ; Everything here runs on the HOST's stack. The core enters it by a far jump
 ; with SS:SP the Game Boy's stack; the first thing each entry does is save
 ; that SP and switch to the host stack rdg_run left in S_HSS:S_HSP, so that
@@ -173,6 +179,10 @@ rdg_init:
     mov [S_TRACEVEC+2],ax
 %endif
     mov ax,[cs:rdg_coreseg]
+    mov [S_COREDS],ax                   ; (what writes the core: its data)
+%ifdef RDG_CSEL
+    call rdg_csel                       ; (what jumps to it: its code
+%endif                                  ;   selector, REALDMG-SPEC 16.2.4)
     mov [S_RETFAR+2],ax
     mov [S_DISP+2],ax
     mov word [S_DISP],0DD00h            ; RDG_DISPATCH, slot DD's main half

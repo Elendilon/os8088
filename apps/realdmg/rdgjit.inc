@@ -87,7 +87,13 @@ rt_tab:
 ; claim of the host's, BX the block table's, CX a second 64KB cache segment
 ; or 0 (REALDMG-SPEC 16.2.1) - 64KB too, since a template reaches every
 ; tail by a near jump - and DL the table's mask (S_HMASK): 31, 64KB, or 7,
-; 16KB. The core's three `and bh,mask` take it before the tails are copied. The core's helper tails copied into
+; 16KB. The core's three `and bh,mask` take it before the tails are copied.
+; [S_JITCSA] and [S_JITCSB] are the host's, set before the call: the code
+; selectors of AX and CX (REALDMG-SPEC 16.2.4), or 0 for "the same" - which a
+; host without code selectors leaves them, rdg_init having zeroed the view,
+; and which rt_d2c reads as such at every look (a host that moves
+; S_JITSEGA without rt_init, as the static recompiler's does, stays right).
+; The core's helper tails copied into
 ; each at their own
 ; offsets, the cache empty, and the core's two doors pointed at it -
 ; tr_enter's miss at rdg_jit, and rdgsys's resume (after every event) at
@@ -103,14 +109,16 @@ rt_init:
     mov [S_JITSEGA],ax
     mov [S_JITSEGB],cx
     mov [S_JITHSEG],bx
+%ifdef RDG_XTIER
+    mov byte [S_JITXN],0            ; (the extra tiers: rt_more's, after)
+%endif
     mov [S_HMASK],dl
     push es
-    mov es,[S_DISP+2]               ; the core's masks, which the copies
+    mov es,[S_COREDS]               ; the core's masks, which the copies
     mov [es:RDGC_TR_HM0],dl          ;   below take with them
     mov [es:RDGC_TR_HM1],dl
     mov [es:RDGC_TR_HM2],dl
     pop es
-    mov [S_JITOUT+2],ax
     mov word [S_JITVEC],rdg_jit
     mov [S_JITVEC+2],cs
     mov word [S_RESVEC],RDGC_TR_ENTER
@@ -122,6 +130,8 @@ rt_init:
     call .tails
 .one:
     call rt_flush
+    mov ax,[S_JITCS]                ; (cache A's code selector: rt_flush's
+    mov [S_JITOUT+2],ax             ;   rt_tier took it, 16.2.4)
     mov byte [S_JITON],1
     mov al,1
     call rt_dispatch                ; the interpreter's sites look again
@@ -144,13 +154,49 @@ rt_init:
     mov di,ax
     mov cx,128
     push ds
-    mov ds,[S_DISP+2]               ; the core
+    mov ds,[S_COREDS]               ; the core
     rep movsw
     pop ds
     inc bx
     dec dx
     jnz .slot
     ret
+
+%ifdef RDG_XTIER
+; rt_more - DS = the view, after rt_init: AX = one more 64KB cache segment,
+; DX its code selector or 0 (REALDMG-SPEC 16.2.5) - tier 3, 4... in the turn
+; rt_room takes them, after the second - the core's tails copied into it.
+; CF = 1: RT_XMAX already, and nothing done. Keeps every register
+rt_more:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push es
+    mov bl,[S_JITXN]
+    cmp bl,RT_XMAX
+    cmc
+    jc .r
+    inc byte [S_JITXN]
+    xor bh,bh
+    shl bx,1
+    shl bx,1
+    mov [S_JITXT+bx],ax
+    mov [S_JITXT+bx+2],dx
+    call rt_init.tails
+    clc
+.r:
+    pop es
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+%endif
 
 ; rt_resume - DS = the view: the recompiler back on over the cache it had
 ; when it was turned off (the package's rw_jitoff), nothing forgotten - the
@@ -177,7 +223,7 @@ rt_dispatch:
     push cx
     push si
     push es
-    mov es,[S_DISP+2]               ; the core
+    mov es,[S_COREDS]               ; the core
     mov si,[cs:rt_tab + RT_HJD]
     mov cx,[cs:rt_tab + RT_HJD + 2]
 .s:
@@ -245,6 +291,10 @@ rt_tier:
     push si
     push es
     mov [S_JITSEG],ax
+    push ax
+    call rt_d2c
+    mov [S_JITCS],ax                ; (what a jump to it loads, 16.2.4)
+    pop ax
     mov es,ax                       ; its generation: the newest (16.2.3)
     inc word [S_JITGNX]
     mov si,[S_JITGNX]
@@ -349,14 +399,93 @@ rt_tseg:
     xor ax,ax
     cmp byte [S_JITNOC],0
     jne .r
-    mov ax,[S_DISP+2]               ; the core
+    mov ax,[S_COREDS]               ; the core
 .r:
     ret
 .b:
+%ifdef RDG_XTIER
+    cmp al,2
+    jne .x
+%endif
     mov ax,[S_JITSEGB]
     ret
+%ifdef RDG_XTIER
+.x:                                 ; 3 on: rt_more's (16.2.5)
+    sub al,3
+    cmp al,[S_JITXN]
+    jae .none
+    push bx
+    mov bl,al
+    xor bh,bh
+    shl bx,1
+    shl bx,1
+    mov ax,[S_JITXT+bx]
+    pop bx
+    ret
+.none:
+    xor ax,ax
+    ret
+%endif
 
-; rt_unlink - AX = the segment of the tier being recycled (REALDMG-SPEC
+; rt_d2c - DS = the view, AX = a tier's DATA segment: AX = its CODE selector
+; (REALDMG-SPEC 16.2.4) - a cache segment's or the core's, off the three
+; pairs at rt_pairs - or AX itself, for anything else or a pair whose other
+; half the host left 0. rt_c2d: the same, CODE to DATA. Keeps every register
+; but AX
+%ifdef RDG_CSEL                         ; (a host with code selectors: the
+rt_c2d:
+    push bx
+    mov bx,2
+    jmp short rt_xlat
+rt_d2c:
+    push bx
+    xor bx,bx
+rt_xlat:                            ; BX = 0 data to code, 2 code to data
+    push si
+    push di
+    mov si,rt_pairs
+.l:
+    mov di,[cs:si+bx]               ; the half AX is
+    cmp ax,[di]
+    jne .n
+    xor bx,2
+    mov di,[cs:si+bx]               ; ...and the other
+    mov di,[di]
+    or di,di
+    jz .r                           ; (0: none - AX itself)
+    mov ax,di
+    jmp short .r
+.n:
+    add si,4
+    cmp si,rt_pairs + 12
+    jb .l
+%ifdef RDG_XTIER
+    mov si,S_JITXT - 4              ; ...and the extra tiers' pairs, in the
+.x:                                 ;   view (16.2.5): any, the stale past
+    add si,4                        ;   S_JITXN as right as the rest - a
+    cmp si,S_JITXT + RT_XMAX * 4    ;   code selector names its segment
+    jae .r
+    cmp ax,[si+bx]
+    jne .x
+    xor bx,2
+    mov di,[si+bx]
+    or di,di
+    jz .r
+    mov ax,di
+%endif
+.r:
+    pop di
+    pop si
+    pop bx
+    ret
+rt_pairs:       dw S_JITSEGA, S_JITCSA, S_COREDS, S_DISP+2, S_JITSEGB, S_JITCSB
+%else                                   ;   package's part. Any other - the
+rt_c2d:                                 ;   bare harness, the static
+rt_d2c:                                 ;   recompiler's - has every pair one
+    ret                                 ;   value, and both are AX itself)
+%endif
+
+; rt_unlink - AX = the CODE selector of the tier being recycled (REALDMG-SPEC
 ; 16.2.3): every link the log holds into it undone, and every logged site
 ; IN it dropped, its code about to go. The log is RT_LOG in the first cache
 ; segment, 4 bytes an entry - a site's offset and segment - written by
@@ -374,8 +503,8 @@ rt_unlink:
     push di
     push ds
     push es
-    mov dx,ax                       ; DX = the tier going
-    mov cx,[S_JITLN]
+    mov dx,ax                       ; DX = the tier going, as the log and
+    mov cx,[S_JITLN]                ;   the far jumps name it
     mov es,[S_JITSEGA]
     mov si,RT_LOG
     mov di,si
@@ -388,11 +517,16 @@ rt_unlink:
     add si,4
     cmp ax,dx
     je .l                           ; in the tier: gone with it
+    push ax                         ; (the site's code selector, logged)
+    call rt_c2d                     ; its bytes written through its DATA
+    push ds                         ;   segment (16.2.4)
     mov ds,ax
     call rt_undo
+    pop ds
+    pop ax
     jnc .l                          ; undone: dropped
     mov [es:di],bx
-    mov [es:di+2],ds                ; (rt_undo took AX)
+    mov [es:di+2],ax
     add di,4
     jmp short .l
 .e:
@@ -476,7 +610,7 @@ rt_undo:
     inc ah
     ret
 
-; rt_forget - AX = a tier's segment: every block in it out of the table
+; rt_forget - AX = a tier's CODE selector: every block in it out of the table
 ; (REALDMG-SPEC 16.2.3) - its entry cleared, so its PC counts again from
 ; nothing. Links into it are undone first (rt_unlink). Keeps every register
 rt_forget:
@@ -918,7 +1052,8 @@ rt_translate:
     mov ax,[RT_ENT]
     mov [es:JIT_HASH+bx+4],ax
     mov [S_JITOUT],ax
-    mov ax,[S_JITSEG]               ; ...in the segment it was written in
+    mov ax,[S_JITCS]                ; ...in the segment it was written in,
+                                    ;   as a jump names it (16.2.4)
     mov [es:JIT_HASH+bx+6],ax
     mov [S_JITOUT+2],ax
     inc word [S_JITNB]
@@ -1371,7 +1506,13 @@ rt_room:
     mov cl,[S_JITTIER]              ;   turn: 0, the core's holes, 2, 0...
 .nt:                                ;   over those there are
     inc cl
+%ifdef RDG_XTIER
+    mov al,[S_JITXN]                ; (and rt_more's after them, 16.2.5)
+    add al,3
+    cmp cl,al
+%else
     cmp cl,3
+%endif
     jb .t
     xor cl,cl
 .t:
@@ -1390,8 +1531,11 @@ rt_room:
     jnz .full0
     cmp word [S_JITGNX],0FFF0h      ; (the generations near a wrap: a flush)
     jae .flush
-    call rt_unlink                  ; its links undone, its blocks out of
-    call rt_forget                  ;   the table
+    push ax
+    call rt_d2c                     ; (both name it by its CODE selector,
+    call rt_unlink                  ;   16.2.4) its links undone, its blocks
+    call rt_forget                  ;   out of the table
+    pop ax
     inc word [S_JITRCY]
     inc word [S_JITFL]
 .fresh:
@@ -1724,7 +1868,7 @@ rt_exit:
     pop es
     or bx,bx
     jz .link
-    cmp dx,[S_JITSEG]               ; the other segment's: tr_link makes it
+    cmp dx,[S_JITCS]                ; the other segment's: tr_link makes it
     jne .link                       ;   a far jump (16.2.1)
     mov ax,0378h                    ; js +3 / jmp near the block
     stosw

@@ -268,6 +268,9 @@ def main():
     ap.add_argument("--shot", default="")
     ap.add_argument("--attach", default="", help="measure a machine --keep left running")
     ap.add_argument("--press", default="", help="keys to tap first, e.g. return")
+    ap.add_argument("--replay", default="", metavar="SS1,RP1",
+                    help="a save state and its replay, put beside the game as "
+                         "slot 1: --press w3000,f7 plays it")
     ap.add_argument("--fs", action="store_true", help="Machine > Full Screen first")
     ap.add_argument("--mem", type=int, help="the machine's RAM in KB, for the VM's own")
     ap.add_argument("--nojit", action="store_true", help="CPU > Interpreter first")
@@ -324,18 +327,32 @@ def boot(o):
         with open(cfg, "wb") as g:
             g.write(b"RD\x01\x01")
         extra.append("SYSTEM/APPDATA:" + cfg)
+    for i, src in enumerate((getattr(o, "replay", "") or "").split(",")[:2]):
+        if src:                                 # --replay: a save state and its
+            dst = os.path.join(tmp, "GAME." + ("SS1", "RP1")[i])  # replay,
+            with open(src, "rb") as f, open(dst, "wb") as g:      #   beside the
+                g.write(f.read())               #   game as its slot 1 (F7)
+            extra.append(dst)
     extra += [p for p in os.environ.get("RDGWIN_EXTRA", "").split(os.pathsep) if p]  # (more
                                                 # files on the B: disk: a second game)
     os88box.subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88disk.py"), "-o", disk,
                             "--size", "1440", os.environ.get("RDGWIN_O88", os.path.join(ROOT, "build", "realdmg.o88")), gb]
                            + extra, check=True, stdout=os88box.subprocess.DEVNULL)
+    # RDGWIN_A: another system disk - build/mega.img for kern_mega, whose
+    # kernel map os88box takes from build/megak/ for a disk named mega*
+    # (REALDMG-SPEC section 16.2.4's measurement, on vm/286-mega)
+    a = os.environ.get("RDGWIN_A", os.path.join(ROOT, "build", "os8088.img"))
     b = os88box.launch(o.vm, name=name, hold=True, fresh=True, mem=o.mem,
-                       a=os.path.join(ROOT, "build", "os8088.img"), b=disk,
+                       a=a, b=disk,
                        temp=not o.keep, turbo=getattr(o, "quick", False))
     # THE BOOT IS GATED ON THE KERNEL'S STATE (os88box.Box.kernel_up): the
     # ami286's fresh CMOS stops in setup and is answered on the way. It was
     # 60 emulated s of polled steps plus a fixed 20 whatever the boot took,
-    # against a desktop up at ~22 (SOAK-SPEED round 3)
+    # against a desktop up at ~22 (SOAK-SPEED round 3). The mr286's MR BIOS
+    # (vm/286-mega*) wants its floppy page set instead, megacdrom's way
+    if "mega" in o.vm:
+        import megacdrom
+        megacdrom.mr_setup(b)
     b.kernel_up(prompts=BIOS_PROMPTS)
     wins = len(windows(b))
     b.to(*DRIVE_B)
@@ -426,6 +443,8 @@ def measure(b, o):
         b.cmd("step 2000")
         f0, t0 = frames(b, view), b.cmd("info").get("ms")
         j0 = jitstat(b, view)
+        rcy0 = int.from_bytes(b.memr(view*16 + 0x482F, 2), "little")     # S_JITRCY
+        bk0 = bankstat(b, seg)
         e0 = int.from_bytes(b.memr(view*16 + 0x408A, 2), "little")     # S_EVCOUNT
         if o.persec:                            # a second at a time
             per, fp = [], f0
@@ -458,6 +477,10 @@ def measure(b, o):
         if int.from_bytes(sb, "little"):
             print("rdgwin: a second cache segment (REALDMG-SPEC 16.2.1), %d moves into it "
                   "so far" % int.from_bytes(b.memr(view*16 + 0x4816, 2), "little"))
+        xn = b.memr(view*16 + 0x48BF, 1)[0]                      # S_JITXN
+        rcy1 = int.from_bytes(b.memr(view*16 + 0x482F, 2), "little")
+        print("rdgwin: %d extra cache tiers (REALDMG-SPEC 16.2.5); %d tiers recycled in the "
+              "span, %d so far" % (xn, (rcy1 - rcy0) & 0xFFFF, rcy1))
         if o.static is not None:
             fx = b.memr(view*16 + 0x40F6, 1)[0]                  # S_JITFIX
             npo = bss_off("rw_npre")
@@ -466,7 +489,8 @@ def measure(b, o):
                 npre, "fixed" if fx else "NOT fixed"))
         bk = bankstat(b, seg)
         print("rdgwin: cartridge %s" % ("in one claim" if bk is None else
-              "in the bank cache, %d slots, %d banks fetched" % bk))
+              "in the bank cache, %d slots, %d banks fetched (%d in the span)"
+              % (bk + (((bk[1] - bk0[1]) & 0xFFFF) if bk0 else bk[1],))))
         if o.shot:
             b.shot(o.shot)
         if o.profile:
