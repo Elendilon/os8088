@@ -17393,6 +17393,26 @@ SOAK = [
         needs=("unicorn",),
         wants=("build/coldhma.sys", "build/sound.drv", "build/hdd.drv",
                "build/net.drv", "build/sound.hma.bin")),
+    Row("hma286", "soak", py("tests/hma286.py"), 25.0,
+        "SPEC.md 41.12.6, 41.13 and 51.1.3.1 on a REAL 286: 86Box's, whose "
+        "CPU runs LOADALL and whose Sound Blaster v2.0 has no mixer - the "
+        "two things QEMU (386-class, an SB16) cannot be. vm/286-hma, the "
+        "owner's mr286 at 16 MHz with 4MB, an IDE disk and the card, boots "
+        "hmadrv's fixture (SOUND, HDD and NET wanted): `.cold` in the HMA, "
+        "XMEM.DRV in a 2KB claim with its LOADALL transport VERIFIED at "
+        "attach through apps/os88la.inc's borrow, SOUND.DRV cut to snd_keep "
+        "at the pool's foot with HDD and NET at its top, and RECORDER's demo "
+        "played with the 8KB double buffer in the pool - 8237 page 10h, the "
+        "card's DMA reading above 1MB - its halves the demo's, the stream "
+        "played out and the block given back; then the same on an SB Pro 2 "
+        "(a mixer): cut to snd_keepmix and the buffer in the heap. No "
+        "exception outside the BIOS's own AH=87h. Broken on purpose: "
+        "OS88_DRV_FOOT taken out fails the layout on both arms, the "
+        "MEMHMA_KEEP call taken out fails the cut and the buffer",
+        needs=("86box",),
+        wants=("build/os8088.img", "build/coldhma.sys", "build/recorder.o88",
+               "build/mbr.bin", "build/boothd.bin", "build/kernel.sys",
+               "build/sound.hma.bin", "build/xmem.bin")),
     Row("ethernet", "soak", py("tests/ethernet.py"), 40.0,
         "SPEC.md 72.9: ETHER.DRV up before the first paint off a SYSTEM.CFG "
         "that asks for it, DHCP bound to slirp's address, and the browser "
