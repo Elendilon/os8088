@@ -100,7 +100,7 @@ floppyb: type={btype}, {bmedia}={b}, status=inserted
 {ata0}{cd}boot: {boot}
 port_e9_hack: enabled=1
 mouse: enabled=1, type={mouse}, toggle=ctrl+mbutton
-{com1}{cpu}clock: sync=realtime, time0=local
+{com1}{com}{cpu}clock: sync=realtime, time0=local
 {sb}log: {log}
 panic: action=report
 error: action=report
@@ -118,9 +118,19 @@ IPS = ("cpu: ips=%d\n" % int(os.environ["OS88_BOCHS_IPS"])
        if os.environ.get("OS88_BOCHS_IPS") else "")
 
 
-INPUT_GAP = 0.06    # s: Bochs's GUI takes X events every ~10 ms of its own
+INPUT_GAP = 0.03    # s: Bochs's GUI takes X events every ~10 ms of its own.
+# It was 0.06, and a stop is paid in GUEST time (the timers catch up on the
+# host clock afterwards), so a gesture of five stepped inputs - fmarrows'
+# click, Down, click inside FM_DBLCLK's 9 ticks - read 8-9 ticks at 0.06
+# and 5-6 at 0.03, every edge still confirmed off mouse_btn
 GLASS = 0.45        # s: two of Bochs's VGA updates (5 Hz) - see Box.shot
-GRAB = ("keydown", "ctrl", "click", 2, "keyup", "ctrl")
+# The capture toggle, as a press and a release with NOTHING between them:
+# xdotool's `click` holds the button ~100 ms (measured: `click 2` is 126 ms
+# of xdotool against 3 ms for `mousedown`), and since a debugger stop drops
+# the capture, a row that alternates input and stops paid that on every
+# input - in GUEST time, because the guest's timers catch up on the host
+# clock after a stop (sync=realtime)
+GRAB = ("keydown", "ctrl", "mousedown", 2, "mouseup", 2, "keyup", "ctrl")
 
 
 class _Input(object):
@@ -228,6 +238,38 @@ def shot(path):
     _input().shot(path)
 
 
+def autorepeat_off(display=None):
+    """Turn the X server's KEY AUTOREPEAT off on DISPLAY.
+
+    X autorepeats a held key as RELEASE/PRESS pairs, and Bochs passes each
+    pair to the guest as a break and a make - a real keyboard's typematic is
+    makes alone. So an xdotool `keydown` held for half a second was a dozen
+    fresh presses: a held Alt+Enter toggled ArtfulType full screen 8-13 times
+    (tests/altenter.py's hold, which the kernel's own typematic rule - a make
+    with the key already down is a repeat - was written to absorb, and could
+    not, because every make was preceded by a break). A new server is started
+    with `-r`; one already running (another agent's, a hand-started one) is
+    told here. It is server state, so it holds while a client - Bochs - is
+    connected: called once Bochs is up. libX11 by ctypes, since there is no
+    `xset` in the container."""
+    import ctypes
+    import ctypes.util
+    try:
+        x = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+        x.XOpenDisplay.restype = ctypes.c_void_p
+        x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        for f in ("XAutoRepeatOff", "XCloseDisplay"):
+            getattr(x, f).argtypes = [ctypes.c_void_p]
+        x.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        d = x.XOpenDisplay((display or DISPLAY).encode())
+        if d:
+            x.XAutoRepeatOff(d)
+            x.XSync(d, 0)
+            x.XCloseDisplay(d)
+    except OSError:
+        pass
+
+
 def xvfb(display=None):
     display = display or DISPLAY
     n = display.lstrip(":").split(".")[0]
@@ -244,7 +286,8 @@ def xvfb(display=None):
                 os.remove(stale)
             except OSError:
                 pass
-        subprocess.Popen(["Xvfb", display, "-screen", "0", "1024x768x24"],
+        subprocess.Popen(["Xvfb", display, "-screen", "0", "1024x768x24",
+                          "-r"],            # no key autorepeat: see above
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(50):             # until it is listening, not a guess
             if os.path.exists(sock):
@@ -419,7 +462,7 @@ class Box(object):
                  btype="1_2", cmode="run", bootc=False, noa=False,
                  build=None, csys=False, put=(), cd=None, aimg=None,
                  display=None, megs=None, noc=False, vgahz=None,
-                 flog=False, mouse=None):
+                 flog=False, mouse=None, noserial=False, imps2=False):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -459,7 +502,10 @@ class Box(object):
         stage = os.path.join(out, "stage")
         shutil.rmtree(stage, ignore_errors=True)
         os.makedirs(stage)
-        args = [] if noc else [   # (no C: - nothing to stage MEGARUN on)
+        # MEGARUN rides the C: disk only, so a machine with none (`noc`,
+        # os88bochsmarty) does not need it built - a knob tree a ported row
+        # builds for itself (`targets=("mega",)`) has none
+        args = [] if noc else [
             "RUN:" + self._stage(stage, os.path.join(bld, "megarun.o88"),
                                  "0run.o88")]
         for p in pkgs:
@@ -486,11 +532,15 @@ class Box(object):
                 check=True, stdout=subprocess.DEVNULL)
         rc = os.path.join(out, "bochsrc")
         with open(rc, "w") as f:
+            # `imps2`: an IntelliMouse, so the WHEEL reaches the guest
             f.write(BOCHSRC.format(
                 megs=megs or MEGS, a=a, b=b, cpu=IPS,
-                mouse=mouse or MOUSE,
+                mouse="imps2" if imps2 else (mouse or MOUSE),
                 com1="com1: enabled=1, mode=mouse\n"
                 if (mouse or MOUSE) == "serial" else "",
+                # NO UART AT ALL (`noserial`): the PS/2 mouse the only
+                # pointing device, QEMU's `-serial none` (tests/ps2mouse.py)
+                com="com1: enabled=0\n" if noserial and (mouse or MOUSE) != "serial" else "",
                 flogdbg=", floppy=report" if flog else "",
                 ata0="" if noc else (
                     "ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14\n"
@@ -595,6 +645,7 @@ class Box(object):
                            env=self.env,
                            capture_output=True, text=True).stdout.split()[0]
         self.inp.regrab = False
+        autorepeat_off(self.display)
         self.xd("windowfocus", "--sync", w)
         self.xd("mousemove", 330, 300)
         self.xd("keydown", "ctrl")

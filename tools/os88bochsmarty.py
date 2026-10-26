@@ -33,18 +33,30 @@ WHAT IT MAPS, AND WHAT IT CANNOT
     machine time it means on MartyPC. Nothing measured in cycles is a
     measurement here.
   * memory: `read`/`write` are LINEAR (paging is off). `readseg(seg, off)`
-    takes a REAL segment or an LDT SELECTOR - under kern_mega every package
-    region and heap claim is a selector, so a segment a row reads out of the
-    guest is one, and its base is looked up in the descriptor. A row that
-    does `seg << 4` itself has to call `m.lin(seg, off)` instead.
+    takes a REAL segment or a SELECTOR - under kern_mega every package
+    region and heap claim is an LDT selector, and the GDT is an identity
+    map except the kernel's data (0010) and COLD_SEG (`.cold` above 1MB),
+    so its base is looked up in the descriptor. A row that does `seg << 4`
+    itself has to call `m.lin(seg, off)` instead.
   * the glass: `fbuf()` is a screenshot of the Bochs window's guest area,
     which lags the framebuffer by one VGA update (`vga: update_freq`, raised
     to 20 here). `screen()` reads a text mode's cells out of B8000.
-  * breakpoints: `exec`/`execseg` are Bochs `lb` (linear). `mem`, `int` and
-    `io` are refused - Bochs has watchpoints but not MartyPC's semantics.
-  * refused outright, by name: `disk` (MartyPC's FDC counters), `flicker`,
-    `pace`, `planes`, `inb`/`outb`, `snapshot`/`restore`, `reset`. A row
-    built on one of those is not portable and says so in its first second.
+  * breakpoints: `exec`/`execseg` are Bochs `lb` (linear); `int` is an `lb`
+    on the vector's handler (the IDT's gate in protected mode, so a CPU
+    exception such as #DE). `mem` and `io` are refused - Bochs has
+    watchpoints but not MartyPC's semantics.
+  * `park` sets CS:IP but CANNOT clear IF (Bochs's `set` has no EFLAGS):
+    code parked on starts with `cli` if it needs interrupts off. And a
+    debugger write to code that has ALREADY RUN is not seen - Bochs's trace
+    cache keeps the old bytes - so a row patches code before it executes.
+  * the mouse: PS/2; `launch(..., wheel=True)` makes it an IntelliMouse
+    and `m.wheel()` works; `launch(..., noserial=True)` removes COM1.
+    X key autorepeat is off on the display (a held key is one make).
+  * `disks()` names the image AS MOUNTED (copied before the first `c`), so
+    os88flush's diff has a reference; `flush` copies the live file.
+  * refused outright, by name: `flicker`, `pace`, `planes`, `inb`/`outb`,
+    `snapshot`/`restore`, `reset`. A row built on one of those is not
+    portable and says so in its first second.
 """
 import os
 import re
@@ -163,6 +175,17 @@ class BochsMarty(om.Marty):
         self._tmp = tempfile.mkdtemp(prefix="bxm", dir=run_dir)
         self._closed = False
         self._wav = os.environ.get("MARTYPC_WAV")    # see close()
+        # THE MOUNTED-FROM IMAGES, as MartyPC's `disks` names them: Bochs
+        # writes a.img/b.img through as the guest writes, so the live file
+        # is no reference for "what did the guest change" (os88flush.diff,
+        # tests/cfgtrip.py read 0 sectors changed after a SYSTEM.CFG write).
+        # Copied before the first `c`, when Bochs has written nothing
+        self._src = {}
+        for d, n in ((0, "a"), (1, "b")):
+            live = os.path.join(box.out, n + ".img")
+            if os.path.exists(live):
+                self._src[d] = os.path.join(run_dir, n + "-mounted.img")
+                shutil.copy(live, self._src[d])
 
     # ---- the clock --------------------------------------------------------
     def _cycles(self):
@@ -270,7 +293,12 @@ class BochsMarty(om.Marty):
                 mark = max(0, n - 4) + i + 2
                 break
             time.sleep(0.002)
-        self._bpmark = mark if mark is not None else os.path.getsize(e9)
+        # FROM BEFORE THE `c`, not after its echo: a breakpoint at the next
+        # few instructions (a loop back onto the one just stepped off) has
+        # printed its stop and its prompt by the time the echo is seen, and a
+        # mark taken then reads an empty transcript - `_bp_hit` says no, and
+        # `_halt`'s SIGINTs are lost at the prompt for 20s (bptrace)
+        self._bpmark = n
         self._state = "running"
         self._since = time.time()
 
@@ -329,11 +357,38 @@ class BochsMarty(om.Marty):
                          (dl & 0xFFFF) | (dh & 0xF0000))
         return self._ldt
 
+    def gdt_base(self):
+        if getattr(self, "_gdt", None) is None:
+            t = self._stopped(["sreg"])
+            m = re.search(r"gdtr:base=0x([0-9a-f]+), limit=0x([0-9a-f]+)", t)
+            if not m:
+                raise om.MartyError("os88bochsmarty: no GDTR in `sreg`")
+            g = (int(m.group(1), 16), int(m.group(2), 16))
+            if g[1] < 0x100:            # not in protected mode yet (the
+                return g                # boot): not worth keeping
+            self._gdt = g
+        return self._gdt
+
     def selector(self, sel):
-        """(base, limit) of LDT selector SEL, or None when SEL is not a
-        present LDT data/code descriptor - a real segment."""
+        """(base, limit) of selector SEL, or None when SEL is not a present
+        data/code descriptor - a real segment.
+
+        THE GDT AS WELL AS THE LDT. kern_mega's GDT is an IDENTITY map for
+        most of it (selector s has base s x 16, which is what lets a real
+        segment value mean the same thing), and a few entries are not: the
+        kernel's DATA, 0010, is based at KERNEL_SEG x 16, and `.cold`'s
+        COLD_SEG names its copy ABOVE 1MB where its real-mode rung is far
+        below (tests/tnest.py). For an identity entry this answers what
+        `seg << 4` did; past the GDT's limit (B800, A000) it is None."""
         if not sel & 4:
-            return None
+            base, limit = self.gdt_base()
+            if sel < 8 or (sel & ~7) + 7 > limit:
+                return None
+            d = self._read(base + (sel & ~7), 8)
+            if not d[5] & 0x80 or not d[5] & 0x10:
+                return None
+            return (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24,
+                    d[0] | d[1] << 8 | (d[6] & 0x0F) << 16)
         base, limit = self.ldt_base()
         if (sel & ~7) + 7 > limit:
             return None
@@ -380,6 +435,26 @@ class BochsMarty(om.Marty):
         t = self._stopped(["creg"])
         m_ = re.search(r"CR0=0x([0-9a-f]+)", t)
         return bool(m_ and int(m_.group(1), 16) & 1)
+
+    def _vector(self, v):
+        """The linear address vector V's handler starts at: an `int`
+        breakpoint, as an `lb` there. In protected mode it is the IDT's
+        gate - so under kern_mega a CPU EXCEPTION (0-0Fh: #DE is 00h)
+        stops at mega_xs's stub for it, with the interrupt frame on top
+        of the stack as MartyPC's `int` stop has it (tests/int0sweep.py);
+        a hardware IRQ's vector is the IDT's, not the real-mode one. In
+        real mode, the IVT's."""
+        t = self._stopped(["sreg"])
+        m = re.search(r"idtr:base=0x([0-9a-f]+), limit=0x([0-9a-f]+)", t)
+        base, limit = (int(m.group(1), 16), int(m.group(2), 16)) if m \
+            else (0, 0x3FF)
+        if limit >= 0x400 or base:              # an IDT: 8-byte gates
+            g = self._read(base + v * 8, 8)
+            off = g[0] | g[1] << 8 | (g[6] | g[7] << 8) << 16 \
+                if g[5] & 0x08 else g[0] | g[1] << 8    # a 386 gate's
+            return self.lin(g[2] | g[3] << 8, off)
+        g = self._read(v * 4, 4)
+        return ((g[2] | g[3] << 8) << 4) + (g[0] | g[1] << 8)
 
     def lin(self, seg, off=0):
         """The linear address of SEG:OFF, SEG a real segment or a selector."""
@@ -507,6 +582,8 @@ class BochsMarty(om.Marty):
                 want.append(int(b["addr"]))
             elif t == "execseg":
                 want.append(self.lin(int(b["seg"]), int(b["off"])))
+            elif t == "int":
+                want.append(self._vector(int(b["addr"])))
             else:
                 raise om.MartyError("os88bochsmarty: a %r breakpoint is not "
                                     "available on Bochs" % t)
@@ -545,6 +622,19 @@ class BochsMarty(om.Marty):
             r[s] = int(v, 16)
         return r
 
+    def _c_park(self, cs, ip, **_):
+        """MartyPC's `park`: the guest's CS:IP moved to CS:IP, and IF
+        cleared. BOCHS'S DEBUGGER CANNOT WRITE EFLAGS (`set eflags` is a
+        syntax error in 2.7), so IF is LEFT AS IT WAS and the answer says
+        so - a caller that needs interrupts off starts its code with `cli`
+        (tests/evqfull.py). Under kern_mega CS is a SELECTOR: 0060 is the
+        kernel's code, whose base is KERNEL_SEG x 16 as a real CS's is, and
+        the kernel's DATA is MEGA_SEL_KDATA, 0010 - `set ds = 0x60` loads
+        the read-only code descriptor."""
+        self._halt()
+        self._do(["set cs = 0x%x" % cs, "set eip = 0x%x" % ip])
+        return {"if_cleared": False}
+
     def _c_setreg(self, reg, value, **_):
         self._stopped(["set %s = 0x%x" % (reg, value)])
         return {}
@@ -562,20 +652,47 @@ class BochsMarty(om.Marty):
         return {"cycles": self._cycles()}
 
     def _c_mouse(self, dx=0, dy=0, l=False, r=False, wz=0, **_):
-        if wz:
+        if wz and not getattr(self, "imps2", False):
             raise om.MartyError("os88bochsmarty: no wheel on Bochs's PS/2 "
-                                "mouse")
+                                "mouse - launch(..., wheel=True) makes it an "
+                                "IntelliMouse")
         if not self.box.captured:
             self.box.capture()
+        if wz:
+            # WZ NOTCHES, positive TOWARD THE USER (os88marty.wheel): X's
+            # button 5 is Bochs's -Z, which its packet sends negated. THEN A
+            # ZERO-SUM MOTION, because Bochs 2.7 never clears `delayed_dz`
+            # after the packet it built (iodev/keyboard.cc create_mouse_
+            # packet) and the next capture change - every debugger stop -
+            # sends one more notch the same way (tests/wheelps2.py read +5
+            # for four); a motion packet assigns it 0. One guest pixel
+            # there and back, at the pointer's current place, each its own
+            # GUI pass (Bochs drops a motion that nets to nothing)
+            self.box.xd("click", "--repeat", abs(wz), "--delay", 30,
+                        5 if wz > 0 else 4)
+            self.box.xd("sleep", "0.05", "mousemove_relative", "--", 2, 0,
+                        "sleep", "0.05", "mousemove_relative", "--", -2, 0)
         if dx or dy:
             # TWO X PIXELS A GUEST PIXEL, measured (os88bochs.Box.goto) -
             # a serial packet's dx is in mickeys at the same ratio
             self.box.xd("mousemove_relative", "--", 2 * dx, 2 * dy)
+        # A PURE BUTTON PACKET (no motion) IS SENT WHATEVER WE THINK THE
+        # LEVEL IS. os88mouse's `_edge` re-sends one when the guest has not
+        # published the edge - a Microsoft packet carries the LEVEL, so a
+        # re-send is safe - and this used to drop it as already sent. So a
+        # release lost in the X queue at a debugger stop (a stop drops the
+        # capture, and with it whatever input Bochs had not yet taken) was
+        # lost for good: `mouse_btn` stuck at 1 and the drag never ended
+        # (deskclip and thm95, with three Bochs rows sharing the box). A
+        # repeated X press or release is the same level to Bochs's mouse
+        resend = not dx and not dy
+        ever = self.__dict__.setdefault("_ever", set())
         for want, btn in ((l, 1), (r, 3)):
-            if want and btn not in self._btn:
+            if want and (btn not in self._btn or resend):
                 self.box.xd("mousedown", btn)
                 self._btn.add(btn)
-            elif not want and btn in self._btn:
+                ever.add(btn)
+            elif not want and (btn in self._btn or (resend and btn in ever)):
                 self.box.xd("mouseup", btn)
                 self._btn.discard(btn)
         return {"cycles": self._cycles()}
@@ -700,16 +817,39 @@ class BochsMarty(om.Marty):
         return self._video()
 
     def disks(self):
-        return [{"drive": 0, "path": self.box.out + "/a.img"},
-                {"drive": 1, "path": self.box.out + "/b.img"}]
+        """MartyPC's answer: each drive and the image it was MOUNTED from -
+        the pristine copy taken at launch, which `flush(path=None)` writes
+        back over as MartyPC's Save Floppy does its own private copy."""
+        return [{"drive": d, "path": self._src.get(
+                    d, os.path.join(self.box.out, "ab"[d] + ".img"))}
+                for d in (0, 1)]
 
     def flush(self, drive=0, path=None, fmt="raw"):
         """Bochs writes a floppy straight through to its image file, so the
         image IS the disk: copy it out."""
         src = os.path.join(self.box.out, "a.img" if drive == 0 else "b.img")
-        if path:
-            shutil.copy(src, path)
-        return {"path": path or src}
+        dst = path or self._src.get(drive)
+        if dst:
+            shutil.copy(src, dst)
+        return {"path": dst or src}
+
+    def toast_out(self, limit=20.0):
+        """Wait for kern_mega's BOOT TOAST to go (`Entered protected mode`,
+        146 ticks from the first idle pass - kernel/mega.inc). No MartyPC
+        kernel shows one, so a row that compares the glass across time - a
+        damage pass against a whole repaint - would otherwise read the menu
+        bar's toast leaving as a difference (deskzoom: 1,014 px in
+        (300,6)-(479,13)). os88ui.boot and `launch(boot=True)` call it."""
+        # [toast_dirty], [toast_on], [toast_want] - adjacent (toast.inc's
+        # %if): the toast is STAGED during the boot and put up on the UI
+        # task's first idle pass, so `on` alone reads 0 before it shows
+        try:
+            a = self.sym("toast_dirty")
+        except Exception:                       # noqa: BLE001
+            return
+        end = time.time() + limit
+        while any(self.read(a, 3)) and time.time() < end:
+            time.sleep(0.2)
 
     def wait_for(self, text, secs):
         return self.box.wait_for(text, secs)
@@ -747,7 +887,7 @@ _ENV_DISP_USED = False
 
 
 def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
-           sb=None, cfg=None, megs=None, **_):
+           sb=None, cfg=None, megs=None, noserial=False, wheel=False, **_):
     """os88marty.launch's shape, on Bochs and kern_mega (see the module
     note). `boot` True waits for the desktop (os88bochs.Box.up's state gate,
     then a settle of the glass); a number runs blind for that many seconds;
@@ -791,8 +931,9 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
                  btype="1_2" if btype in ("360k", "1_2") else "1_44",
                  build=bld, display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
-                 ne2k=ne2k)
+                 ne2k=ne2k, noserial=noserial, imps2=wheel)
     m = BochsMarty(box, run_dir, label=label)
+    m.imps2 = wheel or "type=imps2" in ob.BOCHSRC
     try:
         # UNTIL BOCHS HAS TAKEN ITS FIRST `c`: it starts at the debugger's
         # prompt, and a SIGINT that lands before that `c` is read is lost
@@ -804,6 +945,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
                                                           "bochs.log"))
             time.sleep(0.05)
         m._bpmark = os.path.getsize(box.e9)
+        ob.autorepeat_off(box.display)  # Bochs is connected: it holds
         if boot is False or boot == 0:
             m._c_pause()
             # ...at cycle 0, as MartyPC's is: rows tell launch(boot=False)
@@ -814,6 +956,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
         if boot is True:
             box.up()
             box.capture()
+            m.toast_out()
             return m
         time.sleep(float(boot))
         return m

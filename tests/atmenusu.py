@@ -121,8 +121,10 @@ def main():
         m.key("KeyN")                          # New -> fullscreen (46.5)
         # Freeze the blink before the first settle, exactly as atblit does:
         # a fullscreen ArtfulType otherwise never stops changing.
-        m.write(seg * 16 + syms["at_drag"], b"\x01")
-        m.write(seg * 16 + syms["at_cphase"], b"\x00")
+        # a kern_mega region is a selector (tools/os88bochsmarty.py's lin)
+        lin = getattr(m, "lin", lambda s_, o=0: s_ * 16 + o)
+        m.write(lin(seg, syms["at_drag"]), b"\x01")
+        m.write(lin(seg, syms["at_cphase"]), b"\x00")
         os88marty.ui_done(m, lock=False)    # typing below confirms on the caret
         caret = syms["at_caret"]
 
@@ -170,7 +172,7 @@ def main():
             opened = m.readseg(seg, syms["at_menuon"], 1)[0]
             banked = rw("at_suseg")
             if poke_refuse:                    # what a REFUSED claim leaves
-                m.write(seg * 16 + syms["at_suseg"], b"\x00\x00")
+                m.write(lin(seg, syms["at_suseg"]), b"\x00\x00")
             mo._edge(False)                    # release ON THE TITLE: no pick
             os88marty.quiesce(
                 m, lambda: m.readseg(seg, syms["at_menuon"], 2)

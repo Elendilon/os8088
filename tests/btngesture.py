@@ -103,7 +103,11 @@ with os88ui.boot(ROOT + "/build/os8088-360.img",
     dsyms = pkg_syms(ROOT + "/apps/dos/dos.asm",
                      ["-I", ROOT + "/apps/", "-I", ROOT + "/apps/dos/",
                       "-I", ROOT + "/drivers/net/", "-I", ROOT + "/kerndos/",
-                      "-DDOSKPART", "-DDOS_EXTCORE"])
+                      "-DDOSKPART", "-DDOS_EXTCORE"]
+                     # kern_mega's system disk carries ITS OWN DOS.O88,
+                     # built -DDOS_MEGA (KERN-MEGA-DOS-PLAN 12.1 item 4)
+                     + (["-DDOS_MEGA"] if os.environ.get("OS88_MEGA")
+                        else []))
     dseg = u16(m.read(os88geom.winptr(m, dw.i, ui.sym) + os88geom.W_SEG, 2))
     n = u16(m.readseg(dseg, dsyms["dos_btrec"] + 6, 2))     # OS88UI_BT_N
     r = u16(m.readseg(dseg, dsyms["dos_btrec"] + 0, 2))     # OS88UI_BT_RECTS

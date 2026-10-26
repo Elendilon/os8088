@@ -10976,3 +10976,64 @@ Red before the fix on both halves: `absent` A (*"the toast to say
 'DESK.DRV' did not happen"*, `toast_buf = 'Entered protected mode'`) and
 `present` G (the widget gone with `CLOSED ... 0D` before it could be
 closed).
+
+### 14.79 Tracker's bracket shut on the keystroke that opened it (2026-10-26)
+
+**Found** porting `altenter` to kern_mega (tests/megaport.txt): a human's
+Alt+Enter into Tracker's full screen - held 0.15 idle-box seconds, which is
+0.675 guest seconds on a 286-class Bochs - opened the bracket and shut it
+again in **2 tries of 3**, `[fsx_task]` back at FFFF and `[os88alt_dn]`
+left at 1. **Cause**: `trk_fsx_main` never said `OS88_ALTENTER_SEED`, which
+apps/os88alt.inc's header names as the third of its three rules (*"the press
+that got you in is still held"*). Its loop's first `os88alt_edge` read the
+same hold as a fresh press and took the leave. An 8088 never meets it - it
+reaches the first poll long after a finger lifts, so MartyPC's `altenter`
+was green - and every machine kern_mega runs on does. Shared, not
+kern_mega's: kern_big on a 286 or 386 has the same bracket. **Fix**:
+`OS88_ALTENTER_SEED` at the top of `trk_fsx_main`, five bytes of
+`tracker.o88` and both its arms; no kernel byte. After it, 3 of 3.
+`altenter` on kern_mega holds the ENTERING press for 0.15 (`IN_HOLD`), so
+the port is the regression check; MartyPC's arm keeps the bare press.
+apps/excitebike (`game.inc`, `flow.inc`) polls `os88alt_edge` without a
+seed too and was not looked at here.
+
+The same port found the harness reason it first read as a stuck key: X
+AUTOREPEATS a held key as release/press PAIRS, which Bochs hands the guest
+as a break and a make, so an xdotool hold was a dozen fresh presses - a
+half-second Alt+Enter toggled ArtfulType 8-13 times. `tools/os88bochs.py`
+turns autorepeat off (`autorepeat_off`, and `-r` on a new Xvfb).
+
+### 14.80 An OSAPI_SEG window followed somebody else's block, and a re-aim could land on a sibling (2026-10-26)
+
+**Found** porting `c64move` (tests/emumove.py) to kern_mega at 1MB, where the
+heap is conventional and heapfrag's posted pass moves the C64's carve
+8780h -> 8C80h: checks 1-5 passed and the 6510 JAMMED. Its three ROM-bank
+fetch windows (`c64_rbset`, SPEC.md 50.6.11's `SEG_WIN`) read back as
+`rbk = rbc = 125Ch`, both based on CHARGEN's bank.
+
+**Cause 1 - the match came before the caller's own window.** `mega_wset`
+answered a re-aim with any window the same owner already had over exactly
+that base and limit, before it re-aimed the window the caller NAMED. The
+carve moved 5000h bytes, which is exactly KERNAL's bank offset (E000h) less
+CHARGEN's (9000h), so KERNAL's re-aim landed where CHARGEN's window already
+pointed and was handed CHARGEN's selector; CHARGEN's own re-aim then moved
+that one descriptor, and KERNAL's word went with it. Two words a package
+holds must never name one descriptor behind its back. **Fix**: `mega_wset`
+re-aims the caller's own window first and takes a match only when the
+caller named none.
+
+**Cause 2 - a window was freed or rebased with the block it happened to be
+based in.** `mega_cdin` (`mega_cdfree`, `mega_mpmovef`), `mx_dfree` and
+`mx_desc` free or rebase every allocator descriptor whose BASE lies in the
+block being freed or moved. That is right for a SUB, a SUBC pair and a bound
+window - they belong to the block - and wrong for a `SEG_WIN` window, whose
+base is a paragraph the owner chose: the C64's banks are based BELOW its ROM
+part, in whatever claim sits there, so another package's free took the
+C64's windows away (group 3's diagnosis: a dead selector at the next
+fetch) and another package's move would have re-pointed them. **Fix**:
+`mega_iswin` - an unbound `mega_wtab` row is its owner's, freed by its end or
+`SEG_FREE` and re-aimed by its owner only, so all four walks skip it.
+
+`c64move` and `a2move` pass on a 1MB kern_mega (`@OS88_BOCHS_MEGS=1`, the
+conventional heap that moves); before, `c64move` failed check 6 with the
+6510 jammed. kern_big and kern_small byte-identical (`kernel/mega.inc`).

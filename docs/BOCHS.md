@@ -185,11 +185,36 @@ it maps:
 - **the FDC** - `disk()` counts `<<READ DONE>>`/`<<WRITE DONE>>` in Bochs's
   own floppy log (`debug: floppy=report`), which is all os88ui and `ui_done`
   use it for.
-- **breakpoints** - `exec`/`execseg` are `lb`; `mem`, `int` and `io` are
-  refused.
+- **breakpoints** - `exec`/`execseg` are `lb`; `int` is an `lb` on the
+  vector's handler - the IDT gate under protected mode, so `int 0` is #DE
+  (tests/int0sweep.py); `mem` and `io` are refused. `park` moves CS:IP but
+  cannot clear IF (Bochs's `set` takes no EFLAGS): parked code starts with
+  `cli` (tests/evqfull.py).
+- **selectors** - `m.lin(seg, off)` reads the LDT or the GDT. kern_mega's
+  GDT is an identity map except the kernel's DATA (0010, based at
+  KERNEL_SEG x 16; KERNEL_SEG's own 0060 is its read-only CODE) and
+  COLD_SEG, whose base is `.cold`'s copy above 1MB (tests/tnest.py).
+- **the mouse and keys** - `launch(..., wheel=True)` is an IntelliMouse and
+  `m.wheel()` turns it (Bochs 2.7 never clears its last Z, so the shim
+  follows each turn with a zero-sum motion, or the next stop sends one more
+  notch); `launch(..., noserial=True)` takes COM1 out, QEMU's `-serial
+  none` (tests/ps2mouse.py). X KEY AUTOREPEAT IS OFF on the display: X
+  repeats a held key as release/press pairs, which Bochs hands the guest as
+  break/make, so a held Alt+Enter was a dozen presses.
+- **disks** - `disks()` names each drive's image AS MOUNTED, copied before
+  Bochs runs, so os88flush's diff has a reference (tests/cfgtrip.py).
+- **a write to CODE that has already run is not seen.** Bochs caches
+  decoded instructions per physical page and `setpmem` does not invalidate
+  that cache, so a row that patches a package's code after the code has
+  executed runs the OLD bytes (tests/uidrdis.py, measured by single-stepping
+  a patched `stc` that executed as the `push ax` it replaced). Patch before
+  the code first runs - uidrdis takes a second boot for it.
+- **kern_mega's boot toast** (`Entered protected mode`, eight seconds) is
+  waited out by `os88ui.boot` and `launch(boot=True)` (`m.toast_out()`), or
+  a glass compare across it reads the menu bar changing.
 - **refused by name** - `flicker`, `pace` (the frame instrument; the
   guest-seconds `os88marty.pace()` works), `planes`, `inb`/`outb`,
-  `snapshot`, `reset`, the wheel. A row built on one is not portable.
+  `snapshot`, `reset`. A row built on one is not portable.
 
 Two knobs reach the machine. `$OS88_BOCHS_MOUSE=serial` swaps the PS/2
 mouse for a Microsoft serial one on COM1 - kern_dos's INT 33h serves a serial

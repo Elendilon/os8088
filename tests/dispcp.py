@@ -84,6 +84,14 @@ CPV_BTNX, CPV_BTNY = 2, 72          # ...and the Set Primary button under them
 MODES = {"single": 0, "right": 1, "below": 2}
 
 
+def _lin(m, seg, off=0):
+    """SEG:OFF as a linear address. `seg << 4` on MartyPC; under kern_mega
+    (tools/os88bochsmarty.py) a claim's segment is an LDT SELECTOR, and
+    `m.lin` looks its base up in the descriptor."""
+    f = getattr(m, "lin", None)
+    return f(seg, off) if f is not None else (seg << 4) + off
+
+
 def _u16(b, i=0):
     return b[i] | (b[i + 1] << 8)
 
@@ -552,9 +560,7 @@ def listing(m, S):
         n = _u16(m.read(base + FS_N, 2))
         vseg = _u16(m.read(base + FS_VSEG, 2))
         if n and vseg:
-            # readseg, not `vseg << 4`: on kern_mega the claim is an LDT
-            # selector (docs/BOCHS.md), and on MartyPC this is the same read
-            return _decode(m.readseg(vseg, 0, n * DSK_DE_STRIDE), n)
+            return _decode(m.read(_lin(m, vseg), n * DSK_DE_STRIDE), n)
     return snapshot(m, S)
 
 
@@ -579,7 +585,7 @@ def snapshot(m, S):
         return []
     seg = _u16(m.read(S("dsk_dseg"), 2))
     off = _u16(m.read(S("dsk_doff"), 2))
-    return _decode(m.readseg(seg, off, n * DSK_DE_STRIDE), n)
+    return _decode(m.read(_lin(m, seg, off), n * DSK_DE_STRIDE), n)
 
 
 def row_of(m, S, name):

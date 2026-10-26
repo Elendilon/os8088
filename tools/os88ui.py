@@ -135,6 +135,8 @@ class _Booted(object):
             # healthy boot and fails on a slow one, which is the worst
             # available split.
             ui.up(limit=limit)
+            if hasattr(m, "toast_out"):     # kern_mega's boot toast (Bochs)
+                m.toast_out()
             if not self._kw.get("saver", False):
                 os88marty.no_saver(m)
             if self._kw.get("settle", True):
@@ -835,6 +837,14 @@ class UI:
         for attempt in range(tries):
             if prep is not None:
                 prep()
+            # SEPARATED FROM THE LAST PRESS ON THE GUEST'S CLOCK, as every
+            # other press in os88mouse is: move_window's raise click and its
+            # grab are two presses on one title bar, and move_window's note
+            # counts on `_sep` to keep them from being a double-click (a
+            # ZOOM). This was the one press that skipped it - latent where
+            # the guest outruns the host (MartyPC), a zoom every time on
+            # kern_mega's Bochs, whose guest runs at host speed (deskzoom)
+            self.mo._sep()
             self.mo._edge(True)
             try:
                 return self._wait(cond, what,
