@@ -287,7 +287,7 @@ def mega_leg(bad, blank, boot):
                             cfg, "SYSTEM.CFG"], check=True,
                            capture_output=True)
         with M.launch(sysimg, apps=os88build.at("build/apps.img"),
-                      machine="os8088_hdd", boot=False,
+                      machine="os8088_xt_hdd", boot=False,
                       extra=["--mount", "hd:0:" + hdimg]) as m:
             m.run()
             M.kernel_up(m)
