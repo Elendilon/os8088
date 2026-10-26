@@ -139,8 +139,9 @@ def rect(m, pseg, dm, name):
     rows that clicked them at `content + DOS_BTNY + 7` went on clicking an
     empty part of the window.
     """
-    at = (pseg << 4) + dm[name]
-    return [int.from_bytes(m.read(at + i * 2, 2), "little") for i in range(4)]
+    import os88marty
+    b = os88marty.live_reads(m, pseg, [(dm[name], 8)])[0]
+    return [int.from_bytes(b[i * 2:i * 2 + 2], "little") for i in range(4)]
 
 
 def instance(m, slot=0):
@@ -164,6 +165,15 @@ def instance(m, slot=0):
     nine bytes of machine code out of `[dos_path]`. All five resolve per
     access now. It is one window-record lookup - cheap beside the debug round
     trip every read already costs.
+
+    **AND THE ANSWER IS A os88marty.LiveSeg**, so even a banked one is safe
+    in the helpers: rect() and centre() read through the window record it
+    came from, the base and the four words in one compactor-safe snapshot
+    (os88marty.seg_snap) - a move caught between mem_bcopy and
+    mem_reloc_call cannot hand them the old base's shifted bytes. What is
+    NOT safe is `instance(m) << 4` followed by a read of your own: that is a
+    torn pair however soon it is taken (call5's 161, dirwshed's 29,888 KB).
+    Read through os88marty.pkg_read(m, slot, dm[name], n) instead.
     """
     import dispapps
     g = dispapps.pkg_seg(m, slot)

@@ -392,7 +392,16 @@ def img_size(app, small=False):
 
 
 def pkg_seg(m, want):
-    """The segment of a visible PACKAGE window, newest last."""
+    """(slot, seg) of a visible PACKAGE window, newest last - or None.
+
+    `seg` is an os88marty.LiveSeg: an int with the value W_SEG held when this
+    was asked, which also carries the kernel word it came from. words() and
+    dosmap.rect() read THROUGH that word in one compactor-safe snapshot
+    (os88marty.seg_snap), so a seg banked here and read after a compaction
+    reads the region where it is now. Doing `seg << 4` yourself gets the old
+    snapshot and the torn pair with it - read through a helper, or through
+    os88marty.pkg_read(m, slot, off, n).
+    """
     b = m.read(S("wm_wins"), os88geom.MAX_WIN * os88geom.WIN_SIZE)
     out = []
     for i in range(os88geom.MAX_WIN):
@@ -400,7 +409,8 @@ def pkg_seg(m, want):
         fl = int.from_bytes(b[o + os88geom.W_FLAGS:o + os88geom.W_FLAGS + 2], "little")
         seg = int.from_bytes(b[o + os88geom.W_SEG:o + os88geom.W_SEG + 2], "little")
         if fl & 3 == 3 and seg:
-            out.append((i, seg))
+            out.append((i, os88marty.LiveSeg(
+                seg, m, S("wm_wins") + o + os88geom.W_SEG)))
     return out[want] if len(out) > want else None
 
 
@@ -412,13 +422,13 @@ BYTES = set(["mc_mono", "mc_ecoarse", "mc_expfr", "ark_bpp", "sol_bpp",
 
 
 def words(m, seg, app, names):
+    """{name: value} of the package's bss words (or BYTES), all from ONE
+    snapshot - re-resolved through the window record when `seg` is
+    pkg_seg's LiveSeg (os88marty.live_reads)."""
     base = img_size(app)
-    out = {}
-    for n in names:
-        n_b = 1 if n in BYTES else 2
-        out[n] = int.from_bytes(
-            m.read((seg << 4) + base + bss_off(app, n), n_b), "little")
-    return out
+    spans = [(base + bss_off(app, n), 1 if n in BYTES else 2) for n in names]
+    raw = os88marty.live_reads(m, seg, spans)
+    return {n: int.from_bytes(r, "little") for n, r in zip(names, raw)}
 
 
 def main(argv):

@@ -592,6 +592,95 @@ def quiesce(m, read, secs=1.0, stable=2, limit=60.0, what=None, poll=0.1):
     return last
 
 
+# --- A HEAP BASE AND ITS BYTES IN ONE SNAPSHOT (tools/os88marty.py's twin) ---
+#
+# The compactor copies a block (mem_bcopy) BEFORE it rewrites the records that
+# name it (mem_reloc_call), so a window's W_SEG or a drv_tab row's segment
+# read as one HMP call and the bytes through it as another can straddle a move
+# and hand back the old base's shifted copy (SPEC.md 66; os88marty's banner
+# over seg_snap is the account). Same algorithm here: base, spans, then
+# [mem_cp_busy] and the base again - unchanged and idle is consistent - and
+# only otherwise a STOPPED guest (HMP `stop`) let run in short `cont` bursts
+# until the pass is over. QEMU has no cycle clock to step by, so the bursts
+# are host-timed; what they wait for is the guest's own byte.
+#
+# `q` is any of the tree's QEMU driver objects: an `hmp(cmd)` answering a
+# string and a `read(linear, n)`. os88marty.seg_snap/heap_read/pkg_read hand
+# a QEMU object here themselves, so a helper written once serves both.
+
+HEAP_BURST = 0.005      # host seconds a `cont` burst while a pass runs
+HEAP_LIMIT = 60.0       # ...and how long before that is a stuck compactor
+
+
+def _busy(q):
+    b = getattr(q, "_heap_busy_sym", False)
+    if b is False:
+        try:
+            if hasattr(q, "sym"):
+                b = q.sym("mem_cp_busy")
+            else:
+                sys.path.insert(0, os.path.join(ROOT, "tools"))
+                import os88sym
+                b = os88sym.linear("mem_cp_busy")
+        except (Exception, SystemExit):                     # noqa: BLE001
+            b = None
+        try:
+            q._heap_busy_sym = b
+        except AttributeError:
+            pass
+    return b
+
+
+def heap_read(q, read, what="a heap snapshot"):
+    """`read(q)` answered off a STOPPED guest with [mem_cp_busy] clear; the
+    guest is resumed only if it was running (os88marty.heap_read's twin)."""
+    busy = _busy(q)
+    was = "running" in q.hmp("info status")
+    q.hmp("stop")
+    try:
+        t0 = time.time()
+        while busy is not None and q.read(busy, 1)[0]:
+            if time.time() - t0 > HEAP_LIMIT:
+                raise RuntimeError("%s: the heap compactor was still running "
+                                   "after %.0fs ([mem_cp_busy] never cleared)"
+                                   % (what, HEAP_LIMIT))
+            q.hmp("cont")
+            time.sleep(HEAP_BURST)
+            q.hmp("stop")
+        return read(q)
+    finally:
+        if was:
+            q.hmp("cont")
+
+
+def seg_snap(q, word, spans, base=None, what="a read through a heap base",
+             step=True):
+    """(seg, [bytes, ...]) through the segment the kernel word at flat
+    `word` names, in one consistent snapshot - os88marty.seg_snap's twin."""
+    lin = base or (lambda s: s << 4)
+    u16 = lambda b: b[0] | (b[1] << 8)          # noqa: E731
+    busy = _busy(q)
+    for _ in range(2):
+        seg = u16(q.read(word, 2))
+        if not seg:
+            return 0, None
+        out = [q.read(lin(seg) + o, n) for o, n in spans]
+        if busy is None:
+            return seg, out
+        b = q.read(busy, 1)[0]
+        if not b and u16(q.read(word, 2)) == seg:
+            return seg, out
+        if b:
+            break
+    if not step and "running" not in q.hmp("info status"):
+        return seg, out                 # the caller holds it mid-pass
+
+    def snap(qq):
+        s = u16(qq.read(word, 2))
+        return (s, [qq.read(lin(s) + o, n) for o, n in spans] if s else None)
+    return heap_read(q, snap, what)
+
+
 # --- a CLOSED-LOOP mouse (docs/plans/completed/SOAK-SPEED.md, harness changes) ---------
 #
 # tools/mouse.py cannot know where the pointer is, so it PINS against the

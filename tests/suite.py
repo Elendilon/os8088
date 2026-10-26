@@ -7839,6 +7839,19 @@ SOAK = [
         "the third way and is Bochs's.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/call5360.img")),
+    Row("pkgread", "soak", py("tests/pkgread.py"), 15.0,
+        "A HEAP BASE AND ITS BYTES ARE ONE READ (os88marty.seg_snap, the "
+        "shared fix for call5's 161, dosest's driver 'nowhere' and "
+        "dirwshed's 29,888 KB arena). A compaction copies a block before "
+        "mem_reloc_call rewrites the W_SEG naming it; this row MAKES that "
+        "instant - CALC opened then closed above NOTEPAD, a posted pass, an "
+        "exec breakpoint on mem_reloc_call whose BX is NOTEPAD's W_SEG - and "
+        "asserts seg_snap there answers the NEW base and the image, a "
+        "LiveSeg banked before the move follows it, and os88geom.windows / "
+        "pkg_read / Pkg agree after. The naive pair at the same instant read "
+        "11,388 of 17,687 image bytes wrong. RED with --break (the busy "
+        "check removed): 'seg_snap answers 9980 (want 9B00)'. 11.5s measured",
+        needs=("marty",), wants=("build/apps360.img",)),
     Row("dosgap", "soak", py("tests/dosgap.py"), 20.0,
         "A WRITE PAST THE END OF A FILE THE SAME HANDLE CREATED (SPEC.md "
         "96.11.6.3). Microsoft Works could not save a document - `Cannot "

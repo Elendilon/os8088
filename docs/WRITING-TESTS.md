@@ -36,6 +36,7 @@ then the section for the part you are writing.
 | needing a disk image, package or knob kernel | §5 |
 | booting, clicking, typing, using breakpoints | §6 |
 | waiting for something to happen | §7 |
+| reading a package's or a driver's bytes | §8.1 |
 | making a slow row cheaper | §4.2 |
 | on QEMU, 86Box, Bochs or Unicorn | §9 |
 | wondering why a rule exists | §13 (the incident list) |
@@ -459,6 +460,31 @@ Part 3).
   contradict each other (incident 60).
 - **A pointer is unsigned**, and a host-side reader of a package with parts
   must lay the part in rather than index the image (incident 54).
+
+### 8.1 Reading a package's memory
+
+**Never read a base out of a kernel record and then read through it yourself.**
+`seg = W_SEG; m.read((seg << 4) + off, n)` is two round trips with the guest
+running between them, and the compactor copies a region *before* it rewrites
+the W_SEG naming it (SPEC.md 66) - land between the two and you read the old
+base's shifted bytes, which decode as a plausible wrong answer (call5's exit
+code 161, dirwshed's 29,888 KB arena). Banking the base at the top of a
+session is the same defect held open for the whole run. Use:
+
+```python
+os88marty.pkg_read(m, w, off, n)            # a window's package; w or slot
+p = os88marty.Pkg(m, w, image=img)          # a live view: p.word(bss_off)
+os88marty.drv_read(m, row, off, n)          # a drv_tab row's driver
+os88marty.seg_snap(m, word, spans)          # any kernel word naming a seg
+```
+
+Each is the base and the bytes in one compactor-safe snapshot, at one round
+trip when nothing is moving - less than the naive pair; writes (`pkg_write`,
+`drv_write`, `p.write`) always pause the guest. `dosmap.instance` and
+`dispapps.pkg_seg` return a `LiveSeg` that `dosmap.rect`/`centre`,
+`dispapps.words` and `m.readseg(seg, ...)` re-resolve per read
+(`os88marty.pkg_live(m, w)` makes one); QEMU objects take the same calls.
+docs/MARTYPC-DEBUG.md has the argument; `tests/pkgread.py` is the gate.
 
 ---
 

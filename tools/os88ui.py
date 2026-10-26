@@ -703,12 +703,14 @@ class UI:
                               "(stik=(STIK_BSS, STIK_PAYLEN))" % w.title)
             stik = tuple(getattr(os88stik, v) if isinstance(v, str) else v
                         for v in k)
-        rec = self._S("wm_wins") + w.i * geom.WIN_SIZE
-        seg = struct.unpack("<H", bytes(self.m.read(rec + geom.W_SEG, 2)))[0]
-        img = struct.unpack("<H", bytes(self.m.readseg(seg, 8, 2)))[0]
+        # Through os88marty.pkg_read, never W_SEG and then a readseg: a
+        # widget's region moves under the compactor, and the pair can tear
+        # between the copy and the record update (SPEC.md 66). The image size
+        # is the package's own header word and does not move with it.
+        img = _u16(os88marty.pkg_read(self.m, w, 8, 2, self._S))
         lib = bool(stik[2]) if len(stik) > 2 else False
         off = os88stik.state_off(lib, stik[0], stik[1], img)[name]
-        return self.m.readseg(seg, img + off, 1)[0]
+        return os88marty.pkg_read(self.m, w, img + off, 1, self._S)[0]
 
     def _above(self, w):
         """The windows over `w` - every visible ordinary window, for a desk
@@ -1212,17 +1214,23 @@ class UI:
             base = (geom.KERNEL_SEG << 4) + vp if vp else None
         if base is not None:
             n = _u16(self.m.read(base + geom.FS_N, 2))
-            vseg = _u16(self.m.read(base + geom.FS_VSEG, 2))
+            # the listing cache is a purgeable claim that MOVES (its reloc
+            # rewrites FS_VSEG): its base and its bytes in one snapshot
+            vseg, got = (os88marty.seg_snap(
+                self.m, base + geom.FS_VSEG, [(0, n * geom.DSK_DE_STRIDE)],
+                what="the Disk window's listing", sym=self._S, step=False)
+                if n else (0, None))
             if n and vseg:
-                return _decode(self.m.read(vseg << 4,
-                                           n * geom.DSK_DE_STRIDE), n)
+                return _decode(got[0], n)
         n = self._word("disk_nfiles")
         if not n:
             return []
-        seg = self._word("dsk_dseg")
         off = self._word("dsk_doff")
-        return _decode(self.m.read((seg << 4) + off,
-                                   n * geom.DSK_DE_STRIDE), n)
+        seg, got = os88marty.seg_snap(          # dsk_dseg moves too (its
+            self.m, self._S("dsk_dseg"),        # claim's reloc, SPEC.md 66)
+            [(off, n * geom.DSK_DE_STRIDE)], what="the mount snapshot",
+            sym=self._S, step=False)
+        return _decode(got[0], n) if seg else []
 
     def entry(self, name, win=None):
         """(index, type) of `name` in `win` (or the acting window), or raise
@@ -1681,19 +1689,34 @@ class UI:
         System menu answers to both.
         """
         n = self._word("menu_nbar")
-        raw = self.m.read(self._S("menu_bar"), max(n, 1) * geom.MB_ENTSZ)
-        out = []
-        for i in range(n):
-            b = i * geom.MB_ENTSZ
-            tp = _u16(raw, b + geom.MB_TITLE)
-            ip = _u16(raw, b + geom.MB_ITEMS)
-            ni = _u16(raw, b + geom.MB_NITEM)
-            x0 = _u16(raw, b + geom.MB_XL)
-            x1 = _u16(raw, b + geom.MB_XR)
-            seg = _u16(raw, b + geom.MB_SEG) or geom.KERNEL_SEG
-            title = "Apple" if not tp else self._str(seg, tp)
-            out.append((title, x0, x1, self._items(seg, ip, ni)))
-        return out
+        size = max(n, 1) * geom.MB_ENTSZ
+
+        def segs(raw):
+            return [_u16(raw, i * geom.MB_ENTSZ + geom.MB_SEG)
+                    for i in range(n)]
+
+        def take(mm, raw):
+            out = []
+            for i in range(n):
+                b = i * geom.MB_ENTSZ
+                tp = _u16(raw, b + geom.MB_TITLE)
+                ip = _u16(raw, b + geom.MB_ITEMS)
+                ni = _u16(raw, b + geom.MB_NITEM)
+                x0 = _u16(raw, b + geom.MB_XL)
+                x1 = _u16(raw, b + geom.MB_XR)
+                seg = _u16(raw, b + geom.MB_SEG) or geom.KERNEL_SEG
+                title = "Apple" if not tp else self._str(seg, tp)
+                out.append((title, x0, x1, self._items(seg, ip, ni)))
+            return out
+        # A package's menu strings are in ITS segment, which the compactor
+        # moves - so the bar is read and then checked again with the
+        # compactor idle, or taken off a paused guest (os88marty.table_snap).
+        raw = self.m.read(self._S("menu_bar"), size)
+        if not any(segs(raw)):          # the kernel's own menus only
+            return take(self.m, raw)
+        return os88marty.table_snap(self.m, self._S("menu_bar"), size, take,
+                                    segs, "the menu bar's strings",
+                                    first=raw, sym=self._S, step=False)
 
     def _str(self, seg, off, n=40):
         return bytes(self.m.readseg(seg, off, n)).split(b"\0")[0] \

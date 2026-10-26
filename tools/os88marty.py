@@ -750,6 +750,16 @@ class Marty:
         return bytes(out)
 
     def readseg(self, seg, off, length):
+        """`length` bytes at seg:off. A LiveSeg (what dispapps.pkg_seg,
+        dosmap.instance and pkg_live answer) is read through the kernel word
+        it came from, the base and the bytes in one compactor-safe snapshot
+        (seg_snap) - so a row that banked one and reads through it here
+        cannot be handed the bytes a compaction left at the old base."""
+        if isinstance(seg, LiveSeg) and seg.m is self:
+            now, out = seg_snap(self, seg.word, [(off, length)], seg.base,
+                                step=False)
+            if now:                     # (gone - window closed: read as an
+                return out[0]           # int, which is what it always did)
         return self.read((seg << 4) + off, length)
 
     def sym(self, name, defines=()):
@@ -2812,13 +2822,10 @@ def heap_read(m, read, what="a heap snapshot"):
     repeated until two agree with the compactor idle either side - weaker,
     but never a torn pair the caller is told is consistent.
     """
-    busy = getattr(m, "_heap_busy_sym", False)
-    if busy is False:
-        try:
-            busy = m.sym("mem_cp_busy")
-        except (Exception, SystemExit):                     # noqa: BLE001
-            busy = None
-        m._heap_busy_sym = busy
+    if _is_qemu(m):
+        import os88qemu
+        return os88qemu.heap_read(m, read, what)
+    busy = _busy_addr(m)
 
     def idle():
         return busy is None or not m.read(busy, 1)[0]
@@ -2849,7 +2856,405 @@ def heap_read(m, read, what="a heap snapshot"):
             m.run()
 
 
-BIOS_KBUF = 0x41A               # 0040:001A/001C - the BIOS key ring's head, tail
+def _busy_addr(m, sym=None):
+    """The flat address of [mem_cp_busy], or None on a kernel that has no
+    compactor (kern_small: OS88_COMPACT is KERN_BIG only), cached on `m`."""
+    busy = getattr(m, "_heap_busy_sym", False)
+    if busy is False:
+        try:
+            busy = (sym or m.sym)("mem_cp_busy")
+        except (Exception, SystemExit):                     # noqa: BLE001
+            busy = None
+        try:
+            m._heap_busy_sym = busy
+        except AttributeError:
+            pass
+    return busy
+
+
+def _is_qemu(m):
+    """A QEMU driver object (an `hmp` and a `read`, no cycle clock) rather
+    than a Marty - tests/os88qemu.py carries the twin of everything below."""
+    return hasattr(m, "hmp") and not hasattr(m, "advance")
+
+
+# =============================================================================
+# READING A PACKAGE'S (OR A DRIVER'S) MEMORY BY ITS BASE - ONE SNAPSHOT
+# =============================================================================
+#
+# **THE BASE AND THE BYTES IT NAMES ARE ONE READ, OR THEY ARE A TORN PAIR.**
+# A package's region, a driver image and every movable claim MOVE under the
+# compactor (SPEC.md 66), and the order inside a pass is fixed: `mem_bcopy`
+# copies the bytes FIRST, and only `mem_reloc_call` after it rewrites the
+# records that name the block - W_SEG in a window record, DRVR_SEG in drv_tab,
+# MC_BASE in mem_tab. In between (call5 measured ~400k cycles, dirwshed 686k,
+# ~144 ms of guest) the record still names the OLD base and the old bytes are
+# already somebody's shifted copy. A row that reads the record and then reads
+# through it as a second round trip, with the guest running in between, lands
+# there now and then - more often on a loaded box, where every round trip is
+# longer - and is handed plausible rubbish: call5's exit code 161, dirwshed's
+# 29,888 KB arena, dosest's driver claim "nowhere".
+#
+# seg_snap() is the one place that is solved. It reads the base word, the
+# spans through it, then [mem_cp_busy] and the base word AGAIN - in that
+# order, and the order is the proof: if the compactor is idle at the second
+# look and the base has not changed, no pass that moved this block overlapped
+# the span reads (one still mid-copy reads busy; one that finished has
+# rewritten the record). The spans and the two checks go as ONE pipelined
+# round trip (`batch`), and the first base read is the base the word was last
+# verified at, so an unloaded read is ONE round trip once the block has been
+# seen (two the first time - the naive pair's cost) and the guest is never
+# paused. Only a read that saw the
+# compactor busy, or the base move under it, falls back to heap_read's
+# paused, stepped-until-idle snapshot. Reading [mem_cp_busy] FIRST instead, as
+# the obvious version would, is NOT sound: idle, base, then a pass copies,
+# then the bytes - and a second base read still names the old block.
+#
+# WRITES ARE ALWAYS PAUSED. A torn write is not a wrong answer, it is a byte
+# stored into whatever now occupies the old base - so pkg_write/drv_write go
+# straight to heap_read's stopped, compactor-idle guest.
+
+SNAP_TRIES = 2                  # optimistic attempts before pausing
+
+
+def _u16(b, i=0):
+    return b[i] | (b[i + 1] << 8)
+
+
+def _flat(seg):
+    return seg << 4
+
+
+def seg_snap(m, word, spans, base=None, what="a read through a heap base",
+             sym=None, step=True):
+    """(seg, [bytes, ...]) - the segment the kernel word at flat `word` names
+    and the `spans` [(off, n), ...] read through it, as ONE consistent
+    snapshot: never bytes from a base the compactor has already retired.
+
+        seg, (a, b) = os88marty.seg_snap(m, rec + W_SEG, [(0x120, 2), (8, 2)])
+
+    `base(seg)` turns the segment into the flat address the offsets are
+    relative to - `seg << 4` by default, os88geom.drv_base for a driver row
+    (an HMA image's offsets start at SEG:DRV_HMA_ORG). A word reading 0 (the
+    window closed, the driver unloaded) answers (0, None).
+
+    `step=False` is for the IMPLICIT readers (Marty.readseg on a LiveSeg,
+    os88geom.windows, os88ui's listings): a guest the CALLER has stopped
+    inside a pass - a row holding a breakpoint in the compactor - is not
+    stepped out of it behind the caller's back; the read is answered as the
+    machine stands, which is all a stopped machine can say. An explicit
+    pkg_read/seg_snap steps the pass out, as heap_read does.
+
+    Costs one round trip when nothing is moving (two the first time a word is
+    read: the naive pair's cost), and pauses
+    the guest only when a compaction was caught in flight. A QEMU driver
+    object takes tests/os88qemu.py's twin.
+    """
+    if _is_qemu(m):
+        import os88qemu
+        return os88qemu.seg_snap(m, word, spans, base, what, step)
+    lin = base or _flat
+    spans = [(int(o), int(n)) for o, n in spans]
+    busy = _busy_addr(m, sym)
+    piped = hasattr(m, "batch") and all(n <= 0x10000 for _, n in spans)
+    # THE LAST BASE THIS WORD WAS VERIFIED AT stands in for the first read:
+    # the after-check compares against it exactly as against a fresh one (a
+    # pass that moved the block since reads a different word; one in flight
+    # reads busy), so a steady-state read is ONE round trip - cheaper than
+    # the naive pair. A wrong guess costs one retry with a fresh read.
+    guess = getattr(m, "_snap_guess", None)
+    if guess is None and piped:
+        guess = {}
+        try:
+            m._snap_guess = guess
+        except AttributeError:
+            guess = None
+    for k in range(SNAP_TRIES + 1):
+        seg = (guess or {}).pop(word, 0) if k == 0 and busy is not None \
+            and piped else 0
+        if not seg:
+            seg = _u16(m.read(word, 2))
+        if not seg:
+            return 0, None
+        if busy is None:                    # no compactor: nothing moves
+            return seg, [m.read(lin(seg) + o, n) for o, n in spans]
+        if piped:
+            r = m.batch([{"cmd": "read", "addr": lin(seg) + o, "len": n}
+                         for o, n in spans]
+                        + [{"cmd": "read", "addr": busy, "len": 1},
+                           {"cmd": "read", "addr": word, "len": 2}])
+            got = [bytes.fromhex(x["data"]) for x in r]
+            out, b, s1 = got[:-2], got[-2][0], _u16(got[-1])
+        else:
+            out = [m.read(lin(seg) + o, n) for o, n in spans]
+            b = m.read(busy, 1)[0]
+            s1 = _u16(m.read(word, 2))
+        if not b and s1 == seg:
+            if guess is not None:
+                guess[word] = seg
+            return seg, out
+        if b:                               # a pass in flight: stop it out
+            break
+    if not step and _held(m):
+        return seg, out
+
+    def snap(mm):
+        s = _u16(mm.read(word, 2))
+        return (s, [mm.read(lin(s) + o, n) for o, n in spans] if s else None)
+    return heap_read(m, snap, what)
+
+
+def _held(m):
+    """Is the CALLER holding this machine stopped (not a bp_trace pump)?"""
+    if _is_qemu(m):
+        return "running" not in m.hmp("info status")
+    if getattr(m, "_pumping", 0):
+        return False
+    return m.status().get("state", "running") != "running"
+
+
+def table_snap(m, at, n, take, segs=None, what="a read through a kernel table",
+               first=None, sym=None, step=True):
+    """seg_snap for a whole kernel TABLE whose rows name segments: answers
+    `take(m, raw)` - which may read through any segment in `raw`, the `n`
+    bytes at flat `at` - with the same after-check: [mem_cp_busy] and the
+    table again in one round trip, and `segs(raw)` (default: all of it)
+    unchanged. Otherwise taken off a paused, compactor-idle guest. `first`
+    is the table already read, which saves its round trip; `step` is
+    seg_snap's.
+
+        titles = os88marty.table_snap(m, S("wm_wins"), MAX_WIN * WIN_SIZE,
+                                      lambda mm, raw: [...], segs=W_SEGs)
+    """
+    key = segs or (lambda raw: raw)
+    if _is_qemu(m):
+        import os88qemu
+        busy = os88qemu._busy(m)
+    else:
+        busy = _busy_addr(m, sym)
+    for _ in range(SNAP_TRIES):
+        raw = first if first is not None else m.read(at, n)
+        first = None
+        val = take(m, raw)
+        if busy is None:
+            return val
+        if hasattr(m, "batch") and n <= 0x10000:
+            r = m.batch([{"cmd": "read", "addr": busy, "len": 1},
+                         {"cmd": "read", "addr": at, "len": n}])
+            b, raw1 = bytes.fromhex(r[0]["data"])[0], bytes.fromhex(
+                r[1]["data"])
+        else:
+            b, raw1 = m.read(busy, 1)[0], m.read(at, n)
+        if not b and key(raw1) == key(raw):
+            return val
+        if b:
+            break
+    if not step and _held(m):
+        return val                      # the caller holds it mid-pass
+    return heap_read(m, lambda mm: take(mm, mm.read(at, n)), what)
+
+
+def seg_write(m, word, off, data, base=None,
+              what="a write through a heap base"):
+    """Write `data` at offset `off` of the block the kernel word at `word`
+    names, on a PAUSED guest with the compactor idle (a torn write corrupts
+    whoever holds the old base). Answers the segment written, 0 for none."""
+    lin = base or _flat
+
+    def put(mm):
+        s = _u16(mm.read(word, 2))
+        if s:
+            mm.write(lin(s) + off, bytes(data))
+        return s
+    return heap_read(m, put, what)
+
+
+def _S(m, sym=None):
+    """The symbol resolver: the caller's, the Marty's own, or os88sym's for
+    a QEMU object that carries none."""
+    if sym is not None:
+        return sym
+    if hasattr(m, "sym"):
+        return m.sym
+    import os88sym
+    return os88sym.linear
+
+
+def _winword(m, win, sym=None):
+    """The flat address of window `win`'s W_SEG - `win` an os88geom.Win, an
+    os88ui window (anything with `.i`) or a slot number."""
+    import os88geom
+    i = win.i if hasattr(win, "i") else int(win)
+    return _S(m, sym)("wm_wins") + i * os88geom.WIN_SIZE + os88geom.W_SEG
+
+
+def _drvword(m, row, sym=None):
+    import os88geom
+    return (_S(m, sym)("drv_tab") + int(row) * os88geom.DRVR_SIZE
+            + os88geom.DRVR_SEG)
+
+
+def _wname(win):
+    return getattr(win, "i", win)
+
+
+def pkg_seg(m, win, sym=None):
+    """The segment window `win`'s package runs in, NOW. For printing, or a
+    breakpoint on its code - never to read through as a second step: that is
+    exactly the torn pair. Read with pkg_read/Pkg instead."""
+    return _u16(m.read(_winword(m, win, sym), 2))
+
+
+def pkg_reads(m, win, spans, sym=None):
+    """[bytes, ...] - each (off, n) of `spans` in window `win`'s package
+    segment, all from one snapshot (seg_snap). Raises if the window has no
+    package segment (closed, or a kernel window)."""
+    seg, out = seg_snap(m, _winword(m, win, sym), spans,
+                        what="window %s's package" % _wname(win), sym=sym)
+    if not seg:
+        raise MartyError("window %s has no package segment (W_SEG = 0): it "
+                         "closed, or it is a kernel window" % _wname(win))
+    return out
+
+
+def pkg_read(m, win, off, n, sym=None):
+    """`n` bytes at offset `off` of window `win`'s package segment - the base
+    and the bytes in one compactor-safe snapshot. Offsets are the package's
+    own (org 0): a bss variable is the image size plus its bss offset."""
+    return pkg_reads(m, win, [(off, n)], sym)[0]
+
+
+def pkg_write(m, win, off, data, sym=None):
+    """Write into window `win`'s package segment on a paused, compactor-idle
+    guest. Raises if the window has no package segment."""
+    s = seg_write(m, _winword(m, win, sym), off, data,
+                  what="window %s's package" % _wname(win))
+    if not s:
+        raise MartyError("window %s has no package segment to write"
+                         % _wname(win))
+    return s
+
+
+def drv_reads(m, row, spans, sym=None):
+    """[bytes, ...] through drv_tab row `row`'s segment, in one snapshot, at
+    the driver's own (org 0) offsets - os88geom.drv_base resolves an HMA
+    image. Raises if the row is not loaded."""
+    import os88geom
+    seg, out = seg_snap(m, _drvword(m, row, sym), spans,
+                        base=os88geom.drv_base, what="driver row %d" % row,
+                        sym=sym)
+    if not seg:
+        raise MartyError("drv_tab row %d is not loaded (DRVR_SEG = 0)" % row)
+    return out
+
+
+def drv_read(m, row, off, n, sym=None):
+    """`n` bytes at offset `off` of the driver drv_tab row `row` names."""
+    return drv_reads(m, row, [(off, n)], sym)[0]
+
+
+def drv_write(m, row, off, data, sym=None):
+    """drv_read's write, on a paused, compactor-idle guest."""
+    import os88geom
+    s = seg_write(m, _drvword(m, row, sym), off, data, base=os88geom.drv_base,
+                  what="driver row %d" % row)
+    if not s:
+        raise MartyError("drv_tab row %d is not loaded to write" % row)
+    return s
+
+
+class Pkg(object):
+    """A LIVE view of one package's memory, re-resolved on every access.
+
+        p = os88marty.Pkg(m, w, image=img)      # w: a window, or its slot
+        p.word(off); p.byte(off); p.read(off, n); p.write(off, data)
+        a, b = p.reads([(off_a, 2), (off_b, 8)])  # one snapshot for both
+
+    Every read is pkg_reads' one compactor-safe snapshot and nothing is
+    banked: a row that holds a Pkg across a compaction reads the region where
+    it IS, which a `base = W_SEG << 4` taken at the top of a session does not.
+    `image` is added to every offset, so a view built with the image size
+    takes bss offsets straight from the package's map.
+    """
+
+    def __init__(self, m, win, image=0, sym=None):
+        self.m, self.win, self.image, self.sym = m, win, int(image), sym
+
+    @property
+    def seg(self):
+        """The segment now - see pkg_seg for what it must not be used for."""
+        return pkg_seg(self.m, self.win, self.sym)
+
+    def reads(self, spans):
+        return pkg_reads(self.m, self.win,
+                         [(self.image + o, n) for o, n in spans], self.sym)
+
+    def read(self, off, n):
+        return self.reads([(off, n)])[0]
+
+    def byte(self, off):
+        return self.read(off, 1)[0]
+
+    def word(self, off):
+        return _u16(self.read(off, 2))
+
+    def write(self, off, data):
+        return pkg_write(self.m, self.win, self.image + off, data, self.sym)
+
+
+class LiveSeg(int):
+    """A segment that is still an int - and also knows the kernel WORD it
+    came from, so a helper handed one can re-resolve it per read.
+
+    dispapps.pkg_seg and dosmap.instance answer these. Every existing caller
+    that does `seg << 4` or `m.readseg(seg, ...)` keeps exactly the behaviour
+    it had (a snapshot of the value); a helper that knows - dosmap.rect,
+    dispapps.words, live_reads below - reads through `.word` instead, so a
+    segment a row BANKED across a compaction still reads the block where it
+    is now, in one snapshot.
+    """
+
+    def __new__(cls, seg, m, word, base=None):
+        o = int.__new__(cls, seg)
+        o.m, o.word, o.base = m, word, base
+        return o
+
+    def reads(self, spans):
+        seg, out = seg_snap(self.m, self.word, spans, self.base, step=False)
+        if not seg:
+            raise MartyError("the block named by kernel word %05X is gone (it "
+                             "reads 0): its window closed or its driver "
+                             "unloaded" % self.word)
+        return out
+
+    def read(self, off, n):
+        return self.reads([(off, n)])[0]
+
+    def write(self, off, data):
+        """`data` at `off` of the block where it is NOW, paused and idle."""
+        if not seg_write(self.m, self.word, off, data, self.base):
+            raise MartyError("the block named by kernel word %05X is gone - "
+                             "nothing to write" % self.word)
+
+
+def pkg_live(m, win, sym=None):
+    """Window `win`'s package segment as a LiveSeg: an int (the segment now)
+    whose .read/.reads/.write go through the window record each time, in one
+    compactor-safe snapshot. The drop-in for `seg = W_SEG` in a row that then
+    does `m.readseg(seg, ...)`: make that `seg.read(...)`."""
+    word = _winword(m, win, sym)
+    return LiveSeg(_u16(m.read(word, 2)), m, word)
+
+
+def live_reads(m, seg, spans):
+    """`spans` through `seg`: one snapshot when `seg` is a LiveSeg, plain
+    reads otherwise (an int carries no word to re-check against)."""
+    if isinstance(seg, LiveSeg):
+        return seg.reads(spans)
+    return [m.read((int(seg) << 4) + o, n) for o, n in spans]
+
+
+BIOS_KBUF = 0x41A              # 0040:001A/001C - the BIOS key ring's head, tail
 UI_T_STATE = 0                  # kernel/sched.inc: T_STATE, and task 0 IS ui_task
 UI_ASLEEP = 2                   # ...whose value 2 means "sleeping"
 
