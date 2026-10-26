@@ -389,3 +389,19 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   names `S_MBCVEC`: `rdgclose`'s move leg found it unnamed. Thirteen
   cartridges and Link's Awakening are each identical to themselves with
   every bank in and with 6-9 slots, under both recompilers.
+- [x] Round 12 - the side features on the heap round 11 made fast. On the
+  owner's Victory with Link's Awakening at 80-100% of real time, Record
+  Replay and Log both refused, *not enough RAM*: the plan gives the bank
+  cache every KB past `RW_KEEPKB` and the code images take theirs first.
+  Keeping room for them would cost a slot for the whole session, so a side
+  buffer the heap cannot hold now lives in BANK SLOTS LENT for it while it
+  is held (REALDMG-SPEC 10.3.3) - cut from the cache's top slots, never
+  below four, every slot the cache's again with the last buffer. The first
+  build resized the slots' claim through `OSAPI_MEM_REGROW` instead, and the
+  86Box run found why that is wrong: a refused claim compacts the heap, the
+  cartridge's RAM moved up against the slots, and they could never grow
+  back - four slots for the rest of the session. Measured on `286-victory`,
+  heap full to the byte with the Task Manager open: replay and log on one
+  lent slot, all three files written, the replay identical to the
+  interpreter on playback, 9 slots again after. `tests/rdglend.py` is the
+  row; `-DRW_NOLEND` its control.

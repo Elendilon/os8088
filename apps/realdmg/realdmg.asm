@@ -335,8 +335,13 @@ rw_ntc          equ rw_lbuf + 40    ; the window's notice is up (rw_ntcwait)
 rw_ntct         equ rw_ntc + 1      ; word: the tick it went up
 rw_mhold        equ rw_ntct + 2     ; byte: a load holds every claim still -
                                     ;   rw_mfree declares nothing (rwmove.inc)
+rw_slotlent     equ rw_mhold + 1    ; byte: bank slots lent to the side
+                                    ;   features (rw_mclaim, rwbank.inc)
+rw_lgrab        equ rw_slotlent + 1 ; byte: rw_slotlend stilled the machine
+rw_loans        equ rw_lgrab + 1    ; byte: side buffers living in lent slots
+rw_lused        equ rw_loans + 1    ; word: ...their paragraphs, from the top
 %ifdef RDG_AOT
-rw_aseg         equ rw_mhold + 1    ; RWA_MAX words: each code image's claim,
+rw_aseg         equ rw_lused + 2    ; RWA_MAX words: each code image's claim,
                                     ;   or 0 (rwaot.inc)
 rw_anseg        equ rw_aseg + RWA_MAX * 2 ; byte: images claimed
 rw_afix         equ rw_anseg + 1    ; byte: the images are read and put right
@@ -370,7 +375,7 @@ rw_aunh         equ rw_aebank + 2   ; byte: the load's hold is let go for
                                     ;   the plan (rw_aloose)
 rw_bssend       equ rw_aunh + 1
 %else
-rw_bssend       equ rw_mhold + 1
+rw_bssend       equ rw_lused + 2
 %endif
 RW_BSS          equ rw_bssend - rw_win   ; derived: a sum by hand drifted
 RW_FBUF         equ 5760            ; rdg_render's frame, at [rw_fseg]:0

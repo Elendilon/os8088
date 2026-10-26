@@ -3708,6 +3708,18 @@ SOAK = [
         "and the close hung for ever. 13s measured",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088.img", "build/calc.o88")),
+    Row("rdglend", "soak", py("tests/rdglend.py"), 25.0,
+        "REALDMG's SIDE FEATURES IN LENT BANK SLOTS (docs/REALDMG-SPEC.md "
+        "10.3.3) on 86Box's 286-victory: GBBANK.GB precompiled in a build "
+        "that never asks the heap (-DRW_LENDTEST), so a replay's buttons and "
+        "the log's records must live in a slot the bank cache lends - Record "
+        "Replay and Log on, the cartridge checking every bank right on the "
+        "fewer slots, both off and written, every slot the cache's again, "
+        "GBBANK.SS1/.RP1 and GBBANK00.LOG on the disk. Its control, "
+        "-DRW_NOLEND (a full heap as the owner met it: no slot lent), must "
+        "fail. 24s measured",
+        needs=("86box", "nasm", "rgbds", "unicorn"),
+        wants=("build/os8088.img",)),
     Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 10.0,
         "REALDMG's speaker asked for 131,072 Hz (docs/REALDMG-SPEC.md section "
         "17) on 86Box's 286: GBTONE.GB ends with square channel 1 at x = 7FFh, "

@@ -748,6 +748,47 @@ copy (frame 0), and a driver built `RDG_RXDSBUG`, the fetch leaving DS to
 of the owner's cartridges and Link's Awakening, each arm against itself with
 every bank in and with 6-9 slots, 1,500 frames.
 
+### 10.3.3 The side features' room: lent bank slots
+
+The plan (10.3) gives the bank cache every KB the heap has past `RW_KEEPKB`,
+and a precompiled cartridge's images take theirs first (20.10), so on the
+owner's Victory with Link's Awakening a replay's 8KB of buttons and the log's
+4KB of records found **nothing left**: both refused, *not enough RAM*, on the
+build that made the game run at 80-100%. Reserving their room in the plan
+would cost a slot for the whole session; they are asked for rarely and a slot
+is worth more than either the rest of the time.
+
+So a side buffer (`rw_mclaim`) takes the heap's room when `OSAPI_MEM_AVAIL`
+says the heap has it - asked first, because a refused claim compacts the
+heap and sheds its caches, and the first build here, which grew and shrank
+the slots' claim through `OSAPI_MEM_REGROW`, found that out: a refusal moved
+the cartridge's RAM up against the slots and they could never grow back -
+and otherwise it **lives in bank slots LENT for it**. `rw_slotlend` takes the
+cache's top slot out of its use, its bank out of the table (the bank switched
+in is copied over slot 0's first, so `S_ROMX` and the core's DS never name a
+lent slot), never below `RW_LENDMIN` (4); `rw_lend` cuts the buffer from the
+lent slots top down, lending another when they are full. The slots' claim
+keeps its size - nothing is asked of the heap - so a loan cannot fail half
+way. `rw_mrel` lets a buffer go, and with the last of them every lent slot is
+the cache's again, EMPTY: `rw_bfetch` fills an empty slot before it evicts.
+A compaction that moves the slots moves the buffers in them (`rw_mlent`).
+The replay's buttons (`rw_rpclaim`/`rw_rpfree`) and the log's records and
+text (`rw_logtoggle`, `rw_logflush`, `rw_logwrite`) take and give their room
+this way.
+
+MEASURED on 86Box's `286-victory` with Link's Awakening and the Task Manager
+opened beside it, the heap full to the byte (580K of 580K): Record Replay
+lent one slot (9 to 8) and cut its buttons from it, Log took its records from
+the same slot, both stopped and written, and the cache was back at 9 slots
+with nothing lent - `.SS1`, a 930-frame `.RP1` that the harness plays back
+identical to the interpreter, and the `.LOG`, whose head says the 7 slots the
+cache had while the log's text lent a second one to be written.
+`tests/rdglend.py` is the gate, on our own GBBANK cartridge (1MB, a fetch at
+nearly every switch) in a build that never asks the heap (`-DRW_LENDTEST`):
+replay and log on, lent and cut, the cartridge still checking every bank
+right through it, all of it given back and the three files written; its
+control, `-DRW_NOLEND`, refuses both as a full heap did.
+
 ### 10.4 Save states
 
 **Nine slots a game, `NAME.SS1` to `NAME.SS9` beside it** as its `.SAV` is
