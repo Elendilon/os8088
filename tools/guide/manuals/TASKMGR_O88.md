@@ -143,6 +143,7 @@ Some of the types you will see:
 | CTRL, DISKOPS, ... | A part of the system loaded from its disk while you use it, such as the Control Panel |
 | WinSave | A copy of a window's picture, kept so it can be brought to the front quickly |
 | DirRead, FATwin | Disk caches that make folders open faster |
+| Cache | One of those caches kept above the first megabyte, on the protected-mode build for the 286 and later |
 | Icons | The desktop's store of program icons |
 | MenuSav | What was under an open menu |
 

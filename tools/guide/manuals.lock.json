@@ -540,9 +540,9 @@
   "sources": [
    "kernel/hiber.inc"
   ],
-  "stamped": "f596e80c",
-  "strings": "b73fd87b7d70d417",
-  "why": "PR #299 review: kern_mega's 'Disk clusters too small' refusal and main's 'Hibernate (VESA)' greying added; the arm-3 'Unmount the image first' refusal is on DOS.O88's page, where the choice is; the 62-run cap reads 'Hibernate failed', already on the page"
+  "stamped": "ea7b512a",
+  "strings": "98dbfbe0d4d32714",
+  "why": "MC4's streaming resume: a full pool no longer greys the item, only no memory above 1MB does; added 'Hibernate: fragmented'; 'No room above 1MB' kept for a resume on less extended memory"
  },
  "HOUSE_PNG": {
   "sources": [],
@@ -622,9 +622,9 @@
   "sources": [
    "apps/lemmings"
   ],
-  "stamped": "733366a8",
-  "strings": "dad131b4b993929c",
-  "why": "no-pinning C4: the kept level's claims made movable - internal, no text a user reads changed; page checked, nothing to add"
+  "stamped": "ea7b512a",
+  "strings": "4580619ce2a0ff64",
+  "why": "MC7: claims over 64KB through os88_seg_sub windows and the OS88_HIGH/HIGHMEM declaration - internal; the only new string is a host test's failure message, nothing a user reads"
  },
  "LICENSE": {
   "sources": [],
@@ -1098,9 +1098,9 @@
   "sources": [
    "apps/taskmgr"
   ],
-  "stamped": "15bf7dd5",
-  "strings": "17ad04af66b54570",
-  "why": "e5ddebd1 fixes the heap view's scroll-thumb drag (DX clobbered before os88ui_sbgrab); no user-visible text or behaviour the page describes changed"
+  "stamped": "ea7b512a",
+  "strings": "cd3e0dc061f03cd1",
+  "why": "MC1's purgeable pool blocks show as 'Cache' in the memory view: a row in the TYPE table"
  },
  "TELNET_O88": {
   "sources": [

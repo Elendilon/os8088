@@ -854,6 +854,69 @@ Each wave records here what it came to: the bytes (`.mega`, `.cold`, `.text`,
 the megaseg overhead), what it measured and on what, what it found, and its
 rows. Nothing is recorded as built that was not.
 
+### The round as built (2026-10-26) - DONE but for MC9 and one line
+
+**What the round came to:** MC1, MC8, MC2, MC3, MC7, MC4 and MC5 are built, in
+that order (D11). MC9 is deferred, as section 5 planned it.
+
+- **Every claim is a selector** under protected mode, below 1MB as well as
+  above it.
+- **The GDT stops at `.cold`'s segment**, and the LDT sits on it and grows
+  with the machine.
+- **The HMA is ordinary pool.**
+- **A hibernate needs no room to resume**, because the resume streams. So a
+  DOS trip with a full pool hibernates instead of refusing.
+- **One claim can take all free memory**, bridging the pool and conventional
+  memory and leaving the 64KB reserve.
+- **Packages:** every package and driver the MC7 census named is converted,
+  on one shared path unless the XT measured slower.
+- **`tests/megahigh.txt` is down to ONE line:** RealDMG's `high`. Its arm
+  declares `OS88_HIGHMEM`, but no build of it declares `OS88_HIGH`, so its
+  region has never been run above 1MB. That is the `mega-dmg` session's.
+
+**kern_mega's own limits, as the owner set them (2026-10-26):** it is a knob
+build that is MEANT TO GROW.
+- **No budget and no 128KB boot bind it.** Its limits are 64KB a segment,
+  and `.mega` is where new protected-mode code goes.
+- **`KERN_KB` may run to 255.** `osapi_sys_kb` widens `vga_skkern`
+  unsigned there; kern_big and kern_small keep `cbw` and 127.
+- **Its boot floor is a 1MB machine.** Its own guard 5 checks that the image
+  fits 640KB of conventional memory, where stage 1 reads it.
+- Merging `elendilon`'s sector-cache change took `KERN_KB` to 128, which the
+  old guard refused. That is how the limit was found.
+
+**The final pass:**
+- **The soak union** was 128 rows chosen by reach: every kern_mega row, plus
+  each converted package's rows on kern_big. 113 passed and 3 skipped for
+  host tools this box lacks (`x3compare`, `hmahiber`, `p2hiber`).
+- **None of the 12 failures was a kernel or package defect.**
+  - **Mine:** six were my own `make` racing the pass, or a `wants=` gap. They
+    pass on rerun.
+  - **Harnesses behind MC7:** three.
+    - `megarehome` counted a GDT scratch, because the LDT now shares the
+      GDT's base, so Bochs lists those entries too.
+    - `x3xtunit` and `x3xtexact` run the XT part with no kernel under it, so
+      nothing answered `OSAPI_SEG`.
+  - **Browser rows:** `brarena` and `brdownload` fail 2 of 2 on the round's
+    base as well. All four of them (with `brmem` and `brfetch`) pass on
+    `elendilon`'s soak fixes.
+- **`test-full`:** 76 rows green after two ledgers were paid. `tests/pins.txt`
+  re-keys the two claim sites MC7's part fetches moved; the user guide's
+  Hibernate page describes the streaming resume.
+
+**Left, and whose:**
+- **MC9** (section 5): what still goes low.
+- **RealDMG's `high` line:** `mega-dmg`.
+- **The speed pass's completed #GPs**, writes through CS that work and cost
+  a fault each:
+  - Sheet's macro module: 164 a macro run.
+  - The shipped PiXEL's PXSW stores: about 290 sites.
+  - Word's and Scribe's undo.
+  - RealDMG's.
+- **`drv_fs_call`'s 512-byte bounce** for every claim (RAMDISK.DRV, NET.DRV).
+- **`dskw_hisub`'s windows**, made per 64KB crossing and freed only with
+  their claim: bounded, not leaked, and never measured for accumulation.
+
 ### MC1 as built (2026-10-25) - DONE
 
 - **The record grew a word, shared with MC3.** `MX_BLKSZ` 8 -> 10, the new
