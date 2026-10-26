@@ -226,6 +226,38 @@ def shot(path):
     _input().shot(path)
 
 
+def autorepeat_off(display=None):
+    """Turn the X server's KEY AUTOREPEAT off on DISPLAY.
+
+    X autorepeats a held key as RELEASE/PRESS pairs, and Bochs passes each
+    pair to the guest as a break and a make - a real keyboard's typematic is
+    makes alone. So an xdotool `keydown` held for half a second was a dozen
+    fresh presses: a held Alt+Enter toggled ArtfulType full screen 8-13 times
+    (tests/altenter.py's hold, which the kernel's own typematic rule - a make
+    with the key already down is a repeat - was written to absorb, and could
+    not, because every make was preceded by a break). A new server is started
+    with `-r`; one already running (another agent's, a hand-started one) is
+    told here. It is server state, so it holds while a client - Bochs - is
+    connected: called once Bochs is up. libX11 by ctypes, since there is no
+    `xset` in the container."""
+    import ctypes
+    import ctypes.util
+    try:
+        x = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+        x.XOpenDisplay.restype = ctypes.c_void_p
+        x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        for f in ("XAutoRepeatOff", "XCloseDisplay"):
+            getattr(x, f).argtypes = [ctypes.c_void_p]
+        x.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        d = x.XOpenDisplay((display or DISPLAY).encode())
+        if d:
+            x.XAutoRepeatOff(d)
+            x.XSync(d, 0)
+            x.XCloseDisplay(d)
+    except OSError:
+        pass
+
+
 def xvfb(display=None):
     display = display or DISPLAY
     n = display.lstrip(":").split(".")[0]
@@ -242,7 +274,8 @@ def xvfb(display=None):
                 os.remove(stale)
             except OSError:
                 pass
-        subprocess.Popen(["Xvfb", display, "-screen", "0", "1024x768x24"],
+        subprocess.Popen(["Xvfb", display, "-screen", "0", "1024x768x24",
+                          "-r"],            # no key autorepeat: see above
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(50):             # until it is listening, not a guess
             if os.path.exists(sock):
@@ -589,6 +622,7 @@ class Box(object):
                            env=self.env,
                            capture_output=True, text=True).stdout.split()[0]
         self.inp.regrab = False
+        autorepeat_off(self.display)
         self.xd("windowfocus", "--sync", w)
         self.xd("mousemove", 330, 300)
         self.xd("keydown", "ctrl")

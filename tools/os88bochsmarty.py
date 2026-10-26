@@ -694,6 +694,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
                                                           "bochs.log"))
             time.sleep(0.05)
         m._bpmark = os.path.getsize(box.e9)
+        ob.autorepeat_off(box.display)  # Bochs is connected: it holds
         if boot is False or boot == 0:
             m._c_pause()
             return m

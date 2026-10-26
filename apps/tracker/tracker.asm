@@ -1431,6 +1431,14 @@ trk_fs_enter:
 ;      and fsx_run banks all six around it (kent_di)
 ; -----------------------------------------------------------------------------
 trk_fsx_main:
+    OS88_ALTENTER_SEED              ; the Alt+Enter that got us here is still
+                                    ; HELD (apps/os88alt.inc): unseeded, the
+                                    ; first os88alt_edge read that same hold
+                                    ; as the press that LEAVES, and on a
+                                    ; machine that reaches the loop before the
+                                    ; finger lifts - a 286, Bochs - the
+                                    ; bracket opened and shut in one keystroke
+                                    ; (KERN-MEGA-PLAN 14.77, the altenter port)
     call trk_txon                   ; the 80x25 TEXT screen (SPEC.md 45.13):
     je .gfx                         ; XT mode forces it, [trk_txw] asks for it
     call ttx_begin                  ; (45.13.7) - see trktxt.inc for the

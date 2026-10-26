@@ -10883,3 +10883,29 @@ disk's MBR, read over the driver"*. Not run on 86Box: the mechanism is in
 the driver's own copy and is the same on a 286 as on Bochs's 386. Rung 0
 (BIOS) has no pairing read, so it is the owner's IDE machine that reaches
 it.
+
+### 14.77 Tracker's bracket shut on the keystroke that opened it (2026-10-26)
+
+**Found** porting `altenter` to kern_mega (tests/megaport.txt): a human's
+Alt+Enter into Tracker's full screen - held 0.15 idle-box seconds, which is
+0.675 guest seconds on a 286-class Bochs - opened the bracket and shut it
+again in **2 tries of 3**, `[fsx_task]` back at FFFF and `[os88alt_dn]`
+left at 1. **Cause**: `trk_fsx_main` never said `OS88_ALTENTER_SEED`, which
+apps/os88alt.inc's header names as the third of its three rules (*"the press
+that got you in is still held"*). Its loop's first `os88alt_edge` read the
+same hold as a fresh press and took the leave. An 8088 never meets it - it
+reaches the first poll long after a finger lifts, so MartyPC's `altenter`
+was green - and every machine kern_mega runs on does. Shared, not
+kern_mega's: kern_big on a 286 or 386 has the same bracket. **Fix**:
+`OS88_ALTENTER_SEED` at the top of `trk_fsx_main`, five bytes of
+`tracker.o88` and both its arms; no kernel byte. After it, 3 of 3.
+`altenter` on kern_mega holds the ENTERING press for 0.15 (`IN_HOLD`), so
+the port is the regression check; MartyPC's arm keeps the bare press.
+apps/excitebike (`game.inc`, `flow.inc`) polls `os88alt_edge` without a
+seed too and was not looked at here.
+
+The same port found the harness reason it first read as a stuck key: X
+AUTOREPEATS a held key as release/press PAIRS, which Bochs hands the guest
+as a break and a make, so an xdotool hold was a dozen fresh presses - a
+half-second Alt+Enter toggled ArtfulType 8-13 times. `tools/os88bochs.py`
+turns autorepeat off (`autorepeat_off`, and `-r` on a new Xvfb).
