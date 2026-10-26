@@ -2641,14 +2641,13 @@ carve (the core and the view) and cache A with the recompiler's part.
   LONE data selector, which `OSAPI_MEM_CODESEL` refuses; `rw_csel` then asks
   `SEG_SUBC` for a pair over it and answers the code half - a far jump
   through B's data selector would be a #GP per transfer.
-- **A kernel defect it works round**: kern_mega's `OSAPI_FILE_READ` of a
-  whole 65,536-byte file into a 64KB claim in the pool fails ("read
-  failed"); 32KB into a 32KB one reads (measured on the memory branch at
-  `f068399f`, after its 64KB window-stepping fix). A cartridge in ONE claim
-  of exactly 64KB would land there now, so under `CPU_F_PM` the arm claims
-  it a KB larger, which keeps it conventional. Cartridge RAM (33KB at most)
-  and the profile read fine. The kernel is the place to fix it; the line
-  comes out when it is.
+- **A kernel defect it worked round, since fixed**: kern_mega's
+  `OSAPI_FILE_READ` of a whole 65,536-byte file into a 64KB claim in the
+  pool failed ("read failed"), so the arm claimed a 64KB one-claim cartridge
+  a KB larger to keep it conventional. KERN-MEGA-MEMORY-PLAN 8.6 had the
+  report and `ca60319e` the fix; the workaround is gone, and
+  `tests/rdgmega.py`'s one-claim leg - cpu_instrs' exact 64KB, in the pool -
+  is the row that found it and now passes over it.
 - **The in-place load's slot stays CONVENTIONAL** (`OSAPI_MEM_CLAIM_DMA`,
   no page constraint): it is what the file is read into, and under
   `OS88_HIGHMEM` a 16KB claim went to the pool, where a read bounces a
@@ -2671,6 +2670,35 @@ carve (the core and the view) and cache A with the recompiler's part.
   runs at **98.0%** of real time with no tier recycled, where the shipped
   build on kern_big, Cache: 128K, reads 91.2% and recycles a tier at the
   miniboss (52% for a second).
+
+### 16.2.7 The region above 1MB: kern_mega's arm declares OS88_HIGH
+
+The arm - and `gbaot.py --mega`'s package (20.15) - says `OS88_HIGH` as well
+as `OS88_HIGHMEM`, so under `CPU_F_PM` kern_mega loads the package's REGION,
+its code and data, into a pair in extended memory: what is left in
+conventional memory is the parts carve (the core and the view), cache A
+with the recompiler's part and the in-place load's read slot. It closes
+tests/megahigh.txt's last line.
+
+**The audit** (SPEC.md's contract for the bit: no arithmetic on its own CS
+or DS, no code selector made of its own DS, no IRQ vector stamped with its
+own CS, no real-mode far pointer to itself):
+- every `cs` the package hands out is a far jump's - the core's vectors
+  (`S_EVVEC`, `S_IORVEC`, `S_IOWVEC`, `S_MBCVEC`, `S_RESVEC`), `S_JITVEC`,
+  `S_AOTVEC` - and is the region's code selector already (16.2.4);
+- the two `push cs` sites (`rdg_ilen`'s table, `rt_tab`'s templates) READ
+  through CS, which a code selector allows;
+- `rw_dsel` is the region's data selector, kept for code entered with DS
+  not ours (the damage scan's hook);
+- the full screen's `FSXF_RATE` hook, `int 16h` and the sound driver's FM
+  verbs took a selector for the region already.
+
+**MEASURED**: `tests/rdgmega.py` and `tests/rdgaotmega.py` assert the
+region's base is at or above 1MB (Bochs: linear FDE800h and FDDC00h), every
+leg passing as before; on 86Box `286-mega` Kirby's Dream Land's replay, with
+the save state loaded, the replay played and Machine > Log written through
+the region's buffers, runs at **99.2%** of real time (98.0% with the region
+low, 16.2.6) with 264K of heap left after the load.
 
 ### 16.3 Blocks and tr_enter
 

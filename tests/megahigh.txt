@@ -32,15 +32,6 @@
 
 # --- high --------------------------------------------------------------------
 
-high apps/realdmg/realdmg.asm     # NOT YET RUN HIGH: since REALDMG-SPEC
-    # 16.2.4 the far vectors the core jumps through (S_EVVEC, S_IORVEC,
-    # S_IOWVEC, S_MBCVEC) hold the region's CODE selector (`mov ax, cs`) and
-    # rw_reloc re-stamps them by rw_csel, so the line's first reason is gone;
-    # what is left is that the region above 1MB has never been run - the
-    # parts carve, the worker's restart and the log's pins against a region
-    # whose selectors do not move. Retired by one MEGATRAP run with OS88_HIGH
-    # in the class byte (tests/rdgmega.py's shape) and the declaration.
-
 # --- highmem -----------------------------------------------------------------
 
 # --- both --------------------------------------------------------------------
