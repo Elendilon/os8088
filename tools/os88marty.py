@@ -3716,7 +3716,10 @@ class BpTrace:
         self._record(st)
 
     def _record(self, st):
-        flat = ((st.get("cs", 0) << 4) + st.get("ip", 0)) & 0xFFFFF
+        # `flat_ip` is (CS << 4) + IP on MartyPC; on kern_mega under Bochs
+        # (os88bochsmarty) CS is a SELECTOR and flat_ip the LINEAR address
+        flat = st.get("flat_ip", (st.get("cs", 0) << 4)
+                      + st.get("ip", 0)) & 0xFFFFF
         rec = {"name": self._by_addr.get(flat, "?%05X" % flat),
                "addr": flat, "cycles": int(st.get("cycles", 0)),
                "stops": st.get("stops"), "instructions": st.get("instructions"),

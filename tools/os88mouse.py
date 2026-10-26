@@ -597,7 +597,10 @@ class Mouse:
         """Hand a breakpoint stop met while stepping to the bp_trace that
         armed it (the one that knows the address, else the innermost) - the
         record its pump would have made had it been allowed to run."""
-        flat = ((st.get("cs", 0) << 4) + st.get("ip", 0)) & 0xFFFFF
+        # `flat_ip` is (CS << 4) + IP on MartyPC; on kern_mega under Bochs
+        # (os88bochsmarty) CS is a SELECTOR and flat_ip the LINEAR address
+        flat = st.get("flat_ip", (st.get("cs", 0) << 4)
+                      + st.get("ip", 0)) & 0xFFFFF
         own = [t for t in traces if flat in t._by_addr] or traces[-1:]
         own[0].service(st)
 

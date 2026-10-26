@@ -253,12 +253,19 @@ class BochsMarty(om.Marty):
         n = os.path.getsize(e9)
         with open(os.path.join(self.box.out, "dbg.fifo"), "w") as fh:
             fh.write("c\n")
-        end = time.time() + 10
+        end, base, mark = time.time() + 10, max(0, n - 4), None
         while time.time() < end:        # until Bochs has READ it (its echo):
-            if "c\n" in self._e9(max(0, n - 4)):    # a SIGINT before that is
-                break                               # lost at the prompt
+            i = self._e9(base).find("c\n")     # a SIGINT before that is
+            if i >= 0:                          # lost at the prompt
+                mark = base + i + 2
+                break
             time.sleep(0.002)
-        self._bpmark = os.path.getsize(e9)
+        # THE MARK IS THE ECHO, NOT THE FILE'S SIZE when the echo was seen:
+        # a breakpoint a few instructions on prints its stop and its next
+        # prompt before this loop looks again, and a mark taken past them
+        # hides that stop - _halt then SIGINTs a debugger already at its
+        # prompt and waits 20s for one that never comes
+        self._bpmark = mark if mark is not None else os.path.getsize(e9)
         self._state = "running"
         self._since = time.time()
 
@@ -338,6 +345,29 @@ class BochsMarty(om.Marty):
 
     def readseg(self, seg, off, length):
         return self.read(self.lin(seg, off), length)
+
+    def sym(self, name, defines=()):
+        """Marty.sym, plus WHERE kern_mega RUNS `.cold` and `.mega`: once
+        mega_coldup has copied them above 1MB (`[mega_codehi]` = 1) the rung
+        os88sym names is heap, so a `.cold` or `.mega` label is
+        `[mega_coldlin]` + its distance from COLD_RAM - the two are one
+        block, `.mega` at COLD_PARA paragraphs (kernel/mega.inc
+        mega_coldup, mega_hilin). Without this a breakpoint on any `.cold`
+        routine (dsk_xfer, the file layer) is set on bytes nothing runs."""
+        import os88sym
+        addr = om.Marty.sym(self, name, defines)
+        try:
+            sect = os88sym.sections(defines).get(name)
+        except Exception:
+            return addr
+        if sect not in (".cold", ".mega"):
+            return addr
+        if not self.read(os88sym.linear("mega_codehi", defines), 1)[0]:
+            return addr
+        eq = os88sym.equates(defines)
+        hi = int.from_bytes(self.read(os88sym.linear("mega_coldlin",
+                                                     defines), 4), "little")
+        return hi + addr - eq["COLD_RAM"] * 16
 
     # ---- the glass --------------------------------------------------------
     def _window(self):

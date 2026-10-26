@@ -15,3 +15,6 @@
 
 sheetbtn secs=60   # Sheet's dialog buttons (Goto/Format) open, close and reuse their slot
 uilayer secs=120   # every os88ui verb confirmed off guest state, and confirm-vs-settle
+
+# FILES, DIALOGS AND THE DESK
+fpgnotch secs=30   # dsk_xfer asks once a run whether a bar is live; its .cold breakpoints run above 1MB here
