@@ -2969,9 +2969,6 @@ class Writer:
             raise V88Error("screen %r with rows %d bytes apart: a NARROW "
                            "screen's are 40, every other's 80 (98.1.3.2.5)"
                            % (screen, g.stride))
-        if flip and screen in NARROW:
-            raise V88Error("a NARROW screen is never flipped every frame "
-                           "(98.1.3.2.5)")
         if flip and not (g.layout == LAY_MODEX or screen):
             raise V88Error("page flipping is Mode X's, or a VGA4 file's on "
                            "a screen of its own (98.3.8)")
@@ -4260,8 +4257,6 @@ class Reader:
                 pg != bool(flags & F_PAGE) or \
                 (pg and flags & (F_RESIDENT | F_LIVE | F_LOOPREC)):
             raise V88Error("a flip byte of %d on layout %d" % (fl, layout))
-        if fl in (2, FLIP_FPAGE) and scr in NARROW:
-            raise V88Error("a NARROW screen flipped every frame (98.1.3.2.5)")
         # N PAGES (98.1.3.7.1): byte 39, 3..8 of them in a plane's 64 KB
         if (fl in (FLIP_MPAGE, FLIP_FPAGE)) != bool(npg) or (npg and (
                 not 3 <= npg <= MPAGE_MAX or
@@ -7709,7 +7704,7 @@ def selfcheck():
             pass
         # NARROW (98.1.3.2.5): sixteen colours with rows 40 bytes apart,
         # eight pages at 320 x 200 - the last one used - read back, and the
-        # canvas of an 80-byte stride and a flipped NARROW file refused
+        # canvas of an 80-byte stride refused
         gn = Geom(LAY_LIN80, 4, 16, bitplanes=True, stride=40)
         scnn = [bytes([(i * k + k) % 16 for i in range(32 * 16)])
                 for k in (1, 3, 5, 7, 9)]
@@ -7824,11 +7819,28 @@ def selfcheck():
                             "on the page shown")
         except V88Error as e:
             fails.append("a file flipped and built ahead: %s" % e)
+        # ...and FLIPPED every frame (98.1.3.2.5): the format is VGA4's and
+        # the records carry their addresses, so a flipped NARROW file - and
+        # one against its own page - reads back as it was written
+        for own in (False, True):
+            pnf = os.path.join(tmp, "FLIPN%d.V88" % own)
+            try:
+                encode_canvases(scnn * 2, gn, pnf, 15, pixfmt=PF_VGA4,
+                                palette=npal, keysecs=0.3, flip=True,
+                                screen=SCR_320X200N, own=own)
+                verify_v88(pnf)
+                rnf = Reader(pnf)
+                if rnf.g.stride != 40 or rnf.screen != SCR_320X200N or \
+                        rnf.own != own or \
+                        any(decode_at(rnf, f) != (scnn * 2)[f]
+                            for f in range(10)):
+                    fails.append("a flipped NARROW file (own %d) did not "
+                                 "read back as written" % own)
+            except V88Error as e:
+                fails.append("a flipped NARROW file (own %d): %s" % (own, e))
         for what, kw in (("an 80-byte canvas on a NARROW screen",
                           dict(screen=SCR_320X200N, page=True, pages=8,
-                               g=gm)),
-                         ("a NARROW screen flipped every frame",
-                          dict(screen=SCR_320X200N, flip=True, g=gn))):
+                               g=gm)),):
             try:
                 Writer(kw.pop("g"), 1500, 100, AUD_NONE, 0, PF_VGA4,
                        palette=npal, **kw)
