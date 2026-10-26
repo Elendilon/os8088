@@ -10883,3 +10883,40 @@ disk's MBR, read over the driver"*. Not run on 86Box: the mechanism is in
 the driver's own copy and is the same on a 286 as on Bochs's 386. Rung 0
 (BIOS) has no pairing read, so it is the owner's IDE machine that reaches
 it.
+
+### 14.77 A Sticky App relaunched at boot bound DESK.DRV's library by a real paragraph (2026-10-26)
+
+**Found** by porting `stiknodesk` to Bochs (tests/megaport.txt). With the
+Desk Calendar a Sticky App row, the boot relaunched it and it came up - and
+the first event after the desktop (the pointer resting on its tag row) closed
+it: `kern_mega CLOSED Desk Cal 0D at 1174:1AA2 err 9EA0`. 1AA2 is an
+`os88stikc.inc` thunk, `call far [stik_le + 4 * n]`, and 9EA0h is a real-mode
+PARAGRAPH in a selector's place.
+
+**Cause**: `stik_boot` ran from `drv_notice_x`, which kmain calls BEFORE
+`mega_enter`. So the widget's entry proc ran in real mode, asked
+`OSAPI_WM_DESK` for the library (AL = 4, DX = its paragraph) and wrote that
+paragraph into every far pointer of its own block - a word in the PACKAGE's
+data, which none of the switch's conversions (frames, claims, modules,
+windows) can know about. Every thunk call after the switch far-jumped to a
+segment that is no selector. Two more things followed from the same order:
+the absent leg's `No desk layer (DESK.DRV)` toast was staged before the
+switch and overwritten by `Entered protected mode` before the UI task ever
+drew it, and a Sticky App that hired a worker would have made `mega_enter`
+decline protected mode altogether (*"a task predates it"*).
+
+**Fix**: on kern_mega `drv_notice_x` no longer calls `stik_boot`; kmain calls
+it, far through a four-byte `stik_bootf` in `.cold`, AFTER `mega_enter` and
+the pool's setup and BEFORE `as_bootc` - AUTOSTART's own reason (MC8), a
+package launched at boot is launched in the mode it will run in. SPEC.md
+110.4's "first, so a driver's panel opens in front" does not lose anything
+there: a `STIK_DESKONLY` widget is a desk window, under every ordinary window
+whenever it opens, and kern_mega always has DESK.DRV's arm. kern_big and
+kern_small are byte-identical (`cmp` of `build/kernel.bin` before and after).
+
+**`mega-stiknodesk` is the row**: all three legs, with the breakpoint on
+`stik_boot` set once the GDT says where `.cold` runs (the shim's `sym()`).
+Red before the fix on both halves: `absent` A (*"the toast to say
+'DESK.DRV' did not happen"*, `toast_buf = 'Entered protected mode'`) and
+`present` G (the widget gone with `CLOSED ... 0D` before it could be
+closed).

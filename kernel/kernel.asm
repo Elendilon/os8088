@@ -5719,6 +5719,9 @@ kmain:
                                 ; that there is a pool (item 82)...
     call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)
 %ifdef OS88_SHORTCUTS
+    call COLD_SEG:stik_bootf    ; ...the Sticky Apps, bound in the mode they
+                                ; run in (KERN-MEGA-PLAN 14.77; drv_notice_x
+                                ; does it before the switch elsewhere)...
     call COLD_SEG:as_bootc      ; ...and AUTOSTART last, so a package it opens
                                 ; is placed as one opened by hand would be -
                                 ; above 1MB when it says OS88_HIGH

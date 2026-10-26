@@ -212507,7 +212507,13 @@ either way, which every system disk keeps. The full-table words still follow the
 kern_big `drv_notice_x` does (§51.3) — after the first desktop paint, with no
 lock held, task 0 about to become `ui_task` and A: still the boot disk, which
 is exactly `OSAPI_PKG_START`'s context. It is FIRST so that a driver-failure
-Control Panel still opens in front of the widgets.
+Control Panel still opens in front of the widgets. **On kern_mega it is not
+there**: kmain calls it AFTER `mega_enter` (far, as `stik_bootf`, just before
+AUTOSTART's `as_bootc`), so a widget binds `DESK.DRV`'s library by a SELECTOR
+in the mode it will run in - launched before the switch, it kept a real
+paragraph in its own far pointers that nothing translates
+(docs/plans/KERN-MEGA-PLAN.md 14.77). A desk window opens under every
+ordinary window anyway, so the panel is still in front.
 
 ```
 stik_boot:       [ui_rebootq] != 0  -> nothing (a resume or DOS question is up)

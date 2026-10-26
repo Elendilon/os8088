@@ -5853,8 +5853,10 @@ section .cold                   ; ...and back: drv_notice_x runs AFTER the first
                                 ; it is resident cold code and not this
 drv_notice_x:
 %ifdef OS88_SHORTCUTS
+%ifndef KERN_MEGA               ; (kern_mega relaunches them after mega_enter:
     call stik_boot              ; the widgets FIRST (SPEC.md 110.4), so a
 %endif                          ; driver's panel opens IN FRONT of them
+%endif                          ; KERN-MEGA-PLAN 14.77 and stik_bootf)
     push ax
     cmp byte [drv_nerr], 0
     je .out

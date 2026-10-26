@@ -2029,6 +2029,18 @@ as_find:    times DSK_FIND_SZ db 0
 section .cold
 as_bootc:                       ; (call COLD_SEG: from kmain, after mega_enter)
     AS_WALK
+
+; stik_bootf - stik_boot, FAR, for kern_mega's kmain AFTER mega_enter
+; (KERN-MEGA-PLAN 14.77). In drv_notice_x it ran in REAL mode, so a widget
+; bound DESK.DRV's library by a real PARAGRAPH (os88stikc.inc's stik_load
+; writes OSAPI_WM_DESK's DX into every far pointer of its own block) that
+; the switch never translates - the first thunk called after it far-jumped
+; to a paragraph that is no selector, and the package was closed for a #GP.
+; Launched here, it binds in the mode it runs in, as AUTOSTART does (MC8),
+; and no widget's worker can make mega_enter decline either.
+stik_bootf:
+    call stik_boot
+    retf
 %endif
 
 section .modc                   ; ...and the image's own scratch, IN the
