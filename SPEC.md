@@ -48805,10 +48805,20 @@ shortest-path LZB parse takes forty seconds on one 32KB block of anything
 repetitive. That parse has a 16KB window and depth 16, and on video it loses
 to LZ4: `02-BWPCS.V88` is 92.0% LZB against 90.5% LZ4. It wins on text.
 
-**A part fits a FRESH disk of its geometry**: `os88cz.py --size 720k` cuts
-parts of at most 730,112 bytes, which is 713 clusters of 1,024 — a 720KB
-floppy's whole data area with one file on it. `360k`, `1.2m` and `1.44m` are
-the same arithmetic, and a size in bytes is taken as given.
+**A part fits a USED disk of its geometry**: `os88cz.py --size 720k` cuts
+parts of at most 728,064 bytes, which is 711 clusters of 1,024 — a 720KB
+floppy's whole data area **less 2KB**. A part cut to the whole data area
+fitted a fresh image and then did not fit the disk it was written to: the
+host OS that writes a floppy hides things on it (`System Volume
+Information`, `.Trashes`), and a disk that has been in os8088 carries
+`SYSTEM/ASSOC.DAT`. `360k`, `1.2m` and `1.44m` are the same arithmetic, and
+OS88CZ.COM's table is the same four numbers. **Any other size is taken as
+given** - bytes, or a number with `k` or `m` after it (`500k`, `1.1m`,
+binary as a disk is) - and `--images` then puts each part on the smallest
+of the four floppies that holds it, refusing a part no floppy holds. The
+window offers the four disks and takes any size typed into the same box,
+and its *"...and a floppy image per part"* starts UNCHECKED: the images are
+for writing straight to disks, and most splits are not.
 
 #### 20.17.4 Three tools, one format: the host, a window, and DOS
 
