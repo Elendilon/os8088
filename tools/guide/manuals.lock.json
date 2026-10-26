@@ -1178,9 +1178,9 @@
    "tools/os88venc.py",
    "tools/os88vencgui.py"
   ],
-  "stamped": "e4b13e8c",
-  "strings": "1b990c96f4c98207",
-  "why": "Blocks (version 2) described under Good to know: the option, what it trades, what plays it, what it is greyed against"
+  "stamped": "1ef08ce1",
+  "strings": "50468df0c72055bf",
+  "why": "checked: Flip offered on the NARROW screens and --page-ahead auto building a flipped file at three pages or more (elendilon's 9d6da57b..74566cf5) - the page lists 'tearing and second pages' as one Trade-offs row and names no per-screen availability or page-ahead mode; below its level"
  },
  "TRACKER_O88": {
   "sources": [
@@ -1200,9 +1200,9 @@
   "sources": [
    "drivers/usbmouse"
   ],
-  "stamped": "e4576a70",
-  "strings": "602d648304a770c6",
-  "why": "first stamp: every page written and reviewed for the project guide, 2026-10-17"
+  "stamped": "1ef08ce1",
+  "strings": "b360085af383d57a",
+  "why": "checked: KERN-MEGA-PLAN 14.117 lets the PicoMEM path run under kern_mega's protected mode (the int 33h capture) - the page names no kernel and no refusal, and the PicoMEM mouse works the same from the user's side; below the page's level"
  },
  "VACATION_JPG": {
   "sources": [],
