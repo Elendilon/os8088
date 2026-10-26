@@ -20,7 +20,9 @@ opens its ROM itself. Optionally:
 Files can be DROPPED on the window as well as chosen: a cartridge fills the
 cartridge, and a NAME.RPn or a NAME.SSn fills its half of the replay and,
 when its partner is beside it under the same name and digit, the other half
-too (the pair RealDMG writes; either field can still be changed after). On
+too (the pair RealDMG writes). A dropped half whose partner IS found goes
+straight into the list of replays, where Remove takes it out again; one
+whose partner is not waits in its field for the other and Add. On
 Windows the drop is the shell's own, with no extra package; elsewhere it
 wants `pip install tkinterdnd2`, and the window works without it.
 
@@ -185,7 +187,8 @@ def main():
             out.set(p)
 
     def set_half(p, mine, other):
-        """one half of the replay, and the other from its partner if it is there"""
+        """one half of the replay, and the other from its partner if it is
+        there: True if the partner was found"""
         mine.set(p)
         q = partner(p)
         if q:
@@ -194,6 +197,7 @@ def main():
         else:
             say("No %s beside %s - choose it." % (
                 "save state (.SSn)" if mine is rpv else "replay (.RPn)", os.path.basename(p)))
+        return bool(q)
 
     def pick_rp():
         p = filedialog.askopenfilename(title="A replay (NAME.RPn)", filetypes=RPTYPES)
@@ -221,15 +225,17 @@ def main():
                 return False
         return (rp, ss)
 
-    def add_replay():
+    def add_replay(dropping=False):
         pr = staged()
         if not pr:
-            if pr is None:
+            if pr is None and not dropping:
                 say("Choose or drop a replay and its save state first.")
             return
         if pr not in reps:
             reps.append(pr)
             replist.insert("end", "%s from %s" % tuple(os.path.basename(x) for x in pr))
+            if dropping:
+                say("Added replay: %s from %s" % tuple(os.path.basename(x) for x in pr))
         rpv.set("")
         ssv.set("")
 
@@ -246,11 +252,11 @@ def main():
             if k == "rom":
                 set_rom(p)
                 say("Cartridge: %s" % p)
-            elif k == "rp":
-                set_half(p, rpv, ssv)
-            elif k == "ss":
-                set_half(p, ssv, rpv)
-            else:
+            elif k in ("rp", "ss"):
+                found = set_half(p, rpv, ssv) if k == "rp" else set_half(p, ssv, rpv)
+                if found:                      # both halves found: straight to the
+                    add_replay(dropping=True)  #   list; a lone half waits in its
+            else:                              #   field for the other
                 say("Not a cartridge (.gb/.gbc) or a replay (.RPn/.SSn): %s" % p)
 
     r = 0
