@@ -18397,13 +18397,15 @@ SOAK = [
 MEGAPORT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "megaport.txt")
 MEGA_WANTS = ("build/mega.img", "build/megaapps.img",
-              "build/megak/kernel.map")
+              "build/megak/kernel.map",
+              "build/megarun.o88")    # os88bochs.Box stages it on every boot
 
 
 def _mega_ports(base):
     """mega-<name> for every line of tests/megaport.txt. A line is
 
-        name [secs=N] [timeout=N] [+arg ...] [-arg ...] [NAME=VAL ...]   # why
+        name [secs=N] [timeout=N] [@VAR=VAL ...] [NAME=VAL ...] [+arg ...]
+             [-arg ...]   # why
 
     `+arg` appends an argument to the base row's command and `-arg` removes
     one (with the value after it when written `-arg=`, i.e. `-machine=`
@@ -18427,7 +18429,9 @@ def _mega_ports(base):
             raise SystemExit("tests/megaport.txt: no soak row %r" % name)
         cmd, secs, tmo, env = list(r.cmd), None, None, []
         for o in opts:
-            if re.match(r"[A-Z][A-Z0-9_]*=", o):
+            if o.startswith("@"):           # @NAME=VAL: the row's environment
+                env.append(o[1:])           # (OS88_BOCHS_MEGS=1: a 1MB machine)
+            elif re.match(r"[A-Z][A-Z0-9_]*=", o):
                 env.append(o)
             elif o.startswith("secs="):
                 secs = float(o[5:])
@@ -18456,7 +18460,7 @@ def _mega_ports(base):
     return out
 
 
-SOAK += _mega_ports(SOAK + FULL)
+SOAK += _mega_ports(FAST + FULL + SOAK)   # (a few soak-tier rows sit in the FAST list)
 
 
 def rows():

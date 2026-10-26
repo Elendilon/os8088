@@ -20,7 +20,8 @@ WHAT IT MAPS, AND WHAT IT CANNOT
     - kern_mega has one system disk and one apps disk, at 1.44MB. Any other
     image (a category disk, a scratch disk a row built) goes in B: as it is.
   * the machine: always Bochs's 386, a VGA, a PS/2 mouse, 16MB. A machine
-    name with `_sb` in it gets the SB16, one with `_ne2k` (or
+    name with `_sb` in it gets the SB16, one with `_hdd` a fixed disk
+    (os88bochs.Box's C:, an ATA disk with RUN/ on it), one with `_ne2k` (or
     $OS88_BOCHS_NE2K) an NE2000 on slirp, and $OS88_BOCHS_MOUSE=serial
     swaps the PS/2 mouse for a serial one on COM1 (what kern_dos's INT 33h
     serves). An adapter, a ROM or a clock card in
@@ -257,11 +258,18 @@ class BochsMarty(om.Marty):
         with open(os.path.join(self.box.out, "dbg.fifo"), "w") as fh:
             fh.write("c\n")
         end = time.time() + 10
+        mark = None
         while time.time() < end:        # until Bochs has READ it (its echo):
-            if "c\n" in self._e9(max(0, n - 4)):    # a SIGINT before that is
-                break                               # lost at the prompt
+            i = self._e9(max(0, n - 4)).find("c\n")   # a SIGINT before that
+            if i >= 0:                                 # is lost at the prompt
+                # ...and the mark is the END OF THE ECHO, not the file's size
+                # when this loop got round to looking: a breakpoint a few
+                # instructions on has its prompt printed by then, and a mark
+                # past it is a stop nobody ever sees (wait_stop runs out)
+                mark = max(0, n - 4) + i + 2
+                break
             time.sleep(0.002)
-        self._bpmark = os.path.getsize(e9)
+        self._bpmark = mark if mark is not None else os.path.getsize(e9)
         self._state = "running"
         self._since = time.time()
 
@@ -333,6 +341,44 @@ class BochsMarty(om.Marty):
             return None
         return (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24,
                 d[0] | d[1] << 8 | (d[6] & 0x0F) << 16)
+
+    def gdt(self, sel):
+        """(base, limit) of GDT selector SEL, out of the live GDTR."""
+        g = getattr(self, "_gdt", None)
+        if g is None or not g[0]:
+            t = self._stopped(["sreg"])
+            m_ = re.search(r"gdtr:base=0x([0-9a-f]+), limit=0x([0-9a-f]+)", t)
+            if not m_:
+                raise om.MartyError("os88bochsmarty: no GDTR in `sreg`")
+            self._gdt = g = (int(m_.group(1), 16), int(m_.group(2), 16))
+        if (sel & ~7) + 7 > g[1]:
+            raise om.MartyError("os88bochsmarty: GDT selector %#x is past "
+                                "the table's limit %#x" % (sel, g[1]))
+        d = self._read(g[0] + (sel & ~7), 8)
+        return (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24,
+                d[0] | d[1] << 8 | (d[6] & 0x0F) << 16)
+
+    def sym(self, name, defines=()):
+        """Marty.sym, with `.cold` where kern_mega RUNS it: COLD_SEG is a
+        GDT selector there, its descriptor based above 1MB (mega_coldup),
+        so `COLD_SEG * 16 + offset` - the map's reading - is the low copy's
+        leftovers and a breakpoint on it never fires."""
+        import os88sym
+        eq = os88sym.equates(defines)
+        if os88sym.segment_of(name, defines) == eq.get("COLD_SEG") \
+                and self.protected():
+            return self.gdt(eq["COLD_SEG"])[0] + os88sym.syms(defines)[name]
+        # ...and BEFORE mega_enter (a machine handed back paused at reset,
+        # or a boot step such as stik_boot, which drv_notice_x runs before
+        # protected mode) `.cold` is where the map puts it, COLD_SEG * 16
+        return os88sym.linear(name, defines)
+
+    def protected(self):
+        """Is the CPU in protected mode NOW (CR0.PE)? kern_mega enters it
+        late in kmain, so a row stopped earlier is still in real mode."""
+        t = self._stopped(["creg"])
+        m_ = re.search(r"CR0=0x([0-9a-f]+)", t)
+        return bool(m_ and int(m_.group(1), 16) & 1)
 
     def lin(self, seg, off=0):
         """The linear address of SEG:OFF, SEG a real segment or a selector."""
@@ -583,9 +629,70 @@ class BochsMarty(om.Marty):
             cnt[0] = cnt[1] = 0
         return r
 
+    def xfers(self):
+        """Every SECTOR the floppy controller has moved since the last call:
+        [(drive, byte offset in the image, 'r' or 'w')], out of Bochs's own
+        floppy log (`floppy_xfer:` lines, one per 512 bytes, which
+        `debug: floppy=report` prints). It is the instrument a DISKCNT kernel
+        is on MartyPC ([dsk_dbg_sec]) for a kern_mega row, which has no knob
+        build - and it names the sectors, not only their count."""
+        log = os.path.join(self.box.out, "bochs.log")
+        pos = getattr(self, "_fxfer", 0)
+        try:
+            with open(log, "rb") as f:
+                f.seek(pos)
+                t = f.read()
+        except OSError:
+            t = b""
+        cut = t.rfind(b"\n") + 1
+        self._fxfer = pos + cut
+        return [(int(d), int(o), "r" if w == b"from" else "w")
+                for d, o, w in re.findall(
+                    rb"floppy_xfer: drive=(\d+), offset=(\d+), bytes=512, "
+                    rb"direction=(from|to) floppy", t[:cut])]
+
     def _c_quit(self, **_):
         self.close()
         return {}
+
+    def ticks(self):
+        """Bochs's own instruction clock (`ptime`): what MartyPC's
+        `status()["instructions"]` answers, for a row asking whether the guest
+        is RETIRING instructions at all (a cli/hlt freeze). Costs a stop, so
+        it is a method and not a status field - status is polled."""
+        t = self._stopped(["ptime"])
+        m_ = re.findall(r"ptime: (\d+)", t)
+        if not m_:
+            raise om.MartyError("os88bochsmarty: no answer to `ptime`")
+        return int(m_[-1])
+
+    def cmos(self):
+        """The MC146818's 128 bytes, out of Bochs's `info device cmos` - the
+        chip as the HARDWARE holds it, which no guest read can tell from the
+        kernel's own copy. Bochs-only: MartyPC models no clock chip."""
+        t = self._stopped(["info device cmos"])
+        b = bytearray(128)
+        for m_ in re.finditer(r"^00([0-7])0  ((?:[0-9a-f]{2} ?){16})", t,
+                              re.M):
+            r = int(m_.group(1), 16) * 16
+            b[r:r + 16] = bytes.fromhex(m_.group(2).replace(" ", ""))
+        return bytes(b)
+
+    def vram(self, kind=None):
+        """Marty.vram's (width, height, rows-of-bits), out of the GLASS: a
+        pixel is lit when it is not black. There is no 1bpp framebuffer here
+        - kern_mega's desktop is mode 12h on Bochs's VGA - so a row that
+        reads ink off `vram()` (black on white, white on a black bar) reads
+        the same picture through `fbuf` instead. It is the rendered frame,
+        so it trails the kernel's writes by one window refresh, as `fbuf`
+        does; a colour that is not black reads as lit."""
+        w, h, px = self._fbuf()
+        rows = []
+        for y in range(h):
+            row = px[y * w * 3:(y + 1) * w * 3]
+            rows.append([1 if (row[i] | row[i + 1] | row[i + 2]) else 0
+                         for i in range(0, w * 3, 3)])
+        return w, h, rows
 
     # Marty.screen falls back to _vga_text via `video`, which reads B8000
     def video(self, card=None):
@@ -665,13 +772,17 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
                                 # (kernel/driver.inc drv_cfgbit), ethertest's
                                 # disk's one setting: a card no driver loads
                                 # for is no card to any row
+    # A FIXED DISK when the machine name has `_hdd` in it (os8088_xt_hdd and
+    # its twins): os88bochs.Box's default C:, an ATA disk with RUN/ on it.
+    # Everything else has none, as before
+    noc = "_hdd" not in (machine or "")
     if not b:
         b = os.path.join(bld, "megaapps.img")
     btype = {368640: "360k", 737280: "720k", 1228800: "1_2",
              1474560: "1_44"}[os.path.getsize(b)]
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
                  btype="1_2" if btype in ("360k", "1_2") else "1_44",
-                 build=bld, display=disp, megs=megs, noc=True, vgahz=20, flog=True,
+                 build=bld, display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
                  ne2k=ne2k)
     m = BochsMarty(box, run_dir, label=label)
     try:
