@@ -27,7 +27,7 @@ sys.path.insert(0, HERE)
 import os88vbundle  # noqa: E402
 
 ROOTS = ("gbaotgui.py", "gbaot.py", "os88disk.py", "os88pkg.py")
-THIRD_PARTY = {"unicorn"}
+THIRD_PARTY = {"unicorn", "tkinterdnd2"}   # (tkinterdnd2 optional: drops off Windows)
 BINS = ("aothost.bin", "rdgcore.bin", "rdgtmpl.bin", "rdgcore.inc", "realdmgaot.bin",
         "realdmgaotmega.bin")
 FOLDER = "os8088-gbaot"
@@ -52,7 +52,12 @@ NEEDS
   Nothing else: the parts that would be assembled are in gbaot-bin/.
 
 USING IT
-  1. Choose the cartridge. The package is written beside it, GAME.O88.
+  1. Choose the cartridge - or drop it on the window. The package is
+     written beside it, GAME.O88. A replay can be dropped too: drop
+     NAME.RP1 (or NAME.SS1) and, if its partner is beside it, the pair goes
+     straight into the list of replays.
+     Dropping is built in on Windows; elsewhere it wants
+         python3 -m pip install tkinterdnd2
   2. Make the package (a minute or two; a 1 MB cartridge longer).
   3. Put GAME.O88 and the cartridge, under the name the window shows, in one
      folder of an os8088 disk - or tick a floppy and it makes one - and

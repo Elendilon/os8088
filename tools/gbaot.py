@@ -48,11 +48,54 @@ sys.path.insert(0, HERE)
 import gbstatic as G  # noqa: E402
 
 # THE BUNDLE (tools/gbaotbundle.py): no os8088 tree, the binaries prebuilt
+# - and the choice is made on the FILES, not on a folder's name: a stray
+# apps/realdmg/ beside a bundle (RealDMG's own folder off a disk) once sent
+# the bundle off to regenerate a core whose generator it does not carry, and
+# the only thing the window said was "rdggen.py returned non-zero exit status 2"
 PREBUILT = os.path.join(HERE, "gbaot-bin")
-if not os.path.isdir(os.path.join(ROOT, "apps", "realdmg")) and os.path.isdir(PREBUILT):
-    BUNDLED = True
-else:
-    BUNDLED = False
+PREBUILT_FILES = ("aothost.bin", "rdgcore.bin", "rdgtmpl.bin", "rdgcore.inc", "rdgdefs.inc",
+                  "realdmgaot.bin", "realdmgaotmega.bin")
+TREE_FILES = [os.path.join("apps", "realdmg", f) for f in
+              ("rdggen.py", "rdgtmpl.py", "rdgdefs.inc", "rdgsys.inc", "rdgjit.inc",
+               "rdgaot.inc", "realdmg.asm")] + [os.path.join("tools", "gbaot", "aothost.asm")]
+TREE_MISSING = [f for f in TREE_FILES if not os.path.isfile(os.path.join(ROOT, f))]
+PREBUILT_MISSING = [f for f in PREBUILT_FILES if not os.path.isfile(os.path.join(PREBUILT, f))]
+BUNDLED = bool(TREE_MISSING) and not PREBUILT_MISSING
+
+
+def need_sources():
+    """Neither a whole tree nor a whole bundle: say which files are missing,
+    rather than let a generator or an assembler fail on one of them"""
+    if not TREE_MISSING:
+        return
+    raise SystemExit(
+        "gbaot: this is neither an os8088 tree nor the precompiler bundle.\n"
+        "  The tree at %s is missing: %s\n"
+        "  The bundle's prebuilt folder %s is %s.\n"
+        "  Run it from a whole os8088 checkout (with nasm on the PATH), or from the\n"
+        "  GBSTATIC folder of the tools zip (`make gbaotbundle`), which needs no nasm." % (
+            ROOT, ", ".join(TREE_MISSING), PREBUILT,
+            "missing: " + ", ".join(PREBUILT_MISSING) if os.path.isdir(PREBUILT) else "absent"))
+
+
+def run(cmd, what):
+    """A build step, its failure REPORTED: the window shows no console, so the
+    command's own words are what goes into the SystemExit"""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        if cmd[0] == "nasm":
+            raise SystemExit(
+                "gbaot: %s needs nasm, and there is none on the PATH.\n"
+                "  Install it (https://nasm.us; on Windows put nasm.exe's folder on the PATH),\n"
+                "  or use the precompiler bundle (`make gbaotbundle`, GBSTATIC in the tools\n"
+                "  zip), which carries these binaries prebuilt." % what)
+        raise SystemExit("gbaot: %s: cannot run %s" % (what, cmd[0]))
+    if r.returncode:
+        out = (r.stdout + r.stderr).strip().splitlines()
+        raise SystemExit("gbaot: %s failed (exit %d):\n  %s\n%s" % (
+            what, r.returncode, " ".join('"%s"' % c if " " in c else c for c in cmd),
+            "\n".join("  " + ln for ln in out[-20:]) or "  (it printed nothing)"))
 
 # --- the walk ---------------------------------------------------------------
 
@@ -227,6 +270,7 @@ def prerequisites(build, defines=()):
         if defines:
             raise SystemExit("gbaot: the bundle has no driver built with %s" % ",".join(defines))
         return os.path.join(d, "aothost.bin")
+    need_sources()
     os.makedirs(d, exist_ok=True)
     gen = os.path.join(INC, "rdggen.py")
     tmpl = os.path.join(INC, "rdgtmpl.py")
@@ -237,19 +281,19 @@ def prerequisites(build, defines=()):
         return not os.path.exists(out) or any(os.path.getmtime(x) > os.path.getmtime(out) for x in deps)
     defs = os.path.join(INC, "rdgdefs.inc")
     if stale(asm, gen, defs):
-        subprocess.check_call([sys.executable, gen, asm])
+        run([sys.executable, gen, asm], "generating RealDMG's core (rdggen.py)")
     if stale(core, asm, defs):
-        subprocess.check_call(["nasm", "-f", "bin", "-w+error", "-DRDG_AOTCORE", "-I", INC + "/",
-                               "-o", core, asm])
+        run(["nasm", "-f", "bin", "-w+error", "-DRDG_AOTCORE", "-I", INC + "/",
+             "-o", core, asm], "assembling the core")
     if stale(tbin, core, tmpl, gen) or stale(tinc, core, tmpl, gen):
-        subprocess.check_call([sys.executable, tmpl, core, tbin, tinc])
+        run([sys.executable, tmpl, core, tbin, tinc], "cutting the templates (rdgtmpl.py)")
     drv = os.path.join(d, "aothost%s.bin" % "".join("-" + x for x in defines))
     src = os.path.join(ROOT, "tools", "gbaot", "aothost.asm")
     deps = [src, tbin, tinc] + [os.path.join(INC, f) for f in
                                 ("rdgsys.inc", "rdgjit.inc", "rdgdefs.inc", "rdgaot.inc")]
     if stale(drv, *deps):
-        subprocess.check_call(["nasm", "-f", "bin", "-w+error", "-I", INC + "/", "-I", d + "/"]
-                              + ["-D" + x for x in defines] + ["-o", drv, src])
+        run(["nasm", "-f", "bin", "-w+error", "-I", INC + "/", "-I", d + "/"]
+            + ["-D" + x for x in defines] + ["-o", drv, src], "assembling the host driver")
     return drv
 
 
@@ -1089,12 +1133,12 @@ def aot_image(build, mega=False):
     srcs += [os.path.join(ROOT, "apps", f) for f in os.listdir(os.path.join(ROOT, "apps"))
              if f.endswith(".inc")]
     if not os.path.exists(out) or any(os.path.getmtime(x) > os.path.getmtime(out) for x in srcs):
-        subprocess.check_call(["nasm", "-f", "bin", "-w+error", "-DRDG_AOT"] +
-                              (["-DPKG_MEGA"] if mega else []) +
-                              ["-I", os.path.join(ROOT, "apps") + "/", "-I", INC + "/",
-                               "-I", os.path.join(ROOT, "drivers", "sound") + "/",
-                               "-I", d + "/", "-l", out[:-4] + ".lst",
-                               "-o", out, os.path.join(INC, "realdmg.asm")])
+        run(["nasm", "-f", "bin", "-w+error", "-DRDG_AOT"] +
+            (["-DPKG_MEGA"] if mega else []) +
+            ["-I", os.path.join(ROOT, "apps") + "/", "-I", INC + "/",
+             "-I", os.path.join(ROOT, "drivers", "sound") + "/",
+             "-I", d + "/", "-l", out[:-4] + ".lst",
+             "-o", out, os.path.join(INC, "realdmg.asm")], "assembling the package image")
     return out
 
 
