@@ -183,3 +183,5 @@ drvmove secs=45 @OS88_BOCHS_MEGS=1   # the RAM disk's IMAGE moves; no kernel wor
 sndmove secs=70 @OS88_BOCHS_MEGS=1   # SOUND.DRV's image moves on Bochs's SB16: the IVT's IRQ5 rows (0Dh and 25h) follow it - they did not before 14.90 - and the IDT gate lands the image's distance on
 regpin secs=110 @OS88_BOCHS_MEGS=1   # a worker-owning region with no restart point does NOT move (mem_can_move's pin, unchanged on kern_mega), Calc's beside it does
 regwork secs=100 @OS88_BOCHS_MEGS=1   # ...declared restartable it MOVES, no proc called and the worker RESUMED in place (its frame names a selector), still looping
+trackmove secs=80 @OS88_BOCHS_MEGS=1   # BEVERLY.MOD's 114KB claim MOVES under Tracker's ARM (trackmove.disk(): build/megak/apps/tracker.o88): bytes, blob, 31 sample and the pattern windows (SEG_SUBs) the same paragraphs into it, the replayer alive
+trkcompact secs=140 @OS88_BOCHS_MEGS=1   # ...and Tracker posts the compaction its exact requirement needs, says so, and loads (the ARM, ten instances stacked from the ceiling)
