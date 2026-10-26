@@ -1,5 +1,5 @@
 ; gbret.asm - one RET that returns to eight places, for tools/gbours.py:
-; the recompiler's MEGAMORPHIC return (docs/REALDMG-SPEC.md 16.4.1). A RET's
+; the recompiler's MEGAMORPHIC return (docs/REALDMG-SPEC.md section 16.4.1). A RET's
 ; site caches the last two places it went (rt_ret), so a routine every
 ; caller shares - Link's Awakening's bank switcher at 07B9 is one - patched
 ; its site at every return; past RT_RMEGN patches tr_rmeg makes it a lookup.
