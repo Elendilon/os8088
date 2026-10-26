@@ -11776,3 +11776,91 @@ the time the check read it, because `until` backs off to a quarter of a
 host second and 86Box runs fast-forwarded. The toast lasts five seconds now
 (`tests/mixer.py`).
 
+
+### 14.116 File > Compress refused an uncompressed package in protected mode (2026-10-26) - FIXED
+
+**The gap**: 14.100 left `cmz_pkg` (`kernel/compress.inc`) refusing an
+UNCOMPRESSED package under protected mode by design (*"Cannot compress this
+one"*), on the ground that the body starts `cmz_x` bytes in, a segment off
+the identity grid, while the encoder wanted its source at offset 0 (10.1).
+
+**Cause**: the premise was stale. Every segment the encoder computes is a
+REAL paragraph reached through a K scratch selector (`KSEG ds, bp,
+MEGA_SEL_K0` and its siblings, `KPARA` for the way back, `mega_slidef` for
+the slides), so an off-grid source is exactly what it already takes, on the
+128-byte granule kern_mega's header uses (`CMZ_OBUFK`). CALC.O88's clear
+prefix is 96 bytes, so its body starts off that granule, and with the
+refusal taken out the machine's output is byte for byte `os88pkg.py`'s.
+
+**Fix**: the two-instruction refusal is deleted, nothing else. kern_mega
+`.modl` (DISKOPS.DRV, on demand) **-8 bytes**; nothing resident; kern_big
+and kern_small byte-identical (`os88rdiff.py`: 4,081 and 2,581 routines
+`same`). **`mega-lzcomp` is the row** (tests/megaport.txt, no new row):
+its `package` leg compresses CALC.O88 and must match the host's LZB to the
+byte, `runs` launches the compressed result (a second Calculator window),
+and `unpkg`/`unruns` undo it and launch again. RED on the unfixed kernel
+(*"package BAD 'Cannot compress this one' (4662 bytes, wanted 4132)"*,
+*"unpkg BAD 'Not compressed'"*), green after; the MartyPC original stays
+green (16 of 16 legs).
+
+### 14.117 USBMOUSE.DRV's PicoMEM mouse refused protected mode (2026-10-26) - FIXED
+
+**The gap**: SPEC.md 9.12.7's second backend refused `CPU_F_PM` at attach.
+The card's BIOS hands each report to `int 33h AX = 0060h` from inside its
+own IRQ handler, kern_mega reflects an option ROM's IRQ to REAL mode
+(`mega_irqrom`, for the PicoMEM's sound), and USBMOUSE.DRV's `um_pm33` is
+protected-mode code that calls the kernel. Worse, a BOOT attach (SYSTEM.CFG
+bit 6, real mode, before the switch) was not refused at all, and left the
+card calling a real-segment vector into the driver from every reflection.
+
+**What the card allows** (the owner's ISA-PicoMEM sources): the firmware
+raises ONE IRQ per USB report - `src/pm_cmd.cpp` 2185-2194, the main loop's
+`pm_mouse.event` block, copies x, y and buttons into the shared IRQ table and
+calls `bus_pm_irq_raise(IRQ_R_MOUSE, ...)` - and the ROM's `IRQCMD_USBMouse`
+(`pmbios/pmbios.asm` 1451-1480) loads DL = buttons (DH = 0), BX = dx, CX =
+dy, both sign-extended from bytes, does `int 33h AX = 0060h`, and only then
+sends the EOI (`PM_Int_End_Ok_all`, 1395-1400). The report exists host-side
+only in those registers: there is no port, flag or mailbox a protected-mode
+poll could read, so a poll is not an option and the real-mode `int 33h` is
+the contract. PMMOUSE's side (`src/drivers/PMMOUSE/pmmouse.asm` 3108-3140,
+`updatemouse_60`) is the callee the driver already models.
+
+**Fix - catch it in the reflection, deliver it after** (`kernel/mega.inc`):
+`mega_capon` points IVT 33h at `mega_cap33` for the length of each IRQ
+reflection whenever it names kernel or driver code (a real segment below
+A000h, or a selector), and `mega_capoff` puts it back. `mega_cap33` sums any
+`AX = 0060h` report it is handed and returns. `mega_replay`, back in
+protected mode, calls `mega_m33go`, which rebuilds IDT 33h from IVT 33h as it
+then stands (`mega_idt_gatef` - a driver that hooked at boot is a real
+segment there, one ticked in protected mode a selector, and either moves with
+its image) and does `int 33h AX = 0060h` with the sum held to -127..127 and
+the last buttons. The driver: the `CPU_F_PM` refusal is gone, and `um_pm33`
+takes DS = CS + 8 when CS is a code selector (bit 2 set; SOUND.DRV's
+`SBL_DSCS` rule) - shipped `USBMOUSE.DRV` image **1,436 -> 1,435 bytes**.
+kern_mega **`.text` +92** (resident: the capture stub, its 11 bytes of state,
+the hook and unhook) and **`.mega` +80** (`mega_m33go` and its call, in the
+pool above 1MB); kern_big and kern_small byte-identical. Two reports in one
+reflection arrive as one; the card raises one per reflection, so that is
+the rare case and the sum loses nothing but its timing.
+
+**The gate, `tests/megapmmouse.py`** (soak, Bochs, 32s). No emulator has a
+PicoMEM, so the driver is assembled `-DPMSIM`: `drivers/usbmouse/pmsim.inc`
+answers the three PM BIOS functions the way `pmbios.asm` does (function 0
+1820-1860: DX = AA55h, BX = the ROM's segment, CH = the line, and re-hooks
+the line's vector to the ROM; 10h/11h counted) and skips the 2A3h ramp; a
+Bochs OPTION ROM at D000h (`tests/megapmmouse/pmrom.asm`) is the card's
+IRQ handler, loading a report the way `IRQCMD_USBMouse` does and doing the
+`int 33h`. `tests/megapmmouse/pmtrig.asm`, run off C: by MEGARUN, raises IRQ
+7 four times with (+20, +10); the gate is the kernel's own reflection, so
+everything from there on is what a field machine runs. Neither the model nor
+the ROM is in any shipped image. Legs: `tick` (attach in PROTECTED mode
+through `OSAPI_DRV_USE`) and `boot` (SYSTEM.CFG, real-mode attach); each must
+see four reports taken and the pointer move exactly (+40, +20). GREEN both
+legs. RED with `mega_cap33`'s hook taken out of `mega_capon`: both legs hang
+before PMTRIG can report the pointer (the driver's handler run in real mode,
+or a jump through a selector). RED with the old `CPU_F_PM` refusal put back:
+the tick leg answers *CF 1 0005* (`DRVE_HW`) and no report is taken. The
+CH375 row (`tests/usbmouse.py`, MartyPC) and `tests/picomem.py`'s `mouse`
+leg stay green. Still owed: a PicoMEM in a 286 running kern_mega - the
+Victory 286's 1.x is the machine - since the model is the firmware's
+contract as read, not the card.

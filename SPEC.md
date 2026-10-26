@@ -17358,7 +17358,8 @@ CuteMouse clone. **What reaches the PC is not the USB**: the card's BIOS
 multiplexer (§34.10.1) loads one HID report — `DX` the buttons, `BX` dx and
 `CX` dy, signed, positive dy down — and does `int 33h` with **`AX = 0060h`**, a
 private function PMMOUSE answers, from inside the card's IRQ handler (IF = 0,
-its EOI already sent). That is a USB mouse arriving by a different road, so it
+its EOI sent only after `int 33h` returns: ISA-PicoMEM `pmbios/pmbios.asm`,
+`IRQCMD_USBMouse` into `PM_Int_End_Ok_all`). That is a USB mouse arriving by a different road, so it
 is `USBMOUSE.DRV`'s second backend and not a new driver: same class, same row,
 same `SYSTEM.CFG` bit 6, same `OSAPI_MOUSE_FEED`, same halving and carry.
 
@@ -17408,6 +17409,28 @@ its bracket, so the card's `0060h` reaches DOS and not this driver; the
 bank puts our vector back at the end. Nothing breaks, and a DOS program sees
 the pointer DOS translates from the kernel's own state — which the card's
 reports are not reaching while it runs.
+
+**Under kern_mega's protected mode the report is CAUGHT and DELIVERED**
+(docs/plans/KERN-MEGA-PLAN.md 14.117). An option ROM's IRQ is reflected to
+real mode there (`mega_irqrom`), so the card's handler and its `int 33h` run
+in REAL mode, where this driver's handler - protected-mode code that calls the
+kernel - cannot. The card offers no other road: its firmware raises one IRQ
+per USB report and hands the report over only as registers inside that
+handler (ISA-PicoMEM `src/pm_cmd.cpp`, the `pm_mouse.event` block of the main
+loop, and `pmbios/pmbios.asm` `IRQCMD_USBMouse`), with no register or mailbox
+a protected-mode poll could read instead. So for the length of every IRQ
+reflection `mega_capon` points `int 33h` at `mega_cap33` whenever it names
+kernel or driver code (a real segment below A000h or a selector), which sums
+any `AX = 0060h` reports it is handed and returns; once back in protected
+mode `mega_replay` calls `mega_m33go`, which rebuilds IDT 33h from IVT 33h as
+it then stands and does `int 33h AX = 0060h` with the sum (each axis held to
+-127..127) and the last buttons. So the driver's `um_pm33` runs exactly as it
+does on a real-mode kernel, and the attach no longer refuses `CPU_F_PM`:
+attached at boot in real mode or ticked in protected mode, either works.
+`um_pm33` takes DS = CS + 8 when CS is a code selector (bit 2 set, SOUND.DRV's
+rule). Gated by `tests/megapmmouse.py` (Bochs), which assembles the driver
+`-DPMSIM` against a model of the card's three BIOS functions and plays the
+card's IRQ handler from an option ROM - neither in any shipped image.
 
 **Confirmed on a PicoMEM 2.x** (5150 #2, IRQ 7 jumper, 2026-10-10): ticked on
 the Drivers page, the driver loads and the pointer moves. **And on a PicoMEM
