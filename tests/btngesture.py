@@ -54,7 +54,7 @@ with os88ui.boot(ROOT + "/build/os8088-360.img",
                  apps=ROOT + "/build/apps360.img", quick=True) as ui:
     m, mo = ui.m, ui.mo
     w = ui.path("B:/APPS/TELNET.O88")
-    seg = u16(m.read(os88geom.winptr(m, w.i, ui.sym) + os88geom.W_SEG, 2))
+    seg = os88marty.pkg_live(m, w, ui.sym)
     ui.settle()
 
     rect = [u16(m.readseg(seg, syms["te_btn"] + i*2, 2)) for i in range(4)]

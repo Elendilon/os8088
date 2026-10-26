@@ -109,7 +109,7 @@ def run():
             syms = pkg_syms(ROOT + src, inc, defs)
             w = ui.path(path)
             ui.settle()
-            seg = u16(m.read(os88geom.winptr(m, w.i, ui.sym) + os88geom.W_SEG, 2))
+            seg = os88marty.pkg_live(m, w, ui.sym)
             base = syms[rec]
             rd = lambda off: u16(m.readseg(seg, base + off, 2))
 

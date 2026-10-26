@@ -153,24 +153,19 @@ def main():
         # the package used to occupy, so `inbr` read a stale byte for ever and
         # the row waited out 600 guest seconds for a program that had started.
         #
-        # ...AND A BASE AND THE BYTES IT NAMES ARE ONE READ OF A STOPPED,
-        # COMPACTOR-IDLE GUEST (os88marty.heap_read). Resolving per read is
+        # ...AND A BASE AND THE BYTES IT NAMES ARE ONE COMPACTOR-SAFE
+        # SNAPSHOT (dosmap.instance's LiveSeg: os88marty.seg_snap). Resolving per read is
         # not enough on its own: row 0's dos_run claim moves the region UP
         # (92C0 -> 93C4) and between mem_bcopy and mem_reloc_call the window
         # record still names 92C0 while those bytes are already the shifted
         # copy. A poll landing there read [dos_inbr] = 69 - "running" - and
         # then [dos_akb] = 29888, the soak's own failure, reproduced to the
         # byte with a breakpoint on mem_reloc_call.
-        def pb():
-            return dosmap.instance(m) << 4
-
         def at(name, n):
-            return os88marty.heap_read(
-                m, lambda mm: mm.read(pb() + dm[name], n), "DOS's " + name)
+            return dosmap.instance(m).read(dm[name], n)     # one snapshot
 
         def put(name, b):
-            os88marty.heap_read(m, lambda mm: mm.write(pb() + dm[name], b),
-                                "DOS's " + name)
+            dosmap.instance(m).write(dm[name], b)           # paused, idle
 
         def word(name):
             return int.from_bytes(at(name, 2), "little")
