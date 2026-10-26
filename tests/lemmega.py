@@ -16,6 +16,9 @@ moment a level loads. MC7 gave it fixed windows made once
 Boots kern_mega under Bochs at 16MB, LEMMINGS and the 1.44MB disk's band
 files in C:\\RUN, starts it through MEGARUN, and:
 
+  0. its region is above 1MB - LEMMINGS declares OS88_HIGH and OS88_HIGHMEM
+     since this row first ran it so, which is what retired its two lines in
+     tests/megahigh.txt;
   1. launches Fun 1 (Dirt, VGA mode 0Dh): the preview, then PLAY - the
      game's own iteration counter `_lem_iter` must MOVE, the level's T planes
      and bank windows must be DISTINCT selectors, and the T planes' bases
@@ -81,8 +84,11 @@ def main():
         box.up()
         box.megarun()
         box.until(lambda: box.pkg_base("LEMMINGS"), "LEMMINGS started", 120)
-        print("lemmega: LEMMINGS up after %.0fs" % (time.time() - t0),
-              flush=True)
+        rbase = box.pkg_base("LEMMINGS")
+        print("lemmega: LEMMINGS up after %.0fs, its region at %06X"
+              % (time.time() - t0, rbase), flush=True)
+        want(rbase >= 0x100000, "0. the region above 1MB (it declares "
+             "OS88_HIGH, tests/megahigh.txt)")
 
         def rd(name, n=2):
             return int.from_bytes(box.pkg_read("LEMMINGS", sym[name], n),

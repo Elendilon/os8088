@@ -205933,13 +205933,22 @@ the bytes read.
 
 **The MASTER is one heap claim of `mw x mh` bytes, one byte a pixel, an
 index into a 256-entry RGB palette** (768 bytes of PiXEL's bss). It may be
-larger than 64KB: row `y` is reached by segment arithmetic, `seg = base +
-(y*mw >> 4)`, `off = (y*mw) & 15`, so a row never straddles its segment
-(`mw` is at most 8,192). The claim is **movable** (§66): its relocation proc
-re-bases `[px_mseg]` and nothing else, because nothing else derives a segment
-from it between two reads — the worker re-reads it after every
-`OSAPI_TASK_ALIVE` and every row, and the renderer at every row. It is never
-the buffer of a file call, so §66.5.7.1 never pins it.
+larger than 64KB, up to 1MB: row `y` is at offset `O = y*mw` in it, reached
+through a table of WINDOWS made once per claim (`OSAPI_SEG`'s `SEG_SUB`, one
+every 32KB, each reaching 64KB or the claim's end) as window `O >> 15` at
+offset `O & 7FFFh`, so a row never straddles its window (`mw` is at most
+8,192). On a real-mode kernel a window is the sum `base + 800h*k`; under
+kern_mega's protected mode it is an LDT selector based inside the claim,
+where the old `base + (y*mw >> 4)` would have named somebody else's
+descriptor (KERN-MEGA-MEMORY-PLAN MC7). The tables are `px_mwc` (the shown
+master), `px_mwp` (the previous one) and `px_mwd` (an edit's destination),
+checked at every worker job, part call and composer pass. The claim is
+**movable** (§66): its relocation proc re-bases `[px_mseg]` and the windows
+made of it, and nothing else derives a segment from it between two reads -
+the worker re-reads it after every `OSAPI_TASK_ALIVE` and every row, and the
+renderer at every row. It is never the buffer of a file call, so §66.5.7.1
+never pins it. PiXEL declares `OS88_HIGH | OS88_HIGHMEM`, so on kern_mega its
+region and its claims of 64KB or less live above 1MB.
 
 **Three palette MODES**, chosen at the header by the source's kind:
 
@@ -222293,6 +222302,18 @@ The XT part banks its work segments in its resident half (`x3x_wseg`,
 after the shrink. That is why the header grew a verb and the seal moved
 from 18 to 20 (`tools/x3xtgen.py --seal`).
 
+**On kern_mega the claims may be above 1MB too** (`OS88_HIGHMEM`, since
+2026-10-25; KERN-MEGA-MEMORY-PLAN MC7). There a claim of 64KB or less is
+an LDT selector over a pool block above 1MB, so nothing names a place
+inside a claim by adding paragraphs to it: the stage is an `OSAPI_SEG`
+`SEG_SUB` of the look-ahead claim, made once a conversion and freed with
+the claim, and a conventional hold is read and copied through `x3h_at`'s
+`SEG_AT` window, re-aimed per use. A move there is a rebase that calls no
+proc (§50.6.12), so `x3_rmove`'s delta is a real-mode kernel's alone. The
+work segments, the probe's scratch and the speaker ring are only ever
+loaded whole; the parts and the external ring are the DMA door's,
+conventional by contract. `x3mega` is the gate.
+
 ### 121.11 Measured (shipped, on emulators; real hardware and listening are TBD)
 
 Speeds are audio seconds a wall second ("x real"). Nothing is claimed real
@@ -222489,6 +222510,7 @@ has run XTMP3.
 | `xtmp3live` | soak, QEMU | the REAL decoders end to end on the SB16, the card's capture held to x3sim sample for sample: Original at 44.1 and 22.05 kHz, Half, 8-bit stereo and mono as the DEVICE's, a seek, and XT Standard's WAV byte-exact to x3simxt (§121.6, §121.9) |
 | `xtmp3xt` | soak, MartyPC | the shipped package end to end on a 4.77 MHz XT: every conversion's WAV bit-exact to the models off the VHD, the 400,000-byte conversion peak, a finished WAV's play with no GRANULE and no underrun, and (the `spk` leg, a card-less 5150) the finished WAV through the PC speaker: port 42h's first 800 writes are `tools/os88spkfx.py`'s counts for its bytes (§121.11.5) |
 | `sndfmt`, `sndfmtmarty` | soak | SOUND.DRV's 16-bit and stereo streams (§34.5.5) |
+| `x3mega` | soak, Bochs | the kern_mega arm with `OS88_HIGHMEM` declared: the region, the look-ahead claim, a 30 KB conventional hold and the Decode First stage all above 1MB; a live play on the SB16, and an XT Standard WAV byte-exact to x3simxt out of the stage (§121.10.1) |
 
 MartyPC confirmed both parts bit-exact on an 8088 core as well (eight
 STANDARD cases, twelve XT ones).

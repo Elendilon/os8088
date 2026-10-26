@@ -6140,6 +6140,47 @@ SOAK = [
         wants=("build/mega.img", "build/megak/kernel.map",
                "build/megarun.o88", "build/lemmings.o88",
                "build/lemmings.img")),
+    Row("x3mega", "soak", py("tests/x3mega.py"), 60.0,
+        "XT-MP3 UNDER kern_mega WITH OS88_HIGHMEM DECLARED (KERN-MEGA-MEMORY-"
+        "PLAN MC7, SPEC.md 121): its claims of 64KB or less are LDT selectors "
+        "over pool blocks above 1MB, where adding paragraphs to one names "
+        "another descriptor - and it did twice, the Decode First stage cut "
+        "out of the look-ahead claim and the conventional hold's reads, both "
+        "converted (SEG_SUB, x3h_at's SEG_AT). Bochs at 16MB with an SB16, "
+        "the kern_mega arm and an MP3 on B:. play: region and look-ahead "
+        "claim above 1MB, Auto plays live on the card out of an XMS hold. "
+        "conv: XMEM_CAPS answered 0 for the open, so the hold is a 30 KB "
+        "claim above 1MB read through a window based inside it; XT Standard "
+        "Decode First onto C:: the stage a selector exactly x3_lasz + 2,560 "
+        "into the claim, the WAV x3simxt's to the byte, then played. No "
+        "kern_mega CLOSED or FAULT. RUN RED: the stage's old sum (CLOSED "
+        "XTMP3 0D at the first write out of it) and x3h_at's sum (CLOSED at "
+        "the hold's first read past +0). 60s is 49 measured",
+        needs=("bochs", "mtools", "numpy"),
+        wants=("build/mega.img", "build/megak/kernel.map",
+               "build/megarun.o88", "build/megak/apps/xtmp3.o88",
+               "build/megak/apps/xtmp3.map")),
+    Row("megasheet", "soak", py("tests/megasheet.py"), 80.0,
+        "SHEET ABOVE 1MB UNDER kern_mega (KERN-MEGA-MEMORY-PLAN MC7): it "
+        "far-calls code in two claims - the chart and macro modules, parts "
+        "of SHEET.O88 - and they call back through vectors stamped with the "
+        "region's CS, every one a selector pair there. MEGATRAP=1's census "
+        "(a private tree) under Bochs at 16MB, a SYLK document double-"
+        "clicked in C:\\DOCS: the region and its five data claims above "
+        "1MB (OS88_HIGH | OS88_HIGHMEM, which retired its two "
+        "tests/megahigh.txt lines), Data > Chart Column... drawn by the "
+        "chart module, both module vectors the CODE half of their pairs, a "
+        "macro run summing a FOR/NEXT and reading and writing a text file "
+        "through a channel in the macro module's claim (OUT.TXT read back "
+        "off C:), no CLOSED or FAULT, and no far transfer completed by "
+        "mega_gpfix and no store through the macro module's code selector "
+        "in DS/ES. RUN RED: ch_ovneed's vector from op_seg, or ch_xthunk "
+        "comparing the module's data selector, FAULT 0D at the document's "
+        "read; the channels' `push cs / pop es` put back works and fails "
+        "the census; the parent's SHEET.O88 runs at 090000. 80s is 27 "
+        "measured plus ~45 for the MEGATRAP tree the first time",
+        needs=("bochs", "nasm"),
+        wants=("build/sheet.o88",)),
     Row("cmemmove", "soak", py("tests/cmemmove.py"), 60.0,
         "A C PACKAGE DECLARES A CLAIM MOVABLE and the compactor moves it "
         "(docs/plans/HEAP-UNPIN-PLAN.md 2.1.1 item 3). os88_mem_claim was the "
@@ -15985,7 +16026,7 @@ SOAK = [
         "load); vga_blit_prow on [rom_vgabw] faults the kernel at SOLITAIR. "
         "120s is 94 measured",
         needs=("bochs", "nasm"),
-        wants=("build/mega.img", "build/apps.img")),
+        wants=("build/mega.img", "build/megak/kernel.bin", "build/apps.img")),
     Row("megatbl", "soak", py("tests/megatbl.py"), 45.0,
         "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7's step 6: kern_mega's "
         "tables sized per machine. Under Bochs at 1, 4 and 16MB: the GDTR's "
@@ -16104,6 +16145,23 @@ SOAK = [
         needs=("bochs",),
         wants=("build/megak/apps/video.o88", "build/vblk.bin",
                "build/vblkpm.bin", "build/megak/apps/video.bin")),
+    Row("megavidring", "soak", py("tests/megavidring.py"), 110.0,
+        "KERN-MEGA-MEMORY-PLAN MC7: the Video Player's kern_mega arm on a "
+        "1MB machine, where every claim is CONVENTIONAL and an LDT selector "
+        "and the arm names a claim's parts through OSAPI_SEG (the ring's "
+        "slots, a planar image's planes, the layer's slots, a resident "
+        "block's records) instead of the 8-paragraph grid step 6 cut. Bochs "
+        "at 1MB, four clips at once, each opened from B: and played to the "
+        "end: lin80 with PCM8 on the speaker in the WINDOW, a vga4 clip "
+        "FULL SCREEN, a vga clip with a LAYER (key 0's verdict poked in, "
+        "tests/vidlyplay.py's way) and a RESIDENT Live clip. Every frame "
+        "drawn, the layer's records drawn and none missed, no kern_mega "
+        "CLOSED or FAULT. Red with --pkg VIDEO.O88 from 41475cad (before "
+        "the conversion): every leg CLOSED, #GP at a record's grid sum. "
+        "110s is 85 measured, encoding the three Life clips included",
+        needs=("bochs", "ffmpeg"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
+               "build/megak/apps/video.o88")),
     Row("pxmega", "soak", py("tests/pxmega.py"), 90.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.40: PiXEL USED on kern_mega with no "
         "#GP fixup - megatrap0 counts what a launch costs, and a decoder's "
@@ -16117,6 +16175,33 @@ SOAK = [
         "put back to one paragraph (BOUNCE.GIF FAULTs on frame 0). 90s is "
         "65 measured: each step ends on the UI task done (Box.ui_done)",
         needs=("bochs", "nasm")),
+    Row("megapixel", "soak", py("tests/megapixel.py"), 90.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7: PiXEL's claims OVER 64KB "
+        "under kern_mega, where every claim is one 64KB LDT selector and a "
+        "paragraph sum names somebody else's descriptor. Under Bochs, B: "
+        "holding `make mega`'s PIXEL.O88: a 600x400 8-bit BMP (a 234 KB "
+        "master, eight windows) is opened and its master, read through the "
+        "claim's own descriptor, is the file's indices to the byte; px_mwc's "
+        "SEG_SUB windows are 32KB apart in that claim; the histogram's tail "
+        "holds the file's counts; Rotate turns it into a second master and "
+        "back (pe_rot90's 64KB carry, two windows on), each to the byte; "
+        "Save As writes OUT.BMP equal to the master; FLOWER.JPG (1/1), "
+        "HOUSE.PNG and ROOM.JPG (progressive, 1/4, and again at 1/8 through "
+        "the floor) are each tools/pixelsim.py's master byte for byte; no "
+        "CLOSED or FAULT line. Red on the parent commit, with px_mrow's old "
+        "sum put back and with pe_rot90's carry unpatched. 90s is 50 "
+        "measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megak/apps/pixel.o88",
+               "build/megarun.o88", "build/mbr.bin", "build/pixel.bin")),
+    Row("megapixelship", "soak", py("tests/megapixel.py", "--shipped"), 90.0,
+        "megapixel with the SHIPPED PIXEL.O88 on B: in place of the kern_mega "
+        "arm (SPEC.md 20.18: the shipped build must be correct on kern_mega, "
+        "its parts' stores through CS completed one #GP at a time): every "
+        "megapixel check, byte for byte. 90s is 51 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/pixel.o88", "build/megarun.o88",
+               "build/mbr.bin", "build/pixel.bin")),
     Row("megadosp", "soak", py("tests/megadosp.py"), 80.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.54: the windowed DOS's PROMPT "
         "on kern_mega with no #GP fixup per character printed - dos_hk_tty "
@@ -16284,6 +16369,30 @@ SOAK = [
         "the pattern",
         needs=("bochs",),
         wants=("build/mega.img",)),
+    Row("megadosroom", "soak", py("tests/megadosroom.py"), 60.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md D5: a DOS trip with NO ROOM "
+        "for a park (a 2MB machine, every free KB of the pool held by "
+        "pinned records) writes HIBERNAT.IMG instead, runs the program with "
+        "no park, reboots at its exit (kern_dos's W6 route) and the boot "
+        "resumes the image unasked through the streaming resume. Asserts no "
+        "park line, KBTRIP's key, `kern_mega: resumed` and the filler back. "
+        "Red on the tree before: the trip refuses and KBTRIP never starts. "
+        "60s is 16 measured",
+        needs=("bochs",),
+        wants=("build/mega.img",)),
+    Row("megahuge", "soak", py("tests/megahuge.py"), 60.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC5: ONE CLAIM FOR ALL OF IT. "
+        "OSAPI_MEM_HUGE with AX = 0 asks the most one claim can be; on a "
+        "4MB Bochs machine that is a BRIDGE - the pool's best run in whole "
+        "64KB windows, then the conventional heap less its 64KB reserve, "
+        "under one run of selectors. MEGAHUGE claims exactly the answer, "
+        "writes a pattern through every window (the seam included), reads "
+        "it back, frees, and asks again. Asserts the answer exceeds the "
+        "pool, step 8, first window above 1MB and last below, `ok`, and "
+        "the same answer after the free. Red on the tree before: the query "
+        "is a 0KB claim and refuses (`MEGAHUGE: no 01`). 60s is 16 measured",
+        needs=("bochs",),
+        wants=("build/mega.img", "build/megahuge.o88", "build/megarun.o88")),
     Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 60.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.61, 14.62: the keyboard INSIDE a "
         "DOS program and the keyboard and pointer after it, over ten round "

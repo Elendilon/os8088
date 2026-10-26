@@ -794,11 +794,22 @@ reset in the ROM, 64 sectors a call at most. The stub's tail rests on
   never happens. Both under Bochs, a 386: a 286's reset drop and its `int
   15h AH=87h` are the DOS trip's own and have run there, but this route
   has not, and wants 86Box's `286-mega`.
-- Not built: D5's own route, a DOS trip with no room for a park offering
-  the hibernate. The stub is ready for it (it needs only `kern_dos`
-  -DKD_MEGA to stage it, as `kd_resume` does kern_big's), but nothing asks
-  for it yet: `mega_dosclaimf` shrinks the park to `MPK_MIN_KB` and leaves
-  the rest in place, so a trip refuses only below 128KB of pool.
+- **D5 is built** (the same day): a DOS trip whose park claim fails - under
+  `MPK_MIN_KB` of pool to be had - takes kern_big's route when there is a
+  fixed disk: `hbm_dosrun` writes HIBERNAT.IMG (HBP_DOS) through the W5
+  writer, `mega_dosgo` hands over with NO park (the stage under
+  `[mem_top]`, the program the whole machine, no park header or W7 anchor
+  written - those would have gone to linear 0), and at the program's exit
+  `kern_dos -DKD_MEGA`'s `kd_resume` declines - a kern_mega image is
+  `megares.inc`'s, not `hbstub`'s - so W6's reboot runs and the boot
+  resumes the image with no question, through the streaming resume. A
+  machine with no fixed disk still refuses with nothing torn down. Row
+  `megadosroom` (Bochs, 2MB, every free KB of the pool held): no park line,
+  KBTRIP's key, `kern_mega: resumed`, the DOS window showing the exit code
+  posted into the restored session; red on the tree before (the trip
+  refuses, KBTRIP never starts). A live resume from `kern_dos` (no reboot)
+  would need `megares.inc` staged from there - not built; the reboot is
+  W6's route and it works.
 
 ### MC5 - one claim for all of it (D6, D7, D8)
 
@@ -1579,6 +1590,32 @@ rows. Nothing is recorded as built that was not.
   PIXELSTEIN's part answers 0, which degrades exactly as a refused part
   does (the bodies run from the image, no byte textures). ~10 bytes each,
   registered in `tests/megapkg.txt` as fail-safes.
+  **THE VIDEO PLAYER (2026-10-25) - DONE (item 4), the kern_mega arm
+  only; the shipped build is byte-identical.** The arm's 8-paragraph grid
+  (KERN-MEGA-PLAN 14.16) named a claim's parts by sums, which step 6 made
+  invalid: opening any `.V88` closed the player at `vp_kpic`/`vp_thpic`.
+  Structures inside a claim get a `SEG_SUB` each, made with the claim: the
+  ring's slots (`vp_rsmk` -> `[vp_rsel]`, `vp_addr` patched to `vp_paddr`
+  for every protected-mode ring), the layer's slots, mirror and bounce
+  (`vp_lymk`), a planar image's planes (`vp_plmk`/`vp_plset`) - so the rate
+  hook reads tables and calls nothing. Walks in the UI task or a worker
+  re-aim `SEG_AT` windows (`vp_at`); in the hook, a record past its slot's
+  64KB window (BIGSP's, a seam key) and a resident play's records go
+  through bound windows aimed by `SEG_AIM` (`vp_pmbig`, `vp_rres`,
+  `vp_raud`), a resident block's positions being paragraph offsets into it.
+  The desktop frame buffer is a `SEG_WIN` window and the gap's placement
+  asks `SEG_LIN`. One new defect TYPE: freeing a claim with ES inside it is
+  a #GP at the X cell's own `pop es`, so `vp_mfree` moves ES off the claim
+  first. Cost: the arm +866 bytes, 615 left under `APP_MAX_SIZE` - BIGSP in
+  place will be tight; no kernel byte. Rows: `megavidbig`, `megavidv2` (0
+  fixups on every step) and the new `megavidring` (1MB, every claim
+  conventional: lin80 with speaker PCM, vga4 full screen, a layered clip, a
+  resident Live clip, each to its last frame; red with the arm before).
+  Still open and the `mega-video` session's: BIGSP in place (`vp_pmbigq`,
+  buildable on `SEG_BWIN`/`SEG_AIM` now), EMS under protected mode, 86Box.
+  Found in passing, not MC7's: a Mode X clip with a page pool and keys in
+  parts says *"That keyframe could not be read"* (`vp_knrd` against
+  `R_KMAX`) on kern_big too.
   **THE BROWSER (2026-10-25) - DONE, one shared path.** Its document,
   source and EMS-frame sums are gone on kern_mega: `br_docmap` reads the
   document through one bound window (`SEG_BWIN` + `SEG_AIM`) aimed at the
@@ -1642,9 +1679,11 @@ rows. Nothing is recorded as built that was not.
   back through the replayer, the card's capture music and not noise, red
   with the packages before (`CLOSED TRACKER 0D`, `CLOSED MIDIRack 0D`);
   `trackmove`'s new 5b, red with the window loop out of `trk_reloc`.
-  **OPEN, not this change: SOUND.DRV answers MIDIRack's stream open with 2
-  under kern_mega on Bochs**, the synth as well as the wavetable and on the
-  packages before too, so MIDIRack has not been heard on kern_mega.
+  **Was OPEN here, and is CLOSED by THE STREAM DOOR above:** SOUND.DRV
+  answered MIDIRack's stream open with 2 under kern_mega on Bochs, the synth
+  as well as the wavetable, and with the packages from before this change
+  too. It was the kernel's door and not the driver. `megamod`'s mrsb leg
+  now hears the synth.
   **LEMMINGS (2026-10-25) - DONE (item 3), one shared path.** Its 96KB
   style bank and 125KB T claim are reached through windows made once at
   the claim by a new C SDK call, `os88_seg_sub` (OSAPI_SEG's SEG_SUB;
@@ -1663,6 +1702,116 @@ rows. Nothing is recorded as built that was not.
   kern_mega). Row `lemmega` (Bochs): Fun 1, a nuke and Fun 22's special
   picture with no CLOSED or FAULT, red with either old sum put back. Not
   run: CGA and Hercules under kern_mega, 86Box, the 720KB/360KB sets.
+  **And it now DECLARES (2026-10-25):** `CC_STACK_CLASS OS88_HIGH |
+  OS88_HIGHMEM`, and its two `tests/megahigh.txt` lines are gone. The first
+  line's whole reason was that it had never been run on kern_mega. The
+  second line's reason was the four sums the conversion removed. `lemmega`
+  now asserts the region is above 1MB (FD3C00h on its 16MB machine) and
+  plays all three stages there. The bank and T stay conventional, being over
+  64KB, so their windows read the same as before. The class byte is the only
+  byte that changed, and only the on-demand Lemmings disks carry it.
+  **XT-MP3 declares OS88_HIGHMEM (2026-10-25).** Batch 2 converted its two
+  sums (the stage a `SEG_SUB`, the conventional hold's reads `x3h_at`'s
+  `SEG_AT`), and the audit of the rest found nothing more to convert: the
+  backend's work segments, the queue probe's scratch, the look-ahead and the
+  speaker ring are loaded whole (the ring and its PCM are offsets in the
+  look-ahead claim's first 64KB, the stage its SUB), the parts and the
+  external ring come
+  through the DMA door, conventional by contract, and `x3_rmove`'s `add
+  [x3c_sseg]` never runs here, a move being a rebase that calls no proc
+  (SPEC.md 50.6.12). Its only BIOS call is `int 16h`, with no buffer. So the
+  class byte says `OS88_HIGH | OS88_HIGHMEM` in both builds, and its
+  `tests/megahigh.txt` line is gone. Byte 15 (80h -> C0h) is the only byte
+  that changed in either image. Row `x3mega` (Bochs, 16MB, SB16, the arm) has
+  two legs. `play`: the region and the look-ahead claim above 1MB, and Auto
+  plays NEONDRV live on the card out of an XMS hold. `conv`: the kernel's
+  `OSAPI_XMEM_CAPS` cell is patched to answer 0 while the track opens, so
+  the hold is a 30 KB conventional claim above 1MB with `x3h_at`'s window
+  based inside it. Then a forced XT Standard runs Decode First onto C:. The
+  stage is an LDT selector exactly `x3_lasz` + 2,560 bytes into the
+  look-ahead claim, and the WAV is x3simxt's to the byte. No CLOSED or
+  FAULT, ~50 s. Each old sum put back is red: `CLOSED XTMP3 0D` at the first
+  stage write and at the hold's first read past +0. Not exercised: the
+  speaker and Covox (the card is present), the XT backend's speed (Bochs is
+  a 386), the shipped build's own image under kern_mega (its claim code is
+  the arm's byte for byte), a 32 KB-cluster volume (whose claim passes
+  64KB and is conventional), and a pool compaction under a running play.
+  **PiXEL (2026-10-25) - DONE (item 11), one shared path, and it now
+  declares OS88_HIGHMEM.** The whole item is done, master rows and decoder
+  carves alike, so no flat arm was needed.
+  - **How a master is reached:** through a table of `SEG_SUB` windows 32KB
+    apart (`apps/pixel/pxrec.inc`: `px_mwc`, `px_mwp`, `px_mwd`). Row y is
+    window `O >> 15` at `O & 7FFFh`.
+  - **When the tables are made and checked:** once per claim, then checked at
+    every worker job, every UI part call and every composer pass. A
+    real-mode move re-bases them through `px_mreloc`.
+  - **The other carves:** the histogram tail, the work claim's sub-buffers,
+    the ring's second slot, the in-memory file's windows, the PNG
+    scanlines, the GIF animation row and the JPEG bounce are each a
+    `SEG_SUB`.
+  - **The DMA claim's alignment test:** `px_dmaclaim`'s 512-byte test reads
+    `SEG_LIN` now. It used to read the selector's bits, so on the parent
+    kernel PiXEL opened nothing.
+  - **Patched under protected mode, 8088 loops unchanged:** `pe_rot90`'s
+    64KB carry, and the progressive JPEG store's 1/4 and 1/8 arms (the 1/8
+    one through the `je`'s displacement) walk windows instead.
+  - **A master is held to 1MB.**
+  - **The parked worker drops ES.** That removes one #GP per PNG or GIF
+    open, which came from a window being freed under it.
+  - **Measured on MartyPC's 5150 (minimum cycles per call):**
+    - `px_mrow`: 395 -> 321
+    - `px_crow`: -62 and -68 a row
+    - `px_cset`: +75 a pass
+    - each table: about 4K per claim
+    - pxbench's zoom, pan and Fit: unchanged on CGA and VGA
+  - **Bytes:** image +474, bss +220, PIXEL.O88 +2 sectors. Parity pads keep
+    every unchanged routine at an even shift.
+  - **The declaration:** its `tests/megahigh.txt` line is retired, and
+    `OS88_HIGH | OS88_HIGHMEM` is the header.
+  - **Rows `megapixel` and `megapixelship` (Bochs)** check, byte for byte:
+    the DEEP.BMP master, its tail, both turns and Save As; and FLOWER, HOUSE
+    and ROOM at 1/4 and 1/8 against pixelsim. They also check that the view
+    claim (17-31KB) is above 1MB, at FBD000h. They go red:
+    - on the parent;
+    - with `px_mrow`'s old sum put back;
+    - with the carry left unpatched;
+    - without the HIGHMEM bit (the view claim at 058000h).
+  - **Left as a cost:** the shipped build's PXSW stores through CS, for the
+    speed pass. The arm stores them through `PXP_SELF`.
+  - **Not run:** non-VGA adapters under kern_mega, the XMS undo, and full
+    screen on kern_mega.
+  **SHEET declares OS88_HIGH and OS88_HIGHMEM (2026-10-25)**, and its two
+  `tests/megahigh.txt` lines are gone. Both reasons had been answered
+  already: the far vectors into the chart and macro modules are built from
+  `op_cseg` (the CODE half), the CS `ch_ovbind`/`sh_ovbind` stamp is the
+  region's own code half, `ch_xthunk` compares the code half (batch 1),
+  and the note/table carves and the row-height table are `SEG_SUB`
+  windows (batch 2). What the declaration still needed was a run and one
+  fix: the macro module's text channels (`FOPEN`...`FCLOSE`, 81.91) made
+  ES its own CS with `push cs / pop es` and handed that to
+  `OSAPI_FILE_READ`/`WRITE`, so the kernel's file read and the module's
+  `[es:]` stores went through a read-only code selector - completed by
+  `mega_gpw` one #GP each, a cost and not a defect. They take the part's
+  DATA half now, `[sh_m2dseg]` (set by `sh_m2need` from `op_seg`, kept by
+  `sh_partmv` on a real-mode move). The modules' claims are DMA-door claims
+  and stay conventional; the region and the five data claims go above
+  1MB. COST: image +12 (54,718 -> 54,730), bss +2 (9,490 -> 9,492), the
+  macro part +8 inside its fixed 28,672 bytes, `SHEET.O88` +4 on disk;
+  one shared path, no `PKG_MEGA` arm - the four `mov es, [sh_m2dseg]` are
+  outside any loop. Row `megasheet` (Bochs, MEGATRAP=1's census): the
+  region and claims above 1MB, a SYLK opened by double-click, Data > Chart
+  Column... drawn by the chart module, both vectors code halves, a macro
+  summing a FOR/NEXT and reading and writing a file through a channel,
+  no CLOSED or FAULT, and no #GP that is a far transfer or a store through
+  the macro module's code selector in DS/ES. Red with `op_seg` in
+  `ch_ovneed` or `ch_xthunk` comparing `ch_ovseg` (FAULT 0D at the
+  document's read), with `push cs / pop es` back (census only), and on the
+  parent's `SHEET.O88` (region at 090000). STILL PAID: 164 #GPs in that one
+  macro run, every one a `mov [cs:x], ...` in the macro module (none in
+  the chart module) - item 11's speed-pass entry, unchanged. Not
+  exercised under kern_mega: notes, row heights and Insert/Delete Row (the
+  `SEG_SUB` carves), Undo, the BIFF/DIF writers, Export Chart as BMP, the
+  dialog engines past Run, and any adapter but Bochs's VGA.
   **Paint (2026-10-25) - DONE, one shared path.** A canvas over 64KB under
   protected mode is laid out in `SEG_SUB` windows at fixed 32KB offsets
   (`pt_layout`'s `.win`): a row at file offset O is window O >> 15 at O &
@@ -1741,6 +1890,84 @@ rows. Nothing is recorded as built that was not.
     to 5C, and 13 and 14 in real mode) and goes red with the re-aim's offset
     ignored (`MEGAXM: bad 5A`); its step 0D now expects the region's code
     half at DS - 8.
+
+
+### MC5 as built (2026-10-25) - DONE
+
+- **The ask is `OSAPI_MEM_HUGE` with AX = 0**, so no new cell: a 0KB claim
+  was already a refusal on every kernel, so a package asking can tell an old
+  kernel from a new one by CF alone. kern_mega answers CF = 0 and AX = the
+  most one claim of the cell can be: the conventional heap's largest claim
+  (`mem_avail_lvl_x` at the top rank), the pool's (`mx_maxrun`), or the
+  bridge's, whichever is largest (`mega_hugeqf`). In real mode it is the heap's
+  alone. kern_big and kern_small answer CF = 1, as before, and the SDK says to
+  ask `OSAPI_MEM_AVAIL` there. `PKG_FMT` and `DRV_VER` are unchanged: the
+  contract was clarified, and nothing built before stops running.
+- **`mx_maxrun` is exact for the pack `mx_alloc` makes.** That pack moves every
+  movable block up against the pinned block above it and sheds every cache a
+  program outranks. So each stretch between two pinned blocks, above
+  `[mega_mxflr]`, offers its length less the movable non-cache KB that start
+  in it. The answer is the best stretch.
+- **The bridge (D7) is tried only when neither piece alone can take the
+  claim**, after `mega_hugef` and the conventional claim have both refused.
+  The plan said the kernel would put first the piece with the smaller
+  remainder. As built, the **pool piece always comes first, cut to whole 64KB
+  windows**, and the heap piece takes the rest. The heap piece's last window
+  ends where the claim ends, so nothing is lost at the seam.
+  - The heap piece is claimed first. A compaction may take time over it, and
+    nothing is held yet.
+  - The pool block and the run of selectors are then made in one step under
+    `sch_lock`.
+  - A 32KB-step or 16KB-step ask (`BX` = 8000h or 4000h) is never bridged,
+    because their windows overlap.
+- **Each piece is the record it would be alone, so each moves and is freed
+  alone.**
+  - The pool block's windows are its own `MX_SEL` run. Its KB is a whole
+    number of windows, so `mx_unsel` frees exactly those.
+  - The heap piece's windows follow the pool's in the same run but are based
+    inside the heap piece. So `mega_mpmovef` rebases them when it moves and
+    `mega_mpfreef`'s `mega_cdfree` frees them with it. That is the rule
+    MC7.4 already gave a conventional claim's SUBs, and no new code was
+    needed for it.
+  - The pool record carries `MX_FBRIDGE` (40h) and names the heap piece's
+    selector in `MX_AUX`. `OSAPI_MEM_FREE` of the run's first selector frees
+    the pool block and then the heap piece (`[mega_bfpart]`, set by
+    `mega_claimfreef` on every free). An instance's teardown frees each piece
+    as its own record.
+  - A bridge does not regrow: `mega_claimregrowf` refuses `MX_FBRIDGE`.
+- **The reserve (D8):** a bridge leaves the heap `MEGA_RESKB` = 64KB, one
+  run. Its heap piece is taken only when the heap's largest claim, less 64KB,
+  still holds it. The query answers by the same rule.
+- **One defect found on the way:** `mega_mxat` matches a block by its base
+  AND its owner. The bridge called it with BL overwritten by the windows'
+  KB, so the lookup missed, and `MX_SEL` and the flags were written one record
+  past `mx_tab`. The fix is one `mov bl, [mega_bfown]`. Without it no record
+  carries the run's selector, so `OSAPI_MEM_FREE` of it would refuse and the
+  bridge would stand until teardown. That is read from the code: the run
+  that found the defect had faulted earlier, on a bug in the instrument
+  itself, which stored CX after its own `mov cl, 3`.
+- **Cost, kern_mega against the tree before:** `.text` +12, `.cold` +458,
+  `.mega` +173, its scratch +3: 646 bytes in all. The cold rung has 12 bytes
+  left (470 before), and the megaseg overhead is 3,779 of the 4,029 allowed.
+  kern_big and kern_small: the code is all `%ifdef KERN_MEGA`, and kern_big's
+  sections read the same before and after.
+- **Row: `megahuge`.** Bochs, 4MB, tests/megahuge's MEGAHUGE started by
+  MEGARUN.
+  - It asks (3,450K, against a pool of 2,997K, so the answer is a bridge),
+    claims exactly that (step 8), and checks that the first window is at
+    10C000h and the last at 81000h, under 1MB.
+  - It writes a pattern through all 54 windows, the seam included, reads it
+    back, frees, and asks again for the same 3,450K.
+  - 16 seconds.
+  - It is red on the tree before: `MEGAHUGE: no 01`, the 0KB claim refused.
+    Verified.
+- **Not done, of what MC5's row list asked:**
+  - holding the claim open across the Control Panel and a hibernate;
+  - `vm/286-mega`;
+  - comparing the answer with the Task Manager's free figure.
+  `megavidbig` and `megavidv2` are the Video Player's rows, which the
+  `mega-video` session now owns. They go in the final pass only if that
+  session has not changed them.
 
 ---
 
@@ -1856,6 +2083,38 @@ hibernate" makes the image the size of what is in use. Drivers have
 - **`tests/rdgcore/rdgwin.py --vm 286-mega`** (86Box), for speed.
 - **`tools/rdglog.py`**, which compares a field log with an emulator log of
   the same replay.
+
+### 8.6 A defect RealDMG found: a whole 64KB file read into a 64KB pool claim (OPEN)
+
+**Not fixed as of `dc591db4`** (`kernel/diskw.inc` has not changed since
+`dcbffc9e`, and MC5 does not touch the file layer). Found on `mega-dmg` at
+`5a620b2f` (this branch merged at `f068399f`), REALDMG-SPEC 16.2.6:
+
+- **What fails**: `OSAPI_FILE_READ` of a 65,536-byte file, ES = a 64KB
+  `OS88_HIGHMEM` claim that went to the POOL (a lone data selector, limit
+  FFFFh), BX = 0, DX:CX = 1:0000 (the capacity, exactly the file). The call
+  returns CF = 1 with an error that is not `FERR_BIG` - RealDMG's
+  "read failed" - and the machine carries on, idle; nothing hangs or faults.
+- **What does not**: the same read with the claim a KB larger (65KB, so
+  conventional) succeeds; a 32,768-byte file into a 32KB pool claim
+  succeeds; `OSAPI_FILE_READ_SEQ` in 16KB pieces into a 16KB pool claim
+  succeeds. So it is the transfer that ENDS exactly at a pool selector's
+  64KB limit - the offset that carries to 0 after the last sector - and
+  `dcbffc9e`'s `dskw_hicarry`/`dskw_hifix` are where to look: stepping
+  `[dskw_wseg]` a whole 64KB on by `SEG_SUB` when the run's offset carries
+  asks for a window AT the block's end, which `mega_bclip` refuses (no
+  room past it), so a transfer that has nothing left to move fails anyway.
+  That is a reading of the code, not a trace.
+- **Repro**: `tests/rdgmega.py --leg oneclaim` with RealDMG's workaround
+  taken out (`apps/realdmg/realdmg.asm`, `rw_load0`'s `.claim`: the `cmp
+  ax, 64 / jne .c65 / inc ax` under `PKG_MEGA`) - blargg's `cpu_instrs` is
+  a 64KB ROM, and with `RW_NOXPLAN` its one claim is exactly 64KB. Red:
+  "the view was never found"; screenshots every 0.3 s after the
+  double-click show the toast.
+- **RealDMG works round it** by claiming a 64KB one-claim cartridge as 65KB
+  under `CPU_F_PM`, which keeps it conventional; that line comes out when
+  the kernel is fixed. Any other package reading a whole 64KB file into a
+  64KB `OS88_HIGHMEM` claim meets the same refusal.
 
 ---
 

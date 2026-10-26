@@ -5036,6 +5036,191 @@ mega_hugef:
     pop ax
     retf
 
+; -----------------------------------------------------------------------------
+; mega_hugeqf - FAR: OSAPI_MEM_HUGE's QUERY in protected mode (KERN-MEGA-
+; MEMORY-PLAN MC5, D6): AX = the largest CONVENTIONAL claim (mem_avail_lvl_x's
+; answer), ES = the caller -> AX = the largest one claim of the cell's can
+; be: the pool alone (mx_maxrun - a caller its pool owner rule admits), the
+; conventional heap alone, or the BRIDGE - the pool's run cut to whole 64KB
+; windows and then the heap less its 64KB reserve (D8). Exact for the pack
+; the claim will make; real mode, AX unchanged. Every other register kept
+; -----------------------------------------------------------------------------
+mega_hugeqf:
+    cmp byte [mega_on], 0
+    je .r
+    push bx
+    push cx
+    push dx
+    mov cx, ax                      ; CX = the heap's
+    call MEGA_SEL_CODE:mega_ownerf  ; may it have the pool at all?
+    jc .o
+    call MEGA_SEL_CODE:mx_maxrunf   ; AX = the pool's
+    mov dx, ax
+    cmp ax, cx
+    jae .b
+    mov ax, cx                      ; AX = the better of the two alone
+.b:
+    cmp dx, 64
+    jb .d
+    cmp cx, MEGA_RESKB
+    jbe .d
+    and dl, 0xC0                    ; whole windows, then the heap above its
+    sub cx, MEGA_RESKB              ; reserve
+    add dx, cx
+    jnc .b2
+    mov dx, 0xFFFF
+.b2:
+    cmp dx, ax
+    jbe .d
+    mov ax, dx
+.d:
+    pop dx
+    pop cx
+    pop bx
+.r:
+    retf
+.o:
+    mov ax, cx
+    jmp short .d
+
+; -----------------------------------------------------------------------------
+; mega_hugebf - FAR: OSAPI_MEM_HUGE's BRIDGE (KERN-MEGA-MEMORY-PLAN MC5, D7),
+; tried when neither the pool nor the heap alone could take the claim.
+; in:  AX = KB, BX = the ask (a 32KB or 16KB step is never bridged), ES = the
+;      caller, DS = KDATA
+; out: CF = 0, DX = the first of ONE run of data selectors, a 64KB window
+;      each, CX = 8: the first windows over a POOL block of whole 64KB, the
+;      rest over a CONVENTIONAL claim of the remainder (whose own pair it
+;      keeps), the heap left at least MEGA_RESKB; CF = 1 nothing claimed.
+;
+; Each piece is the record it would be alone, so it MOVES alone: a pool
+; block's descriptors follow it (mx_cpmove), a claim's follow it
+; (mega_mpmovef), and each piece's windows are freed with it (mx_unsel for
+; the pool's, mega_cdfree for the claim's). The pool record says MX_FBRIDGE
+; and names the claim in MX_AUX, so OSAPI_MEM_FREE of DX frees both; the
+; instance's teardown frees each as its own. Not regrown (CF = 1)
+; -----------------------------------------------------------------------------
+mega_hugebf:
+    cmp byte [mega_on], 0
+    je .no0
+    cmp bx, 0x4000
+    je .no0
+    cmp bx, 0x8000
+    je .no0
+    push ax
+    push bx
+    push si
+    push di
+    push bp
+    push es
+    mov bp, ax                      ; BP = KB wanted
+    call MEGA_SEL_CODE:mega_ownerf  ; BL = the pool owner
+    jc .no
+    mov [mega_bfown], bl
+    call MEGA_SEL_CODE:mx_maxrunf   ; AX = the pool's best run
+    and al, 0xC0                    ; ...in whole 64KB windows
+    mov si, bp
+    dec si
+    and si, 0xFFC0                  ; (less than the whole claim: the pool
+    cmp ax, si                      ; alone has been asked and could not)
+    jbe .p
+    mov ax, si
+.p:
+    or ax, ax
+    jz .no
+    mov [mega_bfp], ax              ; P = the pool's piece
+    sub bp, ax                      ; BP = C, the heap's
+    push bx
+    call COLD_SEG:mmf_osapi_mem_avail ; AX = the heap's largest claim
+    pop bx
+    sub ax, MEGA_RESKB
+    jb .no
+    cmp ax, bp
+    jb .no                          ; ...less the reserve: short
+    mov ax, bp                      ; --- the CONVENTIONAL piece, first: it
+    xor cx, cx                      ; is the one a compaction may take time
+    call COLD_SEG:mmf_osapi_mem_claim_dma ; over, and nothing is held yet
+    jc .no
+    mov [mega_bfc], dx              ; (its pair's data selector)
+    inc byte [sch_lock]             ; --- the POOL piece, and the run, one step
+    mov ax, [mega_bfp]
+    mov dx, ax
+    shl ax, 10
+    shr dx, 6
+    mov bl, [mega_bfown]
+    call MEGA_SEL_CODE:mx_allocf    ; DX:AX = its base
+    jc .noc
+    mov [mega_bfbase], ax
+    mov [mega_bfbase + 2], dx
+    mov cx, [mega_bfp]
+    call mega_hgcnt
+    mov si, cx                      ; SI = the pool's windows
+    mov cx, bp
+    call mega_hgcnt                 ; CX = the heap's
+    add cx, si
+    mov di, MEGA_SEL_LDTD
+    mov es, di
+    pushf
+    cli
+    call mega_hgfree                ; DI = a run of CX free entries
+    jc .full
+    push di
+    mov cx, si
+    mov bx, [mega_bfp]
+    mov ax, [mega_bfbase]
+    mov dx, [mega_bfbase + 2]
+    call mega_hgfill                ; the pool's windows...
+    shl si, 3
+    add di, si
+    push di
+    mov ax, [mega_bfc]
+    call MEGA_SEL_CODE:mega_selbasef ; DX:AX = the heap piece's base
+    pop di
+    mov cx, bp
+    call mega_hgcnt
+    mov bx, bp
+    call mega_hgfill                ; ...and the heap's, after them
+    pop di
+    popf
+    lea bp, [di+4]                  ; BP = the run's first selector
+    mov ax, [mega_bfbase]
+    mov dx, [mega_bfbase + 2]
+    mov bl, [mega_bfown]            ; (mega_mxat matches on the owner too)
+    call mega_mxat                  ; DI = the pool block's entry
+    mov [ss:di+MX_SEL], bp
+    or byte [ss:di+MX_FL], MX_FHUGE | MX_FBRIDGE
+    mov ax, [mega_bfc]
+    mov [ss:di+MX_AUX], ax
+    dec byte [sch_lock]
+    mov dx, bp
+    mov cx, 8
+    clc
+    jmp short .out
+.full:
+    popf
+    mov ax, [mega_bfbase]
+    mov dx, [mega_bfbase + 2]
+    call MEGA_SEL_CODE:mx_freef
+.noc:
+    dec byte [sch_lock]
+    mov dx, [mega_bfc]              ; the heap's piece back
+    mov bp, sp
+    mov es, [ss:bp]                 ; (the caller's ES, for its ownership)
+    call COLD_SEG:mmf_osapi_mem_free
+.no:
+    stc
+.out:
+    pop es
+    pop bp
+    pop di
+    pop si
+    pop bx
+    pop ax
+    retf
+.no0:
+    stc
+    retf
+
 ; mega_hgcnt - CX = KB -> CX = a run's selectors, one per 64KB
 mega_hgcnt:
     add cx, 63
@@ -6504,6 +6689,11 @@ MX_FPIN     equ 8                   ; MX_FL: PINNED - something holds its
                                     ; arena, the hibernate's resume staging),
                                     ; so the compactor leaves it where it is.
                                     ; Every other block but the HMA moves (MC3)
+MX_FBRIDGE  equ 0x40                ; ...with MX_FHUGE: a BRIDGED claim's pool
+                                    ; piece (KERN-MEGA-MEMORY-PLAN MC5), its
+                                    ; run going on over a conventional claim
+                                    ; whose pair's data selector is MX_AUX:
+                                    ; OSAPI_MEM_FREE frees both, REGROW refuses
 MX_FH16     equ 0x20                ; ...with MX_FHUGE: a window every 16KB,
                                     ; each 64KB long (BX = 4000h asked it,
                                     ; KERN-MEGA-MEMORY-PLAN MC7.4), MX_FH32's
@@ -6556,6 +6746,93 @@ mega_xminit:
     ret
 
 section .mega                   ; protected mode only (KERN-MEGA-SEGMENTS-PLAN)
+; mx_maxrun - AX = the largest claim ONE pool block can be given now
+; (KERN-MEGA-MEMORY-PLAN MC5): the pool as mx_alloc leaves it after its
+; pack (every movable block UP against the pinned one above it or the pool's
+; top, mx_packupf) with every cache shed (a program outranks each one,
+; mx_shed), above [mega_mxflr]. So each stretch between two pinned blocks
+; offers its length less the movable, non-cache KB that start in it, and
+; the answer is the best stretch. Exact for that pack; every other register
+; kept
+mx_maxrun:
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    xor bp, bp                      ; BP = the best so far
+    mov di, mx_tab - MX_BLKSZ       ; DI = the pinned block whose END starts
+.lo:                                ; the stretch (the floor, first)
+    mov bx, [mega_mxflr]
+    cmp di, mx_tab
+    jb .have
+    cmp word [ss:di+MX_KB], 0
+    je .next
+    test byte [ss:di+MX_FL], MX_FPIN
+    jz .next
+    mov bx, [ss:di+MX_OFF]
+    add bx, [ss:di+MX_KB]
+    cmp bx, [mega_mxflr]
+    jb .next
+.have:                              ; BX = lo; DX = the next pinned start
+    mov dx, [xm_kb]
+    mov si, mx_tab
+.h:
+    cmp word [ss:si+MX_KB], 0
+    je .hn
+    test byte [ss:si+MX_FL], MX_FPIN
+    jz .hn
+    mov ax, [ss:si+MX_OFF]
+    cmp ax, bx
+    jb .hn
+    cmp ax, dx
+    jae .hn
+    mov dx, ax
+.hn:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .h
+    mov cx, dx                      ; CX = the stretch's KB...
+    sub cx, bx
+    jbe .next
+    mov si, mx_tab
+.m:
+    cmp word [ss:si+MX_KB], 0
+    je .mn
+    test byte [ss:si+MX_FL], MX_FPIN | MX_FPURGE
+    jnz .mn                         ; (pinned: a wall; a cache: shed)
+    mov ax, [ss:si+MX_OFF]
+    cmp ax, bx
+    jb .mn
+    cmp ax, dx
+    jae .mn
+    sub cx, [ss:si+MX_KB]           ; ...less what is packed up into it
+    jnc .mn
+    xor cx, cx
+.mn:
+    add si, MX_BLKSZ
+    cmp si, mx_tab_end
+    jb .m
+    cmp cx, bp
+    jbe .next
+    mov bp, cx
+.next:
+    add di, MX_BLKSZ
+    cmp di, mx_tab_end
+    jb .lo
+    mov ax, bp
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+mx_maxrunf:
+    call mx_maxrun
+    retf
+
 mx_caps:
     push si
     mov ax, [xm_kb]
@@ -9133,6 +9410,12 @@ mega_claimfreef:
     jne .n
     cmp [ss:si+MX_OWN], bl
     jne .n
+    xor ax, ax                      ; A BRIDGE's conventional piece, for
+    test byte [ss:si+MX_FL], MX_FBRIDGE ; mmf_osapi_mem_free to free after
+    jz .nb                          ; this one (KERN-MEGA-MEMORY-PLAN MC5)
+    mov ax, [ss:si+MX_AUX]
+.nb:
+    mov [mega_bfpart], ax
     push dx
     mov ax, [ss:si+MX_OFF]             ; its base: the pool's plus KB x 1024
     mov dx, ax
@@ -9362,8 +9645,9 @@ mega_claimregrowf:
 ; A refusal (no KB, or no run of LDT entries) leaves MX_KB as it was, and
 ; the claim's bytes and run whole, wherever the pass left them
 .huge:
-    test byte [ss:si+MX_FL], MX_FH32 | MX_FH16 ; (windows 32KB or 16KB
-    jz .h64                         ; apart: not regrown, 14.41)
+    test byte [ss:si+MX_FL], MX_FH32 | MX_FH16 | MX_FBRIDGE ; (windows
+    jz .h64                         ; 32KB or 16KB apart: not regrown, 14.41;
+                                    ; nor a bridge, MC5)
     jmp .nol
 .h64:
     cmp bp, [ss:si+MX_KB]
@@ -11295,6 +11579,14 @@ mega_coldhi db 0                    ; 1: `.cold` runs above 1MB
 mega_mfree  db 0                    ; 1: `.mega`'s rung is heap and `.mega` is
                                     ; NOT there - protected mode was refused
 mega_cpry   db 0                    ; 1: mx_alloc has compacted once this call
+mega_bfpart dw 0                    ; mega_claimfreef's answer: a bridge's
+                                    ; conventional piece, 0 none (MC5)
+mega_bfc    dw 0                    ; mega_hugebf's: the heap piece's selector,
+mega_bfp    dw 0                    ; ...the pool piece's KB,
+mega_bfbase dw 0, 0                 ; ...its base,
+mega_bfown  db 0                    ; ...and the owner it is claimed under
+MEGA_RESKB  equ 64                  ; THE CONVENTIONAL RESERVE a bridge leaves
+                                    ; (KERN-MEGA-MEMORY-PLAN D8, 2's measure)
 mega_mxflr  dw 0                    ; mx_alloc's floor, KB from the pool's
                                     ; base: 64 while a DOS trip claims its park
                                     ; and arena (the HMA is kern_dos's then),

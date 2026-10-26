@@ -49,7 +49,13 @@ px_dmaclaim:
     call OSAPI_MEM_CLAIM_DMA
     jc .out
     mov bx, dx
-    test dl, 0x1F                   ; (CF = 0)
+    push dx
+    push bx
+    mov bl, SEG_LIN                 ; its LINEAR base: under kern_mega the
+    call OSAPI_SEG                  ; claim is a selector, whose bits say
+    pop bx                          ; nothing of its alignment (MC7); every
+    pop dx                          ; real-mode kernel answers DX x 16
+    test ax, 0x01FF                 ; (CF = 0)
     jz .out
     call OSAPI_MEM_FREE
     stc
@@ -57,6 +63,9 @@ px_dmaclaim:
     pop cx
     pop ax
     ret
+    nop                             ; PARITY PAD, never executed (MC7's
+                                    ; odd count above: the routines below
+                                    ; keep their measured even shift)
 
 ; px_clbytes - AX = the volume's cluster in bytes (512 if it will not say).
 ; Preserves all but AX
@@ -136,11 +145,14 @@ px_ringclaim:
     mov ax, [px_chunk]
     mov cl, 4
     shr ax, cl
-    add dx, ax
-    mov [px_sseg + 2], dx
+    PXSUB                           ; the second slot: a selector of its own
+    mov [px_sseg + 2], dx           ; (the sum on a real-mode kernel, MC7)
     clc
 .out:
     jmp px_ld_4
+    nop                             ; PARITY PAD, never executed (MC7's
+                                    ; odd count above: the routines below
+                                    ; keep their measured even shift)
 
 ; px_pumpinit - a fresh stream: every slot empty, both ends at offset 0, the
 ; READ_SEQ cursor cold. Preserves all
@@ -488,11 +500,14 @@ px_rnext:
     mov ax, PX_FLATWIN
 .part:
     mov [px_rend], ax
+    push dx
     mov ax, [px_fk]                 ; window k: 0x800 paragraphs each
     mov cl, 11
     shl ax, cl
-    add ax, [px_flatseg]
-    mov [px_rsegc], ax
+    mov dx, [px_flatseg]
+    PXSUB                           ; ...a SEG_SUB (MC7), one LDT entry a
+    mov [px_rsegc], dx              ; window of the file, freed with it
+    pop dx
     inc word [px_fk]
 .adv:
     mov ax, [px_rend]
@@ -514,6 +529,9 @@ px_rnext:
     pop bx
     pop ax
     ret
+    nop                             ; PARITY PAD, never executed (MC7's
+                                    ; odd count above: the routines below
+                                    ; keep their measured even shift)
 
 ; =============================================================================
 ; THE SERVICES a decoder PART far-calls on the worker (SPEC.md 106.18). Each
@@ -967,6 +985,13 @@ px_worker:
     ; it may not (the decode's place in the file is the stack's), and the
     ; window is withdrawn before any work
     OS88_WORKER_RESTARTABLE px_worker
+    push ds                         ; PARKED HOLDING NOTHING (MC7): a job
+    pop es                          ; leaves ES on a window of a claim the
+                                    ; UI task frees while we sleep - the
+                                    ; ring's slot, a work claim's buffer -
+                                    ; and under kern_mega a selector freed
+                                    ; with its claim is a #GP at the resume
+                                    ; (the kernel completes it: slow, once)
     mov bx, [px_win]
     call OSAPI_TASK_ALIVE           ; the close box ends us here
     push ax
@@ -980,6 +1005,8 @@ px_worker:
     jmp short .top
 .run:
     call px_wjob                    ; AL = the answer
+    push ds                         ; (ES off the job's windows BEFORE the
+    pop es                          ; UI task is told: it frees them)
     mov [px_wres], al
     mov byte [px_job], JOB_NONE     ; LAST
     call px_wake
@@ -994,6 +1021,7 @@ px_wjob:
     ret                             ; byte was never set, so on the worker it
                                     ; took the UI task's branch
 px_wjob1:
+    call px_mwok                    ; the masters' windows, for the whole job
     mov byte [px_wstage], 0
     mov al, PXPART_GIF              ; A GIF'S FRAMES (106.25): its part's
     cmp byte [px_job], JOB_ANIM     ; DECODE, which knows the job
@@ -1058,6 +1086,9 @@ px_wjob1:
 .ab:
     mov al, PXD_ABORT
     ret
+    nop                             ; PARITY PAD, never executed (MC7's
+                                    ; odd count above: the routines below
+                                    ; keep their measured even shift)
 
 ; px_spawn - the worker, once (SPEC.md 20.6): from a callback, the lock held.
 ; A refusal is transient (the task table is full): CF = 1 and the open says so

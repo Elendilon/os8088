@@ -1,10 +1,10 @@
 {
  "DRV_VER": {
-  "fingerprint": "0d4a4d0c2d1e38df5c2bde21797e902b817f02cd28bcfb5608d82de518f0507a",
+  "fingerprint": "f228839dd9a97e5343d2a5481bf82776cb644ef5801039acd744e80a41ecffb2",
   "version": 11
  },
  "PKG_FMT": {
-  "fingerprint": "53baf8fc25050b9ad9e3a961e7e0ef1f451a5ab9c633f9a82e317e062ec48861",
+  "fingerprint": "f1fef01e5451dbbb1e2fd43eefc54984f255d526d1a4441895d0bbbfffff38b5",
   "version": 10
  },
  "_": "SPEC.md 20.2.0.1. Written by tools/abilock.py --update; checked by every `make` (tests/unit/t_abilock.py). Each entry in `history` is a decision about whether a change to the package or driver ABI breaks what was built before it.",
@@ -1190,6 +1190,34 @@
    "from": 11,
    "guard": "DRV_VER",
    "reason": "OSAPI_SEG gains SEG_AT (verb 8, refused on every real-mode kernel): the parts standard's op_at, KERN-MEGA-MEMORY-PLAN MC7",
+   "to": 11
+  },
+  {
+   "fingerprint": "bd21f538dcf051b1724103086becf3741b703c001b0f915de7367ce30450013c",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_HUGE: AX = 0 asks, and kern_mega's bridge (KERN-MEGA-MEMORY-PLAN MC5) - a contract clarified, nothing built before stops running",
+   "to": 10
+  },
+  {
+   "fingerprint": "d6b9da9c1e827ed000766ff5e49c82c5388d46f7cee8e74bdedb42bfb27eb37d",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_HUGE: AX = 0 asks, and kern_mega's bridge (KERN-MEGA-MEMORY-PLAN MC5) - a contract clarified, nothing built before stops running",
+   "to": 11
+  },
+  {
+   "fingerprint": "f1fef01e5451dbbb1e2fd43eefc54984f255d526d1a4441895d0bbbfffff38b5",
+   "from": 10,
+   "guard": "PKG_FMT",
+   "reason": "OSAPI_MEM_HUGE: AX = 0 asks, and kern_mega's bridge (KERN-MEGA-MEMORY-PLAN MC5) - a contract clarified, nothing built before stops running",
+   "to": 10
+  },
+  {
+   "fingerprint": "f228839dd9a97e5343d2a5481bf82776cb644ef5801039acd744e80a41ecffb2",
+   "from": 11,
+   "guard": "DRV_VER",
+   "reason": "OSAPI_MEM_HUGE: AX = 0 asks, and kern_mega's bridge (KERN-MEGA-MEMORY-PLAN MC5) - a contract clarified, nothing built before stops running",
    "to": 11
   }
  ]

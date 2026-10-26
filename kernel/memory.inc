@@ -4864,15 +4864,35 @@ osapi_mem_claim_dma_x:
 ; -----------------------------------------------------------------------------
 mmf_osapi_mem_huge:
 %ifdef KERN_MEGA
+    or ax, ax                   ; AX = 0 ASKS (KERN-MEGA-MEMORY-PLAN MC5):
+    jnz .claim                  ; the most one claim gets - the heap's, and
+    push bx                     ; in protected mode the pool's and the
+    mov bh, MEM_LVL_TOP         ; bridge's (mega_hugeqf)
+    call mem_rank_bh
+    call mem_avail_lvl_x
+    pop bx
+    call COLD_SEG:mega_hugeqf
+    clc
+    retf
+.claim:
     call COLD_SEG:mega_hugef        ; above 1MB, if it can be
     jc .conv
     retf
 .conv:
+    push ax
 %endif
     xor cx, cx                  ; no head: no 64KB page constraint
     call osapi_mem_claim_dma_x
 %ifdef KERN_MEGA
-    jc .hrm
+    pop cx                      ; (the KB, for the bridge)
+    jnc .cgot
+    xchg ax, cx                 ; AX = the KB, CX = the heap's refusal
+    call COLD_SEG:mega_hugebf   ; NEITHER ALONE: the bridge (MC5, D7)
+    jnc .bret
+    xchg ax, cx                 ; refused: the heap's answer, as before
+.bret:
+    retf
+.cgot:
     cmp byte [mega_on], 0       ; PROTECTED MODE: the claim is a selector, so
     je .hrm                     ; its next 64KB is a run's next one and not
     call mega_hugec             ; + 1000h (KERN-MEGA-MEMORY-PLAN MC7.4)
@@ -4902,7 +4922,23 @@ mmf_osapi_mem_free:             ; (the cell's far entry, as mmf_osapi_mem_claim)
 %ifdef KERN_MEGA
     MEGA_ISHI dx                ; a pool SELECTOR (mega_claimhf): its block
     jc .conv                    ; and the selector go back together
-    jmp COLD_SEG:mega_claimfreef  ; (its retf is this cell's)
+    call COLD_SEG:mega_claimfreef
+    jc .r
+    push dx                     ; ...and a BRIDGE's conventional piece after
+    mov dx, [mega_bfpart]       ; it (KERN-MEGA-MEMORY-PLAN MC5)
+    or dx, dx
+    jz .nb
+    push bx
+    call mem_own
+    jc .nbx
+    call mem_free_x
+.nbx:
+    pop bx
+.nb:
+    pop dx
+    clc
+.r:
+    retf
 .conv:
 %endif
     push bx
