@@ -18,7 +18,7 @@ rgbds) and the test suites tools/getgbtest.py fetches at pinned SHA-256s.
 None is committed, and no commercial game is used: those are the owner's
 field measurement (docs/reports/REALDMG-FULLSTATIC-2026-10-25.md).
 
-THREE NEGATIVE CONTROLS, every one of which must go red:
+FOUR NEGATIVE CONTROLS, every one of which must go red:
   - the most-entered block of GBRMW.GB with its first byte changed: the
     check must see the precompiled code at all;
   - GBFLAGS.GB translated by a driver built with RT_DEADBUG (a flag's read
@@ -26,7 +26,10 @@ THREE NEGATIVE CONTROLS, every one of which must go red:
     differ from the interpreter's, so the gate sees a translator defect;
   - GBBANK.GB run with a driver built with RDG_NOTABFILT (the filter tr_ejf
     asks first without the table's blocks, REALDMG-SPEC 20.9): it must enter
-    fewer precompiled blocks, the one thing that defect changes.
+    fewer precompiled blocks, the one thing that defect changes;
+  - GBBANK.GB with every block in the list (the table left empty, so the
+    search and its cache are what run) under a driver built with
+    RDG_AOTCACHEBUG (the cache's bank key forgotten): it must differ.
 """
 import argparse
 import os
@@ -186,6 +189,25 @@ def main():
                                          n2, n1, ", as it must" if ok else
                                          " - the gate cannot see the filter")))
             bad += not ok
+        if label.startswith("GBBANK"):
+            # the list's search and its cache (rdgaot.inc): no ROM here has a
+            # list, every block fitting the table, so the table is left empty
+            # and every one listed. 63 banks hold code at 4010h, so a cache
+            # that forgot the bank key hands one bank another's block
+            img3 = gbaot.translate(BUILD, rom, gbaot.leaders(rom, found, extra),
+                                   log=lambda *x: None, listall=True)
+            out3 = out + "-listed"
+            gbaot.save(img3, out3, rom)
+            ok, what = gbaot.compare(BUILD, rom, gbaot.load(out3), frames)
+            print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "GBBANK, every block listed", what))
+            bad += not ok
+            if not a.k:
+                ok, what = gbaot.compare(BUILD, rom, gbaot.load(out3), frames,
+                                         defines=("RDG_AOTCACHEBUG",))
+                print("%-4s %-28s %s" % ("FAIL" if ok else "ok", "control: cache key forgotten",
+                                         "passed - the gate cannot go red" if ok
+                                         else what + ", as it must"))
+                bad += ok
         if label in HRAMLEG:
             ok, what = hram_leg(rom, found, extra, out, frames, ref)
             print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "%s, HRAM counted" % label, what))

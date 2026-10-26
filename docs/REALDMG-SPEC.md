@@ -3531,7 +3531,30 @@ entries) rather than the 64KB one the translator writes, and loses nothing:
   blocks found). It names the TABLE's blocks as well as the list's
   (`rdg_aotbitset`, over both), because the precompiled core asks it
   FIRST from an interpreted jump - see "What an interpreted PC costs
-  here" in 20.10. The core built with
+  here" in 20.10.
+- **A search's answer is CACHED.** After the filter come 256 entries of
+  the list's 8-byte layout, `RDG_AOTCN` of them at `S_AOTFSEG:2000h`, the
+  slot the low byte of PC ^ PC >> 8 ^ key: the last answer for that slot,
+  a block or, with offset 0, none (a filter bit that was another PC's, or
+  an image not loaded). A hit is about fifteen instructions where the
+  search is eleven rounds and ~280; the next search there replaces it. A
+  frame's searches are few PCs over and over - Looney Tunes' 375 distinct
+  ones, 16 of them 82% and 64 of them 95%. The host's meta part and the
+  harness give the filter's segment the 2KB more (`gbaot.py`). x86
+  instructions a frame, the walk-ordered images on the harness's script:
+  Super Mario Land 2 -30%, Pokemon Red -24%, Metroid II -11%, Looney Tunes
+  (.gb) -10%, Kirby's Dream Land -9%, Looney Tunes (.gbc) -7%, Donkey Kong
+  Land -6%, Tetris -3%, the other four 0.03-1.8%; with the images ordered
+  by the owner's replays, Looney Tunes 23,441 -> 23,021 and Kirby 24,031
+  -> 23,549, the hot table having already caught most of it. 64 entries
+  took about half as much again off Super Mario Land 2 and left Kirby's
+  Dream Land 2 0.3% WORSE, because what it repeats is a filter bit that
+  names no listed block; caching the "none" is what turned that around.
+  `tests/gbaot.py` lists every block of GBBANK (`translate(listall=True)`)
+  so that a ROM this small reaches the search at all, and its control
+  (`RDG_AOTCACHEBUG`, the bank key forgotten) parts at frame 0: 63 banks
+  have code at 4010h.
+- The core built with
   `RDG_AOTCORE` (rdggen.py, slot 48h's `tr_new2`) far-jumps through
   `S_AOTVEC` when `S_JITFIX` is set; `rdg_aotmiss` (rdgaot.inc) binary-
   searches the list with its bounds in the view, since SP is the Game

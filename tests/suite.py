@@ -3450,7 +3450,7 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
-    Row("gbaot", "soak", py("tests/gbaot.py"), 455.0,
+    Row("gbaot", "soak", py("tests/gbaot.py"), 620.0,
         "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
         "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
         "its entries with no play, by RealDMG's own translator run under "
@@ -3463,8 +3463,10 @@ SOAK = [
         "CONTROLS: GBRMW's most-entered block broken must differ, GBFLAGS "
         "translated with RT_DEADBUG must change its sum, and GBBANK under a "
         "driver whose filter leaves the table out (RDG_NOTABFILT, tr_ejf, "
-        "REALDMG-SPEC 20.9) must enter fewer precompiled blocks - measured "
-        "453s. WHY UNICORN: the "
+        "REALDMG-SPEC 20.9) must enter fewer precompiled blocks; then GBBANK "
+        "with every block LISTED, so the list's search and its cache run, "
+        "identical to the interpreter, and with the cache's bank key "
+        "forgotten (RDG_AOTCACHEBUG) differing. WHY UNICORN: the "
         "translation is the host's, and the check is counted, not timed. "
         "SOAK: one package's recompiler",
         needs=("nasm", "unicorn", "rgbds"), timeout=900),
