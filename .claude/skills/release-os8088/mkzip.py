@@ -17,7 +17,8 @@ THE MAIN ZIP IS LAID OUT BY DISK SIZE (approved for v1.0.20261026):
     360K/128K-RAM/    OS88-360 (small360.img)
     PROGRAMS/<APP>/   one larger program per folder, the size in the name
                       (WORD-144.IMG, SCRIB120.IMG, CPM-360.IMG ...), and its
-                      licence beside it when it is not the project's own
+                      licence beside it when it is not the project's own;
+                      PIXEL/ holds the 1.44MB disk alone, for its gallery
 
 EVERY IMAGE AND FOLDER NAME IS 8.3, so the unpacked tree can be copied onto
 an os8088 volume and every disk in it mounted there. DEST and PROGRAMS below
@@ -281,9 +282,10 @@ ITEMS = [
      [("small360.img", "360KB", ""), ("small720.img", "720KB", "")]),
 
     ("x720", "Second software disk, 720KB", True,
-     "PiXEL, MIDIRack with the eight songs the first disk has no room for, "
-     "RealDMG with its demo cartridge, DrMarco and the demo video. MIDIRack "
-     "is on both software disks, so its songs open from either.",
+     "PiXEL with five of its sample pictures in PICTURES, MIDIRack with "
+     "the eight songs the first disk has no room for, RealDMG with its demo "
+     "cartridge, DrMarco and the demo video. MIDIRack is on both software "
+     "disks, so its songs open from either.",
      [("more720.img", "720KB", "")]),
 
     ("emu", "Emulator system disk", True,
@@ -306,8 +308,8 @@ ITEMS = [
      "Both word processors, the story reader, the CP/M emulator, the "
      "Commodore 64, the Apple II Plus, the RealDMG Game Boy, the Weave "
      "programs and their editor, "
-     "the 1942 air-combat game, the REDLINE benchmark, and everything on the "
-     "software disk.",
+     "the 1942 air-combat game, the REDLINE benchmark, five of PiXEL's "
+     "sample pictures, and everything on the software disk.",
      [("@apps-all.list", "1.44MB", "")]),
     ("all", "Everything set, 1.2MB", False,
      "The same set on 1.2MB disks.",
@@ -371,6 +373,16 @@ ITEMS = [
      "everything set and the live media carry them.",
      [("midirack.img", "1.44MB", ""), ("midirack120.img", "1.2MB", ""),
       ("midirack720.img", "720KB", ""), ("midirack360.img", "360KB", "")]),
+    ("progs", "PiXEL", False,
+     "An image viewer and editor. It opens JPEG, PNG, GIF, BMP, PCX, TIFF "
+     "and six more formats, shows them dithered to the desktop's colours "
+     "or full screen in the best mode the card has, and can crop, rotate, "
+     "adjust and save them. PiXEL itself is on the 1.44MB and 1.2MB "
+     "software disks, the 360KB office disk and the second 720KB disk; "
+     "this disk is it with the whole gallery of ten sample pictures in "
+     "PICTURES, which the software disks have no room for. The second "
+     "720KB disk and the everything sets carry five of them.",
+     [("pixel.img", "1.44MB", "")]),
     ("progs", "XTMP3", False,
      "An MP3 player that plays every song at the best quality the computer "
      "and its sound card can keep up with, and says which quality that is. "
@@ -434,6 +446,7 @@ PROGRAMS = {
     "PaccMan": ("PACCMAN", "PACCM"),
     "1942": ("1942", "1942"),
     "MIDIRack": ("MIDIRACK", "MIDI"),
+    "PiXEL": ("PIXEL", "PIXEL"),
     "XTMP3": ("XTMP3", "XTMP3"),
     "Weave": ("WEAVE", "WEAVE"),
 }

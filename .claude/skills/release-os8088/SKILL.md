@@ -287,6 +287,10 @@ make weavedisk                        # weave*.img -- the Weave family's disk,
 make runcpm-src && make runcpmdisk    # runcpm*.img
 make scribedisk paccmandisk           # scribe*.img, paccman*.img
 make 1942disk midirackdisk            # 1942*.img, midirack*.img
+make pixeldisk                        # pixel.img -- PiXEL with its whole
+                                      # gallery, which no software disk has
+                                      # room for; the 1.44MB disk alone is
+                                      # released, as PROGRAMS/PIXEL/PIXEL144.IMG
 make xtmp3disk                        # xtmp3*.img -- XTMP3 and its three songs
 make apple2rom && make apple2disk     # apple2*.img -- apple2rom fetches the
                                       # ROM once; `make clean` spares it
@@ -319,13 +323,16 @@ refuse every other, so `mkzip.py` refuses one older than `build/kernel.sys`
 rather than releasing a companion from another tree -- and every commit moves
 the kernel, its build number being the commit count (SPEC.md 14.2).
 
-**Four one-program disks are built and NOT released**: `realdmgdisk`,
-`pixeldisk`, `redlinedisk` and `loomdisk`. Their programs ride the main disks
--- RealDMG on the 360KB emulators disk and the second 720KB software disk,
-PiXEL on the latter, REDLINE on the system disks and the utilities disk --
-and LOOM is on the Weave disk; Word's 360KB disk is left out the same way.
-Build them only when step 4d's Docs disk guide still lists them, since it
-refuses an inventory with a listed image missing.
+**Three one-program disks are built and NOT released**: `realdmgdisk`,
+`redlinedisk` and `loomdisk`, and of `pixeldisk` only the 1.44MB disk is.
+Their programs ride the main disks -- RealDMG on the 360KB emulators disk and
+the second 720KB software disk, REDLINE on the system disks and the
+utilities disk, PiXEL on the software disks with its gallery's five-picture
+selection on the second 720KB disk and the everything sets (the whole
+gallery on the live media and the VGA and CGA video disks) -- and LOOM is on
+the Weave disk; Word's 360KB disk is left out the same way. Build them only
+when step 4d's Docs disk guide still lists them, since it refuses an
+inventory with a listed image missing.
 
 Offer these, do not assume them. If `tools/setup-cc.sh` cannot run -- no
 network, no host toolchain -- **release the eighteen and say which on-demand targets
