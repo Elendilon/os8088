@@ -101,6 +101,9 @@ RATE = 22050
 MEGA = bool(os.environ.get("OS88_MEGA"))
 PKGDEF = ("PKG_MEGA",) if MEGA else ()
 KB = "build/megak/" if MEGA else "build/"
+# ...and on 86Box (OS88_MEGA_EMU=86box) the machine HAS the Hercules, so the
+# clip is MartyPC's own layout again
+BOX86 = os.environ.get("OS88_MEGA_EMU", "").lower() == "86box"
 TEMPLATE = "build/martypc/run/media/hdds/default_xtide.vhd"
 HZ = 4772727.0
 
@@ -140,7 +143,7 @@ def clip(tmp, nf, afmt, loop=None, resident=None, live=False, ahead=0,
     wav = os.path.join(tmp, "a.wav")
     vid._write_wav(wav, RATE, audio)
     out = os.path.join(tmp, "CLIP.V88")
-    vid.encode_frames(paths, out, FPS, wav, "lin80" if live or MEGA
+    vid.encode_frames(paths, out, FPS, wav, "lin80" if live or (MEGA and not BOX86)
                       else "herc",
                       "vidsound clip", audio_fmt=afmt, loop=loop,
                       repeat=loop is not None, resident=resident,

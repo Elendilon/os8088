@@ -1347,7 +1347,31 @@ mega_k09:
     mov al, 0x7F
     jmp .store
 .ctrl3:
-    xor al, al
+    ; ...and the rest of the ROM's control codes (KERN-MEGA-PLAN 14.110):
+    ; ctrl + [ \ ] are 1Bh 1Ch 1Dh - ^] is Telnet's way into full screen and
+    ; out (apps/telnet/tetxt.inc) - ctrl + 6 and - are 1Eh and 1Fh, and Esc
+    ; and SPACE keep their ASCII. Every other ctrl key is ASCII 0
+    cmp al, '['
+    jb .ctrl4
+    cmp al, ']'
+    ja .ctrl4
+    sub al, 0x40
+    jmp .store
+.ctrl4:
+    cmp al, 0x1B
+    je .store
+    cmp al, ' '
+    je .store
+    mov ah, 0x1E
+    cmp al, '6'
+    je .ctrl5
+    mov ah, 0x1F
+    cmp al, '-'
+    je .ctrl5
+    mov ah, 0                       ; (AH is the scan code again below)
+.ctrl5:
+    mov al, ah
+    mov ah, bl
     jmp .store
 .shf:
     mov dh, dl

@@ -217,8 +217,9 @@ def session(arm, cap, brk):
     if arm == "sbmem":                  # ...and the filler beside it: the
         apps = os.path.join(os.path.dirname(cap), "apps.img")   # mrwt shape
         subprocess.run(["python3", "tools/os88disk.py", "-o", apps,
-                        "--size", "720", "APPS:build/midirack.o88",
-                        "APPS:build/filler.o88",
+                        "--size", "720", "APPS:build/%s/midirack.o88"
+                        % ("megak/apps" if os.environ.get("OS88_MEGA")
+                           else "."), "APPS:build/filler.o88",
                         "MEDIA/MIDI:" + SONG, "MEDIA/MIDI:" + INTRO,
                         "--folder", "SYSTEM/APPDATA"], check=True,
                        stdout=subprocess.DEVNULL)
@@ -342,6 +343,15 @@ def heap(m):
     return rows, (top - base - held) // 64
 
 
+def para(m, seg):
+    """The PARAGRAPH a claim's mem_tab record names, for the segment the
+    package holds: SEG itself, or on kern_mega - where a package holds an
+    LDT selector and mem_tab the block's paragraph (tests/megaport.txt) -
+    its descriptor's base over 16. Read while the claim is held: a freed
+    selector has no base"""
+    return m.lin(seg) >> 4 if seg and hasattr(m, "lin") else seg
+
+
 def arm_sbmem(ui, p):
     """THE TWO RINGS LIVE ONLY WHILE THEY PLAY, AND A REFUSAL IS A MESSAGE
     (SPEC.md 105.8.4, 105.8.3; KERN-MEGA-PLAN 14.55, 14.59): the card's
@@ -354,13 +364,14 @@ def arm_sbmem(ui, p):
     M.until(m, lambda _: p.b("mrb_open") == 1, "the card's stream", poll=.1,
             limit=10)                   # ([mr_out] is set before the open)
     seg = p.w("mrb_seg")
+    sp = para(m, seg)
     if p.b("mrb_open") != 1 or p.b("mrb_grant") or not seg:
         fail("sbmem: want the EXTERNAL ring open (open %d grant %d seg %04X)"
              % (p.b("mrb_open"), p.b("mrb_grant"), seg))
-    if not any(b == seg for b, _, _ in heap(m)[0]):
+    if not any(b == sp for b, _, _ in heap(m)[0]):
         fail("sbmem: the ring at %04X is not in the claim map" % seg)
     stop(ui, p)
-    if p.w("mrb_seg") or any(b == seg for b, _, _ in heap(m)[0]):
+    if p.w("mrb_seg") or any(b == sp for b, _, _ in heap(m)[0]):
         fail("sbmem: the ring is still held after Stop ([mrb_seg] %04X)"
              % p.w("mrb_seg"))
     print("PASS sbmem: the ring at %04X held while it played, freed at Stop"
@@ -368,17 +379,17 @@ def arm_sbmem(ui, p):
     # THE SPEAKER'S RING: claimed in its bracket, kept through a pause (the
     # queue is the resume), freed at the Stop after it and at Esc inside it
     spk_play(ui, p)
-    ks = p.w("mrk_seg")
+    ks = para(m, p.w("mrk_seg"))
     m.type_text(" ")                    # to the desktop, paused
     M.until(m, lambda _: p.b("mr_state") == MR_ST_PAUSE, "the pause",
             poll=.1, limit=30)
-    if p.w("mrk_seg") != ks:
+    if para(m, p.w("mrk_seg")) != ks:
         fail("sbmem: a PAUSED speaker play gave its ring up - the resume "
              "needs it")
     stop(ui, p)
     spk_gone(m, p, ks, "Stop after a pause")
     spk_play(ui, p)
-    ks = p.w("mrk_seg")
+    ks = para(m, p.w("mrk_seg"))
     m.key("Escape")                     # Esc: a stop INSIDE the bracket
     M.until(m, lambda _: p.b("mr_state") == MR_ST_STOP, "the bracket's stop",
             poll=.1, limit=30)
@@ -399,7 +410,7 @@ def arm_sbmem(ui, p):
     # leg is about is a FRAGMENTED heap, and the song was its wall while it
     # was pinned by not declaring; it is that wall again here, by MC_RLOC = 0
     # in its own record, and declared again after the leg
-    song = rloc_set(m, p.w("mr_fseg"), 0)
+    song = rloc_set(m, para(m, p.w("mr_fseg")), 0)
     # THE HEAP TAKEN: each key is one more fill and an ask (tests/filler),
     # until nothing of the ring's size could be funded at all
     fl = ui.path("FILLER.O88")         # the acting Disk window, B:/APPS
@@ -435,7 +446,7 @@ def arm_sbmem(ui, p):
           "and the GRANT ring (%d bytes) plays" % (reach, p.w("mrb_grl")),
           flush=True)
     stop(ui, p)
-    rloc_set(m, p.w("mr_fseg"), song)   # the song movable again
+    rloc_set(m, para(m, p.w("mr_fseg")), song)   # the song movable again
     # ...AND THE REST TAKEN ('T'): neither ring, so both Plays refuse in words
     ui.raise_window(fl)
     m.key("KeyT")
@@ -460,7 +471,7 @@ def arm_sbmem(ui, p):
           "(ring at %04X) and it plays" % p.w("mrb_seg"), flush=True)
     stop(ui, p)
     spk_play(ui, p)
-    ks = p.w("mrk_seg")
+    ks = para(m, p.w("mrk_seg"))
     m.key("Escape")
     M.until(m, lambda _: p.b("mr_state") == MR_ST_STOP, "the bracket's stop",
             poll=.1, limit=30)
@@ -522,7 +533,7 @@ def spk_play(ui, p):
     M.until(m, lambda _: p.b("mr_out") == MRO_SPK and cons() > 0,
             "the speaker's first pulses", poll=.05, limit=20)
     ks = p.w("mrk_seg")
-    if not any(b == ks for b, _, _ in heap(m)[0]):
+    if not any(b == para(m, ks) for b, _, _ in heap(m)[0]):
         fail("sbmem: the speaker's ring at %04X is not in the claim map" % ks)
     print("PASS sbmem: the speaker plays out of its ring at %04X" % ks,
           flush=True)

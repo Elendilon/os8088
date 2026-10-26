@@ -858,10 +858,13 @@ def check_fullscreen(m, pseg, sy, shot, fails, press_connect, connected, quiet,
     # package (tetxt.inc), so this reads the machine's own.
     tseg = u16(m.readseg(pseg, sy["con_tseg"], 2))
     say("fsx seg   %04X" % tseg)
-    if tseg not in (0xB800, 0xB000):
+    # ...and under kern_mega it is a SELECTOR whose base is the framebuffer
+    # (KERN-MEGA-PLAN 14.66), so the question is asked of the base
+    vbase = m.lin(tseg, 0) if os88qemu.MEGA else tseg << 4
+    if vbase not in (0xB8000, 0xB0000):
         fails.append("[con_tseg] is %04X, which is neither text framebuffer - "
                      "the memcmp below would compare the wrong memory" % tseg)
-    vram = m.read(tseg << 4, CON_SCRSZ)
+    vram = m.read(vbase, CON_SCRSZ)
     if shot:
         subprocess.run([sys.executable, os.path.join(ROOT, "tools", "shot.py"),
                         SOCK, shot], check=False, capture_output=True, cwd=ROOT)

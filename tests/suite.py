@@ -18417,10 +18417,13 @@ def _mega_ports(base):
     one (with the value after it when written `-arg=`, i.e. `-machine=`
     drops `--machine X`). An upper-case `NAME=VAL` is put in the row's
     environment beside OS88_MEGA=1 (`OS88_BOCHS_MOUSE=serial`,
-    `OS88_BOCHS_NE2K=1` - tools/os88bochs.py's knobs). `name@alias`
-    registers the same base row a SECOND time as `mega-<name>-<alias>`,
-    for a row that is a different question on a different machine (one
-    line per machine size: `tmselfsu` at 1MB and `tmselfsu@16m` at 16MB)."""
+    `OS88_BOCHS_NE2K=1` - tools/os88bochs.py's knobs). `OS88_MEGA_EMU=86box`
+    among them puts the port on 86Box instead of Bochs (tools/os88boxmarty.py)
+    and makes the row need "86box". A NAME written `ROW@ALIAS` or
+    `ROW/VARIANT` registers the same base row a SECOND time as
+    mega-ROW-ALIAS: one line per machine (`tmselfsu` at 1MB and
+    `tmselfsu@16m` at 16MB; `deskzoom/86box`, its Hercules leg on 86Box
+    beside the Bochs port's VGA one - docs/86BOX.md)."""
     by = {r.name: r for r in base}
     out = []
     try:
@@ -18433,7 +18436,9 @@ def _mega_ports(base):
             continue
         why = ln.split("#", 1)[1].strip() if "#" in ln else ""
         name, opts = body[0], body[1:]
-        name, _, alias = name.partition("@")
+        # `ROW@ALIAS` / `ROW/VARIANT`: a SECOND port of one row, registered
+        # as mega-ROW-ALIAS
+        name, _, alias = name.replace("/", "@").partition("@")
         r = by.get(name)
         if r is None:
             raise SystemExit("tests/megaport.txt: no soak row %r" % name)
@@ -18457,8 +18462,13 @@ def _mega_ports(base):
             elif o.startswith("-"):
                 if o[1:] in cmd:
                     cmd.remove(o[1:])
+        # THE EMULATOR the port runs on: Bochs, or 86Box with
+        # `OS88_MEGA_EMU=86box` (tools/os88boxmarty.py) - which needs no X
+        # display, so the runner gives it none
+        emu = "86box" if any(e.lower() == "os88_mega_emu=86box"
+                             for e in env) else "bochs"
         needs = tuple(n for n in r.needs if n not in ("marty", "qemu",
-                                                      "qemu9")) + ("bochs",)
+                                                      "qemu9")) + (emu,)
         out.append(Row("mega-" + name + ("-" + alias if alias else ""),
                        "soak",
                        ["env", "OS88_MEGA=1"] + env + cmd,
@@ -18470,6 +18480,9 @@ def _mega_ports(base):
                        # port is a HOST-side row and fans out over -j, so
                        # `--marty-jobs 1` ran three Bochs machines at once
                        serial=True,
+                       # ...and its HOST PORTS: a port binds the same
+                       # fixture server the base row's does
+                       locks=r.locks,
                        wants=tuple(dict.fromkeys(tuple(r.wants) +
                                                  MEGA_WANTS))))
     return out

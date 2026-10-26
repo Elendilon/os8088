@@ -5723,11 +5723,21 @@ kmain:
 %endif
 
 %ifdef KERN_MEGA
+    mov al, 0                   ; THE SOUND TICK OFF ACROSS THE SWITCH
+    xchg al, [snd_live]         ; (KERN-MEGA-PLAN 14.111): mega_pmtail `sti`s
+    push ax                     ; in protected mode while every claim holder
+                                ; - drv_fseg among them - still names its
+                                ; block by PARAGRAPH, and snd_tick far-calls a
+                                ; sound driver's DSV_TICK through that word
+                                ; from IRQ0: `mov ds, 9D40h` is a #GP there,
+                                ; taken with IF = 0, and the machine stops
     call mega_enter             ; 286 protected mode from here on, or - on a
                                 ; machine M1 cannot drive - real mode exactly
                                 ; as it is (docs/plans/KERN-MEGA-PLAN.md 10)
     call COLD_SEG:mem_xlatf     ; ...every claim named by its SELECTOR from
                                 ; here on (KERN-MEGA-MEMORY-PLAN MC7.4)...
+    pop ax
+    mov [snd_live], al          ; ...after which the tick may run again
     call COLD_SEG:drv_hiboot_f  ; ...and the boot's drivers above 1MB, now
                                 ; that there is a pool (item 82)...
     call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)
