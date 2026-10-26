@@ -49,4 +49,10 @@
 #             kern_big carried and kern_mega did not (with NOVIDEXT=1 on both
 #             kernels the overhead measures 4,259 too, so the hook costs the
 #             two the same). The protected-mode half, mega_vxpm, is `.mega`
-4259
+# 2026-10-26: +92, to 4,351, KERN-MEGA-PLAN 14.117 - the PicoMEM mouse's
+#             capture: mega_cap33 and its state are the int 33h handler the
+#             card's ROM calls INSIDE an IRQ reflection, i.e. in REAL mode
+#             after the switch, so they have to be low (the protected-mode
+#             replay, mega_m33go, is `.mega`). Measured here as the merged
+#             tree's overhead, 14.115's 4,259 plus exactly these 92
+4351
