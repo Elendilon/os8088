@@ -82,8 +82,14 @@ def main():
     ap.add_argument("--machine", default="os8088_xt_vga")
     a = ap.parse_args()
     os.chdir(ROOT)
-    syms, _ = pkg_syms("apps/video/video.asm", ("apps/",))
-    pkg = os88build.at("build/video.o88")
+    # kern_mega (tests/megaport.txt): the shipped player refuses under
+    # protected mode, so the row plays the ARM - build/megak/apps/, assembled
+    # -DPKG_MEGA - and reads the arm's symbols
+    mega = bool(os.environ.get("OS88_MEGA"))
+    syms, _ = pkg_syms("apps/video/video.asm", ("apps/",),
+                       ("PKG_MEGA",) if mega else ())
+    pkg = os88build.at("build/megak/apps/video.o88" if mega
+                       else "build/video.o88")
     bad = []
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "build")) as tmp:
         v88 = clip(tmp)
@@ -99,7 +105,9 @@ def main():
             w = ui.path("B:/COLOR16.V88")
             rec = m.read(ui._S("wm_wins") + w.i * geom.WIN_SIZE,
                          geom.WIN_SIZE)
-            base = u16(rec, geom.W_SEG) << 4
+            # seg << 4, or on kern_mega the base in its LDT descriptor
+            lin = getattr(m, "lin", lambda s_, o_=0: (s_ << 4) + o_)
+            base = lin(u16(rec, geom.W_SEG))
 
             def rw(n):
                 return u16(m.read(base + syms[n], 2))
@@ -183,7 +191,7 @@ def main():
             r.apply(surf, k[1], key=True)
             ps = rw("vp_ps")
             want, obw, ow, oh = vid.vga4_pack(g.canvas(surf), W, H, ps)
-            got = bytes(m.read(rw("vp_pseg") << 4, len(want)))
+            got = bytes(m.read(lin(rw("vp_pseg")), len(want)))
             d = sum(1 for x, y in zip(got, want) if x != y)
             print("   the poster: scale %d, %d x %d, %d of %d bytes differ "
                   "from vga4_pack" % (ps, ow, oh, d, len(want)))
@@ -191,6 +199,14 @@ def main():
                 bad.append("the poster is not the packed key (scale %d, %d "
                            "bytes differ)" % (ps, d))
             # --- 3: in the window
+            if mega:
+                # kern_mega has XMS, so the window timer holds the clip
+                # there whole and Play decodes it IN PLACE through
+                # selectors - whose ring is the least one, msl + 1, by
+                # design (98.3.18.11). The ring question below is about a
+                # STREAMED play, so the copying arm is asked for, as
+                # vidxip does for its A/B (megavidbig covers in place)
+                m.write(base + syms["vp_noinp"], b"\1")
             ww("vp_stopat", STOPS[0])
             m.write(base + syms["vp_played"], b"\0")
             m.type_text("p")

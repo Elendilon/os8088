@@ -552,7 +552,10 @@ def listing(m, S):
         n = _u16(m.read(base + FS_N, 2))
         vseg = _u16(m.read(base + FS_VSEG, 2))
         if n and vseg:
-            return _decode(m.read(vseg << 4, n * DSK_DE_STRIDE), n)
+            # vseg << 4 - or on kern_mega (Bochs) the base in its LDT
+            # descriptor: the claim's segment is a selector there
+            return _decode(m.read(m.lin(vseg) if hasattr(m, "lin")
+                                  else vseg << 4, n * DSK_DE_STRIDE), n)
     return snapshot(m, S)
 
 
@@ -577,7 +580,8 @@ def snapshot(m, S):
         return []
     seg = _u16(m.read(S("dsk_dseg"), 2))
     off = _u16(m.read(S("dsk_doff"), 2))
-    return _decode(m.read((seg << 4) + off, n * DSK_DE_STRIDE), n)
+    return _decode(m.read(m.lin(seg, off) if hasattr(m, "lin")
+                          else (seg << 4) + off, n * DSK_DE_STRIDE), n)
 
 
 def row_of(m, S, name):

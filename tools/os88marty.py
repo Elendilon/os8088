@@ -3612,19 +3612,25 @@ class BpTrace:
         # server too old to log, the same targets are ordinary stops and the
         # trace is what it always was, only slower.
         logset = set()
+        # A FLAT address is 20 bits on an 8088 - and 32 on kern_mega under
+        # Bochs (tools/os88bochsmarty.py), where a package region is above
+        # 1MB and CS is a selector, so a stop is named by the linear address
+        # the debugger reports (`flat_ip`) rather than by CS << 4 + IP
+        self._amask = amask = (0xFFFFFFFF if getattr(m, "bochs", False)
+                               else 0xFFFFF)
         if log and log is not True:
             for t in log:
-                logset.add((m.sym(t) if isinstance(t, str) else int(t)) & 0xFFFFF)
+                logset.add((m.sym(t) if isinstance(t, str) else int(t)) & amask)
         self._logaddrs = set()
         for t in targets:
             if isinstance(t, dict):             # a raw breakpoint dict
                 self._bps.append(t)
                 continue
             addr = m.sym(t) if isinstance(t, str) else int(t)
-            self._by_addr.setdefault(addr & 0xFFFFF, t if isinstance(t, str)
+            self._by_addr.setdefault(addr & amask, t if isinstance(t, str)
                                      else "%05X" % addr)
-            if log is True or (addr & 0xFFFFF) in logset:
-                self._logaddrs.add(addr & 0xFFFFF)
+            if log is True or (addr & amask) in logset:
+                self._logaddrs.add(addr & amask)
                 self._bps.append({"type": "exec", "addr": addr, "log": True})
             else:
                 self._bps.append({"type": "exec", "addr": addr})
@@ -3716,7 +3722,10 @@ class BpTrace:
         self._record(st)
 
     def _record(self, st):
-        flat = ((st.get("cs", 0) << 4) + st.get("ip", 0)) & 0xFFFFF
+        if self._amask != 0xFFFFF and "flat_ip" in st:
+            flat = st["flat_ip"]                # kern_mega: see __init__
+        else:
+            flat = ((st.get("cs", 0) << 4) + st.get("ip", 0)) & 0xFFFFF
         rec = {"name": self._by_addr.get(flat, "?%05X" % flat),
                "addr": flat, "cycles": int(st.get("cycles", 0)),
                "stops": st.get("stops"), "instructions": st.get("instructions"),

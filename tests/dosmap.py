@@ -99,7 +99,11 @@ def _map(src, defines, incs):
 # this was caught) reports `DOS is on volume 16`. A caller with a knob of
 # its own passes it ON TOP: `package("DOSNET_CARD")` is the shipped DOS plus
 # that, which is what `make DOSNETCARD=1` builds.
-SHIPPED = ("DOSKPART", "DOS_EXTCORE")
+# ...and on kern_mega (OS88_MEGA, tests/megaport.txt) mega.img carries the DOS
+# assembled -DDOS_MEGA as well (KERN-MEGA-DOS-PLAN 12.1 item 4), which moves
+# every offset again
+SHIPPED = ("DOSKPART", "DOS_EXTCORE") + (
+    ("DOS_MEGA",) if os.environ.get("OS88_MEGA") else ())
 
 
 def package(*defines, shipped=True):
@@ -139,7 +143,9 @@ def rect(m, pseg, dm, name):
     rows that clicked them at `content + DOS_BTNY + 7` went on clicking an
     empty part of the window.
     """
-    at = (pseg << 4) + dm[name]
+    # pseg << 4, or on kern_mega the base in its LDT descriptor (megaport.txt)
+    at = (m.lin(pseg, dm[name]) if hasattr(m, "lin")
+          else (pseg << 4) + dm[name])
     return [int.from_bytes(m.read(at + i * 2, 2), "little") for i in range(4)]
 
 

@@ -19,3 +19,17 @@ uilayer secs=120   # every os88ui verb confirmed off guest state, and confirm-vs
 # APPLICATIONS
 fptest secs=40   # the float library's 88 cases on the soft path AND the 386's FPU ("8087 0"); red on a wrong expectation (soft 1, 8087 1)
 imgtest secs=30   # every os88img decoder case's verdict out of its record; --break goes red on BDOWN.BMP
+minexflag secs=60   # a wrong flag is not pixel-identical to a mine, on the VGA glass (1bpp vram -> fbuf); red with the X drawn CBLACK
+cychs secs=80   # Cyclone's high-score table: a full write, an in-place write, a re-launch reads both back; red with od_write taken out
+tankaim secs=70   # TANK's aim assist inside the box and nowhere else, the turn untouched, the reticle honest (VGA: one step a frame)
+skiesui secs=110   # Clear Skies' title-page drop-downs, the pick changing the picture, the two forced refusals (region re-homed above 1MB)
+skiesworlds secs=80   # every Clear Skies location loads its world byte-exact and flies (re-homed region, overlay read through its selector)
+fontview secs=60   # F88 launches FONT VIEWER on the face, every face listed, typing, arrows, clicks; mega.img's own SYSTEM/FONTS is the first rung; red with a face deleted
+npscroll secs=70   # Note Pad scrolled while its height is still counted: no frozen UI, the count carried, the scroll bar untouched
+tgplay secs=90 +--card +vga   # TameGram's 600 seeded ticks play the expected game (THREAT 191, PURGES 18, grid); VGA, so no 1bpp matrix compare; red with the column pass skipped
+linecar secs=70   # DOS's path field: three histories to LEN 2 CAR 2 'AB' are one picture (dosmap takes -DDOS_MEGA, mega.img's DOS)
+tpdraw secs=140   # TeXPad's incremental source redraw against a forced wm_paint_all, 0 differing pixels per leg
+wdcombo secs=130   # Word's three combos are os88ui_drop records: drop, bank, drag, pick, restore exactly, Esc
+ddcorner secs=420   # no Dot Delirium wall pixel in an actor's colour at any dd_blit, windowed and full screen (Bochs's glass, VGA)
+vidvga4 secs=90   # the Video Player ARM (build/megak/apps) plays 16 colours in mode 12h in the window and full screen; the copying arm (vp_noinp) so the streamed ring is the one sized
+vidmodex secs=45   # the ARM plays Mode X sub-records under a map mask; red with vp_dac skipped

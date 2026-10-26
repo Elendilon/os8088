@@ -67,22 +67,22 @@ def census(tag, ui, p, say, samples, nopok=False):
     tw, th = p.w("dd_tw"), p.w("dd_th")
     bdx, bdy = p.w("dd_bdx"), p.w("dd_bdy")
     sb, bdseg, mh, mw = p.w("dd_sb"), p.w("dd_bdseg"), p.w("dd_mh"), p.w("dd_mw")
-    pic = bytes(m.read(bdseg << 4, sb * mh))
+    pic = bytes(m.read(D.lin(m, bdseg), sb * mh))
     ink = [(x, y) for y in range(mh) for x in range(mw)
            if (pic[y * sb + (x >> 3)] >> (7 - (x & 7))) & 1]
     sprsz = 2 * 16
-    spr_at = (p.seg << 4) + p.names["dd_spr"]
+    spr_at = p.base + p.names["dd_spr"]
     if nopok:
         # mov byte [dd_pok], 1 is C6 06 <lo> <hi> 01: make both store 0
         at = p.names["dd_pok"]
         pat = bytes([0xC6, 0x06, at & 0xFF, at >> 8, 0x01])
-        img = bytes(m.read(p.seg << 4, at))
+        img = bytes(m.read(p.base, at))
         hits = [i for i in range(len(img) - 4) if img[i:i + 5] == pat]
         if len(hits) not in (0, 3):     # 0: the windowed pass patched them
             return ["%s: --nopok found %d dd_pok stores, want 3" % (tag,
                                                                   len(hits))]
         for i in hits:
-            m.write((p.seg << 4) + i + 4, b"\x00")
+            m.write(p.base + i + 4, b"\x00")
     bps = [{"type": "execseg", "seg": p.seg, "off": D.codeoff("dd_blit")}]
     m.breakpoints(bps)
     wrong, missing, took, looked = {}, {}, 0, 0
@@ -103,7 +103,7 @@ def census(tag, ui, p, say, samples, nopok=False):
             break
         if p.b("dd_state") != 2:            # only a PLAYING frame's writes
             continue
-        m.write((p.seg << 4) + p.names["dd_lives"], bytes([99]))
+        m.write(p.base + p.names["dd_lives"], bytes([99]))
         cover = set()
         now = {}
         cyc = m.status()["cycles"]
