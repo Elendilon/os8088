@@ -184,3 +184,5 @@ httpmount secs=200   # HTTPFS.DRV mounts the host's tree; BIG.BIN with and witho
 httpinstall secs=120   # INSTALL started off the HTTP drive onto the IDE disk (the shim's C:); HTTPFS's CPU flags (KERN-MEGA-PLAN 14.87)
 netinst secs=360   # INSTALL over the network onto C:, and the startup link across two boots; OSAPI_DRV_CLASSK (KERN-MEGA-PLAN 14.88)
 netinstbad secs=200   # INSTALL's release check refuses six non-release answers
+rdxms secs=240   # the RAM disk's store above 1MB: kern_mega's own pool (mx_tab, heapmap.pool) in place of XMEM.DRV's table
+netcoexist secs=90 +--arm +pinned   # the card at 2A0h pinned on the Ports view, SYSTEM.CFG read on the host, found after a reset; the MPU arms need QEMU's isa-debugcon latch and its NIC trace, which Bochs has not got

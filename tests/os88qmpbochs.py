@@ -210,19 +210,36 @@ def mega_twin(img, bld=None):
     flat = " ".join(str(n) for n in names)
     if "KERNEL.SYS" not in flat and "KERNEL  SYS" not in flat:
         return img
+    try:                        # ALREADY kern_mega's: a scratch A: a machine
+        if os88fat.Fat12(ap).read("KERNEL.SYS") == os88fat.Fat12(  # of this
+                os.path.join(bld, "mega.img")).read("KERNEL.SYS"):  # layer
+            return img          # left behind (close() copies it home)
+    except Exception:                                       # noqa: BLE001
+        pass
     base = os.path.join(bld, _BASE.get(os.path.getsize(ap), "os8088.img"))
     tmp = tempfile.mkdtemp(prefix="megatwin-")
     atexit.register(shutil.rmtree, tmp, True)
     mine, theirs = _tree(ap, os.path.join(tmp, "f")), \
         _tree(base, os.path.join(tmp, "b"))
+    megas = _tree(os.path.join(bld, "mega.img"), os.path.join(tmp, "m"))
     out = os.path.join(tmp, "twin-" + os.path.basename(ap))
     shutil.copyfile(os.path.join(bld, "mega.img"), out)
     env = dict(os.environ, MTOOLS_SKIP_CHECK="1")
+
+    def body(f):
+        return open(f, "rb").read() if f else None
     for rel, p in sorted(mine.items()):
-        if rel == "KERNEL.SYS":
-            continue
         q = theirs.get(rel)
-        if q is not None and open(q, "rb").read() == open(p, "rb").read():
+        if q is not None and body(q) == body(p):
+            continue            # the shipped disk's own: mega.img has its own
+        # ...AND NEVER A FILE THE KERNEL BUILDS: one the shipped disk and
+        # mega.img both carry, different (KERNEL.SYS, the on-demand modules,
+        # BOOTHD.SYS), is kern_big's on the fixture - and a fixture built at
+        # another build number differs from the shipped disk in exactly
+        # those, so copying them put kern_big's CTRL.DRV on kern_mega's disk
+        # (mod_need refused it: no Control Panel)
+        if rel == "KERNEL.SYS" or (q is not None and rel in megas
+                                   and body(q) != body(megas[rel])):
             continue
         parts = rel.split(os.sep)
         for i in range(1, len(parts)):
@@ -241,7 +258,7 @@ class Server(object):
     """A kern_mega Bochs, and a QMP socket at `sock` that drives it."""
 
     def __init__(self, sock, pidfile, a, b, hd=None, ne2k=True, cfg=None,
-                 label=None, megs=None, sb=False):
+                 label=None, megs=None, sb=False, ne2k_io=None):
         import os88bochsmarty
         import os88mouse
         self.closed = False
@@ -255,15 +272,15 @@ class Server(object):
             cfg = "keep"                # the fixture's SYSTEM.CFG stands
         self.m = os88bochsmarty.launch(self.a_img, b, machine=machine,
                                        boot=True, cfg=cfg, label=label,
-                                       megs=megs, cimg=hd)
+                                       megs=megs, cimg=hd, ne2k_io=ne2k_io)
         self.mo = os88mouse.Mouse(marty=self.m)
-        self.box = self.m.box
         # THE ROW'S OWN SCRATCH IS BOOTED IN PLACE on QEMU, and a row reads
         # it WHILE the machine runs (brdownload's os88flush.Volume of the B:
         # it saved to). Bochs boots a copy in its run directory, so the row's
         # path is made a link to the live file until close() puts the bytes
         # back as a plain file
-        for live, dst in (("b.img", b), ("c.img", hd)):
+        for live, dst in (("b.img", b), ("c.img", hd),
+                          ("a.img", a if self.twinned else None)):
             src = os.path.join(self.box.out, live)
             if dst and _scratch(dst) and os.path.exists(src):
                 os.remove(dst)
@@ -272,9 +289,7 @@ class Server(object):
         self._btn = 0
         self._wh = None
         self._lk = threading.RLock()
-        if pidfile:
-            with open(pidfile, "w") as fh:
-                fh.write("%d\n" % self.m.pid)
+        self._pid()
         try:
             os.unlink(sock)
         except OSError:
@@ -285,6 +300,15 @@ class Server(object):
         threading.Thread(target=self._accept, daemon=True).start()
         _LIVE.append(self)
         atexit.register(self.close)
+
+    @property
+    def box(self):
+        return self.m.box               # a NEW Box after a reset
+
+    def _pid(self):
+        if self.pidfile:
+            with open(self.pidfile, "w") as fh:
+                fh.write("%d\n" % self.m.pid)
 
     # ---- the socket -------------------------------------------------------
     def _accept(self):
@@ -401,8 +425,9 @@ class Server(object):
             self.m.go()
             return ""
         if op == "system_reset":
-            self.m.cmd(cmd="reset")
+            self.m.cmd(cmd="reset")     # a power cycle: a new Bochs
             self._wh = None
+            self._pid()
             return ""
         if op in ("quit", "q"):
             self.close()
@@ -543,6 +568,8 @@ class Server(object):
         for src, dst in ((os.path.join(out, "b.img"), self.b_row),
                          (os.path.join(out, "a.img"),
                           self.a_img if self.twinned else self.a_row),
+                         (os.path.join(out, "a.img"),
+                          self.a_row if self.twinned else None),
                          (os.path.join(out, "c.img"), self.hd_row)):
             if dst and os.path.exists(src) and _scratch(dst):
                 try:

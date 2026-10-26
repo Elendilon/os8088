@@ -463,7 +463,7 @@ class Box(object):
                  build=None, csys=False, put=(), cd=None, aimg=None,
                  display=None, megs=None, noc=False, vgahz=None,
                  flog=False, mouse=None, noserial=False, imps2=False,
-                 cgeom=None):
+                 cgeom=None, ne2k_io=None):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -566,8 +566,9 @@ class Box(object):
                     "sb16: enabled=1, midimode=0, wavemode=1, "
                     "dmatimer=%s\n" % (os.path.join(out, "sb.wav"), os.environ.get("OS88_BOCHS_DMATIMER", "600000")))
                 if sb else "") + (
-                "ne2k: ioaddr=0x300, irq=10, mac=52:54:00:12:34:56, "
-                "ethmod=slirp%s\n" % (", script=" + os.path.abspath(SLIRP)
+                "ne2k: ioaddr=0x%x, irq=10, mac=52:54:00:12:34:56, "
+                "ethmod=slirp%s\n" % (ne2k_io or 0x300,
+                                       ", script=" + os.path.abspath(SLIRP)
                                        if SLIRP else "") if ne2k else ""))
         for n in os.listdir(out):
             if n.endswith(".lock"):

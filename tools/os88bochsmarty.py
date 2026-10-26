@@ -1024,7 +1024,7 @@ def _first_c(box):
 
 def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
            sb=None, cfg=None, megs=None, noserial=False, wheel=False,
-           cimg=None, **_):
+           cimg=None, ne2k_io=None, **_):
     """os88marty.launch's shape, on Bochs and kern_mega (see the module
     note). `boot` True waits for the desktop (os88bochs.Box.up's state gate,
     then a settle of the glass); a number runs blind for that many seconds;
@@ -1050,7 +1050,8 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     if sb is None:
         sb = "_sb" in (machine or "")
     # AN NE2000 on Bochs's slirp (the host is 10.0.2.2, $OS88_BOCHS_SLIRP its
-    # host-forwards): a machine name with `_ne2k` in it, or $OS88_BOCHS_NE2K.
+    # host-forwards): a machine name with `_ne2k` in it, or $OS88_BOCHS_NE2K;
+    # at 300h, or `ne2k_io` (tests/netcoexist.py's card the sweep misses).
     # The row still has to want ETHER.DRV - its own SYSTEM.CFG, or `cfg`
     ne2k = "_ne2k" in (machine or "") or bool(os.environ.get(
         "OS88_BOCHS_NE2K"))
@@ -1107,13 +1108,13 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
                  btype=box_btype, cmode="keep" if cimg else "run",
                  build=bld, display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
                  ne2k=ne2k, noserial=noserial, imps2=wheel, put=put,
-                 cgeom=cgeom)
+                 cgeom=cgeom, ne2k_io=ne2k_io)
     m = BochsMarty(box, run_dir, label=label)
     m.imps2 = wheel or "type=imps2" in ob.BOCHSRC
     m._boxkw = dict(sb=sb, cfg=cfg, btype=box_btype, build=bld,
                     display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
                     ne2k=ne2k, noserial=noserial, imps2=wheel,
-                    cgeom=cgeom,
+                    cgeom=cgeom, ne2k_io=ne2k_io,
                     cmode="keep")    # a reset keeps the C: it had
     try:
         _first_c(box)
