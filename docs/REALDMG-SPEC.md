@@ -3528,7 +3528,33 @@ entries) rather than the 64KB one the translator writes, and loses nothing:
   find, a RAM PC, an image not loaded - costs a dozen instructions where the
   search is eleven rounds: before the filter Kirby's interpreted code spent
   45% of the Victory in `rdg_aotmiss`, after it 6% (and that is the listed
-  blocks found). The core built with
+  blocks found). It names the TABLE's blocks as well as the list's
+  (`rdg_aotbitset`, over both), because the precompiled core asks it
+  FIRST from an interpreted jump - see "What an interpreted PC costs
+  here" in 20.10.
+- **A search's answer is CACHED.** After the filter come 256 entries of
+  the list's 8-byte layout, `RDG_AOTCN` of them at `S_AOTFSEG:2000h`, the
+  slot the low byte of PC ^ PC >> 8 ^ key: the last answer for that slot,
+  a block or, with offset 0, none (a filter bit that was another PC's, or
+  an image not loaded). A hit is about fifteen instructions where the
+  search is eleven rounds and ~280; the next search there replaces it. A
+  frame's searches are few PCs over and over - Looney Tunes' 375 distinct
+  ones, 16 of them 82% and 64 of them 95%. The host's meta part and the
+  harness give the filter's segment the 2KB more (`gbaot.py`). x86
+  instructions a frame, the walk-ordered images on the harness's script:
+  Super Mario Land 2 -30%, Pokemon Red -24%, Metroid II -11%, Looney Tunes
+  (.gb) -10%, Kirby's Dream Land -9%, Looney Tunes (.gbc) -7%, Donkey Kong
+  Land -6%, Tetris -3%, the other four 0.03-1.8%; with the images ordered
+  by the owner's replays, Looney Tunes 23,441 -> 23,021 and Kirby 24,031
+  -> 23,549, the hot table having already caught most of it. 64 entries
+  took about half as much again off Super Mario Land 2 and left Kirby's
+  Dream Land 2 0.3% WORSE, because what it repeats is a filter bit that
+  names no listed block; caching the "none" is what turned that around.
+  `tests/gbaot.py` lists every block of GBBANK (`translate(listall=True)`)
+  so that a ROM this small reaches the search at all, and its control
+  (`RDG_AOTCACHEBUG`, the bank key forgotten) parts at frame 0: 63 banks
+  have code at 4010h.
+- The core built with
   `RDG_AOTCORE` (rdggen.py, slot 48h's `tr_new2`) far-jumps through
   `S_AOTVEC` when `S_JITFIX` is set; `rdg_aotmiss` (rdgaot.inc) binary-
   searches the list with its bounds in the view, since SP is the Game
@@ -3659,14 +3685,43 @@ interpreter at 0 and 1 images, 1,500 frames.
 core. So is every image claim. The package's region still moves.
 
 **What an interpreted PC costs here.** The core's control transfers look for
-translated code, so every interpreted jump is a table lookup, `tr_new2` and
-the filter before the interpreter dispatches - ~55 instructions against the
-~10 of a jump, so a tight interpreted loop runs at about a fifth of the
+translated code, so every interpreted jump was a table lookup, `tr_new2` and
+the filter before the interpreter dispatched - ~55 instructions against the
+~10 of a jump, so a tight interpreted loop ran at about a fifth of the
 plain interpreter (GBPOP with its one image refused: 0.59 frames a second on
 the 5150 against 11.8). It is paid only by code that is not in an image -
 the walk's misses, RAM, and what a small heap left on the disk, which the
-counters (20.11) make the cold code. NOT CHANGED: turning the lookup off
-would cost the code that is in the images.
+counters (20.11) make the cold code. With no image at all the machine ran
+at 1.9 times the plain interpreter's instructions (Kirby 82,864 a frame
+against 43,799), and 38,000 of those were the lookup.
+
+So the precompiled core (`RDG_AOTCORE`) sends an interpreted jump to
+`tr_ejf` (slot 7Ch's CB half), which asks the filter FIRST, with the PC
+and the bank key as `rdg_aotmiss` does: a PC it does not name is
+dispatched there and then - DS is already the jump's own - in about twenty
+instructions, and one it names goes on to `tr_ekey` as before. RET and RETI
+are left to ask the table first (`rdggen.JD_NOFILTER`): they land on a
+block far more often than they miss, the place after a CALL being a block
+start and an interrupt returning into the code it interrupted. The stock
+core is unchanged, the dynamic arm (no `S_JITFIX`) goes straight to
+`tr_ejd`, and every state is what it was. x86 instructions a frame:
+
+| | no image | every image |
+|---|---|---|
+| Kirby's Dream Land, the owner's replay, hot first | 109,217 -> 83,139 | 24,031 -> 24,050 |
+| Looney Tunes (GBC), the owner's replay, hot first | 94,389 -> 73,436 | 23,425 -> 23,474 |
+| Super Mario Land 3, the script | | 23,685 -> 19,168 |
+| Kirby's Dream Land 2, the script | | 42,337 -> 34,733 |
+| Link's Awakening, the script | | 27,932 -> 25,666 |
+| Donkey Kong Land, the script | | 29,128 -> 28,154 |
+
+The last four are cartridges whose code the walk does not all find, so
+they run cold code with every image in. The price is the jumps the filter
+names that RET and RETI do not cover - three a frame in Super Mario Land,
+mostly a JR closing a block an event left half done - and it is +0.04% to
++0.54% on the eight of twelve cartridges that have no cold code to speak
+of. At one and two images of the replay-ordered builds it is within 0.9%
+either way, the hot images holding all but 1-10% of the play.
 
 `tests/gbaotpkg.py` is the row: it packages our GBRMW.GB, boots MartyPC's
 5150 with the package, the ROM and REALDMG.O88, opens the package, and

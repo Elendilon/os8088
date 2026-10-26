@@ -97,7 +97,9 @@ S_AOTKEY        equ 0x4846          ;   core keeps no stack to push on)
 S_AOTFSEG       equ 0x4847          ; word: the list's filter, 8KB: a bit
                                     ;   per hash of (PC, key), set for every
                                     ;   listed block (rdgaot.inc)
-RDG_FREE         equ 0x4849          ; the rest of the window is unassigned,
+S_AOTSLOT       equ 0x4849          ; word: rdg_aotmiss's cache entry for
+                                    ;   the PC being searched for
+RDG_FREE         equ 0x484B          ; the rest of the window is unassigned,
                                     ; but for rdgppu.inc's 4900-66FF and:
 ; CODE SELECTORS (REALDMG-SPEC 16.2.4): a segment the core or the recompiler
 ; JUMPS to is named by the selector a far jump may load - the segment itself

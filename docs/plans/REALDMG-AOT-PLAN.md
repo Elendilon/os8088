@@ -251,3 +251,35 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   timing, as Donkey Kong Land's and Pokemon Red's are - with the NOP
   check out both run 1,500 frames identical to the interpreter, and their
   precompiled arm is identical with it in. That item is CLOSED.
+- [x] Speed, round 6 - the cold code (REALDMG-SPEC 20.9, 20.10): an
+  interpreted jump under a precompiled machine asks the list's filter
+  first, which now names the table's blocks too, and a PC with no block
+  is dispatched in place instead of after the table, its neighbour and
+  the list. With no image in memory, Kirby's replay 109,217 -> 83,139
+  x86 instructions a frame (-24%) and Looney Tunes' 94,389 -> 73,436
+  (-22%); with every image in, the cartridges the walk does not wholly
+  find gain too - Super Mario Land 3 -19%, Kirby's Dream Land 2 -18%,
+  Link's Awakening -8%, Donkey Kong Land -3% - and the rest pay +0.04%
+  to +0.54%. Twelve cartridges state-identical in both arms to the tree
+  before; Super Mario Land and Kirby identical to the interpreter at 0
+  and 1 images, the Looney replay at 0 and all. The gate cannot see a
+  filter that turns a block away (it is interpreted the same), so
+  `tests/gbaot.py` counts blocks entered instead, and its control
+  (`RDG_NOTABFILT`, the table left out of the filter) enters 22% fewer
+  on GBBANK. Measured and NOT the case: with the images ordered by the
+  owner's replays the cold code is 1-10% of the play at one image and
+  under 1.3% at two, so on a heap that holds an image what is left is
+  the interpreting itself, not the lookup.
+- [x] Speed, round 7 - the list's search cached (REALDMG-SPEC 20.9): 256
+  entries after the filter hold each slot's last answer, a block or none,
+  so a dynamic dispatch the table cannot hold costs ~15 instructions
+  where the binary search cost ~280. Walk-ordered images: Super Mario Land
+  2 -30%, Pokemon Red -24%, Metroid II -11%, Looney Tunes -7% to -10%,
+  Kirby -9%, nothing worse; replay-ordered, Looney Tunes and Kirby -1.8%
+  and -2.0% - which is the case for it: the hot table only knows the play
+  it was ordered by, and this does not. 2KB of the meta part. Twelve
+  cartridges state-identical in both arms. Measured and NOT built first:
+  item 5 of the open list, the loop idioms in pieces - real cartridges
+  decline at most ~7 passes a frame (Wario Land's fills, Donkey Kong
+  Land's compare countdowns), under 1% anywhere; the gate ROM's 17,000
+  declines were its own timer's.
