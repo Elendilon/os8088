@@ -293,6 +293,16 @@ um_attach:
     clc
     ret
 
+; UM_PMB - a PicoMEM BIOS function (int 13h AX = 60xxh, DX = 1234h): the
+; card's ROM, or under -DPMSIM the gate's model of it (pmsim.inc)
+%macro UM_PMB 0
+%ifdef PMSIM
+    call pms_bios
+%else
+    int 0x13
+%endif
+%endmacro
+
 ; =============================================================================
 ; THE PICOMEM'S USB MOUSE (SPEC.md 9.12.7)
 ;
@@ -327,16 +337,14 @@ um_attach:
 ; function 0 re-hooks the card's vector when something took it but leaves a
 ; line it finds still hooked exactly as masked as it found it.
 ; -----------------------------------------------------------------------------
-um_pmattach:
-    call OSAPI_CPU_INFO         ; NOT UNDER kern_mega's PROTECTED MODE: the
-    test ah, CPU_F_PM           ; card's handler runs in REAL mode there (the
-    jnz .no                     ; kernel reflects its IRQ to the ROM), and its
-                                ; int 33h would reach a vector that can only
-                                ; name this image as a real segment and code
-                                ; that calls the kernel - which has no
-                                ; real-mode-to-protected-mode callback yet
-                                ; (KERN-MEGA-MEMORY-PLAN MC7's open list)
-    mov dx, 0x2A3
+um_pmattach:                    ; (kern_mega in protected mode as well: the
+                                ; card's handler runs in REAL mode there, the
+                                ; kernel reflecting its IRQ to the ROM, and
+                                ; the reflection CATCHES its int 33h and
+                                ; makes it here once it is back - KERN-MEGA-
+                                ; PLAN 14.117, SPEC.md 9.12.7)
+%ifndef PMSIM                   ; (the gate's model has no port 2A3h:
+    mov dx, 0x2A3               ; pmsim.inc, KERN-MEGA-PLAN 14.117)
     pushf
     cli                         ; the ramp is stateful: nobody between reads
     in  al, dx
@@ -349,10 +357,11 @@ um_pmattach:
     jne .noramp
     loop .ramp
     popf
+%endif
     push bx                     ; drv_attach reads the ROW through BX after
     mov ax, 0x6000              ; this returns (um_entry), and int 13h spends it
     mov dx, 0x1234              ; PM BIOS function 0: detect, and re-hook the
-    int 0x13                    ; card's IRQ if anything took its vector
+    UM_PMB                      ; card's IRQ if anything took its vector
     cmp dx, 0xAA55
     jne .nobx
     mov cl, ch                  ; CH = the card's own IRQ
@@ -389,7 +398,7 @@ um_pmattach:
     pop es
     mov ax, 0x6010              ; PM BIOS function 10h: enable the mouse,
     mov dx, 0x1234              ; LAST
-    int 0x13
+    UM_PMB
     pop bx
     inc byte [um_pm]
     clc
@@ -426,8 +435,12 @@ um_pm33:
     push si
     push di
     push ds
-    push cs
-    pop ds
+    mov ax, cs                  ; DS = this image: CS itself, or on kern_mega
+    test al, 4                  ; in protected mode - where the kernel hands
+    jz .ds                      ; the report on through a gate - CS is the
+    add ax, 8                   ; code half of a PAIR and the data half is
+.ds:                            ; CS + 8 (SOUND.DRV's SBL_DSCS; a real
+    mov ds, ax                  ; segment here is 512-aligned, bit 2 clear)
     mov [um_buf], dl            ; the boot report's own layout: buttons, dx, dy
     mov [um_buf+1], bl
     mov [um_buf+2], cl
@@ -454,7 +467,7 @@ um_pmdetach:
     push bx                     ; ...across int 13h AND um_release, whose first
     mov ax, 0x6011              ; instruction is `xor bx, bx`: BX is the ROW,
     mov dx, 0x1234              ; and drv_unload frees through it the
-    int 0x13                    ; instruction after this returns. Popped
+    UM_PMB                      ; instruction after this returns. Popped
     call um_release             ; before the release, it came back 0, so the
     pop bx                      ; kernel "freed" offset 0 as a row - zeroed
                                 ; two words of boot code, leaked this image
@@ -1078,6 +1091,9 @@ um_mode:
 ; Each preserves every register but AL and DX - and nothing above holds a
 ; value in DX across one (the model, which banks DX too, is the stricter).
 ; =============================================================================
+%ifdef PMSIM
+%include "pmsim.inc"            ; the PicoMEM gate's model (KERN-MEGA-PLAN
+%endif                          ; 14.117): never in the shipped image
 %ifdef CH375SIM
 %include "ch375sim.inc"
 %else
