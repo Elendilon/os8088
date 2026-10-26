@@ -38,8 +38,8 @@ WHAT IT MAPS, AND WHAT IT CANNOT
     to 20 here). `screen()` reads a text mode's cells out of B8000.
   * breakpoints: `exec`/`execseg` are Bochs `lb` (linear). `mem`, `int` and
     `io` are refused - Bochs has watchpoints but not MartyPC's semantics.
-  * refused outright, by name: `disk` (MartyPC's FDC counters), `flicker`,
-    `pace`, `planes`, `inb`/`outb`, `snapshot`/`restore`, `reset`. A row
+  * refused outright, by name: `flicker`, `pace`, `planes`, `inb`/`outb`,
+    `snapshot`/`restore`. `reset` is a POWER CYCLE (_c_reset). A row
     built on one of those is not portable and says so in its first second.
 """
 import os
@@ -626,6 +626,40 @@ class BochsMarty(om.Marty):
             cnt[0] = cnt[1] = 0
         return r
 
+    def _c_reset(self, **_):
+        """MartyPC's machine reset, as a POWER CYCLE: Bochs's debugger has
+        no reset, so this one is stopped and a new one booted on the SAME
+        display from the disks as the guest left them (Bochs writes a
+        floppy straight through). The breakpoints are re-armed in the new
+        one; the guest is left RUNNING, which `reset(); run()` expects.
+        SYSTEM.CFG is not re-injected - what the guest wrote is the point
+        of a reboot row."""
+        kw = dict(self._boxkw, cfg=None)
+        keep = tempfile.mkdtemp(prefix="reset", dir=self.run_dir)
+        for n in ("a.img", "b.img"):
+            shutil.copy(os.path.join(self.box.out, n), os.path.join(keep, n))
+        bps = list(self._bps.values())
+        try:
+            for b in sorted(self._btn):
+                self.box.xd("mouseup", b)
+        except Exception:                                   # noqa: BLE001
+            pass
+        self.box.stop()
+        kw.update(aimg=os.path.join(keep, "a.img"),
+                  bimg=os.path.join(keep, "b.img"))
+        self.box = ob.Box(self.run_dir, [], **kw)
+        self.pid = self.box.p.pid
+        self._proc = self.box.p
+        self._btn, self._keys, self._bps = set(), set(), {}
+        self._ldt, self._win, self._flog = None, None, (0, [0, 0])
+        self._state, self._since = "running", time.time()
+        _first_c(self.box)
+        self._bpmark = os.path.getsize(self.box.e9)
+        if bps:
+            self._c_bp([{"type": "exec", "addr": a} for a in bps])
+        shutil.rmtree(keep, ignore_errors=True)
+        return self._status()
+
     def _c_quit(self, **_):
         self.close()
         return {}
@@ -674,6 +708,17 @@ class BochsMarty(om.Marty):
 _ENV_DISP_USED = False
 
 
+def _first_c(box):
+    """UNTIL BOCHS HAS TAKEN ITS FIRST `c`: it starts at the debugger's
+    prompt, and a SIGINT that lands before that `c` is read is lost"""
+    end = time.time() + 60
+    while not re.search(r"<bochs:1> c", ob._tail(box.e9, 0)):
+        if time.time() > end or box.p.poll() is not None:
+            raise om.MartyError("os88bochsmarty: Bochs never started (%s)"
+                                % os.path.join(box.out, "bochs.log"))
+        time.sleep(0.05)
+
+
 def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
            sb=None, cfg=None, megs=None, **_):
     """os88marty.launch's shape, on Bochs and kern_mega (see the module
@@ -702,20 +747,15 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
         b = os.path.join(bld, "megaapps.img")
     btype = {368640: "360k", 737280: "720k", 1228800: "1_2",
              1474560: "1_44"}[os.path.getsize(b)]
+    box_btype = "1_2" if btype in ("360k", "1_2") else "1_44"
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
-                 btype="1_2" if btype in ("360k", "1_2") else "1_44",
+                 btype=box_btype,
                  build=bld, display=disp, megs=megs, noc=True, vgahz=20, flog=True)
     m = BochsMarty(box, run_dir, label=label)
+    m._boxkw = dict(sb=sb, cfg=cfg, btype=box_btype, build=bld,
+                    display=disp, megs=megs, noc=True, vgahz=20, flog=True)
     try:
-        # UNTIL BOCHS HAS TAKEN ITS FIRST `c`: it starts at the debugger's
-        # prompt, and a SIGINT that lands before that `c` is read is lost
-        end = time.time() + 60
-        while not re.search(r"<bochs:1> c", ob._tail(box.e9, 0)):
-            if time.time() > end or box.p.poll() is not None:
-                raise om.MartyError("os88bochsmarty: Bochs never started "
-                                    "(%s)" % os.path.join(run_dir,
-                                                          "bochs.log"))
-            time.sleep(0.05)
+        _first_c(box)
         m._bpmark = os.path.getsize(box.e9)
         if boot is False or boot == 0:
             m._c_pause()

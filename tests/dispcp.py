@@ -88,6 +88,13 @@ def _u16(b, i=0):
     return b[i] | (b[i + 1] << 8)
 
 
+def _lin(m, seg, off=0):
+    """SEG:OFF's linear address - and under kern_mega (os88bochsmarty) a
+    heap segment is an LDT SELECTOR, whose base `m.lin` looks up"""
+    lin = getattr(m, "lin", None)
+    return lin(seg, off) if lin else (seg << 4) + off
+
+
 def _cp_win(m, S):
     """(x, y) of the Control Panel's frame, or None. Matched on W_TITLE, which
     is `cp_ttl` and nothing else in the machine.
@@ -552,7 +559,7 @@ def listing(m, S):
         n = _u16(m.read(base + FS_N, 2))
         vseg = _u16(m.read(base + FS_VSEG, 2))
         if n and vseg:
-            return _decode(m.read(vseg << 4, n * DSK_DE_STRIDE), n)
+            return _decode(m.read(_lin(m, vseg), n * DSK_DE_STRIDE), n)
     return snapshot(m, S)
 
 
@@ -577,7 +584,7 @@ def snapshot(m, S):
         return []
     seg = _u16(m.read(S("dsk_dseg"), 2))
     off = _u16(m.read(S("dsk_doff"), 2))
-    return _decode(m.read((seg << 4) + off, n * DSK_DE_STRIDE), n)
+    return _decode(m.read(_lin(m, seg, off), n * DSK_DE_STRIDE), n)
 
 
 def row_of(m, S, name):

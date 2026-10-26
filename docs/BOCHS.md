@@ -187,9 +187,15 @@ it maps:
   use it for.
 - **breakpoints** - `exec`/`execseg` are `lb`; `mem`, `int` and `io` are
   refused.
+- **reset** - a POWER CYCLE: Bochs's debugger has none, so the shim stops
+  that Bochs and boots another on the same display from the disks as the
+  guest left them, re-arming the breakpoints; SYSTEM.CFG is not re-injected.
+- **scratch disks** - a row that COPIES a shipped floppy to put files on it
+  copies `os88marty.system_disk(path)` / `apps_disk(path)`, which are
+  `mega.img` / `megaapps.img` under `OS88_MEGA` and PATH otherwise.
 - **refused by name** - `flicker`, `pace` (the frame instrument; the
   guest-seconds `os88marty.pace()` works), `planes`, `inb`/`outb`,
-  `snapshot`, `reset`, the wheel. A row built on one is not portable.
+  `snapshot`, the wheel. A row built on one is not portable.
 
 A port is a line in `tests/megaport.txt`; `tests/suite.py` registers it as
 `mega-<name>`, the same command under `env OS88_MEGA=1`, `needs=("bochs",)`.

@@ -21,3 +21,7 @@ fpgnotch secs=30   # dsk_xfer asks once a run whether a bar is live; its .cold b
 deskmodal secs=40   # a widget DELETE with a Disk window in front; scratch system disk off mega.img
 deskcalgrid secs=40   # the Desk Calendar grid out of its bss, the clock set through clk_*
 msel secs=150   # multi-select and set operations; the listing segment is a selector here
+fcpapi secs=30   # OSAPI_FILE_COPY both verbs, every answer read off the volume
+fcpcopy secs=90   # Cut/Copy/Paste moves a file and a folder tree, the volume verified on the host
+icostore secs=60   # two volumes, one icon-store body; the listing claim is a selector here
+desksc secs=150   # desktop shortcuts, every route on one boot, two reboots (a power cycle under Bochs)

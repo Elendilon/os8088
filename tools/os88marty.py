@@ -4272,6 +4272,17 @@ def system_disk(path):
                         or os.path.dirname(os.path.abspath(path)), "mega.img")
 
 
+def apps_disk(path):
+    """system_disk's twin for a row that copies a shipped APPS floppy:
+    build/megaapps.img under $OS88_MEGA - the apps disk with kern_mega's
+    package arms (KERN-MEGA-PLAN 14.66)."""
+    if not os.environ.get("OS88_MEGA"):
+        return path
+    return os.path.join(os.environ.get("OS88_MEGA_BUILD")
+                        or os.path.dirname(os.path.abspath(path)),
+                        "megaapps.img")
+
+
 def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
            run_dir=None, boot=True, timeout=DEFAULT_TIMEOUT, extra=(),
            card=None, label=None, detach=False, rom=None):
