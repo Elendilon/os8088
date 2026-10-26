@@ -2694,6 +2694,41 @@ class _Progress:
             pass
 
 
+def keystroke(m, name, hold=0.2):
+    """One key held EXACTLY `hold` GUEST seconds: paused, the press, `advance`
+    by the cycles, the release, resumed (`go`). Answers nothing.
+
+    THE RELEASE OF A HELD KEY MUST NOT BE SENT ON THE HOST'S CLOCK. The
+    spelling this replaces - `key(up=False)`, `pace(hold)`, `key(down=False)`
+    - lets the guest run free between the two commands, so the hold is
+    whatever the client's polling and scheduling make it. On an idle box that
+    is a "0.05" pace landing at 0.27-0.32 guest seconds; a client that is
+    descheduled for 60 ms of host time while the emulator keeps its core adds
+    another quarter of a guest second at 4.5x real time, and **0.5 guest
+    seconds is the keyboard's typematic delay** (MartyPC's 83-key model,
+    `keyboard_common.rs`). Past it the key REPEATS, and a menu where the key
+    TOGGLES something reads the repeat as a second press: Excitebike's mode
+    screen failed `Up flips the mode` under load exactly so
+    (docs/plans/SOAK-PARALLEL.md 17.12). Here the machine is stopped while the
+    host decides anything, so no host stall reaches the hold at all, and the
+    hold is the same number of cycles on any box.
+
+    Use it for a key whose LENGTH matters - anything with a typematic delay
+    behind it, which is any key held on purpose. Not inside a `bp_trace`
+    pump: a pause from this thread can land on a stop the pump has not
+    recorded (tests/isotronlive.py's `tap_exact`, the same shape, says why).
+    """
+    m.pause()
+    try:
+        m.key(name, down=True, up=False)
+        try:
+            m.advance(cycles=max(1, int(hold * GUEST_HZ)))
+        finally:
+            m.key(name, down=False, up=True)    # ...ALWAYS: a stuck key is a
+    finally:                                    # guest nobody can get back
+        m.go()
+
+
 def guest_sleep(m, secs, poll=0.02):
     """Sleep `secs` of the GUEST's time. The standard replacement for
     `time.sleep` in anything holding a Marty.

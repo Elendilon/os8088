@@ -1983,10 +1983,14 @@ at roughly twice that oversubscription.
   gone at its source: SPEC.md 9.7.2 takes the key through `int 15h AH=4Fh`
   wherever the ROM offers it (SeaBIOS does), so `kbm_isr` no longer reads
   port 60h ahead of the ROM and QEMU's 8042 has no byte to drop.
-* **`excitebikeflow` / `excitebikeflowherc`** (MartyPC, ALREADY in the
-  concurrent lane before this work) failed once each - `excitebikeflow` in
-  the 2026-10-25 soak itself, `excitebikeflowherc` here (`Up flips the
-  mode`). Not diagnosed.
+* ~~**`excitebikeflow` / `excitebikeflowherc`**~~ DONE - 17.12. Two
+  different causes. `excitebikeflow`'s 2026-10-25 failure (`state 2 (it is
+  3)`, the held Enter) was the GAME's and was already fixed by dc527c99,
+  which landed on the integration branch the same afternoon this bullet was
+  written on another. `excitebikeflowherc`'s `Up flips the mode` was the
+  HARNESS: the key's release was sent on the host's clock, a stalled client
+  held Up past the keyboard's 0.5 s typematic delay and the repeat flipped
+  the mode back. Every key is now held an exact number of guest cycles.
 * **`ftpd.py`/`ftpkeep.py`** are unregistered (`t_registry`'s exemptions),
   and each runs `make ftpdtest`/`ftpkeeptest` in the tree - ftpd.py deleting
   and rebuilding `build/ether360.img`, a `wants=` of the browser rows - and
@@ -2231,3 +2235,58 @@ a third flake with its cause in the code: `sbl_stop` publishes
 (`sbl_unpin` -> `sbl_dma_put`, which zeroes `[sbl_seg]` last), and the row
 waited for the flag and then read the block. It waits for the flag AND the
 buffer now; a driver that never frees it still fails ten guest seconds on.
+
+### 17.12 Excitebike's flow rows: one game bug, and a key released on the host's clock
+
+**`excitebikeflow`, 2026-10-25 soak** (`/home/user/wt`, e01d797d): `state 2
+(it is 3)` in `item_menus` - the mode screen's Enter, held ~2.7 guest seconds
+on purpose, ran the course screen straight into a race. That was the GAME:
+`xb_rdkey` takes one Enter per press, and a typematic repeat and the break
+after it can land inside one 18 ms frame, so the next poll read Enter up and
+took the repeat still in the BIOS buffer as a new press. dc527c99 (SPEC.md
+102's paragraph) drops the Enters at the buffer's head when the release is
+seen; its own sweep was 5-6 of 24 release phases red before and 0 after. It
+was on the integration branch before 17.7's bullet was written on this one,
+which is why the bullet said "not diagnosed".
+
+**`excitebikeflowherc`, pass 2 of 17.6** (`Up flips the mode`, 36.9 s in, a
+fifth MartyPC on the four-core box): the HARNESS. The mode screen's Up and
+Down TOGGLE the selection (`flow.inc` `.flip`), so a key that repeats is two
+presses. `Flow.key` held a key with `key(up=False)`, `pace(.05)`,
+`key(down=False)`: the press and the release were separate commands with the
+guest running free between them, so the hold was whatever the client's
+polling made it. And MartyPC's 83-key keyboard repeats a key held past
+**500 ms** (`keyboard_common.rs`), in guest time.
+
+* **The holds, measured** off the cycle counts the debug server answers each
+  `key` with: 2,106 short keys across one idle run and seventeen loaded ones
+  (three, six and eight lanes, two hogs, load to 8.6) were 0.267-0.317 guest
+  seconds - all within 0.2 s of the delay, none past it. That is the margin a
+  host stall eats: the guest runs ~4.5x real time, so 45 ms of the client
+  not running is 0.2 guest seconds.
+* **A host stall, injected** (the client sleeping before it sends the
+  release, nothing else changed): 60 ms put Down at 0.533 guest s and the row
+  failed `Down flips it back` - the same assertion's twin; 150 ms put every
+  arrow at 0.62-0.93 and it failed later, in `to_race`'s `the mode cursor`,
+  because the parity of the repeats decides which line sees it.
+* **Exactly, with no host in it**: Up held 0.45 guest s passes, 0.55 fails
+  `Up flips the mode` - the soak's own line.
+
+**The fix** is `os88marty.keystroke(m, name, hold)`: pause, press,
+`advance` by the hold's cycles, release, `go`. The machine is stopped while
+the host decides anything, so no stall reaches the hold; every key in
+`excitebike_flow.py` goes through it (`Flow.key`, 0.2 guest seconds, and the
+re-entry Enter in `item_leave`; the deliberate long Enter is 2.7). It is
+`tests/isotronlive.py`'s `tap_exact`, which isoTron found the same way. With
+the same 150 ms stall injected the whole Hercules flow passes and all 28
+arrow holds read exactly 0.200. Loaded, both rows twice at once under two
+hogs (four MartyPCs and two hogs on four cores), two passes: 8 of 8. Alone
+the Hercules row is 67.5 s, as before.
+
+**What is NOT swept.** The pattern is everywhere a test holds a key:
+`key(up=False)` appears in 67 files under `tests/`, `excitebike_front.key`
+is the same three lines for `excitebikefront` and its siblings, and
+`Marty.alt`'s `hold` is a `pace`. A key whose repeat is harmless (Enter into
+a reader that drops repeats, an arrow at a list's end) cannot fail this way;
+one that toggles, counts or navigates can, and that is the next row to look
+at when one of those goes red under load.
