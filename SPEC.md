@@ -64104,6 +64104,26 @@ kernel that answers no markers still reads as the span's heading alone
 kern_mega `.mega` 14,460 → 14,609 (+149 bytes), `.text` +0; kern_big and
 kern_small byte-identical (the build number aside).
 
+**BX = `XMW_LONG` (4C58h, 'XL') asks for LONG records** (KERN-MEGA-PLAN
+14.92): `XMW_FIXED`'s records, the fixed areas in front as above, but every
+record `XMW_LSIZE` = **8** bytes - the six, then **`XMW_TAG`** (+6, a word):
+for a kernel CACHE (owner FEh, a purge level at `XMW_CLS`) its whole
+`MEM_P_*` tag, `MX_AUX` of its `MX_FPURGE` entry (§50.6.8), and 0 for every
+other record. `XMW_CLS` carries only the tag's HIGH byte; the LOW byte is the
+part that says WHOSE the cache is - the window slot of a raise cache
+(`MEM_P_WSAVE` + slot, §11.96.3), the volume of a FAT window - and without it
+nothing outside the kernel could tell its own cache from anybody else's (the
+Task Manager could not, §28.8.1). Additive (§20.2.0.1: no `PKG_FMT` bump,
+`tools/abi.lock.json` refreshed): a caller that does not ask gets the six-byte
+records it always did. kern_mega answers it (`mega_xmwalk`'s `.tag`);
+**kern_big's `XMEM.DRV` REFUSES it** - CF=1, AX = **2**, nothing written,
+before the HMA tail's walk is reached - so a caller that asked for eight-byte
+records is told rather than handed six-byte ones it would read as eight; and
+every other kernel refuses the whole cell (AX = 1) as before. Cost: kern_mega
+`.mega` 17,840 → 17,871 (**+31 bytes**), `.text` +0; `XMEM.DRV` 2,042 → 2,051
+bytes of image (**+9**, 1,891 → 1,900 on the disk); kern_big and kern_small
+`kernel.bin` **byte-identical** (cmp at one commit).
+
 
 ### 28.4.12 `OSAPI_IMG_NAME`: which driver or module an image is
 
@@ -64793,6 +64813,24 @@ What is skipped is the *reason*.
 
 `OSAPI_WM_OWNSEG` (§11.96.3.1) is what makes "our own" expressible at all —
 the tag carries a slot and nothing outside `wm.inc` could read it back.
+
+**On kern_mega with a pool the cache is ABOVE 1MB, and the same cut is made
+there** (KERN-MEGA-PLAN 14.92). The raise cache is then a pool block, not a
+claim record, and `tm_quiet`'s key also hashes the pool's walk (`tm_xw`, so a
+block above 1MB changing hands is noticed, §28.4.10) - in which a six-byte
+record carries only the tag's HIGH byte, so the page could not tell its own
+cache from anybody else's and repainted after every drop of it: this
+section's loop, one layer down, measured at 16MB as six drops out of six and
+`TM holds 0000`. The kern_mega arm asks for the walk's LONG records
+(`XMW_LONG`, §28.4.11), whose `XMW_TAG` is the cache's whole tag, and hashes
+the pool **record by record**, leaving out exactly the records whose tag is
+`MEM_P_WSAVE` plus a slot `OSAPI_WM_OWNSEG` says is OURS (`tm_ownws`). They are
+SKIPPED rather than weighed as zeroes, and the record count is not hashed:
+the walk lists live blocks only, so a dropped cache is a list one record
+shorter with every later record moved up, and the list with ours skipped IS
+the list without it. Anybody else's raise cache above 1MB is hashed like any
+other block, so the page still wakes for it - `mega-tmselfsu-16m`'s OTHERS,
+which goes red with `tm_ownws` answering "ours" for the whole range.
 
 **The drag cache is a SAMPLING RACE, and it is accepted.** `wm_dc_take` banks
 *through* `wm_su_take` and `wm_su_slot` gives both the same owner tag, so the
@@ -81183,7 +81221,7 @@ table's end and present on every kernel (docs/plans/KERN-MEGA-PLAN.md 12.2):
 |---|---|
 | `OSAPI_XMEM_SEL` **0x04B3** | DX:AX = an address inside an `OSAPI_XMEM_ALLOC` block the CALLER owns, CX = bytes (0 = 65,536). Out CF=0, AX = a **data selector** whose descriptor covers exactly that window: load it into DS or ES and address the block in place, with 16-bit code unchanged. **One selector per block**: a second call for the same block re-aims it, and a segment register already holding it keeps the old window until it is reloaded. It is freed with the block - `OSAPI_XMEM_FREE`, or the instance's teardown. CF=1 with AX = 1 where it is not available (every kernel but kern_mega in protected mode, and no free LDT entry) or 2 when the window is not inside a block the caller owns. UI-task context, like the four XMEM cells. `kern_small`'s cell is its `xm_copy`, which answers exactly that refusal |
 | `OSAPI_MEM_CODESEL` **0x04B9** | DX = the segment (or selector) naming a claim of the caller's. Out CF=0, AX = the selector to **far call code** in it: DX itself on a real-mode kernel; under `CPU_F_PM` the claim's LDT code alias `(S >> 2) | 4` for a segment on the 512-byte grid below A000, a code selector as it is, and the code half of an allocator pair for its data half. CF=1 when there is none: DX = 0, or under `CPU_F_PM` a segment off the grid or a data-only selector (an `OSAPI_XMEM_SEL` window). Any context. `apps/os88api.inc`'s `OS88_CODESEL` is its inline fast path for a claim below 1MB |
-| `OSAPI_XMEM_WALK` **0x04BF** | ES:DI = room for CX records of `XMW_SIZE` (6) bytes. Out CF=0, AX = the extended pool's live blocks written, each `XMW_OFF` (KB from the pool's base, which `OSAPI_XMEM_CAPS` answers in DX:CX), `XMW_KB` and `XMW_OWN`: an instance slot for an `OSAPI_XMEM_ALLOC` block, 80h \| slot for a package's REGION placed above 1MB (`OS88_HIGH`, docs/plans/KERN-MEGA-PLAN.md 13.3 step 4), 0A0h \| slot for a CLAIM it took there (`OS88_HIGHMEM`, KERN-MEGA-PLAN item 81), 0C0h \| row a driver's claim, FDh a driver's image, FEh the kernel's own (the read-ahead store, module pairs), FFh a cell called outside any instance. The record's sixth byte, `XMW_CLS`, is 0 except for a driver's block on kern_mega, where it is that driver's `DRVC_*` class off `drv_tab` (0 when no row matches) - so a reader names `SOUND.DRV` and not *a driver* - and for a kernel CACHE on kern_mega (owner FEh), where it is the cache's purge level, FBh-FEh: a block the next claim may take back (§50.6.8). **BX = `XMW_FIXED` (4658h, 'XF')** asks kern_mega for its fixed areas as well: one record each IN FRONT of the blocks, owner `XMW_GDT`, `XMW_LDT` (the LDT and the IDT) and `XMW_KCODE` (`.cold` and `.mega`), at POSITIVE `XMW_OFF`s past the pool's KB - they are at the top of RAM, above the pool (§50.6.9). The HMA (`XMW_HMA`, F0h) is the pool's first block and is walked as one; `XMW_PAD` is not written (§28.4.10, KERN-MEGA-PLAN 14.70.2). Additive: every other kernel ignores BX and writes 0 at `XMW_CLS`. On kern_big with a store the pool is `XMEM.DRV`'s and the cell walks its table (overlay ABI 2's `XMV_WALK`, §28.4.8): owner a slot or FFh. CF=1, AX = 1 with no pool - kern_small, kern_mega in real mode, a kern_big machine without the overlay. The Task Manager's "RAM is RAM" reads it (KERN-MEGA-PLAN 13.6). Any context |
+| `OSAPI_XMEM_WALK` **0x04BF** | ES:DI = room for CX records of `XMW_SIZE` (6) bytes. Out CF=0, AX = the extended pool's live blocks written, each `XMW_OFF` (KB from the pool's base, which `OSAPI_XMEM_CAPS` answers in DX:CX), `XMW_KB` and `XMW_OWN`: an instance slot for an `OSAPI_XMEM_ALLOC` block, 80h \| slot for a package's REGION placed above 1MB (`OS88_HIGH`, docs/plans/KERN-MEGA-PLAN.md 13.3 step 4), 0A0h \| slot for a CLAIM it took there (`OS88_HIGHMEM`, KERN-MEGA-PLAN item 81), 0C0h \| row a driver's claim, FDh a driver's image, FEh the kernel's own (the read-ahead store, module pairs), FFh a cell called outside any instance. The record's sixth byte, `XMW_CLS`, is 0 except for a driver's block on kern_mega, where it is that driver's `DRVC_*` class off `drv_tab` (0 when no row matches) - so a reader names `SOUND.DRV` and not *a driver* - and for a kernel CACHE on kern_mega (owner FEh), where it is the cache's purge level, FBh-FEh: a block the next claim may take back (§50.6.8). **BX = `XMW_LONG` (4C58h, 'XL')** asks for LONG records: `XMW_FIXED`'s, each `XMW_LSIZE` = 8 bytes with `XMW_TAG` (+6, a word) the cache's whole `MEM_P_*` tag - its low byte the window slot, volume or owner the cache serves - and 0 for every other record (§28.4.11, KERN-MEGA-PLAN 14.92). kern_mega answers it; kern_big's `XMEM.DRV` refuses it with CF=1, AX = 2 and nothing written. **BX = `XMW_FIXED` (4658h, 'XF')** asks kern_mega for its fixed areas as well: one record each IN FRONT of the blocks, owner `XMW_GDT`, `XMW_LDT` (the LDT and the IDT) and `XMW_KCODE` (`.cold` and `.mega`), at POSITIVE `XMW_OFF`s past the pool's KB - they are at the top of RAM, above the pool (§50.6.9). The HMA (`XMW_HMA`, F0h) is the pool's first block and is walked as one; `XMW_PAD` is not written (§28.4.10, KERN-MEGA-PLAN 14.70.2). Additive: every other kernel ignores BX and writes 0 at `XMW_CLS`. On kern_big with a store the pool is `XMEM.DRV`'s and the cell walks its table (overlay ABI 2's `XMV_WALK`, §28.4.8): owner a slot or FFh. CF=1, AX = 1 with no pool - kern_small, kern_mega in real mode, a kern_big machine without the overlay. The Task Manager's "RAM is RAM" reads it (KERN-MEGA-PLAN 13.6). Any context |
 | `OSAPI_XMEM_RUN` **0x04CB** | DX:AX = the TOKEN of an `OSAPI_XMEM_ALLOC` block the caller owns (its base). Out CF=0, DX = the first of a **run of data selectors**, CX = the step between them (8): selector *k* is the 64KB window from 32KB x *k* into the block, the last ones cut at its end, so **any 32KB of the block lies wholly inside one window** - the one at (offset >> 15), at (offset & 7FFFh). What a reader of records of 32KB or less needs to read them in place from ANY context once made, where `OSAPI_XMEM_SEL`'s one window has to be re-aimed by the UI task per read and `OSAPI_MEM_HUGE`'s 64KB windows cut a record that straddles one in two. One view a block: a block with a run takes no `OSAPI_XMEM_SEL` and the reverse (AX = 2 either way). Freed with the block. CF=1, AX = 1 not available (every kernel but kern_mega in protected mode) or no run of free LDT entries, 2 not the base of a block the caller owns or it has a selector already. UI-task context. The Video Player's hold and bank (98.3.18.16) are its consumer; docs/plans/KERN-MEGA-PLAN.md 14.16 |
 | `OSAPI_MEM_HUGE` **0x04C5** | AX = KB (1..65535). Out CF=0: DX = the claim's first segment or selector and CX = the STEP to its next 64KB - a program walks by CX and never by a constant. CX = 1000h for a conventional claim on every kernel; CX = 8 on kern_mega in protected mode for an `OS88_HIGHMEM` package, whose claim is ONE pool block above 1MB under a run of consecutive LDT data selectors, a 64KB window each and the last ending at the claim's end (§50.3.5). CF=1 refused - above 1MB only when the pool's free KB are short, the compactor moving huge claims too (§50.3.5). Freed by `OSAPI_MEM_FREE` with that DX, and at the instance's teardown; `OSAPI_MEM_REGROW` takes the pool's to any size and answers its first selector NOW (KERN-MEGA-PLAN 14.37). Docs/plans/KERN-MEGA-PLAN.md 14.1 answers 6 and 7: an ADDITION, so `OSAPI_MEM_CLAIM` and `OS88_HUGE_INCR` mean what they always did. **BX = 8000h** asks for a window every 32KB instead, each 64KB long (`OSAPI_XMEM_RUN`'s shape on a claim that moves), answered BX = 0 when given and BX kept otherwise; such a claim does not regrow, and moves a 64KB piece at a time with the package's rate hook held off (§50.3.5, KERN-MEGA-PLAN 14.41, 14.49). **BX = 4000h** a window every 16KB, the same way. **On kern_mega in protected mode a conventional claim is a run too, CX = 8** (§50.3.5, KERN-MEGA-MEMORY-PLAN MC7.4). Any context |
 
@@ -97324,7 +97362,11 @@ billed them to System. Now the pool follows §50.6.4 exactly:
   `mem_fatw_dirty`'s, against the selector it lives under.
 - **The walk says so.** `OSAPI_XMEM_WALK` writes the level (FBh-FEh) at
   `XMW_CLS` for such a block, owner FEh (§28.4.11); the Task Manager files it
-  under `Purgeable` as TYPE `Cache` with that TIER.
+  under `Purgeable` as TYPE `Cache` with that TIER - and, since
+  KERN-MEGA-PLAN 14.92, its kern_mega arm asks for LONG records
+  (`XMW_LONG`, §28.4.11) and names it by its whole tag as it names a
+  conventional cache: `WinSave`, `FATwin`, `DirView` or a `tm_ktab` name,
+  `Cache` only for a record that carries no tag.
 
 Cost: kern_mega `.mega` +139, `.cold` +125, `.text` +0 (the shared window's
 overhead unchanged), `.lowbss` +192; kern_big and kern_small byte-identical;

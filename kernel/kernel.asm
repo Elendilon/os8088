@@ -6026,9 +6026,12 @@ osapi_img_name equ mod_gone     ; `stc / retf`: CF = 1, every register kept
 ;      block on kern_mega, where it is the driver's DRVC_* (KERN-MEGA-PLAN
 ;      14.70.2). With BX = XMW_FIXED kern_mega first writes a record per
 ;      fixed area at the top of RAM - owner XMW_GDT..XMW_KCODE, offset past
-;      the pool's KB (SPEC.md 50.6.9). On kern_big the pool is XMEM.DRV's
+;      the pool's KB (SPEC.md 50.6.9). BX = XMW_LONG is that with every
+;      record EIGHT bytes, a kernel cache's whole tag at +6 (KERN-MEGA-PLAN
+;      14.92). On kern_big the pool is XMEM.DRV's
 ;      and the walk is its table's (xmem.inc, SPEC.md 28.4.8): owner a slot
-;      or FFh, BX ignored. CF = 1, AX = 1 no pool: kern_small, kern_mega in
+;      or FFh, XMW_LONG refused (CF = 1, AX = 2, nothing written), any other
+;      BX ignored. CF = 1, AX = 1 no pool: kern_small, kern_mega in
 ;      real mode, and a kern_big machine with no store
 ; THE TASK MANAGER'S "RAM IS RAM" (KERN-MEGA-PLAN 13.6): what is above 1MB, and
 ; whose, so a package's memory is one figure wherever it was placed.
@@ -8312,7 +8315,7 @@ MEGA_SIZE equ mega_end - $$
   %error "kern_mega: the pool's base must have a low word of 0 - every `add dx, MEGA_XPOOL >> 16` rests on it"
  %endif
  %if MEGA_CODE_KB > 255
-  %error "kern_mega: mega_xmwalk writes the code's KB in a byte (BL) - `.cold`, `.mega` and the park's scratch have passed 255KB"
+  %error "kern_mega: mega_xmwalk writes the code's KB in a byte (AL) - `.cold`, `.mega` and the park's scratch have passed 255KB"
  %endif
  %if MEGA_FKINST != INST_MAX || MEGA_FKMSG != TOAST_MAX + 1
   %error "mega.inc's MEGA_FKINST / MEGA_FKMSG mirror INST_MAX / TOAST_MAX + 1 (KERN-MEGA-PLAN 14.42)"

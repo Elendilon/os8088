@@ -5,7 +5,11 @@
 # os88marty.launch() answer tools/os88bochsmarty.py - Bochs on build/mega.img
 # with build/megaapps.img in B: (docs/BOCHS.md, "Rows ported from MartyPC").
 #
-#     name [secs=N] [timeout=N] [@VAR=VAL ...] [+arg ...] [-arg ...] [-flag=]   # why
+#     name[@alias] [secs=N] [timeout=N] [@VAR=VAL ...] [+arg ...] [-arg ...] [-flag=]   # why
+#
+# `name@alias` registers the same row a second time as `mega-<name>-<alias>`
+# - one line per machine where the row is a different question on each
+# (`tmselfsu` at 1MB, `tmselfsu@16m` at 16MB).
 #
 # `@VAR=VAL` puts VAR in the row's environment - `@OS88_BOCHS_MEGS=1` boots a
 # 1MB machine, which has no pool above 1MB, so every claim is conventional and
@@ -239,7 +243,8 @@ tmowner secs=70   # a raise cache is Purgeable's whoever caused it - on a 16MB k
 heaphi secs=60 @OS88_BOCHS_MEGS=1   # RAMPAGE.DRV's image goes top-down, so a compaction still buys the read-ahead's worth (kern_mega's panel list scrolls: its arrow brings the page in)
 heapdrv secs=60   # SOUND.DRV's buffers are in the SOUND group on the Task Manager arm's memory page (KERN-MEGA-PLAN 14.91: their owner, the driver's data selector, was read as a paragraph)
 pkgmove-browser secs=80 @OS88_BOCHS_MEGS=1   # the Browser's four claims (source, document, lines, links) move, live, bytes and picture identical
-tmselfsu secs=200 @OS88_BOCHS_MEGS=1   # the Task Manager arm keeps its OWN raise cache and still sees everyone else's - witnessed off tm_update's one door and the kernel's three wm_su_* (MegaOwn), not every font_run. On a 16MB kern_mega its cache is a pool block and QUIET is RED: KERN-MEGA-PLAN 14.92, diagnosed and not fixed
+tmselfsu secs=200 @OS88_BOCHS_MEGS=1   # the Task Manager arm keeps its OWN raise cache and still sees everyone else's - witnessed off tm_update's one door and the kernel's three wm_su_* (MegaOwn), not every font_run. At 1MB every cache is a conventional claim: the claim table's question, unchanged
+tmselfsu@16m secs=200 @OS88_BOCHS_MEGS=16   # ...and at 16MB, where its raise cache is a POOL block: tm_quiet leaves it out of the pool walk's key by the LONG record's tag (OSAPI_XMEM_WALK BX = XMW_LONG, KERN-MEGA-PLAN 14.92) - RED before it on QUIET and CELLS (six drops of six, TM holds 0000), and OTHERS red with tm_ownws answering "ours" for the whole range
 heapcheck secs=50 @OS88_BOCHS_MEGS=1   # heapfrag's 18 checks and the region suite on a 1MB kern_mega; check 13 asks for the ceiling block's OWN merged run (hf_ceilask, KERN-MEGA-PLAN 14.93) - red with HEAPCOMPACT=0 and with the descending pass taken out, on kern_big and kern_mega
 
 # DESKTOP RUNNERS-UP (wave 2)

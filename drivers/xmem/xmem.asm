@@ -370,10 +370,17 @@ xm_svc:
 ; out:      CF = 0, AX = records written, each {dw XB_OFF, dw XB_KB, db
 ;           XB_OWN, db 0} - OSAPI_XMEM_WALK's XMW_ record, which is this
 ;           table's entry less its padding. Read with IF = 0, so no record is
-;           torn by an allocation on another task
+;           torn by an allocation on another task. CF = 1, AX = 2 and nothing
+;           written for BX = XMW_LONG: kern_mega's eight-byte records
+;           (KERN-MEGA-PLAN 14.92), which this pool has no tags to fill - a
+;           caller that asked for them must be TOLD, not handed six-byte
+;           records it would read as eight
 ; clobbers: nothing else (flags)
 ; -----------------------------------------------------------------------------
 xm_walk:
+    mov ax, 2                   ; (AX is no input: the walk writes its own)
+    cmp bx, XMW_LONG
+    je xm_no
     push cx
     push si
     push di
@@ -419,6 +426,7 @@ xm_walk:
     ret
 
 XMW_FIXED       equ 0x4658      ; MIRRORED: apps/os88api.inc's walk records
+XMW_LONG        equ 0x4C58      ; ...MIRRORED too: refused here (14.92)
 ROMF_HWALK      equ 10          ; MIRRORED: boot/osrom.asm's - the HMA tail's
                                 ; walk of its own pool (SPEC.md 28.4.13)
 

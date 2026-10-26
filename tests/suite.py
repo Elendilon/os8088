@@ -16159,9 +16159,13 @@ SOAK = [
         "programs is RAM's used half exactly with the pool's caches in "
         "none of them, and System>1MB's rows sum to its heading; a block "
         "above 1MB reads its five-digit paragraph in ADDR and no row reads "
-        "HIGH there; the map is two frames. Red on each of the three put "
+        "HIGH there; the map is two frames; and every cache above 1MB "
+        "carries its whole tag (OSAPI_XMEM_WALK's LONG records, KERN-MEGA-"
+        "PLAN 14.92) and is a Purgeable row named by it - WinSave, FATwin, "
+        "Icons - never the bare Cache. Red on each of the three put "
         "back alone (the [tm_pm] flag, the cache sum, the paragraph) and on "
-        "the source before it (10 legs of 12). 40s is 22 measured",
+        "the source before it (10 legs of 12), and the tag legs red on the "
+        "arm before 14.92. 40s is 36 measured",
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
                "build/mbr.bin", "build/megak/apps/taskmgr.bin")),
@@ -17904,8 +17908,10 @@ SOAK = [
         "the contract's model - order, segment, KB rounded up, image against "
         "buffer, the owner's class - with room for none, one and part, BX "
         "not asking and no tail, and every register, IF, DF and the bytes "
-        "either side of the room kept. Broken on purpose: KB truncated, and "
-        "image/buffer inverted, each fail",
+        "either side of the room kept; and BX = XMW_LONG (kern_mega's "
+        "eight-byte records, KERN-MEGA-PLAN 14.92) REFUSED, CF = 1, AX = 2, "
+        "nothing written. Broken on purpose: KB truncated, "
+        "image/buffer inverted, and the XMW_LONG test taken out, each fail",
         needs=("nasm", "unicorn"),
         wants=("build/xmem.bin", "build/coldhma.sys")),
     Row("hmapool", "soak", py("tests/hmapool.py"), 0.5,
@@ -18404,14 +18410,17 @@ MEGA_WANTS = ("build/mega.img", "build/megaapps.img",
 def _mega_ports(base):
     """mega-<name> for every line of tests/megaport.txt. A line is
 
-        name [secs=N] [timeout=N] [@VAR=VAL ...] [NAME=VAL ...] [+arg ...]
-             [-arg ...]   # why
+        name[@alias] [secs=N] [timeout=N] [@VAR=VAL ...] [NAME=VAL ...]
+             [+arg ...] [-arg ...]   # why
 
     `+arg` appends an argument to the base row's command and `-arg` removes
     one (with the value after it when written `-arg=`, i.e. `-machine=`
     drops `--machine X`). An upper-case `NAME=VAL` is put in the row's
     environment beside OS88_MEGA=1 (`OS88_BOCHS_MOUSE=serial`,
-    `OS88_BOCHS_NE2K=1` - tools/os88bochs.py's knobs)."""
+    `OS88_BOCHS_NE2K=1` - tools/os88bochs.py's knobs). `name@alias`
+    registers the same base row a SECOND time as `mega-<name>-<alias>`,
+    for a row that is a different question on a different machine (one
+    line per machine size: `tmselfsu` at 1MB and `tmselfsu@16m` at 16MB)."""
     by = {r.name: r for r in base}
     out = []
     try:
@@ -18424,6 +18433,7 @@ def _mega_ports(base):
             continue
         why = ln.split("#", 1)[1].strip() if "#" in ln else ""
         name, opts = body[0], body[1:]
+        name, _, alias = name.partition("@")
         r = by.get(name)
         if r is None:
             raise SystemExit("tests/megaport.txt: no soak row %r" % name)
@@ -18449,7 +18459,8 @@ def _mega_ports(base):
                     cmd.remove(o[1:])
         needs = tuple(n for n in r.needs if n not in ("marty", "qemu",
                                                       "qemu9")) + ("bochs",)
-        out.append(Row("mega-" + name, "soak",
+        out.append(Row("mega-" + name + ("-" + alias if alias else ""),
+                       "soak",
                        ["env", "OS88_MEGA=1"] + env + cmd,
                        secs or max(60.0, r.secs * 2.0),
                        "%s ON kern_mega (tests/megaport.txt): %s%s"

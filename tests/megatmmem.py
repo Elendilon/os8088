@@ -25,7 +25,14 @@ cell against the kernel's own glyph table):
      `HIGH` in the ADDR column;
   4. THE MAP: [tm_mconw] is the left part's width (TM_GW x conventional /
      the machine, never under a third), and the map's frame row on the glass
-     is TWO black runs with two pixels of ground between them.
+     is TWO black runs with two pixels of ground between them;
+  6. THE CACHES BY NAME (KERN-MEGA-PLAN 14.92): the arm asks OSAPI_XMEM_WALK
+     for LONG records (BX = XMW_LONG), so every kernel cache above 1MB in
+     tm_xw carries its whole tag, high byte its level; and with the page
+     collapsed, turned to SYSTEM and Purgeable alone opened, every one of
+     them is a row at its five-digit paragraph NAMED by that tag as a
+     conventional cache is - WinSave for a raise cache (the two Disk
+     windows'), FATwin, Icons - never the bare `Cache`.
 
 Broken on purpose (docs/WRITING-TESTS.md 1): with the pre-28.4.15 source
 built into the image 10 legs of 12 are red - the drivers file under System
@@ -33,7 +40,8 @@ built into the image 10 legs of 12 are red - the drivers file under System
 and the map is one frame (4). Each was also put back on its own: the
 [tm_pm] flag in tm_xgidof (1 and the sum red), the cache exclusion in
 tm_hikb (System>1MB's heading 70K over its rows, and [tm_hicach], red)
-and the paragraph in tm_xrow (3 red).
+and the paragraph in tm_xrow (3 red). Leg 6 is red on the arm before
+14.92 - every tag 0000 and all four pool caches lettered `Cache`.
 """
 import os
 import re
@@ -103,7 +111,7 @@ class TM(object):
               "tm_totkb", "tm_kb", "tm_gkb", "tm_ist", "tm_iknd", "tm_lowkb",
               "tm_pm", "tm_hion", "tm_hiused", "tm_hitot", "tm_hisys",
               "tm_xwn", "tm_xw", "tm_hifix", "tm_hibase", "tm_hicach",
-              "tm_mconw", "tm_xgid")
+              "tm_mconw", "tm_xgid", "tm_detail")
 
     def __init__(self, box, eq):
         self.box, self.eq = box, eq
@@ -140,7 +148,8 @@ def quiet(tm, tries=12):
     def key():
         tm.read()
         e = tm.eq
-        return (tm.raw[e["tm_pm"] - tm.lo:e["tm_xw"] - tm.lo + 64 * 6] +
+        return (tm.raw[e["tm_pm"] - tm.lo:e["tm_xw"] - tm.lo +
+                       64 * e.get("TM_XWR", 6)] +
                 tm.raw[e["tm_hifix"] - tm.lo:e["tm_hifix"] - tm.lo + 8] +
                 tm.raw[e["tm_gkb"] - tm.lo:e["tm_gkb"] - tm.lo + 64] +
                 tm.raw[e["tm_xgid"] - tm.lo:e["tm_xgid"] - tm.lo + 64] +
@@ -261,10 +270,11 @@ def main():
         hmaf, n = eq["TMG_HMAF"], tm.w("tm_xwn")
         recs = []
         for i in range(n):
-            o = eq["tm_xw"] - tm.lo + i * eq["XMW_SIZE"]
-            r = tm.raw[o:o + 6]
+            o = eq["tm_xw"] - tm.lo + i * eq.get("TM_XWR", eq["XMW_SIZE"])
+            r = tm.raw[o:o + 8]
             recs.append((u16(r, 0), u16(r, 2), r[4], r[5],
-                         tm.raw[eq["tm_xgid"] - tm.lo + i]))
+                         tm.raw[eq["tm_xgid"] - tm.lo + i],
+                         u16(r, 6) if eq.get("TM_XWR", 6) == 8 else 0))
         drv = [r for r in recs if r[2] == 0xFD or r[2] & 0xE0 == 0xC0]
         caches = [r for r in recs if r[2] == 0xFE and r[3] >= eq["MEM_PG_MIN"]]
         want(len(drv) >= 3 and all(r[4] & hmaf for r in drv),
@@ -345,6 +355,72 @@ def main():
             want(len(rr) == 2 and rr[1][0] - rr[0][1] == 3,
                  "4. the map's frame row (y %d) is two frames with two "
                  "pixels between: %s" % (fy, rr))
+
+        # --- 6. THE POOL'S CACHES BY NAME (KERN-MEGA-PLAN 14.92) ----------
+        # The arm asks for the walk's LONG records, so every cache above 1MB
+        # carries its whole tag (XMW_TAG), and its row is named by it as a
+        # conventional cache's is - WinSave for a raise cache - never the
+        # bare `Cache` a six-byte record could only say. Purgeable is the
+        # LAST group, listed in the SYSTEM view (tm_detail, the header's
+        # left end) and below the rows the glass shows with every group
+        # open, so the page is collapsed (-ALL), turned to SYSTEM and
+        # Purgeable alone opened
+        ws0, wsn = eq["MEM_P_WSAVE"], eq["MEM_P_WSAVE_N"]
+        want(caches and all(r[5] and r[5] >> 8 == r[3] for r in caches),
+             "6. every cache above 1MB carries its whole tag in the walk's "
+             "LONG record, the high byte its level: %s"
+             % " ".join("%04X/%02X" % (r[5], r[3]) for r in caches))
+        para = {(0x400 + tm.w("tm_hibase") + r[0]) * 64: r[5] for r in caches}
+        box.click(cx + eq["TM_PEN"] + 25 * 8 - 12,
+                  cy + eq["TMM_HDR_Y"] - xoff + 4, "-ALL", lock=False)
+        box.until(lambda: tm.read() and
+                  not u16(tm.raw, eq["tm_exp"] - tm.lo), "-ALL", 30)
+        box.click(cx + eq["TM_PEN"] + 4 * 8,
+                  cy + eq["TMM_HDR_Y"] - xoff + 4, "SYSTEM", lock=False)
+        box.until(lambda: tm.read() and tm.b("tm_detail") == 1,
+                  "the SYSTEM view", 30)
+        time.sleep(4.5)
+        quiet(tm)
+        box.shot(png)
+        lines = ocr(png, table, cx, cx + 232, cy, cy + 300)
+        pl = next(((y, x) for y, x, t in lines
+                   if t.strip().startswith("+Purgeable")), None)
+        if pl is None:
+            want(False, "6. a collapsed Purgeable row on the glass: %s"
+                 % [t.strip() for _, _, t in lines])
+        else:
+            bit = 1 << eq["TMG_PURGE"]
+            box.click(pl[1] + 24, pl[0] + 3, "Purgeable", lock=False)
+            box.until(lambda: tm.read() and
+                      (u16(tm.raw, eq["tm_exp"] - tm.lo) |
+                       u16(tm.raw, eq["tm_exp"] - tm.lo + 2) << 16) & bit,
+                      "Purgeable open", 30)
+            time.sleep(4.5)
+            quiet(tm)
+            box.shot(png)
+            if shots:
+                shutil.copy(png, os.path.join(shots, "megatmmem-purge.png"))
+            lines = ocr(png, table, cx, cx + 232, cy, cy + 300)
+            seen = {}
+            for _, _, t in lines:
+                print("      | " + t.rstrip())
+                mm = re.search(r"^\s+(\S+)\s+([0-9A-F]{5})\s+\d+K", t)
+                if mm:
+                    seen[int(mm.group(2), 16)] = mm.group(1)
+            want(para and all(p in seen for p in para),
+                 "6. every cache above 1MB is a Purgeable row at its "
+                 "paragraph: %s (the walk's %s)"
+                 % (sorted("%05X" % p for p in seen),
+                    sorted("%05X" % p for p in para)))
+            wrong = ["%05X %s (tag %04X)" % (p, seen.get(p), t)
+                     for p, t in para.items() if p in seen and
+                     (seen[p] == "Cache" or
+                      (ws0 <= t < ws0 + wsn) != (seen[p] == "WinSave"))]
+            want(para and not wrong,
+                 "6. each is named by its tag - WinSave for a raise cache, "
+                 "never the bare Cache: %s"
+                 % (", ".join(wrong) or
+                    ", ".join("%05X %s" % (p, seen.get(p)) for p in para)))
         bad = [l for l in box.lines() if "kern_mega FAULT" in l or
                "kern_mega CLOSED" in l]
         want(not bad, "5. no kern_mega fault%s" %

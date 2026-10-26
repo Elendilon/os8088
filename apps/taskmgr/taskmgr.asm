@@ -126,6 +126,20 @@ TM_NVIEW    equ 2
 TM_NVIEW    equ 1
 %endif
 
+%ifdef TMF_MEM
+; ...and one record of tm_xw, OSAPI_XMEM_WALK's answer as tm_hikb asks for it.
+; The kern_mega arm asks for LONG records (BX = XMW_LONG, KERN-MEGA-PLAN
+; 14.92), eight bytes with a kernel cache's whole tag at XMW_TAG, so its own
+; raise cache above 1MB can be told from anybody else's (tm_quiet) and every
+; pool cache can be named as its conventional twin is (tm_xrow). Every reader
+; of tm_xw steps by this; the shipped build's records are the six they were
+%ifdef PKG_MEGA
+TM_XWR      equ XMW_LSIZE
+%else
+TM_XWR      equ XMW_SIZE
+%endif
+%endif
+
 ; --- the dock/desktop icon (SPEC.md 20.2): a bar chart on an axis ------------
 ; Distinct from the Control Panel's slider panel at 16px, which a framed list
 ; of bars was not.
@@ -1855,9 +1869,35 @@ tm_quiet:
     call tm_sumb
     cmp byte [tm_hion], 0       ; ...AND THE POOL ABOVE 1MB, which the list
     je .nox                     ; draws a block a row of since KERN-MEGA-
+%ifdef PKG_MEGA
+    ; ...RECORD BY RECORD, for the claim table's reason (KERN-MEGA-PLAN
+    ; 14.92): on a machine with a pool OUR raise cache is a pool block, and
+    ; the walk's LONG record carries its whole tag, so it is left out here as
+    ; its conventional twin is above. SKIPPED and not weighed as zeroes, and
+    ; the count not hashed: the walk lists LIVE blocks only, so a dropped
+    ; cache is a list one record shorter with every later record moved up -
+    ; and the list with ours skipped IS the list without it, byte for byte.
+    ; Anybody else's raise cache is hashed like any other block, so the page
+    ; still wakes for it (OTHERS, tests/tmselfsu.py)
+    mov si, tm_xw
+    mov bx, [tm_xwn]
+.xr:
+    dec bx
+    js .nox
+    mov dx, [si+XMW_TAG]
+    call tm_ownws
+    jnc .xo
+    mov cx, TM_XWR
+    call tm_sumb                ; AX chains; SI advances past the record
+    jmp short .xr
+.xo:
+    add si, TM_XWR              ; ...OURS: not a reason to paint
+    jmp short .xr
+%else
     mov si, tm_xwn              ; PLAN 14.70.2: a driver or a program taking
-    mov cx, 2 + TM_XWN * XMW_SIZE   ; a block there moved nothing hashed
+    mov cx, 2 + TM_XWN * TM_XWR   ; a block there moved nothing hashed
     call tm_sumb                ; above, so the page sat unchanged over it.
+%endif
 .nox:                           ; tm_hikb refreshes it every sample, outside
                                 ; the lock like the rest; a machine with no
                                 ; pool (tm_hion 0) has only zeroes there, and
@@ -1872,6 +1912,38 @@ tm_quiet:
 %endif                          ; whole routine: there is nothing it could
     clc                         ; answer but "paint"
     ret
+
+%ifdef PKG_MEGA
+; -----------------------------------------------------------------------------
+; tm_ownws - is this tag OUR OWN raise cache? (KERN-MEGA-PLAN 14.92)
+; in:  DX = a cache's MEM_P_* tag (a walk record's XMW_TAG; 0 for no cache)
+; out: CF = 0 it is MEM_P_WSAVE + the slot of a window THIS package owns;
+;      CF = 1 anything else - another window's cache, another cache, none
+; clobbers: DX (flags)
+;
+; tm_quiet's claim-table test, for the pool's records: the tag is a base plus
+; the window's SLOT (SPEC.md 11.96.3), a RANGE, and OSAPI_WM_OWNSEG turns the
+; slot back into the segment that owns the window (11.96.3.1)
+; -----------------------------------------------------------------------------
+tm_ownws:
+    sub dx, MEM_P_WSAVE
+    cmp dx, MEM_P_WSAVE_N       ; unsigned, so a lower tag wraps high
+    cmc
+    jc .o
+    push ax
+    xchg ax, dx                 ; AL = the slot
+    call OSAPI_WM_OWNSEG        ; DX = its window's owner, CF = 1 none
+    pop ax
+    jc .o
+    push di
+    mov di, ds
+    cmp dx, di
+    pop di
+    je .o                       ; (equal: CF = 0)
+    stc
+.o:
+    ret
+%endif
 
 ; -----------------------------------------------------------------------------
 ; tm_paintdue - does this interval owe a paint? (SPEC.md 28.6)
@@ -3537,7 +3609,7 @@ tm_himax:
     mov ax, [si+XMW_OFF]
     mov di, si
 .sn:
-    add si, XMW_SIZE
+    add si, TM_XWR
     dec cx
     jmp short .scan
 .got:
@@ -3867,7 +3939,7 @@ tm_map_ram:
     cmp word [tm_mconw], TM_GW  ; ...and on kern_mega the pool's walk, which
     jae .key                    ; the map's right part draws (28.4.15)
     mov si, tm_xwn
-    mov cx, 2 + TM_XWN * XMW_SIZE
+    mov cx, 2 + TM_XWN * TM_XWR
     call tm_sumb
 .key:
 %endif
@@ -4071,7 +4143,7 @@ tm_map_hi:
     call OSAPI_GFX_FRAME
 .n:
     pop cx
-    add di, XMW_SIZE
+    add di, TM_XWR
     dec cx
     jmp short .l
 .done:
@@ -4750,7 +4822,7 @@ tm_classify:
     mov ax, [si+XMW_KB]
     add [tm_gkb+bx], ax
 .xn:
-    add si, XMW_SIZE
+    add si, TM_XWR
     inc di
     dec cx
     jmp short .x
@@ -5450,7 +5522,7 @@ tm_hmagrp:
     pop cx
     pop si
 .fxn:
-    add si, XMW_SIZE
+    add si, TM_XWR
     dec cx
     jmp short .fx
 .fxd:
@@ -5512,7 +5584,7 @@ tm_hgkb:
     jne .n
     add ax, [si+XMW_KB]
 .n:
-    add si, XMW_SIZE
+    add si, TM_XWR
     inc di
     loop .l
 .o:
@@ -5829,7 +5901,7 @@ tm_mbrs:
     jne .xn
     call tm_xrow
 .xn:
-    add si, XMW_SIZE
+    add si, TM_XWR
     inc di
     dec cx
     jmp short .x
@@ -5917,6 +5989,14 @@ tm_xrow:
     jne .nk                     ; one of these, named by its file (14.70.3)
     cmp byte [si+XMW_CLS], MEM_PG_MIN
     jb .km                      ; ...and a CACHE carries its level (MC1)
+%ifdef PKG_MEGA
+    mov ax, [si+XMW_TAG]        ; ...and on the kern_mega arm its whole TAG
+    or ax, ax                   ; (LONG records, KERN-MEGA-PLAN 14.92), so it
+    jz .tc                      ; is named as its conventional twin is -
+    call tm_htype               ; 'WinSave', 'FATwin', 'DirView', a tm_ktab
+    jmp short .tt               ; name or the tag in hex (BX unread: AH is a
+.tc:                            ; purge level, never an instance's)
+%endif
     mov si, tm_s_tcach
     jmp short .t
 .km:
@@ -7916,7 +7996,11 @@ tm_hikb:
     pop es
     mov di, tm_xw
     mov cx, TM_XWN
+%ifdef PKG_MEGA
+    mov bx, XMW_LONG            ; ...LONG on the kern_mega arm (TM_XWR): the
+%else                           ; same records, each with its cache's tag
     mov bx, XMW_FIXED           ; NAMED, on a kernel that names it: kern_mega
+%endif
     call OSAPI_XMEM_WALK        ; puts a record per fixed area in front of the
     jnc .walked                 ; blocks (KERN-MEGA-PLAN 14.70.2) and every
     xor ax, ax                  ; other kernel ignores BX
@@ -7940,7 +8024,7 @@ tm_hikb:
     ja .fxn
     add bx, [di+XMW_KB]
 .fxn:
-    add di, XMW_SIZE
+    add di, TM_XWR
     dec cx
     jmp short .fx
 .fxd:
@@ -8002,7 +8086,7 @@ tm_hikb:
 .sysa:
     add dx, [di+XMW_KB]
 .sysn:
-    add di, XMW_SIZE
+    add di, TM_XWR
     dec cx
     jmp .sys
 .sysd:
@@ -8045,7 +8129,7 @@ tm_slotxkb:
 .add:
     add ax, [si+XMW_KB]
 .n:
-    add si, XMW_SIZE
+    add si, TM_XWR
     loop .l
 .done:
     pop si
@@ -8545,14 +8629,14 @@ tm_hisys    equ tm_hitot + 2    ; ...and of it the SYSTEM's: the kernel's
                                 ; tables and .cold under the pool, and the
                                 ; blocks the kernel and drivers own (28.4.8)
 tm_xwn      equ tm_hisys + 2    ; records in tm_xw
-tm_xw       equ tm_xwn + 2      ; the pool's blocks, TM_XWN x XMW_SIZE
+tm_xw       equ tm_xwn + 2      ; the pool's blocks, TM_XWN x TM_XWR
 %ifdef TMF_HEAP
 TM_UMAX     equ 8               ; option ROMs the 640K-1MB map lists
-tm_umn      equ tm_xw + TM_XWN * XMW_SIZE   ; byte: found (tm_romscan)
+tm_umn      equ tm_xw + TM_XWN * TM_XWR   ; byte: found (tm_romscan)
 tm_uma      equ tm_umn + 1      ; TM_UMAX x {dw segment, dw KB}
 tm_hifix    equ tm_uma + TM_UMAX * 4    ; KB between 1MB and the pool's base
 %else                           ; (the 640K-1MB rows are the LIST's, so
-tm_hifix    equ tm_xw + TM_XWN * XMW_SIZE   ; tm_romscan and its records
+tm_hifix    equ tm_xw + TM_XWN * TM_XWR   ; tm_romscan and its records
 %endif                          ; go with it: SPEC.md 28.12)
 tm_hibase   equ tm_hifix + 2    ; KB from 1MB to the pool's base (tm_hikb)
 tm_hicach   equ tm_hibase + 2   ; KB of the kernel's caches in the pool (MC1)

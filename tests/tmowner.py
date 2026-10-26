@@ -42,6 +42,8 @@ for i, a in enumerate(sys.argv):
 
 INST_MAX, MEM_MAX, CLS_RECSZ = 12, 32, 6    # apps/os88api.inc
 XMW_SIZE = 6                                # ...and OSAPI_XMEM_WALK's record
+XMW_LSIZE = 8                               # ...LONG, as the kern_mega arm asks
+                                            # (BX = XMW_LONG, KERN-MEGA-PLAN 14.92)
 TMG_PURGE = INST_MAX + 2                    # apps/taskmgr/taskmgr.asm
 TITLE_H = 18
 fails = []
@@ -123,7 +125,7 @@ with os88ui.boot("build/os8088-360.img", apps="build/apps360.img",
                     # and files in tm_xgid, its classification beside tm_cgid
                     xn = tmw("tm_xwn")
                     xw = m.read(base + dispapps.bss_off("taskmgr", "tm_xw"),
-                                xn * XMW_SIZE)
+                                xn * XMW_LSIZE)
                     xg = m.read(base + dispapps.bss_off("taskmgr", "tm_xgid"),
                                 xn)
             finally:
@@ -131,7 +133,7 @@ with os88ui.boot("build/os8088-360.img", apps="build/apps360.img",
             if mega and key(cache) >= 0x10000:
                 kb = ((key(cache) << 4) - 0x100000) >> 10
                 for r in range(xn):
-                    if xw[r * XMW_SIZE] | (xw[r * XMW_SIZE + 1] << 8) == kb:
+                    if xw[r * XMW_LSIZE] | (xw[r * XMW_LSIZE + 1] << 8) == kb:
                         box["gid"] = xg[r]
                         return True
                 return False

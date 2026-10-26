@@ -8155,33 +8155,41 @@ mega_modvfixf:
 ; `.mega`, from where mega_layoutf put them at the top of extended memory
 ; (KERN-MEGA-MEMORY-PLAN MC2). The HMA is not among them since MC2: it is the
 ; pool's own first 64KB, and since MC4 ordinary pool, so what stands there is
-; listed as the blocks it is. There is no padding any more to name
+; listed as the blocks it is. There is no padding any more to name.
+;
+; AND BX = XMW_LONG (KERN-MEGA-PLAN 14.92) is XMW_FIXED with every record
+; EIGHT bytes: the six, then the block's whole purge TAG for a kernel cache
+; (MX_AUX of an MX_FPURGE block, whose low byte the class byte never carried -
+; the window slot a raise cache serves), 0 for every other record. That low
+; byte is how a caller tells ITS OWN cache from anybody else's: the Task
+; Manager's quiet page repainted after every drop of its own pool cache
+; without it (SPEC.md 28.8.1's loop, one layer down). A caller that does not
+; ask gets the six-byte records it always did
 mega_xmwalk:
     push cx
     push dx
     push si
     push di
     xor dx, dx                      ; DX = records written
+    cmp bx, XMW_LONG                ; (LONG records name the fixed areas too)
+    je .fx
     cmp bx, XMW_FIXED
     jne .pool
-    push bx                         ; THE FIXED AREAS ABOVE THE POOL, from
+.fx:                                ; THE FIXED AREAS ABOVE THE POOL, from
     cmp word [mega_tbllin+2], 0x10  ; where mega_layoutf put them (MC2): the
     jb .fxc                         ; tables only when they are above 1MB
     mov si, [mega_fixkb]            ; (mega_tlowf's are conventional), the
-    mov bx, [mega_tblkb]            ; HMA not here - it is the pool's own
-    or bh, XMW_GDT                  ; first block - and no padding, there
+    mov ax, [mega_tblkb]            ; HMA not here - it is the pool's own
+    or ah, XMW_GDT                  ; first block - and no padding, there
     call .rec                       ; being none. ONE record: the LDT sits on
                                     ; the GDT since MC7's step 6
-
 .fxc:
     cmp byte [mega_codehi], 0
-    je .fxe
+    je .pool
     mov si, [mega_fixkb]
     add si, [mega_tblkb]
-    mov bx, (XMW_KCODE << 8) | MEGA_CODE_KB
+    mov ax, (XMW_KCODE << 8) | MEGA_CODE_KB
     call .rec
-.fxe:
-    pop bx
 .pool:
     mov si, mx_tab
     pushf
@@ -8197,6 +8205,12 @@ mega_xmwalk:
     mov al, [ss:si+MX_OWN]
     call mega_xmcls                 ; AH = a driver's class, else 0
     stosw
+    cmp ah, MEM_PG_MIN              ; ...a purge level only for a kernel
+    mov ax, 0                       ; CACHE (mega_xmcls), whose tag is MX_AUX
+    jb .t                           ; (mega_hiclaim): AX = the tag, else 0
+    mov ax, [ss:si+MX_AUX]
+.t:
+    call .tag
     inc dx
     dec cx
 .n:
@@ -8215,18 +8229,29 @@ mega_xmwalk:
     ret
 
 .rec:                               ; ES:DI = one fixed record: SI = its
-    jcxz .rx                        ; KB from 1MB, BL its KB, BH its owner
-    mov ax, si
+    jcxz .rx                        ; KB from 1MB, AL its KB, AH its owner
+    xchg ax, si                     ; (SI is spent)
     stosw
-    mov al, bl
+    xchg ax, si
+    push ax
     mov ah, 0
     stosw
-    mov al, bh
+    pop ax
+    mov al, ah
     mov ah, 0
     stosw
+    xor ax, ax                      ; ...and no tag
+    call .tag
     inc dx
     dec cx
 .rx:
+    ret
+
+.tag:                               ; AX = the record's tag: written when BX
+    cmp bx, XMW_LONG                ; asked for LONG records
+    jne .tx
+    stosw
+.tx:
     ret
 
 ; mega_xmcls - AL = the owner of the mx_tab entry at SS:SI -> AH = the
@@ -8298,6 +8323,7 @@ mega_xmcls:
 ; block. (kernel.asm checks DRVR_SIZE for mega_xmcls, once driver.inc has
 ; defined it)
 XMW_FIXED   equ 0x4658              ; MIRRORED in apps/os88api.inc
+XMW_LONG    equ 0x4C58              ; ...and LONG records (KERN-MEGA-PLAN 14.92)
 XMW_HMA     equ 0xF0
 XMW_GDT     equ 0xF1
 XMW_LDT     equ 0xF2

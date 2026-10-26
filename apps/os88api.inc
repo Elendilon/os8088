@@ -2721,7 +2721,16 @@ KIND_PKG   equ 0x80             ; SSI_KIND bit 7: this instance is a package
                                  ; driver's class - all inside the span
                                  ; between 1MB and the pool, never on top of
                                  ; it. Every other kernel ignores BX and
-                                 ; writes 0 at XMW_CLS
+                                 ; writes 0 at XMW_CLS. BX = XMW_LONG asks
+                                 ; for LONG records (KERN-MEGA-PLAN 14.92):
+                                 ; XMW_FIXED's records, each XMW_LSIZE = 8
+                                 ; bytes - the six above, then XMW_TAG, a
+                                 ; kernel cache's whole MEM_P_* tag (its low
+                                 ; byte the window slot, volume or owner the
+                                 ; cache serves), 0 for every other record.
+                                 ; kern_mega answers it; kern_big's XMEM.DRV
+                                 ; refuses it, CF=1 AX=2, nothing written -
+                                 ; never six-byte records read as eight
 %define OSAPI_MEM_HUGE      KERNEL_SEG:0x04C5   ; A CLAIM OF ANY SIZE, walked
                                  ; by a STEP (KERN-MEGA-PLAN 14.1 answers 6,
                                  ; 7): AX = KB (1..65535); out CF=0, DX = its
@@ -2786,7 +2795,10 @@ XMW_KB      equ 2
 XMW_OWN     equ 4
 XMW_CLS     equ 5               ; db: a driver's block's DRVC_* class
 XMW_SIZE    equ 6
+XMW_TAG     equ 6               ; dw, LONG records only: a cache's MEM_P_* tag
+XMW_LSIZE   equ 8               ; a LONG record (BX = XMW_LONG)
 XMW_FIXED   equ 0x4658          ; BX: name the fixed areas ('XF')
+XMW_LONG    equ 0x4C58          ; BX: ...and LONG records, XMW_TAG ('XL')
 XMW_HMA     equ 0xF0            ; ...the HMA, kept for the DOS trip
 XMW_GDT     equ 0xF1            ; ...the GDT
 XMW_LDT     equ 0xF2            ; ...the LDT and the IDT

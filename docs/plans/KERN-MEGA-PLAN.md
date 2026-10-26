@@ -11341,7 +11341,7 @@ class-less image's.
 (`apps/taskmgr/taskmgr.asm`, `%ifdef PKG_MEGA`; the shipped taskmgr.bin is
 byte-identical). `mega-heapdrv` is the row, red before.
 
-### 14.92 The Task Manager's quiet page repaints for its OWN cache in the pool (2026-10-26) - DIAGNOSED, NOT FIXED
+### 14.92 The Task Manager's quiet page repaints for its OWN cache in the pool (2026-10-26) - FIXED
 
 **Found by porting `tmselfsu`**: on a 16MB kern_mega the memory page loses
 its raise cache every time it is partly covered - QUIET red, TM painted
@@ -11360,12 +11360,78 @@ out, QUIET and CELLS pass and OTHERS goes red (*"tm_quiet did not see
 ANOTHER window's cache"*) - which is 28.8.1's argument against a mask on the
 range, arriving one layer down.
 
-**Not fixed here, because every way out is a decision**: the walk record
-carrying the tag's low byte (an `OSAPI_XMEM_WALK` ABI change, `XMW_SIZE`), a
-way for a package to learn its own raise cache's selector (a new cell), or
-raise caches kept conventional on kern_mega (a placement policy, against
-MC3's). `mega-tmselfsu` is registered at 1MB, where its three legs are the
-conventional question unchanged; the 16MB arm is this entry.
+**The ways out were each a decision**: the walk record carrying the tag's
+low byte (an `OSAPI_XMEM_WALK` contract change), a way for a package to learn
+its own raise cache's selector (a new cell), or raise caches kept
+conventional on kern_mega (a placement policy, against MC3's). **The owner
+chose the first, as an OPT-IN LONG RECORD** - full attribution for any
+caller, WHO owns every cache, rather than a Task-Manager-only yes/no - with
+kern_big's resident bytes kept at none.
+
+**Fix, as built** (SPEC.md 28.4.11, 28.8.1, 50.6.8):
+
+- **The contract** (`apps/os88api.inc`): BX = **`XMW_LONG`** (4C58h, 'XL')
+  asks for `XMW_FIXED`'s records with every record **`XMW_LSIZE` = 8**
+  bytes - the six as today, then **`XMW_TAG`** (+6, a word): a kernel
+  cache's whole `MEM_P_*` tag (`MX_AUX` of an `MX_KOWN` block flagged
+  `MX_FPURGE`), whose low byte names the window slot, volume or owner the
+  cache serves; 0 for every other block and for the fixed areas' records. A
+  caller that does not ask gets exactly today's six-byte records, so it is
+  an ADDITION: `tools/abilock.py --update` with no `PKG_FMT` bump.
+  `XMW_LONG` is mirrored in `kernel/mega.inc` and `drivers/xmem/xmem.asm`.
+- **kern_mega** answers it: `mega_xmwalk` (`.mega`) treats `XMW_LONG` as
+  `XMW_FIXED` and writes the tag word through one `.tag` tail shared by the
+  fixed records (0) and the pool's (`MX_AUX` when `mega_xmcls` answered a
+  purge level). The fixed records' `.rec` takes its owner:KB in AX now, so BX
+  stays the request and the old `push bx`/`pop bx` went.
+- **kern_big** carries no resident byte for it: its walk is `XMEM.DRV`'s
+  `xm_walk`, which **REFUSES** `XMW_LONG` - CF = 1, AX = **2**, nothing
+  written, ahead of the HMA tail's walk - so a caller asking long on kern_big
+  is told rather than handed six-byte records it would read as eight.
+  kern_small's walk already refuses the whole cell (`xm_copy`, AX = 1).
+- **The Task Manager's kern_mega arm** (`%ifdef PKG_MEGA`; the shipped
+  `taskmgr.o88` is byte-identical): `tm_hikb` asks `XMW_LONG`, and every
+  reader of `tm_xw` steps by **`TM_XWR`** - `XMW_LSIZE` in the arm,
+  `XMW_SIZE` in the shipped build - so no record is compacted or copied and
+  the tag rides beside the six bytes everything else reads. Then:
+  - **(a) `tm_quiet`** hashes the pool **record by record** and leaves out
+    each record whose tag is `MEM_P_WSAVE` + a slot `OSAPI_WM_OWNSEG` says
+    is OURS (`tm_ownws`, the claim table's own test). The record is SKIPPED,
+    not weighed as zeroes, and the count is not hashed: the walk lists live
+    blocks only, so a dropped cache is a list one record shorter with every
+    later record moved up, and the list with ours skipped IS the list
+    without it. Another window's raise cache is hashed like any block.
+  - **(b) the list NAMES a pool cache by its tag** as it names a
+    conventional one: `tm_xrow` hands a tagged cache's tag to `tm_htype`, so
+    the memory page's `Purgeable` group (SYSTEM view) reads `WinSave` for a
+    window's raise cache, `FATwin`, `Icons`, `DirView` or the tag in hex -
+    with its five-digit paragraph and its TIER - where every one of them read
+    `Cache` before. MEASURED under Bochs at 4MB (`megatmmem` leg 6): the two
+    Disk windows' raise caches `WinSave 3DDC0 30K TRIV` and `WinSave 3D2C0
+    30K TRIV`, `FATwin 3E680 5K MED`, `Icons 3E540 5K TRIV`; the arm before
+    this lettered all four `Cache`, tags 0000. The conventional model is the
+    one followed - a raise cache is Purgeable's whoever caused it (SPEC.md
+    28.4.10), TYPE `WinSave`, not billed to the window's package - so the
+    page names WHAT each cache is; the tag's slot is what lets it tell whose.
+
+**Bytes**: kern_mega `.mega` 17,840 -> 17,871 (**+31**), `.text` +0;
+`XMEM.DRV` image 2,042 -> 2,051 (**+9**; 1,891 -> 1,900 on the disk); the
+Task Manager's kern_mega arm image 11,354 -> 11,418 (**+64**; 10,046 ->
+10,104 on the disk) and its bss **+128** (`tm_xw`'s 64 records at eight
+bytes); **kern_big and kern_small `kernel.bin` byte-identical, and the
+shipped `taskmgr.o88` byte-identical** (cmp at one commit).
+
+**Gates**: **`mega-tmselfsu-16m`** (tests/megaport.txt's `tmselfsu@16m`,
+the 16MB machine; `name@alias` registers a base row a second time,
+tests/suite.py's `_mega_ports`) - RED before the fix on QUIET and CELLS
+(*"the Task Manager holds no cache after the drop"*, six drops of six), GREEN
+after (`TM holds 11BC` after one drop, 0 cells), and OTHERS RED with
+`tm_ownws` answering "ours" for the whole raise-cache range (*"tm_quiet did
+not see ANOTHER window's cache"*). `mega-tmselfsu` stays at 1MB, the
+conventional question. **`megatmmem` leg 6** is the attribution's, red on
+the arm before. **`xmhwalk`** holds `XMEM.DRV`'s refusal under unicorn - red
+with the `XMW_LONG` test taken out (*"CF clear; the room was written"*).
+`tmowner` and `megatmmem` read `tm_xw` at the arm's eight-byte stride.
 
 ### 14.93 heapfrag's check 13 asks for the block's own merged run (2026-10-26)
 
