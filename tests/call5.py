@@ -71,7 +71,7 @@ def leg_window(machine):
         # the pair tore under load: the base a move had just retired, and the
         # program's own arena under it, read as exit code 161.
         M.heap_read(m, lambda mm: mm.write(
-            (dosmap.instance(mm) << 4) + dm["dos_exit"], bytes([0xEE])))
+            dosmap.lin(mm, dosmap.instance(mm), dm["dos_exit"]), bytes([0xEE])))
         m.type_text("B:\n")
         M.settle(m)
         m.type_text("CALL5.COM\n")
@@ -79,7 +79,7 @@ def leg_window(machine):
 
         def ran(mm):
             code[0] = M.heap_read(mm, lambda g: g.read(
-                (dosmap.instance(g) << 4) + dm["dos_exit"], 1)[0],
+                dosmap.lin(g, dosmap.instance(g), dm["dos_exit"]), 1)[0],
                 "[dos_exit]")
             return code[0] != 0xEE
         try:                        # GUEST time: `limit` is idle-box seconds
