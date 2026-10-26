@@ -175,14 +175,14 @@ hdnoclaim secs=50   # a mounted hard-disk partition costs no heap - on kern_mega
 
 # THE NETWORK (wave 2): QEMU's network rows on Bochs's NE2000, through
 # tests/os88qmpbochs.py - the row's own QMP socket answered by a kern_mega Bochs
-ethernet secs=120   # ETHER.DRV, DHCP and a page over TCP; the pool's claim read off mx_tab; the teardown's NETV_GONE (KERN-MEGA-PLAN 14.85)
-brdownload secs=90   # Save Link As streams a binary into B:, read back mid-run through the live image
-ethcfg secs=150   # a manual address set in the Setup window survives a reboot; ether360.img's twin on mega.img
-wirezone secs=90   # the Wire's service zone arrives with ETHER.DRV and leaves with it (KERN-MEGA-PLAN 14.86)
-wirechat secs=120   # WireChat end to end against the fixture hub; WIRECHAT.CFG read back off B: after the run
-httpmount secs=200   # HTTPFS.DRV mounts the host's tree; BIG.BIN with and without Range: byte-identical on B:
-httpinstall secs=120   # INSTALL started off the HTTP drive onto the IDE disk (the shim's C:); HTTPFS's CPU flags (KERN-MEGA-PLAN 14.87)
-netinst secs=360   # INSTALL over the network onto C:, and the startup link across two boots; OSAPI_DRV_CLASSK (KERN-MEGA-PLAN 14.88)
-netinstbad secs=200   # INSTALL's release check refuses six non-release answers
-rdxms secs=240   # the RAM disk's store above 1MB: kern_mega's own pool (mx_tab, heapmap.pool) in place of XMEM.DRV's table
-netcoexist secs=90 +--arm +pinned   # the card at 2A0h pinned on the Ports view, SYSTEM.CFG read on the host, found after a reset; the MPU arms need QEMU's isa-debugcon latch and its NIC trace, which Bochs has not got
+ethernet secs=60   # ETHER.DRV, DHCP and a page over TCP; the pool's claim read off mx_tab; the teardown's NETV_GONE (KERN-MEGA-PLAN 14.85)
+brdownload secs=60   # Save Link As streams a binary into B:, read back mid-run through the live image
+ethcfg secs=120   # a manual address set in the Setup window survives a reboot; ether360.img's twin on mega.img
+wirezone secs=60   # the Wire's service zone arrives with ETHER.DRV and leaves with it (KERN-MEGA-PLAN 14.86)
+wirechat secs=90   # WireChat end to end against the fixture hub; WIRECHAT.CFG read back off B: after the run
+httpmount secs=150   # HTTPFS.DRV mounts the host's tree; BIG.BIN with and without Range: byte-identical on B:
+httpinstall secs=90   # INSTALL started off the HTTP drive onto the IDE disk (the shim's C:); HTTPFS's CPU flags (KERN-MEGA-PLAN 14.87)
+netinst secs=300   # INSTALL over the network onto C:, and the startup link across two boots; OSAPI_DRV_CLASSK (KERN-MEGA-PLAN 14.88)
+netinstbad secs=150   # INSTALL's release check refuses six non-release answers
+rdxms secs=120   # the RAM disk's store above 1MB: kern_mega's own pool (mx_tab, heapmap.pool) in place of XMEM.DRV's table
+netcoexist secs=60 +--arm +pinned   # the card at 2A0h pinned on the Ports view, SYSTEM.CFG read on the host, found after a reset; the MPU arms need QEMU's isa-debugcon latch and its NIC trace, which Bochs has not got
