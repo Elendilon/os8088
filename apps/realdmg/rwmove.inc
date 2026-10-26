@@ -180,7 +180,9 @@ rw_mreloc:
     inc si
     cmp si, RDG_BTAB + 512 * 2
     jb .b
-    mov di, [es:S_ROMX]             ; ...the bank switched in now
+    mov di, [es:S_ROMX]             ; ...the bank switched in now - none
+    or di, di                       ;   when it was switched to lazily
+    jz .bx                          ;   (REALDMG-SPEC 10.3.2)
     add di, 400h
     sub di, bx
     cmp di, cx

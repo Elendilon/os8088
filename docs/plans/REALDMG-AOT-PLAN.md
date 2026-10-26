@@ -365,3 +365,27 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   switches ~8% of the room (07B9's `ld (2100),a` through `wr_slow`, `mbc_set`
   and rdgsys, ~70 instructions each) and the megamorphic lookups themselves
   (~35 a return, 26 a frame).
+- [x] Speed, round 11 - the owner's log of the same room on the Victory 286
+  (`ZELDA00.LOG`: one code image, 9 slots over XMS, 45-69% of real time)
+  said what instruction counts could not: **210-255 banks fetched a
+  second**, the Game Boy at 850-950 ms of every second. The room switches
+  banks 68 times a frame across 13 banks, so 9 slots fetched 8.7 a frame
+  whatever the eviction (random 9.6, true LRU 10.1) - but it READS 6-7 of
+  them, and bank 19 is switched to 7,896 times and never read. **A bank is
+  switched to lazily now** (REALDMG-SPEC 10.3.2): translated code's switch
+  leaves `S_ROMX` 0 and every reader fetches first. Over both replays at 9
+  slots, every frame the interpreter's: **9,816 fetches to 247** and **11,935
+  to 979** (0.2-0.4 a frame); at 5 slots, 35,051 to 8,055 - the slots still
+  matter, and a second code image (64KB, four slots) bought ~1% of the
+  instructions here. Found on the way, in this work's own first build: a
+  fetch let `rdg_setbank` point the interpreter's DS at the bank from a
+  stale `S_PC`, which the harness hid because its slots sat over bank 0's
+  copy; both are fixed, and GBBANKRD's two controls are the gate - and a
+  third that moved there: round 6's `RDG_NOTABFILT` control measured the
+  interpreter's jumps into table code on GBBANK, whose interpreter ran only
+  through the eager switch this took away, so it counts GBBANKRD's
+  interpreted jumps to a table block now (841 entries against 1). The
+  package's own move (`rw_reloc`) names the new vector, `S_RXVEC`, as it
+  names `S_MBCVEC`: `rdgclose`'s move leg found it unnamed. Thirteen
+  cartridges and Link's Awakening are each identical to themselves with
+  every bank in and with 6-9 slots, under both recompilers.

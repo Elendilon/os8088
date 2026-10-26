@@ -688,6 +688,66 @@ cartridge in one claim, and no bank is ever fetched (`rw_xplan`,
   `.mega` - would hold the cartridge once instead of twice; not taken, so
   that this needs no kernel change.
 
+### 10.3.2 A bank switched to lazily
+
+**A switch is not a read.** Precompiled code - and the recompiler's - that
+calls into a bank needs none of the bank's bytes: its blocks are already
+code. Link's Awakening switches banks **68 times a frame** in its first
+room, through the bank switcher at 07B9, and touches **13 banks every
+frame**; a 9-slot cache (the owner's Victory 286 with one code image, 168K
+of heap) fetched **8.7 banks a frame**, ~250 a second over XMS, and that was
+most of the machine (`ZELDA00.LOG`: the Game Boy at 850-950 ms a second,
+45-69% of real time). Of those 13 banks the frame READS 6-7, and bank 19,
+switched to 7,896 times in 1,128 frames, is never read at all.
+
+So translated code's own `LD (2000-3FFF),A` (`rdggen.bank_lines`) records a
+bank the cache has not got as `S_ROMX` = **0** and goes on - where it used
+to hand the instruction to the interpreter, whose `mbc_set` fetched. The
+bank is fetched when something READS it, and every reader checks:
+- **in the core**: `rd_rom` (the read of 4000-7FFF that `rd_slow` and
+  `rd_s1-3` share), `pop_slow` (SP in the bank), `w16_cpy` (a copy out of
+  it), `tr_int` for a PC in the bank, `tr_ejf`'s way into the interpreter
+  (`tr_ejfno`: a DS of 0 is the lazy bank) and `op_D3`, the seam's trap.
+  Each finding 0 goes to `rx_get` with where it starts again: `S_RET` and DX
+  are kept in the view (`S_RXRET`, `S_RXDX` - `rdg_ret` clears DL), and
+  `S_RXVEC`'s `rdg_rx` fetches as a switch would (`rdg_setbank`) and comes
+  back through `rx_back`. Nothing is pushed: SP is the Game Boy's;
+- **in rdgsys**: `rdg_resume` into the interpreter's own dispatch (the
+  recompiler's resume is `tr_enter`, which needs no bank), and OAM DMA from
+  the bank (`rdg_romxok`). **A fetch keeps `S_SAVDS`**: `rdg_setbank` points
+  the core's DS at the bank when `S_PC` is in it - a switch's business - and
+  at a fetch `S_PC` is only what the last trip out left, so the first build
+  sent the interpreter, reading the bank from bank-0 code, back with DS the
+  bank's (Kirby's Dream Land under the recompiler parted at frame 209, Kirby
+  2 precompiled at 677). A harness whose slots sat just above bank 0's copy
+  hid it: a slot's segment less 400h there reads bank 0's own bytes;
+- **in the translator**, which is a part of its own in the package and
+  cannot fetch: `rt_translate` declines a block in a lazy bank (`S_JITOUT`
+  0, as a full preload does), so `tr_int` interprets it, fetching, and the
+  next miss translates it with the bank in; `rt_idle` answers no.
+
+The interpreter's own switches stay eager (`mbc_set`): its DS may be the
+bank. `rwmove` leaves an `S_ROMX` of 0 alone. Translated code keeps no DS,
+so the inline switch's `mov ds` of a 0 is harmless; `tr_int` and the
+resume load DS afresh.
+
+Measured with the harness's cache made the package's (`gbaot.py check
+--slots K`: that many slots, at the top of its range, chosen as
+`rw_bfetch` chooses - the frame stamps), over the owner's two replays
+of that room and 9 slots: **9,816 fetches to 247** in 1,128 frames and
+**11,935 to 979** in 2,503, every frame identical to the interpreter. What is
+left is real reads (`rd_rom`, 0.12 a frame) and the interpreter's eager
+switches (0.08). `tests/gbaot.py`'s GBBANKRD is the gate: banks 1-7 switched
+to in turn with a VBlank counting underneath, each read first by a byte, a
+POP or a computed JP HL in turn, in a cache of three slots, under both
+recompilers; every reader is seen fetching, and a run with `S_PC` made a
+bank PC at every fetch must still be the interpreter's frame for frame. Its
+two controls part at once: `rd_rom`'s check jumped over in every segment's
+copy (frame 0), and a driver built `RDG_RXDSBUG`, the fetch leaving DS to
+`rdg_setbank` (frame 1). And a cache is invisible or it is wrong: thirteen
+of the owner's cartridges and Link's Awakening, each arm against itself with
+every bank in and with 6-9 slots, 1,500 frames.
+
 ### 10.4 Save states
 
 **Nine slots a game, `NAME.SS1` to `NAME.SS9` beside it** as its `.SAV` is

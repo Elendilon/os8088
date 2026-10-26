@@ -483,7 +483,7 @@ rw_entry:
 
 ; rw_reloc - OUR REGION MOVED (SPEC.md 66.6.1): BX = where it was, DX = where
 ; it is. rdgsys's own words moved with it; the state block in the view, which
-; did not, names our code segment in five vectors - by the selector a far
+; did not, names our code segment in six vectors - by the selector a far
 ; jump loads, which on kern_mega is the region's code alias and not BX or DX
 ; (rw_csel, REALDMG-SPEC 16.2.4). The worker is parked at OSAPI_TASK_ALIVE
 ; whenever this runs, never in the core.
@@ -519,6 +519,10 @@ rw_reloc:
     jne .4
     mov [S_MBCVEC+2], dx
 .4:
+    cmp [S_RXVEC+2], bx             ; (rdg_rx, the lazy bank's fetch:
+    jne .4x                         ;   REALDMG-SPEC 10.3.2)
+    mov [S_RXVEC+2], dx
+.4x:
     cmp [S_TRACEVEC+2], bx
     jne .5
     mov [S_TRACEVEC+2], dx

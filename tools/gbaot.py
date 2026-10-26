@@ -353,12 +353,17 @@ class Machine:
         free = [s for s in self.slots if s[1] is None]
         if free:
             slot = free[0]
-        else:
-            old, _ = self.lru.popitem(last=False)
-            slot = next(s for s in self.slots if s[1] == old)
+        else:                             # rwbank.inc's rw_bfetch: the slot
+            now = self.r16(view, self.sym["S_FRAMES"])   # whose bank was
+            use = self.sym["RDG_BUSE"]    #   switched to longest ago, by
+            slot = max(self.slots, key=lambda sl: (   # frame, the first of equals
+                (now - self.r16(view, use + 2 * sl[1])) & 0xFFFF, -self.slots.index(sl)))
+            old = slot[1]
+            del self.lru[old]
             self.w16(view, self.sym["RDG_BTAB"] + 2 * old, 0)
         slot[1] = n
         self.lru[n] = slot
+        self.fetches = getattr(self, "fetches", 0) + 1   # (a bank brought in)
         self.w(slot[0], 0, self.rom.d[n * 0x4000:(n + 1) * 0x4000].ljust(0x4000, b"\xFF"))
         self.w16(view, self.sym["RDG_BTAB"] + 2 * n, slot[0] - 0x400)
 
@@ -769,7 +774,7 @@ def load(out):
 # --- run --------------------------------------------------------------------
 
 def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=None,
-            state=None, heat=False):
+            state=None, heat=False, slots=None):
     """Yields each frame's state: mode 0 the interpreter, 1 the dynamic
     recompiler, 3 the precompiled code in `img` (meta, segs, table)."""
     m = Machine(build, rom, defines)
@@ -802,6 +807,12 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=Non
         romseg = FILT + 0x280              # (the filter's 8KB, and the cache's
                                            #   2KB after it: rdgaot.inc)
         m.set_slots(romseg + 0x400, MEM_END // 16)
+        if slots:                          # a bank cache as small as a
+            m.slots = m.slots[-slots:]     #   machine's (10.3.2's gate) - and
+                                           #   not under bank 0's copy: a slot's
+                                           #   segment less 400h there reads
+                                           #   bank 0's own bytes at 0000-3FFF,
+                                           #   which hid a DS left on the bank
         m.init(3, VIEW, CORE, HASH, seg_at[1] if len(seg_at) > 1 else CORE, 0, romseg,
                hmask=meta["hmask"], core_image=bytes(segs[0]))
         if prove:                          # count what runs in the code segments:
@@ -856,6 +867,12 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=Non
     else:
         SEGA, SEGB, romseg = 0x4000, 0x5000, 0x6000
         m.set_slots(romseg + 0x400, MEM_END // 16)
+        if slots:                          # a bank cache as small as a
+            m.slots = m.slots[-slots:]     #   machine's (10.3.2's gate) - and
+                                           #   not under bank 0's copy: a slot's
+                                           #   segment less 400h there reads
+                                           #   bank 0's own bytes at 0000-3FFF,
+                                           #   which hid a DS left on the bank
         m.init(mode, VIEW, CORE, HASH, SEGA, SEGB, romseg, hmask=31)
     if state is not None:                  # a save state, rwstate.inc's file
         ram = len(state) - 0x8000 - 0x800  # its cartridge RAM part: none, or
@@ -1176,13 +1193,13 @@ def broken(img, which):
 
 
 def compare(build, rom, img, frames, ref="interp", arm="aot", serial=False, defines=(),
-            log=print, joy=None, state=None):
+            log=print, joy=None, state=None, slots=None):
     """Run two arms side by side - the script, or a replay from its save
     state (`joy`, `state`). Returns (identical, what was found)."""
     r = run_arm(build, rom, ARMS[ref], frames, img if ref == "aot" else None, defines=defines,
-                joy=joy, state=state)
+                joy=joy, state=state, slots=slots)
     k = run_arm(build, rom, ARMS[arm], frames, img if arm == "aot" else None,
-                prove=(arm == "aot"), defines=defines, joy=joy, state=state)
+                prove=(arm == "aot"), defines=defines, joy=joy, state=state, slots=slots)
     m0 = m1 = None
     if serial:                            # a ROM that reports on its link port:
         for (f, x0, s0, m0), (_, x1, s1, m1) in zip(r, k):   # its words, not its
@@ -1197,8 +1214,12 @@ def compare(build, rom, img, frames, ref="interp", arm="aot", serial=False, defi
             return False, "frame %d DIFFERS (%s)" % (f, ", ".join(what))
     ran = getattr(m1, "ran", collections.Counter())["code"]
     nbr = m1.r16(m1.view, m1.sym["S_JITNBR"])
+    banks = ""
+    if slots:
+        banks = "; %d slots, banks fetched %d (%s) against %d (%s)" % (
+            slots, getattr(m1, "fetches", 0), arm, getattr(m0, "fetches", 0), ref)
     return True, "%d frames IDENTICAL, %s against %s; %d precompiled blocks entered, %d translated " \
-        "while running" % (frames, arm, ref, ran, nbr)
+        "while running%s" % (frames, arm, ref, ran, nbr, banks)
 
 
 def make(build, rom_path, out, romname=None, heat_frames=3000, replays=(), check=0,
@@ -1295,7 +1316,8 @@ def cmd_check(a):
         j0, joy, n = replay(a.replay)
         frames = min(frames, n)
         state = open(a.state, "rb").read()
-    ok, what = compare(a.build, rom, img, frames, a.ref, a.arm, a.serial, joy=joy, state=state)
+    ok, what = compare(a.build, rom, img, frames, a.ref, a.arm, a.serial, joy=joy, state=state,
+                       slots=a.slots)
     print("gbaot: " + what)
     return 0 if ok else 1
 
@@ -1336,6 +1358,8 @@ def main():
     k.add_argument("--break-hot", action="store_true", help="break the most entered block")
     k.add_argument("--keep", type=int, help="only this many code images past the core, as the "
                    "package runs when the heap holds no more")
+    k.add_argument("--slots", type=int, help="a bank cache of this many 16KB slots, as the "
+                   "package keeps one when the cartridge does not fit")
     k.add_argument("--replay", help="a NAME.RPn to play instead of the script...")
     k.add_argument("--state", help="...from the NAME.SSn it starts from")
     mk = sub.add_parser("make", help="GAME.O88 from a ROM: build, count, build again, package")
