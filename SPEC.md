@@ -176534,6 +176534,58 @@ original shape and is deferred behind the hibernate phase (§14), because a
 program that writes `B8000` directly has to be refused into full screen and
 that decision reads differently once `kern_dos` exists.
 
+##### 96.34.6 On a kern_mega trip: the same two halves, through a linear address
+
+On kern_mega every program runs on a `kern_dos` trip (96.40.9), and there
+`DOS.O88`'s own `dos_snap` cannot do either half: `con_scr` is in its region, a
+pool block above 1MB named by an LDT selector that the real-mode `kern_dos`
+cannot load, and by the time `DOS.O88` runs again the stub has staged the
+clock on the text page and `hbm_wake`'s mode set has cleared the rest. So the
+console travels as a **linear address** and `kern_dos` moves it with the
+`int 15h AH=87h` block move it already carries for XMS (`kdx_87`,
+`kerndos/kdxms.inc`). KERN-MEGA-PLAN 14.106 is the design record.
+
+**The record.** The kern_mega `DOS.O88` keeps four bytes directly in front of
+`con_scr` - the last `HBSS` row, so the console's bss follows it, asserted -
+and the three are one run: `dw` a cursor (column, then row), `dw` a flag
+(1 = captured), then the 80x25 cells. 4,004 bytes.
+
+**The field.** `KDL_SNAPLIN` (`dw` at 506) and `KDL_SNAPHI` (`db` at 511) in
+the launch block's kern_mega tail, `KDL_VER_NOW` 6 on kern_mega (kern_big's
+block stays 5). `DOS.O88` writes the record's **offset** there at the post,
+the console's cursor into the record, and clears the flag. `hbm_dosrun`
+converts it after the park's claims (which may have moved the region: a pool
+block keeps its selector and changes its base) and before the snapshot - the
+selector's base plus the offset, bits 0..15 at 506 and 16..23 at 511 - and
+writes 0 for anything not at or above `110000h` or whose last byte is not
+under 16MB. 506 was `KDL_POUT`, which the kernel wrote and nothing read; 511
+was a reserve nothing used.
+
+**The sum.** The record is inside a pool block, and the park's sum covers
+every pool block (96.40.9), so a write there during the trip would fail the
+stub's check and restart the machine. `mega_dreg_mx` puts that block on the
+sum's list as the run below the record's 64-byte lines and the run above
+them; the lines the record touches are summed by neither taker.
+
+**The two halves.** `kern_dos` (both kern_mega images, HMA and low) seeds and
+captures:
+
+| | where | what |
+|---|---|---|
+| `kd_snseed` | the entry, after `kdx_init` and before the bank | the record's cursor, then the 4,000 cells straight onto page 0, then `int 10h AH=02h` there - 96.34.4 on a trip, so the program's output lands under `Starting ...` |
+| `kd_snap` | `DHK_SNAP`, from `dos_prog_done` | 96.34.2's mode test and page, 96.34.3's empty-screen refusal, then the screen a row at a time through a 160-byte stage (a forty-column mode blanked on the right), then the cursor and the flag LAST |
+
+**The wake.** `DOS.O88`'s return (`dos_wake`'s `KDH_CODE` arm) tests the flag,
+clears it, and runs `dos_snap`'s tail: the cursor clamped into `[con_cx]` and
+`[con_cy]`, `[con_pwrap]` and `[con_scrl]` zeroed, `con_markall`. The exit
+line then prints under the program's last screen, as in the window.
+
+**Where it does not reach**: a region in the HMA or in conventional memory
+(the fallback `dos_reloc` serves) is refused at the conversion, and the
+console keeps what it had; so is a trip with no park, whose session comes
+back from `HIBERNAT.IMG` and is restored over anything written.
+`tests/doscon.py` on kern_mega (`mega-doscon`) is the gate.
+
 ### 96.7 What wave 1 answers, and what it refuses
 
 `INT 20h`, and `INT 21h`: `AH=00h`, `01h`, `02h`, `07h`, `08h`, `09h`, `0Bh`,
@@ -182641,6 +182693,12 @@ the contract is:
   second kern_dos LOW instead, with A20 shut (96.40.9.2).
 * **An option ROM's IRQ line is left open** for kern_dos and primed once on
   the way home (the PicoMEM's multiplexer, SPEC.md 34.10.1).
+* **The console travels both ways** (96.34.6): `hbm_dosrun` turns the offset
+  of `DOS.O88`'s snap record into a linear address before the snapshot and
+  the sum leaves its lines out, `kern_dos` seeds the console onto the
+  program's screen at its entry and writes the program's last screen back at
+  `dos_prog_done`, by `int 15h AH=87h`, and `DOS.O88`'s wake repaints from
+  it - so the exit line lands under the program's output, as in the window.
 * **A `MEGADIAG=1` build's menu bar says what the trip cost**: `DOSP kkkkK
   o tttt b tttt`, the KB parked and the milliseconds out (copy and sum) and
   back (sum and restore), decimal. The shipped kern_mega shows no line for a
@@ -183510,7 +183568,11 @@ Each is *the windowed DOS does something extra*, so each is a HOST HOOK now — 
 `dos_hkv` the core calls when it is set, `dos_bevec`'s shape (§96.44.1) with a
 different table. **Zero means the host does not want it**, which is what a
 zeroed bss already says, so `kern_dos` binds nothing at all and the windowed DOS binds
-them in `dos_hk_bind`.
+them in `dos_hk_bind`. (`kern_dos` has since bound hooks of its own at its
+entry: `DHK_MOUSE` and `DHK_TXT` (§96.45), the HMA image's `DHK_XUNP`
+(§96.40.9.1) - and, on both kern_mega images, **`DHK_SNAP`**: `kd_snap`
+writes the program's last screen into `DOS.O88`'s console through a linear
+address the kernel staged, §96.34.6.)
 
 **There are SIX since §96.44.6**: `DHK_CLAIM` and `DHK_FREE` are the kernel's
 heap, which the windowed host has and `kern_dos` does not, and they are what

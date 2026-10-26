@@ -10932,7 +10932,7 @@ red for reasons that were not the harness.
    (SPEC.md 22.25) and KERN-DOS-PLAN 6.1 lever 3 leaves it behind.
 
 **Open, not fixed - the program's last screen is not the console's after a
-trip.** SPEC.md 96.34's `dos_snap` is a DOS.O88 hook (`DHK_SNAP`) and kern_dos
+trip** (BUILT since, 14.106). SPEC.md 96.34's `dos_snap` is a DOS.O88 hook (`DHK_SNAP`) and kern_dos
 binds none, so on kern_mega - where every program is a trip - the console
 after `DOSHELLO` shows `Starting ...` and `... ended, exit code 042` with
 nothing the program printed between (`tests/doscon.py`). The screen is
@@ -11572,12 +11572,12 @@ scancodes, so `os88marty.text_taken` (which types with the guest paused) kept
 now queues what it is handed while stopped and `_resume` sends it one GUI
 pass (`INPUT_GAP`) apart.
 
-### 14.106 The program's last screen after a trip: the capture, designed and not built (2026-10-26)
+### 14.106 The program's last screen after a trip: BUILT (2026-10-26)
 
-14.77's open item, looked at again for wave 2 of the port. **Not built,
-because it is not one image's change**: it crosses the launch block's ABI
-and three images (kern_dos, DOS.O88's DOS_MEGA arm and the kernel's
-`mega_dosgo`), and `tests/doscon.py` is not ported until it is.
+14.77's open item. **BUILT, and SPEC.md 96.34.6 is the contract**; this is
+the design record, with what the code said back to the design. It crosses the
+launch block's ABI and four images: kern_dos (both kern_mega images, HMA and
+low), the kern_mega `DOS.O88`, the kernel's `.mega` and `HIBER.DRV`.
 
 **Why DOS.O88's own `dos_snap` cannot do it.** `DHK_SNAP` is called by the
 core's `dos_prog_done` with the program's screen still up - but on a trip
@@ -11587,33 +11587,137 @@ real-mode kern_dos cannot load. By the time DOS.O88 runs again the stub has
 staged the clock and exit code on the text page (`kd_stageseg`, B800/B000 +
 the HS_* offsets) and `hbm_wake`'s mode set has cleared the rest.
 
-**The design** - three pieces and a field, in the order the trip runs:
+**What was designed** (the text of this section before it was built): a
+launch-block field `KDL_SNAPLIN` (dd) carrying the LINEAR address of
+`con_scr` and of the cursor cells and a flag, filled by DOS.O88 with offsets
+and converted by `mega_dosgo`; kern_dos binding `DHK_SNAP` to a `kd_snap`
+that is `dos_snap` with its `rep movsw` replaced by `kdx_87`; DOS.O88's wake
+running `dos_snap`'s tail; `KDL_VER_NOW` moving with the field.
 
-1. **A field in the launch block**, `KDL_SNAPLIN` (dd): the LINEAR address
-   of `con_scr` and, after it, of the four cells `dos_snap`'s tail writes
-   (`con_cx`, `con_cy`) and one flag byte. DOS.O88 writes the OFFSETS into
-   the block it already fills (dos.asm's `KDL_FLAGS` site); `mega_dosgo`,
-   which knows the caller's selector's base, converts them to linear before
-   the park, as it already converts KDL_STAGE (14.77's first fix was that
-   conversion done wrong).
-2. **kern_dos binds `DHK_SNAP`** (KD_MEGA only) to a `kd_snap` that is
-   `dos_snap`'s mode test and page/cursor arithmetic with its `rep movsw`
-   replaced by `kdx_87` - the int 15h AH=87h block move kern_dos already
-   carries for XMS (`kerndos/kdxms.inc`), whose ROM return already comes
-   back through the low slot `kdh_s87` - one move of the 25 rows (4,000
-   bytes; a forty-column mode copied row by row with the right half
-   blanked, or staged in kern_dos's own bss first), then the cursor and the
-   flag. An empty screen (`dos_snap_any`) moves nothing and leaves the flag
-   clear.
-3. **DOS.O88's wake** (the DOS_MEGA arm of the `KDH_CODE` read, dos.asm
-   ~1156) tests the flag, clears it, and runs `dos_snap`'s TAIL - the
-   cursor clamp, `con_pwrap`/`con_scrl` zeroed, `con_markall` - so the band
-   repaints from a buffer that is already full, and then prints the exit
-   line under the program's last screen exactly as the windowed arm does.
+**Four places the design was wrong, found by reading the code before
+building it:**
 
-`KDL_VER_NOW` moves with the field (an old DOS.O88 against a new kernel
-sends no address, and kern_dos then binds nothing). Cost: ~60 bytes of
-kern_dos (KD_MEGA only), ~20 of DOS.O88's DOS_MEGA arm, ~15 of `.mega`;
-kern_big and kern_small untouched. **The gate is `tests/doscon.py`** on
-kern_mega (`DOSHELLO`'s own lines between `Starting` and `ended`), and its
-red is a kern_dos with `kd_snap` unbound.
+1. **The write would have failed the park's sum and restarted the machine.**
+   The park's sum covers *"every block the pool has given out, less the park
+   and the arena"* (`mega_dosparkf`'s `.mx` loop) - DOS.O88's region
+   included, and that is the point of it: a DOS program that scribbles over
+   extended memory is caught there. So kd_snap writing `con_scr` during the
+   trip makes the stub's re-sum disagree and says *"wrote over the parked
+   session"*. **Fix**: `mega_dreg_mx` (`.mega`, +~100 bytes) puts the block
+   that holds the record on the sum's list as the run BELOW the record's
+   64-byte lines and the run ABOVE them; the lines it touches (63 or 64 of
+   them, 4,004 bytes rounded out) are summed by neither taker. The rest of
+   DOS.O88's region is still checked.
+2. **`mega_dosgo` is too late to convert anything.** The hole has to be known
+   to `mega_dosparkf`, which runs first, and `hbm_dosrun` zeroes
+   `[hb_dosseg]` (`.noimg`) before it jumps to `mega_dosgo`. **Fix**: the
+   conversion is `hbm_dosrun`'s, at `.held` - after the claims, which may
+   compact the pool (a region keeps its selector and changes its base), and
+   before `mega_dosparkf` - into the RECORD's copy of the block (step 5
+   stages it, KDLF_HIBER's reason) and into a kernel cell, `[mega_dsnap]`,
+   that the snapshot reads. Not above `110000h` (the HMA is kern_dos's during
+   the trip, and conventional memory is restored over anything written) or
+   not with its last byte under 16MB (AH=87h's 24-bit descriptors): 0.
+3. **There was no dd to put in the block.** The header runs to `KDL_BODY`
+   with no spare byte, the body ends at 483 and every byte of the kern_mega
+   tail from 484 was taken. Two were dead: `KDL_POUT` (506), the park's
+   milliseconds out, which `mega_dosgo` wrote and **nothing read** (the way
+   back's line takes `MPK_C_POUT` from the park header), and `KDL_MRSV`
+   (511), a reserve nothing used. So the linear is **24 bits**: bits 0..15
+   in `KDL_SNAPLIN` at 506, 16..23 in `KDL_SNAPHI` at 511 - which is exactly
+   what AH=87h's descriptors carry. `mega_dosgo`'s `KDL_POUT` store is gone.
+   `KDL_VER_NOW` is 6 on kern_mega and 5 everywhere else: the mega tail is
+   kern_mega's, and kern_big's `DOS.O88` and `kerndos.bin` stay
+   byte-identical. kern_dos refuses anything below `110000h`, so a new
+   DOS.O88 under an old kernel (which writes `KDL_POUT`'s milliseconds there
+   and no high byte) captures nothing rather than writing at a millisecond
+   count; an old DOS.O88 under a new kernel posts no offset, and the kernel
+   converts a zero to a zero.
+4. **A capture alone loses the launch line.** The windowed bracket SEEDS the
+   console onto the program's screen before it runs (SPEC.md 96.34.4), so
+   its capture brings back `Starting B:\DOSHELLO.COM` above the program's
+   output. kern_dos starts on a mode set's clear screen, so a capture alone
+   would have replaced the whole console with the program's 25 rows - the
+   command and `Starting` gone. **Fix**: the record goes BOTH ways.
+   `kd_snseed` (kern_dos's entry, after `kdx_init`) reads DOS.O88's cursor
+   and `con_scr` back through the same linear, straight onto page 0, and
+   puts the ROM's cursor under `Starting`; `kd_snap` brings the lot home.
+
+**As built:**
+
+- **The record** is DOS.O88's last `HBSS` row, `DOS_B_SNAP`, four bytes
+  directly in front of `con_scr` (asserted: `HB` must end on it): dw the
+  cursor (column, row), dw the flag, then the 4,000 cells - one run, one
+  linear. `dos_lbfill` writes its offset into `KDL_SNAPLIN`, zero into
+  `KDL_SNAPHI`, the console's cursor into the record and clears the flag.
+- **kern_dos** (`kerndos/kdpark.inc`): `kd_snseed` as above; `kd_snap`
+  bound to `DHK_SNAP` in both kern_mega images - `dos_snap`'s BDA mode test
+  (through `kd_mou_txt`, which already asks it), active page and cursor, the
+  empty-screen refusal, then the screen a row at a time through a 160-byte
+  stage (`kd_snrow`; a forty-column mode blanked on the right), each row one
+  `kdx_87`, then the cursor and the flag LAST so a refused move leaves the
+  flag clear. 26 calls of AH=87h: a uniform row loop is smaller than an
+  80-column fast path beside a 40-column slow one.
+- **DOS.O88's wake** (the DOS_MEGA arm of the `KDH_CODE` read, before
+  `dos_con_ended`) tests the flag, clears it, and runs the tail: the cursor
+  clamped into `[con_cx]`/`[con_cy]`, `[con_pwrap]` and `[con_scrl]`
+  zeroed, `con_markall`.
+- **And the full screen comes back after a trip** (found by porting step 8b
+  of the gate): a program typed at the full-screen console sets
+  `[dos_fsxgo]`, and `dos_run`'s exit spends it with `dos_fsx_back` - but
+  the posted path leaves `dos_run` by `.outq`, past that call, so on
+  kern_mega the console stayed windowed and `[dos_fsxgo]` stood until some
+  later windowed exit spent it. The DOS_MEGA wake calls `dos_fsx_back` after
+  `dos_swap`, the lock free as a wake's is.
+
+**Bytes** (measured at one commit, against the tree before it):
+
+| image | before | after | |
+|---|---|---|---|
+| kern_mega `.mega` | 17,840 | 17,934 | +94: `mega_dreg_mx`, less `KDL_POUT`'s store |
+| kern_mega `.text` | 46,903 | 46,907 | +4: `[mega_dsnap]` |
+| kern_mega `HIBER.DRV` | layout 0xde5a | 0xdebc | +98, on demand: the conversion |
+| kern_dos HMA (`kerndos.bin`, image + bss) | 37,843 | 38,375 | +532 (+368 code, +164 bss); `KD_IMG_KB` 37 -> 38, the HMA's kilobyte |
+| kern_dos low (`kerndosl.bin`, image + bss) | 35,951 | 36,483 | +532, inside its 36 KB rung: no DOS program pays |
+| kern_mega `dosp.bin` (DOS.O88's part 0) | 51,290 | 51,380 | +90 |
+| kern_mega `DOS.O88` (the file) | 65,325 | 66,149 | +824, the kern_dos parts compressed |
+
+kern_big's and kern_small's `kernel.bin`, `kerndos.bin`, `dosp.bin`,
+`doscore.bin`, `dosload.bin` and `DOS.O88`, and every shipped image, are
+byte-identical (`cmp`, one commit).
+
+**The gate is `tests/doscon.py` on kern_mega** (`mega-doscon`,
+tests/megaport.txt's `# DOS CONSOLE CAPTURE`, 96s). Ported where the trip
+differs: steps 5c/5d and 8b drive the program by CR0.PE (`m.protected()`)
+instead of `[dos_inbr]` and do not `settle` while it runs (the text cursor
+blinks for the whole run), step 5c asserts the seed (`Starting` on the
+program's screen) and 5d that `Starting` lies above the program's output in
+the band, and step 8 reads `[con_tseg]` through `dosmap.lin` because it is
+FSI_SEG's selector here. **Green**: DOSHELLO's `os8088 DOS gate`, `Memory to
+top of block` and `READY - press a key` in the band between `Starting
+B:\DOSHELLO.COM` and `... ended, exit code 042`, and step 8b's full screen
+back with the exit line on it. **Red** with `kd_snap` unbound
+(`build/trees/nosnap`, the binding commented out): *"the program printed 'os8088
+DOS gate' and the console does not hold it ... The band says [..., 'B:\>DOSHELLO',
+'Starting B:\DOSHELLO.COM', 'B:\DOSHELLO.COM ended, exit code 042 (Arena:
+621KB)', 'B:\>']"* - the seed still ran, the capture did not.
+
+**Rows run** (one emulator at a time): `mega-doscon`, `mega-doscom`,
+`mega-dosexe`, `mega-dosexec`, `mega-dosfile`, `mega-dosshrink`,
+`mega-dostype`, `mega-dosargs`, `mega-dosdirsw` and `mega-dosshell` green,
+and the MartyPC originals `doscon` and `doscom`. **`mega-dosdir` is red and
+was red before this** - the same failure on a tree built from the commit
+below it: DOSDIR.COM sets the time to 13:45:30 with AH=2Dh, the wake's
+catch-up measures the trip against the BIOS tick, and run after 13:45 (Bochs
+keeps real time) the tick went BACKWARDS, which reads as a midnight crossed,
+so the kernel's date comes home a day on (*"2026-10-27 after the trip and
+2026-10-26 before it"*). A row that depends on the hour it is run at, and a
+catch-up that takes a program setting the clock back for a day passing; not
+this section's, and open.
+
+**Where it does not reach**: a DOS.O88 region in the HMA or in conventional
+memory (`dos_reloc`'s fallback) is refused at the conversion, and the
+console keeps what it had; so is a trip with no park (KERN-MEGA-MEMORY-PLAN
+D5), whose session comes back from `HIBERNAT.IMG`. kern_big's arm-3 handoff
+(the hibernate route) has the same `[dos_fsxgo]` gap the full-screen fix
+closes here, and is left: its DOS.O88 stays byte-identical.
