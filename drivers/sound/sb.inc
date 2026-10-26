@@ -97,6 +97,11 @@
 ; DSP >= 2.00, the QEMU-verified path) never programs DMA from the ISR and
 ; has no such window. The single-cycle branch is 86Box/real-hardware work
 ; (SPEC.md 34.5's pinned fallback covers refusing < 2.00 if it fails there).
+; The same window is why a DIRECT ring's block IRQ reads the 8237's count
+; (SPEC.md 34.5.2.1) on kern_mega only: there the line is masked across every
+; BIOS call. On a real-mode kernel it interrupted the ST11M BIOS v2.0's
+; channel-3 pairs, which run with IF = 1, and the disk's DMA landed wrong
+; (SPEC.md 34.5.2.2).
 ; =============================================================================
 
 ; --- geometry and states -----------------------------------------------------
@@ -942,7 +947,13 @@ sbl_isr:
 
 .direct:                        ; DIRECT (SPEC.md 34.5.2): the blocks of the
     push cx                     ; ring played, and the DMA has already gone on
-    call sbl_dleft              ; into the next. HOW MANY is the 8237's to
+    mov ax, [sbl_half]          ; into the next - ONE an IRQ, unless the line
+    cmp byte [sbl_dpm], 0       ; is masked across BIOS calls (kern_mega):
+    je .dblk                    ; only there may an ISR touch the 8237's
+                                ; flip-flop (SPEC.md 34.5.2.2) - a disk ROM
+                                ; that programs its channel with IF = 1 is
+                                ; misprogrammed by the clear below
+    call sbl_dleft              ; HOW MANY is the 8237's to
     mov bx, [sbl_rmask]         ; say, not this IRQ's (SPEC.md 34.5.2.1): a
     lea ax, [bx+1]              ; block end that came while the line was
     sub ax, cx                  ; masked - kern_mega's reflected int 13h,
@@ -1697,6 +1708,9 @@ sbl_v_open:
 .dset:
     mov [sbl_str_off], si       ; the stream record (not yet published)
     mov [sbl_total], cx
+    call OSAPI_CPU_INFO         ; AH = the flags: under CPU_F_PM the line is
+    and ah, CPU_F_PM            ; masked across every BIOS call, so the
+    mov [sbl_dpm], ah           ; block IRQ may read the 8237 (34.5.2.2)
     xor ax, ax
     mov [sbl_dpos], ax          ; the chip starts at the ring's offset 0
     mov [sbl_fed], ax
@@ -3881,6 +3895,9 @@ sbl_consumed: dw 0              ;   bytes played (capped at sbl_total);
                                 ;   input: bytes drained into the grant
 sbl_dpos:     dw 0              ;   DIRECT: the ring offset the 8237 read
                                 ;   next at the last block IRQ (34.5.2.1)
+sbl_dpm:      db 0              ;   DIRECT: CPU_F_PM at the open - the
+                                ;   ISR counts by the 8237 only then
+                                ;   (34.5.2.2), else one block an IRQ
 sbl_play:     db 0              ;   the half the DSP sounds (input:
                                 ;   captures into) next
 sbl_valid:    db 0, 0           ;   per-half: refilled since last consumed

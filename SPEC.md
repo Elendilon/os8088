@@ -69708,6 +69708,42 @@ nothing was lost, three after a stretch that swallowed two. Three guards:
 The double-buffered path is unchanged: its halves are swapped by the ISR, so a
 lost IRQ there is a lost half-swap and not a miscount.
 
+#### 34.5.2.2 ...on kern_mega only: an ISR may not touch the flip-flop (2026-10-26)
+
+**34.5.2.1's read is made only under `CPU_F_PM`**, banked at verb 0 as
+`[sbl_dpm]`; on kern_big and kern_small the direct ISR counts one block an
+IRQ, as it did before 34.5.2.1. Reported off the owner's 86Box 5150 (CGA, an
+ST-225 on an ST11M, an SB 2.0, kern_big): one play in five of a 60 s CGA4
+`.V88` off the hard disk ended in a screen of static, and another lost its
+sound part way through with nothing late and nothing stalled on the card.
+
+**The 8237's byte-pointer flip-flop is ONE bit for all four channels**, and
+`sbl_dleft` clears it and reads two bytes. Every block IRQ of a direct ring
+did that, ~43 times a second, from whatever it interrupted - and on kern_big
+it interrupts `int 13h`, because nothing masks IRQ 7 across a BIOS call there.
+The ST11M's BIOS v2.0 (86Box's default revision) programs channel 3 with
+**IF = 1**: flip-flop clear, address lo, hi, page, count lo, hi, no `cli`
+(its v1.7 has one). An ISR that clears the flip-flop between a pair sends the
+ROM's next byte to the wrong half, so the disk's DMA lands at the wrong
+address or runs the wrong length: the ring slot the player was promised keeps
+the previous lap's bytes and decodes as static, or the sectors land on
+something else - the sound ring's control words among the candidates. MartyPC
+never showed it: its fixed disk is an XT-IDE, programmed I/O, and no DMA at
+all.
+
+**kern_mega is where the read is safe, and the only place it was needed**: it
+masks every kernel line for the length of a reflected BIOS call (`mega_svc`),
+which is both why its edges were lost and why no ISR can land inside a ROM's
+pairs there; its native floppy programs channel 2 under `cli`. On the real-mode
+kernels a line is masked only by a `cli`, and a ROM holding one across two
+block ends is the one case left counting short - the picture then runs slow,
+in step with its sound, which is what shipped for months before 34.5.2.1.
+
+What it costs: 23 bytes of `SOUND.DRV`, 12,045 -> 12,068, still a 12KB claim (the flag, its store at the open and
+the test in the ISR). Verb 9's read is unchanged - it runs in task context
+under `cli`, and a task inside `int 13h` holds `[sch_lock]`, so no other
+task's verb can land between a ROM's pairs.
+
 #### 34.5.3 An external ring, and ADPCM4 (the Video Player)
 
 **A ring in the PACKAGE'S OWN claim**, opened with `SND_OPENF_RING +
@@ -70025,6 +70061,34 @@ It cost `SOUND.DRV` 84 bytes of image (11,823 to 11,907), inside its 12 KB claim
 `sbirq5` row) holds it: refused on an 8088 with a hooked IRQ 5, accepted on
 an unhooked one, on a 286 and a 386, and on IRQ 7; with the refusal broken,
 2 checks fail.
+
+#### 34.5.6.1 ...and the disk that never hooks it: an ST11 on IRQ 5 (2026-10-26)
+
+**A Seagate ST11M or ST11R on its BIOS v2.0 never enables its own
+interrupt**: it writes 1 (DMA alone) to the controller's enable register and
+polls, so int 0Dh stays the system ROM's dummy and 34.5.6's test answers
+"free". 86Box's model of it (`hdc_st506_xt.c`) **still lowers IRQ 5 every
+time that register is written without the IRQ bit** - once per `int 13h` -
+and a Sound Blaster's block interrupt that is pending on the same line at
+that moment is wiped off it before the CPU takes it. The DSP is never
+acknowledged, so every later block end is merged into the lost one, no edge
+ever comes again, and the watchdog ends the stream: the sound stops part
+way through a play, with nothing late and nothing stalled. Reported off the
+owner's 86Box 5150 (the ST11M pinned to IRQ 5, the SB 2.0 at 86Box's own
+default, 5), and measured on that profile under 86Box: 12 of 298 Video
+Player plays lost their sound (a busier host loses more), and with the
+ST11's clears logged, the run's one loss followed its one clear that landed
+on a pending IRQ 5. With the card on IRQ 7, none of 48, every one taking all
+2,619 of its block interrupts.
+
+**Not refused in the driver.** 34.5.6's rule is evidence and not a guess,
+and there is none here: nothing an XT shows says which line a polling
+controller is jumpered to, and an XT-IDE machine - no disk interrupt at all
+- with its card on 5 is a configuration that works and that a blanket
+refusal would take the sound from. Whether a real ST11 drives the line
+while disabled is not known here. **The cure is the card's line**, as in
+34.5.6: `vm/pc5150`, `vm/viddemo-cga` and `vm/viddemo-herc`, the three
+profiles here with an ST11 and an SB 2.0, put the card on IRQ 7.
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
@@ -198112,7 +198176,11 @@ stream's state (verb 3):
   block was queued - on MartyPC's 5150, 3.93 s to 5.2 s silent with 2,259
   bytes queued the whole time, and ~0.7 s sooner asked every pass;
 - a card the driver's watchdog ENDED makes the rest of the play silent on
-  the timer - never a picture held for a clock that has gone.
+  the timer - never a picture held for a clock that has gone. It counts as a
+  pause, and **the card's line shows the pauses whenever there are any**:
+  it showed them only while the play still had the card, which is exactly
+  what an ended one no longer has, so a play that lost its sound half way
+  read `Drew 1120/1821, stalls 0` with nothing to say why (2026-10-26).
 
 When the picture is done it waits, up to two seconds, for the card to play
 past the last byte of sound, then closes the stream (verb 2) before the ring
