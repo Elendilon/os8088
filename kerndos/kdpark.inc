@@ -1,6 +1,6 @@
 ; =============================================================================
 ; kerndos/kdpark.inc - THE WAY BACK TO A PARKED kern_mega (-DKD_MEGA only;
-; docs/plans/KERN-MEGA-DOS-PLAN.md 2.3 step 8, kernel/megados.inc)
+; docs/plans/completed/KERN-MEGA-DOS-PLAN.md 2.3 step 8, kernel/megados.inc)
 ;
 ; kern_mega copied all of conventional memory into a block above 1MB before it
 ; handed the machine over, and the launch block's tail says where

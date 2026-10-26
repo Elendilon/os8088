@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """megapaint - a Paint canvas OVER 64KB under kern_mega's protected mode
-(docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7, SPEC.md 42 and 50.6.11).
+(docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC7, SPEC.md 42 and 50.6.11).
 
     make && make mega && python3 tests/megapaint.py [--keep]
 

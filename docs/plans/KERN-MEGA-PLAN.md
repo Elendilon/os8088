@@ -1,8 +1,13 @@
 # `kern_mega` — a 286+ protected-mode kernel
 
-**Current round (2026-10-25): memory consolidation,
-`docs/plans/KERN-MEGA-MEMORY-PLAN.md`** (14.74 is its pointer). The status line
-below is the file's first and is kept as written.
+**Status (2026-10-26): M1-M6 ARE BUILT, and so is the memory consolidation
+round** (`docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md`, 14.74 its pointer:
+every claim a selector, the pool from 1MB, the HMA as pool, one claim for all
+of it) **and the segments round** (`docs/plans/completed/KERN-MEGA-SEGMENTS-PLAN.md`).
+About 317 soak rows run on kern_mega (`tests/megaport.txt`, Bochs and 86Box).
+kern_mega is still a developer preview: what is OPEN before it goes live is
+the list straight below, and section 14 is the log. The status line below is the file's
+first and is kept as written.
 
 **Status: M1 IS UNDER WAY, AND kern_mega BOOTS INTO 286 PROTECTED MODE ON QEMU** (section 10.1) - plus 2.4.1's CS-write ratchet (2026-10-17, branch `protected-mode`,
 cut from `elendilon` at `c783a6a`). The owner asked what a 286+ protected-mode
@@ -24,6 +29,50 @@ field figure used, the cost of a reset round trip on the Victory 286, is
 measured and its source is named.
 
 ---
+
+## Open before kern_mega goes live (2026-10-26)
+
+The inventory taken before the branch merged back. Each item names the 14.x
+entry that owns it once work starts.
+
+**To make work (the owner, 2026-10-26):**
+- **VESA** (SPEC.md 120) - absent on kern_mega; the machines with a VESA card
+  are the 286s and 386s protected mode is for. 14.115.
+- **File > Compress of an uncompressed package** refuses under protected mode
+  (14.100). 14.116.
+- **USBMOUSE.DRV's PicoMEM path** refuses under protected mode (SPEC.md
+  9.12). 14.117.
+- **REDLINE** is left off kern_mega's disks, never run under its selectors
+  (`MEGACOREOMIT`). It has to ship. 14.118.
+
+**Defects:**
+- RAMDISK, NET and CDROM bank `CPU_F_PM` at attach, so one loaded at boot
+  believes real mode all session (found at 14.87). 14.112.
+- kern_big's hibernate handoff to DOS misses `dos_fsx_back` (found at 14.106).
+  14.113.
+- `mega-dosdir` fails after ~13:45 (the date comes home a day on; found at 14.106). 14.114.
+
+**Refusals that STAY, by the owner's decision:** ROM adoption (SPEC.md
+2.10), XMEM.DRV and COLDHMA.SYS, the windowed DOS, HDD.DRV's fill straight
+into XMS (a fill straight into the pool may replace it), and the SHIPPED
+Video Player and RealDMG (their `PKG_MEGA` arms run instead).
+
+**Owed but not blocking:**
+- RealDMG's R5 waits on a hibernate notice for packages
+  (docs/plans/REALDMG-HIGHCACHE-PLAN.md).
+- HDDTOOL.DRV's installer names `KERNEL_SEG` (`tests/cswrites.txt`): an SDK
+  decision, since a driver cannot name `MEGA_SEL_KDATA` (14.67).
+- The Wire's fixture fence (`tools/os88wire.py` `WIRE_TABLE_END`) is below
+  `OSAPI_SEG`'s cell: a new Wire level, a release decision (14.89).
+- Performance: a #GP a write through CS (Sheet's macro module, PiXEL's PXSW
+  sites, Word's and Scribe's undo, RealDMG), `drv_fs_call`'s 512-byte
+  bounce, the Sound Blaster's IRQ discovery trapping on segment 0.
+- MC9, what still goes low (DMA rings above 1MB, BIGSP, `mx_tab`):
+  KERN-MEGA-MEMORY-PLAN section 5, deferred.
+- Field: the Victory's 640K-1MB Task Manager rows (14.70.3), T69/LASTX on the
+  PicoMEM (14.73; works on 86Box), the PicoMEM's IRQ reflections, and
+  docs/plans/completed/KERN-MEGA-DOS-PLAN.md's untested-on-iron list.
+- Task Manager dump to file (14.70.3): deferred by the owner.
 
 ## 0. The answer, in eight lines
 
@@ -721,7 +770,7 @@ symbol reader (kernel bodies above 1MB, behind LDT bases), before a single
 | **M3** | LDT allocator. `.cold`, modules and caches above 1MB. Conventional memory becomes package heap. Stable selectors for LDT claims, so no relocation procs | QEMU, measured heap |
 | **M4** | SDK: code aliases for claims (`cc_ovbind`, `os88partsbody.inc`), `OS88_HUGE_INCR`, the shared speaker and pcm includes. The C packages are rebuilt | +11 packages |
 | **M5** | per-package rework, worst first by usefulness rather than by size | — |
-| **M6** | DOS beside protected mode (2.7); hibernate. The plan is docs/plans/KERN-MEGA-DOS-PLAN.md: the whole-machine handoff with the kernel parked above 1MB, an XMS door of its own, and a two-section hibernate image | field |
+| **M6** | DOS beside protected mode (2.7); hibernate. The plan is docs/plans/completed/KERN-MEGA-DOS-PLAN.md: the whole-machine handoff with the kernel parked above 1MB, an XMS door of its own, and a two-section hibernate image | field |
 | later | ring 3 + call gates (an ABI flag day, SPEC.md 20.2.0.1); a 386 tier inside kern_mega | — |
 
 M1 is the experiment that settles whether this is worth continuing.
@@ -2219,7 +2268,7 @@ not slow but WRONG.
     the store before the pool is handed over, and the return re-take them
     on demand as it does today.
 68. **M6 W3, the XMS door, is built on `kern_dos`'s side** (SPEC.md
-    96.15.4, docs/plans/KERN-MEGA-DOS-PLAN.md 6). Under `-DKD_MEGA`,
+    96.15.4, docs/plans/completed/KERN-MEGA-DOS-PLAN.md 6). Under `-DKD_MEGA`,
     `kerndos/kdxms.inc` replaces the four refusing doors with a first-fit
     block table over the arena the launch block's tail names (`KDL_XBASE`,
     1KB-aligned and at or above 1MB, and `KDL_XKB`; no zeroing needed, cut at
@@ -2240,7 +2289,7 @@ not slow but WRONG.
     another lane's, and Bochs is that lane's too. **Since run** (item 69):
     exit code 048 through the park, the control refused.
 69. **M6 W0-W2: DOS parks the session above 1MB and comes back**
-    (docs/plans/KERN-MEGA-DOS-PLAN.md 1.1, 2.5, 10.1; SPEC.md 96.40.9).
+    (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 1.1, 2.5, 10.1; SPEC.md 96.40.9).
     Before any change Bochs confirmed both faults the plan predicted, at
     other instructions than it named: the windowed DOS faults in its own
     segment arithmetic (`mov es, ax` with 1A72h, off the 8-paragraph grid),
@@ -2265,7 +2314,7 @@ not slow but WRONG.
     identical. **The 286's way down (W2, `mega_r286`'s `[mega_drop]` branch)
     is built and has not run anywhere**: it is the Victory's.
 70. **M6 W4 and W6: kern_dos in the HMA, option-ROM lines, and the keyboard**
-    (docs/plans/KERN-MEGA-DOS-PLAN.md 10.2). kern_mega's kern_dos runs at
+    (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 10.2). kern_mega's kern_dos runs at
     FFFF:0010 with low trampolines that re-prove A20 on every vector; the
     arena is **621 KB** (586 before); `LOADFIX <program>` at DOS's prompt
     is the off switch; `A20SHUT.COM` passes and goes red without the
@@ -2277,7 +2326,7 @@ not slow but WRONG.
     54.3 (b793f294) has since fixed it on every kernel, so the kern_mega-only
     copy went at the merge.
 71. **M6 W5: hibernate on kern_mega in protected mode, and a resume that
-    never leaves it** (docs/plans/KERN-MEGA-DOS-PLAN.md 10.3, SPEC.md 87.9).
+    never leaves it** (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 10.3, SPEC.md 87.9).
     The image carries an extended section (the GDT, LDT and IDT, and every
     `mx_tab` block), and the fresh kernel reads the whole file into a block
     above 1MB and runs the PARK stub over it, so a 286 spends no reset on a
@@ -2983,7 +3032,9 @@ shows what the sweep really costs in a shared file.
 
 *(2026-10-22: none of these is open any more. 2 - no minimum beyond
 fitting (14.1 answer 16): under 192KB of extended memory the tables take
-82KB of conventional memory, `mega_tlowf` (kernel/mega.inc:7464, 14.17).
+82KB of conventional memory, `mega_tlowf` (kernel/mega.inc:7464, 14.17) -
+~11KB since KERN-MEGA-MEMORY-PLAN MC7's step 6 cut the GDT to `.cold`'s
+segment and made the LDT grow.
 3 - the pointer moves through a reflected call without a bimodal ISR set
 (14.9). 4 - superseded: Bochs (docs/BOCHS.md) and 86Box with its automation
 socket (docs/86BOX.md) are the 286/386 benches. 5 - it shrank to two:
@@ -3281,7 +3332,7 @@ What is NOT yet RAM is RAM, in the order it would be taken:
 - the kernel's own image and data, `.text` and `.bss` at KERNEL_SEG and the
   LOW_SEG stacks, which the reflection's real-mode half runs in (13.2).
 
-`docs/plans/KERN-MEGA-HANDOFF.md` is the parallel work cut from this and
+`docs/history/KERN-MEGA-HANDOFF.md` is the parallel work cut from this and
 from section 10.
 
 ## 14. Decisions taken while the owner was away (2026-10-18), to look back over
@@ -5311,7 +5362,7 @@ them are `mega.inc` and `megados.inc`. So the next 117 bytes kern_big adds
 there break `make mega`. `.cold`'s slot above 1MB, between `MEGA_COLD_LIN`
 and `MEGA_XPOOL`, has 3,247 left: the same coupling, one segment over.
 
-**docs/plans/KERN-MEGA-SEGMENTS-PLAN.md is the plan, and its W0-W2 and most
+**docs/plans/completed/KERN-MEGA-SEGMENTS-PLAN.md is the plan, and its W0-W2 and most
 of W3 are BUILT** (its section 8): the segment has **11,484 bytes left**,
 kern_mega's overhead over kern_big there is 5,931 and `make mega` holds it to
 `tests/megaseg.txt`. kern_mega gets ONE segment of its own, `.mega`. It is
@@ -10242,7 +10293,7 @@ Not run here; tests/unit/t_megagrid.py scopes to `apps/` and could take
 Three items 14.68 found and did not take, written down as work rather than
 left in its prose. The owner asked for each to be carried here.
 
-- [ ] **RAMDISK.DRV and NET.DRV fold paragraphs into a segment.** (KERN-MEGA-MEMORY-PLAN MC8)
+- [x] *(BUILT, KERN-MEGA-MEMORY-PLAN MC8)* **RAMDISK.DRV and NET.DRV fold paragraphs into a segment.** (KERN-MEGA-MEMORY-PLAN MC8)
   `rd_fold` (drivers/ramdisk/) and `net_norm` (drivers/net/) fold a
   conventional buffer's offset into its segment by paragraphs - the shape
   14.68's item 1 was in `CDROM.DRV`, which faulted the machine on its first
@@ -10254,7 +10305,7 @@ left in its prose. The owner asked for each to be carried here.
   The fix is 14.68's: walk the offset, or fold in whole 128-byte granules
   (`dskw_norm`'s kern_mega arm). `tests/unit/t_megagrid.py` scans `apps/`
   only; taking `drivers/` too is what keeps the next one out.
-- [ ] **`CDROM.DRV` above 1MB.** (KERN-MEGA-MEMORY-PLAN MC8) It runs on kern_mega now but loads LOW -
+- [x] *(BUILT, KERN-MEGA-MEMORY-PLAN MC8)* **`CDROM.DRV` above 1MB.** (KERN-MEGA-MEMORY-PLAN MC8) It runs on kern_mega now but loads LOW -
   9 KB of conventional memory - because nobody has run it high. To take it
   there: declare `OS88_DRV_HIGHOK` (drivers/os88drv.inc, item 82); check its
   sector buffer and packet, which live in its own image and reach
@@ -10263,7 +10314,7 @@ left in its prose. The owner asked for each to be carried here.
   BIOS or a DMA engine (it does PIO, `rep insw`); then extend `megacdrom` to
   assert the driver's image base is above 1MB while CDRack plays and copies.
   `OS88_DRV_HICLAIM` is not wanted: it makes no claims.
-- [ ] **Autostarted packages run low.** (KERN-MEGA-MEMORY-PLAN MC8) `\AUTOSTRT`'s walk (`as_boot`,
+- [x] *(BUILT, KERN-MEGA-MEMORY-PLAN MC8)* **Autostarted packages run low.** (KERN-MEGA-MEMORY-PLAN MC8) `\AUTOSTRT`'s walk (`as_boot`,
   SPEC.md 26.10) runs before `mega_enter`, so every autostarted package
   starts in real mode, in conventional memory, whatever `OS88_HIGH` says -
   `megacdtest`'s autostarted CDRack sits at `9640h` while the same package
@@ -10294,7 +10345,7 @@ and IDT (18K), `.cold` and `.mega` (about 58K), about 50K of padding up to
 the pool's 64KB-aligned base (`MEGA_XPOOL`, 0x140000), and about 118K of
 pool blocks owned C0h and up.
 
-- [ ] **Purgeable is not implemented on kern_mega.** (KERN-MEGA-MEMORY-PLAN MC1) Item 84 moved the
+- [x] *(BUILT, KERN-MEGA-MEMORY-PLAN MC1)* **Purgeable is not implemented on kern_mega.** (KERN-MEGA-MEMORY-PLAN MC1) Item 84 moved the
   kernel's caches into the pool (the window save-unders, up to 63K each, the
   menu save-under, the icon store, the file list, the clipboard) and item 86
   the FAT windows, and its own words are *"A pool block has no `mem_tab`
@@ -10308,7 +10359,7 @@ pool blocks owned C0h and up.
   flag in `MX_FL` (the byte has room), set by `mem_hitag`'s placements;
   `mx_alloc` sheds flagged kernel blocks before it refuses; the Task Manager
   excludes them from System as it does on kern_big.
-- [ ] **The GDT is a 1:1 table sized for every possible segment, and almost
+- [x] *(BUILT, KERN-MEGA-MEMORY-PLAN MC7)* **The GDT is a 1:1 table sized for every possible segment, and almost
   none of it is used.** (KERN-MEGA-MEMORY-PLAN MC7) Selector = segment value, so the GDT's size is set
   by the HIGHEST segment anything loads (the scratch selectors at FFD0-FFF8,
   the ROM font at F000), not by how many are used. **Measured** under Bochs,
@@ -10325,7 +10376,7 @@ pool blocks owned C0h and up.
   change is the work to cost: every place that turns a segment value into a
   selector by identity (and `mega_oddsegf`'s window, which already handles a
   segment that is not a multiple of 8 dynamically, is the model).
-- [ ] **The LDT can start small and grow.** (KERN-MEGA-MEMORY-PLAN MC7) 2,048 entries (16K): 1,280 are
+- [x] *(BUILT, KERN-MEGA-MEMORY-PLAN MC7)* **The LDT can start small and grow.** (KERN-MEGA-MEMORY-PLAN MC7) 2,048 entries (16K): 1,280 are
   a STATIC code alias for every 512 bytes of conventional memory (index =
   segment / 32, which is how a CS with bit 2 set names its image), the rest
   dynamic; **31 accessed** in the same run. Regrowable by claiming a bigger
@@ -10333,13 +10384,13 @@ pool blocks owned C0h and up.
   GDT's identity entries would. The owner: *"LDT regrowable: seems good."*
 - [x] **The IDT stays 2K.** Every vector can be reflected to the BIOS or to
   a DOS program. *"IDT is fine."*
-- [ ] **The HMA is RAM.** (KERN-MEGA-MEMORY-PLAN MC4) It has to be free at 1MB only while DOS uses it,
+- [x] *(BUILT, KERN-MEGA-MEMORY-PLAN MC4)* **The HMA is RAM.** (KERN-MEGA-MEMORY-PLAN MC4) It has to be free at 1MB only while DOS uses it,
   so it is pool like any other until then, and the trip into DOS saves what
   is in it and the return restores it to the same linear addresses (a pool
   block is named by its linear base, 13.4) - what the park already does for
   conventional memory. The owner prefers this to parking droppable caches
   there, which would cost a program 64K, and on a 1MB machine that matters.
-- [ ] **The padding.** (KERN-MEGA-MEMORY-PLAN MC2) About 50K between `.mega`'s end (~0x133600) and
+- [x] *(BUILT, KERN-MEGA-MEMORY-PLAN MC2)* **The padding.** (KERN-MEGA-MEMORY-PLAN MC2) About 50K between `.mega`'s end (~0x133600) and
   `MEGA_XPOOL`, there only because the pool's arithmetic wants a base whose
   low word is 0. Pack the fixed area and start the pool on a finer
   boundary, or put a fixed structure in the gap.
@@ -10421,7 +10472,7 @@ copied onto a small disk still runs, which it does today). **BUILT on branch
   billed into the BIOS's 64K and the scan's segment could WRAP past FFFF
   into conventional memory and list ROMs again. Its KB are clamped at F000
   and the scan stops there (SPEC.md 28.4.9).
-- [ ] **Maybe: dump to file**, only if it is cheap in bytes. ESTIMATED, not
+- [ ] *(DEFERRED by the owner, 2026-10-26: to be considered again, not needed for release)* **Maybe: dump to file**, only if it is cheap in bytes. ESTIMATED, not
   built: the rows are composed into `tm_str` and painted by `tm_mrow_close`,
   so a dump is a switch there that appends the row to a buffer instead of
   painting, a pass over every group expanded and unclipped, one
@@ -10474,7 +10525,7 @@ The merged page landed (`b6c4a1ed`, `2cd6ddc7`). Open:
   its file's stem (`CTRL` under MartyPC, and `CTRL HIGH 15K` under Bochs on
   kern_mega). The header switch reads `+DETAIL` / `-DETAIL`, and a blank row
   sets what DETAIL adds off from the programs.
-- [ ] **Dump to file is built and NOT merged**: branch `taskmgr-merge-dump`
+- [ ] *(DEFERRED by the owner, 2026-10-26: to be considered again, not needed for release)* **Dump to file is built and NOT merged**: branch `taskmgr-merge-dump`
   (`c276423c`), List > Save to file writing both views with every group open
   to `APPDATA\MEMDUMP.TXT`, verified on MartyPC. **+380 bytes of image**
   against the 150-200 estimate - the owner's call. It conflicts with the
@@ -10484,7 +10535,7 @@ The merged page landed (`b6c4a1ed`, `2cd6ddc7`). Open:
   computes `Unrep.` from the same ROM figures it prints. One real defect was
   fixed on the way (`tm_romscan` trusted a length byte reaching past F000).
   Retake it on this build.
-- [ ] Purgeable on kern_mega (14.70.1, KERN-MEGA-MEMORY-PLAN MC1): until then the kernel's caches above
+- [x] *(BUILT, KERN-MEGA-MEMORY-PLAN MC1)* Purgeable on kern_mega (14.70.1, KERN-MEGA-MEMORY-PLAN MC1): until then the kernel's caches above
   1MB show under `Kernel`, not `Purgeable`.
 
 ### 14.71 The upstream PR's review: four kern_mega defects, fixed (2026-10-22)
@@ -10767,7 +10818,7 @@ is the room the owner expects the Victory itself not to have.
 
 ### 14.74 The memory consolidation round (2026-10-25) - now its own plan
 
-**`docs/plans/KERN-MEGA-MEMORY-PLAN.md` is the authority for this round**:
+**`docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md` is the authority for this round**:
 the goal, the facts it rests on, every owner decision and assumption, the
 waves (MC1-MC9, taken in the order MC1, MC8, MC2, MC3, MC7, MC4, MC5) and
 what each came to as built.

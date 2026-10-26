@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """megasweep - every shipped package OPENS under kern_mega
-(docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7, "step 6's follow-ups").
+(docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC7, "step 6's follow-ups").
 
     make && make mega && python3 tests/megasweep.py [--keep] [NAME ...]
 

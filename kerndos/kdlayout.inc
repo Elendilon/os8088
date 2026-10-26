@@ -21,7 +21,7 @@
 ; it and measures byte-identical.
 %define KD_BUILD
 
-; **ON kern_mega kern_dos RUNS IN THE HMA** (docs/plans/KERN-MEGA-DOS-PLAN.md
+; **ON kern_mega kern_dos RUNS IN THE HMA** (docs/plans/completed/KERN-MEGA-DOS-PLAN.md
 ; 7, wave W4): KD_HMA, implied by KD_MEGA, assembles the image at FFFF:0010 -
 ; linear 100000h, the first byte above 1MB - and leaves only what int 13h and
 ; SS must reach down here: the FAT snapshot, the mount buffers and the stack,
@@ -103,7 +103,7 @@ KD_IMG_KB   equ 34              ; and the shipped image has 133 of its rung
 KD_IMG_KB   equ 33              ; 34 until SPEC.md 96.11.7's character devices
 %endif                          ; raised CORE_MAX by a kilobyte to 35, and 33
 ; **kern_mega's kern_dos IS A KILOBYTE BIGGER, and only kern_mega's**
-; (SPEC.md 96.15.4, docs/plans/KERN-MEGA-DOS-PLAN.md 6, 12.1 item 4): the XMS
+; (SPEC.md 96.15.4, docs/plans/completed/KERN-MEGA-DOS-PLAN.md 6, 12.1 item 4): the XMS
 ; door over the arena is 842 bytes of code and 98 of bss (kerndos/kdxms.inc),
 ; and CORE_MAX's mega arm reserves 80 more for the core's extended-to-extended
 ; move. MEASURED at the foot of kdos.asm: 33,585 -> 34,611 of 34,816, 205

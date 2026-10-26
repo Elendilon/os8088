@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """megasheet - SHEET above 1MB under kern_mega's protected mode: a document
-loaded, a CHART drawn and a MACRO run (docs/plans/KERN-MEGA-MEMORY-PLAN.md
+loaded, a CHART drawn and a MACRO run (docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md
 MC7, SPEC.md 81 and 82.16).
 
     make && make mega && python3 tests/megasheet.py [--keep]

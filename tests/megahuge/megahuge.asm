@@ -2,7 +2,7 @@
 ; os8088 - tests/megahuge/megahuge.asm
 ;
 ; MEGAHUGE, a TEST instrument (nothing under tests/ ships): ONE CLAIM FOR ALL
-; OF IT (docs/plans/KERN-MEGA-MEMORY-PLAN.md MC5). It asks OSAPI_MEM_HUGE with
+; OF IT (docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC5). It asks OSAPI_MEM_HUGE with
 ; AX = 0 what one claim can be given, claims exactly that, writes a pattern
 ; through every 64KB window - the seam between the pool's piece and the
 ; heap's included - reads it all back, frees it, and asks again. Every result

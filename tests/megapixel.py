@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """megapixel - PiXEL's masters, work claims and decoders OVER 64KB under
-kern_mega's protected mode (docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7, SPEC.md
+kern_mega's protected mode (docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC7, SPEC.md
 106.8 and 50.6.11).
 
     make && make mega && python3 tests/megapixel.py [--keep] [--shipped]

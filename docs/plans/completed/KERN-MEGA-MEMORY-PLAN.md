@@ -1,6 +1,8 @@
 # KERN-MEGA-MEMORY-PLAN - kern_mega's memory consolidation round
 
-**Status: IN PROGRESS** (branch `claude/protected-mode-memory-consolidation-k1kjao`,
+**Status: BUILT but for MC9 (2026-10-26)** - MC1, MC8, MC2, MC3, MC7, MC4
+and MC5 are built (section 7); MC9, what still goes low, is deferred and is
+carried in KERN-MEGA-PLAN's *Open before kern_mega goes live*. Was: branch `claude/protected-mode-memory-consolidation-k1kjao`,
 cut from `elendilon` at `8eac6506`, 2026-10-25). This file is the authority for
 the round: the goal, what is true of the tree today, every decision the owner
 took and the assumptions under them, the waves in the order they are taken, and

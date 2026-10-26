@@ -12,7 +12,7 @@ follows REALDMG-SPEC 16.2.5, which is built: kern_mega's arm of RealDMG
 runs its round robin over a TABLE of cache tiers and fills that table from
 conventional memory. This plan fills it from extended memory instead. It
 waits on the kernel's memory consolidation round
-(docs/plans/KERN-MEGA-MEMORY-PLAN.md on
+(docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md on
 `claude/protected-mode-memory-consolidation-k1kjao`), because that round
 changes what a claim and a code selector ARE, and so does this.
 

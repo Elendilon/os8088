@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """kern_mega: a DOS trip with NO ROOM FOR A PARK takes the hibernate instead
-(docs/plans/KERN-MEGA-MEMORY-PLAN.md D5, MC4).
+(docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md D5, MC4).
 
     python3 tests/megadosroom.py            the row
     python3 tests/megadosroom.py --keep     ...and leave build/bochs-megadosroom

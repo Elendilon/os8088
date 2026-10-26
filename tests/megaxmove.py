@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """kern_mega: an OSAPI_XMEM_ALLOC block MOVES, and is read back through the
-token it was given (SPEC.md 50.6.10, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC3).
+token it was given (SPEC.md 50.6.10, docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC3).
 
     python3 tests/megaxmove.py            the row
     python3 tests/megaxmove.py --keep     ...and leave the boot's directory

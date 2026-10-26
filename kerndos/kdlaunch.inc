@@ -240,7 +240,7 @@ KDL_STAGE   equ 104             ; dw WHERE THE KERNEL WILL LOOK for everything
                                 ; The payload is 377 bytes today; the assert
                                 ; each side writes is what keeps it true
 
-; --- THE kern_mega TAIL (docs/plans/KERN-MEGA-DOS-PLAN.md 2.3, 6) -----------
+; --- THE kern_mega TAIL (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 2.3, 6) -----------
 ; The last 24 bytes of the sector, written by kern_mega's `hbm_dosrun` into
 ; the STAGED block and read only by a -DKD_MEGA kern_dos. AT THE END AND NOT
 ; IN THE HEADER, because the header runs to KDL_BODY with no spare byte and a

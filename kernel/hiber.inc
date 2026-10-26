@@ -3708,7 +3708,7 @@ hbm_xcap:
 
 %ifdef KERN_MEGA
 ; =============================================================================
-; HIBERNATE IN PROTECTED MODE (kern_mega; docs/plans/KERN-MEGA-DOS-PLAN.md 8,
+; HIBERNATE IN PROTECTED MODE (kern_mega; docs/plans/completed/KERN-MEGA-DOS-PLAN.md 8,
 ; wave W5). The conventional image is written as on every other kernel - one
 ; dskw_write from linear 0, through the reflected int 13h - but rounded up to
 ; whole HBX_CHUNKs, and an EXTENDED SECTION is appended after it: a 512-byte

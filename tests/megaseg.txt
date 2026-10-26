@@ -1,5 +1,5 @@
 # tests/megaseg.txt - kern_mega's overhead in the kernel's 64KB segment
-# (docs/plans/KERN-MEGA-SEGMENTS-PLAN.md W0)
+# (docs/plans/completed/KERN-MEGA-SEGMENTS-PLAN.md W0)
 #
 # The bytes kern_mega's `.text` + `.bss` carry beyond kern_big's, as
 # tools/os88megaseg.py measures them off the two maps. `make mega` fails when

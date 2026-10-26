@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""kern_mega: ONE CLAIM FOR ALL OF IT (docs/plans/KERN-MEGA-MEMORY-PLAN.md MC5,
+"""kern_mega: ONE CLAIM FOR ALL OF IT (docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC5,
 D6-D8).
 
     python3 tests/megahuge.py            the row

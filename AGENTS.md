@@ -47,7 +47,9 @@ nothing here duplicates it — a second copy is a copy that goes stale.
 | **[docs/TESTING.md](docs/TESTING.md)** | concluding something is untestable — it is the matrix of what each emulator can and cannot do, with a recipe per capability |
 | **[docs/KERNEL-MEMORY.md](docs/KERNEL-MEMORY.md)** | spending any memory |
 | **[docs/plans/ROM-PLAN.md](docs/plans/ROM-PLAN.md)** | putting part of the system in ROM (§2.10) — what a 5150's five spare sockets hold, why a ROM is cut against ONE kernel, and what `make rom` builds |
-| **[docs/plans/HMA-PLAN.md](docs/plans/HMA-PLAN.md)** | anything above 1MB on a 286 or better (§2.10.7, §2.10.8) — `.cold` run from the HMA, and the drivers loaded into what it leaves |
+| **[docs/plans/HMA-PLAN.md](docs/plans/HMA-PLAN.md)** | anything above 1MB on a 286 or better **under a REAL-MODE kernel** (§2.10.7, §2.10.8) — `.cold` run from the HMA, and the drivers loaded into what it leaves. kern_mega owns everything above 1MB itself, the HMA included, and is the next row |
+| **[docs/plans/KERN-MEGA-PLAN.md](docs/plans/KERN-MEGA-PLAN.md)** | anything in **kern_mega**, the 286+ protected-mode kernel (`make mega`, `%ifdef KERN_MEGA`, `PKG_MEGA` arms). **Its head is *Open before kern_mega goes live*** - what still has to work, what stays refused by the owner's decision, and what is owed - and section 14 is the numbered log every fix goes into. Every claim there is an LDT SELECTOR, so a package asks `OSAPI_SEG` rather than adding to a segment; the memory round behind that is [docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md](docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md) (built but for MC9). Its instruments are docs/BOCHS.md and docs/86BOX.md, and ~317 soak rows run on it through `tests/megaport.txt` |
+| **[docs/plans/NO-PINNING-PLAN.md](docs/plans/NO-PINNING-PLAN.md)** | adding a heap claim that cannot move, or a line to `tests/pins.txt`. **Mostly BUILT**: the ratchet (`t_pins`, `pinsrt`, full tier) and most of the inventory are done, and seven `N` lines are what is left. A pin is a WALL in the heap, and the policy allows three reasons for one |
 | **[docs/HERCULES-TESTING.md](docs/HERCULES-TESTING.md)** | testing on Hercules — it *is* automatable, and all three ways of getting it wrong give you a black image rather than an error |
 | **[docs/C-TOOLCHAIN.md](docs/C-TOOLCHAIN.md)** | writing or building a package in C (§73) — how to install the compiler, the four C rules and what each refusal means, and what the language does not have here |
 | **[docs/plans/completed/NET-STACK-PLAN.md](docs/plans/completed/NET-STACK-PLAN.md)** | anything on the wire (§72) — the stack's stages, what each layer refuses, and why TLS is not on this machine |
@@ -542,7 +544,8 @@ make mega     # KERN_MEGA, the 286+ protected-mode kernel (docs/plans/
               #   mega120.img, its system disks - AND, since 14.66, its APPS
               #   disks build/megaapps.img and megaapps120.img: the shipped
               #   apps disk with every package's kern_mega ARM substituted
-              #   ($(MEGAPKGS): VIDEO, AUDIO, TRACKER, MIDIRACK, PIXEL, XTMP3, REALDMG), each
+              #   ($(MEGAPKGS): VIDEO, AUDIO, TRACKER, MIDIRACK, PIXEL, XTMP3, REALDMG,
+              #   TASKMGR), each
               #   the same source built -DPKG_MEGA into build/megak/apps/.
               #   Pair mega.img with megaapps.img, not with build/apps.img:
               #   the shipped Video Player REFUSES under protected mode and

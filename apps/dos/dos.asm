@@ -7940,7 +7940,7 @@ dos_mem_fix:
     push si
     mov byte [dos_keepc+1], 0
 %ifdef DOS_MEGA
-    ; **ON kern_mega THERE IS ONE ARM** (docs/plans/KERN-MEGA-DOS-PLAN.md
+    ; **ON kern_mega THERE IS ONE ARM** (docs/plans/completed/KERN-MEGA-DOS-PLAN.md
     ; 12.1 item 1): the program cannot run inside a protected-mode kernel, so
     ; every launch is the whole machine and the page draws no radio at all.
     ; A pick from a .LNK written on kern_big is not demoted, it is PROMOTED.

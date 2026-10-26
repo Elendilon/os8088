@@ -7360,7 +7360,7 @@ $(BUILD)/CWDHERE.COM: tests/dostrap/cwdhere.asm | $(BUILD)
 $(BUILD)/XMSPROBE.COM: tests/dostrap/xmsprobe.asm | $(BUILD)
 	$(NASM) -f bin -w+error -o $@ tests/dostrap/xmsprobe.asm
 
-# A20SHUT.COM - W4's probe (docs/plans/KERN-MEGA-DOS-PLAN.md 7): shut A20
+# A20SHUT.COM - W4's probe (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 7): shut A20
 # through port 92h, then INT 21h, which with kern_dos in the HMA only the low
 # trampolines can serve (kerndos/kdhma.inc). On demand, like XMSPROBE.COM.
 $(BUILD)/A20SHUT.COM: tests/dostrap/a20shut.asm | $(BUILD)
@@ -14521,7 +14521,7 @@ $(BUILD)/megaw32.o88: $(BUILD)/megaw32.bin tools/os88pkg.py
 	python3 tools/os88pkg.py $(BUILD)/megaw32.bin -o $@
 # MEGAHIB (tests/megahib): MEGAXM's patterns HELD by a window across a
 # hibernate, and compared on a key - kern_mega's W5 witness
-# (docs/plans/KERN-MEGA-DOS-PLAN.md 8)
+# (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 8)
 $(BUILD)/megahib.bin: tests/megahib/megahib.asm apps/os88api.inc | $(BUILD)
 	$(NASM) -f bin -w+error -I apps/ -o $@ tests/megahib/megahib.asm
 $(BUILD)/megahib.o88: $(BUILD)/megahib.bin tools/os88pkg.py
@@ -14744,7 +14744,7 @@ mega: $(BUILD)/mega.img $(BUILD)/mega120.img $(BUILD)/megaapps.img $(BUILD)/mega
 MEGADRIVERS = $(filter-out %/coldhma.sys %/xmem.drv,$(DRIVERS))
 $(BUILD)/mega.img: KMODDIR := $(MEGADIR)
 #
-# **ITS DOS.O88 IS kern_mega's OWN** (docs/plans/KERN-MEGA-DOS-PLAN.md 12.1
+# **ITS DOS.O88 IS kern_mega's OWN** (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 12.1
 # item 4): the same sources assembled with -DDOS_MEGA and kern_dos with
 # -DKD_MEGA, into $(MEGADIR)/kdos/, so the shipped $(SYSROOT) stays
 # byte-identical and a copy carried to the other kernel refuses in a sentence.

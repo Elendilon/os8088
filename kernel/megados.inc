@@ -1,6 +1,6 @@
 ; =============================================================================
 ; kernel/megados.inc - DOS under kern_mega: the PARK
-; (docs/plans/KERN-MEGA-DOS-PLAN.md 2.3, waves W1 and W2)
+; (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 2.3, waves W1 and W2)
 ;
 ; On kern_mega DOS has one route, the whole-machine handoff (SPEC.md
 ; 96.40), with EXTENDED MEMORY standing in for the hibernation file. HIBER.DRV's

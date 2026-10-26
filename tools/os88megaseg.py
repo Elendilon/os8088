@@ -6,7 +6,7 @@
     python3 tools/os88megaseg.py --labels                # kern_mega-only labels too
     python3 tools/os88megaseg.py --json
 
-docs/plans/KERN-MEGA-SEGMENTS-PLAN.md is the question this answers: kern_mega
+docs/plans/completed/KERN-MEGA-SEGMENTS-PLAN.md is the question this answers: kern_mega
 is kern_big plus a protected-mode layer, and both put `.text` + `.bss` in ONE
 64KB segment (KERN_CODE_MAX). Every byte kern_big adds there is a byte off
 kern_mega's headroom too, so what decides when kern_mega overflows is the
@@ -207,7 +207,7 @@ def main():
             grew = [dict(file=f, delta=d) for f, d in per.most_common() if d > 0][:6]
             sys.exit('os88megaseg: kern_mega carries %d bytes more than kern_big in the kernel '
                      'segment, against the %d %s allows. Protected-mode-only code belongs in '
-                     '`.mega` (docs/plans/KERN-MEGA-SEGMENTS-PLAN.md 3.2); only what runs in '
+                     '`.mega` (docs/plans/completed/KERN-MEGA-SEGMENTS-PLAN.md 3.2); only what runs in '
                      'REAL mode after the switch has to be low. If it is that, raise the figure '
                      'in %s and say why. Biggest kern_mega shares: %s'
                      % (w['overhead'], limit, a.check, a.check,

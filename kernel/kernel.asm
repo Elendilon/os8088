@@ -1487,7 +1487,7 @@ STK0_BOT    equ KLOW_SIZE       ; ...and the floor it grows down ONTO, which is
 MEGA_RAM    equ COLD_RAM + COLD_PARA ; kern_mega's OWN SEGMENT, `.mega`: the
                                 ; rung over `.cold`'s, copied above 1MB with
                                 ; it at the switch and given back to the heap
-                                ; with it (docs/plans/KERN-MEGA-SEGMENTS-PLAN.md
+                                ; with it (docs/plans/completed/KERN-MEGA-SEGMENTS-PLAN.md
                                 ; 3.3). In the file it is the section after
                                 ; `.cold`, so stage 2's one read lands it here
 MEGA_PARA   equ ((MEGA_SCR_OFF + MPS_SIZE + 511) / 512) * 32 ; ...with the

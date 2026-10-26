@@ -1,6 +1,6 @@
 ; =============================================================================
 ; kerndos/kdhma.inc - kern_dos IN THE HMA: its low half (-DKD_HMA, which
-; -DKD_MEGA implies; docs/plans/KERN-MEGA-DOS-PLAN.md 7, wave W4)
+; -DKD_MEGA implies; docs/plans/completed/KERN-MEGA-DOS-PLAN.md 7, wave W4)
 ;
 ; On kern_mega the image runs at FFFF:0010, which is memory only while A20 is
 ; open. kern_mega leaves it open across the bracket, and a program has three

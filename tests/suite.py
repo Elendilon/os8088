@@ -16248,7 +16248,7 @@ SOAK = [
                "build/cdaudio.cue", "build/cdrack.bin", "build/mixer.bin",
                "build/cdrom.bin", "build/sound.bin")),
     Row("megacz", "soak", py("tests/megacz.py"), 150.0,
-        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7.6: File > Compress and "
+        "docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC7.6: File > Compress and "
         "Uncompress on kern_mega, on 86Box's 286 (vm/286-mega). DISKOPS.DRV "
         "keeps its paragraph arithmetic and loads every segment register "
         "through its stream's own scratch selector (KSEG, MEGA_SEL_K0-K5). "
@@ -16292,7 +16292,7 @@ SOAK = [
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megak/kernel.bin", "build/apps.img")),
     Row("megatbl", "soak", py("tests/megatbl.py"), 45.0,
-        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7's step 6: kern_mega's "
+        "docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC7's step 6: kern_mega's "
         "tables sized per machine. Under Bochs at 1, 4 and 16MB: the GDTR's "
         "limit is the identity map up to COLD_SEG and the scratches "
         "(MEGA_GDT_N x 8 - 1) and not one entry more, the LDT sits on the "
@@ -16325,7 +16325,7 @@ SOAK = [
         wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
                "build/mbr.bin", "build/megak/apps/taskmgr.bin")),
     Row("megapaint", "soak", py("tests/megapaint.py"), 45.0,
-        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7: a Paint canvas OVER 64KB "
+        "docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC7: a Paint canvas OVER 64KB "
         "under kern_mega, where every claim is a 64KB selector. Under Bochs "
         "at 16MB: a 580x380 BMP (111KB) opens by association and the canvas "
         "is the file's pixels (pt_srowset's windows), a maximize to 590x390 "
@@ -16342,7 +16342,7 @@ SOAK = [
         wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
                "build/mbr.bin", "build/paint.o88")),
     Row("megainst", "soak", py("tests/megainst.py"), 35.0,
-        "docs/plans/KERN-MEGA-MEMORY-PLAN.md 7 (MC7 as built): the INSTALL "
+        "docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md 7 (MC7 as built): the INSTALL "
         "wizard under kern_mega. The owner's first Next on 86Box's mr286 "
         "faulted the machine, `kern_mega FAULT 0D err 0000 at 1154:07BE` - "
         "HDD.DRV's hd_raw bounce, which MC7 step 6 widened to ANY selector "
@@ -16376,7 +16376,7 @@ SOAK = [
         wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
                "build/mbr.bin", "build/hdd.drv", "build/megak/kernel.map")),
     Row("megashed", "soak", py("tests/megashed.py"), 30.0,
-        "SPEC.md 50.6.8, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC1: a kernel "
+        "SPEC.md 50.6.8, docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC1: a kernel "
         "cache ABOVE 1MB is purgeable. Bochs at 16MB: B:'s Disk window and the "
         "About box put the icon store, a FAT window and a raise cache in the "
         "pool beside the boot's read-ahead store, the debugger covers every "
@@ -16494,7 +16494,7 @@ SOAK = [
         "65 measured: each step ends on the UI task done (Box.ui_done)",
         needs=("bochs", "nasm")),
     Row("megapixel", "soak", py("tests/megapixel.py"), 90.0,
-        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7: PiXEL's claims OVER 64KB "
+        "docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC7: PiXEL's claims OVER 64KB "
         "under kern_mega, where every claim is one 64KB LDT selector and a "
         "paragraph sum names somebody else's descriptor. Under Bochs, B: "
         "holding `make mega`'s PIXEL.O88: a 600x400 8-bit BMP (a 234 KB "
@@ -16620,7 +16620,7 @@ SOAK = [
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/megahole.o88", "build/megaown.o88")),
     Row("megaxmove", "soak", py("tests/megaxmove.py"), 25.0,
-        "SPEC.md 50.6.10, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC3: on "
+        "SPEC.md 50.6.10, docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC3: on "
         "kern_mega an OSAPI_XMEM_ALLOC block MOVES and is read back through "
         "the token it was given. Under Bochs at 4MB, tests/megaxm's MEGAXM "
         "takes a 64KB filler and then its block under it, writes sixteen "
@@ -16663,7 +16663,7 @@ SOAK = [
         "62 measured: the hibernate's end is its sentence on the text screen",
         needs=("bochs", "nasm")),
     Row("megahibfull", "soak", py("tests/megahiber.py", "--full"), 60.0,
-        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC4.1 (b): megahiber on a 2MB "
+        "docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC4.1 (b): megahiber on a 2MB "
         "machine with EVERY free KB of the pool covered by pinned records "
         "before the hibernate. The resume used to stage the whole file in "
         "one free block and refused here; it streams now (kernel/megares.inc, "
@@ -16689,7 +16689,7 @@ SOAK = [
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin",
                "build/mines.o88")),
     Row("megahma", "soak", py("tests/megahma.py"), 180.0,
-        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC4.1 (a): the HMA is ordinary "
+        "docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC4.1 (a): the HMA is ordinary "
         "pool on kern_mega, and a block standing there survives a DOS trip "
         "- kern_dos runs in the HMA for the program's length, so the trip "
         "claims its park and arena above it ([mega_mxflr]) and saves the "
@@ -16701,7 +16701,7 @@ SOAK = [
         needs=("bochs",),
         wants=("build/mega.img",)),
     Row("megadosroom", "soak", py("tests/megadosroom.py"), 60.0,
-        "docs/plans/KERN-MEGA-MEMORY-PLAN.md D5: a DOS trip with NO ROOM "
+        "docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md D5: a DOS trip with NO ROOM "
         "for a park (a 2MB machine, every free KB of the pool held by "
         "pinned records) writes HIBERNAT.IMG instead, runs the program with "
         "no park, reboots at its exit (kern_dos's W6 route) and the boot "
@@ -16712,7 +16712,7 @@ SOAK = [
         needs=("bochs",),
         wants=("build/mega.img",)),
     Row("megahuge", "soak", py("tests/megahuge.py"), 60.0,
-        "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC5: ONE CLAIM FOR ALL OF IT. "
+        "docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC5: ONE CLAIM FOR ALL OF IT. "
         "OSAPI_MEM_HUGE with AX = 0 asks the most one claim can be; on a "
         "4MB Bochs machine that is a BRIDGE - the pool's best run in whole "
         "64KB windows, then the conventional heap less its 64KB reserve, "

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """lemmega - LEMMINGS PLAYED under kern_mega's protected mode
-(docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7, SPEC.md 116.6).
+(docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC7, SPEC.md 116.6).
 
     make mega && make lemmingsdisk && python3 tests/lemmega.py [--keep]
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """kern_mega: a kernel cache ABOVE 1MB is purgeable (SPEC.md 50.6.8,
-docs/plans/KERN-MEGA-MEMORY-PLAN.md MC1).
+docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC1).
 
     python3 tests/megashed.py            the row
     python3 tests/megashed.py --keep     ...and leave the boot's output

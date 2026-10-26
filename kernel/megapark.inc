@@ -1,5 +1,5 @@
 ; =============================================================================
-; kernel/megapark.inc - THE PARK STUB (docs/plans/KERN-MEGA-DOS-PLAN.md 2.3
+; kernel/megapark.inc - THE PARK STUB (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 2.3
 ; step 9; kernel/megados.inc is the rest). Included by kernel/hiber.inc, in
 ; HIBER.DRV's `.modh`, under -DKERN_MEGA: mega_dosparkf copies it from there
 ; into the park's header, and it never runs where it is assembled.

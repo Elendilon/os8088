@@ -88,7 +88,8 @@ N kernel/filecp.inc MEM_K_COPY           # Cut/Copy/Paste's page-safe copy buffe
                                          # is held across a suspended overwrite
                                          # QUESTION - a user wait. K4b, a one-word
                                          # proc (~17 bytes), waits for a size pass
-N kernel/mega.inc MEM_K_MTBL             # kern_mega's 82KB descriptor tables in
+N kernel/mega.inc MEM_K_MTBL             # kern_mega's descriptor tables (82KB once,
+                                         # ~11KB since MC7's growable LDT) in
                                          # conventional memory. Not a ceiling
                                          # claim after all: mega_enter runs after
                                          # drv_boot, so unloading a boot driver

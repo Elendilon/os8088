@@ -58173,7 +58173,7 @@ disk with the folder: 13,817 ms, `as_boot` 456 ms after a 10-cylinder seek.
 ##### 26.10.5.1 On kern_mega the walk is after the switch to protected mode
 
 kern_mega walks `\AUTOSTRT` LAST in `kmain`, after `mega_enter` and after
-the boot's drivers and caches go above 1MB (docs/plans/KERN-MEGA-MEMORY-PLAN.md
+the boot's drivers and caches go above 1MB (docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md
 MC8). From the blob it ran in real mode, so every package it started was
 loaded into conventional memory whatever its header said, and one with a
 worker made `mega_tasks_ok` refuse protected mode for the session. The walk
@@ -96362,7 +96362,7 @@ KB, not its largest run. The entry is marked `MX_FHUGE`, which is what
 `mx_unsel` frees the run by (a driver's huge claim included) and what
 `OSAPI_MEM_REGROW` keys on:
 
-**Below 1MB too, in protected mode** (docs/plans/KERN-MEGA-MEMORY-PLAN.md
+**Below 1MB too, in protected mode** (docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md
 MC7.4): every conventional claim is named by its pair's DATA selector there
 (§50.6.12), so `segment + 1000h` names some other descriptor as surely as it
 does above 1MB. `mega_hugec` remakes the claim's pair as the entry BEFORE a run
@@ -96453,7 +96453,7 @@ kernel answers the sum (0x04D1, appended - additive, no `PKG_FMT`; 0x04BD until 
   a caller's fallback is the code it already had, and it is right wherever
   the region really is.
 - **A region in CONVENTIONAL memory is answered too** since
-  docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7.4: in protected mode every claim
+  docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md MC7.4: in protected mode every claim
   is named by its pair's DATA selector (§50.6.12), so the sum is as wrong
   below 1MB as above it. The block is the region's claim (`mega_rgnconv`
   finds it by its selector).
@@ -97656,7 +97656,7 @@ On kern_mega in protected mode (`mega_segf`, `.mega`):
   reach at most, which is what `segment + AX` reached. **`SEG_SUBC`** is the
   same with a CODE half at DX - 8 (allocated as a pair), so code past a
   claim's first 64KB has a CS - RealDMG's recompiler part and its extra cache
-  tiers (docs/plans/KERN-MEGA-MEMORY-PLAN.md 8.1); it is a block's or
+  tiers (docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md 8.1); it is a block's or
   nothing (CF = 1, AX = 3). A block's free takes both halves.
 - A **BOUND window** (`SEG_BWIN`) is a fresh descriptor - never a match, so
   re-aiming it moves nobody else's - based in a claim or a pool block and
@@ -97670,7 +97670,7 @@ On kern_mega in protected mode (`mega_segf`, `.mega`):
   bound window moves with the rate hook held off for each piece
   (`MX_FWIN`, `mx_cpflags`), as an `OSAPI_XMEM_RUN` block does. It is what
   the Video Player's BIGSP super-packets read through in place
-  (docs/plans/KERN-MEGA-MEMORY-PLAN.md 9.1): one window, one re-aim a
+  (docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md 9.1): one window, one re-aim a
   record. Refusals 4 (not a bound window of the caller's) and 5 (at or past
   the block's end).
 - **`SEG_AT`** is a window (above) aimed at a segment's base plus a
@@ -103624,7 +103624,7 @@ tick), as `wm_pkgcall` would call it: through the package's dispatcher, with
 - **It may call nothing in the kernel** - but one verb: kern_mega's
   `OSAPI_SEG` `SEG_AIM` (§50.6.11), which re-aims a bound window over the
   package's own block, takes no lock, never sets IF and is about 40 bytes of
-  that stack with the cell's frame (docs/plans/KERN-MEGA-MEMORY-PLAN.md 9.1).
+  that stack with the cell's frame (docs/plans/completed/KERN-MEGA-MEMORY-PLAN.md 9.1).
 
 **The hook is skipped, and the period counted for the next call**, when it
 would be unsafe to run it: the previous call has not returned; the IRQ0
@@ -154809,7 +154809,7 @@ the host. Its second leg boots copies of the disks taken while the image was on
 them under `-m 1`, where `.cold` stays in RAM, and asserts the opposite:
 `Hibernation: other build` and the pointer deleted.
 
-### 87.9 kern_mega in protected mode (docs/plans/KERN-MEGA-DOS-PLAN.md 8)
+### 87.9 kern_mega in protected mode (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 8)
 
 kern_mega's protected mode keeps state above 1MB that a fresh boot cannot
 rebuild — the XMEM pool's blocks (a package's, and the kernel's own: track 1's
@@ -178567,7 +178567,7 @@ the same reason.
 
 #### 96.15.4 kern_mega: `kern_dos`'s own door, over the arena
 
-On kern_mega the windowed DOS does not run (docs/plans/KERN-MEGA-DOS-PLAN.md
+On kern_mega the windowed DOS does not run (docs/plans/completed/KERN-MEGA-DOS-PLAN.md
 12.1 item 1), so the door is `kern_dos`'s alone, and the cells behind 96.15 are
 gone for the bracket with the kernel that serves them. What the kernel leaves
 instead is **one block above 1MB, the XMS ARENA**: everything the pool had left
@@ -182774,7 +182774,7 @@ reaches its extent claim because `hbm_dosrun` refused at step 1.
 On kern_mega (docs/plans/KERN-MEGA-PLAN.md) arm 3 is the only arm - a DOS
 program cannot run inside a protected-mode kernel, so DOS's Memory page
 draws one line where the radio stands (*Parks the OS above 1MB*) and every
-launch is the whole machine (docs/plans/KERN-MEGA-DOS-PLAN.md 12.1 item 1). The
+launch is the whole machine (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 12.1 item 1). The
 handoff is this section's, with one substitution: **conventional memory is
 copied into a block above 1MB - the PARK - in place of `HIBERNAT.IMG`**, and
 the way home reads it back from there. No disk is written, no fixed disk is
@@ -183075,7 +183075,7 @@ home to the desktop.
 
 #### 96.40.9.3 ...and `Save the session to disk`: the park made durable
 
-**The owner's answer 2** (docs/plans/KERN-MEGA-DOS-PLAN.md 12.1): the park
+**The owner's answer 2** (docs/plans/completed/KERN-MEGA-DOS-PLAN.md 12.1): the park
 lives in RAM, so a DOS program that hangs the machine, a power cycle or a
 reset the ROM answers by clearing memory loses the session. kern_mega's
 Memory page carries a third box under *Parks the OS above 1MB*, **unticked by

@@ -1,4 +1,6 @@
 # megaport-candidates.txt - soak rows worth porting to kern_mega under Bochs
+# COMPLETED (2026-10-26): the selection behind tests/megaport.txt, which now
+# carries ~317 ports; kept as the record of what was chosen and excluded.
 # (build/mega.img + build/megaapps.img, Bochs 386 VGA, PS/2 mouse, 16MB,
 #  optional SB16 / NE2000), chosen against rows.json (1135 rows) plus the
 #  emulator rows rows.json does not list (sndmove, drvmove, regapp, regwork,
