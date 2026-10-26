@@ -2762,11 +2762,16 @@ mem_cp_walk:
     xchg ax, bx                 ; ...and its pair and SUBs with them
     MEM_MP mega_mpmovef         ; (KERN-MEGA-MEMORY-PLAN MC7.4)
     xchg ax, bx
-    cmp byte [mega_on], 0       ; ...and in protected mode NOBODY is told:
-    jne .moved                  ; every holder holds the selector, which the
-%endif                          ; rebase has just aimed at the new bytes
+%endif
     mov dx, di                  ; ...and the holder follows the map (BX = old
-    call mem_reloc_call         ; base, DX = new)
+%ifdef KERN_MEGA                ; base, DX = new)
+    cmp byte [mega_on], 0       ; ...and in protected mode NOBODY is told:
+    je .tell                    ; every holder holds the selector, which the
+    call KERNEL_SEG:mem_ivt_relocf ; rebase has just aimed at the new bytes -
+    jmp short .moved            ; BUT THE IVT, which stays REAL (KERN-MEGA-PLAN
+.tell:                          ; 14.90)
+%endif
+    call mem_reloc_call
 %ifdef KERN_MEGA
 .moved:
 %endif
@@ -2929,6 +2934,40 @@ mem_rr_walk:
     jmp short .row
 .done:
     ret
+%ifdef KERN_MEGA
+%ifdef OS88_DRIVERS
+; mem_ivt_relocf - FAR, kern_mega in protected mode: a block moved from
+; paragraph BX to DX -> the IVT's rows (mem_rr_ivt: IRQ0-15 and int 33h) follow
+; it, and the IDT is re-read from them. Every register kept.
+;
+; WHY ONLY THE IVT (KERN-MEGA-PLAN 14.90). A protected-mode move tells nobody:
+; every holder holds the block's SELECTOR, which mega_mpmovef has just rebased
+; (KERN-MEGA-MEMORY-PLAN MC7.4). The IVT is the one holder that cannot - its
+; rows stay REAL, because a real-mode BIOS during a reflection (the PIC stays
+; at 20h, and mega_ivt_sync copies IVT 08h-0Fh to 20h-27h for it) and a DOS
+; trip are what read them, and mega_ivt_sync writes a driver's stamped CS
+; back as its image's PARAGRAPH. So a Sound Blaster image moved while the
+; card idled left IRQ5's real-mode vector on the vacated block, and the next
+; IRQ to land inside an int 13h ran whatever the heap put there.
+mem_ivt_relocf:
+    push ax
+    push cx
+    push si
+    push di
+    push es
+    cld
+    mov si, mem_rr_ivt
+    MEGA_SEG0 es                ; segment 0 is the NULL selector
+    call mem_rr_walk
+    pop es
+    pop di
+    pop si
+    pop cx
+    pop ax
+    call KERNEL_SEG:mega_ivt_syncf  ; ...and the gates
+    retf
+%endif
+%endif
 mem_rr_none equ mem_rr_walk.done ; the relocation proc of a claim whose word
                                 ; is a ROW above: nothing left to do (kernel
                                 ; size pass 14)
@@ -3190,6 +3229,7 @@ mem_rr_tab:
     ; the tree reaches IRQ8..15 yet - sbl_f_irqdisc is `add al, 8` and so 8-bit
     ; only - and a 16-bit card on IRQ 10 would land there, so the second eight
     ; are covered for four bytes rather than left as the next reader's trap.
+mem_rr_ivt:                         ; (kern_mega's mem_ivt_relocf walks from here)
     MEM_RR_ROW 0x08*4 + 2, 8, 4     ; IRQ0..7  -> int 08h..0Fh, the SEGMENT half
     MEM_RR_ROW 0x70*4 + 2, 8, 4     ; IRQ8..15 -> int 70h..77h
     ; ...and int 33h, the POINTING class's own vector (SPEC.md 66.6.3.1,
