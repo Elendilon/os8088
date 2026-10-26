@@ -221753,7 +221753,7 @@ driver.
 | | |
 |---|---|
 | kind | `VID_VESA` = 4, `VID_KIND_MAX` moves to 4, `VID_A_VESA` = 1 << 4 in `[vid_avail]` |
-| who draws | `VESA.DRV`, a `DRVC_OVL` overlay WITH a `drv_tab` row (`vesa_row`, `VMMOUSE.DRV`'s shape, §9.11.1): no class, because the kernel is its only caller and holds the far pointer; a row, because the Drivers-page tick is the user's decision. On `kern_big` and `kern_emu` — never `kern_small`, which has no driver layer (§51.0) and no VGA renderer (§39.27) |
+| who draws | `VESA.DRV`, a `DRVC_OVL` overlay WITH a `drv_tab` row (`vesa_row`, `VMMOUSE.DRV`'s shape, §9.11.1): no class, because the kernel is its only caller and holds the far pointer; a row, because the Drivers-page tick is the user's decision. On `kern_big`, `kern_emu` and `kern_mega` (§120.3.4) — never `kern_small`, which has no driver layer (§51.0) and no VGA renderer (§39.27) |
 | the framebuffer | the card's 64KB window A at A000h, **banked** through VBE function `4F05h`; never the linear framebuffer, which real mode cannot address (§120.2.3) |
 | depth | 8bpp packed (VBE memory model 4) or 15/16bpp direct colour (model 6); never 24/32 |
 | geometry | at most 1024x768, width a multiple of 8, `BytesPerScanLine` ≤ 4,096 |
@@ -222010,12 +222010,16 @@ rebuild; every other kind stays inside the 128. (It was a 256-byte stack
 under `VID_EXT` until kernel size pass 14: 128 bytes of `.lowbss` on every
 kern_big, most of which never runs a VBE.) A private stack in the driver was
 the first design and was refused — two tasks preempted inside one `int 10h`
-would share it.
+would share it. **That refusal no longer holds and §120.3.4 builds it**:
+`sch_switch` has since stopped switching on any SS that is not `LOW_SEG`
+(§8.5), so no second task can be pre-empted into the hop, and a VBE BIOS's
+depth turned out to be a boot-stopping defect rather than a margin.
 
 #### 120.3.4 kern_mega — the hook in protected mode
 
-**Shipped on `kern_mega` (KERN-MEGA-PLAN 14.115); pinned until its row says
-so.** The boot is the same as `kern_big`'s: `vx_boot_x` attaches and inits
+**Shipped on `kern_mega` (KERN-MEGA-PLAN 14.115)**: `mega-vesa`, `mega-vesa8`,
+`mega-vesacp`, `mega-vesablit4` and `mega-vesafsx` are §120.9's rows on Bochs's
+VBE (tests/megaport.txt). The boot is the same as `kern_big`'s: `vx_boot_x` attaches and inits
 the image and `vid_switch` takes the desktop onto the VBE, all in real mode,
 with `vx_ep` holding the image's real SEGMENT. Two things then stop being
 true at `mega_enter`, and one verb answers both:
@@ -222046,6 +222050,11 @@ bank register directly, with the window number `4F05h` would have been
 given - both BIOSes write DX there as it is, in the granularity they
 reported (32KB on Bochs 2.7); every other card's goes through `4F05h`,
 reflected - a CPU reset each on a 286.
+
+In real mode every `int 10h` the image makes - and in protected mode on a
+card that is not `dispi` - keeps BP across the call: kern_mega's reflection
+of `4F05h` was measured handing BP back changed (916Dh), and every body
+reads its frame through BP.
 
 **`int 10h` RUNS ON THE IMAGE'S OWN STACK, on every kernel.** A VBE BIOS
 is a deep call: Bochs's vgabios took `4F01h` some 650 bytes below the boot's
@@ -222256,7 +222265,12 @@ CLAUDE.md's closed list). The resident hook is measured by
 `tests/unit/t_buildmatrix.py`'s `novidext` row, and `t_vidext.py` keeps the
 selector inventory of §120.3.1 honest. The fullscreen round trip is S8's
 driving pass, not a row of its own: `fsx_capstab`'s VESA row is VGA's and
-`fsx_leave` restores through `vid_setmode`'s arm.
+`fsx_leave` restores through `vid_setmode`'s arm. On `kern_mega` the same
+scripts run under `OS88_MEGA=1` on Bochs's VBE (`mega-vesa*`, §120.3.4):
+Bochs's vgabios offers nothing above 800x600, so Auto lands on 0114h there,
+and `tests/vesa.py`'s `px` re-expands a 565 pixel QEMU's way because Bochs's
+display fills the low bits with ones. `vesablitd` is not ported: its
+picture disk carries the shipped PiXEL, and kern_mega runs PiXEL's arm.
 
 ## 121. XTMP3 — an adaptive MP3 player (`apps/xtmp3/`, `XTMP3.O88`)
 
