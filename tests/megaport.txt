@@ -14,3 +14,4 @@
 # failure is a kern_mega defect that is fixed in the same change.
 
 sheetbtn secs=60   # Sheet's dialog buttons (Goto/Format) open, close and reuse their slot
+uilayer secs=120   # every os88ui verb confirmed off guest state, and confirm-vs-settle
