@@ -91,7 +91,7 @@ def kill_stale():
             os.unlink(f)
 
 
-def launch():
+def launch(img="build/vesa.img", b="build/apps.img", sock=None, pidfile=None):
     """The standard VGA (QEMU's default, spelled out) and the gate disk.
 
     UNDER $OS88_MEGA it is kern_mega's (KERN-MEGA-PLAN 14.115): this socket
@@ -100,11 +100,11 @@ def launch():
     mega.img with its SYSTEM.CFG (mega_twin), the shipped apps disk as
     megaapps.img. The desktop comes up on the VBE in real mode exactly as on
     kern_big, and mega_enter then hands VESA.DRV its selectors"""
-    os88fixture.need("build/vesa.img", "build/apps.img")
-    if os88qemu.MEGA:
+    os88fixture.need(img, b)
+    if os88qemu.MEGA:       # (and every vesa* row's, through `img`/`b`)
         import os88qmpmega
-        launch.srv = os88qmpmega.Server(SOCK, PIDFILE, _B.at("build/vesa.img"),
-                                        _B.at("build/apps.img"), ne2k=False)
+        launch.srv = os88qmpmega.Server(sock or SOCK, pidfile or PIDFILE,
+                                        _B.at(img), _B.at(b), ne2k=False)
         return
     em = "qemu" + "-system-i386"     # never whole on a command line: kill_stale
     os88qemu.start(
@@ -229,9 +229,13 @@ def white_share(pix, w, x0, y0, x1, y1):
 
 def px(pix, w, x, y):
     i = (y * w + x) * 3
-    if os88qemu.MEGA:           # Bochs's X display widens RGB565's white to
-        return tuple(255 if c >= 248 else c   # (251, 255, 251): the
-                     for c in pix[i:i + 3])   # driver's 0FFFFh all the same
+    if os88qemu.MEGA:
+        # Bochs's X display widens RGB565 by filling the low bits with ones -
+        # the driver's white 0FFFFh is (251, 255, 251) - where QEMU, and
+        # vesablit4's q565, replicate the high bits. Re-expanded QEMU's way
+        # here, so every row compares a 565 pixel the same on both
+        r, g, b = pix[i] >> 3, pix[i + 1] >> 2, pix[i + 2] >> 3
+        return (r << 3 | r >> 2), (g << 2 | g >> 4), (b << 3 | b >> 2)
     return pix[i], pix[i + 1], pix[i + 2]
 
 

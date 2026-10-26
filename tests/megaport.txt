@@ -221,6 +221,10 @@ netcoexist secs=60 +--arm +pinned   # the card at 2A0h pinned on the Ports view,
 # tests/os88qmpmega.py. Bochs's vgabios offers nothing above 800x600, so Auto
 # lands on 0114h and the row expects it
 vesa secs=50   # VESA.DRV in protected mode: VID_VESA at 800x600x16, the chrome, the dither, a menu down and back, two Disk windows and the chevron band; red: the driver's int 10h on the caller's stack (boot never reaches protected mode) or mega_vxpm not called (#GP(A000) in the image)
+vesa8 secs=35   # the same desktop at 800x600x8 by SYSTEM.CFG's class: the DAC's first sixteen off the glass, the Disk window
+vesacp secs=50   # the Display page in protected mode: VXV_NEXT cycles the class, Set Primary switches to 640x480x8 (4F02h reflected)
+vesablit4 secs=20   # a package's OSAPI_GFX_BLIT4 on VID_VESA, WireBall's title art pixel for pixel (565 re-expanded QEMU's way, vesa.px)
+vesafsx secs=20   # Gorillas' BIOS-mode bracket from the VESA desktop and back: the mode restored through VX_SETMODE, the margin's dither whole
 
 # MOVES AND THE HEAP (wave 2)
 # On a 1MB kern_mega (@OS88_BOCHS_MEGS=1: no pool) every claim is conventional
