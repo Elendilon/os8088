@@ -16109,6 +16109,21 @@ SOAK = [
         "the clone never ends and 1,330 sectors differ. 150s is 134 measured",
         needs=("86box",),
         wants=("build/mega.img",)),
+    Row("megacurdisk", "soak", py("tests/megacurdisk.py"), 25.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.75, SPEC.md 7.4: the pointer "
+        "through a REFLECTED disk transfer on kern_mega, on 86Box's 286 "
+        "(vm/286-mega) with the native floppy path off so every transfer is "
+        "the BIOS's. A 120KB Copy and Paste B: -> A: with the pointer "
+        "wiggling over bare desktop: the copy is byte for byte, the arrow "
+        "moves across at least half the sample pairs taken inside the "
+        "freeze, the desktop strip is pixel for pixel what it was, and no "
+        "exception is charged to a loaded image. Red on the kernel before "
+        "14.75: 208 pixels of arrow fragments (the ISR drew in real mode "
+        "through [vid_seg]/[k_vsa], selectors since MC7.4); red with the "
+        "mouse line kept shut instead: the arrow moves across 4 of 294 "
+        "pairs against 286. 25s is 12-17 measured alone, 23 in a lane",
+        needs=("86box",),
+        wants=("build/mega.img",)),
     Row("megasweep", "soak", py("tests/megasweep.py"), 120.0,
         "KERN-MEGA-MEMORY-PLAN MC7: every package the shipped disks carry "
         "OPENS under kern_mega (Bochs, 16MB, the kern_mega arm where one is "

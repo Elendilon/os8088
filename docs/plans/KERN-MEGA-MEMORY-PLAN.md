@@ -1275,6 +1275,11 @@ build that is MEANT TO GROW.
   service reflection does not, and the DOS trip and the hibernate come
   back into protected mode), the `STKDIAG` knob's F000h, and the drivers'
   and packages' own frame-buffer and ROM immediates (their waves).
+  **CORRECTED (KERN-MEGA-PLAN 14.75): the service reflection DOES draw** -
+  14.1 answer 18 runs the mouse ISR there, and it loaded `vid_seg`/`k_vsa`
+  as paragraphs, drawing every arrow it moved into kernel memory and
+  leaving the one on the glass. `mega_vrm` makes the two words segments
+  for each reflection that opens the mouse's line.
 
 - **Step 5.5's first half, the file doors and the compactor's copy
   (2026-10-25) - DONE.** Both still turned a claim into a REAL segment and

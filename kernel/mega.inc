@@ -2821,6 +2821,14 @@ section .mega
 mega_svc_back:
     ; STKBALANCE-OK: mega_svc's back half - entered by a far jump on the frame its
     ; front half built (es ds pusha vector, the BIOS's FLAGS above it), left by iret
+    xor ax, ax                      ; the pointer's frame buffer back to its
+    xchg ax, [mega_vsw]             ; SELECTORS (mega_vrm), before the mask
+    or ax, ax                       ; below opens its line in protected mode:
+    jz .novs                        ; IF is 0 from here to the iret
+    mov [vid_seg], ax
+    mov ax, [mega_vsw+2]
+    mov [k_vsa], ax
+.novs:
     mov al, [mega_imr1]
     out 0x21, al
     mov al, [mega_imr2]
@@ -4730,6 +4738,12 @@ mega_bhex2:
 ; real-mode vector is an OPTION ROM's is left open as well, on every service
 ; (KERN-MEGA-PLAN 14.73): a PicoMEM's multiplexer copies its Sound Blaster's
 ; blocks there, and its disk is one of those services.
+; THE ONE WORD WAS NOT ONE (KERN-MEGA-PLAN 14.75): since MC7.4 the cursor's
+; frame buffer is a SELECTOR too - [vid_seg] and VSEG's [k_vsa] - and the
+; ISR loaded it as a segment, so every arrow it moved through a reflection
+; was drawn into kernel memory at selector x 16 and the one on the glass was
+; left there. mega_vrm makes them segments for the call and mega_svc_back
+; puts them back; a display it cannot do that for keeps the line shut.
 ; in: BP = mega_svc's frame, DS = KDATA. out: BX. Clobbers AX
 ; -----------------------------------------------------------------------------
 section .cold
@@ -4772,6 +4786,11 @@ mega_rmaskf:
     and bh, ~0x10 & 0xFF            ; IRQ12, the slave's bit 4
 .k:
     pop es
+    cmp bx, 0x3FB8                  ; THE LINE IS OPEN, SO THE ARROW WILL BE
+    je .out                         ; DRAWN IN REAL MODE (KERN-MEGA-PLAN
+    call mega_vrm                   ; 14.75): the frame buffer's words become
+    jnc .out                        ; the SEGMENTS they name - and where they
+    mov bx, 0x3FB8                  ; cannot, the line stays shut
 .out:
     push es                         ; ...AND EVERY LINE AN OPTION ROM OWNS
     push dx                         ; (KERN-MEGA-PLAN 14.73): its handler is
@@ -4805,6 +4824,39 @@ mega_rmaskf:
     pop es
     mov [mega_rmask], bx
     retf
+
+; mega_vrm - the words the pointer's ISR draws through, made REAL SEGMENTS
+; for a service reflection whose mask lets the ISR run (mega_rmaskf;
+; KERN-MEGA-PLAN 14.75). cur_move reaches the frame buffer through exactly
+; two: [vid_seg] (the 1bpp move and the planar draw) and VSEG's [k_vsa] (the
+; planar save and restore) - both selectors since MC7.4, which a real-mode
+; `mov es` takes as a paragraph. PROTECTED MODE, DS = KDATA, IF = 0 (the
+; gate's, to mega_svc_back), so no protected-mode draw sees them changed.
+; out: CF = 0 done, the selectors banked in [mega_vsw] for mega_svc_back;
+;      CF = 1 refused and nothing changed - a PACKED display (its cursor is a
+;      driver's far call, VIDEXT, through a selector), more than one display
+;      (cur_move_multi's vid_ctx_act loads each context's selectors), or a
+;      frame buffer above 1MB. Clobbers AX
+mega_vrm:
+    cmp byte [vid_planes], 4
+    ja .no
+    cmp byte [vid_ndisp], 1
+    ja .no
+    mov ax, [vid_seg]
+    call KERNEL_SEG:mega_s2segf     ; AX = the segment with its base...
+    cmp ax, 0xFFFF                  ; ...or none, above 1MB
+    je .no
+    push word [vid_seg]
+    pop word [mega_vsw]
+    mov [vid_seg], ax
+    push word [k_vsa]
+    pop word [mega_vsw+2]
+    mov word [k_vsa], VGA_SEG       ; (mega_vfixall's own source for it)
+    clc
+    ret
+.no:
+    stc
+    ret
 
 mega_hibnc:
     mov ax, [dsk_rah_bnc]
@@ -6482,7 +6534,10 @@ mega_hdsaid db 0
 mega_rmask  dw 0x3FB8               ; the OR masks the last service reflection
                                     ; set, master low and slave high
                                     ; (mega_rmaskf), for mega_r286 to compare
-mega_hbseg  dw 0                    ; mega_hibnc's: the low buffer's segment,
+mega_vsw    dw 0, 0                 ; [vid_seg] and [k_vsa] as SELECTORS while
+                                    ; a reflection holds them as segments
+                                    ; (mega_vrm), 0 when none does
+mega_hbseg  dw 0                   ; mega_hibnc's: the low buffer's segment,
 mega_hboff  dw 0                    ; ...its offset, its sectors,
 mega_hbcap  db 0
 mega_hbleft db 0                    ; ...the caller's sectors left and done,

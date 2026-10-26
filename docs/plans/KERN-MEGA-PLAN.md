@@ -10787,3 +10787,51 @@ How it was arrived at, in three rounds with the owner on 2026-10-25:
    programs into a fixed ~4K one. The order was left to the plan.
 
 The boxes in 14.69, 14.70.1 and 14.70.3 point at their waves there.
+
+### 14.75 The pointer through a reflected `int 13h` drew into kernel memory (2026-10-26)
+
+**Reported** by the owner off the mr286 (86Box, VGA): *"When a file
+operation is being performed, the mouse leaves stale pixels when moved"* -
+arrow fragments mid-window through the Control Panel's Hard Drive page and
+the installer, where kern_big's arrow tracks cleanly (SPEC.md 7.4).
+
+**Cause.** 14.1 answer 18 leaves the mouse's line open through a service
+reflection, so `mou_isr` runs in REAL MODE inside the BIOS's `int 13h` and
+moves the arrow under SPEC.md 7.4's gates - correct when it was built,
+because the identity GDT made every frame-buffer selector equal to its
+segment. KERN-MEGA-MEMORY-PLAN MC7.4 (the day before) cut that map and made
+`[vid_seg]` and VSEG's `[k_vsa]` an LDT selector (`1164h` on the mr286,
+`1154h` under Bochs), and its own note said *"a return to real mode that
+draws (none today: the service reflection does not...)"* - which was wrong:
+the reflection is exactly where the ISR draws. Real mode loads `1164h` as a
+PARAGRAPH, so `cur_move`'s restore, save and draw went to linear `11640h`
+onward - kernel memory - and the arrow on the glass was never erased: one
+fragment wherever the pointer stood when a reflection began, the next
+protected-mode move then "restoring" a background read out of that memory.
+
+**Fix** (`kernel/mega.inc`): when `mega_rmaskf` opens the mouse's line,
+`mega_vrm` turns the two words the cursor path draws through into the
+segments they name - `[vid_seg]` through `mega_s2segf`, `[k_vsa]` to
+`VGA_SEG` - and banks the selectors in `[mega_vsw]`, and `mega_svc_back`
+puts them back before it unmasks anything, IF being 0 from the gate to the
+`iret` either side. A display it cannot name in real mode keeps the line
+shut, as answer 18 already did for a driver-fed mouse: a PACKED display
+(its cursor is `VIDEXT`'s far call through a selector), two displays
+(`cur_move_multi`'s `vid_ctx_act` loads each context's selectors) and a
+frame buffer above 1MB. Those three are the pointer frozen for the call -
+the pre-answer-18 behaviour - and not a smear. **Cost**: `.text` +4 (the
+bank), `.mega` +89; kern_big and kern_small byte-identical.
+
+**Measured** on 86Box's mr286 (`vm/286-mega`) with the native floppy path
+off so every transfer is the BIOS's - which on a 286 is also a CPU reset per
+call: a 120KB Copy and Paste B: -> A: in 11.8 emulated seconds with the
+pointer wiggling over the desktop. Before: **208 pixels** of fragments in a
+strip of bare desktop (250 with the native path ON, from the other
+reflections a copy makes). After: **0**, and the arrow moved across **286 of
+294** sample pairs taken inside the freeze; with the line simply kept shut
+instead it moves across 4. `tests/megacurdisk.py` is the row and both arms
+were run red. Bochs showed nothing in three tries (a C: launch, a B: open
+and a B: -> C: paste, the native floppy off) although its reflections DO
+run with IF set and IRQ12 open (read at `.intop`): its BIOS's transfers are
+short enough that no packet landed inside one - an 86Box row, not a Bochs
+one, for that reason.
