@@ -16496,7 +16496,10 @@ SOAK = [
         "it back, frees, and asks again. Asserts the answer exceeds the "
         "pool, step 8, first window above 1MB and last below, `ok`, and "
         "the same answer after the free. Red on the tree before: the query "
-        "is a 0KB claim and refuses (`MEGAHUGE: no 01`). 60s is 16 measured",
+        "is a 0KB claim and refuses (`MEGAHUGE: no 01`). And "
+        "KERN-MEGA-MEMORY-PLAN 8.6's leg: a whole 64KB file read into a "
+        "64KB pool claim, red before the fix as `read64 refused, AX 0002`. "
+        "60s is 16 measured",
         needs=("bochs",),
         wants=("build/mega.img", "build/megahuge.o88", "build/megarun.o88")),
     Row("megakbtrip", "soak", py("tests/megakbtrip.py"), 60.0,

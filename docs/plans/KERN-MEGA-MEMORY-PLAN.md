@@ -919,6 +919,9 @@ build that is MEANT TO GROW.
 - **`drv_fs_call`'s 512-byte bounce** for every claim (RAMDISK.DRV, NET.DRV).
 - **`dskw_hisub`'s windows**, made per 64KB crossing and freed only with
   their claim: bounded, not leaked, and never measured for accumulation.
+- **8.6 (a 64KB file into a 64KB pool claim)** was still open at the
+  round's close, missed from this list. It was fixed the next day; 8.6 has
+  the cause.
 
 ### MC1 as built (2026-10-25) - DONE
 
@@ -2190,7 +2193,24 @@ hibernate" makes the image the size of what is in use. Drivers have
 - **`tools/rdglog.py`**, which compares a field log with an emulator log of
   the same replay.
 
-### 8.6 A defect RealDMG found: a whole 64KB file read into a 64KB pool claim (OPEN)
+### 8.6 A defect RealDMG found: a whole 64KB file read into a 64KB pool claim (FIXED)
+
+**FIXED (2026-10-26), and not where the reading below put it.** The read
+never reached the data. `dskw_rbody`'s check that a plain file fits the
+window from its offset was `src + len` must not carry, then `lenhi` must be
+0. A 65,536-byte file has `len` = 0 and `lenhi` = 1, so a file ending
+exactly at the window's end was judged a misfit. It went to the conventional
+fallback, `dskw_tolo`, which refuses a block above 1MB, and the read answered
+FERR_IO. `dskw_hicarry` was never involved: E9 markers at every failure exit
+of the data stage fired none. The test now compares the file's END in 32
+bits with 65,536. kern_mega `.cold` +7, inside `%ifdef KERN_MEGA`.
+`megahuge` has a leg for it: a 64KB claim in the pool, a whole 64KB file
+read into it, and bytes checked at both ends and the middle. It was red
+before the fix (`read64 refused, AX 0002`). RealDMG's 65KB workaround can
+come out.
+
+The original report follows.
+
 
 **Not fixed as of `dc591db4`** (`kernel/diskw.inc` has not changed since
 `dcbffc9e`, and MC5 does not touch the file layer). Found on `mega-dmg` at

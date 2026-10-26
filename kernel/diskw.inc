@@ -2052,12 +2052,24 @@ dskw_rbody:
     jmp short .czhip
 .czhpl:                         ; A PLAIN file must fit the window from the
     push ax                     ; offset too: the selector arm walks the
-    mov ax, [dskw_src]          ; OFFSET, which would wrap onto the bytes
-    add ax, [dskw_len]          ; already read (KERN-MEGA-MEMORY-PLAN MC7.4)
+    push dx                     ; OFFSET, which would wrap onto the bytes
+    mov ax, [dskw_src]          ; already read (KERN-MEGA-MEMORY-PLAN MC7.4).
+    xor dx, dx                  ; Its END, in 32 bits, may be 65,536 itself:
+    add ax, [dskw_len]          ; a whole 64KB file into a 64KB claim, whose
+    adc dx, [dskw_lenhi]        ; low word is 0 - refused as a misfit until
+    cmp dx, 1                   ; KERN-MEGA-MEMORY-PLAN 8.6, and the claim
+    jb .czhfit                  ; being above 1MB, dskw_tolo then refused
+    jne .czhno                  ; the read FERR_IO
+    or ax, ax
+    jnz .czhno
+.czhfit:
+    pop dx
     pop ax
-    jc .czfb
-    cmp word [dskw_lenhi], 0
-    jne .czfb
+    jmp short .czhip
+.czhno:
+    pop dx
+    pop ax
+    jmp short .czfb
 .czhip:
     add [dskw_src], ax          ; R on from the caller's offset (0 for a
     mov ax, [dskw_src]          ; packed file, checked above) - and banked,
