@@ -5,7 +5,12 @@
 # os88marty.launch() answer tools/os88bochsmarty.py - Bochs on build/mega.img
 # with build/megaapps.img in B: (docs/BOCHS.md, "Rows ported from MartyPC").
 #
-#     name [secs=N] [timeout=N] [+arg ...] [-arg ...] [-flag=]   # why
+#     name [secs=N] [timeout=N] [@VAR=VAL ...] [+arg ...] [-arg ...] [-flag=]   # why
+#
+# `@VAR=VAL` puts VAR in the row's environment - `@OS88_BOCHS_MEGS=1` boots a
+# 1MB machine, which has no pool above 1MB, so every claim is conventional and
+# SELECTOR-named: the heap rows' scenarios are kern_big's arena there, and the
+# compactor they drive is kern_mega's (KERN-MEGA-MEMORY-PLAN MC7.4).
 #
 # `secs` is MEASURED on the port (Bochs runs the guest at real time, so a row
 # that is guest-heavy costs more than its MartyPC figure); without one it is
@@ -41,3 +46,4 @@ tmload secs=40   # the Task Manager arm's CPU meter, its rows and sch_cycles tel
 heapscrl secs=150   # the Task Manager arm's memory page list scrolls: bar survives refreshes, a round-trip scroll returns the same pixels, end stops at total-fit and 0
 gifdrag secs=200   # the field's freeze recipe (memory page open, OS8088.GIF in Paint, eight drags): every stack slice and task 0 stay under 80% and the guest keeps retiring instructions (Bochs ptime)
 rehomeabort secs=60   # a re-homed program refusing itself leaves no window, no instance, the heap's free runs AND kern_mega's pool blocks exactly as before the launch
+pkgmove-texpad secs=50 @OS88_BOCHS_MEGS=1   # on the 1MB kern_mega (no pool): TeXPad's declared source claim MOVES in a posted compaction - its selector rebased, the word naming it live, its bytes and the window's picture identical
