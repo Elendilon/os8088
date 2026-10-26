@@ -527,7 +527,20 @@ class BochsMarty(om.Marty):
         return r
 
     def _c_setreg(self, reg, value, **_):
+        reg = {"flags": "eflags", "ip": "eip"}.get(reg, reg)
         self._stopped(["set %s = 0x%x" % (reg, value)])
+        return {}
+
+    def _c_park(self, cs, ip, **_):
+        """MartyPC's `park`: the CPU to CS:IP on a stopped machine (a row
+        calling a kernel routine on the paused guest, tests/desklayer.py's
+        top_i). Bochs's `set` takes a selector into CS as it stands"""
+        self._halt()
+        cmds = ["set eip = 0x%x" % ip]
+        if cs != self._at[0]:
+            cmds.insert(0, "set cs = 0x%x" % cs)
+        t = self._do(cmds)
+        self._at = (cs, ip, self._at[2])
         return {}
 
     def _c_key(self, key, down=True, up=True, **_):
@@ -661,19 +674,34 @@ class BochsMarty(om.Marty):
         return self._status()
 
     def boot_toast(self, limit=10.0):
-        """Wait out kern_mega's boot toast (`Entered protected mode`,
-        mega_mtoast): it is up when the desktop is, and a row that waits for
-        "a toast" after its first act reads it as the answer. os88marty's
-        kernel_up and os88ui's UI.up call this when the machine has it; a
-        toast lives TOAST_TICKS (~3 s), so this is at most that"""
+        """Retire kern_mega's boot toast (`Entered protected mode`,
+        mega_mtoast): it is staged at the switch, armed by ui_task's first
+        passes for EIGHT seconds, and a row that waits for "a toast" after
+        its first act reads it as the answer - while a row comparing the
+        menu bar before and after something sees it go. os88marty's
+        kernel_up and os88ui's UI.up call this when the machine has it.
+
+        It is waited for (the switch can come after the desktop gate), and
+        once it is up it is EXPIRED by its own path - [toast_die] wound
+        back, toast_pass's modular compare taking it down, as
+        tests/toastbar.py does - rather than waited out."""
         import os88sym
         on, buf = os88sym.linear("toast_on"), os88sym.linear("toast_buf")
+        die, ticks = os88sym.linear("toast_die"), os88sym.linear("ticks")
         end = time.time() + limit
+        seen = False
         while time.time() < end:
-            if not self.read(on, 1)[0] or not self.read(buf, 8).startswith(
-                    b"Entered"):
+            up = self.read(on, 1)[0]
+            ours = self.read(buf, 8).startswith(b"Entered")
+            if seen and not up:
                 return
-            time.sleep(0.2)
+            if up and not ours:
+                return                  # something else is being said
+            if up and ours and not seen:
+                t = int.from_bytes(self.read(ticks, 2), "little")
+                self.write(die, ((t - 2) & 0xFFFF).to_bytes(2, "little"))
+                seen = True
+            time.sleep(0.1)
 
     def _c_quit(self, **_):
         self.close()

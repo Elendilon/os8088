@@ -73,6 +73,9 @@ UNREGISTERED = {
     "mrprobe.py": "MIDIRack's guest reader (SPEC.md 105.11) - the running "
                   "package's variables by NAME, for tests/midirack.py; "
                   "library, not a test",
+    "megafix.py": "a row's built system-disk fixture (stik*360.img) made "
+                  "again on build/mega.img for the rows ported to kern_mega "
+                  "(tests/megaport.txt); a fixture, not a test",
     "hdoff.py": "a system disk with the hard disk ANSWERED OFF (SPEC.md "
                 "51.5.4), for the rows that tick HDD.DRV in themselves now "
                 "that SPEC.md 51.3.2 loads it at boot - imported by hddcp, "
