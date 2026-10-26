@@ -185,12 +185,24 @@ def floppy16():
     return out
 
 
+def lin(m, seg, off=0):
+    """SEG:OFF linear - an LDT selector's base under kern_mega"""
+    f = getattr(m, "lin", None)
+    return f(seg, off) if f else seg * 16 + off
+
+
 def icon_at(ui, w, name):
     """The 16x16 list-view icon on `name`'s row, '#' = ink (black)."""
     row = ui.scroll_to(ui.entry(name, w)[0], win=w)
     os88marty.settle(ui.m)              # the rows are PIXELS here
     x0 = w.x + 1 + 8                    # fm_pen8: the icon is at content x 8
     y0 = w.y + 18 + 22 + row * 16       # TITLE_H, then FM_ROW_Y0
+    if getattr(ui.m, "bochs", False):
+        # kern_mega under Bochs: a VGA, no 1bpp aperture - the glass,
+        # where ink is the black the list view draws the icon in
+        W, _H, px = ui.m.fbuf()
+        return ["".join("#" if px[((y0 + y) * W + x0 + x) * 3] < 0x40
+                        else "." for x in range(16)) for y in range(16)]
     wv, hv, rr = ui.m.vram(None)
     return ["".join("." if rr[y0 + y][x0 + x] else "#" for x in range(16))
             for y in range(16)]
@@ -279,7 +291,7 @@ with os88ui.boot(SYS_IMG, apps=host, machine=MACHINE) as ui:
     dblclick(ui, "RO.IMG")
     (v, *_rest), = wait_images(ui, 1, "RO.IMG's row")
     seg = images(ui)[0][5]
-    flg = ui.m.read(seg * 16 + IMG_FLG, 1)[0]
+    flg = ui.m.read(lin(ui.m, seg, IMG_FLG), 1)[0]
     check(flg & 1, "RO.IMG mounts READ-ONLY", flg)
     letter = chr(ord("A") + v)
     ui.open_drive(letter)
@@ -306,7 +318,7 @@ with os88ui.boot(SYS_IMG, apps=host, machine=MACHINE) as ui:
     txt = ui.wait_toast(says="STALE.IMG is drive")
     check(txt.startswith("STALE.IMG is drive"), "STALE.IMG mounts", txt)
     seg = images(ui)[0][5]
-    flg = ui.m.read(seg * 16 + IMG_FLG, 1)[0]
+    flg = ui.m.read(lin(ui.m, seg, IMG_FLG), 1)[0]
     check(flg == 0, "a stale marker mounts WRITABLE", flg)
     data = host_now(ui, "stale")
     _f, _e, attr, res = entry(data, b"STALE   IMG")

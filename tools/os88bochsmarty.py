@@ -55,8 +55,8 @@ WHAT IT MAPS, AND WHAT IT CANNOT
   * `disks()` names the image AS MOUNTED (copied before the first `c`), so
     os88flush's diff has a reference; `flush` copies the live file.
   * refused outright, by name: `flicker`, `pace`, `planes`, `inb`/`outb`,
-    `snapshot`/`restore`, `reset`. A row built on one of those is not
-    portable and says so in its first second.
+    `snapshot`/`restore`. `reset` is a POWER CYCLE (_c_reset). A row
+    built on one of those is not portable and says so in its first second.
 """
 import os
 import re
@@ -171,6 +171,7 @@ class BochsMarty(om.Marty):
         self._bpmark = os.path.getsize(box.e9)   # e9 offset of the last resume
         self._at = (0, 0, 0)        # cs, ip, flat ip of the last stop
         self._btn = set()
+        self._keys = set()          # keysyms a row holds down (_c_key)
         self._ldt = None
         self._tmp = tempfile.mkdtemp(prefix="bxm", dir=run_dir)
         self._closed = False
@@ -424,6 +425,14 @@ class BochsMarty(om.Marty):
         if os88sym.segment_of(name, defines) == eq.get("COLD_SEG") \
                 and self.protected():
             return self.gdt(eq["COLD_SEG"])[0] + os88sym.syms(defines)[name]
+        # ...and `.mega`, which mega_coldup copies up beside it: one block,
+        # `.mega` COLD_PARA paragraphs past `.cold`'s rung (mega_hilin)
+        if os88sym.sections(defines).get(name) == ".mega" \
+                and self.protected() and self.read(
+                    os88sym.linear("mega_codehi", defines), 1)[0]:
+            hi = int.from_bytes(self.read(os88sym.linear(
+                "mega_coldlin", defines), 4), "little")
+            return hi + os88sym.linear(name, defines) - eq["COLD_RAM"] * 16
         # ...and BEFORE mega_enter (a machine handed back paused at reset,
         # or a boot step such as stik_boot, which drv_notice_x runs before
         # protected mode) `.cold` is where the map puts it, COLD_SEG * 16
@@ -597,10 +606,30 @@ class BochsMarty(om.Marty):
             self._do(cmds) if cmds else None
             self._bps = {}
             if want:
+                # BOCHS HAS A FIXED NUMBER OF LINEAR BREAKPOINT SLOTS ("no
+                # more linear breakpoint slots left"), and a trace on every
+                # drawing cell (deskcalperf's 21 and a tone) is past it - the
+                # rest silently never fired. Paging is off, so a PHYSICAL
+                # breakpoint is the same address from a pool of its own:
+                # what `lb` refused goes to `pb`, and what neither took is an
+                # error rather than a trace that quietly sees nothing
+                pat = (r"^\s*(\d+) [lp]breakpoint\s+keep y\s+"
+                       r"0x([0-9a-f]+)")
                 t = self._do(["lb 0x%x" % a for a in want] + ["blist"])
-                for m in re.finditer(r"^\s*(\d+) lbreakpoint\s+keep y\s+"
-                                     r"0x([0-9a-f]+)", t, re.M):
+                got = {int(m.group(2), 16)
+                       for m in re.finditer(pat, t, re.M)}
+                rest = [a for a in want if a not in got]
+                if rest:
+                    t = self._do(["pb 0x%x" % a for a in rest] + ["blist"])
+                for m in re.finditer(pat, t, re.M):
                     self._bps[int(m.group(1))] = int(m.group(2), 16)
+                miss = set(want) - set(self._bps.values())
+                if miss:
+                    raise om.MartyError(
+                        "os88bochsmarty: Bochs has no breakpoint slot left "
+                        "for %d of %d addresses (%s)" % (
+                            len(miss), len(want),
+                            " ".join("%x" % a for a in sorted(miss)[:8])))
             if was == "running":
                 self._resume()
         return {"count": len(want)}
@@ -636,20 +665,48 @@ class BochsMarty(om.Marty):
         return {"if_cleared": False}
 
     def _c_setreg(self, reg, value, **_):
+        reg = {"flags": "eflags", "ip": "eip"}.get(reg, reg)
         self._stopped(["set %s = 0x%x" % (reg, value)])
+        return {}
+
+    def _c_park(self, cs, ip, **_):
+        """MartyPC's `park`: the CPU to CS:IP on a stopped machine (a row
+        calling a kernel routine on the paused guest, tests/desklayer.py's
+        top_i). Bochs's `set` takes a selector into CS as it stands"""
+        self._halt()
+        cmds = ["set eip = 0x%x" % ip]
+        if cs != self._at[0]:
+            cmds.insert(0, "set cs = 0x%x" % cs)
+        t = self._do(cmds)
+        self._at = (cs, ip, self._at[2])
         return {}
 
     def _c_key(self, key, down=True, up=True, **_):
         k = keysym(key)
+        if not self.box.captured:   # a key before any mouse event: until
+            self.box.capture()      # the window has the focus it is lost
         if down and up:
-            self.box.xd("key", "--delay", 40, k)
+            self._xd("key", "--delay", 40, k)
         elif down:
-            self.box.xd("keydown", k)
+            self._xd("keydown", k)
+            self._keys.add(k)
         elif up:
-            self.box.xd("keyup", k)
+            self._xd("keyup", k)
+            self._keys.discard(k)
         self._log.append({"cycles": self._cycles(), "kind": "key",
                           "args": {"key": key, "down": down, "up": up}})
         return {"cycles": self._cycles()}
+
+    def _xd(self, *a):
+        """xdotool on the machine's display, keeping a HELD Ctrl held: the
+        re-capture after a debugger stop (os88bochs.GRAB) is Ctrl + middle
+        click and lets Ctrl go, so a row holding ControlLeft across a read
+        (msel's Ctrl+click, any Ctrl+key) lost it at its next event"""
+        if self.box.inp.regrab:
+            held = [k for k in ("Control_L", "Control_R") if k in self._keys]
+            if held:
+                a = sum((("keydown", k) for k in held), ()) + a
+        self.box.xd(*a)
 
     def _c_mouse(self, dx=0, dy=0, l=False, r=False, wz=0, **_):
         if wz and not getattr(self, "imps2", False):
@@ -675,7 +732,7 @@ class BochsMarty(om.Marty):
         if dx or dy:
             # TWO X PIXELS A GUEST PIXEL, measured (os88bochs.Box.goto) -
             # a serial packet's dx is in mickeys at the same ratio
-            self.box.xd("mousemove_relative", "--", 2 * dx, 2 * dy)
+            self._xd("mousemove_relative", "--", 2 * dx, 2 * dy)
         # A PURE BUTTON PACKET (no motion) IS SENT WHATEVER WE THINK THE
         # LEVEL IS. os88mouse's `_edge` re-sends one when the guest has not
         # published the edge - a Microsoft packet carries the LEVEL, so a
@@ -689,11 +746,11 @@ class BochsMarty(om.Marty):
         ever = self.__dict__.setdefault("_ever", set())
         for want, btn in ((l, 1), (r, 3)):
             if want and (btn not in self._btn or resend):
-                self.box.xd("mousedown", btn)
+                self._xd("mousedown", btn)
                 self._btn.add(btn)
                 ever.add(btn)
             elif not want and (btn in self._btn or (resend and btn in ever)):
-                self.box.xd("mouseup", btn)
+                self._xd("mouseup", btn)
                 self._btn.discard(btn)
         return {"cycles": self._cycles()}
 
@@ -746,6 +803,70 @@ class BochsMarty(om.Marty):
         if reset:
             cnt[0] = cnt[1] = 0
         return r
+
+    def _c_reset(self, **_):
+        """MartyPC's machine reset, as a POWER CYCLE: Bochs's debugger has
+        no reset, so this one is stopped and a new one booted on the SAME
+        display from the disks as the guest left them (Bochs writes a
+        floppy straight through). The breakpoints are re-armed in the new
+        one; the guest is left RUNNING, which `reset(); run()` expects.
+        SYSTEM.CFG is not re-injected - what the guest wrote is the point
+        of a reboot row."""
+        kw = dict(self._boxkw, cfg=None)
+        keep = tempfile.mkdtemp(prefix="reset", dir=self.run_dir)
+        for n in ("a.img", "b.img"):
+            shutil.copy(os.path.join(self.box.out, n), os.path.join(keep, n))
+        bps = list(self._bps.values())
+        try:
+            for b in sorted(self._btn):
+                self.box.xd("mouseup", b)
+        except Exception:                                   # noqa: BLE001
+            pass
+        self.box.stop()
+        kw.update(aimg=os.path.join(keep, "a.img"),
+                  bimg=os.path.join(keep, "b.img"))
+        self.box = ob.Box(self.run_dir, [], **kw)
+        self.pid = self.box.p.pid
+        self._proc = self.box.p
+        self._btn, self._keys, self._bps = set(), set(), {}
+        self._ldt, self._win, self._flog = None, None, (0, [0, 0])
+        self._state, self._since = "running", time.time()
+        _first_c(self.box)
+        self._bpmark = os.path.getsize(self.box.e9)
+        if bps:
+            self._c_bp([{"type": "exec", "addr": a} for a in bps])
+        shutil.rmtree(keep, ignore_errors=True)
+        return self._status()
+
+    def boot_toast(self, limit=10.0):
+        """Retire kern_mega's boot toast (`Entered protected mode`,
+        mega_mtoast): it is staged at the switch, armed by ui_task's first
+        passes for EIGHT seconds, and a row that waits for "a toast" after
+        its first act reads it as the answer - while a row comparing the
+        menu bar before and after something sees it go. os88marty's
+        kernel_up and os88ui's UI.up call this when the machine has it.
+
+        It is waited for (the switch can come after the desktop gate), and
+        once it is up it is EXPIRED by its own path - [toast_die] wound
+        back, toast_pass's modular compare taking it down, as
+        tests/toastbar.py does - rather than waited out."""
+        import os88sym
+        on, buf = os88sym.linear("toast_on"), os88sym.linear("toast_buf")
+        die, ticks = os88sym.linear("toast_die"), os88sym.linear("ticks")
+        end = time.time() + limit
+        seen = False
+        while time.time() < end:
+            up = self.read(on, 1)[0]
+            ours = self.read(buf, 8).startswith(b"Entered")
+            if seen and not up:
+                return
+            if up and not ours:
+                return                  # something else is being said
+            if up and ours and not seen:
+                t = int.from_bytes(self.read(ticks, 2), "little")
+                self.write(die, ((t - 2) & 0xFFFF).to_bytes(2, "little"))
+                seen = True
+            time.sleep(0.1)
 
     def xfers(self):
         """Every SECTOR the floppy controller has moved since the last call:
@@ -844,6 +965,10 @@ class BochsMarty(om.Marty):
         # %if): the toast is STAGED during the boot and put up on the UI
         # task's first idle pass, so `on` alone reads 0 before it shows
         try:
+            self.boot_toast()                   # expire it first, if it can
+        except Exception:                       # noqa: BLE001
+            pass
+        try:
             a = self.sym("toast_dirty")
         except Exception:                       # noqa: BLE001
             return
@@ -886,6 +1011,17 @@ class BochsMarty(om.Marty):
 _ENV_DISP_USED = False
 
 
+def _first_c(box):
+    """UNTIL BOCHS HAS TAKEN ITS FIRST `c`: it starts at the debugger's
+    prompt, and a SIGINT that lands before that `c` is read is lost"""
+    end = time.time() + 60
+    while not re.search(r"<bochs:1> c", ob._tail(box.e9, 0)):
+        if time.time() > end or box.p.poll() is not None:
+            raise om.MartyError("os88bochsmarty: Bochs never started (%s)"
+                                % os.path.join(box.out, "bochs.log"))
+        time.sleep(0.05)
+
+
 def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
            sb=None, cfg=None, megs=None, noserial=False, wheel=False, **_):
     """os88marty.launch's shape, on Bochs and kern_mega (see the module
@@ -924,26 +1060,31 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     # its twins): os88bochs.Box's default C:, an ATA disk with RUN/ on it.
     # Everything else has none, as before
     noc = "_hdd" not in (machine or "")
+    # ...and FILES ON IT: `extra` takes MartyPC's emulator arguments, which
+    # mean nothing here, so a row that needs a file on C: (stikhiber's
+    # HIBERNAT.PTR) passes ("--put", SPEC) pairs instead - os88disk.py's
+    # `FOLDER:path` or a bare path for the root, Box's own `put`
+    put, it = [], iter(extra or ())
+    for x in it:
+        if x == "--put":
+            put.append(next(it))
     if not b:
         b = os.path.join(bld, "megaapps.img")
     btype = {368640: "360k", 737280: "720k", 1228800: "1_2",
              1474560: "1_44"}[os.path.getsize(b)]
+    box_btype = "1_2" if btype in ("360k", "1_2") else "1_44"
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
-                 btype="1_2" if btype in ("360k", "1_2") else "1_44",
+                 btype=box_btype,
                  build=bld, display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
-                 ne2k=ne2k, noserial=noserial, imps2=wheel)
+                 ne2k=ne2k, noserial=noserial, imps2=wheel, put=put)
     m = BochsMarty(box, run_dir, label=label)
     m.imps2 = wheel or "type=imps2" in ob.BOCHSRC
+    m._boxkw = dict(sb=sb, cfg=cfg, btype=box_btype, build=bld,
+                    display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
+                    ne2k=ne2k, noserial=noserial, imps2=wheel,
+                    cmode="keep")    # a reset keeps the C: it had
     try:
-        # UNTIL BOCHS HAS TAKEN ITS FIRST `c`: it starts at the debugger's
-        # prompt, and a SIGINT that lands before that `c` is read is lost
-        end = time.time() + 60
-        while not re.search(r"<bochs:1> c", ob._tail(box.e9, 0)):
-            if time.time() > end or box.p.poll() is not None:
-                raise om.MartyError("os88bochsmarty: Bochs never started "
-                                    "(%s)" % os.path.join(run_dir,
-                                                          "bochs.log"))
-            time.sleep(0.05)
+        _first_c(box)
         m._bpmark = os.path.getsize(box.e9)
         ob.autorepeat_off(box.display)  # Bochs is connected: it holds
         if boot is False or boot == 0:
@@ -956,7 +1097,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
         if boot is True:
             box.up()
             box.capture()
-            m.toast_out()
+            m.boot_toast()
             return m
         time.sleep(float(boot))
         return m

@@ -2489,6 +2489,8 @@ def kernel_up(m, guest=120.0, what="the kernel to reach the desktop"):
             return False
         return t != seen[0]
     until(m, up, what, poll=0.05, guest=guest)
+    if getattr(m, "boot_toast", None):  # kern_mega under Bochs: its boot
+        m.boot_toast()                  # toast, out of the row's way
     return ui_done(m, what)
 
 
@@ -3601,6 +3603,11 @@ class BpTrace:
         self.error = None       # what the pump died of, re-raised at exit
         self._by_addr = {}
         self._bps = []
+        # 20 bits on an 8088 (a flat address wraps there); kern_mega under
+        # Bochs (os88bochsmarty) runs `.cold` and `.mega` above 1MB, and a
+        # stop there is a 24-bit linear address that must not alias
+        self._mask = 0xFFFFFFFF if getattr(m, "bochs", False) else 0xFFFFF
+        mask = self._mask
         # LOGGED TARGETS ARE NOT STOPS. `log=True` (every exec target) or
         # `log=[some of them]` arms those as the debug server's logging
         # breakpoints: it notes (address, cycles) and resumes the guest
@@ -4262,6 +4269,31 @@ class _Leg(object):
 
     def __exit__(self, *e):
         self._fk.drop(self._r)
+
+
+def system_disk(path):
+    """The system floppy a row COPIES to put its own files on (a scratch
+    A: built with mtools): PATH itself, and under $OS88_MEGA build/mega.img
+    beside it ($OS88_MEGA_BUILD's when set) - os88bochsmarty swaps only the
+    shipped images in build/, so a copy of os8088-360.img would boot
+    kern_big under Bochs and the row would test the wrong kernel. mega.img
+    is 1.44MB with the same tree, so what a row writes onto it lands as it
+    would on the 360KB disk (docs/BOCHS.md, "Rows ported from MartyPC")."""
+    if not os.environ.get("OS88_MEGA"):
+        return path
+    return os.path.join(os.environ.get("OS88_MEGA_BUILD")
+                        or os.path.dirname(os.path.abspath(path)), "mega.img")
+
+
+def apps_disk(path):
+    """system_disk's twin for a row that copies a shipped APPS floppy:
+    build/megaapps.img under $OS88_MEGA - the apps disk with kern_mega's
+    package arms (KERN-MEGA-PLAN 14.66)."""
+    if not os.environ.get("OS88_MEGA"):
+        return path
+    return os.path.join(os.environ.get("OS88_MEGA_BUILD")
+                        or os.path.dirname(os.path.abspath(path)),
+                        "megaapps.img")
 
 
 def launch(image, apps=None, machine="os8088_5150_cga", addr=None,

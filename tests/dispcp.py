@@ -96,6 +96,13 @@ def _u16(b, i=0):
     return b[i] | (b[i + 1] << 8)
 
 
+def _lin(m, seg, off=0):
+    """SEG:OFF's linear address - and under kern_mega (os88bochsmarty) a
+    heap segment is an LDT SELECTOR, whose base `m.lin` looks up"""
+    lin = getattr(m, "lin", None)
+    return lin(seg, off) if lin else (seg << 4) + off
+
+
 def _cp_win(m, S):
     """(x, y) of the Control Panel's frame, or None. Matched on W_TITLE, which
     is `cp_ttl` and nothing else in the machine.

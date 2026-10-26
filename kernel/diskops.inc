@@ -2509,8 +2509,14 @@ clo_issrc:
     mov cx, 256
     cld
     repe cmpsw
-    KDATAR_M ax
-    mov ds, ax                  ; DS back before the flags are read: `mov`
+%ifdef KERN_MEGA
+    pushf                       ; kern_mega: KDATAR_M asks [mega_pm] with a
+%endif                          ; `cmp`, and ZF = 0 then ran every same-drive
+    KDATAR_M ax                 ; clone straight past this check (KERN-MEGA-
+    mov ds, ax                  ; PLAN 14.83) - compress.inc's idiom
+%ifdef KERN_MEGA
+    popf
+%endif                          ; DS back before the flags are read: `mov`
     jne .no                     ; leaves them alone, and this is the one
     clc                         ; every byte the same: it IS the source disk
     jmp short .out

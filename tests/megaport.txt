@@ -138,3 +138,37 @@ ps2mouse secs=20   # the PS/2 handshake, an exact pointer and every bar title, a
 wheelps2 secs=20   # the IntelliMouse knock and the wheel's Z summed and signed (Bochs imps2, m.wheel)
 c64move secs=80 @OS88_BOCHS_MEGS=1   # the C64's RAM and carve MOVE in a posted compaction on the 1MB kern_mega and the 6510 runs on (KERN-MEGA-PLAN 14.80: its ROM-bank windows had aliased)
 a2move secs=80 @OS88_BOCHS_MEGS=1   # ...the Apple II's, the same
+
+# FILES, DIALOGS AND THE DESK
+fpgnotch secs=30   # dsk_xfer asks once a run whether a bar is live; its .cold breakpoints run above 1MB here
+deskmodal secs=40   # a widget DELETE with a Disk window in front; scratch system disk off mega.img
+deskcalgrid secs=40   # the Desk Calendar grid out of its bss, the clock set through clk_*
+msel secs=150   # multi-select and set operations; the listing segment is a selector here
+fcpapi secs=30   # OSAPI_FILE_COPY both verbs, every answer read off the volume
+fcpcopy secs=90   # Cut/Copy/Paste moves a file and a folder tree, the volume verified on the host
+icostore secs=60   # two volumes, one icon-store body; the listing claim is a selector here
+desksc secs=150   # desktop shortcuts, every route on one boot, two reboots (a power cycle under Bochs)
+imgmount secs=200   # a .IMG mounted by double-click; Unmount Image sends the window to the host (KERN-MEGA-PLAN 14.82)
+diskclone secs=90   # Clone Disk end to end, both floppies diffed on the host; the same-drive identity check (KERN-MEGA-PLAN 14.83)
+czjoin secs=200   # Uncompress on a part joins the set; every refusal used to hang (KERN-MEGA-PLAN 14.84)
+fdlgchoose secs=120   # the Standard File chooser end to end through Note Pad
+fdlggrey secs=60   # the chooser's default button greyed with nothing selected; from the root of B: under Bochs, MEDIA overflowing the 1.44MB disk's list
+sbardlg secs=60   # the chooser's scroll bar at the list's right edge
+facescan144 secs=40   # ty_scan walks to SYSTEM/FONTS - the 1.44MB leg, which is kern_mega's only system disk (facescan's 360KB one has no faces and tests the other rung)
+assocopen secs=40   # opening a document draws no pixel of the Disk window; the double-click's second half one X chain under Bochs
+assocwake secs=60   # a document launch draws the program's window before reading the document; the glass is fbuf under Bochs
+assocfind secs=90   # an unclaimed extension is looked for, the search's disk reads counted
+assocflush secs=480   # what the machine learns is written back to ASSOC.DAT, across five boots; the .cold flush breakpoints above 1MB here
+autostart secs=150   # LINKS and AUTOSTART; the gate disk rebuilt on mega.img, Shift pressed on [spl_live] under Bochs
+deskitem secs=50   # OSAPI_DESK_ITEM from a package; the shortcut table and the package's bss through lin()
+savervga secs=60   # the saver on VGA, the planar blanker arm (AC 12h): kern_mega's own VGA, its memory peeked at A0000
+toastbar secs=40   # a maximum-width toast reaches the bar whole and touches no menu
+deskz secs=60   # the desk layer's z-order off stikdesk360.img, rebuilt on mega.img (tests/megafix.py); wm_top CALLED on the paused machine through the shim's park
+deskclose secs=40   # a widget closes by its own box; stikdesk360.img rebuilt on mega.img
+deskkeys secs=60   # keys reach the widget while Note Pad stays front; its W_ONKEY breakpoint through lin()
+deskcalremind secs=150   # reminders ring on card 3, the clock set through clk_*; its 22 cell breakpoints past Bochs's linear slots take physical ones
+deskclock secs=120   # the Desk Clock desk window, its faces, settings, alarm, and its relaunch after a reset (a power cycle under Bochs)
+stikboot secs=40   # a Sticky App comes back at boot; stikrestore360.img rebuilt on mega.img (tests/megafix.py)
+stikmenu secs=90   # Locator's Sticky Apps menu (STIKMENU.DRV, whose image is a selector here)
+stikhiber secs=40   # a pending RESUME stands the Sticky App relaunch down: HIBERNAT.PTR on the shim's C:, stik_boot asked for after mega_enter
+hdnoclaim secs=50   # a mounted hard-disk partition costs no heap - on kern_mega the image and any claim are XMEM-pool blocks, read off mx_tab

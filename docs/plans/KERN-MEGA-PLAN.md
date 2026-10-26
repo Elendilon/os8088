@@ -11059,3 +11059,87 @@ base is 2040h, so the comb's blocks are a different size and check 10's
 pinned block lands between). A fixture fix - asking for B's own merged run
 rather than the largest run plus one - is heapfrag's to make on every
 kernel, and `heapcheck` is not registered as a port until it is.
+
+### 14.82 Disk > Unmount Image left the window on the drive it had just taken away (2026-10-26)
+
+**Found by porting `imgmount` to kern_mega** (tests/megaport.txt): Disk >
+Unmount Image in a mounted image's own window unmounted it, said
+*"TEST.IMG unmounted"* - and the window stayed on D:, the drive that no
+longer existed, where on kern_big it goes to the root of the host
+(SPEC.md 18.101.5). `[disk_drive]` read the host's 1 and the window's
+`FS_DRV` 3 for sixty guest seconds.
+
+**Cause**: `fm_c_unmnt` sends the window to the host only when the verb
+answered CF = 0 (`call fm_imgcall / jc fm_c_dlg.no`), and that CF is
+`fm_cldrop`'s - `mod_drop`'s, which keeps every register and leaves its
+flags to `mod_free_row`. On kern_big the last flag there is `mem_free_x`
+releasing the module's claim, which cannot fail. On kern_mega a module
+loaded ABOVE 1MB (DISKOPS.DRV here) takes the selector arm, and that arm
+returned with the flags of `cmp bx, mod_tab + MOD_DESK * MODR_SIZE` in
+them: CF = 1 for every module whose `mod_tab` row is below DESK.DRV's. So a
+successful unmount read as a refusal.
+
+**Fix** (`kernel/mod.inc`, inside `%ifdef KERN_MEGA`): the selector arm
+ends `clc / ret`, the answer the conventional arm gives. kern_big and
+kern_small are byte-identical (the build number apart). **`mega-imgmount`
+is the row**: red before it on *"...and the window goes to the HOST [3]"*,
+44 checks green after.
+
+### 14.83 A same-drive Clone Disk never noticed the disk had not been swapped (2026-10-26)
+
+**Found by porting `diskclone` to kern_mega** (tests/megaport.txt): Clone
+Disk A: -> A:, the read pass, then Enter at *"Insert the TARGET"* with the
+SOURCE still in the drive. SPEC.md 18.99.3's identity check exists for
+exactly that - it reads LBA 0 of what is in the drive and, when it is the
+source's, stops at `CLS_SAME` (*"Still the SOURCE disk"*) - and on
+kern_mega it never fired: the clone wrote straight back over the source and
+reported *"Cloned A: to A:"*. The `CLS_NOSRC` warning on the source prompt
+(trip 2 onwards) is the same routine and was as blind.
+
+**Cause**: `clo_issrc` (`kernel/diskops.inc`) compares the target's sector
+0 with the kept one by `repe cmpsw`, puts DS back with `KDATAR_M ax / mov
+ds, ax`, and only then reads the flags - written on the strength of `mov`
+leaving them alone. On kern_mega `KDATAR_M` is not a `mov`: it asks
+`cmp byte [ss:mega_pm], 0` to pick the real or the protected-mode data
+segment, so ZF was always 0 there and the answer always *"not the source"*.
+A breakpoint on `clo_issrc.no` read CX = 0, SI = 300h, DI = 200h and ZF = 0
+with both 512-byte buffers identical. `compress.inc` already wraps the same
+macro in `pushf` / `popf` for this reason; it is the only other site in the
+tree that reads flags across one.
+
+**Fix**: `clo_issrc` does the same, inside `%ifdef KERN_MEGA`; kern_big and
+kern_small are byte-identical (the build number apart). **`mega-diskclone`
+is the row**: red before it on *"the identity check FIRES on an un-swapped
+disk"* (and on the stamp check the unwanted write left behind), 36 checks
+green after - with its *"out of CONVENTIONAL memory"* check reading the
+store ABOVE 1MB on kern_mega, whose XMEM pool `xm_caps` reports.
+
+### 14.84 Every refused join hung the machine: CSDO banked SP two bytes low (2026-10-26)
+
+**Found by porting `czjoin` to kern_mega** (tests/megaport.txt): File >
+Uncompress on a part of a split set joined BIG.DAT and LZB.DAT correctly,
+and then on NOTP.123 - a plain file named like a part, which is to be
+refused with *"Not compressed"* - the machine never took another key. The
+UI task was inside DISKOPS.DRV calling `toast_show` about a hundred times a
+second (293 in three seconds under `bp_trace`), and on some runs the same
+moment ended in `mega_report.dead` instead, a kernel fault.
+
+**Cause**: the join banks the stack it unwinds to with
+`CSDO mov [CSEG cmz_jsp], sp`, and every refusal leaves through
+`cmz_jerr`'s `mov sp, [cs:cmz_jsp]`. On kern_mega CSDO is `push ds / call
+mega_dsimg / <the instruction> / pop ds`, so the store ran with CSDO's own
+`push ds` under SP and banked SP - 2. The unwind therefore `ret`ed into the
+word below the frame - the return address of the last call made after the
+bank, `call cmz_jhdr` - with CF = 1, which took `jc cmz_jnotcs` back into
+`cmz_jerr`: a loop that toasts *"Not compressed"* for ever, or, with a
+different word there, a fault. Every refusal of a join (not a part, a
+missing part, a damaged one, a wrong one, a name taken) reached it; a
+successful join never unwinds. The streamed Compress's `[cmz_sp]`, which a
+failed read or write unwinds to (`cmz_ioerr`), was banked the same way.
+
+**Fix**: `CSDO_SP var` (`kernel/kernel.asm`), which adds the two back on
+kern_mega with the caller's flags kept, at all four banks in
+`kernel/compress.inc`. Off kern_mega it is the same `mov [cs:var], sp` as
+before, so kern_big and kern_small are byte-identical (the build number
+apart). **`mega-czjoin` is the row**: red before it (the refusal legs
+never returned), every leg green after, the volume fsck'd on the host.

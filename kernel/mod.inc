@@ -903,10 +903,17 @@ mod_free_row:
     call MEGA_SEL_CODE:mega_hifreef
 %ifdef KERN_BIG
     cmp bx, mod_tab + MOD_DESK * MODR_SIZE
-    jne .out
+    jne .hiok
     call KERNEL_SEG:mega_dklibfree
+.hiok:
 %endif
-    ret
+    clc                         ; CF = 0, mem_free_x's answer on the other
+    ret                         ; path: mod_drop's flags ARE its callers'
+                                ; (fm_cldrop's success CF, which Disk >
+                                ; Unmount Image reads) - and this path left
+                                ; the `cmp` above in them, CF = 1 for every
+                                ; module whose row is under DESK.DRV's
+                                ; (KERN-MEGA-PLAN 14.82)
 .conv:
 %ifdef KERN_BIG
     cmp bx, mod_tab + MOD_DESK * MODR_SIZE
