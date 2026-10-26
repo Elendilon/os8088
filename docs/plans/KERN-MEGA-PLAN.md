@@ -11776,3 +11776,57 @@ the time the check read it, because `until` backs off to a quarter of a
 host second and 86Box runs fast-forwarded. The toast lasts five seconds now
 (`tests/mixer.py`).
 
+
+### 14.118 REDLINE ships on kern_mega's system disks (2026-10-26)
+
+**Asked**: REDLINE was left off kern_mega's disks (`MEGACOREOMIT`, SPEC.md
+24.3.2) because *"its inventory pass rewrites its own code (SPEC.md 103.2)
+and it has never been run under kern_mega's selectors"*. It has now been
+run there, and nothing in it needed changing.
+
+**What was checked against the source.** The self-modifying code is the
+prefetch-queue test in `rl_detect` (`apps/redline/detect.inc`), and it is
+reached only when `OSAPI_CPU_INFO` answers below `CPU_286`. kern_mega never
+does, so on a 286 the pass stops at the class and on a 386 it takes
+`rl_detect386` (the AC and ID flag tests through `pushfd`/`popfd`, then
+CPUID), which writes nothing through CS. Every fixed-address read goes
+through a selector that exists: the BIOS's F000h, each option ROM in the
+C000h-EFFFh scan and the Tune tab's card buffers through `cs_win`, which is
+`OSAPI_SEG`'s `SEG_WIN` (the MC7 pass had already converted these), and
+the BDA, A000h, B000h and B800h through the identity selectors. The sweep's
+floppy read (`cs_dmard`) gives `int 13h` the package's own selector, which
+`mega_svc` bounces below 1MB.
+
+**What ran, on Bochs's 386 at 16MB** - three ports of the MartyPC rows,
+with `tests/redline.py` reading the package through `m.lin`:
+
+- `mega-redlinevga`: the whole Bench. All 25 rows timed and indexed, the
+  CPUID vendor named, the report saved to B: and its numbers matching
+  memory. A CPU row whose body takes less than one PIT count at host speed
+  reads n/a, which is SPEC.md 103's own answer for a body below the
+  timer's resolution. `rl_convkb` is checked against int 12h's answer
+  rather than 640.
+- `mega-redlinechipvga`: the Tune tab. On an AT-class tier the read-only
+  port probes run (SPEC.md 103.6.1), at ring 0 through the reflected BIOS.
+- `mega-redlinechipvga-tune`: the write path, which no MartyPC row can
+  reach because an 8088 greys it (`tests/rltune.py` is QEMU's).
+  FE3600 picked, Mfg spec confirmed (R4 10), the verified sweep with its
+  cli window and BIOS floppy read, Apply on boot writing REDLINE.CFG and
+  `AUTOSTRT\RLAPPLY.LNK` to A:, RLAPPLY before and after, and a power
+  cycle that runs RLAPPLY with nobody touching anything. Bochs's 386 decodes
+  nothing that matters at 63h, 72h and 73h, so the writes are harmless
+  there. This is the shipped package from A:\APPS on `mega.img`.
+
+**Red**: `cs_win` changed to hand back the bare paragraph (the pre-MC7
+spelling). `mega-redlinechipvga` then fails: *"the Tune tab identifies
+(fingerprint 8026) and measures on entry did not happen in 90 GUEST
+seconds"*. The MartyPC originals (`redlinevga`, `redlinechipvga`) stay
+green with the edited script.
+
+**Change**: `MEGACOREOMIT` is gone from the Makefile, so `mega.img` and
+`mega120.img` carry the shipped `REDLINE.O88` in `APPS/`. That is where the
+1.44MB and 1.2MB kern_big system disks carry it too (`CORE_SYSONLY`). The
+system disk gains 28,062 bytes; `megaapps.img` is unchanged, because
+kern_big's apps disk does not carry it either. There is no `PKG_MEGA` arm, so
+the package grew by **0 bytes**, and no kernel changed: kern_big, kern_small
+and kern_mega are all byte-identical.

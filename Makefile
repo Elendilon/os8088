@@ -3616,8 +3616,8 @@ APPSYSARGS := $(addprefix SYSTEM:,$(APPSYS))
 # REDLINE is the seventh (SPEC.md 24.3.2) and, like FONTVIEW, rides the system
 # disks ALONE ($(CORE_SYSONLY)): a benchmark answers "what is this machine",
 # and the disk every machine boots is the one sure to be in a drive. The 360KB
-# system disk leaves it off ($(SYS360OMIT)) - util360.img carries it there -
-# and kern_mega's disks leave it off too ($(MEGACOREOMIT)).
+# system disk leaves it off ($(SYS360OMIT)) - util360.img carries it there.
+# kern_mega's system disks carry it too (KERN-MEGA-PLAN 14.118).
 CORE_TOOLS := $(BUILD)/browser.o88 $(BUILD)/fontview.o88 \
               $(BUILD)/notepad.o88 $(BUILD)/paint.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/redline.o88
@@ -14617,10 +14617,10 @@ MEGASYSAPPSARGS = $(addprefix SYSTEM:,$(call MEGASUB,$(SYSAPPS)))
 # need: the merge that brought them put them on kern_big's disks only, and
 # kern_mega is the kernel that runs on machines with a CD-ROM drive in them
 MEGASYSOPTARGS = $(addprefix SYSTEM:,$(call MEGASUB,$(SYSOPTIONAL)))
-# ...less REDLINE (SPEC.md 24.3.2): its inventory pass rewrites its own code
-# (103.2) and it has never been run under kern_mega's selectors
-MEGACOREOMIT := $(BUILD)/redline.o88
-MEGACOREARGS = $(addprefix APPS:,$(call MEGASUB,$(filter-out $(MEGACOREOMIT),$(CORE_TOOLS)))) \
+# ...REDLINE included (SPEC.md 24.3.2, KERN-MEGA-PLAN 14.118): it was left
+# off until it had been run under kern_mega's selectors, and its rows now run
+# there (tests/megaport.txt's mega-redline*)
+MEGACOREARGS = $(addprefix APPS:,$(call MEGASUB,$(CORE_TOOLS))) \
                $(addprefix GAMES:,$(call MEGASUB,$(CORE_GAMES)))
 
 $(MEGAAPPDIR)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc apps/os88spk.inc apps/os88spkfx.inc apps/os88spkfx_t.inc apps/os88api.inc apps/os88alt.inc \
