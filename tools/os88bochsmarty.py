@@ -908,6 +908,14 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     # its twins): os88bochs.Box's default C:, an ATA disk with RUN/ on it.
     # Everything else has none, as before
     noc = "_hdd" not in (machine or "")
+    # ...and FILES ON IT: `extra` takes MartyPC's emulator arguments, which
+    # mean nothing here, so a row that needs a file on C: (stikhiber's
+    # HIBERNAT.PTR) passes ("--put", SPEC) pairs instead - os88disk.py's
+    # `FOLDER:path` or a bare path for the root, Box's own `put`
+    put, it = [], iter(extra or ())
+    for x in it:
+        if x == "--put":
+            put.append(next(it))
     if not b:
         b = os.path.join(bld, "megaapps.img")
     btype = {368640: "360k", 737280: "720k", 1228800: "1_2",
@@ -916,7 +924,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
                  btype=box_btype,
                  build=bld, display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
-                 ne2k=ne2k)
+                 ne2k=ne2k, put=put)
     m = BochsMarty(box, run_dir, label=label)
     m._boxkw = dict(sb=sb, cfg=cfg, btype=box_btype, build=bld,
                     display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
