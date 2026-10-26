@@ -1124,7 +1124,7 @@ dos_wake:
     cmp byte [dos_pkgq], 0          ; **A `.O88` TYPED AT THE PROMPT** (SPEC.md
     je .nopkg                       ; 96.33.17): OSAPI_PKG_START wants the gfx
     call dos_pkg_go                 ; lock FREE and W_ONKEY holds it, so the
-    jmp short .out                  ; console posts and this is where it lands
+    jmp .out                        ; console posts and this is where it lands
                                     ; - the same place a DOS program's own
                                     ; launch is serviced, and for the same
                                     ; reason. It is tested FIRST and clears its
@@ -1205,6 +1205,37 @@ dos_wake:
     ; A resume with nothing commanded is free, the same way one with nothing
     ; suspended is.
     call dos_cache_free
+%ifdef DOS_MEGA
+    ; **THE PROGRAM'S LAST SCREEN, CAPTURED ON THE TRIP** (KERN-MEGA-PLAN
+    ; 14.106, SPEC.md 96.34.6): kern_dos's kd_snap wrote con_scr and the
+    ; record in front of it through the linear address the kernel staged, so
+    ; what is left is dos_snap's TAIL - the cursor clamped, the wrap and the
+    ; scroll debt spent, every row marked - and the exit line below lands
+    ; under the program's last screen exactly as it does in the window
+    cmp byte [dos_snrec + 2], 0
+    je .nosn
+    mov byte [dos_snrec + 2], 0
+    mov ax, [dos_snrec]             ; AL the column, AH the row
+    push ax
+    xor ah, ah
+    cmp al, CON_COLS - 1
+    jbe .sncx
+    mov al, CON_COLS - 1
+.sncx:
+    mov [con_cx], ax
+    pop ax
+    mov al, ah
+    xor ah, ah
+    cmp al, CON_ROWS - 1
+    jbe .sncy
+    mov al, CON_ROWS - 1
+.sncy:
+    mov [con_cy], ax
+    mov byte [con_pwrap], 0
+    mov word [con_scrl], 0
+    call con_markall
+.nosn:
+%endif
     ; ...and the console says so HERE, which is where the run really ended.
     ; `dos_run`'s own `.out` cannot: the post is spent long before the program
     ; starts, so a line written there is about a launch that has not happened
@@ -1213,6 +1244,16 @@ dos_wake:
     call dos_con_ended
     mov bx, [dos_win]
     call dos_swap
+%ifdef DOS_MEGA
+    call dos_fsx_back               ; ...AND BACK INTO THE FULL SCREEN when the
+                                    ; command was typed there (SPEC.md
+                                    ; 96.33.16): every program is a trip here,
+                                    ; and the posted path leaves dos_run by
+                                    ; `.outq`, past its own call - so the trip's
+                                    ; return is where [dos_fsxgo] is spent, or
+                                    ; it stood until some later launch spent
+                                    ; it (KERN-MEGA-PLAN 14.106)
+%endif
     jmp short .out
 .nocode:
 %endif
@@ -5656,9 +5697,11 @@ dos_be_bind:
 ; dos_hk_bind - the six hooks DOS.O88 wants (SPEC.md 96.44.3)
 ; in:  nothing; out: nothing, every register preserved
 ;
-; Beside `dos_be_bind` and called with it. `kern_dos` has no equivalent and
-; wants none: its six cells stay the zero a bss arrives as, which is what
-; "this host does not want it" is spelled as.
+; Beside `dos_be_bind` and called with it. `kern_dos` binds its own at its
+; entry (kerndos/kdentry.inc: the mouse's two, the HMA image's DHK_XUNP and,
+; on kern_mega, DHK_SNAP's kd_snap - SPEC.md 96.34.6); every cell nobody
+; binds stays the zero a bss arrives as, which is what "this host does not
+; want it" is spelled as.
 ; -----------------------------------------------------------------------------
 dos_hk_bind:
     push ax
@@ -7805,6 +7848,13 @@ dos_lbfill:
     mov ax, [dos_kdlrow + OP_R_ZKB]         ; image reads part 3 itself for an
     mov [di+KDL_L3ZB], ax                   ; EXEPACK program its unpacker
                                             ; refuses (SPEC.md 96.40.9.1)
+    mov word [di+KDL_SNAPLIN], dos_snrec    ; ...and the CONSOLE, for the trip
+    mov byte [di+KDL_SNAPHI], 0             ; to seed and capture (KERN-MEGA-
+    mov al, [con_cx]                        ; PLAN 14.106): the record's
+    mov ah, [con_cy]                        ; OFFSET, which the kernel makes
+    mov [dos_snrec], ax                     ; linear, the cursor kern_dos
+    mov word [dos_snrec + 2], 0             ; seeds the screen under, and the
+                                            ; flag clear until it captures
 %endif
     mov word [di+KDL_TLEN], KDL_MINE
     mov word [di+KDL_WAKE + 2], 0           ; ...and the live resume's, whose
@@ -18794,6 +18844,22 @@ dos_fh_fill:
 %ifdef DOS_MEGA                     ; both hosts of one build, so not rule 1's
     DBSS DOS_B_HSLOT,   2           ; the HMA host's slot maker (dos_hvec), or
 %endif                              ; 0 - and LAST, so no cell before it moves
+%ifdef DOS_MEGA
+%ifndef KD_BACKEND
+DOS_SNREC   equ 4                   ; **THE TRIP'S SNAP RECORD** (KERN-MEGA-PLAN
+    HBSS DOS_B_SNAP, DOS_SNREC      ; 14.106): dw a cursor (column, row), dw a
+                                    ; flag - and con_scr DIRECTLY AFTER IT,
+                                    ; because the console's bss is based at
+                                    ; DOS_BSS_SIZE and this is the last host
+                                    ; row. kern_dos fills cursor, cells and
+                                    ; flag through one linear address the
+                                    ; kernel staged (kerndos/kdpark.inc), so
+                                    ; the three must be one run
+%if HB != DOS_B_SNAP + DOS_SNREC
+ %error "the snap record must be the LAST HBSS row: con_scr follows it"
+%endif
+%endif
+%endif
 ; **AND THE HOST'S BLOCK IS THE PACKAGE'S OWN bss** (SPEC.md 96.44.5). It was
 ; `CORE_BSS_SIZE + HB` - the core's cells first and the host's after them,
 ; both inside the package's bss - and since the core became a PART its cells
@@ -19308,6 +19374,11 @@ dos_fsxgo equ dos_hbss + DOS_B_FSXGO
 dos_aedn equ dos_hbss + DOS_B_AEDN     ; byte: 96.33.5.1's edge
 dsh_exec    equ DOS_CBASE + DOS_B_SHEXEC
 dos_cmdx equ dos_hbss + DOS_B_CMDX
+%ifdef DOS_MEGA
+%ifndef KD_BACKEND
+dos_snrec equ dos_hbss + DOS_B_SNAP ; 4: the trip's snap record (14.106)
+%endif
+%endif
 dos_cmdn equ dos_hbss + DOS_B_CMDN
 dos_fhpath  equ DOS_CBASE + DOS_B_FHPATH
 dos_fpbuf   equ DOS_CBASE + DOS_B_FPBUF

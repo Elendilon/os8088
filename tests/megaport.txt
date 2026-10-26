@@ -361,3 +361,10 @@ mrdrawvga secs=90   # MIDIRack's ARM: each gesture's UI-task drawing calls under
 midirackend secs=130   # MIDIRack's ARM on Bochs's FM chip: INTRO loops, then Loop off ends the playlist
 pxfolder secs=130   # PiXEL's ARM: the folder, Prev, Next and the slideshow, no claim left behind - its claims counted in mem_tab AND the pool by selector (the callback ceiling is MartyPC's: Bochs's cycles are its running time)
 vidclose secs=110   # the close box on the Video Player ARM while its hold still loads into kern_mega's XMS: the negotiator stops the session and frees the hold, no package pool block outlives it, the machine ticks - three rounds (the QEMU row on the Marty API); red with vp_onclose a bare clc/ret
+
+# DOS CONSOLE CAPTURE
+# The program's last screen reaches DOS.O88's console after a trip
+# (KERN-MEGA-PLAN 14.106, SPEC.md 96.34.6): kern_dos seeds the console onto
+# the program's screen and kd_snap writes it back through the linear the
+# kernel staged, left out of the park's sum.
+doscon secs=100   # DOSHELLO's own lines land in the console between `Starting` and `ended`, the cursor under them; red with kd_snap unbound (the band holds the prompt's history and none of them)

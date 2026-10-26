@@ -120,8 +120,13 @@ KD_IMG_KB   equ 33              ; 34 until SPEC.md 96.11.7's character devices
 ; off the DOS program at all - it is the HMA's, which holds 63
 ; **36 -> 37 FOR THE LOADER'S OWN EXEPACK UNPACKER** (kerndos/kdxpack.inc,
 ; KERN-MEGA-PLAN 14.24), and it is the HMA's kilobyte, not the program's
+; **37 -> 38 FOR THE PROGRAM'S LAST SCREEN** (KERN-MEGA-PLAN 14.106,
+; kerndos/kdpark.inc's kd_snseed and kd_snap): +368 bytes of code and +164 of
+; bss took the image 37,843 -> 38,375 of 38,912, past the 45 left. The HMA's
+; kilobyte again; the LOW image below takes the same 532 bytes inside its own
+; rung (35,951 -> 36,483 of 36,864), so no DOS program pays for it
 %elifdef KD_HMA
-KD_IMG_KB   equ 37
+KD_IMG_KB   equ 38
 %else
 ; **kern_mega's LOW kern_dos** (KD_LOWDOS, SPEC.md 96.40.9.2) has neither the
 ; HMA's low half nor the loader's EXEPACK unpacker - with A20 shut the

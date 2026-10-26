@@ -40,7 +40,6 @@ KDL_PBASE   equ 494             ; dd the park's linear base, 0 = no park
 KDL_PSUM    equ 498             ; dd the sum
 KDL_PKB     equ 502             ; dw KB parked
 KDL_PLOW    equ 504             ; dw the lowest paragraph left in place, 0 = none
-KDL_POUT    equ 506             ; dw ms the copy and sum took
 MPK_LBNAME  equ 106             ; the launch block's body: dos_name first
 
 ; --- the park block, at [mega_dpbase] ----------------------------------------
@@ -167,6 +166,11 @@ mega_dwoke  db 0                    ; 1 = mega_dosparkf's second return
 mega_drop   db 0                    ; 1 = mega_r286's next landing is a drop
 mega_drom   dw 0                    ; W6: the IRQ lines an option ROM owns
 mega_dout   dw 0                    ; ms out (the copy and the sum)...
+mega_dsnap  dw 0, 0                 ; THE PROGRAM'S LAST SCREEN: the linear of
+                                    ; DOS.O88's snap record, 0 = none, which
+                                    ; hbm_dosrun sets before the snapshot and
+                                    ; the sum leaves out (mega_dreg_mx,
+                                    ; KERN-MEGA-PLAN 14.106)
 mega_dback  dw 0                    ; ...and back (the stub's sum and copy)
 mega_dpit   dw 0, 0, 0              ; PIT ch0's last count, and clocks since
 mega_parkcap dw 0xFFFF              ; KB: THE TEST'S CAP ON THE PARK. A 1MB AT
@@ -459,6 +463,76 @@ mega_dreg_add:
     pop es
     pop si
     ret
+
+; mega_dreg_mx - a POOL BLOCK onto the list (DX:AX linear, CX:BX lines), LESS
+; THE PROGRAM'S LAST SCREEN (KERN-MEGA-PLAN 14.106): kern_dos writes
+; [mega_dsnap]'s MEGA_SNAPLEN bytes during the trip - the record DOS.O88 keeps
+; in front of con_scr, which kd_snap fills by int 15h AH=87h - so the whole
+; 64-byte lines they touch are summed by neither taker, and the block goes on
+; as the run below them and the run above. A block the record is not in,
+; and no record at all, go on whole. Every register kept
+mega_dreg_mx:
+    pusha
+    mov si, [mega_dsnap]
+    mov di, [mega_dsnap+2]
+    and si, ~63                     ; the record's first line...
+    call .lines                     ; ...as lines from the block's base
+    jc .whole                       ; (below it, or no record: 0 - base)
+    cmp di, cx
+    jb .in
+    ja .whole
+    cmp si, bx
+    jae .whole                      ; (past its end)
+.in:
+    push bx
+    push cx
+    mov bx, si
+    mov cx, di
+    call .add                       ; [base, the record's first line)
+    mov si, [mega_dsnap]
+    mov di, [mega_dsnap+2]
+    add si, MEGA_SNAPLEN + 63
+    adc di, 0
+    and si, ~63                     ; the line past its last
+    push si
+    push di
+    call .lines
+    pop dx
+    pop ax                          ; DX:AX = that line
+    pop cx
+    pop bx
+    sub bx, si
+    sbb cx, di                      ; CX:BX = the block's lines above it
+    jb .out
+.whole:
+    call .add
+.out:
+    popa
+    ret
+.add:                               ; mega_dreg_add, not for no lines
+    push ax
+    mov ax, bx
+    or ax, cx
+    pop ax
+    jnz mega_dreg_add
+    ret
+.lines:                             ; DI:SI = (DI:SI - DX:AX) / 64, CF = 1 for
+    sub si, ax                      ; below. Both are on a line, so nothing
+    sbb di, dx                      ; is shifted out
+    jb .lret
+    push cx
+    mov cx, 6
+.lsh:
+    shr di, 1
+    rcr si, 1
+    loop .lsh
+    pop cx
+    clc
+.lret:
+    ret
+MEGA_SNAPLEN equ 4 + 80 * 25 * 2    ; the record: a cursor, a flag and 80x25
+                                    ; cells (apps/dos/dos.asm's DOS_SNREC and
+                                    ; con_scr, kerndos/kdpark.inc's KD_SN*)
 
 ; -----------------------------------------------------------------------------
 ; mega_dmapb - THE KB IN USE (KERN-MEGA-DOS-PLAN 12.1 item 5's "park only the
@@ -785,7 +859,7 @@ mega_dosparkf:
     cmp dx, [mega_dxbase+2]
     je .mxn
 .mx2:
-    call mega_dreg_add
+    call mega_dreg_mx               ; (less the program's last screen)
 .mxn:
     add si, MX_BLKSZ
     cmp si, mx_tab_end
@@ -1203,8 +1277,6 @@ mega_dosgo:
     mov [es:di+KDL_PSUM], ax
     mov ax, [mega_dsum+2]
     mov [es:di+KDL_PSUM+2], ax
-    mov ax, [mega_dout]
-    mov [es:di+KDL_POUT], ax
     mov ax, [mega_dpkb]
     mov [es:di+KDL_PKB], ax
     mov word [es:di+KDL_PLOW], 0

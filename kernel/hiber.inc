@@ -214,6 +214,12 @@ KDL_O88V    equ 510             ; db ...its volume, for the HMA image to read
                                 ; part 3 itself (SPEC.md 96.40.9.1): step 2
                                 ; finds the file and is the one place both
                                 ; are known. MIRRORED in kerndos/kdlaunch.inc
+KDL_SNAPLIN equ 506             ; dw DOS.O88's snap record: its OFFSET as
+KDL_SNAPHI  equ 511             ; DOS.O88 posts it, and the LINEAR address
+                                ; (bits 0..15 here, 16..23 in KDL_SNAPHI) as
+                                ; hbm_dosrun stages it for kern_dos's kd_snap
+                                ; (KERN-MEGA-PLAN 14.106). MIRRORED in
+                                ; kerndos/kdlaunch.inc
 %endif
 KDL_DPT     equ 16              ; db[11] in the block: the DISKETTE PARAMETER
 KDL_DPT_LEN equ 11              ; TABLE, the one field DOS.O88 cannot fill.
@@ -2967,6 +2973,39 @@ hbm_dosrun:
     call hbm_lock
     inc byte [sch_lock]
 .held:
+    ; --- THE PROGRAM'S LAST SCREEN (KERN-MEGA-PLAN 14.106, SPEC.md 96.34.6) --
+    ; DOS.O88 posted the OFFSET of the record in front of its con_scr; kern_dos
+    ; runs in real mode and can name it only LINEARLY, and only this side
+    ; knows the selector's base. HERE and nowhere earlier: the claims above
+    ; may have compacted the pool, and a region moved by them keeps its
+    ; selector and changes its base. Above 1MB + 64KB or nothing (the HMA is
+    ; kern_dos's during the trip, and the park restores conventional memory
+    ; over anything written there), and the record's last byte under 16MB,
+    ; where AH=87h's descriptors stop. mega_dsnap is what the snapshot's sum
+    ; leaves out (mega_dreg_mx), and into the RECORD's copy for step 5's
+    ; reason (KDLF_HIBER's note below)
+    xor ax, ax
+    cwd
+    mov bx, [cs:hbm_dosrec + KDH_LB + KDL_SNAPLIN]
+    or bx, bx
+    jz .snap
+    mov ax, [hb_dosseg]
+    call MEGA_SEL_CODE:mega_selbasef ; DX:AX = the poster's base
+    jc .nosnap
+    add ax, bx
+    adc dx, 0
+    cmp dx, 0x11
+    jb .nosnap
+    cmp dx, 0xFF
+    jb .snap
+.nosnap:
+    xor ax, ax
+    cwd
+.snap:
+    mov [mega_dsnap], ax
+    mov [mega_dsnap+2], dx
+    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_SNAPLIN], ax
+    CSDO mov [CSEG hbm_dosrec + KDH_LB + KDL_SNAPHI], dl
     call hbm_psum               ; THE PROGRAMS' SUM, as hbm_wrimg's step 5
     CSDO mov [CSEG hbm_psv], ax ; takes it for an image: hbm_wake 3a checks
     CSDO mov [CSEG hbm_psv + 2], dx ; it on this way home too, and without

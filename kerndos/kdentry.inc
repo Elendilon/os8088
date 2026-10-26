@@ -343,6 +343,14 @@ kd_entry:
                                 ; Only this host fills it; the low image (A20
                                 ; shut) and DOS.O88 leave it zero
 %endif
+%ifdef KD_MEGA
+    mov word [dos_hkv + DHK_SNAP], kd_snap   ; **AND THE PROGRAM'S LAST
+                                ; SCREEN** (KERN-MEGA-PLAN 14.106): DOS.O88's
+                                ; own dos_snap cannot reach its console from a
+                                ; trip, so this host writes it - through the
+                                ; linear the kernel staged, by int 15h AH=87h.
+                                ; Both kern_mega images, HMA and low
+%endif
 %ifndef KD_NO_KBGUARD
     call kd_kbd_start           ; ...and the key buffer's guard, BEFORE the
                                 ; bank for the same reason (SPEC.md 96.50)
@@ -351,6 +359,10 @@ kd_entry:
     call kdx_init               ; ...and kern_mega's XMS arena with its int
                                 ; 15h filter, BEFORE the bank for the same
                                 ; reason again (SPEC.md 96.15.4)
+    call kd_snseed              ; ...and DOS.O88's console onto the program's
+                                ; screen, `Starting` and the cursor under it
+                                ; (96.34.4 on a trip, KERN-MEGA-PLAN 14.106):
+                                ; kdx_87 is ready now, and nothing has drawn
 %ifndef KD_HMA
     call kd_a20shut             ; ...and the LOW image's A20, SHUT for the
                                 ; program (SPEC.md 96.40.9.2): kern_mega left
