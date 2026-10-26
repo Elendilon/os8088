@@ -18451,7 +18451,7 @@ def _mega_ports(base):
     return out
 
 
-SOAK += _mega_ports(SOAK + FULL)
+SOAK += _mega_ports(SOAK + FULL + FAST)   # a port is soak whatever its base
 
 
 def rows():
