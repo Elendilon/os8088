@@ -11143,3 +11143,52 @@ kern_mega with the caller's flags kept, at all four banks in
 before, so kern_big and kern_small are byte-identical (the build number
 apart). **`mega-czjoin` is the row**: red before it (the refusal legs
 never returned), every leg green after, the volume fsck'd on the host.
+
+### 14.105 The HMA trampoline built its frame on the DOS program's stack (2026-10-26)
+
+**Found by porting `dosshrink` to kern_mega** (tests/megaport.txt, `# DOS
+AND APPLICATION RUNNERS-UP`). SHRINK.COM shrinks its block to one paragraph
+under its own SP - `AH=4Ah` with `BX = SS + 2 - PSP`, the launcher idiom -
+so the free MCB `dos_mcb_split` cuts is the sixteen bytes directly below the
+stack, then makes five `AH=30h` calls with IF = 0. On kern_mega the header
+came back `B 00 0000 0300` against `A 5A 0000 981D`, `48h` answered 7
+(*arena trashed*) and the EXEC after it 8 - the field report SPEC.md 96.7.2
+fixed in the gate, back again one layer out.
+
+**Cause**: on this arm every vector into kern_dos goes through a low slot
+(`kerndos/kdhma.inc`, SPEC.md 96.40.9) that was `call kdh_tchk` / `jmp far
+FFFF:target`, and `kdh_tchk` proved A20 with `pushf` and six pushes - so
+eight words went on the CALLER's stack below the `int`'s three before
+`dos_int21` ever ran its swap. The words decode exactly: CX = 0000, BX =
+0000 (AH=30h's answers to the call before) and AX = 3003 (AH=30h with the
+last call's AL) over the signature, owner and size.
+
+**Fix**: a slot is now `pushf` / `cli` / `mov word [cs:kdh_ret], back` /
+`jmp kdh_tchk` / `back: popf` / `jmp far` (18 bytes, `KDH_SLEN`), and the
+check banks AX, SS and SP in cells and works on a 32-byte stack of its own
+in `.lowbss`, returning through `[kdh_ret]` with IF still 0 - so the cells
+are one deep for the same reason the gate's are (an IRQ cannot nest between
+the slot's `cli` and its `popf`). What the caller's stack carries is ONE
+word, the FLAGS, at -8..-7 under the `int`'s three: inside the free MCB's
+reserved bytes, which is where a real DOS's own three go. `kdx_87`'s ROM
+return slot (`kdh_s87`) is the same slot and keeps CF through the `popf`.
+`.lowbss` grows ~530 bytes (48 slots and `kdh_s87` x 10, the cells and the
+stack), against the 1,792 the stack
+had and its measured 134-byte water mark (SPEC.md 96.43.1). KD_HMA only:
+kern_big's `kerndos.bin` and every kern_big/kern_small image are
+byte-identical. `KERNDOS_INC` did not list `kerndos/kdhma.inc`, so an edit
+there rebuilt nothing; it does now.
+
+`mega-dosshrink` is the row: red before (`MCB SMASHED`, `exec: REFUSED
+ax=0008`), `MCB INTACT` and `exec: CHILD ran` after. The trip's other gates
+re-run green on the new slots: doscom, dosexe, dosexec, dosfile, dosxms,
+dosxmsq (`kdx_87` through `kdh_s87`), irqgrab and kdmouse (IRQ hooks through
+slots), and the twenty wave-2 DOS ports.
+
+**And a harness defect the same group found** (tools/os88bochsmarty.py): a
+key sent while Bochs is STOPPED waited in the X queue, and Bochs's GUI hands
+the whole queue to its 8042 in one pass at the resume - whose buffer is 16
+scancodes, so `os88marty.text_taken` (which types with the guest paused) kept
+`DOSM` of `DOSMOUSE.COM`, four shifted characters, and dropped eight. `_c_key`
+now queues what it is handed while stopped and `_resume` sends it one GUI
+pass (`INPUT_GAP`) apart.

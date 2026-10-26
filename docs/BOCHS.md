@@ -197,7 +197,10 @@ it maps:
   re-capture after a debugger stop (that is Ctrl + middle click, and let it
   go); a double-click's four edges go out in ONE xdotool chain with the guest
   running, because stepping a real-time guest put them 5-9 ticks apart
-  against a window of 9.
+  against a window of 9. A key sent while the guest is STOPPED waits for the
+  resume and then goes one GUI pass apart: queued in X, the lot reached
+  Bochs's 16-scancode 8042 buffer in one pass and a paused
+  `os88marty.text_taken` kept four shifted characters of twelve.
 - **the boot toast** - kern_mega's `Entered protected mode` is EXPIRED
   (`[toast_die]` wound back, its own path) by `kernel_up` and `UI.up`, since
   it is up for eight seconds after the desktop and a row waiting for "a
