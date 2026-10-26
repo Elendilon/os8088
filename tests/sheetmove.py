@@ -114,6 +114,20 @@ def claims(m, S):
             for i in range(MEM_MAX) if u16(raw, i * MC_SIZE)]
 
 
+def seg_key(m, v):
+    """A segment WORD as mem_tab keys its claim - the identity on a real-mode
+    kernel. On kern_mega (KERN-MEGA-MEMORY-PLAN MC7.4) a region's W_SEG and
+    I_SPTR, a claim's value and the owner word of every claim a package holds
+    are an LDT SELECTOR that a move REBASES and never changes, so "it moved"
+    and "nothing still holds the old one" are asked of the PARAGRAPH under it
+    (tests/emumove.py's para()). An instance slot, a kernel tag, a real
+    segment and 0 are themselves"""
+    if v and getattr(m, "bochs", False) and 0x100 <= v < 0xA000 and v & 4:
+        b = m.selector(v)
+        return b[0] >> 4 if b else v
+    return v
+
+
 def mine(cl, seg):
     return sorted([c for c in cl if c[2] == seg], key=lambda c: -c[1])
 

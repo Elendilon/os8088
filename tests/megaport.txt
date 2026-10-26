@@ -172,3 +172,14 @@ stikboot secs=40   # a Sticky App comes back at boot; stikrestore360.img rebuilt
 stikmenu secs=90   # Locator's Sticky Apps menu (STIKMENU.DRV, whose image is a selector here)
 stikhiber secs=40   # a pending RESUME stands the Sticky App relaunch down: HIBERNAT.PTR on the shim's C:, stik_boot asked for after mega_enter
 hdnoclaim secs=50   # a mounted hard-disk partition costs no heap - on kern_mega the image and any claim are XMEM-pool blocks, read off mx_tab
+
+# MOVES AND THE HEAP (wave 2)
+# On a 1MB kern_mega (@OS88_BOCHS_MEGS=1: no pool) every claim is conventional
+# and SELECTOR-named, and a protected-mode move REBASES and tells nobody
+# (KERN-MEGA-MEMORY-PLAN MC7.4) - so "it moved" and "nothing names the old
+# block" are asked of the paragraph under each word (sheetmove.seg_key).
+regmove secs=100 @OS88_BOCHS_MEGS=1   # Note Pad's REGION moves in the descending pass: its selector rebased, W_SEG/I_SPTR/owners naming the new paragraph, image and picture intact (found tests/filler's BX: 14.90)
+drvmove secs=45 @OS88_BOCHS_MEGS=1   # the RAM disk's IMAGE moves; no kernel word names the old paragraph, and int 33h planted as a REAL vector follows it (mem_ivt_relocf, 14.90)
+sndmove secs=70 @OS88_BOCHS_MEGS=1   # SOUND.DRV's image moves on Bochs's SB16: the IVT's IRQ5 rows (0Dh and 25h) follow it - they did not before 14.90 - and the IDT gate lands the image's distance on
+regpin secs=110 @OS88_BOCHS_MEGS=1   # a worker-owning region with no restart point does NOT move (mem_can_move's pin, unchanged on kern_mega), Calc's beside it does
+regwork secs=100 @OS88_BOCHS_MEGS=1   # ...declared restartable it MOVES, no proc called and the worker RESUMED in place (its frame names a selector), still looping
