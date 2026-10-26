@@ -69834,6 +69834,34 @@ It cost `SOUND.DRV` 84 bytes of image (11,823 to 11,907), inside its 12 KB claim
 `sbirq5` row) holds it: refused on an 8088 with a hooked IRQ 5, accepted on
 an unhooked one, on a 286 and a 386, and on IRQ 7; with the refusal broken,
 2 checks fail.
+
+#### 34.5.6.1 ...and the disk that never hooks it: an ST11 on IRQ 5 (2026-10-26)
+
+**A Seagate ST11M or ST11R on its BIOS v2.0 never enables its own
+interrupt**: it writes 1 (DMA alone) to the controller's enable register and
+polls, so int 0Dh stays the system ROM's dummy and 34.5.6's test answers
+"free". 86Box's model of it (`hdc_st506_xt.c`) **still lowers IRQ 5 every
+time that register is written without the IRQ bit** - once per `int 13h` -
+and a Sound Blaster's block interrupt that is pending on the same line at
+that moment is wiped off it before the CPU takes it. The DSP is never
+acknowledged, so every later block end is merged into the lost one, no edge
+ever comes again, and the watchdog ends the stream: the sound stops part
+way through a play, with nothing late and nothing stalled. Reported off the
+owner's 86Box 5150 (the ST11M pinned to IRQ 5, the SB 2.0 at 86Box's own
+default, 5), and measured on that profile under 86Box: 12 of 298 Video
+Player plays lost their sound (a busier host loses more), and with the
+ST11's clears logged, the run's one loss followed its one clear that landed
+on a pending IRQ 5. With the card on IRQ 7, none of 48, every one taking all
+2,619 of its block interrupts.
+
+**Not refused in the driver.** 34.5.6's rule is evidence and not a guess,
+and there is none here: nothing an XT shows says which line a polling
+controller is jumpered to, and an XT-IDE machine - no disk interrupt at all
+- with its card on 5 is a configuration that works and that a blanket
+refusal would take the sound from. Whether a real ST11 drives the line
+while disabled is not known here. **The cure is the card's line**, as in
+34.5.6: `vm/pc5150`, `vm/viddemo-cga` and `vm/viddemo-herc`, the three
+profiles here with an ST11 and an SB 2.0, put the card on IRQ 7.
 ### 34.6 Recording and staging — back, as a driver
 
 Went with §34.5 and came back with it. Verb 7 grants out of the driver's
