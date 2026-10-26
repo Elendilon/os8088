@@ -298,7 +298,9 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   2 -30%, Pokemon Red -24%, Metroid II -11%, Looney Tunes -7% to -10%,
   Kirby -9%, nothing worse; replay-ordered, Looney Tunes and Kirby -1.8%
   and -2.0% - which is the case for it: the hot table only knows the play
-  it was ordered by, and this does not. 2KB of the meta part. Twelve
+  it was ordered by, and this does not. 2KB beside the filter, after the table in the table's part (it was the
+  meta part's first, and that broke the packaging of three big cartridges,
+  fixed). Twelve
   cartridges state-identical in both arms. Measured and NOT built first:
   item 5 of the open list, the loop idioms in pieces - real cartridges
   decline at most ~7 passes a frame (Wario Land's fills, Donkey Kong
