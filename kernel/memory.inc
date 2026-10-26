@@ -3150,6 +3150,18 @@ mem_rr_tab:
                                     ; 76.14.14): cached while the panel is open,
                                     ; so a compaction can move it under us
 %endif
+%ifdef KERN_MEGA
+    MEM_RR_ONE desk_svc_seg         ; THE SERVICE ZONE's driver (desk.inc,
+                                    ; SPEC.md 26.7): registered at attach, in
+                                    ; real mode, and drv_hiboot_f then moves
+                                    ; the image above 1MB through this walk -
+                                    ; so the word kept the conventional
+                                    ; segment, osapi_desk_item_x's withdraw
+                                    ; compared it with the driver's selector
+                                    ; and refused, and unticking Ethernet left
+                                    ; the Wire's zone on the desktop for good
+                                    ; (KERN-MEGA-PLAN 14.86, tests/wirezone.py)
+%endif
 %ifdef VID_EXT
     MEM_RR_ONE vx_ep + 2            ; VESA.DRV's hook entry, a far pointer
                                     ; into its image (kernel/vidext.inc, SPEC.md

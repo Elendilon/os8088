@@ -197,3 +197,17 @@ kdhdd secs=35   # the fixed disk is a volume under kern_dos and a program on C: 
 dosshell secs=50   # the built-in shell on the trip: eight exit codes, the files on the host; MOVE is kern_dos's stream path (no copy engine, by design)
 blitp secs=25   # gfx_blitp's 2,048 bytes are where it was given them, read PLANE by plane (the shim's guest-stub planes())
 gorillasreactions secs=130 +--arm +vga   # Gorillas' sun, banana patches, scoring dance and tune, VRAM compared plane by plane in the window and full screen
+
+# THE NETWORK (wave 2): QEMU's network rows on Bochs's NE2000, through
+# tests/os88qmpbochs.py - the row's own QMP socket answered by a kern_mega Bochs
+ethernet secs=60   # ETHER.DRV, DHCP and a page over TCP; the pool's claim read off mx_tab; the teardown's NETV_GONE (KERN-MEGA-PLAN 14.85)
+brdownload secs=60   # Save Link As streams a binary into B:, read back mid-run through the live image
+ethcfg secs=120   # a manual address set in the Setup window survives a reboot; ether360.img's twin on mega.img
+wirezone secs=60   # the Wire's service zone arrives with ETHER.DRV and leaves with it (KERN-MEGA-PLAN 14.86)
+wirechat secs=90   # WireChat end to end against the fixture hub; WIRECHAT.CFG read back off B: after the run
+httpmount secs=150   # HTTPFS.DRV mounts the host's tree; BIG.BIN with and without Range: byte-identical on B:
+httpinstall secs=90   # INSTALL started off the HTTP drive onto the IDE disk (the shim's C:); HTTPFS's CPU flags (KERN-MEGA-PLAN 14.87)
+netinst secs=300   # INSTALL over the network onto C:, and the startup link across two boots; OSAPI_DRV_CLASSK (KERN-MEGA-PLAN 14.88)
+netinstbad secs=150   # INSTALL's release check refuses six non-release answers
+rdxms secs=120   # the RAM disk's store above 1MB: kern_mega's own pool (mx_tab, heapmap.pool) in place of XMEM.DRV's table
+netcoexist secs=60 +--arm +pinned   # the card at 2A0h pinned on the Ports view, SYSTEM.CFG read on the host, found after a reset; the MPU arms need QEMU's isa-debugcon latch and its NIC trace, which Bochs has not got

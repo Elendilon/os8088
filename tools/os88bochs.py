@@ -463,7 +463,7 @@ class Box(object):
                  build=None, csys=False, put=(), cd=None, aimg=None,
                  display=None, megs=None, noc=False, vgahz=None,
                  flog=False, mouse=None, noserial=False, imps2=False,
-                 cimg=None, cgeom=None):
+                 cimg=None, cgeom=None, ne2k_io=None):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -491,7 +491,7 @@ class Box(object):
         # S) - a row's VHD, os88bochsmarty's `--mount hd:0:` (docs/BOCHS.md)
         if cimg:
             c, noc = os.path.abspath(cimg), False
-        geom = tuple(cgeom) if cimg else GEOM
+        geom = tuple(cgeom) if cgeom else GEOM
         shutil.copy(aimg or os.path.join(bld, "mega.img"), a)
         shutil.copy(bimg or os.path.join(ROOT, "build", "apps120.img"), b)
         if cfg is not None:
@@ -513,7 +513,7 @@ class Box(object):
         # MEGARUN rides the C: disk only, so a machine with none (`noc`,
         # os88bochsmarty) does not need it built - a knob tree a ported row
         # builds for itself (`targets=("mega",)`) has none
-        args = [] if noc or cimg else [
+        args = [] if noc or cimg or (cmode == "keep" and os.path.exists(c)) else [
             "RUN:" + self._stage(stage, os.path.join(bld, "megarun.o88"),
                                  "0run.o88")]
         for p in pkgs:
@@ -576,8 +576,9 @@ class Box(object):
                     "sb16: enabled=1, midimode=0, wavemode=1, "
                     "dmatimer=%s\n" % (os.path.join(out, "sb.wav"), os.environ.get("OS88_BOCHS_DMATIMER", "600000")))
                 if sb else "") + (
-                "ne2k: ioaddr=0x300, irq=10, mac=52:54:00:12:34:56, "
-                "ethmod=slirp%s\n" % (", script=" + os.path.abspath(SLIRP)
+                "ne2k: ioaddr=0x%x, irq=10, mac=52:54:00:12:34:56, "
+                "ethmod=slirp%s\n" % (ne2k_io or 0x300,
+                                       ", script=" + os.path.abspath(SLIRP)
                                        if SLIRP else "") if ne2k else ""))
         for n in os.listdir(out):
             if n.endswith(".lock"):

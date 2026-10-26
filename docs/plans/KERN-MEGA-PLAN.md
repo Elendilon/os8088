@@ -11144,6 +11144,149 @@ before, so kern_big and kern_small are byte-identical (the build number
 apart). **`mega-czjoin` is the row**: red before it (the refusal legs
 never returned), every leg green after, the volume fsck'd on the host.
 
+### 14.85 The kernel's NETV_GONE and EMSV_GONE were refused as a package's (2026-10-26)
+
+**Found by porting `ethernet` to kern_mega** (tests/megaport.txt, through
+tests/os88qmpbochs.py's QMP socket over a Bochs NE2000): the Browser
+fetched its page, closed - and ETHER.DRV's 17KB socket pool stayed claimed
+with `[eth_users]` = 2, the closed instance's bit, for the rest of the
+session (SPEC.md 72.13.4's *"the kernel's teardown sends NETV_GONE"*).
+Breakpoints on the teardown read `xm_release_rec` reached, `drv_pkg_call_x`
+entered with BX = 0442h and `drv_pkg_disp` far-calling the driver - and
+`eth_v_gone` never reached.
+
+**Cause**: the driver tells the kernel's GONE from a package naming the
+same verb by ES: `cmp si, KERNEL_SEG / jne .notk`, a package's call
+always carrying its own segment there. Under kern_mega's protected mode
+the kernel's ES is `KES`'s `[k_dsel]`, its DATA alias MEGA_SEL_KDATA
+(10h), not 60h - so every teardown's GONE was answered NETE_VERB. EMS.DRV's
+`em_gone` makes the same test the same way, so an instance's expanded
+memory was never released there either. SOUND.DRV's volume.inc met this
+once already and answers *"at or below"*.
+
+**Fix**: both drivers take `ja` for `jne` - ES at or below 60h is the
+kernel's (KERNEL_SEG, or 10h under kern_mega), and a package's segment or
+selector is never there. Same length, so ETHER.DRV and EMS.DRV change by
+one opcode byte each and no kernel byte moves. **`mega-ethernet` is the
+row**: red before it on *"sk_seg 11D4 / eth_users 0002 after the last
+network package closed"*, green after, the pool's claim read off mx_tab
+(it is an XMEM-pool block above 1MB, `tools/heapmap.py`'s `pool`).
+
+### 14.86 The Wire's zone stayed on the desktop after its driver was unticked (2026-10-26)
+
+**Found by porting `wirezone` to kern_mega**: unticking Ethernet on the
+Control Panel's Drivers page unloaded ETHER.DRV ("Not loaded") and left
+`[desk_svc_seg]` - and the Wire's icon - where they were.
+
+**Cause**: the driver registers its service zone at attach, in real mode,
+so `osapi_desk_item_x` keeps its conventional segment (9B80h here). Right
+after `mega_enter`, `drv_hiboot_f` moves the image above 1MB and re-points
+every holder through `mem_region_reloc`'s walk - and `mem_rr_tab` has no
+row for `[desk_svc_seg]`. So the withdraw at unload, which matches the
+caller's ES against that word, compared the driver's selector (118Ch) with
+the stale segment and refused.
+
+**Fix**: `MEM_RR_ONE desk_svc_seg` in `mem_rr_tab` (`kernel/memory.inc`),
+inside `%ifdef KERN_MEGA`; kern_big and kern_small are byte-identical (the
+build number apart). **`mega-wirezone` is the row**: red before it on
+*"desk_svc_seg is still 9B80 after unticking Ethernet"*, green after with
+the rect bare desktop again. **The same hazard is open on kern_big** and is
+NOT fixed here: a compaction that moves ETHER.DRV's image (SPEC.md 66.6.3)
+after it registered would strand the word the same way, and nothing tests
+that move with the zone up. The row is the one-line answer there too, at
+four bytes of the shared table; it wants its own gate first.
+
+### 14.87 HTTPFS.DRV stepped a selector as a paragraph: the CPU flags banked at attach (2026-10-26)
+
+**Found by porting `httpinstall` to kern_mega**: double-clicking the HTTP
+drive's zone faulted the machine - `kern_mega FAULT vector 0D`, error code
+1214h, at HTTPFS.DRV's `hf_body.take` (`mov es, [hf_bseg]`), CS 1184h being
+the driver's code alias. `httpmount` had passed: its fixture's OS88.IDX is
+small enough that one receive never crosses 128 bytes.
+
+**Cause**: `hf_bnorm` keeps `[hf_bseg]:[hf_boff]` under 128 bytes by adding
+`(offset >> 4) & F8h` to the segment, and is meant to be skipped under
+protected mode - it tested `[hf_cpuf]`, OSAPI_CPU_INFO's AH **banked at
+DRVV_ATTACH**. A driver SYSTEM.CFG wants is attached by `drv_boot_x` in REAL
+mode, before `mega_enter`, so the byte said "no CPU_F_PM" for the session,
+and the index claim - an LDT selector (11E4h, from `OSAPI_MEM_CLAIM_HI`) -
+was stepped to 1214h, a descriptor nobody had. A GDT identity selector
+survives that sum (selector + 8 is base + 128), which is why the drive's
+reads into kernel buffers never showed it.
+
+**Fix** (`drivers/httpfs/hfnet.inc`): `hf_bnorm` asks OSAPI_CPU_INFO each
+time (*"Any context - it reads two bytes"*) and `[hf_cpuf]` is gone. No
+kernel byte moves. **`mega-httpinstall` is the row**: red before it on the
+fault, green after - the install off the HTTP drive commits and every root
+file lands on C: with its bytes and attributes. **The same banking is in
+three more drivers and NOT fixed here**: RAMDISK.DRV's `[rd_cpuf]`
+(`rd_fold`), NET.DRV's `[net_cpuf]` (`net_norm`) and CDROM.DRV's
+`[cd_cpuf]` (`cd_bnorm`) are all set at DRVV_ATTACH, so each is wrong on
+kern_mega whenever its driver is loaded at boot rather than ticked on the
+Drivers page after it - each wants the same one-line change and a row of
+its own to show it.
+
+### 14.88 OSAPI_DRV_CLASSK said a driver above 1MB was not loaded (2026-10-26)
+
+**Found by porting `netinst` to kern_mega**: INSTALL's release check
+(`in_netck`) answered NET_NONE - *"no Ethernet driver is loaded"* - with
+ETHER.DRV up, DHCP bound and the HTTP drive reading through it, so the
+source page never offered the network and the install came off the floppy.
+
+**Cause**: `in_netck` asks `OSAPI_DRV_CLASSK` (SPEC.md 51.12) whether the
+NET class is loaded, and that cell's predicate is its own answer - CF = 1
+iff the class weighs 0 KB, `drv_load` writing DRVR_SEG and DRVR_KB together.
+On kern_mega `drv_hi_move` (item 82) moves a boot driver's image above 1MB,
+zeroes DRVR_KB (*"no heap held"*) and its claims follow it into the pool,
+so a loaded class weighed 0 conventional KB and read as absent. The DOS
+memory page (SPEC.md 96.32.3) asks the same question.
+
+**Fix** (`kernel/driver.inc`, inside `%ifdef KERN_MEGA`): the predicate
+counts the LOADED ROWS; AX stays the conventional KB, 0 for a class wholly
+above 1MB - which is what unloading it gives back there. kern_big and
+kern_small are byte-identical (the build number apart). **`mega-netinst`
+is the row**: red before it on *"A. the check answered 0, not 5"*, green
+after - the network row picked, the install from the published tree, the
+startup link written and obeyed across two more boots.
+
+### 14.89 The network rows on Bochs: what ported, and the two its slirp stops (2026-10-26)
+
+**THE NETWORK group of tests/megaport.txt** - every QEMU row about ETHER.DRV
+and what stands on it - runs through `tests/os88qmpbochs.py`, which answers
+the rows' own QMP socket out of a kern_mega Bochs with an NE2000 on slirp
+(docs/BOCHS.md, "Rows ported from MartyPC"). Ported: `ethernet`,
+`brdownload`, `ethcfg`, `wirezone`, `wirechat`, `httpmount`, `httpinstall`,
+`netinst`, `netinstbad`, `rdxms` (whose extended store is kern_mega's own
+pool, read off `mx_tab` through tools/heapmap.py's `pool`, where QEMU's is
+XMEM.DRV's table) and `netcoexist`'s `pinned` arm (its other three need
+QEMU's `isa-debugcon` latch for an MPU-401 and its NE2000 register trace,
+neither of which Bochs has). Four kern_mega defects came out of it, 14.85 to
+14.88.
+
+**Not ported, and why - neither is kern_mega's.**
+
+- `telansi` and `telzm` are blocked on **Bochs's slirp**. Its packet log
+  (`pktlog`, docs/BOCHS.md) shows a host's FIN re-sent every ~120 ms with no
+  back-off - 39 of them in 4.7 s - SYN+ACKs four at a time, and a stream of
+  two-byte segments reset by slirp itself after a run of fast retransmits.
+  ETHER.DRV is POLLED: a package's verbs drain the card, and Telnet's worker
+  stops calling once its session is down, so the next Connect's first pumps
+  are dozens of stale FIN+ACKs (each ACKed, each answered with RST) and
+  slirp has given up the new SYN+ACK before the guest reaches it - `Host
+  closed`, TS_ERR. QEMU's slirp backs off, and both rows pass there. Holding
+  each host close until the next session is up (os88bbs) and redialling once
+  got telansi through ten of thirteen fixtures; the long fragmented streams
+  (`art`, `torture`) still stall. The partial work is on branch
+  `w1-telansi-wip`, unmerged.
+- `thewire` is red on QEMU on this branch before any of this: its fixture
+  will not pack, `TREEONE far-calls cell 0x04E3, at or past WIRE_TABLE_END
+  0x04A5`. The archive's program is `build/mseg.o88`, a package with PARTS,
+  and MC7 (KERN-MEGA-MEMORY-PLAN) put OSAPI_SEG (0x04E3) into every parts
+  package through `apps/os88partsbody.inc` - a cell newer than any Wire level
+  SPEC.md 92.2's fence knows. The release that publishes the cell owes the
+  Wire a level (`WIRE_CELL_LEVELS`, `WIRE_TABLE_END`, `wcat.inc`'s
+  `WIRE_LEVEL`); that is a release decision, not a port.
+
 ### 14.95 kern_mega's system disks shipped without Sticky Note's notes folder (2026-10-26)
 
 **Found by porting `instdeep` to kern_mega** (tests/megaport.txt): an

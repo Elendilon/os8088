@@ -1254,12 +1254,13 @@ def _blank(path):
 
 def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
            sb=None, cfg=None, megs=None, noserial=False, wheel=False,
-           run_dir=None, **_):
+           run_dir=None, cimg=None, ne2k_io=None, **_):
     """os88marty.launch's shape, on Bochs and kern_mega (see the module
     note). `boot` True waits for the desktop (os88bochs.Box.up's state gate,
     then a settle of the glass); a number runs blind for that many seconds;
     False hands the machine back PAUSED, as MartyPC's does. A row's own
     fixed disk (`--mount hd:0:`, or a staged `run_dir`) is `row_disk`'s."""
+    own = cimg                  # a C: handed as `cimg=` (copied, below)
     cimg, cgeom = row_disk(machine, extra, run_dir)
     noa = bool(cimg) and (not image or _blank(image))
     a, b = mega_images(image, apps)
@@ -1269,6 +1270,8 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     tag = re.sub(r"\W+", "", label or os.path.splitext(
         os.path.basename(sys.argv[0] or "row"))[0])[:24]
     run_dir = tempfile.mkdtemp(prefix="%s-" % tag, dir=base)
+    if own:
+        shutil.copyfile(own, os.path.join(run_dir, "c.img"))
     # THE RUNNER'S DISPLAY for this row's first machine (tools/os88test.py
     # holds one per Bochs row, $OS88_BOCHS_DISPLAY); any further machine in
     # the same process takes one of its own
@@ -1281,11 +1284,17 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     if sb is None:
         sb = "_sb" in (machine or "")
     # AN NE2000 on Bochs's slirp (the host is 10.0.2.2, $OS88_BOCHS_SLIRP its
-    # host-forwards): a machine name with `_ne2k` in it, or $OS88_BOCHS_NE2K.
+    # host-forwards): a machine name with `_ne2k` in it, or $OS88_BOCHS_NE2K;
+    # at 300h, or `ne2k_io` (tests/netcoexist.py's card the sweep misses).
     # The row still has to want ETHER.DRV - its own SYSTEM.CFG, or `cfg`
     ne2k = "_ne2k" in (machine or "") or bool(os.environ.get(
         "OS88_BOCHS_NE2K"))
-    if ne2k and cfg is None:
+    # `cfg="keep"`: A:'s own SYSTEM.CFG stands - a system-disk FIXTURE that
+    # wants ETHER.DRV and more (tests/os88qmpbochs.py's mega_twin)
+    keep = cfg == "keep"
+    if keep:
+        cfg = None
+    if ne2k and cfg is None and not keep:
         cfg = 0x10              # ...and A:'s SYSTEM.CFG wants ETHER.DRV
                                 # (kernel/driver.inc drv_cfgbit), ethertest's
                                 # disk's one setting: a card no driver loads
@@ -1294,6 +1303,27 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     # its twins): os88bochs.Box's default C:, an ATA disk with RUN/ on it.
     # Everything else has none, as before
     noc = "_hdd" not in (machine or "") and not cimg
+    # ...or a fixed disk the row hands as `cimg=` (tests/os88qmpbochs.py's
+    # TESTHD): COPIED into run_dir as c.img (Box keeps a c.img already in its
+    # directory) and read back by the row through that copy - os88qmpbochs
+    # copies it home. row_disk's `--mount hd:0:` is the other door, mounted
+    # IN PLACE; a row uses one or the other
+    if own:
+        noc = False
+        # ITS GEOMETRY BY ITS SIZE: os88disk.py --hdd's one fixed shape
+        # (65 x 16 x 63) or Box's own (os88bochs.GEOM)
+        sz = os.path.getsize(own)
+        cgeom = next((g for g in ((65, 16, 63), tuple(ob.GEOM))
+                      if g[0] * g[1] * g[2] * 512 == sz), None)
+        if cgeom is None:       # ...or any blank whose size 16 heads of 63
+            for h, spt in ((16, 63), (16, 32), (4, 17)):    # or 32 sectors,
+                if sz % (h * spt * 512) == 0:               # or Box's 4 of
+                    cgeom = (sz // (h * spt * 512), h, spt)  # 17, divide
+                    break
+        if cgeom is None:
+            raise om.MartyError("os88bochsmarty: a C: of %d bytes is neither "
+                                "os88disk.py --hdd's 65/16/63 nor %r" %
+                                (sz, ob.GEOM))
     # ...and FILES ON IT: `extra` takes MartyPC's emulator arguments, which
     # mean nothing here, so a row that needs a file on C: (stikhiber's
     # HIBERNAT.PTR) passes ("--put", SPEC) pairs instead - os88disk.py's
@@ -1308,18 +1338,18 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
              1474560: "1_44"}[os.path.getsize(b)]
     box_btype = "1_2" if btype in ("360k", "1_2") else "1_44"
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
-                 btype=box_btype,
+                 btype=box_btype, cmode="keep" if (cimg or own) else "run",
                  build=bld, display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
                  ne2k=ne2k, noserial=noserial, imps2=wheel, put=put,
-                 cimg=cimg, cgeom=cgeom, noa=noa)
+                 cimg=cimg, cgeom=cgeom, noa=noa, ne2k_io=ne2k_io)
     m = BochsMarty(box, run_dir, label=label)
-    m.cimg = cimg               # the row's own C:, when it handed one
+    m.cimg = cimg or (own and os.path.join(run_dir, "c.img"))  # its own C:
     m.imps2 = wheel or "type=imps2" in ob.BOCHSRC
     m._boxkw = dict(sb=sb, cfg=cfg, btype=box_btype, build=bld,
                     display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
                     ne2k=ne2k, noserial=noserial, imps2=wheel,
                     cmode="keep",    # a reset keeps the C: it had
-                    cimg=cimg, cgeom=cgeom, noa=noa)
+                    cimg=cimg, cgeom=cgeom, noa=noa, ne2k_io=ne2k_io)
     try:
         _first_c(box)
         m._bpmark = os.path.getsize(box.e9)
