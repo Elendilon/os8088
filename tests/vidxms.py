@@ -240,7 +240,7 @@ class Q(object):
             if keep:
                 xmcheck.keep(self.sock)
             return
-        subprocess.run(cmd, check=True)
+        os88qemu.start(cmd, check=True)
         self.pidn = int(open(self.pid).read().strip())
         if keep:                # one QMP connection for the run (xmcheck.keep)
             xmcheck.keep(self.sock)

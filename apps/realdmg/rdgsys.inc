@@ -177,6 +177,8 @@ rdg_init:
     mov [S_IOWVEC+2],ax
     mov word [S_MBCVEC],rdg_mbc
     mov [S_MBCVEC+2],ax
+    mov word [S_RXVEC],rdg_rx
+    mov [S_RXVEC+2],ax
 %ifdef RDG_TRHOST
     mov word [S_TRACEVEC],rdg_trace
     mov [S_TRACEVEC+2],ax
@@ -342,6 +344,14 @@ rdg_exit:
 
 ; rdg_resume: into the core with the state block's registers. DS = view.
 rdg_resume:
+    cmp byte [S_JITON],0                ; into the INTERPRETER: a bank switched
+    je .rx                              ;   to lazily is fetched first (10.3.2);
+    mov ax,[S_RESVEC]                   ;   tr_enter, the recompiler's way in,
+    cmp ax,[S_DISP]                     ;   needs none - its tr_int fetches for
+    jne .nrx                            ;   a PC there
+.rx:
+    call rdg_romxok
+.nrx:
     mov ax,[S_AF]
 %ifndef RDG_NOSEAM
     mov byte [S_AF],0D3h                ; 4000 the trap while the core runs
@@ -408,12 +418,16 @@ rdg_seaminit:
     je .p
 .f:
     inc bx                              ; 3FFF
+    mov byte [S_SEAMJR],0
     mov al,[bx]
-    cmp al,18h                          ; (a JR's target is relative to the
-    je .r                               ;   seam: not taken)
+    cmp al,18h                          ; a JR: its displacement the bank's
+    je .jr                              ;   4000, and seam_jr runs it whole
     and al,0E7h
     cmp al,20h
-    je .r
+    jne .njr
+.jr:
+    mov byte [S_SEAMJR],1
+.njr:
     mov al,[bx]
     call rdg_ilen
     cmp al,2
@@ -611,6 +625,33 @@ rdg_irqnow:
     ret
 
 ; --- a write to the cartridge (0000-7FFF): BX = address, [S_WVAL] = byte ----
+; rdg_rx - S_RXVEC: the core read the bank translated code switched to
+; lazily (S_ROMX 0, REALDMG-SPEC 10.3.2). It is fetched as a switch's would
+; be, and the core goes on at [S_RETFAR] (its rx_back)
+rdg_rx:
+    RDG_TOHOST
+    call rdg_romxok
+    jmp rdg_ret
+
+; rdg_romxok - DS = the view: S_ROMX made a bank's if translated code left it
+; 0 (REALDMG-SPEC 10.3.2), for the host's own readers and rdg_rx. Every
+; register kept, and S_SAVDS: rdg_setbank points the core's DS at the bank
+; when S_PC is in it, which is a switch's business and not a fetch's - S_PC
+; is whatever the last trip out left, and the reader's DS is its own (the
+; interpreter reading the bank from bank-0 code went on with DS the bank)
+rdg_romxok:
+    cmp word [S_ROMX],0
+    jne .r
+%ifndef RDG_RXDSBUG                     ; (tests/gbaot.py's control: the
+    push word [S_SAVDS]                 ;   core's DS left to rdg_setbank)
+%endif
+    call rdg_setbank
+%ifndef RDG_RXDSBUG
+    pop word [S_SAVDS]
+%endif
+.r:
+    ret
+
 rdg_mbc:
     RDG_TOHOST
     mov [S_PC],si                       ; rdg_setbank asks where the game runs
@@ -1740,6 +1781,7 @@ rdg_iowrite:
     jb .dv
     cmp ah,80h
     jae .dv
+    call rdg_romxok                     ; (a DMA out of a lazy bank: it now)
     mov ds,[S_ROMX]
 .dv:
     mov cx,160
@@ -2019,7 +2061,7 @@ rdg_ramin:
 
 ; rdg_rambank: AL = a bank, DS = view: ES:DI = its 8KB in S_RAMSEG - an
 ; OFFSET into the one claim (32KB at most, and the clock's 1KB), never a sum
-; on its segment, which kern_mega makes a selector (REALDMG-SPEC 10.3.2)
+; on its segment, which kern_mega makes a selector (REALDMG-SPEC 10.3.4)
 rdg_rambank:
     push ax
     push cx

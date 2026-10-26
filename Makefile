@@ -13289,6 +13289,30 @@ vidpm: $(BUILD)/vidbench.o88 $(BUILD)/viddisk.o88 $(BUILD)/vidsnd.o88 \
 	python3 tools/os88disk.py --verify $(BUILD)/vidpm-1440.img
 	@ls -l $(BUILD)/vidpm $(BUILD)/vidpm-1440.img
 
+# THE GALLERY (SPEC.md 106.7). Committed, and pinned by tools/pixsamples.py
+# --check, which also compares these three lists with its own - so a picture
+# added here and not there, or there and not here, fails the build. PLAIN on
+# every disk: a JPEG, a GIF and a PNG are compressed already, and PiXEL reads
+# in chunks, which SPEC.md 20.14.3 makes the reason not to wrap a file.
+PXS := apps/pixel/samples
+PX_SAMPLES := $(PXS)/VACATION.JPG $(PXS)/FLOWER.JPG $(PXS)/ROOM.JPG \
+              $(PXS)/LAKE.JPG $(PXS)/CAT.GIF $(PXS)/BALLOONS.PNG \
+              $(PXS)/HOUSE.PNG $(PXS)/MOUNTAIN.BMP $(PXS)/CITY.PCX \
+              $(PXS)/BOUNCE.GIF
+PX_SAMPLES_720 := $(PXS)/VACATION.JPG $(PXS)/FLOWER.JPG $(PXS)/ROOM.JPG \
+                  $(PXS)/LAKE.JPG $(PXS)/CAT.GIF $(PXS)/BALLOONS.PNG \
+                  $(PXS)/MOUNTAIN.BMP $(PXS)/CITY.PCX $(PXS)/BOUNCE.GIF
+PX_SAMPLES_360 := $(PXS)/VACATION.JPG $(PXS)/LAKE.JPG $(PXS)/CAT.GIF \
+                  $(PXS)/BALLOONS.PNG $(PXS)/BOUNCE.GIF
+# ...and the gallery as disk arguments, for the disks that carry PiXEL and have
+# room for it (SPEC.md 106.7): PICTURES/ at the root, as on the pixeldisk. The
+# whole set on the live media and the VGA and CGA video demo disks; the 360KB
+# selection on the second 720KB apps disk and both everything sets, where it
+# fits without adding a disk. Defined HERE, above every consumer, because they
+# are := lists.
+PX_GALLERY := $(addprefix PICTURES:,$(PX_SAMPLES))
+PX_GALLERY_360 := $(addprefix PICTURES:,$(PX_SAMPLES_360))
+
 # THE DEMO VIDEO DISKS (SPEC.md 98.5): a whole os8088 install on a hard disk
 # with the demo videos in MEDIA/ beside a 00-VIDS.TXT that describes them -
 # what to put in a machine to show the player off. The videos are COMMITTED,
@@ -13318,6 +13342,9 @@ VIDDEMO_IDE := vga
 VIDDEMO_IMGS := $(foreach a,$(VIDDEMO_ADAPTERS),$(BUILD)/VIDDEMO-$(shell echo $(a) | tr a-z A-Z)-$(if $(filter $(a),$(VIDDEMO_IDE)),IDE,ST11R).VHD)
 # (= and $$(APPS) below, not :=: the apps disk's lists are defined further
 # down this file, and an immediate expansion here took them as EMPTY)
+# PiXEL's gallery ($(PX_GALLERY)) rides the VGA and CGA disks; the Hercules
+# disk had 91 clusters free (182 KB) before it, and even the 360KB selection
+# is 110, so it carries PiXEL without its pictures (SPEC.md 106.7).
 VIDDEMO_INSTALL = $(DRIVERS) $(SYSDOC) \
 	$(sort $(SYSAPPSARGS) $(SYSOPTIONALARGS) $(SYSROOTARG) $(COREAPPSARGS) $(SYSLOGOARG) \
 	       $(FACESARG) $(SYSVIDARGS) \
@@ -13338,14 +13365,14 @@ $(BUILD)/viddemo/%/00-VIDS.TXT: apps/video/demo/%/00-VIDS.TXT tools/checkreadme.
 .SECONDEXPANSION:
 $(BUILD)/VIDDEMO-%-ST11R.VHD: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 	$(DRIVERS) $(SYSDOC) $(SYSAPPS) $(SYSOPTIONAL) $(SYSROOT) $(COREAPPS) $(SYSLOGO) \
-	$(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 $$(APPS) \
+	$(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 $$(APPS) $(PX_SAMPLES) \
 	$$(BUILD)/viddemo/$$(shell echo $$* | tr A-Z a-z)/00-VIDS.TXT \
 	$$(wildcard apps/video/demo/$$(shell echo $$* | tr A-Z a-z)/*.V88) \
 	tools/os88disk.py tools/os88hdd.py
 	python3 tools/os88disk.py -o $(BUILD)/viddemo/$*.img --hdd \
 		--geometry 613/4/26 --mbr $(BUILD)/mbr.bin \
 		--boot $(BUILD)/boothd.bin --kernel $(KERNFILE) $(APPDATAFOLDER) \
-		$(VIDDEMO_INSTALL) \
+		$(VIDDEMO_INSTALL) $(if $(filter HERC,$*),,$(PX_GALLERY)) \
 		$(addprefix MEDIA:,$(filter %/00-VIDS.TXT %.V88,$^))
 	python3 tools/os88disk.py --verify-hdd $(BUILD)/viddemo/$*.img
 	python3 tools/os88hdd.py --wrap $(BUILD)/viddemo/$*.img --st11 \
@@ -13354,14 +13381,14 @@ $(BUILD)/VIDDEMO-%-ST11R.VHD: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 
 $(BUILD)/VIDDEMO-%-IDE.VHD: $(BUILD)/mbr.bin $(BUILD)/boothd.bin $(KERNFILE) \
 	$(DRIVERS) $(SYSDOC) $(SYSAPPS) $(SYSOPTIONAL) $(SYSROOT) $(COREAPPS) $(SYSLOGO) \
-	$(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 $$(APPS) \
+	$(FACES) $(FACELIC) $(LOGOVID) $(BUILD)/video.o88 $$(APPS) $(PX_SAMPLES) \
 	$$(BUILD)/viddemo/$$(shell echo $$* | tr A-Z a-z)/00-VIDS.TXT \
 	$$(wildcard apps/video/demo/$$(shell echo $$* | tr A-Z a-z)/*.V88) \
 	tools/os88disk.py tools/os88hdd.py
 	python3 tools/os88disk.py -o $(BUILD)/viddemo/$*.img --hdd \
 		--geometry 1024/16/63 --mbr $(BUILD)/mbr.bin \
 		--boot $(BUILD)/boothd.bin --kernel $(KERNFILE) $(APPDATAFOLDER) \
-		$(VIDDEMO_INSTALL) \
+		$(VIDDEMO_INSTALL) $(PX_GALLERY) \
 		$(addprefix MEDIA:,$(filter %/00-VIDS.TXT %.V88,$^))
 	python3 tools/os88disk.py --verify-hdd $(BUILD)/viddemo/$*.img
 	python3 tools/os88hdd.py --wrap $(BUILD)/viddemo/$*.img \
@@ -16239,12 +16266,12 @@ $(APPSIMG720): $(APPS720) tools/os88disk.py
 # to change - 24.6.1's rule, a decision with a date on it.
 MORE720_SONGS := $(filter-out $(MIDISONGS720),$(MIDISONGS))
 MORE720 := $(BUILD)/pixel.o88 $(BUILD)/midirack.o88 $(RDG_SHIP) $(DM_SHIP) $(RDG_DEMO) $(LOGOVID) \
-           $(MORE720_SONGS)
+           $(MORE720_SONGS) $(PX_SAMPLES_360)
 MOREARGS720 := APPS:$(BUILD)/pixel.o88 APPS:$(BUILD)/midirack.o88 \
                $(addprefix GAMES:,$(RDG_SHIP) $(DM_SHIP)) \
                MEDIA:$(RDG_DEMO) $(LOGOVIDARG) \
                $(addprefix MEDIA/MIDI:,$(MORE720_SONGS)) \
-               $(APPDATAFOLDER)
+               $(PX_GALLERY_360) $(APPDATAFOLDER)
 $(MOREIMG720): $(MORE720) tools/os88disk.py
 	python3 tools/os88disk.py -o $@ --size 720 $(MOREARGS720)
 
@@ -16675,7 +16702,7 @@ ALLAPPSFILES := $(N1942LIVE) $(APPS) $(CORE_SYSONLY) $(BUILD)/frotz.o88 \
                 $(RUNCPMDISK)
 # These images use the RunCPM master disk, but not the separate CP/M
 # software collection used by runcpmdisk. Do not fetch that unused payload.
-ALLAPPS := $(ALLAPPSFILES) $(BUILD)/runcpm-src.stamp tools/getruncpm.py
+ALLAPPS := $(ALLAPPSFILES) $(PX_SAMPLES_360) $(BUILD)/runcpm-src.stamp tools/getruncpm.py
 
 # WEAVE\ and LOOM\ each carry ONE program: their modules are parts of the
 # .O88s (SPEC.md 73.14.2), fetched from the folder each was launched from, and
@@ -16715,7 +16742,7 @@ python3 tools/os88allapps.py --size $(2) --prefix $(1) --list $@ \
     --runcpm $(RUNCPMDIR) --runcpm-slots $(RUNCPMSLOTS) --dir-slots LOOM=32 \
     --folder DOCS $(APPDATAFOLDER) \
     --collection APPS --collection GAMES --collection MEDIA \
-    $(ALLAPPSARGS)
+    $(ALLAPPSARGS) $(PX_GALLERY_360)
 endef
 
 $(ALLAPPSLIST): $(ALLAPPS) tools/os88disk.py tools/os88allapps.py
@@ -16840,11 +16867,15 @@ LIVESYSARGS := $(addprefix SYSTEM:,$(filter-out $(APPSYS),$(SYSAPPS))) \
 # $(ALLAPPSARGS); the songs are not there, MIDIRack's songs' reason - the
 # everything-floppy's RunCPM fill would pay for them.
 LIVEPKGDEPS := $(SYSOPTIONAL) $(BUILD)/recorder.o88 $(BUILD)/hello.o88 \
-               $(SCRIBEDISK) $(MEDIA_EXTRA) $(MIDISONGS) $(XTMP3MP3)
+               $(SCRIBEDISK) $(MEDIA_EXTRA) $(MIDISONGS) $(XTMP3MP3) \
+               $(PX_SAMPLES)
+# PiXEL's whole gallery rides the live volume in PICTURES/ (SPEC.md 106.7):
+# the everything sets carry the 360KB selection, which $(ALLAPPSARGS) does not
+# name, so the ten pictures are here once and not twice.
 LIVEPKGARGS := $(addprefix APPS:,$(BUILD)/recorder.o88 $(BUILD)/hello.o88) \
                $(addprefix SCRIBE:,$(SCRIBEDISK)) \
                $(addprefix MEDIA:,$(MEDIA_EXTRA) $(XTMP3MP3)) \
-               $(MIDISONGARGS)
+               $(MIDISONGARGS) $(PX_GALLERY)
 $(if $(filter-out $(APPSYS),$(SYSAPPS)),,$(error the SYSAPPS live set is \
      empty - $(SYSAPPS) and $(APPSYS) no longer differ, so THEWIRE.O88 is \
      either on every apps disk or on none; SPEC.md 92.11 says it is on \
@@ -18923,22 +18954,6 @@ PIXEL_MEGAPARTS := $(BUILD)/pxhelp.bin $(BUILD)/pxgif.bin $(MEGAAPPDIR)/pxpng.bi
                    $(BUILD)/pixart.bin
 $(MEGAAPPDIR)/pixel.o88: $(BUILD)/pixel.bin $(PIXEL_MEGAPARTS) tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/pixel.bin -o $@ $(addprefix --part ,$(PIXEL_MEGAPARTS))
-
-# THE GALLERY (SPEC.md 106.7). Committed, and pinned by tools/pixsamples.py
-# --check, which also compares these three lists with its own - so a picture
-# added here and not there, or there and not here, fails the build. PLAIN on
-# every disk: a JPEG, a GIF and a PNG are compressed already, and PiXEL reads
-# in chunks, which SPEC.md 20.14.3 makes the reason not to wrap a file.
-PXS := apps/pixel/samples
-PX_SAMPLES := $(PXS)/VACATION.JPG $(PXS)/FLOWER.JPG $(PXS)/ROOM.JPG \
-              $(PXS)/LAKE.JPG $(PXS)/CAT.GIF $(PXS)/BALLOONS.PNG \
-              $(PXS)/HOUSE.PNG $(PXS)/MOUNTAIN.BMP $(PXS)/CITY.PCX \
-              $(PXS)/BOUNCE.GIF
-PX_SAMPLES_720 := $(PXS)/VACATION.JPG $(PXS)/FLOWER.JPG $(PXS)/ROOM.JPG \
-                  $(PXS)/LAKE.JPG $(PXS)/CAT.GIF $(PXS)/BALLOONS.PNG \
-                  $(PXS)/MOUNTAIN.BMP $(PXS)/CITY.PCX $(PXS)/BOUNCE.GIF
-PX_SAMPLES_360 := $(PXS)/VACATION.JPG $(PXS)/LAKE.JPG $(PXS)/CAT.GIF \
-                  $(PXS)/BALLOONS.PNG $(PXS)/BOUNCE.GIF
 
 # `make pixeldisk`: PiXEL and its gallery, in all four geometries, REDLINE's
 # shape. The package at the root, the pictures in PICTURES/ - the folder

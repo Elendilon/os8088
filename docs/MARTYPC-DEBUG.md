@@ -897,6 +897,53 @@ ended in `guest_sleep`'s stall arm inside `to`'s retry, having spent all of it
 in `_landed`, whose deadline is in guest CYCLES that a stopped machine never
 spends. `tests/bptrace.py` is the A/B and the gate.
 
+### Reading a package's memory: `pkg_read`, `seg_snap`, `heap_read`
+
+**A heap base and the bytes it names are ONE read, or they are a torn pair.**
+A package's region, a driver image and every movable claim move under the
+compactor (SPEC.md 66), and inside a pass `mem_bcopy` copies the bytes
+*before* `mem_reloc_call` rewrites the record that names them - W_SEG,
+DRVR_SEG, FS_VSEG, `[dsk_dseg]`. Read the record, then read through it, with
+the guest running in between, and a loaded box lands in that window now and
+then: call5 read an exit code of 161, dirwshed a 29,888 KB arena, dosest found
+a driver's claim "nowhere". So:
+
+```python
+os88marty.pkg_read(m, w, off, n)        # w: a window (.i) or its slot
+os88marty.pkg_reads(m, w, [(a, 2), (b, 8)])   # one snapshot for several
+p = os88marty.Pkg(m, w, image=img); p.word(bss_off); p.write(off, data)
+os88marty.drv_read(m, row, off, n)      # through drv_tab, HMA-aware
+seg, out = os88marty.seg_snap(m, word, spans)   # any kernel word naming a seg
+os88marty.table_snap(m, at, n, take, segs)      # a table whose rows name segs
+os88marty.heap_read(m, read)            # anything else: paused, idle, read
+```
+
+`seg_snap` reads the base word, the spans, then `[mem_cp_busy]` and the base
+word again - **in that order, which is the proof**: idle at the second look
+with the base unchanged means no pass that moved the block overlapped the
+reads. The last three go as one pipelined `batch`, and the first is the base
+that word was last verified at, so an idle read is **one round trip** (two
+the first time - the naive pair's cost) and the guest is never paused;
+only a read that saw the compactor busy, or the base move, falls back to
+`heap_read` - paused, stepped in 20k-cycle advances until `[mem_cp_busy]`
+clears, read, resumed (inside a `bp_trace` block: two agreeing running
+snapshots instead). Checking `[mem_cp_busy]` *first* is the obvious version
+and is not sound - idle, base, a pass copies, the bytes, and the base still
+reads old. **Writes always pause**: a torn write lands in whoever now holds
+the old base. `os88ui`, `os88geom.windows`, `dispapps.pkg_seg`/`words`,
+`dosmap.instance`/`rect`/`centre` and `dispcp`'s listings all read this way;
+the last two hand out a `LiveSeg` - an int that remembers its kernel word, so
+a segment banked across a compaction still reads through the helpers, and
+through `m.readseg(seg, ...)`, at the block's current base. `seg << 4` of one
+is the old snapshot and the torn pair. The IMPLICIT readers (`m.readseg`,
+`windows`, the listings) never step a guest the caller is holding stopped
+inside a pass - a row with a breakpoint in the compactor reads the machine as
+it stands; the explicit `pkg_read`/`seg_snap` step the pass out.
+QEMU driver objects (`hmp` + `read`) get `tests/os88qemu.py`'s twin of each,
+through the same calls. `tests/pkgread.py` stops a compaction on
+`mem_reloc_call` with the record still old and shows the naive pair reading
+11,388 of 17,687 bytes wrong there while `seg_snap` answers the new base.
+
 ### Naming a kernel flag: `os88sym`
 
 `m.sym("fpg_on")` is the flat address of a kernel symbol, and `python3

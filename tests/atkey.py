@@ -83,11 +83,11 @@ def measure(img, apps, machine, tree, lines, samples, scroll=False,
     with os88ui.boot(img, apps=apps, machine=machine, quick=True) as ui:
         m = ui.m
         w = ui.path("B:/APPS/ARTFUL.O88")
-        seg = u16(m.read(os88geom.winptr(m, w.i, ui.sym) + os88geom.W_SEG, 2))
+        seg = os88marty.pkg_live(m, w, ui.sym)
         os88marty.ui_done(ui.m)
         m.key("KeyN")
-        m.write(seg * 16 + syms["at_drag"], b"\x01")     # freeze the blink
-        m.write(seg * 16 + syms["at_cphase"], b"\x00")
+        seg.write(syms["at_drag"], b"\x01")     # freeze the blink
+        seg.write(syms["at_cphase"], b"\x00")
         os88marty.ui_done(ui.m)
 
         caret = syms["at_caret"]

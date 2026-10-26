@@ -199,14 +199,31 @@ h_stload:
 
 h_frame:
     mov ds,[cs:p_view]
+    mov ax,[S_NOW]                      ; (when it began: with the LCD off no
+    mov [cs:h_fnow],ax                  ;   VBlank ends one, so a frame's time
+    mov ax,[S_NOW+2]                    ;   does - Prehistorik Man keeps it off
+    mov [cs:h_fnow+2],ax                ;   for seconds as a level loads)
 .r:
     mov ax,[cs:p_budget]
     call rdg_run
     cmp ax,RDGX_BUDGET
-    je .r
+    jne .out
+    cmp byte [S_LCDON],0
+    jne .r
+    mov ax,[S_NOW]
+    mov dx,[S_NOW+2]
+    sub ax,[cs:h_fnow]
+    sbb dx,[cs:h_fnow+2]
+    jnz .lcdoff
+    cmp ax,RDG_FRAME
+    jb .r
+.lcdoff:
+    mov ax,RDGX_BUDGET
+.out:
     mov [cs:p_out],ax
     STOP 0
     jmp short $
+h_fnow      dd 0
 
 ; rdg_init's call for the bank table (rdg_nres): the host fills RDG_BTAB
 h_bfill:

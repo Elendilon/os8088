@@ -1616,7 +1616,7 @@ build that is MEANT TO GROW.
       record: `rw_jpart` loaded ES with cache A's selector + 1000h
       (`CLOSED REALDMG 0D at 11AC:0778 err 2224`). What landed, by build:
       - **REALDMG.O88, shipped**: refuses under `CPU_F_PM`
-        (`OS88_MEGA_REFUSE`); kern_mega runs the arm (REALDMG-SPEC 10.3.2).
+        (`OS88_MEGA_REFUSE`); kern_mega runs the arm (REALDMG-SPEC 10.3.4).
       - **REALDMG.O88, the `PKG_MEGA` arm**: every "claim + N" asked of
         `OSAPI_SEG` (the JIT part and the extra tiers `SEG_SUBC`, the
         frames, table, bank 0 and a one-claim cartridge's banks `SEG_SUB`,

@@ -278,7 +278,36 @@ mega_enter:
     les ax, [sch_old08]             ; the BIOS's own handlers, kept for the
     mov [mega_old08], ax            ; reflection's IVT...
     mov [mega_old08+2], es
+%ifndef KBD_I15
     les ax, [kbm_old9]
+%else
+    ; ...UNLESS mouse_init hooked int 15h AH=4Fh INSTEAD (SPEC.md 9.7.2).
+    ; Protected mode needs the int 09h shape whatever the ROM offers: the IDT
+    ; is built FROM the IVT (mega_idt_build), so IVT 09h must be kbm_isr or
+    ; IRQ1 becomes the EOI stub - a dead keyboard, and an 8042 nobody reads,
+    ; which stops the PS/2 mouse too (Bochs, measured) - and a reflection
+    ; runs the BIOS's int 09h on the IVT, whose 4Fh must not land in kbm_i15,
+    ; whose KDS would load a protected-mode selector. So it becomes that
+    ; shape here: the ROM's int 15h back, kbm_isr into int 09h, the ROM's
+    ; int 09h into kbm_old9, and [kbm_ivec] int 09h's
+    cmp byte [kbm_ivec], 0x54
+    jne .k9
+    xor ax, ax
+    mov es, ax
+    mov ax, [kbm_old9]
+    mov dx, [kbm_old9+2]
+    mov [es:0x54], ax
+    mov [es:0x56], dx
+    mov ax, kbm_isr
+    xchg ax, [es:0x24]
+    mov dx, KERNEL_SEG
+    xchg dx, [es:0x26]
+    mov [kbm_old9], ax
+    mov [kbm_old9+2], dx
+    mov byte [kbm_ivec], 0x24
+.k9:
+    les ax, [kbm_old9]          ; the ROM's int 09h, either way
+%endif
     mov [mega_old09], ax
     mov [mega_old09+2], es
     push ds
@@ -1138,9 +1167,11 @@ mega_pit:
 mega_k09:
     pusha
     push ds
-    mov ax, MEGA_BDA
-    mov ds, ax
-    in al, 0x60
+    push MEGA_SEL_KDATA             ; NOT port 60h: kbm_isr, the IDT's IRQ1
+    pop ds                          ; gate, read it already and left the byte
+    mov al, [kbm_kbyte]             ; here (SPEC.md 9.7.2) - one read, so an
+    push MEGA_BDA                   ; emulated 8042 that loads its next byte
+    pop ds                          ; on a read cannot lose one
     cmp al, 0xE0
     jne .note0
     or byte [0x96], 0x02            ; the ROM's own E0 flag (40:96 bit 1)

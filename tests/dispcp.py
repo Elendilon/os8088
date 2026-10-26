@@ -96,13 +96,6 @@ def _u16(b, i=0):
     return b[i] | (b[i + 1] << 8)
 
 
-def _lin(m, seg, off=0):
-    """SEG:OFF's linear address - and under kern_mega (os88megabochs) a
-    heap segment is an LDT SELECTOR, whose base `m.lin` looks up"""
-    lin = getattr(m, "lin", None)
-    return lin(seg, off) if lin else (seg << 4) + off
-
-
 def _cp_win(m, S):
     """(x, y) of the Control Panel's frame, or None. Matched on W_TITLE, which
     is `cp_ttl` and nothing else in the machine.
@@ -565,9 +558,12 @@ def listing(m, S):
     if vp:
         base = (KERNEL_SEG << 4) + vp
         n = _u16(m.read(base + FS_N, 2))
-        vseg = _u16(m.read(base + FS_VSEG, 2))
-        if n and vseg:
-            return _decode(m.read(_lin(m, vseg), n * DSK_DE_STRIDE), n)
+        if n:                       # the cache claim MOVES (SPEC.md 66): its
+            vseg, got = os88marty.seg_snap(     # base and bytes in one read
+                m, base + FS_VSEG, [(0, n * DSK_DE_STRIDE)],
+                what="the Disk window's listing", sym=S, step=False)
+            if vseg:
+                return _decode(got[0], n)
     return snapshot(m, S)
 
 
@@ -590,9 +586,11 @@ def snapshot(m, S):
     n = _u16(m.read(S("disk_nfiles"), 2))
     if not n:
         return []
-    seg = _u16(m.read(S("dsk_dseg"), 2))
     off = _u16(m.read(S("dsk_doff"), 2))
-    return _decode(m.read(_lin(m, seg, off), n * DSK_DE_STRIDE), n)
+    seg, got = os88marty.seg_snap(m, S("dsk_dseg"), [(off, n * DSK_DE_STRIDE)],
+                                  what="the mount snapshot", sym=S,
+                                  step=False)
+    return _decode(got[0], n) if seg else []
 
 
 def row_of(m, S, name):

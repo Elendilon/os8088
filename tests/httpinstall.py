@@ -73,7 +73,7 @@ class Q(HM.QH):
                 self.sock, self.pid, sysimg, bimg, hd=hd, ne2k=True)
             return
         os88qemu.own(self.pid, self.sock)
-        subprocess.run(
+        os88qemu.start(
             ["qemu-system-i386", "-machine", "pc,vmport=off", "-m", "4",
              "-drive", "file=%s,format=raw,if=floppy" % sysimg,
              "-drive", "file=%s,format=raw,if=floppy,index=1" % bimg,

@@ -82,6 +82,11 @@ PIDFILE = re.compile(r'-pidfile')
 # a file that only ever launches through it is a launcher that owns.
 MAKE_TEST = re.compile(r'\bos88qemu\.make_test\s*\(|\bQ\.make_test\s*\(')
 OWN = re.compile(r'\bos88qemu\.own\s*\(')
+# A SELF-BUILT, DAEMONISED launch goes through os88qemu.start, which raises
+# QEMU's own stderr - and, for an image lock, which other QEMU holds the
+# file - instead of a bare `exit 1` (docs/plans/SOAK-PARALLEL.md 17.10).
+DAEMON = re.compile(r'["\'][^"\'\n]*-daemonize')
+START = re.compile(r'\bos88qemu\.start\s*\(')
 
 
 def main():
@@ -110,6 +115,23 @@ def main():
               "instance it did not start does not kill somebody else's "
               "machine (tests/os88qemu.py)")
 
+    daemons = []
+    for name in sorted(os.listdir(TESTS)):
+        if not name.endswith(".py") or name == "os88qemu.py":
+            continue
+        src = open(os.path.join(TESTS, name)).read()
+        if DAEMON.search(src):
+            daemons.append(name)
+            check(bool(START.search(src)),
+                  "tests/%s daemonises QEMU through os88qemu.start" % name,
+                  "a daemonised QEMU that refuses to start (an image another "
+                  "QEMU holds writable: `Failed to get shared \"write\" "
+                  "lock`) reaches the row as `exit 1`. os88qemu.start(cmd, "
+                  "...) is subprocess.run that raises QEMU's own words and "
+                  "names the process holding the file")
+    check(len(daemons) >= 20, "the daemon detector still finds launchers",
+          "a detector that finds nothing passes vacuously",
+          got=len(daemons), want=">= 20")
     print("t_qemuown: %d QEMU launchers, %d own their instance"
           % (len(launchers), sum(1 for _, o in launchers if o)))
     done("t_qemuown")

@@ -293,7 +293,9 @@ def gen_main(op):
     if op == 0xDD:                                  # the dispatch stub's slot
         return s
     if op == 0xD3:                                  # the bank seam's trap,
-        s.a("jmp seam_trap")                        #   REALDMG-SPEC 3.1
+        s.a("cmp word [ss:S_ROMX],0")               #   REALDMG-SPEC 3.1;
+        s.a("je seam_rx")                           #   a lazy bank first, 10.3.2
+        s.a("jmp seam_trap")
         return s
     if op in INVALID:
         s.a(f"""
@@ -761,8 +763,8 @@ TAILS = {
 ; state block, so code run on past 3FFF reads rdgsys's data: 4000 is the
 ; trap while the core runs (S_AF's byte, rdg_resume), and so is an
 ; instruction across 3FFF (rdg_seaminit). SI = the trap's address + 1
-seam_trap:
-    mov dx,ds
+seam_trap:                      ; (op_D3's, which fetches a bank switched
+    mov dx,ds                   ;   to lazily first: 10.3.2)
     cmp dx,[ss:S_VIEW]
     jne .bad                    ; (a real D3, in 4000-7FFF)
     cmp si,4001h
@@ -777,6 +779,8 @@ seam_trap:
 .in:
     cmp si,[ss:S_SEAMPC]
     jne .bad
+    cmp byte [ss:S_SEAMJR],0
+    jne seam_jr
     mov ds,[ss:S_ROMX]          ; the instruction across 3FFF: the bank's
     mov dx,[4000h]              ;   4000-4001 where its operand reads them,
     mov ds,[ss:S_VIEW]          ;   a trap where it ends - and it, as the
@@ -984,6 +988,8 @@ tr_int:                         ; the interpreter's dispatch, in the CORE
     and dh,0C0h                 ;   not keep DS, so its exits do not load
     cmp dh,40h                  ;   it - this is the one place it is needed
     jne .d
+    cmp word [ss:S_ROMX],0      ; (a bank switched to lazily, 10.3.2: in
+    je tr_irx                   ;   first, a PC there being its bytes)
     mov ds,[ss:S_ROMX]
 .d:
     xor dl,dl
@@ -1038,7 +1044,7 @@ tr_lpatch:
 tr_lpok:
     mov bx,[ss:S_LINK]
     cmp byte [cs:bx],81h        ; a RET's site: cmp si,PC (rt_ret)
-    je tr_rpatch
+    je tr_rmeg
     cmp si,4000h                ; bank 0: the six bytes, the jump
     jb tr_ljmp
     mov word [es:bx],8036h      ; a bank: cmp byte [ss:S_BANK],B / jne +5
@@ -1110,28 +1116,19 @@ tr_hm2 equ $-1               ; (its immediate: rt_init's to set, 16.3)
 ; the template's slow path is two instructions.
 rd_s1:
     cmp bh,80h
-    jae .io
-    mov es,[ss:S_ROMX]
-    mov dh,[es:bx]
-    jmp word [ss:S_RET]
+    jb rd_rom
 .io:
     mov word [ss:S_ATN],1
     jmp short rd_io
 rd_s2:
     cmp bh,80h
-    jae .io
-    mov es,[ss:S_ROMX]
-    mov dh,[es:bx]
-    jmp word [ss:S_RET]
+    jb rd_rom
 .io:
     mov word [ss:S_ATN],2
     jmp short rd_io
 rd_s3:
     cmp bh,80h
-    jae .io
-    mov es,[ss:S_ROMX]
-    mov dh,[es:bx]
-    jmp word [ss:S_RET]
+    jb rd_rom
 .io:
     mov word [ss:S_ATN],3
 rd_io:
@@ -1578,11 +1575,7 @@ tr_rpatch:                      ; (ES = the site's tier as data, tr_ljmp's
 ; Resumes at [S_RET] with the byte in DH.
 rd_slow:
     cmp bh,80h
-    jae .io
-    mov es,[ss:S_ROMX]
-    mov dh,[es:bx]
-    jmp word [ss:S_RET]
-.io:
+    jb rd_rom
     jmp io_rd
 ; [BX] = [S_WVAL] for the cartridge's registers (0000-7FFF) or an I/O one.
 wr_slow:
@@ -1882,7 +1875,7 @@ io_wr:
     jmp short .st
 .snd:
     cmp bl,27h                  ; FF01-FF26, the sound registers with
-    jb .host                    ;   them: rdgsys follows the four channels'
+    jb .nr                      ;   them: rdgsys follows the four channels'
     cmp bl,40h                  ;   triggers, envelopes and lengths and
     jb .st                      ;   stores the rest (REALDMG-SPEC 17) - a
                                 ;   translated store to one it only
@@ -1897,6 +1890,12 @@ io_wr:
 .z:
     xor dl,dl
     jmp word [ss:S_RET]
+.nr:                            ; ...and through (C) or (HL), where no
+    cmp bl,10h                  ;   translator knew the address, the same
+    jb .host                    ;   rule here: a register rdgsys only
+    cmp byte [cs:bx+io_sndtab-0FF10h],0     ; stores is stored, where
+    je .st                      ;   rdgsys was ~95 instructions away
+    jmp short .host
 .lcd:                           ; FF40-FF4B: a write of what is there
     cmp bl,46h                  ;   already changes nothing and is no
     je .host                    ;   raster write (rdg_rlog would log it,
@@ -2124,7 +2123,7 @@ def main():
     L.append("%endif")
     L.append("%endmacro")
     L.append("%assign JDN 0")
-    L.append("%macro JDISPATCH 0")         # a control transfer's: the
+    L.append("%macro JDISPATCH 0-1 tr_ejf")  # a control transfer's: the
     L.append("%ifdef RDG_TRACE")            #   translated code at the target
     L.append("    jmp far [ss:S_TRACEVEC]")  # if there is any (tr_enter) -
     L.append("%else")                      #   but never in RAM, which runs
@@ -2132,7 +2131,11 @@ def main():
     L.append("%assign JDN JDN+1")          #   own (REALDMG-SPEC 16.3). Each
     L.append("    cmp si,8000h")           #   site is LABELLED: with no
     L.append("    jae %%d")                #   recompiler its first five bytes
-    L.append("    jmp tr_ejd")             #   become the plain dispatch
+    L.append("%ifdef RDG_AOTCORE")         #   become the plain dispatch;
+    L.append("    jmp %1")                 #   PRECOMPILED, the filter first
+    L.append("%else")
+    L.append("    jmp tr_ejd")
+    L.append("%endif")
     L.append("%%d:")
     L.append("    mov dh,[si]")
     L.append("    inc si")
@@ -2146,7 +2149,8 @@ def main():
         L.append("op_%02X:" % op)               #   REALDMG-SPEC 16.2.2)
         lines = gen_main(op).text()
         if op in CONTROL:                       # REALDMG-SPEC section 16.4
-            lines = [ln.replace("DISPATCH", "JDISPATCH") if ln.strip() == "DISPATCH"
+            jd = "JDISPATCH tr_ejd" if op in JD_NOFILTER else "JDISPATCH"
+            lines = [ln.replace("DISPATCH", jd) if ln.strip() == "DISPATCH"
                      else ln for ln in lines]
         L += lines
         if op in TAILS:
@@ -2203,9 +2207,214 @@ EXTRA += [("INC (HL) of RAM", rmw_lines(0x34, False), 1),
 EXTRA += [("CB %02X of RAM" % b, rmw_lines(b, True), 2) for b in RMW_CB]
 
 
+# The control transfers whose JDISPATCH asks the table before tr_ejf's filter
+# under a precompiled machine (REALDMG-SPEC 20.9): RET and RETI, which land on
+# a block far more often than the others - the place after a CALL is one, and
+# an interrupt returns into the code it interrupted
+JD_NOFILTER = {0xC9, 0xD9}
+
+
 # --- tails after a TAIL page's CB handler: the translator copies a tail -----
 # --- page whole, so its CB half's room is as reachable as its main half's --
 CBTAILS = {
+    0xEB: """
+; rd_rom - [BX] in 4000-7FFF, the bank's: DH, on at [S_RET] (rd_slow's and
+; rd_s1-3's). A bank switched to lazily is fetched first (REALDMG-SPEC
+; 10.3.2), and the read starts again
+rd_rom:
+    cmp word [ss:S_ROMX],0
+    je .rx
+    mov es,[ss:S_ROMX]
+    mov dh,[es:bx]
+    jmp word [ss:S_RET]
+.rx:
+    mov [ss:S_RXDX],dx
+    mov dx,rd_rom
+    jmp rx_get
+""",
+    0xE4: """
+; rx_get - a reader found S_ROMX 0, a bank translated code switched to
+; LAZILY (REALDMG-SPEC 10.3.2): DX = where it starts again, its own DX in
+; S_RXDX. rdgsys fetches the bank (rdg_rx) and comes back to rx_back, which
+; puts S_RET and DX back. Nothing is pushed: SP is the Game Boy's
+tr_irx:                         ; (tr_int's: its DX is not live - nor
+                                ;   tr_ejf's or op_D3's, whose DL the
+                                ;   dispatch wants 0)
+    mov dx,tr_int
+    jmp short rx_get
+%ifdef RDG_AOTCORE
+tr_ejfno:                       ; tr_ejf's no-block way, into the
+    mov bx,[ss:S_SAVBX]         ;   interpreter (the core's copy only:
+    mov dx,ds                   ;   the handlers are there) - DS 0 is the
+    or dx,dx                    ;   bank switched to lazily, in first and
+    jz tr_ejfrx                 ;   tr_ejf again from the top
+    xor dl,dl
+    mov dh,[si]
+    inc si
+    jmp dx
+tr_ejfrx:
+    mov dx,tr_ejf
+    jmp short rx_got
+%endif
+seam_rx:                        ; (op_D3's: DX the dispatch's)
+    mov dx,op_D3
+rx_got:
+    mov word [ss:S_RXDX],0
+rx_get:
+    mov [ss:S_RXGO],dx
+    mov dx,[ss:S_RET]
+    mov [ss:S_RXRET],dx
+    mov word [ss:S_RET],rx_back
+    mov [ss:S_RETFAR+2],cs
+    jmp far [ss:S_RXVEC]
+rx_back:
+    mov dx,[ss:S_RXRET]
+    mov [ss:S_RET],dx
+    mov dx,[ss:S_RXDX]
+    jmp word [ss:S_RXGO]
+""",
+    0xFC: """
+; tr_rmeg - tr_rpatch's way in (16.4.1): BX = a RET's SITE, ES its tier as
+; data. A site patched RT_RMEGN times while it held its slot in S_RMEG (by
+; SITE's bits 2-5) returns to more places than its two entries hold - a bank
+; switcher's, every caller's - and each return was a patch: it is made
+; MEGAMORPHIC, both entries never matching and the first one's jne going on
+; to SITE+38, made jmp tr_enter. A lookup a return, and no patch again
+tr_rmeg:
+    mov dx,bx
+    and dx,3Ch
+    xchg bx,dx                  ; BX = the slot, DX = the site
+    cmp [ss:bx+S_RMEG],dx
+    jne .new
+    inc byte [ss:bx+S_RMEG+2]
+    cmp byte [ss:bx+S_RMEG+2],RT_RMEGN
+    xchg bx,dx                  ; (no flag moves)
+    jae .mega
+    jmp tr_rpatch
+.new:
+    mov [ss:bx+S_RMEG],dx       ; the slot taken over, counting from 0
+    mov byte [ss:bx+S_RMEG+2],0
+    xchg bx,dx
+    jmp tr_rpatch
+.mega:
+    mov word [es:bx+2],0FFFFh   ; cmp si,FFFFh: nothing returns there
+    mov word [es:bx+21],0FFFFh
+    mov byte [es:bx+5],32       ; jne +32: SITE+38
+    mov byte [es:bx+38],0E9h
+    mov dx,tr_enter-41
+    sub dx,bx
+    mov [es:bx+39],dx
+    jmp tr_lgo                  ; ...and on to this return's block
+""",
+    0xFD: """
+; io_sndtab: FF10-FF26, 1 where rdgsys follows the register (a channel's
+; envelope, trigger or DAC, NR52) - rdgjit's rt_snd's list - and 0 where it
+; only stores it, for io_wr (REALDMG-SPEC 17)
+io_sndtab:
+    db 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1
+""",
+    0xE3: """
+%ifdef RDG_AOTCORE
+; tr_ejm: tr_ejf's PC that the filter names, on to the table as before
+tr_ejm:
+    mov bx,si
+    mov dl,dh
+    jmp tr_ekey
+tr_ebits:   db 1, 2, 4, 8, 16, 32, 64, 128
+%endif
+""",
+    0x5B: """
+; seam_jr: a JR at 3FFF (REALDMG-SPEC 3.1), its displacement the BANK's
+; 4000 - run here whole, since where it lands may be either side of 4000h
+; and a JR chooses no DS: SI = 4000h, the opcode in S_SEAMOP
+seam_jr:
+    mov ds,[ss:S_ROMX]
+    mov dl,[4000h]              ; the displacement
+    mov dh,[ss:S_SEAMOP]
+    cmp dh,18h
+    je .tk
+    cmp dh,28h
+    jb .nz
+    je .z
+    cmp dh,30h
+    je .nc
+    sahf                        ; 38h: JR C (F's Z and C are ZF and CF)
+    jc .tk
+    jmp short .nt
+.nz:
+    sahf
+    jnz .tk
+    jmp short .nt
+.z:
+    sahf
+    jz .tk
+    jmp short .nt
+.nc:
+    sahf
+    jnc .tk
+.nt:
+    inc si                      ; on into the bank's 4001, DS its
+    xor dl,dl
+    sub bp,2
+    js .ev
+    jmp tr_enter
+.tk:
+    inc si
+    cmp dl,80h
+    cmc
+    sbb dh,dh
+    add si,dx                   ; 4001h + d, and DS for it
+    cmp si,4000h
+    jae .b
+    mov ds,[ss:S_VIEW]
+.b:
+    xor dl,dl
+    sub bp,3
+    js .ev
+    jmp tr_enter
+.ev:
+    jmp far [ss:S_EVVEC]
+""",
+    0x7C: """
+%ifdef RDG_AOTCORE
+; tr_ejf: JDISPATCH's way in under a PRECOMPILED machine (REALDMG-SPEC 20.9):
+; the filter of every (PC, key) that has a block, table or list, asked
+; BEFORE the table. A PC it does not name - the walk's misses, an image
+; left on the disk - is dispatched here, DS being the jump's own, in about
+; twenty instructions where the table, its neighbour and rdg_aotmiss took
+; fifty. One it names goes to tr_ekey as before
+tr_ejf:
+    cmp byte [ss:S_JITFIX],0    ; (the dynamic arm: no filter)
+    je tr_ejd
+    mov [ss:S_SAVBX],bx
+    mov bx,si
+    mov dh,0FFh
+    mov ds,[ss:S_VIEW]          ; DS for SI as tr_int chooses it, on the
+    cmp bh,40h                  ;   key's own branch: a JR's DS may be the
+    jb .k                       ;   wrong side of 4000h (REALDMG-SPEC 3.1)
+    mov dh,[ss:S_BANK]
+    and dh,[ss:S_BMASK]
+    mov ds,[ss:S_ROMX]
+.k:
+    xor bh,dh                   ; PC ^ key << 8, as rdg_aotattach's
+    mov dl,bl
+    and dl,7
+    shr bx,1
+    shr bx,1
+    shr bx,1
+    mov [ss:S_AOTMID],bx
+    mov bl,dl
+    xor bh,bh
+    mov dl,[cs:tr_ebits+bx]
+    mov bx,[ss:S_AOTMID]
+    mov es,[ss:S_AOTFSEG]
+    test [es:bx],dl
+    jz .no
+    jmp tr_ejm
+.no:
+    jmp tr_ejfno
+%endif
+""",
     0xDD: """
 ; cpc_ff: a copy through (C), between RAM and HRAM - LD A,(HL+) / LD (C),A
 ; / INC C / DEC B / JR NZ,-6 (DL = E2h) or LD A,(C) / INC C / LD (HL+),A /
@@ -2458,12 +2667,18 @@ w16_cpy:
     jb .src
     cmp bh,80h
     jae .src
+    cmp word [ss:S_ROMX],0      ; a lazy bank (10.3.2): fetched first
+    je .rx
     mov ds,[ss:S_ROMX]
 .src:
     mov si,bx
     rep movsb                   ; forward, a byte at a time, as the loop
     mov bx,si                   ; HL and DE += k
     jmp w16_rest
+.rx:
+    mov [ss:S_RXDX],dx
+    mov dx,w16_cpy
+    jmp rx_get
 """,
     0x44: """
 ; w16_ff's seventh slot: a fill's stores, then BC, SI and A
@@ -2639,6 +2854,8 @@ pop_slow:
     jae .v
     cmp sp,4000h
     jb .v
+    cmp word [ss:S_ROMX],0      ; a lazy bank (10.3.2): fetched first
+    je .rx
     mov [ss:S_TMP],bx
     mov bx,sp
     mov es,[ss:S_ROMX]          ; (ES is every helper's to load)
@@ -2646,6 +2863,10 @@ pop_slow:
     add sp,2
     mov bx,[ss:S_TMP]
     jmp word [ss:S_RET]
+.rx:
+    mov [ss:S_RXDX],dx
+    mov dx,pop_slow
+    jmp rx_get
 .v:
     pop dx                      ; ROM0, VRAM, the RAM window: the view's
     jmp word [ss:S_RET]
@@ -2685,9 +2906,10 @@ mbc_set.miss:
 def bank_lines(mask, zero):
     """LD (nn),A to 2000-3FFF of a cartridge whose MBC the translator knows:
     the bank worked out and switched HERE, mbc_set's body inline (Kirby's
-    Dream Land switches ~95 times a frame). The two rare cases - high bits
-    set (S_BANKHI), a bank the cache has not got - give the interpreter the
-    whole instruction, at IMM16 - 3: flags 16 make IMM16 the next PC, and
+    Dream Land switches ~95 times a frame). A bank the cache has not got is
+    switched to LAZILY: S_ROMX 0, and fetched when something reads it
+    (REALDMG-SPEC 10.3.2). The rare case - high bits set (S_BANKHI) - gives
+    the interpreter the whole instruction, at IMM16 - 3: flags 16 make IMM16 the next PC, and
     nothing here needs nn. (Run again there, the bank is stamped with the
     frame twice, which changes nothing.) SI is free in a
     template: a guard that wants it sets it."""
@@ -2703,11 +2925,10 @@ def bank_lines(mask, zero):
                 "    mov si,dx",
                 "    mov dx,[ss:S_FRAMES]",       # the frame it was last
                 "    mov [ss:si+RDG_BUSE],dx",     #   switched to (10.3)
-                "    mov dx,[ss:si+RDG_BTAB]",
-                "    or dx,dx",
-                "    jz .i",
-                "    mov si,ds",                  # the core's DS moves with
-                "    cmp si,[ss:S_ROMX]",         #   the bank when it was it
+                "    mov dx,[ss:si+RDG_BTAB]",   # (0: not in memory, and
+                "    mov si,ds",                  #   switched to LAZILY,                  # the core's DS moves with
+                "    cmp si,[ss:S_ROMX]",         #   10.3.2) - the core's DS
+                                                  #   moves with the bank
                 "    jne .x",
                 "    mov ds,dx",
                 ".x:",

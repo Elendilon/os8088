@@ -160,7 +160,7 @@ def package(fails):
 
 
 # kern_mega (OS88_MEGA, tests/megaport.txt): the SHIPPED RealDMG refuses
-# there (REALDMG-SPEC 10.3.2), so the package half runs the ARM out of
+# there (REALDMG-SPEC 10.3.4), so the package half runs the ARM out of
 # build/megak/apps - and its package and its view are LDT SELECTORS, found
 # through the window record (tests/gbsave.py's port)
 MEGA = bool(os.environ.get("OS88_MEGA"))

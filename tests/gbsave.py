@@ -42,7 +42,7 @@ import gbwindow  # noqa: E402
 MACHINE = "os8088_xt_vga_720b"
 SYS = os.path.join(ROOT, "build", "os8088-720.img")
 # kern_mega (OS88_MEGA, tests/megaport.txt): the SHIPPED RealDMG refuses
-# there (REALDMG-SPEC 10.3.2), so the row runs the ARM out of build/megak/apps
+# there (REALDMG-SPEC 10.3.4), so the row runs the ARM out of build/megak/apps
 # - and its package and its view are LDT SELECTORS, found through the window
 # record and read through their descriptors rather than by a scan of the
 # first megabyte

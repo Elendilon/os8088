@@ -169,6 +169,70 @@ def _zombie(pid):
         return False
 
 
+class QemuRefused(RuntimeError):
+    """QEMU exited before it ran - its own words, and who holds the file."""
+
+
+def _holders(text):
+    """Every OTHER live qemu-system process whose command line names a file
+    QEMU's lock message names: `pid N: <its -drive words>`."""
+    import re
+    paths = set(re.findall(r"\[([^\]]+)\]", text))
+    out = []
+    for d in os.listdir("/proc"):
+        if not d.isdigit() or int(d) == os.getpid():
+            continue
+        try:
+            argv = open("/proc/%s/cmdline" % d, "rb").read().split(b"\0")
+        except OSError:
+            continue
+        argv = [x.decode("latin-1") for x in argv if x]
+        if not argv or "qemu-system" not in os.path.basename(argv[0]):
+            continue
+        hit = [x for x in argv for p in paths
+               if p in x or os.path.basename(p) in x]
+        if hit:                         # (its pidfile names the row's dir)
+            pf = argv[argv.index("-pidfile") + 1] if "-pidfile" in argv[:-1] \
+                else "?"
+            out.append("pid %s (pidfile %s): %s"
+                       % (d, pf, " ".join(sorted(set(hit)))))
+    return out
+
+
+def start(cmd, **kw):
+    """Launch QEMU (`subprocess.run(cmd, **kw)`, a list or a shell string)
+    and, when it exits non-zero, RAISE ITS OWN WORDS - QemuRefused with
+    QEMU's stderr and, for an image lock, every other QEMU naming that file.
+
+    A launch that died ~0.3 s in used to reach a row as `exit 1` and a
+    CalledProcessError: `wheelps2` and `vmmouse` in a four-lane pass, booting
+    build/os8088.img snapshot=on while another row's QEMU held it WRITABLE.
+    QEMU refuses even a read-only open then - `Failed to get shared "write"
+    lock` - and a row that cannot say whose lock it was is a row somebody
+    re-runs alone, watches pass, and files as contention
+    (docs/plans/SOAK-PARALLEL.md 17.10)."""
+    import subprocess
+    kw.setdefault("cwd", ROOT)
+    kw.pop("check", None)
+    kw["stderr"] = subprocess.PIPE
+    r = subprocess.run(cmd, **kw)
+    if r.returncode:
+        err = r.stderr.decode("latin-1", "replace") if isinstance(
+            r.stderr, bytes) else (r.stderr or "")
+        msg = "QEMU exited %d before it ran: %s" % (
+            r.returncode, err.strip() or "(nothing on stderr)")
+        if "lock" in err:
+            who = _holders(err)
+            msg += ("\n  held by: " + "; ".join(who)) if who else \
+                "\n  (no other QEMU names the file now - it has since exited)"
+        sys.stderr.write(msg + "\n")
+        raise QemuRefused(msg)
+    if r.stderr:                        # (a warning: still the row's to see)
+        sys.stderr.write(r.stderr.decode("latin-1", "replace")
+                         if isinstance(r.stderr, bytes) else r.stderr)
+    return r
+
+
 def own(pidfile=None, sock=None):
     """Kill at exit whatever this script has just LAUNCHED.
 
@@ -219,7 +283,8 @@ def own(pidfile=None, sock=None):
 # arrives, and wants generous room), never a pause that something else is
 # assumed to have finished inside - that shape failed five rows at eight
 # emulators on four cores. And a row whose ANSWER is the guest's speed
-# against this clock is a host rate, and runs alone.
+# against this clock was a host rate, and ran alone - until `icount()`
+# below, which takes that one class of row off the host's clock.
 #
 # `m` is any object with `read(linear, n)` - tests/ethernet.py's `Qemu`,
 # tests/telansi.py's, tests/trkscrl.py's `Qmp`: each opens QMP per command.
@@ -228,6 +293,55 @@ BIOS_TICKS = 0x46C
 TICK_HZ = 18.2065
 STALL = 30.0            # HOST seconds of a clock that does not move = stopped
 JUMP = 256              # a step bigger than this was SET, not counted
+
+
+
+# -----------------------------------------------------------------------------
+# A FIXED MACHINE, for a row whose answer is the guest's SPEED against its own
+# clock (docs/plans/SOAK-PARALLEL.md 17.8). `-icount shift=N` makes every
+# guest instruction cost 2^N ns of VIRTUAL time, and QEMU's PIT, the BIOS
+# tick, the SB16's DMA and the wav audiodev all run on that virtual clock -
+# so a bench timed on the 8253 counts INSTRUCTIONS, and a host that starves
+# the emulator stretches the wall time and moves no answer. `align=off`
+# lets it run as fast as the host can rather than pacing virtual time to
+# real; `sleep=on` keeps an IDLE guest (hlt) on real time, which is what a
+# disk transfer or a throttled drive waiting on the host needs - with
+# `sleep=off` virtual time warps to the next timer while the host is still
+# doing the I/O, and a BIOS timeout can fire on a transfer that is merely
+# slow.
+#
+# THE SHIFT IS A ROW'S TRADE, and 4 (62.5 MIPS of guest) is the default
+# because xtmp3eng's ladder needs it: XTMP3's stub calibrates a configured
+# 1.00x at 0.98 and 4.00x at 3.72 there - the no-icount figures were 0.98
+# and 3.91 - where shift 6 read 0.93 and 3.08 and took slowdown's 1.05x
+# under 1.0, an underrun the leg forbids. Shift 4 costs xtmp3rate's seven
+# legs 295 s against 198 without icount. A guest that is I/O-DENSE pays
+# more: icount ends a TB at every I/O instruction, and vidbank's speaker
+# play (a PIT write a sample) ran ~20 host seconds a guest second at shift
+# 4, so that row asks for 6 (15.6 MIPS), where its verdicts still have
+# margins of 26x and 630x. Pick the largest shift whose margins hold.
+#
+# What it CHANGES, and why it is only for these rows: the cost model. TCG
+# with icount prices an instruction at 2^N ns whatever it does, so MMIO -
+# a VGA write, an I/O port - costs what a register move does, where without
+# it QEMU's device emulation is most of the host time (vidbank's key-1
+# bench reads 3.9 ms without icount and 0.12 ms at shift 4: the decode
+# writes A000). A row that is ABOUT host behaviour, or whose throttle
+# (`throttling.bps-total`, real time) is the rate being compared, wants it
+# off. OS88_QEMU_ICOUNT=0 is the A/B (no -icount), and =N forces a shift.
+# -----------------------------------------------------------------------------
+ICOUNT_SHIFT = 4
+
+
+def icount(shift=ICOUNT_SHIFT):
+    """QEMU arguments for a FIXED-SPEED guest (above), or none when
+    $OS88_QEMU_ICOUNT is 0; a number there is the shift."""
+    v = os.environ.get("OS88_QEMU_ICOUNT", "").strip()
+    if v == "0":
+        return []
+    if v:
+        shift = int(v)
+    return ["-icount", "shift=%d,align=off,sleep=on" % shift]
 
 
 class GuestStopped(RuntimeError):
@@ -373,18 +487,40 @@ def _shift(sock, down):
     _mod(sock, "shift", down)
 
 
+# The names the ROM keeps a FLAG for at 0040:0017 rather than a buffer
+# entry: a press of one is confirmed by that byte (`_mod`), and every other
+# key's by the buffer's tail (`key`). tools/qmp.py's FLAG_KEYS is the same set.
+FLAG_KEYS = frozenset(("shift", "shift_r", "alt", "alt_r", "ctrl", "ctrl_r",
+                       "caps_lock", "num_lock", "scroll_lock"))
+STORE_SECS = 10.0       # guest seconds a press may take to be STORED: a
+                        # ceiling the wait leaves the moment it holds
+
+
 def sendkey(sock, spec, secs=0.3):
     """HMP's `sendkey a-b-c` CONFIRMED: the modifiers down, `key` on the last
-    name (released only once the ROM has stored it, or after `secs` guest
-    seconds for a key it does not store), the modifiers up. HMP's own queues
-    the release 100 ms of HOST time after the press, which a starved guest
-    takes in the same IRQ1 as the press - a lost key (17.5). The names are
-    QEMU's qcodes, which are HMP's key names."""
+    name, the modifiers up. HMP's own queues the release 100 ms of HOST time
+    after the press, which a starved guest takes in the same IRQ1 as the
+    press - a lost key (17.5). The names are QEMU's qcodes, which are HMP's
+    key names.
+
+    THE LAST KEY IS RELEASED ONLY ONCE THE ROM HAS STORED IT - up to
+    STORE_SECS guest seconds, a ceiling and not a pause - unless it is a
+    FLAG key, whose press is the shift-state byte changing within `secs`.
+    `secs` used to bound every key, so a press the guest had not yet taken
+    after seven ticks was released anyway: the queued pair SPEC.md 9.7 says
+    QEMU's 8042 loses whenever kbm_isr peeks (docs/plans/SOAK-PARALLEL.md
+    17.11). A stored key whose tail never moves is said on stderr."""
     names = spec.split("-")
     mods, last = names[:-1], names[-1]
     for n in mods:
         _mod(sock, n, True, secs)
-    key(_Sock(sock), last, secs=secs)
+    if last in FLAG_KEYS:
+        _mod(sock, last, True, secs)
+        _mod(sock, last, False, secs)
+    elif not key(_Sock(sock), last, secs=STORE_SECS):
+        sys.stderr.write("os88qemu: sendkey %s: the ROM had not stored the "
+                         "press after %.0f guest seconds - released anyway\n"
+                         % (spec, STORE_SECS))
     for n in reversed(mods):
         _mod(sock, n, False, secs)
 
@@ -602,6 +738,98 @@ def quiesce(m, read, secs=1.0, stable=2, limit=60.0, what=None, poll=0.1):
     return last
 
 
+# --- A HEAP BASE AND ITS BYTES IN ONE SNAPSHOT (tools/os88marty.py's twin) ---
+#
+# The compactor copies a block (mem_bcopy) BEFORE it rewrites the records that
+# name it (mem_reloc_call), so a window's W_SEG or a drv_tab row's segment
+# read as one HMP call and the bytes through it as another can straddle a move
+# and hand back the old base's shifted copy (SPEC.md 66; os88marty's banner
+# over seg_snap is the account). Same algorithm here: base, spans, then
+# [mem_cp_busy] and the base again - unchanged and idle is consistent - and
+# only otherwise a STOPPED guest (HMP `stop`) let run in short `cont` bursts
+# until the pass is over. QEMU has no cycle clock to step by, so the bursts
+# are host-timed; what they wait for is the guest's own byte.
+#
+# `q` is any of the tree's QEMU driver objects: an `hmp(cmd)` answering a
+# string and a `read(linear, n)`. os88marty.seg_snap/heap_read/pkg_read hand
+# a QEMU object here themselves, so a helper written once serves both.
+
+HEAP_BURST = 0.005      # host seconds a `cont` burst while a pass runs
+HEAP_LIMIT = 60.0       # ...and how long before that is a stuck compactor
+
+
+def _busy(q):
+    b = getattr(q, "_heap_busy_sym", False)
+    if b is False:
+        try:
+            if hasattr(q, "sym"):
+                b = q.sym("mem_cp_busy")
+            else:
+                sys.path.insert(0, os.path.join(ROOT, "tools"))
+                import os88sym
+                b = os88sym.linear("mem_cp_busy")
+        except (Exception, SystemExit):                     # noqa: BLE001
+            b = None
+        try:
+            q._heap_busy_sym = b
+        except AttributeError:
+            pass
+    return b
+
+
+def heap_read(q, read, what="a heap snapshot"):
+    """`read(q)` answered off a STOPPED guest with [mem_cp_busy] clear; the
+    guest is resumed only if it was running (os88marty.heap_read's twin)."""
+    busy = _busy(q)
+    was = "running" in q.hmp("info status")
+    q.hmp("stop")
+    try:
+        t0 = time.time()
+        while busy is not None and q.read(busy, 1)[0]:
+            if time.time() - t0 > HEAP_LIMIT:
+                raise RuntimeError("%s: the heap compactor was still running "
+                                   "after %.0fs ([mem_cp_busy] never cleared)"
+                                   % (what, HEAP_LIMIT))
+            q.hmp("cont")
+            time.sleep(HEAP_BURST)
+            q.hmp("stop")
+        return read(q)
+    finally:
+        if was:
+            q.hmp("cont")
+
+
+def seg_snap(q, word, spans, base=None, what="a read through a heap base",
+             step=True):
+    """(seg, [bytes, ...]) through the segment the kernel word at flat
+    `word` names, in one consistent snapshot - os88marty.seg_snap's twin."""
+    # (under $OS88_MEGA the word names an LDT SELECTOR: `lin` resolves it,
+    # and os88geom.drv_base - a real-mode HMA sum - is lin's job there too)
+    lin = (lambda s: globals()["lin"](s, 0)) if MEGA \
+        else (base or (lambda s: s << 4))
+    u16 = lambda b: b[0] | (b[1] << 8)          # noqa: E731
+    busy = _busy(q)
+    for _ in range(2):
+        seg = u16(q.read(word, 2))
+        if not seg:
+            return 0, None
+        out = [q.read(lin(seg) + o, n) for o, n in spans]
+        if busy is None:
+            return seg, out
+        b = q.read(busy, 1)[0]
+        if not b and u16(q.read(word, 2)) == seg:
+            return seg, out
+        if b:
+            break
+    if not step and "running" not in q.hmp("info status"):
+        return seg, out                 # the caller holds it mid-pass
+
+    def snap(qq):
+        s = u16(qq.read(word, 2))
+        return (s, [qq.read(lin(s) + o, n) for o, n in spans] if s else None)
+    return heap_read(q, snap, what)
+
+
 # --- a CLOSED-LOOP mouse (docs/plans/completed/SOAK-SPEED.md, harness changes) ---------
 #
 # tools/mouse.py cannot know where the pointer is, so it PINS against the
@@ -728,7 +956,7 @@ class Private(object):
                     "-device", "ne2k_isa,netdev=n0,iobase=0x300,irq=3"]
         cmd += ["-display", "none", "-qmp", "unix:%s,server,nowait"
                 % self.sock, "-daemonize", "-pidfile", pidf] + list(extra)
-        subprocess.run(cmd, check=True)
+        start(cmd, check=True)
         self.pid = int(open(pidf).read().strip())
         atexit.register(self.close)
         for _ in range(150):
@@ -850,7 +1078,7 @@ def launch_test(tmp, sysimg="build/os8088.img", apps="build/apps.img",
         cmd += ["-audiodev", "none,id=devsnd", "-device",
                 "adlib,audiodev=devsnd"]
     own(pid, sock)
-    subprocess.run(cmd + list(extra), cwd=ROOT, check=True)
+    start(cmd + list(extra), cwd=ROOT, check=True)
     # ...and BY THE PID IT WROTE as well (vidxms.Q's lesson): a caller that
     # deletes `tmp` on its way out takes the pidfile own() would read
     atexit.register(_killpid, int(open(pid).read().strip()))
@@ -1053,7 +1281,7 @@ def make_test(*knobs, copy=True, extra=()):
         return _mega(sock, pidfile, a, b, hd, d, ether=bool(kv.get("ETHER")),
                      sb=bool(kv.get("SB16")), ps2=mp == "ps2")
     own(pidfile, sock)
-    subprocess.run(cmd + list(extra), cwd=ROOT, check=True,
+    start(cmd + list(extra), cwd=ROOT, check=True,
                    stdout=subprocess.DEVNULL)
     pid = int(open(pidfile).read().strip())
     atexit.register(_killpid, pid)

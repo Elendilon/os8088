@@ -14859,7 +14859,9 @@ can do — **peek port 60h and chain**. On the 8088's 8255 the byte is latched
 in port A until the BIOS acknowledges it with bit 7 of port 61h, so reading it
 early consumes nothing; the real handler reads the same byte and does all the
 work, the ack, the shift states and the EOI included. Nothing in the hook
-writes a port, queues a key or ends an interrupt.
+writes a port, queues a key or ends an interrupt. **On an AT-class ROM that
+hands its byte to `int 15h` AH=4Fh it does not even read**: §9.7.2 takes the
+scancode there, because an emulated 8042 loads its next byte on a read.
 
 Five things hold it up.
 
@@ -15359,14 +15361,16 @@ Five things are load-bearing:
   **QEMU's 8042 REFUTES the peek when a second byte is queued** (measured in
   the soak, `vidxiphdhold`): QEMU loads the next byte the moment port 60h is
   read, so a press and its release waiting together at one IRQ1 lose the
-  press to the peek - two IRQ1s, nothing in the BIOS buffer. A real 8042
-  cannot be made to do it, because the keyboard sends its next byte only
-  after the controller is read and its clock released (~1 ms); an emulated
-  or SMM-emulated one may. The harness paces keys the way a keyboard does
-  (`tests/os88qemu.py`'s `key`). The kernel-side fix - taking the scancode
-  from the AT BIOS's own `int 15h AH=4Fh` intercept instead of peeking where
-  the ROM offers it - is open, and is an owner's decision: it hooks a vector
-  every handoff would have to give back.
+  press to the peek - two IRQ1s, nothing in the BIOS buffer - and grey Left
+  (`E0 4B`) is stored TWICE, the peek taking the prefix and the next IRQ1
+  re-reading the latched `4B`. A real 8042 cannot be made to do it, because
+  the keyboard sends its next byte only after the controller is read and its
+  clock released (~1 ms); an emulated one does (QEMU, and v86, which
+  os8088.com's demo runs kern_emu under), and an SMM-emulated one may.
+  **§9.7.2 is the fix**: on a machine whose ROM hands its int 09h's byte to
+  `int 15h AH=4Fh`, the kernel takes the scancode there and never reads the
+  port. The harness still paces keys the way a keyboard does
+  (`tests/os88qemu.py`'s `key`), which is now merely polite.
 - **The map is cleared at the arm, not at boot.** `.bss` arrives zeroed by the
   accident §2.5 describes, and a bit stuck *on* here is a key an application
   believes is held for the rest of the session. Nine bytes make the initial
@@ -15522,6 +15526,134 @@ is gone as a routine rather than shrunk, and the two arms share one `blk_wake`.
 Two of those 26 are the `pushf`/`popf` above, which is a simplification of code
 that was here before this feature and is banked with it.
 
+#### 9.7.2 The scancode from the ROM's own hand-off — `int 15h AH=4Fh`
+
+The peek (§9.6.4) reads port 60h *before* the ROM does, and its whole safety
+argument is that a read consumes nothing. That is provably true of an XT's
+8255 and of a real 8042, and false of an 8042 that loads its next queued byte
+on every read (§9.7). So on every machine where it can be avoided, it is: an
+AT-class ROM's int 09h reads the port itself and then calls **`int 15h`
+AH=4Fh** - the keyboard intercept - with `AL` = the byte it read and `CF` = 1,
+and the kernel takes the scancode from there. **The ROM's read is the only
+read**, and nothing the controller does on a read can take a byte from under
+it.
+
+**The contract** (`kernel/mouse.inc`, kern_big and so kern_emu and kern_mega;
+`KBD_I15` in `kernel.asm`):
+
+- **`mouse_init` asks the ROM** (boot overlay, before either vector is ours):
+  `int 15h` AH=C0h. A table returned with `CF` = 0 *and* `AH` = 0 - IBM's
+  contract - whose feature byte 1 has bit 4 set (*"int 09h calls int 15h
+  AH=4Fh"*) is a yes. SeaBIOS - QEMU's and v86's - says yes. An XT-class ROM
+  has no such service and answers `CF` = 1 (the 5150's cassette code says
+  AH = 80h, an XT's 86h).
+- **It then hooks ONE vector, never both**: `int 15h` (`kbm_i15`) on a yes,
+  `int 09h` (`kbm_isr`, the peek) on a no. `[kbm_ivec]` says which (24h or
+  54h) and `kbm_old9` holds that vector's old value, which is the chain both
+  entries end in. On a yes `kbm_isr` is not in the int 09h chain at all, so
+  nothing reads port 60h but the ROM; on a no - every XT - the IVT is exactly
+  the kernel before this.
+- **`kbm_i15` is `kbm_isr` with the port read taken out.** Every `AH` but 4Fh
+  jumps straight to `kbm_isr`'s own `jmp far [cs:kbm_old9]`, flags as its
+  compare left them (what every `int 15h` chain does: the ROM answers in its
+  own flags or the frame's). On 4Fh it builds `kbm_isr`'s frame and head -
+  `push ax`/`push ds`/`KDS`, then the two jobs that read no port,
+  `sch_wake_ui` (§8.1.2.2) and `kbd_ovflow` (§9.8; 4Fh comes between the
+  ROM's read and its store, which is exactly where the guard must run) - and
+  jumps to `kbm_isr.scan`, the one scan body (`KBM_SCAN`: `kbd_track` for
+  §9.7 and §9.7.1, then §9.6.4's keypad-5 test), whose tail is `kbm_isr`'s.
+  `AX` reaches the ROM as it came, so **nothing is translated and nothing is
+  swallowed**: the ROM's own `CF` is the one its int 09h acts on, and keypad 5
+  still only sets `[kbm_p5]` - a BIOS that delivers keypad 5 delivers it and
+  `kbm_key`'s guard keeps one press from being two.
+
+**A ROM that calls 4Fh without advertising it** keeps the peek, which is the
+behaviour before this and is correct on its own 8042 unless that 8042 is
+emulated. **A table that OVERSTATES** - bit 4 set and no 4Fh ever made -
+would leave the map and keypad 5 deaf on that machine: it is a claim about the
+ROM the kernel takes at its word, and no ROM tried makes it falsely. An
+earlier build of this section hooked both vectors and also learnt from the
+first call it saw; it peeked the keystroke that taught it, which on QEMU was
+the first keystroke of the session - lost or doubled - and it cost a flag and
+a gate in `kbm_isr` on every machine. One vector, decided once, is both
+smaller and exact.
+
+**The boot overlay had no room for the question**, and what paid for it is
+worth saying because none of it is a feature: on kern_big `.ovl` sat 6 bytes
+under its ceiling (§2.5.3) and the blob 9 under its own. Four refactors that
+change no answer made the room - the live serial ports are counted as the
+probe finds them instead of by a second walk of `mou_bases` (§9.5's count; 15
+bytes), the `int 09h` hook stopped reloading an `ES` that was already 0 (4),
+`mou_p2_init`'s no-auxiliary-port arm WAS its failure arm byte for byte and
+is now that arm (16 with its trampoline, §9.9), and `cpu_detect` loads each
+verdict ahead of the jump that takes it (4) - and `.ovl` ends 4 bytes SMALLER
+than before (5,114 -> 5,110). On kern_small, where `mouse_init` is blob code
+and there is no PS/2 half, the count fold is **19 bytes off `.boot2`** and
+`cpu_detect` **4 off `.ovl`**, and its resident kernel is unchanged but for
+the one `.text` byte that names the blob's length (`kbld_blob`, §57.6).
+
+**EVERY PLACE THE KERNEL GIVES `int 09h` BACK GIVES BACK THE ONE IT HOOKED**,
+because `kbm_i15` is a `KERNEL_SEG` offset just as `kbm_isr` is (§9.6.5's
+freeze one vector along):
+
+| site | what it does |
+|---|---|
+| `mouse_unhook` | puts `kbm_old9` back at `[kbm_ivec]` - int 09h or int 15h, whichever was hooked |
+| Restart, `int 19h` (§20.10), hibernate step 7 (§87.4), `hbm_bye` | through `sched_unhook` → `mouse_unhook` |
+| the DOS handoff (§96.40.2 step 6) | `hbm_kd mouse_unhook`, before `kern_dos` loads - so `kdx_init` (§96.15.4) banks the ROM's own vector for its filter |
+| a resume from hibernation (§87.5) and DOS's live resume (§96.49) | nothing to do: the stub puts the IMAGE's IVT back, whose hooked vector and `kbm_old9` are that same machine's, exactly as before |
+| kern_mega entering protected mode (`mega_enter`) | a machine hooked at int 15h is turned into the int 09h shape before the switch: the ROM's int 15h back, `kbm_isr` into int 09h, the ROM's int 09h into `kbm_old9`, `[kbm_ivec]` = 24h. It has to be: `mega_idt_build` makes the IDT FROM the IVT, so an int 09h left the ROM's makes IRQ1 the EOI stub - a dead keyboard and an 8042 nobody reads, which stops the PS/2 mouse too (Bochs, `megakbtrip`, measured: the pointer never moved) - and a reflection runs the BIOS's int 09h on that IVT, whose 4Fh must not land in `kbm_i15`, whose `KDS` would load a protected-mode selector in real mode. In protected mode, with `[mega_on]` set, `kbm_isr` ALWAYS reads port 60h - the only read - and leaves the byte in `kbm_kbyte` for `mega_k09`, the ROM half it chains to, which reads that instead of the port |
+| kern_mega's DOS route (`megados.inc`) | the IVT's `int 15h` is already the ROM's |
+| a stale vector | a restart that skipped `mouse_unhook` would bank `kbm_i15` as its own predecessor - and `mouse_init`'s own C0h question would jump to itself. `mouse_unhook` makes that unreachable, as §9.6.5 does for `int 09h`; there is no run-time guard |
+
+**`KBDDIAG=1`** (§9.8.1): on a machine hooked at int 15h the `I` row is
+written at the ROM's 4Fh call - `kbm_i15` calls `kbg_pre` and records the byte
+it was handed - with `x` bit 3 set, and `60` is that byte rather than a re-read
+of port 60h, which on an 8042 of this kind would take the *next* one.
+
+**What the 4Fh path puts on a stack**: `kbm_i15`'s two pushes, then
+`kbd_track`'s (§9.7) and `kbd_ovflow`'s - about 14 bytes on top of the
+`int 15h` frame's 6, inside the ROM's int 09h and so on whatever stack that
+runs on (the interrupted task's on an IBM AT ROM; SeaBIOS's IRQ handlers have
+a stack of their own). The peek spent the same 14 at `kbm_isr`'s head and
+popped them before the ROM ran, so on an AT ROM the keyboard's share of an
+interrupted slice moves from `kbm_isr`'s depth to the ROM's depth at its
+`int 15h` plus ~20. ESTIMATED, not measured on a period AT ROM (§8.7's floor
+is cut from field machines).
+
+**kern_small does not carry it.** It is the 128KB floor build, an 8088's,
+whose 8255 the peek is provably free on and whose ROM has no 4Fh to call; an
+AT that boots it with a real 8042 is correct under the peek (§9.6.4), and the
+machines whose 8042 is not - QEMU, v86 - run kern_big or kern_emu. Its price
+there is in the table below.
+
+**Cost**, measured by building each kernel against the tree before it
+(`tools/kernsize.py`, symbol spans off the map) - after a size pass that took
+the first version's `.text` +58 to +20:
+
+| kernel | resident | boot only |
+|---|---|---|
+| kern_big (and kern_emu) | **`.text` +20**: `kbm_i15` 17 and a 1-byte parity pad, `[kbm_ivec]` 2, `kbm_isr` +2 (the scan tests `[kbd_armed]` itself, since `kbm_i15` arrives with AH = 4Fh), `mouse_unhook` **-2** (its two saved-dword restores share `mou_vsetm`); `.bss` +0, `.cold` +0, no rung crossed | `.ovl` **-4** (5,110), `.boot2` +0 |
+| kern_mega | `.text` +88 (kern_big's 20; `kbm_i15`'s `KDS` is 5 bytes where kern_big's is 2; the protected-mode gate, the store and `kbm_kbyte`, 11; `mega_enter`'s conversion to the int 09h shape, 54); `.mega` +2 (`mega_k09` takes `kbm_kbyte` instead of reading the port) | `.ovl` -4 |
+| kern_small | **+0**: `.text`, `.bss`, `.cold` the same lengths and the same bytes but `kbld_blob`'s | `.boot2` **-19**, `.ovl` -4 |
+| kern_small *with* `KBD_I15` (not built) | `.text` +24, `KERN_SIZE` unchanged (59,904) | `.boot2` +36 |
+
+Rungs are not the point; the 20 bytes are, and what they buy is a keyboard
+that an emulated or SMM-emulated 8042 cannot take keys from.
+
+`tests/kbd4f.py` (`soak -k kbd4f`) is the gate, on QEMU by the closed list's
+entry 4 (an 8042), with the map armed: int 15h is `KERNEL_SEG:kbm_i15` and
+int 09h the ROM's before any key; a press and its release batched into ONE
+`input-send-event` stored once (`1E61`); two makes batched stored once each
+(`1F73 2064`) with both bits down; grey Left stored exactly once, in the E0
+form only a ROM that saw the prefix gives (SeaBIOS's `4BE0`); and Alt+Enter
+with both makes batched stops at `kbd_track.latch` with `AL` = 1Ch (a GDB
+breakpoint, `ui_task` spending `[kbd_ae]` within a pass) and is stored once
+as `1CF0`. **On the kernel before this, the same row reads**: int 09h
+`0060:2C8D`, nothing for the batched `a`, `2064 2064`, `4B00 4B00`, and
+nothing at all for Alt+Enter. MartyPC's 8255 rows (`altenter`,
+`dosaltenter`, `kbdburst`, `kdkbd`, ...) keep the peek.
+
 ### 9.8 The overrun guard — a full BIOS buffer is a HANG, not a beep
 
 §67.11.2 found this in a game and closed it in that game, and said in as many
@@ -15641,7 +15773,7 @@ unchanged, so they pair with the ordinary apps disks.
 
 | row | written by | when |
 |---|---|---|
-| `I` | `kbm_isr` | every IRQ1. `st` is port 64h BEFORE the ROM's handler, `>st` and `60` are port 64h and port 60h AFTER it, `tl>tl` the BIOS buffer tail either side, `key` the word the ROM stored (0 if the tail did not move) |
+| `I` | `kbm_isr` | every IRQ1. `st` is port 64h BEFORE the ROM's handler, `>st` and `60` are port 64h and port 60h AFTER it - or, with `x` bit 3 set (§9.7.2's int 15h AH=4Fh path), the byte the ROM handed over, since a re-read there could take the next one - `tl>tl` the BIOS buffer tail either side, `key` the word the ROM stored (0 if the tail did not move) |
 | `S` | `sch_isr` | inside a bracket, a tick whose keyboard state CHANGED - OBF and AUX from port 64h, and IRQ1's bit in the PIC's ISR, IRR and IMR |
 | `E` / `L` | `fsx_run` | a bracket entered (`x` = its flags) / leaving, BEFORE `.restore` drains the BIOS buffer |
 
@@ -48714,10 +48846,20 @@ shortest-path LZB parse takes forty seconds on one 32KB block of anything
 repetitive. That parse has a 16KB window and depth 16, and on video it loses
 to LZ4: `02-BWPCS.V88` is 92.0% LZB against 90.5% LZ4. It wins on text.
 
-**A part fits a FRESH disk of its geometry**: `os88cz.py --size 720k` cuts
-parts of at most 730,112 bytes, which is 713 clusters of 1,024 — a 720KB
-floppy's whole data area with one file on it. `360k`, `1.2m` and `1.44m` are
-the same arithmetic, and a size in bytes is taken as given.
+**A part fits a USED disk of its geometry**: `os88cz.py --size 720k` cuts
+parts of at most 728,064 bytes, which is 711 clusters of 1,024 — a 720KB
+floppy's whole data area **less 2KB**. A part cut to the whole data area
+fitted a fresh image and then did not fit the disk it was written to: the
+host OS that writes a floppy hides things on it (`System Volume
+Information`, `.Trashes`), and a disk that has been in os8088 carries
+`SYSTEM/ASSOC.DAT`. `360k`, `1.2m` and `1.44m` are the same arithmetic, and
+OS88CZ.COM's table is the same four numbers. **Any other size is taken as
+given** - bytes, or a number with `k` or `m` after it (`500k`, `1.1m`,
+binary as a disk is) - and `--images` then puts each part on the smallest
+of the four floppies that holds it, refusing a part no floppy holds. The
+window offers the four disks and takes any size typed into the same box,
+and its *"...and a floppy image per part"* starts UNCHECKED: the images are
+for writing straight to disks, and most splits are not.
 
 #### 20.17.4 Three tools, one format: the host, a window, and DOS
 
@@ -55265,9 +55407,9 @@ a happy result — the disk this replaces was at 354 of 354.
 RealDMG (docs/REALDMG-SPEC.md) is at the root and its own demo cartridge,
 `GBDEMO.GB`, is in `MEDIA/` where its File dialog opens - LZ4-packed, 32,768
 bytes to 1,110, which RealDMG's single `OSAPI_FILE_READ` of a cartridge
-expands (§20.14.3). **It is built and not released**: the release skill's
-`mkzip.py` carries `media360`, `office360`, `network360` and `games360` and
-not this disk, so no release zip has it until that list is changed.
+expands (§20.14.3). **It is released**: the release skill's `mkzip.py`
+carries it beside the other category disks, as `360K/EMU360.IMG` in the
+release zip's folder per disk size.
 
 **The other three join it ON REQUEST**: `make emufull` (or `EMUFULL=1` on
 any make) builds the same image with C64, APPLE2 and RunCPM at the root,
@@ -55495,6 +55637,7 @@ contents are DERIVED from those omissions rather than listed again:
 | `APPS/` | `PIXEL.O88`; `MIDIRACK.O88`, a second copy |
 | `GAMES/` | `REALDMG.O88`, `DRMARCO.O88` |
 | `MEDIA/` | `GBDEMO.GB` (packed), `OS8088.V88`, and in `MIDI/` the eight songs `apps720.img` does not carry |
+| `PICTURES/` | PiXEL's 360 KB gallery selection, five pictures (§106.7) |
 | `SYSTEM/APPDATA/` | empty, §19.9 |
 
 It has the apps disk's folders and not a category disk's root (§24.6) because
@@ -55503,11 +55646,12 @@ thing. **MIDIRack rides it a second time** — `media360.img`'s shape at 360 KB
 — because the 720 KB system disk does not carry the player, and a `.MID` on a
 volume with no player opens nothing until the apps disk has been mounted. The
 demo video needs no such copy: `VIDEO.O88` is in the system disk's `APPS/`.
-368 of 713 clusters at its first build.
+368 of 713 clusters at its first build; PiXEL's five pictures (216
+clusters, 2026-10-26) took it to 587, leaving 126.
 
-**XTMP3 is not on it yet** and rides `make xtmp3disk`'s 720 KB floppy until
-the owner places it; its player and three songs are about 250 clusters, which
-fit. §24.6.1 binds this disk too: which package rides which 720 KB disk is a
+**XTMP3 is not on it** and rides `make xtmp3disk`'s 720 KB floppy, which the
+release ships as `PROGRAMS/XTMP3/XTMP3720.IMG`; its player and three songs are
+about 250 clusters, which fitted until the gallery took the room. §24.6.1 binds this disk too: which package rides which 720 KB disk is a
 decision with a date on it, expected to be reordered.
 
 ## 25. icons.inc — icon format, draw routine, built-in library
@@ -137586,8 +137730,9 @@ stick has none of these limits: it persists settings and saves like the
 installed disk it is.
 
 The 720KB and 1.44MB floppy *images* still matter to the same reader — a USB
-floppy drive and a Gotek take them — so the live media are additions to the
-release zip, not replacements for anything in it.
+floppy drive and a Gotek take them — so the live media are a zip of their own
+beside the release's floppies (`os8088-<version>-live.zip`, the images as
+`LIVEUSB.IMG` and `OS8088.ISO`), not replacements for anything in it.
 
 ### 80.4 Writing the media on a Mac, guided
 
@@ -137911,7 +138056,7 @@ because it never boots `kern_emu` (§9.11.7). On anything below a 386 the image
 still boots — `vmm_boot_x` refuses at its `[cpu_tier]` compare, the bit is
 ignored, and the machine keeps whatever mouse `mouse_init` found — but that is
 a property worth having, not a reason to ship it. `make live` does not build
-it, the release zip does not carry it, and the website's `tools/release.py`
+it, no release zip carries it, and the website's `tools/release.py`
 publishes it in place of `os8088-usb.img` as the demo's hard disk.
 
 **The page's half is the website's.** v86 delivers `mouse-absolute` events to
@@ -190527,7 +190672,7 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 | 22 | 2 | the largest super-packet's sectors, 1..64 |
 | 24 | 4 | the stream's bytes, padding included |
 | 28 | 2 | the largest frame record, bytes |
-| 30 | 2 | the largest keyframe READ, bytes: a record, or with KPARTS a part (98.1.3.8) |
+| 30 | 2 | the largest keyframe READ, bytes: a record, or with KPARTS a part (98.1.3.8), or with KPOOL a page pool picture's read (98.1.3.8.1) |
 | 32 | 4 | VGA8: **the palette**, on a sector - 256 entries of (r, g, b), the DAC's six bits, 0..63; and a VGA4 file that is neither RESIDENT nor LIVE MAY carry one, its first 16 entries by pixel value and the rest 0, and then plays full screen only (98.1.3.2.1, 98.1.3.2.2); 0 for every other format. The encoder puts it at sector 1, two sectors, and the keyframe table after it |
 | 36 | 1 | VGA8: **the row scale**, 0 or 1 for none, 2 for each row shown twice by the CRTC (98.2.4); 0 in every other file |
 | 37 | 1 | MODEX, and VGA4 on a screen of its own: **2 = page flipped** (98.3.8), **3 = page-ahead** (98.1.3.7, with flag PAGE and only with it), **4 = page-ahead on N pages** (98.1.3.7.1, with flag PAGE too), **5 = flipped AND built ahead on N pages** (98.1.3.7.2, flag PAGE too), 0 or 1 not; 0 in every other file |
@@ -191274,8 +191419,8 @@ a whole frame per page.
   so a row's address is y x 40 and nothing else in a record changes. The
   decoder never computes a stride - a record carries addresses - so it
   plays them as it plays every VGA4 file.
-- **Full screen, never flipped every frame** (byte 37 is not 2), never
-  RESIDENT or LIVE, a canvas at most 320 x 200 or 320 x 240.
+- **Full screen**, never RESIDENT or LIVE, a canvas at most 320 x 200 or
+  320 x 240. Flipped every frame since 98.1.3.2.5.1, as 1 and 2 are.
 - **A player before this refuses them at open**: byte 38 past 4 is past
   its table.
 - **The player** (`apps/video/video.asm`, +67 bytes of image) keeps the
@@ -191285,14 +191430,53 @@ a whole frame per page.
   image and the poster's rows (`vp_v4pack`) all follow. Mode 0Dh is the
   mode taken for both, `vp_scrset` writes its own Offset (14h) where the
   other screens get 28h, and screen 6 takes screen 2's 480-line timing.
-  The flipped copy (`vp_lcopy`, `vp_flcw`) is never reached, byte 37 = 2
-  being refused here.
+  The flipped copy (`vp_lcopy`, `vp_flcw`) reads it too since
+  98.1.3.2.5.1.
 - **The encoder**: `--screen 320x200n` or `320x240n`, with `--pages`
-  (98.2.1.8.4) - MAX is eight and six. `--flip` refuses them.
+  (98.2.1.8.4) - MAX is eight and six - and `--flip` (98.1.3.2.5.1).
 - **The gate**: `tests/vidpage.py --pages 8 --screen 320x200n` (and `6
   --screen 320x240n`) - seven scene changes three frames apart, every hold
   the clip, and the CRTC's Offset read at the first hold of each play. With
   the narrow Offset left out it reads 28h and every hold fails.
+
+###### 98.1.3.2.5.1 The NARROW screens flipped (2026-10-26)
+
+**A NARROW file may be flipped every frame** - byte 37 2, its HELD form 6,
+its own-page form 7, and flipped and built ahead, 5 - as screens 1 and 2
+are (98.3.8.2, 98.3.8.5, 98.3.8.7). 98.1.3.2.5 refused it for scope and
+not for a reason: the records carry their addresses and the page flip is
+a start address, so neither cares where a row ends, and what had to
+follow the stride was the back page's bring-up, which was written for
+80-byte rows in three places:
+- **`vp_lcopy`** - the rows copied off the glass through the latches
+  (98.3.8.1), and every COPY of a page built ahead (`vp_pgcopy`) - takes
+  its row from `[vp_lstr]` (80, or a NARROW screen's 40) where it had 80.
+  Mode X's row is 80 there too, so nothing else moves.
+- **`vp_flipdec`'s choice** between the copy and decoding the last record
+  again prices the band as its rows x `[vp_lstr]` x `[vp_flcw]`, which is
+  now `VP_LCW` a BYTE (a test still sets it 0 for the copy every frame).
+- **The encoder's price** of the same copy (`os88venc`'s flip charge, a
+  page-ahead COPY and the calm's copies, 98.2.1.8.5) is rows x the
+  canvas's stride x `lcopy`, where it was x 80.
+
+So a NARROW row costs half a wide one to bring up, and the copy wins the
+choice at twice the band - which is what the screen is for: the user's
+*"those modes need much less data and often less cpu"*. **No format
+change and no new flag**: a player before this one refuses byte 37 2, 5,
+6 or 7 on screen 5 or 6 at open, which is where 98.1.3.2.5 put the
+refusal, so it is the version gate. **-19 bytes of `video.o88`'s image**,
+no bss and no kernel byte. `--flip` takes `--screen 320x200n` and
+`320x240n`; `os88vid --selfcheck` writes a flipped NARROW file and one
+against its own page and reads both back.
+- **The gates**: `tests/vidscreen.py --screen 320x200n --screen 320x240n`
+  (`vidscreenn`), with `--lcopy` (`vidscreennc`: `[vp_flcw]` 0, every back
+  page by the copy) and `--own` (`vidscreenno`), every hold's glass exact
+  on MartyPC's VGA XT; and `tests/vidpage.py --fpage --pages 8 --screen
+  320x200n` and `6 --screen 320x240n` (`vidpagefv8n`, `vidpagefv6n`).
+  Broken on purpose - `vp_lcopy` back on 80-byte rows - `vidscreennc`
+  FAILS from frame 3 (200 to 3,069 pixels a hold), and `vidscreenn` does
+  not: its bring-ups all decode the last record again, which is why the
+  copy has a leg of its own.
 
 #### 98.1.3.3 CGA in colour: CGA4 and C160
 
@@ -191721,6 +191905,16 @@ reference    = len(16)=12 y0(16) y1(16) at(32) n(16)
   some kept key names. A reader refuses a reference past the file, a picture
   that does not read as one, a reference outside a last part or in a file
   without KPOOL, and a page named twice or named and carried.
+- **A pool picture's reads are KEY READS to the header**: the player
+  reads each into the claim a key's read takes, sized from the
+  rendition's largest key (+30) and bounding every read by it
+  (`vp_knrd`), so that word is the largest of the keys' reads AND the
+  pool's. A writer that counted the keys alone made a file whose every
+  seek said *That keyframe could not be read* wherever a page built
+  behind a simpler shown page outweighed every key - the owner's 23 fps
+  narrow clip, 2026-10-26, pool reads to 22,872 bytes under a header
+  saying 21,314. `os88vid.py verify` and its reader refuse such a file
+  by name now, and its header word can be patched in place.
 - **What it costs a seek**: one read per picture named, where the key alone
   was as many reads as its parts. A key on eight pages was five parts of
   32 KB on Bebop; with the pool it is one part and up to seven pictures,
@@ -195135,10 +195329,16 @@ Options version 26 takes a version-25 record's flag as `on` or `off`.
 - **AUTO** applies where the screen ALWAYS has a second page: Mode X, and
   16 colours on a screen of their own (`page_auto`). It does not apply on a
   Hercules, whose page a colour card in the same machine takes, so a
-  Hercules file is page-ahead only with `on`. Nor with `--flip`, `--live`,
+  Hercules file is page-ahead only with `on`. Nor with `--live`,
   `--resident`, a loop or the `lossless` profile; a layer is fine since
   98.2.1.8.3. `--repeat` is
-  fine (98.1.3.7).
+  fine (98.1.3.7). **With `--flip` it is FLIPPED AND BUILT AHEAD**
+  (98.2.1.8.5) where `--pages` leaves three or more - every NARROW screen
+  (98.1.3.2.5.1), Mode X, and 320 x 200 and 320 x 240 at `max` - judged and
+  dropped as any page-ahead is (2026-10-26); at `--pages 2` the flip's two
+  pages leave nothing to build on and it does not run. It was refused with
+  `--flip` outright until then, a rule written before 98.2.1.8.5 existed, so
+  a flipped file was built ahead only with `on`.
   Everywhere else `auto` is one plain pass, as before.
 - **Where it applies, the plan pass IS the plain encode, and its file is
   kept.** Both passes' reports are held (`_Held`), the encoder window's
@@ -198280,8 +198480,9 @@ byte's decode - ESTIMATED: the model prices a run of bytes into the VGA at
 18 cycles (`CYC_SLICE`) and a copy, a VGA read and a write, at ~30
 (`os88venc`'s `CYC_LCOPY`), so a full 180-row band is ~430K cycles where a
 30 KB record's decode is ~600K. The encoder charges a flipped frame the same
-choice. It is the field's number to settle, and `[vp_flcw]` (80 x VP_LCW)
-is a word a test may set 0 to take the copy on every frame.
+choice. It is the field's number to settle, and `[vp_flcw]` (VP_LCW, a byte
+copied's price; a row is `[vp_lstr]` of them since 98.1.3.2.5.1) is a word a
+test may set 0 to take the copy on every frame.
 
 **The copy carries the TEXT BOX too** when the page on the glass has it up
 (98.3.13.1's toast, Pause): `vo_pre` has taken the box off the back page
@@ -206340,6 +206541,16 @@ the bytes read.
   alone, the package staying; and `make pixeldisk` in all four
   geometries — the package at the root, the gallery in `PICTURES/`,
   `SYSTEM/APPDATA/` made.
+- **The gallery beside the package, where it fits** (2026-10-26, the owner's
+  rule: a hard disk keeps at least 100 KB free). `PICTURES/` at the root of
+  the live media and the VGA and CGA video demo disks (§98.5) holds all ten;
+  the Hercules video disk had 182 KB free and keeps PiXEL without them. The
+  360 KB selection — five pictures, 216 clusters at 1 KB — rides
+  `more720.img` (§24.7) and both everything sets, where it fits without
+  adding a disk. The 1.44 MB and 1.2 MB apps disks have ~160 KB free and
+  carry none, so the release ships `pixel.img`, the 1.44 MB pixeldisk, as
+  `PROGRAMS/PIXEL/PIXEL144.IMG` for the whole gallery on a floppy.
+  `$(PX_GALLERY)` and `$(PX_GALLERY_360)` are the disk arguments.
 - **Off `apps360.img` and `apps720.img`**, by §24.6.1's dated decision,
   taken 2026-10-02 with the plan: those disks had 25 and 37 clusters free,
   and PiXEL is ~16 KB on arrival and grows by a decoder a wave. The 720KB

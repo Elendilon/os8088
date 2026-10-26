@@ -501,20 +501,22 @@ FAST = [
                                 "--leg", "slowdown", "--leg", "rungfail",
                                 "--leg", "playwav", "--leg", "pause",
                                 "--leg", "wavdirs", "--leg", "xtpeak"),
-        450.0,
-        "XTMP3's ladder and its mid-track slowdown (xtmp3eng's two RATE legs, "
+        370.0,
+        "XTMP3's ladder and its mid-track slowdown (xtmp3eng's RATE legs, "
         "SPEC.md 121.5): the stub's cost a rung is spun on the 8253, so the "
-        "verdict is the guest's CPU against the PIT - and QEMU runs without "
-        "-icount, so the PIT is the HOST's clock and a starved guest is a "
-        "slower machine. 1.05x has five per cent of headroom: on a box "
-        "running eight emulators on four cores it stepped down twice and "
-        "underran (docs/plans/SOAK-PARALLEL.md 17.5) - and rungfail, whose "
-        "4x Half calibrated at 0.87x there. And the four legs "
-        "that assert NO UNDERRUN on the SB16 (playwav, pause, wavdirs, "
-        "xtpeak): the card drains its ring on the host's clock, and playwav "
-        "underran twice at eight emulators on four cores. ALONE BECAUSE "
-        "THE ANSWER IS A HOST RATE; -icount is what would end that",
-        needs=("qemu", "nasm", "mtools", "numpy"), serial=True, alone=True,
+        "verdict is the guest's CPU against the PIT - and rungfail, and the "
+        "four legs that assert NO UNDERRUN on the SB16 (playwav, pause, "
+        "wavdirs, xtpeak), whose card drains its ring on the same clock. "
+        "Without -icount that clock was the HOST's, so a starved guest was a "
+        "slower machine: 1.05x has five per cent of headroom, it stepped "
+        "down twice at eight emulators on four cores, rungfail's 4x Half "
+        "calibrated at 0.87x and playwav underran (docs/plans/"
+        "SOAK-PARALLEL.md 17.5), and the row ran ALONE. These legs run "
+        "under -icount shift=4 now (os88qemu.icount, 17.8): the PIT, the "
+        "card and the guest's work all count instructions, so the answer is "
+        "the same at any load and the row shares the lane. "
+        "OS88_QEMU_ICOUNT=0 is the A/B",
+        needs=("qemu", "nasm", "mtools", "numpy"), serial=True,
         wants=("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
                "build/xtmp3.bin", "build/os8088.img",
                "build/mixercfg/SYSTEM.CFG", "build/mbr.bin",
@@ -555,8 +557,8 @@ FAST = [
         "given its title when idle (qagain), and a finished WAV in a third "
         "folder played to its last byte, then again through the cache "
         "(wavdirs). The ladder, the slowdown, rungfail and the four legs that assert "
-        "no underrun are xtmp3rate's, which has the box to itself; "
-        "everything here is behaviour and shares the lane",
+        "no underrun are xtmp3rate's, on a fixed-speed guest (-icount); "
+        "everything here is behaviour and keeps QEMU's own clock",
         needs=("qemu", "nasm", "mtools", "numpy"), serial=True,
         timeout=2700,
         wants=("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
@@ -3533,10 +3535,11 @@ SOAK = [
         "with F stale) must make them differ. And tools/gbprof/gbcpc.py's "
         "copies through (C), RAM to HRAM and back (cpc_ff, REALDMG-SPEC 16.6), "
         "whose sum must be the interpreter's, and its control (RT_CPCBUG, the "
-        "copy the wrong way round) must make them differ. And tools/gbprof/gbseam.asm's two "
+        "copy the wrong way round) must make them differ. And tools/gbprof/gbseam.asm's "
         "ROMs, code run from bank 0 across 3FFF into the bank (REALDMG-SPEC "
-        "3.1), interpreted and translated, with the trap left out as the "
-        "control. And "
+        "3.1) - three interpreted and translated with the trap left out as "
+        "the control, and two JRs across it, translated, with the plain "
+        "interpreter (no setds on a JR) as theirs. And "
         "tools/gbprof/gbpop.asm, POPs out of a ROM bank as Pokemon's VBlank "
         "copy does (pop_slow, REALDMG-SPEC 5), interpreted and translated, "
         "with POP BC's branch to it taken out as the control. WHY QEMU: a correctness gate, and QEMU counts work "
@@ -3559,7 +3562,7 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
-    Row("gbaot", "soak", py("tests/gbaot.py"), 370.0,
+    Row("gbaot", "soak", py("tests/gbaot.py"), 680.0,
         "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
         "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
         "its entries with no play, by RealDMG's own translator run under "
@@ -3568,9 +3571,24 @@ SOAK = [
         "and 8000-FFFF identical, or for Blargg's and gbflags' the words on "
         "the link port. 15 ROMs: GBDEMO, the tools/gbprof ROMs (read-modify-"
         "writes, POPs from ROM, HBlank events, 64 banks of code), cpu_instrs, "
-        "instr_timing, mem_timing, halt_bug and dmg-acid2. TWO NEGATIVE "
-        "CONTROLS: GBRMW's most-entered block broken must differ, and GBFLAGS "
-        "translated with RT_DEADBUG must change its sum. WHY UNICORN: the "
+        "instr_timing, mem_timing, halt_bug and dmg-acid2. THREE NEGATIVE "
+        "CONTROLS: GBRMW's most-entered block broken must differ, GBFLAGS "
+        "translated with RT_DEADBUG must change its sum, and GBBANKRD under "
+        "a driver whose filter leaves the table out (RDG_NOTABFILT, tr_ejf, "
+        "REALDMG-SPEC 20.9) must not enter the block its interpreted code "
+        "jumps to; then GBBANK "
+        "with every block LISTED, so the list's search and its cache run, "
+        "identical to the interpreter, and with the cache's bank key "
+        "forgotten (RDG_AOTCACHEBUG) differing; GBSEAM3-5's JRs across the "
+        "bank seam, GBSEAM4 with tr_ejf's DS taken out of the image's core "
+        "as the control; GBLCDOFF, the LCD off for good, a frame's time "
+        "being a frame then; and GBRET, one RET returning to eight places, "
+        "its site made megamorphic by both recompilers (tr_rmeg, REALDMG-SPEC "
+        "16.4.1), the control sending the rewritten site on with another "
+        "return's HL; GBBANKRD, banks switched to LAZILY and read every way "
+        "the core has in a cache of three slots (REALDMG-SPEC 10.3.2), under "
+        "both recompilers and with a stale S_PC at every fetch, its controls "
+        "rd_rom unchecked and RDG_RXDSBUG. WHY UNICORN: the "
         "translation is the host's, and the check is counted, not timed. "
         "SOAK: one package's recompiler",
         needs=("nasm", "unicorn", "rgbds"), timeout=900),
@@ -3801,6 +3819,18 @@ SOAK = [
         "and the close hung for ever. 13s measured",
         needs=("86box", "nasm", "rgbds"),
         wants=("build/realdmg.o88", "build/os8088.img", "build/calc.o88")),
+    Row("rdglend", "soak", py("tests/rdglend.py"), 25.0,
+        "REALDMG's SIDE FEATURES IN LENT BANK SLOTS (docs/REALDMG-SPEC.md "
+        "10.3.3) on 86Box's 286-victory: GBBANK.GB precompiled in a build "
+        "that never asks the heap (-DRW_LENDTEST), so a replay's buttons and "
+        "the log's records must live in a slot the bank cache lends - Record "
+        "Replay and Log on, the cartridge checking every bank right on the "
+        "fewer slots, both off and written, every slot the cache's again, "
+        "GBBANK.SS1/.RP1 and GBBANK00.LOG on the disk. Its control, "
+        "-DRW_NOLEND (a full heap as the owner met it: no slot lent), must "
+        "fail. 24s measured",
+        needs=("86box", "nasm", "rgbds", "unicorn"),
+        wants=("build/os8088.img",)),
     Row("gbhifreq", "soak", py("tests/gbhifreq.py"), 10.0,
         "REALDMG's speaker asked for 131,072 Hz (docs/REALDMG-SPEC.md section "
         "17) on 86Box's 286: GBTONE.GB ends with square channel 1 at x = 7FFh, "
@@ -5622,7 +5652,7 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/apps.img", "build/vesablitd.img",
                "build/vxpics.img", "build/pixel.o88")),
-    Row("vesablit4", "soak", py("tests/vesablit4.py"), 90.0,
+    Row("vesablit4", "soak", py("tests/vesablit4.py"), 8.0,
         "A package's 4-bit blit on the packed display, pixel for pixel "
         "(SPEC.md 120.3): build/vesablit4.img is vesa.img plus an AUTOSTRT "
         "link to WIREBALL.O88 on the apps disk, so the machine boots into "
@@ -5635,7 +5665,7 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/apps.img", "build/vesablit4.img",
                "build/wireball.o88")),
-    Row("vesafsx", "soak", py("tests/vesafsx.py"), 90.0,
+    Row("vesafsx", "soak", py("tests/vesafsx.py"), 12.0,
         "A fullscreen bracket from the packed desktop and back (SPEC.md "
         "120.5, 53): build/vesafsx.img is vesa.img plus an AUTOSTRT link to "
         "GORILLAS.O88, so the machine boots into Gorillas at 1024x768x16; "
@@ -5648,7 +5678,7 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/apps.img", "build/vesafsx.img",
                "build/gorillas.o88")),
-    Row("vesapref", "soak", py("tests/vesapref.py"), 90.0,
+    Row("vesapref", "soak", py("tests/vesapref.py"), 10.0,
         "A package's OS88_PREFER on the packed display (SPEC.md 120.5, "
         "11.100.1): build/vesapref.img is vesa.img plus an AUTOSTRT link to "
         "SOLITAIR.O88; Solitaire's table must be as wide as its own SOL_PW_B, "
@@ -5659,14 +5689,19 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/apps.img", "build/vesapref.img",
                "build/solitair.o88")),
-    Row("vesagor", "soak", py("tests/vesagor.py"), 90.0,
+    Row("vesagor", "soak", py("tests/vesagor.py"), 32.0,
         "Gorillas' field on the packed desktop (SPEC.md 120.5, the package "
         "rule for DH): build/vesafsx.img's autostart opens Gorillas on the "
         "1024x768x16 desktop, eight Enters play the setup through, and the "
         "screendump must show a CBLUE sky edge to edge and buildings in solid "
         "runs. Gorillas read OSAPI_WM_DISPLAY's DH = 16 as none of its 1 / 2 / 4 "
         "tables and blitted 2-bit rows as 4-bit: a white sky and comb "
-        "buildings. QEMU by name, vesa's reason",
+        "buildings. QEMU by name, vesa's reason. It declared no needs and no "
+        "serial, so it ran in the HOST pool and would not skip on a box "
+        "without QEMU; it boots one and assembles Gorillas for its symbols, "
+        "as its siblings on the same disk do (docs/plans/SOAK-PARALLEL.md "
+        "17.11)",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/apps.img", "build/vesafsx.img",
                "build/gorillas.o88")),
     Row("vesasu", "soak", py("tests/vesasu.py"), 120.0,
@@ -5677,7 +5712,10 @@ SOAK = [
         "of the list with DH = 16, mem_tab must agree and overlap nothing, "
         "and Escape must give it back. apps/os88ui.inc's sizer folded 16 to "
         "ONE plane and OSAPI_GFX_SAVE wrote fifteen sixteenths of the list "
-        "past the claim. QEMU by name, vesa's reason",
+        "past the claim. QEMU by name, vesa's reason. It declared no needs "
+        "and no serial, vesagor's defect: it boots QEMU and assembles PiXEL "
+        "for its symbols",
+        needs=("qemu", "nasm"), serial=True,
         wants=("build/os8088.img", "build/apps.img", "build/vesablitd.img",
                "build/vxpics.img", "build/pixel.o88")),
     Row("vesabench", "soak", py("tests/vesabench.py"), 150.0,
@@ -5852,23 +5890,23 @@ SOAK = [
         needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
         wants=("build/os8088-360.img", "build/video.o88")),
     Row("vidbankspkbank", "soak", py("tests/vidbank.py", "--arm",
-                                     "spkbank"), 40.0,
+                                     "spkbank"), 55.0,
         "SPEC.md 98.3.18.9: THE SPEAKER AGAINST THE BANK on QEMU with no "
         "card - a file asking for a bank whose yardstick (key 0's decode on "
         "the machine it was made for) says this machine is not twice as "
         "fast: the play is MUTED for the bank, from frame 0 (no key to time: "
         "the bank wins) and from key 1 (the bench times it), the card's "
         "reason 3 and the bank XMS's."
-        " ALONE BECAUSE THE ANSWER IS A HOST RATE (docs/plans/SOAK-PARALLEL.md 17.5): the bench times key 1's decode on the PIT, which without -icount is QEMU's HOST clock, so a starved guest benches as a slower machine - at eight emulators on four cores it timed nothing and muted, in both arms",
-        needs=("qemu", "nasm"), serial=True, alone=True, timeout=400,
+        " ON A FIXED-SPEED GUEST (-icount shift=6, os88qemu.icount, docs/plans/SOAK-PARALLEL.md 17.8): the bench times key 1's decode on the PIT, which without -icount was QEMU's HOST clock, so a starved guest benched as a slower machine - at eight emulators on four cores it timed nothing and muted, in both arms, and the row ran ALONE. Under -icount the bench counts instructions and the row shares the lane",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidbankspkfast", "soak", py("tests/vidbank.py", "--arm",
-                                     "spkfast"), 20.0,
+                                     "spkfast"), 25.0,
         "SPEC.md 98.3.18.9: the same file with a yardstick far slower than "
         "this machine - the bench passes it twice over and the SPEAKER "
         "stays, the bank idle under it as 98.3.18.5 has it."
-        " ALONE BECAUSE THE ANSWER IS A HOST RATE (docs/plans/SOAK-PARALLEL.md 17.5): the bench times key 1's decode on the PIT, which without -icount is QEMU's HOST clock, so a starved guest benches as a slower machine - at eight emulators on four cores it timed nothing and muted, in both arms",
-        needs=("qemu", "nasm"), serial=True, alone=True, timeout=400,
+        " ON A FIXED-SPEED GUEST (-icount shift=6, os88qemu.icount, docs/plans/SOAK-PARALLEL.md 17.8): the bench times key 1's decode on the PIT, which without -icount was QEMU's HOST clock, so a starved guest benched as a slower machine - at eight emulators on four cores it timed nothing and muted, in both arms, and the row ran ALONE. Under -icount the bench counts instructions and the row shares the lane",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidclose", "soak", py("tests/vidclose.py"), 50.0,
         "SPEC.md 98.3.18.10: THE CLOSE BOX ON A LOAD STILL RUNNING, on QEMU "
@@ -7203,6 +7241,25 @@ SOAK = [
         "BIOS buffer drained, and one more paced key still lands. Red on a "
         "MartyPC built without patch 14 (leg B stops in sch_stkdie).",
         needs=("marty",)),
+    Row("kbd4f", "soak", py("tests/kbd4f.py"), 8.0,
+        "THE SCANCODE COMES FROM THE ROM'S int 15h AH=4Fh, NOT A PEEK (SPEC.md "
+        "9.7.2). kbm_isr used to read port 60h ahead of the ROM whenever the "
+        "key-state map was armed or no mouse had spoken - free on an 8255 and "
+        "a real 8042, and on QEMU's (and v86's) 8042, which loads the NEXT "
+        "queued byte on a read, it TOOK a byte the ROM never saw: a press and "
+        "its release queued together lost the press, two makes queued lost "
+        "the first and stored the second twice, grey Left (E0 4B) stored 4B00 "
+        "TWICE. Before any key int 15h is kbm_i15 and int 09h the ROM's (SeaBIOS "
+        "advertises 4Fh), 'a' down+up in ONE input-send-event stored once as "
+        "1E61, 's'+'d' downs stored 1F73 2064 with both map bits down, grey "
+        "Left stored ONCE as the ROM's E0 form 4BE0, and Alt+Enter (9.7.1) "
+        "with both downs batched stops at kbd_track.latch with AL = 1C (a GDB "
+        "breakpoint - ui_task spends [kbd_ae] within a pass) and is stored "
+        "once as 1CF0. RED on the kernel before 9.7.2: nothing for 'a', 2064 "
+        "2064, 4B00 4B00, no Alt+Enter at all. QEMU on the closed list, entry "
+        "4 (an 8042); MartyPC's 8255 keeps the peek. 8s is 5.1 measured",
+        needs=("qemu",), serial=True,
+        wants=("build/os8088.img", "build/apps.img")),
     Row("kdkbd", "soak", py("tests/kdkbd.py"), 50.0,
         "KERN_DOS KEEPS THE BIOS KEY BUFFER OFF FULL (SPEC.md 96.50). "
         "Reported off an 86Box 386: hold a direction key in Prince of Persia "
@@ -7929,6 +7986,19 @@ SOAK = [
         "the third way and is Bochs's.",
         needs=("marty",),
         wants=("build/os8088-360.img", "build/call5360.img")),
+    Row("pkgread", "soak", py("tests/pkgread.py"), 15.0,
+        "A HEAP BASE AND ITS BYTES ARE ONE READ (os88marty.seg_snap, the "
+        "shared fix for call5's 161, dosest's driver 'nowhere' and "
+        "dirwshed's 29,888 KB arena). A compaction copies a block before "
+        "mem_reloc_call rewrites the W_SEG naming it; this row MAKES that "
+        "instant - CALC opened then closed above NOTEPAD, a posted pass, an "
+        "exec breakpoint on mem_reloc_call whose BX is NOTEPAD's W_SEG - and "
+        "asserts seg_snap there answers the NEW base and the image, a "
+        "LiveSeg banked before the move follows it, and os88geom.windows / "
+        "pkg_read / Pkg agree after. The naive pair at the same instant read "
+        "11,388 of 17,687 image bytes wrong. RED with --break (the busy "
+        "check removed): 'seg_snap answers 9980 (want 9B00)'. 11.5s measured",
+        needs=("marty",), wants=("build/apps360.img",)),
     Row("dosgap", "soak", py("tests/dosgap.py"), 20.0,
         "A WRITE PAST THE END OF A FILE THE SAME HANDLE CREATED (SPEC.md "
         "96.11.6.3). Microsoft Works could not save a document - `Cannot "
@@ -8954,6 +9024,50 @@ SOAK = [
         "Does FTPD's Setup page keep a caret it cannot type into? "
         "(SPEC.md 77.45.4)",
         needs=("marty",), serial=True),
+    Row("ftpd", "soak", py("tests/ftpd.py"), 360.0,
+        "SPEC.md 77: the FTP server driven by Python's own ftplib through "
+        "QEMU's forwarded ports - login, PASV and active mode, LIST, STOR, "
+        "RETR, the Setup page's controls, the window untouched by a log "
+        "scrolling under it - and the upload and FTPD.CFG read back off the "
+        "apps disk by an independent FAT reader on the host. It was "
+        "UNREGISTERED ('a fixed build/qmp.sock, a make into build/'): the "
+        "machine has been private for a while, and the disks are wants= now "
+        "and booted as COPIES, since the gate's STOR writes the one it "
+        "serves. Its 8e (SPEC.md 77.33, the log must not paint over a window "
+        "in front) had been measuring nothing: it ran after 12 left the "
+        "server refusing, so every connect timed out, and it took the FTP "
+        "window for the Disk window once the kernel snapped its width - it "
+        "runs before 12 now, checks the front window off wm_zord, and the "
+        "fd_flush_glass clip taken out turns it red. QEMU by name: MartyPC "
+        "has no NIC. The server LISTENS, so the host's 2121 and the passive "
+        "range are forwarded and LEASED - one lock for the set",
+        needs=("qemu", "nasm"), serial=True,
+        wants=("build/ether360.img", "build/ftpapps.img"),
+        locks=("port:2121",)),
+    Row("ftpdpix", "soak", py("tests/ftpdpix.py"), 90.0,
+        "SPEC.md 77.14.2: FTPD's incremental face against the FTPDSLOW=1 "
+        "reference, which redraws the whole content box on every change - "
+        "the same scripted session (PASV LIST, a RETR, the Read Only tick) "
+        "through both, and the window's pixels must be BYTE IDENTICAL. The "
+        "reference is a private tree (os88build), the optimised face the "
+        "run's build/ftpapps.img. Taking the Read Only redraw out of "
+        "fd_spend's incremental path differs in 81 bytes",
+        needs=("qemu", "nasm"), serial=True,
+        wants=("build/ether360.img", "build/ftpapps.img"),
+        locks=("port:2121",)),
+    Row("ftpkeep", "soak", py("tests/ftpkeep.py"), 75.0,
+        "SPEC.md 77.50, 18.4.9.3: a STOR to a FIXED disk commits per 256 KB "
+        "and not per chunk. QEMU boots build/ftpkeep.img as C: (a fresh copy "
+        "a leg), FTPD.O88 and FTPDP8.O88 each take a 1.5 MB upload whose "
+        "write OPERATIONS are counted off `info blockstats`, then a power cut "
+        "at 1.2 MB must leave the create plus whole checkpoints and a volume "
+        "that verifies, and a cut at the 226 must leave the whole file. "
+        "WSEQF_KEEP taken out of FD_WSEQF fails the cut leg. QEMU by name: "
+        "MartyPC has no NIC",
+        needs=("qemu", "nasm"), serial=True,
+        wants=("build/ftpkeep.img", "build/ftpkeepa.img",
+               "build/ftpkeepb.img"),
+        locks=("port:2121",)),
     Row("dispapp", "soak", py("tests/dispapp.py"), 40.0,
         "Does a PACKAGE stay on its own display? (SPEC.md 39.2.1)",
         needs=("marty",), serial=True),
@@ -15001,6 +15115,21 @@ SOAK = [
         "9,600-byte pages, six in a plane, on 0Dh retimed to 480 lines",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidpagefv8n", "soak", py("tests/vidpage.py", "--pages", "8",
+                                  "--screen", "320x200n", "--fpage"), 75.0,
+        "SPEC.md 98.1.3.2.5.1, 98.3.8.5: vidpagefv4's flipped-and-built-"
+        "ahead clip on the NARROW 320 x 200's eight pages - every frame "
+        "flipped, its back page brought up and its COPY made by vp_lcopy "
+        "on 40-byte rows. Every hold exact from the start, from key 1 and "
+        "with no keys (secs measured beside three other rows)",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidpagefv6n", "soak", py("tests/vidpage.py", "--pages", "6",
+                                  "--screen", "320x240n", "--fpage"), 75.0,
+        "SPEC.md 98.1.3.2.5.1: vidpagefv8n's shape on the NARROW 320 x 240's "
+        "six pages",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidkpart3mx", "soak", py("tests/vidpage.py", "--layout", "modex",
                                   "--pages", "3", "--kpart", "400"), 70.0,
         "SPEC.md 98.1.3.8, 98.3.8.4: vidpage3mx with every key cut into "
@@ -15093,6 +15222,32 @@ SOAK = [
         "page as it stands, the record after a key bringing its page up off "
         "the glass, and the 640 x 480 one unflipped as before. Every hold's "
         "glass exact, odd and even frames apart",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidscreenn", "soak", py("tests/vidscreen.py", "--screen",
+                                 "320x200n", "--screen", "320x240n"), 45.0,
+        "SPEC.md 98.1.3.2.5.1: vidscreen's flipped clip on the two NARROW "
+        "screens - rows 40 bytes apart, 8,000- and 9,600-byte pages - the "
+        "screen, its page and its mode read, the poster, and every hold's "
+        "glass exact, odd and even frames apart",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidscreennc", "soak", py("tests/vidscreen.py", "--screen",
+                                  "320x200n", "--screen", "320x240n",
+                                  "--lcopy"), 45.0,
+        "SPEC.md 98.1.3.2.5.1, 98.3.8.1: vidscreenn with vp_flcw 0, so every "
+        "back page is brought up by the LATCH COPY on 40-byte rows. With "
+        "vp_lcopy back on 80-byte rows it FAILS from frame 3 (200 to 3,069 "
+        "pixels a hold) - and vidscreenn does not, which is why this leg is "
+        "its own row",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidscreenno", "soak", py("tests/vidscreen.py", "--screen",
+                                  "320x200n", "--screen", "320x240n",
+                                  "--own"), 45.0,
+        "SPEC.md 98.1.3.2.5.1, 98.3.8.7: vidscreenn's clips AGAINST THEIR OWN "
+        "PAGE (byte 37 7) on the NARROW screens, the record after a key "
+        "brought up off the glass by vp_lcopy",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidcard", "soak", py("tests/vidcard.py"), 26.0,
@@ -16642,6 +16797,18 @@ SOAK = [
         "to nibbles (SPEC.md 42.13.1), which is what puts the block through "
         "gfx_blit4 at all, and a W_X written by hand would skip it.",
         needs=("marty", "nasm"), serial=True, timeout=1800),
+    Row("swcolsame", "soak", py("tests/swcolsame.py"), 300.0,
+        "SPEC.md 39.25: sw_col's whole-column store must put the same pixels "
+        "on the glass as the general read-modify-write body. One scripted "
+        "session (a Disk window, its APPS folder, a menu) on the shipped "
+        "kernel and on a NOCOLFAST=1 private tree, on CGA and on Hercules - "
+        "a different banked layout, so a different wrap in the inlined row "
+        "step - every capture below the menu bar compared. The fast body's "
+        "`xor ch, cl` replaced differs on every step of both machines. It "
+        "was a hand-run two-build gate, and its Disk-window capture was "
+        "taken mid-open (still pixels while the drive is read) until it "
+        "waited on ui_done",
+        needs=("marty", "nasm"), serial=True),
     Row("paintmove", "soak", py("tests/paintmove.py"), 60.0,
         "Compact the heap out from under a LIVE Paint canvas (SPEC.md"
         "66.2/42).",
@@ -17981,6 +18148,20 @@ SOAK = [
         needs=("qemu",), serial=True,
         wants=("build/browser.o88", "build/ether360.img"),
         locks=("port:8090",)),
+    Row("brnav", "soak", py("tests/brnav.py"), 215.0,
+        "SPEC.md 71.8 (BROWSER-PLAN 5): Back, Forward, Reload and Save As "
+        "over the NE2000 against pages the row serves on :8091 - a navigation "
+        "pushes, Back and Forward move the cursor AND fetch without pushing, "
+        "a POST is not replayed as one, redirects and a frameset land where "
+        "they should, and Save As puts the server's bytes on the floppy, read "
+        "back off the image on the host. It needs the network because a page "
+        "off a floppy never reaches br_go's history. It was UNREGISTERED ('a "
+        "make into build/, a fixed socket'): the disks are wants= now and "
+        "the apps disk a scratch copy. Back's `dec` taken out goes red on "
+        "four assertions",
+        needs=("qemu", "nasm"), serial=True,
+        wants=("build/ether360.img", "build/brtest360.img"),
+        locks=("port:8091",)),
     Row("brmem", "soak", py("tests/brmem.py"), 40.0,
         "SPEC.md 71.18: a deterministic 40 KB page over the NE2000 grows the "
         "source and document claims within the recorded 20% free-heap reserve, "

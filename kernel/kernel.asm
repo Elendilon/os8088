@@ -1030,6 +1030,16 @@ DRV_HMA_SEG equ 0xF000
   %endif
 %endif
 
+; KBD_I15 - SPEC.md 9.7.2: the scancode from the AT BIOS's own int 15h AH=4Fh
+; intercept, where the ROM's configuration table says its int 09h calls it,
+; instead of kbm_isr peeking port 60h. kern_big's (and so kern_emu's and
+; kern_mega's): the floor build is an 8088's, whose 8255 the peek is provably
+; free on and whose ROM has no 4Fh to offer, so it pays nothing for a door
+; its machine cannot open (9.7.2 says what it would cost)
+%ifdef KERN_BIG
+  %define KBD_I15 1
+%endif
+
 ; GFX_VGA - does this build drive a VGA at all? (docs/plans/MONO-RECLAIM-PLAN.md 2)
 ;
 ; kern_big does. kern_small DOES NOT, and that is a product decision rather

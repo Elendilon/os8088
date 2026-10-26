@@ -75,7 +75,7 @@ def launch():
     """The standard VGA (QEMU's default, spelled out) and the gate disk."""
     os88fixture.need("build/vesa8.img", "build/apps.img")
     em = "qemu" + "-system-i386"     # never whole on a command line: kill_stale
-    subprocess.run(
+    os88qemu.start(
         em + " -machine pc,vmport=off -vga std"
         " -drive file=%s,format=raw,if=floppy,snapshot=on -boot a"
         " -drive file=%s,format=raw,if=floppy,index=1,snapshot=on"

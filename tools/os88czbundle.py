@@ -52,10 +52,13 @@ NEEDS
 
 SPLIT AND JOIN
   Split cuts a file into parts that each fit a floppy of the size you
-  choose - 360 KB, 720 KB, 1.2 MB or 1.44 MB - compressing what gets
-  smaller, and the window can write the floppy images too. On the os8088
-  machine, copy the parts into one folder and choose Uncompress on any one
-  of them in its disk window: the original appears beside them. Or choose
+  choose - 360 KB, 720 KB, 1.2 MB or 1.44 MB, each less 2 KB so the part
+  still fits once an OS has put its own files on the disk - or any size
+  you type (bytes, 500k, 1.1m), compressing what gets smaller. Ticked, the
+  window also writes a floppy image per part, on the smallest disk that
+  holds it. On the os8088 machine, copy the parts into one folder and
+  choose Uncompress on any one of them in its disk window: the original
+  appears beside them. Or choose
   Uncompress To... on a part still on its floppy, which asks where the
   result goes and then for each disk in turn.
 
@@ -68,7 +71,8 @@ ON A PC RUNNING DOS
   OS88CZ.COM is the same tool for the machine at the other end of a disk
   walk:
     OS88CZ J PART [DEST]           join a set, asking for each disk
-    OS88CZ S FILE [SIZE] [DEST]    split (SIZE 360, 720, 1200 or 1440)
+    OS88CZ S FILE [SIZE] [DEST]    split (SIZE 360, 720, 1200, 1440
+                                   or bytes)
     OS88CZ U FILE OUT              expand a packed file
 
 This folder is built from the os8088 tree by `make czbundle`;

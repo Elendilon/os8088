@@ -132,7 +132,7 @@ def main():
                 print("FAIL: %s never opened a window" % name)
                 raise SystemExit(1)
             w = new[0]
-            seg = u16(m.read(os88geom.winptr(m, w.i, S) + os88geom.W_SEG, 2))
+            seg = os88marty.pkg_live(m, w, S)
             mo.drag(w.x + 60, w.y + 9, at[0] + 60, at[1] + 9)
             done(m)
             w = [x for x in os88geom.windows(m, S) if x.i == w.i][0]

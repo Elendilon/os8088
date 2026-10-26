@@ -24,7 +24,7 @@
                                         ;   (rdgppu.inc, REALDMG-SPEC 13.4)
 %include "os88api.inc"
 %include "os88mega.inc"                  ; the shipped build refuses under
-                                        ;   CPU_F_PM (REALDMG-SPEC 10.3.2)
+                                        ;   CPU_F_PM (REALDMG-SPEC 10.3.4)
 %include "sndpkg.inc"                   ; SOUND.DRV's FM verbs (rwfm.inc)
 
 %ifdef RDG_AOT                          ; A PRECOMPILED CARTRIDGE (REALDMG-SPEC
@@ -344,8 +344,13 @@ rw_ntc          equ rw_lbuf + 40    ; the window's notice is up (rw_ntcwait)
 rw_ntct         equ rw_ntc + 1      ; word: the tick it went up
 rw_mhold        equ rw_ntct + 2     ; byte: a load holds every claim still -
                                     ;   rw_mfree declares nothing (rwmove.inc)
+rw_slotlent     equ rw_mhold + 1    ; byte: bank slots lent to the side
+                                    ;   features (rw_mclaim, rwbank.inc)
+rw_lgrab        equ rw_slotlent + 1 ; byte: rw_slotlend stilled the machine
+rw_loans        equ rw_lgrab + 1    ; byte: side buffers living in lent slots
+rw_lused        equ rw_loans + 1    ; word: ...their paragraphs, from the top
 %ifdef RDG_AOT
-rw_aseg         equ rw_mhold + 1    ; RWA_MAX words: each code image's claim,
+rw_aseg         equ rw_lused + 2    ; RWA_MAX words: each code image's claim,
                                     ;   or 0 (rwaot.inc)
 rw_anseg        equ rw_aseg + RWA_MAX * 2 ; byte: images claimed
 rw_afix         equ rw_anseg + 1    ; byte: the images are read and put right
@@ -359,7 +364,7 @@ rw_alseg        equ rw_amseg + 2    ; word: ...the list's, inside it...
 rw_aln          equ rw_alseg + 2    ; word: ...and its entries
 rw_asega        equ rw_aln + 2      ; word: the first code image there is,
                                     ;   or the core (S_JITSEGA)
-rw_afseg        equ rw_asega + 2    ; word: the list's filter, in the meta
+rw_afseg        equ rw_asega + 2    ; word: the list's filter, after the table
 rw_arow         equ rw_afseg + 2    ; word: rw_apart's row...
 rw_awant        equ rw_arow + 2     ; word: ...bytes still to come...
 rw_adst         equ rw_awant + 2    ; word: ...where they go...
@@ -379,7 +384,7 @@ rw_aunh         equ rw_aebank + 2   ; byte: the load's hold is let go for
                                     ;   the plan (rw_aloose)
 rw_bssend       equ rw_aunh + 1
 %else
-rw_bssend       equ rw_mhold + 1
+rw_bssend       equ rw_lused + 2
 %endif
 RW_BSS          equ rw_bssend - rw_win   ; derived: a sum by hand drifted
 RW_FBUF         equ 5760            ; rdg_render's frame, at [rw_fseg]:0
@@ -501,7 +506,7 @@ rw_entry:
 
 ; rw_reloc - OUR REGION MOVED (SPEC.md 66.6.1): BX = where it was, DX = where
 ; it is. rdgsys's own words moved with it; the state block in the view, which
-; did not, names our code segment in five vectors - by the selector a far
+; did not, names our code segment in six vectors - by the selector a far
 ; jump loads, which on kern_mega is the region's code alias and not BX or DX
 ; (rw_csel, REALDMG-SPEC 16.2.4). The worker is parked at OSAPI_TASK_ALIVE
 ; whenever this runs, never in the core.
@@ -537,6 +542,10 @@ rw_reloc:
     jne .4
     mov [S_MBCVEC+2], dx
 .4:
+    cmp [S_RXVEC+2], bx             ; (rdg_rx, the lazy bank's fetch:
+    jne .4x                         ;   REALDMG-SPEC 10.3.2)
+    mov [S_RXVEC+2], dx
+.4x:
     cmp [S_TRACEVEC+2], bx
     jne .5
     mov [S_TRACEVEC+2], dx
@@ -608,7 +617,7 @@ rw_csel:
 ; or SEG_SUBC's pair (its data half; rw_csel answers the code half 8 below)
 ; for code. A real-mode kernel answers the sum, so one path serves both;
 ; under CPU_F_PM the selector moves with the claim and goes with it (MC7,
-; REALDMG-SPEC 10.3.2). CF = 1 no LDT entry was free, DX kept. Every other
+; REALDMG-SPEC 10.3.4). CF = 1 no LDT entry was free, DX kept. Every other
 ; register kept
 rw_subc:
     push bx
@@ -1141,7 +1150,7 @@ rw_jiton:                           ; (and Machine > Recompiler's way back in)
 ; rw_jsegs - DX = the recompiler's new claim, BX = paragraphs to its part:
 ; BX = the part's segment - the sum, or under kern_mega's protected mode a
 ; SEG_SUBC pair over it (rw_subc), and the block table's selector at 1000h
-; banked beside it for rw_jitsegs (REALDMG-SPEC 10.3.2). A pair refused (no
+; banked beside it for rw_jitsegs (REALDMG-SPEC 10.3.4). A pair refused (no
 ; LDT entry) is a part that cannot be read: BX = 0, and rw_jpart says no.
 ; Every register but BX kept
 rw_jsegs:

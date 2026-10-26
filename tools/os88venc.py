@@ -612,7 +612,8 @@ CHOICE_HELP = {
         "auto": "Mode X and 16 colours on a screen of their own: build each "
                 "scene change ahead on the second page and flip to it - kept "
                 "only if the picture comes out better and nowhere worse "
-                "(the default; twice the encode time there)",
+                "(the default; twice the encode time there). With Flip, on "
+                "the pages past the flip's two: Pages 3 or more",
         "on": "Always build ahead, a Hercules too - which then plays only "
               "on a Hercules with no colour card beside it",
         "off": "Never: one page, every frame drawn in place",
@@ -734,9 +735,9 @@ CHOICE_HELP = {
         "640x350": "640 x 350, mode 10h's lines: full screen, two pages",
         "640x400": "640 x 400: full screen, two pages",
         "320x200n": "320 x 200 NARROW: full screen, eight pages - for "
-                    "--pages; no --flip (98.1.3.2.5)",
+                    "--pages or --flip, half a row to copy (98.1.3.2.5)",
         "320x240n": "320 x 240 NARROW: full screen, six pages - for "
-                    "--pages; no --flip (98.1.3.2.5)",
+                    "--pages or --flip, half a row to copy (98.1.3.2.5)",
     },
     "palette": dict([("auto", "The format's own colours: the clip's 256 "
                       "for 256-colour VGA, the EGA's sixteen for 16 "
@@ -5865,7 +5866,7 @@ class Flipped:
                 self._own_set((shown[0].copy(), bytearray(shown[1]),
                                None if shown[2] is None else shown[2].copy()))
                 # (the player's copy off the glass, 98.3.8.1's price)
-                self.prev_c = (y1 - y0) * 80 * self.lcopy + CYC_LCOPY0
+                self.prev_c = (y1 - y0) * self.g.stride * self.lcopy + CYC_LCOPY0
 
     def charge(self, rec, abytes):
         c = self.cost(rec)
@@ -5912,9 +5913,9 @@ class Flipped:
             elif sb is not None:
                 self.sband = None
                 rows = max(0, max(sb[1], y1) - min(sb[0], y0))
-                self.prev_c = rows * 80 * self.lcopy + CYC_LCOPY0
-            elif n > vid.PREV_MAX or rows * 80 * VP_LCW < n:
-                self.prev_c = rows * 80 * self.lcopy + CYC_LCOPY0
+                self.prev_c = rows * self.g.stride * self.lcopy + CYC_LCOPY0
+            elif n > vid.PREV_MAX or rows * self.g.stride * VP_LCW < n:
+                self.prev_c = rows * self.g.stride * self.lcopy + CYC_LCOPY0
             else:
                 self.prev_c = getattr(self, "cost0", self.cost)(rec)
         self.end(spent)
@@ -7301,7 +7302,7 @@ class PageAheadF(PageAheadN):
     def _ccost(self, band):
         e = self.e
         return 0.0 if band is None else \
-            (band[1] - band[0]) * 80 * e.lcopy + CYC_LCOPY0
+            (band[1] - band[0]) * e.g.stride * e.lcopy + CYC_LCOPY0
 
     def _setsurf(self, h, surf):
         """builder object `h` made to model the page holding `surf`"""
@@ -7467,7 +7468,7 @@ class PageAheadF(PageAheadN):
         # a builder for its copy - the next target's build begins once that
         # copy is whole. Where it can be paid (a 486), every builder builds
         pre = len(self.hs) > 1 and \
-            e.g.h * 80 * e.lcopy + CYC_LCOPY0 > e.ceil * PA_COPY_OK
+            e.g.h * e.g.stride * e.lcopy + CYC_LCOPY0 > e.ceil * PA_COPY_OK
         held = False                    # (the nearest's build or copy is
         for F, i in sorted((F, i) for i, F in enumerate(self.asg)  # not
                            if isinstance(F, int)):                 # whole)
@@ -7523,7 +7524,7 @@ class PageAheadF(PageAheadN):
             if y0 >= e.g.h or out and out[-1][0] == self.hp[i]:
                 continue                # (whole; or built THIS frame: its
                                         # rows are copied from the next)
-            per = 80 * e.lcopy
+            per = e.g.stride * e.lcopy
             n = int(min(e.g.h - y0, (cpu_left - CYC_LCOPY0) // per))
             if n < 1:
                 break
@@ -8620,8 +8621,7 @@ def page_auto_why(a):
     the report says it either way"""
     lay = a.layout or (PRESETS[a.preset][0] if a.preset else None)
     pf = a.pixfmt or PRESET_PIXFMT.get(a.preset)
-    for cond, why in ((a.flip, "--flip pages every frame already"),
-                      (a.live, "a Live file plays on the desktop"),
+    for cond, why in ((a.live, "a Live file plays on the desktop"),
                       (a.resident, "a resident file plays on the desktop"),
                       (a.loop_from is not None, "a looped file"),
                       (PROFILES[profile_name(a.profile)]["avg"] is None,
@@ -8630,7 +8630,17 @@ def page_auto_why(a):
             return why
     if lay == "modex" or (pf == "vga4" and
                           (a.screen or "640x480") != "640x480"):
+        # FLIPPED, the pages past the flip's two are what it builds on
+        # (98.2.1.8.5): auto tries it where --pages leaves three or more
+        if a.flip:
+            scr = vid.SCREEN_BY_NAME[a.screen] if pf == "vga4" else \
+                vid.SCR_320X200 if a.screen == "320x200" else 0
+            if page_count(a, vid.LAYOUT_BY_NAME[lay or "lin80"], scr) < 3:
+                return ("--flip pages every frame already, and building "
+                        "ahead as well wants 3 pages or more (--pages)")
         return None
+    if a.flip:
+        return "--flip pages every frame already"
     if pf == "vga4":
         return ("640 x 480 in 16 colours has no second page (two of its "
                 "frames are 300 KB of a VGA's 256)")
@@ -10363,10 +10373,6 @@ def _encode(a, keep, tick, readers):
     if a.flip and L != vid.LAY_MODEX and not scr:
         raise vid.V88Error("--flip is Mode X's, or 16 colours' on a --screen "
                            "of its own: 13h and 12h have one page")
-    if a.flip and scr in vid.NARROW:
-        raise vid.V88Error("--flip is not a NARROW screen's: its pages are "
-                           "for --pages, and a flip every frame would want "
-                           "the whole canvas copied besides (98.1.3.2.5)")
     fown = bool(getattr(a, "flip_own", False))
     if fown and (not a.flip or a.loop_from is not None or a.live or
                  a.resident or getattr(a, "layer_disk", None) or
@@ -12864,7 +12870,7 @@ def parser():
                          "pages where 320 x 240 has three (98.1.3.1.1). "
                          "320x200n and 320x240n: 16 colours NARROW, rows 40 "
                          "bytes apart for eight and six pages, for --pages "
-                         "and not --flip (98.1.3.2.5)")
+                         "or --flip (98.1.3.2.5)")
     ap.add_argument("--palette", choices=PALETTES, default="auto",
                     help="vga8: the colours - auto, the clip's own 256; "
                          "greyN, a ramp of N greys black to white, dithered "

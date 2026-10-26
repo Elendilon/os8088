@@ -43,6 +43,8 @@ S_SEAMPC         equ 0x4B90          ; word: an instruction across 3FFF's
 S_SEAMEND        equ 0x4B92          ; word: ...where it ends, 4001 or 4002
 S_SEAMSV         equ 0x4B94          ; word: seam_trap's BX
 S_SEAMOP         equ 0x4B96          ; byte: its opcode, as the ROM has it
+S_SEAMJR         equ 0x4B97          ; byte: 1 when it is a JR, which seam_jr
+                                    ;   runs whole
 S_JITSEGA       equ 0x4810          ; word: the cache's first segment, and
 S_JITSEGB       equ 0x4812          ;   its second or 0 (REALDMG-SPEC 16.2.1):
                                     ;   S_JITSEG is the one being written
@@ -97,7 +99,18 @@ S_AOTKEY        equ 0x4846          ;   core keeps no stack to push on)
 S_AOTFSEG       equ 0x4847          ; word: the list's filter, 8KB: a bit
                                     ;   per hash of (PC, key), set for every
                                     ;   listed block (rdgaot.inc)
-RDG_FREE         equ 0x4849          ; the rest of the window is unassigned,
+S_AOTSLOT       equ 0x4849          ; word: rdg_aotmiss's cache entry for
+                                    ;   the PC being searched for
+S_RMEG          equ 0x484B          ; 16 x 4: a RET site patching (tr_rmeg):
+RT_RMEGN        equ 6               ;   its offset and its patches; this
+                                    ;   many and it is megamorphic (16.4.1)
+S_RXVEC         equ 0x488B          ; dword: rdg_rx, the core's way to a bank
+                                    ;   it switched to LAZILY (S_ROMX 0,
+                                    ;   REALDMG-SPEC 10.3.2)...
+S_RXRET         equ 0x488F          ; word: ...S_RET while it is fetched,
+S_RXGO          equ 0x4891          ; word: where the reader starts again
+S_RXDX          equ 0x4893          ; word: and its DX (rdg_ret clears DL)
+RDG_FREE         equ 0x4895          ; the rest of the window is unassigned,
                                     ; but for rdgppu.inc's 4900-66FF and:
 ; CODE SELECTORS (REALDMG-SPEC 16.2.4): a segment the core or the recompiler
 ; JUMPS to is named by the selector a far jump may load - the segment itself

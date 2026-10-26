@@ -116,16 +116,18 @@ rw_ameta:
     add ax, [rw_amseg]
     mov [rw_alseg], ax
 %endif
-    mov ax, [es:56]
-    mov cl, 4
-    shr ax, cl
-%ifdef PKG_MEGA
-    mov dx, [rw_amseg]
-    call rw_sub
+    mov al, [rw_ahm]                ; the filter and the list's cache:
+    xor ah, ah                      ;   after the table in ITS part, (mask
+    inc ax                          ;   + 1) x 256 x 8 bytes on - where the
+    mov cl, 7                       ;   meta part had them, a long list took
+    shl ax, cl                      ;   it past 65,024 bytes (Link's
+%ifdef PKG_MEGA                     ;   Awakening: 65,264)
+    mov dx, [rw_atseg]              ; (a selector under CPU_F_PM: the sum
+    call rw_sub                     ;   is OSAPI_SEG's, as the list's is)
     jc .bad1
     mov [rw_afseg], dx
 %else
-    add ax, [rw_amseg]
+    add ax, [rw_atseg]
     mov [rw_afseg], ax
 %endif
     pop es

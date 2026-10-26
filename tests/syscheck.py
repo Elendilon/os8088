@@ -234,7 +234,7 @@ def qemu(work, img, keep=False):
     a, bimg = os.path.join(work, "a.img"), os.path.join(work, "b.img")
     shutil.copy(b("os8088.img"), a)
     shutil.copy(b("apps.img"), bimg)
-    subprocess.run(["qemu-system-i386", "-machine", "pc,vmport=off",
+    os88qemu.start(["qemu-system-i386", "-machine", "pc,vmport=off",
                     "-drive", "file=%s,format=raw,if=floppy" % a,
                     "-boot", "c", "-chardev", "msmouse,id=m0",
                     "-serial", "chardev:m0",

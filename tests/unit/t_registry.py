@@ -207,32 +207,31 @@ UNREGISTERED = {
                    "frames over guest seconds is quantised to a whole frame",
 
     # --- need a build prerequisite the default build does not make ---
-    "brnav.py": "needs QEMU and a NIC (ether360.img + brtest360.img), and "
-                "it starts its emulator through `make test` on the fixed "
-                "build/qmp.sock - a make invocation into build/ and a socket "
-                "two rows would share; the other br* rows are registered",
     "netprof.py": "needs QEMU, and it leaves ETHPROF=1 KNOB builds of "
                   "ether.drv and the ethertest disk in build/ - a suite row "
                   "running before the next `make` would test the wrong "
                   "driver (SPEC.md 72.15)",
-    "ftpdpix.py": "needs `make ftpdtest`, QEMU, and TWO builds - it boots the "
-                  "reference face (FTPDSLOW=1) and the optimised one and "
-                  "compares window pixels (SPEC.md 77.14)",
-    "ftpd.py": "needs `make ftpdtest` and QEMU with ETHFWD=1 - the FTP server "
-               "LISTENS, so the client has to reach INTO the guest, and "
-               "MartyPC has no NIC at all (SPEC.md 77)",
-    "ftpkeep.py": "needs `make ftpkeeptest` and QEMU with ETHFWD=1, for "
-                  "ftpd.py's reason, booting a HARD-DISK image (TESTHD=) "
-                  "because WSEQF_KEEP is a fixed disk's (SPEC.md 77.50)",
     "rczex.py": "needs the RunCPM fetch (`make runcpm-src`) and the C toolchain",
     "rczex_ocr.py": "needs the RunCPM fetch and an OCR dependency",
     "proxytest.py": "drives tools/os88proxy.py against a live network",
     "proxyguitest.py": "drives the proxy GUI, needs a display",
 
-    # --- A/B gates: each needs a SECOND kernel built with a knob, so it is a
-    #     two-build session rather than a row (the knob itself is kept alive
-    #     by t_buildmatrix; this is the behaviour half) ---
-    "heapsame.py": "A/B gate - needs `make HEAPCOMPACT=0` as a reference build",
+    # --- an A/B gate whose premise the tree has moved past (a knob A/B that
+    #     still holds is a row: os88build.tree() builds the second kernel
+    #     privately - swcolsame is the shape) ---
+    "heapsame.py": "A/B gate against `make HEAPCOMPACT=0` (SPEC.md 66.2) "
+                   "whose PREMISE IS GONE: it asserts the two kernels hold "
+                   "identical claim maps, which was true while nothing "
+                   "shipped could move - and since SPEC.md 50.6.3 "
+                   "mem_unblob compacts at boot, so the shipped kernel "
+                   "PACKS the first claim down (record 0 at 1780h against "
+                   "1AA0h with the compactor out, measured 2026-10-26) and "
+                   "every later claim lands elsewhere. That is the design "
+                   "working, not a defect, so the row would only ever be "
+                   "red. Its Disk-window capture was also taken mid-open "
+                   "(swcolsame had the same wait, and waits on ui_done now). "
+                   "Re-registering it means choosing what it should assert "
+                   "now - pixels only, or maps relative to the boot pack",
 
     # --- an INSTRUMENT rather than a gate: it produces a TABLE for a person
     #     to read, has no pass or fail, and takes minutes ---
@@ -253,7 +252,6 @@ UNREGISTERED = {
                        "fetched data, `make lemmingsdisk` and build/martypc, "
                        "takes minutes a machine, and asserts only that it "
                        "reached each state - lembenchmarty.py's kind",
-    "swcolsame.py": "A/B gate - needs `make NOCOLFAST=1` as a reference build",
     # pkgthumb.py IS registered (four rows). Its `frotz` mode is not one of
     # them: a Z-machine interpreter needs a STORY, and the two ways to get one
     # are a network fetch or the Inform compiler, neither of which is a build

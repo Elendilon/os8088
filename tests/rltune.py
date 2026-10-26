@@ -39,7 +39,6 @@ import os
 import struct
 import subprocess
 import sys
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [os.path.join(ROOT, "tools"), os.path.join(ROOT, "tests"),
@@ -84,12 +83,12 @@ def key(m, k):
 
 
 def until(what, cond, secs=30.0):
-    end = time.time() + secs
-    while time.time() < end:
-        if cond():
-            return
-        time.sleep(0.25)
-    raise RuntimeError("timed out: " + what)
+    """`cond()` within `secs` of the GUEST's clock (os88qemu.acted). It was
+    a host deadline, which a loaded box gave the guest less of
+    (docs/plans/SOAK-PARALLEL.md 17.9)."""
+    if not os88qemu.acted(os88qemu._Sock(os88qemu.SOCK), cond, secs=secs,
+                          what=what, poll=0.1):
+        raise RuntimeError("timed out: " + what)
 
 
 class Pkg:

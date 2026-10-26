@@ -33,7 +33,7 @@ the package's listing) until it says "Passed all tests" or LIMIT runs out:
     kernel's are allowed up to REGION_ALLOW;
   * and no kern_mega FAULT.
 
-THE SHIPPED BUILD REFUSES on kern_mega (REALDMG-SPEC section 10.3.2): its
+THE SHIPPED BUILD REFUSES on kern_mega (REALDMG-SPEC section 10.3.4): its
 claims are segments it adds paragraphs to, which under KERN-MEGA-MEMORY-PLAN
 MC7 are selectors, so its entry proc says "Use the MEGA apps disk" and starts
 nothing (OS88_MEGA_REFUSE). Its leg double-clicks the same ROM and passes

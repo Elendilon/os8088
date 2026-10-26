@@ -491,15 +491,13 @@ FIELD_WHEN = {
     "flip": lambda c: ("A Hercules's second page is page-ahead's: flipping "
                        "every frame is a VGA's (its latches copy the page)."
                        if c["layout"] == "herc" else
-                       "A NARROW screen's pages are page-ahead's (--pages): "
-                       "flipping every frame is a screen with 80-byte rows'."
-                       if str(c.get("screen", "")).endswith("n") else
                        "Flipping is a stream's played full screen: not Live "
                        "or resident." if c["live"] or c["resident"] else
                        None) if c["layout"] in ("modex", "herc") or (
         c["pixfmt"] == "vga4" and c["screen"] not in ("", "640x480")) else
     "Two pages are Mode X's, or 16 colours' on a Screen of their own "
-    "(320x200, 320x240, 640x350, 640x400) - and %s has one page."
+    "(320x200, 320x240, 640x350, 640x400, 320x200n, 320x240n) - and %s "
+    "has one page."
     % ("mode 12h's 640 x 480" if c["pixfmt"] == "vga4" else
        "mode 13h" if c["pixfmt"] == "vga8" else
        "this %s file" % c["pixfmt"]),
@@ -786,7 +784,8 @@ CONTEXT_FIELDS = ("preset", "pixfmt", "profile", "live", "layout", "audio",
                   "text_colour", "comp_dither", "spk_shape", "aim",
                   "resident", "buffer_sound_ahead", "screen", "palette",
                   "scene_palettes", "flip", "loop_from", "repeat",
-                  "layer_disk", "layer_profile", "page_ahead", "step_down",
+                  "layer_disk", "layer_profile", "page_ahead", "pages",
+                  "step_down",
                   "ladder", "fps", "coarse_cut")
 # the choices that IMPLY others (os88venc.implied): changing one refills them
 IMPLYING = ("preset", "pixfmt", "profile", "live")
@@ -1084,6 +1083,10 @@ def form_context(values):
                 loop_from=g("loop_from"), layer_disk=g("layer_disk"),
                 layer_profile=g("layer_profile"),
                 page_ahead=g("page_ahead") or "auto",
+                # (the Pages field, read by page-ahead's, the keys' and the
+                # pool's rules - missing, every one of them saw "2", and
+                # Flip greyed Page ahead whatever Pages said)
+                pages=g("pages") or "max",
                 step_down=g("step_down") or "on",
                 ladder=g("ladder"), fps=g("fps") or imp.get("fps", ""),
                 # (VERSION 2's: what Blocks greys, and is greyed by)

@@ -127,7 +127,10 @@ class Walk(object):
             dx = max(-60, min(60, x - self.x))
             dy = max(-60, min(60, y - self.y))
             self.m.hmp("mouse_move %d %d" % (dx, dy))
-            time.sleep(0.06)
+            time.sleep(0.06)    # HOST time on purpose: the msmouse LINE's
+            # pacing, tools/mouse.py's PACE - a step is not lost to a
+            # starved guest (the chardev queues it), and the caller's own
+            # wait is on what the step was for
             self.x += dx
             self.y += dy
 
@@ -164,7 +167,11 @@ def main():
     m = E.Qemu()
     mo = E.Mouse()
     try:
-        Q.pace(m, 8)
+        # THE DESKTOP UP, on kernel state (os88qemu.kernel_up), where this was
+        # a blind 8 guest seconds and a settle - a pause the boot was
+        # assumed to have finished inside (docs/plans/SOAK-PARALLEL.md 17.9)
+        if not Q.kernel_up(m, S):
+            fail("the desktop never came up")
         E.settle(m)
 
         # --- 1. the launcher, by name ------------------------------------

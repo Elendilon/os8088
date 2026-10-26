@@ -90,14 +90,17 @@ def main():
         M.settle(m)
         dm = dosmap.package()
 
-        def pb():
-            return dosmap.instance(m) << 4
+        def rd(off, n):
+            # the base and the bytes in one compactor-safe snapshot: a
+            # LiveSeg's read (os88marty.seg_snap), never `seg << 4` and a
+            # second read - the region moves at DOS's arena claims
+            return dosmap.instance(m).read(off, n)
 
         def word(n):
-            return int.from_bytes(m.read(pb() + dm[n], 2), "little")
+            return int.from_bytes(rd(dm[n], 2), "little")
 
         def arena():
-            raw = m.read(pb() + dm["dos_marn"], 8).split(b"\0")[0]
+            raw = rd(dm["dos_marn"], 8).split(b"\0")[0]
             try:
                 return int(raw.decode("latin-1").rstrip("KB").strip())
             except ValueError:
@@ -107,7 +110,7 @@ def main():
         # --- 1: the FIRST paint against a recompute that changes nothing -----
         mo.click(*dosmap.centre(m, dosmap.instance(m), dm, "dos_erect"))
         M.settle(m)
-        if m.read(pb() + dm["dos_page"], 1)[0] != dm["DOS_PAGE_SET"]:
+        if rd(dm["dos_page"], 1)[0] != dm["DOS_PAGE_SET"]:
             fail("the bar's button did not reach the Setup page")
         first = arena()
         print("dosest: the first Setup paint reads %d K, [dos_msnk]=%d"
@@ -116,16 +119,16 @@ def main():
         # Away to the other arm and straight back: it repaints the block twice
         # and recomputes the figure both times, and changes NOTHING about the
         # machine - so the two readings are the same question asked twice.
-        rr = [int.from_bytes(m.read(pb() + dm["dos_mrad"] + 2 * i, 2), "little")
+        rr = [int.from_bytes(rd(dm["dos_mrad"] + 2 * i, 2), "little")
               for i in range(4)]
-        pitch = int.from_bytes(m.read(pb() + dm["dos_mrad"] + 14, 2), "little")
+        pitch = int.from_bytes(rd(dm["dos_mrad"] + 14, 2), "little")
         mo.click((rr[0] + rr[2]) // 2, rr[1] + pitch + pitch // 2)
         M.settle(m)
         mo.click((rr[0] + rr[2]) // 2, rr[1] + pitch // 2)
         M.settle(m)
-        if m.read(pb() + dm["dos_keepc"], 1)[0] != 0:
+        if rd(dm["dos_keepc"], 1)[0] != 0:
             fail("could not get back to `Inside the OS`; the pick is %d"
-                 % m.read(pb() + dm["dos_keepc"], 1)[0])
+                 % rd(dm["dos_keepc"], 1)[0])
         again = arena()
         if first != again:
             fail("the first Setup paint said %d K and a recompute that "

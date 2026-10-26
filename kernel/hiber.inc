@@ -3231,7 +3231,9 @@ hbm_dosrun:
     ; and `hbm_handover` below UNMASKS IRQ1 on the way out, so a key pressed
     ; any time after the handover vectors into kern_dos's image at `kbm_isr`'s
     ; KERNEL offset - which is SPEC.md 9.6.5's hard freeze one segment along,
-    ; and `kd_leave` ends on `int 16h`.
+    ; and `kd_leave` ends on `int 16h`. INT 15h goes back in the same call
+    ; (SPEC.md 9.7.2: kbm_i15 is a KERNEL_SEG offset too), before kern_dos's
+    ; kdx_init banks what it finds there for its own filter.
 %ifdef KERN_BIG
     ; **THE PS/2 MOUSE IS QUIETED FIRST, OR THE PROGRAM'S KEYBOARD IS DEAD**
     ; (KERN-MEGA-PLAN 14.62). `mouse_unhook` masks IRQ12 and then sends 0xA7,

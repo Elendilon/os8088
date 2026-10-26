@@ -18,7 +18,7 @@ changes what a claim and a code selector ARE, and so does this.
 
 **Since then (2026-10-25):** that round's MC7 has landed and been merged into
 `mega-dmg`, and RealDMG's prerequisite conversion is BUILT - REALDMG-SPEC
-10.3.2: the arm asks `OSAPI_SEG` for every "claim + N" (the extra tiers
+10.3.4: the arm asks `OSAPI_SEG` for every "claim + N" (the extra tiers
 already as `SEG_SUBC` pairs inside cache B's claim, which is K1's twin
 supplied by the kernel), and the shipped build refuses under `CPU_F_PM`.
 What is left of this plan is R2 onward: the tiers out of the POOL, and the

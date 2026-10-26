@@ -43,7 +43,7 @@ MACHINES = {
     "cga": "os8088_5150_cga_720b_gla",
 }
 # kern_mega (OS88_MEGA, tests/megaport.txt): the SHIPPED RealDMG refuses there
-# (REALDMG-SPEC 10.3.2), so the row runs the ARM out of build/megak/apps - and
+# (REALDMG-SPEC 10.3.4), so the row runs the ARM out of build/megak/apps - and
 # its package and its view are LDT SELECTORS, found through the window record
 # and read through their descriptors (tests/gbsave.py's port). VGA only: Bochs
 # has no CGA

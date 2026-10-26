@@ -101,7 +101,7 @@ KNOB = os88build.tree("VGADIRTY=1", targets=TARGETS).apply()
 
 def launch():
     em = "qemu" + "-system-i386"     # never whole on a command line: kill_stale
-    subprocess.run(
+    os88qemu.start(
         em + " -S -machine pc,vmport=off"   # the msserial mouse drives this
         # SNAPSHOT: the knob tree's images are shared by every row that
         # wants the same knob, and nothing here reads a disk back - so the

@@ -1569,9 +1569,7 @@ vp_parse:
     mov al, 2
 .fp6h:
     cmp al, 5                       ; FLIPPED AND BUILT AHEAD (98.1.3.7.2):
-    jne .fp7                        ; byte 37's 4 with every record flipped,
-    cmp word [vp_lstr], 40          ; never on a NARROW screen
-    je .b3
+    jne .fp7                        ; byte 37's 4 with every record flipped
     mov byte [vp_fpg], 1
     mov al, 4
 .fp7:
@@ -1616,15 +1614,10 @@ vp_parse:
     jne .b3b
 .fp2:
     cmp al, 3                       ; PAGE-AHEAD is a stream's, played in the
-    jne .fp3                        ; bracket from a key: never RESIDENT, LIVE
+    jne .fp6                        ; bracket from a key: never RESIDENT, LIVE
     test byte [es:V88_FLAGS], V88F_RESIDENT | V88F_LOOPREC | V88F_LIVE
     jnz .b3b                        ; or looped (98.1.3.7) - its seam would
-.fp3:                               ; copy into a keep page-ahead never claims
-    cmp al, 2                       ; (FLIPPED every frame: never NARROW,
-    jne .fp6                        ; whose pages are page-ahead's, 98.1.3.2.5)
-    cmp word [vp_lstr], 40
-    je .b3b
-.fp6:
+.fp6:                               ; copy into a keep page-ahead never claims
     cmp byte [vp_screen], 0         ; (a VGA4 file on a screen of its own:
     jne .fl0                        ; two pages in a plane, 98.1.3.2.1)
     cmp byte [vp_layout], LAY_MODEX
@@ -18916,8 +18909,9 @@ vp_flipdec:
     cmp ax, 0xFFFF                  ; (a record past VP_PREVKB, not kept)
     je .copy
     mov ax, [vp_pry1]               ; THE CHEAPER: a row copied is 80 bytes
-    sub ax, [vp_pry0]               ; at ~VP_LCW record bytes' decode each,
-    jbe .redec                      ; against the record's own bytes
+    sub ax, [vp_pry0]               ; (a NARROW screen's 40, 98.1.3.2.5) at
+    jbe .redec                      ; ~VP_LCW record bytes' decode each,
+    mul word [vp_lstr]              ; against the record's own bytes
     mul word [vp_flcw]
     or dx, dx
     jnz .redec
@@ -19251,17 +19245,18 @@ vp_kpool:
 ; vp_lcopy - flipping: the canvas rows [vp_pry0, vp_pry1) copied from the
 ; page on the glass ([vp_foff]) to the one drawn next ([vp_poff]) through the
 ; VGA's LATCHES - write mode 1, Map Mask 0Fh, so a byte read and written
-; moves a byte of all four planes (98.3.8.1). Whole rows of 80, from the
-; canvas's origin: a Mode X row is 80 plane bytes and the CRTC does the row
-; scale. Clobbers AX, BX, CX, DX, SI, DI, ES
+; moves a byte of all four planes (98.3.8.1). Whole rows, from the canvas's
+; origin: a Mode X row is 80 plane bytes and the CRTC does the row scale,
+; and a VGA4 row is [vp_lstr] - 80, or a NARROW screen's 40 (98.1.3.2.5).
+; Clobbers AX, BX, CX, DX, SI, DI, ES
 vp_lcopy:
     mov cx, [vp_pry1]
     sub cx, [vp_pry0]
     jbe .r
-    mov ax, 80
+    mov ax, [vp_lstr]
     mul cx
     mov cx, ax                      ; the plane bytes
-    mov ax, 80
+    mov ax, [vp_lstr]
     mul word [vp_pry0]
     add ax, [vp_org]
     mov si, ax
@@ -23227,7 +23222,7 @@ vp_pgclip:    db 0                  ; ...vo_clip, while the other page is drawn
 vp_shown:     dw 0                  ; the start address vp_show last wrote
 vp_kpo:       dw 0                  ; ...the one vp_kmove uses...
 vp_prevseg:   dw 0                  ; ...and the last record's copy, its
-vp_flcw:      dw 80 * VP_LCW        ; a row copied, in record bytes (a test
+vp_flcw:      dw VP_LCW             ; a byte copied, in record bytes (a test
                                     ; may set 0: always the copy)
 vp_pry0:      dw 0                  ; the last record's band, for its copy
 vp_pry1:      dw 0                  ; off the glass (98.3.8.1)

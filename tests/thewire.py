@@ -688,26 +688,20 @@ class Qemu:
             pass
 
 
-class Mouse:
-    def run(self, *args):
-        subprocess.run(["python3", "tools/mouse.py", SOCK] + list(args),
-                       check=True, capture_output=True)
+class Mouse(object):
+    """tests/ethernet.py's Mouse - CLOSED LOOP on the kernel's mouse_x and
+    mouse_btn, tools/mouse.py only where they cannot be read - on THIS
+    row's socket. It was a copy of the dead-reckoned one, which pins against
+    the clamp and walks back on paced moves (docs/plans/SOAK-PARALLEL.md
+    17.5, 17.9)."""
 
-    def click(self, x, y):
-        self.run("click", str(x), str(y))
-        gsleep(0.4)
+    def __new__(cls):
+        import ethernet as _eth
 
-    def dblclick(self, x, y):
-        # TWO `click`s ARE NOT A DOUBLE-CLICK (CLAUDE.md): the detectors
-        # compare birth ticks in a 9-tick window and two processes are far too
-        # slow. Position, then both presses down one QMP connection.
-        self.run("to", str(x), str(y))
-        subprocess.run(["python3", "tools/qmp.py", SOCK,
-                        "mouse_button 1", "sleep 0.08", "mouse_button 0",
-                        "sleep 0.12",
-                        "mouse_button 1", "sleep 0.08", "mouse_button 0",
-                        "gsleep 0.4"],
-                       check=True, capture_output=True)
+        class _Wire(_eth.Mouse):
+            def _sock(self):
+                return SOCK
+        return _Wire()
 
 
 def gsleep(secs):
@@ -1133,10 +1127,15 @@ def main():
             fx = (u16(cell, os88geom.MB_XL)
                   + u16(cell, os88geom.MB_XL + 2)) // 2
             nasked = len(srv.asked)
-            mo.run("down", str(fx), "8")    # a menu is press, drag, release
-            time.sleep(0.5)
+            # a menu is press, drag, release - each step WAITED FOR on the
+            # kernel's own menu state (tools/os88ui.py's gesture), where it
+            # was two host sleeps between three dead-reckoned edges
+            mo.run("down", str(fx), "8")
+            os88qemu.acted(m, lambda: m.read(S("menu_dropd"), 1)[0],
+                           secs=10, what="the File pull-down", poll=0.05)
             mo.run("to", str(fx), "26")     # File > Refresh, item 0
-            time.sleep(0.4)
+            os88qemu.acted(m, lambda: u16(m.read(S("menu_sel"), 2)) == 0,
+                           secs=10, what="Refresh highlighted", poll=0.05)
             mo.run("up")
             os88qemu.acted(m, lambda: len(srv.asked) > nasked
                            and w("wr_n") == NREC

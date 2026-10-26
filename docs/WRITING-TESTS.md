@@ -36,6 +36,7 @@ then the section for the part you are writing.
 | needing a disk image, package or knob kernel | §5 |
 | booting, clicking, typing, using breakpoints | §6 |
 | waiting for something to happen | §7 |
+| reading a package's or a driver's bytes | §8.1 |
 | making a slow row cheaper | §4.2 |
 | on QEMU, 86Box, Bochs or Unicorn | §9 |
 | wondering why a rule exists | §13 (the incident list) |
@@ -195,9 +196,15 @@ stopped racing the guest, docs/plans/SOAK-PARALLEL.md 17.5). If your row needs
 **On QEMU the guest's clock IS the host's** (no `-icount`): the PIT and the
 BIOS tick follow wall time, so a guest starved of CPU is a slower machine. A
 QEMU row whose answer is the guest's speed against its own clock - a bench
-that picks a quality rung, a ladder with five per cent of headroom - is the
-one honest `alone` on QEMU (`xtmp3rate`, `vidbankspk*`). Everything else on
-QEMU shares the lane.
+that picks a quality rung, a ladder with five per cent of headroom - does
+not get `alone` for it: it boots with `os88qemu.icount()` (`-icount
+shift=N,align=off,sleep=on`), which puts the PIT, the tick and the SB16 on
+an instruction-counted clock, so load stretches the wall time and moves no
+answer (`xtmp3rate`, `vidbankspk*`, docs/plans/SOAK-PARALLEL.md 17.8). Read
+the os88qemu note before using it: it changes the cost model (an I/O
+instruction costs what a register move does), an I/O-dense guest needs a
+larger shift to stay affordable, and a row about a THROTTLED disk's rate
+cannot use it, the throttle being real time. Every QEMU row shares the lane.
 
 ### 4.2 Where a row's time goes, and cutting it
 
@@ -460,6 +467,31 @@ Part 3).
 - **A pointer is unsigned**, and a host-side reader of a package with parts
   must lay the part in rather than index the image (incident 54).
 
+### 8.1 Reading a package's memory
+
+**Never read a base out of a kernel record and then read through it yourself.**
+`seg = W_SEG; m.read((seg << 4) + off, n)` is two round trips with the guest
+running between them, and the compactor copies a region *before* it rewrites
+the W_SEG naming it (SPEC.md 66) - land between the two and you read the old
+base's shifted bytes, which decode as a plausible wrong answer (call5's exit
+code 161, dirwshed's 29,888 KB arena). Banking the base at the top of a
+session is the same defect held open for the whole run. Use:
+
+```python
+os88marty.pkg_read(m, w, off, n)            # a window's package; w or slot
+p = os88marty.Pkg(m, w, image=img)          # a live view: p.word(bss_off)
+os88marty.drv_read(m, row, off, n)          # a drv_tab row's driver
+os88marty.seg_snap(m, word, spans)          # any kernel word naming a seg
+```
+
+Each is the base and the bytes in one compactor-safe snapshot, at one round
+trip when nothing is moving - less than the naive pair; writes (`pkg_write`,
+`drv_write`, `p.write`) always pause the guest. `dosmap.instance` and
+`dispapps.pkg_seg` return a `LiveSeg` that `dosmap.rect`/`centre`,
+`dispapps.words` and `m.readseg(seg, ...)` re-resolve per read
+(`os88marty.pkg_live(m, w)` makes one); QEMU objects take the same calls.
+docs/MARTYPC-DEBUG.md has the argument; `tests/pkgread.py` is the gate.
+
 ---
 
 ## 9. Which emulator
@@ -492,7 +524,14 @@ The runner puts a QEMU row in the same concurrent lane as the MartyPC rows
 - **The socket and pidfile are `os88qemu.SOCK`/`PIDFILE` or `paths()`**,
   never `build/qmp.sock` or a `build/<row>.sock`.
 - **A shared image is copied or booted `snapshot=on`.** Two QEMUs on one
-  writable `build/apps.img` is `Failed to get "write" lock` for the second.
+  writable `build/apps.img` is `Failed to get "write" lock` for the second -
+  and ONE writable opener is enough: QEMU refuses even a `snapshot=on` open
+  of a file another QEMU writes, so the row that pays is a well-behaved one
+  (`ps2mouse` and `vesashut` did this to `wheelps2` and `vmmouse`,
+  docs/plans/SOAK-PARALLEL.md 17.10).
+- **A daemonised launch goes through `os88qemu.start(cmd, ...)`**, which
+  raises QEMU's own stderr and names the process holding a locked image;
+  `t_qemuown` fails any other spelling.
 - **A fixed host port is a `locks=("port:N",)`** on the row and a
   `os88qemu.lease_port(N)` before the bind. A slirp guest reaches the host at
   10.0.2.2:N, the port is in the fixture's disks, and `guestfwd` is refused on

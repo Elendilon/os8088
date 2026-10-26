@@ -87,7 +87,7 @@ def launch():
     """The standard VGA (QEMU's default, spelled out) and the gate disk."""
     os88fixture.need("build/vesa.img", "build/apps.img")
     em = "qemu" + "-system-i386"     # never whole on a command line: kill_stale
-    subprocess.run(
+    os88qemu.start(
         em + " -machine pc,vmport=off -vga std"
         " -drive file=%s,format=raw,if=floppy,snapshot=on -boot a"
         " -drive file=%s,format=raw,if=floppy,index=1,snapshot=on"
@@ -107,8 +107,46 @@ def word(q, sym, off=0):
     return b[0] | (b[1] << 8)
 
 
+def desk_up(q, fails, cap=12.0, autostart=True):
+    """The VESA desktop UP, on the GUEST's clock - and, for a gate disk
+    whose AUTOSTRT opens a package, that package's instance LIVE and the UI
+    finished with its first paint (os88qemu.ui_done, capped at `cap` guest
+    seconds, which is the fixed pause it replaces). False, with the reason
+    in `fails`, when the desktop never came.
+
+    It was a 60 s HOST deadline around vid_kind and then `pace(q, 12.0)`
+    "for the autostart's load and first paint" - a pause something was
+    assumed to have finished inside, which on QEMU buys a starved guest less
+    of the machine (docs/plans/SOAK-PARALLEL.md 17.5). vesafsx's Alt+Enter
+    landed with Gorillas' bracket not taken in the 2026-10-25 soak. And
+    vid_kind is `.bss`: read before kmain has expanded the kernel it is
+    the packed stream, so the desktop is gated first (kernel_up)."""
+    if not os88qemu.kernel_up(q, os88sym.linear, secs=120.0,
+                              what="the VESA desktop"):
+        fails.append("the desktop never came up")
+        return False
+    if not os88qemu.acted(q, lambda: byte(q, "vid_kind") == VID_VESA,
+                          secs=20.0, what="vid_kind = VID_VESA", poll=0.25):
+        fails.append("the desktop never reached VID_VESA")
+        return False
+    if autostart:
+        import os88geom
+        if not os88qemu.acted(q, lambda: bool(os88geom.instances(
+                q, os88sym.linear)), secs=60.0,
+                what="the autostart's instance", poll=0.25):
+            fails.append("the AUTOSTRT link opened no instance")
+            return False
+        os88qemu.ui_done(q, os88sym.linear, cap=cap,
+                         what="the autostart's first paint")
+    return True
+
+
 def screendump(q, path):
-    ppm = os.path.abspath(path + ".ppm")
+    # THIS PROCESS'S file, whatever `path` says: every vesa* row passed the
+    # same build/vesa-shot, and two of them in the emulator lane's two slots
+    # each unlinked the other's dump or read the other machine's screen. The
+    # name is kept for the caller; the directory is os88qemu's RUNDIR
+    ppm = os.path.join(os88qemu.RUNDIR, os.path.basename(path) + ".ppm")
     q.hmp('screendump "%s"' % ppm)
     w, h, pix = shot.read_ppm(ppm)
     os.unlink(ppm)

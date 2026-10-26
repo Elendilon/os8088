@@ -40,8 +40,8 @@ import os88qemu                                             # noqa: E402
 from os88geom import VID_VESA                               # noqa: E402
 import vesa                                                 # noqa: E402
 
-SOCK = os.path.join(ROOT, "build", "vesashut.sock")
-PIDFILE = os.path.join(ROOT, "build", "vesashut.pid")
+# THIS PROCESS'S pair (os88qemu.paths), never a fixed file under build/
+SOCK, PIDFILE = os88qemu.paths("vesashut")
 MENU_LOGO = (8, 5)              # the System menu's cell on the bar
 MENU_SHUT = (50, 124)           # its last item, "Shut Down..." (1024x768)
 
@@ -52,10 +52,15 @@ def launch():
         if os.path.exists(f):
             os.unlink(f)
     em = "qemu" + "-system-i386"     # never whole on a command line
-    subprocess.run(
+    os88qemu.start(
         em + " -machine pc,vmport=off -vga std"
-        " -drive file=%s,format=raw,if=floppy -boot a"
-        " -drive file=%s,format=raw,if=floppy,index=1"
+        # SNAPSHOT: the SHARED images, never read back here. Booted
+        # WRITABLE they locked every other row out of them - QEMU refuses
+        # even a snapshot=on open of a file another QEMU writes - and the
+        # Shut Down this row presses WRITES to them (docs/plans/
+        # SOAK-PARALLEL.md 17.10)
+        " -drive file=%s,format=raw,if=floppy,snapshot=on -boot a"
+        " -drive file=%s,format=raw,if=floppy,index=1,snapshot=on"
         " -serial msmouse"
         " -display none -qmp unix:%s,server,nowait -daemonize -pidfile %s"
         % (_B.at("build/vesa.img"), _B.at("build/apps.img"), SOCK, PIDFILE),
