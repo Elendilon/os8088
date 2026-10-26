@@ -1973,18 +1973,13 @@ at roughly twice that oversubscription.
   `vesashut` held `build/os8088.img`/`apps.img` writable and locked every
   other row out of them; every daemonised launch now raises QEMU's own
   words and names the holder.
-* **`brdownload-length`** failed ONCE in the 2-lane pass of 17.9 (`completed
-  ETA display is b'http://10.0.2.2:8090/download-te'`), and passed seven
-  reruns (four under two hogs) and the 2-hog pass. It reads
-  `br_dl_disptxt`, a scratch buffer the Download Manager's ETA field and its
-  URL line (`br_dl_drawcut`) BOTH compose into, so the bytes are whichever
-  field painted last - a full repaint after the completion leaves the URL
-  there. The assertion wants the ETA field's own last text (or a repaint
-  that draws only it); not changed here.
-* **`vesagor`** failed once in the 2-hog pass - not one of the seven setup
-  Enters reached Gorillas (state 5 throughout) - and passed five reruns
-  under the same load. Not diagnosed; the setup page is now waited out
-  (`ui_done`) before the first Enter, which is a guess and not a finding.
+* ~~**`brdownload-length`**~~ DONE - 17.11: the row read a scratch line
+  INSIDE the completion's repaint; it reads the ETA field off the glass.
+* **`vesagor`** - 17.11. The "not one of the seven Enters" reading was the
+  loop's, and one way an Enter is lost here is found and closed (the key
+  helpers released a key the ROM had not yet stored); the failing run's
+  full-screen field reading is NOT explained, and the row now keeps the
+  picture and names where a lost Enter went.
 * **`excitebikeflow` / `excitebikeflowherc`** (MartyPC, ALREADY in the
   concurrent lane before this work) failed once each - `excitebikeflow` in
   the 2026-10-25 soak itself, `excitebikeflowherc` here (`Up flips the
@@ -2130,3 +2125,106 @@ three at once:
 | `vesashut` as it was | exit 1 | exit 1 | the same shape, `build/apps.img` and `build/os8088.img` |
 | `ps2mouse` now, 3 rounds | ok x3 | ok x3 | |
 | `vesashut` now, 3 rounds | ok x3 | ok x3 | |
+
+### 17.11 A scratch line read mid-paint, and a key released before it was taken
+
+**`brdownload-length`.** `br_dl_disptxt` is not the ETA's buffer. It is one
+scratch line that `br_dl_drawcut` (the File, Source, Destination and Status
+rows), the Speed field and the ETA field each compose into and draw at once
+(`apps/browser/brdownload_paint.inc`), and `br_dl_onwake` writes `DL_DONE`
+and THEN repaints the whole manager. The row polls that state byte, so it
+read the buffer inside the repaint. Sampled as fast as QMP allows after
+`DL_DONE` on an IDLE box, the line reads
+
+    '0 sec' -> 'DOWNLOAD.BIN' -> 'http://10.0.2.2:8090/download-te' ->
+    'B:\DOWNLOAD.BIN' -> 'Download complete.' -> '5 KB/s' -> '0 sec'
+
+so the failure needed no load at all, only a read landing between the Source
+row's drawcut and the Destination row's. **It is not a product bug**: every
+painter runs on the UI task and draws what it composed before the next one
+writes, so the screen never shows another field's text. The assertion now
+waits for the UI task to finish with the completion (`ui_done`) and reads
+the ETA field's cells off a screendump, matched against the kernel's own
+glyphs (`[font_seg]:[font_base]`, `tests/glass.py`'s reason), until it
+holds - a timer pass still armed from the transfer repaints the manager once
+more, and a dump inside that white fill is a blank, not an answer. **Broken
+on purpose** (the ETA drawn at x+208 instead of x+200) it fails `the
+completed ETA field shows ' 0 sec' on the glass` - and the buffer read
+passed that build, the buffer still saying `0 sec`. Two waits on the same
+path were pauses and are state now: the link menu was read the instant
+`tools/mouse.py` returned (`br_ctxopen`), and the Enter into the Save chooser
+went one guest second after the click (`fdlg_win`). Two lanes and two CPU
+hogs, the other lane `vesagor`: 22 of 22.
+
+**`vesagor`.** Four findings, and the last is what is still open.
+
+1. *The reading was the loop's.* It waited `gr_setupfield > i` and carried
+   on either way, so ONE lost Enter fails all seven waits. Dropping Enter 1
+   on purpose reproduces the failing line exactly - `after seven Enters the
+   state is 5`, six questions answered. "None of the seven reached
+   Gorillas" was never established.
+2. *How an Enter is lost on this row.* Gorillas' entry proc arms the
+   key-state map (`OS88_ALTENTER_SEED`) and no mouse ever speaks here
+   (`mou_ptr` 0 for the whole row: the msmouse is attached and never moved),
+   so `kbm_isr` peeks port 60h on every IRQ1 - and QEMU's 8042 loses a press
+   queued together with its release (SPEC.md 9.7). Sent as one pair at the
+   setup page: 7 of 7 Enters lost, the buffer's tail never moving.
+3. *The helpers made that pair whenever the guest was late.* `tools/qmp.py`'s
+   `key` and `os88qemu.sendkey` released ANY key after 0.3 guest seconds,
+   seven ticks, stored or not - the ceiling meant for a key the ROM keeps
+   no buffer entry for applied to every key. Press-to-store on this row
+   over 203 Enters, two lanes and two hogs, in ticks as a QMP poll sees
+   them: 157 within the tick, 37 one, 7 two, 2 four - so seven is a margin
+   and not a guarantee. **A/B**, IRQ1
+   masked at the master 8259 for one host second while IRQ0 runs (HMP `o
+   /b 0x21`): the old `tools/qmp.py` lost 3 of 3, the new one and
+   `os88qemu.sendkey` delivered 3 of 3. A FLAG key (shift, alt, ctrl, the
+   locks) is still confirmed by 0040:0017 inside `secs`; every other key
+   waits for the tail up to 10 guest seconds - `os88qemu.key`'s own default
+   and `type_text`'s, a ceiling left the moment the tail moves - and a tail
+   that never moves is said on stderr. Once the kernel takes the scancode
+   from `int 15h AH=4Fh` instead of the peek (branch `kbd4f`, SPEC.md
+   9.7.2), a queued pair stops being a loss on QEMU at all; the helper is
+   right either way.
+4. *What is NOT explained.* The failing run's field read `blue region
+   1023x743, 0 sky rows, longest solid building run 847 px`: blue at both
+   screen edges, the menu bar to the dock. The setup page and the choice
+   page read 527x263 in the window whether or not an Enter was lost; so do
+   a stuck map Alt bit (Gorillas enters `gr_exclusive` and waits in
+   `gr_release_chord`, the seven Enters left in the buffer) and a ROM Alt
+   flag (every Enter is fetched, and Gorillas ignores what it is handed),
+   each poked in to see. Something blue was on the glass outside Gorillas'
+   window, and that is not a key. It did not recur in 36 runs of the old
+   Enter loop (without the `ui_done` guess) nor in 10 of the new, all two
+   lanes wide under two hogs, and the run left no picture. The row now
+   confirms each Enter answered exactly one question before the next goes,
+   stops at the first that did not with the buffer's head and tail either
+   side, the
+   map's Alt and Enter bits and latch, the ROM's shift flags, `gr_fs`, the
+   fsx bracket, the saver, the front window and whether the instance moved,
+   and saves the screen to `build/vesagor-fail-<pid>.png`, as it does when
+   the field check fails. A test that dropped Enter 3 on purpose stops
+   there: `buffer head/tail 34/34 -> 34/34 ... state 5 field 2`.
+
+That pass ran `vesagor` in the HOST pool beside `rltune` alone: it declared
+no `needs` and no `serial`, so `os88test` put it with `par` rather than in
+the emulator lane, and it would not have skipped on a box without QEMU. It
+declares `needs=("qemu", "nasm"), serial=True` now, as its siblings on the
+same disk do (`vesasu` has the same gap and is not changed here). The same
+pass rules out a shared file for that run, though the file was real:
+`vesa.screendump` wrote every `vesa*` row's dump to the one
+`build/vesa-shot.ppm` and unlinked it, so two of them in the lane's two
+slots could read each other's screen. It writes into the process's `RUNDIR`
+now.
+
+**What the key helpers reach, run once.** Every QEMU row whose script sends
+a plain `sendkey` through `tools/qmp.py` or `os88qemu`, plus the `vesa*`
+rows `vesa.screendump` serves - 75 rows, two lanes, no hogs: 71 passed,
+three skipped (`hmahiber`, `p2hiber`, `hmadosret` want QEMU 9) and
+`ps2mouse`, the full tier's, passed on its own. **`hmadrv` failed once**,
+`...and gave the block back with the stream`, and passed alone four times -
+a third flake with its cause in the code: `sbl_stop` publishes
+`[sbl_str_act]` = 0 FIRST and frees the double buffer afterwards
+(`sbl_unpin` -> `sbl_dma_put`, which zeroes `[sbl_seg]` last), and the row
+waited for the flag and then read the block. It waits for the flag AND the
+buffer now; a driver that never frees it still fails ten guest seconds on.
