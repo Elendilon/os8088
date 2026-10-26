@@ -5312,8 +5312,8 @@ DHK_TXT     equ 12                  ; the TEXT SCREEN the mouse cursor may draw
 DHK_TSET    equ 14                  ; AH=2Dh's step, DX:AX signed ticks, before
                                     ; 0040:006C is written: kern_dos moves the
                                     ; handover count by it (KERN-MEGA-PLAN
-                                    ; 14.114). Absent = the host restores the
-                                    ; count itself, the windowed bracket's way
+                                    ; 14.114). Absent = the host does not read
+                                    ; the count as time (the windowed DOS)
 %ifdef DOS_MEGA
 DHK_XUNP    equ 16                  ; **A CHILD, UNPACKED BY THE HMA HOST**
                                     ; (SPEC.md 96.40.9.1): a launcher's EXEPACK
@@ -14203,18 +14203,19 @@ dos_time_now:
 ; in:  CH = hours, CL = minutes, DH = seconds
 ; out: nothing; every register preserved
 ;
-; It writes 0040:006C, which is banked at bracket entry and put back at the
-; end (SPEC.md 96.5) - so a DOS program may set the clock, read it back and
-; agree with itself, and the machine's own time is not moved by it.
+; It writes 0040:006C, so a DOS program may set the clock, read it back and
+; agree with itself. Nothing puts the count back - dos_bdalist leaves it out
+; on purpose (SPEC.md 96.5, 96.13.2) - and in a window nothing needs to: the
+; kernel keeps its clock off [ticks].
 ;
-; **...AND UNDER kern_dos NOTHING PUTS IT BACK, so the STEP goes to the host
+; **UNDER kern_dos THE WAY HOME READS IT, so the STEP goes to the host
 ; first** (DHK_TSET, KERN-MEGA-PLAN 14.114): DX:AX = the new count less the
 ; old, signed. The way home measures how long the program had the machine as
 ; 0040:006C now less the count at the handover (SPEC.md 96.49.5), and a
 ; program that set the clock BACK made that negative - which reads as a
 ; midnight crossed, so the session came home a day on. kern_dos moves the
 ; handover count by the same step, and the difference is the run again.
-; The windowed host binds nothing: its bracket restores the count.
+; The windowed host binds nothing.
 ; -----------------------------------------------------------------------------
 dos_time_set:
     push ax

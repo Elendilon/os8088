@@ -175639,6 +175639,14 @@ returns, so the second `dos_run` starts at the depth the first did. The chain
 unwinds completely every time: bracket, `dos_fsx`, `dos_fsx_back`, `dos_run`,
 handler, loop.
 
+**The shut-down arm's return owes it too.** That launch POSTS the handoff and
+leaves `dos_run` by `.outq`, past the call above, so the wake that delivers
+the exit code (§96.41) calls `dos_fsx_back` after `dos_swap` - kern_mega's
+trip since docs/plans/KERN-MEGA-PLAN.md 14.106, and kern_big's whole-machine
+run since 14.113. Without it the session came home WINDOWED with
+`[dos_fsxgo]` standing, and the next program run from the window spent it on
+its exit by entering a full screen nobody asked for (`kdreturnfsx`).
+
 `dos_fsx` clears `[dos_fsxgo]` on entry as well, which is the guard that makes
 a leaked flag harmless rather than mysterious: a stale 1 would otherwise make
 the next bracket quit on its first keystroke, and the worst that can happen
@@ -178316,8 +178324,18 @@ of an hour** — the same order as the drift a PC's own tick clock has against
 the wall. The minute can round to 60 at the top of an hour and is clamped.
 
 `AH=2Dh` writes the tick count back, so a program may set the clock, read it
-back and agree with itself. `0040:006C` is banked at bracket entry and
-restored at the end (§96.5), so **the machine's own time is not moved by it**.
+back and agree with itself. **The machine's own time is not moved by it** -
+but not because the count is restored: `dos_bdalist` leaves `0040:006C` out
+on purpose (§96.5), live readers needing the truth. In a window the kernel
+keeps its clock off `[ticks]` and never reads the count. Under `kern_dos` the
+way home DOES read it - the run is `0040:006C` less the count the launch block
+banked at the handover (§96.49.5) - so the core hands the STEP (the new count
+less the old, signed, in DX:AX) to the host's `DHK_TSET` before it writes,
+and `kern_dos`'s `kd_tset` moves the banked count by the same step. Without
+it a set counted as time the program ran, and a set BACK as a midnight
+crossed: the session came home a day on (docs/plans/KERN-MEGA-PLAN.md
+14.114). A program that writes `0040:006C` itself, or sets the time through
+`int 1Ah`, is not seen.
 
 ### 96.14 `AH=4Bh` — a child, and the one door both programs go through
 
@@ -183717,7 +183735,8 @@ them in `dos_hk_bind`. (`kern_dos` has since bound hooks of its own at its
 entry: `DHK_MOUSE` and `DHK_TXT` (§96.45), the HMA image's `DHK_XUNP`
 (§96.40.9.1) - and, on both kern_mega images, **`DHK_SNAP`**: `kd_snap`
 writes the program's last screen into `DOS.O88`'s console through a linear
-address the kernel staged, §96.34.6.)
+address the kernel staged, §96.34.6 - and on every `kern_dos`
+**`DHK_TSET`**, `AH=2Dh`'s step, §96.13.2.)
 
 **There are SIX since §96.44.6**: `DHK_CLAIM` and `DHK_FREE` are the kernel's
 heap, which the windowed host has and `kern_dos` does not, and they are what

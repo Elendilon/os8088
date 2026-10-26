@@ -11776,3 +11776,126 @@ the time the check read it, because `until` backs off to a quarter of a
 host second and 86Box runs fast-forwarded. The toast lasts five seconds now
 (`tests/mixer.py`).
 
+
+### 14.112 Three drivers banked CPU_F_PM at a real-mode attach (2026-10-26)
+
+**Cause**: RAMDISK.DRV (`[rd_cpuf]`), NET.DRV (`[net_cpuf]`) and CDROM.DRV
+(`[cd_cpuf]`) read `OSAPI_CPU_INFO` once in their attach and kept AH. A
+driver SYSTEM.CFG wants is attached by `drv_boot_x` in REAL mode, before
+`mega_enter`, so the byte said "real mode" for the whole session - 14.87's
+HTTPFS defect three more times. The byte picks how the driver folds a
+buffer offset into its segment (`rd_fold`, `net_norm`, `cd_bnorm`): by
+paragraphs in real mode; in protected mode by 128-byte granules for an
+identity selector and not at all for an LDT one. A real-mode fold of a
+selector is #GP, or, with bit 2 still set, silently another descriptor's
+memory.
+
+**Fix**: each fold asks `OSAPI_CPU_INFO` itself (`hf_bnorm`'s shape) and the
+bank is gone. Shipped images shrink: RAMDISK 5,337 -> 5,332, NET 4,206 ->
+4,199, CDROM 9,052 -> 9,050 bytes. What it costs is one far call (46.7 us)
+per fold: once per transfer for NET and CDROM, once per extent for RAMDISK.
+No kernel byte moves.
+
+**Where it bites**: a package's buffer never reaches the fold as a selector.
+`drv_fs_call` bounces every allocator selector through `dsk_secbuf`
+(`drv_fs_hi`), and the kernel's own buffers reach it as identity selectors
+that `dskw_norm` has already folded to granules. What does reach it is a
+driver's OWN image. `rdcz` with the RAM disk attached at boot stayed green
+on the old driver, on 16MB and on 1MB machines. The row is **`rdboot`**
+(`mega-rdboot`): a private `RAMSEED=1` tree, SYSTEM.CFG bit 2, the Drivers
+page's Mount, which lays the seed files out of RAMDISK.DRV's code segment
+(an LDT selector), and the seeded README.TXT's `np_len` in Note Pad.
+**Red** on the banked byte: `kern_mega FAULT vector 0D` at 1184:050D, in the
+driver at Mount, and the UI never finished. **Green**: 148 bytes, as laid,
+on Bochs and on MartyPC. NET.DRV and CDROM.DRV have no row. Neither has a
+caller that hands its fold a selector today, and none of the three emulators
+here has both kern_mega and their hardware in a row. They take the same
+two-line change.
+
+**Not taken**: USBMOUSE.DRV's `um_pmattach` also decides at attach. It
+refuses the PicoMEM tier under `CPU_F_PM`, so a boot-time attach on kern_mega
+installs a handler that later runs in protected mode. That is a refusal
+rather than a fold, it has no emulator, and it is left for its own entry.
+
+### 14.113 kern_big's shut-down arm did not go back to the full screen (2026-10-26)
+
+14.106's note. A command typed at the full-screen console sets
+`[dos_fsxgo]` and brings the console's bracket down for the launch.
+`dos_run`'s exit puts it back with `dos_fsx_back`. A whole-machine launch
+posts the handoff and leaves `dos_run` by `.outq`, past that call, so the
+wake that delivers the exit code has to make it. 14.106 added the call
+there under `%ifdef DOS_MEGA` only. **On kern_big** the session came home
+WINDOWED with `[dos_fsxgo]` still 1. The next program run from the window
+spent it on its exit, so that console went into a full screen nobody had
+asked for. `dos_fsx`'s own clear on entry only helps once somebody opens
+the full screen by hand.
+
+**Fix**: the `%ifdef` is gone and the call is in every DOSKPART build.
+kern_big's `dosp.bin` (DOS.O88's part 0) grows 3 bytes for the call, inside
+the +21 that 14.114 also accounts for. kern_mega's arm is unchanged.
+
+**Row**: `kdreturnfsx` (`tests/kdreturn.py --fsx`, MartyPC, the fixed-disk
+live resume). Program > Full Screen, `[dos_keepc]` set to the whole-machine
+arm, `B:` and `DOSHELLO` typed. The wait is for the restored session's
+console in the full screen with this run's exit line on it (its arena, 589KB,
+not the window's), then Esc, with nothing left owed. **Red** on the DOS.O88
+before the fix: `[dos_fsxup]=0 [dos_fsxgo]=1`. **Green** in 5.6 guest
+seconds. The plain `kdreturn` stays green.
+
+### 14.114 A DOS program that set the clock brought the session home a day on (2026-10-26)
+
+14.106's open item, `mega-dosdir`. **It is a kernel defect, and kern_big
+has it too.** DOSDIR.COM sets 13:45:30 with AH=2Dh. The core writes
+`0040:006C`, and `dos_bdalist` deliberately does not put it back (SPEC.md
+96.5). The way home measures the run as `0040:006C` less the count the
+launch block banked at the handover (`KDL_TICK`, SPEC.md 96.49.5). That
+gives `hbm_wake`'s catch-up the set added to the run. A set BACK makes the
+difference negative, and the wake reads that as a midnight crossed: a day
+on. Bochs keeps the host's clock, so the row failed whenever it ran after
+13:45:30. kern_big's live resume stages the same `KDL_TICK` (`kd_resume`)
+and has the same fault.
+
+**Fix**: a host hook, `DHK_TSET` (SPEC.md 96.13.2, 96.44.3). Before
+`dos_time_set` writes the count, it hands the host the step, the new count
+less the old, signed, in DX:AX. `kern_dos` binds `kd_tset`, which adds the
+step to the launch block's `KDL_TICK`, so the difference is the run again.
+The windowed DOS binds nothing, because its kernel keeps time off `[ticks]`.
+`DHK_TSET` is 14 and kern_mega's `DHK_XUNP` moves to 16. Not covered: a
+program that writes `0040:006C` itself, or sets the time through `int 1Ah`.
+
+**Bytes**, measured at one commit against `2b68a8e3`:
+
+| | kern_big | kern_mega |
+|---|---|---|
+| `doscore.bin` | 15,390 -> 15,398 | 16,037 -> 16,045 |
+| `CORE_MAX` | 15,392 -> 15,408 (2 bytes of slack before) | 16,064 (unchanged) |
+| `CORE_BSS_SIZE` | 3,507 -> 3,509 (0 slack before) | 3,511 -> 3,513 |
+| `dosp.bin` | 50,116 -> 50,137 (+16 reserve, +2 bss, +3 for 14.113's call) | 51,380 -> 51,382 |
+| `kerndos.bin` | 31,883 -> 31,919, inside `KD_IMG_KB` 33 | 36,184 -> 36,204 |
+
+`dos_time_set` was rewritten tighter. The hook and the call cost the core
+8 bytes. No `KD_IMG_KB` rung is crossed and no kernel byte moves.
+
+**Rows**:
+- `kdreturnset` (`tests/kdreturn.py --settime`, kern_big, MartyPC).
+  DOSSETT.COM is DOSHELLO built `-DSETTIME`: AH=2Dh to noon. The window's
+  run puts the count at noon first, so the kern_dos run's set is a step
+  back of a few seconds. **Red** without the hook: the date went from
+  04/07 to 05/07 across a return of seconds. The existing date check
+  compared only the year and the month, and `secs()` drops the day, so
+  this had passed as "moved forward 43 seconds". It compares the day now.
+- `mega-dosdir`. It is deterministic now:
+  `@OS88_BOCHS_TIME0=1783180800` (tools/os88bochs.py's new knob) starts
+  Bochs's clock at 2026-07-04 16:00 UTC. That is after 13:45:30, so every
+  run sets the clock back. **Red** before the fix at that pin: "the
+  kernel's clock reads 2026-7-5 after the trip and 2026-7-4 before it".
+  **Green** after it.
+
+**Open, and separate**: with Bochs started at about 17:30 or later
+(between 16:30, green, and 17:30, red; 18:00 and the host's 19:40 also
+red), DOSDIR's first AH=2Ah already answers a day on, before any set.
+That is `tests/dosdir.py`'s *"DOS asks the RTC once at entry"* line. It
+fails on `2b68a8e3` as well, so this fix did not cause it. Seen while
+measuring: the kernel's clock read 18:51 at boot while `0040:006C` said
+18:00. Bochs's RTC and the BIOS tick disagree by most of an hour at boot.
+Not diagnosed. The row's pin stays below it.
