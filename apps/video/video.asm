@@ -21584,8 +21584,11 @@ vp_fmt:
     mov si, vp_s_stall
     mov ax, [vp_stall]
     call vp_psw
-    cmp byte [vp_snd], 0
-    je .nop
+    cmp word [vp_pause], 0          ; (a card the watchdog ENDED leaves the
+    jne .pzs                        ; play silent and [vp_snd] 0, and its
+    cmp byte [vp_snd], 0            ; pause is the only trace of it: shown
+    je .nop                         ; whenever there is one, SPEC.md 98.3.1)
+.pzs:
     mov si, vp_s_pause
     mov ax, [vp_pause]
     call vp_psw

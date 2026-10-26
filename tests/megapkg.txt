@@ -42,6 +42,13 @@ drivers/ramdisk/rdstore.inc 1   # RAMDISK.DRV's paragraph fold (rd_fold)
     # a segment of that VALUE is an ordinary paragraph, and an unfolded one
     # wraps a transfer over 64KB to the START of the caller's segment with
     # CF=0. A correctness test every build needs, ~10 bytes with its bank
+drivers/sound/sb.inc 1          # SOUND.DRV's direct-ring ISR reads the
+    # 8237's count ONLY under CPU_F_PM (SPEC.md 34.5.2.2), banked at verb 0:
+    # on a real-mode kernel the block IRQ lands inside a disk ROM's
+    # channel-3 programming (the ST11M's BIOS v2.0 runs it with IF = 1) and
+    # its flip-flop clear sent the disk's DMA to the wrong address. A
+    # correctness test every build needs - SOUND.DRV is one driver on every
+    # kernel's disk - and 23 bytes with its bank
 
 # --- trivial: one far call through a code alias -----------------------------
 

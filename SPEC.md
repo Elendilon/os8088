@@ -69481,6 +69481,42 @@ nothing was lost, three after a stretch that swallowed two. Three guards:
 The double-buffered path is unchanged: its halves are swapped by the ISR, so a
 lost IRQ there is a lost half-swap and not a miscount.
 
+#### 34.5.2.2 ...on kern_mega only: an ISR may not touch the flip-flop (2026-10-26)
+
+**34.5.2.1's read is made only under `CPU_F_PM`**, banked at verb 0 as
+`[sbl_dpm]`; on kern_big and kern_small the direct ISR counts one block an
+IRQ, as it did before 34.5.2.1. Reported off the owner's 86Box 5150 (CGA, an
+ST-225 on an ST11M, an SB 2.0, kern_big): one play in five of a 60 s CGA4
+`.V88` off the hard disk ended in a screen of static, and another lost its
+sound part way through with nothing late and nothing stalled on the card.
+
+**The 8237's byte-pointer flip-flop is ONE bit for all four channels**, and
+`sbl_dleft` clears it and reads two bytes. Every block IRQ of a direct ring
+did that, ~43 times a second, from whatever it interrupted - and on kern_big
+it interrupts `int 13h`, because nothing masks IRQ 7 across a BIOS call there.
+The ST11M's BIOS v2.0 (86Box's default revision) programs channel 3 with
+**IF = 1**: flip-flop clear, address lo, hi, page, count lo, hi, no `cli`
+(its v1.7 has one). An ISR that clears the flip-flop between a pair sends the
+ROM's next byte to the wrong half, so the disk's DMA lands at the wrong
+address or runs the wrong length: the ring slot the player was promised keeps
+the previous lap's bytes and decodes as static, or the sectors land on
+something else - the sound ring's control words among the candidates. MartyPC
+never showed it: its fixed disk is an XT-IDE, programmed I/O, and no DMA at
+all.
+
+**kern_mega is where the read is safe, and the only place it was needed**: it
+masks every kernel line for the length of a reflected BIOS call (`mega_svc`),
+which is both why its edges were lost and why no ISR can land inside a ROM's
+pairs there; its native floppy programs channel 2 under `cli`. On the real-mode
+kernels a line is masked only by a `cli`, and a ROM holding one across two
+block ends is the one case left counting short - the picture then runs slow,
+in step with its sound, which is what shipped for months before 34.5.2.1.
+
+What it costs: 23 bytes of `SOUND.DRV`, 12,045 -> 12,068, still a 12KB claim (the flag, its store at the open and
+the test in the ISR). Verb 9's read is unchanged - it runs in task context
+under `cli`, and a task inside `int 13h` holds `[sch_lock]`, so no other
+task's verb can land between a ROM's pairs.
+
 #### 34.5.3 An external ring, and ADPCM4 (the Video Player)
 
 **A ring in the PACKAGE'S OWN claim**, opened with `SND_OPENF_RING +
@@ -197467,7 +197503,11 @@ stream's state (verb 3):
   block was queued - on MartyPC's 5150, 3.93 s to 5.2 s silent with 2,259
   bytes queued the whole time, and ~0.7 s sooner asked every pass;
 - a card the driver's watchdog ENDED makes the rest of the play silent on
-  the timer - never a picture held for a clock that has gone.
+  the timer - never a picture held for a clock that has gone. It counts as a
+  pause, and **the card's line shows the pauses whenever there are any**:
+  it showed them only while the play still had the card, which is exactly
+  what an ended one no longer has, so a play that lost its sound half way
+  read `Drew 1120/1821, stalls 0` with nothing to say why (2026-10-26).
 
 When the picture is done it waits, up to two seconds, for the card to play
 past the last byte of sound, then closes the stream (verb 2) before the ring
