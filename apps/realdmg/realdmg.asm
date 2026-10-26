@@ -30,15 +30,16 @@
 %ifdef RDG_AOT                          ; A PRECOMPILED CARTRIDGE (REALDMG-SPEC
                                         ;   20.10): one game's package, so it
 %ifdef PKG_MEGA
-    OS88_HEADER 'REALDMG', rw_entry, OS88_F_ICON | OS88_F_PARTS, OS88_STACK_384 | OS88_HIGHMEM
+    OS88_HEADER 'REALDMG', rw_entry, OS88_F_ICON | OS88_F_PARTS, OS88_STACK_384 | OS88_HIGH | OS88_HIGHMEM
 %else
     OS88_HEADER 'REALDMG', rw_entry, OS88_F_ICON | OS88_F_PARTS, OS88_STACK_384
 %endif
 %elifdef PKG_MEGA                       ;   opens no extension
-    OS88_HEADER 'REALDMG', rw_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_PARTS, OS88_STACK_384 | OS88_HIGHMEM
-%else                                   ; (the arm's claims of 64KB or less may
+    OS88_HEADER 'REALDMG', rw_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_PARTS, OS88_STACK_384 | OS88_HIGH | OS88_HIGHMEM
+%else                                   ; (the arm's region and its claims of
     OS88_HEADER 'REALDMG', rw_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_PARTS, OS88_STACK_384
-%endif                                  ;   go above 1MB: REALDMG-SPEC 16.2.6)
+%endif                                  ;   64KB or less may go above 1MB:
+                                        ;   REALDMG-SPEC 16.2.6, 16.2.7)
 
 ; --- embedded 16x16 icon: a Game Boy, the screen and the cross --------------
     OS88_ICON16

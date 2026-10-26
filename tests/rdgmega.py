@@ -150,7 +150,7 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
     t0 = time.time()
     box = os88bochs.Box(out, [], bimg=disk, btype="1_44", build=t.dir)
     fails, text, bank1, b1lin, xn, rcy = [], "", 0, 0, 0, 0
-    xlin, blin = [], 0
+    xlin, blin, rbase = [], 0, None
     try:
         if not box.wait_for("kern_mega: protected mode", 300):
             return ["%s: kern_mega never reached protected mode" % name]
@@ -182,6 +182,7 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
                 base = box.pkg_base("RealDMG")
                 if base is None:
                     continue
+                rbase = base
                 view = int.from_bytes(box.read(base + viewoff, 2), "little")
                 if not view:
                     view = None
@@ -240,7 +241,8 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
           "(linear %06X)" % (name, " ".join("%04X" % c for c in sorted(coded)),
                              bank1, b1lin))
     print("rdgmega: %s: serial %r" % (name, " ".join(text.split())))
-    print("rdgmega: %s: cache B at linear %06X" % (name, blin))
+    print("rdgmega: %s: the region at linear %06X, cache B at %06X"
+          % (name, rbase or 0, blin))
     print("rdgmega: %s: %d extra cache tiers%s, %d tiers recycled"
           % (name, xn, (" at " + " ".join("%06X" % x for x in xlin[:4]) +
                         (" ..." if len(xlin) > 4 else "")) if xlin else "",
@@ -274,6 +276,11 @@ def leg(t, out, name, pkg, lst, rom, where, squeeze=False):
     # 1MB, 64KB apart - and an arm with the pool behind it has some
     if where != "refuse" and not a_pkg(pkg) and xn < 1:
         fails.append("no extra cache tier was taken from the pool")
+    # REALDMG-SPEC 16.2.7: the arm declares OS88_HIGH, so its region - the
+    # package's code and data - is loaded above 1MB under CPU_F_PM
+    if where != "refuse" and not a_pkg(pkg) and (rbase or 0) < 0x100000:
+        fails.append("the package's region is at linear %06X, below 1MB: "
+                     "the arm declares OS88_HIGH" % (rbase or 0))
     if where != "refuse" and not a_pkg(pkg) and blin < 0x100000:
         fails.append("cache B is at %06X, below 1MB: the arm declares "
                      "OS88_HIGHMEM and its 64KB claims go to the pool" % blin)

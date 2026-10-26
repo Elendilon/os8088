@@ -81,6 +81,7 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
     box = os88bochs.Box(out, [], bimg=disk, btype="1_44", build=t.dir)
     fails, text, fix, on, xn, xlin, b1lin, coded = [], "", 0, 0, 0, [], 0, set()
     f0 = f1 = None
+    rbase = None
     try:
         if not box.wait_for("kern_mega: protected mode", 300):
             return ["%s: kern_mega never reached protected mode" % name]
@@ -109,6 +110,7 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
                 base = box.pkg_base("RealDMG")
                 if base is None:
                     continue
+                rbase = base
                 view = int.from_bytes(box.read(base + viewoff, 2), "little") or None
                 if view is None:
                     continue
@@ -152,6 +154,7 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
     other = [l for cs, l in traps if cs in coded]
     region = [l for cs, l in traps if cs not in coded]
     print("rdgaotmega: %s: serial %r" % (name, " ".join(text.split())))
+    print("rdgaotmega: %s: the region at linear %06X" % (name, rbase or 0))
     print("rdgaotmega: %s: JITON %d JITFIX %d; %d images at %s; bank 1 at linear %06X"
           % (name, on, fix, xn, " ".join("%06X" % x for x in xlin[:4]) +
              (" ..." if len(xlin) > 4 else ""), b1lin))
@@ -170,6 +173,9 @@ def leg(t, out, name, pkg, lst, rom_beside, where, game=False):
         fails.append("not the precompiled machine: S_JITON %d, S_JITFIX %d" % (on, fix))
     if xn < (1 if game else 2):
         fails.append("%d code images named to the core" % xn)
+    if (rbase or 0) < 0x100000:          # REALDMG-SPEC 16.2.7: OS88_HIGH
+        fails.append("the package's region is at linear %06X, below 1MB: the "
+                     "--mega package declares OS88_HIGH" % (rbase or 0))
     if any(x < 0x100000 for x in xlin):
         fails.append("a code image is based below 1MB: %s" % " ".join("%06X" % x for x in xlin))
     if any(b - a != 0x10000 for a, b in zip(xlin, xlin[1:])):

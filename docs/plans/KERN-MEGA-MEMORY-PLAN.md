@@ -870,11 +870,12 @@ that order (D11). MC9 is deferred, as section 5 planned it.
   memory and leaving the 64KB reserve.
 - **Packages:** every package and driver the MC7 census named is converted,
   on one shared path unless the XT measured slower.
-- **`tests/megahigh.txt` is down to ONE line:** RealDMG's `high`. Its arm
-  declares `OS88_HIGHMEM`, but no build of it declares `OS88_HIGH`, so its
-  region has never been run above 1MB. That is the `mega-dmg` session's.
-  RealDMG's conversion itself (item 11 of the package wave) is DONE, both
-  builds and the precompiled package, merged at `3bc7f0be`.
+- **`tests/megahigh.txt` is EMPTY**: its last line, RealDMG's `high`, went
+  on `mega-dmg` (2026-10-26) when the arm and `gbaot.py --mega`'s package
+  declared `OS88_HIGH`, run above 1MB by `tests/rdgmega.py` and
+  `tests/rdgaotmega.py` (REALDMG-SPEC 16.2.7). RealDMG's conversion itself
+  (item 11 of the package wave) is DONE, both builds and the precompiled
+  package, merged at `3bc7f0be`.
 
 **kern_mega's own limits, as the owner set them (2026-10-26):** it is a knob
 build that is MEANT TO GROW.
@@ -908,7 +909,7 @@ build that is MEANT TO GROW.
 
 **Left, and whose:**
 - **MC9** (section 5): what still goes low.
-- **RealDMG's `high` line:** `mega-dmg`.
+- ~~RealDMG's `high` line~~: DONE on `mega-dmg` (REALDMG-SPEC 16.2.7).
 - **The speed pass's completed #GPs**, writes through CS that work and cost
   a fault each:
   - Sheet's macro module: 164 a macro run.
@@ -1620,8 +1621,8 @@ build that is MEANT TO GROW.
         one pool block as `SEG_SUBC` pairs, code selectors in the
         relocations and tokens, the images as `S_JITXT` pairs (20.15);
         the plain package still refuses (20.14). `tests/rdgaotmega.py`.
-      What is left of it is the `high` line below and section 8.6's file
-      read, which RealDMG works round.
+      Its `high` line went too (REALDMG-SPEC 16.2.7); what is left is
+      section 8.6's file read, which RealDMG works round.
   Each converts on every kernel where the XT loop is no slower, or as a
   `PKG_MEGA` arm where it measures slower (MC7.2's answer).
   **Taken (2026-10-25, batch 1):** C64 and Apple II (the three bank fetch

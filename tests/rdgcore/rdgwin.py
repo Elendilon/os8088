@@ -91,6 +91,23 @@ def find(b, tries=30):
 
 def find1(b):
     vo = gbwindow.label_off(LST, "rdg_viewseg")
+    try:                                        # THE KERNEL'S OWN TABLE first: a
+        import os88geom as g                    #   region kern_mega loaded above
+        n = g.INST_MAX["big"] if isinstance(g.INST_MAX, dict) else g.INST_MAX
+        raw = b.memr(b.sym("inst_tab"), n * g.I_RECSZ)   # 1MB (OS88_HIGH,
+        for i in range(n):                      #   REALDMG-SPEC 16.2.7) is not
+            r = raw[i * g.I_RECSZ:(i + 1) * g.I_RECSZ]   # in the scan below
+            if r[g.I_STATE] != 1 or not r[g.I_KIND] & g.KIND_PKG:
+                continue
+            if not r[g.I_NAME:g.I_CYC].split(b"\0")[0].upper().startswith(b"REALDMG"):
+                continue
+            base = b.lin(int.from_bytes(r[g.I_SPTR:g.I_SPTR + 2], "little"))
+            v = int.from_bytes(b.memr(base + vo, 2), "little")
+            if v and int.from_bytes(b.memr(b.lin(v) + 0x4012, 2), "little") == v:
+                core = int.from_bytes(b.memr(base + vo + 2, 2), "little")
+                return base >> 4, v, core       # (a linear paragraph: the
+    except (SystemExit, KeyError, AttributeError):  #   callers read seg x 16)
+        pass
     mem = b"".join(b.memr(0x10000 + k, 0x8000) for k in range(0, 0x90000, 0x8000))
     for o in range(0, len(mem) - 32, 16):
         if mem[o:o+2] == b"O8" and mem[o+16:o+23] == b"REALDMG":
