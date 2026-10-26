@@ -274,7 +274,8 @@ def main():
               % chr(ord("A") + vol))
         n0 = len(log.gets())
         t0 = time.time()
-        wz = instwiz.qemu(q, S, click, w)
+        instwiz.SYM = instwiz.symmap(shipped=True)  # os8088-360.img's
+        wz = instwiz.qemu(q, S, click, w)           # INSTALL.O88, on any kernel
         wz.run(wipe=False, limit=LIMIT)
         if open(hd, "rb").read(446) == mbr0:
             sys.exit("httpinstall: FAIL - the wizard finished and nothing "

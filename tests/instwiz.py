@@ -45,13 +45,16 @@ LOGN, LOGC = const("IN_LOGN"), const("IN_LOGC")
 BACK, NEXT, CANCEL = 0, 1, 2
 
 
-def symmap():
-    """The package's symbols, off the map its build rule writes."""
+def symmap(shipped=False):
+    """The package's symbols, off the map its build rule writes. `shipped`:
+    the kern_big build's map whatever the kernel - for a row that runs the
+    INSTALL.O88 off a SHIPPED disk (tests/httpinstall.py serves
+    os8088-360.img over HTTP), not mega.img's own."""
     out = {}
     # kern_mega ships its OWN INSTALL.O88 (the Makefile's MEGAINST, SPEC.md
     # 117.10.2), whose map is beside it in megak/apps/
     path = os88build.at("build/install.map")
-    if os.environ.get("OS88_MEGA"):
+    if os.environ.get("OS88_MEGA") and not shipped:
         path = os.path.join(os.environ.get("OS88_MEGA_BUILD")
                             or os.path.dirname(path),
                             "megak", "apps", "install.map")
