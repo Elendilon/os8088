@@ -247,7 +247,6 @@ UNREGISTERED = {
                        "fetched data, `make lemmingsdisk` and build/martypc, "
                        "takes minutes a machine, and asserts only that it "
                        "reached each state - lembenchmarty.py's kind",
-    "swcolsame.py": "A/B gate - needs `make NOCOLFAST=1` as a reference build",
     # pkgthumb.py IS registered (four rows). Its `frotz` mode is not one of
     # them: a Z-machine interpreter needs a STORY, and the two ways to get one
     # are a network fetch or the Inform compiler, neither of which is a build

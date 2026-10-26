@@ -16303,6 +16303,18 @@ SOAK = [
         "to nibbles (SPEC.md 42.13.1), which is what puts the block through "
         "gfx_blit4 at all, and a W_X written by hand would skip it.",
         needs=("marty", "nasm"), serial=True, timeout=1800),
+    Row("swcolsame", "soak", py("tests/swcolsame.py"), 300.0,
+        "SPEC.md 39.25: sw_col's whole-column store must put the same pixels "
+        "on the glass as the general read-modify-write body. One scripted "
+        "session (a Disk window, its APPS folder, a menu) on the shipped "
+        "kernel and on a NOCOLFAST=1 private tree, on CGA and on Hercules - "
+        "a different banked layout, so a different wrap in the inlined row "
+        "step - every capture below the menu bar compared. The fast body's "
+        "`xor ch, cl` replaced differs on every step of both machines. It "
+        "was a hand-run two-build gate, and its Disk-window capture was "
+        "taken mid-open (still pixels while the drive is read) until it "
+        "waited on ui_done",
+        needs=("marty", "nasm"), serial=True),
     Row("paintmove", "soak", py("tests/paintmove.py"), 60.0,
         "Compact the heap out from under a LIVE Paint canvas (SPEC.md"
         "66.2/42).",
