@@ -10883,3 +10883,28 @@ disk's MBR, read over the driver"*. Not run on 86Box: the mechanism is in
 the driver's own copy and is the same on a 286 as on Bochs's 386. Rung 0
 (BIOS) has no pairing read, so it is the owner's IDE machine that reaches
 it.
+
+### 14.77 Disk > Unmount Image left the window on the drive it had just taken away (2026-10-26)
+
+**Found by porting `imgmount` to kern_mega** (tests/megaport.txt): Disk >
+Unmount Image in a mounted image's own window unmounted it, said
+*"TEST.IMG unmounted"* - and the window stayed on D:, the drive that no
+longer existed, where on kern_big it goes to the root of the host
+(SPEC.md 18.101.5). `[disk_drive]` read the host's 1 and the window's
+`FS_DRV` 3 for sixty guest seconds.
+
+**Cause**: `fm_c_unmnt` sends the window to the host only when the verb
+answered CF = 0 (`call fm_imgcall / jc fm_c_dlg.no`), and that CF is
+`fm_cldrop`'s - `mod_drop`'s, which keeps every register and leaves its
+flags to `mod_free_row`. On kern_big the last flag there is `mem_free_x`
+releasing the module's claim, which cannot fail. On kern_mega a module
+loaded ABOVE 1MB (DISKOPS.DRV here) takes the selector arm, and that arm
+returned with the flags of `cmp bx, mod_tab + MOD_DESK * MODR_SIZE` in
+them: CF = 1 for every module whose `mod_tab` row is below DESK.DRV's. So a
+successful unmount read as a refusal.
+
+**Fix** (`kernel/mod.inc`, inside `%ifdef KERN_MEGA`): the selector arm
+ends `clc / ret`, the answer the conventional arm gives. kern_big and
+kern_small are byte-identical (the build number apart). **`mega-imgmount`
+is the row**: red before it on *"...and the window goes to the HOST [3]"*,
+44 checks green after.
