@@ -11192,3 +11192,49 @@ scancodes, so `os88marty.text_taken` (which types with the guest paused) kept
 `DOSM` of `DOSMOUSE.COM`, four shifted characters, and dropped eight. `_c_key`
 now queues what it is handed while stopped and `_resume` sends it one GUI
 pass (`INPUT_GAP`) apart.
+
+### 14.106 The program's last screen after a trip: the capture, designed and not built (2026-10-26)
+
+14.77's open item, looked at again for wave 2 of the port. **Not built,
+because it is not one image's change**: it crosses the launch block's ABI
+and three images (kern_dos, DOS.O88's DOS_MEGA arm and the kernel's
+`mega_dosgo`), and `tests/doscon.py` is not ported until it is.
+
+**Why DOS.O88's own `dos_snap` cannot do it.** `DHK_SNAP` is called by the
+core's `dos_prog_done` with the program's screen still up - but on a trip
+the core is kern_dos's copy, and `dos_snap` copies into `con_scr`, which is
+in DOS.O88's region: a pool block above 1MB, named by a selector the
+real-mode kern_dos cannot load. By the time DOS.O88 runs again the stub has
+staged the clock and exit code on the text page (`kd_stageseg`, B800/B000 +
+the HS_* offsets) and `hbm_wake`'s mode set has cleared the rest.
+
+**The design** - three pieces and a field, in the order the trip runs:
+
+1. **A field in the launch block**, `KDL_SNAPLIN` (dd): the LINEAR address
+   of `con_scr` and, after it, of the four cells `dos_snap`'s tail writes
+   (`con_cx`, `con_cy`) and one flag byte. DOS.O88 writes the OFFSETS into
+   the block it already fills (dos.asm's `KDL_FLAGS` site); `mega_dosgo`,
+   which knows the caller's selector's base, converts them to linear before
+   the park, as it already converts KDL_STAGE (14.77's first fix was that
+   conversion done wrong).
+2. **kern_dos binds `DHK_SNAP`** (KD_MEGA only) to a `kd_snap` that is
+   `dos_snap`'s mode test and page/cursor arithmetic with its `rep movsw`
+   replaced by `kdx_87` - the int 15h AH=87h block move kern_dos already
+   carries for XMS (`kerndos/kdxms.inc`), whose ROM return already comes
+   back through the low slot `kdh_s87` - one move of the 25 rows (4,000
+   bytes; a forty-column mode copied row by row with the right half
+   blanked, or staged in kern_dos's own bss first), then the cursor and the
+   flag. An empty screen (`dos_snap_any`) moves nothing and leaves the flag
+   clear.
+3. **DOS.O88's wake** (the DOS_MEGA arm of the `KDH_CODE` read, dos.asm
+   ~1156) tests the flag, clears it, and runs `dos_snap`'s TAIL - the
+   cursor clamp, `con_pwrap`/`con_scrl` zeroed, `con_markall` - so the band
+   repaints from a buffer that is already full, and then prints the exit
+   line under the program's last screen exactly as the windowed arm does.
+
+`KDL_VER_NOW` moves with the field (an old DOS.O88 against a new kernel
+sends no address, and kern_dos then binds nothing). Cost: ~60 bytes of
+kern_dos (KD_MEGA only), ~20 of DOS.O88's DOS_MEGA arm, ~15 of `.mega`;
+kern_big and kern_small untouched. **The gate is `tests/doscon.py`** on
+kern_mega (`DOSHELLO`'s own lines between `Starting` and `ended`), and its
+red is a kern_dos with `kd_snap` unbound.
