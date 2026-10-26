@@ -73,3 +73,35 @@ heapscrl secs=150   # the Task Manager arm's memory page list scrolls: bar survi
 gifdrag secs=200   # the field's freeze recipe (memory page open, OS8088.GIF in Paint, eight drags): every stack slice and task 0 stay under 80% and the guest keeps retiring instructions (Bochs ptime)
 rehomeabort secs=60   # a re-homed program refusing itself leaves no window, no instance, the heap's free runs AND kern_mega's pool blocks exactly as before the launch
 pkgmove-texpad secs=50 @OS88_BOCHS_MEGS=1   # on the 1MB kern_mega (no pool): TeXPad's declared source claim MOVES in a posted compaction - its selector rebased, the word naming it live, its bytes and the window's picture identical
+
+# APPLICATIONS
+fptest secs=40   # the float library's 88 cases on the soft path AND the 386's FPU ("8087 0"); red on a wrong expectation (soft 1, 8087 1)
+imgtest secs=30   # every os88img decoder case's verdict out of its record; --break goes red on BDOWN.BMP
+minexflag secs=60   # a wrong flag is not pixel-identical to a mine, on the VGA glass (1bpp vram -> fbuf); red with the X drawn CBLACK
+cychs secs=80   # Cyclone's high-score table: a full write, an in-place write, a re-launch reads both back; red with od_write taken out
+tankaim secs=70   # TANK's aim assist inside the box and nowhere else, the turn untouched, the reticle honest (VGA: one step a frame)
+skiesui secs=110   # Clear Skies' title-page drop-downs, the pick changing the picture, the two forced refusals (region re-homed above 1MB)
+skiesworlds secs=80   # every Clear Skies location loads its world byte-exact and flies (re-homed region, overlay read through its selector)
+fontview secs=60   # F88 launches FONT VIEWER on the face, every face listed, typing, arrows, clicks; mega.img's own SYSTEM/FONTS is the first rung; red with a face deleted
+npscroll secs=70   # Note Pad scrolled while its height is still counted: no frozen UI, the count carried, the scroll bar untouched
+tgplay secs=90 +--card +vga   # TameGram's 600 seeded ticks play the expected game (THREAT 191, PURGES 18, grid); VGA, so no 1bpp matrix compare; red with the column pass skipped
+linecar secs=70   # DOS's path field: three histories to LEN 2 CAR 2 'AB' are one picture (dosmap takes -DDOS_MEGA, mega.img's DOS)
+tpdraw secs=140   # TeXPad's incremental source redraw against a forced wm_paint_all, 0 differing pixels per leg
+wdcombo secs=130   # Word's three combos are os88ui_drop records: drop, bank, drag, pick, restore exactly, Esc
+ddcorner secs=420   # no Dot Delirium wall pixel in an actor's colour at any dd_blit, windowed and full screen (Bochs's glass, VGA)
+vidvga4 secs=90   # the Video Player ARM (build/megak/apps) plays 16 colours in mode 12h in the window and full screen; the copying arm (vp_noinp) so the streamed ring is the one sized
+vidmodex secs=45   # the ARM plays Mode X sub-records under a map mask; red with vp_dac skipped
+recorder secs=45   # RECORDER on Bochs's SB16: PCM_BG plays and retires, the speaker path's chunks come from a claim of its own (heapmap's pool: above 1MB), Record/Stop; --break-sweep goes red
+weavesmoke secs=120   # WEAVE opens FORM.WAB at the standard rect with weavesim's VGA cell grid (80x52), title, edges, ink in bands - on the glass, thresholded (VGA leg only)
+weavepack secs=200   # LOOM packs every demo and template ON kern_mega byte-identical to weavesim --pack, read back off the guest's floppy
+weavesession secs=70   # a scripted WEAVE session (type, click, script, formula) against weavesim's oracle, VGA leg
+chartread secs=150   # CHART's SYLK, DIF and BIFF readers draw one chart (CHART and SHEET above 1MB)
+ovlhigh secs=60   # CWORD's overlay part claimed TOP-DOWN, packed under the ceiling, MOVABLE - unchanged on kern_mega's conventional arena
+sheetfmt secs=300   # SHEET's three file formats round-trip what they mean; the CGA-pinned menu/chooser/folder points moved by their windows' measured dy on Bochs's VGA (sheetfmt.mega_y)
+sheetfunc secs=70   # all 48 text/information/transcendental functions, saved and read back on the host
+sheeteval secs=80   # what SHEET's evaluator answers, 102 checks by the host
+sheetxl2 secs=90   # SHEET opens Excel 2.1's own BIFF2 files (arm A; arm B skips without the archive, as on MartyPC)
+scsize secs=130   # SCRIBE's parts and claims (heapmap's kern_mega pool: the region and its three claims above 1MB), round trips, picture, TOOBIG, sort, undo
+gbsave secs=160   # RealDMG's ARM: battery RAM and MBC3 clock saved on close (GBSAVE.SAV) and read back on a second boot; red with rw_onclose answering without writing
+wirefleetdeploy secs=60   # WireFleet deployment, refusals, rotation, removal, auto, Ready, button cancel, About - the VGA leg (Bochs has no CGA/Hercules)
+chartgal secs=600   # the Gallery draws seven different charts, unchanged on kern_mega's VGA (CHART above 1MB)

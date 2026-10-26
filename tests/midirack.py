@@ -195,6 +195,18 @@ def session(arm, cap, brk):
     # ...and the wavetable's, `make mrwttest`'s apps disk: the synthetic bank
     # beside the package
     apps = "build/mrwt720.img" if arm == "wt" else APPS
+    if os.environ.get("OS88_MEGA") and arm in ("sb", "wt"):
+        # kern_mega (tests/megaport.txt): MIDIRack's ARM, which megaapps.img
+        # carries - but beside MEDIA\MIDI's whole library, where the row
+        # wants the 720KB disk's two songs. So the shape mrwt720.img has,
+        # with the arm in it (and the bank for wt)
+        apps = os.path.join(os.path.dirname(cap), "apps.img")
+        bank = (["APPS:build/mrsynth/MIDIRACK.BNK"] if arm == "wt" else [])
+        subprocess.run(["python3", "tools/os88disk.py", "-o", apps,
+                        "--size", "720", "APPS:build/megak/apps/midirack.o88"]
+                       + bank + ["MEDIA/MIDI:" + SONG, "MEDIA/MIDI:" + INTRO,
+                                 "--folder", "SYSTEM/APPDATA"], check=True,
+                       stdout=subprocess.DEVNULL)
     if arm == "sbmem":                  # ...and the filler beside it: the
         apps = os.path.join(os.path.dirname(cap), "apps.img")   # mrwt shape
         subprocess.run(["python3", "tools/os88disk.py", "-o", apps,
@@ -402,7 +414,7 @@ def arm_sbmem(ui, p):
             "the card's answer", poll=.1, limit=10)
     if (p.b("mrb_open") != 1 or p.b("mrb_grant") != 1 or p.w("mrb_seg")
             or p.b("mr_out") != MRO_SB):
-        msg = bytes(m.read(p.w("mr_msg") + p.seg * 16, 64)).split(b"\0")[0]
+        msg = bytes(m.read(p.w("mr_msg") + p.base, 64)).split(b"\0")[0]
         fail("sbmem: with %d KB reachable, want the GRANT ring (open %d "
              "grant %d seg %04X out %d, %r)" % (reach, p.b("mrb_open"),
                                                 p.b("mrb_grant"),

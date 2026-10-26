@@ -100,7 +100,7 @@ floppyb: type={btype}, {bmedia}={b}, status=inserted
 {ata0}{cd}boot: {boot}
 port_e9_hack: enabled=1
 mouse: enabled=1, type={mouse}, toggle=ctrl+mbutton
-{com1}clock: sync=realtime, time0=local
+{com1}{cpu}clock: sync=realtime, time0=local
 {sb}log: {log}
 panic: action=report
 error: action=report
@@ -108,6 +108,14 @@ info: action=ignore
 debug: action=ignore{flogdbg}
 display_library: x
 """
+
+
+# THE CPU'S SPEED: Bochs's default is 4,000,000 instructions a guest second
+# (a 386SX-16, give or take), and `clock: sync=realtime` holds the guest to
+# it. $OS88_BOCHS_IPS asks for another figure - a row whose subject is a
+# real-time load (a synth feeding a card) on a faster 386 than that
+IPS = ("cpu: ips=%d\n" % int(os.environ["OS88_BOCHS_IPS"])
+       if os.environ.get("OS88_BOCHS_IPS") else "")
 
 
 INPUT_GAP = 0.06    # s: Bochs's GUI takes X events every ~10 ms of its own
@@ -479,7 +487,7 @@ class Box(object):
         rc = os.path.join(out, "bochsrc")
         with open(rc, "w") as f:
             f.write(BOCHSRC.format(
-                megs=megs or MEGS, a=a, b=b,
+                megs=megs or MEGS, a=a, b=b, cpu=IPS,
                 mouse=mouse or MOUSE,
                 com1="com1: enabled=1, mode=mouse\n"
                 if (mouse or MOUSE) == "serial" else "",
@@ -498,9 +506,13 @@ class Box(object):
                 cd=("ata1: enabled=1, ioaddr1=0x170, ioaddr2=0x370, irq=15\n"
                     "ata1-master: type=cdrom, path=%s, status=inserted\n" %
                     os.path.abspath(cd)) if cd else "",
-                sb=("sound: waveoutdrv=file, waveout=%s\n"
+                # waveindrv=dummy: the default input driver is the host's
+                # (ALSA, absent in a container), and a guest that opened the
+                # DSP for INPUT (Recorder, SPEC.md 34) wedged Bochs with no
+                # debugger prompt ever again - the dummy hands it silence
+                sb=("sound: waveoutdrv=file, waveout=%s, waveindrv=dummy\n"
                     "sb16: enabled=1, midimode=0, wavemode=1, "
-                    "dmatimer=600000\n" % os.path.join(out, "sb.wav"))
+                    "dmatimer=%s\n" % (os.path.join(out, "sb.wav"), os.environ.get("OS88_BOCHS_DMATIMER", "600000")))
                 if sb else "") + (
                 "ne2k: ioaddr=0x300, irq=10, mac=52:54:00:12:34:56, "
                 "ethmod=slirp%s\n" % (", script=" + os.path.abspath(SLIRP)

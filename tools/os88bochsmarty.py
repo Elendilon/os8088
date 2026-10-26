@@ -162,6 +162,7 @@ class BochsMarty(om.Marty):
         self._ldt = None
         self._tmp = tempfile.mkdtemp(prefix="bxm", dir=run_dir)
         self._closed = False
+        self._wav = os.environ.get("MARTYPC_WAV")    # see close()
 
     # ---- the clock --------------------------------------------------------
     def _cycles(self):
@@ -724,6 +725,13 @@ class BochsMarty(om.Marty):
             pass
         try:
             self.box.stop()
+            # THE CARD'S CAPTURE, where a MartyPC row looks for it: with
+            # $MARTYPC_WAV set at launch, MartyPC writes <it>.sound_blaster.wav
+            # and the SB16 here writes OUT/sb.wav (os88bochs.Box(sb=True)) -
+            # complete only once Bochs has stopped, so it is copied here
+            wav = os.path.join(self.box.out, "sb.wav")
+            if self._wav and os.path.exists(wav):
+                shutil.copy(wav, self._wav + ".sound_blaster.wav")
         finally:
             if not os.environ.get("OS88_MEGA_KEEP"):
                 shutil.rmtree(self.run_dir, ignore_errors=True)
@@ -798,6 +806,10 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
         m._bpmark = os.path.getsize(box.e9)
         if boot is False or boot == 0:
             m._c_pause()
+            # ...at cycle 0, as MartyPC's is: rows tell launch(boot=False)
+            # by `status()["cycles"] == 0` (tests/tank.py's open_game), and
+            # the moments Bochs ran before this pause are its BIOS's POST
+            m._cyc = 0.0
             return m
         if boot is True:
             box.up()

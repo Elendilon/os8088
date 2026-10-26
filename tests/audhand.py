@@ -43,6 +43,13 @@ MACHINE = "os8088_5150_herc_hdd_sb_gla"
 TEMPLATE = os.path.join(ROOT, "build/martypc/run/media/hdds/default_xtide.vhd")
 SECS = 25
 DEFS = ("AP_HANDOFF",)
+# kern_mega (OS88_MEGA, tests/megaport.txt): the Audio Player's ARM (-DPKG_MEGA,
+# KERN-MEGA-PLAN 14.66) with the knob, and no hard disk - the shim has no
+# C:, so the SYSTEM volume is A: (mega.img), which keeps the layout's point:
+# the player stands in B:\APPS and the queue is on another volume's root
+MEGA = bool(os.environ.get("OS88_MEGA"))
+if MEGA:
+    DEFS = DEFS + ("PKG_MEGA",)
 
 
 def wav(path, hz, secs):
@@ -77,7 +84,7 @@ def main():
         syms, _ = pkg_syms("apps/audio/audio.asm",
                            ("apps/", "apps/audio/"), defines=DEFS)
         vhd = os.path.join(tmp, "c.vhd")
-        subprocess.run(
+        MEGA or subprocess.run(
             [sys.executable, "tools/os88hdd.py", "--template", TEMPLATE,
              "--out", vhd, "--kernel", os88build.at("build/kernel.sys"),
              "--vbr", os88build.at("build/boothd.bin"),
@@ -100,7 +107,8 @@ def main():
             def ntracks(w):
                 rec = m.read(ui._S("wm_wins") + w.i * geom.WIN_SIZE,
                              geom.WIN_SIZE)
-                base = struct.unpack_from("<H", rec, geom.W_SEG)[0] << 4
+                seg = struct.unpack_from("<H", rec, geom.W_SEG)[0]
+                base = m.lin(seg) if MEGA else seg << 4
                 return m.read(base + syms["apl_n"], 1)[0]
             media = ui.path("B:/MEDIA")
             ui.open("ONE.WAV", expect=None)
