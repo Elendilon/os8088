@@ -188,7 +188,7 @@ def bss(path="apps/dotdel/dotdel.asm"):
 def lin(m, seg, off=0):
     """SEG:OFF's linear address: seg << 4, or through the descriptor on
     kern_mega, where a package's segments are LDT selectors"""
-    return m.lin(seg, off) if hasattr(m, "lin") else lin(m, seg) + off
+    return m.lin(seg, off) if hasattr(m, "lin") else (seg << 4) + off
 
 
 class Probe(object):
