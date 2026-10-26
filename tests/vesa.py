@@ -142,7 +142,11 @@ def desk_up(q, fails, cap=12.0, autostart=True):
 
 
 def screendump(q, path):
-    ppm = os.path.abspath(path + ".ppm")
+    # THIS PROCESS'S file, whatever `path` says: every vesa* row passed the
+    # same build/vesa-shot, and two of them in the emulator lane's two slots
+    # each unlinked the other's dump or read the other machine's screen. The
+    # name is kept for the caller; the directory is os88qemu's RUNDIR
+    ppm = os.path.join(os88qemu.RUNDIR, os.path.basename(path) + ".ppm")
     q.hmp('screendump "%s"' % ppm)
     w, h, pix = shot.read_ppm(ppm)
     os.unlink(ppm)

@@ -5637,7 +5637,12 @@ SOAK = [
         "screendump must show a CBLUE sky edge to edge and buildings in solid "
         "runs. Gorillas read OSAPI_WM_DISPLAY's DH = 16 as none of its 1 / 2 / 4 "
         "tables and blitted 2-bit rows as 4-bit: a white sky and comb "
-        "buildings. QEMU by name, vesa's reason",
+        "buildings. QEMU by name, vesa's reason. It declared no needs and no "
+        "serial, so it ran in the HOST pool and would not skip on a box "
+        "without QEMU; it boots one and assembles Gorillas for its symbols, "
+        "as its siblings on the same disk do (docs/plans/SOAK-PARALLEL.md "
+        "17.11)",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/apps.img", "build/vesafsx.img",
                "build/gorillas.o88")),
     Row("vesasu", "soak", py("tests/vesasu.py"), 120.0,

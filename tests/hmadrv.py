@@ -292,8 +292,16 @@ def record_play(q, ui, snd_seg, want, hma):
     # ...and the stream closes on the package's next poll: a menu command
     # that does nothing else asks for one (tests/recorder.py)
     ui.menu_pick("Sound", "Stop")
-    os88qemu.acted(q, lambda: drv("sbl_str_act")[0] == 0, secs=10,
-                   what="the stream closed", poll=0.2)
+    # ...CLOSED, which is the buffer given back and not the flag down:
+    # sbl_stop publishes [sbl_str_act] = 0 FIRST and only then frees the
+    # buffer through the kernel (sbl_unpin -> sbl_dma_put, which zeroes
+    # [sbl_seg] last), so a read the moment the flag dropped found the
+    # block still held - red once beside 70 other rows, green alone twice
+    # (docs/plans/SOAK-PARALLEL.md 17.11). A driver that never frees it
+    # still fails below, ten guest seconds on
+    os88qemu.acted(q, lambda: drv("sbl_str_act")[0] == 0
+                   and u16(drv("sbl_seg", 2)) == 0, secs=10,
+                   what="the stream closed and its buffer freed", poll=0.2)
     if hma:
         blk = [b for b in blocks(q) if b[2] == snd_seg and b[1] == 8192]
         want(not blk and u16(drv("sbl_seg", 2)) == 0,
