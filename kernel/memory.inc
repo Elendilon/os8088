@@ -3376,7 +3376,8 @@ mem_xlatf:
 ; are DROPPED - they are a redraw's shortcut, and the next raise re-takes
 ; each above 1MB - and the icon store is MOVED, because the listings hold
 ; references into it: a copy, [ico_seg] swapped with interrupts off, and the
-; low claim freed. Clobbers nothing
+; low claim freed. The glyph table's copy (MEM_K_FONT) moves the same way
+; (KERN-MEGA-PLAN 14.120). Clobbers nothing
 ; -----------------------------------------------------------------------------
 mem_hicaches_f:
     cmp byte [ss:mega_pm], 0
@@ -3392,7 +3393,30 @@ mem_hicaches_f:
     call KERNEL_SEG:wm_su_drop_allf
     mov si, ico_seg
     mov bx, MEM_P_ICO
-.ico:
+    call .one
+    mov si, font_seg            ; ...and the GLYPH TABLE'S COPY (KERN-MEGA-PLAN
+    mov bx, MEM_K_FONT          ; 14.120): font_init took it top-down in real
+    call .one                   ; mode, so it sat at the conventional ceiling
+                                ; for the whole session - a kilobyte of the
+                                ; DOS trip's arena and of a bridge's low piece
+                                ; for a table whose every use is a segment-
+                                ; register load. A ROM pointer, or a baked
+                                ; face's LOW_SEG, is no MEM_K_FONT claim and
+                                ; mem_find_own refuses it: nothing done
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+.ret:
+    retf
+; .one - SI = the word naming a claim, BX = its tag: the claim to a pool block
+; of its size, the word swapped with interrupts off, the low claim freed. Any
+; refusal leaves it where it is. Clobbers AX, CX, DX, SI, DI, ES
+.one:
     mov dx, [si]
     or dx, dx
     jz .done
@@ -3400,7 +3424,6 @@ mem_hicaches_f:
     jnc .done                   ; already above 1MB
     push si
     push bx
-    mov bx, MEM_P_ICO
     call mem_find_own           ; SI = its record: its size
     mov cx, [ss:si+MC_PARA]
     pop bx
@@ -3433,19 +3456,9 @@ mem_hicaches_f:
     pop si
     mov [si], ax                ; the store is up here from now on
     popf
-    mov bx, MEM_P_ICO           ; ...and the low claim goes
-    call mem_free_x.conv
+    call mem_free_x.conv        ; ...and the low claim goes (BX, DX kept)
 .done:
-    pop es
-    pop ds
-    pop di
-    pop si
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-.ret:
-    retf
+    ret
 
 ; -----------------------------------------------------------------------------
 ; mem_hiclaims - (drv_hiboot_f) ES = a driver whose header says

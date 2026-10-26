@@ -4983,14 +4983,19 @@ hbm_wake:
     ;     pick, so the fastest candidate is still the one taken. Nothing is live across
     ;     it - every register below is reloaded before it is read.
     FONT_PICK hbf               ; DX:BP = this machine's fastest table
-    mov ax, [font_seg]
 %ifdef KERN_MEGA
+    MEGA_ISHI word [font_seg]   ; a POOL block is the heap copy too: kern_mega
+    mov ax, [font_seg]          ; moves it above 1MB at the switch (KERN-MEGA-
+    jnc .fcopy                  ; PLAN 14.120), where s2seg reads FFFF
     call KERNEL_SEG:mega_s2segf ; a selector there: the paragraph it names
-%endif                          ; (MC7), which is what tells the two apart
+%else                           ; (MC7), which is what tells the two apart
+    mov ax, [font_seg]
+%endif
     cmp ax, 0xA000              ; a ROM (C000 up) or the image's heap copy
     jae .fptr
 %ifdef KERN_MEGA
     mov ax, [font_seg]          ; (the selector again, for the copy)
+.fcopy:
 %endif
     push ds
     mov es, ax
