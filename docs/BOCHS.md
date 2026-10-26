@@ -185,14 +185,33 @@ it maps:
 - **the FDC** - `disk()` counts `<<READ DONE>>`/`<<WRITE DONE>>` in Bochs's
   own floppy log (`debug: floppy=report`), which is all os88ui and `ui_done`
   use it for.
-- **breakpoints** - `exec`/`execseg` are `lb`; `mem`, `int` and `io` are
-  refused.
+- **breakpoints** - `exec`/`execseg` are `lb`, and what Bochs's fixed pool
+  of linear slots cannot take goes to `pb` (paging is off: the same address);
+  an address neither takes is an error. `mem`, `int` and `io` are refused.
+  `.cold` and `.mega` symbols are where kern_mega RUNS them above 1MB once it
+  is in protected mode (`sym()`), and a stop's `flat_ip` is its LINEAR
+  address - BpTrace keeps all of it rather than MartyPC's 20 bits. `park`
+  sets CS:IP on a stopped machine (`set cs` / `set eip`).
+- **input** - a key sent before any mouse event captures the window first
+  (keys went nowhere until something focused it); a held Ctrl survives the
+  re-capture after a debugger stop (that is Ctrl + middle click, and let it
+  go); a double-click's four edges go out in ONE xdotool chain with the guest
+  running, because stepping a real-time guest put them 5-9 ticks apart
+  against a window of 9.
+- **the boot toast** - kern_mega's `Entered protected mode` is EXPIRED
+  (`[toast_die]` wound back, its own path) by `kernel_up` and `UI.up`, since
+  it is up for eight seconds after the desktop and a row waiting for "a
+  toast" read it as the answer.
 - **reset** - a POWER CYCLE: Bochs's debugger has none, so the shim stops
   that Bochs and boots another on the same display from the disks as the
   guest left them, re-arming the breakpoints; SYSTEM.CFG is not re-injected.
 - **scratch disks** - a row that COPIES a shipped floppy to put files on it
   copies `os88marty.system_disk(path)` / `apps_disk(path)`, which are
-  `mega.img` / `megaapps.img` under `OS88_MEGA` and PATH otherwise.
+  `mega.img` / `megaapps.img` under `OS88_MEGA` and PATH otherwise; a
+  Makefile-built FIXTURE disk (`make stiktest`'s stik*360.img) is made again
+  on mega.img by `tests/megafix.py`'s `system_disk(path)`. Files on an
+  `_hdd` machine's C: are `extra=["--put", SPEC]` (os88disk.py's
+  `FOLDER:path`).
 - **refused by name** - `flicker`, `pace` (the frame instrument; the
   guest-seconds `os88marty.pace()` works), `planes`, `inb`/`outb`,
   `snapshot`, the wheel. A row built on one is not portable.
