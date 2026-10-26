@@ -11175,8 +11175,7 @@ stubs at 0000:0500 (docs/BOCHS.md). Sixteen rows of installs, partitions,
 the disk tool, kern_dos off a fixed disk and the hard-disk takeover pass on
 kern_mega with them - and `blitp` and `gorillasreactions`, which read VGA
 planes - each seen to go red with the engine, the driver, the installer or
-kern_dos broken on purpose (`hdtakeboot` apart, whose break is not cheap
-there). Two of them say something about kern_mega by design rather than a
+kern_dos broken on purpose. Two of them say something about kern_mega by design rather than a
 defect: `dosram` has ONE arm (every DOS program is a trip, so arm 0's
 controls are not drawn) and asserts that arm's promise against what
 kern_dos hands DOSHELLO - 613 K promised, 612 K handed - and `dosshell`'s
