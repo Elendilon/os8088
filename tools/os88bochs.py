@@ -101,7 +101,7 @@ floppyb: type={btype}, {bmedia}={b}, status=inserted
 port_e9_hack: enabled=1
 mouse: enabled=1, type={mouse}, toggle=ctrl+mbutton
 {com1}{com}{cpu}clock: sync=realtime, time0=local
-{sb}log: {log}
+{sb}{rcextra}log: {log}
 panic: action=report
 error: action=report
 info: action=ignore
@@ -463,7 +463,7 @@ class Box(object):
                  build=None, csys=False, put=(), cd=None, aimg=None,
                  display=None, megs=None, noc=False, vgahz=None,
                  flog=False, mouse=None, noserial=False, imps2=False,
-                 cimg=None, cgeom=None, ne2k_io=None):
+                 cimg=None, cgeom=None, ne2k_io=None, rcextra=""):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -544,6 +544,9 @@ class Box(object):
             # `imps2`: an IntelliMouse, so the WHEEL reaches the guest
             f.write(BOCHSRC.format(
                 megs=megs or MEGS, a=a, b=b, cpu=IPS,
+                # `rcextra`: bochsrc lines a row adds as they stand - an
+                # option ROM (`optromimage1:`, tests/megapmmouse.py)
+                rcextra=rcextra,
                 mouse="imps2" if imps2 else (mouse or MOUSE),
                 com1="com1: enabled=1, mode=mouse\n"
                 if (mouse or MOUSE) == "serial" else "",

@@ -36,6 +36,7 @@
 2 drivers/sound/sb.inc  # sbl_unhook and sbl_f_irqdisc. IRQ DISCOVERY IS DEFERRED TO THE FIRST STREAM, so on kern_mega it runs in protected mode: mega_null0 completes each segment-0 access (a trap apiece) and mega_ivt_sync carries the vector it hooks into the IDT (KERN-MEGA-PLAN 10.3 item 17), so a Sound Blaster stream plays; the sites stay because a driver cannot name MEGA_SEG0
 1 drivers/sound/picomem.inc  # pm_init's IVT check, at attach - the boot's real mode, unless the driver is loaded later from the Control Panel
 2 drivers/usbmouse/usbmouse.asm  # attach and detach hooking int 33h's vector
+1 drivers/usbmouse/pmsim.inc  # the PicoMEM gate MODEL (-DPMSIM, tests/megapmmouse.py, never shipped) re-hooking the card's IRQ vector as the card's function 0 does; under protected mode that store is the kernel's null-selector trap's to serve, which the row exercises (KERN-MEGA-PLAN 14.117)
 1 drivers/hdd/hdxms.inc  # hd_xa_a20, HDD.DRV's XMS ring: its own A20 probe through 0000 and FFFF
 3 drivers/xmem/xmem.asm  # XMEM.DRV, which kern_mega does not ship (its A20 and HMA work is mega_enter's)
 1 kernel/megados.inc  # mega_wrprobe's A20 test through 0000 and FFFF: the boot blob, REAL MODE, before mega_enter has switched

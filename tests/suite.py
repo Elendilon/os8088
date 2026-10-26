@@ -16745,6 +16745,23 @@ SOAK = [
         "64=10 at entry (docs/plans/completed/SOAK-SPEED.md ledger)",
         needs=("bochs",),
         wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
+    Row("megapmmouse", "soak", py("tests/megapmmouse.py"), 60.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.117, SPEC.md 9.12.7: a PicoMEM's "
+        "USB mouse on kern_mega. The card's ROM hands each report to "
+        "`int 33h AX=0060h` from inside its own IRQ, which kern_mega "
+        "reflects to real mode, where USBMOUSE.DRV's handler cannot run; "
+        "the reflection now catches it (mega_cap33) and delivers it through "
+        "the IDT once back (mega_m33go). No emulator has the card, so the "
+        "driver is assembled -DPMSIM (drivers/usbmouse/pmsim.inc, never "
+        "shipped) and a Bochs option ROM plays the card's IRQ handler. Two "
+        "legs: `tick` attaches in PROTECTED mode through OSAPI_DRV_USE, "
+        "`boot` from SYSTEM.CFG in real mode; each asserts four reports "
+        "taken and the pointer moved exactly (+40,+20). RED with "
+        "mega_cap33's hook taken out of mega_capon (the pointer never "
+        "moves), and the tick leg red with the driver's old CPU_F_PM "
+        "refusal (CF 1, DRVE_HW). 60s is 32 measured for both legs",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megarun.o88", "build/mbr.bin")),
     Row("megapiclose", "soak", py("tests/megapiclose.py"), 150.0,
         "docs/plans/KERN-MEGA-PLAN.md 14.63, 14.64, SPEC.md 96.45.2.5, "
         "9.9.9: the mouse moved DURING the live resume from a DOS program "

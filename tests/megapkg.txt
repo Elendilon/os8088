@@ -49,7 +49,6 @@ drivers/net/net.asm 1           # NET.DRV's net_norm, the same rule as
     # one-paragraph fold built a segment off kern_mega's grid. Real mode
     # folds paragraphs exactly as before; the test and its bank are ~25
     # bytes of the image, and NET.DRV is one driver for every kernel
-drivers/usbmouse/usbmouse.asm 1 # USBMOUSE.DRV's PicoMEM path refused
     # under protected mode (um_pmattach): the card's int 33h callback is a
     # real-mode far call into this image, which kern_mega cannot carry back
     # into protected mode, so attaching would hand the BIOS a vector that

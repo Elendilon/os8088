@@ -690,6 +690,17 @@ mega_capon:
     call .pair
     mov bx, 0x22*4                  ; ...and its hardware one
     call .pair
+    mov ax, [es:0x33*4]             ; ...and int 33h, when it names a driver
+    mov dx, [es:0x33*4+2]           ; image (KERN-MEGA-PLAN 14.117): the
+    mov [mega_c33sv], ax            ; PicoMEM's multiplexer hands each USB
+    mov [mega_c33sv+2], dx          ; mouse report to `int 33h AX=0060h`
+    cmp dx, 0xA000                  ; from inside the IRQ this reflection
+    jae .n33                        ; runs, and USBMOUSE.DRV's handler is
+    or dx, dx                       ; protected-mode code that calls the
+    jz .n33                         ; kernel - so the report is CAUGHT here
+    mov word [es:0x33*4], mega_cap33 ; and handed to it once we are back
+    mov word [es:0x33*4+2], KERNEL_SEG ; (mega_m33go)
+.n33:
     pop es
     popa
     ret
@@ -727,6 +738,10 @@ mega_capoff:
     call .pair
     mov bx, 0x22*4
     call .pair
+    mov ax, [mega_c33sv]            ; int 33h as it was
+    mov [es:0x33*4], ax
+    mov ax, [mega_c33sv+2]
+    mov [es:0x33*4+2], ax
     pop es
     popa
     ret
@@ -753,7 +768,26 @@ mega_capc:
     or [cs:mega_irqpend], al        ; real mode: code is memory
     pop ax
     iret
+; mega_cap33 - int 33h for the length of an IRQ reflection, in REAL mode. AX =
+; 0060h is a PicoMEM USB mouse report (DX the buttons, BX dx, CX dy, signed):
+; summed into mega_m33* for mega_m33go. Anything else is nobody's here - the
+; vector it replaced may be a SELECTOR (a driver hooked it in protected mode),
+; which real mode cannot chain to - so it returns untouched
+mega_cap33:
+    cmp ax, 0x0060
+    jne .x
+    inc byte [cs:mega_m33n]
+    mov [cs:mega_m33b], dx
+    add [cs:mega_m33x], bx
+    add [cs:mega_m33y], cx
+.x:
+    iret
 mega_capsave times 12 dd 0
+mega_c33sv  dw 0, 0                 ; int 33h across a reflection
+mega_m33x   dw 0                    ; ...the reports it caught: dx, dy summed,
+mega_m33y   dw 0
+mega_m33b   dw 0                    ; the last buttons,
+mega_m33n   db 0                    ; and how many (0 = none to deliver)
 mega_irqpend db 0
 
 ; mega_replay - PROTECTED MODE, after an IRQ reflection: each line a capture
@@ -789,7 +823,52 @@ mega_replay:
     jz .x
     int 0x27
 .x:
+    cmp byte [mega_m33n], 0         ; ...and a mouse report mega_cap33 caught
+    je .x2
+    call mega_m33go
+.x2:
     pop ax
+    ret
+
+; mega_m33go - PROTECTED MODE, IF = 0, DS = KDATA: what mega_cap33 caught,
+; delivered as the card would have - `int 33h` with AX = 0060h, DX the
+; buttons, BX dx and CX dy - through a gate rebuilt from IVT 33h as it stands
+; (the driver's image as a real segment if it hooked before the switch, its
+; code selector if after; either moves with the image). Two reports in one
+; reflection arrive as one, their sum held to a report's own range. Every
+; register kept (KERN-MEGA-PLAN 14.117)
+mega_m33go:
+    pusha
+    push es
+    mov ax, MEGA_SEL_IDT
+    mov es, ax
+    mov bx, 0x33
+    mov di, 0x33 * 8
+    call KERNEL_SEG:mega_idt_gatef
+    xor ax, ax
+    mov [mega_m33n], al
+    xchg ax, [mega_m33x]
+    call .clamp
+    xchg ax, bx
+    xor ax, ax
+    xchg ax, [mega_m33y]
+    call .clamp
+    xchg ax, cx
+    mov dx, [mega_m33b]
+    mov ax, 0x0060
+    int 0x33
+    pop es
+    popa
+    ret
+.clamp:                             ; AX -> -127..127
+    cmp ax, 127
+    jle .lo
+    mov ax, 127
+.lo:
+    cmp ax, -127
+    jge .ok
+    mov ax, -127
+.ok:
     ret
 
 ; -----------------------------------------------------------------------------

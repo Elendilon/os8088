@@ -631,15 +631,13 @@ def main():
                          % (len(got), len(want)))
 
         # --- 3. a PACKAGE, which is not a 'CZ' file (SPEC.md 22.22.1) -------
-        # ...and kern_mega in protected mode REFUSES one by design: the
-        # body starts cmz_x bytes in, a segment off the identity grid
-        # (kernel/compress.inc cmz_pkg, KERN-MEGA-PLAN 10.1) - so there the
-        # bytes the verb must write are none, and the words are the refusal
-        mega = getattr(m, "bochs", False)
+        # ...the same bytes on kern_mega in protected mode too: CALC.O88's
+        # clear prefix is 96 bytes, so its body starts OFF the 128-byte
+        # granule the encoder slides by, and the verb refused it there until
+        # KERN-MEGA-PLAN 14.116 - every segment it computes is a REAL
+        # paragraph aimed through a K scratch (KSEG), which takes any one
         t = compress(m, mo, wx, wy, "CALC.O88", fails)
         got = fl.volume(1).read("CALC.O88")
-        if mega:
-            pwant = calc if t == "Cannot compress this one" else b""
         ok = got == pwant
         say("  package    %s  %r  (%d bytes, wanted %d)"
             % ("ok " if ok else "BAD", t, len(got), len(pwant)))
@@ -716,8 +714,7 @@ def main():
         # --- 7. ...and a PACKAGE, which is the other container -------------
         t = compress(m, mo, wx, wy, "CALC.O88", fails, item=FM_IUNCOMP)
         back = fl.volume(1).read("CALC.O88")
-        ok = t.startswith("Not compressed" if mega else "Uncompressed") \
-            and back == calc
+        ok = t.startswith("Uncompressed") and back == calc
         say("  unpkg      %s  %r  (%d bytes, the original is %d)"
             % ("ok " if ok else "BAD", t, len(back), len(calc)))
         if not ok:
