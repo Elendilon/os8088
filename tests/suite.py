@@ -6159,7 +6159,7 @@ SOAK = [
         needs=("bochs", "mtools", "numpy"),
         wants=("build/mega.img", "build/megak/kernel.map",
                "build/megarun.o88", "build/megak/apps/xtmp3.o88",
-               "build/megak/apps/xtmp3.map")),
+               "build/megak/apps/xtmp3.bin")),
     Row("megasheet", "soak", py("tests/megasheet.py"), 80.0,
         "SHEET ABOVE 1MB UNDER kern_mega (KERN-MEGA-MEMORY-PLAN MC7): it "
         "far-calls code in two claims - the chart and macro modules, parts "
