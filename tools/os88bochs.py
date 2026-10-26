@@ -90,6 +90,10 @@ SLIRP = os.environ.get("OS88_BOCHS_SLIRP")
 # Microsoft serial mouse on COM1 instead - the transport every MartyPC machine
 # has, and the only one kern_dos's INT 33h serves (kerndos/kdmouse.inc)
 MOUSE = os.environ.get("OS88_BOCHS_MOUSE", "ps2")
+# THE CLOCK'S START: the host's local time by default; $OS88_BOCHS_TIME0 = a
+# Unix time pins it, for a row whose answer depends on the hour it is run at
+# (tests/dosdir.py sets the time BACK to 13:45:30 - KERN-MEGA-PLAN 14.114)
+TIME0 = os.environ.get("OS88_BOCHS_TIME0", "local")
 BOCHSRC = """megs: {megs}
 romimage: file=/usr/share/bochs/BIOS-bochs-legacy
 vgaromimage: file=/usr/share/vgabios/vgabios.bin
@@ -100,7 +104,7 @@ floppyb: type={btype}, {bmedia}={b}, status=inserted
 {ata0}{cd}boot: {boot}
 port_e9_hack: enabled=1
 mouse: enabled=1, type={mouse}, toggle=ctrl+mbutton
-{com1}{com}{cpu}clock: sync=realtime, time0=local
+{com1}{com}{cpu}clock: sync=realtime, time0={time0}
 {sb}{rcextra}log: {log}
 panic: action=report
 error: action=report
@@ -543,7 +547,7 @@ class Box(object):
         with open(rc, "w") as f:
             # `imps2`: an IntelliMouse, so the WHEEL reaches the guest
             f.write(BOCHSRC.format(
-                megs=megs or MEGS, a=a, b=b, cpu=IPS,
+                megs=megs or MEGS, a=a, b=b, cpu=IPS, time0=TIME0,
                 # `rcextra`: bochsrc lines a row adds as they stand - an
                 # option ROM (`optromimage1:`, tests/megapmmouse.py)
                 rcextra=rcextra,

@@ -34,7 +34,7 @@ doscom secs=40   # a .COM runs on the trip: its output, PSP:0002, the desktop ba
 dosexe secs=40   # an MZ .EXE with relocations and a short last page, on the trip
 dosexec secs=40   # AH=4Bh loads a child under kern_dos and control returns
 dosfile secs=40   # the handle layer under kern_dos: 20KB written, read, seeked, grown, deleted
-dosdir secs=45   # find, vectors, and AH=2Ah = the KERNEL's RTC date (14.77: `mul bx` ate the month)
+dosdir secs=45 @OS88_BOCHS_TIME0=1783180800   # find, vectors, and AH=2Ah = the KERNEL's RTC date (14.77: `mul bx` ate the month); the clock PINNED at 16:00 so DOSDIR's AH=2Dh 13:45:30 always sets it BACK, and the date must still come home unmoved (14.114)
 dosdrv secs=45   # a drive letter reaches the drive it names; A: is mega.img + AONLY.TXT
 dosregs secs=40   # INT 21h hands back every register it does not answer in
 dostype secs=150   # TYPE/COPY/VER at the windowed prompt, the console buffer by selector
@@ -54,6 +54,7 @@ ftpdfocus secs=120   # FTPD's Setup page keeps no caret it cannot type into
 # PANEL, LOADER AND HEAP
 modstr secs=70   # DISKOPS.DRV and FORMAT.DRV letter their own strings through CS, and the formatted 1.44MB B: mounts
 rdcz secs=60   # a compressed README.TXT with its directory hint struck still reaches Note Pad unpacked, off FAT and off the RAM disk
+rdboot secs=150   # RAMDISK.DRV attached AT BOOT, before mega_enter, reads its seed out of its own image (14.112: CPU_F_PM banked at a real-mode attach)
 cpup secs=40   # the Control Panel acts on the RELEASE (sch_coop), and the held radio draws pressed on the VGA glass
 cpnames secs=50 +hdd   # every Control Panel list name and page heading letters (CTRL.DRV strings through CS), plus HDD.DRV's row ticked in on a Bochs ATA disk - cpnameshdd's whole run
 dtwrite secs=40   # the RTC write is spent by the panel's CLOSE - and on Bochs's MC146818 the stepped year reaches the CHIP at the close and not before

@@ -327,6 +327,9 @@ kd_entry:
     call kd_mou_start
     mov word [dos_hkv + DHK_MOUSE], kd_mou_read
     mov word [dos_hkv + DHK_TXT],  kd_mou_txt
+    mov word [dos_hkv + DHK_TSET], kd_tset   ; AH=2Dh's step (KERN-MEGA-PLAN
+                                ; 14.114): nothing here restores 0040:006C, so
+                                ; the handover count moves with it
                                 ; **THE CURSOR IS THIS HOST'S AND ONLY THIS
                                 ; HOST'S** (SPEC.md 96.10.5.1). A DOS mouse
                                 ; driver draws its own pointer and nothing
@@ -1094,6 +1097,20 @@ section .text
 ; here so the call need not be far - is WRONG, because near or far is a
 ; property of the BODY and not of the distance: `dkf_dsk_vol_fixed` ends in
 ; `retf` whatever segment it is in. kdback.inc's header has the rest of it.
+; --- kd_tset - DHK_TSET: a DOS program set the time (KERN-MEGA-PLAN 14.114) --
+; in:  DX:AX = the new tick count less the old, signed; clobbers BX
+;
+; The way home measures the program's run as 0040:006C less the count the
+; launch block banked at the handover (KDL_TICK, SPEC.md 96.49.5), and AH=2Dh
+; writes 0040:006C. Moving the banked count by the same step keeps the
+; difference the run: a clock set BACK made it negative, which the wake reads
+; as a midnight crossed - the session came home a day on.
+kd_tset:
+    mov bx, [kd_lbp]
+    add [bx + KDL_TICK], ax
+    adc [bx + KDL_TICK + 2], dx
+    ret
+
 section .text
 dsk_vol_fixed:
     call COLD_SEG:dkf_dsk_vol_fixed

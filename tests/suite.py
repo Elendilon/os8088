@@ -7629,6 +7629,39 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSPIT.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturnset", "soak", py("tests/kdreturn.py", "--settime"), 30.0,
+        "...AND A PROGRAM THAT SETS THE CLOCK DOES NOT MOVE THE MACHINE'S "
+        "DATE (KERN-MEGA-PLAN 14.114). The way home measures the run as "
+        "0040:006C less the count the launch block banked at the handover "
+        "(SPEC.md 96.49.5), and AH=2Dh writes 0040:006C - so a set BACK was "
+        "a negative run, read as a midnight crossed, and the session came "
+        "home a DAY on (mega-dosdir's failure, on kern_big's shut-down arm "
+        "too). DOSSETT.COM is DOSHELLO built -DSETTIME (AH=2Dh to noon); the "
+        "window's run puts the count at noon first, so the kern_dos run's "
+        "set is a step back. kern_dos moves the banked count by the step "
+        "(DHK_TSET). VERIFIED RED without the hook: 04/07 to 05/07 across a "
+        "return of seconds - which the date assertion missed until this "
+        "row, comparing the month and year only. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSSETT.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturnfsx", "soak", py("tests/kdreturn.py", "--fsx"), 30.0,
+        "...AND THE COMMAND TYPED AT THE FULL-SCREEN CONSOLE COMES HOME TO "
+        "IT (SPEC.md 96.33.16, KERN-MEGA-PLAN 14.113). A command typed there "
+        "sets [dos_fsxgo] and brings the bracket down for the launch, and "
+        "dos_run's exit is what puts it back - but the shut-down arm leaves "
+        "dos_run by `.outq`, so the wake that delivers the exit code has to. "
+        "kern_mega's trip got that call in 14.106 under `%ifdef DOS_MEGA`; "
+        "kern_big's shipped DOS.O88 did not, so the session came home "
+        "WINDOWED with [dos_fsxgo] standing, which the next program run from "
+        "the window spent on its exit by entering the full screen nobody "
+        "asked for. The wait is for the console back with this run's exit "
+        "line (its whole-machine arena) on it, then Esc and nothing left "
+        "owed. VERIFIED RED on the DOS.O88 before 14.113: [dos_fsxup]=0 "
+        "[dos_fsxgo]=1 on the desktop that came back. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSHELLO.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
     Row("kdreturncx", "soak", py("tests/kdreturn.py", "--compact", "extent"),
         30.0,
         "...AND DOS MOVES UNDER THE HANDOFF (SPEC.md 96.40.8). The post "
@@ -17774,6 +17807,23 @@ SOAK = [
         "cost a peek per directory entry, and the whole point is that this "
         "costs no extra int 13h. Measured at 55s",
         needs=("marty",), serial=True),
+
+    Row("rdboot", "soak", py("tests/rdboot.py"), 40.0,
+        "KERN-MEGA-PLAN 14.112: a RAM disk ATTACHED AT BOOT reads what its "
+        "own image holds. A driver SYSTEM.CFG wants is attached in REAL "
+        "mode, before kern_mega's mega_enter, and RAMDISK.DRV, NET.DRV and "
+        "CDROM.DRV banked OSAPI_CPU_INFO's CPU_F_PM at attach - so the "
+        "banked byte said real mode all session and folded a SELECTOR as a "
+        "paragraph. They ask per call now, HTTPFS's 14.87 shape. The path "
+        "that reaches the fold with a selector is the driver's OWN image "
+        "(drv_fs_hi bounces every package buffer), so this is a private "
+        "RAMSEED=1 tree, a SYSTEM.CFG asking for the RAM disk, Mount, and "
+        "the seeded README.TXT's np_len. The question is kern_mega's "
+        "(mega-rdboot); on MartyPC it is the same sequence on a kernel "
+        "where the banked byte was right. VERIFIED RED on kern_mega with "
+        "the banked byte: #GP in the driver at Mount, `kern_mega FAULT "
+        "vector 0D` at 1184:050D",
+        needs=("marty", "nasm"), serial=True),
 
     Row("rdicon", "soak", py("tests/rdicon.py"), 40.0,
         "SPEC.md 62.9.2.1: a DOCUMENT on a redirected volume gets its "

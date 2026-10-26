@@ -910,19 +910,22 @@ rd_free_ext:
 ; never carries off the end of a segment - in the units the segment's VALUE
 ; allows (KERN-MEGA-MEMORY-PLAN MC8). On a real-mode kernel any paragraph is a
 ; segment, so the paragraphs fold into it and the offset is left under 16, as
-; rd_io's wrap guard needs. Under kern_mega's protected mode (CPU_F_PM, banked
-; at attach) a GDT selector is the IDENTITY map's (KERN-MEGA-PLAN 3.1), one
+; rd_io's wrap guard needs. Under kern_mega's protected mode (CPU_F_PM, ASKED
+; HERE and never banked: a driver SYSTEM.CFG wants is attached in REAL mode,
+; before mega_enter, so a byte banked at attach says "real mode" for the whole
+; session - KERN-MEGA-PLAN 14.87, 14.112) a GDT selector is the IDENTITY map's (KERN-MEGA-PLAN 3.1), one
 ; entry per 128 bytes, so only whole 128-byte GRANULES fold - a paragraph fold
 ; built a segment off that grid, a #GP or SILENTLY an LDT alias of other
 ; memory (14.19, 14.68) - and an LDT selector (TI set) has a base that is no
 ; paragraph at all, so its offset just walks: the kernel hands such a buffer
 ; over with the transfer inside its 64KB. Clobbers AX, CL
 rd_fold:
-    mov ax, [rd_bufo]
+    call OSAPI_CPU_INFO         ; AH = the flags NOW (it preserves the rest)
+    test ah, CPU_F_PM
+    mov ax, [rd_bufo]           ; (neither mov touches the flags)
     mov cl, 4
-    shr ax, cl                  ; AX = the offset's paragraphs
-    test byte [rd_cpuf], CPU_F_PM
     jz .fold
+    shr ax, cl                  ; AX = the offset's paragraphs
     test byte [rd_bufs], 4
     jnz .out                    ; an LDT selector: the offset walks
     and al, 0xF8                ; an identity selector: whole granules
@@ -930,6 +933,7 @@ rd_fold:
     and word [rd_bufo], 127
     ret
 .fold:
+    shr ax, cl
     add [rd_bufs], ax
     and word [rd_bufo], 15
 .out:

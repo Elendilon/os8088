@@ -1512,7 +1512,9 @@ cd_bytes:
 ; cd_bnorm - [cd_bseg]:[cd_boff] with the offset under 128. clobbers: nothing
 ;
 ; IN WHOLE 128-BYTE GRANULES, so the segment moves in steps of 8 paragraphs:
-; under kern_mega's protected mode (CPU_F_PM) only a segment on that grid is
+; under kern_mega's protected mode (CPU_F_PM, ASKED here and not banked: a
+; driver SYSTEM.CFG wants attaches before mega_enter, so a byte banked there
+; said real mode all session - KERN-MEGA-PLAN 14.112) only a segment on that grid is
 ; an identity selector for the memory it names, and anything else faults or
 ; silently addresses some other memory (KERN-MEGA-PLAN 3.1, 14.19). The
 ; kernel's own dskw_norm does the same there, and its drv_fs_hi bounces a
@@ -1520,13 +1522,14 @@ cd_bytes:
 ; reaches this - the folded offset plus a CD_RUN read still cannot carry
 ; -----------------------------------------------------------------------------
 cd_bnorm:
-    test byte [cd_cpuf], CPU_F_PM
+    push ax
+    call OSAPI_CPU_INFO         ; AH = the flags NOW
+    test ah, CPU_F_PM
     jz .fold
     test byte [cd_bseg], 4      ; ...and an LDT selector has a base that is no
     jnz .out                    ; paragraph at all: its offset walks, the
 .fold:                          ; kernel handing it over with the read inside
-    push ax                     ; its 64KB (KERN-MEGA-MEMORY-PLAN MC8)
-    push cx
+    push cx                     ; its 64KB (KERN-MEGA-MEMORY-PLAN MC8)
     mov ax, [cd_boff]
     mov cl, 4
     shr ax, cl
@@ -1534,6 +1537,6 @@ cd_bnorm:
     add [cd_bseg], ax
     and word [cd_boff], 127
     pop cx
-    pop ax
 .out:
+    pop ax
     ret

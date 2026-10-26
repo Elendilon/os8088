@@ -7549,6 +7549,11 @@ $(BUILD)/DOSGFX.COM: tests/doscom/hello.asm | $(BUILD)
 $(BUILD)/DOSPIT.COM: tests/doscom/hello.asm | $(BUILD)
 	$(NASM) -f bin -w+error -DPITFAST -o $@ tests/doscom/hello.asm
 
+# ...and having SET the clock with AH=2Dh, a step the return used to count as
+# time the program ran (KERN-MEGA-PLAN 14.114, kdreturn --settime)
+$(BUILD)/DOSSETT.COM: tests/doscom/hello.asm | $(BUILD)
+	$(NASM) -f bin -w+error -DSETTIME -o $@ tests/doscom/hello.asm
+
 # ...and having written one word of `.cold` in the HMA, under kern_dos only
 # (SPEC.md 96.49.9): tests/hmadosret.py's negative control, which the live
 # resume's sum has to refuse. 8000h is inside `.cold` at COLD_VSTART = 6000h,
