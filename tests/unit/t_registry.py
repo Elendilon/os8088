@@ -201,23 +201,10 @@ UNREGISTERED = {
                    "frames over guest seconds is quantised to a whole frame",
 
     # --- need a build prerequisite the default build does not make ---
-    "brnav.py": "needs QEMU and a NIC (ether360.img + brtest360.img), and "
-                "it starts its emulator through `make test` on the fixed "
-                "build/qmp.sock - a make invocation into build/ and a socket "
-                "two rows would share; the other br* rows are registered",
     "netprof.py": "needs QEMU, and it leaves ETHPROF=1 KNOB builds of "
                   "ether.drv and the ethertest disk in build/ - a suite row "
                   "running before the next `make` would test the wrong "
                   "driver (SPEC.md 72.15)",
-    "ftpdpix.py": "needs `make ftpdtest`, QEMU, and TWO builds - it boots the "
-                  "reference face (FTPDSLOW=1) and the optimised one and "
-                  "compares window pixels (SPEC.md 77.14)",
-    "ftpd.py": "needs `make ftpdtest` and QEMU with ETHFWD=1 - the FTP server "
-               "LISTENS, so the client has to reach INTO the guest, and "
-               "MartyPC has no NIC at all (SPEC.md 77)",
-    "ftpkeep.py": "needs `make ftpkeeptest` and QEMU with ETHFWD=1, for "
-                  "ftpd.py's reason, booting a HARD-DISK image (TESTHD=) "
-                  "because WSEQF_KEEP is a fixed disk's (SPEC.md 77.50)",
     "rczex.py": "needs the RunCPM fetch (`make runcpm-src`) and the C toolchain",
     "rczex_ocr.py": "needs the RunCPM fetch and an OCR dependency",
     "proxytest.py": "drives tools/os88proxy.py against a live network",

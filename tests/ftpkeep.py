@@ -4,6 +4,11 @@
 
     make && make ftpkeeptest && python3 tests/ftpkeep.py
 
+(Under the suite runner the three disks are the row's `wants=`, built before
+any row starts, and this script builds nothing. Every leg boots FRESH COPIES
+of them in this process's own directory: the legs write the hard disk, and
+each one has to start from the image as built.)
+
 **QEMU, FOR tests/ftpd.py's REASON**: MartyPC has no NIC. Nothing here is a
 time. What is counted is WORK, which QEMU counts exactly: the hard disk's
 write OPERATIONS (`info blockstats`), one per `int 13h` write the guest made.
@@ -13,7 +18,7 @@ a fixed disk's and the boot partition is the one fixed volume QEMU gives a
 guest with no driver asked for. FTPD serves the folder it was launched from,
 so both arms sit in C:'s root.
 
-FOUR LEGS, each on a freshly built image:
+FOUR LEGS, each on a fresh copy of the built image:
 
 1. KEPT (FTPD.O88, what ships). A 1.5 MB STOR, byte-exact back over RETR AND
    off the image by an independent FAT reader on the host, and the volume
@@ -46,7 +51,6 @@ import struct
 import subprocess
 import sys
 import threading
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(__file__))
@@ -55,11 +59,15 @@ import ethernet as eth                                 # noqa: E402
 import ftpd as fd                                      # noqa: E402
 import os88qemu                                        # noqa: E402
 import os88sym                                         # noqa: E402
+import os88fixture                                     # noqa: E402
 
 S = os88sym.linear
 SOCK = os88qemu.SOCK
-HDIMG = "build/ftpkeep.img"
+BUILT_HD = "build/ftpkeep.img"
 AIMG, BIMG = "build/ftpkeepa.img", "build/ftpkeepb.img"
+HDIMG = None            # this leg's own copy of BUILT_HD (boot() makes it)
+_LEG = [0]
+_INST = [None]
 STG = 8192
 CKPT = 262144
 say = fd.say
@@ -121,25 +129,38 @@ def wr_ops(m):
 
 
 def boot():
-    for f in (HDIMG, AIMG, BIMG):
-        if os.path.exists(f):
-            os.remove(f)
-    r = subprocess.run(["make", "ftpkeeptest"], capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("ftpkeep: make ftpkeeptest failed:\n" + r.stdout + r.stderr)
+    global HDIMG
+    # THE ROW'S `wants=` (tests/suite.py): a no-op under the runner, a `make`
+    # standalone. The built images are only ever READ - each leg boots a
+    # FRESH COPY of the hard disk in this process's own directory (it is
+    # written by the leg and read back after it, and the next leg must not
+    # find the last one's UP.DAT), and make_test copies the two floppies.
+    os88fixture.need(BUILT_HD, AIMG, BIMG)
+    _LEG[0] += 1
+    HDIMG = os88qemu.scratch(BUILT_HD, "ftpkeep%d.img" % _LEG[0])
     # The machine is PRIVATE (tests/os88qemu.py make_test): its own socket
     # and pidfile, so nothing of build/qmp.sock is shared and ethernet.py's
     # Mouse, which drives os88qemu.SOCK, drives this machine
-    # The three images are this script's own (`make ftpkeeptest`) and the
-    # hard disk is READ BACK below, so they boot in place
-    os88qemu.make_test("ETHER=1", "ETHFWD=1", "TESTHD=" + HDIMG,
-                       "TESTIMG=" + AIMG, "TESTAPPS=" + BIMG, copy=False)
+    _INST[0] = os88qemu.make_test("ETHER=1", "ETHFWD=1", "TESTHD=" + HDIMG,
+                                  "TESTIMG=" + AIMG, "TESTAPPS=" + BIMG)
     m = eth.Qemu(SOCK)
     mo = eth.Mouse()
     ip = fd.wait_dhcp(m)
     if not ip:
         raise RuntimeError("the card never bound an address")
     return m, mo
+
+
+def down(m):
+    """Quit this leg's machine and wait for the PROCESS to have gone - a host
+    wait on a host thing - so the hard disk is flushed before the host reads
+    it. It was a one-second `time.sleep`, a guess."""
+    try:
+        m.quit()
+    except Exception:
+        pass
+    if _INST[0] is not None and _INST[0].pid:
+        os88qemu.gone(_INST[0].pid)
 
 
 def launch(m, mo, pkg):
@@ -190,9 +211,8 @@ def leg(pkg, data, fails):
             pass
         fd.gpace(1.0)
     finally:
-        m.quit()
-        time.sleep(1.0)                     # HOST: QEMU exiting, the image
-                                            # flushed for the host's read
+        down(m)                             # QEMU gone, the image flushed
+                                            # for the host's read
     got, size = fat_read(HDIMG, b"UP      DAT")
     if got != data:
         fails.append("%s: the HOST reads UP.DAT as %r bytes, not the %d stored"
@@ -221,8 +241,7 @@ def cut(data, fails):
                               poll=0.05):   # (GUEST seconds: it was 120 host)
             fails.append("cut: 1.2 MB never reached the disk")
     finally:
-        m.quit()                            # THE POWER CUT
-        time.sleep(1.0)                     # HOST: QEMU exiting (above)
+        down(m)                             # THE POWER CUT
     got, size = fat_read(HDIMG, b"UP      DAT")
     if got is None:
         fails.append("cut: UP.DAT is not on the disk at all")
@@ -263,8 +282,7 @@ def exact(data, fails):
         f = launch(m, mo, "FTPD.O88")
         f.storbinary("STOR UP.DAT", io.BytesIO(data))
     finally:
-        m.quit()                            # at the 226: nothing else ran
-        time.sleep(1.0)                     # HOST: QEMU exiting (above)
+        down(m)                             # at the 226: nothing else ran
     got, size = fat_read(HDIMG, b"UP      DAT")
     say("exact: %d bytes stored, %s on the disk at the 226"
         % (len(data), size))
