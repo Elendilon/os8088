@@ -55356,9 +55356,9 @@ a happy result — the disk this replaces was at 354 of 354.
 RealDMG (docs/REALDMG-SPEC.md) is at the root and its own demo cartridge,
 `GBDEMO.GB`, is in `MEDIA/` where its File dialog opens - LZ4-packed, 32,768
 bytes to 1,110, which RealDMG's single `OSAPI_FILE_READ` of a cartridge
-expands (§20.14.3). **It is built and not released**: the release skill's
-`mkzip.py` carries `media360`, `office360`, `network360` and `games360` and
-not this disk, so no release zip has it until that list is changed.
+expands (§20.14.3). **It is released**: the release skill's `mkzip.py`
+carries it beside the other category disks, as `360K/EMU360.IMG` in the
+release zip's folder per disk size.
 
 **The other three join it ON REQUEST**: `make emufull` (or `EMUFULL=1` on
 any make) builds the same image with C64, APPLE2 and RunCPM at the root,
@@ -137201,8 +137201,9 @@ stick has none of these limits: it persists settings and saves like the
 installed disk it is.
 
 The 720KB and 1.44MB floppy *images* still matter to the same reader — a USB
-floppy drive and a Gotek take them — so the live media are additions to the
-release zip, not replacements for anything in it.
+floppy drive and a Gotek take them — so the live media are a zip of their own
+beside the release's floppies (`os8088-<version>-live.zip`, the images as
+`LIVEUSB.IMG` and `OS8088.ISO`), not replacements for anything in it.
 
 ### 80.4 Writing the media on a Mac, guided
 
@@ -137526,7 +137527,7 @@ because it never boots `kern_emu` (§9.11.7). On anything below a 386 the image
 still boots — `vmm_boot_x` refuses at its `[cpu_tier]` compare, the bit is
 ignored, and the machine keeps whatever mouse `mouse_init` found — but that is
 a property worth having, not a reason to ship it. `make live` does not build
-it, the release zip does not carry it, and the website's `tools/release.py`
+it, no release zip carries it, and the website's `tools/release.py`
 publishes it in place of `os8088-usb.img` as the demo's hard disk.
 
 **The page's half is the website's.** v86 delivers `mouse-absolute` events to
