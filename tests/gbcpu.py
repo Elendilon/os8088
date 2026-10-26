@@ -77,6 +77,10 @@ FLAGS_ROM = "gbflags"
 # (REALDMG-SPEC 16.1.3), a timer interrupt landing at their JR. Its control
 # takes that event with F stale.
 LAZY_ROM = "gblazy"
+# tools/gbprof/gbseam.asm: code run from bank 0 across 3FFF into the bank
+# (REALDMG-SPEC 3.1), an instruction across it and one on at 4000. Its
+# control assembles the harness without the trap (RDG_NOSEAM).
+SEAM_ROMS = ("gbseam", "gbseam2")
 # tools/gbprof/gbpop.asm: POPs out of a ROM bank, SP in 4000-7FFF, as
 # Pokemon's VBlank copy reads tiles (pop_slow, REALDMG-SPEC 5). Its control
 # takes POP BC's JB out (C104h), so BC pops from the view's rdgsys half again.
@@ -204,6 +208,22 @@ def main():
                                  "passed - the gate cannot go red" if ok
                                  else "%s, as it must not be" % broke))
         bad += ok
+    if not a.k or a.k in "bank seam":
+        import gbours
+        nos = rdgimg.build_host(out, ["RDG_NOSEAM"])
+        rdgimg.build_host(out)
+        for name in SEAM_ROMS:
+            rom = gbours.build(name)
+            for jit in (False, True):
+                ok, last = run(name, rom, 600, core, host, jit=jit)
+                print("%-4s %-24s %s" % ("ok" if ok else "FAIL", "%s, %s" % (
+                    name, "translated" if jit else "interpreted"), last))
+                bad += not ok
+            ok, last = run(name, rom, 600, core, nos, jit=False)
+            print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: %s no trap" % name,
+                                     "passed - the gate cannot go red" if ok
+                                     else "failed, as it must"))
+            bad += ok
     for name in MOONEYE:
         label = "mooneye " + name
         if a.k and a.k not in label:
