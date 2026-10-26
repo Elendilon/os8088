@@ -108,6 +108,12 @@ def _fsize_cap():
     if FSIZE_MB > 0:
         import resource
         n = FSIZE_MB << 20
+        # NEVER ABOVE THE HARD LIMIT IT INHERITED: an operator's `ulimit -f`
+        # lower than the cap made setrlimit raise, and the row died in
+        # Popen ("Exception occurred in preexec_fn") before Bochs existed
+        _, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+        if hard != resource.RLIM_INFINITY:
+            n = min(n, hard)
         resource.setrlimit(resource.RLIMIT_FSIZE, (n, n))
 BOCHSRC = """megs: {megs}
 romimage: file=/usr/share/bochs/BIOS-bochs-legacy

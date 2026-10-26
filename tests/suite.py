@@ -1511,6 +1511,17 @@ FAST = [
         "third way fails here in a twentieth of a second rather than in a "
         "soak row three hours in",
         needs=()),
+    Row("megatree", "soak", py("tests/unit/t_megatree.py"), 0.1,
+        "docs/plans/SOAK-PARALLEL.md 17.13: under a frozen soak a row's "
+        "build/os8088-360.img is the TREE's, and the kern_mega harness "
+        "tested `dirname == build/` - so mega_images booted kern_BIG on "
+        "Bochs (mega-lzcomp: no kern_mega line in 240s, at a lane width of "
+        "one), and os88qmpmega's _scratch took the tree's vesa.img for a "
+        "row's scratch and wrote kern_mega's A: back over it, which six "
+        "kern_big QEMU vesa rows then booted. Every one passed alone. Asserts "
+        "the answers with $OS88_TREE set and ratchets the build/ fallback "
+        "out of tools/ and tests/. SOAK: it is about the emulator harness",
+        needs=()),
     Row("registry", "fast", py("tests/unit/t_registry.py"), 0.2,
         "every test in tests/ is registered in a tier or says why not - the row "
         "that stops this suite going back to a directory nobody can enumerate"),

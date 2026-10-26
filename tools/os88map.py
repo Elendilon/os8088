@@ -94,7 +94,8 @@ class Syms(object):
         if not os.environ.get("OS88_MEGA") or \
                 not self._ship.startswith("build/") or "/" in self._ship[6:]:
             return None
-        bld = os.environ.get("OS88_MEGA_BUILD") or os.path.join(ROOT, "build")
+        import os88build
+        bld = os88build.mega_build()
         p = os.path.join(bld, "megak", "apps", self._ship[6:])
         return p if os.path.exists(p) else None
 

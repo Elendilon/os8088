@@ -1097,7 +1097,8 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     cimg, cgeom = row_disk(machine, extra, run_dir)
     noa = bool(cimg) and (not image or _blank(image))
     a, b = mega_images(image, apps)
-    bld = os.environ.get("OS88_MEGA_BUILD") or os.path.join(ROOT, "build")
+    import os88build
+    bld = os88build.mega_build()        # the run's tree under a soak
     base = os.path.join(ROOT, "build", "bochs", "inst")
     os.makedirs(base, exist_ok=True)
     tag = re.sub(r"\W+", "", label or os.path.splitext(

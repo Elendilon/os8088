@@ -346,7 +346,8 @@ def _mega_map():
     nothing need be - that map IS the build's own, written in the same nasm
     run as the image, so it cannot describe a different kernel the way a
     re-assembly from today's sources can."""
-    bdir = os.environ.get("OS88_MEGA_BUILD") or os.path.join(ROOT, "build")
+    import os88build
+    bdir = os88build.mega_build()       # the run's tree under a soak
     mapf = os.path.join(bdir, "megak", "kernel.map")
     key = ("mega", mapf, os.path.getmtime(mapf))
     if key not in _cache:

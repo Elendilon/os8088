@@ -489,8 +489,8 @@ def cmos_primed(profile, a, b, sets, nvr, mono=False, c=None, kmap=None,
     if os.path.isdir(d) and all(os.path.exists(os.path.join(d, f))
                                 for f in names):
         return {f: open(os.path.join(d, f), "rb").read() for f in names}
-    kmap = kmap or os.path.join(os.environ.get("OS88_MEGA_BUILD")
-                                or os.path.join(ROOT, "build"), "megak",
+    import os88build
+    kmap = kmap or os.path.join(os88build.mega_build(), "megak",
                                 "kernel.map")
     # PHOENIX TAKES ROUNDS: the first saves its defaults, which _cmos_fix
     # then makes agree with the drives and the card - and the next POST may

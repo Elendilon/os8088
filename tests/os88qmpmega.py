@@ -242,10 +242,12 @@ def mega_twin(img, bld=None):
     data disk and goes in as it is."""
     if not MEGA or not img:
         return img
-    bld = bld or os.path.join(ROOT, "build")
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import os88build
+    bld = bld or os88build.mega_build()     # the run's tree under a soak
     ap = os.path.abspath(img)
     if re.match(r"(os8088|small)[-\w]*\.img$", os.path.basename(ap)) and \
-            os.path.dirname(ap) == os.path.realpath(bld):
+            os88build.shipped_dir(os.path.dirname(ap)):
         return img
     # KEYED ON THE FILE AS IT STANDS: a row that boots the same fixture
     # again meets its twin as the last machine left it (ethcfg's reboot,
@@ -702,7 +704,19 @@ def _has_cfg(img):
 
 
 def _scratch(path):
-    """A path a row may have its guest write to: never a shipped image in
-    build/ itself (those are the shared tree's)."""
+    """A path a row may have its guest write to: never an image in build/
+    itself, in the run's tree or in any tree under build/trees/ - those are
+    every row's (os88build.shared_dir).
+
+    **IT WAS `build/` ALONE, and under a frozen soak that is no test at all**
+    (docs/plans/SOAK-PARALLEL.md 17.13): a row is handed the TREE's
+    `vesa.img`, so this answered "scratch", the path was made a symlink into
+    Bochs's run directory for the whole boot, and close() copied kern_mega's
+    A: back over it. Every kern_big row that booted that fixture afterwards
+    booted kern_mega under QEMU - `vid_kind 134 ... DRVR_ERR 139`, garbage
+    read through kern_big's map - and passed alone, where nothing is frozen
+    and the old test happened to be right."""
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import os88build
     p = os.path.realpath(path)
-    return os.path.dirname(p) != os.path.realpath(os.path.join(ROOT, "build"))
+    return not os88build.shared_dir(os.path.dirname(p))

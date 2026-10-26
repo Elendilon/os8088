@@ -359,7 +359,7 @@ def _mega(app, small=False):
     `tm_cx` read 0x3B03 off the shipped map (dmgcull)."""
     if small or not os.environ.get("OS88_MEGA"):
         return None
-    bld = os.environ.get("OS88_MEGA_BUILD") or os.path.join(ROOT, "build")
+    bld = os88build.mega_build()        # the run's tree under a soak
     p = os.path.join(bld, "megak", "apps", "%s.o88" % app)
     return p if os.path.exists(p) else None
 

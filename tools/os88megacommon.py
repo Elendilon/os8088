@@ -42,11 +42,15 @@ def mega_images(image, apps):
     the SHIPPED images in build/ itself are swapped - a scratch disk a row
     made (`tmp/apps.img`, built out of a shipped one with its own files on
     it) goes in as it is, because what is on it is the row's subject."""
-    bld = os.environ.get("OS88_MEGA_BUILD") or os.path.join(ROOT, "build")
+    import os88build
+    bld = os88build.mega_build()
 
+    # build/ OR THE RUN'S TREE: under a frozen soak a row's
+    # `build/os8088-360.img` arrives as the tree's, and testing for build/
+    # alone booted kern_BIG on Bochs - "no kern_mega line in 240s", on a
+    # machine that was never going to print one (SOAK-PARALLEL.md 17.13)
     def shipped(p):
-        return p and os.path.realpath(os.path.dirname(os.path.abspath(p))) \
-            == os.path.realpath(os.path.join(ROOT, "build"))
+        return p and os88build.shipped_dir(os.path.dirname(os.path.abspath(p)))
     a = os.environ.get("OS88_MEGA_A") or image
     if not os.environ.get("OS88_MEGA_A") and (
             not image or (shipped(image) and re.match(

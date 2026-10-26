@@ -765,6 +765,47 @@ def tree_root():
     return os.environ.get("OS88_TREE") or None
 
 
+def mega_build():
+    """Where kern_mega's artefacts are read from: `$OS88_MEGA_BUILD`, else
+    the run's own tree (`$OS88_TREE`), else `build/`.
+
+    **THE RUN'S TREE, AND NOT `build/`** (docs/plans/SOAK-PARALLEL.md
+    17.13). Every mega backend defaulted to `build/` - the map, mega.img,
+    megaapps.img - so a frozen soak booted kern_mega out of the operator's
+    directory while its rows' own disks came out of the tree, which is half
+    a run against the directory the tree exists to avoid."""
+    return os.environ.get("OS88_MEGA_BUILD") or tree_root() or \
+        os.path.join(ROOT, "build")
+
+
+def shipped_dir(d):
+    """True when directory D holds the SHIPPED artefacts: `build/` itself or
+    the run's tree (`$OS88_TREE`).
+
+    A frozen soak hands a row `build/trees/<tree>/os8088-360.img` for
+    `build/os8088-360.img` (`at`), so every test of the form
+    `dirname(p) == build/` answers "not shipped" for the very image it was
+    written to recognise. Two kern_mega harness predicates were that test
+    (docs/plans/SOAK-PARALLEL.md 17.13): one booted kern_BIG's system disk
+    on Bochs, and the other took the tree's fixtures for a row's scratch and
+    wrote kern_mega's A: back over them."""
+    r = os.path.realpath(d)
+    roots = [os.path.join(ROOT, "build"), tree_root()]
+    return any(x and r == os.path.realpath(x) for x in roots)
+
+
+def shared_dir(d):
+    """True when directory D belongs to more than one row and a guest may not
+    write into it: a shipped directory (`shipped_dir`), or any tree under
+    `build/trees/` - a knob tree is shared by every row asking for that
+    knob (`DEFAULT_TARGETS`)."""
+    if shipped_dir(d):
+        return True
+    r = os.path.realpath(d)
+    t = os.path.realpath(TREES)
+    return r == t or r.startswith(t + os.sep)
+
+
 def _why(out, err):
     """The part of a failed `make` that says WHY, not the last 2000 bytes.
 
