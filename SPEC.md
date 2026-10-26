@@ -48805,10 +48805,20 @@ shortest-path LZB parse takes forty seconds on one 32KB block of anything
 repetitive. That parse has a 16KB window and depth 16, and on video it loses
 to LZ4: `02-BWPCS.V88` is 92.0% LZB against 90.5% LZ4. It wins on text.
 
-**A part fits a FRESH disk of its geometry**: `os88cz.py --size 720k` cuts
-parts of at most 730,112 bytes, which is 713 clusters of 1,024 — a 720KB
-floppy's whole data area with one file on it. `360k`, `1.2m` and `1.44m` are
-the same arithmetic, and a size in bytes is taken as given.
+**A part fits a USED disk of its geometry**: `os88cz.py --size 720k` cuts
+parts of at most 728,064 bytes, which is 711 clusters of 1,024 — a 720KB
+floppy's whole data area **less 2KB**. A part cut to the whole data area
+fitted a fresh image and then did not fit the disk it was written to: the
+host OS that writes a floppy hides things on it (`System Volume
+Information`, `.Trashes`), and a disk that has been in os8088 carries
+`SYSTEM/ASSOC.DAT`. `360k`, `1.2m` and `1.44m` are the same arithmetic, and
+OS88CZ.COM's table is the same four numbers. **Any other size is taken as
+given** - bytes, or a number with `k` or `m` after it (`500k`, `1.1m`,
+binary as a disk is) - and `--images` then puts each part on the smallest
+of the four floppies that holds it, refusing a part no floppy holds. The
+window offers the four disks and takes any size typed into the same box,
+and its *"...and a floppy image per part"* starts UNCHECKED: the images are
+for writing straight to disks, and most splits are not.
 
 #### 20.17.4 Three tools, one format: the host, a window, and DOS
 
@@ -190068,7 +190078,7 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 | 22 | 2 | the largest super-packet's sectors, 1..64 |
 | 24 | 4 | the stream's bytes, padding included |
 | 28 | 2 | the largest frame record, bytes |
-| 30 | 2 | the largest keyframe READ, bytes: a record, or with KPARTS a part (98.1.3.8) |
+| 30 | 2 | the largest keyframe READ, bytes: a record, or with KPARTS a part (98.1.3.8), or with KPOOL a page pool picture's read (98.1.3.8.1) |
 | 32 | 4 | VGA8: **the palette**, on a sector - 256 entries of (r, g, b), the DAC's six bits, 0..63; and a VGA4 file that is neither RESIDENT nor LIVE MAY carry one, its first 16 entries by pixel value and the rest 0, and then plays full screen only (98.1.3.2.1, 98.1.3.2.2); 0 for every other format. The encoder puts it at sector 1, two sectors, and the keyframe table after it |
 | 36 | 1 | VGA8: **the row scale**, 0 or 1 for none, 2 for each row shown twice by the CRTC (98.2.4); 0 in every other file |
 | 37 | 1 | MODEX, and VGA4 on a screen of its own: **2 = page flipped** (98.3.8), **3 = page-ahead** (98.1.3.7, with flag PAGE and only with it), **4 = page-ahead on N pages** (98.1.3.7.1, with flag PAGE too), **5 = flipped AND built ahead on N pages** (98.1.3.7.2, flag PAGE too), 0 or 1 not; 0 in every other file |
@@ -190815,8 +190825,8 @@ a whole frame per page.
   so a row's address is y x 40 and nothing else in a record changes. The
   decoder never computes a stride - a record carries addresses - so it
   plays them as it plays every VGA4 file.
-- **Full screen, never flipped every frame** (byte 37 is not 2), never
-  RESIDENT or LIVE, a canvas at most 320 x 200 or 320 x 240.
+- **Full screen**, never RESIDENT or LIVE, a canvas at most 320 x 200 or
+  320 x 240. Flipped every frame since 98.1.3.2.5.1, as 1 and 2 are.
 - **A player before this refuses them at open**: byte 38 past 4 is past
   its table.
 - **The player** (`apps/video/video.asm`, +67 bytes of image) keeps the
@@ -190826,14 +190836,53 @@ a whole frame per page.
   image and the poster's rows (`vp_v4pack`) all follow. Mode 0Dh is the
   mode taken for both, `vp_scrset` writes its own Offset (14h) where the
   other screens get 28h, and screen 6 takes screen 2's 480-line timing.
-  The flipped copy (`vp_lcopy`, `vp_flcw`) is never reached, byte 37 = 2
-  being refused here.
+  The flipped copy (`vp_lcopy`, `vp_flcw`) reads it too since
+  98.1.3.2.5.1.
 - **The encoder**: `--screen 320x200n` or `320x240n`, with `--pages`
-  (98.2.1.8.4) - MAX is eight and six. `--flip` refuses them.
+  (98.2.1.8.4) - MAX is eight and six - and `--flip` (98.1.3.2.5.1).
 - **The gate**: `tests/vidpage.py --pages 8 --screen 320x200n` (and `6
   --screen 320x240n`) - seven scene changes three frames apart, every hold
   the clip, and the CRTC's Offset read at the first hold of each play. With
   the narrow Offset left out it reads 28h and every hold fails.
+
+###### 98.1.3.2.5.1 The NARROW screens flipped (2026-10-26)
+
+**A NARROW file may be flipped every frame** - byte 37 2, its HELD form 6,
+its own-page form 7, and flipped and built ahead, 5 - as screens 1 and 2
+are (98.3.8.2, 98.3.8.5, 98.3.8.7). 98.1.3.2.5 refused it for scope and
+not for a reason: the records carry their addresses and the page flip is
+a start address, so neither cares where a row ends, and what had to
+follow the stride was the back page's bring-up, which was written for
+80-byte rows in three places:
+- **`vp_lcopy`** - the rows copied off the glass through the latches
+  (98.3.8.1), and every COPY of a page built ahead (`vp_pgcopy`) - takes
+  its row from `[vp_lstr]` (80, or a NARROW screen's 40) where it had 80.
+  Mode X's row is 80 there too, so nothing else moves.
+- **`vp_flipdec`'s choice** between the copy and decoding the last record
+  again prices the band as its rows x `[vp_lstr]` x `[vp_flcw]`, which is
+  now `VP_LCW` a BYTE (a test still sets it 0 for the copy every frame).
+- **The encoder's price** of the same copy (`os88venc`'s flip charge, a
+  page-ahead COPY and the calm's copies, 98.2.1.8.5) is rows x the
+  canvas's stride x `lcopy`, where it was x 80.
+
+So a NARROW row costs half a wide one to bring up, and the copy wins the
+choice at twice the band - which is what the screen is for: the user's
+*"those modes need much less data and often less cpu"*. **No format
+change and no new flag**: a player before this one refuses byte 37 2, 5,
+6 or 7 on screen 5 or 6 at open, which is where 98.1.3.2.5 put the
+refusal, so it is the version gate. **-19 bytes of `video.o88`'s image**,
+no bss and no kernel byte. `--flip` takes `--screen 320x200n` and
+`320x240n`; `os88vid --selfcheck` writes a flipped NARROW file and one
+against its own page and reads both back.
+- **The gates**: `tests/vidscreen.py --screen 320x200n --screen 320x240n`
+  (`vidscreenn`), with `--lcopy` (`vidscreennc`: `[vp_flcw]` 0, every back
+  page by the copy) and `--own` (`vidscreenno`), every hold's glass exact
+  on MartyPC's VGA XT; and `tests/vidpage.py --fpage --pages 8 --screen
+  320x200n` and `6 --screen 320x240n` (`vidpagefv8n`, `vidpagefv6n`).
+  Broken on purpose - `vp_lcopy` back on 80-byte rows - `vidscreennc`
+  FAILS from frame 3 (200 to 3,069 pixels a hold), and `vidscreenn` does
+  not: its bring-ups all decode the last record again, which is why the
+  copy has a leg of its own.
 
 #### 98.1.3.3 CGA in colour: CGA4 and C160
 
@@ -191262,6 +191311,16 @@ reference    = len(16)=12 y0(16) y1(16) at(32) n(16)
   some kept key names. A reader refuses a reference past the file, a picture
   that does not read as one, a reference outside a last part or in a file
   without KPOOL, and a page named twice or named and carried.
+- **A pool picture's reads are KEY READS to the header**: the player
+  reads each into the claim a key's read takes, sized from the
+  rendition's largest key (+30) and bounding every read by it
+  (`vp_knrd`), so that word is the largest of the keys' reads AND the
+  pool's. A writer that counted the keys alone made a file whose every
+  seek said *That keyframe could not be read* wherever a page built
+  behind a simpler shown page outweighed every key - the owner's 23 fps
+  narrow clip, 2026-10-26, pool reads to 22,872 bytes under a header
+  saying 21,314. `os88vid.py verify` and its reader refuse such a file
+  by name now, and its header word can be patched in place.
 - **What it costs a seek**: one read per picture named, where the key alone
   was as many reads as its parts. A key on eight pages was five parts of
   32 KB on Bebop; with the pool it is one part and up to seven pictures,
@@ -197821,8 +197880,9 @@ byte's decode - ESTIMATED: the model prices a run of bytes into the VGA at
 18 cycles (`CYC_SLICE`) and a copy, a VGA read and a write, at ~30
 (`os88venc`'s `CYC_LCOPY`), so a full 180-row band is ~430K cycles where a
 30 KB record's decode is ~600K. The encoder charges a flipped frame the same
-choice. It is the field's number to settle, and `[vp_flcw]` (80 x VP_LCW)
-is a word a test may set 0 to take the copy on every frame.
+choice. It is the field's number to settle, and `[vp_flcw]` (VP_LCW, a byte
+copied's price; a row is `[vp_lstr]` of them since 98.1.3.2.5.1) is a word a
+test may set 0 to take the copy on every frame.
 
 **The copy carries the TEXT BOX too** when the page on the glass has it up
 (98.3.13.1's toast, Pause): `vo_pre` has taken the box off the back page

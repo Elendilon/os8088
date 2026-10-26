@@ -27,6 +27,13 @@ shows. For each screen, booted on MartyPC's VGA XT:
    tests/vidvga8.py), so 320 x 240 is checked on the 200 rows it shows -
    the canvas's 144 are inside them.
 
+The NARROW two (320x200n, 320x240n: rows 40 plane bytes apart, 98.1.3.2.5)
+flip as 1 and 2 do (98.1.3.2.5.1) and are asked for by name; the default is
+the five above. --lcopy sets vp_flcw 0, so every back page is brought up by
+the latch copy off the glass (98.3.8.1) rather than by decoding the last
+record again - the only leg that sees vp_lcopy's row: with it back on 80
+bytes, 320x200n FAILS from frame 3, and without --lcopy it passes.
+
 640 x 480 (screen 0, mode 12h, the desktop's) has one page, so its clip is
 not flipped, and it is played WITHOUT forcing the full screen: a file in its
 own colours must refuse the window by itself (vp_canwin), and a play in the
@@ -68,11 +75,13 @@ def u16(b, i=0):
 
 
 OWN = False                             # --own: VIDEO-SEEN-PLAN 3b's records
+LCOPY = False                           # --lcopy: every bring-up the copy
 
 
 def clip(tmp, scr):
     rnd = random.Random(1613)
-    g = vid.Geom(vid.LAY_LIN80, W // 8, H, bitplanes=True)
+    g = vid.Geom(vid.LAY_LIN80, W // 8, H, bitplanes=True,
+                 stride=vid.screen_stride(scr))
     cvs, cv = [], bytearray(W * H)
     for f in range(NF):
         k = f % 20
@@ -128,7 +137,8 @@ def one(ui, scr, v88, syms, bad):
         until(lambda mm: rb("vp_loaded") == 1, "the header", 30.0)
         until(lambda mm: rw("vp_ploads") >= 1, "the poster", 60.0)
         # --- 1
-        want1 = (vid.PF_VGA4, scr, 1 if scr else 0, SH * 80 if scr else 0,
+        want1 = (vid.PF_VGA4, scr, 1 if scr else 0,
+                 SH * vid.screen_stride(scr) if scr else 0,
                  FSXM_VGA0D if SW == 320 else FSXM_VGA12, 0, 1)
         got1 = (rb("vp_pixfmt") + 1, rb("vp_screen"), rb("vp_flip"),
                 rw("vp_page") if scr else 0, rb("vp_mode"), rb("vp_shadow"),
@@ -159,6 +169,8 @@ def one(ui, scr, v88, syms, bad):
         # itself, its colours not being the desktop's (98.1.3.2.2)
         if scr:
             m.write(base + syms["vp_nowin"], b"\1")
+        if LCOPY:                       # (98.3.8.1: the copy off the glass
+            ww("vp_flcw", 0)            # on every frame, never the decode)
         ww("vp_stopat", STOPS[0])
         m.write(base + syms["vp_played"], b"\0")
         m.type_text("p")
@@ -206,16 +218,20 @@ def one(ui, scr, v88, syms, bad):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--machine", default="os8088_xt_vga")
-    # (not the NARROW two: this clip flips every frame, which they refuse -
-    # their pages are page-ahead's, and vidpage8n / vidpage6n play them)
+    # (the NARROW two, 98.1.3.2.5, flip as the others do, on rows 40 bytes
+    # apart - by name, vidscreenn's; the default is the wide five)
     wide = [v[0] for k, v in vid.SCREENS.items() if k not in vid.NARROW]
-    ap.add_argument("--screen", action="append", choices=wide)
+    ap.add_argument("--screen", action="append",
+                    choices=[v[0] for v in vid.SCREENS.values()])
+    ap.add_argument("--lcopy", action="store_true",
+                    help="every back page brought up by the latch copy off "
+                    "the glass (vp_flcw 0, 98.3.8.1)")
     ap.add_argument("--own", action="store_true",
                     help="the flipped screens' clips AGAINST THEIR OWN PAGE "
                     "(byte 37 7, VIDEO-SEEN-PLAN 3b)")
     a = ap.parse_args()
-    global OWN
-    OWN = a.own
+    global OWN, LCOPY
+    OWN, LCOPY = a.own, a.lcopy
     os.chdir(ROOT)
     syms, _ = pkg_syms("apps/video/video.asm", ("apps/",))
     pkg = os88build.at("build/video.o88")
