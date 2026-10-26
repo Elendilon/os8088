@@ -695,6 +695,35 @@ class Mouse:
         # box. So the gesture HOLDS each pump (BpTrace.hold) for its few
         # dozen advances and records any stop it meets itself.
         traces = list(getattr(self.m, "_traces", ()))
+        if getattr(self.m, "bochs", False):
+            # KERN_MEGA UNDER BOCHS (os88bochsmarty): its guest runs at HOST
+            # time, so stepping it costs the ticks the stepping takes - a
+            # halt and a resume per advance put the presses 5-9 ticks apart
+            # against a window of 9. Free-running, the four edges go out in
+            # ONE xdotool chain 30 ms apart (Bochs takes X events every
+            # ~10 ms), with no stop between them; the span is read around
+            # all four, so it is an upper bound. A pump in a bp_trace block
+            # resumes its own stops
+            self.m.mouse(0, 0)          # the grab, before the clock starts
+            t1 = self.ticks()
+            self.m._xd("mousedown", 1, "sleep", "0.03", "mouseup", 1,
+                          "sleep", "0.03", "mousedown", 1, "sleep", "0.03",
+                          "mouseup", 1, "sleep", "0.06")
+            t2 = self.ticks()
+            # ...which takes the X round trips and the grab with it (6-7
+            # ticks measured, the presses themselves 60 ms apart), so it
+            # refuses only what is plainly not a double-click; the verb that
+            # asked for one confirms what the guest made of it
+            span = (t2 - t1) & 0xFFFFFFFF
+            if span >= 2 * DBL_TICKS:
+                raise MartyError("a Bochs double-click took %d ticks around "
+                                 "its four edges (window %d)"
+                                 % (span, DBL_TICKS))
+            if self.verbose:
+                print("  double-click at (%d,%d): at most %d tick(s) apart"
+                      % (x, y, span))
+            _wait(self.m, settle, "dblclick", 2.0)
+            return span
         with contextlib.ExitStack() as held:
             for tr in traces:
                 held.enter_context(tr.hold())

@@ -18,3 +18,6 @@ uilayer secs=120   # every os88ui verb confirmed off guest state, and confirm-vs
 
 # FILES, DIALOGS AND THE DESK
 fpgnotch secs=30   # dsk_xfer asks once a run whether a bar is live; its .cold breakpoints run above 1MB here
+deskmodal secs=40   # a widget DELETE with a Disk window in front; scratch system disk off mega.img
+deskcalgrid secs=40   # the Desk Calendar grid out of its bss, the clock set through clk_*
+msel secs=150   # multi-select and set operations; the listing segment is a selector here

@@ -155,6 +155,7 @@ class BochsMarty(om.Marty):
         self._bpmark = os.path.getsize(box.e9)   # e9 offset of the last resume
         self._at = (0, 0, 0)        # cs, ip, flat ip of the last stop
         self._btn = set()
+        self._keys = set()          # keysyms a row holds down (_c_key)
         self._ldt = None
         self._tmp = tempfile.mkdtemp(prefix="bxm", dir=run_dir)
         self._closed = False
@@ -531,15 +532,30 @@ class BochsMarty(om.Marty):
 
     def _c_key(self, key, down=True, up=True, **_):
         k = keysym(key)
+        if not self.box.captured:   # a key before any mouse event: until
+            self.box.capture()      # the window has the focus it is lost
         if down and up:
-            self.box.xd("key", "--delay", 40, k)
+            self._xd("key", "--delay", 40, k)
         elif down:
-            self.box.xd("keydown", k)
+            self._xd("keydown", k)
+            self._keys.add(k)
         elif up:
-            self.box.xd("keyup", k)
+            self._xd("keyup", k)
+            self._keys.discard(k)
         self._log.append({"cycles": self._cycles(), "kind": "key",
                           "args": {"key": key, "down": down, "up": up}})
         return {"cycles": self._cycles()}
+
+    def _xd(self, *a):
+        """xdotool on the machine's display, keeping a HELD Ctrl held: the
+        re-capture after a debugger stop (os88bochs.GRAB) is Ctrl + middle
+        click and lets Ctrl go, so a row holding ControlLeft across a read
+        (msel's Ctrl+click, any Ctrl+key) lost it at its next event"""
+        if self.box.inp.regrab:
+            held = [k for k in ("Control_L", "Control_R") if k in self._keys]
+            if held:
+                a = sum((("keydown", k) for k in held), ()) + a
+        self.box.xd(*a)
 
     def _c_mouse(self, dx=0, dy=0, l=False, r=False, wz=0, **_):
         if wz:
@@ -550,13 +566,13 @@ class BochsMarty(om.Marty):
         if dx or dy:
             # TWO X PIXELS A GUEST PIXEL, measured (os88bochs.Box.goto) -
             # a serial packet's dx is in mickeys at the same ratio
-            self.box.xd("mousemove_relative", "--", 2 * dx, 2 * dy)
+            self._xd("mousemove_relative", "--", 2 * dx, 2 * dy)
         for want, btn in ((l, 1), (r, 3)):
             if want and btn not in self._btn:
-                self.box.xd("mousedown", btn)
+                self._xd("mousedown", btn)
                 self._btn.add(btn)
             elif not want and btn in self._btn:
-                self.box.xd("mouseup", btn)
+                self._xd("mouseup", btn)
                 self._btn.discard(btn)
         return {"cycles": self._cycles()}
 

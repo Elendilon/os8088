@@ -4258,6 +4258,20 @@ class _Leg(object):
         self._fk.drop(self._r)
 
 
+def system_disk(path):
+    """The system floppy a row COPIES to put its own files on (a scratch
+    A: built with mtools): PATH itself, and under $OS88_MEGA build/mega.img
+    beside it ($OS88_MEGA_BUILD's when set) - os88bochsmarty swaps only the
+    shipped images in build/, so a copy of os8088-360.img would boot
+    kern_big under Bochs and the row would test the wrong kernel. mega.img
+    is 1.44MB with the same tree, so what a row writes onto it lands as it
+    would on the 360KB disk (docs/BOCHS.md, "Rows ported from MartyPC")."""
+    if not os.environ.get("OS88_MEGA"):
+        return path
+    return os.path.join(os.environ.get("OS88_MEGA_BUILD")
+                        or os.path.dirname(os.path.abspath(path)), "mega.img")
+
+
 def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
            run_dir=None, boot=True, timeout=DEFAULT_TIMEOUT, extra=(),
            card=None, label=None, detach=False, rom=None):
