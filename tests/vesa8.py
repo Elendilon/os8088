@@ -52,8 +52,9 @@ import os88qemu                                             # noqa: E402
 import shot                                                 # noqa: E402
 from os88geom import VID_VESA                               # noqa: E402
 
-SOCK = os.path.join(ROOT, "build", "vesa8.sock")
-PIDFILE = os.path.join(ROOT, "build", "vesa8.pid")
+# THIS PROCESS'S pair (tests/os88qemu.py RUNDIR), never a fixed file under
+# build/, and the images snapshot=on - docs/plans/SOAK-PARALLEL.md 17
+SOCK, PIDFILE = os88qemu.paths("vesa8")
 
 WANT_W, WANT_H, WANT_BPP = 800, 600, 8
 
@@ -76,8 +77,8 @@ def launch():
     em = "qemu" + "-system-i386"     # never whole on a command line: kill_stale
     subprocess.run(
         em + " -machine pc,vmport=off -vga std"
-        " -drive file=%s,format=raw,if=floppy -boot a"
-        " -drive file=%s,format=raw,if=floppy,index=1"
+        " -drive file=%s,format=raw,if=floppy,snapshot=on -boot a"
+        " -drive file=%s,format=raw,if=floppy,index=1,snapshot=on"
         " -serial msmouse"
         " -display none -qmp unix:%s,server,nowait -daemonize -pidfile %s"
         % (_B.at("build/vesa8.img"), _B.at("build/apps.img"), SOCK, PIDFILE),

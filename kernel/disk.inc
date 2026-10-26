@@ -5680,6 +5680,17 @@ dsk_fatw_evict:
 ; It runs inside mem_shed_one's cli, so it is word stores and nothing else - no
 ; I/O, no claim, no flush. mem_fatw_dirty is what makes that safe: a window
 ; with FAT edits still in it never reaches here.
+;
+; **A COMPACTION CARRIES THE BYTES** (SPEC.md 18.8.4.1, kern_big). The
+; compactor's walk dissolves a cache it passes (66.10) with IF as its caller
+; had it - SET, under [sch_lock], the moves around it being tens of ms of
+; `rep movsw` already - so the cli that made 18.8.4 drop the contents is not
+; there, and the live window is copied into the pin before [dsk_fatseg] moves:
+; [dsk_fatwn] sectors, 3.1 ms for a 720KB disk's three, against the reload
+; that was 0.18-0.26 s of floppy on the next FAT access. IF is the test,
+; read off the flags: clear is mem_shed_one, and that path drops as before.
+; The claim's bytes are intact here - mem_pg_forget is called BEFORE its
+; record goes, and the walk moves nothing over it until after.
 ; -----------------------------------------------------------------------------
 dsk_fatw_demote:
     push ax
@@ -5695,8 +5706,43 @@ dsk_fatw_demote:
     jne .out                    ; BANKED: no other word ever named it
     call dsk_fatw_evict         ; LIVE: take the pin off whoever holds it -
     mov word [bx+DVOL_MAX*2], FAT_SEG   ; which is never this volume, its
-    call dsk_fatw_home                  ; record having just been cleared -
-.out:                                   ; and move in
+%ifdef OS88_COMPACT                     ; record having just been cleared -
+    pushf                               ; and move in, WITH ITS BYTES when IF
+    pop bx                              ; is set (18.8.4.1). BX is spent: the
+    test bh, 0x02                       ; record was its only use
+    jz .home                    ; IF = 0: mem_shed_one's cli - drop them.
+                                ; (Nothing resident is carried as it is:
+                                ; the bytes are moved and [dsk_fatw0] still
+                                ; says 0xFFFF, which costs ~3 ms and no test)
+    push cx
+    push si
+    push di
+    push ds
+    push es
+    mov ch, [dsk_fatwn]         ; CX = the resident sectors x 256 words,
+    xor cl, cl                  ; read BEFORE DS moves (at most DSK_FAT_SECS)
+    mov bx, FAT_SEG
+    mov es, bx
+    mov ds, ax                  ; DS:SI the window going, ES:DI the pin
+    xor si, si
+    xor di, di
+    cld
+    rep movsw
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop cx
+    mov word [dsk_fatseg], FAT_SEG  ; ...and only THEN does the live word name
+    pop bx                          ; the pin, [dsk_fatw0] kept as it stood.
+    pop ax                          ; Its own epilogue and not a `jmp short
+    ret                             ; .out`: one byte more keeps the arm EVEN,
+                                    ; so dsk_next_clus_x and the hot code
+                                    ; after it keep their parity (t_hotpar)
+.home:
+%endif
+    call dsk_fatw_home
+.out:
     pop bx
     pop ax
     ret
@@ -6361,7 +6407,25 @@ RAH_LBA equ 0                    ; one slot: the chunk's first LBA, how many
 RAH_N   equ 2                    ; sectors of it are here (0 = the slot says
 RAH_SIG equ 4                    ; nothing), and §18.8.1's key - the mount
 RAH_VOL equ 6                    ; signature and the volume index
+RAH_HIT equ 7                    ; ...and 1 when a read has COME BACK to it
+                                 ; since it was filled or last spared: the
+                                 ; pick's second chance (SPEC.md 18.95.10).
+                                 ; The fill zeroes it with the VOL byte's word
+                                 ; store, so a fill's own copy-out is not a hit
+RAH_END equ 8                    ; ...and the sector index just past the
+                                 ; chunk's LAST read. A read starting exactly
+                                 ; there is a stream moving on and marks
+                                 ; nothing; any other is a visit, which is what
+                                 ; RAH_HIT is for (18.95.10.1). Every copy
+                                 ; writes it, the fill's included, so it needs
+                                 ; no clearing of its own
 RAH_REC equ 9
+%if RAH_HIT != RAH_VOL + 1 || RAH_HIT >= RAH_REC
+%error "dsk_rah_fill clears RAH_HIT with the word store that writes RAH_VOL"
+%endif
+%if RAH_END != RAH_HIT + 1 || RAH_END >= RAH_REC
+%error "RAH_END is the record's ninth byte: the stride is fixed at DSK_RAH_SECS"
+%endif
 %if RAH_REC != DSK_RAH_SECS
 %error "dsk_rah_serve derives a slot's byte offset with ONE shift, which needs \
 the record stride and the chunk length to be the same number"
@@ -6501,7 +6565,13 @@ dsk_rah_serve:
     sub ax, [si+RAH_LBA]        ; AX = the sector's index inside the chunk
     jc .next                    ; below this chunk (the subtract wrapped)
     cmp ax, [si+RAH_N]
-    jb .copy                    ; ...and inside it: a HIT
+    jae .next                   ; ...and inside it: a HIT
+    cmp al, [si+RAH_END]        ; EXACTLY where its last read ended is a stream
+    je .copy                    ; moving on - the fill served the head, this is
+    mov byte [si+RAH_HIT], 1    ; the next sector - and marks nothing. Anything
+    jmp short .copy             ; else is a VISIT - back, the same sector again
+                                ; or across a gap - so mark the chunk, and the
+                                ; round robin passes it over once (18.95.10.1)
 .next:
     add si, RAH_REC
     loop .slot
@@ -6525,6 +6595,9 @@ dsk_rah_serve:
     jbe .n
     mov di, dx                  ; ...and never more than were asked for
 .n:
+    mov cx, ax                  ; CX is the spent slot count: where this read
+    add cx, di                  ; ENDS, for the next one's test (a fill's
+    mov [si+RAH_END], cl        ; included - its next sector is the stream's)
     push di                     ; the answer, in sectors
     sub si, dsk_rah_tab         ; slot * RAH_REC, and RAH_REC == DSK_RAH_SECS
     add si, ax                  ; (asserted above), so one shift is
@@ -6645,7 +6718,13 @@ dsk_rah_fill:
     mov bx, ax
     add ax, dsk_rah_tab
     xchg ax, si                 ; SI = the slot's record (the output)
-    shl bx, cl                  ; ...and BX = its own run of the claim, RAH_REC
+    cmp byte [si+RAH_HIT], 0    ; **A CHUNK A READ HAS COME BACK TO SINCE ITS
+    je .take                    ; FILL IS SPARED ONCE** (SPEC.md 18.95.10): its
+    mov byte [si+RAH_HIT], 0    ; mark is spent and the pick moves on. Every
+    jmp short .pick             ; slot spared clears its own, so the walk ends
+                                ; within one turn of the table
+.take:
+    shl bx, cl                 ; ...and BX = its own run of the claim, RAH_REC
                                 ; == DSK_RAH_SECS making slot*512 it, with CL
                                 ; still the 9 the multiply was given
     pop dx                      ; DX = the chunk length again
@@ -6690,7 +6769,9 @@ dsk_rah_fill:
 %endif
     mov [si+RAH_N], dx          ; DX still holds the length: only now is the
     mov al, [disk_drive]        ; slot allowed to claim it has anything
-    mov [si+RAH_VOL], al
+    cbw                         ; AH = 0 (a volume index is under 80h)...
+    mov [si+RAH_VOL], ax        ; ...so one word store is VOL and a clear
+                                ; RAH_HIT: the fill's own copy-out is no hit
     mov ax, [dsk_sigcur]
     mov [si+RAH_SIG], ax        ; (CF = 0: the `jc .out` above, and a `mov`
 .out:                           ; keeps it)

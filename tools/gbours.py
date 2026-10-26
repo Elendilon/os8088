@@ -40,6 +40,7 @@ ROMS = {
     "gbrmw": [],
     "gbflags": [],                          # (generated: tools/gbprof/gbflags.py)
     "gblazy": [],                           # (generated: tools/gbprof/gblazy.py)
+    "gbcpc": [],                            # (generated: tools/gbprof/gbcpc.py)
     "gbseam": ["-m", "0x01"],               # code across 3FFF into the bank
     "gbseam2": ["-m", "0x01"],              #   (gbcpu.py, REALDMG-SPEC 3.1)
     "gbjoy": [],                            # the joypad interrupt (gbheader.py)

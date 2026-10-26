@@ -28,6 +28,7 @@ import brclick                                      # noqa: E402
 import dispcp                                       # noqa: E402
 import ethernet                                     # noqa: E402
 import os88build                                    # noqa: E402
+import os88fixture                                  # noqa: E402
 import os88flush                                    # noqa: E402
 import os88sym                                      # noqa: E402
 
@@ -58,6 +59,7 @@ class Server(threading.Thread):
         super().__init__(daemon=True)
         self.sock = socket.socket()
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        ethernet.os88qemu.lease_port(PORT)  # (SOAK-PARALLEL.md 17.3)
         self.sock.bind(("0.0.0.0", PORT))
         self.sock.listen(4)
         self.requests = []
@@ -119,27 +121,26 @@ def manager_rect(m, pseg, sy, S):
     raise RuntimeError("Download Manager window pointer is not in wm_wins")
 
 
+# ONE PATH FOR THE IMAGE THIS ROW WRITES AND READS BACK, and it is THIS
+# PROCESS'S (tests/os88qemu.py RUNDIR): os88qemu.make_test boots an image
+# inside RUNDIR in place and copies the shared one (ether360.img), so the
+# guest never dirties a built image and the row builds nothing - where it was
+# `make -B browsertest`, `make ethertest` and `make test` on build/qmp.sock,
+# which kept all three brdownload rows out of every shared lane
+# (docs/plans/SOAK-PARALLEL.md 17). The three share PORT, and say so in their
+# `locks=`; the lease in Server is the cross-runner half.
 def main():
     if SHOTDIR:
         os.makedirs(SHOTDIR, exist_ok=True)
-    subprocess.run(["make", "-B", "browsertest"], check=True,
-                   stdout=subprocess.DEVNULL)
-    if os.path.exists(os88build.at("build/ether360.img")):
-        os.remove(os88build.at("build/ether360.img"))
-    subprocess.run(["make", "ethertest"], check=True,
-                   stdout=subprocess.DEVNULL)
+    os88fixture.need("build/browser.o88", "build/ether360.img")
+    dlimg = os.path.join(ethernet.os88qemu.RUNDIR, "brdownload360.img")
     subprocess.run(["python3", "tools/os88disk.py", "-o",
-                    "build/brdownload360.img", "--size", "360",
-                    "--folder", "SYSTEM/APPDATA", "build/browser.o88"],
+                    dlimg, "--size", "360",
+                    "--folder", "SYSTEM/APPDATA",
+                    os88build.at("build/browser.o88")],
                    check=True, stdout=subprocess.DEVNULL)
-    for filename in (os88build.at("build/qmp.sock"),
-                     os88build.at("build/qemu.pid")):
-        if os.path.exists(filename):
-            os.remove(filename)
-    ethernet.os88qemu.own()
-    subprocess.run(["make", "test", "ETHER=1", "TESTIMG=build/ether360.img",
-                    "TESTAPPS=build/brdownload360.img"], check=True,
-                   stdout=subprocess.DEVNULL)
+    ethernet.os88qemu.make_test("ETHER=1", "TESTIMG=build/ether360.img",
+                                "TESTAPPS=" + dlimg)
 
     server = Server()
     server.start()
@@ -155,7 +156,14 @@ def main():
             m, lambda: int.from_bytes(
                 m.read(dr + ethernet.DRVR_SEG, 2), "little") != 0,
             secs=60, what="ETHER.DRV to attach", poll=0.4)
-        eseg = int.from_bytes(m.read(dr + ethernet.DRVR_SEG, 2), "little")
+        # ...TAKEN ONCE THE BOOT IS OVER AND IT HAS HELD STILL: the row's
+        # segment is armed before the image is read and moves once more
+        # after the desktop is up (os88qemu.kernel_up; tests/ethernet.py)
+        ethernet.os88qemu.kernel_up(m, S, secs=120)
+        eseg = ethernet.os88qemu.quiesce(
+            m, lambda: int.from_bytes(m.read(dr + ethernet.DRVR_SEG, 2),
+                                      "little"),
+            secs=0.5, stable=3, what="ETHER.DRV's segment")
         ethernet.os88qemu.acted(
             m, lambda: m.readseg(eseg, esy["dhcp_st"], 1)[0]
             == ethernet.DH_BOUND, secs=60, what="DHCP to bind", poll=0.4)
@@ -184,6 +192,14 @@ def main():
         page_history_count = int.from_bytes(m.readseg(
             pseg, sy["br_histn"], 2), "little")
 
+        # ...AND THE LAYOUT FINISHED (brcapacity's lesson, one page along):
+        # state 6 is the fetch's, and the line table is still being built
+        # behind it - a starved guest was read with the page in and no line
+        # holding the link yet (docs/plans/SOAK-PARALLEL.md 17.5)
+        ethernet.os88qemu.quiesce(
+            m, lambda: (word(m, pseg, sy["br_nlines"]),
+                        word(m, pseg, sy["br_doclen"])),
+            secs=0.5, stable=3, what="the page's layout")
         # Locate the anchor from the Browser's formatted marker and line table.
         doclen = word(m, pseg, sy["br_doclen"])
         docseg = word(m, pseg, sy["br_docseg"])
@@ -343,7 +359,7 @@ def main():
                                 pseg, sy["br_dl_cancel_req"], 1)[0]:
                             failures.append("closing active manager did not request cancellation")
                         volume = os88flush.Volume(open(
-                            os88build.at("build/brdownload360.img"), "rb").read())
+                            dlimg, "rb").read())
                         try:
                             volume.read("DOWNLOAD.BIN")
                         except os88flush.FlushError:
@@ -428,7 +444,7 @@ def main():
                             secs=10, what="completed manager to close", poll=0.1)
                         m.quit()
                         volume = os88flush.Volume(open(
-                            os88build.at("build/brdownload360.img"), "rb").read())
+                            dlimg, "rb").read())
                         if volume.read("DOWNLOAD.BIN") != PAYLOAD:
                             failures.append("closing completed manager changed the downloaded file")
                         if failures:
@@ -566,7 +582,7 @@ def main():
 
     try:
         volume = os88flush.Volume(open(
-            os88build.at("build/brdownload360.img"), "rb").read())
+            dlimg, "rb").read())
         got = volume.read("DOWNLOAD.BIN")
         if got != PAYLOAD:
             first = next((i for i, (a, b) in enumerate(zip(got, PAYLOAD))

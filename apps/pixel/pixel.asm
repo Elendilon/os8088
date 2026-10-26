@@ -65,6 +65,11 @@
                                     ; a stack, and px_pin/px_unpin are that:
                                     ; a part is PINNED exactly while one task
                                     ; or the other stands in it
+%define OP_WANT_ASSETHI             ; THE FACE'S PICTURES FROM THE CEILING
+                                    ; (SPEC.md 106.16.1): part 9 is the one
+                                    ; ASSET, and it is held to be GIVEN BACK
+                                    ; to a master - px_artroom - so it sits
+                                    ; where its room joins the master's run
 %include "os88parts.inc"
 
 ; --- the parts (SPEC.md 106.5) --------------------------------------------------

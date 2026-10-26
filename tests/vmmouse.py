@@ -90,8 +90,9 @@ import os88qemu                                             # noqa: E402
 _B.use_build("build/emuk")
 os.environ.setdefault("OS88_DEFINES", "KERN_EMU")
 
-SOCK = os.path.join(ROOT, "build", "vmm.sock")
-PIDFILE = os.path.join(ROOT, "build", "vmm.pid")
+# THIS PROCESS'S pair (tests/os88qemu.py RUNDIR), never a fixed file under
+# build/, and the images snapshot=on - docs/plans/SOAK-PARALLEL.md 17
+SOCK, PIDFILE = os88qemu.paths("vmm")
 
 QEMU_ABS_MAX = 0x7FFF          # QEMU's INPUT_EVENT_ABS_MAX
 TOL = 2                        # px. Two fixed-point scalings, each rounding
@@ -134,8 +135,8 @@ def launch():
         # driver's bit set, exactly as ether360.img does for the card - so the
         # pointer is up before the first paint and this reads state instead of
         # driving the Control Panel through a scripted mouse.
-        " -drive file=%s,format=raw,if=floppy -boot a"
-        " -drive file=%s,format=raw,if=floppy,index=1"
+        " -drive file=%s,format=raw,if=floppy,snapshot=on -boot a"
+        " -drive file=%s,format=raw,if=floppy,index=1,snapshot=on"
         " -serial none"
         " -display none -qmp unix:%s,server,nowait -daemonize -pidfile %s"
         % (_B.at("build/vmmouse.img"),

@@ -1708,8 +1708,16 @@ op_fetch:
     jb .nomem
     mov ax, bx
     xor cx, cx                  ; (op_claim's door: conventional on kern_mega
-    call OSAPI_MEM_CLAIM_DMA    ; whatever the header says, the fetch below
-    jc .nomem                   ; adding paragraphs to the base)
+%ifdef OP_WANT_ASSETHI          ; whatever the header says, the fetch below
+    cmp byte [si+OP_R_KIND], OP_ASSET   ; adding paragraphs to the base)
+    jne .lodoor                 ; A LAZY ASSET FROM THE CEILING, when the
+    call OSAPI_MEM_CLAIM_DMA_HI ; package asks (SPEC.md 20.12.4.1): CX = 0, so
+    jmp short .claimed          ; top-down on every kernel
+.lodoor:
+%endif
+    call OSAPI_MEM_CLAIM_DMA
+.claimed:
+    jc .nomem
     push dx                     ; ...banked across everything below
 
     mov ax, [si+OP_R_OFF]       ; --- where the read starts, and its slack ---

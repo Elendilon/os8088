@@ -1221,9 +1221,12 @@ in_netck:
     mov al, DRVC_NET
     call OSAPI_DRV_CLASSK           ; never loads ETHER.DRV: that is a DHCP wait
     jc .set
-    mov bl, NET_FAIL
     call in_vget                    ; in_vbuf = the file, NUL-ended
-    jc .set
+    mov bl, NET_FAIL                ; AFTER the call, never before it: in_vget
+    jc .set                         ; spends BL on its socket verbs, and a
+                                    ; refusal stored the last NETV_* as the
+                                    ; answer - RECV is 5, NET_NEW, which is
+                                    ; how a 404 read 'release HTTP/1.1, newer'
     call in_vparse                  ; BL = the answer
 .set:
     mov [in_net], bl

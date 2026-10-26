@@ -161,12 +161,18 @@ import os88geom                                            # noqa: E402
 import os88wire                                            # noqa: E402
 import os88build                                       # noqa: E402
 import os88parts                                       # noqa: E402
+import os88fixture                                    # noqa: E402
+import shutil                                          # noqa: E402
 
 S = os88sym.linear
-SOCK = "build/qmp.sock"
+# THIS PROCESS'S socket (tests/os88qemu.py RUNDIR) - main() points it at the
+# machine os88qemu.make_test launches, and every helper reads it at call time
+SOCK = os88qemu.SOCK
 PORT = 8092
 SYSIMG = "build/thewire360.img"
-DATIMG = "build/thewiredata.img"
+# ...and the scratch B: is THIS RUN'S COPY of the built blank disk, booted in
+# place and read back on the host after (docs/plans/SOAK-PARALLEL.md 17)
+DATIMG = os.path.join(os88qemu.RUNDIR, "thewiredata.img")
 
 WS_DONE, WS_FAIL = 7, 8                 # thewire.asm's WS_*, and WS_PAUSE
                                         # (SPEC.md 92.14) went in at 6 between
@@ -602,7 +608,8 @@ W_SEG = 22                              # the package's own segment, and
 # QEMU over QMP - tests/ethernet.py's class, one connection at a time
 # =============================================================================
 class Qemu:
-    def __init__(self, path=SOCK):
+    def __init__(self, path=None):
+        path = path or SOCK
         self.path = path
         self.tmp = tempfile.mkdtemp()
         for _ in range(150):
@@ -614,6 +621,15 @@ class Qemu:
         raise RuntimeError("no QMP socket at %s" % path)
 
     def hmp(self, cmd):
+        # a plain `sendkey` is CONFIRMED by tools/qmp.py (its `key`): HMP's
+        # release follows 100 ms of HOST time later and a starved guest
+        # lost the key (docs/plans/SOAK-PARALLEL.md 17.5)
+        if re.match(r"^sendkey \S+$", cmd):
+            import qmp as _qmpc
+            _o, _e, _rc = _qmpc.run(self.path, [cmd])
+            if _rc:
+                raise RuntimeError("sendkey: " + _e)
+            return ""
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.connect(self.path)
         f = s.makefile("rw")
@@ -743,6 +759,7 @@ class Server(threading.Thread):
         self.asked = []
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        os88qemu.lease_port(PORT)       # (SOAK-PARALLEL.md 17.3)
         self.s.bind(("0.0.0.0", PORT))
         self.s.listen(4)
 
@@ -868,19 +885,25 @@ def main():
 
     off = bss_offsets()
 
-    # **THE DISKS ARE REBUILT, NOT CHECKED.** QEMU mounts both writable and
-    # assertion 6 WRITES to the data disk, so a run that inherited the last
+    # **THE DISKS ARE FRESH COPIES, NOT REBUILT.** QEMU mounts both writable
+    # and assertion 6 WRITES to the data disk, so a run that inherited the last
     # run's B: would find the two files already there and pass having proved
-    # nothing. Staleness is not the hazard here - a dirty image is - and
-    # `make` cannot see the difference, because the guest's write leaves the
-    # image NEWER than everything it was built from (tests/ethernet.py's note,
-    # one disk along).
-    for f in (SYSIMG, DATIMG):
-        if os.path.exists(f):
-            os.remove(f)
-    r = subprocess.run(["make", "thewiretest"], capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("thewire: make thewiretest failed:\n" + r.stdout + r.stderr)
+    # nothing. That used to be answered by deleting both built images and
+    # running `make thewiretest` here, under every row beside it; now the
+    # built images are this row's `wants=`, make_test boots a COPY of the
+    # system disk, and the data disk is copied into this process's directory
+    # (docs/plans/SOAK-PARALLEL.md 17) - fresher than a rebuild, and nothing
+    # the next row reads is ever dirtied.
+    os88fixture.need(SYSIMG, "build/thewiredata.img", "build/mseg.o88")
+    shutil.copyfile(os88build.at("build/thewiredata.img"), DATIMG)
+    # THE PACKER'S DIRECTORY IS THIS RUN'S TOO: it read the fixture archives,
+    # the sidecars and a format-7 .o88 out of build/, written there by this
+    # row and deleted again - three kinds of file in the shared tree, one of
+    # which t_pkg's sweep of build/*.o88 rightly refuses
+    pkgdir = os.path.join(os88qemu.RUNDIR, "pkg")
+    os.makedirs(pkgdir, exist_ok=True)
+    for f in ("hello.o88", "mines.o88"):
+        shutil.copyfile(os88build.at("build/" + f), os.path.join(pkgdir, f))
 
     # --- the fixture the host will serve ------------------------------------
     tmp = tempfile.mkdtemp()
@@ -902,7 +925,7 @@ def main():
         wpk = os88wire.archive(src, home=ARC_HOME, program=ARC_PROG)
     except os88wire.Refused as e:
         sys.exit("thewire: the fixture tree will not pack: %s" % e)
-    open(os.path.join("build", ARC_STEM + ".WPK"), "wb").write(wpk)
+    open(os.path.join(pkgdir, ARC_STEM + ".WPK"), "wb").write(wpk)
     bsrc = os.path.join(tmp, "bigtree")
     os.makedirs(bsrc, exist_ok=True)
     bigtree = fixture_big(bsrc)
@@ -914,7 +937,7 @@ def main():
         sys.exit("thewire: the big fixture packed as version %d and not 2 - "
                  "its HUGE.BIN is past WIRE_FILEMAX, so the writer has to "
                  "make it version 2 (SPEC.md 92.13.1)" % bwpk[os88wire.WA_VER])
-    open(os.path.join("build", BIG_STEM + ".WPK"), "wb").write(bwpk)
+    open(os.path.join(pkgdir, BIG_STEM + ".WPK"), "wb").write(bwpk)
     say("archive %s: %d bytes on the wire, version 2, %d entries"
         % (BIG_STEM + ".WPK", len(bwpk), len(bigtree)))
     say("archive %s: %d bytes on the wire, %d entries, %d files unpacked"
@@ -925,17 +948,17 @@ def main():
                  "- without that the dword Content-Length and the 32-bit "
                  "byte count are never read with a high word in them"
                  % len(wpk))
-    for name, data in XSIDE.items():    # the packer sizes them out of build/
-        open(os.path.join("build", name.lower()), "wb").write(data)
+    for name, data in XSIDE.items():    # the packer sizes them out of pkgdir
+        open(os.path.join(pkgdir, name.lower()), "wb").write(data)
     try:
         hello0 = open(os88build.at("build/hello.o88"), "rb").read()
         oldhello = hello0[:2] + bytes([hello0[2] - 1]) + hello0[3:]
-        # IN build/ ONLY FOR AS LONG AS THE PACKER READS IT: a format-7 .o88
-        # left there is one t_pkg's sweep of build/*.o88 rightly refuses
-        oldpath = os.path.join("build", "oldhello.o88")
+        # in the packer's private directory, never in build/: a format-7
+        # .o88 there is one t_pkg's sweep of build/*.o88 rightly refuses
+        oldpath = os.path.join(pkgdir, "oldhello.o88")
         open(oldpath, "wb").write(oldhello)
         try:
-            cat = bytearray(os88wire.pack(json.load(open(man)), "build",
+            cat = bytearray(os88wire.pack(json.load(open(man)), pkgdir,
                                           pics))
         finally:
             os.remove(oldpath)
@@ -967,25 +990,13 @@ def main():
     say("http server on 10.0.2.2:%d, catalog %d bytes, %d records"
         % (PORT, len(cat), len(FIXTURE["entries"])))
 
-    # A SURVIVOR KEEPS THE SOCKET, so the new machine cannot bind and every
-    # read below would come from the OLD one - which reads as a change that
-    # did nothing (CLAUDE.md). Kill it by PID out of the pidfile and never
-    # with `pkill -f qemu`, whose pattern matches the calling shell.
-    if os.path.exists("build/qemu.pid"):
-        try:
-            pid = int(open("build/qemu.pid").read().strip())
-            os.kill(pid, 15)
-            os88qemu.gone(pid)      # a HOST wait: the process, not a guess
-        except (OSError, ValueError):
-            pass
-    for f in ("build/qmp.sock", "build/qemu.pid"):
-        if os.path.exists(f):
-            os.remove(f)
-    os88qemu.own()
-    r = subprocess.run(["make", "test", "ETHER=1", "TESTIMG=" + SYSIMG,
-                        "TESTAPPS=" + DATIMG], capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("thewire: make test failed:\n" + r.stdout + r.stderr)
+    # A PRIVATE MACHINE (tests/os88qemu.py make_test): its own socket and
+    # pidfile, so there is no survivor of an earlier run to kill first; the
+    # system disk copied, and DATIMG - already this run's - booted in place
+    global SOCK
+    inst = os88qemu.make_test("ETHER=1", "TESTIMG=" + SYSIMG,
+                              "TESTAPPS=" + DATIMG)
+    SOCK = inst.sock
 
     m = Qemu()
     mo = Mouse()
@@ -1876,7 +1887,7 @@ def main():
             # ...and QEMU GONE before the data disk is read back on the host:
             # a host wait, on the process, rather than a second and a half
             try:
-                qpid = int(open("build/qemu.pid").read().strip())
+                qpid = int(open(os88qemu.PIDFILE).read().strip())
             except (OSError, ValueError):
                 qpid = None
             m.quit()

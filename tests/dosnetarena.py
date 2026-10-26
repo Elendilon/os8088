@@ -135,6 +135,10 @@ def main():
     import xmcheck
     import atexit
     import shutil
+    # dospkt.asm's segment goes to 10.0.2.2:8099, which is tests/dosxlat.py's
+    # listener: a dosxlat beside this row would ANSWER it, so the port is
+    # held for the run (SOAK-PARALLEL.md 17.3) and the row `locks=` it too
+    os88qemu.lease_port(8099)
     work = tempfile.mkdtemp(prefix="dpk-")      # short: a QMP socket path
     atexit.register(shutil.rmtree, work, True)  # (runs after q's close)
     q = os88qemu.Private(work, os88build.at(SYS), os88build.at(PKT),
@@ -148,6 +152,12 @@ def main():
         # Every wait in this row is in the GUEST's seconds (tests/os88qemu.py).
         drvrow = (eth.S("drv_tab") + eth.ETH_ROW * eth.DRVR_SZ
                   + eth.DRVR_SEG)
+        # THE BOOT FIRST (os88qemu.kernel_up): drv_tab is .bss, and until
+        # stage 2 has expanded the packed kernel those bytes are the LZ4
+        # stream - a non-zero JUNK word satisfied this poll at 0.7 s and the
+        # row reported "never attached" off the cleared one (SOAK-PARALLEL
+        # 17.5)
+        os88qemu.kernel_up(m, eth.S, secs=120)
         os88qemu.acted(m, lambda: u16(m.read(drvrow, 2)) != 0, secs=60,
                        what="ETHER.DRV's drv_tab row", poll=0.4)
         seg = u16(m.read(drvrow, 2))

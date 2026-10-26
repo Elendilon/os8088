@@ -339,6 +339,12 @@ def _run(m):
               raised and got["mn_flags"] == before,
               "cell (0,%d) at (%d,%d) raised=%s -> %r"
               % (row, cx, cy, raised, got))
+        # ...and the RAISE FINISHED before the next press: frontmost is set
+        # at the top of the raise and its repaint runs after it, and on QEMU
+        # a starved guest's 20 quiet ticks were not the whole of that - the
+        # next press arrived mid-raise and flagged nothing
+        # (docs/plans/SOAK-PARALLEL.md 17.5). The UI going idle is the end
+        os88qemu.ui_done(m, S, cap=10.0, what="the raise")
         mo.rclick(cx, cy)                                   # now frontmost
         acted(m, lambda: w()["mn_flags"] != before)
         got = w()

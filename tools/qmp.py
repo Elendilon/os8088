@@ -108,7 +108,76 @@ class Client(object):
                     n += 1 if d > 256 else d    # SET (POST, midnight), not run
                     last, seen = t, time.monotonic()
 
+        def tail():
+            r = send({"execute": "human-monitor-command",
+                      "arguments": {"command-line": "xp /1hx 0x41c"}})
+            m = re.search(r":\s*0x([0-9a-fA-F]+)", r.get("return", ""))
+            return int(m.group(1), 16) if m else None
+
+        def kflags():
+            r = send({"execute": "human-monitor-command",
+                      "arguments": {"command-line": "xp /1bx 0x417"}})
+            m = re.search(r":\s*0x([0-9a-fA-F]+)", r.get("return", ""))
+            return int(m.group(1), 16) if m else None
+
+        def until(cond, secs):
+            # `cond` true, or `secs` of GUEST time (BIOS ticks), or a stall
+            need = int(secs * TICK_HZ + 0.999) + 1
+            last, n, seen = ticks(), 0, time.monotonic()
+            while (n < need and not cond()
+                   and time.monotonic() - seen < STALL):
+                time.sleep(0.005)
+                t = ticks()
+                d = (t - last) & 0xFFFF
+                if d:
+                    n += 1 if d > 256 else d
+                    last, seen = t, time.monotonic()
+
+        def key(spec, secs=0.3):
+            # A PLAIN `sendkey` IS CONFIRMED (docs/plans/SOAK-PARALLEL.md
+            # 17.5): HMP's own queues the release 100 ms of HOST time after
+            # the press, and a guest the host starved past that took both at
+            # one IRQ1 and lost the key. So the press goes, then the release
+            # only once the ROM has stored it - the BIOS buffer's tail at
+            # 0040:001C moved - or after `secs` guest seconds (under the
+            # 500 ms typematic delay) for a key the
+            # ROM stores nothing for. Modifiers are held across the key.
+            names = spec.split("-")
+
+            def ev(name, down):
+                r = send({"execute": "input-send-event", "arguments": {
+                    "events": [{"type": "key", "data": {
+                        "down": down,
+                        "key": {"type": "qcode", "data": name}}}]}})
+                if "error" in r:
+                    raise RuntimeError(r["error"])
+            # EACH MODIFIER IS CONFIRMED TOO, before the next event goes: a
+            # make code queued behind another at one IRQ1 is the case the
+            # kernel's 8042 peek loses on QEMU (SPEC.md 9.7), and a shift lost
+            # that way typed `http;;//` for `http://`. The ROM's shift-state
+            # byte at 0040:0017 changing is the proof; a modifier the ROM
+            # keeps no bit for runs out the same guest budget instead.
+            for n in names[:-1]:
+                f0 = kflags()
+                ev(n, True)
+                until(lambda: kflags() != f0, secs)
+            t0 = tail()
+            ev(names[-1], True)
+            until(lambda: tail() != t0, secs)
+            ev(names[-1], False)
+            for n in reversed(names[:-1]):
+                f0 = kflags()
+                ev(n, False)
+                until(lambda: kflags() != f0, secs)
+
         for cmd in cmds:
+            k = re.match(r"^sendkey (\S+)$", cmd)
+            if k is not None:
+                try:
+                    key(k.group(1))
+                except RuntimeError as e:
+                    return "\n".join(outs), "error: %s" % e, 1
+                continue
             if cmd.startswith("sleep "):  # convenience: pacing between inputs
                 time.sleep(float(cmd.split()[1]))
                 continue

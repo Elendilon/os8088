@@ -76,8 +76,11 @@ def clusters(n, size):
 # A parted package's --part arguments, in table order, as its Makefile rule
 # passes them: a re-pack without them is refused by os88pkg.py, and the
 # shipped file's size includes them, so LZB and LZ4 are compared like for like.
-# SHEET's two modules are parts since SPEC.md 82.16.12.
-PARTS = {"sheet": ("sheet.chart.bin", "sheet.macro.bin")}
+# SHEET's two modules are parts since SPEC.md 82.16.12; the Browser's
+# Download Manager is one too, packed LZ4 whatever the image is.
+PARTS = {"sheet": ("sheet.chart.bin", "sheet.macro.bin"),
+         "browser": ("browser.part.bin",)}
+PART_ARGS = {"browser": ("--part-compress", "lz4")}
 
 
 def pack(binp, fmt, tmp):
@@ -86,6 +89,7 @@ def pack(binp, fmt, tmp):
     parts = []
     for f in PARTS.get(stem, ()):
         parts += ["--part", os.path.join(os.path.dirname(binp), f)]
+    parts += list(PART_ARGS.get(stem, ()))
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "os88pkg.py"),
                         binp, "-o", out, "--compress-if=" + fmt] + parts,
                        capture_output=True, text=True)

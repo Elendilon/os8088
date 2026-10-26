@@ -15356,6 +15356,17 @@ Five things are load-bearing:
   answer after arming is always "up"**, and a key already held when the map
   arms is not seen until it is pressed again. Neither can latch anything
   wrong — a break code clears a bit that is already clear.
+  **QEMU's 8042 REFUTES the peek when a second byte is queued** (measured in
+  the soak, `vidxiphdhold`): QEMU loads the next byte the moment port 60h is
+  read, so a press and its release waiting together at one IRQ1 lose the
+  press to the peek - two IRQ1s, nothing in the BIOS buffer. A real 8042
+  cannot be made to do it, because the keyboard sends its next byte only
+  after the controller is read and its clock released (~1 ms); an emulated
+  or SMM-emulated one may. The harness paces keys the way a keyboard does
+  (`tests/os88qemu.py`'s `key`). The kernel-side fix - taking the scancode
+  from the AT BIOS's own `int 15h AH=4Fh` intercept instead of peeking where
+  the ROM offers it - is open, and is an owner's decision: it hooks a vector
+  every handoff would have to give back.
 - **The map is cleared at the arm, not at boot.** `.bss` arrives zeroed by the
   accident §2.5 describes, and a bit stuck *on* here is a key an application
   believes is held for the rest of the session. Nine bytes make the initial
@@ -35354,6 +35365,49 @@ only taken out of memory that is free without shedding anybody. What the
 number was defending is now defended by the tag: a machine that needs the room
 back takes it.
 
+#### 18.8.4.1 …but a COMPACTION carries the live window's bytes into the pin (`kern_big`)
+
+§18.8.4 drops the contents on the ground of WHERE the drop runs: inside
+`mem_shed_one`'s `cli`, where a 12 ms copy is a lost mouse byte and a half.
+That ground is true of the shed and of nothing else. The compactor's walk
+dissolves a cache it passes as well (§66.10) - every pass with a claim
+waiting does, a FAT window included - and it runs with IF as its caller had
+it, which is SET, under `[sch_lock]`, between block moves that are tens of
+milliseconds of `rep movsw` already. So `dsk_fatw_demote`'s live arm asks
+the FLAGS: IF clear is the shed and drops as before; IF set is the walk, and
+the window's `[dsk_fatwn]` sectors are copied into `FAT_SEG` before
+`[dsk_fatseg]` names it, with `[dsk_fatw0]` left as it stood. The bytes are
+intact at that instant - `mem_pg_forget` runs before the record goes, and a
+pass moves nothing over a dissolved block until after (an ascending pass
+moves only what is above it DOWN onto a fill point below it, a descending
+one the mirror) - and the pin's previous holder has been evicted first,
+exactly as for a drop. A window with FAT edits in it never reaches here
+(`mem_fatw_dirty`), so a carried window is a clean one. Nothing resident is
+carried as it stands: the copy moves bytes nobody reads and `[dsk_fatw0]`
+still says `0xFFFF`.
+
+**WHAT is dissolved, and when, does not change**: `[mem_pg_rank]` and
+`mem_pg_cheap` decide that exactly as before, a claim a cheaper cache or no
+compaction satisfies never reaches here, the claim's record is freed in the
+same instruction, and `FAT_SEG` is the kernel's own window and not heap - so
+every claim sees the same arena and the same `OSAPI_MEM_AVAIL` it did (the
+heap map after BIG.BMP's open is the same claim for claim with the carry and
+without). Only the bytes of a window that was going anyway survive.
+
+It was found as a regression with no FAT code in it (`pxbenchvga`, BIG.BMP's
+first rows, §106.22): a picture's master claim compacts, the walk dissolves
+the live window of the volume the picture is on, and the decoder's first
+`dsk_next_clus` re-reads the FAT - on a 720 KB floppy, one `int 13h` filling
+§18.95's chunk from LBA 1, **0.18-0.26 s** in front of the first rows. It
+was free only while the sector cache still held that chunk, which is luck of
+which fills came between the boot mount and the claim (§18.95.10's round
+robin evicts a chunk nobody has HIT, and a FAT read through a live window is
+not a hit). A 720 KB disk's three sectors copy in ~3 ms; the largest window,
+`DSK_FAT_SECS` = 9, in ~8 ms. **46 bytes of `.cold`, resident, on `kern_big`
+(37,586 -> 37,632; the arm ends in its own epilogue, one byte longer than a
+jump to the shared one, so the hot code after it keeps its parity), `.text` and `.bss` unchanged; `kern_small` has no
+compactor and assembles byte for byte as before** (`OS88_COMPACT`).
+
 ### 18.8.5 A held stream's dirty FAT stays with its window across a hop (`kern_big`)
 
 The windows are per volume and the DIRTY RANGE is not: `[dsk_fatd0,
@@ -38707,6 +38761,125 @@ FILL, against a ~400 ms `int 13h`.
 | moving §18.95's four-test gate off `dsk_xfer` into `dsk_rah_serve` | 4 × 7 = 28 at the site against 28 plus a `stc`/`ret` exit in the routine — **+2** |
 | a table for the solve instead of the divide-and-clamp ladder | the ladder is a `div` (7) and three compares (21). A table indexed by KB wants hundreds of entries; a range search over it is longer than 21 |
 | merging `dsk_rah_redo` into `osapi_dsk_cache_x` outright | a published slot preserves every register but its outputs, so the pushes stay: the saving is the `call`/`ret`, and it would put the drop out of reach of any second caller. The fall-through gets 12 bytes with neither cost |
+
+#### 18.95.10 …and a chunk that is being READ is not the one the round robin evicts
+
+`dsk_rah_fill` spends slots in a plain round robin, and a round robin evicts
+by AGE OF FILL: the chunk it takes next is the one filled longest ago, however
+often it has been read since. That is exactly wrong for the chunks a cache on
+this machine exists for. A program that reads by name re-walks the folder per
+call (`OSAPI_FILE_READ_AT`, docs/plans/DISK-CPU-PLAN.md), so the folder's
+sector and the root's are HIT on every open - and they are also the OLDEST
+fills, so the streaming fills of the file being opened march the cursor
+straight onto them. §18.95.1's gate keeps a whole-chunk request out; it cannot
+keep out the partial tracks at a run's tail or at a 64KB page cut, which a
+16KB-slot reader makes two or three of per slot.
+
+**Whether that cost anything was luck of phase**, and it was found as a
+regression with no disk code in its diff (`pxbench`: CITY.PCX opened after
+MOUNTAIN.BMP, first rows 2.28 s -> **3.59 s** on the 5150). Merge 5fc79571
+(kernel size pass 14's `reach` beside its `files`) moved the heap, the cache's
+claim came to rest at `1780` instead of `1840`, and its seventh slot stopped
+straddling the page at `2000` (§18.95.7.1), so the table was seven slots wide
+instead of six. Same fills, different cursor: the folder and root chunks now
+survived MOUNTAIN's last reads - so MOUNTAIN's open read two sectors fewer,
+its last physical read fell two seconds before its end, the motor timed out
+(§18.9.1) and CITY began with a quiet remount's boot sector read; and then
+CITY's first fills landed on those same two chunks and read them again, 0.38
+and 0.39 s. Both trees read about the same sectors in the end; the round robin
+decided which open paid.
+
+So a **VISIT marks the chunk** (`RAH_HIT`, the record's spare byte beside
+`RAH_VOL`) and the pick **passes over a marked slot once**, clearing the mark -
+the second-chance clock. A visit is any read served out of the chunk that does
+not merely CONTINUE the chunk's previous read (§18.95.10.1 is the exact rule,
+and why it is not "any hit"). A fill's own copy-out is not a visit (the fill's
+word store of `RAH_VOL` zeroes the byte with it), so a read-ahead chunk nobody
+came back to is the one taken, and a marked one is taken on the next turn
+unless it is visited again. Every slot spared clears its own mark, so the pick ends within
+one turn of the table; with the page-straddle skip beside it the walk is still
+bounded by twice the width. Nothing changes what is CACHED or when it is
+dropped - only which slot a fill spends - so the five rules above and every
+invalidation stand.
+
+Measured, the same `pxbench` session (`--sessions 1`). On the 5150: CITY.PCX's
+open **13.49 s -> 12.52 s**, its first rows **3.59 s -> 2.62-2.80 s** (and
+4.61-4.72 s on a tree whose build number alone differs, where the first paint
+also fell behind the next slot's read: the two re-reads are what put it
+there), MOUNTAIN.BMP 16.27 s -> 16.42 s (its first rows move 1.7-3.2 s run to
+run with the revolution, either way). On the XT with a VGA: CITY.PCX 17.14 s
+-> **15.88 s**, first rows 5.20 s -> **4.39 s**. BIG.BMP's session reads the
+same 33 `int 13h` in the same order on both trees. The 0.5 s CITY still pays over the six-slot tree is
+the remount's swap check, which is the honest cost of a motor that stopped and
+is what a person opening a second picture after looking at the first always
+pays. +19 bytes of `.cold`, resident, on both kernels (`kern_big` 37,567 ->
+37,586, `kern_small` 21,510 -> 21,529; no rung crossed, which is not the
+point).
+
+#### 18.95.10.1 …and a stream reading ON through a chunk is not coming back to it
+
+The first build marked on ANY read served out of the slot, and that is not the
+same thing. A stream reading on through a chunk it has just filled is served
+out of it from its second request on: the fill served the head, the next
+request starts at the next sector, and that sector is inside the chunk. So
+every chunk a package or module load streamed through took the second chance
+it was never meant to have. `assocflush` measured it: FORMAT.DRV's load reads
+A: LBA 318 for five sectors and then 323, so both A: chunks it touched were
+marked; when B:'s fill at LBA 216 came round, the round robin spared them and
+evicted B:'s root-directory chunk instead - which is the one the flush comes
+back to, for its directory-entry write. One more `int 13h`, 10 -> 11, ~0.4 s
+on the XT, with the same three package headers read either way.
+
+**The rule.** Each record keeps `RAH_END`, the chunk index just past its last
+read - the record's ninth byte, which the stride had spare (`RAH_REC` is 9
+because it is `DSK_RAH_SECS`, asserted). A hit that starts EXACTLY there is a
+stream continuing and marks nothing. Any other hit is a VISIT and marks: an
+earlier sector (a folder re-walked by the next by-name open), the same sector
+again (a one-sector folder, which every open re-walks and which is the case
+that matters most), or a jump forward across a gap (a mount reads B:'s FAT at
+LBA 1 and then its root at 7, in the one chunk the FAT read filled - two walks
+of one track). Every copy writes `RAH_END`, the fill's included, so the fill
+needs no store of its own and a stale value can never be compared: the hit
+path is the only reader, and a record has been copied from before it can hit.
+
+Two cheaper-looking rules were weighed and lost. ONE "next expected LBA" for
+the machine is wrong because a by-name read INTERLEAVES - folder sector, data,
+folder sector, data - so a global continuation test sees every data read after
+a directory read as a jump and marks the stream anyway; the test has to be per
+chunk. And "mark when the read starts at or before where the chunk's last read
+STARTED" was built first, at 4 bytes less, and cost `assocfind` a call (7 -> 8):
+it marks only going BACK, so the FAT-then-root chunk above went unmarked, was
+evicted before the root's second walk, and read again.
+
+Measured on MartyPC, `int 13h` reads as the floppy controller counts them, for
+three arms: **A** 138cc46e's cache (no second chance), **B** 2fb4a67a's (a hit
+marks), **C** this rule. Every arm read the same sectors in every workload.
+
+| workload | A | B | C |
+|---|---:|---:|---:|
+| `assocflush` WRITE: the flush, seventeen new packages | 10 | **11** | **10** |
+| `assocflush` ONE FLUSH: one new / REBOOT: `B:\APPS` | 6 / 6 | 6 / 6 | 6 / 6 |
+| `pxbench` 5150: MOUNTAIN.BMP, then CITY.PCX | 26, **17** | 26, 15 | 26, 15 |
+| ...CITY.PCX's first rows (ceiling 3.50 s) | **3.54-3.57 s** | 2.75 s | 2.74-2.79 s |
+| `pxbenchvga`: MOUNTAIN.BMP, then CITY.PCX | 26, 17 | 26, 15 | 26, 15 |
+| `pxbenchvga`: BIG.BMP (three runs each) | 48-52 | 46-53 | 48-52 |
+| `assocfind`: HELLO.ZZZ refused (three runs each) | 10 | 7 | 7 |
+| `czseq`: 640 KB in three parts, every read | 101 | 101 | 100 |
+| `ldcost` same-window / other-window launch | 1 / 2 | 1 / 2 | 1 / 2 |
+| `pathcost` first walk / second / six GOTO_QM | 0 / 0 / 1 | 0 / 0 / 1 | 0 / 0 / 1 |
+| `dosmedia`: a DIR with the motor stopped | 1 | 1 | 1 |
+| cold boot to the desktop (360 KB pair, 5150) | 18 | 18 | 18 |
+| ...then three folders, five launches, one by association | 38 | 38 | 38 |
+
+BIG.BMP's spread is the session's and not the cache's: B read 46, 53 and 52 on
+one kernel, the same 601 sectors each time, because where the UI task's wakes
+fall against the reader's slots moves which run a fill lands in. So C keeps
+2fb4a67a's whole win and gives back the call it cost. **+12 bytes of `.cold`,
+resident, on both kernels** (`kern_big` 37,632 -> 37,644, `kern_small` 21,529
+-> 21,541), so the second chance as a whole is 31 bytes over 138cc46e's cache.
+It touches no claim: what is cached, the width solve, a requester's command
+(§18.95.8), the purge and every invalidation are exactly as they were - only
+which slot a fill spends moves.
 
 ### 18.96 Formatting a floppy — the mount's verdict, run backwards
 
@@ -45676,7 +45849,31 @@ path handed `OSAPI_XMEM_FREE` an address that was never claimed. It is
 invisible on every 8088, where there is no store and the fallback runs
 instead. `tests/msegxms.py` is the row that says otherwise.
 
+#### 20.12.4.1 …and a lazy ASSET may be fetched from the CEILING (`OP_WANT_ASSETHI`)
+
+`op_fetch` claims through the low door (`OSAPI_MEM_CLAIM_DMA`, CX = 0), which
+is right for a code part: it is fetched for a job, dropped after it, and a
+compaction may slide it. A lazy `OP_ASSET` row a package HOLDS - data it
+keeps for the window's life and gives back only under pressure - is the
+claim §50.3.2 warns about in the SDK's own words, *"one long-lived data claim
+landing mid-heap permanently splits the space"*: every bottom-up claim made
+after it lands above it, so when it is given back its room is a hole UNDER
+them and the claim it was given back for still has to compact around them.
+
+`%define OP_WANT_ASSETHI` before `os88parts.inc` makes `op_fetch` claim a
+lazy `OP_ASSET` row through `OSAPI_MEM_CLAIM_DMA_HI` with CX = 0 - top-down
+on every kernel, `kern_mega` included (§50.3.2) - and every other row as
+before. Nothing else differs: the read lands R paragraphs up the claim and
+expands onto its base as it always did, and the shrink to `len` takes the
+tail, which for a ceiling claim is the top - so a part whose claim was
+rounded up leaves at most a KB free between it and the claim above it. The
+block is still born pinned; a package that declares it movable has it packed
+by §66.4.1's DESCENDING pass, towards the ceiling. Opt-in, and a package that
+does not define it assembles byte for byte as before (13 bytes of `op_fetch`
+when it does). PiXEL's face pictures are the one user (§106.16.1).
+
 #### 20.12.5 Identity is unchanged (binding)
+
 
 **The entry proc, every window, every callback and the worker task live in
 the PRIMARY segment.** A part holds code and data reached by far call and
@@ -71216,7 +71413,13 @@ The attach-only bodies are defined as macros (`MPU_ONCE`, `CVX_ONCE`,
 refuses verbs 7–12 with `SNDE_NOMIX` when `[mix_kind]` is 0 (verb 11's CF = 1
 is then "not on the speaker", which is true), and `snd_detach` tests it
 before `mix_detach` - which is why `mix_kind` is the core's byte and not
-`MIX_STATE`'s, and why the verbs themselves no longer test it. Below
+`MIX_STATE`'s, and why the verbs themselves no longer test it. The THIRD door
+is an SB Pro's stereo stream (§34.5.5): `sbl_pro_st` reads and writes mixer
+0Eh, and it is reached only by a stream verb 11 accepted as stereo - which
+it does only against `SND_CAP_STEREO`, and `snd_sb_pub` publishes that to a
+DSP 3.xx only when `[mix_kind]` is 2. `sbl_stop_stream`'s write puts 0Eh back
+behind `[sbl_pst]`, which nothing but `sbl_pro_st` sets. So the guard is the
+caps word, read once at attach, and not a test at the call. Below
 `snd_keepmix` only `snd_entry` names a label past it. Both rules are layout
 rules that assemble cleanly when broken, so `tests/unit/t_sndonce.py` reads
 them off the assembler's listing; its first run found `snd_detach` calling
@@ -202908,7 +203111,13 @@ typed while a screen is being drawn is kept. A screen waits with `xb_getkey`: on
 menus' and the race's - comes through `xb_rdkey`, which takes an Enter once per PRESS
 (`[xb_enth]` is set when one is taken and cleared when `OSAPI_KEY_DOWN` reads Enter up)
 and throws away every Enter typed in between, which is the held key's typematic
-repeats. It replaced a bounded wait (40 frames) in `xb_flush` for the release, which a
+repeats - **including the ones still in the BIOS buffer when the release is seen**:
+a repeat and the break after it can both land inside one 18 ms frame, and that
+repeat's Enter then waited behind a key that already read up and was taken as a new
+press (6 of 24 release points, 5 ms apart across the typematic period, ran the
+course screen into a race; `excitebikeflow` red one arm in four or five). A key that
+reads up cannot have been pressed again since, so the Enters at the buffer's head at
+that moment are discarded with it. It replaced a bounded wait (40 frames) in `xb_flush` for the release, which a
 hold longer than the bound ran straight through: the course screen took a repeat and
 the mode screen's one press started a race. Being a level read it is advice (SPEC.md
 67.11.1) - a break lost inside an interrupts-off window costs one extra press.
@@ -206608,7 +206817,8 @@ waits on the count and then types finds PiXEL idle. A smaller
 picture opened later brings them back after its first rows, and a heap that
 still cannot spare them leaves the bevel. `[pxa_drop]` is set by the drop
 alone, so a machine whose ENTRY refused the pictures never re-asks. BIG.BMP
-reads 3.75 s with one compaction.
+read 3.75 s with one compaction - and 3.36-3.49 s since 106.16.1 put the
+pictures where their drop needs no compaction at all.
 
 **They were a sidecar file, `PIXEL.GFX`, beside the package** until
 §20.13.8 let a parted image be packed; the reason that kept them out
@@ -206641,6 +206851,52 @@ rows and the status bar 14, which leaves a middle band of about 235 rows
 need 146, and the column holds the Navigator (64 + its frame), the
 Histogram (56 + its frame) and all of Image Info's lines.
 
+### 106.16.1 …and the pictures are claimed from the CEILING, so giving them back costs nothing
+
+`px_artroom` drops the pictures so a master can have their room, and with
+them claimed bottom-up the room was in the wrong place. Part 9 is fetched at
+entry, so on the 640 KB VGA XT it landed at the bottom of the heap
+(`2460`, beside the caches) and the code parts and the view's 30 KB that
+came after it landed ABOVE it: dropping it left a 27 KB hole under them, and
+BIG.BMP's 302 KB master, which needed 302 against a largest run of 271, still
+compacted - 0.12 s of plans and 0.19 s moving 41 KB of PiXEL's own claims,
+in front of the first rows. Measured on the session `pxbenchvga` runs.
+
+So PiXEL defines `OP_WANT_ASSETHI` (§20.12.4.1) and part 9 - its one
+`OP_ASSET` row - is claimed top-down, under the instance's region at the
+ceiling (`8C40..9300`). Everything bottom-up lands where it did before the
+face had pictures, the largest run beside the pictures is 298.5 KB, and
+`px_artroom`'s drop joins their 27 KB to it: the master fits without moving
+a byte, and the one compaction left is the work claim's, ~14 ms of plan and
+no move. The block stays movable (`px_mreloc`); the descending pass packs it.
+13 bytes of `op_fetch` in the image, nothing else.
+
+**No memory changes hands.** The heap's total free is the same either way
+(347.5 KB at BIG.BMP's key), and `OSAPI_MEM_AVAIL` asked inside `px_claims`
+answers the same on both placements - 382 KB largest of 419 with the pictures
+held, 409 of 446 once `px_artroom` has dropped them. The one KB the shrink
+leaves between the pictures and the region is free, and the plan recovers it
+(the pictures are movable and the descending pass packs them up to the
+ceiling).
+
+With §18.8.4.1 beside it (the compaction that is left no longer costs a FAT
+re-read), BIG.BMP's first rows on the VGA XT read **3.36-3.49 s** over five
+runs, against **3.83-4.08 s** on the tree before (six runs, five of them
+over `pxbenchvga`'s 3.90 ceiling) - and the open as a whole 39.1-40.0 s
+against 40.3-40.5. What is left above 106.22's 2.95 s is not the decoder,
+which is the same 2.07 s from the plans to the first wake on both trees: it
+is the volume check. Those 2.95 s were taken with no pictures (the bench disk
+never carried the `PIXEL.GFX` sidecar) and with the head at cylinder 0,
+because the kernel of the day re-mounted the volume on the way back from
+fetching the BMP decoder part out of `PIXEL.O88` - a mount that §18.9.1's
+quiet switch no longer pays. So the decoder part's fetch leaves the head at
+the package's end of the disk (cylinder 42 on the bench's 720 KB disk), the
+motor stops, and BIG.BMP's open re-validates the volume with a boot-sector
+read that seeks 42 cylinders: 0.43-0.59 s against 0.03-0.16, which the
+first open no longer spends (6.0 s against 7.4 on the same disk). That seek
+is the honest cost of a stopped motor and a head that is somewhere else, and
+it is in the figure.
+
 ### 106.17 The speed wave: what an 8088 pays, before and after
 
 The package was made fast on the machine it is calibrated against: the 5150
@@ -206658,7 +206914,7 @@ image core as wave 2 left it.
 | open CITY.PCX, 320x240 8-bit RLE | 15.61 s | **12.78 s** | 21.64 s | **16.62 s** |
 | ...its first rows on the glass | 3.33 s | **2.69 s** | 6.99 s | **4.60 s** |
 | open a 640x480 8-bit BMP, 308 KB | 39.84 s | **35.23 s** | 47.61 s | **41.00 s** |
-| ...its first rows on the glass | 4.20 s | **1.52 s** (never reproduced: 106.18; **1.34 s** since 106.22) | 6.35 s | **4.49 s** (2.95 s since 106.22) |
+| ...its first rows on the glass | 4.20 s | **1.52 s** (never reproduced: 106.18; **1.34 s** since 106.22) | 6.35 s | **4.49 s** (2.95 s since 106.22; 3.36-3.49 s since 106.16.1, the remount's seek in it) |
 | zoom step, the canvas covered | 0.87 s | 0.87 s | 4.31 s | **3.71 s** (4.50 s since 106.21: the canvas taller by the filmstrip's 77 rows, 26 composer bands where it was 22) |
 | Fit, from there | 0.52 s | 0.46 s | 2.41 s | **1.95 s** |
 | pan step, an arrow | 0.29 s | 0.29 s | 0.56 s | 0.49 s |
@@ -220049,6 +220305,22 @@ whole - the install's copy of it is still sized by the index (117.10.2).
 
 The window is up before the request, saying *Looking for a newer os8088 on
 the network...*, so a slow server is a sentence rather than a frozen screen.
+
+**WHAT COUNTS AS AN ANSWER** is a reply whose status is exactly `200` *and*
+whose body opens with eight digits (`in_vparse`, the release line of
+117.10.1). Anything else - a `404`, a redirect, an error page served with a
+`200`, a reply cut short, no reply in the ten seconds - is `NET_FAIL`,
+*no answer*, and the floppy row stays the default. It was reported as
+*Network: release HTTP/1.1, newer* off a server that had no tree yet
+(os8088.com answering its own `404` page, 8,821 bytes, keep-alive): both
+checks above refused that reply correctly, and `in_netck` then stored the
+WRONG refusal - it loaded `NET_FAIL` into `BL` before calling `in_vget`,
+which spends `BL` on its socket verbs, so the answer saved was the last
+`NETV_*` code: `NETV_RECV` (5, `NET_NEW`) when the buffer filled, and
+`NETV_STATUS` (3, `NET_OLD`) when a short reply ended. The row then printed
+`in_vbuf`'s first eight bytes, which were the status line's `HTTP/1.1`. The
+fix is the one `mov` moved below the call, no byte added; `tests/netinstbad.py`
+is the gate, with one leg per kind of non-answer.
 
 #### 117.10.4 The first page chooses the source
 

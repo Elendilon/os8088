@@ -58,6 +58,11 @@ VMPORT ?= off
 QEMUMACH := -machine pc,vmport=$(VMPORT)
 QEMU  := qemu-system-i386
 QMP_SOCK ?= build/qmp.sock
+# ...and its PIDFILE, a variable for the same reason: a second instance needs
+# a pair of its own. The suite does not launch through `make test` any more
+# (tests/os88qemu.py make_test, docs/plans/SOAK-PARALLEL.md 17) - this is for
+# two machines started by hand: `make test QMP_SOCK=/tmp/a.sock QEMU_PID=/tmp/a.pid`.
+QEMU_PID ?= build/qemu.pid
 BUILD := build
 IMG   := $(BUILD)/os8088.img
 # ...and the 1.2MB 5.25" HD pair (SPEC.md 19), which is the AT-class machine
@@ -8063,7 +8068,7 @@ $(BUILD)/browser.part.bin: $(BUILD)/browser.bin \
 
 $(BUILD)/browser.o88: $(BUILD)/browser.bin $(BUILD)/browser.part.bin \
                       tools/os88pkg.py $(PKGZSTAMP) $(PKGZBSTAMP)
-	$(OS88PKG) $(BUILD)/browser.bin -o $@ \
+	$(OS88PKGB) $(BUILD)/browser.bin -o $@ \
 	        --part $(BUILD)/browser.part.bin --part-compress lz4
 
 # ...and the REFERENCE build, which letters every history row where the
@@ -17058,7 +17063,13 @@ print-%:
 # list the live image would be built from - which is the whole point: PART A
 # is the half that must fail on the day a package is added, and `make usb`
 # needs the C toolchain and three fetches that a plain clone has none of.
-$(BUILD)/livepayload.txt: Makefile | $(BUILD)
+#
+# The recipe RUNS on every make, and the cmp keeps the file's mtime when the
+# list is unchanged. The Makefile alone is not its input: KERN_SMALL empties
+# $(SYSOPTIONAL), so a `make KERN_SMALL=1` left a list without CDRACK.O88
+# that the next plain `make` kept and t_livefull then failed.
+.PHONY: livepayload-force
+$(BUILD)/livepayload.txt: Makefile livepayload-force | $(BUILD)
 	@{ printf 'LIVEARGS %s\n' $(LIVEARGS); \
 	   printf 'ALLAPPSARGS %s\n' $(ALLAPPSARGS); \
 	   printf 'LIVESYSARGS %s\n' $(LIVESYSARGS); \
@@ -17573,7 +17584,7 @@ endif
 test: $(TESTIMG) $(TESTAPPS) $(HDDIMG)
 	$(QEMU) $(QEMUMACH) -drive file=$(TESTIMG),format=raw,if=floppy -boot $(TESTBOOT) $(MOUSE) \
 		-drive file=$(TESTAPPS),format=raw,if=floppy,index=1 $(HDDDEV) \
-		-display none -qmp unix:$(QMP_SOCK),server,nowait -daemonize -pidfile build/qemu.pid \
+		-display none -qmp unix:$(QMP_SOCK),server,nowait -daemonize -pidfile $(QEMU_PID) \
 		$(CARDAUDIO) $(ADLIBDEV) $(SBDEV) $(DEVCARD) $(ETHERDEV)
 
 # `make test` plus audio capture (SPEC.md 34): the PC speaker renders into
@@ -17583,7 +17594,7 @@ test: $(TESTIMG) $(TESTAPPS) $(HDDIMG)
 test-snd: $(IMG) $(TESTAPPS)
 	$(QEMU) $(QEMUMACH) -drive file=$(IMG),format=raw,if=floppy -boot a $(MOUSE) \
 		-drive file=$(TESTAPPS),format=raw,if=floppy,index=1 \
-		-display none -qmp unix:$(QMP_SOCK),server,nowait -daemonize -pidfile build/qemu.pid \
+		-display none -qmp unix:$(QMP_SOCK),server,nowait -daemonize -pidfile $(QEMU_PID) \
 		-audiodev wav,id=snd,path=build/snd.wav -machine pcspk-audiodev=snd \
 		$(ADLIBDEV) $(SBDEV)
 

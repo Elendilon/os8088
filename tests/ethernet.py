@@ -82,9 +82,13 @@ import os88sym                                         # noqa: E402
 import os88geom                                        # noqa: E402
 import os88qemu                                              # noqa: E402
 import os88build                                       # noqa: E402
+import os88fixture                                     # noqa: E402
 
 S = os88sym.linear
-SOCK = os.environ.get("QMP_SOCK", "build/qmp.sock")
+# THIS PROCESS'S socket (tests/os88qemu.py RUNDIR), never a shared
+# build/qmp.sock: os88qemu.make_test points this at the machine it launched,
+# and every helper below reads it AT CALL TIME (SOAK-PARALLEL.md 17).
+SOCK = os88qemu.SOCK
 PORT = 8090
 PATH = "/eth.htm"
 ENTITY_ACCENTS = (
@@ -196,8 +200,8 @@ class Qemu:
     command; four round trips on a Unix socket is nothing beside the emulator.
     """
 
-    def __init__(self, path=SOCK):
-        self.path = path
+    def __init__(self, path=None):
+        self.path = path or SOCK
         self.tmp = tempfile.mkdtemp()
         for _ in range(150):                # ...but wait for it to exist
             try:
@@ -208,6 +212,13 @@ class Qemu:
         raise RuntimeError("no QMP socket at %s" % path)
 
     def hmp(self, cmd):
+        # a plain `sendkey` is CONFIRMED (os88qemu.sendkey): HMP's release
+        # follows 100 ms of HOST time later and a starved guest lost the key
+        # (docs/plans/SOAK-PARALLEL.md 17.5)
+        k = re.match(r"^sendkey (\S+)$", cmd)
+        if k is not None:
+            os88qemu.sendkey(self.path, k.group(1))
+            return ""
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.connect(self.path)
         f = s.makefile("rw")
@@ -329,18 +340,9 @@ KEYS = {".": "dot", "/": "slash", ":": "shift-semicolon", "-": "minus",
 
 
 def type_url(text):
-    cmds = []
-    for ch in text:
-        if ch.isalnum():
-            k = ch.lower() if ch.isalpha() else ch
-            cmds += ["sendkey " + ("shift-" + k if ch.isupper() else k)]
-        elif ch in KEYS:
-            cmds += ["sendkey " + KEYS[ch]]
-        else:
-            sys.exit("ethernet: no sendkey mapping for %r" % ch)
-        cmds += ["gsleep 0.06"]         # the guest's time (tools/qmp.py)
-    subprocess.run(["python3", "tools/qmp.py", SOCK] + cmds,
-                   check=True, capture_output=True)
+    """`text` into the focused field, every keystroke confirmed
+    (os88qemu.type_text - a starved guest lost characters to HMP sendkey)."""
+    os88qemu.type_text(SOCK, text)
 
 
 class Server(threading.Thread):
@@ -356,6 +358,11 @@ class Server(threading.Thread):
         threading.Thread.__init__(self, daemon=True)
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # THE ONE SHARED THING LEFT (docs/plans/SOAK-PARALLEL.md 17.3): the
+        # guest reaches this at 10.0.2.2:PORT and slirp cannot remap it, so
+        # the port is LEASED - another row (or checkout) serving it is waited
+        # for rather than met as `Address already in use`
+        os88qemu.lease_port(PORT)
         self.s.bind(("0.0.0.0", PORT))
         self.s.listen(4)
         self.request = None
@@ -725,20 +732,18 @@ def main():
     a = ap.parse_args()
     fails = []
 
-    # **THE SYSTEM IMAGE IS REBUILT, NOT CHECKED.** QEMU mounts it WRITABLE and
+    # **THE SYSTEM IMAGE IS A COPY, NOT REBUILT.** QEMU mounts it WRITABLE and
     # the OS writes to it: the Setup window's `ETHER.CFG` (SPEC.md 72.7) is
     # exactly the file this test must not find, because a manual address left
     # behind by tests/ethcfg.py would make this one pass while proving nothing
-    # about DHCP. Staleness is not the hazard here - a dirty image is - and
-    # `make` cannot see the difference, because the guest's write leaves the
-    # image NEWER than everything it was built from.
-    if os.path.exists(os88build.at("build/ether360.img")):
-        os.remove("build/ether360.img")
-    r = subprocess.run(["make", "ethertest"], capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("ethernet: make ethertest failed:\n" + r.stdout + r.stderr)
-
-    img, src = "build/brtest360.img", "build/browser.o88"
+    # about DHCP. That used to be answered by deleting build/ether360.img and
+    # running `make ethertest` here - a write to the shared tree under every
+    # row beside it. os88qemu.make_test boots a private COPY instead, so the
+    # built image is never dirtied by anybody and the row declares it in
+    # `wants=` (docs/plans/SOAK-PARALLEL.md 17).
+    os88fixture.need("build/ether360.img", "build/brtest360.img")
+    img, src = (os88build.at("build/brtest360.img"),
+                os88build.at("build/browser.o88"))
     if not os.path.exists(img):
         sys.exit("ethernet: no %s - run `make browsertest`" % img)
     if stale(img, src):
@@ -826,30 +831,14 @@ def main():
     say("http server on %s, %d byte page%s"
         % (URL, len(page), " from " + a.page if a.page else ""))
 
-    # A SURVIVOR KEEPS THE SOCKET, so the new machine cannot bind and every
-    # read below would come from the OLD one - which reads as a change that
-    # did nothing (CLAUDE.md). Kill it by PID out of the pidfile and never
-    # with `pkill -f qemu`, whose pattern matches the calling shell.
-    if os.path.exists("build/qemu.pid"):
-        try:
-            pid = int(open("build/qemu.pid").read().strip())
-            os.kill(pid, 15)
-            os88qemu.gone(pid)
-        except (OSError, ValueError):
-            pass
-    for f in ("build/qmp.sock", "build/qemu.pid"):
-        if os.path.exists(f):
-            os.remove(f)
-    # `make test` DAEMONISES the emulator, so it outlives this script
-    # unless somebody kills it - and the somebody is us (os88qemu).
-    os88qemu.own()
-    cmd = ["make", "test", "ETHER=1", "TESTIMG=build/ether360.img",
-           "TESTAPPS=build/brtest360.img"]
+    # A PRIVATE MACHINE (tests/os88qemu.py make_test): its own socket and
+    # pidfile, copies of both floppies, and torn down at exit - so there is
+    # no survivor of an earlier run to kill first, and no `make` in the tree.
+    knobs = ["ETHER=1", "TESTIMG=build/ether360.img",
+             "TESTAPPS=build/brtest360.img"]
     if os.environ.get("ETHDUMP"):       # every frame either way, to a pcap -
-        cmd.append("ETHDUMP=" + os.environ["ETHDUMP"])   # see the Makefile
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("ethernet: make test failed:\n" + r.stdout + r.stderr)
+        knobs.append("ETHDUMP=" + os.environ["ETHDUMP"])   # see the Makefile
+    os88qemu.make_test(*knobs)
 
     m = Qemu()
     snapshots = {}
@@ -860,9 +849,18 @@ def main():
         # loops they replace allowed on an idle box.
         def drvseg():
             return u16(m.read(S("drv_tab") + ETH_ROW * DRVR_SZ + DRVR_SEG, 2))
+        # THE BOOT FIRST (os88qemu.kernel_up): the row's segment is armed
+        # before the image is read and the ceiling is packed at kmain's end,
+        # so one read mid-boot can be a segment the driver has left
+        # - and measured, the segment MOVES once more after the desktop is up
+        # (39040 -> 39296, 0.2 s after [spl_live] fell), so it is taken once
+        # it has held still for a guest second rather than the moment it is
+        # non-zero
+        os88qemu.kernel_up(m, S, secs=120)
         os88qemu.acted(m, lambda: drvseg() != 0, secs=60,
                        what="ETHER.DRV's drv_tab row", poll=0.4)
-        seg = drvseg()
+        seg = os88qemu.quiesce(m, drvseg, secs=0.5, stable=3,
+                               what="ETHER.DRV's segment")
         if not seg:
             m.quit()
             sys.exit("ethernet: ETHER.DRV never attached - no card was found "

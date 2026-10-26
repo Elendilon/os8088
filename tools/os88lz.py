@@ -743,6 +743,15 @@ def _selfcheck(paths):
     marg = 0
     for f in files:
         d = open(f, "rb").read()
+        # the FILE is not the image any more (SPEC.md 20.13): a shipped
+        # package or driver is already packed, and packing a packed stream
+        # again round-trips nothing the build does - and refuses outright
+        # once the packed file is over 64KB (SHEET.O88 with its parts)
+        if f.endswith(".o88"):
+            import os88pkg
+            d = os88pkg.image_unwrap(d)
+        elif f.endswith(".drv"):
+            d = cz_unwrap(d)
         raw += len(d)
         zs = {}
         for fmt in (LZ4, LZB):

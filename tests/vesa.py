@@ -61,8 +61,12 @@ import os88qemu                                             # noqa: E402
 import shot                                                 # noqa: E402
 from os88geom import VID_VESA                               # noqa: E402
 
-SOCK = os.path.join(ROOT, "build", "vesa.sock")
-PIDFILE = os.path.join(ROOT, "build", "vesa.pid")
+# THIS PROCESS'S pair (tests/os88qemu.py RUNDIR) - and so every vesa* row's,
+# each of which drives vesa.SOCK - never a fixed file under build/, so the
+# family shares the soak's emulator lane (docs/plans/SOAK-PARALLEL.md 17).
+# The images are booted snapshot=on below for the same reason: two rows on
+# build/apps.img at once used to be a `Failed to get "write" lock`.
+SOCK, PIDFILE = os88qemu.paths("vesa")
 
 WANT_W, WANT_H, WANT_BPP = 1024, 768, 16
 
@@ -85,8 +89,8 @@ def launch():
     em = "qemu" + "-system-i386"     # never whole on a command line: kill_stale
     subprocess.run(
         em + " -machine pc,vmport=off -vga std"
-        " -drive file=%s,format=raw,if=floppy -boot a"
-        " -drive file=%s,format=raw,if=floppy,index=1"
+        " -drive file=%s,format=raw,if=floppy,snapshot=on -boot a"
+        " -drive file=%s,format=raw,if=floppy,index=1,snapshot=on"
         " -serial msmouse"
         " -display none -qmp unix:%s,server,nowait -daemonize -pidfile %s"
         % (_B.at("build/vesa.img"), _B.at("build/apps.img"), SOCK, PIDFILE),

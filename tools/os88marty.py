@@ -929,6 +929,15 @@ class Marty:
           straight to `execseg`'s `off` arms an address 0x600 past the one
           you meant - a real address, in real code, that simply is not
           reached. Use `bp_exec()` below, or subtract `KERNEL_SEG << 4`.
+
+        And one way to see an `io` hit in the WRONG PLACE: the stop is
+        reported at the START of the next step, and an interrupt pending
+        when the I/O instruction ends is entered in between, so CS:IP can be
+        an ISR's first instruction with the I/O instruction's return address
+        only in the frame on SS:SP. The registers are still the I/O's (AL is
+        what an OUT wrote); a row that finds the port by reading the
+        instruction behind IP must also look through that frame, or it drops
+        the hit (tests/sndplay.py's `outs`).
         """
         return self.cmd(cmd="bp", list=bps)["count"]
 
@@ -2771,6 +2780,75 @@ def quiesce(m, read, guest=0.5, stable=2, budget=30.0,
         prog.check()
 
 
+HEAP_STEP = 20000               # cycles an advance while a compaction runs
+HEAP_MOST = 2000                # ...and how many: ~8.4 guest seconds
+
+
+def heap_read(m, read, what="a heap snapshot"):
+    """Answer `read(m)` off a guest that is PAUSED and NOT COMPACTING.
+
+        base, val = os88marty.heap_read(m, lambda mm: (seg(mm), byte(mm)))
+
+    **A HEAP ADDRESS AND THE BYTES IT NAMES ARE TWO READS**, and the guest
+    runs between them. A region, a driver image and every movable claim MOVE
+    under the compactor (SPEC.md 66) at any arena claim, so a row that takes
+    a segment out of one table and then reads through it can be told the old
+    base and handed whatever the move left there - a heap block copied down
+    is not scrubbed, so the stale read decodes as plausible rubbish rather
+    than as an error. How often that window is hit is a property of the BOX:
+    every debug round trip is longer on a loaded host and the guest runs on
+    across it, so a row that passed alone read a torn pair in a four-lane
+    soak (call5's `[dos_exit]` read 161 through a base the move had just
+    retired; dosest found SOUND.DRV's claim "nowhere").
+
+    So the guest is stopped for the whole of `read`, and `[mem_cp_busy]` -
+    up for the entire pass, copies and relocation procs alike - must be clear
+    first: a stop that lands mid-pass is stepped on in HEAP_STEP-cycle
+    advances until the pass is over. A kernel with no compactor has no such
+    word and is read at once. The guest resumes only if it was running.
+
+    Inside a bp_trace block the pump owns the stops and a pause from here
+    would take them from it, so there the snapshot is taken running and
+    repeated until two agree with the compactor idle either side - weaker,
+    but never a torn pair the caller is told is consistent.
+    """
+    busy = getattr(m, "_heap_busy_sym", False)
+    if busy is False:
+        try:
+            busy = m.sym("mem_cp_busy")
+        except (Exception, SystemExit):                     # noqa: BLE001
+            busy = None
+        m._heap_busy_sym = busy
+
+    def idle():
+        return busy is None or not m.read(busy, 1)[0]
+
+    if getattr(m, "_pumping", 0):
+        prog = _Progress(m, what, 30.0)
+        last = object()
+        while True:
+            if idle():
+                cur = read(m)
+                if idle() and cur == last:
+                    return cur
+                last = cur
+            prog.check()
+            time.sleep(0.01)
+    was = m.status().get("state") == "running"
+    m.pause()
+    try:
+        for _ in range(HEAP_MOST):
+            if idle():
+                return read(m)
+            m.advance(cycles=HEAP_STEP)
+        raise MartyError("%s: the heap compactor was still running after %d "
+                         "guest cycles ([mem_cp_busy] never cleared)"
+                         % (what, HEAP_MOST * HEAP_STEP))
+    finally:
+        if was:
+            m.run()
+
+
 BIOS_KBUF = 0x41A               # 0040:001A/001C - the BIOS key ring's head, tail
 UI_T_STATE = 0                  # kernel/sched.inc: T_STATE, and task 0 IS ui_task
 UI_ASLEEP = 2                   # ...whose value 2 means "sleeping"
@@ -3557,47 +3635,85 @@ class BpTrace:
         self._stop = threading.Event()
         self._thread = None
         self._lock = threading.Lock()
+        self._held = threading.Lock()   # one pump pass, or a holder (`hold`)
 
     # --- the pump ------------------------------------------------------------
 
     def _pump(self):
         mark = self._mark0                  # what `__enter__`'s resume found
         while not self._stop.is_set():
-            try:
-                st = self.m.status()
-                # TWO TESTS, AND THEY ARE NOT THE SAME ONE.
-                #
-                # `_newer` asks whether this is a stop the trace has not been
-                # told about. It has to, because a stop and the SAME stop
-                # polled again both read `"breakpoint"` - the resume is two
-                # round trips and has not always landed by the next poll.
-                # This deduped on `instructions` and that was WRONG, not
-                # merely redundant: `machine.run()` accumulates that count at
-                # the END of a batch and returns early when a breakpoint hits,
-                # so every batch a stop lands in is discarded from it, and what
-                # separated two stops was the single instruction the resume
-                # itself steps. `stops` is the server's own sequence number
-                # and is exact (`_mark`/`_newer` above).
-                #
-                # `== "breakpoint"` then asks whether it is OURS. `advance()`
-                # and `pause()` from the body leave the guest `"paused"`, which
-                # is a new stop by the first test and is not this pump's to
-                # resume: resuming it would cut the body's own `advance` short
-                # from another thread.
-                if self._logging and time.time() - self._fetched > 0.05:
-                    self._fetch()               # keep the server's record short
-                if not self.m._newer(st, mark):
-                    self._stop.wait(self.poll)
-                    continue
-                if st.get("state") != "breakpoint":
-                    self._stop.wait(self.poll)
-                    continue
-                self._record(st)
-                mark = self.m._mark(self.m.run(), resumed=True)
-            except Exception as e:                  # the emulator went away,
-                self.error = e                      # or a symbol is wrong:
-                return                              # exit re-raises it
-        return
+            # ONE PASS AT A TIME UNDER `_held`, so a gesture that has to own
+            # the guest's clock (os88mouse's stepped double-click) can take it
+            # from the pump between passes - see `hold` below. The wait is
+            # OUTSIDE the lock: a holder is never kept waiting on a nap.
+            with self._held:
+                nap = self._pass(mark)
+            if nap is None:
+                return                      # the pump died: `error` says why
+            if nap is True:
+                self._stop.wait(self.poll)
+                continue
+            mark = nap
+
+    def _pass(self, mark):
+        """One look at the guest: True to nap, the new mark after a resume,
+        or None when the pump has died (`error` set)."""
+        try:
+            st = self.m.status()
+            # TWO TESTS, AND THEY ARE NOT THE SAME ONE.
+            #
+            # `_newer` asks whether this is a stop the trace has not been
+            # told about. It has to, because a stop and the SAME stop
+            # polled again both read `"breakpoint"` - the resume is two
+            # round trips and has not always landed by the next poll.
+            # This deduped on `instructions` and that was WRONG, not
+            # merely redundant: `machine.run()` accumulates that count at
+            # the END of a batch and returns early when a breakpoint hits,
+            # so every batch a stop lands in is discarded from it, and what
+            # separated two stops was the single instruction the resume
+            # itself steps. `stops` is the server's own sequence number
+            # and is exact (`_mark`/`_newer` above).
+            #
+            # `== "breakpoint"` then asks whether it is OURS. `advance()`
+            # and `pause()` from the body leave the guest `"paused"`, which
+            # is a new stop by the first test and is not this pump's to
+            # resume: resuming it would cut the body's own `advance` short
+            # from another thread.
+            if self._logging and time.time() - self._fetched > 0.05:
+                self._fetch()               # keep the server's record short
+            if not self.m._newer(st, mark):
+                return True
+            if st.get("state") != "breakpoint":
+                return True
+            self._record(st)
+            return self.m._mark(self.m.run(), resumed=True)
+        except Exception as e:                  # the emulator went away,
+            self.error = e                      # or a symbol is wrong:
+            return None                         # exit re-raises it
+
+    def hold(self):
+        """Take the guest's clock from the pump: `with tr.hold(): ...`.
+
+        For a gesture that must step the guest itself. A double-click's two
+        presses have to land inside the kernel's 9-tick window, and with the
+        pump resuming stops from its own thread while the host polls, the gap
+        between them was a quantity of the BOX: 212b6e42's one extra status
+        round trip per poll moved int0sweep's spans from a mode of 3 ticks to
+        one of 4-5 with a tail at 8 and 9, and the guest saw two first clicks
+        (os88mouse.dblclick). While held the pump makes no pass, so it can
+        neither resume the holder's `advance` nor race it; every breakpoint
+        stop the holder meets goes to `service`, which records it exactly as
+        the pump would have, and the holder's next `advance` steps past it.
+        The holder must leave the guest RUNNING when it lets go - the pump
+        resumes only `"breakpoint"` stops, so one left `"paused"` stays so.
+        """
+        return self._held
+
+    def service(self, st):
+        """Record a breakpoint stop a holder met (see `hold`)."""
+        if self.error is not None:
+            raise self.error
+        self._record(st)
 
     def _record(self, st):
         flat = ((st.get("cs", 0) << 4) + st.get("ip", 0)) & 0xFFFFF
@@ -3769,6 +3885,7 @@ class BpTrace:
         # alone and needs no help - it watches the CLOCK, and a pumped guest's
         # clock keeps moving.
         self.m._pumping += 1
+        self.m._traces = getattr(self.m, "_traces", []) + [self]
         # `go` and not `run`: it CONFIRMS the release and hands back the mark
         # the pump compares against, so the stop the machine may already have
         # been sitting at when the block opened is not charged to this trace -
@@ -3785,6 +3902,8 @@ class BpTrace:
         if self._thread is not None:
             self._thread.join(timeout=10.0)
         self.m._pumping = max(0, self.m._pumping - 1)
+        self.m._traces = [t for t in getattr(self.m, "_traces", [])
+                          if t is not self]
         try:
             if self._logging and self.error is None:
                 self._fetch()                   # BEFORE the clear, which empties it

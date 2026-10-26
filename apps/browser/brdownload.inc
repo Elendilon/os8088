@@ -624,6 +624,12 @@ br_dl_split:
     push dx
     push si
     push di
+    push es                         ; ES = OURS for the stosb stores below:
+    push ds                         ; br_dl_saved is a FILE_DLG callback, and
+    pop es                          ; ES = KERNEL_SEG on entry to every callback
+                                    ; (SPEC.md 20) - so these stores used to land
+                                    ; at KERNEL_SEG:br_dl_host, inside the
+                                    ; kernel's .vga drawing code
     mov si, br_dl_url
     mov bx, br_s_scheme
     call br_dl_prefix
@@ -732,6 +738,7 @@ br_dl_split:
 .bad:
     stc
 .out:
+    pop es
     pop di
     pop si
     pop dx

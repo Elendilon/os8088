@@ -87,7 +87,9 @@ ROW = (180, 128)
 
 def qmp(sock, *cmds):
     """tools/qmp.py's work, in process (a Python start a call was most of a
-    memory read's cost); a failure is the same SystemExit as before."""
+    memory read's cost); a failure is the same SystemExit as before. A plain
+    `sendkey` is CONFIRMED there (tools/qmp.py `key`, SOAK-PARALLEL.md 17.5).
+    """
     import traceback
     t = os.path.join(ROOT, "tools")
     if t not in sys.path:
@@ -113,6 +115,34 @@ def qmp(sock, *cmds):
     if rc != 0:
         raise SystemExit("xmcheck: qmp failed:\n" + (err or out)[-600:])
     return out + "\n" if out else ""
+
+
+def qmp_exec(sock, execute, arguments=None):
+    """ONE raw QMP command - for the few that are not HMP's, such as
+    `input-send-event`, which can send a key's press and its release apart
+    where HMP's `sendkey` sends both. On the kept connection when there is
+    one; a refusal is the same SystemExit as `qmp`'s."""
+    t = os.path.join(ROOT, "tools")
+    if t not in sys.path:
+        sys.path.insert(0, t)
+    import qmp as qmpc
+    obj = {"execute": execute}
+    if arguments is not None:
+        obj["arguments"] = arguments
+    c = _KEEP.get(sock)
+    if c is None and sock in _WANT:
+        c = _KEEP[sock] = qmpc.Client(sock)
+    if c is not None:
+        r = c.send(obj)
+    else:
+        c = qmpc.Client(sock)
+        try:
+            r = c.send(obj)
+        finally:
+            c.close()
+    if "error" in r:
+        raise SystemExit("xmcheck: qmp %s failed: %r" % (execute, r["error"]))
+    return r.get("return")
 
 
 _KEEP = {}
@@ -145,6 +175,21 @@ def release(sock):
 
 
 def goto(sock, x, y):
+    """CLOSED LOOP when the kernel's pointer words can be read
+    (os88qemu.mouse_to: send the delta, wait for `mouse_x` to MOVE, repeat
+    until it is there), which is what a click needs to land on a row it
+    named. tools/mouse.py, the fallback, DEAD-RECKONS - it pins against the
+    clamp and walks back on host sleeps - and a guest starved past those
+    sleeps took a double-click somewhere else, after which the row timed out
+    waiting for a listing that was never asked for (rdxms, httpmountname,
+    docs/plans/SOAK-PARALLEL.md 17.5)."""
+    try:
+        import os88qemu
+        os88qemu.mouse_to(os88qemu._Sock(sock), sym,
+                          lambda *c: qmp(sock, *c), x, y)
+        return
+    except BaseException:               # noqa: BLE001 - no map, a kernel
+        pass                            # without the words: dead-reckon
     release(sock)
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mouse.py"), sock,
                     "to", str(x), str(y)], capture_output=True, cwd=ROOT)

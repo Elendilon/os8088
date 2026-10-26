@@ -152,14 +152,31 @@ def main():
         # shed is a compaction. A base taken before the run named the bytes
         # the package used to occupy, so `inbr` read a stale byte for ever and
         # the row waited out 600 guest seconds for a program that had started.
+        #
+        # ...AND A BASE AND THE BYTES IT NAMES ARE ONE READ OF A STOPPED,
+        # COMPACTOR-IDLE GUEST (os88marty.heap_read). Resolving per read is
+        # not enough on its own: row 0's dos_run claim moves the region UP
+        # (92C0 -> 93C4) and between mem_bcopy and mem_reloc_call the window
+        # record still names 92C0 while those bytes are already the shifted
+        # copy. A poll landing there read [dos_inbr] = 69 - "running" - and
+        # then [dos_akb] = 29888, the soak's own failure, reproduced to the
+        # byte with a breakpoint on mem_reloc_call.
         def pb():
             return dosmap.instance(m) << 4
 
+        def at(name, n):
+            return os88marty.heap_read(
+                m, lambda mm: mm.read(pb() + dm[name], n), "DOS's " + name)
+
+        def put(name, b):
+            os88marty.heap_read(m, lambda mm: mm.write(pb() + dm[name], b),
+                                "DOS's " + name)
+
         def word(name):
-            return int.from_bytes(m.read(pb() + dm[name], 2), "little")
+            return int.from_bytes(at(name, 2), "little")
 
         def digits(name):
-            raw = m.read(pb() + dm[name], 8).split(b"\0")[0].decode("latin-1")
+            raw = at(name, 8).split(b"\0")[0].decode("latin-1")
             try:
                 return int(raw.rstrip("KB").strip())
             except ValueError:
@@ -168,7 +185,7 @@ def main():
                      "(SPEC.md 96.25)" % (name, raw))
 
         def inbr(_=None):
-            return m.read(pb() + dm["dos_inbr"], 1)[0]
+            return at("dos_inbr", 1)[0]
 
         # --- 1: the cache is actually there ---------------------------------
         rec, para = dirw(m)
@@ -194,13 +211,13 @@ def main():
         os88marty.settle(m)
 
         def furn(name):
-            r = [int.from_bytes(m.read(pb() + dm[name] + i * 2, 2), "little")
-                 for i in range(4)]
+            b = at(name, 8)
+            r = [int.from_bytes(b[i * 2:i * 2 + 2], "little") for i in range(4)]
             return (r[0] + r[2]) // 2, (r[1] + r[3]) // 2
 
         seen = {}
         for ca in (CA_AUTO, CA_OFF):
-            m.write(pb() + dm["dos_cache"], bytes([ca, 0]))
+            put("dos_cache", bytes([ca, 0]))
             ui.mo.click(*furn("dos_trect"))         # Return...
             os88marty.settle(m)
             ui.mo.click(*furn("dos_erect"))         # ...and back, which paints
@@ -215,7 +232,7 @@ def main():
                  "at both ranks, which is what mem_cp_plan does when it can "
                  "MOVE a cache instead of dissolving it (SPEC.md 66.10.4)"
                  % (keep, take, take - keep, cache_kb))
-        m.write(pb() + dm["dos_cache"], bytes([CA_AUTO, 0]))
+        put("dos_cache", bytes([CA_AUTO, 0]))
 
         # --- back to the console, by the button's OWN rect -------------------
         # dos_brect is composed at paint time and lives in the package's bss,
@@ -223,18 +240,18 @@ def main():
         # remembered from a screenshot (docs/WRITING-TESTS.md).
         ui.mo.click(*furn("dos_trect"))
         os88marty.settle(m)
-        r = [int.from_bytes(m.read(pb() + dm["dos_trect"] + i * 2, 2), "little")
-             for i in range(4)]
-        if m.read(pb() + dm["dos_page"], 1)[0] != 0:
+        r = list(furn("dos_trect"))
+        page = at("dos_page", 1)[0]
+        if page != 0:
             fail("clicking Return at %r left DOS on page %d, so there is "
-                 "no console to type at" % (r, m.read(pb() + dm["dos_page"], 1)[0]))
+                 "no console to type at" % (r, page))
 
         # --- 3: what a program is actually handed ---------------------------
         m.type_text("B:\n")
         os88marty.settle(m)
         got, rah, runs, after = {}, {}, {}, {}
         for arm in (CA_AUTO, CA_9, CA_OFF):
-            m.write(pb() + dm["dos_cache"], bytes([arm, 0]))
+            put("dos_cache", bytes([arm, 0]))
             m.type_text("%s\n" % PROG)
             # **INTO THE BRACKET AND BACK OUT OF IT.** DOSHELLO waits on AH=08h
             # so its screen can be read, so a run left undismissed keeps

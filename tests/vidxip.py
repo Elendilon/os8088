@@ -301,7 +301,7 @@ def one(tmp, sim, snd, v88, bank=False, ekr=0, dry=0):
         stops = list(range(HOLDN, NF, HOLDN)) if bank and not dry else []
         if stops:                       # the gate's hold (tests/vidplay.py's)
             qpoke(q, [(base + syms["vp_stopat"], struct.pack("<H", stops[0]))])
-        q.hmp("sendkey p")
+        os88qemu.key(q, "p")            # (paced: os88qemu.key says why)
         wait(lambda: rb("vp_ready") == 1, "the play to start", 30)
         import time
         t0 = time.time()

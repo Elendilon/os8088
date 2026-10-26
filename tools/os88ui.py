@@ -230,6 +230,13 @@ class UI:
     def _byte(self, name):
         return self.m.read(self._S(name), 1)[0]
 
+    def _has(self, name):
+        try:
+            self._S(name)
+            return True
+        except (Exception, SystemExit):                     # noqa: BLE001
+            return False
+
     def _say(self, msg):
         if self.verbose:
             print("      %s" % msg)
@@ -327,11 +334,26 @@ class UI:
         # again. [ticks] does not move until THIS kernel's IRQ0 is in, so the
         # gate must hold on two reads with the tick different between them
         # (one tick, 55 ms; it also refuses a warm reboot's stale bytes).
+        # **AND THE BOOT'S LAST COMPACTION OVER.** kmain zeroes [spl_fseg]
+        # and calls mem_unblob on the line AFTER spl_finish, and that packs
+        # the heap - moving claims, driver images among them, whose rows are
+        # put right by the relocation procs only once the bytes are copied.
+        # A row that read the heap or a driver row in that window saw the
+        # table at the new base and drv_tab at the old one: covoxdrv read
+        # SOUND.DRV's port out of the copy left behind (9451, not 378h) and
+        # dosest found "nothing owned by it or based there". [mem_cp_busy] is
+        # up for the whole pass; both words hold across the tick below, so a
+        # poll landing between the zeroing and the compactor's own flag is
+        # caught on the second read. A kernel with no compactor has neither
+        # word, and asks nothing
+        cp = [n for n in ("spl_fseg", "mem_cp_busy") if self._has(n)]
         seen = [None]
 
         def ok():
             if not (self._word("desk_rows") and self._word("menu_nbar")
-                    and not self._byte("spl_live")):
+                    and not self._byte("spl_live")
+                    and not any(self._word(n) if n == "spl_fseg"
+                                else self._byte(n) for n in cp)):
                 seen[0] = None
                 return False
             t = os88marty._ktick(self.m)

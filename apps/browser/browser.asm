@@ -9094,7 +9094,8 @@ br_select:
 .selected:
     push si
     push di
-    xor ax, ax
+    push dx                         ; br_srcabs returns its high word in DX,
+    xor ax, ax                      ; which is the option's end below
     mov al, [br_fn]
     shl ax, 1
     shl ax, 1
@@ -9104,6 +9105,7 @@ br_select:
     call br_srcabs
     mov [di], ax
     mov [di+2], dx
+    pop dx
     pop di
     pop si
     push si
@@ -14315,6 +14317,7 @@ br_s_bad:   db 'Cannot open page', 0
                                 ; so a package that draws no bar pays none of
                                 ; its bytes
 %define OS88UI_NOGLYPH          ; no check box or radio drawn here (SPEC.md 13.8.9)
+%define OS88UI_1BPP             ; OSAPI_SAVEU_1BPP: a greyed caption keeps its ink (SPEC.md 13.8.11)
 %include "os88ui.inc"           ; the standard button (SPEC.md 20.5.1)...
 %include "os88line.inc"         ; ...and the one-line field the bar is
 %include "br15.inc"              ; Browser 1.5 clipboard, context and bookmarks

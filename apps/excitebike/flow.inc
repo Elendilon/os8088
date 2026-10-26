@@ -374,13 +374,29 @@ xb_flush:
 
 ; the next typed key: ZF=1 none, else AX = the key.  An Enter is taken once per PRESS:
 ; [xb_enth] is set when one is taken and cleared when OSAPI_KEY_DOWN reads it up, and
-; every Enter typed between the two - the held key's repeats - is thrown away
+; every Enter typed between the two - the held key's repeats - is thrown away.  THAT
+; INCLUDES THE ONES STILL IN THE BUFFER WHEN THE RELEASE IS SEEN: a repeat and the
+; break after it can both land inside one frame, and the repeat's Enter then sits in
+; the BIOS buffer behind a key that already reads up - taken as a new press, it ran
+; the course screen straight into a race for 6 of 24 release points across a
+; typematic period.  A key reading up cannot have been pressed again since, so an
+; Enter at the buffer's head at that moment is the held key's
 xb_rdkey:
     cmp byte [xb_enth], 0
     je .rd
     mov al, KSC_ENTER
     call OSAPI_KEY_DOWN
     jc .rd
+.stale:
+    mov ah, 1
+    int 16h
+    jz .up
+    cmp al, 13
+    jne .up
+    xor ah, ah
+    int 16h                         ; a repeat typed before the release: away
+    jmp short .stale
+.up:
     mov byte [xb_enth], 0
 .rd:
     mov ah, 1

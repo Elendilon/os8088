@@ -75,6 +75,12 @@ _M, _T = '"' + "make" + '"', '"' + "test" + '"'
 _F = "os88" + "fixture" + r"\.make\(\s*"
 LAUNCH = re.compile("(?:" + _M + r",\s*" + _T + "|" + _F + _T + r")")
 PIDFILE = re.compile(r'-pidfile')
+# ...and the third spelling, which is the one the suite uses now
+# (docs/plans/SOAK-PARALLEL.md 17): `make test` reproduced in os88qemu with a
+# private socket, pidfile and disk copies. It IS a launch and it owns its
+# instance itself - os88qemu.make_test calls own() at its own launch site - so
+# a file that only ever launches through it is a launcher that owns.
+MAKE_TEST = re.compile(r'\bos88qemu\.make_test\s*\(|\bQ\.make_test\s*\(')
 OWN = re.compile(r'\bos88qemu\.own\s*\(')
 
 
@@ -84,8 +90,11 @@ def main():
         if not name.endswith(".py") or name == "os88qemu.py":
             continue
         src = open(os.path.join(TESTS, name)).read()
-        if LAUNCH.search(src) or PIDFILE.search(src):
-            launchers.append((name, bool(OWN.search(src))))
+        if LAUNCH.search(src) or PIDFILE.search(src) or MAKE_TEST.search(src):
+            # the old spellings still need their own() at the site; a file
+            # that launches ONLY through make_test is owned by it
+            old = LAUNCH.search(src) or PIDFILE.search(src)
+            launchers.append((name, bool(OWN.search(src)) or not old))
 
     check(len(launchers) >= 12,
           "the launch detector still finds the files that launch QEMU",

@@ -125,7 +125,7 @@ import os88build                                       # noqa: E402
 
 S = os88sym.linear
 
-SOCK = "build/qmp.sock"
+SOCK = os88qemu.SOCK
 SYSIMG = "build/ether360.img"
 APPIMG = "build/ftpapps.img"
 CTRL = 2121
@@ -186,28 +186,14 @@ def main():
     if r.returncode:
         sys.exit("ftpd: make ftpdtest failed:\n" + r.stdout + r.stderr)
 
-    # A SURVIVOR KEEPS THE SOCKET, so the new machine cannot bind and every
-    # read below would come from the OLD one - which reads as a change that
-    # did nothing. Kill it by PID out of the pidfile, never with `pkill -f
-    # qemu`, whose pattern matches the calling shell.
-    if os.path.exists("build/qemu.pid"):
-        try:
-            os.kill(int(open("build/qemu.pid").read().strip()), 15)
-            time.sleep(1.0)
-        except (OSError, ValueError):
-            pass
-    for f in ("build/qmp.sock", "build/qemu.pid"):
-        if os.path.exists(f):
-            os.remove(f)
-
-    # `make test` DAEMONISES the emulator, so it outlives this script
-    # unless somebody kills it - and the somebody is us (os88qemu).
-    os88qemu.own()
-    r = subprocess.run(["make", "test", "ETHER=1", "ETHFWD=1",
-                        "TESTIMG=" + SYSIMG, "TESTAPPS=" + APPIMG] + knob,
-                       capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("ftpd: make test failed:\n" + r.stdout + r.stderr)
+    # The machine is PRIVATE (tests/os88qemu.py make_test): its own socket
+    # and pidfile, so nothing of build/qmp.sock is shared and ethernet.py's
+    # Mouse, which drives os88qemu.SOCK, drives this machine
+    # The two images are this script's own (`make ftpdtest` made them) and
+    # are READ BACK below, so they boot in place. KFZ is a kernel knob: it
+    # was spent by `make ftpdtest`, and the boot only needs its images.
+    os88qemu.make_test("ETHER=1", "ETHFWD=1", "TESTIMG=" + SYSIMG,
+                       "TESTAPPS=" + APPIMG, copy=False)
 
     # ethernet.py's Qemu and Mouse are reused rather than copied: one QMP
     # client at a time, `pmemsave` for memory, and one tools/mouse.py process
