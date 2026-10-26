@@ -552,7 +552,9 @@ def listing(m, S):
         n = _u16(m.read(base + FS_N, 2))
         vseg = _u16(m.read(base + FS_VSEG, 2))
         if n and vseg:
-            return _decode(m.read(vseg << 4, n * DSK_DE_STRIDE), n)
+            # readseg, not `vseg << 4`: on kern_mega the claim is an LDT
+            # selector (docs/BOCHS.md), and on MartyPC this is the same read
+            return _decode(m.readseg(vseg, 0, n * DSK_DE_STRIDE), n)
     return snapshot(m, S)
 
 
@@ -577,7 +579,7 @@ def snapshot(m, S):
         return []
     seg = _u16(m.read(S("dsk_dseg"), 2))
     off = _u16(m.read(S("dsk_doff"), 2))
-    return _decode(m.read((seg << 4) + off, n * DSK_DE_STRIDE), n)
+    return _decode(m.readseg(seg, off, n * DSK_DE_STRIDE), n)
 
 
 def row_of(m, S, name):

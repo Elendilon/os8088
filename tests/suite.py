@@ -18396,7 +18396,8 @@ SOAK = [
 MEGAPORT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "megaport.txt")
 MEGA_WANTS = ("build/mega.img", "build/megaapps.img",
-              "build/megak/kernel.map")
+              "build/megak/kernel.map",
+              "build/megarun.o88")    # os88bochs.Box stages it on every boot
 
 
 def _mega_ports(base):
@@ -18451,7 +18452,7 @@ def _mega_ports(base):
     return out
 
 
-SOAK += _mega_ports(SOAK + FULL)
+SOAK += _mega_ports(FAST + FULL + SOAK)   # (a few soak-tier rows sit in the FAST list)
 
 
 def rows():

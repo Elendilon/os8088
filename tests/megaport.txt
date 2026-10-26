@@ -15,3 +15,16 @@
 
 sheetbtn secs=60   # Sheet's dialog buttons (Goto/Format) open, close and reuse their slot
 uilayer secs=120   # every os88ui verb confirmed off guest state, and confirm-vs-settle
+
+# PANEL, LOADER AND HEAP
+modstr secs=70   # DISKOPS.DRV and FORMAT.DRV letter their own strings through CS, and the formatted 1.44MB B: mounts
+rdcz secs=60   # a compressed README.TXT with its directory hint struck still reaches Note Pad unpacked, off FAT and off the RAM disk
+cpup secs=40   # the Control Panel acts on the RELEASE (sch_coop), and the held radio draws pressed on the VGA glass
+cpnames secs=50 +hdd   # every Control Panel list name and page heading letters (CTRL.DRV strings through CS), plus HDD.DRV's row ticked in on a Bochs ATA disk - cpnameshdd's whole run
+dtwrite secs=40   # the RTC write is spent by the panel's CLOSE - and on Bochs's MC146818 the stepped year reaches the CHIP at the close and not before
+dockmodule secs=80   # a missing or corrupt DOCK.DRV, or a saved advanced setting without it, leaves the basic Dock and every callback on the kernel's own body - fixtures built from megak/
+drvcall secs=60   # a package reaches RAMDISK.DRV through OSAPI_DRV_CALL: refusal first, then HELLO WORLD upper-cased in the package's own selector, then the bad verb refused
+lzdrv secs=50   # mega.img's compressed RAMDISK.DRV expands byte-exact (read at drv_load_at.attach, a .cold breakpoint) into a selector covering image + bss, and answers DRVCALL
+lzdrv-nohint secs=50   # ...and with its directory hint struck, as a host tool's copy leaves it
+fmrefuse secs=30   # OSAPI_SND_FM with no sound driver refuses (drv_svc_call_x's retf) and the desktop keeps the graphics lock free - Bochs with no SB16
+stiknodesk secs=60   # a Sticky App relaunched at boot with DESK.DRV absent refuses in its own words, present binds and drops it - all three legs; found and fixed KERN-MEGA-PLAN 14.77
