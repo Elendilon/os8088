@@ -188,8 +188,14 @@ C apps/frotz/zpic.inc zp_seg             # a .PIX archive read and validated ins
                                          # one call, freed before it returns
 C apps/frotz/zpic.inc zp_pseg            # the .mg1 probe buffer, claimed and freed
                                          # inside one call
-C apps/realdmg/rwlog.inc @rw_logwrite    # the log's text, composed and written
-                                         # inside one command (REALDMG-SPEC 14.4)
+C apps/realdmg/rwbank.inc @rw_mclaim     # RealDMG's side buffers (REALDMG-SPEC
+                                         # 10.3.3), for the caller to store: a
+                                         # replay's buttons and the log's records
+                                         # go into rw_rpseg and rw_logseg, which
+                                         # rw_mfree declares movable (rw_mtab);
+                                         # the log's text is composed and written
+                                         # inside one command (14.4). One that
+                                         # lives in a lent slot is no claim at all
 C apps/realdmg/rwaot.inc rw_abseg        # a precompiled package's cluster bounce,
                                          # a claim of its own only when a cluster
                                          # passes 16KB: claimed and freed inside
