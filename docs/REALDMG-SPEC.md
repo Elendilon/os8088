@@ -2649,6 +2649,12 @@ carve (the core and the view) and cache A with the recompiler's part.
   it a KB larger, which keeps it conventional. Cartridge RAM (33KB at most)
   and the profile read fine. The kernel is the place to fix it; the line
   comes out when it is.
+- **The in-place load's slot stays CONVENTIONAL** (`OSAPI_MEM_CLAIM_DMA`,
+  no page constraint): it is what the file is read into, and under
+  `OS88_HIGHMEM` a 16KB claim went to the pool, where a read bounces a
+  sector at a time - Looney Tunes' 1MB had not loaded in 150 emulated
+  seconds on 86Box's mr286 (Kirby's 256KB loaded, slowly enough to pass
+  unnoticed). Found by 20.15, which reads its images the same way.
 - **A move** (R3): a pool block moves by rebase, so its tiers' selectors
   stay right and the cache is not flushed. (Before, a conventional cache
   segment's move ran `rt_init` and forgot every block.)
@@ -3875,30 +3881,79 @@ a time (`rw_aromrd`), the bank cache's `rw_bread` bank after bank
 `tests/gbaotpkg.py`'s second leg is a package with the ROM inside and
 nothing beside it, on the same 4KB-cluster volume.
 
-### 20.14 kern_mega: not yet
+### 20.14 kern_mega: the plain package refuses
 
-A precompiled package **refuses to start under kern_mega** (`CPU_F_PM`,
-before anything is claimed or read: *PRE: not on kern_mega*), and the build
-refuses `RDG_AOT` with `PKG_MEGA`. On kern_mega a segment is a selector
-(16.2.4), and every name this arm keeps is a DATA segment where the core
-needs a CODE selector: the code images' far jumps (the relocations), the
-table's and the list's +6, `S_AOTVEC`, `S_AOTINT`, `S_JITVEC`. The loader
-also ADDS to segments - an image's second half at +800h, the embedded ROM's
-banks at +400h each - which names other selectors entirely there.
+A precompiled package made WITHOUT `--mega` **refuses to start under
+kern_mega** (`CPU_F_PM`, before anything is claimed or read: *PRE: not on
+kern_mega*). On kern_mega a segment is a selector (16.2.4), and every name
+that build keeps is a DATA segment where the core needs a CODE selector -
+the code images' far jumps (the relocations), the table's and the list's +6
+- and its loader ADDS to segments: an image's second half at +800h, the
+list and its filter at the meta + their offsets, the embedded ROM's banks
+at +400h each. Section 20.15 is the build that runs there.
 
-What is compatible already is the core's half, built by the kern_mega work
-(16.2.4, 16.2.5): `tr_lpes` writes a run-time link through the site's tier
-as DATA, or through CS itself when no pair names it, which is right for
-every image on a real-mode kernel - the merge's equivalence runs (every ROM
-of `tests/gbaot.py`, Kirby at four images and at one) are identical. The
-port is, in its order:
-1. each image as ONE stream of 64KB (two plain parts the host compressed
-   itself), expanded in place from offset 0, so no image is addressed past
-   its own selector;
-2. a code selector per image (`OSAPI_MEM_CODESEL`), given to the
-   relocations and the tokens, and to `S_AOTVEC`/`S_JITVEC` the region's;
-3. the images past the first two named to the core as extra tiers
-   (`S_JITXT`, 16.2.5) so a run-time link into one writes through its data
-   segment - `RT_XMAX` is 5, so seven images, and an eighth is left on the
-   disk;
-4. the embedded ROM through 10.3.1's above-1MB path instead of `rw_aromrd`.
+### 20.15 kern_mega's package: `gbaot.py --mega`
+
+`gbaot.py make ... --mega` (and `package --mega`, the window's *For
+kern_mega* tick) packages the cartridge with realdmg.asm assembled RDG_AOT
+**and** `PKG_MEGA`: `build/gbaot/realdmgaotmega.bin`, which the bundle
+(20.12) carries beside the plain one. It runs on EVERY kernel - on a
+real-mode one each cell below answers the sum the plain build does - and it
+is the one that runs on kern_mega. It declares `OS88_HIGHMEM`.
+
+**Memory, under `CPU_F_PM`** - the owner's case for it: a protected-mode
+machine has the RAM for every code image and every bank at once:
+- **The ROM first**, in place above 1MB (10.3.1), or in one claim when the
+  pool cannot hold twice the cartridge (10.3.2: there is no bank cache to
+  trade images against here). `rw_load`'s images-first order is the
+  conventional heap's, and is kept for every real-mode kernel.
+- **Then every code image in ONE pool block** (`rw_axclaim`, at the load's
+  `rw_aclaim`): `OSAPI_XMEM_ALLOC` of n x 64KB, one `OSAPI_XMEM_SEL`
+  selector over its start, and image n a `SEG_SUBC` pair at (n - 1) x 64KB.
+  No claim record is spent - a package holds eight, and fourteen images
+  could not have been claims - and the heap's claims take any image the
+  pool could not. An image in the block that cannot be read is dropped from
+  the table and the list as before, its window going with the block.
+- **Reads go through CONVENTIONAL buffers**: the load's bounce
+  (`rw_abounce`) and the in-place load's slot (`rw_bload`, the recompiler's
+  arm too) are `OSAPI_MEM_CLAIM_DMA` claims with no page constraint, which
+  `OS88_HIGHMEM` leaves conventional. A file read into memory above 1MB
+  bounces a sector at a time: with the slot in the pool, Looney Tunes' 1MB
+  load had not finished in 150 emulated seconds on 86Box's mr286.
+
+**Names**:
+- **Code selectors** (`rw_acsset`, `rw_aimgc`): each image's and the core's
+  code selector, `rw_csel`'s answer, given to the relocations' far jumps
+  and to the table's and the list's +6 tokens; `S_JITOUT`, `S_JITCSA`,
+  `S_JITCS` the first loaded image's (or the core's).
+- **Run-time links** (16.2.4): every image in memory is named to the core
+  as a pair in `S_JITXT` (16.2.6's 55 pairs hold `RWA_MAX`'s 14), so a
+  link `tr_link` makes at run time into one is written through its data
+  half by `tr_lpx`; `rw_jdon` patches the core's dispatch sites through
+  `S_COREDS`, not `S_DISP+2`.
+- **No sums**: the list's and the filter's segments, each image's second
+  half and the embedded ROM's banks in one claim (`rw_aromrd`) are
+  `OSAPI_SEG` windows (`rw_sub`).
+
+20.14's old list, as it went: (1) one 64KB stream per image was not needed
+- the second half is a `SEG_SUB` window; (2) and (4) as planned; (3) the
+images are `S_JITXT` pairs and `RT_XMAX` is 55 now, so every image is
+named.
+
+**The test** is `tests/rdgaotmega.py` (Bochs, `MEGATRAP=1`): blargg's
+cpu_instrs precompiled SQUEEZED (`gbaot.py build --squeeze 0x210`: every
+image's code ends at 0210h, so a 64KB test ROM fills ten images with 30
+relocations and blocks left to the interpreter), four legs - the plain
+package refuses; the mega one with the ROM inside, beside it, and inside in
+one conventional claim (`RW_NOXPLAN`) passes all eleven tests precompiled,
+every image in one pool block above 1MB, no trap in the core or an image.
+`--rom` runs a commercial cartridge the same way, its frames in place of
+the verdict. Red with the image from before 20.15: the game never starts.
+
+**MEASURED** (docs/reports/REALDMG-AOT-MEGA-2026-10-26.md): Kirby's Dream
+Land precompiled under Bochs, four images in the pool block, banks in place
+or one claim, no trap in the core or an image; Looney Tunes (1MB) with the
+owner's replay as its counters, on 86Box `286-mega`: 7 images and all 64
+banks resident, nothing fetched, **94.7%** of real time a second (mean of
+seconds 3-70) against 94.9% for the plain package on kern_big (3 banks
+fetched) and 91.5% for the recompiler on kern_mega.

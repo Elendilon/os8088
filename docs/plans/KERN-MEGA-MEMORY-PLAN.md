@@ -873,6 +873,8 @@ that order (D11). MC9 is deferred, as section 5 planned it.
 - **`tests/megahigh.txt` is down to ONE line:** RealDMG's `high`. Its arm
   declares `OS88_HIGHMEM`, but no build of it declares `OS88_HIGH`, so its
   region has never been run above 1MB. That is the `mega-dmg` session's.
+  RealDMG's conversion itself (item 11 of the package wave) is DONE, both
+  builds and the precompiled package, merged at `3bc7f0be`.
 
 **kern_mega's own limits, as the owner set them (2026-10-26):** it is a knob
 build that is MEANT TO GROW.
@@ -1603,17 +1605,26 @@ build that is MEANT TO GROW.
       and Scribe's undo, RealDMG's and the PiXEL parts' (`PXSW`) are a
       COST and not a defect, listed for the speed pass. DOS needs nothing:
       kern_mega's arm runs its program in `kern_dos`, in real mode.
-      **RealDMG, both builds, is TAKEN by the `mega-dmg` session
-      (2026-10-25) - this branch's agents leave it alone.** `mega-dmg` has
-      merged this branch at `f3e558c0` and converts RealDMG there: the JIT
-      part and the extra cache tiers through `SEG_SUBC` (8.1), the bank
-      table, RAM banks, slot cache, frame carve and the one-claim
-      cartridge's biased bases (8.2), and the static recompiler's host
-      (`rwaot.inc`, from `realdmg-fullstatic`) with them. It lands on
-      `elendilon`, and this branch gets it at its next merge from there.
-      A first fault at `f3e558c0`, for the record: `rw_jpart` loads ES with
-      cache A's selector + 1000h (`CLOSED REALDMG 0D at 11AC:0778 err
-      2224`), so nothing past the cartridge's load runs today.
+      **RealDMG, both builds: DONE by the `mega-dmg` session (2026-10-26),
+      merged here at `3bc7f0be`.** The first fault at `f3e558c0`, for the
+      record: `rw_jpart` loaded ES with cache A's selector + 1000h
+      (`CLOSED REALDMG 0D at 11AC:0778 err 2224`). What landed, by build:
+      - **REALDMG.O88, shipped**: refuses under `CPU_F_PM`
+        (`OS88_MEGA_REFUSE`); kern_mega runs the arm (REALDMG-SPEC 10.3.2).
+      - **REALDMG.O88, the `PKG_MEGA` arm**: every "claim + N" asked of
+        `OSAPI_SEG` (the JIT part and the extra tiers `SEG_SUBC`, the
+        frames, table, bank 0 and a one-claim cartridge's banks `SEG_SUB`,
+        cartridge RAM an offset into its claim; no bank cache under
+        `CPU_F_PM`). The extra tiers are one `OSAPI_XMEM_ALLOC` block, up to
+        55, and the arm declares `OS88_HIGHMEM` (16.2.6). `tests/rdgmega.py`,
+        four legs.
+      - **The precompiled host (`rwaot.inc`)**: `gbaot.py --mega` packages
+        it as RDG_AOT + `PKG_MEGA`: the ROM in place, every code image in
+        one pool block as `SEG_SUBC` pairs, code selectors in the
+        relocations and tokens, the images as `S_JITXT` pairs (20.15);
+        the plain package still refuses (20.14). `tests/rdgaotmega.py`.
+      What is left of it is the `high` line below and section 8.6's file
+      read, which RealDMG works round.
   Each converts on every kernel where the XT loop is no slower, or as a
   `PKG_MEGA` arm where it measures slower (MC7.2's answer).
   **Taken (2026-10-25, batch 1):** C64 and Apple II (the three bank fetch
