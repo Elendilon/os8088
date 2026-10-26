@@ -3451,7 +3451,7 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
-    Row("gbaot", "soak", py("tests/gbaot.py"), 620.0,
+    Row("gbaot", "soak", py("tests/gbaot.py"), 680.0,
         "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
         "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
         "its entries with no play, by RealDMG's own translator run under "
@@ -3469,8 +3469,11 @@ SOAK = [
         "identical to the interpreter, and with the cache's bank key "
         "forgotten (RDG_AOTCACHEBUG) differing; GBSEAM3-5's JRs across the "
         "bank seam, GBSEAM4 with tr_ejf's DS taken out of the image's core "
-        "as the control; and GBLCDOFF, the LCD off for good, a frame's time "
-        "being a frame then. WHY UNICORN: the "
+        "as the control; GBLCDOFF, the LCD off for good, a frame's time "
+        "being a frame then; and GBRET, one RET returning to eight places, "
+        "its site made megamorphic by both recompilers (tr_rmeg, REALDMG-SPEC "
+        "16.4.1), the control sending the rewritten site on with another "
+        "return's HL. WHY UNICORN: the "
         "translation is the host's, and the check is counted, not timed. "
         "SOAK: one package's recompiler",
         needs=("nasm", "unicorn", "rgbds"), timeout=900),

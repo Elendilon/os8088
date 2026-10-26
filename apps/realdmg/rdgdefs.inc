@@ -101,7 +101,10 @@ S_AOTFSEG       equ 0x4847          ; word: the list's filter, 8KB: a bit
                                     ;   listed block (rdgaot.inc)
 S_AOTSLOT       equ 0x4849          ; word: rdg_aotmiss's cache entry for
                                     ;   the PC being searched for
-RDG_FREE         equ 0x484B          ; the rest of the window is unassigned,
+S_RMEG          equ 0x484B          ; 16 x 4: a RET site patching (tr_rmeg):
+RT_RMEGN        equ 6               ;   its offset and its patches; this
+                                    ;   many and it is megamorphic (16.4.1)
+RDG_FREE         equ 0x488B          ; the rest of the window is unassigned,
                                     ; but for rdgppu.inc's 4900-66FF and:
 ; CODE SELECTORS (REALDMG-SPEC 16.2.4): a segment the core or the recompiler
 ; JUMPS to is named by the selector a far jump may load - the segment itself

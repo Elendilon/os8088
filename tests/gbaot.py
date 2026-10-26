@@ -18,7 +18,7 @@ rgbds) and the test suites tools/getgbtest.py fetches at pinned SHA-256s.
 None is committed, and no commercial game is used: those are the owner's
 field measurement (docs/reports/REALDMG-FULLSTATIC-2026-10-25.md).
 
-FIVE NEGATIVE CONTROLS, every one of which must go red:
+SIX NEGATIVE CONTROLS, every one of which must go red:
   - the most-entered block of GBRMW.GB with its first byte changed: the
     check must see the precompiled code at all;
   - GBFLAGS.GB translated by a driver built with RT_DEADBUG (a flag's read
@@ -31,7 +31,9 @@ FIVE NEGATIVE CONTROLS, every one of which must go red:
     search and its cache are what run) under a driver built with
     RDG_AOTCACHEBUG (the cache's bank key forgotten): it must differ;
   - GBSEAM4.GB with tr_ejf's choice of DS taken out of the precompiled core
-    (a JR from the bank back to a bank-0 PC with no block): it must differ.
+    (a JR from the bank back to a bank-0 PC with no block): it must differ;
+  - GBRET.GB with tr_rmeg's megamorphic site jumping on through tr_lno, its
+    saved HL another return's: its sums must differ.
 """
 import argparse
 import os
@@ -46,7 +48,7 @@ import gbstatic  # noqa: E402
 
 BUILD = os.path.join(ROOT, "build")
 OURS = ["gbrmw", "gbpop", "gbhblank", "gbbank", "gbsave", "gbjoy", "gbpad", "gbtone", "gbflags",
-        "gbseam", "gbseam2", "gbseam3", "gbseam4", "gbseam5", "gblcdoff"]
+        "gbseam", "gbseam2", "gbseam3", "gbseam4", "gbseam5", "gblcdoff", "gbret"]
 # (label, ROM, frames, compare the link port's words rather than frames)
 SUITE = [
     ("GBDEMO", "apps/realdmg/GBDEMO.GB", 1500, False),
@@ -65,6 +67,9 @@ SUITE = [
     # the LCD off for good: the harness's frame is a frame's time then,
     # where it waited for a VBlank (Prehistorik Man waiting on a button)
     ("GBLCDOFF (dark for good)", "gblcdoff", 300, True),
+    # one RET returning to eight places, four of them in a bank: its site
+    # made megamorphic (tr_rmeg, REALDMG-SPEC 16.4.1), a lookup a return
+    ("GBRET (one RET, eight places)", "gbret", 300, True),
     # a JR across the seam: the plain interpreter's has no setds (REALDMG-SPEC
     # 3.1), so these are held to the dynamic recompiler's frames
     ("GBSEAM3 (JR into the bank)", "gbseam3", 600, "dyn"),
@@ -168,6 +173,58 @@ def ejf_control(rom, out, frames):
         gbaot.Machine.init = orig
 
 
+def core_labels():
+    """The precompiled core's map: {label: offset}"""
+    labels = {}
+    for ln in open(os.path.join(BUILD, "gbaot", "rdgcore.map")):
+        p = ln.split()
+        if len(p) == 3:
+            try:
+                labels[p[2]] = int(p[0], 16)
+            except ValueError:
+                pass
+    return labels
+
+
+def rmeg_count(m):
+    """The largest count in S_RMEG at the end of a run: RT_RMEGN once a
+    site was made megamorphic"""
+    raw = bytes(m.u.mem_read(m.view * 16 + m.sym["S_RMEG"], 64))
+    return max(raw[i + 2] for i in range(0, 64, 4))
+
+
+def rmeg_leg(rom, out, frames):
+    """GBRET's RET made megamorphic - by the precompiled code and by the
+    dynamic recompiler - and the machine still the interpreter's"""
+    n = gbaot.symbols(BUILD)["RT_RMEGN"]
+    got = []
+    for mode, img in ((3, gbaot.load(out)), (1, None)):
+        for f, x, st, m in gbaot.run_arm(BUILD, rom, mode, frames, img):
+            pass
+        got.append(rmeg_count(m))
+    ok1, what = gbaot.compare(BUILD, rom, None, frames, ref="interp", arm="dyn", serial=True)
+    ok = ok1 and got == [n, n]
+    return ok, "megamorphic: precompiled %s, translated %s (RT_RMEGN %d); dyn %s" % (
+        got[0], got[1], n, what)
+
+
+def rmeg_control(rom, out, frames):
+    """compare() with tr_rmeg's rewritten site jumping to tr_lno instead of
+    tr_enter: on with BX = S_SAVBX, whatever the last lookup left there - in
+    every segment's copy of the page, the image's own being what a site in
+    it jumps to"""
+    def fn(b, lab):
+        at, want = lab["tr_rmeg.mega"], (lab["tr_enter"] - 41) & 0xFFFF
+        i = b.index(bytes([0xBA, want & 0xFF, want >> 8]), at, at + 40)
+        v = (lab["tr_lno"] - 41) & 0xFFFF
+        b[i + 1:i + 3] = bytes([v & 0xFF, v >> 8])
+        return bytes(b)
+    labels = core_labels()
+    meta, segs, table = gbaot.load(out)      # (every segment's copy of the
+    segs = [fn(bytearray(sg), labels) for sg in segs]   # page: the site's own
+    return gbaot.compare(BUILD, rom, (meta, segs, table), frames, serial=True)   # runs)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("-k", help="only the rows whose label contains this")
@@ -260,6 +317,16 @@ def main():
                                      "passed - the gate cannot go red" if ok
                                      else what + ", as it must"))
             bad += ok
+        if label.startswith("GBRET"):
+            ok, what = rmeg_leg(rom, out, frames)
+            print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "GBRET, megamorphic", what))
+            bad += not ok
+            if not a.k:
+                ok, what = rmeg_control(rom, out, frames)
+                print("%-4s %-28s %s" % ("FAIL" if ok else "ok", "control: stale HL on",
+                                         "passed - the gate cannot go red" if ok
+                                         else what + ", as it must"))
+                bad += ok
         if label in HRAMLEG:
             ok, what = hram_leg(rom, found, extra, out, frames, ref)
             print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "%s, HRAM counted" % label, what))

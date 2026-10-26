@@ -818,11 +818,25 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=Non
                     if off:
                         entries[seg * 16 + off] = (pc, key)
 
+            core0, sbank, smask = CORE * 16, m.sym["S_BANK"], m.sym["S_BMASK"]
+            m.interp = collections.Counter()
+
             def blk(uc, addr, size, ud):
                 m.ran["code"] += 1
                 k = entries.get(addr)
                 if k:
                     m.ran[k] += 1
+                elif heat and core0 <= addr < core0 + 0x10000 and not addr & 0xFF:
+                    dx = uc.reg_read(m.X.UC_X86_REG_DX)    # an instruction the
+                    si = uc.reg_read(m.X.UC_X86_REG_SI) - 1    # INTERPRETER ran:
+                    if dx == addr - core0 and si < 0x8000:     #   its dispatch's
+                        v = uc.mem_read(VIEW * 16 + si, 1)[0] if si < 0x4000 else None
+                        if si >= 0x4000:   # jmp dx, DL 0 and DH the opcode at SI-1
+                            b = uc.mem_read(VIEW * 16 + sbank, 1)[0] & \
+                                uc.mem_read(VIEW * 16 + smask, 1)[0]
+                            m.interp[(si, b)] += 1
+                        elif v == dx >> 8:
+                            m.interp[(si, 0xFF)] += 1
             for lo, hi in code_ranges:
                 m.u.hook_add(UC_HOOK_BLOCK, blk, begin=lo, end=hi - 1)
             if heat:                        # a ROM PC with no block, to the
@@ -844,10 +858,16 @@ def run_arm(build, rom, mode, frames, img=None, prove=False, defines=(), joy=Non
         m.set_slots(romseg + 0x400, MEM_END // 16)
         m.init(mode, VIEW, CORE, HASH, SEGA, SEGB, romseg, hmask=31)
     if state is not None:                  # a save state, rwstate.inc's file
-        if len(state) != 0x8000 + 0x800:
-            raise SystemExit("gbaot: a state with cartridge RAM is not taken here")
+        ram = len(state) - 0x8000 - 0x800  # its cartridge RAM part: none, or
+        if ram not in (0, 0x2000):         #   ONE 8KB bank, which rdgsys keeps
+            raise SystemExit("gbaot: a state with more than one bank of cartridge RAM "
+                             "is not taken here")   # in A000-BFFF itself
         m.w(VIEW, 0x8000, state[:0x8000])
-        m.w(VIEW, m.sym["RDG_STREC"], state[0x8000:])
+        rec = bytearray(state[0x8000 + ram:])
+        if ram:                            # the package keeps that bank in a
+            m.w(VIEW, 0xA000, state[0x8000:0x8000 + ram])   # claim of its own
+            rec[5] = 0                     #   and says 8 (KB) here; the harness,
+        m.w(VIEW, m.sym["RDG_STREC"], bytes(rec))   # in the window, says 0
         m.enter(m.pr(P_STLOAD))
         if m.pr(P_OUT):
             raise SystemExit("gbaot: the save state is not this game's")
@@ -886,7 +906,9 @@ def heat_run(build, rom, img, frames, joy=None, state=None, log=print):
     misses = {"%02X:%04X" % (k, pc): n for (pc, k), n in m.miss.items()
               if pc < 0x8000 or pc >= 0xFF80}
     hram = {"%02X:%04X" % (k, pc): v.hex() for (pc, k), v in m.hram.items()}
-    return {"frames": frames, "blocks": blocks, "misses": misses, "hram": hram}
+    interp = {"%02X:%04X" % (k, pc): n for (pc, k), n in m.interp.items()}
+    return {"frames": frames, "blocks": blocks, "misses": misses, "hram": hram,
+            "interp": interp}
 
 
 # --- commands ---------------------------------------------------------------
@@ -914,6 +936,9 @@ def load_heat(paths, hram=None):
         for k, n in h["blocks"].items():
             key, pc = k.split(":")
             hb[(int(pc, 16), int(key, 16))] += n
+        for k, n in h.get("interp", {}).items():   # every instruction the
+            key, pc = k.split(":")                # interpreter ran: a block
+            hb[(int(pc, 16), int(key, 16))] += n  #   start's is its entries
         for k, v in h.get("hram", {}).items():
             pc = int(k.split(":")[1], 16)
             if hram is not None and pc not in hram:
@@ -1151,11 +1176,13 @@ def broken(img, which):
 
 
 def compare(build, rom, img, frames, ref="interp", arm="aot", serial=False, defines=(),
-            log=print):
-    """Run two arms side by side. Returns (identical, what was found)."""
-    r = run_arm(build, rom, ARMS[ref], frames, img if ref == "aot" else None, defines=defines)
+            log=print, joy=None, state=None):
+    """Run two arms side by side - the script, or a replay from its save
+    state (`joy`, `state`). Returns (identical, what was found)."""
+    r = run_arm(build, rom, ARMS[ref], frames, img if ref == "aot" else None, defines=defines,
+                joy=joy, state=state)
     k = run_arm(build, rom, ARMS[arm], frames, img if arm == "aot" else None,
-                prove=(arm == "aot"), defines=defines)
+                prove=(arm == "aot"), defines=defines, joy=joy, state=state)
     m0 = m1 = None
     if serial:                            # a ROM that reports on its link port:
         for (f, x0, s0, m0), (_, x1, s1, m1) in zip(r, k):   # its words, not its
@@ -1260,7 +1287,15 @@ def cmd_check(a):
     if a.break_block:
         img = broken(img, a.break_block)
         print("gbaot: block %s broken" % a.break_block)
-    ok, what = compare(a.build, rom, img, a.frames, a.ref, a.arm, a.serial)
+    joy = state = None
+    frames = a.frames
+    if a.replay:                          # a replay, as heat plays one
+        if not a.state:
+            raise SystemExit("gbaot: a replay is played from its save state: give --state")
+        j0, joy, n = replay(a.replay)
+        frames = min(frames, n)
+        state = open(a.state, "rb").read()
+    ok, what = compare(a.build, rom, img, frames, a.ref, a.arm, a.serial, joy=joy, state=state)
     print("gbaot: " + what)
     return 0 if ok else 1
 
@@ -1301,6 +1336,8 @@ def main():
     k.add_argument("--break-hot", action="store_true", help="break the most entered block")
     k.add_argument("--keep", type=int, help="only this many code images past the core, as the "
                    "package runs when the heap holds no more")
+    k.add_argument("--replay", help="a NAME.RPn to play instead of the script...")
+    k.add_argument("--state", help="...from the NAME.SSn it starts from")
     mk = sub.add_parser("make", help="GAME.O88 from a ROM: build, count, build again, package")
     mk.add_argument("rom")
     mk.add_argument("-o", "--out", required=True)

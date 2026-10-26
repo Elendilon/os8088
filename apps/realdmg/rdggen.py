@@ -1040,7 +1040,7 @@ tr_lpatch:
 tr_lpok:
     mov bx,[ss:S_LINK]
     cmp byte [cs:bx],81h        ; a RET's site: cmp si,PC (rt_ret)
-    je tr_rpatch
+    je tr_rmeg
     cmp si,4000h                ; bank 0: the six bytes, the jump
     jb tr_ljmp
     mov word [es:bx],8036h      ; a bank: cmp byte [ss:S_BANK],B / jne +5
@@ -2226,6 +2226,39 @@ JD_NOFILTER = {0xC9, 0xD9}
 # --- tails after a TAIL page's CB handler: the translator copies a tail -----
 # --- page whole, so its CB half's room is as reachable as its main half's --
 CBTAILS = {
+    0xFC: """
+; tr_rmeg - tr_rpatch's way in (16.4.1): BX = a RET's SITE, ES its tier as
+; data. A site patched RT_RMEGN times while it held its slot in S_RMEG (by
+; SITE's bits 2-5) returns to more places than its two entries hold - a bank
+; switcher's, every caller's - and each return was a patch: it is made
+; MEGAMORPHIC, both entries never matching and the first one's jne going on
+; to SITE+38, made jmp tr_enter. A lookup a return, and no patch again
+tr_rmeg:
+    mov dx,bx
+    and dx,3Ch
+    xchg bx,dx                  ; BX = the slot, DX = the site
+    cmp [ss:bx+S_RMEG],dx
+    jne .new
+    inc byte [ss:bx+S_RMEG+2]
+    cmp byte [ss:bx+S_RMEG+2],RT_RMEGN
+    xchg bx,dx                  ; (no flag moves)
+    jae .mega
+    jmp tr_rpatch
+.new:
+    mov [ss:bx+S_RMEG],dx       ; the slot taken over, counting from 0
+    mov byte [ss:bx+S_RMEG+2],0
+    xchg bx,dx
+    jmp tr_rpatch
+.mega:
+    mov word [es:bx+2],0FFFFh   ; cmp si,FFFFh: nothing returns there
+    mov word [es:bx+21],0FFFFh
+    mov byte [es:bx+5],32       ; jne +32: SITE+38
+    mov byte [es:bx+38],0E9h
+    mov dx,tr_enter-41
+    sub dx,bx
+    mov [es:bx+39],dx
+    jmp tr_lgo                  ; ...and on to this return's block
+""",
     0xFD: """
 ; io_sndtab: FF10-FF26, 1 where rdgsys follows the register (a channel's
 ; envelope, trigger or DAC, NR52) - rdgjit's rt_snd's list - and 0 where it

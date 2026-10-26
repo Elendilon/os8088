@@ -50,6 +50,7 @@ ROMS = {
     "gbseam4": ["-m", "0x01"],
     "gbseam5": ["-m", "0x01"],
     "gblcdoff": [],                         # the LCD off for seconds (gbaot.py)
+    "gbret": ["-m", "0x01"],                # a RET to eight places (gbaot.py)
     "gbjoy": [],                            # the joypad interrupt (gbheader.py)
     "gbfm": [],                             # all four channels (gbfm.py)
     "gbpop": ["-m", "0x01"],                # POPs out of a ROM bank (gbcpu.py)

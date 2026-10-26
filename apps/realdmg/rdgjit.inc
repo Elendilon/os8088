@@ -275,6 +275,11 @@ rt_flush:
     mov cx,ax
     xor ax,ax
     rep stosw
+    push ds                         ; (no RET site counted: tr_rmeg's)
+    pop es
+    mov di,S_RMEG
+    mov cx,32
+    rep stosw
     cmp word [S_JITGNX],0FFF0h      ; (the generations near a wrap: from
     jb .g                           ;   nothing, every link forgotten with
     mov word [S_JITGNX],0           ;   the table - 16.2.3)

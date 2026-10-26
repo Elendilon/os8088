@@ -18,19 +18,20 @@ design.
 
 ## Where it stands
 
-Waves 0 to 4 are built, the speed rounds after them are 1 to 9, and the
+Waves 0 to 4 are built, the speed rounds after them are 1 to 10, and the
 correctness items they turned up are closed. What is still open:
 - **The pins revisit** - after this release, at the owner's word.
 - **A JR across 4000h on the 8088's plain interpreter** lands with the wrong
   DS (REALDMG-SPEC 3.1). Priced and LEFT: 3-6% of every game there for
   Looney Tunes' two JRs, which every machine with the recompiler runs right.
-- **A save state with cartridge RAM past the window as a heat source**, and
-  **a 286 speed figure with the 100% cap lifted** (W4's two not built).
+- **A save state with more than one bank of cartridge RAM as a heat
+  source** (one bank is taken, round 10), and **a 286 speed figure with the
+  100% cap lifted** (W4's two not built).
 - **A cartridge whose code runs from WRAM** is interpreted (W3's GBRMW
   finding). No real game measured does; HRAM's routines are precompiled.
-- **Speed**: round 9 took the last item round 8's profile priced worth
-  building; the two left (the memory flushes, the event path) are ~2% each
-  and are written down with their costs.
+- **Speed**: round 10 took Link's Awakening's two (the counters' blind
+  spot, megamorphic RETs); left and priced are the memory flushes and the
+  event path (~2% each) and bank switches (~8% of Link's Awakening).
 
 Moved off this plan: **the kern_mega arm** (20.14) is built on the
 kern_mega memory branch by the session doing that rework, which keeps
@@ -343,3 +344,24 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   holds two) or a contract across every slow helper; and the event path,
   ~210 instructions an event over a dozen small routines, ~1,300 a frame
   with no single waste.
+- [x] Speed, round 10 - the owner's replay of Link's Awakening's first room
+  (1,128 frames from ZELDA.SS1, its one bank of cartridge RAM now taken by
+  the harness), 32,133 x86 instructions a frame: blocks only 42%, and the
+  rest two things. **The counters were blind past a frontier**
+  (REALDMG-SPEC 20.11): a block dropped from the image they ran on was
+  interpreted, and the code it reached after it was interpreted with no
+  miss to count, so a hot routine reached only from cold code stayed out of
+  the next build too - 37 interpreter entries a frame, and `rdg_aotmiss`,
+  `tr_link`'s failed lookups and the interpreter ~25% between them. The
+  heat run now counts every instruction the interpreter dispatches: 24,180
+  (-24.7%). **A RET returning to more than two places repatched its site
+  at every return** (REALDMG-SPEC 16.4.1): the bank switcher at 07B9, 20.5
+  of a frame's 28.7 repatches at ~110 instructions each. A site patched six
+  times while it holds a slot of `S_RMEG` becomes a lookup: 22,202 (-8.2%,
+  -30.9% for the round), blocks 64% of the frame. Both identical to the
+  interpreter over the replay and 3,000 script frames; the RET change across
+  thirteen cartridges and both recompilers state-identical, +1 instruction
+  to -4.8%. `gbaot.py check` takes `--replay`/`--state`. Left, priced: bank
+  switches ~8% of the room (07B9's `ld (2100),a` through `wr_slow`, `mbc_set`
+  and rdgsys, ~70 instructions each) and the megamorphic lookups themselves
+  (~35 a return, 26 a frame).
