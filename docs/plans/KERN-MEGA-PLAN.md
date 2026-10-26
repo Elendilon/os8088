@@ -11248,3 +11248,41 @@ kern_small are byte-identical (the build number apart). **`mega-netinst`
 is the row**: red before it on *"A. the check answered 0, not 5"*, green
 after - the network row picked, the install from the published tree, the
 startup link written and obeyed across two more boots.
+
+### 14.89 The network rows on Bochs: what ported, and the two its slirp stops (2026-10-26)
+
+**THE NETWORK group of tests/megaport.txt** - every QEMU row about ETHER.DRV
+and what stands on it - runs through `tests/os88qmpbochs.py`, which answers
+the rows' own QMP socket out of a kern_mega Bochs with an NE2000 on slirp
+(docs/BOCHS.md, "Rows ported from MartyPC"). Ported: `ethernet`,
+`brdownload`, `ethcfg`, `wirezone`, `wirechat`, `httpmount`, `httpinstall`,
+`netinst`, `netinstbad`, `rdxms` (whose extended store is kern_mega's own
+pool, read off `mx_tab` through tools/heapmap.py's `pool`, where QEMU's is
+XMEM.DRV's table) and `netcoexist`'s `pinned` arm (its other three need
+QEMU's `isa-debugcon` latch for an MPU-401 and its NE2000 register trace,
+neither of which Bochs has). Four kern_mega defects came out of it, 14.85 to
+14.88.
+
+**Not ported, and why - neither is kern_mega's.**
+
+- `telansi` and `telzm` are blocked on **Bochs's slirp**. Its packet log
+  (`pktlog`, docs/BOCHS.md) shows a host's FIN re-sent every ~120 ms with no
+  back-off - 39 of them in 4.7 s - SYN+ACKs four at a time, and a stream of
+  two-byte segments reset by slirp itself after a run of fast retransmits.
+  ETHER.DRV is POLLED: a package's verbs drain the card, and Telnet's worker
+  stops calling once its session is down, so the next Connect's first pumps
+  are dozens of stale FIN+ACKs (each ACKed, each answered with RST) and
+  slirp has given up the new SYN+ACK before the guest reaches it - `Host
+  closed`, TS_ERR. QEMU's slirp backs off, and both rows pass there. Holding
+  each host close until the next session is up (os88bbs) and redialling once
+  got telansi through ten of thirteen fixtures; the long fragmented streams
+  (`art`, `torture`) still stall. The partial work is on branch
+  `w1-telansi-wip`, unmerged.
+- `thewire` is red on QEMU on this branch before any of this: its fixture
+  will not pack, `TREEONE far-calls cell 0x04E3, at or past WIRE_TABLE_END
+  0x04A5`. The archive's program is `build/mseg.o88`, a package with PARTS,
+  and MC7 (KERN-MEGA-MEMORY-PLAN) put OSAPI_SEG (0x04E3) into every parts
+  package through `apps/os88partsbody.inc` - a cell newer than any Wire level
+  SPEC.md 92.2's fence knows. The release that publishes the cell owes the
+  Wire a level (`WIRE_CELL_LEVELS`, `WIRE_TABLE_END`, `wcat.inc`'s
+  `WIRE_LEVEL`); that is a release decision, not a port.

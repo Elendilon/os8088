@@ -232,14 +232,18 @@ def mega_twin(img, bld=None):
         q = theirs.get(rel)
         if q is not None and body(q) == body(p):
             continue            # the shipped disk's own: mega.img has its own
-        # ...AND NEVER A FILE THE KERNEL BUILDS: one the shipped disk and
-        # mega.img both carry, different (KERNEL.SYS, the on-demand modules,
-        # BOOTHD.SYS), is kern_big's on the fixture - and a fixture built at
-        # another build number differs from the shipped disk in exactly
-        # those, so copying them put kern_big's CTRL.DRV on kern_mega's disk
-        # (mod_need refused it: no Control Panel)
-        if rel == "KERNEL.SYS" or (q is not None and rel in megas
-                                   and body(q) != body(megas[rel])):
+        # ...AND NEVER A FILE THE KERNEL BUILDS: a .DRV or .SYS the shipped
+        # disk and mega.img both carry, different (KERNEL.SYS, the on-demand
+        # modules, BOOTHD.SYS), is kern_big's on the fixture - and a fixture
+        # built at another build number differs from the shipped disk in
+        # exactly those, so copying them put kern_big's CTRL.DRV on
+        # kern_mega's disk (mod_need refused it: no Control Panel). A
+        # PACKAGE that differs is the fixture's own (netinst's INSTALL.O88
+        # gate), and a driver both disks share is the row's to swap
+        # (rdxms's red control's RAMDISK.DRV)
+        if rel == "KERNEL.SYS" or (
+                rel.endswith((".DRV", ".SYS")) and q is not None
+                and rel in megas and body(q) != body(megas[rel])):
             continue
         parts = rel.split(os.sep)
         for i in range(1, len(parts)):

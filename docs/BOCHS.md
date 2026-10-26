@@ -246,7 +246,39 @@ mouse and nothing else (kerndos/kdmouse.inc), so a DOS row about the mouse
 under a trip wants it. A machine name with `_ne2k` in it (or
 `$OS88_BOCHS_NE2K`) adds the NE2000 on slirp - the host is 10.0.2.2,
 `$OS88_BOCHS_SLIRP` its host-forwards - and, unless the row passes its own
-`cfg`, a SYSTEM.CFG on A: that wants ETHER.DRV.
+`cfg`, a SYSTEM.CFG on A: that wants ETHER.DRV (`cfg="keep"` leaves A:'s
+own alone); `ne2k_io=` puts the card at another port. `cimg=` boots a row's
+own raw hard disk as C: (os88disk.py `--hdd`'s 65/16/63, Box's own, or any
+size 16 heads of 63 or 32 sectors divide).
+
+**QEMU's network rows run through `tests/os88qmpbochs.py`.** They were
+written against QEMU's QMP socket, driven from every side at once (their own
+`Qemu` classes, `xmcheck`, `tools/qmp.py`, `mouse.py`, `shot.py`), so under
+`OS88_MEGA` the launchers in `tests/os88qemu.py` (`make_test`) and the rows'
+own (`httpmount.QH`, `httpinstall.Q`, `vidxms.Q`, `wirezone.launch`) start a
+`Server` instead: a kern_mega Bochs with the NE2000, behind a server on the
+same socket path that answers QMP's `human-monitor-command` (`xp`,
+`pmemsave`, `sendkey`, `mouse_move`, `mouse_button`, `screendump`, `info
+status`, `stop`/`cont`, `system_reset`, `quit`), `input-send-event` and
+`query-status`. A `mouse_move` moves an INTENDED position only, clamped as
+the kernel clamps it, and the next command drives the guest there closed
+loop - so tools/mouse.py's pin-and-walk lands where it meant to. A row reads
+a segment it took out of the guest through `os88qemu.lin(seg, off)` (a
+selector's base here) and a driver's through `os88qemu.drv_base`. A system
+disk FIXTURE (ether360.img, telnetsys.img, httpmount.img, a row's own copy)
+is rebuilt on mega.img by `mega_twin` - the files in which it differs from
+the shipped disk of its geometry, never one the kernel builds - and B:, C:
+and a twinned A: are the live images through links, so a row reading its
+disk mid-run or after `quit` reads what the guest wrote.
+
+**Bochs's slirp is not QEMU's, and two rows are blocked on it** (telansi,
+telzm; docs/plans/KERN-MEGA-PLAN.md's 14.85-14.89): its `pktlog` (a
+`# slirp config` file with `pktlog = FILE`, through `$OS88_BOCHS_SLIRP`)
+shows a host's FIN re-sent every ~120 ms with no back-off, SYN+ACKs four at
+a time and a stream reset after a run of fast retransmits - against
+ETHER.DRV, which is POLLED and drains its ring only when a package calls it.
+A row that opens a dozen sessions one after another, or streams thousands of
+two-byte segments, loses some of them there and not on QEMU.
 
 A port is a line in `tests/megaport.txt`; `tests/suite.py` registers it as
 `mega-<name>`, the same command under `env OS88_MEGA=1`, `needs=("bochs",)`.
