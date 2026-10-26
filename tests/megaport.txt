@@ -211,3 +211,33 @@ netinst secs=300   # INSTALL over the network onto C:, and the startup link acro
 netinstbad secs=150   # INSTALL's release check refuses six non-release answers
 rdxms secs=120   # the RAM disk's store above 1MB: kern_mega's own pool (mx_tab, heapmap.pool) in place of XMEM.DRV's table
 netcoexist secs=60 +--arm +pinned   # the card at 2A0h pinned on the Ports view, SYSTEM.CFG read on the host, found after a reset; the MPU arms need QEMU's isa-debugcon latch and its NIC trace, which Bochs has not got
+
+# MOVES AND THE HEAP (wave 2)
+# On a 1MB kern_mega (@OS88_BOCHS_MEGS=1: no pool) every claim is conventional
+# and SELECTOR-named, and a protected-mode move REBASES and tells nobody
+# (KERN-MEGA-MEMORY-PLAN MC7.4) - so "it moved" and "nothing names the old
+# block" are asked of the paragraph under each word (sheetmove.seg_key).
+regmove secs=100 @OS88_BOCHS_MEGS=1   # Note Pad's REGION moves in the descending pass: its selector rebased, W_SEG/I_SPTR/owners naming the new paragraph, image and picture intact (found tests/filler's BX: 14.90)
+drvmove secs=45 @OS88_BOCHS_MEGS=1   # the RAM disk's IMAGE moves; no kernel word names the old paragraph, and int 33h planted as a REAL vector follows it (mem_ivt_relocf, 14.90)
+sndmove secs=70 @OS88_BOCHS_MEGS=1   # SOUND.DRV's image moves on Bochs's SB16: the IVT's IRQ5 rows (0Dh and 25h) follow it - they did not before 14.90 - and the IDT gate lands the image's distance on
+regpin secs=110 @OS88_BOCHS_MEGS=1   # a worker-owning region with no restart point does NOT move (mem_can_move's pin, unchanged on kern_mega), Calc's beside it does
+regwork secs=100 @OS88_BOCHS_MEGS=1   # ...declared restartable it MOVES, no proc called and the worker RESUMED in place (its frame names a selector), still looping
+trackmove secs=80 @OS88_BOCHS_MEGS=1   # BEVERLY.MOD's 114KB claim MOVES under Tracker's ARM (trackmove.disk(): build/megak/apps/tracker.o88): bytes, blob, 31 sample and the pattern windows (SEG_SUBs) the same paragraphs into it, the replayer alive
+trkcompact secs=140 @OS88_BOCHS_MEGS=1   # ...and Tracker posts the compaction its exact requirement needs, says so, and loads (the ARM, ten instances stacked from the ceiling)
+ringmove-audio secs=70 @OS88_BOCHS_MEGS=1   # the Audio ARM's look-ahead ring moves between plays (Bochs's SB16) and is pinned for one (megafix.arm_disk: covoxlisten720.img with the arms)
+ringmove-tracker secs=70 @OS88_BOCHS_MEGS=1   # Tracker ARM's speaker ring moves idle, pinned while the ISR plays it, CONS moving after
+ringmove-midirack secs=70 @OS88_BOCHS_MEGS=1   # MIDIRack ARM's song, wavetable bank and mix claims move idle; bank and mix pinned while the card plays (mrwt720.img with the arm)
+rcmove secs=70 @OS88_BOCHS_MEGS=1   # RunCPM's 64KB Z80 claim moves at the A> prompt, rc_zseg and rc_z.seg name its new paragraph, 64KB hashed the same, and the CCP answers XYZZY? out of it
+zrestart secs=900 @OS88_BOCHS_MEGS=1   # Frotz's region moves at every park site and play goes on byte-identical to a no-move boot ([MORE] still pinned); the loop leg's park caught by a breakpoint, Bochs's 386 ending the loop between two polls
+editmove secs=90 @OS88_BOCHS_MEGS=1   # Note Pad's document and undo claims move under a live app, bytes and repaint identical
+editmove-frotz secs=90 @OS88_BOCHS_MEGS=1   # a running story's five claims move, zf_pcseg inside the moved story, zf_sdelta 0 (no proc runs: an ES pushed before the move is a selector), the VM answers
+weavemove secs=110 @OS88_BOCHS_MEGS=1   # two WEAVE instances' claims move and every copy names the same paragraph (a far vector's code half, a part row, the core's state block); PONG plays on, and its bundle moves under the running worker
+wdheapmove secs=70 @OS88_BOCHS_MEGS=1   # Word's six document claims all move, bytes intact, and three typed characters land in both the text and the CHP claim
+rehomemove secs=150 @OS88_BOCHS_MEGS=1   # a re-homed program's carve moves; no proc called (rp_moved 0) and its handoff's asset SUB lands one carve-delta on, reading 'RA' 5AA5
+heapmap secs=80   # the boot's claim maps under Bochs (SB16, NE2000, an ATA disk, every driver wanted): no overlap, no MEM_K_OVL, the caches rejoin one run - and kern_mega's POOL (mx_tab) never overlaps, the drivers' images in it
+tmowner secs=70   # a raise cache is Purgeable's whoever caused it - on a 16MB kern_mega the cache is a POOL block, read off the Task Manager arm's tm_xw/tm_xgid
+heaphi secs=60 @OS88_BOCHS_MEGS=1   # RAMPAGE.DRV's image goes top-down, so a compaction still buys the read-ahead's worth (kern_mega's panel list scrolls: its arrow brings the page in)
+heapdrv secs=60   # SOUND.DRV's buffers are in the SOUND group on the Task Manager arm's memory page (KERN-MEGA-PLAN 14.91: their owner, the driver's data selector, was read as a paragraph)
+pkgmove-browser secs=80 @OS88_BOCHS_MEGS=1   # the Browser's four claims (source, document, lines, links) move, live, bytes and picture identical
+tmselfsu secs=200 @OS88_BOCHS_MEGS=1   # the Task Manager arm keeps its OWN raise cache and still sees everyone else's - witnessed off tm_update's one door and the kernel's three wm_su_* (MegaOwn), not every font_run. On a 16MB kern_mega its cache is a pool block and QUIET is RED: KERN-MEGA-PLAN 14.92, diagnosed and not fixed
+heapcheck secs=50 @OS88_BOCHS_MEGS=1   # heapfrag's 18 checks and the region suite on a 1MB kern_mega; check 13 asks for the ceiling block's OWN merged run (hf_ceilask, KERN-MEGA-PLAN 14.93) - red with HEAPCOMPACT=0 and with the descending pass taken out, on kern_big and kern_mega

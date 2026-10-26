@@ -67,5 +67,35 @@ def system_disk(path):
     return out
 
 
+def arm_disk(path):
+    """PATH, or under $OS88_MEGA a private copy of it with every package that
+    has a kern_mega ARM (build/megak/apps/*.o88, $(MEGAPKGS)) replaced by the
+    arm, wherever on the volume it sits. An APPS disk a row builds out of the
+    SHIPPED packages (covoxlisten720.img's Tracker and Audio, mrwt720.img's
+    MIDIRack) would otherwise hand kern_mega a build that refuses its speaker
+    or PCM tier in protected mode (KERN-MEGA-PLAN 14.66) - and
+    tests/dispapps._map already reads the ARM's bss there"""
+    if not os.environ.get("OS88_MEGA"):
+        return path
+    arms = os.path.join(ROOT, "build", "megak", "apps")
+    have = {f.upper(): os.path.join(arms, f) for f in os.listdir(arms)
+            if f.endswith(".o88")}
+    if not _tmp:
+        _tmp.append(tempfile.mkdtemp(prefix="megafix-"))
+        atexit.register(shutil.rmtree, _tmp[0], True)
+    out = os.path.join(_tmp[0], "arm-" + os.path.basename(path))
+    shutil.copyfile(os.path.join(ROOT, path) if not os.path.isabs(path)
+                    else path, out)
+    env = dict(os.environ, MTOOLS_SKIP_CHECK="1")
+    ls = subprocess.run(["mdir", "-/", "-b", "-i", out, "::/"], env=env,
+                        capture_output=True, text=True, check=True).stdout
+    for f in ls.split():
+        name = f.rsplit("/", 1)[-1].upper()
+        if name in have:
+            subprocess.run(["mcopy", "-o", "-i", out, have[name], f],
+                           check=True, env=env, stdout=subprocess.DEVNULL)
+    return out
+
+
 if __name__ == "__main__":
     print(system_disk(*sys.argv[1:]))

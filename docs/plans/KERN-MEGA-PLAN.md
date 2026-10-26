@@ -11058,7 +11058,7 @@ B, which holds on kern_big's 640KB arena and not on kern_mega's (the heap
 base is 2040h, so the comb's blocks are a different size and check 10's
 pinned block lands between). A fixture fix - asking for B's own merged run
 rather than the largest run plus one - is heapfrag's to make on every
-kernel, and `heapcheck` is not registered as a port until it is.
+kernel, and `heapcheck` is not registered as a port until it is. Built: 14.93.
 
 ### 14.82 Disk > Unmount Image left the window on the drive it had just taken away (2026-10-26)
 
@@ -11286,6 +11286,108 @@ neither of which Bochs has). Four kern_mega defects came out of it, 14.85 to
   SPEC.md 92.2's fence knows. The release that publishes the cell owes the
   Wire a level (`WIRE_CELL_LEVELS`, `WIRE_TABLE_END`, `wcat.inc`'s
   `WIRE_LEVEL`); that is a release decision, not a port.
+
+### 14.90 A protected-mode move left the IVT on the vacated block (2026-10-26)
+
+**Found by porting `sndmove` to a 1MB kern_mega** (tests/megaport.txt,
+`@OS88_BOCHS_MEGS=1`, where SOUND.DRV's image is conventional): the image
+moved 9380h -> 9780h, `drv_tab` and every selector followed, and IVT 0Dh -
+the card's IRQ5, and its copy at 25h - still named 9380h.
+
+**Cause**: KERN-MEGA-MEMORY-PLAN MC7.4's rule is that a move in protected
+mode tells nobody, because every holder holds a selector and `mega_mpmovef`
+rebases it - so `mem_cp_walk` skipped `mem_reloc_call` outright. The IVT is
+the one holder that cannot hold a selector: its rows stay REAL, because a
+reflected BIOS call (the PIC stays at 20h across one, and `mega_ivt_sync`
+keeps IVT 20h-27h a copy of 08h-0Fh for it) and a DOS trip read them, and
+`mega_ivt_sync` writes a driver's stamped CS back as its image's PARAGRAPH.
+So an IRQ landing inside an `int 13h` after the move ran whatever the heap
+had put at the old paragraph. The IDT gate was right throughout (it names
+the code selector the rebase moved).
+
+**Fix**: `mem_ivt_relocf` (`kernel/memory.inc`, kern_mega only): the
+protected-mode arm of the compactor walks `mem_rr_ivt` - the IRQ0-15 rows
+and int 33h that `mem_region_reloc` already walks in real mode - with the
+OLD and NEW paragraphs, then `mega_ivt_syncf` so the IDT is re-read. 28 bytes
+of `.text` and 7 of `.cold`; kern_big and kern_small byte-identical.
+`mega-sndmove` is the row (5b red before, 5c asserts the IDT gate landed the
+image's distance on), and `mega-drvmove` plants int 33h as a paragraph and
+reads it back.
+
+**And a test instrument's bug it took a protected-mode kernel to see**:
+`tests/filler`'s `fl_fill` and `fl_take` indexed `fl_seg` by BX after
+`OSAPI_MEM_AVAIL`, which ANSWERS in BX (total free KB). On a real-mode kernel
+that wrote a word some hundreds of bytes past the filler's 1KB region -
+silently, into whatever claim lay above; on kern_mega it is a #GP against the
+region's limit (`kern_mega CLOSED FILLER 0D at 11C4:0051`), which is what
+`mega-regmove` hit first. BX is kept across the call now.
+
+### 14.91 The Task Manager arm filed a driver's buffers under no class (2026-10-26)
+
+**Found by porting `heapdrv`**: SOUND.DRV's two stream claims were on the
+memory page in group 16 - the class-less driver group - where the row wants
+TMG_DRV + DRVC_SOUND, at 1MB and at 16MB alike.
+
+**Cause**: a driver's claims are owned by the segment it runs in, which on
+kern_mega is its DATA selector (MC7.4). `tm_hdrv` looks for a snapshot record
+BASED at the owner word, and the snapshot carries paragraphs, so it never
+matches; `tm_cgidof`'s protected-mode arm then `verr`s the selector and hands
+it to `tm_drvgid` - which read it through `tm_pwes` as a PARAGRAPH, missed
+the `'O8'` header at some unrelated address and filed the claims as a
+class-less image's.
+
+**Fix**: `tm_drvgid` loads an LDT selector (TI set - a heap paragraph is
+64-aligned and never has it) straight into ES in protected mode
+(`apps/taskmgr/taskmgr.asm`, `%ifdef PKG_MEGA`; the shipped taskmgr.bin is
+byte-identical). `mega-heapdrv` is the row, red before.
+
+### 14.92 The Task Manager's quiet page repaints for its OWN cache in the pool (2026-10-26) - DIAGNOSED, NOT FIXED
+
+**Found by porting `tmselfsu`**: on a 16MB kern_mega the memory page loses
+its raise cache every time it is partly covered - QUIET red, TM painted
+after every one of six drops (`tm_update` 2-4 times, `wm_su_drop` 5-10) -
+which is SPEC.md 28.8.1's loop, still running. On a 1MB kern_mega (no pool)
+the row passes, as it does on kern_big.
+
+**Cause**: `tm_quiet` leaves its own raise cache out of the key by weighing
+the CONVENTIONAL snapshot record whose tag is `MEM_P_WSAVE + our slot` as
+zeroes. On a machine with a pool the cache is a pool block, and the key also
+hashes the whole `OSAPI_XMEM_WALK` (`tm_xw`, since 14.70.2) - in which the
+cache is a kernel block whose 6-byte record carries the tag's HIGH byte
+(`XMW_CLS`, the purge level) and not the slot, so the page cannot tell its
+own cache from anybody else's. MEASURED both ways: with the pool hash taken
+out, QUIET and CELLS pass and OTHERS goes red (*"tm_quiet did not see
+ANOTHER window's cache"*) - which is 28.8.1's argument against a mask on the
+range, arriving one layer down.
+
+**Not fixed here, because every way out is a decision**: the walk record
+carrying the tag's low byte (an `OSAPI_XMEM_WALK` ABI change, `XMW_SIZE`), a
+way for a package to learn its own raise cache's selector (a new cell), or
+raise caches kept conventional on kern_mega (a placement policy, against
+MC3's). `mega-tmselfsu` is registered at 1MB, where its three legs are the
+conventional question unchanged; the 16MB arm is this entry.
+
+### 14.93 heapfrag's check 13 asks for the block's own merged run (2026-10-26)
+
+14.81's diagnosis, built. Check 13 asked for "the largest run + 1KB" on the
+premise that the largest run lies directly under the ceiling block that has
+to pack up - true of kern_big's arena, false of a 1MB kern_mega's, where
+check 10's PINNED block walls in an 83KB run no merge can grow.
+
+**`hf_ceilask`** (`tests/heapfrag/heapfrag.asm`) asks the KERNEL rather than
+modelling it: `OSAPI_MEM_AVAIL` with only the ceiling block declared movable,
+and again with nothing of heapfrag's movable. While the first is not the
+bigger, the largest run elsewhere is PLUGGED with a pinned claim (at most
+four; an owner holds eight claims and the ask needs one) and the pair asked
+again. Once it is, that run exists only if the ceiling block moves, and a
+top-down claim moves only in the descending pass - UP, which is what the
+check asserts. The plugs go back either way.
+
+Verified to go red, check 13 by name: with `HEAPCOMPACT=0`'s `--expect-off`
+arm and with `mem_compact`'s `.flip` taken out (straight to `.end`, BX = 0),
+on kern_big under MartyPC and on a 1MB kern_mega under Bochs, all four built
+in private trees. `heapcheck` on kern_big stays green, and `mega-heapcheck`
+is registered.
 
 ### 14.95 kern_mega's system disks shipped without Sticky Note's notes folder (2026-10-26)
 

@@ -60,6 +60,7 @@ HF_MINKB  equ 64              ; below this there is no room to build a comb
                               ; rather than passing vacuously
 HF_ROWS   equ 18                ; ...15 to 18 at SPEC.md 66.4.3
 HF_RROWS  equ 4                 ; ...and the KEY-driven region suite's own
+HF_NPLUG  equ 4                 ; check 13's plugs at most (hf_ceilask)
 HF_BSS_TOTAL equ 176
 
 ; -----------------------------------------------------------------------------
@@ -312,6 +313,77 @@ hf_setrloc:
     jbe .lp
     pop di
     pop dx
+    pop bx
+    ret
+
+; hf_ceilask - check 13's ask: the largest run a claim could be handed with
+; ONLY the ceiling block (slot HF_N) movable, once it is bigger than the
+; largest with nothing of ours movable - so the run exists only if that block
+; moves. Until it is, the largest run elsewhere is PLUGGED with a pinned claim
+; (hf_plug, at most HF_NPLUG: an owner holds MEM_OWNER_MAX claims, and the
+; ask itself needs one). out: CF = 0, AX = KB, and only the ceiling block
+; declared; CF = 1 none (everything declared again). hf_unplug gives the
+; plugs back either way. Every other register kept
+hf_ceilask:
+    push bx
+    push cx
+    push dx
+    mov word [hf_nplug], 0
+.round:
+    xor ax, ax
+    call hf_setrloc             ; nothing of ours movable...
+    call OSAPI_MEM_AVAIL
+    mov cx, ax                  ; CX = the largest run without our moves
+    mov dx, [hf_base + HF_N*2]
+    mov ax, hf_reloc
+    call OSAPI_MEM_MOVABLE      ; ...and then the ceiling block alone
+    call OSAPI_MEM_AVAIL        ; AX = the largest run with it moving
+    cmp ax, cx
+    ja .got                     ; only its move funds this one
+    mov bx, [hf_nplug]
+    cmp bx, HF_NPLUG
+    jae .none
+    jcxz .none                  ; CX = the run elsewhere, to be plugged
+    xor ax, ax                  ; (ours pinned while it is placed, so it
+    call hf_setrloc             ; cannot be made by moving the ceiling block)
+    mov ax, cx
+    call OSAPI_MEM_CLAIM        ; a claim is born PINNED (SPEC.md 66.2)
+    jc .none
+    shl bx, 1
+    mov [bx + hf_plug], dx
+    inc word [hf_nplug]
+    jmp short .round
+.got:
+    clc
+    jmp short .out
+.none:
+    mov ax, hf_reloc
+    call hf_setrloc
+    stc
+.out:
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; hf_unplug - give hf_ceilask's plugs back. Every register kept
+hf_unplug:
+    push bx
+    push cx
+    push dx
+    mov cx, [hf_nplug]
+    jcxz .o
+    mov bx, hf_plug
+.l:
+    mov dx, [bx]
+    call OSAPI_MEM_FREE
+    inc bx
+    inc bx
+    loop .l
+    mov word [hf_nplug], 0
+.o:
+    pop dx
+    pop cx
     pop bx
     ret
 
@@ -671,10 +743,26 @@ hf_run:
     mov dx, [hf_hia]
     call OSAPI_MEM_FREE         ; the hole above it exists from here
     mov word [hf_hia], 0
-    call hf_availp              ; ...and the run below it is the largest thing
-    inc ax                      ; on the machine, so one KB more than it can
-    call OSAPI_MEM_CLAIM        ; only come from the two being MERGED - which
-    jc .ceilnoc                 ; needs the block between them to pack up
+    ; THE ASK IS THE BLOCK'S OWN MERGED RUN, and the KERNEL measures it. It
+    ; was "the largest run + 1KB", on the premise that the largest run is the
+    ; one directly under this block - true of kern_big's arena and false of a
+    ; 1MB kern_mega's, where check 10's PINNED block walls in an 83KB run
+    ; that no merge can grow and the block's own run is 26KB (KERN-MEGA-PLAN
+    ; 14.81). hf_ceilask asks OSAPI_MEM_AVAIL twice - with only THIS block
+    ; movable and with nothing movable - and plugs the largest run elsewhere
+    ; until the first answer is the bigger: then that run exists only if
+    ; this block moves, and it is a top-down claim, so it moves UP
+    call hf_ceilask             ; AX = that run, only this block declared
+    jc .ceilnop
+    call OSAPI_MEM_CLAIM        ; ...which only the descending pass can fund
+    pushf
+    push ax
+    mov ax, hf_reloc
+    call hf_setrloc             ; every block movable again, as before
+    pop ax
+    call hf_unplug              ; ...and the plugs back (registers kept)
+    popf
+    jc .ceilnoc
     call OSAPI_MEM_FREE         ; DX is still the base: give it straight back
     mov di, HF_N
     call hf_check               ; and it still holds what it held
@@ -686,6 +774,8 @@ hf_run:
     jbe .ceilbad                ; this whole pass exists to establish
     call hf_pass
     jmp .ceildone
+.ceilnop:
+    call hf_unplug              ; (nothing to ask: what it plugged goes back)
 .ceilnoc:
     pop word [hf_s]
 .ceilbad:
@@ -1265,6 +1355,11 @@ hf_rseg0   equ os88_image_end + 154  ; word: our region's base BEFORE the post
 hf_rav     equ os88_image_end + 156  ; word: mem_avail at the key
 hf_rmax    equ os88_image_end + 158  ; word: ...and mem_avail_max
 hf_ravwake equ os88_image_end + 160  ; word: ...and plain avail on the wake
+hf_nplug   equ os88_image_end + 162  ; word: check 13's plugs held
+hf_plug    equ os88_image_end + 164  ; HF_NPLUG words: ...and what they are
+%if 164 + 2 * HF_NPLUG > HF_BSS_TOTAL
+  %error "hf_plug runs past HF_BSS_TOTAL"
+%endif
 hf_res     equ os88_image_end + 128  ; HF_ROWS result bytes, 0 = PASS. Moved
                                   ; out of +40 when the suite went to 18 rows:
                                   ; 18 bytes there would have run into hf_base
