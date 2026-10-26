@@ -18396,7 +18396,7 @@ SOAK = [
 MEGAPORT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "megaport.txt")
 MEGA_WANTS = ("build/mega.img", "build/megaapps.img",
-              "build/megak/kernel.map")
+              "build/megak/kernel.map", "build/megarun.o88")
 
 
 def _mega_ports(base):

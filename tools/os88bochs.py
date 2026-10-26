@@ -106,9 +106,19 @@ display_library: x
 """
 
 
-INPUT_GAP = 0.06    # s: Bochs's GUI takes X events every ~10 ms of its own
+INPUT_GAP = 0.03    # s: Bochs's GUI takes X events every ~10 ms of its own.
+# It was 0.06, and a stop is paid in GUEST time (the timers catch up on the
+# host clock afterwards), so a gesture of five stepped inputs - fmarrows'
+# click, Down, click inside FM_DBLCLK's 9 ticks - read 8-9 ticks at 0.06
+# and 5-6 at 0.03, every edge still confirmed off mouse_btn
 GLASS = 0.45        # s: two of Bochs's VGA updates (5 Hz) - see Box.shot
-GRAB = ("keydown", "ctrl", "click", 2, "keyup", "ctrl")
+# The capture toggle, as a press and a release with NOTHING between them:
+# xdotool's `click` holds the button ~100 ms (measured: `click 2` is 126 ms
+# of xdotool against 3 ms for `mousedown`), and since a debugger stop drops
+# the capture, a row that alternates input and stops paid that on every
+# input - in GUEST time, because the guest's timers catch up on the host
+# clock after a stop (sync=realtime)
+GRAB = ("keydown", "ctrl", "mousedown", 2, "mouseup", 2, "keyup", "ctrl")
 
 
 class _Input(object):

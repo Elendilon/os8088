@@ -258,7 +258,12 @@ class BochsMarty(om.Marty):
             if "c\n" in self._e9(max(0, n - 4)):    # a SIGINT before that is
                 break                               # lost at the prompt
             time.sleep(0.002)
-        self._bpmark = os.path.getsize(e9)
+        # FROM BEFORE THE `c`, not after its echo: a breakpoint at the next
+        # few instructions (a loop back onto the one just stepped off) has
+        # printed its stop and its prompt by the time the echo is seen, and a
+        # mark taken then reads an empty transcript - `_bp_hit` says no, and
+        # `_halt`'s SIGINTs are lost at the prompt for 20s (bptrace)
+        self._bpmark = n
         self._state = "running"
         self._since = time.time()
 
@@ -600,6 +605,24 @@ class BochsMarty(om.Marty):
             shutil.copy(src, path)
         return {"path": path or src}
 
+    def toast_out(self, limit=20.0):
+        """Wait for kern_mega's BOOT TOAST to go (`Entered protected mode`,
+        146 ticks from the first idle pass - kernel/mega.inc). No MartyPC
+        kernel shows one, so a row that compares the glass across time - a
+        damage pass against a whole repaint - would otherwise read the menu
+        bar's toast leaving as a difference (deskzoom: 1,014 px in
+        (300,6)-(479,13)). os88ui.boot and `launch(boot=True)` call it."""
+        # [toast_dirty], [toast_on], [toast_want] - adjacent (toast.inc's
+        # %if): the toast is STAGED during the boot and put up on the UI
+        # task's first idle pass, so `on` alone reads 0 before it shows
+        try:
+            a = self.sym("toast_dirty")
+        except Exception:                       # noqa: BLE001
+            return
+        end = time.time() + limit
+        while any(self.read(a, 3)) and time.time() < end:
+            time.sleep(0.2)
+
     def wait_for(self, text, secs):
         return self.box.wait_for(text, secs)
 
@@ -677,6 +700,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
         if boot is True:
             box.up()
             box.capture()
+            m.toast_out()
             return m
         time.sleep(float(boot))
         return m
