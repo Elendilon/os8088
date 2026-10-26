@@ -232,3 +232,4 @@ vidfskeysvga4 secs=60   # mode 12h full screen with the keys: four planes saved 
 mrdrawvga secs=90   # MIDIRack's ARM: each gesture's UI-task drawing calls under its ceiling, and the incremental picture IS a repaint's
 midirackend secs=130   # MIDIRack's ARM on Bochs's FM chip: INTRO loops, then Loop off ends the playlist
 pxfolder secs=130   # PiXEL's ARM: the folder, Prev, Next and the slideshow, no claim left behind - its claims counted in mem_tab AND the pool by selector (the callback ceiling is MartyPC's: Bochs's cycles are its running time)
+vidclose secs=110   # the close box on the Video Player ARM while its hold still loads into kern_mega's XMS: the negotiator stops the session and frees the hold, no package pool block outlives it, the machine ticks - three rounds (the QEMU row on the Marty API); red with vp_onclose a bare clc/ret
