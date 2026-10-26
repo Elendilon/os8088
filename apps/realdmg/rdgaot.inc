@@ -115,31 +115,21 @@ rdg_aotattach:
     xor ax,ax
     cld
     rep stosw
-    mov cx,si                       ; ...then a bit for each listed block
-    jcxz .x
-    push ds
-    mov ds,[S_AOTLSEG]
-    xor si,si
-.b:
-    cmp word [si+4],0
-    je .n
-    mov bx,[si]                     ; h = PC ^ key << 8, as rdg_aotmiss
-    xor bh,[si+2]
-    mov dl,bl
-    and dl,7
-    shr bx,1
-    shr bx,1
-    shr bx,1
-    mov al,dl
-    xor ah,ah
-    mov di,ax
-    mov al,[cs:rdg_aotbits+di]
-    or [es:bx],al
-.n:
-    add si,8
-    loop .b
+    mov dx,si                       ; ...then a bit for each block in the
+    mov ax,[S_JITHSEG]              ;   TABLE - the core's tr_ejf asks this
+    mov ch,[S_HMASK]                ;   before the table, so it has to name
+    mov cl,0                        ;   every block there is - and for each
+    inc ch                          ;   listed one; (mask + 1) x 256 entries
+%ifndef RDG_NOTABFILT                   ; (tests/gbaot.py's control: the
+    push ds                         ;   table left out, so tr_ejf turns
+    call rdg_aotbitset              ;   its blocks away)
     pop ds
-.x:
+%endif
+    mov cx,dx
+    mov ax,[S_AOTLSEG]
+    push ds
+    call rdg_aotbitset
+    pop ds
     pop es
     pop di
     pop si
@@ -147,6 +137,30 @@ rdg_aotattach:
     pop cx
     pop bx
     pop ax
+    ret
+
+; rdg_aotbitset - ES = the filter: a bit for each of CX 8-byte entries at
+; AX:0 that has a block (offset not 0). Takes AX, BX, CX, SI, DI and DS
+rdg_aotbitset:
+    jcxz .x
+    mov ds,ax
+    xor si,si
+.b:
+    cmp word [si+4],0
+    je .n
+    mov bx,[si]                     ; h = PC ^ key << 8, as rdg_aotmiss
+    xor bh,[si+2]
+    mov di,bx
+    and di,7
+    shr bx,1
+    shr bx,1
+    shr bx,1
+    mov al,[cs:rdg_aotbits+di]
+    or [es:bx],al
+.n:
+    add si,8
+    loop .b
+.x:
     ret
 
 rdg_aotbits:    db 1, 2, 4, 8, 16, 32, 64, 128

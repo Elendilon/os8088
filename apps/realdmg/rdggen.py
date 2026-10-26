@@ -2124,7 +2124,7 @@ def main():
     L.append("%endif")
     L.append("%endmacro")
     L.append("%assign JDN 0")
-    L.append("%macro JDISPATCH 0")         # a control transfer's: the
+    L.append("%macro JDISPATCH 0-1 tr_ejf")  # a control transfer's: the
     L.append("%ifdef RDG_TRACE")            #   translated code at the target
     L.append("    jmp far [ss:S_TRACEVEC]")  # if there is any (tr_enter) -
     L.append("%else")                      #   but never in RAM, which runs
@@ -2132,7 +2132,11 @@ def main():
     L.append("%assign JDN JDN+1")          #   own (REALDMG-SPEC 16.3). Each
     L.append("    cmp si,8000h")           #   site is LABELLED: with no
     L.append("    jae %%d")                #   recompiler its first five bytes
-    L.append("    jmp tr_ejd")             #   become the plain dispatch
+    L.append("%ifdef RDG_AOTCORE")         #   become the plain dispatch;
+    L.append("    jmp %1")                 #   PRECOMPILED, the filter first
+    L.append("%else")
+    L.append("    jmp tr_ejd")
+    L.append("%endif")
     L.append("%%d:")
     L.append("    mov dh,[si]")
     L.append("    inc si")
@@ -2146,7 +2150,8 @@ def main():
         L.append("op_%02X:" % op)               #   REALDMG-SPEC 16.2.2)
         lines = gen_main(op).text()
         if op in CONTROL:                       # REALDMG-SPEC section 16.4
-            lines = [ln.replace("DISPATCH", "JDISPATCH") if ln.strip() == "DISPATCH"
+            jd = "JDISPATCH tr_ejd" if op in JD_NOFILTER else "JDISPATCH"
+            lines = [ln.replace("DISPATCH", jd) if ln.strip() == "DISPATCH"
                      else ln for ln in lines]
         L += lines
         if op in TAILS:
@@ -2203,9 +2208,61 @@ EXTRA += [("INC (HL) of RAM", rmw_lines(0x34, False), 1),
 EXTRA += [("CB %02X of RAM" % b, rmw_lines(b, True), 2) for b in RMW_CB]
 
 
+# The control transfers whose JDISPATCH asks the table before tr_ejf's filter
+# under a precompiled machine (REALDMG-SPEC 20.9): RET and RETI, which land on
+# a block far more often than the others - the place after a CALL is one, and
+# an interrupt returns into the code it interrupted
+JD_NOFILTER = {0xC9, 0xD9}
+
+
 # --- tails after a TAIL page's CB handler: the translator copies a tail -----
 # --- page whole, so its CB half's room is as reachable as its main half's --
 CBTAILS = {
+    0x7C: """
+%ifdef RDG_AOTCORE
+; tr_ejf: JDISPATCH's way in under a PRECOMPILED machine (REALDMG-SPEC 20.9):
+; the filter of every (PC, key) that has a block, table or list, asked
+; BEFORE the table. A PC it does not name - the walk's misses, an image
+; left on the disk - is dispatched here, DS being the jump's own, in about
+; twenty instructions where the table, its neighbour and rdg_aotmiss took
+; fifty. One it names goes to tr_ekey as before
+tr_ejf:
+    cmp byte [ss:S_JITFIX],0    ; (the dynamic arm: no filter)
+    je tr_ejd
+    mov [ss:S_SAVBX],bx
+    mov bx,si
+    mov dh,0FFh
+    cmp bh,40h
+    jb .k
+    mov dh,[ss:S_BANK]
+    and dh,[ss:S_BMASK]
+.k:
+    xor bh,dh                   ; PC ^ key << 8, as rdg_aotattach's
+    mov dl,bl
+    and dl,7
+    shr bx,1
+    shr bx,1
+    shr bx,1
+    mov [ss:S_AOTMID],bx
+    mov bl,dl
+    xor bh,bh
+    mov dl,[cs:tr_ebits+bx]
+    mov bx,[ss:S_AOTMID]
+    mov es,[ss:S_AOTFSEG]
+    test [es:bx],dl
+    jnz .may
+    mov bx,[ss:S_SAVBX]
+    xor dl,dl
+    mov dh,[si]
+    inc si
+    jmp dx
+.may:
+    mov bx,si
+    mov dl,dh
+    jmp tr_ekey
+tr_ebits:   db 1, 2, 4, 8, 16, 32, 64, 128
+%endif
+""",
     0xDD: """
 ; cpc_ff: a copy through (C), between RAM and HRAM - LD A,(HL+) / LD (C),A
 ; / INC C / DEC B / JR NZ,-6 (DL = E2h) or LD A,(C) / INC C / LD (HL+),A /

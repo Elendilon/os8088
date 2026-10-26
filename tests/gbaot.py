@@ -18,12 +18,15 @@ rgbds) and the test suites tools/getgbtest.py fetches at pinned SHA-256s.
 None is committed, and no commercial game is used: those are the owner's
 field measurement (docs/reports/REALDMG-FULLSTATIC-2026-10-25.md).
 
-TWO NEGATIVE CONTROLS, both of which must go red:
+THREE NEGATIVE CONTROLS, every one of which must go red:
   - the most-entered block of GBRMW.GB with its first byte changed: the
     check must see the precompiled code at all;
   - GBFLAGS.GB translated by a driver built with RT_DEADBUG (a flag's read
     unseen by the dead-flags lookahead, REALDMG-SPEC 16.1.2): its sum must
-    differ from the interpreter's, so the gate sees a translator defect.
+    differ from the interpreter's, so the gate sees a translator defect;
+  - GBBANK.GB run with a driver built with RDG_NOTABFILT (the filter tr_ejf
+    asks first without the table's blocks, REALDMG-SPEC 20.9): it must enter
+    fewer precompiled blocks, the one thing that defect changes.
 """
 import argparse
 import os
@@ -167,6 +170,22 @@ def main():
             print("%-4s %-28s %s" % ("FAIL" if ok else "ok", "control: %s broken" % which,
                                      "passed - the gate cannot go red" if ok else what + ", as it must"))
             bad += ok
+        if label.startswith("GBBANK") and not a.k:
+            # tr_ejf asks the filter BEFORE the table (REALDMG-SPEC 20.9), so
+            # the filter must name the table's blocks too - which no state
+            # can show, a block turned away being interpreted the same.
+            # Without them the interpreter's jumps never re-enter the table's
+            # code, and fewer blocks are entered: 22% fewer here
+            ok2, what2 = gbaot.compare(BUILD, rom, gbaot.load(out), frames,
+                                       defines=("RDG_NOTABFILT",))
+            n1, n2 = (int(w.split("; ", 1)[-1].split()[0]) if w[0].isdigit() else 0
+                      for w in (what, what2))
+            ok = n2 < 0.9 * n1
+            print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "control: table not filtered",
+                                     "%d blocks entered against %d%s" % (
+                                         n2, n1, ", as it must" if ok else
+                                         " - the gate cannot see the filter")))
+            bad += not ok
         if label in HRAMLEG:
             ok, what = hram_leg(rom, found, extra, out, frames, ref)
             print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "%s, HRAM counted" % label, what))

@@ -3450,7 +3450,7 @@ SOAK = [
         "across the segments must fail. WHY QEMU: a correctness gate, "
         "counted, not timed. SOAK: one package's core",
         needs=("qemu", "nasm", "rgbds"), timeout=360),
-    Row("gbaot", "soak", py("tests/gbaot.py"), 370.0,
+    Row("gbaot", "soak", py("tests/gbaot.py"), 455.0,
         "REALDMG's FULL static recompiler (docs/REALDMG-SPEC.md section 20, "
         "tools/gbaot.py): each ROM translated WHOLE on the host, walked from "
         "its entries with no play, by RealDMG's own translator run under "
@@ -3459,9 +3459,12 @@ SOAK = [
         "and 8000-FFFF identical, or for Blargg's and gbflags' the words on "
         "the link port. 15 ROMs: GBDEMO, the tools/gbprof ROMs (read-modify-"
         "writes, POPs from ROM, HBlank events, 64 banks of code), cpu_instrs, "
-        "instr_timing, mem_timing, halt_bug and dmg-acid2. TWO NEGATIVE "
-        "CONTROLS: GBRMW's most-entered block broken must differ, and GBFLAGS "
-        "translated with RT_DEADBUG must change its sum. WHY UNICORN: the "
+        "instr_timing, mem_timing, halt_bug and dmg-acid2. THREE NEGATIVE "
+        "CONTROLS: GBRMW's most-entered block broken must differ, GBFLAGS "
+        "translated with RT_DEADBUG must change its sum, and GBBANK under a "
+        "driver whose filter leaves the table out (RDG_NOTABFILT, tr_ejf, "
+        "REALDMG-SPEC 20.9) must enter fewer precompiled blocks - measured "
+        "453s. WHY UNICORN: the "
         "translation is the host's, and the check is counted, not timed. "
         "SOAK: one package's recompiler",
         needs=("nasm", "unicorn", "rgbds"), timeout=900),
