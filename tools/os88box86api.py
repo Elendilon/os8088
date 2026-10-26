@@ -38,11 +38,11 @@ THE MACHINE a row's MartyPC name describes (`machine_config`):
     _ps2          vm/386-ps2: a Packard Bell Legend 300SX, the one machine
                   whose 8042 has an aux port, with its PS/2 mouse
     at386 / _386  the same 386SX with the serial mouse
-    at286 / _286  vm/mega-port: the owner's mr286 (MR BIOS, 16 MHz, 4MB,
+    at286 / _286  vm/at286-port: the owner's mr286 (MR BIOS, 16 MHz, 4MB,
                   ISA IDE) - also taken for a 1.2MB or 1.44MB floppy (an XT
                   BIOS drives neither) and for `_ne2k` (a 16-bit card)
     _NNNk         the XT's RAM (128k, 256k, 512k ...)
-  kern_mega - always vm/mega-port, as before.
+  kern_mega - always vm/at286-port, as before.
   $OS88_86BOX_VM (kern_mega: $OS88_MEGA_VM) names any other vm/ profile.
   A name for a machine only 86Box has carries NO `os8088_` prefix - that is
   MartyPC's namespace, which tests/unit/t_machines.py holds to its machine
@@ -138,13 +138,13 @@ GUEST_HZ = om.GUEST_HZ
 TAG = "os88box86api"
 
 # THE PROFILES this module builds machines from (vm/<name>/86box.cfg). The AT
-# is the owner's mr286, `mega-port` because kern_mega's port mechanism was
-# its first user - it is a plain MR BIOS 286 with nothing kern_mega-specific
-# in it, and its seeded CMOS (nvr-seed/) is why it is the AT of choice
+# is the owner's mr286 as `at286-port`: a plain MR BIOS 286 the port
+# mechanisms (kern_mega's and kern_big's) share, with nothing kernel-specific
+# in it - its seeded CMOS (nvr-seed/) is why it is the AT of choice
 XT_PROFILE = "xt640"
-AT_PROFILE = "mega-port"
+AT_PROFILE = "at286-port"
 PS2_PROFILE = "386-ps2"
-MEGA_PROFILE = "mega-port"
+MEGA_PROFILE = "at286-port"
 
 
 def _env(name, mega=False):

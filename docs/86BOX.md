@@ -302,7 +302,7 @@ MartyPC's namespace and which `tests/unit/t_machines.py` holds to its list.
 | the name, or the disks | 86Box gets |
 |---|---|
 | (an `os8088_*` name, 360KB or 720KB disks) | `vm/xt640`, the cards and devices below. 360KB is a 5.25" DD drive, 720KB a 3.5" DD one. No CMOS to prime |
-| `at286`, a 1.2MB or 1.44MB floppy, `_ne2k` | `vm/mega-port`, the owner's mr286 (MR BIOS 286, 16 MHz, 4MB, ISA IDE): an XT BIOS drives no HD floppy, and an NE2000 is a 16-bit card |
+| `at286`, a 1.2MB or 1.44MB floppy, `_ne2k` | `vm/at286-port`, the owner's mr286 (MR BIOS 286, 16 MHz, 4MB, ISA IDE): an XT BIOS drives no HD floppy, and an NE2000 is a 16-bit card |
 | `_ps2`, `at386` | `vm/386-ps2`, the Packard Bell Legend 300SX - the one machine here whose 8042 has an aux port. `_ps2` is its PS/2 mouse with both UARTs OFF, as QEMU's `-serial none` |
 | `_NNNk` | the XT's RAM |
 | `_hdd` | the row's own fixed disk: the AT's IDE, an XT-IDE card on an XT |
@@ -373,7 +373,7 @@ gives the row `needs=("86box",)` and no X display. `ROW/VARIANT` registers
 a second port of a row as `mega-ROW-VARIANT`, beside its Bochs port.
 `# 86BOX HARDWARE (wave 3)` is the list.
 
-**The machine** is `vm/mega-port`: the owner's mr286 (MR BIOS 286, 16 MHz,
+**The machine** is `vm/at286-port`: the owner's mr286 (MR BIOS 286, 16 MHz,
 4MB, a serial mouse on COM1, ISA IDE). `$OS88_MEGA_VM` names another
 profile. Whatever the row's MartyPC machine name says is added to it
 (`machine_config`):
@@ -397,7 +397,7 @@ Monochrome* for a mono primary, and the Fixed Disk page gets type 47,
 identified with `?`. F10 records the result. 86Box's saved CMOS is cached under
 `build/86box/nvrcache/` by a hash of the configuration, with the shutdown
 byte cleared, and every later launch POSTs straight through. The seed is
-`vm/mega-port/nvr-seed/`.
+`vm/at286-port/nvr-seed/`.
 
 **The clock is the guest's.** The backend runs 86Box fast-forwarded (about
 10x a real 286 at an idle desktop) and reports `cycles` as emulated time at

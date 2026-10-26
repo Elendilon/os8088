@@ -17,7 +17,7 @@ tools/os88box86api.py's, which serves kern_big and kern_small rows too
     build/mega.img, a shipped apps floppy build/megaapps.img, the default B:
     is megaapps.img - and the map is build/megak/kernel.map
     ($OS88_MEGA_BUILD's);
-  * THE MACHINE: always vm/mega-port, the owner's mr286 (MR BIOS 286,
+  * THE MACHINE: always vm/at286-port, the owner's mr286 (MR BIOS 286,
     16 MHz, 4MB, ISA IDE) with its CMOS seeded ($OS88_MEGA_VM names another
     profile), whatever the row's MartyPC name says added to it - the table
     is os88box86api's module note. $OS88_MEGA_SND, $OS88_MEGA_MEGS and
@@ -51,7 +51,7 @@ PROFILE = api.MEGA_PROFILE
 def machine_config(machine):
     """kern_mega's machine for a MartyPC name: ([(section, key, value)],
     [card, ...], {"display": ..., "snd": ...}) - os88box86api's table on
-    vm/mega-port (see its module note)."""
+    vm/at286-port (see its module note)."""
     _profile, sets, cards, info = _machine_config(machine, mega=True)
     return sets, cards, info
 

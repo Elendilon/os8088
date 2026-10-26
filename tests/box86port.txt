@@ -25,7 +25,7 @@
 #
 # THE MACHINE is tools/os88box86api.py's mapping of the row's MartyPC name:
 # an IBM XT (vm/xt640) when everything fits one, the owner's mr286
-# (vm/mega-port) for `at286`, a 1.2MB/1.44MB floppy or a network card, the
+# (vm/at286-port) for `at286`, a 1.2MB/1.44MB floppy or a network card, the
 # Packard Bell 386SX (vm/386-ps2) for `_ps2`. An AT's CMOS is primed ONCE per
 # configuration and cached under build/86box/nvrcache/, so the first run of
 # a line on a fresh box is ~15-45 s longer than `secs` (the six below
