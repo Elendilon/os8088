@@ -134,6 +134,13 @@ def mega_images(image, apps):
     if apps and shipped(apps) and re.match(r"apps(360|720|120)?\.img$",
                                            os.path.basename(apps)):
         b = os.path.join(bld, "megaapps.img")
+    # ...and a shipped SYSTEM floppy in B: is mega.img as well: the rows that
+    # boot C: with the system disk in B: install or upgrade FROM it
+    # (tests/install.py, instkeep.py), and what they compare the result with
+    # is os88marty.system_disk's - kern_mega's
+    elif apps and shipped(apps) and re.match(r"(os8088|small)[-\w]*\.img$",
+                                             os.path.basename(apps)):
+        b = os.path.join(bld, "mega.img")
     return a, b
 
 
@@ -159,7 +166,7 @@ class BochsMarty(om.Marty):
         self._log = []
         self._go = None
         self._pumping = 0
-        self._planes_verb = False
+        self._planes_verb = True    # `planes` is _c_planes
         self._pipeline = False
         self.label = label
         # the machine's state, kept HERE: Bochs answers nothing between stops
@@ -890,6 +897,157 @@ class BochsMarty(om.Marty):
                     rb"floppy_xfer: drive=(\d+), offset=(\d+), bytes=512, "
                     rb"direction=(from|to) floppy", t[:cut])]
 
+    # ---- ports, through the guest -----------------------------------------
+    # BOCHS'S DEBUGGER CANNOT TOUCH AN I/O PORT - it reads and writes memory
+    # and registers only - so `inb`, `outb` and `planes` are a few bytes of
+    # code the GUEST runs: written at 0000:0500 (the DOS communication area,
+    # which nothing at the desktop uses, and whose bytes are put back
+    # anyway), entered with CS:EIP parked on them and their inputs in
+    # registers, stopped by a breakpoint, and then every register they touch,
+    # CS:EIP and the bytes are put back. Each stub sits at its own FIXED
+    # offset and its bytes never change, because Bochs caches decoded
+    # instructions per page and a debugger write does not invalidate them
+    # (docs/BOCHS.md) - so inputs go in registers and never in immediates.
+    # Every stub is pushf/cli ... popf: what it does to the card is ATOMIC
+    # against the guest's own interrupts, and IF comes back as it was, which
+    # is the one register Bochs's `set` cannot write.
+    _STUB_AT = 0x500
+    _STUBS = bytes.fromhex(
+        # 00 planes: pushf; cli; mov dx,3CEh; keep the GC index (CL), Mode
+        # (CH) and Read Map Select (BL); read mode 0; 1A: Read Map = AH;
+        # 1D: STOP - the plane is read through the debugger; then all three
+        # back and popf; 2E: STOP
+        "9cfabace03ec88c1b005ee42ec88c524f7ee4ab004ee42ec88c3"
+        "88e0ee90"
+        "88d8ee4ab005ee4288e8ee4a88c8ee9d90"
+        "0000000000000000000000000000000000"        # ...to 40
+        "9cfaec9d90000000"                          # 40: in al, dx; 44 STOP
+        "9cfaee9d90000000")                         # 48: out dx, al; 4C STOP
+    _BLIST = r"^\s*(\d+) [lp]breakpoint\s+keep y\s+0x0*%x\b"
+
+    def _stub(self, entry, regs, stops, at_stop=lambda i, r: None):
+        """Run the stub at _STUB_AT + ENTRY with REGS ({'eax': v, ...}) set,
+        to each offset in STOPS in turn. AT_STOP(i, regs) runs with the
+        guest stopped there and may return {'eip': stub offset, reg: v} to
+        set before it goes on, with 'again': True to run to the SAME stop
+        once more. The row's breakpoints are lifted for the run and every
+        register, CS:EIP, the stub's bytes and the machine's run state are
+        put back after."""
+        with self._lock:
+            at0, stops0 = self._at, self._stops
+            was = self._state
+            if was == "running" and not self._bp_hit():
+                self._halt()
+            else:
+                was = self._state
+            t = self._do(["r", "sreg", "creg"])
+            orig = {n: int(v.replace("_", ""), 16) & 0xFFFFFFFF
+                    for n, v in re.findall(r"^r([a-z]{2})\s*: ([0-9a-f_]+)$",
+                                           t, re.M)}
+            cs0 = int(re.search(r"^cs:0x([0-9a-f]+)", t, re.M).group(1), 16)
+            cs, ip0, gdesc = self._STUB_AT >> 4, 0, None
+            if int(re.search(r"CR0=0x([0-9a-f]+)", t).group(1), 16) & 1:
+                # PROTECTED MODE: selector 0050h is GDT entry 10, the
+                # identity map's DATA descriptor based at 0500h (kernel/
+                # mega.inc's map), so for the run its access byte says CODE
+                # and 0050h:0 is the stub - and it is DATA again after. No
+                # kernel or package loads 0050h: it is the DOS area's segment
+                gb, _gl = self.gdt_base()
+                d = self._read(gb + 0x50, 8)
+                if (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24) != 0x500 \
+                        or (d[5] & 0x98) != 0x90:
+                    raise om.MartyError(
+                        "os88bochsmarty: GDT entry 0050h is not data at "
+                        "0500h (%s) - no CS for the port stub" % d.hex())
+                gdesc = (gb + 0x50 + 5, d[5:6])
+                self._write(gdesc[0], bytes([0x9B]))
+            keep = self._read(self._STUB_AT, len(self._STUBS))
+            self._write(self._STUB_AT, self._STUBS)
+            rows = dict(self._bps)
+            try:
+                if rows:
+                    self._do(["d %d" % n for n in rows])
+                self._bps = {}
+                self._do(["set cs = 0x%x" % cs,
+                          "set eip = 0x%x" % (ip0 + entry)] +
+                         ["set %s = 0x%x" % kv for kv in regs.items()])
+                i = 0
+                while i < len(stops):
+                    lin = self._STUB_AT + stops[i]
+                    t = self._do(["lb 0x%x" % lin, "c"], timeout=30)
+                    n = re.findall(self._BLIST % lin, self._do(["blist"]),
+                                   re.M)
+                    if n:
+                        self._do(["d %s" % n[-1]])
+                    if not re.search(r"\[0x0*%x\]" % lin, t):
+                        raise om.MartyError("os88bochsmarty: the port stub "
+                                            "did not stop at %x" % lin)
+                    now = {k: int(v.replace("_", ""), 16) & 0xFFFFFFFF
+                           for k, v in re.findall(
+                               r"^r([a-z]{2})\s*: ([0-9a-f_]+)$",
+                               self._do(["r"]), re.M)}
+                    nxt = dict(at_stop(i, now) or {})
+                    again = nxt.pop("again", False)
+                    cmds = ["set %s = 0x%x" % (k, ip0 + v if k == "eip"
+                                               else v)
+                            for k, v in nxt.items()]
+                    if cmds:
+                        self._do(cmds)
+                    if not again:
+                        i += 1
+            finally:
+                self._do(["set cs = 0x%x" % cs0] +
+                         ["set e%s = 0x%x" % (n, orig[n])
+                          for n in ("ax", "bx", "cx", "dx", "ip")])
+                self._write(self._STUB_AT, keep)
+                if gdesc:
+                    self._write(*gdesc)
+                if rows:
+                    t = self._do(["lb 0x%x" % a for a in rows.values()] +
+                                 ["blist"])
+                    for a in rows.values():
+                        n = re.findall(self._BLIST % a, t, re.M)
+                        if n:
+                            self._bps[int(n[-1])] = a
+                self._at, self._stops = at0, stops0
+                if was == "running":
+                    self._resume()
+                else:
+                    self._state = was
+
+    def _c_inb(self, port, **_):
+        got = {}
+        self._stub(0x40, {"edx": port & 0xFFFF}, [0x44],
+                   lambda i, r: got.setdefault("v", r["ax"] & 0xFF) and None)
+        return {"value": got["v"]}
+
+    def _c_outb(self, port, value, **_):
+        self._stub(0x48, {"edx": port & 0xFFFF, "eax": value & 0xFF}, [0x4C])
+        return {}
+
+    def _c_planes(self, offset=0, planes=(0, 1, 2, 3), card=None, **kw):
+        """MartyPC's `planes`: each VGA plane's `len` bytes from `offset`.
+        The stub selects read mode 0 and the plane's Read Map with
+        interrupts off and STOPS there, the plane is read through the
+        debugger - whose A0000 reads go through Bochs's VGA as a CPU's do -
+        and the next plane is one more pass round the stub's last two
+        instructions; then the card is put back as the guest had it."""
+        planes = list(planes)
+        out = []
+
+        def at(i, r):
+            if i:
+                return None
+            out.append(self._read(0xA0000 + offset, n))
+            if len(out) < len(planes):
+                return {"eax": planes[len(out)] << 8, "eip": 0x1A,
+                        "again": True}
+            return None
+        n = kw.get("len", 38400)
+        if planes:
+            self._stub(0x00, {"eax": planes[0] << 8}, [0x1D, 0x2E], at)
+        return {"data": [b.hex() for b in out]}
+
     def _c_quit(self, **_):
         self.close()
         return {}
@@ -1022,12 +1180,85 @@ def _first_c(box):
         time.sleep(0.05)
 
 
+def hd_geometry(path, chs=None):
+    """(C, H, S) of a fixed-disk image a row hands the shim: `chs` when the
+    row names one, else a VHD's own footer (`conectix` in the last sector,
+    the geometry at +38h - MartyPC's template and every VHD tests/ builds),
+    else a raw image's size over 16 heads of 63 sectors, the shape every raw
+    disk in tests/ is cut to (hdtake). Bochs is told the same CHS its BIOS
+    then reports, so the partition table's CHS reads as it did on MartyPC."""
+    if chs:
+        return tuple(int(v) for v in re.split(r"[/x,]", chs))
+    size = os.path.getsize(path)
+    with open(path, "rb") as f:
+        f.seek(max(0, size - 512))
+        tail = f.read(512)
+    if tail[:8] == b"conectix":
+        return (int.from_bytes(tail[0x38:0x3A], "big"), tail[0x3A],
+                tail[0x3B])
+    for h, s in ((16, 63), (4, 17), (4, 26)):
+        if size and size % (h * s * 512) == 0:
+            return (size // (h * s * 512), h, s)
+    raise om.MartyError("os88bochsmarty: %s is neither a VHD nor a whole "
+                        "number of 16x63 cylinders - pass ('--chs', 'C/H/S')"
+                        " in `extra`" % path)
+
+
+def row_disk(machine, extra, run_dir):
+    """THE ROW'S OWN FIXED DISK, as MartyPC is handed one, or None:
+    `extra=["--mount", "hd:0:PATH"]` (os88marty.launch's own argument), or
+    a caller-staged `run_dir` (os88marty.stage_run_dir) on an `_hdd` machine,
+    whose `media/hdds/*.vhd` IS the machine's disk on MartyPC. Mounted IN
+    PLACE and written through, so an install in one launch is there for the
+    boot in the next and the host reads the partition back afterwards.
+    `("--chs", "C/H/S")` beside it names a raw image's geometry."""
+    hd, chs, it = None, None, iter(extra or ())
+    for x in it:
+        if x == "--mount":
+            v = next(it, "")
+            if v.startswith("hd:0:"):
+                hd = v[5:]
+        elif x == "--chs":
+            chs = next(it, None)
+    if hd is None and run_dir and "_hdd" in (machine or ""):
+        d = os.path.join(run_dir, "media", "hdds")
+        vhds = sorted(f for f in os.listdir(d) if f.lower().endswith(".vhd")) \
+            if os.path.isdir(d) else []
+        if vhds:
+            hd = os.path.join(d, vhds[0])
+    if hd is None:
+        return None, None
+    if not os.path.isabs(hd) and run_dir and os.path.exists(
+            os.path.join(run_dir, hd)):
+        hd = os.path.join(run_dir, hd)      # MartyPC resolves in its run dir
+    if not os.path.exists(hd):
+        raise om.MartyError("os88bochsmarty: no fixed disk at %s" % hd)
+    return os.path.abspath(hd), hd_geometry(hd, chs)
+
+
+def _blank(path):
+    """An all-zero floppy - a MartyPC row's way of offering the BIOS C:
+    (tests/hdboot.py's BLANK). Bochs gets an EMPTY drive instead: a 360KB
+    image in its 1.44MB A: is a media mismatch, and empty boots C: the same."""
+    with open(path, "rb") as f:
+        while True:
+            b = f.read(65536)
+            if not b:
+                return True
+            if b.count(0) != len(b):
+                return False
+
+
 def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
-           sb=None, cfg=None, megs=None, noserial=False, wheel=False, **_):
+           sb=None, cfg=None, megs=None, noserial=False, wheel=False,
+           run_dir=None, **_):
     """os88marty.launch's shape, on Bochs and kern_mega (see the module
     note). `boot` True waits for the desktop (os88bochs.Box.up's state gate,
     then a settle of the glass); a number runs blind for that many seconds;
-    False hands the machine back PAUSED, as MartyPC's does."""
+    False hands the machine back PAUSED, as MartyPC's does. A row's own
+    fixed disk (`--mount hd:0:`, or a staged `run_dir`) is `row_disk`'s."""
+    cimg, cgeom = row_disk(machine, extra, run_dir)
+    noa = bool(cimg) and (not image or _blank(image))
     a, b = mega_images(image, apps)
     bld = os.environ.get("OS88_MEGA_BUILD") or os.path.join(ROOT, "build")
     base = os.path.join(ROOT, "build", "bochs", "inst")
@@ -1059,7 +1290,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     # A FIXED DISK when the machine name has `_hdd` in it (os8088_xt_hdd and
     # its twins): os88bochs.Box's default C:, an ATA disk with RUN/ on it.
     # Everything else has none, as before
-    noc = "_hdd" not in (machine or "")
+    noc = "_hdd" not in (machine or "") and not cimg
     # ...and FILES ON IT: `extra` takes MartyPC's emulator arguments, which
     # mean nothing here, so a row that needs a file on C: (stikhiber's
     # HIBERNAT.PTR) passes ("--put", SPEC) pairs instead - os88disk.py's
@@ -1076,13 +1307,16 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
                  btype=box_btype,
                  build=bld, display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
-                 ne2k=ne2k, noserial=noserial, imps2=wheel, put=put)
+                 ne2k=ne2k, noserial=noserial, imps2=wheel, put=put,
+                 cimg=cimg, cgeom=cgeom, noa=noa)
     m = BochsMarty(box, run_dir, label=label)
+    m.cimg = cimg               # the row's own C:, when it handed one
     m.imps2 = wheel or "type=imps2" in ob.BOCHSRC
     m._boxkw = dict(sb=sb, cfg=cfg, btype=box_btype, build=bld,
                     display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
                     ne2k=ne2k, noserial=noserial, imps2=wheel,
-                    cmode="keep")    # a reset keeps the C: it had
+                    cmode="keep",    # a reset keeps the C: it had
+                    cimg=cimg, cgeom=cgeom, noa=noa)
     try:
         _first_c(box)
         m._bpmark = os.path.getsize(box.e9)

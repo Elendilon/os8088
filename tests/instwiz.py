@@ -14,6 +14,7 @@ Every page is read out of the package's own memory ([in_page], through the
 window record's segment and build/install.map), so a click that did not land
 is a named failure at the step, not a timeout twenty steps on.
 """
+import os
 import re
 import struct
 import sys
@@ -47,7 +48,14 @@ BACK, NEXT, CANCEL = 0, 1, 2
 def symmap():
     """The package's symbols, off the map its build rule writes."""
     out = {}
-    for line in open(os88build.at("build/install.map")):
+    # kern_mega ships its OWN INSTALL.O88 (the Makefile's MEGAINST, SPEC.md
+    # 117.10.2), whose map is beside it in megak/apps/
+    path = os88build.at("build/install.map")
+    if os.environ.get("OS88_MEGA"):
+        path = os.path.join(os.environ.get("OS88_MEGA_BUILD")
+                            or os.path.dirname(path),
+                            "megak", "apps", "install.map")
+    for line in open(path):
         p = line.split()
         if len(p) == 3 and re.match(r"^[0-9A-F]+$", p[0]):
             out[p[2]] = int(p[0], 16)
@@ -82,7 +90,11 @@ class Wizard(object):
         self.seg = struct.unpack("<H", bytes(m.read(base + geom.W_SEG, 2)))[0]
 
     def mem(self, name, n, add=0):
-        return bytes(self.m.read(self.seg * 16 + SYM[name] + add, n))
+        # the region is a SELECTOR on kern_mega (docs/BOCHS.md): m.lin
+        lin = getattr(self.m, "lin", None)
+        at = SYM[name] + add
+        return bytes(self.m.read(lin(self.seg, at) if lin else
+                                 self.seg * 16 + at, n))
 
     def byte(self, name):
         return self.mem(name, 1)[0]

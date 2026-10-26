@@ -4357,7 +4357,8 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
     if os.environ.get("OS88_MEGA"):
         import os88bochsmarty
         return os88bochsmarty.launch(image, apps=apps, machine=machine,
-                                     boot=boot, label=label, extra=extra)
+                                     boot=boot, label=label, extra=extra,
+                                     run_dir=run_dir)
 
     base = base_run_dir()
     if not os.path.isdir(base):

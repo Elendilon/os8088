@@ -462,7 +462,8 @@ class Box(object):
                  btype="1_2", cmode="run", bootc=False, noa=False,
                  build=None, csys=False, put=(), cd=None, aimg=None,
                  display=None, megs=None, noc=False, vgahz=None,
-                 flog=False, mouse=None, noserial=False, imps2=False):
+                 flog=False, mouse=None, noserial=False, imps2=False,
+                 cimg=None, cgeom=None):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -484,6 +485,13 @@ class Box(object):
         self.e9 = os.path.join(out, "e9.out")
         a, b = os.path.join(out, "a.img"), os.path.join(out, "b.img")
         c = os.path.join(out, "c.img")
+        # `cimg`: THE CALLER'S OWN FIXED DISK, mounted IN PLACE (written
+        # through, so the host reads back what the guest wrote, and a second
+        # Box on the same file boots what the first left) at `cgeom` (C, H,
+        # S) - a row's VHD, os88bochsmarty's `--mount hd:0:` (docs/BOCHS.md)
+        if cimg:
+            c, noc = os.path.abspath(cimg), False
+        geom = tuple(cgeom) if cimg else GEOM
         shutil.copy(aimg or os.path.join(bld, "mega.img"), a)
         shutil.copy(bimg or os.path.join(ROOT, "build", "apps120.img"), b)
         if cfg is not None:
@@ -505,7 +513,7 @@ class Box(object):
         # MEGARUN rides the C: disk only, so a machine with none (`noc`,
         # os88bochsmarty) does not need it built - a knob tree a ported row
         # builds for itself (`targets=("mega",)`) has none
-        args = [] if noc else [
+        args = [] if noc or cimg else [
             "RUN:" + self._stage(stage, os.path.join(bld, "megarun.o88"),
                                  "0run.o88")]
         for p in pkgs:
@@ -514,8 +522,9 @@ class Box(object):
         args += list(put)          # --put: FOLDER:path, as os88disk.py takes it
         if csys:
             args += self._sysfiles(a, stage)
-        if noc:
-            pass                    # no fixed disk at all (os88bochsmarty)
+        if noc or cimg:
+            pass                    # no fixed disk at all (os88bochsmarty),
+                                    # or the caller's own, as it stands
         elif cmode == "keep" and os.path.exists(c):
             pass                    # the disk as the last boot left it
         elif cmode == "blank":
@@ -545,9 +554,12 @@ class Box(object):
                 ata0="" if noc else (
                     "ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14\n"
                     "ata0-master: type=disk, path=%s, mode=flat, "
-                    "cylinders=%d, heads=%d, spt=%d\n" % ((c,) + GEOM)),
+                    "cylinders=%d, heads=%d, spt=%d\n" % ((c,) + geom)),
                 vgahz=", update_freq=%d" % vgahz if vgahz else "",
-                boot="disk" if bootc else "floppy",
+                # A C: OF THE CALLER'S tries A: first and falls to C: - a
+                # blank or empty A: is how a MartyPC row offers the BIOS C:
+                boot="disk" if bootc else (
+                    "floppy, disk" if cimg else "floppy"),
                 astat="ejected" if noa else "inserted",
                 btype=btype, bmedia={368640: "360k", 737280: "720k",
                                      1228800: "1_2", 1474560: "1_44"}
@@ -570,6 +582,12 @@ class Box(object):
         for n in os.listdir(out):
             if n.endswith(".lock"):
                 os.remove(os.path.join(out, n))
+        # ...and the caller's own C:'s, which lives OUTSIDE out: Bochs locks
+        # a disk image with PATH.lock and a stopped Bochs leaves it, so the
+        # second launch on the same disk (install, then boot it) was refused
+        # with "could not open hard drive image file"
+        if cimg and os.path.exists(c + ".lock"):
+            os.remove(c + ".lock")
         xvfb(self.display)
         self.f = open(self.e9, "wb")
         # The debugger reads a FIFO, held open by a `sleep` of its own so the

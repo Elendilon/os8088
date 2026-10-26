@@ -3483,7 +3483,9 @@ SYSTOOLSARGS := $(addprefix SYSTEM:,$(SYSTOOLS))
 # notes: two clusters at 512 bytes, one at 1 KB, one on the live volume.
 # WELCOME.TXT is what makes it exist and is the first note anybody sees.
 # Beside $(STIKARGS) on every system disk that carries Sticky Note - the four
-# geometries, emu.img and the live media; NOT the small pair, which does not
+# geometries, emu.img, kern_mega's pair (KERN-MEGA-PLAN 14.95: it shipped
+# without, so an install off mega.img had no notes) and the live media; NOT
+# the small pair, which does not
 # carry the package (SPEC.md 24.5.1). STIKNOTESOPT is an OPTION and so goes
 # AFTER the positional list (argparse stops collecting at it).
 STIKNOTESTXT := $(BUILD)/notes/WELCOME.TXT
@@ -14719,14 +14721,14 @@ $(BUILD)/mega.img: KMODDIR := $(MEGADIR)
 # item 4): the same sources assembled with -DDOS_MEGA and kern_dos with
 # -DKD_MEGA, into $(MEGADIR)/kdos/, so the shipped $(SYSROOT) stays
 # byte-identical and a copy carried to the other kernel refuses in a sentence.
-$(BUILD)/mega.img: $(MEGADRIVERS) $(MEGAINST) $(call MEGASUB,$(SYSAPPS)) $(call MEGASUB,$(SYSOPTIONAL)) $(STIKAPPS) $(call MEGASUB,$(COREAPPS)) $(SYSDOC) $(SYSLOGO) \
+$(BUILD)/mega.img: $(MEGADRIVERS) $(MEGAINST) $(call MEGASUB,$(SYSAPPS)) $(call MEGASUB,$(SYSOPTIONAL)) $(STIKAPPS) $(STIKNOTESTXT) $(call MEGASUB,$(COREAPPS)) $(SYSDOC) $(SYSLOGO) \
                    $(FACES) $(FACELIC) tools/os88disk.py $(MEGASRC)
 	@$(MAKE) BUILD=$(MEGADIR) KERN_MEGA=1 $(if $(NOKZIP),NOKZIP=1) $(MEGADIR)/boot.bin $(MEGADIR)/boothd.sys \
 		$(MEGADIR)/kdos/DOS.O88
 	python3 tools/os88disk.py -o $@ --size 1440 \
 		--boot $(MEGADIR)/boot.bin --kernel $(MEGADIR)/$(KERNNAME) \
-		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
-		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER)
+		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(STIKNOTESARG) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
+		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # ...and the 1.2MB 5.25" HD twin (KERN-MEGA-PLAN 14.1 answer 19: kern_mega's
 # system disk is 1.2MB and 1.44MB only - every machine that can run it has an
@@ -14738,14 +14740,14 @@ $(BUILD)/mega120.img: KMODDIR := $(MEGADIR)
 # $(MEGADIR), and two of them at once under -j race on one DOS.O88 (os88pkg
 # reading a file the other is still writing reads it as 0 bytes)
 $(BUILD)/mega120.img: | $(BUILD)/mega.img
-$(BUILD)/mega120.img: $(MEGADRIVERS) $(MEGAINST) $(call MEGASUB,$(SYSAPPS)) $(call MEGASUB,$(SYSOPTIONAL)) $(STIKAPPS) $(call MEGASUB,$(COREAPPS)) $(SYSDOC) $(SYSLOGO) \
+$(BUILD)/mega120.img: $(MEGADRIVERS) $(MEGAINST) $(call MEGASUB,$(SYSAPPS)) $(call MEGASUB,$(SYSOPTIONAL)) $(STIKAPPS) $(STIKNOTESTXT) $(call MEGASUB,$(COREAPPS)) $(SYSDOC) $(SYSLOGO) \
                    $(FACES) $(FACELIC) tools/os88disk.py $(MEGASRC)
 	@$(MAKE) BUILD=$(MEGADIR) KERN_MEGA=1 $(if $(NOKZIP),NOKZIP=1) $(MEGADIR)/boot120.bin $(MEGADIR)/boothd.sys \
 		$(MEGADIR)/kdos/DOS.O88
 	python3 tools/os88disk.py -o $@ --size 1200 \
 		--boot $(MEGADIR)/boot120.bin --kernel $(MEGADIR)/$(KERNNAME) \
-		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
-		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER)
+		$(MEGADRIVERS) $(MEGASYSAPPSARGS) $(MEGASYSOPTARGS) $(STIKARGS) $(STIKNOTESARG) $(MEGAINST) APPS:$(MEGADIR)/kdos/DOS.O88 $(MEGACOREARGS) $(SYSDOC) \
+		$(SYSLOGOARG) $(FACESARG) $(APPDATAFOLDER) $(AUTOFOLDER) $(STIKNOTESOPT)
 
 # MEGACDTEST - kern_mega's CD-ROM machine disks (SPEC.md 119.7, KERN-MEGA-PLAN
 # 14.68): build/mega.img's files with a SYSTEM.CFG that wants SOUND.DRV (bit
