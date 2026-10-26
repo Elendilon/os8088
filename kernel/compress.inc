@@ -226,7 +226,7 @@ cmz_pack:
     push es
     push bp
 %ifdef CMZ_STREAM
-    CSDO mov [CSEG cmz_sp], sp   ; where a failed streamed read or write
+    CSDO_SP cmz_sp              ; where a failed streamed read or write
 %endif                          ; unwinds to, from however deep (cmz_ioerr)
     mov bp, ax                  ; the source segment, out of AX's way: the
     cld                         ; head clear below wants AX for the fill
@@ -2325,7 +2325,7 @@ cmz_jstart:
 %else
     CSDO mov [CSEG cmz_jto], al
 %endif
-    CSDO mov [CSEG cmz_jsp], sp
+    CSDO_SP cmz_jsp
     call cmz_jopen              ; a part, the claim, clusters a take reads whole
     jc cmz_jret                 ; nothing held: say why
     call cmz_jhdr               ; --- the SELECTION first: a plain file that
@@ -3110,7 +3110,7 @@ cmz_jgo:
     mov bx, cmz_jnam
     call cmz_jhname
     call COLD_SEG:dkf_dsk_batch_begin
-    CSDO mov [CSEG cmz_jsp], sp
+    CSDO_SP cmz_jsp
     call cmz_jopen              ; a part (checked once already), the claim,
     jc .say                     ; and the SOURCE's clusters
     mov ax, [cs:cmz_b]          ; the claim IS [clo_seg], marked as ours:
@@ -3179,7 +3179,7 @@ cmz_jdisp:
     call cmz_jload              ; the paused state - clobbers CX SI DI
     mov cx, [clo_seg]
     CSDO mov [CSEG cmz_b], cx
-    CSDO mov [CSEG cmz_jsp], sp  ; a hop that fails lands in cmz_jerr
+    CSDO_SP cmz_jsp             ; a hop that fails lands in cmz_jerr
     cmp dl, CLV_KEY
     jne .abort                  ; CLV_FREE: the prompt was abandoned - a click
     cmp al, 13                  ; elsewhere, another prompt - and what was

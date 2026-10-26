@@ -10937,3 +10937,33 @@ is the row**: red before it on *"the identity check FIRES on an un-swapped
 disk"* (and on the stamp check the unwanted write left behind), 36 checks
 green after - with its *"out of CONVENTIONAL memory"* check reading the
 store ABOVE 1MB on kern_mega, whose XMEM pool `xm_caps` reports.
+
+### 14.79 Every refused join hung the machine: CSDO banked SP two bytes low (2026-10-26)
+
+**Found by porting `czjoin` to kern_mega** (tests/megaport.txt): File >
+Uncompress on a part of a split set joined BIG.DAT and LZB.DAT correctly,
+and then on NOTP.123 - a plain file named like a part, which is to be
+refused with *"Not compressed"* - the machine never took another key. The
+UI task was inside DISKOPS.DRV calling `toast_show` about a hundred times a
+second (293 in three seconds under `bp_trace`), and on some runs the same
+moment ended in `mega_report.dead` instead, a kernel fault.
+
+**Cause**: the join banks the stack it unwinds to with
+`CSDO mov [CSEG cmz_jsp], sp`, and every refusal leaves through
+`cmz_jerr`'s `mov sp, [cs:cmz_jsp]`. On kern_mega CSDO is `push ds / call
+mega_dsimg / <the instruction> / pop ds`, so the store ran with CSDO's own
+`push ds` under SP and banked SP - 2. The unwind therefore `ret`ed into the
+word below the frame - the return address of the last call made after the
+bank, `call cmz_jhdr` - with CF = 1, which took `jc cmz_jnotcs` back into
+`cmz_jerr`: a loop that toasts *"Not compressed"* for ever, or, with a
+different word there, a fault. Every refusal of a join (not a part, a
+missing part, a damaged one, a wrong one, a name taken) reached it; a
+successful join never unwinds. The streamed Compress's `[cmz_sp]`, which a
+failed read or write unwinds to (`cmz_ioerr`), was banked the same way.
+
+**Fix**: `CSDO_SP var` (`kernel/kernel.asm`), which adds the two back on
+kern_mega with the caller's flags kept, at all four banks in
+`kernel/compress.inc`. Off kern_mega it is the same `mov [cs:var], sp` as
+before, so kern_big and kern_small are byte-identical (the build number
+apart). **`mega-czjoin` is the row**: red before it (the refusal legs
+never returned), every leg green after, the volume fsck'd on the host.

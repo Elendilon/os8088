@@ -469,6 +469,19 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
     %1
  %endif
 %endmacro
+; CSDO_SP var - bank SP in the image's variable VAR: `CSDO mov [CSEG var], sp`
+; is WRONG on kern_mega, because CSDO's own `push ds` is under SP when the store
+; runs, so VAR is two below the frame - and a `mov sp, [cs:var]` unwind then
+; `ret`s into the call that was made after the bank, which on a join's refusal
+; looped toasting for ever (KERN-MEGA-PLAN 14.79). Flags kept, CSDO's promise.
+%macro CSDO_SP 1
+    CSDO mov [CSEG %1], sp      ; kern_mega: SP - 2, CSDO's push under it...
+ %ifdef KERN_MEGA
+    pushf
+    CSDO add word [CSEG %1], 2  ; ...so the frame is two above
+    popf
+ %endif
+%endmacro
 ; KDATAR_M reg - KDATAR_C's twin for an on-demand MODULE (.mod*): the kernel's
 ; DATA segment, KERNEL_SEG in real mode and the data alias once mega_enter has
 ; run. Clobbers FLAGS on kern_mega.
