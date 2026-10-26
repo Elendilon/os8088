@@ -2350,7 +2350,10 @@ four of its eleven checks.
 | `-k mega-vesa -k vesa`, first run on a fresh tree | ok, ok - but the tree's `vesa.img` now carries kern_mega | ok, ok - `vesa.img` keeps kern_big's kernel |
 | the same, second run on that tree | **`vesa` FAIL**, the soak's own `DRVR_ERR 139` line | ok, ok |
 
-and the original 36-row set at `--marty-jobs 3`: see the table below.
+and the original 36-row set at `--marty-jobs 3`, in the failing run's own
+lane order (the six `mega-vesa*` rows before every `vesa*` one): **36 of 36
+ok** in 951 s, against 29 of 36 before, with `mega-lzcomp` 177.7 s - and
+every `vesa*.img` in the tree byte-identical before and after the run.
 
 A harness change took the same run: `os88bochs`'s file-size cap
 (`_fsize_cap`, the 2GB guard in the same merge) raised `RLIMIT_FSIZE` to its
