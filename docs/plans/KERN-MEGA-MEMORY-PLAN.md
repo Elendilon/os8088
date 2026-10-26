@@ -2243,3 +2243,10 @@ the case that paused) and an SB16:
 
 Once 9.1 exists, the Video Player round can delete `vp_pmbigq`'s refusal
 and the copying bank's PM arm (`vp_rclk1`), and LASTX goes in place.
+
+**Used (2026-10-25, `mega-video`):** BIGSP in place is built on `SEG_BWIN` +
+`SEG_AIM` - one bound window over the hold or the bank, aimed per record by
+the rate hook (`vp_pmbig`'s in-place arm). LASTX plays in place on 86Box's
+`286-victory` at kern_big's rate; KERN-MEGA-PLAN 14.73.1 is the record.
+`vp_rclk1` stays: the copying bank is still what a session with no bound
+window, or an XMS bank in real mode on kern_mega's fallback, plays through.

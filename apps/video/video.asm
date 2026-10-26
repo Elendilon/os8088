@@ -5961,6 +5961,7 @@ vp_lysplit:
 ; session then copies as before. Every register kept
 vp_xrunmk:
     mov word [vp_xrun], 0
+    mov word [vp_xbw], 0
     cmp byte [vp_pm], 0
     je .r
     push ax
@@ -5971,12 +5972,20 @@ vp_xrunmk:
     call OSAPI_XMEM_RUN             ; DX = the first, CX = 8
     jc .n
     mov [vp_xrun], dx
+    push bx                         ; ...and A BOUND WINDOW over the block, for
+    mov bl, SEG_BWIN                ; a record that runs off its run window -
+    call OSAPI_SEG                  ; BIGSP's, to 63.5 KB from anywhere in a
+    pop bx                          ; chunk (vp_pmbig); without it BIGSP copies
+    jc .n                           ; (vp_pmbigq)
+    mov [vp_xbw], dx
 .n:
     pop dx
     pop cx
     pop ax
 .r:
     ret
+    nop                             ; (never run: what follows at the parity
+                                    ; it had - tools/os88rdiff.py --hot)
 
 %else
 %endif
@@ -5989,7 +5998,8 @@ vp_xfree:
     push dx
     mov byte [vp_xon], 0
 %ifdef PKG_MEGA
-    mov word [vp_xrun], 0           ; (the run goes with the block)
+    mov word [vp_xrun], 0           ; (the run goes with the block, and
+    mov word [vp_xbw], 0            ; the bound window with it)
 %else
 %endif
     mov byte [vp_xbank], 0
@@ -7104,23 +7114,29 @@ vp_xipq:
 %endif
 %ifdef PKG_MEGA
 
-; vp_pmbigq - CF=1: a BIGSP file under protected mode, which neither in-place
-; arm can read (98.3.18.16). Its windows start every 32 KB and run 64 KB, so
-; a record is whole in one only when it starts no further into its 32 KB than
-; 64 KB less its length - which a 38-63 KB BIGSP record mostly does not: it
-; ran off the window's end, SI wrapped to the window's start, and the decoder
-; drew the wrong bytes until a store ran off the screen (a #GP inside the
-; bracket, the screen trashed: KERN-MEGA-PLAN 14.58). Such a session copies
-; (the hold's, or the bank's, through the conventional ring, which BIGSP keeps
-; anyway - vp_rhiq). Real mode's handle is a paragraph's, so it holds 64 KB
-; less 15 from any start: CF=0 there. Preserves all but flags
+; vp_pmbigq - CF=1: a BIGSP file under protected mode that neither in-place
+; arm can read (98.3.18.16). The run's windows start every 32 KB and run
+; 64 KB, so a record is whole in one only when it starts no further into its
+; 32 KB than 64 KB less its length - which a 38-63 KB BIGSP record mostly
+; does not: it ran off the window's end, SI wrapped to the window's start,
+; and the decoder drew the wrong bytes until a store ran off the screen (a
+; #GP inside the bracket: KERN-MEGA-PLAN 14.58). So such a record is read
+; through [vp_xbw], a window bound to the block and aimed at its first byte
+; in the hook (vp_pmbig, SEG_AIM: KERN-MEGA-MEMORY-PLAN 9.1), and only a
+; session the kernel gave no such window copies (the hold's, or the bank's,
+; through the conventional ring, which BIGSP keeps anyway - vp_rhiq). Real
+; mode's handle is a paragraph's, so it holds 64 KB less 15 from any start:
+; CF=0 there. Preserves all but flags
 vp_pmbigq:
     cmp byte [vp_pm], 0
     je .ok                          ; (CF=0)
-    cmp word [vp_msl], 2            ; BIGSP's mirror is two slots: CF=0
-    cmc                             ; for 1, CF=1 for 2
-.ok:
+    cmp word [vp_xbw], 1            ; A BOUND WINDOW (vp_xrunmk): any BIGSP
+    jnc .ok                         ; record is whole in it, aimed at its
+    cmp word [vp_msl], 2            ; first byte (vp_pmbig) - CF=0. Without
+    cmc                             ; one, BIGSP's mirror is two slots: CF=0
+.ok:                                ; for 1, CF=1 for 2
     ret
+    nop                             ; (never run: the parity, as above)
 %else
 %endif
 
@@ -14314,22 +14330,24 @@ vp_rslot:
 
 ; vp_pmbig - after vp_addr in the hook: AX = the chunk and BX the offset it
 ; was given, DX:SI its answer, CX the record's length there. A record that
-; runs off its slot's window - BIGSP's, to 63.5 KB from any sector of a slot
-; - gets [vp_rbw] aimed at its first byte instead (OSAPI_SEG's SEG_AIM, the
-; one verb a rate hook may call: no lock, IF never set), SI = 0. Nothing
-; where there is no such window: real mode, or a ring that is not BIGSP's.
-; Every register kept but DX and SI
+; runs off its window - BIGSP's, to 63.5 KB from any sector of a slot - gets
+; a bound window aimed at its first byte instead (OSAPI_SEG's SEG_AIM, the
+; one verb a rate hook may call: no lock, IF never set), SI = 0: the ring's
+; [vp_rbw], or IN PLACE (the XMS bank, or the file held) [vp_xbw] over the
+; block, the record's offset in it read off the run window vp_xmk chose.
+; Nothing where there is no such window: real mode, EMS in place, or a ring
+; that is not BIGSP's. Every register kept but DX and SI
 vp_pmbig:
-    cmp word [vp_rbw], 0
-    je .r
     push cx
     add cx, si
     pop cx
     jnc .r
-    cmp byte [vp_einp], 0           ; (in place: the run's, vp_pmbigq)
-    jne .r
     cmp byte [vp_xip], 0
-    jne .r
+    jne .ip
+    cmp byte [vp_einp], 0
+    jne .ip
+    cmp word [vp_rbw], 0
+    je .r
     push ax
     push bx
     push cx
@@ -14343,6 +14361,7 @@ vp_pmbig:
     adc ax, 0                       ; ...the record's byte in the claim
     xchg ax, cx                     ; CX:AX
     mov dx, [vp_rbw]
+.aim:
     mov bl, SEG_AIM
     call OSAPI_SEG
     xor si, si
@@ -14351,6 +14370,28 @@ vp_pmbig:
     pop ax
 .r:
     ret
+.ip:                                ; IN PLACE: DX = run window k, SI < 32 KB
+    cmp byte [vp_einp], 1           ; (EMS's frame: not a run)
+    je .r
+    cmp word [vp_xbw], 0
+    je .r
+    push ax
+    push bx
+    push cx
+    sub dx, [vp_xrun]               ; DX = k x 8
+    mov bx, dx
+    mov cl, 4
+    shr bx, cl                      ; BX = k / 2: the offset's high word...
+    mov ax, dx
+    and ax, 8
+    mov cl, 12
+    shl ax, cl                      ; ...(k & 1) x 32 KB its low...
+    add ax, si
+    adc bx, 0                       ; ...and the record's SI on it
+    mov cx, bx                      ; CX:AX = the record's byte in the block
+    mov dx, [vp_xbw]
+    jmp short .aim
+    nop                             ; (never run: the parity, as above)
 
 ; vp_lymk - [vp_lyseg] and [vp_lyns] just set: IN PROTECTED MODE the layer's
 ; slots and its mirror in [vp_lysel], and its bank's bounce after them. Every
@@ -22930,6 +22971,8 @@ vp_apsv:      db 0, 0, 0                ; ...and vp_addr's own head, kept
 vp_xrun:      dw 0                      ; the hold's or bank's RUN of selectors
                                         ; (OSAPI_XMEM_RUN, protected mode), 0
                                         ; none (98.3.18.16)
+vp_xbw:       dw 0                      ; ...and a BIGSP record's bound window
+                                        ; over the block (vp_pmbig), 0 none
 vp_self:      dw 0                      ; OUR DATA segment or selector, for a
                                         ; write while DS is a record's
                                         ; (VP_OWNB, KERN-MEGA-PLAN 14.16)

@@ -10728,10 +10728,42 @@ waits on the kern_mega RAM work in progress in another session.
   DMA-copy requests natively in protected mode would take the CPU reset off
   each - the protocol is in SPEC.md 34.10.1, read off the ROM's
   disassembly, so it wants the card to check against.
-- [ ] **LASTX's copying bank** (above): a per-record re-aimed window, or a
-  finer `OSAPI_XMEM_RUN` step, would let BIGSP decode in place. **The window
-  exists now** (KERN-MEGA-MEMORY-PLAN 9.1, SPEC.md 50.6.11: `SEG_BWIN` and
-  the hook-legal `SEG_AIM`); what is left is the Video Player's own change.
+- [x] **LASTX's copying bank** (above) - DONE, 14.73.1.
+
+#### 14.73.1 BIGSP in place under protected mode (2026-10-25)
+
+Built on KERN-MEGA-MEMORY-PLAN's MC7 (merged at `f4649f0f`, which also
+converted the rest of the player's arm to selectors). The run's windows
+start every 32 KB, so a 38-63 KB BIGSP record mostly ran off its window and
+`vp_pmbigq` sent the session to the copying bank. Now `vp_xrunmk` takes a
+window BOUND to the hold or bank's block with the run (`SEG_BWIN`,
+`[vp_xbw]`, one LDT entry a block, freed with it), and `vp_pmbig` - already
+the hook's call after `vp_addr` for a ring record past its slot's window -
+has an in-place arm: the record's byte in the block is read off the run
+window `vp_xmk` chose (window k x 32 KB + SI) and the bound window aimed at
+it with `SEG_AIM`, SI = 0. `vp_pmbigq` refuses only a session with no bound
+window. **No kernel byte**; the kern_mega arm +88 bytes (528 left under
+`APP_MAX_SIZE`), the shipped build byte-identical, and every hot routine of
+the arm identical at an even shift but `vp_xfree`, whose one added store
+runs at a session's end (`tools/os88rdiff.py --hot`).
+
+**Measured** on 86Box `286-victory` with an XT-IDE ROM disk and an SB16,
+the five demo videos off one VHD, 60 s sampled from the first frame:
+
+| video | mode | fps | 14.73 (kern_mega) | kern_big |
+|---|---|---|---|---|
+| 05 LASTX (BIGSP) | bank in place (was the copying bank) | **22.8**, 0 pauses | 22.7 | 22.8 |
+| 02 T69 | bank in place | 26.6, 0 pauses | 26.9 | 26.7 |
+| 04 MECH2 | bank in place | 15.9, 0 pauses | 15.9 | 15.9 |
+| 01 BCRRT | bank in place | 24.9, 0 pauses | 25.1 | 24.8 |
+| 08 WILLY | ring above 1MB | 35.2, 0 pauses | 35.2 | 35.2 |
+
+LASTX played to its last frame (2,036 of 2,036, no fault, the picture
+looked at mid-play and at the end), and again in the same session, in
+place both times - the bound window freed with the block and made with the
+next. The emulator's rate is the same as the copying bank's here; what the
+change buys is the copying bank's memory and its 32 KB copy a chunk, which
+is the room the owner expects the Victory itself not to have.
 
 ### 14.74 The memory consolidation round (2026-10-25) - now its own plan
 
