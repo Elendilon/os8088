@@ -132,6 +132,7 @@ how to argue about a new one.  docs/WRITING-TESTS.md section 2.1 is the same
 rule written for somebody adding a row rather than moving one.
 """
 import os
+import re
 
 
 class Row:
@@ -18402,11 +18403,13 @@ MEGA_WANTS = ("build/mega.img", "build/megaapps.img",
 def _mega_ports(base):
     """mega-<name> for every line of tests/megaport.txt. A line is
 
-        name [secs=N] [timeout=N] [+arg ...] [-arg ...]   # why
+        name [secs=N] [timeout=N] [+arg ...] [-arg ...] [NAME=VAL ...]   # why
 
     `+arg` appends an argument to the base row's command and `-arg` removes
     one (with the value after it when written `-arg=`, i.e. `-machine=`
-    drops `--machine X`)."""
+    drops `--machine X`). An upper-case `NAME=VAL` is put in the row's
+    environment beside OS88_MEGA=1 (`OS88_BOCHS_MOUSE=serial`,
+    `OS88_BOCHS_NE2K=1` - tools/os88bochs.py's knobs)."""
     by = {r.name: r for r in base}
     out = []
     try:
@@ -18422,9 +18425,11 @@ def _mega_ports(base):
         r = by.get(name)
         if r is None:
             raise SystemExit("tests/megaport.txt: no soak row %r" % name)
-        cmd, secs, tmo = list(r.cmd), None, None
+        cmd, secs, tmo, env = list(r.cmd), None, None, []
         for o in opts:
-            if o.startswith("secs="):
+            if re.match(r"[A-Z][A-Z0-9_]*=", o):
+                env.append(o)
+            elif o.startswith("secs="):
                 secs = float(o[5:])
             elif o.startswith("timeout="):
                 tmo = float(o[8:])
@@ -18441,7 +18446,7 @@ def _mega_ports(base):
         needs = tuple(n for n in r.needs if n not in ("marty", "qemu",
                                                       "qemu9")) + ("bochs",)
         out.append(Row("mega-" + name, "soak",
-                       ["env", "OS88_MEGA=1"] + cmd,
+                       ["env", "OS88_MEGA=1"] + env + cmd,
                        secs or max(60.0, r.secs * 2.0),
                        "%s ON kern_mega (tests/megaport.txt): %s%s"
                        % (name, why + " - " if why else "", r.why),

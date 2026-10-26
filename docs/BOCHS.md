@@ -191,8 +191,18 @@ it maps:
   guest-seconds `os88marty.pace()` works), `planes`, `inb`/`outb`,
   `snapshot`, `reset`, the wheel. A row built on one is not portable.
 
+Two knobs reach the machine. `$OS88_BOCHS_MOUSE=serial` swaps the PS/2
+mouse for a Microsoft serial one on COM1 - kern_dos's INT 33h serves a serial
+mouse and nothing else (kerndos/kdmouse.inc), so a DOS row about the mouse
+under a trip wants it. A machine name with `_ne2k` in it (or
+`$OS88_BOCHS_NE2K`) adds the NE2000 on slirp - the host is 10.0.2.2,
+`$OS88_BOCHS_SLIRP` its host-forwards - and, unless the row passes its own
+`cfg`, a SYSTEM.CFG on A: that wants ETHER.DRV.
+
 A port is a line in `tests/megaport.txt`; `tests/suite.py` registers it as
 `mega-<name>`, the same command under `env OS88_MEGA=1`, `needs=("bochs",)`.
+An upper-case `NAME=VALUE` on the line goes into the row's environment
+beside it (`irqgrab OS88_BOCHS_MOUSE=serial`).
 
 ## Reading it
 
