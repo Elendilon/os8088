@@ -15,3 +15,7 @@
 
 sheetbtn secs=60   # Sheet's dialog buttons (Goto/Format) open, close and reuse their slot
 uilayer secs=120   # every os88ui verb confirmed off guest state, and confirm-vs-settle
+
+# APPLICATIONS
+fptest secs=40   # the float library's 88 cases on the soft path AND the 386's FPU ("8087 0"); red on a wrong expectation (soft 1, 8087 1)
+imgtest secs=30   # every os88img decoder case's verdict out of its record; --break goes red on BDOWN.BMP
