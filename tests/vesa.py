@@ -69,6 +69,14 @@ from os88geom import VID_VESA                               # noqa: E402
 SOCK, PIDFILE = os88qemu.paths("vesa")
 
 WANT_W, WANT_H, WANT_BPP = 1024, 768, 16
+if os88qemu.MEGA:
+    # BOCHS'S vgabios lists nothing above 800 x 600 (0100h-0115h and four
+    # 014xh modes; read off the image's vx_list, KERN-MEGA-PLAN 14.115), so
+    # Auto's answer there is 800 x 600 at 16bpp, mode 0114h - the same
+    # choice SPEC.md 120.2.3 makes on any card whose best is that
+    WANT_W, WANT_H = 800, 600
+# the A: and B: icons: desk zone 0, at the desktop's right edge
+ICON_X = WANT_W - 49
 
 
 def kill_stale():
@@ -221,6 +229,9 @@ def white_share(pix, w, x0, y0, x1, y1):
 
 def px(pix, w, x, y):
     i = (y * w + x) * 3
+    if os88qemu.MEGA:           # Bochs's X display widens RGB565's white to
+        return tuple(255 if c >= 248 else c   # (251, 255, 251): the
+                     for c in pix[i:i + 3])   # driver's 0FFFFh all the same
     return pix[i], pix[i + 1], pix[i + 2]
 
 
@@ -265,8 +276,8 @@ def main():
 
         w, h = word(q, "vid_cw"), word(q, "vid_ch")
         if (w, h) != (WANT_W, WANT_H):
-            fails.append("vid_cw x vid_ch %d x %d, want %d x %d (Auto on QEMU's "
-                         "standard VGA, SPEC.md 120.2.3)" % (w, h, WANT_W, WANT_H))
+            fails.append("vid_cw x vid_ch %d x %d, want %d x %d (Auto on this "
+                         "card, SPEC.md 120.2.3)" % (w, h, WANT_W, WANT_H))
         bpp = byte(q, "vid_planes")
         if bpp != WANT_BPP:
             fails.append("vid_planes %d, want %d: the depth is the plane count "
@@ -328,7 +339,7 @@ def main():
                              "come back whole (the restore)")
             # the A: icon at the desktop's right edge (desk zone 0): a Disk
             # window opens on a double-click
-            m.dblclick(975, 45)
+            m.dblclick(ICON_X, 45)
             os88qemu.pace(q, 4.0)
             sw, sh, pix = screendump(q, os.path.join(ROOT, "build", "vesa-shot"))
             if out_png:
@@ -354,7 +365,7 @@ def main():
             # window, so this one draws the chevron band (a pattern fill);
             # the desktop's left margin must be the dither still, every
             # block of it - the runaway covered 64 whole rows
-            m.dblclick(975, 100)
+            m.dblclick(ICON_X, 100)
             os88qemu.pace(q, 5.0)
             sw, sh, pix = screendump(q, os.path.join(ROOT, "build", "vesa-shot"))
             if out_png:
@@ -374,12 +385,12 @@ def main():
             # the transfers that opened two windows (SPEC.md 12.8, 120.5:
             # on a 1024-wide bar the widget sits past the composer's cells
             # and fpg_finish has to erase its band rows itself)
-            left = [(x, y) for y in range(1, 18) for x in range(600, 860, 2)
+            left = [(x, y) for y in range(1, 18) for x in range(WANT_W - 424, WANT_W - 164, 2)
                     if px(pix, sw, x, y) != (255, 255, 255)]
             if left:
                 fails.append("the disk widget's chrome is still on the bar after "
-                             "the transfers: %d non-white pixels between x=600 "
-                             "and 860, first at %r" % (len(left), left[0]))
+                             "the transfers: %d non-white pixels in the widget's band "
+                             "(first at %r)" % (len(left), left[0]))
             if bad:
                 fails.append("B:\\APPS open: the desktop's left margin is not "
                              "the dither on %d row pairs (first at y=%d) - a "
