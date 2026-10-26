@@ -185,3 +185,6 @@ regpin secs=110 @OS88_BOCHS_MEGS=1   # a worker-owning region with no restart po
 regwork secs=100 @OS88_BOCHS_MEGS=1   # ...declared restartable it MOVES, no proc called and the worker RESUMED in place (its frame names a selector), still looping
 trackmove secs=80 @OS88_BOCHS_MEGS=1   # BEVERLY.MOD's 114KB claim MOVES under Tracker's ARM (trackmove.disk(): build/megak/apps/tracker.o88): bytes, blob, 31 sample and the pattern windows (SEG_SUBs) the same paragraphs into it, the replayer alive
 trkcompact secs=140 @OS88_BOCHS_MEGS=1   # ...and Tracker posts the compaction its exact requirement needs, says so, and loads (the ARM, ten instances stacked from the ceiling)
+ringmove-audio secs=70 @OS88_BOCHS_MEGS=1   # the Audio ARM's look-ahead ring moves between plays (Bochs's SB16) and is pinned for one (megafix.arm_disk: covoxlisten720.img with the arms)
+ringmove-tracker secs=70 @OS88_BOCHS_MEGS=1   # Tracker ARM's speaker ring moves idle, pinned while the ISR plays it, CONS moving after
+ringmove-midirack secs=70 @OS88_BOCHS_MEGS=1   # MIDIRack ARM's song, wavetable bank and mix claims move idle; bank and mix pinned while the card plays (mrwt720.img with the arm)
