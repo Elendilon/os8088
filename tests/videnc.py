@@ -987,6 +987,7 @@ def main():
     for scrn, pal, n, box, flip in (
             ("640x400", "grey4", 4, (640, 400), True),
             ("320x240", "grey2", 2, (320, 240), True),
+            ("320x200n", "grey4", 4, (320, 200), True),
             ("640x480", "grey4", 4, (640, 480), False)):
         sv = os.path.join(gtmp, "s%s.V88" % scrn)
         venc.encode(venc.parser().parse_args(

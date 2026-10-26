@@ -190825,8 +190825,8 @@ a whole frame per page.
   so a row's address is y x 40 and nothing else in a record changes. The
   decoder never computes a stride - a record carries addresses - so it
   plays them as it plays every VGA4 file.
-- **Full screen, never flipped every frame** (byte 37 is not 2), never
-  RESIDENT or LIVE, a canvas at most 320 x 200 or 320 x 240.
+- **Full screen**, never RESIDENT or LIVE, a canvas at most 320 x 200 or
+  320 x 240. Flipped every frame since 98.1.3.2.5.1, as 1 and 2 are.
 - **A player before this refuses them at open**: byte 38 past 4 is past
   its table.
 - **The player** (`apps/video/video.asm`, +67 bytes of image) keeps the
@@ -190836,14 +190836,53 @@ a whole frame per page.
   image and the poster's rows (`vp_v4pack`) all follow. Mode 0Dh is the
   mode taken for both, `vp_scrset` writes its own Offset (14h) where the
   other screens get 28h, and screen 6 takes screen 2's 480-line timing.
-  The flipped copy (`vp_lcopy`, `vp_flcw`) is never reached, byte 37 = 2
-  being refused here.
+  The flipped copy (`vp_lcopy`, `vp_flcw`) reads it too since
+  98.1.3.2.5.1.
 - **The encoder**: `--screen 320x200n` or `320x240n`, with `--pages`
-  (98.2.1.8.4) - MAX is eight and six. `--flip` refuses them.
+  (98.2.1.8.4) - MAX is eight and six - and `--flip` (98.1.3.2.5.1).
 - **The gate**: `tests/vidpage.py --pages 8 --screen 320x200n` (and `6
   --screen 320x240n`) - seven scene changes three frames apart, every hold
   the clip, and the CRTC's Offset read at the first hold of each play. With
   the narrow Offset left out it reads 28h and every hold fails.
+
+###### 98.1.3.2.5.1 The NARROW screens flipped (2026-10-26)
+
+**A NARROW file may be flipped every frame** - byte 37 2, its HELD form 6,
+its own-page form 7, and flipped and built ahead, 5 - as screens 1 and 2
+are (98.3.8.2, 98.3.8.5, 98.3.8.7). 98.1.3.2.5 refused it for scope and
+not for a reason: the records carry their addresses and the page flip is
+a start address, so neither cares where a row ends, and what had to
+follow the stride was the back page's bring-up, which was written for
+80-byte rows in three places:
+- **`vp_lcopy`** - the rows copied off the glass through the latches
+  (98.3.8.1), and every COPY of a page built ahead (`vp_pgcopy`) - takes
+  its row from `[vp_lstr]` (80, or a NARROW screen's 40) where it had 80.
+  Mode X's row is 80 there too, so nothing else moves.
+- **`vp_flipdec`'s choice** between the copy and decoding the last record
+  again prices the band as its rows x `[vp_lstr]` x `[vp_flcw]`, which is
+  now `VP_LCW` a BYTE (a test still sets it 0 for the copy every frame).
+- **The encoder's price** of the same copy (`os88venc`'s flip charge, a
+  page-ahead COPY and the calm's copies, 98.2.1.8.5) is rows x the
+  canvas's stride x `lcopy`, where it was x 80.
+
+So a NARROW row costs half a wide one to bring up, and the copy wins the
+choice at twice the band - which is what the screen is for: the user's
+*"those modes need much less data and often less cpu"*. **No format
+change and no new flag**: a player before this one refuses byte 37 2, 5,
+6 or 7 on screen 5 or 6 at open, which is where 98.1.3.2.5 put the
+refusal, so it is the version gate. **-19 bytes of `video.o88`'s image**,
+no bss and no kernel byte. `--flip` takes `--screen 320x200n` and
+`320x240n`; `os88vid --selfcheck` writes a flipped NARROW file and one
+against its own page and reads both back.
+- **The gates**: `tests/vidscreen.py --screen 320x200n --screen 320x240n`
+  (`vidscreenn`), with `--lcopy` (`vidscreennc`: `[vp_flcw]` 0, every back
+  page by the copy) and `--own` (`vidscreenno`), every hold's glass exact
+  on MartyPC's VGA XT; and `tests/vidpage.py --fpage --pages 8 --screen
+  320x200n` and `6 --screen 320x240n` (`vidpagefv8n`, `vidpagefv6n`).
+  Broken on purpose - `vp_lcopy` back on 80-byte rows - `vidscreennc`
+  FAILS from frame 3 (200 to 3,069 pixels a hold), and `vidscreenn` does
+  not: its bring-ups all decode the last record again, which is why the
+  copy has a leg of its own.
 
 #### 98.1.3.3 CGA in colour: CGA4 and C160
 
@@ -197841,8 +197880,9 @@ byte's decode - ESTIMATED: the model prices a run of bytes into the VGA at
 18 cycles (`CYC_SLICE`) and a copy, a VGA read and a write, at ~30
 (`os88venc`'s `CYC_LCOPY`), so a full 180-row band is ~430K cycles where a
 30 KB record's decode is ~600K. The encoder charges a flipped frame the same
-choice. It is the field's number to settle, and `[vp_flcw]` (80 x VP_LCW)
-is a word a test may set 0 to take the copy on every frame.
+choice. It is the field's number to settle, and `[vp_flcw]` (VP_LCW, a byte
+copied's price; a row is `[vp_lstr]` of them since 98.1.3.2.5.1) is a word a
+test may set 0 to take the copy on every frame.
 
 **The copy carries the TEXT BOX too** when the page on the glass has it up
 (98.3.13.1's toast, Pause): `vo_pre` has taken the box off the back page

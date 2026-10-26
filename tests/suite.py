@@ -15009,6 +15009,21 @@ SOAK = [
         "9,600-byte pages, six in a plane, on 0Dh retimed to 480 lines",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
+    Row("vidpagefv8n", "soak", py("tests/vidpage.py", "--pages", "8",
+                                  "--screen", "320x200n", "--fpage"), 75.0,
+        "SPEC.md 98.1.3.2.5.1, 98.3.8.5: vidpagefv4's flipped-and-built-"
+        "ahead clip on the NARROW 320 x 200's eight pages - every frame "
+        "flipped, its back page brought up and its COPY made by vp_lcopy "
+        "on 40-byte rows. Every hold exact from the start, from key 1 and "
+        "with no keys (secs measured beside three other rows)",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidpagefv6n", "soak", py("tests/vidpage.py", "--pages", "6",
+                                  "--screen", "320x240n", "--fpage"), 75.0,
+        "SPEC.md 98.1.3.2.5.1: vidpagefv8n's shape on the NARROW 320 x 240's "
+        "six pages",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
     Row("vidkpart3mx", "soak", py("tests/vidpage.py", "--layout", "modex",
                                   "--pages", "3", "--kpart", "400"), 70.0,
         "SPEC.md 98.1.3.8, 98.3.8.4: vidpage3mx with every key cut into "
@@ -15101,6 +15116,32 @@ SOAK = [
         "page as it stands, the record after a key bringing its page up off "
         "the glass, and the 640 x 480 one unflipped as before. Every hold's "
         "glass exact, odd and even frames apart",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidscreenn", "soak", py("tests/vidscreen.py", "--screen",
+                                 "320x200n", "--screen", "320x240n"), 45.0,
+        "SPEC.md 98.1.3.2.5.1: vidscreen's flipped clip on the two NARROW "
+        "screens - rows 40 bytes apart, 8,000- and 9,600-byte pages - the "
+        "screen, its page and its mode read, the poster, and every hold's "
+        "glass exact, odd and even frames apart",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidscreennc", "soak", py("tests/vidscreen.py", "--screen",
+                                  "320x200n", "--screen", "320x240n",
+                                  "--lcopy"), 45.0,
+        "SPEC.md 98.1.3.2.5.1, 98.3.8.1: vidscreenn with vp_flcw 0, so every "
+        "back page is brought up by the LATCH COPY on 40-byte rows. With "
+        "vp_lcopy back on 80-byte rows it FAILS from frame 3 (200 to 3,069 "
+        "pixels a hold) - and vidscreenn does not, which is why this leg is "
+        "its own row",
+        needs=("marty", "nasm"), serial=True,
+        wants=("build/video.o88",)),
+    Row("vidscreenno", "soak", py("tests/vidscreen.py", "--screen",
+                                  "320x200n", "--screen", "320x240n",
+                                  "--own"), 45.0,
+        "SPEC.md 98.1.3.2.5.1, 98.3.8.7: vidscreenn's clips AGAINST THEIR OWN "
+        "PAGE (byte 37 7) on the NARROW screens, the record after a key "
+        "brought up off the glass by vp_lcopy",
         needs=("marty", "nasm"), serial=True,
         wants=("build/video.o88",)),
     Row("vidcard", "soak", py("tests/vidcard.py"), 26.0,
