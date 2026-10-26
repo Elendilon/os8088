@@ -1082,6 +1082,10 @@ def form_context(values):
                 loop_from=g("loop_from"), layer_disk=g("layer_disk"),
                 layer_profile=g("layer_profile"),
                 page_ahead=g("page_ahead") or "auto",
+                # (the Pages field, read by page-ahead's, the keys' and the
+                # pool's rules - missing, every one of them saw "2", and
+                # Flip greyed Page ahead whatever Pages said)
+                pages=g("pages") or "max",
                 step_down=g("step_down") or "on",
                 ladder=g("ladder"), fps=g("fps") or imp.get("fps", ""),
                 # (VERSION 2's: what Blocks greys, and is greyed by)

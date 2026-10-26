@@ -933,6 +933,26 @@ def ladder_leg(bad):
                                            wv4.get("coarse_cut"),
                                            whg.get("coarse_cut"),
                                            wmx.get("scene_min")))
+    # FLIPPED AND BUILT AHEAD (98.2.1.8.5) IS FLIP AND PAGE AHEAD ON 3 PAGES
+    # OR MORE: with Flip on, Page ahead - and the keys' and the pool's - is
+    # live at Pages max and 6 and greyed at 2, on a NARROW screen
+    # (98.1.3.2.5.1) and a wide one. form_context once left Pages out, so
+    # every rule read "2" and Flip greyed Page ahead whatever Pages said
+    fpa = {}
+    for scr in ("320x240n", "320x200"):
+        for pg in ("max", "6", "2"):
+            _, w = G.group_state(dict(base, preset="vga4", pixfmt="vga4",
+                                      audio="pcm8", screen=scr, flip="1",
+                                      page_ahead="on", pages=pg))
+            fpa[scr, pg] = tuple(w.get(d) is None for d in
+                                 ("page_ahead", "page_keys", "key_pool"))
+    print("   18: Flip with Page ahead live (ahead, keys, pool) - %s" %
+          ", ".join("%s %s %s" % (sc, pg, "".join("+" if x else "-"
+                                                  for x in v))
+                    for (sc, pg), v in fpa.items()))
+    if any(v != ((True,) * 3 if pg != "2" else (False,) * 3)
+           for (sc, pg), v in fpa.items()):
+        bad.append("Flip's page-ahead greying: %r" % fpa)
     # WHAT EACH LIST OFFERS FOLLOWS THE FILE (2026-10-17, the owner: "only
     # what it actually supports... and not force the user to guess it")
     lists = lambda vals: {d: r(G.form_context(vals))
