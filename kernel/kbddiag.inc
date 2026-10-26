@@ -159,8 +159,8 @@ kbg_pre:
 .na:
 %endif
 %ifdef KBD_I15
-    cmp byte [kbm_nopeek], 0    ; bit 3: SPEC.md 9.7.2's int 15h AH=4Fh path,
-    je .n4                      ; so KR_DAT is the byte the ROM HANDED us and
+    cmp byte [kbm_ivec], 0x54   ; bit 3: SPEC.md 9.7.2's int 15h AH=4Fh path,
+    jne .n4                     ; so KR_DAT is the byte the ROM HANDED us and
     or al, 8                    ; not a re-read of port 60h
 .n4:
 %endif
@@ -185,8 +185,8 @@ kbg_post:
     push es
     mov bx, [kbg_cur]
 %ifdef KBD_I15
-    cmp byte [kbm_nopeek], 0    ; SPEC.md 9.7.2: kbg_4f already has the byte,
-    jne .nore                   ; and on an 8042 that loads its NEXT byte on a
+    cmp byte [kbm_ivec], 0x54   ; SPEC.md 9.7.2: kbg_4f already has the byte,
+    je .nore                    ; and on an 8042 that loads its NEXT byte on a
 %endif                          ; read, a re-read would take that one
     in al, 0x60                 ; the byte the ROM just took: a re-read
     mov [bx+KR_DAT], al
@@ -217,7 +217,7 @@ kbg_post:
 
 %ifdef KBD_I15
 ; -----------------------------------------------------------------------------
-; kbg_4f - kbm_scan's head: AL = the scancode it was handed (the ROM's, on
+; kbg_4f - kbm_i15's, KBDDIAG=1 only: AL = the scancode it was handed (the ROM's, on
 ; SPEC.md 9.7.2's path). DS = KERNEL_SEG; every register preserved
 ; -----------------------------------------------------------------------------
 kbg_4f:

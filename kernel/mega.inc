@@ -193,6 +193,25 @@ mega_enter:
     mov [mega_old08], ax            ; reflection's IVT...
     mov [mega_old08+2], es
     les ax, [kbm_old9]
+%ifdef KBD_I15
+    ; ...UNLESS mouse_init hooked int 15h AH=4Fh instead (SPEC.md 9.7.2):
+    ; then kbm_old9 is the ROM's int 15h, which goes back in the IVT here - a
+    ; reflection runs the BIOS's int 09h on that IVT, and its 4Fh must not
+    ; land in kbm_i15, whose KDS would load a protected-mode selector - and
+    ; the ROM's int 09h is the IVT's own, never hooked. [kbm_ivec] becomes
+    ; int 09h's, which is what kbm_old9 names from mega_pmtail on
+    cmp byte [kbm_ivec], 0x54
+    jne .k9
+    push es
+    push ax
+    xor ax, ax
+    mov es, ax
+    pop word [es:0x54]
+    pop word [es:0x56]
+    les ax, [es:0x24]
+    mov byte [kbm_ivec], 0x24
+.k9:
+%endif
     mov [mega_old09], ax
     mov [mega_old09+2], es
     push ds
@@ -1067,14 +1086,11 @@ mega_pit:
 mega_k09:
     pusha
     push ds
-    mov ax, MEGA_BDA
-    mov ds, ax
-    in al, 0x60
-    call KERNEL_SEG:kbm_scanf       ; THE ONE READ, and the key-state map and
-                                    ; keypad 5 are told what it got: kbm_isr
-                                    ; reads nothing here (SPEC.md 9.7.2), so an
-                                    ; emulated 8042 that loads its next byte on
-                                    ; a read cannot lose one. AL preserved
+    push MEGA_SEL_KDATA             ; NOT port 60h: kbm_isr, the IDT's IRQ1
+    pop ds                          ; gate, read it already and left the byte
+    mov al, [kbm_kbyte]             ; here (SPEC.md 9.7.2) - one read, so an
+    push MEGA_BDA                   ; emulated 8042 that loads its next byte
+    pop ds                          ; on a read cannot lose one
     cmp al, 0xE0
     jne .note0
     or byte [0x96], 0x02            ; the ROM's own E0 flag (40:96 bit 1)
@@ -9337,17 +9353,6 @@ mega_pmtail:
     mov [es:0x09*4], ax
     mov ax, [mega_old09+2]
     mov [es:0x09*4+2], ax
-    ; ...AND INT 15h, the ROM's again (SPEC.md 9.7.2). A reflection runs the
-    ; BIOS in real mode on this IVT, and the BIOS's own int 09h then calls int
-    ; 15h AH=4Fh - which must not land in kbm_i15, whose KDS loads the
-    ; protected-mode selector out of k_dsel. Unconditional: kbm_old15 is what
-    ; mouse_init FOUND, hooked or not. From here on mega_k09 reads port 60h
-    ; and hands the byte to kbm_scanf itself, so kbm_isr reads nothing
-    mov ax, [kbm_old15]
-    mov [es:0x15*4], ax
-    mov ax, [kbm_old15+2]
-    mov [es:0x15*4+2], ax
-    mov byte [kbm_nopeek], 1
     push ds                         ; ...and a COPY of IVT 08h-0Fh at 20h-27h:
     push cx                         ; the 8259 stays at its protected-mode base
     push es                         ; through every reflection (mega_svc), so

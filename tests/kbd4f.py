@@ -20,8 +20,9 @@ QEMU by name, on CLAUDE.md's closed list (entry 4, an 8042): MartyPC is an
 WHAT IT ASSERTS, with the map ARMED (poked, exactly what `kbd_down`'s first
 call does):
 
-  [kbm_nopeek] = 1      SeaBIOS advertises 4Fh (feature byte 1 bit 4), so the
-                        kernel stopped peeking BEFORE the first keystroke
+  int 15h = kbm_i15     SeaBIOS advertises 4Fh (feature byte 1 bit 4), so the
+  int 09h = the ROM's   kernel hooked int 15h INSTEAD of int 09h, before the
+                        first keystroke: the ROM's read is the only one
   (a) 'a' down+up in ONE input-send-event: exactly one keystroke, 1E61, and
       the map back up; then 's' and 'd' down in one event: both stored, both
       bits set, and both up in one event: nothing stored, both bits clear
@@ -41,7 +42,7 @@ taken is still counted. Nothing here is a time: every wait is the guest's own
 state, budgeted in guest seconds (os88qemu.acted).
 
 THE RED ARM is the kernel before SPEC.md 9.7.2: (a) stores nothing for the
-batched 'a', (b) stores 4B00 twice, and [kbm_nopeek] is not a symbol at all.
+batched 'a', (b) stores 4B00 twice, and int 09h is kbm_isr's.
 """
 import os
 import socket
@@ -183,14 +184,19 @@ def main():
         armed, dmap = sym("kbd_armed"), sym("kbd_dnmap")
         ae = sym("kbd_ae")
         try:
-            nopeek = sym("kbm_nopeek")
+            i15 = sym("kbm_i15") - 0x600        # KERNEL_SEG's offset
         except Exception:
-            nopeek = None
-        check(nopeek is not None and q.read(nopeek, 1)[0] == 1,
-              "[kbm_nopeek] = 1 before any key: the ROM's int 15h AH=4Fh "
-              "is the reader (%s)" % ("no such symbol - the peeking kernel"
-                                      if nopeek is None else
-                                      "%d" % q.read(nopeek, 1)[0]))
+            i15 = None
+        v9, v15 = q.read(0x24, 4), q.read(0x54, 4)
+        seg9 = v9[2] | (v9[3] << 8)
+        off15, seg15 = v15[0] | (v15[1] << 8), v15[2] | (v15[3] << 8)
+        check(i15 is not None and (seg15, off15) == (0x60, i15)
+              and seg9 != 0x60,
+              "int 15h is KERNEL_SEG:kbm_i15 and int 09h is the ROM's, before "
+              "any key: the ROM's AH=4Fh call is the only reader "
+              "(int 09h %04X:%04X, int 15h %04X:%04X%s)"
+              % (seg9, v9[0] | (v9[1] << 8), seg15, off15,
+                 ", no kbm_i15 - the peeking kernel" if i15 is None else ""))
 
         # ARM the map - what kbd_down's first call does (SPEC.md 9.7)
         os88qemu.poke(q.hmp, dmap, bytes(16))

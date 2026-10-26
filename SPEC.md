@@ -15541,121 +15541,118 @@ it.
 **The contract** (`kernel/mouse.inc`, kern_big and so kern_emu and kern_mega;
 `KBD_I15` in `kernel.asm`):
 
-- **`mouse_init` asks the ROM first** (boot overlay, before either vector is
-  ours): `int 15h` AH=C0h, and where it answers `CF` = 0 *and* `AH` = 0 - IBM's
-  contract for a table - with feature byte 1 bit 4 set (*"int 09h calls int
-  15h AH=4Fh"*), `[kbm_nopeek]` = 1 **before the first keystroke**. SeaBIOS -
-  QEMU's and v86's - sets it. An XT-class ROM has no such service and answers
-  `CF` = 1 (the 5150's cassette code says AH = 80h, an XT's 86h).
-- **`mouse_init` then hooks `int 15h` beside `int 09h`**, in the same critical
-  section, **on every machine this kernel boots**, and **banks the vector it
-  found in `kbm_old15` whatever happens** - so `mouse_unhook` puts it back with
-  no flag. The two banks are four `movsw`s into `kbm_old9` and the
-  `kbm_old15` that follows it.
-- **`kbm_i15`** chains every `AH` but 4Fh to `kbm_old15` untouched (the flags
-  as its compare left them, which is what every `int 15h` chain does: the ROM
-  answers in its own flags or the frame's). On 4Fh it sets `[kbm_nopeek]` -
-  **the call is the second signal**, so a clone that calls 4Fh without
-  advertising it stops being peeked from its second keystroke - and runs
-  `kbm_scan` on `AL`: the key-state map's `kbd_track` (§9.7, §9.7.1) and
-  §9.6.4's keypad-5 test, ONE body (`KBM_SCAN`) with the peek's. It chains
-  with `AX` as it came, so **nothing is translated and nothing is
+- **`mouse_init` asks the ROM** (boot overlay, before either vector is ours):
+  `int 15h` AH=C0h. A table returned with `CF` = 0 *and* `AH` = 0 - IBM's
+  contract - whose feature byte 1 has bit 4 set (*"int 09h calls int 15h
+  AH=4Fh"*) is a yes. SeaBIOS - QEMU's and v86's - says yes. An XT-class ROM
+  has no such service and answers `CF` = 1 (the 5150's cassette code says
+  AH = 80h, an XT's 86h).
+- **It then hooks ONE vector, never both**: `int 15h` (`kbm_i15`) on a yes,
+  `int 09h` (`kbm_isr`, the peek) on a no. `[kbm_ivec]` says which (24h or
+  54h) and `kbm_old9` holds that vector's old value, which is the chain both
+  entries end in. On a yes `kbm_isr` is not in the int 09h chain at all, so
+  nothing reads port 60h but the ROM; on a no - every XT - the IVT is exactly
+  the kernel before this.
+- **`kbm_i15` is `kbm_isr` with the port read taken out.** Every `AH` but 4Fh
+  jumps straight to `kbm_isr`'s own `jmp far [cs:kbm_old9]`, flags as its
+  compare left them (what every `int 15h` chain does: the ROM answers in its
+  own flags or the frame's). On 4Fh it builds `kbm_isr`'s frame and head -
+  `push ax`/`push ds`/`KDS`, then the two jobs that read no port,
+  `sch_wake_ui` (§8.1.2.2) and `kbd_ovflow` (§9.8; 4Fh comes between the
+  ROM's read and its store, which is exactly where the guard must run) - and
+  jumps to `kbm_isr.scan`, the one scan body (`KBM_SCAN`: `kbd_track` for
+  §9.7 and §9.7.1, then §9.6.4's keypad-5 test), whose tail is `kbm_isr`'s.
+  `AX` reaches the ROM as it came, so **nothing is translated and nothing is
   swallowed**: the ROM's own `CF` is the one its int 09h acts on, and keypad 5
-  still only sets `[kbm_p5]`, exactly as the peek did - a BIOS that delivers
-  keypad 5 delivers it and `kbm_key`'s guard keeps one press from being two.
-- **`kbm_isr` reads no port once `[kbm_nopeek]` is set** - not 60h and not
-  the 8042's status at 64h (§9.6.6's aux test is moot: the ROM calls 4Fh for
-  keyboard bytes). It still wakes the UI task, still runs `kbd_ovflow`
-  (§9.8), neither of which reads a port, and still chains to the ROM.
+  still only sets `[kbm_p5]` - a BIOS that delivers keypad 5 delivers it and
+  `kbm_key`'s guard keeps one press from being two.
 
-**THE TABLE AND THE CALL, and neither alone.** The table is what makes the
-first keystroke safe: a kernel that learnt only from being called still
-peeked the byte that taught it, which on QEMU was the first keystroke of the
-session - lost, or doubled - and that is the keystroke a harness sends first.
-The call is what covers a ROM whose table understates it. A table that
-OVERSTATES - bit 4 set and no 4Fh ever made - would leave the map and keypad 5
-deaf on that machine; it is a claim about the ROM the kernel takes at its
-word, and no ROM tried makes it falsely.
+**A ROM that calls 4Fh without advertising it** keeps the peek, which is the
+behaviour before this and is correct on its own 8042 unless that 8042 is
+emulated. **A table that OVERSTATES** - bit 4 set and no 4Fh ever made -
+would leave the map and keypad 5 deaf on that machine: it is a claim about the
+ROM the kernel takes at its word, and no ROM tried makes it falsely. An
+earlier build of this section hooked both vectors and also learnt from the
+first call it saw; it peeked the keystroke that taught it, which on QEMU was
+the first keystroke of the session - lost or doubled - and it cost a flag and
+a gate in `kbm_isr` on every machine. One vector, decided once, is both
+smaller and exact.
 
 **The boot overlay had no room for the question**, and what paid for it is
 worth saying because none of it is a feature: on kern_big `.ovl` sat 6 bytes
-under its ceiling (§2.5.3) and the blob 9 under its own. The question and the
-hook took 47 bytes there, and five refactors gave back all but four of them without changing
-an answer - the live serial ports are counted as the probe finds them instead
-of by a second walk of `mou_bases` (§9.5's count; 15 bytes), the `int 09h`
-hook stopped reloading an `ES` that was already 0 (4), `mou_p2_init`'s
-no-auxiliary-port arm WAS its failure arm byte for byte and is now that arm
-(16 with its trampoline, §9.9), `cpu_detect` loads each verdict ahead of the
-jump that takes it (4), and the vector banks are `movsw`s (4). On kern_small,
-where `mouse_init` is blob code and there is no PS/2 half, the count fold is
-**19 bytes off `.boot2`** and `cpu_detect` **4 off `.ovl`**, and its resident
-kernel is unchanged but for the one `.text` byte that names the blob's length
-(`kbld_blob`, §57.6).
+under its ceiling (§2.5.3) and the blob 9 under its own. Four refactors that
+change no answer made the room - the live serial ports are counted as the
+probe finds them instead of by a second walk of `mou_bases` (§9.5's count; 15
+bytes), the `int 09h` hook stopped reloading an `ES` that was already 0 (4),
+`mou_p2_init`'s no-auxiliary-port arm WAS its failure arm byte for byte and
+is now that arm (16 with its trampoline, §9.9), and `cpu_detect` loads each
+verdict ahead of the jump that takes it (4) - and `.ovl` ends 4 bytes SMALLER
+than before (5,114 -> 5,110). On kern_small, where `mouse_init` is blob code
+and there is no PS/2 half, the count fold is **19 bytes off `.boot2`** and
+`cpu_detect` **4 off `.ovl`**, and its resident kernel is unchanged but for
+the one `.text` byte that names the blob's length (`kbld_blob`, §57.6).
 
-**An XT ROM never calls 4Fh** - the 5150's `int 15h` is the cassette and
-answers everything else `CF` = 1 - so there `kbm_i15` chains every call it
-ever sees, `[kbm_nopeek]` stays 0 and the peek, free on an 8255, is what runs.
-The vector is hooked there too, which costs one compare per `int 15h` and
-changes no answer.
+**EVERY PLACE THE KERNEL GIVES `int 09h` BACK GIVES BACK THE ONE IT HOOKED**,
+because `kbm_i15` is a `KERNEL_SEG` offset just as `kbm_isr` is (§9.6.5's
+freeze one vector along):
 
-**EVERY PLACE THE KERNEL GIVES `int 09h` BACK GIVES `int 15h` BACK**, because
-`kbm_i15` is a `KERNEL_SEG` offset just as `kbm_isr` is (§9.6.5's freeze one
-vector along):
-
-| site | what it does with `int 15h` |
+| site | what it does |
 |---|---|
-| `mouse_unhook` | restores `kbm_old15` beside `kbm_old9`, unconditionally |
+| `mouse_unhook` | puts `kbm_old9` back at `[kbm_ivec]` - int 09h or int 15h, whichever was hooked |
 | Restart, `int 19h` (§20.10), hibernate step 7 (§87.4), `hbm_bye` | through `sched_unhook` → `mouse_unhook` |
 | the DOS handoff (§96.40.2 step 6) | `hbm_kd mouse_unhook`, before `kern_dos` loads - so `kdx_init` (§96.15.4) banks the ROM's own vector for its filter |
-| a resume from hibernation (§87.5) and DOS's live resume (§96.49) | nothing to do: the stub puts the IMAGE's IVT back, whose `int 15h` is `kbm_i15` with the image's `kbm_old15` - the same machine's ROM, exactly as `int 09h` |
-| kern_mega entering protected mode (`mega_pmtail`) | the IVT gets `kbm_old15` back and `[kbm_nopeek]` = 1. A reflected BIOS call runs the ROM's int 09h on that IVT, and its 4Fh must reach the ROM - `kbm_i15`'s `KDS` would load a protected-mode selector in real mode. In protected mode `mega_k09` reads port 60h itself and hands the byte to `kbm_scanf`, so `kbm_isr` reads nothing there either; `mouse_unhook` later writes the same ROM vector back |
+| a resume from hibernation (§87.5) and DOS's live resume (§96.49) | nothing to do: the stub puts the IMAGE's IVT back, whose hooked vector and `kbm_old9` are that same machine's, exactly as before |
+| kern_mega entering protected mode (`mega_enter`) | on a machine hooked at int 15h, the ROM's int 15h goes back in the IVT - a reflection runs the BIOS's int 09h on that IVT, and its 4Fh must not land in `kbm_i15`, whose `KDS` would load a protected-mode selector in real mode - `mega_old09` is taken from the IVT's own (never hooked) int 09h, and `[kbm_ivec]` becomes 24h, which is what `kbm_old9` names from `mega_pmtail` on. In protected mode `kbm_isr` is the IDT's IRQ1 gate whatever the IVT holds, and with `[mega_on]` set it ALWAYS reads port 60h - the only read - and leaves the byte in `kbm_kbyte` for `mega_k09`, the ROM half it chains to, which reads that instead of the port |
 | kern_mega's DOS route (`megados.inc`) | the IVT's `int 15h` is already the ROM's |
-| a stale vector | a restart that skipped `mouse_unhook` would bank `kbm_i15` as its own predecessor - and `mouse_init`'s own C0h question would then jump to itself. `mouse_unhook` makes that unreachable, as §9.6.5 does for `int 09h`; there is no run-time guard |
+| a stale vector | a restart that skipped `mouse_unhook` would bank `kbm_i15` as its own predecessor - and `mouse_init`'s own C0h question would jump to itself. `mouse_unhook` makes that unreachable, as §9.6.5 does for `int 09h`; there is no run-time guard |
 
-**`KBDDIAG=1`** (§9.8.1) gains bit 3 of `x` - the ROM hands the byte over -
-and in that mode `60` is the byte `kbm_scan` was given rather than a re-read
-of port 60h, which on an 8042 of this kind would take the *next* byte.
+**`KBDDIAG=1`** (§9.8.1): on a machine hooked at int 15h the `I` row is
+written at the ROM's 4Fh call - `kbm_i15` calls `kbg_pre` and records the byte
+it was handed - with `x` bit 3 set, and `60` is that byte rather than a re-read
+of port 60h, which on an 8042 of this kind would take the *next* one.
 
-**What the 4Fh path puts on a stack**: `kbm_i15`'s two pushes and its call,
-then `kbd_track`'s (§9.7) - 16 bytes on top of the `int 15h` frame's 6,
-inside the ROM's int 09h and so on whatever stack that runs on (the
-interrupted task's on an IBM AT ROM; SeaBIOS's IRQ handlers have a stack of
-their own). The peek spent 14 at `kbm_isr`'s head and popped them before the
-ROM ran, so on an AT ROM the keyboard's share of an interrupted slice moves
-from `kbm_isr`'s depth to the ROM's depth at its `int 15h` plus 22. ESTIMATED,
-not measured on a period AT ROM (§8.7's floor is cut from field machines).
+**What the 4Fh path puts on a stack**: `kbm_i15`'s two pushes, then
+`kbd_track`'s (§9.7) and `kbd_ovflow`'s - about 14 bytes on top of the
+`int 15h` frame's 6, inside the ROM's int 09h and so on whatever stack that
+runs on (the interrupted task's on an IBM AT ROM; SeaBIOS's IRQ handlers have
+a stack of their own). The peek spent the same 14 at `kbm_isr`'s head and
+popped them before the ROM ran, so on an AT ROM the keyboard's share of an
+interrupted slice moves from `kbm_isr`'s depth to the ROM's depth at its
+`int 15h` plus ~20. ESTIMATED, not measured on a period AT ROM (§8.7's floor
+is cut from field machines).
 
 **kern_small does not carry it.** It is the 128KB floor build, an 8088's,
-whose 8255 the peek is provably free on and whose ROM has no 4Fh to call;
-an AT that boots it with a real 8042 is correct under the peek (§9.6.4), and
-the machines whose 8042 is not - QEMU, v86 - run kern_big or kern_emu. Its
-price there, measured by building kern_small with `KBD_I15` defined, is in
-the cost line below.
+whose 8255 the peek is provably free on and whose ROM has no 4Fh to call; an
+AT that boots it with a real 8042 is correct under the peek (§9.6.4), and the
+machines whose 8042 is not - QEMU, v86 - run kern_big or kern_emu. Its price
+there is in the table below.
 
 **Cost**, measured by building each kernel against the tree before it
-(`tools/kernsize.py`, symbol spans off the map):
+(`tools/kernsize.py`, symbol spans off the map) - after a size pass that took
+the first version's `.text` +58 to +20:
 
 | kernel | resident | boot only |
 |---|---|---|
-| kern_big (and kern_emu) | **`.text` +58**: `kbm_i15` 24, `kbm_scan` 35 with `[kbm_nopeek]` beside it for parity, `kbm_old15` 4, `mouse_unhook` +13 and a 1-byte parity pad, `kbm_isr` **-20** (its inline scan became a call); `.bss` +0, `.cold` +0. No rung crossed (`KERN_SIZE` 97,280 either way) | `.ovl` +4 of 5,120 (5,118), `.boot2` +0 |
-| kern_mega | `.text` +74 (its `KDS` is 5 bytes where kern_big's is 2, and `kbm_scanf` is 13); `.mega` +24 (`mega_pmtail`'s IVT restore and flag, `mega_k09`'s far call) | `.ovl` +4 |
+| kern_big (and kern_emu) | **`.text` +20**: `kbm_i15` 17 and a 1-byte parity pad, `[kbm_ivec]` 2, `kbm_isr` +2 (the scan tests `[kbd_armed]` itself, since `kbm_i15` arrives with AH = 4Fh), `mouse_unhook` **-2** (its two saved-dword restores share `mou_vsetm`); `.bss` +0, `.cold` +0, no rung crossed | `.ovl` **-4** (5,110), `.boot2` +0 |
+| kern_mega | `.text` +66 (`kbm_i15`'s `KDS` is 5 bytes where kern_big's is 2, the protected-mode gate and `kbm_kbyte`, and `mega_enter`'s int 15h give-back); `.mega` +2 (`mega_k09` takes `kbm_kbyte` instead of reading the port) | `.ovl` -4 |
 | kern_small | **+0**: `.text`, `.bss`, `.cold` the same lengths and the same bytes but `kbld_blob`'s | `.boot2` **-19**, `.ovl` -4 |
-| kern_small *with* `KBD_I15` (not built) | `.text` +58, and `KERN_SIZE` 59,904 -> 60,416: it crosses the image rung, which had 27 bytes | `.boot2` +44 |
+| kern_small *with* `KBD_I15` (not built) | `.text` +24, `KERN_SIZE` unchanged (59,904) | `.boot2` +36 |
 
-Rungs are not the point; the 58 bytes are, and what they buy is a keyboard
+Rungs are not the point; the 20 bytes are, and what they buy is a keyboard
 that an emulated or SMM-emulated 8042 cannot take keys from.
 
 `tests/kbd4f.py` (`soak -k kbd4f`) is the gate, on QEMU by the closed list's
-entry 4 (an 8042), with the map armed: `[kbm_nopeek]` = 1 before any key; a
-press and its release batched into ONE `input-send-event` stored once
-(`1E61`); two makes batched stored once each (`1F73 2064`) with both bits
-down; grey Left stored exactly once, in the E0 form only a ROM that saw the
-prefix gives (SeaBIOS's `4BE0`); and Alt+Enter with both makes batched stops
-at `kbd_track.latch` with `AL` = 1Ch (a GDB breakpoint, `ui_task` spending
-`[kbd_ae]` within a pass) and is stored once as `1CF0`. **On the kernel before
-this, the same row reads**: nothing for the batched `a`, `2064 2064`,
-`4B00 4B00`, and nothing at all for Alt+Enter. MartyPC's 8255 rows
-(`altenter`, `dosaltenter`, `kbdburst`, `kdkbd`, ...) keep the peek.
+entry 4 (an 8042), with the map armed: int 15h is `KERNEL_SEG:kbm_i15` and
+int 09h the ROM's before any key; a press and its release batched into ONE
+`input-send-event` stored once (`1E61`); two makes batched stored once each
+(`1F73 2064`) with both bits down; grey Left stored exactly once, in the E0
+form only a ROM that saw the prefix gives (SeaBIOS's `4BE0`); and Alt+Enter
+with both makes batched stops at `kbd_track.latch` with `AL` = 1Ch (a GDB
+breakpoint, `ui_task` spending `[kbd_ae]` within a pass) and is stored once
+as `1CF0`. **On the kernel before this, the same row reads**: int 09h
+`0060:2C8D`, nothing for the batched `a`, `2064 2064`, `4B00 4B00`, and
+nothing at all for Alt+Enter. MartyPC's 8255 rows (`altenter`,
+`dosaltenter`, `kbdburst`, `kdkbd`, ...) keep the peek.
 
 ### 9.8 The overrun guard — a full BIOS buffer is a HANG, not a beep
 

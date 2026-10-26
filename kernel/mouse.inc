@@ -663,22 +663,22 @@ mouse_init:
     BLOBMARK 41
 %ifdef KBD_I15
     ; --- does this ROM's int 09h hand its byte to int 15h AH=4Fh? ------------
-    ; SPEC.md 9.7.2: the configuration table's feature byte 1, bit 4. A yes
-    ; means kbm_isr never reads port 60h, from the FIRST keystroke on; a no
-    ; leaves kbm_i15 to find out by being called. Asked BEFORE either vector
-    ; below is ours, so this is the ROM answering. An XT-class ROM has no such
-    ; service and answers CF = 1 (the 5150's cassette code, AH = 80h; an XT's,
-    ; 86h); IBM's contract for a table is CF = 0 AND AH = 0. ES and BX are the
-    ; block below's to load, so neither needs keeping
+    ; SPEC.md 9.7.2: the configuration table's feature byte 1, bit 4, into DL
+    ; (10h yes, 0 no) for the int 09h block below, which is the only reader -
+    ; DX is untouched between here and there. Asked BEFORE either vector is
+    ; ours, so this is the ROM answering. An XT-class ROM has no such service
+    ; and answers CF = 1 (the 5150's cassette code, AH = 80h; an XT's, 86h);
+    ; IBM's contract for a table is CF = 0 AND AH = 0. ES and BX are the block
+    ; below's to load, so neither needs keeping
     mov ah, 0xC0
     stc
     int 0x15
+    mov dl, 0                   ; (a mov leaves CF alone)
     jc .no4f
     or ah, ah
     jnz .no4f
-    test byte [es:bx+5], 0x10
-    jz .no4f
-    mov byte [kbm_nopeek], 1
+    mov dl, [es:bx+5]
+    and dl, 0x10
 .no4f:
 %endif
     ; --- save each present port's old vector, install ours -------------------
@@ -729,38 +729,31 @@ mouse_init:
     mov ax, [es:0x26]
     mov [kbm_old9+2], ax
 %else
-    ; ...AND INT 15h, FOR AH=4Fh (SPEC.md 9.7.2), whose vector is banked
-    ; WHATEVER HAPPENS so that mouse_unhook's restore needs no flag. Hooked on
-    ; every machine this kernel boots: an XT ROM never calls 4Fh, so there it
-    ; chains every call untouched and the peek stays. Both banks are four
-    ; MOVSWs into kbm_old9 and the kbm_old15 beside it, with DS and ES
-    ; swapped for the copy - four bytes under the four MOVs a vector, which
-    ; the boot overlay needed (it was at its ceiling)
-    push ds
-    push es
-    pop ds                      ; DS = 0...
-    pop es                      ; ...ES = KERNEL_SEG
-    push di
-    cld
+    ; ...OR INT 15h, FOR AH=4Fh (SPEC.md 9.7.2): ONE of the two is hooked,
+    ; and the one it is goes in [kbm_ivec] and its old vector in kbm_old9,
+    ; which is the chain both entries end in. int 15h where the ROM said its
+    ; int 09h calls 4Fh (DL above), so the ROM's own read is the only read and
+    ; kbm_isr is not in that chain at all; int 09h everywhere else - the peek,
+    ; exactly as it was, so an XT's IVT is the kernel before 9.7.2's
     mov si, 0x24
-    mov di, kbm_old9
-    movsw
-    movsw                       ; DI = kbm_old15
+    mov ax, kbm_isr
+    or dl, dl
+    jz .hook9
     mov si, 0x54
-    movsw
-    movsw
-    pop di
-    push ds
-    push es
-    pop ds                      ; DS = KERNEL_SEG again
-    pop es                      ; ...and ES = 0
-    mov word [es:0x54], kbm_i15
+    mov ax, kbm_i15
+    mov [kbm_ivec], si
+.hook9:
+    mov cx, [es:si]             ; the vector found, saved for the chain - and
+    mov [kbm_old9], cx          ; for mouse_unhook, which puts back
+    mov cx, [es:si+2]           ; [kbm_ivec] from it
+    mov [kbm_old9+2], cx
+    mov [es:si], ax
+    mov word [es:si+2], KERNEL_SEG ; not `cs` - see the int 0Ch/0Bh hook above
 %endif
+%ifndef KBD_I15
     mov word [es:0x24], kbm_isr
     mov ax, KERNEL_SEG          ; not `cs` - see the int 0Ch/0Bh hook above
     mov [es:0x26], ax
-%ifdef KBD_I15
-    mov [es:0x56], ax
 %endif
     popf
 
@@ -1512,9 +1505,14 @@ mouse_unhook:
     cmp byte [mou_p2st], 8
     jb .nop2
     mov si, MOU_P2VEC
+%ifdef KBD_I15
+    mov bx, mou_p2old           ; (mou_vsetm: SPEC.md 9.7.2's size pass)
+    call mou_vsetm
+%else
     mov ax, [mou_p2old]
     mov cx, [mou_p2old+2]
     call mou_vset
+%endif
 .nop2:
 %endif
 
@@ -1537,22 +1535,21 @@ mouse_unhook:
     ; is a tight loop inside an interrupt gate, so IF is 0, IRQ1 is in service
     ; with no EOI coming, and the machine stops dead with the picture it had.
     ; The first key pressed after a soft restart ended the session.
+%ifndef KBD_I15
     mov si, 0x24
     mov ax, [kbm_old9]
     mov cx, [kbm_old9+2]
     call mou_vset
-%ifdef KBD_I15
-    ; --- ...AND INT 15h, THE SAME RULE FOR THE SAME REASON (SPEC.md 9.7.2) ---
-    ; kbm_i15 is a KERNEL_SEG offset too, so the vector left behind is the
-    ; next owner's code: kern_dos at the DOS handoff (whose own int 15h filter
-    ; banks what it finds there), the fresh kernel after int 19h. Unconditional
-    ; - mouse_init banks the vector whether or not it hooked it - and on
-    ; kern_mega in protected mode kbm_old15 is still the ROM's, the IVT having
-    ; been given it back at mega_pmtail
-    mov si, 0x54
-    mov ax, [kbm_old15]
-    mov cx, [kbm_old15+2]
-    call mou_vset
+%else
+    ; ...OR INT 15h, THE SAME RULE FOR THE SAME REASON (SPEC.md 9.7.2):
+    ; whichever mouse_init hooked, [kbm_ivec] names it. kbm_i15 is a
+    ; KERNEL_SEG offset too, so a vector left behind is the next owner's code:
+    ; kern_dos at the DOS handoff (whose own int 15h filter banks what it finds
+    ; there), the fresh kernel after int 19h. On kern_mega in protected mode
+    ; it is int 09h's again (mega_enter), as it always was there
+    mov si, [kbm_ivec]
+    mov bx, kbm_old9
+    call mou_vsetm
 %endif
 
     pop es
@@ -1561,10 +1558,16 @@ mouse_unhook:
                                 ; (no PARITY pad: serial's five bytes above
                                 ; are evened by mou_claim's -1, kernel size
                                 ; pass 14)
-%ifdef KBD_I15
-    nop                         ; PARITY PAD, never executed: the int 15h
-%endif                          ; restore above is 13 bytes (SPEC.md 9.7.2)
 
+%ifdef KBD_I15
+; mou_vsetm - mou_vset with the vector's new value at DS:BX rather than in
+; CX:AX: two of mouse_unhook's restores are a saved dword, and four bytes of
+; load at each site is a call's worth of bytes (SPEC.md 9.7.2's size pass).
+; Falls into mou_vset; AX and CX are lost
+mou_vsetm:
+    mov ax, [bx]
+    mov cx, [bx+2]
+%endif
 ; mou_vset - ES:SI = CX:AX, the one IVT write the three restores above share,
 ; under pushf/cli so no interrupt can take the vector half-written.
 ; in: ES:SI = the vector, CX:AX = segment:offset.  preserves everything
@@ -2888,16 +2891,22 @@ mou_clamp:
 ; -----------------------------------------------------------------------------
 KBM_5SCAN   equ 0x4C            ; the keypad's centre key, make code
 
-; KBM_SCAN exit - ONE SCANCODE, WHEREVER IT CAME FROM: AL = the byte the
-; keyboard sent, AH = [kbd_armed], DS = KERNEL_SEG; AX and the flags are the
+; KBM_SCAN exit[, mem] - ONE SCANCODE, WHEREVER IT CAME FROM: AL = the byte
+; the keyboard sent, AH = [kbd_armed] (or, with `mem`, the byte itself is
+; tested and AH is not read), DS = KERNEL_SEG; AX and the flags are the
 ; caller's to lose, and every path leaves at `exit`. One body, expanded once
 ; per kernel: inline in kbm_isr on kern_small, which only ever peeks, and in
-; kbm_scan where SPEC.md 9.7.2's int 15h AH=4Fh path exists too - so a
+; kbm_isr.scan, where SPEC.md 9.7.2's int 15h AH=4Fh path joins it - so a
 ; reader of the peek and a reader of the ROM's hand-off cannot disagree
 ; about what a byte means.
-%macro KBM_SCAN 1
+%macro KBM_SCAN 1-2
+%ifidn %2, mem
+    cmp byte [kbd_armed], 0     ; (kbm_i15 arrives with AH = 4Fh)
+    je %%p5
+%else
     or ah, ah
     jz %%p5                     ; nobody is tracking keys: keypad 5 only
+%endif
     call kbd_track              ; SPEC.md 9.7 - preserves AL
 %%p5:
     cmp byte [mou_ptr], 0
@@ -2952,17 +2961,19 @@ kbm_isr:
                                 ; nested beep and a dead machine, and that is
                                 ; true on a machine with a mouse and on one
                                 ; whose software never asked for key state
+%ifdef KERN_MEGA
+    cmp byte [mega_on], 0       ; SPEC.md 9.7.2: in protected mode THIS READ
+    jne .peek                   ; IS THE ONLY ONE - mega_k09, the ROM half it
+%endif                          ; chains to, takes the byte from kbm_kbyte
 %ifdef KBD_I15
-    cmp byte [kbm_nopeek], 0    ; SPEC.md 9.7.2: the ROM hands the byte to
-    jne .chain                  ; kbm_i15 (or, in kern_mega's protected mode,
-                                ; mega_k09 does) - so THIS NEVER READS PORT
-                                ; 60h, which is the whole of the fix
-%endif
-    mov ah, [kbd_armed]         ; SPEC.md 9.7's key-state map wants every byte
-    or ah, ah                   ; that arrives; the keypad-5 half wants one
-    jnz .peek                   ; byte on a mouseless machine. EITHER is a
-    cmp byte [mou_ptr], 0       ; reason to read the port, and neither being
-    jne .chain                  ; one is what keeps an idle machine off it
+    cmp byte [kbd_armed], 0     ; SPEC.md 9.7's key-state map wants every byte
+%else                           ; that arrives; the keypad-5 half wants one
+    mov ah, [kbd_armed]         ; byte on a mouseless machine. EITHER is a
+    or ah, ah                   ; reason to read the port, and neither being
+%endif                          ; one is what keeps an idle machine off it
+    jnz .peek
+    cmp byte [mou_ptr], 0
+    jne .chain
 .peek:
 %ifdef KERN_BIG
     ; --- ...and on an 8042, is the byte waiting even the KEYBOARD's? --------
@@ -2983,8 +2994,12 @@ kbm_isr:
 %endif
     in al, 0x60                 ; PEEK - see above: the 8255 holds it until the
                                 ; BIOS acks, so this consumes nothing
+%ifdef KERN_MEGA
+    mov [kbm_kbyte], al         ; (protected mode's ROM half reads it here)
+%endif
 %ifdef KBD_I15
-    call kbm_scan               ; ...and the byte goes where kbm_i15's goes
+.scan:                          ; ...and kbm_i15 arrives HERE with the ROM's AL
+    KBM_SCAN .chain, mem
 %else
     KBM_SCAN .chain
 %endif
@@ -3016,6 +3031,7 @@ kbm_isr:
 %else
     pop ds
     pop ax
+.far:                           ; (kbm_i15's chain for every AH but 4Fh too)
     jmp far [cs:kbm_old9]       ; CS, not DS: DS is the interrupted code's again
 %endif
 .selfchain:
@@ -3031,17 +3047,21 @@ kbm_isr:
 ;           (SPEC.md 9.7.2)
 ;
 ; An AT-class ROM's int 09h reads port 60h, then calls int 15h AH=4Fh with
-; AL = the byte it read and CF = 1 ("keep it"). mouse_init hooks this on every
-; machine. [kbm_nopeek] is set at boot where the ROM's configuration table
-; says its int 09h makes the call, and by the first call that arrives where
-; the table did not say so; from then on kbm_isr never reads the port - THE
-; ROM'S READ IS THE ONLY READ, and this is told what it got. An XT ROM never
-; calls 4Fh (it has no such service), so there every call is chained and the
-; peek, free on an 8255, stays. It is what an 8042 that loads its next queued
-; byte on every read needs - QEMU's, v86's, plausibly an SMM USB-legacy one -
-; because a peek there TAKES a byte: a press and its release queued together
-; lost the press, and E0 4B (grey Left) reached the ROM as two 4Bs, the prefix
-; eaten and the key stored twice.
+; AL = the byte it read and CF = 1 ("keep it"). Where the ROM's configuration
+; table says it makes that call, mouse_init hooks THIS and leaves int 09h the
+; ROM's: kbm_isr is not in the chain at all, THE ROM'S READ IS THE ONLY READ,
+; and this is told what it got. Everywhere else - every XT, whose ROM has no
+; such service - int 09h is kbm_isr's, the peek, free on an 8255, as before.
+; It is what an 8042 that loads its next queued byte on every read needs -
+; QEMU's, v86's, plausibly an SMM USB-legacy one - because a peek there TAKES
+; a byte: a press and its release queued together lost the press, and E0 4B
+; (grey Left) reached the ROM as two 4Bs, the prefix eaten and the key stored
+; twice.
+;
+; IT IS kbm_isr WITH THE PORT READ TAKEN OUT: the same frame and head, then a
+; jump to kbm_isr.scan, whose tail chains through kbm_old9 - which, hooked
+; here, holds the ROM's int 15h (size pass: no second scan body, no second
+; saved vector, no second restore).
 ;
 ; Every other AH is the ROM's, chained untouched. The flags reach it as the
 ; compare left them, which is what every int 15h chain does: the ROM answers
@@ -3054,48 +3074,31 @@ kbm_isr:
 ; -----------------------------------------------------------------------------
 kbm_i15:
     cmp ah, 0x4F
-    jne .old
-    push ax
-    push ds
-    KDS
-    mov byte [kbm_nopeek], 1    ; THE ROM CALLS THIS: from now on kbm_isr
-                                ; reads nothing and this is the only reader
-    call kbm_scan
-    pop ds
-    pop ax
-.old:
-    jmp far [cs:kbm_old15]      ; CS: DS is the caller's
-
-; kbm_scan - KBM_SCAN, called: AL = the scancode, DS = KERNEL_SEG; AX and the
-; flags clobbered. kbm_isr's peek, kbm_i15's hand-off and (kern_mega, through
-; kbm_scanf) mega_k09's own port read all come through here, so the three
-; cannot disagree about a byte.
-kbm_scan:
 %ifdef KBD_DIAG
-    call kbg_4f                 ; KBDDIAG=1 (SPEC.md 9.8.1): the byte itself,
-%endif                          ; where a re-read of port 60h is not honest
-    mov ah, [kbd_armed]
-    KBM_SCAN .x
-.x:
-    ret
-kbm_nopeek  db 0                ; SPEC.md 9.7.2: 1 = the ROM's int 09h hands
-                                ; every byte to kbm_i15 (or mega_k09 does, in
-                                ; kern_mega's protected mode), so kbm_isr must
-                                ; not read port 60h. .text with a real
-                                ; initialiser for kbd_armed's reason: kbm_isr
-                                ; reads it from the first IRQ1. HERE, beside
-                                ; the code, for PARITY: it evens the block
-%ifdef KERN_MEGA
-; kbm_scanf - kbm_scan for a FAR caller: mega_k09, kern_mega's int 09h ROM
-; half in protected mode, which reads port 60h itself (SPEC.md 9.7.2)
-kbm_scanf:
-    push ax
-    push ds
-    KDS
-    call kbm_scan
-    pop ds
-    pop ax
-    retf
+    jne .old
+%else
+    jne kbm_isr.far             ; kbm_old9, untouched: CS-relative, no frame
+%endif
+    push ax                     ; kbm_isr's own frame and head, so its tail is
+    push ds                     ; this one's: the scan, the self-chain test and
+    KDS                         ; `jmp far [cs:kbm_old9]`, which on a machine
+%ifdef KBD_DIAG                 ; hooked here holds the ROM's int 15h
+    call kbg_pre                ; KBDDIAG=1: the 'I' row is written at the
+    call kbg_4f                 ; ROM's 4Fh call, with the byte it handed over
+%endif
+    call sch_wake_ui            ; kbm_isr's two jobs that read no port, which
+    call kbd_ovflow             ; on this machine it is not hooked to do: a
+                                ; keystroke wakes the UI task (8.1.2.2), and the
+                                ; BIOS buffer is kept off full BEFORE the ROM
+                                ; below stores into it (9.8) - 4Fh is called
+                                ; between the ROM's read and its store
+    jmp kbm_isr.scan
+%ifndef KBD_DIAG
+    nop                         ; PARITY PAD, never executed: kbm_i15 is 17
+%endif                          ; bytes, and what follows it is hot (t_hotpar)
+%ifdef KBD_DIAG
+.old:
+    jmp far [cs:kbm_old9]       ; CS: DS is the caller's
 %endif
 %endif
 
@@ -3581,11 +3584,16 @@ kbm_old9    dd 0                ; the BIOS's int 09h, chained by kbm_isr
                                 ; initialiser: -f bin zeroes nothing, and the
                                 ; ISR reads this through CS
 %ifdef KBD_I15
-kbm_old15   dd 0                ; ...and int 15h's, chained by kbm_i15 (SPEC.md
-                                ; 9.7.2): the vector mouse_init FOUND, banked
-                                ; whether or not it hooked it. IMMEDIATELY
-                                ; after kbm_old9, which mouse_init's MOVSW bank
-                                ; walks straight on from
+kbm_ivec    dw 0x24             ; SPEC.md 9.7.2: WHICH vector kbm_old9 is the
+                                ; old value of - int 09h's (24h, kbm_isr), or
+                                ; int 15h's (54h, kbm_i15) on a ROM whose int
+                                ; 09h calls AH=4Fh. mouse_unhook puts back the
+                                ; one it names
+%endif
+%ifdef KERN_MEGA
+kbm_kbyte   db 0                ; ...and kern_mega's protected mode: the byte
+                                ; kbm_isr read, which mega_k09 takes instead of
+                                ; reading port 60h a second time (9.7.2)
 %endif
 kbm_p5      db 0                ; ...and a keypad-5 press it saw, not yet spent
 kbm_step    db KBM_MIN          ; px the current run of repeats is worth
@@ -6352,12 +6360,6 @@ mdg_n1      dw 0                ; [ticks] at the frame the bar shows 0%, at 6%
 mdg_n2      dw 0                ; and at 12%. n1-n0 IS mouse_init and n2-n1 is
                                 ; desk_init's floppy probe, so one screenshot
                                 ; says whether a stall is the phase we think
-%endif
-
-%ifdef KBD_I15
-%if kbm_old15 - kbm_old9 != 4
-  %error "mouse_init's MOVSW bank walks out of kbm_old9 into kbm_old15 - they must stay adjacent (SPEC.md 9.7.2)"
-%endif
 %endif
 
 ; --- ...and what SPEC.md 9.4.4 says the PS/2 span is ------------------------

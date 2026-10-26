@@ -7121,7 +7121,7 @@ SOAK = [
         "queued byte on a read, it TOOK a byte the ROM never saw: a press and "
         "its release queued together lost the press, two makes queued lost "
         "the first and stored the second twice, grey Left (E0 4B) stored 4B00 "
-        "TWICE. With the map armed: [kbm_nopeek] = 1 before any key (SeaBIOS "
+        "TWICE. Before any key int 15h is kbm_i15 and int 09h the ROM's (SeaBIOS "
         "advertises 4Fh), 'a' down+up in ONE input-send-event stored once as "
         "1E61, 's'+'d' downs stored 1F73 2064 with both map bits down, grey "
         "Left stored ONCE as the ROM's E0 form 4BE0, and Alt+Enter (9.7.1) "
