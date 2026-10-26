@@ -221,7 +221,7 @@ def main():
         shots = sys.argv[sys.argv.index("--shots") + 1]
         os.makedirs(shots, exist_ok=True)
     for p in ("build/mega.img", "build/megaapps.img", "build/megarun.o88",
-              "build/mbr.bin", "build/megak/kernel.map", ARM):
+              "build/mbr.bin", "build/megak/apps/taskmgr.bin"):
         need(p)
     tmp = tempfile.mkdtemp(prefix="megatmmem-")
     eq = armmap(tmp)

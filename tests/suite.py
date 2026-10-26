@@ -16160,10 +16160,10 @@ SOAK = [
         "above 1MB reads its five-digit paragraph in ADDR and no row reads "
         "HIGH there; the map is two frames. Red on each of the three put "
         "back alone (the [tm_pm] flag, the cache sum, the paragraph) and on "
-        "the source before it (10 legs of 12). 40s is ~30 measured",
+        "the source before it (10 legs of 12). 40s is 22 measured",
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
-               "build/mbr.bin")),
+               "build/mbr.bin", "build/megak/apps/taskmgr.bin")),
     Row("megapaint", "soak", py("tests/megapaint.py"), 45.0,
         "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7: a Paint canvas OVER 64KB "
         "under kern_mega, where every claim is a 64KB selector. Under Bochs "
