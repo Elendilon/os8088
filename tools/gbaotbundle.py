@@ -53,7 +53,8 @@ NEEDS
 USING IT
   1. Choose the cartridge - or drop it on the window. The package is
      written beside it, GAME.O88. A replay can be dropped too: drop
-     NAME.RP1 (or NAME.SS1) and its partner beside it fills the other half.
+     NAME.RP1 (or NAME.SS1) and, if its partner is beside it, the pair goes
+     straight into the list of replays.
      Dropping is built in on Windows; elsewhere it wants
          python3 -m pip install tkinterdnd2
   2. Make the package (a minute or two; a 1 MB cartridge longer).
