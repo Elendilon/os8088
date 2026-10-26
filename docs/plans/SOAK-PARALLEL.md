@@ -1979,7 +1979,10 @@ at roughly twice that oversubscription.
   loop's, and one way an Enter is lost here is found and closed (the key
   helpers released a key the ROM had not yet stored); the failing run's
   full-screen field reading is NOT explained, and the row now keeps the
-  picture and names where a lost Enter went.
+  picture and names where a lost Enter went. The other half of the loss is
+  gone at its source: SPEC.md 9.7.2 takes the key through `int 15h AH=4Fh`
+  wherever the ROM offers it (SeaBIOS does), so `kbm_isr` no longer reads
+  port 60h ahead of the ROM and QEMU's 8042 has no byte to drop.
 * **`excitebikeflow` / `excitebikeflowherc`** (MartyPC, ALREADY in the
   concurrent lane before this work) failed once each - `excitebikeflow` in
   the 2026-10-25 soak itself, `excitebikeflowherc` here (`Up flips the
