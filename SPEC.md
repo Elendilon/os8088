@@ -200930,7 +200930,14 @@ kernel builds them. docs/plans/KERN-MEGA-PLAN.md 14.16 is the record.
   record past 32 KB. Such a session copies, through the conventional ring
   a BIGSP file keeps anyway (98.3.18.17); real mode's handle is a
   paragraph's and holds 64 KB less 15 from any start, so it is not asked
-  there. `vp_xmk`
+  there. **Since kern_mega's MC7 a BIGSP file goes in place too**
+  (KERN-MEGA-MEMORY-PLAN 9.1, KERN-MEGA-PLAN 14.73.1): `vp_xrunmk` also takes
+  a window BOUND to the block (`OSAPI_SEG`'s `SEG_BWIN`, `[vp_xbw]`), and
+  `vp_pmbig` - the hook's call after `vp_addr` for a record that runs off
+  its window - aims it at the record's first byte (`SEG_AIM`, the one
+  kernel call a rate hook may make), the offset read off the run window
+  `vp_xmk` chose. `vp_pmbigq` refuses only a session the kernel gave no
+  bound window, which copies as above. `vp_xmk`
   answers that selector and offset & 7FFFh instead of a handle, and every
   `VP_DSDX` site is then the plain `mov ds, dx` it is for a ring pointer:
   **no borrow, interrupts left as they are, no yield** - a selector survives
