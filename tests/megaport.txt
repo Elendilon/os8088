@@ -26,3 +26,4 @@ fcpcopy secs=90   # Cut/Copy/Paste moves a file and a folder tree, the volume ve
 icostore secs=60   # two volumes, one icon-store body; the listing claim is a selector here
 desksc secs=150   # desktop shortcuts, every route on one boot, two reboots (a power cycle under Bochs)
 imgmount secs=200   # a .IMG mounted by double-click; Unmount Image sends the window to the host (KERN-MEGA-PLAN 14.77)
+diskclone secs=90   # Clone Disk end to end, both floppies diffed on the host; the same-drive identity check (KERN-MEGA-PLAN 14.78)

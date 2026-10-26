@@ -10908,3 +10908,32 @@ ends `clc / ret`, the answer the conventional arm gives. kern_big and
 kern_small are byte-identical (the build number apart). **`mega-imgmount`
 is the row**: red before it on *"...and the window goes to the HOST [3]"*,
 44 checks green after.
+
+### 14.78 A same-drive Clone Disk never noticed the disk had not been swapped (2026-10-26)
+
+**Found by porting `diskclone` to kern_mega** (tests/megaport.txt): Clone
+Disk A: -> A:, the read pass, then Enter at *"Insert the TARGET"* with the
+SOURCE still in the drive. SPEC.md 18.99.3's identity check exists for
+exactly that - it reads LBA 0 of what is in the drive and, when it is the
+source's, stops at `CLS_SAME` (*"Still the SOURCE disk"*) - and on
+kern_mega it never fired: the clone wrote straight back over the source and
+reported *"Cloned A: to A:"*. The `CLS_NOSRC` warning on the source prompt
+(trip 2 onwards) is the same routine and was as blind.
+
+**Cause**: `clo_issrc` (`kernel/diskops.inc`) compares the target's sector
+0 with the kept one by `repe cmpsw`, puts DS back with `KDATAR_M ax / mov
+ds, ax`, and only then reads the flags - written on the strength of `mov`
+leaving them alone. On kern_mega `KDATAR_M` is not a `mov`: it asks
+`cmp byte [ss:mega_pm], 0` to pick the real or the protected-mode data
+segment, so ZF was always 0 there and the answer always *"not the source"*.
+A breakpoint on `clo_issrc.no` read CX = 0, SI = 300h, DI = 200h and ZF = 0
+with both 512-byte buffers identical. `compress.inc` already wraps the same
+macro in `pushf` / `popf` for this reason; it is the only other site in the
+tree that reads flags across one.
+
+**Fix**: `clo_issrc` does the same, inside `%ifdef KERN_MEGA`; kern_big and
+kern_small are byte-identical (the build number apart). **`mega-diskclone`
+is the row**: red before it on *"the identity check FIRES on an un-swapped
+disk"* (and on the stamp check the unwanted write left behind), 36 checks
+green after - with its *"out of CONVENTIONAL memory"* check reading the
+store ABOVE 1MB on kern_mega, whose XMEM pool `xm_caps` reports.
