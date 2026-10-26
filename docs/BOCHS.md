@@ -195,7 +195,10 @@ it maps:
   a conventional heap to move.
 - **time** - Bochs runs `clock: sync=realtime`, so `status()["cycles"]` is
   the guest's running time at 4.77 MHz and a guest budget means what it
-  means on MartyPC. Nothing measured in cycles is a measurement here.
+  means on MartyPC. Nothing measured in cycles is a measurement here. The
+  clock STARTS at the host's local time, so a row whose answer depends on
+  the hour pins it with `@OS88_BOCHS_TIME0=<Unix time>` (`mega-dosdir`,
+  KERN-MEGA-PLAN 14.114).
 - **the glass** - `fbuf()` is the Bochs window's guest area (`xwd`), with
   the DAC's six bits widened as a VGA reads them (`FC` -> `FF`); the window
   is refreshed 20 times a second. `screen()` reads B8000.
