@@ -3126,10 +3126,17 @@ plays the louder of the two square channels.** rdgsys keeps a record of each
 channel (`S_SQ1`, `S_SQ2`, and `S_SQ3`, `S_SQ4` for the wave and the noise)
 from the writes that decide whether it sounds, and the package turns those
 records into sound. The other sound registers are plain memory, read where
-they lie: every write to FF01-FF26 reaches rdgsys from the interpreter's
-`io_wr` (one compare: the core's slot had no room for a list), which stores
-those it does not follow, and a translated store to one of those is a single
-MOV (`rt_snd`).
+they lie. A write to one rdgsys does not follow is stored where it is made:
+a translated store to a constant address is a single MOV (`rt_snd`), and one
+through (C) or (HL) - where no translator knew the address, and a game's
+sound driver walks the registers that way - is stored by the core's
+`io_wr`, which looks FF10-FF26 up in `io_sndtab` (FDh's CB half, 23 bytes,
+`rt_snd`'s list as a table, read as `[cs:bx+io_sndtab-0FF10h]`). It sent all
+of FF01-FF26 to rdgsys until then, ~95 x86 instructions a write: on the
+owner's Looney Tunes replay 7.6 writes a frame of 14, and the precompiled
+arm's instructions a frame fell 21,233 to 20,676; the interpreter's path is
+the same code. `gbfm` is its gate - the interpreter's register writes all
+pass through `io_wr` - and red with NR14 marked stored-only.
 
 - **The writes rdgsys takes**: NR12/NR22, NR14/NR24 and NR52. The core's
   `io_wr` sends each of them to `rdg_iowrite`.

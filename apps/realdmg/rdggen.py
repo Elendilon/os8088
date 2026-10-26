@@ -1884,7 +1884,7 @@ io_wr:
     jmp short .st
 .snd:
     cmp bl,27h                  ; FF01-FF26, the sound registers with
-    jb .host                    ;   them: rdgsys follows the four channels'
+    jb .nr                      ;   them: rdgsys follows the four channels'
     cmp bl,40h                  ;   triggers, envelopes and lengths and
     jb .st                      ;   stores the rest (REALDMG-SPEC 17) - a
                                 ;   translated store to one it only
@@ -1899,6 +1899,12 @@ io_wr:
 .z:
     xor dl,dl
     jmp word [ss:S_RET]
+.nr:                            ; ...and through (C) or (HL), where no
+    cmp bl,10h                  ;   translator knew the address, the same
+    jb .host                    ;   rule here: a register rdgsys only
+    cmp byte [cs:bx+io_sndtab-0FF10h],0     ; stores is stored, where
+    je .st                      ;   rdgsys was ~95 instructions away
+    jmp short .host
 .lcd:                           ; FF40-FF4B: a write of what is there
     cmp bl,46h                  ;   already changes nothing and is no
     je .host                    ;   raster write (rdg_rlog would log it,
@@ -2220,6 +2226,13 @@ JD_NOFILTER = {0xC9, 0xD9}
 # --- tails after a TAIL page's CB handler: the translator copies a tail -----
 # --- page whole, so its CB half's room is as reachable as its main half's --
 CBTAILS = {
+    0xFD: """
+; io_sndtab: FF10-FF26, 1 where rdgsys follows the register (a channel's
+; envelope, trigger or DAC, NR52) - rdgjit's rt_snd's list - and 0 where it
+; only stores it, for io_wr (REALDMG-SPEC 17)
+io_sndtab:
+    db 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1
+""",
     0xE3: """
 %ifdef RDG_AOTCORE
 ; tr_ejm: tr_ejf's PC that the filter names, on to the table as before
