@@ -11143,3 +11143,38 @@ kern_mega with the caller's flags kept, at all four banks in
 before, so kern_big and kern_small are byte-identical (the build number
 apart). **`mega-czjoin` is the row**: red before it (the refusal legs
 never returned), every leg green after, the volume fsck'd on the host.
+
+### 14.95 kern_mega's system disks shipped without Sticky Note's notes folder (2026-10-26)
+
+**Found by porting `instdeep` to kern_mega** (tests/megaport.txt): an
+install off `mega.img` reproduced every folder of the source but two -
+`SYSTEM/APPDATA/NOTES` and its `WELCOME.TXT` - because `mega.img` never
+had them. SPEC.md 110.13.1 ships that folder PRE-SIZED (32 slots) on every
+system disk that carries Sticky Note, since the kernel never grows a
+directory (SPEC.md 18.5): a folder Sticky Note had to make itself holds 14
+notes at 512-byte clusters, and the welcome note is the first one anybody
+sees. `mega.img` and `mega120.img` carry `$(STIKARGS)` - the package - and
+the Makefile's comment listed every other disk that does as getting
+`$(STIKNOTESARG)`/`$(STIKNOTESOPT)` beside it; the two kern_mega recipes
+were written without them.
+
+**Fix** (the Makefile only): both kern_mega disk recipes depend on
+`$(STIKNOTESTXT)` and pass `$(STIKNOTESARG)` and `$(STIKNOTESOPT)`, as the
+four shipped geometries do. No kernel or package byte moves, and nothing
+`all` builds is touched. **`mega-instdeep` is the row**: red before it on
+*"SYSTEM/APPDATA/NOTES is MISSING"*, green after - the installed volume's
+whole tree and README.TXT's packed bytes, read back on the host.
+
+**And what porting the FIXED-DISK rows needed of the harness** (no kernel
+byte): the Bochs shim takes a row's OWN disk - `--mount hd:0:PATH`, the
+argument MartyPC is handed, or a staged run tree's `media/hdds` VHD on an
+`_hdd` machine - mounted in place and written through at the VHD footer's
+CHS, so an install in one launch is the disk the next one boots (A: then
+C:, a blank A: left empty); and `inb`/`outb`/`planes` became guest-run
+stubs at 0000:0500 (docs/BOCHS.md). Thirteen rows of installs, partitions,
+the disk tool, kern_dos off a fixed disk and the hard-disk takeover pass on
+kern_mega with them, each seen to go red with the engine, the driver or
+kern_dos broken on purpose - and one, `vidsound`, does not: Bochs's SB16
+(wave output to a file) drained the stream about four times faster than the
+22,222 Hz `SOUND.DRV` programs with 41h, whatever `dmatimer` says, so a row
+whose clock IS the card has nothing to measure against there.

@@ -54,7 +54,10 @@ WHAT IT MAPS, AND WHAT IT CANNOT
     X key autorepeat is off on the display (a held key is one make).
   * `disks()` names the image AS MOUNTED (copied before the first `c`), so
     os88flush's diff has a reference; `flush` copies the live file.
-  * refused outright, by name: `flicker`, `pace`, `planes`, `inb`/`outb`,
+  * a row's OWN fixed disk - `--mount hd:0:PATH` in `extra`, or a staged
+    `run_dir`'s VHD on an `_hdd` machine - is mounted in place and written
+    through (row_disk); `inb`/`outb`/`planes` run as guest stubs (_stub).
+  * refused outright, by name: `flicker`, `pace`,
     `snapshot`/`restore`. `reset` is a POWER CYCLE (_c_reset). A row
     built on one of those is not portable and says so in its first second.
 """

@@ -169,7 +169,10 @@ it maps:
 - **disks** - a shipped system floppy in build/ (`os8088*.img`, `small*.img`)
   becomes `build/mega.img`, a shipped apps floppy (`apps*.img`)
   `build/megaapps.img`; any other image (a category disk, a scratch disk the
-  row built) goes in B: as it is. No fixed disk.
+  row built) goes in B: as it is - and a shipped SYSTEM floppy in B: is
+  `mega.img` too (the rows that boot C: and install or upgrade from B:). No
+  fixed disk unless the machine name has `_hdd` or the row hands one over
+  (below).
 - **symbols** - `os88sym` reads `build/megak/kernel.map` under `OS88_MEGA`
   (`$OS88_MEGA_BUILD` for another tree); nothing is re-assembled.
 - **memory** - `read`/`write` are linear (`xp`/`writemem`/`setpmem`).
@@ -236,9 +239,38 @@ it maps:
   executed runs the OLD bytes (tests/uidrdis.py, measured by single-stepping
   a patched `stc` that executed as the `push ax` it replaced). Patch before
   the code first runs - uidrdis takes a second boot for it.
+- **a row's OWN fixed disk** - what MartyPC is handed, the shim takes:
+  `extra=["--mount", "hd:0:PATH"]` (os88marty.launch's own argument), or a
+  `run_dir=` from `os88marty.stage_run_dir()` on an `_hdd` machine, whose
+  `media/hdds/*.vhd` is the machine's disk (tests/install.py, instkeep.py,
+  inststate.py). It is mounted IN PLACE and WRITTEN THROUGH, so the host
+  reads back what the guest wrote and the next launch on the same file
+  boots what the last one left; its CHS is the VHD footer's (a raw image:
+  16 heads of 63 sectors, or `("--chs", "C/H/S")` in `extra`), which is
+  what Bochs's BIOS then reports. The machine tries A: then C:, and an A:
+  that is all zeros (tests/hdboot.py's BLANK - a MartyPC row's way of
+  offering the BIOS C:) or `None` is an EMPTY drive. `m.cimg` names the
+  file. Bochs locks a disk image with `PATH.lock` and a stopped Bochs
+  leaves it, so the Box removes a stale one before it mounts the file again.
+  A disk tool row's red check is a throwaway system disk with the driver's
+  bytes patched, booted as `$OS88_MEGA_A` (tests/hdsize.py's history in
+  KERN-MEGA-PLAN 14.95).
+- **ports, through the GUEST** - Bochs's debugger cannot touch an I/O
+  port, so `inb`, `outb` and `planes` are a few bytes of code the guest
+  runs: at 0000:0500 (its bytes put back after), entered through GDT
+  selector 0050h - the identity map's DATA descriptor there, flipped to
+  CODE for the run and back - with their inputs in registers, and
+  `pushf`/`cli` ... `popf` round the port work, so it is atomic against the
+  guest's interrupts and IF comes back as it was. Each stub sits at a fixed
+  offset and its bytes never change, for the decode cache above. `planes`
+  STOPS inside its stub with read mode 0 and the plane's Read Map Select set
+  and reads A0000 through the debugger, which reads it through Bochs's VGA
+  as a CPU would (tests/blitp.py, gorillasreactions.py).
 - **refused by name** - `flicker`, `pace` (the frame instrument; the
-  guest-seconds `os88marty.pace()` works), `planes`, `inb`/`outb`,
-  `snapshot`. A row built on one is not portable.
+  guest-seconds `os88marty.pace()` works), `snapshot`. A row built on one
+  is not portable. EFLAGS cannot be written either: `setreg('flags')` is a
+  no-op, Bochs 2.7's `set eflags` being a syntax error and `set $eflags`
+  forcing IF on and garbling the bits above it.
 
 Two knobs reach the machine. `$OS88_BOCHS_MOUSE=serial` swaps the PS/2
 mouse for a Microsoft serial one on COM1 - kern_dos's INT 33h serves a serial

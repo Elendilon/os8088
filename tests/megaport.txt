@@ -172,3 +172,28 @@ stikboot secs=40   # a Sticky App comes back at boot; stikrestore360.img rebuilt
 stikmenu secs=90   # Locator's Sticky Apps menu (STIKMENU.DRV, whose image is a selector here)
 stikhiber secs=40   # a pending RESUME stands the Sticky App relaunch down: HIBERNAT.PTR on the shim's C:, stik_boot asked for after mega_enter
 hdnoclaim secs=50   # a mounted hard-disk partition costs no heap - on kern_mega the image and any claim are XMEM-pool blocks, read off mx_tab
+
+# FIXED DISKS AND INSTALL (wave 2)
+# The row's OWN disk is Bochs's C: (tools/os88bochsmarty.py's row_disk): the
+# `--mount hd:0:` VHD MartyPC is handed, or a stage_run_dir's, written
+# through so an install in one launch is what the next one boots. Their red
+# checks broke HDDTOOL.DRV, HDD.DRV, INSTALL.O88 or kern_dos on a throwaway
+# mega.img (KERN-MEGA-PLAN 14.95).
+install secs=120   # the wizard erase-installs off mega.img, its progress widget ON THE GLASS (VGA via fbuf), gives HDDTOOL back, upgrades from C:, and C: boots
+instdeep secs=60   # the installed volume carries the whole tree and README.TXT's packed bytes (14.95: mega.img had no SYSTEM/APPDATA/NOTES)
+instassoc secs=60   # the installed ASSOC.DAT describes C: - every row's cluster a folder of that volume
+inststate secs=110   # the wizard's State column on three VHDs with slots 2-4 rewritten
+instkeep secs=150   # an install KEEPS a DOS 3.3 volume's files, the kernel one run past them, boots C:, upgrades in place, boots again
+bigvol secs=120   # a 321MB FAT16 kept, the kernel past 32MB (the LBA's high word), boots C:, the Disk window's M units, CALC off C:
+hdsize secs=70   # the disk tool's size line: a typed 100MB is 100MB on a cylinder, slot 2 the rest
+hdmap secs=90   # the disk tool's drive map: the bar, the underline, Free/largest, clicks pick slots
+hdauto secs=100   # HDD.DRV loads itself and a default never sticks: six legs over three boots of disk / blank disk / no disk
+hddcp secs=90   # the Hard Drive page, the tool's and the wizard's windows, and the tick that mounts
+hdtake secs=45   # Bochs's BIOS knows its ATA disk: HDD.DRV's rung 1 TAKES it (row 0 IDE 1F0h, HDD_BIOS 80h) and CALC launches off C:
+hdtakeblank secs=40   # ...and a disk with no 55AA at LBA 0 stays the BIOS's row
+hdtakeboot secs=60   # ...and on a machine BOOTED off it: C: handed to HDD.DRV, given back on untick, taken again
+dosram secs=60   # kern_mega's ONE arm (the trip): the page's promise is what kern_dos hands DOSHELLO (arm 0's legs have no controls here by design)
+kdhdd secs=60   # the fixed disk is a volume under kern_dos and a program on C: reads its own drive
+dosshell secs=90   # the built-in shell on the trip: eight exit codes, the files on the host; MOVE is kern_dos's stream path (no copy engine, by design)
+blitp secs=40   # gfx_blitp's 2,048 bytes are where it was given them, read PLANE by plane (the shim's guest-stub planes())
+gorillasreactions secs=240 +--arm +vga   # Gorillas' sun, banana patches, scoring dance and tune, VRAM compared plane by plane in the window and full screen
