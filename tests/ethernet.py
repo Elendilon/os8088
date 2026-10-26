@@ -552,8 +552,8 @@ def claims(m, S):
     this row, unregistered then, went on reading byte 10 and died on an
     IndexError nobody saw. The layout comes from the kernel's own equates."""
     if os88qemu.MEGA:                   # kern_mega: a claim is named by its
-        import os88qmpbochs             # SELECTOR, and the pool above 1MB
-        return os88qmpbochs.claims()    # is claims too (os88qmpbochs)
+        import os88qmpmega             # SELECTOR, and the pool above 1MB
+        return os88qmpmega.claims()    # is claims too (os88qmpmega)
     raw = m.read(S("mem_tab"), MEM_MAX * MC_SIZE)
     out = []
     for i in range(MEM_MAX):

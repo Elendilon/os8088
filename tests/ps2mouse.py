@@ -273,16 +273,16 @@ def main_mega():
     """THE SAME QUESTIONS ON kern_mega (tests/megaport.txt), under Bochs:
     its machine has the PS/2 mouse (`mouse: type=ps2`) and a real 8042, so
     every assertion above is asked of kern_mega's handshake as it is of
-    kern_big's under QEMU - through os88marty's API (tools/os88bochsmarty.py)
+    kern_big's under QEMU - through os88marty's API (tools/os88megabochs.py)
     instead of QMP. The pointer's exact landing is os88mouse's closed loop,
     which is the same statement about the sign and the Y inversion: every
     packet's delta is what Bochs made of an X motion, and the guest's
     published mouse_x/y is what has to agree."""
-    import os88bochsmarty
+    import os88megabochs
     import os88marty
     import os88mouse
     fails = []
-    with os88bochsmarty.launch("build/os8088.img", apps="build/apps.img",
+    with os88megabochs.launch("build/os8088.img", apps="build/apps.img",
                                boot=False, noserial=True) as m:
         m.run()
         os88marty.until(m, lambda _: byte(m, "mou_p2st") == 9,

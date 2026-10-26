@@ -203,16 +203,16 @@ def sample(limit=40.0):
 
 def sample_mega(limit=60.0):
     """kern_mega's boot under Bochs (docs/BOCHS.md): the same samples off a
-    BochsMarty, which heapmap.Map reads as it reads QMP - and whose Map also
+    MegaBochs, which heapmap.Map reads as it reads QMP - and whose Map also
     carries the POOL above 1MB (tools/heapmap.py's pool(), mx_tab). The
     machine is Bochs's own: its SB16, an NE2000 on slirp and an ATA disk, and
     A: is mega.img with this row's SYSTEM.CFG (the launch's `cfg`). There is
     no XMEM.DRV to want - kern_mega's pool IS the memory above 1MB - so what
     this maps is every driver kern_mega loads. `limit` is guest seconds, which
     Bochs's realtime clock makes host ones."""
-    import os88bochsmarty
+    import os88megabochs
     os.environ["OS88_BOCHS_NE2K"] = "1"     # ...and the NE2000 (no MartyPC
-    m = os88bochsmarty.launch("build/os8088.img", apps="build/apps.img",
+    m = os88megabochs.launch("build/os8088.img", apps="build/apps.img",
                               machine="os8088_xt_vga_hdd_sb", boot=False,
                               cfg=ALLBITS, label="heapmap")   # machine has one)
     sym = {n: m.sym(n) for n in ("mem_base", "mem_top", "spl_live",

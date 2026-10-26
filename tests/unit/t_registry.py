@@ -127,7 +127,7 @@ UNREGISTERED = {
                  "tests/dostrap/dospkt.asm is not. Both differences fail as a "
                  "message about the wrong subject. tests/dosxlat.py is the "
                  "registered row that reads through it",
-    "os88qmpbochs.py": "the QMP socket QEMU's network rows drive, answered "
+    "os88qmpmega.py": "the QMP socket QEMU's network rows drive, answered "
                        "by a kern_mega Bochs: a library imported by "
                        "os88qemu.py's launchers under OS88_MEGA, not a row",
     "os88qemu.py": "the teardown every QEMU launcher registers, written once "

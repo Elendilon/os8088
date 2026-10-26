@@ -3604,7 +3604,7 @@ class BpTrace:
         self._by_addr = {}
         self._bps = []
         # 20 bits on an 8088 (a flat address wraps there); kern_mega under
-        # Bochs (os88bochsmarty) runs `.cold` and `.mega` above 1MB, and a
+        # Bochs (os88megabochs) runs `.cold` and `.mega` above 1MB, and a
         # stop there is a 24-bit linear address that must not alias
         self._mask = 0xFFFFFFFF if getattr(m, "bochs", False) else 0xFFFFF
         mask = self._mask
@@ -3620,7 +3620,7 @@ class BpTrace:
         # trace is what it always was, only slower.
         logset = set()
         # A FLAT address is 20 bits on an 8088 - and 32 on kern_mega under
-        # Bochs (tools/os88bochsmarty.py), where a package region is above
+        # Bochs (tools/os88megabochs.py), where a package region is above
         # 1MB and CS is a selector, so a stop is named by the linear address
         # the debugger reports (`flat_ip`) rather than by CS << 4 + IP
         self._amask = amask = (0xFFFFFFFF if getattr(m, "bochs", False)
@@ -4274,7 +4274,7 @@ class _Leg(object):
 def system_disk(path):
     """The system floppy a row COPIES to put its own files on (a scratch
     A: built with mtools): PATH itself, and under $OS88_MEGA build/mega.img
-    beside it ($OS88_MEGA_BUILD's when set) - os88bochsmarty swaps only the
+    beside it ($OS88_MEGA_BUILD's when set) - os88megabochs swaps only the
     shipped images in build/, so a copy of os8088-360.img would boot
     kern_big under Bochs and the row would test the wrong kernel. mega.img
     is 1.44MB with the same tree, so what a row writes onto it lands as it
@@ -4353,19 +4353,19 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
     import time
 
     # $OS88_MEGA: the same row on kern_mega, under Bochs - every request
-    # this module makes is answered by tools/os88bochsmarty.py instead
+    # this module makes is answered by tools/os88megabochs.py instead
     # ...or under 86Box, with $OS88_MEGA_EMU=86box: the hardware Bochs has
     # not got - a CGA, a Hercules, two cards, a real-time Sound Blaster
-    # (tools/os88boxmarty.py, docs/86BOX.md)
+    # (tools/os88mega86box.py, docs/86BOX.md)
     if os.environ.get("OS88_MEGA") and \
             os.environ.get("OS88_MEGA_EMU", "").lower() == "86box":
-        import os88boxmarty
-        return os88boxmarty.launch(image, apps=apps, machine=machine,
+        import os88mega86box
+        return os88mega86box.launch(image, apps=apps, machine=machine,
                                    boot=boot, label=label, extra=extra,
                                    run_dir=run_dir)
     if os.environ.get("OS88_MEGA"):
-        import os88bochsmarty
-        return os88bochsmarty.launch(image, apps=apps, machine=machine,
+        import os88megabochs
+        return os88megabochs.launch(image, apps=apps, machine=machine,
                                      boot=boot, label=label, extra=extra,
                                      run_dir=run_dir)
 

@@ -41,7 +41,7 @@ def u16(b, i=0):
 
 def _lin(m, seg, off):
     """SEG:OFF as linear: `seg << 4`, or a kern_mega selector's base under
-    tools/os88bochsmarty.py (`m.lin`)."""
+    tools/os88megabochs.py (`m.lin`)."""
     f = getattr(m, "lin", None)
     return f(seg, off) if f is not None else (seg << 4) + off
 

@@ -63,7 +63,7 @@ def volume(m, tmp):
 
 def row(ui, k):
     seg = ui._word("sc_seg")
-    # a real segment, or kern_mega's selector (tools/os88bochsmarty.py)
+    # a real segment, or kern_mega's selector (tools/os88megabochs.py)
     lin = getattr(ui.m, "lin", lambda sg, off=0: (sg << 4) + off)
     return bytes(ui.m.read(lin(seg) + k * os88stik.SC_REC, os88stik.SC_REC))
 

@@ -176,7 +176,7 @@ def move_leg(tmp, machine, template, drag, screen):
               % (w2.x, w2.y))
         seg = ui._word("sc_seg")
         n = ui._byte("sc_nrows")
-        # a real segment, or kern_mega's selector (tools/os88bochsmarty.py)
+        # a real segment, or kern_mega's selector (tools/os88megabochs.py)
         lin = getattr(m, "lin", lambda sg, off=0: (sg << 4) + off)
         rows = [os88stik.parse_row(m.read(lin(seg) + i * os88stik.SC_REC,
                                          os88stik.SC_REC))

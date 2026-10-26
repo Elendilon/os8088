@@ -65,7 +65,7 @@ BASE_VHD = os.path.join(M.base_run_dir(), VHD_REL)
 def vhd(m):
     """THIS run's disk. One per instance, so two runs cannot share one. On
     kern_mega it is the disk the row HANDED Bochs (`m.cimg`, a staged run
-    tree's VHD - tools/os88bochsmarty.py's row_disk)."""
+    tree's VHD - tools/os88megabochs.py's row_disk)."""
     return getattr(m, "cimg", None) or os.path.join(m.run_dir, VHD_REL)
 
 

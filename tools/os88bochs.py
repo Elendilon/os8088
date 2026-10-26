@@ -488,7 +488,7 @@ class Box(object):
         # `cimg`: THE CALLER'S OWN FIXED DISK, mounted IN PLACE (written
         # through, so the host reads back what the guest wrote, and a second
         # Box on the same file boots what the first left) at `cgeom` (C, H,
-        # S) - a row's VHD, os88bochsmarty's `--mount hd:0:` (docs/BOCHS.md)
+        # S) - a row's VHD, os88megabochs's `--mount hd:0:` (docs/BOCHS.md)
         if cimg:
             c, noc = os.path.abspath(cimg), False
         geom = tuple(cgeom) if cgeom else GEOM
@@ -511,7 +511,7 @@ class Box(object):
         shutil.rmtree(stage, ignore_errors=True)
         os.makedirs(stage)
         # MEGARUN rides the C: disk only, so a machine with none (`noc`,
-        # os88bochsmarty) does not need it built - a knob tree a ported row
+        # os88megabochs) does not need it built - a knob tree a ported row
         # builds for itself (`targets=("mega",)`) has none
         args = [] if noc or cimg or (cmode == "keep" and os.path.exists(c)) else [
             "RUN:" + self._stage(stage, os.path.join(bld, "megarun.o88"),
@@ -523,7 +523,7 @@ class Box(object):
         if csys:
             args += self._sysfiles(a, stage)
         if noc or cimg:
-            pass                    # no fixed disk at all (os88bochsmarty),
+            pass                    # no fixed disk at all (os88megabochs),
                                     # or the caller's own, as it stands
         elif cmode == "keep" and os.path.exists(c):
             pass                    # the disk as the last boot left it

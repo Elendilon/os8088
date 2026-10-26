@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""QEMU's QMP socket, answered by a Bochs running kern_mega.
+"""QEMU's QMP socket, answered by a kern_mega machine - Bochs, or 86Box with
+$OS88_MEGA_EMU=86box (tools/os88megabochs.py, tools/os88mega86box.py).
 
 Not a row: the layer the NETWORK rows' kern_mega arms stand on
 (docs/BOCHS.md, "Rows ported from MartyPC"; tests/megaport.txt's
@@ -9,21 +10,21 @@ QMP UNIX SOCKET from every direction at once: their own `Qemu` classes,
 tests/xmcheck.py's in-process client, tools/qmp.py, tools/mouse.py and
 tools/shot.py as subprocesses. Under $OS88_MEGA, tests/os88qemu.py's
 launchers start one of these instead of QEMU - a Bochs with an NE2000 on
-its slirp (os88bochsmarty.launch's `_ne2k`, the host at 10.0.2.2 as QEMU's
+its slirp (os88megabochs.launch's `_ne2k`, the host at 10.0.2.2 as QEMU's
 `-netdev user` has it) behind a server on the SAME socket path - so every
 one of those clients runs as it stands.
 
-    srv = os88qmpbochs.Server(sock, pidfile, a_img, b_img)
+    srv = os88qmpmega.Server(sock, pidfile, a_img, b_img)
 
 UNDER $OS88_MEGA_EMU=86box the machine is an 86Box instead
-(tools/os88boxmarty.py, docs/86BOX.md "kern_mega rows on 86Box") - a VGA,
+(tools/os88mega86box.py, docs/86BOX.md "kern_mega rows on 86Box") - a VGA,
 the NE2000 on 86Box's slirp, run PACED rather than fast-forwarded because
 these rows time their input on the host's clock - and everything below is
 the same. That is how telansi and telzm, which Bochs's slirp stops
 (KERN-MEGA-PLAN 14.89), are ported.
 
-It is a SERVER rather than a wrapper, os88bochsmarty's own trick one layer
-up: the clients speak QMP and this answers it out of a BochsMarty, so
+It is a SERVER rather than a wrapper, os88megabochs's own trick one layer
+up: the clients speak QMP and this answers it out of a MegaBochs, so
 nothing above it learns that the machine changed. What it answers:
 
   * `human-monitor-command`: `xp /N{x,d,u}{b,h,w,g} ADDR` printed as QEMU
@@ -48,7 +49,7 @@ BUTTONS ARE NOT VERIFIED one edge at a time. A double-click is four
 `mouse_button`s ~0.1 s apart down one connection (xmcheck.dblclick,
 ethernet.Mouse.dblclick) and the kernel's window is nine ticks; proving each
 edge costs a debugger stop a poll and pushed the pair apart. Each goes to X
-at once with the guest running, as os88bochsmarty's own double-click does,
+at once with the guest running, as os88megabochs's own double-click does,
 and the shim holds the next stop off until Bochs has taken it (INPUT_GAP).
 
 MEMORY: an address is LINEAR, as QEMU's `xp`/`pmemsave` take it. A row that
@@ -57,7 +58,7 @@ kern_mega, where every package region, heap claim and driver image is an
 LDT selector - such a row calls os88qemu.lin(seg, off), which is
 `(seg << 4) + off` on QEMU and the descriptor's base here.
 
-THE DISKS: os88bochsmarty.launch's mapping (a shipped system floppy becomes
+THE DISKS: os88megabochs.launch's mapping (a shipped system floppy becomes
 build/mega.img, a shipped apps floppy build/megaapps.img) plus one this
 layer adds, `mega_twin`: a SYSTEM-DISK FIXTURE the Makefile builds out of the
 shipped disk plus a few files (ether360.img, telnetsys.img, httpmount.img,
@@ -118,7 +119,7 @@ def keysym(q):
         return q.upper()
     if re.match(r"kp_\d$", q):
         return "KP_" + q[3]
-    raise ValueError("os88qmpbochs: no X keysym for qcode %r" % q)
+    raise ValueError("os88qmpmega: no X keysym for qcode %r" % q)
 
 
 # QEMU qcode -> MartyKey name, for the 86Box backend (its `key` verb)
@@ -142,7 +143,7 @@ _QM = {
 
 
 def martykey(q):
-    """A qcode as the MartyKey name os88boxmarty's `key` verb takes."""
+    """A qcode as the MartyKey name os88mega86box's `key` verb takes."""
     q = q.lower()
     if q in _QM:
         return _QM[q]
@@ -154,7 +155,7 @@ def martykey(q):
         return q.upper()
     if re.match(r"kp_\d$", q):
         return "Numpad" + q[3]
-    raise ValueError("os88qmpbochs: no MartyKey for qcode %r" % q)
+    raise ValueError("os88qmpmega: no MartyKey for qcode %r" % q)
 
 
 def live():
@@ -167,7 +168,7 @@ def live():
 
 def lin(seg, off=0):
     """SEG:OFF as a linear address: `(seg << 4) + off`, or under kern_mega the
-    descriptor's base when SEG is a selector (os88bochsmarty.lin)."""
+    descriptor's base when SEG is a selector (os88megabochs.lin)."""
     s = live() if MEGA else None
     if s is None:
         return ((seg & 0xFFFF) << 4) + off
@@ -223,7 +224,7 @@ _TWINS = {}
 
 def mega_twin(img, bld=None):
     """`img` itself off kern_mega. Under it: a shipped system floppy is left
-    to os88bochsmarty's own mapping; any other SYSTEM disk (one carrying a
+    to os88megabochs's own mapping; any other SYSTEM disk (one carrying a
     KERNEL.SYS) is rebuilt on a copy of build/mega.img with every file in
     which it differs from the shipped system disk of its geometry - the
     Makefile's fixture recipes are that disk plus a SYSTEM.CFG and a file or
@@ -320,12 +321,12 @@ class Server(object):
         if cfg is None and self.twinned and _has_cfg(self.a_img):
             cfg = "keep"                # the fixture's SYSTEM.CFG stands
         # THE BACKEND: Bochs, or under $OS88_MEGA_EMU=86box an 86Box
-        # (tools/os88boxmarty.py) - the same launch arguments either way
+        # (tools/os88mega86box.py) - the same launch arguments either way
         self.box86 = BOX86
         if BOX86:
-            import os88boxmarty as backend
+            import os88mega86box as backend
         else:
-            import os88bochsmarty as backend
+            import os88megabochs as backend
         self.m = backend.launch(self.a_img, b, machine=machine,
                                 boot=True, cfg=cfg, label=label,
                                 megs=megs, cimg=hd, ne2k_io=ne2k_io)
@@ -369,7 +370,7 @@ class Server(object):
 
     def _files(self):
         """The LIVE images the guest writes, by drive letter. 86Box mounts
-        the row's C: in place (os88boxmarty's `cimg`), so it has none."""
+        the row's C: in place (os88mega86box's `cimg`), so it has none."""
         if self.box86:
             return {"a": self.m._live.get(0), "b": self.m._live.get(1)}
         out = self.box.out
@@ -408,7 +409,7 @@ class Server(object):
                                                   req.get("arguments") or {})}
                 except Exception as e:                      # noqa: BLE001
                     r = {"error": {"class": "GenericError",
-                                   "desc": "os88qmpbochs: %s" % e}}
+                                   "desc": "os88qmpmega: %s" % e}}
                 f.write(json.dumps(r) + "\n")
                 f.flush()
         except (OSError, ValueError):
@@ -505,7 +506,7 @@ class Server(object):
             self.close()
             return ""
         raise ValueError("HMP %r is not answered by the kern_mega Bochs "
-                         "(tests/os88qmpbochs.py)" % op)
+                         "(tests/os88qmpmega.py)" % op)
 
     def _xp(self, fmt, addr):
         # /COUNT then the format and the size letters IN EITHER ORDER, as

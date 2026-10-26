@@ -266,7 +266,7 @@ def main():
 
 def session(ui, a, R, data):
     m, mo = ui.m, ui.mo
-    # a real segment, or kern_mega's selector (tools/os88bochsmarty.py)
+    # a real segment, or kern_mega's selector (tools/os88megabochs.py)
     lin = getattr(m, "lin", lambda sg, off=0: sg * 16 + off)
 
     def rd_seg():

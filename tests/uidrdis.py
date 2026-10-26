@@ -71,7 +71,7 @@ def main(argv):
             m = ui.m
             ui.path("B:/GAMES/SKIES.O88")
             slot, seg = dispapps.pkg_seg(m, 0)
-            # a kern_mega region is an LDT selector (tools/os88bochsmarty.py)
+            # a kern_mega region is an LDT selector (tools/os88megabochs.py)
             lin = getattr(m, "lin", lambda s, o=0: (s << 4) + o)(seg)
             m.advance(frames=40)
             m.run()

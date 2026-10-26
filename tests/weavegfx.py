@@ -119,7 +119,7 @@ def _ink(rows, cx, cy, row, cells):
 def session(machine, card, vidw, vidh, png_dir=None):
     S = os88sym.linear
     if weavesmoke.MEGA:
-        # kern_mega's Bochs has no snapshot (tools/os88bochsmarty.py), so a
+        # kern_mega's Bochs has no snapshot (tools/os88megabochs.py), so a
         # BOOT a bundle stands in for the fork: the same desktop each time
         for bundle, src, known in CARDS:
             weavesmoke.BUNDLE = bundle

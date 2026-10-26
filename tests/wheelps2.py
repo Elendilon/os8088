@@ -220,11 +220,11 @@ def main_mega():
     QMP's, os88mouse's closed loop for the exact walk, and `m.wheel`, which
     the shim turns into X's buttons 5 (toward the user) and 4 (away) and
     Bochs into the device's Z."""
-    import os88bochsmarty
+    import os88megabochs
     import os88marty
     import os88mouse
     fails = []
-    with os88bochsmarty.launch("build/os8088.img", apps="build/apps.img",
+    with os88megabochs.launch("build/os8088.img", apps="build/apps.img",
                                boot=False, noserial=True, wheel=True) as m:
         m.run()
         os88marty.until(m, lambda _: byte(m, "mou_p2st") == 9,

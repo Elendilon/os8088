@@ -122,7 +122,7 @@ with os88ui.boot(os.path.join(BUILD, "os8088-360.img"),
                  apps=os.path.join(BUILD, "apps360.img"), quick=True) as ui:
     m = ui.m
     S = ui._S
-    # a guest segment's linear base: under kern_mega (os88bochsmarty) the
+    # a guest segment's linear base: under kern_mega (os88megabochs) the
     # listing's segment is an LDT selector
     lin = getattr(m, "lin", lambda s, o=0: (s << 4) + o)
     w = ui.path("B:/APPS")

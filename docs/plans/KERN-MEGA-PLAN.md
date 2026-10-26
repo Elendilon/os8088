@@ -11147,7 +11147,7 @@ never returned), every leg green after, the volume fsck'd on the host.
 ### 14.85 The kernel's NETV_GONE and EMSV_GONE were refused as a package's (2026-10-26)
 
 **Found by porting `ethernet` to kern_mega** (tests/megaport.txt, through
-tests/os88qmpbochs.py's QMP socket over a Bochs NE2000): the Browser
+tests/os88qmpmega.py's QMP socket over a Bochs NE2000): the Browser
 fetched its page, closed - and ETHER.DRV's 17KB socket pool stayed claimed
 with `[eth_users]` = 2, the closed instance's bit, for the rest of the
 session (SPEC.md 72.13.4's *"the kernel's teardown sends NETV_GONE"*).
@@ -11252,7 +11252,7 @@ startup link written and obeyed across two more boots.
 ### 14.89 The network rows on Bochs: what ported, and the two its slirp stops (2026-10-26)
 
 **THE NETWORK group of tests/megaport.txt** - every QEMU row about ETHER.DRV
-and what stands on it - runs through `tests/os88qmpbochs.py`, which answers
+and what stands on it - runs through `tests/os88qmpmega.py`, which answers
 the rows' own QMP socket out of a kern_mega Bochs with an NE2000 on slirp
 (docs/BOCHS.md, "Rows ported from MartyPC"). Ported: `ethernet`,
 `brdownload`, `ethcfg`, `wirezone`, `wirechat`, `httpmount`, `httpinstall`,
@@ -11566,7 +11566,7 @@ re-run green on the new slots: doscom, dosexe, dosexec, dosfile, dosxms,
 dosxmsq (`kdx_87` through `kdh_s87`), irqgrab and kdmouse (IRQ hooks through
 slots), and the twenty wave-2 DOS ports.
 
-**And a harness defect the same group found** (tools/os88bochsmarty.py): a
+**And a harness defect the same group found** (tools/os88megabochs.py): a
 key sent while Bochs is STOPPED waited in the X queue, and Bochs's GUI hands
 the whole queue to its 8042 in one pass at the resume - whose buffer is 16
 scancodes, so `os88marty.text_taken` (which types with the guest paused) kept

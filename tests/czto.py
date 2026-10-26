@@ -181,7 +181,7 @@ def main():
         m = ui.m
         S = ui._S
         fl = os88flush.Flush(marty=m)
-        # a real segment, or kern_mega's selector (tools/os88bochsmarty.py):
+        # a real segment, or kern_mega's selector (tools/os88megabochs.py):
         # the clone's claim is one, and a stop's CS in .cold is COLD_SEG's
         # descriptor based above 1MB, where ui._S puts the breakpoints
         lin = getattr(m, "lin", lambda sg, off=0: (sg << 4) + off)

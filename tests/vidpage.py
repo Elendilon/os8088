@@ -819,7 +819,7 @@ def main():
                           240.0)
                     glass(n, what)
                     # (kern_mega's Bochs has no port reads for a row -
-                    # tools/os88bochsmarty.py refuses inb/outb - so the CRTC
+                    # tools/os88megabochs.py refuses inb/outb - so the CRTC
                     # half is MartyPC's; the glass above is read either way)
                     if not herc and not si and not MEGA:  # THE SCREEN'S TIMING
                         m.pause()           # and ROW, off the CRTC: MartyPC

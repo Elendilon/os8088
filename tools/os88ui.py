@@ -1730,8 +1730,8 @@ class UI:
         return out
 
     def _bar_has(self, menu, item, limit=10.0):
-        """KERN_MEGA'S SHIMS ONLY (tools/os88bochsmarty.py, and
-        os88boxmarty.py, whose 286 shows a Disk window on a 1.2MB A: before
+        """KERN_MEGA'S SHIMS ONLY (tools/os88megabochs.py, and
+        os88mega86box.py, whose 286 shows a Disk window on a 1.2MB A: before
         its bar - tests/wimgtrip.py): wait, in host seconds, for the bar to
         carry `menu` -> `item` before menu_pick reads it once.
 

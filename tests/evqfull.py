@@ -48,7 +48,7 @@ def stub(sym, at, rec, n, cli=False):
     """mov si,rec / mov cx,n / .l: call evq_push / inc [si+EV_A] / loop / hlt
 
     `cli` puts a `cli` in front, for a `park` that cannot clear IF itself
-    (kern_mega's Bochs, tools/os88bochsmarty.py's _c_park)."""
+    (kern_mega's Bochs, tools/os88megabochs.py's _c_park)."""
     body = bytearray([0xFA]) if cli else bytearray()
     body += bytes([0xBE]) + rec.to_bytes(2, "little")        # mov si, rec
     body += bytes([0xB9]) + n.to_bytes(2, "little")          # mov cx, n

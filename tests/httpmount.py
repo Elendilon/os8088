@@ -215,8 +215,8 @@ class QH(object):
         self.srv = None
         atexit.register(self.close)
         if os88qemu.MEGA:       # kern_mega: this socket answered by a Bochs
-            import os88qmpbochs  # (tests/os88qmpbochs.py), the gate disk's
-            self.srv = os88qmpbochs.Server(  # twin on mega.img in A:
+            import os88qmpmega  # (tests/os88qmpmega.py), the gate disk's
+            self.srv = os88qmpmega.Server(  # twin on mega.img in A:
                 self.sock, self.pid, sysimg, bimg, ne2k=True)
             return
         os88qemu.own(self.pid, self.sock)

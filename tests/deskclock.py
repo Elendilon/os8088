@@ -321,7 +321,7 @@ def vga(tmp):
         m.run()
         if not getattr(m, "bochs", False):
             # (kern_mega under Bochs: the reset IS a new machine - a power
-            # cycle, tools/os88bochsmarty.py - whose AT BIOS starts 40:6C at
+            # cycle, tools/os88megabochs.py - whose AT BIOS starts 40:6C at
             # the RTC's time of day, so the counter does not restart; there
             # is no old desktop for ui.up to mistake)
             ui._wait(lambda: struct.unpack("<H", bytes(m.read(0x46C, 2)))[0]

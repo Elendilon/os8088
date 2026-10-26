@@ -92,7 +92,7 @@ def say(s):
 
 def _lin(m, seg, off=0):
     """SEG:OFF linear - an LDT selector's base under kern_mega, whose claims
-    and package regions are selectors (os88bochsmarty)"""
+    and package regions are selectors (os88megabochs)"""
     f = getattr(m, "lin", None)
     return f(seg, off) if f else (seg << 4) + off
 

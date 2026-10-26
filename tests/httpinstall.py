@@ -68,8 +68,8 @@ class Q(HM.QH):
         self.srv = None
         atexit.register(self.close)
         if os88qemu.MEGA:       # kern_mega: this socket answered by a Bochs
-            import os88qmpbochs  # (tests/os88qmpbochs.py), the IDE disk its
-            self.srv = os88qmpbochs.Server(  # C: and read back live
+            import os88qmpmega  # (tests/os88qmpmega.py), the IDE disk its
+            self.srv = os88qmpmega.Server(  # C: and read back live
                 self.sock, self.pid, sysimg, bimg, hd=hd, ne2k=True)
             return
         os88qemu.own(self.pid, self.sock)

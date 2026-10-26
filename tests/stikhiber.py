@@ -74,7 +74,7 @@ def main():
     extra = ["--mount", "hd:0:" + vhd]
     if os.environ.get("OS88_MEGA"):
         # kern_mega under Bochs: C: is the shim's own ATA disk, and the
-        # pointer file goes on it by name (os88bochsmarty's --put)
+        # pointer file goes on it by name (os88megabochs's --put)
         pf = os.path.join(tmp, "HIBERNAT.PTR")
         shutil.copy(ptr, pf)
         extra = ["--put", pf]

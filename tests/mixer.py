@@ -360,10 +360,10 @@ def main():
         # KERN_MEGA ON 86BOX (tests/megaport.txt, OS88_MEGA_SND=sb16): the
         # card QEMU stands in for is 86Box's own SB16 with its CT1745, so the
         # leg runs on the Marty path with the VGA's pixels - the fixture's
-        # system disk rebuilt on mega.img (os88qmpbochs.mega_twin), the
+        # system disk rebuilt on mega.img (os88qmpmega.mega_twin), the
         # driver's selector through m.lin (cycweb.Pkg)
-        import os88qmpbochs
-        with os88ui.boot(os88qmpbochs.mega_twin(os88build.at('build/mixer360.img')),
+        import os88qmpmega
+        with os88ui.boot(os88qmpmega.mega_twin(os88build.at('build/mixer360.img')),
                          apps=os88build.at('build/mixplay.img'),
                          machine='os8088_xt_vga_sb',verbose=False,quick=True) as ui:
             session(ui,'vga','sb16')

@@ -63,7 +63,7 @@ def names(img):
 
 
 def mega_sys():
-    """kern_mega (OS88_MEGA=1, tools/os88bochsmarty.py): A: is build/mega.img
+    """kern_mega (OS88_MEGA=1, tools/os88megabochs.py): A: is build/mega.img
     and not the 360KB system disk, so the A:-only file goes onto a COPY of
     it, which the shim is told to boot ($OS88_MEGA_A). The MartyPC arm never
     calls this."""

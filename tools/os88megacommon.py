@@ -4,8 +4,15 @@
 on 86Box").
 
 A row ported to kern_mega runs on a `Marty` that is a SERVER for MartyPC's
-debug-server requests, answered by another emulator: tools/os88bochsmarty.py
-(Bochs, the default) or tools/os88boxmarty.py (86Box, $OS88_MEGA_EMU=86box).
+debug-server requests, answered by another emulator: tools/os88megabochs.py
+(Bochs, the default) or tools/os88mega86box.py (86Box, $OS88_MEGA_EMU=86box).
+
+THE NAMES: `os88mega*.py` are kern_mega's test BACKENDS, one per emulator,
+and neither runs MartyPC. Each implements the `Marty` API - the class
+tools/os88marty.py's rows are written against, named for MartyPC because
+that is the emulator it was first a client of - so the classes are
+`MegaBochs` and `Mega86Box`, subclasses of `os88marty.Marty`, and
+tests/os88qmpmega.py is QEMU's QMP served by either.
 Everything here is the same on both, because it is a fact about KERN_MEGA
 and the row's disks rather than about the machine under it:
 
@@ -204,7 +211,7 @@ def hd_geometry(path, chs=None):
     for h, s in ((16, 63), (4, 17), (4, 26)):
         if size and size % (h * s * 512) == 0:
             return (size // (h * s * 512), h, s)
-    raise om.MartyError("os88bochsmarty: %s is neither a VHD nor a whole "
+    raise om.MartyError("os88megabochs: %s is neither a VHD nor a whole "
                         "number of 16x63 cylinders - pass ('--chs', 'C/H/S')"
                         " in `extra`" % path)
 
@@ -237,7 +244,7 @@ def row_disk(machine, extra, run_dir):
             os.path.join(run_dir, hd)):
         hd = os.path.join(run_dir, hd)      # MartyPC resolves in its run dir
     if not os.path.exists(hd):
-        raise om.MartyError("os88bochsmarty: no fixed disk at %s" % hd)
+        raise om.MartyError("os88megabochs: no fixed disk at %s" % hd)
     return os.path.abspath(hd), hd_geometry(hd, chs)
 
 

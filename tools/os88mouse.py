@@ -598,7 +598,7 @@ class Mouse:
         armed it (the one that knows the address, else the innermost) - the
         record its pump would have made had it been allowed to run."""
         # `flat_ip` is (CS << 4) + IP on MartyPC; on kern_mega under Bochs
-        # (os88bochsmarty) CS is a SELECTOR and flat_ip the LINEAR address
+        # (os88megabochs) CS is a SELECTOR and flat_ip the LINEAR address
         flat = st.get("flat_ip", (st.get("cs", 0) << 4) + st.get("ip", 0))
         own = [t for t in traces if flat & t._mask in t._by_addr] \
             or traces[-1:]
@@ -696,7 +696,7 @@ class Mouse:
         # dozen advances and records any stop it meets itself.
         traces = list(getattr(self.m, "_traces", ()))
         if getattr(self.m, "bochs", False):
-            # KERN_MEGA UNDER BOCHS (os88bochsmarty): its guest runs at HOST
+            # KERN_MEGA UNDER BOCHS (os88megabochs): its guest runs at HOST
             # time, so stepping it costs the ticks the stepping takes - a
             # halt and a resume per advance put the presses 5-9 ticks apart
             # against a window of 9. Free-running, the four edges go out in

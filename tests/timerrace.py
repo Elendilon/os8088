@@ -44,7 +44,7 @@ def main():
     with os88ui.boot("build/os8088-360.img", apps="build/apps360.img",
                      machine="os8088_5150_cga_gla", quick=True) as ui:
         m = ui.m
-        # a real segment, or kern_mega's selector (tools/os88bochsmarty.py)
+        # a real segment, or kern_mega's selector (tools/os88megabochs.py)
         lin = getattr(m, "lin",
                       lambda seg, off=0: ((seg << 4) + off) & 0xFFFFF)
         w = ui.open_drive("B")

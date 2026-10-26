@@ -74,7 +74,7 @@ def main(argv):
         os88marty.ui_done(m, "Paint's first paint")
         os88marty.no_saver(m)
         seg = dispapps.pkg_seg(m, 0)[1]
-        # a real segment, or kern_mega's selector (tools/os88bochsmarty.py)
+        # a real segment, or kern_mega's selector (tools/os88megabochs.py)
         lin = getattr(m, "lin", lambda sg, off=0: (sg << 4) + off)
         pw = dispcp.win_list(m, S)[-1]
         pm = dispapps._map("paint")

@@ -18394,7 +18394,7 @@ SOAK = [
 
 # =============================================================================
 # THE kern_mega PORTS (tests/megaport.txt): MartyPC rows run on the
-# protected-mode kernel under Bochs, through tools/os88bochsmarty.py. A port
+# protected-mode kernel under Bochs, through tools/os88megabochs.py. A port
 # is the SAME script with OS88_MEGA=1 in its environment, which makes
 # os88marty.launch answer a Bochs on build/mega.img + build/megaapps.img, so a
 # port is a line in that file and not a second copy of the row.
@@ -18418,7 +18418,7 @@ def _mega_ports(base):
     drops `--machine X`). An upper-case `NAME=VAL` is put in the row's
     environment beside OS88_MEGA=1 (`OS88_BOCHS_MOUSE=serial`,
     `OS88_BOCHS_NE2K=1` - tools/os88bochs.py's knobs). `OS88_MEGA_EMU=86box`
-    among them puts the port on 86Box instead of Bochs (tools/os88boxmarty.py)
+    among them puts the port on 86Box instead of Bochs (tools/os88mega86box.py)
     and makes the row need "86box". A NAME written `ROW@ALIAS` or
     `ROW/VARIANT` registers the same base row a SECOND time as
     mega-ROW-ALIAS: one line per machine (`tmselfsu` at 1MB and
@@ -18463,7 +18463,7 @@ def _mega_ports(base):
                 if o[1:] in cmd:
                     cmd.remove(o[1:])
         # THE EMULATOR the port runs on: Bochs, or 86Box with
-        # `OS88_MEGA_EMU=86box` (tools/os88boxmarty.py) - which needs no X
+        # `OS88_MEGA_EMU=86box` (tools/os88mega86box.py) - which needs no X
         # display, so the runner gives it none
         emu = "86box" if any(e.lower() == "os88_mega_emu=86box"
                              for e in env) else "bochs"

@@ -197,7 +197,7 @@ def pool(q):
     own blocks the MX_OWN byte with FF above it (a purgeable cache: its
     MEM_P_* tag, so `purgeable` reads as on mem_tab). `seg` is a stand-in
     past the first megabyte, unique and ordered; only `sel`, `own`, `para`
-    and `pinned` mean anything. q is a BochsMarty (tools/os88bochsmarty.py)."""
+    and `pinned` mean anything. q is a MegaBochs (tools/os88megabochs.py)."""
     g = os88geom
     raw = q.read(q.sym("mx_tab"), MX_NBLK * MX_BLKSZ)
     inst = q.read(q.sym("inst_tab"), 12 * g.I_RECSZ)

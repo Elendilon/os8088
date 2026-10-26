@@ -100,7 +100,7 @@ def _map(src, defines, incs):
 # its own passes it ON TOP: `package("DOSNET_CARD")` is the shipped DOS plus
 # that, which is what `make DOSNETCARD=1` builds.
 SHIPPED = ("DOSKPART", "DOS_EXTCORE")
-# ...and kern_mega's (OS88_MEGA=1, tools/os88bochsmarty.py) is the same
+# ...and kern_mega's (OS88_MEGA=1, tools/os88megabochs.py) is the same
 # package built `-DDOS_MEGA` as well (Makefile, $(BUILD)/dosp.bin), which
 # moves the bss again - so under OS88_MEGA that define is part of the default
 if os.environ.get("OS88_MEGA"):
@@ -109,7 +109,7 @@ if os.environ.get("OS88_MEGA"):
 
 def lin(m, seg, off=0):
     """The linear address of SEG:OFF in a live guest. Under kern_mega (a
-    BochsMarty, `m.lin`) a package's segment is an LDT SELECTOR and its base
+    MegaBochs, `m.lin`) a package's segment is an LDT SELECTOR and its base
     is the descriptor's; on every real-mode kernel it is `seg << 4`."""
     f = getattr(m, "lin", None)
     return f(seg, off) if f else (seg << 4) + off

@@ -81,7 +81,7 @@ def main():
     with os88ui.boot(sysimg, machine="os8088_xt_vga") as ui:
         m = ui.m
         seg = ui._word("sc_seg")
-        # a real segment, or kern_mega's selector (tools/os88bochsmarty.py)
+        # a real segment, or kern_mega's selector (tools/os88megabochs.py)
         lin = getattr(m, "lin", lambda sg, off=0: (sg << 4) + off)
         bare = solid(ui, FREE_CELL)
         print("A/B: each shortcut shown in its cell, its +3 untouched")

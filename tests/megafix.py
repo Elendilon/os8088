@@ -5,10 +5,10 @@
     img = megafix.system_disk(img)      # PATH itself off OS88_MEGA
 
 Not a row: a fixture for the rows ported to kern_mega under Bochs
-(tools/os88bochsmarty.py, docs/BOCHS.md "Rows ported from MartyPC"). Several
+(tools/os88megabochs.py, docs/BOCHS.md "Rows ported from MartyPC"). Several
 rows boot a system disk the Makefile builds out of the SHIPPED one plus a
 few files - `make stiktest`'s stik*360.img most of all - and that disk
-carries kern_big: os88bochsmarty swaps only the shipped images in build/,
+carries kern_big: os88megabochs swaps only the shipped images in build/,
 so the row would boot the wrong kernel under Bochs. This builds the SAME
 fixture on build/mega.img, kern_mega's one system disk (1.44MB, the same
 tree), by putting the same files where the Makefile's recipe puts them.

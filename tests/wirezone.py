@@ -109,8 +109,8 @@ def build():
 
 def launch(img, nic):
     if os88qemu.MEGA:           # kern_mega: the same socket, a Bochs behind
-        import os88qmpbochs     # it (tests/os88qmpbochs.py) - mega.img for
-        os88qmpbochs.Server(    # os8088.img, ether360's twin, NE2000 or not
+        import os88qmpmega     # it (tests/os88qmpmega.py) - mega.img for
+        os88qmpmega.Server(    # os8088.img, ether360's twin, NE2000 or not
             SOCK, PIDFILE, os88build.at(img), os88build.at("build/apps.img"),
             ne2k=nic)
         return heapmap.Qmp(SOCK)

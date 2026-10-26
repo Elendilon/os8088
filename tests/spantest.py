@@ -118,7 +118,7 @@ def main(argv):
         if got is None:
             sys.exit("spantest: SPANTEST.O88 did not open")
         seg = got[1]
-        # a real segment, or kern_mega's selector (tools/os88bochsmarty.py)
+        # a real segment, or kern_mega's selector (tools/os88megabochs.py)
         base = m.lin(seg) if getattr(m, "bochs", False) else seg << 4
 
         def rd(name, n=2):

@@ -339,7 +339,7 @@ def kz_defines(bdir, defines=()):
 def _mega_map():
     """$OS88_MEGA: kern_mega's own map, as its build wrote it.
 
-    A row ported to kern_mega (tools/os88bochsmarty.py) asks every question
+    A row ported to kern_mega (tools/os88megabochs.py) asks every question
     a MartyPC row asks, and this is where its symbols come from: the map
     `make mega` wrote beside the kernel it built, `megak/kernel.map` in
     $OS88_MEGA_BUILD (build/ by default). Nothing is re-assembled, because

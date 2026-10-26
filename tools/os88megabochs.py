@@ -5,7 +5,7 @@ ported from MartyPC").
 
     OS88_MEGA=1 python3 tests/<row>.py
 
-`os88marty.launch()` answers a `BochsMarty` instead of a MartyPC connection
+`os88marty.launch()` answers a `MegaBochs` instead of a MartyPC connection
 when $OS88_MEGA is set, and everything above it - os88ui, os88mouse, every
 `os88marty.until`/`ui_done`/`settle` - runs on top of it as it stands,
 because the shim is a SERVER rather than a wrapper: `Marty` is built on one
@@ -79,7 +79,7 @@ import os88bochs as ob         # noqa: E402
 import os88marty as om         # noqa: E402
 # what does not depend on Bochs - the disk mapping, a row's own fixed disk,
 # selectors, `.cold`/`.mega` symbols and the boot toast - is shared with
-# the 86Box backend (tools/os88boxmarty.py) and lives there
+# the 86Box backend (tools/os88mega86box.py) and lives there
 from os88megacommon import (MegaMixin, mega_images,  # noqa: E402,F401
                             hd_geometry, row_disk, _blank)
 
@@ -118,12 +118,12 @@ def keysym(name):
         return "KP_" + name[6:]
     if re.match(r"F\d{1,2}$", name):
         return name
-    raise om.MartyError("os88bochsmarty: no X keysym for MartyKey %r" % name)
+    raise om.MartyError("os88megabochs: no X keysym for MartyKey %r" % name)
 
 
 # --- the machine ------------------------------------------------------------
 
-class BochsMarty(MegaMixin, om.Marty):
+class MegaBochs(MegaMixin, om.Marty):
     """`Marty` with the debug server replaced by Bochs: see the module note.
     `m.box` is the os88bochs.Box underneath, for anything only Bochs has."""
 
@@ -231,7 +231,7 @@ class BochsMarty(MegaMixin, om.Marty):
                 os.kill(self.box.p.pid, signal.SIGINT)
                 kick = time.time() + 1.0
             if time.time() > end:
-                raise om.MartyError("os88bochsmarty: no debugger prompt in 20s"
+                raise om.MartyError("os88megabochs: no debugger prompt in 20s"
                                     " - Bochs on %s is gone or wedged"
                                     % self.box.display)
             time.sleep(nap)
@@ -254,7 +254,7 @@ class BochsMarty(MegaMixin, om.Marty):
                     and t.rstrip(" ").endswith(">")):
                 return t
             if time.time() > end:
-                raise om.MartyError("os88bochsmarty: %r had no answer in %.0fs"
+                raise om.MartyError("os88megabochs: %r had no answer in %.0fs"
                                     % (cmds[0], timeout))
             time.sleep(nap)
             nap = min(nap * 2, 0.02)
@@ -319,7 +319,7 @@ class BochsMarty(MegaMixin, om.Marty):
             with open(f, "rb") as fh:
                 b = fh.read()
         if len(b) < n:
-            raise om.MartyError("os88bochsmarty: read 0x%x came back %d of %d"
+            raise om.MartyError("os88megabochs: read 0x%x came back %d of %d"
                                 " bytes" % (addr, len(b), n))
         return b[:n]
 
@@ -340,7 +340,7 @@ class BochsMarty(MegaMixin, om.Marty):
             m = re.search(r"ldtr:0x[0-9a-f]+, dh=(0x[0-9a-f]+), "
                           r"dl=(0x[0-9a-f]+)", t)
             if not m:
-                raise om.MartyError("os88bochsmarty: no LDTR in `sreg`")
+                raise om.MartyError("os88megabochs: no LDTR in `sreg`")
             dh, dl = int(m.group(1), 16), int(m.group(2), 16)
             self._ldt = ((dl >> 16) | ((dh & 0xFF) << 16) | (dh & 0xFF000000),
                          (dl & 0xFFFF) | (dh & 0xF0000))
@@ -351,7 +351,7 @@ class BochsMarty(MegaMixin, om.Marty):
             t = self._stopped(["sreg"])
             m = re.search(r"gdtr:base=0x([0-9a-f]+), limit=0x([0-9a-f]+)", t)
             if not m:
-                raise om.MartyError("os88bochsmarty: no GDTR in `sreg`")
+                raise om.MartyError("os88megabochs: no GDTR in `sreg`")
             g = (int(m.group(1), 16), int(m.group(2), 16))
             if g[1] < 0x100:            # not in protected mode yet (the
                 return g                # boot): not worth keeping
@@ -365,10 +365,10 @@ class BochsMarty(MegaMixin, om.Marty):
             t = self._stopped(["sreg"])
             m_ = re.search(r"gdtr:base=0x([0-9a-f]+), limit=0x([0-9a-f]+)", t)
             if not m_:
-                raise om.MartyError("os88bochsmarty: no GDTR in `sreg`")
+                raise om.MartyError("os88megabochs: no GDTR in `sreg`")
             self._gdt = g = (int(m_.group(1), 16), int(m_.group(2), 16))
         if (sel & ~7) + 7 > g[1]:
-            raise om.MartyError("os88bochsmarty: GDT selector %#x is past "
+            raise om.MartyError("os88megabochs: GDT selector %#x is past "
                                 "the table's limit %#x" % (sel, g[1]))
         d = self._read(g[0] + (sel & ~7), 8)
         return (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24,
@@ -409,7 +409,7 @@ class BochsMarty(MegaMixin, om.Marty):
                                env=self.box.env, capture_output=True,
                                text=True).stdout.split()
             if not r:
-                raise om.MartyError("os88bochsmarty: no Bochs window")
+                raise om.MartyError("os88megabochs: no Bochs window")
             self._win = w = r[0]
         return w
 
@@ -452,7 +452,7 @@ class BochsMarty(MegaMixin, om.Marty):
         if f is None:
             raise om.MartyError(
                 "`%s` is a MartyPC instrument the kern_mega Bochs shim does not"
-                " have (tools/os88bochsmarty.py) - this row is not portable "
+                " have (tools/os88megabochs.py) - this row is not portable "
                 "as it stands" % c)
         with self._lock:
             r = f(**kw)
@@ -522,7 +522,7 @@ class BochsMarty(MegaMixin, om.Marty):
             elif t == "int":
                 want.append(self._vector(int(b["addr"])))
             else:
-                raise om.MartyError("os88bochsmarty: a %r breakpoint is not "
+                raise om.MartyError("os88megabochs: a %r breakpoint is not "
                                     "available on Bochs" % t)
         with self._lock:
             if self._state == "running":
@@ -554,7 +554,7 @@ class BochsMarty(MegaMixin, om.Marty):
                 miss = set(want) - set(self._bps.values())
                 if miss:
                     raise om.MartyError(
-                        "os88bochsmarty: Bochs has no breakpoint slot left "
+                        "os88megabochs: Bochs has no breakpoint slot left "
                         "for %d of %d addresses (%s)" % (
                             len(miss), len(want),
                             " ".join("%x" % a for a in sorted(miss)[:8])))
@@ -647,7 +647,7 @@ class BochsMarty(MegaMixin, om.Marty):
 
     def _c_mouse(self, dx=0, dy=0, l=False, r=False, wz=0, **_):
         if wz and not getattr(self, "imps2", False):
-            raise om.MartyError("os88bochsmarty: no wheel on Bochs's PS/2 "
+            raise om.MartyError("os88megabochs: no wheel on Bochs's PS/2 "
                                 "mouse - launch(..., wheel=True) makes it an "
                                 "IntelliMouse")
         if not self.box.captured:
@@ -757,7 +757,7 @@ class BochsMarty(MegaMixin, om.Marty):
             data = f.read()
         if len(data) != os.path.getsize(live):
             raise om.MartyError(
-                "os88bochsmarty: mount: %s is %d bytes and drive %d holds "
+                "os88megabochs: mount: %s is %d bytes and drive %d holds "
                 "%d - Bochs cannot change a drive's geometry while it runs"
                 % (path, len(data), drive, os.path.getsize(live)))
         with open(live, "r+b") as f:
@@ -883,7 +883,7 @@ class BochsMarty(MegaMixin, om.Marty):
                 if (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24) != 0x500 \
                         or (d[5] & 0x98) != 0x90:
                     raise om.MartyError(
-                        "os88bochsmarty: GDT entry 0050h is not data at "
+                        "os88megabochs: GDT entry 0050h is not data at "
                         "0500h (%s) - no CS for the port stub" % d.hex())
                 gdesc = (gb + 0x50 + 5, d[5:6])
                 self._write(gdesc[0], bytes([0x9B]))
@@ -906,7 +906,7 @@ class BochsMarty(MegaMixin, om.Marty):
                     if n:
                         self._do(["d %s" % n[-1]])
                     if not re.search(r"\[0x0*%x\]" % lin, t):
-                        raise om.MartyError("os88bochsmarty: the port stub "
+                        raise om.MartyError("os88megabochs: the port stub "
                                             "did not stop at %x" % lin)
                     now = {k: int(v.replace("_", ""), 16) & 0xFFFFFFFF
                            for k, v in re.findall(
@@ -986,7 +986,7 @@ class BochsMarty(MegaMixin, om.Marty):
         t = self._stopped(["ptime"])
         m_ = re.findall(r"ptime: (\d+)", t)
         if not m_:
-            raise om.MartyError("os88bochsmarty: no answer to `ptime`")
+            raise om.MartyError("os88megabochs: no answer to `ptime`")
         return int(m_[-1])
 
     def cmos(self):
@@ -1079,7 +1079,7 @@ def _first_c(box):
     end = time.time() + 60
     while not re.search(r"<bochs:1> c", ob._tail(box.e9, 0)):
         if time.time() > end or box.p.poll() is not None:
-            raise om.MartyError("os88bochsmarty: Bochs never started (%s)"
+            raise om.MartyError("os88megabochs: Bochs never started (%s)"
                                 % os.path.join(box.out, "bochs.log"))
         time.sleep(0.05)
 
@@ -1123,7 +1123,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     ne2k = "_ne2k" in (machine or "") or bool(os.environ.get(
         "OS88_BOCHS_NE2K"))
     # `cfg="keep"`: A:'s own SYSTEM.CFG stands - a system-disk FIXTURE that
-    # wants ETHER.DRV and more (tests/os88qmpbochs.py's mega_twin)
+    # wants ETHER.DRV and more (tests/os88qmpmega.py's mega_twin)
     keep = cfg == "keep"
     if keep:
         cfg = None
@@ -1136,9 +1136,9 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     # its twins): os88bochs.Box's default C:, an ATA disk with RUN/ on it.
     # Everything else has none, as before
     noc = "_hdd" not in (machine or "") and not cimg
-    # ...or a fixed disk the row hands as `cimg=` (tests/os88qmpbochs.py's
+    # ...or a fixed disk the row hands as `cimg=` (tests/os88qmpmega.py's
     # TESTHD): COPIED into run_dir as c.img (Box keeps a c.img already in its
-    # directory) and read back by the row through that copy - os88qmpbochs
+    # directory) and read back by the row through that copy - os88qmpmega
     # copies it home. row_disk's `--mount hd:0:` is the other door, mounted
     # IN PLACE; a row uses one or the other
     if own:
@@ -1154,7 +1154,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
                     cgeom = (sz // (h * spt * 512), h, spt)  # 17, divide
                     break
         if cgeom is None:
-            raise om.MartyError("os88bochsmarty: a C: of %d bytes is neither "
+            raise om.MartyError("os88megabochs: a C: of %d bytes is neither "
                                 "os88disk.py --hdd's 65/16/63 nor %r" %
                                 (sz, ob.GEOM))
     # ...and FILES ON IT: `extra` takes MartyPC's emulator arguments, which
@@ -1175,7 +1175,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
                  build=bld, display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
                  ne2k=ne2k, noserial=noserial, imps2=wheel, put=put,
                  cimg=cimg, cgeom=cgeom, noa=noa, ne2k_io=ne2k_io)
-    m = BochsMarty(box, run_dir, label=label)
+    m = MegaBochs(box, run_dir, label=label)
     m.cimg = cimg or (own and os.path.join(run_dir, "c.img"))  # its own C:
     m.imps2 = wheel or "type=imps2" in ob.BOCHSRC
     m._boxkw = dict(sb=sb, cfg=cfg, btype=box_btype, build=bld,

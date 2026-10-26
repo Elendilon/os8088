@@ -224,7 +224,7 @@ _PSYMS = {}
 
 def _lin(m, seg, off=0):
     """SEG:OFF linear - an LDT selector's base under kern_mega, where a
-    package's region is a selector (os88bochsmarty)"""
+    package's region is a selector (os88megabochs)"""
     f = getattr(m, "lin", None)
     return f(seg, off) if f else seg * 16 + off
 
@@ -987,7 +987,7 @@ def hover_entry(m):
     loaded, and the row says so rather than tracing nothing."""
     off, seg = struct.unpack("<HH", bytes(m.read(m.sym("DKDFP") + 4, 4)))
     flat = _lin(m, seg, off)            # the module's CS: a code SELECTOR
-                                        # on kern_mega (os88bochsmarty)
+                                        # on kern_mega (os88megabochs)
     if flat == m.sym("mod_gone"):
         raise SystemExit("desklayer: DESK.DRV is not loaded (DKDFP's hover "
                          "slot is mod_gone) - SPEC.md 11.103.10")

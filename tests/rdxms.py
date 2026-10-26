@@ -298,9 +298,9 @@ def lin(seg, off=0):
 
 
 def mega():
-    """The kern_mega Bochs behind this row's socket (tests/os88qmpbochs.py)"""
-    import os88qmpbochs
-    return os88qmpbochs.live().m
+    """The kern_mega Bochs behind this row's socket (tests/os88qmpmega.py)"""
+    import os88qmpmega
+    return os88qmpmega.live().m
 
 
 def session(q, a, R, P, data, bimg):

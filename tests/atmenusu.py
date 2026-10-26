@@ -121,7 +121,7 @@ def main():
         m.key("KeyN")                          # New -> fullscreen (46.5)
         # Freeze the blink before the first settle, exactly as atblit does:
         # a fullscreen ArtfulType otherwise never stops changing.
-        # a kern_mega region is a selector (tools/os88bochsmarty.py's lin)
+        # a kern_mega region is a selector (tools/os88megabochs.py's lin)
         lin = getattr(m, "lin", lambda s_, o=0: s_ * 16 + o)
         m.write(lin(seg, syms["at_drag"]), b"\x01")
         m.write(lin(seg, syms["at_cphase"]), b"\x00")

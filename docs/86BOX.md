@@ -267,7 +267,7 @@ LINEAR address (`0xfef1d` with `cs 0xf000`), not an offset.
 
 ## kern_mega rows on 86Box
 
-`tools/os88boxmarty.py` is the second backend of kern_mega's port
+`tools/os88mega86box.py` is the second backend of kern_mega's port
 mechanism. docs/BOCHS.md's *Rows ported from MartyPC* covers the first.
 It is a SERVER for the requests MartyPC's `Marty` is built on, answered out
 of an 86Box: memory through automation's `memr`/`memw`, registers and
@@ -320,7 +320,7 @@ byte cleared, and every later launch POSTs straight through. The seed is
 **The clock is the guest's.** The backend runs 86Box fast-forwarded (about
 10x a real 286 at an idle desktop) and reports `cycles` as emulated time at
 4.77 MHz. So a guest budget means the same seconds of machine time it
-means on MartyPC. `tests/os88qmpbochs.py`'s QMP server is the exception and
+means on MartyPC. `tests/os88qmpmega.py`'s QMP server is the exception and
 runs 86Box PACED. A QMP row times its input on the host's clock (a
 double-click is four `mouse_button`s 0.1 s apart), and fast-forwarded
 those would be a guest second apart. That server takes the same

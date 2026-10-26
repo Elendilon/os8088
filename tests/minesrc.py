@@ -53,7 +53,7 @@ WATCH = ["mn_mode", "mn_revealed", "mn_flags"]
 
 fails = []
 # kern_mega (OS88_MEGA, tests/megaport.txt): the same seven cases through the
-# Marty API that tools/os88bochsmarty.py answers out of Bochs - os88ui's
+# Marty API that tools/os88megabochs.py answers out of Bochs - os88ui's
 # boot of mega.img with megaapps.img in B:, os88mouse's proven edges with the
 # RIGHT button's (Bochs's PS/2 mouse carries both), and the guest's own
 # waits. Every case and every assertion is the QEMU arm's

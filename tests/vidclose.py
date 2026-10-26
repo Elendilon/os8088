@@ -42,7 +42,7 @@ from vidxms import Q, u16                                     # noqa: E402
 
 ROUNDS = 3
 # kern_mega (OS88_MEGA, tests/megaport.txt): the same three rounds through the
-# Marty API that tools/os88bochsmarty.py answers out of Bochs. The player is
+# Marty API that tools/os88megabochs.py answers out of Bochs. The player is
 # the ARM (build/megak/apps, -DPKG_MEGA), the hold is kern_mega's own XMS - a
 # POOL block above 1MB, instance-owned - so "no XMS block still owned" is the
 # pool holding exactly what it held before the first open (heapmap.pool);

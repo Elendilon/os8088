@@ -175,7 +175,7 @@ class Box(object):
         self._ms = None             # the emulated clock as the last reply had it
         self._syms = {}
         # ONE REQUEST AT A TIME on the socket, whatever thread asks: a
-        # harness polling from a second thread (tools/os88boxmarty.py) would
+        # harness polling from a second thread (tools/os88mega86box.py) would
         # otherwise read the other thread's reply
         import threading
         self._lk = threading.RLock()
@@ -643,7 +643,7 @@ def launch(vm, name=None, a=None, b=None, c=None, d=None, mem=None, sets=(),
     time, and a 1MB load is seconds - for a row whose subject is not the
     floppy's timing.
 
-    For a harness (tools/os88boxmarty.py): CFGS is (section, key, value)
+    For a harness (tools/os88mega86box.py): CFGS is (section, key, value)
     triples set as they are (a value of None removes the key) - a section
     name with a dot in it ("Sound Blaster v2.0 #1") cannot go through `sets`;
     NVR is {file: bytes} written into the run's nvr/ before the start (a

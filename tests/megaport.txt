@@ -2,7 +2,7 @@
 #
 # Each line registers `mega-<name>` (tests/suite.py's _mega_ports): the SAME
 # script as soak row <name>, run with OS88_MEGA=1, which makes
-# os88marty.launch() answer tools/os88bochsmarty.py - Bochs on build/mega.img
+# os88marty.launch() answer tools/os88megabochs.py - Bochs on build/mega.img
 # with build/megaapps.img in B: (docs/BOCHS.md, "Rows ported from MartyPC").
 #
 #     name[@alias] [secs=N] [timeout=N] [@VAR=VAL ...] [+arg ...] [-arg ...] [-flag=]   # why
@@ -178,7 +178,7 @@ stikhiber secs=40   # a pending RESUME stands the Sticky App relaunch down: HIBE
 hdnoclaim secs=50   # a mounted hard-disk partition costs no heap - on kern_mega the image and any claim are XMEM-pool blocks, read off mx_tab
 
 # FIXED DISKS AND INSTALL (wave 2)
-# The row's OWN disk is Bochs's C: (tools/os88bochsmarty.py's row_disk): the
+# The row's OWN disk is Bochs's C: (tools/os88megabochs.py's row_disk): the
 # `--mount hd:0:` VHD MartyPC is handed, or a stage_run_dir's, written
 # through so an install in one launch is what the next one boots. Their red
 # checks broke HDDTOOL.DRV, HDD.DRV, INSTALL.O88 or kern_dos on a throwaway
@@ -203,7 +203,7 @@ blitp secs=25   # gfx_blitp's 2,048 bytes are where it was given them, read PLAN
 gorillasreactions secs=130 +--arm +vga   # Gorillas' sun, banana patches, scoring dance and tune, VRAM compared plane by plane in the window and full screen
 
 # THE NETWORK (wave 2): QEMU's network rows on Bochs's NE2000, through
-# tests/os88qmpbochs.py - the row's own QMP socket answered by a kern_mega Bochs
+# tests/os88qmpmega.py - the row's own QMP socket answered by a kern_mega Bochs
 ethernet secs=60   # ETHER.DRV, DHCP and a page over TCP; the pool's claim read off mx_tab; the teardown's NETV_GONE (KERN-MEGA-PLAN 14.85)
 brdownload secs=60   # Save Link As streams a binary into B:, read back mid-run through the live image
 ethcfg secs=120   # a manual address set in the Setup window survives a reboot; ether360.img's twin on mega.img
@@ -375,7 +375,7 @@ vidclose secs=110   # the close box on the Video Player ARM while its hold still
 doscon secs=100   # DOSHELLO's own lines land in the console between `Starting` and `ended`, the cursor under them; red with kd_snap unbound (the band holds the prompt's history and none of them)
 
 # 86BOX HARDWARE (wave 3)
-# On 86Box (OS88_MEGA_EMU=86box: tools/os88boxmarty.py, docs/86BOX.md "kern_mega
+# On 86Box (OS88_MEGA_EMU=86box: tools/os88mega86box.py, docs/86BOX.md "kern_mega
 # rows on 86Box"): the owner's mr286 with what the row's MartyPC machine names -
 # a CGA and a Hercules at once, a VGA beside a Hercules, a 1bpp adapter alone, a
 # Sound Blaster 2.0 on IRQ 7 whose DMA runs on the emulated clock, a 5.25" 1.2MB

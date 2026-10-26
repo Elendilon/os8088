@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """kern_mega under 86Box, behind MartyPC's `Marty` API - the second backend
 of the port mechanism (docs/86BOX.md, "kern_mega rows on 86Box"; the first
-is tools/os88bochsmarty.py, docs/BOCHS.md "Rows ported from MartyPC").
+is tools/os88megabochs.py, docs/BOCHS.md "Rows ported from MartyPC").
 
     OS88_MEGA=1 OS88_MEGA_EMU=86box python3 tests/<row>.py
 
-With both set, `os88marty.launch()` answers a `BoxMarty`: a SERVER for the
+With both set, `os88marty.launch()` answers a `Mega86Box`: a SERVER for the
 debug-server requests `Marty` is built on (`cmd(**kw)`), answered out of an
 86Box (tools/os88box.py: its automation socket and its GDB stub). So
 os88ui, os88mouse, `until`/`settle`/`ui_done` and every row above them run
@@ -132,7 +132,7 @@ def scancode(name):
         return ob.KEYS[name[3].lower()]
     if name.startswith("Digit") and len(name) == 6:
         return ob.KEYS[name[5]]
-    raise om.MartyError("os88boxmarty: no scancode for MartyKey %r" % name)
+    raise om.MartyError("os88mega86box: no scancode for MartyKey %r" % name)
 
 
 # --- the machine a row's MartyPC name describes --------------------------------
@@ -171,7 +171,7 @@ def machine_config(machine):
         sec = {"sb2.0": "Sound Blaster v2.0 #1",
                "sb16": "Sound Blaster 16 #1"}.get(kind)
         if sec is None:
-            raise om.MartyError("os88boxmarty: $OS88_MEGA_SND %r is neither "
+            raise om.MartyError("os88mega86box: $OS88_MEGA_SND %r is neither "
                                 "sb2.0 nor sb16" % snd)
         sets += [("Sound", "sndcard", kind), (sec, "base", "0220"),
                  (sec, "irq", irq or ("7" if kind == "sb2.0" else "5")),
@@ -236,7 +236,7 @@ def _setup(bx, mono, hdd=False, guest_ms=20000):
                 return
             bx.tap("right")
             bx.cmd("step 300")
-        raise SystemExit("os88boxmarty: MR BIOS setup has no %r page" % word)
+        raise SystemExit("os88mega86box: MR BIOS setup has no %r page" % word)
 
     def keys(*ks):
         for k in ks:
@@ -256,7 +256,7 @@ def _setup(bx, mono, hdd=False, guest_ms=20000):
         page("Fixed Disk 80")
         keys("down", "return", "4", "7", "return", "down", "shift+/")
         if "Type .......... 47" not in text():
-            raise SystemExit("os88boxmarty: MR BIOS would not take C: as an "
+            raise SystemExit("os88mega86box: MR BIOS would not take C: as an "
                              "identified type 47")
     if mono:
         page("Primary Video")
@@ -268,7 +268,7 @@ def _setup(bx, mono, hdd=False, guest_ms=20000):
             bx.tap("space")
             bx.cmd("step 300")
         if "Monochrome" not in text():
-            raise SystemExit("os88boxmarty: MR BIOS's Video page offers no "
+            raise SystemExit("os88mega86box: MR BIOS's Video page offers no "
                              "Monochrome primary")
     for _ in range(4):                  # out of the fields: F10 is the MENU's
         if "Summary   Energy" in text():
@@ -311,7 +311,7 @@ def cmos_primed(profile, a, b, sets, nvr, mono=False, c=None):
         bx.kernel_up(guest_ms=240000, prompts=BIOS_PROMPTS, idle=False)
     except SystemExit as e:
         bx.quit(remove=True)
-        raise om.MartyError("os88boxmarty: the priming boot of this machine "
+        raise om.MartyError("os88mega86box: the priming boot of this machine "
                             "never reached the desktop: %s" % e)
     bx.quit()
     out = {}
@@ -383,10 +383,10 @@ class Gdb(object):
         try:
             r = self.replies.get(timeout=timeout)
         except queue.Empty:
-            raise om.MartyError("os88boxmarty: the GDB stub never answered %r"
+            raise om.MartyError("os88mega86box: the GDB stub never answered %r"
                                 % body)
         if r.startswith("E"):
-            raise om.MartyError("os88boxmarty: the GDB stub refused %r: %s"
+            raise om.MartyError("os88mega86box: the GDB stub refused %r: %s"
                                 % (body, r))
         return r
 
@@ -404,7 +404,7 @@ GDB_REGS = {"ax": 0, "cx": 1, "dx": 2, "bx": 3, "sp": 4, "bp": 5, "si": 6,
 
 # --- the machine ---------------------------------------------------------------
 
-class BoxMarty(MegaMixin, om.Marty):
+class Mega86Box(MegaMixin, om.Marty):
     """`Marty` with the debug server replaced by 86Box: see the module note.
     `m.b` is the os88box.Box underneath."""
 
@@ -541,7 +541,7 @@ class BoxMarty(MegaMixin, om.Marty):
     def gdt(self, sel):
         base, limit = self.gdt_base()
         if (sel & ~7) + 7 > limit:
-            raise om.MartyError("os88boxmarty: GDT selector %#x is past the "
+            raise om.MartyError("os88mega86box: GDT selector %#x is past the "
                                 "table's limit %#x" % (sel, limit))
         d = self._read(base + (sel & ~7), 8)
         return (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24,
@@ -569,7 +569,7 @@ class BoxMarty(MegaMixin, om.Marty):
         if f is None:
             raise om.MartyError(
                 "`%s` is a MartyPC instrument the kern_mega 86Box shim does "
-                "not have (tools/os88boxmarty.py) - this row is not portable "
+                "not have (tools/os88mega86box.py) - this row is not portable "
                 "as it stands" % c)
         r = dict(f(**kw) or {})
         r["ok"] = True
@@ -627,7 +627,7 @@ class BoxMarty(MegaMixin, om.Marty):
                     try:
                         self._stepq.get(timeout=10)
                     except queue.Empty:
-                        raise om.MartyError("os88boxmarty: a single step "
+                        raise om.MartyError("os88mega86box: a single step "
                                             "never stopped")
                 g.send("c")             # ...and the stub back to running,
             finally:                    # the machine still held
@@ -663,7 +663,7 @@ class BoxMarty(MegaMixin, om.Marty):
             elif t == "int":
                 want.add(self._vector(int(b["addr"])))
             else:
-                raise om.MartyError("os88boxmarty: a %r breakpoint is not "
+                raise om.MartyError("os88mega86box: a %r breakpoint is not "
                                     "available on 86Box" % t)
         if want or self._bps:
             g = self.gdb()
@@ -723,7 +723,7 @@ class BoxMarty(MegaMixin, om.Marty):
 
     def _c_mouse(self, dx=0, dy=0, l=False, r=False, wz=0, **_):
         if wz:
-            raise om.MartyError("os88boxmarty: no wheel on the serial mouse")
+            raise om.MartyError("os88mega86box: no wheel on the serial mouse")
         self._a("mouse %d %d %d" % (dx, dy, (1 if l else 0) | (2 if r else 0)))
         return {"cycles": self._cycles()}
 
@@ -731,7 +731,7 @@ class BoxMarty(MegaMixin, om.Marty):
     def _card(self, card):
         i = 0 if card in (None, "pri") else int(card)
         if not 0 <= i < len(self.cards_):
-            raise om.MartyError("os88boxmarty: no video card %r on this "
+            raise om.MartyError("os88mega86box: no video card %r on this "
                                 "machine (%s)" % (card, self.cards_))
         return i
 
@@ -811,7 +811,7 @@ class BoxMarty(MegaMixin, om.Marty):
 
     def vram(self, kind=None):
         """Marty.vram, and on a VGA (no flat framebuffer) the glass instead -
-        lit where not black, as tools/os88bochsmarty.py answers it."""
+        lit where not black, as tools/os88megabochs.py answers it."""
         if kind is None and _CARDS[self.cards_[0]][1] is None:
             w, h, px = self.fbuf()
             return w, h, [[1 if (px[(y * w + x) * 3] | px[(y * w + x) * 3 + 1]
@@ -863,11 +863,11 @@ class BoxMarty(MegaMixin, om.Marty):
             try:
                 a = self.sym(name) + off
             except Exception as e:              # noqa: BLE001
-                print("os88boxmarty: POKE %s: %s" % (name, e), flush=True)
+                print("os88mega86box: POKE %s: %s" % (name, e), flush=True)
                 continue
             old = self.read(a, len(data))
             self.write(a, data)
-            print("os88boxmarty: POKE %s+%#x (%#x): %s -> %s"
+            print("os88mega86box: POKE %s+%#x (%#x): %s -> %s"
                   % (name, off, a, old.hex(), data.hex()), flush=True)
 
     def faults(self):
@@ -900,7 +900,7 @@ class BoxMarty(MegaMixin, om.Marty):
                 pass
         keep = os.environ.get("OS88_MEGA_KEEP")
         if keep:
-            print("os88boxmarty: kept %s and %s" % (self.b.run, self.run_dir),
+            print("os88mega86box: kept %s and %s" % (self.b.run, self.run_dir),
                   file=sys.stderr)
         else:
             shutil.rmtree(self.b.run, ignore_errors=True)
@@ -928,7 +928,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     gate, on the emulated clock) and hands it back RUNNING; a number runs
     for that many guest seconds; False hands it back PAUSED at power-on.
 
-    The rest are os88bochsmarty.launch's, for tests/os88qmpbochs.py's QMP
+    The rest are os88megabochs.launch's, for tests/os88qmpmega.py's QMP
     server: `cfg` a SYSTEM.CFG driver mask written onto A:'s copy ("keep":
     A:'s own stands; an `_ne2k` machine with neither wants ETHER.DRV, 10h),
     `megs` the RAM, `cimg` the row's own fixed disk (mounted IN PLACE, as
@@ -993,8 +993,8 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
                         nvr=nvr, env=env, eject_a=not a)
     except SystemExit as e:
         shutil.rmtree(rdir, ignore_errors=True)
-        raise om.MartyError("os88boxmarty: 86Box did not start: %s" % e)
-    m = BoxMarty(box, rdir, cards, label=label)
+        raise om.MartyError("os88mega86box: 86Box did not start: %s" % e)
+    m = Mega86Box(box, rdir, cards, label=label)
     if os.environ.get("OS88_MEGA_POKE"):
         threading.Thread(target=m._poker, args=(
             os.environ["OS88_MEGA_POKE"],), daemon=True).start()
@@ -1010,7 +1010,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
             m._a("fdc")                 # (the SB capture, `screenshot1`,
         except SystemExit:              # `fdc`) - an older build answers
             raise om.MartyError(        # "unknown command"
-                "os88boxmarty: %s predates tools/86box/patches/04-06 - "
+                "os88mega86box: %s predates tools/86box/patches/04-06 - "
                 "rebuild it: python3 tools/os88box.py build" % ob.BIN)
         m._a("ff on")
         m._a("status")
@@ -1063,7 +1063,7 @@ BIOS_PROMPTS = (("bypass MEMORY test", "esc"), ("to RESUME", "f1"),
 
 
 def main(argv):
-    """`os88boxmarty.py IMAGE [APPS] [MACHINE]`: boot one and print what the
+    """`os88mega86box.py IMAGE [APPS] [MACHINE]`: boot one and print what the
     shim sees - a smoke test of the backend."""
     m = launch(argv[0] if argv else None, apps=argv[1] if len(argv) > 1
                else None, machine=argv[2] if len(argv) > 2 else "")

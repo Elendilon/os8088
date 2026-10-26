@@ -154,14 +154,14 @@ legs - never share one.
 ## Rows ported from MartyPC: `OS88_MEGA=1` and tests/megaport.txt
 
 Most of the soak is written against MartyPC's `Marty` API, and
-`tools/os88bochsmarty.py` answers that API out of a Bochs running kern_mega
+`tools/os88megabochs.py` answers that API out of a Bochs running kern_mega
 instead. With `OS88_MEGA=1` in the environment, `os88marty.launch()` (and so
-`os88ui.boot()`) hands back a `BochsMarty`, and the row runs unchanged:
+`os88ui.boot()`) hands back a `MegaBochs`, and the row runs unchanged:
 
     OS88_MEGA=1 python3 tests/sheetbtn.py
 
 **Bochs is one of two backends.** With `OS88_MEGA_EMU=86box` as well, the
-same call hands back an 86Box (`tools/os88boxmarty.py`). Use it for the
+same call hands back an 86Box (`tools/os88mega86box.py`). Use it for the
 hardware Bochs has not got: a CGA, a Hercules, two video cards at once, a
 Sound Blaster on the emulated clock, a 1.2MB drive, or a slirp that carries
 the Telnet rows. docs/86BOX.md's *kern_mega rows on 86Box* is that backend.
@@ -321,7 +321,7 @@ own alone); `ne2k_io=` puts the card at another port. `cimg=` boots a row's
 own raw hard disk as C: (os88disk.py `--hdd`'s 65/16/63, Box's own, or any
 size 16 heads of 63 or 32 sectors divide).
 
-**QEMU's network rows run through `tests/os88qmpbochs.py`.** They were
+**QEMU's network rows run through `tests/os88qmpmega.py`.** They were
 written against QEMU's QMP socket, driven from every side at once (their own
 `Qemu` classes, `xmcheck`, `tools/qmp.py`, `mouse.py`, `shot.py`), so under
 `OS88_MEGA` the launchers in `tests/os88qemu.py` (`make_test`) and the rows'

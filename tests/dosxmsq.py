@@ -71,7 +71,7 @@ def boot():
 
 def mega_rows():
     """kern_mega (OS88_MEGA=1): the same program, under Bochs through
-    tools/os88bochsmarty.py - a 16MB 386 whose kern_dos trip carries its own
+    tools/os88megabochs.py - a 16MB 386 whose kern_dos trip carries its own
     XMS arena (SPEC.md 96.15.4) - so the machine with a store is that one, and
     the launch is os88ui's. The text screen is read the same way: 0xB8000."""
     import os88marty
