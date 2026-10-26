@@ -165,7 +165,13 @@ rw_bload:
     mov ax, [rw_nslot]
     mov cl, 4
     shl ax, cl
-    call OSAPI_MEM_CLAIM            ; DX = the slots (the bank table names
+%ifdef PKG_MEGA
+    xor cx, cx                      ; CONVENTIONAL, whatever OS88_HIGHMEM
+    call OSAPI_MEM_CLAIM_DMA        ;   says: the file is read INTO it, and
+%else                               ;   a read above 1MB bounces sector by
+    call OSAPI_MEM_CLAIM            ;   sector (a 1MB cartridge's load ran
+%endif                              ;   minutes on a 286, 16.2.6)
+                                    ; DX = the slots (the bank table names
 %ifdef RDG_AOT                      ;   them: rw_mreloc, rwmove.inc)
     call rw_atight                  ; (the claim compacted what it had to)
 %endif

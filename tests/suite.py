@@ -16218,6 +16218,19 @@ SOAK = [
         "kern_mega FAULT. Red with the `push cs / pop ds` put back "
         "(ECHO 62, DIR 87, TYPE 802). 80s is 56 measured alone, 73 in three lanes",
         needs=("bochs", "nasm")),
+    Row("rdgaotmega", "soak", py("tests/rdgaotmega.py"), 250.0,
+        "docs/REALDMG-SPEC.md 20.15: a PRECOMPILED cartridge on kern_mega. "
+        "tools/gbaot.py translates blargg's cpu_instrs squeezed (--squeeze: "
+        "ten code images, 30 relocations, blocks left to the interpreter) and "
+        "packages it --mega; MEGATRAP=1's census under Bochs, four legs: the "
+        "plain package REFUSES; the mega one with the ROM inside, beside it, "
+        "and inside in one conventional claim (RW_NOXPLAN) must each pass all "
+        "eleven tests precompiled (S_JITFIX, nothing translated), with every "
+        "image in ONE pool block above 1MB and 64KB apart, the banks in place "
+        "(or the one claim below 1MB), and no trap charged to the core or an "
+        "image. Red with the image from before 20.15 (--image): the game never "
+        "starts",
+        needs=("bochs", "nasm", "unicorn")),
     Row("rdgmega", "soak", py("tests/rdgmega.py"), 250.0,
         "docs/REALDMG-SPEC.md section 16.2.4: RealDMG's RECOMPILER on kern_mega, "
         "right and with no #GP in the core. The core and the cache entered "

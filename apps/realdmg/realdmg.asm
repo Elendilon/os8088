@@ -27,14 +27,13 @@
                                         ;   CPU_F_PM (REALDMG-SPEC 10.3.2)
 %include "sndpkg.inc"                   ; SOUND.DRV's FM verbs (rwfm.inc)
 
-%ifdef RDG_AOT
-%ifdef PKG_MEGA
-%error "RDG_AOT has no kern_mega arm yet (REALDMG-SPEC 20.14)"
-%endif
-%endif
 %ifdef RDG_AOT                          ; A PRECOMPILED CARTRIDGE (REALDMG-SPEC
                                         ;   20.10): one game's package, so it
+%ifdef PKG_MEGA
+    OS88_HEADER 'REALDMG', rw_entry, OS88_F_ICON | OS88_F_PARTS, OS88_STACK_384 | OS88_HIGHMEM
+%else
     OS88_HEADER 'REALDMG', rw_entry, OS88_F_ICON | OS88_F_PARTS, OS88_STACK_384
+%endif
 %elifdef PKG_MEGA                       ;   opens no extension
     OS88_HEADER 'REALDMG', rw_entry, OS88_F_ICON | OS88_F_ASSOC | OS88_F_PARTS, OS88_STACK_384 | OS88_HIGHMEM
 %else                                   ; (the arm's claims of 64KB or less may
@@ -392,14 +391,16 @@ RW_PBUF         equ 11520           ; the frame as the screen takes it: the
 ; =============================================================================
 rw_entry:
 %ifdef RDG_AOT
-    call OSAPI_CPU_INFO             ; NOT ON kern_mega YET (REALDMG-SPEC
-    test ah, CPU_F_PM               ;   20.14): every image, the list, the
+%ifndef PKG_MEGA
+    call OSAPI_CPU_INFO             ; NOT ON kern_mega (REALDMG-SPEC 20.14):
+    test ah, CPU_F_PM               ;   every image, the list, the
     jz .rmode                       ;   relocations and the doors hold DATA
     mov si, rw_s_pm                 ;   segments, and the loader adds to
     call rw_toast                   ;   them - a selector each, there. A
     stc                             ;   refusal before anything is claimed
-    ret                             ;   or read
-.rmode:
+    ret                             ;   or read; `gbaot.py --mega` makes the
+.rmode:                             ;   package that runs there (20.15)
+%endif
     mov byte [rw_jitmode], 2        ; no recompiler: the code is the file's,
 %else                               ;   and what it lacks is interpreted
     OS88_MEGA_REFUSE                ; (protected mode: the arm's, 10.3.2)
@@ -771,6 +772,18 @@ rw_load0:
 .sized:
     mov [rw_romkb], dx
 %ifdef RDG_AOT
+%ifdef PKG_MEGA
+    cmp byte [rw_pm], 0             ; KERN_MEGA'S ARM UNDER CPU_F_PM (REALDMG-
+    je .aheap                       ;   SPEC 20.15): the ROM first - in place
+    call rw_dmgclaim                ;   above 1MB, or one claim - and every
+    call rw_aloose                  ;   image after it, in one pool block
+    mov byte [rw_slotmin], RW_SLOTWANT ;   (rw_aclaim at .loaded): there is
+    call rw_plan                    ;   no bank cache to trade them against
+    jnc .planned                    ;   here (10.3.2), and the images are
+    call rw_atight                  ;   what can go short, interpreted
+    jmp .say
+.aheap:
+%endif
     call rw_dmgclaim                ; the damage memory and EVERY code
     call rw_aloose                  ;   (our claims movable for the plan)
     mov al, [rw_ans]                ;   image FIRST, the hot ones leading

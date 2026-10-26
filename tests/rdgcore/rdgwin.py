@@ -81,7 +81,12 @@ def find(b, tries=30):
             return find1(b)
         except SystemExit:
             b.cmd("step 1000")
-    return find1(b)
+    try:
+        return find1(b)
+    except SystemExit:
+        if os.environ.get("RDGWIN_FAILSHOT"):   # (what the glass said when
+            b.shot(os.environ["RDGWIN_FAILSHOT"])   #   it was not found)
+        raise
 
 
 def find1(b):

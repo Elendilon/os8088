@@ -147,9 +147,10 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
 - [x] Merged with the kern_mega RealDMG work: the shipped REALDMG.O88 and its
   kern_mega arm are byte-identical to elendilon's; the precompiled gates
   pass on the merged core.
-- [ ] kern_mega's arm (REALDMG-SPEC 20.14): today it refuses there, cleanly.
-- [ ] kern_mega's arm is ON HOLD at the owner's word until the mega memory
-  rework lands; it and that rework are both "how kern_mega does memory".
+- [x] kern_mega's arm (REALDMG-SPEC 20.15, built on `mega-dmg` once the
+  memory rework's MC7 landed): `gbaot.py --mega` packages realdmg.asm as
+  RDG_AOT + PKG_MEGA, every image in one pool block and the banks in place;
+  the plain package still refuses there (20.14). `tests/rdgaotmega.py`.
 - [x] Speed, round 1 (86Box `286-victory`, 580K heap, Looney Tunes (GBC)
   holding Right through the stretch at 20-38 s that saturates both arms;
   `tests/rdgcore/rdgwin.py --profile` now charges samples to the

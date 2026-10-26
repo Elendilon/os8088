@@ -51,6 +51,7 @@ def main():
     rom, out, name = tk.StringVar(), tk.StringVar(), tk.StringVar()
     frames, check, disk = tk.IntVar(value=3000), tk.IntVar(value=0), tk.StringVar(value="none")
     embed = tk.IntVar(value=1)
+    mega = tk.IntVar(value=0)
     reps = []
 
     def pick_rom():
@@ -109,6 +110,9 @@ def main():
     ttk.Checkbutton(f, text="Put the ROM inside the package (one file)",
                     variable=embed).grid(row=r, column=1, sticky="w")
     r += 1
+    ttk.Checkbutton(f, text="For kern_mega (protected mode; runs on every kernel)",
+                    variable=mega).grid(row=r, column=1, sticky="w")
+    r += 1
     ttk.Label(f, text="...and a floppy").grid(row=r, column=0, sticky="w")
     ttk.Combobox(f, textvariable=disk, values=[s for s, _ in SIZES], state="readonly",
                  width=10).grid(row=r, column=1, sticky="w")
@@ -141,7 +145,8 @@ def main():
         try:
             import gbaot
             gbaot.make(os.path.join(gbaot.ROOT, "build"), a["rom"], a["out"], a["name"],
-                       a["frames"], a["reps"], a["check"], log=say, embed=a["embed"])
+                       a["frames"], a["reps"], a["check"], log=say, embed=a["embed"],
+                       mega=a["mega"])
             if a["disk"]:
                 import shutil
                 import tempfile
@@ -169,7 +174,8 @@ def main():
             return
         a = {"rom": rom.get(), "out": out.get(), "name": name.get().upper(),
              "frames": frames.get(), "reps": list(reps), "check": check.get(),
-             "disk": dict(SIZES)[disk.get()], "embed": bool(embed.get())}
+             "disk": dict(SIZES)[disk.get()], "embed": bool(embed.get()),
+             "mega": bool(mega.get())}
         go.configure(state="disabled")
         say("making %s from %s..." % (a["out"], a["rom"]))
         threading.Thread(target=work, args=(a,), daemon=True).start()
