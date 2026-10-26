@@ -77,6 +77,11 @@ sys.path.insert(0, HERE)
 
 import os88bochs as ob         # noqa: E402
 import os88marty as om         # noqa: E402
+# what does not depend on Bochs - the disk mapping, a row's own fixed disk,
+# selectors, `.cold`/`.mega` symbols and the boot toast - is shared with
+# the 86Box backend (tools/os88boxmarty.py) and lives there
+from os88megacommon import (MegaMixin, mega_images,  # noqa: E402,F401
+                            hd_geometry, row_disk, _blank)
 
 GUEST_HZ = om.GUEST_HZ
 _WIDEN = bytes(v | v >> 6 for v in range(256))
@@ -116,40 +121,9 @@ def keysym(name):
     raise om.MartyError("os88bochsmarty: no X keysym for MartyKey %r" % name)
 
 
-# --- the disks --------------------------------------------------------------
-
-def mega_images(image, apps):
-    """(A:, B:) for a row's (system, apps) pair: see the module note. Only
-    the SHIPPED images in build/ itself are swapped - a scratch disk a row
-    made (`tmp/apps.img`, built out of a shipped one with its own files on
-    it) goes in as it is, because what is on it is the row's subject."""
-    bld = os.environ.get("OS88_MEGA_BUILD") or os.path.join(ROOT, "build")
-
-    def shipped(p):
-        return p and os.path.realpath(os.path.dirname(os.path.abspath(p))) \
-            == os.path.realpath(os.path.join(ROOT, "build"))
-    a = os.environ.get("OS88_MEGA_A") or image
-    if not os.environ.get("OS88_MEGA_A") and (
-            not image or (shipped(image) and re.match(
-                r"(os8088|small)[-\w]*\.img$", os.path.basename(image)))):
-        a = os.path.join(bld, "mega.img")
-    b = apps
-    if apps and shipped(apps) and re.match(r"apps(360|720|120)?\.img$",
-                                           os.path.basename(apps)):
-        b = os.path.join(bld, "megaapps.img")
-    # ...and a shipped SYSTEM floppy in B: is mega.img as well: the rows that
-    # boot C: with the system disk in B: install or upgrade FROM it
-    # (tests/install.py, instkeep.py), and what they compare the result with
-    # is os88marty.system_disk's - kern_mega's
-    elif apps and shipped(apps) and re.match(r"(os8088|small)[-\w]*\.img$",
-                                             os.path.basename(apps)):
-        b = os.path.join(bld, "mega.img")
-    return a, b
-
-
 # --- the machine ------------------------------------------------------------
 
-class BochsMarty(om.Marty):
+class BochsMarty(MegaMixin, om.Marty):
     """`Marty` with the debug server replaced by Bochs: see the module note.
     `m.box` is the os88bochs.Box underneath, for anything only Bochs has."""
 
@@ -380,35 +354,6 @@ class BochsMarty(om.Marty):
             self._gdt = g
         return self._gdt
 
-    def selector(self, sel):
-        """(base, limit) of selector SEL, or None when SEL is not a present
-        data/code descriptor - a real segment.
-
-        THE GDT AS WELL AS THE LDT. kern_mega's GDT is an IDENTITY map for
-        most of it (selector s has base s x 16, which is what lets a real
-        segment value mean the same thing), and a few entries are not: the
-        kernel's DATA, 0010, is based at KERNEL_SEG x 16, and `.cold`'s
-        COLD_SEG names its copy ABOVE 1MB where its real-mode rung is far
-        below (tests/tnest.py). For an identity entry this answers what
-        `seg << 4` did; past the GDT's limit (B800, A000) it is None."""
-        if not sel & 4:
-            base, limit = self.gdt_base()
-            if sel < 8 or (sel & ~7) + 7 > limit:
-                return None
-            d = self._read(base + (sel & ~7), 8)
-            if not d[5] & 0x80 or not d[5] & 0x10:
-                return None
-            return (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24,
-                    d[0] | d[1] << 8 | (d[6] & 0x0F) << 16)
-        base, limit = self.ldt_base()
-        if (sel & ~7) + 7 > limit:
-            return None
-        d = self._read(base + (sel & ~7), 8)
-        if not d[5] & 0x80 or not d[5] & 0x10:     # present, code/data
-            return None
-        return (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24,
-                d[0] | d[1] << 8 | (d[6] & 0x0F) << 16)
-
     def gdt(self, sel):
         """(base, limit) of GDT selector SEL, out of the live GDTR."""
         g = getattr(self, "_gdt", None)
@@ -424,29 +369,6 @@ class BochsMarty(om.Marty):
         d = self._read(g[0] + (sel & ~7), 8)
         return (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24,
                 d[0] | d[1] << 8 | (d[6] & 0x0F) << 16)
-
-    def sym(self, name, defines=()):
-        """Marty.sym, with `.cold` where kern_mega RUNS it: COLD_SEG is a
-        GDT selector there, its descriptor based above 1MB (mega_coldup),
-        so `COLD_SEG * 16 + offset` - the map's reading - is the low copy's
-        leftovers and a breakpoint on it never fires."""
-        import os88sym
-        eq = os88sym.equates(defines)
-        if os88sym.segment_of(name, defines) == eq.get("COLD_SEG") \
-                and self.protected():
-            return self.gdt(eq["COLD_SEG"])[0] + os88sym.syms(defines)[name]
-        # ...and `.mega`, which mega_coldup copies up beside it: one block,
-        # `.mega` COLD_PARA paragraphs past `.cold`'s rung (mega_hilin)
-        if os88sym.sections(defines).get(name) == ".mega" \
-                and self.protected() and self.read(
-                    os88sym.linear("mega_codehi", defines), 1)[0]:
-            hi = int.from_bytes(self.read(os88sym.linear(
-                "mega_coldlin", defines), 4), "little")
-            return hi + os88sym.linear(name, defines) - eq["COLD_RAM"] * 16
-        # ...and BEFORE mega_enter (a machine handed back paused at reset,
-        # or a boot step such as stik_boot, which drv_notice_x runs before
-        # protected mode) `.cold` is where the map puts it, COLD_SEG * 16
-        return os88sym.linear(name, defines)
 
     def protected(self):
         """Is the CPU in protected mode NOW (CR0.PE)? kern_mega enters it
@@ -474,14 +396,6 @@ class BochsMarty(om.Marty):
             return self.lin(g[2] | g[3] << 8, off)
         g = self._read(v * 4, 4)
         return ((g[2] | g[3] << 8) << 4) + (g[0] | g[1] << 8)
-
-    def lin(self, seg, off=0):
-        """The linear address of SEG:OFF, SEG a real segment or a selector."""
-        s = self.selector(seg)
-        return (s[0] if s else seg << 4) + off
-
-    def readseg(self, seg, off, length):
-        return self.read(self.lin(seg, off), length)
 
     # ---- the glass --------------------------------------------------------
     def _window(self):
@@ -873,36 +787,6 @@ class BochsMarty(om.Marty):
         shutil.rmtree(keep, ignore_errors=True)
         return self._status()
 
-    def boot_toast(self, limit=10.0):
-        """Retire kern_mega's boot toast (`Entered protected mode`,
-        mega_mtoast): it is staged at the switch, armed by ui_task's first
-        passes for EIGHT seconds, and a row that waits for "a toast" after
-        its first act reads it as the answer - while a row comparing the
-        menu bar before and after something sees it go. os88marty's
-        kernel_up and os88ui's UI.up call this when the machine has it.
-
-        It is waited for (the switch can come after the desktop gate), and
-        once it is up it is EXPIRED by its own path - [toast_die] wound
-        back, toast_pass's modular compare taking it down, as
-        tests/toastbar.py does - rather than waited out."""
-        import os88sym
-        on, buf = os88sym.linear("toast_on"), os88sym.linear("toast_buf")
-        die, ticks = os88sym.linear("toast_die"), os88sym.linear("ticks")
-        end = time.time() + limit
-        seen = False
-        while time.time() < end:
-            up = self.read(on, 1)[0]
-            ours = self.read(buf, 8).startswith(b"Entered")
-            if seen and not up:
-                return
-            if up and not ours:
-                return                  # something else is being said
-            if up and ours and not seen:
-                t = int.from_bytes(self.read(ticks, 2), "little")
-                self.write(die, ((t - 2) & 0xFFFF).to_bytes(2, "little"))
-                seen = True
-            time.sleep(0.1)
-
     def xfers(self):
         """Every SECTOR the floppy controller has moved since the last call:
         [(drive, byte offset in the image, 'r' or 'w')], out of Bochs's own
@@ -1140,28 +1024,6 @@ class BochsMarty(om.Marty):
             shutil.copy(src, dst)
         return {"path": dst or src}
 
-    def toast_out(self, limit=20.0):
-        """Wait for kern_mega's BOOT TOAST to go (`Entered protected mode`,
-        146 ticks from the first idle pass - kernel/mega.inc). No MartyPC
-        kernel shows one, so a row that compares the glass across time - a
-        damage pass against a whole repaint - would otherwise read the menu
-        bar's toast leaving as a difference (deskzoom: 1,014 px in
-        (300,6)-(479,13)). os88ui.boot and `launch(boot=True)` call it."""
-        # [toast_dirty], [toast_on], [toast_want] - adjacent (toast.inc's
-        # %if): the toast is STAGED during the boot and put up on the UI
-        # task's first idle pass, so `on` alone reads 0 before it shows
-        try:
-            self.boot_toast()                   # expire it first, if it can
-        except Exception:                       # noqa: BLE001
-            pass
-        try:
-            a = self.sym("toast_dirty")
-        except Exception:                       # noqa: BLE001
-            return
-        end = time.time() + limit
-        while any(self.read(a, 3)) and time.time() < end:
-            time.sleep(0.2)
-
     def wait_for(self, text, secs):
         return self.box.wait_for(text, secs)
 
@@ -1207,74 +1069,6 @@ def _first_c(box):
                                 % os.path.join(box.out, "bochs.log"))
         time.sleep(0.05)
 
-
-def hd_geometry(path, chs=None):
-    """(C, H, S) of a fixed-disk image a row hands the shim: `chs` when the
-    row names one, else a VHD's own footer (`conectix` in the last sector,
-    the geometry at +38h - MartyPC's template and every VHD tests/ builds),
-    else a raw image's size over 16 heads of 63 sectors, the shape every raw
-    disk in tests/ is cut to (hdtake). Bochs is told the same CHS its BIOS
-    then reports, so the partition table's CHS reads as it did on MartyPC."""
-    if chs:
-        return tuple(int(v) for v in re.split(r"[/x,]", chs))
-    size = os.path.getsize(path)
-    with open(path, "rb") as f:
-        f.seek(max(0, size - 512))
-        tail = f.read(512)
-    if tail[:8] == b"conectix":
-        return (int.from_bytes(tail[0x38:0x3A], "big"), tail[0x3A],
-                tail[0x3B])
-    for h, s in ((16, 63), (4, 17), (4, 26)):
-        if size and size % (h * s * 512) == 0:
-            return (size // (h * s * 512), h, s)
-    raise om.MartyError("os88bochsmarty: %s is neither a VHD nor a whole "
-                        "number of 16x63 cylinders - pass ('--chs', 'C/H/S')"
-                        " in `extra`" % path)
-
-
-def row_disk(machine, extra, run_dir):
-    """THE ROW'S OWN FIXED DISK, as MartyPC is handed one, or None:
-    `extra=["--mount", "hd:0:PATH"]` (os88marty.launch's own argument), or
-    a caller-staged `run_dir` (os88marty.stage_run_dir) on an `_hdd` machine,
-    whose `media/hdds/*.vhd` IS the machine's disk on MartyPC. Mounted IN
-    PLACE and written through, so an install in one launch is there for the
-    boot in the next and the host reads the partition back afterwards.
-    `("--chs", "C/H/S")` beside it names a raw image's geometry."""
-    hd, chs, it = None, None, iter(extra or ())
-    for x in it:
-        if x == "--mount":
-            v = next(it, "")
-            if v.startswith("hd:0:"):
-                hd = v[5:]
-        elif x == "--chs":
-            chs = next(it, None)
-    if hd is None and run_dir and "_hdd" in (machine or ""):
-        d = os.path.join(run_dir, "media", "hdds")
-        vhds = sorted(f for f in os.listdir(d) if f.lower().endswith(".vhd")) \
-            if os.path.isdir(d) else []
-        if vhds:
-            hd = os.path.join(d, vhds[0])
-    if hd is None:
-        return None, None
-    if not os.path.isabs(hd) and run_dir and os.path.exists(
-            os.path.join(run_dir, hd)):
-        hd = os.path.join(run_dir, hd)      # MartyPC resolves in its run dir
-    if not os.path.exists(hd):
-        raise om.MartyError("os88bochsmarty: no fixed disk at %s" % hd)
-    return os.path.abspath(hd), hd_geometry(hd, chs)
-
-
-def _blank(path):
-    """An all-zero floppy - a MartyPC row's way of offering the BIOS C:
-    (tests/hdboot.py's BLANK). Bochs gets an EMPTY drive instead: a 360KB
-    image in its 1.44MB A: is a media mismatch, and empty boots C: the same."""
-    with open(path, "rb") as f:
-        while True:
-            b = f.read(65536)
-            if not b:
-                return True
-            if b.count(0) != len(b):
-                return False
 
 
 def launch(image, apps=None, machine="", boot=True, label=None, extra=(),

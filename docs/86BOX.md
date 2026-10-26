@@ -69,6 +69,22 @@ of the CPU model:
   of those faults a second (docs/REALDMG-SPEC.md section 16.2.4). Bochs
   always had the check; `pmoderetf` and `pmodeiret` had it here already.
 
+Three more serve the kern_mega port backend (*kern_mega rows on 86Box*,
+below), and each is inert until something asks for it:
+
+- **`04-sb-capture.patch`** - with `OS88_SBWAV=FILE`, the first Sound
+  Blaster's DSP output is written to FILE as a 48 kHz mono 16-bit WAV, sample
+  and hold, on the EMULATED clock. MartyPC's `MARTYPC_WAV` capture has the
+  same shape, so a row that reads its capture back runs unchanged.
+- **`05-automation-verbs.patch`** - two automation verbs. `screenshot1 PATH`
+  is the SECOND monitor's buffer (the extended desktop's other card), and
+  `fdc` answers `{"reads":N,"writes":N}`.
+- **`06-fdc-counters.patch`** - those two counters are the READ DATA and
+  WRITE DATA commands the controller completed. They are MartyPC's `disk()`.
+
+A binary built before these three is refused by the backend, which names
+the rebuild (`python3 tools/os88box.py build`).
+
 ## Use
 
 ```sh
@@ -249,6 +265,80 @@ runs or launch with `--gdb-wait`, which starts it stopped at the reset vector
 `F000:FFF0` until GDB continues or detaches; and the stub reports `eip` as a
 LINEAR address (`0xfef1d` with `cs 0xf000`), not an offset.
 
+## kern_mega rows on 86Box
+
+`tools/os88boxmarty.py` is the second backend of kern_mega's port
+mechanism. docs/BOCHS.md's *Rows ported from MartyPC* covers the first.
+It is a SERVER for the requests MartyPC's `Marty` is built on, answered out
+of an 86Box: memory through automation's `memr`/`memw`, registers and
+breakpoints through the GDB stub (`Z1`, linear, as many as wanted), keys
+as set-1 scancodes, the serial mouse's own reports, `fbuf` off
+`screenshot`/`screenshot1`, `disk()` off `fdc`, and `reset` as a hard
+reset. So os88ui, os88mouse, `until`/`settle` and every row above them run
+unchanged. Selectors, `.cold`/`.mega` symbols, the boot toast and the disk
+mapping (a shipped floppy becomes `mega.img`/`megaapps.img`) are
+`tools/os88megacommon.py`'s, and the Bochs backend shares that module.
+
+```sh
+OS88_MEGA=1 OS88_MEGA_EMU=86box python3 tests/<row>.py
+```
+
+**Choose it where Bochs lacks the hardware**: a CGA, a Hercules, an MDA,
+two cards at once, a Sound Blaster whose DMA runs on the emulated clock,
+a 5.25" 1.2MB drive, or an AT BIOS taking the 286's reset path. A line in
+`tests/megaport.txt` chooses it with the token `OS88_MEGA_EMU=86box`. That
+gives the row `needs=("86box",)` and no X display. `ROW/VARIANT` registers
+a second port of a row as `mega-ROW-VARIANT`, beside its Bochs port.
+`# 86BOX HARDWARE (wave 3)` is the list.
+
+**The machine** is `vm/mega-port`: the owner's mr286 (MR BIOS 286, 16 MHz,
+4MB, a serial mouse on COM1, ISA IDE). `$OS88_MEGA_VM` names another
+profile. Whatever the row's MartyPC machine name says is added to it
+(`machine_config`):
+
+| name contains | 86Box gets |
+|---|---|
+| `both` / `both…mono` | a CGA and a Hercules, monitor 0 and 1; `mono` makes the Hercules primary |
+| `vga_herc` / `vga_mda` | a VGA beside a Hercules / an MDA |
+| `herc`, `cga`, `ega`, `vga` | that card alone. No adapter in the name means a CGA, as MartyPC's default machine has |
+| `_sb` | a Sound Blaster 2.0 at 220h, IRQ 7, DMA 1. `$OS88_MEGA_SND=sb16[:irq]` gives an SB16 instead |
+| `_ne2k` | an NE2000 at 300h, IRQ 10, on slirp. The host is 10.0.2.2, as on QEMU |
+| `_hdd` | the row's own fixed disk on the IDE controller, mounted in place |
+
+A floppy drive's type follows its image: a 360KB or 1.2MB image gets a
+5.25" HD drive and anything else a 3.5" one. `$OS88_MEGA_MEGS` sets the RAM.
+
+**The CMOS is primed once per configuration.** MR BIOS stops at POST on any
+configuration change. So the first launch of each machine shape is a held
+boot that answers the prompts: setup's Video page gets *Primary Video =
+Monochrome* for a mono primary, and the Fixed Disk page gets type 47,
+identified with `?`. F10 records the result. 86Box's saved CMOS is cached under
+`build/86box/nvrcache/` by a hash of the configuration, with the shutdown
+byte cleared, and every later launch POSTs straight through. The seed is
+`vm/mega-port/nvr-seed/`.
+
+**The clock is the guest's.** The backend runs 86Box fast-forwarded (about
+10x a real 286 at an idle desktop) and reports `cycles` as emulated time at
+4.77 MHz. So a guest budget means the same seconds of machine time it
+means on MartyPC. `tests/os88qmpbochs.py`'s QMP server is the exception and
+runs 86Box PACED. A QMP row times its input on the host's clock (a
+double-click is four `mouse_button`s 0.1 s apart), and fast-forwarded
+those would be a guest second apart. That server takes the same
+`OS88_MEGA_EMU=86box`, which is how the Telnet rows reach 86Box's slirp.
+
+**Seeing a port go red** without a knob build: `$OS88_MEGA_POKE` takes
+`SYM[±OFF]=HEX;...`. It writes those bytes over the kernel once the desktop
+is up (protected mode, the desktop and menu bar laid out, the splash gone,
+`[ticks]` moving) and prints what it replaced. 86Box's interpreter keeps no
+decoded copy of code, so a byte written is the byte executed. `f8c3`
+(`clc`/`ret`) makes a routine succeed having done nothing, and `f8cb` does
+the same for a far one. The comment on each wave 3 line names its break.
+
+**What it cannot do**: `mem`/`io` watchpoints (refused), a mouse wheel, and
+a cycle COUNT that means anything. 86Box is not cycle-accurate, and its
+1 ms `step` is the resolution. A row whose assertion is a MartyPC cycle
+budget is not a port.
+
 ## What it is NOT
 
 - **Not cycle-accurate.** 86Box times a machine by its model, not by the bus
@@ -259,8 +349,10 @@ LINEAR address (`0xfef1d` with `cs 0xf000`), not an offset.
 - **Not in a gating tier.** Six soak rows launch 86Box (`gbreplay`,
   `gbbank`, `gbhifreq`, `megacdrom`, `hma286` - XMEM.DRV's LOADALL and the
   HMA's pool on vm/286-hma, through an os88ui adapter in the row that other
-  rows can lift - and `rdgspeed286`, which needs the owner's cartridges); `needs=("86box",)` skips them on a box without the
-  build, since nothing in `make` builds 86Box.
+  rows can lift - and `rdgspeed286`, which needs the owner's cartridges),
+  plus the kern_mega ports in `tests/megaport.txt`'s `# 86BOX HARDWARE` section.
+  `needs=("86box",)` skips all of them on a box without the build, since
+  nothing in `make` builds 86Box.
 - **Host-timed devices are not deterministic**, even held: networking and some
   sound paths run on host threads (upstream's *Determinism notes*).
 - The machines under `make xt` / `make 286` / ... still launch the macOS app

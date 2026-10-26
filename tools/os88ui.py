@@ -1730,8 +1730,10 @@ class UI:
         return out
 
     def _bar_has(self, menu, item, limit=10.0):
-        """BOCHS ONLY (tools/os88bochsmarty.py): wait, in host seconds, for
-        the bar to carry `menu` -> `item` before menu_pick reads it once.
+        """KERN_MEGA'S SHIMS ONLY (tools/os88bochsmarty.py, and
+        os88boxmarty.py, whose 286 shows a Disk window on a 1.2MB A: before
+        its bar - tests/wimgtrip.py): wait, in host seconds, for the bar to
+        carry `menu` -> `item` before menu_pick reads it once.
 
         A package's window is VISIBLE - which is all `open`/`path` confirm -
         before its entry proc has run OSAPI_MENU_SET, and between the two
@@ -1780,7 +1782,8 @@ class UI:
         printed: `menu_hover` will not stop on one, so the drag would end
         parked on a neighbour and release there.
         """
-        if getattr(self.m, "bochs", False):
+        if getattr(self.m, "bochs", False) or getattr(self.m, "box86",
+                                                      False):
             self._bar_has(menu, item)
         cells = self.menus()
         # AN INT IS A POSITION, a string is a name. Names are what a test

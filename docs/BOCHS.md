@@ -160,6 +160,14 @@ instead. With `OS88_MEGA=1` in the environment, `os88marty.launch()` (and so
 
     OS88_MEGA=1 python3 tests/sheetbtn.py
 
+**Bochs is one of two backends.** With `OS88_MEGA_EMU=86box` as well, the
+same call hands back an 86Box (`tools/os88boxmarty.py`). Use it for the
+hardware Bochs has not got: a CGA, a Hercules, two video cards at once, a
+Sound Blaster on the emulated clock, a 1.2MB drive, or a slirp that carries
+the Telnet rows. docs/86BOX.md's *kern_mega rows on 86Box* is that backend.
+What both answer the same way (selectors, `.cold`/`.mega` symbols, the boot
+toast, the disk mapping) is `tools/os88megacommon.py`.
+
 It is a SERVER rather than a wrapper: `Marty` is built on one method,
 `cmd(**kw)`, and the shim answers those requests itself, so `type_text`,
 `readseg`, `bp_exec`, `go`, `wait_stop`, `advance` and every
@@ -337,7 +345,11 @@ shows a host's FIN re-sent every ~120 ms with no back-off, SYN+ACKs four at
 a time and a stream reset after a run of fast retransmits - against
 ETHER.DRV, which is POLLED and drains its ring only when a package calls it.
 A row that opens a dozen sessions one after another, or streams thousands of
-two-byte segments, loses some of them there and not on QEMU.
+two-byte segments, loses some of them there and not on QEMU. **Both rows run
+on 86Box's slirp** (`OS88_MEGA_EMU=86box` on their megaport.txt lines). The
+QMP server above takes that backend too, and telansi then found a kern_mega
+keyboard defect that Bochs's slirp had kept it from reaching: Ctrl+] was
+ASCII 0 (KERN-MEGA-PLAN 14.110).
 
 A port is a line in `tests/megaport.txt`; `tests/suite.py` registers it as
 `mega-<name>`, the same command under `env OS88_MEGA=1`, `needs=("bochs",)`.

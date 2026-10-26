@@ -129,8 +129,9 @@ def wait(m, cond, what, guest=20.0):
 
 # --- A ------------------------------------------------------------------------
 # KERN_MEGA UNDER BOCHS (tests/megaport.txt, `--legs ACDE`: Bochs has no
-# Hercules for B): the THEMEDARK=3 knob on kern_mega in a tree of its own,
-# and C/D/E's fixtures built from kern_mega's boot sector, kernel and modules
+# Hercules for B - which 86Box has, `mega-thm95-86box`): the THEMEDARK=3
+# knob on kern_mega in a tree of its own, and C/D/E's fixtures built from
+# kern_mega's boot sector, kernel and modules
 MEGA = bool(os.environ.get("OS88_MEGA"))
 
 
@@ -425,9 +426,14 @@ def a_buttons(m, mo, ui, disk):
 # --- B ------------------------------------------------------------------------
 def leg_b(eq):
     print("B: Hercules, Windows booted")
-    t = os88build.tree("THEMEDARK=3").apply()
-    with os88ui.boot(t.img("os8088-360.img"), apps=t.img("apps360.img"),
-                     machine=HERC, quick=True) as ui:
+    if MEGA:                        # (on 86Box's Hercules: leg A's tree)
+        t = os88build.tree("THEMEDARK=3", targets=("mega",))
+        os.environ["OS88_MEGA_BUILD"] = t.dir
+        img, apps = t.img("mega.img"), t.img("megaapps.img")
+    else:
+        t = os88build.tree("THEMEDARK=3").apply()
+        img, apps = t.img("os8088-360.img"), t.img("apps360.img")
+    with os88ui.boot(img, apps=apps, machine=HERC, quick=True) as ui:
         m, mo = ui.m, ui.mo
         if kind(m) != THM_WIN or not hooked(m, eq, "B boot"):
             fail("B: Windows did not survive a 1bpp primary (kind %d)"

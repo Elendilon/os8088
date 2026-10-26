@@ -15,6 +15,13 @@ one of those clients runs as it stands.
 
     srv = os88qmpbochs.Server(sock, pidfile, a_img, b_img)
 
+UNDER $OS88_MEGA_EMU=86box the machine is an 86Box instead
+(tools/os88boxmarty.py, docs/86BOX.md "kern_mega rows on 86Box") - a VGA,
+the NE2000 on 86Box's slirp, run PACED rather than fast-forwarded because
+these rows time their input on the host's clock - and everything below is
+the same. That is how telansi and telzm, which Bochs's slirp stops
+(KERN-MEGA-PLAN 14.89), are ported.
+
 It is a SERVER rather than a wrapper, os88bochsmarty's own trick one layer
 up: the clients speak QMP and this answers it out of a BochsMarty, so
 nothing above it learns that the machine changed. What it answers:
@@ -77,6 +84,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 MEGA = bool(os.environ.get("OS88_MEGA"))
+BOX86 = os.environ.get("OS88_MEGA_EMU") == "86box"
 _LIVE = []                  # every Server this process started, newest last
 
 # QEMU qcode -> X keysym (what HMP's sendkey and input-send-event name)
@@ -111,6 +119,42 @@ def keysym(q):
     if re.match(r"kp_\d$", q):
         return "KP_" + q[3]
     raise ValueError("os88qmpbochs: no X keysym for qcode %r" % q)
+
+
+# QEMU qcode -> MartyKey name, for the 86Box backend (its `key` verb)
+_QM = {
+    "ret": "Enter", "kp_enter": "NumpadEnter", "spc": "Space", "tab": "Tab",
+    "esc": "Escape", "backspace": "Backspace", "delete": "Delete",
+    "insert": "Insert", "home": "Home", "end": "End", "pgup": "PageUp",
+    "pgdn": "PageDown", "up": "ArrowUp", "down": "ArrowDown",
+    "left": "ArrowLeft", "right": "ArrowRight", "shift": "ShiftLeft",
+    "shift_r": "ShiftRight", "ctrl": "ControlLeft", "ctrl_r": "ControlRight",
+    "alt": "AltLeft", "alt_r": "AltRight", "caps_lock": "CapsLock",
+    "num_lock": "NumLock", "scroll_lock": "ScrollLock", "minus": "Minus",
+    "equal": "Equal", "bracket_left": "BracketLeft",
+    "bracket_right": "BracketRight", "backslash": "Backslash",
+    "semicolon": "Semicolon", "apostrophe": "Quote",
+    "grave_accent": "Backquote", "comma": "Comma", "dot": "Period",
+    "slash": "Slash", "asterisk": "NumpadMultiply", "kp_add": "NumpadAdd",
+    "kp_subtract": "NumpadSubtract", "kp_multiply": "NumpadMultiply",
+    "kp_divide": "NumpadDivide", "kp_decimal": "NumpadDecimal",
+}
+
+
+def martykey(q):
+    """A qcode as the MartyKey name os88boxmarty's `key` verb takes."""
+    q = q.lower()
+    if q in _QM:
+        return _QM[q]
+    if len(q) == 1 and q.isalpha():
+        return "Key" + q.upper()
+    if len(q) == 1 and q.isdigit():
+        return "Digit" + q
+    if re.match(r"f\d{1,2}$", q):
+        return q.upper()
+    if re.match(r"kp_\d$", q):
+        return "Numpad" + q[3]
+    raise ValueError("os88qmpbochs: no MartyKey for qcode %r" % q)
 
 
 def live():
@@ -263,7 +307,6 @@ class Server(object):
 
     def __init__(self, sock, pidfile, a, b, hd=None, ne2k=True, cfg=None,
                  label=None, megs=None, sb=False, ne2k_io=None):
-        import os88bochsmarty
         import os88mouse
         self.closed = False
         self.sock, self.pidfile = sock, pidfile
@@ -272,21 +315,36 @@ class Server(object):
         self.twinned = self.a_img != a
         machine = ("_ne2k" if ne2k else "") + ("_hdd" if hd else "") + \
             ("_sb" if sb else "")
+        if BOX86:                       # QEMU's VGA (86Box's own default
+            machine = "xt_vga" + machine    # is MartyPC's, a CGA)
         if cfg is None and self.twinned and _has_cfg(self.a_img):
             cfg = "keep"                # the fixture's SYSTEM.CFG stands
-        self.m = os88bochsmarty.launch(self.a_img, b, machine=machine,
-                                       boot=True, cfg=cfg, label=label,
-                                       megs=megs, cimg=hd, ne2k_io=ne2k_io)
+        # THE BACKEND: Bochs, or under $OS88_MEGA_EMU=86box an 86Box
+        # (tools/os88boxmarty.py) - the same launch arguments either way
+        self.box86 = BOX86
+        if BOX86:
+            import os88boxmarty as backend
+        else:
+            import os88bochsmarty as backend
+        self.m = backend.launch(self.a_img, b, machine=machine,
+                                boot=True, cfg=cfg, label=label,
+                                megs=megs, cimg=hd, ne2k_io=ne2k_io)
         self.mo = os88mouse.Mouse(marty=self.m)
+        if BOX86:
+            # PACED, AS QEMU AND BOCHS ARE: a QMP row times its own input on
+            # the HOST's clock (a double-click is four `mouse_button`s 0.1 s
+            # apart, against a nine-tick window), and 86Box fast-forwarded
+            # runs ~10x - so those 0.1 s were a guest second apart
+            self.m._a("ff off")
         # THE ROW'S OWN SCRATCH IS BOOTED IN PLACE on QEMU, and a row reads
         # it WHILE the machine runs (brdownload's os88flush.Volume of the B:
         # it saved to). Bochs boots a copy in its run directory, so the row's
         # path is made a link to the live file until close() puts the bytes
         # back as a plain file
-        for live, dst in (("b.img", b), ("c.img", hd),
-                          ("a.img", a if self.twinned else None)):
-            src = os.path.join(self.box.out, live)
-            if dst and _scratch(dst) and os.path.exists(src):
+        live = self._files()
+        for k, dst in (("b", b), ("c", hd), ("a", a if self.twinned else None)):
+            src = live.get(k)
+            if dst and src and _scratch(dst) and os.path.exists(src):
                 os.remove(dst)
                 os.symlink(src, dst)
         self._tx = self._ty = None
@@ -308,6 +366,14 @@ class Server(object):
     @property
     def box(self):
         return self.m.box               # a NEW Box after a reset
+
+    def _files(self):
+        """The LIVE images the guest writes, by drive letter. 86Box mounts
+        the row's C: in place (os88boxmarty's `cimg`), so it has none."""
+        if self.box86:
+            return {"a": self.m._live.get(0), "b": self.m._live.get(1)}
+        out = self.box.out
+        return {k: os.path.join(out, k + ".img") for k in "abc"}
 
     def _pid(self):
         if self.pidfile:
@@ -421,6 +487,8 @@ class Server(object):
             return "VM status: %s\r\n" % ("running" if st == "running"
                                            else "paused")
         if op == "info" and len(w) > 1 and w[1] == "registers":
+            if self.box86:
+                return json.dumps(self.m.regs()) + "\r\n"
             return self.m.box and self.m._stopped(["r", "sreg"])
         if op == "stop":
             self.m.pause()
@@ -501,6 +569,11 @@ class Server(object):
     def _button(self, mask):
         was, self._btn = self._btn, mask
         m = self.m
+        if self.box86:                  # the serial mouse's own report:
+            if (mask ^ was) & 3:        # buttons with no motion
+                m.cmd(cmd="mouse", dx=0, dy=0, l=bool(mask & 1),
+                      r=bool(mask & 2))
+            return
         if not m.box.captured:
             m.box.capture()
         with m._lock:
@@ -514,6 +587,9 @@ class Server(object):
 
     def _key(self, q, down):
         m = self.m
+        if self.box86:
+            m.cmd(cmd="key", key=martykey(q), down=down, up=not down)
+            return
         if not m.box.captured:
             m.box.capture()
         k = keysym(q)
@@ -559,9 +635,12 @@ class Server(object):
             self.ls.close()
         except OSError:
             pass
-        out = self.box.out
+        live = self._files()
         try:
-            self.box.stop()             # Bochs GONE before its disks are read
+            if self.box86:
+                self.m.pause()          # 86Box writes through: held is enough
+            else:
+                self.box.stop()         # Bochs GONE before its disks are read
         except Exception:                                   # noqa: BLE001
             pass
         # WHAT THE GUEST WROTE goes back where the row booted it from: QEMU
@@ -569,13 +648,13 @@ class Server(object):
         # system-disk fixture is this process's own (mega_twin), so a row
         # that boots the same fixture again (ethcfg's reboot) meets what the
         # guest saved on it
-        for src, dst in ((os.path.join(out, "b.img"), self.b_row),
-                         (os.path.join(out, "a.img"),
+        for src, dst in ((live.get("b"), self.b_row),
+                         (live.get("a"),
                           self.a_img if self.twinned else self.a_row),
-                         (os.path.join(out, "a.img"),
+                         (live.get("a"),
                           self.a_row if self.twinned else None),
-                         (os.path.join(out, "c.img"), self.hd_row)):
-            if dst and os.path.exists(src) and _scratch(dst):
+                         (live.get("c"), self.hd_row)):
+            if dst and src and os.path.exists(src) and _scratch(dst):
                 try:
                     if os.path.islink(dst):
                         os.remove(dst)

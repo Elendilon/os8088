@@ -94,7 +94,8 @@ def main():
              "--file", "SOUND.DRV=" + os88build.at("build/sound.drv")],
             check=True, capture_output=True)
         m = M.launch(None, apps=disk, machine=MACHINE,
-                     extra=["--mount", "hd:0:" + vhd], boot=False)
+                     extra=[] if MEGA else ["--mount", "hd:0:" + vhd],
+                     boot=False)
         try:
             ui = os88ui.UI(m)
             m.run()                    # a quick boot: the next act is a

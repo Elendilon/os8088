@@ -4354,6 +4354,15 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
 
     # $OS88_MEGA: the same row on kern_mega, under Bochs - every request
     # this module makes is answered by tools/os88bochsmarty.py instead
+    # ...or under 86Box, with $OS88_MEGA_EMU=86box: the hardware Bochs has
+    # not got - a CGA, a Hercules, two cards, a real-time Sound Blaster
+    # (tools/os88boxmarty.py, docs/86BOX.md)
+    if os.environ.get("OS88_MEGA") and \
+            os.environ.get("OS88_MEGA_EMU", "").lower() == "86box":
+        import os88boxmarty
+        return os88boxmarty.launch(image, apps=apps, machine=machine,
+                                   boot=boot, label=label, extra=extra,
+                                   run_dir=run_dir)
     if os.environ.get("OS88_MEGA"):
         import os88bochsmarty
         return os88bochsmarty.launch(image, apps=apps, machine=machine,

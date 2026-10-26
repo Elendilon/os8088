@@ -18411,7 +18411,11 @@ def _mega_ports(base):
     one (with the value after it when written `-arg=`, i.e. `-machine=`
     drops `--machine X`). An upper-case `NAME=VAL` is put in the row's
     environment beside OS88_MEGA=1 (`OS88_BOCHS_MOUSE=serial`,
-    `OS88_BOCHS_NE2K=1` - tools/os88bochs.py's knobs)."""
+    `OS88_BOCHS_NE2K=1` - tools/os88bochs.py's knobs). `OS88_MEGA_EMU=86box`
+    among them puts the port on 86Box instead of Bochs (tools/os88boxmarty.py)
+    and makes the row need "86box", and a NAME written `ROW/VARIANT` is a
+    second port of ROW, registered as mega-ROW-VARIANT (docs/86BOX.md,
+    "kern_mega rows on 86Box")."""
     by = {r.name: r for r in base}
     out = []
     try:
@@ -18424,6 +18428,10 @@ def _mega_ports(base):
             continue
         why = ln.split("#", 1)[1].strip() if "#" in ln else ""
         name, opts = body[0], body[1:]
+        # `ROW/VARIANT` is a SECOND port of one row - `deskzoom/86box`, its
+        # Hercules leg on 86Box beside the Bochs port's VGA one - registered
+        # as mega-ROW-VARIANT
+        name, _, variant = name.partition("/")
         r = by.get(name)
         if r is None:
             raise SystemExit("tests/megaport.txt: no soak row %r" % name)
@@ -18447,9 +18455,15 @@ def _mega_ports(base):
             elif o.startswith("-"):
                 if o[1:] in cmd:
                     cmd.remove(o[1:])
+        # THE EMULATOR the port runs on: Bochs, or 86Box with
+        # `OS88_MEGA_EMU=86box` (tools/os88boxmarty.py) - which needs no X
+        # display, so the runner gives it none
+        emu = "86box" if any(e.lower() == "os88_mega_emu=86box"
+                             for e in env) else "bochs"
         needs = tuple(n for n in r.needs if n not in ("marty", "qemu",
-                                                      "qemu9")) + ("bochs",)
-        out.append(Row("mega-" + name, "soak",
+                                                      "qemu9")) + (emu,)
+        out.append(Row("mega-" + name + ("-" + variant if variant else ""),
+                       "soak",
                        ["env", "OS88_MEGA=1"] + env + cmd,
                        secs or max(60.0, r.secs * 2.0),
                        "%s ON kern_mega (tests/megaport.txt): %s%s"
@@ -18459,6 +18473,9 @@ def _mega_ports(base):
                        # port is a HOST-side row and fans out over -j, so
                        # `--marty-jobs 1` ran three Bochs machines at once
                        serial=True,
+                       # ...and its HOST PORTS: a port binds the same
+                       # fixture server the base row's does
+                       locks=r.locks,
                        wants=tuple(dict.fromkeys(tuple(r.wants) +
                                                  MEGA_WANTS))))
     return out
