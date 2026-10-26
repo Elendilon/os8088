@@ -186,6 +186,21 @@ def main():
     except ImportError:
         say("This needs the unicorn package: python3 -m pip install unicorn")
         go.configure(state="disabled")
+    try:                                   # what it will build FROM, said
+        import gbaot                       #   before anything is made: a
+        import shutil                      #   missing nasm or a half-copied
+        if gbaot.BUNDLED:                  #   tree is otherwise found a
+            say("Using the prebuilt binaries in %s." % gbaot.PREBUILT)   # minute in
+        else:
+            gbaot.need_sources()
+            if not shutil.which("nasm"):
+                say("This os8088 tree needs nasm on the PATH (https://nasm.us) to "
+                    "build the precompiler's parts - or use the GBSTATIC bundle, which "
+                    "carries them prebuilt.")
+                go.configure(state="disabled")
+    except SystemExit as e:
+        say(str(e))
+        go.configure(state="disabled")
     root.after(150, pump)
     root.mainloop()
 
