@@ -5661,7 +5661,10 @@ SOAK = [
         "of the list with DH = 16, mem_tab must agree and overlap nothing, "
         "and Escape must give it back. apps/os88ui.inc's sizer folded 16 to "
         "ONE plane and OSAPI_GFX_SAVE wrote fifteen sixteenths of the list "
-        "past the claim. QEMU by name, vesa's reason",
+        "past the claim. QEMU by name, vesa's reason. It declared no needs "
+        "and no serial, vesagor's defect: it boots QEMU and assembles PiXEL "
+        "for its symbols",
+        needs=("qemu", "nasm"), serial=True,
         wants=("build/os8088.img", "build/apps.img", "build/vesablitd.img",
                "build/vxpics.img", "build/pixel.o88")),
     Row("vesabench", "soak", py("tests/vesabench.py"), 150.0,
