@@ -188,3 +188,5 @@ trkcompact secs=140 @OS88_BOCHS_MEGS=1   # ...and Tracker posts the compaction i
 ringmove-audio secs=70 @OS88_BOCHS_MEGS=1   # the Audio ARM's look-ahead ring moves between plays (Bochs's SB16) and is pinned for one (megafix.arm_disk: covoxlisten720.img with the arms)
 ringmove-tracker secs=70 @OS88_BOCHS_MEGS=1   # Tracker ARM's speaker ring moves idle, pinned while the ISR plays it, CONS moving after
 ringmove-midirack secs=70 @OS88_BOCHS_MEGS=1   # MIDIRack ARM's song, wavetable bank and mix claims move idle; bank and mix pinned while the card plays (mrwt720.img with the arm)
+rcmove secs=70 @OS88_BOCHS_MEGS=1   # RunCPM's 64KB Z80 claim moves at the A> prompt, rc_zseg and rc_z.seg name its new paragraph, 64KB hashed the same, and the CCP answers XYZZY? out of it
+zrestart secs=900 @OS88_BOCHS_MEGS=1   # Frotz's region moves at every park site and play goes on byte-identical to a no-move boot ([MORE] still pinned); the loop leg's park caught by a breakpoint, Bochs's 386 ending the loop between two polls

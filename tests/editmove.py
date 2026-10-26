@@ -203,6 +203,21 @@ def disk_quiet(m, what):
     os88marty.quiesce(m, lambda: m.disk().get("reads"), guest=1.0, what=what)
 
 
+def _lin(m, seg, off=0):
+    """SEG:OFF linear: an LDT selector's base on kern_mega (docs/BOCHS.md)"""
+    return m.lin(seg, off) if getattr(m, "bochs", False) else seg * 16 + off
+
+
+def _key(m, v):
+    """A claim word as mem_tab keys its block: on kern_mega (KERN-MEGA-
+    MEMORY-PLAN MC7.4) a selector a move rebases and never changes, so "it
+    moved" is asked of the paragraph under it. Anything else is itself"""
+    if getattr(m, "bochs", False) and v and 0x100 <= v < 0xA000 and v & 4:
+        b = m.selector(v)
+        return b[0] >> 4 if b else v
+    return v
+
+
 def heapfrag_ran(m, S):
     """heapfrag's suite has recorded every check: [hf_n] (bss +0) reaches
     HF_ROWS. It publishes no other "done", and the suite IS the claim that
@@ -212,8 +227,8 @@ def heapfrag_ran(m, S):
             sg, _ = pkg_seg(m, S, "Heap")
             if not sg:
                 return False
-            img = u16(m.read(sg * 16 + 8, 2))
-            return u16(m.read(sg * 16 + img, 2)) >= HF_ROWS
+            img = u16(m.read(_lin(m, sg, 8), 2))
+            return u16(m.read(_lin(m, sg, img), 2)) >= HF_ROWS
         except Exception:
             return False
     until_ok(m, done, "heapfrag's suite to finish")
@@ -320,8 +335,13 @@ def main():
         P = pkg_syms(cfg["src"], cfg["incs"],
                      cfg["words"] + cfg.get("extra", []))
 
+        mega = getattr(m, "bochs", False)
+
         def pword(name):
-            return u16(m.read(seg * 16 + P[name], 2))
+            return u16(m.read(_lin(m, seg, P[name]), 2))
+
+        def key(v):
+            return _key(m, v)
 
         # --- give it something to hold --------------------------------------
         cx0, cy0, cx1, cy1 = win.content
@@ -334,7 +354,7 @@ def main():
             # ...and the typing run CLOSED: half a second with no edit ends
             # an undo group (SPEC.md 27.9), and only then is a Backspace a
             # deletion with a blob to store rather than a shorter insert
-            ubyte = lambda: m.read(seg * 16 + P["np_uopen"], 1)[0]
+            ubyte = lambda: m.read(_lin(m, seg, P["np_uopen"]), 1)[0]
             until_ok(m, lambda: pword("np_len") == n0 + len(text)
                      and ubyte() == 0 and ui_idle(m, S),
                      "Note Pad to take the typing")
@@ -428,7 +448,7 @@ def main():
         sizes = {c[0]: c[1] for c in before}
         bank = {}
         for w in cfg["words"]:
-            base = pword(w)
+            base = key(pword(w))
             if base == 0:
                 print("  (%s is 0 - not claimed in this run)" % w)
                 continue
@@ -506,8 +526,8 @@ def main():
         # move can be told apart from a compaction that never ran
         hf2_seg, _ = pkg_seg(m, S, "Heap")
         if hf2_seg:
-            img = u16(m.read(hf2_seg * 16 + 8, 2))
-            hb = m.read(hf2_seg * 16 + img, 128)
+            img = u16(m.read(_lin(m, hf2_seg, 8), 2))
+            hb = m.read(_lin(m, hf2_seg, img), 128)
             print("heapfrag#2: %d checks, %s  L1=%dK want=%dK moved=%d"
                   % (u16(hb, 0),
                      "".join("." if b == 0 else "X"
@@ -555,7 +575,7 @@ def main():
         anymoved = False
         for w, (base, para, h0) in bank.items():
             n += 1
-            new = pword(w)
+            new = key(pword(w))
             moved = new != base
             anymoved |= moved
             print("  %d [%s] %-9s %s"
@@ -581,10 +601,16 @@ def main():
         # to repair an ES pushed before the move.
         if a.app == "frotz" and "zf_sseg" in bank:
             oldb = bank["zf_sseg"][0]
-            newb = pword("zf_sseg")
+            newb = key(pword("zf_sseg"))
             d = (newb - oldb) & 0xFFFF
+            if mega:                    # KERN-MEGA-MEMORY-PLAN MC7.4: the
+                d = 0                   # proc that writes zf_sdelta is never
+                # called under protected mode - an ES pushed before the move
+                # names a SELECTOR the rebase has already re-aimed, so the
+                # delta zi_yield adds to one must be ZERO, or it re-aims it
+                # off the story
             n += 1
-            pc = pword("zf_pcseg")
+            pc = key(pword("zf_pcseg"))
             okpc = pc != 0 and newb <= pc < newb + (bank["zf_sseg"][1] >> 0)
             print("  %d [zf_pcseg] in story %s  (%04x, story %04x..%04x)"
                   % (n, "OK" if okpc else "OUTSIDE", pc,
@@ -636,9 +662,9 @@ def main():
             # is that it is still executing CORRECTLY through a base that
             # moved under it, which is what a stale PC would end.
             n += 1
-            err = m.read(seg * 16 + P["zf_err"], 1)[0]
-            dead = m.read(seg * 16 + P["zf_dead"], 1)[0]
-            op = m.read(seg * 16 + P["zx_badop"], 1)[0]
+            err = m.read(_lin(m, seg, P["zf_err"]), 1)[0]
+            dead = m.read(_lin(m, seg, P["zf_dead"]), 1)[0]
+            op = m.read(_lin(m, seg, P["zx_badop"]), 1)[0]
             okz = err == 0 and dead == 0 and op == 0
             print("  %d VM did not fault   %s  (err %02x dead %02x badop %02x)"
                   % (n, "OK" if okz else "HALTED", err, dead, op))
