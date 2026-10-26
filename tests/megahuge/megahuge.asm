@@ -113,10 +113,54 @@ mh_entry:
     call mh_say
     call mh_hex4
     call mh_nl
+    mov ax, 64                      ; --- a WHOLE 64KB file into a 64KB pool
+    call OSAPI_MEM_CLAIM            ; claim (KERN-MEGA-MEMORY-PLAN 8.6): the
+    mov cl, 6                       ; run that ends at the window's end
+    jc .no
+    mov [mh_c64], dx
+    mov si, mh_s_c64
+    call mh_say
+    call mh_lin
+    call mh_nl
+    mov es, [mh_c64]                ; (mh_lin spends DX)
+    xor bx, bx
+    mov dx, 1
+    xor cx, cx                      ; DX:CX = 64KB, the file exactly
+    mov si, mh_s_f64
+    call OSAPI_FILE_READ
+    push ds
+    pop es
+    mov cl, 7
+    jc .rno
+    mov es, [mh_c64]                ; the bytes: k xor k >> 8, at three places
+    mov cl, 8
+    cmp byte [es:0x1234], 0x26
+    jne .rno
+    cmp byte [es:0x8000], 0x80
+    jne .rno
+    cmp byte [es:0xFFFF], 0x00
+    jne .rno
+    push ds
+    pop es
+    mov dx, [mh_c64]
+    call OSAPI_MEM_FREE
+    mov si, mh_s_r64
+    call mh_say
+    call mh_nl
     mov si, mh_s_ok
     call mh_say
     call mh_nl
     jmp short .done
+.rno:                               ; the 64KB read: refused (AX the error),
+    push ds                         ; or the bytes are not the file's
+    pop es
+    push cx
+    mov si, mh_s_r64n
+    call mh_say
+    call mh_hex4
+    call mh_nl
+    pop cx
+    jmp short .no
 .bad:
     push ds
     pop es
@@ -233,10 +277,15 @@ mh_s_again: db 'MEGAHUGE: again ', 0
 mh_s_ok:    db 'MEGAHUGE: ok', 0
 mh_s_bad:   db 'MEGAHUGE: bad ', 0
 mh_s_no:    db 'MEGAHUGE: no ', 0
+mh_s_c64:   db 'MEGAHUGE: claim64 at ', 0
+mh_s_f64:   db 'B64K.BIN', 0
+mh_s_r64:   db 'MEGAHUGE: read64 ok', 0
+mh_s_r64n:  db 'MEGAHUGE: read64 refused, AX ', 0
 
 mh_kb       dw 0
 mh_sel      dw 0
 mh_step     dw 0
 mh_nwin     dw 0
+mh_c64      dw 0
 
 OS88_IMAGE_END

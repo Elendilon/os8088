@@ -18,7 +18,13 @@ MEGAHUGE on C:'s RUN folder, lets MEGARUN start it, and asserts:
   3. `MEGAHUGE: ok` - a pattern written through every window read back, the
      seam included, so no two windows alias;
   4. `MEGAHUGE: again N` - the free gave both pieces back;
-  5. no kern_mega FAULT or CLOSED.
+  5. no kern_mega FAULT or CLOSED;
+  6. a WHOLE 64KB file read into a 64KB claim in the pool (KERN-MEGA-MEMORY-
+     PLAN 8.6): `claim64 at` a base above 1MB, then `read64 ok` with bytes at
+     both ends and the middle the file's. Red before the fix: `read64
+     refused, AX 0002` - dskw_rbody's window test read the file's end,
+     65,536, as a misfit and sent the read to the conventional fallback,
+     which refuses a block above 1MB.
 
 THE FAILING CASE (docs/WRITING-TESTS.md 1): the tree before MC5 answers AX = 0
 with a refusal (a claim of 0KB) - red on (1), `MEGAHUGE: no 01`. Verified when
@@ -48,7 +54,11 @@ def main():
     out = tempfile.mkdtemp(prefix="megahuge-")
     t0 = time.time()
     os88bochs.MEGS = 4
-    box = os88bochs.Box(out, [os.path.join(ROOT, p) for p in PKGS])
+    b64 = os.path.join(out, "B64K.BIN")     # k xor k >> 8, 65,536 bytes
+    with open(b64, "wb") as fh:
+        fh.write(bytes((k ^ (k >> 8)) & 0xFF for k in range(65536)))
+    box = os88bochs.Box(out, [os.path.join(ROOT, p) for p in PKGS],
+                        put=("RUN:" + b64,))
     fails, lines, xkb = [], [], None
     try:
         if box.wait_for("kern_mega:", 240):
@@ -80,7 +90,8 @@ def main():
         for k, rx in (("max", r"MEGAHUGE: max (\w+)"),
                       ("again", r"MEGAHUGE: again (\w+)"),
                       ("claim", r"MEGAHUGE: claim (\w+) step (\w+)"),
-                      ("lin", r"MEGAHUGE: first (\w+) last (\w+)")):
+                      ("lin", r"MEGAHUGE: first (\w+) last (\w+)"),
+                      ("c64", r"MEGAHUGE: claim64 at (\w+)")):
             m = re.match(rx, l)
             if m:
                 got[k] = [int(g, 16) for g in m.groups()]
@@ -103,6 +114,12 @@ def main():
         if "MEGAHUGE: ok" not in lines:
             fails.append("the pattern did not read back: %s" % [
                 l for l in lines if l.startswith("MEGAHUGE: bad")])
+        if "c64" not in got or got["c64"][0] < 0x100000:
+            fails.append("the 64KB claim is not a pool block above 1MB: %s"
+                         % got.get("c64"))
+        if "MEGAHUGE: read64 ok" not in lines:
+            fails.append("a whole 64KB file read into a 64KB pool claim: %s"
+                         % [l for l in lines if "read64" in l])
         if got.get("again", [None])[0] != n:
             fails.append("asked again after the free: %s, not %d"
                          % (got.get("again"), n))
