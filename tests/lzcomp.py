@@ -300,6 +300,15 @@ def compress(m, mo, wx, wy, name, fails, quiet=30, item=FM_ICOMP):
     # which is the same lesson as os88mouse's `_sep`. Measured: this row went
     # from 3 failures in 4 with four copies at once to 4 of 4 green.
     os88marty.settle(m)
+    if getattr(m, "bochs", False):
+        # kern_mega's glass is 640x480, where the Calculator legs 3a and 7a
+        # open lands OVER the Disk window's rows: a row click then raises
+        # the Calculator, and File > Compress ran on the selection the Disk
+        # window still held - leg 4 compressed CALC.O88 a second time and
+        # reported it as TELNET's verdict. The Disk window's title bar is
+        # clear of it: raise the window first
+        mo.click(wx + 60, wy + 9)
+        os88marty.settle(m)
     m.write(S("toast_buf"), b"\0")          # ...so the previous verdict cannot
     row = dispcp.row_of(m, S, name)         # be read as this one's
     # ...AND row_of IS AN ENTRY, NOT A ROW ON THE GLASS. Once the Calculator
@@ -622,8 +631,15 @@ def main():
                          % (len(got), len(want)))
 
         # --- 3. a PACKAGE, which is not a 'CZ' file (SPEC.md 22.22.1) -------
+        # ...and kern_mega in protected mode REFUSES one by design: the
+        # body starts cmz_x bytes in, a segment off the identity grid
+        # (kernel/compress.inc cmz_pkg, KERN-MEGA-PLAN 10.1) - so there the
+        # bytes the verb must write are none, and the words are the refusal
+        mega = getattr(m, "bochs", False)
         t = compress(m, mo, wx, wy, "CALC.O88", fails)
         got = fl.volume(1).read("CALC.O88")
+        if mega:
+            pwant = calc if t == "Cannot compress this one" else b""
         ok = got == pwant
         say("  package    %s  %r  (%d bytes, wanted %d)"
             % ("ok " if ok else "BAD", t, len(got), len(pwant)))
@@ -700,7 +716,8 @@ def main():
         # --- 7. ...and a PACKAGE, which is the other container -------------
         t = compress(m, mo, wx, wy, "CALC.O88", fails, item=FM_IUNCOMP)
         back = fl.volume(1).read("CALC.O88")
-        ok = t.startswith("Uncompressed") and back == calc
+        ok = t.startswith("Not compressed" if mega else "Uncompressed") \
+            and back == calc
         say("  unpkg      %s  %r  (%d bytes, the original is %d)"
             % ("ok " if ok else "BAD", t, len(back), len(calc)))
         if not ok:

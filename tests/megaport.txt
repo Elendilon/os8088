@@ -241,3 +241,61 @@ heapdrv secs=60   # SOUND.DRV's buffers are in the SOUND group on the Task Manag
 pkgmove-browser secs=80 @OS88_BOCHS_MEGS=1   # the Browser's four claims (source, document, lines, links) move, live, bytes and picture identical
 tmselfsu secs=200 @OS88_BOCHS_MEGS=1   # the Task Manager arm keeps its OWN raise cache and still sees everyone else's - witnessed off tm_update's one door and the kernel's three wm_su_* (MegaOwn), not every font_run. On a 16MB kern_mega its cache is a pool block and QUIET is RED: KERN-MEGA-PLAN 14.92, diagnosed and not fixed
 heapcheck secs=50 @OS88_BOCHS_MEGS=1   # heapfrag's 18 checks and the region suite on a 1MB kern_mega; check 13 asks for the ceiling block's OWN merged run (hf_ceilask, KERN-MEGA-PLAN 14.93) - red with HEAPCOMPACT=0 and with the descending pass taken out, on kern_big and kern_mega
+
+# DESKTOP RUNNERS-UP (wave 2)
+# The nearest duplicates of rows the first list chose. Every one was seen to
+# go red on kern_mega with the thing it checks broken, unless its line says
+# the break is not cheap (package or module code). The shim gained `mount`
+# (a floppy swapped under a running machine) and `setreg flags` through Bochs's
+# `set $eflags` - which used to be a silent no-op, so an injected CF never
+# reached the guest.
+tickzero secs=20   # the boot zeroes [ticks] (0x8000 planted at sched_init)
+postboot secs=30   # the first disk access after the desktop is survivable (the boot toast expired before the bar is judged)
+fpgcold secs=30   # a stopped motor arms the widget BEFORE the first int 13h (int 13h's bp is the IDT gate)
+toastfpg secs=90   # a toast in its time outranks the file widget, the widget has the bar back at its last tick
+timerrace secs=40   # ui_timer_pass asks again under the gfx lock whether the window still exists (DS:SI and CS:IP through m.lin)
+curshape secs=45   # the pointer's shape tracks the window under it (Missile's crosshair)
+fmcommit secs=130   # a committing keystroke (Delete, New Folder) reaches fm_repaint and a refused one does not
+cppromise secs=60   # the Control Panel promises per page and the clock page withdraws it (a four-plane bank on Bochs's VGA)
+cplistrow secs=40   # a Control Panel selection letters two rows and blanks no pane (the bar is black on Bochs's VGA, as on 1bpp)
+dtfield secs=90   # the Date/Time editor inside CTRL.DRV steps, wraps and clamps Feb through cw_clk_mlen
+radio secs=90   # os88ui_rad: no ink in a corner, three answers, two rows repainted (radtest, read off the VGA glass)
+sbar secs=50   # the Disk window's scroll bar: geometry, arrows, track paging, a thumb grab (sbardlg is the chooser's placement)
+fmthumb secs=30   # the thumb drag: x never read, the view follows, the release commits
+alertbtn secs=170   # the standard alert's button row: one press draws one button, and it tracks off and back on (Paint's region through m.lin)
+alertanim secs=150   # the 'Save changes?' alert does not zoom open, and a launch still does
+spantest-vga secs=45   # gfx_spans draws what a fill a row draws, and an armed clip region refuses (SPANTEST's region through m.lin)
+deskwhole secs=190 +--machine +os8088_xt_vga   # wm_dmg_gray's .whole reached on purpose, the drag and the restore against a whole repaint (VGA leg)
+clipgrow secs=90   # a caption beside a covering window's corner keeps every row (the Calculator covers on a 640 glass)
+dockpos secs=90 ---cga   # the Dock on every edge and hidden: band, rule, glass against a repaint, the hover strip and its linger (DOCK.DRV's claim found in the pool by linear base; the CGA leg is a 200-row question)
+btnall secs=200   # every converted button driven: aimed after a paint, sane rects, a press arms, a slide-off un-arms (DOS_MEGA / PKG_MEGA maps)
+sheetmtailvga secs=100   # SHEET's pulldown save-under on the four-plane path, and the repaint fallback beside it
+czto secs=260   # Uncompress To...: the join asks for each floppy, swapped under the running machine (the shim's `mount`), refusals, a CRC error by `setreg flags`
+imgswap secs=60   # an image on a floppy is swapped WITH that floppy: the stand re-reads it off the other disk and the write goes nowhere
+lzcomp secs=270   # File > Compress byte for byte against the host's LZB; a package is refused in protected mode by design and an already-packed one is 'Already compressed' (KERN-MEGA-PLAN 14.100)
+rdup secs=130   # the RAM disk's page acts on the RELEASE: +, Load, Mount, Preserve As
+rdpreserve secs=240   # the RAM disk's Preserve and Load round-tripped and read from the host (RAMDISK.DRV and its store through selectors)
+lzmod-dialog secs=40   # BEVERLY.MOD through Tracker's file dialog: the module claim holds all 116,085 bytes
+sheetdel secs=100   # SHEET's File > Delete: No keeps the file, Yes deletes it, the open document untouched (the CGA points moved to Bochs's VGA)
+msegz secs=30   # the seven parts with two COMPRESSED: op_unpack through kern_mega's selectors, the same three proofs a part
+mseglzslack secs=30   # a compressed lazy part keeps its own length at its claim's base (claims keyed by selector), and the drop gives it back
+pkgbig secs=110   # a package past 64KB is typed by PKG_FILE_HI and the loader reads 32 bits of its size
+pkgfence secs=110   # image + bss fenced in seventeen bits, neither wrap reaches a claim
+pkgfmt secs=70   # a package of another format is refused by name and the machine goes on loading its own
+lzfile secs=40   # a compressed file is read transparently, the write derives the hint from its bytes
+lzfence secs=30   # OSAPI_DECOMP refuses a hostile stream (truncated, zero offset, past the output, overlong) after a valid one
+rehome secs=30   # a loader hands its identity to a part and is freed; the carve trimmed to the program, the tail to the keep (paragraphs off the selector's base)
+assocvol secs=80   # a .V88 on a bare B: with the player on A: (a scratch mega.img carrying the PKG_MEGA arm): its glyph, a player that READS it, a junk one's reason
+dosglyph secs=50   # a shipped document glyph reaches every path that fills a slot (the icon store's claim through m.lin)
+stikshort secs=50   # three drag-made shortcuts each SHOWN, +3 still `\`, nothing launched (stikshort360 rebuilt on mega.img)
+deskdock secs=50   # an OS88_F_DESK package takes the top slot and gets no tile, and a click where it would be reaches nothing
+deskdrag secs=120   # the posted DRAG: the snap, no drag cache, one paint, no ghost, the place saved, the re-fit
+deskhover secs=100   # the hover edge wakes the widget once and the handle shows; clipped under a Disk window (DESK.DRV's entry through its code selector)
+deskground secs=90   # the theme in a widget's gaps: Bright, Dark, Color, and a Disk window laid over it and closed
+deskpen secs=90   # the gfx_blit1 pen is scoped to a callback (the package's CODE alias found by linear base)
+deskcalsnooze secs=190   # the Desk Calendar's snooze: one held, the re-fire with the chirp, across midnight, in the state file
+deskcaledit secs=210   # the Desk Calendar's editor, to 48 appointments and the refusal
+stikmiss secs=40   # a Sticky App whose package is gone is downgraded to a shortcut in memory, with one toast naming the drive
+stikmove secs=80   # a Sticky App dragged is saved and comes back where it was put after a reset (a power cycle; the kernel's [ticks] restarts)
+stikanchor secs=70   # a place saved on 800x600 anchors to the far edges on 640x480 and writes nothing
+stikregister secs=210   # a Sticky App registers, refuses a second launch with no write, its x saves and unregisters, a reset brings nothing back

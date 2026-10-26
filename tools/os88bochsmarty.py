@@ -661,21 +661,19 @@ class BochsMarty(om.Marty):
             r[s] = int(v, 16)
         return r
 
-    def _c_park(self, cs, ip, **_):
-        """MartyPC's `park`: the guest's CS:IP moved to CS:IP, and IF
-        cleared. BOCHS'S DEBUGGER CANNOT WRITE EFLAGS (`set eflags` is a
-        syntax error in 2.7), so IF is LEFT AS IT WAS and the answer says
-        so - a caller that needs interrupts off starts its code with `cli`
-        (tests/evqfull.py). Under kern_mega CS is a SELECTOR: 0060 is the
-        kernel's code, whose base is KERNEL_SEG x 16 as a real CS's is, and
-        the kernel's DATA is MEGA_SEL_KDATA, 0010 - `set ds = 0x60` loads
-        the read-only code descriptor."""
-        self._halt()
-        self._do(["set cs = 0x%x" % cs, "set eip = 0x%x" % ip])
-        return {"if_cleared": False}
-
     def _c_setreg(self, reg, value, **_):
-        reg = {"flags": "eflags", "ip": "eip"}.get(reg, reg)
+        """FLAGS go through `set $eflags`, the only spelling Bochs 2.7's
+        debugger takes (`set eflags` is a syntax error, and this used to
+        send it and answer ok - a row's injected CF never reached the
+        guest: tests/czto.py's CRC error read as a good sector). Measured,
+        that command writes bits 0-7 as given, puts bit 9 of its value in
+        DF and bit 10 in OF, and leaves IF and TF as they were - so DF and
+        OF are passed one bit down and IF/TF cannot be written at all."""
+        if reg == "flags":
+            v = (value & 0xFF) | ((value & 0xC00) >> 1)
+            self._stopped(["set $eflags = 0x%x" % v])
+            return {}
+        reg = {"ip": "eip"}.get(reg, reg)
         self._stopped(["set %s = 0x%x" % (reg, value)])
         return {}
 
@@ -689,7 +687,8 @@ class BochsMarty(om.Marty):
             cmds.insert(0, "set cs = 0x%x" % cs)
         t = self._do(cmds)
         self._at = (cs, ip, self._at[2])
-        return {}
+        return {"if_cleared": False}   # IF cannot be cleared from here: a
+                                       # parked stub starts with `cli`
 
     def _c_key(self, key, down=True, up=True, **_):
         k = keysym(key)
@@ -813,6 +812,32 @@ class BochsMarty(om.Marty):
         if reset:
             cnt[0] = cnt[1] = 0
         return r
+
+    def _c_mount(self, drive, path, **_):
+        """MartyPC's runtime floppy SWAP (Marty.mount), the guest running:
+        the new disk's bytes are written OVER the drive's image in place.
+        Bochs reads a floppy image per sector with no cache, so the next
+        transfer reads the other disk - and the guest is told nothing, as
+        on MartyPC: os8088 notices a swap once the motor has stopped
+        (SPEC.md 18.9.1). The geometry is the one Bochs booted with, so the
+        two images must be the same size. What the guest writes after it
+        lands in the run's image, which `flush` copies out, and `disks`
+        names `path` as mounted from then on (tests/czto.py,
+        tests/imgswap.py)."""
+        live = os.path.join(self.box.out, "a.img" if drive == 0 else "b.img")
+        with open(path, "rb") as f:
+            data = f.read()
+        if len(data) != os.path.getsize(live):
+            raise om.MartyError(
+                "os88bochsmarty: mount: %s is %d bytes and drive %d holds "
+                "%d - Bochs cannot change a drive's geometry while it runs"
+                % (path, len(data), drive, os.path.getsize(live)))
+        with open(live, "r+b") as f:
+            f.write(data)
+        self._src[drive] = os.path.join(
+            self.run_dir, "%s-mounted.img" % "ab"[drive])
+        shutil.copy(path, self._src[drive])
+        return {}
 
     def _c_reset(self, **_):
         """MartyPC's machine reset, as a POWER CYCLE: Bochs's debugger has
