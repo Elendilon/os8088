@@ -64249,8 +64249,8 @@ Both pages now list the same three system rows, in the same order:
 | row | page 1 (`tm_rows`) | page 2 (`tm_rows_mem`) |
 |---|---|---|
 | `IVT+BIOS` | logical row 0, as before | the list's first row, an item at column 0 with ADDR 0000 |
-| `System` | logical row 1: the kernel below 640K, its heap claims and its blocks in the POOL above 1MB, less the span below the pool | the group: `tm_sysk` and every non-program group (`tm_systot`); its items are Code+data, Stacks, FAT snap, Kernel, the drivers and the built-ins |
-| `System HMA` | after System's built-ins, so it closes System's indented rows: no state, no CPU, `[tm_hifix]` KB | a group at column 0 after System, `[tm_hifix]` KB, opening into §28.4.13's contents - its items one level in and each HMA driver a group one level in (`tm_grp1`; `tm_grp2` is gone) |
+| `System` | logical row 1: the kernel below 640K, its heap claims and its blocks in the POOL above 1MB, less the span below the pool - on kern_mega less every block above 1MB, which is `System>1MB`'s (§28.4.15) | the group: `tm_sysk` and every non-program group (`tm_systot`); its items are Code+data, Stacks, FAT snap, Kernel, the drivers and the built-ins |
+| `System HMA` | after System's built-ins, so it closes System's indented rows: no state, no CPU, `[tm_hifix]` KB | a group at column 0 after System, `[tm_hifix]` KB, opening into §28.4.13's contents - its items one level in and each HMA driver a group one level in (`tm_grp1`; `tm_grp2` is gone) - and on kern_mega `Kernel` and every driver's pool blocks too (§28.4.15) |
 
 `System HMA` is drawn only when `[tm_hifix]` is non-zero - the system keeps
 RAM above 1MB outside the pool, which needs `[tm_hion]` - so a machine
@@ -64276,6 +64276,105 @@ System's figure to beside it.
 **What it cost**: no kernel byte; `taskmgr.o88`'s image 10,646 -> 10,763
 bytes, and its bss +1 (`tm_ord`'s marker entry and `[tm_hmarow]`). The small
 build (§28.12) has no memory view and no row above 1MB, and is byte-identical.
+
+### 28.4.15 kern_mega: System is conventional, the map is the whole machine, ADDR is an address
+
+Three things the owner read off the memory page on kern_mega (86Box's 286,
+VGA), each of them true:
+
+1. **The drivers grouped under `System`, not `System>1MB`, though their rows
+   said they were above 1MB.** On kern_mega every driver's image and its
+   claims are pool blocks (owner `FDh` and `0C0h | row`), and §28.4.10 filed
+   them by class under System, whose figure was then conventional memory and
+   pool memory mixed - the very thing §28.4.14 split IVT+BIOS and the span
+   out of System to stop. Now, in protected mode (`[tm_pm]`), `tm_xgidof`
+   flags every block the SYSTEM owns above 1MB - a driver's, the kernel's
+   (`FEh` that is not a cache, `FFh`) - with `TMG_HMAF`, the flag §28.4.13
+   gave kern_big's HMA drivers, so `tm_hmagrp` lists it under the span's
+   heading: the fixed areas, then `Kernel` (kern_mega's modules - `CTRL`,
+   `DISKOPS` - and the kernel's claims up there), then one group per driver,
+   each opening into its blocks. And `[tm_hifix]`, the span's figure, is
+   `[tm_hisys]` - everything the system holds above 1MB - so **System is
+   what the system holds below 640K** on both pages, and `System>1MB` the
+   rest. A driver with conventional claims as well appears under both, one
+   group bit between them, as §28.4.13's HMA drivers do. kern_big keeps its
+   shape: its pool is the XMS store a copy reaches (§28.4.8), and its span
+   group is the HMA.
+
+2. **A pool CACHE was in RAM's used half and in no row.** `tm_hikb` summed
+   every `FEh` block into `[tm_hisys]` and `[tm_hiused]`, the kernel's
+   caches above 1MB (KERN-MEGA-MEMORY-PLAN MC1) among them, while
+   `tm_xgidof` filed those under Purgeable, which is in no total - so with a
+   Disk window open the collapsed rows came **70K short** of `Ram` on a 4MB
+   Bochs machine (`Ram 0.24M` over rows summing to 181K). A cache is in
+   nobody's total and in AVAIL's free half, as its conventional twin is
+   (§28.4.1): `tm_hikb` leaves it out of both sums and keeps it in
+   `[tm_hicach]`, and AVAIL adds it on kern_mega, where `mx_alloc` sheds it
+   for a claim. Measured after: `Ram 0.17/3.62M` over IVT+BIOS 3, System 68,
+   System>1MB 96 and Programs 14 - 181K - and AVAIL 3531K, the two summing
+   to the 3,712K the machine has.
+
+3. **`HIGH` meant two things**: a purge tier in TIER and "above 1MB" in
+   ADDR. A block above 1MB now shows its **address**, as a conventional
+   claim's row does: the paragraph a segment would be, which up there is
+   FIVE hex digits - `3EA40` is linear 3EA400h - so it stands one place left
+   of a conventional row's four and the two cannot be read for each other.
+   `tm_xrow` takes the type's eighth column for the separator (only
+   `STIKMENU` uses it, and reads `STIKMEN`); the KB from 0 is
+   `[tm_hibase]` (1MB to the pool's base, off `OSAPI_XMEM_CAPS`) plus the
+   record's `XMW_OFF`, its MB the fifth digit. kern_big's XMS blocks take
+   the same form (the HMA's keep their segments, §28.4.13), so `HIGH` is the
+   TIER's word alone again. Five digits reach 16MB, which is the whole of
+   what a 286 descriptor - and `XMEM.DRV`'s block move - can address.
+
+**The map is the whole machine on kern_mega.** It was conventional memory
+whatever the kernel, which is the whole of RAM on kern_big - its pool is the
+store with its own `XMS` line and bar (§28.4.8) - and a third of it or less
+on kern_mega, where §28.4.8's KERN-MEGA-PLAN 14.70.2 retired that bar because
+RAM above 1MB is RAM, and where every claim may be up there
+(KERN-MEGA-MEMORY-PLAN MC2, MC7). So kern_mega's page had no picture of most
+of its memory. Now the map is **two frames side by side**, `TMM_GAP` - 2 =
+two pixels of ground between them: conventional memory on the left, drawn as
+it always was, and RAM from 1MB to the top on the right, every record
+`OSAPI_XMEM_WALK` gives at its place - the fixed areas and the HMA's block
+gray, as the kernel's span is on the left; every pool block a framed claim;
+a program's region in its slot's own texture, the legend the list's squares
+key. Each part is to scale with the other, `TM_GW` x conventional / (
+conventional + `[tm_hitot]`), except that the left part is never under a
+third of the map - on a 16MB machine 640K to scale is nine pixels and
+nothing in it could be told apart - so from about 1.9MB up the left part is
+72 pixels and the right part the other 140, and the gap is what says the
+scale changes there. A gap and not a rule: a black line inside one frame
+reads as one more claim's edge, and the gap is the same two white columns on
+a 1bpp adapter as on VGA. `[tm_mconw]` is the left part's width, set once at
+`tm_init`; the map's check word hashes the walk too (`tm_quiet`'s
+`tm_xwn` span), so a block above 1MB moving redraws it.
+
+The alternatives, for the record: one scale for the whole machine (honest,
+and conventional memory is nine pixels of a 16MB machine's map), or two
+equal halves (readable, and the eye takes a 3MB half for the same size as a
+640K one). The floored proportion was preferred because it keeps the
+proportion where it can be seen and gives way only where it would have
+erased the left part.
+
+**The map's half is the kern_mega ARM's** (§20.18): `tm_map_hi`,
+`tm_hikb2x`, the two-frame `tm_mapframe`, `tm_init`'s split and the map's
+key are inside `%ifdef PKG_MEGA`, and `make mega` builds
+`build/megak/apps/taskmgr.o88`, the first `SYSTEM/` package with an arm,
+which `$(MEGASYSAPPSARGS)` and the apps disks' `MEGASUB` put on kern_mega's
+disks. The shipped build on a kern_mega machine draws conventional memory
+only, as it did - correct, and the list says the rest. Items 1 to 3 are the
+shipped build's: the address form is kern_big's too, the cache sum is a
+total that did not add up, and the grouping is one test of `[tm_pm]`.
+
+**What it cost**: no kernel byte. The shipped `taskmgr.o88`'s image 10,943
+-> 11,026 bytes (+83) and its bss 2,411 -> 2,415 (+4: `[tm_hibase]`,
+`[tm_hicach]`); the file 9,703 -> 9,775. The arm's image 11,338 and bss
+2,417 (+312 and +2 on the shipped build). The small build (§28.12) has no
+memory page and is byte-identical. `tests/megatmmem.py` is the row: under
+Bochs at 4MB with SOUND, HDD and NET wanted it reads the page's own
+classification and the map's two frames, and is red on each of the three
+put back.
 
 ### 28.5 The summary lines sit at `TM_PEN`, so the pane has one inset
 

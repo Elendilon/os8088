@@ -16149,6 +16149,21 @@ SOAK = [
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megaapps.img",
                "build/megak/kernel.map")),
+    Row("megatmmem", "soak", py("tests/megatmmem.py"), 40.0,
+        "SPEC.md 28.4.15: the Task Manager's memory page on kern_mega. "
+        "Under Bochs at 4MB with three drivers wanted and two Disk windows "
+        "open (their caches go above 1MB), off the arm's own bss and the "
+        "glass: every driver block above 1MB is System>1MB's and the "
+        "DrvImg rows are inside it; IVT+BIOS + System + System>1MB + the "
+        "programs is RAM's used half exactly with the pool's caches in "
+        "none of them, and System>1MB's rows sum to its heading; a block "
+        "above 1MB reads its five-digit paragraph in ADDR and no row reads "
+        "HIGH there; the map is two frames. Red on each of the three put "
+        "back alone (the [tm_pm] flag, the cache sum, the paragraph) and on "
+        "the source before it (10 legs of 12). 40s is ~30 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
+               "build/mbr.bin")),
     Row("megapaint", "soak", py("tests/megapaint.py"), 45.0,
         "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7: a Paint canvas OVER 64KB "
         "under kern_mega, where every claim is a 64KB selector. Under Bochs "

@@ -14570,7 +14570,7 @@ MEGAAPPDIR := $(MEGADIR)/apps
 MEGAPKGS := $(MEGAAPPDIR)/video.o88 $(MEGAAPPDIR)/audio.o88 \
             $(MEGAAPPDIR)/tracker.o88 $(MEGAAPPDIR)/midirack.o88 \
             $(MEGAAPPDIR)/pixel.o88 $(MEGAAPPDIR)/xtmp3.o88 \
-            $(MEGAAPPDIR)/realdmg.o88
+            $(MEGAAPPDIR)/realdmg.o88 $(MEGAAPPDIR)/taskmgr.o88
 MEGABASE = $(patsubst $(MEGAAPPDIR)/%,$(BUILD)/%,$(MEGAPKGS))
 # ...and the substitution, ONE IDIOM for every list a kern_mega disk names
 # (SMALLSUB's): the mega arm of any package that has one, everything else as
@@ -14580,9 +14580,8 @@ MEGABASE = $(patsubst $(MEGAAPPDIR)/%,$(BUILD)/%,$(MEGAPKGS))
 MEGASUB = $(patsubst $(BUILD)/%,$(MEGAAPPDIR)/%,$(filter $(MEGABASE),$(1))) \
           $(filter-out $(MEGABASE),$(1))
 # ...the system disks' two lists through it (`make small`'s SMALLSYSAPPS):
-# none of SYSTEM/'s or the core set's packages has an arm today, so these
-# name exactly what $(SYSAPPSARGS) and $(COREAPPSARGS) do - and the day one
-# does, kern_mega's system disk takes it without anybody remembering
+# the Task Manager is the one SYSTEM/ package with an arm (SPEC.md 28.4.15),
+# and kern_mega's system disk takes it here without anybody remembering
 MEGASYSAPPSARGS = $(addprefix SYSTEM:,$(call MEGASUB,$(SYSAPPS)))
 # ...and SYSTEM\'s two optional faces, MIXER.O88 and CDRACK.O88 (SPEC.md
 # 34.15, 119.6), which every roomy system disk carries beside the drivers they
@@ -14677,6 +14676,18 @@ $(MEGAAPPDIR)/realdmg.o88: $(MEGAAPPDIR)/realdmg.bin $(BUILD)/rdgcore0.bin $(BUI
                            $(MEGAAPPDIR)/rdgjitp.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(MEGAAPPDIR)/realdmg.bin -o $@ --part $(BUILD)/rdgcore0.bin \
 		--part $(BUILD)/rdgcore1.bin --part $(MEGAAPPDIR)/rdgjitp.bin --part-compress lz4
+
+# The Task Manager's arm (SPEC.md 28.4.15): the memory map's second part,
+# RAM above 1MB at its own scale beside conventional memory - kern_mega's
+# alone, where that RAM is RAM a program runs in. The first SYSTEM/ package
+# with an arm, so $(MEGASYSAPPSARGS) puts it on kern_mega's system disks
+$(MEGAAPPDIR)/taskmgr.bin: apps/taskmgr/taskmgr.asm apps/os88api.inc \
+                           apps/os88ui.inc apps/os88dec.inc | $(BUILD)
+	@mkdir -p $(MEGAAPPDIR)
+	$(NASM) -f bin -w+error -I apps/ -DPKG_MEGA -o $@ apps/taskmgr/taskmgr.asm
+	@echo "taskmgr (PKG_MEGA): $(call FILESIZE,$@) bytes"
+$(MEGAAPPDIR)/taskmgr.o88: $(MEGAAPPDIR)/taskmgr.bin tools/os88pkg.py $(PKGZSTAMP)
+	$(OS88PKG) $(MEGAAPPDIR)/taskmgr.bin -o $@
 
 megapkgs: $(MEGAPKGS) $(patsubst $(MEGAAPPDIR)/%,$(BUILD)/%,$(MEGAPKGS))
 	@python3 tests/unit/t_megapkg.py --sizes

@@ -1098,9 +1098,9 @@
   "sources": [
    "apps/taskmgr"
   ],
-  "stamped": "ea7b512a",
+  "stamped": "086f52d4",
   "strings": "cd3e0dc061f03cd1",
-  "why": "MC1's purgeable pool blocks show as 'Cache' in the memory view: a row in the TYPE table"
+  "why": "Memory page on the protected-mode build: System is the first 640K and System>1MB everything above (drivers included), the map shows the whole machine in two boxes, ADDR is a five-digit address above 1MB; IVT+BIOS and System HMA described as the rows they are"
  },
  "TELNET_O88": {
   "sources": [
