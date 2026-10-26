@@ -5506,7 +5506,11 @@ osapi_sys_kb_x:
     push di
 %if VGABUF_PARA
     mov al, [vga_skkern]        ; ...and on a machine with NO VGA the kernel is
+%ifdef KERN_MEGA
+    mov ah, 0                   ; (kern_mega's KERN_KB passes 127 - its cold
+%else                           ; rung runs above 1MB - so unsigned there)
     cbw                         ; (KERN_KB < 128: vga_skkern says so)
+%endif
 %else
     mov ax, KERN_KB
 %endif

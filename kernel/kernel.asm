@@ -8934,7 +8934,11 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
 %if SK_IMG_KB + SK_STK_KB + SK_STK0_KB + SK_FAT_KB != KERN_KB
 %error "osapi_sys_kb's parts no longer sum to KERN_KB - the memory view's column will not total (SPEC.md 20.9)"
 %endif
-%if VGABUF_PARA && KERN_KB > 127
+%ifdef KERN_MEGA
+%if VGABUF_PARA && KERN_KB > 255
+%error "osapi_sys_kb widens vga_skkern from a byte: KERN_KB must be under 256 (vga12.inc)"
+%endif
+%elif VGABUF_PARA && KERN_KB > 127
 %error "osapi_sys_kb widens vga_skkern with cbw: KERN_KB must be under 128 (vga12.inc)"
 %endif
 %if SK_IMG_KB*1024 - SKB_IMG >= 1024 || SKB_IMG - SK_IMG_KB*1024 >= 1024

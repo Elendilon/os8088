@@ -208,7 +208,7 @@ THM_CROW equ thm_tab + THM_COLOR * THM_ROW_BYTES    ; the row a preset lands in
 ; byte puts them all back on their old parity. The `cbw` it costs in `.cold`
 ; does the same for dsk_xfer and the FAT walk. Zero bytes net against a word
 ; in memory.inc's data (PERFORMANCE.md Part 7; docs/plans/completed/ksp12/xfile.md)
-vga_skkern      db KERN_KB          ; (kernel.asm's guard 7: under 128)
+vga_skkern      db KERN_KB          ; (kernel.asm's guard 7: under 128, 256 on kern_mega)
 %endif
 
 gfx_color       db CBLACK       ; current drawing color for every solid op.
