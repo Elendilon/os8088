@@ -26,7 +26,10 @@ import gbclock  # noqa: E402
 
 # a ROM assembled out of ANOTHER's source: its source and rgbasm's defines
 VARIANTS = {"gbbank8": ("gbbank", ["-DNBITS=3", "-DPERFRAME=16"]),
-            "gbseam2": ("gbseam", ["-DSEAMKIND=2"])}
+            "gbseam2": ("gbseam", ["-DSEAMKIND=2"]),
+            "gbseam3": ("gbseam", ["-DSEAMKIND=3"]),
+            "gbseam4": ("gbseam", ["-DSEAMKIND=4"]),
+            "gbseam5": ("gbseam", ["-DSEAMKIND=5"])}
 
 # name: the rgbfix arguments past the title (the cartridge's header)
 ROMS = {
@@ -43,6 +46,10 @@ ROMS = {
     "gbcpc": [],                            # (generated: tools/gbprof/gbcpc.py)
     "gbseam": ["-m", "0x01"],               # code across 3FFF into the bank
     "gbseam2": ["-m", "0x01"],              #   (gbcpu.py, REALDMG-SPEC 3.1)
+    "gbseam3": ["-m", "0x01"],              # ...and JRs across it, both ways
+    "gbseam4": ["-m", "0x01"],
+    "gbseam5": ["-m", "0x01"],
+    "gblcdoff": [],                         # the LCD off for seconds (gbaot.py)
     "gbjoy": [],                            # the joypad interrupt (gbheader.py)
     "gbfm": [],                             # all four channels (gbfm.py)
     "gbpop": ["-m", "0x01"],                # POPs out of a ROM bank (gbcpu.py)

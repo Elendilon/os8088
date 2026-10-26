@@ -283,3 +283,14 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   decline at most ~7 passes a frame (Wario Land's fills, Donkey Kong
   Land's compare countdowns), under 1% anywhere; the gate ROM's 17,000
   declines were its own timer's.
+- [x] Correctness: Prehistorik Man and the JRs across the bank seam
+  (REALDMG-SPEC 3.1, 20.2). Prehistorik Man was the HARNESS's: its frame
+  ran until a VBlank, and the game keeps the LCD off waiting for every
+  button to be let go, which the script's held Right never does - a frame's
+  time is a frame with the LCD off now, and it is identical to the
+  interpreter in both arms (so is the bad Super Mario Bros. Deluxe dump,
+  with the NOP delay's check out). The seam: a JR at 3FFF is the trap and
+  `seam_jr` runs it whole; a JR across 4000h from either side is put right
+  by `tr_int` on the dynamic recompiler and by `tr_ejf` itself on a
+  precompiled one, which round 6 had got wrong. Left on the 8088's plain
+  interpreter, priced: 3-6% of every game for Looney Tunes' two JRs.

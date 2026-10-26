@@ -408,12 +408,16 @@ rdg_seaminit:
     je .p
 .f:
     inc bx                              ; 3FFF
+    mov byte [S_SEAMJR],0
     mov al,[bx]
-    cmp al,18h                          ; (a JR's target is relative to the
-    je .r                               ;   seam: not taken)
+    cmp al,18h                          ; a JR: its displacement the bank's
+    je .jr                              ;   4000, and seam_jr runs it whole
     and al,0E7h
     cmp al,20h
-    je .r
+    jne .njr
+.jr:
+    mov byte [S_SEAMJR],1
+.njr:
     mov al,[bx]
     call rdg_ilen
     cmp al,2
