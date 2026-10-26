@@ -7313,8 +7313,12 @@ mx_dfree:
     jae .dn
 .in:
     push ax
+    mov ax, di
+    call mega_iswin                 ; a window is its owner's (14.80)
+    jnc .din
     lea ax, [di+4]
     call mega_ldt_free
+.din:
     pop ax
 .dn:
     add di, 8
@@ -9249,6 +9253,9 @@ mx_desc:
     jb .x
     cmp ax, dx
     jae .x
+    mov ax, si
+    call mega_iswin                 ; a window is its owner's (14.80)
+    jnc .x
     mov di, [bp+10]
     mov cl, [bp+12]
     sub [es:si+2], di
@@ -10652,25 +10659,39 @@ mega_wfind:
 
 ; mega_wset - DX:AX = a base, CX = a limit, BL = the owner, SI = the
 ; caller's window to re-aim (0 = none), DI = a match (0 = none) -> CF = 0 and
-; AX = the selector: the match; else SI re-aimed when it is the owner's
-; window; else a new entry and a row of mega_wtab. CF = 1, AX = 1 no LDT
+; AX = the selector: SI re-aimed when it is the owner's window; else the
+; match; else a new entry and a row of mega_wtab. CF = 1, AX = 1 no LDT
 ; entry or no row. Clobbers DI, SI
+;
+; THE CALLER'S OWN WINDOW FIRST, the match only when it named none. The match
+; came first, and a re-aim that landed exactly where ANOTHER of the caller's
+; windows already pointed was answered with that other window - so two words
+; the caller holds named ONE descriptor, and re-aiming the second moved the
+; first with it. The C64 re-aims its three ROM-bank windows in turn after its
+; carve moves (c64_rbset), and a move of 5000h bytes - exactly KERNAL's
+; offset less CHARGEN's - left KERNAL's window on CHARGEN: the 6510 fetched
+; its reset code out of the character set and jammed (KERN-MEGA-PLAN 14.80)
 mega_wset:
-    or di, di
-    jz .nm
-    mov ax, di
-    clc
-    ret
-.nm:
     or si, si
-    jz .new
+    jz .nm
+    push di
     push dx
     mov dx, si
     call mega_wslot                 ; DI = SI's row
     pop dx
-    jc .new
+    jc .nown
     cmp [ss:di+2], bl
-    jne .new                        ; not the caller's own
+    je .own                         ; the caller's own: re-aim it
+.nown:
+    pop di
+.nm:
+    or di, di
+    jz .new
+    mov ax, di
+    clc
+    ret
+.own:
+    add sp, 2                       ; (the match: not wanted)
     push es
     push di
     push ax
@@ -11526,7 +11547,9 @@ mega_cdin:
     cmp bx, ax
     jae .no
 .yes:
-    clc
+    mov ax, di                      ; ...unless it is an OSAPI_SEG WINDOW:
+    call mega_iswin                 ; its owner's, wherever it is based
+    cmc                             ; (CF = 0 a window -> "not in")
     jmp short .o
 .no:
     stc
@@ -11534,6 +11557,44 @@ mega_cdin:
     pop dx
     pop bx
     pop ax
+    ret
+
+; mega_iswin - AX = a descriptor's offset in the LDT (index x 8) -> CF = 0
+; it is an UNBOUND OSAPI_SEG window (a mega_wtab row, byte 3 clear); CF = 1
+; anything else. Clobbers nothing.
+;
+; A WINDOW IS ITS OWNER'S AND NOBODY ELSE'S (SPEC.md 50.6.11): only its
+; owner's end or SEG_FREE frees it, and only its owner re-aims it. Its base
+; is a physical paragraph the owner CHOSE, and it may lie in any block at all
+; - the C64's ROM-bank windows are based BELOW its ROM part, in whatever
+; claim happens to sit there (apps/c64/c64cpu.inc's c64_rbset) - so the
+; free or the move of the block it happens to be based in is not its event.
+; Freeing it there handed the C64 a dead selector and jammed the 6510 at
+; PC 0008 the moment another package's claim was freed (KERN-MEGA-PLAN
+; 14.80); rebasing it would have pointed it at the wrong bytes. A SUB, a
+; SUBC pair and a BOUND window (SEG_BWIN) are the block's, and still go
+; with it
+mega_iswin:
+    push si
+    push di
+    mov si, mega_wtab
+.l:
+    mov di, [ss:si]
+    or di, di
+    jz .n
+    xor di, ax
+    and di, 0xFFF8
+    jnz .n
+    cmp byte [ss:si+3], 0
+    je .y                           ; (CF = 0)
+.n:
+    add si, 4
+    cmp si, mega_wtab_end
+    jb .l
+    stc
+.y:
+    pop di
+    pop si
     ret
 
 ; mega_cdfree - AX = a block's paragraph, CX = its paragraphs -> every
