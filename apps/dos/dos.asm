@@ -5310,8 +5310,13 @@ DHK_TXT     equ 12                  ; the TEXT SCREEN the mouse cursor may draw
                                     ; every pixel and B800 is the kernel's, so
                                     ; the cursor is a `kern_dos` capability and
                                     ; the absent hook is how that is spelled
+DHK_TSET    equ 14                  ; AH=2Dh's step, DX:AX signed ticks, before
+                                    ; 0040:006C is written: kern_dos moves the
+                                    ; handover count by it (KERN-MEGA-PLAN
+                                    ; 14.114). Absent = the host restores the
+                                    ; count itself, the windowed bracket's way
 %ifdef DOS_MEGA
-DHK_XUNP    equ 14                  ; **A CHILD, UNPACKED BY THE HMA HOST**
+DHK_XUNP    equ 16                  ; **A CHILD, UNPACKED BY THE HMA HOST**
                                     ; (SPEC.md 96.40.9.1): a launcher's EXEPACK
                                     ; child runs its own unpacker below 64KB
                                     ; with A20 open, which fails - so the HMA
@@ -5322,9 +5327,9 @@ DHK_XUNP    equ 14                  ; **A CHILD, UNPACKED BY THE HMA HOST**
                                     ; 96.40.9.1). Only kern_mega's HMA host
                                     ; fills it; it is `%ifdef DOS_MEGA` so
                                     ; kern_big's core is byte-identical
-DHK_NENT    equ 8
+DHK_NENT    equ 9
 %else
-DHK_NENT    equ 7
+DHK_NENT    equ 8
 %endif
 %ifndef DOS_EXTCORE                ; THE CORE (SPEC.md 96.44)
 
@@ -14202,6 +14207,15 @@ dos_time_now:
 ; It writes 0040:006C, which is banked at bracket entry and put back at the
 ; end (SPEC.md 96.5) - so a DOS program may set the clock, read it back and
 ; agree with itself, and the machine's own time is not moved by it.
+;
+; **...AND UNDER kern_dos NOTHING PUTS IT BACK, so the STEP goes to the host
+; first** (DHK_TSET, KERN-MEGA-PLAN 14.114): DX:AX = the new count less the
+; old, signed. The way home measures how long the program had the machine as
+; 0040:006C now less the count at the handover (SPEC.md 96.49.5), and a
+; program that set the clock BACK made that negative - which reads as a
+; midnight crossed, so the session came home a day on. kern_dos moves the
+; handover count by the same step, and the difference is the run again.
+; The windowed host binds nothing: its bracket restores the count.
 ; -----------------------------------------------------------------------------
 dos_time_set:
     push ax
@@ -14211,36 +14225,42 @@ dos_time_set:
     push si
     push di
     push es
-    mov [dos_tmp1], ch
-    mov [dos_tmp2], cl
-    mov [dos_tmp3], dh
-
-    mov al, [dos_tmp1]
-    xor ah, ah
+    push dx                         ; DH = seconds
+    push cx                         ; CL = minutes
+    mov al, ch
+    cbw                             ; (CH <= 23)
     mov bx, 32772
     mul bx
     shl ax, 1
     rcl dx, 1                       ; hours, in ticks
-    mov si, ax
+    xchg si, ax
     mov di, dx
-    mov al, [dos_tmp2]
+    pop ax                          ; AL = minutes
     xor ah, ah
     mov bx, 1092
     mul bx
     add si, ax
     adc di, dx
-    mov al, [dos_tmp3]
+    pop ax
+    mov al, ah                      ; AL = seconds
     xor ah, ah
     mov bx, 182
     mul bx
-    mov bx, 10
-    div bx
-    xor dx, dx
+    mov bl, 10
+    div bx                          ; (DX = 0 after a mul this small)
     add si, ax
-    adc di, dx
+    adc di, 0
 
     mov bx, 0x40
     mov es, bx
+    mov ax, si
+    mov dx, di
+    sub ax, [es:0x6C]
+    sbb dx, [es:0x6E]               ; DX:AX = the step
+    cmp word [dos_hkv + DHK_TSET], 0
+    je .nohk
+    call word [dos_hkv + DHK_TSET]
+.nohk:
     mov [es:0x6C], si
     mov [es:0x6E], di
     mov [dos_lasttl], si            ; ...and midnight is measured from here now
