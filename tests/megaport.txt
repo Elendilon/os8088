@@ -198,6 +198,7 @@ kdnoprog secs=50   # a name that opens nothing comes home from the trip a REFUSA
 kdmcur secs=50 OS88_BOCHS_MOUSE=serial   # INT 33h draws, hides, remasks and nests the text cursor on the trip; red with no serial mouse (SKIP)
 kdmredraw secs=40 OS88_BOCHS_MOUSE=serial   # the program's own store over the cursor stands, as CuteMouse 1.9.1 leaves it; red with no serial mouse
 kdnomouse secs=50 OS88_BOCHS_MOUSE=serial   # Disable the mouse ticked on kern_mega's radio-less page: INT 33h AX=0 answers 0 (mega-kdmouse, the box unticked, answers FFFF)
+kdbigexe secs=60   # the read-ahead ladder under the LOAD in kern_dos's HMA image: a BIG.EXE re-sized to the HMA arena's band (615,424 bytes) loads on the 18 KB rung after the 32 KB one; red with the retry taken out of kd_entry.loadtry (never READY)
 # ...and the APPLICATION runners-up: a region, a claim and a view are LDT
 # selectors (m.lin); a package with a kern_mega ARM (VIDEO, MIDIRACK,
 # REALDMG, PIXEL) runs the arm out of build/megak/apps; a CGA-pinned point in
