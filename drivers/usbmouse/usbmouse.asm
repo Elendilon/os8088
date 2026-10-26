@@ -416,8 +416,10 @@ um_pmattach:                    ; (kern_mega in protected mode as well: the
 ; -----------------------------------------------------------------------------
 ; um_pm33 - int 33h. AX = 0060h is the card's report; anything else is not ours
 ;
-; Reached from inside the card's IRQ handler, IF = 0 and its EOI already sent,
-; so the feed runs as a CH375 report's does from the worker: OSAPI_MOUSE_FEED
+; Reached from inside the card's IRQ handler, IF = 0 and its EOI still to come
+; (the ROM sends it after this returns: ISA-PicoMEM pmbios/pmbios.asm,
+; IRQCMD_USBMouse into PM_Int_End_Ok_all) - or, on kern_mega in protected
+; mode, from mega_m33go once the reflection is back, EOI sent. The feed runs as a CH375 report's does from the worker: OSAPI_MOUSE_FEED
 ; puts the cur_move chain on mou_pstack whatever stack this arrived on, and
 ; nothing that uses that stack can be running (both mouse ISRs and the feed
 ; itself are IF = 0 throughout). DS = ours for the X cell's fence, which asks
