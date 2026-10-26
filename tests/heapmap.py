@@ -211,9 +211,10 @@ def sample_mega(limit=60.0):
     this maps is every driver kern_mega loads. `limit` is guest seconds, which
     Bochs's realtime clock makes host ones."""
     import os88bochsmarty
+    os.environ["OS88_BOCHS_NE2K"] = "1"     # ...and the NE2000 (no MartyPC
     m = os88bochsmarty.launch("build/os8088.img", apps="build/apps.img",
-                              machine="os8088_xt_sb_ne2k_hdd", boot=False,
-                              cfg=ALLBITS, label="heapmap")
+                              machine="os8088_xt_vga_hdd_sb", boot=False,
+                              cfg=ALLBITS, label="heapmap")   # machine has one)
     sym = {n: m.sym(n) for n in ("mem_base", "mem_top", "spl_live",
                                  "mem_tab")}
     fseg = os88sym.linear("spl_fseg")

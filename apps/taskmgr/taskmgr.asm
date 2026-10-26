@@ -4876,10 +4876,22 @@ tm_drvgid:
     jne .h                      ; read at 0)
     mov di, DRV_HMA_ORG
 .h:
-    push ax
+%ifdef PKG_MEGA
+    test bl, 4                  ; AN LDT SELECTOR (TI = 1; a paragraph is
+    jz .pw                      ; 64-aligned, so never): tm_cgidof's verr arm,
+    cmp byte [tm_pm], 0         ; a driver's DATA selector naming its own
+    je .pw                      ; claims - which on kern_mega is EVERY
+    mov es, bx                  ; driver, conventional or not (KERN-MEGA-
+    jmp short .hd               ; MEMORY-PLAN MC7.4). Read as a paragraph it
+.pw:                            ; was some other memory, the header did not
+%endif                          ; match and SOUND.DRV's buffers filed under
+    push ax                     ; a class-less group (KERN-MEGA-PLAN 14.91)
     mov ax, bx
     call tm_pwes                ; ES = over the image's PARAGRAPH (MC7)
     pop ax
+%ifdef PKG_MEGA
+.hd:
+%endif
     cmp word [es:di], 0x384F    ; 'O8', the driver header's magic
     jne .own
     mov al, [es:di+3]           ; DRV_H_CLASS

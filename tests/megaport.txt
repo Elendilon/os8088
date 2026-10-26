@@ -195,3 +195,7 @@ editmove-frotz secs=90 @OS88_BOCHS_MEGS=1   # a running story's five claims move
 weavemove secs=110 @OS88_BOCHS_MEGS=1   # two WEAVE instances' claims move and every copy names the same paragraph (a far vector's code half, a part row, the core's state block); PONG plays on, and its bundle moves under the running worker
 wdheapmove secs=70 @OS88_BOCHS_MEGS=1   # Word's six document claims all move, bytes intact, and three typed characters land in both the text and the CHP claim
 rehomemove secs=150 @OS88_BOCHS_MEGS=1   # a re-homed program's carve moves; no proc called (rp_moved 0) and its handoff's asset SUB lands one carve-delta on, reading 'RA' 5AA5
+heapmap secs=80   # the boot's claim maps under Bochs (SB16, NE2000, an ATA disk, every driver wanted): no overlap, no MEM_K_OVL, the caches rejoin one run - and kern_mega's POOL (mx_tab) never overlaps, the drivers' images in it
+tmowner secs=70   # a raise cache is Purgeable's whoever caused it - on a 16MB kern_mega the cache is a POOL block, read off the Task Manager arm's tm_xw/tm_xgid
+heaphi secs=60 @OS88_BOCHS_MEGS=1   # RAMPAGE.DRV's image goes top-down, so a compaction still buys the read-ahead's worth (kern_mega's panel list scrolls: its arrow brings the page in)
+heapdrv secs=60   # SOUND.DRV's buffers are in the SOUND group on the Task Manager arm's memory page (KERN-MEGA-PLAN 14.91: their owner, the driver's data selector, was read as a paragraph)
