@@ -11171,10 +11171,17 @@ argument MartyPC is handed, or a staged run tree's `media/hdds` VHD on an
 `_hdd` machine - mounted in place and written through at the VHD footer's
 CHS, so an install in one launch is the disk the next one boots (A: then
 C:, a blank A: left empty); and `inb`/`outb`/`planes` became guest-run
-stubs at 0000:0500 (docs/BOCHS.md). Thirteen rows of installs, partitions,
+stubs at 0000:0500 (docs/BOCHS.md). Sixteen rows of installs, partitions,
 the disk tool, kern_dos off a fixed disk and the hard-disk takeover pass on
-kern_mega with them, each seen to go red with the engine, the driver or
-kern_dos broken on purpose - and one, `vidsound`, does not: Bochs's SB16
+kern_mega with them - and `blitp` and `gorillasreactions`, which read VGA
+planes - each seen to go red with the engine, the driver, the installer or
+kern_dos broken on purpose (`hdtakeboot` apart, whose break is not cheap
+there). Two of them say something about kern_mega by design rather than a
+defect: `dosram` has ONE arm (every DOS program is a trip, so arm 0's
+controls are not drawn) and asserts that arm's promise against what
+kern_dos hands DOSHELLO - 613 K promised, 612 K handed - and `dosshell`'s
+MOVE is kern_dos's STREAM path, kern_dos carrying no copy engine to
+re-link with. And one, `vidsound`, does not port: Bochs's SB16
 (wave output to a file) drained the stream about four times faster than the
 22,222 Hz `SOUND.DRV` programs with 41h, whatever `dmatimer` says, so a row
 whose clock IS the card has nothing to measure against there.
