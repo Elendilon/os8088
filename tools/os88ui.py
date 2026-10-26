@@ -1214,15 +1214,15 @@ class UI:
             n = _u16(self.m.read(base + geom.FS_N, 2))
             vseg = _u16(self.m.read(base + geom.FS_VSEG, 2))
             if n and vseg:
-                return _decode(self.m.read(vseg << 4,
-                                           n * geom.DSK_DE_STRIDE), n)
+                return _decode(self.m.readseg(vseg, 0,
+                                              n * geom.DSK_DE_STRIDE), n)
         n = self._word("disk_nfiles")
         if not n:
             return []
         seg = self._word("dsk_dseg")
         off = self._word("dsk_doff")
-        return _decode(self.m.read((seg << 4) + off,
-                                   n * geom.DSK_DE_STRIDE), n)
+        return _decode(self.m.readseg(seg, off,
+                                      n * geom.DSK_DE_STRIDE), n)
 
     def entry(self, name, win=None):
         """(index, type) of `name` in `win` (or the acting window), or raise

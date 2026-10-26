@@ -4311,6 +4311,13 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
     import subprocess
     import time
 
+    # $OS88_MEGA: the same row on kern_mega, under Bochs - every request
+    # this module makes is answered by tools/os88bochsmarty.py instead
+    if os.environ.get("OS88_MEGA"):
+        import os88bochsmarty
+        return os88bochsmarty.launch(image, apps=apps, machine=machine,
+                                     boot=boot, label=label, extra=extra)
+
     base = base_run_dir()
     if not os.path.isdir(base):
         raise MartyError("no MartyPC run directory at %s - `make marty` first"

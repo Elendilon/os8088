@@ -151,6 +151,49 @@ life of the process; `tools/os88test.py` takes the same locks for each Bochs
 row's own display (:110 up), so two runners - or a runner and a row's extra
 legs - never share one.
 
+## Rows ported from MartyPC: `OS88_MEGA=1` and tests/megaport.txt
+
+Most of the soak is written against MartyPC's `Marty` API, and
+`tools/os88bochsmarty.py` answers that API out of a Bochs running kern_mega
+instead. With `OS88_MEGA=1` in the environment, `os88marty.launch()` (and so
+`os88ui.boot()`) hands back a `BochsMarty`, and the row runs unchanged:
+
+    OS88_MEGA=1 python3 tests/sheetbtn.py
+
+It is a SERVER rather than a wrapper: `Marty` is built on one method,
+`cmd(**kw)`, and the shim answers those requests itself, so `type_text`,
+`readseg`, `bp_exec`, `go`, `wait_stop`, `advance` and every
+`os88marty.until`/`ui_done`/`settle` above them are MartyPC's own code. What
+it maps:
+
+- **disks** - a shipped system floppy in build/ (`os8088*.img`, `small*.img`)
+  becomes `build/mega.img`, a shipped apps floppy (`apps*.img`)
+  `build/megaapps.img`; any other image (a category disk, a scratch disk the
+  row built) goes in B: as it is. No fixed disk.
+- **symbols** - `os88sym` reads `build/megak/kernel.map` under `OS88_MEGA`
+  (`$OS88_MEGA_BUILD` for another tree); nothing is re-assembled.
+- **memory** - `read`/`write` are linear (`xp`/`writemem`/`setpmem`).
+  `readseg(seg, off)` takes a real segment OR an LDT selector, and every
+  package region and claim is a selector here, so a row that computes
+  `seg << 4` itself calls `m.lin(seg, off)` instead.
+- **time** - Bochs runs `clock: sync=realtime`, so `status()["cycles"]` is
+  the guest's running time at 4.77 MHz and a guest budget means what it
+  means on MartyPC. Nothing measured in cycles is a measurement here.
+- **the glass** - `fbuf()` is the Bochs window's guest area (`xwd`), with
+  the DAC's six bits widened as a VGA reads them (`FC` -> `FF`); the window
+  is refreshed 20 times a second. `screen()` reads B8000.
+- **the FDC** - `disk()` counts `<<READ DONE>>`/`<<WRITE DONE>>` in Bochs's
+  own floppy log (`debug: floppy=report`), which is all os88ui and `ui_done`
+  use it for.
+- **breakpoints** - `exec`/`execseg` are `lb`; `mem`, `int` and `io` are
+  refused.
+- **refused by name** - `flicker`, `pace` (the frame instrument; the
+  guest-seconds `os88marty.pace()` works), `planes`, `inb`/`outb`,
+  `snapshot`, `reset`, the wheel. A row built on one is not portable.
+
+A port is a line in `tests/megaport.txt`; `tests/suite.py` registers it as
+`mega-<name>`, the same command under `env OS88_MEGA=1`, `needs=("bochs",)`.
+
 ## Reading it
 
 * **`OUT/e9.out`** - the kernel's own trace. A `kern_mega FAULT vector VV

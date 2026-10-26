@@ -18385,6 +18385,75 @@ SOAK = [
 ]
 
 
+# =============================================================================
+# THE kern_mega PORTS (tests/megaport.txt): MartyPC rows run on the
+# protected-mode kernel under Bochs, through tools/os88bochsmarty.py. A port
+# is the SAME script with OS88_MEGA=1 in its environment, which makes
+# os88marty.launch answer a Bochs on build/mega.img + build/megaapps.img, so a
+# port is a line in that file and not a second copy of the row.
+# =============================================================================
+
+MEGAPORT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "megaport.txt")
+MEGA_WANTS = ("build/mega.img", "build/megaapps.img",
+              "build/megak/kernel.map")
+
+
+def _mega_ports(base):
+    """mega-<name> for every line of tests/megaport.txt. A line is
+
+        name [secs=N] [timeout=N] [+arg ...] [-arg ...]   # why
+
+    `+arg` appends an argument to the base row's command and `-arg` removes
+    one (with the value after it when written `-arg=`, i.e. `-machine=`
+    drops `--machine X`)."""
+    by = {r.name: r for r in base}
+    out = []
+    try:
+        lines = open(MEGAPORT).read().splitlines()
+    except OSError:
+        return out
+    for ln in lines:
+        body = ln.split("#", 1)[0].split()
+        if not body:
+            continue
+        why = ln.split("#", 1)[1].strip() if "#" in ln else ""
+        name, opts = body[0], body[1:]
+        r = by.get(name)
+        if r is None:
+            raise SystemExit("tests/megaport.txt: no soak row %r" % name)
+        cmd, secs, tmo = list(r.cmd), None, None
+        for o in opts:
+            if o.startswith("secs="):
+                secs = float(o[5:])
+            elif o.startswith("timeout="):
+                tmo = float(o[8:])
+            elif o.startswith("+"):
+                cmd.append(o[1:])
+            elif o.startswith("-") and o.endswith("="):
+                flag = "-" + o[:-1]
+                if flag in cmd:
+                    i = cmd.index(flag)
+                    del cmd[i:i + 2]
+            elif o.startswith("-"):
+                if o[1:] in cmd:
+                    cmd.remove(o[1:])
+        needs = tuple(n for n in r.needs if n not in ("marty", "qemu",
+                                                      "qemu9")) + ("bochs",)
+        out.append(Row("mega-" + name, "soak",
+                       ["env", "OS88_MEGA=1"] + cmd,
+                       secs or max(60.0, r.secs * 2.0),
+                       "%s ON kern_mega (tests/megaport.txt): %s%s"
+                       % (name, why + " - " if why else "", r.why),
+                       needs=needs, timeout=tmo,
+                       wants=tuple(dict.fromkeys(tuple(r.wants) +
+                                                 MEGA_WANTS))))
+    return out
+
+
+SOAK += _mega_ports(SOAK + FULL)
+
+
 def rows():
     """Every registered row, cheap ones first so failures report early."""
     return FAST + FULL + SOAK

@@ -89,13 +89,11 @@ SLIRP = os.environ.get("OS88_BOCHS_SLIRP")
 BOCHSRC = """megs: {megs}
 romimage: file=/usr/share/bochs/BIOS-bochs-legacy
 vgaromimage: file=/usr/share/vgabios/vgabios.bin
-vga: extension=vbe
+vga: extension=vbe{vgahz}
 pci: enabled=0
 floppya: 1_44={a}, status={astat}
 floppyb: type={btype}, {bmedia}={b}, status=inserted
-ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14
-ata0-master: type=disk, path={c}, mode=flat, cylinders={cy}, heads={hd}, spt={sp}
-{cd}boot: {boot}
+{ata0}{cd}boot: {boot}
 port_e9_hack: enabled=1
 mouse: enabled=1, type=ps2, toggle=ctrl+mbutton
 clock: sync=realtime, time0=local
@@ -103,6 +101,7 @@ clock: sync=realtime, time0=local
 panic: action=report
 error: action=report
 info: action=ignore
+debug: action=ignore{flogdbg}
 display_library: x
 """
 
@@ -407,7 +406,8 @@ class Box(object):
     def __init__(self, out, pkgs, sb=False, cfg=None, bimg=None, ne2k=False,
                  btype="1_2", cmode="run", bootc=False, noa=False,
                  build=None, csys=False, put=(), cd=None, aimg=None,
-                 display=None, megs=None):
+                 display=None, megs=None, noc=False, vgahz=None,
+                 flog=False):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -456,7 +456,9 @@ class Box(object):
         args += list(put)          # --put: FOLDER:path, as os88disk.py takes it
         if csys:
             args += self._sysfiles(a, stage)
-        if cmode == "keep" and os.path.exists(c):
+        if noc:
+            pass                    # no fixed disk at all (os88bochsmarty)
+        elif cmode == "keep" and os.path.exists(c):
             pass                    # the disk as the last boot left it
         elif cmode == "blank":
             with open(c, "wb") as fh:   # nothing on it: no MBR, no partition
@@ -473,7 +475,13 @@ class Box(object):
         rc = os.path.join(out, "bochsrc")
         with open(rc, "w") as f:
             f.write(BOCHSRC.format(
-                megs=megs or MEGS, a=a, b=b, c=c, cy=GEOM[0], hd=GEOM[1], sp=GEOM[2],
+                megs=megs or MEGS, a=a, b=b,
+                flogdbg=", floppy=report" if flog else "",
+                ata0="" if noc else (
+                    "ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14\n"
+                    "ata0-master: type=disk, path=%s, mode=flat, "
+                    "cylinders=%d, heads=%d, spt=%d\n" % ((c,) + GEOM)),
+                vgahz=", update_freq=%d" % vgahz if vgahz else "",
                 boot="disk" if bootc else "floppy",
                 astat="ejected" if noa else "inserted",
                 btype=btype, bmedia={368640: "360k", 737280: "720k",

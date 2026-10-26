@@ -336,7 +336,27 @@ def kz_defines(bdir, defines=()):
     return tuple(defines)
 
 
+def _mega_map():
+    """$OS88_MEGA: kern_mega's own map, as its build wrote it.
+
+    A row ported to kern_mega (tools/os88bochsmarty.py) asks every question
+    a MartyPC row asks, and this is where its symbols come from: the map
+    `make mega` wrote beside the kernel it built, `megak/kernel.map` in
+    $OS88_MEGA_BUILD (build/ by default). Nothing is re-assembled, because
+    nothing need be - that map IS the build's own, written in the same nasm
+    run as the image, so it cannot describe a different kernel the way a
+    re-assembly from today's sources can."""
+    bdir = os.environ.get("OS88_MEGA_BUILD") or os.path.join(ROOT, "build")
+    mapf = os.path.join(bdir, "megak", "kernel.map")
+    key = ("mega", mapf, os.path.getmtime(mapf))
+    if key not in _cache:
+        _cache[key] = _parse_map(mapf)
+    return _cache[key]
+
+
 def _load(defines=(), check=True):
+    if os.environ.get("OS88_MEGA"):
+        return _mega_map()
     # $OS88_DEFINES is how a tool that never asked for a knob still finds the
     # right map. Every helper here takes `defines`, and the ones layered above
     # it - os88geom.word, sucheck.fb, Marty.sym - do not thread it through, so

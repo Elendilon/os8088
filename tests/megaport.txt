@@ -1,0 +1,16 @@
+# tests/megaport.txt - MartyPC soak rows PORTED to kern_mega.
+#
+# Each line registers `mega-<name>` (tests/suite.py's _mega_ports): the SAME
+# script as soak row <name>, run with OS88_MEGA=1, which makes
+# os88marty.launch() answer tools/os88bochsmarty.py - Bochs on build/mega.img
+# with build/megaapps.img in B: (docs/BOCHS.md, "Rows ported from MartyPC").
+#
+#     name [secs=N] [timeout=N] [+arg ...] [-arg ...] [-flag=]   # why
+#
+# `secs` is MEASURED on the port (Bochs runs the guest at real time, so a row
+# that is guest-heavy costs more than its MartyPC figure); without one it is
+# twice the base row's. A row is listed here only once it PASSES on kern_mega
+# - and was seen to go red when the thing it checks was broken - or once its
+# failure is a kern_mega defect that is fixed in the same change.
+
+sheetbtn secs=60   # Sheet's dialog buttons (Goto/Format) open, close and reuse their slot
