@@ -190078,7 +190078,7 @@ and a player reads only the stream it plays (VIDEO-PLAN 13, answer A).
 | 22 | 2 | the largest super-packet's sectors, 1..64 |
 | 24 | 4 | the stream's bytes, padding included |
 | 28 | 2 | the largest frame record, bytes |
-| 30 | 2 | the largest keyframe READ, bytes: a record, or with KPARTS a part (98.1.3.8) |
+| 30 | 2 | the largest keyframe READ, bytes: a record, or with KPARTS a part (98.1.3.8), or with KPOOL a page pool picture's read (98.1.3.8.1) |
 | 32 | 4 | VGA8: **the palette**, on a sector - 256 entries of (r, g, b), the DAC's six bits, 0..63; and a VGA4 file that is neither RESIDENT nor LIVE MAY carry one, its first 16 entries by pixel value and the rest 0, and then plays full screen only (98.1.3.2.1, 98.1.3.2.2); 0 for every other format. The encoder puts it at sector 1, two sectors, and the keyframe table after it |
 | 36 | 1 | VGA8: **the row scale**, 0 or 1 for none, 2 for each row shown twice by the CRTC (98.2.4); 0 in every other file |
 | 37 | 1 | MODEX, and VGA4 on a screen of its own: **2 = page flipped** (98.3.8), **3 = page-ahead** (98.1.3.7, with flag PAGE and only with it), **4 = page-ahead on N pages** (98.1.3.7.1, with flag PAGE too), **5 = flipped AND built ahead on N pages** (98.1.3.7.2, flag PAGE too), 0 or 1 not; 0 in every other file |
@@ -191272,6 +191272,16 @@ reference    = len(16)=12 y0(16) y1(16) at(32) n(16)
   some kept key names. A reader refuses a reference past the file, a picture
   that does not read as one, a reference outside a last part or in a file
   without KPOOL, and a page named twice or named and carried.
+- **A pool picture's reads are KEY READS to the header**: the player
+  reads each into the claim a key's read takes, sized from the
+  rendition's largest key (+30) and bounding every read by it
+  (`vp_knrd`), so that word is the largest of the keys' reads AND the
+  pool's. A writer that counted the keys alone made a file whose every
+  seek said *That keyframe could not be read* wherever a page built
+  behind a simpler shown page outweighed every key - the owner's 23 fps
+  narrow clip, 2026-10-26, pool reads to 22,872 bytes under a header
+  saying 21,314. `os88vid.py verify` and its reader refuse such a file
+  by name now, and its header word can be patched in place.
 - **What it costs a seek**: one read per picture named, where the key alone
   was as many reads as its parts. A key on eight pages was five parts of
   32 KB on Bebop; with the pool it is one part and up to seven pictures,

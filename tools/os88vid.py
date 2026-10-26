@@ -3652,9 +3652,15 @@ class Writer:
                          ktoff if nk else 0, nk, poster, s0, secs[0],
                          max(secs), len(stream),
                          max(len(r) for r in self.recs),
-                         max((max(key_reads(r)) + (0 if apart else
+                         max([max(key_reads(r)) + (0 if apart else
                                                    len(leads.get(k, b"")))
-                              for k, r, c in keys), default=0))
+                              for k, r, c in keys] +
+                             # (98.1.3.8.1: a pool picture's reads land in
+                             # the claim a key's read takes, which the
+                             # player sizes from this word - so they are
+                             # key reads to it, and must be counted)
+                             [max(key_reads(r)) for r in self.pool],
+                             default=0))
         struct.pack_into("<IBBBB", hdr, 224, pal,
                          self.rowscale if self.rowscale > 1 else 0,
                          (FLIP_OWN if self.own else
@@ -5134,6 +5140,11 @@ class Reader:
             if n < REC_HDR + 1 or n > KEY_PART + 1 or total + n > len(self.d):
                 raise V88Error("a page pool picture at %d runs off the file"
                                % at)
+            if n > self.kmax:           # (the player's bound on every read
+                raise V88Error(         # of a key's, vp_knrd: its claim is
+                    "a page pool picture at %d has a read of %d; the "
+                    "header's largest key read is %d (98.1.3.8.1)"
+                    % (at, n, self.kmax))   # sized from that word)
             if not struct.unpack_from("<H", self.d, total + 2)[0] & KEY_MORE:
                 break
             if struct.unpack_from("<H", self.d, total)[0] != n:
@@ -5142,6 +5153,27 @@ class Reader:
             total += n
             n = struct.unpack_from("<H", self.d, total - 2)[0]
         return key_split(self.d[at:total + n])
+
+    def pool_reads(self, krec):
+        """The reads of every page pool picture (98.1.3.8.1) a key's bytes
+        name - each one a key read to the player, so `kmax` covers them"""
+        if not (self.kpool and self.mpage):
+            return []
+        out = []
+        hs = mpage_parts(key_split(krec)[-1], self.g, self.pages,
+                         kref=True, key=True)[3]
+        for hp, x in hs:
+            if isinstance(x, tuple) and x[0] == "ref":
+                at, n = x[1], x[2]
+                while True:
+                    out.append(n)
+                    if n < REC_HDR + 1 or at + n > len(self.d) or not \
+                            struct.unpack_from("<H", self.d, at + 2)[0] & \
+                            KEY_MORE:
+                        break
+                    at += n
+                    n = struct.unpack_from("<H", self.d, at - 2)[0]
+        return out
 
     def key(self, i):
         k, off, n, spo, spn, idx = self.keys[i]
@@ -6785,8 +6817,9 @@ def verify_v88(path, against=None, rend=None):
                          hash(bytes(g.canvas(r.hidden)))))
         if f in kat:
             k, krec, spo, spk, idx = r.key(kat[f])
-            kmax = max(kmax, max(key_reads(krec)) +
-                       (0 if r.kleadat else len(r.key_lead(kat[f]))))
+            kmax = max([kmax, max(key_reads(krec)) +
+                        (0 if r.kleadat else len(r.key_lead(kat[f])))] +
+                       r.pool_reads(krec))      # (98.1.3.8.1)
             kb = g.surface()
             if r.mpage:                 # (98.1.3.7.1: the page it names
                 kp, kvis, _ = r.key_view(krec)  # is the page shown, and
@@ -7885,8 +7918,37 @@ def selfcheck():
                     any(decode_at(rq, f) != cvq[f] for f in range(12)):
                 fails.append("a page pool's picture did not read back as "
                              "written (key 6 names %r)" % (named,))
+            # the player reads a pool picture into the claim a key's read
+            # takes, sized from kmax and bounded by it (vp_knrd): a picture
+            # bigger than every key - the owner's 23 fps clip, 2026-10-26 -
+            # refused every seek with kmax counting the keys alone
         except V88Error as e:
             fails.append("a page pool: %s" % e)
+        # ...and a pool picture BIGGER than every key: the player reads it
+        # into the claim a key's read takes, sized from kmax and bounded by
+        # it (vp_knrd), so kmax counts it. A flat page shown makes the keys
+        # small and the busy page built behind it makes the picture large -
+        # the owner's 23 fps clip (2026-10-26), whose every seek refused
+        # with kmax counting the keys alone
+        try:
+            sfl = [bytes(32 * 16), scn[1]]
+            wq, cvq = mpage_clip(gm, PF_VGA4, sfl, {11: 1}, {1: (1, 0, 2)},
+                                 palette=pals[0] + bytes(PAL_BYTES - 48),
+                                 screen=SCR_320X200, pages=4)
+            pq = os.path.join(tmp, "POOLB.V88")
+            wq.write(pq, 0)
+            verify_v88(pq)
+            rq = Reader(pq)
+            kr = [n for i in range(len(rq.keys))
+                  for n in key_reads(rq.key(i)[1])]
+            pr = [n for i in range(len(rq.keys))
+                  for n in rq.pool_reads(rq.key(i)[1])]
+            if not pr or max(pr) <= max(kr) or rq.kmax != max(pr):
+                fails.append("a page pool picture bigger than its keys: "
+                             "pool reads %r, key reads %r, kmax %d"
+                             % (pr, kr, rq.kmax))
+        except V88Error as e:
+            fails.append("a page pool picture bigger than its keys: %s" % e)
         # ...and that pool in a file whose keys are IN PARTS (98.1.3.8): the
         # references lengthen a key's last part, so the part before it must
         # name the longer read - a stale word reads the last part short, and
