@@ -195,9 +195,15 @@ stopped racing the guest, docs/plans/SOAK-PARALLEL.md 17.5). If your row needs
 **On QEMU the guest's clock IS the host's** (no `-icount`): the PIT and the
 BIOS tick follow wall time, so a guest starved of CPU is a slower machine. A
 QEMU row whose answer is the guest's speed against its own clock - a bench
-that picks a quality rung, a ladder with five per cent of headroom - is the
-one honest `alone` on QEMU (`xtmp3rate`, `vidbankspk*`). Everything else on
-QEMU shares the lane.
+that picks a quality rung, a ladder with five per cent of headroom - does
+not get `alone` for it: it boots with `os88qemu.icount()` (`-icount
+shift=N,align=off,sleep=on`), which puts the PIT, the tick and the SB16 on
+an instruction-counted clock, so load stretches the wall time and moves no
+answer (`xtmp3rate`, `vidbankspk*`, docs/plans/SOAK-PARALLEL.md 17.8). Read
+the os88qemu note before using it: it changes the cost model (an I/O
+instruction costs what a register move does), an I/O-dense guest needs a
+larger shift to stay affordable, and a row about a THROTTLED disk's rate
+cannot use it, the throttle being real time. Every QEMU row shares the lane.
 
 ### 4.2 Where a row's time goes, and cutting it
 
@@ -492,7 +498,14 @@ The runner puts a QEMU row in the same concurrent lane as the MartyPC rows
 - **The socket and pidfile are `os88qemu.SOCK`/`PIDFILE` or `paths()`**,
   never `build/qmp.sock` or a `build/<row>.sock`.
 - **A shared image is copied or booted `snapshot=on`.** Two QEMUs on one
-  writable `build/apps.img` is `Failed to get "write" lock` for the second.
+  writable `build/apps.img` is `Failed to get "write" lock` for the second -
+  and ONE writable opener is enough: QEMU refuses even a `snapshot=on` open
+  of a file another QEMU writes, so the row that pays is a well-behaved one
+  (`ps2mouse` and `vesashut` did this to `wheelps2` and `vmmouse`,
+  docs/plans/SOAK-PARALLEL.md 17.10).
+- **A daemonised launch goes through `os88qemu.start(cmd, ...)`**, which
+  raises QEMU's own stderr and names the process holding a locked image;
+  `t_qemuown` fails any other spelling.
 - **A fixed host port is a `locks=("port:N",)`** on the row and a
   `os88qemu.lease_port(N)` before the bind. A slirp guest reaches the host at
   10.0.2.2:N, the port is in the fixture's disks, and `guestfwd` is refused on

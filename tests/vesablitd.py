@@ -52,7 +52,7 @@ EGA = None                      # the sixteen as QEMU's 565 -> 888 lands them
 def launch():
     os88fixture.need("build/vesablitd.img", "build/vxpics.img")
     em = "qemu" + "-system-i386"
-    subprocess.run(
+    os88qemu.start(
         em + " -machine pc,vmport=off -vga std"
         " -drive file=%s,format=raw,if=floppy,snapshot=on -boot a"
         " -drive file=%s,format=raw,if=floppy,index=1,snapshot=on"

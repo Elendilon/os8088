@@ -65,11 +65,8 @@ DISK = "build/trkscrl.img"
 # covering when somebody wants them.
 DISKB = (600, 112)
 MODROW = (175, 128)
-SCREEN = [640, 480]                 # replaced by the first screendump: the
-                                    # pin-and-walk below is against the
-                                    # KERNEL's clamp, so it has to be the live
-                                    # adapter's size (`make test VIDEO=cga`)
-STEP, PACE = 60, 0.06               # tools/mouse.py's, for the same reasons
+SCREEN = [640, 480]                 # replaced by the first screendump
+                                    # (the line-doubling scale below)
 
 # key, rows it moves the stopped view by. tests/trkscrl.inc owns the mapping;
 # Up and Down are here too so n = 1 is covered by the same comparison.
@@ -145,39 +142,25 @@ class Qmp:
         return w, [px[y * w * 3:(y + 1) * w * 3] for y in range(h)]
 
     def key(self, name):
-        self.hmp("sendkey " + name)
-
-    def goto(self, x, y):
-        """tools/mouse.py's pin-and-walk, done over THIS connection.
-
-        QEMU's QMP socket takes exactly one client, so shelling out to
-        mouse.py while this object holds the socket open deadlocks: the child
-        blocks on connect and the parent waits on the child. The walk itself
-        is mouse.py's - pin against the kernel's bottom-right clamp, then step
-        back with exact deltas, at most STEP a packet because msmouse
-        truncates a larger one, and paced because the backend is 1200 baud.
-        """
-        cmds = []
-        for _ in range((max(SCREEN) + STEP - 1) // STEP):
-            cmds.append((STEP, STEP))
-        dx, dy = x - (SCREEN[0] - 1), y - (SCREEN[1] - 1)
-        while dx or dy:
-            cx = max(-STEP, min(STEP, dx))
-            cy = max(-STEP, min(STEP, dy))
-            cmds.append((cx, cy))
-            dx -= cx
-            dy -= cy
-        for cx, cy in cmds:
-            self.hmp("mouse_move %d %d" % (cx, cy))
-            time.sleep(PACE)            # the LINE's time: a QEMU device
-        os88qemu.pace(self, 0.2)        # ...and the guest's, to take it
-
-    def click(self, x, y):
-        self.goto(x, y)
-        self.hmp("mouse_button 1")
-        os88qemu.pace(self, 0.15)
-        self.hmp("mouse_button 0")
-        os88qemu.pace(self, 0.15)
+        """ONE KEY, CONFIRMED - os88qemu.key's shape over THIS connection
+        (QEMU's socket takes one client, and os88qemu.key opens its own):
+        the press, then the release only once the ROM has STORED the press
+        (the BIOS buffer's tail moved), or after 0.3 guest seconds - inside
+        the 500 ms typematic delay - for a key it stores nothing for. It was
+        HMP's `sendkey`, which queues the release 100 ms of HOST time after
+        the press: a guest the host starved past that takes both bytes at
+        one IRQ1 and the key is lost (docs/plans/SOAK-PARALLEL.md 17.5, the
+        last unconfirmed HMP client, 17.9)."""
+        ev = {"type": "key", "data": {"down": True, "key": {
+            "type": "qcode", "data": name}}}
+        t0 = self.read(0x41C, 2)
+        self.cmd({"execute": "input-send-event",
+                  "arguments": {"events": [ev]}})
+        os88qemu.acted(self, lambda: self.read(0x41C, 2) != t0, secs=0.3,
+                       what="the ROM to store %s's press" % name, poll=0.005)
+        ev["data"]["down"] = False
+        self.cmd({"execute": "input-send-event",
+                  "arguments": {"events": [ev]}})
 
 
 SOCK = None

@@ -112,7 +112,6 @@ import socket
 import struct
 import subprocess
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 sys.path.insert(0, os.path.dirname(__file__))
@@ -138,6 +137,19 @@ BINDAT = bytes(range(256)) * 8
 def say(*a):
     print(*a)
     sys.stdout.flush()
+
+
+def gpace(secs):
+    """`secs` of the GUEST's clock (os88qemu.pace on this row's machine).
+
+    Every pause in this file was a host `time.sleep`: a click's settle, a
+    TCP close given its TIME-WAIT, a retry's spacing. Each is the guest's
+    work, and a host second buys a starved guest less of it - the same
+    sleep is four times less of the machine at eight emulators on four
+    cores (docs/WRITING-TESTS.md 7, docs/plans/SOAK-PARALLEL.md 17.9). On
+    an idle box this is the sleep it replaces, rounded up to whole ticks.
+    A clock that stops ends the pause, as a sleep would have."""
+    os88qemu.pace(os88qemu._Sock(os88qemu.SOCK), secs)
 
 
 # --- QMP's names for the keys dispcp's scroller presses ----------------------
@@ -288,15 +300,25 @@ def wait_dhcp(m):
     Control Panel drive.
     """
     syms = eth.ether_syms()
-    for _ in range(200):
-        time.sleep(0.4)
+    got = []
+
+    def bound():
         row = m.read(S("drv_tab") + eth.ETH_ROW * eth.DRVR_SZ + eth.DRVR_SEG, 2)
         seg = eth.u16(row)
         if not seg:
-            continue
+            return False
         ip = m.readseg(seg, syms["eth_ip"], 4)
         if any(ip):
-            return eth.dotted(ip)
+            got[:] = [eth.dotted(ip)]
+            return True
+        return False
+    # THE BOOT FIRST (os88qemu.kernel_up): drv_tab is `.bss`, the packed
+    # stream until kmain has expanded it, and a driver's segment is armed
+    # before its image is read (SOAK-PARALLEL 17.5). Then 80 GUEST seconds -
+    # this was 200 polls 0.4 HOST seconds apart
+    os88qemu.kernel_up(m, S)
+    if os88qemu.acted(m, bound, secs=80.0, what="DHCP's address", poll=0.2):
+        return got[0]
     return None
 
 
@@ -314,7 +336,7 @@ def launch(m, mo):
     arrive.
     """
     def settle(mm, card=None):
-        time.sleep(2.0)
+        gpace(2.0)
 
     dispcp.open_drive(m, mo, S, settle, "B")
     # **open_drive ANSWERS THE DRIVE ICON's (x, y), NOT THE WINDOW's**, and
@@ -342,18 +364,22 @@ def launch(m, mo):
     # screen (SPEC.md 39.7) and a CGA desktop is 200 rows.
     bx, by = start_btn(fx, fy)
     mo.click(bx, by)
-    time.sleep(1.5)
+    gpace(1.5)
     return fx, fy
 
 
 def wait_win(m, secs):
     """Poll for the FTP window rather than sleeping a guess."""
-    end = time.time() + secs
-    while time.time() < end:
+    got = []
+
+    def up():
         try:
-            return ftp_win(m)
+            got[:] = [ftp_win(m)]
+            return True
         except RuntimeError:
-            time.sleep(0.5)
+            return False
+    if os88qemu.acted(m, up, secs=secs, what="the FTP window", poll=0.2):
+        return got[0]
     return None, None
 
 
@@ -450,9 +476,9 @@ def restart(m, mo):
     """Stop, then Start - the root is walked at START and nowhere else."""
     fx, fy = ftp_win(m)
     mo.click(*start_btn(fx, fy))
-    time.sleep(1.5)
+    gpace(1.5)
     mo.click(*start_btn(fx, fy))
-    time.sleep(2.5)
+    gpace(2.5)
 
 
 # [fd_st], read out of the package's own bss. The o88 header carries the image
@@ -488,11 +514,11 @@ def press_slide_release(mo, x0, y0, x1, y1):
     """
     mo.run("to", str(x0), str(y0))
     mo.run("down")
-    time.sleep(0.3)
+    gpace(0.3)
     mo.run("to", str(x1), str(y1))
-    time.sleep(0.3)
+    gpace(0.3)
     mo.run("up")
-    time.sleep(0.8)
+    gpace(0.8)
 
 
 def read_state(m):
@@ -533,11 +559,11 @@ def stor_paced(f, name, blob, tries=4):
     for _ in range(tries):
         try:
             f.storbinary("STOR " + name, io.BytesIO(blob))
-            time.sleep(1.2)
+            gpace(1.2)
             return
         except ftplib.error_temp as e:
             last = e
-            time.sleep(2.5)
+            gpace(2.5)
     raise last
 
 
@@ -565,7 +591,7 @@ def run_gate(m, mo, fails):
             f = connect()
             break
         except (OSError, ftplib.all_errors):
-            time.sleep(1.0)
+            gpace(1.0)
     if f is None:
         fails.append("nothing answered on port 21 - the server did not start, "
                      "or Start was never clicked")
@@ -760,7 +786,7 @@ def run_gate(m, mo, fails):
     # --- 6: Read Only refuses ----------------------------------------------
     fx, fy = ftp_win(m)
     mo.click(*ro_box(fx, fy))
-    time.sleep(1.0)
+    gpace(1.0)
     f = connect()
     f.login("os8088", "os8088")
     refused = False
@@ -797,7 +823,7 @@ def run_gate(m, mo, fails):
     # nothing free. The server answers 425 for that now rather than 501, so a
     # real client retries - but this gate asserts the FIRST attempt, which
     # means it has to give the previous one time to drain.
-    time.sleep(4.0)
+    gpace(4.0)
     f = connect()
     f.login("os8088", "os8088")
     f.set_pasv(False)
@@ -826,7 +852,7 @@ def run_gate(m, mo, fails):
     # and this times out - which is exactly what the field reported.
     fx, fy = ftp_win(m)
     mo.click(*ro_box(fx, fy))
-    time.sleep(1.0)
+    gpace(1.0)
     set_pasv_override(m, mo, "127.0.0.1")
 
     f = ftplib.FTP()
@@ -905,7 +931,7 @@ def run_gate(m, mo, fails):
             f.retrbinary("RETR BANANA~1.MOD", buf.write)
             break
         except ftplib.error_temp:
-            time.sleep(2.5)
+            gpace(2.5)
     if buf.getvalue() != blob:
         fails.append("RETR BANANA~1.MOD did not return what STOR "
                      "'banana split.mod' sent - the mapping does not "
@@ -931,9 +957,12 @@ def run_gate(m, mo, fails):
     f = connect()
     f.login("os8088", "os8088")
     f.retrlines("LIST", lambda _l: None)
-    t0 = time.time()
+    # (GUEST seconds: a starved guest's STOR is long in host time with no
+    # backoff in it, and a client sitting through its SYN backoff is idle
+    # time the guest's clock runs through all the same)
+    c = os88qemu.Clock(m)
     f.storbinary("STOR TWTEST.DAT", io.BytesIO(b"z" * 8192))
-    dt = time.time() - t0
+    dt = c.secs()
     f.quit()
     if dt > 3.0:
         fails.append("a STOR issued straight after a LIST took %.1fs - the "
@@ -963,7 +992,7 @@ def run_gate(m, mo, fails):
     # its slot for a FIN round trip. With NET_SOCKS = 4 that is real pressure
     # - SPEC.md 77.28 - and this assertion is about recovery after an ABORT,
     # not about that. So it waits for the pool rather than racing it.
-    time.sleep(6.0)
+    gpace(6.0)
     try:
         f = connect()
         f.login("os8088", "os8088")
@@ -973,7 +1002,7 @@ def run_gate(m, mo, fails):
     except Exception as e:
         say("   (first try: %s - waiting for the socket pool)"
             % str(e).strip()[:50])
-        time.sleep(20.0)
+        gpace(20.0)
         try:
             f = connect()
             f.login("os8088", "os8088")
@@ -1005,12 +1034,10 @@ def run_gate(m, mo, fails):
     # not instantly, because the worker has to poll the dead control socket
     # before fd_bye can run. So this WAITS FOR THE STATE and reports the time,
     # which is the number a user retrying after a failed upload feels.
-    t0 = time.time()
-    while time.time() - t0 < 90:
-        if read_state(m) == "listening":
-            break
-        time.sleep(2.0)
-    say("back to listening %.0fs after the client vanished" % (time.time() - t0))
+    c = os88qemu.Clock(m)                  # (90 GUEST seconds, reported so)
+    os88qemu.acted(m, lambda: read_state(m) == "listening", secs=90.0,
+                   what="the server back to listening", poll=0.5)
+    say("back to listening %.0fs (guest) after the client vanished" % c.secs())
 
     ok = False
     for attempt in range(3):
@@ -1027,7 +1054,7 @@ def run_gate(m, mo, fails):
             break
         except Exception as e:
             say("   attempt %d: %s" % (attempt, str(e).strip()[:60]))
-            time.sleep(10.0)
+            gpace(10.0)
     if not ok:
         fails.append("after an aborted transfer the next session could not "
                      "LIST - the data socket's slot was not released, which "
@@ -1317,7 +1344,7 @@ def run_gate(m, mo, fails):
         # the FTP server. Click the part that shows, below the FTP window's
         # bottom edge; anywhere in a window raises it.
         mo.click(dx + dw // 2, dy + dh - 30)
-        time.sleep(1.5)
+        gpace(1.5)
         _sp.run(["python3", "tools/shot.py", SOCK, tempfile.gettempdir() + "/ftpclip_a.png",
                  "--crop", crop], capture_output=True)
         # **THE SETUP CHECKS ITSELF.** The first version of this clicked four
@@ -1334,7 +1361,7 @@ def run_gate(m, mo, fails):
         # back to back and each close holds its slot for TCP_TWTMO, so a data
         # connection here races the pool for no reason: `Client connected`,
         # `USER`, `PASS` are four log lines and that is all this needs.
-        time.sleep(3.0)
+        gpace(3.0)
         for _try in range(3):
             try:
                 f = connect()
@@ -1343,8 +1370,8 @@ def run_gate(m, mo, fails):
                 break
             except Exception as e:
                 say("   (connect %d: %s)" % (_try, str(e).strip()[:40]))
-                time.sleep(4.0)
-        time.sleep(2.5)
+                gpace(4.0)
+        gpace(2.5)
         _sp.run(["python3", "tools/shot.py", SOCK, tempfile.gettempdir() + "/ftpclip_b.png",
                  "--crop", crop], capture_output=True)
         a = open(tempfile.gettempdir() + "/ftpclip_a.png", "rb").read()
@@ -1386,7 +1413,7 @@ def run_gate(m, mo, fails):
     # ...and the same gesture WITHOUT the slide still fires, so the refusal
     # above is a cancel and not a control that has stopped working.
     mo.click(sx, sy)
-    time.sleep(1.2)
+    gpace(1.2)
     now = read_page(m)
     if now != "setup":
         fails.append("a press and release ON Setup did not open the page "
@@ -1396,7 +1423,7 @@ def run_gate(m, mo, fails):
         # Done is in Start's corner, and it is the SETUP page's main control -
         # so this also proves the second rect table is wired to the right one.
         mo.click(*start_btn(fx, fy))
-        time.sleep(1.2)
+        gpace(1.2)
         back = read_page(m)
         if back != "log":
             fails.append("Done did not come back to the log page (%r) - the "
@@ -1422,10 +1449,10 @@ def setup(m, mo, fields=(), machine=None, readonly=None, use_menu=False):
     """
     fx, fy = ftp_win(m)
     enter(m, mo, fx, fy, use_menu)
-    time.sleep(1.0)
+    gpace(1.0)
     for idx, text in fields:
         mo.click(*field_pt(fx, fy, idx))
-        time.sleep(0.6)
+        gpace(0.6)
         # CLEARED FIRST. os88line has no select-all, so a field is only ever
         # appended to - and the Root field is set three times in this gate,
         # which would otherwise give `/NOSUCHB:\DEEP`. End, then enough
@@ -1433,17 +1460,17 @@ def setup(m, mo, fields=(), machine=None, readonly=None, use_menu=False):
         subprocess.run(["python3", "tools/qmp.py", SOCK, "sendkey end"]
                        + ["sendkey backspace", "sleep 0.05"] * 24,
                        check=True, capture_output=True)
-        time.sleep(0.3)
+        gpace(0.3)
         type_text(text)
-        time.sleep(0.4)
+        gpace(0.4)
     if readonly is not None:
         mo.click(*sro_box(fx, fy))
-        time.sleep(0.8)
+        gpace(0.8)
     if machine is not None:
         mo.click(*mach_box(fx, fy))
-        time.sleep(0.8)
+        gpace(0.8)
     leave(m, mo, fx, fy, use_menu)  # leaving is what commits and saves
-    time.sleep(2.0)
+    gpace(2.0)
     say("Setup%s: %s%s%s"
         % (" (by menu)" if use_menu else "",
            ", ".join("field %d = %r" % f for f in fields) or "nothing typed",
@@ -1462,7 +1489,7 @@ def enter(m, mo, fx, fy, use_menu=False):
         menu_setup(m, mo, fx, fy)
     else:
         mo.click(*setup_btn(fx, fy))
-        time.sleep(0.8)
+        gpace(0.8)
 
 
 def leave(m, mo, fx, fy, use_menu=False):
@@ -1479,7 +1506,7 @@ def leave(m, mo, fx, fy, use_menu=False):
         menu_setup(m, mo, fx, fy)
     else:
         mo.click(*start_btn(fx, fy))
-        time.sleep(0.8)
+        gpace(0.8)
 
 
 def set_pasv_override(m, mo, addr):
@@ -1501,11 +1528,11 @@ def menu_setup(m, mo, fx, fy):
     verb - that is os88mouse.py, the MartyPC one - so it is down / to / up.
     """
     mo.run("down", str(MENU_X), str(MENU_Y))
-    time.sleep(0.5)
+    gpace(0.5)
     mo.run("to", str(MENU_X), str(SETUP_Y))
-    time.sleep(0.4)
+    gpace(0.4)
     mo.run("up")
-    time.sleep(0.8)
+    gpace(0.8)
 
 
 # QMP's `sendkey` takes KEY names, not characters, so a shifted character is

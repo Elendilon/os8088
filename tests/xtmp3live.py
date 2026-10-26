@@ -98,7 +98,7 @@ class LRig(E.Rig):
               "chardev:m0", "-display", "none", "-qmp",
               "unix:%s,server,nowait" % self.sock, "-daemonize",
               "-pidfile", self.pidf]
-        subprocess.run(a, check=True)
+        os88qemu.start(a, check=True)
         self.pid = int(open(self.pidf).read().strip())
         E._RIG[0] = self                # E.gpace paces on the rig that is up
         os88qemu.acted(self, lambda: os.path.exists(self.sock), secs=30,
