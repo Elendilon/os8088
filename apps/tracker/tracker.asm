@@ -1438,7 +1438,7 @@ trk_fsx_main:
                                     ; machine that reaches the loop before the
                                     ; finger lifts - a 286, Bochs - the
                                     ; bracket opened and shut in one keystroke
-                                    ; (KERN-MEGA-PLAN 14.77, the altenter port)
+                                    ; (KERN-MEGA-PLAN 14.79, the altenter port)
     call trk_txon                   ; the 80x25 TEXT screen (SPEC.md 45.13):
     je .gfx                         ; XT mode forces it, [trk_txw] asks for it
     call ttx_begin                  ; (45.13.7) - see trktxt.inc for the

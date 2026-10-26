@@ -32,7 +32,7 @@ uidrdis secs=90   # a drop-down drawn disabled takes no press (two boots: Bochs 
 gfxlk secs=70   # nothing draws or banks with the arrow on the glass (a GFXAUDIT=1 kern_mega in a tree of its own)
 thm95 secs=240 +--legs +ACDE   # the Windows theme: buttons pixel by pixel, menus, the module's doors (no Hercules leg B; the title bar's 8088 cost skipped)
 fsxclip secs=60   # an fsx bracket entered from a click comes back to a whole desktop (--clobber-clip goes red)
-altenter secs=60   # Alt+Enter full screen by latch (ArtfulType) and bracket (Tracker) - the bracket entered with a human's hold, which found Tracker unseeded (KERN-MEGA-PLAN 14.77)
+altenter secs=60   # Alt+Enter full screen by latch (ArtfulType) and bracket (Tracker) - the bracket entered with a human's hold, which found Tracker unseeded (KERN-MEGA-PLAN 14.79)
 evqfull secs=20   # a full event ring drops its OLDEST input, never a coalesced WAKE (the stub starts with cli: Bochs's park cannot clear IF)
 tnest secs=40   # a worker's call into an image is counted in wm_tcnt (.cold called through COLD_SEG's descriptor, DS the kernel's data selector)
 curbusy secs=60   # the hourglass while frozen, the arrow after (office360.img as it is, in B:)

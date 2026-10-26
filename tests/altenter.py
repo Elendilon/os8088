@@ -81,7 +81,7 @@ def IN_HOLD(m):
     because a 286 or better reaches that poll WHILE IT IS STILL DOWN - which
     is the case OS88_ALTENTER_SEED exists for, and Tracker shipped without
     it: the bracket opened and shut in one keystroke 2 times in 3 at this
-    hold (KERN-MEGA-PLAN 14.77)."""
+    hold (KERN-MEGA-PLAN 14.79)."""
     return 0.15 if getattr(m, "bochs", False) else 0.0
 
 

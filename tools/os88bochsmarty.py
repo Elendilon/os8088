@@ -626,11 +626,23 @@ class BochsMarty(om.Marty):
             # TWO X PIXELS A GUEST PIXEL, measured (os88bochs.Box.goto) -
             # a serial packet's dx is in mickeys at the same ratio
             self.box.xd("mousemove_relative", "--", 2 * dx, 2 * dy)
+        # A PURE BUTTON PACKET (no motion) IS SENT WHATEVER WE THINK THE
+        # LEVEL IS. os88mouse's `_edge` re-sends one when the guest has not
+        # published the edge - a Microsoft packet carries the LEVEL, so a
+        # re-send is safe - and this used to drop it as already sent. So a
+        # release lost in the X queue at a debugger stop (a stop drops the
+        # capture, and with it whatever input Bochs had not yet taken) was
+        # lost for good: `mouse_btn` stuck at 1 and the drag never ended
+        # (deskclip and thm95, with three Bochs rows sharing the box). A
+        # repeated X press or release is the same level to Bochs's mouse
+        resend = not dx and not dy
+        ever = self.__dict__.setdefault("_ever", set())
         for want, btn in ((l, 1), (r, 3)):
-            if want and btn not in self._btn:
+            if want and (btn not in self._btn or resend):
                 self.box.xd("mousedown", btn)
                 self._btn.add(btn)
-            elif not want and btn in self._btn:
+                ever.add(btn)
+            elif not want and (btn in self._btn or (resend and btn in ever)):
                 self.box.xd("mouseup", btn)
                 self._btn.discard(btn)
         return {"cycles": self._cycles()}

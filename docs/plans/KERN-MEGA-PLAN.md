@@ -10884,7 +10884,7 @@ the driver's own copy and is the same on a 286 as on Bochs's 386. Rung 0
 (BIOS) has no pairing read, so it is the owner's IDE machine that reaches
 it.
 
-### 14.77 Tracker's bracket shut on the keystroke that opened it (2026-10-26)
+### 14.79 Tracker's bracket shut on the keystroke that opened it (2026-10-26)
 
 **Found** porting `altenter` to kern_mega (tests/megaport.txt): a human's
 Alt+Enter into Tracker's full screen - held 0.15 idle-box seconds, which is

@@ -18446,6 +18446,10 @@ def _mega_ports(base):
                        "%s ON kern_mega (tests/megaport.txt): %s%s"
                        % (name, why + " - " if why else "", r.why),
                        needs=needs, timeout=tmo,
+                       # THE EMULATOR LANE, as the base row is: without it a
+                       # port is a HOST-side row and fans out over -j, so
+                       # `--marty-jobs 1` ran three Bochs machines at once
+                       serial=True,
                        wants=tuple(dict.fromkeys(tuple(r.wants) +
                                                  MEGA_WANTS))))
     return out
