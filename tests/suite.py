@@ -7629,6 +7629,22 @@ SOAK = [
         wants=("build/kdos/DOS.O88", "build/DOSPIT.COM", "build/kernel.sys",
                "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
                "build/ctrl.drv", "build/hdd.drv")),
+    Row("kdreturnset", "soak", py("tests/kdreturn.py", "--settime"), 30.0,
+        "...AND A PROGRAM THAT SETS THE CLOCK DOES NOT MOVE THE MACHINE'S "
+        "DATE (KERN-MEGA-PLAN 14.114). The way home measures the run as "
+        "0040:006C less the count the launch block banked at the handover "
+        "(SPEC.md 96.49.5), and AH=2Dh writes 0040:006C - so a set BACK was "
+        "a negative run, read as a midnight crossed, and the session came "
+        "home a DAY on (mega-dosdir's failure, on kern_big's shut-down arm "
+        "too). DOSSETT.COM is DOSHELLO built -DSETTIME (AH=2Dh to noon); the "
+        "window's run puts the count at noon first, so the kern_dos run's "
+        "set is a step back. kern_dos moves the banked count by the step "
+        "(DHK_TSET). VERIFIED RED without the hook: 04/07 to 05/07 across a "
+        "return of seconds - which the date assertion missed until this "
+        "row, comparing the month and year only. MartyPC.",
+        wants=("build/kdos/DOS.O88", "build/DOSSETT.COM", "build/kernel.sys",
+               "build/boothd.bin", "build/mbr.bin", "build/hiber.drv",
+               "build/ctrl.drv", "build/hdd.drv")),
     Row("kdreturnfsx", "soak", py("tests/kdreturn.py", "--fsx"), 30.0,
         "...AND THE COMMAND TYPED AT THE FULL-SCREEN CONSOLE COMES HOME TO "
         "IT (SPEC.md 96.33.16, KERN-MEGA-PLAN 14.113). A command typed there "

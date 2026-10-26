@@ -66,6 +66,17 @@ boot and a restore at the desktop.  The field reported exactly that and this
 row is what would have caught it - the LIVE_MAX cycle bound below goes red on
 the fallback, which is the whole reason it is a bound and not a screen read.
 
+**`--settime` RUNS A PROGRAM THAT SETS THE CLOCK** (AH=2Dh to 12:00:00,
+DOSSETT.COM, KERN-MEGA-PLAN 14.114). Assertion 5 is the one it is for: the
+way home measured the run as 0040:006C less the handover's count, so the SET
+counted as time the program ran. Here the windowed run has already set the
+count to noon, so the second set is a step BACK of the seconds between them -
+a NEGATIVE run, which the wake reads as a midnight crossed: the session came
+home a DAY on (`mega-dosdir`'s failure, on kern_big). kern_dos now moves the
+handover count by the step (DHK_TSET). VERIFIED RED without it: `(0, 0, 2,
+4, 7, 2026)` to `(0, 0, 44, 5, 7, 2026)` - and the date assertion compared
+the month and year only until then, so it had passed as "43 seconds".
+
 **`--fsx` TYPES THE COMMAND AT THE FULL-SCREEN CONSOLE** (SPEC.md 96.33.16,
 KERN-MEGA-PLAN 14.113) instead of pressing Run, and asserts the console comes
 back to the FULL SCREEN when the session does. A command typed there sets
@@ -137,7 +148,7 @@ import os88ui                                                  # noqa: E402
 # The targets are this row's own `wants=`: a tree is cut to what it is asked
 # for, so a missing goal here is a FileNotFoundError naming a private tree.
 _TREE_TARGETS = ("kdos/DOS.O88", "DOSHELLO.COM", "DOSMODE.COM", "DOSGFX.COM",
-                 "DOSPIT.COM", "kernel.sys",
+                 "DOSPIT.COM", "DOSSETT.COM", "kernel.sys",
                  "boothd.bin", "mbr.bin", "hiber.drv", "ctrl.drv", "hdd.drv",
                  "os8088-360.img", "apps360.img")
 if "--tree" in sys.argv:
@@ -445,6 +456,8 @@ def main():
         prog = "DOSGFX.COM"
     elif "--pit" in sys.argv:
         prog = "DOSPIT.COM"
+    elif "--settime" in sys.argv:
+        prog = "DOSSETT.COM"
     fsx = "--fsx" in sys.argv
     compact = None
     if "--compact" in sys.argv:
@@ -820,10 +833,16 @@ def main():
                  "time fields kd_resume staged over KDL_CLK were cleared bss. "
                  "A month of 0 indexes clk_mnames BEFORE the table"
                  % (after[3], after[4], after[5]))
-        if after[5] != before[5] or after[4] != before[4]:
+        # THE DAY TOO (KERN-MEGA-PLAN 14.114): this compared the year and
+        # the month only, and `secs()` drops the day - so a session that came
+        # home a whole DAY on read as "moved forward 43 seconds" and passed.
+        # Every machine here starts its clock at midnight on the fallback date,
+        # so no honest round trip crosses one
+        if after[3:6] != before[3:6]:
             fail("the clock went from %r to %r - the DATE changed across a "
-                 "return that took seconds (SPEC.md 96.49.5)"
-                 % (before, after))
+                 "return that took seconds (SPEC.md 96.49.5; a program that "
+                 "SET the clock was counted as running for the step, "
+                 "KERN-MEGA-PLAN 14.114)" % (before, after))
         moved = secs(after) - secs(before)
         if moved < 0:
             moved += 24 * 3600
