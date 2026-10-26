@@ -451,9 +451,9 @@ class Box(object):
         stage = os.path.join(out, "stage")
         shutil.rmtree(stage, ignore_errors=True)
         os.makedirs(stage)
-        args = ["RUN:" + self._stage(stage, os.path.join(bld,
-                                                         "megarun.o88"),
-                                     "0run.o88")]
+        args = [] if noc else [   # (no C: - nothing to stage MEGARUN on)
+            "RUN:" + self._stage(stage, os.path.join(bld, "megarun.o88"),
+                                 "0run.o88")]
         for p in pkgs:
             args.append("RUN:" + self._stage(stage, p,
                                              os.path.basename(p).lower()))
