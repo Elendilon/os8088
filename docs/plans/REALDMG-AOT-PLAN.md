@@ -18,7 +18,7 @@ design.
 
 ## Where it stands
 
-Waves 0 to 4 are built, the speed rounds after them are 1 to 7, and the
+Waves 0 to 4 are built, the speed rounds after them are 1 to 8, and the
 correctness items they turned up are closed. What is still open:
 - **The pins revisit** - after this release, at the owner's word.
 - **A JR across 4000h on the 8088's plain interpreter** lands with the wrong
@@ -28,8 +28,8 @@ correctness items they turned up are closed. What is still open:
   **a 286 speed figure with the 100% cap lifted** (W4's two not built).
 - **A cartridge whose code runs from WRAM** is interpreted (W3's GBRMW
   finding). No real game measured does; HRAM's routines are precompiled.
-- **The next speed round** starts from a fresh profile of the owner's
-  Looney Tunes replay.
+- **The next speed round** starts from round 8's profile and its priced
+  list (below).
 
 Moved off this plan: **the kern_mega arm** (20.14) is built on the
 kern_mega memory branch by the session doing that rework, which keeps
@@ -314,3 +314,16 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   by `tr_int` on the dynamic recompiler and by `tr_ejf` itself on a
   precompiled one, which round 6 had got wrong. Left on the 8088's plain
   interpreter, priced: 3-6% of every game for Looney Tunes' two JRs.
+- [x] Speed, round 8 - a fresh profile of the owner's Looney Tunes replay,
+  replay-ordered, every image in (21,233 x86 instructions a frame): blocks
+  68%, the core's helpers 16%, rdgsys 15%, and nothing above 3.5% in one
+  place. In the blocks, conditional jumps are 18%, flag handling 12% and
+  the time charges 9%; in rdgsys, I/O writes ~1,400 a frame (14 writes at
+  ~100) and events ~1,300 (6.2 at ~210). Taken: the sound registers rdgsys
+  only stores, written through (C) or (HL), are stored by the core
+  (REALDMG-SPEC 17) - Looney Tunes' replay 21,233 -> 20,676 (-2.6%), the
+  script -3.6% (.gbc) and -4.5% (.gb), Tetris -1.5%, the rest within
+  +-0.4%; twelve cartridges state-identical in both arms, `gbfm` red with
+  the table wrong. Priced and left for later rounds: a memory access's
+  own time charge (~650 a frame not beside an event check, ~3%), the event
+  path's ~210 instructions (~2%), RET's misses past its inline cache.
