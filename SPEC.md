@@ -194735,10 +194735,16 @@ Options version 26 takes a version-25 record's flag as `on` or `off`.
 - **AUTO** applies where the screen ALWAYS has a second page: Mode X, and
   16 colours on a screen of their own (`page_auto`). It does not apply on a
   Hercules, whose page a colour card in the same machine takes, so a
-  Hercules file is page-ahead only with `on`. Nor with `--flip`, `--live`,
+  Hercules file is page-ahead only with `on`. Nor with `--live`,
   `--resident`, a loop or the `lossless` profile; a layer is fine since
   98.2.1.8.3. `--repeat` is
-  fine (98.1.3.7).
+  fine (98.1.3.7). **With `--flip` it is FLIPPED AND BUILT AHEAD**
+  (98.2.1.8.5) where `--pages` leaves three or more - every NARROW screen
+  (98.1.3.2.5.1), Mode X, and 320 x 200 and 320 x 240 at `max` - judged and
+  dropped as any page-ahead is (2026-10-26); at `--pages 2` the flip's two
+  pages leave nothing to build on and it does not run. It was refused with
+  `--flip` outright until then, a rule written before 98.2.1.8.5 existed, so
+  a flipped file was built ahead only with `on`.
   Everywhere else `auto` is one plain pass, as before.
 - **Where it applies, the plan pass IS the plain encode, and its file is
   kept.** Both passes' reports are held (`_Held`), the encoder window's

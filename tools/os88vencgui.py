@@ -784,7 +784,8 @@ CONTEXT_FIELDS = ("preset", "pixfmt", "profile", "live", "layout", "audio",
                   "text_colour", "comp_dither", "spk_shape", "aim",
                   "resident", "buffer_sound_ahead", "screen", "palette",
                   "scene_palettes", "flip", "loop_from", "repeat",
-                  "layer_disk", "layer_profile", "page_ahead", "step_down",
+                  "layer_disk", "layer_profile", "page_ahead", "pages",
+                  "step_down",
                   "ladder", "fps", "coarse_cut")
 # the choices that IMPLY others (os88venc.implied): changing one refills them
 IMPLYING = ("preset", "pixfmt", "profile", "live")

@@ -1467,8 +1467,9 @@ def main():
         out = os.path.join(ftmp, "own%d.V88" % own)
         args = venc.parser().parse_args(
             [pan, out, "--quiet", "--preset", "modex", "--profile",
-             "286-speeddemon", "--flip", "--rate", "22050", "--lag", "0"] +
-            (["--flip-own"] if own else []))
+             "286-speeddemon", "--flip", "--rate", "22050", "--lag", "0",
+             "--page-ahead", "off"] +   # (flipping alone: auto builds a
+            (["--flip-own"] if own else []))  # flipped file ahead, 98.2.1.8.1)
         res = venc.encode(args)
         vid.verify_v88(out)
         r = vid.Reader(out)
@@ -1776,6 +1777,24 @@ def main():
     # three pages pay it in the flip's own record. Each must be a byte-37-5 file that
     # verifies - every page brought up is the page shown - and cut fewer
     # frames than the same flipped file without building ahead
+    # ...and --page-ahead AUTO tries it with --flip where --pages leaves
+    # three or more (98.2.1.8.1, 2026-10-26): a NARROW screen, Mode X, a
+    # 320-wide screen of its own - and not at --pages 2, nor on 640 x 480
+    for extra, runs in ((["--preset", "vga4-full", "--screen", "320x240n"],
+                         True),
+                        (["--preset", "vga4-full", "--screen", "320x200n"],
+                         True),
+                        (["--preset", "modex"], True),
+                        (["--preset", "vga4-full", "--screen", "320x240n",
+                          "--pages", "2"], False),
+                        (["--preset", "vga4-full", "--screen", "640x480"],
+                         False)):
+        why = venc.page_auto_why(venc.parser().parse_args(
+            ["in.mp4", "o.V88", "--profile", "286-slow", "--flip"] + extra))
+        print("   5k: auto with --flip %s: %s" % (" ".join(extra[1:]),
+                                                  why or "runs"))
+        if (why is None) != runs:
+            bad.append("auto with --flip %s: %s" % (extra, why or "runs"))
     try:
         def fenc(name, prof, *extra):
             out = os.path.join(ptmp, name + ".V88")
@@ -1789,7 +1808,8 @@ def main():
                                       "precopied"),
                                      ("486-dx2-66", "3", None, "copies")):
             sx = ["--screen", scr_] if scr_ else []
-            rf0, resf0 = fenc("flip" + pg, prof, *sx)
+            rf0, resf0 = fenc("flip" + pg, prof, "--page-ahead", "off",
+                              *sx)  # (flipped ALONE: auto builds ahead too)
             rf, resf = fenc("fpage" + pg, prof, "--page-ahead", "on",
                             "--pages", pg, *sx)
             nf = resf.get("page") or {}

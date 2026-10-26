@@ -612,7 +612,8 @@ CHOICE_HELP = {
         "auto": "Mode X and 16 colours on a screen of their own: build each "
                 "scene change ahead on the second page and flip to it - kept "
                 "only if the picture comes out better and nowhere worse "
-                "(the default; twice the encode time there)",
+                "(the default; twice the encode time there). With Flip, on "
+                "the pages past the flip's two: Pages 3 or more",
         "on": "Always build ahead, a Hercules too - which then plays only "
               "on a Hercules with no colour card beside it",
         "off": "Never: one page, every frame drawn in place",
@@ -8620,8 +8621,7 @@ def page_auto_why(a):
     the report says it either way"""
     lay = a.layout or (PRESETS[a.preset][0] if a.preset else None)
     pf = a.pixfmt or PRESET_PIXFMT.get(a.preset)
-    for cond, why in ((a.flip, "--flip pages every frame already"),
-                      (a.live, "a Live file plays on the desktop"),
+    for cond, why in ((a.live, "a Live file plays on the desktop"),
                       (a.resident, "a resident file plays on the desktop"),
                       (a.loop_from is not None, "a looped file"),
                       (PROFILES[profile_name(a.profile)]["avg"] is None,
@@ -8630,7 +8630,17 @@ def page_auto_why(a):
             return why
     if lay == "modex" or (pf == "vga4" and
                           (a.screen or "640x480") != "640x480"):
+        # FLIPPED, the pages past the flip's two are what it builds on
+        # (98.2.1.8.5): auto tries it where --pages leaves three or more
+        if a.flip:
+            scr = vid.SCREEN_BY_NAME[a.screen] if pf == "vga4" else \
+                vid.SCR_320X200 if a.screen == "320x200" else 0
+            if page_count(a, vid.LAYOUT_BY_NAME[lay or "lin80"], scr) < 3:
+                return ("--flip pages every frame already, and building "
+                        "ahead as well wants 3 pages or more (--pages)")
         return None
+    if a.flip:
+        return "--flip pages every frame already"
     if pf == "vga4":
         return ("640 x 480 in 16 colours has no second page (two of its "
                 "frames are 300 KB of a VGA's 256)")
