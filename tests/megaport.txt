@@ -216,6 +216,12 @@ netinstbad secs=150   # INSTALL's release check refuses six non-release answers
 rdxms secs=120   # the RAM disk's store above 1MB: kern_mega's own pool (mx_tab, heapmap.pool) in place of XMEM.DRV's table
 netcoexist secs=60 +--arm +pinned   # the card at 2A0h pinned on the Ports view, SYSTEM.CFG read on the host, found after a reset; the MPU arms need QEMU's isa-debugcon latch and its NIC trace, which Bochs has not got
 
+# THE VESA DESKTOP (KERN-MEGA-PLAN 14.115): QEMU's row on Bochs's VBE
+# (`vga: extension=vbe`, the dispi bank register in protected mode), through
+# tests/os88qmpmega.py. Bochs's vgabios offers nothing above 800x600, so Auto
+# lands on 0114h and the row expects it
+vesa secs=50   # VESA.DRV in protected mode: VID_VESA at 800x600x16, the chrome, the dither, a menu down and back, two Disk windows and the chevron band; red: the driver's int 10h on the caller's stack (boot never reaches protected mode) or mega_vxpm not called (#GP(A000) in the image)
+
 # MOVES AND THE HEAP (wave 2)
 # On a 1MB kern_mega (@OS88_BOCHS_MEGS=1: no pool) every claim is conventional
 # and SELECTOR-named, and a protected-mode move REBASES and tells nobody
