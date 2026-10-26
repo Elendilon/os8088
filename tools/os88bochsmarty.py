@@ -29,18 +29,30 @@ WHAT IT MAPS, AND WHAT IT CANNOT
     machine time it means on MartyPC. Nothing measured in cycles is a
     measurement here.
   * memory: `read`/`write` are LINEAR (paging is off). `readseg(seg, off)`
-    takes a REAL segment or an LDT SELECTOR - under kern_mega every package
-    region and heap claim is a selector, so a segment a row reads out of the
-    guest is one, and its base is looked up in the descriptor. A row that
-    does `seg << 4` itself has to call `m.lin(seg, off)` instead.
+    takes a REAL segment or a SELECTOR - under kern_mega every package
+    region and heap claim is an LDT selector, and the GDT is an identity
+    map except the kernel's data (0010) and COLD_SEG (`.cold` above 1MB),
+    so its base is looked up in the descriptor. A row that does `seg << 4`
+    itself has to call `m.lin(seg, off)` instead.
   * the glass: `fbuf()` is a screenshot of the Bochs window's guest area,
     which lags the framebuffer by one VGA update (`vga: update_freq`, raised
     to 20 here). `screen()` reads a text mode's cells out of B8000.
-  * breakpoints: `exec`/`execseg` are Bochs `lb` (linear). `mem`, `int` and
-    `io` are refused - Bochs has watchpoints but not MartyPC's semantics.
-  * refused outright, by name: `disk` (MartyPC's FDC counters), `flicker`,
-    `pace`, `planes`, `inb`/`outb`, `snapshot`/`restore`, `reset`. A row
-    built on one of those is not portable and says so in its first second.
+  * breakpoints: `exec`/`execseg` are Bochs `lb` (linear); `int` is an `lb`
+    on the vector's handler (the IDT's gate in protected mode, so a CPU
+    exception such as #DE). `mem` and `io` are refused - Bochs has
+    watchpoints but not MartyPC's semantics.
+  * `park` sets CS:IP but CANNOT clear IF (Bochs's `set` has no EFLAGS):
+    code parked on starts with `cli` if it needs interrupts off. And a
+    debugger write to code that has ALREADY RUN is not seen - Bochs's trace
+    cache keeps the old bytes - so a row patches code before it executes.
+  * the mouse: PS/2; `launch(..., wheel=True)` makes it an IntelliMouse
+    and `m.wheel()` works; `launch(..., noserial=True)` removes COM1.
+    X key autorepeat is off on the display (a held key is one make).
+  * `disks()` names the image AS MOUNTED (copied before the first `c`), so
+    os88flush's diff has a reference; `flush` copies the live file.
+  * refused outright, by name: `flicker`, `pace`, `planes`, `inb`/`outb`,
+    `snapshot`/`restore`, `reset`. A row built on one of those is not
+    portable and says so in its first second.
 """
 import os
 import re
