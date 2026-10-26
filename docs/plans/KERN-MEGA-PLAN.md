@@ -11456,3 +11456,98 @@ and the click that was meant for TELNET.O88 raised the Calculator instead,
 so File > Compress ran on CALC.O88 a second time and reported that. Red on
 the unfixed kernel (*"TELNET.O88: expected 'Already compressed' ... got
 'Cannot compress this one'"*), green after.
+
+### 14.105 The HMA trampoline built its frame on the DOS program's stack (2026-10-26)
+
+**Found by porting `dosshrink` to kern_mega** (tests/megaport.txt, `# DOS
+AND APPLICATION RUNNERS-UP`). SHRINK.COM shrinks its block to one paragraph
+under its own SP - `AH=4Ah` with `BX = SS + 2 - PSP`, the launcher idiom -
+so the free MCB `dos_mcb_split` cuts is the sixteen bytes directly below the
+stack, then makes five `AH=30h` calls with IF = 0. On kern_mega the header
+came back `B 00 0000 0300` against `A 5A 0000 981D`, `48h` answered 7
+(*arena trashed*) and the EXEC after it 8 - the field report SPEC.md 96.7.2
+fixed in the gate, back again one layer out.
+
+**Cause**: on this arm every vector into kern_dos goes through a low slot
+(`kerndos/kdhma.inc`, SPEC.md 96.40.9) that was `call kdh_tchk` / `jmp far
+FFFF:target`, and `kdh_tchk` proved A20 with `pushf` and six pushes - so
+eight words went on the CALLER's stack below the `int`'s three before
+`dos_int21` ever ran its swap. The words decode exactly: CX = 0000, BX =
+0000 (AH=30h's answers to the call before) and AX = 3003 (AH=30h with the
+last call's AL) over the signature, owner and size.
+
+**Fix**: a slot is now `pushf` / `cli` / `mov word [cs:kdh_ret], back` /
+`jmp kdh_tchk` / `back: popf` / `jmp far` (18 bytes, `KDH_SLEN`), and the
+check banks AX, SS and SP in cells and works on a 32-byte stack of its own
+in `.lowbss`, returning through `[kdh_ret]` with IF still 0 - so the cells
+are one deep for the same reason the gate's are (an IRQ cannot nest between
+the slot's `cli` and its `popf`). What the caller's stack carries is ONE
+word, the FLAGS, at -8..-7 under the `int`'s three: inside the free MCB's
+reserved bytes, which is where a real DOS's own three go. `kdx_87`'s ROM
+return slot (`kdh_s87`) is the same slot and keeps CF through the `popf`.
+`.lowbss` grows ~530 bytes (48 slots and `kdh_s87` x 10, the cells and the
+stack), against the 1,792 the stack
+had and its measured 134-byte water mark (SPEC.md 96.43.1). KD_HMA only:
+kern_big's `kerndos.bin` and every kern_big/kern_small image are
+byte-identical. `KERNDOS_INC` did not list `kerndos/kdhma.inc`, so an edit
+there rebuilt nothing; it does now.
+
+`mega-dosshrink` is the row: red before (`MCB SMASHED`, `exec: REFUSED
+ax=0008`), `MCB INTACT` and `exec: CHILD ran` after. The trip's other gates
+re-run green on the new slots: doscom, dosexe, dosexec, dosfile, dosxms,
+dosxmsq (`kdx_87` through `kdh_s87`), irqgrab and kdmouse (IRQ hooks through
+slots), and the twenty wave-2 DOS ports.
+
+**And a harness defect the same group found** (tools/os88bochsmarty.py): a
+key sent while Bochs is STOPPED waited in the X queue, and Bochs's GUI hands
+the whole queue to its 8042 in one pass at the resume - whose buffer is 16
+scancodes, so `os88marty.text_taken` (which types with the guest paused) kept
+`DOSM` of `DOSMOUSE.COM`, four shifted characters, and dropped eight. `_c_key`
+now queues what it is handed while stopped and `_resume` sends it one GUI
+pass (`INPUT_GAP`) apart.
+
+### 14.106 The program's last screen after a trip: the capture, designed and not built (2026-10-26)
+
+14.77's open item, looked at again for wave 2 of the port. **Not built,
+because it is not one image's change**: it crosses the launch block's ABI
+and three images (kern_dos, DOS.O88's DOS_MEGA arm and the kernel's
+`mega_dosgo`), and `tests/doscon.py` is not ported until it is.
+
+**Why DOS.O88's own `dos_snap` cannot do it.** `DHK_SNAP` is called by the
+core's `dos_prog_done` with the program's screen still up - but on a trip
+the core is kern_dos's copy, and `dos_snap` copies into `con_scr`, which is
+in DOS.O88's region: a pool block above 1MB, named by a selector the
+real-mode kern_dos cannot load. By the time DOS.O88 runs again the stub has
+staged the clock and exit code on the text page (`kd_stageseg`, B800/B000 +
+the HS_* offsets) and `hbm_wake`'s mode set has cleared the rest.
+
+**The design** - three pieces and a field, in the order the trip runs:
+
+1. **A field in the launch block**, `KDL_SNAPLIN` (dd): the LINEAR address
+   of `con_scr` and, after it, of the four cells `dos_snap`'s tail writes
+   (`con_cx`, `con_cy`) and one flag byte. DOS.O88 writes the OFFSETS into
+   the block it already fills (dos.asm's `KDL_FLAGS` site); `mega_dosgo`,
+   which knows the caller's selector's base, converts them to linear before
+   the park, as it already converts KDL_STAGE (14.77's first fix was that
+   conversion done wrong).
+2. **kern_dos binds `DHK_SNAP`** (KD_MEGA only) to a `kd_snap` that is
+   `dos_snap`'s mode test and page/cursor arithmetic with its `rep movsw`
+   replaced by `kdx_87` - the int 15h AH=87h block move kern_dos already
+   carries for XMS (`kerndos/kdxms.inc`), whose ROM return already comes
+   back through the low slot `kdh_s87` - one move of the 25 rows (4,000
+   bytes; a forty-column mode copied row by row with the right half
+   blanked, or staged in kern_dos's own bss first), then the cursor and the
+   flag. An empty screen (`dos_snap_any`) moves nothing and leaves the flag
+   clear.
+3. **DOS.O88's wake** (the DOS_MEGA arm of the `KDH_CODE` read, dos.asm
+   ~1156) tests the flag, clears it, and runs `dos_snap`'s TAIL - the
+   cursor clamp, `con_pwrap`/`con_scrl` zeroed, `con_markall` - so the band
+   repaints from a buffer that is already full, and then prints the exit
+   line under the program's last screen exactly as the windowed arm does.
+
+`KDL_VER_NOW` moves with the field (an old DOS.O88 against a new kernel
+sends no address, and kern_dos then binds nothing). Cost: ~60 bytes of
+kern_dos (KD_MEGA only), ~20 of DOS.O88's DOS_MEGA arm, ~15 of `.mega`;
+kern_big and kern_small untouched. **The gate is `tests/doscon.py`** on
+kern_mega (`DOSHELLO`'s own lines between `Starting` and `ended`), and its
+red is a kern_dos with `kd_snap` unbound.

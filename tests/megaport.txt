@@ -299,3 +299,65 @@ stikmiss secs=40   # a Sticky App whose package is gone is downgraded to a short
 stikmove secs=80   # a Sticky App dragged is saved and comes back where it was put after a reset (a power cycle; the kernel's [ticks] restarts)
 stikanchor secs=70   # a place saved on 800x600 anchors to the far edges on 640x480 and writes nothing
 stikregister secs=210   # a Sticky App registers, refuses a second launch with no write, its x saves and unregisters, a reset brings nothing back
+
+# DOS AND APPLICATION RUNNERS-UP (wave 2)
+# The DOS rows are the trip's again (every program runs under kern_dos in the
+# HMA). A row with two arms keeps its first: on kern_mega a plain launch IS
+# the whole machine, and the page draws no radio (KERN-MEGA-PLAN 12.1 item 1).
+dosshrink secs=30   # a free MCB 16 bytes under the program's SP survives five INT 21h calls - the HMA trampoline built a 7-word frame there until KERN-MEGA-PLAN 14.105
+dosfcb secs=30   # AH=29h parses a name into an FCB as IBM DOS 3.30 does; red with the wildcard fill made '*'
+dosvec secs=30   # INT 25h's stack balances and AH=00h exits 0, read through m.lin; red with `xor al, al` taken out
+dosmcb secs=30   # AH=4Ah grows a block back into what it gave up: the trip's allocator coalesces as DOS does
+dosren secs=30   # AH=56h renames where it stands, IBM DOS 3.30's table
+dosgap secs=30   # a write past the end lays a gap; a delete of nothing says 2
+doslong secs=30   # five spellings of one long name reach the one file
+dosdev secs=30   # CON is a device, twice over, and hands its slots back
+dosfix secs=40   # a handle keeps its folder past the 8KB window, an interleaved writer, and exit closes every handle (the floppy read back)
+dosfull secs=40   # a full disk is refused without losing a cluster, fsck'd on the host
+dosmouevt secs=60 OS88_BOCHS_MOUSE=serial   # INT 33h's event handler (0Ch) fires on move, press and release; red with no serial mouse (no INT 33h)
+dosrange secs=40 OS88_BOCHS_MOUSE=serial   # 07h/08h's window is the window 03h answers in; the host's pointer is kern_dos's kdm_x/kdm_y, moved by hand (one arm: no CGA/Hercules)
+dosdirsw secs=100   # DIR /P /W /B and a bare name in a subdirectory; the program's run is read by CR0.PE (the trip) where [dos_inbr] is the bracket's
+dosenvfold secs=50   # every environment row is on DOS_MEGA's Setup page and focusable, its bss through m.lin
+dosopen secs=200   # a .O88 by path, with a document, and OPEN at the DOS prompt; the window table through m.lin
+kdcwd secs=40   # the trip answers drive, directory, a bare-name open and its own path as the window does, and the read-ahead stays out of the program (HMA map); red with dos_k_path's push/pop es out
+kdkbd secs=40   # int 09h under the trip is kern_dos's guard, and a key on a FULL buffer is stored; red on a NOKDKBD=1 kern_mega (F000:E987)
+kdnoprog secs=50   # a name that opens nothing comes home from the trip a REFUSAL (DST_ERR, DER_READ) and says so - no fixed disk needed on kern_mega
+kdmcur secs=50 OS88_BOCHS_MOUSE=serial   # INT 33h draws, hides, remasks and nests the text cursor on the trip; red with no serial mouse (SKIP)
+kdmredraw secs=40 OS88_BOCHS_MOUSE=serial   # the program's own store over the cursor stands, as CuteMouse 1.9.1 leaves it; red with no serial mouse
+kdnomouse secs=50 OS88_BOCHS_MOUSE=serial   # Disable the mouse ticked on kern_mega's radio-less page: INT 33h AX=0 answers 0 (mega-kdmouse, the box unticked, answers FFFF)
+kdbigexe secs=60   # the read-ahead ladder under the LOAD in kern_dos's HMA image: a BIG.EXE re-sized to the HMA arena's band (615,424 bytes) loads on the 18 KB rung after the 32 KB one; red with the retry taken out of kd_entry.loadtry (never READY)
+# ...and the APPLICATION runners-up: a region, a claim and a view are LDT
+# selectors (m.lin); a package with a kern_mega ARM (VIDEO, MIDIRACK,
+# REALDMG, PIXEL) runs the arm out of build/megak/apps; a CGA-pinned point in
+# SHEET moves by its window's measured dy (sheetfmt.mega_y); a code patch
+# lands before the code first runs (Bochs keeps decoded pages).
+tpsaveu secs=60   # TeXPad, the biggest window, banks ONE plane and its raise is the repaint's picture; red with WF_1BPP cleared (no cache)
+wdparts secs=60   # Word's part 1 at WD_P1ORG inside the region's pool block, byte for byte, and it runs (Edit > Search); red with wd_pcomp a bare ret
+tankspawn secs=80   # no TANK round starts inside a piece, and a player poked inside one drives out
+timerbounce secs=50   # TIMER and BOUNCE as packages: seconds advance, digits on the glass, Stop/Start, Bounce's worker and square
+cycplay secs=40   # a kill scores what cy_kindsc says, the zapper recharges and says so, a death keeps the wave; red with shl bx,1 out (tanker 25,600) - the spawn tick patched at the TITLE on Bochs
+tgui secs=60 +--card +vga   # TameGram's every key, both menus and both panels, read out of its bss through m.lin
+chartname secs=100   # CHART charts the range Sheet NAMED (Data > a name), not the lowest column (CHART above 1MB)
+isotronrules secs=60   # six-tier seeded games round for round against tools/isotronsim.py, the script and the keyboard; the model's other rule must disagree (its own negative control)
+sheetsize secs=90   # SHEET resizes and its grid re-lays itself to the new box, the floor, and back
+sheetask secs=70   # SHEET asks before closing modified work, and Discard closes
+sheetsort secs=300   # Sort orders every kind of constant and an error constant stays one; Edit and Data at sheetfmt.mega_y
+sheetundo secs=300   # Edit > Undo and Redo, one level as Excel 2.1, read off the VGA glass and a SYLK save; Edit at sheetfmt.mega_y
+gbkeys secs=80 +--only +vga   # RealDMG's ARM: the key map rebinds, refuses a reserved key, swaps, saves to REALDMG.CFG and the game reads it
+gbstate secs=160 +--package   # RealDMG's ARM: F5/F8 save states in the window and full screen, CLOCK0.SS3/.SS7 read back off the floppy
+fmpatch secs=40   # OSAPI_SND_FM verb 2 hands the driver the channel it names (a .cold breakpoint above 1MB)
+minesrc secs=60   # Minesweeper's right button: flag, toggle, the strip, a flag blocking reveal, an open cell, a background window raised - the QEMU row on the Marty API; red with mn_onrclick a bare ret
+weavegrid secs=70   # WEAVE's SHEET grid against weavesim's vga model, the edit's damage exactly the changed rows
+weavegfx secs=110   # FORM's and SHEET's cards against weavesim's vga render (a boot a bundle: no snapshot on Bochs)
+vidplayvga secs=150   # the Video Player ARM plays lin80 full screen, every hold the decode, the ring K at 2 then 8, on its BIOS ticks (the copying arm; the last hold one frame early)
+vidvga8 secs=60   # the ARM's 256-colour lin320 play, every hold the decode and the rendered colours
+vidgrey secs=60   # a sixteen-colour desktop's poster sits on grey, WF_OWNBG set
+vidthumb secs=50   # the thumb on the bar walks with the play, read off plane 0
+vidresidentvga secs=50   # a RESIDENT file: the block in its claim byte for byte, no ring, every hold on two laps
+vidlivevga secs=100   # Live plays in the window on VGA and the screen is the file's
+vidpage secs=90   # a PAGE-AHEAD file: every hold across both flips is the clip, and from key 1 (the CRTC reads are MartyPC's)
+vidfskeysvga4 secs=60   # mode 12h full screen with the keys: four planes saved and the window back
+mrdrawvga secs=90   # MIDIRack's ARM: each gesture's UI-task drawing calls under its ceiling, and the incremental picture IS a repaint's
+midirackend secs=130   # MIDIRack's ARM on Bochs's FM chip: INTRO loops, then Loop off ends the playlist
+pxfolder secs=130   # PiXEL's ARM: the folder, Prev, Next and the slideshow, no claim left behind - its claims counted in mem_tab AND the pool by selector (the callback ceiling is MartyPC's: Bochs's cycles are its running time)
+vidclose secs=110   # the close box on the Video Player ARM while its hold still loads into kern_mega's XMS: the negotiator stops the session and frees the hold, no package pool block outlives it, the machine ticks - three rounds (the QEMU row on the Marty API); red with vp_onclose a bare clc/ret

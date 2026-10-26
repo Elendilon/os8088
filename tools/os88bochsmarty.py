@@ -312,6 +312,10 @@ class BochsMarty(om.Marty):
         self._bpmark = n
         self._state = "running"
         self._since = time.time()
+        q = self.__dict__.pop("_kq", None)
+        for a in q or ():               # _c_key's keys typed while stopped,
+            self._xd(*a)                # one GUI pass apart
+            time.sleep(ob.INPUT_GAP)
 
     def _stopped(self, cmds, timeout=30.0):
         """CMDS with the guest stopped for them, left as it was found."""
@@ -695,13 +699,23 @@ class BochsMarty(om.Marty):
         if not self.box.captured:   # a key before any mouse event: until
             self.box.capture()      # the window has the focus it is lost
         if down and up:
-            self._xd("key", "--delay", 40, k)
+            a = ("key", "--delay", 40, k)
         elif down:
-            self._xd("keydown", k)
+            a = ("keydown", k)
             self._keys.add(k)
-        elif up:
-            self._xd("keyup", k)
+        else:
+            a = ("keyup", k)
             self._keys.discard(k)
+        if self._state == "running":
+            self._xd(*a)
+        else:
+            # A KEY TYPED ON A STOPPED MACHINE WAITS FOR THE RESUME, PACED.
+            # Sent to X now, every event of a string waits in the X queue and
+            # Bochs's GUI hands the lot to its 8042 in ONE pass at the resume
+            # - whose buffer is 16 scancodes, so os88marty.text_taken (which
+            # types with the machine paused) kept four shifted characters of
+            # `DOSMOUSE.COM` and dropped eight (tests/kdmouse.py --nomouse)
+            self.__dict__.setdefault("_kq", []).append(a)
         self._log.append({"cycles": self._cycles(), "kind": "key",
                           "args": {"key": key, "down": down, "up": up}})
         return {"cycles": self._cycles()}

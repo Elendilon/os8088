@@ -182589,7 +182589,10 @@ the contract is:
   image at FFFF:0010, the FAT snapshot and the mount buffers at 0060h, and
   every vector into the image through a low trampoline that proves A20 and
   reopens it - so the program's arena is ~35 KB larger (621 KB measured
-  against 586). `LOADFIX <program>` at DOS's prompt keeps the arena above
+  against 586). The trampoline does its work on a stack of its OWN and puts
+  ONE word on the caller's, the FLAGS (96.7.2's rule for the gate it fronts:
+  a program that shrank its block to its own SP keeps the free MCB under it
+  intact - KERN-MEGA-PLAN 14.105). `LOADFIX <program>` at DOS's prompt keeps the arena above
   64KB for a program that cannot load lower with A20 open, and the loader
   UNPACKS the one class it can recognise itself, keeping the low arena
   (96.40.9.1). The Memory page's *Load DOS in the HMA* box, unticked, runs a

@@ -94,6 +94,13 @@ ARMS = {
     "covoxpoll": ("os8088_5150_herc_covox_720_gla", "covox"),
     "sbmem": ("os8088_5150_herc_sb_720_gla", None),
 }
+if os.environ.get("OS88_MEGA"):
+    # kern_mega's Bochs (tests/megaport.txt): its SB16 carries the FM chip -
+    # an OPL3 at 388h, which SOUND.DRV takes for the AdLib profile - and a
+    # machine name with `_sb` is what gives it one. (The fm arm is not
+    # ported: the chip's output does not reach OUT/sb.wav, so its pitch
+    # check would read silence - `end` asks nothing of the capture)
+    ARMS["end"] = ("os8088_5150_herc_sb_720_gla", None)
 OUT_MIDI, MRO_MIDI = 5, 5
 OUT_WT, MRO_WT = 6, 6
 OUT_LPT, MRO_LPT = 7, 7
@@ -195,7 +202,7 @@ def session(arm, cap, brk):
     # ...and the wavetable's, `make mrwttest`'s apps disk: the synthetic bank
     # beside the package
     apps = "build/mrwt720.img" if arm == "wt" else APPS
-    if os.environ.get("OS88_MEGA") and arm in ("sb", "wt"):
+    if os.environ.get("OS88_MEGA") and arm in ("sb", "wt", "end"):
         # kern_mega (tests/megaport.txt): MIDIRack's ARM, which megaapps.img
         # carries - but beside MEDIA\MIDI's whole library, where the row
         # wants the 720KB disk's two songs. So the shape mrwt720.img has,
@@ -736,6 +743,11 @@ def arm_tone(ui, p):
 def arm_end(ui, p):
     p.put("mrl_sel", b"\x01")         # INTRO: the second of B, I
     p.put("mr_loop", b"\x01")
+    if os.environ.get("OS88_MEGA"):
+        # the AdLib profile by name: Bochs's FM chip rides an SB16, whose DSP
+        # MIDIRack would otherwise pick - and whose ring Bochs consumes too
+        # fast to time a song by (the wave-1 port's finding)
+        p.put("mr_want", bytes([OUT_OPL2]))
     ui.menu_pick("Play", "Play")
     M.until(ui.m, lambda _: p.b("mr_lidx") == 1 and p.b("mr_state") == 1,
             "INTRO playing", poll=.05, limit=30)

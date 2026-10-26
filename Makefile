@@ -7166,7 +7166,7 @@ KERNDOS_INC := kerndos/kdlayout.inc kerndos/kdlaunch.inc kerndos/kdshim.inc \
                kerndos/kdback.inc kerndos/kdentry.inc kerndos/kdosgate.inc \
                kerndos/kdmouse.inc kerndos/kdkbd.inc kernel/mouproto.inc \
                kerndos/kdresume.inc kerndos/kdxms.inc kerndos/kdpark.inc \
-               kerndos/kdxpack.inc \
+               kerndos/kdxpack.inc kerndos/kdhma.inc \
                kernel/hbstage.inc kernel/hbstub.inc kernel/hbmark.inc
 
 # KDSTKDIAG=1 fills the gap between `.lowbss` and the stack top with a
