@@ -166,29 +166,18 @@ def whole(ui, m):
         os88marty.text_taken(m, "B:\n")
         dm = dosmap.package()
         pseg = dosmap.instance(m)
-        base = pseg << 4
+        base = dosmap.lin(m, pseg)
         mo = os88mouse.Mouse(marty=m)
 
         mo.click(*dosmap.centre(m, pseg, dm, "dos_erect"), settle=0)
         os88marty.ui_done(m)
-        dis = kdhand.rec(m, pseg, dm, kdhand.RD_DIS)
-        if dis & (1 << kdhand.WHOLE):
-            fail("the Shut down the OS arm is GREYED - this build does not carry "
-                 "kern_dos as a part (SPEC.md 96.36.1)")
-        x1, y1, x2, _ = dosmap.rect(m, pseg, dm, "dos_mrad")
-        pitch = kdhand.rec(m, pseg, dm, kdhand.RD_PITCH)
-        mo.click((x1 + x2) // 2, y1 + kdhand.WHOLE * pitch + pitch // 2)
-        os88marty.ui_done(m)
-        if kdhand.rec(m, pseg, dm, kdhand.RD_SEL) != kdhand.WHOLE:
-            fail("clicking the Shut down the OS arm did not pick it")
-        if NOMOUSE:
-            # --- ...and Disable the mouse, which is live now the arm is the
-            # pick (SPEC.md 96.36.9): one press ticks it.
-            bx1, by1, _, _ = dosmap.rect(m, pseg, dm, "dos_mmou")
-            mo.click(bx1 + 4, by1 + 5)
-            os88marty.ui_done(m)
-            if m.read(base + dm["dos_mmou"] + CK_ON, 1)[0] != 1:
-                fail("pressing Disable the mouse did not tick it")
+        if getattr(m, "bochs", False):
+            # kern_mega's Memory page has NO RADIO (KERN-MEGA-PLAN 12.1 item
+            # 1): every launch is the trip, so the box is live as it stands
+            # (dos_mck_di's DOS_MEGA arm) and the tick is the whole of it
+            tick_nomouse(m, mo, pseg, dm, base)
+        else:
+            pick_whole(m, mo, pseg, dm, base)
         # --- ...back to the main page, and the program's name ---------------
         # The path box has to be CLICKED first and the extension is part of
         # the name - tests/kdmix.py carries both reasons, and both fail as a
@@ -199,9 +188,37 @@ def whole(ui, m):
         os88marty.ui_done(m)
         os88marty.text_taken(m, "DOSMOUSE.COM")
         mo.click(*dosmap.centre(m, pseg, dm, "dos_rrect"), settle=0)
+        if getattr(m, "bochs", False):
+            return              # no confirmation on kern_mega: Run IS the
+                                # trip, and the kernel it would ask is parked
         os88marty.ui_done(m)
         if kdhand.alert_up(m, base, dm):
             mo.click(*kdhand.alert_button(m, base, dm, 1))      # Proceed
+
+
+def tick_nomouse(m, mo, pseg, dm, base):
+    if NOMOUSE:
+        # --- ...and Disable the mouse, which is live now the arm is the
+        # pick (SPEC.md 96.36.9): one press ticks it.
+        bx1, by1, _, _ = dosmap.rect(m, pseg, dm, "dos_mmou")
+        mo.click(bx1 + 4, by1 + 5)
+        os88marty.ui_done(m)
+        if m.read(base + dm["dos_mmou"] + CK_ON, 1)[0] != 1:
+            fail("pressing Disable the mouse did not tick it")
+
+
+def pick_whole(m, mo, pseg, dm, base):
+        dis = kdhand.rec(m, pseg, dm, kdhand.RD_DIS)
+        if dis & (1 << kdhand.WHOLE):
+            fail("the Shut down the OS arm is GREYED - this build does not carry "
+                 "kern_dos as a part (SPEC.md 96.36.1)")
+        x1, y1, x2, _ = dosmap.rect(m, pseg, dm, "dos_mrad")
+        pitch = kdhand.rec(m, pseg, dm, kdhand.RD_PITCH)
+        mo.click((x1 + x2) // 2, y1 + kdhand.WHOLE * pitch + pitch // 2)
+        os88marty.ui_done(m)
+        if kdhand.rec(m, pseg, dm, kdhand.RD_SEL) != kdhand.WHOLE:
+            fail("clicking the Shut down the OS arm did not pick it")
+        tick_nomouse(m, mo, pseg, dm, base)
 
 
 def mouse_legs(m):
