@@ -105,3 +105,4 @@ deskclock secs=120   # the Desk Clock desk window, its faces, settings, alarm, a
 stikboot secs=40   # a Sticky App comes back at boot; stikrestore360.img rebuilt on mega.img (tests/megafix.py)
 stikmenu secs=90   # Locator's Sticky Apps menu (STIKMENU.DRV, whose image is a selector here)
 stikhiber secs=40   # a pending RESUME stands the Sticky App relaunch down: HIBERNAT.PTR on the shim's C:, stik_boot asked for after mega_enter
+hdnoclaim secs=50   # a mounted hard-disk partition costs no heap - on kern_mega the image and any claim are XMEM-pool blocks, read off mx_tab
