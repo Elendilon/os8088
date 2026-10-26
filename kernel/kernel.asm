@@ -9050,6 +9050,19 @@ SK_MEGA_KB equ SK_R(SK_CUM4) - SK_R(SK_CUM4 - MEGA_PARA * 16) ; rungs when they
 %error "the kernel cannot BOOT on MIN_RAM_KB - see docs/KERNEL-MEMORY.md"
 %endif
 %endif
+;    **kern_mega's floor is a 1MB machine, and it is guard 5 there.** It is a
+;    knob build, so the 128KB line above never bound it, and nothing said what
+;    did. A 286 with less than 1MB has no pool above it to be worth entering
+;    protected mode for - kern_big is the kernel for it - and kern_mega is
+;    MEANT to grow, its limits being 64KB a segment and `.mega` for new code
+;    (KERN-MEGA-MEMORY-PLAN, the owner's word). Stage 1 still loads the whole
+;    image into CONVENTIONAL memory, so the question is 640KB's, not 1MB's
+%ifdef KERN_MEGA
+MEGA_MIN_RAM_KB equ 1024
+%if KERNEL_SEG*16 + KERN_SIZE + BOOT2_PAD > 640*1024 - BOOT_SECT - BOOT_STACK
+%error "kern_mega cannot BOOT on its 1MB floor machine's 640KB - see docs/KERNEL-MEMORY.md"
+%endif
+%endif
 ; 5b. ...and BOOT2_PAD is in that sum because STAGE 2 SITS ON THE HEAP'S FLOOR
 ;    (SPEC.md 2.9.5), which is the kernel's own last paragraph. It is given
 ;    back at spl_finish and the arena is compacted onto it, so it is not
