@@ -10835,3 +10835,51 @@ and a B: -> C: paste, the native floppy off) although its reflections DO
 run with IF set and IRQ12 open (read at `.intop`): its BIOS's transfers are
 short enough that no packet landed inside one - an 86Box row, not a Bochs
 one, for that reason.
+
+### 14.76 Ticking HDD.DRV in mid-session froze the machine: the MBR read over the driver (2026-10-26)
+
+**Reported** by the owner off the mr286 (86Box, VGA, mrbios, an IDE disk):
+Control Panel > Drivers, tick Hard Drive, and the machine stops dead - no
+pointer, no keys. First seen after a Tracker play and two Video Player
+sessions, then narrowed by the owner to nothing at all: boot, go straight to
+the Drivers page, tick it. Whether the driver had been unticked in the same
+session or was simply not wanted at boot made no difference.
+
+**Reproduced under Bochs** at 16MB with a C: on native IDE (HDD.DRV wanted,
+unticked, ticked again) at `086f52d4`, the tree before `f479d0f9`. IRQ0
+kept ticking and `ui_done` never came. Three debugger samples read the same thing:
+`CS 119C` (an allocator LDT selector, base `FEAC00h`, limit `0FFFh`, which
+is the CODE half of HDD.DRV's reloaded image above 1MB), `IP 0084`, IF set.
+The bytes at `FEAC00h` were `build/mbr.bin`'s, `fa 31 c0 8e d8 ...` through
+its `hlt / jmp $-1` at 83h after *"No active partition"*. So the driver's
+own image had been overwritten from offset 0 by the disk's MBR, and the
+kernel's next call into the driver ran the MBR's halt loop with interrupts
+on. That is a freeze and not a fault, which is why nothing on E9 said so.
+
+**Cause**: the same `hd_raw` bounce as MEMORY-PLAN MC7's installer fault,
+reached by a second door. Every claim made in mid-session on kern_mega is a
+selector pair (MC7.4), so `hd_twins`'s rung-1 pairing proof
+(`drivers/hdd/hdd.asm`: LBA 0 through the BIOS into a 1KB `OSAPI_MEM_CLAIM_DMA` at `ES:0`, then the
+same sector through the task file) took the bounce. The bounce of the day
+copied in from `DS:BX` and back out to `DS:BX` (`push ds / pop es`), and
+`DS:0` is HDD.DRV's own header. A boot load never meets it, because boot
+drivers load in real mode with ES a plain paragraph and are moved above 1MB
+at the switch (14.47), so `.bounce` is not taken. The one
+`int 13h reflected` E9 line at the tick is that pairing read. **No new fix**:
+`f479d0f9` ("hd_raw's bounce copies the CALLER's buffer, CX sectors of it",
+made for the installer) already copies from and to `ES:BX`, and with it the
+tick loads, pairs the drive to the task file as at boot (`HDK_IDE`, 1F0h)
+and C: opens. kern_big and kern_small never reach this: their bounce is
+only for an image in the HMA, where the pairing's ES is a heap paragraph
+below F000h and takes `.go`.
+
+**`tests/megahddtick.py` is the row** (Bochs, 14 s): untick, tick, then the
+UI takes input, the image's 32-byte header is `build/hdd.drv`'s, its device
+table (`hd_ndev`, `hd_sel`, the first row) reads as it did at boot, C:'s
+Disk window opens, and there is no FAULT/CLOSED line. **Red** with
+`f479d0f9^`'s `drivers/hdd/mount.inc`: *"the UI never took input again"*
+and *"HDD.DRV's image head (seg 11A4) is fa 31 c0 8e d8 8e c0 8e - the
+disk's MBR, read over the driver"*. Not run on 86Box: the mechanism is in
+the driver's own copy and is the same on a 286 as on Bochs's 386. Rung 0
+(BIOS) has no pairing read, so it is the owner's IDE machine that reaches
+it.

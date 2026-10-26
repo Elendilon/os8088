@@ -16183,6 +16183,23 @@ SOAK = [
         needs=("bochs", "nasm", "mtools"),
         wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
                "build/mbr.bin", "build/megak/apps/install.o88")),
+    Row("megahddtick", "soak", py("tests/megahddtick.py"), 25.0,
+        "docs/plans/KERN-MEGA-PLAN.md 14.76: HDD.DRV ticked in from the "
+        "Control Panel mid-session on kern_mega hard-froze the machine (the "
+        "owner, 86Box's mr286). A mid-session load's claims are selectors, "
+        "so hd_twins' rung-1 pairing read (LBA 0 through the BIOS into a DMA "
+        "claim at ES:0) took hd_raw's bounce, which copied the sector back "
+        "to DS:0 - over HDD.DRV's own header - and the kernel's next call "
+        "into the driver ran the MBR's `hlt` loop. Under Bochs at 16MB, "
+        "HDD.DRV wanted: Control Panel > Drivers, untick Hard Drive, tick "
+        "it, then the UI takes input, the image's header is build/hdd.drv's "
+        "and its device table reads as at boot, C:'s Disk window opens, no "
+        "FAULT/CLOSED line. Red with "
+        "f479d0f9^'s hd_raw: the UI never returns and the image's head is "
+        "build/mbr.bin's. 25s is 14 measured",
+        needs=("bochs", "nasm"),
+        wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
+               "build/mbr.bin", "build/hdd.drv", "build/megak/kernel.map")),
     Row("megashed", "soak", py("tests/megashed.py"), 30.0,
         "SPEC.md 50.6.8, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC1: a kernel "
         "cache ABOVE 1MB is purgeable. Bochs at 16MB: B:'s Disk window and the "
