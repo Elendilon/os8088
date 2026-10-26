@@ -176,6 +176,8 @@ def _map(app, defines=()):
                        % (sub, {"solitaire": "solitair", "wirefleet": "wireflet"}.get(app, app)))
     if not os.path.isabs(o88):
         o88 = os.path.join(ROOT, o88)
+    if "-DPKG_MEGA" in defines:
+        o88 = _mega(app)            # the kern_mega arm (`_mega` above)
     #
     # ...AND A PART IS NOT THE IMAGE EITHER (SPEC.md 88.10.4). Clear Skies'
     # image is a LOADER now: it reads the parts and hands its identity to
@@ -330,6 +332,24 @@ def colour_gif(src="build/OS8088.GIF", dst=tempfile.gettempdir() + "/OS88COL.GIF
     return dst
 
 
+def _mega(app, small=False):
+    """The kern_mega ARM of APP, when the row runs on kern_mega
+    (OS88_MEGA, tests/megaport.txt) and APP has one ($(MEGAPKGS), built
+    -DPKG_MEGA into build/megak/apps/) - the image build/megaapps.img
+    carries. ITS LAYOUT IS NOT THE SHIPPED BUILD'S: the Task Manager's
+    `tm_cx` read 0x3B03 off the shipped map (dmgcull)."""
+    if small or not os.environ.get("OS88_MEGA"):
+        return None
+    bld = os.environ.get("OS88_MEGA_BUILD") or os.path.join(ROOT, "build")
+    p = os.path.join(bld, "megak", "apps", "%s.o88" % app)
+    return p if os.path.exists(p) else None
+
+
+def _defs(app, small):
+    return (("-DAPP_SMALL",) if small else
+            ("-DPKG_MEGA",) if _mega(app) else ())
+
+
 def bss_off(app, name, small=False):
     """The offset of a bss word from the start of the package's bss.
 
@@ -340,7 +360,7 @@ def bss_off(app, name, small=False):
     a 0x258-wide canvas with a stride of 0 and a claim "1.8 KB" out of a Paint
     holding 15.
     """
-    m = _map(app, ("-DAPP_SMALL",) if small else ())
+    m = _map(app, _defs(app, small))
     if name not in m:
         sys.exit("dispapps: %s has no symbol %s%s"
                  % (app, name, " in the APP_SMALL build" if small else ""))
@@ -358,7 +378,7 @@ def sym(app, name, small=False):
 
     `small=True` maps the `-DAPP_SMALL` build, WHICH IS A DIFFERENT LAYOUT.
     """
-    m = _map(app, ("-DAPP_SMALL",) if small else ())
+    m = _map(app, _defs(app, small))
     if name not in m:
         sys.exit("dispapps: %s has no symbol %s%s"
                  % (app, name, " in the APP_SMALL build" if small else ""))
@@ -380,6 +400,7 @@ def img_size(app, small=False):
                                     {"solitaire": "solitair"}.get(app, app)))
     if not os.path.isabs(p):
         p = os.path.join(ROOT, p)
+    p = _mega(app, small) or p
     raw = open(p, "rb").read()
     if raw[:2] != b"O8":
         sys.exit("dispapps: %s is not a package image" % p)
@@ -417,7 +438,8 @@ def words(m, seg, app, names):
     for n in names:
         n_b = 1 if n in BYTES else 2
         out[n] = int.from_bytes(
-            m.read((seg << 4) + base + bss_off(app, n), n_b), "little")
+            m.read(dispcp._lin(m, seg, base + bss_off(app, n)), n_b),
+            "little")
     return out
 
 

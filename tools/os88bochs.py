@@ -457,9 +457,12 @@ class Box(object):
         stage = os.path.join(out, "stage")
         shutil.rmtree(stage, ignore_errors=True)
         os.makedirs(stage)
-        args = ["RUN:" + self._stage(stage, os.path.join(bld,
-                                                         "megarun.o88"),
-                                     "0run.o88")]
+        # MEGARUN rides the C: disk only, so a machine with none (`noc`,
+        # os88bochsmarty) does not need it built - a knob tree a ported row
+        # builds for itself (`targets=("mega",)`) has none
+        args = [] if noc else [
+            "RUN:" + self._stage(stage, os.path.join(bld, "megarun.o88"),
+                                 "0run.o88")]
         for p in pkgs:
             args.append("RUN:" + self._stage(stage, p,
                                              os.path.basename(p).lower()))

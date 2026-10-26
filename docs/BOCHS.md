@@ -187,6 +187,15 @@ it maps:
   use it for.
 - **breakpoints** - `exec`/`execseg` are `lb`; `mem`, `int` and `io` are
   refused.
+- **a write to CODE that has already run is not seen.** Bochs caches
+  decoded instructions per physical page and `setpmem` does not invalidate
+  that cache, so a row that patches a package's code after the code has
+  executed runs the OLD bytes (tests/uidrdis.py, measured by single-stepping
+  a patched `stc` that executed as the `push ax` it replaced). Patch before
+  the code first runs - uidrdis takes a second boot for it.
+- **kern_mega's boot toast** (`Entered protected mode`, eight seconds) is
+  waited out by `os88ui.boot` and `launch(boot=True)` (`m.toast_out()`), or
+  a glass compare across it reads the menu bar changing.
 - **refused by name** - `flicker`, `pace` (the frame instrument; the
   guest-seconds `os88marty.pace()` works), `planes`, `inb`/`outb`,
   `snapshot`, `reset`, the wheel. A row built on one is not portable.

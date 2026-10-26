@@ -17,10 +17,16 @@ sheetbtn secs=60   # Sheet's dialog buttons (Goto/Format) open, close and reuse 
 uilayer secs=120   # every os88ui verb confirmed off guest state, and confirm-vs-settle
 
 # WINDOW MANAGER AND INPUT
-bptrace secs=90   # os88ui driven with breakpoints ARMED (bp_trace) - the shim's bp_exec, pump and stepped double-click
-sizesnap secs=30   # the SIZE snap keeps a maximized window at x=0, w=[vid_pw]
-btnmove secs=40   # a standard button answers where its window IS after a drag
-dragui secs=60   # every control Skies laid out answers after a drag replay
-fmarrows secs=70   # Disk-window arrows move a selection; click, Down, click stays inside FM_DBLCLK and opens nothing
-zonedmg secs=45   # a zone's damage owes the window over it a redraw (the glass is fbuf on Bochs's VGA)
-deskzoom secs=80 +--machine +os8088_xt_vga   # a zoom's restore and an overflowing drag leave a whole repaint - VGA leg only (no Hercules on Bochs)
+bptrace secs=70   # os88ui driven with breakpoints ARMED (bp_trace) - the shim's bp_exec, pump and stepped double-click
+sizesnap secs=20   # the SIZE snap keeps a maximized window at x=0, w=[vid_pw]
+btnmove secs=30   # a standard button answers where its window IS after a drag
+dragui secs=40   # every control Skies laid out answers after a drag replay
+fmarrows secs=50   # Disk-window arrows move a selection; click, Down, click stays inside FM_DBLCLK and opens nothing
+zonedmg secs=30   # a zone's damage owes the window over it a redraw (the glass is fbuf on Bochs's VGA)
+deskzoom secs=60 +--machine +os8088_xt_vga   # a zoom's restore and an overflowing drag leave a whole repaint - VGA leg only (no Hercules on Bochs)
+deskclip secs=90   # a desktop cell is drawn only where it shows (VGA legs; a boot a leg - no snapshot on Bochs)
+dmgcull secs=70   # a marked window does not paint under the mover (the Task Manager's PKG_MEGA arm read off its own map)
+zoomsave secs=170   # a zoom over another window banks it, the reveal comes off the cache
+clipkeep secs=70   # a wholly covered window keeps its raise cache when it arms a clip
+uidrdis secs=90   # a drop-down drawn disabled takes no press (two boots: Bochs runs patched code stale; --clobber-dis goes red)
+gfxlk secs=70   # nothing draws or banks with the arrow on the glass (a GFXAUDIT=1 kern_mega in a tree of its own)
