@@ -179,7 +179,7 @@ vx_attach:
     mov word [vx_vbe+2], 'E2'   ; with the 512-byte form
     mov ax, VBE_INFO
     mov di, vx_vbe
-    int 0x10
+    call vx_int10               ; on our own stack (vx_int10)
     cmp ax, VBE_OK
     jne .nohw
     cmp word [vx_vbe+VI_SIG], 'VE'
@@ -219,7 +219,7 @@ vx_attach:
     push si
     mov ax, VBE_MINFO
     mov di, vx_minfo
-    int 0x10
+    call vx_int10
     pop si
     cmp ax, VBE_OK
     jne .mode
@@ -229,6 +229,16 @@ vx_attach:
 
     ; --- the class asked for, else Auto (SPEC.md 120.2.3) ------------------------
 .chosen:
+    mov word [vx_stktop], vx_vbe + 512 ; the probe's buffers are dead now:
+    push es                     ; every later BIOS call (4F02h, 4F05h) runs
+    push ds                     ; on them instead of on the scroll's bounce,
+    pop es                      ; zeroed so a watermark can be read off them
+    mov di, vx_minfo            ; (tests/megavesa.py)
+    mov cx, (256 + 512) / 2
+    xor ax, ax
+    cld
+    rep stosw
+    pop es
     cmp byte [vx_nmodes], 0
     je .nohw
     call vx_select              ; [vx_cur] = the record
@@ -650,8 +660,8 @@ vx_init:
 ;         keeps the VGA). DX != 0 ARMS it, at mega_enter: DX = a data
 ;         selector over window A, ES = the kernel's data selector, DS = ours
 ;         as a selector. A Bochs/QEMU VBE (its 'dispi' ID register answers
-;         B0C0h-B0CFh) at 64KB granularity has its bank register written
-;         directly from then on; every other card's window goes through
+;         B0C0h-B0CFh) has its bank register written directly from then on,
+;         in the window units 4F05h takes; every other card's window goes through
 ;         4F05h, reflected - a CPU reset each on a 286
 ; out: CF = 0
 ; -----------------------------------------------------------------------------
@@ -659,10 +669,10 @@ vx_pm:
     or dx, dx
     jz .ok                      ; the question: yes
     mov [vx_kseg], es           ; the kernel, as its data selector...
-    mov [vx_wsel], dx           ; ...window A as one...
-    cmp byte [vx_wsh], 0        ; ...and the bank: a 64KB window only, which
-    jne .ok                     ; is the dispi bank register's own unit
-    push ax
+    mov [vx_wsel], dx           ; ...window A as one, and the bank: the
+    push ax                     ; dispi register takes 4F05h's DX as it is,
+                                ; in the granularity the BIOS reported (Bochs
+                                ; 2.7's is 32KB, vx_wsh 1)
     push dx
     mov dx, VX_DISPI_IX
     mov ax, VX_DISPI_ID
@@ -934,7 +944,7 @@ vx_setwin:
     jne .port
     mov ax, VBE_WIN
     xor bx, bx                  ; BH = 0 set, BL = 0 window A
-    int 0x10
+    call vx_int10
 .done:
     pop ds
     pop dx
@@ -951,6 +961,59 @@ vx_setwin:
     mov ax, bx
     out dx, ax
     jmp short .done
+
+; -----------------------------------------------------------------------------
+; vx_int10 - int 10h, ON THIS IMAGE'S OWN STACK (KERN-MEGA-PLAN 14.115)
+; in/out: int 10h's; DS = ours (every caller has it: attach, vx_setwin,
+;         VX_SETMODE). Clobbers what int 10h does and nothing more
+;
+; A VBE BIOS IS A DEEP CALL. Bochs's vgabios - compiled C - took 4F01h ~650
+; bytes below the kernel's frame at boot, and task 0's stack is 512 bytes
+; with mem_tab's tail and the menu bar's cells under it in `.lowbss`: the
+; probe overwrote the last five heap records, the next compaction called a
+; "relocation proc" at a segment that was a pushed register, and kern_mega's
+; boot ran zeros to EIP 10000h - a #GP the ROM's int 0Dh answered as IRQ5,
+; forever (17GB of log in a minute). The kernel was never the one to fix:
+; QEMU's SeaVGABIOS hops to a stack of its own for exactly this reason, and
+; nothing promises a real card does. So this image hops: SS:SP onto the top
+; of a buffer of its own - the scroll's 2KB bounce while attach probes (it is
+; unused until a mode is set), and the 768 bytes of the probe's two buffers
+; after it (dead from then on) - and back. The kernel already treats a
+; foreign SS as a ROM's (sch_switch does not switch, the mouse and chain ISRs
+; load their own SS). NOT NESTED: an ISR's hook that lands here while a call
+; is out on this stack goes through on the stack it has. NOT IN PROTECTED
+; MODE: kern_mega reflects int 10h onto the reflection's own stack, and a
+; dispi card is never asked at all (vx_setwin)
+; -----------------------------------------------------------------------------
+vx_int10:
+    cmp byte [cs:vx_onstk], 0
+    jne .direct                 ; a hook inside a hop: the stack it has
+    cmp word [cs:vx_wsel], VX_WSEG
+    jne .direct                 ; kern_mega, protected: reflected
+    pushf
+    pop word [vx_ofl]           ; the caller's IF, for the call and after it
+    cli
+    mov [vx_oss], ss
+    mov [vx_osp], sp
+    inc byte [vx_onstk]
+    push ds
+    pop ss                      ; (`pop ss` holds off an interrupt one
+    mov sp, [vx_stktop]         ; instruction, and IF is clear anyway)
+    push word [vx_ofl]
+    popf
+    int 0x10                    ; (a BIOS keeps DS)
+    cli
+    mov ss, [vx_oss]
+    mov sp, [vx_osp]
+    dec byte [vx_onstk]
+    push word [vx_ofl]
+    popf
+    ret
+.direct:
+    push bp                     ; (kern_mega's reflection of it hands BP back
+    int 0x10                    ; changed - measured, 916Dh - and every body
+    pop bp                      ; reads its frame through BP)
+    ret
 
 ; vx_nextwin - the window after the current one (a run crossed its edge)
 vx_nextwin:
@@ -1909,7 +1972,7 @@ vx_curdraw:
 vxp_setmode:
     mov ax, VBE_SET
     mov bx, [vx_tab+VXS_MODE]
-    int 0x10
+    call vx_int10
     mov word [vx_win], 0xFFFF
     mov byte [vx_cursaved], 0
     cmp byte [vx_depth], 8
@@ -2522,9 +2585,14 @@ vx_sel      db 0
 vx_wsel     dw VX_WSEG          ; window A as the CPU loads it: A000h, or the
                                 ; selector kern_mega hands VXV_PM
 vx_dispi    db 0                ; 1: banked through the dispi port (vx_pm)
-            db 0
+vx_onstk    db 0                ; 1: an int 10h is out on our stack (vx_int10)
+vx_stktop   dw vx_rowbuf + 2048 ; ...whose top: the bounce while attach
+                                ; probes, the probe's buffers after it
 
     OS88_STATE
+vx_oss      dw 0                ; vx_int10's banked SS:SP and FLAGS
+vx_osp      dw 0
+vx_ofl      dw 0
 vx_dsel     dw 0                ; OUR data segment, banked by vx_prim on every
                                 ; entry: a body whose DS is the window or the
                                 ; kernel stores through it, never through CS

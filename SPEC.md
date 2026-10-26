@@ -222012,6 +222012,54 @@ kern_big, most of which never runs a VBE.) A private stack in the driver was
 the first design and was refused — two tasks preempted inside one `int 10h`
 would share it.
 
+#### 120.3.4 kern_mega — the hook in protected mode
+
+**Shipped on `kern_mega` (KERN-MEGA-PLAN 14.115); pinned until its row says
+so.** The boot is the same as `kern_big`'s: `vx_boot_x` attaches and inits
+the image and `vid_switch` takes the desktop onto the VBE, all in real mode,
+with `vx_ep` holding the image's real SEGMENT. Two things then stop being
+true at `mega_enter`, and one verb answers both:
+
+- the image's segment is an LDT **selector pair** (`mega_mpall`), and the
+  far pointer every hook calls through must name the CODE half;
+- a store through CS faults, and window A at A000h is not a segment the CPU
+  can load.
+
+`VXV_PM` (0x43, `kernel/vxabi.inc`, additive - `VX_ABI_VER` does not move)
+is asked twice. With DX = 0, in real mode right after `VXV_INIT`, it is a
+QUESTION: CF = 0 says this image draws in protected mode, and an image that
+predates the verb refuses it, so `vx_boot_x` refuses the VESA desktop there
+and the machine keeps its VGA. With DX = a data selector over window A, ES =
+the kernel's data selector, it ARMS the image; `mega_vxpm` sends it from
+`mega_pmtail` after `mega_vfixall`, IF = 0, before the first interrupt can
+draw the arrow, then re-points `vx_ep`'s segment at the pair's code half. A
+refusal there leaves `vx_ep` on `vx_null`, which draws nothing, and says so
+on E9.
+
+In the image every store goes through DS: `vx_prim` loads DS from CS's data
+twin (bit 2 of a real segment of a 512-aligned image is clear; an LDT
+selector has it set, and the data half is code + 8) and banks it in
+`vx_dsel` for the bodies whose DS is the window or the kernel. The window is
+`vx_wsel` - A000h, or the selector `VXV_PM` handed over. A bank switch on a
+Bochs/QEMU VBE (its `dispi` ID register answers B0C0h-B0CFh) writes the
+bank register directly, with the window number `4F05h` would have been
+given - both BIOSes write DX there as it is, in the granularity they
+reported (32KB on Bochs 2.7); every other card's goes through `4F05h`,
+reflected - a CPU reset each on a 286.
+
+**`int 10h` RUNS ON THE IMAGE'S OWN STACK, on every kernel.** A VBE BIOS
+is a deep call: Bochs's vgabios took `4F01h` some 650 bytes below the boot's
+frame, through task 0's 512-byte stack and into `mem_tab`'s tail, and the
+next compaction called a "relocation proc" at a pushed register. `vx_int10`
+hops SS:SP onto the scroll's 2KB bounce while attach probes and onto the
+probe's own 768 bytes of buffers after it. It is not nested (a hook that
+arrives inside a hop runs on the stack it has) and it does not hop in
+protected mode, where the reflection has a stack of its own. The kernel
+already treats a foreign SS as a ROM's: `sch_switch` will not switch tasks
+on one (§8.5), and both mouse ISRs and the tick's chain load their own SS -
+which is what answers the refusal in §120.3.3: no second task can be
+pre-empted into the same hop.
+
 ### 120.4 Switching in, and out
 
 `vid_switch AL=VID_VESA` (§39.11.2's ladder, in `CTRL.DRV` and the boot

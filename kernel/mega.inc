@@ -11605,56 +11605,72 @@ mega_vfixall:
     ret
 
 %ifdef VID_EXT
-; mega_vxpm - at the switch (mega_pmtail), after mega_vfixall, IF = 0: the
-; VESA desktop into protected mode (KERN-MEGA-PLAN 14.115). vx_boot_x armed
-; [vx_ep] in real mode with the image's SEGMENT, and every hook far-calls
-; through it - so before the first interrupt can draw the arrow, the image
-; is told its selectors (VXV_PM: window A's and the kernel's data, which the
-; boot's question already showed it takes) and the hook is re-pointed at
-; its pair's CODE half, data - 8. A refusal - no LDT entry for window A, a
-; verb refused after the question said yes - leaves the hook on vx_null,
-; which draws nothing, and says so on E9 rather than fault on the first
-; draw. Clobbers nothing
+; mega_vxpm - at the switch (mega_pmtail), after mega_mpall and mega_vfixall,
+; IF = 0: the VESA desktop into protected mode (KERN-MEGA-PLAN 14.115).
+; vx_boot_x armed [vx_ep] in real mode with the image's PARAGRAPH, and every
+; hook far-calls through it - so before the first interrupt can draw the
+; arrow, the image is told its selectors (VXV_PM: window A's and the
+; kernel's data, which the boot's question already showed it takes) and the
+; hook is re-pointed at its pair's CODE half.
+;
+; NOT THROUGH drv_call, and not from the claim walk after the switch: every
+; holder still names the claim by paragraph until kmain's mem_xlatf, which
+; rewrites [vx_ep+2] (a MEM_RR_ONE holder, for the compactor) to the DATA
+; half - a far call through which is #GP(sel). So the pair comes from
+; mega_p2d, the image is called the way drv_pkg_disp does it (DS its data
+; half, code half : PKG_DISP), and once [vx_ep+2] is the code half it no
+; longer matches the paragraph mem_xlatf looks for. A refusal leaves the
+; hook on vx_null, which draws nothing and faults nothing. Clobbers nothing
 mega_vxpm:
     cmp word [vx_ep+2], 0
     je .ret                         ; not armed: no VESA desktop
     push ax
     push bx
+    push cx
     push dx
     push si
     push bp
     push es
-    mov bx, vesa_row
+    mov dx, [vx_ep+2]
+    call mega_p2d                   ; DX = the image's DATA selector
+    jc .off
     mov ax, VGA_SEG
     call mega_useg                  ; AX = window A's data selector
     jc .off
-    mov dx, ax
-    mov bp, [bx+DRVR_ENT]
+    mov cx, dx                      ; CX = the image's data half
+    mov dx, ax                      ; DX = window A, VXV_PM's argument
+    mov bp, [vesa_row+DRVR_ENT]
+    mov ax, cx
+    sub ax, 8
+    push ax                         ; the far target: code half...
+    mov ax, PKG_DISP
+    push ax                         ; ...: the dispatcher
+    mov si, sp
     push ds
     pop es                          ; ES = KDATA, the kernel the image banks
+    push ds
+    mov ds, cx                      ; DS = the image's data half
     mov al, VXV_PM
-    call COLD_SEG:drvf_drv_call
+    call far [ss:si]
+    pop ds
+    pop ax                          ; (pops: CF is the image's answer)
+    pop ax
     jc .off
-    mov bx, vesa_row
-    mov ax, [bx+DRVR_SEG]           ; the image's DATA selector (mega_mpall)
-    sub ax, 8                       ; ...and its code half
-    mov [vx_ep+2], ax
+    mov [vx_ep+2], ax               ; the code half
     jmp short .out
 .off:
     mov word [vx_ep], vx_null       ; draws nothing, faults nothing
     mov word [vx_ep+2], KERNEL_SEG
-    mov si, mega_mvxoff
-    call mm_say
 .out:
     pop es
     pop bp
     pop si
     pop dx
+    pop cx
     pop bx
     pop ax
 .ret:
     ret
-mega_mvxoff db "kern_mega: VESA.DRV refused protected mode - the hook draws nothing", 10, 0
 %endif
 
 ; mega_cdin -ES:DI = a present descriptor, DL:AX = a block's base, CX = its
