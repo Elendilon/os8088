@@ -54861,12 +54861,21 @@ roomier geometries the shipped pair did not carry it at all. 28 KB, measured
 against the free space each system disk had (82 of 713 clusters at 720 KB, far
 more at the other two) and held to `t_sysfree`'s floor.
 
-Two disks leave it off. **The 360 KB system disk** (`SYS360OMIT`):
-`util360.img` carries it there beside System Check (§24.3.1.7). **kern_mega's
-system disks** (`MEGACOREOMIT`): REDLINE's inventory pass rewrites its own
-code (§103.2) and it has never been run under kern_mega's selectors, so it
-stays off them until somebody has. The everything set and the live media take
-it through `CORE_SYSONLY`, as they take `FONTVIEW.O88`.
+One disk leaves it off. **The 360 KB system disk** (`SYS360OMIT`):
+`util360.img` carries it there beside System Check (§24.3.1.7). The everything
+set and the live media take it through `CORE_SYSONLY`, as they take
+`FONTVIEW.O88`.
+
+**kern_mega's system disks carry it too**, in `APPS/` beside the other core
+tools, and as the same shipped build: there is no `PKG_MEGA` arm. They left it
+off (`MEGACOREOMIT`) until it had been run under kern_mega's selectors, on the
+ground that its inventory pass rewrites its own code (§103.2). That pass is
+reached only below `CPU_286`, which kern_mega never reports, and every
+fixed-address read REDLINE makes - the BIOS's F000h, an option ROM, a card's
+buffer - already goes through `OSAPI_SEG`'s `SEG_WIN` (`cs_win`) or one of
+the identity selectors (0040h, A000h, B000h, B800h). KERN-MEGA-PLAN 14.118 is
+the run; `mega-redlinevga`, `mega-redlinechipvga` and `mega-redlinechipvga-tune`
+are the rows.
 
 ### 24.4 The MEDIA DISK — a third shipped disk, at 360KB alone
 

@@ -404,3 +404,11 @@ wimgtrip secs=90 OS88_MEGA_EMU=86box   # Write Img... a geometry up: megaapps120
 mixersb16 secs=60 OS88_MEGA_EMU=86box OS88_MEGA_SND=sb16   # the volume popup and the Mixer against a REAL CT1745 (86Box's SB16, the QEMU row's card) on the Marty path: nine channels, stereo readback, tone, the save-under claim sized and freed, a stream draining under the popup; red: POKE mmf_osapi_mem_free=f8cb
 telansi secs=180 OS88_MEGA_EMU=86box   # Telnet's ANSI renderer against the host's fixture streams, the answers, the Zmodem handover and ^]'s full screen (con_tseg a selector whose base is B8000) - Bochs's slirp could not carry it (KERN-MEGA-PLAN 14.89); red: the unfixed kernel's Ctrl+] (KERN-MEGA-PLAN 14.110)
 telzm secs=180 OS88_MEGA_EMU=86box   # Zmodem receive over 86Box's slirp: the batch, the liar, the cancel, the mangled names, every file byte-identical off B:; red: POKE dskw_append_x=f8c3
+
+# REDLINE (KERN-MEGA-PLAN 14.118): the shipped build, the copy kern_mega's
+# system disk carries in APPS/ - every fixed-address read through cs_win's
+# SEG_WIN or an identity selector. Red: cs_win made to hand back the bare
+# paragraph (the pre-MC7 spelling), and the Tune tab never identifies
+redlinevga secs=90   # the whole Bench run on a 386: 25 rows timed (a host-speed CPU row under one PIT count reads n/a), the CPUID name, the report saved to B:, the views and Quit
+redlinechipvga secs=60   # the Tune tab on an AT-class tier: the F000h fingerprint through SEG_WIN, the read-only port probes RUN, the option-ROM scan, the pick and CHIPSET1/2.TXT
+redlinechipvga@tune secs=150 -chipset= +--tune +os8088_redline_vga_gla   # the WRITE path: Mfg spec and the verified sweep (a cli window and a BIOS floppy read into the package's selector), REDLINE.CFG and AUTOSTRT\RLAPPLY.LNK on A:, RLAPPLY before, after and at a power cycle
