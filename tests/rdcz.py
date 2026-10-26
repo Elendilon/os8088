@@ -47,7 +47,6 @@ import argparse
 import os
 import shutil
 import struct
-import subprocess
 import tempfile
 import sys
 
@@ -180,19 +179,11 @@ def verdict(where, got, want, packed):
                  "says %d (%s)" % (where, got, want, how))
 
 
-def rd_loaded(ui):
-    return int.from_bytes(
-        ui.m.read(ui.sym("drv_tab") + RD_ROW * DRVR_SZ + DRVR_SEG, 2),
-        "little")
-
-
-def mount_ramdisk(ui, atboot=False):
+def mount_ramdisk(ui):
     """Control Panel -> Drivers -> Ram Disk -> its page -> Mount.
 
     Lifted from tests/rdicon.py, which is where these coordinates are
     explained; there is no `os88ui` verb for a Control Panel page yet.
-    `atboot`: SYSTEM.CFG already loaded the driver, so the row is NOT
-    ticked (a tick there would be the UNtick) - the page appears anyway.
     """
     m, mo = ui.m, ui.mo
     mo.menu(8, 8, 8, 40)
@@ -201,10 +192,9 @@ def mount_ramdisk(ui, atboot=False):
     x0, y0 = cp.x + 1, cp.y + TITLE_H
     mo.click(x0 + 40, y0 + CP_I0Y + CP_IDRV * CP_IROWH + 7)     # Drivers
     os88marty.ui_done(ui.m, limit=15.0)
-    if not atboot:
-        mo.click(x0 + CP_RX + 40,                               # tick Ram Disk
-                 y0 + CP_DBY1 + RD_ROW * CP_DROWH + CP_DROWH // 2)
-        os88marty.ui_done(ui.m, limit=25.0)
+    mo.click(x0 + CP_RX + 40,                                   # tick Ram Disk
+             y0 + CP_DBY1 + RD_ROW * CP_DROWH + CP_DROWH // 2)
+    os88marty.ui_done(ui.m, limit=25.0)
     if not int.from_bytes(
             m.read(ui.sym("drv_tab") + RD_ROW * DRVR_SZ + DRVR_SEG, 2),
             "little"):
@@ -221,13 +211,6 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", default="cga", choices=sorted(MACHINE))
     ap.add_argument("--half", default="both", choices=("fat", "ram", "both"))
-    # --atboot: SYSTEM.CFG wants RAMDISK.DRV, so it ATTACHES AT BOOT. On
-    # kern_mega that is real mode, before mega_enter - and a driver that
-    # banked OSAPI_CPU_INFO's CPU_F_PM at attach believed real mode for the
-    # whole session and folded a SELECTOR as a paragraph (KERN-MEGA-PLAN
-    # 14.112). The RAM half is the question; ticked on the Drivers page
-    # after the switch, the bank was right and the defect never showed
-    ap.add_argument("--atboot", action="store_true")
     a = ap.parse_args()
 
     # kern_mega's system disk under OS88_MEGA (docs/BOCHS.md): the struck
@@ -250,15 +233,6 @@ def run(a, src, want, img):
     # wrong answer). 360KB copied twice a minute is not worth a cache.
     shutil.copyfile(src, img)
     packed, unpacked = strike(img)
-    if a.atboot:
-        cfg = img + ".cfg"
-        with open(cfg, "wb") as f:      # kernel/driver.inc drv_cfgbit: the
-            f.write(b"O88CFG\0\0" + (3).to_bytes(2, "little")  # RAM disk
-                    + b"DW" + bytes([1, 2])                      # is bit 2
-                    + (1 << 2).to_bytes(2, "little") + b"\0\0")
-        subprocess.check_call([sys.executable, os.path.join(
-            os.path.dirname(__file__), "..", "tools", "os88fat.py"),
-            "add", img, cfg, "SYSTEM.CFG"])
     say("rdcz: %s is %d packed bytes, its own header says %d, the host file "
         "is %d; hint struck" % (DOC, packed, unpacked, want))
 
@@ -268,13 +242,7 @@ def run(a, src, want, img):
             verdict("FAT", note_len(ui), want, packed)
 
         if a.half in ("ram", "both"):
-            if a.atboot:
-                if not rd_loaded(ui):
-                    sys.exit("rdcz: SYSTEM.CFG wanted RAMDISK.DRV and it did "
-                             "not load at boot - this arm would assert "
-                             "nothing about a boot-attached driver")
-                say("rdcz: RAMDISK.DRV attached AT BOOT (SYSTEM.CFG bit 2)")
-            mount_ramdisk(ui, atboot=a.atboot)
+            mount_ramdisk(ui)
             src_w = ui.open_drive("A")
             select(ui, DOC, win=src_w)
             ui.menu_pick("Edit", "Copy")

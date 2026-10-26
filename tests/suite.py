@@ -17758,6 +17758,23 @@ SOAK = [
         "costs no extra int 13h. Measured at 55s",
         needs=("marty",), serial=True),
 
+    Row("rdboot", "soak", py("tests/rdboot.py"), 40.0,
+        "KERN-MEGA-PLAN 14.112: a RAM disk ATTACHED AT BOOT reads what its "
+        "own image holds. A driver SYSTEM.CFG wants is attached in REAL "
+        "mode, before kern_mega's mega_enter, and RAMDISK.DRV, NET.DRV and "
+        "CDROM.DRV banked OSAPI_CPU_INFO's CPU_F_PM at attach - so the "
+        "banked byte said real mode all session and folded a SELECTOR as a "
+        "paragraph. They ask per call now, HTTPFS's 14.87 shape. The path "
+        "that reaches the fold with a selector is the driver's OWN image "
+        "(drv_fs_hi bounces every package buffer), so this is a private "
+        "RAMSEED=1 tree, a SYSTEM.CFG asking for the RAM disk, Mount, and "
+        "the seeded README.TXT's np_len. The question is kern_mega's "
+        "(mega-rdboot); on MartyPC it is the same sequence on a kernel "
+        "where the banked byte was right. VERIFIED RED on kern_mega with "
+        "the banked byte: #GP in the driver at Mount, `kern_mega FAULT "
+        "vector 0D` at 1184:050D",
+        needs=("marty", "nasm"), serial=True),
+
     Row("rdicon", "soak", py("tests/rdicon.py"), 40.0,
         "SPEC.md 62.9.2.1: a DOCUMENT on a redirected volume gets its "
         "association icon. The mount's redirected tail ran pass 4a' and then "
