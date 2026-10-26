@@ -913,7 +913,7 @@ mod_free_row:
                                 ; Unmount Image reads) - and this path left
                                 ; the `cmp` above in them, CF = 1 for every
                                 ; module whose row is under DESK.DRV's
-                                ; (KERN-MEGA-PLAN 14.77)
+                                ; (KERN-MEGA-PLAN 14.79)
 .conv:
 %ifdef KERN_BIG
     cmp bx, mod_tab + MOD_DESK * MODR_SIZE

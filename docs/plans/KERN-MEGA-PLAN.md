@@ -10884,7 +10884,100 @@ the driver's own copy and is the same on a 286 as on Bochs's 386. Rung 0
 (BIOS) has no pairing read, so it is the owner's IDE machine that reaches
 it.
 
-### 14.77 Disk > Unmount Image left the window on the drive it had just taken away (2026-10-26)
+### 14.77 The DOS rows ported to Bochs: two kern_mega defects, two shared ones (2026-10-26)
+
+Found by porting the DOS soak rows to kern_mega (tests/megaport.txt's `# DOS,
+CP/M AND THE NETWORK`). On kern_mega every DOS program runs on a kern_dos
+TRIP, so the windowed DOS's gates became the trip's - and four of them went
+red for reasons that were not the harness.
+
+1. **The trip's way home staged the clock at a SELECTOR** (kern_mega's).
+   `mega_dosgo` wrote `[es:di+KDL_STAGE]` from ES, which at that point is the
+   protected-mode SELECTOR over the text page (`hbm_stageseg`, MC7) and not
+   its real segment. kern_dos's `kd_unpark` loads KDL_STAGE as a real-mode
+   segment, so the ten clock bytes, HS_TICK0, the exit code and the arena KB
+   went to `(selector << 4)` - conventional memory the park then restores
+   over - and `hbm_wake` read B800:0412 instead: the PROGRAM'S OWN TEXT
+   CELLS. Every trip came home with the menu bar reading `07 8199  20:07 PM`
+   (`'"'`, then blanks with attribute 07, taken as sec/min/hour/day/month)
+   and a tick catch-up computed from rubble. Found with a Bochs write
+   watchpoint on `clk_day`: the park stub's restore, then `hbm_wake` at
+   HIBER.DRV +1637h. **Fix**: store `[mega_dstg]`, the real segment
+   `mega_dosgo` already computes for `mega_dropr`. kern_big and kern_small
+   are byte-identical (`kernel/megados.inc` is `.mega`).
+2. **No press on the Setup page reached the arguments box or an environment
+   row** (kern_mega's DOS.O88). `dos_click_mem`'s DOS_MEGA arm ended
+   `.notfld` with `jmp .out` - "no radio on kern_mega" - which is CF = 0,
+   "mine", for every press the memory block's own controls did not take; so
+   `dos_fld_hit` was never reached and the fields could not be focused at
+   all (`tests/dosargs.py`: *"the ARGUMENTS box holds ''"*). **Fix**: `jmp
+   .away`, the refusal the kern_big arm reaches after its radio. DOS_MEGA
+   only.
+3. **A machine with a clock answered AH=2Ah with 4 July 2026** (shared:
+   `apps/dos/dos.asm`'s core, every kernel). `dos_date_init` scaled the RTC's
+   century with `mov bx, 100 / mul bx`, which writes DX - and DH/DL were the
+   RTC's month and day, still to be read - so the month's `jz` took the
+   fallback on every AT. Invisible on MartyPC (a 5150 has no RTC, so the
+   fallback WAS the answer); Bochs's MC146818 showed it. **Fix**: `mul bl`.
+   `tests/dosdir.py` now asserts on a machine with a clock that DOS's date is
+   the kernel's (red before: `['2026-7-4', '6']` against `['2026-10-26',
+   '1']`). SPEC.md 96.13.1.
+4. **MOVE under kern_dos was an I/O error every time** (shared: kern_dos on
+   either kernel). `dos_k_copy`/`dos_k_move` refused with whatever AX held, so
+   the shell's MOVE (`dsh_copy_go`) never reached its documented fallback -
+   FERR_FULL means "the engine took nothing, stream with your own" (DBE_MOVE's
+   own contract). **Fix**: answer FERR_FULL. MOVE now works by copy and
+   delete (`tests/dosshell.py` on kern_mega: exit 00, the right bytes in SUB),
+   and the row stays red on its re-link assertion, which is the copy engine's
+   (SPEC.md 22.25) and KERN-DOS-PLAN 6.1 lever 3 leaves it behind.
+
+**Open, not fixed - the program's last screen is not the console's after a
+trip.** SPEC.md 96.34's `dos_snap` is a DOS.O88 hook (`DHK_SNAP`) and kern_dos
+binds none, so on kern_mega - where every program is a trip - the console
+after `DOSHELLO` shows `Starting ...` and `... ended, exit code 042` with
+nothing the program printed between (`tests/doscon.py`). The screen is
+recoverable only before `kd_unpark` stages over the text page and the wake's
+mode set clears it, so the fix is a capture on kern_dos's way out into
+something the wake can hand DOS.O88 - a feature, not a line.
+
+### 14.78 A Sticky App relaunched at boot bound DESK.DRV's library by a real paragraph (2026-10-26)
+
+**Found** by porting `stiknodesk` to Bochs (tests/megaport.txt). With the
+Desk Calendar a Sticky App row, the boot relaunched it and it came up - and
+the first event after the desktop (the pointer resting on its tag row) closed
+it: `kern_mega CLOSED Desk Cal 0D at 1174:1AA2 err 9EA0`. 1AA2 is an
+`os88stikc.inc` thunk, `call far [stik_le + 4 * n]`, and 9EA0h is a real-mode
+PARAGRAPH in a selector's place.
+
+**Cause**: `stik_boot` ran from `drv_notice_x`, which kmain calls BEFORE
+`mega_enter`. So the widget's entry proc ran in real mode, asked
+`OSAPI_WM_DESK` for the library (AL = 4, DX = its paragraph) and wrote that
+paragraph into every far pointer of its own block - a word in the PACKAGE's
+data, which none of the switch's conversions (frames, claims, modules,
+windows) can know about. Every thunk call after the switch far-jumped to a
+segment that is no selector. Two more things followed from the same order:
+the absent leg's `No desk layer (DESK.DRV)` toast was staged before the
+switch and overwritten by `Entered protected mode` before the UI task ever
+drew it, and a Sticky App that hired a worker would have made `mega_enter`
+decline protected mode altogether (*"a task predates it"*).
+
+**Fix**: on kern_mega `drv_notice_x` no longer calls `stik_boot`; kmain calls
+it, far through a four-byte `stik_bootf` in `.cold`, AFTER `mega_enter` and
+the pool's setup and BEFORE `as_bootc` - AUTOSTART's own reason (MC8), a
+package launched at boot is launched in the mode it will run in. SPEC.md
+110.4's "first, so a driver's panel opens in front" does not lose anything
+there: a `STIK_DESKONLY` widget is a desk window, under every ordinary window
+whenever it opens, and kern_mega always has DESK.DRV's arm. kern_big and
+kern_small are byte-identical (`cmp` of `build/kernel.bin` before and after).
+
+**`mega-stiknodesk` is the row**: all three legs, with the breakpoint on
+`stik_boot` set once the GDT says where `.cold` runs (the shim's `sym()`).
+Red before the fix on both halves: `absent` A (*"the toast to say
+'DESK.DRV' did not happen"*, `toast_buf = 'Entered protected mode'`) and
+`present` G (the widget gone with `CLOSED ... 0D` before it could be
+closed).
+
+### 14.79 Disk > Unmount Image left the window on the drive it had just taken away (2026-10-26)
 
 **Found by porting `imgmount` to kern_mega** (tests/megaport.txt): Disk >
 Unmount Image in a mounted image's own window unmounted it, said
@@ -10909,7 +11002,7 @@ kern_small are byte-identical (the build number apart). **`mega-imgmount`
 is the row**: red before it on *"...and the window goes to the HOST [3]"*,
 44 checks green after.
 
-### 14.78 A same-drive Clone Disk never noticed the disk had not been swapped (2026-10-26)
+### 14.80 A same-drive Clone Disk never noticed the disk had not been swapped (2026-10-26)
 
 **Found by porting `diskclone` to kern_mega** (tests/megaport.txt): Clone
 Disk A: -> A:, the read pass, then Enter at *"Insert the TARGET"* with the
@@ -10938,7 +11031,7 @@ disk"* (and on the stamp check the unwanted write left behind), 36 checks
 green after - with its *"out of CONVENTIONAL memory"* check reading the
 store ABOVE 1MB on kern_mega, whose XMEM pool `xm_caps` reports.
 
-### 14.79 Every refused join hung the machine: CSDO banked SP two bytes low (2026-10-26)
+### 14.81 Every refused join hung the machine: CSDO banked SP two bytes low (2026-10-26)
 
 **Found by porting `czjoin` to kern_mega** (tests/megaport.txt): File >
 Uncompress on a part of a split set joined BIG.DAT and LZB.DAT correctly,

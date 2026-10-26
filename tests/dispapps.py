@@ -52,6 +52,22 @@ PN_KB_Y1, PN_KB_Y2_FULL = 88, 155   # apps/piano's own constants
 _MAPS = {}
 
 
+def mega_arm(app):
+    """True when a kern_mega row (OS88_MEGA, docs/BOCHS.md) is reading the
+    package's kern_mega ARM rather than its shipped build: the arm is what
+    build/mega.img and build/megaapps.img carry (SPEC.md 20.18, $(MEGAPKGS) -
+    the Task Manager in SYSTEM/, Audio, Tracker, ...), assembled -DPKG_MEGA
+    into build/megak/apps/, and its bss is a different layout. A row that
+    boots a SCRATCH disk carrying the shipped build of an armed package
+    names it in $OS88_MEGA_SHIPPED (comma separated)."""
+    if not os.environ.get("OS88_MEGA"):
+        return False
+    if app in os.environ.get("OS88_MEGA_SHIPPED", "").split(","):
+        return False
+    return os.path.exists(os.path.join(ROOT, "build", "megak", "apps",
+                                       app + ".o88"))
+
+
 def _map(app, defines=()):
     """Every equate in a package, from nasm's own `[map]` on a temp copy.
 
@@ -61,6 +77,8 @@ def _map(app, defines=()):
     skipped the two games would be a gate that passes because it tested
     nothing. The map is also what tools/os88sym.py uses, for the same reason.
     """
+    if mega_arm(app) and "-DAPP_SMALL" not in defines:
+        defines = tuple(defines) + ("-DPKG_MEGA",)
     key = (app, tuple(defines))
     if key in _MAPS:
         return _MAPS[key]
@@ -171,7 +189,8 @@ def _map(app, defines=()):
     # ...and through `os88build.at`, because under a frozen run the shipped
     # packages are in the run's own tree (docs/plans/SOAK-PARALLEL.md 14.2) and
     # `build/` may hold another build's.
-    sub = os.path.join("build", "smallapp") if defines else "build"
+    sub = (os.path.join("build", "megak", "apps") if "-DPKG_MEGA" in defines
+           else os.path.join("build", "smallapp") if defines else "build")
     o88 = os88build.at("%s/%s.o88"
                        % (sub, {"solitaire": "solitair", "wirefleet": "wireflet"}.get(app, app)))
     if not os.path.isabs(o88):
@@ -375,7 +394,8 @@ def img_size(app, small=False):
     something: a header whose +8 disagrees with the bytes it describes is a
     layout that has moved. It just has to be told what the bytes are first.
     """
-    sub = os.path.join("build", "smallapp") if small else "build"
+    sub = os.path.join("build", "smallapp") if small else (
+        os.path.join("build", "megak", "apps") if mega_arm(app) else "build")
     p = os88build.at("%s/%s.o88" % (sub.replace(os.sep, "/"),
                                     {"solitaire": "solitair"}.get(app, app)))
     if not os.path.isabs(p):
@@ -416,8 +436,10 @@ def words(m, seg, app, names):
     out = {}
     for n in names:
         n_b = 1 if n in BYTES else 2
+        at = base + bss_off(app, n)
         out[n] = int.from_bytes(
-            m.read((seg << 4) + base + bss_off(app, n), n_b), "little")
+            m.read(m.lin(seg, at) if getattr(m, "bochs", False)
+                   else (seg << 4) + at, n_b), "little")
     return out
 
 

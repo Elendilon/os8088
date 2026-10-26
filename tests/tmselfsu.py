@@ -80,6 +80,8 @@ class Own(dispcells.Cells):
 with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
                       machine=MACHINE, boot=False) as m:
     m.run()
+    # a package segment's linear base: an LDT selector's on kern_mega
+    lin = getattr(m, "lin", lambda s_, o_=0: (s_ << 4) + o_)
     os88marty.kernel_up(m)              # the boot gate on state: setup is
     mo = os88mouse.Mouse(marty=m)       # clicks and guest reads
     os88marty.no_saver(m)
@@ -134,8 +136,8 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     slot, seg = got
 
     def view():
-        return m.read((seg << 4) + dispapps.img_size("taskmgr")
-                      + dispapps.bss_off("taskmgr", "tm_view"), 1)[0]
+        return m.read(lin(seg, dispapps.img_size("taskmgr")
+                          + dispapps.bss_off("taskmgr", "tm_view")), 1)[0]
 
     w = W(slot)
     for _ in range(4):
@@ -279,8 +281,8 @@ with os88marty.launch("build/os8088-360.img", apps="build/apps360.img",
     # both: the key cannot move and nothing is painted. Cells and fills are
     # still printed, as what the pump happened to catch.
     def qkey():
-        return int.from_bytes(m.read((seg << 4) + dispapps.img_size("taskmgr")
-                                     + dispapps.bss_off("taskmgr", "tm_qkey"),
+        return int.from_bytes(m.read(lin(seg, dispapps.img_size("taskmgr")
+                                     + dispapps.bss_off("taskmgr", "tm_qkey")),
                                      2), "little")
 
     def content():

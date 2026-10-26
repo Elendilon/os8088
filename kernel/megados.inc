@@ -1234,7 +1234,13 @@ mega_dosgo:
     pop ds
     mov [es:di+KDL_TICK], ax
     mov [es:di+KDL_TICK+2], dx
-    mov [es:di+KDL_STAGE], es
+    mov ax, [mega_dstg]             ; the stage's REAL segment, which is what
+    mov [es:di+KDL_STAGE], ax       ; kern_dos loads: ES here is the SELECTOR
+                                    ; over it, and storing that sent kd_unpark's
+                                    ; clock, tick and exit code to (sel << 4) -
+                                    ; so hbm_wake read the program's own text
+                                    ; cells back as the clock (KERN-MEGA-PLAN
+                                    ; 14.77)
 
     ; --- the header's GDT and cells, and the program's name -------------------
     mov ax, [mega_dpbase]

@@ -2513,7 +2513,7 @@ clo_issrc:
     pushf                       ; kern_mega: KDATAR_M asks [mega_pm] with a
 %endif                          ; `cmp`, and ZF = 0 then ran every same-drive
     KDATAR_M ax                 ; clone straight past this check (KERN-MEGA-
-    mov ds, ax                  ; PLAN 14.78) - compress.inc's idiom
+    mov ds, ax                  ; PLAN 14.80) - compress.inc's idiom
 %ifdef KERN_MEGA
     popf
 %endif                          ; DS back before the flags are read: `mov`

@@ -8704,7 +8704,11 @@ dos_click_mem:
     mov cx, [dos_mpx]
     mov dx, [dos_mpy]
 %ifdef DOS_MEGA
-    jmp short .out                  ; no radio on kern_mega (12.1 item 1)
+    jmp short .away                 ; no radio on kern_mega (12.1 item 1), so
+                                    ; nothing here took it: REFUSE it, or the
+                                    ; arguments box and the environment rows
+                                    ; beside this block never see a press
+                                    ; (KERN-MEGA-PLAN 14.77)
 %endif
     call dos_mrad_place             ; ...AND THE ARM LAST, which is what
     push bx                         ; anything inside a subsection that no
@@ -13907,8 +13911,12 @@ dos_date_init:
     jc .stamp                       ; no clock chip: the fallback stands
     mov al, ch                      ; ...AND A 5150's ROM DOES NOT SET CF FOR A
     call dos_unbcd                  ; FUNCTION IT HAS NEVER HEARD OF, so every
-    mov bx, 100                     ; field below is checked for a value that
-    mul bx                          ; is merely POSSIBLE before any of it is
+    mov bl, 100                     ; field below is checked for a value that
+    mul bl                          ; is merely POSSIBLE before any of it is
+                                    ; (A BYTE MULTIPLY: `mul bx` writes DX, and
+                                    ; DH/DL are the month and the day still to
+                                    ; be read - every RTC date fell back to 4
+                                    ; July, SPEC.md 96.13.1)
     mov [dos_tmp1], ax              ; believed - which is the only thing
     mov al, cl                      ; standing between a garbage register and a
     call dos_unbcd                  ; date the program will stamp on its files

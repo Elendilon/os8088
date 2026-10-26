@@ -473,7 +473,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; is WRONG on kern_mega, because CSDO's own `push ds` is under SP when the store
 ; runs, so VAR is two below the frame - and a `mov sp, [cs:var]` unwind then
 ; `ret`s into the call that was made after the bank, which on a join's refusal
-; looped toasting for ever (KERN-MEGA-PLAN 14.79). Flags kept, CSDO's promise.
+; looped toasting for ever (KERN-MEGA-PLAN 14.81). Flags kept, CSDO's promise.
 %macro CSDO_SP 1
     CSDO mov [CSEG %1], sp      ; kern_mega: SP - 2, CSDO's push under it...
  %ifdef KERN_MEGA
@@ -5732,6 +5732,9 @@ kmain:
                                 ; that there is a pool (item 82)...
     call COLD_SEG:mem_hicaches_f ; ...and its caches (item 84)
 %ifdef OS88_SHORTCUTS
+    call COLD_SEG:stik_bootf    ; ...the Sticky Apps, bound in the mode they
+                                ; run in (KERN-MEGA-PLAN 14.78; drv_notice_x
+                                ; does it before the switch elsewhere)...
     call COLD_SEG:as_bootc      ; ...and AUTOSTART last, so a package it opens
                                 ; is placed as one opened by hand would be -
                                 ; above 1MB when it says OS88_HIGH

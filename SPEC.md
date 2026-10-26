@@ -178057,6 +178057,16 @@ a DOS program and the menu bar agree about a machine that has no clock to ask
 would notice: the symptom of a drift is a file stamped with one date and
 listed under another.
 
+**The century is scaled with a BYTE multiply, and that is a correctness
+point.** `dos_date_init` shipped with `mov bx, 100 / mul bx`, which writes
+`DX` - and `DH`/`DL` are the RTC's month and day, still to be read. Every
+machine WITH a clock therefore failed the month's `jz` and answered the
+fallback, 4 July, while its own menu bar showed the RTC's date. Nothing here
+could see it: MartyPC's 5150 has no clock, so the fallback was the right
+answer there. It was found by `mega-dosdir` (docs/plans/KERN-MEGA-PLAN.md
+14.77), Bochs having an MC146818, and `tests/dosdir.py` asserts on a machine
+with a clock that DOS's date is the kernel's.
+
 #### 96.13.2 What the arithmetic costs, stated rather than discovered
 
 There are **65,543.4 ticks in an hour**, which does not fit a 16-bit divisor
@@ -212507,7 +212517,13 @@ either way, which every system disk keeps. The full-table words still follow the
 kern_big `drv_notice_x` does (§51.3) — after the first desktop paint, with no
 lock held, task 0 about to become `ui_task` and A: still the boot disk, which
 is exactly `OSAPI_PKG_START`'s context. It is FIRST so that a driver-failure
-Control Panel still opens in front of the widgets.
+Control Panel still opens in front of the widgets. **On kern_mega it is not
+there**: kmain calls it AFTER `mega_enter` (far, as `stik_bootf`, just before
+AUTOSTART's `as_bootc`), so a widget binds `DESK.DRV`'s library by a SELECTOR
+in the mode it will run in - launched before the switch, it kept a real
+paragraph in its own far pointers that nothing translates
+(docs/plans/KERN-MEGA-PLAN.md 14.78). A desk window opens under every
+ordinary window anyway, so the panel is still in front.
 
 ```
 stik_boot:       [ui_rebootq] != 0  -> nothing (a resume or DOS question is up)

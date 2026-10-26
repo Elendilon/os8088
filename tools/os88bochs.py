@@ -86,6 +86,10 @@ MEGS = int(os.environ.get("OS88_BOCHS_MEGS", "16"))
 # file (`hostfwd = tcp::2121-:21`, one rule a line, five at most), which is
 # how a HOST client reaches a server in the guest - FTPD (KERN-MEGA-PLAN 14.46)
 SLIRP = os.environ.get("OS88_BOCHS_SLIRP")
+# THE MOUSE: Bochs's PS/2 one by default; $OS88_BOCHS_MOUSE=serial puts a
+# Microsoft serial mouse on COM1 instead - the transport every MartyPC machine
+# has, and the only one kern_dos's INT 33h serves (kerndos/kdmouse.inc)
+MOUSE = os.environ.get("OS88_BOCHS_MOUSE", "ps2")
 BOCHSRC = """megs: {megs}
 romimage: file=/usr/share/bochs/BIOS-bochs-legacy
 vgaromimage: file=/usr/share/vgabios/vgabios.bin
@@ -95,8 +99,8 @@ floppya: 1_44={a}, status={astat}
 floppyb: type={btype}, {bmedia}={b}, status=inserted
 {ata0}{cd}boot: {boot}
 port_e9_hack: enabled=1
-mouse: enabled=1, type=ps2, toggle=ctrl+mbutton
-clock: sync=realtime, time0=local
+mouse: enabled=1, type={mouse}, toggle=ctrl+mbutton
+{com1}clock: sync=realtime, time0=local
 {sb}log: {log}
 panic: action=report
 error: action=report
@@ -407,7 +411,7 @@ class Box(object):
                  btype="1_2", cmode="run", bootc=False, noa=False,
                  build=None, csys=False, put=(), cd=None, aimg=None,
                  display=None, megs=None, noc=False, vgahz=None,
-                 flog=False):
+                 flog=False, mouse=None):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -447,9 +451,9 @@ class Box(object):
         stage = os.path.join(out, "stage")
         shutil.rmtree(stage, ignore_errors=True)
         os.makedirs(stage)
-        args = ["RUN:" + self._stage(stage, os.path.join(bld,
-                                                         "megarun.o88"),
-                                     "0run.o88")]
+        args = [] if noc else [   # (no C: - nothing to stage MEGARUN on)
+            "RUN:" + self._stage(stage, os.path.join(bld, "megarun.o88"),
+                                 "0run.o88")]
         for p in pkgs:
             args.append("RUN:" + self._stage(stage, p,
                                              os.path.basename(p).lower()))
@@ -476,6 +480,9 @@ class Box(object):
         with open(rc, "w") as f:
             f.write(BOCHSRC.format(
                 megs=megs or MEGS, a=a, b=b,
+                mouse=mouse or MOUSE,
+                com1="com1: enabled=1, mode=mouse\n"
+                if (mouse or MOUSE) == "serial" else "",
                 flogdbg=", floppy=report" if flog else "",
                 ata0="" if noc else (
                     "ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14\n"
