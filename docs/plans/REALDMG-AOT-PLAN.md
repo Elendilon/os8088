@@ -16,6 +16,25 @@ file is the stories and their evidence. The study it comes from is
 docs/reports/REALDMG-FULLSTATIC-2026-10-25.md, whose section 11 is the
 design.
 
+## Where it stands
+
+Waves 0 to 4 are built, the speed rounds after them are 1 to 7, and the
+correctness items they turned up are closed. What is still open:
+- **The pins revisit** - after this release, at the owner's word.
+- **A JR across 4000h on the 8088's plain interpreter** lands with the wrong
+  DS (REALDMG-SPEC 3.1). Priced and LEFT: 3-6% of every game there for
+  Looney Tunes' two JRs, which every machine with the recompiler runs right.
+- **A save state with cartridge RAM past the window as a heat source**, and
+  **a 286 speed figure with the 100% cap lifted** (W4's two not built).
+- **A cartridge whose code runs from WRAM** is interpreted (W3's GBRMW
+  finding). No real game measured does; HRAM's routines are precompiled.
+- **The next speed round** starts from a fresh profile of the owner's
+  Looney Tunes replay.
+
+Moved off this plan: **the kern_mega arm** (20.14) is built on the
+kern_mega memory branch by the session doing that rework, which keeps
+merging this work in; it is not in this release.
+
 ## The shape that was built, and why it is not the study's
 
 The study proposed a new code generator: emitted assembly, direct jumps and
@@ -41,9 +60,9 @@ shape changed:
   starts, with no play.
   - Measured: Super Mario Land 99.88% of busy execution found, Kirby's Dream
     Land 100%, Looney Tunes 2.17% missed -> 0.30% with the table rule.
-- [ ] The RAM idioms: the OAM DMA routine translated ahead of time behind a
-  guard. Today HRAM is interpreted in mode 3 (REALDMG-SPEC 20.5): 3 busy
-  instructions a frame on both games measured.
+- [x] The RAM idioms: HRAM's routines translated ahead of time behind a
+  guard (REALDMG-SPEC 20.5) - built after W4, below; what was taken for the
+  OAM DMA routine was Looney Tunes' `LD (DE),A / RET` thunk.
 
 ### W1 - the host translator and its proof
 
@@ -60,7 +79,7 @@ shape changed:
   |---|---|---|---|---|
   | Super Mario Land | 1,874 (25 dropped) | 178 KB, 20.9 B/instr | core + 3 | identical to the interpreter, 3,000 frames |
   | Kirby's Dream Land | 2,900 (251 dropped) | 227 KB, 18.2 | core + 4 | identical to the interpreter, 3,000 frames |
-  | Looney Tunes (.gb, 128 KB) | 3,757 (304) | 358 KB, 19.5 | core + 6 | identical to the dynamic recompiler, 3,000 frames; to the interpreter until its own bug at frame 1178 (REALDMG-SPEC 20.7) |
+  | Looney Tunes (.gb, 128 KB) | 3,757 (304) | 358 KB, 19.5 | core + 6 | identical to the dynamic recompiler, 3,000 frames; to the interpreter until frame 1178, the interpreter's own seam defect - fixed since (REALDMG-SPEC 3.1), and identical to it now |
   | Looney Tunes (.gbc, 1 MB) | 4,186 (463) | 387 KB, 19.1 | core + 8 | the same |
 - [ ] Speed with the CPU alone. MOVED to W3, where it is measured in the
   package on 86Box's `286-victory`: the bare harness has no room for a
@@ -75,14 +94,13 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
 - [x] The table: 64 KB -> 16 KB plus a sorted list the miss path searches,
   and every exit linked on the host (REALDMG-SPEC 20.9). No block is
   dropped; the four games are still identical for 3,000 frames.
-- [ ] The cut's exit: carry on into the next block's entry, with no exit at
-  all, when it is translated next.
-- [ ] The resume through a CONTINUATION (study 4.3).
-- [ ] Decide: does Looney Tunes fit at full speed on XMS? If not, the
-  compact grade. MOVED to W3: it is decided by the heap the package really
-  has on the machine, which W3 measures.
-- Measured and LEFT: the cut's exits are ~256 (SML) to ~398 (Kirby) blocks,
-  5-8 KB of code - the continuation is worth less than the measurement.
+- NOT TAKEN: the cut's exit carried on into the next block with no exit,
+  and the resume through a CONTINUATION (study 4.3). Measured: the cut's
+  exits are ~256 (SML) to ~398 (Kirby) blocks, 5-8 KB of code - worth less
+  than the measurement.
+- [x] Decide: does Looney Tunes fit at full speed? Decided in W3 on the
+  Victory: 2 of 8 images beside 10 slots, 100%, and the hot images hold
+  all but 1-10% of the play (round 6) - so no compact grade.
 
 ### W3 - `GAME.O88`
 
@@ -100,7 +118,7 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
     C8xx: 9 frames a second against the recompiler's 29). Real games keep
     only HRAM's OAM routine there; W0's RAM idiom is the answer if one
     does not.
-- [ ] The miss log: MOVED to W4, beside the counters it is one of.
+- [x] The miss log: built in W4, beside the counters it is one of.
 - [x] Measured on `286-victory` (86Box, holding Right in play, 30 s) and a
   640 KB 8088 (MartyPC):
 
@@ -132,9 +150,9 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   added as block starts.
 - [x] `make gbaotbundle` (REALDMG-SPEC 20.12): the window, the tools and
   the prebuilt binaries; needs Python and Unicorn only.
-- [ ] Not built: the RAM idiom (W0), a state with cartridge RAM as a heat
-  source, and a 286 speed figure with the 100% cap lifted (both packages
-  already hold the Game Boy's own speed on the Victory).
+- [ ] Not built: a state with cartridge RAM as a heat source, and a 286
+  speed figure with the 100% cap lifted (both packages already hold the
+  Game Boy's own speed on the Victory). The RAM idiom is built (W0).
 
 ### After W4 - the field and the merge
 
@@ -147,9 +165,9 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
 - [x] Merged with the kern_mega RealDMG work: the shipped REALDMG.O88 and its
   kern_mega arm are byte-identical to elendilon's; the precompiled gates
   pass on the merged core.
-- [ ] kern_mega's arm (REALDMG-SPEC 20.14): today it refuses there, cleanly.
-- [ ] kern_mega's arm is ON HOLD at the owner's word until the mega memory
-  rework lands; it and that rework are both "how kern_mega does memory".
+- MOVED: kern_mega's arm (REALDMG-SPEC 20.14) is built on the kern_mega
+  memory branch, with that rework, by the session doing it; not in this
+  release. Here it refuses there, cleanly.
 - [x] Speed, round 1 (86Box `286-victory`, 580K heap, Looney Tunes (GBC)
   holding Right through the stretch at 20-38 s that saturates both arms;
   `tests/rdgcore/rdgwin.py --profile` now charges samples to the
@@ -217,7 +235,8 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   checks (~1.5%) and denser image code (~60% of block bytes are outside
   templates, ~4% to win). The survey precompiled 21 of 23 cartridges;
   on the way it found the DYNAMIC recompiler diverging from the
-  interpreter on Pokemon Gold (frame 2) and Yellow (frame 4), still open.
+  interpreter on Pokemon Gold (frame 2) and Yellow (frame 4) - the NOP
+  delay's timing, CLOSED in round 5.
 - [x] Speed, round 4 - round 2's flag round trip and round 3's three
   measured leftovers, all in the translator and so in both arms
   (REALDMG-SPEC 16.1.3, 16.1.4). A countdown loop closing its own block
@@ -232,9 +251,10 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   interpreter under a timer interrupt landing at their JR. Two things the
   rounds found that are NOT this work's: both Looney Tunes, Donkey Kong
   Land and Pokemon Red part from the interpreter at frames 1178, 1178, 5
-  and 2 at the tree before this round as well (the NOP-delay timing, 20.6,
-  the likeliest reading), so the cross-check here is against the tree
-  before rather than the interpreter.
+  and 2 at the tree before this round as well, so the cross-check here is
+  against the tree before rather than the interpreter. Since read: Looney
+  Tunes' is the seam (fixed, REALDMG-SPEC 3.1), the other two the NOP
+  delay's timing (20.6).
 - [x] Speed, round 5 - the copy through (C), `cpc_ff` (REALDMG-SPEC
   16.6): `LD A,(HL+) / LD (C),A / INC C / DEC B` and its reverse, RAM to
   HRAM and back, in one step when the whole copy fits before the next
@@ -283,3 +303,14 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   decline at most ~7 passes a frame (Wario Land's fills, Donkey Kong
   Land's compare countdowns), under 1% anywhere; the gate ROM's 17,000
   declines were its own timer's.
+- [x] Correctness: Prehistorik Man and the JRs across the bank seam
+  (REALDMG-SPEC 3.1, 20.2). Prehistorik Man was the HARNESS's: its frame
+  ran until a VBlank, and the game keeps the LCD off waiting for every
+  button to be let go, which the script's held Right never does - a frame's
+  time is a frame with the LCD off now, and it is identical to the
+  interpreter in both arms (so is the bad Super Mario Bros. Deluxe dump,
+  with the NOP delay's check out). The seam: a JR at 3FFF is the trap and
+  `seam_jr` runs it whole; a JR across 4000h from either side is put right
+  by `tr_int` on the dynamic recompiler and by `tr_ejf` itself on a
+  precompiled one, which round 6 had got wrong. Left on the 8088's plain
+  interpreter, priced: 3-6% of every game for Looney Tunes' two JRs.
