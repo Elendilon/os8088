@@ -238,16 +238,22 @@ def boot_leg(bad):
     return report(bad)
 
 
-def mega_leg(bad, blank, boot):
-    """THE SAME THREE LEGS ON kern_mega (tests/megaport.txt): Bochs is a 386
-    whose BIOS knows its ATA disk - this row's pairing exactly - so the disk
-    is handed to the Bochs shim as its C: (`--mount hd:0:`, 16 heads of 63
-    sectors) instead of to a QEMU. The fixture, the SYSTEM.CFG and every
-    assertion are the QEMU legs'; what differs is the kernel's files
-    (megak/) and that a driver segment is a SELECTOR, read through m.lin."""
+def marty_leg(bad, blank, boot):
+    """THE SAME THREE LEGS THROUGH os88marty's API, on a 286 or better whose
+    BIOS knows an ATA disk - this row's pairing exactly - with the disk
+    handed over as its C: (`--mount hd:0:`, 16 heads of 63 sectors) instead
+    of to a QEMU. kern_mega (tests/megaport.txt): Bochs's 386, the kernel's
+    files out of megak/, and a driver segment a SELECTOR, read through m.lin.
+    kern_big ($OS88_EMU=86box, tests/box86port.txt): 86Box's mr286 - MR BIOS
+    286, the disk on its ISA IDE as an identified type 47 - the shipped
+    kernel, and the driver read where os88geom.drv_base says (the HMA's on a
+    286 as on QEMU's 386). The fixture, the SYSTEM.CFG and every assertion
+    are the QEMU legs'."""
     import os88marty as M
+    mega = bool(os.environ.get("OS88_MEGA"))
     tmp = tempfile.mkdtemp(dir=os.path.join(ROOT, "build"))
-    mk = os.path.join(os.environ.get("OS88_MEGA_BUILD") or "build", "megak")
+    mk = os.path.join(os.environ.get("OS88_MEGA_BUILD") or "build", "megak") \
+        if mega else os.path.dirname(os88build.at("build/kernel.sys"))
     try:
         cfg = os.path.join(tmp, "SYSTEM.CFG")
         open(cfg, "wb").write(b"O88CFG\0\0" + (3).to_bytes(2, "little")
@@ -287,7 +293,8 @@ def mega_leg(bad, blank, boot):
                             cfg, "SYSTEM.CFG"], check=True,
                            capture_output=True)
         with M.launch(sysimg, apps=os88build.at("build/apps.img"),
-                      machine="os8088_xt_hdd", boot=False,
+                      machine="os8088_xt_hdd" if mega else
+                      "at286_vga_hdd", boot=False,
                       extra=["--mount", "hd:0:" + hdimg]) as m:
             m.run()
             M.kernel_up(m)
@@ -350,7 +357,9 @@ def mega_leg(bad, blank, boot):
                 bad.append("HDD.DRV is not loaded - SYSTEM.CFG's bit 1 was "
                            "not read, and this tests nothing")
                 return report(bad)
-            base = m.lin(seg(), 0)      # a selector: org-0 offsets from it
+            # kern_mega: a selector, org-0 offsets from it; kern_big: a
+            # segment, in the HMA on a 286 as on QEMU's 386 (2.10.8)
+            base = m.lin(seg(), 0) if mega else geom.drv_base(seg())
             nd = m.read(base + syms["hd_ndev"], 1)[0]
             rows = [m.read(base + syms["hd_devs"] + i * HDD_SIZE, HDD_SIZE)
                     for i in range(nd)]
@@ -386,8 +395,9 @@ def mega_leg(bad, blank, boot):
 def main():
     blank = "--blank" in sys.argv[1:]
     bad = []
-    if os.environ.get("OS88_MEGA"):
-        return mega_leg(bad, blank, "--boot" in sys.argv[1:])
+    import os88marty
+    if os.environ.get("OS88_MEGA") or os88marty.emulator() != "marty":
+        return marty_leg(bad, blank, "--boot" in sys.argv[1:])
     if "--boot" in sys.argv[1:]:
         return boot_leg(bad)
     # -DHDTOOL_KB and every other define off the Makefile's own recipe, and

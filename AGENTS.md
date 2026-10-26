@@ -1215,6 +1215,11 @@ docs/TESTING.md is the authority on which emulator to reach for, and its
 opening currently argues MartyPC first — so expect it to disagree with the
 paragraph above.
 
+**Entries 1, 2, 4, 5 and 6 also run on 86Box, on the row's own kernel and
+disks** (`OS88_EMU=86box`, registered as `box-<row>` in
+`tests/box86port.txt`; docs/86BOX.md, *kern_big rows on 86Box*): a period
+BIOS rather than SeaBIOS, and still no timing.
+
 Four traps not written down elsewhere:
 
 - **Never hand `/dev/null` to nasm as `-o` or `-l`.** A failed assembly

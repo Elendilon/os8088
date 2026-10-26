@@ -18393,22 +18393,31 @@ SOAK = [
 
 
 # =============================================================================
-# THE kern_mega PORTS (tests/megaport.txt): MartyPC rows run on the
-# protected-mode kernel under Bochs, through tools/os88megabochs.py. A port
-# is the SAME script with OS88_MEGA=1 in its environment, which makes
-# os88marty.launch answer a Bochs on build/mega.img + build/megaapps.img, so a
-# port is a line in that file and not a second copy of the row.
+# THE PORTS: a registered row run SOMEWHERE ELSE, as a line in a file rather
+# than a second copy of the row. One parser (_ports), two lists:
+#
+#   tests/megaport.txt   mega-<row>: the row on kern_mega - OS88_MEGA=1, so
+#                        os88marty.launch answers a Bochs (os88megabochs) or,
+#                        with OS88_MEGA_EMU=86box, an 86Box (os88mega86box) on
+#                        build/mega.img + build/megaapps.img
+#   tests/box86port.txt  box-<row>: the row on ITS OWN KERNEL AND DISKS under
+#                        86Box - OS88_EMU=86box, so os88marty.launch answers
+#                        tools/os88box86api.py, and tests/os88qemu.py's
+#                        launchers its QMP server over the same machine: the
+#                        hardware MartyPC has not got (CLAUDE.md's QEMU closed
+#                        list) on a period BIOS (docs/86BOX.md "kern_big rows on 86Box")
 # =============================================================================
 
-MEGAPORT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "megaport.txt")
+HERE_ = os.path.dirname(os.path.abspath(__file__))
+MEGAPORT = os.path.join(HERE_, "megaport.txt")
+BOX86PORT = os.path.join(HERE_, "box86port.txt")
 MEGA_WANTS = ("build/mega.img", "build/megaapps.img",
               "build/megak/kernel.map",
               "build/megarun.o88")    # os88bochs.Box stages it on every boot
 
 
-def _mega_ports(base):
-    """mega-<name> for every line of tests/megaport.txt. A line is
+def _ports(base, path, prefix, env0, wants0, what):
+    """PREFIX + <name> for every line of PATH. A line is
 
         name[@alias] [secs=N] [timeout=N] [@VAR=VAL ...] [NAME=VAL ...]
              [+arg ...] [-arg ...]   # why
@@ -18416,18 +18425,22 @@ def _mega_ports(base):
     `+arg` appends an argument to the base row's command and `-arg` removes
     one (with the value after it when written `-arg=`, i.e. `-machine=`
     drops `--machine X`). An upper-case `NAME=VAL` is put in the row's
-    environment beside OS88_MEGA=1 (`OS88_BOCHS_MOUSE=serial`,
-    `OS88_BOCHS_NE2K=1` - tools/os88bochs.py's knobs). `OS88_MEGA_EMU=86box`
-    among them puts the port on 86Box instead of Bochs (tools/os88mega86box.py)
-    and makes the row need "86box". A NAME written `ROW@ALIAS` or
-    `ROW/VARIANT` registers the same base row a SECOND time as
-    mega-ROW-ALIAS: one line per machine (`tmselfsu` at 1MB and
-    `tmselfsu@16m` at 16MB; `deskzoom/86box`, its Hercules leg on 86Box
-    beside the Bochs port's VGA one - docs/86BOX.md)."""
+    environment beside ENV0 (`OS88_BOCHS_MOUSE=serial`, `OS88_BOCHS_NE2K=1`
+    - tools/os88bochs.py's knobs; `OS88_86BOX_POKE=...` - the poker). A NAME
+    written `ROW@ALIAS` or `ROW/VARIANT` registers the same base row a
+    SECOND time as PREFIX + ROW-ALIAS: one line per machine (`tmselfsu` at
+    1MB and `tmselfsu@16m` at 16MB; `deskzoom/86box`, its Hercules leg on
+    86Box beside the Bochs port's VGA one - docs/86BOX.md).
+
+    THE EMULATOR a port runs on - and so what it `needs` - is 86Box for
+    every box86port.txt line and for a megaport.txt line carrying
+    `OS88_MEGA_EMU=86box` (which needs no X display, so the runner gives it
+    none), Bochs for every other megaport.txt line. The base row's `marty`,
+    `qemu` and `qemu9` needs are dropped: the port runs on neither."""
     by = {r.name: r for r in base}
     out = []
     try:
-        lines = open(MEGAPORT).read().splitlines()
+        lines = open(path).read().splitlines()
     except OSError:
         return out
     for ln in lines:
@@ -18437,11 +18450,12 @@ def _mega_ports(base):
         why = ln.split("#", 1)[1].strip() if "#" in ln else ""
         name, opts = body[0], body[1:]
         # `ROW@ALIAS` / `ROW/VARIANT`: a SECOND port of one row, registered
-        # as mega-ROW-ALIAS
+        # as PREFIX + ROW-ALIAS
         name, _, alias = name.replace("/", "@").partition("@")
         r = by.get(name)
         if r is None:
-            raise SystemExit("tests/megaport.txt: no soak row %r" % name)
+            raise SystemExit("%s: no soak row %r" % (os.path.relpath(
+                path, os.path.dirname(HERE_)), name))
         cmd, secs, tmo, env = list(r.cmd), None, None, []
         for o in opts:
             if o.startswith("@"):           # @NAME=VAL: the row's environment
@@ -18462,19 +18476,19 @@ def _mega_ports(base):
             elif o.startswith("-"):
                 if o[1:] in cmd:
                     cmd.remove(o[1:])
-        # THE EMULATOR the port runs on: Bochs, or 86Box with
-        # `OS88_MEGA_EMU=86box` (tools/os88mega86box.py) - which needs no X
-        # display, so the runner gives it none
-        emu = "86box" if any(e.lower() == "os88_mega_emu=86box"
-                             for e in env) else "bochs"
+        emu = "86box" if any(e.lower() in ("os88_mega_emu=86box",
+                                           "os88_emu=86box")
+                             for e in env0 + env) else "bochs"
         needs = tuple(n for n in r.needs if n not in ("marty", "qemu",
                                                       "qemu9")) + (emu,)
-        out.append(Row("mega-" + name + ("-" + alias if alias else ""),
+        out.append(Row(prefix + name + ("-" + alias if alias else ""),
                        "soak",
-                       ["env", "OS88_MEGA=1"] + env + cmd,
+                       ["env"] + list(env0) + env + cmd,
                        secs or max(60.0, r.secs * 2.0),
-                       "%s ON kern_mega (tests/megaport.txt): %s%s"
-                       % (name, why + " - " if why else "", r.why),
+                       "%s ON %s (%s): %s%s"
+                       % (name, what, os.path.relpath(
+                           path, os.path.dirname(HERE_)),
+                          why + " - " if why else "", r.why),
                        needs=needs, timeout=tmo,
                        # THE EMULATOR LANE, as the base row is: without it a
                        # port is a HOST-side row and fans out over -j, so
@@ -18484,11 +18498,27 @@ def _mega_ports(base):
                        # fixture server the base row's does
                        locks=r.locks,
                        wants=tuple(dict.fromkeys(tuple(r.wants) +
-                                                 MEGA_WANTS))))
+                                                 tuple(wants0)))))
     return out
 
 
-SOAK += _mega_ports(FAST + FULL + SOAK)   # (a few soak-tier rows sit in the FAST list)
+def _mega_ports(base):
+    """mega-<name> for every line of tests/megaport.txt (_ports)."""
+    return _ports(base, MEGAPORT, "mega-", ["OS88_MEGA=1"], MEGA_WANTS,
+                  "kern_mega")
+
+
+def _box86_ports(base):
+    """box-<name> for every line of tests/box86port.txt (_ports): the row's
+    own kernel - kern_big, or kern_small where the line puts
+    @OS88_BUILD=build/smallk @OS88_DEFINES=KERN_SMALL in its environment -
+    and its own disks, on 86Box."""
+    return _ports(base, BOX86PORT, "box-", ["OS88_EMU=86box"], (),
+                  "86Box")
+
+
+_PORTED_FROM = FAST + FULL + SOAK   # (a few soak-tier rows sit in the FAST list)
+SOAK += _mega_ports(_PORTED_FROM) + _box86_ports(_PORTED_FROM)
 
 
 def rows():

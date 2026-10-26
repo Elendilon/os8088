@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """QEMU's QMP socket, answered by a kern_mega machine - Bochs, or 86Box with
-$OS88_MEGA_EMU=86box (tools/os88megabochs.py, tools/os88mega86box.py).
+$OS88_MEGA_EMU=86box (tools/os88megabochs.py, tools/os88mega86box.py) - or
+by a kern_big or kern_small machine on 86Box with $OS88_EMU=86box
+(tools/os88box86api.py; docs/86BOX.md "kern_big rows on 86Box").
 
 Not a row: the layer the NETWORK rows' kern_mega arms stand on
 (docs/BOCHS.md, "Rows ported from MartyPC"; tests/megaport.txt's
@@ -15,6 +17,13 @@ its slirp (os88megabochs.launch's `_ne2k`, the host at 10.0.2.2 as QEMU's
 one of those clients runs as it stands.
 
     srv = os88qmpmega.Server(sock, pidfile, a_img, b_img)
+
+UNDER $OS88_EMU=86box WITHOUT $OS88_MEGA it is the row's OWN kernel and
+disks on 86Box (os88box86api.launch): nothing is twinned or swapped, and the
+machine is an AT (the mr286, `at286`) with a VGA, because what these rows
+were written against is QEMU's - a fast AT - and the NE2000 they want is a
+16-bit card. `ps2=True` (make_test's MOUSEPORT=ps2) is vm/386-ps2's
+Packard Bell and its PS/2 mouse instead.
 
 UNDER $OS88_MEGA_EMU=86box the machine is an 86Box instead
 (tools/os88mega86box.py, docs/86BOX.md "kern_mega rows on 86Box") - a VGA,
@@ -85,7 +94,8 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 MEGA = bool(os.environ.get("OS88_MEGA"))
-BOX86 = os.environ.get("OS88_MEGA_EMU") == "86box"
+BOX86 = os.environ.get("OS88_MEGA_EMU") == "86box" or \
+    (os.environ.get("OS88_EMU") or "").lower() == "86box"
 _LIVE = []                  # every Server this process started, newest last
 
 # QEMU qcode -> X keysym (what HMP's sendkey and input-send-event name)
@@ -307,7 +317,7 @@ class Server(object):
     """A kern_mega Bochs, and a QMP socket at `sock` that drives it."""
 
     def __init__(self, sock, pidfile, a, b, hd=None, ne2k=True, cfg=None,
-                 label=None, megs=None, sb=False, ne2k_io=None):
+                 label=None, megs=None, sb=False, ne2k_io=None, ps2=False):
         import os88mouse
         self.closed = False
         self.sock, self.pidfile = sock, pidfile
@@ -316,20 +326,31 @@ class Server(object):
         self.twinned = self.a_img != a
         machine = ("_ne2k" if ne2k else "") + ("_hdd" if hd else "") + \
             ("_sb" if sb else "")
-        if BOX86:                       # QEMU's VGA (86Box's own default
+        if BOX86 and not MEGA:          # kern_big's: a QEMU-shaped AT, or
+            machine = ("at386_vga_ps2" if ps2 else  # the PS/2 machine
+                       "at286_vga") + machine
+            cfg = "keep"                # the row's own disk, as it is
+        elif BOX86:                     # QEMU's VGA (86Box's own default
             machine = "xt_vga" + machine    # is MartyPC's, a CGA)
         if cfg is None and self.twinned and _has_cfg(self.a_img):
             cfg = "keep"                # the fixture's SYSTEM.CFG stands
         # THE BACKEND: Bochs, or under $OS88_MEGA_EMU=86box an 86Box
-        # (tools/os88mega86box.py) - the same launch arguments either way
+        # (tools/os88mega86box.py), or kern_big's 86Box (os88box86api) -
+        # the same launch arguments every way
         self.box86 = BOX86
-        if BOX86:
+        if BOX86 and not MEGA:
+            import os88box86api as backend
+        elif BOX86:
             import os88mega86box as backend
         else:
             import os88megabochs as backend
+        # (kern_big's floppies TURBO: the rows were written against QEMU's,
+        # which load a package in no time - paced at an AT's real speed a
+        # 60KB browser was still coming off the disk when the row looked)
+        kw = {"turbo": True} if BOX86 and not MEGA else {}
         self.m = backend.launch(self.a_img, b, machine=machine,
                                 boot=True, cfg=cfg, label=label,
-                                megs=megs, cimg=hd, ne2k_io=ne2k_io)
+                                megs=megs, cimg=hd, ne2k_io=ne2k_io, **kw)
         self.mo = os88mouse.Mouse(marty=self.m)
         if BOX86:
             # PACED, AS QEMU AND BOCHS ARE: a QMP row times its own input on

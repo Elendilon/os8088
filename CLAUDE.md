@@ -1592,6 +1592,11 @@ Entries 4 to 7 share the only shape that gets on this list easily —
 **MartyPC has not got the hardware at all**, so there is no "prefer MartyPC"
 to weigh. 1–3 are the harder kind.
 
+**Entries 1, 2, 4, 5 and 6 also run on 86Box, on the row's own kernel and
+disks** (`OS88_EMU=86box`, registered as `box-<row>` in
+`tests/box86port.txt`; docs/86BOX.md, *kern_big rows on 86Box*): a period
+BIOS rather than SeaBIOS, and still no timing.
+
 **VGA IS NOT ON THIS LIST.** MartyPC models a register-level VGA and
 `os8088_xt_vga` (with `_vga_mda`, `_vga_herc`, `_vga_sb`, `_vga_hdd`) boots
 it: mode 12h desktops, and the unchained 320x240 "Mode X" too, rendered

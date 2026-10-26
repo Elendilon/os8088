@@ -4296,6 +4296,21 @@ def apps_disk(path):
                         "megaapps.img")
 
 
+def emulator():
+    """THE EMULATOR `launch` answers with: "86box" under $OS88_EMU=86box (or,
+    for kern_mega, $OS88_MEGA_EMU=86box), "bochs" under $OS88_MEGA otherwise
+    (kern_mega's first shim), else "marty". A row that must know which
+    machine it is on asks this rather than reading the variables itself."""
+    e = (os.environ.get("OS88_EMU") or "").lower()
+    if e not in ("", "marty", "martypc", "86box"):
+        raise MartyError("$OS88_EMU=%s: the emulators a row can be handed to "
+                         "are martypc (the default) and 86box" % e)
+    if e == "86box" or (os.environ.get("OS88_MEGA") and (os.environ.get(
+            "OS88_MEGA_EMU") or "").lower() == "86box"):
+        return "86box"
+    return "bochs" if os.environ.get("OS88_MEGA") else "marty"
+
+
 def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
            run_dir=None, boot=True, timeout=DEFAULT_TIMEOUT, extra=(),
            card=None, label=None, detach=False, rom=None):
@@ -4354,13 +4369,22 @@ def launch(image, apps=None, machine="os8088_5150_cga", addr=None,
 
     # $OS88_MEGA: the same row on kern_mega, under Bochs - every request
     # this module makes is answered by tools/os88megabochs.py instead
-    # ...or under 86Box, with $OS88_MEGA_EMU=86box: the hardware Bochs has
-    # not got - a CGA, a Hercules, two cards, a real-time Sound Blaster
-    # (tools/os88mega86box.py, docs/86BOX.md)
-    if os.environ.get("OS88_MEGA") and \
-            os.environ.get("OS88_MEGA_EMU", "").lower() == "86box":
+    # ...or under 86Box, with $OS88_MEGA_EMU=86box (or $OS88_EMU=86box): the
+    # hardware Bochs has not got - a CGA, a Hercules, two cards, a real-time
+    # Sound Blaster (tools/os88mega86box.py, docs/86BOX.md)
+    emu = emulator()
+    if os.environ.get("OS88_MEGA") and emu == "86box":
         import os88mega86box
         return os88mega86box.launch(image, apps=apps, machine=machine,
+                                   boot=boot, label=label, extra=extra,
+                                   run_dir=run_dir)
+    # $OS88_EMU=86box without $OS88_MEGA: the SAME row, its own kernel and its
+    # own disks, on 86Box - the machines MartyPC has not got: a 286 or a 386,
+    # an AT's clock chip, a PS/2 mouse, a network card (tools/os88box86api.py,
+    # docs/86BOX.md "kern_big rows on 86Box")
+    if emu == "86box" and not os.environ.get("OS88_MEGA"):
+        import os88box86api
+        return os88box86api.launch(image, apps=apps, machine=machine,
                                    boot=boot, label=label, extra=extra,
                                    run_dir=run_dir)
     if os.environ.get("OS88_MEGA"):

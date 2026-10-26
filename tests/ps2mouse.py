@@ -269,21 +269,40 @@ def main():
     return 0
 
 
-def main_mega():
-    """THE SAME QUESTIONS ON kern_mega (tests/megaport.txt), under Bochs:
-    its machine has the PS/2 mouse (`mouse: type=ps2`) and a real 8042, so
-    every assertion above is asked of kern_mega's handshake as it is of
-    kern_big's under QEMU - through os88marty's API (tools/os88megabochs.py)
-    instead of QMP. The pointer's exact landing is os88mouse's closed loop,
-    which is the same statement about the sign and the Y inversion: every
-    packet's delta is what Bochs made of an X motion, and the guest's
-    published mouse_x/y is what has to agree."""
-    import os88megabochs
+def _launch_marty():
+    """The machine main_marty asks its questions of, PAUSED at power-on.
+    kern_mega: Bochs, whose `mouse: type=ps2` and real 8042 are the PS/2
+    half and `noserial` the `-serial none`. kern_big on 86Box
+    ($OS88_EMU=86box, tests/box86port.txt): vm/386-ps2's Packard Bell
+    Legend 300SX - the one machine in vm/ whose 8042 has an aux port - with
+    its PS/2 mouse and NO serial mouse (os88box86api's `_ps2`), a VGA, and
+    the shipped 1.44MB pair as QEMU boots them. Its COM ports are there with
+    nothing on them, so the serial probe finds no mouse and `mou_bases`
+    still reads 0000 0000."""
+    import os88marty
+    if os.environ.get("OS88_MEGA"):
+        import os88megabochs
+        return os88megabochs.launch("build/os8088.img", apps="build/apps.img",
+                                    boot=False, noserial=True)
+    return os88marty.launch("build/os8088.img", apps="build/apps.img",
+                            machine="at386_vga_ps2", boot=False)
+
+
+def main_marty():
+    """THE SAME QUESTIONS THROUGH os88marty's API, on a machine with an 8042
+    (_launch_marty): kern_mega under Bochs (tests/megaport.txt) and kern_big
+    under 86Box (tests/box86port.txt). Every assertion above is asked of the
+    kernel's handshake as it is under QEMU - through the test API instead of
+    QMP. The pointer's exact landing is os88mouse's closed loop, which is the
+    same statement about the sign and the Y inversion: every packet's delta
+    is what the emulator made of a host motion, and the guest's published
+    mouse_x/y is what has to agree."""
     import os88marty
     import os88mouse
+    kern = "kern_mega" if os.environ.get("OS88_MEGA") else \
+        "kern_big, " + os88marty.emulator()
     fails = []
-    with os88megabochs.launch("build/os8088.img", apps="build/apps.img",
-                               boot=False, noserial=True) as m:
+    with _launch_marty() as m:
         m.run()
         os88marty.until(m, lambda _: byte(m, "mou_p2st") == 9,
                         "[mou_p2st] = 9", guest=90.0)
@@ -366,11 +385,13 @@ def main_mega():
         for f in fails:
             print("ps2mouse: FAIL " + f)
         return 1
-    print("ps2mouse: ok (kern_mega) - p2st 9, port 04, line FF, pointer exact "
+    print("ps2mouse: ok (%s) - p2st 9, port 04, line FF, pointer exact "
           "on %d,%d, %d bar cells exact, keyboard intact"
-          % (TARGET_X, TARGET_Y, nbar))
+          % (kern, TARGET_X, TARGET_Y, nbar))
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main_mega() if os.environ.get("OS88_MEGA") else main())
+    import os88marty
+    sys.exit(main_marty() if os.environ.get("OS88_MEGA")
+             or os88marty.emulator() != "marty" else main())

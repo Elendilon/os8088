@@ -116,8 +116,9 @@ def kill(pidfile=None, sock=None, wait=1.0):
     """
     if pidfile is None:
         pidfile, sock = PIDFILE, (SOCK if sock is None else sock)
-    if MEGA:                            # a kern_mega Bochs: closed by its
-        import os88qmpmega             # server, which puts the disks back
+    if SERVED:                          # a kern_mega Bochs or an 86Box:
+        import os88qmpmega             # closed by its server, which puts
+                                        # the disks back
         for srv in list(os88qmpmega._LIVE):
             if srv.pidfile == pidfile and not srv.closed:
                 srv.close()
@@ -445,7 +446,7 @@ def poke(hmp, linear, data):
     out. Raises on any answer but OK - a write that did not happen must not
     read as a test of what it would have done.
     """
-    if MEGA:                            # the Bochs shim WRITES memory
+    if SERVED:                          # the Bochs/86Box shim WRITES memory
         import os88qmpmega
         os88qmpmega.live().m.write(linear, bytes(data))
         return
@@ -1045,11 +1046,12 @@ def make_test(*knobs, copy=True, extra=()):
         if kv.get("ETHDUMP"):
             cmd += ["-object", "filter-dump,id=fdump,netdev=n0,file=%s"
                     % os.path.abspath(kv["ETHDUMP"])]
-    if MEGA:
-        # KERN_MEGA UNDER BOCHS: the same socket answered by
-        # tests/os88qmpmega.py, an NE2000 on Bochs's slirp for ETHER=
+    if SERVED:
+        # KERN_MEGA UNDER BOCHS, or ANY KERNEL UNDER 86Box ($OS88_EMU=86box):
+        # the same socket answered by tests/os88qmpmega.py, an NE2000 on the
+        # emulator's slirp for ETHER=, the PS/2 mouse for MOUSEPORT=ps2
         return _mega(sock, pidfile, a, b, hd, d, ether=bool(kv.get("ETHER")),
-                     sb=bool(kv.get("SB16")))
+                     sb=bool(kv.get("SB16")), ps2=mp == "ps2")
     own(pidfile, sock)
     subprocess.run(cmd + list(extra), cwd=ROOT, check=True,
                    stdout=subprocess.DEVNULL)
@@ -1070,6 +1072,11 @@ def make_test(*knobs, copy=True, extra=()):
 # Off kern_mega each is what the row computed before.
 # -----------------------------------------------------------------------------
 MEGA = bool(os.environ.get("OS88_MEGA"))
+# ...and SERVED is MEGA or a kern_big/kern_small row handed to 86Box
+# ($OS88_EMU=86box, tools/os88box86api.py): the launchers start the same
+# QMP server over it. `lin`, `drv_base` and `mega_twin` stay MEGA's alone -
+# a real-mode kernel's segment is `seg << 4` whatever runs it
+SERVED = MEGA or (os.environ.get("OS88_EMU") or "").lower() == "86box"
 
 
 def lin(seg, off=0):
@@ -1097,10 +1104,10 @@ def mega_twin(img):
     return os88qmpmega.mega_twin(img)
 
 
-def _mega(sock, pidfile, a, b, hd, d, ether=True, sb=False):
+def _mega(sock, pidfile, a, b, hd, d, ether=True, sb=False, ps2=False):
     import os88qmpmega
     srv = os88qmpmega.Server(sock, pidfile, a, b, hd=hd, ne2k=ether,
-                              sb=sb)
+                              sb=sb, ps2=ps2)
     _point(sock, pidfile)
     inst = Instance(sock, pidfile, None, a, b, hd, d)
     inst.server = srv

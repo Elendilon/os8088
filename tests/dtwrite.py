@@ -118,8 +118,17 @@ with M.launch("build/os8088-360.img", apps="build/apps360.img",
 
     def rtc():
         c = chip()
+        yy = bcd(c[9])
+        year = bcd(c[0x32]) * 100 + yy
+        # A STALE CENTURY BYTE composes a year that does not exist here:
+        # 86Box's mr286 keeps the 19 its BIOS defaulted to while the chip
+        # follows the host to 26, and kernel/clock.inc's clk_yr_join windows
+        # the two digits for exactly that case - so the chip is read the way
+        # the kernel reads it (and the close's write puts 20 back)
+        if not 1980 <= year <= 2099:
+            year = (1900 if yy >= 80 else 2000) + yy
         return dict(min=bcd(c[2]), hour=bcd(c[4]), day=bcd(c[7]),
-                    mon=bcd(c[8]), year=bcd(c[0x32]) * 100 + bcd(c[9]))
+                    mon=bcd(c[8]), year=year)
     k0 = kclock() if chip else None
     if chip:
         # THE YEAR, not the default month: Bochs's MC146818 RACES while the
