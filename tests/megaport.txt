@@ -100,3 +100,7 @@ heapscrl secs=150   # the Task Manager arm's memory page list scrolls: bar survi
 gifdrag secs=200   # the field's freeze recipe (memory page open, OS8088.GIF in Paint, eight drags): every stack slice and task 0 stay under 80% and the guest keeps retiring instructions (Bochs ptime)
 rehomeabort secs=60   # a re-homed program refusing itself leaves no window, no instance, the heap's free runs AND kern_mega's pool blocks exactly as before the launch
 pkgmove-texpad secs=50 @OS88_BOCHS_MEGS=1   # on the 1MB kern_mega (no pool): TeXPad's declared source claim MOVES in a posted compaction - its selector rebased, the word naming it live, its bytes and the window's picture identical
+deskcalremind secs=150   # reminders ring on card 3, the clock set through clk_*; its 22 cell breakpoints past Bochs's linear slots take physical ones
+deskclock secs=120   # the Desk Clock desk window, its faces, settings, alarm, and its relaunch after a reset (a power cycle under Bochs)
+stikboot secs=40   # a Sticky App comes back at boot; stikrestore360.img rebuilt on mega.img (tests/megafix.py)
+stikmenu secs=90   # Locator's Sticky Apps menu (STIKMENU.DRV, whose image is a selector here)

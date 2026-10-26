@@ -528,10 +528,30 @@ class BochsMarty(om.Marty):
             self._do(cmds) if cmds else None
             self._bps = {}
             if want:
+                # BOCHS HAS A FIXED NUMBER OF LINEAR BREAKPOINT SLOTS ("no
+                # more linear breakpoint slots left"), and a trace on every
+                # drawing cell (deskcalperf's 21 and a tone) is past it - the
+                # rest silently never fired. Paging is off, so a PHYSICAL
+                # breakpoint is the same address from a pool of its own:
+                # what `lb` refused goes to `pb`, and what neither took is an
+                # error rather than a trace that quietly sees nothing
+                pat = (r"^\s*(\d+) [lp]breakpoint\s+keep y\s+"
+                       r"0x([0-9a-f]+)")
                 t = self._do(["lb 0x%x" % a for a in want] + ["blist"])
-                for m in re.finditer(r"^\s*(\d+) lbreakpoint\s+keep y\s+"
-                                     r"0x([0-9a-f]+)", t, re.M):
+                got = {int(m.group(2), 16)
+                       for m in re.finditer(pat, t, re.M)}
+                rest = [a for a in want if a not in got]
+                if rest:
+                    t = self._do(["pb 0x%x" % a for a in rest] + ["blist"])
+                for m in re.finditer(pat, t, re.M):
                     self._bps[int(m.group(1))] = int(m.group(2), 16)
+                miss = set(want) - set(self._bps.values())
+                if miss:
+                    raise om.MartyError(
+                        "os88bochsmarty: Bochs has no breakpoint slot left "
+                        "for %d of %d addresses (%s)" % (
+                            len(miss), len(want),
+                            " ".join("%x" % a for a in sorted(miss)[:8])))
             if was == "running":
                 self._resume()
         return {"count": len(want)}

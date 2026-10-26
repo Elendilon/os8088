@@ -101,7 +101,7 @@ class Menu:
         """STIKMENU.DRV's linear base, 0 when it is not held."""
         seg = struct.unpack("<H", bytes(self.m.read(
             self.ui._S("mod_tab") + self.mod * MODR_SIZE, 2)))[0]
-        return seg << 4
+        return _lin(self.m, seg) if seg else 0
 
     def rd(self, name, n):
         return bytes(self.m.read(self.base() + self.off[name], n))
@@ -192,13 +192,20 @@ def entries(menu):
     return out
 
 
+def _lin(m, seg, off=0):
+    """SEG:OFF linear - an LDT selector's base under kern_mega, where a heap
+    claim and a module image are selectors (os88bochsmarty)"""
+    f = getattr(m, "lin", None)
+    return f(seg, off) if f else (seg << 4) + off
+
+
 def stik_rows(m, ui):
     """The desktop table's Sticky App rows, by path."""
     sseg = ui._word("sc_seg")
     n = ui._byte("sc_nrows")
     out = []
     for k in range(n):
-        r = os88stik.parse_row(bytes(m.read((sseg << 4) + k * os88stik.SC_REC,
+        r = os88stik.parse_row(bytes(m.read(_lin(m, sseg, k * os88stik.SC_REC),
                                             os88stik.SC_REC)))
         if r["stik"] and r["vol"] != 0xFF:      # 0xFF: a free row
             out.append(r)
@@ -229,7 +236,8 @@ def paging(tmp):
     panel up."""
     import subprocess
     img = os.path.join(tmp, "paging.img")
-    shutil.copy(os.path.join(BDIR, "os8088-360.img"), img)
+    shutil.copy(os88marty.system_disk(os.path.join(BDIR, "os8088-360.img")),
+                img)
     env = dict(os.environ, MTOOLS_SKIP_CHECK="1")
     for k in range(6):
         f = os.path.join(tmp, "PAGE%d.O88" % k)
@@ -268,7 +276,8 @@ def paging(tmp):
 def main():
     tmp = tempfile.mkdtemp(prefix="stikmenu-")
     img = os.path.join(tmp, "stikmenu.img")
-    shutil.copy(os.path.join(BDIR, "os8088-360.img"), img)
+    shutil.copy(os88marty.system_disk(os.path.join(BDIR, "os8088-360.img")),
+                img)
     try:
         with os88marty.launch(img, machine=os88marty.machine(
                 "os8088_xt_vga", None), boot=True) as m:
