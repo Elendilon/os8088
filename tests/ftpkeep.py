@@ -143,8 +143,11 @@ def boot():
 
 
 def launch(m, mo, pkg):
+    # EVERY PAUSE HERE IS THE GUEST'S (ftpd.gpace, os88qemu.ui_done): they
+    # were host sleeps, which a loaded box gave the guest less of
+    # (docs/plans/SOAK-PARALLEL.md 17.9)
     def settle(mm, card=None):
-        time.sleep(2.0)
+        os88qemu.ui_done(mm, S, cap=2.0)
     dispcp.open_drive(m, mo, S, settle, "C")
     wins = dispcp.win_list(m, S)
     wx, wy = dispcp.win_rect(m, S, wins[-1])[:2]
@@ -156,13 +159,13 @@ def launch(m, mo, pkg):
     else:
         raise RuntimeError("%s never opened a window" % pkg)
     mo.click(*fd.start_btn(fx, fy))
-    time.sleep(1.5)
+    fd.gpace(1.5)
     for _ in range(30):
         try:
             f = fd.connect()
             break
         except (OSError, ftplib.all_errors):
-            time.sleep(1.0)
+            fd.gpace(1.0)
     else:
         raise RuntimeError("nothing answered on port 21")
     f.login("os8088", "os8088")
@@ -175,7 +178,7 @@ def leg(pkg, data, fails):
         f = launch(m, mo, pkg)
         w0 = wr_ops(m)
         f.storbinary("STOR UP.DAT", io.BytesIO(data))
-        time.sleep(1.5)                     # the 226 is sent after the close
+        fd.gpace(1.5)                       # the 226 is sent after the close
         w1 = wr_ops(m)
         back = fd.retr(f, "UP.DAT")
         if back != data:
@@ -185,10 +188,11 @@ def leg(pkg, data, fails):
             f.quit()
         except Exception:
             pass
-        time.sleep(1.0)
+        fd.gpace(1.0)
     finally:
         m.quit()
-        time.sleep(1.0)
+        time.sleep(1.0)                     # HOST: QEMU exiting, the image
+                                            # flushed for the host's read
     got, size = fat_read(HDIMG, b"UP      DAT")
     if got != data:
         fails.append("%s: the HOST reads UP.DAT as %r bytes, not the %d stored"
@@ -212,16 +216,13 @@ def cut(data, fails):
         w0 = wr_ops(m)[1]
         th = threading.Thread(target=lambda: _stor_quietly(f, data), daemon=True)
         th.start()
-        end = time.time() + 120
-        while time.time() < end:
-            if wr_ops(m)[1] - w0 >= 1200 * 1024:
-                break
-            time.sleep(0.05)
-        else:
+        if not os88qemu.acted(m, lambda: wr_ops(m)[1] - w0 >= 1200 * 1024,
+                              secs=120.0, what="1.2 MB on the disk",
+                              poll=0.05):   # (GUEST seconds: it was 120 host)
             fails.append("cut: 1.2 MB never reached the disk")
     finally:
         m.quit()                            # THE POWER CUT
-        time.sleep(1.0)
+        time.sleep(1.0)                     # HOST: QEMU exiting (above)
     got, size = fat_read(HDIMG, b"UP      DAT")
     if got is None:
         fails.append("cut: UP.DAT is not on the disk at all")
@@ -263,7 +264,7 @@ def exact(data, fails):
         f.storbinary("STOR UP.DAT", io.BytesIO(data))
     finally:
         m.quit()                            # at the 226: nothing else ran
-        time.sleep(1.0)
+        time.sleep(1.0)                     # HOST: QEMU exiting (above)
     got, size = fat_read(HDIMG, b"UP      DAT")
     say("exact: %d bytes stored, %s on the disk at the 226"
         % (len(data), size))

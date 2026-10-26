@@ -220,7 +220,7 @@ class QH(object):
             open(rc, "w").write("nameserver 127.0.0.1\n")
             pre = ["unshare", "-m", "sh", "-c",
                    'mount --bind "$0" /etc/resolv.conf && exec "$@"', rc]
-        subprocess.run(
+        os88qemu.start(
             pre + ["qemu-system-i386", "-machine", "pc,vmport=off", "-m", "4",
              "-drive", "file=%s,format=raw,if=floppy" % sysimg,
              "-drive", "file=%s,format=raw,if=floppy,index=1" % bimg,
@@ -260,7 +260,19 @@ class QH(object):
         os88qemu.ui_done(self, xmcheck.sym, cap=cap)
 
     def click(self, x, y, cap=2.0):
-        self.mouse("click", x, y)
+        """CLOSED LOOP (os88qemu.mouse_click: every move and both edges
+        confirmed on mouse_x/mouse_btn), where it was tools/mouse.py's
+        dead reckoning - which a starved guest took somewhere else
+        (docs/plans/SOAK-PARALLEL.md 17.5's httpmountname, whose
+        double-click xmcheck.goto already fixed; this is the single click
+        beside it). tools/mouse.py stays the fallback for a kernel this
+        process cannot resolve."""
+        try:
+            os88qemu.mouse_click(self, xmcheck.sym, self.hmp, x, y)
+        except os88qemu.GuestStopped:
+            raise
+        except Exception:                   # noqa: BLE001 - no map: reckon
+            self.mouse("click", x, y)
         self.done(cap)
 
     def need(self, cond, what, secs=30):

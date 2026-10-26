@@ -163,6 +163,70 @@ def _zombie(pid):
         return False
 
 
+class QemuRefused(RuntimeError):
+    """QEMU exited before it ran - its own words, and who holds the file."""
+
+
+def _holders(text):
+    """Every OTHER live qemu-system process whose command line names a file
+    QEMU's lock message names: `pid N: <its -drive words>`."""
+    import re
+    paths = set(re.findall(r"\[([^\]]+)\]", text))
+    out = []
+    for d in os.listdir("/proc"):
+        if not d.isdigit() or int(d) == os.getpid():
+            continue
+        try:
+            argv = open("/proc/%s/cmdline" % d, "rb").read().split(b"\0")
+        except OSError:
+            continue
+        argv = [x.decode("latin-1") for x in argv if x]
+        if not argv or "qemu-system" not in os.path.basename(argv[0]):
+            continue
+        hit = [x for x in argv for p in paths
+               if p in x or os.path.basename(p) in x]
+        if hit:                         # (its pidfile names the row's dir)
+            pf = argv[argv.index("-pidfile") + 1] if "-pidfile" in argv[:-1] \
+                else "?"
+            out.append("pid %s (pidfile %s): %s"
+                       % (d, pf, " ".join(sorted(set(hit)))))
+    return out
+
+
+def start(cmd, **kw):
+    """Launch QEMU (`subprocess.run(cmd, **kw)`, a list or a shell string)
+    and, when it exits non-zero, RAISE ITS OWN WORDS - QemuRefused with
+    QEMU's stderr and, for an image lock, every other QEMU naming that file.
+
+    A launch that died ~0.3 s in used to reach a row as `exit 1` and a
+    CalledProcessError: `wheelps2` and `vmmouse` in a four-lane pass, booting
+    build/os8088.img snapshot=on while another row's QEMU held it WRITABLE.
+    QEMU refuses even a read-only open then - `Failed to get shared "write"
+    lock` - and a row that cannot say whose lock it was is a row somebody
+    re-runs alone, watches pass, and files as contention
+    (docs/plans/SOAK-PARALLEL.md 17.10)."""
+    import subprocess
+    kw.setdefault("cwd", ROOT)
+    kw.pop("check", None)
+    kw["stderr"] = subprocess.PIPE
+    r = subprocess.run(cmd, **kw)
+    if r.returncode:
+        err = r.stderr.decode("latin-1", "replace") if isinstance(
+            r.stderr, bytes) else (r.stderr or "")
+        msg = "QEMU exited %d before it ran: %s" % (
+            r.returncode, err.strip() or "(nothing on stderr)")
+        if "lock" in err:
+            who = _holders(err)
+            msg += ("\n  held by: " + "; ".join(who)) if who else \
+                "\n  (no other QEMU names the file now - it has since exited)"
+        sys.stderr.write(msg + "\n")
+        raise QemuRefused(msg)
+    if r.stderr:                        # (a warning: still the row's to see)
+        sys.stderr.write(r.stderr.decode("latin-1", "replace")
+                         if isinstance(r.stderr, bytes) else r.stderr)
+    return r
+
+
 def own(pidfile=None, sock=None):
     """Kill at exit whatever this script has just LAUNCHED.
 
@@ -213,7 +277,8 @@ def own(pidfile=None, sock=None):
 # arrives, and wants generous room), never a pause that something else is
 # assumed to have finished inside - that shape failed five rows at eight
 # emulators on four cores. And a row whose ANSWER is the guest's speed
-# against this clock is a host rate, and runs alone.
+# against this clock was a host rate, and ran alone - until `icount()`
+# below, which takes that one class of row off the host's clock.
 #
 # `m` is any object with `read(linear, n)` - tests/ethernet.py's `Qemu`,
 # tests/telansi.py's, tests/trkscrl.py's `Qmp`: each opens QMP per command.
@@ -222,6 +287,55 @@ BIOS_TICKS = 0x46C
 TICK_HZ = 18.2065
 STALL = 30.0            # HOST seconds of a clock that does not move = stopped
 JUMP = 256              # a step bigger than this was SET, not counted
+
+
+
+# -----------------------------------------------------------------------------
+# A FIXED MACHINE, for a row whose answer is the guest's SPEED against its own
+# clock (docs/plans/SOAK-PARALLEL.md 17.8). `-icount shift=N` makes every
+# guest instruction cost 2^N ns of VIRTUAL time, and QEMU's PIT, the BIOS
+# tick, the SB16's DMA and the wav audiodev all run on that virtual clock -
+# so a bench timed on the 8253 counts INSTRUCTIONS, and a host that starves
+# the emulator stretches the wall time and moves no answer. `align=off`
+# lets it run as fast as the host can rather than pacing virtual time to
+# real; `sleep=on` keeps an IDLE guest (hlt) on real time, which is what a
+# disk transfer or a throttled drive waiting on the host needs - with
+# `sleep=off` virtual time warps to the next timer while the host is still
+# doing the I/O, and a BIOS timeout can fire on a transfer that is merely
+# slow.
+#
+# THE SHIFT IS A ROW'S TRADE, and 4 (62.5 MIPS of guest) is the default
+# because xtmp3eng's ladder needs it: XTMP3's stub calibrates a configured
+# 1.00x at 0.98 and 4.00x at 3.72 there - the no-icount figures were 0.98
+# and 3.91 - where shift 6 read 0.93 and 3.08 and took slowdown's 1.05x
+# under 1.0, an underrun the leg forbids. Shift 4 costs xtmp3rate's seven
+# legs 295 s against 198 without icount. A guest that is I/O-DENSE pays
+# more: icount ends a TB at every I/O instruction, and vidbank's speaker
+# play (a PIT write a sample) ran ~20 host seconds a guest second at shift
+# 4, so that row asks for 6 (15.6 MIPS), where its verdicts still have
+# margins of 26x and 630x. Pick the largest shift whose margins hold.
+#
+# What it CHANGES, and why it is only for these rows: the cost model. TCG
+# with icount prices an instruction at 2^N ns whatever it does, so MMIO -
+# a VGA write, an I/O port - costs what a register move does, where without
+# it QEMU's device emulation is most of the host time (vidbank's key-1
+# bench reads 3.9 ms without icount and 0.12 ms at shift 4: the decode
+# writes A000). A row that is ABOUT host behaviour, or whose throttle
+# (`throttling.bps-total`, real time) is the rate being compared, wants it
+# off. OS88_QEMU_ICOUNT=0 is the A/B (no -icount), and =N forces a shift.
+# -----------------------------------------------------------------------------
+ICOUNT_SHIFT = 4
+
+
+def icount(shift=ICOUNT_SHIFT):
+    """QEMU arguments for a FIXED-SPEED guest (above), or none when
+    $OS88_QEMU_ICOUNT is 0; a number there is the shift."""
+    v = os.environ.get("OS88_QEMU_ICOUNT", "").strip()
+    if v == "0":
+        return []
+    if v:
+        shift = int(v)
+    return ["-icount", "shift=%d,align=off,sleep=on" % shift]
 
 
 class GuestStopped(RuntimeError):
@@ -807,7 +921,7 @@ class Private(object):
                     "-device", "ne2k_isa,netdev=n0,iobase=0x300,irq=3"]
         cmd += ["-display", "none", "-qmp", "unix:%s,server,nowait"
                 % self.sock, "-daemonize", "-pidfile", pidf] + list(extra)
-        subprocess.run(cmd, check=True)
+        start(cmd, check=True)
         self.pid = int(open(pidf).read().strip())
         atexit.register(self.close)
         for _ in range(150):
@@ -929,7 +1043,7 @@ def launch_test(tmp, sysimg="build/os8088.img", apps="build/apps.img",
         cmd += ["-audiodev", "none,id=devsnd", "-device",
                 "adlib,audiodev=devsnd"]
     own(pid, sock)
-    subprocess.run(cmd + list(extra), cwd=ROOT, check=True)
+    start(cmd + list(extra), cwd=ROOT, check=True)
     # ...and BY THE PID IT WROTE as well (vidxms.Q's lesson): a caller that
     # deletes `tmp` on its way out takes the pidfile own() would read
     atexit.register(_killpid, int(open(pid).read().strip()))
@@ -1126,7 +1240,7 @@ def make_test(*knobs, copy=True, extra=()):
             cmd += ["-object", "filter-dump,id=fdump,netdev=n0,file=%s"
                     % os.path.abspath(kv["ETHDUMP"])]
     own(pidfile, sock)
-    subprocess.run(cmd + list(extra), cwd=ROOT, check=True,
+    start(cmd + list(extra), cwd=ROOT, check=True,
                    stdout=subprocess.DEVNULL)
     pid = int(open(pidfile).read().strip())
     atexit.register(_killpid, pid)

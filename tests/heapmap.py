@@ -143,7 +143,7 @@ def launch(hdd_mb=32, hdd=True):
            " -audiodev none,id=snd -device sb16,audiodev=snd"
            " -netdev user,id=n0 -device ne2k_isa,netdev=n0,iobase=0x300,irq=3"
            % (IMG, os88build.at("build/apps.img"), hdarg, SOCK, PIDFILE))
-    subprocess.run(cmd, cwd=ROOT, shell=True, check=True)
+    os88qemu.start(cmd, cwd=ROOT, shell=True, check=True)
     # ...and it is DAEMONISED, so it outlives this script unless
     # somebody kills it - and the somebody is us (os88qemu).
     os88qemu.own(PIDFILE, SOCK)

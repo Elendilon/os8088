@@ -298,30 +298,91 @@ def dotted(b):
 
 
 class Mouse:
-    """tools/mouse.py, one process per action - QEMU's msmouse is 1200 baud
-    and the pacing inside that tool is what makes a drag or a click land."""
+    """The pointer, CLOSED LOOP when the kernel's words can be read
+    (os88qemu.mouse_to / mouse_button / mouse_dblclick: send the delta, wait
+    for `mouse_x`/`mouse_btn` to MOVE, repeat until it is there), with
+    tools/mouse.py, which DEAD-RECKONS, as the fallback for a kernel this
+    process cannot resolve. The guest pauses each verb took through
+    tools/mouse.py (0.15 s after an edge, 0.2 s inside a click, 0.4 s after
+    one) are kept, in GUEST seconds: only where the pointer lands changed.
+
+    It was tools/mouse.py for every gesture, one process per action, which
+    pins against the bottom-right clamp and walks back on paced moves - and
+    a guest starved past those pauses took the click somewhere else, or the
+    tool itself gave up: rltune's first `to 592 54` (drive A's zone) exited
+    1 in the 2026-10-25 soak and the row died in dispcp.open_drive. xmcheck's
+    `goto` made the same change for the xmcheck rows (docs/plans/
+    SOAK-PARALLEL.md 17.5); this is the other client, under ~twelve QEMU
+    rows (the browser's, ethcfg, ftpd, ftpkeep, lemmings, rltune...)."""
+
+    def _sock(self):
+        # read at CALL time: os88qemu.make_test re-points SOCK. A row with a
+        # socket of its own (tests/thewire.py) overrides this
+        return SOCK
+
+    def _m(self):
+        return os88qemu._Sock(self._sock())
+
+    def _hmp(self, *cmds):
+        import xmcheck
+        return xmcheck.qmp(self._sock(), *cmds)
+
+    def _closed(self, fn, *a):
+        """Run a closed-loop gesture; False (and nothing sent that matters)
+        when the kernel's pointer words cannot be read, so the caller
+        dead-reckons instead."""
+        try:
+            fn(self._m(), S, self._hmp, *a)
+            return True
+        except os88qemu.GuestStopped:
+            raise
+        except Exception:                   # noqa: BLE001 - no map, or the
+            return False                    # words did not move: dead-reckon
+
+    def _pace(self, secs):
+        os88qemu.pace(self._m(), secs)
+
+    def _tool(self, *args):
+        subprocess.run(["python3", "tools/mouse.py", self._sock()]
+                       + list(args), check=True, capture_output=True)
 
     def run(self, *args):
-        subprocess.run(["python3", "tools/mouse.py", SOCK] + list(args),
-                       check=True, capture_output=True)
+        verb, xy = args[0], tuple(int(v) for v in args[1:])
+        if verb == "to" and len(xy) == 2:
+            if self._closed(os88qemu.mouse_to, *xy):
+                return
+        elif verb in ("down", "up") and len(xy) in (0, 2):
+            if not xy or self._closed(os88qemu.mouse_to, *xy):
+                if self._closed(os88qemu.mouse_button,
+                                1 if verb == "down" else 0):
+                    self._pace(0.15)
+                    return
+        elif verb == "click" and len(xy) == 2:
+            if (self._closed(os88qemu.mouse_to, *xy)
+                    and self._closed(os88qemu.mouse_button, 1)):
+                self._pace(0.2)
+                if self._closed(os88qemu.mouse_button, 0):
+                    self._pace(0.2)
+                    return
+        self._tool(*args)
 
     def click(self, x, y):
         self.run("click", str(x), str(y))
-        gsleep(0.4)
+        self._pace(0.4)
 
     def dblclick(self, x, y):
         # TWO `click`s ARE NOT A DOUBLE-CLICK (CLAUDE.md): the detectors
-        # compare birth ticks in a 9-tick window and two processes are far too
-        # slow. Position, then both presses down one QMP connection. The
-        # spacing INSIDE the pair stays host time: it is well inside the
-        # window either way, and a tick-rounded one would eat into it.
-        self.run("to", str(x), str(y))
-        subprocess.run(["python3", "tools/qmp.py", SOCK,
-                        "mouse_button 1", "sleep 0.08", "mouse_button 0",
-                        "sleep 0.12",
-                        "mouse_button 1", "sleep 0.08", "mouse_button 0",
-                        "gsleep 0.4"],
-                       check=True, capture_output=True)
+        # compare birth ticks in a 9-tick window. mouse_dblclick sends the
+        # four edges in one burst, confirmed at the end (os88qemu's reason:
+        # four confirmed round trips on a loaded box outlast the window)
+        if not self._closed(os88qemu.mouse_dblclick, x, y):
+            self._tool("to", str(x), str(y))
+            subprocess.run(["python3", "tools/qmp.py", self._sock(),
+                            "mouse_button 1", "sleep 0.08", "mouse_button 0",
+                            "sleep 0.12",
+                            "mouse_button 1", "sleep 0.08", "mouse_button 0"],
+                           check=True, capture_output=True)
+        self._pace(0.4)
 
 
 def settle(m, card=None):
@@ -514,12 +575,14 @@ class Server(threading.Thread):
                         n = rng.randint(1, 257)
                         c.sendall(response[pos:pos + n])
                         pos += n
-                        if self.chunk_delay:
-                            time.sleep(self.chunk_delay)
+                        if self.chunk_delay:    # the SERVER's pacing, a
+                            time.sleep(self.chunk_delay)   # host thread: it
+                            # dribbles the bytes, and no assertion is timed
+                            # against it (docs/plans/SOAK-PARALLEL.md 17.9)
                 elif self.chunk_size > 0 and self.chunk_delay > 0:
                     for pos in range(0, len(response), self.chunk_size):
                         c.sendall(response[pos:pos + self.chunk_size])
-                        time.sleep(self.chunk_delay)
+                        time.sleep(self.chunk_delay)    # (the server's: above)
                 else:
                     c.sendall(response)
             except OSError:
@@ -1011,9 +1074,8 @@ def main():
         bstate = browser_state(m, pseg, browser_image_size)
         source_len = bstate["source_length"]
         if a.target_fixture:
-            deadline = time.time() + 10
-            while len(srv.requests) < 2 and time.time() < deadline:
-                time.sleep(0.1)
+            os88qemu.acted(m, lambda: len(srv.requests) >= 2, secs=10,
+                           what="HTTP request %s" % 2, poll=0.1)
             by_href = dict(zip(bstate["link_hrefs"], bstate["link_targets"]))
             say("target fixture links: %r" % list(zip(bstate["link_hrefs"],
                                                         bstate["link_targets"])))
@@ -1058,9 +1120,8 @@ def main():
                     fails.append("Tab did not reach the child BASE TARGET=_top link")
                 else:
                     m.key("Enter")
-                    deadline = time.time() + 15
-                    while len(srv.requests) < 3 and time.time() < deadline:
-                        time.sleep(0.1)
+                    os88qemu.acted(m, lambda: len(srv.requests) >= 3, secs=15,
+                                   what="HTTP request %s" % 3, poll=0.1)
                     if len(srv.requests) < 3:
                         state = m.readseg(pseg, browser_image_size + BR_NSTATE, 1)[0]
                         msgptr = u16(m.readseg(pseg, browser_image_size + BR_NMSG, 2))
@@ -1071,27 +1132,24 @@ def main():
                         fails.append("child BASE TARGET=_top fetched %r"
                                      % srv.requests[2].split(b"\r\n", 1)[0])
                     else:
-                        deadline = time.time() + 15
-                        while len(srv.requests) < 4 and time.time() < deadline:
-                            time.sleep(0.1)
+                        os88qemu.acted(m, lambda: len(srv.requests) >= 4, secs=15,
+                                       what="HTTP request %s" % 4, poll=0.1)
                         if len(srv.requests) < 4:
                             fails.append("_top frameset did not fetch its child")
                         elif not focus_link(2):
                             fails.append("Tab did not reach child TARGET=_self")
                         else:
                             m.key("Enter")
-                            deadline = time.time() + 15
-                            while len(srv.requests) < 5 and time.time() < deadline:
-                                time.sleep(0.1)
+                            os88qemu.acted(m, lambda: len(srv.requests) >= 5, secs=15,
+                                           what="HTTP request %s" % 5, poll=0.1)
                             if len(srv.requests) < 5:
                                 fails.append("single-frame TARGET=_self did not navigate")
                             elif srv.requests[4].split(b"\r\n", 1)[0] != b"GET /top.htm HTTP/1.0":
                                 fails.append("child TARGET=_self did not reload its frameset: %r"
                                              % srv.requests[4].split(b"\r\n", 1)[0])
                             else:
-                                deadline = time.time() + 15
-                                while len(srv.requests) < 6 and time.time() < deadline:
-                                    time.sleep(0.1)
+                                os88qemu.acted(m, lambda: len(srv.requests) >= 6, secs=15,
+                                               what="HTTP request %s" % 6, poll=0.1)
                                 if (len(srv.requests) < 6
                                         or srv.requests[5].split(b"\r\n", 1)[0]
                                         != b"GET /self.htm HTTP/1.0"):
@@ -1101,9 +1159,8 @@ def main():
                                     fails.append("Tab did not reach the matching named-frame target")
                                 else:
                                     m.key("Enter")
-                                    deadline = time.time() + 15
-                                    while len(srv.requests) < 8 and time.time() < deadline:
-                                        time.sleep(0.1)
+                                    os88qemu.acted(m, lambda: len(srv.requests) >= 8, secs=15,
+                                                   what="HTTP request %s" % 8, poll=0.1)
                                     if len(srv.requests) < 8:
                                         state = m.readseg(pseg, browser_image_size + BR_NSTATE, 1)[0]
                                         msgptr = u16(m.readseg(pseg, browser_image_size + BR_NMSG, 2))
@@ -1119,9 +1176,8 @@ def main():
                                         fails.append("Tab did not reach the unmatched named target")
                                     else:
                                         m.key("Enter")
-                                        deadline = time.time() + 15
-                                        while len(srv.requests) < 9 and time.time() < deadline:
-                                            time.sleep(0.1)
+                                        os88qemu.acted(m, lambda: len(srv.requests) >= 9, secs=15,
+                                                       what="HTTP request %s" % 9, poll=0.1)
                                         if (len(srv.requests) < 9
                                                 or srv.requests[8].split(b"\r\n", 1)[0]
                                                 != b"GET /missing.htm HTTP/1.0"):
@@ -1134,9 +1190,8 @@ def main():
                                                             [r.split(b"\r\n", 1)[0]
                                                              for r in srv.requests]))
         if a.multi_target_fixture:
-            deadline = time.time() + 15
-            while len(srv.requests) < 3 and time.time() < deadline:
-                time.sleep(0.1)
+            os88qemu.acted(m, lambda: len(srv.requests) >= 3, secs=15,
+                           what="HTTP request %s" % 3, poll=0.1)
             request_lines = [r.split(b"\r\n", 1)[0] for r in srv.requests]
             say("multi-target links: %r; frames: %r"
                 % (list(zip(bstate["link_hrefs"], bstate["link_targets"])),
@@ -1169,9 +1224,8 @@ def main():
                     fails.append("Tab did not skip both frame sources to the child link")
                 else:
                     m.key("Enter")
-                    deadline = time.time() + 20
-                    while len(srv.requests) < 6 and time.time() < deadline:
-                        time.sleep(0.1)
+                    os88qemu.acted(m, lambda: len(srv.requests) >= 6, secs=20,
+                                   what="HTTP request %s" % 6, poll=0.1)
                     request_lines = [r.split(b"\r\n", 1)[0] for r in srv.requests]
                     expected = [b"GET /eth.htm HTTP/1.0",
                                 b"GET /left.htm HTTP/1.0",
@@ -1356,14 +1410,12 @@ def main():
                     top = u16(m.readseg(pseg, browser_image_size
                                         + browser_offsets["br_top"], 2))
                     if a.frame_form_base_fixture:
-                        deadline = time.time() + 10
-                        while len(srv.requests) < 2 and time.time() < deadline:
-                            time.sleep(0.1)
+                        os88qemu.acted(m, lambda: len(srv.requests) >= 2, secs=10,
+                                       what="HTTP request %s" % 2, poll=0.1)
                     Mouse().click(cx + col * 8 + 3, cy + (row - top) * 8 + 3)
-                    deadline = time.time() + 15
                     expected_count = 4 if a.frame_form_base_fixture else 2
-                    while len(srv.requests) < expected_count and time.time() < deadline:
-                        time.sleep(0.1)
+                    os88qemu.acted(m, lambda: len(srv.requests) >= expected_count, secs=15,
+                                   what="HTTP request %s" % expected_count, poll=0.1)
                     if len(srv.requests) < expected_count:
                         fails.append("clicking submit did not issue a second request")
                     else:
@@ -1551,9 +1603,8 @@ def main():
                         if submitpos is None or not click_doc(submitpos + 1):
                             fails.append("password form submit button was not clickable")
                         else:
-                            deadline = time.time() + 15
-                            while len(srv.requests) < 2 and time.time() < deadline:
-                                time.sleep(0.1)
+                            os88qemu.acted(m, lambda: len(srv.requests) >= 2, secs=15,
+                                           what="HTTP request %s" % 2, poll=0.1)
                             if len(srv.requests) < 2:
                                 fails.append("password form did not issue its POST")
                             else:

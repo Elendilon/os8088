@@ -1783,12 +1783,13 @@ host's clock, and the fix is the row.
 | `excitebikeperf`, `-selfb`, `-perfherc`, `-selfbherc`, `pxsbench` | "A RATE, so it wants the machine to itself" | WRONG FLAG | the rate is MartyPC's cycle counter between frame marks, which no host load moves; nothing in them is host-timed. Shared the lane, passed at 8+ emulators on 4 cores |
 | `excitebikelap`, `-lapherc`, `-audiolap` | the same | TEST BUG | the reference rider's script is a 256-step ring the harness fed FROM THE BODY while the guest ran free, asserting it stayed ahead - about a host second of slack at MartyPC's 3.4x. The frame mark now STOPS and the feed runs there (a frame is at most `XB_STEPS_MAX` steps), so the ring is ahead by construction; the stop costs the guest no cycle |
 | `excitebikeaudiocap` | heard 3 of 4 engine tones in two parallel soaks | TEST BUG, already fixed | the capture is guest time (the debug server drains the speaker per emulated batch); the row had since stopped depending on the segmentation that moved. Shares the lane, passed under load |
-| `xtmp3eng` | `serial` | SPLIT | its RATE legs are `xtmp3rate`, ALONE: `ladder`, `slowdown` and `rungfail` (the stub's cost is spun on the PIT, so the verdict is guest CPU against QEMU's HOST clock: 1.05x has 5% headroom, and `rungfail`'s 4x Half calibrated at 0.87x under load), and the four that assert NO UNDERRUN on the SB16 (`playwav`, `pause`, `wavdirs`, `xtpeak` - the card drains its ring on the host's clock, and `playwav` underran under load). The other 21 legs are behaviour and share the lane. `xtmp3live` asserts no underrun too and stays in the lane on evidence: its decode has QEMU's whole headroom over an XT, and it never underran in four loaded runs - it is the row to move first if it ever does |
-| `vidbankspkbank`, `vidbankspkfast` | `serial` | LEGIT host rate | the player benches key 1's decode on the PIT, which without `-icount` is the host's clock; at eight emulators on four cores it timed nothing and muted. ALONE |
+| `xtmp3eng` | `serial` | SPLIT | its RATE legs are `xtmp3rate`, ALONE: `ladder`, `slowdown` and `rungfail` (the stub's cost is spun on the PIT, so the verdict is guest CPU against QEMU's HOST clock: 1.05x has 5% headroom, and `rungfail`'s 4x Half calibrated at 0.87x under load), and the four that assert NO UNDERRUN on the SB16 (`playwav`, `pause`, `wavdirs`, `xtpeak` - the card drains its ring on the host's clock, and `playwav` underran under load). The other 21 legs are behaviour and share the lane. **Since 17.8 `xtmp3rate` shares it too**, its legs on an instruction-counted clock (`-icount shift=4`). `xtmp3live` asserts no underrun too and stays in the lane on evidence: its decode has QEMU's whole headroom over an XT, and it never underran in four loaded runs - it is the row to move first if it ever does |
+| `vidbankspkbank`, `vidbankspkfast` | `serial` | LEGIT host rate | the player benches key 1's decode on the PIT, which without `-icount` is the host's clock; at eight emulators on four cores it timed nothing and muted. ALONE - **until 17.8**: `-icount shift=6`, and the lane |
 
-So **the one-at-a-time lane is four rows**: `buildmatrix` (~540 s),
+So **the one-at-a-time lane was four rows**: `buildmatrix` (~540 s),
 `xtmp3rate` (~250 s) and the two speaker benches (~50 s) - about 840 s where
-it was 3,866.
+it was 3,866. **Since 17.8 it is ONE**, `buildmatrix`, which runs itself at
+`-j4`: the three QEMU rate rows run on a fixed-speed guest and share the lane.
 
 ### 17.2 What made QEMU shareable: MartyPC's answer, one emulator along
 
@@ -1920,7 +1921,8 @@ step:
 * **A QEMU row's wall-clock timeout** (17.2).
 * **`xtmp3eng`'s rate legs and the vidbank speaker benches** are the
   honest kind: QEMU's guest clock is the host's, so a starved guest IS a
-  slower machine (17.1).
+  slower machine (17.1) - until `-icount` made the guest's clock its own
+  (17.8).
 
 **The lesson under all of these is QEMU's and not MartyPC's**, and
 `tests/os88qemu.py`'s clock note says it now: without `-icount` a QEMU tick
@@ -1957,23 +1959,174 @@ at roughly twice that oversubscription.
 
 ### 17.7 What is left
 
-* **`-icount` for the QEMU rate rows.** `xtmp3rate` and `vidbankspk*` are
-  alone because QEMU runs without it, and the experiment is cheap - a
-  `qemu-system-i386` wrapper on `$PATH` adding `-icount shift=N,sleep=on`.
-  Not done, because three things interact that each want measuring: icount's
-  own TCG cost, the SB16 and the wav audiodev running on the virtual clock,
-  and `throttling.bps-total` (vidlysplit's slow disk) staying on the REAL
-  one, which makes a disk rate against a CPU rate host-dependent again.
-  Estimate: half a day, and it would retire ~180 s of alone lane.
-* **`trkscrl`'s own QMP client** sends its one `sendkey` raw (it is the
-  only HMP client left that the confirmed path does not cover), and
-  `sendkey <keys> <hold>` with an explicit hold time is deliberately left
-  alone everywhere. Minutes.
-* **Host sleeps in the other QEMU rows.** `xtmp3eng` was the worst; a
-  `grep time.sleep` over the 45 private-launcher rows still finds pauses
-  that hand a starved guest less work. None failed in these runs. An
-  afternoon, by the `gpace` pattern.
+* ~~**`-icount` for the QEMU rate rows.**~~ DONE - 17.8. `xtmp3rate` and
+  `vidbankspk*` run on an instruction-counted clock and share the lane; the
+  one-at-a-time lane is `buildmatrix` alone.
+* ~~**`trkscrl`'s own QMP client**~~ DONE - 17.9: its one `sendkey` is the
+  confirmed press-then-release over its own connection. `sendkey <keys>
+  <hold>` with an explicit hold time is still deliberately left alone
+  everywhere.
+* ~~**Host sleeps in the other QEMU rows.**~~ DONE for every registered row
+  that had one doing a guest's job - 17.9 is the list, and what was LEFT
+  as a host sleep says why at the site.
+* ~~**A shared image booted writable.**~~ DONE - 17.10: `ps2mouse` and
+  `vesashut` held `build/os8088.img`/`apps.img` writable and locked every
+  other row out of them; every daemonised launch now raises QEMU's own
+  words and names the holder.
+* **`brdownload-length`** failed ONCE in the 2-lane pass of 17.9 (`completed
+  ETA display is b'http://10.0.2.2:8090/download-te'`), and passed seven
+  reruns (four under two hogs) and the 2-hog pass. It reads
+  `br_dl_disptxt`, a scratch buffer the Download Manager's ETA field and its
+  URL line (`br_dl_drawcut`) BOTH compose into, so the bytes are whichever
+  field painted last - a full repaint after the completion leaves the URL
+  there. The assertion wants the ETA field's own last text (or a repaint
+  that draws only it); not changed here.
+* **`vesagor`** failed once in the 2-hog pass - not one of the seven setup
+  Enters reached Gorillas (state 5 throughout) - and passed five reruns
+  under the same load. Not diagnosed; the setup page is now waited out
+  (`ui_done`) before the first Enter, which is a guess and not a finding.
 * **`excitebikeflow` / `excitebikeflowherc`** (MartyPC, ALREADY in the
   concurrent lane before this work) failed once each - `excitebikeflow` in
   the 2026-10-25 soak itself, `excitebikeflowherc` here (`Up flips the
   mode`). Not diagnosed.
+* **`ftpd.py`/`ftpkeep.py`** are unregistered (`t_registry`'s exemptions),
+  and each runs `make ftpdtest`/`ftpkeeptest` in the tree - ftpd.py deleting
+  and rebuilding `build/ether360.img`, a `wants=` of the browser rows - and
+  boots its images `copy=False`. Harmless by hand; not lane material.
+
+### 17.8 The rate rows on a fixed-speed guest: `-icount`
+
+`os88qemu.icount(shift)` is `-icount shift=N,align=off,sleep=on`. Every
+guest instruction costs 2^N ns of VIRTUAL time, and QEMU's PIT, the BIOS
+tick, the SB16's DMA and the wav audiodev all run on that clock, so a bench
+spun on the 8253 counts instructions, and a starved host stretches the wall
+time and moves no answer. `align=off` runs as fast as the host can;
+`sleep=on` keeps an IDLE guest (`hlt`) on real time, which a disk waiting
+on the host needs (with `sleep=off` virtual time warps to the next timer
+while the I/O is still in flight). `OS88_QEMU_ICOUNT=0` is the A/B and `=N`
+forces a shift. The two known catches were real and neither bit: the SB16
+DOES move to virtual time, which is the point - its ring drains in
+instructions, against the decoder's own - and the disk throttle stays on
+real time, where neither row's answer is a disk rate. `vidlysplit`'s
+slow-disk rows ARE about one, so they stay off icount, and must.
+
+**xtmp3eng's ladder, the same fixtures, the stub's measured speed a rung:**
+
+| arm | capable 4.00 | middling 1.00 / 2.00 / 4.00 | slower 0.60 / 1.00 / 2.00 | xt44 0.80 / 2.00 | xt 0.50 / 0.80 |
+|---|---|---|---|---|---|
+| no icount, idle box | 3.91 | 0.98 / 1.89 / 3.90 | 0.59 / 0.99 / 1.92 | 0.78 / 1.91 | 0.49 / 0.78 |
+| no icount, 2 CPU hogs | 3.39 | 0.94 / 1.83 / 3.37 | 0.50 / 0.83 / 1.71 | 0.78 / 1.73 | 0.47 / 0.76 |
+| shift 4, idle | 3.72 | 0.98 / 1.93 / 3.73 | 0.59 / 0.98 / 1.93 | 0.78 / 1.93 | 0.49 / 0.78 |
+| shift 4, 2 CPU hogs | 3.72 | 0.98 / 1.93 / 3.73 | 0.59 / 0.98 / 1.93 | 0.78 / 1.93 | 0.49 / 0.78 |
+| shift 6, idle | 3.08 | 0.93 / 1.75 / 3.12 | 0.57 / 0.93 / 1.75 | 0.75 / 1.75 | 0.48 / 0.75 |
+
+Without icount two hogs take 13% off the capable machine and 15% off the
+slower one's 0.60x - more than the 1.05x leg's 5% of headroom. With it the
+loaded figures are the idle ones TO THE DIGIT. The SHIFT is the trade: the
+stub's own work costs 2^N ns an instruction, so a larger shift is a slower
+guest under the configured rung, and at 6 a configured 1.05x reads under
+1.0 - the slowdown leg would underrun by construction. **Shift 4** (62.5
+MIPS) reads a configured 1.00x as 0.98, as the idle box did, and costs the
+seven legs **295 s against 198** idle; under two hogs (load to 12) **342,
+369, 347 and 327 s, every leg passing**, four passes of four.
+
+**vidbank's speaker benches take shift 6.** A speaker play is a PIT write a
+sample, icount ends a translation block at every I/O instruction, and at
+shift 4 the play ran ~20 host seconds a guest second (`30 frames`: 18 ticks
+in 20.6 s) - `spkbank` 80 to 217 s against 26 without icount. At 6 the bench
+reads 52 (520 us a decode; 12 at shift 4, and 266-387 without icount, whose
+cost there is MMIO the icount model makes nearly free) against yardsticks of
+1 and 65,535 - margins of 26x and 630x. `spkbank` 50-52 s and `spkfast`
+17-22 s under two hogs, every run green from the fix below on.
+
+**And it found the row's real flake, which was not the clock.** The first
+pass under hogs failed `spkbank` *from key 1 the bench timed nothing*. One
+`sendkey right` is TWO keystrokes at the player on QEMU (the extended key's
+E0 prefix; `tests/trkscrl.py` had measured arrows 2, every ASCII key 1), so
+the step to key 1 went 0 -> 2 and the step back 2 -> 0, and the loop reached
+key 1 only by reading it BETWEEN the two strokes - after which the second
+stroke moved the selection under the Play. Waited out properly it
+oscillated, 15 steps in one run. The keypad's 6 and 4 are the same scan
+codes with no prefix (NumLock off: the ROM's Right and Left) and step once.
+
+What icount CHANGES, and why it is these rows only: the cost model. An I/O
+or MMIO instruction costs what a register move does, where without icount
+QEMU's device emulation is most of the host time - so a bench's absolute
+number is a different machine's, and the verdicts survive because they are
+relative (rungs against each other, a decode against a yardstick). A row
+ABOUT host behaviour, or whose throttle is the rate it compares, cannot use
+it.
+
+### 17.9 The host sleeps, row by row
+
+Prioritised by the soaks' FAIL lines (`build/soak/*/run.log` in both
+checkouts - `vesafsx`, `rltune` and `brdownload*` had failed) and by the
+count of sleeps. Every one below waited in HOST time for GUEST work; on an
+idle box each conversion is the same wait, and on a loaded one it is the
+same amount of the machine.
+
+| row(s) | what it was | what it is |
+|---|---|---|
+| `rltune`, `brarena`, `brcapacity`, `brdownload*`, `ethcfg`, `lemmings`, `excitebikeg1`, `thewire`, ftpd.py, ftpkeep.py | `ethernet.Mouse`: tools/mouse.py per gesture, pin-and-walk on paced moves. `rltune` died in it in the 2026-10-25 soak (`to 592 54`, exit 1, in `dispcp.open_drive`) | closed loop on `mouse_x`/`mouse_btn` (`os88qemu.mouse_to`/`mouse_button`/`mouse_dblclick`), tools/mouse.py only where those words cannot be read; each verb's guest pauses kept, in guest seconds. `thewire`'s own copy of the dead-reckoned class is now this one on its socket |
+| the browser fixtures (`ethernet`) | twelve `while len(srv.requests) < N and time.time() < deadline` | `os88qemu.acted`: the deadline in guest seconds |
+| `vesafsx` (red 2026-10-25: Alt+Enter took no bracket), `vesapref`, `vesablit4`, `vesagor` | a 60 s host deadline on `vid_kind`, then `pace(12)` "for the autostart's load and first paint"; `pace(4)`/`pace(5)` around Alt+Enter and Esc | `vesa.desk_up`: `kernel_up`, `vid_kind`, the autostart's instance live, `ui_done`; `vesafsx` waits on `fsx_task` in and out and on the card's mode. Declared 90 s and running in 3-25, they are re-declared |
+| `rltune` | `until`: a host deadline | `acted` |
+| `thewire` | File > Refresh as down / `sleep 0.5` / to / `sleep 0.4` / up | each step waited on `menu_dropd`, then `menu_sel` |
+| `trkscrl` | `sendkey` raw over its one QMP connection (the last unconfirmed client); a dead `goto`/`click` on a host PACE | the press, the ROM's tail moving, the release - over that connection; the dead code deleted |
+| `netinst` | `sendkey` + `sleep 0.3`; `sleep 3` and a four-second HOST quiesce of C: across the Restart; `sleep 4` for the autostart | guest pauses and `os88qemu.quiesce` (the POST's tick re-set counts as one tick) |
+| `netcoexist` | `system_reset`, `sleep(1.0)`, then a desktop wait the OLD kernel's RAM could satisfy | `desk_rows`/`menu_nbar` zeroed (`os88qemu.poke`) before the reset, `kernel_up` after |
+| `httpmount`, `httpmountname` | `QH.click`: tools/mouse.py | `mouse_click` |
+| `lemmings` | `pace(8)` after the boot | `kernel_up` |
+| ftpd.py (unregistered) | 35 sleeps; a 200 x 0.4 s HOST poll for DHCP; a host window poll; a STOR-after-LIST timed in host seconds | `gpace`; DHCP after `kernel_up`, on guest seconds; the STOR timed in guest seconds (a starved guest is not a SYN backoff). 387 s, all assertions passing |
+| ftpkeep.py (unregistered) | host settles and pauses; a 120 s host deadline for 1.2 MB on the disk | `ui_done`, `gpace`, `acted`; all assertions passing |
+
+Left as host sleeps, each with its reason at the site: a SERVER's pacing
+(`ethernet`'s chunk delay, `brdownload`'s, `brnav`'s `_slow`, `netinstbad`'s
+hold); a socket or file appearing, a process exiting; `lemmings`' relative
+walk (the msmouse line's pacing - the chardev queues a step, none is lost);
+`vmmouse`'s drag (absolute positions: a step polled late is overtaken, not
+lost); `telansi`/`telzm`'s 0.3/0.6 s around a host listener; `hmahiber`'s
+`host_wait` (sectors QEMU has that the file does not yet). `vesabench` still
+polls its report on a 300 s host deadline: a bench, nothing in it failed.
+
+**The runs.** Two lanes, no hogs: the 22 converted rows, 21 green
+(`brdownload-length`, 17.7). Two lanes and two CPU hogs started and killed
+by PID, other agents' emulators beside them (load to 7.9): 28 rows - every
+converted one, 17.10's two victims and the three rate rows - 27 green
+(`vesagor`, 17.7).
+
+### 17.10 A shared image booted writable locks everyone else out
+
+In a four-lane pass `wheelps2` and `vmmouse` died ~0.3 s after launch,
+`exit 1`, and passed alone. Both boot the TREE's images `snapshot=on` -
+read-only - and QEMU refuses even that while ANOTHER QEMU holds the same
+file writable:
+
+    qemu-system-i386: Failed to get shared "write" lock
+    Is another process using the image [build/apps.img]?
+
+Two rows did: **`ps2mouse`** (full tier; `build/os8088.img` and `apps.img`,
+in place) and **`vesashut`** (`build/vesa.img` and `apps.img` - and the Shut
+Down it presses WRITES to them, so it was dirtying the tree's images too).
+Both boot `snapshot=on` now, on `os88qemu.paths()` sockets in place of fixed
+`build/*.sock`. Every other launcher was checked: `cdrom`, `vidxms` (and its
+`Q`'s callers), `p2hiber`, `redline`, `syscheck`, `vidspkat`, `hdtake`,
+`httpinstall`, `httpmount`, `colorpresets`, `fmtpair`, `heapmap`,
+`vesabench` and the xtmp3 rigs boot private copies or `snapshot=on`, and
+`make_test(copy=False)` has two callers, ftpd.py and ftpkeep.py, booting
+images they built themselves.
+
+**`os88qemu.start(cmd, ...)`** is `subprocess.run` for a daemonised QEMU
+that raises `QemuRefused` with QEMU's own stderr and, for a lock, every live
+QEMU whose command line names the file, with its pidfile - which names the
+row's own directory. All 24 daemonising files use it, and `t_qemuown`
+(fast) fails a file that daemonises any other way, mutation-tested.
+**The proof**: `wheelps2` and `vmmouse` started 1.5 s after a writer, all
+three at once:
+
+| writer | wheelps2 | vmmouse | what the victims said |
+|---|---|---|---|
+| `ps2mouse` as it was | exit 1 | exit 1 | `held by: pid 17501 (pidfile .../build/ps2.pid): file=build/apps.img,format=raw,if=floppy,index=1` |
+| `vesashut` as it was | exit 1 | exit 1 | the same shape, `build/apps.img` and `build/os8088.img` |
+| `ps2mouse` now, 3 rounds | ok x3 | ok x3 | |
+| `vesashut` now, 3 rounds | ok x3 | ok x3 | |

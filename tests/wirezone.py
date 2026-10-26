@@ -111,7 +111,7 @@ def launch(img, nic):
     em = "qemu" + "-system-i386"     # never whole on a command line: kill_stale
     card = (" -netdev user,id=n0 -device ne2k_isa,netdev=n0,iobase=0x300,irq=3"
             if nic else "")
-    subprocess.run(
+    os88qemu.start(
         em +
         " -drive file=%s,format=raw,if=floppy,snapshot=on -boot a"
         " -drive file=%s,format=raw,if=floppy,index=1,snapshot=on"

@@ -224,7 +224,7 @@ class Q(object):
         # leaves the emulator running (three were, the first day)
         atexit.register(self.close)
         signal.signal(signal.SIGTERM, lambda n, f: sys.exit(128 + n))
-        subprocess.run(cmd, check=True)
+        os88qemu.start(cmd, check=True)
         self.pidn = int(open(self.pid).read().strip())
         if keep:                # one QMP connection for the run (xmcheck.keep)
             xmcheck.keep(self.sock)

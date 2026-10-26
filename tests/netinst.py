@@ -39,7 +39,6 @@ import struct
 import subprocess
 import sys
 import tempfile
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [os.path.join(ROOT, "tests"), os.path.join(ROOT, "tools")]
@@ -89,8 +88,8 @@ def install_seg(q, before):
 
 
 def key(q, k):
-    q.hmp("sendkey %s" % k)
-    time.sleep(0.3)
+    q.hmp("sendkey %s" % k)         # (CONFIRMED: xmcheck.qmp, 17.5)
+    os88qemu.pace(q, 0.3)           # GUEST seconds, where it was the host's
 
 
 def fat16_dir(img, lba, path):
@@ -247,13 +246,14 @@ def main():
         key(q, "down")
         q.need(lambda: rd("in_chk") == 1, "the startup row", 20)
         key(q, "ret")                   # Restart: the link, then the reboot
-        time.sleep(3)
-        last, still = None, 0
-        while still < 4:
-            h = open(hd, "rb").read()
-            still = still + 1 if h == last else 0
-            last = h
-            time.sleep(1)
+        # THE DISK STILL, ON THE GUEST'S CLOCK: four readings a guest second
+        # apart, after three guest seconds - it was the same shape in host
+        # seconds, which a loaded box gave the guest less of (17.9). The
+        # reboot's POST re-sets the tick count, which os88qemu.Clock counts
+        # as one tick and not thousands
+        os88qemu.pace(q, 3.0)
+        os88qemu.quiesce(q, lambda: open(hd, "rb").read(), secs=1.0,
+                         stable=5, limit=120.0, what="C: after the Restart")
         q.close()
         q = None
         part = struct.unpack_from("<I", open(hd, "rb").read(512), 446 + 8)[0]
@@ -298,7 +298,7 @@ def main():
         for arg, expect in (("CHECK", False), (None, True)):
             n0 = len(log.gets())
             q = machine(tmp, hd, gate, os88lnk.make("INSTALL.O88", arg=arg))
-            time.sleep(4)
+            os88qemu.pace(q, 4.0)       # (the autostart's: GUEST seconds)
             q.done(4.0)
             got = install_seg(q, set())[0] is not None
             asked = [g for g in log.gets()[n0:] if g.endswith("OS88VER.TXT")]

@@ -100,7 +100,7 @@ class Q(object):
                "-daemonize", "-pidfile", self.pid]
         atexit.register(self.close)
         signal.signal(signal.SIGTERM, lambda n, f: sys.exit(128 + n))
-        subprocess.run(cmd, check=True)
+        os88qemu.start(cmd, check=True)
         os88qemu.own(self.pid, self.sock)   # (and by the PID it wrote,
         self.pidn = int(open(self.pid).read().strip())  # below: `tmp`
                                         # goes before atexit, and the

@@ -156,6 +156,19 @@ def pkgsym(name, stub=True):
 # GUEST seconds now (os88qemu.pace), on whichever rig is up
 _RIG = [None]
 
+# THE RATE LEGS run on a FIXED-SPEED guest (os88qemu.icount, docs/plans/
+# SOAK-PARALLEL.md 17.8). ladder, slowdown and rungfail calibrate the
+# stub's rung on the 8253, and the four that assert NO UNDERRUN race the
+# SB16's DMA - without -icount both clocks are the HOST's, so a starved
+# guest was a slower machine (1.05x has five per cent of headroom; it
+# stepped down twice at eight emulators on four cores). Under -icount the
+# PIT, the card and the guest's work all count instructions, so the answer
+# is the same at any load and the row shares the lane. The other legs are
+# behaviour and keep QEMU's default clock.
+RATE_LEGS = ("ladder", "slowdown", "rungfail", "playwav", "pause",
+             "wavdirs", "xtpeak")
+_ICOUNT = [False]
+
 
 def gpace(secs):
     r = _RIG[0]
@@ -278,11 +291,13 @@ class Rig(object):
             a += ["-device", "sb16,audiodev=a0", "-audiodev",
                   "wav,id=a0,path=%s" % self.wav]
         a += self.extra
+        if _ICOUNT[0]:
+            a += os88qemu.icount()
         a += ["-boot", self.boot, "-chardev", "msmouse,id=m0", "-serial",
               "chardev:m0", "-display", "none", "-qmp",
               "unix:%s,server,nowait" % self.sock, "-daemonize",
               "-pidfile", self.pidf]
-        subprocess.run(a, check=True)
+        os88qemu.start(a, check=True)
         self.pid = int(open(self.pidf).read().strip())
         _RIG[0] = self                  # gpace paces on the rig that is up
         os88qemu.acted(self, lambda: os.path.exists(self.sock), secs=30,
@@ -2135,9 +2150,9 @@ LEGS = {"ladder": leg_ladder, "slowdown": leg_slowdown, "conv": leg_conv,
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--leg", action="append", choices=sorted(LEGS))
-    # ...and the complement: the soak runs the two RATE legs (ladder,
-    # slowdown) as a row of their own that has the box to itself, and every
-    # other leg in the shared lane (docs/plans/SOAK-PARALLEL.md 17.5)
+    # ...and the complement: the soak runs the RATE legs (RATE_LEGS) as a
+    # row of their own, xtmp3rate, on a fixed-speed guest, and every other
+    # leg as xtmp3eng (docs/plans/SOAK-PARALLEL.md 17.8)
     ap.add_argument("--skip", action="append", choices=sorted(LEGS),
                     default=[])
     a = ap.parse_args()
@@ -2149,7 +2164,9 @@ def main():
             sys.exit("xtmp3eng: no %s - make && make xtmp3stub "
                      "build/mixercfg/SYSTEM.CFG" % f)
     for name in [n for n in (a.leg or list(LEGS)) if n not in a.skip]:
-        print("xtmp3eng: %s" % name)
+        _ICOUNT[0] = name in RATE_LEGS
+        print("xtmp3eng: %s%s" % (name, " (-icount)" if _ICOUNT[0] and
+                                  os88qemu.icount() else ""))
         LEGS[name]()
     if bad:
         print("xtmp3eng: %d FAILED" % len(bad))

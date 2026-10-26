@@ -22,7 +22,6 @@ QEMU by name, vesa's reason.
 """
 import os
 import sys
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
@@ -33,7 +32,6 @@ import os88qemu                                             # noqa: E402
 import shot                                                 # noqa: E402
 import vesa                                                 # noqa: E402
 import vesafsx                                              # noqa: E402
-from os88geom import VID_VESA                               # noqa: E402
 import os88sym                                              # noqa: E402
 from pxsyms import instance                                 # noqa: E402
 import subprocess                                           # noqa: E402
@@ -116,12 +114,7 @@ def main():
     fails = []
     try:
         q_ = heapmap.Qmp(vesa.SOCK)
-        t0 = time.time()
-        while vesa.byte(q_, "vid_kind") != VID_VESA:
-            if time.time() - t0 > 60:
-                fails.append("the desktop never reached VID_VESA")
-                break
-            time.sleep(0.5)
+        vesa.desk_up(q_, fails, autostart=False)    # (guest clock: vesa.py)
         # --- Gorillas' instance, and its setup read off its own state ------
         # (not off the glass: the caret blinks, so a panel is never still,
         # and the splash and the first question are both a blue page - the
@@ -136,6 +129,14 @@ def main():
             raise SystemExit(0)
         B = lambda n: q_.read(seg * 16 + syms[n], 1)[0]            # noqa: E731
         os88qemu.acted(q_, lambda: B("gr_state") == 5, 60.0, "the setup page")
+        # ...and the UI FINISHED with the launch before the first Enter: in
+        # one pass at two lanes and two CPU hogs not one of the seven Enters
+        # reached the setup page (state 5 throughout, 145 s), and three
+        # reruns under the same load did not repeat it. NOT DIAGNOSED: the
+        # Enters went out the moment the page's state byte was written, and
+        # waiting for the UI to be idle first is the cheap half of a guess
+        # (docs/plans/SOAK-PARALLEL.md 17.9)
+        os88qemu.ui_done(q_, os88sym.linear, cap=5.0, what="the setup page")
         for i in range(7):                  # the seven questions, at their defaults
             q_.hmp("sendkey ret")
             os88qemu.acted(q_, lambda: B("gr_setupfield") > i or B("gr_state") == 6,
@@ -148,12 +149,14 @@ def main():
         # ...band by band, under a loaded host for longer than one pace: read
         # the field until the buildings are there, or 30 s have gone, and
         # judge what is on the glass then (the comb never satisfies this)
-        t0 = time.time()
+        # (30 GUEST seconds: it was the host's, which a loaded box gave
+        # the guest less of)
+        c = os88qemu.Clock(q_)
         while True:
             os88qemu.pace(q_, 3.0)
             sw, sh, pix = vesa.screendump(q_, os.path.join(ROOT, "build", "vesa-shot"))
             bw, bh, sky, run = field(pix, sw, sh)
-            if run >= 32 or time.time() - t0 > 30:
+            if run >= 32 or c.secs() > 30 or c.stalled():
                 break
         if out_png:
             shot.png(out_png, sw, sh, pix)

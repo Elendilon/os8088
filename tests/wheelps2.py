@@ -84,7 +84,7 @@ def launch():
     """ps2mouse.py's machine exactly: no UARTs, no VMware backdoor, so the
     PS/2 mouse is the only pointing device and wins the contest alone."""
     em = "qemu" + "-system-i386"     # never whole on a command line: kill_stale
-    subprocess.run(
+    os88qemu.start(
         em + " -machine pc,vmport=off"
         # SNAPSHOT: the shared images, booted without a write lock - the
         # guest's writes go to an overlay and nothing here reads a disk back

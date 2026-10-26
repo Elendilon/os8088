@@ -500,20 +500,22 @@ FAST = [
                                 "--leg", "slowdown", "--leg", "rungfail",
                                 "--leg", "playwav", "--leg", "pause",
                                 "--leg", "wavdirs", "--leg", "xtpeak"),
-        450.0,
-        "XTMP3's ladder and its mid-track slowdown (xtmp3eng's two RATE legs, "
+        370.0,
+        "XTMP3's ladder and its mid-track slowdown (xtmp3eng's RATE legs, "
         "SPEC.md 121.5): the stub's cost a rung is spun on the 8253, so the "
-        "verdict is the guest's CPU against the PIT - and QEMU runs without "
-        "-icount, so the PIT is the HOST's clock and a starved guest is a "
-        "slower machine. 1.05x has five per cent of headroom: on a box "
-        "running eight emulators on four cores it stepped down twice and "
-        "underran (docs/plans/SOAK-PARALLEL.md 17.5) - and rungfail, whose "
-        "4x Half calibrated at 0.87x there. And the four legs "
-        "that assert NO UNDERRUN on the SB16 (playwav, pause, wavdirs, "
-        "xtpeak): the card drains its ring on the host's clock, and playwav "
-        "underran twice at eight emulators on four cores. ALONE BECAUSE "
-        "THE ANSWER IS A HOST RATE; -icount is what would end that",
-        needs=("qemu", "nasm", "mtools", "numpy"), serial=True, alone=True,
+        "verdict is the guest's CPU against the PIT - and rungfail, and the "
+        "four legs that assert NO UNDERRUN on the SB16 (playwav, pause, "
+        "wavdirs, xtpeak), whose card drains its ring on the same clock. "
+        "Without -icount that clock was the HOST's, so a starved guest was a "
+        "slower machine: 1.05x has five per cent of headroom, it stepped "
+        "down twice at eight emulators on four cores, rungfail's 4x Half "
+        "calibrated at 0.87x and playwav underran (docs/plans/"
+        "SOAK-PARALLEL.md 17.5), and the row ran ALONE. These legs run "
+        "under -icount shift=4 now (os88qemu.icount, 17.8): the PIT, the "
+        "card and the guest's work all count instructions, so the answer is "
+        "the same at any load and the row shares the lane. "
+        "OS88_QEMU_ICOUNT=0 is the A/B",
+        needs=("qemu", "nasm", "mtools", "numpy"), serial=True,
         wants=("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
                "build/xtmp3.bin", "build/os8088.img",
                "build/mixercfg/SYSTEM.CFG", "build/mbr.bin",
@@ -554,8 +556,8 @@ FAST = [
         "given its title when idle (qagain), and a finished WAV in a third "
         "folder played to its last byte, then again through the cache "
         "(wavdirs). The ladder, the slowdown, rungfail and the four legs that assert "
-        "no underrun are xtmp3rate's, which has the box to itself; "
-        "everything here is behaviour and shares the lane",
+        "no underrun are xtmp3rate's, on a fixed-speed guest (-icount); "
+        "everything here is behaviour and keeps QEMU's own clock",
         needs=("qemu", "nasm", "mtools", "numpy"), serial=True,
         timeout=2700,
         wants=("build/xtmp3s.o88", "build/xtmp3s.bin", "build/xtmp3.o88",
@@ -5591,7 +5593,7 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/apps.img", "build/vesablitd.img",
                "build/vxpics.img", "build/pixel.o88")),
-    Row("vesablit4", "soak", py("tests/vesablit4.py"), 90.0,
+    Row("vesablit4", "soak", py("tests/vesablit4.py"), 8.0,
         "A package's 4-bit blit on the packed display, pixel for pixel "
         "(SPEC.md 120.3): build/vesablit4.img is vesa.img plus an AUTOSTRT "
         "link to WIREBALL.O88 on the apps disk, so the machine boots into "
@@ -5604,7 +5606,7 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/apps.img", "build/vesablit4.img",
                "build/wireball.o88")),
-    Row("vesafsx", "soak", py("tests/vesafsx.py"), 90.0,
+    Row("vesafsx", "soak", py("tests/vesafsx.py"), 12.0,
         "A fullscreen bracket from the packed desktop and back (SPEC.md "
         "120.5, 53): build/vesafsx.img is vesa.img plus an AUTOSTRT link to "
         "GORILLAS.O88, so the machine boots into Gorillas at 1024x768x16; "
@@ -5617,7 +5619,7 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/apps.img", "build/vesafsx.img",
                "build/gorillas.o88")),
-    Row("vesapref", "soak", py("tests/vesapref.py"), 90.0,
+    Row("vesapref", "soak", py("tests/vesapref.py"), 10.0,
         "A package's OS88_PREFER on the packed display (SPEC.md 120.5, "
         "11.100.1): build/vesapref.img is vesa.img plus an AUTOSTRT link to "
         "SOLITAIR.O88; Solitaire's table must be as wide as its own SOL_PW_B, "
@@ -5628,7 +5630,7 @@ SOAK = [
         needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/apps.img", "build/vesapref.img",
                "build/solitair.o88")),
-    Row("vesagor", "soak", py("tests/vesagor.py"), 90.0,
+    Row("vesagor", "soak", py("tests/vesagor.py"), 32.0,
         "Gorillas' field on the packed desktop (SPEC.md 120.5, the package "
         "rule for DH): build/vesafsx.img's autostart opens Gorillas on the "
         "1024x768x16 desktop, eight Enters play the setup through, and the "
@@ -5821,23 +5823,23 @@ SOAK = [
         needs=("marty", "nasm", "ffmpeg"), serial=True, timeout=600,
         wants=("build/os8088-360.img", "build/video.o88")),
     Row("vidbankspkbank", "soak", py("tests/vidbank.py", "--arm",
-                                     "spkbank"), 40.0,
+                                     "spkbank"), 55.0,
         "SPEC.md 98.3.18.9: THE SPEAKER AGAINST THE BANK on QEMU with no "
         "card - a file asking for a bank whose yardstick (key 0's decode on "
         "the machine it was made for) says this machine is not twice as "
         "fast: the play is MUTED for the bank, from frame 0 (no key to time: "
         "the bank wins) and from key 1 (the bench times it), the card's "
         "reason 3 and the bank XMS's."
-        " ALONE BECAUSE THE ANSWER IS A HOST RATE (docs/plans/SOAK-PARALLEL.md 17.5): the bench times key 1's decode on the PIT, which without -icount is QEMU's HOST clock, so a starved guest benches as a slower machine - at eight emulators on four cores it timed nothing and muted, in both arms",
-        needs=("qemu", "nasm"), serial=True, alone=True, timeout=400,
+        " ON A FIXED-SPEED GUEST (-icount shift=6, os88qemu.icount, docs/plans/SOAK-PARALLEL.md 17.8): the bench times key 1's decode on the PIT, which without -icount was QEMU's HOST clock, so a starved guest benched as a slower machine - at eight emulators on four cores it timed nothing and muted, in both arms, and the row ran ALONE. Under -icount the bench counts instructions and the row shares the lane",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidbankspkfast", "soak", py("tests/vidbank.py", "--arm",
-                                     "spkfast"), 20.0,
+                                     "spkfast"), 25.0,
         "SPEC.md 98.3.18.9: the same file with a yardstick far slower than "
         "this machine - the bench passes it twice over and the SPEAKER "
         "stays, the bank idle under it as 98.3.18.5 has it."
-        " ALONE BECAUSE THE ANSWER IS A HOST RATE (docs/plans/SOAK-PARALLEL.md 17.5): the bench times key 1's decode on the PIT, which without -icount is QEMU's HOST clock, so a starved guest benches as a slower machine - at eight emulators on four cores it timed nothing and muted, in both arms",
-        needs=("qemu", "nasm"), serial=True, alone=True, timeout=400,
+        " ON A FIXED-SPEED GUEST (-icount shift=6, os88qemu.icount, docs/plans/SOAK-PARALLEL.md 17.8): the bench times key 1's decode on the PIT, which without -icount was QEMU's HOST clock, so a starved guest benched as a slower machine - at eight emulators on four cores it timed nothing and muted, in both arms, and the row ran ALONE. Under -icount the bench counts instructions and the row shares the lane",
+        needs=("qemu", "nasm"), serial=True, timeout=400,
         wants=("build/os8088.img", "build/video.o88")),
     Row("vidclose", "soak", py("tests/vidclose.py"), 50.0,
         "SPEC.md 98.3.18.10: THE CLOSE BOX ON A LOAD STILL RUNNING, on QEMU "

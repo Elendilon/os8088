@@ -67,7 +67,7 @@ class Q(object):
         if os.path.exists(self.sock):
             os.remove(self.sock)
         pid = os.path.join(tmp, "qemu.pid")
-        subprocess.run(
+        os88qemu.start(
             ["qemu-system-i386", "-machine", "pc,vmport=off", "-m", "128",
              "-audiodev", "none,id=snd", "-device", "sb16,audiodev=snd",
              "-drive", "file=%s,format=raw,if=ide,index=0,media=disk" % hd,
