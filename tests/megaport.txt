@@ -231,3 +231,4 @@ vidpage secs=90   # a PAGE-AHEAD file: every hold across both flips is the clip,
 vidfskeysvga4 secs=60   # mode 12h full screen with the keys: four planes saved and the window back
 mrdrawvga secs=90   # MIDIRack's ARM: each gesture's UI-task drawing calls under its ceiling, and the incremental picture IS a repaint's
 midirackend secs=130   # MIDIRack's ARM on Bochs's FM chip: INTRO loops, then Loop off ends the playlist
+pxfolder secs=130   # PiXEL's ARM: the folder, Prev, Next and the slideshow, no claim left behind - its claims counted in mem_tab AND the pool by selector (the callback ceiling is MartyPC's: Bochs's cycles are its running time)
