@@ -3513,6 +3513,17 @@ interpreter's share 9.6% -> 5.4% with no HRAM left in it, and the misses
 gate: its routine is translated, then rewritten, and the leg goes red with
 the guard's compares taken out.
 
+**An exit to one is linked on the host.** A transfer to RAM is `mov si,T /
+js +3 / jmp tr_enter` (`rt_exit`), never linked at run time, so every call
+into an HRAM routine paid `tr_enter`, `tr_hram` and the table, ~34
+instructions. The guard is what makes the block safe to enter, and it is
+the block's own first code, so `finish` points the `jmp` at the block where
+it is in the same image (an HRAM block is hot, and so are its callers):
+Looney Tunes' object loop calls its thunk ~20 times a frame, and its replay
+falls 20,676 -> 20,057 x86 instructions a frame (6 exits linked); Kirby's
+2, -0.1%. Both identical to the interpreter on the replay. The GBRMW leg
+now requires such an exit, so the rewritten routine is entered through one.
+
 ### 20.6 The gate
 
 `python3 tools/gbaot.py check GAME.GB DIR` runs the cartridge twice with
