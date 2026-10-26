@@ -2003,6 +2003,33 @@ build that is MEANT TO GROW.
     speech tables run at 2 or 4 on any version (docs/xtmp3/XT.md 8.1). The
     other six were the first wrong acceptance clobbering a shared part. Both
     rows are ok.
+- **The installer's first Next faulted the machine (2026-10-26) - an MC7
+  miss in HDD.DRV, FIXED.** The owner, on 86Box's mr286 with a 503MB IDE
+  disk: `kern_mega FAULT 0D err 0000 at 1154:07BE` on the wizard's Step 1.
+  `1154` is an allocator selector (index 22Ah, `MEGA_LDT_FREE0` + 2), the
+  CODE half of HDD.DRV's image pair, and `07BE` is the `rep movsw` in
+  `hd_raw`'s bounce (`drivers/hdd/mount.inc`). Bochs reproduced it to the
+  offset (`1194:07BE` there, the pair a few entries on; ES `11F4` the tool,
+  SI `3400`, CX `0100`). Step 6 widened that bounce from "an image above
+  1MB" to ANY selector (the "found by the cut" bullet above), but the copy
+  still read `DS:BX` - "the buffer is OURS (ES = DS)", true only while HDD.DRV
+  was the one caller. HDDTOOL.DRV reaches it through `HSV_RAW` with a buffer
+  in ITS image (`hd_mbr` at 3400h), so the copy read HDD.DRV's own data
+  segment at the tool's offset and ran off its limit. A second defect sat
+  behind it: the bounce moved ONE sector, and `hd_kfat_get` (every install's
+  `hd_kplan`) reads three into `[hd_ibufseg]` - 512 bytes past a 1KB claim
+  and two sectors never copied back. The bounce now copies from and to the
+  caller's `ES:BX` and carries CX sectors in a claim of CX/2 KB. One shared
+  path: +7 bytes of HDD.DRV (`hd_raw` to `hd_chs_regs` 0x2B4 -> 0x2BB), no
+  kernel byte on any build; the real-mode kernels reach the bounce only for
+  an image in the HMA, where ES = DS and the behaviour is the old one, and an
+  XT never reaches it. Control Panel's Hard Drive page never faulted because
+  its `hd_part_load` is the resident's own, ES = DS. **`megainst` is the
+  row** (Bochs, 16MB): the wizard walked to Done through Erase, C:'s
+  KERNEL.SYS then the floppy's byte for byte; red on the parent commit at the
+  partition page with IP 07BE. It does NOT gate the sector count (a fresh
+  volume's FAT reads as zeros either way). `hmadrv` (the HMA bounce on QEMU)
+  is green beside it.
 
 
 ### MC5 as built (2026-10-25) - DONE

@@ -16147,7 +16147,8 @@ SOAK = [
         "machine) and with the Task Manager's EBDA read a bare `mov es, cx` "
         "(4: kern_mega CLOSED TaskMgr). 45s is 37 measured",
         needs=("bochs", "nasm"),
-        wants=("build/mega.img", "build/megaapps.img")),
+        wants=("build/mega.img", "build/megaapps.img",
+               "build/megak/kernel.map")),
     Row("megapaint", "soak", py("tests/megapaint.py"), 45.0,
         "docs/plans/KERN-MEGA-MEMORY-PLAN.md MC7: a Paint canvas OVER 64KB "
         "under kern_mega, where every claim is a 64KB selector. Under Bochs "
@@ -16165,6 +16166,23 @@ SOAK = [
         needs=("bochs", "nasm"),
         wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
                "build/mbr.bin", "build/paint.o88")),
+    Row("megainst", "soak", py("tests/megainst.py"), 35.0,
+        "docs/plans/KERN-MEGA-MEMORY-PLAN.md 7 (MC7 as built): the INSTALL "
+        "wizard under kern_mega. The owner's first Next on 86Box's mr286 "
+        "faulted the machine, `kern_mega FAULT 0D err 0000 at 1154:07BE` - "
+        "HDD.DRV's hd_raw bounce, which MC7 step 6 widened to ANY selector "
+        "while it still copied through DS:BX, so HDDTOOL.DRV's buffer "
+        "(HSV_RAW, hd_mbr at 3400h of the TOOL's image) was read out of "
+        "HDD.DRV's own data segment past its limit. Under Bochs at 16MB, "
+        "HDD.DRV wanted: MEGARUN starts the kern_mega arm's INSTALL.O88 off "
+        "C:, Enter walks every page (read out of [in_page]) through Erase "
+        "and the install onto C: to Done, no FAULT or CLOSED line, and C:'s "
+        "KERNEL.SYS read back with mtools is build/megak/kernel.sys. Red on "
+        "the parent commit at the partition page with the owner's IP, 07BE. "
+        "35s is 26 measured",
+        needs=("bochs", "nasm", "mtools"),
+        wants=("build/mega.img", "build/megaapps.img", "build/megarun.o88",
+               "build/mbr.bin", "build/megak/apps/install.o88")),
     Row("megashed", "soak", py("tests/megashed.py"), 30.0,
         "SPEC.md 50.6.8, docs/plans/KERN-MEGA-MEMORY-PLAN.md MC1: a kernel "
         "cache ABOVE 1MB is purgeable. Bochs at 16MB: B:'s Disk window and the "
