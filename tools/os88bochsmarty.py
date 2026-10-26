@@ -652,6 +652,17 @@ class BochsMarty(om.Marty):
         self.close()
         return {}
 
+    def ticks(self):
+        """Bochs's own instruction clock (`ptime`): what MartyPC's
+        `status()["instructions"]` answers, for a row asking whether the guest
+        is RETIRING instructions at all (a cli/hlt freeze). Costs a stop, so
+        it is a method and not a status field - status is polled."""
+        t = self._stopped(["ptime"])
+        m_ = re.findall(r"ptime: (\d+)", t)
+        if not m_:
+            raise om.MartyError("os88bochsmarty: no answer to `ptime`")
+        return int(m_[-1])
+
     def cmos(self):
         """The MC146818's 128 bytes, out of Bochs's `info device cmos` - the
         chip as the HARDWARE holds it, which no guest read can tell from the

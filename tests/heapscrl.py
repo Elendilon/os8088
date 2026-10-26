@@ -163,6 +163,14 @@ def report():
 
 # --- the package's own state --------------------------------------------------
 _MAP = {}
+# kern_mega (OS88_MEGA, docs/BOCHS.md): mega.img's SYSTEM/ carries the Task
+# Manager's ARM (SPEC.md 28.4.15), assembled -DPKG_MEGA - a different layout -
+# and its region is an LDT SELECTOR, reached through m.lin
+MEGA = bool(os.environ.get("OS88_MEGA"))
+
+
+def lin(m, seg, off=0):
+    return m.lin(seg, off) if MEGA else (seg << 4) + off
 
 
 def sym(name):
@@ -173,8 +181,9 @@ def sym(name):
         mp = tempfile.mktemp(suffix=".map")
         open(tmp, "w").write(open(src).read() + "\n[map all %s]\n" % mp)
         r = subprocess.run(["nasm", "-f", "bin", "-w+error",
-                            "-I", os.path.join(ROOT, "apps") + os.sep,
-                            "-o", tmp + ".bin", tmp],
+                            "-I", os.path.join(ROOT, "apps") + os.sep]
+                           + (["-DPKG_MEGA"] if MEGA else [])
+                           + ["-o", tmp + ".bin", tmp],
                            capture_output=True, text=True)
         if r.returncode:
             sys.exit("heapscrl: could not map %s:\n%s" % (APP, r.stderr[:400]))
@@ -205,7 +214,8 @@ def img_size():
     a perfectly good build. Unwrapped it is a layout check again, which is
     still worth having.
     """
-    raw = open(os88build.at("build/%s.o88" % APP), "rb").read()
+    raw = open(os88build.at("build/%s%s.o88" % ("megak/apps/" if MEGA else "",
+                                                APP)), "rb").read()
     d = os88pkg.image_unwrap(raw)
     n = int.from_bytes(d[8:10], "little")   # +8 = image size (SPEC.md 20.2)
     if n != len(d):
@@ -219,7 +229,7 @@ class Tm:
 
     def __init__(self, m, slot, seg):
         self.m, self.slot, self.seg = m, slot, seg
-        self.bss = (seg << 4) + img_size()
+        self.bss = lin(m, seg, img_size())
 
     def _at(self, name, i=0):
         return self.bss + sym(name) - sym("os88_image_end") + 2 * i
@@ -257,7 +267,7 @@ def pkg_slot(m, name):
         seg = int.from_bytes(t[b + geom.W_SEG:b + geom.W_SEG + 2], "little")
         if not seg:
             continue
-        hdr = m.read(seg << 4, 32)
+        hdr = m.read(lin(m, seg), 32)
         if hdr[:3] == b"O8" + bytes([PKG_FMT]) and hdr[16:32].split(b"\0")[0] == name:
             return i, seg
     return None
