@@ -374,6 +374,26 @@ class BochsMarty(om.Marty):
         return (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24,
                 d[0] | d[1] << 8 | (d[6] & 0x0F) << 16)
 
+    def _vector(self, v):
+        """The linear address vector V's handler starts at: an `int`
+        breakpoint, as an `lb` there. In protected mode it is the IDT's
+        gate - so under kern_mega a CPU EXCEPTION (0-0Fh: #DE is 00h)
+        stops at mega_xs's stub for it, with the interrupt frame on top
+        of the stack as MartyPC's `int` stop has it (tests/int0sweep.py);
+        a hardware IRQ's vector is the IDT's, not the real-mode one. In
+        real mode, the IVT's."""
+        t = self._stopped(["sreg"])
+        m = re.search(r"idtr:base=0x([0-9a-f]+), limit=0x([0-9a-f]+)", t)
+        base, limit = (int(m.group(1), 16), int(m.group(2), 16)) if m \
+            else (0, 0x3FF)
+        if limit >= 0x400 or base:              # an IDT: 8-byte gates
+            g = self._read(base + v * 8, 8)
+            off = g[0] | g[1] << 8 | (g[6] | g[7] << 8) << 16 \
+                if g[5] & 0x08 else g[0] | g[1] << 8    # a 386 gate's
+            return self.lin(g[2] | g[3] << 8, off)
+        g = self._read(v * 4, 4)
+        return ((g[2] | g[3] << 8) << 4) + (g[0] | g[1] << 8)
+
     def lin(self, seg, off=0):
         """The linear address of SEG:OFF, SEG a real segment or a selector."""
         s = self.selector(seg)
@@ -500,6 +520,8 @@ class BochsMarty(om.Marty):
                 want.append(int(b["addr"]))
             elif t == "execseg":
                 want.append(self.lin(int(b["seg"]), int(b["off"])))
+            elif t == "int":
+                want.append(self._vector(int(b["addr"])))
             else:
                 raise om.MartyError("os88bochsmarty: a %r breakpoint is not "
                                     "available on Bochs" % t)
@@ -568,11 +590,26 @@ class BochsMarty(om.Marty):
         return {"cycles": self._cycles()}
 
     def _c_mouse(self, dx=0, dy=0, l=False, r=False, wz=0, **_):
-        if wz:
+        if wz and not getattr(self, "imps2", False):
             raise om.MartyError("os88bochsmarty: no wheel on Bochs's PS/2 "
-                                "mouse")
+                                "mouse - launch(..., wheel=True) makes it an "
+                                "IntelliMouse")
         if not self.box.captured:
             self.box.capture()
+        if wz:
+            # WZ NOTCHES, positive TOWARD THE USER (os88marty.wheel): X's
+            # button 5 is Bochs's -Z, which its packet sends negated. THEN A
+            # ZERO-SUM MOTION, because Bochs 2.7 never clears `delayed_dz`
+            # after the packet it built (iodev/keyboard.cc create_mouse_
+            # packet) and the next capture change - every debugger stop -
+            # sends one more notch the same way (tests/wheelps2.py read +5
+            # for four); a motion packet assigns it 0. One guest pixel
+            # there and back, at the pointer's current place, each its own
+            # GUI pass (Bochs drops a motion that nets to nothing)
+            self.box.xd("click", "--repeat", abs(wz), "--delay", 30,
+                        5 if wz > 0 else 4)
+            self.box.xd("sleep", "0.05", "mousemove_relative", "--", 2, 0,
+                        "sleep", "0.05", "mousemove_relative", "--", -2, 0)
         if dx or dy:
             # TWO X PIXELS A GUEST PIXEL, measured (os88bochs.Box.goto) -
             # a serial packet's dx is in mickeys at the same ratio
@@ -708,7 +745,7 @@ _ENV_DISP_USED = False
 
 
 def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
-           sb=None, cfg=None, megs=None, **_):
+           sb=None, cfg=None, megs=None, noserial=False, wheel=False, **_):
     """os88marty.launch's shape, on Bochs and kern_mega (see the module
     note). `boot` True waits for the desktop (os88bochs.Box.up's state gate,
     then a settle of the glass); a number runs blind for that many seconds;
@@ -737,8 +774,10 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
              1474560: "1_44"}[os.path.getsize(b)]
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
                  btype="1_2" if btype in ("360k", "1_2") else "1_44",
-                 build=bld, display=disp, megs=megs, noc=True, vgahz=20, flog=True)
+                 build=bld, display=disp, megs=megs, noc=True, vgahz=20, flog=True,
+                 noserial=noserial, imps2=wheel)
     m = BochsMarty(box, run_dir, label=label)
+    m.imps2 = wheel or "type=imps2" in ob.BOCHSRC
     try:
         # UNTIL BOCHS HAS TAKEN ITS FIRST `c`: it starts at the debugger's
         # prompt, and a SIGINT that lands before that `c` is read is lost

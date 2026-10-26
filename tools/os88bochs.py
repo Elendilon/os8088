@@ -96,7 +96,7 @@ floppyb: type={btype}, {bmedia}={b}, status=inserted
 {ata0}{cd}boot: {boot}
 port_e9_hack: enabled=1
 mouse: enabled=1, type=ps2, toggle=ctrl+mbutton
-clock: sync=realtime, time0=local
+{com}clock: sync=realtime, time0=local
 {sb}log: {log}
 panic: action=report
 error: action=report
@@ -450,7 +450,7 @@ class Box(object):
                  btype="1_2", cmode="run", bootc=False, noa=False,
                  build=None, csys=False, put=(), cd=None, aimg=None,
                  display=None, megs=None, noc=False, vgahz=None,
-                 flog=False):
+                 flog=False, noserial=False, imps2=False):
         # DISPLAY: the X display this machine owns - the module's
         # ($OS88_BOCHS_DISPLAY, :99) by default, or its own, so ONE process
         # can run several machines at once (one display each)
@@ -520,8 +520,14 @@ class Box(object):
                 check=True, stdout=subprocess.DEVNULL)
         rc = os.path.join(out, "bochsrc")
         with open(rc, "w") as f:
-            f.write(BOCHSRC.format(
+            # `imps2`: an IntelliMouse, so the WHEEL reaches the guest (the
+            # rows that set it by editing BOCHSRC still work: same text)
+            f.write((BOCHSRC.replace("type=ps2", "type=imps2") if imps2
+                     else BOCHSRC).format(
                 megs=megs or MEGS, a=a, b=b,
+                # NO UART AT ALL (`noserial`): the PS/2 mouse the only
+                # pointing device, QEMU's `-serial none` (tests/ps2mouse.py)
+                com="com1: enabled=0\n" if noserial else "",
                 flogdbg=", floppy=report" if flog else "",
                 ata0="" if noc else (
                     "ata0: enabled=1, ioaddr1=0x1f0, ioaddr2=0x3f0, irq=14\n"
