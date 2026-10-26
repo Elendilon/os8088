@@ -42,4 +42,11 @@
 #             DS and ES with KDS/KES rather than push cs/pop: it runs in
 #             protected mode, where CS is readable code, so each load reads
 #             [cs:k_dsel] - five bytes against two, byte-identical on kern_big
-4029
+# 2026-10-26: +230, to 4,259, KERN-MEGA-PLAN 14.115 - NOT a byte of new
+#             kern_mega code: VID_EXT (the VESA hook, SPEC.md 120.3) is now
+#             assembled on kern_mega as on kern_big, and the figure had been
+#             reading LOW by exactly the hook's 356 kernel-segment bytes that
+#             kern_big carried and kern_mega did not (with NOVIDEXT=1 on both
+#             kernels the overhead measures 4,259 too, so the hook costs the
+#             two the same). The protected-mode half, mega_vxpm, is `.mega`
+4259

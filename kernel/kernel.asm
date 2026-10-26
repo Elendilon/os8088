@@ -597,15 +597,13 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; and a block of pointers (kernel/vidext.inc), so VESA.DRV can draw a fifth
 ; adapter kind. `make NOVIDEXT=1` is the A/B that assembles the kernel before
 ; it existed; kern_small never has it - no driver layer (SPEC.md 51.0), no
-; planar renderer (39.27), nothing for a hook to hook. Nor does kern_mega
-; (SPEC.md 120.3): [vx_ep] is a real-mode seg:off that protected mode cannot
-; far call, and VESA.DRV keeps its state through CS (tests/cswrites.txt), so
-; kern_mega has no VESA row rather than one that faults on the first draw.
+; planar renderer (39.27), nothing for a hook to hook. kern_mega HAS it, as
+; kern_big does (SPEC.md 120.3.4, KERN-MEGA-PLAN 14.115): the boot attaches in
+; real mode, and at the switch mega_vxpm hands VESA.DRV its selectors and
+; re-points [vx_ep] at its pair's code half.
 %ifdef KERN_BIG
  %ifndef NOVIDEXT
-  %ifndef KERN_MEGA
-   %define VID_EXT 1
-  %endif
+  %define VID_EXT 1
  %endif
 %endif
 

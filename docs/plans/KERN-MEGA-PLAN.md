@@ -35,22 +35,24 @@ measured and its source is named.
 The inventory taken before the branch merged back. Each item names the 14.x
 entry that owns it once work starts.
 
-**To make work (the owner, 2026-10-26):**
-- **VESA** (SPEC.md 120) - absent on kern_mega; the machines with a VESA card
-  are the 286s and 386s protected mode is for. 14.115.
-- **File > Compress of an uncompressed package** refuses under protected mode
-  (14.100). 14.116.
-- **USBMOUSE.DRV's PicoMEM path** refuses under protected mode (SPEC.md
-  9.12). 14.117.
-- **REDLINE** is left off kern_mega's disks, never run under its selectors
-  (`MEGACOREOMIT`). It has to ship. 14.118.
+**To make work (the owner, 2026-10-26) - ALL BUILT the same day:**
+- [x] **VESA** (SPEC.md 120.3.4) - VESA.DRV runs every `int 10h` on its own
+  stack and is armed for protected mode by `VXV_PM`; banked window A through
+  a selector. 14.115. Untested on a real VBE card and above 800x600.
+- [x] **File > Compress of an uncompressed package** - the refusal was stale.
+  14.116.
+- [x] **USBMOUSE.DRV's PicoMEM path** - the card's real-mode `int 33h`
+  0060h is captured inside the IRQ reflection and replayed in protected
+  mode. 14.117. Untested on a real PicoMEM.
+- [x] **REDLINE** ships on kern_mega's system disks. 14.118.
 
-**Defects:**
-- RAMDISK, NET and CDROM bank `CPU_F_PM` at attach, so one loaded at boot
-  believes real mode all session (found at 14.87). 14.112.
-- kern_big's hibernate handoff to DOS misses `dos_fsx_back` (found at 14.106).
-  14.113.
-- `mega-dosdir` fails after ~13:45 (the date comes home a day on; found at 14.106). 14.114.
+**Defects - FIXED:**
+- [x] RAMDISK, NET and CDROM asked `CPU_F_PM` once at attach. 14.112.
+- [x] kern_big's shut-down DOS arm did not go back to the full screen. 14.113.
+- [x] A DOS program that set the clock back brought the session home a day
+  on (kern_big too). 14.114. Still open from it: under Bochs started after
+  ~17:30 DOSDIR's first date read is a day on before anything is set - the
+  emulator's RTC and BIOS tick disagree, not diagnosed (14.114's end).
 
 **Refusals that STAY, by the owner's decision:** ROM adoption (SPEC.md
 2.10), XMEM.DRV and COLDHMA.SYS, the windowed DOS, HDD.DRV's fill straight
@@ -58,6 +60,7 @@ into XMS (a fill straight into the pool may replace it), and the SHIPPED
 Video Player and RealDMG (their `PKG_MEGA` arms run instead).
 
 **Owed but not blocking:**
+- `vesablitd` has no kern_mega row (`OSAPI_GFX_BLITD` in protected mode).
 - RealDMG's R5 waits on a hibernate notice for packages
   (docs/plans/REALDMG-HIGHCACHE-PLAN.md).
 - HDDTOOL.DRV's installer names `KERNEL_SEG` (`tests/cswrites.txt`): an SDK
@@ -11950,6 +11953,119 @@ fails on `2b68a8e3` as well, so this fix did not cause it. Seen while
 measuring: the kernel's clock read 18:51 at boot while `0040:006C` said
 18:00. Bochs's RTC and the BIOS tick disagree by most of an hour at boot.
 Not diagnosed. The row's pin stays below it.
+
+### 14.115 The VESA desktop on kern_mega (2026-10-26)
+
+**The ask**: VESA.DRV (SPEC.md 120) had to work on kern_mega before release,
+because the machines with VBE cards are the 286s and 386s protected mode is
+for. Until now `VID_EXT` was left off kern_mega (the second main merge, this
+document's paragraph on the moved cells): `[vx_ep]` is a real-mode seg:off
+that protected mode cannot far call, and the image kept its state through
+CS. SPEC.md 120.3.4 is the contract this entry builds.
+
+**The shape.** The boot is kern_big's: `vx_boot_x` attaches and inits the
+image and `vid_switch` takes the desktop onto the VBE, all in real mode.
+Then one new verb, `VXV_PM` (0x43, `kernel/vxabi.inc`, additive, so
+`VX_ABI_VER` stays), is asked twice:
+
+- in real mode right after `VXV_INIT`, with DX = 0, as a QUESTION. An image
+  that predates the verb refuses it, and `vx_boot_x` refuses the VESA row
+  there, so the machine keeps its VGA desktop rather than reaching a hook
+  that would fault;
+- at the switch, from `mega_pmtail` with IF = 0, as `mega_vxpm` (`.mega`):
+  the image's pair comes from `mega_p2d` (the claim's DATA selector, made by
+  `mega_mpall` just before), window A's from `mega_useg(A000h)`, and the
+  image is called the way `drv_pkg_disp` calls one - DS its data half, a far
+  call to code half : `PKG_DISP` - with DX = window A's selector and ES =
+  `MEGA_SEL_KDATA`. Then `[vx_ep+2]` becomes the code half. A refusal leaves
+  `[vx_ep]` on `KERNEL_SEG:vx_null`, which draws nothing and faults nothing.
+
+It is NOT `drv_call`, and not after the switch, for a reason the first try
+measured: until kmain's `mem_xlatf` every holder still names the claim by
+PARAGRAPH (`drv_stamped` took `#GP(9DC0)` loading `DRVR_SEG`), and
+`mem_xlatf` then rewrites `[vx_ep+2]` - a `MEM_RR_ONE` holder, for the
+compactor - to the DATA half, through which a far call is `#GP` too. Once
+`[vx_ep+2]` is the code half it no longer matches the paragraph that walk
+looks for, and a protected-mode move keeps the selector (`mega_mpsyncf`).
+
+In VESA.DRV every store goes through DS: `vx_prim` loads DS from CS's data
+twin (bit 2 of a real segment of a 512-aligned image is clear; an LDT code
+selector has it set and its data half is +8) and banks it in `vx_dsel` for
+the bodies whose DS is the window or the kernel; window A is `[vx_wsel]`,
+A000h or the selector `VXV_PM` handed over; `vx_detach` points the hook at
+`0060h:vx_null`, 0060h being KERNEL_SEG and kern_mega's code selector alike.
+`tests/cswrites.txt` loses VESA.DRV's line: it has no CS write left. On a
+Bochs/QEMU VBE (`dispi`, ID B0C0h-B0CFh, probed at `VXV_PM`) a bank switch in
+protected mode writes the bank register directly with the number `4F05h`
+would have been given - both BIOSes write DX there as it is, in the
+granularity they reported, 32KB on Bochs 2.7 (`vx_wsh` 1). Every other card
+reflects `4F05h`, a CPU reset each on a 286. That path was run once by
+forcing `vx_dispi` off: `mega-vesa` passed on it.
+
+**The 17GB run, which was a defect and not the instrument.** The previous
+attempt filled the shared disk: one Bochs run's `bochs.log` grew 514MB in its
+first minute. It was `prefetch: EIP [00010000] > CS.limit [0000ffff]` at
+`error: action=report`, once every 8 ticks, for ever, and no kern_mega FAULT
+line because it was in REAL mode: the boot ran zeros off the end of segment
+82FBh, the #GP came in on int 0Dh - IRQ5's vector in real mode - and the
+ROM's handler `iret`ed straight back to it. A bounded instruction trace from
+the image's first hook found the jump: `mem_reloc_call` far-calling a
+"relocation proc" through `mem_tab`'s record 29, whose owner was 82FBh. The
+records 27-31 were a stack: `VESA.DRV`'s attach probes `4F00h`/`4F01h` per
+mode, and Bochs's vgabios (compiled C) took those about 650 bytes below
+task 0's stack top - through all 512 of `STK0` and into `menu_bar`,
+`mem_fptr` and `mem_tab`'s tail, which sit directly under it in `.lowbss`
+on kern_big as well. The next compaction (`mem_unblob` packs the ceiling)
+called the garbage. QEMU never showed it because SeaVGABIOS hops to a stack
+of its own for exactly this reason. **So it is a kern_big defect too**, on
+any VBE BIOS as deep as Bochs's, and the fix is the driver's:
+
+**`vx_int10`: every `int 10h` VESA.DRV makes runs on its own stack** -
+SS:SP hopped onto the scroll's 2KB bounce while attach probes (unused until
+a mode is set) and onto the probe's 768 bytes of buffers after it (dead from
+then on, zeroed at the end of attach so a watermark can be read). Not
+nested (a hook arriving inside a hop runs on the stack it has), not in
+protected mode (the reflection has its own). SPEC.md 120.3.3 had refused a
+private stack because two pre-empted tasks would share it; `sch_switch` has
+since stopped switching on any SS that is not `LOW_SEG` (SPEC.md 8.5) and
+both mouse ISRs and the tick's chain load their own SS, so that refusal no
+longer holds and the section says so. And BP is kept across the reflected
+call: kern_mega's reflection of `4F05h` handed BP back as 916Dh - measured,
+the fault both blit1 and font_run took on their `[bp+F_ES]` - which is
+either Bochs's vgabios or `mega_svc` handing back what the BIOS left; it is
+worth a look by whoever next touches `mega_svc`.
+
+**Costs.** kern_big and kern_small are BYTE-IDENTICAL (`os88rdiff kernel
+2b68a8e3 .`: 4,081 and 2,581 routines the same). kern_mega, against a
+`NOVIDEXT=1` kern_mega built from the same tree: `.text` +317, `.bss` +39 -
+the 356 the hook costs kern_big, to the byte - `.cold` +26, `.mega` +94
+(`mega_vxpm`), `.boot2` +217 (given back at `mem_unblob`). The kernel
+segment's overhead over kern_big is 4,259 with the hook on both kernels and
+4,259 with it off both, so `tests/megaseg.txt` goes 4,029 -> 4,259 for
+bytes that are not kern_mega's: the figure had been reading low by the hook
+kern_big carried and kern_mega did not. VESA.DRV, shared by every kernel:
+image 7,903 -> 8,103 (+200, still one 8KB claim, 89 bytes left in it), file
+3,739 -> 3,948 (+209 on every disk that carries it).
+
+**Rows**: `mega-vesa`, `mega-vesa8`, `mega-vesacp`, `mega-vesablit4`,
+`mega-vesafsx` and `mega-vesashut` (tests/megaport.txt): the QEMU scripts
+under `OS88_MEGA=1` on Bochs's VBE through `tests/os88qmpmega.py`, sharing
+`tests/vesa.py`'s `launch`. Bochs's vgabios lists nothing above 800x600, so
+Auto lands on 0114h and the rows expect 800x600x16 there; Bochs's display
+widens RGB565 by filling low bits with ones, so `vesa.px` re-expands a pixel
+the way QEMU and `vesablit4`'s `q565` do. **Red**, both on `mega-vesa`: with
+`vx_int10` taken out the boot never reaches protected mode (the run above,
+`ulimit -f` capped); with `mega_vxpm` not called the image takes `#GP(A000)`
+on its first draw. All six pass, 6 of 6, and the eleven QEMU `vesa*` rows
+pass on kern_big with the new driver.
+
+**Still open.** `vesablitd` is not ported: its picture disk carries the
+shipped PiXEL and kern_mega runs PiXEL's arm, so `OSAPI_GFX_BLITD` in
+protected mode has no row. Nothing here has seen a REAL VBE card under
+kern_mega - the reflected `4F05h` path ran only with `dispi` forced off on
+Bochs - nor 1024x768, which Bochs's BIOS does not offer. And a cursor hook
+that lands while a hop is out (`[vx_onstk]` set) still runs its `4F05h` on
+the mouse ISR's 128-byte stack on a real-mode kernel, as it always has.
 
 ### 14.116 File > Compress refused an uncompressed package in protected mode (2026-10-26) - FIXED
 

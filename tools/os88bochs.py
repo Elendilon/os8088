@@ -94,6 +94,21 @@ MOUSE = os.environ.get("OS88_BOCHS_MOUSE", "ps2")
 # Unix time pins it, for a row whose answer depends on the hour it is run at
 # (tests/dosdir.py sets the time BACK to 13:45:30 - KERN-MEGA-PLAN 14.114)
 TIME0 = os.environ.get("OS88_BOCHS_TIME0", "local")
+
+# A FILE-SIZE CAP on every Bochs this module starts (KERN-MEGA-PLAN 14.115):
+# `error: action=report` writes a line per fault, so a real-mode #GP that
+# irets back into itself grew one run's bochs.log at ~500MB a minute and
+# filled a 252GB volume shared by four agents. Past the cap the write gets
+# SIGXFSZ and Bochs dies - a dead machine names itself, a full disk breaks
+# every process on the box. $OS88_BOCHS_FSIZE_MB overrides (0 = no cap).
+FSIZE_MB = int(os.environ.get("OS88_BOCHS_FSIZE_MB", "2048"))
+
+
+def _fsize_cap():
+    if FSIZE_MB > 0:
+        import resource
+        n = FSIZE_MB << 20
+        resource.setrlimit(resource.RLIMIT_FSIZE, (n, n))
 BOCHSRC = """megs: {megs}
 romimage: file=/usr/share/bochs/BIOS-bochs-legacy
 vgaromimage: file=/usr/share/vgabios/vgabios.bin
@@ -607,7 +622,7 @@ class Box(object):
         self.p = subprocess.Popen(["bochs", "-q", "-f", rc], cwd=out,
                                   stdin=os.open(fifo, os.O_RDWR),
                                   stdout=self.f, stderr=subprocess.STDOUT,
-                                  env=self.env)
+                                  env=self.env, preexec_fn=_fsize_cap)
         self.hold = subprocess.Popen("exec sleep 86400 > '%s'" % fifo,
                                      shell=True, env=self.env)
         with open(fifo, "w") as fh:
