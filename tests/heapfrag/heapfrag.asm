@@ -129,8 +129,8 @@ hf_wake:
     cmp word [hf_rn], 0
     je .out                     ; the key has not run, so there is no hole
                                 ; above us and nothing to say
-    mov ax, cs
-    cmp ax, [hf_rseg0]
+    call hf_mypara              ; (OUR paragraph: CS is a selector a move
+    cmp ax, [hf_rseg0]          ; does not change under kern_mega, MC7.4)
     jbe .nomove
     call hf_rpass               ; R3: OUR OWN REGION WENT UP, which is the
     jmp short .wav              ; whole feature - and CS is the reading,
@@ -172,7 +172,7 @@ hf_key:
     push bx
     cmp word [hf_rn], 0
     jne .out
-    mov ax, cs
+    call hf_mypara
     mov [hf_rseg0], ax          ; where we are BEFORE
     call OSAPI_MEM_AVAIL
     mov [hf_rav], ax
@@ -904,6 +904,28 @@ hf_run:
 ; MC7.4). hf_base0 is kept in the same terms, so checks 9, 10, 13 and 14 ask
 ; "did the block move" on either. Every other register kept
 ; -----------------------------------------------------------------------------
+; hf_mypara - AX = the PARAGRAPH our own region is at NOW: DS through SEG_LIN,
+; for hf_para's reason. R3 compared CS, which on a real-mode kernel IS that
+; paragraph and under kern_mega's protected mode is a selector whose base a
+; move rebases - so a region that moved read as one that did not. DS, not
+; CS: SEG_LIN takes the claim's DATA selector, and in real mode they agree
+hf_mypara:
+    push bx
+    push cx
+    push dx
+    mov dx, ds
+    mov bl, SEG_LIN
+    call OSAPI_SEG              ; DX:AX = the linear base
+    mov cl, 4
+    shr ax, cl
+    mov cl, 12
+    shl dx, cl
+    or ax, dx
+    pop dx
+    pop cx
+    pop bx
+    ret
+
 hf_para:
     push bx
     push cx

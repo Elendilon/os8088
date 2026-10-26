@@ -40,3 +40,4 @@ c64part secs=50   # C64.ROM and C64.OVL are parts of C64.O88: the ROM at op_seg(
 tmload secs=40   # the Task Manager arm's CPU meter, its rows and sch_cycles tell one story: the idle bucket under protected-mode halt, and tm_worker sleeps
 heapscrl secs=150   # the Task Manager arm's memory page list scrolls: bar survives refreshes, a round-trip scroll returns the same pixels, end stops at total-fit and 0
 gifdrag secs=200   # the field's freeze recipe (memory page open, OS8088.GIF in Paint, eight drags): every stack slice and task 0 stay under 80% and the guest keeps retiring instructions (Bochs ptime)
+rehomeabort secs=60   # a re-homed program refusing itself leaves no window, no instance, the heap's free runs AND kern_mega's pool blocks exactly as before the launch
