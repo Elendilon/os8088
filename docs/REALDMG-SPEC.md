@@ -3534,8 +3534,8 @@ broken and GBFLAGS.GB translated with `RT_DEADBUG`.
   to 4001h in bank 1. The interpreter reads on through the view, where
   4000-7FFF is rdgsys's own data (section 3), and executed a STOP there at
   frame 1178 of the script. Translated code never crosses 4000h in a block
-  (16.3) and does what the cartridge says. NOT FIXED: the interpreter would
-  pay for it on every dispatch.
+  (16.3) and does what the cartridge says. FIXED since, at no cost to a
+  dispatch, by section 3.1's trap.
 - **The dynamic recompiler checks for an event at `RT_MAXI`'s cut**, where
   the interpreter does not (20.3). So Looney Tunes' timer interrupt is taken
   100 M-cycles earlier recompiled than interpreted, at frame 801 of the
@@ -3545,8 +3545,9 @@ broken and GBFLAGS.GB translated with `RT_DEADBUG`.
 
 ### 20.8 Not built
 
-The counters are docs/plans/REALDMG-AOT-PLAN.md's wave 4. The compact grade
-waits on wave 3's measurement of the heap a package really has.
+The compact grade: wave 3 measured the heap a package really has, and the
+hot images ordered by the counters (20.11) hold all but 1-10% of the play
+in one of them, so it was not needed. kern_mega's arm is 20.14's.
 
 ### 20.9 The table, the list and the links
 
@@ -3845,6 +3846,9 @@ a time (`rw_aromrd`), the bank cache's `rw_bread` bank after bank
 nothing beside it, on the same 4KB-cluster volume.
 
 ### 20.14 kern_mega: not yet
+
+**Not in this release**: the arm is built on the kern_mega memory branch,
+with that rework, and is not here. What follows is this tree's.
 
 A precompiled package **refuses to start under kern_mega** (`CPU_F_PM`,
 before anything is claimed or read: *PRE: not on kern_mega*), and the build
