@@ -101,6 +101,14 @@ class Menu:
         """STIKMENU.DRV's linear base, 0 when it is not held."""
         seg = struct.unpack("<H", bytes(self.m.read(
             self.ui._S("mod_tab") + self.mod * MODR_SIZE, 2)))[0]
+        if seg and getattr(self.m, "bochs", False) and \
+                self.m.selector(seg) is None:
+            # kern_mega: MODR_SEG names the CONVENTIONAL claim while the
+            # image is read, and the LDT pair above 1MB once mod_hi has
+            # copied it there - the bytes in between are the claim's last
+            # holder's, so a stm_live read there is a witness of nothing
+            # (it read 1 one boot in five and the row raced the scan)
+            return 0
         return _lin(self.m, seg) if seg else 0
 
     def rd(self, name, n):
