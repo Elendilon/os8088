@@ -986,7 +986,8 @@ def hover_entry(m):
     widget's QUERY armed. A slot still naming mod_gone means the image never
     loaded, and the row says so rather than tracing nothing."""
     off, seg = struct.unpack("<HH", bytes(m.read(m.sym("DKDFP") + 4, 4)))
-    flat = (seg << 4) + off
+    flat = _lin(m, seg, off)            # the module's CS: a code SELECTOR
+                                        # on kern_mega (os88bochsmarty)
     if flat == m.sym("mod_gone"):
         raise SystemExit("desklayer: DESK.DRV is not loaded (DKDFP's hover "
                          "slot is mod_gone) - SPEC.md 11.103.10")
@@ -1533,7 +1534,8 @@ def cards_bad(ui, w):
 
 def leg_ground(tmp):
     img = os.path.join(tmp, "stikdesk360.img")
-    shutil.copy(os.path.join(PKGDIR, "stikdesk360.img"), img)
+    shutil.copy(megafix.system_disk(os.path.join(PKGDIR, "stikdesk360.img")),
+                img)            # (kern_mega: the fixture rebuilt on mega.img)
     with os88ui.boot(img, machine="os8088_xt_vga", quick=True) as ui:
         m = ui.m
         p = Probe(ui)

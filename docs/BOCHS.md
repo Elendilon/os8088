@@ -205,6 +205,24 @@ it maps:
 - **reset** - a POWER CYCLE: Bochs's debugger has none, so the shim stops
   that Bochs and boots another on the same display from the disks as the
   guest left them, re-arming the breakpoints; SYSTEM.CFG is not re-injected.
+- **a floppy swap** - `mount(drive, path)` writes the new disk's bytes
+  OVER the drive's image in place while Bochs runs (it reads a floppy image
+  per sector, uncached), and tells the guest nothing, as MartyPC's does: the
+  kernel notices once the motor has stopped (SPEC.md 18.9.1). The geometry
+  is the one Bochs booted with, so the two images must be the same size
+  (tests/czto.py, tests/imgswap.py).
+- **FLAGS** - `setreg("flags", v)` is `set $eflags`, the only spelling
+  Bochs 2.7's debugger takes (`set eflags` is a syntax error, and the shim
+  used to send it and answer ok, so a row's injected CF never reached the
+  guest - tests/czto.py's CRC error read as a good sector). Measured, that
+  command writes bits 0-7 as given, puts its bit 9 in DF and its bit 10 in
+  OF, and leaves IF and TF alone: the shim passes DF and OF one bit down,
+  and IF/TF cannot be written at all.
+- **a menu straight after a launch** - os88ui's `menu_pick` waits, on
+  Bochs only, for the bar to carry the named item: a package's window is
+  visible (all `open` confirms) before its entry proc has run
+  OSAPI_MENU_SET, and at real time a pick read the half-built bar
+  (tests/toastfpg.py).
 - **scratch disks** - a row that COPIES a shipped floppy to put files on it
   copies `os88marty.system_disk(path)` / `apps_disk(path)`, which are
   `mega.img` / `megaapps.img` under `OS88_MEGA` and PATH otherwise; a
@@ -215,7 +233,7 @@ it maps:
 - **breakpoints** - `exec`/`execseg` are `lb`; `int` is an `lb` on the
   vector's handler - the IDT gate under protected mode, so `int 0` is #DE
   (tests/int0sweep.py); `mem` and `io` are refused. `park` moves CS:IP but
-  cannot clear IF (Bochs's `set` takes no EFLAGS): parked code starts with
+  cannot clear IF (`set $eflags` leaves IF alone - FLAGS above): parked code starts with
   `cli` (tests/evqfull.py).
 - **selectors** - `m.lin(seg, off)` reads the LDT or the GDT. kern_mega's
   GDT is an identity map except the kernel's DATA (0010, based at
