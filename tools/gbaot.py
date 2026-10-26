@@ -183,7 +183,12 @@ P_MODE, P_HMASK, P_NOC, P_REASON, P_OUT, P_BUDGET, P_BANK, P_BMP = (
     0x22, 0x23, 0x24, 0x25, 0x26, 0x28, 0x2A, 0x2C)
 E_INIT, E_PRELOAD, E_ROUND, E_FRAME, E_CONT = 0, 3, 6, 9, 12
 P_AOTINT, P_STLOAD = 0x36, 0x38
-STK_SEG, DRV_SEG = 0x0050, 0x0900
+STK_SEG, DRV_SEG = 0x0050, 0x0860      # the stack 0:84F0 down, aothost.bin
+DRV_MAX = 0x10000 - DRV_SEG * 16         #   up to the core at 1000:0 (CORE in
+                                          #   translate and run_arm): 31,232 bytes.
+                                          #   At 0900 it was 28,672, aothost had
+                                          #   grown to 28,686, and the core's
+                                          #   first 14 bytes were h_jitstub's last
 MEM_END = 0x10FFF0                       # what real mode can address, with A20
 TOKEN = 0xF000                            # a block table's segment, as written:
                                           #   TOKEN + n names the image's segment n
@@ -256,6 +261,9 @@ class Machine:
         from unicorn import x86_const as X
         self.X = X
         drv = open(prerequisites(build, defines), "rb").read()
+        if len(drv) > DRV_MAX:              # (the core is written over it later)
+            raise SystemExit("gbaot: aothost.bin is %d bytes, %d over the room under "
+                             "the core" % (len(drv), len(drv) - DRV_MAX))
         self.sym = symbols(build)
         self.rom = rom
         self.u = Uc(UC_ARCH_X86, UC_MODE_16)
