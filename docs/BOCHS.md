@@ -175,7 +175,13 @@ it maps:
 - **memory** - `read`/`write` are linear (`xp`/`writemem`/`setpmem`).
   `readseg(seg, off)` takes a real segment OR an LDT selector, and every
   package region and claim is a selector here, so a row that computes
-  `seg << 4` itself calls `m.lin(seg, off)` instead.
+  `seg << 4` itself calls `m.lin(seg, off)` instead. A move REBASES a
+  selector and never changes it (KERN-MEGA-MEMORY-PLAN MC7.4), so a row
+  asking "did it move" or "does anything still name the old block" asks it
+  of the PARAGRAPH under each word - `tests/sheetmove.py`'s `seg_key(m, v)`,
+  read at the moment the row means (a selector's base read later is where
+  the block IS) - and a 1MB machine (`@OS88_BOCHS_MEGS=1`) is the one with
+  a conventional heap to move.
 - **time** - Bochs runs `clock: sync=realtime`, so `status()["cycles"]` is
   the guest's running time at 4.77 MHz and a guest budget means what it
   means on MartyPC. Nothing measured in cycles is a measurement here.
@@ -209,7 +215,10 @@ it maps:
   copies `os88marty.system_disk(path)` / `apps_disk(path)`, which are
   `mega.img` / `megaapps.img` under `OS88_MEGA` and PATH otherwise; a
   Makefile-built FIXTURE disk (`make stiktest`'s stik*360.img) is made again
-  on mega.img by `tests/megafix.py`'s `system_disk(path)`. Files on an
+  on mega.img by `tests/megafix.py`'s `system_disk(path)`, and an APPS
+  fixture built out of shipped packages (covoxlisten720.img's Tracker and
+  Audio) gets every package that has a kern_mega ARM swapped for it by
+  `megafix.arm_disk(path)`. Files on an
   `_hdd` machine's C: are `extra=["--put", SPEC]` (os88disk.py's
   `FOLDER:path`).
 - **breakpoints** - `exec`/`execseg` are `lb`; `int` is an `lb` on the
