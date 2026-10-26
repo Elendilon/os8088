@@ -24,6 +24,14 @@ import time
 
 TICK_HZ = 18.2065
 STALL = 30.0            # host seconds of a tick count that does not move
+STORE = 10.0            # GUEST seconds a key's press may take to be STORED -
+                        # a ceiling the wait ends at the moment it holds,
+                        # never a pause (tests/os88qemu.py STORE_SECS)
+# The names the ROM keeps a FLAG for at 0040:0017 rather than a buffer entry:
+# their press is confirmed by that byte changing, every other key's by the
+# buffer's tail moving (tests/os88qemu.py FLAG_KEYS - the same set)
+FLAG_KEYS = frozenset(("shift", "shift_r", "alt", "alt_r", "ctrl", "ctrl_r",
+                       "caps_lock", "num_lock", "scroll_lock"))
 
 
 def main() -> int:
@@ -121,7 +129,8 @@ class Client(object):
             return int(m.group(1), 16) if m else None
 
         def until(cond, secs):
-            # `cond` true, or `secs` of GUEST time (BIOS ticks), or a stall
+            # `cond` true, or `secs` of GUEST time (BIOS ticks), or a stall;
+            # answers whether `cond` held
             need = int(secs * TICK_HZ + 0.999) + 1
             last, n, seen = ticks(), 0, time.monotonic()
             while (n < need and not cond()
@@ -132,6 +141,7 @@ class Client(object):
                 if d:
                     n += 1 if d > 256 else d
                     last, seen = t, time.monotonic()
+            return bool(cond())
 
         def key(spec, secs=0.3):
             # A PLAIN `sendkey` IS CONFIRMED (docs/plans/SOAK-PARALLEL.md
@@ -139,9 +149,21 @@ class Client(object):
             # the press, and a guest the host starved past that took both at
             # one IRQ1 and lost the key. So the press goes, then the release
             # only once the ROM has stored it - the BIOS buffer's tail at
-            # 0040:001C moved - or after `secs` guest seconds (under the
-            # 500 ms typematic delay) for a key the
-            # ROM stores nothing for. Modifiers are held across the key.
+            # 0040:001C moved. Modifiers are held across the key.
+            #
+            # A KEY THE ROM STORES IS NEVER RELEASED BEFORE IT IS STORED
+            # (17.11). The release used to go after `secs` - 0.3 guest
+            # seconds, seven ticks - whatever the tail did, for "a key the
+            # ROM stores nothing for"; but that ceiling applied to EVERY
+            # key, and a release that reaches the 8042 before the guest has
+            # taken the press is the queued pair SPEC.md 9.7 says QEMU loses
+            # whenever kbm_isr peeks port 60h (a package asked for key
+            # state, or no mouse has spoken) - measured: Gorillas' setup page
+            # took 0 of 7 Enters sent that way, and the press-to-store time
+            # in the same row under two CPU hogs ran to 4 of those 7 ticks.
+            # So only a FLAG key (a modifier, a lock: confirmed by 0040:0017)
+            # keeps the short ceiling, and every other key waits up to STORE
+            # guest seconds for the tail, saying so if it never moved.
             names = spec.split("-")
 
             def ev(name, down):
@@ -161,10 +183,20 @@ class Client(object):
                 f0 = kflags()
                 ev(n, True)
                 until(lambda: kflags() != f0, secs)
-            t0 = tail()
-            ev(names[-1], True)
-            until(lambda: tail() != t0, secs)
-            ev(names[-1], False)
+            last = names[-1]
+            if last in FLAG_KEYS:
+                f0 = kflags()
+                ev(last, True)
+                until(lambda: kflags() != f0, secs)
+            else:
+                t0 = tail()
+                ev(last, True)
+                if not until(lambda: tail() != t0, STORE):
+                    sys.stderr.write("qmp.py: sendkey %s: the ROM had not "
+                                     "stored the press after %.0f guest "
+                                     "seconds - released anyway\n"
+                                     % (spec, STORE))
+            ev(last, False)
             for n in reversed(names[:-1]):
                 f0 = kflags()
                 ev(n, False)

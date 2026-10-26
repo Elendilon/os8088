@@ -481,18 +481,40 @@ def _shift(sock, down):
     _mod(sock, "shift", down)
 
 
+# The names the ROM keeps a FLAG for at 0040:0017 rather than a buffer
+# entry: a press of one is confirmed by that byte (`_mod`), and every other
+# key's by the buffer's tail (`key`). tools/qmp.py's FLAG_KEYS is the same set.
+FLAG_KEYS = frozenset(("shift", "shift_r", "alt", "alt_r", "ctrl", "ctrl_r",
+                       "caps_lock", "num_lock", "scroll_lock"))
+STORE_SECS = 10.0       # guest seconds a press may take to be STORED: a
+                        # ceiling the wait leaves the moment it holds
+
+
 def sendkey(sock, spec, secs=0.3):
     """HMP's `sendkey a-b-c` CONFIRMED: the modifiers down, `key` on the last
-    name (released only once the ROM has stored it, or after `secs` guest
-    seconds for a key it does not store), the modifiers up. HMP's own queues
-    the release 100 ms of HOST time after the press, which a starved guest
-    takes in the same IRQ1 as the press - a lost key (17.5). The names are
-    QEMU's qcodes, which are HMP's key names."""
+    name, the modifiers up. HMP's own queues the release 100 ms of HOST time
+    after the press, which a starved guest takes in the same IRQ1 as the
+    press - a lost key (17.5). The names are QEMU's qcodes, which are HMP's
+    key names.
+
+    THE LAST KEY IS RELEASED ONLY ONCE THE ROM HAS STORED IT - up to
+    STORE_SECS guest seconds, a ceiling and not a pause - unless it is a
+    FLAG key, whose press is the shift-state byte changing within `secs`.
+    `secs` used to bound every key, so a press the guest had not yet taken
+    after seven ticks was released anyway: the queued pair SPEC.md 9.7 says
+    QEMU's 8042 loses whenever kbm_isr peeks (docs/plans/SOAK-PARALLEL.md
+    17.11). A stored key whose tail never moves is said on stderr."""
     names = spec.split("-")
     mods, last = names[:-1], names[-1]
     for n in mods:
         _mod(sock, n, True, secs)
-    key(_Sock(sock), last, secs=secs)
+    if last in FLAG_KEYS:
+        _mod(sock, last, True, secs)
+        _mod(sock, last, False, secs)
+    elif not key(_Sock(sock), last, secs=STORE_SECS):
+        sys.stderr.write("os88qemu: sendkey %s: the ROM had not stored the "
+                         "press after %.0f guest seconds - released anyway\n"
+                         % (spec, STORE_SECS))
     for n in reversed(mods):
         _mod(sock, n, False, secs)
 
