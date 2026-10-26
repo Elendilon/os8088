@@ -104,7 +104,7 @@ class Dos(object):
 
     @property
     def base(self):
-        return self.seg << 4
+        return dosmap.lin(self.m, self.seg)
 
     def w(self, name):
         return int.from_bytes(self.m.read(self.base + self.dm[name], 2),

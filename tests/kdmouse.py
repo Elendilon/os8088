@@ -135,8 +135,26 @@ def main():
         # window, and the Memory page cannot be re-armed underneath one. Open
         # DOS.O88 itself, pick the arm, then name the program - which is also
         # the sequence a user takes to reach arm 3 at all.
-        if not ui.path("A:/APPS/DOS.O88"):
+        if getattr(m, "bochs", False) and not NOMOUSE:
+            # **kern_mega HAS NO MEMORY RADIO** (KERN-MEGA-PLAN 12.1 item 1):
+            # EVERY program runs on a kern_dos trip, so the arm this row
+            # picks is the only route there is and a plain launch is it. The
+            # machine needs a SERIAL mouse (tests/megaport.txt sets
+            # OS88_BOCHS_MOUSE=serial): kdmouse.inc serves nothing else.
+            if not ui.path("B:/DOSMOUSE.COM"):
+                fail("double-clicking DOSMOUSE.COM opened no window")
+        elif not ui.path("A:/APPS/DOS.O88"):
             fail("could not open DOS.O88 off the system disk")
+        else:
+            whole(ui, m)
+
+        # --- 2. the driver is THERE ------------------------------------------
+        rc = mouse_legs(m)
+        if rc is not None:
+            return rc
+
+
+def whole(ui, m):
         os88marty.ui_done(m)
         # **CHANGE DRIVE FIRST, then name the program without one**, which is
         # tests/kdmix.py's sequence and is what a user does. This row used to
@@ -185,7 +203,8 @@ def main():
         if kdhand.alert_up(m, base, dm):
             mo.click(*kdhand.alert_button(m, base, dm, 1))      # Proceed
 
-        # --- 2. the driver is THERE ------------------------------------------
+
+def mouse_legs(m):
         line = wait_line(m, "RESET")
         f = fields(line)
         if NOMOUSE:
@@ -253,9 +272,9 @@ def main():
             fail("INT 33h AX=6 answered n=%s after one click"
                  % fields(line).get("n"))
         print("kdmouse: ...and the release -> %s" % line)
-
-    print("kdmouse: ok - INT 33h tracks the hand with no kernel on the machine")
-    return 0
+        print("kdmouse: ok - INT 33h tracks the hand with no kernel on the "
+              "machine")
+        return 0
 
 
 if __name__ == "__main__":

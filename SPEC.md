@@ -178057,6 +178057,16 @@ a DOS program and the menu bar agree about a machine that has no clock to ask
 would notice: the symptom of a drift is a file stamped with one date and
 listed under another.
 
+**The century is scaled with a BYTE multiply, and that is a correctness
+point.** `dos_date_init` shipped with `mov bx, 100 / mul bx`, which writes
+`DX` - and `DH`/`DL` are the RTC's month and day, still to be read. Every
+machine WITH a clock therefore failed the month's `jz` and answered the
+fallback, 4 July, while its own menu bar showed the RTC's date. Nothing here
+could see it: MartyPC's 5150 has no clock, so the fallback was the right
+answer there. It was found by `mega-dosdir` (docs/plans/KERN-MEGA-PLAN.md
+14.77), Bochs having an MC146818, and `tests/dosdir.py` asserts on a machine
+with a clock that DOS's date is the kernel's.
+
 #### 96.13.2 What the arithmetic costs, stated rather than discovered
 
 There are **65,543.4 ticks in an hour**, which does not fit a 16-bit divisor

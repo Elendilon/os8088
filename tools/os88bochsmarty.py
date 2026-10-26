@@ -20,7 +20,10 @@ WHAT IT MAPS, AND WHAT IT CANNOT
     - kern_mega has one system disk and one apps disk, at 1.44MB. Any other
     image (a category disk, a scratch disk a row built) goes in B: as it is.
   * the machine: always Bochs's 386, a VGA, a PS/2 mouse, 16MB. A machine
-    name with `_sb` in it gets the SB16. An adapter, a ROM or a clock card in
+    name with `_sb` in it gets the SB16, one with `_ne2k` (or
+    $OS88_BOCHS_NE2K) an NE2000 on slirp, and $OS88_BOCHS_MOUSE=serial
+    swaps the PS/2 mouse for a serial one on COM1 (what kern_dos's INT 33h
+    serves). An adapter, a ROM or a clock card in
     the name is ignored - a row whose subject is one of those is not a row to
     port.
   * the clock: Bochs runs `clock: sync=realtime`, so a guest second IS a host
@@ -652,13 +655,24 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
         _ENV_DISP_USED = True
     if sb is None:
         sb = "_sb" in (machine or "")
+    # AN NE2000 on Bochs's slirp (the host is 10.0.2.2, $OS88_BOCHS_SLIRP its
+    # host-forwards): a machine name with `_ne2k` in it, or $OS88_BOCHS_NE2K.
+    # The row still has to want ETHER.DRV - its own SYSTEM.CFG, or `cfg`
+    ne2k = "_ne2k" in (machine or "") or bool(os.environ.get(
+        "OS88_BOCHS_NE2K"))
+    if ne2k and cfg is None:
+        cfg = 0x10              # ...and A:'s SYSTEM.CFG wants ETHER.DRV
+                                # (kernel/driver.inc drv_cfgbit), ethertest's
+                                # disk's one setting: a card no driver loads
+                                # for is no card to any row
     if not b:
         b = os.path.join(bld, "megaapps.img")
     btype = {368640: "360k", 737280: "720k", 1228800: "1_2",
              1474560: "1_44"}[os.path.getsize(b)]
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
                  btype="1_2" if btype in ("360k", "1_2") else "1_44",
-                 build=bld, display=disp, megs=megs, noc=True, vgahz=20, flog=True)
+                 build=bld, display=disp, megs=megs, noc=True, vgahz=20, flog=True,
+                 ne2k=ne2k)
     m = BochsMarty(box, run_dir, label=label)
     try:
         # UNTIL BOCHS HAS TAKEN ITS FIRST `c`: it starts at the debugger's

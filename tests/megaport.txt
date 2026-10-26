@@ -15,3 +15,29 @@
 
 sheetbtn secs=60   # Sheet's dialog buttons (Goto/Format) open, close and reuse their slot
 uilayer secs=120   # every os88ui verb confirmed off guest state, and confirm-vs-settle
+
+# DOS, CP/M AND THE NETWORK
+# On kern_mega EVERY DOS program runs on a kern_dos TRIP (the kernel parked
+# above 1MB, kern_dos in the HMA), so these are the trip's gates. The rows'
+# own fixture floppies ride B: as they are; tests/dosmap.py adds DOS_MEGA to
+# the map and resolves a region through m.lin.
+doscom secs=40   # a .COM runs on the trip: its output, PSP:0002, the desktop back
+dosexe secs=40   # an MZ .EXE with relocations and a short last page, on the trip
+dosexec secs=40   # AH=4Bh loads a child under kern_dos and control returns
+dosfile secs=40   # the handle layer under kern_dos: 20KB written, read, seeked, grown, deleted
+dosdir secs=45   # find, vectors, and AH=2Ah = the KERNEL's RTC date (14.77: `mul bx` ate the month)
+dosdrv secs=45   # a drive letter reaches the drive it names; A: is mega.img + AONLY.TXT
+dosregs secs=40   # INT 21h hands back every register it does not answer in
+dostype secs=150   # TYPE/COPY/VER at the windowed prompt, the console buffer by selector
+dosargs secs=120   # arguments typed on the Setup page reach the program (14.77: the press reached no field)
+dossnd secs=40   # a DOS program drives the Sound Blaster itself (Bochs's SB16)
+dosxms secs=40   # AX=4300h answers 80h: kern_dos's XMS arena is REAL on kern_mega (the row's own inversion)
+dosxmsq secs=40   # XMS allocate, move out, wipe, move back, every byte - under Bochs at 16MB
+dospkg secs=240   # a .O88 typed at the prompt opens the package, windowed and from full screen
+doslnk secs=150   # a .LNK's arguments, environment and memory block round-trip (one arm: the whole machine)
+call5 secs=60 +--leg +window   # CALL 5 dispatches on CL (the whole-machine leg IS the trip here)
+irqgrab secs=60 OS88_BOCHS_MOUSE=serial   # a program steals int 0Ch and kern_dos's kd_mou_rearm takes it back
+kdmouse secs=60 OS88_BOCHS_MOUSE=serial   # INT 33h under kern_dos tracks a serial mouse, edges and all
+kdarena secs=40   # the arena, the file window and the read-ahead do not overlap (kern_dos in the HMA)
+netpromise secs=150   # Telnet and FTPD promise per debt; FTPD's cache is a selector
+ftpdfocus secs=120   # FTPD's Setup page keeps no caret it cannot type into

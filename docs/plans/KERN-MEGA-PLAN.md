@@ -10883,3 +10883,59 @@ disk's MBR, read over the driver"*. Not run on 86Box: the mechanism is in
 the driver's own copy and is the same on a 286 as on Bochs's 386. Rung 0
 (BIOS) has no pairing read, so it is the owner's IDE machine that reaches
 it.
+
+### 14.77 The DOS rows ported to Bochs: two kern_mega defects, two shared ones (2026-10-26)
+
+Found by porting the DOS soak rows to kern_mega (tests/megaport.txt's `# DOS,
+CP/M AND THE NETWORK`). On kern_mega every DOS program runs on a kern_dos
+TRIP, so the windowed DOS's gates became the trip's - and four of them went
+red for reasons that were not the harness.
+
+1. **The trip's way home staged the clock at a SELECTOR** (kern_mega's).
+   `mega_dosgo` wrote `[es:di+KDL_STAGE]` from ES, which at that point is the
+   protected-mode SELECTOR over the text page (`hbm_stageseg`, MC7) and not
+   its real segment. kern_dos's `kd_unpark` loads KDL_STAGE as a real-mode
+   segment, so the ten clock bytes, HS_TICK0, the exit code and the arena KB
+   went to `(selector << 4)` - conventional memory the park then restores
+   over - and `hbm_wake` read B800:0412 instead: the PROGRAM'S OWN TEXT
+   CELLS. Every trip came home with the menu bar reading `07 8199  20:07 PM`
+   (`'"'`, then blanks with attribute 07, taken as sec/min/hour/day/month)
+   and a tick catch-up computed from rubble. Found with a Bochs write
+   watchpoint on `clk_day`: the park stub's restore, then `hbm_wake` at
+   HIBER.DRV +1637h. **Fix**: store `[mega_dstg]`, the real segment
+   `mega_dosgo` already computes for `mega_dropr`. kern_big and kern_small
+   are byte-identical (`kernel/megados.inc` is `.mega`).
+2. **No press on the Setup page reached the arguments box or an environment
+   row** (kern_mega's DOS.O88). `dos_click_mem`'s DOS_MEGA arm ended
+   `.notfld` with `jmp .out` - "no radio on kern_mega" - which is CF = 0,
+   "mine", for every press the memory block's own controls did not take; so
+   `dos_fld_hit` was never reached and the fields could not be focused at
+   all (`tests/dosargs.py`: *"the ARGUMENTS box holds ''"*). **Fix**: `jmp
+   .away`, the refusal the kern_big arm reaches after its radio. DOS_MEGA
+   only.
+3. **A machine with a clock answered AH=2Ah with 4 July 2026** (shared:
+   `apps/dos/dos.asm`'s core, every kernel). `dos_date_init` scaled the RTC's
+   century with `mov bx, 100 / mul bx`, which writes DX - and DH/DL were the
+   RTC's month and day, still to be read - so the month's `jz` took the
+   fallback on every AT. Invisible on MartyPC (a 5150 has no RTC, so the
+   fallback WAS the answer); Bochs's MC146818 showed it. **Fix**: `mul bl`.
+   `tests/dosdir.py` now asserts on a machine with a clock that DOS's date is
+   the kernel's (red before: `['2026-7-4', '6']` against `['2026-10-26',
+   '1']`). SPEC.md 96.13.1.
+4. **MOVE under kern_dos was an I/O error every time** (shared: kern_dos on
+   either kernel). `dos_k_copy`/`dos_k_move` refused with whatever AX held, so
+   the shell's MOVE (`dsh_copy_go`) never reached its documented fallback -
+   FERR_FULL means "the engine took nothing, stream with your own" (DBE_MOVE's
+   own contract). **Fix**: answer FERR_FULL. MOVE now works by copy and
+   delete (`tests/dosshell.py` on kern_mega: exit 00, the right bytes in SUB),
+   and the row stays red on its re-link assertion, which is the copy engine's
+   (SPEC.md 22.25) and KERN-DOS-PLAN 6.1 lever 3 leaves it behind.
+
+**Open, not fixed - the program's last screen is not the console's after a
+trip.** SPEC.md 96.34's `dos_snap` is a DOS.O88 hook (`DHK_SNAP`) and kern_dos
+binds none, so on kern_mega - where every program is a trip - the console
+after `DOSHELLO` shows `Starting ...` and `... ended, exit code 042` with
+nothing the program printed between (`tests/doscon.py`). The screen is
+recoverable only before `kd_unpark` stages over the text page and the wake's
+mode set clears it, so the fix is a capture on kern_dos's way out into
+something the wake can hand DOS.O88 - a feature, not a line.
