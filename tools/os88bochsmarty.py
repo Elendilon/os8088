@@ -1023,7 +1023,8 @@ def _first_c(box):
 
 
 def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
-           sb=None, cfg=None, megs=None, noserial=False, wheel=False, **_):
+           sb=None, cfg=None, megs=None, noserial=False, wheel=False,
+           cimg=None, **_):
     """os88marty.launch's shape, on Bochs and kern_mega (see the module
     note). `boot` True waits for the desktop (os88bochs.Box.up's state gate,
     then a settle of the glass); a number runs blind for that many seconds;
@@ -1035,6 +1036,8 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     tag = re.sub(r"\W+", "", label or os.path.splitext(
         os.path.basename(sys.argv[0] or "row"))[0])[:24]
     run_dir = tempfile.mkdtemp(prefix="%s-" % tag, dir=base)
+    if cimg:
+        shutil.copyfile(cimg, os.path.join(run_dir, "c.img"))
     # THE RUNNER'S DISPLAY for this row's first machine (tools/os88test.py
     # holds one per Bochs row, $OS88_BOCHS_DISPLAY); any further machine in
     # the same process takes one of its own
@@ -1051,7 +1054,12 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     # The row still has to want ETHER.DRV - its own SYSTEM.CFG, or `cfg`
     ne2k = "_ne2k" in (machine or "") or bool(os.environ.get(
         "OS88_BOCHS_NE2K"))
-    if ne2k and cfg is None:
+    # `cfg="keep"`: A:'s own SYSTEM.CFG stands - a system-disk FIXTURE that
+    # wants ETHER.DRV and more (tests/os88qmpbochs.py's mega_twin)
+    keep = cfg == "keep"
+    if keep:
+        cfg = None
+    if ne2k and cfg is None and not keep:
         cfg = 0x10              # ...and A:'s SYSTEM.CFG wants ETHER.DRV
                                 # (kernel/driver.inc drv_cfgbit), ethertest's
                                 # disk's one setting: a card no driver loads
@@ -1060,6 +1068,12 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
     # its twins): os88bochs.Box's default C:, an ATA disk with RUN/ on it.
     # Everything else has none, as before
     noc = "_hdd" not in (machine or "")
+    # ...or THE ROW'S OWN fixed disk (`cimg`, tests/os88qmpbochs.py's
+    # TESTHD): a raw image at os88bochs.GEOM's geometry, booted as it is
+    # made - Box keeps a c.img already in its directory - and read back by
+    # the row through the copy in run_dir (os88qmpbochs copies it home)
+    if cimg:
+        noc = False
     # ...and FILES ON IT: `extra` takes MartyPC's emulator arguments, which
     # mean nothing here, so a row that needs a file on C: (stikhiber's
     # HIBERNAT.PTR) passes ("--put", SPEC) pairs instead - os88disk.py's
@@ -1074,7 +1088,7 @@ def launch(image, apps=None, machine="", boot=True, label=None, extra=(),
              1474560: "1_44"}[os.path.getsize(b)]
     box_btype = "1_2" if btype in ("360k", "1_2") else "1_44"
     box = ob.Box(run_dir, [], sb=sb, cfg=cfg, bimg=b, aimg=a,
-                 btype=box_btype,
+                 btype=box_btype, cmode="keep" if cimg else "run",
                  build=bld, display=disp, megs=megs, noc=noc, vgahz=20, flog=True,
                  ne2k=ne2k, noserial=noserial, imps2=wheel, put=put)
     m = BochsMarty(box, run_dir, label=label)

@@ -248,7 +248,12 @@ class QH(object):
         return bytes(xmcheck.read_bytes(self.sock, linear, n))
 
     def readseg(self, seg, off, n):
-        return self.read((seg << 4) + off, n)
+        return self.read(os88qemu.lin(seg, off), n)
+
+    def lin(self, seg, off=0):
+        """SEG:OFF's linear address (os88qemu.lin: a selector's base under
+        kern_mega) - tests/dispcp.py and os88ui read through it"""
+        return os88qemu.lin(seg, off)
 
     def mouse(self, *args):
         subprocess.run([sys.executable, os.path.join(ROOT, "tools",

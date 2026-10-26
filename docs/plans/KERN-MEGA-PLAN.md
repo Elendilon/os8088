@@ -11143,3 +11143,55 @@ kern_mega with the caller's flags kept, at all four banks in
 before, so kern_big and kern_small are byte-identical (the build number
 apart). **`mega-czjoin` is the row**: red before it (the refusal legs
 never returned), every leg green after, the volume fsck'd on the host.
+
+### 14.85 The kernel's NETV_GONE and EMSV_GONE were refused as a package's (2026-10-26)
+
+**Found by porting `ethernet` to kern_mega** (tests/megaport.txt, through
+tests/os88qmpbochs.py's QMP socket over a Bochs NE2000): the Browser
+fetched its page, closed - and ETHER.DRV's 17KB socket pool stayed claimed
+with `[eth_users]` = 2, the closed instance's bit, for the rest of the
+session (SPEC.md 72.13.4's *"the kernel's teardown sends NETV_GONE"*).
+Breakpoints on the teardown read `xm_release_rec` reached, `drv_pkg_call_x`
+entered with BX = 0442h and `drv_pkg_disp` far-calling the driver - and
+`eth_v_gone` never reached.
+
+**Cause**: the driver tells the kernel's GONE from a package naming the
+same verb by ES: `cmp si, KERNEL_SEG / jne .notk`, a package's call
+always carrying its own segment there. Under kern_mega's protected mode
+the kernel's ES is `KES`'s `[k_dsel]`, its DATA alias MEGA_SEL_KDATA
+(10h), not 60h - so every teardown's GONE was answered NETE_VERB. EMS.DRV's
+`em_gone` makes the same test the same way, so an instance's expanded
+memory was never released there either. SOUND.DRV's volume.inc met this
+once already and answers *"at or below"*.
+
+**Fix**: both drivers take `ja` for `jne` - ES at or below 60h is the
+kernel's (KERNEL_SEG, or 10h under kern_mega), and a package's segment or
+selector is never there. Same length, so ETHER.DRV and EMS.DRV change by
+one opcode byte each and no kernel byte moves. **`mega-ethernet` is the
+row**: red before it on *"sk_seg 11D4 / eth_users 0002 after the last
+network package closed"*, green after, the pool's claim read off mx_tab
+(it is an XMEM-pool block above 1MB, `tools/heapmap.py`'s `pool`).
+
+### 14.86 The Wire's zone stayed on the desktop after its driver was unticked (2026-10-26)
+
+**Found by porting `wirezone` to kern_mega**: unticking Ethernet on the
+Control Panel's Drivers page unloaded ETHER.DRV ("Not loaded") and left
+`[desk_svc_seg]` - and the Wire's icon - where they were.
+
+**Cause**: the driver registers its service zone at attach, in real mode,
+so `osapi_desk_item_x` keeps its conventional segment (9B80h here). Right
+after `mega_enter`, `drv_hiboot_f` moves the image above 1MB and re-points
+every holder through `mem_region_reloc`'s walk - and `mem_rr_tab` has no
+row for `[desk_svc_seg]`. So the withdraw at unload, which matches the
+caller's ES against that word, compared the driver's selector (118Ch) with
+the stale segment and refused.
+
+**Fix**: `MEM_RR_ONE desk_svc_seg` in `mem_rr_tab` (`kernel/memory.inc`),
+inside `%ifdef KERN_MEGA`; kern_big and kern_small are byte-identical (the
+build number apart). **`mega-wirezone` is the row**: red before it on
+*"desk_svc_seg is still 9B80 after unticking Ethernet"*, green after with
+the rect bare desktop again. **The same hazard is open on kern_big** and is
+NOT fixed here: a compaction that moves ETHER.DRV's image (SPEC.md 66.6.3)
+after it registered would strand the word the same way, and nothing tests
+that move with the zone up. The row is the one-line answer there too, at
+four bytes of the shared table; it wants its own gate first.

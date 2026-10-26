@@ -116,6 +116,11 @@ def kill(pidfile=None, sock=None, wait=1.0):
     """
     if pidfile is None:
         pidfile, sock = PIDFILE, (SOCK if sock is None else sock)
+    if MEGA:                            # a kern_mega Bochs: closed by its
+        import os88qmpbochs             # server, which puts the disks back
+        for srv in list(os88qmpbochs._LIVE):
+            if srv.pidfile == pidfile and not srv.closed:
+                srv.close()
     if pidfile and os.path.exists(pidfile):
         try:
             pid = int(open(pidfile).read().strip())
@@ -440,6 +445,10 @@ def poke(hmp, linear, data):
     out. Raises on any answer but OK - a write that did not happen must not
     read as a test of what it would have done.
     """
+    if MEGA:                            # the Bochs shim WRITES memory
+        import os88qmpbochs
+        os88qmpbochs.live().m.write(linear, bytes(data))
+        return
     import socket
     s0 = socket.socket()
     s0.bind(("127.0.0.1", 0))
@@ -1036,6 +1045,11 @@ def make_test(*knobs, copy=True, extra=()):
         if kv.get("ETHDUMP"):
             cmd += ["-object", "filter-dump,id=fdump,netdev=n0,file=%s"
                     % os.path.abspath(kv["ETHDUMP"])]
+    if MEGA:
+        # KERN_MEGA UNDER BOCHS: the same socket answered by
+        # tests/os88qmpbochs.py, an NE2000 on Bochs's slirp for ETHER=
+        return _mega(sock, pidfile, a, b, hd, d, ether=bool(kv.get("ETHER")),
+                     sb=bool(kv.get("SB16")))
     own(pidfile, sock)
     subprocess.run(cmd + list(extra), cwd=ROOT, check=True,
                    stdout=subprocess.DEVNULL)
@@ -1043,6 +1057,55 @@ def make_test(*knobs, copy=True, extra=()):
     atexit.register(_killpid, pid)
     _point(sock, pidfile)
     return Instance(sock, pidfile, pid, a, b, hd, d)
+
+
+# -----------------------------------------------------------------------------
+# KERN_MEGA (docs/BOCHS.md, "Rows ported from MartyPC"). Under $OS88_MEGA a
+# launcher here starts tests/os88qmpbochs.py's Server - a Bochs running
+# kern_mega with an NE2000 on its slirp - behind the socket path QEMU would
+# have had, so every QMP client a row uses drives it unchanged. Three helpers
+# carry what the transport cannot: `lin` (a guest-read segment is an LDT
+# SELECTOR there, so `seg << 4` is the wrong address), `drv_base` (os88geom's,
+# through `lin`) and `mega_twin` (a system-disk fixture rebuilt on mega.img).
+# Off kern_mega each is what the row computed before.
+# -----------------------------------------------------------------------------
+MEGA = bool(os.environ.get("OS88_MEGA"))
+
+
+def lin(seg, off=0):
+    """SEG:OFF's linear address: `(seg << 4) + off`, or a selector's base."""
+    if not MEGA:
+        return (seg << 4) + off
+    import os88qmpbochs
+    return os88qmpbochs.lin(seg, off)
+
+
+def drv_base(seg):
+    """os88geom.drv_base for the machine this process launched."""
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import os88geom
+    if not MEGA:
+        return os88geom.drv_base(seg)
+    return lin(seg, 0)
+
+
+def mega_twin(img):
+    """`img`, or under $OS88_MEGA its kern_mega twin (os88qmpbochs)."""
+    if not MEGA:
+        return img
+    import os88qmpbochs
+    return os88qmpbochs.mega_twin(img)
+
+
+def _mega(sock, pidfile, a, b, hd, d, ether=True, sb=False):
+    import os88qmpbochs
+    srv = os88qmpbochs.Server(sock, pidfile, a, b, hd=hd, ne2k=ether,
+                              sb=sb)
+    _point(sock, pidfile)
+    inst = Instance(sock, pidfile, None, a, b, hd, d)
+    inst.server = srv
+    inst.close = srv.close
+    return inst
 
 
 # -----------------------------------------------------------------------------

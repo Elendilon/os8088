@@ -392,8 +392,13 @@ em_map:
 em_gone:
     mov di, es
     cmp di, KERNEL_SEG
-    jne em_bad                  ; a package cannot send it: its calls arrive
-    xor al, EM_SLOTX            ; with its own segment in ES
+    ja  em_bad                  ; a package cannot send it: its calls arrive
+                                ; with its own segment in ES. AT OR BELOW 60h
+                                ; and not EQUAL: kern_mega's kernel sends it
+                                ; with ES = MEGA_SEL_KDATA (10h), its data
+                                ; alias in protected mode (KERN-MEGA-PLAN
+                                ; 14.85, ETHER.DRV's NETV_GONE the same)
+    xor al, EM_SLOTX
     mov bh, al                  ; (em_pkg puts DRVC_EMS back)
     mov di, 2 * EMS_NHND - 2
 .h:
