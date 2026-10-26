@@ -491,15 +491,13 @@ FIELD_WHEN = {
     "flip": lambda c: ("A Hercules's second page is page-ahead's: flipping "
                        "every frame is a VGA's (its latches copy the page)."
                        if c["layout"] == "herc" else
-                       "A NARROW screen's pages are page-ahead's (--pages): "
-                       "flipping every frame is a screen with 80-byte rows'."
-                       if str(c.get("screen", "")).endswith("n") else
                        "Flipping is a stream's played full screen: not Live "
                        "or resident." if c["live"] or c["resident"] else
                        None) if c["layout"] in ("modex", "herc") or (
         c["pixfmt"] == "vga4" and c["screen"] not in ("", "640x480")) else
     "Two pages are Mode X's, or 16 colours' on a Screen of their own "
-    "(320x200, 320x240, 640x350, 640x400) - and %s has one page."
+    "(320x200, 320x240, 640x350, 640x400, 320x200n, 320x240n) - and %s "
+    "has one page."
     % ("mode 12h's 640 x 480" if c["pixfmt"] == "vga4" else
        "mode 13h" if c["pixfmt"] == "vga8" else
        "this %s file" % c["pixfmt"]),
