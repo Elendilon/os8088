@@ -18,7 +18,7 @@ rgbds) and the test suites tools/getgbtest.py fetches at pinned SHA-256s.
 None is committed, and no commercial game is used: those are the owner's
 field measurement (docs/reports/REALDMG-FULLSTATIC-2026-10-25.md).
 
-FOUR NEGATIVE CONTROLS, every one of which must go red:
+FIVE NEGATIVE CONTROLS, every one of which must go red:
   - the most-entered block of GBRMW.GB with its first byte changed: the
     check must see the precompiled code at all;
   - GBFLAGS.GB translated by a driver built with RT_DEADBUG (a flag's read
@@ -29,7 +29,9 @@ FOUR NEGATIVE CONTROLS, every one of which must go red:
     fewer precompiled blocks, the one thing that defect changes;
   - GBBANK.GB with every block in the list (the table left empty, so the
     search and its cache are what run) under a driver built with
-    RDG_AOTCACHEBUG (the cache's bank key forgotten): it must differ.
+    RDG_AOTCACHEBUG (the cache's bank key forgotten): it must differ;
+  - GBSEAM4.GB with tr_ejf's choice of DS taken out of the precompiled core
+    (a JR from the bank back to a bank-0 PC with no block): it must differ.
 """
 import argparse
 import os
@@ -44,7 +46,7 @@ import gbstatic  # noqa: E402
 
 BUILD = os.path.join(ROOT, "build")
 OURS = ["gbrmw", "gbpop", "gbhblank", "gbbank", "gbsave", "gbjoy", "gbpad", "gbtone", "gbflags",
-        "gbseam", "gbseam2"]
+        "gbseam", "gbseam2", "gbseam3", "gbseam4", "gbseam5", "gblcdoff"]
 # (label, ROM, frames, compare the link port's words rather than frames)
 SUITE = [
     ("GBDEMO", "apps/realdmg/GBDEMO.GB", 1500, False),
@@ -59,6 +61,14 @@ SUITE = [
     ("GBFLAGS (sum)", "gbflags", 3000, True),
     ("GBSEAM (across 3FFF)", "gbseam", 600, True),
     ("GBSEAM2 (on at 4000)", "gbseam2", 600, True),
+    ("GBSEAM5 (JR at 3FFF)", "gbseam5", 600, True),
+    # the LCD off for good: the harness's frame is a frame's time then,
+    # where it waited for a VBlank (Prehistorik Man waiting on a button)
+    ("GBLCDOFF (dark for good)", "gblcdoff", 300, True),
+    # a JR across the seam: the plain interpreter's has no setds (REALDMG-SPEC
+    # 3.1), so these are held to the dynamic recompiler's frames
+    ("GBSEAM3 (JR into the bank)", "gbseam3", 600, "dyn"),
+    ("GBSEAM4 (JR out of it)", "gbseam4", 600, "dyn"),
     ("cpu_instrs", "cpu_instrs/cpu_instrs.gb", 4000, True),
     ("instr_timing", "instr_timing/instr_timing.gb", 600, True),
     ("mem_timing", "mem_timing/mem_timing.gb", 1500, False),
@@ -98,10 +108,14 @@ def hram_leg(rom, found, extra, out, frames, ref="interp"):
     made = sorted(pc for pc, key in img["blocks"] if pc >= 0xFF80)
     if not made:
         return False, "%d HRAM PCs counted and none translated" % len(hram)
+    if not img.get("hlinked"):
+        return False, "%d HRAM blocks and no exit linked to one: the guard on a " \
+            "linked entry is untested" % len(made)
     out2 = out + "-hram"
     gbaot.save(img, out2, rom)
     ok, what = gbaot.compare(BUILD, rom, gbaot.load(out2), frames, ref=ref)
-    return ok, "%d HRAM blocks (%s); %s" % (len(made), " ".join("%04X" % p for p in made), what)
+    return ok, "%d HRAM blocks (%s), %d exits linked to them; %s" % (
+        len(made), " ".join("%04X" % p for p in made), img["hlinked"], what)
 
 
 def straddle():
@@ -122,6 +136,36 @@ def straddle():
     if (0, 0x3FFE) in lead:
         return "a block start at 3FFE, whose JP's high byte is at 4000h"
     return None
+
+
+def ejf_control(rom, out, frames):
+    """compare() against the dynamic recompiler with tr_ejf's two loads of DS
+    NOPped out of the precompiled core"""
+    at = None
+    for ln in open(os.path.join(BUILD, "gbaot", "rdgcore.map")):
+        p = ln.split()
+        if len(p) == 3 and p[2] == "tr_ejf":
+            at = int(p[0], 16)
+    orig = gbaot.Machine.init
+
+    def init(self, *a, **k):
+        img = k.get("core_image")
+        if img is not None:
+            b = bytearray(img)
+            n, i = 0, at
+            while i < at + 48:
+                if b[i:i + 3] == b"\x36\x8e\x1e":     # mov ds,[ss:...]
+                    b[i:i + 5] = b"\x90" * 5
+                    n += 1
+                i += 1
+            assert n == 2, n
+            k["core_image"] = bytes(b)
+        return orig(self, *a, **k)
+    gbaot.Machine.init = init
+    try:
+        return gbaot.compare(BUILD, rom, gbaot.load(out), frames, ref="dyn")
+    finally:
+        gbaot.Machine.init = orig
 
 
 def main():
@@ -208,6 +252,14 @@ def main():
                                          "passed - the gate cannot go red" if ok
                                          else what + ", as it must"))
                 bad += ok
+        if label.startswith("GBSEAM4") and not a.k:
+            # its JR back to 3FF8 has no block: tr_ejf's no-block way must
+            # choose DS. The image's core without that choice must part
+            ok, what = ejf_control(rom, out, frames)
+            print("%-4s %-28s %s" % ("FAIL" if ok else "ok", "control: tr_ejf's DS left",
+                                     "passed - the gate cannot go red" if ok
+                                     else what + ", as it must"))
+            bad += ok
         if label in HRAMLEG:
             ok, what = hram_leg(rom, found, extra, out, frames, ref)
             print("%-4s %-28s %s" % ("ok" if ok else "FAIL", "%s, HRAM counted" % label, what))

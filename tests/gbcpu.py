@@ -78,9 +78,14 @@ FLAGS_ROM = "gbflags"
 # takes that event with F stale.
 LAZY_ROM = "gblazy"
 # tools/gbprof/gbseam.asm: code run from bank 0 across 3FFF into the bank
-# (REALDMG-SPEC 3.1), an instruction across it and one on at 4000. Its
-# control assembles the harness without the trap (RDG_NOSEAM).
-SEAM_ROMS = ("gbseam", "gbseam2")
+# (REALDMG-SPEC 3.1), an instruction across it, one on at 4000 and a JR at
+# 3FFF. Its control assembles the harness without the trap (RDG_NOSEAM).
+SEAM_ROMS = ("gbseam", "gbseam2", "gbseam5")
+# ...and gbseam3 and gbseam4, a JR across it from bank 0 into the bank and
+# back: a JR chooses no DS, and only the translated machine's way through
+# tr_int (or tr_ejf) puts it right, so they are held TRANSLATED, and the
+# plain interpreter is their control - it must fail them (REALDMG-SPEC 3.1)
+SEAM_JRS = ("gbseam3", "gbseam4")
 # tools/gbprof/gbcpc.py: copies through (C), RAM to HRAM and back, taken in
 # one step (cpc_ff, REALDMG-SPEC 16.6), a timer interrupt landing in them.
 # Its control takes the copy the wrong way round (RT_CPCBUG).
@@ -241,6 +246,16 @@ def main():
                 bad += not ok
             ok, last = run(name, rom, 600, core, nos, jit=False)
             print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: %s no trap" % name,
+                                     "passed - the gate cannot go red" if ok
+                                     else "failed, as it must"))
+            bad += ok
+        for name in SEAM_JRS:
+            rom = gbours.build(name)
+            ok, last = run(name, rom, 600, core, host, jit=True)
+            print("%-4s %-24s %s" % ("ok" if ok else "FAIL", "%s, translated" % name, last))
+            bad += not ok
+            ok, last = run(name, rom, 600, core, host, jit=False)
+            print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: %s interpreted" % name,
                                      "passed - the gate cannot go red" if ok
                                      else "failed, as it must"))
             bad += ok

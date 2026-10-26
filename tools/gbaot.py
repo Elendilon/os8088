@@ -696,6 +696,24 @@ def finish(img, sym, rom, keyed, rhm, heat=None, listall=False):
                         relocs.append((n, i, tn, at != i))
                     linked += 1
             i = sg.find(b"\xBA", i + 1)
+    # an exit to HRAM is `mov si,T / js +3 / jmp tr_enter` (rt_exit's RAM
+    # arm): RAM is never linked at run time. A precompiled HRAM block is
+    # GUARDED - it compares its bytes with HRAM's at every entry (REALDMG-SPEC
+    # 20.5) - so where one is in the same image, the jmp is made that block's
+    # own, and the lookup tr_enter would make every time is not (Looney Tunes'
+    # object loop calls its HRAM thunk twenty times a frame)
+    enter, hlinked = sym["RDGC_TR_ENTER"], 0
+    for n, sg in enumerate(segs):
+        i = sg.find(b"\xBE")
+        while i != -1 and i < 0xFFF0:
+            if (sg[i + 3:i + 6] == b"\x78\x03\xE9"
+                    and (i + 8 + struct.unpack_from("<h", sg, i + 6)[0]) & 0xFFFF == enter):
+                t = struct.unpack_from("<H", sg, i + 1)[0]
+                tgt = blocks.get((t, 0xFF)) if 0xFF80 <= t < 0xFFFF else None
+                if tgt is not None and tgt[0] == n:
+                    struct.pack_into("<H", sg, i + 6, (tgt[1] - (i + 8)) & 0xFFFF)
+                    hlinked += 1
+            i = sg.find(b"\xBE", i + 1)
     img["segs"] = [bytes(x) for x in segs]
     # THE HOT IMAGES: the first so many that, with the core, hold 99% of the
     # counted entries - claimed before the ROM's bank cache, the rest after
@@ -712,7 +730,7 @@ def finish(img, sym, rom, keyed, rhm, heat=None, listall=False):
             cum += per[hot]
         hot = max(hot, 1) if len(segs) > 1 else 0
     img.update(table=bytes(table), list=bytes(lst), relocs=relocs, hmask=rhm,
-               linked=linked, lazy=lazy, listed=len(listed), hot=hot)
+               linked=linked, lazy=lazy, listed=len(listed), hot=hot, hlinked=hlinked)
 
 
 def tailpages(build):
@@ -955,10 +973,11 @@ def cmd_build(a):
     code = sum(len(s) for s in img["segs"])
     print("gbaot: %d blocks in %d segments (the core and %d more), %d dropped; %d code bytes, "
           "%.1f a Game Boy instruction found; table %dKB with %d in the list; %d exits linked, "
-          "%d left to link; written to %s" % (
+          "%d left to link, %d to HRAM blocks; written to %s" % (
               len(img["blocks"]), len(img["segs"]), len(img["segs"]) - 1, len(img["dropped"]),
               img["code_bytes"], img["code_bytes"] / max(1, len(found)),
-              len(img["table"]) // 1024, img["listed"], img["linked"], img["lazy"], a.out))
+              len(img["table"]) // 1024, img["listed"], img["linked"], img["lazy"],
+              img.get("hlinked", 0), a.out))
 
 
 ARMS = {"interp": 0, "dyn": 1, "aot": 3}
@@ -1066,8 +1085,11 @@ def package(build, img, rom, out, romname, image=None, log=print, embed=False):
                                              AOT_CODE + 2 * nseg if embed else 0,
                                              meta.get("hot", nseg),
                                              len(rom.d) // 1024 if embed else 0) + rel
-    metap = (hdr.ljust(loff, b"\0") + lst).ljust(foff, b"\0") + bytes(0x2800)  # filter, cache
-    parts = [segs[0][:0x8000], segs[0][0x8000:], table, metap]
+    metap = (hdr.ljust(loff, b"\0") + lst).ljust(foff, b"\0")
+    # the filter and the list's cache (rdgaot.inc, 10KB) follow the TABLE in
+    # its part: in the meta part, after a long list, they took that part past
+    # 65,024 bytes - Link's Awakening's 65,264, Wario Land's 68,672
+    parts = [segs[0][:0x8000], segs[0][0x8000:], table + bytes(0x2800), metap]
     for sg in segs[1:]:
         parts += [sg[:0x8000], sg[0x8000:]]
     plain = set()

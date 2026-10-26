@@ -109,10 +109,12 @@ rw_ameta:
     shr ax, cl
     add ax, [rw_amseg]
     mov [rw_alseg], ax
-    mov ax, [es:56]
-    mov cl, 4
-    shr ax, cl
-    add ax, [rw_amseg]
+    mov al, [rw_ahm]                ; the filter and the list's cache:
+    xor ah, ah                      ;   after the table in ITS part, (mask
+    inc ax                          ;   + 1) x 256 x 8 bytes on - where the
+    mov cl, 7                       ;   meta part had them, a long list took
+    shl ax, cl                      ;   it past 65,024 bytes (Link's
+    add ax, [rw_atseg]              ;   Awakening: 65,264)
     mov [rw_afseg], ax
     pop es
     clc

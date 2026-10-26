@@ -43,6 +43,8 @@ S_SEAMPC         equ 0x4B90          ; word: an instruction across 3FFF's
 S_SEAMEND        equ 0x4B92          ; word: ...where it ends, 4001 or 4002
 S_SEAMSV         equ 0x4B94          ; word: seam_trap's BX
 S_SEAMOP         equ 0x4B96          ; byte: its opcode, as the ROM has it
+S_SEAMJR         equ 0x4B97          ; byte: 1 when it is a JR, which seam_jr
+                                    ;   runs whole
 S_JITSEGA       equ 0x4810          ; word: the cache's first segment, and
 S_JITSEGB       equ 0x4812          ;   its second or 0 (REALDMG-SPEC 16.2.1):
                                     ;   S_JITSEG is the one being written

@@ -777,6 +777,8 @@ seam_trap:
 .in:
     cmp si,[ss:S_SEAMPC]
     jne .bad
+    cmp byte [ss:S_SEAMJR],0
+    jne seam_jr
     mov ds,[ss:S_ROMX]          ; the instruction across 3FFF: the bank's
     mov dx,[4000h]              ;   4000-4001 where its operand reads them,
     mov ds,[ss:S_VIEW]          ;   a trap where it ends - and it, as the
@@ -1882,7 +1884,7 @@ io_wr:
     jmp short .st
 .snd:
     cmp bl,27h                  ; FF01-FF26, the sound registers with
-    jb .host                    ;   them: rdgsys follows the four channels'
+    jb .nr                      ;   them: rdgsys follows the four channels'
     cmp bl,40h                  ;   triggers, envelopes and lengths and
     jb .st                      ;   stores the rest (REALDMG-SPEC 17) - a
                                 ;   translated store to one it only
@@ -1897,6 +1899,12 @@ io_wr:
 .z:
     xor dl,dl
     jmp word [ss:S_RET]
+.nr:                            ; ...and through (C) or (HL), where no
+    cmp bl,10h                  ;   translator knew the address, the same
+    jb .host                    ;   rule here: a register rdgsys only
+    cmp byte [cs:bx+io_sndtab-0FF10h],0     ; stores is stored, where
+    je .st                      ;   rdgsys was ~95 instructions away
+    jmp short .host
 .lcd:                           ; FF40-FF4B: a write of what is there
     cmp bl,46h                  ;   already changes nothing and is no
     je .host                    ;   raster write (rdg_rlog would log it,
@@ -2218,6 +2226,75 @@ JD_NOFILTER = {0xC9, 0xD9}
 # --- tails after a TAIL page's CB handler: the translator copies a tail -----
 # --- page whole, so its CB half's room is as reachable as its main half's --
 CBTAILS = {
+    0xFD: """
+; io_sndtab: FF10-FF26, 1 where rdgsys follows the register (a channel's
+; envelope, trigger or DAC, NR52) - rdgjit's rt_snd's list - and 0 where it
+; only stores it, for io_wr (REALDMG-SPEC 17)
+io_sndtab:
+    db 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1
+""",
+    0xE3: """
+%ifdef RDG_AOTCORE
+; tr_ejm: tr_ejf's PC that the filter names, on to the table as before
+tr_ejm:
+    mov bx,si
+    mov dl,dh
+    jmp tr_ekey
+tr_ebits:   db 1, 2, 4, 8, 16, 32, 64, 128
+%endif
+""",
+    0x5B: """
+; seam_jr: a JR at 3FFF (REALDMG-SPEC 3.1), its displacement the BANK's
+; 4000 - run here whole, since where it lands may be either side of 4000h
+; and a JR chooses no DS: SI = 4000h, the opcode in S_SEAMOP
+seam_jr:
+    mov ds,[ss:S_ROMX]
+    mov dl,[4000h]              ; the displacement
+    mov dh,[ss:S_SEAMOP]
+    cmp dh,18h
+    je .tk
+    cmp dh,28h
+    jb .nz
+    je .z
+    cmp dh,30h
+    je .nc
+    sahf                        ; 38h: JR C (F's Z and C are ZF and CF)
+    jc .tk
+    jmp short .nt
+.nz:
+    sahf
+    jnz .tk
+    jmp short .nt
+.z:
+    sahf
+    jz .tk
+    jmp short .nt
+.nc:
+    sahf
+    jnc .tk
+.nt:
+    inc si                      ; on into the bank's 4001, DS its
+    xor dl,dl
+    sub bp,2
+    js .ev
+    jmp tr_enter
+.tk:
+    inc si
+    cmp dl,80h
+    cmc
+    sbb dh,dh
+    add si,dx                   ; 4001h + d, and DS for it
+    cmp si,4000h
+    jae .b
+    mov ds,[ss:S_VIEW]
+.b:
+    xor dl,dl
+    sub bp,3
+    js .ev
+    jmp tr_enter
+.ev:
+    jmp far [ss:S_EVVEC]
+""",
     0x7C: """
 %ifdef RDG_AOTCORE
 ; tr_ejf: JDISPATCH's way in under a PRECOMPILED machine (REALDMG-SPEC 20.9):
@@ -2232,10 +2309,12 @@ tr_ejf:
     mov [ss:S_SAVBX],bx
     mov bx,si
     mov dh,0FFh
-    cmp bh,40h
-    jb .k
+    mov ds,[ss:S_VIEW]          ; DS for SI as tr_int chooses it, on the
+    cmp bh,40h                  ;   key's own branch: a JR's DS may be the
+    jb .k                       ;   wrong side of 4000h (REALDMG-SPEC 3.1)
     mov dh,[ss:S_BANK]
     and dh,[ss:S_BMASK]
+    mov ds,[ss:S_ROMX]
 .k:
     xor bh,dh                   ; PC ^ key << 8, as rdg_aotattach's
     mov dl,bl
@@ -2250,17 +2329,14 @@ tr_ejf:
     mov bx,[ss:S_AOTMID]
     mov es,[ss:S_AOTFSEG]
     test [es:bx],dl
-    jnz .may
+    jz .no
+    jmp tr_ejm
+.no:
     mov bx,[ss:S_SAVBX]
     xor dl,dl
     mov dh,[si]
     inc si
     jmp dx
-.may:
-    mov bx,si
-    mov dl,dh
-    jmp tr_ekey
-tr_ebits:   db 1, 2, 4, 8, 16, 32, 64, 128
 %endif
 """,
     0xDD: """

@@ -116,16 +116,43 @@ TRAP, op_D3 (an opcode the SM83 does not have), `seam_trap` in its tails.
   hold no instruction ends in `mov si,PC / jmp tr_int` (`rt_translate`'s
   fall-through), where it exited to its own start.
 
+- **A JR at 3FFF is the trap too, and `seam_jr` runs it whole** (5Bh's CB
+  half, `S_SEAMJR` set by `rdg_seaminit`): its displacement is the bank's
+  4000, and where it lands may be either side of 4000h, so the trap reads
+  the byte from the bank, decides the condition on F, and takes DS for the
+  PC it lands on - the view below 4000h, the bank's above - with the JR's
+  2 or 3 M-cycles, into `tr_enter`.
+
+**A JR is the one transfer that chooses no DS**, so one that crosses 4000h
+lands with the DS of where it started. On the RECOMPILER's machines that is
+put right on the way: an interpreted JR's JDISPATCH goes to `tr_ejd`, whose
+miss reaches `tr_int`, which chooses DS for SI; under a precompiled machine
+`tr_ejf` loads DS for SI on the branch it already takes for the bank key,
+one instruction (its first build dispatched with the jump's own DS, and a JR
+from the bank back to a bank-0 PC with no block ran the wrong segment; a
+second, which chose DS only on the no-block way behind a jump, cost the
+cold-code cartridges up to 3.8%). On the PLAIN
+interpreter - an 8088's, the recompiler's part not loaded - a JR across
+still lands with the wrong DS, deliberately: the check would be ~4
+instructions on every taken JR, which is 0.8-1.4 of every 100 x86
+instructions the interpreter runs (Super Mario Land, Kirby, Looney Tunes,
+Tetris), so 3-6% of every game on the machine with least to spare, for one
+shape. Of the owner's 26 cartridges the walk finds two such JRs in real
+code, both Looney Tunes' (`JR Z` at 3FEE to 400E and at 3FF2 to 4028, bank
+1's code carrying on from bank 0's); its other hits are a bank's first
+bytes decoded as code where they are data.
+
 What it does not cover, and costs where it does: a READ of the patched byte
 as data reads D3 - the one ROM in 26 surveyed with an instruction across
-3FFF is Looney Tunes, and it does not; a JR whose operand is at 4000 is not
-patched (its target is relative to a PC the seam moves); and a JR from bank
-0 into 4001-7FFF lands on the state block as before (`setds` is not on a
-JR's path, and putting it there would cost every JR). `gbcpu`'s "bank seam"
-leg is `tools/gbprof/gbseam.asm` - CALL NZ across 3FFF into four banks,
-taken and not, and (`gbseam2`) INC D at 3FFF on into 4000 - interpreted and
-translated, its control the harness without the trap (`RDG_NOSEAM`);
-`gbaot` runs both precompiled.
+3FFF is Looney Tunes, and it does not - and the plain interpreter's JR
+across, above. `gbcpu`'s "bank seam" leg is `tools/gbprof/gbseam.asm` -
+CALL NZ across 3FFF into four banks, taken and not, (`gbseam2`) INC D at
+3FFF on into 4000, and (`gbseam5`) a JR at 3FFF whose displacement is each
+bank's own - interpreted and translated, its control the harness without
+the trap (`RDG_NOSEAM`); and `gbseam3` and `gbseam4`, a JR from bank 0 into
+the bank and one from the bank back, translated, with the plain interpreter
+as their control (it must fail them). `gbaot` runs all five precompiled,
+and its control takes `tr_ejf`'s DS out of the image's core.
 
 ## 4. Dispatch and the core's layout
 
@@ -3099,10 +3126,17 @@ plays the louder of the two square channels.** rdgsys keeps a record of each
 channel (`S_SQ1`, `S_SQ2`, and `S_SQ3`, `S_SQ4` for the wave and the noise)
 from the writes that decide whether it sounds, and the package turns those
 records into sound. The other sound registers are plain memory, read where
-they lie: every write to FF01-FF26 reaches rdgsys from the interpreter's
-`io_wr` (one compare: the core's slot had no room for a list), which stores
-those it does not follow, and a translated store to one of those is a single
-MOV (`rt_snd`).
+they lie. A write to one rdgsys does not follow is stored where it is made:
+a translated store to a constant address is a single MOV (`rt_snd`), and one
+through (C) or (HL) - where no translator knew the address, and a game's
+sound driver walks the registers that way - is stored by the core's
+`io_wr`, which looks FF10-FF26 up in `io_sndtab` (FDh's CB half, 23 bytes,
+`rt_snd`'s list as a table, read as `[cs:bx+io_sndtab-0FF10h]`). It sent all
+of FF01-FF26 to rdgsys until then, ~95 x86 instructions a write: on the
+owner's Looney Tunes replay 7.6 writes a frame of 14, and the precompiled
+arm's instructions a frame fell 21,233 to 20,676; the interpreter's path is
+the same code. `gbfm` is its gate - the interpreter's register writes all
+pass through `io_wr` - and red with NR14 marked stored-only.
 
 - **The writes rdgsys takes**: NR12/NR22, NR14/NR24 and NR52. The core's
   `io_wr` sends each of them to `rdg_iowrite`.
@@ -3367,9 +3401,19 @@ and the images stop at `HOST_MAX` (11: what the harness's layout holds under
 the owner supplied, 21 then build, and every one matches the interpreter
 frame for frame over 1,500 frames of the script (Pokemon Gold, Yellow and
 Crystal and Kirby's Dream Land 2 were compared with the interpreter itself,
-the dynamic recompiler leaving it on the first two at frames 2 and 4). The
-other two, Prehistorik Man and a bad dump of Super Mario Bros. Deluxe, stop
-the harness under the interpreter too.
+the dynamic recompiler leaving it on the first two at frames 2 and 4 - the
+NOP delay's timing, 20.6, and identical with it taken out). The other two
+STOPPED THE HARNESS, and neither was RealDMG's: the harness's frame ran
+until a VBlank, and with the LCD off there is none. Prehistorik Man turns it
+off at frame 136 and waits for every button to be let go, which the
+script's held Right never does, so the first frame never ended and Unicorn
+gave up at 60 seconds. With the LCD off a frame's time is a frame now
+(`aothost.asm`'s `h_frame`, `GBLCDOFF.GB` in `gbaot` its row, red on the
+harness before), and Prehistorik Man builds and is identical to the
+interpreter over 1,500 frames in both arms; released, it turns the LCD back
+on 22 frames later and plays on. The bad dump of Super Mario Bros. Deluxe
+(1,048,557 bytes) is identical in both arms with the NOP delay's check taken
+out of every core, the precompiled image's own copy included.
 
 `leaders` is where a block may begin: the entries, every branch target, the
 instruction after a conditional transfer or a CALL/RST (a return lands
@@ -3469,6 +3513,17 @@ interpreter's share 9.6% -> 5.4% with no HRAM left in it, and the misses
 gate: its routine is translated, then rewritten, and the leg goes red with
 the guard's compares taken out.
 
+**An exit to one is linked on the host.** A transfer to RAM is `mov si,T /
+js +3 / jmp tr_enter` (`rt_exit`), never linked at run time, so every call
+into an HRAM routine paid `tr_enter`, `tr_hram` and the table, ~34
+instructions. The guard is what makes the block safe to enter, and it is
+the block's own first code, so `finish` points the `jmp` at the block where
+it is in the same image (an HRAM block is hot, and so are its callers):
+Looney Tunes' object loop calls its thunk ~20 times a frame, and its replay
+falls 20,676 -> 20,057 x86 instructions a frame (6 exits linked); Kirby's
+2, -0.1%. Both identical to the interpreter on the replay. The GBRMW leg
+now requires such an exit, so the rewritten routine is entered through one.
+
 ### 20.6 The gate
 
 `python3 tools/gbaot.py check GAME.GB DIR` runs the cartridge twice with
@@ -3497,8 +3552,8 @@ broken and GBFLAGS.GB translated with `RT_DEADBUG`.
   to 4001h in bank 1. The interpreter reads on through the view, where
   4000-7FFF is rdgsys's own data (section 3), and executed a STOP there at
   frame 1178 of the script. Translated code never crosses 4000h in a block
-  (16.3) and does what the cartridge says. NOT FIXED: the interpreter would
-  pay for it on every dispatch.
+  (16.3) and does what the cartridge says. FIXED since, at no cost to a
+  dispatch, by section 3.1's trap.
 - **The dynamic recompiler checks for an event at `RT_MAXI`'s cut**, where
   the interpreter does not (20.3). So Looney Tunes' timer interrupt is taken
   100 M-cycles earlier recompiled than interpreted, at frame 801 of the
@@ -3508,8 +3563,9 @@ broken and GBFLAGS.GB translated with `RT_DEADBUG`.
 
 ### 20.8 Not built
 
-The counters are docs/plans/REALDMG-AOT-PLAN.md's wave 4. The compact grade
-waits on wave 3's measurement of the heap a package really has.
+The compact grade: wave 3 measured the heap a package really has, and the
+hot images ordered by the counters (20.11) hold all but 1-10% of the play
+in one of them, so it was not needed. kern_mega's arm is 20.14's.
 
 ### 20.9 The table, the list and the links
 
@@ -3539,8 +3595,12 @@ entries) rather than the 64KB one the translator writes, and loses nothing:
   an image not loaded). A hit is about fifteen instructions where the
   search is eleven rounds and ~280; the next search there replaces it. A
   frame's searches are few PCs over and over - Looney Tunes' 375 distinct
-  ones, 16 of them 82% and 64 of them 95%. The host's meta part and the
-  harness give the filter's segment the 2KB more (`gbaot.py`). x86
+  ones, 16 of them 82% and 64 of them 95%. The filter and the cache
+  follow the block table IN ITS PART, 26KB in all, and the package finds
+  them at the table's segment plus (mask + 1) x 128 (`rw_ameta`): they were
+  in the meta part after the list at first, and a long list took that part
+  past 65,024 bytes - Link's Awakening 65,264, Super Mario Land 2 67,104,
+  Wario Land 68,672 - so those three would not package at all. x86
   instructions a frame, the walk-ordered images on the harness's script:
   Super Mario Land 2 -30%, Pokemon Red -24%, Metroid II -11%, Looney Tunes
   (.gb) -10%, Kirby's Dream Land -9%, Looney Tunes (.gbc) -7%, Donkey Kong
@@ -3808,6 +3868,9 @@ a time (`rw_aromrd`), the bank cache's `rw_bread` bank after bank
 nothing beside it, on the same 4KB-cluster volume.
 
 ### 20.14 kern_mega: not yet
+
+**Not in this release**: the arm is built on the kern_mega memory branch,
+with that rework, and is not here. What follows is this tree's.
 
 A precompiled package **refuses to start under kern_mega** (`CPU_F_PM`,
 before anything is claimed or read: *PRE: not on kern_mega*), and the build
