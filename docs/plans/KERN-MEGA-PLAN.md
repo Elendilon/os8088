@@ -11143,3 +11143,30 @@ kern_mega with the caller's flags kept, at all four banks in
 before, so kern_big and kern_small are byte-identical (the build number
 apart). **`mega-czjoin` is the row**: red before it (the refusal legs
 never returned), every leg green after, the volume fsck'd on the host.
+
+### 14.100 An already-compressed package was "Cannot compress this one" in protected mode (2026-10-26)
+
+**Found by porting `lzcomp` to kern_mega** (tests/megaport.txt): File >
+Compress on TELNET.O88 - a package the build already packed - answered
+*"Cannot compress this one"* where every other kernel answers *"Already
+compressed"* and leaves the file alone.
+
+**Cause**: `cmz_pkg` (`kernel/compress.inc`) refuses a package outright on
+kern_mega in protected mode (the body starts `cmz_x` bytes in, a segment off
+the identity grid, and the encoder wants its source at offset 0 - KERN-MEGA-
+PLAN 10.1), and that test stood FIRST, ahead of the header's own questions.
+So a package carrying a compression bit was refused as uncompressible before
+the routine ever read the bit that says there is nothing to do.
+
+**Fix**: the protected-mode refusal moved below the `test al, 0x18 / jnz
+.already` test, inside its `%ifdef KERN_MEGA`; an uncompressed package is
+still refused, by design, and says so. Off kern_mega the code is the same
+bytes in the same order, so kern_big and kern_small are byte-identical (the
+build number apart). **`mega-lzcomp` is the row**, and the port had to see
+two more things to be able to say it: its package legs expect the documented
+refusal on kern_mega, and it raises the Disk window before each row click -
+on Bochs's 640x480 the Calculator a leg opens lands over the window's rows,
+and the click that was meant for TELNET.O88 raised the Calculator instead,
+so File > Compress ran on CALC.O88 a second time and reported that. Red on
+the unfixed kernel (*"TELNET.O88: expected 'Already compressed' ... got
+'Cannot compress this one'"*), green after.

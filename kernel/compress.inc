@@ -3501,11 +3501,6 @@ cmz_drop:
 cmz_pkg:
     push bx
     push dx
-%ifdef KERN_MEGA
-    cmp byte [ss:mega_pm], 0    ; kern_mega in protected mode: the body
-    jne .no1                    ; starts cmz_x bytes in, a segment OFF the
-%endif                          ; identity grid, and the encoder wants its
-                                ; source at offset 0 (KERN-MEGA-PLAN 10.1)
     cmp word [cs:cmz_u+2], 0
     jne .no1                    ; over 64KB: not an image ld_check_hdr takes
     mov al, [es:LD_H_FLAGS]
@@ -3518,6 +3513,15 @@ cmz_pkg:
                                 ; same words
     test al, 0x18
     jnz .already                ; a compression bit is already set
+%ifdef KERN_MEGA
+    cmp byte [ss:mega_pm], 0    ; kern_mega in protected mode: the body
+    jne .no1                    ; starts cmz_x bytes in, a segment OFF the
+%endif                          ; identity grid, and the encoder wants its
+                                ; source at offset 0 (KERN-MEGA-PLAN 10.1).
+                                ; AFTER the already-test (14.100): a package
+                                ; the build packed is 'Already compressed'
+                                ; on every kernel, and was 'Cannot compress
+                                ; this one' here
     mov dx, [es:LD_H_IMG]
     cmp dx, [cs:cmz_u]
     jne .no1                    ; `image` is not the file: something this verb
