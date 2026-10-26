@@ -1891,6 +1891,37 @@ rows. Nothing is recorded as built that was not.
     ignored (`MEGAXM: bad 5A`); its step 0D now expects the region's code
     half at DS - 8.
 
+- **The final pass's two red rows (2026-10-26) - neither was a kernel
+  defect, and no kernel byte moved.**
+  - **`megarehome`'s PIXELSTEIN leg** read a fourth selector, `113C`, at
+    its block + 128KB with a 64KB limit "running past its block". `113C` is
+    `MEGA_SEL_XB`, a linear copy's DESTINATION scratch (`MEGA_GDT_SCR` +
+    12). Step 6 put the LDT on the GDT's base, so `info ldt` lists the GDT's
+    entries as well, and XB is left on the last 32KB chunk `mega_imghuge`
+    copied. Nothing made it for the block, and nothing reads it before
+    re-aiming it. A trace on `mega_ldt_alloc`, `mega_ldt_alloc2` and
+    `mega_ldt_free` for that entry fired not once in a whole run. The row
+    now reads `MEGA_LDT_FREE0` off the map and counts allocator selectors
+    only. It passes (PIXELSTEIN 3 inside, SKIES still 4) and still goes red
+    when a stray `mega_ldt_alloc` data selector is put at the same place on
+    purpose (`selector 1264 runs past its block`). The work-in-progress
+    fixes for a re-home trim were reverted, because neither touched this:
+    `mega_mpcutf` (10 of `.cold`'s 12 spare bytes) and `OS88_REHOME` freeing
+    `op_wa`/`op_wb`. Those two windows are `mega_wtab` rows under the
+    instance SLOT, which the loader and the program share, so the
+    teardown's `mx_relall` frees them. A HIGH program's carve also takes
+    them with it when it goes. They are not orphaned.
+  - **`x3xtunit` and `x3xtexact`** run the XT part with no kernel under it,
+    and the package wave made its OPEN call `OSAPI_SEG`. The two harnesses
+    now answer that cell with `tests/x3xtbench/x3rmseg.inc`, which is
+    `osapi_seg`'s real-mode arm instruction for instruction. The bench also
+    moves its case directory off `0060:0`, where it covered the cell.
+    `x3xtunit`'s eight refusal failures predate this round: they were
+    already there at the merge base. Two were stale expectations, since the
+    speech tables run at 2 or 4 on any version (docs/xtmp3/XT.md 8.1). The
+    other six were the first wrong acceptance clobbering a shared part. Both
+    rows are ok.
+
 
 ### MC5 as built (2026-10-25) - DONE
 
