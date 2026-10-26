@@ -2757,7 +2757,25 @@ rt_jrt:
     jb .nocpy
     mov ax,[JIT_BUF+bx-4]           ; (what follows takes T from RT_T)
     cmp word [JIT_BUF+bx-2],0513h
+    je .cp4
+    mov dl,0E2h                     ; ...or through (C) (cpc_ff): LD A,(HL+)
+    cmp ax,0E22Ah                   ;   / LD (C),A / INC C / DEC B, or LD
+    jne .cc2                        ;   A,(C) / INC C / LD (HL+),A / DEC B
+    cmp word [JIT_BUF+bx-2],050Ch
+    je .cpc
+.cc2:
+    mov dl,0F2h
+    cmp ax,0CF2h
     jne .stat
+    cmp word [JIT_BUF+bx-2],0522h
+    jne .stat
+.cpc:
+%ifdef RT_CPCBUG
+    xor dl,10h                      ; (tests/gbcpu.py's control: the wrong way)
+%endif
+    mov bx,RDGC_CPC_FF
+    jmp .ff
+.cp4:
     cmp ax,122Ah
     je .cpy
     cmp ax,221Ah

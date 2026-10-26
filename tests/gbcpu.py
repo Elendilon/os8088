@@ -81,6 +81,10 @@ LAZY_ROM = "gblazy"
 # (REALDMG-SPEC 3.1), an instruction across it and one on at 4000. Its
 # control assembles the harness without the trap (RDG_NOSEAM).
 SEAM_ROMS = ("gbseam", "gbseam2")
+# tools/gbprof/gbcpc.py: copies through (C), RAM to HRAM and back, taken in
+# one step (cpc_ff, REALDMG-SPEC 16.6), a timer interrupt landing in them.
+# Its control takes the copy the wrong way round (RT_CPCBUG).
+CPC_ROM = "gbcpc"
 # tools/gbprof/gbpop.asm: POPs out of a ROM bank, SP in 4000-7FFF, as
 # Pokemon's VBlank copy reads tiles (pop_slow, REALDMG-SPEC 5). Its control
 # takes POP BC's JB out (C104h), so BC pops from the view's rdgsys half again.
@@ -205,6 +209,22 @@ def main():
         rdgimg.build_host(out)
         ok = broke == want
         print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: event F stale",
+                                 "passed - the gate cannot go red" if ok
+                                 else "%s, as it must not be" % broke))
+        bad += ok
+    if not a.k or a.k in "copies through (C)":
+        import gbours
+        rom = gbours.build(CPC_ROM)
+        want = run_sum(rom, core, host, False)
+        got = run_sum(rom, core, host, True)
+        ok = want is not None and got == want
+        print("%-4s %-24s %s" % ("ok" if ok else "FAIL", "copies through (C)",
+                                 "%s, interpreted %s" % (got, want)))
+        bad += not ok
+        broke = run_sum(rom, core, rdgimg.build_host(out, ["RT_CPCBUG"]), True)
+        rdgimg.build_host(out)
+        ok = broke == want
+        print("%-4s %-24s %s" % ("FAIL" if ok else "ok", "control: copy reversed",
                                  "passed - the gate cannot go red" if ok
                                  else "%s, as it must not be" % broke))
         bad += ok

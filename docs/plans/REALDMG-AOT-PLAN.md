@@ -235,3 +235,19 @@ code, each holds 7.4 KB of tails and the gaps rounding leaves.
   and 2 at the tree before this round as well (the NOP-delay timing, 20.6,
   the likeliest reading), so the cross-check here is against the tree
   before rather than the interpreter.
+- [x] Speed, round 5 - the copy through (C), `cpc_ff` (REALDMG-SPEC
+  16.6): `LD A,(HL+) / LD (C),A / INC C / DEC B` and its reverse, RAM to
+  HRAM and back, in one step when the whole copy fits before the next
+  event. It is Looney Tunes' object copy and every cartridge's boot copy
+  of its DMA routine. Looney Tunes on the owner's replay 29,256 -> 28,288
+  x86 instructions a frame (-3.3%), identical to the interpreter over
+  1,500 frames in both arms with the NOP check out; twelve other
+  cartridges state-identical to the tree before in both arms, their
+  title-screen counts unmoved. `gbcpu`'s "copies through (C)" leg is the
+  gate, `RT_CPCBUG` its control. Two things found on the way:
+  `tools/gbaot.py` had been loading its driver 14 bytes into the core's
+  first page (REALDMG-SPEC 20.1, now refused), and the round-3 survey's
+  Pokemon Gold and Yellow divergences are the dynamic arm's NOP-delay
+  timing, as Donkey Kong Land's and Pokemon Red's are - with the NOP
+  check out both run 1,500 frames identical to the interpreter, and their
+  precompiled arm is identical with it in. That item is CLOSED.

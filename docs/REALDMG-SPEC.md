@@ -2829,7 +2829,30 @@ otherwise:
   slot between WRAM and HRAM). Only when both ranges lie wholly in
   8000-FEFF or FF80-FFFE, where translated loads and stores take memory
   directly; `REP MOVSB` forward, so an overlap smears as the loop does.
-  10r + 2 M-cycles.
+  10r + 2 M-cycles. F is `fill_ff`'s 66h with C kept; it was Z and N
+  alone until `cpc_ff` was written beside it, and a decline now leaves DL
+  0 as every other tail's does.
+- **`cpc_ff`**: the copy through (C) - `LD A,(HL+) / LD (C),A / INC C /
+  DEC B / JR NZ,-6` (RAM to HRAM) and `LD A,(C) / INC C / LD (HL+),A /
+  DEC B / JR NZ,-6` (HRAM to RAM). Looney Tunes' objects go 32 bytes out
+  to HRAM and back, eight times a frame, through these two; the first is
+  also how nearly every cartridge copies its OAM DMA routine to FF80 at
+  boot (25 of the owner's 26). Only when FF00+C's range lies wholly in
+  FF80-FFFE - C at least 80h and C + r not past FFh, so neither I/O nor
+  IE is touched - and HL's in 8000-FEFF or FF80-FFFE; a range starting in
+  VRAM sets `RDG_VALL`. `REP MOVSB` forward, then C += r, B = 0, A the
+  last byte, HL += r, F `fill_ff`'s. 9r + 2 M-cycles. DL tells the tail
+  which shape (E2h or F2h, the opcode through C). Two CB-half tail slots,
+  pages DDh and E1h (`cpc_ff`, `cpc_go`), which are tail pages already.
+  On the Looney Tunes replay the precompiled arm's x86 instructions a
+  frame fall 29,256 to 28,288 (3.3%), still identical to the interpreter
+  over 1,500 frames in both arms with the NOP check of 20.6 taken out;
+  twelve other cartridges are state-identical to the tree before it in
+  both arms. `tools/gbprof/gbcpc.py` is the gate (`tests/gbcpu.py`'s
+  "copies through (C)": both shapes from ROM0 and the bank, C into the
+  I/O page and past FFh, HL in WRAM, VRAM, HRAM and ROM, a timer
+  interrupt landing among them) and its control takes the copy the wrong
+  way round (`RT_CPCBUG`).
 
 - **`fill_ff`**: `LD (HL+),A / DEC B` (or `C`) `/ JR NZ,-4`, a fill - the
   shape a cartridge clears its OAM buffer with every frame (Metroid II's
@@ -3425,6 +3448,16 @@ driver its segments and its profile in a parameter block at 10h, enters at
 one of five entries (0 init, 3 preload, 6 a new round, 9 a frame, 12 go on
 in the same segments), and takes the machine back at an `INT 3`: the end of
 the entry, or a bank the host serves (`rdg_nres`'s hooks, section 10.3).
+
+The driver is loaded at 0860:0 and the core at 1000:0, which leaves it
+31,232 bytes, and `Machine` refuses a larger `aothost.bin` rather than
+writing the core over its end. It was at 0900:0 with 28,672, and when the
+driver grew to 28,686 the core's first 14 bytes landed on the end of
+`h_jitstub`, mode 3's door for a ROM PC that has no block (`rt_aotstop`'s
+answer under a fixed table). No check measured here reached that door, so
+nothing failed; `cpc_ff`'s 39 bytes of translator then put the overlap
+over live code, and every cartridge's build stopped after a few dozen
+blocks.
 
 ### 20.2 The walk: what is code, with no play
 
