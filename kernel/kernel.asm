@@ -603,9 +603,7 @@ PKG_DISP     equ 12             ; the dispatcher's fixed offset INSIDE the
 ; kern_mega has no VESA row rather than one that faults on the first draw.
 %ifdef KERN_BIG
  %ifndef NOVIDEXT
-  %ifndef KERN_MEGA
-   %define VID_EXT 1
-  %endif
+  %define VID_EXT 1
  %endif
 %endif
 

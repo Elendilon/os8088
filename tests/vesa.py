@@ -84,8 +84,20 @@ def kill_stale():
 
 
 def launch():
-    """The standard VGA (QEMU's default, spelled out) and the gate disk."""
+    """The standard VGA (QEMU's default, spelled out) and the gate disk.
+
+    UNDER $OS88_MEGA it is kern_mega's (KERN-MEGA-PLAN 14.115): this socket
+    answered by a Bochs (tests/os88qmpmega.py) whose VGA carries Bochs's VBE
+    (`vga: extension=vbe`, tools/os88bochs.py) - the gate disk rebuilt on
+    mega.img with its SYSTEM.CFG (mega_twin), the shipped apps disk as
+    megaapps.img. The desktop comes up on the VBE in real mode exactly as on
+    kern_big, and mega_enter then hands VESA.DRV its selectors"""
     os88fixture.need("build/vesa.img", "build/apps.img")
+    if os88qemu.MEGA:
+        import os88qmpmega
+        launch.srv = os88qmpmega.Server(SOCK, PIDFILE, _B.at("build/vesa.img"),
+                                        _B.at("build/apps.img"), ne2k=False)
+        return
     em = "qemu" + "-system-i386"     # never whole on a command line: kill_stale
     os88qemu.start(
         em + " -machine pc,vmport=off -vga std"

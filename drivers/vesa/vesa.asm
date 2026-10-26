@@ -98,6 +98,12 @@ VX_YMIN     equ 400
 VX_BPSLMAX  equ 4096
 
 VX_WSEG     equ 0xA000          ; window A, and the only segment it will take
+VX_KCODE    equ 0x0060          ; the kernel's code segment - KERNEL_SEG, and on
+                                ; kern_mega the same value as a CODE selector -
+                                ; where the detach points the hook (vx_null)
+VX_DISPI_IX equ 0x01CE          ; the Bochs/QEMU VBE's index port...
+VX_DISPI_ID equ 0               ; ...its ID register (B0C0h-B0CFh)...
+VX_DISPI_BANK equ 5             ; ...and its bank, in 64KB units
 
 CUR_GW      equ 8               ; the arrow's cell (kernel/mouse.inc's)
 CUR_GH      equ 12
@@ -117,6 +123,8 @@ vx_entry:
     je vx_pick
     cmp al, VXV_NEXT
     je vx_next_x
+    cmp al, VXV_PM
+    je vx_pm
     cmp ax, (VX_ABI_VER << 8) | DRVV_ATTACH
     je vx_attach                ; ATTACH from a kernel of this vintage (AH),
     stc                         ; everything else - a newer kernel's verb, or
@@ -139,7 +147,7 @@ vx_detach:
     mov bx, [vx_p_ep]
     mov ax, [vx_p_null]         ; the far pointer, to the kernel's vx_null:
     mov [es:bx], ax             ; a hook that fires after this draws nothing
-    mov [es:bx+2], es           ; and goes back the way this image would have
+    mov word [es:bx+2], VX_KCODE ; and goes back the way this image would have
     mov bx, [vx_p_avail]
     and byte [es:bx], ~VXA_BIT
     pop ax
@@ -634,13 +642,52 @@ vx_init:
     stc
     ret
 
+; -----------------------------------------------------------------------------
+; vx_pm - VXV_PM (KERN-MEGA-PLAN 14.115, SPEC.md 120.3.4): kern_mega's switch
+;         into protected mode. DX = 0 is the boot's QUESTION, asked in real
+;         mode right after INIT: CF = 0 says this image draws in protected
+;         mode (an image that predates the verb refuses it, and the kernel
+;         keeps the VGA). DX != 0 ARMS it, at mega_enter: DX = a data
+;         selector over window A, ES = the kernel's data selector, DS = ours
+;         as a selector. A Bochs/QEMU VBE (its 'dispi' ID register answers
+;         B0C0h-B0CFh) at 64KB granularity has its bank register written
+;         directly from then on; every other card's window goes through
+;         4F05h, reflected - a CPU reset each on a 286
+; out: CF = 0
+; -----------------------------------------------------------------------------
+vx_pm:
+    or dx, dx
+    jz .ok                      ; the question: yes
+    mov [vx_kseg], es           ; the kernel, as its data selector...
+    mov [vx_wsel], dx           ; ...window A as one...
+    cmp byte [vx_wsh], 0        ; ...and the bank: a 64KB window only, which
+    jne .ok                     ; is the dispi bank register's own unit
+    push ax
+    push dx
+    mov dx, VX_DISPI_IX
+    mov ax, VX_DISPI_ID
+    out dx, ax
+    inc dx
+    in ax, dx
+    and al, 0xF0
+    cmp ax, 0xB0C0              ; B0C0h..B0CFh: a dispi interface
+    jne .nod
+    mov byte [vx_dispi], 1
+.nod:
+    pop dx
+    pop ax
+.ok:
+    clc
+    ret
+
 ; vx_geom - vid_tab row VID_VESA (SPEC.md 39.2's nine words) and the kernel's
 ;           vx_bpp, from the chosen record (after INIT banked the kernel)
 ; clobbers: ax, di, es
 vx_geom:
     mov es, [vx_kseg]
     mov di, [vx_p_tabrow]
-    mov word [es:di], VX_WSEG   ; seg
+    mov ax, [vx_wsel]           ; seg: A000h, or kern_mega's selector over
+    mov [es:di], ax             ; it once VXV_PM has run
     mov ax, [vx_bpsl]
     mov [es:di+2], ax           ; stride
     xor ax, ax
@@ -797,8 +844,13 @@ vx_prim:
     push di
     lds bx, [bp+2]              ; DS:BX = the selector: the far return
     mov al, [bx]
-    push cs
-    pop ds                      ; DS = ours from here
+    mov bx, cs                  ; DS = ours from here: CS in real mode (an
+    test bl, 4                  ; image's base is 512-aligned, so bit 2 of
+    jz .rm                      ; its segment is clear), and on kern_mega in
+    add bx, 8                   ; protected mode CS's DATA twin, the LDT entry
+.rm:                            ; after the code alias (KERN-MEGA-PLAN 14.115)
+    mov ds, bx
+    mov [vx_dsel], ds           ; ...banked for a body whose DS is elsewhere
     inc word [bp+2]             ; a VX_CONT hook goes on past the byte...
     test al, VX_CONT
     jnz .on
@@ -875,15 +927,30 @@ vx_setwin:
     push ax
     push bx
     push dx
-    mov [cs:vx_win], dx
+    push ds
+    mov ds, [cs:vx_dsel]        ; (DS may be VRAM: CS is read-only on kern_mega)
+    mov [vx_win], dx
+    cmp byte [vx_dispi], 0
+    jne .port
     mov ax, VBE_WIN
     xor bx, bx                  ; BH = 0 set, BL = 0 window A
     int 0x10
+.done:
+    pop ds
     pop dx
     pop bx
     pop ax
 .out:
     ret
+.port:                          ; kern_mega on a dispi VBE (vx_pm): the bank
+    mov bx, dx                  ; register itself, no reflection
+    mov dx, VX_DISPI_IX
+    mov ax, VX_DISPI_BANK
+    out dx, ax
+    inc dx
+    mov ax, bx
+    out dx, ax
+    jmp short .done
 
 ; vx_nextwin - the window after the current one (a run crossed its edge)
 vx_nextwin:
@@ -919,8 +986,7 @@ vx_addr:
     shl dx, cl
     mov di, ax
     call vx_setwin
-    mov ax, VX_WSEG
-    mov es, ax
+    mov es, [cs:vx_wsel]        ; window A: A000h, or kern_mega's selector
     pop bx
     pop cx
     ret
@@ -1232,13 +1298,13 @@ vxp_pat:
     jc .out
     push cx                     ; x2: the copy's count spends CX, and a width
     push ds                     ; cut from the leftover 0 was -103 pixels, which
-    mov ds, [vx_kseg]           ; the row loop drew as 65,433 across the desktop
-    mov si, [cs:vx_p_pat]
+    push es                     ; the row loop drew as 65,433 across the desktop
+    push ds
+    pop es                      ; ES = ours, the copy's destination
+    mov si, [vx_p_pat]
+    mov ds, [vx_kseg]
     mov si, [si]                ; SI = the kernel's eight bytes
     mov di, vx_patbuf
-    push es
-    push cs
-    pop es
     mov cx, 4
     cld
     rep movsw                   ; copied, so the row loop reads them through CS
@@ -1550,27 +1616,27 @@ vxp_fontchar:
 ;           right edge (SPEC.md 25). y is already clipped by the kernel
 ; -----------------------------------------------------------------------------
 vxp_icon:
-    push ds
-    mov ds, [vx_kseg]
-    mov si, [cs:vx_p_icog]
-    mov ax, [si]                ; ico_ww
-    mov [cs:vx_iww], ax
-    mov ax, [si+4]              ; ico_rows
-    mov [cs:vx_irows], ax
-    mov si, [cs:vx_p_icoxy]
-    mov ax, [si]                ; ico_x
-    mov [cs:vx_ix], ax
-    mov ax, [si+2]              ; ico_y
-    mov [cs:vx_iy], ax
-    mov si, [cs:vx_p_icop]
-    mov ax, [si]                ; ico_maskp
-    mov [cs:vx_ip], ax
-    mov ax, [si+2]              ; ico_datap
-    mov [cs:vx_ip2], ax
-    mov si, [cs:vx_p_icoc]
-    mov ax, [si]                ; c1, c2
-    mov [cs:vx_ink], ax
-    pop ds
+    push es                     ; the kernel's cells through ES, so DS stays
+    mov es, [vx_kseg]           ; ours for the stores
+    mov si, [vx_p_icog]
+    mov ax, [es:si]             ; ico_ww
+    mov [vx_iww], ax
+    mov ax, [es:si+4]           ; ico_rows
+    mov [vx_irows], ax
+    mov si, [vx_p_icoxy]
+    mov ax, [es:si]             ; ico_x
+    mov [vx_ix], ax
+    mov ax, [es:si+2]           ; ico_y
+    mov [vx_iy], ax
+    mov si, [vx_p_icop]
+    mov ax, [es:si]             ; ico_maskp
+    mov [vx_ip], ax
+    mov ax, [es:si+2]           ; ico_datap
+    mov [vx_ip2], ax
+    mov si, [vx_p_icoc]
+    mov ax, [es:si]             ; c1, c2
+    mov [vx_ink], ax
+    pop es
     cmp word [vx_irows], 0
     je .out
     mov al, [vx_ink]
@@ -1728,10 +1794,9 @@ vx_cursave:
     push ds
     mov ax, es
     mov ds, ax                  ; DS:SI = VRAM
-    push cs
-    pop es
-    mov di, [cs:vx_buf]         ; ES:DI = our buffer
-    mov cx, [cs:vx_cw]
+    mov es, [cs:vx_dsel]
+    mov di, [es:vx_buf]         ; ES:DI = our buffer
+    mov cx, [es:vx_cw]
     cmp byte [cs:vx_bpp], 8
     jne .w
 .b:
@@ -1744,7 +1809,7 @@ vx_cursave:
     VXWS
     loop .w
 .d:
-    mov [cs:vx_buf], di
+    mov [es:vx_buf], di
     pop ds
     pop dx
     pop bx
@@ -2095,15 +2160,15 @@ vxp_blitd:
 ;            and only the mask's set positions are drawn - SPEC.md 5.4.2.8)
 ; -----------------------------------------------------------------------------
 vxp_blit1:
-    push ds
-    mov ds, [vx_kseg]
-    mov di, [cs:vx_p_b1]
-    mov di, [di]                ; DL = ink, DH = paper... in DI for a moment
-    mov [cs:vx_ink], di
-    mov di, [cs:vx_p_b1hm]
-    mov di, [di]
-    mov [cs:vx_b1hm], di        ; (the low byte)
-    pop ds
+    push es
+    mov es, [vx_kseg]
+    mov di, [vx_p_b1]
+    mov di, [es:di]             ; DL = ink, DH = paper... in DI for a moment
+    mov [vx_ink], di
+    mov di, [vx_p_b1hm]
+    mov di, [es:di]
+    mov [vx_b1hm], di           ; (the low byte)
+    pop es
     mov ax, [bp+F_AX]
     mov [vx_bx0], ax            ; x
     mov [vx_rows], dx
@@ -2227,8 +2292,7 @@ vxp_scroll:
     push ds
     mov ax, es
     mov ds, ax                  ; DS:SI = VRAM
-    push cs
-    pop es
+    mov es, [cs:vx_dsel]
     mov di, vx_rowbuf           ; ES:DI = the bounce
     mov cx, [cs:vx_w]
     cmp byte [cs:vx_bpp], 8
@@ -2299,8 +2363,8 @@ vxp_spans:
     mov cx, ax                  ; x1
     lodsw
     mov dx, ax                  ; x2
-    mov [cs:vx_bsrc], si
     pop ds
+    mov [vx_bsrc], si
     cmp cx, dx
     jg .next                    ; empty
     or cx, cx
@@ -2341,19 +2405,19 @@ vxp_spans:
 ;              "pen spent"
 ; -----------------------------------------------------------------------------
 vxp_fontrun:
-    push ds
-    mov ds, [vx_kseg]
-    mov di, [cs:vx_p_fontfg]
-    mov ax, [di]                ; AL = fg, AH = bg
-    mov [cs:vx_ink], ax
-    mov di, [cs:vx_p_color]
-    mov [di], al                ; the pen, spent
-    mov di, [cs:vx_p_font]
-    mov ax, [di]                ; font_seg
-    mov [cs:vx_fseg], ax
-    mov ax, [di+2]              ; font_base
-    mov [cs:vx_fbase], ax
-    pop ds
+    push es                     ; the string's ES is the frame's, F_ES
+    mov es, [vx_kseg]
+    mov di, [vx_p_fontfg]
+    mov ax, [es:di]             ; AL = fg, AH = bg
+    mov [vx_ink], ax
+    mov di, [vx_p_color]
+    mov [es:di], al             ; the pen, spent
+    mov di, [vx_p_font]
+    mov ax, [es:di]             ; font_seg
+    mov [vx_fseg], ax
+    mov ax, [es:di+2]           ; font_base
+    mov [vx_fbase], ax
+    pop es
     mov ax, [vx_y]
     sub ax, 8
     cmp dx, ax
@@ -2367,8 +2431,8 @@ vxp_fontrun:
     mov ds, [bp+F_ES]
     mov si, [cs:vx_bsrc]
     lodsb
-    mov [cs:vx_bsrc], si
     pop ds
+    mov [vx_bsrc], si
     or al, al
     jz .out
     mov ah, al
@@ -2455,8 +2519,15 @@ vx_bpp      db 8                ; what the kernel is told: 8 or 16
 vx_depth    db 8                ; the mode's own: 8, 15 or 16
 vx_wsh      db 0                ; the window shift
 vx_sel      db 0
+vx_wsel     dw VX_WSEG          ; window A as the CPU loads it: A000h, or the
+                                ; selector kern_mega hands VXV_PM
+vx_dispi    db 0                ; 1: banked through the dispi port (vx_pm)
+            db 0
 
     OS88_STATE
+vx_dsel     dw 0                ; OUR data segment, banked by vx_prim on every
+                                ; entry: a body whose DS is the window or the
+                                ; kernel stores through it, never through CS
 vx_kseg     dw 0                ; the kernel's segment, from VXV_INIT
 ; the kernel's pointers, in VXB_* order from VXB_TABROW (vx_init copies them)
 vx_p_tabrow dw 0

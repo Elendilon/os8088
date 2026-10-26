@@ -11604,7 +11604,60 @@ mega_vfixall:
     pop ax
     ret
 
-; mega_cdin - ES:DI = a present descriptor, DL:AX = a block's base, CX = its
+%ifdef VID_EXT
+; mega_vxpm - at the switch (mega_pmtail), after mega_vfixall, IF = 0: the
+; VESA desktop into protected mode (KERN-MEGA-PLAN 14.115). vx_boot_x armed
+; [vx_ep] in real mode with the image's SEGMENT, and every hook far-calls
+; through it - so before the first interrupt can draw the arrow, the image
+; is told its selectors (VXV_PM: window A's and the kernel's data, which the
+; boot's question already showed it takes) and the hook is re-pointed at
+; its pair's CODE half, data - 8. A refusal - no LDT entry for window A, a
+; verb refused after the question said yes - leaves the hook on vx_null,
+; which draws nothing, and says so on E9 rather than fault on the first
+; draw. Clobbers nothing
+mega_vxpm:
+    cmp word [vx_ep+2], 0
+    je .ret                         ; not armed: no VESA desktop
+    push ax
+    push bx
+    push dx
+    push si
+    push bp
+    push es
+    mov bx, vesa_row
+    mov ax, VGA_SEG
+    call mega_useg                  ; AX = window A's data selector
+    jc .off
+    mov dx, ax
+    mov bp, [bx+DRVR_ENT]
+    push ds
+    pop es                          ; ES = KDATA, the kernel the image banks
+    mov al, VXV_PM
+    call COLD_SEG:drvf_drv_call
+    jc .off
+    mov bx, vesa_row
+    mov ax, [bx+DRVR_SEG]           ; the image's DATA selector (mega_mpall)
+    sub ax, 8                       ; ...and its code half
+    mov [vx_ep+2], ax
+    jmp short .out
+.off:
+    mov word [vx_ep], vx_null       ; draws nothing, faults nothing
+    mov word [vx_ep+2], KERNEL_SEG
+    mov si, mega_mvxoff
+    call mm_say
+.out:
+    pop es
+    pop bp
+    pop si
+    pop dx
+    pop bx
+    pop ax
+.ret:
+    ret
+mega_mvxoff db "kern_mega: VESA.DRV refused protected mode - the hook draws nothing", 10, 0
+%endif
+
+; mega_cdin -ES:DI = a present descriptor, DL:AX = a block's base, CX = its
 ; paragraphs -> CF = 0 the descriptor's base lies in the block; CF = 1 not.
 ; Clobbers nothing
 mega_cdin:
@@ -11829,6 +11882,9 @@ mega_pmtail:
     call mega_mpall                 ; ...and every claim's pair (MC7.4)
     call mega_mods_fix              ; ...which the modules are named by
     call mega_vfixall               ; ...and the frame buffers, ROMs and font
+%ifdef VID_EXT
+    call mega_vxpm                  ; ...and a VESA desktop's renderer (14.115)
+%endif
 
     ; --- the ROM's halves, in the chains the ISRs already make ---------------
     mov word [sch_old08], mega_t08  ; THROUGH MEGA_SEL_CODE: both live in
