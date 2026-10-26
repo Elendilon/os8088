@@ -626,6 +626,28 @@ class BochsMarty(om.Marty):
             cnt[0] = cnt[1] = 0
         return r
 
+    def xfers(self):
+        """Every SECTOR the floppy controller has moved since the last call:
+        [(drive, byte offset in the image, 'r' or 'w')], out of Bochs's own
+        floppy log (`floppy_xfer:` lines, one per 512 bytes, which
+        `debug: floppy=report` prints). It is the instrument a DISKCNT kernel
+        is on MartyPC ([dsk_dbg_sec]) for a kern_mega row, which has no knob
+        build - and it names the sectors, not only their count."""
+        log = os.path.join(self.box.out, "bochs.log")
+        pos = getattr(self, "_fxfer", 0)
+        try:
+            with open(log, "rb") as f:
+                f.seek(pos)
+                t = f.read()
+        except OSError:
+            t = b""
+        cut = t.rfind(b"\n") + 1
+        self._fxfer = pos + cut
+        return [(int(d), int(o), "r" if w == b"from" else "w")
+                for d, o, w in re.findall(
+                    rb"floppy_xfer: drive=(\d+), offset=(\d+), bytes=512, "
+                    rb"direction=(from|to) floppy", t[:cut])]
+
     def _c_quit(self, **_):
         self.close()
         return {}

@@ -241,6 +241,10 @@ def strike(src):
 def run(a, apps, plain, P, fails):
     with os88marty.launch("build/os8088-360.img", apps=apps,
                           machine=a.machine, boot=False) as m:
+        # a segment out of the guest, linear: on kern_mega (OS88_MEGA) the
+        # module and every sample are SELECTORS (docs/BOCHS.md), and the
+        # module is one block whose selectors are 64KB windows over it
+        lin = getattr(m, "lin", lambda s_, o_=0: (s_ << 4) + o_)
         m.run()
         os88marty.kernel_up(m)          # the boot gate on STATE (SOAK-SPEED 4)
         os88marty.no_saver(m)   # SPEC.md 79: it DRAWS, so the settle
@@ -409,16 +413,17 @@ def run(a, apps, plain, P, fails):
                 for i in range(31):
                     sg, of, pl = (int.from_bytes(tab[i * 12 + k:i * 12 + k + 2],
                                                  "little") for k in (0, 2, 4))
-                    at = (sg << 4) + of - (modseg << 4)
+                    at = lin(sg, of) - lin(modseg, 0)
                     want[at:at + pl] = os88spkfx.tracker_natural(bytes(want[at:at + pl]))
                 want = bytes(want)
                 say("  samples    high-passed in place, a bass or a drum "
                     "squared up (no card, SPEC.md 45.25.4): compared "
                     "through tools/os88spkfx.py's tracker_natural")
         got = b""
+        base = lin(modseg, 0)               # ONE block, however it is named:
         while len(got) < len(plain):        # 116KB, in segment-sized reads
             k = min(0x8000, len(plain) - len(got))
-            got += m.readseg(modseg + (len(got) >> 4), 0, k)
+            got += m.read(base + len(got), k)
         if got == want:
             say("  bytes      ok  (all %d, byte for byte)" % len(plain))
         else:
