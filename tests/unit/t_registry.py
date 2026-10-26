@@ -210,10 +210,22 @@ UNREGISTERED = {
     "proxytest.py": "drives tools/os88proxy.py against a live network",
     "proxyguitest.py": "drives the proxy GUI, needs a display",
 
-    # --- A/B gates: each needs a SECOND kernel built with a knob, so it is a
-    #     two-build session rather than a row (the knob itself is kept alive
-    #     by t_buildmatrix; this is the behaviour half) ---
-    "heapsame.py": "A/B gate - needs `make HEAPCOMPACT=0` as a reference build",
+    # --- an A/B gate whose premise the tree has moved past (a knob A/B that
+    #     still holds is a row: os88build.tree() builds the second kernel
+    #     privately - swcolsame is the shape) ---
+    "heapsame.py": "A/B gate against `make HEAPCOMPACT=0` (SPEC.md 66.2) "
+                   "whose PREMISE IS GONE: it asserts the two kernels hold "
+                   "identical claim maps, which was true while nothing "
+                   "shipped could move - and since SPEC.md 50.6.3 "
+                   "mem_unblob compacts at boot, so the shipped kernel "
+                   "PACKS the first claim down (record 0 at 1780h against "
+                   "1AA0h with the compactor out, measured 2026-10-26) and "
+                   "every later claim lands elsewhere. That is the design "
+                   "working, not a defect, so the row would only ever be "
+                   "red. Its Disk-window capture was also taken mid-open "
+                   "(swcolsame had the same wait, and waits on ui_done now). "
+                   "Re-registering it means choosing what it should assert "
+                   "now - pixels only, or maps relative to the boot pack",
 
     # --- an INSTRUMENT rather than a gate: it produces a TABLE for a person
     #     to read, has no pass or fail, and takes minutes ---
