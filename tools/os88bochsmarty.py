@@ -158,6 +158,17 @@ class BochsMarty(om.Marty):
         self._ldt = None
         self._tmp = tempfile.mkdtemp(prefix="bxm", dir=run_dir)
         self._closed = False
+        # THE MOUNTED-FROM IMAGES, as MartyPC's `disks` names them: Bochs
+        # writes a.img/b.img through as the guest writes, so the live file
+        # is no reference for "what did the guest change" (os88flush.diff,
+        # tests/cfgtrip.py read 0 sectors changed after a SYSTEM.CFG write).
+        # Copied before the first `c`, when Bochs has written nothing
+        self._src = {}
+        for d, n in ((0, "a"), (1, "b")):
+            live = os.path.join(box.out, n + ".img")
+            if os.path.exists(live):
+                self._src[d] = os.path.join(run_dir, n + "-mounted.img")
+                shutil.copy(live, self._src[d])
 
     # ---- the clock --------------------------------------------------------
     def _cycles(self):
@@ -322,11 +333,38 @@ class BochsMarty(om.Marty):
                          (dl & 0xFFFF) | (dh & 0xF0000))
         return self._ldt
 
+    def gdt_base(self):
+        if getattr(self, "_gdt", None) is None:
+            t = self._stopped(["sreg"])
+            m = re.search(r"gdtr:base=0x([0-9a-f]+), limit=0x([0-9a-f]+)", t)
+            if not m:
+                raise om.MartyError("os88bochsmarty: no GDTR in `sreg`")
+            g = (int(m.group(1), 16), int(m.group(2), 16))
+            if g[1] < 0x100:            # not in protected mode yet (the
+                return g                # boot): not worth keeping
+            self._gdt = g
+        return self._gdt
+
     def selector(self, sel):
-        """(base, limit) of LDT selector SEL, or None when SEL is not a
-        present LDT data/code descriptor - a real segment."""
+        """(base, limit) of selector SEL, or None when SEL is not a present
+        data/code descriptor - a real segment.
+
+        THE GDT AS WELL AS THE LDT. kern_mega's GDT is an IDENTITY map for
+        most of it (selector s has base s x 16, which is what lets a real
+        segment value mean the same thing), and a few entries are not: the
+        kernel's DATA, 0010, is based at KERNEL_SEG x 16, and `.cold`'s
+        COLD_SEG names its copy ABOVE 1MB where its real-mode rung is far
+        below (tests/tnest.py). For an identity entry this answers what
+        `seg << 4` did; past the GDT's limit (B800, A000) it is None."""
         if not sel & 4:
-            return None
+            base, limit = self.gdt_base()
+            if sel < 8 or (sel & ~7) + 7 > limit:
+                return None
+            d = self._read(base + (sel & ~7), 8)
+            if not d[5] & 0x80 or not d[5] & 0x10:
+                return None
+            return (d[2] | d[3] << 8 | d[4] << 16 | d[7] << 24,
+                    d[0] | d[1] << 8 | (d[6] & 0x0F) << 16)
         base, limit = self.ldt_base()
         if (sel & ~7) + 7 > limit:
             return None
@@ -500,6 +538,19 @@ class BochsMarty(om.Marty):
             r[s] = int(v, 16)
         return r
 
+    def _c_park(self, cs, ip, **_):
+        """MartyPC's `park`: the guest's CS:IP moved to CS:IP, and IF
+        cleared. BOCHS'S DEBUGGER CANNOT WRITE EFLAGS (`set eflags` is a
+        syntax error in 2.7), so IF is LEFT AS IT WAS and the answer says
+        so - a caller that needs interrupts off starts its code with `cli`
+        (tests/evqfull.py). Under kern_mega CS is a SELECTOR: 0060 is the
+        kernel's code, whose base is KERNEL_SEG x 16 as a real CS's is, and
+        the kernel's DATA is MEGA_SEL_KDATA, 0010 - `set ds = 0x60` loads
+        the read-only code descriptor."""
+        self._halt()
+        self._do(["set cs = 0x%x" % cs, "set eip = 0x%x" % ip])
+        return {"if_cleared": False}
+
     def _c_setreg(self, reg, value, **_):
         self._stopped(["set %s = 0x%x" % (reg, value)])
         return {}
@@ -594,16 +645,21 @@ class BochsMarty(om.Marty):
         return self._video()
 
     def disks(self):
-        return [{"drive": 0, "path": self.box.out + "/a.img"},
-                {"drive": 1, "path": self.box.out + "/b.img"}]
+        """MartyPC's answer: each drive and the image it was MOUNTED from -
+        the pristine copy taken at launch, which `flush(path=None)` writes
+        back over as MartyPC's Save Floppy does its own private copy."""
+        return [{"drive": d, "path": self._src.get(
+                    d, os.path.join(self.box.out, "ab"[d] + ".img"))}
+                for d in (0, 1)]
 
     def flush(self, drive=0, path=None, fmt="raw"):
         """Bochs writes a floppy straight through to its image file, so the
         image IS the disk: copy it out."""
         src = os.path.join(self.box.out, "a.img" if drive == 0 else "b.img")
-        if path:
-            shutil.copy(src, path)
-        return {"path": path or src}
+        dst = path or self._src.get(drive)
+        if dst:
+            shutil.copy(src, dst)
+        return {"path": dst or src}
 
     def toast_out(self, limit=20.0):
         """Wait for kern_mega's BOOT TOAST to go (`Entered protected mode`,
