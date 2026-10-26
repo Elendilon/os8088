@@ -5661,7 +5661,10 @@ SOAK = [
         "of the list with DH = 16, mem_tab must agree and overlap nothing, "
         "and Escape must give it back. apps/os88ui.inc's sizer folded 16 to "
         "ONE plane and OSAPI_GFX_SAVE wrote fifteen sixteenths of the list "
-        "past the claim. QEMU by name, vesa's reason",
+        "past the claim. QEMU by name, vesa's reason. It declared no needs "
+        "and no serial, vesagor's defect: it boots QEMU and assembles PiXEL "
+        "for its symbols",
+        needs=("qemu", "nasm"), serial=True,
         wants=("build/os8088.img", "build/apps.img", "build/vesablitd.img",
                "build/vxpics.img", "build/pixel.o88")),
     Row("vesabench", "soak", py("tests/vesabench.py"), 150.0,
@@ -8911,6 +8914,50 @@ SOAK = [
         "Does FTPD's Setup page keep a caret it cannot type into? "
         "(SPEC.md 77.45.4)",
         needs=("marty",), serial=True),
+    Row("ftpd", "soak", py("tests/ftpd.py"), 360.0,
+        "SPEC.md 77: the FTP server driven by Python's own ftplib through "
+        "QEMU's forwarded ports - login, PASV and active mode, LIST, STOR, "
+        "RETR, the Setup page's controls, the window untouched by a log "
+        "scrolling under it - and the upload and FTPD.CFG read back off the "
+        "apps disk by an independent FAT reader on the host. It was "
+        "UNREGISTERED ('a fixed build/qmp.sock, a make into build/'): the "
+        "machine has been private for a while, and the disks are wants= now "
+        "and booted as COPIES, since the gate's STOR writes the one it "
+        "serves. Its 8e (SPEC.md 77.33, the log must not paint over a window "
+        "in front) had been measuring nothing: it ran after 12 left the "
+        "server refusing, so every connect timed out, and it took the FTP "
+        "window for the Disk window once the kernel snapped its width - it "
+        "runs before 12 now, checks the front window off wm_zord, and the "
+        "fd_flush_glass clip taken out turns it red. QEMU by name: MartyPC "
+        "has no NIC. The server LISTENS, so the host's 2121 and the passive "
+        "range are forwarded and LEASED - one lock for the set",
+        needs=("qemu", "nasm"), serial=True,
+        wants=("build/ether360.img", "build/ftpapps.img"),
+        locks=("port:2121",)),
+    Row("ftpdpix", "soak", py("tests/ftpdpix.py"), 90.0,
+        "SPEC.md 77.14.2: FTPD's incremental face against the FTPDSLOW=1 "
+        "reference, which redraws the whole content box on every change - "
+        "the same scripted session (PASV LIST, a RETR, the Read Only tick) "
+        "through both, and the window's pixels must be BYTE IDENTICAL. The "
+        "reference is a private tree (os88build), the optimised face the "
+        "run's build/ftpapps.img. Taking the Read Only redraw out of "
+        "fd_spend's incremental path differs in 81 bytes",
+        needs=("qemu", "nasm"), serial=True,
+        wants=("build/ether360.img", "build/ftpapps.img"),
+        locks=("port:2121",)),
+    Row("ftpkeep", "soak", py("tests/ftpkeep.py"), 75.0,
+        "SPEC.md 77.50, 18.4.9.3: a STOR to a FIXED disk commits per 256 KB "
+        "and not per chunk. QEMU boots build/ftpkeep.img as C: (a fresh copy "
+        "a leg), FTPD.O88 and FTPDP8.O88 each take a 1.5 MB upload whose "
+        "write OPERATIONS are counted off `info blockstats`, then a power cut "
+        "at 1.2 MB must leave the create plus whole checkpoints and a volume "
+        "that verifies, and a cut at the 226 must leave the whole file. "
+        "WSEQF_KEEP taken out of FD_WSEQF fails the cut leg. QEMU by name: "
+        "MartyPC has no NIC",
+        needs=("qemu", "nasm"), serial=True,
+        wants=("build/ftpkeep.img", "build/ftpkeepa.img",
+               "build/ftpkeepb.img"),
+        locks=("port:2121",)),
     Row("dispapp", "soak", py("tests/dispapp.py"), 40.0,
         "Does a PACKAGE stay on its own display? (SPEC.md 39.2.1)",
         needs=("marty",), serial=True),
@@ -16303,6 +16350,18 @@ SOAK = [
         "to nibbles (SPEC.md 42.13.1), which is what puts the block through "
         "gfx_blit4 at all, and a W_X written by hand would skip it.",
         needs=("marty", "nasm"), serial=True, timeout=1800),
+    Row("swcolsame", "soak", py("tests/swcolsame.py"), 300.0,
+        "SPEC.md 39.25: sw_col's whole-column store must put the same pixels "
+        "on the glass as the general read-modify-write body. One scripted "
+        "session (a Disk window, its APPS folder, a menu) on the shipped "
+        "kernel and on a NOCOLFAST=1 private tree, on CGA and on Hercules - "
+        "a different banked layout, so a different wrap in the inlined row "
+        "step - every capture below the menu bar compared. The fast body's "
+        "`xor ch, cl` replaced differs on every step of both machines. It "
+        "was a hand-run two-build gate, and its Disk-window capture was "
+        "taken mid-open (still pixels while the drive is read) until it "
+        "waited on ui_done",
+        needs=("marty", "nasm"), serial=True),
     Row("paintmove", "soak", py("tests/paintmove.py"), 60.0,
         "Compact the heap out from under a LIVE Paint canvas (SPEC.md"
         "66.2/42).",
@@ -17640,6 +17699,20 @@ SOAK = [
         needs=("qemu",), serial=True,
         wants=("build/browser.o88", "build/ether360.img"),
         locks=("port:8090",)),
+    Row("brnav", "soak", py("tests/brnav.py"), 215.0,
+        "SPEC.md 71.8 (BROWSER-PLAN 5): Back, Forward, Reload and Save As "
+        "over the NE2000 against pages the row serves on :8091 - a navigation "
+        "pushes, Back and Forward move the cursor AND fetch without pushing, "
+        "a POST is not replayed as one, redirects and a frameset land where "
+        "they should, and Save As puts the server's bytes on the floppy, read "
+        "back off the image on the host. It needs the network because a page "
+        "off a floppy never reaches br_go's history. It was UNREGISTERED ('a "
+        "make into build/, a fixed socket'): the disks are wants= now and "
+        "the apps disk a scratch copy. Back's `dec` taken out goes red on "
+        "four assertions",
+        needs=("qemu", "nasm"), serial=True,
+        wants=("build/ether360.img", "build/brtest360.img"),
+        locks=("port:8091",)),
     Row("brmem", "soak", py("tests/brmem.py"), 40.0,
         "SPEC.md 71.18: a deterministic 40 KB page over the NE2000 grows the "
         "source and document claims within the recorded 20% free-heap reserve, "

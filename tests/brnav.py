@@ -3,6 +3,10 @@
 
     make && make browsertest && make ethertest && python3 tests/brnav.py
 
+(Under the suite runner the two disks are the row's `wants=` and are built
+before any row starts; this script then builds nothing, and boots COPIES of
+both, so a guest write never reaches a shared image.)
+
 **IT NEEDS THE NETWORK, and that is not a harness convenience.** History is
 recorded by br_go and a page opened from a FLOPPY never goes through it, so a
 local-file test would drive an empty stack and pass on a browser whose Back
@@ -46,6 +50,7 @@ from ethernet import (Qemu, u16, S, Mouse, type_url,   # noqa: E402
 from os88geom import MB_ENTSZ                         # noqa: E402
 import os88qemu                                              # noqa: E402
 import os88build                                       # noqa: E402
+import os88fixture                                     # noqa: E402
 
 u32 = lambda b: u16(b[:2]) | (u16(b[2:4]) << 16)      # noqa: E402,E731
 
@@ -128,6 +133,11 @@ class TwoPages(threading.Thread):
         threading.Thread.__init__(self, daemon=True)
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # 10.0.2.2:PORT is baked into the URLs above and slirp cannot remap
+        # the gateway, so the port is LEASED rather than made private: a
+        # second run anywhere on the box waits here instead of colliding
+        # (tests/os88qemu.py lease_port, docs/plans/SOAK-PARALLEL.md 17.3)
+        os88qemu.lease_port(PORT)
         self.s.bind(("0.0.0.0", PORT))
         self.s.listen(4)
         self.log = []
@@ -252,31 +262,19 @@ def main():
         return r
 
     sy = bsyms()
-    # BOTH images are rebuilt, and the apps one is the point: this test WRITES
-    # to it (that is assertion 4), QEMU mounts it writable, and `make` cannot
-    # see the difference because the guest's write leaves the image newer than
-    # everything it was built from. Left alone, the second run finds its own
-    # SAVED.HTM already there and proves nothing.
-    for f in ("build/ether360.img", "build/brtest360.img"):
-        if os.path.exists(f):
-            os.remove(f)
-    for t in ("ethertest", "browsertest"):
-        r = subprocess.run(["make", t], capture_output=True, text=True)
-        if r.returncode:
-            sys.exit("brnav: make %s failed:\n%s%s" % (t, r.stdout, r.stderr))
+    # THE DISKS ARE THE ROW'S `wants=` (tests/suite.py), built before any row
+    # starts - a no-op here under the runner, a `make` standalone. They are
+    # never booted as they stand: this test WRITES to the apps disk (that is
+    # assertion 4), and a written shared image is the next run finding its
+    # own SAVED.HTM already there and proving nothing. Both are COPIES below
+    # (make_test copies A:, the apps disk is a scratch copy read back after).
+    os88fixture.need("build/ether360.img", "build/brtest360.img")
 
     srv = TwoPages()
     srv.start()
     print("two pages on :%d" % PORT)
     sys.stdout.flush()
 
-    if os.path.exists("build/qemu.pid"):
-        try:
-            pid = int(open("build/qemu.pid").read().strip())
-            os.kill(pid, 15)
-            os88qemu.gone(pid)
-        except (OSError, ValueError):
-            pass
     # The machine is PRIVATE (tests/os88qemu.py make_test): its own socket
     # and pidfile, so nothing of build/qmp.sock is shared and ethernet.py's
     # Mouse, which drives os88qemu.SOCK, drives this machine
