@@ -11037,3 +11037,25 @@ fetch) and another package's move would have re-pointed them. **Fix**:
 `c64move` and `a2move` pass on a 1MB kern_mega (`@OS88_BOCHS_MEGS=1`, the
 conventional heap that moves); before, `c64move` failed check 6 with the
 6510 jammed. kern_big and kern_small byte-identical (`kernel/mega.inc`).
+
+### 14.81 heapcheck's check 13 on a 1MB kern_mega is the FIXTURE's layout, not a regression (2026-10-26)
+
+The port of `heapcheck` (tests/megaport.txt) passes every check on a 1MB
+kern_mega but 13, *"the ceiling packs up"*, and it was first read as a
+regression of KERN-MEMORY-PLAN 5.5 (`OSAPI_MEM_AVAIL` 83 KB with the block
+pinned and with it movable, where kern_big reads 138 and 160). A breakpoint
+on `mem_claim_x.busy` with the claim map read at the refusal says otherwise:
+
+- the descending pass DID run - the movable top-down block B had already
+  packed up from 8F40h into the hole the freed block A left (91C0h-9440h);
+- the 83 KB `hf_availp` measured is the run 6C00h-80C0h, and 80C0h is check
+  10's PINNED block, so that run can never merge with anything;
+- the run B's pack opens is 8B40h-91C0h, 26 KB - smaller than 83.
+
+So the ask of 84 KB is unsatisfiable on this arena by any allocator, and the
+refusal is right. Check 13 assumes the largest run is the one directly under
+B, which holds on kern_big's 640KB arena and not on kern_mega's (the heap
+base is 2040h, so the comb's blocks are a different size and check 10's
+pinned block lands between). A fixture fix - asking for B's own merged run
+rather than the largest run plus one - is heapfrag's to make on every
+kernel, and `heapcheck` is not registered as a port until it is.
